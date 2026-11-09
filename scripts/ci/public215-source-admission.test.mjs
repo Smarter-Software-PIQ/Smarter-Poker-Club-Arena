@@ -5,12 +5,12 @@ import {boundedJobLog,boundedSourceReaders,sourceCommandFailure,collectSourceAdm
 
 const candidate='a'.repeat(40),head='b'.repeat(40),parent='c'.repeat(40),base='d'.repeat(40);
 const names=['TypeScript Check','Client Unit Tests (vitest)','Server Engine (typecheck + tests)','Money trigger declaration authority','Production Build','CSS Beat E2E (multi-table + animations)'];
-const selection={candidate_sha:candidate,stage_run:'123'};
+const selection={candidate_sha:candidate,stage_run:'123',image_id:'resolve-existing'};
 function fixture(){
  const pr={number:7,state:'closed',merged:true,merged_at:'2026-10-30T00:00:00Z',merge_commit_sha:candidate,head:{sha:head,repo:{id:1132369872}},base:{ref:'main',repo:{id:1132369872}}};
  const ci={id:1,workflow_id:10,head_sha:head,path:'.github/workflows/ci.yml',event:'pull_request',check_suite_id:20,status:'completed',conclusion:'success'};
  const stage={id:123,workflow_id:11,head_sha:candidate,path:'.github/workflows/auto-deploy-hetzner.yml',event:'repository_dispatch',head_branch:'main',display_title:'Engine Release '+candidate,check_suite_id:21,status:'completed',conclusion:'cancelled',repository:{id:1132369872},head_repository:{id:1132369872}};
- const jobs=[...Array.from({length:4},(_,i)=>`Test The Exact Engine Release Request (shard ${i+1}/4)`),'Prove The Exact Engine Has Every Production Door','Publish Through Hetzner Club Arena','Record The Append-Only Engine Release Receipt'].map((name,i)=>({id:100+i,run_id:123,head_sha:candidate,name,status:'completed',conclusion:i<5?'success':'cancelled',steps:[]}));
+ const jobs=[...Array.from({length:4},(_,i)=>`Test The Exact Engine Release Request (shard ${i+1}/4)`),'Prove The Exact Engine Has Every Production Door','Publish Through Hetzner Club Arena','Record The Append-Only Engine Release Receipt'].map((name,i)=>({id:100+i,run_id:123,head_sha:candidate,name,status:'completed',conclusion:i<5?'success':'cancelled',steps:i<4?['Checkout the requested immutable commit','Prove the request is current protected-main engine code'].map(name=>({name,status:'completed',conclusion:'success'})):[]}));
  const checks=names.map((name,i)=>({id:200+i,head_sha:head,name,status:'completed',conclusion:i<4?'success':'skipped',app:{id:i===3?4962039:15368,slug:i===3?'money':'github-actions'},check_suite:{id:i===3?99:20}}));
  const f={pr,ci,stage,jobs,checks,pulls:[pr],headRuns:[ci],candidateRuns:[stage],classifierJobs:[{id:500,run_id:1,head_sha:head,name:'What changed',status:'completed',conclusion:'success',steps:[{name:'Run node scripts/ci/classify-ci-changes.mjs',status:'completed',conclusion:'success'}]}],rules:[{type:'required_status_checks',parameters:{required_status_checks:names.map((context,i)=>({context,...(i===3?{integration_id:4962039}:{})}))}}],paths:Buffer.from('server/src/example.ts\0docs/change.md\0'),log:`2026-10-30T00:00:00.000Z Classified 2 paths from exact base/head Git commits.\n2026-10-30T00:00:01.000Z this run is the pull request head (${head})`};
  const counted=rows=>({total_count:rows.length,workflow_runs:rows,check_runs:rows,jobs:rows});
@@ -162,4 +162,42 @@ test('download streaming is aborted by the original shared log deadline',async()
  const fetchImpl=async(url,options)=>url===apiLog?redirect(storage):new Response(new ReadableStream({start(controller){options.signal.addEventListener('abort',()=>controller.error(options.signal.reason),{once:true});}}));
  try{await assert.rejects(boundedJobLog(123,{token:'private-test-token',fetchImpl,deadline:Date.now()+25}),/stage download; HTTP 200; code timeout/);}
  finally{clearTimeout(keepAlive);}
+});
+
+// Since PR #9960 (Nov 7) the receiver runs at the protected main tip and the exact tests and image live in
+// engine-release-prequalification.yml (cf. run 42413295909: "Engine Release 391f7bc0..." at head 4fd896b8).
+const receiver='e'.repeat(40),tree='f'.repeat(40),image='sha256:'+'1'.repeat(64),rollback='sha256:'+'2'.repeat(64);
+function receiverFixture(){
+ const f=fixture();
+ f.stage={...f.stage,head_sha:receiver,status:'completed',conclusion:'success'};f.candidateRuns=[];
+ const steps=['Checkout the requested immutable commit','Prove the request is current protected-main engine code','Require the Backup Engine certificate for this exact SHA','Require daily preparation or the protected November 7 owner window','Require previously completed daytime qualification'].map(name=>({name,status:'completed',conclusion:'success'}));
+ f.jobs=[{id:130,name:'Verify the exact prepared engine release request',started_at:'2026-11-09T09:31:00Z',completed_at:'2026-11-09T09:32:00Z',steps},{id:131,name:'Prove The Exact Engine Has Every Production Door',steps:[]},{id:132,name:'Publish Through Hetzner Club Arena',steps:[]},{id:133,name:'Record The Append-Only Engine Release Receipt',steps:[]},{id:134,name:'Observe One Private Natural Horse Cohort',conclusion:'skipped',steps:[]}].map(j=>({run_id:123,head_sha:receiver,status:'completed',conclusion:'success',...j}));
+ f.qual={id:800,run_attempt:1,path:'.github/workflows/engine-release-prequalification.yml',event:'push',head_sha:candidate,head_branch:'main',status:'completed',conclusion:'success',created_at:'2026-11-08T20:00:00Z',repository:{id:1132369872},head_repository:{id:1132369872}};
+ f.qjobs=[...Array.from({length:4},(_,i)=>`Qualify exact engine (${i+1}/4)`),'Stage immutable candidate and rollback images'].map((name,i)=>({id:810+i,run_id:800,run_attempt:1,head_sha:candidate,name,status:'completed',conclusion:'success',completed_at:'2026-11-08T20:40:00Z',steps:i===4?[{name:`Prepared image ${image} rollback ${rollback} tree ${tree}`,status:'completed',conclusion:'success'}]:[]}));
+ f.bindingLog=`2026-11-09T09:31:02.0000000Z   REQUESTED_SHA: ${candidate}\n2026-11-09T09:31:03.0000000Z Backup Engine certified ${candidate} (backup-engine/certified = success).\n`;
+ const base=f.read,counted=rows=>({total_count:rows.length,workflow_runs:rows,jobs:rows});
+ f.read=async path=>{const u=new URL(path,'https://fixture');
+  if(u.pathname==='/actions/workflows/engine-release-prequalification.yml/runs'){assert.equal(u.searchParams.get('head_sha'),candidate);assert.equal(u.searchParams.get('branch'),'main');return counted([f.qual]);}
+  if(u.pathname==='/actions/runs/800/jobs')return counted(f.qjobs);
+  return base(path);};
+ const git=f.git;f.git=args=>{
+  if(args[0]==='merge-base'&&args[1]==='--is-ancestor'&&args[2]===candidate&&args[3]===receiver){if(f.notAncestor)throw Error('not ancestor');return Buffer.alloc(0);}
+  if(args[0]==='rev-parse'&&args[1]===candidate+':server')return Buffer.from(tree+'\n');
+  return git(args);};
+ f.invoke=(selected={...selection,image_id:image})=>collectSourceAdmission(selected,{read:f.read,readArray:async()=>f.pulls,readLog:async id=>id===130?f.bindingLog:f.log,git:f.git});
+ return f;
+}
+test('old shard jobs absent but exact passing prequalification present: receiver-bound candidate is admitted',async()=>{
+ const f=receiverFixture(),r=await f.invoke();
+ assert.equal(r.integration.receiver_sha,receiver);assert.equal(r.integration.admission.mode,'engine_release_prequalification');
+ assert.equal(r.integration.admission.prequalification_run,800);assert.equal(r.integration.admission.image_id,image);assert.equal(r.integration.admission.server_tree,tree);
+ assert.equal((await receiverFixture().invoke({...selection,image_id:'resolve-existing'})).integration.admission.image_id,image);
+ assert.match(sourceCommandFailure('gh',['api',`repos/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/actions/workflows/engine-release-prequalification.yml/runs?branch=main&head_sha=${candidate}&per_page=100&page=1`],{status:1,stderr:Buffer.alloc(0)}),/route \/actions\/workflows\/engine-release-prequalification\.yml\/runs/);
+});
+test('missing or failed prequalification, image mismatch and an unbound receiver refuse',async()=>{
+ for(const change of [f=>{f.qual=undefined;f.read=(r=>async p=>p.includes('engine-release-prequalification.yml/runs')?{total_count:0,workflow_runs:[]}:r(p))(f.read);},f=>f.qual.conclusion='failure',f=>f.qual.created_at='2026-11-09T10:00:00Z',f=>f.qjobs[2].conclusion='failure',f=>f.qjobs.pop(),f=>f.qjobs[4].steps=[],f=>f.qjobs[4].steps[0].name=`Prepared image ${image} rollback ${rollback} tree ${base}`,f=>f.jobs[0].steps.pop(),f=>f.jobs[0].conclusion='failure',f=>f.jobs[1].conclusion='failure',
+  f=>f.bindingLog=f.bindingLog.replaceAll(candidate,receiver),f=>f.bindingLog='',f=>f.notAncestor=true,f=>f.stage.display_title='Engine Release '+receiver,f=>f.jobs[2].conclusion='failure',f=>f.jobs[0].head_sha=candidate]){
+  const f=receiverFixture();change(f);await assert.rejects(f.invoke());
+ }
+ await assert.rejects(receiverFixture().invoke({...selection,image_id:'sha256:'+'3'.repeat(64)}),/differs from the prequalified image/);
 });

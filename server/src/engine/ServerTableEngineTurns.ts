@@ -72,6 +72,11 @@ import { ServerTableEngineSeating } from './ServerTableEngineSeating.js';
 import { ServerTableEngineBase } from './ServerTableEngineBase.js';
 import { noteFire } from './BrainTelemetry.js';
 import {
+  horseAuthorityDomainOf,
+  reconcileHorsePhaseReceipts,
+  withdrawHorsePhaseForController,
+} from './HorsePhaseControllerWithdrawal.js';
+import {
   createHorseExecutionWitness,
   recordHorsePhase8Verdict,
   recordHorsePhase10Verdict,
@@ -4618,6 +4623,9 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
             const omahaLedger = decision.omahaVariantPolicy;
             const remainingLedger = decision.remainingVariantPolicy;
             const jointLedger = decision.jointPolicy;
+            // The authority domain (`<variant>-<format>`) an illegal-action
+            // disable is scoped to (owner, 2026-11-07).
+            const authorityDomain = horseAuthorityDomainOf(decisionSnapshot.gameState);
             pendingPlo4Ledger = plo4Ledger;
             pendingOmahaLedger = omahaLedger;
             pendingRemainingLedger = remainingLedger;
@@ -4687,7 +4695,11 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
             // usable Phase 10 authority NOW lets it act; otherwise the shadow
             // baseline (the reference the pack received) is executed.
             if (plo4Ledger?.applied) {
-              const verdict = liveHorsePhase10Authority.check(plo4Ledger.authority);
+              const verdict = liveHorsePhase10Authority.check(
+                plo4Ledger.authority,
+                Date.now(),
+                authorityDomain
+              );
               plo4Ledger.authorityVerdict = verdict;
               noteFire(`phase10_authority_verdict_${verdict}`);
               if (verdict === 'usable') {
@@ -4711,7 +4723,11 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
             // pack NOW lets it act; otherwise the shadow baseline is executed.
             if (omahaLedger?.applied) {
               const verdict = isOmahaPolicyVariant(omahaLedger.variant)
-                ? liveHorsePhase11Authorities[omahaLedger.variant].check(omahaLedger.authority)
+                ? liveHorsePhase11Authorities[omahaLedger.variant].check(
+                    omahaLedger.authority,
+                    Date.now(),
+                    authorityDomain
+                  )
                 : 'mismatched';
               omahaLedger.authorityVerdict = verdict;
               noteFire(`phase11_authority_verdict_${verdict}`);
@@ -4738,7 +4754,9 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
             if (remainingLedger?.applied) {
               const verdict = isRemainingPolicyVariant(remainingLedger.variant)
                 ? liveHorsePhase12Authorities[remainingLedger.variant].check(
-                    remainingLedger.authority
+                    remainingLedger.authority,
+                    Date.now(),
+                    authorityDomain
                   )
                 : 'mismatched';
               remainingLedger.authorityVerdict = verdict;
@@ -4778,7 +4796,9 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
               const gate = isJointVariant(jointLedger.variant)
                 ? liveHorsePhase13Authorities[jointLedger.variant]
                 : null;
-              const checked = gate ? gate.check(jointLedger.authority) : 'mismatched';
+              const checked = gate
+                ? gate.check(jointLedger.authority, Date.now(), authorityDomain)
+                : 'mismatched';
               // The same board-count admission the worker applied: a candidate
               // on a board count the authority did not admit never acts.
               const verdict =
@@ -4872,6 +4892,16 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                 if (guarded !== wagerGuarded && guarded.amount === undefined)
                   delete decision.amount;
                 noteFire('wager_rules_commit_correction');
+                reconcileHorsePhaseReceipts(
+                  [
+                    ['phase10', plo4Ledger],
+                    ['phase11', omahaLedger],
+                    ['phase12', remainingLedger],
+                    ['phase13', jointLedger],
+                  ],
+                  decision,
+                  'commit_wager_rules'
+                );
               }
             }
 
@@ -5220,10 +5250,20 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                   ) {
                     // The controller refused or rewrote an authorised candidate:
                     // an illegal-action disable, local to this process (Phase 8 law).
-                    liveHorsePhase10Authority.withdraw(
-                      `controller_${plo4Ledger.executionStatus}_candidate`
-                    );
-                    noteFire('phase10_authority_controller_withdrawn');
+                    withdrawHorsePhaseForController({
+                      phase: 'phase10',
+                      gate: liveHorsePhase10Authority,
+                      domain: authorityDomain,
+                      status: plo4Ledger.executionStatus,
+                      report: (error) =>
+                        reportError(
+                          error,
+                          'ServerTableEngine.' +
+                            this.tableId +
+                            '.horse_phase10_selected_candidate_' +
+                            plo4Ledger.executionStatus
+                        ),
+                    });
                   }
                 }
               }
@@ -5255,10 +5295,20 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                     // The controller refused or rewrote an authorised candidate:
                     // an illegal-action disable of that pack, local to this
                     // process (Phase 8 law).
-                    liveHorsePhase11Authorities[omahaLedger.variant].withdraw(
-                      `controller_${omahaLedger.executionStatus}_candidate`
-                    );
-                    noteFire('phase11_authority_controller_withdrawn');
+                    withdrawHorsePhaseForController({
+                      phase: 'phase11',
+                      gate: liveHorsePhase11Authorities[omahaLedger.variant],
+                      domain: authorityDomain,
+                      status: omahaLedger.executionStatus,
+                      report: (error) =>
+                        reportError(
+                          error,
+                          'ServerTableEngine.' +
+                            this.tableId +
+                            '.horse_phase11_selected_candidate_' +
+                            omahaLedger.executionStatus
+                        ),
+                    });
                   }
                 }
               }
@@ -5292,10 +5342,20 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                     // The controller refused or rewrote an authorised candidate:
                     // an illegal-action disable of that pack, local to this
                     // process (Phase 8 law).
-                    liveHorsePhase12Authorities[remainingLedger.variant].withdraw(
-                      `controller_${remainingLedger.executionStatus}_candidate`
-                    );
-                    noteFire('phase12_authority_controller_withdrawn');
+                    withdrawHorsePhaseForController({
+                      phase: 'phase12',
+                      gate: liveHorsePhase12Authorities[remainingLedger.variant],
+                      domain: authorityDomain,
+                      status: remainingLedger.executionStatus,
+                      report: (error) =>
+                        reportError(
+                          error,
+                          'ServerTableEngine.' +
+                            this.tableId +
+                            '.horse_phase12_selected_candidate_' +
+                            remainingLedger.executionStatus
+                        ),
+                    });
                   }
                 }
               }
@@ -5327,10 +5387,20 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                     // The controller refused or rewrote an authorised candidate:
                     // an illegal-action disable of that variant's joint authority,
                     // local to this process (Phase 8 law).
-                    liveHorsePhase13Authorities[jointLedger.variant].withdraw(
-                      `controller_${jointLedger.executionStatus}_candidate`
-                    );
-                    noteFire('phase13_authority_controller_withdrawn');
+                    withdrawHorsePhaseForController({
+                      phase: 'phase13',
+                      gate: liveHorsePhase13Authorities[jointLedger.variant],
+                      domain: authorityDomain,
+                      status: jointLedger.executionStatus,
+                      report: (error) =>
+                        reportError(
+                          error,
+                          'ServerTableEngine.' +
+                            this.tableId +
+                            '.horse_phase13_selected_candidate_' +
+                            jointLedger.executionStatus
+                        ),
+                    });
                   }
                 }
               }

@@ -1128,3 +1128,36 @@ registerCssPreloadRetryCase();
 
 import { registerObserverUpstreamGuardCases } from './support/observerUpstreamGuardCases';
 registerObserverUpstreamGuardCases();
+
+test('arena and live-table drawers keep the same phone scale and reachable Close controls', async ({
+  page,
+}) => {
+  const arenaCss = css('src/components/navigation/HamburgerMenu.module.css');
+  const tableCss = css('src/components/table/TableMenu.css');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setContent(`<meta name="viewport" content="width=device-width, initial-scale=1"><style>*{box-sizing:border-box}${arenaCss}</style>
+    <aside class="drawer"><header class="utilityRail">
+      <button class="closeButton" onclick="this.closest('aside').remove()">Close</button>
+    </header><button class="navItem"><span class="navLabel">Table Studio</span></button></aside>`);
+  const arenaWidth = (await page.locator('.drawer').boundingBox())!.width;
+  const close = page.getByRole('button', { name: 'Close' });
+  expect((await close.boundingBox())!.y).toBeGreaterThanOrEqual(34);
+  await close.click();
+  await expect(page.locator('.drawer')).toHaveCount(0);
+
+  const scale = 600 / 390;
+  await page.setViewportSize({ width: 600, height: 1298 });
+  await page.setContent(`<meta name="viewport" content="width=device-width, initial-scale=1"><style>${tableCss}
+    :root { --sp-table-menu-scale: ${scale}; --sp-table-menu-width: ${366 * scale}px; }
+    </style><aside class="table-menu__dropdown">
+      <div class="table-menu__utility"><button class="table-menu__close" onclick="this.closest('aside').remove()">Close</button></div>
+      <button class="table-menu__action">Change Avatar</button>
+      <button class="table-menu__action">Table Studio</button>
+    </aside>`);
+  const tableWidth = (await page.locator('.table-menu__dropdown').boundingBox())!.width / scale;
+  expect(tableWidth).toBeCloseTo(arenaWidth, 0);
+  expect((await close.boundingBox())!.y / scale).toBeGreaterThanOrEqual(33.9);
+  expect((await close.boundingBox())!.height / scale).toBeGreaterThanOrEqual(43.9);
+  await close.click();
+  await expect(page.locator('.table-menu__dropdown')).toHaveCount(0);
+});

@@ -24,7 +24,17 @@
 #  12. "-- @locks:" ordering: undeclared files are sent first, declared files
 #      follow by version grouped by relation, a file that loses its declared
 #      lock is skipped alone naming that relation while the others install,
-#      and an unparseable @locks value is refused before any wait.
+#      and an unparseable @locks value is refused before any wait;
+#  13. inside the confirmed freeze a postgres session idle in transaction on a
+#      declared relation is terminated, recorded and the file installs; an
+#      active query, an idle superuser session and an undeclared file
+#      terminate nothing; without a confirmed freeze nothing is terminated;
+#  14. "-- @install-budget-seconds:" (migration-install-budget.mjs, ordinary
+#      route): an admitted offline file runs past 12 s and installs; the same
+#      file undeclared is killed at exactly the 12 s bound; a declared file
+#      that writes a live table statically is refused before sending; one
+#      that reaches a live table through dynamic SQL is rolled back by the
+#      in-transaction scope check.
 #
 # Usage: PG_BIN=/usr/lib/postgresql/17/bin bash scripts/ci/test-maintenance-window-migrations.sh
 # Needs node with `pg` resolvable from scripts/ci (CI: npm i pg@8 --no-save).
@@ -605,6 +615,230 @@ grep -q 'not a comma-separated list of schema-qualified relations' <<<"$out" || 
 [ "$(su_sql "SELECT count(*) FROM information_schema.columns WHERE column_name = 'window_fixture_badlocks'")" = 0 ] \
   || fail 'bad @locks file committed'
 pass 'an unparseable @locks line is refused before any wait and nothing is sent'
+
+# 13. An idle session does not cost a window file a day (2026-11-08). Inside
+# the confirmed freeze, immediately before a file that declares "-- @locks:",
+# a session of the postgres role left IDLE IN TRANSACTION on a declared
+# relation is terminated, recorded in ca_window_install_terminations, and the
+# file installs on its one attempt. A holder running an active query is never
+# terminated (nor an idle superuser session), and the file is refused as
+# before. An undeclared file terminates nothing. Without a confirmed freeze
+# the statement itself terminates nothing.
+IDLE="$WORK/idle"
+mkdir -p "$IDLE/supabase/migrations"
+migrator_psql() { # $1 application_name; stdin is the session's script
+  PGPASSWORD=window-fixture PGSSLMODE=verify-full PGSSLROOTCERT="$CA" PGAPPNAME="$1" \
+    "$PG_BIN/psql" -X -q -h localhost -p "$PORT" -U postgres -d postgres
+}
+session_pid() { # $1 application_name $2 state
+  su_sql "SELECT coalesce(max(pid)::text, '') FROM pg_stat_activity WHERE application_name = '$1' AND state = '$2'"
+}
+await_session() { # $1 application_name $2 state; prints its pid
+  local pid=''
+  for _ in $(seq 1 50); do
+    pid="$(session_pid "$1" "$2")"
+    [ -n "$pid" ] && break
+    sleep 0.1
+  done
+  [ -n "$pid" ] || fail "no $2 session named $1"
+  echo "$pid"
+}
+alive() { su_sql "SELECT count(*) FROM pg_stat_activity WHERE pid = $1"; }
+idle_holder() { # $1 application_name $2 relation; a postgres-role session left idle in transaction
+  ( printf 'BEGIN;\nLOCK TABLE %s IN ACCESS SHARE MODE;\nSELECT 1;\n' "$2"; sleep 121 ) \
+    | migrator_psql "$1" >/dev/null 2>&1 &
+  await_session "$1" 'idle in transaction'
+}
+end_fixture_sessions() {
+  su_sql "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name LIKE 'window-fixture-%' OR (query LIKE '%pg_sleep(%' AND query LIKE '%LOCK TABLE public.clubs%' AND pid <> pg_backend_pid())" >/dev/null
+  pkill -f 'sleep 121' 2>/dev/null || true
+  wait 2>/dev/null || true
+}
+terminations() { su_sql "SELECT count(*) FROM public.ca_window_install_terminations"; }
+
+# 13a. Idle in transaction on a declared relation: terminated, recorded, installed.
+IDLE_A=20991231000021_window_fixture_idle_holder_ended.sql
+printf -- '-- Fixture: its declared relation is held by a session left idle in transaction.\n-- @install-window: daily-maintenance\n-- @locks: public.clubs\nBEGIN;\nALTER TABLE public.clubs ADD COLUMN window_fixture_idle_a integer;\nCOMMIT;\n' \
+  > "$IDLE/supabase/migrations/$IDLE_A"
+su_sql 'SELECT public.fixture_open_window(240)' >/dev/null
+idle_pid="$(idle_holder window-fixture-idle clubs)"
+sleep 2.5 # idle for longer than IDLE_HOLDER_MIN_IDLE_MS
+set +e
+out="$(installer "$IDLE" "$NOW_OPEN" 2>&1)"; code=$?
+set -e
+echo "$out" > "$EVIDENCE/13a-idle-holder-terminated.log"
+idle_alive="$(alive "$idle_pid")"
+end_fixture_sessions
+[ "$code" = 0 ] && grep -q 'INSTALLED 1 migration' <<<"$out" || fail "idle-holder run: $code $out"
+grep -q 'only sessions idle in transaction hold public.clubs (AccessExclusiveLock); not waiting for them' <<<"$out" \
+  || fail "idle-holder run waited out the quiet bound: $out"
+grep -q "terminated 1 of 1 session(s) idle in transaction on public.clubs before \`$IDLE_A\` (recorded in ca_window_install_terminations): pid $idle_pid postgres window-fixture-idle on public.clubs (AccessShareLock), idle in transaction" <<<"$out" \
+  || fail "idle-holder termination not reported: $out"
+[ "$(grep -Fxc "[apply] $IDLE_A" <<<"$out")" = 1 ] || fail 'idle-holder file was not sent exactly once'
+[ "$idle_alive" = 0 ] || fail 'the idle holder is still connected'
+row="$(su_sql "SELECT migration || '|' || pid || '|' || session_role || '|' || application_name || '|' || state || '|' || relation || '|' || lock_mode || '|' || terminated || '|' || (xact_age >= interval '2 seconds') || '|' || (idle_for >= interval '2 seconds') FROM public.ca_window_install_terminations")"
+echo "$row" > "$EVIDENCE/13a-termination-record.txt"
+[ "$row" = "$IDLE_A|$idle_pid|postgres|window-fixture-idle|idle in transaction|public.clubs|AccessShareLock|true|true|true" ] \
+  || fail "termination record: $row"
+[ "$(su_sql "SELECT count(*) FROM information_schema.columns WHERE column_name = 'window_fixture_idle_a'")" = 1 ] \
+  || fail 'idle-holder file column missing'
+pass 'a postgres session idle in transaction on a declared relation is terminated, recorded, and the file installs once'
+
+# 13b. An active query (and an idle superuser session) on the declared
+# relation: neither is terminated; the file is sent once and refused.
+IDLE_B=20991231000022_window_fixture_active_holder_kept.sql
+printf -- '-- Fixture: its declared relation is held by an active query.\n-- @install-window: daily-maintenance\n-- @locks: public.clubs\nBEGIN;\nALTER TABLE public.clubs ADD COLUMN window_fixture_idle_b integer;\nCOMMIT;\n' \
+  > "$IDLE/supabase/migrations/$IDLE_B"
+su_sql 'SELECT public.fixture_open_window(240)' >/dev/null
+printf 'BEGIN;\nLOCK TABLE public.clubs IN ACCESS SHARE MODE;\nSELECT pg_sleep(60);\n' \
+  | migrator_psql window-fixture-active >/dev/null 2>&1 &
+active_pid="$(await_session window-fixture-active active)"
+( printf "SET application_name = 'window-fixture-superuser';\nBEGIN;\nLOCK TABLE public.clubs IN ACCESS SHARE MODE;\nSELECT 1;\n"; sleep 121 ) \
+  | as_pg "${SU[@]}" >/dev/null 2>&1 &
+super_pid="$(await_session window-fixture-superuser 'idle in transaction')"
+sleep 2.5
+before="$(terminations)"
+set +e
+out="$(installer "$IDLE" "$NOW_OPEN" 2>&1)"; code=$?
+set -e
+echo "$out" > "$EVIDENCE/13b-active-holder-kept.log"
+active_alive="$(alive "$active_pid")"
+super_alive="$(alive "$super_pid")"
+end_fixture_sessions
+[ "$code" = 1 ] || fail "active-holder run returned $code: $out"
+[ "$active_alive" = 1 ] || fail 'the active-query holder was terminated'
+[ "$super_alive" = 1 ] || fail 'the idle superuser session was terminated'
+! grep -q 'session(s) idle in transaction on' <<<"$out" || fail "active-holder run terminated something: $out"
+[ "$(terminations)" = "$before" ] || fail 'active-holder run wrote a termination record'
+grep -q "SKIPPED \`$IDLE_B\`" <<<"$out" || fail "active-holder file was not refused and skipped: $out"
+[ "$(grep -Fxc "[apply] $IDLE_B" <<<"$out")" = 1 ] || fail 'active-holder file was not sent exactly once'
+[ "$(su_sql "SELECT count(*) FROM information_schema.columns WHERE column_name = 'window_fixture_idle_b'")" = 0 ] \
+  || fail 'active-holder file committed'
+rm "$IDLE/supabase/migrations/$IDLE_B"
+pass 'an active query and an idle superuser session are never terminated; the file is sent once and refused'
+
+# 13c. A file that declares no "-- @locks:" terminates nothing.
+IDLE_C=20991231000023_window_fixture_undeclared_idle_kept.sql
+printf -- '-- Fixture: undeclared, its table held by a session idle in transaction.\n-- @install-window: daily-maintenance\nBEGIN;\nALTER TABLE public.clubs ADD COLUMN window_fixture_idle_c integer;\nCOMMIT;\n' \
+  > "$IDLE/supabase/migrations/$IDLE_C"
+su_sql 'SELECT public.fixture_open_window(240)' >/dev/null
+idle_pid="$(idle_holder window-fixture-idle-undeclared clubs)"
+sleep 2.5
+before="$(terminations)"
+set +e
+out="$(installer "$IDLE" "$NOW_OPEN" 2>&1)"; code=$?
+set -e
+echo "$out" > "$EVIDENCE/13c-undeclared-kept.log"
+idle_alive="$(alive "$idle_pid")"
+end_fixture_sessions
+[ "$code" = 1 ] || fail "undeclared run returned $code: $out"
+[ "$idle_alive" = 1 ] || fail 'an idle holder was terminated for an undeclared file'
+[ "$(terminations)" = "$before" ] || fail 'undeclared run wrote a termination record'
+grep -q "SKIPPED \`$IDLE_C\`" <<<"$out" || fail "undeclared file was not refused and skipped: $out"
+rm "$IDLE/supabase/migrations/$IDLE_C"
+pass 'a file that declares no lock terminates nothing'
+
+# 13d. No confirmed freeze: the statement itself terminates nothing.
+su_sql 'SELECT public.fixture_close_window()' >/dev/null
+idle_pid="$(idle_holder window-fixture-idle-closed clubs)"
+sleep 2.5
+before="$(terminations)"
+gate="$(cd "$ROOT" && CA="$CA" node --input-type=module -e "
+  import pg from 'pg';
+  import { readFileSync } from 'node:fs';
+  import { IDLE_BLOCKERS_TERMINATE_QUERY } from './scripts/ci/maintenance-window-migrations.mjs';
+  const c = new pg.Client({ connectionString: process.env.DATABASE_URL, ssl: { ca: readFileSync(process.env.CA, 'utf8') } });
+  await c.connect();
+  const { rows } = await c.query(IDLE_BLOCKERS_TERMINATE_QUERY,
+    [['public.clubs'], ['AccessExclusiveLock'], 2000, 1000, 'closed-window-fixture.sql']);
+  await c.end();
+  process.stdout.write(rows[0].open + ' ' + JSON.stringify(rows[0].terminations));
+")"
+idle_alive="$(alive "$idle_pid")"
+end_fixture_sessions
+echo "$gate" > "$EVIDENCE/13d-closed-window.txt"
+[ "$gate" = 'false []' ] || fail "closed-window statement answered: $gate"
+[ "$idle_alive" = 1 ] || fail 'an idle holder was terminated without a confirmed freeze'
+[ "$(terminations)" = "$before" ] || fail 'closed-window statement wrote a termination record'
+pass 'without a confirmed freeze the termination statement terminates nothing'
+
+# 14. A declared offline install budget, on the ORDINARY route. The database's
+# hourly :50-:03 refusal is stubbed out for this section only (it reads the
+# real clock, and the ordinary route is not what is under test there), and the
+# applier's own clock is moved to minute :20 as in section 1.
+su_sql "SELECT public.fixture_close_window();
+        CREATE OR REPLACE FUNCTION public.fn_ca_break_window_refuses_migrations(p_at timestamptz)
+          RETURNS text LANGUAGE sql AS 'SELECT NULL::text';
+        CREATE TABLE public.gto_v31_budget_fixture (id integer PRIMARY KEY);
+        ALTER TABLE public.gto_v31_budget_fixture OWNER TO postgres;" >/dev/null
+BUDGET="$WORK/budget"
+mkdir -p "$BUDGET/supabase/migrations"
+budget_file() { # name, header line, body
+  printf -- '-- Fixture: install budget case.\n%s\nBEGIN;\nSET LOCAL lock_timeout = '"'"'2s'"'"';\n%s\nCOMMIT;\n' "$2" "$3" \
+    > "$BUDGET/supabase/migrations/$1"
+}
+budget_apply() {
+  (cd "$BUDGET" && FAKE_NOW_MS="$OUTSIDE_BREAK_MINUTE" APPLY_DDL_ADMISSION_WAIT_MS=0 \
+    node --import "$FIXTURES/shift-clock.mjs" "$ROOT/scripts/ci/apply-recorded-migration.mjs" \
+    --ssl-root-cert "$CA" --migration "$1")
+}
+fixture_rows() { su_sql "SELECT count(*) FROM public.gto_v31_budget_fixture WHERE id = $1"; }
+history_has() { su_sql "SELECT count(*) FROM supabase_migrations.schema_migrations WHERE version = '${1:0:14}'"; }
+
+B_OK=20991231000030_budget_fixture_offline_declared.sql
+budget_file "$B_OK" '-- @install-budget-seconds: 30' \
+  'INSERT INTO public.gto_v31_budget_fixture VALUES (1);
+SELECT pg_sleep(13.5);'
+set +e
+started=$(date +%s); out="$(budget_apply "$B_OK" 2>&1)"; code=$?; took=$(( $(date +%s) - started ))
+set -e
+echo "$out" > "$EVIDENCE/14-declared-offline.log"
+[ "$code" = 0 ] || fail "declared offline file exit $code: $out"
+grep -q 'declared offline install budget 30 s admitted' <<<"$out" || fail "no admission line: $out"
+[ "$took" -ge 13 ] || fail "declared offline install took ${took}s; it never ran past 12 s"
+[ "$(fixture_rows 1)" = 1 ] && [ "$(history_has "$B_OK")" = 1 ] || fail 'declared offline file did not commit'
+pass "an admitted offline file declaring 30 s runs past the ordinary 12 s (${took}s) and installs"
+
+B_PLAIN=20991231000031_budget_fixture_offline_undeclared.sql
+budget_file "$B_PLAIN" '-- (no budget declared)' \
+  'INSERT INTO public.gto_v31_budget_fixture VALUES (2);
+SELECT pg_sleep(13.5);'
+set +e
+out="$(budget_apply "$B_PLAIN" 2>&1)"; code=$?
+set -e
+echo "$out" > "$EVIDENCE/14-undeclared.log"
+[ "$code" = 1 ] || fail "undeclared slow file exit $code: $out"
+grep -q '25P04' <<<"$out" || fail "undeclared slow file not killed by transaction_timeout: $out"
+ms="$(sed -n 's/.*REFUSED after \([0-9]*\)ms.*/\1/p' <<<"$out" | head -1)"
+[ -n "$ms" ] && [ "$ms" -ge 11500 ] && [ "$ms" -lt 13000 ] || fail "undeclared bound was ${ms}ms, expected ~12000"
+[ "$(fixture_rows 2)" = 0 ] && [ "$(history_has "$B_PLAIN")" = 0 ] || fail 'undeclared slow file committed'
+pass "the same offline file undeclared is killed at the ordinary 12 s bound (${ms}ms) and nothing commits"
+
+B_LIVE=20991231000032_budget_fixture_live_static.sql
+budget_file "$B_LIVE" '-- @install-budget-seconds: 30' \
+  "UPDATE public.clubs SET name = name WHERE id = 1;"
+set +e
+out="$(budget_apply "$B_LIVE" 2>&1)"; code=$?
+set -e
+echo "$out" > "$EVIDENCE/14-live-static.log"
+[ "$code" = 1 ] && grep -q 'touches public.clubs, which is not an offline relation' <<<"$out" \
+  || fail "declared live file: $code $out"
+! grep -q 'applying the migration as ONE transaction' <<<"$out" || fail 'declared live file was sent'
+[ "$(history_has "$B_LIVE")" = 0 ] || fail 'declared live file committed'
+pass 'a declared file that writes a live table is refused before anything is sent'
+
+B_DYN=20991231000033_budget_fixture_live_dynamic.sql
+budget_file "$B_DYN" '-- @install-budget-seconds: 30' \
+  "INSERT INTO public.gto_v31_budget_fixture VALUES (3);
+DO \$d\$ BEGIN EXECUTE 'UPDATE public.clubs SET name = name WHERE id = 1'; END \$d\$;"
+set +e
+out="$(budget_apply "$B_DYN" 2>&1)"; code=$?
+set -e
+echo "$out" > "$EVIDENCE/14-live-dynamic.log"
+[ "$code" = 1 ] && grep -q 'install_budget_outside_offline_scope: this install holds public.clubs (RowExclusiveLock)' <<<"$out" \
+  || fail "dynamic live write: $code $out"
+[ "$(fixture_rows 3)" = 0 ] && [ "$(history_has "$B_DYN")" = 0 ] || fail 'dynamic live write committed'
+pass 'a declared file reaching a live table through dynamic SQL is rolled back by the in-transaction scope check'
 
 su_sql "SELECT version || ' ' || name FROM supabase_migrations.schema_migrations ORDER BY version" \
   > "$EVIDENCE/history.txt"

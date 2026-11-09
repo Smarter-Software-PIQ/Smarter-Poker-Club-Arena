@@ -1,0 +1,5 @@
+{
+  "_owner": "codex/late-reg-01a1b93f",
+  "_comment": "Owner cutoff12to10 for total chip entries>=25; existing final row boundary, no new trigger.",
+  "functions": ["fn_ca_ten_level_late_registration"]
+}

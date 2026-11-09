@@ -478,7 +478,7 @@ def install_state(now):
 
     Raises when GitHub cannot be read. The daily run is the first push or
     schedule run of stage-engine-release.yml on main created inside today's
-    03:30-03:50 America/Chicago preparation window (CLAUDE.md section 13)."""
+    five-hour reservation or 03:30-03:50 preparation window (CLAUDE.md section 13)."""
     fixture = os.environ.get('ENGINE_WINDOW_DOORS_INSTALL_FIXTURE')
     if fixture:
         with open(fixture, encoding='utf-8') as handle:
@@ -489,13 +489,40 @@ def install_state(now):
     local = now.astimezone(CHICAGO)
     start = local.replace(hour=3, minute=30, second=0, microsecond=0)
     end = start + timedelta(minutes=20)
+    reservation = start.astimezone(timezone.utc) - timedelta(hours=5)
     stamp = lambda t: t.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
-    runs = github(REPO_API + '/actions/workflows/' + STAGE_WORKFLOW + '/runs?branch=main&per_page=50&created='
-                  + quote(stamp(start) + '..' + stamp(end)))
-    rows = [r for r in runs.get('workflow_runs', [])
-            if r.get('event') in ('push', 'schedule') and r.get('head_branch') == 'main']
-    rows.sort(key=lambda r: r.get('created_at', ''))
-    for run in rows[:6]:
+    rows = []
+    for page in range(1, 21):
+        runs = github(REPO_API + '/actions/workflows/' + STAGE_WORKFLOW + '/runs?branch=main&per_page=100&page=' + str(page) + '&created='
+                      + quote(stamp(reservation) + '..' + stamp(end)))
+        batch = runs.get('workflow_runs')
+        if not isinstance(batch, list) or type(runs.get('total_count')) is not int:
+            raise ValueError('reservation run list unreadable')
+        rows.extend(batch)
+        if len(rows) >= runs['total_count']:
+            break
+        if not batch:
+            raise ValueError('reservation run list incomplete')
+    else:
+        raise ValueError('reservation run list exceeds bounded read')
+    identities = [run.get('id') for run in rows]
+    if any(type(rid) is not int or rid <= 0 for rid in identities) or len(identities) != len(set(identities)):
+        raise ValueError('reservation run identities incomplete')
+    def eligible(run):
+        created = datetime.fromisoformat(run['created_at'].replace('Z', '+00:00'))
+        if created.utcoffset() is None:
+            raise ValueError('reservation timestamp has no offset')
+        title = run.get('display_title')
+        original = start <= created < end
+        ordinary = run.get('event') in ('push', 'schedule') and (original or title == 'Daily engine reservation')
+        backup = run.get('event') == 'workflow_run' and (title == 'Automatic Backup daily reservation' or (original and title == 'Automatic protected Backup finished'))
+        operator = run.get('event') == 'repository_dispatch' and original and run.get('actor', {}).get('type') == 'User' and title == 'Original operator daily preparation'
+        return run.get('head_branch') == 'main' and reservation <= created < end and (ordinary or backup or operator)
+    rows = sorted((r for r in rows if eligible(r)), key=lambda r: int(r['id']))
+    for run in rows[:1]:
+        # A rerun cannot erase the date's owner, nor certify a second installer.
+        if run.get('event') == 'repository_dispatch' and run.get('run_attempt') != 1:
+            return None
         jobs = github(REPO_API + '/actions/runs/' + str(int(run['id'])) + '/jobs?per_page=100')
         for job in jobs.get('jobs', []):
             if job.get('name') != INSTALL_JOB:

@@ -97,6 +97,7 @@ import {
  * wallet, the field cap, and late registration closing.
  */
 
+import { horseOverlayRescueDue, horseOverlayRescueEntries } from './horseOverlayRescue.js';
 import { supabase } from './supabase/client.js';
 import { reportError } from './errorReporter.js';
 import { TournamentRecurringService } from './TournamentRecurringService.js';
@@ -440,6 +441,13 @@ interface LateRegRow {
   blind_structure?: unknown;
   max_players: number | null;
   prize_pool_finalized: boolean | null;
+  level_started_at?: string | null;
+  on_break?: boolean | null;
+  break_started_at?: string | null;
+  add_on_available?: boolean | null;
+  addon_from_start?: boolean | null;
+  addon_period_started_at?: string | null;
+  addon_period_ends_at?: string | null;
 }
 
 /** One roster count: every entry, the live field, or entries after `afterIso`. */
@@ -464,7 +472,7 @@ async function rosterCount(
 
 /**
  * Keep horses late-registering into every RUNNING MTT of this host whose late
- * registration is open, until it closes. Never reads the guarantee.
+ * registration is open. The final ten-minute overlay check supplements ordinary arrivals.
  */
 export async function lateRegisterHorsesOnce(
   unionId: string = MIDWAY_UNION_ID,
@@ -487,7 +495,7 @@ export async function lateRegisterHorsesOnce(
     const { data: rows, error } = await supabase
       .from('tournaments')
       .select(
-        'id, name, status, format_contract, start_time, started_at, current_level, late_reg_levels, rebuy_levels, late_reg_mins, buy_in_amount, buy_in_fee, bounty_amount, guaranteed_prize, blind_structure, max_players, prize_pool_finalized'
+        'id, name, status, format_contract, start_time, started_at, current_level, late_reg_levels, rebuy_levels, late_reg_mins, buy_in_amount, buy_in_fee, bounty_amount, guaranteed_prize, blind_structure, max_players, prize_pool_finalized, level_started_at, on_break, break_started_at, add_on_available, addon_from_start, addon_period_started_at, addon_period_ends_at'
       )
       .eq('status', 'RUNNING')
       .eq('prize_pool_finalized', false)
@@ -574,7 +582,7 @@ export async function lateRegisterHorsesOnce(
       // An unreadable roster is not an empty one: skip, never guess.
       if (late === null || live === null || total === null) continue;
 
-      const want = lateRegArrivalsFor({
+      let want = lateRegArrivalsFor({
         registrationOpen: true,
         maxPlayers: t.max_players,
         tournament_id: t.id,
@@ -597,6 +605,28 @@ export async function lateRegisterHorsesOnce(
         ),
         lateEntries: late,
       });
+      // Owner November 7: independently rescue net guarantee coverage in the
+      // final ten minutes, even when the ordinary arrival plan is satisfied.
+      if (Number(t.guaranteed_prize) > 0 && horseOverlayRescueDue(t, nowMs)) {
+        const { data: funding, error: fundingError } = await supabase.rpc(
+          'fn_ca_guarantee_funding',
+          { p_tournament_id: t.id }
+        );
+        if (!shouldContinue() || isMaintenanceFrozen()) return added;
+        try {
+          if (fundingError) throw new Error(fundingError.message);
+          want = Math.max(
+            want,
+            Math.min(
+              MAX_TOPUP_PER_CYCLE,
+              horseOverlayRescueEntries(funding, mttGuaranteeEntryAmount(t))
+            )
+          );
+        } catch (error) {
+          reportError(error, 'HorseOverlayGuard.net_overlay_funding_unreadable');
+          // An unavailable rescue read cannot cancel ordinary legal arrivals.
+        }
+      }
       if (want <= 0) continue;
 
       // topUpWithHorses counts the live field (registered + playing), so the

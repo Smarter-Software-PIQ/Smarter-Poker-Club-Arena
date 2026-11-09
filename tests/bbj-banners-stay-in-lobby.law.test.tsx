@@ -59,7 +59,7 @@ describe('jackpot banners stay in the lobby', () => {
     expect(layer).toContain('<BBJCelebration');
     const lobby = readFileSync('src/pages/ClubHomePage.tsx', 'utf8');
     expect(lobby).toContain('className="lobby-bbj"');
-    expect(lobby).toContain('className="lobby-bbj__mini"');
+    expect(lobby).toContain('mini={lobbyMini}');
     expect(lobby).toContain('setShowBBJInfo(true)');
   });
 });

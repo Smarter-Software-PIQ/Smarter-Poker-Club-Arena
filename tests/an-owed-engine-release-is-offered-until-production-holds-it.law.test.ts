@@ -443,14 +443,24 @@ describe('the offer is the existing release, not a second publisher', () => {
   });
 
   it('uses protected main and the explicit Phase1 schedule without a release-completion chain', () => {
-    expect(Object.keys(stage.on)).toEqual(['workflow_dispatch', 'push', 'schedule']);
+    expect(Object.keys(stage.on)).toEqual([
+      'repository_dispatch',
+      'workflow_run',
+      'workflow_dispatch',
+      'push',
+      'schedule',
+    ]);
+    expect(stage.on.repository_dispatch.types).toEqual(['prepare-daily-engine']);
+    expect(stage.on.workflow_run.workflows).toEqual(['Backup Engine (Clone, Stage, Certify)']);
     // Explicit dispatch is database-only: it cannot produce engine outputs.
-    expect(stage.jobs.detect.if).toBe("github.event_name != 'workflow_dispatch'");
+    expect(stage.jobs.detect.if).toBe(
+      "(github.event_name != 'workflow_dispatch' || (inputs.request_engine_release && !inputs.request_database_break && github.ref == 'refs/heads/main')) && (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success'))"
+    );
     expect(stage.jobs.selection.needs).toBe('detect');
     expect(stage.jobs.signal.needs).toEqual(['detect', 'selection']);
     expect(stage.on.schedule).toEqual([
-      { cron: '31,35,39,43 8 * * *' },
-      { cron: '31,35,39,43 9 * * *' },
+      { cron: '31,35,39,43 3,8 * * *' },
+      { cron: '31,35,39,43 4,9 * * *' },
     ]);
     expect(
       stage.jobs.detect.steps.find((step: { id?: string }) => step.id === 'admission').run

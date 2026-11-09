@@ -175,8 +175,10 @@ describe('a window migration names the lock it needs, for ordering only (2026-11
     // The declaration never reaches the applier: same flags, same transaction.
     expect(loop).not.toMatch(/--locks|declared.*APPLIER|APPLIER.*declared/);
     expect(installer).not.toMatch(/lock_timeout\s*[=:]|SET\s+(LOCAL\s+)?statement_timeout/i);
-    // The quiet-moment wait still reads the SQL, not the declaration.
-    expect(loop).toContain('await awaitQuietMoment(f, targets);');
+    // The quiet-moment wait still asks about the SQL's targets; the declaration
+    // only lets it stop waiting on idle holders the next step may terminate
+    // (a-window-install-ends-an-idle-holder-only-inside-the-freeze).
+    expect(loop).toContain('await awaitQuietMoment(f, targets, declared);');
     // The skip line and the verdict name the lost relation.
     expect(loop).toContain(
       "(relations.length ? ` Lost its lock on ${relations.join(', ')}.` : '')"
@@ -377,12 +379,10 @@ describe('the route runs on the daily schedule that already exists', () => {
     expect(job.needs).toBe('detect');
     expect(job.if).toContain("needs.detect.result == 'success'");
     expect(job.if).toContain("needs.detect.outputs.admission_allowed == 'true'");
-    expect(job.if).toContain(
-      "needs.detect.outputs.daily_preparation == 'true' || needs.detect.outputs.owner_window_id != ''"
-    );
+    expect(job.if).toContain("needs.detect.outputs.daily_preparation == 'true'");
     expect(stage.on.schedule).toEqual([
-      { cron: '31,35,39,43 8 * * *' },
-      { cron: '31,35,39,43 9 * * *' },
+      { cron: '31,35,39,43 3,8 * * *' },
+      { cron: '31,35,39,43 4,9 * * *' },
     ]);
     const admission = stage.jobs.detect.steps.find(
       (step: { id?: string }) => step.id === 'admission'
@@ -526,7 +526,11 @@ describe('explicit database-only owner-window continuation', () => {
   it('uses the same serialized installer while skipping every engine admission', () => {
     const workflow = parse(read('.github/workflows/stage-engine-release.yml'));
     expect(workflow.on.workflow_dispatch.inputs.owner_window_id.required).toBe(true);
-    expect(workflow.jobs.detect.if).toBe("github.event_name != 'workflow_dispatch'");
+    expect(workflow.on.workflow_dispatch.inputs.request_engine_release.default).toBe(false);
+    expect(workflow.jobs['window-migrations'].if).toContain('!inputs.request_engine_release');
+    expect(workflow.jobs.detect.if).toBe(
+      "(github.event_name != 'workflow_dispatch' || (inputs.request_engine_release && !inputs.request_database_break && github.ref == 'refs/heads/main')) && (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success'))"
+    );
     expect(workflow.jobs.selection.needs).toBe('detect');
     expect(workflow.jobs.signal.needs).toEqual(['detect', 'selection']);
     const job = workflow.jobs['window-migrations'];

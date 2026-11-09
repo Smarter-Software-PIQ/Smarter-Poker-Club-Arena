@@ -29,6 +29,11 @@
  *      nothing, names the files and fails, so no file is silently left behind.
  *   6. apply-merged-migration.yml is still dispatch-only and unchanged in its
  *      triggers.
+ *   7. (2026-11-08) A migration the PR MODIFIED is dispatched too: #10026 and
+ *      #10029 fixed 20261108011659 in place after its install was refused,
+ *      and nothing dispatched it. The applier answers ALREADY-APPLIED (exit 0,
+ *      nothing sent) for an installed version, so this is harmless; a removed
+ *      file and a rename's previous_filename are never dispatched.
  */
 import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
@@ -39,7 +44,9 @@ import { parse } from 'yaml';
 import {
   WAIT_BUDGET_MINUTES,
   admissibleAt,
+  changedPaths,
   earliestDispatch,
+  parseFileList,
   planDispatch,
 } from '../scripts/ci/merged-migration-dispatch.mjs';
 
@@ -104,7 +111,7 @@ describe('the merge dispatches the migrations it added', () => {
 
   it('uses the job token and dispatches every merge, whoever merged it', () => {
     const step = job.steps.find(
-      (s: any) => s.name === 'Dispatch each added migration to the applier'
+      (s: any) => s.name === 'Dispatch each added or modified migration to the applier'
     );
     expect(step.env.GH_TOKEN).toBe('${{ github.token }}');
     expect(step.env.MERGED_BY).toBe('${{ github.event.pull_request.merged_by.login }}');
@@ -115,7 +122,7 @@ describe('the merge dispatches the migrations it added', () => {
     // an agent's hand merge of #9876 left 20261107130652 uninstalled for hours).
     expect(scriptCode).not.toMatch(/MERGED_BY"? != /);
     expect(scriptCode).not.toContain('APP_SLUG');
-    expect(scriptCode).toContain('dispatching the migrations it added');
+    expect(scriptCode).toContain('dispatching the migrations it added or modified');
     expect(read('.github/workflows/dispatch-merged-migrations.yml')).not.toMatch(
       /GH_PAT|AUTOFIX_GITHUB_TOKEN|secrets\./
     );
@@ -147,7 +154,9 @@ describe('the merge dispatches the migrations it added', () => {
       expect(r.status, r.stderr).toBe(0);
       expect(readFileSync(calls, 'utf8')).toContain('repos/o/r/pulls/9957/files?per_page=100');
       const said = readFileSync(summary, 'utf8');
-      expect(said).toContain('merged by `Smarter-Poker`; dispatching the migrations it added');
+      expect(said).toContain(
+        'merged by `Smarter-Poker`; dispatching the migrations it added or modified'
+      );
       expect(said).toContain('no ordinary migration to dispatch');
     } finally {
       rmSync(box, { recursive: true, force: true });
@@ -263,5 +272,149 @@ describe('the merge dispatches the migrations it added', () => {
     const triggers = Object.keys(applier.on).sort();
     expect(triggers).toEqual(['repository_dispatch', 'workflow_dispatch']);
     expect(applier.on.repository_dispatch.types).toEqual(['apply-merged-migration']);
+  });
+});
+
+describe('a migration the merge MODIFIED is dispatched too (2026-11-08, #10026/#10029)', () => {
+  const REFUSED_THEN_FIXED = '20261108011659_v31_public215_v2_sql_encoding_chain.sql';
+  const ADDED = '20261108020000_a_job_failing_every_run_is_named.sql';
+  const REMOVED = '20261107210000_a_freeze_refusal_is_counted_by_name.sql';
+  const RENAMED_AWAY = '20261107210122_v31_db_reads_pio_bet_tokens_as_root_totals.sql';
+  const RENAMED_TO = '20261107215049_midway_weekly_terms_supersede_legacy_sixpm_defaults.sql';
+  const m = (n: string) => `supabase/migrations/${n}`;
+
+  it('splits the PR file list: added/renamed/copied, modified, and never removed', () => {
+    const split = changedPaths([
+      { filename: m('20261108000000_a.sql'), status: 'added' },
+      { filename: m('20261108000001_b.sql'), status: 'modified' },
+      { filename: m('20261108000002_c.sql'), status: 'removed' },
+      { filename: m('20261108000003_new.sql'), status: 'renamed' },
+      { filename: m('20261108000004_d.sql'), status: 'copied' },
+      { filename: m('20261108000005_e.sql'), status: 'changed' },
+      { filename: m('20261108000006_f.sql'), status: 'unchanged' },
+    ]);
+    expect(split.added).toEqual([
+      m('20261108000000_a.sql'),
+      m('20261108000003_new.sql'),
+      m('20261108000004_d.sql'),
+    ]);
+    expect(split.modified).toEqual([m('20261108000001_b.sql')]);
+  });
+
+  it('reads the shell list as status<TAB>path, and a bare path as added', () => {
+    expect(
+      parseFileList(`modified\t${m('x.sql')}\nadded\t${m('y.sql')}\n\n${m('z.sql')}\n`)
+    ).toEqual([
+      { status: 'modified', filename: m('x.sql') },
+      { status: 'added', filename: m('y.sql') },
+      { status: 'added', filename: m('z.sql') },
+    ]);
+  });
+
+  it('plans added and modified files together in filename order and names the modified ones', () => {
+    const plan = planDispatch(
+      [m('20261108020000_b.sql'), 'docs/x.md'],
+      (n) => (n.includes('gone') ? null : n.includes('win') ? WINDOWED : ORDINARY),
+      at('2026-10-25T02:10:00Z'),
+      [
+        m('20261108011659_a.sql'),
+        m('20261108011700_gone.sql'),
+        m('20261108011800_win.sql'),
+        m('20261108020000_b.sql'),
+        'src/x.ts',
+      ]
+    );
+    expect(plan.dispatch).toEqual(['20261108011659_a.sql', '20261108020000_b.sql']);
+    // A file both added and modified (one PR cannot, but be exact) counts as added.
+    expect(plan.modified).toEqual(['20261108011659_a.sql']);
+    expect(plan.notOnMain).toEqual(['20261108011700_gone.sql']);
+    expect(plan.windowQueued).toEqual(['20261108011800_win.sql']);
+    expect(plan.waitSeconds).toBe(0);
+    // Without modified paths the plan is what it always was.
+    expect(
+      planDispatch([m('20261108020000_b.sql')], () => ORDINARY, at('2026-10-25T02:10:00Z')).modified
+    ).toEqual([]);
+  });
+
+  it('the merged script dispatches the #10029 shape: modified yes, removed and renamed-away never', () => {
+    const box = mkdtempSync(join(tmpdir(), 'merged-dispatch-modified-'));
+    try {
+      const calls = join(box, 'calls');
+      const files = join(box, 'files.json');
+      writeFileSync(
+        files,
+        JSON.stringify([
+          { filename: m(REFUSED_THEN_FIXED), status: 'modified' },
+          { filename: m(ADDED), status: 'added' },
+          { filename: m(REMOVED), status: 'removed' },
+          { filename: m(RENAMED_TO), previous_filename: m(RENAMED_AWAY), status: 'renamed' },
+          { filename: 'docs/changelog/x.md', status: 'modified' },
+        ])
+      );
+      // A gh that answers the PR file list through the script's own --jq
+      // filter (real jq), and records every other call.
+      writeFileSync(
+        join(box, 'gh'),
+        `#!/usr/bin/env bash
+echo "$*" >> '${calls}'
+case "$*" in
+  *pulls/10029/files*)
+    while [ $# -gt 0 ]; do [ "$1" = --jq ] && { jq -r "$2" '${files}'; exit; }; shift; done
+    exit 9 ;;
+esac
+`
+      );
+      chmodSync(join(box, 'gh'), 0o755);
+      const summary = join(box, 'summary');
+      const r = spawnSync('bash', ['.github/scripts/dispatch-merged-migrations.sh'], {
+        cwd: ROOT,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          PATH: `${box}:${process.env.PATH}`,
+          GH_TOKEN: 'x',
+          REPO: 'o/r',
+          PR: '10029',
+          MERGED_BY: 'Smarter-Poker',
+          GITHUB_STEP_SUMMARY: summary,
+          // An admitted minute, so nothing waits.
+          DISPATCH_NOW_MS: String(at('2026-10-25T02:10:00Z')),
+        },
+      });
+      expect(r.status, r.stderr + r.stdout).toBe(0);
+      const sent = readFileSync(calls, 'utf8')
+        .split('\n')
+        .filter((l) => l.includes('repos/o/r/dispatches'))
+        .map((l) => /client_payload\[migration\]=(\S+)/.exec(l)?.[1]);
+      expect(sent).toEqual([RENAMED_TO, REFUSED_THEN_FIXED, ADDED]); // filename order
+      const said = readFileSync(summary, 'utf8');
+      expect(said).toContain(`\`${REFUSED_THEN_FIXED}\` was MODIFIED (not added) by #10029`);
+      expect(said).toContain('ALREADY-APPLIED and sends nothing');
+      expect(said).not.toContain(REMOVED);
+      expect(said).not.toContain(RENAMED_AWAY);
+      expect(said).not.toContain('no ordinary migration to dispatch');
+    } finally {
+      rmSync(box, { recursive: true, force: true });
+    }
+  });
+
+  it('relies on the applier, which answers ALREADY-APPLIED for an installed version and sends nothing', () => {
+    // The dispatcher holds no database credential; the applier is the one
+    // that reads schema_migrations.
+    expect(read('.github/workflows/dispatch-merged-migrations.yml')).not.toMatch(/DATABASE_URL/);
+    const apply = read('scripts/ci/apply-recorded-migration.mjs');
+    expect(apply).toContain('FROM supabase_migrations.schema_migrations');
+    expect(apply).toContain('[apply] ALREADY-APPLIED: ${file}');
+    expect(apply).toContain("'[apply] Nothing sent. This run changed nothing.'");
+    const after = apply.slice(apply.indexOf('if (already.length > 0) {'));
+    expect(after.slice(0, after.indexOf('process.exit(EXIT_OK);'))).not.toMatch(
+      /client\.query\((?!.*schema_migrations)/
+    );
+  });
+
+  it('the test clock is never set by the workflow', () => {
+    expect(read('.github/workflows/dispatch-merged-migrations.yml')).not.toContain(
+      'DISPATCH_NOW_MS'
+    );
   });
 });

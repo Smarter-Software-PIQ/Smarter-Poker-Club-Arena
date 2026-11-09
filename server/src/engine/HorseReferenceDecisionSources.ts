@@ -31,6 +31,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the actual prior aggressor current-street check that releases the reference initiative gate without changing value pricing or legal sizing',
     'src/engine/HorseFeatureAuthority.ts':
       'boundary: exact qualified feature composition and live economic domain derive reference options; missing selection never activates a candidate',
+    'src/engine/HorseLimpReraiseRead.ts':
+      "the limp-reraise read (2026-11-07): the shrunk limp-reraise rate and the no-limit hold'em isolation bar against a limper seen to limp-reraise",
     'src/engine/HorseFastCalldownRead.ts':
       'the fast call-down read (2026-11-07): recent river call rate from the river recency and exploit fast windows, the station and calling-more flags and the fold-rate input the river bluff layers price with',
     'src/engine/HorseMultiwayRiverRead.ts':
@@ -254,6 +256,8 @@ export const HORSE_REFERENCE_DECISION_EXCLUDED: Readonly<Record<string, string>>
   'src/engine/HorsePhase6Attribution.ts':
     'the Phase 6 preflop attribution receipt, built after the decision from it',
   'src/engine/HorseReviewSignals.ts': 'review signals are observed and explicitly ignored',
+  'src/engine/HorsePhaseControllerWithdrawal.ts':
+    'reconciles the Phase 10-13 receipts (selection, final action) with the action a later owner already chose; never an action or amount',
   'src/engine/multiway/JointLivePolicy.ts':
     'the Phase 13 owner: bound by the Phase 13 digest; runs after the variant owners and acts only when Phase 13 is selected',
   'src/engine/multiway/JointSampleAcquisition.ts':

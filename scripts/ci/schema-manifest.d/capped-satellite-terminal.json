@@ -1,0 +1,5 @@
+{
+  "_owner": "fix/capped-satellite-awards-01a1b095",
+  "_comment": "Source declaration; protected installation and compatible certified engine activation remain distinct. Original terminal request and generation remain authoritative.",
+  "functions": ["fn_execute_capped_satellite_terminal_request"]
+}

@@ -453,7 +453,9 @@ export function horsePhase14AuthorityVerdict(receipt: {
       if (selected == null) return true;
       const a = gate?.mainAuthority();
       return (
-        gate?.check(receipt.baselineAuthorities?.[owner]) === 'usable' &&
+        // A baseline owner withdrawn in this domain (2026-11-07 scoping)
+        // leaves Phase 14 unusable here, as a whole-gate withdrawal did.
+        gate?.check(receipt.baselineAuthorities?.[owner], now, receipt.domain) === 'usable' &&
         !!a &&
         (a.expiresAt === null || now < Date.parse(a.expiresAt))
       );

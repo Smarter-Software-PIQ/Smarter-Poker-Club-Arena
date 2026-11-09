@@ -7,7 +7,7 @@ import {resolve,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {commitState,readPages} from './pr-status.mjs';
 import {classifyChangedPaths} from './classify-ci-changes.mjs';
-import {invocation,stageAdmission} from './public215-linux-preflight.mjs';
+import {invocation,stageAdmission,releaseEvidence} from './public215-linux-preflight.mjs';
 
 const SHA=/^[0-9a-f]{40}$/, REPO='Smarter-Software-PIQ/Smarter-Poker-Club-Arena', REPO_ID=1132369872;
 const CI='.github/workflows/ci.yml';
@@ -88,11 +88,14 @@ export function qualifiedSource(observation,checks,required,witness){
  return {required:[...required].map(([context,reporters])=>({context,reporters:[...reporters]})),checks:checks.filter(c=>required.has(c.name)).map(c=>({id:c.id,head_sha:c.head_sha,name:c.name,status:c.status,conclusion:c.conclusion,reporter:c.app.id,suite:c.check_suite?.id??null})),not_applicable:notApplicable};
 }
 
-export function candidateIntegration(observation,run,jobs,candidate,stageRun){
- demand(run?.id===Number(stageRun)&&run.head_sha===candidate&&run.repository?.id===REPO_ID&&run.head_repository?.id===REPO_ID,'Exact selected release identity required');
- stageAdmission(run,jobs,candidate);
- demand(Array.isArray(jobs)&&jobs.every(j=>positive(j.id)&&j.run_id===run.id&&j.head_sha===candidate)&&new Set(jobs.map(j=>j.id)).size===jobs.length&&new Set(jobs.map(j=>j.name)).size===jobs.length,'Unique exact candidate jobs required');
- demand(observation.runs.filter(r=>r.id===run.id).length===1,'Selected release must be the observed current attempt');
+export function candidateIntegration(observation,run,jobs,candidate,stageRun,evidence={}){
+ // Since #9960 a release run executes at the receiver's protected main tip, not the candidate.
+ demand(run?.id===Number(stageRun)&&SHA.test(run.head_sha)&&run.repository?.id===REPO_ID&&run.head_repository?.id===REPO_ID,'Exact selected release identity required');
+ const admission=stageAdmission(run,jobs,candidate,evidence);
+ demand(admission.receiver_sha===run.head_sha,'Receiver binding differs from the selected release');
+ demand(Array.isArray(jobs)&&jobs.every(j=>positive(j.id)&&j.run_id===run.id&&j.head_sha===run.head_sha)&&new Set(jobs.map(j=>j.id)).size===jobs.length&&new Set(jobs.map(j=>j.name)).size===jobs.length,'Unique exact release jobs required');
+ // A receiver at another commit is not in the candidate's own run inventory; its id/attempt come from the run itself.
+ demand(run.head_sha!==candidate||observation.runs.filter(r=>r.id===run.id).length===1,'Selected release must be the observed current attempt');
  for(const active of observation.activeRuns)demand(active.id===run.id,'Other candidate workflow remains active');
  for(const failure of observation.failures)demand(failure.runId===run.id&&failure.required===false&&PUBLICATION.has(failure.job)&&failure.conclusion==='cancelled','Other candidate workflow/source failure refuses');
  for(const job of jobs){
@@ -102,7 +105,7 @@ export function candidateIntegration(observation,run,jobs,candidate,stageRun){
   demand(Array.isArray(job.steps)&&job.steps.every(s=>s.conclusion===null||['success','skipped','cancelled'].includes(s.conclusion)),'Failed/unknown selected publication step refuses');
  }
  demand(['in_progress','completed'].includes(run.status)&&((run.status==='in_progress'&&run.conclusion===null)||(run.status==='completed'&&['success','cancelled'].includes(run.conclusion))),'Unknown/failed release outcome refuses');
- return {stage_run:run.id,status:run.status,conclusion:run.conclusion,publication_verified:false,meaning:'source_integration_only_not_publication',jobs:jobs.map(j=>({id:j.id,run_id:j.run_id,head_sha:j.head_sha,name:j.name,status:j.status,conclusion:j.conclusion})),publication_jobs:jobs.filter(j=>PUBLICATION.has(j.name)).map(j=>({id:j.id,name:j.name,status:j.status,conclusion:j.conclusion}))};
+ return {stage_run:run.id,admission,receiver_sha:run.head_sha,status:run.status,conclusion:run.conclusion,publication_verified:false,meaning:'source_integration_only_not_publication',jobs:jobs.map(j=>({id:j.id,run_id:j.run_id,head_sha:j.head_sha,name:j.name,status:j.status,conclusion:j.conclusion})),publication_jobs:jobs.filter(j=>PUBLICATION.has(j.name)).map(j=>({id:j.id,name:j.name,status:j.status,conclusion:j.conclusion}))};
 }
 
 export async function collectSourceAdmission(selected,{read,readArray,readLog,git,readFresh=read}){
@@ -128,7 +131,8 @@ export async function collectSourceAdmission(selected,{read,readArray,readLog,gi
  const candidateObservation=await commitState(selected.candidate_sha,required,read);
  const run=await read(`/actions/runs/${selected.stage_run}`);
  const jobs=await readPages(`/actions/runs/${selected.stage_run}/jobs?filter=latest`,'jobs',read);
- const integration=candidateIntegration(candidateObservation,run,jobs,selected.candidate_sha,selected.stage_run);
+ const evidence=await releaseEvidence(run,jobs,selected,{readPages:(path,key)=>readPages(path,key,read),readLog,isAncestor:(a,b)=>{git(['merge-base','--is-ancestor',a,b]);return true;},serverTree:()=>git(['rev-parse',selected.candidate_sha+':server']).toString().trim()});
+ const integration=candidateIntegration(candidateObservation,run,jobs,selected.candidate_sha,selected.stage_run,evidence);
  const after=await readFresh(`/pulls/${pr.number}`);demand(mergedQualification(pulls,after,selected.candidate_sha)===head,'Protected qualification identity changed');
  return {format:'public215_protected_source_admission_v1',candidate_sha:selected.candidate_sha,qualified_pr:pr.number,qualified_head:head,qualified_head_fetch:head,source,classifier:witness,integration,head_observation:{state:headObservation.state,required_problems:headObservation.requiredProblems,failures:headObservation.failures,active_runs:headObservation.activeRuns},candidate_observation:{state:candidateObservation.state,required_problems:candidateObservation.requiredProblems,failures:candidateObservation.failures,active_runs:candidateObservation.activeRuns},status:'source_evidence_only_not_deployed_frozen_or_certified'};
 }
@@ -139,7 +143,7 @@ export function sourceCommandFailure(binary,args,result){
  const exit=Number.isInteger(result.status)?result.status:'unavailable';
  if(binary!=='gh')return `Immutable Git source command refused (exit ${exit})`;
  const prefix=`repos/${REPO}`,path=args.length===2&&args[0]==='api'&&args[1].startsWith(prefix)?args[1].slice(prefix.length):'';
- const allowed=/^\/(?:commits\/[0-9a-f]{40}\/(?:pulls|check-runs)|pulls\/[1-9][0-9]*|rules\/branches\/main|actions\/(?:runs(?:\/[1-9][0-9]*(?:\/jobs)?)?|jobs\/[1-9][0-9]*\/logs))(?:\?(?:(?:filter=(?:all|latest)|head_sha=[0-9a-f]{40})&)?per_page=100&page=[1-9][0-9]*)?$/;
+ const allowed=/^\/(?:commits\/[0-9a-f]{40}\/(?:pulls|check-runs)|pulls\/[1-9][0-9]*|rules\/branches\/main|actions\/(?:runs(?:\/[1-9][0-9]*(?:\/jobs)?)?|jobs\/[1-9][0-9]*\/logs|workflows\/engine-release-prequalification\.yml\/runs))(?:\?(?:(?:filter=(?:all|latest)|head_sha=[0-9a-f]{40}|branch=main&head_sha=[0-9a-f]{40})&)?per_page=100&page=[1-9][0-9]*)?$/;
  const route=allowed.test(path)?path:'[unrecognized route]';
  const stderr=Buffer.isBuffer(result.stderr)?result.stderr.toString('utf8'):'';
  const http=stderr.match(/\bHTTP ([1-5][0-9]{2})\b/);

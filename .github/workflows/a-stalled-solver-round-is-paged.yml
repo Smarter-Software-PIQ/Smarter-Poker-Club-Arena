@@ -1,0 +1,34 @@
+name: A stalled solver round is paged
+
+# fn_gto_v31_round_stall_check() (migration 20261108191909). Runs
+# scripts/ci/test-a-stalled-solver-round-is-paged.py against a throwaway
+# PostgreSQL 17 cluster, never production. No timer (CLAUDE.md 10.85):
+# pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261108191909_a_stalled_solver_round_is_paged.sql
+      - scripts/ci/test-a-stalled-solver-round-is-paged.py
+      - .github/workflows/a-stalled-solver-round-is-paged.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: a-stalled-solver-round-is-paged-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  a-stalled-solver-round-is-paged:
+    name: A stalled solver round is paged once and resolved when it moves
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: A stalled solver round is paged once and resolved when it moves
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-a-stalled-solver-round-is-paged.py

@@ -3,12 +3,12 @@ import { mttGuaranteeEntryAmount } from '../server/src/services/mttHorseArrivalP
 
 describe('the advertised guarantee includes the bounty pool', () => {
   it.each([
-    [40_000, 180, 20, 0, 200],
-    [10_000, 45, 5, 20, 200],
-    [10_000, 45, 5, 25, 200],
-    [5_000, 45, 5, 45, 100],
+    [40_000, 180, 20, 0, 223],
+    [10_000, 45, 5, 20, 223],
+    [10_000, 45, 5, 25, 223],
+    [5_000, 45, 5, 45, 112],
   ])(
-    'prices %s at the full entry charge without deducting bounties',
+    'prices %s at the net entry amount without deducting bounties',
     (guarantee, buyIn, fee, bounty, entries) => {
       const charge = mttGuaranteeEntryAmount({
         buy_in_amount: buyIn,

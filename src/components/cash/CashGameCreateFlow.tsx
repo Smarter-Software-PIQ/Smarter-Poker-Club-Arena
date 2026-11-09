@@ -793,21 +793,20 @@ export default function CashGameCreateFlow({
               />
             </div>
 
-            <Slider
-              label="Minimum Buy In"
-              value={overrides.min_buyin_bb}
-              onChange={(v) => setOverride('min_buyin_bb', Math.min(v, overrides.max_buyin_bb))}
-              min={10}
-              max={400}
-              step={10}
-              format={(v) => `${v} BB (${stakesLabelChips(stakes.bb * v)})`}
-              tooltip="The Smallest Stack A Player May Sit Down With, In Big Blinds. It Cannot Be Set Above The Maximum Buy In."
-            />
+            {/* Dan 2026-11-08: "MAKE THE MINIMUM BUY INS 50 BB FOR ANY AND ALL
+                CASH GAMES." The minimum is the template's (fn_cash_template_
+                defaults), and zz_cash_game_floor_from_template forces it on
+                every save, so it is printed here, never offered. */}
+            <p className="cash-create__note" data-testid="cash-create-min-buy-in">
+              {`Minimum Buy In: ${snapshot.min_buyin_bb} BB (${stakesLabelChips(
+                stakes.bb * snapshot.min_buyin_bb
+              )})`}
+            </p>
             <Slider
               label="Maximum Buy In"
               value={overrides.max_buyin_bb}
               onChange={(v) => setOverride('max_buyin_bb', Math.max(v, overrides.min_buyin_bb))}
-              min={40}
+              min={snapshot.min_buyin_bb}
               max={1000}
               step={10}
               format={(v) => `${v} BB (${stakesLabelChips(stakes.bb * v)})`}

@@ -88,7 +88,12 @@ describe('attention items close at their roots', () => {
   });
 
   it('the escrow shadow reads the guarantee promo excess return', () => {
-    const later = newestDefining(/fn_ca_tournament_escrow_chips/);
+    // A redefinition is a CREATE of the shadow or a patch of its own definition;
+    // a migration that only CALLS it (20261108215333) redefines nothing.
+    const later = newestDefining(
+      /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+public\.fn_ca_tournament_escrow_chips\(|pg_get_functiondef\('public\.fn_ca_tournament_escrow_chips/
+    );
+    expect(later.file >= ROOT).toBe(true);
     expect(later.sql, `${later.file} redefines the shadow`).toContain(
       'guarantee_promo_excess_return'
     );

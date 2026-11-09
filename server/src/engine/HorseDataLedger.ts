@@ -910,6 +910,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'Read calibration'
   ),
   flag(
+    'readBreakEvenBluff',
+    '2026-11-08 (read calibration follow-up) the exploit bluff multiplier is re-derived from break-even: the decision context postflop fold-to-bet read, shrunk toward the game population mean with 16 pseudo-observations, is placed on the measured fold-by-bet-size curve (18,560 NLH and 23,652 PLO first-bet responses, every seat pooled) and the multiplier is proportional to the fold share above s / (1 + s), scaled so the population keeps the ladder tuned volume (x1.45) at a 0.67-pot bet, clamped 0.3 .. 1.5; the c-bet, probe, semi-bluff and pure-bluff bets price their own size; nlh and plo4-6 only; replaces readPostflopFoldRate, whose read alone against the old 0.62 / 0.35 lines lost the mirror; 2026-11-08 it answers only for an opponent whose postflop fold-to-bet or river-call read is engaged (the opponent-exploit gate), so an unread opponent keeps the flag-off price, and a semi-bluff break-even is s (1 - 2e) / (1 + s - e (1 + 2s)), the fold share at which betting matches checking; default off, the league measures it',
+    'Read calibration'
+  ),
+  flag(
+    'omahaEvFoldModel',
+    '2026-11-08 (Omaha threshold calibration) at PLO4 / PLO5 / PLO6 cash tables the EV bet engine prices each opponent fold as MDF s / (1 + s) times the game measured fold share over MDF (flop and turn first-bet responses, every seat pooled, cash: PLO4 1.289, PLO5 1.458, PLO6 1.409) scaled by the opponent postflop fold-to-bet read shrunk toward the game population (16 pseudo-observations), instead of the all-street exploit bluff multiplier, which read 85% of human Omaha postflop spots as stations (x0.55) on preflop calls; walk-forward out of sample the engine predicted 37.8% folds against 52.0% actual (Brier 0.2471, model 0.2218); tournament decisions keep the exploit multiplier (tournament players fold about MDF, ratio 1.04-1.09, and the cash ratio lost the PLO4 tournament mirror); the scalar bluffMod other consumers classify by is unchanged; default ON (league: PLO4 mirror +3.74 +/- 1.63 and +4.29 +/- 1.48 bb/100 on two seeds, PLO6 human-calibrated field +19.77 +/- 8.10 on one, no card significantly negative, no exploiter earns more); explicit off arm keeps the exploit bluff multiplier',
+    'Omaha threshold calibration'
+  ),
+  flag(
+    'readScopedShrink',
+    '2026-11-08 (read calibration follow-up) below 40 scoped hands a read no longer falls back to the pooled bucket (every game mixed: about 8% of read spots, river-fold Brier 0.262 against 0.217 scoped); the scoped bucket answers with each rate shrunk toward the same scope population (every tracked player summed, no labels) with 16 pseudo-observations and its own opportunity counts, so sample gates still measure this game; default off, measured by the calibration replay (a league table deals one game, so the flag is inert there by construction)',
+    'Read calibration'
+  ),
+  flag(
     'planFingerprint',
     '2026-11-05 (Decision Readiness Items 21 and 23, activation of the dormant #9351 helpers) a planned multi-street barrel records, through the accepted-wager effect sink, the next-street state it expects (every live contender hero included; effective stack and pot once the wager is matched once; public information only) and the next street compares the state that actually arrived against it (HorseContinuationPlanInvalidation.evaluateMultiStreetBarrelContinuation): a contender the plan never expected, a stack-to-pot exposure more than 65 percent from the planned one, or a scare card under pressure withdraws the plan before it fires and the decision runs the ordinary ladder; the card class is recorded as the causality tag while V39 keeps its measured authority over good, blank and scare cards; explicit off arm keeps the unconditional plan',
     'Items21And23'
@@ -952,6 +967,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag(
     'vs3BetShortStack',
     '2026-11-07 default OFF: the V73 opener-facing-one-3-bet read reaches 12bb effective (V73_SHORT_MIN_EFFECTIVE_BB) instead of 25bb, and a hand the read continues whose call the stack cap refuses (the call is the stack) jams instead of folding; measured before (HorseLogic.decide, live personas, 24 samples per class): a 20bb button facing a big-blind 3-bet to 11bb folded 97-98% of its 45% open in cash and in tournaments; on, it jams about half its open; league vs3bet_short_stack: see docs/changelog/2026-11-07-horse-preflop-defence-leaks.md (one human-calibrated seed below -2 stderr, so it stays off)',
+    'PfLeaks'
+  ),
+  flag(
+    'limpReraiseIsoRead',
+    "2026-11-07 default ON (exploiter league hx_limp_reraise, paired A/B on the same deals, 4 seeds x 8,000 pairs, horses' gain on minus off: six-max 40bb +12.3 +/- 3.0, 80bb +12.3 +/- 4.8 bb/100; mirror NLH 6/9-max 40/80bb cash and big-blind-ante tournament and the human-calibrated six-max field, two seeds x 20,000 pairs each: every card inert, no horse or human-field player limp-reraises enough to engage it): HorseMind counts, per player, the times a preflop limp met a raise behind it and the action came back, and the re-raises (OpponentStats.lrOpps / lrRaises, pooled, memory only, carried in read frames v12); the rate is shrunk toward a 5% population rate with 10 pseudo-observations, and against a limper whose shrunk rate is above 12% the no-limit hold'em isolation bar rises toward 0.58 strength (about the hands a horse continues against a 4x re-raise; the button over an under-the-gun limp at 40bb isolates 12% instead of 38%), fully at 30%, and the V10 isolation widen is withdrawn against him; nothing changes against a player never seen to limp-raise; explicit off arm retained; HorseLimpReraiseRead.ts; docs/changelog/2026-11-07-limp-reraise-read.md",
+    'PfLeaks'
+  ),
+  flag(
+    'commitUnderPot',
+    "2026-11-07 default OFF: in a heads-up no-limit hold'em pot on the flop or turn, a horse facing a bet whose remaining stack is smaller than the pot (the bet included) calls instead of folding (all in when the call is its stack), after every other layer (HorseLogic commitUnderPotCall); the committed branch (stack-to-pot under 1.2) already prices those calls at the pot odds; exploiter league hx_limp_reraise +6.8 +/- 2.4 (40bb) / +10.4 +/- 4.2 (80bb) bb/100, but the mirror and the human-calibrated field lose with it on every card measured (six-max cash 40bb -2.59 +/- 0.50 / -2.05 +/- 0.52, nine-max cash 40bb -1.68 +/- 0.34 / -1.74 +/- 0.34, six-max tournament 40bb -2.94 +/- 0.58 / -3.25 +/- 0.60, human six-max tournament 40bb -6.17 +/- 1.10 / -4.39 +/- 1.17), so it stays off; docs/changelog/2026-11-07-limp-reraise-read.md",
     'PfLeaks'
   ),
   flag(
@@ -4350,6 +4375,20 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic not-facing-a-bet river (HorseRiverBluffRange, V11 gate)',
     'out-of-position river leads into the turn bettor: bluff_leadDraw / bluff_leadBlank (a bluff lead on a draw-completing or blank river), skip_station (a candidate checked because the bettor is a credible station), value_pass (the V11 gate let a value hand lead a draw-completing river)',
     'River lead range'
+  ),
+  // No floor: fires only against a limper HorseMind has seen limp-reraise.
+  receipt(
+    'limp_reraise_iso_read',
+    'HorseLogic.decide (limpReraiseIsoRead)',
+    "an unopened no-limit hold'em pot with a limper whose shrunk limp-reraise rate engages the read: the isolation bar rose toward the hands that stand a re-raise and the V10 isolation widen was withdrawn",
+    'Limp-reraise read'
+  ),
+  // No floor: default-off flag.
+  receipt(
+    'commit_under_pot',
+    'HorseLogic.commitUnderPotCall (commitUnderPot)',
+    "a heads-up no-limit hold'em flop or turn fold with less than a pot behind became a call",
+    'Commit under the pot'
   ),
   // No floor: fires only against an opponent whose checked-to bets include probes.
   receipt(

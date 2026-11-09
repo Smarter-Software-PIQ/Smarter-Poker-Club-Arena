@@ -25,6 +25,7 @@ import { parse } from 'yaml';
 import { classifyMigration } from '../../scripts/ci/recording-only.mjs';
 import { migrationTransactionShape } from '../../scripts/ci/migration-transaction-shape.mjs';
 import { assertOrdinaryMigrationBudget } from '../../scripts/ci/migration-session-identity.mjs';
+import { ordinaryMigrationBudgetMs } from '../../scripts/ci/migration-install-budget.mjs';
 
 const ROOT = resolve(__dirname, '../..');
 const DIR = join(ROOT, 'supabase/migrations');
@@ -122,7 +123,11 @@ describe('a merged migration is one the applier will take', () => {
     (file) => {
       const sql = read(file);
       if (/^-- @install-window: daily-maintenance\s*$/m.test(sql)) return;
-      expect(() => assertOrdinaryMigrationBudget(sql, 12000)).not.toThrow();
+      // 12 s, or the declared budget of an admitted offline file
+      // (migration-install-budget.mjs) - the same question the installer asks.
+      expect(() =>
+        assertOrdinaryMigrationBudget(sql, ordinaryMigrationBudgetMs(file, sql))
+      ).not.toThrow();
     }
   );
 

@@ -148,6 +148,10 @@ Follow `PUBLISHING.md`. The authorized agent finds or creates its PR, handles re
 
 **Push with `bash scripts/agent-push.sh` from your own worktree (2026-11-05).** Two failures cost agents a session: over SSH the minutes-long `.husky/pre-push` hook leaves the connection idle and git then exits 141 (SIGPIPE) after the hook passes, with no ref pushed and no error text; and pushing to a bare HTTPS URL is refused by the hook with `[push baseline] UNKNOWN: Push destination tracking main is unavailable`. The helper keeps the remote name `origin`, fetches `origin main`, pushes over HTTPS with `gh` credentials and stdin closed, returns git's real exit code, then compares `git ls-remote origin refs/heads/<branch>` with HEAD and exits 3 if the ref did not land. It refuses the shared clone, `main` and a detached HEAD, and never forces or skips hooks.
 
+**Solver PCs M1/M2 (2026-11-08).** Reach them only with `~/.smarter-poker/ops/solver-host.sh check` (or `m1|m2 <command>`, `scp`). The agent terminal has no macOS Local Network permission, so a plain ping/nc/ssh always reads them as down; a session that believed this stalled R8 for 11 hours and asked Dan to wake PCs that were on. Never report M1/M2 down without a failed `solver-host.sh check`. Only the solver-round single writer in HORSE-LANES-STATUS.md runs work on them.
+
+**Database checks use the workflow's identity, never a copied key (2026-11-08).** Run a read-only check against production through its workflow, whose database identity is the repository secret (the V31 pre-screen: `Explicit V31 Offline Qualification`, `operation: prescreen`). Never reveal an API key through the Supabase CLI (`projects api-keys`) or the Management API (`?reveal=true`), never source a `.env` file, and never write a key to a new file. An agent did all three to run a local check (`.agent/audits/2026-11-08-SECURITY-INCIDENT-prescreen-credential-copy.md`).
+
 ### 1.3 Never Do
 
 - Never run `vercel deploy` or `vercel --prod` in the Club Arena directory
@@ -329,7 +333,11 @@ supabase_migrations.schema_migrations ADD COLUMN IF NOT EXISTS`, and each
     line: the installer then sends undeclared files first (oldest first), then
     declared files grouped by shared relation and oldest first, and a skipped
     file's line names the relation it lost; the line orders only and never
-    widens a timeout or earns a retry. "Queued" is simply "on main and not in schema_migrations"; never
+    widens a timeout or earns a retry. For a declared file, inside the
+    confirmed freeze only, the installer terminates postgres-family sessions
+    left idle in transaction on a declared relation just before the one
+    attempt and records each in `ca_window_install_terminations`; it never
+    touches an active query, a superuser, a Supabase role or pg_cron. "Queued" is simply "on main and not in schema_migrations"; never
     apply a declared file by hand or through the MCP. Window files may not
     set their own override, freeze bypass, longer timeouts, sleeps, blocking
     advisory locks or CONCURRENTLY preambles, and the freeze still refuses
@@ -339,7 +347,7 @@ supabase_migrations.schema_migrations ADD COLUMN IF NOT EXISTS`, and each
     `docs/changelog/2026-10-22-a-migration-that-needs-the-live-tables-waits-for-the-daily-break.md`.
 11. **A MIGRATION REACHES PRODUCTION ONLY FROM PROTECTED MAIN (owner
     instruction, 2026-10-25).** Merge first; every same-repository merge into
-    main dispatches each added migration to `apply-merged-migration.yml`
+    main dispatches each added or modified migration to `apply-merged-migration.yml`
     (`dispatch-merged-migrations.yml`, on the merge's own `closed` event,
     whoever merged), which sends the merged bytes once and answers
     ALREADY-APPLIED for a version production holds. Dispatch by hand only a
@@ -578,7 +586,12 @@ RPCs, and sits in the same seat as anybody else. Therefore a horse:
   and super-agent commissions, `player_stats`, rakeback basis, leaderboard
   position, achievements, anything downstream of play or of rake;
 - **IS PAID** everything a human is paid — prizes, bounties, refunds,
-  shortfall back-pay, jackpots. Never "skip the horses" on a repayment;
+  shortfall back-pay, jackpots. Never "skip the horses" on a repayment.
+  Dan, 2026-11-08, HARD RULE: "HORSES GET REFUNDED EXACTLY THE SAME AS A HUMAN
+  100% OF THE TIME!" That covers every closure, cancellation and retirement,
+  horse-only events included. There is no "no refunds to horse entries" rule;
+  Dan never ordered one. Pinned by
+  `tests/a-refund-never-reads-horse-identity.law.test.ts`;
 - **IS SUBJECT TO** every rule a human is subject to — nit/VPIP eviction,
   limits, guards, integrity checks;
 - **COUNTS** everywhere a human counts — player counts, engine provisioning,
@@ -1611,8 +1624,7 @@ and blind-clock authority stays independent of global engine maintenance.
 The owner explicitly requested scheduled daily server updates on October 20.
 This is a narrow exception to the former no-release-timer rule: the existing
 stage-engine-release.yml prepares protected main in the 03:30-03:50 Chicago
-window: the first push or schedule run created inside it prepares, once per
-Chicago date, and a late cron prepares nothing (2026-11-01,
+window. The first eligible Stage run (push, schedule, or completion of a successful protected-main push Backup) can reserve the date up to five elapsed hours before 03:30. The original job waits once until 03:30, then prepares once per Chicago date, and a late cron prepares nothing (2026-11-01,
 `tests/daily-preparation-does-not-wait-for-a-punctual-cron.law.test.ts`),
 through the existing receiver only. It
 must not add a second publisher, watcher, retry agent or repair loop. Routine

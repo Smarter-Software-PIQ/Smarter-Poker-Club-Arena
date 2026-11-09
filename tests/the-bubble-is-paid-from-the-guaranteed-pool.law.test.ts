@@ -24,13 +24,19 @@ function declaration(sql: string): string {
 }
 
 function newestFile(): string {
-  const re = /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)?fn_tournament_guarantee_check\s*\(/i;
+  const re =
+    /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)?fn_tournament_guarantee_check\s*\(/i;
   let hit = '';
   for (const m of migrationCorpus()) if (re.test(m.sql)) hit = m.name;
   return hit;
 }
 
 const FN = declaration(MIG);
+const CURRENT_FILE = '20261108041131_net_guarantee_coverage_and_union_promo_funding.sql';
+const CURRENT_MIG = readFileSync(
+  resolve(process.cwd(), 'supabase/migrations', CURRENT_FILE),
+  'utf8'
+);
 
 describe('the bubble is paid from the guaranteed pool', () => {
   it('is one pinned transaction whose live proof is the declared text', () => {
@@ -47,8 +53,8 @@ describe('the bubble is paid from the guaranteed pool', () => {
   });
 
   it('carries the change', () => {
-    expect(FN).toContain('\'spin_backpay\',\'bubble_protection\',');
-    expect(FN).toContain('\'overlay_backpay\')');
+    expect(FN).toContain("'spin_backpay','bubble_protection',");
+    expect(FN).toContain("'overlay_backpay')");
     expect(FN).toContain('CONTINUE WHEN round(r.paid, 2) >= round(r.guaranteed_prize, 2);');
   });
 
@@ -59,8 +65,22 @@ describe('the bubble is paid from the guaranteed pool', () => {
   });
 
   it('is closed to browsers and is the newest declaration on disk', () => {
-    expect(MIG).toContain('REVOKE ALL ON FUNCTION public.fn_tournament_guarantee_check(integer) FROM PUBLIC, anon, authenticated;');
-    expect(MIG).toContain('GRANT EXECUTE ON FUNCTION public.fn_tournament_guarantee_check(integer) TO service_role;');
-    expect(newestFile()).toBe(FILE);
+    expect(MIG).toContain(
+      'REVOKE ALL ON FUNCTION public.fn_tournament_guarantee_check(integer) FROM PUBLIC, anon, authenticated;'
+    );
+    expect(MIG).toContain(
+      'GRANT EXECUTE ON FUNCTION public.fn_tournament_guarantee_check(integer) TO service_role;'
+    );
+    expect(newestFile()).toBe(CURRENT_FILE);
+    const current = declaration(CURRENT_MIG);
+    expect(current).toContain("'spin_backpay','bubble_protection',");
+    expect(current).toContain("'overlay_backpay')");
+    expect(current).toContain('CONTINUE WHEN round(r.paid, 2) >= round(r.guaranteed_prize, 2);');
+    expect(CURRENT_MIG).toMatch(
+      /REVOKE ALL ON FUNCTION public\.fn_tournament_guarantee_check\(integer\) FROM PUBLIC,\s*anon,\s*authenticated;/
+    );
+    expect(CURRENT_MIG).toContain(
+      'GRANT EXECUTE ON FUNCTION public.fn_tournament_guarantee_check(integer) TO service_role;'
+    );
   });
 });

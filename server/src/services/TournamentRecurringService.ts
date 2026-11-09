@@ -72,6 +72,13 @@ import {
   mttLateRegistrationMinutes,
 } from '../tournament/mttStructurePolicy.js';
 import { clampSeatsForVariant } from '../config/tableSeating.js';
+import {
+  SEAT_FIRST_OPENING_HORSES,
+  HUMAN_ARRIVAL_MIN_MS,
+  HUMAN_ARRIVAL_MAX_MS,
+  openingRungMs,
+  boardOpenTarget,
+} from '../config/seatFirstLadder.js';
 import { isFixedBoardClub } from '../config/fixedBoard.js';
 import {
   FREE_BUY_BOARD_NAMES,
@@ -890,8 +897,34 @@ const OPEN_TABLE_WAIT_MS = 10 * 60 * 1000;
  * deal. Still randomised per game, for the reason above: a constant delay
  * makes the whole board tick over in lockstep.
  */
-export const SEAT_FIRST_HUMAN_WINDOW_MIN_MS = 90 * 1000;
-export const SEAT_FIRST_HUMAN_WINDOW_MAX_MS = 350 * 1000;
+/**
+ * ── THE WINDOW IS NOW HOURS, AND IT BELONGS TO THE LADDER (2026-11-08) ──────
+ *
+ * These two constants no longer describe how long a HORSE-opened board waits.
+ * That is the ladder's job now (server/src/config/seatFirstLadder.ts): a Spin
+ * waits 60-80 minutes for its second horse and another 30-60 for its third, a
+ * Heads-Up waits three to four hours. See that file for Dan's words and for
+ * the seven-day measurement that ended the 90-350 SECOND window - 55,998 games
+ * played by the fleet against itself to produce seven that a person sat in.
+ *
+ * What these two still govern is the HUMAN path, which Dan set in the same
+ * message: "IF A HUMAN SITS AT AN EMPTY TABLE, OTHERS SHOULD JOIN THE SIT N GO
+ * WITHIN 3-7 MIN." So the floor is three minutes and the ceiling is seven, and
+ * the partner hold below is measured from the moment that person sat rather
+ * than from a board window that is now hours away.
+ */
+export const SEAT_FIRST_HUMAN_WINDOW_MIN_MS = HUMAN_ARRIVAL_MIN_MS;
+export const SEAT_FIRST_HUMAN_WINDOW_MAX_MS = HUMAN_ARRIVAL_MAX_MS;
+
+/**
+ * The opening wait for a freshly created seat-first board: the first rung of
+ * its ladder, randomised per board. `start_time` carries it, exactly as it
+ * carried the old window, so every reader downstream is unchanged - only the
+ * magnitude moved from minutes to hours.
+ */
+export function seatFirstOpeningWindowMs(seats: number): number {
+  return openingRungMs(seats, (span) => secureRandomInt(span + 1));
+}
 
 function seatFirstHumanWindowMs(): number {
   const span = SEAT_FIRST_HUMAN_WINDOW_MAX_MS - SEAT_FIRST_HUMAN_WINDOW_MIN_MS;
@@ -908,13 +941,20 @@ function seatFirstHumanWindowMs(): number {
 }
 
 /**
- * How many horses open a seat-first game: every seat but one.
+ * How many horses open a seat-first game: ONE, whatever the seat count.
  *
- * Spin (3 seats) -> 2 horses. Heads-up (2 seats) -> 1 horse. The remaining
- * seat is the human's for the window above.
+ * Dan 2026-11-08: "WE SHOULD ONLY HAVE ONE HORSE SITTING AT HAND FULL OF
+ * EVENTS, WE ARE AUTO RUNNING WAY TOO MANY ... SIT ONE HORSE AT LIKE 11
+ * DIFFERENT SPINS AND LIKE 6 SIT N GO'S."
+ *
+ * Was `seats - 1` - two on a Spin, one on a Heads-Up - so a Spin appeared on
+ * the board already one seat from dealing and filled itself inside six
+ * minutes. A board that opens with one horse is a board a person can actually
+ * walk up to; the rest of the field arrives a rung at a time (seatFirstLadder)
+ * or at once when a person sits.
  */
 function openingHorsesForSeatFirst(seats: number): number {
-  return Math.max(0, seats - 1);
+  return Math.min(Math.max(0, seats), SEAT_FIRST_OPENING_HORSES);
 }
 
 /**
@@ -1189,13 +1229,22 @@ export function seatFirstHumanPartnerHoldUntilMs(
       : windowEnd;
   }
   if (!Number.isFinite(firstHumanSeatedAtMs)) return -Infinity;
+  /* A PERSON OVERTAKES THE LADDER (2026-11-08). This used to hold until the
+     LATER of the board's own window and the partner floor. That was right when
+     the board window was 350 seconds; it is wrong now that a horse-opened
+     board's window is hours away, because it would make the one person who
+     actually sat down wait out the whole horse ladder. Dan's rule is counted
+     from the moment that person sat: "IF A HUMAN SITS AT AN EMPTY TABLE,
+     OTHERS SHOULD JOIN THE SIT N GO WITHIN 3-7 MIN." So the hold is 3 minutes
+     after they sat, 7 at the outside, and the board's own window no longer
+     enters into it. */
   const partnerFloor = firstHumanSeatedAtMs + SEAT_FIRST_HUMAN_PARTNER_HOLD_MS;
   const ceiling = firstHumanSeatedAtMs + SEAT_FIRST_HUMAN_WINDOW_MAX_MS;
   const spread = Math.min(
     Math.max(0, Number.isFinite(jitterMs) ? jitterMs : 0),
     SEAT_FIRST_HUMAN_PARTNER_HOLD_SPREAD_MS
   );
-  return Math.min(ceiling, Math.max(windowEnd, partnerFloor) + spread);
+  return Math.min(ceiling, partnerFloor + spread);
 }
 
 /**
@@ -3778,6 +3827,57 @@ export class TournamentRecurringService {
     }
   }
 
+  /**
+   * How many MORE seat-first boards of this variant the platform may open.
+   *
+   * Dan 2026-11-08: eleven Spins and six Heads-Up, open at once, across every
+   * club and union - not per owner and not per price point. Counts what a
+   * player could actually sit at: REGISTERING only, exactly as ensureBoardOpen
+   * does, because a RUNNING game is not a board anyone can join.
+   *
+   * Returns null when the count could not be read. The caller then opens
+   * NOTHING this tick rather than guessing - a failed read that defaulted to
+   * "plenty of room" would re-open the whole catalogue, which is the failure
+   * this target exists to prevent. A tick skipped costs a few minutes; the
+   * boards already open are untouched.
+   */
+  /**
+   * The house board and every activated owner's, in a fresh order each tick.
+   *
+   * With one platform-wide budget somebody has to go first, and a fixed order
+   * means the same board spends it every time - which is precisely how the
+   * per-board shares came to exist in the first place (the house went first on
+   * a shared budget, was perpetually short, and starved every club board). A
+   * drawn order gives each board the same expected share without anyone
+   * needing a share of their own.
+   */
+  private boardOpenOrder(owners: BoardOwner[]): BoardOwner[] {
+    const order = [this.houseOwner, ...owners];
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = secureRandomInt(i + 1);
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    return order;
+  }
+
+  private async seatFirstBoardRoom(variant: 'spin' | 'sng'): Promise<number | null> {
+    const { count, error } = await supabase
+      .from('tournaments')
+      .select('id', { count: 'exact', head: true })
+      .eq('variant', variant)
+      .eq('status', 'REGISTERING');
+    if (error || typeof count !== 'number') {
+      reportError(
+        new Error(
+          `[TournamentRecurring] ${variant} open-board count failed: ${error?.message ?? 'no count'}`
+        ),
+        'TournamentRecurring.board_room_read_failed'
+      );
+      return null;
+    }
+    return Math.max(0, boardOpenTarget(variant) - count);
+  }
+
   private async checkAndLaunchSNGs(): Promise<void> {
     await this.withBoardTick('sng', async () => {
       // THE FREEZE IS TOTAL (Dan 2026-09-03) - see checkAndLaunchTournaments.
@@ -3802,31 +3902,40 @@ export class TournamentRecurringService {
        * the Spin rule: never list a price point the owner did not sign
        * up for. */
       const owners = await this.activatedSpinOwners();
-      const share = boardBudgetShares(owners.length + 1);
-      await this.ensureBoardOpen(
-        'sng',
-        SNG_CONFIGS,
-        (c, o) => this.createSNG(c as any, o),
-        this.houseOwner,
-        { left: share }
-      );
-      for (const owner of owners) {
-        const affordable = SNG_CONFIGS.filter((c) => c.buyIn <= owner.maxStake);
-        if (affordable.length === 0) continue;
+      /* ONE BUDGET FOR THE WHOLE PLATFORM (Dan 2026-11-08). Each board used to
+         get its own share of BURST, because the board was every price point on
+         every owner and the only question was how fast it filled. The board is
+         now SIX Heads-Up in total, so a per-owner share would be six each. The
+         single budget is capped by what the platform has room for, and the
+         owners are drawn in a fresh order each tick so no board is permanently
+         first in the queue for it. */
+      const room = await this.seatFirstBoardRoom('sng');
+      if (room === null || room <= 0) return;
+      const budget = { left: Math.min(room, boardBudgetShares(1)) };
+      for (const board of this.boardOpenOrder(owners)) {
+        if (budget.left <= 0) break;
+        const configs =
+          board === this.houseOwner
+            ? SNG_CONFIGS
+            : SNG_CONFIGS.filter((c) => c.buyIn <= board.maxStake);
+        if (configs.length === 0) continue;
         await this.ensureBoardOpen(
           'sng',
-          affordable,
+          configs,
           (c, o) => this.createSNG(c as any, o),
-          owner,
-          { left: share }
+          board,
+          budget
         );
       }
 
       /* Satellite heads-ups ride the same tick as the heads-up board they
          sit on. A handful per owner at most (one per dear target), so the
          share is capped well under a board share: this is a feeder, not a
-         ladder. */
-      const satelliteShare = Math.min(share, SATELLITE_HU_TARGETS_PER_OWNER);
+         ladder. It is counted separately from the six-board target above - a
+         satellite exists to feed one named target, not to be a price point on
+         the open board, and starving its feeder would quietly close the
+         target's cheapest way in. */
+      const satelliteShare = Math.min(boardBudgetShares(1), SATELLITE_HU_TARGETS_PER_OWNER);
       await this.ensureSatelliteHeadsUps(this.houseOwner, satelliteShare);
       for (const owner of owners) {
         await this.ensureSatelliteHeadsUps(owner, satelliteShare);
@@ -4049,7 +4158,7 @@ export class TournamentRecurringService {
     owner: BoardOwner = this.houseOwner
   ): Promise<{ tournamentId: string | null; registered: number; created?: boolean }> {
     try {
-      const startTime = new Date(Date.now() + seatFirstHumanWindowMs());
+      const startTime = new Date(Date.now() + seatFirstOpeningWindowMs(config.maxPlayers));
       const dbGameType = dbGameTypeFor(config.gameVariant, 'createSatelliteHeadsUp');
 
       const satelliteRow = {
@@ -4326,29 +4435,28 @@ export class TournamentRecurringService {
       // thirty-odd games short every tick, it starved every owner board
       // instead. See boardBudgetShares for the measurement.
       const owners = await this.activatedSpinOwners();
-      const share = boardBudgetShares(owners.length + 1);
-
-      await this.ensureBoardOpen(
-        'spin',
-        SPIN_CONFIGS,
-        (c, o) => this.createSpin(c as any, o),
-        this.houseOwner,
-        { left: share }
-      );
-
-      for (const owner of owners) {
-        // Only the price points this owner's seed can actually cover. The
-        // required seed is two top-tier jackpots at their largest stake, so
-        // offering a bigger buy-in than they seeded for would advertise a
-        // multiplier the wallet cannot pay.
-        const affordable = SPIN_CONFIGS.filter((c) => c.buyIn <= owner.maxStake);
-        if (affordable.length === 0) continue;
+      /* ELEVEN SPINS, PLATFORM-WIDE (Dan 2026-11-08). See the Heads-Up pass
+         above for why this is one budget rather than a share per board. An
+         owner's board still only ever offers the price points its seed can
+         cover: the required seed is two top-tier jackpots at its largest
+         stake, so a bigger buy-in would advertise a multiplier the wallet
+         cannot pay. */
+      const room = await this.seatFirstBoardRoom('spin');
+      if (room === null || room <= 0) return;
+      const budget = { left: Math.min(room, boardBudgetShares(1)) };
+      for (const board of this.boardOpenOrder(owners)) {
+        if (budget.left <= 0) break;
+        const configs =
+          board === this.houseOwner
+            ? SPIN_CONFIGS
+            : SPIN_CONFIGS.filter((c) => c.buyIn <= board.maxStake);
+        if (configs.length === 0) continue;
         await this.ensureBoardOpen(
           'spin',
-          affordable,
+          configs,
           (c, o) => this.createSpin(c as any, o),
-          owner,
-          { left: share }
+          board,
+          budget
         );
       }
     });
@@ -4491,6 +4599,18 @@ export class TournamentRecurringService {
       );
       const missing = configs.filter((c) => !open.has(c.name));
       if (missing.length === 0) return;
+
+      /* WHICH PRICE POINTS ARE OPEN IS DRAWN FRESH (Dan 2026-11-08). The board
+         is now eleven Spins and six Heads-Up platform-wide, out of a catalogue
+         of 64 and 32. Taking them in config order would pin the same cheapest
+         eleven open for ever and make the other fifty-three unreachable, which
+         is not a narrower board - it is a smaller product. Shuffled per tick,
+         so the open board walks the whole ladder over a day and a player who
+         looks twice sees different stakes. */
+      for (let i = missing.length - 1; i > 0; i--) {
+        const j = secureRandomInt(i + 1);
+        [missing[i], missing[j]] = [missing[j], missing[i]];
+      }
 
       /* Cap the per-tick burst. A cold start has every config missing, and
          creating them all in one tick means one insert plus one
@@ -5049,12 +5169,13 @@ export class TournamentRecurringService {
   ): Promise<{ tournamentId: string | null; registered: number }> {
     try {
       // A heads-up game is seat-first: one horse opens it and the second seat
-      // is a human's for 60-180s. A 6-max or 9-max SNG is a field, not a table
-      // you walk up to, and keeps the longer scheduled lead-in.
+      // is a person's for three to four HOURS (Dan 2026-11-08). A 6-max or
+      // 9-max SNG is a field, not a table you walk up to, and keeps the longer
+      // scheduled lead-in.
       const startTime = new Date(
         Date.now() +
           (isSeatFirstFormat('sng', config.maxPlayers)
-            ? seatFirstHumanWindowMs()
+            ? seatFirstOpeningWindowMs(config.maxPlayers)
             : OPEN_TABLE_WAIT_MS)
       );
       const dbGameType = dbGameTypeFor(config.gameVariant, 'createSNG');
@@ -6071,9 +6192,10 @@ export class TournamentRecurringService {
           'TournamentRecurring.spin_seat_count_override'
         );
       }
-      // The last seat is a human's for 60-180s; after that the past-start
-      // top-up is allowed to fill it. See seatFirstHumanWindowMs.
-      const startTime = new Date(Date.now() + seatFirstHumanWindowMs());
+      // Every seat is a person's for the ladder's first rung - 60-80 minutes
+      // on a Spin - and `start_time` is the instant that rung ends. See
+      // seatFirstOpeningWindowMs and server/src/config/seatFirstLadder.ts.
+      const startTime = new Date(Date.now() + seatFirstOpeningWindowMs(SPIN_SEATS));
 
       // THE DRAW DOES NOT HAPPEN HERE ANY MORE (2026-08-20, second pass).
       //

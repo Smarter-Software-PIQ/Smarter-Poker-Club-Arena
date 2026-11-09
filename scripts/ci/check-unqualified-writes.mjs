@@ -290,7 +290,8 @@ export function stripNoise(sql) {
 }
 
 const IDENT = String.raw`(?:"[^"]+"|[A-Za-z_][A-Za-z0-9_$]*)`;
-const QUALIFIED = String.raw`${IDENT}(?:\s*\.\s*${IDENT})*`;
+// Also read by migration-install-budget.mjs, so both name a relation the same way.
+export const QUALIFIED = String.raw`${IDENT}(?:\s*\.\s*${IDENT})*`;
 
 /**
  * Every unqualified DELETE in this SQL, as written.

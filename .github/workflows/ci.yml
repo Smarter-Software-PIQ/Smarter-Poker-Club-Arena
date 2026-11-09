@@ -1882,6 +1882,7 @@ jobs:
       - name: Data console native PostgreSQL contracts
         if: matrix.shard == 2
         env:
+          GH_TOKEN: ${{ github.token }}
           PG17_BINDIR: /usr/lib/postgresql/17/bin
           STATS_PG_SCRATCH_PARENT: ${{ runner.temp }}
           DATA_CONSOLE_PG_SCRATCH_PARENT: ${{ runner.temp }}

@@ -9,7 +9,7 @@ set -e
 SRC=${0:A:h}; CHECKOUT=${1:?checkout path required}
 O=~/.smarter-poker/ops; LA=~/Library/LaunchAgents
 mkdir -p $O/work $O/supabase/.temp $O/scripts/ci/certificates ~/.smarter-poker/install-queue/{pending,running,done,failed} ~/.smarter-poker/logs
-cp $SRC/{db.sh,install-queue.sh,install-driver.sh,submit-install.sh,heartbeat.sh,readback.py,README.md} $O/
+cp $SRC/{db.sh,install-queue.sh,install-driver.sh,submit-install.sh,heartbeat.sh,readback.py,solver-host.sh,README.md} $O/
 cp $SRC/direct-db.py $O/work/direct-db.py
 cp $CHECKOUT/supabase/.temp/pooler-url $O/supabase/.temp/pooler-url && chmod 600 $O/supabase/.temp/pooler-url
 cp $CHECKOUT/scripts/ci/certificates/supabase-prod-ca-2021.crt $O/scripts/ci/certificates/

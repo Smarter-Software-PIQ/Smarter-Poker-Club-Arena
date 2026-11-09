@@ -5324,7 +5324,7 @@
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
         "satelliteTargetName": "Sunday 200 Deep Stack",
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -5372,7 +5372,7 @@
         "buy_in_fee": 2.5,
         "guaranteed_prize": 0,
         "starting_chips": 5000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 5000,
         "rebuy_levels": 12,
@@ -5381,7 +5381,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "5,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "5,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },
@@ -5419,7 +5419,7 @@
         "guaranteedPrize": 1500,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -5467,7 +5467,7 @@
         "buy_in_fee": 3,
         "guaranteed_prize": 1500,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -5476,7 +5476,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B3"
     },
@@ -5623,7 +5623,7 @@
         "actionTimeSeconds": 15,
         "synchronizedBreaks": true,
         "lateRegistrationMode": "levels",
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMinutes": 0,
         "addonChips": 10000,
         "addonCost": null,
@@ -5670,7 +5670,7 @@
         "buy_in_fee": 4,
         "guaranteed_prize": 1500,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": null,
         "rebuy_levels": null,
@@ -5679,7 +5679,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },
@@ -5717,7 +5717,7 @@
         "guaranteedPrize": 1500,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -5765,7 +5765,7 @@
         "buy_in_fee": 3,
         "guaranteed_prize": 1500,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -5774,7 +5774,7 @@
         "accelerated_mtt": false,
         "blind_speed": "turbo",
         "is_turbo": true,
-        "short_description": "10,000 Starting Chips. 5 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 5 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B1"
     },
@@ -6107,7 +6107,7 @@
         "addonBreakMinutes": 1,
         "spawnAheadMinutes": 10080,
         "finalTableDealEnabled": true,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -6155,7 +6155,7 @@
         "buy_in_fee": 20,
         "guaranteed_prize": 25000,
         "starting_chips": 30000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 30000,
         "rebuy_levels": 12,
@@ -6164,7 +6164,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "30,000 Starting Chips. 10 Minute Levels. Late Registration Through Level 12."
+        "short_description": "30,000 Starting Chips. 10 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B5"
     },
@@ -6205,7 +6205,7 @@
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
         "satelliteTargetName": "Sunday 200 Deep Stack",
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -6252,7 +6252,7 @@
         "buy_in_fee": 3,
         "guaranteed_prize": 0,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -6261,7 +6261,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },
@@ -6299,7 +6299,7 @@
         "guaranteedPrize": 2500,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -6347,7 +6347,7 @@
         "buy_in_fee": 5,
         "guaranteed_prize": 2500,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -6356,7 +6356,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },
@@ -6590,7 +6590,7 @@
         "guaranteedPrize": 2500,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -6638,7 +6638,7 @@
         "buy_in_fee": 5,
         "guaranteed_prize": 2500,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -6647,7 +6647,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B3"
     },
@@ -6782,7 +6782,7 @@
         "guaranteedPrize": 2500,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -6830,7 +6830,7 @@
         "buy_in_fee": 5,
         "guaranteed_prize": 2500,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -6839,7 +6839,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },
@@ -6974,7 +6974,7 @@
         "guaranteedPrize": 1500,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -7022,7 +7022,7 @@
         "buy_in_fee": 3,
         "guaranteed_prize": 1500,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -7031,7 +7031,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B3"
     },
@@ -7071,7 +7071,7 @@
         "mysteryBountyMax": 10,
         "mysteryBountyMin": 0.5,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "mysteryBountyActivation": "at_the_money",
         "mysteryBountyPoolPercent": 100,
         "mysteryBountyActivationValue": null,
@@ -7122,7 +7122,7 @@
         "buy_in_fee": 5,
         "guaranteed_prize": 2500,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -7131,7 +7131,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B3"
     },
@@ -7377,7 +7377,7 @@
         "actionTimeSeconds": 15,
         "synchronizedBreaks": true,
         "lateRegistrationMode": "levels",
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMinutes": 0,
         "addonChips": 10000,
         "addonCost": null,
@@ -7424,7 +7424,7 @@
         "buy_in_fee": 4,
         "guaranteed_prize": 2500,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": null,
         "rebuy_levels": null,
@@ -7433,7 +7433,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },
@@ -7471,7 +7471,7 @@
         "guaranteedPrize": 1500,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -7519,7 +7519,7 @@
         "buy_in_fee": 3,
         "guaranteed_prize": 1500,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -7528,7 +7528,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },
@@ -7758,7 +7758,7 @@
         "guaranteedPrize": 5000,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -7806,7 +7806,7 @@
         "buy_in_fee": 7.5,
         "guaranteed_prize": 5000,
         "starting_chips": 15000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 15000,
         "rebuy_levels": 12,
@@ -7815,7 +7815,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "15,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "15,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },
@@ -7950,7 +7950,7 @@
         "guaranteedPrize": 1500,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -7998,7 +7998,7 @@
         "buy_in_fee": 3,
         "guaranteed_prize": 1500,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -8007,7 +8007,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },
@@ -8147,7 +8147,7 @@
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
         "satelliteTargetName": "Sunday 200 Deep Stack",
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -8194,7 +8194,7 @@
         "buy_in_fee": 3,
         "guaranteed_prize": 0,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -8203,7 +8203,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },
@@ -8242,7 +8242,7 @@
         "guaranteedPrize": 3500,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -8290,7 +8290,7 @@
         "buy_in_fee": 5,
         "guaranteed_prize": 3500,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -8299,7 +8299,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },
@@ -8434,7 +8434,7 @@
         "guaranteedPrize": 5000,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -8482,7 +8482,7 @@
         "buy_in_fee": 10,
         "guaranteed_prize": 5000,
         "starting_chips": 15000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 15000,
         "rebuy_levels": 12,
@@ -8491,7 +8491,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "15,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "15,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },
@@ -8529,7 +8529,7 @@
         "guaranteedPrize": 5000,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -8577,7 +8577,7 @@
         "buy_in_fee": 10,
         "guaranteed_prize": 5000,
         "starting_chips": 15000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 15000,
         "rebuy_levels": 12,
@@ -8586,7 +8586,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "15,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "15,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B3"
     },
@@ -8721,7 +8721,7 @@
         "guaranteedPrize": 2500,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -8769,7 +8769,7 @@
         "buy_in_fee": 5,
         "guaranteed_prize": 2500,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -8778,7 +8778,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },
@@ -8816,7 +8816,7 @@
         "guaranteedPrize": 1500,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -8864,7 +8864,7 @@
         "buy_in_fee": 5,
         "guaranteed_prize": 1500,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -8873,7 +8873,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },
@@ -9008,7 +9008,7 @@
         "guaranteedPrize": 3500,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -9056,7 +9056,7 @@
         "buy_in_fee": 7.5,
         "guaranteed_prize": 3500,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -9065,7 +9065,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },
@@ -9103,7 +9103,7 @@
         "guaranteedPrize": 1500,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -9151,7 +9151,7 @@
         "buy_in_fee": 3,
         "guaranteed_prize": 1500,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -9160,7 +9160,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B3"
     },
@@ -9210,7 +9210,7 @@
         "actionTimeSeconds": 15,
         "synchronizedBreaks": true,
         "lateRegistrationMode": "levels",
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMinutes": 0,
         "addonChips": 10000,
         "addonCost": null,
@@ -9257,7 +9257,7 @@
         "buy_in_fee": 4,
         "guaranteed_prize": 2500,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": null,
         "rebuy_levels": null,
@@ -9266,7 +9266,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },
@@ -9306,7 +9306,7 @@
         "mysteryBountyMax": 10,
         "mysteryBountyMin": 0.5,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "mysteryBountyActivation": "at_the_money",
         "mysteryBountyPoolPercent": 100,
         "mysteryBountyActivationValue": null,
@@ -9357,7 +9357,7 @@
         "buy_in_fee": 5,
         "guaranteed_prize": 2500,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -9366,7 +9366,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },
@@ -9404,7 +9404,7 @@
         "guaranteedPrize": 1500,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -9452,7 +9452,7 @@
         "buy_in_fee": 3,
         "guaranteed_prize": 1500,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -9461,7 +9461,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },
@@ -9502,7 +9502,7 @@
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
         "satelliteTargetName": "Sunday 200 Deep Stack",
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -9549,7 +9549,7 @@
         "buy_in_fee": 3,
         "guaranteed_prize": 0,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -9558,7 +9558,7 @@
         "accelerated_mtt": false,
         "blind_speed": "turbo",
         "is_turbo": true,
-        "short_description": "10,000 Starting Chips. 5 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 5 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B1"
     },
@@ -11014,7 +11014,7 @@
         "guaranteedPrize": 1000,
         "horsesToRegister": 22,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "mysteryBountyActivation": "at_the_money",
         "mysteryBountyPoolPercent": 100,
         "mysteryBountyActivationValue": null,
@@ -11067,7 +11067,7 @@
         "buy_in_fee": 2.5,
         "guaranteed_prize": 1000,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -11076,7 +11076,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B3"
     },
@@ -11398,7 +11398,7 @@
         "guaranteedPrize": 2500,
         "horsesToRegister": 30,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "name": "Union Grand Championship (NLH)",
         "gameVariant": "nlh",
         "lateRegistrationMode": "levels",
@@ -11448,7 +11448,7 @@
         "buy_in_fee": 5,
         "guaranteed_prize": 2500,
         "starting_chips": 15000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 15000,
         "rebuy_levels": 12,
@@ -11457,7 +11457,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "15,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "15,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },
@@ -11599,7 +11599,7 @@
         "actionTimeSeconds": 15,
         "synchronizedBreaks": true,
         "lateRegistrationMode": "levels",
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMinutes": 0,
         "addonChips": 10000,
         "addonCost": null,
@@ -11646,7 +11646,7 @@
         "buy_in_fee": 2.5,
         "guaranteed_prize": 1000,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -11655,7 +11655,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },
@@ -11786,7 +11786,7 @@
         "guaranteedPrize": 10000,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -11834,7 +11834,7 @@
         "buy_in_fee": 3.5,
         "guaranteed_prize": 10000,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -11843,7 +11843,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 10 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 10 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B5"
     },
@@ -12168,7 +12168,7 @@
         "guaranteedPrize": 1500,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -12216,7 +12216,7 @@
         "buy_in_fee": 3,
         "guaranteed_prize": 1500,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -12225,7 +12225,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },
@@ -13119,7 +13119,7 @@
         "guaranteedPrize": 0,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -13167,7 +13167,7 @@
         "buy_in_fee": 3,
         "guaranteed_prize": 0,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -13176,7 +13176,7 @@
         "accelerated_mtt": false,
         "blind_speed": "turbo",
         "is_turbo": true,
-        "short_description": "10,000 Starting Chips. 5 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 5 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B8"
     },
@@ -13978,7 +13978,7 @@
         "guaranteedPrize": 1500,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -14026,7 +14026,7 @@
         "buy_in_fee": 3,
         "guaranteed_prize": 1500,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -14035,7 +14035,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B10"
     },
@@ -14842,7 +14842,7 @@
         "guaranteedPrize": 1500,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -14890,7 +14890,7 @@
         "buy_in_fee": 3,
         "guaranteed_prize": 1500,
         "starting_chips": 30000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 30000,
         "rebuy_levels": 12,
@@ -14899,7 +14899,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "30,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "30,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B12"
     },
@@ -15802,7 +15802,7 @@
         "guaranteedPrize": 1500,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -15850,7 +15850,7 @@
         "buy_in_fee": 3,
         "guaranteed_prize": 1500,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -15859,7 +15859,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },
@@ -15897,7 +15897,7 @@
         "guaranteedPrize": 1000,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -15945,7 +15945,7 @@
         "buy_in_fee": 3,
         "guaranteed_prize": 1000,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -15954,7 +15954,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B3"
     },
@@ -15992,7 +15992,7 @@
         "guaranteedPrize": 1500,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -16040,7 +16040,7 @@
         "buy_in_fee": 3,
         "guaranteed_prize": 1500,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -16049,7 +16049,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },
@@ -16184,7 +16184,7 @@
         "guaranteedPrize": 1500,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -16232,7 +16232,7 @@
         "buy_in_fee": 3,
         "guaranteed_prize": 1500,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -16241,7 +16241,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },
@@ -17049,7 +17049,7 @@
         "guaranteedPrize": 1500,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -17097,7 +17097,7 @@
         "buy_in_fee": 3,
         "guaranteed_prize": 1500,
         "starting_chips": 20000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 20000,
         "rebuy_levels": 12,
@@ -17106,7 +17106,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "20,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "20,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },
@@ -17146,7 +17146,7 @@
         "mysteryBountyMax": 10,
         "mysteryBountyMin": 0.5,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "mysteryBountyActivation": "at_the_money",
         "mysteryBountyPoolPercent": 100,
         "mysteryBountyActivationValue": null,
@@ -17197,7 +17197,7 @@
         "buy_in_fee": 3,
         "guaranteed_prize": 1500,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -17206,7 +17206,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },
@@ -17341,7 +17341,7 @@
         "guaranteedPrize": 2000,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -17389,7 +17389,7 @@
         "buy_in_fee": 5,
         "guaranteed_prize": 2000,
         "starting_chips": 10000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
         "rebuy_levels": 12,
@@ -17398,7 +17398,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },
@@ -17533,7 +17533,7 @@
         "guaranteedPrize": 1500,
         "horsesToRegister": 0,
         "addonBreakMinutes": 1,
-        "lateRegistrationLevels": 12,
+        "lateRegistrationLevels": 10,
         "lateRegistrationMode": "levels",
         "lateRegistrationMinutes": 0,
         "maxRebuys": null,
@@ -17581,7 +17581,7 @@
         "buy_in_fee": 3,
         "guaranteed_prize": 1500,
         "starting_chips": 20000,
-        "late_reg_levels": 12,
+        "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 20000,
         "rebuy_levels": 12,
@@ -17590,7 +17590,7 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "20,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 12."
+        "short_description": "20,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
       "blindProfile": "B4"
     },

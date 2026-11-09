@@ -1,5 +1,6 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# DISPATCH MERGED MIGRATIONS — every merge into main installs what it added.
+# DISPATCH MERGED MIGRATIONS — every merge into main installs what it added
+# or modified (modified since 2026-11-08: a refused migration fixed in place).
 #
 # A WORKFLOW OF ITS OWN (2026-11-07). The dispatch used to be a job inside
 # agent-autopilot.yml, and Agent Autopilot has been disabled_manually since
@@ -40,7 +41,7 @@ concurrency:
 
 jobs:
   dispatch-merged-migrations:
-    name: Dispatch the migrations this merge added
+    name: Dispatch the migrations this merge added or modified
     if: >-
       github.event.action == 'closed'
       && github.event.pull_request.merged == true
@@ -56,7 +57,7 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
 
-      - name: Dispatch each added migration to the applier
+      - name: Dispatch each added or modified migration to the applier
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}

@@ -480,6 +480,18 @@ import nativeCohorts from './__fixtures__/satellite-qualifier-native-receipts.js
 import { verifySatelliteQualifierReceipt } from './satelliteQualifierReceipt.js';
 
 describe('versioned satellite qualifier receipts keep equal winners unranked', () => {
+  it.each([5, 523])('accepts a capped final ticket with attached remainder %s', (amount) => {
+    const raw = structuredClone(nativeCohorts.two_survivors);
+    raw.field_size = raw.ticket_award_count;
+    raw.pool = raw.ticket_award_count * raw.ticket_cost + amount;
+    raw.remainder = { amount, position: raw.field_size, user_id: raw.awards[1].user_id };
+    expect(
+      verifySatelliteQualifierReceipt(raw, raw.tournament_id, raw.qualifier_ids)?.remainder
+    ).toEqual({ amount, position: raw.field_size, userId: raw.awards[1].user_id });
+    raw.remainder.user_id = raw.awards[0].user_id;
+    expect(verifySatelliteQualifierReceipt(raw, raw.tournament_id, raw.qualifier_ids)).toBeNull();
+  });
+
   it.each(Object.entries(nativeCohorts))('accepts the actual %s terminal receipt', (_name, raw) => {
     const verified = verifySatelliteQualifierReceipt(raw, raw.tournament_id, raw.qualifier_ids);
     expect(verified).not.toBeNull();

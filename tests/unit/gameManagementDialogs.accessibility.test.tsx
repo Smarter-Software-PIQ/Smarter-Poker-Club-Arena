@@ -194,6 +194,8 @@ it('edits a fixed-limit cash minimum without imposing a maximum', () => {
   fireEvent.change(screen.getByLabelText('Game Name'), { target: { value: 'Limit Session' } });
   fireEvent.submit(screen.getByRole('dialog'));
   expect(onSave).toHaveBeenCalledTimes(1);
-  expect(onSave.mock.calls[0][0]).toMatchObject({ name: 'Limit Session', minBuyIn: 400 });
+  // Dan 2026-11-08: the minimum is always 50 big blinds (10 x 50), never typed.
+  expect(screen.getByLabelText('Minimum Buy-In')).toHaveAttribute('readonly');
+  expect(onSave.mock.calls[0][0]).toMatchObject({ name: 'Limit Session', minBuyIn: 500 });
   expect(onSave.mock.calls[0][0]).not.toHaveProperty('maxBuyIn');
 });

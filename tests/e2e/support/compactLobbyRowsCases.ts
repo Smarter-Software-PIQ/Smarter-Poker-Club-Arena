@@ -11,6 +11,17 @@ export function registerCompactLobbyRowsCases() {
     await page.addStyleTag({
       content: readFileSync('src/components/lobby/PremiumMttRows.css', 'utf8'),
     });
+    const crop = await page.locator('tr[data-id="fixture"]').evaluate((row) => {
+      const paint = getComputedStyle(row, '::before');
+      const imageHeight = Number.parseFloat(paint.backgroundSize.split(' ')[1]);
+      const offset = Number.parseFloat(paint.backgroundPositionY);
+      return {
+        firstPixel: (-offset / imageHeight) * 793,
+        lastPixel: ((row.getBoundingClientRect().height - offset) / imageHeight) * 793,
+      };
+    });
+    expect(crop.firstPixel).toBeCloseTo(407, 0);
+    expect(crop.lastPixel).toBeCloseTo(635, 0);
     await page.getByRole('button', { name: 'Details: Tournament', exact: true }).click();
     await expect(page.locator('body')).toHaveAttribute('data-details', 'opened');
     await page.locator('.premium-lobby-start-toggle').click();
@@ -131,11 +142,17 @@ export function registerCompactLobbyRowsCases() {
       });
       if (width <= 900) {
         expect(geometry.meta.every((meta) => meta.whiteSpace === 'normal')).toBe(true);
-        const styleCopy = table.locator('.compact-lobby__meta').nth(1);
+        /* Dan 2026-11-08: a Lightning card's style bay prints one word, and
+           its rules move under the title. The three-line fit is proven on the
+           Classic PLO6 card, which still carries its ante and floor. */
+        await expect(
+          table.locator('tr[data-id="fixture-madness"] .premium-cash-style > span')
+        ).toHaveText(['Lightning']);
+        const styleCopy = table.locator('tr[data-id="fixture-classic"] .compact-lobby__meta');
         await expect(styleCopy.locator('.premium-cash-style > span')).toHaveText([
-          'Lightning Games',
+          'Classic',
           'Big Blind Ante',
-          '40% Min VPIP',
+          '50% Min VPIP',
         ]);
         const readPaintedStack = () =>
           styleCopy.locator('.premium-cash-style').evaluate((glass) => {
@@ -224,7 +241,7 @@ export function registerCompactLobbyRowsCases() {
             ).toBeGreaterThanOrEqual(paintedStack[index - 1].bottom - 1);
           }
         }
-        await expect(styleCopy.getByTitle('40% Minimum VPIP', { exact: true })).toBeVisible();
+        await expect(styleCopy.getByTitle('50% Minimum VPIP', { exact: true })).toBeVisible();
         await table.locator('.compact-lobby__open').first().click();
         await expect(page.locator('body')).toHaveAttribute('data-selected', 'true');
       }
