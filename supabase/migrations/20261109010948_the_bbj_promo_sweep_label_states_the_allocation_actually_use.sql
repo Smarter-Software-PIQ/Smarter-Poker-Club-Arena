@@ -45,7 +45,7 @@
 --            (backup / drop) each agree with the governing policy's main_rate
 --            and backup_rate within 0.05 percentage points.
 --      The returned number is (1 - main_rate - backup_rate) * 100 from the
---      governing policy — never a rounded empirical ratio.
+--      governing policy - never a rounded empirical ratio.
 --   3. When any condition is not met (first sweep, pre-October pivot era with
 --      no single-rate period evidence, straddling a rate change, drop < 5.00,
 --      or an anomalous window), fn_bbj_promo_window_share returns NULL and

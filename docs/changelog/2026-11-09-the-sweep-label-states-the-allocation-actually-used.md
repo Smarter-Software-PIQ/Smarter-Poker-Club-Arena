@@ -1,4 +1,4 @@
-# 2026-11-09 — The BBJ promo sweep label states the allocation actually used
+# 2026-11-09 - The BBJ promo sweep label states the allocation actually used
 
 ## Summary
 
@@ -24,7 +24,7 @@
    - Updates `fn_sweep_bbj_promo(uuid)` and `fn_sweep_bbj_promo_all()` to label future sweeps dynamically (preserving the `20261015094402` `NOWAIT` lock order and `fn_ca_declare_ledger` declarations) and backfills `union_wallet_transactions.notes` for existing `bbj_promo_sweep` rows without touching any amount, balance, timestamp, or transaction identity.
 
 3. **Separate anomaly record (`docs/BBJ-ALLOCATION-ANOMALY-2026-08.md`):**
-   - Documents the August–September 2026 pre-residue-carry rounding bands (`~24%` promo across `1,414` sweeps from `2026-08-17` to `2026-08-30` and `~48%` promo across `224` sweeps from `2026-09-01` to `2026-09-02`) separately for review, with zero financial mutations.
+   - Documents the August-September 2026 pre-residue-carry rounding bands (`~24%` promo across `1,414` sweeps from `2026-08-17` to `2026-08-30` and `~48%` promo across `224` sweeps from `2026-09-01` to `2026-09-02`) separately for review, with zero financial mutations.
 
 ## Verification Probe (Self-Aborting Transaction on Production)
 

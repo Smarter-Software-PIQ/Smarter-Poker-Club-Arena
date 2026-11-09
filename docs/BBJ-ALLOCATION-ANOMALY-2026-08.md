@@ -1,4 +1,4 @@
-# BBJ Allocation Anomaly — August–October 2026 (Investigation Record)
+# BBJ Allocation Anomaly - August-October 2026 (Investigation Record)
 
 **Status:** Measurement and suspicion recorded for separate review. No historical amounts, balances, timestamps, or transaction identities have been altered.
 
@@ -18,7 +18,7 @@ Under the tightened `ca_bbj_rate_periods` proof rule in `20261109010948`, all pr
 
 Querying `public.bbj_contributions` on the Midway Union pool (`f9806a7f-e7a2-47d2-a676-36336e3a5337`) across the anomalous sweep windows shows two primary clusters:
 
-### Band A — `2026-08-17 05:20Z` to `2026-08-30 15:25Z` (`~24%` promo)
+### Band A - `2026-08-17 05:20Z` to `2026-08-30 15:25Z` (`~24%` promo)
 
 - **Sweep windows:** `1,414` windows (of `1,813` non-matching stable windows with drop `>= 5.00`)
 - **Hands (`bbj_contributions` rows):** `81,968`
@@ -28,7 +28,7 @@ Querying `public.bbj_contributions` on the Midway Union pool (`f9806a7f-e7a2-47d
 - **Promo (`sum(promo_portion)`):** `6,815.63` chips (`23.9991%`)
 - **Unallocated (`sum(amount - main_portion - backup_portion - promo_portion)`):** `44.16` chips (`0.1555%`)
 
-### Band B — `2026-09-01 05:50Z` to `2026-09-02 22:00Z` (`~48%` promo)
+### Band B - `2026-09-01 05:50Z` to `2026-09-02 22:00Z` (`~48%` promo)
 
 - **Sweep windows:** `224` windows
 - **Hands (`bbj_contributions` rows):** `18,619`
@@ -38,9 +38,9 @@ Querying `public.bbj_contributions` on the Midway Union pool (`f9806a7f-e7a2-47d
 - **Promo (`sum(promo_portion)`):** `3,080.88` chips (`48.0421%`)
 - **Unallocated (`sum(amount - main_portion - backup_portion - promo_portion)`):** `0.00` chips
 
-### Band C — Smaller transitional / mixed windows (`2026-08-17` to `2026-11-08`)
+### Band C - Smaller transitional / mixed windows (`2026-08-17` to `2026-11-08`)
 
-- **Remaining `175` windows** with drop `>= 5.00` and stable halves (including `37` windows inside the `2026-10-23` `10/30/60` period where small-drop cent-rounding shifted `main` or `backup` by `0.06–0.25` percentage points, plus `17` windows where first/second halves differed by `> 0.5` percentage points).
+- **Remaining `175` windows** with drop `>= 5.00` and stable halves (including `37` windows inside the `2026-10-23` `10/30/60` period where small-drop cent-rounding shifted `main` or `backup` by `0.06-0.25` percentage points, plus `17` windows where first/second halves differed by `> 0.5` percentage points).
 - **`520` windows** where total drop `< 5.00` chips (`63` of which occurred after `2026-10-23 02:42:45+00`).
 
 ---
