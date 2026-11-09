@@ -1,3 +1,6 @@
+-- SUPERSEDED BY 20261109140919
+-- Never installed: atomic preimage refusals42631793716 and42637725002.
+-- Installed successor owns the actual before-debit return leg; audit only.
 -- Fix in place: this version was refused atomically and is not installed.
 -- Preserve the concurrent 20261109132254 post-write skip clear; the debit
 -- requires its own clear BEFORE its UPDATE, where the writer consumes it.

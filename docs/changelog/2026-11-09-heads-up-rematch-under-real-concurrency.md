@@ -68,3 +68,20 @@ The run does the following:
 
 Outside the Sit & Go window (03:00-06:00 Chicago), during a freeze or while
 the engine is not idle, the run ends UNKNOWN and creates nothing.
+
+## Why the live check is now held (2026-11-09 14:45Z)
+
+Runs 42581709358 and 42584396854 proved the product in production:
+- a signed-in Play Again;
+- one committed rematch;
+- one buy-in plus fee from each player in one transaction;
+- the same opponent and the same terms;
+- the browser moving to the new table;
+- the engine starting the rematch and dealing its first hand;
+- chips conserved after both games.
+
+What no run has been able to do is retire its club afterwards:
+- `fn_retire_settled_club` always runs `fn_unwind_unused_first_club_welcome_package`, which refuses any club in which a Sit & Go was played. The Cert Residue Sweep (run 42602987778) was refused on three such clubs.
+- Removing the untouched welcome games first, through `fn_remove_first_club_welcome_games`, deactivates the club's Spin pool. After that, the tournament creation fence refuses every Sit & Go in that club (`WELCOME_PACKAGE_SPIN_BOARD_RETIRED`, run 42635543669).
+
+Until a retirement path for a played certification club exists, the script ends UNKNOWN before creating anything (`CERTIFICATION_CLUB_CAN_RETIRE = false`). Without that hold, each run would only add a club no door can retire. The same retirement rule applies to every real club that has run a Sit & Go, so changing it is an owner decision.

@@ -3,7 +3,7 @@
 import argparse,json,os,shutil,socket,subprocess,tempfile
 from pathlib import Path
 p=argparse.ArgumentParser();p.add_argument('--pg-bin',type=Path,required=True);p.add_argument('--scratch-root',type=Path,required=True);p.add_argument('--output',type=Path,required=True);a=p.parse_args()
-r=Path(__file__).resolve().parents[2]; f=Path(__file__).parent/'fixtures/split-late-return';m=r/'supabase/migrations/20261109132114_split_late_credit_journals_its_own_return.sql'
+r=Path(__file__).resolve().parents[2]; f=Path(__file__).parent/'fixtures/split-late-return';m=r/'supabase/retired-unapplied/20261109132114_split_late_credit_journals_its_own_return.sql'
 e={k:v for k,v in os.environ.items() if not k.startswith('PG')};e['TMPDIR']=str(a.scratch_root)
 w=Path(tempfile.mkdtemp(prefix='split-leg-',dir=a.scratch_root));d=w/'data';started=False
 with socket.socket() as s:s.bind(('127.0.0.1',0));port=str(s.getsockname()[1])

@@ -202,3 +202,78 @@ front of somebody else's trophy.
 
 The `qualifiers` branch is untouched. It is only ever set when there is no
 champion row at all, and the player it is shown to is a qualifier themselves.
+
+---
+
+## Verified live, 2026-11-09
+
+Merged as squash `490c72a315a000f66575edb6cd53b96e5635da41`.
+`publish-club-arena.yml` run `42630046134` terminal-success, and both public
+endpoints report that exact revision:
+
+| endpoint                                               | `ca_sha`                                   |
+| ------------------------------------------------------ | ------------------------------------------ |
+| `https://ca-static.smarter.poker/build-info.json`      | `490c72a315a000f66575edb6cd53b96e5635da41` |
+| `https://smarter.poker/hub/club-arena/build-info.json` | `490c72a315a000f66575edb6cd53b96e5635da41` |
+
+### What was read off the published bytes
+
+The published chunks for that revision, fetched from the origin, carry each
+fix:
+
+- **1. Lightning leave control.** `Leave Next Hand` is the control's only
+  label in `assets/TablePage-DmR4Volk-v6.js`; the old "Stand Up & Leave" string
+  is gone. `hud-ul-column--stack` is present in both that chunk and
+  `assets/TablePage-B0Di7btR-v6.css`.
+- **2. Action buttons.** `assets/ActionPanel-CkGUqL_y-v6.css` declares
+  `--sp-action-btn-h: 96px` under `@media(max-width:480px)`, with the two
+  recorded exceptions intact: `52px` under
+  `@media(max-width:375px) and (max-height:700px) and (orientation:portrait)`
+  and `48px` under `@media(max-width:340px) and (orientation:portrait)`. The
+  root value is the unchanged `clamp(46px, min(calc(36.5px + 2.545vw), calc(20px + 6vh)), 72px)`.
+- **3. Felt tool buttons.** `--sp-table-tool-frame: var(--sp-tabbar-control, 52px)`
+  is in the published TablePage stylesheet.
+- **5. Raise slider.** `onRaiseModeChange` is in the published TablePage chunk,
+  so the bottom-left HUD row unmounts while the bet slider is open.
+- **6. Heads-up result.** The published chunk carries the new closeout
+  verbatim: `championName` is `void 0` for a qualifier list or a cashing
+  non-winner, `position` is spread in only for a cashing non-winner, and the
+  lobby hand-off is `goToLobbyWithResult(position, prize, celebrates ? DISPLAY_MS : 2500)`.
+
+### What was read off the running page
+
+In Dan's signed-in Chrome (as `KingFish`), on the live Lightning cash table
+`0f84a1ab-5abb-41b4-a8bd-a33af58f73ea` at 775px:
+
+- **3.** `--sp-table-tool-frame` computes to **52px** on both mounted tool
+  images (chat, previous hand), equal to the hamburger trigger's measured
+  52x52 box. Their `--sp-tool-art-scale` values (1.286 and 1.267) are the
+  per-asset alpha corrections that land each painted glyph on that 52px frame,
+  which is why the image elements measure 66.9 and 65.9 while the painted
+  icons match the hamburger. The time-bank and rabbit-hunt controls mount only
+  for a seated player and were not on screen; all four read the same single
+  rule, and the CSS Beat harness measures all four at 52px (44px at 320px).
+- **1.** The upper-left HUD corner's only child is the new
+  `hud-ul-column hud-ul-column--stack`, with `pointer-events: none` on the
+  stack and its children re-enabling, and there are **zero** center-top nodes
+  on the page: the slot that used to cover the top villain is gone from the
+  live bundle. The leave control itself mounts only inside a Lightning pool
+  session, which that observation was not in.
+- **2.** At 775px the root clamp is in force, as it should be; the 96px bar and
+  its two exceptions are phone-width rules, verified in the published
+  stylesheet above and measured rendered by the CSS Beat suite.
+
+Fixes 1, 5 and 6 each need a live state no observation can create without
+playing for money - a Lightning pool seat, the player's own turn with the
+slider open, and a finished heads-up match - so they are certified by the
+published bytes above plus their law tests
+(`tests/nothing-floats-over-the-open-bet-slider.law.test.ts`,
+`tests/a-loser-is-never-told-they-won.law.test.tsx`,
+`tests/unit/tournamentChampionCloseout.law.test.ts`,
+`tests/lightning/lightning-leave-control.test.tsx`), not by a claim that
+someone watched them.
+
+### Item 4
+
+Not in this release. It shipped separately; see
+[`2026-11-09-the-hero-avatar-is-never-the-smallest.md`](./2026-11-09-the-hero-avatar-is-never-the-smallest.md).

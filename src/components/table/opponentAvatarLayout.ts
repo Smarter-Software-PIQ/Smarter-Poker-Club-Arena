@@ -1344,6 +1344,44 @@ export function createOpponentAvatarLayout(
     if (!heroAlpha) return false; // Preserve existing visible artwork if its public metadata is unavailable.
     const target = subject(hero, heroAlpha, false).height;
     const baseTarget = subject(hero, heroAlpha, false, undefined, false).height;
+    /* THE HERO'S CIRCLE IS THE CEILING (Dan 2026-11-09).
+       Dan, with a PLO4 Lightning screenshot: "the 'hero' avatar is smaller then
+       all the other avatars at the table, it should always be the same size."
+
+       --sp-opponent-art-scale is consumed by `.seat__avatar` - the circle, its
+       2.5px ring, its gradient backing AND the portrait, all at once - so a
+       factor derived purely from painted-subject heights also decides how big
+       an opponent's VISIBLE CIRCLE is. Measured with
+       scripts/dev/measure-seat-avatar-art.mjs on 2026-11-09, 9-max at 375px:
+
+         declared hero slot      66.67px  (50 * 1.3333, the 2026-08-15 ruling)
+         declared villain slot   37.66px
+         character-art hero      factor 1.7709 -> villain circle 66.68px  (equal)
+         photo hero              factor 1.9871 -> villain circle 74.80px  (+12.2%)
+
+       Every scene any e2e beat renders gives the hero character art, whose
+       painted subject carries transparent margins, and the factor lands the
+       opponent circle on the hero's to within 0.02px - which is why nobody saw
+       this. A real human player has a PHOTOGRAPH: opaque edge to edge, so its
+       painted subject IS its whole circle, the target grows ~12%, and every
+       opponent circle outgrows the hero's on every phone width. The hero
+       becomes the smallest avatar at the table, exactly as reported.
+
+       So the subject match is capped by the one thing it was never allowed to
+       change: an opponent's rendered circle may match the hero's and may be
+       smaller, never larger. The cap reads DECLARED slot heights (`scale:` does
+       not participate in layout, so these are feedback-free) and binds only
+       when the uncapped factor would overgrow the hero. Where it binds, the
+       opponent lands on the hero's own circle - the same appearance the
+       character-art tables have always had.
+       tests/the-hero-avatar-is-never-the-smallest.law.test.ts */
+    const slotHeight = (avatar: HTMLElement) => {
+      const declared = getComputedStyle(avatar).height;
+      return declared.endsWith('px') && Number.isFinite(parseFloat(declared))
+        ? parseFloat(declared)
+        : avatar.offsetHeight;
+    };
+    const heroSlot = slotHeight(hero.closest<HTMLElement>('.seat__avatar')!);
     const scales: string[] = [];
     for (const image of all) {
       const avatar = image.closest<HTMLElement>('.seat__avatar')!;
@@ -1354,7 +1392,9 @@ export function createOpponentAvatarLayout(
       }
       const own = resolved.get(source(image));
       if (!own) continue;
-      const factor = target / subject(image, own, false).height;
+      const ownSlot = slotHeight(avatar);
+      const ceiling = heroSlot > 0 && ownSlot > 0 ? heroSlot / ownSlot : Infinity;
+      const factor = Math.min(target / subject(image, own, false).height, ceiling);
       const value = factor.toFixed(6);
       if (avatar.style.getPropertyValue('--sp-opponent-art-scale') !== value) {
         avatar.style.setProperty('--sp-opponent-art-scale', value);

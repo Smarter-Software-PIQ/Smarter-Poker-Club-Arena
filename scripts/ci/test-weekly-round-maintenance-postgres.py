@@ -103,7 +103,55 @@ try:
  assert count()=='1';assert sql('SELECT count(*)FROM smarter_private.weekly_payout_round_receipts;')=='1'
  r=tick();assert r['round']==2 and r['run_id']=='00000000-0000-0000-0000-000000000001';assert count()=='2'
  sql('SELECT smarter_private.maintenance_write_admission();')
- assert tick()['round']==3;assert tick()['stage']=='finalized';assert count()=='3'
+ # Attach the departed Horse board at the payment boundary. The coordinator,
+ # its R3 receipt, the split trigger and the deferred ledger guard are real.
+ # The other financial-phase suite exercises the public R3 owner directly.
+ split=R/'scripts/ci/fixtures/split-late-return'
+ sql((split/'schema.sql').read_text())
+ for definition in json.loads((split/'actual-functions.json').read_text()):
+  sql('SET check_function_bodies=false;'+definition['body'])
+ sql((split/'wiring.sql').read_text())
+ sql("""CREATE FUNCTION fixture_r3_horse_credit() RETURNS trigger LANGUAGE plpgsql AS $$
+ BEGIN
+  PERFORM set_config('app.ledger_autoskip_club_members','1',true);
+  PERFORM sr_pay(601.94);
+  RETURN NEW;
+ END $$;
+ CREATE TRIGGER fixture_r3_horse_credit AFTER INSERT ON fixture_calls
+ FOR EACH ROW WHEN (NEW.round_no=3) EXECUTE FUNCTION fixture_r3_horse_credit();""")
+ receipt_query="""SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY round_no),'[]')
+ FROM smarter_private.weekly_payout_round_receipts r"""
+ money_query="""SELECT jsonb_build_object(
+  'bank',(SELECT chip_treasury FROM clubs),
+  'horse',(SELECT chip_balance FROM club_members),
+  'returns',(SELECT count(*) FROM ca_horse_club_split_late_returns),
+  'alerts',(SELECT count(*) FROM financial_alerts),
+  'legs',(SELECT coalesce(jsonb_agg(jsonb_build_array(category,from_type,to_type,amount)
+     ORDER BY category),'[]') FROM chip_ledger))"""
+ first_two=json.loads(sql(receipt_query))
+ assert len(first_two)==2
+ before=json.loads(sql(money_query))
+ assert before=={'bank':1000,'horse':0,'returns':0,'alerts':0,'legs':[]}
+ original_round="BEGIN;SET LOCAL statement_timeout='1500s';SELECT smarter_private.weekly_payout_next_round();COMMIT;"
+ refused=subprocess.run(command,input=original_round,text=True,capture_output=True,env=E,timeout=10)
+ assert refused.returncode and 'balance_moved_without_its_ledger_row' in refused.stderr,refused.stderr
+ assert json.loads(sql(receipt_query))==first_two and json.loads(sql(money_query))==before
+ sql(next((R/'supabase/migrations').glob('20261109140919_*')).read_text())
+ sql(original_round)  # Ignore the response. A new connection recovers the original receipt.
+ receipts=json.loads(sql(receipt_query))
+ assert len(receipts)==3 and receipts[:2]==first_two
+ assert receipts[2]['round_no']==3 and receipts[2]['run_id']==r['run_id']
+ paid=json.loads(sql(money_query))
+ assert paid=={'bank':1000,'horse':0,'returns':1,'alerts':0,'legs':[
+   ['club_bank_claim','player_wallet','club_treasury',601.94],
+   ['rakeback','club_treasury','player_wallet',601.94]]},paid
+ assert sql("""SELECT bool_and(CASE category WHEN 'rakeback' THEN
+  from_entity_id=md5('club')::uuid AND to_entity_id=md5('horse')::uuid ELSE
+  from_entity_id=md5('horse')::uuid AND to_entity_id=md5('club')::uuid END)
+  AND count(DISTINCT idempotency_key)=2 FROM chip_ledger""")=='t'
+ assert tick()['stage']=='finalized' and count()=='3'
+ assert json.loads(sql(receipt_query))==receipts and json.loads(sql(money_query))==paid
+ print('PASS original R3 outer commit refuses missing split leg; lost ACK retains one R3 and both conserved legs',flush=True)
  assert sql('SELECT count(*)FROM smarter_private.weekly_payout_owned_transactions;')=='0'
  print('PASS both concurrent lock orders; committed unknown response continues same run once; admission releases',flush=True)
  sql("UPDATE fixture_clock SET n='2026-11-10 09:34Z';")

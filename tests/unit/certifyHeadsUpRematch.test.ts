@@ -107,12 +107,13 @@ describe('heads-up rematch live certification', () => {
     expect(writes).toEqual([]);
   });
 
-  it('removes the untouched welcome games before any play, so the club can retire', () => {
+  it('creates nothing while its club could not be retired afterwards', async () => {
+    const mod = await import('../../scripts/ci/certify-heads-up-rematch.mjs');
+    expect(mod.CERTIFICATION_CLUB_CAN_RETIRE).toBe(false);
+    expect(mod.CERTIFICATION_CLUB_RETIREMENT_BLOCKER).toMatch(/no door retires a certification club/);
     const script = readFileSync('scripts/ci/certify-heads-up-rematch.mjs', 'utf8');
-    const removal = script.indexOf("'fn_remove_first_club_welcome_games'");
-    expect(removal).toBeGreaterThan(script.indexOf("'fn_create_club_atomic'"));
-    expect(removal).toBeLessThan(script.indexOf("'fn_cashier_batch_transfer'"));
-    expect(removal).toBeLessThan(script.indexOf("'fn_take_seat_and_buy_in'"));
+    expect(script.indexOf('!CERTIFICATION_CLUB_CAN_RETIRE')).toBeLessThan(script.indexOf('createProductionE2EAccount({'));
+    expect(script).not.toContain("'fn_remove_first_club_welcome_games'");
   });
 
   it('watches each table only after the engine starts it, and reconnects on an error as well as a close', () => {
