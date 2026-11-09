@@ -1,4 +1,4 @@
--- 20261109163346_settle_capped_satellites_and_resolve_nov08_digest_attention_v2
+-- 20261109163346_settle_capped_satellites_and_nov08_digest_v2
 --
 -- Reserved by scripts/reserve-migration-version.sh on 2026-11-09 16:33:46 UTC.
 -- Supersedes 20261109152550 (which used PL/pgSQL PERFORM at top-level SQL for
