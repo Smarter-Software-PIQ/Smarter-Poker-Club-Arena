@@ -2249,11 +2249,6 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/ci/test-bbj-contribution-cover-postgres.py
-      - name: A heads-up rematch buys both seats once under simultaneous, repeated and interrupted requests
-        if: matrix.shard == 4
-        env:
-          PG_BIN: /usr/lib/postgresql/17/bin
-        run: python3 -B scripts/ci/test-heads-up-rematch-concurrency-postgres.py
       - name: The satellite seat preimage guard accepts the installed seat authority and refuses a broken contract
         if: matrix.shard == 4
         env:

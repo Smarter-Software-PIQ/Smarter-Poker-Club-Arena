@@ -1,0 +1,45 @@
+name: Heads-up rematch concurrency
+# Native proof that the heads-up Play Again buy-in charges once and creates one
+# game under simultaneous, repeated and interrupted requests from independent
+# sessions (docs/changelog/2026-11-09-heads-up-rematch-under-real-concurrency.md).
+# Runs on any change to the rematch migration, its harness or fixture, and on
+# the same paths at main so check-main-is-green reads its result.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/heads-up-rematch-concurrency.yml
+      - scripts/ci/test-heads-up-rematch-concurrency-postgres.py
+      - scripts/ci/fixtures/heads-up-rematch-concurrency/**
+      - supabase/migrations/20261109021122_heads_up_rematch_atomic_buy_in.sql
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/heads-up-rematch-concurrency.yml
+      - scripts/ci/test-heads-up-rematch-concurrency-postgres.py
+      - scripts/ci/fixtures/heads-up-rematch-concurrency/**
+      - supabase/migrations/20261109021122_heads_up_rematch_atomic_buy_in.sql
+  workflow_dispatch:
+concurrency:
+  group: heads-up-rematch-concurrency-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install PostgreSQL 17 on the disposable runner
+        run: |
+          set -euo pipefail
+          if [[ -x /usr/lib/postgresql/17/bin/initdb ]]; then exit 0; fi
+          # The one shared install (signed sources, checkout key, bounded retries).
+          bash .github/actions/install-postgres-17/install.sh
+      - name: One rematch and one charge each under concurrent, repeated and interrupted requests
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-heads-up-rematch-concurrency-postgres.py

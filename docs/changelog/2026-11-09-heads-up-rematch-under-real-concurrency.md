@@ -36,8 +36,7 @@ A mutation run with the `FOR UPDATE` row locks removed fails the first round:
 three stray games were created. The proof therefore detects the race it guards
 against.
 
-It runs in `ci.yml` (shard 4, PostgreSQL 17). `classify-ci-changes.mjs` runs
-it whenever its harness or fixture changes, and also on any migration change.
+It runs in its own workflow, `heads-up-rematch-concurrency.yml`, on PostgreSQL 17. The workflow runs on any pull request or main push that touches the rematch migration, the harness or the fixture, and it can also be started by hand. It sits outside `ci.yml` because the accounting job's inputs are pinned by the financial qualifications.
 
 ## The live, signed-in check
 
