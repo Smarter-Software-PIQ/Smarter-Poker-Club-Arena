@@ -83,10 +83,40 @@ try:
     assert query("SELECT metadata#>>'{eco_obligations,0,period_end}' FROM fixture_raised WHERE source='fn_ca_conservation_sweep:fn_union_governance_check' ORDER BY n DESC LIMIT 1") == '2026-11-02T08:00Z'
     query('SELECT fn_ca_resolve_cleared_incidents()')
     assert query("SELECT status FROM ca_drift_incidents LIMIT 1") == 'resolved'
+    # A fresh actual detector raise captures the eligible union and canonical week.
+    query("""TRUNCATE fixture_raised;
+      DELETE FROM union_eco_ledger WHERE period_end='2026-11-09 08:00Z';
+      UPDATE fixture_rows SET rows='[{"invariant":"union_eco_not_recorded"}]';
+      SELECT fn_ca_conservation_sweep();""")
+    captured = json.loads(query("""SELECT metadata->'eco_obligations' FROM fixture_raised
+      WHERE source='fn_ca_conservation_sweep:fn_union_governance_check'
+      ORDER BY n DESC LIMIT 1"""))
+    assert captured == [{
+        'union_id': 'fade0000-0000-0000-0000-000000000001',
+        'period_start': '2026-11-02T08:00:00+00:00',
+        'period_end': '2026-11-09T08:00:00+00:00',
+    }], captured
+    query("""INSERT INTO ca_drift_incidents(id,source,dedupe_key,status,metadata,
+      created_at,last_seen_at,detected_at)
+      SELECT 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',source,'sweep:fn_union_governance_check:2026-11-09',
+        'open',metadata,now()-interval '1 day',now()-interval '1 day',now()-interval '1 day'
+      FROM fixture_raised WHERE source='fn_ca_conservation_sweep:fn_union_governance_check'
+      ORDER BY n DESC LIMIT 1;
+      UPDATE fixture_clock SET at='2026-11-16 15:00Z';
+      UPDATE fixture_rows SET rows='[{"invariant":"other_governance"}]';
+      SELECT fn_ca_conservation_sweep();""")
+    retained = json.loads(query("""SELECT metadata->'eco_obligations' FROM fixture_raised
+      WHERE source='fn_ca_conservation_sweep:fn_union_governance_check'
+      ORDER BY n DESC LIMIT 1"""))
+    assert retained == captured, retained
+    query('SELECT fn_ca_resolve_cleared_incidents()')
+    assert query("SELECT status FROM ca_drift_incidents WHERE id='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'") == 'open'
     print(json.dumps({'passed': True, 'false_closure_reproduced': True,
                       'exact_original_reopened': True, 'running_and_rollover_refused': True,
                       'partial_club_books_refused': True, 'closed_original_accepted': True,
-                      'wrong_dst_end_refused': True, 'refreshed_metadata_retains_original': True}))
+                      'wrong_dst_end_refused': True, 'refreshed_metadata_retains_original': True,
+                      'fresh_raise_captures_exact_week': True,
+                      'next_rollover_retains_fresh_obligation': True}))
 finally:
     if started:
         run([args.pg_bin / 'pg_ctl', '-D', base / 'db', '-m', 'immediate', '-w', 'stop'])

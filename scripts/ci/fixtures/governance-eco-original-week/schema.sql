@@ -1,4 +1,5 @@
 CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;
+ALTER DATABASE postgres SET timezone TO 'UTC';
 CREATE TABLE fixture_clock(at timestamptz);
 INSERT INTO fixture_clock VALUES('2026-11-09 15:00Z');
 CREATE FUNCTION fn_union_week_start(p_at timestamptz DEFAULT NULL)
