@@ -135,8 +135,42 @@
 @media (max-width: 480px) {
   :root {
     --sp-bar-inset: max(12px, env(safe-area-inset-bottom, 0px));
-    --sp-action-btn-h: 52px;
+    /* Dan 2026-11-09, from a live Lightning seat: "the fold check bet buttons
+       are too small on mobile, they should be double the current size. we have
+       alot of room on the bottom to increase the sizes."
+
+       52 -> 96 on every phone taller than 667px, which is as close to double
+       as the ring allows: at 100 a villain's name plate comes to rest on the
+       painted felt at 375px with six seats (measured; 98 clears, 100 does
+       not). The 375x667 screen keeps its 52 for a separate measured reason -
+       see the block below it. It is the
+       ONE place a phone's button height is declared, and --sp-bottom-row-h,
+       --sp-action-reserve, --sp-hud-line and the felt's own height budget are
+       all derived from it (see the derivation at the top of this file), so the
+       felt, the bottom-left HUD stack and the chat button all give up the same
+       extra strip in the same breath. Do not "balance" that by restating any
+       of those numbers here: the reserve is the sum, and the sum is computed.
+
+       The padding is NOT doubled with it. It is the gap above the row, not
+       part of the control, and 12px of dead air over a 104px button reads as
+       a loose bar rather than a bigger one.
+
+       The type grows with the button instead, below. */
+    --sp-action-btn-h: 96px;
     --sp-action-pad-top: 6px;
+  }
+
+  /* The type grows with the button, at the SAME breakpoint that doubled it -
+     not in the 640px block, where the height is still the continuous curve and
+     a 1.25rem word would overflow it. These are type sizes only: the bottom
+     reserve is derived from --sp-action-btn-h alone, so nothing here can make
+     the bar breathe. */
+  .action-panel .action-btn__label {
+    font-size: 1.25rem;
+  }
+
+  .action-panel .action-btn__amount {
+    font-size: 1rem;
   }
 }
 
@@ -1909,8 +1943,28 @@
 }
 /* The first-generation 320px phone keeps 48px targets and the reported safe-area
    inset so nine players still have a readable rail lane. */
+/* THE 375x667 PHONE KEEPS ITS OLD BAR (Dan 2026-11-09, measured).
+   It is the narrowest common phone AND the shortest, and its nine-seat ring
+   has no 44px to give: at 80 the felt is tight enough that the adaptive pass
+   shrinks a villain's revealed cards on the next animation frame, which is
+   `card layout and every ancestor translation remain exact` going red, and a
+   hand whose cards resize mid-runout is worse than a bigger button. 64 clears
+   that ring; the embedded shell then fails at 64 from the other side. So this
+   one screen keeps the 52 it has today rather than taking a size that breaks
+   the table at one end or the other, and every phone taller than 700px takes
+   the full 96. */
+@media (max-width: 375px) and (max-height: 700px) and (orientation: portrait) {
+  :root {
+    --sp-action-btn-h: 52px;
+  }
+}
+
 @media (max-width: 340px) and (orientation: portrait) {
   :root {
+    /* Doubled with the rest of the phone range (Dan 2026-11-09). This block is
+       AFTER the <=480px one and therefore wins on a 320px screen, so leaving it
+       at 48 would have given the oldest phones the one bar that did not grow -
+       the device with the least room to read a button on. */
     --sp-action-btn-h: 48px;
     --sp-bar-inset: env(safe-area-inset-bottom, 0px);
     --sp-action-pad-top: 4px;

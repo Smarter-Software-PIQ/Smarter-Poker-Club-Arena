@@ -170,6 +170,16 @@ interface ActionPanelProps {
    * seats beside it are still in chips. Defaults to `bigBlind`.
    */
   displayBigBlind?: number;
+  /**
+   * Fired with `true` while the bet/raise sizing overlay is open and `false`
+   * the moment it closes or the panel unmounts. The overlay is tall and fixed,
+   * so the table's bottom-left HUD corner stands inside it; TablePage uses
+   * this to UNMOUNT that corner rather than trusting a cascade to keep it from
+   * painting (Dan 2026-11-09, the time bank bleeding through the slider). The
+   * callback is a dependency of the effect that fires it, so pass a stable
+   * reference.
+   */
+  onRaiseModeChange?: (open: boolean) => void;
 }
 
 // Dan 2026-08-28: bet/raise amounts are never abbreviated — see
@@ -578,6 +588,7 @@ export default function ActionPanel({
   // Chips is the default and the rule — see the prop's docstring.
   showStackInBB = false,
   displayBigBlind,
+  onRaiseModeChange,
 }: ActionPanelProps) {
   /* An amount in big blinds when the player reads the table in BB and the
      felt knows its big blind; null otherwise, and the caller prints chips. */
@@ -707,12 +718,38 @@ export default function ActionPanel({
    * panel — a harness or a Storybook-style mount. Losing the flag entirely there
    * would silently drop the behaviour under test.
    */
+  /* ─── AND THE OVERLAYS ARE UNMOUNTED, NOT ONLY UNPAINTED (2026-11-09) ─────
+   *
+   * Dan, with a screenshot of the bet slider open on a Lightning table: "the
+   * action slider menu that pops up when click raise, allows the time bank to
+   * appear and bleed through." The stopwatch tile was sitting squarely on the
+   * 33% preset - the same z-order defect the class below was added to fix in
+   * August, and the previous-hand card and the chat bubble beside it were both
+   * correctly gone, so the flag itself was doing its job.
+   *
+   * A tile that is still in the tree is a tile that can still find a way to
+   * paint: this one carries `position: relative` and a `backdrop-filter`
+   * (TimebankCounter.css), which is a stacking context of its own on top of a
+   * compositor that does not have to agree with us about an inherited
+   * `visibility`. So the raise mode is now reported UP as well, and TablePage
+   * stops rendering that corner entirely while the overlay is open. A control
+   * that does not exist cannot be composited over the slider, on any engine,
+   * which is the difference between a rule and a guarantee.
+   *
+   * The class stays exactly as it was. It is still what hides the chat bubble
+   * and dims the rest, and two mechanisms pointing the same way is belt and
+   * braces, not a conflict.
+   */
   const panelRootRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const host = panelRootRef.current?.closest('.table-page') ?? document.body;
     host.classList.toggle('ca-raising', isRaiseMode);
-    return () => host.classList.remove('ca-raising');
-  }, [isRaiseMode]);
+    onRaiseModeChange?.(isRaiseMode);
+    return () => {
+      host.classList.remove('ca-raising');
+      onRaiseModeChange?.(false);
+    };
+  }, [isRaiseMode, onRaiseModeChange]);
 
   /* ─── TAP ANYWHERE ABOVE THE PANEL TO GET THE THREE HOT KEYS BACK ─────────
    *

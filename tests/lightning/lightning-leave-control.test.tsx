@@ -26,7 +26,7 @@ describe('Lightning stand up stops re-entry before leaving', () => {
     render(
       <LightningLeaveControl clusterId="cluster" onLeave={leave} onLeaveIntentChange={intent} />
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Stand Up & Leave' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Leave Next Hand' }));
     fireEvent.click(screen.getByRole('button'));
     expect(mocks.stop).toHaveBeenCalledExactlyOnceWith('cluster');
     expect(leave).not.toHaveBeenCalled();

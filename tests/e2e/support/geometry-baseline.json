@@ -14,8 +14,8 @@
   "iPhone 12/13/14": {
     "vp": "390x844",
     "feltW": 319.8,
-    "feltH": 584,
-    "btnH": 52,
+    "feltH": 540,
+    "btnH": 96,
     "card2W": 50,
     "card2H": 70,
     "avatar": 50.5,
@@ -26,8 +26,8 @@
   "iPhone 14 Pro Max": {
     "vp": "430x932",
     "feltW": 352.6,
-    "feltH": 672,
-    "btnH": 52,
+    "feltH": 628,
+    "btnH": 96,
     "card2W": 50,
     "card2H": 70,
     "avatar": 55.7,
@@ -38,8 +38,8 @@
   "iPhone 12/13/14 (real)": {
     "vp": "390x844",
     "feltW": 319.8,
-    "feltH": 515,
-    "btnH": 52,
+    "feltH": 471,
+    "btnH": 96,
     "card2W": 50,
     "card2H": 70,
     "avatar": 50.5,
@@ -50,8 +50,8 @@
   "iPhone 14 Pro Max (real)": {
     "vp": "430x932",
     "feltW": 352.6,
-    "feltH": 591,
-    "btnH": 52,
+    "feltH": 547,
+    "btnH": 96,
     "card2W": 50,
     "card2H": 70,
     "avatar": 55.7,
