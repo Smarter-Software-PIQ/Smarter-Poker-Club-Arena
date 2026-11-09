@@ -2335,6 +2335,50 @@
       "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9858",
       "refusedBy": [],
       "liveVerdict": "Recovered existing installed history only. fn_ca_migration_text('20261107140500') returns md5 124441ae68700f258368ba20d8cad22f, identical to this file. fn_ca_resolve_proven_tournament_finishes(): SECURITY DEFINER, no anon or authenticated EXECUTE on production; fn_definer_exposure_audit() returns no finding. Its hourly cron is retired by a later migration because #9879 (class 7 of fn_resolve_settled_financial_alerts) closes the same alarm on strictly stronger evidence. No migration is replayed: the applier answers ALREADY-APPLIED for this version. No production operation is dispatched by this recording."
+    },
+    {
+      "version": "20261108212225",
+      "name": "add_strip_repeated_blind_levels_helpers",
+      "file": "supabase/migrations/20261108212225_add_strip_repeated_blind_levels_helpers.sql",
+      "md5": "084af6afd75d5446fb989b150e96abef",
+      "recoveredOn": "2026-11-09",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
+      "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/10224",
+      "refusedBy": [],
+      "liveVerdict": "Read-only 2026-11-09: exact applied SQL MD5 matches this file. The original session applied four separate history versions before composite recording20261108212837; preserve their exact sequence, including initial helper bodies later replaced at212338. No replay or history mutation. Both normalizer trigger functions are postgres-owned SECURITY DEFINER, search_path public,pg_temp, ACL postgres-only, anon/authenticated EXECUTE false. Both pure text/JSON helper functions are SECURITY INVOKER, immutable and publicly callable; no elevated access. Direct file-text writer, anonymous-definer, roster and clone checks report no findings for all four recordings."
+    },
+    {
+      "version": "20261108212338",
+      "name": "strip_repeated_blind_levels_break_boundary",
+      "file": "supabase/migrations/20261108212338_strip_repeated_blind_levels_break_boundary.sql",
+      "md5": "1398ceb4171a6263cb46aa36353672f1",
+      "recoveredOn": "2026-11-09",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
+      "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/10224",
+      "refusedBy": [],
+      "liveVerdict": "Read-only 2026-11-09: exact applied SQL MD5 matches this file. The original session applied four separate history versions before composite recording20261108212837; preserve their exact sequence, including initial helper bodies later replaced at212338. No replay or history mutation. Both normalizer trigger functions are postgres-owned SECURITY DEFINER, search_path public,pg_temp, ACL postgres-only, anon/authenticated EXECUTE false. Both pure text/JSON helper functions are SECURITY INVOKER, immutable and publicly callable; no elevated access. Direct file-text writer, anonymous-definer, roster and clone checks report no findings for all four recordings."
+    },
+    {
+      "version": "20261108212419",
+      "name": "schedule_normalizer_strips_repeated_levels",
+      "file": "supabase/migrations/20261108212419_schedule_normalizer_strips_repeated_levels.sql",
+      "md5": "8e591566205acfc3aff17c000717f8b6",
+      "recoveredOn": "2026-11-09",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
+      "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/10224",
+      "refusedBy": [],
+      "liveVerdict": "Read-only 2026-11-09: exact applied SQL MD5 matches this file. The original session applied four separate history versions before composite recording20261108212837; preserve their exact sequence, including initial helper bodies later replaced at212338. No replay or history mutation. Both normalizer trigger functions are postgres-owned SECURITY DEFINER, search_path public,pg_temp, ACL postgres-only, anon/authenticated EXECUTE false. Both pure text/JSON helper functions are SECURITY INVOKER, immutable and publicly callable; no elevated access. Direct file-text writer, anonymous-definer, roster and clone checks report no findings for all four recordings."
+    },
+    {
+      "version": "20261108212519",
+      "name": "tournament_normalizer_strips_repeated_levels",
+      "file": "supabase/migrations/20261108212519_tournament_normalizer_strips_repeated_levels.sql",
+      "md5": "e84bb6a52d3e3269c2a7739ebb8525d3",
+      "recoveredOn": "2026-11-09",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
+      "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/10224",
+      "refusedBy": [],
+      "liveVerdict": "Read-only 2026-11-09: exact applied SQL MD5 matches this file. The original session applied four separate history versions before composite recording20261108212837; preserve their exact sequence, including initial helper bodies later replaced at212338. No replay or history mutation. Both normalizer trigger functions are postgres-owned SECURITY DEFINER, search_path public,pg_temp, ACL postgres-only, anon/authenticated EXECUTE false. Both pure text/JSON helper functions are SECURITY INVOKER, immutable and publicly callable; no elevated access. Direct file-text writer, anonymous-definer, roster and clone checks report no findings for all four recordings."
     }
   ]
 }

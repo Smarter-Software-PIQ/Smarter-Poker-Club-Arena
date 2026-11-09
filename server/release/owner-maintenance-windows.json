@@ -1143,6 +1143,21 @@
         "path": "server/release/activation-floor.json",
         "sha256": "8cfd5e5343b7d688bb5249bb21efabd45d313de9b80e673d19aa829eb565037a"
       }
+    },
+    {
+      "id": "2026-11-09-owner-asap-engine-2230z",
+      "ownerOrder": "Dan, the owner, told the Claude engine-cutover release owner (session_01BNteGZoYBimiuwPFVM6CN9) at 2026-11-09 20:58Z (14:58 America/Chicago), after the sealed bff6eed3 cutover and on hearing that the merged follow-up engine work would wait for the 04:00 daily window, verbatim: \"NO CUT OVER HAPPENS AS SOON AS ITS AVALILABLE, NOT 4AM\". This NEW finite owner operation delivers the merged Rabbit Hunt 1.5 second pause de2e79762d5ec60b9b37792ed4e9acda83b25cab (#10208) and the engine work merged since the seal; contains names de2e7976. It is not a replay, renewal or extension of 2026-11-09-owner-asap-engine-1530z (delivered: Stage 42683454803, receiver 42683596427-1, sealed), which stays immutable. One earliest-certified worker cutover from serving bff6eed3522ee894da747f91a532b35a3d8cee4f; no database migration. The Claude engine-cutover release owner retains sole release custody and alone dispatches the Stage. Publish and observe the actual player notice for at least twenty minutes before admission. Require exact protected target qualification and an exact Backup certificate whose installed migration set and schema match current production, a fresh announcement between :05:30 and :49:00, normal hand-boundary drain, sealed freeze, full proof and rollback reserve, single-use claim, exact production identity and healthy thaw. Preserve every prior booking and receipt. Expiry does not extend this booking or authorize a retry loop; the standing 04:00 America/Chicago daily schedule resumes unchanged.",
+      "contains": "de2e79762d5ec60b9b37792ed4e9acda83b25cab",
+      "playerNoticeAt": "2026-11-09T22:10:00Z",
+      "notBefore": "2026-11-09T22:30:00Z",
+      "notAfter": "2026-11-10T04:30:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "eab1577724880e91ae89a4f0e73fb5e3cd88bf5a7355331503f6ead38e93b2af"
+      }
     }
   ],
   "databaseWindows": [
