@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -31,11 +31,70 @@ export function requireCleanupSource(run, original, sha, runId) {
     /^[0-9a-f]{40}$/.test(run.head_sha ?? ''), 'Original protected proof run required');
   assert(original.gameId === GAME && original.engineSha === sha && original.cleanup?.completed === false &&
     !original.cleanup?.retainedUnknownFinancialIntent && original.funding?.confirmed === true &&
-    original.ownedFundingLegs?.some(l => l.idempotency_key === `club_bank_send:${original.funding.opId}` && Number(l.amount) === BUY_IN),
-    'Only reconciled original proof cleanup can recover; unknown money remains retained');
+    (/^[0-9a-f-]{36}$/.test(original.cashSessionId ?? '') && original.buyInIntent?.p_user_id === original.accounts?.player),
+    'Original confirmed buy-in proof required; unknown purchases remain retained');
   const accounts = Object.values(original.accounts ?? {});
   assert(accounts.length === 2 && new Set(accounts).size === 2 && accounts.every(id => /^[0-9a-f-]{36}$/.test(id)), 'Exact original owned actors required');
   return accounts;
+}
+export function proofFetch(environment, transport = fetch) {
+  return (url, init = {}) => {
+    const headers = new Headers(init.headers);
+    const service = headers.get('apikey') === environment.SUPABASE_SERVICE_ROLE_KEY;
+    return transport(url, { ...init,
+      headers: service ? supabaseServerHeaders(environment.SUPABASE_SERVICE_ROLE_KEY, Object.fromEntries(headers)) : init.headers,
+      signal: init.signal ?? AbortSignal.timeout(20_000),
+    });
+  };
+}
+export async function performOrdinaryTurn(page) {
+  for (const label of ['Check', 'Fold']) {
+    const button = page.locator('.action-panel--active[data-connection="live"] .action-row').getByRole('button', { name: label, exact: true }).first();
+    if (!(await button.isVisible()) || !(await button.isEnabled())) continue;
+    try { await button.click({ timeout: 2000 }); }
+    catch (error) {
+      if (error.name !== 'TimeoutError' || (await button.isVisible() && await button.isEnabled())) throw error;
+      // The turn disappeared. Observe its successor instead of replaying an action.
+    }
+    return;
+  }
+}
+export function recoveryClaimId(runId, playerId) {
+  const h = createHash('sha256').update(`plo-proof-owned-wallet:${runId}:${playerId}`).digest('hex').slice(0,32).split('');
+  h[12] = '8'; h[16] = '8';
+  const v=h.join(''); return `${v.slice(0,8)}-${v.slice(8,12)}-${v.slice(12,16)}-${v.slice(16,20)}-${v.slice(20)}`;
+}
+export async function reconcileProofWallet(original, runId, { read, sessionFor, claim, report, save }) {
+  const player=original.accounts.player, cashier=original.accounts.cashier, club=original.fundingClubId;
+  const one = async path => { const rows=await read(path); assert(rows.length===1,'Exact original financial row required'); return rows[0]; };
+  const closed=await one(`cash_player_session?id=eq.${original.cashSessionId}&select=id,player_id,cluster_id,closed_at,final_stack,financial_capture_status`);
+  assert(closed.player_id===player && closed.cluster_id===GAME && closed.closed_at && closed.financial_capture_status==='exact' && Number.isFinite(Number(closed.final_stack)) && Number(closed.final_stack)>=0,'Original cash-out is not authoritatively closed');
+  requireFundingClub(await one(`clubs?id=eq.${club}&select=id,union_id,asset,status`),await one(`union_clubs?club_id=eq.${club}&union_id=eq.${HOUSE}&select=club_id,union_id`));
+  for (const [table,filter] of [['table_seats','user_id=eq.'+player+'&left_at=is.null'],['cash_player_session','player_id=eq.'+player+'&closed_at=is.null'],['lightning_pool_session','player_id=eq.'+player+'&exited_at=is.null']]) assert(!(await read(`${table}?${filter}&select=id`)).length,'Original actor still has active custody');
+  const fund=await one(`chip_ledger?club_id=eq.${club}&idempotency_key=eq.club_bank_send:${original.funding.opId}&select=id,amount,idempotency_key,from_entity_id,to_entity_id`);
+  assert(Number(fund.amount)===BUY_IN && fund.from_entity_id===club && fund.to_entity_id===player,'Original funding receipt differs');
+  const balance = async () => {
+    const rows=await read(`club_members?user_id=eq.${player}&select=club_id,chip_balance,promo_balance,held_chips,locked_chips,credit_used,credit_limit`);
+    assert(rows.every(m=>['promo_balance','held_chips','locked_chips','credit_used','credit_limit'].every(k=>Number(m[k])===0) && (m.club_id===club || Number(m.chip_balance)===0)),'Original actor has unrelated custody');
+    return Number(rows.find(m=>m.club_id===club)?.chip_balance ?? 0);
+  };
+  const amount=Number(closed.final_stack), opId=original.claimBack?.opId ?? recoveryClaimId(runId,player);
+  report.cashOut=closed; report.claimBack={opId,amount}; save();
+  const receiptPath=`chip_ledger?club_id=eq.${club}&idempotency_key=eq.club_wallet_claim:${opId}&select=id,amount,idempotency_key,from_entity_id,to_entity_id`;
+  let receipts=await read(receiptPath), available=await balance();
+  const valid = rows => rows.length===1 && Number(rows[0].amount)===amount && rows[0].from_entity_id===player && rows[0].to_entity_id===club;
+  if (!amount) { assert(available===0 && !receipts.length,'Zero cash-out differs'); report.ownedFundingLegs=[fund]; return; }
+  if (receipts.length) assert(valid(receipts) && available===0,'Original claim-back receipt differs');
+  else {
+    assert(available===amount,'Original cash-out and wallet do not reconcile');
+    const session=await sessionFor(cashier); assert(session.userId===cashier,'Original cashier session differs');
+    report.claimBack.pending=true; save();
+    const r=await claim(session.token,{p_club_id:club,p_from_user_id:player,p_amount:amount,p_source:'player_wallet',p_destination:'club_bank',p_reason:'Certification cleanup: original PLO proof wallet returned',p_op_id:opId,p_transaction_id:null});
+    assert(r.status===200 && r.body?.success===true,'Original claim-back has no confirmed response; retain its operation key');
+    receipts=await read(receiptPath); available=await balance();
+    assert(valid(receipts) && available===0,'Original claim-back has no reconciled receipt');
+  }
+  report.claimBack.confirmed=true; delete report.claimBack.pending; report.ownedFundingLegs=[fund,...receipts]; save();
 }
 export async function requestGuardedCleanup(environment, id, fetchImpl = fetch) {
   const response = await fetchImpl(`${environment.SUPABASE_URL}/rest/v1/rpc/cleanup_reserved_certification_account`, {
@@ -44,7 +103,7 @@ export async function requestGuardedCleanup(environment, id, fetchImpl = fetch) 
   });
   return { status: response.status, body: await response.json() };
 }
-async function recoverProofCleanup(environment, sha, runId, out, read) {
+async function recoverProofCleanup(environment, sha, runId, out, c, read) {
   const result = { status: 'cleanup-only', engineSha: sha, gameId: GAME, originalRunId: runId, cleanup: { completed: false }, accounts: {} };
   const save = () => writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, 2));
   const gh = args => execFileSync('gh', args, { encoding: 'utf8', timeout: 60_000, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -58,13 +117,16 @@ async function recoverProofCleanup(environment, sha, runId, out, read) {
     const accounts = requireCleanupSource(run, original, sha, runId);
     execFileSync('git', ['merge-base', '--is-ancestor', run.head_sha, 'origin/main'], { stdio: 'pipe' });
     result.accounts = original.accounts; save();
-    // The guarded door owns live custody checks. No funding, seat write,
-    // claim-back or replay of an uncertain financial operation exists here.
-    for (const id of accounts) {
-      const seats = await read(`table_seats?user_id=eq.${id}&left_at=is.null&select=id`);
-      const members = await read(`club_members?user_id=eq.${id}&select=chip_balance,promo_balance,held_chips,locked_chips,credit_used,credit_limit`);
-      assert(!seats.length && members.every(m => Object.values(m).every(v => Number(v) === 0)), 'Original actor still holds live custody');
-    }
+    await reconcileProofWallet(original, runId, {
+      read, report:result, save,
+      sessionFor: async id => {
+        const r=await fetch(`${environment.SUPABASE_URL}/auth/v1/admin/users/${id}`,{headers:supabaseServerHeaders(environment.SUPABASE_SERVICE_ROLE_KEY),signal:AbortSignal.timeout(20_000)});
+        assert(r.ok,'Original cashier identity unavailable'); const b=await r.json(),user=b.user??b;
+        assert(user.id===id && !user.deleted_at && user.email?.startsWith('ca-customization-cert-postdeploy-') && user.email.endsWith('@example.invalid'),'Original reserved cashier required');
+        return c.sessionFor(user.email);
+      },
+      claim: (token,parameters)=>c.rpc(token,'fn_club_wallet_claim_back',parameters),
+    });
     for (const id of accounts) {
       const checked = await requestGuardedCleanup(environment, id);
       assert(checked.status === 200, 'Original guarded cleanup is unavailable or refused');
@@ -149,7 +211,7 @@ export async function main(environment = process.env) {
   mkdirSync(out, { recursive: true });
   const report = { status: 'unknown', engineSha: sha, gameId: GAME, milestones: {}, admissions: [], samples: [], cleanup: {}, accounts: {} };
   const save = () => writeFileSync(join(out, 'result.json'), JSON.stringify(report, null, 2));
-  const fetchImpl = (url, init = {}) => fetch(url, { ...init, signal: init.signal ?? AbortSignal.timeout(20_000) });
+  const fetchImpl = proofFetch(environment);
   const c = clients({ SUPA: environment.SUPABASE_URL, SR: environment.SUPABASE_SERVICE_ROLE_KEY, ANON: environment.VITE_SUPABASE_ANON_KEY, fetchImpl });
   const read = async path => {
     const r = await fetchImpl(`${environment.SUPABASE_URL}/rest/v1/${path}`, { headers: supabaseServerHeaders(environment.SUPABASE_SERVICE_ROLE_KEY, { Prefer: 'count=exact', Range: '0-999' }) });
@@ -180,7 +242,7 @@ export async function main(environment = process.env) {
     assert(profiles.length === users.length, 'Participant identity read incomplete');
     return { tables, ids, seats, pools, profiles };
   };
-  if (payload.cleanup_run_id) return recoverProofCleanup(environment, sha, payload.cleanup_run_id, out, read);
+  if (payload.cleanup_run_id) return recoverProofCleanup(environment, sha, payload.cleanup_run_id, out, c, read);
   const initial = await health();
   requireHealth(initial, sha);
   assert(msUntilNextAnnouncement(Date.now(), initial.maintenance.schedule) > 40 * 60_000, 'Not enough normal play before maintenance');
@@ -200,12 +262,7 @@ export async function main(environment = process.env) {
   const roleEnv = role => ({ ...environment, RUNNER_TEMP: out, E2E_CLUB_ID: fundingClub, E2E_TEST_ACCOUNT_FILE: join(out, `${role}-account.private.json`), GITHUB_ENV: join(out, `${role}.private.env`) });
   const wallet = async id => Number((await one(`club_members?club_id=eq.${fundingClub}&user_id=eq.${id}&select=chip_balance`)).chip_balance);
   const assertOnlyOwnedHuman = state => assert(state.profiles.every(p => p.is_horse === true || p.id === player?.id), 'Another real player arrived; stop the owned proof');
-  const act = async () => {
-    for (const label of ['Check', 'Fold']) {
-      const buttons = page.getByRole('button', { name: label, exact: true });
-      for (const b of await buttons.all()) if (await b.isVisible() && await b.isEnabled()) { await b.click({ timeout: 2000 }); return; }
-    }
-  };
+  const act = () => performOrdinaryTurn(page);
   const ownSeats = () => read(`table_seats?user_id=eq.${player.id}&left_at=is.null&select=id,table_id,seat_number,occupancy_id,stack`);
   const leave = async () => {
     const pools = await read(`lightning_pool_session?cluster_id=eq.${GAME}&player_id=eq.${player.id}&exited_at=is.null&select=id,stop_requested_at`);
@@ -223,7 +280,14 @@ export async function main(environment = process.env) {
       assert(seats.length === 1 && seats[0].occupancy_id, 'Owned occupancy is not uniquely known');
       const s = seats[0];
       if (!requested.has(s.occupancy_id)) {
-        const r = await c.engine(P.token, '/leave-occupancy', { tableId: s.table_id, seatNumber: s.seat_number, occupancyId: s.occupancy_id });
+        let r;
+        try { r = await c.engine(P.token, '/leave-occupancy', { tableId: s.table_id, seatNumber: s.seat_number, occupancyId: s.occupancy_id }); }
+        catch (error) {
+          // The original occupancy request may have committed. Never send a
+          // second leave intent: observe its durable seat/cash-session result.
+          report.leaveTransportUnknown={occupancyId:s.occupancy_id,message:String(error.message)}; save();
+          requested.add(s.occupancy_id); await sleep(1000); continue;
+        }
         if (r.status >= 200 && r.status < 300 && r.body?.success === true) requested.add(s.occupancy_id);
         else if (r.body?.code === 'LEAVE_LOCKED') {
           if (r.body.needs_confirmation === true) {
@@ -413,6 +477,10 @@ export async function main(environment = process.env) {
       }
       if (player && C) {
         assert(!(await ownSeats()).length,'Owned seat must close before claim-back');
+        if (report.cashSessionId && !report.cashOut) {
+          const closed=await one(`cash_player_session?id=eq.${report.cashSessionId}&select=id,closed_at,final_stack,financial_capture_status`);
+          assert(closed.closed_at && closed.financial_capture_status==='exact','Original departure outcome remains unknown'); report.cashOut=closed;
+        }
         const balance=await wallet(player.id);
         if (report.cashOut) assert(balance === Number(report.cashOut.final_stack), 'Owned cash-out and wallet do not reconcile');
         if (balance>0) {

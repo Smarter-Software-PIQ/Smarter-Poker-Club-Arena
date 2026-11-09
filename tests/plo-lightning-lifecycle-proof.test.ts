@@ -31,6 +31,8 @@ describe('finite PLO lifecycle production witness', () => {
       head_sha: sha,
     };
     const original = {
+      cashSessionId: '44444444-4444-4444-8444-444444444444',
+      buyInIntent: { p_user_id: '11111111-1111-4111-8111-111111111111' },
       gameId: 'c79d8ec2-2281-411d-b4e1-42b5610849e2',
       engineSha: sha,
       cleanup: { completed: false },
