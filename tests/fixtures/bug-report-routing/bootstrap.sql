@@ -105,8 +105,8 @@ BEGIN
 END $$;
 
 INSERT INTO public.profiles (id, username, full_name, role) VALUES
-  ('47965354-0e56-43ef-931c-ddaab82af765', 'kingfish', 'Owner Fixture', 'admin'),
-  ('2d1cd6c3-5700-4af9-a271-d4863fdab20d', 'smarterpoker', 'Smarter.Poker Official', 'god'),
+  ('47965354-0e56-43ef-931c-ddaab82af765', 'owner_fixture', 'Owner Fixture', 'admin'),
+  ('2d1cd6c3-5700-4af9-a271-d4863fdab20d', 'platform_fixture', 'Platform Fixture', 'god'),
   ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'reporter_one', 'Reporter One', 'user'),
   ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'reporter_two', NULL, 'user');
 

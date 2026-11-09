@@ -12,7 +12,7 @@
 -- 7c1347ff-7e28-403c-aa4d-4335176252a7, 2026-11-09 10:11:55 UTC) reached the
 -- owner as an email only. fn_submit_bug_report_to_admin stores the ticket and
 -- then posts the report as a direct message from the reporter to the
--- `support` account (7f5b582a), an account that has never signed in and has
+-- `support` account, an account that has never signed in and has
 -- no device. Nothing was ever written to the owner's Messenger and no push
 -- was ever queued. Club Arena's own Help form writes public.user_feedback,
 -- which no reader, email or notification has ever consumed.
@@ -70,9 +70,8 @@ ALTER TABLE public.bug_report_routing ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.bug_report_routing FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON public.bug_report_routing TO service_role;
 
--- Recipient: the owner's Messenger account (kingfish, the account that
--- reads and sends in Messenger daily and holds his active iPhone
--- subscription). Sender: the platform service identity (smarterpoker).
+-- Recipient: the owner's Messenger account, confirmed by the owner on
+-- 2026-11-09. Sender: the platform service identity.
 INSERT INTO public.bug_report_routing (id, recipient_user_id, sender_user_id)
 VALUES (true,
         '47965354-0e56-43ef-931c-ddaab82af765'::uuid,
