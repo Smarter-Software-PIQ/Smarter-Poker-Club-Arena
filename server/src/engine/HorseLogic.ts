@@ -5166,6 +5166,28 @@ export function holdemRealDraw(hole: Card[], board: Card[]): boolean {
   return outRanks >= 2;
 }
 
+/**
+ * FACING A CLOSED ALL-IN RE-RAISE (2026-11-08). True only when the raise the
+ * hero faces (a 3-bet or later) was made all in AND every other player still
+ * in the hand is all in or folded, so a call closes the betting and risks
+ * exactly its price. Any opponent who can still put chips in (a cold caller
+ * with chips behind, a blind yet to act, anyone not all in) keeps it
+ * undefined, and the stack caps apply as before. Public seat flags only;
+ * never who anybody is.
+ */
+export function facingClosedAllInRaise(
+  players: ReadonlyArray<Pick<SeatPlayer, 'seat' | 'is_folded' | 'is_all_in'>>,
+  heroSeat: number,
+  lastRaiserSeat: number,
+  raises: number,
+  toCall: number
+): true | undefined {
+  if (raises < 2 || lastRaiserSeat < 0 || !(toCall > 0)) return undefined;
+  const raiser = players.find((p) => p.seat === lastRaiserSeat);
+  if (!raiser || raiser.is_all_in !== true || raiser.is_folded) return undefined;
+  const open = players.some((p) => p.seat !== heroSeat && !p.is_folded && !p.is_all_in);
+  return open ? undefined : true;
+}
 export class HorseLogic {
   /** Original post-observation boundary, shared with the admitted worker path.
    * The caller owns scope cleanup when it captures before decide(). */
@@ -8003,15 +8025,7 @@ export class HorseLogic {
       facingClosedAllIn:
         opts.facingClosedAllIn === false
           ? undefined
-          : (() => {
-              if (raises < 2 || lastRaiserSeat < 0 || toCall <= 0) return undefined;
-              const raiser = gs.players.find((p) => p.seat === lastRaiserSeat);
-              if (!raiser || !raiser.is_all_in) return undefined;
-              const open = gs.players.some(
-                (p) => p.seat !== player.seat && !p.is_folded && !p.is_all_in
-              );
-              return open ? undefined : true;
-            })(),
+          : facingClosedAllInRaise(gs.players, player.seat, lastRaiserSeat, raises, toCall),
       v13: opts.v13 !== false,
       // V34: the button is not a second cutoff. classifyPosition merges the
       // two into 'late'; the dealer seat tells them apart exactly.

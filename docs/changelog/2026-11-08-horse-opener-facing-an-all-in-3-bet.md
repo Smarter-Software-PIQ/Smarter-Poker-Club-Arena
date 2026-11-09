@@ -9,14 +9,14 @@ Spot A: a horse made the first raise, one opponent re-raised, nobody called
 in between; hero's first answer. Spot B: a horse 3-bet and faced a 4-bet.
 Counts are fold / call / raise.
 
-| cell | window (UTC) | F / C / R | fold % | mean MDF |
-| --- | --- | --- | --- | --- |
-| A tournament NLH heads-up, 12-25bb | 11-08 01:20-05:20 | 896 / 72 / 34 | 89.4 | 0.30 |
-| A tournament NLH 3-6 handed, 12-25bb | 11-08 01:20-05:20 | 628 / 34 / 27 | 91.1 | 0.26 |
-| A tournament NLH heads-up, 12-25bb, 3-bet ALL IN | 11-07 23:20-11-08 01:20 | 242 / 3 / 8 | 95.6 | 0.19 |
-| A tournament NLH 3-6 handed, 12-25bb, 3-bet ALL IN | same | 165 / 3 / 5 | 95.4 | 0.20 |
-| A cash NLH 3-6 handed, 100bb+ | 11-08 01:20-05:20 | 545 / 442 / 65 | 51.8 | 0.31 |
-| B cash NLH 3-6 handed, 100bb+ | same | 65 / 2 / 14 | 80.2 | 0.41 |
+| cell                                               | window (UTC)            | F / C / R      | fold % | mean MDF |
+| -------------------------------------------------- | ----------------------- | -------------- | ------ | -------- |
+| A tournament NLH heads-up, 12-25bb                 | 11-08 01:20-05:20       | 896 / 72 / 34  | 89.4   | 0.30     |
+| A tournament NLH 3-6 handed, 12-25bb               | 11-08 01:20-05:20       | 628 / 34 / 27  | 91.1   | 0.26     |
+| A tournament NLH heads-up, 12-25bb, 3-bet ALL IN   | 11-07 23:20-11-08 01:20 | 242 / 3 / 8    | 95.6   | 0.19     |
+| A tournament NLH 3-6 handed, 12-25bb, 3-bet ALL IN | same                    | 165 / 3 / 5    | 95.4   | 0.20     |
+| A cash NLH 3-6 handed, 100bb+                      | 11-08 01:20-05:20       | 545 / 442 / 65 | 51.8   | 0.31     |
+| B cash NLH 3-6 handed, 100bb+                      | same                    | 65 / 2 / 14    | 80.2   | 0.41     |
 
 The cash 3-bet cell sits on the V73 reference (a late opener folds about
 half its open). The short tournament cells and the cash 4-bet cell fold far
@@ -67,10 +67,27 @@ deep); those follow the documented V73 and V21 contracts.
   legacy bar. Heads-up tournament openers facing a small, not-all-in 3-bet at
   12-25bb still folded 173 of 199 (11-07 23:20-01:20). That needs a priced
   short-stack vs-3-bet read with league evidence, not a cap change.
+- `vs3BetShortStack` stays OFF and unchanged by this PR. Its qualification gap
+  is the one recorded in docs/changelog/2026-11-07-horse-preflop-defence-leaks.md:
+  the league `vs3bet_short_stack` card had one human-calibrated seed below
+  -2 standard errors. It needs a fresh held-out league result with every seed
+  non-negative before it may be switched on.
+
+## Multiway: the exception never applies while another player can still bet
+
+`facingClosedAllInRaise` (HorseLogic.ts) is a pure function of public seat
+flags. It is true only when the raise is all in AND every other player still
+in the hand is all in or folded. A cold caller with chips behind, or a blind
+still to act, keeps it undefined and the caps apply exactly as before.
+`HorseFacingClosedAllIn.test.ts` pins the predicate on heads-up, multiway
+folded, multiway all-in, cold-caller and blind-to-act seats. It also re-plays
+the real QQ hand with the small blind calling the jam and keeping 804 behind.
+There the cap still applies and the result equals the flag-off arm.
 
 ## Pinned
 
 `server/src/engine/horseComplaints/qq-opener-folds-to-an-all-in-3-bet.law.test.ts`,
 `tt-heads-up-opener-folds-to-an-all-in-3-bet.law.test.ts` (both with the
 `facingClosedAllIn=false` control re-taking the fold) and
-`kk-three-bettor-folds-to-a-4-bet.law.test.ts`.
+`kk-three-bettor-folds-to-a-4-bet.law.test.ts`, plus
+`server/src/engine/HorseFacingClosedAllIn.test.ts` (multiway).
