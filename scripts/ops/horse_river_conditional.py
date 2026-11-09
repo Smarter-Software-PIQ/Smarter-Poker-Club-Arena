@@ -24,14 +24,22 @@ def price_checked_to_river(request):
     not their provenance. Raises are refused rather than silently ignored.
     """
     context = request.get('context', {})
-    captured_costs = request.get('costModel') == 'captured-chip-rake-v1'
-    if request.get('costModel') not in (None, 'captured-chip-rake-v1'):
+    lightning = request.get('costModel') == 'captured-lightning-bb-ante-v1'
+    captured_costs = lightning or request.get('costModel') == 'captured-chip-rake-v1'
+    if request.get('costModel') not in (None, 'captured-chip-rake-v1', 'captured-lightning-bb-ante-v1'):
         raise ValueError('unsupported_cost_model')
     required = {'mode': 'cash', 'street': 'river', 'structure': 'pot_limit',
                 'boardCount': 1, 'playersInHand': 2, 'dealtCount': 2,
                 'closingAction': True, 'toCallUnits': 0, 'rakeUnits': 0,
                 'feesUnits': 0, 'anteUnits': 0, 'deadUnits': 0,
                 'sidePots': False, 'bombPot': False, 'allInOrFold': False}
+    if lightning:
+        # Exact dealt count and dead investment are linked to the captured
+        # seats and forced posts in captured_terminal_prices.
+        for key in ('dealtCount', 'anteUnits', 'deadUnits'):
+            if type(context.get(key)) is not int or context[key] <= 0:
+                raise ValueError('unsupported_context:' + key)
+            required.pop(key)
     if captured_costs:
         required.pop('rakeUnits')
         if 'rakeUnits' in context:
@@ -116,7 +124,8 @@ def price_checked_to_river(request):
               'originalRuntimeAuthenticated': False, 'qualified': False,
               'gtoVerified': False, 'activationAllowed': False}
     if captured_costs:
-        result['model'] = 'declared-hu-omaha-river-captured-chip-rake-v1'
+        result['model'] = ('declared-hu-omaha-river-lightning-bb-ante-v1' if lightning
+                           else 'declared-hu-omaha-river-captured-chip-rake-v1')
         result['capturedAccounting'] = provenance
     return result
 

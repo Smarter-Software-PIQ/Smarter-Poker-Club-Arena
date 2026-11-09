@@ -178,4 +178,49 @@ class CapturedChipRakeTests(unittest.TestCase):
         q['capturedOriginal']['informationSha256']=hashlib.sha256(json.dumps(i,sort_keys=True,separators=(',',':')).encode()).hexdigest()
         with self.assertRaisesRegex(ValueError,'canonical_terminal_pricing_refused'):price_checked_to_river(q)
 
+    def test_lightning_folded_bb_ante_six_dealt_closing_nonbutton(self):
+        import hashlib, json
+        q = self.captured()
+        q['costModel'] = 'captured-lightning-bb-ante-v1'
+        q['context'].update(dealtCount=6, anteUnits=50, deadUnits=50)
+        q.update(potUnits=800, minimumBetUnits=50)
+        original = q['capturedOriginal']
+        info = original['informationSet']
+        state = info['publicState']
+        info['heroSeat'] = 5
+        state.update(dealerSeat=6, pot=8, bigBlind=.5, ante=.5, anteType='big_blind',
+                     minRaiseTo=.5, maxRaiseTo=2,
+                     seats=[[1,2,0,3.5,0,0,0],[2,2,0,1,.5,0,1],[3,2,0,0,0,0,1],
+                            [4,2,0,0,0,0,1],[5,2,0,3.5,0,0,0],[6,2,0,0,0,0,1]])
+        info['priorPublicActions'] = [
+            {'stage':'preflop','seat':2,'action':'bb','amount':.5,'origin':'forced','dead':False},
+            {'stage':'preflop','seat':2,'action':'ante','amount':.5,'origin':'forced','dead':True},
+            {'stage':'river','seat':1,'action':'check'}]
+        original.update(domain='cash/plo4/lightning', ruleContext={
+            'format':'cash','variant':'plo4','speedFormat':'lightning','bettingStructure':'pot_limit',
+            'anteType':'big_blind','ante':.5,'bigBlind':.5,'asset':'chips','boardCount':1,
+            'bombPot':False,'allInOrFold':False,'tournamentStage':'cash'})
+        def rebind():
+            original['informationSha256'] = hashlib.sha256(json.dumps(
+                info,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+        rebind()
+        result = price_checked_to_river(q)
+        # Gross 800, 10% rake (80) and six-dealt BBJ of 13 cents.
+        self.assertEqual(result['checkThroughEvUnits']['exact'], '707')
+        self.assertEqual(result['bets'][0]['evUnits']['exact'], '747')
+        fold = next(row for row in result['capturedAccounting']['terminalPrices']
+                    if row['bet'] == 50 and row['result'] == 'fold')
+        self.assertEqual((fold['refundUnits'], fold['bbjUnits'], fold['heroIncrementalUnits']),
+                         (50,13,707))
+        self.assertFalse(result['activationAllowed'])
+        info['priorPublicActions'][1]['seat'] = 1
+        rebind()
+        with self.assertRaisesRegex(ValueError, 'bb_ante_unproven'):
+            price_checked_to_river(q)
+        info['priorPublicActions'][1]['seat'] = 2
+        state['dealerSeat'] = 1
+        rebind()
+        with self.assertRaisesRegex(ValueError, 'closing_check_unproven'):
+            price_checked_to_river(q)
+
 if __name__=='__main__':unittest.main()
