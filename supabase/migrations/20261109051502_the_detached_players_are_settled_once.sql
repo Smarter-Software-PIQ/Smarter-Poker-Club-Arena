@@ -26,9 +26,20 @@
 --     finding something, the cause came back and that is a defect to fix at the
 --     source, not a list to work through.
 --
--- The seven KINGS CLUB players were already corrected by hand on 2026-11-08.
--- The settlement below is written to be a no-op in that club and to catch any
--- player in ANY club left detached by the same defect.
+-- SCOPE. Dan, 2026-11-09: "My authorization covers KINGS CLUB's proven referral
+-- mismatches. Remove the proposed all-club cleanup from this delivery." An
+-- earlier draft of this file swept every chip club. It is now KINGS CLUB only.
+--
+-- The seven KINGS CLUB players were already corrected by hand on 2026-11-08, so
+-- the settlement below is expected to move NOTHING; it exists so that the fix
+-- and its settlement install together as one recorded transaction, and so that
+-- a mismatch reappearing between then and install is caught rather than left.
+-- It never touches a player with no referral evidence, an authorized manual
+-- placement, or the 38 unrelated agent-parent discrepancies - each of those is
+-- excluded by the placement test, not by being listed here.
+--
+-- The read-only audit takes a club argument and reads whichever club it is
+-- asked about. That is a question, not a change; it writes nothing anywhere.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 BEGIN;
@@ -88,13 +99,16 @@ DECLARE
   v_members    int := 0;
   v_parents    int := 0;
 BEGIN
+  -- KINGS CLUB ONLY. Dan's authorization on 2026-11-08 covers KINGS CLUB's
+  -- proven referral mismatches and nothing else; he removed the all-club sweep
+  -- from this delivery on 2026-11-09. Deep Stack Society (478 evidenced
+  -- players) and Club Savage were both measured clean on 2026-11-08, so there
+  -- is nothing to settle elsewhere and no authority to settle it if there were.
+  -- Another club's mismatch is a separate decision with its own evidence.
   FOR c IN
-    SELECT DISTINCT m.club_id
-      FROM public.club_members m
-      JOIN public.clubs cl ON cl.id = m.club_id
-     WHERE cl.asset IS DISTINCT FROM 'diamonds'
-       AND COALESCE(cl.lifecycle_status, 'active') <> 'retired'
-     ORDER BY m.club_id
+    SELECT cl.id AS club_id
+      FROM public.clubs cl
+     WHERE cl.id = 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4'
   LOOP
     PERFORM pg_advisory_xact_lock(hashtextextended('cashier-hierarchy:'||c.club_id::text,0));
     PERFORM pg_advisory_xact_lock(hashtextextended('agent-agreement:'||c.club_id::text,0));
@@ -142,7 +156,7 @@ BEGIN
     END LOOP;
   END LOOP;
 
-  RAISE NOTICE 'referral downline settlement: % membership(s), % agent parent(s)',
+  RAISE NOTICE 'KINGS CLUB referral downline settlement: % membership(s), % agent parent(s)',
     v_members, v_parents;
 END
 $settle$;
