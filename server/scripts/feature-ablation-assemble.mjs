@@ -18,6 +18,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createInterface } from 'node:readline';
 import { createGunzip } from 'node:zlib';
+import { qualificationReadDeadline, readGithubWithRetry } from './feature-ablation-github-read.mjs';
 
 /** Called only after the existing provider/locked-contract assembler. A result
  * stays inactive until a separate protected release selection names its bytes. */
@@ -806,7 +807,7 @@ function argumentsFor(argv) {
 const jsonFile = (file) => JSON.parse(readFileSync(file, 'utf8'));
 const writeJson = (file, value, flag = 'w') =>
   writeFileSync(file, JSON.stringify(value, null, 2) + '\n', { flag });
-export async function providerState() {
+export async function providerState(readKind = 'assemble') {
   const repo = process.env.GITHUB_REPOSITORY,
     runId = process.env.GITHUB_RUN_ID,
     attempt = Number(process.env.GITHUB_RUN_ATTEMPT),
@@ -821,15 +822,19 @@ export async function providerState() {
     !token
   )
     throw new Error('provider_metadata_unavailable');
+  const deadline = qualificationReadDeadline(readKind);
   const get = async (suffix) => {
-    const response = await fetch(`https://api.github.com/repos/${repo}${suffix}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
+    const response = await readGithubWithRetry(
+      `https://api.github.com/repos/${repo}${suffix}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
       },
-      signal: AbortSignal.timeout(20000),
-    });
+      deadline
+    );
     if (!response.ok) throw new Error('provider_read_refused:' + response.status);
     return response.json();
   };
@@ -945,7 +950,7 @@ async function main(argv) {
       args.cell,
       args.assemble === true
     );
-  const provider = await providerState(),
+  const provider = await providerState(args.prepare ? 'cell' : 'assemble'),
     authorizedOperations = providerOperations(provider.jobs, provider.run, plan.matrix);
   mkdirSync(out, { recursive: true });
   writeJson(path.join(out, 'jobs.json'), {
