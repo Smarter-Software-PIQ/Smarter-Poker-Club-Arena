@@ -1128,6 +1128,21 @@
         "path": "server/release/activation-floor.json",
         "sha256": "b0cd81bf0f6cff39992da1f8918bce916e112e78ee7f69a33f840b5bc5b687f0"
       }
+    },
+    {
+      "id": "2026-11-09-owner-asap-engine-1530z",
+      "ownerOrder": "Dan, the owner, in overlay chat 01a1b950 at about 2026-11-09 13:48Z (relayed on PR #10063 comment 6741660924) ordered verbatim: \"GET THEM LIVE NOW, DO NOT WAIT UNTIL 4AM, DO IT ASAP\". Dan confirmed it to the Claude engine-cutover release owner at 2026-11-09 13:54Z (07:54 America/Chicago): \"The owner has directed an ASAP protected cutover in Codex. Please retain sole release custody and act on PR 10063 comment 6741660924 now. Use one finite owner window with an exact Backup certificate and current production schema match.\" This NEW finite owner operation delivers the merged Horse overlay rescue f21499fdf4dc37499f59bb64d099ca3258b5bf63 (#10043) and the add-on timing fix debe1ef3261397c6c1b2fbf4f563d90ba544dd13 (#10083); contains names debe1ef, which already holds f21499f. It is not a replay of the frozen November 9 original daily selection (Stage 42562159686, blocked), which stays immutable, and it does not renew or extend 2026-11-08-horse-study-successor-engine-1820z. One earliest-certified worker cutover from serving 391f7bc0d57c71637bd4af5181f70520661e3593; no database migration. The Claude engine-cutover release owner retains sole release custody and alone dispatches the Stage. Publish and observe the actual player notice for at least twenty minutes before admission. Require exact protected target qualification and an exact Backup certificate whose installed migration set and schema match current production, a fresh announcement between :05:30 and :49:00, normal hand-boundary drain, sealed freeze, full proof and rollback reserve, single-use claim, exact production identity and healthy thaw. Preserve every prior booking and receipt. Expiry does not extend this booking or authorize a retry loop; the standing 04:00 America/Chicago daily schedule resumes unchanged.",
+      "contains": "debe1ef3261397c6c1b2fbf4f563d90ba544dd13",
+      "playerNoticeAt": "2026-11-09T15:10:00Z",
+      "notBefore": "2026-11-09T15:30:00Z",
+      "notAfter": "2026-11-09T21:30:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "8cfd5e5343b7d688bb5249bb21efabd45d313de9b80e673d19aa829eb565037a"
+      }
     }
   ],
   "databaseWindows": [
