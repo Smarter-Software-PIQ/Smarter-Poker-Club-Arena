@@ -11,6 +11,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { createProductionE2EAccount, prepareProductionE2EStaffMembership, cleanupProductionE2EAccount } from './production-e2e-account.mjs';
 import { clients, fixtureBrowserId } from './certify-rabbit-hunt.mjs';
+import { supabaseServerHeaders } from './supabase-auth-headers.mjs';
 import { gameplayHasResumed, msUntilNextAnnouncement } from './await-engine-gameplay.mjs';
 
 export const GAME = 'c79d8ec2-2281-411d-b4e1-42b5610849e2';
@@ -36,7 +37,14 @@ export function requireCleanupSource(run, original, sha, runId) {
   assert(accounts.length === 2 && new Set(accounts).size === 2 && accounts.every(id => /^[0-9a-f-]{36}$/.test(id)), 'Exact original owned actors required');
   return accounts;
 }
-async function recoverProofCleanup(environment, sha, runId, out, c, read) {
+export async function requestGuardedCleanup(environment, id, fetchImpl = fetch) {
+  const response = await fetchImpl(`${environment.SUPABASE_URL}/rest/v1/rpc/cleanup_reserved_certification_account`, {
+    method: 'POST', headers: supabaseServerHeaders(environment.SUPABASE_SERVICE_ROLE_KEY, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ p_user_id: id }), signal: AbortSignal.timeout(20_000),
+  });
+  return { status: response.status, body: await response.json() };
+}
+async function recoverProofCleanup(environment, sha, runId, out, read) {
   const result = { status: 'cleanup-only', engineSha: sha, gameId: GAME, originalRunId: runId, cleanup: { completed: false }, accounts: {} };
   const save = () => writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, 2));
   const gh = args => execFileSync('gh', args, { encoding: 'utf8', timeout: 60_000, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -58,7 +66,7 @@ async function recoverProofCleanup(environment, sha, runId, out, c, read) {
       assert(!seats.length && members.every(m => Object.values(m).every(v => Number(v) === 0)), 'Original actor still holds live custody');
     }
     for (const id of accounts) {
-      const checked = await c.rpc(environment.SUPABASE_SERVICE_ROLE_KEY, 'cleanup_reserved_certification_account', { p_user_id: id });
+      const checked = await requestGuardedCleanup(environment, id);
       assert(checked.status === 200, 'Original guarded cleanup is unavailable or refused');
       if (checked.body?.success === true) continue; // original retirement already verified by its owner
       assert(checked.body?.reason === 'auth_soft_delete_required' && checked.body.user_id === id, 'Original cleanup has no qualified Auth retirement');
@@ -144,7 +152,7 @@ export async function main(environment = process.env) {
   const fetchImpl = (url, init = {}) => fetch(url, { ...init, signal: init.signal ?? AbortSignal.timeout(20_000) });
   const c = clients({ SUPA: environment.SUPABASE_URL, SR: environment.SUPABASE_SERVICE_ROLE_KEY, ANON: environment.VITE_SUPABASE_ANON_KEY, fetchImpl });
   const read = async path => {
-    const r = await fetchImpl(`${environment.SUPABASE_URL}/rest/v1/${path}`, { headers: { ...c.H, Prefer: 'count=exact', Range: '0-999' } });
+    const r = await fetchImpl(`${environment.SUPABASE_URL}/rest/v1/${path}`, { headers: supabaseServerHeaders(environment.SUPABASE_SERVICE_ROLE_KEY, { Prefer: 'count=exact', Range: '0-999' }) });
     if (!r.ok) {
       const error = await r.json().catch(() => ({}));
       throw new Error(`Read unavailable (${r.status}) for ${path.split('?')[0]}: ${error.code ?? 'unknown'}; proof is UNKNOWN`);
@@ -172,7 +180,7 @@ export async function main(environment = process.env) {
     assert(profiles.length === users.length, 'Participant identity read incomplete');
     return { tables, ids, seats, pools, profiles };
   };
-  if (payload.cleanup_run_id) return recoverProofCleanup(environment, sha, payload.cleanup_run_id, out, c, read);
+  if (payload.cleanup_run_id) return recoverProofCleanup(environment, sha, payload.cleanup_run_id, out, read);
   const initial = await health();
   requireHealth(initial, sha);
   assert(msUntilNextAnnouncement(Date.now(), initial.maintenance.schedule) > 40 * 60_000, 'Not enough normal play before maintenance');

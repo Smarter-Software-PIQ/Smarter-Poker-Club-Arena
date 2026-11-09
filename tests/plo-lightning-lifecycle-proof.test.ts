@@ -4,6 +4,7 @@ import { parse } from 'yaml';
 import {
   admitPayload,
   requireCleanupSource,
+  requestGuardedCleanup,
   requireBatch,
   receiptMatches,
   requireHealth,
@@ -63,6 +64,37 @@ describe('finite PLO lifecycle production witness', () => {
       },
     ])
       expect(() => requireCleanupSource(run, bad, sha, runId)).toThrow();
+  });
+  it('sends guarded recovery through maintained server headers for both server key generations', async () => {
+    for (const key of ['sb_secret_fixture', 'legacy.fixture.jwt']) {
+      const requests: any[] = [];
+      const response = await requestGuardedCleanup(
+        { SUPABASE_URL: 'https://fixture.invalid', SUPABASE_SERVICE_ROLE_KEY: key },
+        'owned-actor',
+        async (url: string, options: any) => {
+          requests.push({ url, options });
+          return {
+            status: 200,
+            json: async () => ({ success: true, disposition: 'retained_ledger_actor' }),
+          };
+        }
+      );
+      expect(response.body.success).toBe(true);
+      expect(requests).toHaveLength(1);
+      expect(requests[0].url).toBe(
+        'https://fixture.invalid/rest/v1/rpc/cleanup_reserved_certification_account'
+      );
+      expect(requests[0].options.method).toBe('POST');
+      expect(requests[0].options.headers).toMatchObject({
+        apikey: key,
+        'x-smarter-data-actor': 'service',
+        'x-smarter-data-protocol': '1',
+      });
+      expect(requests[0].options.headers.Authorization).toBe(
+        key.startsWith('sb_secret_') ? undefined : `Bearer ${key}`
+      );
+      expect(JSON.parse(requests[0].options.body)).toEqual({ p_user_id: 'owned-actor' });
+    }
   });
   it('refuses a partial cashier failure inside successful HTTP and batch envelopes', () => {
     const body = { success: true, processed: 1, results: [{ user_id: 'p', success: false }] };
