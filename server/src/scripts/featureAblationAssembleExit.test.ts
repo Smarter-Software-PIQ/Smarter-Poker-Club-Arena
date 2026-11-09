@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,8 +22,30 @@ if (mode === 'control') { console.log('loaded'); }
 else {
   const { finishCli } = await import(pathToFileURL(server + 'scripts/feature-ablation-assemble.mjs').href);
   console.log('loaded');
+  const outFile = process.argv[4];
+  const { writeFileSync } = await import('node:fs');
+  const { writeFile } = await import('node:fs/promises');
+  const later = (ms) => new Promise((r) => setTimeout(r, ms));
   if (mode === 'code3') process.exitCode = 3;
-  finishCli(mode === 'refuse' ? Promise.reject(new Error('probe_refusal')) : Promise.resolve());
+  const runs = {
+    ok: async () => {},
+    code3: async () => {},
+    refuse: async () => { throw new Error('probe_refusal'); },
+    // A write the run made before it failed survives, and the failure is kept.
+    'write-then-refuse': async () => {
+      writeFileSync(outFile, 'written-before-refusal');
+      await later(300);
+      throw new Error('probe_refusal_after_write');
+    },
+    // Asynchronous writes the run awaits are complete before the exit.
+    'async-write': async () => {
+      await later(300);
+      await writeFile(outFile, 'x'.repeat(4 * 1024 * 1024));
+    },
+    // Output larger than a pipe buffer still reaches the reader in full.
+    'big-stdout': async () => { process.stdout.write('y'.repeat(2 * 1024 * 1024) + '\\nEND\\n'); },
+  };
+  finishCli(runs[mode]());
 }
 `
 );
@@ -32,9 +54,9 @@ const env = {
   SUPABASE_URL: 'https://supabase.invalid',
   SUPABASE_SERVICE_ROLE_KEY: 'feature-ablation-offline-placeholder',
 };
-function run(mode: string, killAfterMs: number) {
+function run(mode: string, killAfterMs: number, outFile = '') {
   return new Promise<{ code: number | null; killed: boolean; out: string; err: string }>((done) => {
-    const child = spawn(tsx, [harness, server, mode], { cwd: server, env });
+    const child = spawn(tsx, [harness, server, mode, outFile], { cwd: server, env });
     let out = '',
       err = '',
       killed = false;
@@ -71,6 +93,31 @@ describe('the feature-ablation assemble CLI always ends', () => {
     expect(r.killed).toBe(false);
     expect(r.code).toBe(2);
     expect(r.err).toContain('Feature ablation assembly refused: probe_refusal');
+  }, 60_000);
+
+  it('keeps a write made before a failure, and still exits 2 with the refusal', async () => {
+    const file = join(dir, 'before-refusal.txt');
+    const r = await run('write-then-refuse', 45_000, file);
+    expect(r.killed).toBe(false);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain('Feature ablation assembly refused: probe_refusal_after_write');
+    expect(readFileSync(file, 'utf8')).toBe('written-before-refusal');
+  }, 60_000);
+
+  it('completes awaited asynchronous writes before exiting', async () => {
+    const file = join(dir, 'async-write.txt');
+    const r = await run('async-write', 45_000, file);
+    expect(r.killed).toBe(false);
+    expect(r.code).toBe(0);
+    expect(statSync(file).size).toBe(4 * 1024 * 1024);
+  }, 60_000);
+
+  it('delivers stdout larger than a pipe buffer in full before exiting', async () => {
+    const r = await run('big-stdout', 45_000);
+    expect(r.killed).toBe(false);
+    expect(r.code).toBe(0);
+    expect(r.out.endsWith('END\n')).toBe(true);
+    expect(r.out.length).toBeGreaterThan(2 * 1024 * 1024);
   }, 60_000);
 
   it('keeps an exit code the run set', async () => {
