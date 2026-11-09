@@ -127,6 +127,13 @@ def worker(uid, sql_call, tag):
     return p
 
 
+def finish(p, timeout):
+    """Wait for a session whose stdin is already closed and read what it said.
+    (communicate() refuses a closed stdin on Python 3.12; the output is small.)"""
+    p.wait(timeout=timeout)
+    return p.stdout.read(), p.stderr.read()
+
+
 def accept(src):
     return f"public.ca_heads_up_rematch_respond('{src}', true)"
 
@@ -155,7 +162,7 @@ def simultaneously(calls):
     gate.wait(timeout=10)
     out = []
     for p in procs:
-        stdout, stderr = p.communicate(timeout=60)
+        stdout, stderr = finish(p, 60)
         line = [l for l in stdout.splitlines() if l.startswith('RESULT ')]
         out.append(json.loads(line[0][7:]) if line else {'error': stderr.strip()})
     return out
@@ -243,7 +250,7 @@ def scenario_interrupted_then_retry(kind):
         q(f'SELECT pg_cancel_backend({pid})')
     elif kind == 'disconnect':
         q(f'SELECT pg_terminate_backend({pid})')
-    stdout, stderr = p.communicate(timeout=30)
+    stdout, stderr = finish(p, 30)
     assert 'RESULT' not in stdout, (kind, stdout)
     until(f"SELECT NOT EXISTS (SELECT FROM pg_stat_activity WHERE pid={pid})")
     row = assert_nothing_charged(src, [a, b], before, f'{kind} mid-purchase')
