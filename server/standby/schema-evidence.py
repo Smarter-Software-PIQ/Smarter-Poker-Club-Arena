@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from urllib.parse import parse_qsl, unquote, urlsplit
 
 SIGNATURES = (
     'public.fn_ca_guarantee_funding(uuid)',
@@ -60,6 +61,55 @@ def validate(evidence, body_only=False):
     return evidence
 
 
+# libpq keyword -> the environment variable libpq reads for it. psql never
+# expands a connection URI found in PGDATABASE (it connects to the local socket
+# instead: every Backup refresh after #10113 failed that way), so the URL is
+# split into these variables, which keeps it out of process arguments.
+CONNECTION_ENVIRONMENT = {
+    'host': 'PGHOST', 'hostaddr': 'PGHOSTADDR', 'port': 'PGPORT', 'dbname': 'PGDATABASE',
+    'user': 'PGUSER', 'password': 'PGPASSWORD', 'sslmode': 'PGSSLMODE',
+    'sslrootcert': 'PGSSLROOTCERT', 'application_name': 'PGAPPNAME',
+    'connect_timeout': 'PGCONNECT_TIMEOUT', 'target_session_attrs': 'PGTARGETSESSIONATTRS',
+}
+KEYWORD = re.compile(r"\s*([a-z_]+)\s*=\s*('(?:[^'\\]|\\.)*'|[^\s']+)")
+
+
+def connection_environment(url):
+    """The libpq environment for a URI or keyword connection string; refuses anything else."""
+    if not isinstance(url, str) or not url.strip():
+        raise ValueError('Database connection is not configured')
+    settings = {}
+    if re.match(r'postgres(ql)?://', url):
+        parts = urlsplit(url)
+        if parts.fragment or ',' in parts.netloc:
+            raise ValueError('Unsupported database connection')
+        for keyword, value in (('host', parts.hostname), ('port', parts.port and str(parts.port)),
+                               ('user', parts.username and unquote(parts.username)),
+                               ('password', parts.password and unquote(parts.password)),
+                               ('dbname', unquote(parts.path[1:]) if parts.path not in ('', '/') else None)):
+            if value:
+                settings[keyword] = value
+        for keyword, value in parse_qsl(parts.query, keep_blank_values=True, strict_parsing=bool(parts.query)):
+            settings[keyword] = value
+    else:
+        position = 0
+        while position < len(url.rstrip()):
+            match = KEYWORD.match(url, position)
+            if not match:
+                raise ValueError('Unsupported database connection')
+            value = match.group(2)
+            if value.startswith("'"):
+                value = re.sub(r"\\(.)", r'\1', value[1:-1])
+            settings[match.group(1)] = value
+            position = match.end()
+    if not settings.get('host') and not settings.get('hostaddr'):
+        raise ValueError('Unsupported database connection')
+    unknown = set(settings) - set(CONNECTION_ENVIRONMENT)
+    if unknown:
+        raise ValueError('Unsupported database connection')
+    return {CONNECTION_ENVIRONMENT[keyword]: value for keyword, value in settings.items()}
+
+
 def capture(container=None, body_only=False):
     signatures = ','.join("'" + signature + "'" for signature in SIGNATURES)
     migrations = 'NULL' if body_only else "(SELECT json_agg(json_build_array(version,name) ORDER BY version,name) FROM supabase_migrations.schema_migrations)"
@@ -75,9 +125,11 @@ def capture(container=None, body_only=False):
         command = ['docker', 'exec', '-i', '-e', 'PGOPTIONS=' + options, container,
                    *command, '-U', 'supabase_admin', '-d', 'postgres']
     elif os.environ.get('DATABASE_URL'):
-        # libpq accepts the configured connection string through PGDATABASE.
+        # The configured connection string becomes libpq environment variables.
         # It stays out of process arguments and diagnostics.
-        environment['PGDATABASE'] = os.environ['DATABASE_URL']
+        for name in CONNECTION_ENVIRONMENT.values():
+            environment.pop(name, None)
+        environment.update(connection_environment(os.environ['DATABASE_URL']))
     try:
         result = subprocess.run(command, input=sql, text=True, capture_output=True,
                                 env=environment, timeout=30)

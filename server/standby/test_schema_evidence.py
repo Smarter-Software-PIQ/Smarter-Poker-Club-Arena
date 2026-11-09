@@ -78,6 +78,32 @@ class SchemaEvidenceTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs['timeout'], 30)
         self.assertNotIn('definition ', json.dumps(captured))
 
+    def test_production_url_reaches_libpq_through_its_variables_not_pgdatabase_or_arguments(self):
+        # psql connects to the local socket when PGDATABASE holds a URI; the
+        # first Backup refresh after #10113 refused for exactly that reason.
+        url = 'postgresql://postgres.ref:p%40ss%20w0rd@pooler.example.com:6543/postgres?sslmode=require'
+        bodies = {signature: 'body' for signature in evidence.SIGNATURES}
+        result = subprocess.CompletedProcess([], 0, json.dumps(
+            {'migrations': receipt()['migrations'], 'functions': bodies}), '')
+        with patch.dict(evidence.os.environ, {'DATABASE_URL': url, 'PGDATABASE': 'stale'}), \
+                patch.object(evidence.subprocess, 'run', return_value=result) as run:
+            evidence.capture()
+        env = run.call_args.kwargs['env']
+        self.assertEqual((env['PGHOST'], env['PGPORT'], env['PGUSER'], env['PGPASSWORD'], env['PGDATABASE'], env['PGSSLMODE']),
+                         ('pooler.example.com', '6543', 'postgres.ref', 'p@ss w0rd', 'postgres', 'require'))
+        self.assertNotIn('p@ss', ' '.join(run.call_args.args[0]))
+        self.assertNotIn('://', env['PGDATABASE'])
+
+    def test_keyword_connection_strings_parse_and_unknown_or_hostless_ones_are_refused(self):
+        self.assertEqual(evidence.connection_environment(
+            "host=db.example.com port=5432 user=postgres password='it''s' dbname=postgres sslmode=require".replace("''", "\\'")),
+            {'PGHOST': 'db.example.com', 'PGPORT': '5432', 'PGUSER': 'postgres', 'PGPASSWORD': "it's",
+             'PGDATABASE': 'postgres', 'PGSSLMODE': 'require'})
+        for bad in ['', 'postgresql:///postgres', 'postgresql://u:p@h1,h2/db',
+                    'postgresql://u:p@h/db?options=-c%20x%3Dy', 'host=h options=x', 'host=h junk']:
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                evidence.connection_environment(bad)
+
     def test_capture_canonicalizes_database_collation_for_legacy_versions(self):
         bodies = {signature: 'body' for signature in evidence.SIGNATURES}
         migrations = [['20260819_ca_player_stats_full_rpc', 'legacy'], ['20260819000506', 'dated']]
