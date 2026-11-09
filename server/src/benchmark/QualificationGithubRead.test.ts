@@ -114,6 +114,20 @@ describe.each(implementations)('%s qualification reads', (_name, read) => {
     expect(h.calls()).toBe(1);
   });
 
+  it('returns a bare non-OK answer without headers at once, for the caller to refuse', async () => {
+    const h = harness([], 10 * MIN);
+    const bare = { ok: false, json: async () => ({}) } as unknown as Response;
+    const deps = { ...h.deps, fetch: async () => bare };
+    const r = await read(
+      'https://api.github.com/repos/o/r/actions/runs/1',
+      { headers: {} },
+      h.deadline,
+      deps
+    );
+    expect(r).toBe(bare);
+    expect(h.sleeps).toEqual([]);
+  });
+
   it('returns a 403 without a rate-limit signal at once', async () => {
     const h = harness(
       [{ status: 403, body: '{"message":"Resource not accessible by integration"}' }],

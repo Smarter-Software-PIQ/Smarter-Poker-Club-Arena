@@ -36,10 +36,12 @@ const sleepFor = (ms) => new Promise((done) => setTimeout(done, ms));
 
 async function transientWait(response, attempt, now) {
   const backoff = Math.min(QUALIFICATION_READ_MAX_BACKOFF_MS, 2000 * 2 ** attempt);
+  // An answer without a numeric status is not a transient provider answer.
+  if (typeof response.status !== 'number') return null;
   if (response.status >= 500 && response.status <= 599) return backoff;
   // An absent header is not zero: Number(null) is 0, which would retry a refusal.
   const header = (name) => {
-    const value = response.headers.get(name);
+    const value = typeof response.headers?.get === 'function' ? response.headers.get(name) : null;
     return value === null || value.trim() === '' ? NaN : Number(value);
   };
   const retryAfter = header('retry-after');
@@ -52,7 +54,7 @@ async function transientWait(response, attempt, now) {
     if (response.status === 429) return Math.max(QUALIFICATION_SECONDARY_LIMIT_WAIT_MS, backoff);
     let text = '';
     try {
-      text = await response.clone().text();
+      text = typeof response.clone === 'function' ? await response.clone().text() : '';
     } catch {
       text = '';
     }
