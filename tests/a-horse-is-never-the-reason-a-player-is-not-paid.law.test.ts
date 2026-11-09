@@ -344,7 +344,14 @@ describe('a horse is never the reason a player is not paid', () => {
       for (const x of found) offenders.push(`${f} [${x.rule}] ${x.detail}`);
     }
     expect(offenders, offenders.join('\n')).toEqual([]);
-  });
+    // This scan reads every migration since the incident, so its cost grows
+    // with each one merged, and a-refund-never-reads-horse-identity re-runs it
+    // by importing this file. Measured 2026-11-09: 8.6 s alone on an idle
+    // two-core machine; 17.4 to 31.2 s for the importing file across fourteen
+    // CI shard runs, against the 30 s default. PR #10243 run 42716778791 timed
+    // out at 30 s with every assertion unreached. The budget is four times the
+    // worst measured run; no assertion changes.
+  }, 120_000);
 
   it('the recorded history that broke it still reads as broken, and each is exempt only beside its reversal', () => {
     for (const [v, entry] of Object.entries(REVERSED_HISTORY)) {
