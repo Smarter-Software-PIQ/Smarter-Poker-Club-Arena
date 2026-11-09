@@ -7,6 +7,8 @@ import {
   prebuiltLateRegLevels,
   prebuiltStartingChips,
   presetClockIsPreserved,
+  parsePrebuiltStructureKey,
+  prebuiltStructureKey,
   MIN_LATE_ENTRY_BB,
 } from '../src/config/prebuiltStructures';
 
@@ -74,6 +76,28 @@ describe('a preset never misstates its clock', () => {
       for (const row of prebuiltLadder(spec.id).filter((r) => r.isBreak)) {
         expect([row.smallBlind, row.bigBlind, row.ante]).toEqual([0, 0, 0]);
       }
+    }
+  });
+});
+
+describe('a prebuilt key never collides with a legacy ramp', () => {
+  it('namespaces every stored key so existing values keep their own ladder', () => {
+    // 'turbo', 'regular' and 'hyper_turbo' are prebuilt ids AND legacy stored
+    // values. A bare id would silently re-point every table and schedule
+    // holding 'turbo' or 'hyper_turbo' at a different ladder.
+    for (const legacy of ['slow', 'standard', 'turbo', 'hyper_turbo']) {
+      expect(parsePrebuiltStructureKey(legacy)).toBeNull();
+    }
+    for (const spec of PREBUILT_STRUCTURES) {
+      const key = prebuiltStructureKey(spec.id);
+      expect(key.startsWith('prebuilt:')).toBe(true);
+      expect(parsePrebuiltStructureKey(key)).toBe(spec.id);
+    }
+  });
+
+  it('reads nothing unexpected as a prebuilt structure', () => {
+    for (const value of [null, undefined, 42, '', 'prebuilt:', 'prebuilt:nope', {}]) {
+      expect(parsePrebuiltStructureKey(value)).toBeNull();
     }
   });
 });

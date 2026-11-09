@@ -263,3 +263,45 @@ export function presetClockIsPreserved(id: PrebuiltStructureId, isPinned = false
 export function offerablePrebuiltStructures(isPinned = false): PrebuiltStructure[] {
   return PREBUILT_STRUCTURES.filter((spec) => presetClockIsPreserved(spec.id, isPinned));
 }
+
+/**
+ * Stored config keys are NAMESPACED, and that is not cosmetic.
+ *
+ * config.blindStructure is a preset KEY by established contract, and the keys
+ * already in use are 'slow' | 'standard' | 'turbo' | 'hyper_turbo'. Three of
+ * the six prebuilt ids (turbo, regular, hyper_turbo) would collide with those,
+ * so storing a bare id would silently re-point every existing table and
+ * schedule holding 'turbo' or 'hyper_turbo' at a DIFFERENT ladder. The prefix
+ * keeps the two sets disjoint: an existing stored value can never be read as a
+ * prebuilt structure, and a prebuilt structure can never be read as a legacy
+ * ramp.
+ */
+export const PREBUILT_KEY_PREFIX = 'prebuilt:';
+
+export function prebuiltStructureKey(id: PrebuiltStructureId): `prebuilt:${string}` {
+  return `${PREBUILT_KEY_PREFIX}${id}` as `prebuilt:${string}`;
+}
+
+/** The prebuilt id a stored config value names, or null for any other value. */
+export function parsePrebuiltStructureKey(value: unknown): PrebuiltStructureId | null {
+  if (typeof value !== 'string' || !value.startsWith(PREBUILT_KEY_PREFIX)) return null;
+  const id = value.slice(PREBUILT_KEY_PREFIX.length);
+  return PREBUILT_STRUCTURES.some((spec) => spec.id === id) ? (id as PrebuiltStructureId) : null;
+}
+
+/**
+ * THE CLIENT CLAMPS THE CLOCK TOO (third enforcement point, found 2026-11-09).
+ *
+ * tournamentFromTableConfig applies `Math.max(5, config.blindsUpMinutes)` to
+ * every playable level before anything reaches the database. So a 3 minute
+ * Hyper-Turbo is already raised to 5 in the browser, independently of the two
+ * database triggers. Any future 3 minute support has to move this clamp as
+ * well as the database floor, or the preset still will not survive creation.
+ *
+ * New MTT authoring also strips break rows (`newTournamentPlayingLevels`, and
+ * `assertNoNewMttBreakRows` refuses them), so a preset's breaks are advisory
+ * for an MTT: the platform's own synchronized hourly breaks are what the event
+ * actually plays. The break cadence in a preset therefore describes the ladder,
+ * it does not add breaks to a created MTT. Sit and Go keeps its preset breaks.
+ */
+export const CLIENT_LEVEL_MINUTES_FLOOR = 5;
