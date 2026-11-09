@@ -23,11 +23,11 @@ CERTIFIED_PREDECESSOR = 'eed06fe51dea622069c661a6213d5b031ff3a9e3'
 CERTIFIED_START = 1793833200
 CERTIFIED_END = 1793854800
 
-# The owner-directed Horse successor rebinds the existing single-use exception.
+# The owner-directed November 9 ASAP cutover rebinds the existing single-use exception.
 # Prior immutable controls and entries keep their original authority and expiry.
-NOV7_OWNER_ID = '2026-11-08-horse-study-successor-engine-1820z'
-NOV7_MANIFEST_DIGEST = 'b0cd81bf0f6cff39992da1f8918bce916e112e78ee7f69a33f840b5bc5b687f0'
-NOV7_ORDER_DIGEST = '25f70505f62297bf845e1bb068507de89ca14e78be0c3b56f09fb7e7b236984a'
+NOV7_OWNER_ID = '2026-11-09-owner-asap-engine-1530z'
+NOV7_MANIFEST_DIGEST = '8cfd5e5343b7d688bb5249bb21efabd45d313de9b80e673d19aa829eb565037a'
+NOV7_ORDER_DIGEST = 'f15bd75c7ce4e2866c87cd307af89fb162f0d9156407c5629f2cfb3a64ffaba4'
 
 
 
