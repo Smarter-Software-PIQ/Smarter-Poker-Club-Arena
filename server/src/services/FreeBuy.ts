@@ -778,6 +778,7 @@ export function freeBuyTournamentRow(opts: {
  * that is not what the code built.
  */
 export interface FreeBuyRowUnderAudit {
+  status?: unknown;
   is_pko?: unknown;
   is_bounty?: unknown;
   is_mystery_bounty?: unknown;
@@ -998,7 +999,13 @@ export function auditFreeBuyBoard(
   knownHosts: readonly FreeBuyHost[] = [...hosts, ...FREE_BUY_HELD_HOSTS]
 ): { problems: string[]; checked: number } {
   const problems: string[] = [];
-  for (const row of rows) {
+  const liveRows = rows.filter((r) => {
+    const st = String(r.status ?? '')
+      .trim()
+      .toUpperCase();
+    return st !== 'CANCELLED' && st !== 'CANCELED';
+  });
+  for (const row of liveRows) {
     for (const p of auditFreeBuyRow(row, knownHosts)) {
       problems.push(`${String(row.name ?? 'unnamed')} @ ${String(row.start_time ?? '?')}: ${p}`);
     }
@@ -1008,7 +1015,7 @@ export function auditFreeBuyBoard(
      uq_scheduled_tournament_one_live_per_occurrence enforces - this catches the
      case where the index was dropped or the owner changed. */
   const seen = new Map<string, number>();
-  for (const row of rows) {
+  for (const row of liveRows) {
     const ms = Date.parse(String(row.start_time ?? ''));
     if (!Number.isFinite(ms)) continue;
     const key = `${String(row.club_id)}|${chicagoParts(ms).hour}|${chicagoDayKey(ms)}`;
@@ -1033,5 +1040,5 @@ export function auditFreeBuyBoard(
       }
     }
   }
-  return { problems, checked: rows.length };
+  return { problems, checked: liveRows.length };
 }
