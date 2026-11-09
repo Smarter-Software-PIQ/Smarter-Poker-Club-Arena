@@ -1,0 +1,64 @@
+name: A referral places a player before the owner fallback
+
+# The KINGS CLUB referral-downline repair (migration 20261109052000). Runs
+# scripts/dev/test-referral-downline-placement.sh against a throwaway
+# PostgreSQL 17 cluster, never production: the five functions the migration
+# patches are reproduced with byte-identical anchor text, the real migration
+# file is installed verbatim, and then behaviour is asserted - a clicked agent
+# link places the player under that agent, only an absence of evidence falls
+# back to the club owner and that placement stays overridable, no placement
+# answer is ever NULL, an authorized transfer and a row written before the
+# migration are both immovable, the whole migration runs twice without
+# double-patching, and a live assignment landing between the audit and the
+# settlement is not overwritten.
+#
+# WHY IT HAS ITS OWN WORKFLOW. It was first wired into ci.yml's
+# accounting_postgres shard beside the other throwaway-PostgreSQL fixtures.
+# That job's composition is a pinned qualification input
+# (scripts/qualification/ci-accounting-inputs.json, enforced by
+# scripts/ci/verify-source-bindings.py), so adding a step there restamps an
+# accounting certification projection for a change that has nothing to do with
+# accounting. A single-purpose, path-scoped workflow keeps this fixture's
+# reader its own and leaves that surface alone.
+#
+# WHY IT EXISTS AT ALL. The repair passed every static gate, an independent
+# review and a read-only suite against production while still carrying a defect
+# that would have been worse than the bug it fixed:
+# fn_club_placement_is_unchosen returned NULL for a row written before the
+# migration, so `NOT fn_club_placement_is_unchosen(...)` in
+# fn_agent_attach_player's guard was NULL, the IF was never taken, and the
+# refusal that stops one agent taking another agent's player silently did
+# nothing. Nothing that reads SQL could see it; the read-only suite counts rows
+# where the function answers TRUE, and NULL is not TRUE. Only executing the
+# path against rows exposed it.
+#
+# No timer (CLAUDE.md 10.85): pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261109052000_the_referral_upline_is_resolved_before_the_owner_fallback.sql
+      - scripts/dev/test-referral-downline-placement.sh
+      - tests/fixtures/referral-downline/**
+      - .github/workflows/a-referral-places-a-player-before-the-owner-fallback.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: a-referral-places-a-player-before-the-owner-fallback-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  referral-downline-placement:
+    name: A referral places a player before the owner fallback does
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: Referral placement, NULL handling, idempotency and concurrency
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: bash scripts/dev/test-referral-downline-placement.sh

@@ -2335,6 +2335,20 @@
       "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9858",
       "refusedBy": [],
       "liveVerdict": "Recovered existing installed history only. fn_ca_migration_text('20261107140500') returns md5 124441ae68700f258368ba20d8cad22f, identical to this file. fn_ca_resolve_proven_tournament_finishes(): SECURITY DEFINER, no anon or authenticated EXECUTE on production; fn_definer_exposure_audit() returns no finding. Its hourly cron is retired by a later migration because #9879 (class 7 of fn_resolve_settled_financial_alerts) closes the same alarm on strictly stronger evidence. No migration is replayed: the applier answers ALREADY-APPLIED for this version. No production operation is dispatched by this recording."
+    },
+    {
+      "version": "20261109040704",
+      "name": "kings_club_downline_reattach_snapshot",
+      "file": "supabase/migrations/20261109040704_kings_club_downline_reattach_snapshot.sql",
+      "md5": "93cad27fd8322c1025d8957fb8984caa",
+      "appliedToProductionAt": "2026-11-09T04:07:04Z",
+      "recoveredOn": "2026-11-09",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
+      "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/10139",
+      "refusedBy": [
+        "check-explicit-table-access: a new public table declares no access and no RLS"
+      ],
+      "liveVerdict": "TRUE OF PRODUCTION AND NOT YET CLOSED when recorded, read live 2026-11-09. This migration opened public.kings_club_downline_repair_20261108 as the checkpoint for the KINGS CLUB referral-downline correction and declared no access, so Supabase's defaults stood: information_schema.role_table_grants returned DELETE,INSERT,SELECT,UPDATE for BOTH anon AND authenticated, and relrowsecurity was false. The table holds player and agent uuids and the before/after of ten corrections, so any caller that could reach the API could read it and could insert, update or delete its rows, which would corrupt the rollback record for this repair. No money and no seat state are reachable through it. Audited over the whole exposure: the table still holds exactly its original ten rows, and last_value of its sequence equals max(id) equals 10, so nothing was ever inserted beyond them (an insert-then-delete would still have consumed a sequence value); every rollback row still matches live state; and of the 28 other KINGS CLUB upline changes in the window, zero were real players (21 deleted fixtures, 7 post-deploy or certification accounts retiring themselves). The closing statements - REVOKE ALL FROM public, anon, authenticated, service_role; ENABLE ROW LEVEL SECURITY with no policy; GRANT SELECT,INSERT,UPDATE plus the sequence to service_role only - are in 20261109052000 and install with it. An immediate REVOKE was attempted twice ahead of that merge and refused by the authoring session's permission layer (Reason: Production Deploy), so the exposure is recorded here rather than carried quietly. check-recorded-migrations-evidence.mjs does not ask production about table grants or RLS, so this finding has no live reader; scripts/dev/test-referral-downline-placement.sh now asserts the closed grants and RLS against a live database, which is the only check anywhere that proves it. No migration is replayed: the applier answers ALREADY-APPLIED for this version. No production operation is dispatched by this recording."
     }
   ]
 }
