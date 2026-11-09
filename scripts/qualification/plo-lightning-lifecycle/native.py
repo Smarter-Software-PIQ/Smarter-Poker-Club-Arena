@@ -152,6 +152,10 @@ DO $$ DECLARE s text:=pg_get_functiondef('fn_ca_horse_roster_seat_guard()'::regp
         check('SELECT count(*)=10 FROM table_seats WHERE left_at IS NULL AND stack>0 AND NOT is_sitting_out;')
         check('SELECT admitted_count=9 FROM lightning_horse_admission;')
     print('PASS: occupied rebuy/sit-out holds refuse replacement and return without new admission')
+    # The automated target never caps a second human's ordinary paid entry.
+    sql('BEGIN;'+f"UPDATE profiles SET is_horse=false WHERE id='{horse(79)}';"+buy(79,'2026-11-09T12:30:00Z')+"DO $$ BEGIN IF (SELECT count(*) FROM table_seats WHERE left_at IS NULL)<>11 OR (SELECT admitted_count FROM lightning_horse_admission)<>9 THEN RAISE EXCEPTION 'normal human entry was capped or consumed progress'; END IF; END $$; ROLLBACK;")
+    check('SELECT count(*)=10 FROM table_seats WHERE left_at IS NULL;')
+    print('PASS: a second human buys in normally above the automated target without consuming progress')
     # Returning human and a second connection do not reset the durable sequence.
     sql(f"UPDATE table_seats SET left_at='2026-11-09T12:20:00Z' WHERE user_id='{HUMAN}';")
     refused = sql(buy(11,'2026-11-09T12:30:00Z'),ok=False)
