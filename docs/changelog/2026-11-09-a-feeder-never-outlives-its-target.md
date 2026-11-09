@@ -58,12 +58,29 @@ code: a mis-paced feeder is a rare row, while a regular board that loses its
 rung is re-asked every twelve seconds and re-inflates exactly the volume the
 ladder was built to cut.
 
+## An already-seated entrant is not left waiting
+
+Refusing to extend the wait is right, but a feeder that already holds a paid
+entrant must not be left with its window in the past, re-asked every twelve
+seconds while somebody's entry sits in it.
+`fn_ca_expire_empty_fixed_sng_satellite` cannot resolve that one: it takes an
+EMPTY feeder, and the opening horse means a feeder is never empty after
+creation. So an undeliverable feeder with anything paid in it is dealt NOW and
+the EXISTING satellite settlement authorities decide the rest. No new
+cancellation, refund or repair path is added here - CLAUDE.md 10.12 forbids
+exactly that - and an empty one is left for the expiry authority, which is the
+one case it does take.
+
 ## Exposure
 
-None at the time of the fix. Zero heads-up satellite feeders were created in
-the ten days to 2026-11-09, so no row had taken the wrong rung in production.
-It is fixed before the behaviour is called delivered rather than after a
-feeder fails to award a seat somebody bought.
+Zero heads-up satellite feeders were created in the ten days to 2026-11-09, so
+no row had taken the wrong rung in production.
+
+That is a reason not to hold a release for this fix. It is NOT evidence of zero
+future exposure and must not be read as one: the path is live and a scheduled
+MTT target can produce a feeder at any time. The fix lands before the
+behaviour is called delivered, rather than after a feeder fails to award a
+seat somebody bought.
 
 ## Tests
 

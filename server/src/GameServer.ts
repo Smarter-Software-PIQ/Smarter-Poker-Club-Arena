@@ -13770,8 +13770,20 @@ export class GameServer {
    * short window bounded by its target's own clock, RE-READ here on every rung
    * so a rescheduled target moves the bound.
    *
-   * `null` means do not rewrite the window: the board is full, or it is a
-   * feeder that can no longer deliver and must stop waiting.
+   * `null` means do not rewrite the window: the board is full.
+   *
+   * A FEEDER THAT CAN NO LONGER DELIVER AND ALREADY HOLDS A PAID ENTRANT IS
+   * NOT LEFT WAITING (2026-11-09). Refusing to extend its wait is right, but
+   * returning `null` would leave its window in the past, so this lane would
+   * re-ask it every twelve seconds for ever while somebody's entry sits in it.
+   * `fn_ca_expire_empty_fixed_sng_satellite` cannot resolve that: it takes an
+   * EMPTY feeder only, and the opening horse means a feeder is never empty
+   * after creation. So it is dealt NOW (`0`) and the EXISTING satellite
+   * lifecycle decides the rest - the game plays out and the settlement
+   * authorities judge deliverability, which is what they are for. No new
+   * cancellation, refund or repair path is introduced here (CLAUDE.md 10.12).
+   * A feeder with nothing paid in it is left alone, which is the one case the
+   * expiry authority does take.
    *
    * If the feeder check cannot be read, this falls back to the LADDER rung and
    * says so out loud. That is the deliberate direction: a mis-paced feeder is a
@@ -13827,12 +13839,24 @@ export class GameServer {
          too early only costs it a fast heads-up match. */
       return feederOpeningMs(rand);
     }
-    return feederWaitMs(
+    const feederWait = feederWaitMs(
       Date.now(),
       Date.parse(String((target as { start_time: string | null }).start_time ?? '')),
       SATELLITE_HU_TARGET_LEAD_MS,
       rand
     );
+    if (feederWait !== null) return feederWait;
+    /* Undeliverable. Somebody's entry is already in it, so it is dealt now and
+       the existing satellite settlement authorities resolve custody; an empty
+       one is left for fn_ca_expire_empty_fixed_sng_satellite. */
+    if (paidNow > 0) {
+      console.log(
+        `[GameServer] Feeder ${tournamentId.slice(0, 8)} can no longer reach its target; ` +
+          `dealing now with ${paidNow}/${seats} so the satellite lifecycle settles it`
+      );
+      return 0;
+    }
+    return null;
   }
 
   private async advanceSeatFirstRung(

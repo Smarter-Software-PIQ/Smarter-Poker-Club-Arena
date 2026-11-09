@@ -88,6 +88,25 @@ describe('a feeder never outlives its target', () => {
     expect(feederWaitMs(NOW, targetStart, LEAD_MS, highest)).toBe(FEEDER_OPENING_MAX_MS);
   });
 
+  it('an undeliverable feeder is a null WAIT, which the caller must not read as "keep waiting"', () => {
+    /* feederWaitMs answers only the question it is asked: how long may this
+       feeder still wait. null means "not at all". What to DO about a feeder
+       that already holds a paid entrant is the caller's decision, and
+       GameServer.seatFirstNextWaitMs deals it now (0) so the existing
+       satellite settlement authorities resolve custody, rather than leaving
+       its window in the past to be re-asked every twelve seconds for ever.
+       fn_ca_expire_empty_fixed_sng_satellite cannot resolve that one: it takes
+       an EMPTY feeder, and the opening horse means a feeder is never empty
+       after creation. This pins the contract the caller relies on. */
+    expect(feederWaitMs(NOW, NOW - 60 * 1000, LEAD_MS, mid)).toBeNull();
+    expect(feederWaitMs(NOW, NOW + LEAD_MS, LEAD_MS, mid)).toBeNull();
+    // and it is never a zero-length wait by accident, which would be
+    // indistinguishable from "deal now" at the call site
+    const wait = feederWaitMs(NOW, NOW + LEAD_MS + 1000, LEAD_MS, mid);
+    expect(wait).toBe(1000);
+    expect(wait).toBeGreaterThan(0);
+  });
+
   it('never returns a wait that reaches the target, at any draw', () => {
     const targetStart = NOW + LEAD_MS + 7 * 60 * 1000;
     for (const rand of [lowest, mid, highest]) {
