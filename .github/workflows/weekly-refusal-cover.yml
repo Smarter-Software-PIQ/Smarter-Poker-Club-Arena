@@ -7,6 +7,8 @@ on:
       - supabase/migrations/**
       - scripts/ci/test-split-late-return-postgres.py
       - scripts/ci/fixtures/split-late-return/**
+      - scripts/ci/test-union-prepares-first-postgres.py
+      - scripts/ci/fixtures/union-prepares-first/**
       - tests/split-late-return-owns-its-leg.law.test.ts
       - scripts/ci/fixtures/weekly-refusal-cover/**
       - scripts/ci/test-weekly-refusal-cover-postgres.py
@@ -52,3 +54,7 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 -B scripts/ci/test-split-late-return-postgres.py --pg-bin "$PG_BIN" --scratch-root "${{ runner.temp }}" --output "${{ runner.temp }}/split-late-return.json"
+      - name: The due union week prepares and pays first
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-union-prepares-first-postgres.py --pg-bin "$PG_BIN" --scratch-root "${{ runner.temp }}" --output "${{ runner.temp }}/union-prepares-first.json"
