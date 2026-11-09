@@ -59,9 +59,10 @@
 --     consult the resolver. That call sat BEFORE the step that suspends and
 --     departs the closing account, so the resolver still saw it as live and
 --     returned it -- re-homing the player under the very account being deleted.
---     The resolver is NOT added to that path. It only stamps the source now, so
---     an inherited 'referral' stops claiming a placement the referral did not
---     make. Reparenting on account closure is out of scope besides.
+--     That path is NOT touched by this delivery at all: account-closure
+--     reparenting belongs to another lane, and this task's authorization is
+--     KINGS CLUB's proven referral mismatches. A scope guard in the suite pins
+--     the hazard so a later change cannot quietly introduce it.
 --
 --   [REVIEW 2] The resolver's second branch returns the referrer's own upline,
 --     which for a settled non-agent referrer IS the club owner. The draft then
@@ -143,7 +144,7 @@ UPDATE public.kings_club_downline_repair_20261108
  WHERE club_id IS NULL;
 
 COMMENT ON TABLE public.kings_club_downline_repair_20261108 IS
- 'Downline correction ledger. Opened 2026-11-08 for the KINGS CLUB reattachment (ten corrections: seven memberships, three agent parents). old_value is the value replaced AT THE MOMENT OF THE WRITE, so restoring it reverses that change.';
+ 'Checkpoint for the 2026-11-08/09 KINGS CLUB referral-downline correction, and for nothing else. Holds the ten corrections applied by hand (seven memberships, three agent parents), the install-time baseline of the untouched population, and anything the one-off settlement in 20261109052000 moved. old_value is the value replaced AT THE MOMENT OF THE WRITE, so restoring it reverses that change. Another club, or another kind of hierarchy repair, opens its own record.';
 
 -- ── 1. How was this placement chosen? ───────────────────────────────────────
 -- WITHHELD from the browser: agent_assignment_source is operator bookkeeping,
@@ -167,14 +168,14 @@ BEGIN
     ALTER TABLE public.club_members
       ADD CONSTRAINT club_members_agent_assignment_source_check
       CHECK (agent_assignment_source IS NULL OR agent_assignment_source IN
-             ('join_fallback','referral','manual_transfer','agent_attach','upline_removed'))
+             ('join_fallback','referral','manual_transfer','agent_attach'))
       NOT VALID;
   END IF;
 END
 $do$;
 
 COMMENT ON COLUMN public.club_members.agent_assignment_source IS
- 'How the current agent_id was chosen. join_fallback = the club-owner placement made at join that nobody chose; referral = resolved from a referral link or referral ID; manual_transfer = an authorized reassignment; agent_attach = an agent or staff member added the player deliberately; upline_removed = reparented because the upline left. Only join_fallback (and a NULL agent_id) may be overridden automatically. A row written before 2026-11-09 carries NULL and is never automatically movable.';
+ 'How the current agent_id was chosen. join_fallback = the club-owner placement made at join that nobody chose; referral = resolved from a referral link or referral ID; manual_transfer = an authorized reassignment; agent_attach = an agent or staff member added the player deliberately. Only join_fallback (and a NULL agent_id) may be overridden automatically. A row written before 2026-11-09 carries NULL and is never automatically movable.';
 
 -- ── 2. Who does the referral evidence name? ─────────────────────────────────
 -- The platform's existing supported order, strongest first: the club invite the
@@ -403,10 +404,10 @@ END
 $patch_join$;
 
 -- ── 7. The other assignment paths ───────────────────────────────────────────
--- fn_redeem_club_invite_code is 11.5 KB and fn_ca_deleted_account_leaves_every_club
--- 9.7 KB of money-adjacent logic. CLAUDE.md records what retyping a large
--- migration by hand cost on 2026-09-23 (five days, 65 stalled tables), so each
--- is patched by exact anchor with an assertion, and is a no-op if already done.
+-- fn_redeem_club_invite_code is 11.5 KB of money-adjacent logic. CLAUDE.md
+-- records what retyping a large migration by hand cost on 2026-09-23 (five
+-- days, 65 stalled tables), so each is patched by exact anchor with an
+-- assertion, and is a no-op if already applied.
 DO $patch$
 DECLARE src text; orig text;
 BEGIN
@@ -528,31 +529,6 @@ BEGIN
     EXECUTE src;
   END IF;
 
-  ---------------------------------------------------------------------------
-  -- 7d. fn_ca_deleted_account_leaves_every_club: stamps the source only.
-  --     Last written by 20261016224731, patched by 20261026031314.
-  --
-  -- [REVIEW 1] The resolver is NOT called here. In this function the downline is
-  -- re-homed BEFORE the closing account is suspended and departed, so a resolver
-  -- call would still see that account as live and hand the player straight back
-  -- to it -- leaving them attached to a deleted, departed account, and invisible
-  -- to the audit afterwards because the row would no longer read as unchosen.
-  -- [REVIEW 15] Stamping the source does matter: without it an inherited
-  -- 'referral' survives on a placement the referral did not make, which is the
-  -- flag lying, and 'upline_removed' would have no writer at all.
-  ---------------------------------------------------------------------------
-  src := pg_get_functiondef('public.fn_ca_deleted_account_leaves_every_club(uuid)'::regprocedure);
-  IF position('upline_removed' in src) = 0 THEN
-    orig := src;
-    src := replace(src,
-      '           parent_agent_id = CASE WHEN r.via_parent THEN v_target ELSE m.parent_agent_id END,',
-      '           agent_assignment_source = CASE WHEN r.via_agent THEN ''upline_removed''' || chr(10) ||
-      '             ELSE m.agent_assignment_source END,' || chr(10) ||
-      '           parent_agent_id = CASE WHEN r.via_parent THEN v_target ELSE m.parent_agent_id END,');
-    IF src = orig THEN RAISE EXCEPTION
-      'deleted-account patch: reparent anchor drifted; refusing to patch blind'; END IF;
-    EXECUTE src;
-  END IF;
 END
 $patch$;
 
@@ -829,8 +805,11 @@ BEGIN
                       position('agent-agreement:' in s) > 0,
                       'advisory lock present in the transfer path';
 
-  -- 15. The deleted-account path never hands a player to the account being
-  --     deleted ([REVIEW 1]): it must not consult the resolver at all.
+  -- 15. SCOPE GUARD, not a gate on anyone else's work. The account-closure
+  --     reparent belongs to another lane and this delivery does not touch it.
+  --     It is pinned here because [REVIEW 1] proved what happens if a later
+  --     change points the resolver at it: the closing account is still live at
+  --     that point, so the resolver hands the player straight back to it.
   s := pg_get_functiondef('public.fn_ca_deleted_account_leaves_every_club(uuid)'::regprocedure);
   RETURN QUERY SELECT 'the deleted-account path does not consult the resolver',
                       position('fn_resolve_referral_upline' in s) = 0,
