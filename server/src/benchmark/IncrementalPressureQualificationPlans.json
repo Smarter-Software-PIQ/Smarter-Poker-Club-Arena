@@ -5,7 +5,7 @@
     "state": "heldout_locked",
     "target": "river_position_defense",
     "dealSampler": "sha256-profile-seed-index-v1",
-    "baselineReferenceRevision": "075a81c3caba073c77487a2592cb35fc52781901",
+    "baselineReferenceRevision": "a6bc7f92050707840a10d76e3cac97ff301f7504",
     "sourceBinding": "horse-decision-closure-v1",
     "runtimeSourceFiles": {
       "native/public_hist215_wtl.cc": "83442cb6604dfaa30ec7ecc6ce38957355609e722b5df85b866365c97f0ccf9b",
@@ -19,7 +19,7 @@
       "src/benchmark/HorseLeagueHumanField.ts": "3b89f477c9ecf5717590c2b79cebcde141fe0e41c494ba6abe9d74014da7090b",
       "src/benchmark/HumanCalibratedPopulation.ts": "d613c38c75baaf1adcbd22f8f9766352d83d37f1348084dc6e6bc2c3adf44dc6",
       "src/benchmark/IncrementalPressureDevelopment.ts": "10e268f76511540dc733bc817b60a24a8f64de0726abfa7587241f05a07e2df0",
-      "src/benchmark/IncrementalPressureQualification.ts": "40f9f6430044d60c51e905b7612b0e725ae69007139ad30f43a6d4ad93f92de5",
+      "src/benchmark/IncrementalPressureQualification.ts": "3280fd44d08c2562b67dd60371c760b7dcafa89ed0bddb27530f160ba6369ec3",
       "src/benchmark/JointBoardReference.ts": "ace8ef1909c23e789e8c6482c66709c5b6625389595cdfa11455d87014a04f8b",
       "src/benchmark/JointStrengthChecks.ts": "f6196f496909983349f4f06398e5a038a63c807b09063b7115208b1d39905cbd",
       "src/benchmark/JointStrengthContract.ts": "fd1fe9bcb240cf3bba48659d843a912f492d1cb13ff4bd86edecb5d1ed6533e7",
@@ -345,7 +345,7 @@
       "src/tournament/tournamentUnit.ts": "3e54fa0e9382f42df1fb46431d48d988b6de2ed3c0edc365164c31ed0a14af39",
       "src/types.ts": "f15030acdfa5a6be93f72bee172b2ecb582d6b8bca03b9655d2a1f51e6c64331"
     },
-    "runtimeSourceDigest": "f1cd523c69447828961182412f9caafb1d910ed19e3a112b5fe83ded5a18a9f7",
+    "runtimeSourceDigest": "8af7eb14c16bc8efa7a3fbcb2b5e443794c941dc67b54054ee3663bcb11e3341",
     "policyDigests": {
       "phase8": "97e198d1f5917ca7b815ea1939d7f73e1500f04cf7697d71ea6b8944846f67e4",
       "phase10": "914f5a51102cfbe8380c6e1a9ed49056268009d14c349f7124fa79c1eaf8cb00",

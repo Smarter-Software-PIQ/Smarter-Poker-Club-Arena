@@ -2,7 +2,7 @@
 
 State: superseded by the registration of 2026-11-09
 (docs/changelog/2026-11-09-river-position-defense-registers-family-283.md). The
-plan registered there was regenerated on protected main 075a81c3c, not the
+plan registered there was regenerated on protected main a6bc7f920 (#10134), not the
 #10048 head this draft describes. `riverPositionDefense` stays unselected until
 the held-out run qualifies it.
 
