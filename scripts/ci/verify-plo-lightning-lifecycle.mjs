@@ -47,17 +47,45 @@ export function proofFetch(environment, transport = fetch) {
     });
   };
 }
-export async function performOrdinaryTurn(page) {
-  for (const label of ['Check', 'Fold']) {
-    const button = page.locator('.action-panel--active[data-connection="live"] .action-row').getByRole('button', { name: label, exact: true }).first();
-    if (!(await button.isVisible()) || !(await button.isEnabled())) continue;
+export function ordinaryTurnContext(snapshot, player) {
+  if (snapshot.current_player !== player) return null;
+  const own = snapshot.players?.find(p => p.user_id === player);
+  assert(own && [snapshot.current_bet, own.bet, own.totalInvested, own.stack].every(v => Number.isFinite(v) && v >= 0), 'Owned turn amounts are unavailable');
+  return { stage:snapshot.stage, callAmount:Math.max(0,snapshot.current_bet-own.bet), bet:own.bet,
+    budget:Math.max(0,Math.min(8-own.totalInvested,own.stack-0.01)) };
+}
+export async function performOrdinaryTurn(page, turn) {
+  const panel = page.locator('.action-panel--active[data-connection="live"]');
+  const row = panel.locator('.action-row');
+  const click = async button => {
+    if (!(await button.isVisible()) || !(await button.isEnabled())) return false;
     try { await button.click({ timeout: 2000 }); }
     catch (error) {
       if (error.name !== 'TimeoutError' || (await button.isVisible() && await button.isEnabled())) throw error;
-      // The turn disappeared. Observe its successor instead of replaying an action.
+      // Observe a successor turn instead of replaying the vanished action.
     }
-    return;
+    return true;
+  };
+  // Madness requires40% VPIP in10hands. Participate through the same player
+  // controls, bounded to8chips total investment per hand; never force all-in.
+  if (turn?.stage === 'preflop') {
+    if (turn.callAmount > 0 && turn.callAmount <= turn.budget &&
+      await click(row.getByRole('button',{name:/^Call /}).first())) return;
+    if (turn.callAmount === 0 && turn.budget > 0 &&
+      await click(row.getByRole('button',{name:'Open Raise Panel',exact:true}).first())) {
+      const slider = panel.getByRole('slider',{name:'Raise Amount',exact:true});
+      if (await slider.isVisible()) {
+        const minimum=Number(await slider.getAttribute('min'));
+        if (Number.isFinite(minimum) && minimum > turn.bet && minimum-turn.bet <= turn.budget) {
+          await slider.press('Home');
+          if (await click(panel.getByRole('button',{name:/^Raise [0-9]/}).first())) return;
+        }
+        await click(panel.getByRole('button',{name:'Back',exact:true}).first());
+      } else return; // The original turn vanished while its panel opened.
+    }
   }
+  for (const label of ['Check', 'Fold'])
+    if (await click(row.getByRole('button', { name: label, exact: true }).first())) return;
 }
 export function recoveryClaimId(runId, playerId) {
   const h = createHash('sha256').update(`plo-proof-owned-wallet:${runId}:${playerId}`).digest('hex').slice(0,32).split('');
@@ -262,7 +290,15 @@ export async function main(environment = process.env) {
   const roleEnv = role => ({ ...environment, RUNNER_TEMP: out, E2E_CLUB_ID: fundingClub, E2E_TEST_ACCOUNT_FILE: join(out, `${role}-account.private.json`), GITHUB_ENV: join(out, `${role}.private.env`) });
   const wallet = async id => Number((await one(`club_members?club_id=eq.${fundingClub}&user_id=eq.${id}&select=chip_balance`)).chip_balance);
   const assertOnlyOwnedHuman = state => assert(state.profiles.every(p => p.is_horse === true || p.id === player?.id), 'Another real player arrived; stop the owned proof');
-  const act = () => performOrdinaryTurn(page);
+  const act = async () => {
+    if (!(await page.locator('.action-panel--active[data-connection="live"] .action-row').getByRole('button',{name:/^(Check$|Fold$|Call )/}).first().isVisible())) return;
+    const tableId = /\/table\/([0-9a-f-]{36})$/.exec(new URL(page.url()).pathname)?.[1];
+    assert(tableId,'Ordinary played table is unavailable');
+    const r=await fetchImpl(`${ENGINE}/state/${tableId}`,{headers:{Authorization:`Bearer ${P.token}`}});
+    assert(r.ok,'Owned current turn is unavailable');
+    const turn=ordinaryTurnContext(await r.json(),player.id);
+    if (turn) await performOrdinaryTurn(page,turn);
+  };
   const ownSeats = () => read(`table_seats?user_id=eq.${player.id}&left_at=is.null&select=id,table_id,seat_number,occupancy_id,stack`);
   const leave = async () => {
     const pools = await read(`lightning_pool_session?cluster_id=eq.${GAME}&player_id=eq.${player.id}&exited_at=is.null&select=id,stop_requested_at`);
@@ -389,6 +425,8 @@ export async function main(environment = process.env) {
     while (Date.now() < t0 + 16 * 60_000) {
       requireHealth(await health(), sha, initial.instanceId);
       const state = await census(); assertOnlyOwnedHuman(state);
+      const currentSession=await one(`cash_player_session?id=eq.${report.cashSessionId}&select=closed_at,closed_reason`);
+      assert(!currentSession.closed_at,`Owned startup session closed: ${currentSession.closed_reason}`);
       assert(!report.unexpectedBuyInIntent, 'Client created another buy-in intent');
       const byId = new Map(state.profiles.map(p => [p.id,p]));
       for (const s of [...state.seats].sort((a,b) => Date.parse(a.joined_at)-Date.parse(b.joined_at))) {
