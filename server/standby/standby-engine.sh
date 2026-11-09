@@ -30,6 +30,8 @@ DB_DIR=/opt/standby-db
 STATE_DIR=/var/lib/club-arena-standby
 CERT_DIR=$STATE_DIR/certificates
 LOG_DIR=/var/log/club-arena-standby
+SCHEMA_EVIDENCE_TOOL=$SCRIPT_DIR/schema-evidence.py
+[ -f "$SCHEMA_EVIDENCE_TOOL" ] || SCHEMA_EVIDENCE_TOOL=/usr/local/share/club-arena-standby/schema-evidence.py
 CONTAINER=club-arena-engine-standby
 IMAGE_REPO=club-arena-engine-standby
 NETWORK=supabase_network_standby
@@ -86,6 +88,7 @@ cmd_restore() {
   assert_isolated || return 1
   stop_for_restore || return 1
   rm -f "$STATE_DIR/database.json" "$STATE_DIR/seed.json" || return 1
+  python3 -B "$SCHEMA_EVIDENCE_TOOL" verify-dump "$STATE_DIR/schema-evidence.json" "$dump" >/dev/null || return 1
   log "restore: dropping app schemas and loading $(basename "$dump")"
   # Database-level event triggers depend on public functions; drop them first.
   psql_db -qc "DROP EVENT TRIGGER IF EXISTS ca_break_window_refuses_ddl; DROP EVENT TRIGGER IF EXISTS ca_break_window_refuses_drops" >/dev/null || return 1
@@ -241,12 +244,19 @@ SQL
                CREATE EVENT TRIGGER ca_break_window_refuses_drops ON sql_drop EXECUTE FUNCTION public.fn_ca_break_window_ddl_guard();" >/dev/null \
     || { log "restore: break-window event triggers could not be installed"; return 1; }
   assert_restore_quiet || return 1
+  # The installed source manifest is bound to this dump; compare its actual
+  # restored function bodies before publishing a valid copy.
+  verify_schema_evidence || return 1
   # Publish validity only after the deferred checks and finalization succeed.
   python3 - "$STATE_DIR/database.json" <<'PY_VALID'
 import json, os, sys
 path = sys.argv[1]
 data = json.load(open(path))
 data['restoreValidated'] = True
+data['schemaEvidenceValidated'] = True
+import hashlib
+evidence_path = os.path.join(os.path.dirname(path), 'schema-evidence.json')
+data['schemaEvidenceSha256'] = hashlib.sha256(open(evidence_path, 'rb').read()).hexdigest()
 with open(path + '.new', 'w') as output:
     json.dump(data, output)
 os.replace(path + '.new', path)
@@ -298,19 +308,38 @@ ENGINE_STANDBY_CLONE=1
 EOF
 }
 
+verify_schema_evidence() {
+  local tool=$SCHEMA_EVIDENCE_TOOL
+  local actual
+  actual=$(mktemp "$STATE_DIR/schema-current.XXXXXX") || return 1
+  rm -f "$actual"
+  if python3 -B "$tool" verify-dump "$STATE_DIR/schema-evidence.json" "$STATE_DIR/schema.dump" &&
+     python3 -B "$tool" capture --body-only --container "$DB_CONTAINER" --output "$actual" &&
+     python3 -B "$tool" compare --body-only "$STATE_DIR/schema-evidence.json" "$actual"; then
+    rm -f "$actual"
+    return 0
+  fi
+  rm -f "$actual"
+  return 1
+}
+
 assert_valid_copy() {
-  python3 - "$STATE_DIR/database.json" "$STATE_DIR/seed.json" "$(owners_file)" <<'PY_CHECK'
-import hashlib, json, sys
+  python3 - "$STATE_DIR/database.json" "$STATE_DIR/seed.json" "$(owners_file)" <<'PY_CHECK' || return 1
+import hashlib, json, os, sys
 try:
     database, seed = (json.load(open(p)) for p in sys.argv[1:3])
     assert database.get('ownersSha256') == hashlib.sha256(open(sys.argv[3], 'rb').read()).hexdigest()
     assert database.get('restoreValidated') is True and database.get('restoreErrors') == 0
+    assert database.get('schemaEvidenceValidated') is True
+    evidence_path = os.path.join(os.path.dirname(sys.argv[1]), 'schema-evidence.json')
+    assert database.get('schemaEvidenceSha256') == hashlib.sha256(open(evidence_path, 'rb').read()).hexdigest()
     assert seed.get('authFixtureVersion') == 2
     assert seed.get('cashClusterParentsValidated') is True
     assert seed['tablesFailed'] == 0 and seed['seededAt'] >= database['restoredAt']
 except (OSError, ValueError, KeyError, TypeError, AssertionError):
     sys.exit('standby database restore/seed is unqualified')
 PY_CHECK
+  verify_schema_evidence
 }
 
 cmd_run() {

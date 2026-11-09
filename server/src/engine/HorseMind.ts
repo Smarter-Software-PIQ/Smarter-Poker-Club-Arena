@@ -3301,6 +3301,9 @@ export class HorseMind {
         : cell.population;
     let mul = (cell.foldOverMdf * fold) / cell.population;
     if (isProvenWinner(userId)) mul *= WINNER_BLUFF_MOD;
+    // Receipt: live proof the model priced an opponent (one count per
+    // opponent pricing, not per decision). Counting never decides.
+    noteFire('omaha_ev_fold_model_priced');
     return mul;
   }
 
@@ -3947,7 +3950,7 @@ export class HorseMind {
       // an unread responder prices lower (or nobody has a break-even read),
       // nothing is attached and the bluff scale is the flag-off one.
       ...(isFinite(beBluff) && beBluff < unreadBluff
-        ? { breakEvenBluff: beBluff, foldShift: beShift }
+        ? (noteFire('break_even_bluff_priced'), { breakEvenBluff: beBluff, foldShift: beShift })
         : {}),
     };
   }

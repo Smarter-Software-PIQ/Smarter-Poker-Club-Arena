@@ -18,6 +18,7 @@ import {
   type ReadScope,
 } from './HorseMind.js';
 import { mdfFold } from './HorseEvEngine.js';
+import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import type { ActionRecord } from '../types.js';
 
 let clock = 1_791_000_000_000;
@@ -204,5 +205,31 @@ describe('Omaha EV fold model (omahaEvFoldModel)', () => {
       HorseMind.setDecisionReadOptions({ omahaEvFoldModel: true });
       expect(HorseMind.currentDecisionReadOptions().omahaEvFoldModel).toBeUndefined();
       expect(HorseMind.omahaEvFoldMulOf('villain')).toBeNull();
+    }));
+
+  it("every opponent the model prices leaves one omaha_ev_fold_model_priced receipt; off, Hold'em and tournaments leave none", () =>
+    run(() => {
+      enableBrainTelemetry();
+      drainFires();
+      const fired = () =>
+        drainFires().find((r) => r.feature === 'omaha_ev_fold_model_priced')?.fires ?? 0;
+      const scope = readScopeOf('plo4', 6);
+      within(scope, 'plo4', { omahaEvFoldModel: true }, () => {
+        HorseMind.evFoldMul('villain');
+        HorseMind.evFoldMul('stranger');
+      });
+      expect(fired()).toBe(2);
+      within(scope, 'plo4', {}, () => HorseMind.evFoldMul('villain'));
+      within(readScopeOf('nlh', 6), 'nlh', { omahaEvFoldModel: true }, () =>
+        HorseMind.evFoldMul('villain')
+      );
+      within(
+        scope,
+        'plo4',
+        { omahaEvFoldModel: true },
+        () => HorseMind.evFoldMul('villain'),
+        'tournament'
+      );
+      expect(fired()).toBe(0);
     }));
 });
