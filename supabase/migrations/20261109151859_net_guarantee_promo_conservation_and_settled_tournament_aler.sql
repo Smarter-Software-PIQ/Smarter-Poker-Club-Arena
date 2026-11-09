@@ -109,14 +109,12 @@ DECLARE
     || '    + m.promo_in';
 
   c_deltas_old_1 constant text :=
-    '      AND ((x.category = ''transfer'' AND x.idempotency_key LIKE ''owner-retirement-pool:%'')' || chr(10)
-    || '        OR (x.category = ''reversal'' AND x.metadata->>''kind'' = ''owner_bounty_guarantee_correction''))' || chr(10)
+    '        OR (x.category = ''reversal'' AND x.metadata->>''kind'' = ''owner_bounty_guarantee_correction''))' || chr(10)
     || '    GROUP BY x.tournament_id' || chr(10)
     || '  )' || chr(10)
     || '  SELECT e.id, e.name, e.variant, e.ended_at,';
   c_deltas_new_1 constant text :=
-    '      AND ((x.category = ''transfer'' AND x.idempotency_key LIKE ''owner-retirement-pool:%'')' || chr(10)
-    || '        OR (x.category = ''reversal'' AND x.metadata->>''kind'' = ''owner_bounty_guarantee_correction''))' || chr(10)
+    '        OR (x.category = ''reversal'' AND x.metadata->>''kind'' = ''owner_bounty_guarantee_correction''))' || chr(10)
     || '    GROUP BY x.tournament_id' || chr(10)
     || '  ), promo_in AS MATERIALIZED (' || chr(10)
     || '    -- UNION PROMO FUNDING (2026-11-09): see the scalar.' || chr(10)
