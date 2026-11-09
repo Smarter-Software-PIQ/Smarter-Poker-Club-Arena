@@ -624,7 +624,7 @@ None. This lane changed no UI, page, popup or asset. The Club Arena console visu
 - **Running processes:** one read-only background waiter in THIS container, task `bkaxo8y1u`
   (`waitthreads.sh 2026-11-09T21:45:00Z`). It exits on a relevant #10063/#10171 post. It dies with this
   container; a new chat must start its own.
-- **Repository handoff PR:** see the PR line at the end of section 25. **UNVERIFIED whether it has merged.**
+- **Repository handoff PR:** #10196 (branch `horse/handoff-20261109-brain-activation`, docs only), opened 15:58Z. **UNVERIFIED whether it has merged**; merge it through protected checks if it is still open.
 - No database writes, migrations, dispatches, payouts or SSH were performed by this lane, ever.
 
 ---
@@ -1063,3 +1063,4 @@ Files created or modified while preparing this handoff:
 - this file (SSD and repository copies);
 - `NOV8-0400Z-CHECKPOINT.md` (a 15:50Z section appended);
 - `lane-tools-20261109/` (new).
+- repository PR #10196 (docs only, `.agent/handoffs/`), open at the time of writing.
