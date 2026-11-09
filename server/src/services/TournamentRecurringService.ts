@@ -3901,15 +3901,37 @@ export class TournamentRecurringService {
        So a board is counted only when it is not a feeder, by exactly the test
        fn_ca_seat_first_daily_starts uses to call a row a feeder - the engine
        and the report must not disagree about what the six are. */
-    const query = supabase
+    /* AN EMPTY BOARD IS NOT ONE OF THE ELEVEN (2026-11-09, measured on the
+       activated engine). Dan's board is "ONE HORSE SITTING AT" eleven Spins
+       and six Sit & Gos. This count used to take every REGISTERING row, and a
+       board with no seat sold never leaves REGISTERING under the ladder: the
+       fill lane tops up only `paid > 0` (fillPartialSeatFirstGame), a
+       held-empty board opens with nobody (seatFirstHeldEmpty), and an unused
+       board is parked rather than cancelled at 3 AM (20261108034940). Read at
+       21:03Z, ninety minutes after activation: 32 Spin and 16 heads-up boards
+       REGISTERING, every one with no entrant and no live seat, created
+       06:24-08:16Z by the previous engine - so room was 11-32 and 6-16, the
+       launcher opened nothing, and no horse sat anywhere. A held-empty board
+       created later would have taken a slot the same way, for good.
+
+       So a board is counted only once it is OPENED: at least one live seat
+       on a table that is not closed, the exact `paid` the fill lane reads
+       (GameServer.readSeatFirstPaidSeats). ensureBoardOpen reopens an empty
+       board before it creates one, so an empty board is consumed, never
+       stacked. Every read fails closed: an unreadable answer opens nothing. */
+    const { data: boardRows, error } = await supabase
       .from('tournaments')
-      .select('id', { count: 'exact', head: true })
+      .select('id')
       .eq('variant', variant)
       .eq('tournament_type', variant === 'spin' ? 'SPIN' : 'SNG')
       .is('satellite_target_id', null)
       .is('satellite_target', null)
       .eq('status', 'REGISTERING');
-    const { count, error } = await query;
+    const count = error
+      ? null
+      : await this.openedSeatFirstBoards(
+          (boardRows ?? []).map((r) => String((r as { id: string }).id))
+        );
     if (error || typeof count !== 'number') {
       reportError(
         new Error(
@@ -3920,6 +3942,58 @@ export class TournamentRecurringService {
       return null;
     }
     return Math.max(0, boardOpenTarget(variant) - count);
+  }
+
+  /**
+   * How many of these boards are OPENED: at least one live seat on a table
+   * that is not closed. Returns the set's size, or null when either read
+   * fails (CLAUDE.md 10.86: not knowing is not zero).
+   */
+  private async openedSeatFirstBoards(ids: string[]): Promise<number | null> {
+    return (await this.seatFirstBoardsWithALiveSeat(ids))?.size ?? null;
+  }
+
+  /** The ids, of those given, holding at least one live seat; null when unreadable. */
+  private async seatFirstBoardsWithALiveSeat(ids: string[]): Promise<Set<string> | null> {
+    const opened = new Set<string>();
+    if (ids.length === 0) return opened;
+    const { data: tableRows, error: tableErr } = await supabase
+      .from('tables')
+      .select('id, tournament_id')
+      .in('tournament_id', ids)
+      .neq('status', 'closed');
+    if (tableErr) {
+      reportError(
+        new Error(`[TournamentRecurring] opened-board table read failed: ${tableErr.message}`),
+        'TournamentRecurring.opened_board_read_failed'
+      );
+      return null;
+    }
+    const boardOfTable = new Map<string, string>();
+    for (const r of tableRows ?? []) {
+      boardOfTable.set(
+        String((r as { id: string }).id),
+        String((r as { tournament_id: string }).tournament_id)
+      );
+    }
+    if (boardOfTable.size === 0) return opened;
+    const { data: seatRows, error: seatErr } = await supabase
+      .from('table_seats')
+      .select('table_id')
+      .in('table_id', [...boardOfTable.keys()])
+      .is('left_at', null);
+    if (seatErr) {
+      reportError(
+        new Error(`[TournamentRecurring] opened-board seat read failed: ${seatErr.message}`),
+        'TournamentRecurring.opened_board_read_failed'
+      );
+      return null;
+    }
+    for (const s of seatRows ?? []) {
+      const board = boardOfTable.get(String((s as { table_id: string }).table_id));
+      if (board) opened.add(board);
+    }
+    return opened;
   }
 
   private async checkAndLaunchSNGs(): Promise<void> {
@@ -4590,7 +4664,9 @@ export class TournamentRecurringService {
         // id and max_players as well as the name: a seat-first game only
         // COVERS its price point if it can actually be joined, and that means
         // owning a table. See the joinability filter below.
-        .select('id, name, max_players, format_contract')
+        .select(
+          'id, name, max_players, format_contract, tournament_type, satellite_target_id, satellite_target'
+        )
         .eq('variant', variant)
         // REGISTERING only. ANNOUNCED is not joinable and RUNNING is too late;
         // counting either is what let a board of live games starve the lobby.
@@ -4640,6 +4716,9 @@ export class TournamentRecurringService {
         name: string;
         max_players: number;
         format_contract: unknown;
+        tournament_type?: string | null;
+        satellite_target_id?: string | null;
+        satellite_target?: string | null;
       }[];
       const seatFirstIds = rows.filter((r) => isPersistedSeatFirst(r)).map((r) => r.id);
 
@@ -4667,6 +4746,40 @@ export class TournamentRecurringService {
             .filter((r) => isJoinableTableRow(r as TournamentTableJoinability))
             .map((r) => String((r as { tournament_id: string }).tournament_id))
         );
+      }
+
+      /* AN EMPTY BOARD IS REOPENED BEFORE ANOTHER IS CREATED (2026-11-09).
+         See seatFirstBoardRoom: an empty board is not one of the eleven or the
+         six, and nothing else will ever seat a horse in it. So the budget goes
+         to this owner's empty boards first - the same rows the room count
+         takes (its own type, never a satellite feeder), joinable, with no
+         live seat - and is only spent creating while none is left. That is
+         what keeps the empty board from stacking: a held-empty board created
+         on one tick is reopened on the next, and while any empty board
+         exists, nothing new is created even if its reopen was refused. */
+      const ownType = variant === 'spin' ? 'SPIN' : 'SNG';
+      const emptyCandidates = rows.filter(
+        (r) =>
+          isPersistedSeatFirst(r) &&
+          r.tournament_type === ownType &&
+          r.satellite_target_id == null &&
+          r.satellite_target == null &&
+          withJoinableTable.has(r.id)
+      );
+      const withSeat = await this.seatFirstBoardsWithALiveSeat(emptyCandidates.map((r) => r.id));
+      if (withSeat === null) return;
+      const empty = emptyCandidates.filter((r) => !withSeat.has(r.id));
+      if (empty.length > 0) {
+        for (let i = empty.length - 1; i > 0; i--) {
+          const j = secureRandomInt(i + 1);
+          [empty[i], empty[j]] = [empty[j], empty[i]];
+        }
+        for (const board of empty) {
+          if (budget.left <= 0 || isMaintenanceFrozen()) return;
+          budget.left--;
+          await this.reopenEmptySeatFirstBoard(board);
+        }
+        return;
       }
 
       const open = new Set(
@@ -5412,10 +5525,46 @@ export class TournamentRecurringService {
    * Cash-table discovery cannot touch it: `cash_tables_with_players` filters
    * on `tournament_id IS NULL`.
    */
+  /**
+   * Reopen an empty seat-first board with exactly one horse. The opening rung
+   * is written FIRST: seated on a board whose start_time passed hours ago, the
+   * horse would read as a closed window and be topped up at once. If that
+   * write does not land, no horse is seated (late is survivable, early is not).
+   */
+  private async reopenEmptySeatFirstBoard(board: {
+    id: string;
+    name: string;
+    max_players: number;
+  }): Promise<void> {
+    const seats = Number(board.max_players) || 0;
+    const startTime = new Date(Date.now() + seatFirstOpeningWindowMs(seats)).toISOString();
+    const { data: moved, error } = await supabase
+      .from('tournaments')
+      .update({ start_time: startTime })
+      .eq('id', board.id)
+      .eq('status', 'REGISTERING')
+      .select('id, club_id, name');
+    if (error || !moved || moved.length !== 1) {
+      if (error)
+        reportError(
+          new Error(
+            `[TournamentRecurring] reopen window write failed for ${board.name}: ${error.message}`
+          ),
+          'TournamentRecurring.reopen_window_write_failed'
+        );
+      return;
+    }
+    const row = moved[0] as { id: string; club_id?: string | null; name: string };
+    // seedOpenSeatTable seats through the RPC by tournament id; the table id it
+    // hands back is unused here.
+    await this.seedOpenSeatTable(row, seats, '', true);
+  }
+
   private async seedOpenSeatTable(
     tournament: { id: string; club_id?: string | null; name: string },
     seats: number,
-    tableId: string
+    tableId: string,
+    reopening = false
   ): Promise<string | null> {
     try {
       /**
@@ -5444,9 +5593,12 @@ export class TournamentRecurringService {
       // directive that club boards open "exactly the way the house does". A
       // club with no horse members still opens empty - the pool is empty, not
       // the rule.
-      const opening = !seatFirstHeldEmpty(tournament.id, seats)
-        ? openingHorsesForSeatFirst(seats)
-        : 0;
+      // A reopened empty board is opened by definition: the hold already
+      // had its turn when the board was created (see ensureBoardOpen).
+      const opening =
+        !seatFirstHeldEmpty(tournament.id, seats) || reopening
+          ? openingHorsesForSeatFirst(seats)
+          : 0;
       const candidates = await this.pickFreeHorses(opening, false, tournament.id);
       let seated = 0;
       const tried = new Set<string>();
