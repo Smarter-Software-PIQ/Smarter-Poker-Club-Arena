@@ -197,9 +197,9 @@ async function main() {
 
     // The cheapest live board heads-up game is the template: the same terms the engine's board writes.
     const templates = await svc(
-      'tournaments?status=eq.REGISTERING&format_contract=eq.sng-v1&max_players=eq.2&union_id=is.null' +
+      'tournaments?status=eq.REGISTERING&format_contract=eq.sng-v1&max_players=eq.2&tournament_type=eq.SNG' +
         '&satellite_target_id=is.null&satellite_target=is.null&free_buy=eq.false&is_bounty=eq.false' +
-        '&game_type=eq.nlh&select=*&order=buy_in_amount.asc&limit=40'
+        '&game_type=eq.NLH&select=*&order=buy_in_amount.asc&limit=40'
     );
     if (!Array.isArray(templates) || !templates.length) throw new Error('no live board heads-up game to copy');
     const template = [...templates].sort(
@@ -323,8 +323,11 @@ async function main() {
       return t && String(t.status).toUpperCase() === 'COMPLETED' && t.ended_at ? t : null;
     }, GAME_DEADLINE_MS);
     evidence.sourceFinal = done;
-    await sleep(3000);
-    const beforeRematch = await both();
+    // The prize lands with the finish; read the wallets once it has.
+    const beforeRematch = await until('the first game\'s prize to reach a wallet', async () => {
+      const w = await both();
+      return cents(w.a + w.b) === cents(afterSeat.a + afterSeat.b) + 2 * BUY ? w : null;
+    }, 30_000).catch(() => both());
     step('the first game paid one prize and kept its rake',
       cents(done.prize_pool) === 2 * BUY && cents(done.total_rake) === 2 * FEE
         && cents(beforeRematch.a + beforeRematch.b) === cents(afterSeat.a + afterSeat.b) + 2 * BUY,
@@ -396,8 +399,10 @@ async function main() {
       return t && String(t.status).toUpperCase() === 'COMPLETED' ? t : null;
     }, GAME_DEADLINE_MS);
     evidence.rematchFinal = rematchDone;
-    await sleep(3000);
-    const end = await both();
+    const end = await until('the rematch\'s prize to reach a wallet', async () => {
+      const w = await both();
+      return cents(w.a + w.b) === cents(afterRematch.a + afterRematch.b) + 2 * BUY ? w : null;
+    }, 30_000).catch(() => both());
     step('the rematch paid one prize and kept its rake',
       cents(rematchDone.prize_pool) === 2 * BUY && cents(rematchDone.total_rake) === 2 * FEE,
       { prize_pool: rematchDone.prize_pool, total_rake: rematchDone.total_rake });
@@ -412,6 +417,13 @@ async function main() {
     error = String(e?.message || e);
     log('ERROR', error);
   } finally {
+    // A finished game releases its seats; cleanup settles nothing while one is open.
+    const memberIds = ['a', 'b'].map((r) => S.accounts[r]?.id).filter(Boolean);
+    for (let i = 0; memberIds.length && i < 30; i++) {
+      const open = await svc(`table_seats?left_at=is.null&user_id=in.(${memberIds.join(',')})&select=table_id`);
+      if (Array.isArray(open) && !open.length) break;
+      await sleep(2000);
+    }
     S.sockets.forEach((w) => {
       try { w.close(); } catch {}
     });
