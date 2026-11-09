@@ -4427,11 +4427,15 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     // Observed below; an early lifecycle return must not leave it unhandled.
     dealReady?.catch(() => undefined);
 
+    // The previous hand's recount runs after its deal (below); this one is
+    // never sent before it has answered, so recounts land in hand order. Read
+    // HERE, when the step is queued: by the time a serialized lane (insurance,
+    // a BBJ hit) runs the step, the continuation below has already published
+    // THIS hand's tail, and a step that waited on its own tail never ends.
+    const previousRecount = this.tableUnlockTail;
+
     // SETTLEMENT STEP 15: Unlock table — authoritative recount, ready for next hand
     await runStep('table_unlock', true, async () => {
-      // The previous hand's recount runs after its deal (below); this one is
-      // never sent before it has answered, so recounts land in hand order.
-      const previousRecount = this.tableUnlockTail;
       if (previousRecount) await previousRecount;
       if (!this.lifecycleCanMutate()) return;
       // Fresh authoritative recount, with no update request when the stored

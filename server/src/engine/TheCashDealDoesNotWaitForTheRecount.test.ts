@@ -182,6 +182,23 @@ describe('1. the deal barrier releases before the recount, and the recount stays
     expect(engine.postHandTimingSnapshot()).toMatchObject({ pipelineComplete: true });
   });
 
+  it('a hand whose lanes run in series (insurance, a jackpot hit) still finishes its recount', async () => {
+    // Native EV smoke 2026-11-09: with the lanes serialized the step runs only
+    // after this hand's own tail is published, so it must never wait on it.
+    const { engine, players } = cashTable();
+    engine.currentHandMiniBBJHit = {}; // serializes the lanes; no payout (hit is falsy)
+    await engine.postHandTasks(players, 1);
+    const tail = engine.tableUnlockTail;
+    const landed = await Promise.race([
+      tail.then(() => 'landed'),
+      new Promise((r) => setTimeout(() => r('stuck'), 1_000)),
+    ]);
+    expect(landed).toBe('landed');
+    expect(mocks.recount).toHaveBeenCalledTimes(1);
+    expect(engine.hasSettlementInFlight()).toBe(false);
+    await expect(engine.stop()).resolves.toBeUndefined();
+  });
+
   it("the next hand's recount is not sent before the previous one has answered", async () => {
     const { engine, players } = cashTable();
     const answers: Array<(n: number) => void> = [];

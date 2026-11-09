@@ -33,8 +33,12 @@ per-connection memory) and is not changed here.
    `trackSettlementInFlight`, so `stop()`, the drain and every
    `hasSettlementInFlight()` reader wait for it as before; and the next hand's
    recount is not sent until the previous one has answered, so recounts and
-   `table_unlocked` events land in hand order. Tournament tables keep the
-   whole barrier.
+   `table_unlocked` events land in hand order. The previous recount is taken
+   when step 15 is queued, not when it runs: on a hand whose lanes run in
+   series (insurance, a jackpot hit) the step runs after this hand's own tail
+   is published, and waiting on that would never end (found by the native EV
+   cash-out smoke, now pinned by a test). Tournament tables keep the whole
+   barrier.
 2. **The committed stack read is sent beside the envelope** and used only
    when nothing can have written a seat stack since: the envelope's own
    receipt resolved no add-on (its one seat writer is `resolve_pending_addon`
