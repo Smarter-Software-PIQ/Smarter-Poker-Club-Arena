@@ -270,6 +270,10 @@ const cashierDbHarnesses =
   /^(scripts\/ci\/(?:test-(?:chip-request-approval|union-send|cashier-arena-names|finance-gate|cashier-statement|horse-reads|tournament-chat-default|union-owner-membership|only-staff-remove-member)-db-postgres\.py$|test-stranded-satellite-part2-postgres\.py$)|tests\/fixtures\/(?:(?:chip-request-approval-db|union-send-db|cashier-arena-names-db|finance-gate-db|horse-reads-db|tournament-chat-default-db|union-owner-membership-db|only-staff-remove-member-db)\/|stranded-satellite-money-registry\.json$))/;
 const bbjContributionCover =
   /^(scripts\/ci\/(?:test-bbj-contribution-cover-postgres\.py$|fixtures\/bbj-contribution-cover\/)|scripts\/ops\/build-bbj-contribution-cover-concurrently\.sql$|tests\/bbjContributionCoverRegression\.test\.ts$)/;
+// The heads-up rematch concurrency proof (2026-11-09) replays the merged
+// rematch core on PostgreSQL 17 against simultaneous and interrupted sessions.
+const headsUpRematchConcurrency =
+  /^(scripts\/ci\/(?:test-heads-up-rematch-concurrency-postgres\.py$|fixtures\/heads-up-rematch-concurrency\/))/;
 const scopedAuditReads =
   /^(scripts\/ci\/(?:test-scoped-audit-reads\.py$|fixtures\/scoped-audit-reads\/)|tests\/scopedAuditReadRegression\.test\.ts$)/;
 const settlementAttribution =
@@ -600,6 +604,7 @@ export function classifyChangedPaths(paths) {
       matches(playerSearchPrivacy) ||
       matches(agentWalletSignals) ||
       matches(bbjContributionCover) ||
+      matches(headsUpRematchConcurrency) ||
       matches(scopedAuditReads) ||
       matches(backedPayoutScan) ||
       matches(cashierDbHarnesses) ||
@@ -674,6 +679,7 @@ export function classifyChangedPaths(paths) {
       matches(agentWalletSignals) ||
       matches(clubCreateCapacity) ||
       matches(bbjContributionCover) ||
+      matches(headsUpRematchConcurrency) ||
       matches(scopedAuditReads) ||
       matches(backedPayoutScan) ||
       matches(cashierDbHarnesses) ||
