@@ -101,10 +101,28 @@ it('recovers the same seated session across two actual WebSocket connections', (
 });
 
 const STANDBY = 'server/standby/standby-engine.sh';
+const schemaEvidenceFixture = {
+  schema: 'club-arena-schema-evidence/v1',
+  migrations: [['20261108041131', 'net_guarantee']],
+  functions: Object.fromEntries(
+    [
+      'public.fn_ca_guarantee_funding(uuid)',
+      'public.fn_ca_guarantee_house_supplements(uuid)',
+      'public.fn_ca_fund_union_guarantee_promo_locked(uuid)',
+      'public.fn_tournament_late_registration_open(uuid)',
+      'public.fn_register_horse_for_tournament(uuid,uuid)',
+      'public.fn_register_horse_for_tournament(uuid,uuid,boolean)',
+      'public.fn_register_horse_for_tournament_to_target(uuid,uuid,boolean,bigint)',
+      'smarter_private.weekly_payout_next_round()',
+    ].map((signature) => [signature, 'a'.repeat(64)])
+  ),
+  dumpSha256: createHash('sha256').update('fixture').digest('hex'),
+};
 function standbyShell(body: string, files: Record<string, unknown> = {}) {
   const dir = mkdtempSync(resolve(tmpdir(), 'standby-regression-'));
   mkdirSync(resolve(dir, 'logs'));
   writeFileSync(resolve(dir, 'schema.dump'), 'fixture');
+  writeFileSync(resolve(dir, 'schema-evidence.json'), JSON.stringify(schemaEvidenceFixture));
   for (const [name, value] of Object.entries(files))
     writeFileSync(resolve(dir, name), JSON.stringify(value));
   try {
@@ -128,6 +146,10 @@ const validCopy = {
     restoredAt: '2026-11-06T17:00:00Z',
     restoreErrors: 0,
     restoreValidated: true,
+    schemaEvidenceValidated: true,
+    schemaEvidenceSha256: createHash('sha256')
+      .update(JSON.stringify(schemaEvidenceFixture))
+      .digest('hex'),
     ownersSha256: createHash('sha256')
       .update(readFileSync(root('server/standby/standby-owners.sql')))
       .digest('hex'),
@@ -141,6 +163,14 @@ const validCopy = {
 };
 
 describe('the Backup Engine refuses partial restores and proves automatic recovery', () => {
+  it('rejects schema drift and mismatched dump evidence', () => {
+    const result = spawnSync('python3', ['-B', root('server/standby/test_schema_evidence.py')], {
+      encoding: 'utf8',
+      timeout: 15000,
+    });
+    expect(result.status, result.stderr).toBe(0);
+  });
+
   it('exports required cash cluster parents without human profile or auth data', () => {
     const result = spawnSync('python3', ['-B', root('scripts/ci/test_backup_cluster_seed.py')], {
       encoding: 'utf8',
@@ -186,7 +216,7 @@ describe('the Backup Engine refuses partial restores and proves automatic recove
     expect(sql).not.toMatch(/GRANT\s/i);
   });
 
-  it.each(['success', 'ssh-failure', 'tee-failure'])(
+  it.each(['success', 'ssh-failure', 'tee-failure', 'scp-failure'])(
     'retains a certificate verdict under bash errexit (%s)',
     (mode) => {
       const workflow = readFileSync(root('.github/workflows/backup-engine.yml'), 'utf8');
@@ -199,6 +229,7 @@ describe('the Backup Engine refuses partial restores and proves automatic recove
       cd "$STATE_DIR"
       STANDBY_HOST=fixture SHA=fixture GITHUB_SHA=protected-fixture CONTROL_SHA=protected-fixture GITHUB_OUTPUT="$STATE_DIR/output"
       ssh() { printf '%s\\n' '{"reasons":["fixture_refusal"]}'; [ '${mode}' != ssh-failure ]; }
+      scp() { [ '${mode}' != scp-failure ]; }
       tee() { command tee "$@"; [ '${mode}' != tee-failure ]; }
       ${body}
       cat "$GITHUB_OUTPUT" certificate.json
@@ -219,7 +250,9 @@ describe('the Backup Engine refuses partial restores and proves automatic recove
   });
 
   it('admits only a zero-error restore with its successful seed', () => {
-    expect(standbyShell('assert_valid_copy', validCopy).status).toBe(0);
+    expect(
+      standbyShell('verify_schema_evidence() { return 0; }; assert_valid_copy', validCopy).status
+    ).toBe(0);
     for (const files of [
       {},
       { ...validCopy, 'database.json': { ...validCopy['database.json'], ownersSha256: undefined } },
@@ -228,6 +261,14 @@ describe('the Backup Engine refuses partial restores and proves automatic recove
         'database.json': { ...validCopy['database.json'], ownersSha256: '0'.repeat(64) },
       },
       { ...validCopy, 'database.json': { ...validCopy['database.json'], restoreErrors: 7 } },
+      {
+        ...validCopy,
+        'database.json': { ...validCopy['database.json'], schemaEvidenceValidated: undefined },
+      },
+      {
+        ...validCopy,
+        'database.json': { ...validCopy['database.json'], schemaEvidenceSha256: '0'.repeat(64) },
+      },
       { ...validCopy, 'database.json': { ...validCopy['database.json'], restoreValidated: false } },
       {
         ...validCopy,
@@ -241,7 +282,9 @@ describe('the Backup Engine refuses partial restores and proves automatic recove
         'seed.json': { ...validCopy['seed.json'], seededAt: '2026-11-05T00:00:00Z' },
       },
     ])
-      expect(standbyShell('assert_valid_copy', files).status).not.toBe(0);
+      expect(
+        standbyShell('verify_schema_evidence() { return 0; }; assert_valid_copy', files).status
+      ).not.toBe(0);
   });
 
   it.each(['matching', 'missing', 'changed'])(

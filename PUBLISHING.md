@@ -258,3 +258,9 @@ A rollback to the older engine must preserve any committed receipt; an unsupport
 receipt is a recovery hold, never authorization for another payment.
 
 Schema changes under `supabase/migrations/**` trigger both existing Backup and engine prequalification push workflows on protected main. A migration-only push retains its exact SHA when the latest server commit is older; changed migration inputs require full Backup certification and the existing schema-refresh decision. Later client-only changes can use that earlier physical certificate and exact prequalification when the selector's current schema, controls and serving-predecessor checks still pass. No new schedule or client-only qualification trigger is introduced.
+
+### Backup installed schema evidence
+
+The original Backup export captures the installed production migration version/name set and the guarantee, Horse admission, registration and weekly-payout function definitions before and after the dump. Drift refuses the copy. The retained `schema-evidence.json` binds that set and the function hashes to the dump SHA. Restore compares the actual isolated function bodies before publishing validity; the isolated database carries the source migration manifest as evidence rather than an installation ledger.
+
+Before relying on that certificate for this delivery, capture production again through its configured read-only database connection and compare it with the original certificate artifact. Run `python3 -B server/standby/schema-evidence.py capture --output CURRENT_JSON`, then `python3 -B server/standby/schema-evidence.py compare RETAINED_JSON CURRENT_JSON`. A missing or changed migration or required function refuses the comparison. Read the exact sealed result and serving revision independently after cutover.
