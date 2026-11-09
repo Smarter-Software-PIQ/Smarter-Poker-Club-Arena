@@ -31,7 +31,7 @@ No client change: the leave doors only require `ok === true` from the stop, then
 
 ## Proof
 
-- `scripts/qualify-lightning-blind-off.mjs` (CI accounting shard 2): a throwaway cluster with the installed production definitions (hash-checked against production), run before the migration (S1, S2, S4, S6 reproduce the strand) and after it (each completes; S3, S5, S7 hold in both).
+- `scripts/qualify-lightning-blind-off.mjs` (run by `.github/workflows/lightning-hand-counts-every-player-dealt-in.yml`): a throwaway cluster with the installed production definitions (hash-checked against production), run before the migration (S1, S2, S4, S6 reproduce the strand) and after it (each completes; S3, S5, S7 hold in both).
 - `server/src/engine/ChipContinuityLeave.behaviour.test.ts` (Lightning anchor release, human and horse; fails without the engine change) and `server/src/lightning/LightningHandHost.test.ts` (an absent blinded-off seat is folded on its turn at once).
 - `tests/a-lightning-blind-off-always-completes.law.test.ts`.
 

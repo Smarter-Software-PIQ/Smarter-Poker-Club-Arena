@@ -133,7 +133,7 @@ describe('a stop or a disconnect can never strand owed hands', () => {
   });
 
   it('the native proof runs in CI on the installed production images', () => {
-    expect(read('.github/workflows/ci.yml')).toContain(
+    expect(read('.github/workflows/lightning-hand-counts-every-player-dealt-in.yml')).toContain(
       'node scripts/qualify-lightning-blind-off.mjs'
     );
     const harness = read('scripts/qualify-lightning-blind-off.mjs');
