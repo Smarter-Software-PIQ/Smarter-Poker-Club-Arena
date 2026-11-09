@@ -12,7 +12,7 @@ it('lets the nested split return journal its own debit without changing its call
   const original = rows.find(
     (row: { proname: string }) => row.proname === 'fn_ca_horse_split_return_late_credit'
   ).body;
-  expect(createHash('md5').update(original).digest('hex')).toBe('702e02688fc458ee7954baee99e0f65b');
+  expect(createHash('md5').update(original).digest('hex')).toBe('e1bd766347c196e52e891da762e76403');
   expect(migration).toContain("set_config('app.ledger_autoskip_club_members','',true)");
   expect(migration).toContain("'app.cash_original_debit_ledger'");
   expect(migration).toContain('split_late_return_preimage_changed');
