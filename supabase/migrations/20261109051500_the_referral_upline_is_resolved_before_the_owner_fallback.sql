@@ -92,6 +92,13 @@ BEGIN
 END
 $do$;
 
+-- WITHHELD from the browser: agent_assignment_source is operator bookkeeping,
+-- not player-facing. club_members carries COLUMN-level SELECT for anon and
+-- authenticated since the horse-identity close, so a new column is unreadable
+-- until it is granted - and this one is deliberately not granted. Nothing in
+-- the client reads it; the assignment paths that do are SECURITY DEFINER and
+-- run as the owner. (tests/horse-identity-is-not-readable.law.test.ts)
+
 COMMENT ON COLUMN public.club_members.agent_assignment_source IS
  'How the current agent_id was chosen. join_fallback = the club-owner placement made at join that nobody chose; referral = resolved from a referral link or referral ID; manual_transfer = an authorized reassignment; agent_attach = an agent or staff member added the player deliberately; upline_removed = reparented because the upline left. Only join_fallback (and a NULL agent_id) may be overridden automatically.';
 
