@@ -168,8 +168,26 @@ test('the workflow plans, pre-screens, then opens the epoch and evaluates, in th
     at('gto-v31-qualification.mjs run')];
   assert.deepEqual([...order].sort((a, b) => a - b), order);
   const prescreen = job.slice(at('node control/scripts/ci/gto-v31-prescreen.mjs') - 400, at('node control/scripts/ci/gto-v31-prescreen.mjs'));
-  assert.match(prescreen, /if: inputs\.operation == 'evaluate'\n        timeout-minutes: 30\n/);
+  assert.match(prescreen, /if: inputs\.operation == 'evaluate' \|\| inputs\.operation == 'prescreen'\n        timeout-minutes: 30\n/);
   assert.match(prescreen, /EQUITY_GOVERNOR: 'off'/);
   assert.match(yml, /node --test scripts\/ci\/gto-v31-qualification\.test\.mjs scripts\/ci\/gto-v31-prescreen\.test\.mjs /);
   assert.ok(!/^\s*schedule:/m.test(yml), 'no timer');
+});
+
+test('a stand-alone prescreen plans and screens, then stops before any epoch, evaluation or promotion', () => {
+  const yml = readFileSync(new URL('../../.github/workflows/gto-v31-qualification.yml', import.meta.url), 'utf8');
+  assert.match(yml, /options: \[evaluate, promote, recheck, prescreen\]/);
+  const job = yml.slice(yml.indexOf('  qualify:'), yml.indexOf('  promote:'));
+  const step = (name) => { const i = job.indexOf(`- name: ${name}`); assert.ok(i > 0, name); return job.slice(i, job.indexOf('\n      - ', i + 1)); };
+  assert.match(step('Plan the evaluation epoch pin'), /if: inputs\.operation == 'evaluate' \|\| inputs\.operation == 'prescreen'\n/);
+  assert.match(step('Pre-screen every component'), /if: inputs\.operation == 'evaluate' \|\| inputs\.operation == 'prescreen'\n/);
+  // Every step that can open an epoch or record a receipt is closed to prescreen.
+  assert.match(step('Select or open the audited evaluation epoch'), /if: inputs\.operation == 'evaluate'\n/);
+  assert.match(step('Prove the serving engine execution-identical'), /if: inputs\.operation == 'recheck'\n/);
+  assert.match(step('Run the evaluator once'), /if: inputs\.operation == 'evaluate' \|\| inputs\.operation == 'recheck'\n/);
+  const promote = yml.slice(yml.indexOf('  promote:'));
+  assert.match(promote, /inputs\.operation == 'promote'/);
+  assert.ok(!/prescreen/.test(promote.slice(0, promote.indexOf('steps:'))), 'promote is never admitted for prescreen');
+  // The database identity is the repository secret.
+  assert.match(step('Pre-screen every component'), /SUPABASE_SERVICE_ROLE_KEY: \$\{\{ secrets\.SUPABASE_SERVICE_ROLE_KEY \}\}/);
 });

@@ -7,6 +7,11 @@ run-name: V31 qualification ${{ inputs.operation || 'admission contracts' }} ${{
 #   names the pin first and a few-minute pre-screen plays the first deals of
 #   every component at it; a component that never reaches the playbook fails
 #   the job before any epoch is opened or receipt recorded.
+# prescreen: the same read-only plan and pre-screen on their own, then stop:
+#   no epoch, no evaluation, no receipt. With engine empty it screens the
+#   commit evaluate would pin; with engine set it screens that protected-main
+#   commit (an earlier epoch pin, say). This is how an agent screens a dataset:
+#   the database identity is the repository secret, never a local key.
 # promote: one engine-locked host operation: promote the evaluated epoch, load
 #   all eight workers, prove readiness. Re-run after a partial outcome resumes
 #   without re-promoting.
@@ -61,9 +66,14 @@ on:
         required: true
         default: evaluate
         type: choice
-        options: [evaluate, promote, recheck]
+        options: [evaluate, promote, recheck, prescreen]
       reason:
         description: Audited reason (20-500 chars), required only to open a new epoch for a different engine commit
+        required: false
+        default: ''
+        type: string
+      engine:
+        description: prescreen only - exact protected-main engine commit to screen (empty = the commit evaluate would pin)
         required: false
         default: ''
         type: string
@@ -114,7 +124,7 @@ jobs:
         run: node scripts/ci/gto-v31-recheck-dispatch.mjs
   qualify:
     needs: contract
-    if: github.event_name == 'workflow_dispatch' && (inputs.operation == 'evaluate' || inputs.operation == 'recheck') && github.ref == 'refs/heads/main' && github.repository_id == '1132369872' && (github.repository == 'Smarter-Poker/Smarter-Poker-Club-Arena' || github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena')
+    if: github.event_name == 'workflow_dispatch' && (inputs.operation == 'evaluate' || inputs.operation == 'recheck' || inputs.operation == 'prescreen') && github.ref == 'refs/heads/main' && github.repository_id == '1132369872' && (github.repository == 'Smarter-Poker/Smarter-Poker-Club-Arena' || github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena')
     runs-on: ubuntu-24.04
     timeout-minutes: 350
     steps:
@@ -127,9 +137,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Plan the evaluation epoch pin without opening it (evaluate - read-only)
+      - name: Plan the evaluation epoch pin without opening it (evaluate, prescreen - read-only)
         id: plan
-        if: inputs.operation == 'evaluate'
+        if: inputs.operation == 'evaluate' || inputs.operation == 'prescreen'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -153,8 +163,8 @@ jobs:
       - name: Build the receiving-platform exact public-state kernel
         working-directory: runtime/server
         run: node scripts/build-public-hist215-native.mjs
-      - name: Pre-screen every component at the pin (evaluate - read-only, minutes; fails on a component that never reaches the playbook)
-        if: inputs.operation == 'evaluate'
+      - name: Pre-screen every component at the pin (evaluate, prescreen - read-only, minutes; fails on a component that never reaches the playbook)
+        if: inputs.operation == 'evaluate' || inputs.operation == 'prescreen'
         timeout-minutes: 30
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -168,6 +178,7 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node control/scripts/ci/gto-v31-qualification.mjs resolve
       - name: Run the evaluator once at the epoch pin (recheck - at the serving engine)
+        if: inputs.operation == 'evaluate' || inputs.operation == 'recheck'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

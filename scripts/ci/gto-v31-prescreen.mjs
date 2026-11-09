@@ -196,7 +196,15 @@ const intArg = (argv, name, fallback) => {
   return Number(v);
 };
 
-/** Workflow mode reads the resolved context; local mode takes --dataset --engine --runtime. */
+/**
+ * Workflow mode reads the resolved context; local mode takes --dataset --engine --runtime.
+ * Agents run it through the workflow (operation prescreen), whose database
+ * identity comes from the repository secret store. Local mode reads only the
+ * SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY a person already exported from an
+ * approved store: never source a .env file, and never fetch or reveal API keys
+ * through the Supabase management API to feed it (2026-11-08 credential
+ * incident, .agent/audits/2026-11-08-SECURITY-INCIDENT-prescreen-credential-copy.md).
+ */
 async function main(argv) {
   const floor = intArg(argv, 'floor', DEFAULT_FLOOR);
   const firstPairs = intArg(argv, 'first-pairs', DEFAULT_FIRST_PAIRS);
@@ -211,11 +219,14 @@ async function main(argv) {
     const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
     const selected = invocation({ eventName: process.env.GITHUB_EVENT_NAME, ref: process.env.GITHUB_REF,
       repository: process.env.GITHUB_REPOSITORY, repositoryId: process.env.GITHUB_REPOSITORY_ID, inputs: event.inputs });
-    if (selected.operation !== 'evaluate') throw new Error('The pre-screen runs only before an evaluate operation');
+    if (selected.operation !== 'evaluate' && selected.operation !== 'prescreen')
+      throw new Error('The pre-screen runs only before an evaluate operation, or on its own as prescreen');
     directory = join(process.env.RUNNER_TEMP, `gto-v31-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`);
     // The plan phase (read-only) chose the commit; no epoch is open yet.
     const plan = JSON.parse(readFileSync(join(directory, 'plan.json'), 'utf8'));
-    if (plan.dataset !== selected.dataset || plan.operation !== 'evaluate') throw new Error('Planned operation identity differs');
+    if (plan.dataset !== selected.dataset || plan.operation !== selected.operation ||
+        (selected.operation === 'prescreen' && selected.engine && plan.releaseSha !== selected.engine))
+      throw new Error('Planned operation identity differs');
     dataset = selected.dataset; engine = plan.releaseSha; runtime = resolve(process.env.GITHUB_WORKSPACE, 'runtime');
   }
   if (!UUID.test(dataset ?? '') || !SHA.test(engine ?? '')) throw new Error('A dataset UUID and a full pinned engine commit are required');
