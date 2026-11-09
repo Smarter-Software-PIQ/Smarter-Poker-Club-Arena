@@ -44,6 +44,12 @@ describe('heads-up rematch live certification', () => {
       start_time: '2026-11-09T08:00:00.000Z',
     });
     expect(config).not.toHaveProperty('id');
+    const fromText = certificationConfig(
+      { ...template, blind_structure: '[{"level":1,"smallBlind":10,"bigBlind":20}]', payout_structure: '[{"place":1,"percentage":100}]' },
+      'cert-club'
+    );
+    expect(Array.isArray(fromText.blind_structure)).toBe(true);
+    expect(fromText.payout_structure).toEqual([{ place: 1, percentage: 100 }]);
   });
 
   it('is UNKNOWN when gated, and fails on any failed case or unfinished cleanup', () => {
