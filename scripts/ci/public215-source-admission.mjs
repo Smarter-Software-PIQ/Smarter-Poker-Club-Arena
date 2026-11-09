@@ -73,8 +73,21 @@ export function classifierWitness(run,jobs,log,classification,head){
  return {ci_run:run.id,classifier_job:job.id,head,log_sha256:createHash('sha256').update(log).digest('hex'),classification};
 }
 
+// A pull_request_target run executes the default branch's automation against
+// the PR event (post-merge installers, ledger reconcilers); it never runs the
+// qualified head's own source, so its outcome is not source evidence for the
+// candidate. A disabled installer at merge time leaves such a run in
+// startup_failure on the head forever and must not refuse Linux admission.
+// Required status contexts stay proven separately through the check-runs.
+export function sourceEvidenceRuns(observation){
+ demand(observation&&Array.isArray(observation.runs)&&Array.isArray(observation.failures)&&Array.isArray(observation.activeRuns),'Qualified head observation required');
+ const automation=new Set(observation.runs.filter(r=>r.event==='pull_request_target').map(r=>r.id));
+ return {failures:observation.failures.filter(f=>!automation.has(f.runId)),activeRuns:observation.activeRuns.filter(r=>!automation.has(r.id)),excluded:observation.runs.filter(r=>automation.has(r.id)).map(r=>({id:r.id,path:r.path,event:r.event,status:r.status,conclusion:r.conclusion}))};
+}
+
 export function qualifiedSource(observation,checks,required,witness){
- demand(observation&&Array.isArray(observation.requiredProblems)&&Array.isArray(observation.failures)&&observation.failures.length===0&&Array.isArray(observation.activeRuns)&&observation.activeRuns.length===0,'Qualified head has missing/active/failed source evidence');
+ const evidence=sourceEvidenceRuns(observation);
+ demand(Array.isArray(observation.requiredProblems)&&evidence.failures.length===0&&evidence.activeRuns.length===0,'Qualified head has missing/active/failed source evidence');
  const notApplicable=[];
  for(const problem of observation.requiredProblems){
   demand(CLIENT_ONLY.has(problem.context)&&problem.state==='not_run'&&JSON.stringify(problem.conclusions)==='["skipped"]'&&witness?.classification?.complete===true&&witness.classification.flags?.src===false,'Required source context did not succeed');
@@ -85,7 +98,7 @@ export function qualifiedSource(observation,checks,required,witness){
   notApplicable.push({context:problem.context,check_id:check.id,reporter:check.app.id,conclusion:'skipped',disposition:'not_applicable',reason:'independently_recomputed_non_client_diff',ci_run:witness.ci_run});
  }
  demand(required instanceof Map&&required.size>0,'Current required reporters required');
- return {required:[...required].map(([context,reporters])=>({context,reporters:[...reporters]})),checks:checks.filter(c=>required.has(c.name)).map(c=>({id:c.id,head_sha:c.head_sha,name:c.name,status:c.status,conclusion:c.conclusion,reporter:c.app.id,suite:c.check_suite?.id??null})),not_applicable:notApplicable};
+ return {required:[...required].map(([context,reporters])=>({context,reporters:[...reporters]})),post_merge_automation_runs:evidence.excluded,checks:checks.filter(c=>required.has(c.name)).map(c=>({id:c.id,head_sha:c.head_sha,name:c.name,status:c.status,conclusion:c.conclusion,reporter:c.app.id,suite:c.check_suite?.id??null})),not_applicable:notApplicable};
 }
 
 export function candidateIntegration(observation,run,jobs,candidate,stageRun,evidence={}){
