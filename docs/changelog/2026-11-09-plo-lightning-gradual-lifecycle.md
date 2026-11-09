@@ -5,7 +5,9 @@ Horses individually. Its existing seat transaction holds a durable per-game
 admission deadline; concurrent fills, offered seats and restarted workers share
 it. Deadlines start from each successful admission, so delayed work cannot
 catch up in a burst. Ready participants, pending holds and hand reservations
-count once per player. Humans keep normal access to available seats.
+count once per player. Occupied rebuy, sit-out and disconnected chairs retain
+their slot until the original participant leaves, so an ordinary return cannot
+follow an extra admission past ten. Humans keep normal access to available seats.
 
 The owner specified ten eligible participants for Lightning activation. This
 scoped ruleset uses ON10/OFF4 and restores population-driven conversion instead

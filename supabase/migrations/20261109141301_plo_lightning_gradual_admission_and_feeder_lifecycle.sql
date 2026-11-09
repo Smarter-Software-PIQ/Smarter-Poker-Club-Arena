@@ -53,6 +53,14 @@ BEGIN
   ), committed AS (
     SELECT player_id FROM participants
     UNION
+    -- An occupied rebuy, sit-out or disconnected chair is still held. Its
+    -- original occupant may resume without a new admission; replacing it
+    -- while unready would overshoot when that ordinary return completes.
+    SELECT s.user_id FROM public.table_seats s JOIN public.tables t ON t.id=s.table_id
+     WHERE t.cluster_id=v_game AND NOT coalesce(t.is_deleted,false)
+       AND coalesce(t.lifecycle,'')<>'closed' AND s.left_at IS NULL
+       AND s.user_id IS NOT NULL AND NOT coalesce(s.leave_pending,false)
+    UNION
     SELECT w.user_id FROM public.table_waitlist w JOIN public.tables t ON t.id=w.table_id
      WHERE t.cluster_id=v_game AND w.status='notified'
        AND coalesce(w.hold_expires_at,w.notified_at+interval '60 seconds')>p_now

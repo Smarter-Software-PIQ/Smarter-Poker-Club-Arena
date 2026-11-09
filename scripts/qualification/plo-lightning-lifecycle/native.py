@@ -142,6 +142,16 @@ DO $$ DECLARE s text:=pg_get_functiondef('fn_ca_horse_roster_seat_guard()'::regp
     check('SELECT admitted_count=9 AND last_admitted_at=\'2026-11-09T12:12:00Z\'::timestamptz FROM lightning_horse_admission;')
     refused = sql(buy(11,'2026-11-09T12:30:00Z'),ok=False)
     assert refused.returncode and 'LIGHTNING_ADMISSION_DEMAND' in refused.stderr
+    # Existing occupied rebuy/sit-out chairs are outstanding holds. Otherwise
+    # admitting replacements while they are unready overshoots on their return.
+    for unavailable in ['stack=0', 'is_sitting_out=true']:
+        sql(f"UPDATE table_seats SET {unavailable} WHERE user_id='{horse(2)}';")
+        held = sql(buy(11,'2026-11-09T12:30:00Z'),ok=False)
+        assert held.returncode and 'LIGHTNING_ADMISSION_DEMAND' in held.stderr, 'held rebuy/sit-out identity was replaced'
+        sql(f"UPDATE table_seats SET stack=100,is_sitting_out=false WHERE user_id='{horse(2)}';")
+        check('SELECT count(*)=10 FROM table_seats WHERE left_at IS NULL AND stack>0 AND NOT is_sitting_out;')
+        check('SELECT admitted_count=9 FROM lightning_horse_admission;')
+    print('PASS: occupied rebuy/sit-out holds refuse replacement and return without new admission')
     # Returning human and a second connection do not reset the durable sequence.
     sql(f"UPDATE table_seats SET left_at='2026-11-09T12:20:00Z' WHERE user_id='{HUMAN}';")
     refused = sql(buy(11,'2026-11-09T12:30:00Z'),ok=False)
