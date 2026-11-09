@@ -28,6 +28,41 @@ const code = (s: string) =>
     .map((l) => l.replace(/--.*$/, ''))
     .join('\n');
 
+describe('prospective same-value ticket accounting follows its actual admission', () => {
+  const fixture = 'scripts/ci/fixtures/satellite-value-ticket/';
+  const candidate = readFileSync(root(`${fixture}reader-candidate.sql`), 'utf8');
+  it('keeps historical target-only seats strict and uses the canonical value admission', () => {
+    expect(candidate).toContain("p.metadata->>'ticket_contract'='same_value_entry_v1'");
+    expect(candidate).toContain("public.fn_ca_assert_satellite_value_ticket(t.id)='chips'");
+    expect(candidate).toContain('public.fn_tournament_entry_split(');
+    expect(candidate).toContain('w.admission_club_id=t.club_id');
+    expect(candidate).toContain(
+      'ELSE s.target_id=w.target_id AND t.source_tournament_id=w.target_id END'
+    );
+    expect(candidate).toContain("e.evidence_kind='atomic_tournament_ticket'");
+    expect(candidate).toContain("l.metadata->>'registration_id'=p_registration_id::text");
+    expect(candidate).not.toContain('union_clubs');
+  });
+  it('retains the maintained native qualification and only synthetic financial rows', () => {
+    const entry = readFileSync(
+      root('scripts/ci/test-satellite-ledger-identity-postgres.py'),
+      'utf8'
+    );
+    expect(entry).toContain(`${fixture}qualify-postgres.py`);
+    const native = readFileSync(root(`${fixture}qualify-postgres.py`), 'utf8');
+    expect(native).toContain('migration_left_a_stale_pin');
+    expect(native).toContain('VALUE_TICKET_CHIP_BACKING_UNPROVEN');
+    const rows = JSON.parse(readFileSync(root(`${fixture}fixture-rows.json`), 'utf8'));
+    expect(rows.tournament_tickets).toHaveLength(2);
+    expect(
+      rows.chip_ledger.every((r: { row_hash: string }) => r.row_hash === 'fixture-sealed-row')
+    ).toBe(true);
+    expect(Object.keys(rows.clubs[0])).toEqual(['id', 'union_id', 'asset', 'is_platform']);
+    expect(Object.keys(rows.tournaments[0])).not.toContain('name');
+    expect(Object.keys(rows.tournament_tickets[0])).not.toContain('username');
+  });
+});
+
 function fn(sql: string, name: string): string {
   const start = sql.indexOf(`CREATE OR REPLACE FUNCTION public.${name}(`);
   expect(start, name).toBeGreaterThan(-1);
