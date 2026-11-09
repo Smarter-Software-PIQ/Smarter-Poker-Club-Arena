@@ -690,3 +690,19 @@ Schema changes under `supabase/migrations/**` trigger both existing Backup and e
 Follow the Backup installed schema evidence procedure in `PUBLISHING.md`. The normal export requires matching captures around its dump, then binds the original manifest to the dump hash. The normal restore verifies actual required function bodies through `server/standby/schema-evidence.py` before marking the copy valid. Existing copies without verified evidence refresh through the maintained Backup workflow. The certificate artifact retains `schema-evidence.json`; its hash is recorded in the certificate's database evidence.
 
 At admission, use the configured production database connection for a fresh `capture` and compare it with that original retained manifest. This checks installed versions and names as well as definitions, including a body change at the same migration version. A Git commit timestamp or a historical successful status cannot substitute for this comparison.
+
+### Finite PLO Lightning lifecycle witness
+
+After the lifecycle migration is installed and the certified engine is sealed
+and fully thawed, dispatch `run-plo-lightning-lifecycle-proof` through the existing
+Post-Deploy E2E workflow with client payload `{"engine_sha":"FULL_SERVING_SHA"}`.
+This is an explicit finite verification, never a release action. The fixed 1/2
+PLO game must be empty in feeder mode with ON10/OFF4 and heads-up enabled.
+The job creates reserved player/cashier accounts, uses normal cashier funding,
+actual pre-play disclosure/consent and player controls, and normal cash-out.
+It records individual arrivals, the 5–15 minute startup and eight minutes of
+continued gameplay after departure. Read its result and owned balance cleanup
+separately; unknown financial intents retain identities for authoritative
+readback instead of another purchase or transfer. Only result JSON and public
+screenshots are uploaded, never private account files. It does not retire the
+house club or its tables. A refusal or missing evidence is not a live pass.

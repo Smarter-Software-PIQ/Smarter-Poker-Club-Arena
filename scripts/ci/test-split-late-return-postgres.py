@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """PG17 composed original split return, autojournal and deferred invariant."""
-import argparse,json,os,re,shutil,socket,subprocess,tempfile
+import argparse,json,os,re,shutil,socket,subprocess,tempfile,sys
 from pathlib import Path
 p=argparse.ArgumentParser();p.add_argument('--pg-bin',type=Path,required=True);p.add_argument('--scratch-root',type=Path,required=True);p.add_argument('--output',type=Path,required=True);a=p.parse_args()
 r=Path(__file__).resolve().parents[2]; f=Path(__file__).parent/'fixtures/split-late-return';m=r/'supabase/retired-unapplied/20261109132114_split_late_credit_journals_its_own_return.sql'
@@ -97,3 +97,9 @@ try:
 finally:
  if started:subprocess.run([str(a.pg_bin/'pg_ctl'),'-D',str(d),'-m','immediate','stop'],env=e,capture_output=True)
  shutil.rmtree(w)
+
+# The existing directly-triggered financial route also checks the later R3
+# wallet-opening boundary against this same real trigger/journal foundation.
+subprocess.run([sys.executable,str(f/'wallet-opening/qualify-postgres.py'),
+ '--pg-bin',str(a.pg_bin),'--scratch-root',str(a.scratch_root),
+ '--output',str(a.output.with_name('split-wallet-opening.json'))],env=e,check=True)

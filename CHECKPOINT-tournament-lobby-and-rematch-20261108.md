@@ -1,7 +1,98 @@
 # CHECKPOINT - tournament lobby, satellite names and heads-up rematch (2026-11-08/09)
 
-Lane: tournament-lobby (session_01BbZPDhrfyf3rn1wmuxqmwe). Owner requests of 2026-11-08: WATCH plate, no "0 GTD",
-agents' players card on every tab, Rewards pins the hero, satellites named "Satellite Into <target>", heads-up Play Again.
+Lane: tournament-lobby (session_01BbZPDhrfyf3rn1wmuxqmwe). This is the only checkpoint for this task.
+
+## Scope (owner requests of 2026-11-08, and their acceptance follow-up)
+
+Deliverables owned by this chat, with their acceptance criteria and status:
+
+| # | Deliverable | Acceptance criterion | Status |
+| --- | --- | --- | --- |
+| 1 | WATCH wears the register plate | lobby shows WATCH on the register plate, phone and desktop, signed in | done, live |
+| 2 | No event says "0 GTD" | no open event name or description says a zero guarantee | done; 0 found |
+| 3 | Agents see their players on every tab | Details, Ranking, Rewards, Tables all show the card | done, live |
+| 4 | Rewards pins the hero | hero stays pinned on Rewards | done, live |
+| 5 | Satellites are named "Satellite Into <target>" | every open satellite, and every new one including weekly-schedule spawns, carries the target-derived name; no duplicate | done for open and unscheduled spawns; weekly spawn: see A3 |
+| 6 | Heads-up Play Again | both accept before a charge; one charge each through the normal buy-in; same fresh table; decline, timeout, short wallet, repeat tap and simultaneous accepts leave no partial charge or duplicate game | done, live |
+
+Acceptance follow-up (owner, 2026-11-08 23:03 Chicago):
+
+| # | Item | Evidence or exact blocker | Needs a new engine? |
+| --- | --- | --- | --- |
+| A1 | Two independent sessions accepting at once produce one rematch and one charge per player, including an interrupted request and its retry | PASSED. Native proof on the production definitions (md5-checked), run green at main by `heads-up-rematch-concurrency.yml` (run 42569886982). Details below | No (database only) |
+| A2 | A committed signed-in rematch reaches its first hand with the correct opponent, stacks and rake | PASSED in production. Run 42584396854: browser Play Again, same two players, 300-chip stacks, 0.95 + 0.05 rake each, one transaction for both charges, browser moved to the new table, engine start and first hand; finish and chip conservation read afterwards. Details below | No. Proven on the serving engine 391f7bc0, which predates this work |
+| A3 | The next weekly-schedule satellite is created with the target-derived name and no duplicate | OBSERVED 2026-11-09 18:00:12Z, FAILED on the name, FIXED at the root. `7eae51cb` had the right target and no duplicate but was named "40 Chip Freezeout - 0 GTD (NLH) Satellite 5" (and `e0c83025`, 17:15Z, "Sunday Deep Stack Satellite 25"): `tournaments_lock_level_clock` restamps the catalog name after the copy trigger. Fixed by 20261109180446 (copy trigger moved after every rewriter, law test generalized). Live result: see "Weekly satellite" below | No (database trigger; the existing engine spawns it) |
+| A4 | The frozen-satellite recovery has an acknowledged owner and a tracked outcome | HANDED OFF, not a gate of this lane. Verifier ACK: release-blockers lane, 06:56Z (COORDINATION-INBOX.md). Recovery: the release owner's ASAP owner-window operation (PR #10063 comment 6741660924), which must carry 66cfdde743. Who acts if either stays dark after a sealed release: asked at PR #10063 comment 6742262566, answer pending. This lane makes no mutation and reuses the verifier's receipt | Yes: the recovery needs an engine carrying 66cfdde743 |
+
+Other items closed in this task:
+- The old draft branch `claude/heads-up-rematch-1108` (closed PR #10093) was deleted at about 05:28Z through the Mac's GitHub login. The cloud proxy refuses ref deletes.
+- The deployed identities are recorded below.
+
+## Handed to other owners (not gates of this lane)
+
+- Frozen satellites 6cb6f619 and 7a41f0a1: see A4. Read at 10:12Z: both RUNNING at level 12, last hands 2026-11-08 04:53:56Z and 23:48:49Z. The Nov 9 04:00 Chicago selection was blocked by a sparse-checkout defect, fixed in #10154/#10155.
+- Certification leftovers, handed to issue #9830 (comment 6742913924):
+  - four active `Cert HU` clubs;
+  - four zero-balance reserved players in two retired clubs;
+  - the finding that no current door retires a club after a Sit & Go has been played in it. Changing that rule is an owner decision.
+  The `Heads-Up Rematch Certification` workflow now ends UNKNOWN before creating anything until such a path exists (PR #10175).
+  Run 42638767037: the workflow execution SUCCEEDED, but the certification result is UNKNOWN. It created nothing, and its
+  stated reason is that no door retires a certification club after a Sit & Go is played. The evidence for that blocker
+  is on #9830 (comment 6742913924). The #9830 owner had not acknowledged as of 15:55Z.
+- "Friday Feature Satellite 5" (schedule b997f1e3) has not spawned since 2026-11-04. It is not this lane's; noted only.
+
+## Weekly satellite (A3), and the corrected spawn rule
+
+- A weekly satellite is created together with its TARGET, when the target reaches the 72-hour horizon. It is not
+  created on its own start time. The spawns of schedule d84a104f (daily 09:45 Chicago) were each created about
+  2 d 21 h 44 m before their own start, at the target's spawn minute. Example: start 2026-11-11 15:45Z, target
+  "40 Chip Freezeout - 1.5K GTD (NLH)" at 18:00Z, created 2026-11-08 18:00:41Z.
+- An earlier note expected the next one at 15:45Z; that expectation was wrong. Read at 15:47Z: nothing missing.
+- Next expected spawn: about 2026-11-09 18:00:40Z (12:00 Chicago), for start 2026-11-12 15:45Z, alongside its target
+  at 18:00Z.
+- To accept it, all three must hold:
+  - its name is "Satellite Into 40 Chip Freezeout (NLH)" (the "0 GTD" schedule name must not appear);
+  - `satellite_target_id` names that 18:00Z target;
+  - exactly one non-cancelled row exists for (schedule_id, start_time).
+- Since the fix: 0 events created with a "0 GTD" name. Every satellite created since 03:12Z (all unscheduled) carries a
+  target-derived name.
+
+- OBSERVED 2026-11-09 18:00:12Z (schedule d84a104f, start 2026-11-12 15:45Z): one non-cancelled row (`7eae51cb`), target
+  `80e0c952` "40 Chip Freezeout - 1.5K GTD (NLH)" at 18:00Z created 18:00:10Z. Target link and uniqueness PASS; the name was
+  "40 Chip Freezeout - 0 GTD (NLH) Satellite 5": FAIL. Cause: `tournaments_lock_level_clock` also restamps the weekly terms
+  (`NEW := jsonb_populate_record(NEW, fn_ca_midway_weekly_terms(...))`, name included) and sorted after the copy trigger.
+  Fixed by 20261109180446 (see docs/changelog/2026-11-09-the-satellite-name-follows-the-level-clock-terms.md).
+
+## Engine dependency
+
+- Database only, verified on the serving engine 391f7bc0 (which predates this work): deliverables 1-6 and items A1-A3.
+- Only A4, the frozen-satellite recovery, needs an engine carrying 66cfdde743. That recovery belongs to the release
+  owner's ASAP operation, not to this lane.
+
+## What this lane leaves open
+
+- A3: the next natural spawn after 20261109180446 is installed should carry the target-derived name. The install itself
+  renames the open rows, and the build law pins the trigger order.
+- Owner acknowledgments not yet received:
+  - #9830 (certification leftovers, and the retirement rule for played clubs);
+  - PR #10063 comment 6742262566 point 3 (who acts if a satellite stays dark after a sealed release).
+- Nothing is in flight from this lane: no open PR, no running workflow, no worktree, no timer.
+
+## Deployed identities (read 2026-11-09 08:30Z)
+
+- Client at both origins (`ca-static.smarter.poker/build-info.json`, `smarter.poker/hub/club-arena/build-info.json`):
+  `fc2bfba558718b6b4b8803d789cb36c599888ff6` (publish run 42566837968, built 05:26:37Z). It contains every merge below.
+- Serving engine: `391f7bc0d57c71637bd4af5181f70520661e3593`, maintenance phase idle. The rematch needs no engine change.
+- Rematch: #10121 (`045886dd3`) + #10133 (`3e638ec679e79ccc79138dd6c3db0418636efbb7`). Migration `20261109021122` was
+  installed at 04:34Z by run 42562604673. The first send, run 42559723349, was refused and committed nothing.
+- Satellite names follow the weekly terms: #10124 (`96ae83a01523df58490b78e326679e9dd5712b0f`), migration `20261109023856`.
+- Production definitions (md5 of `pg_get_functiondef`):
+  - `fn_ca_heads_up_rematch_core`: `2df60372fbf4d0fff788be4d4e2f3530`
+  - `ca_heads_up_rematch_respond`: `79ae417a9bff7aaa90a39175d9723571`
+  - `ca_heads_up_rematch_state`: `a1fdac1b84d68aca5b488843302d585c`
+- Acceptance tooling:
+  - #10141 (`f052964513eaa56a245173dfa99f62451dc22d8a`): concurrency proof and live certification.
+  - #10143, #10147, #10149, #10152, #10170 and #10175 (`69321e3b0c4a4c26c6da8bb9caed2eba881f6aa5`): fixes found by the live runs, and the hold.
 
 ## Shipped and verified live
 
@@ -34,22 +125,6 @@ closed "exact zero" (prize_out 193.50, fee_out 21.50, balances 0).
 - Pre-merge pg_temp probes of the full flow: human short (refused to that human only, nobody charged, no game);
   human + horse matched (-50.00 each); two humans matched; one short; timeout; decline.
 
-## Deployed identities (read 2026-11-09 08:30Z)
-
-- Client at both origins (`ca-static.smarter.poker/build-info.json`, `smarter.poker/hub/club-arena/build-info.json`):
-  `fc2bfba558718b6b4b8803d789cb36c599888ff6` (publish run 42566837968, built 05:26:37Z). It contains every merge below.
-- Serving engine: `391f7bc0d57c71637bd4af5181f70520661e3593`, maintenance phase idle. The rematch needs no engine change.
-- Rematch: #10121 (`045886dd3`) + #10133 (`3e638ec679e79ccc79138dd6c3db0418636efbb7`). Migration `20261109021122` was
-  installed at 04:34Z by run 42562604673. The first send, run 42559723349, was refused and committed nothing.
-- Satellite names follow the weekly terms: #10124 (`96ae83a01523df58490b78e326679e9dd5712b0f`), migration `20261109023856`.
-- Production definitions (md5 of `pg_get_functiondef`):
-  - `fn_ca_heads_up_rematch_core`: `2df60372fbf4d0fff788be4d4e2f3530`
-  - `ca_heads_up_rematch_respond`: `79ae417a9bff7aaa90a39175d9723571`
-  - `ca_heads_up_rematch_state`: `a1fdac1b84d68aca5b488843302d585c`
-- Acceptance tooling:
-  - #10141 (`f052964513eaa56a245173dfa99f62451dc22d8a`): concurrency proof and live certification.
-  - #10143, #10147, #10149 and #10152 (`5714e647afb7298af01a71885d1739a908b84023`): fixes found by the live runs.
-
 ## Simultaneous, repeated and interrupted requests (independent sessions)
 
 `scripts/ci/test-heads-up-rematch-concurrency-postgres.py` installs the merged core and doors on an isolated PostgreSQL
@@ -81,32 +156,3 @@ Workflow `Heads-Up Rematch Certification`, run 42584396854. Route: reserved cert
 - The rematch finished at 09:01:46Z (on the turn timer; the test player had stopped acting at the second table): 1.90
   prize to the winner, 0.10 rake. Both wallets end at 7.90, which totals 15.80: the 16.00 funded less four fees of 0.05
   across the two games, so chips are conserved.
-
-## Open
-
-- Weekly satellite: no weekly-schedule satellite has spawned since the name fix. Spawns land exactly 72 h ahead; the
-  next is "40 Chip Freezeout (NLH) Satellite 5" for 2026-11-12 15:45Z, created about 2026-11-09 15:45Z. "Friday Feature
-  Satellite 5" (schedule b997f1e3) has not spawned since 2026-11-04; that is not this lane's.
-- Frozen satellites 6cb6f619 (29 alive, pool 1003.00, last hand 2026-11-08 04:53:56Z) and 7a41f0a1 (24 alive, pool
-  982.00, last hand 23:48:49Z): both still RUNNING at level 12 at 10:12Z.
-  - The Nov 9 release did not activate: the selection was blocked by a missing sparse-checkout path, now fixed in
-    PR #10155. The serving engine is still 391f7bc0, which lacks 66cfdde743.
-  - Urgent and owner-window replacements were revoked on Nov 6, so the earliest recovery is the Nov 10 04:00 Chicago
-    window, about 2026-11-10 10:05Z.
-  - The verifier is the release-blockers lane, read-only; its ACK is in COORDINATION-INBOX.md at 06:56Z.
-  - The recovery actor (who may mutate) is still unnamed. It was asked of the cutover owner 01BbZPDjeNdeckeaEd3XTkrj at
-    05:10Z and again at 10:20Z.
-  - This lane makes no mutation on either event.
-- Certification residue cannot be retired by any current door.
-  - Clubs: four `Cert HU` clubs (05448714, 08278575, 10629595, 12100714) stay active. Each holds its unused opening
-    grant, its two reserved players (7.90 or less each, all test chips) and its empty welcome board.
-  - The door that refuses them: `fn_retire_settled_club` always runs `fn_unwind_unused_first_club_welcome_package`,
-    which counts every Sit & Go a club has ever played as welcome-package history and refuses
-    (`WELCOME_PACKAGE_HAS_PLAY_OR_REGISTRATION_HISTORY`).
-  - Seen in practice: the Cert Residue Sweep (run 42602987778) reached `settleStrandedHeadsUpClub` and was refused for
-    three of the clubs. The stale history door accepts only Crest Cert fixtures without play.
-  - Players: the two zero-balance players of run 42569893917 are in a club that is already retired. Their account door
-    refuses with `CLUB_RETIRED` (they never played, so the plain membership delete is used).
-  - Consequence: every further live run leaves one more club. No further live run has been started. Retiring these
-    needs a new, guarded retirement door for a played certification club, which is an owner decision.
-- The old draft branch `claude/heads-up-rematch-1108` (closed PR #10093) was deleted at about 05:28Z through the Mac's GitHub login (the cloud proxy refuses ref deletes).

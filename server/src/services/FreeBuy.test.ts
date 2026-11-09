@@ -977,6 +977,17 @@ describe('auditFreeBuyBoard', () => {
     expect(p.some((x) => x.includes('share one host, slot and Chicago day'))).toBe(true);
   });
 
+  it('ignores a CANCELLED row replaced by a live row for the same host, slot and day', () => {
+    const rows = FREE_BUY_HOSTS.flatMap((h) => [
+      row(12, h),
+      row(8, h, { status: 'CANCELLED', guaranteed_prize: 9999 }),
+      row(8, h, { status: 'REGISTERING' }),
+    ]);
+    const res = auditFreeBuyBoard(rows, now);
+    expect(res.problems).toEqual([]);
+    expect(res.checked).toBe(FREE_BUY_HOSTS.length * 2);
+  });
+
   it('reports the count it actually checked', () => {
     expect(auditFreeBuyBoard([row(8)], now).checked).toBe(1);
   });

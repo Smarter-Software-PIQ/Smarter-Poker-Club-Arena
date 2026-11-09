@@ -89,6 +89,31 @@ describe('Lightning: no cap and no clock; horses start only a few games, people 
     });
   });
 
+  it('retains the 1/2 PLO Lightning participants after the last person leaves', () => {
+    const now = Date.UTC(2026, 10, 9, 15);
+    for (const table of byPeople) {
+      expect(
+        horseUnionCashTableAllowed(table, 0, now, primary, lightningGames, new Set(), null, true)
+      ).toBe(true);
+      expect(horseUnionCashTableAllowed(table, 0, now, primary, lightningGames, new Set())).toBe(
+        false
+      );
+    }
+    const other = { ...byPeople[0], cluster_id: 'another-person-started-game' };
+    expect(
+      horseUnionCashTableAllowed(
+        other,
+        0,
+        now,
+        primary,
+        new Set([String(other.cluster_id)]),
+        new Set(),
+        null,
+        true
+      )
+    ).toBe(false);
+  });
+
   it('a horse, a sitting-out person or a departing person does not start a game', () => {
     const seats = new Map([
       [
@@ -161,6 +186,6 @@ describe('Lightning: no cap and no clock; horses start only a few games, people 
     expect(fleet.split('cashPlanLightningHumanGames\n').length - 1).toBeGreaterThanOrEqual(2);
     expect(fleet.split('lightningGamesWithPlayingHumans(').length - 1).toBe(2);
     expect(rotator).toContain('lightningGamesWithPlayingHumans(');
-    expect(rotator).toMatch(/lightningHumanGames,\n\s+cashPlanSecondTables\n\s+\);/);
+    expect(rotator).toMatch(/lightningHumanGames,\n\s+cashPlanSecondTables,\n\s+true\n\s+\);/);
   });
 });
