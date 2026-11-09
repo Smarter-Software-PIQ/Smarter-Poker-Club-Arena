@@ -522,7 +522,11 @@ BEGIN
             END IF;
             v_table := (v_res->>'table_id')::uuid;
             -- Every term that sets what a seat costs and pays must be the one
-            -- just played. A difference refuses, before any purchase.
+            -- just played. A difference refuses, before any purchase. (The
+            -- blind schedule is not one: the creation door gives every new
+            -- heads-up game the platform's current schedule, measured
+            -- 2026-11-09 to differ from a finished game's played schedule, and
+            -- "starts back over at the start" means a fresh game's schedule.)
             IF NOT EXISTS (
               SELECT 1 FROM public.tournaments n
                WHERE n.id = v_target
@@ -544,7 +548,6 @@ BEGIN
                  AND n.is_mystery_bounty IS NOT DISTINCT FROM v_src.is_mystery_bounty
                  AND n.bounty_amount IS NOT DISTINCT FROM v_src.bounty_amount
                  AND (n.payout_structure)::jsonb IS NOT DISTINCT FROM (v_src.payout_structure)::jsonb
-                 AND (n.blind_structure)::jsonb IS NOT DISTINCT FROM (v_src.blind_structure)::jsonb
                  AND public.fn_ca_tournament_unit_cents(n.id) = public.fn_ca_tournament_unit_cents(v_src.id)
             ) THEN
               RAISE EXCEPTION USING ERRCODE = 'P0R02',
