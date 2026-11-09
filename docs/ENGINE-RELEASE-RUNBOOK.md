@@ -682,3 +682,9 @@ read the affected event's canonical settlement and table completion. Preserve an
 unknown or committed outcome across rollback; never replay its financial effects.
 
 Schema changes under `supabase/migrations/**` trigger both existing Backup and engine prequalification push workflows on protected main. A migration-only push retains its exact SHA when the latest server commit is older; changed migration inputs require full Backup certification and the existing schema-refresh decision. Later client-only changes can use that earlier physical certificate and exact prequalification when the selector's current schema, controls and serving-predecessor checks still pass. No new schedule or client-only qualification trigger is introduced.
+
+### Comparing the original Backup copy with installed production schema
+
+Follow the Backup installed schema evidence procedure in `PUBLISHING.md`. The normal export requires matching captures around its dump, then binds the original manifest to the dump hash. The normal restore verifies actual required function bodies through `server/standby/schema-evidence.py` before marking the copy valid. Existing copies without verified evidence refresh through the maintained Backup workflow. The certificate artifact retains `schema-evidence.json`; its hash is recorded in the certificate's database evidence.
+
+At admission, use the configured production database connection for a fresh `capture` and compare it with that original retained manifest. This checks installed versions and names as well as definitions, including a body change at the same migration version. A Git commit timestamp or a historical successful status cannot substitute for this comparison.

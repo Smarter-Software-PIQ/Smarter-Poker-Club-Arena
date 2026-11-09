@@ -302,7 +302,7 @@ jobs:
           install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
           printf '%s\n' "$STANDBY_HOST_KEY" > ~/.ssh/known_hosts
           owners_sha=$(sha256sum server/standby/standby-owners.sql | cut -d' ' -f1)
-          stamp=$(ssh -i ~/.ssh/standby "root@$STANDBY_HOST" "python3 -c 'import json;print((lambda d,s: d[\"restoredAt\"] if d.get(\"ownersSha256\") == \"$owners_sha\" and d.get(\"restoreValidated\") is True and d.get(\"restoreErrors\") == 0 and s.get(\"cashClusterParentsValidated\") is True and s.get(\"authFixtureVersion\") == 2 and s.get(\"tablesFailed\") == 0 and s[\"seededAt\"] >= d[\"restoredAt\"] else \"1970-01-01T00:00:00Z\")(json.load(open(\"/var/lib/club-arena-standby/database.json\")),json.load(open(\"/var/lib/club-arena-standby/seed.json\"))))'" 2>/dev/null || echo 1970-01-01T00:00:00Z)
+          stamp=$(ssh -i ~/.ssh/standby "root@$STANDBY_HOST" "python3 -c 'import json;print((lambda d,s: d[\"restoredAt\"] if d.get(\"ownersSha256\") == \"$owners_sha\" and d.get(\"restoreValidated\") is True and d.get(\"schemaEvidenceValidated\") is True and d.get(\"restoreErrors\") == 0 and s.get(\"cashClusterParentsValidated\") is True and s.get(\"authFixtureVersion\") == 2 and s.get(\"tablesFailed\") == 0 and s[\"seededAt\"] >= d[\"restoredAt\"] else \"1970-01-01T00:00:00Z\")(json.load(open(\"/var/lib/club-arena-standby/database.json\")),json.load(open(\"/var/lib/club-arena-standby/seed.json\"))))'" 2>/dev/null || echo 1970-01-01T00:00:00Z)
           restored=$(date -d "$stamp" +%s)
           newest=$(git log -1 --format=%ct origin/main -- supabase/migrations 2>/dev/null || echo 0)
           today=$(TZ=America/Chicago date +%F); copy_day=$(TZ=America/Chicago date -d "$stamp" +%F)
@@ -331,6 +331,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/out/seed"
+          python3 -B server/standby/schema-evidence.py capture --output "$RUNNER_TEMP/out/schema-before.json"
           # A held snapshot over five minutes is cancelled by production's guard,
           # and must never happen anyway: bounded at 270 s.
           PGOPTIONS='-c default_transaction_read_only=on' LD_LIBRARY_PATH="$PG_LIB" timeout 270 "$PG_DUMP" "$DATABASE_URL" \
@@ -338,7 +339,9 @@ jobs:
             -n public -n ca_archive -n discovery_private -n operational_source_intake -n ops -n ops_rollback -n smarter_private -n zz_archive \
             -f "$RUNNER_TEMP/out/schema.dump"
           SEED_DATABASE_URL="$DATABASE_URL" python3 server/standby/seed-extract.py "$RUNNER_TEMP/out/seed"
-          tar -C "$RUNNER_TEMP/out" -czf "$RUNNER_TEMP/bundle.tgz" schema.dump seed
+          python3 -B server/standby/schema-evidence.py capture --dump "$RUNNER_TEMP/out/schema.dump" --output "$RUNNER_TEMP/out/schema-evidence.json"
+          python3 -B server/standby/schema-evidence.py compare "$RUNNER_TEMP/out/schema-before.json" "$RUNNER_TEMP/out/schema-evidence.json"
+          tar -C "$RUNNER_TEMP/out" -czf "$RUNNER_TEMP/bundle.tgz" schema.dump schema-evidence.json seed
       - name: Ship to the standby host and restore
         if: steps.due.outputs.due == 'true'
         env:
@@ -347,7 +350,7 @@ jobs:
           set -euo pipefail
           scp -i ~/.ssh/standby "$RUNNER_TEMP/bundle.tgz" "root@$STANDBY_HOST:/var/lib/club-arena-standby/bundle.tgz"
           ssh -i ~/.ssh/standby "root@$STANDBY_HOST" 'set -e; cd /var/lib/club-arena-standby; rm -rf seed; tar -xzf bundle.tgz;
-            git -C /opt/club-arena fetch -q origin; git -C /opt/club-arena show origin/main:server/standby/standby-engine.sh > /usr/local/sbin/standby-engine; chmod +x /usr/local/sbin/standby-engine; mkdir -p /usr/local/share/club-arena-standby; git -C /opt/club-arena show origin/main:server/standby/standby-owners.sql > /usr/local/share/club-arena-standby/owners.sql; git -C /opt/club-arena show origin/main:server/standby/standby-placeholders.sql > /usr/local/share/club-arena-standby/placeholders.sql && git -C /opt/club-arena show origin/main:server/standby/standby-trials.sh > /usr/local/share/club-arena-standby/standby-trials.sh && git -C /opt/club-arena show origin/main:server/standby/qualify-tournament-freeze-fixes.py > /usr/local/share/club-arena-standby/qualify-tournament-freeze-fixes.py;
+            git -C /opt/club-arena fetch -q origin; git -C /opt/club-arena show origin/main:server/standby/standby-engine.sh > /usr/local/sbin/standby-engine; chmod +x /usr/local/sbin/standby-engine; mkdir -p /usr/local/share/club-arena-standby; git -C /opt/club-arena show origin/main:server/standby/schema-evidence.py > /usr/local/share/club-arena-standby/schema-evidence.py; git -C /opt/club-arena show origin/main:server/standby/standby-owners.sql > /usr/local/share/club-arena-standby/owners.sql; git -C /opt/club-arena show origin/main:server/standby/standby-placeholders.sql > /usr/local/share/club-arena-standby/placeholders.sql && git -C /opt/club-arena show origin/main:server/standby/standby-trials.sh > /usr/local/share/club-arena-standby/standby-trials.sh && git -C /opt/club-arena show origin/main:server/standby/qualify-tournament-freeze-fixes.py > /usr/local/share/club-arena-standby/qualify-tournament-freeze-fixes.py;
             standby-engine restore schema.dump; standby-engine seed seed'
 
   certify:
@@ -398,8 +401,11 @@ jobs:
           install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
           printf '%s\n' "$STANDBY_HOST_KEY" > ~/.ssh/known_hosts
           if ssh -i ~/.ssh/standby -o ServerAliveInterval=30 "root@$STANDBY_HOST" \
-            "git -C /opt/club-arena fetch -q origin && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-engine.sh > /usr/local/sbin/standby-engine && chmod +x /usr/local/sbin/standby-engine && mkdir -p /usr/local/share/club-arena-standby && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-owners.sql > /usr/local/share/club-arena-standby/owners.sql && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-placeholders.sql > /usr/local/share/club-arena-standby/placeholders.sql && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-trials.sh > /usr/local/share/club-arena-standby/standby-trials.sh && git -C /opt/club-arena show $CONTROL_SHA:server/standby/qualify-tournament-freeze-fixes.py > /usr/local/share/club-arena-standby/qualify-tournament-freeze-fixes.py && git -C /opt/club-arena show $CONTROL_SHA:server/standby/player-reconnect.mjs > /usr/local/share/club-arena-standby/player-reconnect.mjs && standby-engine certify $SHA 1800" \
+            "git -C /opt/club-arena fetch -q origin && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-engine.sh > /usr/local/sbin/standby-engine && chmod +x /usr/local/sbin/standby-engine && mkdir -p /usr/local/share/club-arena-standby && git -C /opt/club-arena show $CONTROL_SHA:server/standby/schema-evidence.py > /usr/local/share/club-arena-standby/schema-evidence.py && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-owners.sql > /usr/local/share/club-arena-standby/owners.sql && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-placeholders.sql > /usr/local/share/club-arena-standby/placeholders.sql && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-trials.sh > /usr/local/share/club-arena-standby/standby-trials.sh && git -C /opt/club-arena show $CONTROL_SHA:server/standby/qualify-tournament-freeze-fixes.py > /usr/local/share/club-arena-standby/qualify-tournament-freeze-fixes.py && git -C /opt/club-arena show $CONTROL_SHA:server/standby/player-reconnect.mjs > /usr/local/share/club-arena-standby/player-reconnect.mjs && standby-engine certify $SHA 1800" \
             | tee certificate.out; then rc=0; else rc=1; fi
+          if [ "$rc" = 0 ]; then
+            scp -i ~/.ssh/standby "root@$STANDBY_HOST:/var/lib/club-arena-standby/schema-evidence.json" schema-evidence.json || rc=1
+          fi
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
           tail -1 certificate.out > certificate.json || true
           exit 0
@@ -411,6 +417,7 @@ jobs:
           path: |
             certificate.json
             compatibility.json
+            schema-evidence.json
           if-no-files-found: error
       - name: Publish the verdict on the exact commit
         if: always()
