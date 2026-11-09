@@ -497,14 +497,26 @@ export class HorseObserverReads {
     // Public counters use a detached map. Individual observations, dedupe
     // and private plans retain this horse's original ownership.
     const executionState = pooled
-      ? { ...entry.state, exploit: new Map(entry.state.exploit) }
+      ? {
+          ...entry.state,
+          exploit: new Map(entry.state.exploit),
+          ...(pooled.donors.length ? { donorStaleness: new Map<string, number>() } : {}),
+        }
       : entry.state;
-    if (pooled)
+    if (pooled) {
       for (const row of pooled.rows)
         executionState.exploit!.set(
           opponentMemoryKey(row.user_id, row.variant, row.mode, row.size),
           { ...row.counters }
         );
+      // The sibling table size of the same public-memory domain, for a thin
+      // or missing exact row to borrow at its hand-clock staleness.
+      for (const { profile: row, staleness } of pooled.donors) {
+        const key = opponentMemoryKey(row.user_id, row.variant, row.mode, row.size);
+        executionState.exploit!.set(key, { ...row.counters });
+        executionState.donorStaleness!.set(key, staleness);
+      }
+    }
     this.requests.set(request, {
       state: executionState,
       boundary: entry,

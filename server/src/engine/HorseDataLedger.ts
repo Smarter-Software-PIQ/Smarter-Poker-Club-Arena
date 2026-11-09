@@ -2279,6 +2279,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'Item12'
   ),
   receipt(
+    'opponent_memory_donor_staleness_unknown',
+    'HorseMind.blendDurableRead (Item 12)',
+    "a thin exact opponent row had a pooled sibling bucket whose staleness on this player's hand clock could not be told, so it was not borrowed (could not tell is never fresh)",
+    'Item12'
+  ),
+  receipt(
     'plo_opponent_presumed_aggressive',
     'HorseMind (PLO presumption)',
     'an Omaha opponent received the shared aggressive raise prior before their own public hands proved otherwise (owner update 2026-10-27)',

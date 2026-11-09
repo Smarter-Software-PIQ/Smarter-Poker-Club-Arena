@@ -313,6 +313,71 @@ describe('Items 21 and 23: a planned barrel records the next-street state it exp
     expect(withdrawnBarrel).toBeGreaterThan(0);
   });
 
+  it('a scare card that arrives with a lead into the planned barreler withdraws the plan, a receipt only', () => {
+    // HB-CAP-124 (2026-11-08): 78 plan_fingerprint_aborted_scare_under_pressure
+    // receipts on 391f7bc0 were read as an anomaly against an expected 0.
+    // The branch is reachable by design: barrelPlan is read whether or not
+    // the horse faces a bet, so a villain who leads the scare card into the
+    // horse that planned the barrel reaches it (hand_history: 39 such
+    // flop-aggressor-horse-faces-a-turn-lead spots in ten minutes on
+    // 391f7bc0). The planned barrel lives only in the not-facing-a-bet
+    // branch, so the withdrawal changes nothing the horse does there.
+    const hist: ActionRecord[] = [
+      { seat: 2, userId: HERO, action: 'raise', amount: 6, timestamp: T0 + 1, stage: 'preflop' },
+      { seat: 5, userId: VILLAIN, action: 'call', amount: 6, timestamp: T0 + 2, stage: 'preflop' },
+      { seat: 5, userId: VILLAIN, action: 'check', amount: 0, timestamp: T0 + 3, stage: 'flop' },
+      { seat: 2, userId: HERO, action: 'bet', amount: 8, timestamp: T0 + 4, stage: 'flop' },
+      { seat: 5, userId: VILLAIN, action: 'call', amount: 8, timestamp: T0 + 5, stage: 'flop' },
+      { seat: 5, userId: VILLAIN, action: 'bet', amount: 10, timestamp: T0 + 6, stage: 'turn' },
+    ];
+    for (let seed = 1; seed <= 40; seed++) {
+      const run = (planFingerprint: boolean) => {
+        HorseMind.reset();
+        drainFires();
+        seedFastRandom(seed);
+        const hero = seat(HERO, 2, 186, ['9c', '8c']);
+        const villain = { ...seat(VILLAIN, 5, 176), bet: 10 };
+        const gs = {
+          players: [hero, villain],
+          communityCards: ['Kd', '7s', '2c', 'Ah'].map(c),
+          pot: 39,
+          currentBet: 10,
+          minRaise: 10,
+          stage: 'turn' as const,
+          gameVariant: 'nlh',
+          bigBlind: 2,
+          dealerSeat: 2,
+          actionHistory: hist,
+        };
+        const key = HorseMind.handKeyOf(hist)!;
+        HorseMind.notePlan(key, HERO, true);
+        HorseMind.noteOutlook(key, HERO, 'flop', ['6h', 'Th'], ['Ah', 'As']);
+        HorseMind.notePlanFingerprint(key, HERO, 'flop', {
+          contenderIds: [HERO, VILLAIN],
+          effectiveStackChips: 186,
+          potChips: 29,
+          bigBlindChips: 2,
+        });
+        const d = HorseLogic.decide(
+          hero,
+          gs as never,
+          'balanced',
+          {},
+          { ...LIVE, planFingerprint }
+        );
+        return { d, f: fires() };
+      };
+      const on = run(true);
+      const off = run(false);
+      expect(on.f.get('plan_fingerprint_aborted_scare_under_pressure')).toBe(1);
+      expect(off.f.get('plan_fingerprint_aborted_scare_under_pressure')).toBeUndefined();
+      expect({ action: on.d.action, amount: on.d.amount ?? null }).toEqual({
+        action: off.d.action,
+        amount: off.d.amount ?? null,
+      });
+    }
+  });
+
   it('a plan recorded without a fingerprint is answered as before and says so', () => {
     seedFastRandom(3);
     const f = turnSpot(['9c', '8c'], ['Kd', '7s', '2c', '5h']);

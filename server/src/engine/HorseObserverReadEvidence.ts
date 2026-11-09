@@ -85,7 +85,9 @@ export function horseObserverReadsUsedPublicPool(
   const p = pooledPublicProfiles as Record<string, unknown>;
   if (
     Object.keys(p).length !== 5 ||
-    p.version !== 1 ||
+    // 1: digest of the exact rows; 2: digest of { rows, donors } (sibling
+    // table-size donors, 2026-11-08).
+    ![1, 2].includes(p.version as number) ||
     !['accepted_hand_public_profiles', 'saved_and_accepted_public_profiles'].includes(
       p.source as string
     ) ||
