@@ -39,6 +39,10 @@ const manifestPath = resolve(archive, 'SUPERSEDED-UNINSTALLED.sha256');
 const SLUG = 'the_bbj_promo_sweep_label_states_the_allocation_actually_use.sql';
 const SUPERSEDING = `20261109073642_${SLUG}`;
 const retired = new Map([
+  [
+    '20261109132114_split_late_credit_journals_its_own_return.sql',
+    '7f31b64193626fc592f9b69a0afa15961adad95d4de7574ad1b11d5bfd034aa3',
+  ],
   [`20261109010948_${SLUG}`, 'b2738e7821837de09802c197eca559c0edf0213694e27ad5ce70dd0e2569f6c3'],
   [`20261109064934_${SLUG}`, '013f461a611b0ff9c81b840cd533fc1a38cb4e1768bab25791d4536aa99f1e0e'],
 ] as const);
@@ -62,7 +66,9 @@ describe('a superseded migration that never installed leaves the active chain', 
       const bytes = readFileSync(resolve(archive, file));
       expect(manifest.get(file), `${file} manifest digest drifted`).toBe(sha);
       expect(createHash('sha256').update(bytes).digest('hex'), `${file} bytes drifted`).toBe(sha);
-      expect(bytes.toString('utf8').split('\n')[0]).toBe('-- SUPERSEDED BY 20261109073642');
+      const successor = file.startsWith('20261109132114_') ? '20261109140919' : '20261109073642';
+      expect(bytes.toString('utf8').split('\n')[0]).toBe(`-- SUPERSEDED BY ${successor}`);
+      expect(readdirSync(active).filter((f) => f.startsWith(`${successor}_`))).toHaveLength(1);
     }
   });
 
