@@ -256,6 +256,18 @@ async function main() {
     S.clubId = club.body?.id;
     S.clubName = club.body?.name;
     if (!S.clubId) throw new Error(`the certification club was not created (${club.status})`);
+    // EVERY NEW CLUB OPENS WITH A WELCOME PACKAGE, and fn_retire_settled_club's
+    // unwind refuses a club in which any Sit & Go has been played
+    // (WELCOME_PACKAGE_HAS_PLAY_OR_REGISTRATION_HISTORY): runs 42572669237 to
+    // 42584396854 each left a club no door could retire. The owner removes the
+    // untouched welcome games first, through the owner's own door, so the
+    // retirement reads that receipt and the club retires with its records.
+    const removed = await rpc(P.owner.token, 'fn_remove_first_club_welcome_games', {
+      p_club_id: S.clubId,
+      p_operation_id: randomUUID(),
+    });
+    step('the owner removed the untouched welcome games before any play', removed.body?.ok === true, removed.body);
+    if (removed.body?.ok !== true) throw new Error('the welcome games could not be removed; the club would not retire');
     const FUND = 8;
     for (const role of ['a', 'b']) {
       const j = await rpc(P[role].token, 'fn_join_club', { p_club_id: S.clubId });
@@ -311,11 +323,18 @@ async function main() {
     const watch = (tableId, attempt = 0) => {
       let state = null;
       const ws = new WebSocket(`wss://engine.smarter.poker/ws/table/${tableId}`, ['bearer', P.b.token]);
-      ws.onclose = (e) => {
-        diag.closes.push({ code: e.code, reason: e.reason });
-        if (!S.stopped && attempt < 60) setTimeout(() => watch(tableId, attempt + 1), 2000);
+      // Node's WebSocket reports a refused handshake as an error with no close
+      // (runs 42577549337 and 42584396854: only {error:true}), so either event
+      // reconnects, once per socket.
+      let retried = false;
+      const retry = (entry) => {
+        diag.closes.push({ table: tableId.slice(0, 8), ...entry });
+        if (retried || S.stopped || attempt >= 60) return;
+        retried = true;
+        setTimeout(() => watch(tableId, attempt + 1), 2000);
       };
-      ws.onerror = () => diag.closes.push({ error: true });
+      ws.onclose = (e) => retry({ code: e.code, reason: e.reason });
+      ws.onerror = () => retry({ error: true });
       S.sockets.push(ws);
       ws.onmessage = async (e) => {
         const m = JSON.parse(e.data);
@@ -329,8 +348,8 @@ async function main() {
           } catch {}
         }
         diag.messages[m.type] = (diag.messages[m.type] || 0) + 1;
-        if (state && diag.turns.length < 3 && state.current_player)
-          diag.turns.push({ current_player: state.current_player, action_context: state.action_context ?? null, keys: Object.keys(state).slice(0, 40) });
+        if (state && diag.turns.filter((t) => t.table === tableId.slice(0, 8)).length < 2 && state.current_player)
+          diag.turns.push({ table: tableId.slice(0, 8), current_player: state.current_player, action_context: state.action_context ?? null });
         const who = state && [P.a, P.b].find((p) => p.userId === state.current_player);
         if (!who || !state.action_context || acted.has(state.action_context)) return;
         acted.add(state.action_context);
@@ -338,7 +357,8 @@ async function main() {
           const r = await engine(who.token, '/action', {
             tableId, action, actionContext: state.action_context, idempotencyKey: randomUUID(),
           });
-          if (diag.actions.length < 8) diag.actions.push({ action, status: r.status, body: r.body });
+          if (diag.actions.filter((a) => a.table === tableId.slice(0, 8)).length < 4)
+            diag.actions.push({ table: tableId.slice(0, 8), action, status: r.status, success: r.body?.success ?? null, error: r.body?.error ?? null });
           if (r.body?.success) break;
         }
       };
@@ -463,7 +483,6 @@ async function main() {
         && new Set(states.map((x) => x.body?.seat_number)).size === 2,
       evidence.rematch);
     if (!S.target.tournamentId) throw new Error('no rematch was committed');
-    watch(S.target.tableId);
 
     const afterRematch = await both();
     step('each player was charged exactly one buy-in plus fee for the rematch',
@@ -494,6 +513,7 @@ async function main() {
       return t && ['RUNNING', 'COMPLETED'].includes(String(t.status).toUpperCase()) ? t : null;
     }, 120_000);
     step('the engine started the rematch', !!startedRematch, startedRematch?.status);
+    watch(S.target.tableId);
     const firstHand = await until('the rematch\'s first hand', async () => {
       const h = await svc(`hand_history?table_id=eq.${S.target.tableId}&select=id,hand_number,created_at&order=hand_number.asc&limit=1`);
       return Array.isArray(h) && h.length ? h[0] : null;

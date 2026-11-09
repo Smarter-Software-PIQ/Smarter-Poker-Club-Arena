@@ -106,4 +106,20 @@ describe('heads-up rematch live certification', () => {
     ).rejects.toThrow('not an active heads-up rematch certification club');
     expect(writes).toEqual([]);
   });
+
+  it('removes the untouched welcome games before any play, so the club can retire', () => {
+    const script = readFileSync('scripts/ci/certify-heads-up-rematch.mjs', 'utf8');
+    const removal = script.indexOf("'fn_remove_first_club_welcome_games'");
+    expect(removal).toBeGreaterThan(script.indexOf("'fn_create_club_atomic'"));
+    expect(removal).toBeLessThan(script.indexOf("'fn_cashier_batch_transfer'"));
+    expect(removal).toBeLessThan(script.indexOf("'fn_take_seat_and_buy_in'"));
+  });
+
+  it('watches each table only after the engine starts it, and reconnects on an error as well as a close', () => {
+    const script = readFileSync('scripts/ci/certify-heads-up-rematch.mjs', 'utf8');
+    expect(script.indexOf('watch(S.source.tableId)')).toBeGreaterThan(script.indexOf("step('the engine started the first game'"));
+    expect(script.indexOf('watch(S.target.tableId)')).toBeGreaterThan(script.indexOf("step('the engine started the rematch'"));
+    expect(script).toContain('ws.onerror = () => retry(');
+    expect(script).toContain('ws.onclose = (e) => retry(');
+  });
 });
