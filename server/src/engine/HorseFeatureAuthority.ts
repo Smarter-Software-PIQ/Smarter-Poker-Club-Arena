@@ -381,12 +381,71 @@ export function featureDomainMatches(d: HorseFeatureDomain, gs: HorseGameStateV2
     gs.bettingStructure === d.bettingStructure &&
     gs.chipUnit === d.chipUnit &&
     gs.rakeConfig !== undefined &&
-    hash(gs.rakeConfig) === hash(d.rakeConfig) &&
+    liveRakeMatches(gs.rakeConfig, d.rakeConfig) &&
     gs.bbjConfig !== undefined &&
     hash(gs.bbjConfig) === hash(d.bbjConfig) &&
-    Array.isArray(gs.pots) &&
-    gs.pots.length <= 1
+    noSidePot(gs) &&
+    unmeasuredLiveRulesAbsent(gs)
   );
+}
+/** LIVE RULES THE QUALIFICATION HARNESS NEVER DEALS (independent review,
+ * 2026-11-09). Admitting the real snapshot must not admit what was never
+ * measured: a table commitment cap (the harness sets commitmentCapRemaining
+ * null), a dealt seat sitting out (the harness hard-codes false), a dead
+ * blind (the harness posts none) or a Lightning hand (a ring-game domain). */
+function unmeasuredLiveRulesAbsent(gs: HorseGameStateV2): boolean {
+  const dealt = gs.players.filter((p) => gs.dealtSeatIds?.includes(p.seat));
+  return (
+    gs.wagersCapped !== true &&
+    gs.commitmentCapRemaining == null &&
+    gs.publicMemoryDomain?.speed !== 'lightning' &&
+    dealt.every((p) => p.is_sitting_out !== true && !((p.deadInvested ?? 0) > 0))
+  );
+}
+/** THE LIVE RAKE SNAPSHOT CARRIES ITS POLICY LABEL (2026-11-08). Every cash
+ * hand's rake config is stamped `cashPolicy: { version: 1, scope }`
+ * (ServerTableEngineDealing) to record which policy priced it; the published
+ * pricing a plan is measured on (publishedCashPricing) holds the numbers alone.
+ * Hashing the two whole meant no live cash decision could ever match a declared
+ * domain, so a selected authority would be refused on every live hand while
+ * every test, built from the published pricing, admitted it. The label is
+ * compared as a label (only version 1 is understood) and the economics exactly. */
+function liveRakeMatches(
+  live: NonNullable<HorseGameStateV2['rakeConfig']>,
+  declared: HorseFeatureDomain['rakeConfig']
+): boolean {
+  const { cashPolicy, ...economics } = live as typeof live & {
+    cashPolicy?: { version?: unknown; scope?: unknown };
+  };
+  if (cashPolicy !== undefined) {
+    if (
+      !cashPolicy ||
+      cashPolicy.version !== 1 ||
+      !['standard', 'midway', 'standalone'].includes(cashPolicy.scope as string) ||
+      Object.keys(cashPolicy).sort().join(',') !== 'scope,version'
+    )
+      return false;
+  }
+  return hash(economics) === hash(declared);
+}
+/** NO SIDE POT, NOT "ONE POT LAYER" (2026-11-08). A player facing an uncalled
+ * bet always sees two live layers (computeLivePots: the contested pot, then the
+ * bettor's unmatched excess, which only the bettor can win), and so does every
+ * multiway spot with a bet and a call still unmatched. Neither is a side pot,
+ * and the qualification harness measured every such state with the feature on
+ * (it supplies the same computeLivePots layers). A side pot exists exactly when
+ * a live all-in player is shut out of a layer that two or more players still
+ * contest. Malformed layers refuse. */
+function noSidePot(gs: HorseGameStateV2): boolean {
+  if (!Array.isArray(gs.pots)) return false;
+  if (gs.pots.length <= 1) return true;
+  const allIn = gs.players.filter((p) => !p.is_folded && p.is_all_in).map((p) => p.user_id);
+  for (const pot of gs.pots) {
+    const eligible = (pot as { eligiblePlayers?: unknown }).eligiblePlayers;
+    if (!Array.isArray(eligible) || eligible.length === 0) return false;
+    if (eligible.length >= 2 && allIn.some((id) => !eligible.includes(id))) return false;
+  }
+  return true;
 }
 export function admittedHorseFeatureFlags(
   authority: HorseQualifiedAuthority | null,
