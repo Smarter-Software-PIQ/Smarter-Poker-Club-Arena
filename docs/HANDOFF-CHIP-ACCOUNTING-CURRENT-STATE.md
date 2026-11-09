@@ -530,12 +530,48 @@ playerId, amount, note?)` resolves who owns the float and calls
 
 ### 7.9b Midway Union BBJ `5/20/75` split and sweep wording (`2026-11-08` / `2026-11-09`)
 
-#### STATUS, 2026-11-09
+#### STATUS, 2026-11-09 - CLOSED
 
 | Component                                                                                                                                                                                                                                     | State                                                                                                                         | Authority / Evidence                                                                                                                                                                                                                                                                                                                                  |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Midway Union `5 / 20 / 75` split** (`pool_id = f9806a7f-e7a2-47d2-a676-36336e3a5337`)                                                                                                                                                       | **LIVE** (since `2026-11-08 21:43:21.501583+00`; do not replay)                                                               | `public.ca_bbj_pool_policy` (`standard_main = 0.05`, `standard_backup = 0.20`, `pivot_main = 0.05`, `pivot_backup = 0.20`). Verified across `25,291` hands (`7,513.55` drop): `5.0000%` main / `20.0000%` backup / `75.0000%` promo, `0.0000` unallocated.                                                                                            |
-| **Sweep note wording fix** (`ca_bbj_rate_periods`, `fn_bbj_promo_window_share`, `fn_bbj_last_promo_sweep_at`, `fn_bbj_sweep_note`, `fn_sweep_bbj_promo`, `fn_sweep_bbj_promo_all`, and historical `union_wallet_transactions.notes` backfill) | **SHIPPED IN SOURCE** (`supabase/migrations/20261109010948_the_bbj_promo_sweep_label_states_the_allocation_actually_use.sql`) | Self-aborting probe on production (`20,395` rows: `3,763` at `60%`, `74` at `75%`, `16,558` neutral, `0` stale `25%`, `sum(amount) = 623,447.3200` unchanged). Note: an earlier cloud-session draft cited "9,756 rows applied" from a self-aborting probe before `ca_bbj_rate_periods` tightened period identification; that probe committed nothing. |
+| **Sweep note wording fix** (`ca_bbj_rate_periods`, `fn_bbj_promo_window_share`, `fn_bbj_last_promo_sweep_at`, `fn_bbj_sweep_note`, `fn_sweep_bbj_promo`, `fn_sweep_bbj_promo_all`, and the historical `union_wallet_transactions.notes` backfill) | **INSTALLED AND VERIFIED LIVE** on `2026-11-09` | Migration `20261109073642_the_bbj_promo_sweep_label_states_the_allocation_actually_use.sql` (supersedes `20261109010948` and `20261109064934`, neither of which is in `schema_migrations`), dispatched by the merge of PR `#10150` through `apply-merged-migration.yml`. Deployed source revision `a8087773a21c1d09f22eb6d1dad155c76db3541d`, serving as `ca_sha` at `https://smarter.poker/hub/club-arena/build-info.json`; docs and config comments landed separately in PR `#10142` (`8e1daf122555784050537c48aedd20ce1f48fd1a`). Independently re-verified in production after install: `0` rows carry the stale `25%` label (was all `20,376`), exactly `3` distinct note values remain (`16,430` neutral, `3,891` at `60%`, `168` at `75%`), both `ca_bbj_rate_periods` rows carry pool-bound evidence, and no sweep row has a null amount, balance or timestamp. |
+
+#### Live sweep proof and continuing allocation (recorded at closure)
+
+- **A real sweep carries the right wording.** `fn_sweep_bbj_promo_all()` wrote
+  `0f281591-0d05-4c16-99e1-d35a20ece82a` at `2026-11-09 08:25:00.400507+00`
+  (after the migration committed at `08:23:48Z`): `amount = 176.9300`,
+  `balance_after = 177460.2100`,
+  `notes = 'BBJ promo slice (75% of contribution) swept from pool'`. Row confirmed
+  field by field. The `75%` group has continued to grow since
+  (`168` rows by `2026-11-09 13:45:03+00`), so the FORWARD path is producing the
+  label itself - this is not only a backfill.
+- **The split is holding.** Across all `48,046` hands in `bbj_contributions` on
+  pool `f9806a7f-e7a2-47d2-a676-36336e3a5337` since
+  `2026-11-08 21:43:21.501583+00`: `5.0000%` main / `20.0000%` backup /
+  `75.0000%` promo, `0.0000` unallocated.
+
+#### UNVERIFIED - a promo sweep/allocation difference, NOT reconciled
+
+Measured `2026-11-09`: promo swept all-time into the Midway union wallet
+(`628,441.83`) exceeds promo allocated to this pool's own `pool_id`
+(`601,736.54`) by about `26,700`. It is **pre-existing**: the same difference
+measured `26,713.06` on `2026-11-08 21:35+00`, before any of this work, and has
+since narrowed slightly rather than grown. Nothing in the wording change moves
+money, and the backfill altered `notes` only.
+
+**A plausible explanation was offered and is NOT accepted as a reconciliation.**
+The two retired pools merged into Midway (The Felt Society, Deep Stack Society)
+carry `83,964.08` of promo against their own `pool_id`s, which is larger than
+the difference - but "larger than" is not "accounts for". Nothing here has
+matched specific transfers and receipts to the difference, so the cause remains
+**unknown**. Do not repeat the merged-pools explanation as settled, and do not
+reason from it.
+
+No investigation or settlement of this is authorized by the closure of the
+wording task. If it is ever taken up, it needs its own reading of the actual
+transfers under 10.9, proved in a rolled-back probe first.
 
 #### Authoritative split source and the per-hand ratio trap
 
