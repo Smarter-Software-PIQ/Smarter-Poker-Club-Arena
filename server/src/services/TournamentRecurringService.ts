@@ -3644,11 +3644,12 @@ export class TournamentRecurringService {
       const { data, error } = await supabase
         .from('tournaments')
         .select(
-          'name, club_id, union_id, start_time, guaranteed_prize, buy_in_amount, buy_in_fee, ' +
+          'name, status, club_id, union_id, start_time, guaranteed_prize, buy_in_amount, buy_in_fee, ' +
             'is_pko, is_bounty, is_mystery_bounty, all_in_or_fold, bounty_amount, starting_chips, rebuy_cost, addon_cost, addon_chips, addon_from_start, ' +
             'add_on_available, is_rebuy, max_rebuys, late_reg_mins, late_reg_levels, rebuy_levels, blind_structure'
         )
         .eq('free_buy', true)
+        .neq('status', 'CANCELLED')
         // The board's own rows only: every freeroll carries free_buy
         // (FREE_BUY_BOARD_NAMES in FreeBuy.ts says why).
         .in('name', [...FREE_BUY_BOARD_NAMES])
