@@ -77,6 +77,7 @@ import {
   HUMAN_ARRIVAL_MIN_MS,
   HUMAN_ARRIVAL_MAX_MS,
   openingRungMs,
+  feederWaitMs,
   boardOpenTarget,
 } from '../config/seatFirstLadder.js';
 import { isFixedBoardClub } from '../config/fixedBoard.js';
@@ -2625,6 +2626,8 @@ interface SatelliteHeadsUpConfig extends Omit<SNGConfig, 'type'> {
   targetId: string;
   targetName: string;
   ticketCost: number;
+  /** The target's own start clock, so the feeder's wait is bounded by it. */
+  targetStartMs: number;
 }
 
 function satelliteHeadsUpConfigFor(target: SatelliteTargetRow): SatelliteHeadsUpConfig | null {
@@ -2638,6 +2641,7 @@ function satelliteHeadsUpConfigFor(target: SatelliteTargetRow): SatelliteHeadsUp
   return {
     name: satelliteHeadsUpName(target.name),
     type: 'satellite',
+    targetStartMs: Date.parse(String(target.start_time ?? '')),
     gameVariant,
     buyIn,
     rake: 0,
@@ -4196,7 +4200,27 @@ export class TournamentRecurringService {
     owner: BoardOwner = this.houseOwner
   ): Promise<{ tournamentId: string | null; registered: number; created?: boolean }> {
     try {
-      const startTime = new Date(Date.now() + seatFirstOpeningWindowMs(config.maxPlayers));
+      /* A FEEDER DOES NOT CLIMB THE LADDER (2026-11-09). This read
+         `seatFirstOpeningWindowMs(config.maxPlayers)`, which is the 3-to-4-hour
+         regular Heads-Up rung, because a feeder is two seats. A feeder is not
+         one of the eleven Spins or six Sit and Gos that rung paces - the board
+         count excludes every row with a satellite target - and a feeder that
+         waits hours lets its target start before it can award the seat it sold.
+         See feederWaitMs in server/src/config/seatFirstLadder.ts. */
+      const feederWait = feederWaitMs(
+        Date.now(),
+        config.targetStartMs,
+        SATELLITE_HU_TARGET_LEAD_MS,
+        (span) => secureRandomInt(span + 1)
+      );
+      if (feederWait === null) {
+        /* Its target is inside the lead this format requires, already under
+           way, or has no readable clock. Opening one now sells a seat that
+           cannot be delivered, so none is opened. An existing empty one is
+           cancelled by fn_ca_expire_empty_fixed_sng_satellite. */
+        return { tournamentId: null, registered: 0, created: false };
+      }
+      const startTime = new Date(Date.now() + feederWait);
       const dbGameType = dbGameTypeFor(config.gameVariant, 'createSatelliteHeadsUp');
 
       const satelliteRow = {
