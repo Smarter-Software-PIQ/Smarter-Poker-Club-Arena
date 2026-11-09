@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Private PostgreSQL proof of 20261108195247 (the house pays two more bounty only
-final two runners up their own heads: 7f473b6a and 72e9b116).
+"""Private PostgreSQL proof of 20261109010752 (the house pays three bounty only
+final two runners up their own heads: 7f473b6a, 72e9b116 and 36fc2465).
 
-The EXACT migration bytes run over a minimal schema that reproduces the two
+The EXACT migration bytes run over a minimal schema that reproduces the three
 events' own witness rows and carries the production signatures of the audited
 house settlement door (fn_ca_adjustment_under_10_9 is the production body, so
 the 200-character paragraph and the migration-naming rule are proved too).
@@ -19,10 +19,10 @@ This proves:
     that actually decides the debt, which the open-pool equality does NOT show
     (given a pool paid out exactly, that equality is an algebraic identity);
   * that horse status is NOT a condition: every payee is flipped to a human and
-    the same bytes pay the same two amounts (CLAUDE.md 10.5);
-  * the payment: two credits totalling 28.03 from the Midway Union bank, each
+    the same bytes pay the same three amounts (CLAUDE.md 10.5);
+  * the payment: three credits totalling 60.72 from the Midway Union bank, each
     into the payee's own club wallet, one journal leg and one wallet receipt
-    each, two settled adjustments, and no sealed event book rewritten;
+    each, three settled adjustments, and no sealed event book rewritten;
   * the replay: running the same bytes again pays nothing and moves nothing;
   * the tamper: a key present without its exact settled receipts aborts rather
     than paying again.
@@ -31,7 +31,7 @@ from pathlib import Path
 import os, shutil, subprocess, tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
-MIG = ROOT / 'supabase/migrations/20261108195247_the_house_pays_two_more_final_two_runners_up_their_own_heads.sql'
+MIG = ROOT / 'supabase/migrations/20261109010752_the_house_pays_three_final_two_runners_up_their_own_heads.sql'
 PG = Path(os.environ.get('PG_BIN', '/opt/homebrew/opt/postgresql@17/bin'))
 work = Path(tempfile.mkdtemp(prefix='final-two-mg2-', dir=os.environ.get('TMPDIR')))
 sock = Path(tempfile.mkdtemp(prefix='s-', dir=os.environ.get('CA_PG_SOCKET_ROOT', os.environ.get('TMPDIR'))))
@@ -52,9 +52,12 @@ EVENTS = [
     ('72e9b116-1e16-4486-83bb-c23bf577684e', 'Midday Free Buy (NLH)', '2026-11-07', 379.00, 327.67,
      'ac61ed82-19cf-41b9-a65e-cfd099da1ecf', 10.78, 'c7a783ee-ac19-4a86-8e26-422666281805', 45.94, 51.33,
      '8b78f98e-03ef-4e67-86b5-ddec4c2aac54', FELT),
+    ('36fc2465-31e2-47d5-9a48-09206e4bdf22', 'Midday Free Buy (NLH)', '2026-11-08', 299.00, 271.31,
+     'd69e25e8-c1a7-4c38-8a7e-30784cba86c3', 32.69, '31cf17ec-9b08-41bb-89cc-4da7fb32010c', 11.34, 27.69,
+     'd3367a4d-8961-49fe-9a20-c7162edbd449', FELT),
 ]
 WALLET0 = 9000.00
-TOTAL = 28.03
+TOTAL = 60.72
 
 
 def run(args, sql=None, timeout=180):
@@ -322,7 +325,7 @@ try:
         assert bank() == '146630676.83', bank()
 
     # --- HORSE STATUS IS NOT A CONDITION --------------------------------
-    # Every payee is flipped to a human. The same bytes must pay the same two
+    # Every payee is flipped to a human. The same bytes must pay the same three
     # amounts: the head is owed to whoever finished second (CLAUDE.md 10.5).
     q("UPDATE profiles SET is_horse=false;")
 
@@ -336,15 +339,15 @@ try:
                  head))
     print(notices(MIGSQL).strip())
     after_bank = bank()
-    assert after_bank == '146630648.80', after_bank          # 146630676.83 - 28.03
-    assert one("SELECT round(%s - chip_balance,2) FROM union_wallets WHERE union_id='%s';" % (BANK0, UNION)) == '28.03'
-    assert one("SELECT round(sum(chip_balance) - %s,2) FROM club_members;" % before) == '28.03'
+    assert after_bank == '146630616.11', after_bank          # 146630676.83 - 60.72
+    assert one("SELECT round(%s - chip_balance,2) FROM union_wallets WHERE union_id='%s';" % (BANK0, UNION)) == '60.72'
+    assert one("SELECT round(sum(chip_balance) - %s,2) FROM club_members;" % before) == '60.72'
     legs = one("SELECT count(*)||'|'||sum(amount) FROM chip_ledger WHERE idempotency_key LIKE 'bounty-only-final-two-make-good:%';")
-    assert legs == '2|28.03', legs
+    assert legs == '3|60.72', legs
     assert one("""SELECT count(*)||'|'||sum(amount) FROM ca_manual_adjustments
-                   WHERE status='settled' AND decision_note LIKE 'migration 20261108195247%';""") == '2|28.03'
+                   WHERE status='settled' AND decision_note LIKE 'migration 20261109010752%';""") == '3|60.72'
     assert one("""SELECT count(*)||'|'||sum(amount) FROM wallet_transactions
-                   WHERE category='settlement' AND type='credit';""") == '2|28.03'
+                   WHERE category='settlement' AND type='credit';""") == '3|60.72'
     assert one("""SELECT count(*) FROM chip_ledger WHERE idempotency_key LIKE 'bounty-only-final-two-make-good:%%'
                    AND (from_type<>'union_bank' OR from_entity_id<>'%s' OR to_type<>'player_wallet'
                         OR category<>'settlement' OR tournament_id IS NOT NULL OR club_id IS NULL
@@ -357,20 +360,20 @@ try:
                    % (WALLET0, win, club)) == '0.00', 'the champion was touched'
         assert one("SELECT bounty_pool_paid FROM tournaments WHERE id='%s';" % ev) == ('%.2f' % pool)
     assert one("""SELECT count(*) FROM financial_alerts WHERE source='bounty_only_final_two_make_good'
-                   AND resolved IS TRUE AND (context->>'paid')::numeric=28.03;""") == '1'
+                   AND resolved IS TRUE AND (context->>'paid')::numeric=60.72;""") == '1'
 
     # --- THE REPLAY PAYS NOTHING ----------------------------------------
     paid_state = moved()
     q(MIGSQL)
     assert moved() == paid_state, 'the replay moved money'
-    assert bank() == '146630648.80', bank()
+    assert bank() == '146630616.11', bank()
     assert one("""SELECT count(*) FROM financial_alerts WHERE source='bounty_only_final_two_make_good';""") == '1'
 
     # --- A KEY WITHOUT ITS EXACT RECEIPTS ABORTS ------------------------
-    q("UPDATE ca_manual_adjustments SET status='approved' WHERE target_id='%s' AND decision_note LIKE 'migration 20261108195247%%';" % RU0)
+    q("UPDATE ca_manual_adjustments SET status='approved' WHERE target_id='%s' AND decision_note LIKE 'migration 20261109010752%%';" % RU0)
     must_fail(MIGSQL, 'lacks the exact settled receipts')
-    q("UPDATE ca_manual_adjustments SET status='settled' WHERE target_id='%s' AND decision_note LIKE 'migration 20261108195247%%';" % RU0)
-    assert moved() == paid_state and bank() == '146630648.80'
+    q("UPDATE ca_manual_adjustments SET status='settled' WHERE target_id='%s' AND decision_note LIKE 'migration 20261109010752%%';" % RU0)
+    assert moved() == paid_state and bank() == '146630616.11'
 
     print('union bank after:       %s' % bank())
     for ev, name, day, pool, cash, ru, head, win, wh, res, ko, club in EVENTS:
@@ -378,7 +381,7 @@ try:
               % (ev[:8], name, day,
                  one("SELECT chip_balance FROM club_members WHERE user_id='%s' AND club_id='%s';" % (ru, club)),
                  head))
-    print('final two make-good: 15 refusals move nothing; 2 runners up paid 28.03 from the union bank '
+    print('final two make-good: 15 refusals move nothing; 3 runners up paid 60.72 from the union bank '
           'with one leg and one receipt each; replay and tampered receipts pay nothing - OK')
 finally:
     if started:

@@ -1,34 +1,43 @@
--- 20261108195247_the_house_pays_two_more_final_two_runners_up_their_own_heads
+-- 20261109010752_the_house_pays_three_final_two_runners_up_their_own_heads
 --
--- Reserved by scripts/new-migration.mjs on 2026-11-08 19:52:47 UTC.
+-- Version reserved by scripts/new-migration.mjs on 2026-11-09 01:07:52 UTC. It
+-- replaces the unmerged, never installed draft 20261108195247 (two payees) of
+-- the same pull request, now extended to the third runner up.
 --
--- NOT FOR MERGE OR INSTALL WITHOUT DAN'S APPROVAL. This file moves money. It
--- is prepared for the owner's decision and must not be merged or applied
--- until he approves the payment.
+-- OWNER APPROVAL (Dan, in chat, 2026-11-08 18:56 America/Chicago, verbatim):
+--   "Approved to pay the three verified final-two make-goods through the
+--    existing audited payment route-reednightingale 17.25, run it twice 10.78,
+--    and velvet9 32.69, totaling 60.72 chips. Recheck durable payment records
+--    immediately before execution, then reconcile each unique debit, credit and
+--    receipt. Preserve the six earlier payments totaling 105.87."
 --
--- THE HOUSE PAYS TWO MORE BOUNTY ONLY FINAL TWO RUNNERS UP THEIR OWN HEADS
+-- THE HOUSE PAYS THREE BOUNTY ONLY FINAL TWO RUNNERS UP THEIR OWN HEADS
 --
 -- OWNER RULE (Dan, 2026-11-05/06): a bounty only PKO is over with two players
 -- left, and both keep the bounty on their own head. A PKO Free Buy has no
 -- guarantee and pays no place (Dan, 2026-11-08); only heads are reconciled here.
 --
--- THE DEFECT. Engine 391f7bc0 (#9876) reached fn_ca_bounty_only_pko_final_two
--- in time on both events below, but the authority answered
--- finishing_place_two_is_held (20261107130652) on every try: an earlier bust
--- still held a provisional place 2 stamped at that bust, which no retry could
--- clear (read from tournament_bounty_obligations.position). The close gave up,
--- the heads up hand was played out, the final knockout put half of the runner
--- up's head into the champion's wallet and half onto the champion's head, and
--- fn_finalize_bounty_pool then paid the champion the residual: his own head
--- plus that half. The runner up was paid nothing for his own head. The
--- authority is fixed by 20261108193616 (#10076), which moves no money.
+-- THE DEFECTS. In each event the engine reached fn_ca_bounty_only_pko_final_two
+-- with exactly two players, the close did not happen, the heads up hand was
+-- played out, the final knockout put half of the runner up's head into the
+-- champion's wallet and half onto the champion's head, and
+-- fn_finalize_bounty_pool paid the champion the residual: his own head plus
+-- that half. The runner up was paid nothing for his own head.
+--   72e9b116, 7f473b6a: the authority answered finishing_place_two_is_held -
+--     an earlier bust still held a provisional place 2. Fixed by 20261108193616
+--     (#10076), which moves no money.
+--   36fc2465: every try rolled back at COMMIT on TOURNAMENT_SEAT_ROSTER_REQUIRED
+--     (ca_bounty_only_final_two_refusals 20:48:14Z) - the runner up still held
+--     a live chair after his roster row was closed. Fixed by 20261108222325,
+--     which moves no money.
 --
--- WHAT IS OWED, RE-DERIVED FROM THE EVENTS' OWN ROWS (read-only, 2026-11-08):
+-- WHAT IS OWED, RE-DERIVED FROM THE EVENTS' OWN ROWS (read-only, 2026-11-09):
 --
 --   event     name                     date        runner up (user)                    head owed
 --   72e9b116  Midday Free Buy (NLH)    2026-11-07  run it twice (ac61ed82-19cf-...)     10.78
 --   7f473b6a  Midnight Free Buy (NLH)  2026-11-08  reednightingale (b439692b-fd8f-...)  17.25
---                                                                                total   28.03
+--   36fc2465  Midday Free Buy (NLH)    2026-11-08  velvet9 (d69e25e8-c1a7-...)          32.69
+--                                                                                total   60.72
 --
 -- In each, the LAST public.tournament_bounties row eliminated the runner up
 -- and was collected by the champion, and its bounty_amount IS the runner up's
@@ -39,9 +48,11 @@
 -- hands, third first (the watch's own evidence standard, asserted below):
 --   72e9b116  third catalyst        hand cd269878 20:54:58; second hand 98f415d3 21:01:29
 --   7f473b6a  third reedivorson     hand d3eaab50 11:23:21; second hand 8fdd5899 11:33:44
---             (financial_alerts dfd96268, closed_without_final_two, names these hands)
+--   36fc2465  third delta9          hand 81fe9a9c 20:46:56; second hand c240e8f5 20:48:49
+--             (financial_alerts dfd96268 and 43c88313, closed_without_final_two,
+--              name these hands)
 --
--- RECONCILED AGAINST EVERY EXISTING RECEIPT (2026-11-08 ~19:55 UTC):
+-- RECONCILED AGAINST EVERY EXISTING RECEIPT (2026-11-09 ~01:05 UTC):
 --   7f473b6a  pool 253.00 = paid 253.00. reednightingale: bounty_winnings 16.72
 --             = his bounty obligations 16.72 = 8 chip_ledger bounty legs 16.72,
 --             all knockout halves he earned; no bounty_residual, no adjustment,
@@ -53,29 +64,39 @@
 --             for this event, no make-good key. pairboard (champion): residual
 --             51.33 = own head 45.94 + the 5.39 half of the 10.78 head. Two
 --             final heads 45.94 + 10.78 = 56.72 = the open pool at two.
---   Neither event has a ca_bounty_only_final_two row, a tournament_payouts row
---   or a place obligation.
+--   36fc2465  pool 299.00 = paid 299.00 (bounty 271.31 + residual 27.69).
+--             velvet9: bounty_winnings 31.66 = his bounty obligations 31.66 = 9
+--             chip_ledger bounty legs 31.66, all halves of the 9 heads he
+--             collected; no residual, no adjustment, no make-good key.
+--             bhamjeremy (champion): the last knockout d3367a4d (velvet9's head
+--             32.69) paid him 16.34 in cash and put 16.35 on his head; residual
+--             27.69 = own head 11.34 + that 16.35. Two final heads 11.34 + 32.69
+--             = 44.03 = the open pool at two.
+--   No event has a ca_bounty_only_final_two row, a tournament_payouts row or a
+--   place obligation.
 --
--- NO ONE IS PAID TWICE. Neither payee or event appears in the six already paid
--- by 20261107140005 (#9872, keys bounty-only-final-two-make-good:<event>:<user>
--- for 1d115ff4, 39b5fa14, 74ba8130, b3ae52ef, c1b3fa5a, dce71e3f); those six are
--- not read, touched or re-keyed here. The keys below name only these two events.
+-- NO ONE IS PAID TWICE. No payee or event appears in the six already paid by
+-- 20261107140005 (#9872, keys bounty-only-final-two-make-good:<event>:<user>
+-- for 1d115ff4, 39b5fa14, 74ba8130, b3ae52ef, c1b3fa5a, dce71e3f, 6 legs
+-- totalling 105.87); those six are not read, touched or re-keyed here. The keys
+-- below name only these three events.
 --
--- NOTHING IS CLAWED BACK. The champions keep the extra half head our defect
--- paid them (CLAUDE.md 10.9 rule 3). Midway Union, which hosted and funded both
--- promo events, pays 28.03 from its bank outside the sealed event books.
+-- NOTHING IS CLAWED BACK. The champions keep the extra half head our defects
+-- paid them (CLAUDE.md 10.9 rule 3). Midway Union, which hosted and funded all
+-- three promo events, pays 60.72 from its bank outside the sealed event books.
 -- Horse or human is not read and is not a condition (CLAUDE.md 10.5).
 --
 -- THE DOOR, the guards, the idempotency and the post-image are those of
--- 20261107140005, unchanged except for these two events and their total. The
--- open alert dfd96268 is left for the engine-side fix, as #9872 did.
+-- 20261107140005, unchanged except for these three events, their defect text
+-- and their total. The open alerts dfd96268 and 43c88313 are left for the
+-- engine-side fixes, as #9872 did.
 --
--- PROOF: scripts/ci/test-bounty-only-final-two-make-good-two-more.py runs these
+-- PROOF: scripts/ci/test-bounty-only-final-two-make-good-three.py runs these
 -- exact bytes over a private PostgreSQL. Probe against a live database with
 -- SET LOCAL ca.final_two_make_good_probe = 'on'; the closing exception MUST
 -- abort the transaction.
 --
--- @live-proof: (SELECT count(*) FROM public.ca_manual_adjustments WHERE decision_note = 'migration 20261108195247_the_house_pays_two_more_final_two_runners_up_their_own_heads' AND status = 'settled') = 2 AND (SELECT sum(amount) FROM public.ca_manual_adjustments WHERE decision_note = 'migration 20261108195247_the_house_pays_two_more_final_two_runners_up_their_own_heads' AND status = 'settled') = 28.03 AND (SELECT count(*) FROM public.chip_ledger WHERE idempotency_key = ANY (ARRAY['bounty-only-final-two-make-good:72e9b116-1e16-4486-83bb-c23bf577684e:ac61ed82-19cf-41b9-a65e-cfd099da1ecf','bounty-only-final-two-make-good:7f473b6a-7f6b-4c82-8c7f-b837cbe6f08a:b439692b-fd8f-4a99-85fa-38f37111e733'])) = 2
+-- @live-proof: (SELECT count(*) FROM public.ca_manual_adjustments WHERE decision_note = 'migration 20261109010752_the_house_pays_three_final_two_runners_up_their_own_heads' AND status = 'settled') = 3 AND (SELECT sum(amount) FROM public.ca_manual_adjustments WHERE decision_note = 'migration 20261109010752_the_house_pays_three_final_two_runners_up_their_own_heads' AND status = 'settled') = 60.72 AND (SELECT count(*) FROM public.chip_ledger WHERE idempotency_key = ANY (ARRAY['bounty-only-final-two-make-good:72e9b116-1e16-4486-83bb-c23bf577684e:ac61ed82-19cf-41b9-a65e-cfd099da1ecf','bounty-only-final-two-make-good:7f473b6a-7f6b-4c82-8c7f-b837cbe6f08a:b439692b-fd8f-4a99-85fa-38f37111e733','bounty-only-final-two-make-good:36fc2465-31e2-47d5-9a48-09206e4bdf22:d69e25e8-c1a7-4c38-8a7e-30784cba86c3'])) = 3
 
 BEGIN;
 SET LOCAL lock_timeout = '5s';
@@ -83,10 +104,10 @@ SET LOCAL statement_timeout = '120s';
 
 DO $settle$
 DECLARE
-  c_mig    constant text := '20261108195247_the_house_pays_two_more_final_two_runners_up_their_own_heads';
+  c_mig    constant text := '20261109010752_the_house_pays_three_final_two_runners_up_their_own_heads';
   c_union  constant uuid := 'fade0000-0000-0000-0000-000000000001';
   c_actor  constant uuid := '2d1cd6c3-5700-4af9-a271-d4863fdab20d';
-  c_total  constant numeric := 28.03;
+  c_total  constant numeric := 60.72;
   c_desc   constant text := 'House Make-Good: Own Bounty Head Kept At The Final Two';
   v_probe  boolean := COALESCE(current_setting('ca.final_two_make_good_probe', true), '') = 'on';
   r record;
@@ -105,20 +126,27 @@ BEGIN
     event_id uuid, event_name text, event_day date, pool numeric,
     user_id uuid, username text, head numeric,
     winner_id uuid, winner_name text, winner_head numeric, winner_residual numeric,
-    final_ko_id uuid, home_club uuid, club_name text) ON COMMIT DROP;
+    final_ko_id uuid, home_club uuid, club_name text, defect text) ON COMMIT DROP;
   INSERT INTO zz_final_two_owed VALUES
    ('72e9b116-1e16-4486-83bb-c23bf577684e','Midday Free Buy (NLH)','2026-11-07',379.00,
     'ac61ed82-19cf-41b9-a65e-cfd099da1ecf','run it twice',10.78,
     'c7a783ee-ac19-4a86-8e26-422666281805','pairboard',45.94,51.33,
-    '8b78f98e-03ef-4e67-86b5-ddec4c2aac54','a0000000-0000-0000-0000-000000000001','The Felt Society'),
+    '8b78f98e-03ef-4e67-86b5-ddec4c2aac54','a0000000-0000-0000-0000-000000000001','The Felt Society',
+    'it refused because an earlier bust still held a provisional place 2 (fixed by 20261108193616)'),
    ('7f473b6a-7f6b-4c82-8c7f-b837cbe6f08a','Midnight Free Buy (NLH)','2026-11-08',253.00,
     'b439692b-fd8f-4a99-85fa-38f37111e733','reednightingale',17.25,
     '498f15d8-1f5c-46e4-a330-c40301952540','ursa',22.79,31.42,
-    'b2680272-f2ac-4c85-bf1c-383ca356d0cf','2a1132b9-5ba2-42e6-9f01-30a7fcffebe3','Deep Stack Society');
+    'b2680272-f2ac-4c85-bf1c-383ca356d0cf','2a1132b9-5ba2-42e6-9f01-30a7fcffebe3','Deep Stack Society',
+    'it refused because an earlier bust still held a provisional place 2 (fixed by 20261108193616)'),
+   ('36fc2465-31e2-47d5-9a48-09206e4bdf22','Midday Free Buy (NLH)','2026-11-08',299.00,
+    'd69e25e8-c1a7-4c38-8a7e-30784cba86c3','velvet9',32.69,
+    '31cf17ec-9b08-41bb-89cc-4da7fb32010c','bhamjeremy',11.34,27.69,
+    'd3367a4d-8961-49fe-9a20-c7162edbd449','a0000000-0000-0000-0000-000000000001','The Felt Society',
+    'every try rolled back at commit because the runner up still held a live chair after his roster row was closed (TOURNAMENT_SEAT_ROSTER_REQUIRED, fixed by 20261108222325)');
 
-  IF (SELECT count(*) FROM zz_final_two_owed) <> 2
+  IF (SELECT count(*) FROM zz_final_two_owed) <> 3
      OR (SELECT round(sum(head), 2) FROM zz_final_two_owed) <> c_total THEN
-    RAISE EXCEPTION 'the final two make-good no longer totals % across two events', c_total;
+    RAISE EXCEPTION 'the final two make-good no longer totals % across three events', c_total;
   END IF;
 
   ---------------------------------------------------------------------------
@@ -253,14 +281,14 @@ BEGIN
       '%s (%s) finished 2nd of %s in %s (%s) on %s, a bounty only promo Free Buy PKO in Midway Union. '
       || 'Under the owner rule of 2026-11-05/06 that event was over with two players left and both survivors keep the bounty on their own head: '
       || '%s was entitled to keep the %s on his own head, which fn_ca_bounty_only_pko_final_two (20261106010426) would have paid him as a bounty_residual. '
-      || 'The engine asked that authority to close the event at two, but it refused because an earlier bust still held a provisional place 2 (fixed by 20261108193616), so the heads up hand was played out instead: the final knockout %s moved %s of his head into the champion %s wallet and %s onto the champion head, '
+      || 'The engine asked that authority to close the event at two, but %s, so the heads up hand was played out instead: the final knockout %s moved %s of his head into the champion %s wallet and %s onto the champion head, '
       || 'and the pool residual of %s then paid the champion his own %s head plus that half. The runner up received nothing for his head. '
       || 'Reading the event own rows, the two final heads were the whole open bounty pool (%s + %s), so %s is exactly what the close would have paid. '
       || 'Midway Union, which hosted and funded this promo event, pays it from its bank outside the event sealed books; the champion keeps the extra head our defect paid him and no other player or record is changed. '
       || 'It is paid without regard to whether the payee is a horse or a human, because the head is owed to whoever finished second (owner rule 2026-11-06, CLAUDE.md 10.5), and it lands in %s, the one club that player banks in. Migration %s carries this.',
       r.username, r.user_id, (SELECT count(*) FROM public.tournament_players tp WHERE tp.tournament_id = r.event_id),
       r.event_name, r.event_id, r.event_day,
-      r.username, r.head, r.final_ko_id, round(r.head - (r.winner_residual - r.winner_head), 2),
+      r.username, r.head, r.defect, r.final_ko_id, round(r.head - (r.winner_residual - r.winner_head), 2),
       r.winner_name, round(r.winner_residual - r.winner_head, 2), r.winner_residual, r.winner_head,
       r.winner_head, r.head, r.head, r.club_name, c_mig);
 
@@ -330,8 +358,8 @@ BEGIN
   IF round(v_bank_before - v_bank, 2) <> v_paid THEN
     RAISE EXCEPTION 'post-image: the union bank moved % where % was paid', v_bank_before - v_bank, v_paid;
   END IF;
-  IF v_n + v_skipped <> 2 THEN
-    RAISE EXCEPTION 'post-image: % paid and % skipped is not the two events', v_n, v_skipped;
+  IF v_n + v_skipped <> 3 THEN
+    RAISE EXCEPTION 'post-image: % paid and % skipped is not the three events', v_n, v_skipped;
   END IF;
   -- The two keys are named, never matched by prefix: chip_ledger is 25.9M rows
   -- and a LIKE prefix cannot use ux_chip_ledger_idempotency_key in this
@@ -339,17 +367,17 @@ BEGIN
   -- kills the transaction at 12 s. = ANY over the two keys is two index probes.
   IF (SELECT count(*) FROM public.chip_ledger l
        WHERE l.idempotency_key = ANY (ARRAY(SELECT 'bounty-only-final-two-make-good:' || o.event_id::text || ':' || o.user_id::text
-                                              FROM zz_final_two_owed o))) <> 2
+                                              FROM zz_final_two_owed o))) <> 3
      OR (SELECT round(sum(l.amount), 2) FROM public.chip_ledger l
        WHERE l.idempotency_key = ANY (ARRAY(SELECT 'bounty-only-final-two-make-good:' || o.event_id::text || ':' || o.user_id::text
                                               FROM zz_final_two_owed o))) <> c_total THEN
-    RAISE EXCEPTION 'post-image: the journal does not carry exactly two legs totalling %', c_total;
+    RAISE EXCEPTION 'post-image: the journal does not carry exactly three legs totalling %', c_total;
   END IF;
   IF (SELECT count(*) FROM public.ca_manual_adjustments a
-       WHERE a.decision_note = 'migration ' || c_mig AND a.status = 'settled') <> 2
+       WHERE a.decision_note = 'migration ' || c_mig AND a.status = 'settled') <> 3
      OR (SELECT round(sum(a.amount), 2) FROM public.ca_manual_adjustments a
        WHERE a.decision_note = 'migration ' || c_mig AND a.status = 'settled') <> c_total THEN
-    RAISE EXCEPTION 'post-image: the two settled adjustments do not total %', c_total;
+    RAISE EXCEPTION 'post-image: the three settled adjustments do not total %', c_total;
   END IF;
   IF EXISTS (SELECT 1 FROM public.tournaments t JOIN zz_final_two_owed z ON z.event_id = t.id
               WHERE t.bounty_pool_paid <> z.pool) THEN
@@ -359,17 +387,17 @@ BEGIN
   IF v_n > 0 THEN
     INSERT INTO public.financial_alerts(severity, source, message, context, resolved, resolved_at, resolved_by, resolution)
     VALUES ('warning', 'bounty_only_final_two_make_good',
-      'Two More Bounty Only PKO Runners Up Settled By The House For Their Own Heads',
+      'Three More Bounty Only PKO Runners Up Settled By The House For Their Own Heads',
       jsonb_build_object('migration', c_mig, 'union_id', c_union, 'paid', v_paid,
         'credits', v_n, 'already_paid', v_skipped,
         'bank_before', v_bank_before, 'bank_after', v_bank,
         'basis', 'own_head_at_the_final_two_read_from_the_last_knockout_of_each_event',
         'report', v_report), true, now(), c_actor,
       format('Paid. The owner rule of 2026-11-05/06 ends a bounty only PKO at two players with both survivors keeping the bounty on their own head. '
-        || 'fn_ca_bounty_only_pko_final_two refused the close at two in two completed Midway Union promo Free Buys because an earlier bust still held a provisional place 2, so the heads up hand was played out and the champion took both final heads. '
+        || 'fn_ca_bounty_only_pko_final_two did not close at two in three completed Midway Union promo Free Buys (twice because an earlier bust still held a provisional place 2, once because the runner up still held a live chair at commit), so the heads up hand was played out and the champion took both final heads. '
         || 'Midway Union has now paid each runner up the head he was entitled to keep, read from the last knockout of his own event: %s chips in %s credits (%s already paid on an earlier run). '
         || 'Nothing was clawed back, no sealed event book was rewritten, and the champions keep the extra head the defect paid them. '
-        || 'The detection breach closed_without_final_two raised by fn_ca_bounty_only_final_two_watch is owned by the engine fix and is deliberately left open. Migration %s.',
+        || 'The detection breaches closed_without_final_two raised by fn_ca_bounty_only_final_two_watch are owned by the engine fixes and are deliberately left open. Migration %s.',
         v_paid, v_n, v_skipped, c_mig));
   END IF;
 
