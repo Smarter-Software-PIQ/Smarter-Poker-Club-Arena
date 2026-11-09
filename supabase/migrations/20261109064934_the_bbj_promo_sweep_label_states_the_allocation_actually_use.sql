@@ -1,3 +1,4 @@
+-- SUPERSEDED BY 20261109073642
 -- THE BBJ PROMO SWEEP LABEL STATES THE ALLOCATION ACTUALLY USED (2026-11-09)
 --
 -- Supersedes 20261109010948_the_bbj_promo_sweep_label_states_the_allocation_actually_use.sql,
