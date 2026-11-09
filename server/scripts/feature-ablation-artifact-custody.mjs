@@ -7,7 +7,11 @@ import { join } from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { qualificationReadDeadline, readGithubWithRetry } from './feature-ablation-github-read.mjs';
+import {
+  qualificationReadDeadline,
+  readGithubJsonWithRetry,
+  readGithubWithRetry,
+} from './feature-ablation-github-read.mjs';
 const LIMIT = 2 * 1024 ** 3;
 async function hashStream(stream) {
   const hash = createHash('sha256');
@@ -81,13 +85,12 @@ export async function authenticateFeatureArtifacts(runs, target, runId) {
   const deadline = qualificationReadDeadline('assemble');
   const artifacts = [];
   for (let page = 1; page <= 30; page++) {
-    const response = await readGithubWithRetry(
+    const { response, value: body } = await readGithubJsonWithRetry(
       `https://api.github.com/repos/${repo}/actions/runs/${runId}/artifacts?per_page=100&page=${page}`,
       { headers },
       deadline
     );
     if (!response.ok) throw Error('artifact_inventory_unavailable');
-    const body = await response.json();
     if (!Array.isArray(body.artifacts)) throw Error('artifact_inventory_shape');
     artifacts.push(...body.artifacts.filter((a) => a.name.startsWith(`fa-${target}-`)));
     if (body.artifacts.length < 100) break;

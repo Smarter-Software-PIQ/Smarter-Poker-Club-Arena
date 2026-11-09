@@ -83,6 +83,18 @@ describe.each(implementations)('%s qualification reads', (_name, read) => {
     expect(h.sleeps).toEqual([7250]);
   });
 
+  it('waits on the legacy abuse-detection wording too', async () => {
+    const h = harness(
+      [
+        { status: 403, body: '{"message":"You have triggered an abuse detection mechanism"}' },
+        { status: 200 },
+      ],
+      10 * MIN
+    );
+    expect((await call(h)).status).toBe(200);
+    expect(h.sleeps).toEqual([60_000]);
+  });
+
   it('waits at least a minute on a secondary rate limit without headers', async () => {
     const h = harness(
       [
@@ -138,6 +150,48 @@ describe.each(implementations)('%s qualification reads', (_name, read) => {
   it('rethrows a network failure that outlasts the deadline', async () => {
     const h = harness([{ throws: true }], 5_000);
     await expect(call(h)).rejects.toThrow('fetch failed');
+  });
+});
+
+const jsonImplementations = [
+  ['provider (TypeScript)', ts.readGithubJsonWithRetry],
+  ['scripts (ESM)', mjs.readGithubJsonWithRetry],
+] as const;
+
+describe.each(jsonImplementations)('%s JSON reads', (_name, readJson) => {
+  const call = (h: ReturnType<typeof harness>) =>
+    readJson(
+      'https://api.github.com/repos/o/r/actions/runs/1',
+      { headers: {} },
+      h.deadline,
+      h.deps
+    );
+
+  it('waits out a body truncated after the headers, then returns the parsed value', async () => {
+    const h = harness(
+      [
+        { status: 200, body: '{"id": 1, "na' },
+        { status: 200, body: '{"id": 1}' },
+      ],
+      10 * MIN
+    );
+    const r = await call(h);
+    expect(r.response.status).toBe(200);
+    expect(r.value).toEqual({ id: 1 });
+    expect(h.sleeps).toEqual([2000]);
+  });
+
+  it('returns a refusal unread, with no value, for the caller', async () => {
+    const h = harness([{ status: 404, body: 'not json' }], 10 * MIN);
+    const r = await call(h);
+    expect(r.response.status).toBe(404);
+    expect(r.value).toBeUndefined();
+    expect(h.sleeps).toEqual([]);
+  });
+
+  it('rethrows a body that stays unreadable past the deadline', async () => {
+    const h = harness([{ status: 200, body: '{"broken' }], 5_000);
+    await expect(call(h)).rejects.toThrow();
   });
 });
 

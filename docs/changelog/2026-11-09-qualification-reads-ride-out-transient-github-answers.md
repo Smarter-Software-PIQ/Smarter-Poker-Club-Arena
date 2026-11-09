@@ -83,3 +83,18 @@ now treated as absent.
   plan in #10132 is redrafted on the main that contains this change.
 - `server/scripts` is a release-control input, so this merges only after the Nov 9 04:00 CST
   engine seal and thaw.
+
+## Follow-up on review (same PR)
+
+- **JSON bodies:** a JSON body that breaks after the headers arrived (a reset or timeout mid-body, or a
+  truncated proxy body) is now waited out too. `readGithubJsonWithRetry` (both twins) wraps the read and
+  `json()` as one unit for every JSON endpoint: the provider's two helpers, `providerState` and the
+  artifact inventory. A non-OK answer is returned unread, for the caller's existing refusal. The
+  artifact zip stream is unchanged: a body that fails mid-stream still refuses.
+- **Rate-limit wording:** GitHub's legacy "abuse detection mechanism" wording now counts as a rate-limit
+  signal.
+- **Covered outside code:** a `/commits/{sha}/pulls` association that has not caught up just after a
+  merge returns HTTP 200 with `[]`. That is a success at the transport level, so the provenance check
+  still refuses it. It is handled before dispatch by reading the association, rather than in code.
+- **Remaining limit:** the plan job's 10-minute budget cannot cover a primary-limit reset more than
+  10 minutes away, because the job itself is limited to 20 minutes. The plan job makes six reads.

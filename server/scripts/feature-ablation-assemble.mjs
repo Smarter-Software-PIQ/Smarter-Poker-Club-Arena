@@ -18,7 +18,10 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createInterface } from 'node:readline';
 import { createGunzip } from 'node:zlib';
-import { qualificationReadDeadline, readGithubWithRetry } from './feature-ablation-github-read.mjs';
+import {
+  qualificationReadDeadline,
+  readGithubJsonWithRetry,
+} from './feature-ablation-github-read.mjs';
 
 /** Called only after the existing provider/locked-contract assembler. A result
  * stays inactive until a separate protected release selection names its bytes. */
@@ -824,7 +827,7 @@ export async function providerState(readKind = 'assemble') {
     throw new Error('provider_metadata_unavailable');
   const deadline = qualificationReadDeadline(readKind);
   const get = async (suffix) => {
-    const response = await readGithubWithRetry(
+    const { response, value } = await readGithubJsonWithRetry(
       `https://api.github.com/repos/${repo}${suffix}`,
       {
         headers: {
@@ -836,7 +839,7 @@ export async function providerState(readKind = 'assemble') {
       deadline
     );
     if (!response.ok) throw new Error('provider_read_refused:' + response.status);
-    return response.json();
+    return value;
   };
   const run = await get(`/actions/runs/${runId}`);
   if (

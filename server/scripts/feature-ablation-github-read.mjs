@@ -56,7 +56,8 @@ async function transientWait(response, attempt, now) {
     } catch {
       text = '';
     }
-    if (/rate limit/i.test(text)) return Math.max(QUALIFICATION_SECONDARY_LIMIT_WAIT_MS, backoff);
+    if (/rate limit|abuse detection/i.test(text))
+      return Math.max(QUALIFICATION_SECONDARY_LIMIT_WAIT_MS, backoff);
   }
   return null;
 }
@@ -96,5 +97,31 @@ export async function readGithubWithRetry(url, init, deadline, deps = {}) {
       `[qualification-read] ${label}: transient ${failure ? 'network error' : 'HTTP ' + response.status}; retry ${attempt + 1} in ${Math.ceil(wait / 1000)}s`
     );
     await sleep(wait);
+  }
+}
+
+/** Like readGithubWithRetry, and also waits out a JSON body that breaks after
+ * the headers arrived (a reset or timeout mid-body, a truncated proxy body).
+ * A non-OK final answer is returned with value undefined, unread, for the
+ * caller's existing refusal. A body that stays unreadable past the deadline
+ * rethrows its error. */
+export async function readGithubJsonWithRetry(url, init, deadline, deps = {}) {
+  const now = deps.now ?? Date.now,
+    sleep = deps.sleep ?? sleepFor,
+    log = deps.log ?? ((line) => process.stderr.write(line + '\n')),
+    label = String(url).replace(/^https:\/\/api\.github\.com/, '');
+  for (let attempt = 0; ; attempt++) {
+    const response = await readGithubWithRetry(url, init, deadline, deps);
+    if (!response.ok) return { response, value: undefined };
+    try {
+      return { response, value: await response.json() };
+    } catch (error) {
+      const wait = Math.min(QUALIFICATION_READ_MAX_BACKOFF_MS, 2000 * 2 ** attempt);
+      if (now() + wait > deadline) throw error;
+      log(
+        `[qualification-read] ${label}: body unreadable; retry ${attempt + 1} in ${Math.ceil(wait / 1000)}s`
+      );
+      await sleep(wait);
+    }
   }
 }

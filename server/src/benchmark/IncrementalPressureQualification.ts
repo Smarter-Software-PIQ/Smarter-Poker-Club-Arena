@@ -423,7 +423,8 @@ async function qualificationTransientWait(response: Response, attempt: number, n
     } catch {
       text = '';
     }
-    if (/rate limit/i.test(text)) return Math.max(QUALIFICATION_SECONDARY_LIMIT_WAIT_MS, backoff);
+    if (/rate limit|abuse detection/i.test(text))
+      return Math.max(QUALIFICATION_SECONDARY_LIMIT_WAIT_MS, backoff);
   }
   return null;
 }
@@ -478,6 +479,34 @@ export async function readGithubWithRetry(
     await sleep(wait);
   }
 }
+/** Like readGithubWithRetry, and also waits out a JSON body that breaks after
+ * the headers arrived. A non-OK final answer is returned unread with value
+ * undefined; a body unreadable past the deadline rethrows its error. */
+export async function readGithubJsonWithRetry(
+  url: string,
+  init: { headers: Record<string, string>; timeoutMs?: number },
+  deadline: number,
+  deps: QualificationReadDeps = {}
+): Promise<{ response: Response; value: unknown }> {
+  const now = deps.now ?? Date.now,
+    sleep = deps.sleep ?? ((ms: number) => new Promise<void>((done) => setTimeout(done, ms))),
+    log = deps.log ?? ((line: string) => void process.stderr.write(line + '\n')),
+    label = url.replace(/^https:\/\/api\.github\.com/, '');
+  for (let attempt = 0; ; attempt++) {
+    const response = await readGithubWithRetry(url, init, deadline, deps);
+    if (!response.ok) return { response, value: undefined };
+    try {
+      return { response, value: await response.json() };
+    } catch (error) {
+      const wait = Math.min(QUALIFICATION_READ_MAX_BACKOFF_MS, 2000 * 2 ** attempt);
+      if (now() + wait > deadline) throw error;
+      log(
+        `[qualification-read] ${label}: body unreadable; retry ${attempt + 1} in ${Math.ceil(wait / 1000)}s`
+      );
+      await sleep(wait);
+    }
+  }
+}
 /** Original hosted cell job/run verification. Called by the memoized pre-deal
  * guard; no histories, deals, result selection or authority are created here. */
 export async function authenticateFeatureAblationProviderAttempt(
@@ -508,13 +537,12 @@ export async function authenticateFeatureAblationProviderAttempt(
     throw Error('Actual provider attempt unavailable');
   const deadline = qualificationReadDeadline('cell');
   const get = async (suffix: string) => {
-    const r = await readGithubWithRetry(
+    const { response: r, value: body } = await readGithubJsonWithRetry(
       `https://api.github.com/repos/${repo}${suffix}`,
       { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' } },
       deadline
     );
     if (!r.ok) throw Error('Provider identity read refused');
-    const body: unknown = await r.json();
     if (!body || typeof body !== 'object' || Array.isArray(body))
       throw Error('Provider identity shape refused');
     return body as Record<string, unknown>;
@@ -615,13 +643,12 @@ export async function authenticateIncrementalPlan(
     assembling ? 'assemble' : cell === undefined ? 'plan' : 'cell'
   );
   const get = async (suffix: string) => {
-    const response = await readGithubWithRetry(
+    const { response, value } = await readGithubJsonWithRetry(
       `https://api.github.com/repos/${repo}${suffix}`,
       { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' } },
       deadline
     );
     if (!response.ok) throw Error('Incremental provider provenance unavailable');
-    const value: unknown = await response.json();
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
       // The commit-to-PR endpoint alone returns an array.
       if (suffix.endsWith('/pulls') && Array.isArray(value)) return value as any;
