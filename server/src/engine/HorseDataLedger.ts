@@ -4377,6 +4377,20 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "an unopened no-limit hold'em pot with a limper whose shrunk limp-reraise rate engages the read: the isolation bar rose toward the hands that stand a re-raise and the V10 isolation widen was withdrawn",
     'Limp-reraise read'
   ),
+  // No floor: fires only at PLO4 / PLO5 / PLO6 cash tables (omahaEvFoldModel, default on).
+  receipt(
+    'omaha_ev_fold_model_priced',
+    'HorseMind.omahaEvFoldMulOf (omahaEvFoldModel)',
+    'the Omaha EV fold model priced one opponent fold for the EV bet engine at a PLO4, PLO5 or PLO6 cash table (one count per opponent priced)',
+    'Omaha threshold calibration'
+  ),
+  // Zero in production by design: readBreakEvenBluff is default off, so a fire means the flag was turned on.
+  receipt(
+    'break_even_bluff_priced',
+    'HorseMind table exploit profile (readBreakEvenBluff)',
+    'break-even bluffing priced a bluff against a responder whose postflop read is engaged',
+    'Read calibration'
+  ),
   // No floor: default-off flag.
   receipt(
     'commit_under_pot',

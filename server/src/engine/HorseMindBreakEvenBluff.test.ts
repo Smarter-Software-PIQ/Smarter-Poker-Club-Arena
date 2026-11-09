@@ -34,6 +34,7 @@ import {
   type ReadScope,
 } from './HorseMind.js';
 import { exploitEnvelopeFor } from './HorseOpponentExploit.js';
+import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import type { ActionRecord } from '../types.js';
 
 const NLH_HU = readScopeOf('nlh', 2);
@@ -273,6 +274,30 @@ describe('readBreakEvenBluff', () => {
     } finally {
       (HorseMind as unknown as { opponentRead: typeof realRead }).opponentRead = realRead;
     }
+  });
+
+  it('a priced break-even bluff leaves one break_even_bluff_priced receipt; off or unread leaves none', () => {
+    enableBrainTelemetry();
+    drainFires();
+    const fired = () =>
+      drainFires().find((r) => r.feature === 'break_even_bluff_priced')?.fires ?? 0;
+    play(NLH_HU, 'postflopFold', 30);
+    const seat = (s: number, id: string) => ({
+      seat: s,
+      user_id: id,
+      is_folded: false,
+      is_sitting_out: false,
+      is_all_in: false,
+    });
+    const readOnly = [seat(1, 'hero'), seat(2, 'villain')] as never;
+    const unread = [seat(1, 'hero'), seat(2, 'stranger')] as never;
+    expect(
+      decide({ breakEvenBluff: true }, () => HorseMind.tableExploit(1, readOnly)).breakEvenBluff
+    ).toBeDefined();
+    expect(fired()).toBe(1);
+    decide({}, () => HorseMind.tableExploit(1, readOnly));
+    decide({ breakEvenBluff: true }, () => HorseMind.tableExploit(1, unread));
+    expect(fired()).toBe(0);
   });
 
   it('a multiway bluff is still gated by an unread responder that prices lower', () => {
