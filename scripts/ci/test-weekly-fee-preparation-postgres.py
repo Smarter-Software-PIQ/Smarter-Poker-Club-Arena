@@ -249,3 +249,9 @@ try:
 finally:
  if started:run([PG/'pg_ctl','-D',B/'d','-m','immediate','-w','stop'])
  shutil.rmtree(B)
+
+# Keep paid-book linked batching on this original coordinator's native route.
+# Its clock and canonical-reader cost controls are isolated from this cluster.
+subprocess.run([sys.executable,'-B',str(W/'linked-batch/qualify-postgres.py'),
+ '--pg-bin',str(PG),'--scratch',str(a.scratch),
+ '--output',str(a.output.with_name('linked-batch.json') if a.output else a.scratch/('weekly-linked-batch-'+str(os.getpid())+'.json'))],env=env,check=True)

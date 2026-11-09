@@ -11,6 +11,14 @@ instruction each authorized agent owns its own delivery, so "release owner" for
 
 ## SCOPE OF RECORD (2026-11-09, reset to the original assignment)
 
+> **PICKING THIS UP IN A NEW CHAT? READ
+> [`docs/HANDOFF-2026-11-09-seat-first-waiting-ladder.md`](./docs/HANDOFF-2026-11-09-seat-first-waiting-ladder.md)
+> FIRST.** It is the full continuation document: every phase, every measurement
+> with the time it was read, the exact current state, the open blockers, what
+> was never tested, the traps that cost this lane hours, and the numbered
+> execution plan. This checkpoint is the lane's record; that file is how to
+> resume it.
+
 **This section supersedes every later "Still open, and why" table in this
 file.** Those tables stay as history; this is the only list of gates this lane
 is closed against.
