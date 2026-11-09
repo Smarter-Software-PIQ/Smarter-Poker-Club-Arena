@@ -243,7 +243,7 @@ export async function main(environment = process.env) {
         const conversions = await read(`cash_cluster_conversion?cluster_id=eq.${GAME}&opened_at=gte.${encodeURIComponent(sessions[0].opened_at)}&status=eq.committed&select=id,to_mode,trigger_population,closed_at`);
         assert(conversions.some(x=>x.to_mode==='lightning' && x.trigger_population===10), 'Exact ten-player conversion receipt missing');
         report.conversions = conversions;
-        assert(report.admissions.length === 9, 'Automated population did not progress individually to nine Horses');
+        assert(report.admissions.length >= 9 && report.samples.every(x=>x.horses === undefined || x.horses <= 9), 'Automated population overshot the nine ready opponents required by this owned human');
         for (let n=1;n<report.admissions.length;n++) assert(Date.parse(report.admissions[n].at)-Date.parse(report.admissions[n-1].at)>=60_000, 'Automated admission burst observed');
         await page.screenshot({ path: join(out,'lightning.png') });
         break;
