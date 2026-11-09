@@ -161,7 +161,14 @@ export function assertIncrementalPlanProvenance(
 export function incrementalSeedFamily(target: IncrementalTarget): string {
   if (isSeparateRiverTarget(target))
     return target === 'small_pot_near_nut_value_raise' ? '287' : '288';
-  return target === 'pressure_package' || target === 'barrel_continuation_outlook' ? '284' : '283';
+  // Family 283 was spent by provider run 42703327017 (2026-11-09; qualified
+  // false on the interval-trust gate alone). The owner approved held-out
+  // family 284 for riverPositionDefense ONLY (2026-11-09 15:54 CT), using the
+  // previously declared 284 reserved seed set. The two pressure-package
+  // targets' unregistered default number moves to 285: a declaration only,
+  // never authority to register or deal (owner approval required first).
+  if (target === 'river_position_defense') return '284';
+  return target === 'pressure_package' || target === 'barrel_continuation_outlook' ? '285' : '283';
 }
 const digest = (value: unknown): string => {
   const canonical = (v: any): string =>

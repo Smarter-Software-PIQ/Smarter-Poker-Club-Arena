@@ -3,6 +3,7 @@ import {
   INCREMENTAL_FLAGS,
   PRESSURE_PACKAGE_FLAGS,
   ADDITIONAL_RESERVED_HOLDOUT_SEEDS,
+  PRESSURE_PACKAGE_RESERVED_HOLDOUT_SEEDS,
   incrementalDevelopmentDesign,
   INCREMENTAL_CHECKRAISE_POPULATION,
   INCREMENTAL_RESERVED_HOLDOUT_SEEDS,
@@ -52,12 +53,11 @@ describe('incremental development boundaries', () => {
           () => {}
         )
       ).rejects.toThrow(
-        // river_position_defense has a registered plan (owner decision,
-        // 2026-11-09); a development spec is still refused before any deal,
-        // at the original worker/population check rather than at the plan.
-        target === 'river_position_defense'
-          ? /original worker\/population required/
-          : /plan refused/
+        // Until the family 284 registration replaces the spent 283 plan,
+        // river_position_defense is refused at the plan like every other
+        // target; the registration PR restores the original
+        // worker/population refusal pin for it.
+        /plan refused/
       );
       for (const seed of INCREMENTAL_RESERVED_HOLDOUT_SEEDS)
         await expect(runFeatureAblationDevelopment(spec, { seed, pairs: 1 })).rejects.toThrow(
@@ -276,5 +276,48 @@ describe('exact five-flag development composition', () => {
       expect(
         receipts.some((r) => PRESSURE_PACKAGE_FLAGS.every((flag) => r.inputFlags[flag] === value))
       ).toBe(true);
+  });
+});
+
+describe('family 284 belongs to riverPositionDefense (owner approval 2026-11-09)', async () => {
+  const { incrementalSeedFamily } = await import('./IncrementalPressureQualification.js');
+  it('maps the targets to their families', () => {
+    expect(incrementalSeedFamily('river_position_defense')).toBe('284');
+    expect(incrementalSeedFamily('combo_draw_pressure')).toBe('283');
+    expect(incrementalSeedFamily('targeted_river_bluff')).toBe('283');
+    expect(incrementalSeedFamily('river_bluff_checkraise')).toBe('283');
+    expect(incrementalSeedFamily('pressure_package')).toBe('285');
+    expect(incrementalSeedFamily('barrel_continuation_outlook')).toBe('285');
+  });
+  it('gives riverPositionDefense the declared 284 reserved seeds and the pressure package its own set', () => {
+    expect(incrementalDevelopmentDesign('river_position_defense').reservedHoldoutSeeds).toEqual(
+      ADDITIONAL_RESERVED_HOLDOUT_SEEDS
+    );
+    expect(incrementalDevelopmentDesign('combo_draw_pressure').reservedHoldoutSeeds).toEqual([
+      28301109, 28302231, 28303347,
+    ]);
+    expect(incrementalDevelopmentDesign('pressure_package').reservedHoldoutSeeds).toEqual(
+      PRESSURE_PACKAGE_RESERVED_HOLDOUT_SEEDS
+    );
+    expect(ADDITIONAL_RESERVED_HOLDOUT_SEEDS).toEqual([28401109, 28402231, 28403347]);
+    expect(PRESSURE_PACKAGE_RESERVED_HOLDOUT_SEEDS).toEqual([28501109, 28502231, 28503347]);
+  });
+  it('development refuses every reserved holdout seed of every family', async () => {
+    const { runFeatureAblationDevelopment } = await import('./FeatureAblationLeague.js');
+    const profile = incrementalDevelopmentProfiles('river_position_defense', 'nlh')[0];
+    const spec = incrementalDevelopmentSpec('river_position_defense', 'nlh', profile.id, {
+      id: 'identity-only',
+      decide: () => {
+        throw Error('must not deal');
+      },
+    });
+    for (const seed of [
+      ...ADDITIONAL_RESERVED_HOLDOUT_SEEDS,
+      ...PRESSURE_PACKAGE_RESERVED_HOLDOUT_SEEDS,
+      28301109,
+    ])
+      await expect(runFeatureAblationDevelopment(spec, { seed, pairs: 1 })).rejects.toThrow(
+        'held-out'
+      );
   });
 });

@@ -1,0 +1,17 @@
+{
+  "schema": "horse-heldout-plan-design-v1",
+  "target": "river_position_defense",
+  "version": "river-position-defense-nlh-2dealt-100bb-heldout-v2",
+  "variant": "nlh",
+  "dealtSeats": 2,
+  "stackBB": 100,
+  "pairsPerSeed": 16128,
+  "pairsPerCell": 1152,
+  "maxAttempts": 2,
+  "coverageMinimums": {
+    "candidateHeroDecisionsMinimum": 50000,
+    "referenceHeroDecisionsMinimum": 50000,
+    "acceptedHeroContrastsMinimum": 700,
+    "evaluationCounterMinimum": 700
+  }
+}
