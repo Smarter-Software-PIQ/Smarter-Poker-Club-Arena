@@ -54,7 +54,9 @@ export interface CalibrationHand {
  * accessors (null below their own sample gate); `exploit:*` are the decayed,
  * prior-shrunk posterior means of the exploit counters the shared memory
  * pools (always defined). `calibrated:*` are the same accessors with the
- * read calibration options on (HorseMind DecisionReadOptions).
+ * read calibration options on (HorseMind DecisionReadOptions). `scoped:*`
+ * are the legacy accessors with the scopedShrink option (a thin scoped
+ * bucket shrunk toward its own game's population, never the pooled one).
  */
 export type CalibrationRead =
   | 'legacy:vpip'
@@ -68,6 +70,9 @@ export type CalibrationRead =
   | 'calibrated:foldToCbet'
   | 'calibrated:riverFold'
   | 'calibrated:foldVsAggrPostflop'
+  | 'scoped:foldToCbet'
+  | 'scoped:riverFold'
+  | 'scoped:foldVsAggrPostflop'
   | `exploit:${ExploitStat}`;
 
 export interface CalibrationEvent {
@@ -284,6 +289,11 @@ export function walkForwardReadCalibration(
           riverFold: number | null;
           foldVsAggr: number | null;
         };
+        scopedShrink: {
+          foldToCbet: number | null;
+          riverFold: number | null;
+          foldVsAggr: number | null;
+        };
       }
     >();
     try {
@@ -297,6 +307,12 @@ export function walkForwardReadCalibration(
         };
         HorseMind.setDecisionReadOptions({ postflopFoldRate: true, shrinkResponseReads: true });
         const calibrated = {
+          foldToCbet: HorseMind.foldToCbetOf(id),
+          riverFold: HorseMind.riverFoldRate(id),
+          foldVsAggr: HorseMind.foldVsAggressionRate(id),
+        };
+        HorseMind.setDecisionReadOptions({ scopedShrink: true });
+        const scopedShrink = {
           foldToCbet: HorseMind.foldToCbetOf(id),
           riverFold: HorseMind.riverFoldRate(id),
           foldVsAggr: HorseMind.foldVsAggressionRate(id),
@@ -315,6 +331,7 @@ export function walkForwardReadCalibration(
           ex: ex ? { ...ex } : undefined,
           legacy,
           calibrated,
+          scopedShrink,
         });
       }
     } finally {
@@ -470,6 +487,30 @@ export function walkForwardReadCalibration(
         b.calibrated.riverFold,
         d('riverBetFolds'),
         d('riverBetOpps')
+      );
+      emit(
+        'scoped:foldToCbet',
+        r?.cbetFolds ?? 0,
+        r?.cbetOpps ?? 0,
+        b.scopedShrink.foldToCbet,
+        d('cbetFolds'),
+        d('cbetOpps')
+      );
+      emit(
+        'scoped:riverFold',
+        r?.riverBetFolds ?? 0,
+        r?.riverBetOpps ?? 0,
+        b.scopedShrink.riverFold,
+        d('riverBetFolds'),
+        d('riverBetOpps')
+      );
+      emit(
+        'scoped:foldVsAggrPostflop',
+        r?.folds ?? 0,
+        r?.facedAggr ?? 0,
+        b.scopedShrink.foldVsAggr,
+        pf.y,
+        pf.m
       );
       // Postflop aggression share (AF = p / (1 - p)), gate as legacyExploit.
       const pa = r?.postAggr ?? 0;

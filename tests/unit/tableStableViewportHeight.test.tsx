@@ -43,6 +43,10 @@ it('captures stable height before the phone switches into its scaled desktop vie
     'width=600'
   );
   expect(document.documentElement.style.getPropertyValue(property)).toBe('1065px');
+  const rootStyle = document.documentElement.style;
+  const scale = Number(rootStyle.getPropertyValue('--sp-table-menu-scale'));
+  expect(parseFloat(rootStyle.getPropertyValue('--sp-table-menu-width')) / scale).toBeCloseTo(366);
+  expect(51 * scale * (390 / 600)).toBeCloseTo(51);
 });
 it('keeps one original stable height across table switches and browser-control resizing', () => {
   const first = renderHook(
@@ -58,6 +62,8 @@ it('keeps one original stable height across table switches and browser-control r
   first.unmount();
   expect(document.documentElement.style.getPropertyValue(property)).toBe('1065px');
   second.unmount();
+  expect(document.documentElement.style.getPropertyValue('--sp-table-menu-scale')).toBe('');
+  expect(document.documentElement.style.getPropertyValue('--sp-table-menu-width')).toBe('');
   expect(document.documentElement.style.getPropertyValue(property)).toBe('');
   expect(document.querySelector('meta[name=viewport]')?.getAttribute('content')).toBe(
     'width=device-width, initial-scale=1'

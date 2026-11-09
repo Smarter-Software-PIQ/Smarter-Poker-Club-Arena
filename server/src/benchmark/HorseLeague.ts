@@ -2088,6 +2088,71 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     b: {},
   },
   { name: 'read_shrink_response', pairs: 24_000, a: { readShrinkResponse: true }, b: {} },
+  // BREAK-EVEN BLUFFING (2026-11-08, read calibration follow-up; HorseMind
+  // BREAK_EVEN_FOLD_CURVE): the postflop bluff multiplier re-derived from the
+  // corrected postflop fold read against each bet size's break-even fold
+  // share. Default OFF, so arm A turns it on. The mirror cards are the ones
+  // readPostflopFoldRate lost (the read alone against the old 0.62 / 0.35
+  // lines), at two, six and nine seats and in a tournament.
+  { name: 'break_even_bluff', pairs: 6000, a: { readBreakEvenBluff: true }, b: {} },
+  {
+    name: 'plo4_break_even_bluff',
+    variant: 'plo4',
+    pairs: 6000,
+    a: { readBreakEvenBluff: true },
+    b: {},
+  },
+  { name: 'hu_break_even_bluff', seats: 2, pairs: 6000, a: { readBreakEvenBluff: true }, b: {} },
+  {
+    name: 'full_break_even_bluff',
+    seats: 9,
+    pairs: 12_000,
+    a: { readBreakEvenBluff: true },
+    b: {},
+  },
+  {
+    name: 'mtt_break_even_bluff',
+    context: bigBlindAnteMttContext(6, 40),
+    stackBB: 40,
+    pairs: 12_000,
+    a: { readBreakEvenBluff: true },
+    b: {},
+  },
+  {
+    name: 'plo4_mtt_break_even_bluff',
+    variant: 'plo4',
+    context: bigBlindAnteMttContext(6, 40),
+    stackBB: 40,
+    // Rarely changes a decision (3 of 6,000 pairs): sized so a night
+    // cannot come up inert by chance.
+    pairs: 24_000,
+    a: { readBreakEvenBluff: true },
+    b: {},
+  },
+  // OMAHA EV FOLD MODEL (2026-11-08, Omaha threshold calibration; HorseMind
+  // OMAHA_EV_FOLD_MODEL): the EV bet engine's fold multiplier in PLO4/5/6
+  // is the game's measured fold share over MDF scaled by the opponent's
+  // shrunk postflop fold read. Default ON; both arms are explicit, so arm A
+  // is the model and arm B the old multiplier whatever the default.
+  ...(['plo4', 'plo5', 'plo6'] as const).map((variant) => ({
+    name: `${variant}_omaha_ev_fold`,
+    variant,
+    pairs: 6000,
+    a: { omahaEvFoldModel: true },
+    b: { omahaEvFoldModel: false },
+  })),
+  // No tournament card: the model is cash only (tournament Omaha players fold
+  // about MDF), so a tournament table is inert by construction (0 of 12,000
+  // plo4 40bb tournament pairs diverged).
+  // The calibrated-human twins of these cards (the same arms against
+  // HUMAN_CALIBRATED_POPULATION_ID) were measured for the flag's evidence but
+  // are not standing cards: the flag changes about one human-field pair in
+  // 400, too rarely for the standing human-twin divergence check.
+  // readScopedShrink (2026-11-08) has no card: a league table deals one game,
+  // so the scoped and pooled buckets hold the same hands and the flag is
+  // inert by construction (0 of 12,000 pairs diverged). Its effect is across
+  // games, measured by the read calibration replay (HorseReadCalibration
+  // scoped:* reads).
   {
     name: 'plo4_v54_river_bluff',
     variant: 'plo4',

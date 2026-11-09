@@ -132,10 +132,23 @@ const validCopy = {
       .update(readFileSync(root('server/standby/standby-owners.sql')))
       .digest('hex'),
   },
-  'seed.json': { authFixtureVersion: 1, seededAt: '2026-11-06T17:01:00Z', tablesFailed: 0 },
+  'seed.json': {
+    cashClusterParentsValidated: true,
+    authFixtureVersion: 2,
+    seededAt: '2026-11-06T17:01:00Z',
+    tablesFailed: 0,
+  },
 };
 
 describe('the Backup Engine refuses partial restores and proves automatic recovery', () => {
+  it('exports required cash cluster parents without human profile or auth data', () => {
+    const result = spawnSync('python3', ['-B', root('scripts/ci/test_backup_cluster_seed.py')], {
+      encoding: 'utf8',
+      timeout: 15000,
+    });
+    expect(result.status, result.stderr).toBe(0);
+  });
+
   it('runs qualification admission regressions in the existing required DR suite', () => {
     const result = spawnSync(
       'python3',
@@ -216,7 +229,12 @@ describe('the Backup Engine refuses partial restores and proves automatic recove
       },
       { ...validCopy, 'database.json': { ...validCopy['database.json'], restoreErrors: 7 } },
       { ...validCopy, 'database.json': { ...validCopy['database.json'], restoreValidated: false } },
+      {
+        ...validCopy,
+        'seed.json': { ...validCopy['seed.json'], cashClusterParentsValidated: undefined },
+      },
       { ...validCopy, 'seed.json': { ...validCopy['seed.json'], authFixtureVersion: undefined } },
+      { ...validCopy, 'seed.json': { ...validCopy['seed.json'], authFixtureVersion: 1 } },
       { ...validCopy, 'seed.json': { ...validCopy['seed.json'], tablesFailed: 1 } },
       {
         ...validCopy,
@@ -582,7 +600,7 @@ describe('standby seat proof observes the protected interval', () => {
         source '${root('server/standby/standby-trials.sh')}'
         cmd_run() { :; }; cmd_build() { :; }; wait_live() { :; }; wait_dealing() { :; }; wait_pretrial_dealing() { :; }
         maintenance_field() { echo 0; }
-        health() { echo '${JSON.stringify({ releaseSha: sha, version: sha.slice(0, 8), instanceId: 'candidate-instance', liveness: 'ok' })}'; }
+        health() { echo '${JSON.stringify({ releaseSha: sha, version: sha.slice(0, 8), instanceId: 'candidate-instance', liveness: 'ok', handsInFlightTotal: 0, maintenance: { unparkedTables: 0 } })}'; }
         sleep() { :; }; docker() { if [ "$1" = inspect ]; then case "$*" in *'.Id'*) local n=0; [ ! -f "$STATE_DIR/inspect" ] || n=$(cat "$STATE_DIR/inspect"); echo $((n+1)) > "$STATE_DIR/inspect"; if [ '${mode}' = process-restart ] && [ "$n" -gt 0 ]; then echo '${'d'.repeat(64)} ${sha} true 1'; else echo '${'d'.repeat(64)} ${sha} true 0'; fi;; *) echo '${sha}';; esac; fi; }
         # Old proof would compare a pre-announcement A against post-thaw C.
         seat_fingerprint() { echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; }
@@ -629,6 +647,45 @@ describe('standby seat proof observes the protected interval', () => {
       }
     });
   }
+});
+
+describe('the swap seat boundary is read after the serving engine drains', () => {
+  // Run 42445553096: hand 1000165 settled 13 s after the first frozen sample
+  // and moved the boundary. The release transaction stops an engine only on
+  // handsInFlightTotal == 0 and unparkedTables == 0; the swap trial does too.
+  it.each(['drains', 'in-flight', 'unparked', 'unreadable'])('%s', (mode) => {
+    const frozen = { frozen: true, fingerprint: 'b'.repeat(32) };
+    const result = standbyShell(`source '${root('server/standby/standby-trials.sh')}'
+      clock=1000; echo 0 > "$STATE_DIR/polls"
+      date() { echo "$clock"; }
+      sleep() { clock=$((clock + 3)); }
+      health() {
+        local polls hands=1 unparked=0
+        polls=$(($(cat "$STATE_DIR/polls") + 1)); echo "$polls" > "$STATE_DIR/polls"
+        if [ '${mode}' = drains ] && [ "$polls" -gt 2 ]; then hands=0; fi
+        if [ '${mode}' = unparked ]; then hands=0; unparked=1; fi
+        if [ '${mode}' = unreadable ]; then echo '{"liveness":"ok"}'; return; fi
+        printf '{"handsInFlightTotal":%s,"maintenance":{"unparkedTables":%s}}' "$hands" "$unparked"
+      }
+      frozen_seat_snapshot() { echo "snapshot after $(cat "$STATE_DIR/polls") drain reads" >> "$STATE_DIR/snaps"; echo '${JSON.stringify(frozen)}'; }
+      frozen_seat_state() { echo frozen; }
+      capture_frozen_seats 1060 drained || { echo "$FROZEN_SEATS_REJECTION"; cat "$STATE_DIR/snaps" 2>/dev/null >&2; exit 1; }
+      cat "$STATE_DIR/snaps" >&2
+    `);
+    expect(result.status === 0, result.stderr + result.stdout).toBe(mode === 'drains');
+    if (mode === 'drains') expect(result.stderr.trim()).toBe('snapshot after 3 drain reads');
+    else {
+      expect(result.stderr).not.toContain('snapshot after');
+      expect(JSON.parse(result.stdout.trim()).reason).toBe('serving_engine_not_drained');
+    }
+  });
+
+  it('only the swap demands the drain witness', () => {
+    const script = readFileSync(root('server/standby/standby-trials.sh'), 'utf8');
+    expect(script).toContain(
+      'capture_frozen_seats "$((t0 + 600))" drained || { trial_verdict swap fail'
+    );
+  });
 });
 
 describe('standby adoption authority and timing', () => {

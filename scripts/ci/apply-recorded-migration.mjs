@@ -91,6 +91,12 @@ import {
   bindMigrationSession,
   assertOrdinaryMigrationBudget,
 } from './migration-session-identity.mjs';
+import {
+  ordinaryMigrationBudgetMs,
+  declaredInstallBudgetSeconds,
+  offlineScopeCheckSQL,
+  DEFAULT_INSTALL_BUDGET_MS,
+} from './migration-install-budget.mjs';
 import { accountingAdmissionSQL } from './accounting-migration-admission.mjs';
 import {
   validateThawRepair,
@@ -454,13 +460,33 @@ const ordinaryTransaction =
   !SETTLEMENT_LANE &&
   !MAINTENANCE_THAW_REPAIR &&
   !Object.hasOwn(ACCOUNTING_ADMISSION_SOURCES, file);
+// The ordinary 12 s budget, or the larger budget an offline migration
+// declared and was admitted for (migration-install-budget.mjs). A declaration
+// on any other route is refused rather than silently ignored.
+let ordinaryBudgetMs = null;
+let declaredBudget = false;
+try {
+  declaredBudget = declaredInstallBudgetSeconds(sql) !== null;
+} catch (e) {
+  await client.end().catch(() => {});
+  refused(`${file}: ${e.message}`);
+}
+if (declaredBudget && !ordinaryTransaction) {
+  await client.end().catch(() => {});
+  refused(`${file} declares an install budget, which only an ordinary install honours`);
+}
 if (ordinaryTransaction) {
   try {
-    assertOrdinaryMigrationBudget(sql, (TRANSACTION_BUDGET_SECONDS + 4) * 1000);
+    ordinaryBudgetMs = ordinaryMigrationBudgetMs(file, sql);
+    assertOrdinaryMigrationBudget(sql, ordinaryBudgetMs);
   } catch (e) {
     await client.end().catch(() => {});
     refused(e.message);
   }
+  if (ordinaryBudgetMs !== DEFAULT_INSTALL_BUDGET_MS)
+    console.log(
+      `[apply]   declared offline install budget ${ordinaryBudgetMs / 1000} s admitted (every touched relation and function is offline; lock_timeout <= 2 s); the transaction's held locks are re-checked before COMMIT`
+    );
 }
 
 console.log(`[apply] ${file}`);
@@ -877,7 +903,13 @@ try {
 const atomicSQL = transactionBody.replace(
   /^([\s\S]*?(?:^|\n)[ \t]*BEGIN[ \t]*;)([\s\S]*)COMMIT\s*;\s*$/i,
   (_whole, begin, middle) =>
-    begin + stalePin.snapshot + middle + stalePin.check + historyStatement + '\nCOMMIT;'
+    begin +
+    stalePin.snapshot +
+    middle +
+    stalePin.check +
+    (declaredBudget ? offlineScopeCheckSQL() : '') +
+    historyStatement +
+    '\nCOMMIT;'
 );
 if (atomicSQL === transactionBody)
   refused('atomic migration history could not bind the final COMMIT');
@@ -892,7 +924,7 @@ try {
   if (MAINTENANCE_WINDOW) admittedSQL = windowTransactionSQL(file, atomicSQL, ownerWindow);
   transactionSQL = bindMigrationSession(
     SETTLEMENT_LANE ? atomicSQL : admittedSQL,
-    ordinaryTransaction ? (TRANSACTION_BUDGET_SECONDS + 4) * 1000 : null
+    ordinaryTransaction ? ordinaryBudgetMs : null
   );
 } catch (e) {
   await client.end().catch(() => {});
@@ -905,14 +937,19 @@ try {
 // their own budgets. Concurrent index preambles have already completed above.
 
 if (MAINTENANCE_WINDOW || ordinaryTransaction) {
-  // Reuse the existing 12 s server-side transaction bound. Window installs
-  // also keep their shorter closing assertion and per-statement limits.
+  // Reuse the existing 12 s server-side transaction bound (or an admitted
+  // offline file's declared budget, capped at 60 s). Window installs also keep
+  // their shorter closing assertion and per-statement limits.
   try {
     const { rows } = await client.query(
       "SELECT current_setting('server_version_num')::int >= 170000 AS has_transaction_timeout"
     );
     if (rows[0]?.has_transaction_timeout === true)
-      await client.query(`SET transaction_timeout = '${TRANSACTION_BUDGET_SECONDS + 4}s'`);
+      await client.query(
+        ordinaryTransaction
+          ? `SET transaction_timeout = '${ordinaryBudgetMs}ms'`
+          : `SET transaction_timeout = '${TRANSACTION_BUDGET_SECONDS + 4}s'`
+      );
     else if (ordinaryTransaction)
       throw new Error('ordinary migration requires PostgreSQL 17 transaction_timeout');
   } catch (e) {

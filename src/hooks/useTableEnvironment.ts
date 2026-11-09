@@ -162,6 +162,19 @@ function refreshStableTableViewport() {
 const STABLE_TABLE_VIEWPORT_HEIGHT = '--sp-table-stable-viewport-h';
 function writeTableViewport() {
   if (typeof document === 'undefined') return;
+  const rootStyle = document.documentElement.style;
+  const phoneWidth = desktopLayoutHolders > 0 ? devicePortraitPhoneWidth() : null;
+  if (phoneWidth && viewportHolders > 0) {
+    const menuScale = PHONE_TABLE_LAYOUT_WIDTH_PX / phoneWidth;
+    rootStyle.setProperty('--sp-table-menu-scale', String(menuScale));
+    rootStyle.setProperty(
+      '--sp-table-menu-width',
+      `${Math.min(366, phoneWidth - 18) * menuScale}px`
+    );
+  } else {
+    rootStyle.removeProperty('--sp-table-menu-scale');
+    rootStyle.removeProperty('--sp-table-menu-width');
+  }
   if (viewportHolders === 0) {
     phoneStableViewportHeight = null;
     phoneSmallHeightBeforeScale = null;
@@ -171,8 +184,7 @@ function writeTableViewport() {
   }
   const meta = document.querySelector('meta[name="viewport"]');
   if (!meta) return;
-  const phoneWidth = devicePortraitPhoneWidth();
-  if (phoneWidth && desktopLayoutHolders > 0) {
+  if (phoneWidth) {
     if (phoneStableViewportHeight === null) {
       const width = document.documentElement.clientWidth;
       const height = readSmallViewportHeight();

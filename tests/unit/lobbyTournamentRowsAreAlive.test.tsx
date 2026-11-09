@@ -92,35 +92,44 @@ describe('a tournament row says what makes it worth playing', () => {
     expect(tournamentClockLine(late, now)).toBeNull();
   });
 
-  it('prints the badges and the clock on the compact row', () => {
-    const entry = mtt({ guaranteed_prize: 10000, name: 'Sunday Big' });
-    render(
-      <MemoryRouter>
-        <LobbyTable
-          entries={[entry]}
-          category="MTT"
-          selectedId={null}
-          onSelect={vi.fn()}
-          onActivate={vi.fn()}
-          ctx={{
-            onJoinTable: vi.fn(),
-            onRegister: vi.fn(),
-            onWaitlistToggle: vi.fn(),
-            seatedIds: new Set(),
-            registeredIds: new Set(),
-            favoriteIds: new Set(),
-            waitlistedIds: new Set(),
-          }}
-        />
-      </MemoryRouter>
-    );
-    const list = screen.getByRole('table', { name: 'Games' });
-    const heading = list.querySelector(`tr[data-tournament-heading="${entry.id}"]`)!;
-    expect(within(heading as HTMLElement).getByText('10K Guarantee')).toBeTruthy();
-    expect(heading.querySelector('strong')).toHaveTextContent('10K Guarantee');
-    expect(list.querySelector('.premium-lobby-clock')).toHaveTextContent(/^Starts In \d+:\d{2}/);
-    expect(list.querySelector('.premium-lobby-clock__value')).toHaveTextContent(/\d+:\d{2}/);
-  });
+  it.each([
+    [{}, /^Starts In \d+:\d{2}$/],
+    [
+      { status: 'RUNNING', started_at: new Date().toISOString(), late_reg_mins: 30 },
+      /^Late Reg Ends \d+:\d{2}$/,
+    ],
+  ] satisfies [Partial<LobbyTournamentRow>, RegExp][])(
+    'prints the badges and clock on the compact row (%j)',
+    (clockFields, clockText) => {
+      const entry = mtt({ guaranteed_prize: 10000, name: 'Sunday Big', ...clockFields });
+      render(
+        <MemoryRouter>
+          <LobbyTable
+            entries={[entry]}
+            category="MTT"
+            selectedId={null}
+            onSelect={vi.fn()}
+            onActivate={vi.fn()}
+            ctx={{
+              onJoinTable: vi.fn(),
+              onRegister: vi.fn(),
+              onWaitlistToggle: vi.fn(),
+              seatedIds: new Set(),
+              registeredIds: new Set(),
+              favoriteIds: new Set(),
+              waitlistedIds: new Set(),
+            }}
+          />
+        </MemoryRouter>
+      );
+      const list = screen.getByRole('table', { name: 'Games' });
+      const heading = list.querySelector(`tr[data-tournament-heading="${entry.id}"]`)!;
+      expect(within(heading as HTMLElement).getByText('10K Guarantee')).toBeTruthy();
+      expect(heading.querySelector('strong')).toHaveTextContent('10K Guarantee');
+      expect(list.querySelector('.premium-lobby-clock')).toHaveTextContent(clockText);
+      expect(list.querySelector('.premium-lobby-clock__value')).toHaveTextContent(/\d+:\d{2}/);
+    }
+  );
 });
 
 describe('a heading the player taps reorders the whole board', () => {

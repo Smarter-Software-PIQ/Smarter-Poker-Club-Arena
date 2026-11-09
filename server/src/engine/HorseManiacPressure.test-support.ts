@@ -56,6 +56,9 @@ export interface PressureOptions {
   riverBluffBaseline?: boolean;
   /** false ablates the 2026-11-07 baseline flop/turn bluff range */
   flopTurnBluffBaseline?: boolean;
+  /** false ablates the 2026-11-08 Omaha EV fold model (HorseMind
+   *  OMAHA_EV_FOLD_MODEL); its own tests are HorseMindOmahaEvFoldModel.test.ts. */
+  omahaEvFoldModel?: boolean;
 }
 
 /** New public investment after hero's latest raise changes the continuation question.
@@ -318,6 +321,7 @@ export function playManiacPressure(
             ...(options.currentNutsRaise === false ? { omahaCurrentNutsRaise: false } : {}),
             ...(options.riverBluffBaseline === false ? { riverBluffBaseline: false } : {}),
             ...(options.flopTurnBluffBaseline === false ? { flopTurnBluffBaseline: false } : {}),
+            ...(options.omahaEvFoldModel === false ? { omahaEvFoldModel: false } : {}),
           }
         );
         const act = decision.action;

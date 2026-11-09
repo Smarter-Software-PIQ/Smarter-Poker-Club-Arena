@@ -33,7 +33,7 @@ export function mttPlannedField(
 
 /**
  * The advertised guarantee covers regular prizes AND bounties. The owner's
- * no-rake break-even floor uses the full entry charge, not a regular-pool share.
+ * net prize coverage uses the entry amount without rake, not a regular-pool share.
  * This plans attendance only; it never redirects fees or changes payout splits.
  */
 export function mttGuaranteeEntryAmount(row: {
@@ -44,8 +44,12 @@ export function mttGuaranteeEntryAmount(row: {
   const buyIn = Number(row.buy_in_amount ?? 0);
   const fee = Number(row.buy_in_fee ?? 0);
   if (!Number.isFinite(buyIn) || !Number.isFinite(fee) || buyIn < 0 || fee < 0) return 0;
-  return (Math.round(buyIn * 100) + Math.round(fee * 100)) / 100;
+  return Math.round(buyIn * 100) / 100;
 }
+
+/** Owner November 8, 2026: a free-entry field is 400 to 600 Horses. */
+export const FREE_ENTRY_FIELD_MIN = 400;
+export const FREE_ENTRY_FIELD_MAX = 600;
 
 export function mttPrestartPlan(
   _field: number,
@@ -55,8 +59,15 @@ export function mttPrestartPlan(
 ): number {
   // A regular event builds a small opening field, regardless of guarantee.
   // The funded complete-field plan belongs to late registration.
+  // Owner November 8, 2026: every free-entry event (Midway Free Buys and any
+  // other freeroll) is the biggest field on the platform - at least 400 and at
+  // most 600 Horses. The event's own random draw picks where in that range.
   const desired = free
-    ? 120 + Math.floor(arrivalUnit(tournamentId, 'free-prestart-field') * 121)
+    ? FREE_ENTRY_FIELD_MIN +
+      Math.floor(
+        arrivalUnit(tournamentId, 'free-prestart-field') *
+          (FREE_ENTRY_FIELD_MAX - FREE_ENTRY_FIELD_MIN + 1)
+      )
     : 32 + Math.floor(arrivalUnit(tournamentId, 'regular-prestart-field') * 17);
   // Prestart attendance is independent of the guarantee; finite capacity still bounds it.
   const goal = desired;

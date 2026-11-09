@@ -210,6 +210,42 @@
   text-align: center;
 }
 
+/* ── your players at this table (Dan 2026-11-08) ────────────────────────── */
+/* Only a row that has one gets the extra grid line, so every other row keeps
+   its height and gap exactly. */
+.tt-row--mine {
+  grid-template-areas:
+    'idx head'
+    'idx meter'
+    'figs figs'
+    'mine mine'
+    'note note';
+}
+
+.tt-mine {
+  grid-area: mine;
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--tl-accent);
+  font-weight: 700;
+}
+
+.tt-mine__label {
+  color: var(--tl-text-dim);
+}
+
+/* The names inherit the accent from .tt-mine; declared so the class resolves. */
+.tt-mine__names {
+  color: inherit;
+}
+
+.tt-mine__more {
+  color: var(--tl-text-dim);
+}
+
 /* ── the closing line: an invitation, or the reason there is not one ────── */
 .tt-hint,
 .tt-blocked {
@@ -263,7 +299,8 @@
     padding: 4px 2px;
   }
   .tt-hint,
-  .tt-blocked {
+  .tt-blocked,
+  .tt-mine {
     font-size: 9px;
   }
 }
@@ -278,6 +315,13 @@
       'idx meter figs'
       'note note figs';
     align-items: center;
+  }
+  .tt-row--mine {
+    grid-template-areas:
+      'idx head figs'
+      'idx meter figs'
+      'mine mine figs'
+      'note note figs';
   }
   .tt-index {
     width: 44px;

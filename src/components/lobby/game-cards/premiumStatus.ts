@@ -27,7 +27,8 @@ const TONE: Record<ArenaGameStatus, PremiumStatusTone> = {
  * to it". The lobby's own word for a cash table with nobody seated is "Open",
  * which on a card sitting next to "Running" reads as a door rather than a
  * count; "Empty" is what a player means by it. Every other status keeps the
- * lobby label so a waitlist keeps its number ("Waitlist 2") and a paused
+ * lobby label so a single full table's waitlist keeps its number ("Waitlist 2"; a
+ * must-move game prints only its tables, Dan 2026-11-08) and a paused
  * table says Paused.
  */
 export function premiumStatusBadge(
@@ -40,7 +41,7 @@ export function premiumStatusBadge(
     data.status === 'open'
       ? 'Empty'
       : data.status === 'running'
-        ? /^(Waitlist \d+|\d+ Tables|\d+ Tables · Waitlist \d+)$/.test(data.statusLabel || '')
+        ? /^\d+ Tables$/.test(data.statusLabel || '')
           ? data.statusLabel
           : 'Running'
         : data.status === 'full'

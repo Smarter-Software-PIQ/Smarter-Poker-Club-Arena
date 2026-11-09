@@ -10,7 +10,7 @@
   "sourceFiles": {
     "docs/changelog/2026-10-29-tournament-source-identity-cover.md": "563c6c15b9e27de6cdf443ba9175e8f1831279f3b5110799f67a0deefc6fcf25",
     "docs/laws.d/tournament-source-identities-keep-narrow-physical-coverage.md": "35e2fed8e6d6de6270568bc1fbe040c285f104400d960fa5ac82d6ccd56b60ae",
-    "scripts/ci/apply-recorded-migration.mjs": "b19c1708811882a0cad520375591c51a10bda6758a41f3fc31793caf680caa54",
+    "scripts/ci/apply-recorded-migration.mjs": "6e2bfb30eab9862cbc2ec9952aaf619e439b454133a82674b38c38a1e21220b8",
     "scripts/ci/fixtures/tournament-source-identity-cover/README.md": "69a44db7363317740ec41fa7bd477d8b5930e4794aa67ecf1a26fa18170825db",
     "scripts/ci/fixtures/tournament-source-identity-cover/actual-table-authority.json": "49ec49708441d27f3d37467659953464890439b0d508d04f5280ae35ab1dc648",
     "scripts/ci/fixtures/tournament-source-identity-cover/meaningful-table-contract.json": "62c3fe9a746c851433e3b5c70089448f634e9433326250a21ef569eb6e511f86",
@@ -125,5 +125,15 @@
     },
     "review": "The only change in apply-recorded-migration.mjs is one import of stalePinParts from migration-stale-pins.mjs and the atomic history binding splicing its two pieces into the same single replace: for migrations from 20261108000000 on, a snapshot of function md5s right after BEGIN; and a check before the history insert that refuses a migration leaving another function pinned to a changed or dropped body (both empty before that version). Nothing else sent, bound or recorded changes.",
     "reason": "2026-11-07: 20261107021911 changed fn_union_pnl_evidence_report and left two md5 pins on its old body; the original-inventory generation went NULL and the 2026-10-19 close could not finish."
+  },
+  "offlineInstallBudget20261108": {
+    "paths": {
+      "scripts/ci/apply-recorded-migration.mjs": {
+        "before": "b19c1708811882a0cad520375591c51a10bda6758a41f3fc31793caf680caa54",
+        "after": "6e2bfb30eab9862cbc2ec9952aaf619e439b454133a82674b38c38a1e21220b8"
+      }
+    },
+    "review": "Reviewed exact diff. Additions only around the existing ordinary budget: an import of scripts/ci/migration-install-budget.mjs; before send, a file's '-- @install-budget-seconds:' declaration is parsed (malformed refused), a declaration on a non-ordinary route is refused, and the ordinary budget becomes ordinaryMigrationBudgetMs(file, sql) - exactly the previous (TRANSACTION_BUDGET_SECONDS + 4) * 1000 = 12000 ms for every undeclared file, or the declared budget (<= 60 s) only for a file whose every touched relation is public.gto_v31_*/solver_* and function is an offline V31/solver function, with SET LOCAL lock_timeout <= 2s; assertOrdinaryMigrationBudget now receives that value. bindMigrationSession and the session SET transaction_timeout use it (unchanged 12 s value for undeclared files; window route unchanged). For a declared file only, an in-transaction offline-scope check is spliced between the stale-pin check and the history row. Settlement, accounting, thaw, window, preamble, history and stale-pin behavior for undeclared files is byte-for-byte the same SQL.",
+    "reason": "2026-11-07 21:14 CT owner instruction: change the 12 s limit that refused the offline V31 v2 SQL chain (20261108011659) three times, keeping the 2026-11-02 live-writer protection for anything touching live play or money. Native PG17 qualification: scripts/ci/test-maintenance-window-migrations.sh section 13 (ALL PASS)."
   }
 }

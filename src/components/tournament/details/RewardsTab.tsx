@@ -98,6 +98,10 @@ import { useTournamentPrizeFunding } from '../../../hooks/useTournamentPrizeFund
 import type { TournamentTabProps, PayoutPlace, TournamentEntry } from './types';
 import { isRecordedSatelliteQualifier } from '../../../utils/satelliteQualification';
 import { useSatelliteAwards, satelliteAwardLabel } from './useSatelliteAwards';
+import { tournamentChipRanks } from '../../../utils/tournamentChipRanks';
+import { useMyPlayers } from './useMyPlayers';
+import MyPlayersCard from './MyPlayersCard';
+import { heroFirst } from './myPlayersSummary';
 import {
   chips,
   effectivePlaceLadderPool,
@@ -118,6 +122,7 @@ import {
   normalizeUnitCents,
 } from '../../../../server/src/tournament/tournamentUnit';
 import '../../../styles/tournament-lobby-3d.css';
+import './HeroPin.css';
 import './RewardsTab.css';
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -297,11 +302,15 @@ const isStillIn = isPlayerLive;
 export default function RewardsTab({
   tournament,
   entries,
+  tables,
   currentUserId,
   satelliteAwards: providedAwards,
 }: TournamentTabProps) {
   const t = (tournament || {}) as unknown as RewardColumns;
   const tournamentId = tournament?.id;
+  /* An agent's own players (Dan 2026-11-08: "IT SHOULD SHOW UP ON THE DETAILS
+     PAGE AND REWARDS"). Same derivation as Ranking, so the two agree. */
+  const myPlayers = useMyPlayers(tournament, entries, tables || [], currentUserId);
 
   /* One read of fn_ca_tournament_prize_funding, shared with every other
      surface that projects a place (2026-11-07): the lobby panel, the
@@ -465,12 +474,9 @@ export default function RewardsTab({
 
   /* ── THE POOL ─────────────────────────────────────────────────────────── */
 
-  /* A BUY-IN GUARANTEE COUNTS THE WHOLE PAYMENT (Dan, 2026-11-05): what is
-     credited toward the guarantee is every player payment before bounty and
-     rake allocation. Older servers without the gross terms fall back to the
-     prize contribution they report. */
+  /* Rake is excluded from guarantee coverage (owner November 7). */
   const collectedPool = currentFunding
-    ? (currentFunding.grossCoverage ?? currentFunding.collected)
+    ? (currentFunding.netCoverage ?? currentFunding.collected)
     : null;
   const guarantee = num(t.guaranteed_prize);
   const hasGuarantee = guarantee > 0;
@@ -485,7 +491,7 @@ export default function RewardsTab({
     t.total_rake,
     t.prize_pool_finalized === true
   );
-  /* The house share is H = max(0, guarantee - gross), one total: once
+  /* The house share is H = max(0, guarantee - net), one total: once
      finalized, what was posted; before that, what will be owed if the field
      closes now. Never the guarantee minus the prize half. */
   const overlay = currentFunding
@@ -495,11 +501,10 @@ export default function RewardsTab({
         : currentFunding.houseRequired
       : Math.max(
           currentFunding.overlay,
-          hasGuarantee
-            ? Math.max(0, guarantee - currentFunding.collected - Math.max(0, num(t.total_rake)))
-            : 0
+          hasGuarantee ? Math.max(0, guarantee - currentFunding.collected) : 0
         )
     : 0;
+  const houseInStoredPool = Math.max(0, overlay - (currentFunding?.houseSupplementPaid ?? 0));
   const guaranteeMet = hasGuarantee && collectedPool !== null && collectedPool >= guarantee;
 
   const isFinalised = !!t.prize_pool_finalized;
@@ -547,6 +552,13 @@ export default function RewardsTab({
             a.username.localeCompare(b.username)
         ),
     [entries, parsedPlaces, finisherByPlace]
+  );
+  /* The hero's own row leads the list (Dan 2026-11-08: "WHEN A PLAYER CHECKS
+     'REWARDS' IT SHOULD DEFAULT THE HERO TO THE TOP, LIKE IT DOES WHEN YOU CLICK
+     'RANKING'"). Order only; nothing it pays changes. */
+  const bountyOnlyRows = useMemo(
+    () => heroFirst(bountyOnlyRecipients, currentUserId),
+    [bountyOnlyRecipients, currentUserId]
   );
 
   /* A band of places sharing one percentage reads as "4-6" until somebody in
@@ -708,6 +720,27 @@ export default function RewardsTab({
     return bands.findIndex((b) => heroPlace >= b.fromPlace && heroPlace <= b.toPlace);
   }, [bands, heroPlace]);
 
+  /* ── THE HERO PIN ─────────────────────────────────────────────────────── */
+
+  /* Live chip rank among the remaining field, by Ranking's own rule, so the
+     pinned card here and the one on Ranking print the same place. */
+  const heroQualified = !!hero && isRecordedSatelliteQualifier(tournament, hero);
+  const heroLiveRank = useMemo(() => {
+    if (!hero || !heroStillIn || heroQualified || isComplete) return null;
+    const field = entries.filter(
+      (e) => isStillIn(e) && !isRecordedSatelliteQualifier(tournament, e)
+    );
+    return tournamentChipRanks(field).get(hero.user_id) ?? null;
+  }, [hero, heroStillIn, heroQualified, isComplete, entries, tournament]);
+  const heroSettled = !!hero && (heroFinish !== null || heroQualified);
+  /* "If You Bust Now" is the place the Payouts list already marks for the hero,
+     priced exactly as that row prices it (first place of the band). */
+  const heroBustNowPrize = useMemo(() => {
+    if (heroSettled || !isRunning || heroBandIndex < 0) return 0;
+    if (placeLadderPool === null || placeLadderPool <= 0 || !parsedPlaces) return 0;
+    return placePrize(placeLadderPool, parsedPlaces, bands[heroBandIndex].fromPlace, unitCents);
+  }, [heroSettled, isRunning, heroBandIndex, placeLadderPool, parsedPlaces, bands, unitCents]);
+
   /* ── BOUNTY MONEY ─────────────────────────────────────────────────────── */
 
   const bounty = useMemo(() => {
@@ -831,8 +864,69 @@ export default function RewardsTab({
      RENDER
      ═════════════════════════════════════════════════════════════════════════ */
 
+  const heroPrize = hero ? num(hero.prize) : 0;
+  const heroBounties = hero ? num(hero.bounty_winnings) : 0;
+  const heroAwardKind = hero ? awardEvidence.kindFor(hero.user_id, hero.prize) : 'unknown';
+
   return (
     <div className="rw">
+      {/* ── YOUR RESULT: pinned first, like Ranking (Dan 2026-11-08) ──────── */}
+      {hero && (
+        <div
+          className={`rk-hero rw-hero${
+            heroSettled && !heroQualified && heroPrize + heroBounties <= 0 ? ' rk-hero--out' : ''
+          }`}
+        >
+          <div className="rk-hero__head">
+            <span className="rk-hero__label">
+              {heroSettled ? 'Your Result' : 'Your Current Position'}
+            </span>
+            <span className="rk-hero__rank">
+              {heroQualified
+                ? 'Qualified'
+                : heroFinish !== null
+                  ? ordinal(heroFinish)
+                  : heroLiveRank !== null
+                    ? ordinal(heroLiveRank)
+                    : isRunning || isComplete || isCancelled
+                      ? '-'
+                      : 'Registered'}
+            </span>
+          </div>
+          <div className={`rk-hero__figures${isBountyEvent ? '' : ' rk-hero__figures--two'}`}>
+            <span className="rk-hero__figure">
+              <span className="tl-stat__label">
+                {heroSettled || heroBustNowPrize <= 0 ? 'Place Prize' : 'If You Bust Now'}
+              </span>
+              <span className="tl-num">
+                {heroSettled
+                  ? isSatellite && heroPrize > 0
+                    ? satelliteAwardLabel(heroAwardKind, unitMoney(heroPrize))
+                    : unitMoney(heroPrize)
+                  : heroBustNowPrize > 0
+                    ? /* printed exactly as the Payouts row it mirrors */ chips(heroBustNowPrize)
+                    : '-'}
+              </span>
+            </span>
+            {isBountyEvent && (
+              <span className="rk-hero__figure">
+                <span className="tl-stat__label">Bounties</span>
+                <span className="tl-num">{unitMoney(heroBounties)}</span>
+              </span>
+            )}
+            <span className="rk-hero__figure">
+              <span className="tl-stat__label">Total</span>
+              <span className="tl-num tl-num--accent">
+                {unitMoney(cents((heroSettled ? heroPrize : 0) + heroBounties))}
+              </span>
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* ── YOUR PLAYERS: for an agent, under their own result ──────────── */}
+      {myPlayers.ready && <MyPlayersCard summary={myPlayers.summary} />}
+
       {/* ── HEADLINE: the pool, the guarantee, the bubble ─────────────────── */}
       <section className="tl-panel rw-head">
         <div className="tl-section-head">
@@ -957,11 +1051,13 @@ export default function RewardsTab({
               />
             </div>
             <p className="rw-gtd__note">
-              {isFinalised || isComplete
-                ? `The House Funded ${chips(overlay)} Above Entry Contributions`
-                : housePostedEarly
-                  ? `The House Has Already Put In ${chips(housePostedNow)} And Adds ${chips(pendingHouse)} More If The Field Does Not Close It`
-                  : `The House Covers The ${chips(overlay)} Overlay If The Field Does Not Close It`}
+              {(currentFunding.houseSupplementPaid ?? 0) > 0
+                ? `${chips(currentFunding.houseSupplementPaid)} Promo Paid Separately To The Finishers After Completion`
+                : isFinalised || isComplete
+                  ? `The House Funded ${chips(overlay)} Above Entry Contributions`
+                  : housePostedEarly
+                    ? `The House Has Already Put In ${chips(housePostedNow)} And Adds ${chips(pendingHouse)} More If The Field Does Not Close It`
+                    : `The House Covers The ${chips(overlay)} Overlay If The Field Does Not Close It`}
             </p>
           </div>
         )}
@@ -1012,10 +1108,10 @@ export default function RewardsTab({
               )}
               {/* Only once funded: before close the overlay is not in the pool,
                   it is the house's pending share shown beside the guarantee. */}
-              {overlay > 0 && isFinalised && (
+              {houseInStoredPool > 0 && isFinalised && (
                 <li className="rw-mix__row">
                   <span className="rw-mix__label">Club Overlay</span>
-                  <span className="rw-mix__figure">{chips(overlay)}</span>
+                  <span className="rw-mix__figure">{chips(houseInStoredPool)}</span>
                 </li>
               )}
             </ul>
@@ -1080,8 +1176,14 @@ export default function RewardsTab({
         {isSatellite ? (
           satelliteAwards ? (
             <ul className="tl-list rw-list">
-              {[...satelliteAwards.seatWinners, ...satelliteAwards.finishers].map((e, i) => {
-                const wonSeat = i < satelliteAwards.seatWinners.length;
+              {heroFirst(
+                [
+                  ...satelliteAwards.seatWinners.map((e) => ({ ...e, wonSeat: true })),
+                  ...satelliteAwards.finishers.map((e) => ({ ...e, wonSeat: false })),
+                ],
+                currentUserId
+              ).map((e) => {
+                const wonSeat = e.wonSeat;
                 const isHeroRow = !!currentUserId && e.user_id === currentUserId;
                 const awardKind = awardEvidence.kindFor(e.user_id, e.prize);
                 return (
@@ -1234,7 +1336,7 @@ export default function RewardsTab({
           <>
             <p className="rw-rule">Bounty Winnings Outside The Place Payouts</p>
             <ul className="tl-list rw-list">
-              {bountyOnlyRecipients.map((e) => (
+              {bountyOnlyRows.map((e) => (
                 <li
                   key={e.id}
                   className={`tl-row rw-row ${e.user_id === currentUserId ? 'tl-row--hero' : ''}`}

@@ -1,0 +1,857 @@
+user_id,username,unrefunded_charges,events,chips_owed
+2d48c8ed-c8e4-4188-a3a8-b0fa3b2da10d,grace müller,9,6,160.00
+31cf17ec-9b08-41bb-89cc-4da7fb32010c,bhamjeremy,5,4,134.00
+278e60cc-53db-413f-941a-a42fcb9bb510,ella lundin,5,4,126.00
+2936c42b-ebe2-4fd8-bc70-eee5e263d014,kodalockhart,5,3,111.00
+341d4951-c3cf-4446-ac75-6f1448a9bf99,prairieholloway,7,5,101.00
+2184e5fb-6927-48a4-9ac7-c4d1fcc4b67c,scarlett adler,5,4,93.00
+2e26ae7c-0d4a-42da-b8ee-90a498eb25dd,overbet otto,5,5,92.00
+289adf4a-4078-4aef-9038-ef2c11122456,chipleader,7,5,90.00
+a3810172-4269-4663-a40c-767cb7ffa01c,sagefairbanks,8,6,89.00
+9049783c-3419-437e-9dcb-b0d193efd36a,rowanlockhart,8,5,87.00
+286514ac-2c90-401b-baab-b8490f50481f,ironclad,7,5,86.00
+c7a783ee-ac19-4a86-8e26-422666281805,pairboard,4,3,84.00
+c9c01154-8fbd-4621-8ac8-bfa7d17bf026,ava dubois 2,3,3,83.00
+2de00543-57b1-425e-8ea0-66cb294c1de9,paul avila,3,3,83.00
+94cb32db-d0c0-408a-9a4f-13e66d56d2c2,drakemercer,5,3,81.00
+41dc33a2-0635-4941-9465-e66c08757bbc,ridgeholloway,5,3,81.00
+285055c6-96a7-4a60-9033-51f83f49dbcb,cranelockhart,5,5,80.00
+0b7b31ad-abb6-486d-98be-4af51bd90a02,evelynkin373,6,4,80.00
+47dd33b3-1bd6-41a7-951e-8582dae98c5a,grovebellamy,4,2,80.00
+e62b0baa-2ec2-4d24-b979-94ff4fbd34b4,oakesjessup,4,2,80.00
+39ce9f37-11f8-4f84-a192-b4312a93ba31,ulyssesban8e4,5,4,79.00
+5f75b48b-5715-4e29-aef2-c9f8d0567ec8,catalyst,6,5,78.00
+39708430-d0ed-4eb7-9cfa-24abd3fe2df2,jasperabernathy,5,5,78.00
+2de39d61-a269-451a-9e7c-37fc1aa25ad7,kanekingsley,7,5,78.00
+4e5a0000-76ea-4bff-b44e-3c470e5f2434,oxnarddani,3,3,78.00
+7f554d21-df8a-4b3a-9eb4-45a081382e72,chattolivia,5,3,77.00
+474ccbab-1dd5-4481-93e1-418046a33f11,dexmercer,4,3,77.00
+70ef34bc-1165-4f0e-86e0-044e82c04d92,andrew colombo 2,3,2,75.00
+c401b45c-8a60-4480-9900-f452454d77be,runequintero,3,2,75.00
+4e80cb1f-6989-49ba-9d5b-6ccb32227fb8,set miner,4,4,75.00
+97bdc83a-7e7c-45ed-acf5-a9b48309fdba,squeeze sam,3,2,75.00
+a1bf8c9f-ad73-4e20-86cb-f061e3223083,harborpemberton,3,2,74.00
+7983780f-68af-4cf7-b263-45443d9751af,turbo tessa,4,3,74.00
+3fe15f75-ba2d-4d29-9869-4ea6f2bff168,clara hellström,7,4,73.00
+217b726d-33a6-4924-8a3f-a95e0228695a,novadunmore,5,4,73.00
+204a6a80-8b83-4cff-98ed-e89f4da7c4dc,quilldunmore,7,5,73.00
+40f9d2b3-14d5-45f8-a3e7-f89d1449d054,ranger,7,4,73.00
+5330edb2-9f93-492a-aef3-c7e077c0de68,goliath,4,4,72.00
+3ebbefd2-c468-4853-8576-10104335b319,harborellsworth,6,4,72.00
+767bd910-5e57-4df5-9a06-9fad7cc51c15,mixedgame max,3,2,72.00
+a0d2909b-4b76-4a44-b88d-781ccca63623,tatiana sergeyev,3,2,72.00
+a4066678-8d15-43c1-9e05-627cc693540a,quinnvil244,4,3,71.00
+3faa1e32-afb8-4b21-9530-2a9fd81c5766,roughneck,5,3,71.00
+5e94c522-895b-4d63-9948-fb077adc371c,wootownnat,5,3,71.00
+58bf72d7-7815-46f1-8fb0-91b2bf565a3a,deeprun dora,3,3,70.00
+a477eee0-c67e-4c09-ad19-974f41779d7b,ridgejamison,3,2,70.00
+b70a8510-70b4-4c2f-a545-77a7b973aa5e,cranenightingale,3,2,69.00
+387b6e20-0019-429c-b8c1-e6bf5f8e7538,gary pena,3,2,69.00
+524c5e74-178c-4e37-9780-3deaa68e6d19,irisbellamy,3,2,69.00
+30064fc2-f1cd-45b3-90d0-c83416a420d3,polarized pol,5,4,69.00
+8915cc13-451c-4ccc-822f-afccc5e1c686,pikeingram,3,2,68.00
+3ac76bbb-de77-4f26-b2b9-c3408b5bbf1d,rvakim,4,3,68.00
+7bf33d87-128f-43b6-9207-069081632dbc,mia dahlström,2,2,67.00
+ac4873a3-92d8-42a4-97bb-d2bb410c12e2,sagehartley,3,3,67.00
+8376185d-fab8-483c-a004-52c8a5cce763,venom,5,4,67.00
+55b1db30-81b5-4a80-bb8f-e38ba46d5563,wildergrimaldi,3,2,67.00
+1c9cd9be-08b8-4430-808c-fe4dab3199eb,lyrichartley,4,4,66.00
+8bdb54a1-d614-4932-84fa-795dd4728828,coltblackwood,3,2,65.00
+288d244d-a252-4410-bca2-f8611dd8422f,slatepemberton,2,2,65.00
+39870b8e-3567-4c73-8a52-d707cd6102d6,ridgeline,4,3,62.00
+fb5fe9fe-2fe9-4970-b152-f08871ffec61,tundraivorson,6,4,62.00
+bd7961a3-9ce3-4be0-84b2-4b20dc311f84,vegaabernathy,4,2,62.00
+24a013db-12b1-40df-b406-0e5afdec4b61,amelia nakamura,3,2,61.00
+a2bd256e-014c-4504-97c7-6bc43242fef1,crusader,3,2,61.00
+17e2a4ff-a54a-473d-9982-f7b41a22a9c5,impulse,3,2,61.00
+c1ecb590-e6bb-4a7a-87de-95bb44673efc,oakessinclair,3,2,61.00
+23040e91-e0d0-430d-b18e-f9f67c385d90,spokanecourtney,3,2,61.00
+fb825ba4-09a8-44c6-a719-13c682893e04,tampabayjay,5,3,61.00
+c82e74af-4101-49b0-bd0f-93755f7bb13b,electron,2,1,60.00
+ecd88691-74b9-4574-83d8-b960740a78f5,emma kovalenko,2,1,60.00
+5e655782-c9f7-4bf1-b18c-e2a0e7974bfd,griffin,3,2,60.00
+26fc77c4-60fc-406b-bf17-5f4b35777ec7,kaneeverly,4,3,60.00
+ae6a3785-9065-48d7-96c5-c8858651a31d,limpcall luc,2,1,60.00
+31ba2b56-e3f9-40a8-b1e9-d301267a1cef,okcgreg,2,1,60.00
+2e1b3f30-cfaa-4aba-8af8-0f9dae8020ee,quilloakhurst,2,1,60.00
+9ba3cec3-f2f2-43ae-adf7-16302170b128,rapture,2,1,60.00
+f17ad785-2e70-4c7e-b053-50d5e2d93c6e,reedunderwood,3,2,60.00
+9089aa52-d4dc-4588-88d1-11132a674419,sentinel,2,1,60.00
+de0fe8e7-d317-43b7-bd5f-82dbac01418a,twincitycaro,2,1,60.00
+53679882-3463-4be9-84ba-a1dcf00124f6,hercules,2,2,58.00
+2958f800-0cca-43a8-8486-08e524434199,indigoblackwood,2,2,58.00
+2930eb16-c2ad-4cb6-a1d6-7bb650e3cf08,javelin,2,2,58.00
+1f44c9c6-18e5-46f4-bf7e-2ed57071f689,kanegalloway,6,5,58.00
+29892770-7f0d-4bcf-a47f-ce790610e054,omahaben,3,2,58.00
+7b9a7c74-82b8-4d2c-ad9d-eebe4fb999f4,onyxlockhart,2,2,58.00
+4ea2c47b-b6b0-4e25-836d-0e9f7bda9d6c,robert petersen 2,2,2,58.00
+869b7283-6da3-4b6b-9c19-34d35921f3b0,acewhitlock,4,3,57.00
+c49b2414-97ff-461c-8c20-3c05fe09809b,dexfitzgerald,1,1,57.00
+529447f3-b4d6-4be2-8beb-5aea79579117,novamontrose,1,1,57.00
+5fd06d07-ceba-44fc-9322-dbafca83f370,husky,3,2,55.00
+1cf5f118-0af5-482b-9ab9-8cc7043fb20b,novafitzgerald,7,6,55.00
+38563ca3-66a9-40bb-8053-7a698887ec93,sacmegan,5,4,53.00
+29aff535-d3b2-4d9e-9417-0452241f798e,thorneabernathy,5,3,53.00
+7d2a36ee-19f0-4d5e-9600-9a2cd996c0b9,wetboard,6,5,53.00
+7e52a91c-4372-4b4e-aec2-5b7d59f19730,delilahbai4f1,5,5,52.00
+53bc2d7a-5f61-4aad-952c-1b643ea03add,donkbet dan,6,5,52.00
+c6dbc079-20e5-4df3-a2f7-f335460c632c,harborsinclair,4,3,52.00
+e4ea354f-7a17-45c9-b6a7-d9e10e6450f1,lyriceverly,4,3,52.00
+56dd101e-392b-4811-b662-ae64551770cd,onyxdeveraux,6,3,52.00
+36355ab6-578f-4d64-9815-86c6faf68257,ridgeivorson,5,3,52.00
+9e5d90d4-efff-49e8-a93e-29d755eed6ca,runeziegler,4,4,52.00
+5eaede5f-ddbe-4d8b-b143-d9ec2bd4dd23,floatplay flo,3,2,51.00
+a04d3a50-ecaf-4baa-ba5f-c5597ae5d0cc,knoxvegast,3,2,51.00
+92ecbaed-bdec-49ae-96db-90e3d61a8f7b,aviator,4,2,50.00
+4ffcc7ec-15a1-4c80-8309-e893ef9db022,barrelblitz,2,1,50.00
+5ee0f97f-537b-41b2-a6e3-c7dc3b01938e,chasevil805,2,1,50.00
+294fd624-eb6c-429e-b350-d6e6ef962b77,dexcalloway,2,1,50.00
+e5769114-c1fe-4980-978d-1f18e85fe65c,jackpot,2,1,50.00
+f1889978-7d58-4f41-9d20-54c18231030c,tigerbait,2,1,50.00
+3cbbefb7-1a34-4111-83a1-1e04378a495e,tundracalloway,7,5,47.00
+0b1a64c2-8970-4f89-a396-9863e3aa2ccc,blazeziegler,6,5,45.00
+97a78c88-d500-421b-bff0-992271e24b09,michelleackaf6,3,2,45.00
+4a686160-2102-4cba-b3e5-cfa3b1856602,nashgrimaldi,5,3,45.00
+eaf09a18-9654-4c18-8c5d-48a26ce72259,setminer pro,2,2,45.00
+b81a0d08-bb8e-41be-9371-ab7b1808cc23,irisjamison,6,5,44.00
+f53f55b8-6bd9-4953-ae64-ff319c524e0f,lily hoffmann,5,4,44.00
+498f15d8-1f5c-46e4-a330-c40301952540,ursa,5,4,44.00
+302ba66b-3b1e-4747-9458-84695c70f396,windycityjim,4,3,44.00
+2e6934d7-6b9b-45fd-9e46-ceaa4c72abfe,cyrusthackeray,5,3,42.00
+4797eb20-c965-47be-8f7c-0ca57ec4422f,radiant,4,4,42.00
+a666df27-5645-4d05-b628-090950eb8598,threebarrel,2,2,42.00
+4a7ee87e-8aba-4745-b973-3feae2dfe5a5,coltravenscroft,4,3,41.00
+a5e2f927-126c-454a-ae28-840b56bdb1dd,harboryarrow,5,3,41.00
+9a195ad3-15f3-4b47-aa0b-2d5f0634462b,jaxaaron,3,3,41.00
+5bb4ca99-bee2-4bc2-ae7c-4d8b9a4d960c,riverkingsley,5,5,41.00
+1f01702e-320c-4e64-b030-e58fdd47cc07,stoneivorson,5,5,41.00
+373a7bc7-1505-4c4c-b6b0-ba437b569a8a,valleyboy,6,3,41.00
+f1478ac2-b524-4b56-8ce8-5f8eaef65916,checkmate,4,3,40.00
+8268d71c-6cd7-4897-ac17-d0cad40b7edf,flintkingsley,3,3,40.00
+2c73e303-bb61-4593-bcea-8debad14b6cc,oakesvane,6,3,40.00
+6258f768-cb01-4edf-9508-a40fedcdd49e,runefairbanks,4,3,40.00
+89822056-9b50-4361-a4bc-08f381515f28,monarch,6,5,39.00
+05835920-da9b-4739-8fa2-2901b844d11d,rowanwhitlock,5,5,39.00
+4f24efff-2858-487d-adfe-bfc1c46bb1ef,checkraise,5,4,38.00
+c005d672-bb67-4070-a5e3-77b55d25c4bd,hendersonisaac,4,4,38.00
+2e49e7e8-346a-49ba-91d3-699f1d9e0d6a,jacob russo,3,3,38.00
+3d013edd-352d-4388-a710-a0b9a81a7482,novaoakhurst,5,4,38.00
+3d15bbe7-f752-4a49-be3a-079232d23b0f,tempest,8,6,38.00
+8327a08a-77e7-4f33-be45-e086a718c9e2,indigogalloway,3,3,37.00
+f538775f-6f49-4519-8277-adf9176e939c,riverjessup,5,4,37.00
+be7ecf8c-6597-4c3d-8583-f0f1ba94ad35,thorneashcroft,3,3,37.00
+6b95593e-99f2-4555-b53f-9d93fd2b91a9,chipabernathy,4,3,36.00
+f77a430b-eeb5-4f9e-9d8f-e45a41dc6b7b,cyrusjamison,5,4,36.00
+4cb9ecf4-962b-44d2-87be-95fcfa1a2918,kaneholloway,5,4,35.00
+98a83060-dc09-4763-9bd1-adb8c8af0142,quinnsinclair,3,2,35.00
+db695c4b-1034-4201-afc4-a12af4d1f0f9,backdoorflush,5,3,34.00
+5cb613e1-c76a-4b1f-98d4-5546c1a5c4e8,david santos 3,4,4,34.00
+650f193e-e50c-4239-b243-eb25384a4ae7,goldenarm,4,4,34.00
+0362d601-667c-4301-b3a0-e371615a2bc3,grovewhitlock,7,4,34.00
+551eef11-d58e-4d80-921b-3240252f2865,hawkeverly,6,5,34.00
+3d85f161-27ce-45f4-b94b-1d42c62252af,lancer,5,5,34.00
+1c1c117c-bf60-4282-810c-0658f2528e11,maceunderwood,5,5,34.00
+63a755f0-c27e-4baf-ad3d-a3716f86a9e7,ripple,4,4,34.00
+18f8f500-f3fd-4865-908f-d30a2c25e922,rowanquintero,4,4,34.00
+f55bdf9b-aa62-4168-825c-77e0c515f680,grovekingsley,5,4,33.00
+65f99ae2-cd2e-46a2-be72-c47361552350,james kowalski,4,4,33.00
+3aae6595-9257-42f6-ac59-8254ecde15f7,onyxcardigan,6,4,33.00
+22af2652-f8ae-4b84-8f3d-d2894f435d79,peachtree,6,5,33.00
+632df610-5d0d-48b3-b7ca-906d3db5643e,ridgebellamy,3,3,33.00
+311733e3-1801-4200-8459-4b1983d61a64,thornebellamy,4,3,33.00
+c34d15e0-0394-4eba-bfc1-c6c11827216c,vpip victor,3,3,33.00
+54f31d33-cc00-4e5a-b562-fb51aa43ff4a,wildereverly,4,3,33.00
+a53766a4-b9bc-4321-b37c-f220b2877910,archon,4,3,32.00
+14fe7a32-6ce4-4166-b61e-943ad6ab4f9f,bishopnightingale,3,2,32.00
+df9b5404-5652-4331-8a8e-dbff67aedc2d,bolt12,3,3,32.00
+3b79b8a6-1b55-4ae9-9976-2f5a86d1fe82,drakecardigan,4,4,32.00
+0f14f372-0c43-47ff-9257-1324a7e94488,elpasolexi,4,4,32.00
+23e84589-611a-44ea-99e1-c51ae7ada6c5,steven ferrara,3,2,32.00
+3fff352f-7e86-4449-8262-5fc50462195e,threebet 3b,5,5,32.00
+f038e893-3568-45a8-81d7-c9b6202b2119,wilderkingsley,4,3,32.00
+b83fa747-e51f-46c0-85d7-6a2f68417309,backdoorand851,5,3,31.00
+1576452b-3fc4-4fb2-a3c4-4356a6a7b421,charlotte bergström 2,6,4,31.00
+69834886-615f-486d-90c7-7efe1c7f9ee0,indigowhitlock,3,2,31.00
+5562bf52-fdca-4941-a0cb-7f994503fd47,inferno,5,3,31.00
+2421e6ad-5126-43b5-94a2-80d8edaf490f,jasperdunmore,2,2,31.00
+b7804a7e-c068-4496-bee4-c3a582a33816,kodavane,5,3,31.00
+f12caf56-c369-4b22-8e04-fdda07820876,lynx,5,3,31.00
+590ae2d3-9e07-44bc-a813-8a2d632aa67a,minnymatt,4,2,31.00
+ae65dc7b-1be4-4f56-a9a0-2fa660095119,northgalloway,2,2,31.00
+412a7171-f917-4db4-9a47-c4432d15b4a3,oakeskingsley,4,3,31.00
+7e886564-2f3c-41a2-8d6f-0b252b865893,prairiejamison,2,2,31.00
+8dfe9ec8-b899-4f51-b3df-87f4a33cbe5b,riverblackwood,2,2,31.00
+02f807c7-52a6-470b-a465-4a45b84a9143,ronald calabrese,5,3,31.00
+03951af5-7cf1-4164-aaf0-571b647d98d5,tundraquintero,5,3,31.00
+4fc36cc6-a3e7-4603-bd0a-80abc48152f8,drakeabernathy,5,3,30.00
+0d94b1d9-c7a6-472f-94c7-8728718c92f8,emberlockhart,4,2,30.00
+5d2d902a-17fb-43c0-97bf-e4fcece2ec8f,kaylamat3fb,3,2,30.00
+5f7757f0-31e1-40f3-9daa-e2a3fcc064f3,maceabernathy,1,1,30.00
+358c76d6-c02d-49e5-92b7-d4ecf7fa77b9,pixelq,3,3,30.00
+39c80529-9a09-4ac9-8e64-9f55dff498d4,ridgekingsley,4,3,30.00
+13133bc4-9139-4066-8b55-8edd31ef2318,ridgethackeray,1,1,30.00
+a3b03c4b-b3d5-4045-b820-c2584f9021c5,runehartley,2,1,30.00
+eae3996f-9f4d-4fad-ae65-7cbd976240c1,smokeyq,1,1,30.00
+d27088a8-f517-4281-9f17-7181e2f8d13b,socalrob,4,3,30.00
+08fdc13e-eedc-41f6-8790-a91515e14e4f,sundevil,3,3,30.00
+86e42f5e-0fd3-4f59-b1ec-8a300f0ff391,thorneziegler,2,1,30.00
+33ce9b58-475e-46fa-b677-cc7cf44bf8a3,cashgame carl,4,4,29.00
+4d5ec8d4-375b-4656-8deb-8e9ab7d342b6,clepatrick,3,2,29.00
+3a214221-830e-45b5-92da-9c0cf8ce192c,groveellsworth,3,2,29.00
+9932ac4a-0daf-48ac-8365-b6eeb4d7a8e7,jettcalloway,2,2,29.00
+603d3e1d-857c-4117-b12a-d4558360f711,neondusk,4,3,29.00
+348341bd-a92b-40ee-b6dc-5961922315d0,river rat randy,6,5,29.00
+42e7863d-54dc-415e-8c10-89f50aa26171,stonevoss,4,3,29.00
+6c666c8f-84b1-4039-bf82-db3f40036b3e,tagfish tom,4,4,29.00
+f69498c4-2af5-49ca-b1de-d9fa0715d57f,tundraashcroft,4,3,29.00
+9da2d0b7-436d-4e47-826e-4c30077428a4,undertow,3,3,29.00
+e7925474-ad31-4cfb-826b-010039bcff3d,btn boss,3,3,28.00
+3cd88278-29d1-4575-8ba4-eab8ba68dedf,hazel ström 2,6,4,28.00
+d2880af2-1848-4c39-9311-b9a168cf7474,quilldeveraux,3,3,28.00
+d1187172-6cd3-477a-b035-bbb677d0a62f,richard bianchi,3,3,28.00
+773d79db-bbe8-4ed9-9829-8eec754b3801,wildercardigan,3,3,28.00
+6272db54-085e-4713-bcba-f0a7b18e1c7d,apex,3,3,27.00
+7e4ba828-ba3c-43ca-a9f7-8a697be64c15,brickyard benny,2,2,27.00
+09faf9f3-ed77-4582-9242-c464cb88fa93,echohartley,4,4,27.00
+cb50fee0-a87b-4ac8-a6fe-8e665c5ddd8c,eric vargas,3,3,27.00
+72f2fedb-a5f9-4d10-b147-d92e18102d3f,forge,2,2,27.00
+0dd67dd0-12b4-4f2c-85fc-c85a702fff2e,grovehartley,5,3,27.00
+e4d609b4-96aa-4159-bc42-988bc762557e,harborvoss,2,2,27.00
+7e464f21-760d-4682-a6df-f8d89030d519,kanelockhart,2,2,27.00
+cd337e9e-5c1a-498b-9bbf-a4e30d00ffe6,looseaggro,3,3,27.00
+99d046ab-7753-49ef-b33f-aad003f397fa,reedquintero,2,2,27.00
+e9066be7-3b3b-4778-b27d-d98a09aaf52c,riverhuntington,2,2,27.00
+7ef06129-f9fe-4180-9528-f210037f846c,rowanivorson,2,2,27.00
+e02d2c05-eb71-42a5-b078-b7ced84deba0,semibluff sal,3,3,27.00
+7508c26e-5e7f-4b6c-8c5c-cac800c9d0c9,yeti,2,2,27.00
+2a8c045e-cc0d-404f-896b-7e441a3c495a,cinder,2,2,26.00
+0a8005e8-5d79-4d8f-809e-e9951ef74651,cyruseverly,3,3,26.00
+dfa74294-36a3-4dcc-b990-da3a9a510c25,fablelockhart,2,2,26.00
+cf0da9a0-5937-4260-ba92-cfafcb490226,irisjessup,2,2,26.00
+036f0b55-c601-4d09-982a-5294cf4ea15d,iso ivan,4,3,26.00
+b956dcdf-e8c5-41de-914d-63fac3989b1d,nova,5,4,26.00
+0d766e23-bdf2-437a-87f4-0268605c8120,olivia rossi,3,3,26.00
+0335d503-5c71-48d7-aaf4-bc8c907adebb,statgirl,4,3,26.00
+5129542f-958c-4693-862d-ff95799e344c,viking,5,4,26.00
+4ce9fa05-703f-40e4-a14e-40cffc3ba305,craneyarrow,5,5,25.00
+e24c3dca-e63f-4275-a1df-f7d6c6599b6e,flintjessup,3,2,25.00
+b82cb704-5ea3-469e-b05a-88e768e8834c,harbormercer,5,4,25.00
+f84fc8f2-6a0d-4702-a120-c0e5225fb57e,hawkpemberton,2,2,25.00
+786eb11f-4b5b-4be3-b9ac-ae8bda773f1b,kaylapen40b,3,3,25.00
+ab31057c-5141-4f45-bc31-cfcbc29a38e0,marlowlockhart,3,3,25.00
+07140eab-8afc-46b4-ad0e-e7f10a39cb10,memphisken,3,3,25.00
+06eb013d-57d3-46ed-a069-b6a71df00d13,northashcroft,3,3,25.00
+46887b99-8cd6-45db-861c-ad24232efbfe,quinnivorson,3,3,25.00
+866b90b0-dc59-4123-8bf1-cc2f3d5f6d34,victoria svensson,3,2,25.00
+171038e5-f50e-4bdd-988f-621a7ce9479c,warden,4,4,25.00
+4069a4a8-a21e-455e-bb7f-f65f6dd38f34,amandapar21d,2,2,24.00
+c97784d9-45ce-488f-ad17-130d569e16be,bigblind,2,2,24.00
+7d1b678f-cea8-41fc-873e-2ec47ea5c318,blockbet bob,2,2,24.00
+cbcc055c-3d51-4d15-b26b-529d215d137d,bubbleboy,3,2,24.00
+c649f5ce-726c-4426-bac5-c1e63d249dd4,chipgalloway,2,2,24.00
+c92d92ba-2358-41e7-bc22-13107f718ec9,echokerrigan,2,2,24.00
+67d92504-ee81-4d7f-99ca-f79c752cb265,indigodunmore,2,2,24.00
+06f16138-70cd-49e5-89b3-aec698118b81,irisdunmore,2,2,24.00
+05710b66-e9e0-42f7-a3e9-2841df4a598a,kanenightingale,2,2,24.00
+99be4f5d-60d2-4827-bd31-4af5412769d1,launchpad,2,2,24.00
+2b36fe05-9389-47b9-9646-dc2a91d414d4,oakesoakhurst,2,2,24.00
+2072ad2e-869c-4537-a3dd-0def0c889401,onyx,2,2,24.00
+32a4fc92-d1d4-472b-a585-ac19a7e10616,phoking,6,4,24.00
+f44d72f2-a596-4938-af60-2e36b18de73f,raleighrebecca,4,3,24.00
+4806082d-fce7-470c-8868-a8dffb218915,riveter,5,4,24.00
+7c165d15-db68-46c9-89d1-b7f0533a3f13,rowanellsworth,2,2,24.00
+3061ba63-e7ed-4537-8b62-9d2c0a8c420a,slateeverly,2,2,24.00
+4bb5f4b5-923e-4f77-b1e8-7e4ab829e7f0,thornepemberton,5,4,24.00
+c698bb3a-2245-4b35-a75c-43bd0649a133,tikibar,2,2,24.00
+b6bfb4e1-95dd-4d05-97bc-630ff682047d,tundrafairbanks,8,4,24.00
+113fc1bc-25f5-4508-8244-2aa3aa04a3cf,charles leclercq,7,5,23.00
+929f7224-6689-45a7-aeca-9c7226c82630,delta9,3,3,23.00
+fd1b5e7e-3dfc-40d2-890f-23b936ac24ab,fablekingsley,4,3,23.00
+fea3b7af-c515-4773-a9e8-11ed5de7ba5f,lyricellsworth,4,3,23.00
+7d35b9be-cea2-4e45-a1c9-4372d74024a3,matrix,2,2,23.00
+4992b455-1a96-4a57-accf-77d5e9da76b1,novacardigan,3,3,23.00
+3c6742e8-e4d5-4aaf-b9d2-49d4d39a2a4f,sageingram,2,2,23.00
+bb698b9a-2861-4ad4-a051-bba7b7ec4e85,siliconeric,3,3,23.00
+75f64f35-c437-453a-b241-73d9d76dda70,stonehartley,3,3,23.00
+8e5a0e02-7832-416d-970f-f6f74e181dcb,winston abernathy 2,3,2,23.00
+a51e2ad3-69aa-4bbc-a82c-06a6581572bf,acequintero,3,2,22.00
+f39893fa-6830-49b6-9f80-b32191328ac0,charlotteoakd90,2,2,22.00
+61680aec-98d4-4ec5-b5dc-e6e0bedb1a23,chief_95482,4,3,22.00
+a7bdfc35-1e53-4346-91d5-49c9f239984a,coldcall king,3,3,22.00
+fa1e5089-ef7a-44e4-8aed-1e55dfa36784,drakejessup,6,4,22.00
+93e59b77-4237-4130-a1d3-2d9ced856e0e,emberyarrow,3,2,22.00
+0fdb265e-7a56-4ecf-8410-eecd49923e42,fablewhitlock,5,4,22.00
+396ebb6d-2fcb-4a0f-ae7e-6a5856b6651f,grace müller 2,4,2,22.00
+b50221b0-f427-432a-8d84-0f5a76112205,hammertime,6,4,22.00
+3ec90021-2f1c-454e-b87c-b39ce0c8c43a,harborivorson,4,2,22.00
+2af500e1-1665-4468-84d1-e346e64fcb68,lyricsinclair,3,2,22.00
+c05b9dcf-8a6f-41c7-ab80-0e84228d3ff4,magicmtnholly,2,2,22.00
+bc2f1ea8-e757-43d5-92dd-ed586ab6685c,magnet,2,2,22.00
+3926befc-fcc1-4517-9225-a55519e522c3,oakescromwell,4,3,22.00
+3f03e48b-e5ae-43c4-8d59-516aa26abdc8,omarkimec1,4,3,22.00
+cb35cc6f-3150-48ce-b7dc-887b6aca8327,onyxdunmore,2,2,22.00
+8d44aa1c-b7ff-4588-8dac-340d5aacb0c2,prairieunderwood,3,3,22.00
+146cf7a5-7f99-4dd3-858d-26dae69d9c80,radar,3,3,22.00
+227ba92c-9b8c-4705-ba76-181f1f697638,runehuntington,3,2,22.00
+2bcac0cd-3340-4052-bd7a-42e2b6b901d3,scottsdalemich,3,2,22.00
+bd9b7405-4543-4e63-b82c-9f6126c6443f,vabeachbritt,2,2,22.00
+165df98e-f59d-46aa-bc74-a974c0ded83f,acehighjack,2,2,21.00
+9bd731a9-e89d-4177-ad3a-854f6f8acfae,alondraada4c0,2,2,21.00
+0bb5a13b-e7e5-4f87-ad4c-d102b4f4f61e,bamasabrina,5,3,21.00
+0a9625c9-f679-4d98-9ebe-d8bb005c45b6,bayou70,5,3,21.00
+5ba8dd2b-5ef8-4131-b4a8-877a243a9d4e,bombpot,2,2,21.00
+8ef81aac-30ee-4ad5-bc83-20f15046f37d,canyon,3,2,21.00
+9dc34048-3e89-4d93-8fcb-d3cac17474c5,chipcardigan,2,2,21.00
+2430ef3a-8445-4dbe-881a-f42489e485f8,dexvoss,3,2,21.00
+50702991-15a1-46a0-8607-7ae6e343a6b7,fourbet 4b,4,3,21.00
+0bea449d-73af-4654-bf19-61db087d7d45,grovecalloway,5,3,21.00
+fec0b77f-cb72-4aaf-b805-2253f4f3be6c,harvester,5,4,21.00
+4c3b0eeb-307b-408c-b209-3953c2e81d4b,indigoziegler,3,2,21.00
+6c0e646a-96f4-4b90-a71f-fdc400193031,jester,3,3,21.00
+8d100b96-c791-4495-a7ab-0ffff40719c9,jigsaw,2,2,21.00
+47731cb8-58a5-4a83-822d-8e5f8cd8af73,jupiter,3,2,21.00
+f9e96cd6-c8b8-4ddc-aea8-a6a81155158a,kodapemberton,4,3,21.00
+3ec4fbbc-2e0d-4004-8b34-245e8984e8a3,lubbockpreston,3,2,21.00
+939e0a53-3152-49d0-8929-6c20447359ea,lyricmontrose,3,2,21.00
+3086452e-9b29-47eb-b6f8-5a9692889753,nashmercer,3,2,21.00
+fb7da841-7258-45a6-90a5-3ec623b1297c,reedyarrow,3,3,21.00
+6a1fad7d-e358-43d0-b019-13492c9d2bce,rocketcitycal,3,2,21.00
+b2e5bf5b-f6f3-4156-8998-29831e390fa3,runeellsworth,3,2,21.00
+c0bc49ab-c313-4986-88e1-16835a32176a,sledge,3,3,21.00
+6e53238e-0b78-4a67-b7a2-eed9e8e7d9b3,slowroll sid,3,2,21.00
+5e43cd75-b978-438b-ab32-3f9d74151c9e,sterling,4,4,21.00
+4533f594-2fbf-401a-915a-66b9dca698eb,turbo tracy,3,2,21.00
+f9a23390-1b4a-4ee3-bf08-84679cd28596,acejessup,3,2,20.00
+61e51804-44c0-466d-a5d8-e9e5316f9f8c,check raise charlie,2,1,20.00
+b8ad8459-e8f8-47a9-aa71-950508512077,emerson blackwell,2,1,20.00
+6d056300-ab80-4565-951a-583b3c17ba79,fablefairbanks,2,2,20.00
+c080ed25-5d53-460c-bdcf-64e02a9d416a,hazel ström,2,2,20.00
+10f7c3e0-b291-4039-a157-42e5609fe531,jasperunderwood,3,2,20.00
+4ed0fef4-d9fd-41d0-852d-4a52f4193dd2,jasperziegler,2,1,20.00
+7d7a80a2-092c-4338-878a-0416611b249c,jax54,2,2,20.00
+44f1ff92-b5de-44c5-9f7b-319318ff2a74,kanesinclair,2,1,20.00
+1c1c12c2-6d0e-4d87-9821-4cbcb3845c68,littlerockluc,4,3,20.00
+61add065-9a5c-45d4-a06e-1f87a57cc656,nashquintero,4,2,20.00
+631a3049-dbb7-4668-8d52-c36efdb395d5,prairiebellamy,2,1,20.00
+58584896-e942-4939-90f3-d54da2583514,quickdraw,2,1,20.00
+3c02f34c-967a-486e-9bcb-80caa0a916dc,rowanrog807,4,3,20.00
+145aaccb-b8bf-434a-b5e7-ca23a306799c,salvo,4,3,20.00
+f687be6b-fef1-4713-be59-9ed6e8b55eef,southie,3,3,20.00
+4d96ee37-8211-4e5a-b4b6-4b8275bbf46a,thornekingsley,5,4,20.00
+2db815f9-4302-40c8-b2e3-4bb992e1cff2,tundracromwell,3,3,20.00
+19ab1b66-ddba-4b06-bea0-f55c9a3100c7,tundrajamison,4,4,20.00
+d2ce100a-152e-4b0e-8903-2296a9cb7cbe,wilderfitzgerald,2,2,20.00
+88056a18-39c6-41d8-bd36-5fb0bfb00ce9,yonkersgabi,2,2,20.00
+f1e78390-98b7-48dd-82b9-a5aadbe95c51,zaneyos727,3,2,20.00
+efe5c57a-4a17-4281-b26d-aa6efe782422,bishopyarrow,3,2,19.00
+96435447-ba23-47cf-8ae0-a98826422bd5,flintcardigan,3,2,19.00
+d9cb0fc3-1a4d-4cef-8423-65e0edf7adbc,harborhartley,3,2,19.00
+5cb927b9-ae2d-45cd-bfde-2464892ee0f2,harborthackeray,3,3,19.00
+a6951550-6ec2-4359-a0bc-8c2f66fc5078,lanitowl,3,2,19.00
+5d2f60d0-6eb0-4f7e-a968-8eedf3b282f1,novaquintero,3,2,19.00
+62f0d4da-b736-4629-ad14-894e432d0f04,passive pat,3,2,19.00
+bbcaaed4-92b3-4ad7-86ee-7770bb36751a,rebel,3,3,19.00
+af769bec-4c06-4176-9ebd-9c1c20df3a1d,reedivorson,3,2,19.00
+512eaba6-84e8-4ffc-853b-44585fe7a641,sagethackeray,3,2,19.00
+60e31431-564b-402e-a574-96db4b774e06,slcryan,3,2,19.00
+d07cf5cf-9aab-4e9f-b281-e243536778ee,thomas papadopoulos,3,3,19.00
+8cd4e346-50a2-4335-a998-c958cff2e260,twister,3,3,19.00
+fc9fa68f-394c-440e-a311-1cb93e2ab5f3,atldantheman,3,3,18.00
+6548dc2b-21a4-4c36-bc8f-7fa1a604644a,bishopashcroft,2,2,18.00
+3d872c4e-7a37-487e-ad39-9db7d22ee59d,cyrusvoss,3,3,18.00
+4ef643c1-5b97-489c-9720-b614b120cbec,driftwood,2,2,18.00
+606719d4-ff19-410d-8a44-40810f8c2780,echoblackwood,2,2,18.00
+619d99fd-faa3-4c5c-a77d-21259f5fc2a0,galecromwell,2,2,18.00
+37182543-5386-402e-8527-b7e94058f0ea,harper bauer,3,3,18.00
+64ad9eeb-d4cf-43a1-bcb3-bc580f902361,mani mike,2,2,18.00
+b5b6395d-e618-4536-8ea8-5b89ee3878d1,miamimike305,6,5,18.00
+89a23158-4840-4e26-b9b6-d837eca341ad,ruby carlsson,2,2,18.00
+2a79f912-76e9-4763-a865-2b7a3c00d587,scorpio,3,2,18.00
+8ba5f4d2-91ce-4d7b-9182-192663784a92,sophia mendez,2,2,18.00
+68994f6c-cc0b-46c9-b3a7-662ef58aed3c,thornedunmore,3,2,18.00
+1110a1ed-fcf2-423b-9d9a-bc615a16cbd5,backdoor betty,4,4,17.00
+f83a8613-1969-402b-81a4-05ae7f164bb4,bayareaballer,5,4,17.00
+312e2301-afbf-4d44-b571-1f83c948401a,emberbellamy,2,2,17.00
+29199f64-bb8e-40ce-994b-651a7af38567,fableravenscroft,3,3,17.00
+6a224502-85e8-439a-8372-a000a6d2a19c,galeunderwood,2,2,17.00
+f7c6e68a-744d-4fe4-bc9e-06996d8341eb,herocall,5,4,17.00
+4c417026-97b3-476e-ac35-18d4455a592d,huskerfiona,4,4,17.00
+66bfd1ea-43f0-46eb-bf70-35c08a4db945,neutron,3,3,17.00
+6b3f4393-3ccb-491d-bce2-361b3385defe,oakesfitzgerald,3,3,17.00
+7effd428-e607-4430-b383-47c438b10143,phillynic,3,3,17.00
+b886e793-7c9d-4ea0-8677-244cc06f3fc2,pvd_ian,5,4,17.00
+05a38e8e-ce5f-44fb-82de-782369bf9fab,runedeveraux,2,2,17.00
+6a48eec0-2efe-447a-b902-13a4de739e53,sagarciagirl,3,3,17.00
+f45f73b2-edc0-44d1-9865-1c79bb4d6838,stackoff sue,2,2,17.00
+8480aae4-ba71-4f28-b1b8-8489808fb902,steeltrap,3,2,17.00
+fb7c947d-79ce-4706-8c33-bb4f39359c59,texast,5,4,17.00
+7d0571d3-5d40-4aec-9a30-8e36e81ae9a1,zanelockhart,2,2,17.00
+27ebd8e0-2d90-4c96-882d-cff35f91c53b,acesup,4,3,16.00
+f26008f2-8015-42b0-9e5f-3550542e9a09,beacon,3,3,16.00
+205f86f2-41be-4621-ab0c-f0a94074147e,chipnightingale,2,2,16.00
+5dcd833e-240f-4a62-bbf9-2dcb69dcb465,coltkingsley,2,2,16.00
+753e81a9-1513-4923-be2b-bd684ed7133c,cooler cole,2,2,16.00
+02c8d806-24c7-40bd-b5b5-30cf96811e3e,cyrusfitzgerald,3,3,16.00
+592d5976-51c1-4091-afd2-904aeb3d3676,gizmo,3,3,16.00
+b661053c-f8b9-4938-ab8b-92c9e2f647c1,kevin giordano,4,4,16.00
+ffa11ad2-d258-4171-b05a-1956276a39bf,motorcitysteve,4,3,16.00
+a2e7b8de-2edc-4440-bf22-7f04bf1cb5c0,nitgrinder,3,3,16.00
+4dbd99cd-aa34-4c4c-879c-2323aec3cc19,sagemontrose,4,3,16.00
+77defa28-748c-477f-830d-b35006851b49,sophie andersson,2,2,16.00
+e573c327-dc89-4d87-81f0-efd0cb3c8020,sweettea,2,2,16.00
+d311fcf5-37da-49a7-b925-63f316a80355,tulsajeff,2,2,16.00
+f1042170-33c9-4063-b427-910fe1683c72,alice bourgeois,3,3,15.00
+976a1999-2709-4730-bb3c-36558a4939ab,allin annie,1,1,15.00
+78d65d90-7234-4d43-816e-9c29e81dd33d,angelabuc7fb,1,1,15.00
+e2f56804-0cdb-435e-8609-515f0f990767,arrow,1,1,15.00
+83483253-cbb3-4fc9-925b-4905e5450feb,citrus,1,1,15.00
+a45c237c-495f-4696-8fc1-b73f8a39fe62,debugger,2,2,15.00
+87b95987-26a2-4319-9388-b83c89909cbf,drakesala98,1,1,15.00
+67031c9c-6286-49d6-b00b-893737522f3b,equity eddie,1,1,15.00
+bde32aca-5706-4049-b6a0-433c13321435,fableunderwood,1,1,15.00
+e8cca6bc-24c0-43ac-9b03-58fe82fd59a1,flintyarrow,1,1,15.00
+98879512-5e3e-4dad-827d-6e62c950642d,groveabernathy,1,1,15.00
+c46f04f8-3d62-400c-802f-7f757665513e,grovemercer,1,1,15.00
+3a94c68d-2dd2-40b0-afea-96a238b505f2,indigokingsley,1,1,15.00
+f740e628-9097-47cf-91fc-95bbee245792,iristhackeray,1,1,15.00
+514f3adc-eeaf-4aff-863c-46c9b41a7ad1,jettravenscroft,3,3,15.00
+c3daa53d-b161-4d82-8204-9359511b0bf8,macesinclair,1,1,15.00
+6d6b3cc2-f6bf-4ea6-bffb-5e450625ef02,mojorisin,1,1,15.00
+66417bd4-c8e5-4666-af6f-3d85a43593d9,northivorson,1,1,15.00
+99079d3e-4df5-411c-be9c-77878eebf5f9,philippapro2cb,1,1,15.00
+805ae5c3-5303-4aa5-b600-741afb76506e,reedlockhart,1,1,15.00
+e23ec3e7-72c2-4e2d-85e7-8b902cc6fe33,runeabernathy,1,1,15.00
+3f26288c-4923-447a-9f0d-d5d208ab8f8d,stryker,1,1,15.00
+9a3debc9-04a0-4006-946b-801a481e07ea,tandem,2,2,15.00
+f2e938bf-ce8f-499e-9120-31ad9be6ed6c,thornefairbanks,2,2,15.00
+1b116be6-057d-48a9-9bd7-dca3f607884a,tundra,2,2,15.00
+083db75b-95a3-47ae-9989-927134dfa026,uplink,1,1,15.00
+e7096a55-d5bb-4769-aafa-28059f3017d2,yukon,1,1,15.00
+a24711c1-49db-4b14-bcad-341997864253,actonyromano,1,1,14.00
+a0ff4035-2622-4f8a-9124-055c04a56be6,bishopcalloway,1,1,14.00
+710c13a2-68e6-4530-a9a1-9f9f1274e9d5,buffalozack,3,3,14.00
+b1643d27-2d86-4d0e-9fbb-0dc1c0b78093,flintivorson,3,3,14.00
+7c99ec12-855a-45dd-9bec-00b83f053ffa,larkvoss,3,2,14.00
+9a33bf74-c467-4201-9339-6739eab2be3d,oakesingram,1,1,14.00
+45a5e770-95dd-45de-aea0-7fe2dc0302f7,pebbles,3,3,14.00
+50c24ee9-9233-4c16-bc16-3d3726488264,shreveportg,2,2,14.00
+fe61e2a8-54e5-4e6d-898a-8dde5aaaa5c3,stonehuntington,3,3,14.00
+6b8edb63-36e5-478b-ac6e-cd1021334a0d,tundrawhitlock,3,3,14.00
+03980374-354e-4e65-8aa4-2f284e5e51ee,bamamonica,2,2,13.00
+cf36cb99-888a-4a2d-ac44-6b9a2196f9ef,buckeye,2,2,13.00
+1d963469-8fae-4bb7-82f0-4bf598c98623,colthartley,2,2,13.00
+e5a834e5-bae7-4acd-8be9-a3c995a52395,dash,2,2,13.00
+7b05f19d-b546-46a7-aa12-982d78d6f802,grandangie,2,2,13.00
+1ede808f-e293-4b2e-9811-6425f596b2cb,ryan marquez,2,2,13.00
+9248f14b-ca68-44f1-9e5b-be79e3cc84cd,tallyseth,2,2,13.00
+6ebcbd12-3e9d-4d5f-adc7-b8f53a7baa9a,william morales,2,2,13.00
+484d22c4-ff3c-4430-8058-b6f0d8c2387a,zephyr,2,2,13.00
+740e9ec1-0995-41d3-b12d-635a92631592,abqmark,1,1,12.00
+39c25042-f5b7-4f48-9ac0-e8e2560937c4,acegalloway,1,1,12.00
+7b5bfac4-f50e-4532-b828-b20d972984fa,bakotravis,1,1,12.00
+be61d864-3269-46de-976b-06871c6ce271,beckettfle4f7,1,1,12.00
+01bd8786-371e-4ba2-85d6-baab469bba07,cranesinclair,1,1,12.00
+767508e4-917a-496a-8412-c5ea94c80a1e,depot,1,1,12.00
+a0dbce6c-9df7-468c-b1ba-bfae2e31e774,dexthackeray,1,1,12.00
+a93a8432-a399-4ac6-9005-3c77f1e37080,fold equity,4,3,12.00
+01809c11-71bc-42a6-ad86-2130737d8cf9,fortwayneval,1,1,12.00
+93ecbb64-e602-47f1-a314-056504d6b3be,fresnod,1,1,12.00
+10d08b4f-f6da-41ea-a66c-e97a0d4930e0,granite,4,3,12.00
+59318ead-b66f-4beb-a217-85ecd64aee98,kevinshe2d6,4,3,12.00
+2a763abd-8268-459e-9134-c488dfb409f3,kodawhitlock,1,1,12.00
+df5f9daa-9604-4df7-9249-7e0e5c02585a,larksinclair,1,1,12.00
+d27e6658-0fb0-4ccb-b6a7-4aa9dd64c37d,limper larry,1,1,12.00
+41dbdf32-aec5-450a-80c8-4d8d226c727b,lyricpemberton,4,3,12.00
+ca905025-0dfc-4353-ac1e-444ce5763c83,mainframe,1,1,12.00
+c1b575fb-3efd-43b6-b314-353e1d300aaa,musiccityash,4,2,12.00
+1fec4774-2523-4f2b-934b-db23a787f95f,nashblackwood,1,1,12.00
+3fe854b9-5e45-42ed-a7f2-23a8207af3fa,novasinclair,3,3,12.00
+0c7ad36f-7ad2-4faa-963f-69ee2f9f5062,piedmont,4,3,12.00
+3e4ff3e2-f212-4966-abe7-4988e5a62704,quillhuntington,4,3,12.00
+374d0e7a-aef5-4d09-a2f2-5d4a18568d97,quinnyarrow,4,3,12.00
+81c5eb8a-3aeb-443d-a616-207527a939cf,riverrat pro,1,1,12.00
+bf7f659b-0e5f-44c9-aace-bf6ae2cf035f,runegalloway,1,1,12.00
+4b532a4a-6b79-476b-ab05-b4e0637a52d1,snapcall sara,1,1,12.00
+04910a99-8757-4581-8c84-12ba8a454a75,stonedeveraux,1,1,12.00
+00bc0957-1913-4beb-a4d1-acab94950690,tacomaadam,1,1,12.00
+b5fb0b59-88b7-47be-9f52-6946c68b31f7,upshot,4,3,12.00
+db36a469-0b7f-4b43-9df9-9a9b4ad492d3,xeno,4,2,12.00
+660bd7a3-f116-4868-830b-62101ec71dae,xxgamblerxx286,3,3,12.00
+82f3163c-ba3d-4faa-829a-77113abf2549,zanejessup,1,1,12.00
+24219aee-cce4-4660-9e80-fac05602aeae,zaneoakhurst,4,3,12.00
+7967196f-a0ca-4ac7-8e0a-46ef2b007abb,acehartley,3,2,11.00
+edd28444-0a9a-4eb4-acb1-4136f6d71af2,alejandrohar0d5,2,2,11.00
+b23d2455-d884-42e4-901a-369db50e5cd0,bison,4,3,11.00
+b6d34da3-9b2d-40b9-9dc3-8a46b74e651f,cappedrange,3,2,11.00
+c305788b-b2b9-448a-9293-ebe3d8d1162c,coltcardigan,3,2,11.00
+19de9af5-6576-4ebb-92c6-1fe53599f782,colthuntington,2,2,11.00
+de07f928-7f81-44c7-80fd-644ee1715649,dexcardigan,3,2,11.00
+7f348e8f-a98d-4bf8-8f59-e34a78d1f87b,diesel,2,2,11.00
+91dfbccd-e521-4821-9cdc-3d058a0060e4,drakedunmore,2,2,11.00
+d712fcf0-3741-461d-9617-8cb68fb1c54c,echobellamy,4,4,11.00
+5eabbbc0-a3a3-4ff5-8329-f94c35f59722,emberpalfb4,3,2,11.00
+8ac71583-0d59-47af-899e-b4cea19e1fc6,evelyn richter,3,2,11.00
+bbca3b33-152a-44da-91f2-d63e5a2354d5,galethackeray,3,2,11.00
+2610f833-88cd-4a55-b255-75b75070b5da,jeremyrad686,3,2,11.00
+6f9ee58e-e1e4-446d-bfa8-7d10d1af0aaf,kodaziegler,2,2,11.00
+ffb2b4fc-3479-4f0d-a720-84184b189bdf,kylepet88c,3,2,11.00
+ae75d87e-d808-4b93-a176-c1a004a80233,lariat,3,3,11.00
+5c3c64a2-4459-44a2-9381-e73a4cd5d0c5,larkthackeray,3,3,11.00
+15165d49-c7b3-42bc-b2e9-f46195e151ec,macepemberton,3,2,11.00
+55256246-48cc-4025-87ca-771e433c7044,marathon,3,2,11.00
+046718c5-474f-4108-a15c-c3a1ce1f8d61,milehighaces,3,2,11.00
+eb2e16b6-8a39-4acc-a644-1c5bf4041b0c,monsoon,3,2,11.00
+441938f0-4fb5-4ce0-b17e-0e95caeb8cc0,nashholloway,3,2,11.00
+2f957a53-4316-49a2-8ca3-efe437a315cb,normapapffe,3,2,11.00
+f86105e2-d694-4c7c-897e-3f0a9ee34511,novayarrow,3,2,11.00
+c058ae6e-8331-4d25-8245-4da7fbfa3fd5,oakesashcroft,3,2,11.00
+2b5a987d-6c5e-4857-b817-dceb1c5e4e5a,planojaz,2,2,11.00
+61e113cb-fcf7-4248-90c4-a45ca9e8674f,prism,2,2,11.00
+4b2d172a-b413-4ae5-9965-32aeefa0e849,pyro,3,2,11.00
+1545d652-3c85-429f-9354-a753dd6c8afe,reedellsworth,3,3,11.00
+57f5490a-a29d-42b5-a0e3-c115abf471e9,sageabernathy,3,2,11.00
+5e35105f-31ee-4411-b09c-473f4f46d7a9,sageivorson,3,3,11.00
+5bbd93d5-5d24-4c3c-90f6-0f13f007b238,shark attack,2,2,11.00
+fcd210bb-6685-46a9-bbf2-a137697e83dc,slatejamison,3,2,11.00
+3de60526-267e-40be-ab58-f354bf9febc2,solver steve,3,2,11.00
+ef5a8ddd-0a68-4ef1-b6f2-4ba9369e0318,stlnick,3,2,11.00
+bc43a03f-cee3-43fc-8470-a4c605127316,thornemontrose,3,2,11.00
+c8f5500d-03f6-4cc8-a8f7-e439af601aba,whale wayne,3,2,11.00
+ae0bc48d-f98c-4b25-a9fa-e3522f986173,wildersinclair,3,2,11.00
+0ea03648-b12d-4ae7-ba65-aeaff4fcea34,wraith,2,2,11.00
+6516567b-4394-404e-8170-e2a21dae7b48,zanehuntington,3,2,11.00
+f352812c-04f0-4720-8746-cf6285951a84,zaneunderwood,2,2,11.00
+b57ec015-fa84-4aa4-81b9-05971e5ceb2a,zoey kaufman,3,3,11.00
+119d8e7f-1b09-4299-810e-89dc9a6a6277,acefitzgerald,2,1,10.00
+9585521c-a98d-4880-a915-c7248289a162,archibaldstae1b,2,2,10.00
+a040ed35-98c2-4354-bb82-476c24184047,aurora eklund,2,1,10.00
+5f2ab19d-c86d-4689-bb39-bd1e4cf02d32,bluffcatch,2,2,10.00
+bbbe8009-75ac-4c8a-a483-9bf6b60fdf53,brian ruiz,2,2,10.00
+c025d7b4-b93e-4aa0-89e5-e391c246b0f2,cbetmachine,2,2,10.00
+ad0c8518-f9e3-4341-a1db-dccf83145838,cbuswill,2,2,10.00
+a70a0d4c-232e-482d-898f-37518fe134bc,co captain,2,2,10.00
+48779a05-e56a-4b9e-a411-c5dc25ea10fb,cruiser,1,1,10.00
+60f7edc9-f93e-43da-833c-1dd10caef345,crux,2,1,10.00
+07534039-d056-45bb-adcd-1415ed6a8a08,desertrose,2,2,10.00
+4ceb0525-5b49-4138-b761-cf4c16e89a34,drakepow3ec,2,1,10.00
+b641622c-bf2b-49fb-9da9-be510f380c06,dynamo,2,2,10.00
+55ee6465-bdc1-4eb1-b7fd-7630ff315e04,eagle,2,1,10.00
+c3195f0b-2da2-40d1-b1fd-42ab69e55edf,edward delgado,1,1,10.00
+345e5562-05ac-4c1f-9154-64bf8339806b,fableholloway,1,1,10.00
+5bb61f42-52d5-4dad-b1e9-c839504dd928,felt fox farrah,1,1,10.00
+c702f6e3-a7c2-48fc-b3be-a965ae81289f,feltmatccd,2,1,10.00
+1beebb19-4155-47eb-be8a-4af53ab30432,flintsinclair,2,1,10.00
+28d30605-63d5-4fc7-ba26-3ecb1a04ccd1,fold equity pro,1,1,10.00
+1c7fc49a-9ae6-4d6b-be0f-893b1b6153d4,fourcard,1,1,10.00
+46394a29-9ca4-4280-952e-e201f4ff9517,ghostrun,2,1,10.00
+ef58b642-df26-41b5-8547-bb279151e844,goldrush42,2,1,10.00
+15de44a8-2e5f-48ab-9f3c-c022f83c760d,grovegrimaldi,2,2,10.00
+aecab0a3-191a-4c26-8f72-cc0de7a975c6,groveunderwood,2,2,10.00
+4f0bbf2a-7a7e-43f1-bc19-c0f937419388,hawkellsworth,2,1,10.00
+ad5bd851-25d0-4dab-ae73-d1297298a08f,horaciomad3ec,2,2,10.00
+6162b471-d011-41f7-ad89-9a8d856c9ffb,hyper henry,2,2,10.00
+4bdebc9a-65b1-4c5b-8f6c-012b9c31b4fe,indigoholloway,2,1,10.00
+48c15f8b-fad4-4ce2-ab71-368c966ed87b,indigoravenscroft,2,2,10.00
+9eaea36e-45a9-4864-9773-16a0577d7f79,judge,1,1,10.00
+fca1720a-eb02-4284-831f-2bd4ba21f04b,laguna,2,1,10.00
+6313dbdb-f274-430b-8c98-acdfc07ca816,larkyarrow,2,2,10.00
+3ebc3050-24ab-4eea-a3f1-74fac5f0b7a7,lowcountry,1,1,10.00
+669a0232-3b6c-43bb-b6f4-c5e37f1ddfbf,marblefox,2,2,10.00
+09dd202d-115b-49ae-afa8-cb528c7b8f72,milehigh,2,1,10.00
+3a7ad729-fef0-4091-b675-747cd760d2f8,misschalk,1,1,10.00
+8b2ffd4a-c54e-4f1f-9fe7-e0331f913852,nicolebau9c1,2,1,10.00
+5dcd596a-64de-4439-84a3-a79960b44000,oakesyarrow,1,1,10.00
+9ecd6262-2315-4bc6-a77c-d842033c08bd,oc_sophia,2,2,10.00
+f7201058-ea88-4c38-89bb-7937f93f50d6,openshove oz,2,1,10.00
+866ca9e0-8560-41d4-a2c0-aad24dd523bc,overcard otis,1,1,10.00
+f1090e07-a6c9-4b37-acb5-b4dd4f191ce5,reaper,2,1,10.00
+62d0cfe7-d505-43e3-ba83-aca280237051,ridgedeveraux,1,1,10.00
+62ec986d-3b9e-447a-bfa9-c0310bda36ad,stoneeverly,2,2,10.00
+fc399144-95d5-40f6-9a71-ccdeaa4d4bd9,texasqueen92,2,2,10.00
+5d6f67cc-cecf-4791-b1ff-9af16e9a8554,thorneeverly,2,1,10.00
+1bc45064-c839-46c3-b424-efb26bf1e95e,tundraabernathy,2,2,10.00
+62c2fc6c-e6e2-4a6a-9b47-e038bcc5a5db,vanceeverly,2,2,10.00
+8f4acae4-1768-426a-bf4b-17d8cad7c02f,warpath,2,2,10.00
+401545af-d273-4f85-b1cd-69f7a5bf00e4,zanedeveraux,2,1,10.00
+f0dbd49e-0991-4f49-8d4a-a715694e96aa,bostonkev,1,1,9.00
+8037b1c0-ddb7-46c1-a068-f11080d7771c,cornfedrachel,1,1,9.00
+0fb78895-f4e0-4759-9403-a49a5612e0b5,cospringkayla,1,1,9.00
+609f2e4d-cdaa-4975-8b9d-f6750e4780ba,craneoakhurst,1,1,9.00
+62611529-4764-4634-bc1c-a596a4ae428f,emberfitzgerald,1,1,9.00
+a74c2c28-c2dd-4ad0-b18f-2687eba73dba,flintfitzgerald,1,1,9.00
+c6dc3bfa-d9dd-4174-9704-d4a0a285f876,htownhustler,2,2,9.00
+f140e49c-7104-46fd-9c7f-6b2625a90305,irisingram,1,1,9.00
+acbf88b1-55c3-4868-bff5-19b9ba9de296,isabella o'brien,1,1,9.00
+efa03cea-11a8-454e-ac59-24e59a5d8cc2,kicker,1,1,9.00
+4de21b58-af78-44b5-bcd0-6316309a0e62,oracle,1,1,9.00
+4182bdc2-b78b-490d-a02f-07f19aa8c070,orlandochrissy,1,1,9.00
+0a558bc1-50c5-4201-b6ca-c7a1e7de1c22,prairiepemberton,1,1,9.00
+ef25984c-d13a-4e4d-916a-f3537a40ea71,pulsar,1,1,9.00
+ecb3637e-e650-4df2-8a63-ccc835c132f5,renocam,1,1,9.00
+0860d731-0d86-409a-8384-41a17b99a1f4,runemonfd3,1,1,9.00
+64168748-ce1d-48f4-884d-3c77d69d53d1,saber,1,1,9.00
+5e65716f-140b-44d9-8e9a-2aacf8b50d8d,sagekerrigan,1,1,9.00
+6443a6ce-03b6-4baa-99ce-381352d2f277,silkroad,1,1,9.00
+b5fa9dcb-bc18-4806-b308-3085f42fbff2,slatenightingale,1,1,9.00
+bafc4741-38d2-4b84-b081-30509c565412,springfieldtom,1,1,9.00
+07db1c71-d567-46dd-8f92-e922b6d470ae,steelcitytim,1,1,9.00
+dad82fda-37ca-4a1a-b4c0-8c90dda0b074,whiskey,1,1,9.00
+20a40df1-c9c0-4b53-aa6e-882e59531bc6,wichitajustin,1,1,9.00
+6be16e8f-d589-48d8-b7bc-61fe0ceca3b2,cyruspemberton,1,1,8.00
+d0a1f18e-c8a1-4757-b32c-754218cb1f4d,kanemercer,1,1,8.00
+d6331f8a-49a1-4664-8149-9562b4b7f58e,lexdiana,1,1,8.00
+d4133457-8650-42b6-ab32-3af289b76d16,nomad,1,1,8.00
+6982b905-d55f-4fb8-b0af-8f24158f2a63,oakesabernathy,1,1,8.00
+67fc8a8b-46d7-4089-9847-f645c047d1f6,pikeashcroft,1,1,8.00
+31eb1c41-1349-499b-844c-8c2ea0268590,razorbackrich,1,1,8.00
+28413120-b60a-4ae1-a2e4-3c771aed4c5b,reedkerrigan,1,1,8.00
+d3f422d8-ccab-4ee9-ba50-7678a17ba776,trooper,1,1,8.00
+d5535d14-2abf-49bf-ac62-b5a98ae79c00,violet weinstein 2,1,1,8.00
+3c1d70c8-c46a-4e2c-bcc8-dbe53798799a,acenightingale,3,3,7.00
+8ebbb163-9dcd-4e3f-9806-39a171a3342d,blazeeverly,3,2,7.00
+f77cb4c6-6fc4-45e9-bc6b-7791205391be,bluffmaster3k,3,3,7.00
+b6ef1688-0c5d-4f2e-a8a5-83363d415e78,cyrusmiz904,3,3,7.00
+dc5fe97a-c175-4ab1-b4e9-54d971cf8385,echogrimaldi,3,3,7.00
+f829c7e3-85e1-4f7b-83d8-7f7b2e11d2ee,foldpre phil,3,3,7.00
+db345caf-91f1-4f6b-b122-92a10760dea5,hawkziegler,3,3,7.00
+1000eabd-a6a4-4bdc-acfc-11019ce61b0c,kenneth sousa,3,2,7.00
+f6371734-a8d5-4902-b4f4-288e817660db,prairieeverly,3,3,7.00
+0ce13c54-930f-48b5-93a9-df7a38e90b7f,quillkingsley,3,3,7.00
+b439692b-fd8f-4a99-85fa-38f37111e733,reednightingale,3,3,7.00
+b832b6c4-f58c-4b53-999b-48c9fbd1ec3c,slatecromwell,3,3,7.00
+097fccb7-2ec3-4eff-8050-36862a080e24,bishopbellamy,2,2,6.00
+36786473-723c-4104-b39d-eec5bbdeb763,bishopthackeray,2,2,6.00
+e45c02ec-afab-465e-9ab1-c8785582f0a2,dagger,2,2,6.00
+f8c8eb13-14a0-4478-8771-7d29e71036ca,emberhartley,2,2,6.00
+032b7ef6-ef40-4eb7-9a44-21605be733c8,empiregabi,2,2,6.00
+bcc2a80a-9731-4dc1-979d-892943c8568b,gadget,2,2,6.00
+b5e78a91-cc79-4fb0-989d-b47da1363a33,joseph hernandez,2,2,6.00
+697d34f5-fe65-422a-b624-5a4957ef4196,oakescardigan,2,2,6.00
+43edee52-151a-4a82-aea2-ae75ec942cca,reedmercer,2,2,6.00
+4ba85a62-daee-4c8d-8931-8e4414231fd3,slcjules,2,2,6.00
+f69a3498-00d1-4a3b-a31b-04edd9f421e9,small ball sonia,2,2,6.00
+d6cd970a-844a-4531-ae66-479583567335,thornelockhart,2,2,6.00
+049c89ca-8c3a-4ffa-9f68-38849f956f07,acepemberton,1,1,5.00
+df5726a1-8db1-476f-a763-163ff31cf343,blazemontrose,5,3,5.00
+1ba20655-9335-4b3d-a81b-d4368fbad8ce,dexnightingale,1,1,5.00
+bb01946f-5753-44d8-93f1-5c32062c3d6b,drakefitzgerald,1,1,5.00
+5a2be214-07fa-49a5-9772-ee47a5fdb6d9,dusty52,1,1,5.00
+c398e806-141b-49f9-9ea5-26d688b4c269,nora larsson,1,1,5.00
+86468a23-14cb-4602-92f7-7e270197fc3c,sabre,1,1,5.00
+897ad7c5-d734-4758-9ef9-29230c4b68ee,takeshiqui7a2,1,1,5.00
+d69e25e8-c1a7-4c38-8a7e-30784cba86c3,velvet9,1,1,5.00
+6fa1c8e2-c2bb-4168-b121-6281a549b94f,agathagala4a,3,2,3.00
+d2a962f7-cdcb-430a-8ea4-8a50323636cb,blazeivorson,3,2,3.00
+26bb68d8-e995-433e-b364-f953aa198783,cecilste6b1,3,2,3.00
+a9ff80c3-8482-4206-a6c0-ea4cdfd81698,chipbellamy,3,2,3.00
+de9802a0-3b0c-4155-abea-31a1a2bac68b,dryflop,3,3,3.00
+c9c52564-cabf-41be-9e3e-31e2895d403f,e.romano91879,3,2,3.00
+29c910f7-50f6-440a-b841-711b066b0d0a,emberjamison,3,2,3.00
+761b4352-ee05-4423-a791-65303d364989,harbornightingale,3,2,3.00
+b5aa6a25-66e8-4cfd-9188-f26623e0bb42,hawkunderwood,3,2,3.00
+5e7e99a1-f123-4c7a-8a5a-bb760dc9ef25,jake525,3,3,3.00
+ad66f252-28fb-4ffd-8242-fcafa290f852,jaspergalloway,3,2,3.00
+f60b6e86-e738-47cf-b27c-22fa8e56f660,jetstream,3,3,3.00
+a3dc354c-d100-46e4-a0a2-2c42fb22a6eb,kenjijax721,3,3,3.00
+15c38b11-f304-4e3f-875f-8cdc251c995b,krypto,3,2,3.00
+7ffbf0aa-b2f9-42c2-87dc-26756309e17c,oakesravenscroft,3,1,3.00
+2363f25c-c592-4cf9-a521-d458e3e71f36,onyxholloway,3,2,3.00
+b108a3c8-e453-4d57-ae40-08de5e9f9273,pfr prince,3,2,3.00
+704a1983-c465-427b-a9b0-b911be1860b1,pokerowen184,3,2,3.00
+223b7d9b-05b4-41f6-ad02-65e3ce6a9ec7,quillthackeray,3,2,3.00
+ac61ed82-19cf-41b9-a65e-cfd099da1ecf,run it twice,3,3,3.00
+11d2e4ff-a1f7-4845-bb96-a0626eee0d57,stonecromwell,3,2,3.00
+20f6af61-75e1-4954-b61a-9042f8a9e638,stoneholloway,3,2,3.00
+ef1baf0a-72de-4d60-a90f-b9b608b051b3,trailblazer,3,2,3.00
+fde6904f-a91b-4242-9876-cbac4828f5f8,turnb34r593,3,3,3.00
+23ff3ff5-6bb1-4b48-baa2-fc116ac93172,aceyarrow,2,2,2.00
+88e2d7d9-2c5a-41b0-a25d-c5643ba4ae67,atlas,2,1,2.00
+4bbd6b61-f9a5-42e5-a6a0-3e175cb94060,bama_jett893,2,2,2.00
+4358b50c-cc20-4e2a-a725-3ecc18e52fde,bigjimmy,2,1,2.00
+a89c9986-4fa4-4e3b-9353-dee4bcdac5dc,blazenightingale,2,2,2.00
+ed3f0662-8da7-4c24-b8d7-a1000d60cb1f,bountyhuntr,2,2,2.00
+778cab7d-2b73-4f48-b617-bf5fec0c59ed,carlpeta19,2,2,2.00
+a621706d-e8ea-43d1-8d28-76c1d82f21a1,cascade,2,2,2.00
+6c81d309-eee6-45c6-acf1-aa848af6e86d,charlotte bergström,2,1,2.00
+595d10da-6086-437f-936b-f1471d22ecfa,coldmoose317,2,2,2.00
+22f02ebc-4757-4e06-99e6-f7e4a95720b4,cusekeith,2,2,2.00
+486a99af-b0aa-4ccb-b5d5-a47b64bc1e25,cutoff962,2,2,2.00
+ad7951e6-88d8-4b9e-807c-bd9753790e66,cyruswhitlock,2,2,2.00
+70a7e704-0ee7-4918-a990-963278e01443,drakeellsworth,2,2,2.00
+a6cd08f3-d81f-4d69-a4bb-42e869393a9d,fableyarrow,2,2,2.00
+06f7b8ff-889c-4634-b7bb-7d6c010ad8a1,firebolt,2,2,2.00
+d708c5d2-cccf-4e29-b585-1acc3d145927,gatecityethan,2,2,2.00
+d79b7f91-5f49-4138-8377-71621722400d,georginamen024,2,2,2.00
+bdaa78a6-95e2-4456-9bce-cdb6cd505f4e,groveziegler,2,2,2.00
+0d8a22d1-8ea8-40d7-a821-10547198ff6c,indybrian,2,2,2.00
+096d7521-f924-461e-8c3d-5386a7770170,irisvoss,2,2,2.00
+ccced697-01fd-444a-bf95-65b720a3adc9,jeffrey gutierrez,2,2,2.00
+e4894901-10b8-43cc-b7d9-cb92499c51df,jettvoss,2,2,2.00
+70be5a51-133b-4bba-b262-6e2424c5bcfd,joshua fuentes,2,2,2.00
+d364abc6-f070-4608-91f3-f395e877d423,kaneashcroft,2,1,2.00
+626120fa-7f5c-45ab-9c9c-25a26978edcd,larkmontrose,2,2,2.00
+80e564eb-1b5d-42ba-bd12-9af5f89fecb0,lil_noodle505,2,1,2.00
+137ca64e-eb2a-48a1-84ad-1db2b59aa51e,macehuntington,2,1,2.00
+62e945f7-c4ae-4462-bac8-64a992b1b688,mastershannah,2,2,2.00
+48f588f4-09ad-4797-988e-1466d21b3c90,mrdoc137,2,2,2.00
+1c33a761-7cc3-4a86-8176-7df20ed53977,northscofca,2,2,2.00
+2e19fb4b-ce2f-4cb8-83f0-3b44da7e36f1,novaashcroft,2,2,2.00
+765c3cc9-ed6e-4a71-bb54-568301a17b55,novaziegler,2,2,2.00
+060c946d-db8d-4d27-b1ec-a203435764f1,oakesmontrose,2,2,2.00
+e94d80fb-4973-452e-b745-6c3ca68c9b16,obsidian,2,2,2.00
+194e5206-bd4d-4ea5-ba2d-142c8bf8a258,onyxashcroft,2,2,2.00
+aefbd1c7-a2db-4bd9-b24a-333e18edec16,onyxjamison,2,2,2.00
+6d301010-3315-4694-b55d-812ae56110c5,onyxquintero,2,1,2.00
+92655975-8766-4c4d-b266-a822055dc6e3,patriciopiea3f,2,1,2.00
+23205f6b-e015-4533-96cc-3b4bec93d6b3,pharaoh,2,2,2.00
+3f9812bc-b0e5-4b7f-ad9a-78f348dfe6ee,rebuyb05s101,2,2,2.00
+8a1e2ff8-aaf8-470c-9d15-d04339b0c6db,rocezra408,2,2,2.00
+f9c17977-bae4-495a-b014-eb4f6297a565,rosasr481,2,2,2.00
+c0553605-4f71-47e0-a127-c37150408196,saltcity,2,1,2.00
+70b5de2f-1303-49fa-a2fa-83c53e8f02b3,saxon,2,2,2.00
+c04214c5-cf54-4486-a7f6-8b6efeaa82dc,sb23285,2,2,2.00
+156bfbf2-63e5-49a1-89be-8a65e08b1309,sdkurt530,2,1,2.00
+ea06617e-0710-4590-b4db-772cd0fa4326,sitngo simon,2,2,2.00
+cda69887-ebc4-47e5-a4ce-6e3c810b168c,slatebellamy,2,2,2.00
+5ae9af10-c744-453d-a4c3-bd32c2b9b4c0,the_lojack795,2,2,2.00
+d14e36cb-8912-4b12-add7-e26357bf832b,tundradunmore,2,2,2.00
+7ab3ae51-4325-4648-af22-7ba84283f7bc,tundraziegler,2,1,2.00
+e55c9219-b0a6-4431-9669-9dc332583100,vanceellsworth,2,1,2.00
+af98ffbe-1de5-46eb-bb1c-86e710e62ee3,vegadeveraux,2,2,2.00
+a85c6ca0-7610-44f1-a786-3b8ab4bf7329,viviennejamf9c,2,2,2.00
+a497dbb8-a32c-4bb9-9ffa-beeea1d8c5d8,wasp,2,2,2.00
+e2b1ac26-665e-4c44-b866-b9552c902363,xxsheriffxx468,2,2,2.00
+2d6c5e7a-7352-4d1d-aecf-c5237d626e3d,zeldaquifef,2,2,2.00
+56315bf9-8a2b-4625-9e53-c7fe4bde9a8c,adelaidesula24,1,1,1.00
+a916c222-1eb9-4e73-89ee-a92e289b80eb,aggro andy,1,1,1.00
+ed8ede33-fd24-4eec-a7d7-3af0478af08c,akronjoel,1,1,1.00
+2478c921-4ed2-40dc-b343-51c9987ba922,altitudek,1,1,1.00
+7a6e8b45-c2c5-4eb3-bf24-e69916e6c97e,ana.meyer630,1,1,1.00
+cba6d788-80d9-43e3-a151-005e76b32701,blaster,1,1,1.00
+4381b30d-631e-4146-a2de-2f01dd1a36e9,blazevane,1,1,1.00
+b1c1f504-bc94-4dfa-b937-24d0ed41fd62,blindtrey1614,1,1,1.00
+70fa710b-3180-4ae4-98fd-95d4f9eb8d7c,bluedevil,1,1,1.00
+7046eac5-294b-44c1-b682-2950b541a031,bytesize,1,1,1.00
+cf17ebeb-7337-45c4-97fd-d1a7fd3286ad,caliente305,1,1,1.00
+e8bdc776-c4f5-49b6-977c-770ecce4a6f0,chipcromwell,1,1,1.00
+a0b37838-f752-469d-b41a-b999cd77b1ea,chipsinclair,1,1,1.00
+34aad110-22db-42c6-bb7f-e790329980aa,chipyarrow,1,1,1.00
+660d14dc-9f42-425b-9985-55644a95a984,chrome,1,1,1.00
+afa6c823-103c-452d-b6c9-929ad0163dd5,clara hellström 2,1,1,1.00
+0a714eff-ef23-4928-b2a7-addecc97b467,cobblestone,1,1,1.00
+9d46745b-2008-420a-8150-88e265da1736,cooler852,1,1,1.00
+611cf850-2298-4a87-8c1e-9ac0a763c486,cornhusker,1,1,1.00
+9b2787f1-04a4-4d6c-a437-c387fae89627,corpusmaria,1,1,1.00
+8a7faa73-bf76-4940-9b80-39e95163ffd1,cranefairbanks,1,1,1.00
+7a74d9fe-baef-4224-b20e-cea476853795,cranevoss,1,1,1.00
+023a16c3-4ddb-427f-a9f8-cd7b1d9072f1,cyrusnis659,1,1,1.00
+1589ecfd-7ce0-4be6-a3d3-69e324066fb5,daphne winterfield,1,1,1.00
+ecf3ca4b-4c70-40bb-8344-366e3cde98ce,deepmachine986,1,1,1.00
+25dd6986-a144-401b-8aac-cb733270c0ae,derbyheather,1,1,1.00
+f0fd5368-3bac-4930-b0ea-a168dcf8d365,dexivorson,1,1,1.00
+636ef755-dd57-49c4-8623-038fc9a9c635,drakevoss,1,1,1.00
+b59cb3bd-5830-4539-b53a-98e915b45397,dynamo2,1,1,1.00
+79a7f270-a3d9-495a-b5f3-a7b7600374f8,echocardigan,1,1,1.00
+82861181-5a96-4e7b-bfa4-b75ca2bd145f,echomercer,1,1,1.00
+b50106f3-48f9-4fb6-8ca0-a361891a670c,echounderwood,1,1,1.00
+3b7caeb9-8c1c-4ce5-b3d0-106d019f7d95,emberivorson,1,1,1.00
+781b24c7-12da-412e-a76a-91d3eb4227c3,emberjessup,1,1,1.00
+eba463f8-2c66-4592-b304-3afc3f7f2c93,emberpemberton,1,1,1.00
+7fa09483-7386-4777-9192-a3c775a30005,everest,1,1,1.00
+559c9e97-5961-402d-9a1f-7b17ca55d3cc,fableashcroft,1,1,1.00
+d49f4819-3a2e-4342-a15a-97edd5abfec5,fableeverly,1,1,1.00
+72212861-73a4-480d-9453-569a3c44e6b5,fablegalloway,1,1,1.00
+ac254a0e-a02b-49be-993d-e89a5803a653,fablevoss,1,1,1.00
+97e77c3a-16af-4e7f-9a83-9fd91c958067,falcon,1,1,1.00
+e0be3976-bb22-4720-829f-791ff19df459,finaltable,1,1,1.00
+ea994444-7a16-435a-9641-fc6b6c837186,flintnightingale,1,1,1.00
+f8058099-1f42-4de5-ba90-a27dde896f4a,florenciacar6cd,1,1,1.00
+0097309f-2864-4d09-b02b-56bca012a9c3,florenciasid9ba,1,1,1.00
+4c33f4d6-d84d-40ee-af13-f4b79fadc5bd,grinder837,1,1,1.00
+bd968722-f2c3-43f8-8bfd-77294aac9ca9,gutshot greg,1,1,1.00
+cb78cc2f-f388-439d-a6a4-540c7c1899e0,halo,1,1,1.00
+a7dea671-6b1f-4d90-abe1-2abbedca4e96,harbordeveraux,1,1,1.00
+dec9ad0a-55c3-4dfe-9ece-5315f9a44544,harborfitzgerald,1,1,1.00
+1d81eaa9-42bc-4815-9616-01ad6e6d5800,harborjamison,1,1,1.00
+c2bbe90b-bd79-43a2-8d22-5c60a0ec3855,harbormontrose,1,1,1.00
+6fdfcb70-b8f3-4ed1-89ca-a7d8af136dfc,harold kitamura,1,1,1.00
+652899fd-f80c-4903-bd5c-9999c946ae49,hartfordmel,1,1,1.00
+dfc642c5-3433-4b88-89ae-74c4e888a618,hawaiivanessa,1,1,1.00
+5a21988c-2eb7-4462-9b76-f4cd028fabf4,hawkdunmore,1,1,1.00
+0f5f1d65-7ce1-4250-93fe-49078f4f14d1,hayat barghouti,1,1,1.00
+9eb2a231-a42f-4162-8818-3f14ebc19385,icm ivan,1,1,1.00
+aaa1dbd5-baa8-4503-8681-26ebe1ccf8a6,idahoamber,1,1,1.00
+782eaa11-947d-4665-9e89-50cf52f099b5,isabella o'brien 2,1,1,1.00
+c1e995d1-41e7-440e-bd64-aaecb01c4d3c,j.ortiz98283,1,1,1.00
+cbea112e-42fa-40b8-9578-4f9b048bf574,jam jack,1,1,1.00
+c73bc8f4-5cb7-462f-8405-7b4716b35d5d,jasperellsworth,1,1,1.00
+71efcdb3-a39e-4e4d-9039-337de85f3eea,jeffreymer930,1,1,1.00
+7210181b-c61a-4c8a-b210-7942d472abe3,jerseygavin,1,1,1.00
+abc0a16d-7631-4a38-8fca-1799b2385d66,kaneblackwood,1,1,1.00
+57d5af45-0b1c-417c-bc41-64ca9fd1b4b9,kenai,1,1,1.00
+11758a4f-55bc-4758-861a-bee6830c70b8,kodayarrow,1,1,1.00
+2ad1a536-aae7-4cc4-ba86-1be967295e1c,kurtthereg141,1,1,1.00
+dbf1c18f-c548-4f9c-8b40-da9b9804bf72,larkcardigan,1,1,1.00
+ff384f76-989b-4813-aa2c-2ccaed833d42,larkellsworth,1,1,1.00
+d6bc0585-d9db-4e0c-8bbc-6ee731fec17c,liloffsuit201,1,1,1.00
+8b3b6f26-589a-4532-8392-003fddfb7d1b,lily bergman,1,1,1.00
+6310d28d-4dac-47df-87be-4f667e50a3c9,luc246,1,1,1.00
+cddb2fa8-143a-46c8-8c1c-25b9dd78ec26,maceblackwood,1,1,1.00
+e8b32dc2-6c5b-407e-ab46-451422d0a6c5,marlowingram,1,1,1.00
+778972f6-be6a-45c3-8f57-d37aa1adb5da,marlowjamison,1,1,1.00
+0457e109-c9f4-477a-85c6-cd1e822e4885,mayapoker929,1,1,1.00
+aef849b8-2906-4dc0-b108-251710e76d3c,mia dahlström 2,1,1,1.00
+8338bf08-f33d-481e-9072-fba81076bc9a,michael antonov,1,1,1.00
+8964a644-c3e0-4297-93d8-ab1113c363bc,mketyler,1,1,1.00
+e3aded91-8aa4-4cb8-b5f2-a808b9f1510d,msp_diego775,1,1,1.00
+b474bb12-d6ec-4ea0-b661-58811b604b97,nashdunmore,1,1,1.00
+9dc5344d-403b-4fe1-951f-66b091d52e85,nit nancy,1,1,1.00
+a23ca5c9-b748-482f-9b59-9db35f7aa996,nolasam,1,1,1.00
+66188599-c421-42fa-a36f-d5ebfea530af,northnightingale,1,1,1.00
+dabff589-51fd-4053-9fdc-090345c76729,novajessup,1,1,1.00
+1179f15e-dac7-4b7e-80df-5e525a498ddd,novavoss,1,1,1.00
+34e5b497-f995-4089-9dda-2c2ec6817aeb,oakeslockhart,1,1,1.00
+7f99084b-e99a-4312-a258-1be6451c0c8b,overpair olga,1,1,1.00
+dca6c345-c2ab-456f-98d9-dfbca3a43f7d,pdxpokergal,1,1,1.00
+bb6b201c-189a-4363-adc7-30aee6c2c743,phantom,1,1,1.00
+e96f6e72-57c2-4881-8fb3-6cd29e587b8e,pikevoss,1,1,1.00
+ed8f5032-e632-4df2-9e8f-d705b883149c,pikeyarrow,1,1,1.00
+488db5a7-be8f-4428-a4ef-466c0aba8aa3,plo pete,1,1,1.00
+e5141d4f-e35b-433b-9cf3-6bea40e7ad67,pokertyler214,1,1,1.00
+9dcf6e6b-ffae-4336-87dd-92a893d1b27b,potodds paul,1,1,1.00
+00d92d99-be9f-4e63-8ab0-ec2d6d491bcc,prairiegal,1,1,1.00
+badcd43c-1a7c-4a71-82d2-a2315758d8ed,quillgalloway,1,1,1.00
+778f8033-c9e2-45fa-98ca-935f38e2b8ca,quinnpre91e,1,1,1.00
+ed9ff9e2-050f-4145-97a3-0f78d1471710,reedgalloway,1,1,1.00
+38656530-df9d-454e-bd5b-95c1c7f36720,reedkingsley,1,1,1.00
+be96b573-6518-479a-9fc9-5576fed8e63e,renoandy,1,1,1.00
+43814ceb-db56-4d31-8bc4-522f0a8533bd,ridge,1,1,1.00
+c402b38e-7ba6-40bf-a2d3-d65376d28ccf,roadrunner,1,1,1.00
+6688345d-e7be-49bd-a318-4ee1e6b10253,rocketman,1,1,1.00
+63de1ab9-12ac-4049-b0fe-eec4993e9fb0,rowanjessup,1,1,1.00
+005d5fd2-ae8c-4d21-bb55-f33592a88b31,runefitzgerald,1,1,1.00
+4a47059d-4b08-4a8d-878c-3debacadeb79,runeyarrow,1,1,1.00
+d7c8507a-84fc-41d8-9725-d651813bbacb,sagelockhart,1,1,1.00
+4845cbbb-a29c-4b34-8fbe-b8658bd6c16c,scarlettgarcb2,1,1,1.00
+685612fb-e4cb-4265-af14-e6132539bad1,seattlesolver,1,1,1.00
+2143ec37-02ed-4712-9642-a56f1945c379,sethbla88c,1,1,1.00
+48ada431-72b1-4cdb-8abe-541b9f6b179c,sidewinder,1,1,1.00
+d0e34961-8674-4c56-9929-9380d1e580a7,tomas1985111,1,1,1.00
+b1dd1863-7dab-47b5-b35e-548f951a7619,torch,1,1,1.00
+7f2fcb20-a23c-4003-b2de-f23c01460d71,tucsonnate,1,1,1.00
+18849c1c-830a-4e84-8968-a9f64528836f,tundramontrose,1,1,1.00
+99be32e0-aeca-4b28-a653-99b746f260c4,tundranightingale,1,1,1.00
+9f0996a4-623e-4f65-a5cb-f36bc69ddaab,turbo,1,1,1.00
+736d7a11-0585-444d-8a08-693a16032681,turnpike,1,1,1.00
+3e509e1c-121c-493d-8da3-cd6e44bd6f2c,valleyevan,1,1,1.00
+fc82ea80-c4cd-48d8-b8c5-43c01e38140c,valuebet val,1,1,1.00
+681b2902-7aba-4d91-9012-ae90670280e2,vegablackwood,1,1,1.00
+d7b99137-4394-41e0-909c-5211c5ad1f20,vegalockhart,1,1,1.00
+4f7f8abb-ba34-464c-9ecb-0ab7a972a978,vegasgrinder85,1,1,1.00
+1b049140-90bf-4b45-82db-a6dc259ce0c3,vulcan,1,1,1.00
+a8b3189e-28b3-4e0c-8fc2-5e41cad97077,wild_taco216,1,1,1.00
+cdc197ee-df2d-408c-9928-c67ae751a935,wilderjessup,1,1,1.00
+a354ec75-5c09-4773-b94d-8634c9104788,wildfire,1,1,1.00
+1d1e1921-5ec0-4bc1-8a51-e9379301e319,xander,1,1,1.00
+719dda77-bceb-49c8-93a1-bda7b38cd57d,yankee,1,1,1.00
+affd7444-d0b7-4904-ad1e-bb06d0f58525,zanequintero,1,1,1.00

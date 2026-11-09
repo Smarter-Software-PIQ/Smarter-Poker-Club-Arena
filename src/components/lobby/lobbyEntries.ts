@@ -1105,22 +1105,20 @@ export function cashStatus(t: LobbyTableRow, waiting = 0): { key: LobbyStatusKey
 }
 
 /**
- * A running must-move game says what a player would see walking past it
- * (Dan 2026-11-06): its tables and its list together ("2 Tables · Waitlist 3",
- * 2026-11-07), else the list ("Waitlist 3"), else a second table ("2 Tables"),
- * otherwise "Running". The KEY stays 'running' on purpose:
- * a game's door is Join Game, which queues the player on the game's own list,
- * and the 'waitlist' key would swap it for the single-table Join Waitlist
- * button. A Lightning game never has a list (Dan 2026-10-24); the caller
- * passes 0 for it.
+ * A running must-move game's STATUS says how many tables it has, and nothing
+ * else (Dan 2026-11-08: "STATUS SHOULD JUST SAY HOW MANY TABLES NOT
+ * 'WAITLIST 3' UNDER IT"). A second table reads "2 Tables"; one table reads
+ * "Running". The waiting list is still counted and still served - it simply
+ * is not printed in the status. This replaces the 2026-11-06/07 labels
+ * ("2 Tables · Waitlist 3", "Waitlist 3"). The KEY stays 'running' on
+ * purpose: a game's door is Join Game, which queues the player on the game's
+ * own list, and the 'waitlist' key would swap it for the single-table Join
+ * Waitlist button. The second argument is kept so callers need not change.
  */
 export function clusterRunningStatus(
   tables: number,
-  waiting: number
+  _waiting = 0
 ): { key: LobbyStatusKey; label: string } {
-  if (waiting > 0 && tables > 1)
-    return { key: 'running', label: `${tables} Tables · Waitlist ${waiting}` };
-  if (waiting > 0) return { key: 'running', label: `Waitlist ${waiting}` };
   if (tables > 1) return { key: 'running', label: `${tables} Tables` };
   return { key: 'running', label: 'Running' };
 }

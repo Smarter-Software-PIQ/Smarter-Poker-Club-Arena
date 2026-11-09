@@ -117,6 +117,10 @@ def main():
             elif key in (("public", "clubs"), ("public", "unions"), ("public", "union_clubs")):
                 # Platform structure: copied whole; owner ids become id-only placeholders.
                 where = "true"
+            elif key == ("public", "cash_games"):
+                # Structural parents of the copied tables. Their owner IDs are
+                # covered by the existing ID-only placeholder pass.
+                where = "id in (select cluster_id from public.tables where tournament_id is null and status in ('waiting','running','active'))"
             elif key == ("public", "tables"):
                 where = "tournament_id is null and status in ('waiting','running','active')"
             elif key == ("public", "table_seats"):
@@ -132,18 +136,18 @@ def main():
             if key == ("public", "club_members"):
                 where, exclusions = playable_memberships(where)
             if int(nbytes) > BYTE_CAP and key not in (("public", "profiles"), ("public", "tables"), ("public", "table_seats"), ("public", "clubs"), ("public", "unions"), ("public", "union_clubs")):
-                if key == ("public", "club_members"):
+                if key in (("public", "club_members"), ("public", "cash_games")):
                     raise SeedEligibilityError("club_members exceeds the seed byte budget")
                 return ("skipped", {"table": name, "why": f"large_{int(nbytes)//1048576}_MB"})
             if key not in person_cols and key not in (("public", "profiles"), ("public", "clubs"), ("public", "unions"), ("public", "union_clubs")) and int(est) > ROW_CAP:
-                if key == ("public", "club_members"):
+                if key in (("public", "club_members"), ("public", "cash_games")):
                     raise SeedEligibilityError("club_members exceeds the seed row budget")
                 return ("skipped", {"table": name, "why": f"large_{est}_rows"})
             if int(nbytes) <= 16384 and int(est) <= 0 and key not in (("public", "profiles"), ("public", "club_members")):
                 return None  # empty table
             count = int(q(f'select count(*) from "{s}"."{t}" where {where}')[0][0])
             if count > ROW_CAP * 4:
-                if key == ("public", "club_members"):
+                if key in (("public", "club_members"), ("public", "cash_games")):
                     raise SeedEligibilityError("club_members exceeds the filtered seed row budget")
                 return ("skipped", {"table": name, "why": f"filtered_still_{count}_rows"})
             if count == 0:
@@ -156,7 +160,7 @@ def main():
         except SeedEligibilityError:
             raise
         except Exception as exc:  # optional non-membership tables retain their existing policy
-            if key == ("public", "club_members"):
+            if key in (("public", "club_members"), ("public", "cash_games")):
                 raise SeedEligibilityError("club_members extraction failed") from exc
             return ("skipped", {"table": name, "why": "error: " + str(exc)[:160]})
 

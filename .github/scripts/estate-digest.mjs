@@ -22,7 +22,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { supabaseServerHeaders } from '../../scripts/ci/supabase-auth-headers.mjs';
-import {assertClubArenaRepository} from '../../scripts/ci/repository-identity.mjs';
+import { assertClubArenaRepository } from '../../scripts/ci/repository-identity.mjs';
 import { digestRecipients } from './estate-digest-recipients.mjs';
 
 const REPO = process.env.REPO || 'Smarter-Poker/Smarter-Poker-Club-Arena';
@@ -38,19 +38,21 @@ const DAY_MS = 24 * 3600_000;
 const lines = [];
 const problems = [];
 
-const ghWith = (token) => async (path, init = {}) => {
-  const res = await fetch(`https://api.github.com${path}`, {
-    ...init,
-    headers: {
-      authorization: `Bearer ${token}`,
-      accept: 'application/vnd.github+json',
-      ...(init.body ? { 'content-type': 'application/json' } : {}),
-      ...init.headers,
-    },
-  });
-  if (!res.ok) throw new Error(`${path} -> ${res.status}`);
-  return res.json();
-};
+const ghWith =
+  (token) =>
+  async (path, init = {}) => {
+    const res = await fetch(`https://api.github.com${path}`, {
+      ...init,
+      headers: {
+        authorization: `Bearer ${token}`,
+        accept: 'application/vnd.github+json',
+        ...(init.body ? { 'content-type': 'application/json' } : {}),
+        ...init.headers,
+      },
+    });
+    if (!res.ok) throw new Error(`${path} -> ${res.status}`);
+    return res.json();
+  };
 // Existing personal reads remain on their installation; only this transferred
 // repository uses the separately scoped organization token.
 const gh = async (path, init = {}) => {
@@ -92,7 +94,9 @@ const tryStep = async (name, fn) => {
 section('Publish truth');
 await tryStep('publish', async () => {
   const main = await gh(`/repos/${REPO}/commits/main`);
-  const info = await (await fetch('https://smarter.poker/hub/club-arena/build-info.json', { cache: 'no-store' })).json();
+  const info = await (
+    await fetch('https://smarter.poker/hub/club-arena/build-info.json', { cache: 'no-store' })
+  ).json();
   const live = String(info.ca_sha || '').slice(0, 9);
   const tip = main.sha.slice(0, 9);
   if (info.ca_sha === main.sha) {
@@ -110,12 +114,17 @@ await tryStep('publish', async () => {
 
 // ── 2. Merge + Actions volume (the cost proxy) ─────────────────────────────
 section('Volume (last 24h)');
-for (const [label, repo] of [['Club Arena', REPO], ['World Hub', WH_REPO]]) {
+for (const [label, repo] of [
+  ['Club Arena', REPO],
+  ['World Hub', WH_REPO],
+]) {
   await tryStep(`volume ${label}`, async () => {
     const since = new Date(Date.now() - DAY_MS).toISOString();
     const commits = await gh(`/repos/${repo}/commits?since=${since}&per_page=100`);
     const runs = await gh(`/repos/${repo}/actions/runs?created=%3E${since}&per_page=1`);
-    item(`${label}: ${commits.length}${commits.length === 100 ? '+' : ''} commits to main, ${runs.total_count} workflow runs. (August ran ~740 runs/day at the 1,100 USD bill; ~150/day is the post-audit norm.)`);
+    item(
+      `${label}: ${commits.length}${commits.length === 100 ? '+' : ''} commits to main, ${runs.total_count} workflow runs. (August ran ~740 runs/day at the 1,100 USD bill; ~150/day is the post-audit norm.)`
+    );
   });
 }
 
@@ -140,11 +149,21 @@ await tryStep('cron', async () => {
 // ── 4. The money board ──────────────────────────────────────────────────────
 section('Incident board');
 await tryStep('incidents', async () => {
-  const open = await sb(`/rest/v1/ca_drift_incidents?status=neq.resolved&select=severity`, { method: 'HEAD' });
-  const crit = await sb(`/rest/v1/ca_drift_incidents?status=neq.resolved&severity=eq.critical&select=id`, { method: 'HEAD' });
-  const resolved = await sb(`/rest/v1/ca_drift_incidents?status=eq.resolved&resolved_at=gte.${new Date(Date.now() - DAY_MS).toISOString()}&select=id`, { method: 'HEAD' });
+  const open = await sb(`/rest/v1/ca_drift_incidents?status=neq.resolved&select=severity`, {
+    method: 'HEAD',
+  });
+  const crit = await sb(
+    `/rest/v1/ca_drift_incidents?status=neq.resolved&severity=eq.critical&select=id`,
+    { method: 'HEAD' }
+  );
+  const resolved = await sb(
+    `/rest/v1/ca_drift_incidents?status=eq.resolved&resolved_at=gte.${new Date(Date.now() - DAY_MS).toISOString()}&select=id`,
+    { method: 'HEAD' }
+  );
   const n = (r) => Number((r.headers.get('content-range') || '/0').split('/')[1] || 0);
-  item(`Open: ${n(open)} (${n(crit)} critical). Resolved in 24h: ${n(resolved)} - every one now carries a root cause and a correction reference by database law.`);
+  item(
+    `Open: ${n(open)} (${n(crit)} critical). Resolved in 24h: ${n(resolved)} - every one now carries a root cause and a correction reference by database law.`
+  );
 });
 
 // ── 5. Migration record drift ───────────────────────────────────────────────
@@ -153,7 +172,8 @@ await tryStep('drift', async () => {
   let out = '';
   try {
     out = execFileSync('node', ['scripts/ci/check-applied-migrations-are-recorded.mjs'], {
-      encoding: 'utf8', timeout: 120_000,
+      encoding: 'utf8',
+      timeout: 120_000,
       env: { ...process.env },
     });
   } catch (e) {
@@ -161,8 +181,13 @@ await tryStep('drift', async () => {
   }
   // Real output shape: "[applied-migrations-recorded] 378 of 1000 migration(s)
   // applied since <floor> have NO FILE in this repo:"
-  const m = out.match(/(\d+)\s+of\s+\d+\s+migration\(s\)[^:]*NO FILE/i) || out.match(/(\d+)\s+unrecorded/i);
-  const missing = m ? Number(m[1]) : (/every applied migration has a file|0 unrecorded/i.test(out) ? 0 : null);
+  const m =
+    out.match(/(\d+)\s+of\s+\d+\s+migration\(s\)[^:]*NO FILE/i) || out.match(/(\d+)\s+unrecorded/i);
+  const missing = m
+    ? Number(m[1])
+    : /every applied migration has a file|0 unrecorded/i.test(out)
+      ? 0
+      : null;
   item(
     missing === 0
       ? 'Every applied migration has a repo file.'
@@ -172,20 +197,91 @@ await tryStep('drift', async () => {
   );
 });
 
+// ── 6. Seat-first board starts against the under-300 target ────────────────
+//
+// Dan, 2026-11-08: "CUT SPINS AND SIT N GOS DOWN TO LIKE UNDER 300 PER DAY
+// COMBINED", and on acceptance: report total, human-triggered and horse-only
+// starts with satellite feeders counted separately.
+//
+// Read-only, one bounded call for ONE closed Chicago day. This digest runs at
+// 06:07 Chicago, so the previous Chicago day has ended; the function defaults
+// to that day. It reports a number, it never changes one - no release, no
+// registration, no seating, no refund is initiated or retried from here.
+//
+// The target counts Spins plus REGULAR heads-up. Satellite feeders are printed
+// on their own line and deliberately excluded from the comparison: a feeder
+// fills one named event rather than being a price point on the open board.
+const SEAT_FIRST_DAILY_TARGET = 300;
+section('Seat-first board starts (Spins and Sit and Gos)');
+await tryStep('seat-first starts', async () => {
+  const res = await sb(`/rest/v1/rpc/fn_ca_seat_first_daily_starts`, {
+    method: 'POST',
+    body: JSON.stringify({ p_day: null }),
+  });
+  // 10.86 rule 2: an unreadable answer is never coerced into an empty one.
+  if (!res.ok) throw Error(`starts rpc ${res.status}`);
+  const rows = await res.json();
+  if (!Array.isArray(rows)) throw Error('starts rpc returned no rows array');
+  if (rows.length === 0) {
+    item(
+      'No seat-first board started yesterday (Chicago). That is below the target, and unusual enough to look at.'
+    );
+    return;
+  }
+  const day = rows[0].stat_day;
+  const counted = rows.filter((r) => r.kind === 'Spin' || r.kind === 'regular heads-up');
+  const feeders = rows.filter((r) => r.kind === 'satellite feeder');
+  const other = rows.filter((r) => !counted.includes(r) && !feeders.includes(r));
+  const sum = (list, key) => list.reduce((n, r) => n + Number(r[key] || 0), 0);
+  const total = sum(counted, 'starts');
+  const human = sum(counted, 'human_triggered');
+  const horse = sum(counted, 'horse_only');
+  item(
+    `${day} (Chicago): ${total} combined Spin and regular Sit and Go starts against a target of under ${SEAT_FIRST_DAILY_TARGET}` +
+      ` - ${total < SEAT_FIRST_DAILY_TARGET ? 'WITHIN target' : 'OVER target'}.`
+  );
+  item(`${human} human-triggered, ${horse} horse-only.`);
+  for (const r of counted) {
+    item(
+      `  ${r.kind}: ${r.starts} starts (${r.human_triggered} human-triggered, ${r.horse_only} horse-only).`
+    );
+  }
+  item(
+    feeders.length
+      ? `Satellite feeders, counted separately and outside the target: ${sum(feeders, 'starts')} starts (${sum(feeders, 'human_triggered')} human-triggered).`
+      : 'Satellite feeders, counted separately and outside the target: 0 starts.'
+  );
+  // Every format the function buckets is printed, so a format nobody expected
+  // cannot hide inside the total (10.86: no silent zero).
+  for (const r of other) {
+    item(
+      `  ${r.kind}: ${r.starts} starts - outside both the target and the feeder line; check whether it belongs in one.`
+    );
+  }
+});
+
 if (problems.length) {
   section('Digest self-report');
   for (const p of problems) item(p);
 }
 
 const today = new Date().toISOString().slice(0, 10);
-const body = [`One page, generated ${new Date().toISOString()} by estate-digest.yml.`, ...lines].join('\n');
+const body = [
+  `One page, generated ${new Date().toISOString()} by estate-digest.yml.`,
+  ...lines,
+].join('\n');
 console.log(body);
 
 // ── Deliver: the single self-updating issue ────────────────────────────────
 if (TOKEN) {
   try {
-    await ghIssues(`/repos/${REPO}/labels`, { method: 'POST', body: JSON.stringify({ name: 'estate-digest', color: '0E8A16' }) }).catch(() => {});
-    const existing = await ghIssues(`/repos/${REPO}/issues?state=open&labels=estate-digest&per_page=1`);
+    await ghIssues(`/repos/${REPO}/labels`, {
+      method: 'POST',
+      body: JSON.stringify({ name: 'estate-digest', color: '0E8A16' }),
+    }).catch(() => {});
+    const existing = await ghIssues(
+      `/repos/${REPO}/issues?state=open&labels=estate-digest&per_page=1`
+    );
     if (existing.length > 0) {
       await ghIssues(`/repos/${REPO}/issues/${existing[0].number}`, {
         method: 'PATCH',
@@ -195,7 +291,11 @@ if (TOKEN) {
     } else {
       const created = await ghIssues(`/repos/${REPO}/issues`, {
         method: 'POST',
-        body: JSON.stringify({ title: `Estate Digest (${today})`, body, labels: ['estate-digest'] }),
+        body: JSON.stringify({
+          title: `Estate Digest (${today})`,
+          body,
+          labels: ['estate-digest'],
+        }),
       });
       console.log(`[digest] created issue #${created.number}`);
     }
@@ -207,7 +307,9 @@ if (TOKEN) {
 // ── Deliver: in-app, to the same recipients the attestation reaches ────────
 if (SB_URL && SB_KEY) {
   try {
-    const res = await sb(`/rest/v1/ca_incident_recipients?scope=eq.platform&active=eq.true&select=user_id`);
+    const res = await sb(
+      `/rest/v1/ca_incident_recipients?scope=eq.platform&active=eq.true&select=user_id`
+    );
     const recips = res.ok ? await res.json() : [];
     let sent = 0;
     // A report, not an alert: never addressed to the owner account, whose
@@ -219,7 +321,11 @@ if (SB_URL && SB_KEY) {
           p_user_id: r,
           p_type: 'estate_digest',
           p_title: `Estate Digest ${today}`,
-          p_message: lines.filter((l) => l.startsWith('- ')).map((l) => l.slice(2)).join(' | ').slice(0, 900),
+          p_message: lines
+            .filter((l) => l.startsWith('- '))
+            .map((l) => l.slice(2))
+            .join(' | ')
+            .slice(0, 900),
           p_link: '/hub/club-arena/financial-incidents',
           p_data: { source: 'estate-digest.yml', date: today },
         }),

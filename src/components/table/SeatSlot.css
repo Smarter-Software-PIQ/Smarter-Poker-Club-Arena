@@ -597,7 +597,7 @@
   display: none;
 }
 
-.seat--folded .seat__avatar--bust .seat__avatar-img {
+.seat--folded:not(.seat--hero) .seat__avatar--bust .seat__avatar-img {
   filter: brightness(0.35) saturate(0.6);
 }
 
@@ -5004,6 +5004,33 @@
     box-shadow 0.3s ease,
     filter 0.3s ease;
   transform: none;
+}
+
+/* Six hero cards share the board's dimensions. A 45% step exposes each
+   index. On a narrow felt the seat makes only the extra room the fan needs. */
+.table-page .seat.seat--hero:has(> .seat__cards--hero[data-card-count='6']) {
+  --sp-hero-six-card-w: var(--sp-board-card-w, var(--sp-card2-w));
+  --sp-hero-six-card-step: calc(var(--sp-hero-six-card-w) * 0.45);
+  --sp-hero-six-fan-w: calc(var(--sp-hero-six-card-w) + 5 * var(--sp-hero-six-card-step));
+  --sp-hero-half-plate: max(
+    calc(var(--seat-plate-min-width) / 2),
+    calc(var(--seat-avatar-size) * 4 / 7)
+  );
+  --sp-hero-fan-shift: max(
+    0px,
+    calc(var(--sp-hero-half-plate) + 12px + var(--sp-hero-six-fan-w) - 50vw)
+  );
+  translate: calc(-1 * var(--sp-hero-fan-shift)) 0 !important;
+}
+
+.table-page .seat.seat--hero .seat__cards--hero[data-card-count='6'] {
+  --sp-hero-card-w: var(--sp-hero-six-card-w);
+  --sp-hero-card-h: calc(var(--sp-hero-card-w) * 92 / 64);
+  --sp-hero-card-step: var(--sp-hero-six-card-step);
+}
+
+.table-page .seat.seat--hero:has(> .seat__cards--hero[data-card-count='6']) .seat__bet-chips {
+  translate: var(--sp-hero-fan-shift) 0;
 }
 
 /* Confirmed folds hide identity after its motion. Keep the occupied seat,

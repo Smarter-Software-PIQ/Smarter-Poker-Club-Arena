@@ -35,7 +35,8 @@ export interface HorseDecisionReadFrame {
     | 'horse-decision-reads-v8'
     | 'horse-decision-reads-v9'
     | 'horse-decision-reads-v10'
-    | 'horse-decision-reads-v11';
+    | 'horse-decision-reads-v11'
+    | 'horse-decision-reads-v12';
   readonly bytes: number;
   readonly sha256: string;
   readonly json: string;
@@ -74,8 +75,15 @@ const FAST_CALLDOWN_VERSION = 'horse-decision-reads-v10';
  * earlier frame keeps its exact bytes. A v11 body always carries the v10 lists
  * (empty when there is no river recency window). */
 const PROBE_VERSION = 'horse-decision-reads-v11';
-const recencied = (version: unknown) =>
-  version === FAST_CALLDOWN_VERSION || version === PROBE_VERSION;
+/** 2026-11-07: v11 plus the limp-reraise tallies (OpponentStats.lrOpps /
+ * lrRaises, HorseLimpReraiseRead), carried for the pooled rows that hold them
+ * so a second look reads the limper exactly as the first did. Written only
+ * when a captured pooled row carries the tallies, so every earlier frame
+ * keeps its exact bytes. A v12 body always carries the v11 lists (the probe
+ * list may be empty). */
+const LIMP_RERAISE_VERSION = 'horse-decision-reads-v12';
+const probed = (version: unknown) => version === PROBE_VERSION || version === LIMP_RERAISE_VERSION;
+const recencied = (version: unknown) => version === FAST_CALLDOWN_VERSION || probed(version);
 const multiwayed = (version: unknown) => version === MULTIWAY_RIVER_VERSION || recencied(version);
 const raised = (version: unknown) => version === RIVER_RAISE_VERSION || multiwayed(version);
 const positioned = (version: unknown) => version === RIVER_POSITION_VERSION || raised(version);
@@ -136,6 +144,11 @@ const FAST_CALLDOWN_FIELDS = [
 ] as const satisfies readonly (keyof OpponentStats)[];
 /** Not in FIELDS: pooled rows only, carried per row like the recency window. */
 const PROBE_FIELDS = ['ctBets', 'ctProbes'] as const satisfies readonly (keyof OpponentStats)[];
+/** Not in FIELDS: pooled rows only, carried per row like the probe tallies. */
+const LIMP_RERAISE_FIELDS = [
+  'lrOpps',
+  'lrRaises',
+] as const satisfies readonly (keyof OpponentStats)[];
 const riverFields = (version: unknown) =>
   raised(version)
     ? [...RIVER_CALL_FIELDS, ...RIVER_POSITION_FIELDS, ...RIVER_RAISE_FIELDS]
@@ -150,6 +163,7 @@ const completeFields: Exclude<
   | (typeof RIVER_RAISE_FIELDS)[number]
   | (typeof FAST_CALLDOWN_FIELDS)[number]
   | (typeof PROBE_FIELDS)[number]
+  | (typeof LIMP_RERAISE_FIELDS)[number]
   | 'riverHu'
   | 'sourceWindow'
 > extends never
@@ -170,7 +184,9 @@ type Body = {
     | typeof RIVER_RAISE_VERSION
     | typeof MULTIWAY_RIVER_VERSION
     | typeof FAST_CALLDOWN_VERSION
-    | typeof PROBE_VERSION;
+    | typeof PROBE_VERSION
+    | typeof LIMP_RERAISE_VERSION;
+  limpReraiseTallies?: Rows<number[]>;
   probeTallies?: Rows<number[]>;
   riverRecency?: Rows<number[]>;
   scopedRiverRecency?: Rows<number[]>;
@@ -283,7 +299,8 @@ function validateBody(
       ...(rivered(value.version) ? ['riverCalls', 'scopedRiverCalls'] : []),
       ...(multiwayed(value.version) ? ['riverHu', 'scopedRiverHu'] : []),
       ...(recencied(value.version) ? ['riverRecency', 'scopedRiverRecency'] : []),
-      ...(value.version === PROBE_VERSION ? ['probeTallies'] : []),
+      ...(probed(value.version) ? ['probeTallies'] : []),
+      ...(value.version === LIMP_RERAISE_VERSION ? ['limpReraiseTallies'] : []),
       ...(planContext === undefined ? [] : ['planContext']),
       'actors',
       'handKey',
@@ -366,16 +383,25 @@ function validateBody(
     )
       return fail();
   }
-  if (value.version === PROBE_VERSION) {
-    // [ctBets, ctProbes]: whole counts, probes never above bets, pooled rows
-    // only, and at least one row (or the body would have been v10 or older).
-    const tally = (v: unknown) =>
-      numbers(v, PROBE_FIELDS.length) &&
-      (v as number[]).every(Number.isInteger) &&
-      (v as number[])[1] <= (v as number[])[0];
+  // [ctBets, ctProbes] / [lrOpps, lrRaises]: whole counts, the second never
+  // above the first, pooled rows only.
+  const tally = (v: unknown) =>
+    numbers(v, 2) &&
+    (v as number[]).every(Number.isInteger) &&
+    (v as number[])[1] <= (v as number[])[0];
+  if (probed(value.version)) {
+    // A v11 body carries at least one probe row (or it would have been v10).
     if (
       !validRows(value.probeTallies, b.stats, tally) ||
-      (value.probeTallies as Rows<number[]>).length === 0
+      (value.version === PROBE_VERSION && (value.probeTallies as Rows<number[]>).length === 0)
+    )
+      return fail();
+  }
+  if (value.version === LIMP_RERAISE_VERSION) {
+    // At least one row, or the body would have been v11 or older.
+    if (
+      !validRows(value.limpReraiseTallies, b.stats, tally) ||
+      (value.limpReraiseTallies as Rows<number[]>).length === 0
     )
       return fail();
   }
@@ -438,6 +464,8 @@ export function encodeHorseDecisionReads(
           ...(Object.hasOwn(row, FAST_CALLDOWN_FIELDS[0]) ? FAST_CALLDOWN_FIELDS : []),
           // The probe tallies travel as a pair or not at all.
           ...(Object.hasOwn(row, PROBE_FIELDS[0]) ? PROBE_FIELDS : []),
+          // So do the limp-reraise tallies.
+          ...(Object.hasOwn(row, LIMP_RERAISE_FIELDS[0]) ? LIMP_RERAISE_FIELDS : []),
           ...(Object.hasOwn(row, 'sourceWindow') ? ['sourceWindow'] : []),
           ...(Object.hasOwn(row, 'riverHu') ? ['riverHu'] : []),
         ])
@@ -468,10 +496,17 @@ export function encodeHorseDecisionReads(
   const hasWinner = view.winnerReads !== undefined;
   if (hasWinner && (!(view.winnerReads!.seen instanceof Set) || view.winnerReads!.seen.size !== 0))
     return fail();
-  const hasProbes = boundedStats.some(([, row]) => object(row) && row.ctBets !== undefined);
+  const hasLimpReraise = boundedStats.some(([, row]) => object(row) && row.lrOpps !== undefined);
+  const hasProbes =
+    hasLimpReraise || boundedStats.some(([, row]) => object(row) && row.ctBets !== undefined);
   // Scoped rows never carry the tallies (applyScopedDelta mirrors only the
   // scoped fields); one that does is not a view this codec can carry.
-  if (boundedScoped.some(([, row]) => object(row) && row.ctBets !== undefined)) return fail();
+  if (
+    boundedScoped.some(
+      ([, row]) => object(row) && (row.ctBets !== undefined || row.lrOpps !== undefined)
+    )
+  )
+    return fail();
   const hasFastCalldown =
     hasProbes ||
     [boundedStats, boundedScoped].some((rows) =>
@@ -523,7 +558,12 @@ export function encodeHorseDecisionReads(
     [...map]
       .filter(([, row]) => row.ctBets !== undefined)
       .map(([id, row]) => [id, PROBE_FIELDS.map((f) => row[f] ?? 0)]);
+  const limpReraiseRows = (map: Map<string, OpponentStats>): Rows<number[]> =>
+    [...map]
+      .filter(([, row]) => row.lrOpps !== undefined)
+      .map(([id, row]) => [id, LIMP_RERAISE_FIELDS.map((f) => row[f] ?? 0)]);
   const body: Body = {
+    ...(hasLimpReraise ? { limpReraiseTallies: limpReraiseRows(view.stats) } : {}),
     ...(hasProbes ? { probeTallies: probeRows(view.stats) } : {}),
     ...(hasFastCalldown
       ? { riverRecency: recencyRows(view.stats), scopedRiverRecency: recencyRows(view.scoped) }
@@ -531,27 +571,29 @@ export function encodeHorseDecisionReads(
     ...(hasFastCalldown || hasMultiwayRiver
       ? { riverHu: huRows(view.stats), scopedRiverHu: huRows(view.scoped) }
       : {}),
-    version: hasProbes
-      ? PROBE_VERSION
-      : hasFastCalldown
-        ? FAST_CALLDOWN_VERSION
-        : hasMultiwayRiver
-          ? MULTIWAY_RIVER_VERSION
-          : hasRiverRaise
-            ? RIVER_RAISE_VERSION
-            : hasRiverPosition
-              ? RIVER_POSITION_VERSION
-              : hasRiverCalls
-                ? RIVER_CALL_VERSION
-                : hasWinner
-                  ? WINNER_VERSION
-                  : hasExploit
-                    ? EXPLOIT_VERSION
-                    : hasWindows
-                      ? WINDOW_VERSION
-                      : planContext === undefined
-                        ? VERSION
-                        : ALLOCATED_VERSION,
+    version: hasLimpReraise
+      ? LIMP_RERAISE_VERSION
+      : hasProbes
+        ? PROBE_VERSION
+        : hasFastCalldown
+          ? FAST_CALLDOWN_VERSION
+          : hasMultiwayRiver
+            ? MULTIWAY_RIVER_VERSION
+            : hasRiverRaise
+              ? RIVER_RAISE_VERSION
+              : hasRiverPosition
+                ? RIVER_POSITION_VERSION
+                : hasRiverCalls
+                  ? RIVER_CALL_VERSION
+                  : hasWinner
+                    ? WINNER_VERSION
+                    : hasExploit
+                      ? EXPLOIT_VERSION
+                      : hasWindows
+                        ? WINDOW_VERSION
+                        : planContext === undefined
+                          ? VERSION
+                          : ALLOCATED_VERSION,
     ...(hasWindows
       ? { statsWindows: windows(view.stats), scopedWindows: windows(view.scoped) }
       : {}),
@@ -659,12 +701,20 @@ export function decodeHorseDecisionReads(
     );
   view.stats = stats(body.stats, body.statsWindows, body.riverCalls);
   view.scoped = stats(body.scoped, body.scopedWindows, body.scopedRiverCalls);
-  if (body.version === PROBE_VERSION) {
+  if (probed(body.version)) {
     for (const [id, [ctBets, ctProbes]] of body.probeTallies!) {
       const stat = view.stats.get(id);
       if (!stat) return fail();
       stat.ctBets = ctBets;
       stat.ctProbes = ctProbes;
+    }
+  }
+  if (body.version === LIMP_RERAISE_VERSION) {
+    for (const [id, [lrOpps, lrRaises]] of body.limpReraiseTallies!) {
+      const stat = view.stats.get(id);
+      if (!stat) return fail();
+      stat.lrOpps = lrOpps;
+      stat.lrRaises = lrRaises;
     }
   }
   if (recencied(body.version)) {

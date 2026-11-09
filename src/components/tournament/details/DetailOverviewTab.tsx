@@ -101,6 +101,8 @@ import {
   topBountyCents,
 } from '../../../services/MysteryBountyService';
 import { useSatellites } from './useSatellites';
+import { useMyPlayers } from './useMyPlayers';
+import MyPlayersCard from './MyPlayersCard';
 import {
   describeMttStructure,
   mttClockDescription,
@@ -204,6 +206,8 @@ export default function DetailOverviewTab({
     error: satError,
     retry: satRetry,
   } = useSatellites(tournament?.id, currentUserId);
+  /* An agent's own players, on the first tab they land on (Dan 2026-11-08). */
+  const myPlayers = useMyPlayers(tournament, entries || [], tables || [], currentUserId);
 
   /* ── The one-second heartbeat. Only runs when something on screen actually
         moves: a running level clock, or a countdown to a start time. ── */
@@ -1138,6 +1142,10 @@ export default function DetailOverviewTab({
           )}
         </div>
       )}
+
+      {/* Your players, right under the event summary (Dan 2026-11-08). Drawn
+          only for a viewer who carries a downline, in every state. */}
+      {myPlayers.ready && <MyPlayersCard summary={myPlayers.summary} />}
 
       {/* Multi-day schedule, bag, leaders and Day 2 seat. Renders null unless
           the multi-day capability is available and this event has a plan. */}

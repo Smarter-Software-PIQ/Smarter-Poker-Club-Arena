@@ -482,8 +482,8 @@
       "sha256": "0c3c357e106b6daf5461587e707e63d47260837870a7fb423d2f4fdd00b339bd"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 144778,
-      "sha256": "8b727bbaafa91d23717f865783d85912aaeb622cf20254aea453ca7be04c7714"
+      "bytes": 144819,
+      "sha256": "495bf6777969db9472ecc03d96ba857b87622c424a60c95fc4df8e98fe88c1c8"
     },
     "scripts/ci/qualification-input-projections.py": {
       "bytes": 9270,
@@ -3090,5 +3090,13 @@
     },
     "review": "The only change in classify-ci-changes.mjs is accountingJobInputs(): every scripts/, tests/, server/scripts/ or operations/ file named in the accounting_postgres block of ci.yml now also admits the server flag that gates that job (fails open to scripts/ci|dev/test-* when ci.yml cannot be read). It only widens admission; no job is skipped that ran before.",
     "reason": "2026-11-08: #10004 changed a harness only accounting_postgres runs and every accounting shard was skipped."
+  },
+  "hostedCaddyTokenInput20261108": {
+    "file": "scripts/qualification/ci-accounting-inputs.json",
+    "previousSha256": "8b727bbaafa91d23717f865783d85912aaeb622cf20254aea453ca7be04c7714",
+    "sha256": "495bf6777969db9472ecc03d96ba857b87622c424a60c95fc4df8e98fe88c1c8",
+    "scope": "Reviewed sole workflow projection delta: native Data Console step receives existing scoped github.token for the pinned authenticated Caddy asset request. All accounting commands, assertions, matrices, deadlines and admission remain unchanged.",
+    "execution_performed": false,
+    "qualification": "Source identity only; no historical result or production receipt changed. Required final-head native qualification remains mandatory."
   }
 }

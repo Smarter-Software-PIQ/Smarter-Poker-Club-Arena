@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 
 root = Path(__file__).resolve().parents[2]
@@ -36,3 +37,13 @@ finally:
         run([pg/'pg_ctl','-D',work/'data','-m','immediate','stop'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     shutil.rmtree(work)
     shutil.rmtree(sock)
+
+# Current net-coverage and promo-custody regression shares this required accounting route.
+run([sys.executable, root/'scripts/ci/test-net-guarantee-promo.py'])
+
+# Completed-event guarantee debt uses the established house-settlement door.
+run([sys.executable, root/'scripts/ci/test-net-guarantee-completed.py'])
+
+# Owner ruling 2026-11-08: horses are refunded exactly as humans. Its retirement
+# fix and receipted back-refund share this required accounting route.
+run([sys.executable, root/'scripts/ci/test-horse-refund-parity.py'])

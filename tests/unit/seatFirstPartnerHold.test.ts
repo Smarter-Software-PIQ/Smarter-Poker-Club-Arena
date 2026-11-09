@@ -25,10 +25,18 @@ const SERVER = readFileSync(
 
 describe('seatFirstPartnerHoldEndsAtMs', () => {
   const sat = 1_000_000;
-  it('is the later of the window and 90 s after the seat, plus the 30 s spread, capped at 350 s', () => {
-    expect(seatFirstPartnerHoldEndsAtMs(sat + 15_000, sat)).toBe(sat + 120_000);
-    expect(seatFirstPartnerHoldEndsAtMs(sat + 200_000, sat)).toBe(sat + 230_000);
-    expect(seatFirstPartnerHoldEndsAtMs(sat + 999_000, sat)).toBe(sat + 350_000);
+  it('is 3 minutes after the seat plus the 30 s spread, whatever the board window says', () => {
+    /* 2026-11-08: the board's own window no longer enters into it. A
+       horse-opened board now waits HOURS for a person (the ladder), so taking
+       the later of the two would have stranded the one person who sat down.
+       Every case below is the same instant on purpose - that is the rule. */
+    expect(seatFirstPartnerHoldEndsAtMs(sat + 15_000, sat)).toBe(sat + 210_000);
+    expect(seatFirstPartnerHoldEndsAtMs(sat + 200_000, sat)).toBe(sat + 210_000);
+    expect(seatFirstPartnerHoldEndsAtMs(sat + 4 * 3_600_000, sat)).toBe(sat + 210_000);
+  });
+
+  it('never holds a seated person longer than 7 minutes', () => {
+    expect(seatFirstPartnerHoldEndsAtMs(sat, sat)).toBeLessThanOrEqual(sat + 420_000);
   });
   it('with no seat time at all it is still an upper bound on the window', () => {
     expect(seatFirstPartnerHoldEndsAtMs(sat, null)).toBe(sat + 30_000);
@@ -41,8 +49,10 @@ describe('seatFirstPartnerHoldEndsAtMs', () => {
     expect(SERVER).toContain(
       'export const SEAT_FIRST_HUMAN_PARTNER_HOLD_MS = SEAT_FIRST_HUMAN_WINDOW_MIN_MS;'
     );
-    expect(SERVER).toContain('export const SEAT_FIRST_HUMAN_WINDOW_MIN_MS = 90 * 1000;');
-    expect(SERVER).toContain('export const SEAT_FIRST_HUMAN_WINDOW_MAX_MS = 350 * 1000;');
+    /* 2026-11-08: the two window constants now carry Dan's 3-7 minute human
+       rule rather than the retired 90-350 second board window. */
+    expect(SERVER).toContain('export const SEAT_FIRST_HUMAN_WINDOW_MIN_MS = HUMAN_ARRIVAL_MIN_MS;');
+    expect(SERVER).toContain('export const SEAT_FIRST_HUMAN_WINDOW_MAX_MS = HUMAN_ARRIVAL_MAX_MS;');
   });
 });
 

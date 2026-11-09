@@ -1,3 +1,4 @@
+**November 8 Horse study continuation:** the owner directed completion now in chat `01a1af6b-2112-7fc2-b6bf-f6b5f0e9f430`. The single successor `2026-11-08-horse-study-successor-engine-1820z` preserves the expired prior booking and admits only one certified replacement of `391f7bc0d57c71637bd4af5181f70520661e3593`, between 18:20 UTC November 8 and 00:20 UTC November 9, after the published 18:00 UTC November 8 player notice has actually been available for at least twenty minutes. Exact qualification, Backup, protected target/control, hand drain, full freeze/proof/rollback reserve and thaw remain required. This does not renew the expired prior operation or change the standing daily schedule.
 **Owner direction November 6, 2026 (chat `01a1b095-8bd5-7d42-afcf-1a0843448274`):** All engine upgrades are staged and certified on isolated Backup during the day. Production replacements require certification for the exact version and may activate ONLY in the 04:00-04:05 America/Chicago maintenance window, after the 03:58 notice and all existing custody, freeze, proof, rollback and thaw safeguards. The temporary Phase1 hourly exception and historical urgent/degraded/owner-window replacement exceptions are revoked. A successful sealed release triggers a fresh Backup copy. Agents work in owned branches and merge through required checks; they never edit the live engine or a shared running Backup directly. A failed or missing certificate leaves the current engine running. Source preparation and non-engine delivery continue throughout the day.
 
 # Publishing through the restored providers
@@ -63,7 +64,7 @@ The step-by-step procedure for everything in this section, including the decisio
 
 Start in an owned branch from protected main. Keep the engine change, required migrations and focused regression coverage together. Preview the applicable checks with `node scripts/ci/execution-preview.mjs --working-tree`. Run the selected local checks and required gates, then merge through the protected PR. A server-tree push starts [Backup qualification](.github/workflows/backup-engine.yml) for that revision. Backup uses an isolated database and rehearses boot, crash recovery and a 1,800-second soak. Agents contribute through Git. Editing a running clone would produce a version that cannot be traced to the PR.
 
-**A certificate follows identical engine source (2026-11-07).** The engine image is built from `git archive <sha> server` with `server/Dockerfile`, so `scripts/ci/engine-source-identity.sh <sha>` names exactly the bytes it is built from (the Dockerfile's context `COPY` sources, the Dockerfile and the script itself). A push run that is still the newest computes the candidate's identity, walks main's first-parent line back 60 commits, and inherits `backup-engine/certified = success` from the nearest ancestor with the same identity whose newest certificate is success, writing the candidate's own status as `Inherited from <sha>: identical engine source (<prefix>)` and building nothing. A same-identity ancestor whose newest certificate is failure, error or unreadable stops the walk and the candidate certifies in full; a different identity is never consulted; dispatch, schedule and post-seal runs always build. Selection and admission read only the state, so an inherited certificate qualifies exactly like an earned one, and the trace recipe below prints the inheritance in its description. The 1,800-second soak is unchanged for any candidate that builds. `docs/changelog/2026-11-07-a-certificate-follows-identical-engine-source.md`.
+**A certificate follows identical engine source (2026-11-07).** The engine image is built from `git archive <sha> server` with `server/Dockerfile`, so `scripts/ci/engine-source-identity.sh <sha>` names exactly the bytes it is built from (the Dockerfile's context `COPY` sources, the Dockerfile and the script itself). A push run that is still the newest computes the candidate's identity, walks main's first-parent line back 60 commits, and inherits `backup-engine/certified = success` from the nearest ancestor with the same identity whose newest certificate is success, writing the candidate's own status as `Inherited from <sha>: identical engine source (<prefix>)` and building nothing. A same-identity ancestor whose newest certificate is failure, error or unreadable stops the walk and the candidate certifies in full; a different identity is never consulted; dispatch, schedule and post-seal runs always build. Inheritance also requires identical release-authority, Backup rehearsal/seed and migration inputs, including the latest migration commit identity; a changed or unreadable projection stops the walk and runs the existing full certification. The shared prequalification projection supplies the release-control inputs. The daily selector still requires a physical exact-target artifact and current restore, serving predecessor and reconnect evidence; an inherited status alone never qualifies. With unchanged controls it may select the older physically certified candidate. The trace recipe below prints inheritance in its description. The 1,800-second soak is unchanged for any candidate that builds. `docs/changelog/2026-11-07-a-certificate-follows-identical-engine-source.md`.
 
 ### Trace a change to its certificate
 
@@ -85,6 +86,13 @@ Inclusion requires a merged PR, a comparison of `identical` or `ahead`, and zero
 Run `node scripts/ops/release-plan.mjs` at any time (an authenticated GitHub token in `GH_TOKEN`, and `DATABASE_URL` with `--ssl-root-cert scripts/ci/certificates/supabase-prod-ca-2021.crt` for the migration queue) to see, read-only, what the next 04:00 preparation would select: the serving SHA from `/health`, the main tip, the first-parent walk to the newest `backup-engine/certified` commit with every commit's state, the `server/**` commits between production and main, the Backup lane's runs, every queued `-- @install-window: daily-maintenance` file with its static validation, and a verdict of READY, NOTHING_OWED, NOT_READY or UNKNOWN (exit 0, 0, 1, 3). It never dispatches, cancels or writes. [evening-release-plan.yml](.github/workflows/evening-release-plan.yml) is its scheduled reader at 20:00 America/Chicago on main: it fails on NOT_READY or UNKNOWN so the red-main detector raises the issue, and keeps the JSON plan as an artifact. `--json` prints the plan; a queue that cannot be read is UNKNOWN, never zero.
 
 ### Select and activate the daily release
+
+The existing Stage workflow can reserve a Chicago date up to five elapsed hours
+before 03:30. One original run owns that date and waits once until the unchanged
+03:30 cutoff; it refreshes protected main before selecting. Later commits are
+included only if qualified by the cutoff. Changed release authority during the
+wait, a replay, or a missed 03:50 preparation deadline leaves production serving.
+No second scheduler, recurring repair or manual dispatch supplies this behavior.
 
 The release owner follows [daily staging](.github/workflows/stage-engine-release.yml) and its [receiver](.github/workflows/auto-deploy-hetzner.yml). Use America/Chicago calendar dates across daylight-saving changes. The normal last-hand notice starts at 03:58. Activation requires the 04:00–04:05 window, confirmed drain and freeze, exact Backup success, production database compatibility, a verified rollback source and the full cutover reserve. Keep the serving engine when any required evidence is missing. A late request cannot claim tomorrow's slot. Read the original request and result before retrying an interrupted operation.
 
@@ -125,7 +133,7 @@ A later serving release is shown separately; a historical seal never claims that
 its old instance is still serving. This workflow cannot dispatch a cutover,
 restart an engine, write the database or replay a payment.
 
-A successful receiver triggers a fresh Backup through the supported workflow. Inspect the resulting restore validation, seed failure count and final exact-SHA certificate. If the receiver concluded failure despite a verified seal, the release owner first checks for an existing refresh in the Backup queue. After proving the exact SHA is still serving, the owner can submit the supported Backup-only recovery once:
+A successful receiver triggers a fresh Backup through the supported workflow. Inspect the resulting restore validation, seed failure count and final exact-SHA certificate. The seed must record `cashClusterParentsValidated: true`; older copies refresh before certification. If the receiver concluded failure despite a verified seal, the release owner first checks for an existing refresh in the Backup queue. After proving the exact SHA is still serving, the owner can submit the supported Backup-only recovery once:
 
 ```sh
 served=$(curl -fsS https://engine.smarter.poker/health | jq -er .releaseSha) &&
@@ -139,7 +147,7 @@ Record the staging run, selected runtime component revision and receiving engine
 
 If the assigned change includes monitoring, use its existing **deploy-monitoring.yml** route and final loaded-configuration verification. If it includes a database change, qualify and apply the exact migration through the configured authorized installation path, then read back the installed state and migration history. A merged migration file is not an installation. Do not replay installed migrations or assume an engine deployment applies them automatically. Preserve any actual application compatibility/cutover prerequisites.
 
-**A migration reaches production only from protected main (owner instruction, October 25, 2026).** Every merge of a same-repository pull request into main installs what it added, whoever merged it: `.github/workflows/dispatch-merged-migrations.yml` runs on the merge's own `closed` event and `dispatch-merged-migrations.sh` sends one Apply Merged Migration dispatch per added migration, in filename order, after the one bounded break-window wait; a `-- @install-window: daily-maintenance` file is named as queued for the daily window and never sent early. Read that run's summary after your merge; dispatch by hand (repository_dispatch apply-merged-migration, payload {migration}) only for a file its summary names as not sent. The applier sends the merged bytes once, in one transaction, records the file's own version and answers ALREADY-APPLIED for a version production holds. Never apply a migration from an unmerged branch, a local file or the Supabase MCP apply_migration, which also stamps the apply time as the version. On October 24 and 25 three migrations were applied from pull requests that were still open (#7968, #7983, #8019), so production ran SQL that main had never seen until it was recorded by hand in #8109. A fix that is urgent merges first; the dispatcher installs it minutes after the merge. The one exception is an active production outage that cannot wait for required checks: the agent that applies directly commits the byte-exact recording to main (scripts/ci/recorded-migrations.manifest.json) as its very next step and names the outage in that pull request.
+**A migration reaches production only from protected main (owner instruction, October 25, 2026).** Every merge of a same-repository pull request into main installs what it added or modified, whoever merged it: `.github/workflows/dispatch-merged-migrations.yml` runs on the merge's own `closed` event and `dispatch-merged-migrations.sh` sends one Apply Merged Migration dispatch per added or modified migration (modified since 2026-11-08: a migration refused at install and fixed in place; never a removed file), in filename order, after the one bounded break-window wait; a `-- @install-window: daily-maintenance` file is named as queued for the daily window and never sent early. Read that run's summary after your merge; dispatch by hand (repository_dispatch apply-merged-migration, payload {migration}) only for a file its summary names as not sent. The applier sends the merged bytes once, in one transaction, records the file's own version and answers ALREADY-APPLIED for a version production holds. Never apply a migration from an unmerged branch, a local file or the Supabase MCP apply_migration, which also stamps the apply time as the version. On October 24 and 25 three migrations were applied from pull requests that were still open (#7968, #7983, #8019), so production ran SQL that main had never seen until it was recorded by hand in #8109. A fix that is urgent merges first; the dispatcher installs it minutes after the merge. The one exception is an active production outage that cannot wait for required checks: the agent that applies directly commits the byte-exact recording to main (scripts/ci/recorded-migrations.manifest.json) as its very next step and names the outage in that pull request.
 
 ## Production Alerts native event consumer
 
@@ -210,3 +218,43 @@ The receiver verifies the selected control against its actual protected control 
 **Stop a queued engine replacement.** Using the authorized administrative shell on the production engine host, create the persistent stop marker with `mkdir -p /var/lib/club-arena/owner-stop-engine-replacement && sync -f /var/lib/club-arena`. The host checks for it before reservation, preparation and final replacement admission. Once replacement has passed final admission, its original transaction finishes verification or recovery. The marker survives process and host restarts. To resume future eligible releases, use `rmdir /var/lib/club-arena/owner-stop-engine-replacement && sync -f /var/lib/club-arena`. Clearing the marker does not dispatch a release.
 
 If a new candidate consumes its host start authorization and is aborted before commit, the seal retains its run, revision and image ID. Future routine reservations and prepares reject that revision. Submit the correction on protected main and qualify its new revision on Backup. An abort before token consumption leaves the candidate eligible. Recovery of the sealed desired release remains available.
+
+### Explicit finite owner selection
+
+A separately protected, currently open owner order can use the existing Stage
+workflow with `request_engine_release=true`, its exact `owner_window_id`, and
+`request_database_break=false` on `main`. Only the protected pinned
+`nov7-owner` validator admits this branch; arbitrary, old or expired orders
+fail. This does not change the daily election or grant authority from a chat.
+The release owner must first verify the actual public notice and required lead.
+
+This branch freezes the Stage SHA as control and selects the newest qualified
+protected ancestor with identical release-control inputs and the same pinned
+owner floor and order. Unrelated later main commits do not discard valid
+qualification; changed release controls require new evidence. The candidate's
+exact Backup, schema freshness, both-direction rollback rehearsal, four engine
+qualification shards and immutable images must already qualify at the original
+Stage run's creation time. The original
+single-attempt `owner-engine-selection-<owner_window_id>` artifact contains
+`daily-selection.json`; the existing signal passes its run ID to the existing
+receiver. The receiver verifies the archive digest, exact original successful
+selection job, cutoff, owner identity and still-open protected admission before
+handoff. Missing or changed evidence keeps the current engine serving. The
+host's one-use predecessor, actual notice, custody, freeze, proof, rollback and
+thaw checks remain mandatory. Do not dispatch the receiver directly.
+
+### Capped satellite settlement compatibility
+
+Migration `20261108154158_capped_frozen_satellite_cohort_awards.sql` installs before
+its compatible engine. Existing terminal execution refuses a field-capped award
+with an attached remainder before financial effects. The successor engine uses
+`fn_execute_capped_satellite_terminal_request` for qualifier settlement, retaining
+the original durable request and lease generation. Its v3 consumer verifies the
+final ticket recipient also owns the attached remainder; legacy v2 stays strict.
+Do not manually settle, rewrite frozen entitlements, or replay an unknown outcome.
+After the certified daily cutover, verify the original event's canonical receipt,
+49 financial legs totaling 1,003 for the affected 48-ticket event, and completion.
+A rollback to the older engine must preserve any committed receipt; an unsupported
+receipt is a recovery hold, never authorization for another payment.
+
+Schema changes under `supabase/migrations/**` trigger both existing Backup and engine prequalification push workflows on protected main. A migration-only push retains its exact SHA when the latest server commit is older; changed migration inputs require full Backup certification and the existing schema-refresh decision. Later client-only changes can use that earlier physical certificate and exact prequalification when the selector's current schema, controls and serving-predecessor checks still pass. No new schedule or client-only qualification trigger is introduced.

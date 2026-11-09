@@ -92,7 +92,7 @@ describe('the wiring that gives the human the first claim', () => {
   it("the fast lane declares a human's demand before asking, and clears it once full", () => {
     const topUp = bodyOf(GS, 'private async topUpPartialSeatFirst(');
     const note = topUp.indexOf('noteHumanSeatDemand(tournamentId, seats - paid)');
-    const ask = topUp.indexOf('topUpWithHorses(tournamentId, seats, {');
+    const ask = topUp.indexOf('topUpWithHorses(tournamentId, ask, {');
     expect(note).toBeGreaterThan(-1);
     expect(note).toBeLessThan(ask);
     expect(topUp).toContain('clearHumanSeatDemand(tournamentId)');

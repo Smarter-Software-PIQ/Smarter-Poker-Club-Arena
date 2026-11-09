@@ -25,6 +25,8 @@ import {
 } from './HorseOpponentMemory.js';
 import {
   respectWinner,
+  isProvenWinner,
+  WINNER_BLUFF_MOD,
   createWinnerReadState,
   snapshotWinnerReads,
   runWithWinnerReadState,
@@ -238,6 +240,12 @@ export interface OpponentStats {
   ctBets?: number;
   /** ... of which probes */
   ctProbes?: number;
+  // ── LIMP-RERAISE (2026-11-07, HorseLimpReraiseRead.ts). Pooled and memory
+  // only, like the probe tallies.
+  /** times their preflop limp met a raise behind it and they acted again */
+  lrOpps?: number;
+  /** ... and re-raised */
+  lrRaises?: number;
 }
 
 /** V43: a bet within this many ms of the previous action is a snap. */
@@ -345,6 +353,15 @@ export function aggressionShownAsValue(
 export interface DecisionReadOptions {
   postflopFoldRate?: boolean;
   shrinkResponseReads?: boolean;
+  /** Break-even postflop bluffing (see BREAK_EVEN_BLUFF below). */
+  breakEvenBluff?: boolean;
+  /** A thin scoped bucket is shrunk toward its own game's population
+   *  instead of falling back to the pooled bucket (see readStats). */
+  scopedShrink?: boolean;
+  /** Omaha EV fold model: the bet engine's per-opponent fold multiplier is
+   *  the measured Omaha fold-over-MDF ratio scaled by the opponent's shrunk
+   *  postflop fold-to-bet read (see OMAHA_EV_FOLD_MODEL below). */
+  omahaEvFoldModel?: boolean;
 }
 /** Decayed postflop facing-bet opportunities before the postflop fold rate reads. */
 export const FOLD_READ_MIN_OPPS = 8;
@@ -362,6 +379,205 @@ export const RESPONSE_READ_PRIOR: Readonly<
   foldToCbet: Object.freeze({ holdem: 0.46, omaha: 0.46, sixplus: 0.46 }),
 });
 
+/**
+ * BREAK-EVEN POSTFLOP BLUFFING (2026-11-08, follow-up to the read
+ * calibration above). An air bet of `s` times the pot risks s to win 1, so it
+ * breaks even when the opponent folds s / (1 + s) of the time, and its value
+ * per pot is (1 + s) x (fold - s / (1 + s)): proportional to the fold share
+ * ABOVE break-even at that size. The legacy multiplier compared an all-street
+ * fold rate with fixed 0.62 / 0.35 lines and no bet size; the corrected
+ * postflop read alone, against those same lines, lost the horse mirror
+ * (-2.32 +/- 1.09 bb/100), because the lines had been tuned against the
+ * inflated read. Here the multiplier is re-derived instead:
+ *
+ *   fold(s)  = BREAK_EVEN_FOLD_CURVE[family](s) + (read - population)
+ *   mod(s)   = BREAK_EVEN_REFERENCE_MOD x (fold(s) - s / (1 + s))
+ *                                       / (curve(s_ref) - s_ref / (1 + s_ref))
+ *
+ * clamped to [BREAK_EVEN_MOD_MIN, BREAK_EVEN_MOD_MAX]. It replaces the
+ * exploit bluff multiplier only where bluff frequency is set (HorseLogic's
+ * bluff scale: bets, barrels and bluff raises); the scalar bluffMod that
+ * other consumers read as a folder / station classification is unchanged.
+ *  - read: the decision context's postflop fold-to-bet counters (the same
+ *    counters readPostflopFoldRate and the shared memory read), shrunk toward
+ *    the game's population mean (the exploit envelope cell) with
+ *    BREAK_EVEN_PRIOR_STRENGTH pseudo-observations, so a short sample sits
+ *    near the population and a long one speaks for itself.
+ *  - curve: how often players fold to the first bet of a postflop street, by
+ *    its size, measured on the accepted hands of the read calibration
+ *    (2026-07-22 .. 2026-11-07, every seat pooled, no labels): players fold
+ *    more to bigger bets, but not in proportion, so small bets keep the most
+ *    surplus in hold'em and Omaha players barely fold to small bets.
+ *  - a semi-bluff with a live draw keeps its equity when called, so its
+ *    break-even fold share is lower (breakEvenFoldShare); the other bluff
+ *    bets are priced as air, because their equity is mostly against the
+ *    part of the range that folds.
+ *  - the scale: at the reference size the population keeps the volume the
+ *    ladder has been played and tuned at against that population
+ *    (x1.45: horses read as folders on the legacy rate); every other read
+ *    and size moves with its own surplus over break-even. Below break-even
+ *    the multiplier sits at the floor (a semi-bluff still has equity).
+ *
+ * Read for every opponent the same way; null outside nlh / plo4-6 (no curve
+ * measured) and outside a decision scope, where the legacy profile answers.
+ *
+ * ONLY AGAINST AN OPPONENT WHOSE BLUFF PRICE IS ALREADY READ (2026-11-08).
+ * The standing law "a horse that has read nobody plays exactly as it did
+ * before it could" (HorseOpponentExploitNeutrality.law) lets the exploit layer
+ * move bluff frequency only against an opponent whose postflop fold-to-bet or
+ * river-call read is credibly outside the measured envelope (postflopBluffMod
+ * not null). The break-even multiplier is a re-pricing of that same bluff
+ * read, so it follows the same gate: against any other opponent, a stranger
+ * included, breakEvenBluffOf is null and the existing price answers exactly
+ * as with the flag off. The first version answered for everyone, and an
+ * opponent with no postflop sample got the population's x1.45 where every
+ * other read gives no adjustment. The gate reads opponentRead, so a decision
+ * whose reads are switched off has no break-even read either.
+ */
+export const BREAK_EVEN_FOLD_CURVE: Readonly<
+  Record<'holdem' | 'omaha', ReadonlyArray<readonly [size: number, fold: number]>>
+> = Object.freeze({
+  // NLH, 18,560 first-bet responses
+  holdem: Object.freeze([
+    [0.24, 0.347],
+    [0.34, 0.388],
+    [0.44, 0.446],
+    [0.55, 0.463],
+    [0.67, 0.501],
+    [0.81, 0.588],
+    [0.99, 0.658],
+    [1.22, 0.679],
+    [2.43, 0.716],
+  ] as const),
+  // PLO4/5/6, 23,652 first-bet responses; pot-limit sizes stop at the pot
+  omaha: Object.freeze([
+    [0.22, 0.26],
+    [0.35, 0.388],
+    [0.45, 0.423],
+    [0.53, 0.471],
+    [0.69, 0.574],
+    [0.81, 0.641],
+    [0.99, 0.688],
+  ] as const),
+});
+/** Pot fraction at which the population keeps the ladder's tuned volume. */
+export const BREAK_EVEN_REFERENCE_SIZE = 0.67;
+/** The ladder's tuned volume against the population at the reference size. */
+export const BREAK_EVEN_REFERENCE_MOD = 1.45;
+export const BREAK_EVEN_MOD_MIN = 0.3;
+/** The ceiling is the legacy folder multiplier: the ladder was never tuned
+ *  above it, and against the population it is already reached. */
+export const BREAK_EVEN_MOD_MAX = 1.45;
+/** Pseudo-observations of the population mean in the postflop fold read. */
+export const BREAK_EVEN_PRIOR_STRENGTH = 16;
+/** Games the fold curve was measured on. */
+const BREAK_EVEN_VARIANTS = new Set(['nlh', 'plo4', 'plo5', 'plo6']);
+
+export type BreakEvenFamily = keyof typeof BREAK_EVEN_FOLD_CURVE;
+
+/** The population's fold share against a first bet of `size` pots. */
+export function breakEvenCurveFold(family: BreakEvenFamily, size: number): number {
+  const pts = BREAK_EVEN_FOLD_CURVE[family];
+  const x = Math.max(pts[0][0], Math.min(pts[pts.length - 1][0], size));
+  for (let i = 1; i < pts.length; i++) {
+    if (x <= pts[i][0]) {
+      const [x0, y0] = pts[i - 1];
+      const [x1, y1] = pts[i];
+      return y0 + ((y1 - y0) * (x - x0)) / (x1 - x0);
+    }
+  }
+  return pts[pts.length - 1][1];
+}
+
+/**
+ * The fold share at which a bet of `size` pots does as well as CHECKING, when
+ * a call leaves it `equity` of the pot it built. Betting is worth
+ * fold + (1 - fold)(equity (1 + 2s) - s) pots; checking keeps equity of the
+ * pot already there. They are equal at
+ *
+ *   fold = s (1 - 2 equity) / (1 + s - equity (1 + 2s)),
+ *
+ * which is s / (1 + s) for air (equity 0) and zero from equity 0.5 (a value
+ * bet). 2026-11-08 correction: the first version compared the bet with
+ * giving the pot up (EV 0) rather than with checking, so any hand with about
+ * a third of the equity "needed no folds" and bet at the ceiling multiplier
+ * even into a calling station.
+ */
+export function breakEvenFoldShare(size: number, equity = 0): number {
+  const e = Number.isFinite(equity) ? Math.max(0, Math.min(1, equity)) : 0;
+  const s = Number.isFinite(size) && size > 0 ? size : 0;
+  const gain = s * (1 - 2 * e);
+  if (gain <= 0) return 0;
+  return gain / (1 + s - e * (1 + 2 * s));
+}
+
+/**
+ * The bluff multiplier for a bet of `size` pots into an opponent whose
+ * shrunk postflop fold read sits `foldShift` above (+) or below (-) the
+ * game's population mean. `equity` is what a call leaves the bet (0 for
+ * air; a live draw's equity for a semi-bluff).
+ */
+export function breakEvenBluffMod(
+  foldShift: number,
+  family: BreakEvenFamily,
+  size: number,
+  equity = 0
+): number {
+  const s = Number.isFinite(size) && size > 0 ? size : BREAK_EVEN_REFERENCE_SIZE;
+  const ref = BREAK_EVEN_REFERENCE_SIZE;
+  const refSurplus = breakEvenCurveFold(family, ref) - breakEvenFoldShare(ref);
+  const fold = Math.max(0, Math.min(1, breakEvenCurveFold(family, s) + foldShift));
+  const mod = (BREAK_EVEN_REFERENCE_MOD * (fold - breakEvenFoldShare(s, equity))) / refSurplus;
+  return Math.max(BREAK_EVEN_MOD_MIN, Math.min(BREAK_EVEN_MOD_MAX, mod));
+}
+
+/**
+ * OMAHA EV FOLD MODEL (2026-11-08, Omaha threshold calibration). Omaha,
+ * short deck, pineapple and fixed limit bet from the EV engine
+ * (HorseEvEngine.evaluateSpot), which prices each opponent's fold as MDF,
+ * s / (1 + s), times a fold multiplier. That multiplier was the exploit bluff
+ * multiplier: x1.45 above a 0.62 all-street fold rate, x0.55 below 0.35,
+ * else 1. Measured walk-forward on the 13,667 accepted PLO4/5/6 hands of the
+ * read calibration (2026-07-22 .. 2026-11-07, every player's read taken
+ * before the hand), fit on the first half of the timeline, scored on the
+ * second: against a first postflop bet the engine predicted 37.8% folds and
+ * players folded 52.0% (flop and turn, 9,268 responses; Brier 0.2471 against
+ * 0.2218 for this model). Against people it predicted 20.9% and they folded
+ * 35.7%, because the all-street rate counts preflop calls of raises, which
+ * Omaha players make constantly: 85% of human Omaha postflop spots read as a
+ * station (x0.55) and those players folded 40%.
+ *
+ *   foldMul = foldOverMdf x shrunk(fold to a postflop bet) / population
+ *
+ * foldOverMdf: every first postflop flop or turn bet's responses at cash
+ * tables, every seat pooled, no labels: the fold share over the mean MDF of
+ * the sizes faced. population: the same game's cash postflop fold-to-bet
+ * counter rate (the exploit counters' own definition, every player), and
+ * the shrink uses OMAHA_EV_FOLD_PRIOR_STRENGTH pseudo-observations of it, so
+ * a stranger is the population and a long sample speaks for itself.
+ * Full-sample cash constants: flop/turn responses PLO4 5,125, PLO5 12,104,
+ * PLO6 1,031; counter opportunities 6,909 / 16,002 / 1,528. mdfFold clamps
+ * the multiplier to 0.4 .. 1.8.
+ *
+ * CASH ONLY. Tournament Omaha players fold about MDF to a flop or turn bet
+ * (fold over MDF PLO4 1.09, PLO5 1.04, PLO6 1.05 on 693 tournament
+ * responses), and the first league run that priced tournaments with the cash
+ * ratio lost the PLO4 40bb tournament mirror (-3.25 +/- 1.16 and -5.26 +/-
+ * 1.18 bb/100), so a tournament decision keeps the exploit multiplier.
+ * Only the EV engine reads it (HorseMind.evFoldMul); the scalar bluffMod
+ * every other consumer classifies by is unchanged.
+ */
+export type OmahaEvFoldVariant = 'plo4' | 'plo5' | 'plo6';
+export const OMAHA_EV_FOLD_MODEL: Readonly<
+  Record<OmahaEvFoldVariant, Readonly<{ foldOverMdf: number; population: number }>>
+> = Object.freeze({
+  plo4: Object.freeze({ foldOverMdf: 1.289, population: 0.49 }),
+  plo5: Object.freeze({ foldOverMdf: 1.458, population: 0.536 }),
+  plo6: Object.freeze({ foldOverMdf: 1.409, population: 0.497 }),
+});
+/** Pseudo-observations of the population fold rate in the Omaha EV fold read. */
+export const OMAHA_EV_FOLD_PRIOR_STRENGTH = 16;
+
 /** Exploit multipliers derived from a specific opponent's tendencies. */
 export interface ExploitProfile {
   /** multiply bluff/semi-bluff frequency by this (1 = neutral) */
@@ -370,6 +586,15 @@ export interface ExploitProfile {
   callDownMod: number;
   /** >1 = value bet thinner into this player */
   valueThinMod: number;
+  /** Break-even bluffing only (tableExploit, readBreakEvenBluff): the
+   *  postflop bluff multiplier at BREAK_EVEN_REFERENCE_SIZE for the weakest
+   *  responder. HorseLogic's bluff scale reads it in place of bluffMod;
+   *  bluffMod itself, and every consumer that classifies an opponent by it,
+   *  is unchanged. Absent = flag off or no measured fold curve. */
+  breakEvenBluff?: number;
+  /** That responder's shrunk postflop fold read minus the population mean,
+   *  so a bet prices its own size (breakEvenBluffMod). */
+  foldShift?: number;
 }
 
 const NEUTRAL_EXPLOIT: ExploitProfile = { bluffMod: 1, callDownMod: 1, valueThinMod: 1 };
@@ -551,6 +776,185 @@ export function readScopeOf(variant: string | null | undefined, dealtCount: numb
   return `${fam}:${size}`;
 }
 
+/**
+ * SCOPED SHRINK (2026-11-08, read calibration follow-up; DecisionReadOptions
+ * scopedShrink). Below SCOPE_MIN_HANDS the pooled bucket answers, and the
+ * pooled bucket mixes every game the player has played: about 8% of read
+ * spots in the calibration replay, where the river-fold read scored Brier
+ * 0.262 against 0.217 when the scoped bucket answered. With the option on,
+ * a thin scoped bucket answers for itself instead, each rate shrunk toward
+ * the same scope's population rate (SCOPED_SHRINK_PRIOR) with
+ * SCOPED_SHRINK_STRENGTH pseudo-observations. Opportunity counts are the
+ * player's own, so every accessor's sample gate still measures evidence from
+ * this game: a player never seen in this game has no read here, not their
+ * other game's read.
+ */
+export const SCOPED_SHRINK_STRENGTH = 16;
+/** [successes, opportunities] pairs a scoped read divides and shrinks. */
+const SCOPED_SHRINK_RATES = [
+  ['vpip', 'hands'],
+  ['pfr', 'hands'],
+  ['threeBet', 'hands'],
+  ['folds', 'facedAggr'],
+  ['cbetFolds', 'cbetOpps'],
+  ['f3bFolds', 'f3bOpps'],
+  ['riverBetFolds', 'riverBetOpps'],
+  ['riverLastToActBets', 'riverLastToActOpps'],
+] as const satisfies ReadonlyArray<readonly [keyof OpponentStats, keyof OpponentStats]>;
+/** [a, b] pairs read as the ratio a / b (aggression factors): the share
+ *  a / (a + b) is shrunk and the total kept. */
+const SCOPED_SHRINK_SHARES = [
+  ['aggr', 'passive'],
+  ['postAggr', 'postPassive'],
+] as const satisfies ReadonlyArray<readonly [keyof OpponentStats, keyof OpponentStats]>;
+type ScopedShrinkKey =
+  | (typeof SCOPED_SHRINK_RATES)[number][0]
+  | (typeof SCOPED_SHRINK_SHARES)[number][0];
+
+/**
+ * Each scope's population rate: every player's scoped bucket summed (no
+ * labels) at the end of the walk-forward replay of the 41,013 accepted hands
+ * of the read calibration (2026-07-22 .. 2026-11-07), for the pairs with 200+
+ * opportunities in the scope, else in the card family. The big-bet,
+ * tempo, river-call and triple-check-raise reads are left unshrunk: the
+ * replay holds no informative population rate for them (one-sided or empty).
+ */
+export const SCOPED_SHRINK_PRIOR: Readonly<
+  Record<ReadScope, Readonly<Partial<Record<ScopedShrinkKey, number>>>>
+> = Object.freeze({
+  'holdem:hu': {
+    vpip: 0.4769,
+    pfr: 0.2753,
+    threeBet: 0.0263,
+    folds: 0.5033,
+    cbetFolds: 0.4628,
+    f3bFolds: 0.5508,
+    riverBetFolds: 0.5473,
+    riverLastToActBets: 0.3931,
+    aggr: 0.6228,
+    postAggr: 0.6949,
+  },
+  'holdem:short': {
+    vpip: 0.3633,
+    pfr: 0.2029,
+    threeBet: 0.0271,
+    folds: 0.5942,
+    cbetFolds: 0.4687,
+    f3bFolds: 0.6415,
+    riverBetFolds: 0.5358,
+    riverLastToActBets: 0.4263,
+    aggr: 0.5831,
+    postAggr: 0.6487,
+  },
+  'holdem:full': {
+    vpip: 0.2238,
+    pfr: 0.1414,
+    threeBet: 0.0247,
+    folds: 0.7371,
+    cbetFolds: 0.4628,
+    f3bFolds: 0.5438,
+    riverBetFolds: 0.5494,
+    riverLastToActBets: 0.3901,
+    aggr: 0.6286,
+    postAggr: 0.656,
+  },
+  'omaha:hu': {
+    vpip: 0.5152,
+    pfr: 0.3283,
+    threeBet: 0.0644,
+    folds: 0.4201,
+    cbetFolds: 0.4563,
+    f3bFolds: 0.2311,
+    riverBetFolds: 0.6567,
+    riverLastToActBets: 0.3763,
+    aggr: 0.6493,
+    postAggr: 0.7252,
+  },
+  'omaha:short': {
+    vpip: 0.5368,
+    pfr: 0.2515,
+    threeBet: 0.0604,
+    folds: 0.4572,
+    cbetFolds: 0.4593,
+    f3bFolds: 0.2394,
+    riverBetFolds: 0.6605,
+    riverLastToActBets: 0.3845,
+    aggr: 0.5084,
+    postAggr: 0.6368,
+  },
+  'omaha:full': {
+    vpip: 0.4076,
+    pfr: 0.1797,
+    threeBet: 0.0441,
+    folds: 0.5182,
+    cbetFolds: 0.4546,
+    f3bFolds: 0.2199,
+    riverBetFolds: 0.6552,
+    riverLastToActBets: 0.3711,
+    aggr: 0.4841,
+    postAggr: 0.6212,
+  },
+  'sixplus:hu': {
+    vpip: 0.5194,
+    pfr: 0.1889,
+    threeBet: 0.025,
+    folds: 0.5061,
+    aggr: 0.4419,
+    postAggr: 0.5801,
+  },
+  'sixplus:short': {
+    vpip: 0.5194,
+    pfr: 0.1889,
+    threeBet: 0.025,
+    folds: 0.383,
+    aggr: 0.4587,
+    postAggr: 0.5801,
+  },
+  'sixplus:full': {
+    vpip: 0.4595,
+    pfr: 0.1638,
+    threeBet: 0.0226,
+    folds: 0.5643,
+    aggr: 0.4298,
+    postAggr: 0.5842,
+  },
+});
+
+/**
+ * A thin scoped bucket with every covered rate shrunk toward the scope's
+ * population rate; opportunity counts unchanged. Pure; exported for tests.
+ */
+export function shrinkScopedStats(
+  own: OpponentStats,
+  prior: Readonly<Partial<Record<ScopedShrinkKey, number>>> | undefined,
+  strength: number = SCOPED_SHRINK_STRENGTH
+): OpponentStats {
+  const out: OpponentStats = { ...own };
+  const num = (f: keyof OpponentStats): number => {
+    const v = Number(own[f] ?? 0);
+    return Number.isFinite(v) && v > 0 ? v : 0;
+  };
+  const set = (f: keyof OpponentStats, v: number) => {
+    (out as unknown as Record<string, number>)[f as string] = v;
+  };
+  for (const [k, n] of SCOPED_SHRINK_RATES) {
+    const p = prior?.[k];
+    const ok = num(k);
+    const on = num(n);
+    if (p === undefined || !(on > 0)) continue;
+    set(k, (on * (Math.min(ok, on) + strength * p)) / (on + strength));
+  }
+  for (const [a, b] of SCOPED_SHRINK_SHARES) {
+    const p = prior?.[a];
+    const total = num(a) + num(b);
+    if (p === undefined || !(total > 0)) continue;
+    const share = (num(a) + strength * p) / (total + strength);
+    set(a, total * share);
+    set(b, total * (1 - share));
+  }
+  return out;
+}
+
 /** The lifetime counters a scope carries; recency and hands-dedupe stay pooled. */
 const SCOPED_FIELDS = [
   'hands',
@@ -722,6 +1126,8 @@ export class HorseMind {
       return p;
     };
 
+    // Limp-reraise read: players who limped and have not yet answered a raise.
+    const limpedPending = new Set<string>();
     for (let controllerOrdinal = 0; controllerOrdinal < history.length; controllerOrdinal++) {
       const a = history[controllerOrdinal];
       // Preserve compatibility of individual legacy reads. The shared exploit
@@ -909,6 +1315,18 @@ export class HorseMind {
         );
       }
 
+      if (preflop && a.userId) {
+        if (preflopRaises >= 1 && limpedPending.has(a.userId)) {
+          // The limper's next action after a raise came in behind the limp.
+          limpedPending.delete(a.userId);
+          if (isNew) {
+            s.lrOpps = (s.lrOpps ?? 0) + 1;
+            if (isAggr) s.lrRaises = (s.lrRaises ?? 0) + 1;
+          }
+        } else if (preflopRaises === 0 && a.action === 'call') {
+          limpedPending.add(a.userId);
+        }
+      }
       if (preflop && isAggr) preflopRaises++;
     }
     // Separate original-hand dedupe: a legacy observer may already have seen
@@ -1354,10 +1772,13 @@ export class HorseMind {
    * SCOPE_MIN_HANDS, else the pooled bucket. Every accessor below that
    * prices a decision goes through here.
    */
-  private static readStats(userId: string): OpponentStats | undefined {
+  private static readStats(userId: string, shrink = true): OpponentStats | undefined {
     if (this.decisionScope) {
       const sc = this.scoped.get(`${this.decisionScope}|${userId}`);
       if (sc && sc.hands >= SCOPE_MIN_HANDS) return sc;
+      // Scoped shrink: this game's own thin read, never another game's.
+      if (shrink && this.decisionReadOptions.scopedShrink)
+        return sc ? shrinkScopedStats(sc, SCOPED_SHRINK_PRIOR[this.decisionScope]) : undefined;
     }
     return this.stats.get(userId);
   }
@@ -1489,7 +1910,7 @@ export class HorseMind {
   static exportDirty(): Array<{ user_id: string } & OpponentStats> {
     const out: Array<{ user_id: string } & OpponentStats> = [];
     for (const id of this.dirty) {
-      const s = this.readStats(id);
+      const s = this.readStats(id, false);
       if (s) out.push({ user_id: id, ...s });
     }
     this.dirty.clear();
@@ -1588,6 +2009,12 @@ export class HorseMind {
           ? { ctBets: existing.ctBets, ctProbes: existing.ctProbes ?? 0 }
           : r.ctBets !== undefined
             ? { ctBets: num(r.ctBets), ctProbes: Math.min(num(r.ctProbes), num(r.ctBets)) }
+            : {}),
+        // Limp-reraise tallies: memory only, the same rule.
+        ...(existing?.lrOpps !== undefined
+          ? { lrOpps: existing.lrOpps, lrRaises: existing.lrRaises ?? 0 }
+          : r.lrOpps !== undefined
+            ? { lrOpps: num(r.lrOpps), lrRaises: Math.min(num(r.lrRaises), num(r.lrOpps)) }
             : {}),
       });
       applied++;
@@ -2785,6 +3212,98 @@ export class HorseMind {
     );
   }
 
+  /** The fold curve this decision's game was measured on, or null. */
+  static breakEvenFamily(): BreakEvenFamily | null {
+    const scope = this.decisionScope;
+    const v = (this.decisionVariant ?? '').toLowerCase();
+    if (!scope || !BREAK_EVEN_VARIANTS.has(v)) return null;
+    const fam = scope.split(':')[0];
+    return fam === 'holdem' || fam === 'omaha' ? fam : null;
+  }
+
+  /**
+   * Break-even bluffing: the postflop bluff multiplier at the reference size
+   * against this opponent, with the fold read it came from. A credible
+   * river-call station (river calls are not in the fold read) and a proven
+   * winner still take bluffs down, as they do for bluffMod. Null when the
+   * decision has no measured fold curve, and null for an opponent whose
+   * postflop bluff read is not engaged (postflopBluffMod null: a stranger, a
+   * horse-like regular, or any opponent while reads are off), so the existing
+   * price answers for them exactly as with the flag off.
+   */
+  static breakEvenBluffOf(userId: string): { mod: number; foldShift: number } | null {
+    const family = this.breakEvenFamily();
+    if (!family) return null;
+    const read = this.opponentRead(userId);
+    const layer = postflopBluffMod(read);
+    if (layer === null || !read) return null;
+    const foldShift = this.postflopFoldShift(userId);
+    if (foldShift === null) return null;
+    let mod = breakEvenBluffMod(foldShift, family, BREAK_EVEN_REFERENCE_SIZE);
+    if (read.stats.riverCall.engaged === 'high') mod = Math.min(mod, layer);
+    if (isProvenWinner(userId)) mod *= WINNER_BLUFF_MOD;
+    return { mod, foldShift };
+  }
+
+  /**
+   * Break-even bluffing: this opponent's postflop fold-to-bet read in the
+   * decision context, shrunk toward the game's population mean with
+   * BREAK_EVEN_PRIOR_STRENGTH pseudo-observations, minus that mean. Zero for
+   * an opponent with no postflop sample (the population). Null when the
+   * decision has no measured fold curve or no population cell.
+   */
+  static postflopFoldShift(userId: string): number | null {
+    const family = this.breakEvenFamily();
+    if (!family || !this.decisionScope) return null;
+    const env = exploitEnvelopeFor(this.decisionScope, this.decisionVariant);
+    if (!env) return null;
+    const pop = env.foldToBet.mean;
+    const c = this.decisionExploitCounters(userId);
+    const n = Math.max(0, Number(c?.foldToBetOpp ?? 0));
+    const k = Math.max(0, Math.min(n, Number(c?.foldToBet ?? 0)));
+    if (!Number.isFinite(n) || !Number.isFinite(k)) return 0;
+    const m = BREAK_EVEN_PRIOR_STRENGTH;
+    return (k + m * pop) / (n + m) - pop;
+  }
+
+  /**
+   * The fold multiplier the EV bet engine (HorseEvEngine.mdfFold) prices this
+   * opponent's response with. Default: the exploit bluff multiplier, exactly
+   * as before. With omahaEvFoldModel on in PLO4 / PLO5 / PLO6 it is the
+   * Omaha EV fold model (OMAHA_EV_FOLD_MODEL) at cash tables: the game's
+   * measured fold share over MDF, scaled by this opponent's postflop
+   * fold-to-bet read shrunk toward the game's population. A proven winner
+   * keeps its bluff respect.
+   */
+  static evFoldMul(userId: string, recencyBlend: boolean = true): number {
+    const model = this.omahaEvFoldMulOf(userId);
+    if (model !== null) return model;
+    return this.exploit(userId, recencyBlend).bluffMod;
+  }
+
+  /** The Omaha EV fold model's multiplier, or null when the option is off,
+   *  outside a decision, at a tournament table, or in a game it was not
+   *  measured on. */
+  static omahaEvFoldMulOf(userId: string): number | null {
+    if (this.decisionReadOptions.omahaEvFoldModel !== true || !this.decisionScope) return null;
+    // Cash only: tournament Omaha players fold about MDF (see the model note).
+    if (this.decisionMode !== 'cash') return null;
+    const v = (this.decisionVariant ?? '').toLowerCase() as OmahaEvFoldVariant;
+    const cell = OMAHA_EV_FOLD_MODEL[v];
+    if (!cell) return null;
+    const c = this.decisionExploitCounters(userId);
+    const n = Math.max(0, Number(c?.foldToBetOpp ?? 0));
+    const k = Math.max(0, Math.min(n, Number(c?.foldToBet ?? 0)));
+    const m = OMAHA_EV_FOLD_PRIOR_STRENGTH;
+    const fold =
+      Number.isFinite(n) && Number.isFinite(k)
+        ? (k + m * cell.population) / (n + m)
+        : cell.population;
+    let mul = (cell.foldOverMdf * fold) / cell.population;
+    if (isProvenWinner(userId)) mul *= WINNER_BLUFF_MOD;
+    return mul;
+  }
+
   /**
    * The fold-vs-aggression rate legacyExploit prices bluffs with, or null
    * when it has no read (the exploit stays neutral on this statistic).
@@ -3305,6 +3824,14 @@ export class HorseMind {
     return this.shrunkResponseRate('foldToCbet', s.cbetFolds, s.cbetOpps);
   }
 
+  /** Limp-reraise tallies (HorseLimpReraiseRead), pooled: the chances a
+   *  limp met a raise behind it and the re-raises. Null when never seen. */
+  static limpReraiseOf(id: string): { opps: number; raises: number } | null {
+    const s = this.stats.get(id);
+    if (!s || !(s.lrOpps! > 0)) return null;
+    return { opps: s.lrOpps!, raises: Math.min(s.lrRaises ?? 0, s.lrOpps!) };
+  }
+
   /** Fold-to-3-bet frequency (0..1), or null below an 8-opportunity sample. */
   static foldTo3BetOf(id: string): number | null {
     const s = this.readStats(id);
@@ -3387,6 +3914,12 @@ export class HorseMind {
     let callDownMod = 0;
     let valueThinMod = 0;
     let responders = 0;
+    const breakEven = this.decisionReadOptions.breakEvenBluff === true;
+    let beBluff = Infinity;
+    let beShift = 0;
+    // The weakest responder still gates a multiway bluff when that responder
+    // has no break-even read: its existing price stays in the minimum.
+    let unreadBluff = Infinity;
     for (const o of opps) {
       const e = this.exploit(o.user_id, recencyBlend, options);
       // An all-in wager still carries the aggressor's observed tendencies;
@@ -3395,6 +3928,12 @@ export class HorseMind {
       if (!o.is_all_in && !o.is_sitting_out) {
         responders++;
         bluffMod = Math.min(bluffMod, e.bluffMod); // weakest responder gates bluffs
+        const be = breakEven ? this.breakEvenBluffOf(o.user_id) : null;
+        if (!be) unreadBluff = Math.min(unreadBluff, e.bluffMod);
+        else if (be.mod < beBluff) {
+          beBluff = be.mod;
+          beShift = be.foldShift;
+        }
         valueThinMod += e.valueThinMod;
       }
     }
@@ -3403,6 +3942,13 @@ export class HorseMind {
       bluffMod,
       callDownMod: callDownMod / opps.length,
       valueThinMod: responders > 0 ? valueThinMod / responders : 1,
+      // Break-even bluffing: the weakest responder's multiplier and fold read
+      // travel with the profile so each bluff bet prices its own size. When
+      // an unread responder prices lower (or nobody has a break-even read),
+      // nothing is attached and the bluff scale is the flag-off one.
+      ...(isFinite(beBluff) && beBluff < unreadBluff
+        ? { breakEvenBluff: beBluff, foldShift: beShift }
+        : {}),
     };
   }
 }

@@ -1,3 +1,5 @@
+**November 8 Horse study continuation:** the owner directed completion now in chat `01a1af6b-2112-7fc2-b6bf-f6b5f0e9f430`. The single successor `2026-11-08-horse-study-successor-engine-1820z` preserves the expired prior booking and admits only one certified replacement of `391f7bc0d57c71637bd4af5181f70520661e3593`, between 18:20 UTC November 8 and 00:20 UTC November 9, after the published 18:00 UTC November 8 player notice has actually been available for at least twenty minutes. Exact qualification, Backup, protected target/control, hand drain, full freeze/proof/rollback reserve and thaw remain required. This does not renew the expired prior operation or change the standing daily schedule.
+
 # Engine release runbook: Backup, certification and the 04:00 cutover
 
 Written 2026-11-07 on the owner's instruction to write down "any and all things
@@ -175,7 +177,11 @@ production database host is reachable. The engine boots with
 Runs are serialized (`concurrency: backup-engine`, `queue: max`).
 
 A push run also asks whether the candidate's ENGINE SOURCE is identical to an
-ancestor that already holds `success` (#9967, step `inherit`).
+ancestor that already holds `success` (#9967, step `inherit`). Its release-authority
+projection, `server/standby` rehearsal/seed inputs and migration tree plus latest
+migration commit identity must also match. Changed or unreadable qualification
+inputs stop the walk and run full certification; they are never skipped to find
+an older success.
 `bash scripts/ci/engine-source-identity.sh <sha>` prints a sha256 over
 exactly what `server/Dockerfile` copies into the image at that commit (plus
 the Dockerfile and the script itself), read from git blobs; `--manifest`
@@ -187,7 +193,10 @@ unreadable status, or a status that cannot be written all mean a full
 certification instead. Only push runs inherit; a dispatch, the nightly and
 the post-seal refresh always certify. So a docs-only or tests-only push to
 `server/**` is certified in seconds, and a candidate the selector offers
-always has its own `backup-engine/certified = success`.
+must still supply a physical exact-target artifact, a current restored schema,
+the actual serving predecessor and both reconnect proofs. Inherited status alone
+does not qualify; unchanged controls allow selection of the older physical
+candidate.
 
 ### 3.3 What `standby-engine certify <sha> 1800` does
 
@@ -195,7 +204,7 @@ In `server/standby/standby-engine.sh` `cmd_certify`:
 
 1. `assert_valid_copy`: `database.json` says `restoreValidated: true`,
    `restoreErrors: 0`, `ownersSha256` matches `server/standby/standby-owners.sql`;
-   `seed.json` says `tablesFailed: 0` and `seededAt >= restoredAt`.
+   `seed.json` says `cashClusterParentsValidated: true` and `tablesFailed: 0` and `seededAt >= restoredAt`.
 2. `cmd_run`: builds `club-arena-engine-standby:<sha>` from `git archive <sha> server`
    with `GIT_COMMIT_SHA` (`cmd_build`), writes the env, starts the container with
    `--restart unless-stopped`.
@@ -299,11 +308,27 @@ break does not wait for a release.
 
 ### 4.1 03:30-03:50 preparation (`stage-engine-release.yml`)
 
-- **Admission** (job `detect`, step `admission`): the first push or schedule run
-  created inside 03:30-03:50 Chicago (`START_HOUR, START_MINUTE, WINDOW_MINUTES = 3, 30, 20`)
-  owns the day's preparation; later runs refuse by name; an unreadable run list
-  prepares nothing. Crons `31,35,39,43 8/9 * * *` UTC are only chances to be
-  first (`tests/daily-preparation-does-not-wait-for-a-punctual-cron.law.test.ts`).
+- **Admission** (job `detect`, step `admission`): the first eligible Stage run (push, schedule, or completion of a successful protected-main push Backup)
+  created from five elapsed hours before 03:30 through 03:50 Chicago owns the date.
+  The preparation itself stays 03:30-03:50 (`START_HOUR, START_MINUTE, WINDOW_MINUTES = 3, 30, 20`); later runs refuse by name; an unreadable run list
+  prepares nothing. Crons `31,35,39,43 3,8 * * *` and `31,35,39,43 4,9 * * *` UTC are only chances to be
+  first (`tests/daily-preparation-does-not-wait-for-a-punctual-cron.law.test.ts`). Operator deliveries may enter this same election only inside 03:30-03:50; they cannot reserve early or displace an earlier automatic owner.
+- **Cutoff** (step `cutoff`): the elected job waits once, at most five hours, until 03:30. It refreshes protected main and binds the newest cutoff commit. If release-control bytes changed since reservation, or the job misses 03:50, it keeps serving. The job has a 315-minute limit, below GitHub's six-hour maximum. On November 9 the early boundary is November 8 22:30 CST; DST boundaries use elapsed UTC time.
+- **Operator fallback.** If GitHub has delivered no Stage run by 03:35 Chicago,
+  the release owner may issue the dispatch once from an authenticated GitHub user
+  account with repository write access, before 03:50 Chicago. Check event, branch
+  and creation time in the Stage run list first,
+  then read the original run's admission result and selection artifact.
+  GitHub supplies the event time and protected default branch. The operator
+  supplies no SHA, date, migration or receiver inputs. The 03:30 cutoff still
+  applies to every candidate. When an earlier eligible run exists, follow it.
+  After 03:50 the next ordinary window is the next opportunity.
+
+  ```sh
+  gh run list -R Smarter-Software-PIQ/Smarter-Poker-Club-Arena --workflow stage-engine-release.yml --branch main --limit 20 --json databaseId,event,createdAt
+  gh api --method POST repos/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/dispatches -f event_type=prepare-daily-engine
+  ```
+
 - **Detect** (step `change`): is a release owed? Changed engine tree, or
   production's `/health.releaseSha` behind main's newest engine commit.
 - **Window migrations** (job `window-migrations`): runs only on the admitted
@@ -317,8 +342,9 @@ break does not wait for a release.
 
 Observe: `gh run list --workflow stage-engine-release.yml --created ">=<today>T08:00:00Z" -L 10`;
 `gh run view <id> --log | grep -E "Daily preparation|certified|Receiver run"`.
-Failure handling: no admitted run means GitHub delivered nothing in the window
-and nothing was prepared; there is no retry, tomorrow's window prepares. Do
+Failure handling: no admitted run means no eligible original event reserved the date,
+or its owner failed a required gate. Nothing was prepared; there is no retry.
+The next date can reserve independently. Do
 not dispatch the receiver yourself to make up a missed window.
 
 ### 4.2 Receiver preflight (`auto-deploy-hetzner.yml`)
@@ -481,7 +507,12 @@ shortens a safeguard.
    `ca_break_window_migration_overrides`, 1 s `lock_timeout`, 5 s statements,
    an 8 s budget asserted before COMMIT, started only while the freeze is
    confirmed with at least `START_RESERVE_SECONDS` left, and a quiet-moment
-   wait before each lock (`QUIET_HOLDER_AGE_MS`).
+   wait before each lock (`QUIET_HOLDER_AGE_MS`). Immediately before a file that
+   declares `-- @locks:`, one statement that re-confirms the freeze terminates
+   only postgres-family sessions left idle in transaction (at least
+   `IDLE_HOLDER_MIN_IDLE_MS`) holding a conflicting lock on a declared relation,
+   recording each in `ca_window_install_terminations`; never an active query,
+   a superuser, a Supabase role or pg_cron, and still one attempt.
 4. **Read the verdict.** The run summary names each file: installed, SKIPPED
    (refused, rolled back, still queued) or UNKNOWN. Exit 0 all installed or
    nothing queued; 1 at least one refused; 3 UNKNOWN. Native proof:
@@ -614,3 +645,40 @@ each needs its own PR, law and changelog.
    post-seal refresh run at once. Deferred: cost, a second pinned host key and
    egress lock, and no measured day yet where the single host was the limit
    after #9906.
+
+### Explicit finite owner selection
+
+A separately protected, currently open owner order can use the existing Stage
+workflow with `request_engine_release=true`, its exact `owner_window_id`, and
+`request_database_break=false` on `main`. Only the protected pinned
+`nov7-owner` validator admits this branch; arbitrary, old or expired orders
+fail. This does not change the daily election or grant authority from a chat.
+The release owner must first verify the actual public notice and required lead.
+
+This branch freezes the Stage SHA as control and selects the newest qualified
+protected ancestor with identical release-control inputs and the same pinned
+owner floor and order. Unrelated later main commits do not discard valid
+qualification; changed release controls require new evidence. The candidate's
+exact Backup, schema freshness, both-direction rollback rehearsal, four engine
+qualification shards and immutable images must already qualify at the original
+Stage run's creation time. The original
+single-attempt `owner-engine-selection-<owner_window_id>` artifact contains
+`daily-selection.json`; the existing signal passes its run ID to the existing
+receiver. The receiver verifies the archive digest, exact original successful
+selection job, cutoff, owner identity and still-open protected admission before
+handoff. Missing or changed evidence keeps the current engine serving. The
+host's one-use predecessor, actual notice, custody, freeze, proof, rollback and
+thaw checks remain mandatory. Do not dispatch the receiver directly.
+
+### Capped satellite awards: schema before compatible engine
+
+Follow the capped satellite compatibility section in `PUBLISHING.md` for migration
+`20261108154158_capped_frozen_satellite_cohort_awards.sql`. Install and verify its
+three declared live function postimages through the protected migration route
+before selecting the compatible engine. The old executor refuses attached capped
+remainders without payment; the successor retains the original terminal request
+and generation. After the usual exact certificate, daily activation and seal,
+read the affected event's canonical settlement and table completion. Preserve an
+unknown or committed outcome across rollback; never replay its financial effects.
+
+Schema changes under `supabase/migrations/**` trigger both existing Backup and engine prequalification push workflows on protected main. A migration-only push retains its exact SHA when the latest server commit is older; changed migration inputs require full Backup certification and the existing schema-refresh decision. Later client-only changes can use that earlier physical certificate and exact prequalification when the selector's current schema, controls and serving-predecessor checks still pass. No new schedule or client-only qualification trigger is introduced.

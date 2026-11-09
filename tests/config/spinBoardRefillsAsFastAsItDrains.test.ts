@@ -76,10 +76,11 @@ describe('the seat-first boards are refilled faster than they drain', () => {
     // all -- twenty owners would mean twenty times the work. BURST is now the
     // opening balance of a budget threaded through every board in the pass,
     // and the slice spends what is left of it.
-    // The cap is a share of BURST per board since 2026-09-03 (see
-    // boardBudgetShares); a cold start still cannot create more than its
-    // share per board per tick.
-    expect(code).toMatch(/const share = boardBudgetShares\(owners\.length \+ 1\);/);
+    // The cap was a share of BURST per board from 2026-09-03 (see
+    // boardBudgetShares). Since 2026-11-08 it is ONE budget for the pass,
+    // capped by the room the platform has left under the 11-Spin and
+    // 6-heads-up target, so a cold start creates even less than it used to.
+    expect(code).toMatch(/const budget = \{ left: Math\.min\(room, boardBudgetShares\(1\)\) \};/);
     expect(code).toMatch(/missing\.slice\(0,\s*budget\.left\)/);
   });
 

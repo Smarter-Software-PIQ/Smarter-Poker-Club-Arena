@@ -244,7 +244,8 @@ export function lostDeclaredRelations(declared, holders) {
 /** Blank comments and dollar-quoted bodies' tags are kept; only `--` text goes. */
 const uncommented = (sql) => String(sql).replace(/--[^\n]*/g, ' ');
 
-function durationMs(raw) {
+/** A timeout setting's value in ms ('2s', '1500ms', '0.1min', 2000), or null. */
+export function durationMs(raw) {
   const m = /^\s*'?\s*(\d+(?:\.\d+)?)\s*(ms|s|min)?\s*'?\s*$/i.exec(String(raw));
   if (!m) return null;
   const n = Number(m[1]);
@@ -626,6 +627,8 @@ SELECT
       'relation', t.rel, 'mode', l.mode, 'pid', l.pid,
       'application', a.application_name, 'role', a.usename,
       'xact_ms', round(extract(epoch FROM clock_timestamp() - a.xact_start) * 1000),
+      'state', a.state,
+      'idle_ms', round(extract(epoch FROM clock_timestamp() - a.state_change) * 1000),
       'query', left(regexp_replace(COALESCE(a.query, ''), '\\s+', ' ', 'g'), 120))
       ORDER BY a.xact_start)
      FROM t
@@ -663,6 +666,159 @@ export function describeHolders(holders) {
       (h) =>
         `${h.relation} ${h.mode} pid ${h.pid ?? 'prepared'} ${h.application || h.role || 'unknown'} ` +
         `${h.xact_ms ?? '?'} ms: ${h.query || ''}`.trim()
+    )
+    .join('; ');
+}
+
+/*
+ * ===========================================================================
+ *  AN IDLE SESSION DOES NOT COST A WINDOW FILE A DAY (2026-11-08)
+ * ===========================================================================
+ *
+ * WHY. A window file gets ONE attempt with a 1 s lock_timeout. The quiet
+ * moment above waits for a holder that is working; it cannot help with one
+ * that is not: a session left "idle in transaction" (an abandoned psql, a
+ * management-API, CLI or dashboard session) keeps its locks until it is
+ * closed, so the file is refused and waits a full day for a holder that will
+ * never finish on its own. Inside a CONFIRMED freeze no player write happens,
+ * so ending that transaction costs nothing a player can see.
+ *
+ * WHAT. Immediately before a file's one attempt, the installer runs ONE
+ * statement (IDLE_BLOCKERS_TERMINATE_QUERY) that, only while the same
+ * statement confirms the daily window with TERMINATE_RESERVE_SECONDS to spare,
+ * finds the sessions holding or queued for a lock that conflicts with the
+ * file's on a relation the file DECLARES with "-- @locks:", and terminates
+ * exactly those that are:
+ *   - state 'idle in transaction', idle and in their transaction for at least
+ *     IDLE_HOLDER_MIN_IDLE_MS (never an active query, never the gap between
+ *     two statements of a working transaction);
+ *   - client backends (never pg_cron's launcher, a background worker,
+ *     autovacuum or a walsender / replication connection);
+ *   - logged in as the postgres role or a member of it, and not a superuser
+ *     and not a supabase_* role: the same direct sessions the break-window DDL
+ *     guard governs (never PostgREST's authenticator, the engine's own roles
+ *     or Supabase's internal roles);
+ *   - not pg_cron's job sessions and not the installer or the applier itself.
+ * The same statement writes one row per session into
+ * public.ca_window_install_terminations (pid, role, application, relation,
+ * state, transaction age, idle time, whether it ended). If that table is
+ * missing the statement fails and terminates nothing.
+ *
+ * WHAT IT NEVER DOES. It never terminates for a file that declares no
+ * "-- @locks:", outside the confirmed daily window, in an owner window, or
+ * when the database cannot be read. It is not a retry: the file is still sent
+ * once, with the same 1 s lock_timeout, the same budgets and the same skip-
+ * alone rule.
+ */
+export const IDLE_HOLDER_MIN_IDLE_MS = 2000;
+export const TERMINATE_WAIT_MS = 1000;
+export const TERMINATE_RESERVE_SECONDS = START_RESERVE_SECONDS + 3;
+export const TERMINATION_TABLE = 'public.ca_window_install_terminations';
+/** Application names the installer and applier connect with; never terminated. */
+export const OWN_APPLICATIONS = [
+  'install-window-migrations',
+  'install-window-migrations-quiet',
+  'install-window-migrations-terminate',
+  'apply-recorded-migration',
+];
+
+/**
+ * The relations an idle session may be terminated on for this file: exactly
+ * the declared ones, each with the strongest mode lockTargets read for it,
+ * or ACCESS EXCLUSIVE (every mode conflicts) when the SQL reader found none.
+ */
+export function idleBlockerTargets(declared, targets) {
+  const modes = new Map((targets || []).map((t) => [t.relation, t.mode]));
+  return (declared || []).map((relation) => ({
+    relation,
+    mode: modes.get(relation) || 'AccessExclusiveLock',
+  }));
+}
+
+/**
+ * True when every holder the quiet wait sees is a session idle in transaction
+ * for at least IDLE_HOLDER_MIN_IDLE_MS on a declared relation: waiting longer
+ * cannot help, so the wait ends and the termination step decides.
+ */
+export function quietHoldersAreIdleOnDeclared(holders, declared) {
+  const rels = new Set(declared || []);
+  return (
+    rels.size > 0 &&
+    (holders || []).length > 0 &&
+    holders.every(
+      (h) =>
+        h.state === 'idle in transaction' &&
+        Number(h.idle_ms) >= IDLE_HOLDER_MIN_IDLE_MS &&
+        rels.has(String(h.relation).toLowerCase())
+    )
+  );
+}
+
+const conflictArray = (mode) => `ARRAY['${CONFLICTS[mode].join("','")}']`;
+
+/**
+ * ONE statement: gate, find, terminate, record. $1 relations, $2 requested
+ * modes, $3 minimum idle ms, $4 pg_terminate_backend wait ms, $5 file name.
+ * Returns one row: open (the gate), terminations (jsonb array).
+ */
+export const IDLE_BLOCKERS_TERMINATE_QUERY = `WITH gate AS (
+  SELECT ${windowOpenPredicate(TERMINATE_RESERVE_SECONDS)} AS open),
+t AS (
+  SELECT to_regclass(u.rel) AS oid, u.rel, u.mode
+    FROM unnest($1::text[], $2::text[]) AS u(rel, mode)),
+cand AS (
+  SELECT a.pid, a.usename::text AS session_role, a.application_name, a.state,
+         string_agg(DISTINCT t.rel, ', ' ORDER BY t.rel) AS relation,
+         string_agg(DISTINCT l.mode, ', ' ORDER BY l.mode) AS lock_mode,
+         bool_or(NOT l.granted) AS waiting,
+         clock_timestamp() - a.xact_start AS xact_age,
+         clock_timestamp() - a.state_change AS idle_for,
+         left(regexp_replace(COALESCE(a.query, ''), '\\s+', ' ', 'g'), 500) AS query
+    FROM t
+    JOIN pg_locks l ON l.locktype = 'relation' AND l.relation = t.oid
+    JOIN pg_stat_activity a ON a.pid = l.pid
+    JOIN pg_roles r ON r.rolname = a.usename
+   WHERE (SELECT open FROM gate)
+     AND l.mode = ANY (CASE t.mode
+           WHEN 'AccessExclusiveLock' THEN ${conflictArray('AccessExclusiveLock')}
+           WHEN 'ShareRowExclusiveLock' THEN ${conflictArray('ShareRowExclusiveLock')}
+           ELSE ${conflictArray('ShareLock')} END)
+     AND a.pid <> pg_backend_pid()
+     AND a.backend_type = 'client backend'
+     AND a.state = 'idle in transaction'
+     AND a.state_change < clock_timestamp() - make_interval(secs => $3::float8 / 1000)
+     AND a.xact_start < clock_timestamp() - make_interval(secs => $3::float8 / 1000)
+     AND NOT r.rolsuper
+     AND r.rolname NOT LIKE 'supabase\\_%'
+     AND pg_has_role(r.oid, 'postgres', 'MEMBER')
+     AND COALESCE(a.application_name, '') <> ALL (ARRAY['pg_cron','${OWN_APPLICATIONS.join("','")}'])
+   GROUP BY a.pid, a.usename, a.application_name, a.state, a.xact_start, a.state_change, a.query),
+ended AS (
+  SELECT c.*, pg_terminate_backend(c.pid, $4::bigint) AS terminated FROM cand c),
+rec AS (
+  INSERT INTO ${TERMINATION_TABLE}
+    (migration, pid, session_role, application_name, state, relation, lock_mode,
+     waiting, xact_age, idle_for, terminated, query)
+  SELECT $5::text, pid, session_role, application_name, state, relation, lock_mode,
+         waiting, xact_age, idle_for, COALESCE(terminated, false), query
+    FROM ended
+  RETURNING pid, session_role, application_name, state, relation, lock_mode,
+            xact_age, idle_for, terminated)
+SELECT (SELECT open FROM gate) AS open,
+  COALESCE((SELECT jsonb_agg(jsonb_build_object(
+      'pid', pid, 'role', session_role, 'application', application_name,
+      'state', state, 'relation', relation, 'mode', lock_mode,
+      'xact_ms', round(extract(epoch FROM xact_age) * 1000),
+      'idle_ms', round(extract(epoch FROM idle_for) * 1000),
+      'terminated', terminated) ORDER BY pid) FROM rec), '[]'::jsonb) AS terminations`;
+
+export function describeTerminations(rows) {
+  return (rows || [])
+    .map(
+      (r) =>
+        `pid ${r.pid} ${r.role ?? '?'} ${r.application || 'no application'} on ${r.relation} ` +
+        `(${r.mode}), ${r.state}, transaction ${r.xact_ms} ms, idle ${r.idle_ms} ms: ` +
+        (r.terminated ? 'terminated' : 'NOT terminated')
     )
     .join('; ');
 }

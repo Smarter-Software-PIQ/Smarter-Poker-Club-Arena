@@ -16,10 +16,11 @@ const state = vi.hoisted(() => ({
   collected: 3420,
   overlay: 1580,
   error: false,
-  gross: null as number | null,
+  net: null as number | null,
   houseRequired: null as number | null,
   housePosted: null as number | null,
   houseDue: null as number | null,
+  houseSupplementPaid: null as number | null,
 }));
 vi.mock('../src/lib/supabase', () => ({
   supabase: {
@@ -35,10 +36,11 @@ vi.mock('../src/lib/supabase', () => ({
                 tournament_id: args.p_tournament_id,
                 collected: state.collected,
                 overlay: state.overlay,
-                gross_coverage: state.gross,
+                net_coverage: state.net,
                 house_required: state.houseRequired,
                 house_posted: state.housePosted,
                 house_due: state.houseDue,
+                house_supplement_paid: state.houseSupplementPaid,
               },
           error: state.error ? new Error('Funding unavailable') : null,
         }),
@@ -56,10 +58,11 @@ afterEach(() => {
   state.collected = 3420;
   state.overlay = 1580;
   state.error = false;
-  state.gross = null;
+  state.net = null;
   state.houseRequired = null;
   state.housePosted = null;
   state.houseDue = null;
+  state.houseSupplementPaid = null;
 });
 
 function props(pool = 4050): TournamentTabProps {
@@ -151,9 +154,31 @@ describe('The guarantee includes bounties, never rake', () => {
     await waitFor(() => expect(container.textContent).toContain('1,580 Overlay'));
     expect(container.querySelector('.rw-pool__value')?.textContent).toBe('5,000');
     expect(container.textContent).toContain('Place Prizes4,050');
+    expect(container.querySelector('.rw-mix__list')?.textContent).toContain('Club Overlay1,580');
     expect(container.textContent).toContain('Bounty Pool950');
     expect(container.textContent).toContain('3,420 Of 5,000');
     expect(container.textContent).not.toContain('Guarantee Met');
+  });
+  it('shows a completed promo supplement separately from the original sealed pool composition', async () => {
+    state.collected = state.net = 2412;
+    state.overlay = 0;
+    state.houseRequired = state.housePosted = state.houseSupplementPaid = 88;
+    state.houseDue = 0;
+    const fixture = props(1742);
+    fixture.tournament.status = 'COMPLETED';
+    fixture.tournament.bounty_pool = 670;
+    fixture.tournament.guaranteed_prize = 2500;
+    fixture.entries = fixture.entries.slice(0, 67);
+    const { container } = render(<RewardsTab {...fixture} />);
+    await waitFor(() =>
+      expect(container.textContent).toContain(
+        '88 Promo Paid Separately To The Finishers After Completion'
+      )
+    );
+    expect(container.querySelector('.rw-pool__value')?.textContent).toBe('2,412');
+    expect(container.querySelector('.rw-mix__list')?.textContent).not.toContain('Club Overlay');
+    expect(container.textContent).toContain('Place Prizes1,742');
+    expect(container.textContent).toContain('Bounty Pool670');
   });
   it('reports the actual larger legacy overlay without reducing a committed award', async () => {
     state.overlay = 2530;
@@ -164,11 +189,11 @@ describe('The guarantee includes bounties, never rake', () => {
   });
   // Dan 2026-11-06, the 2.5K GTD 40 Chip Bounty Freezeout: 46 entries of
   // 26 prize / 10 bounty / 4 rake, still in late registration.
-  it('an open pool shows 1,656 collected net of rake, 660 overlay, 1,196 places - never 2,316', async () => {
+  it('an open pool shows 1,656 collected net of rake, 844 overlay, 1,196 places - never 2,316', async () => {
     state.collected = 1656;
-    state.overlay = 660;
-    state.gross = 1840;
-    state.houseRequired = 660;
+    state.overlay = 844;
+    state.net = 1656;
+    state.houseRequired = 844;
     const fixture = props(46 * 26);
     Object.assign(fixture.tournament as unknown as Record<string, unknown>, {
       guaranteed_prize: 2500,
@@ -178,10 +203,10 @@ describe('The guarantee includes bounties, never rake', () => {
     });
     fixture.entries = fixture.entries.slice(0, 46);
     const { container } = render(<RewardsTab {...fixture} />);
-    await waitFor(() => expect(container.textContent).toContain('660 Overlay'));
+    await waitFor(() => expect(container.textContent).toContain('844 Overlay'));
     expect(container.querySelector('.rw-pool__value')?.textContent).toBe('1,656');
     expect(container.textContent).toContain('Still Growing');
-    expect(container.textContent).toContain('1,840 Of 2,500');
+    expect(container.textContent).toContain('1,656 Of 2,500');
     expect(container.textContent).toContain('Place Prizes1,196');
     expect(container.textContent).toContain('Bounty Pool460');
     expect(container.textContent).not.toContain('2,316');
@@ -192,11 +217,11 @@ describe('The guarantee includes bounties, never rake', () => {
   // overlay; it is never added to a place.
   it('prices each place on the actual pool only while the overlay is pending', async () => {
     state.collected = 1656;
-    state.overlay = 660;
-    state.gross = 1840;
-    state.houseRequired = 660;
+    state.overlay = 844;
+    state.net = 1656;
+    state.houseRequired = 844;
     state.housePosted = 0;
-    state.houseDue = 660;
+    state.houseDue = 844;
     const fixture = props(46 * 26);
     Object.assign(fixture.tournament as unknown as Record<string, unknown>, {
       guaranteed_prize: 2500,
@@ -206,7 +231,7 @@ describe('The guarantee includes bounties, never rake', () => {
     });
     fixture.entries = fixture.entries.slice(0, 46);
     const { container } = render(<RewardsTab {...fixture} />);
-    await waitFor(() => expect(container.textContent).toContain('660 Overlay'));
+    await waitFor(() => expect(container.textContent).toContain('844 Overlay'));
     expect(container.querySelector('.rw-prize')?.textContent).toBe('1,196');
     expect(container.textContent).not.toContain('1,856');
     expect(container.textContent).not.toMatch(/Guaranteed \d/);
@@ -215,7 +240,7 @@ describe('The guarantee includes bounties, never rake', () => {
   it('a Free Buy adds only what the house has not yet posted (250, never 405)', async () => {
     state.collected = 155;
     state.overlay = 0;
-    state.gross = 0;
+    state.net = 0;
     state.houseRequired = 250;
     state.housePosted = 155;
     state.houseDue = 95;

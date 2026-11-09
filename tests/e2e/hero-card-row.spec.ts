@@ -481,3 +481,38 @@ for (const width of [320, 375, 393, 430, 768, 1440]) {
     expect(await page.locator('.table-scaler').boundingBox()).toEqual(initial);
   });
 }
+
+test('PLO6 hero cards match the board and fit beside a full-size avatar', async ({ page }) => {
+  for (const width of [320, 600]) {
+    await page.setViewportSize({ width, height: 900 });
+    const boardWidth = width === 320 ? 47 : 80;
+    const seat = seatHtml(6, 'wrapped').replace(
+      'class="seat__cards seat__cards--hero"',
+      'class="seat__cards seat__cards--hero" data-card-count="6"'
+    );
+    await page.setContent(`<style>${css}
+${harnessCss}
+      :root { --harness-felt-w: ${width}px; --sp-board-card-w: ${boardWidth}px; }
+      .board-card { width: var(--sp-board-card-w); aspect-ratio: 64 / 92; }
+      </style><main class="table-page"><div class="board-card"></div>${seat}</main>`);
+    const board = (await page.locator('.board-card').boundingBox())!;
+    const avatar = (await page.locator('.seat__avatar').boundingBox())!;
+    const row = page.locator('.seat__cards--hero');
+    for (const state of ['seat__cards--folded', 'seat__cards--revealed']) {
+      await row.evaluate((element, name) => element.classList.add(name), state);
+      const cards = await row.locator('.seat__card').all();
+      for (const card of cards) {
+        const bounds = (await card.boundingBox())!;
+        expect(bounds.width).toBeCloseTo(board.width, 0);
+        expect(bounds.height).toBeCloseTo(board.height, 0);
+        expect(bounds.x).toBeGreaterThan(avatar.x + avatar.width);
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+      }
+      await row.evaluate((element, name) => element.classList.remove(name), state);
+    }
+    await row.evaluate((element) => element.remove());
+    const noCards = (await page.locator('.seat__avatar').boundingBox())!;
+    expect(noCards.width).toBeCloseTo(avatar.width, 2);
+    expect(noCards.height).toBeCloseTo(avatar.height, 2);
+  }
+});
