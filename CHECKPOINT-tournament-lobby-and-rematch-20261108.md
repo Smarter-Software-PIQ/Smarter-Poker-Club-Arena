@@ -78,20 +78,35 @@ Workflow `Heads-Up Rematch Certification`, run 42584396854. Route: reserved cert
 - The browser moved itself to `/table/9e28ffee...`. The engine started the rematch at 08:15:58.2Z and dealt its first
   hand at 08:16:49.3Z.
 - Run 42581709358 matched an earlier live rematch the same way (`2ca5c5af`; engine start 3 s after the match).
-- Not yet seen: the end of the rematch (its test player stopped acting at the second table, so the turn timer is
-  playing it out), and the chip total after both games.
+- The rematch finished at 09:01:46Z (on the turn timer; the test player had stopped acting at the second table): 1.90
+  prize to the winner, 0.10 rake. Both wallets end at 7.90, which totals 15.80: the 16.00 funded less four fees of 0.05
+  across the two games, so chips are conserved.
 
 ## Open
 
 - Weekly satellite: no weekly-schedule satellite has spawned since the name fix. Spawns land exactly 72 h ahead; the
   next is "40 Chip Freezeout (NLH) Satellite 5" for 2026-11-12 15:45Z, created about 2026-11-09 15:45Z. "Friday Feature
   Satellite 5" (schedule b997f1e3) has not spawned since 2026-11-04; that is not this lane's.
-- Frozen satellites 6cb6f619 (last hand 2026-11-08 04:53:56Z) and 7a41f0a1 (last hand 23:48:49Z): both still RUNNING
-  at level 12 at 08:30Z. An ACK was requested in COORDINATION-INBOX.md (05:10Z) and on PR #10063 from the cutover owner
-  (01BbZPDjeNdeckeaEd3XTkrj), with the release-blockers lane copied; none had arrived by 08:30Z. Their recovery belongs
-  to the Nov 9 04:00 Chicago release (66cfdde743 is in its candidate floor). This lane makes no mutation on either.
-- Certification residue: the `Cert HU` clubs from runs 42572669237, 42577549337, 42581709358 and 42584396854, and their
-  reserved players, are settled by the Cert Residue Sweep through `settleStrandedHeadsUpClub` (#10147/#10149) once
-  their games end. Run 42569893917's two zero-balance players are in an already retired club and are recovered by the
-  same sweep.
+- Frozen satellites 6cb6f619 (29 alive, pool 1003.00, last hand 2026-11-08 04:53:56Z) and 7a41f0a1 (24 alive, pool
+  982.00, last hand 23:48:49Z): both still RUNNING at level 12 at 10:12Z.
+  - The Nov 9 release did not activate: the selection was blocked by a missing sparse-checkout path, now fixed in
+    PR #10155. The serving engine is still 391f7bc0, which lacks 66cfdde743.
+  - Urgent and owner-window replacements were revoked on Nov 6, so the earliest recovery is the Nov 10 04:00 Chicago
+    window, about 2026-11-10 10:05Z.
+  - The verifier is the release-blockers lane, read-only; its ACK is in COORDINATION-INBOX.md at 06:56Z.
+  - The recovery actor (who may mutate) is still unnamed. It was asked of the cutover owner 01BbZPDjeNdeckeaEd3XTkrj at
+    05:10Z and again at 10:20Z.
+  - This lane makes no mutation on either event.
+- Certification residue cannot be retired by any current door.
+  - Clubs: four `Cert HU` clubs (05448714, 08278575, 10629595, 12100714) stay active. Each holds its unused opening
+    grant, its two reserved players (7.90 or less each, all test chips) and its empty welcome board.
+  - The door that refuses them: `fn_retire_settled_club` always runs `fn_unwind_unused_first_club_welcome_package`,
+    which counts every Sit & Go a club has ever played as welcome-package history and refuses
+    (`WELCOME_PACKAGE_HAS_PLAY_OR_REGISTRATION_HISTORY`).
+  - Seen in practice: the Cert Residue Sweep (run 42602987778) reached `settleStrandedHeadsUpClub` and was refused for
+    three of the clubs. The stale history door accepts only Crest Cert fixtures without play.
+  - Players: the two zero-balance players of run 42569893917 are in a club that is already retired. Their account door
+    refuses with `CLUB_RETIRED` (they never played, so the plain membership delete is used).
+  - Consequence: every further live run leaves one more club. No further live run has been started. Retiring these
+    needs a new, guarded retirement door for a played certification club, which is an owner decision.
 - The old draft branch `claude/heads-up-rematch-1108` (closed PR #10093) was deleted at about 05:28Z through the Mac's GitHub login (the cloud proxy refuses ref deletes).
