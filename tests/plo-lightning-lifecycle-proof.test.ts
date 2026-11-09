@@ -66,7 +66,7 @@ describe('finite PLO lifecycle production witness', () => {
       expect(() => requireCleanupSource(run, bad, sha, runId)).toThrow();
   });
   it('sends guarded recovery through maintained server headers for both server key generations', async () => {
-    for (const key of ['sb_secret_fixture', 'legacy.fixture.jwt']) {
+    for (const key of ['sb_secret_current', 'legacy.fixture.jwt']) {
       const requests: any[] = [];
       const response = await requestGuardedCleanup(
         { SUPABASE_URL: 'https://fixture.invalid', SUPABASE_SERVICE_ROLE_KEY: key },
