@@ -62,7 +62,7 @@ jobs:
             echo "No pull request diff: running every proof."
             echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
-          if ! changed=$(git diff --name-only "$BASE_SHA...$HEAD_SHA" 2>/dev/null); then
+          if ! changed=$(git diff --name-only --no-renames "$BASE_SHA...$HEAD_SHA" 2>/dev/null); then
             echo "::notice::The diff could not be read; running every proof."
             echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
           fi

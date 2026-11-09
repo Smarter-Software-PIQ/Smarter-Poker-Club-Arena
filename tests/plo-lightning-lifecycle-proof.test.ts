@@ -7,6 +7,9 @@ import {
   receiptMatches,
   requireHealth,
   summarizeHands,
+  requireFundingClub,
+  requireFeederAdmission,
+  HOUSE,
 } from '../scripts/ci/verify-plo-lightning-lifecycle.mjs';
 const sha = 'a'.repeat(40);
 describe('finite PLO lifecycle production witness', () => {
@@ -22,6 +25,32 @@ describe('finite PLO lifecycle production witness', () => {
     expect(() => requireBatch({ status: 200, body }, 'p', 400)).not.toThrow();
     expect(() => requireBatch({ status: 200, body }, 'someone-else', 400)).toThrow();
     expect(() => requireBatch({ status: 200, body }, 'p', 401)).toThrow();
+  });
+  it('funds the designated member-club wallet rather than the union bank wallet', () => {
+    const club = { id: 'member', union_id: HOUSE, asset: 'chips', status: 'active' };
+    const link = { club_id: 'member', union_id: HOUSE };
+    expect(requireFundingClub(club, link)).toBe('member');
+    expect(() => requireFundingClub({ ...club, id: HOUSE }, { ...link, club_id: HOUSE })).toThrow();
+    expect(() => requireFundingClub(club, null)).toThrow();
+    expect(() => requireFundingClub(club, { ...link, union_id: 'another-union' })).toThrow();
+    expect(() => requireFundingClub({ ...club, status: 'closed' }, link)).toThrow();
+  });
+  it('retains the actual admission refusal instead of waiting for a purchase sheet', () => {
+    expect(() =>
+      requireFeederAdmission({
+        status: 400,
+        body: { code: '23514', message: 'INSUFFICIENT_CHIPS:100.00' },
+      })
+    ).toThrow('INSUFFICIENT_CHIPS:100.00');
+    expect(() =>
+      requireFeederAdmission({ status: 200, body: { ok: true, action: 'waitlisted' } })
+    ).toThrow();
+    expect(() =>
+      requireFeederAdmission({
+        status: 200,
+        body: { ok: true, action: 'seat', table_id: 'a'.repeat(36) },
+      })
+    ).not.toThrow();
   });
   it('requires exact owned confirmed buy-in intent including auto-rebuy and club', () => {
     const p = {

@@ -1,7 +1,7 @@
 -- Preserve canonical recovery and strict capped-owner admission in either
--- predecessor deployment order. No payouts, receipt rows or status updates.
--- Exact corrected 163346 is a no-op; an already-installed known legacy pair
--- is restored to #10059. Mixed, unknown or unrecorded states are refused.
+-- installed predecessor state. No payouts, receipt rows or status updates.
+-- The known installed legacy pair is restored to #10059; an already-canonical
+-- pair is a no-op. Mixed, unknown or unrecorded states are refused.
 -- @live-proof: md5(pg_get_functiondef('public.fn_ca_satellite_cohort_receipt(uuid,uuid[])'::regprocedure))='07247c1fbbdb9709740d00bcc370eb75'
 -- @live-proof: md5(pg_get_functiondef('public.fn_ca_settle_satellite_cohort(uuid,uuid[])'::regprocedure))='88743d6d6484247ac4175c6d8bd9e0c9'
 
@@ -31,7 +31,7 @@ BEGIN
   END IF;
   IF md5(definition)='07247c1fbbdb9709740d00bcc370eb75'
     AND md5(settle)='88743d6d6484247ac4175c6d8bd9e0c9' THEN
-    RETURN; -- Corrected predecessor: no writes or financial calls.
+    RETURN; -- Already canonical: no writes or financial calls.
   END IF;
   IF md5(definition) IS DISTINCT FROM '605f94538e5ca3507512e8631ff88f8f'
     OR md5(settle) IS DISTINCT FROM '9922d5bdafdfd794c7a3393ea8168f06'

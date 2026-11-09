@@ -1,7 +1,5 @@
 # Canonical satellite recovery
 
-Removed obsolete legacy-engine compatibility, manual settlement and broad incident-status updates from a migration refused before installation. Its collusion scan function budget remains intact.
+Restore the complete canonical satellite receipt during durable-request recovery and retain strict v1 capped-award admission. The guarded migration restores both known installed legacy function definitions together. With the canonical pair already present, it makes no change. Missing predecessor history, mixed definitions and unexpected function metadata refuse the transition.
 
-Satellite recovery returns the complete canonical receipt and retains strict v1 capped-award admission. The guarded transition accepts an already-canonical predecessor without changes or restores both known legacy function definitions together. Missing history, mixed definitions and unexpected function metadata refuse the transition. It changes no financial records or stored receipts.
-
-The maintained native qualification exercises both installation orders, original durable-request recovery and the actual receipt decoder. It verifies strict admission, refusal boundaries, unchanged financial records and function metadata, and executes the declared collusion-budget installation proof. Runtime qualification evidence remains separate from production installation and live verification.
+The correction preserves installed migration bytes and history. It changes no financial records, stored receipts or incident status. Maintained native qualification exercises the actual installed legacy component, original durable-request recovery and receipt decoder, strict admission, repeated canonical state, refusal boundaries and financial and metadata preservation. Qualification evidence remains separate from production installation and live verification.

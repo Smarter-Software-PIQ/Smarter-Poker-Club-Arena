@@ -1,6 +1,7 @@
--- Exact obsolete patch from 10200, parent edb19408b54. Original file SHA256
--- 5c33ae87635152f310e5e82603ae07a774eb908f44bda4d14d1ae3608d1853af.
--- Counterfactual local fixture only; never executes manual payer or status cleanup.
+-- Exact installed legacy component from successful applier42700387347.
+-- Source acbac8772b1d8f9cfb4b84c3133389934eab9241, full-file SHA256
+-- c42a7de81937ff2e8374e534e0780997f46933a05ac069fdc91238f94e4b0846.
+-- Local component fixture only; no manual payout or status cleanup is executed.
 DO $patch_sat$
 DECLARE
   v_settle text := pg_get_functiondef('public.fn_ca_settle_satellite_cohort(uuid,uuid[])'::regprocedure);

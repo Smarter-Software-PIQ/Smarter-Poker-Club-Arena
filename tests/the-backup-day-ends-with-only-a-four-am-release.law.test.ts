@@ -171,26 +171,66 @@ python3() {
     expect(result.stdout).toBe('');
   });
   it.each([
-    ['Engine Release ' + 'b'.repeat(40), 'b'.repeat(40), true],
-    ['Engine Release ' + 'b'.repeat(40), 'c'.repeat(40), false],
-    ['Engine Withdrawal 123-1', 'b'.repeat(40), false],
-  ])('executes post-release clone selection for %s', (title, serving, accepted) => {
-    const plan = backup.jobs.plan.steps.find((s: any) => s.id === 'plan').run;
-    const result = planShell(
-      `curl() { printf '%s' '${JSON.stringify({ releaseSha: serving })}'; }\n` + plan,
-      {
-        EVENT: 'workflow_run',
-        INPUT_SHA: '',
-        INPUT_REFRESH: 'false',
-        GITHUB_SHA: 'a'.repeat(40),
-        RELEASE_TITLE: title,
-      }
-    );
-    expect(result.status === 0, result.stderr).toBe(accepted);
-    if (accepted) {
-      expect(result.stdout).toContain('sha=' + serving);
-      expect(result.stdout).toContain('refresh=force');
-    } else expect(result.stdout).not.toContain('refresh=force');
+    ['valid', true, true],
+    ['replay', true, false],
+    ['foreign attempt', false, false],
+    ['unsealed', false, false],
+    ['missing receipt job', false, false],
+    ['stale instance', false, false],
+    ['unreadable custody', false, false],
+  ])('checks the post-release clone request for %s', (scenario, ok, claimed) => {
+    const sha = 'b'.repeat(40);
+    const instance = '123-abcd1234';
+    const parent = {
+      path: '.github/workflows/auto-deploy-hetzner.yml',
+      event: 'repository_dispatch',
+      head_branch: 'main',
+      display_title: 'Engine Release ' + sha,
+      run_attempt: scenario === 'foreign attempt' ? 2 : 1,
+      created_at: '2026-11-09T19:28:00Z',
+    };
+    const jobs = {
+      jobs: [
+        {
+          name: 'Record The Append-Only Engine Release Receipt',
+          conclusion: scenario === 'missing receipt job' ? 'failure' : 'success',
+        },
+        {
+          name: 'Publish Through Hetzner Club Arena',
+          conclusion: 'success',
+          steps: [
+            {
+              name: 'Read original sealed runtime for the post-deploy gameplay observer',
+              conclusion: 'success',
+            },
+          ],
+        },
+      ],
+    };
+    const runs = {
+      workflow_runs:
+        scenario === 'unreadable custody'
+          ? []
+          : [{ id: scenario === 'replay' ? 80 : 99, display_title: 'Backup after seal 11-1' }],
+    };
+    const shell = `gh() { case "$*" in *workflows/backup-engine.yml*) echo '${JSON.stringify(runs)}';; *jobs?*) echo '${JSON.stringify(jobs)}';; *) echo '${JSON.stringify(parent)}';; esac; }
+curl() { echo '${JSON.stringify({ running: true, releaseSha: sha, instanceId: scenario === 'stale instance' ? '111-aaaaaaaa' : instance })}'; }
+`;
+    const result = planShell(shell + backup.jobs.plan.steps.find((s: any) => s.id === 'seal').run, {
+      TARGET: sha,
+      RUN_KEY: '11-1',
+      RECEIPT: JSON.stringify({
+        runId: '11-1',
+        sha,
+        result: scenario === 'unsealed' ? 'rollback' : 'sealed',
+        completionRuntime: { instanceId: instance },
+      }),
+      GITHUB_REPOSITORY: 'owner/repo',
+      GITHUB_RUN_ID: '99',
+      GITHUB_RUN_ATTEMPT: '1',
+    });
+    expect(result.status === 0, result.stderr).toBe(ok);
+    expect(result.stdout.includes('sha=' + sha)).toBe(claimed);
   });
   it.each(['a'.repeat(40), 'b'.repeat(40)])(
     'keeps queued push candidate %s instead of moving main',
@@ -232,8 +272,12 @@ python3() {
       expect(plan).toContain('if [ "$EVENT" = push ] && [[ "${RUN_ID:-}" =~ ^[0-9]+$ ]]; then');
       expect(plan).toContain('actions/workflows/backup-engine.yml/runs?event=push&branch=main');
       expect(plan).toContain('select(.id > $RUN_ID and .head_sha != \\"$sha\\")');
-      expect(backup.jobs.plan.steps[0].env.RUN_ID).toBe('${{ github.run_id }}');
-      expect(backup.jobs.plan.steps[0].env.GH_TOKEN).toBe('${{ github.token }}');
+      expect(backup.jobs.plan.steps.find((s: any) => s.id === 'plan').env.RUN_ID).toBe(
+        '${{ github.run_id }}'
+      );
+      expect(backup.jobs.plan.steps.find((s: any) => s.id === 'plan').env.GH_TOKEN).toBe(
+        '${{ github.token }}'
+      );
       expect(backup.jobs.refresh.if).toBe("needs.plan.outputs.sha != ''");
       expect(backup.jobs.certify.if).toBe("always() && needs.plan.outputs.sha != ''");
     });
@@ -266,7 +310,7 @@ python3() {
     it.each([
       ['workflow_dispatch', { INPUT_SHA: candidate }],
       ['schedule', {}],
-      ['workflow_run', { RELEASE_TITLE: 'Engine Release ' + candidate }],
+      ['repository_dispatch', { SEALED_SHA: candidate }],
     ])('never skips a %s run even with newer push runs queued', (event, extra) => {
       const result = planShell(
         `gh() { echo 9; }\ngit() { printf '%s\\trefs/heads/main\\n' ${candidate}; }\ncurl() { printf '%s' '${JSON.stringify({ releaseSha: candidate })}'; }\n` +
@@ -556,7 +600,7 @@ git() { echo unexpected-main-read >&2; return 99; }
     it.each([
       ['workflow_dispatch', { INPUT_SHA: candidate }],
       ['schedule', {}],
-      ['workflow_run', { RELEASE_TITLE: 'Engine Release ' + candidate }],
+      ['repository_dispatch', { SEALED_SHA: candidate }],
     ])('a %s run never inherits', (event, extra) => {
       const result = planShell(
         `gh() { echo 0; }\ngit() { printf '%s\\trefs/heads/main\\n' ${candidate}; }\ncurl() { printf '%s' '${JSON.stringify({ releaseSha: candidate })}'; }\n` +
@@ -808,15 +852,19 @@ ${Object.entries(states)
   });
   it('serializes all Backup candidates and refreshes only after a successful sealed release', () => {
     expect(backup.concurrency).toEqual({
-      group: 'backup-engine',
+      group: expect.stringContaining("|| 'backup-engine'"),
       queue: 'max',
       'cancel-in-progress': false,
     });
     expect(backup.on.push.paths).toContain('server/**');
-    expect(backup.on.workflow_run).toEqual({ workflows: [receiver.name], types: ['completed'] });
-    expect(backup.jobs.plan.if).toContain("github.event.workflow_run.conclusion == 'success'");
+    expect(backup.on.workflow_run).toBeUndefined();
+    expect(backup.on.repository_dispatch.types).toEqual(['run-post-deploy-e2e']);
+    expect(backup.jobs.plan.if).toContain("github.event.client_payload.release_run_key != ''");
+    const sender = receiver.jobs['certify-production'].steps[0].run;
+    expect(sender).toContain('client_payload[release_run_key]=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT');
+    expect(sender).toContain('Backup after seal $GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT');
     const plan = backup.jobs.plan.steps.find((s: any) => s.id === 'plan').run;
-    expect(plan).toContain('[ "$served" = "$sha" ]');
+    expect(plan).toContain('sha="$SEALED_SHA"');
     expect(plan).toContain('refresh=force');
     expect(backup.jobs.certify.if).toBe("always() && needs.plan.outputs.sha != ''");
     const certify = backup.jobs.certify.steps.find((s: any) => s.id === 'certify');
