@@ -470,9 +470,14 @@ import {
   lightningParkedDealerSeat,
 } from '../lightning/lightningTransitionMotion';
 import {
+  forgetLightningCheckFoldArm,
   lightningCheckFoldCarries,
   lightningCheckFoldReleaseDue,
+  lightningCheckFoldRestoreDue,
   lightningCheckFoldSurvives,
+  lightningEngineFoldedArm,
+  rememberLightningCheckFoldArm,
+  rememberedLightningCheckFoldArm,
 } from '../lightning/lightningCheckFold';
 import {
   detectLightningPlatform,
@@ -2860,6 +2865,8 @@ function LiveTablePage({
      across streets (lightningCheckFoldSurvives) and tells the exit hold below
      that an idle snapshot is the engine folding that arm on a bet. */
   const lightningCheckFoldArmRef = useRef<string | null>(null);
+  /** The hand that was last live on this felt: an idle snapshot has no key. */
+  const lightningLiveHandKeyRef = useRef<string | null>(null);
   const [lightningExitTick, setLightningExitTick] = useState(0);
   const [lightningExitMs, setLightningExitMs] = useState(0);
   // Phase 1.1 PR-3: apply authoritative engine snapshot to tableState when
@@ -2873,6 +2880,10 @@ function LiveTablePage({
       const idle =
         !!lightningRoomRef.current &&
         isLightningIdleSnapshot(engineSnapshot as LightningSnapshotFields);
+      if (!idle)
+        lightningLiveHandKeyRef.current = lightningRoomRef.current
+          ? lightningHandKey(engineSnapshot as LightningSnapshotFields)
+          : null;
       if (!idle) {
         if (lightningExitHoldRef.current) {
           lightningExitHoldRef.current = null;
@@ -2895,11 +2906,22 @@ function LiveTablePage({
                had started the hero's cards toward the muck or played the fold
                cue: they sat face up for the whole hold and then vanished. The
                hold now shows that fold exactly as a pressed one. */
-            if (lightningCheckFoldArmRef.current !== null) {
-              lightningCheckFoldArmRef.current = null;
+            const armedHandKey = lightningCheckFoldArmRef.current;
+            lightningCheckFoldArmRef.current = null;
+            {
               const idx = tableStateRef.current.heroSeat - 1;
               const hero = idx >= 0 ? tableStateRef.current.players[idx] : null;
-              if (hero && hero.status !== 'folded') {
+              /* Only the arm of the hand that was just live: a leftover from
+                 an earlier hand, or a hand voided under the player, never
+                 folds their cards on screen. */
+              if (
+                hero &&
+                lightningEngineFoldedArm({
+                  armedHandKey,
+                  lastLiveHandKey: lightningLiveHandKeyRef.current,
+                  heroStatus: hero.status,
+                })
+              ) {
                 setTableState((prev) => {
                   const row = prev.players[idx];
                   if (!row || row.id !== hero.id || row.status === 'folded') return prev;
@@ -3681,6 +3703,9 @@ function LiveTablePage({
   const preActionPriorHeroActionAtRef = useRef(0);
   useEffect(() => {
     preActionArmedRef.current = preAction;
+    // No armed choice, no Lightning Check/Fold arm: whichever path cleared the
+    // bar (a new hand, a refused arm, the engine's own word) clears this too.
+    if (preAction === null) lightningCheckFoldArmRef.current = null;
   }, [preAction]);
   /** A hero-turn alert the TURN_CHANGE handler held back because a
    *  pre-action was armed; rung by the heroPromptedToAct effect, or dropped
@@ -26996,6 +27021,71 @@ function LiveTablePage({
   useEffect(() => {
     if (lightningCheckFoldDue) void lightningFoldHandlerRef.current('fast_fold', true);
   }, [lightningCheckFoldDue]);
+
+  /* THE ARM SURVIVES A RELOAD OF ITS OWN HAND (2026-11-09). The engine carries
+     an armed Check/Fold for the whole hand, so a page that reloaded mid-hand
+     came back unlit while the engine went on acting for the player. The room
+     remembers which hand it armed (this browser's record, never authority) and
+     a reload of that same hand lights the toggle again. Nothing is sent: the
+     engine already holds it (the one-shot held-by-engine marker). One decision
+     per mount, made once the hero's own row is on the felt. */
+  const lightningEngineCarries = lightningCheckFoldCarries(
+    engineSnapshot as LightningSnapshotFields | null
+  );
+  const lightningRememberedArmRef = useRef<{ room: string | undefined; key: string | null }>({
+    room: undefined,
+    key: null,
+  });
+  if (lightningRememberedArmRef.current.room !== tableId) {
+    lightningRememberedArmRef.current = {
+      room: tableId,
+      key: tableId && lightningRoom ? rememberedLightningCheckFoldArm(tableId) : null,
+    };
+  }
+  const lightningHeroStatus = lightningHero?.status ?? null;
+  useEffect(() => {
+    const remembered = lightningRememberedArmRef.current;
+    if (!tableId || remembered.key === null || lightningHandKeyNow === null) return;
+    if (remembered.key === lightningHandKeyNow && lightningHeroStatus === null) return;
+    const key = remembered.key;
+    remembered.key = null;
+    if (
+      !lightningCheckFoldRestoreDue({
+        lightningRoom: !!lightningRoom,
+        rememberedHandKey: key,
+        currentHandKey: lightningHandKeyNow,
+        preAction,
+        engineCarries: lightningEngineCarries,
+        handLive: lightningHandLive && tableState.isHandInProgress && !tableHandIsOver,
+        heroStatus: lightningHeroStatus,
+        callDue: preActionCallDue,
+        heroTurn:
+          tableState.currentPlayerSeat > 0 && tableState.currentPlayerSeat === tableState.heroSeat,
+      })
+    ) {
+      forgetLightningCheckFoldArm(tableId);
+      return;
+    }
+    preActionHeldByEngineRef.current = 'fold';
+    preActionCanCheckRef.current = true;
+    preActionCallAmountRef.current = 0;
+    preActionFoldOnTurnHandRef.current = null;
+    preActionPriorHeroActionAtRef.current = latestHeroActionTimestamp(
+      engineSnapshotRef.current?.action_history,
+      tableState.heroSeat
+    );
+    lightningCheckFoldArmRef.current = key;
+    setPreAction('fold');
+    // One decision per mount: the values read are those of the render that
+    // first shows the remembered hand with the hero in it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tableId, lightningHandKeyNow, lightningHeroStatus]);
+  useEffect(() => {
+    if (!tableId || !lightningRoom) return;
+    const armed = preAction === 'fold' ? lightningCheckFoldArmRef.current : null;
+    if (armed !== null && lightningEngineCarries) rememberLightningCheckFoldArm(tableId, armed);
+    else if (lightningRememberedArmRef.current.key === null) forgetLightningCheckFoldArm(tableId);
+  }, [tableId, lightningRoom, preAction, lightningHandKeyNow, lightningEngineCarries]);
 
   /* LIGHTNING PHASE 12 (spec ACTION LATENCY TELEMETRY): hand creation ->
      first client render. Once per hand, after the hand is on the felt and
