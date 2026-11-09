@@ -323,6 +323,13 @@ INSERT INTO operational_alert_events(id,alertname,severity,received_at,investiga
         sql("UPDATE tournament_terminal_settlements SET bounty_payout_total=252 WHERE tournament_id='"+second+"'")
         assert not original_proof(352940)['verified']
         sql("UPDATE tournament_terminal_settlements SET bounty_payout_total=253 WHERE tournament_id='"+second+"'")
+        sql("DELETE FROM tournament_terminal_settlements WHERE tournament_id='"+second+"'")
+        assert not original_proof(352940)['verified'], 'zero cash pool still needs the terminal receipt'
+        closed_at=slot_events[1][4]
+        sql("INSERT INTO tournament_terminal_settlements VALUES('"+second+"','"+closed_at+"','"+closed_at+"','"+closed_at+"',0,0,253,253)")
+        sql("UPDATE operational_alert_events SET payload=jsonb_set(payload,'{detail,expected_format}','\"regular\"') WHERE id=352939")
+        assert not original_proof(352939)['verified'], 'another format at the same time is not the missing slot'
+        sql("UPDATE operational_alert_events SET payload=jsonb_set(payload,'{detail,expected_format}','\"aiof\"') WHERE id=352939")
         sql("UPDATE operational_alert_events SET payload=jsonb_set(payload,'{detail,starts}','\"invalid\"') WHERE id=352939")
         assert not original_proof(352939)['verified']
         sql("UPDATE operational_alert_events SET payload=jsonb_set(payload,'{detail,starts}','\"2026-11-07T22:30:00Z\"') WHERE id=352939")
