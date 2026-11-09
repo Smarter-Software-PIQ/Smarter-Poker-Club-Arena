@@ -1,3 +1,5 @@
+**November 9 owner follow-up ASAP cutover:** after the sealed `bff6eed3` cutover the owner told the Claude engine-cutover release owner at 20:58 UTC November 9: "NO CUT OVER HAPPENS AS SOON AS ITS AVALILABLE, NOT 4AM". The single finite window `2026-11-09-owner-asap-engine-2230z` admits only one certified replacement of `bff6eed3522ee894da747f91a532b35a3d8cee4f`, between 22:30 UTC November 9 and 04:30 UTC November 10, after the published 22:10 UTC notice. It contains `de2e7976` (#10208), carries no migration, and neither renews nor replays `2026-11-09-owner-asap-engine-1530z`. Every existing qualification, Backup contents, drain, freeze, proof, rollback and thaw safeguard applies unchanged.
+
 **November 9 owner ASAP cutover:** the owner ordered "GET THEM LIVE NOW, DO NOT WAIT UNTIL 4AM, DO IT ASAP" in overlay chat `01a1b950` (relayed on PR #10063 comment 6741660924) and confirmed it to the Claude engine-cutover release owner at 13:54 UTC November 9. The single finite window `2026-11-09-owner-asap-engine-1530z` admits only one certified replacement of `391f7bc0d57c71637bd4af5181f70520661e3593` containing the Horse overlay rescue `f21499f` and add-on timing fix `debe1ef`, between 15:30 and 21:30 UTC November 9, after the 15:10 UTC player notice has actually been available for at least twenty minutes. Exact qualification, a Backup certificate matching current production's installed schema, protected target/control, hand drain, full freeze/proof/rollback reserve and thaw remain required. The frozen November 9 original daily selection stays immutable; this does not renew any earlier booking or change the standing daily schedule.
 
 **November 8 Horse study continuation:** the owner directed completion now in chat `01a1af6b-2112-7fc2-b6bf-f6b5f0e9f430`. The single successor `2026-11-08-horse-study-successor-engine-1820z` preserves the expired prior booking and admits only one certified replacement of `391f7bc0d57c71637bd4af5181f70520661e3593`, between 18:20 UTC November 8 and 00:20 UTC November 9, after the published 18:00 UTC November 8 player notice has actually been available for at least twenty minutes. Exact qualification, Backup, protected target/control, hand drain, full freeze/proof/rollback reserve and thaw remain required. This does not renew the expired prior operation or change the standing daily schedule.
@@ -553,7 +555,23 @@ shortens a safeguard.
 - Reattach the observer (4.9).
 - Re-run a failed GitHub job that released nothing:
   `env -u GH_TOKEN -u GITHUB_TOKEN gh run rerun <id> --failed`.
-- Submit the one Backup-only refresh after proving the sealed SHA is serving:
+- For an original seal whose automatic event was lost, check the Backup queue,
+  original sealed result and current serving instance first. Deliver the original
+  receipt to the same Backup verifier using its dedicated recovery event. Use the
+  original result file read through the scoped observer. The event has no gameplay
+  or engine deployment receiver. Duplicate events reuse the first Backup run for
+  the original seal. A failed existing run needs investigation before recovery.
+
+  ```sh
+  jq -ec '
+    select(.result == "sealed") | {event_type:"refresh-sealed-engine-backup",
+      client_payload:{engine_sha:.sha,release_run_key:.runId,
+        gameplay_receipt:({runId,sha,result,instanceId,startedAt,
+          completionRuntime:{instanceId:.completionRuntime.instanceId}} | tojson)}}' "$sealed_result" |
+    gh api --method POST "repos/$repo/dispatches" --input -
+  ```
+
+- For a Backup-only forced refresh after proving the sealed SHA is serving:
 
   ```sh
   served=$(curl -fsS https://engine.smarter.poker/health | jq -er .releaseSha) &&
@@ -707,3 +725,10 @@ separately; unknown financial intents retain identities for authoritative
 readback instead of another purchase or transfer. Only result JSON and public
 screenshots are uploaded, never private account files. It does not retire the
 house club or its tables. A refusal or missing evidence is not a live pass.
+
+For an interrupted PLO witness whose funding is reconciled but owned account
+retirement failed, the same explicit event accepts `cleanup_run_id` beside
+`engine_sha`. It retrieves that exact protected original run artifact, verifies
+its binding and zero live balances, and invokes only the existing guarded
+retirement owner. It never replays a purchase or transfer. Read `cleanup-only`
+separately from live gameplay acceptance; unknown money remains retained.

@@ -223,9 +223,21 @@
    finish their flight to the muck. The duration carries the Animation Speed
    multiplier like every other keyframe, and the global reduced-motion rule
    collapses it. Never set at a Classic table. */
+/* 2026-11-09 (Dan: "the transition to the new table needs to smoother, it
+   feels rough and glitchy"). Three faults in the old rule:
+   1. The fade took the whole hold. A next hand that landed inside the hold
+      removed the marker mid-fade, so half-faded opponents snapped back to full
+      strength wearing the new table's faces. The table now clears in the
+      first half of the hold (ease-out, 0.26 s) and stays clear, so the next
+      table always fades in over an empty felt.
+   2. The pot was not part of it: it sat at full strength while everything
+      around it faded, then vanished in one frame when the hold ended.
+   3. A hand played to its end had no exit at all. TablePage now sets the same
+      marker once that hand is over (lightningFeltLeaving). */
 .table-page[data-lightning-exit='true'] .seat:not(.seat--hero),
-.table-page[data-lightning-exit='true'] .community-cards {
-  animation: lightningFeltExit calc(0.5s * var(--animation-speed, 1)) ease-in forwards;
+.table-page[data-lightning-exit='true'] .community-cards,
+.table-page[data-lightning-exit='true'] .pot-area {
+  animation: lightningFeltExit calc(0.26s * var(--animation-speed, 1)) ease-out forwards;
 }
 
 @keyframes lightningFeltExit {

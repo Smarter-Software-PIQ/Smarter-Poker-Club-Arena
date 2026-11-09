@@ -371,6 +371,7 @@ jobs:
       group: plo-lightning-lifecycle-proof
       cancel-in-progress: false
     permissions:
+      actions: read
       contents: read
     steps:
       - uses: actions/checkout@v4
@@ -383,12 +384,14 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Install Chromium only
+        if: toJSON(github.event.client_payload.cleanup_run_id) == 'null'
         timeout-minutes: 5
         run: |
           sudo python3 scripts/ci/ubuntu-apt-mirror.py
           npx playwright install --with-deps chromium
       - name: Observe one owned funded journey through ordinary player paths
         env:
+          GH_TOKEN: ${{ github.token }}
           GITHUB_EVENT_ACTION: ${{ github.event.action }}
           PLO_LIGHTNING_PROOF_PAYLOAD: ${{ toJSON(github.event.client_payload) }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

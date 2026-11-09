@@ -35,4 +35,6 @@ This is the active instruction for local and cloud agents. Read [PUBLISHING.md](
 
 The restored provider routes have successful production evidence; this does not certify every pending application package, a green whole-application suite or a guaranteed six-minute delivery. Selected historical source references were Club Arena `c35e9403a043457c8c8d495dd50cf86c35290919` and World Hub `89043c690147e991d6872bace8bec1fb329e402a`. They are historical references, not instructions to reset newer protected application work. Necessary restoration corrections and global telemetry removal were recorded separately.
 
+Code graph (optional, advisory): `scripts/dev/graphify-bootstrap.sh` builds a local Graphify code graph for faster code location; install, use, refresh, revision matching, limits and removal are in `CLAUDE.md` section 14. Source code stays authoritative.
+
 On the owner's Mac, also read `/Users/smarter.poker/Documents/AGENTS.md` and `/Users/smarter.poker/Documents/AGENT-HARDENING-STANDARD.md` at task start, after context loss and before completion. Their absence in a cloud checkout does not remove the instructions above. Later explicit owner instructions take precedence.

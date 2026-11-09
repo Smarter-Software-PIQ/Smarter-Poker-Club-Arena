@@ -110,12 +110,16 @@ describe('1. the folded hand leaves the felt, it does not vanish', () => {
   });
 
   it('the felt is marked as leaving in a Lightning room only, and the CSS fades opponents and board', () => {
-    expect(PAGE).toContain(
-      "data-lightning-exit={lightningRoom && lightningExitMs > 0 ? 'true' : undefined}"
+    // 2026-11-09: the marker is one rule (lightningFeltLeaving) that also
+    // covers a hand played to its end, and the fade clears the table - pot
+    // included - in the first half of the hold. See
+    // lightning-table-change-is-one-motion.test.tsx.
+    expect(PAGE).toMatch(
+      /data-lightning-exit=\{\s*lightningFeltLeaving\(\{\s*lightningRoom: !!lightningRoom,\s*observer: lightningObserver,\s*exitHoldMs: lightningExitMs,\s*handIsOver: tableHandIsOver,\s*\}\)\s*\? 'true'\s*: undefined\s*\}/
     );
     const css = read('src/components/table/LightningFoldBar.css');
     expect(css).toMatch(
-      /\.table-page\[data-lightning-exit='true'\] \.seat:not\(\.seat--hero\),\s*\.table-page\[data-lightning-exit='true'\] \.community-cards \{\s*animation: lightningFeltExit calc\(0\.5s \* var\(--animation-speed, 1\)\)/
+      /\.table-page\[data-lightning-exit='true'\] \.seat:not\(\.seat--hero\),\s*\.table-page\[data-lightning-exit='true'\] \.community-cards,\s*\.table-page\[data-lightning-exit='true'\] \.pot-area \{\s*animation: lightningFeltExit calc\(0\.26s \* var\(--animation-speed, 1\)\) ease-out forwards;/
     );
     expect(css).toMatch(
       /@keyframes lightningFeltExit \{\s*from \{\s*opacity: 1;\s*\}\s*to \{\s*opacity: 0;/
@@ -168,8 +172,12 @@ describe('3. LIGHTNING FOLD answers the press', () => {
     expect(cue).toBeGreaterThan(0);
     expect(optimistic).toBeGreaterThan(cue);
     expect(send).toBeGreaterThan(optimistic);
-    expect(handler).toMatch(/if \(!result\.success\) \{\s*revert\(\);\s*toast\.warning/);
-    expect(handler).toMatch(/catch \(err\) \{\s*revert\(\);\s*throw err;/);
+    // A press still says so and still throws; only the release the room sends
+    // for an armed Check/Fold (`quiet`) keeps a crossed refusal to itself.
+    expect(handler).toMatch(
+      /if \(!result\.success\) \{\s*revert\(\);[\s\S]{0,400}?if \(!quiet\) toast\.warning/
+    );
+    expect(handler).toMatch(/catch \(err\) \{\s*revert\(\);\s*if \(!quiet\) throw err;/);
   });
 
   it('a press on no live hand plays nothing and changes nothing', () => {

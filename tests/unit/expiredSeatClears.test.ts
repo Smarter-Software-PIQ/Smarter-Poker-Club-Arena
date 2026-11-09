@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
+import { previousHeroRow } from '../../src/lib/heroCardCustody';
 import { isLightningObserverSnapshot } from '../../src/utils/mapEngineSnapshot';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -209,6 +210,8 @@ describe('confirmed seat removal clears every local seat claim', () => {
       cardHoldSameHand: false,
       cardHoldOpponentSameHand: false,
       prev: { players: [] },
+      // The hero's previous row is found by identity (heroCardCustody.ts).
+      previousHeroRow,
     });
     const hero = { id: 'hero', isHero: true, stack };
     expect(map(hero, 7)).toBe(hero);
