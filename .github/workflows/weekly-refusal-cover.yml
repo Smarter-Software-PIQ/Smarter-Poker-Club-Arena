@@ -16,6 +16,9 @@ on:
       - scripts/ci/test-cash-assert-status-cover-postgres.py
       - scripts/ci/fixtures/cash-assert-status-cover/**
       - tests/cash-evidence-reads-the-accrual-status-cover.law.test.ts
+      - scripts/ci/test-governance-eco-original-week-postgres.py
+      - scripts/ci/fixtures/governance-eco-original-week/**
+      - tests/governance-eco-keeps-original-week.law.test.ts
       - .github/workflows/weekly-refusal-cover.yml
       - tests/the-weekly-refusal-check-reads-the-receipt-cover.law.test.ts
 
@@ -52,3 +55,7 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 -B scripts/ci/test-split-late-return-postgres.py --pg-bin "$PG_BIN" --scratch-root "${{ runner.temp }}" --output "${{ runner.temp }}/split-late-return.json"
+      - name: Governance ECO incidents require their original completed week
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-governance-eco-original-week-postgres.py --pg-bin "$PG_BIN" --scratch "$RUNNER_TEMP"
