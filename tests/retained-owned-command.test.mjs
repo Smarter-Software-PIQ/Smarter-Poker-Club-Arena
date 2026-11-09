@@ -38,6 +38,69 @@ test('successful output and real failure status remain authoritative', () => {
   assert.equal(bad.status, 73);
 });
 
+test('an absent owned group returns its result without requiring a process census', (t) => {
+  t.mock.method(process, 'kill', (pid, signal) => {
+    assert.ok(pid < 0);
+    assert.equal(signal, 'SIGKILL');
+    throw Object.assign(new Error('owned group absent'), { code: 'ESRCH' });
+  });
+  // The actual child uses an absolute executable; only the subsequent ps census
+  // is unavailable. Kernel-confirmed absence must not depend on that census.
+  const originalPath = process.env.PATH;
+  process.env.PATH = '/nonexistent-owned-command-regression';
+  try {
+    const result = runOwnedCommand(process.execPath, ['-e', 'console.log("absent receipt")'], {
+      encoding: 'utf8',
+      timeout: 1000,
+      maxBuffer: 4096,
+    });
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout.trim(), 'absent receipt');
+  } finally {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+  }
+});
+
+test('a successfully signalled group still refuses an unreadable census', (t) => {
+  t.mock.method(process, 'kill', (pid, signal) => {
+    assert.ok(pid < 0);
+    assert.equal(signal, 'SIGKILL');
+  });
+  const originalPath = process.env.PATH;
+  process.env.PATH = '/nonexistent-owned-command-regression';
+  try {
+    assert.throws(
+      () =>
+        runOwnedCommand(process.execPath, ['-e', ''], {
+          encoding: 'utf8',
+          timeout: 1000,
+          maxBuffer: 4096,
+        }),
+      /Owned qualification process cleanup unreadable/
+    );
+  } finally {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+  }
+});
+
+test('group termination permission errors remain authoritative', (t) => {
+  const denied = Object.assign(new Error('owned group denied'), { code: 'EPERM' });
+  t.mock.method(process, 'kill', () => {
+    throw denied;
+  });
+  assert.throws(
+    () =>
+      runOwnedCommand(process.execPath, ['-e', ''], {
+        encoding: 'utf8',
+        timeout: 1000,
+        maxBuffer: 4096,
+      }),
+    (error) => error === denied
+  );
+});
+
 test('historical capacity preserves all cases and distinct cleanup headroom', async () => {
   const { readFileSync } = await import('node:fs');
   const driver = readFileSync(

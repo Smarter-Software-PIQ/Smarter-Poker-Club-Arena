@@ -12,7 +12,9 @@ export function runOwnedCommand(program, args, options) {
   try {
     process.kill(-result.pid, 'SIGKILL');
   } catch (error) {
-    if (error.code !== 'ESRCH') throw error;
+    // ESRCH confirms that the owned process group no longer exists.
+    if (error.code === 'ESRCH') return result;
+    throw error;
   }
   const deadline = performance.now() + 2000;
   while (true) {
