@@ -30,6 +30,17 @@ def qualify_capped_recovery(e,root,output,db,opening):
  _,before,_=e.sql(db,properties,label='capped-recovery-metadata-before')
  _,original_reader,_=e.sql(db,"SELECT pg_get_functiondef('public.fn_ca_satellite_cohort_receipt(uuid,uuid[])'::regprocedure);",label='capped-recovery-canonical-reader-source')
  candidate=root/'supabase/migrations/20261109202657_satellite_recovery_returns_the_full_canonical_receipt.sql'
+ # Execute the declared deployment predicate, not just its comment string.
+ collusion=(root/'supabase/migrations/20260831235700_ca_phase4_cert_segregation_diamond_audit_collusion_v1.sql').read_text()
+ definition=re.search(r'CREATE OR REPLACE FUNCTION public\.fn_ca_collusion_scan\(.*?END \$function\$;',collusion,re.S).group()
+ e.sql(db,definition,label='capped-recovery-existing-collusion-owner')
+ predecessor=root/'supabase/migrations/20261109163346_settle_capped_satellites_and_nov08_digest_v2.sql'
+ predicate=re.search(r'^-- @live-proof: (.+)$',predecessor.read_text(),re.M).group(1)
+ _,before_budget,_=e.sql(db,'SELECT coalesce('+predicate+',false);',label='capped-recovery-collusion-proof-before')
+ if before_budget.strip()!='f':raise ValueError('collusion timeout fixture already has corrected budget')
+ e.sql(db,file=predecessor,label='capped-recovery-corrected-predecessor')
+ _,after_budget,_=e.sql(db,'SELECT '+predicate+';',label='capped-recovery-collusion-proof-after')
+ if after_budget.strip()!='t':raise ValueError('declared collusion timeout live proof did not become true')
  # First deployment order: corrected predecessor leaves the canonical pair intact.
  e.sql(db,"INSERT INTO supabase_migrations.schema_migrations(version,name) VALUES('20261109163346','settle_capped_satellites_and_nov08_digest_v2');",label='capped-recovery-corrected-predecessor-history')
  e.sql(db,file=candidate,label='capped-recovery-canonical-pair-no-op')
