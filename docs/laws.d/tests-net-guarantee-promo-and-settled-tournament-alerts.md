@@ -1,0 +1,3 @@
+# tests/net-guarantee-promo-and-settled-tournament-alerts.law.test.ts
+
+`fn_ca_tournament_escrow_chips`, `fn_tournament_conservation_delta`, and `fn_tournament_conservation_deltas` must count `net_guarantee_promo` union promo funding legs (introduced by `20261108041131`) alongside `free_buy_entry_promo` legs; `fn_resolve_settled_financial_alerts` must close receipt-proven `Tournament.satellite_qualifiers_refused_repeatedly` and `tournament.real_time_payout_refused` alerts (including satellites settled via `tournament_satellite_settlements`); and `auditFreeBuyBoard` must skip `CANCELLED` rows so a replaced Free Buy does not raise a false duplicate-slot board-drift alert.
