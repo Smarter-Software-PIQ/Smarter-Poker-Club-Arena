@@ -178,13 +178,16 @@ describe('5. the open board is eleven Spins and six regular heads-up', () => {
   });
 
   it('a satellite feeder is not counted into the board it sits beside', () => {
-    /* Found 2026-11-08, before the ladder reached production. A satellite
-       heads-up is created with `variant: 'sng'` and `tournament_type:
-       'SATELLITE'` - deliberately, so the seat path reads it as a heads-up.
-       Counting the board by VARIANT alone therefore counted feeders into the
-       six, and six open feeders would have closed the regular heads-up board
-       completely while the count read as "full". Dan put the feeders OUTSIDE
-       the six; the count has to agree with the target it enforces. */
+    /* Measured on production 2026-11-08, before the ladder activated. A
+       satellite feeder carries `variant: 'sng'` in both shapes it takes:
+       `tournament_type: 'SATELLITE'` (createSatelliteHeadsUp) and
+       `tournament_type: 'SNG'` with `satellite_target_id` set (the 6-max and
+       9-max feeders, which are the ones that actually run). Counting by
+       variant alone put 60 open feeders against a target of six beside 36
+       real boards, which closes the regular heads-up board completely while
+       the count reads as "full". Dan put the feeders outside the six, and the
+       engine must call a feeder a feeder by the same test the daily report
+       uses (fn_ca_seat_first_daily_starts). */
     const room = RECURRING.slice(
       RECURRING.indexOf('private async seatFirstBoardRoom('),
       RECURRING.indexOf('private async checkAndLaunchSNGs(')
@@ -192,6 +195,8 @@ describe('5. the open board is eleven Spins and six regular heads-up', () => {
     expect(room).toMatch(
       /\.eq\('tournament_type', variant === 'spin' \? 'SPIN' : 'SNG'\)/
     );
+    expect(room).toMatch(/\.is\('satellite_target_id', null\)/);
+    expect(room).toMatch(/\.is\('satellite_target', null\)/);
   });
 
   it('a count it could not read opens nothing, rather than reading as room to spare', () => {

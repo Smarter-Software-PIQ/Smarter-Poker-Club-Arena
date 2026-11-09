@@ -3861,23 +3861,33 @@ export class TournamentRecurringService {
   }
 
   private async seatFirstBoardRoom(variant: 'spin' | 'sng'): Promise<number | null> {
-    /* A SATELLITE FEEDER IS NOT A BOARD (2026-11-08, found before the ladder
-       reached production). A satellite heads-up is created with `variant:
-       'sng'` and `tournament_type: 'SATELLITE'` - deliberately, because the
-       seat path must read it as a heads-up. So counting the board by VARIANT
-       alone counted feeders into the six, and six open feeders would have
-       closed the regular heads-up board completely while reading as "full".
-       That is the opposite of the rule this target was written for: Dan put
-       the feeders OUTSIDE the six, because a feeder fills one named event
-       rather than being a price point on the open board.
+    /* A SATELLITE FEEDER IS NOT A BOARD (2026-11-08, measured on production
+       before the ladder activated). Dan put the feeders OUTSIDE the eleven and
+       the six, because a feeder fills one named event rather than being a
+       price point on the open board.
 
-       Counted by tournament_type, which is what the target describes. */
-    const { count, error } = await supabase
+       Counting by `variant` alone broke that, and not in a small way. A
+       satellite feeder is written with `variant: 'sng'` in BOTH shapes it
+       takes: `tournament_type: 'SATELLITE'` from createSatelliteHeadsUp, and
+       `tournament_type: 'SNG'` with `satellite_target_id` set for the 6-max
+       and 9-max feeders, which are the ones that actually run. Measured
+       2026-11-08: of the REGISTERING `sng` rows, 36 were the regular
+       heads-up board and 60 were 6-max/9-max feeders. Against a target of
+       six that is room = -90, so the regular heads-up board would have been
+       closed COMPLETELY and permanently while the count read as "full".
+
+       So a board is counted only when it is not a feeder, by exactly the test
+       fn_ca_seat_first_daily_starts uses to call a row a feeder - the engine
+       and the report must not disagree about what the six are. */
+    const query = supabase
       .from('tournaments')
       .select('id', { count: 'exact', head: true })
       .eq('variant', variant)
       .eq('tournament_type', variant === 'spin' ? 'SPIN' : 'SNG')
+      .is('satellite_target_id', null)
+      .is('satellite_target', null)
       .eq('status', 'REGISTERING');
+    const { count, error } = await query;
     if (error || typeof count !== 'number') {
       reportError(
         new Error(
