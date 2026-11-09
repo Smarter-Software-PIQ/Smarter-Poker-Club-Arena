@@ -129,7 +129,6 @@ COMMENT ON TABLE public.ca_heads_up_rematch_sources IS
 ALTER TABLE public.ca_heads_up_rematch_sources ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.ca_heads_up_rematch_sources FROM PUBLIC, anon, authenticated, service_role;
 
-DELETE FROM public.ca_heads_up_rematch_sources;
 INSERT INTO public.ca_heads_up_rematch_sources (source, source_md5, derived) VALUES
   ('public.fn_register_for_tournament_before_atomic_capacity_20260907(uuid,boolean)', 'fd5e622d7edfbcb3e61938d57b8eb0c2', 'public.fn_ca_rematch_register_core_for_payer(uuid,boolean,uuid)'),
   ('public.fn_register_for_tournament_before_atomic_lifecycle_gate(uuid,boolean)',   '1f5b646bfa52cafa0c3a678324cf3e56', 'public.fn_ca_rematch_register_lifecycle_for_payer(uuid,boolean,uuid)'),
@@ -138,7 +137,8 @@ INSERT INTO public.ca_heads_up_rematch_sources (source, source_md5, derived) VAL
   ('public.fn_register_for_tournament(uuid,boolean)',                                '88dc44b7cb63b2bd845f89d672335b97', 'public.fn_ca_rematch_register_for_payer(uuid,boolean,uuid)'),
   ('public.fn_take_seat_and_buy_in_before_maintenance_announcement_gate(uuid,integer)', '67a6b85f00a785e22c4d89c6168253d3', 'public.fn_ca_rematch_seat_maint_for_payer(uuid,integer,uuid)'),
   ('public.fn_take_seat_and_buy_in_before_terminal_seat_gate(uuid,integer)',         'b22f559c1e388ed3564b8cad6fd801d6', 'public.fn_ca_rematch_seat_terminal_for_payer(uuid,integer,uuid)'),
-  ('public.fn_take_seat_and_buy_in(uuid,integer)',                                   'a965493d4837187d433b3cdd40c5da81', 'public.fn_ca_rematch_take_seat_for_payer(uuid,integer,uuid)');
+  ('public.fn_take_seat_and_buy_in(uuid,integer)',                                   'a965493d4837187d433b3cdd40c5da81', 'public.fn_ca_rematch_take_seat_for_payer(uuid,integer,uuid)')
+ON CONFLICT (source) DO UPDATE SET source_md5 = EXCLUDED.source_md5, derived = EXCLUDED.derived;
 
 -- ── 3. The named-payer copies, derived from the production text ──────────
 -- A patch helper for this transaction only: replace an anchor that must occur
