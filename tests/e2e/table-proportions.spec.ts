@@ -2347,13 +2347,13 @@ for (const [width, heightOverride] of occupiedViewports)
           result.violations,
           `${width}px ${count}-max ${jackpot} ${revealed ? 'revealed' : 'playing'} ${villainCards} cards ${state} canvas=${JSON.stringify(result.canvas)}}`
         ).toEqual([]);
+        // Dan 2026-11-01: lobby, chat, previous hand, time bank and rabbit
+        // hunt are all the hamburger's size (--sp-tabbar-control: 52px, 44px
+        // on the smallest short phone).
+        const expectedToolSize = width === 320 ? 44 : 52;
         for (const tool of result.tools) {
-          // Dan 2026-11-01: lobby, chat, previous hand, time bank and rabbit
-          // hunt are all the hamburger's size (--sp-tabbar-control: 52px, 44px
-          // on the smallest short phone).
-          const expected = width === 320 ? 44 : 52;
-          expect(tool.width, tool.selector).toBeCloseTo(expected, 1);
-          expect(tool.height, tool.selector).toBeCloseTo(expected, 1);
+          expect(tool.width, tool.selector).toBeCloseTo(expectedToolSize, 1);
+          expect(tool.height, tool.selector).toBeCloseTo(expectedToolSize, 1);
         }
         for (const [selector, icon] of [
           ['.chat-collapsed', 'chat'],
@@ -2368,8 +2368,17 @@ for (const [width, heightOverride] of occupiedViewports)
               height: r.height * (alpha.bottom - alpha.top),
             };
           }, toolAlpha[icon]);
+          /* THE PAINTED FRAME IS THE SAME SIZE AS THE BOX (Dan 2026-11-09).
+             This expected `width <= 480 ? 48 : 40` - the Lobby footprint -
+             while the loop above asserted the tool's BOX at the hamburger's
+             52/44. Those are the two halves of the same instruction, and only
+             one of them was done on 2026-11-01, so every tool drew a button
+             0.77 of the hamburger inside a hamburger-sized box. Dan, with the
+             screenshot: "the message button, previous hand, time bank and
+             rabbit hunt buttons should all be the same size as the hamburger
+             menu button." One number now, measured where the player sees it. */
           expect(Math.max(painted.width, painted.height), `${icon} painted frame`).toBeCloseTo(
-            width <= 480 ? 48 : 40,
+            expectedToolSize,
             0
           );
         }
