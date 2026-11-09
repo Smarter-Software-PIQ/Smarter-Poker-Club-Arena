@@ -477,3 +477,213 @@ describe('3. the timing budget', () => {
     }
   });
 });
+
+/* Owner merge gate for #10165 (2026-11-09): settlement ordering changed, so
+   conservation, concurrency, retry and partial failure are proven before it
+   may merge. The PostgreSQL side lives in
+   scripts/ci/probes/chip-journal-atomicity/test_deferred_settlement.py; these
+   pin the engine side of the same four properties with the tail deferred. */
+describe('4. the deferred tail conserves, serializes, retries once and fails whole', () => {
+  /** One hand: dealt stacks, contributions, winners, and the stacks it ended with. */
+  function playHand(
+    engine: any,
+    players: any[],
+    n: number,
+    hand: { dealt: [number, number]; put: [number, number]; winner: 'a' | 'b'; addOn?: number }
+  ) {
+    engine.handCount = n;
+    const pot = hand.put[0] + hand.put[1];
+    engine.currentHandPotSize = pot;
+    engine.currentHandDealtStacks = new Map([
+      ['a', hand.dealt[0]],
+      ['b', hand.dealt[1]],
+    ]);
+    engine.currentHandContributions = new Map([
+      ['a', hand.put[0]],
+      ['b', hand.put[1]],
+    ]);
+    engine.currentHandWinners = [{ userId: hand.winner, amount: pot }];
+    engine.currentHandStartedAt = Date.now() - 1000;
+    const ended = [
+      hand.dealt[0] - hand.put[0] + (hand.winner === 'a' ? pot : 0),
+      hand.dealt[1] - hand.put[1] + (hand.winner === 'b' ? pot : 0),
+    ];
+    players[0].stack = ended[0];
+    players[1].stack = ended[1];
+    // The atomic commit writes the ended stacks; the envelope may then credit
+    // one frozen add-on to seat a (resolve_pending_addon) and says so.
+    mocks.commit.mockImplementationOnce(async () => {
+      seatRows = [
+        { user_id: 'a', stack: ended[0] },
+        { user_id: 'b', stack: ended[1] },
+      ];
+      return { handId: `hand-${n}`, settlementCommitted: true };
+    });
+    mocks.obligations.mockImplementationOnce(async () => {
+      if (hand.addOn) seatRows[0] = { user_id: 'a', stack: seatRows[0].stack + hand.addOn };
+      phase = 'envelope_answered';
+      return { ok: true, pending_addons: hand.addOn ? 1 : 0 };
+    });
+    return engine.postHandTasks(players, n - 9459699);
+  }
+  const total = (players: any[]) => players.reduce((s, p) => s + p.stack, 0);
+  const rowsOf = () => seatRows.map((r) => r.stack);
+  const unlocked = (engine: any) =>
+    engine.hub.emitEvent.mock.calls
+      .filter((c: any[]) => c[1].type === 'table_unlocked')
+      .map((c: any[]) => c[1].hand_number);
+
+  it('conservation: three hands with overlapping tails hold every chip exactly once', async () => {
+    const { engine, players } = cashTable();
+    const answers: Array<(n: number) => void> = [];
+    mocks.recount.mockImplementation(() => new Promise((r) => answers.push(r)));
+
+    await playHand(engine, players, 9459700, { dealt: [100, 100], put: [10, 10], winner: 'b' });
+    expect(players.map((p) => p.stack)).toEqual([90, 110]);
+    expect(total(players)).toBe(200);
+
+    // Hand 2 settles while hand 1's recount is still out; its envelope
+    // credits a 25 add-on, so the committed stacks are read again after it.
+    await playHand(engine, players, 9459701, {
+      dealt: [90, 110],
+      put: [10, 10],
+      winner: 'a',
+      addOn: 25,
+    });
+    expect(players.map((p) => p.stack)).toEqual(rowsOf());
+    expect(players.map((p) => p.stack)).toEqual([125, 100]);
+    expect(total(players)).toBe(225); // 200 + the one add-on, credited once
+
+    // Hand 3 uses the read beside its envelope (no add-on, no seat credit).
+    seatReads.length = 0;
+    phase = 'start';
+    await playHand(engine, players, 9459702, { dealt: [125, 100], put: [5, 5], winner: 'b' });
+    expect(seatReads.map((r) => r.at)).toEqual(['start']);
+    expect(players.map((p) => p.stack)).toEqual(rowsOf());
+    expect(total(players)).toBe(225);
+
+    // Every hand committed and ran its envelope exactly once, before its
+    // release; the tails have moved nothing.
+    expect(mocks.commit).toHaveBeenCalledTimes(3);
+    expect(mocks.obligations).toHaveBeenCalledTimes(3);
+    for (const answer of [0, 1, 2]) {
+      await flush();
+      answers[answer]?.(2);
+    }
+    await engine.tableUnlockTail;
+    await flush();
+    expect(unlocked(engine)).toEqual([9459700, 9459701, 9459702]);
+    expect(total(players)).toBe(225);
+    expect(players.map((p) => p.stack)).toEqual(rowsOf());
+    expect(engine.hasSettlementInFlight()).toBe(false);
+  });
+
+  it('concurrency: back-to-back hands never have two recounts in flight, and none outlive a lost lifecycle', async () => {
+    const { engine, players } = cashTable();
+    let inFlight = 0;
+    let peak = 0;
+    const answers: Array<() => void> = [];
+    mocks.recount.mockImplementation(
+      () =>
+        new Promise((r) => {
+          inFlight++;
+          peak = Math.max(peak, inFlight);
+          answers.push(() => {
+            inFlight--;
+            r(2);
+          });
+        })
+    );
+    for (const n of [9459700, 9459701, 9459702]) {
+      await playHand(engine, players, n, {
+        dealt: [
+          players[0].stack + (n === 9459700 ? 10 : 0),
+          players[1].stack - (n === 9459700 ? 10 : 0),
+        ],
+        put: [5, 5],
+        winner: n % 2 ? 'a' : 'b',
+      });
+    }
+    // Three deals released; one recount out, two queued behind it in order.
+    expect(mocks.recount).toHaveBeenCalledTimes(1);
+    answers[0]();
+    await flush();
+    expect(mocks.recount).toHaveBeenCalledTimes(2);
+    // The generation loses the table while hand 2's recount is out: hand 3's
+    // is never sent and nothing is announced for it by the stale generation.
+    engine.lifecycleCanMutate = () => false;
+    answers[1]();
+    await flush();
+    expect(peak).toBe(1);
+    expect(mocks.recount).toHaveBeenCalledTimes(2);
+    await engine.tableUnlockTail;
+    await flush();
+    expect(unlocked(engine)).not.toContain(9459702);
+    expect(engine.hasSettlementInFlight()).toBe(false);
+    expect(mocks.commit).toHaveBeenCalledTimes(3);
+    expect(mocks.obligations).toHaveBeenCalledTimes(3);
+    expect(total(players)).toBe(200);
+  });
+
+  it('retry: an envelope reply lost once is applied once, and its add-on is read once', async () => {
+    const { engine, players } = cashTable();
+    engine.envelopeChainApplied = true;
+    // The first attempt commits in the database (the add-on lands) but its
+    // reply is lost; the retry gets the stored receipt, which counts it.
+    mocks.obligations
+      .mockImplementationOnce(async () => {
+        seatRows = [
+          { user_id: 'a', stack: 115 },
+          { user_id: 'b', stack: 110 },
+        ];
+        throw new Error('supabase_timeout');
+      })
+      .mockImplementationOnce(async () => {
+        phase = 'envelope_answered';
+        return { ok: true, pending_addons: 1, already_completed: true };
+      });
+    await engine.postHandTasks(players, 1);
+    expect(mocks.commit).toHaveBeenCalledTimes(1);
+    expect(mocks.obligations).toHaveBeenCalledTimes(2);
+    // The read sent beside the first attempt predates the add-on: discarded.
+    expect(seatReads.map((r) => r.at)).toEqual(['start', 'envelope_answered']);
+    expect(players.map((p) => p.stack)).toEqual([115, 110]);
+    expect(total(players)).toBe(225);
+    expect(engine.announceEnvelopeResolvedAddOns).toHaveBeenCalledTimes(1);
+    expect(engine.envelopeChainApplied).toBe(true);
+    await engine.tableUnlockTail;
+    expect(mocks.recount).toHaveBeenCalledTimes(1);
+    expect(unlocked(engine)).toEqual([9459700]);
+  });
+
+  it('partial failure: a recount that fails mid-tail strands nothing and credits nothing twice', async () => {
+    const { engine, players } = cashTable();
+    let failFirst!: (e: Error) => void;
+    mocks.recount
+      .mockImplementationOnce(() => new Promise((_, reject) => (failFirst = reject)))
+      .mockResolvedValue(2);
+    await playHand(engine, players, 9459700, { dealt: [100, 100], put: [10, 10], winner: 'b' });
+    await playHand(engine, players, 9459701, { dealt: [90, 110], put: [10, 10], winner: 'a' });
+    const rpcBefore = vi.mocked(supabase.rpc).mock.calls.length;
+    const fromBefore = vi.mocked(supabase.from).mock.calls.length;
+    // Hand 1's recount fails while hand 2 is already dealt and settled.
+    failFirst(new Error('supabase_timeout'));
+    await flush();
+    await engine.tableUnlockTail;
+    await flush();
+    // Hand 2's recount still ran after it and its table is unlocked; hand 1's
+    // failure is announced as nothing but a failure.
+    expect(mocks.recount).toHaveBeenCalledTimes(2);
+    expect(unlocked(engine)).toEqual([9459701]);
+    // The tail sent nothing but the recount: no hand number, no manifest, no
+    // seat or wallet write, so no row is left that no hand carries.
+    expect(vi.mocked(supabase.rpc).mock.calls.length).toBe(rpcBefore);
+    expect(vi.mocked(supabase.from).mock.calls.length).toBe(fromBefore);
+    expect(mocks.commit).toHaveBeenCalledTimes(2);
+    expect(mocks.obligations).toHaveBeenCalledTimes(2);
+    expect(players.map((p) => p.stack)).toEqual(rowsOf());
+    expect(total(players)).toBe(200);
+    expect(engine.hasSettlementInFlight()).toBe(false);
+    expect(engine.tableUnlockTail).toBeNull();
+  });
+});
