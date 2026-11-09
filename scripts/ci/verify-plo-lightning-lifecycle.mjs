@@ -51,8 +51,26 @@ export function ordinaryTurnContext(snapshot, player) {
   if (snapshot.current_player !== player) return null;
   const own = snapshot.players?.find(p => p.user_id === player);
   assert(own && [snapshot.current_bet, own.bet, own.totalInvested, own.stack].every(v => Number.isFinite(v) && v >= 0), 'Owned turn amounts are unavailable');
-  return { stage:snapshot.stage, callAmount:Math.max(0,snapshot.current_bet-own.bet), bet:own.bet,
+  assert(typeof snapshot.action_context === 'string' && snapshot.action_context.length > 0 && typeof snapshot.table_id === 'string','Exact owned decision context required');
+  return { tableId:snapshot.table_id, context:snapshot.action_context, stage:snapshot.stage, callAmount:Math.max(0,snapshot.current_bet-own.bet), bet:own.bet,
     budget:Math.max(0,Math.min(8-own.totalInvested,own.stack-0.01)) };
+}
+export function createParticipationGuard() {
+  const turns=new Map(), intents=new Map();
+  return {
+    approve(turn) { turns.set(turn.context,turn); },
+    allows(body) {
+      if (['check','fold'].includes(body.action)) return true;
+      const turn=turns.get(body.actionContext);
+      if (!turn || body.tableId!==turn.tableId || turn.stage!=='preflop' || typeof body.idempotencyKey!=='string' || !body.idempotencyKey) return false;
+      if (body.action==='call' && body.amount!==undefined) return false;
+      const cost=body.action==='call' ? turn.callAmount : body.action==='raise' && typeof body.amount==='number' ? body.amount-turn.bet : NaN;
+      if (!Number.isFinite(cost) || cost<=0 || cost>turn.budget) return false;
+      const serialized=JSON.stringify(body), prior=intents.get(body.actionContext);
+      if (prior && prior!==serialized) return false;
+      intents.set(body.actionContext,serialized); return true;
+    },
+  };
 }
 export async function performOrdinaryTurn(page, turn) {
   const panel = page.locator('.action-panel--active[data-connection="live"]');
@@ -290,6 +308,7 @@ export async function main(environment = process.env) {
   const roleEnv = role => ({ ...environment, RUNNER_TEMP: out, E2E_CLUB_ID: fundingClub, E2E_TEST_ACCOUNT_FILE: join(out, `${role}-account.private.json`), GITHUB_ENV: join(out, `${role}.private.env`) });
   const wallet = async id => Number((await one(`club_members?club_id=eq.${fundingClub}&user_id=eq.${id}&select=chip_balance`)).chip_balance);
   const assertOnlyOwnedHuman = state => assert(state.profiles.every(p => p.is_horse === true || p.id === player?.id), 'Another real player arrived; stop the owned proof');
+  const participation=createParticipationGuard();
   const act = async () => {
     if (!(await page.locator('.action-panel--active[data-connection="live"] .action-row').getByRole('button',{name:/^(Check$|Fold$|Call )/}).first().isVisible())) return;
     const tableId = /\/table\/([0-9a-f-]{36})$/.exec(new URL(page.url()).pathname)?.[1];
@@ -297,7 +316,8 @@ export async function main(environment = process.env) {
     const r=await fetchImpl(`${ENGINE}/state/${tableId}`,{headers:{Authorization:`Bearer ${P.token}`}});
     assert(r.ok,'Owned current turn is unavailable');
     const turn=ordinaryTurnContext(await r.json(),player.id);
-    if (turn) await performOrdinaryTurn(page,turn);
+    if (turn) { participation.approve(turn); await performOrdinaryTurn(page,turn); }
+    assert(!report.refusedParticipation,'A successor or over-budget voluntary action was refused by the witness');
   };
   const ownSeats = () => read(`table_seats?user_id=eq.${player.id}&left_at=is.null&select=id,table_id,seat_number,occupancy_id,stack`);
   const leave = async () => {
@@ -383,6 +403,14 @@ export async function main(environment = process.env) {
     financialUnknown = false;
     assert(await wallet(player.id) === BUY_IN, 'Funded wallet readback differs');
     // The published client owns the journal and one normal buy-in click.
+    await page.route(`${ENGINE}/action`, async route => {
+      if (route.request().method()!=='POST') return route.continue();
+      const body=route.request().postDataJSON();
+      if (participation.allows(body)) return route.continue();
+      // Never rewrite or send a replacement intent. Refuse our own stale click.
+      report.refusedParticipation=true; save();
+      return route.abort('blockedbyclient');
+    });
     page.on('request', r => {
       if (new URL(r.url()).pathname === '/rest/v1/rpc/atomic_table_buyin') {
         const p = r.postDataJSON();

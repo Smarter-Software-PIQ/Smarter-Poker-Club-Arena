@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import ActionPanel from '../../src/components/table/ActionPanel';
 import PreActionBar from '../../src/components/table/PreActionBar';
 import {
+  createParticipationGuard,
   ordinaryTurnContext,
   performOrdinaryTurn,
 } from '../../scripts/ci/verify-plo-lightning-lifecycle.mjs';
@@ -209,12 +210,16 @@ it('keeps postflop decisions check/fold even when a cheap call is available', as
 });
 it('binds participation to the requesting player and subtracts actual hand investment from its eight-chip budget', () => {
   const snapshot = {
+    table_id: 'table',
+    action_context: 'decision1',
     current_player: 'owned',
     stage: 'preflop',
     current_bet: 4,
     players: [{ user_id: 'owned', bet: 2, totalInvested: 6, stack: 100 }],
   };
   expect(ordinaryTurnContext(snapshot, 'owned')).toEqual({
+    tableId: 'table',
+    context: 'decision1',
     stage: 'preflop',
     callAmount: 2,
     bet: 2,
@@ -224,4 +229,49 @@ it('binds participation to the requesting player and subtracts actual hand inves
   expect(() => ordinaryTurnContext({ ...snapshot, current_bet: NaN }, 'owned')).toThrow();
   snapshot.players[0].stack = 1;
   expect(ordinaryTurnContext(snapshot, 'owned')?.budget).toBeCloseTo(0.99);
+});
+
+it('refuses a successor call or raise at the actual request boundary even when the UI changed after snapshot approval', () => {
+  const g = createParticipationGuard();
+  g.approve({
+    tableId: 'table',
+    context: 'original',
+    stage: 'preflop',
+    callAmount: 2,
+    bet: 2,
+    budget: 4,
+  });
+  const body = {
+    tableId: 'table',
+    actionContext: 'successor',
+    idempotencyKey: 'new',
+    action: 'call',
+  };
+  expect(g.allows(body)).toBe(false);
+  expect(g.allows({ ...body, action: 'raise', amount: 100 })).toBe(false);
+  expect(g.allows({ ...body, actionContext: 'original', action: 'allin' })).toBe(false);
+  expect(g.allows({ ...body, actionContext: 'original', action: 'raise', amount: 10 })).toBe(false);
+  expect(g.allows({ ...body, tableId: 'other', actionContext: 'original' })).toBe(false);
+});
+it('allows only the exact budgeted decision intent and its same-key transport retries', () => {
+  const g = createParticipationGuard();
+  g.approve({
+    tableId: 'table',
+    context: 'original',
+    stage: 'preflop',
+    callAmount: 2,
+    bet: 2,
+    budget: 4,
+  });
+  const body = {
+    tableId: 'table',
+    actionContext: 'original',
+    idempotencyKey: 'one',
+    action: 'raise',
+    amount: 4,
+  };
+  expect(g.allows(body)).toBe(true);
+  expect(g.allows({ ...body })).toBe(true);
+  expect(g.allows({ ...body, idempotencyKey: 'another' })).toBe(false);
+  expect(g.allows({ ...body, amount: 6 })).toBe(false);
 });
