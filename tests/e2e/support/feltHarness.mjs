@@ -187,12 +187,9 @@ export const PROBE = () => {
     avatar: resolve_('var(--seat-avatar-size)'),
     seatW: +parseFloat(getComputedStyle(seat).width).toFixed(1),
     /* The hero slot, measured on the hero's own element. --seat-avatar-size is
-       redeclared on `.seat.seat--hero` (x1 since 2026-11-09, x1.3333 before
-       it), so reading it from the villain tells you nothing about the hero —
-       which is exactly how three !important rungs survived a conversion that
-       claimed to delete them. A redeclaration that currently resolves to the
-       same number is still a redeclaration, and still has to be measured where
-       it is made. */
+       redeclared on `.seat.seat--hero` (x1.3333), so reading it from the
+       villain tells you nothing about the hero — which is exactly how three
+       !important rungs survived a conversion that claimed to delete them. */
     heroAvatar: +parseFloat(getComputedStyle(heroAvatarEl).width).toFixed(1),
     heroSeatW: +parseFloat(getComputedStyle(heroSeat).width).toFixed(1),
     /* Is the hero's name-and-stack plate covered by the fixed action bar?

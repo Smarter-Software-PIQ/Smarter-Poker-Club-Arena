@@ -17,20 +17,20 @@
  *      actually sees - stayed on the 40px Lobby footprint. Measured off Dan's
  *      screenshot: hamburger 39px, each tool 30-31px, i.e. 40/52 of it.
  *
- *   2. THE HERO IS THE SAME SIZE AS EVERY VILLAIN. "the 'hero' avatar is
- *      smaller then all the other avatars at the table, it should always be
- *      the same size", superseding 2026-08-15's "33% bigger". The frame was
- *      1.3333x and the BUST inside it was not (it reads --seat-avatar-base,
- *      which the hero never redeclared), so the hero was a villain-sized
- *      character in an oversized box.
- *
- *   3. THE PHONE'S ACTION BUTTONS ARE DOUBLE. "they should be double the
+ *   2. THE PHONE'S ACTION BUTTONS ARE DOUBLE. "they should be double the
  *      current size. we have alot of room on the bottom."
  *
+ * (Dan's third size from that review - the hero avatar matching the villains'
+ * - is NOT here. Resizing the hero moves the strip under the felt, the short
+ * ring's height, the lane the hero's own hole cards sit in and the point where
+ * the table starts shrinking revealed cards mid-hand, each of them a
+ * hand-measured constant on thirteen devices. It is its own piece of work; see
+ * docs/changelog/2026-11-09-six-live-table-fixes.md.)
+ *
  * The geometry these produce is measured in a browser by
- * tests/e2e/table-proportions.spec.ts (the hero ratio) and the mobile layout
- * specs. This file guards the declarations themselves, which is the half a
- * headless measurement cannot explain when it goes red.
+ * tests/e2e/table-proportions.spec.ts and the mobile layout specs. This file
+ * guards the declarations themselves, which is the half a headless measurement
+ * cannot explain when it goes red.
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -44,9 +44,7 @@ const strip = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, '');
 const TOOL_SIZING = strip(read('src/components/table/TableToolIconSizing.css'));
 const HUD_CSS = strip(read('src/components/table/TableHUD.css'));
 const CHAT_CSS = strip(read('src/components/table/TableChat.css'));
-const SEAT_CSS = strip(read('src/components/table/SeatSlot.css'));
 const ACTION_CSS = strip(read('src/components/table/ActionPanel.css'));
-const TOKENS = strip(read('src/styles/design-tokens.css'));
 
 describe('the four table tools are the hamburger size', () => {
   it('normalises the painted frame against the tab-bar control, not the Lobby tile', () => {
@@ -77,36 +75,16 @@ describe('the four table tools are the hamburger size', () => {
   });
 });
 
-describe('the hero avatar is the same size as every other avatar', () => {
-  it('the hero ratio is 1, where it is declared and where it is read', () => {
-    // The DECLARATION is the one that decides it. The fallback below only
-    // matters outside the token sheet, and a fallback that disagrees with the
-    // declared value is how a preview renders a table nobody ships.
-    expect(TOKENS).toMatch(/--seat-avatar-hero-ratio:\s*1;/);
-    expect(SEAT_CSS).toMatch(
-      /--seat-avatar-size:\s*calc\(var\(--seat-avatar-base,\s*84px\)\s*\*\s*var\(--seat-avatar-hero-ratio,\s*1\)\)/
-    );
-  });
-
-  it('and no rung may pin the hero to its own number again', () => {
-    // The 2026-08-28 regression: three `!important` hero sizes inside
-    // breakpoints, out-ordering the proportional declaration on every phone.
-    const heroSizeDeclarations = SEAT_CSS.match(/--seat-avatar-size:/g) ?? [];
-    expect(heroSizeDeclarations.length).toBeLessThanOrEqual(2);
-    expect(SEAT_CSS).not.toMatch(/--seat-avatar-size:[^;]*!important/);
-  });
-});
-
 describe('the phone action buttons are double', () => {
-  it('declares 104px at the phone breakpoint and 96px on the smallest', () => {
-    expect(ACTION_CSS).toMatch(/--sp-action-btn-h:\s*104px/);
-    // The 340px block comes LAST and therefore wins on a 320px screen. It is
-    // doubled too, or the device with the least room to read a button on is
-    // the one device whose bar did not grow.
+  it('declares 96px for a phone, and keeps the two screens that cannot take it', () => {
     expect(ACTION_CSS).toMatch(/--sp-action-btn-h:\s*96px/);
-    // Two literal declarations, and no third: every other width rides the
-    // continuous clamp at the top of the file.
-    expect((ACTION_CSS.match(/--sp-action-btn-h:\s*\d+px/g) ?? []).length).toBe(2);
+    // 375x667 and 320x568 keep the heights they have today, each for its own
+    // measured reason (ActionPanel.css carries both). A later block wins, so
+    // the order of these three is what decides a phone's bar - which is why
+    // the count is pinned as well as the values.
+    expect(ACTION_CSS).toMatch(/--sp-action-btn-h:\s*52px/);
+    expect(ACTION_CSS).toMatch(/--sp-action-btn-h:\s*48px/);
+    expect((ACTION_CSS.match(/--sp-action-btn-h:\s*\d+px/g) ?? []).length).toBe(3);
   });
 
   it('and the reserve is still derived from it rather than restated', () => {

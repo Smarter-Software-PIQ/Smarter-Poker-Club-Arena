@@ -5111,7 +5111,7 @@ button.post-bb-overlay-button {
 @media (max-width: 480px) and (orientation: portrait) {
   .table-container {
     --sp-page-h: 100dvh;
-    --sp-hero-clear: clamp(50px, calc(10vw + 12px), 56px);
+    --sp-hero-clear: clamp(60px, calc(12vw + 8px), 68px);
     /* Compact upper pods use the empty rail band below the jackpot. */
     --sp-table-top: calc(var(--sp-bbj-h, 22px) + 32px + var(--sp-page-inset-top));
   }
@@ -5249,7 +5249,7 @@ button.post-bb-overlay-button {
        centered` reads as the short ring giving up height it was not asked to.
        Same curve, shifted by the same four pixels, so the two can no longer
        drift apart. */
-    --sp-hero-clear: clamp(54px, calc(10vw + 16px), 60px);
+    --sp-hero-clear: 64px;
   }
   .table-page[data-seats='6'] .table-scaler {
     --sp-seat-h-scale: 0.96;
@@ -5279,7 +5279,7 @@ button.post-bb-overlay-button {
 @media (max-width: 340px) and (orientation: portrait) {
   .table-container {
     --sp-table-top: calc(var(--sp-bbj-h, 22px) + 18px + var(--sp-page-inset-top));
-    --sp-hero-clear: clamp(46px, calc(10vw + 16px), 52px);
+    --sp-hero-clear: clamp(52px, calc(10vw + 24px), 56px);
   }
 }
 @media (max-width: 380px) and (orientation: portrait) {

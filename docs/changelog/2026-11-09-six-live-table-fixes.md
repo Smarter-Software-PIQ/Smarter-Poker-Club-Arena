@@ -1,8 +1,10 @@
-# Six live-table fixes from Dan's Lightning seat (2026-11-09)
+# Five of six live-table fixes from Dan's Lightning seat (2026-11-09)
 
 Dan sent three screenshots from a live PLO4 Lightning table and a finished
-heads-up match, with six defects. All six are fixed here. Each section names
-what he said, what was actually wrong, and where the change is.
+heads-up match, with six defects. **Five are fixed here; the sixth - the hero
+avatar matching the villains' - is deliberately NOT, and section 4 says why.**
+Each section names what he said, what was actually wrong, and where the change
+is.
 
 ---
 
@@ -42,8 +44,13 @@ owner. The button now says what it has always done.
 > "the fold check bet buttons are too small on movile, they should be double
 > the current size. we have alot of room on the bottom to increase the sizes."
 
-`--sp-action-btn-h` at `<=480px`: **52px -> 104px**, in the one place a phone's
-button height is declared. `--sp-bottom-row-h`, `--sp-action-reserve`,
+`--sp-action-btn-h` at `<=480px`: **52px -> 96px**, in the one place a phone's
+button height is declared. Not 104: at 100 a villain's name plate comes to rest
+on the painted felt at 375px with six seats (measured - 98 clears, 100 does
+not). Two screens keep the height they have today, each for its own measured
+reason: 375x667, whose nine-seat ring makes the adaptive pass shrink a
+villain's revealed cards mid-runout at 80 and whose embedded shell fails from
+the other side at 64, and 320x568, which has less room still. `--sp-bottom-row-h`, `--sp-action-reserve`,
 `--sp-hud-line` and the felt's height budget are all derived from it, so the
 felt, the bottom-left HUD stack and the chat button all give up the same strip
 in the same breath; nothing else needed restating, and restating any of it is
@@ -56,6 +63,12 @@ a loose bar rather than a bigger one.
 The label and amount type grow with the button (1.25rem / 1rem) at the same
 `<=480px` breakpoint that doubled it, not in the 640px block, where the height
 is still on the continuous curve and a 1.25rem word would overflow it.
+
+`tests/e2e/support/geometry-baseline.json` is regenerated in the same commit:
+btnH 52 -> 96 and feltH down 44px on the phones that took the bigger bar, with
+feltW, card2W, card2H, avatar, heroAvatar, seatW and plo4Row identical on all
+fifteen devices - which is what says the felt's own proportions are untouched
+and only the bottom chrome changed.
 
 ## 3. The four table tools were smaller than the hamburger
 
@@ -85,30 +98,50 @@ frame and overflows the 52px tile by about 7px a side. That is transparent
 gutter: the tiles are laid out and spaced by their boxes, so the painted frames
 still sit 8px apart and nothing clips.
 
-## 4. The hero avatar read as the smallest one at the table
+## 4. The hero avatar read as the smallest one at the table - NOT SHIPPED HERE
 
 > "the 'hero' avatar is smaller then all the other avatars at the table, it
 > should always be the same size."
 
 This supersedes Dan's 2026-08-15 "HERO avatar should always be 33% bigger than
-the villains."
+the villains", and the diagnosis below stands. It is not in this release, and
+the reason is worth more than the fix.
 
-Worth writing down, because the measurement and the complaint disagreed at
-first: the slot _was_ 1.3333x, and `tests/e2e/table-proportions.spec.ts` proved
-it in a browser on thirteen devices. `--seat-avatar-size` sizes the seat's
-FRAME — the wrap, the ring, the mask, the plate. The painted character is sized
-from `--seat-avatar-base` (`SeatKnockout.css` reads it as `--sko-unit`), and the
-hero never redeclared that one. So the hero got a frame a third larger around a
-bust drawn at exactly the villain's size, and a character filling 75% of its
-frame beside villains filling 100% of theirs reads as the smaller avatar.
-Measured off the screenshot: hero bust 46x76, villain bust 45x73 — the same
-character in a bigger box.
+**What is actually true, measured.** The slot _is_ 1.3333x, and
+`tests/e2e/table-proportions.spec.ts` proves it in a browser on thirteen
+devices. `--seat-avatar-size` sizes the seat's FRAME - the wrap, the ring, the
+mask, the plate. The painted character is sized from `--seat-avatar-base`
+(`SeatKnockout.css` reads it as `--sko-unit`), and the hero never redeclared
+that one. So the hero gets a frame a third larger around a bust drawn at
+exactly the villain's size, and a character filling 75% of its frame beside
+villains filling 100% of theirs reads as the smaller avatar. Measured off the
+screenshot: hero bust 46x76, villain bust 45x73 - the same character in a
+bigger box.
 
-`--seat-avatar-hero-ratio` now defaults to **1**. Frame and bust agree again,
-for the hero and for every villain. The e2e guard keeps both of its assertions
-and only its constant moved; it still measures the hero on the hero's own
-element, because a redeclaration that currently resolves to the same number is
-still a redeclaration.
+**Why it is not here.** Setting `--seat-avatar-hero-ratio` to 1 is one token,
+and that token is load-bearing for a lattice of hand-measured constants:
+
+- `--sp-hero-clear`, the strip between the felt and the bar, which is sized to
+  the hero block and goes 15px slack the moment the block shrinks
+  (`the bottom reserve holds the hero block on every phone, with nothing
+spare` catches it, and says to lower the reserve in the same commit);
+- the short ring's own `--sp-hero-clear`, a literal 64 that has to stay exactly
+  four pixels above the base or `6-max stays shorter and centered` reads the
+  six-max ring as giving up height nobody asked it to;
+- `.seat__cards--hero`, the band the hero's own hole cards are centred in,
+  which is half the hero block tall: shrink the block and on a 375x667 screen
+  in the embedded shell the band becomes shorter than a two-card row and 6.8px
+  of the player's own cards go under the decision row;
+- the point at which the adaptive pass starts resizing a villain's revealed
+  cards mid-runout.
+
+Each of those was chased to a fix during this PR and each fix moved the next
+one. Proof that the hero resize is the common cause: with it reverted and
+everything else in place, every one of those beats is green; with it in, they
+fail in different places on different devices. It is its own piece of work -
+re-derive the reserve, the short-ring offset and the card band FROM the hero's
+size rather than from a measurement of the old one - and it does not belong
+welded to five fixes that are ready.
 
 ## 5. The time bank bled through the open bet slider
 

@@ -260,7 +260,7 @@
      filling 100% of theirs, which is what read as the smaller avatar. At 1 the
      frame and the bust agree again, for every seat.
      docs/changelog/2026-11-09-six-live-table-fixes.md */
-  --seat-avatar-hero-ratio: 1;
+  --seat-avatar-hero-ratio: 1.3333;
 
   /* ─── Card Shadows ─── */
   --card-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 1px 4px rgba(0, 0, 0, 0.25);

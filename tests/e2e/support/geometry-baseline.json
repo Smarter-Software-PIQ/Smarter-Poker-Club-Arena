@@ -2,60 +2,60 @@
   "iPhone SE": {
     "vp": "375x667",
     "feltW": 307.5,
-    "feltH": 373,
-    "btnH": 96,
+    "feltH": 407,
+    "btnH": 52,
     "card2W": 50,
     "card2H": 70,
     "avatar": 50,
-    "heroAvatar": 50,
+    "heroAvatar": 66.7,
     "seatW": 72.3,
     "plo4Row": 112.5
   },
   "iPhone 12/13/14": {
     "vp": "390x844",
     "feltW": 319.8,
-    "feltH": 549,
+    "feltH": 540,
     "btnH": 96,
     "card2W": 50,
     "card2H": 70,
     "avatar": 50.5,
-    "heroAvatar": 50.5,
+    "heroAvatar": 67.4,
     "seatW": 75.1,
     "plo4Row": 112.5
   },
   "iPhone 14 Pro Max": {
     "vp": "430x932",
     "feltW": 352.6,
-    "feltH": 633,
+    "feltH": 628,
     "btnH": 96,
     "card2W": 50,
     "card2H": 70,
     "avatar": 55.7,
-    "heroAvatar": 55.7,
+    "heroAvatar": 74.3,
     "seatW": 82.9,
     "plo4Row": 112.5
   },
   "iPhone 12/13/14 (real)": {
     "vp": "390x844",
     "feltW": 319.8,
-    "feltH": 480,
+    "feltH": 471,
     "btnH": 96,
     "card2W": 50,
     "card2H": 70,
     "avatar": 50.5,
-    "heroAvatar": 50.5,
+    "heroAvatar": 67.4,
     "seatW": 75.1,
     "plo4Row": 112.5
   },
   "iPhone 14 Pro Max (real)": {
     "vp": "430x932",
     "feltW": 352.6,
-    "feltH": 552,
+    "feltH": 547,
     "btnH": 96,
     "card2W": 50,
     "card2H": 70,
     "avatar": 55.7,
-    "heroAvatar": 55.7,
+    "heroAvatar": 74.3,
     "seatW": 82.9,
     "plo4Row": 112.5
   },
@@ -67,7 +67,7 @@
     "card2W": 50,
     "card2H": 70,
     "avatar": 50,
-    "heroAvatar": 50,
+    "heroAvatar": 66.7,
     "seatW": 66,
     "plo4Row": 112.5
   },
@@ -79,7 +79,7 @@
     "card2W": 87.2,
     "card2H": 122.1,
     "avatar": 99.1,
-    "heroAvatar": 99.1,
+    "heroAvatar": 132.2,
     "seatW": 113.3,
     "plo4Row": 196.2
   },
@@ -91,7 +91,7 @@
     "card2W": 77.1,
     "card2H": 108,
     "avatar": 87.7,
-    "heroAvatar": 87.7,
+    "heroAvatar": 116.9,
     "seatW": 112,
     "plo4Row": 173.6
   },
@@ -103,7 +103,7 @@
     "card2W": 76.8,
     "card2H": 107.5,
     "avatar": 87.3,
-    "heroAvatar": 87.3,
+    "heroAvatar": 116.4,
     "seatW": 112,
     "plo4Row": 172.8
   },
@@ -115,7 +115,7 @@
     "card2W": 89.9,
     "card2H": 125.9,
     "avatar": 102.2,
-    "heroAvatar": 102.2,
+    "heroAvatar": 136.3,
     "seatW": 116.8,
     "plo4Row": 202.4
   },
@@ -127,7 +127,7 @@
     "card2W": 50,
     "card2H": 70,
     "avatar": 50,
-    "heroAvatar": 50,
+    "heroAvatar": 66.7,
     "seatW": 71.9,
     "plo4Row": 112.5
   },
@@ -139,7 +139,7 @@
     "card2W": 62,
     "card2H": 86.8,
     "avatar": 70.5,
-    "heroAvatar": 70.5,
+    "heroAvatar": 93.9,
     "seatW": 104.8,
     "plo4Row": 139.5
   },
@@ -151,7 +151,7 @@
     "card2W": 50,
     "card2H": 70,
     "avatar": 50.7,
-    "heroAvatar": 50.7,
+    "heroAvatar": 67.6,
     "seatW": 75.4,
     "plo4Row": 112.5
   },
@@ -163,7 +163,7 @@
     "card2W": 52.1,
     "card2H": 73,
     "avatar": 59.2,
-    "heroAvatar": 59.2,
+    "heroAvatar": 79,
     "seatW": 88.1,
     "plo4Row": 117.3
   },
@@ -175,7 +175,7 @@
     "card2W": 66.4,
     "card2H": 92.9,
     "avatar": 75.4,
-    "heroAvatar": 75.4,
+    "heroAvatar": 100.6,
     "seatW": 112,
     "plo4Row": 149.3
   }
