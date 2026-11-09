@@ -501,3 +501,75 @@ missing the target whenever the combined count is 300 or more.
 
 Measured baseline to compare against: 2026-11-07 was 12,517 combined with ONE
 human-triggered start in the whole day.
+
+---
+
+## Where the acceptance evidence lives (2026-11-09)
+
+`/Volumes/SmarterArchives 1/agent-evidence/seat-first-ladder-01BbZPDj-20261109/`
+
+Note the ` 1`. The SSD remounted under that name because a stale root-owned
+directory occupies `/Volumes/SmarterArchives`, which is read-only and holds
+only symlinks into the real volume. Writing to the plain path fails with
+"macOS denied access" and a new directory cannot be symlinked back into it, so
+anything written there by hand is lost. Use the ` 1` path.
+
+The folder carries, with a `SHA256SUMS.txt` written in the container before
+transfer and verified after it (all five files OK):
+
+- `acceptance-evidence.md` - every measurement behind this change, with the
+  read time against each one;
+- `check-candidate-contents.sh` - reads a candidate's TREE for the three
+  behaviours; exit 0 present, 1 missing, 3 could not tell;
+- `verify-cutover.sh` - the post-cutover checks from
+  `docs/ENGINE-RELEASE-RUNBOOK.md` section 4.8, read-only;
+- `occupied-snapshot.sql` - one row per occupied game with an md5 of its
+  (player, seat, stack) multiset, for the before/after across the restart;
+- `cert-watch.log` - the certificate and engine-phase readings through the
+  night.
+
+### Contents are checked separately from schema inventory
+
+A candidate has to pass two independent tests and they fail for different
+reasons. `scripts/ci/select-daily-engine.py` checks the INVENTORY: the
+certified copy's installed migration set must equal production's set read at
+selection time. That says nothing about whether the build contains this lane's
+behaviour, and commit ancestry is not enough either, because a later commit
+can revert the lines. So `check-candidate-contents.sh` reads the tree at the
+exact sha for the ladder constants, both satellite predicates in
+`seatFirstBoardRoom`, and the human window on the engine and the client side.
+
+Measured 2026-11-09 06:30Z: `af9ea7bc2d` and `045886dd3c` were both certified
+and both carried the ladder and the feeder exclusion while the human fill was
+still 3:00 to 3:30. They failed the inventory test as well, for an unrelated
+reason. Two tests, two verdicts, and neither implies the other.
+
+### The client and engine corrections may ship apart
+
+The client correction went live with `fc2bfba558` while the engine still
+served `391f7bc0`. That gap is safe in both directions, because the engine's
+hold is never later than the countdown the client paints:
+
+```
+serving engine   min(seated + 350s, max(windowEnd, seated + 90s) + 30s)
+new engine       min(seated + 420s, seated + 180s + jitter)
+client countdown seated + 420s
+```
+
+Both engines act at or before the displayed instant, so "Deals In m:ss At The
+Latest" stays literally true across the cutover; the only visible effect is
+that a board may deal earlier than the countdown promised, which the client's
+own header already allows.
+
+The deadline is anchored to `table_seats.joined_at`, a durable column, not to
+page-load time: all 549 live seat-first seats carried a non-null `joined_at`
+when this was measured. A reload or a reconnect re-reads the same instant, and
+a ladder advance rewrites `start_time`, which the human branch no longer
+consults.
+
+The AI-opponent disclosure is untouched by all of this. It lives in
+`src/components/legal/aiOpponentsDisclosure.ts`, is pinned by
+`tests/ai-opponents-are-disclosed.law.test.tsx`, and none of the three commits
+in this change touches it or any surface that carries it. It already covers
+the ladder's hours-long waits in its own words: AI opponents "Join Waiting
+Lists, Move Between Games And Keep Regular Hours".
