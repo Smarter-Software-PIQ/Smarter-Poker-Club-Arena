@@ -134,7 +134,13 @@ export async function settleStrandedHeadsUpClub({
   const games = await c.svc(`tournaments?club_id=eq.${encodeURIComponent(clubId)}&select=id,status`);
   if (!Array.isArray(games))
     throw new Error(`Refusing to settle club ${clubId}: its games could not be read.`);
-  const live = games.filter((g) => !['COMPLETED', 'CANCELLED'].includes(String(g.status).toUpperCase()));
+  // The club's welcome board opens empty games of its own; retirement unwinds
+  // those. A game blocks settlement only while it is unfinished with players in it.
+  const live = [];
+  for (const g of games.filter((x) => !['COMPLETED', 'CANCELLED'].includes(String(x.status).toUpperCase()))) {
+    const entrants = await c.svc(`tournament_players?tournament_id=eq.${encodeURIComponent(g.id)}&select=user_id&limit=1`);
+    if (!Array.isArray(entrants) || entrants.length) live.push(g);
+  }
   if (live.length)
     throw new Error(`Refusing to settle club ${clubId}: ${live.length} game(s) have not ended yet.`);
   const members = await c.svc(`club_members?club_id=eq.${encodeURIComponent(clubId)}&select=user_id,role`);

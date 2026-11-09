@@ -92,7 +92,9 @@ describe('heads-up rematch live certification', () => {
           ? [{ id: 'club', name, owner_id: 'owner', lifecycle_status: 'active' }]
           : url.includes('/rest/v1/tournaments?')
             ? games
-            : [];
+            : url.includes('/rest/v1/tournament_players?') && url.includes('tournament_id=eq.g')
+              ? [{ user_id: 'player' }]
+              : [];
         return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) };
       }) as unknown as typeof fetch;
     const args = { environment, clubId: 'club', ownerId: 'owner', isReserved: () => true, log: () => {} };
