@@ -89,38 +89,6 @@
       "file": "supabase/migrations/20261105230750_horse_audit_watchdog_lost_analysis_as_applied.sql",
       "sameBytes": false,
       "basis": "Applied directly 2026-11-05 during the horse daily audit outage with no BEGIN/COMMIT. 20261105230750_horse_audit_watchdog_lost_analysis_as_applied.sql is that exact SQL (md5 6b932c312f64d320b3d2414f3b01d4fe) inside a BEGIN/COMMIT envelope with a header, marked SUPERSEDED BY 20261105220227, which replaces fn_horse_daily_audit_watchdog, fn_horse_daily_audit_fallback and fn_horse_audit_set_agent_analysis and carries the alias fix in fn_run_horse_daily_audit forward from the live definition. Same objects, same intent. Never replay."
-    },
-    {
-      "appliedVersion": "20261108212225",
-      "appliedName": "add_strip_repeated_blind_levels_helpers",
-      "appliedMd5": "084af6afd75d5446fb989b150e96abef",
-      "file": "supabase/migrations/20261108212837_record_strip_repeated_blind_levels_applied_directly.sql",
-      "sameBytes": false,
-      "basis": "Applied directly via Supabase MCP on 2026-11-08 21:22:25 UTC (3325 bytes, md5 084af6afd75d5446fb989b150e96abef) defining initial public.fn_ca_strip_repeated_levels and public.fn_ca_repeated_levels_late_reg, superseded 73 seconds later by 20261108212338 and recorded in 20261108212837_record_strip_repeated_blind_levels_applied_directly.sql (whose header explicitly records the four 2026-11-08 21:14-21:26 UTC direct MCP applies). Never replay."
-    },
-    {
-      "appliedVersion": "20261108212338",
-      "appliedName": "strip_repeated_blind_levels_break_boundary",
-      "appliedMd5": "1398ceb4171a6263cb46aa36353672f1",
-      "file": "supabase/migrations/20261108212837_record_strip_repeated_blind_levels_applied_directly.sql",
-      "sameBytes": false,
-      "basis": "Applied directly via Supabase MCP on 2026-11-08 21:23:38 UTC (3544 bytes, md5 1398ceb4171a6263cb46aa36353672f1) defining the break-boundary versions of public.fn_ca_strip_repeated_levels and public.fn_ca_repeated_levels_late_reg recorded verbatim in 20261108212837_record_strip_repeated_blind_levels_applied_directly.sql lines 6-82. Never replay."
-    },
-    {
-      "appliedVersion": "20261108212419",
-      "appliedName": "schedule_normalizer_strips_repeated_levels",
-      "appliedMd5": "8e591566205acfc3aff17c000717f8b6",
-      "file": "supabase/migrations/20261108212837_record_strip_repeated_blind_levels_applied_directly.sql",
-      "sameBytes": false,
-      "basis": "Applied directly via Supabase MCP on 2026-11-08 21:24:19 UTC (2692 bytes, md5 8e591566205acfc3aff17c000717f8b6) defining public.fn_ca_schedule_level_clock_floor recorded verbatim in 20261108212837_record_strip_repeated_blind_levels_applied_directly.sql lines 84-137. Never replay."
-    },
-    {
-      "appliedVersion": "20261108212519",
-      "appliedName": "tournament_normalizer_strips_repeated_levels",
-      "appliedMd5": "e84bb6a52d3e3269c2a7739ebb8525d3",
-      "file": "supabase/migrations/20261108212837_record_strip_repeated_blind_levels_applied_directly.sql",
-      "sameBytes": false,
-      "basis": "Applied directly via Supabase MCP on 2026-11-08 21:25:19 UTC (5056 bytes, md5 e84bb6a52d3e3269c2a7739ebb8525d3) defining public.fn_ca_tournament_level_clock_floor recorded verbatim in 20261108212837_record_strip_repeated_blind_levels_applied_directly.sql lines 139-227. Never replay."
     }
   ],
   "superseded": [
