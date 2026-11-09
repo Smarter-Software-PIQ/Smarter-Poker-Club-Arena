@@ -96,3 +96,24 @@ describe('a full-ring feeder starts with the last two to sit (Dan 2026-11-08)', 
     expect(sql).not.toMatch(/REFERENCES\s+public\./);
   });
 });
+
+describe('first to move ends when a bumped player returns (2026-11-09)', () => {
+  const fix = readFileSync(
+    resolve(
+      __dirname,
+      '../supabase/migrations/20261109010155_a_bumped_player_is_first_to_move_only_until_they_return.sql'
+    ),
+    'utf8'
+  );
+  it('keeps priority only while the player is on a feeder or still moving', () => {
+    expect(fix).toContain('FIRST TO MOVE ENDS ON RETURN');
+    expect(fix).toContain("tb.role = 'feeder' AND tb.lifecycle <> 'closed'");
+    expect(fix).toContain("m.player_id = x AND m.game_id = g.id AND m.state = 'pending'");
+    expect(fix).toContain('SET first_to_move = ARRAY(');
+  });
+  it('patches the tick once, in one transaction, touching no money path', () => {
+    expect(fix.match(/^BEGIN;$/gm)?.length).toBe(1);
+    expect(fix.match(/^COMMIT;$/gm)?.length).toBe(1);
+    expect(fix).not.toMatch(/chip_balance|fn_credit|fn_add_chips|chip_ledger/);
+  });
+});
