@@ -115,3 +115,18 @@ nothing. The freeze holds those bytes still for that interval.
   runs `write-closure-freeze.mjs --lift --reason="..."` (which sets
   `active: false` and keeps the record) or deletes the manifest. A qualification
   that is abandoned or refused lifts it the same way.
+
+## Second review (2026-11-09)
+
+- **Retargeted load closed.** Counting site kinds per file missed a retarget:
+  `client.ts` spawning a new `workerV2.ts` kept the kinds `url, worker`, so the
+  new worker fell outside the closure while every test passed. Now, in each
+  site file that executes repository code, every declared executed module must
+  be named by a relative literal, and every relative literal that names an
+  existing code file must be in the closure. The reviewer's exact mutation
+  makes `HorseDecisionClosure.test.ts` fail.
+- **Known limit, recorded and not closed.** Data reads built with `path.join`
+  (from `fileURLToPath(import.meta.url)`, `import.meta.dirname`,
+  `process.cwd()` or a base held in a variable) are not detected. No closure
+  file does this today. A new one would bind nothing, so treat it as a review
+  item in any PR that adds one to a closure file.

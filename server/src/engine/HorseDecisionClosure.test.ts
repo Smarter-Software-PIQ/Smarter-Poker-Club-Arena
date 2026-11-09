@@ -205,6 +205,44 @@ describe('the decision closure', () => {
     }
   });
 
+  it('a declared site still points at what it declares, and at nothing unbound', () => {
+    // Independent review, 2026-11-09: counting site kinds alone missed a
+    // retargeted load (client.ts spawning a new workerV2.ts kept the kinds
+    // `url, worker`, and the new worker fell outside the closure). So, for
+    // every site that executes repository code: each declared executed module
+    // is named by a relative literal in its site file, and every relative
+    // literal there that names an existing code file is in the closure.
+    const code = /\.(?:ts|js|mjs)$/;
+    const unbound: string[] = [];
+    for (const [rel, entry] of Object.entries(HORSE_DECISION_CLOSURE_INDIRECT_LOADS)) {
+      if (!entry.loads?.length) continue;
+      const sf = ts.createSourceFile(rel, read(rel).toString(), ts.ScriptTarget.Latest, true);
+      const literals: string[] = [];
+      const visit = (n: ts.Node) => {
+        if (
+          (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) &&
+          /^\.\.?\//.test(n.text)
+        )
+          literals.push(n.text);
+        ts.forEachChild(n, visit);
+      };
+      visit(sf);
+      const stems = new Set(literals.map((l) => path.posix.basename(l).replace(/\.[^.]+$/, '')));
+      for (const load of entry.loads.filter((l) => l.endsWith('.ts')))
+        expect(stems, `${rel} no longer names ${load}`).toContain(
+          path.posix.basename(load).replace(/\.ts$/, '')
+        );
+      for (const lit of literals.filter((l) => code.test(l))) {
+        const joined = path.posix.normalize(path.posix.join(path.posix.dirname(rel), lit));
+        const target = [joined, joined.replace(/\.js$/, '.ts')].find((c) =>
+          existsSync(path.join(serverRoot, c))
+        );
+        if (target && !closure.includes(target)) unbound.push(`${rel} -> ${target}`);
+      }
+    }
+    expect(unbound, 'a computed load site names a code file outside the closure').toEqual([]);
+  });
+
   it('sees the computed load sites a scanner cannot follow', () => {
     const src = [
       "const entry = x ? './worker.ts' : './worker.js';",
