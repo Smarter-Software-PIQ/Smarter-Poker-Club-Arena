@@ -84,7 +84,7 @@ seat somebody bought.
 
 ## Tests
 
-`server/src/config/aFeederNeverOutlivesItsTarget.test.ts`, seven cases over
+`server/src/config/aFeederNeverOutlivesItsTarget.test.ts`, eight cases over
 the target's four states:
 
 - **approaching** - a target hours away gets the short window, and the test
@@ -99,4 +99,7 @@ the target's four states:
 - **rescheduled** - pushed back, the band applies again; pulled forward inside
   the lead, the feeder stops waiting;
 - the whole band is reachable, so feeders do not mature in lockstep;
+- the caller's contract: an undeliverable feeder is a null WAIT and never a
+  zero-length one, so "do not wait" cannot be confused with "deal now" at the
+  call site;
 - at every draw, `now + wait + lead` never passes the target's start.
