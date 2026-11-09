@@ -3,7 +3,7 @@ SET LOCAL app.ledger_autoskip_club_members='@SKIP@';
 SET LOCAL lock_timeout='3s';
 SET LOCAL app.cash_original_debit_ledger='caller-original';
 SELECT sr_pay(601.94);
-SELECT sr_assert(current_setting('app.cash_original_debit_ledger')='caller-original' OR '@SKIP@'='', 'nested return preserves original debit output');
+SELECT sr_assert(@ORIG@, 'nested return preserves original debit output');
 @REPEAT@
 SELECT sr_assert((SELECT chip_treasury=1000 FROM clubs),'treasury conserved');
 SELECT sr_assert((SELECT chip_balance=0 FROM club_members),'departed wallet zero');

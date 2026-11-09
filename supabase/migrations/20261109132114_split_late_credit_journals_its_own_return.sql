@@ -1,3 +1,4 @@
+-- SUPERSEDED BY 20261109140919
 -- The split return owns its wallet debit, even when its caller journals
 -- the original payment explicitly. Keep the bank autoledger suppressed so
 -- exactly one player-wallet -> club-treasury leg accounts for the return.
