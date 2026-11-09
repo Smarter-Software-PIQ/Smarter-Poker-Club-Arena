@@ -1828,14 +1828,29 @@ export async function retireProductionCreateClubFixtures({
       continue;
     }
     if (String(club.name || '').startsWith(HEADS_UP_CLUB_NAME_PREFIX)) {
-      // A HEADS-UP REMATCH CLUB HAS PLAYED, BY DESIGN (two tournaments). Retired,
-      // it was handled above as retained history. Still active, its run died
-      // before its own cleanup; it is refused by name, never offered to a
-      // welcome door, and settled by that run's owner path once its games end.
-      throw new Error(
-        `Refusing to retire heads-up rematch certification club ${club.id}: it has played and is still ` +
-          `${String(club.lifecycle_status || 'unknown')}; only its own run's cleanup settles it.`
-      );
+      // A HEADS-UP REMATCH CLUB HAS PLAYED, BY DESIGN (its certification games).
+      // Retired, it was handled above as retained history. Still active in a
+      // live run, it is refused: only that run's cleanup settles it. Still
+      // active in a STALE sweep, its run died before its cleanup, so the sweep
+      // settles it from its record through the run's own settle path, as the
+      // owner, and only once every game in it has ended and nobody is seated
+      // (certify-heads-up-rematch.mjs, settleStrandedHeadsUpClub).
+      if (!staleSweep) {
+        throw new Error(
+          `Refusing to retire heads-up rematch certification club ${club.id}: it has played and is still ` +
+            `${String(club.lifecycle_status || 'unknown')}; only its own run's cleanup settles it.`
+        );
+      }
+      const { settleStrandedHeadsUpClub } = await import('./certify-heads-up-rematch.mjs');
+      await settleStrandedHeadsUpClub({
+        environment,
+        fetchImpl,
+        clubId: String(club.id),
+        ownerId: account.id,
+        isReserved: reserved,
+      });
+      retained.push(String(club.id));
+      continue;
     }
     if (String(club.name || '').startsWith(RABBIT_HUNT_CLUB_NAME_PREFIX)) {
       // A RABBIT-HUNT CLUB HAS PLAYED, BY DESIGN. certify-rabbit-hunt.mjs seats

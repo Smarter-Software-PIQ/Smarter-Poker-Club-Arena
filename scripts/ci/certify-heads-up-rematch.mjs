@@ -98,6 +98,77 @@ export function verdict({ gate, steps, error, cleanup }) {
     : { conclusion: 'pass', reason: `${steps.length} cases passed and every fixture was retired` };
 }
 
+/**
+ * A 'Cert HU' club whose run died before its cleanup is settled from its
+ * record, through the run's own settle path (claim back, retire with records),
+ * as the club's owner. Refuses, changing nothing, unless the club is an active
+ * 'Cert HU ' club owned by `ownerId`, every member is a reserved certification
+ * identity, every game in it has ended, and nobody is seated. The stale sweep
+ * (production-e2e-account.mjs) is its caller.
+ */
+export async function settleStrandedHeadsUpClub({
+  environment = process.env,
+  fetchImpl = fetch,
+  clubId,
+  ownerId,
+  isReserved,
+  log: emit = log,
+}) {
+  const SUPA = String(environment.SUPABASE_URL || '').replace(/\/$/, '');
+  const SR = environment.SUPABASE_SERVICE_ROLE_KEY;
+  const ANON = environment.VITE_SUPABASE_ANON_KEY;
+  if (!SUPA || !SR || !ANON)
+    throw new Error(
+      `Cannot settle heads-up rematch certification club ${clubId}: SUPABASE_URL, ` +
+        'SUPABASE_SERVICE_ROLE_KEY and VITE_SUPABASE_ANON_KEY are required.'
+    );
+  if (typeof isReserved !== 'function')
+    throw new Error('settleStrandedHeadsUpClub requires the reserved-namespace predicate.');
+  const c = clients({ SUPA, SR, ANON, fetchImpl });
+  const club = (await c.svc(`clubs?id=eq.${encodeURIComponent(clubId)}&select=id,name,owner_id,lifecycle_status`))?.[0];
+  if (
+    !club || club.id !== clubId || club.owner_id !== ownerId ||
+    !String(club.name || '').startsWith(HEADS_UP_CERT_CLUB_NAME_PREFIX) || club.lifecycle_status !== 'active'
+  )
+    throw new Error(`Refusing to settle club ${clubId}: not an active heads-up rematch certification club owned by ${ownerId}.`);
+  const games = await c.svc(`tournaments?club_id=eq.${encodeURIComponent(clubId)}&select=id,status`);
+  if (!Array.isArray(games))
+    throw new Error(`Refusing to settle club ${clubId}: its games could not be read.`);
+  const live = games.filter((g) => !['COMPLETED', 'CANCELLED'].includes(String(g.status).toUpperCase()));
+  if (live.length)
+    throw new Error(`Refusing to settle club ${clubId}: ${live.length} game(s) have not ended yet.`);
+  const members = await c.svc(`club_members?club_id=eq.${encodeURIComponent(clubId)}&select=user_id,role`);
+  if (!Array.isArray(members) || !members.length)
+    throw new Error(`Refusing to settle club ${clubId}: its members could not be read.`);
+  const identities = [];
+  for (const m of members) {
+    const user = await c.adminUser(m.user_id);
+    if (!user?.email || !isReserved(user.email))
+      throw new Error(`Refusing to settle club ${clubId}: member ${m.user_id} is not a reserved certification identity.`);
+    identities.push({ id: m.user_id, email: user.email });
+  }
+  const owner = identities.find((i) => i.id === ownerId);
+  if (!owner) throw new Error(`Refusing to settle club ${clubId}: its owner is not a member.`);
+  const failures = [];
+  const note = (name, ok, detail) => {
+    emit(ok ? 'SETTLE' : 'SETTLE FAILED', clubId, name, detail ?? '');
+    if (!ok) failures.push(`${name}${detail ? ` (${JSON.stringify(detail).slice(0, 200)})` : ''}`);
+  };
+  const outcome = await settleRabbitHuntClub({
+    c,
+    clubId,
+    clubName: club.name,
+    ownerEmail: owner.email,
+    memberIds: identities.map((i) => i.id),
+    tableIds: [],
+    note,
+    reason: 'Heads-up rematch certification club, settled after its run died (stale sweep)',
+  });
+  if (!outcome.settled || failures.length)
+    throw new Error(`Heads-up rematch certification club ${clubId} was not settled: ${failures.join('; ') || 'the club is not retired'}.`);
+  return { clubId, ownerId, members: identities.map((i) => i.id) };
+}
+
 async function main() {
   const SUPA = String(process.env.SUPABASE_URL || '').replace(/\/$/, '');
   const SR = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -225,9 +296,13 @@ async function main() {
     // ---- one socket watches; each player acts through its own token ----
     const { default: JP } = await import('fast-json-patch');
     const acted = new Set();
+    const diag = { messages: {}, turns: [], actions: [], closes: [] };
+    evidence.socket = diag;
     const watch = (tableId) => {
       let state = null;
       const ws = new WebSocket(`wss://engine.smarter.poker/ws/table/${tableId}`, ['bearer', P.b.token]);
+      ws.onclose = (e) => diag.closes.push({ code: e.code, reason: e.reason });
+      ws.onerror = () => diag.closes.push({ error: true });
       S.sockets.push(ws);
       ws.onmessage = async (e) => {
         const m = JSON.parse(e.data);
@@ -240,6 +315,9 @@ async function main() {
             state = n;
           } catch {}
         }
+        diag.messages[m.type] = (diag.messages[m.type] || 0) + 1;
+        if (state && diag.turns.length < 3 && state.current_player)
+          diag.turns.push({ current_player: state.current_player, action_context: state.action_context ?? null, keys: Object.keys(state).slice(0, 40) });
         const who = state && [P.a, P.b].find((p) => p.userId === state.current_player);
         if (!who || !state.action_context || acted.has(state.action_context)) return;
         acted.add(state.action_context);
@@ -247,6 +325,7 @@ async function main() {
           const r = await engine(who.token, '/action', {
             tableId, action, actionContext: state.action_context, idempotencyKey: randomUUID(),
           });
+          if (diag.actions.length < 8) diag.actions.push({ action, status: r.status, body: r.body });
           if (r.body?.success) break;
         }
       };
@@ -323,6 +402,7 @@ async function main() {
       return t && ['RUNNING', 'COMPLETED'].includes(String(t.status).toUpperCase()) ? t : null;
     }, 120_000);
     step('the engine started the first game', !!running, running?.status);
+    setTimeout(() => log('socket after 60s', diag), 60_000);
     const done = await until('the first game to finish', async () => {
       const t = await status(S.source.tournamentId);
       return t && String(t.status).toUpperCase() === 'COMPLETED' && t.ended_at ? t : null;
