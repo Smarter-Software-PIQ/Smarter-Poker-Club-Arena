@@ -27,6 +27,7 @@ import { captureHandSeatGenerations } from './handSeatGeneration.js';
 import {
   bindCashHandManifest,
   captureCashHandProvenance,
+  type CashManifestParticipant,
 } from '../services/supabase/cashHandProvenance.js';
 import { INSTANCE_ID } from '../services/tableLease.js';
 import { ShadowRecorder } from './eventlog/ShadowRecorder.js';
@@ -1142,6 +1143,18 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           this.tableFSM.transition('running');
         }
 
+        // THE PARTICIPANT MANIFEST RIDES THE REST (Dan 2026-11-05: the next
+        // cash hand starts within two seconds). The roster is final here, so
+        // its one round trip starts now and overlaps the seat-move notice and
+        // the rest instead of following them. dealHand uses it only when the
+        // roster, stacks, hand number and lease it was asked for are exactly
+        // the ones being dealt; anything else is captured fresh, as before.
+        if (!this.isTournamentTable()) {
+          await this.settlePreparedHandNumber();
+          if (!this.lifecycleCanMutate()) return;
+          this.prepareCashHandManifest(activePlayers);
+        }
+
         // MUST-MOVE (Slice 2): a player with a planned move is told now, once,
         // that they move after this hand - HERE, immediately before the deal,
         // so the notice only ever speaks of a hand that is about to be dealt
@@ -2164,6 +2177,168 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     );
   }
 
+  /**
+   * THE CASH PARTICIPANT MANIFEST, CAPTURED UNDER THE REST (2026-11-09).
+   *
+   * fn_cash_capture_hand_manifest is one PostgREST round trip that used to be
+   * sent only after the rest had ended, the seat-move notice had answered and
+   * dealHand had taken its number: production 2026-11-09 00:56-01:04 UTC, 174
+   * cash transitions on 25 tables, the manifest committed a median 151 ms
+   * after the rest and the next hand started a median 132 ms after that, so
+   * the felt waited p50 2,117 ms against the 2,000 ms limit.
+   *
+   * It now starts as soon as the roster for the next hand is final, with the
+   * prepared hand number, while the rest is still running. The deal consumes
+   * it only on an exact match - the same hand number, lease generation and
+   * participant request (user, seat, join time, occupancy, stack, horse flag),
+   * compared as the canonical JSON the request was built from - and only once.
+   * A mismatch, a failure, or no preparation at all falls back to the inline
+   * capture at the deal boundary, unchanged. The function is idempotent for
+   * an identical request (it returns the stored manifest), so the inline
+   * fallback asking again after a lost reply is the same path it already had.
+   * A preparation the deal does not use leaves one manifest row for a hand
+   * number that is never dealt; nothing reads a manifest without its hand.
+   */
+  private preparedCashManifest: {
+    n: number;
+    key: string;
+    id: Promise<string | null>;
+  } | null = null;
+  /**
+   * The last hand number a manifest request was SENT for, and that request.
+   * fn_cash_capture_hand_manifest refuses a second, different request for the
+   * same (table, hand number) - "identity reused" - so a number whose request
+   * no longer matches the roster about to be dealt is never dealt: it is
+   * dropped and a fresh number allocated, the same way a stale prepared
+   * number already is. Numbers never repeat, so this never needs clearing.
+   */
+  private cashManifestSent: { n: number; key: string } | null = null;
+
+  private static cashManifestKey(
+    handNumber: number,
+    leaseGeneration: string,
+    participants: readonly CashManifestParticipant[]
+  ): string {
+    return JSON.stringify([
+      handNumber,
+      leaseGeneration,
+      participants.map((p) => [
+        p.user_id,
+        p.seat_id,
+        p.seat_joined_at,
+        p.occupancy_id,
+        p.stack_before,
+        p.is_horse,
+      ]),
+    ]);
+  }
+
+  /** The participants exactly as dealHand builds them for this roster. */
+  private static cashManifestParticipants(
+    players: readonly SeatedPlayer[]
+  ): CashManifestParticipant[] | null {
+    const out: CashManifestParticipant[] = [];
+    for (const p of players) {
+      if (
+        !p.user_id ||
+        typeof p.seat_id !== 'string' ||
+        typeof p.seat_joined_at !== 'string' ||
+        !p.occupancy_id
+      )
+        return null;
+      out.push({
+        user_id: p.user_id,
+        seat_id: p.seat_id,
+        seat_joined_at: p.seat_joined_at,
+        occupancy_id: p.occupancy_id,
+        stack_before: p.stack,
+        is_horse: p.is_horse === true,
+      });
+    }
+    return out;
+  }
+
+  /** The key this roster would be dealt under with the held number, or null. */
+  private cashManifestKeyFor(players: readonly SeatedPlayer[], n: number): string | null {
+    const lease = this.getEngineLeaseAuthority();
+    if (!lease?.verified) return null;
+    const participants = ServerTableEngineDealing.cashManifestParticipants(players);
+    return participants
+      ? ServerTableEngineDealing.cashManifestKey(n, lease.generation, participants)
+      : null;
+  }
+
+  /** Called by the dealing loop once the next hand's roster is final, under the rest. */
+  protected prepareCashHandManifest(players: readonly SeatedPlayer[]): void {
+    this.preparedCashManifest = null;
+    if (this.isTournamentTable()) return;
+    const held = this.preparedHandNumberValue;
+    const lease = this.getEngineLeaseAuthority();
+    if (!held || !Number.isSafeInteger(held.n) || !lease?.verified) return;
+    if (players.length < 2 || players.length > 10) return;
+    const participants = ServerTableEngineDealing.cashManifestParticipants(players);
+    if (!participants) return;
+    const n = held.n;
+    const key = ServerTableEngineDealing.cashManifestKey(n, lease.generation, participants);
+    if (this.cashManifestSent?.n === n && this.cashManifestSent.key !== key) {
+      // This number already carries a different request (an earlier pass of
+      // the loop). It can never be certified for this roster: drop it.
+      this.preparedHandNumberValue = null;
+      return;
+    }
+    this.cashManifestSent = { n, key };
+    const id = captureCashHandProvenance(
+      this.tableId,
+      n,
+      participants,
+      INSTANCE_ID,
+      lease.generation
+    ).catch(() => null);
+    this.preparedCashManifest = { n, key, id };
+  }
+
+  /**
+   * Synchronous, immediately before dealHand takes its number: a held number
+   * whose sent manifest request differs from the roster actually being dealt
+   * is dropped, so dealHand allocates a fresh one and captures inline.
+   */
+  protected retireHandNumberWithForeignManifest(players: readonly SeatedPlayer[]): void {
+    const held = this.preparedHandNumberValue;
+    const sent = this.cashManifestSent;
+    if (!held || !sent || sent.n !== held.n) return;
+    if (this.cashManifestKeyFor(players, held.n) === sent.key) return;
+    this.preparedHandNumberValue = null;
+    this.preparedCashManifest = null;
+  }
+
+  protected async takePreparedCashHandManifest(
+    handNumber: number,
+    participants: readonly CashManifestParticipant[],
+    leaseGeneration: string
+  ): Promise<string> {
+    const prepared = this.preparedCashManifest;
+    this.preparedCashManifest = null;
+    if (
+      prepared &&
+      prepared.n === handNumber &&
+      prepared.key ===
+        ServerTableEngineDealing.cashManifestKey(handNumber, leaseGeneration, participants)
+    ) {
+      const id = await prepared.id;
+      if (id !== null) return id;
+      // The prepared call failed or lost its reply. The identical request is
+      // answered with the stored manifest, so asking again is the same retry
+      // captureCashHandProvenance already makes.
+    }
+    return captureCashHandProvenance(
+      this.tableId,
+      handNumber,
+      participants,
+      INSTANCE_ID,
+      leaseGeneration
+    );
+  }
+
   /** Resolves the pre-allocation (if any) into a value dealHand can take synchronously. */
   protected async settlePreparedHandNumber(): Promise<void> {
     const pending = this.preparedHandNumber;
@@ -2584,6 +2759,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         this.discardPreparedHandForPause();
         return;
       }
+      if (!this.isTournamentTable()) this.retireHandNumberWithForeignManifest(players);
       this.handCount = this.takePreparedHandNumber() ?? (await this.allocateGlobalHandNumber());
       await this.reserveF06Hand(this.handCount);
       if (this.discardPreparedHandForPause()) return;
@@ -3609,11 +3785,9 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
               is_horse: original.is_horse === true,
             };
           });
-          const manifestId = await captureCashHandProvenance(
-            this.tableId,
+          const manifestId = await this.takePreparedCashHandManifest(
             handNumber,
             originalParticipants,
-            INSTANCE_ID,
             fundingLease.generation
           );
           this.currentHandSeatGenerations = bindCashHandManifest(
