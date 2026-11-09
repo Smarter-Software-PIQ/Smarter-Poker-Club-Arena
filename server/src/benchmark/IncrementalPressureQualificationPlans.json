@@ -5,7 +5,7 @@
     "state": "heldout_locked",
     "target": "river_position_defense",
     "dealSampler": "sha256-profile-seed-index-v1",
-    "baselineReferenceRevision": "6a20711c27f3a96e64105766bf97d48c17ef5e6f",
+    "baselineReferenceRevision": "de2e79762d5ec60b9b37792ed4e9acda83b25cab",
     "sourceBinding": "horse-decision-closure-v1",
     "runtimeSourceFiles": {
       "native/public_hist215_wtl.cc": "83442cb6604dfaa30ec7ecc6ce38957355609e722b5df85b866365c97f0ccf9b",
@@ -37,7 +37,7 @@
       "src/config/RakeConfig.ts": "6b4ec0ef6b008fc1fb5da81fce4d4f54acd7067981dc634de00ddd0e7e801df8",
       "src/config/cashBuyIn.ts": "bf22d798561eafd3bb7c941f46e917886010209748677daa30990e9117791060",
       "src/config/cashRakePolicy.ts": "97f4171b4df71b87e505699fd9d9da9148a72b7014279d594d01a4308b453804",
-      "src/config/handCompletionSpec.ts": "d31a16f8e0941f8e81e4e26e1c9bb135446a04ae34caa60c5fc09d24fb1b4f9b",
+      "src/config/handCompletionSpec.ts": "5b68bfe3bc7c2edc2ef11d828e3fe3819abdc566a5a4dc0f20654847bd62a407",
       "src/config/leagueCashPricing.ts": "ea66c5f3f5029b59196e32ad79ddcc10b4c4b118e7d13118a496c6f9545f2c19",
       "src/config/rakeSpec.ts": "4df558d6e3a1d17b9e420d3f6879ed5d00f53dc4486bfce695a2bae04e0d3dea",
       "src/config/tableSeating.ts": "bc873d344b5d513953abef49f767ae46b9713b8c332538bf724cf35c652967a1",
@@ -345,7 +345,7 @@
       "src/tournament/tournamentUnit.ts": "3e54fa0e9382f42df1fb46431d48d988b6de2ed3c0edc365164c31ed0a14af39",
       "src/types.ts": "f15030acdfa5a6be93f72bee172b2ecb582d6b8bca03b9655d2a1f51e6c64331"
     },
-    "runtimeSourceDigest": "96c0b7bdc2cb580305a0020239f036b4fa6c78e94fd0119a5cee25003cfcb56f",
+    "runtimeSourceDigest": "9d24428e289ca1d81c97a55e880de92e14cc7a47a615e9f6de745e53de48f34d",
     "policyDigests": {
       "phase8": "97e198d1f5917ca7b815ea1939d7f73e1500f04cf7697d71ea6b8944846f67e4",
       "phase10": "914f5a51102cfbe8380c6e1a9ed49056268009d14c349f7124fa79c1eaf8cb00",
