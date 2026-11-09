@@ -68,6 +68,18 @@ describe('a Backup copy is certified by the migrations it holds', () => {
     expect(SELECTOR).toContain("EVIDENCE_FILE = 'schema-evidence.json'");
     expect(SELECTOR).toContain('fresh, why, diagnostics = current_schema(');
     expect(HELPER_SOURCE).toContain('lacks the exact candidate migration(s)');
+    const checkout = step(stage.jobs.selection, (s) => s.uses?.startsWith('actions/checkout@'));
+    const directories = checkout.with['sparse-checkout'].trim().split(/\s+/);
+    for (const dependency of [
+      'scripts/ci/select-daily-engine.py',
+      'server/scripts/engine-release-installed-migrations.py',
+      'server/standby/schema-evidence.py',
+    ]) {
+      expect(
+        directories.some((dir: string) => dependency.startsWith(dir + '/')),
+        dependency
+      ).toBe(true);
+    }
     const freeze = step(stage.jobs.selection, (s) => s.id === 'freeze');
     expect(freeze.env.DATABASE_URL).toBe('${{ secrets.DATABASE_URL }}');
   });
