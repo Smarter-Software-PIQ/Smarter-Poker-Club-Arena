@@ -1032,6 +1032,14 @@ import {
   heroCardsCollideWithBoard,
   heroHoleCardsAreForThisHand,
 } from '../lib/tableCardDisplay';
+import {
+  heroCardHoldAllowed,
+  heroCardsAlreadyDealtFor,
+  createHeroCardRerequest,
+  heroIdentityUnknown,
+  heroIsBlindInLiveHand,
+  previousHeroRow,
+} from '../lib/heroCardCustody';
 import { seatTapBalanceVerdict, notEnoughChipsText } from '../lib/seatTapBalance';
 import {
   seatLayoutFor,
@@ -1644,6 +1652,11 @@ function LiveTablePage({
     []
   );
   lightningRoomRef.current = lightningRoom;
+  /* The hand the hero's delivered cards were stamped with (2026-11-09). The
+     private hole-card frame names its hand; every later decision about
+     keeping those cards asks this, never the seat index or the deal cue. See
+     src/lib/heroCardCustody.ts. */
+  const heroCardsHandRef = useRef(0);
   const lightningClubId = lightningRoom?.meta?.clubId ?? null;
   const navigate = useNavigate();
   const location = useLocation();
@@ -2977,8 +2990,13 @@ function LiveTablePage({
          which the `<= 0` arms then treat as "keep the cards". */
       const cardHoldNextHand = mapped.handNumber ?? 0;
       const cardHoldPrevHand = prev.handNumber ?? 0;
-      const cardHoldSameHand =
-        cardHoldNextHand <= 0 || cardHoldPrevHand <= 0 || cardHoldNextHand === cardHoldPrevHand;
+      /* Cards the private frame delivered FOR the incoming hand are held even
+         when the previous state was still on the hand before (2026-11-09). */
+      const cardHoldSameHand = heroCardHoldAllowed({
+        nextHand: cardHoldNextHand,
+        prevHand: cardHoldPrevHand,
+        heldCardsHand: heroCardsHandRef.current,
+      });
       // Public opponent reveals never inherit Hero's unknown-hand recovery.
       // They belong to one positively identified hand only.
       const cardHoldOpponentSameHand =
@@ -3042,7 +3060,12 @@ function LiveTablePage({
              they were dealt for. A new hand clears them (HAND_STARTED already
              does this explicitly), and a stale holding can never outlive its
              hand, so the hero is never "covered by" a hand they do not hold. */
-          const prevHero = prev.players[i];
+          /* BY IDENTITY, NOT BY SEAT (2026-11-09, Mongo, Lightning hand
+             58167350). This read `prev.players[i]`. A Lightning pool seats the
+             hero somewhere new every hand, so cards written onto the previous
+             seat were never found at the new one and the hero was returned
+             holding nothing for the whole hand. */
+          const prevHero = previousHeroRow(prev.players, i, sp.id);
           /* The hero seeing a stale hand for one frame is recoverable; the
              hero seeing NOTHING is the bug being fixed. */
           if (
@@ -12807,10 +12830,26 @@ function LiveTablePage({
   const earlyHeroCardsRef = useRef<EarlyHeroCards | null>(null);
   useEffect(() => {
     earlyHeroCardsRef.current = null;
+    // The stamp belongs to one player at one table.
+    heroCardsHandRef.current = 0;
   }, [tableId, userId]);
+  /* A delivery that reached this page before it knew who is signed in
+     (2026-11-09). Held, never painted, and judged by the door below the
+     moment the id is known. It belongs to one table. */
+  const identityPendingHeroCardsRef = useRef<Record<string, unknown> | null>(null);
+  useEffect(() => {
+    identityPendingHeroCardsRef.current = null;
+  }, [tableId]);
   const handleHoleCardPayload = useCallback(
     (payload: any) => {
       if (isLightningObserverSnapshot(engineSnapshotRef.current)) return;
+      /* A player who has asked to leave is shown no further cards (2026-11-09):
+         a delivery or a re-request answer still in flight when they stood up
+         is dropped, and so is anything kept for a hand that had not started. */
+      if (leftSeatPendingRef.current) {
+        earlyHeroCardsRef.current = null;
+        return;
+      }
       /* DELETE carries no `new`, so it falls through here and is IGNORED, and
          that is deliberate. `insert_hole_cards` prunes rows with
          `hand_number < p_hand_number` on every deal, so the deletes this
@@ -12818,6 +12857,15 @@ function LiveTablePage({
          hero's holding on one would blank a live hand at the exact moment the
          next one is dealt. Do not "fix" this into a clear. */
       const row = payload.new;
+      /* "Cannot tell yet" is not "not mine". `userId` boots as 'guest' and the
+         engine socket does not wait for it: this comparison used to discard
+         the hero's own cards on a page opened into a live hand. The newest
+         such row is kept and comes back through this door once the id is
+         known, where it is judged like any other. */
+      if (row && row.cards && heroIdentityUnknown(userId)) {
+        identityPendingHeroCardsRef.current = row;
+        return;
+      }
       if (row && row.user_id === userId && row.cards) {
         // A private frame may lead HAND_STARTED. Do not paint it onto the old
         // board or lose it when that event clears the prior holding.
@@ -12894,6 +12942,9 @@ function LiveTablePage({
            to); `heroDealSoundHandRef` is what tells a delivery from a
            redelivery. */
         const dealtHandNumber = Number(row.hand_number) || heroHandRef.current || 0;
+        /* Stamped for every accepted delivery, audible or not: this is what
+           HAND_STARTED and the snapshot hold ask (heroCardCustody.ts). */
+        heroCardsHandRef.current = dealtHandNumber;
         if (
           heroDealSoundHandRef.current !== dealtHandNumber &&
           lightningHoldsHeroDealSound({
@@ -12968,6 +13019,12 @@ function LiveTablePage({
     },
     [userId, tableId, ambientSoundsAllowed]
   );
+  useEffect(() => {
+    if (heroIdentityUnknown(userId)) return;
+    const held = identityPendingHeroCardsRef.current;
+    identityPendingHeroCardsRef.current = null;
+    if (held) handleHoleCardPayload({ new: held });
+  }, [userId, handleHoleCardPayload]);
   useEffect(() => {
     const decision = earlyHeroCardsReady({
       early: earlyHeroCardsRef.current,
@@ -13385,6 +13442,70 @@ function LiveTablePage({
       clearEarlyTimers();
     };
   }, [tableId, userId, lightningObserver]);
+
+  /* ═══ A LIGHTNING ROOM CAN ASK FOR ITS CARDS AGAIN (2026-11-09) ═══════════
+     Mongo, Lightning hand 58167350: no cards for the whole hand, timed out.
+
+     The recovery read above is switched off in a Lightning room, correctly: a
+     pool session has no `table_hole_cards` row under its own id. But nothing
+     took its place, so `heroCardFetchRef` was null there and every "re-fetch
+     the hero's cards" on this page (HAND_STARTED, a refused push, a return to
+     the socket, HOLE_CARDS_UNAVAILABLE) did nothing. The private frame was the
+     only delivery, and a hand that lost it stayed lost.
+
+     The engine already re-sends the hero's cards on every RESYNC
+     (EngineWebSocketServer.onResync -> lightningRooms.rePushHoleCards), so the
+     room asks through that: only while the hero is dealt into a live hand,
+     has not left and is holding nothing, at most five times per hand (0.6 s to
+     10 s), with one timer however many callers arm it. A hero holding cards
+     sends nothing. A hand that needed it is reported once, and a hand it could
+     not recover is reported once, so a delivery that keeps failing has a
+     reader. The answer comes back through handleHoleCardPayload and is judged
+     there by player, table, hand and board like any other delivery. */
+  const lightningRoomActive = !!lightningRoom;
+  useEffect(() => {
+    if (!tableId || !userId || userId === 'guest' || !lightningRoomActive || lightningObserver)
+      return;
+    const rerequest = createHeroCardRerequest({
+      currentHand: () => tableStateRef.current.handNumber ?? 0,
+      isBlind: () =>
+        !isLightningObserverSnapshot(engineSnapshotRef.current) &&
+        heroIsBlindInLiveHand({
+          hero: tableStateRef.current.players.find((pl) => pl?.isHero && pl.id === userId),
+          isHandInProgress: tableStateRef.current.isHandInProgress,
+          leaving: leftSeatPendingRef.current,
+        }),
+      ask: (hand, attempt) => {
+        if (attempt === 1) {
+          reportError(
+            new Error('lightning hero holding nothing in a live hand; cards re-requested'),
+            'TablePage.lightning_hole_cards_rerequested',
+            { tableId, handNumber: hand, heldCardsHand: heroCardsHandRef.current }
+          );
+        }
+        requestEngineSnapshot();
+      },
+      onExhausted: (hand) => {
+        reportError(
+          new Error('lightning hero still holding nothing after every re-request'),
+          'TablePage.lightning_hole_cards_unrecovered',
+          { tableId, handNumber: hand }
+        );
+      },
+    });
+    heroCardFetchRef.current = rerequest.arm;
+    rerequest.arm();
+    return () => {
+      rerequest.dispose();
+      if (heroCardFetchRef.current === rerequest.arm) heroCardFetchRef.current = null;
+    };
+  }, [tableId, userId, lightningRoomActive, lightningObserver, requestEngineSnapshot]);
+  /* Armed from the hand number as well as from HAND_STARTED: a room that
+     missed that event still watches the hand it is shown. */
+  useEffect(() => {
+    if (!lightningRoomActive || !(Number(tableState.handNumber) > 0)) return;
+    heroCardFetchRef.current?.();
+  }, [lightningRoomActive, tableState.handNumber]);
 
   /* ═══ THE NET UNDER ALL FOUR DOORS (Dan 2026-09-01) ═══════════════════════
      "PREVENT IT FROM NEVER BEING POSSIBLE TO HAPPEN EVER AGAIN UNDER ANY
@@ -19671,8 +19792,14 @@ function LiveTablePage({
           });
         }
         // Reset visual state instantly so the new hand starts crisp.
-        const heroCardsAlreadyDealtForThisHand =
-          startedHandNumber > 0 && heroDealSoundHandRef.current === startedHandNumber;
+        /* Asked of the cards' own hand stamp, not only of the deal cue: the
+           cue's hand is written only when the cue is audible or held, so a
+           muted table cleared cards that had just been delivered. */
+        const heroCardsAlreadyDealtForThisHand = heroCardsAlreadyDealtFor({
+          startedHand: startedHandNumber,
+          heldCardsHand: heroCardsHandRef.current,
+          dealCueHand: heroDealSoundHandRef.current,
+        });
         if (!heroCardsAlreadyDealtForThisHand) {
           heroEngineCardOrderRef.current = null;
         }

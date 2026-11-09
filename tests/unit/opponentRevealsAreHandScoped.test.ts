@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
+import { heroCardHoldAllowed } from '../../src/lib/heroCardCustody';
 
 // Execute the production callbacks rather than reimplementing their rules.
 const source = readFileSync('src/pages/TablePage.tsx', 'utf8');
@@ -69,8 +70,10 @@ const holdDeclarations = nodes.filter(
       /^cardHold/.test(declaration.name.getText(ast))
     )
 );
-const mergePlayer = executable(
-  ['prev', 'mapped', 'sp', 'i'],
+// The hero-card hold now asks heroCardCustody; opponents still use their own
+// positively identified hand (cardHoldOpponentSameHand), unchanged.
+const mergeWithCustody = executable(
+  ['heroCardHoldAllowed', 'heroCardsHandRef', 'prev', 'mapped', 'sp', 'i'],
   `${holdDeclarations.map((node) => node.getText(ast)).join('\n')}\n${publicHold.getText(ast)}\nreturn sp;`
 );
 const opponent = (status = 'active') => ({
@@ -81,6 +84,8 @@ const opponent = (status = 'active') => ({
   showCards: true,
 });
 const hidden = { id: 'opponent', isHero: false, status: 'active', holeCards: [], showCards: false };
+const mergePlayer = (prev: unknown, mapped: unknown, sp: unknown, i: number) =>
+  mergeWithCustody(heroCardHoldAllowed, { current: 0 }, prev, mapped, sp, i);
 function merge(previous: unknown, previousHand: number | undefined, nextHand: number | undefined) {
   return mergePlayer(
     { players: [previous], handNumber: previousHand },

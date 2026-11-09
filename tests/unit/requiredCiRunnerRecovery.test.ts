@@ -230,6 +230,24 @@ const cashDecisionGate = {
   run: 'npx playwright test -c playwright.live-turn.config.ts tests/live-turn/cash-street-decision.pw.ts',
 };
 
+const lightningHeroCardsGate = {
+  name: 'Lightning hero cards gate',
+  if: "matrix.partition == 'general' && matrix.shard == 1",
+  env: { LIVE_TURN_DIST: 'dist' },
+  run: 'npx playwright test -c playwright.live-turn.config.ts tests/live-turn/lightning-hero-cards.pw.ts',
+};
+
+const normalizeLightningHeroCardsAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const start = job.steps.findIndex((step) => step.name === lightningHeroCardsGate.name);
+  expect(job.steps.filter((step) => step.name === lightningHeroCardsGate.name)).toHaveLength(1);
+  expect(job.steps[start - 1]?.name).toBe(cashDecisionGate.name);
+  expect(job.steps[start]).toStrictEqual(lightningHeroCardsGate);
+  expect(job.steps[start + 1]?.name).toBe('Stop the shared preview');
+  // Enforce the exact added browser gate (2026-11-09, a Lightning hero always
+  // holds the cards they were dealt), retaining every historical job hash.
+  job.steps.splice(start, 1);
+};
+
 const normalizeCashDecisionAddition = (job: { steps: Array<Record<string, unknown>> }) => {
   const start = job.steps.findIndex((step) => step.name === cashDecisionGate.name);
   expect(job.steps.filter((step) => step.name === cashDecisionGate.name)).toHaveLength(1);
@@ -891,6 +909,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     // original build command, browser assertion, timeout and step ordering.
     const browserBuild = normalized.jobs['css-beats-build'];
     const browserJob = normalized.jobs['css-beats-e2e'];
+    normalizeLightningHeroCardsAddition(browserJob);
     normalizeCashDecisionAddition(browserJob);
     // Verify the producer-owned identity delta, then compare every retained
     // producer/transfer command against the original reviewed fingerprints.
