@@ -1,4 +1,4 @@
-# Seat-first waiting ladder and the under-300 board — 2026-11-08
+# Seat-first waiting ladder and the under-300 board - 2026-11-08
 
 Scope: cut combined Spin and regular Sit and Go starts to under 300 a day by
 changing how horses seat, not by slowing play or restricting human seating.
@@ -54,7 +54,7 @@ which 31,153 Spins ran and four had a human in them. Widening the door from
 150s to 350s changed nothing, because the problem was never the width of the
 door.
 
-## What shipped — PR #10094, squash `744549f3791cc71040529f8aef36f5fe81a77a51`
+## What shipped - PR #10094, squash `744549f3791cc71040529f8aef36f5fe81a77a51`
 
 - **The ladder** (`server/src/config/seatFirstLadder.ts`): a board opens with
   ONE horse. Spin waits 60-80 min for the second and 30-60 more for the third.
@@ -142,12 +142,216 @@ Stage, Certify)` for the merge ran successfully (42530764148). Current main
 
 ## How the number survives this session
 
-`fn_ca_seat_first_daily_starts(date)` — read-only, one bounded Chicago day per
-call, no writes — is read by the existing estate digest at 06:07 Chicago, after
+`fn_ca_seat_first_daily_starts(date)` - read-only, one bounded Chicago day per
+call, no writes - is read by the existing estate digest at 06:07 Chicago, after
 the day it reports has closed. It prints total, human-triggered and horse-only
 for Spins and regular heads-up against the 300 target, with satellite feeders
 on their own line outside the comparison, and any unexpected format printed
 rather than folded into the total. Its query body was verified against
 production for 2026-11-07 and reproduces the baseline table above exactly.
+
+No Claude scheduled task was created for any of this (10.85).
+
+---
+
+# Second pass, 2026-11-08 evening: two defects found before activation
+
+## 1. The cap would have closed the regular heads-up board completely
+
+`seatFirstBoardRoom` counted open boards by `variant` alone. A satellite feeder
+carries `variant: 'sng'` in BOTH shapes it takes, and the common one is not the
+one the name suggests:
+
+| shape                                                      | rows in 10 days |
+| ---------------------------------------------------------- | --------------- |
+| `tournament_type: 'SATELLITE'` (createSatelliteHeadsUp)     | 11              |
+| `tournament_type: 'SNG'` + `satellite_target_id` (6/9-max)  | 1,111           |
+
+Measured on production 2026-11-08, REGISTERING `sng` rows:
+
+| variant | type | max_players | satellite_target_id | rows |
+| ------- | ---- | ----------- | ------------------- | ---- |
+| sng | SNG | 2 | null | 36 |
+| sng | SNG | 9 | set | 59 |
+| sng | SNG | 6 | set | 1 |
+
+So the shipped count would have read **96 against a target of 6**:
+`room = max(0, 6 - 96) = 0`, permanently, with 60 feeders open and the regular
+heads-up board shut. The exact opposite of the rule the target was written for.
+
+Fixed in #10119, squash `ad998fc9a6932d002db12cfa7d410d36ab258918`, by counting a board only when it is not a feeder, using exactly
+the test `fn_ca_seat_first_daily_starts` uses, so the engine and the report
+cannot disagree about what the six are:
+
+```ts
+.eq('variant', variant)
+.eq('tournament_type', variant === 'spin' ? 'SPIN' : 'SNG')
+.is('satellite_target_id', null)
+.is('satellite_target', null)
+.eq('status', 'REGISTERING')
+```
+
+Pinned by a new case in `theSeatFirstBoardWaitsForAPerson.law.test.ts`.
+
+## 2. The daily number never reached the digest
+
+The digest section shipped in #10110 was dispatched to prove it end to end. It
+printed `(seat-first starts unreadable today)` and `starts rpc 500`: UNKNOWN
+rather than an invented zero, which is 10.86 rule 1 working, but UNKNOWN is not
+the number.
+
+Cause, read from the plan and both log streams rather than guessed: the day
+filter `(started_at AT TIME ZONE 'America/Chicago')::date = d` is not sargable,
+so it scanned all 991,799 rows of a 1,541 MB table - 247,595 shared buffers,
+2,843 ms warm, 13,831 ms cold for two days - against `service_role`'s ~8 s
+statement budget.
+
+```
+postgres_logs  02:11:05Z  duration: 13831.491 ms  plan: ... fn_ca_seat_first_daily_starts
+edge_logs      02:15:30Z  POST | 500 | /rest/v1/rpc/fn_ca_seat_first_daily_starts
+```
+
+Fixed in #10123, squash `bd6e4c6ea5575848b65547a521d3e29f046fd6e0`, at the root, with no retry: a half-open timestamptz day range,
+an index on `tournaments(started_at)` built CONCURRENTLY through the door's own
+exception, and the digest now carrying PostgREST's message beside the status.
+The function migration asserts the 2026-11-07 counts before committing, and the
+new body was run inline against production first and returns the shipped
+numbers exactly.
+
+# Acceptance evidence gathered this pass
+
+## The browser session IS reachable and permitted
+
+Both of them, as `KingFish` (ID 25450):
+
+- the owner's own Chrome, `smarter-poker-auth` present and unexpired, the
+  Kings Club lobby rendering authenticated content;
+- the Claude browser pane on the same machine, signed in independently, which
+  also emulates phone width.
+
+The two `/auth/login?redirect=...` tabs sitting in Chrome are stale leftovers,
+not a current restriction. Recorded because the previous pass concluded this
+verification could not be performed at all.
+
+Pre-activation reading from the player's own eyes, Spins tab, 375 px and
+desktop: a long list of Spin boards, **every one showing 2/3 Seats Available**.
+That is the shape Dan objected to, captured before the change.
+
+## The client half is already live
+
+`https://ca-static.smarter.poker` and the hub both serve `ca_sha
+8aede69fbf2ba4744fdc7a91ec2c509b09220855`, which contains #10094, and the
+published `TablePage` chunk carries the new hold arithmetic verbatim:
+
+```js
+Math.min(t+42e4,t+18e4+3e4)
+```
+
+measured from the hero's own seat ref, not from `start_time`. So a rung advance
+can no longer push a seated person's countdown outward.
+
+## Equal refunds, behaviourally
+
+Cancelled Spin and regular heads-up boards, seven days to 2026-11-08:
+
+| | entries | debited | refunded | debited | refunded |
+| --- | --- | --- | --- | --- | --- |
+| horses | 390 | 390 | **390** | 9,400.00 | **9,400.00** |
+
+Every entry refunded, in full, to the chip. No human sat in a cancelled
+seat-first board in that window, so there is no human column to compare; what
+the rule asked for - a horse refunded exactly as a human would be, 100% of the
+time - is what production did.
+
+## The engine serving now, and what activates
+
+- serving `releaseSha 391f7bc0d57c71637bd4af5181f70520661e3593`
+  ("Book the certified Horse fold provenance database and worker cutover
+  (#9903)"), which does NOT contain #10094;
+- `/health.maintenance.schedule`: daily, `startHour 4`, `startMinute 0`,
+  `durationMs 300000`, `timeZone America/Chicago`, next announcement
+  `1794218280000` = 09:58Z = 03:58 Chicago. The 03:58 notice and the
+  04:00-04:05 window are the ones section 13 describes.
+
+## Ownership of the cutover
+
+There was no 6:20 PM window and there is no reservation yet. The Stage
+admission step prints `OWNER_WINDOW_ID:` empty and "Routine engine updates are
+queued for 04:00 America/Chicago", and its own window arithmetic opens the
+reservation five hours before 03:30 Chicago - that is **22:30 Chicago tonight**.
+The first eligible Stage run at or after that reserves the date and its head
+SHA becomes the candidate, so everything that must activate has to be merged
+before then. This lane owns #10094, #10119 and #10123 and the merge of each.
+
+## What the cap does to the boards already open
+
+Read from the code rather than predicted:
+
+- `seatFirstBoardRoom` returns `max(0, target - count)`, and the launcher
+  returns early on `room <= 0`, so **no new board opens** while the fleet is
+  above 11 Spin / 6 heads-up.
+- an existing board with `seats - 1` paid fills on the first tick and deals
+  once (`target = min(seats, paid + 1)` reaches `seats`, `fillsTheBoard`);
+- an existing board with fewer takes ONE horse and then writes the next rung
+  into `start_time`, so it waits 60-80 min (Spin) or 3-4 h (heads-up) before
+  the next seat.
+
+Measured at 20:33 Chicago, excluding feeders: 42 Spin boards (20 at 2/3, 2 at
+3/3, 20 freshly created) and 31 regular heads-up (11 at 1/2, 20 fresh). So the
+immediate drain at activation is about two dozen games, and the rest climb out
+over one ladder cycle. **No board is left launching games repeatedly**: each
+launches once and is not replaced until the count falls under the cap, so the
+fleet converges to 11 + 6 within roughly four hours of activation. Two
+consequences worth stating rather than discovering:
+
+- `spinSngBoardsOpen` already refuses new seat-first boards from 03:00 to 06:00
+  Chicago, so the first board opened UNDER the cap appears at 06:00;
+- during the drain there are transiently up to 42 one-horse Spins rather than
+  11. Nothing deals early; it is self-correcting.
+
+A zero-paid board does not jam the cap: of every seat-first board created in
+the last 45 minutes, no COMPLETED or RUNNING one had zero paid, and no
+zero-paid board was older than about five minutes.
+
+## A person never waits out the horse ladder
+
+`fillPartialSeatFirstGame` takes `if (!hasHuman && !windowClosed) return;`, so a
+board with a person in it is processed whatever its window says, and
+`seatFirstHumanPartnerHoldUntilMs` with a known seat time returns
+`min(seatedAt + 7 min, seatedAt + 3 min + jitter)` - the board's own window does
+not enter into it. So a person sitting on a board whose `start_time` is three
+hours away is filled 3:00 to 3:30 after they sat, which is Dan's rule.
+
+## Still open, and why
+
+| item | status |
+| --- | --- |
+| Engine activation, serving SHA, SEALED receipt, full thaw | waits for 04:00 Chicago 2026-11-09 |
+| Live ladder timings, 11/6 limits, human fill, drain convergence | observable only on the new engine; the lobby's SPINS and SIT N GO'S tabs are the player-visible count, and the DB query above is the exact one |
+| The partner-hold countdown ON SCREEN | requires a seat, and a seat is a registration. The owner's instruction for this pass says observation may not initiate registrations or seating, so this lane does not buy one. The durable chain is proved from the published bundle and the engine's matching arithmetic above. A 30 second owner check settles it: sit in any Spin after 04:00, read "Deals In 3:30 At The Latest", reload, confirm it continues rather than restarting |
+| The under-300 day | the first COMPLETE Chicago day on the new engine is 2026-11-10, reported by the digest on 2026-11-11 |
+
+## Observations outside this lane, recorded not acted on
+
+- **Cancelled satellite feeders and MTTs show debits with no refund row.**
+  Seven days: 1,585 entries debited and not refunded, about 17,663.00 nominal
+  (17,657.00 horse, 6.00 human). Horses 34.3% refunded, humans 33.3%, so this
+  is NOT a horse-treatment problem. For cancelled satellite feeders alone: 655
+  debited entries, 8,379.00, of which 34 refunded on the same tournament and 6
+  elsewhere nearby. The ledger rows are audit-derived ("auto-audited
+  club_members.chip_balance delta"), so the authoritative debit may be recorded
+  differently and a feeder may refund through a path that writes no `refund`
+  row. The cause is NOT established, so no number here should be treated as
+  owed until it is. Different lane, different cause from the ladder.
+- **`createSatelliteHeadsUp` now inherits the 3-4 h heads-up ladder**, because
+  a satellite heads-up is `max_players: 2` and therefore seat-first. That path
+  has created 11 rows in ten days and started none in five, so the exposure is
+  nil tonight, but a feeder that waits longer than its target's start can never
+  award its seat. Worth a bounded follow-up: cap a feeder's ladder at its
+  target's start time.
+- **`estate-digest.mjs` line 313** reads `res.ok ? await res.json() : []` for
+  the notification recipients - the exact shape 10.86 rule 2 forbids. Left
+  alone deliberately: it is not this lane's code and changing it would move
+  notification behaviour on the night of a cutover.
 
 No Claude scheduled task was created for any of this (10.85).
