@@ -4132,8 +4132,27 @@
      derivation is on the matching declaration in the base rule above. */
   left: calc(100% + 8px);
   right: auto;
-  /* The band: hero block top -> action bar top, cards centred inside it. */
-  top: 0;
+  /* The band: hero block top -> action bar top, cards centred inside it.
+     ─── AND THE TOP OF IT IS NO LONGER THE TOP OF THE SEAT (2026-11-09) ───
+     The band's BOTTOM is `50% - hero-clear - inset` measured up from the seat,
+     and because the hero's centre sits on the scaler's bottom edge that lands
+     exactly on the top of the action bar, whatever the seat's height. Its TOP
+     was the seat's own top, so the band is as tall as half the hero block plus
+     the strip - and when the hero avatar became the villains' size
+     (--seat-avatar-hero-ratio: 1) the hero block lost a third of its art and
+     the band lost half of that. On a 375x667 screen in the embedded shell,
+     with a 34px inset and a 32px ticker, that made the band SHORTER than a
+     two-card row, so the centred cards overflowed it at both ends and 6.8px of
+     the player's own hole cards went under the decision row.
+     The band keeps its height instead: it starts a third of the hero's slot
+     above the seat - the whole of what the block lost. A third, not a sixth:
+     the row is CENTRED in the band, so raising the top by X moves the cards up
+     by X/2, and a sixth left 2.65px of them still under the row (measured).
+     The cards sit where they sat before the hero was resized, on every
+     device.
+     Pinned by `mobile preselection and decision rows remain below the hero in
+     the embedded shell` and by hero-card-row.spec.ts. */
+  top: calc(var(--seat-avatar-size, 84px) * -0.3333);
   /* Fallback 60px, not 34px (corrected 2026-08-28). --sp-hero-clear is declared
      on `.table-container` as 60px, and 68px at <=480px (TablePage.css). A 34px
      fallback is roughly HALF the real value, so on any render where this
