@@ -10,6 +10,7 @@ import {
   HERO_CARD_REREQUEST_WAITS_MS,
 } from '../src/lib/heroCardCustody';
 import { earlyHeroCardsReady } from '../src/utils/earlyHeroCards';
+import { sliceBetween } from './helpers/sourceWindow';
 import {
   heroCardsCollideWithBoard,
   heroHoleCardsAreForThisHand,
@@ -174,12 +175,13 @@ describe('TablePage keeps the hero cards by these rules and no others', () => {
   });
 
   it('a Lightning room owns a recovery, and it is the bounded engine resync', () => {
-    const at = page.indexOf("'TablePage.lightning_hole_cards_rerequested'");
-    expect(at).toBeGreaterThan(0);
-    const effect = page.slice(
-      page.lastIndexOf('useEffect(() => {', at),
-      page.indexOf('\n  }, [', at) + 120
+    // The whole effect: from its own guard to the hand-number effect after it.
+    const effect = sliceBetween(
+      page,
+      '  const lightningRoomActive = !!lightningRoom;',
+      '  /* Armed from the hand number as well as from HAND_STARTED'
     );
+    expect(effect).toMatch(/'TablePage\.lightning_hole_cards_rerequested'/);
     expect(effect).toMatch(/!lightningRoomActive \|\| lightningObserver/);
     expect(effect).toMatch(/createHeroCardRerequest\(\{/);
     expect(effect).toMatch(/pl\?\.isHero && pl\.id === userId/);
@@ -198,7 +200,10 @@ describe('TablePage keeps the hero cards by these rules and no others', () => {
     const firstRead = page.indexOf('const row = payload.new;', door);
     expect(guard).toBeGreaterThan(door);
     expect(guard).toBeLessThan(firstRead);
-    expect(page.slice(firstRead, firstRead + 200)).toMatch(/row\.user_id === userId/);
+    // The first thing done with the row is to check whose it is.
+    expect(
+      sliceBetween(page.slice(firstRead), 'const row = payload.new;', '// A private frame may lead')
+    ).toMatch(/if \(row && row\.user_id === userId && row\.cards\) \{/);
   });
 
   it('the hand stamp is cleared with the table and the player', () => {
