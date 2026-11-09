@@ -136,7 +136,8 @@ DECLARE
   sigs text[] := ARRAY[
     'public.fn_lightning_stop_playing(uuid)',
     'public.fn_lightning_player_legality(uuid,timestamptz,uuid[],jsonb)',
-    'public.fn_lightning_reap_expired_disconnects(uuid,timestamptz,integer)'];
+    'public.fn_lightning_reap_expired_disconnects(uuid,timestamptz,integer)',
+    'public.fn_cash_session_set_blind_off(uuid,uuid,boolean)'];
   -- pairs[i] = {function index, installed text, replacement}
   pairs text[][] := ARRAY[
     ARRAY['1', $a$  v_stack   numeric;
@@ -228,41 +229,17 @@ $a$, $b$        CONTINUE;
 
       UPDATE public.lightning_pool_session ps
          SET exited_at = GREATEST(p_now, ps.entered_at),
-$b$]
-  ];
+$b$],
+    -- The engine's confirmation of an early leave: the engine-only gate, the
+    -- flag write and the answer are unchanged.
+    ARRAY['4', $a$DECLARE v_n integer;
 BEGIN
-  FOR f IN 1 .. array_length(sigs, 1) LOOP
-    s := pg_get_functiondef(sigs[f]::regprocedure);
-    FOR i IN 1 .. array_length(pairs, 1) LOOP
-      CONTINUE WHEN pairs[i][1]::int <> f;
-      p := pairs[i][2];
-      IF (length(s) - length(replace(s, p, ''))) / length(p) <> 1 THEN
-        RAISE EXCEPTION 'LIGHTNING_BLIND_OFF_ANCHOR_CHANGED % %', sigs[f], i;
-      END IF;
-      s := replace(s, p, pairs[i][3]);
-    END LOOP;
-    EXECUTE s;
-  END LOOP;
-END $patch$;
-
--- The engine's confirmation of an early leave. Replaced in full (guarded
--- above); the engine-only gate, the flag write and the answer are unchanged.
-CREATE OR REPLACE FUNCTION public.fn_cash_session_set_blind_off(p_table_id uuid, p_user_id uuid, p_on boolean)
- RETURNS boolean
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public', 'pg_temp'
-AS $function$
-DECLARE v_n integer; v_seat record; v_ps uuid; v_now timestamptz := clock_timestamp();
+$a$, $b$DECLARE v_n integer; v_seat record; v_ps uuid; v_now timestamptz := clock_timestamp();
 BEGIN
-  IF NOT public.fn_caller_is_engine() THEN
-    RAISE EXCEPTION 'fn_cash_session_set_blind_off is engine-only' USING ERRCODE = '42501';
-  END IF;
-  UPDATE public.cash_player_session
-     SET hr_blind_off = coalesce(p_on, false)
-   WHERE player_id = p_user_id AND scope_type = 'table' AND scope_id = p_table_id
-     AND closed_at IS NULL AND hr_blind_off IS DISTINCT FROM coalesce(p_on, false);
-  GET DIAGNOSTICS v_n = ROW_COUNT;
+$b$],
+    ARRAY['4', $a$  GET DIAGNOSTICS v_n = ROW_COUNT;
+  RETURN v_n > 0;
+$a$, $b$  GET DIAGNOSTICS v_n = ROW_COUNT;
 
   -- A LIGHTNING BLIND OFF ALWAYS COMPLETES (20261109224717). A blind off at a
   -- Lightning anchor is played in the pool, so the confirmation makes sure
@@ -290,10 +267,22 @@ BEGIN
     END IF;
   END IF;
   RETURN v_n > 0;
-END;
-$function$;
-REVOKE ALL ON FUNCTION public.fn_cash_session_set_blind_off(uuid, uuid, boolean) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.fn_cash_session_set_blind_off(uuid, uuid, boolean) TO service_role;
+$b$]
+  ];
+BEGIN
+  FOR f IN 1 .. array_length(sigs, 1) LOOP
+    s := pg_get_functiondef(sigs[f]::regprocedure);
+    FOR i IN 1 .. array_length(pairs, 1) LOOP
+      CONTINUE WHEN pairs[i][1]::int <> f;
+      p := pairs[i][2];
+      IF (length(s) - length(replace(s, p, ''))) / length(p) <> 1 THEN
+        RAISE EXCEPTION 'LIGHTNING_BLIND_OFF_ANCHOR_CHANGED % %', sigs[f], i;
+      END IF;
+      s := replace(s, p, pairs[i][3]);
+    END LOOP;
+    EXECUTE s;
+  END LOOP;
+END $patch$;
 
 DO $verify$
 DECLARE d text;
@@ -310,5 +299,9 @@ BEGIN
       RAISE EXCEPTION 'LIGHTNING_BLIND_OFF_NOT_INSTALLED %', d;
     END IF;
   END LOOP;
+  IF position('fn_lightning_pool_enter' in
+       pg_get_functiondef('public.fn_cash_session_set_blind_off(uuid,uuid,boolean)'::regprocedure)) = 0 THEN
+    RAISE EXCEPTION 'LIGHTNING_BLIND_OFF_NOT_INSTALLED confirmation';
+  END IF;
 END $verify$;
 COMMIT;

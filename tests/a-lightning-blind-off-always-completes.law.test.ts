@@ -19,8 +19,8 @@
  * WHAT THIS PINS. The four database doors ask the one question
  * (fn_lightning_hands_owed, which asks fn_cash_leave_check) before a stop or
  * a disconnect may end or withhold a session; responsible gaming still ends
- * it and waives the hands on the record; the anchor engine reads a held
- * seat's count fresh before deciding; and the native proof that reproduces
+ * it and waives the hands on the record; the confirmation re-enters the pool;
+ * and the native proof that reproduces
  * the strand on the installed production images and shows it complete is run
  * by CI. Horses are players: none of it reads horse identity.
  */
@@ -88,9 +88,7 @@ describe('a stop or a disconnect can never strand owed hands', () => {
   });
 
   it('the confirmation makes sure the pool session exists', () => {
-    const fn = sql.slice(
-      sql.indexOf('CREATE OR REPLACE FUNCTION public.fn_cash_session_set_blind_off')
-    );
+    const fn = sql.slice(sql.indexOf("ARRAY['4',"));
     expect(fn).toContain('public.fn_lightning_pool_enter(v_seat.id, v_now)');
     expect(fn).toContain('SET stop_requested_at = NULL');
     expect(fn).toContain('NOT public.fn_platform_frozen()');
@@ -119,17 +117,6 @@ describe('a stop or a disconnect can never strand owed hands', () => {
           expect(body, `${f} redefines ${name}`).toContain('fn_lightning_hands_owed');
       }
     }
-  });
-
-  it('the anchor engine reads a held seat fresh before it decides', () => {
-    const base = read('server/src/engine/ServerTableEngineBase.ts');
-    const start = base.indexOf('protected async releaseLeavesHeldByClock()');
-    const release = base.slice(start, base.indexOf('protected onLeaveRefusedAtSettlement', start));
-    const refresh = release.indexOf('await this.chipContinuity.evaluate(');
-    expect(refresh).toBeGreaterThan(release.indexOf('if (this.isLightningAnchorNow()) {'));
-    expect(refresh).toBeLessThan(
-      release.indexOf('this.chipContinuity.leaveLock(userId, seated.stack).locked')
-    );
   });
 
   it('the native proof runs in CI on the installed production images', () => {

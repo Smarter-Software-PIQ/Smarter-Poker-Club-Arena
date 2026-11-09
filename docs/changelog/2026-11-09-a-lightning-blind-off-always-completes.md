@@ -17,9 +17,9 @@ Migration `20261109224717_a_lightning_blind_off_always_completes.sql` (function 
 - `fn_lightning_stop_playing`: while hands are owed it neither marks nor exits, withdraws a standing mark, and answers `ok / exited false / deferred HANDS_OWED / hands_owed`.
 - `fn_lightning_player_legality`: a confirmed blind off that still owes hands is legal despite `DISCONNECTED`, pool state `disconnected` or a stop mark. Its hand host checks or folds the seat.
 - `fn_lightning_reap_expired_disconnects`: does not exit such a session for a disconnect or a stop. Responsible gaming still ends it; the hands still owed are waived (`hr_completed`, a `blind_off_waived` event) so the seat leaves with its chips through the ordinary voluntary cash-out.
-- `fn_cash_session_set_blind_off`: on confirmation at a Lightning anchor it withdraws a standing stop mark and re-enters the pool through `fn_lightning_pool_enter` if an earlier stop or disconnect closed the session.
+- `fn_cash_session_set_blind_off` (patched in place): on confirmation at a Lightning anchor it withdraws a standing stop mark and re-enters the pool through `fn_lightning_pool_enter` if an earlier stop or disconnect closed the session.
 
-Engine (`server/src/engine/ServerTableEngineBase.ts`): a Lightning anchor's held-leave release reads each held seat's session fresh before deciding, the same read POST /leave already makes for an anchor.
+Engine (separate pull request, not part of this change, taken by the engine release owner): a Lightning anchor's held-leave release must read each held seat's session fresh before deciding (`releaseLeavesHeldByClock` in `server/src/engine/ServerTableEngineBase.ts`). Until that ships, the owed hands are played and the leave door opens, but the cash-out fires on the player's next Leave press or an engine restart rather than on the next presence pass.
 
 No client change: the leave doors only require `ok === true` from the stop, then the engine's hand count confirmation takes over.
 
@@ -32,7 +32,6 @@ No client change: the leave doors only require `ok === true` from the stop, then
 ## Proof
 
 - `scripts/qualify-lightning-blind-off.mjs` (run by `.github/workflows/lightning-hand-counts-every-player-dealt-in.yml`): a throwaway cluster with the installed production definitions (hash-checked against production), run before the migration (S1, S2, S4, S6 reproduce the strand) and after it (each completes; S3, S5, S7 hold in both).
-- `server/src/engine/ChipContinuityLeave.behaviour.test.ts` (Lightning anchor release, human and horse; fails without the engine change) and `server/src/lightning/LightningHandHost.test.ts` (an absent blinded-off seat is folded on its turn at once).
 - `tests/a-lightning-blind-off-always-completes.law.test.ts`.
 
 ## Not in this change
