@@ -333,3 +333,42 @@ sql
 - Data integrity: anyone "helping" by hand-crediting wallets would double-pay. Don't.
   Decision needing Dan: none currently.
   How to continue: to continue without rediscovery, read sections 6 (how the close works), 10 (current state) and 22 (first actions), run the status query, and keep the close moving through its own path until all three books are complete. Then verify by payee and report.
+
+## 2026-11-09 checkpoint: the 04:00 maintenance window does not delay the payout (verified)
+
+Verified 2026-11-08/09 from the installed production controls by the weekly payout
+owner lane, ahead of the Nov 2 -> Nov 9 close (the rounds runner's first live
+period). This corrects any reading of this document that the close waits for the
+maintenance thaw.
+
+- The 04:00-04:05 America/Chicago maintenance freeze does NOT delay the weekly
+  payout. fn_refuse_while_frozen consults
+  smarter_private.weekly_payout_owned_money_write(table) before raising
+  PLATFORM_FROZEN, so a money write made by the registered rounds runner passes
+  through the freeze. The capability is scoped to the exact backend pid and
+  current transaction registered in smarter_private.weekly_payout_owned_transactions
+  (table grants: postgres only), validated by weekly_payout_owns_round against
+  the live pause row: phase 'paying', acknowledged inside its window, the payout
+  clock inside [money_starts_at, money_deadline_at), and the scope present in
+  the booked scope_plan. Ordinary money writes stay refused during the freeze:
+  clients by the trigger, unregistered postgres/pg_cron paths by the same
+  capability check. service_role writes bypass the trigger by design, and the
+  engine is drained during the window.
+- Engine activation and migration installation are distinct operations.
+  Activation is the sealed host release (stage-engine-release ->
+  auto-deploy-hetzner). Installation is the window-migrations job inside the
+  freeze: one transaction per file, 1s lock_timeout. On a lock timeout it is the
+  migration FILE that requeues to the next day - never the activation and never
+  a payout round.
+- The cutover cannot tear a payout round: each round is one transaction (the
+  money, the union_settlement_rounds row and the weekly_payout_round_receipts
+  receipt commit or roll back together); the window installer never terminates
+  pg_cron sessions; a refused round has no receipt and re-runs on the next
+  minute tick, exactly once.
+- If the cutover runs long, fails or rolls back, payment availability is read
+  from the actual database state (engine_maintenance_break phase timestamps /
+  the release boundary), never from the schedule; owned payout writes never
+  depended on the thaw.
+- Funding order: rounds commit 1 -> 2 -> 3 as separate transactions, so the
+  union's round-1 club-bank credits are durably committed (receipt in the same
+  transaction) before any round-3 agent top-up draws on the club bank.
