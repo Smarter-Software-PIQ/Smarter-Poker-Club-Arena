@@ -24,10 +24,14 @@
 --      tables (CLAUDE.md section 2 rule 7).
 --
 --   2. THE BUY-BACK-IN IS ONE TRANSACTION. The acceptance that makes it two
---      (a player's tap, or the poll on which a horse opponent answers) buys
---      BOTH seats in the same transaction, inside one subtransaction: if
---      either purchase is refused or raises, both are undone together and
---      nobody is charged. Repeat taps and simultaneous accepts serialize on
+--      (a player's tap, or the poll on which a horse opponent answers) opens a
+--      FRESH game copied from the one just played - through the engine's own
+--      creation door, fn_create_seat_first_game_atomic, with every money term
+--      checked equal to the finished game's - and buys BOTH seats in it, all
+--      inside one subtransaction: if the game cannot be created or either
+--      purchase is refused or raises, all of it is undone together, no game is
+--      left behind and nobody is charged. The engine starts the full game the
+--      way it starts every heads-up game whose seats are paid. Repeat taps and simultaneous accepts serialize on
 --      the rematch row (FOR UPDATE); the purchase runs only on the one
 --      transition from "both accepted, no outcome" to an outcome, so it can
 --      happen at most once per finished game.
@@ -87,8 +91,7 @@ CREATE TABLE IF NOT EXISTS public.ca_heads_up_rematches (
   accepted_at jsonb NOT NULL DEFAULT '{}'::jsonb,
   declined_by uuid,
   respond_by timestamptz NOT NULL,
-  outcome text CHECK (outcome IN ('matched', 'no_open_game', 'buy_in_refused', 'unavailable')),
-  no_game_since timestamptz,
+  outcome text CHECK (outcome IN ('matched', 'buy_in_refused', 'unavailable')),
   target_tournament_id uuid,
   target_table_id uuid,
   seats jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -347,7 +350,7 @@ DECLARE
   v_horse_asks_at timestamptz;
   v_jitter     interval;
   v_refusal    text;
-  v_candidates uuid[];
+  v_config     jsonb;
   v_target     uuid;
   v_table      uuid;
   v_status     text;
@@ -359,13 +362,7 @@ DECLARE
   v_res        jsonb;
   v_receipts   jsonb;
   v_fail       jsonb;
-  v_reason     text;
   v_mine       jsonb;
-  -- A refusal that belongs to the chosen game, not to a payer: another
-  -- player reached it first. The next empty game is tried instead.
-  c_race CONSTANT text[] := ARRAY['seat_taken','game_already_started','table_full',
-    'tournament_full','registration_closed','table_closed','already_seated',
-    'invalid_seat','no_table','game_not_found','tournament_not_found','table_not_found'];
 BEGIN
   IF p_uid IS NULL THEN
     RETURN jsonb_build_object('status', 'not_eligible', 'reason', 'not_signed_in');
@@ -378,7 +375,11 @@ BEGIN
   -- The game that just finished: a completed two-seat Sit & Go (heads-up).
   SELECT t.id, t.status, t.ended_at, t.club_id, t.union_id, t.buy_in_amount,
          t.buy_in_fee, t.game_type, t.variant, t.format_contract, t.max_players,
-         t.satellite_target_id, t.satellite_target, t.free_buy
+         t.satellite_target_id, t.satellite_target, t.free_buy, t.name,
+         t.tournament_type, t.guaranteed_prize, t.starting_chips, t.min_players,
+         t.table_size, t.blind_structure, t.payout_structure, t.late_reg_levels,
+         t.late_reg_mins, t.satellite_seats, t.short_description, t.is_bounty,
+         t.is_pko, t.is_mystery_bounty, t.bounty_amount
     INTO v_src
     FROM public.tournaments t
    WHERE t.id = p_source_tournament_id;
@@ -471,41 +472,36 @@ BEGIN
           -- any purchase rather than charge by an outdated rule.
           v_row.outcome := 'unavailable';
         ELSE
-          -- Two rematches never race for the same game: one chooser at a time.
-          -- The game itself is locked by the ordinary seat purchase, in its
-          -- own order, so a stranger buying the same game cannot deadlock it.
-          PERFORM pg_advisory_xact_lock(hashtext('ca_heads_up_rematch_target'));
-          SELECT array_agg(c.id ORDER BY c.upcoming DESC, c.created_at ASC)
-            INTO v_candidates
-            FROM (
-              SELECT t.id, (t.start_time > v_now) AS upcoming, t.created_at
-                FROM public.tournaments t
-               WHERE t.status = 'REGISTERING'
-                 AND t.id <> p_source_tournament_id
-                 AND t.format_contract = 'sng-v1'
-                 AND t.max_players = 2
-                 AND t.club_id IS NOT DISTINCT FROM v_src.club_id
-                 AND t.union_id IS NOT DISTINCT FROM v_src.union_id
-                 AND t.buy_in_amount IS NOT DISTINCT FROM v_src.buy_in_amount
-                 AND t.buy_in_fee IS NOT DISTINCT FROM v_src.buy_in_fee
-                 AND t.game_type IS NOT DISTINCT FROM v_src.game_type
-                 AND t.variant IS NOT DISTINCT FROM v_src.variant
-                 AND t.satellite_target_id IS NOT DISTINCT FROM v_src.satellite_target_id
-                 AND t.satellite_target IS NOT DISTINCT FROM v_src.satellite_target
-                 AND t.free_buy IS NOT DISTINCT FROM v_src.free_buy
-                 AND COALESCE(t.prize_pool_finalized, false) = false
-                 AND EXISTS (SELECT 1 FROM public.tables tb
-                              WHERE tb.tournament_id = t.id
-                                AND lower(COALESCE(tb.status, '')) <> 'closed')
-                 AND NOT EXISTS (SELECT 1 FROM public.table_seats s
-                                   JOIN public.tables tb ON tb.id = s.table_id
-                                  WHERE tb.tournament_id = t.id AND s.left_at IS NULL)
-                 AND NOT EXISTS (SELECT 1 FROM public.tournament_players tp
-                                  WHERE tp.tournament_id = t.id
-                                    AND tp.status IN ('registered', 'playing'))
-               ORDER BY (t.start_time > v_now) DESC NULLS LAST, t.created_at ASC
-               LIMIT 3
-            ) c;
+          -- THE REMATCH IS ITS OWN FRESH GAME (Dan: "the match starts back
+          -- over"). It is created by the engine's own creation door,
+          -- fn_create_seat_first_game_atomic, from the finished game's own
+          -- configuration, in the SAME subtransaction as both purchases: if
+          -- either purchase is refused, the game is never created either. A
+          -- game copied with any money term different from the one just
+          -- played is refused before anybody is charged.
+          v_target := gen_random_uuid();
+          v_config := jsonb_strip_nulls(jsonb_build_object(
+            'club_id', v_src.club_id,
+            'union_id', v_src.union_id,
+            'name', v_src.name,
+            'game_type', v_src.game_type,
+            'variant', v_src.variant,
+            'tournament_type', v_src.tournament_type,
+            'buy_in_amount', v_src.buy_in_amount,
+            'buy_in_fee', v_src.buy_in_fee,
+            'guaranteed_prize', v_src.guaranteed_prize,
+            'starting_chips', v_src.starting_chips,
+            'max_players', v_src.max_players,
+            'min_players', v_src.min_players,
+            'table_size', v_src.table_size,
+            'blind_structure', (v_src.blind_structure)::jsonb,
+            'payout_structure', (v_src.payout_structure)::jsonb,
+            'start_time', v_now,
+            'late_reg_levels', v_src.late_reg_levels,
+            'late_reg_mins', v_src.late_reg_mins,
+            'satellite_target_id', v_src.satellite_target_id,
+            'satellite_seats', v_src.satellite_seats,
+            'short_description', v_src.short_description));
 
           -- People first, each at the seat the result earned (the winner seat
           -- 1); a horse last, through its own door, which takes the free seat.
@@ -514,81 +510,110 @@ BEGIN
             FROM public.profiles p
            WHERE p.id = ANY (v_row.player_ids);
 
-          FOREACH v_target IN ARRAY COALESCE(v_candidates, '{}'::uuid[]) LOOP
-            v_table := public.fn_tournament_primary_table(v_target);
-            CONTINUE WHEN v_table IS NULL;
-            v_receipts := '[]'::jsonb;
-            v_fail := NULL;
-            BEGIN
-              FOREACH v_payer IN ARRAY v_order LOOP
-                SELECT COALESCE(p.is_horse, false) INTO v_payer_is_horse
-                  FROM public.profiles p WHERE p.id = v_payer;
-                IF v_payer_is_horse THEN
-                  v_res := public.fn_seat_horse_in_seat_first_game(v_target, v_payer);
-                ELSE
-                  v_res := public.fn_ca_rematch_take_seat_for_payer(
-                    v_table, array_position(v_row.player_ids, v_payer), v_payer);
-                END IF;
-                IF COALESCE((v_res->>'ok')::boolean, false) IS NOT TRUE
-                   OR COALESCE((v_res->>'already_seated')::boolean, false) THEN
-                  RAISE EXCEPTION USING ERRCODE = 'P0R01',
-                    MESSAGE = jsonb_build_object('payer', v_payer,
-                      'reason', COALESCE(NULLIF(v_res->>'reason', ''),
-                        CASE WHEN COALESCE((v_res->>'already_seated')::boolean, false)
-                             THEN 'already_seated' ELSE 'buy_in_failed' END))::text;
-                END IF;
-                v_receipts := v_receipts || jsonb_build_array(jsonb_build_object(
-                  'player', v_payer,
-                  'seat_number', (v_res->>'seat_number')::integer,
-                  'cost', v_res->'cost',
-                  'asset', v_res->'asset',
-                  'diamonds_after', v_res->'diamonds_after'));
-              END LOOP;
-            EXCEPTION
-              WHEN SQLSTATE 'P0R01' THEN
-                v_fail := SQLERRM::jsonb;
-              WHEN deadlock_detected OR serialization_failure OR lock_not_available THEN
-                v_fail := jsonb_build_object('payer', NULL, 'reason', 'busy');
-              WHEN OTHERS THEN
-                v_fail := jsonb_build_object('payer', NULL, 'reason', 'error_' || SQLSTATE);
-            END;
+          v_receipts := '[]'::jsonb;
+          v_fail := NULL;
+          BEGIN
+            v_res := public.fn_create_seat_first_game_atomic(v_target, v_config);
+            IF COALESCE((v_res->>'ok')::boolean, false) IS NOT TRUE
+               OR COALESCE((v_res->>'replayed')::boolean, false)
+               OR NULLIF(v_res->>'table_id', '') IS NULL THEN
+              RAISE EXCEPTION USING ERRCODE = 'P0R02',
+                MESSAGE = jsonb_build_object('reason', COALESCE(NULLIF(v_res->>'reason', ''), 'game_not_created'))::text;
+            END IF;
+            v_table := (v_res->>'table_id')::uuid;
+            -- Every term that sets what a seat costs and pays must be the one
+            -- just played. A difference refuses, before any purchase.
+            IF NOT EXISTS (
+              SELECT 1 FROM public.tournaments n
+               WHERE n.id = v_target
+                 AND n.status = 'REGISTERING'
+                 AND n.format_contract IS NOT DISTINCT FROM v_src.format_contract
+                 AND n.max_players IS NOT DISTINCT FROM v_src.max_players
+                 AND n.club_id IS NOT DISTINCT FROM v_src.club_id
+                 AND n.union_id IS NOT DISTINCT FROM v_src.union_id
+                 AND n.buy_in_amount IS NOT DISTINCT FROM v_src.buy_in_amount
+                 AND n.buy_in_fee IS NOT DISTINCT FROM v_src.buy_in_fee
+                 AND n.guaranteed_prize IS NOT DISTINCT FROM v_src.guaranteed_prize
+                 AND n.game_type IS NOT DISTINCT FROM v_src.game_type
+                 AND n.variant IS NOT DISTINCT FROM v_src.variant
+                 AND n.starting_chips IS NOT DISTINCT FROM v_src.starting_chips
+                 AND n.satellite_target_id IS NOT DISTINCT FROM v_src.satellite_target_id
+                 AND n.free_buy IS NOT DISTINCT FROM v_src.free_buy
+                 AND n.is_bounty IS NOT DISTINCT FROM v_src.is_bounty
+                 AND n.is_pko IS NOT DISTINCT FROM v_src.is_pko
+                 AND n.is_mystery_bounty IS NOT DISTINCT FROM v_src.is_mystery_bounty
+                 AND n.bounty_amount IS NOT DISTINCT FROM v_src.bounty_amount
+                 AND (n.payout_structure)::jsonb IS NOT DISTINCT FROM (v_src.payout_structure)::jsonb
+                 AND (n.blind_structure)::jsonb IS NOT DISTINCT FROM (v_src.blind_structure)::jsonb
+                 AND public.fn_ca_tournament_unit_cents(n.id) = public.fn_ca_tournament_unit_cents(v_src.id)
+            ) THEN
+              RAISE EXCEPTION USING ERRCODE = 'P0R02',
+                MESSAGE = jsonb_build_object('reason', 'rematch_terms_differ')::text;
+            END IF;
 
-            IF v_fail IS NULL THEN
-              v_row.outcome := 'matched';
-              v_row.target_tournament_id := v_target;
-              v_row.target_table_id := v_table;
-              v_row.receipts := v_receipts;
-              SELECT COALESCE(jsonb_object_agg(r->>'player', (r->>'seat_number')::integer), '{}'::jsonb)
-                INTO v_row.seats FROM jsonb_array_elements(v_receipts) r;
-              v_row.matched_at := v_now;
-              EXIT;
-            END IF;
-            v_reason := v_fail->>'reason';
-            IF v_reason = 'busy' THEN
-              -- Contention, not a refusal: nothing was bought; the next read
-              -- tries again.
-              EXIT;
-            END IF;
-            IF NOT (v_reason = ANY (c_race)) THEN
-              -- A refusal that would follow this payer to any game (not enough
-              -- chips, the daily window, a table limit): nobody is charged and
-              -- the rematch ends.
-              v_row.outcome := 'buy_in_refused';
-              v_row.refused_by := NULLIF(v_fail->>'payer', '')::uuid;
-              v_row.refused_reason := v_reason;
-              EXIT;
-            END IF;
-            -- The game was taken: try the next one.
-          END LOOP;
+            FOREACH v_payer IN ARRAY v_order LOOP
+              SELECT COALESCE(p.is_horse, false) INTO v_payer_is_horse
+                FROM public.profiles p WHERE p.id = v_payer;
+              IF v_payer_is_horse THEN
+                v_res := public.fn_seat_horse_in_seat_first_game(v_target, v_payer);
+              ELSE
+                v_res := public.fn_ca_rematch_take_seat_for_payer(
+                  v_table, array_position(v_row.player_ids, v_payer), v_payer);
+              END IF;
+              IF COALESCE((v_res->>'ok')::boolean, false) IS NOT TRUE
+                 OR COALESCE((v_res->>'already_seated')::boolean, false) THEN
+                RAISE EXCEPTION USING ERRCODE = 'P0R01',
+                  MESSAGE = jsonb_build_object('payer', v_payer,
+                    'reason', COALESCE(NULLIF(v_res->>'reason', ''),
+                      CASE WHEN COALESCE((v_res->>'already_seated')::boolean, false)
+                           THEN 'already_seated' ELSE 'buy_in_failed' END))::text;
+              END IF;
+              v_receipts := v_receipts || jsonb_build_array(jsonb_build_object(
+                'player', v_payer,
+                'seat_number', (v_res->>'seat_number')::integer,
+                'cost', v_res->'cost',
+                'asset', v_res->'asset',
+                'diamonds_after', v_res->'diamonds_after'));
+            END LOOP;
 
-          IF v_row.outcome IS NULL AND COALESCE(v_reason, '') <> 'busy' THEN
-            -- No empty game to buy into right now. The recycler replaces games
-            -- continuously; look again for a few seconds before giving up.
-            v_row.no_game_since := COALESCE(v_row.no_game_since, v_now);
-            IF v_now >= v_row.no_game_since + interval '8 seconds' THEN
-              v_row.outcome := 'no_open_game';
+            -- Both seats are bought: the game is full and the engine starts it
+            -- the way it starts every heads-up game whose seats are paid.
+            IF (SELECT count(*) FROM public.table_seats s
+                 WHERE s.table_id = v_table AND s.left_at IS NULL) <> 2 THEN
+              RAISE EXCEPTION USING ERRCODE = 'P0R02',
+                MESSAGE = jsonb_build_object('reason', 'rematch_seats_incomplete')::text;
             END IF;
+          EXCEPTION
+            WHEN SQLSTATE 'P0R01' THEN
+              v_fail := SQLERRM::jsonb || jsonb_build_object('kind', 'payer');
+            WHEN SQLSTATE 'P0R02' THEN
+              v_fail := SQLERRM::jsonb || jsonb_build_object('kind', 'game');
+            WHEN deadlock_detected OR serialization_failure OR lock_not_available THEN
+              v_fail := jsonb_build_object('reason', 'busy', 'kind', 'busy');
+            WHEN OTHERS THEN
+              v_fail := jsonb_build_object('reason', 'error_' || SQLSTATE, 'kind', 'game');
+          END;
+
+          IF v_fail IS NULL THEN
+            v_row.outcome := 'matched';
+            v_row.target_tournament_id := v_target;
+            v_row.target_table_id := v_table;
+            v_row.receipts := v_receipts;
+            SELECT COALESCE(jsonb_object_agg(r->>'player', (r->>'seat_number')::integer), '{}'::jsonb)
+              INTO v_row.seats FROM jsonb_array_elements(v_receipts) r;
+            v_row.matched_at := v_now;
+          ELSIF v_fail->>'kind' = 'payer' THEN
+            -- Not enough chips, a table limit, the daily window: nobody is
+            -- charged, no game was created, and the rematch ends.
+            v_row.outcome := 'buy_in_refused';
+            v_row.refused_by := NULLIF(v_fail->>'payer', '')::uuid;
+            v_row.refused_reason := v_fail->>'reason';
+          ELSIF v_fail->>'kind' = 'game' THEN
+            v_row.outcome := 'unavailable';
+            v_row.refused_reason := v_fail->>'reason';
           END IF;
+          -- 'busy' (lock contention): nothing was bought or created; the next
+          -- read tries again inside the same answer window.
         END IF;
       END IF;
     END IF;
@@ -599,7 +624,6 @@ BEGIN
          accepted_at = v_row.accepted_at,
          declined_by = v_row.declined_by,
          outcome = v_row.outcome,
-         no_game_since = v_row.no_game_since,
          target_tournament_id = v_row.target_tournament_id,
          target_table_id = v_row.target_table_id,
          seats = v_row.seats,
@@ -608,11 +632,11 @@ BEGIN
          refused_reason = v_row.refused_reason,
          matched_at = v_row.matched_at
    WHERE r.source_tournament_id = p_source_tournament_id
-     AND (r.accepted_by, r.accepted_at, r.declined_by, r.outcome, r.no_game_since,
+     AND (r.accepted_by, r.accepted_at, r.declined_by, r.outcome,
           r.target_tournament_id, r.target_table_id, r.seats, r.receipts,
           r.refused_by, r.refused_reason, r.matched_at)
          IS DISTINCT FROM
-         (v_row.accepted_by, v_row.accepted_at, v_row.declined_by, v_row.outcome, v_row.no_game_since,
+         (v_row.accepted_by, v_row.accepted_at, v_row.declined_by, v_row.outcome,
           v_row.target_tournament_id, v_row.target_table_id, v_row.seats, v_row.receipts,
           v_row.refused_by, v_row.refused_reason, v_row.matched_at);
 
@@ -642,9 +666,6 @@ BEGIN
   END IF;
   IF v_row.outcome = 'unavailable' THEN
     RETURN jsonb_build_object('status', 'buy_in_refused', 'reason', 'rematch_unavailable');
-  END IF;
-  IF v_row.outcome = 'no_open_game' THEN
-    RETURN jsonb_build_object('status', 'no_open_game');
   END IF;
   IF v_row.declined_by IS NOT NULL THEN
     RETURN jsonb_build_object('status', 'opponent_declined');
