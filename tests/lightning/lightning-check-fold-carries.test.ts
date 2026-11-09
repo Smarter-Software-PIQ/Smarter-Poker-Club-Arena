@@ -125,7 +125,10 @@ describe('the table page reads the two rules in every place the arm can be spent
   });
   it('the hero’s own free check does not spend it; any other hero action does', () => {
     const start = PAGE.indexOf('acceptedActionSpendsPreAction({');
-    const block = PAGE.slice(start, start + 1600);
+    // Bounded by the next statement of the handler, never by a byte count.
+    const block = PAGE.slice(start, PAGE.indexOf('// DEAD-WIRING FIX 2026-08-15', start));
+    expect(start).toBeGreaterThan(0);
+    expect(block.length).toBeGreaterThan(0);
     expect(block).toMatch(/!\(\s*action === 'check' &&\s*lightningCheckFoldSurvives\(\{/);
     expect(block).toMatch(/lightningCheckFoldArmRef\.current = null;\s*setPreAction\(null\);/);
   });
