@@ -156,12 +156,15 @@ BEGIN
 END $f$;
 
 -- Reads one source, refuses unless it is the reviewed body.
-CREATE FUNCTION pg_temp.ca_rematch_source(p_source text)
+CREATE FUNCTION pg_temp.ca_rematch_source(p_source text, p_def text)
 RETURNS text LANGUAGE plpgsql AS $f$
-DECLARE v_def text; v_pin text;
+DECLARE v_def text := p_def; v_pin text;
 BEGIN
   SELECT s.source_md5 INTO v_pin FROM public.ca_heads_up_rematch_sources s WHERE s.source = p_source;
-  v_def := pg_get_functiondef(p_source::regprocedure);
+  IF v_def IS DISTINCT FROM pg_get_functiondef(p_source::regprocedure) THEN
+    RAISE EXCEPTION 'heads_up_rematch_source_mismatch: % read twice differently', p_source
+      USING ERRCODE = '55000';
+  END IF;
   IF v_pin IS NULL OR md5(v_def) IS DISTINCT FROM v_pin THEN
     RAISE EXCEPTION 'heads_up_rematch_source_changed: % is not the body this migration was reviewed against', p_source
       USING ERRCODE = '55000';
@@ -189,7 +192,8 @@ DO $derive$
 DECLARE d text;
 BEGIN
   -- 3a. The registration core: the payer is a parameter.
-  d := pg_temp.ca_rematch_source('public.fn_register_for_tournament_before_atomic_capacity_20260907(uuid,boolean)');
+  d := pg_temp.ca_rematch_source('public.fn_register_for_tournament_before_atomic_capacity_20260907(uuid,boolean)',
+    pg_get_functiondef('public.fn_register_for_tournament_before_atomic_capacity_20260907(uuid,boolean)'::regprocedure));
   d := pg_temp.ca_rematch_swap(d,
     'FUNCTION public.fn_register_for_tournament_before_atomic_capacity_20260907(p_tournament_id uuid, p_seat_first_internal boolean DEFAULT false)',
     'FUNCTION public.fn_ca_rematch_register_core_for_payer(p_tournament_id uuid, p_seat_first_internal boolean, p_payer uuid)',
@@ -201,7 +205,8 @@ BEGIN
   PERFORM pg_temp.ca_rematch_install(d, 'public.fn_ca_rematch_register_core_for_payer(uuid,boolean,uuid)');
 
   -- 3b. The late-registration retry layer.
-  d := pg_temp.ca_rematch_source('public.fn_register_for_tournament_before_atomic_lifecycle_gate(uuid,boolean)');
+  d := pg_temp.ca_rematch_source('public.fn_register_for_tournament_before_atomic_lifecycle_gate(uuid,boolean)',
+    pg_get_functiondef('public.fn_register_for_tournament_before_atomic_lifecycle_gate(uuid,boolean)'::regprocedure));
   d := pg_temp.ca_rematch_swap(d,
     'FUNCTION public.fn_register_for_tournament_before_atomic_lifecycle_gate(p_tournament_id uuid, p_seat_first_internal boolean DEFAULT false)',
     'FUNCTION public.fn_ca_rematch_register_lifecycle_for_payer(p_tournament_id uuid, p_seat_first_internal boolean, p_payer uuid)',
@@ -215,7 +220,8 @@ BEGIN
   PERFORM pg_temp.ca_rematch_install(d, 'public.fn_ca_rematch_register_lifecycle_for_payer(uuid,boolean,uuid)');
 
   -- 3c. The registration status gate.
-  d := pg_temp.ca_rematch_source('public.fn_register_for_tournament_before_maintenance_announcement_gate(uuid,boolean)');
+  d := pg_temp.ca_rematch_source('public.fn_register_for_tournament_before_maintenance_announcement_gate(uuid,boolean)',
+    pg_get_functiondef('public.fn_register_for_tournament_before_maintenance_announcement_gate(uuid,boolean)'::regprocedure));
   d := pg_temp.ca_rematch_swap(d,
     'FUNCTION public.fn_register_for_tournament_before_maintenance_announcement_gate(p_tournament_id uuid, p_seat_first_internal boolean)',
     'FUNCTION public.fn_ca_rematch_register_maint_for_payer(p_tournament_id uuid, p_seat_first_internal boolean, p_payer uuid)',
@@ -229,7 +235,8 @@ BEGIN
   PERFORM pg_temp.ca_rematch_install(d, 'public.fn_ca_rematch_register_maint_for_payer(uuid,boolean,uuid)');
 
   -- 3d. The registration freeze gate.
-  d := pg_temp.ca_rematch_source('public.fn_register_for_tournament_before_terminal_seat_gate(uuid,boolean)');
+  d := pg_temp.ca_rematch_source('public.fn_register_for_tournament_before_terminal_seat_gate(uuid,boolean)',
+    pg_get_functiondef('public.fn_register_for_tournament_before_terminal_seat_gate(uuid,boolean)'::regprocedure));
   d := pg_temp.ca_rematch_swap(d,
     'FUNCTION public.fn_register_for_tournament_before_terminal_seat_gate(p_tournament_id uuid, p_seat_first_internal boolean)',
     'FUNCTION public.fn_ca_rematch_register_terminal_for_payer(p_tournament_id uuid, p_seat_first_internal boolean, p_payer uuid)',
@@ -245,7 +252,8 @@ BEGIN
   PERFORM pg_temp.ca_rematch_install(d, 'public.fn_ca_rematch_register_terminal_for_payer(uuid,boolean,uuid)');
 
   -- 3e. The registration door: the payer's own seat lock and paying club.
-  d := pg_temp.ca_rematch_source('public.fn_register_for_tournament(uuid,boolean)');
+  d := pg_temp.ca_rematch_source('public.fn_register_for_tournament(uuid,boolean)',
+    pg_get_functiondef('public.fn_register_for_tournament(uuid,boolean)'::regprocedure));
   d := pg_temp.ca_rematch_swap(d,
     'FUNCTION public.fn_register_for_tournament(p_tournament_id uuid, p_seat_first_internal boolean)',
     'FUNCTION public.fn_ca_rematch_register_for_payer(p_tournament_id uuid, p_seat_first_internal boolean, p_payer uuid)',
@@ -270,7 +278,8 @@ $b$,
   PERFORM pg_temp.ca_rematch_install(d, 'public.fn_ca_rematch_register_for_payer(uuid,boolean,uuid)');
 
   -- 3f. The seat purchase itself.
-  d := pg_temp.ca_rematch_source('public.fn_take_seat_and_buy_in_before_maintenance_announcement_gate(uuid,integer)');
+  d := pg_temp.ca_rematch_source('public.fn_take_seat_and_buy_in_before_maintenance_announcement_gate(uuid,integer)',
+    pg_get_functiondef('public.fn_take_seat_and_buy_in_before_maintenance_announcement_gate(uuid,integer)'::regprocedure));
   d := pg_temp.ca_rematch_swap(d,
     'FUNCTION public.fn_take_seat_and_buy_in_before_maintenance_announcement_gate(p_table_id uuid, p_seat_number integer)',
     'FUNCTION public.fn_ca_rematch_seat_maint_for_payer(p_table_id uuid, p_seat_number integer, p_payer uuid)',
@@ -295,7 +304,8 @@ $b$,
   PERFORM pg_temp.ca_rematch_install(d, 'public.fn_ca_rematch_seat_maint_for_payer(uuid,integer,uuid)');
 
   -- 3g. The seat freeze gate.
-  d := pg_temp.ca_rematch_source('public.fn_take_seat_and_buy_in_before_terminal_seat_gate(uuid,integer)');
+  d := pg_temp.ca_rematch_source('public.fn_take_seat_and_buy_in_before_terminal_seat_gate(uuid,integer)',
+    pg_get_functiondef('public.fn_take_seat_and_buy_in_before_terminal_seat_gate(uuid,integer)'::regprocedure));
   d := pg_temp.ca_rematch_swap(d,
     'FUNCTION public.fn_take_seat_and_buy_in_before_terminal_seat_gate(p_table_id uuid, p_seat_number integer)',
     'FUNCTION public.fn_ca_rematch_seat_terminal_for_payer(p_table_id uuid, p_seat_number integer, p_payer uuid)',
@@ -311,7 +321,8 @@ $b$,
   PERFORM pg_temp.ca_rematch_install(d, 'public.fn_ca_rematch_seat_terminal_for_payer(uuid,integer,uuid)');
 
   -- 3h. The seat door: the payer's own seat-acquisition lock.
-  d := pg_temp.ca_rematch_source('public.fn_take_seat_and_buy_in(uuid,integer)');
+  d := pg_temp.ca_rematch_source('public.fn_take_seat_and_buy_in(uuid,integer)',
+    pg_get_functiondef('public.fn_take_seat_and_buy_in(uuid,integer)'::regprocedure));
   d := pg_temp.ca_rematch_swap(d,
     'FUNCTION public.fn_take_seat_and_buy_in(p_table_id uuid, p_seat_number integer)',
     'FUNCTION public.fn_ca_rematch_take_seat_for_payer(p_table_id uuid, p_seat_number integer, p_payer uuid)',
@@ -326,6 +337,19 @@ $b$,
   PERFORM pg_temp.ca_rematch_install(d, 'public.fn_ca_rematch_take_seat_for_payer(uuid,integer,uuid)');
 END
 $derive$;
+
+-- The copies' grants, stated where a reader of this file can see them
+-- (ca_rematch_install also revokes each one as it installs it): no browser,
+-- no anonymous caller and no service role executes a named-payer copy; only
+-- the rematch core (owner postgres) reaches them.
+REVOKE ALL ON FUNCTION public.fn_ca_rematch_register_core_for_payer(uuid,boolean,uuid) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_ca_rematch_register_lifecycle_for_payer(uuid,boolean,uuid) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_ca_rematch_register_maint_for_payer(uuid,boolean,uuid) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_ca_rematch_register_terminal_for_payer(uuid,boolean,uuid) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_ca_rematch_register_for_payer(uuid,boolean,uuid) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_ca_rematch_seat_maint_for_payer(uuid,integer,uuid) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_ca_rematch_seat_terminal_for_payer(uuid,integer,uuid) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_ca_rematch_take_seat_for_payer(uuid,integer,uuid) FROM PUBLIC, anon, authenticated, service_role;
 
 -- ── 4. The core: the only writer of the agreement rows ───────────────────
 CREATE OR REPLACE FUNCTION public.fn_ca_heads_up_rematch_core(
