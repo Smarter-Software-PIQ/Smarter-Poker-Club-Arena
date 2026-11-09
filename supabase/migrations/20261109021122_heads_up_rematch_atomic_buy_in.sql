@@ -188,6 +188,18 @@ BEGIN
   EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated, service_role', p_signature);
 END $f$;
 
+-- The money registry names a function that writes balance columns BEFORE it
+-- exists (fn_ca_money_rpc_registry_guard). Of the eight copies only the seat
+-- purchase writes them, exactly as its source
+-- fn_take_seat_and_buy_in_before_maintenance_announcement_gate does (approved
+-- in the registry); measured with fn_ca_money_rpc_writes_balances on each
+-- source body, 2026-11-09. The first install was refused here, nothing
+-- committed, and this file was fixed in place.
+INSERT INTO public.ca_money_rpc_registry (proname, status, notes)
+VALUES ('fn_ca_rematch_seat_maint_for_payer', 'approved',
+  'Heads-up rematch (Dan 2026-11-08): the seat purchase for a named consenting payer. Body is fn_take_seat_and_buy_in_before_maintenance_announcement_gate byte for byte except the payer parameter, the dropped browser-session check (the rematch doors check it) and the call to the named-payer registration copy. Moves the buy-in + fee from the payer''s club wallet through atomic_deduct_wallet_and_log (journaled tournament_buyin -> prize_liability) and seats the payer. Executable only by the rematch core, inside its both-or-neither subtransaction.')
+ON CONFLICT (proname) DO UPDATE SET status = EXCLUDED.status, notes = EXCLUDED.notes;
+
 DO $derive$
 DECLARE d text;
 BEGIN
