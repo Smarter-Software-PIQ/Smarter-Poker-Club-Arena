@@ -77,6 +77,7 @@ import {
   HUMAN_ARRIVAL_MIN_MS,
   HUMAN_ARRIVAL_MAX_MS,
   openingRungMs,
+  feederOpeningMs,
   feederWaitMs,
   boardOpenTarget,
 } from '../config/seatFirstLadder.js';
@@ -4097,7 +4098,21 @@ export class TournamentRecurringService {
         admitted.filter(
           (target) =>
             target.admission_abi === 'legacy-capacity-v1' ||
-            Date.parse(String(target.start_time)) - now >= SATELLITE_MTT_TARGET_LEAD_MS
+            /* A FEEDER NEVER OUTLIVES ITS TARGET (2026-11-09). Deliverability
+               is a property of the TARGET, so it is filtered here, beside the
+               lead this branch already requires, rather than inside the
+               creator - the creator must stay able to report an EXISTING
+               feeder for a target that is still fine. A target whose own clock
+               leaves less than SATELLITE_HU_TARGET_LEAD_MS is one whose feeder
+               could not finish and hand the seat over, so no feeder is offered
+               for it at all. */
+            (Date.parse(String(target.start_time)) - now >= SATELLITE_MTT_TARGET_LEAD_MS &&
+              feederWaitMs(
+                now,
+                Date.parse(String(target.start_time)),
+                SATELLITE_HU_TARGET_LEAD_MS,
+                (span) => secureRandomInt(span + 1)
+              ) !== null)
         ),
         now
       );
@@ -4206,21 +4221,20 @@ export class TournamentRecurringService {
          one of the eleven Spins or six Sit and Gos that rung paces - the board
          count excludes every row with a satellite target - and a feeder that
          waits hours lets its target start before it can award the seat it sold.
-         See feederWaitMs in server/src/config/seatFirstLadder.ts. */
-      const feederWait = feederWaitMs(
-        Date.now(),
-        config.targetStartMs,
-        SATELLITE_HU_TARGET_LEAD_MS,
-        (span) => secureRandomInt(span + 1)
-      );
-      if (feederWait === null) {
-        /* Its target is inside the lead this format requires, already under
-           way, or has no readable clock. Opening one now sells a seat that
-           cannot be delivered, so none is opened. An existing empty one is
-           cancelled by fn_ca_expire_empty_fixed_sng_satellite. */
-        return { tournamentId: null, registered: 0, created: false };
-      }
-      const startTime = new Date(Date.now() + feederWait);
+
+         The window is bounded by the target's own clock when the caller passes
+         one. A config WITHOUT `targetStartMs` takes the plain short window
+         instead of being refused: a field the caller did not fill is not the
+         same statement as a target clock that says it is too late, the target
+         filter above has already judged deliverability, and refusing here
+         would stop this creator reporting an EXISTING feeder. The strict
+         reading of an unknown clock belongs where the target row is actually
+         read - GameServer.seatFirstNextWaitMs. */
+      const rand = (span: number) => secureRandomInt(span + 1);
+      const bounded = Number.isFinite(config.targetStartMs)
+        ? feederWaitMs(Date.now(), config.targetStartMs, SATELLITE_HU_TARGET_LEAD_MS, rand)
+        : null;
+      const startTime = new Date(Date.now() + (bounded ?? feederOpeningMs(rand)));
       const dbGameType = dbGameTypeFor(config.gameVariant, 'createSatelliteHeadsUp');
 
       const satelliteRow = {

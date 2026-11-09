@@ -58,6 +58,32 @@ code: a mis-paced feeder is a rare row, while a regular board that loses its
 rung is re-asked every twelve seconds and re-inflates exactly the volume the
 ladder was built to cut.
 
+## Where the refusal lives, and why not in the creator
+
+The first version of this fix refused inside `createSatelliteHeadsUp`, and the
+existing contract test `server/src/tournament/SeatFirstCallerContract.test.ts`
+caught it: 14 failures. Two real defects, not a stale pin.
+
+**It broke continuing an existing feeder.** That creator's atomic RPC returns
+the EXISTING row when a feeder for the target is already open, and the test
+pins `{tournamentId: <target>, registered: 0, created: false}`. An early
+return reported `tournamentId: null` instead, which also changes the caller's
+budget accounting and its seeding call.
+
+**It refused a config that simply did not carry the field.** `targetStartMs`
+is filled by `satelliteHeadsUpConfigFor` from `target.start_time`; a config
+built any other way has no such field, and `Date.parse(undefined)` is NaN. A
+field the caller did not fill is NOT the same statement as a target clock that
+says it is too late.
+
+So deliverability is filtered where it belongs - on the TARGET, beside the
+lead that branch already requires (`SATELLITE_MTT_TARGET_LEAD_MS`). A target
+whose own clock leaves less than `SATELLITE_HU_TARGET_LEAD_MS` is not offered a
+feeder at all. The creator keeps only the bounded window, and falls back to the
+plain short window when no target clock is passed, because the filter has
+already judged the target. The strict reading of an unknown clock stays where
+the target row is actually read: `GameServer.seatFirstNextWaitMs`.
+
 ## An already-seated entrant is not left waiting
 
 Refusing to extend the wait is right, but a feeder that already holds a paid
