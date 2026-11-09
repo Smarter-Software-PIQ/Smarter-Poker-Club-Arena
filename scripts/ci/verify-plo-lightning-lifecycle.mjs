@@ -290,6 +290,7 @@ export async function main(environment = process.env) {
       if (player && C) {
         assert(!(await ownSeats()).length,'Owned seat must close before claim-back');
         const balance=await wallet(player.id);
+        if (report.cashOut) assert(balance === Number(report.cashOut.final_stack), 'Owned cash-out and wallet do not reconcile');
         if (balance>0) {
           const opId=randomUUID(); report.claimBack={opId,amount:balance}; save();
           const claimed=await c.rpc(C.token,'fn_club_wallet_claim_back',{p_club_id:HOUSE,p_from_user_id:player.id,p_amount:balance,p_source:'player_wallet',p_destination:'club_bank',p_reason:'Certification cleanup: owned PLO lifecycle test credits returned',p_op_id:opId,p_transaction_id:null});
