@@ -83,7 +83,7 @@ this change deliberately replaces. None was weakened.
 - `Publish Club Arena` 42530764300 terminal success.
 - Client verified serving the merged revision at BOTH endpoints:
   `ca-static.smarter.poker/build-info.json` and
-  `smarter.poker/hub/club-arena/build-info.json` = `744549f379…`, built
+  `smarter.poker/hub/club-arena/build-info.json` = `744549f379...`, built
   2026-11-08T22:37:25Z.
 
 ## Engine: queued for 04:00 America/Chicago
@@ -355,3 +355,107 @@ hours away is filled 3:00 to 3:30 after they sat, which is Dan's rule.
   notification behaviour on the night of a cutover.
 
 No Claude scheduled task was created for any of this (10.85).
+
+---
+
+# Third pass, 2026-11-08 night: the reporting route proved, and the one risk left
+
+## The digest now prints the number
+
+Dispatched 2026-11-09 03:44Z, after #10128 applied:
+
+```
+### Seat-first board starts (Spins and Sit and Gos)
+
+- 2026-11-07 (Chicago): 12517 combined Spin and regular Sit and Go starts
+  against a target of under 300 - OVER target.
+- 1 human-triggered, 12516 horse-only.
+-   regular heads-up: 5847 starts (0 human-triggered, 5847 horse-only).
+-   Spin: 6670 starts (1 human-triggered, 6669 horse-only).
+- Satellite feeders, counted separately and outside the target: 4 starts (0 human-triggered).
+```
+
+Every intended format is covered, the human split is the same rule on every
+line, feeders are separate and outside the comparison, and the integration is
+proved by an actual run rather than reasoned about. The migration applied in
+6,787 ms and the function answers as `service_role` inside the 8 s budget.
+
+Two defects in the digest's own lane, seen and deliberately not touched on the
+night of a cutover: it reports `in-app notifications: 0/1`, so it reaches its
+issue but not the people it tries to notify; and `estate-digest.mjs` line 313
+reads `res.ok ? await res.json() : []` for those recipients, which is the shape
+10.86 rule 2 forbids.
+
+## Concurrency, confirmed in the database rather than in engine memory
+
+`fn_seat_horse_in_seat_first_game` opens with
+`fn_ca_lock_tournament_seat_acquisition(p_tournament_id, NULL, p_user_id)` and
+then refuses to buy a second entry for a user who already holds a
+`tournament_players` row (`registered`/`playing`) or a live seat at that
+tournament's primary table. So two concurrent launcher ticks cannot seat one
+horse twice at one board even if both pass the engine's in-memory guards.
+
+## The lobby before the change, from the player's own eyes
+
+Signed in as KingFish, 2026-11-08 evening:
+
+- **SPINS**: a long list, every board reading `2/3 Seats Available`.
+- **SIT N GO'S**: heads-up boards (`2 Seats`) and satellite feeders
+  (`9 Seats` / `6 Seats`, labelled Satellite) listed side by side - the same
+  conflation the engine's board count had, which #10119 separates.
+
+## THE ONE RISK LEFT: a certificate for the wrong half
+
+**The daily selector does not take main's head.** It binds the newest cutoff
+commit and then walks back to the newest commit carrying
+`backup-engine/certified = success`
+(`docs/ENGINE-RELEASE-RUNBOOK.md` 3.6 and 3.7).
+
+At 21:45 Chicago the newest certified commit was `8a3f432b70` (17:53 Chicago),
+later `311b30b9a7` (20:22 Chicago). **Both contain the ladder and neither
+contains the feeder fix.** If nothing newer certifies before 03:30 Chicago,
+that is what activates, and it is the one combination that must not ship:
+
+- `seatFirstBoardRoom('sng')` counts 36 real heads-up boards plus 60 feeders
+  against a target of 6, so `room = 0` and no heads-up board is ever opened;
+- the 31 live heads-up boards each deal once and are not replaced;
+- 59 of the feeders are 9-max satellites, which are NOT seat-first, so they
+  never drain through the ladder and the count never falls.
+
+The regular Sit and Go board would go to zero and stay there. Spins would be
+unaffected (no Spin satellites exist, so that count is already clean).
+
+The Backup run for `af9ea7bc2d`, which DOES contain the fix, was certifying at
+the time of writing, with three newer runs queued behind it. Every future main
+commit contains the fix, so this resolves itself as soon as any certify
+succeeds. If none had by 02:45 Chicago the plan was one dispatch of Backup for
+an exact SHA (the one route the runbook gives an agent besides a push), and
+failing that, to let the engine keep serving rather than ship half the change.
+
+### Why the certificate was six hours old
+
+Backup `refresh` failed five times between 01:40Z and 02:17Z. Two distinct
+shapes, which the script reports with one sentence:
+
+| run     | export step            | shape                                   |
+| ------- | ---------------------- | --------------------------------------- |
+| 01:40Z  | 01:47:21 -> 01:48:55Z  | succeeded; the run failed later         |
+| 02:04Z  | 02:04:05 -> 02:04:06Z  | **failed in one second**                |
+| 02:06Z  | 02:06:27 -> 02:06:27Z  | **failed in zero seconds**              |
+| 02:17Z  | 02:19:29 -> 02:19:29Z  | **failed in zero seconds**              |
+
+An instant failure means the first command, `schema-evidence.py capture`, never
+got an answer - the `pg_dump` beside it never ran. Checked and excluded:
+`postgresql-client-17` is installed in the failing runs; all eight signatures
+in `SIGNATURES` resolve in production and have definitions; `schema_migrations`
+holds 6,980 rows with 6,980 distinct versions, no malformed row, longest
+version 33 characters; and Postgres logged no error, refusal or connection
+problem in those windows. So the psql process failed before the server saw it.
+
+`server/standby/schema-evidence.py` line 157 prints the same sentence -
+"Schema evidence refused; capture, signatures, migration set or dump binding
+invalid" - for a query that could not run and for evidence that was genuinely
+refused, which is 10.86 rule 1: the two outcomes have one name, and the reader
+is sent to look at the schema when the schema is fine. Whoever owns that lane
+should separate them; this lane did not change the release path on the night of
+a cutover, and #10122 shows another lane is already working in that area.
