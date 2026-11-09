@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
+  settleStrandedHeadsUpClub,
   certificationConfig,
   inSitAndGoWindow,
   verdict,
@@ -79,5 +80,28 @@ describe('heads-up rematch live certification', () => {
     expect(account).toContain('Refusing to retire heads-up rematch certification club');
     const script = readFileSync('scripts/ci/certify-heads-up-rematch.mjs', 'utf8');
     expect(script).toContain('p_name: `${HEADS_UP_CERT_CLUB_NAME_PREFIX}${');
+  });
+
+  it('a stranded club is settled only when it is an active Cert HU club with every game ended', async () => {
+    const environment = { SUPABASE_URL: 'https://db.example', SUPABASE_SERVICE_ROLE_KEY: 'k', VITE_SUPABASE_ANON_KEY: 'a' };
+    const writes: string[] = [];
+    const respond = (games: Array<{ id: string; status: string }>, name = 'Cert HU 12345678') =>
+      (async (url: string, init?: { method?: string }) => {
+        if (init?.method && init.method !== 'GET') writes.push(url);
+        const body = url.includes('/rest/v1/clubs?')
+          ? [{ id: 'club', name, owner_id: 'owner', lifecycle_status: 'active' }]
+          : url.includes('/rest/v1/tournaments?')
+            ? games
+            : [];
+        return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) };
+      }) as unknown as typeof fetch;
+    const args = { environment, clubId: 'club', ownerId: 'owner', isReserved: () => true, log: () => {} };
+    await expect(
+      settleStrandedHeadsUpClub({ ...args, fetchImpl: respond([{ id: 'g', status: 'RUNNING' }]) })
+    ).rejects.toThrow('1 game(s) have not ended yet');
+    await expect(
+      settleStrandedHeadsUpClub({ ...args, fetchImpl: respond([], 'Cert RH 1') })
+    ).rejects.toThrow('not an active heads-up rematch certification club');
+    expect(writes).toEqual([]);
   });
 });
