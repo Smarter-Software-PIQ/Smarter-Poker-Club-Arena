@@ -858,7 +858,13 @@ ${Object.entries(states)
     });
     expect(backup.on.push.paths).toContain('server/**');
     expect(backup.on.workflow_run).toBeUndefined();
-    expect(backup.on.repository_dispatch.types).toEqual(['run-post-deploy-e2e']);
+    expect(backup.on.repository_dispatch.types).toEqual([
+      'run-post-deploy-e2e',
+      'refresh-sealed-engine-backup',
+    ]);
+    expect(
+      parse(read('.github/workflows/post-deploy-e2e.yml')).on.repository_dispatch.types
+    ).not.toContain('refresh-sealed-engine-backup');
     expect(backup.jobs.plan.if).toContain("github.event.client_payload.release_run_key != ''");
     const sender = receiver.jobs['certify-production'].steps[0].run;
     expect(sender).toContain('client_payload[release_run_key]=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT');
