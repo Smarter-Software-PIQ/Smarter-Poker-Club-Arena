@@ -94,7 +94,7 @@ test('existing image discovery is read-only, exact-source bound and guarded agai
 
 // The handoff is an explicit immutable input in this already-watched module.
 import {spawnSync} from 'node:child_process';
-import {R7_RESUME_HANDOFF,CORRECTED_R7_RESUME_HANDOFF,correctedResumeBoundary,resumeSelection,resumeProvider,downloadResumeArchive,resumeArchiveFiles,resumeFilesAdmission,inheritedEvidence,commandFacts,failureEvidence,preservePrimary} from './public215-linux-preflight.mjs';
+import {R7_RESUME_HANDOFF,CORRECTED_R7_RESUME_HANDOFF,correctedResumeBoundary,resumeSelection,resumeProvider,downloadResumeArchive,resumeArchiveFiles,resumeFilesAdmission,inheritedEvidence,commandFacts,failureEvidence,preservePrimary,preflightReaders} from './public215-linux-preflight.mjs';
 const pinned=R7_RESUME_HANDOFF,prior=pinned.predecessor;
 function providerFixture(handoff=pinned){
  const prior=handoff.predecessor;
@@ -323,4 +323,19 @@ test('census comes from the dataset pinned protocol: R7 still 107, R8 100',()=>{
  const duplicate=censusRows(2);duplicate[0].runtime_parity_protocol.contexts[1].context=duplicate[0].runtime_parity_protocol.contexts[0].context;assert.throws(()=>censusAuthority(null,duplicate[0]),/Unique/);
  const source=readFileSync(new URL('./public215-linux-preflight.mjs',import.meta.url),'utf8');
  assert.doesNotMatch(source,/count===107|count===100/);assert.match(source,/census=censusAuthority\(census,row\)/);assert.match(source,/count===censusComplete\(census,observed,selected.dataset\)/);
+});
+
+test('command_failed evidence names the refusing tool and its silence, never its text; readers are the proven bounded ones',async()=>{
+ // Run 42693137251 refused in the source phase with {command_exit:1} and nothing else: a silent git
+ // ancestry exit 1 and a gh CLI refusal were indistinguishable, and the gh-only readers had never run in Actions.
+ const secret='ghp_do-not-print-this-token-value-1234567890';
+ const quiet=commandFacts({status:1,stderr:''},false,'/usr/bin/git');assert.equal(quiet.binary,'git');assert.equal(quiet.stderr_empty,true);assert.equal(quiet.command_exit,1);
+ const loud=commandFacts({status:1,stderr:'unknown flag: --slurp '+secret},false,'gh');assert.equal(loud.binary,'gh');assert.equal(loud.stderr_empty,false);assert.doesNotMatch(JSON.stringify(loud),/slurp|do-not-print/);
+ assert.equal(commandFacts({status:75,stderr:'x'},true,'/tmp/hssh').binary,'ssh');assert.equal(commandFacts({status:1,stderr:''}).binary,null);
+ const calls=[];const bounded={read:async path=>{calls.push(path);return {total_count:1,workflow_runs:[{id:1}],jobs:[{id:2}]};},readLog:async id=>{calls.push('log:'+id);return 'LOG';}};
+ const r=preflightReaders(bounded);
+ assert.deepEqual(await r.readPages('/actions/workflows/engine-release-prequalification.yml/runs?branch=main&head_sha=abc','workflow_runs'),[{id:1}]);
+ assert.equal(await r.readLog(7),'LOG');
+ assert.deepEqual(calls,['/actions/workflows/engine-release-prequalification.yml/runs?branch=main&head_sha=abc&per_page=100&page=1','log:7']);
+ assert.ok(calls.every(c=>!c.includes('--slurp')&&!c.includes('--paginate')));
 });

@@ -1,3 +1,5 @@
+**November 9 owner follow-up ASAP cutover:** after the sealed `bff6eed3` cutover the owner told the Claude engine-cutover release owner at 20:58 UTC November 9: "NO CUT OVER HAPPENS AS SOON AS ITS AVALILABLE, NOT 4AM". The single finite window `2026-11-09-owner-asap-engine-2230z` admits only one certified replacement of `bff6eed3522ee894da747f91a532b35a3d8cee4f`, between 22:30 UTC November 9 and 04:30 UTC November 10, after the published 22:10 UTC notice. It contains `de2e7976` (#10208), carries no migration, and neither renews nor replays `2026-11-09-owner-asap-engine-1530z`. Every existing qualification, Backup contents, drain, freeze, proof, rollback and thaw safeguard applies unchanged.
+
 **November 9 owner ASAP cutover:** the owner ordered "GET THEM LIVE NOW, DO NOT WAIT UNTIL 4AM, DO IT ASAP" in overlay chat `01a1b950` (relayed on PR #10063 comment 6741660924) and confirmed it to the Claude engine-cutover release owner at 13:54 UTC November 9. The single finite window `2026-11-09-owner-asap-engine-1530z` admits only one certified replacement of `391f7bc0d57c71637bd4af5181f70520661e3593` containing the Horse overlay rescue `f21499f` and add-on timing fix `debe1ef`, between 15:30 and 21:30 UTC November 9, after the 15:10 UTC player notice has actually been available for at least twenty minutes. Exact qualification, a Backup certificate matching current production's installed schema, protected target/control, hand drain, full freeze/proof/rollback reserve and thaw remain required. The frozen November 9 original daily selection stays immutable; this does not renew any earlier booking or change the standing daily schedule.
 
 **November 8 Horse study continuation:** the owner directed completion now in chat `01a1af6b-2112-7fc2-b6bf-f6b5f0e9f430`. The single successor `2026-11-08-horse-study-successor-engine-1820z` preserves the expired prior booking and admits only one certified replacement of `391f7bc0d57c71637bd4af5181f70520661e3593`, between 18:20 UTC November 8 and 00:20 UTC November 9, after the published 18:00 UTC November 8 player notice has actually been available for at least twenty minutes. Exact qualification, Backup, protected target/control, hand drain, full freeze/proof/rollback reserve and thaw remain required. This does not renew the expired prior operation or change the standing daily schedule.
@@ -79,7 +81,7 @@ to production; the current engine keeps running by design.
 | A queued window migration was refused (run summary `REFUSED n of m ... skipped`)              | Nothing to undo: its transaction rolled back. Read the refusal (usually 55P03 lock timeout). Fix the file on main (a needless `DROP TRIGGER`, a wider lock than declared) in a PR; it stays queued and is sent again at the next 04:00. The files behind it were still sent (since 2026-11-07).                                                                                                                                                                                             | `scripts/ci/install-window-migrations.mjs`; `CLAUDE.md` section 2 rule 10; `docs/changelog/2026-11-07-a-refused-window-migration-no-longer-holds-the-queue-and-a-superseded-backup-run-steps-aside.md` |
 | Window install ended UNKNOWN (exit 3)                                                         | Read `schema_migrations` for that version through `execute_sql` before anything else. Recorded: it installed; nothing to do. Not recorded: still queued; the run stopped on purpose. Do not apply by hand.                                                                                                                                                                                                                                                                                  | `scripts/ci/install-window-migrations.mjs` header "OUTCOMES"; `CLAUDE.md` 10.86                                                                                                                        |
 | Cutover stalled on the host (observer log shows the transaction waiting or a container fault) | Do not touch the host. The systemd unit owns the transaction and `recover_on_exit` restores the sealed desired state inside the break; the receiver reattaches up to 40 times within its own budget. Read the receipt afterward. On 2026-11-07 the first host attempt faulted and the automatic retry sealed at 16:38:57Z.                                                                                                                                                                  | `engine-release-transaction.sh` line 806 `recover_on_exit`; `auto-deploy-hetzner.yml` step `release` (`reattach`)                                                                                      |
-| Receipt sealed but the GitHub run is red                                                      | Trust the receipt and `/health`, not the colour. Confirm the SHA and instance at `/health` match `/var/lib/club-arena/engine-release-results/<run>-<attempt>.json`. Reattach the observer to the original run (section 4.9). Then check whether the post-seal Backup refresh fired (it fires only on `conclusion == success`); if not, submit the one Backup-only refresh (section 7.2). Do not re-run the cutover.                                                                         | `backup-engine.yml` job `plan` (`workflow_run.conclusion == 'success'`); `PUBLISHING.md`; `docs/changelog/2026-11-07-observer-retired-completion-invocation.md`                                        |
+| Receipt sealed but the GitHub run is red                                                      | Trust the receipt and `/health`, not the colour. Confirm the SHA and instance at `/health` match `/var/lib/club-arena/engine-release-results/<run>-<attempt>.json`. Reattach the observer to the original run (section 4.9). Check the Backup run ID recorded by the sealed receiver and its physical restore. If the provider lost the handoff, use the single Backup-only recovery (section 7.2). Do not re-run the cutover.                                                              | `backup-engine.yml` job `plan` (step `seal`); `PUBLISHING.md`; `docs/changelog/2026-11-07-observer-retired-completion-invocation.md`                                                                   |
 | Health never comes back after 04:05                                                           | Read the receipt. `ENGINE_RELEASE_RESULT` absent and the container down means the transaction's recovery ran or is running (`engine-supervisor.sh` with `ENGINE_SUPERVISOR_FORCE_DESIRED=1`). Watch `/health` for the previously sealed SHA. If still down after `NON_BREAK_RECOVERY_MAX_SECONDS` (300 s, line 105), it is an incident: the supervisor and the container's own restart policy are the only levers; record every timestamp, and fix the boot cause in a PR. No hand restart. | `engine-release-transaction.sh` lines 105 and 806; `server/scripts/engine-up.sh` is the single start path                                                                                              |
 | Freeze never confirmed (`fn_platform_frozen` false through the break)                         | Nothing cut over: `maintenance_certificate` (line 1451) refuses without `readyForRestart` and the database row. The installer also refuses. Read `engine_maintenance_break` and the engine log for why the announcement failed (a lock timeout on the row write is the known cause). Fix at the root.                                                                                                                                                                                       | `server/src/maintenance/MaintenanceBreak.ts`; `CLAUDE.md` section 13 invariant 1                                                                                                                       |
 | Rollback happened (receipt `result` not `sealed`, `/health` shows the previous SHA)           | The previous engine is serving by design. Read the transaction log for the failed witness (candidate proof, database leader proof, window doors). Fix at the root; the next window retries with a new certificate. Never shorten a reserve.                                                                                                                                                                                                                                                 | `engine-release-transaction.sh` lines 52-53 and 2735 `prove_rollback_readiness`                                                                                                                        |
@@ -169,12 +171,12 @@ production database host is reachable. The engine boots with
 
 ### 3.2 What starts a run
 
-| Trigger                                                                                          | Effect                                                                                                                                    |
-| ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| Push to `main` touching `server/**`                                                              | Certify that main commit (superseded if a newer push run exists, 3.6)                                                                     |
-| Nightly cron `7,23,41 5/6 * * *` UTC (after 00:00 Chicago)                                       | Refresh the production structure and seed once per Chicago date, then certify main                                                        |
-| `workflow_dispatch` with `sha` and optional `refresh`                                            | Certify exactly that SHA; `refresh=true` forces a copy first                                                                              |
-| `workflow_run` of "Auto-Deploy Hetzner Engine (on server/ changes)" with `conclusion == success` | Post-seal 1:1 refresh: force a copy and re-certify the SHA that `/health` is now serving (refused if the sealed SHA is no longer serving) |
+| Trigger                                                                        | Effect                                                                                                                                    |
+| ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Push to `main` touching `server/**`                                            | Certify that main commit (superseded if a newer push run exists, 3.6)                                                                     |
+| Nightly cron `7,23,41 5/6 * * *` UTC (after 00:00 Chicago)                     | Refresh the production structure and seed once per Chicago date, then certify main                                                        |
+| `workflow_dispatch` with `sha` and optional `refresh`                          | Certify exactly that SHA; `refresh=true` forces a copy first                                                                              |
+| `repository_dispatch` of `run-post-deploy-e2e` with the original verified seal | Post-seal 1:1 refresh: force a copy and re-certify the SHA that `/health` is now serving (refused if the sealed SHA is no longer serving) |
 
 Runs are serialized (`concurrency: backup-engine`, `queue: max`).
 
@@ -419,9 +421,10 @@ within 60 s; then public `/health` reports the same `instanceId`. Output
   SHA; `post-deploy-e2e.yml` job "Live-table and engine verification" plays
   real hands and reconnects against that exact serving version. Job "Client
   browser verification" is the client's own proof and has no engine dependency.
-- `backup-engine.yml` receives the `workflow_run` and, only when the receiver
-  concluded `success`, forces a fresh copy and re-certifies the serving SHA
-  (section 3.2).
+- `backup-engine.yml` consumes the same event when it carries a sealed engine
+  receipt. It verifies the original receiver attempt and serving instance. Only
+  the first Backup run for that seal forces the restore and re-certifies the
+  serving SHA (section 3.2). The receiver records the accepted Backup run ID.
 
 ### 4.9 Reattaching the observer after a red run with a sealed receipt
 
@@ -470,7 +473,7 @@ gh run view <receiver-run> -R "$repo" --json status,conclusion,jobs \
 gh run list -R "$repo" --workflow backup-engine.yml -L 5
 gh api "repos/$repo/commits/$sha/statuses?per_page=100" \
   --jq '[.[] | select(.context == "backup-engine/certified")][0] | {state,updated_at}'
-# Expect: a workflow_run-triggered run after the seal, refresh due=true, state success, updated after the seal.
+# Expect: the repository_dispatch run named Backup after seal <run>-<attempt>, refresh due=true, state success, updated after the seal.
 
 # 6. Post-deploy E2E
 gh run list -R "$repo" --workflow post-deploy-e2e.yml -L 3
@@ -552,7 +555,23 @@ shortens a safeguard.
 - Reattach the observer (4.9).
 - Re-run a failed GitHub job that released nothing:
   `env -u GH_TOKEN -u GITHUB_TOKEN gh run rerun <id> --failed`.
-- Submit the one Backup-only refresh after proving the sealed SHA is serving:
+- For an original seal whose automatic event was lost, check the Backup queue,
+  original sealed result and current serving instance first. Deliver the original
+  receipt to the same Backup verifier using its dedicated recovery event. Use the
+  original result file read through the scoped observer. The event has no gameplay
+  or engine deployment receiver. Duplicate events reuse the first Backup run for
+  the original seal. A failed existing run needs investigation before recovery.
+
+  ```sh
+  jq -ec '
+    select(.result == "sealed") | {event_type:"refresh-sealed-engine-backup",
+      client_payload:{engine_sha:.sha,release_run_key:.runId,
+        gameplay_receipt:({runId,sha,result,instanceId,startedAt,
+          completionRuntime:{instanceId:.completionRuntime.instanceId}} | tojson)}}' "$sealed_result" |
+    gh api --method POST "repos/$repo/dispatches" --input -
+  ```
+
+- For a Backup-only forced refresh after proving the sealed SHA is serving:
 
   ```sh
   served=$(curl -fsS https://engine.smarter.poker/health | jq -er .releaseSha) &&

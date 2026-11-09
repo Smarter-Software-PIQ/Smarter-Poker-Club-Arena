@@ -150,6 +150,10 @@ describe('workflow concurrency guards runner capacity without risking production
     expect(queue).toBeGreaterThan(0);
     expect(send).toBeGreaterThan(queue);
     expect(text).toContain('select(.id < $GITHUB_RUN_ID and .status != \\"completed\\")');
+    // A run GitHub left queued with no job is skipped by name, never silently;
+    // an unreadable job count keeps the run ahead.
+    expect(text).toContain('with no job; GitHub will never start it, so it is not ahead');
+    expect(text).toContain('[ "$jobs" = 0 ]');
     expect(text).toMatch(/permissions:\n {2}contents: read\n {2}actions: read\n/);
   });
 
