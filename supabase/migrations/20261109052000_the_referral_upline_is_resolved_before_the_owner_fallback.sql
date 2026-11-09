@@ -310,7 +310,15 @@ BEGIN
 
   IF v_m.agent_id IS NULL THEN RETURN true; END IF;
 
-  RETURN v_m.agent_assignment_source = 'join_fallback';
+  -- COALESCE is load-bearing. A legacy row carries NULL here, and
+  -- `NULL = 'join_fallback'` is NULL, not false. A NULL leaking out of this
+  -- function poisons every caller's three-valued logic: in the attach guard
+  -- `... AND NOT fn_club_placement_is_unchosen(...)` becomes NULL, the IF is
+  -- not taken, and the refusal that protects somebody else's downline never
+  -- fires -- so any agent could take any legacy member. Found by the isolated
+  -- behavioural fixture on 2026-11-09; the production read-only suite could not
+  -- see it, because a NULL is not TRUE and its count-the-TRUEs check passed.
+  RETURN COALESCE(v_m.agent_assignment_source = 'join_fallback', false);
 END
 $function$;
 
@@ -714,19 +722,20 @@ BEGIN
   RETURN QUERY SELECT 'a sub-agent referral is not collapsed to the agent above it',
                       n = 0, n || ' sub-agent corrections resolve elsewhere';
 
-  -- 5. Not one player OUTSIDE the ledger moved. The ledger's seven subjects are
-  --    the only KINGS CLUB members whose upline this work touched; every other
-  --    member must still carry the placement it had before, which for a legacy
-  --    row means an untouched NULL source.
+  -- 5. Not one player OUTSIDE the ledger moved. Measured against the
+  --    install-time baseline rather than a point-in-time count, because every
+  --    player who joins after this installs legitimately carries a source.
+  --    A legacy row carries NULL and nothing may rewrite it, so this count can
+  --    only fall if something moved one.
   SELECT count(*) INTO n
     FROM public.club_members cm
-   WHERE cm.club_id = k
-     AND cm.agent_assignment_source IS NOT NULL
-     AND cm.user_id NOT IN (SELECT d.subject_user_id
-                              FROM public.kings_club_downline_repair_20261108 d
-                             WHERE d.scope = 'club_members.agent_id' AND d.applied);
-  RETURN QUERY SELECT 'no member outside the ledger had their placement rewritten',
-                      n = 0, n || ' members outside the ledger carry a new source';
+   WHERE cm.club_id = k AND cm.agent_assignment_source IS NULL;
+  SELECT COALESCE(max(d.evidence::int), n) INTO m
+    FROM public.kings_club_downline_repair_20261108 d
+   WHERE d.scope = 'baseline.legacy_null_source';
+  RETURN QUERY SELECT 'no player outside the ledger had their placement rewritten',
+                      n >= m,
+                      n || ' untouched rows remain of ' || m || ' recorded at install';
 
   -- 6. A player with no referral evidence has no referral answer, so nothing
   --    can move them. Counted over the club, which is the 699.
@@ -745,6 +754,15 @@ BEGIN
      AND public.fn_club_placement_is_unchosen(k, cm.user_id);
   RETURN QUERY SELECT 'a row written before this migration is never automatically movable',
                       n = 0, n || ' legacy rows read as overridable';
+
+  -- 7b. And the placement test answers a real boolean, never NULL. A NULL here
+  --     poisons `NOT fn_club_placement_is_unchosen(...)` in the attach guard and
+  --     silently disables the refusal that protects another agent's downline.
+  SELECT count(*) INTO n FROM public.club_members cm
+   WHERE cm.club_id = k
+     AND public.fn_club_placement_is_unchosen(k, cm.user_id) IS NULL;
+  RETURN QUERY SELECT 'the placement test never answers NULL',
+                      n = 0, n || ' members get a NULL placement answer';
 
   -- 8. The owner and club staff can never be given an upline ([REVIEW 4]).
   SELECT count(*) INTO n
@@ -835,6 +853,25 @@ GRANT EXECUTE ON FUNCTION public.fn_resolve_referral_upline(uuid,uuid) TO servic
 GRANT EXECUTE ON FUNCTION public.fn_club_placement_is_unchosen(uuid,uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.fn_referral_downline_disagreements(uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.fn_test_referral_downline_rules() TO service_role;
+
+-- An install-time baseline for the untouched population. A point-in-time query
+-- cannot express "nothing outside the ledger moved": every player who joins
+-- after this installs legitimately carries a source, so counting non-NULL
+-- sources would go false within hours and cry wolf for ever. What IS durable is
+-- that a row written BEFORE this migration carries NULL and nothing may rewrite
+-- it, so the count of NULL-source members must never fall.
+INSERT INTO public.kings_club_downline_repair_20261108
+  (scope, club_id, subject_user_id, evidence, applied)
+SELECT 'baseline.legacy_null_source',
+       'a41434bb-8d0c-400a-8f0d-e8b3d65afed4',
+       '00000000-0000-0000-0000-000000000000'::uuid,
+       count(*)::text,
+       true
+  FROM public.club_members m
+ WHERE m.club_id = 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4'
+   AND m.agent_assignment_source IS NULL
+   AND NOT EXISTS (SELECT 1 FROM public.kings_club_downline_repair_20261108 b
+                    WHERE b.scope = 'baseline.legacy_null_source');
 
 -- The ten corrections applied on 2026-11-08 are recorded as what they are:
 -- placements resolved from referral evidence, not fallbacks.
