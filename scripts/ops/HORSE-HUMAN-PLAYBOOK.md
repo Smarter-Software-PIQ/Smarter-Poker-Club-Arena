@@ -2,6 +2,10 @@
 
 The six-volume baseline cutoff is **12:35 UTC on November 7, 2026**. Six private volumes contain 42,444 retained histories, 36,657 eligible hands and 313,562 Horse decisions. A hand qualifies through eligible human participation. For advice about a human opponent, check that a human still had a stake or could respond at the decision. Original Horse cards remain missing on 10,077 decisions. Those decisions can establish public action, price and legality. Their hand strength remains unknown.
 
+The final frozen cohort closes at **00:00 UTC on November 8, 2026**. Across nine indexes, 42,938 histories include 37,065 eligible hands, 5,865 exclusions and eight histories with unresolved identity. The eligible hands contain 316,741 distinct Horse decisions. The earlier six-volume counts below retain their original denominators.
+
+Across the final cohort, 10,561 decisions still lack indexed original Horse cards and 3,444 lack an original legal menu. The two counts can overlap. Of 25,070 decisions originally missing tournament stage, 1,439 have a recovered stage, leaving 23,631. Full payout, field-stack and bounty context remains unbound for 167,619 decisions. All 316,741 lack a qualified strategic reference bound to the full decision. Use the narrower conditional comparisons below where their assumptions hold. Eight unresolved histories and unknown lifetime retention limit the historical coverage claim.
+
 ## Omaha coverage
 
 Counts are Horse decisions. Lightning counts are part of the cash column.
@@ -30,6 +34,12 @@ Keep the hole-card count, betting structure, board count, ante payer and speed f
 ## High-only value betting and river sizing
 
 **PLO5 and PLO6.** Of 84 checked-to middle or top full houses across 81 hands, Horses bet 62 times, went all-in twice and checked 20 times. Eighty decisions were in cash and four in tournaments. Every check left at least one opponent to act. Fifteen checked through, an eligible human opened twice, and another Horse opened three times. Open for value in this high-only spot. For a check, compare a half-pot opening within the original legal bounds. Only four of the 20 checks had an earlier pool comparison matching the rules, position, opponents' roles and size band, with at most two earlier hands each. None had an exact-size comparison involving the same set of human opponents. A missed opening is observable. Chips a human would have paid remain uncertain.
+
+**Sizing top full with an aggressor behind in PLO6 cash.** In one regular cash hand with a big-blind ante, the Horse held aces full of sevens. Only quad sevens could beat it. A human checked and the Horse who bet the turn was still to act. The pot was 21.32 chips, legal bets ranged from 0.25 to 21.32, both opponents covered a pot bet, and the rake was already capped. Checking left an opportunity to induce a bet.
+
+Compare each legal bet with checking through, then allow for what checking actually earns from later action. Suppose at most one opponent calls, nobody raises and quads always continues. Let **N** be the probability that exactly one worse hand calls minus the probability that exactly one better hand calls, measured across all responses to that size. This holding cannot tie. The value gained over checking through is the bet times N. If inducing after a check earns one additional chip on average, a 5.33-chip bet needs N above 18.76%, a 10.66-chip bet needs more than 9.38%, and a 21.32-chip bet needs more than 4.69% (rounded). If inducing earns only 0.25 chip, the thresholds fall to 4.69%, 2.35% and 1.17%. These are hypothetical induction values. The actual calling and raising frequencies are unknown.
+
+When two opponents match the bet in the same pot, the break-even showdown share on that branch is one third, provided fees stay capped. Weight their joint responses, including raises and the Horse's continuation. Record the value opportunity separately from any estimate of the cost of checking. Across the frozen checked-to boat inventory, 177 of 313 decisions met the policy eligibility criteria and 29 of those were checks.
 
 **Facing a human bet with the absolute nuts.** The six-volume PLO4/5/6 cash study screened 8,752 river decisions. In 882 single-board spots, an eligible human set the outstanding price, raising was legal and a human could match additional chips. The Horse held the absolute nuts in 29 of them. It raised 20 times, went all-in for more eight times and called once. Four nut hands were untieable and 25 could tie. The 84 checked-to decisions above concern opening for value. These 29 concern raising an outstanding wager.
 
