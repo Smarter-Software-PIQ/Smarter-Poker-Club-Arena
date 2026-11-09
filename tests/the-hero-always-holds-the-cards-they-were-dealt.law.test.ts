@@ -5,6 +5,7 @@ import {
   createHeroCardRerequest,
   heroCardHoldAllowed,
   heroCardsAlreadyDealtFor,
+  heroIdentityUnknown,
   heroIsBlindInLiveHand,
   previousHeroRow,
   HERO_CARD_REREQUEST_WAITS_MS,
@@ -204,6 +205,27 @@ describe('TablePage keeps the hero cards by these rules and no others', () => {
     expect(
       sliceBetween(page.slice(firstRead), 'const row = payload.new;', '// A private frame may lead')
     ).toMatch(/if \(row && row\.user_id === userId && row\.cards\) \{/);
+  });
+
+  it('an unknown identity holds a delivery; only a known one may discard it', () => {
+    expect(heroIdentityUnknown('guest')).toBe(true);
+    expect(heroIdentityUnknown('')).toBe(true);
+    expect(heroIdentityUnknown(undefined)).toBe(true);
+    expect(heroIdentityUnknown(HERO)).toBe(false);
+    const door = sliceBetween(
+      page,
+      'const handleHoleCardPayload = useCallback(',
+      '// A private frame may lead'
+    );
+    const hold = door.indexOf('if (row && row.cards && heroIdentityUnknown(userId)) {');
+    const mine = door.indexOf('if (row && row.user_id === userId && row.cards) {');
+    expect(hold).toBeGreaterThan(0);
+    expect(mine).toBeGreaterThan(hold);
+    // Replayed through the door itself when the id is known, and per table.
+    expect(page).toMatch(
+      /if \(heroIdentityUnknown\(userId\)\) return;\s+const held = identityPendingHeroCardsRef\.current;\s+identityPendingHeroCardsRef\.current = null;\s+if \(held\) handleHoleCardPayload\(\{ new: held \}\);\s+\}, \[userId, handleHoleCardPayload\]\);/
+    );
+    expect(page).toMatch(/identityPendingHeroCardsRef\.current = null;\s+\}, \[tableId\]\);/);
   });
 
   it('the hand stamp is cleared with the table and the player', () => {
@@ -636,6 +658,8 @@ describe('the page delivery door and hand-start reset, executed', () => {
       heroHandRef: { current: PREV },
       leftSeatPendingRef: { current: false },
       heroCardsHandRef: { current: PREV },
+      heroIdentityUnknown,
+      identityPendingHeroCardsRef: { current: null },
       lightningRoomRef: { current: { id: ROOM } },
       earlyHeroCardsRef: { current: null },
       heroHoleCardsAreForThisHand,
@@ -737,6 +761,55 @@ describe('the page delivery door and hand-start reset, executed', () => {
     t.deliver({ table_id: '0f84a1ab-5abb-41b4-a8bd-a33af58f73ea' });
     expect(t.hero().holeCards).toEqual([]);
     expect(t.d.heroCardsHandRef.current).toBe(PREV);
+  });
+
+  it('JOIN: a delivery that arrives before the page knows its player is held, then painted', () => {
+    const t = table();
+    t.handStarted(NEXT);
+    // The page has not read the session yet: userId is still its boot value.
+    const early = { ...t.d, userId: 'guest' };
+    early.handleHoleCardPayload = compile(handler, early);
+    early.handleHoleCardPayload({
+      new: { table_id: ROOM, user_id: HERO, hand_number: NEXT, cards },
+    });
+    // Held, not painted, not stamped, and no error raised about it.
+    expect(t.hero().holeCards).toEqual([]);
+    expect(t.d.identityPendingHeroCardsRef.current).not.toBeNull();
+    expect(t.d.heroCardsHandRef.current).toBe(PREV);
+    expect(t.d.reportError).not.toHaveBeenCalled();
+    // The id arrives: the held row goes back through the same door.
+    const held = t.d.identityPendingHeroCardsRef.current;
+    t.d.identityPendingHeroCardsRef.current = null;
+    t.d.handleHoleCardPayload({ new: held });
+    expect(t.hero().holeCards).toEqual(cards);
+  });
+
+  it('JOIN: a held delivery for another player is refused once the id is known', () => {
+    const t = table();
+    t.handStarted(NEXT);
+    const early = { ...t.d, userId: 'guest' };
+    early.handleHoleCardPayload = compile(handler, early);
+    early.handleHoleCardPayload({
+      new: { table_id: ROOM, user_id: 'someone-else', hand_number: NEXT, cards },
+    });
+    const held = t.d.identityPendingHeroCardsRef.current;
+    t.d.identityPendingHeroCardsRef.current = null;
+    t.d.handleHoleCardPayload({ new: held });
+    expect(t.hero().holeCards).toEqual([]);
+  });
+
+  it('JOIN: a held delivery whose hand has passed is refused, never painted', () => {
+    const t = table();
+    const early = { ...t.d, userId: 'guest' };
+    early.handleHoleCardPayload = compile(handler, early);
+    early.handleHoleCardPayload({
+      new: { table_id: ROOM, user_id: HERO, hand_number: PREV, cards: prevCards },
+    });
+    t.handStarted(NEXT);
+    const held = t.d.identityPendingHeroCardsRef.current;
+    t.d.identityPendingHeroCardsRef.current = null;
+    t.d.handleHoleCardPayload({ new: held });
+    expect(t.hero().holeCards).toEqual([]);
   });
 
   it('after leaving, nothing is painted, stamped or kept for later', () => {

@@ -3,6 +3,7 @@ import ts from 'typescript';
 import { describe, expect, it, vi } from 'vitest';
 import { heroHoleCardsAreForThisHand } from '../../src/lib/tableCardDisplay';
 import { earlyHeroCardsReady } from '../../src/utils/earlyHeroCards';
+import { heroIdentityUnknown } from '../../src/lib/heroCardCustody';
 
 // Execute the maintained private-card handler and replay effect, including
 // their real hand/table guards, without mounting unrelated purchase controls.
@@ -60,6 +61,8 @@ function setup(hand = 20) {
     // Seated, and no delivery stamped yet (heroCardCustody.ts).
     leftSeatPendingRef: { current: false },
     heroCardsHandRef: { current: 0 },
+    heroIdentityUnknown,
+    identityPendingHeroCardsRef: { current: null },
     lightningRoomRef: { current: null },
     earlyHeroCardsRef: { current: null },
     earlyHeroCardsReady,

@@ -5064,6 +5064,16 @@ jobs:
           LIVE_TURN_DIST: dist
         run: npx playwright test -c playwright.live-turn.config.ts tests/live-turn/cash-street-decision.pw.ts
 
+      # The same build, in a phone viewport, in a Lightning pool room: the
+      # hero's cards after a seat change, a muted deal, reordered frames, a
+      # delivery before the page knows its player, and a lost delivery
+      # (2026-11-09, Lightning hand 58167350). Answered in the browser.
+      - name: Lightning hero cards gate
+        if: matrix.partition == 'general' && matrix.shard == 1
+        env:
+          LIVE_TURN_DIST: dist
+        run: npx playwright test -c playwright.live-turn.config.ts tests/live-turn/lightning-hero-cards.pw.ts
+
       # if: always() because the preview is now started outside the step that
       # uses it, so nothing else will reap it - and an orphaned --strictPort
       # server would fail every later job on this runner. The port-reserve step

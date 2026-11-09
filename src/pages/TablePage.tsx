@@ -1030,6 +1030,7 @@ import {
   heroCardHoldAllowed,
   heroCardsAlreadyDealtFor,
   createHeroCardRerequest,
+  heroIdentityUnknown,
   heroIsBlindInLiveHand,
   previousHeroRow,
 } from '../lib/heroCardCustody';
@@ -12798,6 +12799,13 @@ function LiveTablePage({
     // The stamp belongs to one player at one table.
     heroCardsHandRef.current = 0;
   }, [tableId, userId]);
+  /* A delivery that reached this page before it knew who is signed in
+     (2026-11-09). Held, never painted, and judged by the door below the
+     moment the id is known. It belongs to one table. */
+  const identityPendingHeroCardsRef = useRef<Record<string, unknown> | null>(null);
+  useEffect(() => {
+    identityPendingHeroCardsRef.current = null;
+  }, [tableId]);
   const handleHoleCardPayload = useCallback(
     (payload: any) => {
       if (isLightningObserverSnapshot(engineSnapshotRef.current)) return;
@@ -12815,6 +12823,15 @@ function LiveTablePage({
          hero's holding on one would blank a live hand at the exact moment the
          next one is dealt. Do not "fix" this into a clear. */
       const row = payload.new;
+      /* "Cannot tell yet" is not "not mine". `userId` boots as 'guest' and the
+         engine socket does not wait for it: this comparison used to discard
+         the hero's own cards on a page opened into a live hand. The newest
+         such row is kept and comes back through this door once the id is
+         known, where it is judged like any other. */
+      if (row && row.cards && heroIdentityUnknown(userId)) {
+        identityPendingHeroCardsRef.current = row;
+        return;
+      }
       if (row && row.user_id === userId && row.cards) {
         // A private frame may lead HAND_STARTED. Do not paint it onto the old
         // board or lose it when that event clears the prior holding.
@@ -12968,6 +12985,12 @@ function LiveTablePage({
     },
     [userId, tableId, ambientSoundsAllowed]
   );
+  useEffect(() => {
+    if (heroIdentityUnknown(userId)) return;
+    const held = identityPendingHeroCardsRef.current;
+    identityPendingHeroCardsRef.current = null;
+    if (held) handleHoleCardPayload({ new: held });
+  }, [userId, handleHoleCardPayload]);
   useEffect(() => {
     const decision = earlyHeroCardsReady({
       early: earlyHeroCardsRef.current,

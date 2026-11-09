@@ -21,6 +21,13 @@
         PLAYED. The test was the hand number of the last card-slide cue, which
         is written only when the cue is audible or held. Cards delivered ahead
         of HAND_STARTED with the table muted were cleared by it.
+     4. A DELIVERY THAT ARRIVED BEFORE THE PAGE KNEW ITS PLAYER WAS DISCARDED.
+        `userId` boots as 'guest' and is filled in after the session is read;
+        the socket does not wait for it. The door compared the row's player
+        with 'guest', found them different and dropped the hero's own cards
+        (measured in the browser suite, 2026-11-09: two deliveries discarded
+        200 ms before the id arrived). A page opened or reloaded into a live
+        hand therefore started blind.
      3. A LIGHTNING ROOM HAD NO WAY TO ASK AGAIN. The bounded recovery read is
         switched off there (a pool session has no `table_hole_cards` row under
         its own id), so `heroCardFetchRef` was null and every "re-fetch the
@@ -55,6 +62,16 @@ export function previousHeroRow<T extends HeroCustodyRow>(
     if (row && row.isHero && row.id === heroId) return row;
   }
   return null;
+}
+
+/**
+ * Does the page not yet know who is signed in? The engine socket authenticates
+ * from the stored session and can deliver the hero's cards before the page's
+ * own `userId` has left its boot value, so "not mine" and "cannot tell yet"
+ * are different answers and only the first may discard a delivery.
+ */
+export function heroIdentityUnknown(userId: unknown): boolean {
+  return typeof userId !== 'string' || userId === '' || userId === 'guest';
 }
 
 /**
