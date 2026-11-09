@@ -10,6 +10,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { publishedCashPricing } from '../config/leagueCashPricing.js';
+import { getFullRakeConfig, getPlayerCountCaps, type RakeOverride } from '../config/RakeConfig.js';
+import type { CashRakeScope } from '../config/cashRakePolicy.js';
 import { featureDomainMatches, type HorseFeatureDomain } from './HorseFeatureAuthority.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import { calculatePots } from './PokerEngine.js';
@@ -38,11 +40,24 @@ const domain = (seats: number): HorseFeatureDomain => ({
   ...pricing,
   sidePots: false,
 });
-/** The rake config exactly as ServerTableEngineDealing stamps a cash hand. */
-const liveRake = (scope = 'standard') => ({
-  cashPolicy: { version: 1, scope },
-  ...pricing.rakeConfig,
-});
+/** The rake config built the way ServerTableEngineDealing builds a cash hand:
+ * getFullRakeConfig with the table's override (getRakeOverride always passes a
+ * scope), the player-count caps for the 6-seat table, then the policy stamp. */
+const liveRake = (scope: CashRakeScope = 'standard', override: Partial<RakeOverride> = {}) => {
+  const full = getFullRakeConfig(1, 2, 'plo4', {
+    rakePercent: undefined,
+    rakeCapBB: undefined,
+    ...override,
+    scope,
+  });
+  return {
+    cashPolicy: { version: 1, scope },
+    percent: full.rakePercent,
+    cap: full.rakeCap,
+    noFlopNoDrop: true,
+    playerCountCaps: getPlayerCountCaps(full.rakeCap, 6),
+  };
+};
 type Seat = { invested: number; bet: number; allIn?: boolean; folded?: boolean };
 function liveState(seats: Seat[], patch: Partial<HorseGameStateV2> = {}): HorseGameStateV2 {
   const players = seats.map((s, seat) => ({
@@ -88,8 +103,8 @@ describe('a declared feature domain admits the live engine snapshot', () => {
     expect(featureDomainMatches(domain(2), gs)).toBe(true);
   });
 
-  it('admits every cash rake scope whose numbers are the published ones', () => {
-    for (const scope of ['standard', 'midway', 'standalone']) {
+  it('admits every cash rake scope the engine prices at the published numbers', () => {
+    for (const scope of ['standard', 'midway', 'standalone'] as const) {
       const gs = liveState(
         [
           { invested: 20, bet: 0 },
@@ -186,5 +201,51 @@ describe('a declared feature domain admits the live engine snapshot', () => {
       }
     }
     expect(stamps).toBeGreaterThanOrEqual(3);
+  });
+  it('refuses a table override that changes the rake economics', () => {
+    for (const override of [{ rakePercent: 5 }, { rakeCapBB: 1 }]) {
+      const gs = liveState(
+        [
+          { invested: 20, bet: 0 },
+          { invested: 20, bet: 0 },
+        ],
+        { rakeConfig: liveRake('standalone', override) } as never
+      );
+      expect(featureDomainMatches(domain(2), gs), JSON.stringify(override)).toBe(false);
+    }
+  });
+
+  it('refuses live rules the qualification harness never deals', () => {
+    const base = () =>
+      liveState([
+        { invested: 20, bet: 0 },
+        { invested: 50, bet: 30 },
+      ]);
+    expect(featureDomainMatches(domain(2), base())).toBe(true);
+    // A table commitment cap.
+    expect(
+      featureDomainMatches(domain(2), {
+        ...base(),
+        wagersCapped: true,
+        commitmentCapRemaining: 10,
+      } as never)
+    ).toBe(false);
+    expect(
+      featureDomainMatches(domain(2), { ...base(), commitmentCapRemaining: 10 } as never)
+    ).toBe(false);
+    // A Lightning hand.
+    expect(
+      featureDomainMatches(domain(2), {
+        ...base(),
+        publicMemoryDomain: { version: 1, speed: 'lightning', ante: 'none' },
+      } as never)
+    ).toBe(false);
+    // A dealt seat sitting out, and a dead blind.
+    const sitting = base();
+    (sitting.players[1] as { is_sitting_out?: boolean }).is_sitting_out = true;
+    expect(featureDomainMatches(domain(2), sitting)).toBe(false);
+    const dead = base();
+    (dead.players[0] as { deadInvested?: number }).deadInvested = 1;
+    expect(featureDomainMatches(domain(2), dead)).toBe(false);
   });
 });

@@ -49,3 +49,22 @@ qualified and selected later would have been refused on every live hand.
     understands.
 - The existing HorseFeatureAuthority and HorseDormantCandidateReadiness tests
   pass unchanged, including the refusal of malformed layers.
+
+## Review changes (independent review, 2026-11-09)
+
+- **Blocking finding fixed: cap games.** The predicate never read
+  `wagersCapped` or `commitmentCapRemaining`, and the harness always deals with
+  `commitmentCapRemaining: null`. Once the label fix made live states
+  reachable, a commitment-capped table would have been admitted unmeasured.
+  The predicate now refuses all of the following, none of which the harness
+  ever deals:
+  - a capped table;
+  - a dealt seat sitting out;
+  - a dead blind (`deadInvested`), which also closes the reviewer's pending
+    side-pot case;
+  - a Lightning hand (`publicMemoryDomain.speed === 'lightning'`).
+- **Test strengthened.** The scope test now derives the live rake the way the
+  engine does: `getFullRakeConfig(1, 2, 'plo4', {scope, ...override})` plus the
+  6-seat player-count caps. It proves the engine's scoped price equals the
+  published one, rather than copying the published numbers. A table override
+  that changes the percent or the cap is refused.
