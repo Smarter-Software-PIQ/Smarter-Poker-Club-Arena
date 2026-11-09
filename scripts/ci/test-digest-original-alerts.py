@@ -258,5 +258,89 @@ INSERT INTO operational_alert_events(id,alertname,severity,received_at,investiga
         assert sql('SELECT '+proof+';').stdout.strip()=='t', 'Installed byte proof must match both actual function bodies'
         assert 'DIGEST_GROUP_PREIMAGE_DRIFT' in sql(group_migration.read_text(),check=False).stderr
         print('PASS: exact grouped originals, native source transition, producer IDs, read-only status, historical count preservation, reviewed/investigating/new, canonical financial outcome and same-episode recovery, different episode/labels/fingerprint rejection, malformed/missing/duplicate/overflow IDs conservative unknown, source ACL/config preservation, replay refusal')
+        # The current reader and exact completed Midway slot receipts share the
+        # same per-original proof with the per-type annotation consumer.
+        sql('''ALTER TABLE tournaments ADD COLUMN union_id uuid,ADD COLUMN club_id uuid,
+          ADD COLUMN free_buy boolean,ADD COLUMN buy_in_amount numeric,ADD COLUMN buy_in_fee numeric,
+          ADD COLUMN satellite_target_id uuid,ADD COLUMN variant text,ADD COLUMN is_pko boolean,
+          ADD COLUMN is_mystery_bounty boolean,ADD COLUMN is_bounty boolean,ADD COLUMN all_in_or_fold boolean,
+          ADD COLUMN bounty_amount numeric,ADD COLUMN guaranteed_prize numeric,ADD COLUMN schedule_id uuid,
+          ADD COLUMN current_players integer,ADD COLUMN start_time timestamptz,ADD COLUMN created_at timestamptz,
+          ADD COLUMN ended_at timestamptz,ADD COLUMN prize_pool numeric,ADD COLUMN bounty_pool numeric;
+          CREATE TABLE tournament_schedules(id uuid,config jsonb);
+          CREATE TABLE tournament_escrow(tournament_id uuid,terminal_closed_at timestamptz,
+            prize_balance numeric,bounty_balance numeric,fee_balance numeric);
+          CREATE TABLE tournament_terminal_settlements(tournament_id uuid,settled_at timestamptz,
+            completed_at timestamptz,escrow_closed_at timestamptz,prize_pool numeric,cash_payout_total numeric,
+            bounty_pool numeric,bounty_payout_total numeric);
+          CREATE FUNCTION fn_sp_digest_engine_cutover(date) RETURNS jsonb LANGUAGE sql AS $$SELECT '{}'::jsonb$$;
+          ALTER TABLE operational_alert_events ADD PRIMARY KEY(id);
+          ALTER DATABASE postgres SET timezone TO 'UTC';''')
+        sql((root/'tests/fixtures/digest-slot-proof-preimage.sql').read_text())
+        slot_source='CriticalPage.midway_free_buy_missing'
+        slot_ids=[352939,352940]
+        slot_events=[
+            ('b9bfe4d7-06dc-4c5f-a3b2-ce1108ceb4e2','Afternoon Free Buy (NLH)','2026-11-07T22:30:00Z','aiof','2026-11-08T01:05:00.151271Z',500,0),
+            ('7f473b6a-7f6b-4c82-8c7f-b837cbe6f08a','Midnight Free Buy (NLH)','2026-11-08T06:30:00Z','pko','2026-11-08T11:33:52.474812Z',0,253),
+        ]
+        for event_id,(identity,name,starts,fmt,closed_at,prize,bounty) in zip(slot_ids,slot_events):
+            payload={'detail':{'name':name,'starts':starts,'expected_format':fmt}}
+            sql("INSERT INTO operational_alert_events(id,source,alertname,severity,received_at,investigation_status,payload,status) VALUES("+str(event_id)+",'sp-critical-pager','"+slot_source+"','critical','2026-11-07 20:40Z','new',"+literal(payload)+",'firing');")
+            sql("INSERT INTO tournament_schedules VALUES('"+identity+"',"+literal({'midwayFreeBuyFormat':'midway-free-buy-aiof-v1' if fmt=='aiof' else 'promo-pko-v1'})+");")
+            sql("INSERT INTO tournaments(id,name,tournament_type,status,union_id,free_buy,buy_in_amount,buy_in_fee,variant,is_pko,is_mystery_bounty,is_bounty,all_in_or_fold,bounty_amount,guaranteed_prize,schedule_id,current_players,start_time,created_at,ended_at,prize_pool,bounty_pool) VALUES('"+identity+"','"+name+"','MTT','COMPLETED','fade0000-0000-0000-0000-000000000001',true,0,0,'nlh',"+str(fmt=='pko').lower()+",false,"+str(fmt=='pko').lower()+","+str(fmt=='aiof').lower()+","+('1' if fmt=='pko' else '0')+","+str(prize)+",'"+identity+"',0,'"+starts+"','2026-11-07 21:44Z','"+closed_at+"',"+str(prize)+","+str(bounty)+");")
+            sql("INSERT INTO tournament_escrow VALUES('"+identity+"','"+closed_at+"',0,0,0); INSERT INTO tournament_terminal_settlements VALUES('"+identity+"','"+closed_at+"','"+closed_at+"','"+closed_at+"',"+str(prize)+","+str(prize)+","+str(bounty)+","+str(bounty)+");")
+        item={'rule':'critical_alert_rising','title':'Original Midway pages','severity':'critical',
+              'detail':{'count':1,'source_events':[{'alertname':slot_source,'expected_count':2,'event_ids':slot_ids}]}}
+        sql("INSERT INTO sp_daily_metrics VALUES('2026-11-07',"+literal({'money':{'ledger_rake_utc_day':0},'health':{'alert_names':{slot_source:2}}})+","+literal([item])+",now(),1);")
+        def slot_report():
+            return json.loads(sql("SELECT fn_sp_daily_digest('2026-11-07',false)").stdout)['attention'][0]
+        assert slot_report()['status']=='not_picked_up'
+        slot_metadata=sql("SELECT proowner,proacl,prosecdef,proconfig FROM pg_proc WHERE oid='fn_sp_daily_digest(date,boolean)'::regprocedure").stdout
+        source_records=sql("SELECT jsonb_agg(to_jsonb(o) ORDER BY id) FROM operational_alert_events o WHERE id IN(352939,352940)").stdout
+        slot_migration=root/'supabase/migrations/20261109162810_original_free_buy_alerts_read_the_completed_slot_receipt.sql'
+        sql(slot_migration.read_text())
+        def original_proof(event_id):
+            return json.loads(sql('SELECT fn_sp_original_alert_proof('+str(event_id)+')').stdout)
+        assert slot_report()['status']=='fixed'
+        envelope=slot_report()['canonical_alert_proof']
+        assert envelope['version']==1 and envelope['linkage_complete'] is True
+        group=envelope['groups'][0]
+        assert group['event_ids']==slot_ids and group['total']==group['reviewed']==group['verified']==2
+        assert all(p['verified'] and p['kind']=='midway_slot_receipt' for p in group['proofs'])
+        assert all(original_proof(event_id)['verified'] for event_id in [289742,291196,*slot_ids])
+        # A zero-cash-pool PKO still needs its actual bounty receipt.
+        first,second=slot_events[0][0],slot_events[1][0]
+        for statement,restore in [
+            ("UPDATE tournaments SET status='CANCELLED' WHERE id='"+first+"'", "UPDATE tournaments SET status='COMPLETED' WHERE id='"+first+"'"),
+            ("UPDATE tournaments SET start_time=start_time+interval '1 minute' WHERE id='"+first+"'", "UPDATE tournaments SET start_time=start_time-interval '1 minute' WHERE id='"+first+"'"),
+            ("UPDATE tournaments SET union_id=md5('foreign')::uuid WHERE id='"+first+"'", "UPDATE tournaments SET union_id='fade0000-0000-0000-0000-000000000001' WHERE id='"+first+"'"),
+            ("UPDATE tournament_escrow SET fee_balance=1 WHERE tournament_id='"+first+"'", "UPDATE tournament_escrow SET fee_balance=0 WHERE tournament_id='"+first+"'"),
+            ("UPDATE tournament_terminal_settlements SET escrow_closed_at=escrow_closed_at+interval '1 second' WHERE tournament_id='"+first+"'", "UPDATE tournament_terminal_settlements SET escrow_closed_at=escrow_closed_at-interval '1 second' WHERE tournament_id='"+first+"'"),
+        ]:
+            sql(statement)
+            assert not original_proof(352939)['verified'] and slot_report()['status']!='fixed'
+            sql(restore)
+        sql("UPDATE tournament_terminal_settlements SET bounty_payout_total=252 WHERE tournament_id='"+second+"'")
+        assert not original_proof(352940)['verified']
+        sql("UPDATE tournament_terminal_settlements SET bounty_payout_total=253 WHERE tournament_id='"+second+"'")
+        sql("DELETE FROM tournament_terminal_settlements WHERE tournament_id='"+second+"'")
+        assert not original_proof(352940)['verified'], 'zero cash pool still needs the terminal receipt'
+        closed_at=slot_events[1][4]
+        sql("INSERT INTO tournament_terminal_settlements VALUES('"+second+"','"+closed_at+"','"+closed_at+"','"+closed_at+"',0,0,253,253)")
+        sql("UPDATE operational_alert_events SET payload=jsonb_set(payload,'{detail,expected_format}','\"regular\"') WHERE id=352939")
+        assert not original_proof(352939)['verified'], 'another format at the same time is not the missing slot'
+        sql("UPDATE operational_alert_events SET payload=jsonb_set(payload,'{detail,expected_format}','\"aiof\"') WHERE id=352939")
+        sql("UPDATE operational_alert_events SET payload=jsonb_set(payload,'{detail,starts}','\"invalid\"') WHERE id=352939")
+        assert not original_proof(352939)['verified']
+        sql("UPDATE operational_alert_events SET payload=jsonb_set(payload,'{detail,starts}','\"2026-11-07T22:30:00Z\"') WHERE id=352939")
+        sql("INSERT INTO operational_alert_events(id,investigation_status) VALUES(500001,'historical')")
+        assert original_proof(500001)=={'reviewed':True,'verified':False,'kind':None,'reference':None}
+        assert original_proof(999999)=={'reviewed':False,'verified':False,'kind':None,'reference':None}
+        assert source_records==sql("SELECT jsonb_agg(to_jsonb(o) ORDER BY id) FROM operational_alert_events o WHERE id IN(352939,352940)").stdout
+        assert slot_metadata==sql("SELECT proowner,proacl,prosecdef,proconfig FROM pg_proc WHERE oid='fn_sp_daily_digest(date,boolean)'::regprocedure").stdout
+        assert sql("SELECT has_function_privilege('anon','fn_sp_original_alert_proof(bigint)','EXECUTE')").stdout.strip()=='f'
+        assert 'ORIGINAL_SLOT_DIGEST_PREIMAGE_CHANGED' in sql(slot_migration.read_text().replace('CREATE FUNCTION public.fn_sp_original_alert_proof','CREATE OR REPLACE FUNCTION public.fn_sp_original_alert_proof'),check=False).stderr
+        print(sql("SELECT jsonb_object_agg(proname,md5(pg_get_functiondef(oid))) FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname IN ('fn_sp_original_alert_proof','fn_sp_daily_digest')").stdout.strip())
+        print('PASS: exact current digest preimage, original two completed Midway slots including zero-cash bounty PKO, aggregate/per-type shared original-ID proof, historical is reviewed not verified, missing/foreign/wrong-slot/cancelled/open-escrow/bad-receipt/malformed negatives, source rows and digest metadata unchanged, replay refusal')
     finally:
         run('pg_ctl', '-D', str(scratch/'data'), '-m', 'immediate', 'stop')
