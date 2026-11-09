@@ -352,9 +352,9 @@ export function declaredWindowMigrations(dir) {
   return out;
 }
 
-async function readQueue(deps, declared) {
+async function readQueue(deps, declared, includeInstalled) {
   const candidates = declared.filter((d) => !d.superseded);
-  if (candidates.length === 0)
+  if (candidates.length === 0 && !includeInstalled)
     return { state: 'read', queued: [], recorded: [], note: 'no migration declares the window' };
   if (!deps.databaseUrl)
     return unknown('DATABASE_URL is not set; the queue cannot be read (not "0 queued")');
@@ -383,13 +383,7 @@ async function readQueue(deps, declared) {
     });
     await client.connect();
     const { rows } = await client.query(
-      `SELECT version, name FROM supabase_migrations.schema_migrations
-        WHERE version = ANY($1::text[]) OR name = ANY($2::text[]) OR name = ANY($3::text[])`,
-      [
-        candidates.map((d) => d.file.slice(0, 14)),
-        candidates.map((d) => d.file.slice(15, -4)),
-        candidates.map((d) => d.file.slice(15, -4).slice(0, 55)),
-      ]
+      `SELECT version, name FROM supabase_migrations.schema_migrations ORDER BY version, name`
     );
     const versions = new Set(rows.map((r) => r.version));
     const names = new Set(rows.map((r) => r.name));
@@ -402,6 +396,7 @@ async function readQueue(deps, declared) {
     return {
       state: 'read',
       queued,
+      ...(includeInstalled ? { installedRows: rows.map((r) => [r.version, r.name]) } : {}),
       recorded: candidates.filter((d) => !queued.includes(d)).map((d) => d.file),
     };
   } catch (e) {
@@ -501,6 +496,16 @@ export function decide(plan) {
       'engine commits exist since the serving SHA but none newer than it is Backup-certified; 04:00 would keep the current engine'
     );
 
+  const schema = plan.backupReadiness;
+  if (candidate && schema && engineOwed !== false) {
+    if (schema.state === 'mismatch' || schema.candidateMissingInProduction?.length)
+      blockers.push(
+        `candidate ${candidate} lacks matching installed migration evidence (Backup run ${schema.certificateRunId ?? UNKNOWN})`
+      );
+    else if (schema.state === UNKNOWN)
+      unknowns.push(`candidate migration evidence: ${schema.reason}`);
+  }
+
   let verdict;
   if (blockers.length > 0) verdict = VERDICTS.NOT_READY;
   else if (unknowns.length > 0) verdict = VERDICTS.UNKNOWN;
@@ -541,7 +546,7 @@ export async function assembleReleasePlan(options = {}) {
     readBackupLane(deps),
   ]);
   const declared = declaredWindowMigrations(deps.migrationsDir);
-  const queue = await readQueue(deps, declared);
+  const queue = await readQueue(deps, declared, options.includeInstalled === true);
 
   let walk = null;
   let sinceServing = null;
@@ -636,6 +641,39 @@ export function renderMarkdown(plan) {
       );
   }
   lines.push('');
+  const readiness = plan.backupReadiness;
+  if (readiness) {
+    lines.push('#### Migration readiness for the 03:30 Chicago cutoff');
+    lines.push(
+      `- Certificate for target \`${readiness.targetSha ?? UNKNOWN}\`: ${readiness.certificateUrl ?? UNKNOWN}; workflow head \`${readiness.workflowHead ?? UNKNOWN}\`.`
+    );
+    lines.push(
+      `- Installed migration comparison: ${readiness.state}${readiness.reason ? ' (' + readiness.reason + ')' : ''}.`
+    );
+    for (const [key, label] of [
+      ['candidateMissingInProduction', 'Required by candidate, missing in production'],
+      ['missingInBackup', 'Installed in production, missing in Backup'],
+      ['extraInBackup', 'Extra in Backup'],
+      ['renamedInBackup', 'Name differs in Backup'],
+    ]) {
+      for (const row of (readiness[key] ?? []).slice(0, 10))
+        lines.push(
+          `- ${label}: \`${typeof row === 'string' ? row : row.version + '_' + row.name}\`.`
+        );
+    }
+    const t = readiness.timing;
+    if (t) {
+      lines.push(
+        `- Next cutoff: ${t.cutoffUtc}; executing Backup run: ${t.runUrl ?? UNKNOWN}; actual target: \`${t.targetSha ?? UNKNOWN}\`.`
+      );
+      lines.push(
+        t.state === 'estimated'
+          ? `- Estimated Backup completion: ${t.estimatedFinishUtc} (${Math.abs(t.marginMinutes)} min ${t.marginMinutes >= 0 ? 'before' : 'after'} cutoff), from ${t.samples.length} measured physical run(s): ${t.samples.map((s) => s.runId + ' (' + Math.round(s.seconds / 60) + ' min)').join(', ')}.`
+          : `- Estimated Backup completion: UNKNOWN (${t.reason}).`
+      );
+    }
+    lines.push('');
+  }
   lines.push('#### Backup lane');
   if (plan.backupLane.state === UNKNOWN) lines.push(`- UNKNOWN: ${plan.backupLane.reason}`);
   else {
@@ -682,11 +720,30 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     const i = argv.indexOf(n);
     return i === -1 ? null : argv[i + 1] || null;
   };
-  const plan = await assembleReleasePlan({
-    sslRootCert: flag('--ssl-root-cert') ?? env.PGSSLROOTCERT ?? 'system',
-    walkCap: flag('--walk-cap') ? Number(flag('--walk-cap')) : undefined,
-    healthUrl: flag('--health-url') ?? undefined,
-  });
+  const snapshot = flag('--snapshot');
+  const input = flag('--input');
+  const plan = input
+    ? JSON.parse(readFileSync(input, 'utf8'))
+    : await assembleReleasePlan({
+        includeInstalled: Boolean(snapshot),
+        sslRootCert: flag('--ssl-root-cert') ?? env.PGSSLROOTCERT ?? 'system',
+        walkCap: flag('--walk-cap') ? Number(flag('--walk-cap')) : undefined,
+        healthUrl: flag('--health-url') ?? undefined,
+      });
+  if (snapshot) {
+    const { writeFileSync } = await import('node:fs');
+    writeFileSync(snapshot, JSON.stringify(plan));
+    return 0;
+  }
+  if (input) {
+    delete plan.queue.installedRows;
+    try {
+      plan.backupReadiness = JSON.parse(readFileSync(flag('--readiness'), 'utf8'));
+    } catch {
+      plan.backupReadiness = unknown('Backup readiness report unavailable');
+    }
+    plan.decision = decide(plan);
+  }
   const markdown = renderMarkdown(plan);
   if (argv.includes('--json')) console.log(JSON.stringify(plan, null, 2));
   else console.log(markdown);
