@@ -1,0 +1,1 @@
+The release owner can deliver a lost original seal to Backup alone with the `refresh-sealed-engine-backup` event. It uses the automatic handoff's receiver, serving instance and duplicate checks. Re-delivering the shared gameplay event is unnecessary.

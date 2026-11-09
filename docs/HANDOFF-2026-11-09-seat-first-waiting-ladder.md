@@ -1130,6 +1130,109 @@ re-queues certification and a docs commit should not.
 
 ---
 
+## 24b. LIVE LOG OF THE ASAP WINDOW (appended 2026-11-09 19:00Z)
+
+Added after the handoff was first written, so the record does not depend on
+that session surviving. Everything here is a read, with its time.
+
+### The 04:00 break ran; only the replacement did not
+
+The engine serving at 15:54Z still reported the morning break's resume waves:
+
+    resumeWaves  total 3, done 3
+                 startedAt  2026-11-09T10:05:00.091Z = 04:05:00 CST
+                 finishedAt 2026-11-09T10:05:03.092Z = 04:05:03 CST
+                 tables 58, tablesResumed 58, gapMs 1500
+
+So the freeze, the five-minute window and the thaw all executed and put every
+table back, in three waves, three seconds apart. `instanceId` stayed
+`1-a22c325d` and `releaseSha` stayed `391f7bc0`, so the process was never
+restarted - consistent with the blocked selection record.
+
+**Why this matters for the next agent:** the break machinery is PROVEN working
+on this engine today. If tables fail to resume after the ASAP swap, that is a
+new fault introduced by the replacement, not a pre-existing one.
+
+### Contents verdicts, every candidate this lane was asked about
+
+All read from the candidate's own TREE with `check-candidate-contents.sh`,
+never from ancestry. Exit 0 means the ladder, the feeder exclusion and the
+full 3-to-7 minute window are all present.
+
+| commit | what it was | verdict |
+| --- | --- | --- |
+| `391f7bc0` | the SERVING engine | exit 3, could not tell (the ladder file does not exist in that tree) |
+| `af9ea7bc2d` | certified candidate | **exit 1, missing the 3-7 window** |
+| `045886dd3c` | certified candidate | **exit 1, missing the 3-7 window** |
+| `15303e5799` | first certificate carrying all three | exit 0 |
+| `823501480a` | certified | exit 0 |
+| `7b7e156427cf` | certified 15:27:10Z | exit 0 |
+| `39a78e7b0bab` | certified 14:19:29Z | exit 0 |
+| `3c9404ab1229` | #10173 window-booking head | exit 0 |
+| `8d5aeb7bdbf9` | the booking, merged 14:55:07Z | exit 0 |
+| `e366fab1398c` | candidate after #10179 retired the blocker; certified 16:32:56Z | exit 0 |
+| `bff6eed3522e` | PLO-inclusive alternative | exit 0 (no certificate at the time of reading) |
+| `aed5f975b16a` | newest certified on main, 17:45:23Z | exit 0 |
+
+**The two exit-1 rows are the point of the exercise.** Both were certified and
+both passed the installed-migration inventory while their human fill was still
+3:00 to 3:30. Inventory and contents are two independent tests.
+
+### Window state through the afternoon
+
+    15:01:29Z  notice served and live (Publish Club Arena 42639373614)
+    15:30:00Z  notBefore
+    15:35:48Z  Backup certificate on e366fab1 goes pending
+    16:32:56Z  that certificate goes success
+    17:45:23Z  aed5f975 certified
+    18:17:46Z  three Stage runs, all "Backup completion outside election"
+    18:55Z     STILL no Stage or receiver dispatch; receiver's newest run is
+               2026-11-07. Engine unchanged on 391f7bc0 / 1-a22c325d.
+    21:30:00Z  notAfter - the window lapses
+
+Two watch windows of 38 readable health answers each, plus one of 70, all
+reported "no change" explicitly rather than going quiet.
+
+The release owner's own 17:46Z note states their Claude operator "has not
+responded since 15:37" and that their session is unavailable in the selected
+account, with a Codex bridge observing rather than operating. **UNVERIFIED by
+this lane** - recorded because, if accurate, the window may lapse with a
+certified candidate in hand.
+
+**Also observed, and flagged rather than concluded:** a comment on PR #10063 at
+17:46:23Z is signed as this lane but was not written by this session. Every
+lane posts under the same GitHub account, so authorship cannot distinguish
+them. Its content matched what this lane would have said and referenced this
+lane's own script by name. It was NOT treated as this lane's; the claim in it
+was verified independently instead (that is the `bff6eed3` row above).
+
+### Pre-change measurements, final
+
+    Chicago day   Spin      regular HU   combined   human-triggered   feeders
+    2026-11-07     6,670        5,847     12,517          1              4
+    2026-11-08    11,369        7,705     19,074          5              4
+    2026-11-09 to 15:01Z (partial, split day)
+                   1,556        1,393      2,949          6              2
+
+Census at 15:01Z: 78 Spin boards, 56 heads-up boards, 91 feeders in
+REGISTERING or RUNNING.
+Pre-freeze occupied snapshot at 15:13Z: 71 running seat-first games, 160 seats,
+98,000.00 chips, fleet digest `83768267d6b2e6a9f80ba7ab938de9d3`. This is a
+RECONCILIATION STARTING POINT, not a comparison baseline: play continues
+between it and the freeze, so its differences against the in-freeze snapshot
+are expected and are traced through committed records.
+
+### PR #10181 (the feeder fix) at this point
+
+Head `e51047e946`, **38 checks green, 9 skipped, 0 failures,
+`mergeable_state: clean`**, and deliberately **NOT merged**. It touches engine
+source, so merging moves main's newest server commit and could re-queue or
+invalidate the Backup being soaked for the live window. The release owner was
+asked twice, in one answerable line, and has not replied. **Hold it until they
+post SEALED and a complete thaw, or say a merge now is harmless.**
+
+---
+
 ## 25. FINAL CONTINUATION SUMMARY
 
 **Exact stopping point.** All six deliverables are built and merged except the

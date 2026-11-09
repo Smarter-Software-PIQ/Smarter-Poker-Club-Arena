@@ -23,6 +23,7 @@ vi.mock('../services/supabase/client.js', () => ({
 }));
 vi.mock('../services/errorReporter.js', () => ({ reportError: vi.fn() }));
 import { ServerTableEngine } from './ServerTableEngine.js';
+import { HAND_COMPLETION } from '../config/handCompletionSpec.js';
 
 const engines: any[] = [];
 const table = '20000000-0000-4000-8000-000000000009';
@@ -151,5 +152,50 @@ describe('the cash participant manifest is captured under the rest', () => {
     engine.tableInfo.tournament_id = '80000000-0000-4000-8000-000000000009';
     engine.prepareCashHandManifest(seats);
     expect(rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe('the 1500 ms Rabbit Hunt rest (owner order 2026-11-09)', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('the next hand waits the whole 1500 ms rest and the manifest round trip overlaps it', async () => {
+    expect(HAND_COMPLETION.NEXT_HAND_REST_MS).toBe(1500);
+    expect(HAND_COMPLETION.RABBIT_HUNT_WINDOW_MS).toBe(HAND_COMPLETION.NEXT_HAND_REST_MS);
+    const { engine, seats, prepared } = fixture();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    const armedAt = Date.now();
+    let answeredAt = -1;
+    rpc.mockImplementationOnce(
+      () =>
+        new Promise((resolve) =>
+          setTimeout(() => {
+            answeredAt = Date.now();
+            resolve({ data: { version: 1, manifest_id: manifest }, error: null });
+          }, 300)
+        )
+    );
+    engine.armNextHandRest(HAND_COMPLETION.NEXT_HAND_REST_MS);
+    engine.prepareCashHandManifest(seats);
+    // Sent at the start of the rest, not after it.
+    expect(rpc).toHaveBeenCalledTimes(1);
+    let rested = false;
+    const rest = engine.awaitNextHandRest().then(() => {
+      rested = true;
+    });
+    await vi.advanceTimersByTimeAsync(HAND_COMPLETION.NEXT_HAND_REST_MS - 1);
+    // The round trip answered inside the rest; the deal has not started.
+    expect(answeredAt - armedAt).toBe(300);
+    expect(rested).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await rest;
+    expect(rested).toBe(true);
+    expect(Date.now() - armedAt).toBe(1500);
+    vi.useRealTimers();
+    // The deal uses the answer captured under the rest: no round trip after it.
+    await expect(engine.dealHand(seats)).rejects.toBe(prepared);
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(engine.currentHandSeatGenerations.get(seats[0].user_id)).toMatchObject({
+      funding_manifest_id: manifest,
+    });
   });
 });

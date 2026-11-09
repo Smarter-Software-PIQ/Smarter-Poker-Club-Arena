@@ -175,13 +175,33 @@ jobs:
           # is REFUSED with nothing sent, exactly like an unreadable queue.
           deadline=$(( $(date +%s) + 900 ))
           while :; do
-            ahead=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/apply-merged-migration.yml/runs?per_page=100" \
-              --jq "[.workflow_runs[] | select(.id < $GITHUB_RUN_ID and .status != \"completed\")] | length" 2>/dev/null)
-            if ! [[ "$ahead" =~ ^[0-9]+$ ]]; then
+            earlier=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/apply-merged-migration.yml/runs?per_page=100" \
+              --jq "[.workflow_runs[] | select(.id < $GITHUB_RUN_ID and .status != \"completed\")] | .[] | \"\(.id) \(.status) \(.created_at)\"" 2>/dev/null)
+            if [ $? -ne 0 ]; then
               echo "[apply] REFUSED: could not read the applier queue. Nothing was sent; dispatch again." | tee /tmp/apply.log
               echo "code=1" >> "$GITHUB_OUTPUT"
               exit 1
             fi
+            # A RUN GITHUB NEVER STARTED IS NOT AHEAD (2026-11-09). Run
+            # 42680942075 was dispatched while this workflow was disabled for
+            # an engine cutover; GitHub left it `queued` with no job, and it
+            # cannot be started, cancelled, re-run or deleted. Counted as
+            # ahead, it made every later file wait 900 s and be refused. A run
+            # still queued ten minutes after creation with ZERO jobs is that
+            # orphan and is skipped by name. An unreadable job count is NOT
+            # zero: that run stays ahead (CLAUDE.md 10.86 rule 1).
+            ahead=0
+            while read -r id status created; do
+              [ -n "$id" ] || continue
+              if [ "$status" = queued ] && (( $(date +%s) - $(date -d "$created" +%s) > 600 )); then
+                jobs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs" --jq .total_count 2>/dev/null)
+                if [ "$jobs" = 0 ]; then
+                  echo "[queue] run $id queued since $created with no job; GitHub will never start it, so it is not ahead"
+                  continue
+                fi
+              fi
+              ahead=$((ahead + 1))
+            done <<< "$earlier"
             exporting=0
             if [[ "$ahead" == "0" ]]; then
               exporting=$(node scripts/ci/backup-export-holds-installs.mjs)

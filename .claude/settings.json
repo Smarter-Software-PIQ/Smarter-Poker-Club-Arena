@@ -1,0 +1,38 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"${GRAPHIFY_HOOKS:-on}\" = off ] && exit 0; PATH=\"$HOME/.local/bin:$PATH\"; cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null || exit 0; command -v graphify >/dev/null 2>&1 && [ -f graphify-out/graph.json ] || exit 0; GRAPHIFY_HOOK_STRICT=0 GRAPHIFY_QUERY_LOG_DISABLE=1 graphify hook-guard search 2>/dev/null || exit 0",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"${GRAPHIFY_HOOKS:-on}\" = off ] && exit 0; PATH=\"$HOME/.local/bin:$PATH\"; cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null || exit 0; command -v graphify >/dev/null 2>&1 && [ -f graphify-out/graph.json ] || exit 0; GRAPHIFY_HOOK_STRICT=0 GRAPHIFY_QUERY_LOG_DISABLE=1 graphify hook-guard read 2>/dev/null || exit 0",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"${GRAPHIFY_HOOKS:-on}\" = off ] && exit 0; PATH=\"$HOME/.local/bin:$PATH\"; cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null || exit 0; command -v graphify >/dev/null 2>&1 && [ -f graphify-out/graph.json ] || exit 0; GRAPHIFY_HOOK_STRICT=0 graphify hook-guard compact 2>/dev/null || exit 0",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

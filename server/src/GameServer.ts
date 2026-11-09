@@ -1,5 +1,5 @@
 import { classifyHeldStall, type HeldTableStall } from './engine/heldTableStall.js';
-import { nextRungMs } from './config/seatFirstLadder.js';
+import { feederOpeningMs, feederWaitMs, nextRungMs } from './config/seatFirstLadder.js';
 import { secureRandomInt } from './engine/CryptoRandom.js';
 import type { TournamentAbortClosureMode } from './tournament/TournamentAbortBoundary.js';
 import { readDurableTerminalRequest } from './tournament/terminalDurableRequest.js';
@@ -155,6 +155,7 @@ import {
   seatFirstHumanPartnerHoldJitterMs,
   firstHumanSeatedAtMs,
   HUMAN_SEAT_DEMAND_TTL_MS,
+  SATELLITE_HU_TARGET_LEAD_MS,
 } from './services/TournamentRecurringService.js';
 import { ScheduledTournamentService } from './services/ScheduledTournamentService.js';
 import { TournamentMetrics } from './services/TournamentMetrics.js';
@@ -13756,12 +13757,114 @@ export class GameServer {
    * keeps its old, already-passed window, so it is asked again on the next
    * backoff. Late is survivable; early is not.
    */
+  /**
+   * The next wait to write into this board's window.
+   *
+   * A SATELLITE FEEDER IS NOT A LADDER BOARD (2026-11-09). It is two seats, so
+   * `nextRungMs` called it a regular Heads-Up and handed it 3 to 4 hours. A
+   * feeder is excluded from the eleven and six that rung exists to pace, and a
+   * feeder that waits hours lets its target start before it can award the seat
+   * it sold - and once the ladder has seated a horse in it,
+   * `fn_ca_expire_empty_fixed_sng_satellite` will not clean it up either,
+   * because that authority only takes an EMPTY feeder. So a feeder gets the
+   * short window bounded by its target's own clock, RE-READ here on every rung
+   * so a rescheduled target moves the bound.
+   *
+   * `null` means do not rewrite the window: the board is full.
+   *
+   * A FEEDER THAT CAN NO LONGER DELIVER AND ALREADY HOLDS A PAID ENTRANT IS
+   * NOT LEFT WAITING (2026-11-09). Refusing to extend its wait is right, but
+   * returning `null` would leave its window in the past, so this lane would
+   * re-ask it every twelve seconds for ever while somebody's entry sits in it.
+   * `fn_ca_expire_empty_fixed_sng_satellite` cannot resolve that: it takes an
+   * EMPTY feeder only, and the opening horse means a feeder is never empty
+   * after creation. So it is dealt NOW (`0`) and the EXISTING satellite
+   * lifecycle decides the rest - the game plays out and the settlement
+   * authorities judge deliverability, which is what they are for. No new
+   * cancellation, refund or repair path is introduced here (CLAUDE.md 10.12).
+   * A feeder with nothing paid in it is left alone, which is the one case the
+   * expiry authority does take.
+   *
+   * If the feeder check cannot be read, this falls back to the LADDER rung and
+   * says so out loud. That is the deliberate direction: a mis-paced feeder is a
+   * rare row (none created in the ten days to 2026-11-09), while a regular
+   * board that loses its rung is asked again every twelve seconds and
+   * re-inflates exactly the volume the ladder was built to cut.
+   */
+  private async seatFirstNextWaitMs(
+    tournamentId: string,
+    seats: number,
+    paidNow: number
+  ): Promise<number | null> {
+    const rand = (span: number) => secureRandomInt(span + 1);
+    const ladder = () => nextRungMs(seats, paidNow, rand);
+    type SatelliteColumns = {
+      satellite_target_id: string | null;
+      satellite_target: string | null;
+    };
+    let row: SatelliteColumns | null = null;
+    let readFailed = false;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const { data, error } = await supabase
+        .from('tournaments')
+        .select('satellite_target_id, satellite_target')
+        .eq('id', tournamentId)
+        .maybeSingle();
+      if (!error && data) {
+        row = data as unknown as SatelliteColumns;
+        readFailed = false;
+        break;
+      }
+      readFailed = true;
+    }
+    if (readFailed || !row) {
+      reportError(
+        new Error('[GameServer] seat-first rung could not read the satellite target'),
+        'GameServer.seat_first_rung_target_unreadable',
+        { tournamentId }
+      );
+      return ladder();
+    }
+    const targetId = row.satellite_target_id ?? row.satellite_target;
+    if (!targetId) return ladder();
+
+    const { data: target, error: targetError } = await supabase
+      .from('tournaments')
+      .select('start_time')
+      .eq('id', targetId)
+      .maybeSingle();
+    if (targetError || !target) {
+      /* A target that cannot be read is not permission to wait hours. The
+         feeder keeps the short window alone, which is survivable either way:
+         too early only costs it a fast heads-up match. */
+      return feederOpeningMs(rand);
+    }
+    const feederWait = feederWaitMs(
+      Date.now(),
+      Date.parse(String((target as { start_time: string | null }).start_time ?? '')),
+      SATELLITE_HU_TARGET_LEAD_MS,
+      rand
+    );
+    if (feederWait !== null) return feederWait;
+    /* Undeliverable. Somebody's entry is already in it, so it is dealt now and
+       the existing satellite settlement authorities resolve custody; an empty
+       one is left for fn_ca_expire_empty_fixed_sng_satellite. */
+    if (paidNow > 0) {
+      console.log(
+        `[GameServer] Feeder ${tournamentId.slice(0, 8)} can no longer reach its target; ` +
+          `dealing now with ${paidNow}/${seats} so the satellite lifecycle settles it`
+      );
+      return 0;
+    }
+    return null;
+  }
+
   private async advanceSeatFirstRung(
     tournamentId: string,
     seats: number,
     paidNow: number
   ): Promise<void> {
-    const waitMs = nextRungMs(seats, paidNow, (span) => secureRandomInt(span + 1));
+    const waitMs = await this.seatFirstNextWaitMs(tournamentId, seats, paidNow);
     if (waitMs === null) return;
     const { error } = await supabase
       .from('tournaments')

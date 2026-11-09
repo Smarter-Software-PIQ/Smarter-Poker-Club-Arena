@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {boundedJobLog,boundedSourceReaders,sourceCommandFailure,collectSourceAdmission,immutableClassification,sourceRequirements} from './public215-source-admission.mjs';
+import {boundedJobLog,boundedSourceReaders,sourceCommandFailure,collectSourceAdmission,immutableClassification,sourceRequirements,sourceEvidenceRuns} from './public215-source-admission.mjs';
 
 const candidate='a'.repeat(40),head='b'.repeat(40),parent='c'.repeat(40),base='d'.repeat(40);
 const names=['TypeScript Check','Client Unit Tests (vitest)','Server Engine (typecheck + tests)','Money trigger declaration authority','Production Build','CSS Beat E2E (multi-table + animations)'];
@@ -24,6 +24,7 @@ function fixture(){
   if(u.pathname==='/actions/runs/1/jobs')return counted(f.classifierJobs);
   if(u.pathname==='/actions/runs/123/jobs')return counted(f.jobs);
   if(u.pathname==='/actions/runs/123')return f.stage;
+  if(/^\/actions\/runs\/[0-9]+\/jobs$/.test(u.pathname))return counted(f.extraJobs?.[u.pathname]??[]);
   throw Error('Unexpected fixture read '+path);
  };
  f.gitCalls=[];
@@ -66,6 +67,22 @@ test('every current required source context/reporting identity must succeed or p
   const f=fixture();change(f);await assert.rejects(f.invoke());
  }
  assert.throws(()=>sourceRequirements([]));assert.throws(()=>sourceRequirements([{type:'required_status_checks',parameters:{required_status_checks:[{context:'x',integration_id:0}]}}]));
+});
+
+test('post-merge default-branch automation on the qualified head is not source evidence; source runs still refuse',async()=>{
+ // Regression: #10195 merged while Dispatch Merged Migrations was disabled, leaving a
+ // pull_request_target run in startup_failure on the head; Linux admission refused.
+ const installer={id:2,workflow_id:12,head_sha:head,path:'.github/workflows/dispatch-merged-migrations.yml',event:'pull_request_target',check_suite_id:22,status:'completed',conclusion:'startup_failure'};
+ const f=fixture();f.headRuns.push(installer);
+ const admitted=await f.invoke();
+ assert.deepEqual(admitted.source.post_merge_automation_runs,[{id:2,path:installer.path,event:'pull_request_target',status:'completed',conclusion:'startup_failure'}]);
+ const g=fixture();g.headRuns.push({...installer,status:'in_progress',conclusion:null});await g.invoke();
+ for(const change of [f=>f.headRuns.push({...installer,id:3,workflow_id:13,event:'pull_request',path:'.github/workflows/other.yml'}),f=>f.headRuns.push({...installer,id:3,workflow_id:13,event:'push',path:'.github/workflows/other.yml',status:'in_progress',conclusion:null}),f=>f.ci.conclusion='failure']){
+  const h=fixture();change(h);await assert.rejects(h.invoke(),/missing\/active\/failed source evidence|Genuine qualified CI success/);
+ }
+ const observation={runs:[{id:9,event:'pull_request_target',path:'x.yml',status:'completed',conclusion:'failure'},{id:8,event:'pull_request',path:'y.yml',status:'completed',conclusion:'failure'}],failures:[{runId:9},{runId:8}],activeRuns:[]};
+ assert.deepEqual(sourceEvidenceRuns(observation).failures,[{runId:8}]);
+ assert.throws(()=>sourceEvidenceRuns({}));
 });
 
 test('N/A requires independent full paths and genuine executed current-head classifier',async()=>{
