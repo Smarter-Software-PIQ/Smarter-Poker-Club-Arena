@@ -59,10 +59,17 @@ export async function openFeederBuyIn(page) {
   const dialog = page.getByRole('dialog', { name: 'Buy-In', exact: true });
   const slider = dialog.getByRole('slider', { name: 'Buy-In Amount', exact: true });
   if (!(await slider.isVisible())) {
-    await page
-      .getByRole('button', { name: /^Seat [1-6]: Open - Click To Sit$/ })
-      .first()
-      .click({ timeout: 60_000 });
+    try {
+      await page
+        .getByRole('button', { name: /^Seat [1-6]: Open - Click To Sit$/ })
+        .first()
+        .click({ timeout: 60_000 });
+    } catch (error) {
+      // A committed seat offer can open the real purchase sheet while the
+      // ordinary chair click waits for artwork. Accept that observed sheet;
+      // never force the click through it or spend another admission.
+      if (!(await slider.isVisible())) throw error;
+    }
   }
   await slider.waitFor({ state: 'visible', timeout: 60_000 });
   return { dialog, slider };
