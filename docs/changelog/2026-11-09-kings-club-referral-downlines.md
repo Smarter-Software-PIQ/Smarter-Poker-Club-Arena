@@ -12,7 +12,7 @@ proven referral mismatches."
 | D1 | The seven detached KINGS CLUB memberships reattached to the referrer the evidence names | every one resolves to its recorded referrer; the 699 players with no link and no referral ID unmoved | **done**, applied 2026-11-08 04:07 UTC, verified live |
 | D2 | Three agent records whose own parent was detached, moved with their membership | each agent's parent matches its membership's upline | **done**, same transaction |
 | D3 | The source defect fixed so it cannot recur | the join resolves a referral before the owner fallback; no path decides from a flag its own statement writes | **built**, in PR #10139, not yet merged |
-| D4 | Regression coverage | 18 read-only checks against live records, plus a behavioural fixture in a throwaway database | **done** |
+| D4 | Regression coverage | read-only checks against live records, plus a behavioural fixture in a throwaway database, both running in CI | **done** — `fn_test_referral_downline_rules()` (17 checks) and `scripts/dev/test-referral-downline-placement.sh` (21 behavioural assertions + idempotency + blast radius), the latter wired as its own path-scoped workflow |
 | D5 | Commission impact established and historical payments preserved | rake before each correction stays with the former upline; nothing settled is rewritten | **done**, verified against the real 2026-11-09 04:53 Chicago payout |
 | D6 | One checkpoint holding the corrections and the evidence | `public.kings_club_downline_repair_20261108` carries the ten rows plus the install baseline | **done** for the corrections; the install evidence lands when D3 installs |
 | D7 | D3 merged, installed from protected main, verified live | all three of: merged; `supabase_migrations` holds 20261109052000; the suite returns all-true against production | **blocked** — see below |
@@ -146,3 +146,26 @@ A later head passed that shard. **That is not proof either failure was a flake**
 the honest status is: observed, unexplained, not attributed. The release-recovery
 one in particular reads like an environment-dependent native fixture and belongs
 to whoever owns that law.
+
+## Why the fixture has its own workflow
+
+It was first wired into `ci.yml`'s `accounting_postgres` shard 1, beside the
+other throwaway-PostgreSQL fixtures, which looked like the obvious maintained
+route. `Every pinned source stays bound` then refused the run: that job's
+composition is a pinned qualification input
+(`scripts/qualification/ci-accounting-inputs.json`, enforced by
+`scripts/ci/verify-source-bindings.py` via
+`scripts/ci/qualification-input-projections.py`), so adding one step restamps an
+accounting **certification** projection for a change that has nothing to do with
+accounting. The projection diff was read — it was only the embedded job text
+gaining the new step — and then reverted rather than restamped, because
+restamping would have put this repair's name inside the accounting
+qualification surface.
+
+It now runs as
+`.github/workflows/a-referral-places-a-player-before-the-owner-fallback.yml`,
+`pull_request` only and scoped to the migration, the script and the fixture
+files, which is the same shape the repo already uses for single-purpose database
+fixtures (`a-backup-copy-is-certified-by-what-it-holds.yml`). It is not in the
+required-checks ruleset, so by CLAUDE.md 10.83 its reader on `main` is
+`check-main-is-green`.
