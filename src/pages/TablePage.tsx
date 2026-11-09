@@ -2898,15 +2898,14 @@ function LiveTablePage({
             {
               const idx = tableStateRef.current.heroSeat - 1;
               const hero = idx >= 0 ? tableStateRef.current.players[idx] : null;
-              /* Only the arm of the hand that was just live, still the bar's
-                 choice: a leftover from an earlier hand, or a hand voided
-                 under the player, never folds their cards on screen. */
+              /* Only the arm of the hand that was just live: a leftover from
+                 an earlier hand, or a hand voided under the player, never
+                 folds their cards on screen. */
               if (
                 hero &&
                 lightningEngineFoldedArm({
                   armedHandKey,
                   lastLiveHandKey: lightningLiveHandKeyRef.current,
-                  armedChoice: preActionArmedRef.current,
                   heroStatus: hero.status,
                 })
               ) {

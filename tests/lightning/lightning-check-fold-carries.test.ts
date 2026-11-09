@@ -161,7 +161,7 @@ describe('the table page reads the two rules in every place the arm can be spent
       /const armedHandKey = lightningCheckFoldArmRef\.current;\s*lightningCheckFoldArmRef\.current = null;/
     );
     expect(block).toMatch(
-      /lightningEngineFoldedArm\(\{\s*armedHandKey,\s*lastLiveHandKey: lightningLiveHandKeyRef\.current,\s*armedChoice: preActionArmedRef\.current,\s*heroStatus: hero\.status,/
+      /lightningEngineFoldedArm\(\{\s*armedHandKey,\s*lastLiveHandKey: lightningLiveHandKeyRef\.current,\s*heroStatus: hero\.status,/
     );
     expect(block).toContain("players[idx] = { ...row, status: 'folded' as typeof row.status };");
     expect(block).toContain('soundService.playFold();');
@@ -191,10 +191,18 @@ describe('the engine: one arm, every street, released on the bet', () => {
 });
 
 describe('the arm is one hand’s, on this felt and in this browser', () => {
+  it('the arm is only ever set for the bar’s Fold choice', () => {
+    const sets = PAGE.match(/lightningCheckFoldArmRef\.current =(?!=)[^;]+;/g) ?? [];
+    // Declaration aside: cleared (null), a free Fold of this hand, or the restore of one.
+    expect(sets.length).toBeGreaterThanOrEqual(6);
+    for (const set of sets)
+      expect(set).toMatch(
+        /= null;|= key;|queued\.toCall === 0|lightningRoom && next === 'fold' \? lightningHandKeyNow : null;/
+      );
+  });
   const folded = {
     armedHandKey: HAND,
     lastLiveHandKey: HAND,
-    armedChoice: 'fold',
     heroStatus: 'active',
   };
   it('an idle snapshot shows a fold only for the arm of the hand that was just live', () => {
@@ -203,9 +211,7 @@ describe('the arm is one hand’s, on this felt and in this browser', () => {
     expect(lightningEngineFoldedArm({ ...folded, armedHandKey: NEXT })).toBe(false);
     expect(lightningEngineFoldedArm({ ...folded, armedHandKey: null })).toBe(false);
     expect(lightningEngineFoldedArm({ ...folded, lastLiveHandKey: null })).toBe(false);
-    // Another choice is on the bar, or the hero is already folded or absent.
-    for (const armedChoice of [null, 'check', 'call', 'callAny'])
-      expect(lightningEngineFoldedArm({ ...folded, armedChoice })).toBe(false);
+    // The hero is already folded, or absent.
     expect(lightningEngineFoldedArm({ ...folded, heroStatus: 'folded' })).toBe(false);
     expect(lightningEngineFoldedArm({ ...folded, heroStatus: null })).toBe(false);
   });

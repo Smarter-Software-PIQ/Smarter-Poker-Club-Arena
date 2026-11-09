@@ -82,18 +82,17 @@ export function lightningCheckFoldReleaseDue(input: {
 /**
  * Whether an idle snapshot is the engine folding the armed Check/Fold, so the
  * exit hold shows that fold (cue and muck). The arm must be the one armed in
- * the hand that was last live on this felt and still be the bar's choice: an
- * arm left over from an earlier hand, or an idle snapshot for any other reason
- * (a voided hand), never folds the hero's cards on screen.
+ * the hand that was last live on this felt: an arm left over from an earlier
+ * hand, or an idle snapshot for any other reason (a voided hand), never folds
+ * the hero's cards on screen. The arm is only ever set for the bar's Fold
+ * choice and is cleared with it, so it needs no second witness.
  */
 export function lightningEngineFoldedArm(input: {
   armedHandKey: string | null;
   lastLiveHandKey: string | null;
-  armedChoice: string | null;
   heroStatus: string | null | undefined;
 }): boolean {
   if (input.armedHandKey === null || input.armedHandKey !== input.lastLiveHandKey) return false;
-  if (input.armedChoice !== 'fold') return false;
   return !!input.heroStatus && input.heroStatus !== 'folded';
 }
 
