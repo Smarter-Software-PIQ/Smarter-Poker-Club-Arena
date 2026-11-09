@@ -262,6 +262,13 @@ export const HAND_COMPLETION = {
    * CLAUDE.md 10.5: a beat that happens sometimes is a tell. It is also why
    * the per-user "hide the button" setting does not shorten it.
    *
+   * ── 2026-11-09: 1500ms, THE RABBIT HUNT PAUSE IS ONE AND A HALF SECONDS ──
+   * Owner order 2026-11-09: the Rabbit Hunt pause goes from 1.8 s to 1.5 s,
+   * with regression coverage. The rest and the Rabbit Hunt window are the
+   * same number, so both move; the cash participant manifest (#10138) is
+   * still sent under the rest and the deal still waits the whole rest out
+   * (server/src/engine/TheCashManifestRidesTheRest.test.ts).
+   *
    * ── 2026-11-05: 1800ms, SO THE MEASURED GAP LANDS UNDER TWO SECONDS ──
    * Dan, verbatim: "AS SOON AS ONE CASH GAME HAND FINISHES AT A TABLE, THE
    * NEXT HAND NEEDS TO START WITHIN 2 SECONDS". /health nextHandGap at a
@@ -298,8 +305,8 @@ export const HAND_COMPLETION = {
    * pins the rest at or above the client's RABBIT_MIN_VISIBLE_MS floor and
    * above both boardClearMs values, so the clear can never outlive the rest.
    */
-  NEXT_HAND_REST_MS: 1800,
-  RABBIT_HUNT_WINDOW_MS: 1800,
+  NEXT_HAND_REST_MS: 1500,
+  RABBIT_HUNT_WINDOW_MS: 1500,
   /**
    * ── THE DISCARD IS AN ACT, AND IT NEEDS A BEAT (Phase 3, 2026-08-31) ──
    *
