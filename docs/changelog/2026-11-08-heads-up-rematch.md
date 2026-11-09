@@ -81,3 +81,13 @@ Simultaneous acceptance cannot be reproduced inside one rolled-back
 transaction; it is serialized by the row lock described above.
 
 Law: `tests/a-heads-up-rematch-buys-both-seats-or-neither.law.test.ts`.
+
+## First install refused, fixed in place (2026-11-09)
+
+The first install (Apply Merged Migration run 42559723349, 04:04Z) was refused
+by `fn_ca_money_rpc_registry_guard` before anything committed:
+`fn_ca_rematch_seat_maint_for_payer writes balance columns and is not in
+ca_money_rpc_registry`. Of the eight copies only the seat purchase writes them,
+exactly as its registered source does (measured with
+`fn_ca_money_rpc_writes_balances` on each source body). The migration now
+registers that copy above its creation, and was re-sent from main.
