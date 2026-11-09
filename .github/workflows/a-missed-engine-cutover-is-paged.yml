@@ -1,0 +1,36 @@
+name: A missed engine cutover is paged
+
+# fn_ca_engine_cutover_watch(), fn_ca_daily_window_lobby_close_page() and
+# fn_sp_digest_engine_cutover() (migration 20261109024836). Runs
+# scripts/ci/test-a-missed-engine-cutover-is-paged.py against a throwaway
+# PostgreSQL 17 cluster, never production. No timer (CLAUDE.md 10.85):
+# pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261109024836_a_missed_engine_cutover_and_a_failing_lobby_close_page_the_o.sql
+      - scripts/ci/test-a-missed-engine-cutover-is-paged.py
+      - scripts/ci/fixtures/engine-cutover-preimages.json
+      - .github/workflows/a-missed-engine-cutover-is-paged.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: a-missed-engine-cutover-is-paged-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  a-missed-engine-cutover-is-paged:
+    name: A missed engine cutover and a failing lobby close are paged once and resolved
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: A missed engine cutover and a failing lobby close are paged once and resolved
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-a-missed-engine-cutover-is-paged.py

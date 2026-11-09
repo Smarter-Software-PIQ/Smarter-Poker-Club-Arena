@@ -113,7 +113,8 @@ export function horseUnionCashTableAllowed(
   primaryTables: ReadonlySet<string>,
   lightningGames: ReadonlySet<string> | null = null,
   lightningHumanGames: ReadonlySet<string> | null = null,
-  secondTables: ReadonlySet<string> | null = null
+  secondTables: ReadonlySet<string> | null = null,
+  existingSeat = false
 ): boolean {
   if (table.tournament_id != null || table.is_spins === true) return true;
   /* A GAME'S SECOND TABLE (Dan 2026-11-06: "THERE SHOULD BE SOME GAMES WITH
@@ -145,6 +146,10 @@ export function horseUnionCashTableAllowed(
   // seed it. No per-game cap and no clock.
   if (lightningGames !== null && lightningGames.has(String(table.cluster_id ?? ''))) {
     const gameId = String(table.cluster_id ?? '');
+    // November 9: a person starts 1/2 PLO; their departure never ends the
+    // other participants' sessions. Admission still needs demand. Existing
+    // bankroll, session and safe table-boundary exits retain their authority.
+    if (existingSeat && gameId === 'c79d8ec2-2281-411d-b4e1-42b5610849e2') return true;
     if (LIGHTNING_HORSE_SEEDED.has(gameId)) return true;
     return lightningHumanGames !== null && lightningHumanGames.has(gameId);
   }

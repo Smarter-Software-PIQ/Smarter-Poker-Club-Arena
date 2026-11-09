@@ -624,11 +624,15 @@ jobs:
           sparse-checkout: |
             scripts/ci
             server/scripts
+            server/standby
       - name: Freeze the exact daily candidate and report inclusion
         id: freeze
         if: needs.detect.outputs.daily_preparation == 'true' || needs.detect.outputs.owner_window_id != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          # Read-only: production's installed migrations, compared with what
+          # the certified Backup copy holds (select-daily-engine.py).
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           RELEASE_DATE: ${{ needs.detect.outputs.daily_preparation_date }}
           RELEASE_REQUIRED: ${{ needs.detect.outputs.release_required }}
           OFFER_REASON: ${{ needs.detect.outputs.offer_reason }}

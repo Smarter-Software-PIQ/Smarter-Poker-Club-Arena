@@ -438,6 +438,20 @@ export async function authenticateFeatureAblationProviderAttempt(
   )
     throw Error('Original provider job identity mismatch');
 }
+/** Output ceiling for the provider's git reads. Node's execFileSync default is
+ * 1 MiB, and `git ls-files server` (read by the decision-closure binding)
+ * already prints about 1.5 MB: under the default it throws ENOBUFS after the
+ * partition is reserved, which burns the held-out hands. */
+export const QUALIFICATION_GIT_MAX_BUFFER = 256 * 1024 * 1024;
+export function qualificationGit(root: string, env: NodeJS.ProcessEnv) {
+  return (...args: string[]) =>
+    execFileSync('git', args, {
+      cwd: root,
+      env,
+      encoding: 'utf8',
+      maxBuffer: QUALIFICATION_GIT_MAX_BUFFER,
+    }).trim();
+}
 /** Actual provider/PR provenance, not a caller's JSON approval. Must complete
  * before warm histories or contract deals. Existing v1 admission is untouched. */
 export async function authenticateIncrementalPlan(
@@ -456,8 +470,7 @@ export async function authenticateIncrementalPlan(
   const env = Object.fromEntries(
     Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_'))
   );
-  const git = (...args: string[]) =>
-    execFileSync('git', args, { cwd: root, env, encoding: 'utf8' }).trim();
+  const git = qualificationGit(root, env);
   const repo = process.env.GITHUB_REPOSITORY,
     run = process.env.GITHUB_RUN_ID,
     token = process.env.GITHUB_TOKEN;
@@ -626,23 +639,46 @@ export async function authenticateIncrementalPlan(
   }
   if (git('ls-files', '--others', 'server/src', 'server/scripts', '.github/workflows'))
     throw Error('Incremental untracked executable source');
-  // Full executable source closure prevents a plan from omitting a changed helper.
-  const sourceFiles = git('ls-files', 'server/src')
-    .split('\n')
-    .filter(
-      (p) =>
-        /\.(?:ts|json)$/.test(p) &&
-        !/\.(?:test|spec)\.ts$/.test(p) &&
-        !/Qualification(?:Plans|Families)\.json$/.test(p)
-    );
-  for (const path of sourceFiles) {
-    const relative = path.slice('server/'.length);
+  const serverFile = (relative: string) =>
+    readFileSync(fileURLToPath(new URL('../../../server/' + relative, import.meta.url)));
+  if (plan.sourceBinding !== undefined) {
+    // Decision-closure binding: the plan holds exactly the closure recomputed
+    // from the tracked bytes at this revision, and every one of them matches.
+    const { featureAuthorityClosure } = await import('../engine/HorseFeatureAuthority.js');
+    const tracked = new Set(git('ls-files', 'server').split('\n'));
+    const closure = featureAuthorityClosure((relative) => {
+      if (!tracked.has('server/' + relative)) throw Error('untracked');
+      return serverFile(relative);
+    });
     if (
-      createHash('sha256')
-        .update(readFileSync(fileURLToPath(new URL('../../../' + path, import.meta.url))))
-        .digest('hex') !== plan.runtimeSourceFiles[relative]
+      plan.sourceBinding !== 'horse-decision-closure-v1' ||
+      JSON.stringify(closure) !== JSON.stringify(Object.keys(plan.runtimeSourceFiles).sort())
     )
-      throw Error('Incremental full source closure changed');
+      throw Error('Incremental decision closure changed');
+    for (const relative of closure)
+      if (
+        createHash('sha256').update(serverFile(relative)).digest('hex') !==
+        plan.runtimeSourceFiles[relative]
+      )
+        throw Error('Incremental decision closure changed');
+  } else {
+    // Full executable source closure prevents a plan from omitting a changed helper.
+    const sourceFiles = git('ls-files', 'server/src')
+      .split('\n')
+      .filter(
+        (p) =>
+          /\.(?:ts|json)$/.test(p) &&
+          !/\.(?:test|spec)\.ts$/.test(p) &&
+          !/Qualification(?:Plans|Families)\.json$/.test(p)
+      );
+    for (const path of sourceFiles) {
+      const relative = path.slice('server/'.length);
+      if (
+        createHash('sha256').update(serverFile(relative)).digest('hex') !==
+        plan.runtimeSourceFiles[relative]
+      )
+        throw Error('Incremental full source closure changed');
+    }
   }
   return {
     protectedPlanCommit: commit,

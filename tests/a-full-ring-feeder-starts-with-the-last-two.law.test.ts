@@ -117,3 +117,27 @@ describe('first to move ends when a bumped player returns (2026-11-09)', () => {
     expect(fix).not.toMatch(/chip_balance|fn_credit|fn_add_chips|chip_ledger/);
   });
 });
+
+describe('first to move ends at the return itself, not at the next tick (2026-11-09)', () => {
+  const fix = readFileSync(
+    resolve(
+      __dirname,
+      '../supabase/migrations/20261109021129_first_to_move_ends_at_the_return_itself.sql'
+    ),
+    'utf8'
+  );
+  it('reads the move back and the cash-out from the records their own transactions write', () => {
+    expect(fix).toContain('FIRST TO MOVE ENDS AT THE RETURN ITSELF');
+    expect(fix).toContain("m.state = 'done'");
+    expect(fix).toContain("tb.role = 'main' AND m.executed_at >= v_fs.started_at");
+    expect(fix).toContain("NOT (m.id = ANY (coalesce(v_fs.bump_move_ids, '{}'::uuid[])))");
+    expect(fix).toContain('public.ca_seat_stack_exits e');
+    expect(fix).toContain('e.occurred_at >= v_fs.started_at');
+  });
+  it('builds on the earlier step and patches the tick once, in one transaction, touching no money path', () => {
+    expect(fix).toContain("position('FIRST TO MOVE ENDS ON RETURN' IN src) = 0");
+    expect(fix.match(/^BEGIN;$/gm)?.length).toBe(1);
+    expect(fix.match(/^COMMIT;$/gm)?.length).toBe(1);
+    expect(fix).not.toMatch(/chip_balance|fn_credit|fn_add_chips|chip_ledger/);
+  });
+});

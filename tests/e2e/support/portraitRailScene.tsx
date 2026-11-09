@@ -260,7 +260,17 @@ export function Review() {
                                   'TonySr',
                                   'Burls',
                                 ][i],
-                                avatar: `https://smarter.poker/avatars/table/${document.documentElement.dataset.avatarMix === 'true' ? (i % 2 ? 'vip_aztec_warrior@2x.webp' : 'vip_wolf@2x.webp') : document.documentElement.dataset.avatar || 'vip_wolf@2x.webp'}`,
+                                /* data-hero-avatar gives the bottom chair an
+                                   arbitrary portrait URL, so a measurement can
+                                   put a photo hero (object-fit: cover, no bust
+                                   art) beside character-art opponents - the
+                                   combination a real human player sees. Absent,
+                                   every chair keeps the character art the other
+                                   scenes already use. */
+                                avatar:
+                                  i === 0 && document.documentElement.dataset.heroAvatar
+                                    ? document.documentElement.dataset.heroAvatar
+                                    : `https://smarter.poker/avatars/table/${document.documentElement.dataset.avatarMix === 'true' ? (i % 2 ? 'vip_aztec_warrior@2x.webp' : 'vip_wolf@2x.webp') : document.documentElement.dataset.avatar || 'vip_wolf@2x.webp'}`,
                                 stack:
                                   document.documentElement.dataset.allIn === 'true' && i % 3 === 0
                                     ? 0

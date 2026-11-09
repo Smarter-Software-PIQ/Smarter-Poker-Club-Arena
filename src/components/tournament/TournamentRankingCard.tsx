@@ -84,6 +84,20 @@ export interface TournamentRankingCardProps {
    * session payload's own arena asset.
    */
   unitCents: number;
+  /**
+   * HEADS UP REMATCH (Dan 2026-11-08). Present only for a heads-up result.
+   * The host owns every decision (src/services/headsUpRematch.ts); the card
+   * prints the line and the plate labels it is handed. While the opponent is
+   * asking, the secondary plate is No Thanks instead of Share.
+   */
+  rematch?: {
+    line: string | null;
+    primaryLabel: string;
+    secondaryLabel: string | null;
+    primaryBusy: boolean;
+    onPrimary: () => void;
+    onSecondary: () => void;
+  };
 }
 
 /** 1 -> "1st", 22 -> "22nd", 111 -> "111th". */
@@ -334,6 +348,7 @@ export default function TournamentRankingCard({
   onDismiss,
   onPlayAgain,
   unitCents,
+  rematch,
 }: TournamentRankingCardProps) {
   const navigate = useNavigate();
   /* Desktop has no share sheet, so the button reports the clipboard copy on
@@ -593,6 +608,10 @@ export default function TournamentRankingCard({
   };
 
   const handlePlayAgain = () => {
+    if (rematch) {
+      rematch.onPrimary();
+      return;
+    }
     if (onPlayAgain) {
       onPlayAgain();
       return;
@@ -667,15 +686,33 @@ export default function TournamentRankingCard({
              retired. */
           onClose={onDismiss}
           plates={{
-            secondary: {
-              label:
-                shared === 'saved' ? 'Image Saved' : shared === 'copied' ? 'Link Copied' : 'Share',
-              ink: 'silver',
-              onClick: () => void handleShare(),
+            secondary: rematch?.secondaryLabel
+              ? { label: rematch.secondaryLabel, ink: 'silver', onClick: rematch.onSecondary }
+              : {
+                  label:
+                    shared === 'saved'
+                      ? 'Image Saved'
+                      : shared === 'copied'
+                        ? 'Link Copied'
+                        : 'Share',
+                  ink: 'silver',
+                  onClick: () => void handleShare(),
+                },
+            primary: {
+              label: rematch?.primaryLabel ?? 'Play Again',
+              ink: 'white',
+              onClick: handlePlayAgain,
+              'aria-busy': rematch?.primaryBusy || undefined,
             },
-            primary: { label: 'Play Again', ink: 'white', onClick: handlePlayAgain },
           }}
         >
+          {/* ── The rematch, in words (heads-up only) ── */}
+          {rematch?.line && (
+            <div className="trc2__rematch" role="status" aria-live="polite">
+              <span className="trc2__session-label sc-ink--blue">{rematch.line}</span>
+            </div>
+          )}
+
           {/* ── The brand line ── */}
           {/* Dan 2026-08-23: "remove the dots on the top." The marquee-bulb
               strip read as a rendering artefact rather than decoration. */}

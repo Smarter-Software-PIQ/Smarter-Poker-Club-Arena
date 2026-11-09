@@ -686,6 +686,11 @@ export interface HorseMindSandbox {
    *  fingerprint a planned barrel expects to meet on the next street, keyed
    *  like outlooks. Absent only on predecessor snapshots. */
   planFingerprints?: Map<string, ContinuationContenderFingerprint>;
+  /** Item 12 on the pooled public path (2026-11-08): for each sibling
+   *  table-size donor row in `exploit` (opponentMemoryKey), the hands the
+   *  player has played since that row was last refreshed, on the player's own
+   *  hand clock (PooledPublicProfiles). Absent when the read carried no donor. */
+  donorStaleness?: Map<string, number>;
 }
 
 /** V23: what hero decided AT BET TIME it would do about a raise. */
@@ -1034,6 +1039,9 @@ export class HorseMind {
    *  donor bucket's staleness is the distance from this mark to the player's
    *  current clock, never `exact.observed_hands - donor.observed_hands`. */
   private static durableOpponentImportClock = new Map<string, number>();
+  /** The sandbox's donor staleness (HorseMindSandbox.donorStaleness) while one
+   *  runs; null outside a sandbox or for a read that carried no donor. */
+  private static donorStaleness: Map<string, number> | null = null;
   private static decisionVariant: string | null = null;
   /** Read calibration options of the decision in flight (DecisionReadOptions). */
   private static decisionReadOptions: DecisionReadOptions = {};
@@ -1560,23 +1568,59 @@ export class HorseMind {
     size: MemorySize,
     receipt = true
   ): ExploitCounters | undefined {
-    const exact = this.exploitCounters.get(
-      opponentMemoryKey(userId, variant, this.decisionMode, size)
-    );
     const donorKeys = opponentMemoryDonors(this.decisionMode, size).map(([mode, donorSize]) =>
       opponentMemoryKey(userId, variant, mode, donorSize)
     );
-    const donors = donorKeys.map((key) => this.exploitCounters.get(key));
-    const handClock = this.stats.get(userId)?.hands ?? 0;
-    let donorClock = handClock;
-    for (const key of donorKeys) {
-      const mark = this.durableOpponentImportClock.get(key);
-      if (mark !== undefined && mark < donorClock) donorClock = mark;
+    let donors = donorKeys.map((key) => this.exploitCounters.get(key));
+    const pooledStaleness = this.donorStaleness;
+    // The exact evidence a donor is blended with is only the exact
+    // (variant, mode, size, speed/ante domain) row. This horse's individual
+    // row is keyed by card family and table size alone, so it mixes cash and
+    // tournament, the variants of a family and every speed/ante domain, and
+    // is never blended with a domain-exact donor. On the pooled public path,
+    // when no pooled exact row exists but that individual row does, the read
+    // stays what it was before donors reached this path: the individual row
+    // answers alone (the callers' fallback) and no donor is consulted.
+    const exact = this.exploitCounters.get(
+      opponentMemoryKey(userId, variant, this.decisionMode, size)
+    );
+    if (
+      pooledStaleness &&
+      !exact &&
+      this.decisionScope &&
+      this.exploitCounters.has(`${this.decisionScope}|${userId}`)
+    )
+      return undefined;
+    let staleness = 0;
+    let stalenessUnknown = false;
+    if (pooledStaleness) {
+      // The oldest donor sets the staleness, as the import-clock path does.
+      // A donor with no staleness entry could not be dated on the player's
+      // clock. "Could not tell" is never "fresh": it is not borrowed.
+      donors = donors.map((row, i) => {
+        if (!row) return row;
+        const age = pooledStaleness.get(donorKeys[i]!);
+        if (age === undefined) {
+          stalenessUnknown = true;
+          return undefined;
+        }
+        staleness = Math.max(staleness, age);
+        return row;
+      });
+    } else {
+      const handClock = this.stats.get(userId)?.hands ?? 0;
+      let donorClock = handClock;
+      for (const key of donorKeys) {
+        const mark = this.durableOpponentImportClock.get(key);
+        if (mark !== undefined && mark < donorClock) donorClock = mark;
+      }
+      staleness = computeDonorHandClockStaleness(donorClock, handClock);
     }
-    const staleness = computeDonorHandClockStaleness(donorClock, handClock);
     const blended = blendOpponentMemoryWithExpiry(exact, donors, staleness);
-    const consultedDonor =
-      !(exact && exact.hands >= OPPONENT_MEMORY_THIN_HANDS) && donors.some((row) => !!row);
+    const thinExact = !(exact && exact.hands >= OPPONENT_MEMORY_THIN_HANDS);
+    const consultedDonor = thinExact && donors.some((row) => !!row);
+    if (thinExact && stalenessUnknown && receipt)
+      noteFire('opponent_memory_donor_staleness_unknown');
     if (consultedDonor && receipt) {
       if (blended === exact) noteFire('opponent_memory_donor_expired');
       else if (staleness > 0) noteFire('opponent_memory_donor_stale');
@@ -2259,6 +2303,9 @@ export class HorseMind {
               const donorKey = opponentMemoryKey(id, variant, donorMode, donorSize);
               const donor = this.exploitCounters.get(donorKey);
               if (donor) view.exploit.set(donorKey, { ...donor });
+              const donorAge = this.donorStaleness?.get(donorKey);
+              if (donor && donorAge !== undefined)
+                (view.donorStaleness ??= new Map()).set(donorKey, donorAge);
             }
           }
       for (const other of ids) {
@@ -2318,8 +2365,10 @@ export class HorseMind {
       dirtyScoped: this.dirtyScoped,
       exploit: this.exploitCounters,
       planFingerprints: this.planFingerprints,
+      donorStaleness: this.donorStaleness,
     };
     this.stats = sandbox.stats;
+    this.donorStaleness = sandbox.donorStaleness ?? null;
     // A sandbox built before the exploit layer (or by a caller that only
     // knows the older fields) reads as "no exploit memory", never as live.
     this.exploitCounters = sandbox.exploit ?? new Map();
@@ -2352,6 +2401,7 @@ export class HorseMind {
       this.raisePlans = live.raisePlans;
       this.outlooks = live.outlooks;
       this.planFingerprints = live.planFingerprints;
+      this.donorStaleness = live.donorStaleness;
       this.scoped = live.scoped;
       this.dirtyScoped = live.dirtyScoped;
       this.exploitCounters = live.exploit;

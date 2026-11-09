@@ -1,15 +1,39 @@
 /* Approved tool rasters have different transparent gutters. Normalize their
-   painted frame, not merely the <img> box, to the Lobby tile. Measured from
+   painted frame, not merely the <img> box, to one square. Measured from
    the current 256px black/blue masters at alpha128 (October20). Artwork stays
-   unchanged and keeps its native ratio. Unknown/custom art keeps its own fit. */
+   unchanged and keeps its native ratio. Unknown/custom art keeps its own fit.
+
+   ── THE FRAME IS THE HAMBURGER'S SIZE (Dan 2026-11-09) ────────────────────
+   "the message button, previous hand, time bank and rabbit hunt buttons should
+   all be the same size as the hamburger menu button."
+
+   This was already half done and that is why it did not look done. Dan asked
+   for the same thing on 2026-11-01 and the TILES were moved to
+   --sp-tabbar-control (TableHUD.css, 52px at every width) - but the PAINTED
+   FRAME is this declaration, and it stayed on --sp-game-tool-size, the 40px
+   Lobby footprint. So each tool sat in a hamburger-sized box drawing a
+   hamburger-times-0.77 button, which is exactly what a player sees: four
+   buttons that are not the size of the fifth. Measured off his screenshot:
+   hamburger 39px, each tool 30-31px, 0.77-0.79 of it.
+
+   --sp-table-tool-frame is the painted square, and it defaults to the same
+   control the hamburger is sized from, so the two can no longer disagree.
+   --sp-game-tool-size keeps its own consumers (the add-chips button, the seat
+   change dock) and is NOT what this reads any more.
+
+   The img BOX is the frame times the art's gutter scale, so it is ~1.25x the
+   frame and overflows the 52px tile by about 7px a side. That is transparent
+   gutter: the tiles are laid out and spaced by their boxes, so the painted
+   frames still sit 8px apart, and nothing clips. */
 .table-page
   :is(.chat-collapsed__icon-img, .tbc-icon-img, .rabbit-hunt__icon-img, .prev-hand-card__icon-img) {
-  width: calc(var(--sp-game-tool-size, 40px) * var(--sp-tool-art-scale, 1));
-  height: calc(var(--sp-game-tool-size, 40px) * var(--sp-tool-art-scale, 1));
+  --sp-table-tool-frame: var(--sp-tabbar-control, 52px);
+  width: calc(var(--sp-table-tool-frame) * var(--sp-tool-art-scale, 1));
+  height: calc(var(--sp-table-tool-frame) * var(--sp-tool-art-scale, 1));
   max-width: none;
   flex-shrink: 0;
-  translate: calc(var(--sp-game-tool-size, 40px) * var(--sp-tool-art-x, 0))
-    calc(var(--sp-game-tool-size, 40px) * var(--sp-tool-art-y, 0));
+  translate: calc(var(--sp-table-tool-frame) * var(--sp-tool-art-x, 0))
+    calc(var(--sp-table-tool-frame) * var(--sp-tool-art-y, 0));
 }
 
 .table-page img[src*='/buttons/black/icon-chat.webp'] {

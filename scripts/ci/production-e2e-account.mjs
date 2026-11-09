@@ -71,9 +71,14 @@ export const FIXTURE_SEEDING_WINDOW_MS = 10 * 60_000;
 // ever records a retired one as the owner's retained history (2026-11-07, #9830).
 const WELCOME_CLUB_NAME_PREFIXES = ['Crest Cert ', 'Preset Crest Cert '];
 export const RABBIT_HUNT_CLUB_NAME_PREFIX = 'Cert RH ';
+// 'Cert HU ' is scripts/ci/certify-heads-up-rematch.mjs's club (2026-11-09). Like
+// a rabbit-hunt club it has played by design and its own run retires it through
+// fn_retire_settled_club; retired, it is the owner's retained history.
+export const HEADS_UP_CLUB_NAME_PREFIX = 'Cert HU ';
 const CERTIFICATION_CLUB_NAME_PREFIXES = [
   ...WELCOME_CLUB_NAME_PREFIXES,
   RABBIT_HUNT_CLUB_NAME_PREFIX,
+  HEADS_UP_CLUB_NAME_PREFIX,
 ];
 /** How a reader runs the sweep itself, and the residue pattern it drains (issue #9830). */
 export const STALE_RESIDUE_SWEEP_HINT =
@@ -1819,6 +1824,31 @@ export async function retireProductionCreateClubFixtures({
     // Only the stale sweep reads it so; a live run still proves its own
     // fixtures through the doors below.
     if (staleSweep && club.lifecycle_status === 'retired') {
+      retained.push(String(club.id));
+      continue;
+    }
+    if (String(club.name || '').startsWith(HEADS_UP_CLUB_NAME_PREFIX)) {
+      // A HEADS-UP REMATCH CLUB HAS PLAYED, BY DESIGN (its certification games).
+      // Retired, it was handled above as retained history. Still active in a
+      // live run, it is refused: only that run's cleanup settles it. Still
+      // active in a STALE sweep, its run died before its cleanup, so the sweep
+      // settles it from its record through the run's own settle path, as the
+      // owner, and only once every game in it has ended and nobody is seated
+      // (certify-heads-up-rematch.mjs, settleStrandedHeadsUpClub).
+      if (!staleSweep) {
+        throw new Error(
+          `Refusing to retire heads-up rematch certification club ${club.id}: it has played and is still ` +
+            `${String(club.lifecycle_status || 'unknown')}; only its own run's cleanup settles it.`
+        );
+      }
+      const { settleStrandedHeadsUpClub } = await import('./certify-heads-up-rematch.mjs');
+      await settleStrandedHeadsUpClub({
+        environment,
+        fetchImpl,
+        clubId: String(club.id),
+        ownerId: account.id,
+        isReserved: reserved,
+      });
       retained.push(String(club.id));
       continue;
     }

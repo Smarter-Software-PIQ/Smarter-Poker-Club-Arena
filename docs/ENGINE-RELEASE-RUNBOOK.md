@@ -1,3 +1,5 @@
+**November 9 owner ASAP cutover:** the owner ordered "GET THEM LIVE NOW, DO NOT WAIT UNTIL 4AM, DO IT ASAP" in overlay chat `01a1b950` (relayed on PR #10063 comment 6741660924) and confirmed it to the Claude engine-cutover release owner at 13:54 UTC November 9. The single finite window `2026-11-09-owner-asap-engine-1530z` admits only one certified replacement of `391f7bc0d57c71637bd4af5181f70520661e3593` containing the Horse overlay rescue `f21499f` and add-on timing fix `debe1ef`, between 15:30 and 21:30 UTC November 9, after the 15:10 UTC player notice has actually been available for at least twenty minutes. Exact qualification, a Backup certificate matching current production's installed schema, protected target/control, hand drain, full freeze/proof/rollback reserve and thaw remain required. The frozen November 9 original daily selection stays immutable; this does not renew any earlier booking or change the standing daily schedule.
+
 **November 8 Horse study continuation:** the owner directed completion now in chat `01a1af6b-2112-7fc2-b6bf-f6b5f0e9f430`. The single successor `2026-11-08-horse-study-successor-engine-1820z` preserves the expired prior booking and admits only one certified replacement of `391f7bc0d57c71637bd4af5181f70520661e3593`, between 18:20 UTC November 8 and 00:20 UTC November 9, after the published 18:00 UTC November 8 player notice has actually been available for at least twenty minutes. Exact qualification, Backup, protected target/control, hand drain, full freeze/proof/rollback reserve and thaw remain required. This does not renew the expired prior operation or change the standing daily schedule.
 
 # Engine release runbook: Backup, certification and the 04:00 cutover
@@ -53,7 +55,7 @@ Everything in this document. Specifically, without asking anyone:
 | Never                                                                                   | Why, and where it is written                                                                                                                                                                                                                                                                                                                                                                                                         |
 | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Edit the live engine, its container, image tag or `.env` by hand, or the running Backup | Owner direction 2026-11-06 (top of `CLAUDE.md`); `.claude/skills/deploy-hetzner/SKILL.md` ("never replace the container, repoint its image tag, prune retained rollback images, reduce the proof reserve or extend a live freeze by hand")                                                                                                                                                                                           |
-| Restart or replace the engine outside 04:00-04:05 Chicago                               | `server/scripts/engine-release-transaction.sh` line 1398 `daily_cutover_clock` (hour 4, minute under 5) and line 3874; receiver gate `.github/workflows/auto-deploy-hetzner.yml` step `daily_release`; `tests/the-backup-day-ends-with-only-a-four-am-release.law.test.ts`                                                                                                                                                           |
+| Restart or replace the engine outside 04:00-04:05 Chicago                               | `server/scripts/engine-release-transaction.sh` line 1398 `daily_cutover_clock` (hour 4, minute under 5) and line 3908; receiver gate `.github/workflows/auto-deploy-hetzner.yml` step `daily_release`; `tests/the-backup-day-ends-with-only-a-four-am-release.law.test.ts`                                                                                                                                                           |
 | Send a release for a SHA without `backup-engine/certified = success`                    | Receiver step `backup_certificate`; host `require_backup_certificate` (transaction line 1367); `tests/the-live-engine-only-receives-a-backup-certified-version.law.test.ts`                                                                                                                                                                                                                                                          |
 | Apply a migration from a branch, a local file or the Supabase MCP `apply_migration`     | `CLAUDE.md` section 2 rules 8 and 11; `PUBLISHING.md`; `tests/unit/migrationsInstallFromMain.test.ts`                                                                                                                                                                                                                                                                                                                                |
 | Apply a `-- @install-window: daily-maintenance` file by hand                            | `CLAUDE.md` section 2 rule 10; `tests/a-window-migration-waits-for-the-daily-break.law.test.ts`                                                                                                                                                                                                                                                                                                                                      |
@@ -236,8 +238,8 @@ the verdict on the exact commit"). Readers, newest status first:
   from the owed SHA (60 commits) and offers the newest `success`;
 - `auto-deploy-hetzner.yml` step `backup_certificate` refuses any request
   whose SHA is not `success`;
-- the host transaction re-reads it at line 3284 (before the cycle), line 3817 (before preparation) and line
-  3873 (before the replacement).
+- the host transaction re-reads it at line 3284 (before the cycle), line 3851 (before preparation) and line
+  3907 (before the replacement).
 
 Read it yourself:
 
@@ -394,7 +396,7 @@ flight and no payout is mid-settlement.
 | Rollback readiness | `prove_rollback_readiness` (line 2735): the sealed engine is the exact live local and public process and the fresh database leader                                                                                                                                                                                                                                                      | Inside the 150 s proof                                                                                   |
 | Cutover            | `server/scripts/engine-up.sh` under the engine lock: stop the old container at a hand boundary (already parked), start the candidate, prove local `/health`, public `/health` and the database leader (`server/scripts/engine-release-database-proof.py`)                                                                                                                               | `BREAK_CUTOVER_PROOF_SECONDS` = 150                                                                      |
 | Rollback reserve   | If any witness fails before the seal, `recover_on_exit` (line 806) aborts the seal and runs `engine-supervisor.sh` with `ENGINE_SUPERVISOR_FORCE_DESIRED=1` to restore the previously sealed desired state                                                                                                                                                                              | `BREAK_ROLLBACK_RESERVE_SECONDS` = 135, always held                                                      |
-| Seal               | `persist_result sealed` (line 4017 via `persist_result` line 2576): `engine-release-seal.py record-result` writes the per-run receipt and prints `ENGINE_RELEASE_RESULT=sealed`, `ENGINE_RELEASE_SHA`, image id, container id                                                                                                                                                           | Inside the proof budget                                                                                  |
+| Seal               | `persist_result sealed` (line 4051 via `persist_result` line 2576): `engine-release-seal.py record-result` writes the per-run receipt and prints `ENGINE_RELEASE_RESULT=sealed`, `ENGINE_RELEASE_SHA`, image id, container id                                                                                                                                                           | Inside the proof budget                                                                                  |
 | Thaw               | The new engine reads the break row, re-parks until `break_ends_at`, then `end()` thaws every deadline (`fn_thaw_platform`) and resumes in `RESUME_WAVES` waves; `/health.maintenance.resumeWaves` shows the rollout                                                                                                                                                                     | 04:05                                                                                                    |
 
 Receipt path on the host: `/var/lib/club-arena/engine-release-results/<run-id>-<attempt>.json`
@@ -570,7 +572,7 @@ queue is not one (`CLAUDE.md` section 13). Since the owner direction of
 2026-11-06 that reason cannot admit a replacement outside 04:00-04:05: the
 receiver's `daily_release` step admits only the 03:30-03:50 preparation (or the
 recorded November 7 owner window), the host's `daily_cutover_clock` is checked
-again at line 3874, and `stage-engine-release.yml` offers nothing outside the
+again at line 3908, and `stage-engine-release.yml` offers nothing outside the
 daily preparation. A degraded engine during the day is therefore an incident
 to diagnose and fix at the root (section 10.11), with the container's own
 `unless-stopped` restart policy and the host supervisor as the only recovery
@@ -699,3 +701,19 @@ Schema changes under `supabase/migrations/**` trigger both existing Backup and e
 Follow the Backup installed schema evidence procedure in `PUBLISHING.md`. The normal export requires matching captures around its dump, then binds the original manifest to the dump hash. The normal restore verifies actual required function bodies through `server/standby/schema-evidence.py` before marking the copy valid. Existing copies without verified evidence refresh through the maintained Backup workflow. The certificate artifact retains `schema-evidence.json`; its hash is recorded in the certificate's database evidence.
 
 At admission, use the configured production database connection for a fresh `capture` and compare it with that original retained manifest. This checks installed versions and names as well as definitions, including a body change at the same migration version. A Git commit timestamp or a historical successful status cannot substitute for this comparison.
+
+### Finite PLO Lightning lifecycle witness
+
+After the lifecycle migration is installed and the certified engine is sealed
+and fully thawed, dispatch `run-plo-lightning-lifecycle-proof` through the existing
+Post-Deploy E2E workflow with client payload `{"engine_sha":"FULL_SERVING_SHA"}`.
+This is an explicit finite verification, never a release action. The fixed 1/2
+PLO game must be empty in feeder mode with ON10/OFF4 and heads-up enabled.
+The job creates reserved player/cashier accounts, uses normal cashier funding,
+actual pre-play disclosure/consent and player controls, and normal cash-out.
+It records individual arrivals, the 5–15 minute startup and eight minutes of
+continued gameplay after departure. Read its result and owned balance cleanup
+separately; unknown financial intents retain identities for authoritative
+readback instead of another purchase or transfer. Only result JSON and public
+screenshots are uploaded, never private account files. It does not retire the
+house club or its tables. A refusal or missing evidence is not a live pass.

@@ -1816,6 +1816,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'Feature authority'
   ),
   receipt(
+    'horse_feature_authority_admitted_in_domain',
+    'workerRuntime feature domain verdict',
+    'A selected feature authority applied to a decision inside its admitted (measured) domain',
+    'Feature authority'
+  ),
+  receipt(
+    'horse_feature_authority_outside_admitted_domain',
+    'workerRuntime feature domain verdict',
+    'A selected feature authority refused a decision outside its admitted (measured) domain; the reference decision runs unchanged',
+    'Feature authority'
+  ),
+  receipt(
+    'horse_feature_authority_refused_*',
+    'workerRuntime feature domain verdict',
+    'A selected feature authority refused a decision because it was not usable or the caller disabled part of the qualified package',
+    'Feature authority'
+  ),
+  receipt(
     'horse_observer_history_*',
     'HorseOwnPublicHistory original observer load',
     'Unavailable original history and source/deadline/provider failures remain distinct from an empty learned read',
@@ -2276,6 +2294,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'opponent_memory_donor_expired',
     'HorseMind.blendDurableRead (Item 12)',
     'a thin exact opponent row had a sibling bucket available but its decayed weight was below the floor, so the read used the exact row alone',
+    'Item12'
+  ),
+  receipt(
+    'opponent_memory_donor_staleness_unknown',
+    'HorseMind.blendDurableRead (Item 12)',
+    "a thin exact opponent row had a pooled sibling bucket whose staleness on this player's hand clock could not be told, so it was not borrowed (could not tell is never fresh)",
     'Item12'
   ),
   receipt(

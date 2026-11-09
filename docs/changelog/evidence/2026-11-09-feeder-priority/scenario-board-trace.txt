@@ -1,0 +1,175 @@
+--- 3 on the list: nothing opens (full ring needs four)
+ ?column? 
+----------
+ []
+(1 row)
+
+                      board                      
+-------------------------------------------------
+ main:live=9 open_seats=0 || held=none pending=0
+(1 row)
+
+--- 4th joins the list: feeder opens, last two to sit (p9, p8) are bumped
+                        ?column?                         
+---------------------------------------------------------
+ [{"feeder": "opened", "waiting": 4, "feeder_start": 2}]
+(1 row)
+
+              player_id               | reason  
+--------------------------------------+---------
+ UUID | balance
+ UUID | balance
+(2 rows)
+
+                                    board                                     
+------------------------------------------------------------------------------
+ main:live=9 open_seats=0 | feeder:opening=0 open_seats=7 || held=2 pending=2
+(1 row)
+
+--- the bump lands; main 7, its two chairs held, feeder goes live
+ exec_moves 
+------------
+          2
+(1 row)
+
+                         ?column?                          
+-----------------------------------------------------------
+ [{"feeder_live": "UUID"}]
+(1 row)
+
+                                   board                                   
+---------------------------------------------------------------------------
+ main:live=7 open_seats=0 | feeder:live=2 open_seats=7 || held=2 pending=0
+(1 row)
+
+--- the four from the list sit at the feeder: feeder 6, still nothing moves
+ ?column? 
+----------
+ []
+(1 row)
+
+                                   board                                   
+---------------------------------------------------------------------------
+ main:live=7 open_seats=0 | feeder:live=6 open_seats=3 || held=2 pending=0
+(1 row)
+
+--- a direct buy-in at Main 1 is refused (held chair / list chair)
+psql:scenario.sql:62: NOTICE:  buy-in refused: SEAT_RESERVED: this seat goes to the next player on the must-move list
+--- a 7th sits at the feeder: one chair released, the first bumped player moves up
+                                            ?column?                                             
+-------------------------------------------------------------------------------------------------
+ [{"feeder_start_chair_released": "UUID"}, {"moves_planned": 1}]
+(1 row)
+
+              player_id               |  reason   
+--------------------------------------+-----------
+ UUID | must_move
+(1 row)
+
+                                   board                                   
+---------------------------------------------------------------------------
+ main:live=7 open_seats=0 | feeder:live=7 open_seats=2 || held=1 pending=1
+(1 row)
+
+ exec_moves 
+------------
+          1
+(1 row)
+
+ ?column? 
+----------
+ []
+(1 row)
+
+                                   board                                   
+---------------------------------------------------------------------------
+ main:live=8 open_seats=0 | feeder:live=6 open_seats=3 || held=1 pending=0
+(1 row)
+
+--- a Main player (p1) leaves: the other bumped player moves right away (feeder only 6)
+        ?column?        
+------------------------
+ [{"moves_planned": 1}]
+(1 row)
+
+              player_id               |  reason   
+--------------------------------------+-----------
+ UUID | must_move
+(1 row)
+
+ exec_moves 
+------------
+          1
+(1 row)
+
+ ?column? 
+----------
+ []
+(1 row)
+
+                                   board                                   
+---------------------------------------------------------------------------
+ main:live=8 open_seats=0 | feeder:live=5 open_seats=4 || held=1 pending=0
+(1 row)
+
+--- another Main player (p2) leaves: no bumped player left, feeder 5 < 7: nobody moves
+ ?column? 
+----------
+ []
+(1 row)
+
+                                   board                                   
+---------------------------------------------------------------------------
+ main:live=7 open_seats=0 | feeder:live=5 open_seats=4 || held=1 pending=0
+(1 row)
+
+--- two newcomers sit at the feeder (5 -> 7): one chair released, the first on the list moves (one at a time)
+                                                              ?column?                                                               
+-------------------------------------------------------------------------------------------------------------------------------------
+ [{"feeder_start_chair_released": "UUID"}, {"feeder_start_ended": "complete"}, {"moves_planned": 1}]
+(1 row)
+
+              player_id               |  reason   
+--------------------------------------+-----------
+ UUID | must_move
+(1 row)
+
+                                    board                                     
+------------------------------------------------------------------------------
+ main:live=7 open_seats=0 | feeder:live=7 open_seats=2 || held=none pending=1
+(1 row)
+
+ exec_moves 
+------------
+          1
+(1 row)
+
+ ?column? 
+----------
+ []
+(1 row)
+
+                                    board                                     
+------------------------------------------------------------------------------
+ main:live=8 open_seats=0 | feeder:live=6 open_seats=3 || held=none pending=0
+(1 row)
+
+            kind             |                                                                                        payload                                                                                        
+-----------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ feeder_start                | {"held": 2, "waiting": 4, "first_to_move": ["UUID", "UUID"], "main_table_id": "UUID"}
+ feeder_start_chair_released | {"gate": 7, "held_before": 2, "feeder_players": 7, "feeder_table_id": "UUID"}
+ feeder_start_chair_released | {"gate": 7, "held_before": 1, "feeder_players": 7, "feeder_table_id": "UUID"}
+ feeder_start_ended          | {"held": 0, "reason": "complete", "feeder_table_id": "UUID"}
+(4 rows)
+
+--- 6-max is unchanged: two buyers open a feeder, nobody is bumped
+              ?column?               
+-------------------------------------
+ [{"buyers": 2, "feeder": "opened"}]
+(1 row)
+
+ six_max_moves 
+---------------
+             0
+(1 row)
+

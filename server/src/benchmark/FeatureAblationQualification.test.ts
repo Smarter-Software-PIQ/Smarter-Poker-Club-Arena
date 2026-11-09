@@ -327,3 +327,15 @@ test('source closure admits the registered public215 kernel and refuses arbitrar
   p.runtimeSourceDigest = hash(p.runtimeSourceFiles);
   assert.ok(validateLockedFeatureAblationPlan(p).includes('runtime_source_closure'));
 });
+
+// Only the incremental provider recomputes the decision closure before a cell
+// runs, so a legacy-target plan may not declare the closure binding: it would
+// spend its held-out partition and then be refused at admission (2026-11-08).
+test('a legacy-target plan cannot declare the decision-closure binding', () => {
+  for (const target of ['plo6_v24', 'v53_pressure'] as const) {
+    const p: any = fixture(target);
+    assert.deepEqual(validateLockedFeatureAblationPlan(p), [], target);
+    p.sourceBinding = 'horse-decision-closure-v1';
+    assert.ok(validateLockedFeatureAblationPlan(p).includes('runtime_source_closure'), target);
+  }
+});

@@ -528,6 +528,62 @@ playerId, amount, note?)` resolves who owns the float and calls
   `fn_promo_disburse`. `AgentDashboardPage` and `PlayerSessionsPage` now use it
   and each lost the `agents` PK lookup the retired path needed.
 
+### 7.9b Midway Union BBJ `5/20/75` split and sweep wording (`2026-11-08` / `2026-11-09`)
+
+#### STATUS, 2026-11-09 - CLOSED
+
+| Component                                                                                                                                                                                                                                     | State                                                                                                                         | Authority / Evidence                                                                                                                                                                                                                                                                                                                                  |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Midway Union `5 / 20 / 75` split** (`pool_id = f9806a7f-e7a2-47d2-a676-36336e3a5337`)                                                                                                                                                       | **LIVE** (since `2026-11-08 21:43:21.501583+00`; do not replay)                                                               | `public.ca_bbj_pool_policy` (`standard_main = 0.05`, `standard_backup = 0.20`, `pivot_main = 0.05`, `pivot_backup = 0.20`). Verified across `25,291` hands (`7,513.55` drop): `5.0000%` main / `20.0000%` backup / `75.0000%` promo, `0.0000` unallocated.                                                                                            |
+| **Sweep note wording fix** (`ca_bbj_rate_periods`, `fn_bbj_promo_window_share`, `fn_bbj_last_promo_sweep_at`, `fn_bbj_sweep_note`, `fn_sweep_bbj_promo`, `fn_sweep_bbj_promo_all`, and the historical `union_wallet_transactions.notes` backfill) | **INSTALLED AND VERIFIED LIVE** on `2026-11-09` | Migration `20261109073642_the_bbj_promo_sweep_label_states_the_allocation_actually_use.sql` (supersedes `20261109010948` and `20261109064934`, neither of which is in `schema_migrations`), dispatched by the merge of PR `#10150` through `apply-merged-migration.yml`. Deployed source revision `a8087773a21c1d09f22eb6d1dad155c76db3541d`, serving as `ca_sha` at `https://smarter.poker/hub/club-arena/build-info.json`; docs and config comments landed separately in PR `#10142` (`8e1daf122555784050537c48aedd20ce1f48fd1a`). Independently re-verified in production after install: `0` rows carry the stale `25%` label (was all `20,376`), exactly `3` distinct note values remain (`16,430` neutral, `3,891` at `60%`, `168` at `75%`), both `ca_bbj_rate_periods` rows carry pool-bound evidence, and no sweep row has a null amount, balance or timestamp. |
+
+#### Routes this task verified
+
+`docs/VERIFIED-DELIVERY-ROUTES-2026-11-09.md` - the Mac Studio shell a cloud session reaches through the `counselors` MCP server, the authenticated `gh` route and canonical repository URL, owned-worktree requirements (which SSD paths are writable, and why a symlinked `node_modules` breaks the pre-push gate), the migration installer and its readback, the coordination inbox and its symlink, and the BBJ policy/allocator/sweep/rate-period map. Each entry carries its environment, prerequisites, a verification date and a safe confirmation command, and separates verified from unavailable and proposed routes.
+
+#### Live sweep proof and continuing allocation (recorded at closure)
+
+- **A real sweep carries the right wording.** `fn_sweep_bbj_promo_all()` wrote
+  `0f281591-0d05-4c16-99e1-d35a20ece82a` at `2026-11-09 08:25:00.400507+00`
+  (after the migration committed at `08:23:48Z`): `amount = 176.9300`,
+  `balance_after = 177460.2100`,
+  `notes = 'BBJ promo slice (75% of contribution) swept from pool'`. Row confirmed
+  field by field. The `75%` group has continued to grow since
+  (`168` rows by `2026-11-09 13:45:03+00`), so the FORWARD path is producing the
+  label itself - this is not only a backfill.
+- **The split is holding.** Across all `48,046` hands in `bbj_contributions` on
+  pool `f9806a7f-e7a2-47d2-a676-36336e3a5337` since
+  `2026-11-08 21:43:21.501583+00`: `5.0000%` main / `20.0000%` backup /
+  `75.0000%` promo, `0.0000` unallocated.
+
+#### UNVERIFIED - a promo sweep/allocation difference, NOT reconciled
+
+Measured `2026-11-09`: promo swept all-time into the Midway union wallet
+(`628,441.83`) exceeds promo allocated to this pool's own `pool_id`
+(`601,736.54`) by about `26,700`. It is **pre-existing**: the same difference
+measured `26,713.06` on `2026-11-08 21:35+00`, before any of this work, and has
+since narrowed slightly rather than grown. Nothing in the wording change moves
+money, and the backfill altered `notes` only.
+
+**A plausible explanation was offered and is NOT accepted as a reconciliation.**
+The two retired pools merged into Midway (The Felt Society, Deep Stack Society)
+carry `83,964.08` of promo against their own `pool_id`s, which is larger than
+the difference - but "larger than" is not "accounts for". Nothing here has
+matched specific transfers and receipts to the difference, so the cause remains
+**unknown**. Do not repeat the merged-pools explanation as settled, and do not
+reason from it.
+
+No investigation or settlement of this is authorized by the closure of the
+wording task. If it is ever taken up, it needs its own reading of the actual
+transfers under 10.9, proved in a rolled-back probe first.
+
+#### Authoritative split source and the per-hand ratio trap
+
+- **One allocator (`fn_bbj_allocate`):** Reads `public.ca_bbj_pool_policy` first (per-pool override) and falls back to `public.ca_bbj_policy` (platform `50/25/25` standard below `100,000` main balance, `25/25/50` pivot at or above `100,000`).
+- **Why per-hand ratios mislead (`avg(promo_portion / amount)` vs `sum(promo_portion) / sum(amount)`):** Because `bbj_contributions` stores 2-decimal cent amounts while `fn_bbj_allocate` carries sub-cent residue across hands in `bbj_pools.(main_residue, backup_residue, promo_residue)`, a single `0.06` drop under `5/20/75` allocates `0.00` or `0.01` to main (`0%` or `16.67%` on that one hand). Averaging per-hand ratios (`avg(promo_portion / amount)`) weights tiny Nano drops equally with larger drops and reports a skewed percentage; the true realized rate of any window is `sum(portion) / sum(amount)` once total drop is at least `5.00` chips.
+- **Tightened historical-rate proof (`ca_bbj_rate_periods`):** Matching a known split within a tolerance shows consistency, not which policy governed. `public.ca_bbj_rate_periods` binds each single-rate period (`2026-10-23 02:42:45+00` to `2026-11-08 21:43:21.501583+00` at `0.10 / 0.30` from migrations `20261023024134, 20261023030641`, and `2026-11-08 21:43:21.501583+00` onward at `0.05 / 0.20` from `ca_bbj_pool_policy`) to its pool and evidence. `fn_bbj_promo_window_share` emits `(1 - main_rate - backup_rate) * 100` from the policy period only when a single evidenced period covers the full sweep window `[p_since, p_until]`, total drop `>= 5.00`, both temporal halves agree within `0.5` percentage points, and realized main (`(drop - backup - promo) / drop`, keeping `idx_bbj_contrib_pool_facts` index-only) and backup (`backup / drop`) agree with the period's rates within `0.05` percentage points. All pre-`2026-10-23` windows (where the pool crossed the `100k` pivot and pre-`2026-09-04` balance snapshots do not exist), straddle windows, low-drop windows, and the August 2026 pre-residue-carry rounding windows (documented separately in `docs/BBJ-ALLOCATION-ANOMALY-2026-08.md`) receive neutral wording (`'BBJ promo slice swept from pool'`).
+- **Policy receipt:** `node /Users/smarter.poker/Documents/agent-policy.mjs read` verified at `2026-11-09T05:15:19Z` (Policy v2.9, September 17, 2026; manifest SHA-256 `7c7f308e580f0e2b9170085bb3a454c89ff7234627570c74ab68f5e7846b5b52`).
+
 ### 7.10 Detector timeouts (migrations `20260903232357`, `233601`, `233649`)
 
 `check-cron-health` against production found three jobs timing out rather than

@@ -289,28 +289,51 @@ jobs:
             scripts/dr
             scripts/verification-harness/leaderboard-native-function-batch.mjs
             scripts/ci/test_native_supabase_export.py
+            server/scripts/engine-release-installed-migrations.py
             server/standby
             supabase/migrations
+      # THE COPY IS JUDGED BY WHAT IT HOLDS (2026-11-08). Backup 42519319251
+      # restored at 20:38:05Z; migration 20261108193515 (merged 20:36:58Z)
+      # installed at 20:38:11Z, and "newest migration commit <= restoredAt"
+      # called the copy fresh. Due is decided by contents: the copy's own
+      # schema evidence (installed set and required definitions, bound to its
+      # dump by the export) against production's, read now through
+      # DATABASE_URL. A copy with no bound evidence, or an unreadable answer,
+      # is always due. Before reading, it waits (bounded) for migration files
+      # main merged in the last day that production has not installed yet, so
+      # a refresh does not copy in the minute before Apply Merged Migration.
+      # Commit and restore times are printed as diagnostics only.
       - name: Decide whether the production copy is due
         id: due
         env:
           SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           MODE: ${{ needs.plan.outputs.refresh }}
           EVENT: ${{ github.event_name }}
+          CONTROL: ${{ needs.plan.outputs.control_sha }}
         run: |
           set -euo pipefail
           install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
           printf '%s\n' "$STANDBY_HOST_KEY" > ~/.ssh/known_hosts
           owners_sha=$(sha256sum server/standby/standby-owners.sql | cut -d' ' -f1)
           stamp=$(ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" "python3 -c 'import json;print((lambda d,s: d[\"restoredAt\"] if d.get(\"ownersSha256\") == \"$owners_sha\" and d.get(\"restoreValidated\") is True and d.get(\"schemaEvidenceValidated\") is True and d.get(\"restoreErrors\") == 0 and s.get(\"cashClusterParentsValidated\") is True and s.get(\"authFixtureVersion\") == 2 and s.get(\"tablesFailed\") == 0 and s[\"seededAt\"] >= d[\"restoredAt\"] else \"1970-01-01T00:00:00Z\")(json.load(open(\"/var/lib/club-arena-standby/database.json\")),json.load(open(\"/var/lib/club-arena-standby/seed.json\"))))'" 2>/dev/null || echo 1970-01-01T00:00:00Z)
-          restored=$(date -d "$stamp" +%s)
-          newest=$(git log -1 --format=%ct origin/main -- supabase/migrations 2>/dev/null || echo 0)
+          copy_evidence_sha=$(ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" "python3 -c 'import json;print(json.load(open(\"/var/lib/club-arena-standby/database.json\")).get(\"schemaEvidenceSha256\") or \"\")'" 2>/dev/null || echo '')
+          ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" 'cat /var/lib/club-arena-standby/schema-evidence.json' > copy-evidence.json 2>/dev/null || : > copy-evidence.json
+          [ "$stamp" != 1970-01-01T00:00:00Z ] || copy_evidence_sha=''
+          verdict=$(python3 -B server/scripts/engine-release-installed-migrations.py refresh-due \
+            --copy-evidence copy-evidence.json --copy-evidence-sha "$copy_evidence_sha" \
+            --control "$CONTROL" --wait 240 2> due-reason.txt) || verdict='due=true'
+          contents_due=$(printf '%s\n' "$verdict" | sed -n 's/^due=//p')
+          [ "$contents_due" = false ] || contents_due=true
           today=$(TZ=America/Chicago date +%F); copy_day=$(TZ=America/Chicago date -d "$stamp" +%F)
           due=false
           [ "$MODE" = force ] && due=true
-          [ "$newest" -gt "$restored" ] && due=true
+          [ "$contents_due" = true ] && due=true
           [ "$EVENT" = schedule ] && [ "$copy_day" != "$today" ] && due=true
-          echo "copy=$stamp newestMigration=$(date -u -d @$newest +%FT%TZ) due=$due"
+          newest=$(git log -1 --format=%cI origin/main -- supabase/migrations 2>/dev/null || echo unknown)
+          echo "productionInstalledSet=$(printf '%s\n' "$verdict" | sed -n 's/^production=//p') contentsDue=$contents_due due=$due"
+          sed -n 's/^reason=/contents: /p' due-reason.txt
+          echo "diagnostic only: copy restoredAt=$stamp newest migration commit=$newest"
           echo "due=$due" >> "$GITHUB_OUTPUT"
       - name: Build the batched read-only export client
         if: steps.due.outputs.due == 'true'
@@ -373,7 +396,9 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.control_sha }}
           fetch-depth: 0
-          sparse-checkout: server/scripts
+          sparse-checkout: |
+            server/scripts
+            server/standby/schema-evidence.py
       - name: Check the protected activation policy before spending a Backup soak
         env:
           SHA: ${{ needs.plan.outputs.sha }}
@@ -408,6 +433,16 @@ jobs:
           fi
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
           tail -1 certificate.out > certificate.json || true
+          # THE CERTIFICATE NAMES THE SET THE COPY HOLDS (2026-11-08). The
+          # retained schema evidence must be the file the certified copy
+          # recorded and bound to its dump; its installed set (less this
+          # target's own break-window files) is named in the verdict, so the
+          # release host compares production with it at cutover. No bound
+          # set, no success (the verdict step below requires it).
+          if [ "$rc" = 0 ] && installed=$(python3 -B server/scripts/engine-release-installed-migrations.py certified-digest \
+              --evidence schema-evidence.json --certificate certificate.json --sha "$SHA"); then
+            echo "installed=$installed" >> "$GITHUB_OUTPUT"
+          fi
           exit 0
       - name: Retain exact Backup schema, seed, policy and trial evidence
         if: steps.certify.outputs.rc == '0'
@@ -427,10 +462,11 @@ jobs:
             SHA: '${{ needs.plan.outputs.sha }}',
             RC: '${{ steps.certify.outputs.rc }}',
             JOB_STATUS: '${{ job.status }}',
+            INSTALLED: '${{ steps.certify.outputs.installed }}',
           }
         run: |
           set -euo pipefail
-          if [ "$RC" = 0 ] && [ "$JOB_STATUS" = success ]; then state=success; desc='Certified on the Backup Engine: built, booted, crash-recovered and soaked'
+          if [ "$RC" = 0 ] && [ "$JOB_STATUS" = success ] && [[ "$INSTALLED" =~ ^[0-9a-f]{64}$ ]]; then state=success; desc="Certified on the Backup Engine; installed migrations $INSTALLED"
           else state=failure; desc="Backup Engine refused: $(python3 -c 'import json;print(",".join(json.load(open("certificate.json")).get("reasons",[]))[:120])' 2>/dev/null || echo see run)"; fi
           gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state="$state" -f context="$STATUS_CONTEXT" -f description="$desc" \
             -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null

@@ -28,7 +28,11 @@ export function LightningLeaveControl({
       mounted.current = false;
     };
   }, []);
-  const label = busy ? 'Standing Up...' : 'Stand Up & Leave';
+  /* Dan 2026-11-09: 'it should just say, "Leave Next Hand"'. The behaviour is
+     unchanged - the durable stop refuses every new deal and the hand in front
+     of the player still finishes through the original leave owner - so the
+     label now says what the button has always done. */
+  const label = busy ? 'Leaving...' : 'Leave Next Hand';
   const labelRef = useFitText<HTMLSpanElement>(label, 1, 0.5);
   const leave = async () => {
     if (inFlight.current) return;

@@ -56,6 +56,26 @@ export function featureLiveDomainRefusals(plan: any): string[] {
     p.id !== `${plan.target}-${p.variant}-6max-${p.seats}dealt-${p.stackBB}bb`
   )
     return ['live_domain_profile'];
+  // A domain-scoped plan measured only its admitted domain, so it may admit
+  // only there: the live profile, and every measured profile, lies inside it.
+  if (plan.admittedDomain !== undefined) {
+    const a = plan.admittedDomain;
+    if (
+      !a ||
+      typeof a !== 'object' ||
+      Object.keys(a).sort().join(',') !== 'dealtSeats,schema,stackBB,variant' ||
+      a.schema !== 'horse-feature-admitted-domain-v1' ||
+      a.variant !== p.variant ||
+      a.dealtSeats !== p.seats ||
+      a.stackBB !== p.stackBB ||
+      !Array.isArray(plan.profiles) ||
+      plan.profiles.some(
+        (q: any) =>
+          q?.variant !== a.variant || q?.seats !== a.dealtSeats || q?.stackBB !== a.stackBB
+      )
+    )
+      return ['live_domain_admitted_domain'];
+  }
   const pricing = publishedCashPricing({
     tournament: false,
     variant: p.variant,

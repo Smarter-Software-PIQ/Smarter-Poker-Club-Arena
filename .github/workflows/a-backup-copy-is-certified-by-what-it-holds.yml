@@ -1,0 +1,40 @@
+name: A Backup copy is certified by what it holds
+
+# The installed-migration listing (migration 20261108233453 and
+# server/scripts/engine-release-installed-migrations.py). Runs
+# scripts/ci/test-installed-migration-listing-postgres.py against a throwaway
+# PostgreSQL 17 cluster, never production: the Backup schema evidence
+# (server/standby/schema-evidence.py), the selector's read and
+# fn_ca_installed_migration_listing() agree row for row, a later install
+# refuses the cutover, and a dump taken while a migration installs is refused. No timer (CLAUDE.md 10.85): pull_request only, scoped to
+# the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261108233453_the_release_host_can_read_the_installed_migration_set.sql
+      - server/scripts/engine-release-installed-migrations.py
+      - server/standby/schema-evidence.py
+      - scripts/ci/test-installed-migration-listing-postgres.py
+      - .github/workflows/a-backup-copy-is-certified-by-what-it-holds.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: a-backup-copy-is-certified-by-what-it-holds-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  installed-migration-listing:
+    name: The installed-migration listing reads the same on every route
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: The installed-migration listing reads the same on every route
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-installed-migration-listing-postgres.py --pg-bin "$PG_BIN" --scratch "${{ runner.temp }}"

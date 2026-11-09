@@ -7,6 +7,7 @@ describe('supported post-deploy browser runners', () => {
   it.each([
     'private-record-client-proof',
     'stats-pagination-proof',
+    'plo-lightning-lifecycle-proof',
     'production-e2e',
     'live-table-e2e',
     'club-channel-lifecycle-e2e',

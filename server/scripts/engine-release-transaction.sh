@@ -925,7 +925,7 @@ initialise_phase1_cycle() {
     [ "$foreign_rc" = 1 ] || die 'foreign runtime ownership is unreadable'
   fi
   phase1_custody_admission
-  if [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-08-horse-study-successor-engine-1820z ]; then
+  if [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-09-owner-asap-engine-1530z ]; then
     [ "$prior_cycle" = none ] || die 'Nov 7 owner cannot retarget a reserved routine cycle'
     return 0
   fi
@@ -1407,7 +1407,7 @@ raise SystemExit(0 if n.hour == 4 and n.minute < 5 else 1)
 # The Nov 7 order has exactly one predecessor, one protected floor and one
 # finite wall-clock interval. The seal binds the run's reservation separately.
 nov7_owner_admitted() {
-  [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-08-horse-study-successor-engine-1820z ] || return 1
+  [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-09-owner-asap-engine-1530z ] || return 1
   [ "${CHECKPOINT_PREDECESSOR_SHA:-}" = 391f7bc0d57c71637bd4af5181f70520661e3593 ] || return 1
   [ "${PHASE1_CYCLE_START:-0}" = 0 ] && [ -z "${DRILL_MODE:-}" ] || return 1
   python3 "$CONTROL_DIR/engine-release-activation-floor.py" nov7-owner \
@@ -2054,7 +2054,7 @@ v = json.load(sys.stdin).get("releaseSha")
 print(v if isinstance(v, str) and re.fullmatch(r"[0-9a-f]{40}", v) else "")
 ' 2>/dev/null)" || return 0
   [ -n "$serving" ] || return 0
-  if [ "$id" = 2026-11-08-horse-study-successor-engine-1820z ]; then
+  if [ "$id" = 2026-11-09-owner-asap-engine-1530z ]; then
     [ "$serving" = 391f7bc0d57c71637bd4af5181f70520661e3593 ] || return 0
   fi
   if [ "$witness_path" != '-' ]; then
@@ -2407,7 +2407,7 @@ print(",".join("%s=%s" % (k, bad[k]) for k in sorted(bad)))
   if [ "${LEGACY_CHECKPOINT_PROFILE:-}" = eed-240s-certified-release-v1 ]; then
     reserve_args+=(--certified-policy "$CERTIFIED_RECOVERY_POLICY" --predecessor-sha "$CHECKPOINT_EED_SHA" --control-sha "$CONTROL_SHA")
   fi
-  if [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-08-horse-study-successor-engine-1820z ]; then
+  if [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-09-owner-asap-engine-1530z ]; then
     reserve_args+=(--nov7-owner --control-sha "$CONTROL_SHA" --deadline "$MUTATION_DEADLINE_EPOCH")
   fi
   reserve_args+=(--include-eligibility)
@@ -3452,6 +3452,39 @@ fi
 WINDOW_DOORS_READY=0
 WINDOW_DOORS_WAITING=0
 [ -n "$WINDOW_DOOR_NAMES" ] || WINDOW_DOORS_READY=1
+# THE CERTIFIED COPY STILL MATCHES PRODUCTION (2026-11-08). The certificate
+# names the installed migration set the Backup copy held. Inside the admitted
+# break, after the window doors and before the engine lock, prepare and any
+# replacement, production's set is read again: a migration installed after
+# certification (other than this target's own break-window files, whose doors
+# are read just above) means the copy no longer rehearsed this database, and
+# the cutover refuses by name. The current engine keeps running. The script
+# always assigns INSTALLED_MIGRATIONS below; only an isolated loop harness that
+# sources no part of this block leaves it unset, and then skips the read.
+installed_migrations_unchanged() {
+  local verdict rc
+  set +e
+  verdict="$(timeout --signal=TERM --kill-after=1s 60s \
+    python3 -B "$INSTALLED_MIGRATIONS" status --env-file "$ENV_FILE" --repo "$REPO_DIR" \
+      --sha "$SHA" --certified "$CERTIFIED_INSTALLED_MIGRATIONS")"
+  rc=$?
+  set -e
+  case "$rc" in
+    0) echo "[engine-release-transaction] $verdict"; return 0 ;;
+    1) die "INSTALLED MIGRATIONS CHANGED AFTER CERTIFICATION: $verdict; nothing was prepared and the current engine keeps running" ;;
+    *) die "INSTALLED MIGRATIONS UNKNOWN (status $rc) - ${verdict:-the helper gave no answer}; nothing was prepared and the current engine keeps running" ;;
+  esac
+}
+INSTALLED_MIGRATIONS="$CONTROL_DIR/engine-release-installed-migrations.py"
+# The installed set the target's certificate names, read once here; inside the
+# break production is compared with it (installed_migrations_unchanged).
+set +e
+CERTIFIED_INSTALLED_MIGRATIONS="$(timeout --signal=TERM --kill-after=1s 30s \
+  python3 -B "$INSTALLED_MIGRATIONS" certified --sha "$SHA")"
+CERTIFIED_INSTALLED_RC=$?
+set -e
+[ "$CERTIFIED_INSTALLED_RC" = 0 ] && [[ "$CERTIFIED_INSTALLED_MIGRATIONS" =~ ^[0-9a-f]{64}$ ]] \
+  || die "INSTALLED MIGRATIONS UNKNOWN - the certificate of $SHA names no installed migration set (status $CERTIFIED_INSTALLED_RC); refusing before any cutover"
 if [ "$WINDOW_DOORS_READY" != 1 ]; then
   echo "[engine-release-transaction] window-migration doors this build calls, re-read inside the break before any cutover: $WINDOW_DOOR_NAMES"
 fi
@@ -3592,6 +3625,7 @@ while :; do
     bounded_sleep 3
     continue
   fi
+  [ -z "${INSTALLED_MIGRATIONS:-}" ] || installed_migrations_unchanged
   acquire_engine_lock 'maintenance cutover'
   if [ "$LEGACY_CHECKPOINT_REQUIRED" = 1 ]; then legacy_entry_trace locked verified; fi
   source_target_is_current

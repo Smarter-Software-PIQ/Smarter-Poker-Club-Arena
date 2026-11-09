@@ -55,6 +55,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
+          filter: blob:none
 
       - name: Use the production Node major
         uses: actions/setup-node@v4
@@ -73,10 +75,12 @@ jobs:
         run: |
           set -uo pipefail
           mkdir -p artifacts/release-plan
-          node scripts/ops/release-plan.mjs --summary \
-            --json-out artifacts/release-plan/plan.json \
+          node scripts/ops/release-plan.mjs --snapshot "$RUNNER_TEMP/evening-snapshot.json" \
             --ssl-root-cert scripts/ci/certificates/supabase-prod-ca-2021.crt
-          code=$?
+          python3 -B scripts/ops/evening-backup-readiness.py "$RUNNER_TEMP/evening-snapshot.json" "$RUNNER_TEMP/evening-readiness.json"
+          code=0
+          node scripts/ops/release-plan.mjs --input "$RUNNER_TEMP/evening-snapshot.json" \
+            --readiness "$RUNNER_TEMP/evening-readiness.json" --summary --json-out artifacts/release-plan/plan.json || code=$?
           echo "code=$code" >> "$GITHUB_OUTPUT"
           case "$code" in
             0) echo 'Plan: READY or NOTHING_OWED.' ;;

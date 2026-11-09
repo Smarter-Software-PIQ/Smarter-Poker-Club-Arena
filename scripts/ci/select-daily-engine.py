@@ -56,14 +56,15 @@ def backup(repo, sha, limit, status):
     matches = [a for a in artifacts['artifacts'] if a['name'] == name and not a['expired']]
     if not matches:
         return None
-    if len(matches) != 1 or matches[0]['size_in_bytes'] > 2000000:
+    if len(matches) != 1 or matches[0]['size_in_bytes'] > CONTENT_LIMIT:
         raise ValueError('unexpected Backup evidence bundle')
     data = command('gh', 'api', f'repos/{repo}/actions/artifacts/{matches[0]["id"]}/zip')
     with zipfile.ZipFile(io.BytesIO(data)) as bundle:
-        if any(x.file_size > 2000000 for x in bundle.infolist()):
+        if any(x.file_size > CONTENT_LIMIT for x in bundle.infolist()):
             raise ValueError('unexpected Backup evidence size')
         cert = json.loads(bundle.read('certificate.json'))
         compat = json.loads(bundle.read('compatibility.json'))
+        schema_evidence = bundle.read(EVIDENCE_FILE) if EVIDENCE_FILE in bundle.namelist() else None
     producer = run['head_sha']
     control = compat['controlSha']
     workflow = '.github/workflows/backup-engine.yml'
@@ -87,16 +88,68 @@ def backup(repo, sha, limit, status):
             'playerReconnectedBothDirections': cert.get('playerReconnectedBothDirections'),
             'rollbackAdoptionSeconds': cert.get('rollbackAdoptionSeconds'),
             'forwardAdoptionSeconds': cert.get('forwardAdoptionSeconds'),
-            'certifiedAt': cert['certifiedAt'], 'database': db, 'seed': seed, 'compatibility': compat}
+            'certifiedAt': cert['certifiedAt'], 'database': db, 'seed': seed, 'compatibility': compat,
+            'schemaEvidence': schema_evidence}
 
 
-def current_schema(control, evidence):
-    """Use the Backup refresh lane's exact owners and newest-migration freshness rules."""
+EVIDENCE_FILE = 'schema-evidence.json'
+CONTENT_LIMIT = 4000000
+
+
+def installed():
+    """The shared contents reader (also run by the Backup lane and the host)."""
+    spec = importlib.util.spec_from_file_location(
+        'installed_migrations', Path(__file__).resolve().parents[2] / 'server/scripts/engine-release-installed-migrations.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def current_schema(control, evidence, serving=None, target=None, production=None):
+    """Judge the certified copy by the migrations it holds, never by a clock.
+
+    WHY (2026-11-08): Backup 42519319251 restored at 20:38:05Z and migration
+    20261108193515, merged at 20:36:58Z, installed at 20:38:11Z. The old test
+    here (newest migration COMMIT <= restoredAt) said fresh; the copy lacked
+    it. The owners digest stays; the commit-time test is replaced by an
+    equally strict contents test, which rejects strictly more stale copies.
+    The contents are the Backup export's own schema evidence (#10113), retained
+    beside the certificate as schema-evidence.json:
+
+      1. the evidence is the file the certified copy recorded (sha256), bound
+         to the copy's dump, and the restore validated it against the
+         restored function bodies;
+      2. its installed set EQUALS production's installed set read now (no
+         missing, extra or renamed migration);
+      3. its required function definitions equal production's now;
+      4. it holds every migration file the exact candidate adds since serving.
+
+    Returns (ok, reason, diagnostics). Timestamps are diagnostics only."""
     owners = command('git', '--no-replace-objects', 'show', control + ':server/standby/standby-owners.sql')
-    newest = git('log', '-1', '--format=%ct', control, '--', 'supabase/migrations')
     db = evidence['database']
-    return (hashlib.sha256(owners).hexdigest() == db['ownersSha256']
-            and newest.isdigit() and int(newest) <= epoch(db['restoredAt']))
+    newest = git('log', '-1', '--format=%cI', control, '--', 'supabase/migrations')
+    diagnostics = {'restoredAt': db.get('restoredAt'), 'newestMigrationCommit': newest,
+                   'note': 'timestamps are reported for diagnosis only; contents decide'}
+    if hashlib.sha256(owners).hexdigest() != db['ownersSha256']:
+        return False, 'Backup restore used different standby owners', diagnostics
+    if not evidence.get('schemaEvidence'):
+        return False, 'Backup certificate records no installed schema evidence', diagnostics
+    module = installed()
+    if callable(production):
+        production = production()
+    elif production is None:
+        production = module.read_production_psql()
+    required = None
+    if serving and target:
+        def required():
+            # A window-declared file installs inside the 04:00 break, after
+            # this selection; its doors are re-read in the break (window-doors.py).
+            files = module.required_by('.', serving, target, module.window_versions('.', target))
+            diagnostics['requiredMigrations'] = len(files)
+            return files
+    diagnostics['productionInstalled'] = module.digest(production['migrations'])
+    ok, why = module.judge(evidence['schemaEvidence'], db, production, required)
+    return ok, why, diagnostics
 
 
 def statuses(repo, shas):
@@ -143,6 +196,15 @@ def select(args, report):
         raise ValueError('serving release is outside the protected first-parent interval')
     if not commits and args.serving != args.control:
         raise ValueError('control is behind serving release')
+    cache = {}
+
+    def production():
+        # Read once per selection through the release workflows' own
+        # DATABASE_URL; unreadable blocks the selection, never passes.
+        if 'rows' not in cache:
+            module = installed()
+            cache['rows'] = module.read_production_psql()
+        return cache['rows']
     for offset in range(0, len(commits), 30):
         for sha, status in statuses(args.repo, commits[offset:offset + 30]):
             evidence = backup(args.repo, sha, report['cutoffEpoch'], status)
@@ -156,9 +218,12 @@ def select(args, report):
                     or type(forward) is not int or forward < 0):
                 report['deferredCandidates'].append({'sha': sha, 'reason': 'serving rollback rehearsal unavailable'})
                 continue
-            if not current_schema(args.control, evidence):
-                report['deferredCandidates'].append({'sha': sha, 'reason': 'Backup restore predates current schema inputs'})
+            fresh, why, diagnostics = current_schema(args.control, evidence, args.serving, sha, production)
+            if not fresh:
+                report['deferredCandidates'].append({'sha': sha, 'reason': why, 'contents': diagnostics})
                 continue
+            evidence['contentsCheck'] = diagnostics
+            evidence.pop('schemaEvidence', None)
             helper = subprocess.run([sys.executable, '-B', 'scripts/ci/read-engine-prequalification.py',
                                      '--repo', args.repo, '--target', sha, '--control', args.control,
                                      '--cutoff', str(report['cutoffEpoch'])], capture_output=True, timeout=60)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Native original satellite proof, exact-ledger predicate and forty-source guard."""
-import argparse,json,os,subprocess,tempfile
+import argparse,json,os,subprocess,tempfile,sys
 from pathlib import Path
 ap=argparse.ArgumentParser();ap.add_argument('--pg-bin',type=Path,required=True);ap.add_argument('--scratch',type=Path,required=True);a=ap.parse_args()
 repo=Path(__file__).resolve().parents[2]
@@ -86,3 +86,8 @@ ANALYZE chip_ledger;ANALYZE tournament_participant_funding_receipts;''')
   print(json.dumps({'qualification':'passed','actual_forty_source_guard':True,'original_and_new_owner_equivalent':True,'negative_fields':12,'seat_and_ticket':True,'generic_plan_exact_ledger_primary_key':True,'rows_and_other_sources_unchanged':True,'metadata_preserved':True,'source_drift_refused':True,'replay_refused':True,'hashes':hashes}))
  finally:
   if started:run([a.pg_bin/'pg_ctl','-D',data,'-m','fast','-w','stop'])
+
+# Prospective same-value entry tickets retain issue provenance and prove the
+# actual canonical admission. Historical40-source qualification above is intact.
+subprocess.run([sys.executable,'-B',str(repo/'scripts/ci/fixtures/satellite-value-ticket/qualify-postgres.py'),
+ '--pg-bin',str(a.pg_bin),'--scratch',str(a.scratch)],check=True)

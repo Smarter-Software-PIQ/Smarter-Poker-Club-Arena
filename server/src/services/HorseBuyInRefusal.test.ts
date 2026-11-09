@@ -7,6 +7,10 @@ import { describe, it, expect } from 'vitest';
 import { classifyBuyInRefusal, formatRefusals } from './HorseBuyInRefusal.js';
 
 describe('classifyBuyInRefusal', () => {
+  it('names the durable Lightning admission decisions without reporting a defect', () => {
+    expect(classifyBuyInRefusal('LIGHTNING_ADMISSION_PACED: not due')).toBe('lightning_paced');
+    expect(classifyBuyInRefusal('LIGHTNING_ADMISSION_DEMAND: target met')).toBe('lightning_demand');
+  });
   it('counts a paused Diamond entry as an ordinary closed arena door', () => {
     expect(classifyBuyInRefusal('GAME_CLOSED: this Diamond game is not taking new players')).toBe(
       'diamond_closed'
