@@ -1,0 +1,20 @@
+{
+  "_owner": "claude/heads-up-rematch-atomic-1109. PROMISED, not yet observed: migration 20261109021122_heads_up_rematch_atomic_buy_in is applied through apply-merged-migration.yml after the protected merge. The heads-up rematch: its agreement and source-pin tables, the core, its two browser doors, and the eight named-payer buy-in copies only the core can execute.",
+  "tables": [
+    "ca_heads_up_rematches",
+    "ca_heads_up_rematch_sources"
+  ],
+  "functions": [
+    "ca_heads_up_rematch_respond",
+    "ca_heads_up_rematch_state",
+    "fn_ca_heads_up_rematch_core",
+    "fn_ca_rematch_register_core_for_payer",
+    "fn_ca_rematch_register_lifecycle_for_payer",
+    "fn_ca_rematch_register_maint_for_payer",
+    "fn_ca_rematch_register_terminal_for_payer",
+    "fn_ca_rematch_register_for_payer",
+    "fn_ca_rematch_seat_maint_for_payer",
+    "fn_ca_rematch_seat_terminal_for_payer",
+    "fn_ca_rematch_take_seat_for_payer"
+  ]
+}
