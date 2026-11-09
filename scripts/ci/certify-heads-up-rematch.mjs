@@ -448,19 +448,29 @@ async function main() {
     if (!tapped) await rpc(P.a.token, 'ca_heads_up_rematch_respond', { p_source_tournament_id: S.source.tournamentId, p_accept: true });
     const yes = await rpc(P.b.token, 'ca_heads_up_rematch_respond', { p_source_tournament_id: S.source.tournamentId, p_accept: true });
     step('the opponent\'s Yes completed the rematch', yes.body?.status === 'matched', yes.body);
-    const row = (await svc(`ca_heads_up_rematches?source_tournament_id=eq.${S.source.tournamentId}&select=*`))[0];
-    evidence.rematch = row;
-    S.target = { tournamentId: row?.target_tournament_id, tableId: row?.target_table_id };
-    step('one committed rematch row names the new game', row?.outcome === 'matched' && !!S.target.tableId, row);
-    if (!S.target.tableId) throw new Error('no rematch was committed');
+    // The agreement rows are private to their two players (no service role
+    // reads them), so the new game is read from the answer and its own table.
+    const tableId = yes.body?.table_id;
+    const targetTable = tableId
+      ? (await svc(`tables?id=eq.${tableId}&select=id,tournament_id`))[0]
+      : null;
+    S.target = { tournamentId: targetTable?.tournament_id, tableId };
+    const states = await Promise.all(['a', 'b'].map((r) =>
+      rpc(P[r].token, 'ca_heads_up_rematch_state', { p_source_tournament_id: S.source.tournamentId })));
+    evidence.rematch = { target: S.target, states: states.map((x) => x.body) };
+    step('both players read one committed rematch at the same new table',
+      !!S.target.tournamentId && states.every((x) => x.body?.status === 'matched' && x.body?.table_id === tableId)
+        && new Set(states.map((x) => x.body?.seat_number)).size === 2,
+      evidence.rematch);
+    if (!S.target.tournamentId) throw new Error('no rematch was committed');
     watch(S.target.tableId);
 
     const afterRematch = await both();
     step('each player was charged exactly one buy-in plus fee for the rematch',
       cents(afterRematch.a) === cents(beforeRematch.a) - (BUY + FEE)
         && cents(afterRematch.b) === cents(beforeRematch.b) - (BUY + FEE)
-        && (row.receipts || []).every((r) => cents(r.cost) === BUY + FEE),
-      { before: beforeRematch, after: afterRematch, receipts: row.receipts });
+        && states.every((x) => cents(x.body?.cost) === BUY + FEE),
+      { before: beforeRematch, after: afterRematch, costs: states.map((x) => x.body?.cost) });
     const targetSeats = await svc(`table_seats?table_id=eq.${S.target.tableId}&left_at=is.null&select=user_id,seat_number`);
     const sourceSeats = await svc(`table_seats?table_id=eq.${S.source.tableId}&select=user_id,seat_number`);
     step('the rematch seats the same two players',
@@ -505,11 +515,13 @@ async function main() {
       { prize_pool: rematchDone.prize_pool, total_rake: rematchDone.total_rake });
     step('chips are conserved: the two players lost exactly the two games\' fees',
       cents(end.a + end.b) === cents(start.a + start.b) - 4 * FEE, { start, end });
-    const again = (await svc(`ca_heads_up_rematches?source_tournament_id=eq.${S.source.tournamentId}&select=outcome,target_tournament_id`))[0];
     const repeat = await rpc(P.b.token, 'ca_heads_up_rematch_respond', { p_source_tournament_id: S.source.tournamentId, p_accept: true });
+    const games = await svc(`tournaments?club_id=eq.${S.clubId}&select=id,status`);
     step('a repeat Yes after the match changes nothing',
-      again?.target_tournament_id === S.target.tournamentId && cents(await wallet('b')) === cents(end.b)
-        && ['matched', 'expired'].includes(repeat.body?.status), repeat.body);
+      cents(await wallet('b')) === cents(end.b)
+        && (repeat.body?.status === 'expired' || repeat.body?.table_id === S.target.tableId)
+        && games.filter((g) => ['RUNNING', 'COMPLETED'].includes(String(g.status).toUpperCase())).length === 2,
+      repeat.body);
   } catch (e) {
     error = String(e?.message || e);
     log('ERROR', error);
