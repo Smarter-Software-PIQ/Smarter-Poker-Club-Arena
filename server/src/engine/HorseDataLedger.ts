@@ -50,7 +50,13 @@ export type LedgerKind =
   | 'tag';
 
 export type LedgerCadence =
-  'per_action' | 'per_hand' | 'per_sit' | 'minute' | 'boot' | 'nightly' | 'legacy_unused';
+  | 'per_action'
+  | 'per_hand'
+  | 'per_sit'
+  | 'minute'
+  | 'boot'
+  | 'nightly'
+  | 'legacy_unused';
 
 export interface LedgerEntry {
   key: string;
@@ -905,8 +911,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'readBreakEvenBluff',
-    '2026-11-08 (read calibration follow-up) the exploit bluff multiplier is re-derived from break-even: the decision context postflop fold-to-bet read, shrunk toward the game population mean with 16 pseudo-observations, is placed on the measured fold-by-bet-size curve (18,560 NLH and 23,652 PLO first-bet responses, every seat pooled) and the multiplier is proportional to the fold share above s / (1 + s), scaled so the population keeps the ladder tuned volume (x1.45) at a 0.67-pot bet, clamped 0.3 .. 1.5; the c-bet, probe, semi-bluff and pure-bluff bets price their own size; nlh and plo4-6 only; replaces readPostflopFoldRate, whose read alone against the old 0.62 / 0.35 lines lost the mirror; default off, the league measures it',
+    '2026-11-08 (read calibration follow-up) the exploit bluff multiplier is re-derived from break-even: the decision context postflop fold-to-bet read, shrunk toward the game population mean with 16 pseudo-observations, is placed on the measured fold-by-bet-size curve (18,560 NLH and 23,652 PLO first-bet responses, every seat pooled) and the multiplier is proportional to the fold share above s / (1 + s), scaled so the population keeps the ladder tuned volume (x1.45) at a 0.67-pot bet, clamped 0.3 .. 1.5; the c-bet, probe, semi-bluff and pure-bluff bets price their own size; nlh and plo4-6 only; replaces readPostflopFoldRate, whose read alone against the old 0.62 / 0.35 lines lost the mirror; 2026-11-08 it answers only for an opponent whose postflop fold-to-bet or river-call read is engaged (the opponent-exploit gate), so an unread opponent keeps the flag-off price, and a semi-bluff break-even is s (1 - 2e) / (1 + s - e (1 + 2s)), the fold share at which betting matches checking; default off, the league measures it',
     'Read calibration'
+  ),
+  flag(
+    'omahaEvFoldModel',
+    '2026-11-08 (Omaha threshold calibration) at PLO4 / PLO5 / PLO6 cash tables the EV bet engine prices each opponent fold as MDF s / (1 + s) times the game measured fold share over MDF (flop and turn first-bet responses, every seat pooled, cash: PLO4 1.289, PLO5 1.458, PLO6 1.409) scaled by the opponent postflop fold-to-bet read shrunk toward the game population (16 pseudo-observations), instead of the all-street exploit bluff multiplier, which read 85% of human Omaha postflop spots as stations (x0.55) on preflop calls; walk-forward out of sample the engine predicted 37.8% folds against 52.0% actual (Brier 0.2471, model 0.2218); tournament decisions keep the exploit multiplier (tournament players fold about MDF, ratio 1.04-1.09, and the cash ratio lost the PLO4 tournament mirror); the scalar bluffMod other consumers classify by is unchanged; default ON (league: PLO4 mirror +3.74 +/- 1.63 and +4.29 +/- 1.48 bb/100 on two seeds, PLO6 human-calibrated field +19.77 +/- 8.10 on one, no card significantly negative, no exploiter earns more); explicit off arm keeps the exploit bluff multiplier',
+    'Omaha threshold calibration'
   ),
   flag(
     'readScopedShrink',
@@ -1201,15 +1212,17 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
       ['callRespect', 'variant call respect offset (HorseVariantProfile)'],
       ['familyBias', 'V18 sizing family hashed from the horse id'],
     ] as const
-  ).map(([key, note]): LedgerEntry => ({
-    key,
-    kind: 'param',
-    source: 'STYLE_PARAMS[style] resolved with HorseProfileMods in HorseLogic.decide',
-    cadence: 'per_action',
-    consumer: 'HorseLogic.decide / HorsePreflop.decidePreflopV7',
-    note,
-    since: key === 'familyBias' ? 'V18' : 'V2',
-  })),
+  ).map(
+    ([key, note]): LedgerEntry => ({
+      key,
+      kind: 'param',
+      source: 'STYLE_PARAMS[style] resolved with HorseProfileMods in HorseLogic.decide',
+      cadence: 'per_action',
+      consumer: 'HorseLogic.decide / HorsePreflop.decidePreflopV7',
+      note,
+      since: key === 'familyBias' ? 'V18' : 'V2',
+    })
+  ),
 
   // ─────────────────────────────────────────────────────────────────────────
   // PROFILE KEYS. profiles.horse_profile (jsonb). Read at sit-down today
@@ -1245,20 +1258,22 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
         'V48',
       ],
     ] as const
-  ).map(([key, note, since]): LedgerEntry => ({
-    key,
-    kind: 'profile',
-    source: 'profiles.horse_profile (jsonb) via resolveHorseStyle',
-    cadence: 'per_sit',
-    consumer:
-      key === 'persona'
-        ? 'HorsePersona.resolvePersona (ServerTableEngineDealing straddle round); HorseLogic.followsSolver (the GTO consult)'
-        : key.startsWith('leaks')
-          ? 'HorseLogic.leakLoad (diagnostic only); HorseLogic.decide (ignored-evidence receipt)'
-          : 'HorseLogic.decide',
-    note,
-    since,
-  })),
+  ).map(
+    ([key, note, since]): LedgerEntry => ({
+      key,
+      kind: 'profile',
+      source: 'profiles.horse_profile (jsonb) via resolveHorseStyle',
+      cadence: 'per_sit',
+      consumer:
+        key === 'persona'
+          ? 'HorsePersona.resolvePersona (ServerTableEngineDealing straddle round); HorseLogic.followsSolver (the GTO consult)'
+          : key.startsWith('leaks')
+            ? 'HorseLogic.leakLoad (diagnostic only); HorseLogic.decide (ignored-evidence receipt)'
+            : 'HorseLogic.decide',
+      note,
+      since,
+    })
+  ),
 
   // ─────────────────────────────────────────────────────────────────────────
   // HORSEMIND COUNTERS. One OpponentStats per observed player, shared by the
