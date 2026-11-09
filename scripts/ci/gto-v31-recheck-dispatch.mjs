@@ -42,6 +42,16 @@ const UUID_IN = /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9
 export const RECHECK_WORKFLOW = 'gto-v31-qualification.yml';
 /** The `name:` of the engine release workflow; any completed run of it may have changed the serving engine. */
 export const RELEASE_WORKFLOW_NAME = 'Auto-Deploy Hetzner Engine (on server/ changes)';
+/**
+ * The release workflow is recognised by its file, never by its run name. Its
+ * `run-name` titles every run per engine ("Engine Release <sha>"), and a
+ * workflow_run payload's `name` is that title: on 2026-11-08 the admission
+ * compared it with the workflow's name, refused the successful release that
+ * put 391f7bc0 in service (run 42413295909 -> decision run 42415683930,
+ * "Not a successful protected-main engine release"), and so no release since
+ * #9852 could ever dispatch a re-check.
+ */
+export const RELEASE_WORKFLOW_PATH = '.github/workflows/auto-deploy-hetzner.yml';
 export const RELEASE_STATES = Object.freeze(['active', 'candidate']);
 
 const fullSha = (v) => typeof v === 'string' && SHA.test(v) && v !== '0'.repeat(40);
@@ -114,7 +124,7 @@ export function recheckDispatchBody(dataset) {
  */
 export function releaseEventAdmitted({ eventName, repository, repositoryId, workflowRun }) {
   return eventName === 'workflow_run' && isClubArenaRepository(repository, repositoryId) &&
-    workflowRun?.name === RELEASE_WORKFLOW_NAME && workflowRun?.head_branch === 'main';
+    workflowRun?.path === RELEASE_WORKFLOW_PATH && workflowRun?.head_branch === 'main';
 }
 
 async function json(url, init, label) {

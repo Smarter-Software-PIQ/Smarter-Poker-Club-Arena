@@ -160,10 +160,93 @@ export function invocation(env,event){
  requireValue(exact(p,['dataset','candidate_sha','image_id','stage_run'])&&UUID.test(p.dataset)&&SHA.test(p.candidate_sha)&&(IMAGE.test(p.image_id)||p.image_id===RESOLVE_EXISTING_IMAGE)&&/^[1-9][0-9]*$/.test(p.stage_run),'Exact staged-image selection required');
  return p;
 }
-export function stageAdmission(run,jobs,sha){
- requireValue(run?.path==='.github/workflows/auto-deploy-hetzner.yml'&&run.event==='repository_dispatch'&&run.head_branch==='main'&&run.display_title===`Engine Release ${sha}`,'Existing exact release run required');
- const required=[...Array.from({length:4},(_,i)=>`Test The Exact Engine Release Request (shard ${i+1}/4)`),'Prove The Exact Engine Has Every Production Door'];
- for(const name of required){const matches=jobs.filter(j=>j.name===name);requireValue(matches.length===1&&matches[0].status==='completed'&&matches[0].conclusion==='success',`Existing source admission incomplete: ${name}`);}
+const RELEASE_PATH='.github/workflows/auto-deploy-hetzner.yml',PREQUALIFICATION_PATH='.github/workflows/engine-release-prequalification.yml',REPOSITORY_ID=1132369872;
+const DOORS='Prove The Exact Engine Has Every Production Door';
+/** Before PR #9960 the receiver tested the exact request itself, in a run whose head was that exact commit. */
+export const LEGACY_RELEASE_SHARDS=Object.freeze(Array.from({length:4},(_,i)=>`Test The Exact Engine Release Request (shard ${i+1}/4)`));
+/** Since PR #9960 the receiver runs at the protected main tip, verifies client_payload.ref_sha and reads that exact candidate's prequalification. */
+export const RELEASE_PREFLIGHT='Verify the exact prepared engine release request';
+/** The exact receipt scripts/ci/read-engine-prequalification.py requires. */
+export const PREQUALIFICATION_JOBS=Object.freeze([...Array.from({length:4},(_,i)=>`Qualify exact engine (${i+1}/4)`),'Stage immutable candidate and rollback images']);
+const PREPARED=/^Prepared image (sha256:[0-9a-f]{64}) rollback (sha256:[0-9a-f]{64}) tree ([0-9a-f]{40})$/;
+const succeeded=j=>j?.status==='completed'&&j.conclusion==='success';
+const when=v=>{const t=typeof v==='string'&&/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/.test(v)?Date.parse(v):NaN;requireValue(Number.isFinite(t),'Exact provider timestamp required');return t;};
+export function releaseMode(jobs){requireValue(Array.isArray(jobs),'Release job inventory required');return jobs.some(j=>LEGACY_RELEASE_SHARDS.includes(j?.name))?'legacy_release_shards':'engine_release_prequalification';}
+export const RELEASE_REQUEST_STEPS=Object.freeze(['Checkout the requested immutable commit','Prove the request is current protected-main engine code']);
+export const RELEASE_CERTIFICATE_STEP='Require the Backup Engine certificate for this exact SHA';
+export const RELEASE_PREQUALIFICATION_STEP='Require previously completed daytime qualification';
+/** The one receiver job whose own steps resolved client_payload.ref_sha: the request verifier, or before #9960 the first test shard. */
+export function releaseBindingJob(jobs,mode=releaseMode(jobs)){
+ const name=mode==='legacy_release_shards'?LEGACY_RELEASE_SHARDS[0]:RELEASE_PREFLIGHT;
+ const m=Array.isArray(jobs)?jobs.filter(j=>j?.name===name):[];
+ requireValue(m.length===1&&succeeded(m[0])&&Number.isSafeInteger(m[0].id)&&m[0].id>0,`Exact successful release request verification required: ${name}`);
+ const required=[...RELEASE_REQUEST_STEPS,...(mode==='legacy_release_shards'?[]:[RELEASE_CERTIFICATE_STEP,RELEASE_PREQUALIFICATION_STEP])];
+ for(const step of required){const x=(m[0].steps||[]).filter(s=>s.name===step);requireValue(x.length===1&&succeeded(x[0]),`Release request verification incomplete: ${step}`);}
+ const cert=(m[0].steps||[]).filter(s=>s.name===RELEASE_CERTIFICATE_STEP);requireValue(cert.length===0||(cert.length===1&&succeeded(cert[0])),`Release request verification incomplete: ${RELEASE_CERTIFICATE_STEP}`);
+ return {job:m[0],certificate:cert.length===1};
+}
+/** A repository_dispatch receiver runs at the protected main tip. It binds the candidate the way the
+ * receiver itself does: GitHub titled the run from client_payload.ref_sha, the verifier checked out
+ * that ref, proved HEAD equals the REQUESTED_SHA it printed and (since Nov 6) certified that SHA. */
+export function receiverBinding(run,binding,log,sha,containsCandidate){
+ requireValue(SHA.test(run?.head_sha)&&containsCandidate===true,'Receiver protected main must contain the exact candidate');
+ requireValue(typeof log==='string'&&Buffer.byteLength(log)<=16*1024*1024,'Bounded receiver verification log required');
+ const lines=log.split('\n').map(l=>l.replace(/^\uFEFF/,'').replace(/\r$/,'')).filter(l=>/^\d{4}-\d\d-\d\dT\S+Z /.test(l)).map(l=>l.slice(l.indexOf(' ')+1));
+ const requested=lines.map(l=>l.match(/^\s+REQUESTED_SHA: (.*)$/)).filter(Boolean).map(m=>m[1]);
+ const certified=lines.map(l=>l.match(/^Backup Engine certified (\S+) \(backup-engine\/certified = success\)\.$/)).filter(Boolean).map(m=>m[1]);
+ requireValue(requested.length===1&&requested[0]===sha,'Receiver did not verify this exact candidate request');
+ requireValue(binding.certificate?certified.length===1&&certified[0]===sha:certified.length===0,'Receiver did not certify this exact candidate request');
+ return {receiver_sha:run.head_sha,release_verification_job:binding.job.id};
+}
+/** The newest exact-candidate qualification that existed when the receiver read it. */
+export function chosenPrequalification(runs,preflight,sha){
+ requireValue(Array.isArray(runs)&&SHA.test(sha),'Exact prequalification inventory required');
+ const start=when(preflight?.started_at),end=when(preflight?.completed_at);requireValue(start<=end,'Ordered receiver verification required');
+ for(const r of runs)requireValue(r?.path===PREQUALIFICATION_PATH&&r.head_sha===sha&&r.head_branch==='main'&&r.repository?.id===REPOSITORY_ID&&r.head_repository?.id===REPOSITORY_ID&&Number.isSafeInteger(r.id)&&r.id>0,'Exact protected prequalification identity required');
+ const created=runs.map(r=>when(r.created_at));
+ requireValue(!created.some(t=>t>=start&&t<=end),'Prequalification changed while the receiver read it');
+ const prior=runs.filter((r,i)=>created[i]<start);requireValue(prior.length>0,'Exact candidate prequalification required');
+ return prior.reduce((a,b)=>b.id>a.id?b:a);
+}
+export function prequalificationReceipt(run,jobs,sha,tree,preflight){
+ requireValue(SHA.test(tree)&&['push','workflow_dispatch'].includes(run?.event)&&run.status==='completed'&&run.conclusion==='success'&&Number.isSafeInteger(run.run_attempt)&&run.run_attempt>0,'Passing exact candidate prequalification required');
+ requireValue(Array.isArray(jobs)&&jobs.length===PREQUALIFICATION_JOBS.length&&new Set(jobs.map(j=>j?.name)).size===jobs.length&&PREQUALIFICATION_JOBS.every(n=>jobs.some(j=>j.name===n)),'Complete exact prequalification jobs required');
+ const start=when(preflight?.started_at);
+ for(const j of jobs)requireValue(j.run_id===run.id&&j.run_attempt===run.run_attempt&&j.head_sha===sha&&succeeded(j)&&when(j.completed_at)<=start,'Passing prequalification job completed before the receiver read it');
+ const markers=(jobs.find(j=>j.name===PREQUALIFICATION_JOBS[4]).steps||[]).filter(s=>s.conclusion==='success'&&typeof s.name==='string'&&s.name.startsWith('Prepared image '));
+ requireValue(markers.length===1,'One immutable image receipt required');
+ const m=markers[0].name.match(PREPARED);requireValue(m&&m[3]===tree,'Immutable image receipt differs from the exact candidate server tree');
+ return {prequalification_run:run.id,prequalification_attempt:run.run_attempt,image_id:m[1],rollback_image_id:m[2],server_tree:m[3]};
+}
+/** evidence: {receiverContainsCandidate, bindingLog, tree, prequalification:{runs,jobs}, imageId}; only what the mode needs. */
+export function stageAdmission(run,jobs,sha,evidence={}){
+ requireValue(SHA.test(sha)&&run?.path===RELEASE_PATH&&run.event==='repository_dispatch'&&run.head_branch==='main'&&run.display_title===`Engine Release ${sha}`&&SHA.test(run.head_sha),'Existing exact release run required');
+ const doors=Array.isArray(jobs)?jobs.filter(j=>j?.name===DOORS):[];requireValue(doors.length===1&&succeeded(doors[0]),`Existing source admission incomplete: ${DOORS}`);
+ const mode=releaseMode(jobs),binding=releaseBindingJob(jobs,mode);
+ // Before #9960 a receiver dispatched while the candidate was the main tip ran on it exactly (R7).
+ const bound=mode==='legacy_release_shards'&&run.head_sha===sha?{receiver_sha:sha,release_verification_job:binding.job.id}:receiverBinding(run,binding,evidence.bindingLog,sha,evidence.receiverContainsCandidate);
+ if(mode==='legacy_release_shards'){
+  for(const name of LEGACY_RELEASE_SHARDS){const m=jobs.filter(j=>j.name===name);requireValue(m.length===1&&succeeded(m[0]),`Existing source admission incomplete: ${name}`);}
+  return {mode,...bound};
+ }
+ const p=evidence.prequalification;requireValue(p&&Array.isArray(p.runs)&&Array.isArray(p.jobs),'Exact candidate prequalification required');
+ const receipt=prequalificationReceipt(chosenPrequalification(p.runs,binding.job,sha),p.jobs,sha,evidence.tree,binding.job);
+ requireValue(evidence.imageId===RESOLVE_EXISTING_IMAGE||evidence.imageId===receipt.image_id,'Selected immutable image differs from the prequalified image');
+ return {mode,...bound,...receipt};
+}
+export function admittedImage(admission,image){requireValue(IMAGE.test(image)&&(admission?.mode==='legacy_release_shards'||(admission?.mode==='engine_release_prequalification'&&admission.image_id===image)),'Selected immutable image differs from the prequalified image');return image;}
+/** The census is the dataset's own pinned runtime protocol (approved manifest, checksum-bound in every program's provenance). */
+export const R7_CENSUS=Object.freeze({[R7_RESUME_HANDOFF.dataset]:107,'187815b1-3701-46c8-8514-93db3cdb6d07':107});
+export function censusAuthority(prior,row){
+ const protocol=row?.runtime_parity_protocol;requireValue(protocol&&Array.isArray(protocol.contexts)&&protocol.contexts.length>0,'Pinned runtime protocol census required');
+ const checksum=digest(protocol);if(prior){requireValue(prior.checksum===checksum,'One pinned dataset runtime protocol required');return prior;}
+ const ids=protocol.contexts.map(g=>digest(g.context));requireValue(new Set(ids).size===ids.length,'Unique pinned protocol contexts required');
+ return {checksum,ids:new Set(ids),count:ids.length};
+}
+export function censusComplete(authority,observed,dataset){
+ requireValue(authority&&observed instanceof Set&&observed.size===authority.count&&[...observed].every(c=>authority.ids.has(c)),`Complete ${authority?.count??'pinned'}-context private preparation set required`);
+ requireValue(!(dataset in R7_CENSUS)||authority.count===R7_CENSUS[dataset],'Pinned R7 107-context census required');
+ return authority.count;
 }
 export const GRAPH_FILES=Object.freeze(['server/src/engine/GtoPublicHist215Features.ts','server/src/engine/GtoPublicHist215FeatureSchema.ts','server/src/engine/GtoPublicHist215FeatureDescriptor.json','server/src/engine/GtoBoardRelativeFeaturesV1.ts','server/src/engine/GtoBoardRelativeFeaturesV2.ts','server/src/engine/GtoPublicHist215Model.ts','server/native/public_hist215_wtl.cc','server/scripts/build-public-hist215-native.mjs','server/src/scripts/buildPublicHist215Features.ts','server/scripts/prepare-public215-feature-request.py']);
 /** Feature contract v2 (holdem-public-hist215-v2) adds its descriptor and the contract table. */
@@ -439,25 +522,45 @@ async function loadResume(m,out){
  return files;
 }
 
+/** What stageAdmission needs beyond the run and its jobs, read from the same provider records the receiver used. */
+export async function releaseEvidence(run,jobs,selected,{readPages,readLog,isAncestor,serverTree}){
+ const sha=selected.candidate_sha,mode=releaseMode(jobs);
+ if(mode==='legacy_release_shards'&&run?.head_sha===sha)return {};
+ requireValue(SHA.test(run?.head_sha),'Exact receiver commit required');
+ const binding=releaseBindingJob(jobs,mode),evidence={receiverContainsCandidate:isAncestor(sha,run.head_sha)===true,bindingLog:await readLog(binding.job.id),tree:serverTree(),imageId:selected.image_id};
+ if(mode==='legacy_release_shards')return evidence;
+ const runs=await readPages(`/actions/workflows/engine-release-prequalification.yml/runs?branch=main&head_sha=${sha}`,'workflow_runs');
+ const chosen=chosenPrequalification(runs,binding.job,sha);
+ return {...evidence,prequalification:{runs,jobs:await readPages(`/actions/runs/${chosen.id}/jobs?filter=latest`,'jobs')}};
+}
+function preflightReaders(){
+ const repo=`repos/${process.env.GITHUB_REPOSITORY}`;
+ return {
+  readPages:async(path,key)=>JSON.parse(command('gh',['api','--paginate','--slurp',`${repo}${path}${path.includes('?')?'&':'?'}per_page=100`])).flatMap(page=>page[key]),
+  readLog:async id=>command('gh',['api',`${repo}/actions/jobs/${id}/logs`],{maxBuffer:16*1024*1024}),
+  isAncestor:(ancestor,descendant)=>{command('git',['merge-base','--is-ancestor',ancestor,descendant]);return true;},
+ };
+}
 async function main(){
  const selected=invocation(process.env,JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH,'utf8')));
  const out=resolve(process.env.PUBLIC215_RECEIPT_DIR||'artifacts/public215-linux-preflight');mkdirSync(out,{recursive:true,mode:0o700});
- const state={phase:'source',offset:null,context_id:null,request_sha256:null};let count=0,imported=0,imageId,before,after;
+ const state={phase:'source',offset:null,context_id:null,request_sha256:null};let count=0,imported=0,imageId,before,after,census=null;
  const record=(name,value)=>writeEvidence(out,name,canonical(value)+'\n');
  try{
  command('git',['merge-base','--is-ancestor',selected.candidate_sha,'origin/main']);
  const tree=command('git',['rev-parse',selected.candidate_sha+':server']);
  const run=JSON.parse(command('gh',['api',`repos/${process.env.GITHUB_REPOSITORY}/actions/runs/${selected.stage_run}`]));
- const pages=JSON.parse(command('gh',['api','--paginate','--slurp',`repos/${process.env.GITHUB_REPOSITORY}/actions/runs/${selected.stage_run}/jobs?per_page=100`]));stageAdmission(run,pages.flatMap(p=>p.jobs),selected.candidate_sha);
+ const pages=JSON.parse(command('gh',['api','--paginate','--slurp',`repos/${process.env.GITHUB_REPOSITORY}/actions/runs/${selected.stage_run}/jobs?per_page=100`])),releaseJobs=pages.flatMap(p=>p.jobs);
+ const admission=stageAdmission(run,releaseJobs,selected.candidate_sha,await releaseEvidence(run,releaseJobs,selected,{...preflightReaders(),serverTree:()=>tree}));
  state.phase='health_before';before=await healthy();const observed=new Set();let resume,prior;
  await preservePrimary(async()=>{
- state.phase='image';imageId=resolveImageSelection(selected,tree,remote=>command(process.env.PUBLIC215_SSH_COMMAND,[remote]),(name,bytes)=>writeEvidence(out,name,bytes));
+ state.phase='image';imageId=resolveImageSelection(selected,tree,remote=>command(process.env.PUBLIC215_SSH_COMMAND,[remote]),(name,bytes)=>writeEvidence(out,name,bytes));admittedImage(admission,imageId);
  resume=resumeSelection(selected,tree,before.releaseSha,imageId);
  if(resume){state.phase='resume';prior=await loadResume(resume,out);record('resume-lineage.json',{format:'public215_linux_explicit_resume_v1',predecessor_run:resume.predecessor.run_id,predecessor_attempt:resume.predecessor.attempt,artifact_id:resume.predecessor.artifact_id,archive_sha256:resume.predecessor.archive_sha256,handoff_sha256:digest(resume),contexts:resume.contexts,status:resume===R7_RESUME_HANDOFF?'six_prior_receipts_only_remaining_contexts_required':`${resume.contexts.length}_prior_receipts_only_remaining_contexts_required`});}
  for(let offset=0;offset<=1024;offset++){
   Object.assign(state,{phase:'preparation',offset,context_id:null,request_sha256:null});record(`attempt-${offset}.started.json`,{...state,observedAt:new Date().toISOString()});
   const page=await rpc('fn_gto_v31_model_preparations',{p_dataset_id:selected.dataset,p_offset:offset,p_limit:1});requireValue(Array.isArray(page)&&page.length<=1,'One private preparation page required');if(!page.length){record(`attempt-${offset}.terminal.json`,{...state,status:'end_of_preparations'});break;}
-  state.phase='request';const row=page[0],request=programRequest(row,selected.dataset),cid=digest(row.context);state.context_id=cid;requireValue(!observed.has(cid),'Duplicate private preparation');observed.add(cid);
+  state.phase='request';const row=page[0],request=programRequest(row,selected.dataset),cid=digest(row.context);census=censusAuthority(census,row);state.context_id=cid;requireValue(!observed.has(cid),'Duplicate private preparation');observed.add(cid);
   sourceGraph(row.encoder_descriptor,row.public_training_provenance.encoder_checksum,path=>Buffer.from(command('git',['show',selected.candidate_sha+':'+path],{encoding:null})));
   const bytes=canonical(request),requestSha=createHash('sha256').update(bytes,'ascii').digest('hex');state.request_sha256=requestSha;
   record(`attempt-${offset}.bound.json`,{...state,observedAt:new Date().toISOString()});
@@ -469,7 +572,7 @@ async function main(){
   executionEvidence(result,{exit_code:0,context_id:cid,request_sha256:requestSha,candidate_sha:selected.candidate_sha,image_id:imageId,stage_run:selected.stage_run,observedAt:new Date().toISOString()},(name,bytes)=>writeEvidence(out,name,bytes));count++;
   record(`attempt-${offset}.terminal.json`,{...state,status:'actual_ssh_and_native_exit0'});
  }
- state.phase='census';requireValue(count===107&&(!resume||imported===resume.contexts.length),'Complete 107-context private preparation set required');
+ state.phase='census';requireValue(count===censusComplete(census,observed,selected.dataset)&&(!resume||imported===resume.contexts.length),'Complete pinned-census private preparation set required');
  },async()=>{
   after=await healthy();record('serving-identity.json',{serving_sha_before:before.releaseSha,serving_sha_after:after.releaseSha,contexts:count});requireValue(before.releaseSha===after.releaseSha,'Healthy serving identity changed');if(resume)requireValue(after.releaseSha===resume.serving_sha,'Original continuation serving identity changed');
  },error=>record('post-health-failure.json',failureEvidence(error,{phase:'health_after',offset:state.offset,context_id:state.context_id,request_sha256:state.request_sha256})));

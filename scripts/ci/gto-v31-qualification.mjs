@@ -461,7 +461,21 @@ function provider() {
   return `github-actions:${process.env.GITHUB_REPOSITORY}:run-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}:${process.env.GITHUB_ACTOR ?? 'unknown'}`.slice(0, 200);
 }
 
-async function resolveEvaluation(selected, directory, contextPath) {
+/**
+ * The epoch choice an evaluate dispatch would make, read-only: the plan phase
+ * records it before the pre-screen, and resolve recomputes it and refuses to
+ * open or resume an epoch for any other engine commit than the screened one.
+ */
+export function plannedPinHolds(plan, dataset, choice) {
+  if (!plan || plan.operation !== 'evaluate' || plan.dataset !== dataset || !fullSha(plan.releaseSha))
+    throw new Error('The read-only plan of this evaluate dispatch is missing; the pre-screen must run first');
+  if (!fullSha(choice?.engineSha) || choice.engineSha !== plan.releaseSha)
+    throw new Error(`The pin moved from the pre-screened engine ${plan.releaseSha} to ${choice?.engineSha}; ` +
+      'nothing was opened. Dispatch evaluate again so the new pin is pre-screened');
+  return true;
+}
+
+async function chooseEvaluation(selected) {
   const control = resolve(process.env.GITHUB_WORKSPACE, 'control');
   if (git(control, ['rev-parse', 'HEAD']) !== process.env.GITHUB_SHA) throw new Error('Control checkout differs from the dispatched protected commit');
   const serving = await healthy();
@@ -474,10 +488,27 @@ async function resolveEvaluation(selected, directory, contextPath) {
     epochAware: (sha) => epochAwareCommit(control, sha),
     compatibleWithServing: compatibility?.compatible });
   protectedCommit(control, choice.engineSha);
+  // The pin's closure must be complete before an epoch is spent on it.
+  if (choice.action !== 'resume') closureCompatible(control, choice.engineSha, choice.engineSha);
+  return { serving, epoch, compatibility, choice };
+}
+
+/** Read-only: which engine commit this dispatch pins. Writes nothing to the database. */
+async function planEvaluation(selected, directory) {
+  const { serving, epoch, choice } = await chooseEvaluation(selected);
+  const plan = { dataset: selected.dataset, operation: 'evaluate', releaseSha: choice.engineSha, action: choice.action,
+    servingAtPlan: serving.releaseSha, epochNo: epoch?.epoch_no ?? null };
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, 'plan.json'), JSON.stringify(plan) + '\n');
+  appendFileSync(process.env.GITHUB_OUTPUT, `source_sha=${choice.engineSha}\nreceipt_directory=${directory}\n`);
+  console.log(`Evaluate would ${choice.action} an epoch pinned to ${choice.engineSha} (serving ${serving.releaseSha}); nothing opened yet`);
+}
+
+async function resolveEvaluation(selected, directory, contextPath) {
+  const { serving, epoch, compatibility, choice } = await chooseEvaluation(selected);
+  plannedPinHolds(JSON.parse(readFileSync(join(directory, 'plan.json'), 'utf8')), selected.dataset, choice);
   let opened = null;
   if (choice.action !== 'resume') {
-    // The pin's closure must be complete before an epoch is spent on it.
-    closureCompatible(control, choice.engineSha, choice.engineSha);
     opened = await rpc('fn_gto_v31_open_evaluation_epoch', { p_dataset_id: selected.dataset,
       p_engine_commit: choice.engineSha, p_opened_by: provider(), p_reason: choice.reason });
     if (!UUID.test(opened?.epoch_id ?? '') || opened.engine_commit !== choice.engineSha)
@@ -679,6 +710,7 @@ async function main() {
   const directory = join(process.env.RUNNER_TEMP, `gto-v31-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`);
   const contextPath = join(directory, 'context.json');
   const phase = process.argv[2];
+  if (phase === 'plan' && selected.operation === 'evaluate') return planEvaluation(selected, directory);
   if (phase === 'resolve' && selected.operation === 'evaluate') return resolveEvaluation(selected, directory, contextPath);
   if (phase === 'run' && selected.operation === 'evaluate') return runEvaluation(selected, directory, contextPath);
   if (phase === 'promote' && selected.operation === 'promote') return runPromotion(selected, directory);

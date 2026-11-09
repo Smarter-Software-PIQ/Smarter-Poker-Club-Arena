@@ -80,10 +80,8 @@ import { useMasterBusSubscription } from '../../../hooks/useMasterBusSubscriptio
 import { reportError } from '../../../utils/errorReporter';
 import { readCommittedTournamentBlinds } from '../../../utils/committedTournamentBlinds';
 import { isRecordedSatelliteQualifier } from '../../../utils/satelliteQualification';
-import { useDownlineIds } from './useDownlineIds';
-import { useParams } from 'react-router-dom';
-import { readClubContextParam } from '../../../utils/clubScopedPath';
-import { useUserStore } from '../../../stores/useUserStore';
+import { useMyPlayers } from './useMyPlayers';
+import MyPlayersCard from './MyPlayersCard';
 import {
   chips,
   chipsCompact,
@@ -101,6 +99,7 @@ import type { TournamentEntry } from './types';
 import SatelliteSeatBadge from './SatelliteSeatBadge';
 import BuyInMarks from './BuyInMarks';
 import '../../../styles/tournament-lobby-3d.css';
+import './HeroPin.css';
 import './RankingTab.css';
 
 /** Above this many entries the list asks the browser to skip offscreen work. */
@@ -527,23 +526,6 @@ function RankingTabForTournament({
    */
   const eventRunning = Boolean(onWatchPlayer);
 
-  // "Mine" means the club the viewer is INSIDE right now (Dan 2026-11-06):
-  // the club lobby's `:clubId`, else the club they entered through. Never the
-  // whole union, and never a club they are not currently in.
-  // The club lobby's `:clubId`, else the `?club=` every lobby link carries
-  // (withClubContext), else the club they entered through. Any of these may
-  // be a slug or number code; the hook resolves it to the club's id.
-  const routeClubId = useParams<{ clubId?: string }>().clubId;
-  const linkClubId = readClubContextParam(
-    typeof window === 'undefined' ? '' : window.location.search
-  );
-  const enteredClubId = useUserStore((s) => s.currentClubId);
-  const { downlineIds, carriesDownline } = useDownlineIds(
-    currentUserId,
-    tournament?.id,
-    routeClubId || linkClubId || enteredClubId
-  );
-
   // ── the pulse ───────────────────────────────────────────────────────────────
   /** Schedule the moment this row's flash goes out. Restarts a running one. */
   const armPulse = useCallback(
@@ -804,6 +786,13 @@ function RankingTabForTournament({
     [ordered, tournament, activeRanks]
   );
 
+  /* "Mine" is the club the viewer is INSIDE right now (Dan 2026-11-06); the
+     hook resolves it exactly as this tab always did and is shared with Details,
+     Rewards and Tables (Dan 2026-11-08), so all four tabs count an agent's
+     players one way. Fed the merged board so the card moves with the rows. */
+  const myPlayers = useMyPlayers(tournament, merged, tables, currentUserId);
+  const downlineIds = myPlayers.downlineIds;
+
   /* The previous stack for every player on the board, refreshed AFTER each
      render so an incoming patch can still read the value it is replacing. */
   useEffect(() => {
@@ -875,31 +864,11 @@ function RankingTabForTournament({
    *
    * Dan asked for the downline HIGHLIGHTED so an agent can see "which of his
    * players are in, and how they are doing". A cyan rail answers the first
-   * half. This answers the second in one line - how many are still alive, and
-   * where the best of them sits - so an agent does not have to scroll a
-   * thousand rows to find four.
+   * half; MyPlayersCard answers the second, from the shared derivation, and
+   * (Dan 2026-11-08) never goes silent: an agent with nobody entered is told so.
    */
-  const downline = useMemo(() => {
-    if (!carriesDownline || downlineIds.size === 0) {
-      return { total: 0, alive: 0, bestRank: 0, totalChips: 0 };
-    }
-    let total = 0;
-    let alive = 0;
-    let bestRank = 0;
-    let totalChips = 0;
-    for (const row of ranked) {
-      if (!downlineIds.has(row.entry.user_id)) continue;
-      total += 1;
-      if (row.out) continue;
-      alive += 1;
-      totalChips += Number(row.entry.chips) || 0;
-      if (row.rank !== null && (bestRank === 0 || row.rank < bestRank)) bestRank = row.rank;
-    }
-    return { total, alive, bestRank, totalChips };
-  }, [ranked, downlineIds, carriesDownline]);
-
   /* The filter can only ever be on while there is something to filter to. */
-  const canFilterDownline = downline.total > 0;
+  const canFilterDownline = myPlayers.ready && myPlayers.summary.entered > 0;
   const filterActive = downlineOnly && canFilterDownline;
 
   const visible = useMemo(() => {
@@ -1144,34 +1113,25 @@ function RankingTabForTournament({
         </div>
       )}
 
-      {/* ── Downline: only ever drawn for someone who has one ────────────────
-             The count was the whole legend. An agent also wants to know how
-             many are still alive and where their best one sits, and to be able
-             to see only their own players without scrolling a thousand rows. */}
-      {downline.total > 0 && (
-        <div className="rk-legend">
-          <span className="rk-legend__swatch" aria-hidden="true" />
-          <span className="rk-legend__text">
-            <span className="rk-legend__line">
-              {chips(downline.alive)} Of {chips(downline.total)}{' '}
-              {downline.total === 1 ? 'Of Your Players Is' : 'Of Your Players Are'} Still In
-            </span>
-            {downline.bestRank > 0 && (
-              <span className="rk-legend__sub">
-                Best {ordinal(downline.bestRank)} - {chipsCompact(downline.totalChips)} Chips
-                Between Them
-              </span>
-            )}
-          </span>
-          <button
-            type="button"
-            className={`rk-filter${filterActive ? ' rk-filter--on' : ''}`}
-            onClick={() => setDownlineOnly((on) => !on)}
-            aria-pressed={filterActive}
-          >
-            {filterActive ? 'Show All' : 'Mine Only'}
-          </button>
-        </div>
+      {/* ── Your players: drawn for anyone who carries a downline, in every
+             state (Dan 2026-11-08), including nobody entered and nobody left.
+             Mine Only appears only when there is someone to filter to. ── */}
+      {myPlayers.ready && (
+        <MyPlayersCard
+          summary={myPlayers.summary}
+          action={
+            canFilterDownline ? (
+              <button
+                type="button"
+                className={`rk-filter${filterActive ? ' rk-filter--on' : ''}`}
+                onClick={() => setDownlineOnly((on) => !on)}
+                aria-pressed={filterActive}
+              >
+                {filterActive ? 'Show All' : 'Mine Only'}
+              </button>
+            ) : undefined
+          }
+        />
       )}
 
       <div className="tl-section-head rk-head">

@@ -31,8 +31,8 @@ describe('event-specific Horse registration choices', () => {
       expect(mttPrestartPlan(200, 9, id)).toBeLessThan(9);
       expect(mttPrestartPlan(200, 1, id)).toBe(0);
       const free = mttPrestartPlan(200, null, id, true);
-      expect(free).toBeGreaterThanOrEqual(120);
-      expect(free).toBeLessThanOrEqual(240);
+      expect(free).toBeGreaterThanOrEqual(400);
+      expect(free).toBeLessThanOrEqual(600);
     }
   });
 
@@ -104,8 +104,8 @@ describe('event-specific Horse registration choices', () => {
       const total = mttPrestartPlan(32, null, id, true);
       const opening = mttPrestartArrivalTarget(id, total, 0, true);
       openings.add(opening);
-      expect(total).toBeGreaterThanOrEqual(120);
-      expect(total).toBeLessThanOrEqual(240);
+      expect(total).toBeGreaterThanOrEqual(400);
+      expect(total).toBeLessThanOrEqual(600);
       expect(opening).toBeGreaterThanOrEqual(Math.ceil(total * 0.6));
       expect(opening).toBeLessThanOrEqual(Math.ceil(total * 0.8));
       expect(mttPrestartPlan(32, 40, id, true)).toBe(39);

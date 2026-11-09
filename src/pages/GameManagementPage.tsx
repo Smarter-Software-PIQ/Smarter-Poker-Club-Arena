@@ -1,4 +1,5 @@
 import { isFixedLimitVariant } from '../lib/bettingStructure';
+import { CASH_TABLE_MIN_BB } from '../config/cashGames';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import {
   isUnlimitedTournamentFormat,
@@ -359,7 +360,10 @@ export function EditGameDialog({
   const [name, setName] = useState(game.name);
   const [smallBlind, setSmallBlind] = useState(String(game.smallBlind || 1));
   const [bigBlind, setBigBlind] = useState(String(game.bigBlind || 2));
-  const [minBuyIn, setMinBuyIn] = useState(String(game.minBuyIn || 40));
+  /* Dan 2026-11-08: "MAKE THE MINIMUM BUY INS 50 BB FOR ANY AND ALL CASH
+     GAMES." The minimum follows the big blind and is never typed; the
+     database (fn_update_managed_game) derives the same bb * 50. */
+  const minBuyIn = String(Math.round(Number(bigBlind) * CASH_TABLE_MIN_BB * 100) / 100);
   const [maxBuyIn, setMaxBuyIn] = useState(String(game.maxBuyIn || 200));
   const [maxPlayers, setMaxPlayers] = useState(String(game.maxPlayers || 9));
   const [startTime, setStartTime] = useState(
@@ -383,7 +387,6 @@ export function EditGameDialog({
       !tableStructureLocked &&
       (smallBlind !== String(game.smallBlind || 1) ||
         bigBlind !== String(game.bigBlind || 2) ||
-        minBuyIn !== String(game.minBuyIn || 40) ||
         (!unlimitedCash && maxBuyIn !== String(game.maxBuyIn || 200)))) ||
     (game.kind === 'tournament' &&
       startTime !== (game.startTime ? new Date(game.startTime).toISOString().slice(0, 16) : ''));
@@ -557,7 +560,8 @@ export function EditGameDialog({
                   min="1"
                   step="1"
                   value={minBuyIn}
-                  onChange={(e) => setMinBuyIn(e.target.value)}
+                  readOnly
+                  title="Always 50 Big Blinds"
                   disabled={tableStructureLocked}
                   required
                 />

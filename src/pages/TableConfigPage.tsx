@@ -378,7 +378,8 @@ const DEFAULT_CONFIG: TableConfig = {
   actionTimeSeconds: 15,
   smallBlind: 0.05,
   bigBlind: 0.1,
-  minBuyInBB: 40,
+  /* Dan 2026-11-08: every cash minimum is exactly 50 BB. */
+  minBuyInBB: 50,
   /* Dan 2026-08-28: cash buy-ins are 40BB-200BB across the platform (the
      fleet, the horse launcher and the create-table API all write bb*40 /
      bb*200). This default was 100BB, so every table a club owner created

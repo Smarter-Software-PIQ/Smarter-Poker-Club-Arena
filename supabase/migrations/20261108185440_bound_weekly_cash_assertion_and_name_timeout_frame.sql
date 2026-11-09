@@ -8,7 +8,8 @@
 -- rake record took 5.8 seconds with the same zero unaccrued candidates.
 -- Keep missing and non-accrued receipts visible. If a natural scope visit
 -- still hits its budget, record only the failing function and line.
--- @live-proof: md5(pg_get_functiondef('public.fn_assert_cash_commission_period(uuid,uuid,timestamptz,timestamptz)'::regprocedure))='ef372e6bdd51f978f2cd7da1e2814098' AND md5(pg_get_functiondef('public.fn_process_weekly_accounting_scope(uuid,uuid)'::regprocedure))='bab099269e6370e48b3d8605c74d1b1d'
+-- Preserve the payout readiness guard that pins the weekly coordinator.
+-- @live-proof: md5(pg_get_functiondef('public.fn_assert_cash_commission_period(uuid,uuid,timestamptz,timestamptz)'::regprocedure))='ef372e6bdd51f978f2cd7da1e2814098' AND md5(pg_get_functiondef('public.fn_process_weekly_accounting_scope(uuid,uuid)'::regprocedure))='bab099269e6370e48b3d8605c74d1b1d' AND md5(pg_get_functiondef('smarter_private.weekly_payout_eligible_scopes(timestamptz,timestamptz)'::regprocedure))='2562cc56bed6664f2dfbfdee09cf3006'
 
 BEGIN;
 SET LOCAL lock_timeout = '2s';
@@ -18,6 +19,9 @@ DO $patch$
 DECLARE
   assertion text := pg_get_functiondef('public.fn_assert_cash_commission_period(uuid,uuid,timestamptz,timestamptz)'::regprocedure);
   coordinator text := pg_get_functiondef('public.fn_process_weekly_accounting_scope(uuid,uuid)'::regprocedure);
+  payout_eligibility text := pg_get_functiondef('smarter_private.weekly_payout_eligible_scopes(timestamptz,timestamptz)'::regprocedure);
+  old_coordinator_hash constant text := '12bfc8d8f09be5fa21b951efe3a77d62';
+  new_coordinator_hash constant text := 'bab099269e6370e48b3d8605c74d1b1d';
   old_join constant text := $old_join$     FROM public.rake_records r LEFT JOIN public.accounting_cash_accrual_batches b ON b.rake_record_id=r.id$old_join$;
   new_join constant text := $new_join$     FROM public.rake_records r
      LEFT JOIN LATERAL (
@@ -51,15 +55,21 @@ BEGIN
      OR cardinality(string_to_array(assertion, old_join)) IS DISTINCT FROM 2 THEN
     RAISE EXCEPTION 'WEEKLY_CASH_ASSERTION_PREIMAGE_CHANGED';
   END IF;
-  IF md5(coordinator) IS DISTINCT FROM '12bfc8d8f09be5fa21b951efe3a77d62'
+  IF md5(coordinator) IS DISTINCT FROM old_coordinator_hash
      OR cardinality(string_to_array(coordinator, declaration)) IS DISTINCT FROM 2
      OR cardinality(string_to_array(coordinator, old_handler)) IS DISTINCT FROM 2 THEN
     RAISE EXCEPTION 'WEEKLY_SCOPE_TIMEOUT_PREIMAGE_CHANGED';
   END IF;
 
+  IF md5(payout_eligibility) IS DISTINCT FROM '9c5e482c4d435f9c33bcc77a5e46edac'
+     OR cardinality(string_to_array(payout_eligibility, old_coordinator_hash)) IS DISTINCT FROM 2 THEN
+    RAISE EXCEPTION 'WEEKLY_PAYOUT_ELIGIBILITY_PREIMAGE_CHANGED';
+  END IF;
+
   EXECUTE replace(assertion, old_join, new_join);
   EXECUTE replace(replace(coordinator, declaration, declaration || E'\n  v_timeout_frame text[];'),
     old_handler, new_handler);
+  EXECUTE replace(payout_eligibility, old_coordinator_hash, new_coordinator_hash);
 END
 $patch$;
 

@@ -40,6 +40,14 @@ export function cashTemplateVariantAvailable(
 export const PINEAPPLE_CLASSIC_NOTE =
   'Short Deck, Omaha Hi-Lo And Pineapple Use Classic Games. They Are Not Available In Lightning Games.';
 
+/**
+ * Dan 2026-11-08: "MAKE THE MINIMUM BUY INS 50 BB FOR ANY AND ALL CASH GAMES."
+ * Every cash game and table, Classic and Lightning alike. The database is the
+ * authority (fn_cash_template_defaults, zz_cash_game_floor_from_template,
+ * fn_update_managed_game); screens print this number and never offer another.
+ */
+export const CASH_TABLE_MIN_BB = 50;
+
 export const LIGHTNING_RULES_SUMMARY = 'Big Blind Ante, 40% Minimum VPIP';
 
 export const CASH_TEMPLATES: ReadonlyArray<{ id: CashTemplate; label: string; blurb: string }> = [

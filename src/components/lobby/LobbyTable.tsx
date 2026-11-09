@@ -963,7 +963,7 @@ function TournamentHeadingRow({
         : (entry.kind === 'spin' || entry.kind === 'sng') && entry.capacity > 0
           ? `${entry.capacity} Seats`
           : `${entry.buyInLabel} Buy-In`;
-  const freeBuyKind = freeBuyKindLabel(entry);
+  const freeBuyKind = freeBuyKindLabel(entry) ?? lightningTitleRules(entry);
   const titleRef = useFitText<HTMLSpanElement>(heading, 1, 0.5, { wrapBelow: 0.84, maxLines: 2 });
   const headingCellRef = useRef<HTMLTableCellElement>(null);
   useLayoutEffect(() => {
@@ -1030,7 +1030,9 @@ function TournamentHeadingRow({
               {heading}
             </span>
             {/* Dan 2026-11-07: a free roll prints which event it is running
-                as a second title under the name (freeBuyKindLabel). */}
+                as a second title under the name (freeBuyKindLabel). Dan
+                2026-11-08: a Lightning game prints its rules there instead
+                (lightningTitleRules). */}
             {freeBuyKind && <span className="lt-tournament-heading__format">{freeBuyKind}</span>}
             {playerState && <PlayerStateChip state={playerState} heading />}
           </span>
@@ -1059,14 +1061,41 @@ function CashStyleLine({ text, title = text }: { text: string; title?: string })
   );
 }
 
-function CashStyleCopy({ entry }: { entry: LobbyEntry }) {
-  const subtitle = cashTitleLines(entry).subtitle;
+/* Dan 2026-11-08: "FOR 'LIGHTNING GAMES' PUT JUST 'LIGHTNING' (LIKE CLASSIC
+   IS) BUT THEN PUT UNDER THE TITLE ... THE SECOND LINE SHOULD SAY 'BIG BLIND
+   ANTE - 40% MIN VPIP'." A Lightning card's style bay prints one word, and its
+   rules move to a second line under the title (lightningTitleRules). */
+function lightningTitleRules(entry: LobbyEntry): string | null {
+  if (!isLightningCashRow(entry)) return null;
   const note = cashStyleNote(entry);
+  if (!note) return null;
+  return note
+    .split(/,\s*/)
+    .map((part) => part.replace(/\bMinimum\b/g, 'Min'))
+    .join(' - ');
+}
+
+function CashStyleCopy({ entry }: { entry: LobbyEntry }) {
+  const lightning = isLightningCashRow(entry);
+  const titleSubtitle = cashTitleLines(entry).subtitle;
+  const subtitle = lightning
+    ? (titleSubtitle?.replace(/^Lightning Games\b/, 'Lightning') ?? 'Lightning')
+    : titleSubtitle;
+  const note = lightning ? null : cashStyleNote(entry);
+  const lines = [
+    ...(subtitle ? [{ text: subtitle, title: subtitle }] : []),
+    ...(note?.split(/,\s*/).map((part) => ({
+      text: part.replace(/\bMinimum\b/g, 'Min'),
+      title: part,
+    })) ?? []),
+  ];
+  /* Dan 2026-11-08: "IF ITS JUST 'CLASSIC' CLASSIC SHOULD FIT IN THAT WHOLE
+     SPACE." A single word takes the bay's full size; the fitter still shrinks
+     it to the glass width. */
   return (
-    <span className="premium-cash-style">
-      {subtitle && <CashStyleLine text={subtitle} />}
-      {note?.split(/,\s*/).map((part, index) => (
-        <CashStyleLine key={index} text={part.replace(/\bMinimum\b/g, 'Min')} title={part} />
+    <span className={`premium-cash-style${lines.length === 1 ? ' premium-cash-style--single' : ''}`}>
+      {lines.map((line, index) => (
+        <CashStyleLine key={index} text={line.text} title={line.title} />
       ))}
     </span>
   );

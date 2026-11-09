@@ -247,7 +247,9 @@ describe('Omaha dirty-card outlook reaches the actual continuation chooser', () 
           f.gs as never,
           'balanced',
           {},
-          { telemetry: false, flopTurnBluffBaseline: false }
+          // The 2026-11-08 Omaha EV fold model prices this cash bet's folds
+          // (it sizes to 20 with the model on); isolated the same way.
+          { telemetry: false, flopTurnBluffBaseline: false, omahaEvFoldModel: false }
         )
       );
       return { ...decision, outlook };

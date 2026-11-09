@@ -340,8 +340,8 @@ describe('E - every switch and every slider of the rules step has help', () => {
   it('each slider has a sibling Help button named for it', async () => {
     await walkToRules();
     const sliders = [...document.querySelectorAll('[data-step="overrides"] input[type="range"]')];
+    /* Dan 2026-11-08: the minimum is always 50 BB, printed and never a slider. */
     expect(sliders.map((s) => s.getAttribute('aria-label'))).toEqual([
-      'Minimum Buy In',
       'Maximum Buy In',
       'Action Time',
     ]);
@@ -358,7 +358,7 @@ describe('E - every switch and every slider of the rules step has help', () => {
     const helps = [
       ...document.querySelectorAll('[data-step="overrides"] button[aria-label^="Help: "]'),
     ] as HTMLButtonElement[];
-    expect(helps.length).toBe(9);
+    expect(helps.length).toBe(8); // the minimum buy-in slider is gone (2026-11-08)
     for (const help of helps) {
       fireEvent.click(help);
       const text = screen.getByRole('tooltip').textContent ?? '';

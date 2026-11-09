@@ -445,6 +445,8 @@ interface LateRegRow {
   on_break?: boolean | null;
   break_started_at?: string | null;
   add_on_available?: boolean | null;
+  addon_from_start?: boolean | null;
+  addon_period_started_at?: string | null;
   addon_period_ends_at?: string | null;
 }
 
@@ -470,7 +472,7 @@ async function rosterCount(
 
 /**
  * Keep horses late-registering into every RUNNING MTT of this host whose late
- * registration is open, until it closes. Never reads the guarantee.
+ * registration is open. The final ten-minute overlay check supplements ordinary arrivals.
  */
 export async function lateRegisterHorsesOnce(
   unionId: string = MIDWAY_UNION_ID,
@@ -493,7 +495,7 @@ export async function lateRegisterHorsesOnce(
     const { data: rows, error } = await supabase
       .from('tournaments')
       .select(
-        'id, name, status, format_contract, start_time, started_at, current_level, late_reg_levels, rebuy_levels, late_reg_mins, buy_in_amount, buy_in_fee, bounty_amount, guaranteed_prize, blind_structure, max_players, prize_pool_finalized, level_started_at, on_break, break_started_at, add_on_available, addon_period_ends_at'
+        'id, name, status, format_contract, start_time, started_at, current_level, late_reg_levels, rebuy_levels, late_reg_mins, buy_in_amount, buy_in_fee, bounty_amount, guaranteed_prize, blind_structure, max_players, prize_pool_finalized, level_started_at, on_break, break_started_at, add_on_available, addon_from_start, addon_period_started_at, addon_period_ends_at'
       )
       .eq('status', 'RUNNING')
       .eq('prize_pool_finalized', false)

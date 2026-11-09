@@ -1,0 +1,21 @@
+{
+  "_owner": "fix/horse-refund-parity-20261108",
+  "_comment": "Source only until protected installation. Owner ruling 2026-11-08: horses are refunded exactly as humans; immutable parity receipts and the receipted back-refund of the 2,220 pinned charges.",
+  "tables": ["smarter_private.horse_refund_parity_receipts"],
+  "columns": {
+    "smarter_private.horse_refund_parity_receipts": [
+      "entitlement_id",
+      "tournament_id",
+      "user_id",
+      "club_id",
+      "amount",
+      "idempotency_key",
+      "adjustment_id",
+      "ledger_id",
+      "wallet_transaction_id",
+      "receipt",
+      "created_at"
+    ]
+  },
+  "functions": ["smarter_private.horse_refund_parity_back_refund"]
+}
