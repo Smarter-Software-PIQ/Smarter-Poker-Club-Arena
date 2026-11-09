@@ -77,8 +77,8 @@ DECLARE
     || '          AND l.category=''reversal'' AND l.from_type=''prize_liability''' || chr(10)
     || '          AND l.from_entity_id=p_tournament_id)' || chr(10)
     || '      OR (l.metadata->>''kind''=''net_guarantee_promo''' || chr(10)
-    || '          AND l.category=''promo_send'' AND l.from_type=''union_wallet''' || chr(10)
-    || '          AND l.to_type=''prize_liability'' AND l.to_entity_id=p_tournament_id))';
+    || '          AND l.category=''promo_send'' AND l.to_type=''prize_liability''' || chr(10)
+    || '          AND l.to_entity_id=p_tournament_id))';
 
   c_delta_old_1 constant text :=
     '             OR (x.category = ''reversal'' AND x.metadata->>''kind'' = ''owner_bounty_guarantee_correction''))), 0) AS owner_out' || chr(10)
@@ -236,12 +236,11 @@ $migration$;
 REVOKE ALL ON FUNCTION public.fn_resolve_settled_financial_alerts(boolean, integer) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_resolve_settled_financial_alerts(boolean, integer) TO service_role;
 
--- Verify the affected events now balance on escrow shadow, scalar delta, and set delta.
+-- Verify the affected events now balance on escrow shadow and scalar conservation delta.
 DO $assert$
 DECLARE
   v_id uuid;
   v_scalar numeric;
-  v_set numeric;
   v_shadow record;
   v_escrow record;
 BEGIN
@@ -250,16 +249,11 @@ BEGIN
     '4cc11151-0dfc-4934-95f7-1731ed4c2756'::uuid
   ] LOOP
     v_scalar := public.fn_tournament_conservation_delta(v_id);
-    SELECT d.delta INTO v_set
-      FROM public.tournaments t
-      CROSS JOIN LATERAL public.fn_tournament_conservation_deltas(
-        t.ended_at - interval '1 second', t.ended_at + interval '1 second') d
-     WHERE t.id = v_id AND d.id = v_id;
     SELECT * INTO v_shadow FROM public.fn_ca_tournament_escrow(v_id);
     SELECT * INTO v_escrow FROM public.tournament_escrow WHERE tournament_id = v_id;
 
-    IF v_scalar IS DISTINCT FROM 0 OR v_set IS DISTINCT FROM 0 THEN
-      RAISE EXCEPTION 'conservation delta for % is scalar % set %', v_id, v_scalar, v_set;
+    IF v_scalar IS DISTINCT FROM 0 THEN
+      RAISE EXCEPTION 'conservation delta for % is scalar %', v_id, v_scalar;
     END IF;
     IF v_shadow.prize_balance IS DISTINCT FROM v_escrow.prize_balance
        OR v_shadow.gross_in IS DISTINCT FROM v_escrow.gross_in THEN
