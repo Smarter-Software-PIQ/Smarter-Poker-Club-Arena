@@ -167,6 +167,12 @@ jobs:
           # an earlier run waiting out its own bounded DDL admission (12 min),
           # so a file queued behind a maintenance window is not refused by the
           # queue for the wait its predecessor was allowed (2026-10-26).
+          # The same bounded wait also holds while a Backup Engine refresh is
+          # exporting production's structure (2026-11-09,
+          # scripts/ci/backup-export-holds-installs.mjs): an install that
+          # commits mid-export makes the copy disagree with itself and costs
+          # the Backup certificate another full run. An unreadable Backup state
+          # is REFUSED with nothing sent, exactly like an unreadable queue.
           deadline=$(( $(date +%s) + 900 ))
           while :; do
             ahead=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/apply-merged-migration.yml/runs?per_page=100" \
@@ -176,13 +182,30 @@ jobs:
               echo "code=1" >> "$GITHUB_OUTPUT"
               exit 1
             fi
-            [[ "$ahead" == "0" ]] && break
+            exporting=0
+            if [[ "$ahead" == "0" ]]; then
+              exporting=$(node scripts/ci/backup-export-holds-installs.mjs)
+              if ! [[ "$exporting" =~ ^[0-9]+$ ]]; then
+                echo "[apply] REFUSED: could not read whether a Backup export is running. Nothing was sent; dispatch again." | tee /tmp/apply.log
+                echo "code=1" >> "$GITHUB_OUTPUT"
+                exit 1
+              fi
+              [[ "$exporting" == "0" ]] && break
+            fi
             if (( $(date +%s) >= deadline )); then
-              echo "[apply] REFUSED: $ahead earlier applier run(s) still active after 900s. Nothing was sent; dispatch again once they finish." | tee /tmp/apply.log
+              if [[ "$ahead" != "0" ]]; then
+                echo "[apply] REFUSED: $ahead earlier applier run(s) still active after 900s. Nothing was sent; dispatch again once they finish." | tee /tmp/apply.log
+              else
+                echo "[apply] REFUSED: a Backup export of production is still running after 900s. Nothing was sent; dispatch again once it finishes." | tee /tmp/apply.log
+              fi
               echo "code=1" >> "$GITHUB_OUTPUT"
               exit 1
             fi
-            echo "[queue] $ahead earlier applier run(s) queued or running; waiting"
+            if [[ "$ahead" != "0" ]]; then
+              echo "[queue] $ahead earlier applier run(s) queued or running; waiting"
+            else
+              echo "[queue] a Backup export of production is running; waiting so no install lands inside it"
+            fi
             sleep 15
           done
           recovery_args=()
