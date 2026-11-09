@@ -19,10 +19,11 @@ afterEach(async () => {
   for (const directory of directories.splice(0)) await rm(directory, { recursive: true });
 });
 async function fixture() {
-  // Unix sockets need a short path. This remains on the required external SSD.
-  const directory = await mkdtemp(
-    join(process.platform === 'darwin' ? '/Volumes/SmarterWork/agent-work' : tmpdir(), 'gs-')
-  );
+  // The caller provides short, writable owned scratch on the external SSD.
+  // The SSD1 root may be a read-only mount stub while SSD2 remains available.
+  const root = tmpdir();
+  if (process.platform === 'darwin') expect(root).toMatch(/^\/Volumes\/SmarterWork\/agent-work\//);
+  const directory = await mkdtemp(join(root, 'gs-'));
   directories.push(directory);
   await chmod(directory, 0o700);
   return { directory, socket: join(directory, 'listener.sock') };

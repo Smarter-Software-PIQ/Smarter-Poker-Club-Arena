@@ -35,6 +35,8 @@ export type BuyInRefusal =
   | 'already_in_game'
   | 'diamond_closed'
   | 'no_diamonds'
+  | 'lightning_paced'
+  | 'lightning_demand'
   | 'refused';
 
 /**
@@ -44,6 +46,8 @@ export type BuyInRefusal =
  */
 export function classifyBuyInRefusal(message: string | null | undefined): BuyInRefusal {
   const m = String(message ?? '');
+  if (m.includes('LIGHTNING_ADMISSION_PACED')) return 'lightning_paced';
+  if (m.includes('LIGHTNING_ADMISSION_DEMAND')) return 'lightning_demand';
   if (m.includes('FOUR TABLE LIMIT')) return 'four_game_limit';
   if (m.includes('TABLE_CAP_REACHED')) return 'table_cap';
   if (m.includes('Insufficient club chips') || m.includes('Insufficient balance'))
