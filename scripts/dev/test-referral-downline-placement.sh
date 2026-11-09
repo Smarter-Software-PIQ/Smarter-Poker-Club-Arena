@@ -86,6 +86,35 @@ if [ "$rc" != 0 ]; then
   exit 1
 fi
 
+echo "[referral-downline] concurrent assignment: the shipped settlement must not overwrite it"
+# assertions.sql left u(40) moved by a concurrent writer while the audit still
+# believed they sat under the owner. Run the REAL settlement block and prove it
+# leaves that decision standing - a hand-written UPDATE here would only restate
+# SQL semantics and would pass even with the optimistic guard deleted.
+python3 - "$fixture/migration.sql" "$fixture/settle-race.sql" <<'PY2'
+import sys, re
+src, out = sys.argv[1:]
+m = re.search(r'DO \$settle\$.*?\$settle\$;', open(src).read(), re.S)
+if not m:
+    raise SystemExit('the settlement block is gone; update this harness')
+open(out, 'w').write(m.group(0) + '\n')
+PY2
+chmod 644 "$fixture/settle-race.sql"
+psql -f "$fixture/settle-race.sql" > "$fixture/settle-race.out" 2>&1 || {
+  echo "[referral-downline] FAIL the settlement errored on the raced row"
+  sed -e 's/^psql:[^ ]* //' "$fixture/settle-race.out" | tail -10; exit 1; }
+raced=$(val "SELECT p.username FROM club_members m JOIN profiles p ON p.id=m.agent_id
+             WHERE m.club_id=lpad('100',32,'0')::uuid AND m.user_id=lpad('40',32,'0')::uuid;")
+if [ "$raced" != "subagent" ]; then
+  echo "[referral-downline] FAIL the settlement overwrote a concurrent assignment (upline now '$raced', expected 'subagent')"; exit 1
+fi
+ledger=$(val "SELECT count(*) FROM kings_club_downline_repair_20261108
+              WHERE subject_user_id=lpad('40',32,'0')::uuid;")
+if [ "$ledger" != "0" ]; then
+  echo "[referral-downline] FAIL the settlement recorded a move it did not make ($ledger ledger row(s))"; exit 1
+fi
+echo "PASS  the shipped settlement left a concurrent assignment alone and recorded nothing"
+
 echo "[referral-downline] repeated execution: the whole migration again"
 psql -f "$fixture/migration.sql" > "$fixture/second.out" 2>&1 || {
   echo "[referral-downline] FAIL second run errored"

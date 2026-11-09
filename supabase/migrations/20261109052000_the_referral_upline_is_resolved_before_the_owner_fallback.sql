@@ -436,6 +436,16 @@ BEGIN
     IF src = orig THEN RAISE EXCEPTION
       'redeem patch (b): pre-update anchor drifted; refusing to patch blind'; END IF;
 
+    -- The old row-level test is KEPT as an alternative, not replaced. Dropping
+    -- it removed the only correction a row written before this migration ever
+    -- had: v_unchosen is false for such a row by design, so a legacy member
+    -- under the owner with no invited_by could no longer be moved even by
+    -- typing a referral code - in every club, since this path is not scoped to
+    -- one. Independent review reproduced that on 2026-11-09 (pre-patch
+    -- changed=true, post-patch changed=false). [REVIEW 3] was about refusing to
+    -- SWEEP 639 inferred rows; it was never about removing a route a player can
+    -- ask for themselves, which is what Dan's instruction asks for.
+    --
     -- [REVIEW 17] The generic resolver is NOT consulted here. This path already
     -- resolved the inviter the player actually used into v_effective_agent;
     -- falling back to the platform referrer would place the player under someone
@@ -447,6 +457,8 @@ BEGIN
       '                              AND invited_by IS NULL)' || chr(10) ||
       '                        THEN coalesce(v_effective_agent,',
       '                        WHEN v_unchosen' || chr(10) ||
+      '                          OR (agent_id = (SELECT c.owner_id FROM clubs c WHERE c.id = p_club_id)' || chr(10) ||
+      '                              AND invited_by IS NULL)' || chr(10) ||
       '                        THEN coalesce(v_effective_agent,');
     IF src = orig THEN RAISE EXCEPTION
       'redeem patch (c): owner-placement predicate drifted; refusing to patch blind'; END IF;
@@ -469,26 +481,21 @@ BEGIN
   -- 7b. fn_agent_attach_player: records how it chose, and nothing more.
   --     Last written by 20260826192916, patched by 20261026031314.
   --
-  -- [REVIEW 4] Its authorization predicate is deliberately UNCHANGED. Swapping
-  -- the invited_by test for the placement test would have widened what an
-  -- ordinary agent may do: any legacy member under the owner becomes attachable
-  -- by any agent, and the attach path never checks that the attacher is the
-  -- player's referrer. The new condition is OR-ed on, so an explicitly recorded
-  -- join fallback is also attachable, and nothing that was refused before is
-  -- allowed now.
+  -- [REVIEW 4] Its authorization predicate is UNCHANGED - literally, not
+  -- approximately. This patch only records how the placement was chosen.
+  --
+  -- A previous version added `AND NOT fn_club_placement_is_unchosen(...)` to the
+  -- REFUSAL condition and claimed that changed nothing. Adding a conjunct to a
+  -- refusal makes the refusal fire LESS often, so it widened what an agent may
+  -- take: a post-install 'join_fallback' row whose invited_by a later redemption
+  -- stamped became attachable by ANY agent in the club, where the invite-stamped
+  -- row was protected before - and this path never checks that the attacher is
+  -- the player's referrer. Independent review reproduced it on 2026-11-09
+  -- (pre-patch 'already_in_a_downline', post-patch success). Agent commission
+  -- basis follows placement, so that is 10.9 territory. The clause is gone.
   ---------------------------------------------------------------------------
   src := pg_get_functiondef('public.fn_agent_attach_player(uuid,uuid,uuid)'::regprocedure);
   IF position('agent_assignment_source' in src) = 0 THEN
-    orig := src;
-    src := replace(src,
-      '       AND NOT (v_member.agent_id = (SELECT c.owner_id FROM clubs c WHERE c.id = p_club_id)' || chr(10) ||
-      '                AND v_member.invited_by IS NULL)',
-      '       AND NOT (v_member.agent_id = (SELECT c.owner_id FROM clubs c WHERE c.id = p_club_id)' || chr(10) ||
-      '                AND v_member.invited_by IS NULL)' || chr(10) ||
-      '       AND NOT public.fn_club_placement_is_unchosen(p_club_id, p_player_id)');
-    IF src = orig THEN RAISE EXCEPTION
-      'attach patch (a): owner-placement predicate drifted; refusing to patch blind'; END IF;
-
     orig := src;
     src := replace(src,
       '                              orange_ball_status, agent_id, invited_by)' || chr(10) ||
@@ -619,15 +626,23 @@ BEGIN
       v_members USING ERRCODE = '23514';
   END IF;
 
-  -- [REVIEW 9] Re-derive the counters every other assignment path re-derives,
+  -- [REVIEW 9] Re-derive total_players the way fn_reassign_club_members does,
   -- and only when something actually moved.
+  --
+  -- active_player_count is deliberately NOT touched. It has exactly one
+  -- maintainer, the AFTER-ROW trigger fn_sync_agent_player_counts on
+  -- club_members, which defines it as `is_active IS TRUE` - a different
+  -- predicate on a different column from the `status IN ('active','approved')`
+  -- an earlier version of this block used. That version rewrote the count for
+  -- EVERY agent in the club under the wrong definition, and the trigger only
+  -- re-corrects an agent whose downline later changes, so the rest would have
+  -- carried a wrong number into the commission read models indefinitely. The
+  -- trigger has already fired on the settlement's own UPDATE by the time this
+  -- runs, which made the block redundant as well as wrong.
   IF v_members > 0 THEN
     UPDATE public.agents a
        SET total_players = (SELECT count(*) FROM public.club_members m
                              WHERE m.club_id = k AND m.agent_id = a.user_id),
-           active_player_count = (SELECT count(*) FROM public.club_members m
-                             WHERE m.club_id = k AND m.agent_id = a.user_id
-                               AND m.status IN ('active','approved')),
            updated_at = now()
      WHERE a.club_id = k;
   END IF;
@@ -779,12 +794,16 @@ BEGIN
   -- 12. The defect cannot come back: no assignment path may read an owner
   --     placement as a real downline because invited_by got filled in, and the
   --     join must ask the resolver first.
+  -- The defect was never the PRESENCE of the invited_by test - it is kept
+  -- deliberately, as the route a row written before this migration still has.
+  -- The defect was that it was the ONLY route and the same statement falsified
+  -- it. So what must be true is that the durable test is there beside it.
   SELECT count(*) INTO n
     FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
    WHERE ns.nspname = 'public' AND p.proname = 'fn_redeem_club_invite_code'
-     AND p.prosrc ~ 'invited_by IS NULL';
-  RETURN QUERY SELECT 'the one-shot invited_by guess is gone from the redemption path',
-                      n = 0, n || ' redemption paths still test invited_by IS NULL';
+     AND p.prosrc ~ 'WHEN v_unchosen';
+  RETURN QUERY SELECT 'the redemption no longer depends on the one-shot test alone',
+                      n = 1, 'redemption paths carrying the durable test: ' || n;
 
   SELECT count(*) INTO n
     FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
@@ -825,7 +844,26 @@ GRANT EXECUTE ON FUNCTION public.fn_club_placement_is_unchosen(uuid,uuid) TO ser
 GRANT EXECUTE ON FUNCTION public.fn_referral_downline_disagreements(uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.fn_test_referral_downline_rules() TO service_role;
 
--- An install-time baseline for the untouched population. A point-in-time query
+-- The ten corrections applied on 2026-11-08 are recorded as what they are:
+-- placements resolved from referral evidence, not fallbacks.
+UPDATE public.club_members m
+   SET agent_assignment_source = 'referral'
+  FROM public.kings_club_downline_repair_20261108 s
+ WHERE s.scope = 'club_members.agent_id'
+   AND s.applied
+   AND m.user_id = s.subject_user_id
+   AND m.club_id = 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4'
+   AND m.agent_assignment_source IS NULL;
+
+-- An install-time baseline for the untouched population. ORDER MATTERS: this
+-- counts AFTER the seven corrected members are stamped 'referral' just above.
+-- Counted before them it would include seven rows that the very next statement
+-- removes from the population, so check 5's `n >= m` would be false on the
+-- first install and for ever after - a permanently red assertion, the alarm
+-- nobody listens to (CLAUDE.md 10.84). Found by independent review on
+-- 2026-11-09 and reproduced against a production-shaped fixture.
+--
+-- A point-in-time query
 -- cannot express "nothing outside the ledger moved": every player who joins
 -- after this installs legitimately carries a source, so counting non-NULL
 -- sources would go false within hours and cry wolf for ever. What IS durable is
@@ -843,16 +881,5 @@ SELECT 'baseline.legacy_null_source',
    AND m.agent_assignment_source IS NULL
    AND NOT EXISTS (SELECT 1 FROM public.kings_club_downline_repair_20261108 b
                     WHERE b.scope = 'baseline.legacy_null_source');
-
--- The ten corrections applied on 2026-11-08 are recorded as what they are:
--- placements resolved from referral evidence, not fallbacks.
-UPDATE public.club_members m
-   SET agent_assignment_source = 'referral'
-  FROM public.kings_club_downline_repair_20261108 s
- WHERE s.scope = 'club_members.agent_id'
-   AND s.applied
-   AND m.user_id = s.subject_user_id
-   AND m.club_id = 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4'
-   AND m.agent_assignment_source IS NULL;
 
 COMMIT;

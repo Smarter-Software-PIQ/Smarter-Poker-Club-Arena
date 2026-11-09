@@ -92,25 +92,14 @@ INSERT INTO public.club_invite_attributions(code,club_id,inviter_id,user_id,stat
 SELECT pg_temp.ok('a deleted referrer yields no referral answer',
   (public.fn_resolve_referral_upline(u(100),u(18)) IS NULL)::text, 'true');
 
--- ═══ C. THE DELETED-ACCOUNT PATH [REVIEW 1] ═════════════════════════════════
--- A player under an account that closes must NOT be handed back to it.
-INSERT INTO public.profiles(id,username,player_number) VALUES (u(20),'closing_agent','20'),(u(21),'their_player','21');
-INSERT INTO public.club_members(club_id,user_id,role,agent_id,agent_assignment_source) VALUES
- (u(100),u(20),'agent',u(2),'referral'),
- (u(100),u(21),'player',u(20),'referral');
-INSERT INTO public.agents(user_id,club_id,role,status) VALUES (u(20),u(100),'agent','active');
-INSERT INTO public.club_invite_attributions(code,club_id,inviter_id,user_id,status,first_clicked_at,claimed_at)
- VALUES ('CLOSINGLINK',u(100),u(20),u(21),'joined',now(),now());
-SELECT public.fn_ca_deleted_account_leaves_every_club(u(20));
-SELECT pg_temp.ok('a closing account never keeps its own downline',
-  (SELECT (m.agent_id = u(20))::text FROM club_members m
-    WHERE m.club_id=u(100) AND m.user_id=u(21)), 'false');
--- This delivery does not touch the account-closure path, so the source it
--- inherited is left exactly as it was. Pinned so a later change has to be
--- deliberate about it.
-SELECT pg_temp.ok('the account-closure path is left untouched by this delivery',
-  (SELECT agent_assignment_source FROM club_members WHERE club_id=u(100) AND user_id=u(21)), 'referral');
-
+-- ═══ C. ACCOUNT CLOSURE IS OUT OF SCOPE ════════════════════════════════════
+-- Nothing here calls, stubs or asserts about fn_ca_deleted_account_leaves_every_club.
+-- An earlier version of this fixture did, and pinned a reduced copy of that
+-- function written by this delivery - so the pin bound the fixture's own stub
+-- and would not have noticed a change to the real one, while contradicting the
+-- delivery's written promise not to assert anything about that path. The
+-- interaction found during this work is handed to that lane in
+-- docs/changelog/2026-11-09-kings-club-referral-downlines.md.
 
 -- ═══ E. REPEATED EXECUTION ══════════════════════════════════════════════════
 -- Every patch carries a sentinel, so re-running the whole migration is a no-op
@@ -124,50 +113,52 @@ CREATE TABLE before_second_run AS
                       'fn_agent_attach_player','fn_reassign_club_members');
 
 -- ═══ F. CONCURRENT ASSIGNMENT ═══════════════════════════════════════════════
--- The settlement's UPDATE carries an optimistic guard on the upline the audit
--- read. If a live redemption moves the player in between, the settlement must
--- leave that decision alone instead of overwriting it.
+-- Driven from the SHIPPED settlement block, not hand-written SQL. An earlier
+-- version asserted that `UPDATE ... AND agent_id IS NOT DISTINCT FROM <stale>`
+-- matches zero rows, which is a tautology of SQL semantics: delete the
+-- optimistic guard from the migration and that assertion still passes. The
+-- harness now extracts DO $settle$ from the real file (as blast-radius.sql
+-- already does) and runs it against a row a concurrent writer has moved.
 INSERT INTO public.profiles(id,username,player_number) VALUES (u(40),'raced','40');
 INSERT INTO public.club_members(club_id,user_id,role,agent_id,agent_assignment_source)
  VALUES (u(100),u(40),'player',u(1),'join_fallback');
 INSERT INTO public.club_invite_attributions(code,club_id,inviter_id,user_id,status,first_clicked_at,claimed_at)
  VALUES ('RACELINK',u(100),u(2),u(40),'joined',now(),now());
-DO $race$
-DECLARE v_seen uuid; v_rows int;
-BEGIN
-  -- The audit reads the player as sitting under the owner.
-  SELECT current_upline INTO v_seen
-    FROM public.fn_referral_downline_disagreements(u(100)) WHERE user_id=u(40);
-  IF v_seen IS NULL THEN RAISE EXCEPTION 'fixture: the raced player is not in the audit'; END IF;
+-- The audit must see them, so the settlement would otherwise move them.
+SELECT pg_temp.ok('the raced player is a real candidate for the settlement',
+  (SELECT count(*)::text FROM public.fn_referral_downline_disagreements(u(100)) WHERE user_id=u(40)), '1');
+-- A concurrent writer takes them first, exactly as a live redemption would.
+UPDATE public.club_members SET agent_id=u(3), agent_assignment_source='referral'
+ WHERE club_id=u(100) AND user_id=u(40);
 
-  -- A concurrent writer moves them first (what a live redemption does).
-  UPDATE public.club_members SET agent_id=u(3), agent_assignment_source='referral'
-   WHERE club_id=u(100) AND user_id=u(40);
-
-  -- The settlement's guarded UPDATE must now match nothing.
-  UPDATE public.club_members
-     SET agent_id = u(2), agent_assignment_source='referral'
-   WHERE club_id = u(100) AND user_id = u(40)
-     AND agent_id IS NOT DISTINCT FROM v_seen;
-  GET DIAGNOSTICS v_rows = ROW_COUNT;
-  IF v_rows <> 0 THEN
-    RAISE EXCEPTION 'FAIL  the settlement overwrote a concurrent assignment (% rows)', v_rows;
-  END IF;
-  RAISE NOTICE 'PASS  a concurrent assignment is not overwritten by the settlement';
-END $race$;
-SELECT pg_temp.ok('and the concurrent writer''s decision stands',
-  (SELECT p.username FROM club_members m JOIN profiles p ON p.id=m.agent_id
-    WHERE m.club_id=u(100) AND m.user_id=u(40)), 'subagent');
-
--- Both per-club advisory locks are actually taken by the settlement, and are
--- the same two the authorized transfer path takes.
-DO $locks$
-DECLARE n int;
-BEGIN
-  PERFORM pg_advisory_xact_lock(hashtextextended('cashier-hierarchy:'||u(100)::text,0));
-  PERFORM pg_advisory_xact_lock(hashtextextended('agent-agreement:'||u(100)::text,0));
-  SELECT count(*) INTO n FROM pg_locks
-   WHERE locktype='advisory' AND pid=pg_backend_pid();
-  IF n < 2 THEN RAISE EXCEPTION 'FAIL  expected both club locks, held %', n; END IF;
-  RAISE NOTICE 'PASS  both per-club advisory locks are grantable and held together';
-END $locks$;
+-- ═══ G. THE CHECKPOINT TABLE IS CLOSED TO THE BROWSER ══════════════════════
+-- The ONLY check anywhere that proves this. check-recorded-migrations-evidence
+-- asks production for the md5, definer exposure, money triggers and band-aid
+-- names - not table grants and not RLS - so the finding this migration exists
+-- to close (a new public table declaring no access) is exempted offline and
+-- asked of production by nobody. If these statements are ever dropped or split
+-- off, this is what goes red.
+SELECT pg_temp.ok('anon cannot read the checkpoint table',
+  has_table_privilege('anon','public.kings_club_downline_repair_20261108','SELECT')::text,'false');
+SELECT pg_temp.ok('anon cannot write the checkpoint table',
+  (has_table_privilege('anon','public.kings_club_downline_repair_20261108','INSERT')
+   OR has_table_privilege('anon','public.kings_club_downline_repair_20261108','UPDATE')
+   OR has_table_privilege('anon','public.kings_club_downline_repair_20261108','DELETE'))::text,'false');
+SELECT pg_temp.ok('an ordinary signed-in user cannot read it either',
+  has_table_privilege('authenticated','public.kings_club_downline_repair_20261108','SELECT')::text,'false');
+SELECT pg_temp.ok('nor write it',
+  (has_table_privilege('authenticated','public.kings_club_downline_repair_20261108','INSERT')
+   OR has_table_privilege('authenticated','public.kings_club_downline_repair_20261108','UPDATE')
+   OR has_table_privilege('authenticated','public.kings_club_downline_repair_20261108','DELETE'))::text,'false');
+SELECT pg_temp.ok('row level security is on, with no policy to let anyone in',
+  (SELECT (c.relrowsecurity AND NOT EXISTS (SELECT 1 FROM pg_policy p WHERE p.polrelid=c.oid))::text
+     FROM pg_class c WHERE c.oid='public.kings_club_downline_repair_20261108'::regclass),'true');
+SELECT pg_temp.ok('the sequence is closed to the browser too',
+  (has_table_privilege('anon','public.kings_club_downline_repair_20261108_id_seq','SELECT')
+   OR has_table_privilege('authenticated','public.kings_club_downline_repair_20261108_id_seq','SELECT'))::text,'false');
+-- And the intended service access still works, or the repair cannot record.
+SELECT pg_temp.ok('service_role can still read the checkpoint',
+  has_table_privilege('service_role','public.kings_club_downline_repair_20261108','SELECT')::text,'true');
+SELECT pg_temp.ok('service_role can still record a correction',
+  (has_table_privilege('service_role','public.kings_club_downline_repair_20261108','INSERT')
+   AND has_table_privilege('service_role','public.kings_club_downline_repair_20261108','UPDATE'))::text,'true');

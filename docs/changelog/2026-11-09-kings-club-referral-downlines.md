@@ -82,6 +82,16 @@ blocker for D1–D6.
   **Neither of the three is a required check for this delivery:** PR #10139
   reports `mergeable: true, mergeable_state: blocked`, i.e. waiting on its own
   checks, not on main's.
+- **`check-recorded-migrations-evidence.mjs` has no table-grant reader.** It
+  asks production for four things: the md5, `fn_definer_exposure_audit()`,
+  `fn_undeclared_money_triggers()` and band-aid names. It does **not** ask about
+  table grants or RLS, so a recording whose `refusedBy` names
+  `check-explicit-table-access` — like this task's — is exempted offline and
+  verified against production by nobody. That is why the behavioural fixture
+  now asserts the closed grants and RLS against a live database: it is the only
+  check anywhere that proves the exposure closed. Worth generalising beyond this
+  task.
+
 - **`supabase_migrations` version `20261109040704`** (the checkpoint table's
   original apply) has no committed `.sql` file. This delivery records the
   table's shape with `CREATE TABLE IF NOT EXISTS` so it installs anywhere, but
@@ -183,9 +193,15 @@ It now runs as
 `.github/workflows/a-referral-places-a-player-before-the-owner-fallback.yml`,
 `pull_request` only and scoped to the migration, the script and the fixture
 files, which is the same shape the repo already uses for single-purpose database
-fixtures (`a-backup-copy-is-certified-by-what-it-holds.yml`). It is not in the
-required-checks ruleset, so by CLAUDE.md 10.83 its reader on `main` is
-`check-main-is-green`.
+fixtures (`a-backup-copy-is-certified-by-what-it-holds.yml`). It is not in the required-checks ruleset, and — corrected after review —
+`check-main-is-green` is **not** its reader either: that detector scans
+completed runs on branch `main`, and a `pull_request`-only workflow has none, so
+it is reported as "not applicable" and silently skipped. Its only reader is the
+pull request's own check list. For a path-scoped fixture that is a real reader,
+and it is the house pattern (about twenty `pull_request`-only workflows exist,
+including the precedent above) — but because it is not required, a PR *can* be
+merged with it red. Saying so here is the point: an unread check is worse than
+no check, and the honest status is "read on the PR, not on main".
 
 ## Audit of the exposure window
 
