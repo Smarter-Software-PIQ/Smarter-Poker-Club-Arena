@@ -317,11 +317,15 @@ describe('the preparation happens once per Chicago date', () => {
 
   it('admits the automatic Backup completion in the original window and preserves the cutoff', () => {
     expect(stage.on.workflow_run).toEqual({
-      workflows: ['Backup Engine (Clone, Stage, Certify)'],
+      workflows: ['Backup Engine (Clone, Stage, Certify)', 'Engine release prequalification'],
       branches: ['main'],
       types: ['completed'],
     });
     expect(stage.jobs.detect.if).toContain("github.event.workflow_run.event == 'push'");
+    // A prequalification completion only feeds the owner-window decision.
+    expect(stage.jobs.detect.if).toContain(
+      "github.event.workflow_run.name == 'Backup Engine (Clone, Stage, Certify)'"
+    );
     expect(stage.jobs.detect.if).toContain("github.event.workflow_run.conclusion == 'success'");
     const automatic = {
       id: 90,
@@ -440,6 +444,7 @@ describe('the workflow adds chances, not authority', () => {
     ]);
     expect(Object.keys(stage.jobs).sort()).toEqual([
       'detect',
+      'owner-window',
       'selection',
       'signal',
       'window-migrations',

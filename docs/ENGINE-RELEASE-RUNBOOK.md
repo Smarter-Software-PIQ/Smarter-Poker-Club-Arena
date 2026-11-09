@@ -670,6 +670,17 @@ handoff. Missing or changed evidence keeps the current engine serving. The
 host's one-use predecessor, actual notice, custody, freeze, proof, rollback and
 thaw checks remain mandatory. Do not dispatch the receiver directly.
 
+An open owner window now starts this route on its own. The `owner-window` job in
+`.github/workflows/stage-engine-release.yml` runs `scripts/ci/select-daily-engine.py --owner-start`
+on every protected push, existing schedule tick and successful push Backup or
+prequalification completion. It dispatches the same workflow_dispatch above only
+when the window is open, the served client has carried the booked notice for at
+least twenty minutes, the moment is inside :05:30-:49:00 with 420 s left before
+the window closes, the protected owner admission passes, a candidate has
+complete current evidence, no release of this window is serving, and no owner
+selection or receiver is running. A later attempt needs evidence that completed
+after the previous attempt. No timer was added. The manual dispatch still works.
+
 ### Capped satellite awards: schema before compatible engine
 
 Follow the capped satellite compatibility section in `PUBLISHING.md` for migration
