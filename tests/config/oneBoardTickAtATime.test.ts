@@ -96,15 +96,23 @@ describe('a board refills one tick at a time', () => {
     expect(code).toMatch(/const\s+BURST\s*=\s*12\s*;/);
   });
 
-  it('spends that cap ACROSS every board a pass touches, not per board', () => {
-    // 2026-09-03: the cap is still BURST for the pass, but it is SPLIT into a
-    // share per board before anyone spends (boardBudgetShares) rather than
-    // handed to the house first - the house was never full and starved every
-    // owner board. Each ensureBoardOpen still spends only what it was given.
+  it('spends one capped budget across every board a pass touches', () => {
+    /* 2026-09-03: BURST was SPLIT into a share per board before anyone spent
+       it, because the house went first on a shared budget, was never full, and
+       starved every owner board.
+
+       2026-11-08: the per-board share is gone. Dan set the open board at
+       ELEVEN Spins and SIX heads-up PLATFORM-wide, so a share each would be
+       eleven each and the target would mean nothing. One budget again, capped
+       by what the platform actually has room for - and the reason the shares
+       existed is answered instead by drawing the boards in a fresh order every
+       tick, so none of them is permanently first in the queue for it. */
     expect(code).toMatch(
       /export function boardBudgetShares\(ownerCount: number, burst: number = BURST\)/
     );
-    expect(code).toMatch(/const share = boardBudgetShares\(owners\.length \+ 1\);/);
+    expect(code).toMatch(/const budget = \{ left: Math\.min\(room, boardBudgetShares\(1\)\) \};/);
+    expect(code).toMatch(/private boardOpenOrder\(owners: BoardOwner\[\]\): BoardOwner\[\]/);
+    expect(code).toMatch(/for \(const board of this\.boardOpenOrder\(owners\)\)/);
     // Changed 2026-08-23 with per-owner boards: a per-board cap stops being a
     // cap once one pass can service the house plus every activated owner.
     expect(code).toMatch(/missing\.slice\(0, budget\.left\)/);

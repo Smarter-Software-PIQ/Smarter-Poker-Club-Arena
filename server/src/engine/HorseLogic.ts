@@ -2762,8 +2762,12 @@ export interface HorseDecideOpts {
    *  (shrunk toward the game's population) against each bet size's
    *  break-even fold share s / (1 + s), instead of the legacy all-street
    *  rate against fixed 0.62 / 0.35 lines. The c-bet, probe, semi-bluff and
-   *  pure-bluff bets price their own size. nlh and plo4-6 only. Default off;
-   *  the league matchups break_even_bluff* measure it. */
+   *  pure-bluff bets price their own size. nlh and plo4-6 only. 2026-11-08:
+   *  it answers only for an opponent whose postflop bluff read is engaged
+   *  (HorseMind.breakEvenBluffOf), so a horse that has read nobody plays
+   *  exactly as with it off, and a semi-bluff's break-even is measured
+   *  against checking (breakEvenFoldShare). Default off; the league matchups
+   *  break_even_bluff* and readCalibrationLeague measure it. */
   readBreakEvenBluff?: boolean;
   /** SCOPED SHRINK (2026-11-08): a scoped read with fewer than 40 hands in
    *  this game is shrunk toward this game's population (16 pseudo-
@@ -2772,6 +2776,17 @@ export interface HorseDecideOpts {
    *  read calibration replay (a league table deals one game, so no league
    *  card can see it). */
   readScopedShrink?: boolean;
+  /** OMAHA EV FOLD MODEL (2026-11-08, HorseMind OMAHA_EV_FOLD_MODEL): at
+   *  PLO4 / PLO5 / PLO6 cash tables the EV bet engine prices each opponent's fold with
+   *  the game's measured fold share over MDF, scaled by that opponent's
+   *  postflop fold-to-bet read shrunk toward the game's population, instead
+   *  of the all-street exploit bluff multiplier (which read most Omaha
+   *  players as stations because it counts preflop calls). Tournament tables
+   *  keep the exploit multiplier. Default ON (league 2026-11-08: PLO4 mirror
+   *  +3.74 +/- 1.63 and +4.29 +/- 1.48 bb/100 on two seeds, no card
+   *  significantly negative); explicit false is the old multiplier, and the
+   *  league matchups plo*_omaha_ev_fold keep measuring it. */
+  omahaEvFoldModel?: boolean;
   /** Items 21 and 23 (2026-11-05): a planned barrel records the next-street
    *  contender set and stack-to-pot exposure it expects, and the next street
    *  withdraws the plan when a contender the plan never expected is still in
@@ -5223,6 +5238,7 @@ export class HorseLogic {
       shrinkResponseReads: opts.readShrinkResponse === true,
       breakEvenBluff: opts.readBreakEvenBluff === true,
       scopedShrink: opts.readScopedShrink === true,
+      omahaEvFoldModel: (opts.omahaEvFoldModel ?? true) !== false,
     });
     // V3: ingest the action stream into the opponent-intelligence layer.
     // Wrapped so observation can never take down a decision.
@@ -10129,7 +10145,7 @@ export class HorseLogic {
             let foldMul = 1;
             if (useMind) {
               try {
-                foldMul = HorseMind.exploit(o.user_id, useCounterAdapt).bluffMod;
+                foldMul = HorseMind.evFoldMul(o.user_id, useCounterAdapt);
                 foldMul = v53BarrelFoldMul(foldMul, o.user_id);
               } catch {
                 /* an unavailable read keeps the neutral fold model */
@@ -11340,7 +11356,7 @@ export class HorseLogic {
           let foldMul = 1;
           if (useMind) {
             try {
-              foldMul = HorseMind.exploit(o.user_id, useCounterAdapt).bluffMod;
+              foldMul = HorseMind.evFoldMul(o.user_id, useCounterAdapt);
               foldMul = v53BarrelFoldMul(foldMul, o.user_id);
             } catch {
               /* reads are best-effort */
@@ -13358,7 +13374,7 @@ export class HorseLogic {
       if (comboRaise38) {
         try {
           comboFoldMul38 = v53BarrelFoldMul(
-            HorseMind.exploit(opponents[0].user_id, useCounterAdapt).bluffMod,
+            HorseMind.evFoldMul(opponents[0].user_id, useCounterAdapt),
             opponents[0].user_id
           );
         } catch {

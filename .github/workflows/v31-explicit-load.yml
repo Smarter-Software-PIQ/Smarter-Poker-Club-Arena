@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       request_base64:
-        description: Exact operation reload/status, serving source SHA, request UUID, active dataset UUID/checksum, cellCount 107 and workerCount 8
+        description: Exact operation reload/status, serving source SHA, request UUID, active dataset UUID/checksum, cellCount (the dataset's sealed runtime_cells) and workerCount 8
         required: true
         type: string
 permissions:

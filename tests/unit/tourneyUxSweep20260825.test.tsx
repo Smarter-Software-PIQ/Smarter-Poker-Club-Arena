@@ -63,7 +63,9 @@ describe('Item 1 - a running tournament can be watched', () => {
   it('the details footer offers a WATCH button driven by a featured table', () => {
     const src = code(read(DETAILS));
     expect(src).toMatch(/const featuredTableId = useMemo\(/);
-    expect(src).toMatch(/className="btn btn-watch"/);
+    // 2026-11-08: WATCH prints on the register plate (TournamentRegisterButton).
+    expect(src).toMatch(/className="btn btn-watch[^"]*"/);
+    expect(src).toMatch(/<TournamentRegisterButton\s+className="btn btn-watch/);
     // Whitespace-tolerant: the old exact-source match broke on a prettier wrap.
     expect(src).toMatch(/watchTable\(\s*featuredTableId\s*\)/);
   });

@@ -1,4 +1,6 @@
 import { classifyHeldStall, type HeldTableStall } from './engine/heldTableStall.js';
+import { nextRungMs } from './config/seatFirstLadder.js';
+import { secureRandomInt } from './engine/CryptoRandom.js';
 import type { TournamentAbortClosureMode } from './tournament/TournamentAbortBoundary.js';
 import { readDurableTerminalRequest } from './tournament/terminalDurableRequest.js';
 import {
@@ -13020,7 +13022,7 @@ export class GameServer {
       (cursor, want) => {
         let query = supabase
           .from('tournaments')
-          .select('id, status, start_time')
+          .select('id, status, start_time, max_players')
           .in('status', ['REGISTERING', 'RUNNING'])
           .order('id', { ascending: true })
           .limit(want);
@@ -13123,7 +13125,9 @@ export class GameServer {
            rule as fn_repair_seat_first_games. */
         const { error: windowErr } = await supabase
           .from('tournaments')
-          .update({ start_time: new Date(Date.now() + freshHumanWindowMs()).toISOString() })
+          .update({
+            start_time: new Date(Date.now() + freshHumanWindowMs(plan.seats)).toISOString(),
+          })
           .eq('id', plan.tournamentId)
           .eq('status', 'REGISTERING');
         if (windowErr) {
@@ -13712,12 +13716,20 @@ export class GameServer {
     });
     this.tournamentTopUpsInFlight.set(tournamentId, claim);
     try {
+      /* ONE RUNG AT A TIME (Dan 2026-11-08). A horse-only board no longer
+         fills to a full field the instant its window closes - it seats ONE
+         more horse and then waits out the next rung of its ladder (a Spin:
+         60-80 minutes for the second horse, another 30-60 for the third). A
+         board with a person in it is unchanged: it fills completely, because
+         somebody is waiting to play. See server/src/config/seatFirstLadder.ts. */
+      const target = hasHuman ? seats : Math.min(seats, paid + 1);
       await this.topUpPartialSeatFirst(
         tournamentId,
         seats,
         paid,
-        hasHuman ? 'a human is waiting' : 'window closed',
-        hasHuman
+        hasHuman ? 'a human is waiting' : 'ladder rung',
+        hasHuman,
+        target
       );
     } finally {
       // Released before it settles, so a start waiting on it finds the door open.
@@ -13726,6 +13738,50 @@ export class GameServer {
       }
       settle();
     }
+  }
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════
+   *  THE NEXT RUNG (Dan 2026-11-08)
+   * ═══════════════════════════════════════════════════════════════════════
+   *
+   * A horse-only seat-first board that has just taken on one more horse goes
+   * back to waiting. `start_time` carries that wait - it is the instant this
+   * lane treats the board as fillable - so the next rung is written straight
+   * into it: 30-60 minutes for a Spin's third seat, and nothing at all for a
+   * board that is now full (its start is already in flight).
+   *
+   * Written with the service role through the same client every other engine
+   * write uses. A failed write is reported and otherwise ignored: the board
+   * keeps its old, already-passed window, so it is asked again on the next
+   * backoff. Late is survivable; early is not.
+   */
+  private async advanceSeatFirstRung(
+    tournamentId: string,
+    seats: number,
+    paidNow: number
+  ): Promise<void> {
+    const waitMs = nextRungMs(seats, paidNow, (span) => secureRandomInt(span + 1));
+    if (waitMs === null) return;
+    const { error } = await supabase
+      .from('tournaments')
+      .update({ start_time: new Date(Date.now() + waitMs).toISOString() })
+      .eq('id', tournamentId)
+      // Only a board still taking entries. A board that started, finished or
+      // was cancelled between the top-up and this write keeps its own clock.
+      .eq('status', 'REGISTERING');
+    if (error) {
+      reportError(
+        new Error(`[GameServer] seat-first rung advance failed: ${error.message}`),
+        'GameServer.seat_first_rung_advance_failed',
+        { tournamentId }
+      );
+      return;
+    }
+    console.log(
+      `[GameServer] Seat-first ladder: ${tournamentId.slice(0, 8)} now ${paidNow}/${seats}, ` +
+        `next seat in ${Math.round(waitMs / 60000)} min`
+    );
   }
 
   /** Last "is a human seated here" answer per seat-first game, keyed by its paid count. */
@@ -13874,7 +13930,12 @@ export class GameServer {
     seats: number,
     paid: number,
     why: string,
-    forHuman: boolean
+    forHuman: boolean,
+    /* How many seats this ask is for. A person's board asks for the full
+       field; a horse-only board asks for one rung of the ladder and defers the
+       rest (Dan 2026-11-08). Defaults to the full field so every other caller
+       is unchanged. */
+    target: number = seats
   ): Promise<void> {
     /* A HUMAN'S BOARD FILLS FIRST (2026-10-03). The seats a waiting human
        still needs are declared before the ask, so every horse-only claim on
@@ -13882,7 +13943,9 @@ export class GameServer {
        leaves them free; this ask may also draw on the cash lane and on the
        cash-room floor. See TournamentRecurringService.noteHumanSeatDemand. */
     if (forHuman) this.tournamentRecurring.noteHumanSeatDemand(tournamentId, seats - paid);
-    const added = await this.tournamentRecurring.topUpWithHorses(tournamentId, seats, {
+    const ask = Math.max(paid, Math.min(seats, Math.floor(target) || seats));
+    const fillsTheBoard = ask >= seats;
+    const added = await this.tournamentRecurring.topUpWithHorses(tournamentId, ask, {
       forHuman,
     });
     /* THE HOLD REFUSED IT, THE POOL DID NOT (2026-10-04 audit). This lane's
@@ -13904,7 +13967,7 @@ export class GameServer {
       this.tournamentRecurring.clearHumanSeatDemand(tournamentId);
       return;
     }
-    let shortfall = seats - paid;
+    let shortfall = ask - paid;
     /* THE ALARM IS JUDGED ON WHAT THE TOP-UP SAW, NOT ON THE COUNT THIS LANE
        READ A SECOND EARLIER (2026-09-11). `paid` is this lane's read; the
        top-up reads the seats again under the same five seconds, and the main
@@ -13917,7 +13980,7 @@ export class GameServer {
        unknown is not "full"). */
     if (added < shortfall) {
       const fresh = (await this.readSeatFirstPaidSeats([{ id: tournamentId }])).get(tournamentId);
-      if (fresh !== undefined && fresh >= seats) shortfall = 0;
+      if (fresh !== undefined && fresh >= ask) shortfall = 0;
     }
     // See the backoff in fillPartialSeatFirstGame: a filled board forgets its
     // misses, a short one counts another.
@@ -13926,8 +13989,18 @@ export class GameServer {
       this.seatFirstStuckReported.delete(tournamentId);
       this.seatFirstOccupancy.delete(tournamentId);
       this.tournamentRecurring.clearHumanSeatDemand(tournamentId);
-      // The board is full now: start it now, not on the next poll.
-      this.startFilledSeatFirstBoard(tournamentId, seats);
+      if (fillsTheBoard) {
+        // The board is full now: start it now, not on the next poll.
+        this.startFilledSeatFirstBoard(tournamentId, seats);
+      } else {
+        /* A RUNG WAS CLIMBED, SO THE NEXT ONE STARTS NOW. `start_time` is what
+           this lane reads as "the wait is over", so writing the next rung into
+           it is what makes the board wait again rather than be re-asked every
+           twelve seconds. A board that cannot be written simply keeps its old
+           window and is asked again - the safe direction, never a board that
+           deals early. */
+        await this.advanceSeatFirstRung(tournamentId, seats, paid + added);
+      }
     } else
       this.seatFirstFillMisses.set(
         tournamentId,

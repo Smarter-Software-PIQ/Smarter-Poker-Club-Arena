@@ -85,18 +85,26 @@ describe('the house board is not replaced, it is joined', () => {
     expect(code).toMatch(/clubId: MIDWAY_UNION_ID,\s*unionId: MIDWAY_UNION_ID,/);
   });
 
-  it('is served on its own share, so neither side can starve the other', () => {
-    // Until 2026-09-03 the house was filled FIRST on one shared budget "so
-    // owner boards cannot starve it" - and, being thirty-odd games short
-    // every tick, it spent all twelve and starved every owner board instead.
-    // Deep Stack Society's spin board sat empty from 11:32 that day. Now the
-    // owners are read first, every board gets boardBudgetShares() of BURST,
-    // and the house spends its share like anyone else.
+  it('takes its turn in a drawn order, so neither side can starve the other', () => {
+    /* Until 2026-09-03 the house was filled FIRST on one shared budget "so
+       owner boards cannot starve it" - and, being thirty-odd games short every
+       tick, it spent all twelve and starved every owner board instead. Deep
+       Stack Society's spin board sat empty from 11:32 that day. The answer was
+       a share of BURST per board.
+
+       2026-11-08: the open board is now ELEVEN Spins platform-wide (Dan), so a
+       share per board would be eleven each and the target would mean nothing.
+       One budget again, capped by the room the platform actually has - and the
+       starvation the shares prevented is answered by drawing the boards in a
+       fresh order each tick, so the house is first no more often than anyone. */
     const spinPass = code.slice(code.indexOf('private async checkAndLaunchSpins'));
     expect(spinPass).toMatch(/const owners = await this\.activatedSpinOwners\(\);/);
-    expect(spinPass).toMatch(/const share = boardBudgetShares\(owners\.length \+ 1\);/);
-    const houseCall = spinPass.slice(spinPass.indexOf('this.houseOwner'));
-    expect(houseCall.slice(0, houseCall.indexOf(');'))).toMatch(/\{ left: share \}/);
+    expect(spinPass).toMatch(/const room = await this\.seatFirstBoardRoom\('spin'\);/);
+    expect(spinPass).toMatch(
+      /const budget = \{ left: Math\.min\(room, boardBudgetShares\(1\)\) \};/
+    );
+    expect(spinPass).toMatch(/for \(const board of this\.boardOpenOrder\(owners\)\)/);
+    expect(code).toMatch(/private boardOpenOrder\(owners: BoardOwner\[\]\): BoardOwner\[\]/);
   });
 
   it('is not also listed as an activated owner, which would alternate the board', () => {
@@ -128,11 +136,13 @@ describe('only owners who actually switched Spins on get a board', () => {
 
 describe('an owner is only offered the stakes their seed covers', () => {
   it('filters the board by the stake they seeded for', () => {
-    expect(code).toMatch(/SPIN_CONFIGS\.filter\(\(c\) => c\.buyIn <= owner\.maxStake\)/);
+    // `board` since 2026-11-08: the house and each owner are one list now, so
+    // the house takes SPIN_CONFIGS whole and an owner takes its own slice.
+    expect(code).toMatch(/SPIN_CONFIGS\.filter\(\(c\) => c\.buyIn <= board\.maxStake\)/);
   });
 
   it('skips an owner with nothing affordable rather than opening an empty board', () => {
-    expect(code).toMatch(/if \(affordable\.length === 0\) continue;/);
+    expect(code).toMatch(/if \(configs\.length === 0\) continue;/);
   });
 });
 

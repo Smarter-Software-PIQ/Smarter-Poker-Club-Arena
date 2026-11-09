@@ -291,7 +291,11 @@ describe('1. a finalized prize pool is not filled', () => {
     const alarm = topUp.indexOf("'GameServer.seat_first_human_waiting'");
     expect(reread).toBeGreaterThan(-1);
     expect(alarm).toBeGreaterThan(reread);
-    expect(topUp).toContain('if (fresh !== undefined && fresh >= seats) shortfall = 0;');
+    /* 2026-11-08: the re-read compares against what THIS ask was for, not the
+       full field. A horse-only board now climbs one ladder rung at a time, so
+       its ask is paid+1 and a board that reached it is satisfied even though
+       seats remain. A person's board still asks for the whole field. */
+    expect(topUp).toContain('if (fresh !== undefined && fresh >= ask) shortfall = 0;');
   });
 });
 

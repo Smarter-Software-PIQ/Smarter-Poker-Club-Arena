@@ -48,11 +48,15 @@ describe('horses take seats, not just places on a list', () => {
     expect(recurring).toMatch(/openingHorsesForSeatFirst/);
   });
 
-  it('opens a seat-first game one seat short', () => {
-    // Spin (3) -> 2 horses. Heads-up (2) -> 1 horse. Dan's rule verbatim.
+  it('opens a seat-first game with exactly ONE horse', () => {
+    /* Dan 2026-11-08, verbatim: "WE SHOULD ONLY HAVE ONE HORSE SITTING AT HAND
+       FULL OF EVENTS, WE ARE AUTO RUNNING WAY TOO MANY." This replaced the
+       seats-1 opening (Spin -> 2 horses, Heads-Up -> 1), which put every Spin
+       on the board already one seat from dealing. */
     expect(recurring).toMatch(
-      /function openingHorsesForSeatFirst\(seats: number\): number \{\s*return Math\.max\(0, seats - 1\);/
+      /function openingHorsesForSeatFirst\(seats: number\): number \{\s*return Math\.min\(Math\.max\(0, seats\), SEAT_FIRST_OPENING_HORSES\);/
     );
+    expect(recurring).toMatch(/SEAT_FIRST_OPENING_HORSES/);
   });
 
   it('the past-start top-up seats rather than registers for seat-first', () => {
@@ -235,14 +239,21 @@ describe('horses take seats, not just places on a list', () => {
   });
 });
 
-describe('the last seat belongs to a human for a minute to two and a half', () => {
-  it('the window is 90 to 350 seconds (Dan 2026-09-05; was 60-150)', () => {
-    /* Widened after the week in which 31,153 Spins ran and FOUR had a human
-       in them. The floor moved because a player needs longer than a minute to
-       open the lobby, read the stakes and tap a seat; the ceiling because a
-       board open past six minutes stops reading as a room about to deal. */
-    expect(recurring).toMatch(/SEAT_FIRST_HUMAN_WINDOW_MIN_MS = 90 \* 1000/);
-    expect(recurring).toMatch(/SEAT_FIRST_HUMAN_WINDOW_MAX_MS = 350 \* 1000/);
+describe('the board waits hours for a person, and fills in minutes once one sits', () => {
+  it('the human window is 3 to 7 minutes (Dan 2026-11-08; was 90-350 seconds)', () => {
+    /* The 90-350 SECOND window ended after the seven days to 2026-11-07, in
+       which the fleet completed 29,593 Spins and 26,405 Heads-Up games and
+       SEVEN of the 55,998 had a person in them. These two constants now govern
+       only the human path - Dan: "IF A HUMAN SITS AT AN EMPTY TABLE, OTHERS
+       SHOULD JOIN THE SIT N GO WITHIN 3-7 MIN." The horse-only wait is the
+       ladder in server/src/config/seatFirstLadder.ts. */
+    expect(recurring).toMatch(/SEAT_FIRST_HUMAN_WINDOW_MIN_MS = HUMAN_ARRIVAL_MIN_MS/);
+    expect(recurring).toMatch(/SEAT_FIRST_HUMAN_WINDOW_MAX_MS = HUMAN_ARRIVAL_MAX_MS/);
+  });
+
+  it('a horse-opened board waits out its ladder, not a seconds-long window', () => {
+    expect(recurring).toMatch(/function seatFirstOpeningWindowMs\(seats: number\): number/);
+    expect(recurring).toMatch(/openingRungMs\(seats, \(span\) => secureRandomInt\(span \+ 1\)\)/);
   });
 
   it('is randomised per game, not a fixed tick, and not with the banned RNG', () => {
@@ -262,10 +273,10 @@ describe('the last seat belongs to a human for a minute to two and a half', () =
   });
 
   it('applies to Spins and to heads-up, and not to a 6-max field', () => {
-    expect(recurring).toMatch(/seatFirstHumanWindowMs\(\)/);
+    expect(recurring).toMatch(/seatFirstOpeningWindowMs\(SPIN_SEATS\)/);
     const sng = recurring.slice(recurring.indexOf('private async createSNG'));
     expect(sng).toMatch(
-      /isSeatFirstFormat\('sng', config\.maxPlayers\)\s*\?\s*seatFirstHumanWindowMs\(\)\s*:\s*OPEN_TABLE_WAIT_MS/
+      /isSeatFirstFormat\('sng', config\.maxPlayers\)\s*\?\s*seatFirstOpeningWindowMs\(config\.maxPlayers\)\s*:\s*OPEN_TABLE_WAIT_MS/
     );
   });
 });

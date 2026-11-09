@@ -75,8 +75,8 @@ describe('varied prestart fields and arrivals throughout late registration', () 
         expect(expected).toBeGreaterThanOrEqual(32);
         expect(expected).toBeLessThanOrEqual(48);
       } else {
-        expect(expected).toBeGreaterThanOrEqual(120);
-        expect(expected).toBeLessThanOrEqual(240);
+        expect(expected).toBeGreaterThanOrEqual(400);
+        expect(expected).toBeLessThanOrEqual(600);
       }
     }
   );

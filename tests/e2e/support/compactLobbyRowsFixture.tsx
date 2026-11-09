@@ -20,6 +20,10 @@ const entries = ['classic', 'action', 'madness'].map((template, index) =>
     cluster_template: template,
     cluster_players: 12 - index,
     cluster_tables: 2,
+    /* PLO6 Classic plays a big blind ante and a 50% floor (2026-10-24). */
+    ...(template === 'classic'
+      ? { big_blind_ante_enabled: true, nit_game: true, maintain_percent_min: 50 }
+      : {}),
   })
 );
 createRoot(document.getElementById('root')!).render(
