@@ -67,7 +67,7 @@ COMMENT ON TABLE public.bug_report_routing IS
   'Single configured row: the owner account that receives every bug report in Messenger and by push, the platform identity that sends it, and their dedicated conversation. 2026-11-09.';
 
 ALTER TABLE public.bug_report_routing ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.bug_report_routing FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON public.bug_report_routing FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON public.bug_report_routing TO service_role;
 
 -- Recipient: the owner's Messenger account (kingfish, the account that
@@ -111,7 +111,7 @@ COMMENT ON TABLE public.bug_report_deliveries IS
   'One receipt per bug report source row: the Messenger message and push outbox row that carried it to the owner, or the error that stopped it. 2026-11-09.';
 
 ALTER TABLE public.bug_report_deliveries ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.bug_report_deliveries FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON public.bug_report_deliveries FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON public.bug_report_deliveries TO authenticated, service_role;
 
 DROP POLICY IF EXISTS bug_report_deliveries_staff_read ON public.bug_report_deliveries;

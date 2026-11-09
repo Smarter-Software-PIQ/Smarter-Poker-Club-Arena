@@ -72,7 +72,7 @@ describe('every bug report reaches the owner messenger and phone', () => {
       'REVOKE ALL ON FUNCTION public.fn_route_bug_report_to_owner(text, uuid) FROM PUBLIC, anon, authenticated'
     );
     expect(route).toContain(
-      'REVOKE ALL ON public.bug_report_routing FROM PUBLIC, anon, authenticated'
+      'REVOKE ALL ON public.bug_report_routing FROM PUBLIC, anon, authenticated, service_role'
     );
     expect(route).toContain('USING (public.fn_is_platform_admin())');
   });
