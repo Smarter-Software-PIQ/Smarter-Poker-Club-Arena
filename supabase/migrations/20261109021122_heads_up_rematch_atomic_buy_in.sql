@@ -174,7 +174,8 @@ BEGIN
   IF position('auth.uid()' IN p_def) > 0 THEN
     RAISE EXCEPTION 'heads_up_rematch_copy_reads_auth_uid: %', p_signature USING ERRCODE = '55000';
   END IF;
-  IF position('fn_caller_session_is_live' IN p_def) > 0 THEN
+  -- The call, not the name: a source comment explains the check by name.
+  IF position('public.fn_caller_session_is_live()' IN p_def) > 0 THEN
     RAISE EXCEPTION 'heads_up_rematch_copy_reads_the_caller_session: %', p_signature USING ERRCODE = '55000';
   END IF;
   EXECUTE p_def;
