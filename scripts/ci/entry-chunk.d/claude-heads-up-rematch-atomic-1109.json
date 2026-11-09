@@ -1,0 +1,6 @@
+{
+  "_owner": "claude-heads-up-rematch-atomic-1109 - the heads-up Play Again card (Dan 2026-11-08) is answered by TournamentRankingHost, which is mounted on every page so a bust card can appear anywhere; headsUpRematch.ts is its answer parser and card wording, pure functions with no imports. The buy-in refusal wording that needs TournamentService is a separate module loaded only on a refusal.",
+  "modules": [
+    "src/services/headsUpRematch.ts"
+  ]
+}

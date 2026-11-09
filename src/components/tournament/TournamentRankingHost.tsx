@@ -68,8 +68,6 @@ import {
   parseRematchAnswer,
   rematchFellThrough,
   rematchIsLive,
-  rematchRefusalReasonIsKnown,
-  rematchRefusalText,
   rematchView,
   REMATCH_POLL_MS,
   type RematchAnswer,
@@ -137,6 +135,9 @@ export function TournamentRankingHost() {
    */
   const reportUserId = payload?.tournament?.userId ?? readLocalSession()?.userId;
   const finishSequence = payload?.tournament?.finishSequence;
+  /* A heads-up result has exactly two entrants. Only then is the format
+     asked, so no other finish ever pays for the rematch's read. */
+  const reportIsTwoHanded = payload?.tournament?.entrants === 2;
   const finishPlace = payload?.tournament?.finishPlace;
   const satelliteQualification = Boolean(payload?.tournament?.satelliteQualification);
   useEffect(() => {
@@ -321,14 +322,23 @@ export function TournamentRankingHost() {
       if (rematchRefusalToldRef.current) return;
       rematchRefusalToldRef.current = true;
       if (!answer.reason) return;
-      if (!rematchRefusalReasonIsKnown(answer.reason)) {
-        reportError(
-          new Error(`heads_up_rematch buy-in refused: ${answer.reason}`),
-          'TournamentRankingHost.rematch_buy_in_refused',
-          { tournamentId, reason: answer.reason }
+      const reason = answer.reason;
+      /* The wording lives with the buy-in service, which the first paint must
+         not download: it is fetched only when there is a refusal to say. */
+      void import('../../services/headsUpRematchRefusal')
+        .then(({ rematchRefusalReasonIsKnown, rematchRefusalText }) => {
+          if (!rematchRefusalReasonIsKnown(reason)) {
+            reportError(
+              new Error(`heads_up_rematch buy-in refused: ${reason}`),
+              'TournamentRankingHost.rematch_buy_in_refused',
+              { tournamentId, reason }
+            );
+          }
+          toast?.error(rematchRefusalText(reason));
+        })
+        .catch((err) =>
+          reportError(err, 'TournamentRankingHost.rematch_refusal_text_failed', { tournamentId })
         );
-      }
-      toast?.error(rematchRefusalText(answer.reason));
     },
     [toast, tournamentId]
   );
@@ -350,6 +360,7 @@ export function TournamentRankingHost() {
   useEffect(() => {
     if (!tournamentId) return;
     if (!reportUserId || reportUserId !== readLocalSession()?.userId) return;
+    if (!reportIsTwoHanded) return;
     let cancelled = false;
     const controller = new AbortController();
     const startedAt = Date.now();
@@ -418,7 +429,7 @@ export function TournamentRankingHost() {
       controller.abort();
       if (timer) clearTimeout(timer);
     };
-  }, [tournamentId, reportUserId, finishSequence, applyRematchAnswer]);
+  }, [tournamentId, reportUserId, finishSequence, reportIsTwoHanded, applyRematchAnswer]);
 
   /** Answer the rematch. Idempotent on the server; one request at a time here. */
   const respondToRematch = useCallback(

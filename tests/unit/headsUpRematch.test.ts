@@ -13,11 +13,13 @@ import {
   parseRematchAnswer,
   rematchFellThrough,
   rematchIsLive,
-  rematchRefusalReasonIsKnown,
-  rematchRefusalText,
   rematchView,
   type RematchCardStatus,
 } from '../../src/services/headsUpRematch';
+import {
+  rematchRefusalReasonIsKnown,
+  rematchRefusalText,
+} from '../../src/services/headsUpRematchRefusal';
 
 const ALL: RematchCardStatus[] = [
   'none',

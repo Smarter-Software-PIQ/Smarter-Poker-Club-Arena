@@ -24,8 +24,6 @@
  * anything about what kind of player the opponent is (CLAUDE.md 10.5).
  */
 
-import { seatFirstBuyInReasonIsKnown, seatFirstBuyInRefusalText } from './TournamentService';
-
 export type RematchServerStatus =
   | 'none'
   | 'waiting_for_you'
@@ -134,19 +132,6 @@ export interface RematchView {
 
 /** The card's state is the server's answer. */
 export type RematchCardStatus = RematchServerStatus;
-
-/**
- * Why a buy-back-in was refused, for the player it was refused for (the
- * server sends the reason only to that player). Nobody was charged.
- */
-export function rematchRefusalText(reason: string | undefined): string {
-  if (/rematch_unavailable/.test(reason ?? '')) return 'The Rematch Is Not Available Right Now';
-  return seatFirstBuyInRefusalText(reason);
-}
-
-export function rematchRefusalReasonIsKnown(reason: string | undefined): boolean {
-  return /rematch_unavailable/.test(reason ?? '') || seatFirstBuyInReasonIsKnown(reason);
-}
 
 export function rematchView(
   status: RematchCardStatus | null,
