@@ -95,3 +95,64 @@ it('takes a feeder chair through actual admission before opening the real purcha
   expect(transport.rpc).toHaveBeenCalledTimes(1);
   expect(purchase).not.toHaveBeenCalled();
 });
+
+it('accepts the real purchase sheet arriving while an ordinary chair click is blocked, without another admission or purchase', async () => {
+  const purchase = vi.fn();
+  let showOffer: () => void;
+  function OfferedTable() {
+    const [open, setOpen] = useState(false);
+    showOffer = () => setOpen(true);
+    return (
+      <>
+        <button aria-label="Seat 1: Open - Click To Sit">Sit</button>
+        <BuyInModal
+          isOpen={open}
+          onClose={() => setOpen(false)}
+          onConfirm={purchase}
+          minBuyIn={100}
+          maxBuyIn={400}
+          accountBalance={400}
+          bigBlind={2}
+          gameType="plo4"
+        />
+      </>
+    );
+  }
+  render(<OfferedTable />);
+  const blockedClick = vi.fn(async () => {
+    await act(async () => {
+      showOffer();
+    });
+    throw new Error('The arriving buy-in overlay intercepts pointer events');
+  });
+  const page = {
+    waitForURL: async () => {},
+    getByRole: (role: string, options: any) => {
+      if (role === 'button') return { first: () => ({ click: blockedClick }) };
+      return locator(() => document.body, role, options);
+    },
+  };
+  await openFeederBuyIn(page);
+  expect(screen.getByRole('slider', { name: 'Buy-In Amount' }).getAttribute('max')).toBe('400');
+  expect(blockedClick).toHaveBeenCalledTimes(1);
+  expect(transport.rpc).not.toHaveBeenCalled();
+  expect(purchase).not.toHaveBeenCalled();
+});
+
+it('preserves a blocked chair failure when no actual purchase sheet arrived', async () => {
+  const failure = new Error('Table artwork did not finish loading');
+  const page = {
+    waitForURL: async () => {},
+    getByRole: (role: string, options: any) =>
+      role === 'button'
+        ? {
+            first: () => ({
+              click: async () => {
+                throw failure;
+              },
+            }),
+          }
+        : locator(() => document.body, role, options),
+  };
+  await expect(openFeederBuyIn(page)).rejects.toBe(failure);
+});
