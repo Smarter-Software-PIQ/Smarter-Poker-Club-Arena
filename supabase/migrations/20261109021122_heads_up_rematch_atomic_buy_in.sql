@@ -110,7 +110,7 @@ CREATE INDEX IF NOT EXISTS idx_ca_heads_up_rematches_target_tournament
   WHERE target_tournament_id IS NOT NULL;
 
 ALTER TABLE public.ca_heads_up_rematches ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON TABLE public.ca_heads_up_rematches FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE public.ca_heads_up_rematches FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON TABLE public.ca_heads_up_rematches TO authenticated;
 DROP POLICY IF EXISTS ca_heads_up_rematches_participant_reads ON public.ca_heads_up_rematches;
 CREATE POLICY ca_heads_up_rematches_participant_reads
@@ -127,7 +127,7 @@ CREATE TABLE IF NOT EXISTS public.ca_heads_up_rematch_sources (
 COMMENT ON TABLE public.ca_heads_up_rematch_sources IS
   'The production buy-in layers the heads-up rematch copies for a named payer, and the md5 each was copied from. A source whose body no longer matches makes the rematch answer unavailable before any purchase.';
 ALTER TABLE public.ca_heads_up_rematch_sources ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON TABLE public.ca_heads_up_rematch_sources FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE public.ca_heads_up_rematch_sources FROM PUBLIC, anon, authenticated, service_role;
 
 DELETE FROM public.ca_heads_up_rematch_sources;
 INSERT INTO public.ca_heads_up_rematch_sources (source, source_md5, derived) VALUES
