@@ -42,3 +42,26 @@ it('runs the composed original trigger and deferred refusal under both caller mo
     'python3 -B scripts/ci/test-split-late-return-postgres.py'
   );
 });
+it('measures the live split return transaction-local settings against the retired 132114 postimage', () => {
+  const native = readFileSync('scripts/ci/test-split-late-return-postgres.py', 'utf8');
+  const live = readFileSync(base + 'live-split-return-b4d29a31.sql', 'utf8');
+  const cases = readFileSync(base + 'guc-cases.sql', 'utf8');
+  expect(createHash('md5').update(live).digest('hex')).toBe('b4d29a312a1d98b8a1b9c9ef7d0bb19b');
+  expect(live).not.toContain("'app.cash_original_debit_ledger'");
+  for (const name of [
+    'several_returns_keep_caller_keys',
+    'reader_right_after_departed_credit',
+    'cash_funding_reads_own_debit_around_returns',
+    'caught_failure_inside_return',
+    'uncaught_failure_caught_by_caller',
+    'uncaught_failure_aborts_transaction',
+    'outer_commit',
+  ]) {
+    expect(cases).toContain('-- @case ' + name + ' ');
+  }
+  expect(native).toContain(
+    "GUC_LIVE_LEAKS={'several_returns_keep_caller_keys','reader_right_after_departed_credit'}"
+  );
+  expect(native).toContain("keys==['app.cash_original_debit_ledger']");
+  expect(native).toContain("P132114='c1b188449d3bd52568bc6cdd908dcb87'");
+});
