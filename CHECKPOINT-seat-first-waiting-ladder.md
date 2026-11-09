@@ -459,3 +459,27 @@ refused, which is 10.86 rule 1: the two outcomes have one name, and the reader
 is sent to look at the schema when the schema is fine. Whoever owns that lane
 should separate them; this lane did not change the release path on the night of
 a cutover, and #10122 shows another lane is already working in that area.
+
+## What the shipped constants predict, so Wednesday is a comparison rather than a re-derivation
+
+From `server/src/config/seatFirstLadder.ts` and the 03:00-06:00 no-new-board
+window, with no people playing at all:
+
+| board            | opens with | rung 1      | rung 2     | full cycle | boards | starts/day |
+| ---------------- | ---------- | ----------- | ---------- | ---------- | ------ | ---------- |
+| Spin             | 1 horse    | 60-80 min   | 30-60 min  | ~115 min   | 11     | ~120-140   |
+| regular heads-up | 1 horse    | 180-240 min | fills      | ~210 min   | 6      | ~36-41     |
+
+So the horse-only floor is about **160 to 180 combined a day**, against a
+ceiling of 300. The headroom is deliberate: it is what a person's play is
+allowed to add. A human who sits is filled in 3:00 to 3:30 rather than waiting
+out the ladder, so an active day adds starts on top of that floor.
+
+**Read the split before reading the total.** A Tuesday over 300 with a large
+`human_triggered` count is the platform working, not the change failing; a
+Tuesday over 300 that is still almost entirely `horse_only` is the change
+failing and the cause is in the launcher. The digest prints both on the line
+above the total, which is why it prints both.
+
+Measured baseline to compare against: 2026-11-07 was 12,517 combined with ONE
+human-triggered start in the whole day.
