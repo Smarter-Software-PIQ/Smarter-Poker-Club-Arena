@@ -59,10 +59,11 @@
 --     consult the resolver. That call sat BEFORE the step that suspends and
 --     departs the closing account, so the resolver still saw it as live and
 --     returned it -- re-homing the player under the very account being deleted.
---     That path is NOT touched by this delivery at all: account-closure
---     reparenting belongs to another lane, and this task's authorization is
---     KINGS CLUB's proven referral mismatches. A scope guard in the suite pins
---     the hazard so a later change cannot quietly introduce it.
+--     That path is NOT touched by this delivery at all, and this delivery does
+--     not harden it or assert anything about it: account-closure reparenting
+--     belongs to another lane, and this task's authorization is KINGS CLUB's
+--     proven referral mismatches. The interaction is written up for that lane's
+--     owner in docs/changelog/2026-11-09-kings-club-referral-downlines.md.
 --
 --   [REVIEW 2] The resolver's second branch returns the referrer's own upline,
 --     which for a settled non-agent referrer IS the club owner. The draft then
@@ -805,15 +806,6 @@ BEGIN
                       position('agent-agreement:' in s) > 0,
                       'advisory lock present in the transfer path';
 
-  -- 15. SCOPE GUARD, not a gate on anyone else's work. The account-closure
-  --     reparent belongs to another lane and this delivery does not touch it.
-  --     It is pinned here because [REVIEW 1] proved what happens if a later
-  --     change points the resolver at it: the closing account is still live at
-  --     that point, so the resolver hands the player straight back to it.
-  s := pg_get_functiondef('public.fn_ca_deleted_account_leaves_every_club(uuid)'::regprocedure);
-  RETURN QUERY SELECT 'the deleted-account path does not consult the resolver',
-                      position('fn_resolve_referral_upline' in s) = 0,
-                      'resolver absent from the account-closure reparent';
 END
 $function$;
 

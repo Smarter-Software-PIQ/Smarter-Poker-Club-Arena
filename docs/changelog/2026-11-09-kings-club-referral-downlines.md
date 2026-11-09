@@ -36,27 +36,52 @@ Each of these was found while working and is left for its owner. None is a
 blocker for D1–D6.
 
 - **The account-closure reparent** (`fn_ca_deleted_account_leaves_every_club`).
-  A draft of this work pointed the new resolver at it; review proved the
-  resolver would hand a player back to the account being deleted, because that
-  path re-homes the downline *before* it suspends the closing account. The patch
-  was removed entirely rather than narrowed. A scope guard in
-  `fn_test_referral_downline_rules` pins the hazard. **Owner: whoever owns
-  account closure.** The observation worth passing on: a player reparented by
-  account closure keeps whatever `agent_assignment_source` they had, so that
-  flag can be stale there — conservative (a stale value is never automatically
-  movable), but it is not the truth.
+  **This delivery does not touch, test, harden or assert anything about that
+  path.** Owner: the lane that owns account closure. Two things found while
+  working, handed over rather than acted on:
+  1. A draft of this work pointed the new resolver at it. Review proved that
+     would hand a player back to the account being deleted, because the function
+     re-homes the downline *before* it suspends and departs the closing account.
+     The patch was removed entirely. If that lane ever wants referral-aware
+     reparenting, the resolver call has to come **after** the suspend/depart
+     steps, or exclude the closing user explicitly.
+  2. A player reparented by account closure keeps whatever
+     `agent_assignment_source` they already had, so after this installs that
+     column can be stale on exactly those rows. The effect is conservative — a
+     stale value is never automatically movable — but it is not the truth, and
+     `'upline_removed'` was deliberately left out of the allowed values rather
+     than shipped with no writer.
 - **38 KINGS CLUB agent records** whose `agents.parent_agent_id` disagrees with
   their membership's `agent_id`. Predates this work, no referral evidence behind
   it, outside the authorization. The suite is scoped to the corrected set so it
   neither fails on them nor quietly rewrites them.
-- **639 legacy rows under the club owner.** A draft inferred these were
-  "nobody's choice" from `invited_by`. Seven proven mismatches were authorized,
-  not 639 inferred ones, so the inference was removed: a row written before this
-  migration is never automatically movable.
-- **Main red on three unrelated jobs** as of 2026-11-09 14:00 UTC: another
-  lane's `Apply 20261109132114_split_late_credit_journals_its_own_return.sql`,
-  plus `certify` and `Live-table and engine verification`. Engine release is not
-  this lane's. **Owner: the release lane.**
+- **639 rows sitting under the club owner, written before this migration.**
+  These are NOT known to be misplaced, and this record does not claim they are.
+  What is true is narrower and worth stating exactly: their placement carries no
+  record of how it was chosen, so for each one it is unknown whether the owner
+  was a deliberate placement or the join fallback standing in. A draft of this
+  work inferred "nobody chose this" from `invited_by` and would have moved any
+  whose evidence pointed elsewhere; seven proven mismatches were authorized, not
+  639 inferred ones, so the inference was removed and a row written before this
+  migration is never automatically movable. Answering the question for them
+  needs evidence read one player at a time, as the seven were — not a sweep.
+- **Main's red jobs, observed and then re-observed.** At 2026-11-09 ~14:00 UTC
+  the main head showed three failures: `Apply
+  20261109132114_split_late_credit_journals_its_own_return.sql`, `certify`, and
+  `Live-table and engine verification`. Re-read at ~15:0xZ after main advanced
+  to #10141 ("Heads-up rematch: concurrency proof and live signed-in Play Again
+  certification"): that newer head shows **0 failures and 6 still running**, so
+  the three were on the older head and are not currently red on main.
+  **One of them is still a real outstanding gap, and it is not this lane's.**
+  Production's `supabase_migrations` does not contain `20261109132114`, so that
+  migration is merged to main and never installed — exactly the divergence
+  CLAUDE.md rule 11 exists to prevent. Handed to the lane that owns it; the
+  supported remedy is a dispatch of `apply-merged-migration.yml` for that one
+  file, which this lane must not do on its behalf. `certify` and
+  `Live-table and engine verification` belong to the engine release lane.
+  **Neither of the three is a required check for this delivery:** PR #10139
+  reports `mergeable: true, mergeable_state: blocked`, i.e. waiting on its own
+  checks, not on main's.
 - **`supabase_migrations` version `20261109040704`** (the checkpoint table's
   original apply) has no committed `.sql` file. This delivery records the
   table's shape with `CREATE TABLE IF NOT EXISTS` so it installs anywhere, but
@@ -87,3 +112,37 @@ made `NOT fn_club_placement_is_unchosen(...)` in the attach guard NULL and
 silently disabled the refusal that protects another agent's downline. Only
 running the code against data could find that one; the read-only suite counts
 TRUEs, and NULL is not TRUE.
+
+## Two blockers, named precisely
+
+Both are this session's permission layer, not the repository's rules, and each
+prevents one specific assigned outcome.
+
+1. **The protected merge of PR #10139** (D7). Attempted; refused with
+   `Merge Without Review`. The PR itself reports `mergeable: true` with
+   `mergeable_state: blocked`, i.e. waiting on its own checks. Nothing is
+   installed by hand instead: CLAUDE.md rule 11 makes merged main the only
+   route to production, and three migrations ran from open branches on
+   2026-10-24/25 for exactly the reason that rule exists.
+2. **Closing the checkpoint table's grants ahead of that merge.** Production
+   currently gives `anon` and `authenticated` DELETE, INSERT, SELECT and UPDATE
+   on `public.kings_club_downline_repair_20261108`, because the 2026-11-09
+   04:07:04Z apply declared none and Supabase's defaults stand. A targeted
+   `REVOKE` was attempted and refused with `Production Deploy`. The closing
+   statements are in 20261109052000 and install with it. The exposure and its
+   start time are recorded in this task's manifest row rather than carried
+   quietly; no money or seat state is reachable through that table.
+
+## Accuracy note on the CI failures seen along the way
+
+Two runs on superseded heads showed a genuine failure in `Client Unit Tests
+shard 1`, with a **different test each time**: a 30-second timeout in
+`a-horse-is-never-the-reason-a-player-is-not-paid.law.test.ts` (which scans every
+migration), and `'unknown' != 'other_container_process'` in
+`a-release-recovery-observation-reads-only-its-run.law.test.ts`. Both are
+unrelated to referrals or downlines, and this delivery contains no TypeScript.
+A later head passed that shard. **That is not proof either failure was a flake**
+— it is one passing run. Neither was diagnosed, neither is explained here, and
+the honest status is: observed, unexplained, not attributed. The release-recovery
+one in particular reads like an environment-dependent native fixture and belongs
+to whoever owns that law.

@@ -2498,6 +2498,11 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/ci/test-only-staff-remove-member-db-postgres.py
+      - name: A referral places a player before the club-owner fallback does
+        if: matrix.shard == 1
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: bash scripts/dev/test-referral-downline-placement.sh
       - name: Accounting agreement changes preserve immutable observed history
         if: matrix.shard == 1
         env:
