@@ -1029,10 +1029,9 @@ import {
 import {
   heroCardHoldAllowed,
   heroCardsAlreadyDealtFor,
+  createHeroCardRerequest,
   heroIsBlindInLiveHand,
   previousHeroRow,
-  LIGHTNING_HERO_CARD_RETRY_EVERY_MS,
-  LIGHTNING_HERO_CARD_RETRY_MS,
 } from '../lib/heroCardCustody';
 import { seatTapBalanceVerdict, notEnoughChipsText } from '../lib/seatTapBalance';
 import {
@@ -12796,10 +12795,19 @@ function LiveTablePage({
   const earlyHeroCardsRef = useRef<EarlyHeroCards | null>(null);
   useEffect(() => {
     earlyHeroCardsRef.current = null;
+    // The stamp belongs to one player at one table.
+    heroCardsHandRef.current = 0;
   }, [tableId, userId]);
   const handleHoleCardPayload = useCallback(
     (payload: any) => {
       if (isLightningObserverSnapshot(engineSnapshotRef.current)) return;
+      /* A player who has asked to leave is shown no further cards (2026-11-09):
+         a delivery or a re-request answer still in flight when they stood up
+         is dropped, and so is anything kept for a hand that had not started. */
+      if (leftSeatPendingRef.current) {
+        earlyHeroCardsRef.current = null;
+        return;
+      }
       /* DELETE carries no `new`, so it falls through here and is IGNORED, and
          that is deliberate. `insert_hole_cards` prunes rows with
          `hand_number < p_hand_number` on every deal, so the deletes this
@@ -13390,62 +13398,49 @@ function LiveTablePage({
 
      The engine already re-sends the hero's cards on every RESYNC
      (EngineWebSocketServer.onResync -> lightningRooms.rePushHoleCards), so the
-     room asks through that: only while the hero is dealt into a live hand and
-     holding nothing, on the same ladder as the physical read, and for as long
-     as that stays true. A hero holding cards sends nothing. Each hand that
-     needed it is reported once, so a delivery that keeps failing has a
-     reader. */
+     room asks through that: only while the hero is dealt into a live hand,
+     has not left and is holding nothing, at most five times per hand (0.6 s to
+     10 s), with one timer however many callers arm it. A hero holding cards
+     sends nothing. A hand that needed it is reported once, and a hand it could
+     not recover is reported once, so a delivery that keeps failing has a
+     reader. The answer comes back through handleHoleCardPayload and is judged
+     there by player, table, hand and board like any other delivery. */
   const lightningRoomActive = !!lightningRoom;
   useEffect(() => {
     if (!tableId || !userId || userId === 'guest' || !lightningRoomActive || lightningObserver)
       return;
-    let cancelled = false;
-    let timers: ReturnType<typeof setTimeout>[] = [];
-    let interval: ReturnType<typeof setInterval> | null = null;
-    let reportedHand = 0;
-    const stop = () => {
-      timers.forEach(clearTimeout);
-      timers = [];
-      if (interval) clearInterval(interval);
-      interval = null;
-    };
-    const askIfBlind = (): boolean => {
-      if (cancelled || isLightningObserverSnapshot(engineSnapshotRef.current)) return false;
-      const live = tableStateRef.current;
-      const blind = heroIsBlindInLiveHand({
-        hero: live.players.find((pl) => pl?.isHero && pl.id === userId),
-        isHandInProgress: live.isHandInProgress,
-      });
-      if (!blind) return false;
-      const hand = live.handNumber ?? 0;
-      if (hand !== reportedHand) {
-        reportedHand = hand;
-        reportError(
-          new Error('lightning hero holding nothing in a live hand; cards re-requested'),
-          'TablePage.lightning_hole_cards_rerequested',
-          { tableId, handNumber: hand, heldCardsHand: heroCardsHandRef.current }
-        );
-      }
-      requestEngineSnapshot();
-      return true;
-    };
-    const arm = () => {
-      if (cancelled) return;
-      stop();
-      for (const ms of LIGHTNING_HERO_CARD_RETRY_MS) timers.push(setTimeout(askIfBlind, ms));
-      interval = setInterval(() => {
-        if (!askIfBlind() && interval) {
-          clearInterval(interval);
-          interval = null;
+    const rerequest = createHeroCardRerequest({
+      currentHand: () => tableStateRef.current.handNumber ?? 0,
+      isBlind: () =>
+        !isLightningObserverSnapshot(engineSnapshotRef.current) &&
+        heroIsBlindInLiveHand({
+          hero: tableStateRef.current.players.find((pl) => pl?.isHero && pl.id === userId),
+          isHandInProgress: tableStateRef.current.isHandInProgress,
+          leaving: leftSeatPendingRef.current,
+        }),
+      ask: (hand, attempt) => {
+        if (attempt === 1) {
+          reportError(
+            new Error('lightning hero holding nothing in a live hand; cards re-requested'),
+            'TablePage.lightning_hole_cards_rerequested',
+            { tableId, handNumber: hand, heldCardsHand: heroCardsHandRef.current }
+          );
         }
-      }, LIGHTNING_HERO_CARD_RETRY_EVERY_MS);
-    };
-    heroCardFetchRef.current = arm;
-    arm();
+        requestEngineSnapshot();
+      },
+      onExhausted: (hand) => {
+        reportError(
+          new Error('lightning hero still holding nothing after every re-request'),
+          'TablePage.lightning_hole_cards_unrecovered',
+          { tableId, handNumber: hand }
+        );
+      },
+    });
+    heroCardFetchRef.current = rerequest.arm;
+    rerequest.arm();
     return () => {
-      cancelled = true;
-      stop();
-      if (heroCardFetchRef.current === arm) heroCardFetchRef.current = null;
+      rerequest.dispose();
+      if (heroCardFetchRef.current === rerequest.arm) heroCardFetchRef.current = null;
     };
   }, [tableId, userId, lightningRoomActive, lightningObserver, requestEngineSnapshot]);
   /* Armed from the hand number as well as from HAND_STARTED: a room that

@@ -52,20 +52,35 @@ photographed, and all three are closed.
   (`heroCardsHandRef`, written for every accepted delivery) as well as the cue.
 - A Lightning room re-requests through the engine's existing RESYNC
   (`onResync -> lightningRooms.rePushHoleCards`) only while the hero is dealt
-  into a live hand and holding nothing, at 0.6 s, 1.2 s, 2 s and every 5 s.
-  Each hand that needed it is reported once as
-  `TablePage.lightning_hole_cards_rerequested`.
+  into a live hand, has not left and is holding nothing. `createHeroCardRerequest`
+  owns it: at most five asks per hand (0.6 s, 1.2 s, 2 s, 5 s, 10 s), one timer
+  however many callers arm it, ended by cards arriving, the hand changing, the
+  player leaving or unmount. A hand that needed it is reported once as
+  `TablePage.lightning_hole_cards_rerequested`; a hand it could not recover is
+  reported once as `TablePage.lightning_hole_cards_unrecovered`.
+- The delivery door drops everything for a player who has left, and the hand
+  stamp is cleared with the table and the player. The answer to a re-request
+  goes through that same door (player, table, hand, board), so a late answer
+  for an earlier hand is refused there.
 
 Client only. No engine, schema, chip or seat change. The engine API used
 (RESYNC) is already live, so this does not wait for the 04:00 window.
 
 ## Pinned
 
-`tests/the-hero-always-holds-the-cards-they-were-dealt.law.test.ts` (18 tests;
-4 fail on the previous page source).
+`tests/the-hero-always-holds-the-cards-they-were-dealt.law.test.ts` (47 tests;
+12 fail on the previous page source). It runs the page's own snapshot merge,
+delivery door, replay effect and HAND_STARTED reset: the seat change, the muted
+table, the three event orders, a dropped delivery, a late answer, another
+player, another room, and a player who has left.
 
-## Not done
+## First push
 
-- Mongo's 0.25 small blind in 58167350 is not refunded here. The hand was
-  dealt and settled correctly by the engine; a refund is an owner decision.
-- No browser run on a real phone was made from this session.
+The first push (a4a5b457) failed `Client Unit Tests shard 4`:
+`tests/unit/expiredSeatClears.test.ts` executes the snapshot merge out of the
+page source with injected names and did not know `previousHeroRow`. Two more
+harnesses of the same kind (`opponentRevealsAreHandScoped`,
+`tournamentSeatCardArrival`) had the same gap and were in cancelled shards.
+All three now inject the custody names. `vitest related` cannot see a test
+that reads a source file with `readFileSync`; the check that finds them is
+every test file that names `TablePage.tsx`.

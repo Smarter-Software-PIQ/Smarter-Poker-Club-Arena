@@ -96,15 +96,16 @@ export function heroCardsAlreadyDealtFor(input: {
 
 /**
  * Is the hero dealt into a live hand and holding nothing? A sat-out, away or
- * folded hero is not waiting on cards, and neither is a felt with no hand on
- * it.
+ * folded hero is not waiting on cards, neither is a felt with no hand on it,
+ * and a player who has asked to leave is never shown cards again.
  */
 export function heroIsBlindInLiveHand(input: {
   hero: HeroCustodyRow | null | undefined;
   isHandInProgress: boolean;
+  leaving?: boolean;
 }): boolean {
   const hero = input.hero;
-  if (!hero || !input.isHandInProgress) return false;
+  if (!hero || !input.isHandInProgress || input.leaving === true) return false;
   if (hero.status === 'sitting_out' || hero.status === 'away' || hero.status === 'folded') {
     return false;
   }
@@ -112,11 +113,116 @@ export function heroIsBlindInLiveHand(input: {
 }
 
 /**
- * When a Lightning room re-asks the engine for the hero's cards. The engine
- * re-sends them on every RESYNC, which is the only recovery a pool session
- * has. The first ask waits for the ordinary delivery; the ladder then matches
- * the physical table's recovery read and continues for as long as the hero is
- * blind.
+ * The waits before each ask, in order. The asks land 0.6 s, 1.2 s, 2 s, 5 s
+ * and 10 s after the hand is first watched: the first three inside the opening
+ * of the action clock, the last two inside the time bank. Five per hand is the
+ * whole budget. This is a bounded retry of one delivery for one hand, never a
+ * standing poll.
  */
-export const LIGHTNING_HERO_CARD_RETRY_MS: readonly number[] = [600, 1200, 2000];
-export const LIGHTNING_HERO_CARD_RETRY_EVERY_MS = 5000;
+export const HERO_CARD_REREQUEST_WAITS_MS: readonly number[] = [600, 600, 800, 3000, 5000];
+
+export interface HeroCardRerequestDeps {
+  /** The hand on the felt now; 0 when unknown. */
+  currentHand: () => number;
+  /** The hero is dealt into that hand, has not left, and holds nothing. */
+  isBlind: () => boolean;
+  /** Ask the engine once to send the hero's cards again. */
+  ask: (hand: number, attempt: number) => void;
+  /** Every ask for `hand` is spent and the hero is still blind. */
+  onExhausted?: (hand: number) => void;
+  setTimer?: (fn: () => void, ms: number) => unknown;
+  clearTimer?: (handle: unknown) => void;
+  waitsMs?: readonly number[];
+}
+
+export interface HeroCardRerequest {
+  /** Watch the hand on the felt. Safe to call any number of times. */
+  arm: () => void;
+  /** Unmount, leave, or a change of table or player: nothing fires again. */
+  dispose: () => void;
+  /** Asks spent for the hand being watched (for tests and telemetry). */
+  asksFor: (hand: number) => number;
+}
+
+/**
+ * ONE BOUNDED RE-REQUEST PER HAND (2026-11-09).
+ *
+ * The rules, each of which a caller can no longer get wrong:
+ *
+ *   - one timer at most, ever: arming while a watch is running for the same
+ *     hand does nothing, so HAND_STARTED, a refused push, a reconnect and the
+ *     hand-number effect arming together cannot multiply the asks;
+ *   - a budget per hand that re-arming does not refill;
+ *   - every tick re-reads the truth: a hand that has changed, cards that have
+ *     arrived, a hero who folded, sat out or left - each ends the watch
+ *     without asking;
+ *   - a new hand drops the old hand's watch before starting its own;
+ *   - dispose is final.
+ *
+ * It asks for nothing but a re-send. What comes back is judged by the same
+ * door as every other delivery (player, table, hand and board), so a late
+ * answer for an earlier hand is refused there, not trusted here.
+ */
+export function createHeroCardRerequest(deps: HeroCardRerequestDeps): HeroCardRerequest {
+  const waits = deps.waitsMs ?? HERO_CARD_REREQUEST_WAITS_MS;
+  const setTimer = deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
+  const clearTimer =
+    deps.clearTimer ?? ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));
+  let disposed = false;
+  let watchedHand = 0;
+  let asks = 0;
+  let exhaustedReported = false;
+  let timer: unknown = null;
+
+  const cancel = () => {
+    if (timer !== null) clearTimer(timer);
+    timer = null;
+  };
+  const schedule = () => {
+    if (disposed || timer !== null || asks >= waits.length) return;
+    const hand = watchedHand;
+    timer = setTimer(() => {
+      timer = null;
+      if (disposed || hand !== watchedHand || deps.currentHand() !== hand) return;
+      if (!deps.isBlind()) return;
+      asks += 1;
+      deps.ask(hand, asks);
+      if (asks < waits.length) {
+        schedule();
+      } else if (!exhaustedReported) {
+        exhaustedReported = true;
+        // Read once more after the last answer has had its wait.
+        timer = setTimer(
+          () => {
+            timer = null;
+            if (disposed || hand !== watchedHand || deps.currentHand() !== hand) return;
+            if (deps.isBlind()) deps.onExhausted?.(hand);
+          },
+          waits[waits.length - 1]
+        );
+      }
+    }, waits[asks]);
+  };
+
+  return {
+    arm() {
+      if (disposed) return;
+      const hand = deps.currentHand();
+      if (!(hand > 0)) return;
+      if (hand !== watchedHand) {
+        cancel();
+        watchedHand = hand;
+        asks = 0;
+        exhaustedReported = false;
+      }
+      schedule();
+    },
+    dispose() {
+      disposed = true;
+      cancel();
+    },
+    asksFor(hand) {
+      return hand === watchedHand ? asks : 0;
+    },
+  };
+}

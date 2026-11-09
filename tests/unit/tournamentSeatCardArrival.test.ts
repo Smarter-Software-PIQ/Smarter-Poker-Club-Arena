@@ -57,6 +57,9 @@ function setup(hand = 20) {
     tableStateRef: { current: state },
     tableState: state,
     heroHandRef: { current: hand },
+    // Seated, and no delivery stamped yet (heroCardCustody.ts).
+    leftSeatPendingRef: { current: false },
+    heroCardsHandRef: { current: 0 },
     lightningRoomRef: { current: null },
     earlyHeroCardsRef: { current: null },
     earlyHeroCardsReady,
