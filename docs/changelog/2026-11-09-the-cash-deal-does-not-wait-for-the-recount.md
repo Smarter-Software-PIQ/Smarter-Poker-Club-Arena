@@ -71,6 +71,33 @@ identically. Production count of manifests with no accepted hand: 0 among
 
 ## Tests
 
+Owner instruction (2026-11-09, via the release coordinator): because this
+changes settlement ordering, conservation, concurrency, retry and partial
+failure are each proved before merge.
+
+- `scripts/ci/probes/chip-journal-atomicity/test_deferred_settlement.py`
+  (real PostgreSQL 17, its own step in `run-isolated.sh` right after the
+  bootstrapped chip journal, in the existing chip-journal job): the
+  production bodies of `resolve_pending_addon` and
+  `fn_horse_fund_from_treasury` (md5-pinned), the current
+  `fn_ca_process_hand_post_commit_obligations`, `fn_ca_settle_hand_stacks_absolute`
+  and `atomic_distribute_rake`:
+  1. conservation: 2,500 chips in and 2,500.00 out across the hand commit, the
+     envelope (rake and a mid-hand add-on), a horse top-up, the next deal's
+     stacks, the deferred recount and a cash-out at hand end;
+  2. concurrency, two real sessions: the deferred recount holding the table row
+     while the next hand reads its stacks, settles and runs its envelope (no
+     wait, totals exact); two tables settling add-on refunds into one shared
+     wallet (serialized on the wallet row, both refunds once);
+  3. retry: an envelope replay, a direct resolver replay and a double recount
+     apply nothing twice;
+  4. partial failure: a recount that times out after its read moves no stack
+     or balance, is recorded and recovers on the next pass; an envelope that
+     fails after its rake leg leaves no half-applied balance and completes on
+     the retry;
+     plus: the early stack read is valid exactly when the envelope's receipt
+     resolved no add-on.
+
 - `server/src/engine/TheCashDealDoesNotWaitForTheRecount.test.ts`: the deal
   releases after the seats lane and before the recount; the recount stays
   settlement in flight, lands in hand order, and tournaments keep the whole

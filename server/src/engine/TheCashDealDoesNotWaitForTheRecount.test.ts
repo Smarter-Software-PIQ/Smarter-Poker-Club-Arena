@@ -241,6 +241,55 @@ describe('1. the deal barrier releases before the recount, and the recount stays
   });
 });
 
+describe('1b. a deferred recount that fails or times out', () => {
+  it('a timeout is recorded once, moves nothing, and the next boundary recounts', async () => {
+    const { engine, players } = cashTable();
+    const { raiseFinancialAlert } = await import('../services/financialAlerts.js');
+    vi.mocked(raiseFinancialAlert).mockClear();
+    mocks.recount.mockRejectedValueOnce(new Error('supabase_timeout'));
+    await engine.postHandTasks(players, 1);
+    // The deal was released with the stacks already settled.
+    expect(players.map((p: any) => p.stack)).toEqual([90, 110]);
+    await engine.tableUnlockTail;
+    await flush();
+    // One attempt (no budget), recorded once, nothing re-applied, table freed.
+    expect(mocks.recount).toHaveBeenCalledTimes(1);
+    const alerts = vi
+      .mocked(raiseFinancialAlert)
+      .mock.calls.filter((c: any[]) => c[1] === 'postHandTasks.table_unlock_failed');
+    expect(alerts).toHaveLength(1);
+    expect(engine.hasSettlementInFlight()).toBe(false);
+    expect(players.map((p: any) => p.stack)).toEqual([90, 110]);
+    expect(mocks.obligations).toHaveBeenCalledTimes(1);
+    expect(mocks.commit).toHaveBeenCalledTimes(1);
+    // Recoverable: the next hand's recount runs and corrects the summary.
+    engine.handCount = 9459701;
+    await engine.postHandTasks(players, 2);
+    await engine.tableUnlockTail;
+    expect(mocks.recount).toHaveBeenCalledTimes(2);
+  });
+
+  it('the next deal never reads a stack the deferred work could change', async () => {
+    // Everything after the deal barrier in a cash hand: only the recount. It
+    // receives no stack and returns only a count.
+    const SETTLEMENT = (await import('node:fs')).readFileSync(
+      new URL('./ServerTableEngineSettlement.ts', import.meta.url),
+      'utf8'
+    );
+    const start = SETTLEMENT.indexOf("await runStep('table_unlock'");
+    const end = SETTLEMENT.indexOf('const finishLanesTiming', start);
+    const deferred = SETTLEMENT.slice(start, end);
+    expect(deferred).toContain('reconcileTableSeatCount(this.tableId');
+    expect(deferred).not.toMatch(
+      /\.stack\b|stack:|addChips|resolve_pending_addon|autoRebuyHorse|cashout/i
+    );
+    // And the deal barrier is taken after every seat-lane step is queued.
+    const dealReady = SETTLEMENT.indexOf('const dealReady =');
+    expect(dealReady).toBeGreaterThan(SETTLEMENT.indexOf("await runStep('leave_pending'"));
+    expect(dealReady).toBeLessThan(start);
+  });
+});
+
 describe('2. the committed stacks read beside the envelope', () => {
   it('a hand after one this engine settled sends the read beside the envelope and uses it', async () => {
     const { engine, players } = cashTable();
