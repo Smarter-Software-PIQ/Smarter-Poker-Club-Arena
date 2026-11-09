@@ -286,6 +286,8 @@ house club or its tables. A refusal or missing evidence is not a live pass.
 For an interrupted PLO witness whose funding is reconciled but owned account
 retirement failed, the same explicit event accepts `cleanup_run_id` beside
 `engine_sha`. It retrieves that exact protected original run artifact, verifies
-its binding and zero live balances, and invokes only the existing guarded
-retirement owner. It never replays a purchase or transfer. Read `cleanup-only`
+its binding and authoritative closed cash-out. It resumes normal owned wallet
+claim-back with the original or stable operation key, verifies its ledger and
+zero balance, then invokes the guarded retirement owner. It never creates a
+new purchase or repeats an unknown financial intent under a new key. Read `cleanup-only`
 separately from live gameplay acceptance; unknown money remains retained.
