@@ -1,0 +1,3 @@
+# tests/paid-linked-proof-uses-its-original-budget.law.test.ts
+
+An already-paid book may advance additional canonical linked proof units within its original 120-second qualification budget and unchanged scope/statement reserves. Each further call requires actual linked-proof progress and room for the slowest measured step plus guard overhead; completion, no progress and refusal stop the batch. Canonical reader bytes, source proof generation, existing financial paths and payout receipts remain unchanged. The existing coordinator PG17 route qualifies full coordinator control flow with controlled clocks and explicit canonical-cost/prepared-proof adapters, and exact installation, stale-pin rollback, metadata and replay checks.
