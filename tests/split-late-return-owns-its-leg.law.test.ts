@@ -5,10 +5,10 @@ import { expect, it } from 'vitest';
 const base = 'scripts/ci/fixtures/split-late-return/';
 const rows = JSON.parse(readFileSync(base + 'actual-functions.json', 'utf8'));
 const migration = readFileSync(
-  'supabase/migrations/20261109132114_split_late_credit_journals_its_own_return.sql',
+  'supabase/retired-unapplied/20261109132114_split_late_credit_journals_its_own_return.sql',
   'utf8'
 );
-it('lets the nested split return journal its own debit without changing its caller authority', () => {
+it('retains the qualified historical nested return source after its installed successor supersedes it', () => {
   const original = rows.find(
     (row: { proname: string }) => row.proname === 'fn_ca_horse_split_return_late_credit'
   ).body;
@@ -16,6 +16,7 @@ it('lets the nested split return journal its own debit without changing its call
   expect(migration).toContain("set_config('app.ledger_autoskip_club_members','',true)");
   expect(migration).toContain("'app.cash_original_debit_ledger'");
   expect(migration).toContain('split_late_return_preimage_changed');
+  expect(migration.split('\n')[0]).toBe('-- SUPERSEDED BY 20261109140919');
   expect(migration).not.toMatch(
     /fn_settle_accounting_rakeback_stage|UPDATE public\.|INSERT INTO|GRANT|REVOKE/
   );
