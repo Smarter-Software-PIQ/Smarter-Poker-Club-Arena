@@ -83,7 +83,8 @@ failure are each proved before merge.
   `fn_ca_process_hand_post_commit_obligations`, `fn_ca_settle_hand_stacks_absolute`
   and `atomic_distribute_rake`:
   1. conservation: 2,500 chips in and 2,500.00 out across the hand commit, the
-     envelope (rake and a mid-hand add-on), a horse top-up, the next deal's
+     envelope (rake, a BBJ drop into the pool through the real allocator and
+     `bbj_record_contribution`, and a mid-hand add-on), a horse top-up, the next deal's
      stacks, the deferred recount and a cash-out at hand end;
   2. concurrency, two real sessions: the deferred recount holding the table row
      while the next hand reads its stacks, settles and runs its envelope (no

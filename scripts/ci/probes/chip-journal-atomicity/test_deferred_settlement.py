@@ -8,7 +8,7 @@ add-on. This proves, on real PostgreSQL 17 sessions and the real money bodies,
 the four properties that change rests on:
 
   1 CONSERVATION  every chip in equals every chip out across hand end, the
-                  envelope (rake, BBJ, a mid-hand add-on), a horse top-up, the
+                  envelope (rake, a BBJ drop, a mid-hand add-on), a horse top-up, the
                   next deal's starting stacks, the deferred recount and a
                   cash-out at hand end;
   2 CONCURRENCY   the deferred recount running while the next hand's manifest
@@ -145,10 +145,10 @@ TOTAL="""(SELECT coalesce((SELECT sum(chip_balance) FROM club_members),0)
  +coalesce((SELECT sum(amount) FROM chip_ledger WHERE to_type='chip_retirement' AND category='burn'),0))"""
 
 
-def payload(rake=0,bbj=0,addons=()):
+def payload(rake=0,bbj=0,addons=(),blind=2):
  p=dict(time_banks=[],promo_playthrough=[],insurance=[],
   rake=(dict(club_id=CLUB,amount=rake,bbj=bbj,pot=40,num_players=2,contributions=None,returned_uncalled={},method='WEIGHTED_CONTRIBUTED') if rake else None),
-  bbj_contribution=None,
+  bbj_contribution=(dict(club_id=CLUB,amount=bbj,big_blind=blind) if bbj else None),
   pending_addons=dict(enabled=True,max_buy_in=300,ids=list(addons)))
  return "'"+json.dumps(p)+"'::jsonb"
 
@@ -169,21 +169,37 @@ def seed(addon=25):
  """
 
 
-def commit_hand(hand,table,number,stacks,rake=0,addons=(),plpgsql=False):
+def commit_hand(hand,table,number,stacks,rake=0,addons=(),plpgsql=False,bbj=0):
  """The accepted hand's own transaction: the delta stack write through the real
  settler, the rake held for the envelope, and the frozen envelope row."""
  rows=json.dumps([dict(user_id=u,stack=s,stack_before=b) for u,s,b in stacks])
  call="PERFORM" if plpgsql else "SELECT"
  return f"""
- {call} pg_temp_settle(fn_ca_settle_hand_stacks_absolute('{table}',{number},'{rows}'::jsonb,{rake},0,null,0));
- INSERT INTO hand_rake_in_flight VALUES('{hand}',{rake});
- INSERT INTO hand_atomic_commits(hand_id,table_id,hand_number,post_commit_payload) VALUES('{hand}','{table}',{number},{payload(rake=rake,addons=addons)});
+ {call} pg_temp_settle(fn_ca_settle_hand_stacks_absolute('{table}',{number},'{rows}'::jsonb,{rake},{bbj},null,0));
+ INSERT INTO hand_rake_in_flight VALUES('{hand}',{rake}+{bbj});
+ INSERT INTO hand_atomic_commits(hand_id,table_id,hand_number,post_commit_payload) VALUES('{hand}','{table}',{number},{payload(rake=rake,bbj=bbj,addons=addons)});
  UPDATE hand_atomic_commits SET post_commit_payload_hash=encode(extensions.digest(convert_to(post_commit_payload::text,'UTF8'),'sha256'),'hex') WHERE hand_id='{hand}';
  """
 
 
 def envelope(hand):
  return f"pg_temp_envelope('{hand}')"
+
+
+def bbj_ddl():
+ """The BBJ pool's real drop: bbj-fixture.sql's tables (without its narrower
+ chip_ledger checks) and the allocator and contribution bodies test_bbj.py uses."""
+ fx=(HERE/'bbj-fixture.sql').read_text()
+ fx='\n'.join(l for l in fx.split('\n') if 'chip_ledger' not in l)
+ fx=fx.replace('ADD COLUMN ','ADD COLUMN IF NOT EXISTS ').replace('CREATE TABLE bbj_contributions','CREATE TABLE IF NOT EXISTS bbj_contributions')
+ fx=fx.replace('CREATE UNIQUE INDEX bbj_pool_hand','CREATE UNIQUE INDEX IF NOT EXISTS bbj_pool_hand').replace('CREATE TABLE ca_bbj','CREATE TABLE IF NOT EXISTS ca_bbj')
+ fx=fx.replace('INSERT INTO ca_bbj_policy VALUES(1,100000,.5,.25,.25,.25);','INSERT INTO ca_bbj_policy VALUES(1,100000,.5,.25,.25,.25) ON CONFLICT DO NOTHING;')
+ allocator=ROOT/'supabase/migrations/20260904212347_phase_4_3_the_allocator_carries_its_rounding_residue.sql'
+ a=allocator.read_text();m=list(re.finditer(r'CREATE OR REPLACE FUNCTION public\.fn_bbj_allocate\s*\(',a))[-1]
+ t=a[m.start():];b=re.search(r'\bAS\s+(\$[A-Za-z0-9_]*\$)',t);e=t.index(b[1],b.end())
+ # The club's active pool exists, empty, as every BBJ club's does.
+ pool=f"INSERT INTO bbj_pools(id,club_id,main_balance,backup_balance,promo_balance,status) VALUES('d1000000-0000-4000-8000-0000000000bb','{CLUB}',0,0,0,'active');\n"
+ return fx+'\n'+t[:e+len(b[1])]+';\n'+latest('bbj_record_contribution')+'\n'+pool
 
 
 def verify_deferred_settlement(run):
@@ -197,17 +213,20 @@ def verify_deferred_settlement(run):
  ddl+=hand.replace(role,'')
  passed=0
 
- # 1. CONSERVATION across hand end, envelope (rake + add-on), horse top-up,
- #    the next deal's stacks, the deferred recount and a cash-out at hand end.
- run('BEGIN;'+ddl+seed()+f"""
+ # 1. CONSERVATION across hand end, envelope (rake + BBJ drop + add-on), horse
+ #    top-up, the next deal's stacks, the deferred recount and a cash-out at hand end.
+ run('BEGIN;'+ddl+bbj_ddl()+seed()+f"""
  DO $c$ DECLARE t0 numeric; t1 numeric; r jsonb; dealt numeric; BEGIN
   t0:={TOTAL};
-  -- Hand 1: A wins 20 from B, 2 raked (B 100 -> 80, A 100 -> 118).
-  {commit_hand(HAND1,T1,1000001,[(A,118,100),(B,80,100),(H,100,100)],rake=2,addons=[ADD1],plpgsql=True)}
+  -- Hand 1: A wins 20 from B, 2 raked and 1 dropped to the BBJ pool (B 100 -> 80, A 100 -> 117).
+  {commit_hand(HAND1,T1,1000001,[(A,117,100),(B,80,100),(H,100,100)],rake=2,bbj=1,addons=[ADD1],plpgsql=True)}
   IF {TOTAL}<>t0 THEN RAISE EXCEPTION 'hand commit moved chips: % -> %',t0,{TOTAL}; END IF;
-  -- The envelope: rake booked, A's frozen add-on resolved onto the seat.
+  -- The envelope: rake booked, the BBJ drop paid into the pool, A's frozen add-on resolved onto the seat.
   r:={envelope(HAND1)};
   IF r->>'ok' IS DISTINCT FROM 'true' OR (r->>'pending_addons')::int<>1 THEN RAISE EXCEPTION 'envelope: %',r; END IF;
+  IF (SELECT sum(main_balance+backup_balance+promo_balance) FROM bbj_pools WHERE club_id='{CLUB}')<>1
+   OR (SELECT count(*) FROM bbj_contributions WHERE hand_id='{HAND1}' AND amount=1)<>1
+   THEN RAISE EXCEPTION 'BBJ drop not paid into the pool exactly once'; END IF;
   IF {TOTAL}<>t0 THEN RAISE EXCEPTION 'envelope moved chips: % -> %',t0,{TOTAL}; END IF;
   -- Horse top-up from the club treasury (the real funding door).
   PERFORM set_config('app.ledger_autoskip_clubs','x',true);
@@ -216,7 +235,7 @@ def verify_deferred_settlement(run):
   IF {TOTAL}<>t0 THEN RAISE EXCEPTION 'top-up moved chips: % -> %',t0,{TOTAL}; END IF;
   -- The next deal reads its stacks here, BEFORE the deferred recount.
   SELECT sum(stack) INTO dealt FROM table_seats WHERE table_id='{T1}' AND left_at IS NULL;
-  IF dealt<>118+25+80+150 THEN RAISE EXCEPTION 'next deal read % (expected 373)',dealt; END IF;
+  IF dealt<>117+25+80+150 THEN RAISE EXCEPTION 'next deal read % (expected 372)',dealt; END IF;
   -- The deferred recount, after the deal.
   PERFORM {RECOUNT};
   IF {TOTAL}<>t0 OR (SELECT sum(stack) FROM table_seats WHERE table_id='{T1}' AND left_at IS NULL)<>dealt
@@ -228,7 +247,7 @@ def verify_deferred_settlement(run):
   t1:={TOTAL};
   IF t1<>t0 THEN RAISE EXCEPTION 'cash-out lost chips: % -> %',t0,t1; END IF;
   IF (SELECT current_players FROM tables WHERE id='{T1}')<>2 THEN RAISE EXCEPTION 'recount wrong'; END IF;
-  RAISE NOTICE 'PASS conservation: % chips in, % out across commit, envelope (rake+add-on), top-up, next deal, recount, cash-out',t0,t1;
+  RAISE NOTICE 'PASS conservation: % chips in, % out across commit, envelope (rake+BBJ+add-on), top-up, next deal, recount, cash-out',t0,t1;
  END $c$; ROLLBACK;""");passed+=1
 
  # 3. RETRY: the envelope and the deferred recount, each applied twice.
