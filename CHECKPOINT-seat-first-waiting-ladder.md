@@ -7,6 +7,64 @@ instruction each authorized agent owns its own delivery, so "release owner" for
 #10094 is this lane; there is no separate person to coordinate with, and the
 04:00 daily preparation is owned by whichever Stage run reserves the date.
 
+---
+
+## SCOPE OF RECORD (2026-11-09, reset to the original assignment)
+
+**This section supersedes every later "Still open, and why" table in this
+file.** Those tables stay as history; this is the only list of gates this lane
+is closed against.
+
+### What this chat owns, and what each one is accepted on
+
+| # | deliverable | accepted when |
+| --- | --- | --- |
+| 1 | Combined Spin and regular Sit and Go starts under 300 per Chicago day | one COMPLETE Chicago day on the activated engine measures under 300 combined, with human-triggered and horse-only reported separately and no reading that turns an over-target day into a pass |
+| 2 | One horse opens a board, 11 Spins and 6 regular Sit and Gos | the live board count converges on 11 and 6, satellite feeders counted in neither |
+| 3 | The waiting ladder: Spin 60-80 then 30-60 minutes, regular Sit and Go 3-4 hours | boards advance on those rungs on the activated engine |
+| 4 | A person who sits is joined in 3 to 7 minutes | the engine fills across the whole band, and the table's countdown is never later than the engine's own deadline |
+| 5 | Horses are refunded exactly as humans, 100% of the time | already accepted: 390 of 390 horse entries refunded, 9,400.00 debited and 9,400.00 returned, to the chip, plus the SQL law that refuses horse status as a reason not to pay |
+| 6 | Taken out of the horse auto-launch schedule | already accepted: the launcher opens one horse per board and no replacement while above target |
+
+Everything in 1 to 4 is observable only on the activated engine. 5 and 6 are
+closed.
+
+### What remains
+
+| item | state |
+| --- | --- |
+| Activation | not this lane's to perform. The 2026-11-09 preparation froze `blocked` on a defect another lane has since fixed; the next activation is the ordinary 04:00 window |
+| Verification at activation | serving identity, SEALED receipt, complete thaw, convergence toward 11 and 6, feeders consuming none of that budget, occupied games keeping players and stacks, a reload keeping the countdown |
+| The acceptance day | the first COMPLETE Chicago day after an activation that actually happened, reported by the digest the following day |
+| Pre-change baseline | Chicago 2026-11-09 ran entirely on the old engine; its numbers are recorded as pre-change and are not an acceptance result |
+
+### Dependencies are coordination points, not work for this lane
+
+The 04:00 activation, its certificate and its receipts belong to the daily
+release operation. This lane READS that operation's record (the selection
+artifact, the certificate status, `/health`, the sealed receipt) and verifies
+its own behaviour afterwards. It does not dispatch a release, re-run a
+selection, write to the Backup host, apply a migration outside its own, or
+build a second implementation of any of it. Where a dependency is missing or
+wrong, this lane reports it to the owning operation with the evidence and
+carries on with what it can measure.
+
+### Unrelated work this lane adopted, and where it has gone
+
+Preserved, handed over, nothing deleted:
+
+| what | established owner | where the evidence is | ACK |
+| --- | --- | --- | --- |
+| The sparse-checkout defect that blocked the 2026-11-09 selection. This lane built a fix and opened a PR for a workflow it does not own; three other lanes did the same within seven minutes | the release lane (`stage-engine-release.yml`) | fixed on main by #10157 with its own law test; this lane's PR closed as superseded with the reason in its comment; the incident record is `docs/changelog/2026-11-09-the-daily-selection-could-not-read-its-own-helper.md` | superseded by the merge |
+| The Backup refresh failure "standby cash cluster parent missing" | the Backup lane | diagnosis in the archived evidence folder; fixed on main by #10144 before this lane's note was read | the fix landed |
+| Nine workflows red at their latest main run, and the audit meant to raise that issue being one of them | the BBJ sweep lane and the production-integrity owner | `COORDINATION-INBOX.md`, 10:43Z entry | one received: the tournament-lobby lane accepted the rematch-certification red as theirs, hand-started, not touching the release or publish gate. The BBJ shard and the detector remain open with their owners |
+| A migration in production that main has never seen (`20261109040704`) | the Kings Club downline lane | `COORDINATION-INBOX.md`, 06:27Z entry, with the installed-set effect for the release owner | open |
+| Cancelled feeders showing debits with no refund row; a feeder inheriting the heads-up ladder; a digest reader that coerces an unreadable answer to empty | their own lanes | "Observations outside this lane" below, unchanged | open, and deliberately not acted on |
+
+The lesson this lane keeps: finding a defect in another lane's file is a
+report, not an assignment. Four agents fixing one missing folder in seven
+minutes cost more than the folder did.
+
 ## The measurement that started it (read from production, 2026-11-08)
 
 Seven days to 2026-11-07, by Chicago day:
@@ -131,7 +189,7 @@ Stage, Certify)` for the merge ran successfully (42530764148). Current main
 - **Stake rotation.** Rotation only ever considers configs with NO open
   instance, so an occupied board is never a rotation candidate.
 
-## Still open, and why
+## Still open, and why (SUPERSEDED by SCOPE OF RECORD above)
 
 | item                                                      | status                                                                                                                                                                                                                                                                                                     |
 | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -325,7 +383,7 @@ Dan's rule. (The band was 3:00-3:30 as first shipped; widened to the whole
 3:00-7:00 on 2026-11-09, see
 `docs/changelog/2026-11-09-the-human-window-is-the-whole-three-to-seven.md`.)
 
-## Still open, and why
+## Still open, and why (SUPERSEDED by SCOPE OF RECORD above)
 
 | item | status |
 | --- | --- |
