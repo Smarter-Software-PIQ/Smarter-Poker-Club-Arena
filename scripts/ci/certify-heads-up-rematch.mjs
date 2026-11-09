@@ -47,6 +47,26 @@ import {
 
 // production-e2e-account.mjs pins the same prefix (HEADS_UP_CLUB_NAME_PREFIX).
 export const HEADS_UP_CERT_CLUB_NAME_PREFIX = 'Cert HU ';
+
+/**
+ * NO RUN UNTIL ITS CLUB CAN RETIRE (2026-11-09). Two production guards leave a
+ * certification club that plays a Sit & Go with no exit:
+ *   - fn_retire_settled_club always runs fn_unwind_unused_first_club_welcome_package,
+ *     which refuses a club in which any Sit & Go was played
+ *     (WELCOME_PACKAGE_HAS_PLAY_OR_REGISTRATION_HISTORY; runs 42572669237 to
+ *     42584396854 each left such a club, and the Cert Residue Sweep 42602987778
+ *     was refused on three of them);
+ *   - removing the welcome games first (fn_remove_first_club_welcome_games)
+ *     deactivates the club's Spin pool, after which the creation fence refuses
+ *     every Sit & Go in that club (WELCOME_PACKAGE_SPIN_BOARD_RETIRED; run 42635543669).
+ * The product evidence this run exists for is recorded (runs 42581709358 and
+ * 42584396854, CHECKPOINT-tournament-lobby-and-rematch-20261108.md). Until a
+ * retirement path for a played certification club exists, a run would only add
+ * an unretirable club, so it ends UNKNOWN and creates nothing.
+ */
+export const CERTIFICATION_CLUB_CAN_RETIRE = false;
+export const CERTIFICATION_CLUB_RETIREMENT_BLOCKER =
+  'no door retires a certification club after a Sit & Go is played; a run would leave one more club';
 const GAME_DEADLINE_MS = 15 * 60_000;
 
 const log = (...a) =>
@@ -197,7 +217,9 @@ async function main() {
   const releaseSha = String(health?.releaseSha || '');
   const phase = health?.maintenance?.phase;
   const frozen = (await svcRpc('fn_platform_frozen', {})) === true;
-  const gate = !health
+  const gate = !CERTIFICATION_CLUB_CAN_RETIRE
+    ? { run: false, reason: CERTIFICATION_CLUB_RETIREMENT_BLOCKER }
+    : !health
     ? { run: false, reason: 'the engine health check did not answer' }
     : phase && phase !== 'idle'
       ? { run: false, reason: `the engine is in maintenance (${phase})` }
@@ -256,18 +278,6 @@ async function main() {
     S.clubId = club.body?.id;
     S.clubName = club.body?.name;
     if (!S.clubId) throw new Error(`the certification club was not created (${club.status})`);
-    // EVERY NEW CLUB OPENS WITH A WELCOME PACKAGE, and fn_retire_settled_club's
-    // unwind refuses a club in which any Sit & Go has been played
-    // (WELCOME_PACKAGE_HAS_PLAY_OR_REGISTRATION_HISTORY): runs 42572669237 to
-    // 42584396854 each left a club no door could retire. The owner removes the
-    // untouched welcome games first, through the owner's own door, so the
-    // retirement reads that receipt and the club retires with its records.
-    const removed = await rpc(P.owner.token, 'fn_remove_first_club_welcome_games', {
-      p_club_id: S.clubId,
-      p_operation_id: randomUUID(),
-    });
-    step('the owner removed the untouched welcome games before any play', removed.body?.ok === true, removed.body);
-    if (removed.body?.ok !== true) throw new Error('the welcome games could not be removed; the club would not retire');
     const FUND = 8;
     for (const role of ['a', 'b']) {
       const j = await rpc(P[role].token, 'fn_join_club', { p_club_id: S.clubId });
