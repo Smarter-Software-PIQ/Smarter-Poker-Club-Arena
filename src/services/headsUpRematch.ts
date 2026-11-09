@@ -8,18 +8,23 @@
  * THE MATCH STARTS AGAIN. THEY BOTH 'BUY BACK IN' RAKE IS TAKEN AND THE MATCH
  * STARTS BACK OVER AT THE START OF THE HEADS UP."
  *
- * The database decides everything (migration 20261108203134_heads_up_rematch):
- * who may ask, whether both have agreed, which empty game they get and which
- * seat each takes. This module only names the answers and what the card says
- * about each, so the card and its tests read one vocabulary.
+ * The database decides everything (migration
+ * 20261109021122_heads_up_rematch_atomic_buy_in): who may ask, whether both
+ * have agreed, and - in the one transaction that records the second Yes - a
+ * fresh copy of the game just played with BOTH seats bought through the
+ * ordinary buy-in path (buy-in + fee, exactly as the first game). If either
+ * player cannot pay, neither is charged and no game is created. This module
+ * only names the answers and what the card says about each, so the card and
+ * its tests read one vocabulary.
  *
- * NOTHING HERE MOVES MONEY. The buy-back-in is the ordinary seat-first
- * purchase, fn_take_seat_and_buy_in, which charges buy-in + fee exactly as the
- * first game did. The host calls it once, for the seat the server assigned.
+ * NOTHING HERE MOVES MONEY. A matched answer means both seats are already
+ * bought; the host only opens the table.
  *
  * Popup copy is Title Case with no em dashes (CLAUDE.md 5.7), and never says
  * anything about what kind of player the opponent is (CLAUDE.md 10.5).
  */
+
+import { seatFirstBuyInReasonIsKnown, seatFirstBuyInRefusalText } from './TournamentService';
 
 export type RematchServerStatus =
   | 'none'
@@ -29,7 +34,7 @@ export type RematchServerStatus =
   | 'matched'
   | 'opponent_declined'
   | 'you_declined'
-  | 'no_open_game'
+  | 'buy_in_refused'
   | 'entries_closed'
   | 'expired'
   | 'not_eligible';
@@ -40,6 +45,10 @@ export interface RematchAnswer {
   seatNumber?: number;
   secondsLeft?: number;
   reason?: string;
+  /** On a match: what this player's seat cost, in the game's own asset. */
+  cost?: number;
+  asset?: string;
+  diamondsAfter?: number;
 }
 
 const KNOWN: ReadonlySet<string> = new Set<RematchServerStatus>([
@@ -50,7 +59,7 @@ const KNOWN: ReadonlySet<string> = new Set<RematchServerStatus>([
   'matched',
   'opponent_declined',
   'you_declined',
-  'no_open_game',
+  'buy_in_refused',
   'entries_closed',
   'expired',
   'not_eligible',
@@ -76,6 +85,11 @@ export function parseRematchAnswer(raw: unknown): RematchAnswer | null {
     if (!tableId || !Number.isInteger(seat) || seat < 1) return null;
     answer.tableId = tableId;
     answer.seatNumber = seat;
+    const cost = Number(r.cost);
+    if (r.cost != null && Number.isFinite(cost)) answer.cost = cost;
+    if (typeof r.asset === 'string') answer.asset = r.asset;
+    const after = Number(r.diamonds_after);
+    if (r.diamonds_after != null && Number.isFinite(after)) answer.diamondsAfter = after;
   }
   return answer;
 }
@@ -98,10 +112,9 @@ export function rematchIsLive(status: RematchCardStatus | null): boolean {
 /** A final state in which the card offers the ordinary Play Again instead. */
 export function rematchFellThrough(status: RematchCardStatus | null): boolean {
   return (
-    status === 'join_refused' ||
+    status === 'buy_in_refused' ||
     status === 'you_declined' ||
     status === 'opponent_declined' ||
-    status === 'no_open_game' ||
     status === 'entries_closed' ||
     status === 'expired'
   );
@@ -119,12 +132,21 @@ export interface RematchView {
   primaryBusy: boolean;
 }
 
+/** The card's state is the server's answer. */
+export type RematchCardStatus = RematchServerStatus;
+
 /**
- * The card's state: the server's answer, or `join_refused` - the server made
- * the match but the buy-back-in itself was refused (the refusal's own toast
- * names why, e.g. not enough chips).
+ * Why a buy-back-in was refused, for the player it was refused for (the
+ * server sends the reason only to that player). Nobody was charged.
  */
-export type RematchCardStatus = RematchServerStatus | 'join_refused';
+export function rematchRefusalText(reason: string | undefined): string {
+  if (/rematch_unavailable/.test(reason ?? '')) return 'The Rematch Is Not Available Right Now';
+  return seatFirstBuyInRefusalText(reason);
+}
+
+export function rematchRefusalReasonIsKnown(reason: string | undefined): boolean {
+  return /rematch_unavailable/.test(reason ?? '') || seatFirstBuyInReasonIsKnown(reason);
+}
 
 export function rematchView(
   status: RematchCardStatus | null,
@@ -176,13 +198,6 @@ export function rematchView(
         secondaryLabel: null,
         primaryBusy: false,
       };
-    case 'no_open_game':
-      return {
-        line: 'No Rematch Table Is Open Right Now',
-        primaryLabel: 'Find A New Game',
-        secondaryLabel: null,
-        primaryBusy: false,
-      };
     case 'entries_closed':
       return {
         line: 'Heads Up Games Are Closed Right Now',
@@ -204,7 +219,7 @@ export function rematchView(
         secondaryLabel: null,
         primaryBusy: false,
       };
-    case 'join_refused':
+    case 'buy_in_refused':
       return {
         line: 'Your Rematch Could Not Start',
         primaryLabel: 'Find A New Game',

@@ -4,9 +4,11 @@
  * 'BUY BACK IN'").
  *
  * Pins the behaviour, not the source: a heads-up card asks, shows the
- * opponent's question, buys back in through fn_take_seat_and_buy_in for the
- * seat the server assigned (exactly once, however many answers say matched),
- * opens that table, maps a refusal, and treats closing the card as a No.
+ * opponent's question, and on a match only opens the table - the database
+ * bought BOTH seats in the transaction that recorded the second Yes, so the
+ * card never calls a seat purchase itself, however many answers say matched.
+ * A refusal is said in words with nothing bought, and closing the card is a
+ * No.
  */
 import React from 'react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
@@ -16,7 +18,6 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 const db = vi.hoisted(() => ({
   state: [] as unknown[],
   respond: [] as unknown[],
-  buyIn: { data: { ok: true, seat_number: 1 }, error: null } as { data: unknown; error: unknown },
   calls: [] as Array<{ fn: string; args: Record<string, unknown> }>,
   format: { format_contract: 'sng-v1', max_players: 2 } as Record<string, unknown> | null,
 }));
@@ -56,7 +57,6 @@ vi.mock('../../src/lib/supabase', () => {
     if (fn === 'ca_heads_up_rematch_respond') {
       return thenable({ data: db.respond.shift() ?? { status: 'none' }, error: null });
     }
-    if (fn === 'fn_take_seat_and_buy_in') return thenable(db.buyIn);
     return thenable({ data: null, error: null });
   };
   return { supabase: { from, rpc } };
@@ -138,7 +138,6 @@ describe('heads up rematch, from the card', { timeout: 20_000 }, () => {
     db.respond = [];
     db.calls = [];
     db.format = { format_contract: 'sng-v1', max_players: 2 };
-    db.buyIn = { data: { ok: true, seat_number: 1 }, error: null };
     clearSessionSummary();
   });
 
@@ -146,15 +145,15 @@ describe('heads up rematch, from the card', { timeout: 20_000 }, () => {
     await act(async () => clearSessionSummary());
   });
 
-  it('the asked player sees the question, says yes, buys back in once and lands on the table', async () => {
+  it('the asked player sees the question, says yes, and lands on the table without buying anything itself', async () => {
     db.state = [{ status: 'waiting_for_you', seconds_left: 50 }];
     renderHost();
     await publish();
     expect(screen.getByRole('status').textContent).toContain('Your Opponent Wants To Play Again');
     expect(screen.getByText('No Thanks')).toBeTruthy();
 
-    db.respond = [{ status: 'matched', table_id: 'tbl-9', seat_number: 2 }];
-    db.state = [{ status: 'matched', table_id: 'tbl-9', seat_number: 2 }];
+    db.respond = [{ status: 'matched', table_id: 'tbl-9', seat_number: 2, cost: 20, asset: 'chips' }];
+    db.state = [{ status: 'matched', table_id: 'tbl-9', seat_number: 2, cost: 20, asset: 'chips' }];
     fireEvent.click(screen.getByText('Play Again'));
     fireEvent.click(screen.getByText('Play Again'));
     await flush();
@@ -165,9 +164,9 @@ describe('heads up rematch, from the card', { timeout: 20_000 }, () => {
       p_source_tournament_id: 'src-1',
       p_accept: true,
     });
-    const buys = rpcCalls('fn_take_seat_and_buy_in');
-    expect(buys).toHaveLength(1);
-    expect(buys[0].args).toEqual({ p_table_id: 'tbl-9', p_seat_number: 2 });
+    expect(rpcCalls('ca_heads_up_rematch_respond')).toHaveLength(1);
+    // The seats were bought by the database, together. The card buys nothing.
+    expect(rpcCalls('fn_take_seat_and_buy_in')).toHaveLength(0);
     expect(screen.getByTestId('where').textContent).toBe('/table/tbl-9');
     expect(peekSessionSummary()).toBeNull();
   });
@@ -184,13 +183,12 @@ describe('heads up rematch, from the card', { timeout: 20_000 }, () => {
     db.state = [{ status: 'matched', table_id: 'tbl-3', seat_number: 1 }];
     await flush(1600);
     await flush(1600);
-    expect(rpcCalls('fn_take_seat_and_buy_in')).toHaveLength(1);
+    expect(rpcCalls('fn_take_seat_and_buy_in')).toHaveLength(0);
     expect(screen.getByTestId('where').textContent).toBe('/table/tbl-3');
   });
 
   it('a refused buy-back-in is said in words and leaves the ordinary Play Again', async () => {
-    db.state = [{ status: 'matched', table_id: 'tbl-4', seat_number: 1 }];
-    db.buyIn = { data: { ok: false, reason: 'insufficient_chips' }, error: null };
+    db.state = [{ status: 'buy_in_refused', reason: 'insufficient_balance' }];
     renderHost();
     await publish();
     await flush(1600);
@@ -198,6 +196,17 @@ describe('heads up rematch, from the card', { timeout: 20_000 }, () => {
     expect(screen.getAllByText('Not Enough Chips For This Buy In').length).toBeGreaterThan(0);
     expect(screen.getByText('Find A New Game')).toBeTruthy();
     expect(screen.getByTestId('where').textContent).toBe('/');
+    expect(rpcCalls('fn_take_seat_and_buy_in')).toHaveLength(0);
+  });
+
+  it('the opponent who could not pay is told only that the rematch could not start', async () => {
+    db.state = [{ status: 'buy_in_refused' }];
+    renderHost();
+    await publish();
+    await flush(1600);
+    expect(screen.getByRole('status').textContent).toContain('Your Rematch Could Not Start');
+    expect(screen.queryByText('Not Enough Chips For This Buy In')).toBeNull();
+    expect(screen.getByText('Find A New Game')).toBeTruthy();
   });
 
   it('the opponent leaving is said, and the polling stops', async () => {

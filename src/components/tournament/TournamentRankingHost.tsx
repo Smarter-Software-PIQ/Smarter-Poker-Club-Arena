@@ -63,16 +63,13 @@ import { useMasterBusSubscription } from '../../hooks/useMasterBusSubscription';
 import { useSessionHandStats } from '../../hooks/useSessionHandStats';
 import { useOptionalToast } from '../common/Toast';
 import { masterBus } from '../../core/MasterBus';
-import { platformFrozenMessage } from '../../utils/platformFrozen';
-import {
-  seatFirstBuyInReasonIsKnown,
-  seatFirstBuyInRefusalText,
-} from '../../services/TournamentService';
 import {
   isHeadsUpFormat,
   parseRematchAnswer,
   rematchFellThrough,
   rematchIsLive,
+  rematchRefusalReasonIsKnown,
+  rematchRefusalText,
   rematchView,
   REMATCH_POLL_MS,
   type RematchAnswer,
@@ -254,10 +251,11 @@ export function TournamentRankingHost() {
      For a two-seat Sit & Go the card's Play Again asks the opponent for a
      rematch instead of hunting a stranger's game. The database answers every
      question - who may ask, whether both agreed, which empty game and which
-     seat - and this host only polls while the card is up. When the answer is
-     matched it buys the player back in through the ordinary seat purchase,
-     the same door and the same charge as the first game, then opens the
-     table. Every other answer leaves the ordinary Play Again on the card.
+     seat - and this host only polls while the card is up. The second Yes buys
+     BOTH players back in, in one database transaction, through the ordinary
+     buy-in path (or neither, if either cannot pay). When the answer is
+     matched this host only opens the new table. Every other answer leaves
+     the ordinary Play Again on the card.
      ═══════════════════════════════════════════════════════════════════════ */
   const toast = useOptionalToast();
   const [rematchEligible, setRematchEligible] = useState(false);
@@ -270,6 +268,7 @@ export function TournamentRankingHost() {
      own answer can both say matched). */
   const rematchJoinStartedRef = useRef(false);
   const rematchRespondBusyRef = useRef(false);
+  const rematchRefusalToldRef = useRef(false);
   const rematchReportKey = tournamentId ? `${reportUserId}:${tournamentId}:${finishSequence}` : '';
 
   useEffect(() => {
@@ -279,6 +278,7 @@ export function TournamentRankingHost() {
     setRematchJoining(false);
     rematchJoinStartedRef.current = false;
     rematchRespondBusyRef.current = false;
+    rematchRefusalToldRef.current = false;
   }, [rematchReportKey]);
 
   const isCurrentRematchReport = useCallback(() => {
@@ -291,65 +291,20 @@ export function TournamentRankingHost() {
     );
   }, [tournamentId, finishSequence]);
 
-  /** The buy-back-in: the existing seat purchase for the seat the server assigned. */
-  const joinRematch = useCallback(
-    async (answer: RematchAnswer) => {
-      if (rematchJoinStartedRef.current || !answer.tableId || !answer.seatNumber) return;
+  /**
+   * The match is made: the database has ALREADY bought both seats, together,
+   * in the one transaction that recorded the second Yes. Nothing is bought
+   * here and nothing can be bought twice; the card only opens the new table.
+   */
+  const openRematch = useCallback(
+    (answer: RematchAnswer) => {
+      if (rematchJoinStartedRef.current || !answer.tableId) return;
       rematchJoinStartedRef.current = true;
       setRematchJoining(true);
-      let outcome: { data: unknown; error: { message?: string } | null };
-      try {
-        outcome = await runWithRequestDeadline((signal) =>
-          supabase
-            .rpc('fn_take_seat_and_buy_in', {
-              p_table_id: answer.tableId,
-              p_seat_number: answer.seatNumber,
-            })
-            .abortSignal(signal)
-        );
-      } catch (err) {
-        /* No answer (a timeout or a dropped link): the purchase may or may not
-           have committed. Opening the table is right either way - the felt
-           shows the seat if it is ours and the seat sheet if it is not.
-           Nothing is retried here (section 2 rule 6: an executed write is
-           never replayed). */
-        reportError(err, 'TournamentRankingHost.rematch_buy_in_failed', { tournamentId });
-        if (!isCurrentRematchReport()) return;
-        close();
-        navigate(`/table/${answer.tableId}`);
-        return;
-      }
-      const { data, error } = outcome;
-      const res = (data ?? {}) as {
-        ok?: boolean;
-        reason?: string;
-        asset?: string;
-        cost?: number;
-        diamonds_after?: number | null;
-      };
-      if (error || !res.ok) {
-        // A definite refusal: nothing was bought, so the player stays here.
-        const reason = error?.message || res.reason || '';
-        const frozen = platformFrozenMessage(error ?? res);
-        if (frozen) toast?.info(frozen);
-        else {
-          if (!seatFirstBuyInReasonIsKnown(reason)) {
-            reportError(
-              new Error(`heads_up_rematch buy-in refused: ${reason || 'no_reason_given'}`),
-              'TournamentRankingHost.rematch_buy_in_refused',
-              { tournamentId, reason }
-            );
-          }
-          toast?.error(seatFirstBuyInRefusalText(reason));
-        }
-        setRematchJoining(false);
-        setRematchStatus('join_refused');
-        return;
-      }
-      if (res.asset === 'diamonds' && typeof res.diamonds_after === 'number') {
+      if (answer.asset === 'diamonds' && typeof answer.diamondsAfter === 'number') {
         masterBus.emit('DIAMOND_BALANCE_CHANGED', {
-          newBalance: res.diamonds_after,
-          delta: -Number(res.cost ?? 0),
+          newBalance: answer.diamondsAfter,
+          delta: -Number(answer.cost ?? 0),
           source: 'tournament_seat_first_buy_in',
         });
       }
@@ -357,19 +312,36 @@ export function TournamentRankingHost() {
       close();
       navigate(`/table/${answer.tableId}`);
     },
-    [toast, tournamentId, isCurrentRematchReport, close, navigate]
+    [isCurrentRematchReport, close, navigate]
+  );
+
+  /** A refused buy-back-in: nobody was charged; say why if it was ours. */
+  const sayRematchRefusal = useCallback(
+    (answer: RematchAnswer) => {
+      if (rematchRefusalToldRef.current) return;
+      rematchRefusalToldRef.current = true;
+      if (!answer.reason) return;
+      if (!rematchRefusalReasonIsKnown(answer.reason)) {
+        reportError(
+          new Error(`heads_up_rematch buy-in refused: ${answer.reason}`),
+          'TournamentRankingHost.rematch_buy_in_refused',
+          { tournamentId, reason: answer.reason }
+        );
+      }
+      toast?.error(rematchRefusalText(answer.reason));
+    },
+    [toast, tournamentId]
   );
 
   const applyRematchAnswer = useCallback(
     (answer: RematchAnswer | null) => {
       if (!answer) return;
-      // A local refusal of the buy-in is final for this card.
-      if (rematchStatusRef.current === 'join_refused') return;
       setRematchStatus(answer.status);
       setRematchSeconds(answer.secondsLeft ?? null);
-      if (answer.status === 'matched') void joinRematch(answer);
+      if (answer.status === 'matched') openRematch(answer);
+      if (answer.status === 'buy_in_refused') sayRematchRefusal(answer);
     },
-    [joinRematch]
+    [openRematch, sayRematchRefusal]
   );
 
   /* Is this a heads-up result, and if so, poll the rematch while the card is
@@ -435,7 +407,7 @@ export function TournamentRankingHost() {
             reportError(err, 'TournamentRankingHost.rematch_state_read_failed', { tournamentId });
           }
         }
-        if (!cancelled && rematchStatusRef.current !== 'join_refused') {
+        if (!cancelled) {
           timer = setTimeout(poll, REMATCH_POLL_MS);
         }
       };

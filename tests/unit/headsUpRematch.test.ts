@@ -13,13 +13,11 @@ import {
   parseRematchAnswer,
   rematchFellThrough,
   rematchIsLive,
+  rematchRefusalReasonIsKnown,
+  rematchRefusalText,
   rematchView,
   type RematchCardStatus,
 } from '../../src/services/headsUpRematch';
-import {
-  seatFirstBuyInReasonIsKnown,
-  seatFirstBuyInRefusalText,
-} from '../../src/services/TournamentService';
 
 const ALL: RematchCardStatus[] = [
   'none',
@@ -29,11 +27,10 @@ const ALL: RematchCardStatus[] = [
   'matched',
   'opponent_declined',
   'you_declined',
-  'no_open_game',
+  'buy_in_refused',
   'entries_closed',
   'expired',
   'not_eligible',
-  'join_refused',
 ];
 
 describe('reading the server', () => {
@@ -43,8 +40,12 @@ describe('reading the server', () => {
       secondsLeft: 42,
     });
     expect(
-      parseRematchAnswer({ status: 'matched', table_id: 't-1', seat_number: 2, reserved_until: 'x' })
-    ).toEqual({ status: 'matched', tableId: 't-1', seatNumber: 2 });
+      parseRematchAnswer({ status: 'matched', table_id: 't-1', seat_number: 2, cost: 20, asset: 'chips' })
+    ).toEqual({ status: 'matched', tableId: 't-1', seatNumber: 2, cost: 20, asset: 'chips' });
+    expect(parseRematchAnswer({ status: 'buy_in_refused', reason: 'insufficient_balance' })).toEqual({
+      status: 'buy_in_refused',
+      reason: 'insufficient_balance',
+    });
     expect(parseRematchAnswer({ status: 'entries_closed', reason: 'platform_frozen' })).toEqual({
       status: 'entries_closed',
       reason: 'platform_frozen',
@@ -106,7 +107,7 @@ describe('the card state machine', () => {
 
   it('says why a rematch did not happen', () => {
     expect(rematchView('opponent_declined', null, false).line).toBe('Your Opponent Left');
-    expect(rematchView('no_open_game', null, false).line).toBe('No Rematch Table Is Open Right Now');
+    expect(rematchView('buy_in_refused', null, false).line).toBe('Your Rematch Could Not Start');
     expect(rematchView('expired', null, false).line).toBe('The Rematch Offer Has Ended');
   });
 
@@ -142,11 +143,14 @@ describe('the card state machine', () => {
   });
 });
 
-describe('a reserved seat is refused by name', () => {
-  it('maps seat_reserved to its own sentence and counts it as known', () => {
-    expect(seatFirstBuyInReasonIsKnown('seat_reserved')).toBe(true);
-    expect(seatFirstBuyInRefusalText('seat_reserved')).toBe('That Seat Is Reserved For A Rematch');
-    // seat_taken keeps its own sentence.
-    expect(seatFirstBuyInRefusalText('seat_taken')).toBe('That Seat Was Just Taken');
+describe('a refused buy-back-in is said in words', () => {
+  it('names the reason the server gave this player, in the ordinary buy-in words', () => {
+    expect(rematchRefusalText('insufficient_balance')).toBe('Not Enough Chips For This Buy In');
+    expect(rematchRefusalText('table_limit_reached')).toBe(
+      'You Are Already In Four Games, Leave One To Join Another'
+    );
+    expect(rematchRefusalText('rematch_unavailable')).toBe('The Rematch Is Not Available Right Now');
+    expect(rematchRefusalReasonIsKnown('rematch_unavailable')).toBe(true);
+    expect(rematchRefusalReasonIsKnown('insufficient_balance')).toBe(true);
   });
 });
