@@ -235,7 +235,7 @@ test('CLI failures expose a closed stage code without selection or raw exception
   ]) {
     const result = spawnSync(
       process.execPath,
-      [script.pathname, Buffer.from(input).toString('base64')],
+      [fileURLToPath(script), Buffer.from(input).toString('base64')],
       {
         encoding: 'utf8',
         env: { ...process.env, ...env },
