@@ -234,6 +234,15 @@ export async function main(environment = process.env) {
       if (state.profiles.length >= 10 && !report.milestones.tenParticipants) report.milestones.tenParticipants = new Date().toISOString();
       firstLightning = lh.find(h => h.settled_at && h.player_count >= 5);
       if (firstLightning) {
+        // Conversion and reanchoring create successor seat representations.
+        // Preserve the original funded admission timestamp for each identity.
+        const originalSeats = await read(`table_seats?table_id=in.(${state.ids})&user_id=in.(${report.admissions.map(a=>a.playerId).join(',')})&joined_at=gte.${encodeURIComponent(sessions[0].opened_at)}&order=joined_at.asc&select=user_id,joined_at`);
+        for (const a of report.admissions) {
+          const original = originalSeats.find(s=>s.user_id===a.playerId);
+          assert(original, 'Original funded admission timestamp is unavailable');
+          a.at=original.joined_at;
+        }
+        report.admissions.sort((a,b)=>Date.parse(a.at)-Date.parse(b.at));
         report.firstLightningHand = firstLightning;
         report.milestones.lightning = firstLightning.formed_at;
         assert(report.milestones.feederGrowth, 'Growing supported feeder was not observed');
