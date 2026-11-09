@@ -1,6 +1,7 @@
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -77,6 +78,20 @@ class SchemaEvidenceTests(unittest.TestCase):
         self.assertIn('default_transaction_read_only=on', run.call_args.kwargs['env']['PGOPTIONS'])
         self.assertEqual(run.call_args.kwargs['timeout'], 30)
         self.assertNotIn('definition ', json.dumps(captured))
+
+    def test_capture_passes_configured_uri_as_an_explicit_connection(self):
+        uri = 'postgresql://fixture:fixture-secret@example.invalid/postgres'
+        result = subprocess.CompletedProcess([], 0, json.dumps(
+            {'migrations': receipt()['migrations'],
+             'functions': {signature: 'body' for signature in evidence.SIGNATURES}}), '')
+        with patch.dict(os.environ, {'DATABASE_URL': uri}), patch.object(
+                evidence.subprocess, 'run', return_value=result) as run:
+            evidence.capture()
+        self.assertEqual(run.call_args.args[0][-2:], ['--dbname', uri])
+        with patch.dict(os.environ, {'DATABASE_URL': uri}), patch.object(
+                evidence.subprocess, 'run', return_value=subprocess.CompletedProcess(
+                    [], 1, '', uri)), self.assertRaisesRegex(ValueError, '^Schema evidence query failed$'):
+            evidence.capture()
 
     def test_capture_canonicalizes_database_collation_for_legacy_versions(self):
         bodies = {signature: 'body' for signature in evidence.SIGNATURES}
