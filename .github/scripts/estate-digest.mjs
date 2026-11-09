@@ -219,7 +219,15 @@ await tryStep('seat-first starts', async () => {
     body: JSON.stringify({ p_day: null }),
   });
   // 10.86 rule 2: an unreadable answer is never coerced into an empty one.
-  if (!res.ok) throw Error(`starts rpc ${res.status}`);
+  // 10.86 rule 4: and the status alone is not enough. The first real run of
+  // this section printed "starts rpc 500" and nothing else, so the next reader
+  // had to go to the edge and postgres logs to learn that the call had hit
+  // service_role's ~8s statement timeout. Carry PostgREST's own message, which
+  // names the cause in the line the digest already prints.
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw Error(`starts rpc ${res.status}${detail ? ` ${detail.slice(0, 200)}` : ''}`);
+  }
   const rows = await res.json();
   if (!Array.isArray(rows)) throw Error('starts rpc returned no rows array');
   if (rows.length === 0) {
