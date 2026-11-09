@@ -38,3 +38,34 @@ against.
 
 It runs in `ci.yml` (shard 4, PostgreSQL 17). `classify-ci-changes.mjs` runs
 it whenever its harness or fixture changes, and also on any migration change.
+
+## The live, signed-in check
+
+`scripts/ci/certify-heads-up-rematch.mjs` (workflow `Heads-Up Rematch
+Certification`, started by hand only) runs the whole flow against production
+and the serving engine. It uses only the supported certification route: the
+reserved `ca-customization-cert-postdeploy-*` accounts, chips from a
+`Cert HU` certification club's own opening grant, and the rabbit-hunt
+certification's settle path (claim back, retire with records).
+
+The run does the following:
+
+1. Two reserved players buy both seats of a fresh heads-up game through the
+   browser's seat door. The game is created by the engine board's own
+   creation door, copying a live board game's terms with only the club
+   changed.
+2. The engine starts that game, and the players play it out.
+3. Player A taps Play Again on the ranking card in a real signed-in browser
+   sitting at the table. Player B says Yes through the door the card calls.
+4. The run checks:
+   - one committed rematch;
+   - the same two players in the new game;
+   - one buy-in plus fee charged to each;
+   - the finished game's buy-in, fee, stack and payout;
+   - the browser moved to the new table;
+   - the engine started the rematch and dealt its first hand.
+5. The rematch is played out. The two players together must end up exactly
+   four fees down across the two games.
+
+Outside the Sit & Go window (03:00-06:00 Chicago), during a freeze or while
+the engine is not idle, the run ends UNKNOWN and creates nothing.
