@@ -526,9 +526,14 @@ jobs:
         with:
           ref: ${{ needs.detect.outputs.protected_sha }}
           fetch-depth: 0
+          # select-daily-engine.py loads engine-release-installed-migrations.py,
+          # which loads server/standby/schema-evidence.py from the working tree
+          # (#10114). Daily selection 42562159686 blocked without it
+          # (tests/a-sparse-checkout-holds-what-its-scripts-load.law.test.ts).
           sparse-checkout: |
             scripts/ci
             server/scripts
+            server/standby/schema-evidence.py
       - name: Freeze the exact daily candidate and report inclusion
         id: freeze
         if: needs.detect.outputs.daily_preparation == 'true' || needs.detect.outputs.owner_window_id != ''
