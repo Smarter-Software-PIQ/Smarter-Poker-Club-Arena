@@ -112,17 +112,52 @@ describe('Everyone sees the committed champion then this table closes', () => {
     });
     expect(v.navigate).toHaveBeenCalledExactlyOnceWith('/clubs/my-club');
   });
-  it('keeps a participant own result separate from the champion announcement for the full dwell', async () => {
+  /* REWRITTEN 2026-11-09, and the old wording is why. It asserted that a
+     participant finishing SECOND was announced with `championName:
+     'xXVikingXx'` and `prize: 98.72` - the champion's name and the champion's
+     prize - and called that "separate from" their own result because the
+     lobby card behind it carried the right numbers. It is not separate; it is
+     the card the player is looking at. Dan, from a finished heads-up match:
+     "in heads up, the loser received a Champion and prize 38 even though they
+     lost." The overlay's `position` prop defaults to 1, so no position meant
+     "Champion! / 1st Place". A participant's announcement is now their own
+     result, and the dwell either side of it is unchanged. */
+  it('announces a cashing participant their own finish and their own prize', async () => {
     vi.useFakeTimers();
     const v = viewer();
     await v.run({ position: 2, prize: 40.25 });
-    expect(v.announce).toHaveBeenCalledWith(
-      expect.objectContaining({ championName: 'xXVikingXx', prize: 98.72 })
-    );
+    expect(v.announce).toHaveBeenCalledExactlyOnceWith({
+      prize: 40.25,
+      name: 'Championship',
+      championName: undefined,
+      position: 2,
+    });
     await vi.advanceTimersByTimeAsync(19_999);
     expect(v.emit).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
     expect(v.emit).toHaveBeenCalledExactlyOnceWith('entrant-result', { position: 2, prize: 40.25 });
+  });
+  it('celebrates nothing for a participant who lost and was paid nothing', async () => {
+    vi.useFakeTimers();
+    const v = viewer();
+    await v.run({ position: 2, prize: 0 });
+    expect(v.announce).not.toHaveBeenCalled();
+    // ...and they leave on the short bust beat rather than sitting through the
+    // champion dwell in front of somebody else's trophy.
+    await vi.advanceTimersByTimeAsync(2_499);
+    expect(v.emit).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(v.emit).toHaveBeenCalledExactlyOnceWith('entrant-result', { position: 2, prize: 0 });
+  });
+  it('still gives a participant who WON the champion card, with their own prize', async () => {
+    vi.useFakeTimers();
+    const v = viewer();
+    await v.run({ position: 1, prize: 98.72 });
+    expect(v.announce).toHaveBeenCalledExactlyOnceWith({
+      prize: 98.72,
+      name: 'Championship',
+      championName: 'xXVikingXx',
+    });
   });
   it('announces all satellite qualifiers and their committed award values without inventing first place', async () => {
     vi.useFakeTimers();

@@ -1127,7 +1127,8 @@ const RIT_BOUNDARY_ACK_MS = 1500;
  * window is 2250ms on a fold and 2650ms on a showdown and this floor finally
  * fits inside the thing it was written to protect.
  */
-const RABBIT_MIN_VISIBLE_MS = 1800;
+// Owner order 2026-11-09: follows the 1500ms rest (was 1800ms).
+const RABBIT_MIN_VISIBLE_MS = 1500;
 
 /**
  * Where a pot-win fan flies to when the winner has NO SEAT on this client
@@ -14543,6 +14544,12 @@ function LiveTablePage({
   const [showSettings, setShowSettings] = useState(false);
   const [showShareHand, setShowShareHand] = useState(false);
   const [showTableMenu, setShowTableMenu] = useState(false);
+  /* True while THIS table's bet/raise sizing overlay is open. The overlay is a
+     tall fixed panel and the bottom-left HUD corner stands inside its band, so
+     the corner is unmounted for as long as it is up rather than merely hidden
+     - see the note beside `onRaiseModeChange` in ActionPanel.tsx and the
+     `.ca-raising` block in TablePage.css, which still runs alongside it. */
+  const [raisePanelOpen, setRaisePanelOpen] = useState(false);
   const [showSessionStats, setShowSessionStats] = useState(false);
   /**
    * Dan 2026-08-23: on a tournament table the upper-right button must open
@@ -16196,17 +16203,62 @@ function LiveTablePage({
               if (tournamentExitTimerRef.current) clearTimeout(tournamentExitTimerRef.current);
               exitStarted = false;
               durableCompletionHandled = true;
-              setTournamentWinner({
-                prize: qualifiers ? 0 : prize,
-                name: formatGameTitle(durableTournamentName) || 'Tournament',
-                championName: qualifiers ? undefined : champion?.username || 'Champion',
-                ...(qualifiers ? { qualifiers } : {}),
-              });
+              /* ── THE CARD SAYS WHAT *THIS* PLAYER DID (Dan 2026-11-09) ─────
+                 "in heads up, the loser received a Champion and prize 38 even
+                 though they lost."
+
+                 He is reading the overlay below. This function was written for
+                 a SPECTATOR — it reads the committed `position = 1` row and
+                 announces who won — and it is also the path a PARTICIPANT
+                 takes once the tournament commits, with their own finish
+                 passed in as `participant`. Both used to set the same winner
+                 state: the champion's name, the champion's prize, and NO
+                 position, so TournamentWinnerOverlay fell back to its
+                 `position = 1` default and printed "Champion! / 1st Place /
+                 <the winner> / Prize: <the winner's prize>" to the player who
+                 had just lost. Heads-up is where it is unmissable, because the
+                 loser is the only other person it can be shown to.
+
+                 So the announcement is now chosen by whose result it is:
+
+                   - no participant (a spectator, or a satellite's qualifier
+                     list): unchanged, the committed champion;
+                   - this player WON: the champion card, with their own prize;
+                   - this player cashed: the overlay's existing paid-finish
+                     face, their own place and their own prize;
+                   - this player lost and was paid nothing: NO celebration at
+                     all. The result card waiting in the lobby already tells
+                     them where they finished, and there is nothing here to
+                     celebrate. They leave on the short beat a bust takes
+                     rather than sitting through a 20-second dwell in front of
+                     somebody else's trophy.
+
+                 `qualifiers` keeps its own branch untouched: it is only ever
+                 set when there is no champion row, and the player it is shown
+                 to is a qualifier themselves. */
+              const myFinish = participant ? Number(participant.position) : null;
+              const myPrize = participant ? Number(participant.prize) || 0 : 0;
+              const iWon = myFinish === 1;
+              const iCashed = myFinish != null && myFinish > 1 && myPrize > 0;
+              const celebrates = !participant || !!qualifiers || iWon || iCashed;
+              let announcedPrize = prize;
+              if (qualifiers) announcedPrize = 0;
+              else if (participant) announcedPrize = myPrize;
+              if (celebrates) {
+                setTournamentWinner({
+                  prize: announcedPrize,
+                  name: formatGameTitle(durableTournamentName) || 'Tournament',
+                  championName:
+                    qualifiers || iCashed ? undefined : champion?.username || 'Champion',
+                  ...(iCashed && !qualifiers && myFinish != null ? { position: myFinish } : {}),
+                  ...(qualifiers ? { qualifiers } : {}),
+                });
+              }
               if (participant) {
                 goToLobbyWithResult(
                   participant.position,
                   participant.prize,
-                  TOURNAMENT_CHAMPION_DISPLAY_MS
+                  celebrates ? TOURNAMENT_CHAMPION_DISPLAY_MS : 2500
                 );
                 return;
               }
@@ -27582,39 +27634,55 @@ function LiveTablePage({
           ═══════════════════════════════════════════════════════════════════════ */}
       <TableHUD
         upperLeft={
-          embeddedTableId ? null : (
-            <div className="hud-ul-column">
-              <TableMenu
-                isOpen={showTableMenu}
-                onClose={() => setShowTableMenu(false)}
-                onToggle={() => setShowTableMenu((prev) => !prev)}
-                position="top-left"
-                sections={[
-                  {
-                    title: 'Quick Actions',
-                    actions: [
-                      {
-                        id: 'sitout',
-                        label: 'Sit Out',
-                        icon: <SitOutIcon />,
-                        onClick: () => void handleSitOut(),
-                      },
-                      {
-                        id: 'leave-next-hand',
-                        label: 'Leave Table Next Hand',
-                        icon: <LeaveTableIcon />,
-                        badge: leaveNextHand.queued ? 'ON' : undefined,
-                        disabled: leaveNextHand.pending,
-                        onClick: () => void requestLeaveAtNextHand(),
-                      },
-                      {
-                        id: 'standup-bb',
-                        label: 'Stand Up Next Big Blind',
-                        icon: <SitOutIcon />,
-                        badge: standUpNextBB ? 'ON' : undefined,
-                        onClick: () => setStandUpNextBB(!standUpNextBB),
-                      },
-                      /* STRADDLE LIVES HERE NOW (2026-09-15). `StraddleToggle`
+          /* Dan 2026-11-09: "the stand up and leave button for lightning games
+             needs to move to the left side, not in the middle of the table
+             covering the top villain." It used to stand in `centerTop`, which
+             is the middle of the HUD's upper row - directly over the top seat.
+             It is now the second item in THIS corner, under the hamburger,
+             lined up with the rest of the left-hand chrome, and it renders
+             whether or not the table is embedded: `embeddedTableId` nulls the
+             menu column (the tab bar carries that hamburger), and a Lightning
+             table is exactly the case where that is true, so gating the leave
+             control on the same condition would have left it nowhere at all.
+
+             The stack wrapper is pointer-transparent (TablePage.css) for the
+             reason TableHUD.css gives about the upper-RIGHT corner: a corner
+             child is `pointer-events: auto`, and a wrapper as wide as its
+             widest child becomes an invisible slab over the seats below it. */
+          <div className="hud-ul-column hud-ul-column--stack">
+            {embeddedTableId ? null : (
+              <div className="hud-ul-column">
+                <TableMenu
+                  isOpen={showTableMenu}
+                  onClose={() => setShowTableMenu(false)}
+                  onToggle={() => setShowTableMenu((prev) => !prev)}
+                  position="top-left"
+                  sections={[
+                    {
+                      title: 'Quick Actions',
+                      actions: [
+                        {
+                          id: 'sitout',
+                          label: 'Sit Out',
+                          icon: <SitOutIcon />,
+                          onClick: () => void handleSitOut(),
+                        },
+                        {
+                          id: 'leave-next-hand',
+                          label: 'Leave Table Next Hand',
+                          icon: <LeaveTableIcon />,
+                          badge: leaveNextHand.queued ? 'ON' : undefined,
+                          disabled: leaveNextHand.pending,
+                          onClick: () => void requestLeaveAtNextHand(),
+                        },
+                        {
+                          id: 'standup-bb',
+                          label: 'Stand Up Next Big Blind',
+                          icon: <SitOutIcon />,
+                          badge: standUpNextBB ? 'ON' : undefined,
+                          onClick: () => setStandUpNextBB(!standUpNextBB),
+                        },
+                        /* STRADDLE LIVES HERE NOW (2026-09-15). `StraddleToggle`
                          was rendered only inside the old side menu, and that
                          menu had lost its opener - the only reference to
                          `toggleSideMenu` was the overlay's own close handler -
@@ -27624,185 +27692,185 @@ function LiveTablePage({
                          beside it, calling the same `handleToggleStraddle`.
                          Only offered when the host enabled straddles: the
                          engine refuses the toggle outright otherwise. */
-                      ...(isStraddleAvailable
-                        ? [
-                            {
-                              id: 'straddle',
-                              label: 'Straddle',
-                              icon: <AddOnIcon />,
-                              badge: isStraddleEnabled ? 'ON' : undefined,
-                              disabled: straddleBusy,
-                              onClick: () => void handleToggleStraddle(!isStraddleEnabled),
-                            },
-                          ]
-                        : []),
-                      /* A Diamond cash seat tops up; a Diamond tournament does
+                        ...(isStraddleAvailable
+                          ? [
+                              {
+                                id: 'straddle',
+                                label: 'Straddle',
+                                icon: <AddOnIcon />,
+                                badge: isStraddleEnabled ? 'ON' : undefined,
+                                disabled: straddleBusy,
+                                onClick: () => void handleToggleStraddle(!isStraddleEnabled),
+                              },
+                            ]
+                          : []),
+                        /* A Diamond cash seat tops up; a Diamond tournament does
                          not, because tournament funding is a later phase and
                          the custody door refuses a tournament table outright.
                          Offering the control there would promise a seat
                          something no writer can give it. */
-                      /* Never to a spectator (audit C2-17): there is no seat to
+                        /* Never to a spectator (audit C2-17): there is no seat to
                          top up, and the engine refuses one that is not seated. */
-                      ...(tableState.arenaAsset === 'diamonds'
-                        ? !canTopUpSeat || tableState.heroSeat <= 0
-                          ? []
-                          : [
-                              {
-                                id: 'rebuy',
-                                label: 'Top Up',
-                                icon: <RebuyIcon />,
-                                onClick: () => setShowCashier(true),
-                              },
-                            ]
-                        : tableState.arenaAsset !== 'chips'
-                          ? []
-                          : tableState.isTournament
-                            ? [
+                        ...(tableState.arenaAsset === 'diamonds'
+                          ? !canTopUpSeat || tableState.heroSeat <= 0
+                            ? []
+                            : [
                                 {
                                   id: 'rebuy',
-                                  label: 'Rebuy',
+                                  label: 'Top Up',
                                   icon: <RebuyIcon />,
-                                  onClick: handleTournamentRebuy,
-                                },
-                                {
-                                  id: 'addon',
-                                  label: 'Add-On',
-                                  icon: <AddOnIcon />,
-                                  onClick: handleTournamentAddOn,
+                                  onClick: () => setShowCashier(true),
                                 },
                               ]
-                            : tableState.heroSeat > 0
+                          : tableState.arenaAsset !== 'chips'
+                            ? []
+                            : tableState.isTournament
                               ? [
                                   {
                                     id: 'rebuy',
-                                    label: 'Top Up',
+                                    label: 'Rebuy',
                                     icon: <RebuyIcon />,
-                                    onClick: () => setShowCashier(true),
+                                    onClick: handleTournamentRebuy,
+                                  },
+                                  {
+                                    id: 'addon',
+                                    label: 'Add-On',
+                                    icon: <AddOnIcon />,
+                                    onClick: handleTournamentAddOn,
                                   },
                                 ]
-                              : []),
-                      ...(canTopUpSeat && !tableState.isTournament
-                        ? [
-                            {
-                              id: 'auto-top-up',
-                              label: 'Auto Top Up',
-                              icon: <RebuyIcon />,
-                              badge: isAutoRebuyEnabled ? 'ON' : undefined,
-                              onClick: () => setIsAutoRebuyEnabled(!isAutoRebuyEnabled),
-                            },
-                          ]
-                        : []),
-                      {
-                        id: 'marketplace',
-                        label: 'Club Marketplace',
-                        icon: <SettingsIcon />,
-                        // Dan 2026-09-04: a hub tab beside this table, not a
-                        // separate browser tab the felt cannot see (the
-                        // strip, the swipe and every other table stay put).
-                        //
-                        // 2026-09-21: the exact Hub page, not the alias. The
-                        // menu said '/hub/marketplace', which 308s to
-                        // /hub/diamond-store inside the frame - so the tab's
-                        // own address no longer matched what opened it, and
-                        // pressing the item again opened a SECOND tab (or hit
-                        // the cap) instead of focusing the one already there.
-                        // It also names this table's club, so "Club
-                        // Marketplace" opens that club's shop.
-                        onClick: () =>
-                          masterBus.emit('OPEN_HUB_TAB', {
-                            path: hubMarketplaceDestination('', actualClubIdRef.current),
-                            requestedBy: userId,
-                          }),
-                      },
-                    ],
-                  },
-                  {
-                    title: 'Table Info',
-                    actions: [
-                      {
-                        id: 'history',
-                        label: 'Hand History',
-                        icon: <HandHistoryIcon />,
-                        onClick: () => setShowHandHistory(true),
-                      },
-                      {
-                        id: 'leaderboard',
-                        label: 'Leaderboard',
-                        icon: <LeaderboardIcon />,
-                        onClick: () => setShowLeaderboard(true),
-                      },
-                      ...(!tableState.isTournament
-                        ? [
-                            {
-                              id: 'session-stats',
-                              label: 'Session Stats',
-                              icon: <SessionStatsIcon />,
-                              onClick: () => setShowSessionStats(true),
-                            },
-                          ]
-                        : []),
-                      // Bible V8 §11.1 — Settings accessible from BOTH table HUD menu AND hamburger menu
-                      {
-                        id: 'sounds',
-                        label: 'Sounds',
-                        icon: <SettingsIcon />,
-                        badge: isSoundEnabled ? 'ON' : 'OFF',
-                        onClick: () => setIsSoundEnabled(!isSoundEnabled),
-                      },
-                      {
-                        id: 'vibrations',
-                        label: 'Vibrations',
-                        icon: <SettingsIcon />,
-                        badge: isVibrationEnabled ? 'ON' : 'OFF',
-                        onClick: () => setIsVibrationEnabled(!isVibrationEnabled),
-                      },
-                      {
-                        id: 'settings',
-                        label: 'Table Settings',
-                        icon: <HelpIcon />,
-                        onClick: () => setShowSettings(true),
-                      },
-                    ],
-                  },
-                  {
-                    title: 'Support',
-                    actions: [
-                      {
-                        id: 'help',
-                        label: 'Help & Rules',
-                        icon: <HelpIcon />,
-                        onClick: () => setShowGameRules(true),
-                      },
-                    ],
-                  },
-                  {
-                    actions: [
-                      {
-                        id: 'leave',
-                        label: 'Leave Table',
-                        icon: <LeaveTableIcon />,
-                        onClick: () => openLeaveConfirm(),
-                        danger: true,
-                      },
-                    ],
-                  },
-                ]}
-                tableName={tableState.tableName}
-                handNumber={tableState.handNumber}
-                // 2026-08-22: the indicator used to mirror the LEGACY Supabase
-                // channel (presence/chat) while the game rides the engine WS —
-                // a dead engine socket showed a green dot and a Supabase blip
-                // showed red on a healthy game. Report the transport that
-                // actually carries the game.
-                connectionStatus={
-                  engineWsStatus === 'connected'
-                    ? 'connected'
-                    : engineWsStatus === 'connecting' || engineWsStatus === 'reconnecting'
-                      ? 'reconnecting'
-                      : 'disconnected'
-                }
-              />
-              {/* Dan 2026-08-15 — this "+" is ADD TABLE, not Add Chips.
+                              : tableState.heroSeat > 0
+                                ? [
+                                    {
+                                      id: 'rebuy',
+                                      label: 'Top Up',
+                                      icon: <RebuyIcon />,
+                                      onClick: () => setShowCashier(true),
+                                    },
+                                  ]
+                                : []),
+                        ...(canTopUpSeat && !tableState.isTournament
+                          ? [
+                              {
+                                id: 'auto-top-up',
+                                label: 'Auto Top Up',
+                                icon: <RebuyIcon />,
+                                badge: isAutoRebuyEnabled ? 'ON' : undefined,
+                                onClick: () => setIsAutoRebuyEnabled(!isAutoRebuyEnabled),
+                              },
+                            ]
+                          : []),
+                        {
+                          id: 'marketplace',
+                          label: 'Club Marketplace',
+                          icon: <SettingsIcon />,
+                          // Dan 2026-09-04: a hub tab beside this table, not a
+                          // separate browser tab the felt cannot see (the
+                          // strip, the swipe and every other table stay put).
+                          //
+                          // 2026-09-21: the exact Hub page, not the alias. The
+                          // menu said '/hub/marketplace', which 308s to
+                          // /hub/diamond-store inside the frame - so the tab's
+                          // own address no longer matched what opened it, and
+                          // pressing the item again opened a SECOND tab (or hit
+                          // the cap) instead of focusing the one already there.
+                          // It also names this table's club, so "Club
+                          // Marketplace" opens that club's shop.
+                          onClick: () =>
+                            masterBus.emit('OPEN_HUB_TAB', {
+                              path: hubMarketplaceDestination('', actualClubIdRef.current),
+                              requestedBy: userId,
+                            }),
+                        },
+                      ],
+                    },
+                    {
+                      title: 'Table Info',
+                      actions: [
+                        {
+                          id: 'history',
+                          label: 'Hand History',
+                          icon: <HandHistoryIcon />,
+                          onClick: () => setShowHandHistory(true),
+                        },
+                        {
+                          id: 'leaderboard',
+                          label: 'Leaderboard',
+                          icon: <LeaderboardIcon />,
+                          onClick: () => setShowLeaderboard(true),
+                        },
+                        ...(!tableState.isTournament
+                          ? [
+                              {
+                                id: 'session-stats',
+                                label: 'Session Stats',
+                                icon: <SessionStatsIcon />,
+                                onClick: () => setShowSessionStats(true),
+                              },
+                            ]
+                          : []),
+                        // Bible V8 §11.1 — Settings accessible from BOTH table HUD menu AND hamburger menu
+                        {
+                          id: 'sounds',
+                          label: 'Sounds',
+                          icon: <SettingsIcon />,
+                          badge: isSoundEnabled ? 'ON' : 'OFF',
+                          onClick: () => setIsSoundEnabled(!isSoundEnabled),
+                        },
+                        {
+                          id: 'vibrations',
+                          label: 'Vibrations',
+                          icon: <SettingsIcon />,
+                          badge: isVibrationEnabled ? 'ON' : 'OFF',
+                          onClick: () => setIsVibrationEnabled(!isVibrationEnabled),
+                        },
+                        {
+                          id: 'settings',
+                          label: 'Table Settings',
+                          icon: <HelpIcon />,
+                          onClick: () => setShowSettings(true),
+                        },
+                      ],
+                    },
+                    {
+                      title: 'Support',
+                      actions: [
+                        {
+                          id: 'help',
+                          label: 'Help & Rules',
+                          icon: <HelpIcon />,
+                          onClick: () => setShowGameRules(true),
+                        },
+                      ],
+                    },
+                    {
+                      actions: [
+                        {
+                          id: 'leave',
+                          label: 'Leave Table',
+                          icon: <LeaveTableIcon />,
+                          onClick: () => openLeaveConfirm(),
+                          danger: true,
+                        },
+                      ],
+                    },
+                  ]}
+                  tableName={tableState.tableName}
+                  handNumber={tableState.handNumber}
+                  // 2026-08-22: the indicator used to mirror the LEGACY Supabase
+                  // channel (presence/chat) while the game rides the engine WS —
+                  // a dead engine socket showed a green dot and a Supabase blip
+                  // showed red on a healthy game. Report the transport that
+                  // actually carries the game.
+                  connectionStatus={
+                    engineWsStatus === 'connected'
+                      ? 'connected'
+                      : engineWsStatus === 'connecting' || engineWsStatus === 'reconnecting'
+                        ? 'reconnecting'
+                        : 'disconnected'
+                  }
+                />
+                {/* Dan 2026-08-15 — this "+" is ADD TABLE, not Add Chips.
                 It used to open CashierModal, which duplicated the wallet entry
                 already on the table menu and left no way to start a second
                 game without abandoning the current one.
@@ -27819,24 +27887,37 @@ function LiveTablePage({
                 identically and a getByLabel query matched both, so Playwright
                 resolved two elements and silently drove whichever came first
                 in the DOM. Named for what it does. */}
-              <button
-                className="add-chips-icon-btn"
-                onClick={() => {
-                  soundService.playButtonClick();
-                  masterBus.emit('OPEN_LOBBY_TAB', { requestedBy: userId });
+                <button
+                  className="add-chips-icon-btn"
+                  onClick={() => {
+                    soundService.playButtonClick();
+                    masterBus.emit('OPEN_LOBBY_TAB', { requestedBy: userId });
+                  }}
+                  title="Open The Lobby In A New Tab"
+                  aria-label="Open The Lobby In A New Tab"
+                >
+                  <img
+                    src={addScreenIcon}
+                    className="add-chips-icon-btn__img"
+                    alt=""
+                    draggable={false}
+                  />
+                </button>
+              </div>
+            )}
+            {lightningRoom && !lightningRoomClosed && userId && userId !== 'guest' ? (
+              <LightningLeaveControl
+                key={`${lightningRoom.poolSessionId}/${userId}`}
+                clusterId={lightningRoom.clusterId}
+                onLeave={handleLeaveTable}
+                ensureStopped={stopLightningForLeave}
+                onLeaveIntentChange={(leaving) => {
+                  setLeaveAttentionSuppressed(leaving);
+                  if (leaving) ++preActionSendSeqRef.current;
                 }}
-                title="Open The Lobby In A New Tab"
-                aria-label="Open The Lobby In A New Tab"
-              >
-                <img
-                  src={addScreenIcon}
-                  className="add-chips-icon-btn__img"
-                  alt=""
-                  draggable={false}
-                />
-              </button>
-            </div>
-          )
+              />
+            ) : null}
+          </div>
         }
         upperRight={
           /* THE LOBBY BUTTON LEFT THE FELT FOR THE ACTION BAR (Dan 2026-11-01,
@@ -27890,8 +27971,13 @@ function LiveTablePage({
           </div>
         }
         bottomLeft={
-          <div className="hud-ul-column hud-bl-row">
-            {/* Dan 2026-08-21: "the previous hand should be in the bottom left
+          /* Dan 2026-11-09: "the action slider menu that pops up when click
+             raise, allows the time bank to appear and bleed through." This
+             corner is inside the open overlay's band, and nothing in it is
+             usable while a bet is being sized, so it stands down entirely. */
+          raisePanelOpen ? null : (
+            <div className="hud-ul-column hud-bl-row">
+              {/* Dan 2026-08-21: "the previous hand should be in the bottom left
                 corner, the time bank icon should be on top of it." Stacked in
                 that exact order — alarm clock above, previous-hand card below.
 
@@ -27963,22 +28049,22 @@ function LiveTablePage({
                 eat the Rabbit Hunt window: ActionPanel owns that body class and
                 removes it on unmount, and ActionPanel only mounts while the
                 hero is to act in a live hand. No hand, no class. */}
-            {hudSlotControl === 'timebank' && (
-              <TimebankCounter
-                /* null = not loaded yet. The tile renders a dash rather
+              {hudSlotControl === 'timebank' && (
+                <TimebankCounter
+                  /* null = not loaded yet. The tile renders a dash rather
                    than asserting a number, which is what showed a wrong 4. */
-                count={timeBanksRemaining}
-                low={!timeBankUnlimited && (timeBanksRemaining ?? 99) <= 1}
-                unlimited={timeBankUnlimited}
-                /* AUDIT 2026-08-25: the tile's accessible label and tooltip say
+                  count={timeBanksRemaining}
+                  low={!timeBankUnlimited && (timeBanksRemaining ?? 99) <= 1}
+                  unlimited={timeBankUnlimited}
+                  /* AUDIT 2026-08-25: the tile's accessible label and tooltip say
                    "N seconds each", and that number was the component's hard
                    default of 20 because nothing was ever passed. Meanwhile
                    `timeBankGrantedSeconds` held the figure the ENGINE actually
                    granted (TIME_BANK_ACTIVATED payload) and was read nowhere.
                    Wired: a table configured for anything other than 20 no
                    longer tells a screen-reader user the wrong number. */
-                bankSeconds={timeBankGrantedSeconds}
-                /* Dan 2026-08-21, item 3: out of banks → the buy sheet, not
+                  bankSeconds={timeBankGrantedSeconds}
+                  /* Dan 2026-08-21, item 3: out of banks → the buy sheet, not
                    the (empty) time-bank panel.
 
                    2026-08-24: the OTHER half of that ternary was a dead tap.
@@ -27991,58 +28077,45 @@ function LiveTablePage({
                    which is worse than being sent somewhere. Both arms now open
                    the store, where the balance is shown and more can be
                    bought. */
-                onClick={timeBankUnlimited ? undefined : () => setShowTimeBankStore(true)}
-              />
-            )}
-            {/* The same slot, same tile, once the hand is over. It cannot
+                  onClick={timeBankUnlimited ? undefined : () => setShowTimeBankStore(true)}
+                />
+              )}
+              {/* The same slot, same tile, once the hand is over. It cannot
                 render beside the time bank: `hudSlotControl` yields one value,
                 and 'timebank' wins. */}
-            {hudSlotControl === 'rabbit' && (
-              <RabbitHunt
-                key={rabbitHandNumberRef.current}
-                isAvailable={isRabbitAvailable}
-                cardsAvailable={rabbitCardsAvailable}
-                rabbitDiamondCost={rabbitDiamondCost}
-                userId={userId === 'guest' ? null : userId}
-                onReveal={handleRabbitReveal}
-                registerHotkey={registerRabbitHotkey}
-                autoRun={v8Settings.auto_rabbit_hunt && viewerIsVip}
+              {hudSlotControl === 'rabbit' && (
+                <RabbitHunt
+                  key={rabbitHandNumberRef.current}
+                  isAvailable={isRabbitAvailable}
+                  cardsAvailable={rabbitCardsAvailable}
+                  rabbitDiamondCost={rabbitDiamondCost}
+                  userId={userId === 'guest' ? null : userId}
+                  onReveal={handleRabbitReveal}
+                  registerHotkey={registerRabbitHotkey}
+                  autoRun={v8Settings.auto_rabbit_hunt && viewerIsVip}
+                />
+              )}
+              <PreviousHandCard
+                handNumber={prevHandResult?.handNumber ?? null}
+                canReviewHistory={Boolean(userId && userId !== 'guest')}
+                result={prevHandResult?.result ?? 0}
+                didWin={prevHandResult?.didWin ?? false}
+                didFold={prevHandResult?.didFold ?? false}
+                handDescription={prevHandResult?.handDescription}
+                onTap={() => setShowHandDetail(true)}
+                onShareHand={() => {
+                  // The modal renders only when a hand has been captured. Say so
+                  // instead of no-opping — tapping a menu item and getting
+                  // nothing at all is how this looked before today.
+                  if (!sharedHandData) {
+                    toast?.info?.('Play a hand to the end, then share it.');
+                    return;
+                  }
+                  setShowShareHand(true);
+                }}
               />
-            )}
-            <PreviousHandCard
-              handNumber={prevHandResult?.handNumber ?? null}
-              canReviewHistory={Boolean(userId && userId !== 'guest')}
-              result={prevHandResult?.result ?? 0}
-              didWin={prevHandResult?.didWin ?? false}
-              didFold={prevHandResult?.didFold ?? false}
-              handDescription={prevHandResult?.handDescription}
-              onTap={() => setShowHandDetail(true)}
-              onShareHand={() => {
-                // The modal renders only when a hand has been captured. Say so
-                // instead of no-opping — tapping a menu item and getting
-                // nothing at all is how this looked before today.
-                if (!sharedHandData) {
-                  toast?.info?.('Play a hand to the end, then share it.');
-                  return;
-                }
-                setShowShareHand(true);
-              }}
-            />
-          </div>
-        }
-        centerTop={
-          lightningRoom && !lightningRoomClosed && userId && userId !== 'guest' ? (
-            <LightningLeaveControl
-              key={`${lightningRoom.poolSessionId}/${userId}`}
-              clusterId={lightningRoom.clusterId}
-              onLeave={handleLeaveTable}
-              ensureStopped={stopLightningForLeave}
-              onLeaveIntentChange={(leaving) => {
-                setLeaveAttentionSuppressed(leaving);
-                if (leaving) ++preActionSendSeqRef.current;
-              }}
-            />
-          ) : null
+            </div>
+          )
         }
       />
       {/* ═══════════════════════════════════════════════════════════════════════
@@ -30683,6 +30756,7 @@ function LiveTablePage({
                           moved on 2026-08-26 and this line was corrected on
                           2026-08-27.) */}
                       <ActionPanel
+                        onRaiseModeChange={setRaisePanelOpen}
                         canFold={true}
                         canCheck={callAmount === 0}
                         canCall={callAmount > 0}

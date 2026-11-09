@@ -249,7 +249,36 @@
      lives on `.seat` in SeatSlot.css, where base and size resolve on the same
      element and the responsive overrides actually take. */
   --seat-avatar-base: 84px;
-  /* "HERO avatar should always be 33% bigger than the villains" — Dan. */
+  /* Dan 2026-08-15: "HERO avatar should always be 33% bigger than the
+     villains." STILL IN FORCE. Do not set this to 1.
+
+     DO NOT TRUST AN EARLIER VERSION OF THIS COMMENT (corrected 2026-11-09).
+     It claimed Dan's 2026-11-09 report - "the 'hero' avatar is smaller then all
+     the other avatars at the table, it should always be the same size" -
+     superseded the ratio and that "at 1 the frame and the bust agree". It was
+     written during an attempt that was MEASURED, REVERTED AND NEVER SHIPPED,
+     and it survived the revert sitting directly above a value of 1.3333 - a
+     written claim contradicting the code one line below it, which is how the
+     hamburger revert war in CLAUDE.md 10.7 started. The value below is correct
+     and the comment was wrong.
+
+     What actually caused Dan's report, measured: not this ratio. The hero's
+     declared circle is already the largest at the table at every breakpoint.
+     --sp-opponent-art-scale (opponentAvatarLayout.ts) normalises each
+     opponent's painted subject to the hero's and is consumed by
+     `.seat__avatar`, so it also sized the opponent's visible circle - and a
+     hero carrying a PHOTOGRAPH rather than character art raised the target
+     ~12%, which pushed every opponent circle past the hero's on every phone
+     width. Fixed by capping that factor at the hero's own declared circle, and
+     this ratio was left exactly as it was.
+
+     Setting this to 1 breaks four separately measured constants at once:
+     --sp-hero-clear and the short ring's literal 64 (the strip under the
+     felt), `.seat__cards--hero` (the hero's own card band, which goes shorter
+     than a two-card row at 375x667 in the embedded shell), and the adaptive
+     villain-card shrink threshold. Proven by experiment, not argued.
+     docs/changelog/2026-11-09-the-hero-avatar-is-never-the-smallest.md
+     tests/the-hero-avatar-is-never-the-smallest.law.test.ts */
   --seat-avatar-hero-ratio: 1.3333;
 
   /* ─── Card Shadows ─── */

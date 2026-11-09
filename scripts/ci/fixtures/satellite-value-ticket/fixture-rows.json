@@ -1,0 +1,469 @@
+{
+  "tournament_tickets": [
+    {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "holder_id": "00000000-0000-0000-0000-000000000002",
+      "source_satellite_id": "00000000-0000-0000-0000-000000000003",
+      "source_tournament_id": "00000000-0000-0000-0000-000000000004",
+      "source_satellite_award_place": 2,
+      "value": 40,
+      "club_id": "00000000-0000-0000-0000-000000000005",
+      "issued_by": "2d1cd6c3-5700-4af9-a271-d4863fdab20d",
+      "status": "redeemed",
+      "redemption_mode": "tournament_entry_only",
+      "entry_prize": 36,
+      "entry_bounty": 0,
+      "entry_fee": 4,
+      "source_refund_entitlement_id": null,
+      "redeemed_at": "2026-10-01T00:00:00Z"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000006",
+      "holder_id": "00000000-0000-0000-0000-000000000007",
+      "source_satellite_id": "00000000-0000-0000-0000-000000000003",
+      "source_tournament_id": "00000000-0000-0000-0000-000000000004",
+      "source_satellite_award_place": 1,
+      "value": 40,
+      "club_id": "00000000-0000-0000-0000-000000000005",
+      "issued_by": "2d1cd6c3-5700-4af9-a271-d4863fdab20d",
+      "status": "redeemed",
+      "redemption_mode": "tournament_entry_only",
+      "entry_prize": 36,
+      "entry_bounty": 0,
+      "entry_fee": 4,
+      "source_refund_entitlement_id": null,
+      "redeemed_at": "2026-10-01T00:00:00Z"
+    }
+  ],
+  "tournament_satellite_awards": [
+    {
+      "tournament_id": "00000000-0000-0000-0000-000000000003",
+      "user_id": "00000000-0000-0000-0000-000000000002",
+      "place": 2,
+      "ticket_id": "00000000-0000-0000-0000-000000000001",
+      "delivery_kind": "ticket",
+      "registration_id": null,
+      "payout_id": "00000000-0000-0000-0000-000000000008",
+      "payout_source": "satellite_ticket",
+      "amount": 40,
+      "idempotency_key": "tourney:00000000-0000-0000-0000-000000000003:satellite_ticket:place:2"
+    },
+    {
+      "tournament_id": "00000000-0000-0000-0000-000000000003",
+      "user_id": "00000000-0000-0000-0000-000000000007",
+      "place": 1,
+      "ticket_id": "00000000-0000-0000-0000-000000000006",
+      "delivery_kind": "ticket",
+      "registration_id": null,
+      "payout_id": "00000000-0000-0000-0000-000000000009",
+      "payout_source": "satellite_ticket",
+      "amount": 40,
+      "idempotency_key": "tourney:00000000-0000-0000-0000-000000000003:satellite_ticket:place:1"
+    }
+  ],
+  "tournament_payouts": [
+    {
+      "id": "00000000-0000-0000-0000-000000000008",
+      "tournament_id": "00000000-0000-0000-0000-000000000003",
+      "user_id": "00000000-0000-0000-0000-000000000002",
+      "amount": 40,
+      "source": "satellite_ticket",
+      "idempotency_key": "tourney:00000000-0000-0000-0000-000000000003:satellite_ticket:place:2",
+      "metadata": {
+        "asset": "chips",
+        "ticket_id": "00000000-0000-0000-0000-000000000001",
+        "delivery_kind": "ticket",
+        "ticket_contract": "same_value_entry_v1",
+        "satellite_target_id": "00000000-0000-0000-0000-000000000004",
+        "wallet_chips_credited": 0
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000009",
+      "tournament_id": "00000000-0000-0000-0000-000000000003",
+      "user_id": "00000000-0000-0000-0000-000000000007",
+      "amount": 40,
+      "source": "satellite_ticket",
+      "idempotency_key": "tourney:00000000-0000-0000-0000-000000000003:satellite_ticket:place:1",
+      "metadata": {
+        "asset": "chips",
+        "ticket_id": "00000000-0000-0000-0000-000000000006",
+        "delivery_kind": "ticket",
+        "ticket_contract": "same_value_entry_v1",
+        "satellite_target_id": "00000000-0000-0000-0000-000000000004",
+        "wallet_chips_credited": 0
+      }
+    }
+  ],
+  "tournament_satellite_settlements": [
+    {
+      "tournament_id": "00000000-0000-0000-0000-000000000003",
+      "target_id": "00000000-0000-0000-0000-000000000004",
+      "ticket_cost": 40,
+      "target_buy_in": 36,
+      "target_fee": 4,
+      "pool": 100
+    }
+  ],
+  "tournament_refund_entitlements": [
+    {
+      "id": "00000000-0000-0000-0000-00000000000a",
+      "gross": 40,
+      "user_id": "00000000-0000-0000-0000-000000000002",
+      "created_at": "2026-10-01T00:00:00Z",
+      "refund_fee": 4,
+      "refund_prize": 26,
+      "escrow_bucket": "ticket_gross",
+      "evidence_kind": "atomic_tournament_ticket",
+      "refund_bounty": 10,
+      "tournament_id": "00000000-0000-0000-0000-00000000000b",
+      "charge_category": "tournament_ticket",
+      "registration_id": "00000000-0000-0000-0000-00000000000c",
+      "entitlement_kind": "tournament_ticket",
+      "source_ledger_id": "00000000-0000-0000-0000-00000000000d",
+      "source_ticket_id": "00000000-0000-0000-0000-000000000001",
+      "source_satellite_id": "00000000-0000-0000-0000-000000000003",
+      "refund_wallet_club_id": "00000000-0000-0000-0000-000000000005"
+    },
+    {
+      "id": "00000000-0000-0000-0000-00000000000e",
+      "gross": 40,
+      "user_id": "00000000-0000-0000-0000-000000000007",
+      "created_at": "2026-10-01T00:00:00Z",
+      "refund_fee": 4,
+      "refund_prize": 26,
+      "escrow_bucket": "ticket_gross",
+      "evidence_kind": "atomic_tournament_ticket",
+      "refund_bounty": 10,
+      "tournament_id": "00000000-0000-0000-0000-00000000000b",
+      "charge_category": "tournament_ticket",
+      "registration_id": "00000000-0000-0000-0000-00000000000f",
+      "entitlement_kind": "tournament_ticket",
+      "source_ledger_id": "00000000-0000-0000-0000-000000000010",
+      "source_ticket_id": "00000000-0000-0000-0000-000000000006",
+      "source_satellite_id": "00000000-0000-0000-0000-000000000003",
+      "refund_wallet_club_id": "00000000-0000-0000-0000-000000000005"
+    }
+  ],
+  "chip_ledger": [
+    {
+      "id": "00000000-0000-0000-0000-00000000000d",
+      "status": "posted",
+      "from_type": "escrow",
+      "from_entity_id": "00000000-0000-0000-0000-000000000001",
+      "to_type": "prize_liability",
+      "to_entity_id": "00000000-0000-0000-0000-00000000000b",
+      "tournament_id": "00000000-0000-0000-0000-00000000000b",
+      "amount": 40,
+      "club_id": "00000000-0000-0000-0000-000000000005",
+      "category": "ticket_redeem",
+      "row_hash": "fixture-sealed-row",
+      "idempotency_key": "ticket:00000000-0000-0000-0000-000000000001:tournament:00000000-0000-0000-0000-00000000000b:entry",
+      "metadata": {
+        "kind": "tournament_entry_ticket_admission",
+        "user_id": "00000000-0000-0000-0000-000000000002",
+        "entry_fee": 4,
+        "ticket_id": "00000000-0000-0000-0000-000000000001",
+        "entry_prize": 26,
+        "entry_bounty": 10,
+        "registration_id": "00000000-0000-0000-0000-00000000000c",
+        "source_satellite_id": "00000000-0000-0000-0000-000000000003",
+        "source_tournament_id": "00000000-0000-0000-0000-000000000004"
+      },
+      "pre_from_balance": 40,
+      "post_from_balance": 0,
+      "pre_to_balance": 0,
+      "post_to_balance": 40,
+      "created_at": "2026-10-01T00:00:00Z"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000011",
+      "status": "posted",
+      "from_type": "player_wallet",
+      "from_entity_id": "00000000-0000-0000-0000-000000000002",
+      "to_type": "prize_liability",
+      "to_entity_id": "00000000-0000-0000-0000-000000000003",
+      "tournament_id": "00000000-0000-0000-0000-000000000003",
+      "amount": 5,
+      "club_id": "00000000-0000-0000-0000-000000000005",
+      "category": "tournament_buyin",
+      "row_hash": "fixture-sealed-row",
+      "idempotency_key": null,
+      "metadata": null,
+      "pre_from_balance": 10,
+      "post_from_balance": 5,
+      "pre_to_balance": 0,
+      "post_to_balance": 5,
+      "created_at": "2026-10-01T00:00:00Z"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000012",
+      "status": "posted",
+      "from_type": "player_wallet",
+      "from_entity_id": "00000000-0000-0000-0000-000000000007",
+      "to_type": "prize_liability",
+      "to_entity_id": "00000000-0000-0000-0000-000000000003",
+      "tournament_id": "00000000-0000-0000-0000-000000000003",
+      "amount": 5,
+      "club_id": "00000000-0000-0000-0000-000000000005",
+      "category": "tournament_buyin",
+      "row_hash": "fixture-sealed-row",
+      "idempotency_key": null,
+      "metadata": null,
+      "pre_from_balance": 10,
+      "post_from_balance": 5,
+      "pre_to_balance": 0,
+      "post_to_balance": 5,
+      "created_at": "2026-10-01T00:00:00Z"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000010",
+      "status": "posted",
+      "from_type": "escrow",
+      "from_entity_id": "00000000-0000-0000-0000-000000000006",
+      "to_type": "prize_liability",
+      "to_entity_id": "00000000-0000-0000-0000-00000000000b",
+      "tournament_id": "00000000-0000-0000-0000-00000000000b",
+      "amount": 40,
+      "club_id": "00000000-0000-0000-0000-000000000005",
+      "category": "ticket_redeem",
+      "row_hash": "fixture-sealed-row",
+      "idempotency_key": "ticket:00000000-0000-0000-0000-000000000006:tournament:00000000-0000-0000-0000-00000000000b:entry",
+      "metadata": {
+        "kind": "tournament_entry_ticket_admission",
+        "user_id": "00000000-0000-0000-0000-000000000007",
+        "entry_fee": 4,
+        "ticket_id": "00000000-0000-0000-0000-000000000006",
+        "entry_prize": 26,
+        "entry_bounty": 10,
+        "registration_id": "00000000-0000-0000-0000-00000000000f",
+        "source_satellite_id": "00000000-0000-0000-0000-000000000003",
+        "source_tournament_id": "00000000-0000-0000-0000-000000000004"
+      },
+      "pre_from_balance": 40,
+      "post_from_balance": 0,
+      "pre_to_balance": 0,
+      "post_to_balance": 40,
+      "created_at": "2026-10-01T00:00:00Z"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000013",
+      "status": "posted",
+      "from_type": "prize_liability",
+      "from_entity_id": "00000000-0000-0000-0000-000000000003",
+      "to_type": "escrow",
+      "to_entity_id": "00000000-0000-0000-0000-000000000001",
+      "tournament_id": "00000000-0000-0000-0000-000000000003",
+      "amount": 40,
+      "club_id": "00000000-0000-0000-0000-000000000005",
+      "category": "ticket_issue",
+      "row_hash": "fixture-sealed-row",
+      "idempotency_key": "tourney:00000000-0000-0000-0000-000000000003:satellite_ticket:place:2:ticket_escrow",
+      "metadata": {
+        "kind": "direct_satellite_entry_ticket",
+        "user_id": "00000000-0000-0000-0000-000000000002",
+        "payout_id": "00000000-0000-0000-0000-000000000008",
+        "ticket_id": "00000000-0000-0000-0000-000000000001",
+        "satellite_id": "00000000-0000-0000-0000-000000000003",
+        "ticket_contract": "same_value_entry_v1",
+        "satellite_target_id": "00000000-0000-0000-0000-000000000004"
+      },
+      "pre_from_balance": 60,
+      "post_from_balance": 20,
+      "pre_to_balance": 0,
+      "post_to_balance": 40,
+      "created_at": "2026-10-01T00:00:00Z"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000014",
+      "status": "posted",
+      "from_type": "prize_liability",
+      "from_entity_id": "00000000-0000-0000-0000-000000000003",
+      "to_type": "escrow",
+      "to_entity_id": "00000000-0000-0000-0000-000000000006",
+      "tournament_id": "00000000-0000-0000-0000-000000000003",
+      "amount": 40,
+      "club_id": "00000000-0000-0000-0000-000000000005",
+      "category": "ticket_issue",
+      "row_hash": "fixture-sealed-row",
+      "idempotency_key": "tourney:00000000-0000-0000-0000-000000000003:satellite_ticket:place:1:ticket_escrow",
+      "metadata": {
+        "kind": "direct_satellite_entry_ticket",
+        "user_id": "00000000-0000-0000-0000-000000000007",
+        "payout_id": "00000000-0000-0000-0000-000000000009",
+        "ticket_id": "00000000-0000-0000-0000-000000000006",
+        "satellite_id": "00000000-0000-0000-0000-000000000003",
+        "ticket_contract": "same_value_entry_v1",
+        "satellite_target_id": "00000000-0000-0000-0000-000000000004"
+      },
+      "pre_from_balance": 100,
+      "post_from_balance": 60,
+      "pre_to_balance": 0,
+      "post_to_balance": 40,
+      "created_at": "2026-10-01T00:00:00Z"
+    }
+  ],
+  "chip_transactions": [
+    {
+      "id": "00000000-0000-0000-0000-000000000015",
+      "club_id": "00000000-0000-0000-0000-000000000005",
+      "from_user_id": "00000000-0000-0000-0000-000000000007",
+      "to_user_id": null,
+      "amount": 40,
+      "transaction_type": "tournament_ticket_entry",
+      "metadata": {
+        "holder_id": "00000000-0000-0000-0000-000000000007",
+        "ledger_id": "00000000-0000-0000-0000-000000000010",
+        "ticket_id": "00000000-0000-0000-0000-000000000006",
+        "entitlement_id": "00000000-0000-0000-0000-00000000000e",
+        "idempotency_key": "ticket:00000000-0000-0000-0000-000000000006:tournament:00000000-0000-0000-0000-00000000000b:entry",
+        "registration_id": "00000000-0000-0000-0000-00000000000f",
+        "target_tournament_id": "00000000-0000-0000-0000-00000000000b",
+        "wallet_chips_credited": 0
+      },
+      "created_at": "2026-10-01T00:00:00Z"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000016",
+      "club_id": "00000000-0000-0000-0000-000000000005",
+      "from_user_id": "00000000-0000-0000-0000-000000000002",
+      "to_user_id": null,
+      "amount": 40,
+      "transaction_type": "tournament_ticket_entry",
+      "metadata": {
+        "holder_id": "00000000-0000-0000-0000-000000000002",
+        "ledger_id": "00000000-0000-0000-0000-00000000000d",
+        "ticket_id": "00000000-0000-0000-0000-000000000001",
+        "entitlement_id": "00000000-0000-0000-0000-00000000000a",
+        "idempotency_key": "ticket:00000000-0000-0000-0000-000000000001:tournament:00000000-0000-0000-0000-00000000000b:entry",
+        "registration_id": "00000000-0000-0000-0000-00000000000c",
+        "target_tournament_id": "00000000-0000-0000-0000-00000000000b",
+        "wallet_chips_credited": 0
+      },
+      "created_at": "2026-10-01T00:00:00Z"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000017",
+      "club_id": "00000000-0000-0000-0000-000000000005",
+      "from_user_id": null,
+      "to_user_id": "00000000-0000-0000-0000-000000000007",
+      "amount": 40,
+      "transaction_type": "tournament_ticket_issue",
+      "metadata": {
+        "ledger_id": "00000000-0000-0000-0000-000000000014",
+        "payout_id": "00000000-0000-0000-0000-000000000009",
+        "ticket_id": "00000000-0000-0000-0000-000000000006",
+        "ticket_contract": "same_value_entry_v1"
+      },
+      "created_at": "2026-10-01T00:00:00Z"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000018",
+      "club_id": "00000000-0000-0000-0000-000000000005",
+      "from_user_id": null,
+      "to_user_id": "00000000-0000-0000-0000-000000000002",
+      "amount": 40,
+      "transaction_type": "tournament_ticket_issue",
+      "metadata": {
+        "ledger_id": "00000000-0000-0000-0000-000000000013",
+        "payout_id": "00000000-0000-0000-0000-000000000008",
+        "ticket_id": "00000000-0000-0000-0000-000000000001",
+        "ticket_contract": "same_value_entry_v1"
+      },
+      "created_at": "2026-10-01T00:00:00Z"
+    }
+  ],
+  "union_pnl_inventory_events": [
+    {
+      "event_id": 1,
+      "source_name": "tournament_players",
+      "row_id": "00000000-0000-0000-0000-00000000000f",
+      "after_row": {
+        "user_id": "00000000-0000-0000-0000-000000000007",
+        "source_satellite_id": "00000000-0000-0000-0000-000000000003",
+        "tournament_id": "00000000-0000-0000-0000-00000000000b",
+        "registered_at": "2026-10-01T00:00:00Z",
+        "club_id": "00000000-0000-0000-0000-000000000005"
+      }
+    },
+    {
+      "event_id": 2,
+      "source_name": "tournament_players",
+      "row_id": "00000000-0000-0000-0000-00000000000c",
+      "after_row": {
+        "user_id": "00000000-0000-0000-0000-000000000002",
+        "source_satellite_id": "00000000-0000-0000-0000-000000000003",
+        "tournament_id": "00000000-0000-0000-0000-00000000000b",
+        "registered_at": "2026-10-01T00:00:00Z",
+        "club_id": "00000000-0000-0000-0000-000000000005"
+      }
+    }
+  ],
+  "tournament_participant_funding_receipts": [
+    {
+      "id": "00000000-0000-0000-0000-000000000019",
+      "registration_id": "00000000-0000-0000-0000-00000000001a",
+      "tournament_id": "00000000-0000-0000-0000-000000000003",
+      "user_id": "00000000-0000-0000-0000-000000000007",
+      "funding_club_id": "00000000-0000-0000-0000-000000000005",
+      "operation": "entry",
+      "asset": "chips",
+      "amount": 5,
+      "ledger_id": "00000000-0000-0000-0000-000000000012"
+    },
+    {
+      "id": "00000000-0000-0000-0000-00000000001b",
+      "registration_id": "00000000-0000-0000-0000-00000000001c",
+      "tournament_id": "00000000-0000-0000-0000-000000000003",
+      "user_id": "00000000-0000-0000-0000-000000000002",
+      "funding_club_id": "00000000-0000-0000-0000-000000000005",
+      "operation": "entry",
+      "asset": "chips",
+      "amount": 5,
+      "ledger_id": "00000000-0000-0000-0000-000000000011"
+    }
+  ],
+  "tournaments": [
+    {
+      "id": "00000000-0000-0000-0000-000000000004",
+      "club_id": "00000000-0000-0000-0000-00000000001d",
+      "union_id": "00000000-0000-0000-0000-00000000001d",
+      "buy_in_amount": 36,
+      "buy_in_fee": 4,
+      "bounty_amount": 0,
+      "is_bounty": false,
+      "is_pko": false,
+      "is_mystery_bounty": false
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000003",
+      "club_id": "00000000-0000-0000-0000-00000000001d",
+      "union_id": "00000000-0000-0000-0000-00000000001d",
+      "buy_in_amount": 4,
+      "buy_in_fee": 1,
+      "bounty_amount": 0,
+      "is_bounty": false,
+      "is_pko": false,
+      "is_mystery_bounty": false
+    },
+    {
+      "id": "00000000-0000-0000-0000-00000000000b",
+      "club_id": "00000000-0000-0000-0000-00000000001d",
+      "union_id": "00000000-0000-0000-0000-00000000001d",
+      "buy_in_amount": 36,
+      "buy_in_fee": 4,
+      "bounty_amount": 10,
+      "is_bounty": true,
+      "is_pko": false,
+      "is_mystery_bounty": false
+    }
+  ],
+  "clubs": [
+    {
+      "id": "00000000-0000-0000-0000-000000000005",
+      "union_id": "00000000-0000-0000-0000-00000000001d",
+      "asset": "chips",
+      "is_platform": false
+    }
+  ]
+}

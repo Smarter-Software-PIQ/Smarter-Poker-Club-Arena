@@ -118,6 +118,16 @@ describe('Every persisted tournament format shares the terminal celebration', ()
         expect(c.announce).toHaveBeenCalledOnce();
         if (format === 'seat-first-satellite-v1')
           expect(c.announce.mock.calls[0][0].qualifiers).toHaveLength(2);
+        else if (role === 'runner-up')
+          /* 2026-11-09: a participant is announced THEIR OWN result. This used
+             to expect the champion's name and the champion's 50 here, which is
+             the card Dan was shown after losing heads-up - the overlay has no
+             position to read, so it printed "Champion! / 1st Place". A paid
+             finish prints its own place and its own prize and carries no
+             champion name. See tournamentChampionCloseout.law.test.ts. */
+          expect(c.announce).toHaveBeenCalledWith(
+            expect.objectContaining({ championName: undefined, prize: 20, position: 2 })
+          );
         else
           expect(c.announce).toHaveBeenCalledWith(
             expect.objectContaining({ championName: 'Alice', prize: 50 })

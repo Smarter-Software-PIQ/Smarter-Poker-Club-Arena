@@ -44,7 +44,7 @@ on:
     workflows: ['Publish Club Arena']
     types: [completed]
   repository_dispatch:
-    types: [run-post-deploy-e2e, run-stats-pagination-proof, run-private-record-client-proof]
+    types: [run-post-deploy-e2e, run-stats-pagination-proof, run-private-record-client-proof, run-plo-lightning-lifecycle-proof]
 
 jobs:
   release-gameplay-readback:
@@ -105,7 +105,8 @@ jobs:
       (needs.publication-gate.outputs.should_run == 'true' ||
        (github.event_name == 'repository_dispatch' &&
         (github.event.action == 'run-stats-pagination-proof' ||
-         github.event.action == 'run-private-record-client-proof')))
+         github.event.action == 'run-private-record-client-proof' ||
+         github.event.action == 'run-plo-lightning-lifecycle-proof')))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -358,8 +359,55 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  plo-lightning-lifecycle-proof:
+    name: Witness fixed PLO Lightning startup and departure
+    needs: certification-cleanup-safety
+    if: >-
+      always() && !cancelled() && needs.certification-cleanup-safety.result == 'success' &&
+      github.event_name == 'repository_dispatch' && github.event.action == 'run-plo-lightning-lifecycle-proof' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    concurrency:
+      group: plo-lightning-lifecycle-proof
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install Chromium only
+        timeout-minutes: 5
+        run: |
+          sudo python3 scripts/ci/ubuntu-apt-mirror.py
+          npx playwright install --with-deps chromium
+      - name: Observe one owned funded journey through ordinary player paths
+        env:
+          GITHUB_EVENT_ACTION: ${{ github.event.action }}
+          PLO_LIGHTNING_PROOF_PAYLOAD: ${{ toJSON(github.event.client_payload) }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
+        run: node --experimental-strip-types scripts/ci/verify-plo-lightning-lifecycle.mjs
+      - name: Retain public evidence and reconciliation only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plo-lightning-lifecycle-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/plo-lightning-proof/result.json
+            ${{ runner.temp }}/plo-lightning-proof/*.png
+          if-no-files-found: warn
+          retention-days: 30
+
   publication-gate:
-    if: github.event_name != 'repository_dispatch' || (github.event.action != 'run-stats-pagination-proof' && github.event.action != 'run-private-record-client-proof')
+    if: github.event_name != 'repository_dispatch' || (github.event.action != 'run-stats-pagination-proof' && github.event.action != 'run-private-record-client-proof' && github.event.action != 'run-plo-lightning-lifecycle-proof')
     name: Confirm The Hetzner Web Publish Reached Production
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -3101,6 +3149,7 @@ jobs:
       - tournament-only-verdict
       - private-record-client-proof
       - stats-pagination-proof
+      - plo-lightning-lifecycle-proof
       - publication-gate
       - post-deploy-verdict
       - club-channel-lifecycle-e2e

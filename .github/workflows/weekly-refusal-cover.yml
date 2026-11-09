@@ -5,6 +5,11 @@ on:
     branches: [main]
     paths:
       - supabase/migrations/**
+      - scripts/ci/test-split-late-return-postgres.py
+      - scripts/ci/fixtures/split-late-return/**
+      - scripts/ci/test-union-prepares-first-postgres.py
+      - scripts/ci/fixtures/union-prepares-first/**
+      - tests/split-late-return-owns-its-leg.law.test.ts
       - scripts/ci/fixtures/weekly-refusal-cover/**
       - scripts/ci/test-weekly-refusal-cover-postgres.py
       - scripts/ci/test-cash-refusal-pointer-batch-postgres.py
@@ -13,6 +18,9 @@ on:
       - scripts/ci/test-cash-assert-status-cover-postgres.py
       - scripts/ci/fixtures/cash-assert-status-cover/**
       - tests/cash-evidence-reads-the-accrual-status-cover.law.test.ts
+      - scripts/ci/test-governance-eco-original-week-postgres.py
+      - scripts/ci/fixtures/governance-eco-original-week/**
+      - tests/governance-eco-keeps-original-week.law.test.ts
       - .github/workflows/weekly-refusal-cover.yml
       - tests/the-weekly-refusal-check-reads-the-receipt-cover.law.test.ts
 
@@ -45,3 +53,15 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 -B scripts/ci/test-cash-assert-status-cover-postgres.py --pg-bin "$PG_BIN" --scratch "${{ runner.temp }}"
+      - name: Split late return owns its leg under inherited autoskip
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-split-late-return-postgres.py --pg-bin "$PG_BIN" --scratch-root "${{ runner.temp }}" --output "${{ runner.temp }}/split-late-return.json"
+      - name: Governance ECO incidents require their original completed week
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-governance-eco-original-week-postgres.py --pg-bin "$PG_BIN" --scratch "$RUNNER_TEMP"
+      - name: The due union week prepares and pays first
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-union-prepares-first-postgres.py --pg-bin "$PG_BIN" --scratch-root "${{ runner.temp }}" --output "${{ runner.temp }}/union-prepares-first.json"

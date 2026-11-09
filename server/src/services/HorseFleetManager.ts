@@ -5485,7 +5485,8 @@ export class HorseFleetManager {
           !msg.includes('diamond_cash_not_open') &&
           !msg.includes('insufficient_settled_diamonds') &&
           !msg.includes('Diamond seat or player is already seated') &&
-          !msg.includes('SEAT_RESERVED')
+          !msg.includes('SEAT_RESERVED') &&
+          !msg.includes('LIGHTNING_ADMISSION_')
         ) {
           reportError(rpcErr, 'HorseFleet.atomic_table_buyin_failed_for_horse');
         }

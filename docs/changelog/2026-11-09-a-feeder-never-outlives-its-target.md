@@ -1,0 +1,131 @@
+# A feeder never outlives its target
+
+2026-11-09. A regression the seat-first waiting ladder introduced, found by
+this lane in its own change and fixed here.
+
+## What broke
+
+A heads-up satellite feeder is two seats. `ladderForSeats` reads seats, so it
+called a feeder a regular Heads-Up and handed it the 3-to-4-hour rung. Before
+the ladder, `createSatelliteHeadsUp` opened with the old 90-350 second window
+and a feeder filled, played and handed its seat over in minutes. The ladder
+replaced that one line with `seatFirstOpeningWindowMs(config.maxPlayers)`.
+
+Two things make that wrong rather than merely slow.
+
+**The ladder paces a quota a feeder is not in.** The rung exists so the room
+stops running itself all day: one horse on each of eleven Spins and six Sit
+and Gos. `seatFirstBoardRoom` deliberately excludes every row with a satellite
+target from that count, so a feeder was being paced by an economy it is
+explicitly not part of. That is this change disagreeing with itself.
+
+**A feeder sold a seat in ONE event.** Waiting hours lets the target start
+first, and then the feeder can never award what it sold. The existing
+authority on that is `fn_ca_expire_empty_fixed_sng_satellite`, which cancels
+an EMPTY REGISTERING feeder once its target's `start_time` has passed. The
+ladder seats a horse immediately, so the feeder is no longer empty, that
+reaper answers `not_empty_registering`, and the row stays. The ladder did not
+only slow the feeder down; it put it out of reach of the thing meant to clean
+it up.
+
+## The fix
+
+A feeder keeps the short window and is bounded by its target's own clock.
+
+```
+available = targetStart - requiredLead - now
+wait      = min(90-350 s draw, available)
+available <= 0  ->  null: do not open it, and do not keep it waiting
+```
+
+`requiredLead` is `SATELLITE_HU_TARGET_LEAD_MS`, the 30 minutes the platform
+already requires for this format, passed in rather than duplicated, so there
+is one number for one rule. Capping at the target's START would be too late:
+the feeder still has to play out and hand the seat over, which is what the
+lead is for.
+
+The bound is re-derived on every rung from the target's CURRENT `start_time`,
+in `GameServer.seatFirstNextWaitMs`, so a rescheduled target moves the bound
+instead of leaving a feeder waiting against a clock that no longer exists.
+
+An unknown or non-finite target clock returns `null`. Not knowing is never
+permission, which is the same answer `fn_ca_expire_empty_fixed_sng_satellite`
+gives as `target_clock_unknown`.
+
+If the feeder check itself cannot be read, the rung advance falls back to the
+LADDER rung and reports it. That direction is deliberate and stated in the
+code: a mis-paced feeder is a rare row, while a regular board that loses its
+rung is re-asked every twelve seconds and re-inflates exactly the volume the
+ladder was built to cut.
+
+## Where the refusal lives, and why not in the creator
+
+The first version of this fix refused inside `createSatelliteHeadsUp`, and the
+existing contract test `server/src/tournament/SeatFirstCallerContract.test.ts`
+caught it: 14 failures. Two real defects, not a stale pin.
+
+**It broke continuing an existing feeder.** That creator's atomic RPC returns
+the EXISTING row when a feeder for the target is already open, and the test
+pins `{tournamentId: <target>, registered: 0, created: false}`. An early
+return reported `tournamentId: null` instead, which also changes the caller's
+budget accounting and its seeding call.
+
+**It refused a config that simply did not carry the field.** `targetStartMs`
+is filled by `satelliteHeadsUpConfigFor` from `target.start_time`; a config
+built any other way has no such field, and `Date.parse(undefined)` is NaN. A
+field the caller did not fill is NOT the same statement as a target clock that
+says it is too late.
+
+So deliverability is filtered where it belongs - on the TARGET, beside the
+lead that branch already requires (`SATELLITE_MTT_TARGET_LEAD_MS`). A target
+whose own clock leaves less than `SATELLITE_HU_TARGET_LEAD_MS` is not offered a
+feeder at all. The creator keeps only the bounded window, and falls back to the
+plain short window when no target clock is passed, because the filter has
+already judged the target. The strict reading of an unknown clock stays where
+the target row is actually read: `GameServer.seatFirstNextWaitMs`.
+
+## An already-seated entrant is not left waiting
+
+Refusing to extend the wait is right, but a feeder that already holds a paid
+entrant must not be left with its window in the past, re-asked every twelve
+seconds while somebody's entry sits in it.
+`fn_ca_expire_empty_fixed_sng_satellite` cannot resolve that one: it takes an
+EMPTY feeder, and the opening horse means a feeder is never empty after
+creation. So an undeliverable feeder with anything paid in it is dealt NOW and
+the EXISTING satellite settlement authorities decide the rest. No new
+cancellation, refund or repair path is added here - CLAUDE.md 10.12 forbids
+exactly that - and an empty one is left for the expiry authority, which is the
+one case it does take.
+
+## Exposure
+
+Zero heads-up satellite feeders were created in the ten days to 2026-11-09, so
+no row had taken the wrong rung in production.
+
+That is a reason not to hold a release for this fix. It is NOT evidence of zero
+future exposure and must not be read as one: the path is live and a scheduled
+MTT target can produce a feeder at any time. The fix lands before the
+behaviour is called delivered, rather than after a feeder fails to award a
+seat somebody bought.
+
+## Tests
+
+`server/src/config/aFeederNeverOutlivesItsTarget.test.ts`, eight cases over
+the target's four states:
+
+- **approaching** - a target hours away gets the short window, and the test
+  pins that the heads-up rung is longer than the whole window so the
+  regression cannot come back silently;
+- **approaching but tight** - the wait is cut to the room left rather than to
+  the band;
+- **started** - a target at or past its start, or inside the required lead,
+  yields `null`;
+- **closed or unknown** - a non-finite target clock, now, or lead yields
+  `null`;
+- **rescheduled** - pushed back, the band applies again; pulled forward inside
+  the lead, the feeder stops waiting;
+- the whole band is reachable, so feeders do not mature in lockstep;
+- the caller's contract: an undeliverable feeder is a null WAIT and never a
+  zero-length one, so "do not wait" cannot be confused with "deal now" at the
+  call site;
+- at every draw, `now + wait + lead` never passes the target's start.
