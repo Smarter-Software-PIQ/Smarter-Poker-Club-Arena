@@ -264,3 +264,19 @@ Schema changes under `supabase/migrations/**` trigger both existing Backup and e
 The original Backup export captures the installed production migration version/name set and the guarantee, Horse admission, registration and weekly-payout function definitions before and after the dump. Drift refuses the copy. The retained `schema-evidence.json` binds that set and the function hashes to the dump SHA. Restore compares the actual isolated function bodies before publishing validity; the isolated database carries the source migration manifest as evidence rather than an installation ledger.
 
 Before relying on that certificate for this delivery, capture production again through its configured read-only database connection and compare it with the original certificate artifact. Run `python3 -B server/standby/schema-evidence.py capture --output CURRENT_JSON`, then `python3 -B server/standby/schema-evidence.py compare RETAINED_JSON CURRENT_JSON`. A missing or changed migration or required function refuses the comparison. Read the exact sealed result and serving revision independently after cutover.
+
+### Finite PLO Lightning lifecycle witness
+
+After the lifecycle migration is installed and the certified engine is sealed
+and fully thawed, dispatch `run-plo-lightning-lifecycle-proof` through the existing
+Post-Deploy E2E workflow with client payload `{"engine_sha":"FULL_SERVING_SHA"}`.
+This is an explicit finite verification, never a release action. The fixed 1/2
+PLO game must be empty in feeder mode with ON10/OFF4 and heads-up enabled.
+The job creates reserved player/cashier accounts, uses normal cashier funding,
+actual pre-play disclosure/consent and player controls, and normal cash-out.
+It records individual arrivals, the 5–15 minute startup and eight minutes of
+continued gameplay after departure. Read its result and owned balance cleanup
+separately; unknown financial intents retain identities for authoritative
+readback instead of another purchase or transfer. Only result JSON and public
+screenshots are uploaded, never private account files. It does not retire the
+house club or its tables. A refusal or missing evidence is not a live pass.
