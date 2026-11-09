@@ -1,0 +1,3 @@
+# tests/split-returns-start-at-the-locked-wallet-opening.law.test.ts
+
+R3 subtracts only split returns occurring after its actual locked wallet opening. A prior concurrent commit and an earlier stage call within the same transaction already belong to that opening. The scoped per-call receipt baseline preserves all original balance guards and replay behavior. The existing PG17 split-return route executes exact R3 lock/model blocks with actual split, journal and deferred commit triggers, proving failure before and acceptance after, plus unmatched-receipt refusal. Unchanged source/entitlement qualification remains an explicit fixed-payee adapter.

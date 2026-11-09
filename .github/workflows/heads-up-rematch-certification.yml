@@ -1,0 +1,45 @@
+name: Heads-Up Rematch Certification
+
+# Live certification of heads-up Play Again (#10121, #10133) on the supported
+# certification route only: reserved accounts, a certification club's own
+# opening grant, a real signed-in browser tap, the engine dealing the rematch,
+# and guarded cleanup that always runs. Outside the Sit & Go window, during a
+# freeze or while the engine is not idle, the run ends UNKNOWN and creates
+# nothing. Started by hand only; it schedules nothing.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  # The run creates reserved fixtures and its own cleanup retires them; a later
+  # run queues behind it and never cancels cleanup.
+  group: heads-up-rematch-certification
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Install Chromium
+        timeout-minutes: 5
+        run: |
+          sudo python3 scripts/ci/ubuntu-apt-mirror.py
+          npx playwright install --with-deps chromium
+      - name: Certify Heads-Up Play Again On The Serving Engine
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
+        run: node scripts/ci/certify-heads-up-rematch.mjs

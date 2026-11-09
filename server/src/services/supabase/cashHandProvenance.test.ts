@@ -130,7 +130,7 @@ describe('original cash funding manifest transport', () => {
   });
   it('is wired before the real controller is created and checks the lease again afterward', () => {
     const source = readFileSync('src/engine/ServerTableEngineDealing.ts', 'utf8');
-    const capture = source.indexOf('const manifestId = await captureCashHandProvenance(');
+    const capture = source.indexOf('const manifestId = await this.takePreparedCashHandManifest(');
     const controller = source.indexOf('this.handController = new HandController(', capture);
     expect(capture).toBeGreaterThan(0);
     expect(controller).toBeGreaterThan(capture);
