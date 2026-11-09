@@ -622,3 +622,13 @@
     animation: none;
   }
 }
+
+/* HEADS UP REMATCH (2026-11-08): the offer, in words, at the top of the glass,
+   so the opponent's question is the first thing read. No shape of its own:
+   it prints in the session label's engraved blue on the master's glass. */
+.trc2__rematch {
+  display: flex;
+  justify-content: center;
+  padding-bottom: 2cqw;
+  text-align: center;
+}

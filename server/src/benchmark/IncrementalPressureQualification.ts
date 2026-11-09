@@ -438,6 +438,20 @@ export async function authenticateFeatureAblationProviderAttempt(
   )
     throw Error('Original provider job identity mismatch');
 }
+/** Output ceiling for the provider's git reads. Node's execFileSync default is
+ * 1 MiB, and `git ls-files server` (read by the decision-closure binding)
+ * already prints about 1.5 MB: under the default it throws ENOBUFS after the
+ * partition is reserved, which burns the held-out hands. */
+export const QUALIFICATION_GIT_MAX_BUFFER = 256 * 1024 * 1024;
+export function qualificationGit(root: string, env: NodeJS.ProcessEnv) {
+  return (...args: string[]) =>
+    execFileSync('git', args, {
+      cwd: root,
+      env,
+      encoding: 'utf8',
+      maxBuffer: QUALIFICATION_GIT_MAX_BUFFER,
+    }).trim();
+}
 /** Actual provider/PR provenance, not a caller's JSON approval. Must complete
  * before warm histories or contract deals. Existing v1 admission is untouched. */
 export async function authenticateIncrementalPlan(
@@ -456,8 +470,7 @@ export async function authenticateIncrementalPlan(
   const env = Object.fromEntries(
     Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_'))
   );
-  const git = (...args: string[]) =>
-    execFileSync('git', args, { cwd: root, env, encoding: 'utf8' }).trim();
+  const git = qualificationGit(root, env);
   const repo = process.env.GITHUB_REPOSITORY,
     run = process.env.GITHUB_RUN_ID,
     token = process.env.GITHUB_TOKEN;

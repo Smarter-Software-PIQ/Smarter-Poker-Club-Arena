@@ -67,18 +67,25 @@ class DailySelection(unittest.TestCase):
             read()
 
     def test_schema_change_after_backup_restore_requires_new_evidence(self):
+        # Replaced 2026-11-08: commit time against restore time was the test
+        # that called the stale copy of Backup 42519319251 fresh. The owners
+        # digest still decides; freshness is the copy's contents, proved in
+        # tests/operations/backup-installed-migrations.test.py. A copy that
+        # records no contents is never fresh, whatever its timestamps.
         db = {'restoredAt': '2026-11-07T09:00:00Z', 'ownersSha256': mod.hashlib.sha256(b'owners').hexdigest()}
-        timestamp = int(mod.epoch(db['restoredAt']))
-        for migration, source, eligible in [(timestamp, b'owners', True), (timestamp + 1, b'owners', False),
-                                             (timestamp, b'different', False)]:
-            with patch.object(mod, 'git', return_value=str(migration)), patch.object(mod, 'command', return_value=source):
-                self.assertEqual(mod.current_schema('b' * 40, {'database': db}), eligible)
+        for source, reason in [(b'different', 'different standby owners'),
+                               (b'owners', 'records no installed schema evidence')]:
+            with patch.object(mod, 'git', return_value='2026-11-07T08:00:00Z'), patch.object(mod, 'command', return_value=source):
+                fresh, why, diagnostics = mod.current_schema('b' * 40, {'database': db})
+            self.assertFalse(fresh)
+            self.assertIn(reason, why)
+            self.assertEqual(diagnostics['restoredAt'], db['restoredAt'])
 
     def test_unreadable_qualification_never_selects_older_sha(self):
         old, newest, serving = ('a' * 40, 'b' * 40, 'c' * 40)
         args = types.SimpleNamespace(repo='o/r', control=newest, serving=serving)
         with (patch.object(mod, 'git', side_effect=[newest+'\\n'+old, serving]),
-              patch.object(mod, 'current_schema', return_value=True),
+              patch.object(mod, 'current_schema', return_value=(True, '', {})),
               patch.object(mod, 'statuses', return_value=[(newest, {}), (old, {})]),
               patch.object(mod, 'backup', return_value={'runId': 123, 'rehearsedServingSha': serving, 'playerReconnectedBothDirections': True,
                                                        'rollbackAdoptionSeconds': 135, 'forwardAdoptionSeconds': 7}) as backup,
@@ -111,7 +118,7 @@ class DailySelection(unittest.TestCase):
                      mod.subprocess.CompletedProcess([], 0, '{}')]
         report = {'cutoffEpoch': 1, 'deferredCandidates': []}
         with (patch.object(mod, 'git', side_effect=[newest+'\n'+old, serving]),
-              patch.object(mod, 'current_schema', return_value=True),
+              patch.object(mod, 'current_schema', return_value=(True, '', {})),
               patch.object(mod, 'statuses', return_value=[(newest, {}), (old, {})]),
               patch.object(mod, 'backup', return_value={'runId': 123, 'rehearsedServingSha': serving, 'playerReconnectedBothDirections': True,
                                                        'rollbackAdoptionSeconds': 135, 'forwardAdoptionSeconds': 7}),
@@ -134,7 +141,7 @@ class DailySelection(unittest.TestCase):
                   patch.object(mod, 'statuses', return_value=[(newest,{}),(old,{})]) as statuses,
                   patch.object(mod, 'backup', return_value=dict(runId=123, rehearsedServingSha=serving,
                        playerReconnectedBothDirections=True, rollbackAdoptionSeconds=7, forwardAdoptionSeconds=7)),
-                  patch.object(mod, 'current_schema', return_value=True),
+                  patch.object(mod, 'current_schema', return_value=(True, '', {})),
                   patch.object(mod.subprocess, 'run', side_effect=processes) as run):
                 mod.select(args, report)
                 statuses.assert_called_once_with('o/r', [newest,old])
