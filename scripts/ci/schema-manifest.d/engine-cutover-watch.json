@@ -1,0 +1,12 @@
+{
+  "_owner": "fix/missed-cutover-alarm",
+  "_comment": "Migration 20261109024836: the missed 04:00 engine cutover alarm, the lobby close page and the digest's engine line.",
+  "tables": ["smarter_private.ca_engine_cutover_days"],
+  "functions": [
+    "fn_ca_engine_cutover_watch",
+    "fn_ca_daily_window_lobby_close_page",
+    "fn_sp_digest_engine_cutover",
+    "smarter_private.ca_cutover_http_json",
+    "smarter_private.ca_cutover_owed_build"
+  ]
+}
