@@ -35,10 +35,23 @@ Detail: `docs/changelog/2026-11-09-the-hero-always-holds-the-cards-they-were-dea
 
 - No physical phone. WebKit here is the desktop engine in a phone-sized viewport, not iOS Safari: iOS audio session, backgrounding and network handover are not covered.
 - No live Lightning hand was played on production as a seated player (it would spend real chips, CLAUDE.md 11.5).
-- The terminal conclusion of publisher run 42711995410 and of Post-Deploy E2E for `ef737b9c` was not read: the only route to GitHub check data from this session was the owner's Chrome, which was closed by then. Both live endpoints carry the SHA.
+- The workflow outcomes that line left unread were read at 23:03Z; see the next section. Not every post-deploy check reached success.
+
+## Workflow outcomes, read 2026-11-09 23:03Z
+
+Read through the Mac's built-in browser, signed in to GitHub as `Smarter-Poker` (run, job and step data, and the step log for the one failed step).
+
+- `Publish Club Arena` run 42711995410, head `ef737b9c`, attempt 1: completed, **success** (22:27:08Z to 22:33:52Z).
+- `Post-Deploy E2E ef737b9c` run 42713002169: completed, **cancelled** at 22:42:51Z. Succeeded before the cancel: "Confirm The Hetzner Web Publish Reached Production", "Installed certification cleanup protects live tables", "The Live SEO Contract Holds". Cancelled 6 minutes in: "Live-table and engine verification" and "Client browser verification". The next publish (`e603a0cd`, 22:38:53Z) superseded it. Of the 30 most recent Post-Deploy E2E runs, 21 ended cancelled this way.
+- `Post-Deploy E2E e603a0cd` run 42713958246 (`e603a0cd` contains `ef737b9c`): the three jobs above succeeded again, and **"Live-table and engine verification" succeeded** (22:46:50Z to 22:59:08Z). "Client browser verification" was still running at 23:03Z with one step already failed: "Certify the authenticated Lightning operator cold loads". Its log: `production-lightning-operator.spec.ts` at 393px expected HTTP 200 and received 500 from the operator read; the same case at 1440px passed, and both "Join Lightning from the lobby" cases passed. The API log has one 500 on `/rest/v1/rpc/fn_lightning_operator_overview` at 23:00:53Z, inside a window with 253 other 500s on `/rest/v1/tournament_schedules`. That is a database response, not table-client code, and this change touches neither. The job's final conclusion was not available when this was written; with a failed step it will not be success.
+- Baseline for that job before this change: `Post-Deploy E2E ae8a00bb` run 42699314895 (created 21:06Z) already ended **failure** in "Client browser verification", on "the mobile lobby chrome on production > tournament favorites stay below current pins across sorting and reload" (Chromium and WebKit).
+- `Club Create Certification` for `ef737b9c` run 42713002038: **failure** in "Certify Authenticated Club Creation And Cleanup". It failed on every revision read since `ae8a00bb` at 21:04Z, before either merge of this task.
+
+So: the publication workflow succeeded and live-table and engine verification succeeded on a revision containing the fix. Client browser verification and Club Create Certification did not pass; both were already failing before this change, and the one new failed step is a database 500. Nothing in those results points at this change, but they are not passes and are not reported as passes.
 
 ## Outside findings, not acted on
 
+- Post-Deploy "Client browser verification" (lobby favorites case), `Club Create Certification`, the `fn_lightning_operator_overview` 500 and the burst of 500s on `tournament_schedules` around 23:00Z are red or erroring on main independently of this task.
 - "Installed and merged migrations agree" was red on every PR from about 21:24Z: four directly applied versions (20261108212225, 212338, 212419, 212519) aged past the 24 h grace with no file or alias. It is not a required check and was green on main again by 22:04Z. Their four Apply Merged Migration runs at 22:04Z failed; that lane owns them.
 
 ## Cleanup
