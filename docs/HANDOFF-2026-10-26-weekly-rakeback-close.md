@@ -333,3 +333,54 @@ sql
 - Data integrity: anyone "helping" by hand-crediting wallets would double-pay. Don't.
   Decision needing Dan: none currently.
   How to continue: to continue without rediscovery, read sections 6 (how the close works), 10 (current state) and 22 (first actions), run the status query, and keep the close moving through its own path until all three books are complete. Then verify by payee and report.
+
+## 2026-11-09 checkpoint: maintenance window × payout rounds (verified, then changed the same night)
+
+Two findings, in order, both verified read-only against the installed
+production definitions ahead of the Nov 2 -> Nov 9 close (the rounds runner's
+first live period).
+
+1. As of the evening of Nov 8, the registered rounds runner's money writes
+   passed THROUGH the 04:00-04:05 America/Chicago freeze:
+   fn_refuse_while_frozen consults
+   smarter_private.weekly_payout_owned_money_write(table) before raising
+   PLATFORM_FROZEN. That capability is tightly scoped - the exact backend pid
+   and current transaction registered in
+   smarter_private.weekly_payout_owned_transactions (table grants: postgres
+   only), validated by weekly_payout_owns_round against the live pause row
+   (phase 'paying', inside its money window, scope present in the booked
+   scope_plan). Ordinary money writes stay refused during the freeze.
+2. Later the same night, migration
+   20261108210509_weekly_rounds_respect_maintenance_admission (installed;
+   live post-image md5 332b762a004a779e32dc3fd2d1aef60d verified) changed the
+   runner's ADMISSION: weekly_payout_next_round now takes the shared
+   maintenance admission lock before any financial lock and defers - stage
+   'maintenance_busy' when the maintenance writer holds the lock, stage
+   'maintenance_frozen' while fn_platform_frozen() or
+   fn_entry_purchases_frozen() is true - and a 'maintenance_headroom' guard
+   keeps a round's statement budget from crossing the next daily 03:58
+   announcement. Net behavior at the close: the runner defers cleanly through
+   04:00-04:05 and begins booking and paying when the freeze lifts (~04:06).
+   The per-write capability from finding 1 remains installed as
+   defense-in-depth; the runner simply no longer relies on it.
+
+Unchanged facts that hold under both versions:
+
+- Engine activation and migration installation are distinct operations.
+  Activation is the sealed host release (stage-engine-release ->
+  auto-deploy-hetzner). Installation is the window-migrations job inside the
+  freeze: one transaction per file, 1s lock_timeout. On a lock timeout it is
+  the migration FILE that requeues to the next day - never the activation and
+  never a payout round.
+- The cutover cannot tear a payout round: each round is one transaction (the
+  money, the union_settlement_rounds row and the weekly_payout_round_receipts
+  receipt commit or roll back together); the window installer never
+  terminates pg_cron sessions; a refused or deferred round has no receipt and
+  re-runs on a later minute tick, exactly once.
+- If the cutover runs long, fails or rolls back, payment availability is read
+  from the actual database state (engine_maintenance_break phase timestamps /
+  the release boundary, now also the shared admission lock), never from the
+  schedule.
+- Funding order: rounds commit 1 -> 2 -> 3 as separate transactions, so the
+  union's round-1 club-bank credits are durably committed (receipt in the
+  same transaction) before any round-3 agent top-up draws on the club bank.
