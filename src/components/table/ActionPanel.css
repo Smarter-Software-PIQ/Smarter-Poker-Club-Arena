@@ -150,7 +150,7 @@
        The padding is NOT doubled with it. It is the gap above the row, not
        part of the control, and 12px of dead air over a 104px button reads as
        a loose bar rather than a bigger one. */
-    --sp-action-btn-h: 104px;
+    --sp-action-btn-h: 96px;
     --sp-action-pad-top: 6px;
   }
 
@@ -1943,7 +1943,7 @@
        AFTER the <=480px one and therefore wins on a 320px screen, so leaving it
        at 48 would have given the oldest phones the one bar that did not grow -
        the device with the least room to read a button on. */
-    --sp-action-btn-h: 96px;
+    --sp-action-btn-h: 88px;
     --sp-bar-inset: env(safe-area-inset-bottom, 0px);
     --sp-action-pad-top: 4px;
   }

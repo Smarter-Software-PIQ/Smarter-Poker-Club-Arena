@@ -5111,7 +5111,7 @@ button.post-bb-overlay-button {
 @media (max-width: 480px) and (orientation: portrait) {
   .table-container {
     --sp-page-h: 100dvh;
-    --sp-hero-clear: clamp(60px, calc(12vw + 8px), 68px);
+    --sp-hero-clear: clamp(50px, calc(10vw + 12px), 56px);
     /* Compact upper pods use the empty rail band below the jackpot. */
     --sp-table-top: calc(var(--sp-bbj-h, 22px) + 32px + var(--sp-page-inset-top));
   }
