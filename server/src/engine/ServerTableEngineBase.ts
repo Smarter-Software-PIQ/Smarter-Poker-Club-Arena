@@ -5128,6 +5128,26 @@ export abstract class ServerTableEngineBase {
         await pending;
         if (this.postHandTasksPromise === pending) break;
       }
+      // A LIGHTNING ANCHOR'S COUNT MOVES WHERE THIS ENGINE CANNOT SEE IT
+      // (2026-11-09, BUG-7C1347FF). The owed hands of a held leave are played
+      // in the pool and counted by the Lightning settlement trigger, and a
+      // responsible-gaming end waives them in the database. The mirror is
+      // refreshed only by this table's own settlements and presence changes,
+      // neither of which a blinded-off anchor seat has, so it went on reading
+      // "hands owed" after the count completed and the seat was never cashed
+      // out. Read every held seat fresh before deciding (the same read POST
+      // /leave makes for an anchor); a read that fails keeps the old row and
+      // the seat is simply asked again on the next pass.
+      if (this.isLightningAnchorNow()) {
+        const held = [...this.leaveHeldByClock.keys()].filter((userId) =>
+          this.seatedPlayers.some((p) => p.user_id === userId)
+        );
+        if (held.length > 0) {
+          await this.chipContinuity.evaluate(
+            held.map((userId) => ({ user_id: userId, active: this.isContinuityActive(userId) }))
+          );
+        }
+      }
       for (const [userId, occupancyId] of [...this.leaveHeldByClock]) {
         const seated = this.seatedPlayers.find((p) => p.user_id === userId);
         if (!seated || seated.occupancy_id !== occupancyId) {
