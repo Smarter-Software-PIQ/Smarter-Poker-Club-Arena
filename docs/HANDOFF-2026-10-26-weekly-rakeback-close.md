@@ -502,3 +502,19 @@ FUTURE COVERAGE, NOT YET OBSERVED: the Monday 2026-11-16 04:00 America/Chicago
 run (period Nov 9 to Nov 16) is the first opportunity to observe a full week
 paid with no human intervention and the union prepared first. Until that run
 completes and reconciles, "runs unattended every week" is unproven.
+
+## 2026-11-09 open cleanup handoff (recorded 22:36 UTC)
+
+The earlier session's hourly self-check-in, scheduled task
+`trig_01TJLtWiNFDE3VjnLRX5UHY6`, is obsolete (its weekly-payout work is
+complete) but is NOT retired. It belongs to the account running session
+`session_01BbZPDgu1d1JNbEQvhtea71` (author of #10167, #10174, #10183,
+#10184). The continuation session `session_01BNteGb5ZN9eoMYXaEauKNU` runs on
+a different account: its `list_triggers` (active, disabled and completed)
+does not show the task and `delete_trigger` returns `not found`, so only the
+owning account can delete it.
+
+Retirement was requested of the owner at
+https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/10184#issuecomment-6751774435
+(21:21Z). No reply by 22:35Z. The request stays with that owner; whichever of
+Dan's accounts holds the task can delete it from its scheduled tasks.
