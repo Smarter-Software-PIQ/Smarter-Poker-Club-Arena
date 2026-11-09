@@ -3861,10 +3861,22 @@ export class TournamentRecurringService {
   }
 
   private async seatFirstBoardRoom(variant: 'spin' | 'sng'): Promise<number | null> {
+    /* A SATELLITE FEEDER IS NOT A BOARD (2026-11-08, found before the ladder
+       reached production). A satellite heads-up is created with `variant:
+       'sng'` and `tournament_type: 'SATELLITE'` - deliberately, because the
+       seat path must read it as a heads-up. So counting the board by VARIANT
+       alone counted feeders into the six, and six open feeders would have
+       closed the regular heads-up board completely while reading as "full".
+       That is the opposite of the rule this target was written for: Dan put
+       the feeders OUTSIDE the six, because a feeder fills one named event
+       rather than being a price point on the open board.
+
+       Counted by tournament_type, which is what the target describes. */
     const { count, error } = await supabase
       .from('tournaments')
       .select('id', { count: 'exact', head: true })
       .eq('variant', variant)
+      .eq('tournament_type', variant === 'spin' ? 'SPIN' : 'SNG')
       .eq('status', 'REGISTERING');
     if (error || typeof count !== 'number') {
       reportError(

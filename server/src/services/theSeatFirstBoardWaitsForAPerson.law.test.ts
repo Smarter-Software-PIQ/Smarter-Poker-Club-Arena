@@ -177,6 +177,23 @@ describe('5. the open board is eleven Spins and six regular heads-up', () => {
     expect(room).toMatch(/boardOpenTarget\(variant\) - count/);
   });
 
+  it('a satellite feeder is not counted into the board it sits beside', () => {
+    /* Found 2026-11-08, before the ladder reached production. A satellite
+       heads-up is created with `variant: 'sng'` and `tournament_type:
+       'SATELLITE'` - deliberately, so the seat path reads it as a heads-up.
+       Counting the board by VARIANT alone therefore counted feeders into the
+       six, and six open feeders would have closed the regular heads-up board
+       completely while the count read as "full". Dan put the feeders OUTSIDE
+       the six; the count has to agree with the target it enforces. */
+    const room = RECURRING.slice(
+      RECURRING.indexOf('private async seatFirstBoardRoom('),
+      RECURRING.indexOf('private async checkAndLaunchSNGs(')
+    );
+    expect(room).toMatch(
+      /\.eq\('tournament_type', variant === 'spin' \? 'SPIN' : 'SNG'\)/
+    );
+  });
+
   it('a count it could not read opens nothing, rather than reading as room to spare', () => {
     // CLAUDE.md 10.86. Defaulting to "plenty of room" would re-open the whole
     // 64-config catalogue, which is the failure the target exists to prevent.
