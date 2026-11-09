@@ -288,6 +288,8 @@ function ask(url) {
         'BatchMode=yes',
         '-o',
         'StrictHostKeyChecking=yes',
+        '-o',
+        'IdentitiesOnly=yes',
         ssh,
         `curl -sf --max-time 20 '${url}'`,
       ]

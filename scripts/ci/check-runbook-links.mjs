@@ -91,7 +91,7 @@ function statusOf(url) {
   const raw = ssh
     ? execFileSync(
         'ssh',
-        ['-o', 'ConnectTimeout=15', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', ssh,
+        ['-o', 'ConnectTimeout=15', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'IdentitiesOnly=yes', ssh,
          `curl -s -o /dev/null -w '%{http_code}' -L --max-time 20 '${url}'`],
         { encoding: 'utf8' }
       )

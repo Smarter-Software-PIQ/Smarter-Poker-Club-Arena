@@ -63,7 +63,7 @@ jobs:
           chmod 600 "$RUNNER_TEMP/recovery-ssh/key"
           printf '%s\n' "$HOST_KEY" > "$RUNNER_TEMP/recovery-ssh/known_hosts"
           trap 'rm -f "$RUNNER_TEMP/recovery-ssh/key"' EXIT
-          ssh_args=(-i "$RUNNER_TEMP/recovery-ssh/key" -o BatchMode=yes -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/recovery-ssh/known_hosts" -o ConnectTimeout=15)
+          ssh_args=(-i "$RUNNER_TEMP/recovery-ssh/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/recovery-ssh/known_hosts" -o ConnectTimeout=15)
           ssh "${ssh_args[@]}" "root@$HOST" "cat /var/lib/club-arena/engine-release-results/$ORIGINAL_RUN-$ORIGINAL_ATTEMPT.json" > evidence/seal.json
           ssh "${ssh_args[@]}" "root@$HOST" 'docker inspect --format '"'"'{"Id":{{json .Id}},"Image":{{json .Image}},"State":{"StartedAt":{{json .State.StartedAt}},"Running":{{json .State.Running}}}}'"'"' club-arena-engine' > evidence/runtime.json
           curl -fsS --max-time 20 "https://engine.smarter.poker/health?recovered-seal=$GITHUB_RUN_ID" | jq '{status,releaseSha,instanceId,leadership:{holder:.leadership.holder},maintenance:{active:.maintenance.active,phase:.maintenance.phase}}' > evidence/health.json

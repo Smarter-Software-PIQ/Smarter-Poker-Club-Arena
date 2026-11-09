@@ -38,8 +38,11 @@ path, pinning the cause with a test and hardening the similar paths (CLAUDE.md
 ```
 
 Engine host: `root@5.161.252.33` (engine-01, the host the `club-arena-engine`
-container runs on; `178.156.160.206` is the TURN server, not the engine), with
-the owner's configured ssh key. All commands below are read-only against
+container runs on; `178.156.160.206` is the TURN server, not the engine),
+reached from the Ops Mac only as `ssh ca-engine` - the fail-closed alias in
+`~/.ssh/config` (one pinned key, BatchMode, no prompts). A failed login there
+costs the Mac a 24 h fail2ban ban; if `ssh ca-engine` is refused, stop and
+report it, never retry. All commands below are read-only against
 production except for the record and heartbeat files themselves.
 
 ## Claiming the handoff
@@ -47,7 +50,7 @@ production except for the record and heartbeat files themselves.
 Every chat that takes this lane starts with these three commands, in this order.
 
 ```bash
-ssh root@5.161.252.33 'cd /opt/tournament-monitor && python3 tournament_monitor.py handoff --by "<chat id or your name>"'
+ssh ca-engine 'cd /opt/tournament-monitor && python3 tournament_monitor.py handoff --by "<chat id or your name>"'
 ```
 
 That prints a compact plain-text handoff: the observation window, the last
@@ -60,15 +63,15 @@ Then claim the record you are taking (one chat, one record at a time is fine;
 claim each one you touch):
 
 ```bash
-ssh root@5.161.252.33 'cd /opt/tournament-monitor && python3 tournament_monitor.py incident <fingerprint> --stage Investigating --by "<chat id>" --note "<what you are looking at and where>"'
+ssh ca-engine 'cd /opt/tournament-monitor && python3 tournament_monitor.py incident <fingerprint> --stage Investigating --by "<chat id>" --note "<what you are looking at and where>"'
 ```
 
 Read the full record whenever you need the details (the finding text, the
 tournament id, the first release SHA it was seen on, the whole stage history):
 
 ```bash
-ssh root@5.161.252.33 'cat /opt/tournament-monitor/incidents/<fingerprint>.json'
-ssh root@5.161.252.33 'cd /opt/tournament-monitor && python3 tournament_monitor.py incidents --open'
+ssh ca-engine 'cat /opt/tournament-monitor/incidents/<fingerprint>.json'
+ssh ca-engine 'cd /opt/tournament-monitor && python3 tournament_monitor.py incidents --open'
 ```
 
 Re-read the handoff whenever you come back to the lane after doing other work.
