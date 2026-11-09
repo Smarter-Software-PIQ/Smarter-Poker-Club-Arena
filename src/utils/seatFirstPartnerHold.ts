@@ -30,8 +30,18 @@ export const SEAT_FIRST_PARTNER_HOLD_MAX_MS = 420_000;
 /* The engine ends each board's hold somewhere in this spread after the
    rule's instant (SEAT_FIRST_HUMAN_PARTNER_HOLD_SPREAD_MS), so the opponent
    seat is never filled on the countdown's bell. The table counts down to the
-   END of the spread, which is what makes "at the latest" true. */
-export const SEAT_FIRST_PARTNER_HOLD_SPREAD_MS = 30_000;
+   END of the spread, which is what makes "at the latest" true.
+
+   WIDENED 2026-11-09 to the whole band Dan gave. At 30 s every fill landed
+   between 3:00 and 3:30, which is inside "WITHIN 3-7 MIN" but is not the
+   sentence: it is one bell moved thirty seconds. The engine now draws across
+   the full 3:00 to 7:00, so this must match it or the countdown would promise
+   a deal the engine is allowed to be later than. Mirrors
+   SEAT_FIRST_HUMAN_PARTNER_HOLD_SPREAD_MS, and makes
+   SEAT_FIRST_PARTNER_HOLD_MAX_MS the binding term below rather than a
+   ceiling that never fires. */
+export const SEAT_FIRST_PARTNER_HOLD_SPREAD_MS =
+  SEAT_FIRST_PARTNER_HOLD_MAX_MS - SEAT_FIRST_PARTNER_HOLD_MS;
 
 /**
  * When the open seats stop being kept for people at the latest, in ms, or

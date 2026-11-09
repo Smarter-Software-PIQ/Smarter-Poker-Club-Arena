@@ -123,7 +123,7 @@ describe('the rule', () => {
     );
   });
 
-  it('the per-board spread is deterministic, inside 0-30 s, and never beyond the ceiling', () => {
+  it('the per-board spread is deterministic, covers the whole 3-7 band, and never passes the ceiling', () => {
     const ids = Array.from(
       { length: 200 },
       (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`
@@ -139,12 +139,29 @@ describe('the rule', () => {
     expect(seatFirstHumanPartnerHoldUntilMs(SAT + 999_999, SAT, 29_999)).toBe(
       SAT + 180_000 + 29_999
     );
+
+    /* THE BAND IS USED, NOT JUST RESPECTED (2026-11-09). At a 30 s spread
+       every fill landed in 3:00-3:30 - inside "WITHIN 3-7 MIN" and still one
+       bell, which is the timing tell 10.5 is about. The draw now reaches the
+       ceiling, and the floor is still the floor. */
+    expect(SEAT_FIRST_HUMAN_PARTNER_HOLD_SPREAD_MS).toBe(240_000);
+    expect(seatFirstHumanPartnerHoldUntilMs(WINDOW, SAT, 0)).toBe(SAT + 180_000);
+    expect(
+      seatFirstHumanPartnerHoldUntilMs(WINDOW, SAT, SEAT_FIRST_HUMAN_PARTNER_HOLD_SPREAD_MS)
+    ).toBe(SAT + 420_000);
+    const landed = jitters.map((j) => seatFirstHumanPartnerHoldUntilMs(WINDOW, SAT, j) - SAT);
+    expect(Math.min(...landed)).toBeLessThan(240_000);
+    expect(Math.max(...landed)).toBeGreaterThan(360_000);
+    for (const ms of landed) {
+      expect(ms).toBeGreaterThanOrEqual(180_000);
+      expect(ms).toBeLessThanOrEqual(420_000);
+    }
   });
 
   it('the table countdown is never earlier than the engine hold, for any spread', () => {
     // Mirrors src/utils/seatFirstPartnerHold.ts (pinned there against these constants).
     const tableLatest = (start: number, sat: number) =>
-      Math.min(sat + 420_000, sat + 180_000 + 30_000);
+      Math.min(sat + 420_000, sat + 180_000 + 240_000);
     for (const [start, sat] of [
       [SAT + 15_000, SAT],
       [SAT + 200_000, SAT],
@@ -234,8 +251,13 @@ describe('topUpWithHorses honours the hold', () => {
   });
 
   it('once the hold has run out, the board fills exactly as before', async () => {
-    // 95 s was enough under the retired 90 s floor; the floor is 3 minutes now.
-    board(245_000, -60_000);
+    /* 95 s was enough under the retired 90 s floor; the floor is 3 minutes
+       now. 245 s was enough while the spread was 30 s, and is not any more:
+       since 2026-11-09 the per-board draw covers the whole 3:00-7:00 band Dan
+       gave, so a board whose id draws late is still holding at 4:05. Past the
+       CEILING is the only time that is "once the hold has run out" for every
+       board, which is what this case is about. */
+    board(SEAT_FIRST_HUMAN_WINDOW_MAX_MS + 60_000, -60_000);
     expect(await svc.topUpWithHorses(T, 2, { forHuman: true })).toBe(1);
     expect(pick).toHaveBeenCalled();
   });
@@ -262,7 +284,8 @@ describe('topUpWithHorses honours the hold', () => {
     board(4_000, 11_000);
     expect(await svc.topUpWithHorses(T, 2, { forHuman: true })).toBe(0);
     expect(svc.seatFirstPartnerHoldUntil(T)).toBeGreaterThan(Date.now());
-    board(200_000, -60_000);
+    // Past the ceiling, so this holds for any per-board draw in the 3-7 band.
+    board(SEAT_FIRST_HUMAN_WINDOW_MAX_MS + 60_000, -60_000);
     expect(await svc.topUpWithHorses(T, 2, { forHuman: true })).toBe(1);
     expect(svc.seatFirstPartnerHoldUntil(T)).toBe(-Infinity);
   });

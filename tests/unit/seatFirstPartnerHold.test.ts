@@ -25,25 +25,32 @@ const SERVER = readFileSync(
 
 describe('seatFirstPartnerHoldEndsAtMs', () => {
   const sat = 1_000_000;
-  it('is 3 minutes after the seat plus the 30 s spread, whatever the board window says', () => {
+  it('counts to the end of the whole 3-7 band, whatever the board window says', () => {
     /* 2026-11-08: the board's own window no longer enters into it. A
        horse-opened board now waits HOURS for a person (the ladder), so taking
        the later of the two would have stranded the one person who sat down.
-       Every case below is the same instant on purpose - that is the rule. */
-    expect(seatFirstPartnerHoldEndsAtMs(sat + 15_000, sat)).toBe(sat + 210_000);
-    expect(seatFirstPartnerHoldEndsAtMs(sat + 200_000, sat)).toBe(sat + 210_000);
-    expect(seatFirstPartnerHoldEndsAtMs(sat + 4 * 3_600_000, sat)).toBe(sat + 210_000);
+       Every case below is the same instant on purpose - that is the rule.
+
+       2026-11-09: that instant moved from 3:30 to 7:00. The engine now draws
+       the fill across the whole band Dan gave ("WITHIN 3-7 MIN") instead of
+       its first thirty seconds, and this countdown says "At The Latest", so
+       it has to name the latest the engine is allowed to be. */
+    expect(seatFirstPartnerHoldEndsAtMs(sat + 15_000, sat)).toBe(sat + 420_000);
+    expect(seatFirstPartnerHoldEndsAtMs(sat + 200_000, sat)).toBe(sat + 420_000);
+    expect(seatFirstPartnerHoldEndsAtMs(sat + 4 * 3_600_000, sat)).toBe(sat + 420_000);
   });
 
   it('never holds a seated person longer than 7 minutes', () => {
     expect(seatFirstPartnerHoldEndsAtMs(sat, sat)).toBeLessThanOrEqual(sat + 420_000);
   });
   it('with no seat time at all it is still an upper bound on the window', () => {
-    expect(seatFirstPartnerHoldEndsAtMs(sat, null)).toBe(sat + 30_000);
+    expect(seatFirstPartnerHoldEndsAtMs(sat, null)).toBe(sat + 240_000);
     expect(seatFirstPartnerHoldEndsAtMs(null, null)).toBe(-Infinity);
   });
   it('uses the same spread as the engine', () => {
-    expect(SERVER).toContain('export const SEAT_FIRST_HUMAN_PARTNER_HOLD_SPREAD_MS = 30_000;');
+    expect(SERVER).toContain(
+      'export const SEAT_FIRST_HUMAN_PARTNER_HOLD_SPREAD_MS =\n  SEAT_FIRST_HUMAN_WINDOW_MAX_MS - SEAT_FIRST_HUMAN_WINDOW_MIN_MS;'
+    );
   });
   it('uses the same constants as the engine', () => {
     expect(SERVER).toContain(
