@@ -320,7 +320,10 @@ board with a person in it is processed whatever its window says, and
 `seatFirstHumanPartnerHoldUntilMs` with a known seat time returns
 `min(seatedAt + 7 min, seatedAt + 3 min + jitter)` - the board's own window does
 not enter into it. So a person sitting on a board whose `start_time` is three
-hours away is filled 3:00 to 3:30 after they sat, which is Dan's rule.
+hours away is filled inside the 3-7 minute band after they sat, which is
+Dan's rule. (The band was 3:00-3:30 as first shipped; widened to the whole
+3:00-7:00 on 2026-11-09, see
+`docs/changelog/2026-11-09-the-human-window-is-the-whole-three-to-seven.md`.)
 
 ## Still open, and why
 
@@ -328,7 +331,7 @@ hours away is filled 3:00 to 3:30 after they sat, which is Dan's rule.
 | --- | --- |
 | Engine activation, serving SHA, SEALED receipt, full thaw | waits for 04:00 Chicago 2026-11-09 |
 | Live ladder timings, 11/6 limits, human fill, drain convergence | observable only on the new engine; the lobby's SPINS and SIT N GO'S tabs are the player-visible count, and the DB query above is the exact one |
-| The partner-hold countdown ON SCREEN | requires a seat, and a seat is a registration. The owner's instruction for this pass says observation may not initiate registrations or seating, so this lane does not buy one. The durable chain is proved from the published bundle and the engine's matching arithmetic above. A 30 second owner check settles it: sit in any Spin after 04:00, read "Deals In 3:30 At The Latest", reload, confirm it continues rather than restarting |
+| The partner-hold countdown ON SCREEN | requires a seat, and a seat is a registration. The owner's instruction for this pass says observation may not initiate registrations or seating, so this lane does not buy one. The durable chain is proved from the published bundle and the engine's matching arithmetic above. A 30 second owner check settles it: sit in any Spin after 04:00, read "Deals In 7:00 At The Latest", reload, confirm it continues rather than restarting |
 | The under-300 day | the first COMPLETE Chicago day on the new engine is 2026-11-10, reported by the digest on 2026-11-11 |
 
 ## Observations outside this lane, recorded not acted on
@@ -470,16 +473,31 @@ window, with no people playing at all:
 | Spin             | 1 horse    | 60-80 min   | 30-60 min  | ~115 min   | 11     | ~120-140   |
 | regular heads-up | 1 horse    | 180-240 min | fills      | ~210 min   | 6      | ~36-41     |
 
-So the horse-only floor is about **160 to 180 combined a day**, against a
-ceiling of 300. The headroom is deliberate: it is what a person's play is
-allowed to add. A human who sits is filled in 3:00 to 3:30 rather than waiting
-out the ladder, so an active day adds starts on top of that floor.
+So the horse-only floor is an ESTIMATE of about 160 to 180 combined a day,
+against a ceiling of 300. It is arithmetic from the constants, not a
+measurement, and it stays an estimate until a full Chicago day has been
+counted. A human who sits is filled inside the 3-7 minute band rather than
+waiting out the ladder, so an active day adds starts on top of that floor.
 
-**Read the split before reading the total.** A Tuesday over 300 with a large
-`human_triggered` count is the platform working, not the change failing; a
-Tuesday over 300 that is still almost entirely `horse_only` is the change
-failing and the cause is in the launcher. The digest prints both on the line
-above the total, which is why it prints both.
+**The acceptance test is the combined total, under 300 per Chicago day.**
+Corrected 2026-11-09, because the first version of this paragraph said a day
+over 300 with a large `human_triggered` count was "the platform working, not
+the change failing". That was this lane softening the owner's own acceptance
+criterion, and the owner rejected it. There is no reading of the number that
+turns an over-target day into a pass.
+
+What the split is for is DIAGNOSIS, after the verdict, never instead of it:
+
+- over 300, almost entirely `horse_only` - the launcher is still opening or
+  cycling too much; the cause is in the ladder, the board targets, or
+  something else creating seat-first rows;
+- over 300 with a large `human_triggered` share - the horse floor is not the
+  whole story and the cause has to be found before anything is changed, under
+  the owner's standing instruction to identify the cause before changing the
+  seating rules or restricting human play.
+
+Both numbers are reported separately every time, and the day is reported as
+missing the target whenever the combined count is 300 or more.
 
 Measured baseline to compare against: 2026-11-07 was 12,517 combined with ONE
 human-triggered start in the whole day.
