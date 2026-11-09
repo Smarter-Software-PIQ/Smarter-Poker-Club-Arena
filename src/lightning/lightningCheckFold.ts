@@ -78,3 +78,112 @@ export function lightningCheckFoldReleaseDue(input: {
   if (!input.handLive || input.heroTurn || !input.fastFoldOffered) return false;
   return input.callDue > 0;
 }
+
+/**
+ * Whether an idle snapshot is the engine folding the armed Check/Fold, so the
+ * exit hold shows that fold (cue and muck). The arm must be the one armed in
+ * the hand that was last live on this felt and still be the bar's choice: an
+ * arm left over from an earlier hand, or an idle snapshot for any other reason
+ * (a voided hand), never folds the hero's cards on screen.
+ */
+export function lightningEngineFoldedArm(input: {
+  armedHandKey: string | null;
+  lastLiveHandKey: string | null;
+  armedChoice: string | null;
+  heroStatus: string | null | undefined;
+}): boolean {
+  if (input.armedHandKey === null || input.armedHandKey !== input.lastLiveHandKey) return false;
+  if (input.armedChoice !== 'fold') return false;
+  return !!input.heroStatus && input.heroStatus !== 'folded';
+}
+
+// ─── The arm survives a reload of its own hand ──────────────────────────────
+
+/**
+ * A carried Check/Fold lives in the engine for the whole hand. A page that
+ * reloads mid-hand used to come back with an unlit bar while the engine went
+ * on checking (and would fold) for the player: an arm they could neither see
+ * nor cancel. The room remembers which hand it armed, per pool session, and a
+ * reload of that same hand lights the toggle again without sending anything.
+ * It is this browser's own record, never authority: it names one hand, expires
+ * on its own, and is dropped the moment the choice is cleared or spent.
+ */
+const ARM_STORE_PREFIX = 'ca.lightning.checkFoldArm.v1:';
+export const LIGHTNING_CHECK_FOLD_ARM_TTL_MS = 15 * 60 * 1000;
+
+type ArmStore = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
+
+function armStore(): ArmStore | null {
+  try {
+    return typeof window !== 'undefined' && window.localStorage ? window.localStorage : null;
+  } catch {
+    return null;
+  }
+}
+
+export function rememberLightningCheckFoldArm(
+  room: string,
+  handKey: string,
+  now: number = Date.now(),
+  store: ArmStore | null = armStore()
+): void {
+  try {
+    store?.setItem(ARM_STORE_PREFIX + room, JSON.stringify({ k: handKey, t: now }));
+  } catch {
+    /* Storage is a convenience: a full or blocked store changes nothing. */
+  }
+}
+
+export function forgetLightningCheckFoldArm(
+  room: string,
+  store: ArmStore | null = armStore()
+): void {
+  try {
+    store?.removeItem(ARM_STORE_PREFIX + room);
+  } catch {
+    /* As above. */
+  }
+}
+
+export function rememberedLightningCheckFoldArm(
+  room: string,
+  now: number = Date.now(),
+  store: ArmStore | null = armStore()
+): string | null {
+  try {
+    const raw = store?.getItem(ARM_STORE_PREFIX + room);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { k?: unknown; t?: unknown } | null;
+    if (!parsed || typeof parsed.k !== 'string' || parsed.k === '') return null;
+    const at = Number(parsed.t);
+    if (!Number.isFinite(at) || now - at > LIGHTNING_CHECK_FOLD_ARM_TTL_MS || at > now + 60_000)
+      return null;
+    return parsed.k;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether a remembered arm is put back on the bar. Only for the very hand it
+ * was armed in, while that hand is live with the hero still in it and owing
+ * nothing, nothing else armed, off the hero's turn, against an engine that
+ * carries the arm.
+ */
+export function lightningCheckFoldRestoreDue(input: {
+  lightningRoom: boolean;
+  rememberedHandKey: string | null;
+  currentHandKey: string | null;
+  preAction: string | null;
+  engineCarries: boolean;
+  handLive: boolean;
+  heroStatus: string | null | undefined;
+  callDue: number;
+  heroTurn: boolean;
+}): boolean {
+  if (!input.lightningRoom || !input.engineCarries || !input.handLive) return false;
+  if (input.rememberedHandKey === null || input.rememberedHandKey !== input.currentHandKey)
+    return false;
+  if (input.preAction !== null || input.heroTurn || input.callDue > 0) return false;
+  return !!input.heroStatus && input.heroStatus !== 'folded' && input.heroStatus !== 'all_in';
+}
