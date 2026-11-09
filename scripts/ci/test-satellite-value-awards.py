@@ -12,6 +12,8 @@ from satellite_qualifier_fixture import compose,module,function_sql
 from satellite_value_ticket_concurrency import qualify as qualify_concurrent_consumption
 
 def qualify_capped_recovery(e,root,output,db,opening):
+ # Commit/reconnect proof owns a disposable clone; later scenes retain their pristine catalog.
+ db=e.database(template=db)
  # The original durable reader and financial catalog are unchanged dependencies.
  durable=(root/'supabase/migrations/20261103115836_terminal_original_request_is_durable_before_settlement.sql').read_text()
  table=re.search(r'CREATE TABLE smarter_private\.tournament_terminal_requests \(.*?\n\);',durable,re.S).group()
@@ -24,13 +26,18 @@ def qualify_capped_recovery(e,root,output,db,opening):
  e.sql(db,file=scene,label='capped-recovery-funded-original',seconds=120)
  snapshot="SELECT jsonb_build_object('receipt',(SELECT to_jsonb(s) FROM public.tournament_satellite_settlements s WHERE s.tournament_id=x.tournament_id),'payouts',(SELECT jsonb_agg(to_jsonb(p) ORDER BY p.id) FROM public.tournament_payouts p WHERE p.tournament_id=x.tournament_id),'entitlements',(SELECT jsonb_agg(to_jsonb(t) ORDER BY t.position) FROM public.tournament_satellite_entitlements t WHERE t.tournament_id=x.tournament_id)) FROM capped_recovery_subject x;"
  _,money_before,_=e.sql(db,snapshot,label='capped-recovery-immutable-before')
- properties="SELECT jsonb_build_object('owner',proowner,'acl',proacl,'config',proconfig,'definer',prosecdef,'volatility',provolatile) FROM pg_proc WHERE oid='public.fn_ca_satellite_cohort_receipt(uuid,uuid[])'::regprocedure;"
+ properties="SELECT jsonb_agg(jsonb_build_object('identity',oid::regprocedure::text,'owner',proowner,'acl',proacl,'config',proconfig,'definer',prosecdef,'volatility',provolatile) ORDER BY oid) FROM pg_proc WHERE oid IN ('public.fn_ca_satellite_cohort_receipt(uuid,uuid[])'::regprocedure,'public.fn_ca_settle_satellite_cohort(uuid,uuid[])'::regprocedure);"
  _,before,_=e.sql(db,properties,label='capped-recovery-metadata-before')
- legacy=(root/'supabase/migrations/20261109163346_settle_capped_satellites_and_nov08_digest_v2.sql').read_text()
+ _,original_reader,_=e.sql(db,"SELECT pg_get_functiondef('public.fn_ca_satellite_cohort_receipt(uuid,uuid[])'::regprocedure);",label='capped-recovery-canonical-reader-source')
+ candidate=root/'supabase/migrations/20261109202657_satellite_recovery_returns_the_full_canonical_receipt.sql'
+ # First deployment order: corrected predecessor leaves the canonical pair intact.
+ e.sql(db,"INSERT INTO supabase_migrations.schema_migrations(version,name) VALUES('20261109163346','settle_capped_satellites_and_nov08_digest_v2');",label='capped-recovery-corrected-predecessor-history')
+ e.sql(db,file=candidate,label='capped-recovery-canonical-pair-no-op')
+ e.sql(db,"DELETE FROM supabase_migrations.schema_migrations WHERE version='20261109163346';",label='capped-recovery-reset-synthetic-history')
+ legacy=(root/'tests/fixtures/satellite-value-awards/legacy-capped-projection.sql').read_text()
  # Only the exact proposed reader patch is counterfactual. No legacy payer or
  # historical incident update is executed, even in this disposable catalog.
- patch=legacy[legacy.index('  IF md5(v_receipt)'):legacy.index('\nEND\n$patch_sat$;')]
- e.sql(db,"DO $patch_sat$ DECLARE v_receipt text:=pg_get_functiondef('public.fn_ca_satellite_cohort_receipt(uuid,uuid[])'::regprocedure); BEGIN\n"+patch+'\nEND $patch_sat$;',label='capped-recovery-exact-legacy-reader-patch')
+ e.sql(db,legacy,label='capped-recovery-exact-legacy-reader-patch')
  reader="SET request.jwt.claim.role='service_role'; SELECT public.fn_resolve_tournament_terminal_request((SELECT request_id FROM capped_recovery_subject))->'outcome'->'receipt';"
  _,projected,_=e.sql(db,reader,label='capped-recovery-projected-original-reader')
  projected=json.loads(projected.strip())
@@ -40,13 +47,32 @@ def qualify_capped_recovery(e,root,output,db,opening):
  code,_,error=e.sql(db,truthful,label='capped-recovery-original-red',check=False)
  if code==0 or 'capped_recovery_lost_the_original_remainder' not in error:
   raise ValueError('actual original recovery did not fail truthful pool proof')
- candidate=root/'supabase/migrations/20261109202657_satellite_recovery_returns_the_full_canonical_receipt.sql'
  code,_,error=e.sql(db,file=candidate,label='capped-recovery-unknown-history-refused',check=False)
  if code==0 or 'satellite_recovery_projection_preimage_changed' not in error:
   raise ValueError('receipt restoration admitted absent legacy history')
  e.sql(db,"INSERT INTO supabase_migrations.schema_migrations(version,name) VALUES('20261109163346','settle_capped_satellites_and_nov08_digest_v2');",label='capped-recovery-known-legacy-history')
+ code,_,error=e.sql(db,'BEGIN;\n'+original_reader+';\n'+candidate.read_text(),label='capped-recovery-mixed-pair-refused',check=False)
+ if code==0 or 'satellite_recovery_projection_preimage_changed' not in error:
+  raise ValueError('receipt restoration admitted mixed canonical/legacy pair')
  e.sql(db,file=candidate,label='capped-recovery-exact-restoration')
  e.sql(db,truthful,label='capped-recovery-new-green')
+ # Strict admission after restoration: a request ID is not the v1 capability.
+ strict=output/'capped-recovery-strict-owner.sql'
+ strict_opening=opening.replace("(SELECT count(*) FROM public.tournaments)<>1", "(SELECT count(*) FROM public.tournaments)<>3")
+ strict.write_text(strict_opening+"""DO $negative$ DECLARE x jsonb; q uuid[]; refused boolean:=false; BEGIN
+ x:=pg_temp.capped_value_case('strict_recovery',29,false);
+ SELECT array_agg(value::uuid ORDER BY value::uuid) INTO q FROM jsonb_array_elements_text(x->'qualifier_ids');
+ PERFORM set_config('app.satellite_capped_awards','',true);
+ PERFORM set_config('app.tournament_terminal_request_id',md5('synthetic request')::uuid::text,true);
+ BEGIN PERFORM public.fn_settle_satellite_qualifiers((x->>'tournament_id')::uuid,q);
+ EXCEPTION WHEN SQLSTATE '55000' THEN
+  IF SQLERRM NOT LIKE 'capped satellite awards require a compatible terminal owner%' THEN RAISE; END IF;
+  refused:=true;
+ END;
+ IF NOT refused THEN RAISE EXCEPTION 'request ID bypassed strict v1 admission'; END IF;
+END $negative$; ROLLBACK;
+""")
+ e.sql(db,file=strict,label='capped-recovery-strict-v1-admission')
  _,restored,_=e.sql(db,reader,label='capped-recovery-full-original-reader')
  restored=json.loads(restored.strip())
  _,after,_=e.sql(db,properties,label='capped-recovery-metadata-after')
@@ -57,6 +83,7 @@ def qualify_capped_recovery(e,root,output,db,opening):
  decoder.write_text(json.dumps({'projected':projected,'restored':restored}))
  script="import fs from 'node:fs'; import {verifySatelliteQualifierReceipt as verify} from './server/src/tournament/satelliteQualifierReceipt'; const d=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); for(const k of ['projected','restored']){const r=d[k];if(!verify(r,r.tournament_id,r.qualifier_ids))throw Error(k+' receipt was rejected by the actual decoder');} if(d.restored.pool!=1003||d.restored.remainder.amount!=523)throw Error('canonical recovery lost value');"
  e.run('capped-recovery-actual-decoder',[root/'server/node_modules/.bin/tsx','-e',script,decoder],seconds=30)
+ e.discard(db)
  e.report['capped_recovery']={'passed':True,'projected_pool':480,'restored_pool':1003,'restored_remainder':523,'reader_metadata_preserved':True}
 
 def main():
