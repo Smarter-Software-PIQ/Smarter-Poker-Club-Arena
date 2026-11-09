@@ -33,7 +33,19 @@ describe('the weekly refusal check reads the receipt cover', () => {
   });
   it('parses a runnable pull request workflow', () => {
     const workflow = parse(readFileSync('.github/workflows/weekly-refusal-cover.yml', 'utf8'));
-    expect(workflow.on.pull_request.paths).toContain('supabase/migrations/**');
-    expect(workflow.jobs['weekly-refusal-cover'].steps.length).toBeGreaterThan(2);
+    // Required on main, so it must report on every pull request: no path filter.
+    expect(workflow.on.pull_request.branches).toEqual(['main']);
+    expect(workflow.on.pull_request.paths).toBeUndefined();
+    const steps = workflow.jobs['weekly-refusal-cover'].steps;
+    expect(steps.length).toBeGreaterThan(2);
+    const relevant = steps.find((step: { id?: string }) => step.id === 'relevant');
+    expect(relevant.env.WEEKLY_COVER_PATHS.split('\n')).toContain('supabase/migrations/**');
+    expect(relevant.run).toContain('running every proof');
+    // A migration renamed or moved out of a watched path must still count:
+    // without --no-renames, git reports only the new path of a rename.
+    expect(relevant.run).toContain('git diff --name-only --no-renames');
+    for (const step of steps.slice(2)) {
+      expect(step.if).toBe("steps.relevant.outputs.run == 'true'");
+    }
   });
 });

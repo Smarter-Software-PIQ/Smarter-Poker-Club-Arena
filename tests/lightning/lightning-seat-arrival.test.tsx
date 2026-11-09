@@ -67,7 +67,7 @@ it('stages only real arriving avatar/plate art while hero cards and active actio
     <Fixture players={[player('hero', true), player('a'), player('b'), player('c')]} active={4} />
   );
   expect(calls).toHaveLength(4);
-  expect(calls.map((c) => c.options.delay)).toEqual([0, 0, 80, 80]);
+  expect(calls.map((c) => c.options.delay)).toEqual([0, 0, 40, 40]);
   expect(calls.every((c) => c.node.matches('.seat__avatar, .seat__info'))).toBe(true);
   expect(container.querySelectorAll('.seat__cards--hero .seat__card')).toHaveLength(2);
   const count = calls.length;
@@ -100,7 +100,7 @@ it('reduced motion keeps the arrival sequence without scale and the final frame 
   vi.stubGlobal('matchMedia', () => ({ matches: true }));
   render(<Fixture players={Array.from({ length: 6 }, (_, i) => player(`p${i}`))} />);
   expect(calls).toHaveLength(12);
-  expect(Math.max(...calls.map((c) => Number(c.options.delay)))).toBe(400);
+  expect(Math.max(...calls.map((c) => Number(c.options.delay)))).toBe(160);
   expect(
     calls.every((c) => c.frames[0].transform === 'none' && c.options.fill === 'backwards')
   ).toBe(true);

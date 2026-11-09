@@ -1,3 +1,4 @@
+-- @install-window: daily-maintenance
 -- 20261109180446_the_satellite_name_follows_the_level_clock_terms.sql
 --
 -- Version reserved by scripts/new-migration.mjs against origin/main and every
@@ -47,7 +48,7 @@
 BEGIN;
 
 SET LOCAL lock_timeout = '1s';
-SET LOCAL statement_timeout = '8s';
+SET LOCAL statement_timeout = '5s';
 
 DROP TRIGGER IF EXISTS tournaments_d_copy_follows_the_weekly_terms ON public.tournaments;
 DELETE FROM public.ca_declared_money_triggers

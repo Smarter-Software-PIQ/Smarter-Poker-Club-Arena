@@ -30,6 +30,7 @@ import {
 import { horsePolicyDealtPlayers } from './multiway/DealtSeatCensus.js';
 import { holeCardCount, isOmahaVariant, isShortDeckVariant } from './VariantRules.js';
 import { isFixedLimitVariant, isPotLimitVariant } from './BettingStructure.js';
+import { NASH_V2_CALL_MAX_BB } from './HorseNashPushFoldV2.js';
 
 export type Phase6ReferenceRoute =
   | 'legacy_preflop'
@@ -86,6 +87,7 @@ type Phase6Snapshot = {
     v27GtoCharts?: boolean;
     v38Ev?: boolean;
     v53Pressure?: boolean;
+    nashCallVsJam?: boolean;
     mind?: boolean;
   };
 };
@@ -521,6 +523,37 @@ export function necessaryReferenceRouteGates(
       depth > 0 &&
       depth <= 15
     );
+  // NASH CALL VS JAM IS A chart_bb_defend RETURN (2026-11-09). #10010 made
+  // every hold'em seat facing a lone open-jam at NASH_V2_CALL_MAX_BB or less
+  // call or fold from the Nash table's caller side (HorseLogic, nash_call_vs_jam)
+  // and stamped it as the solver call-off it is, on this route. This gate still
+  // admitted only the sb_push chart's big blind against a small-blind jam with
+  // one opponent, so every other seat's receipt was refused as route_gate and
+  // the engine folded the horse on the fallback: release bff6eed3, 19:36 to
+  // 19:51Z, 3,843 fallback folds in 730 of 1,788 tournament hands. The hand
+  // class and the Nash probability are private; this admits exactly the public
+  // shape of that one return: the first and only raise is an all-in, nobody has
+  // called or limped, hero has not acted, and the effective depth is inside the
+  // solved table.
+  if (route === 'chart_bb_defend' && (o.nashCallVsJam ?? true) !== false) {
+    const jammer = last >= 0 ? s.players.find((x) => x.seat === last) : undefined;
+    const effectiveNash =
+      jammer && p.stack + p.bet > 0 ? Math.min(p.stack + p.bet, jammer.stack + jammer.bet) / bb : 0;
+    if (
+      raises === 1 &&
+      callers === 0 &&
+      limpers === 0 &&
+      jammer !== undefined &&
+      jammer.is_all_in === true &&
+      history.some((a) => a.seat === last && a.action === 'all_in') &&
+      !history.some((a) => a.seat === p.seat) &&
+      toCall > 0 &&
+      s.allInOrFold !== true &&
+      effectiveNash > 0 &&
+      effectiveNash <= NASH_V2_CALL_MAX_BB
+    )
+      return true;
+  }
   const raiserPosition = last >= 0 ? publicReferencePosition(last, snapshot) : null;
   const opponents = s.players.filter(
     (x) =>

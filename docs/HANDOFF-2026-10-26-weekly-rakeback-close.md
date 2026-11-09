@@ -464,3 +464,41 @@ completion rule exists in any source checked):
   exactly-once after retry); and 20261109143736 — the due union week
   prepares and pays first (scripts/ci/test-union-prepares-first-postgres.py),
   both running on weekly-refusal-cover.yml for every migrations PR.
+
+## 2026-11-09 follow-through (recorded 18:40 UTC)
+
+State verified read-only against production at 17:53Z: the Nov 2 to Nov 9
+payout pause is `released`; 20261109140919 (split return lands before the
+debit) and 20261109143736 (the due union week prepares and pays first) are
+installed; `weekly_payout_scope_plan` md5 is `ec30840469438a995d15dbbbefafefb0`
+(the union-first postimage). The completed payout was not touched.
+
+Readiness alert: no change needed. `weekly_payout_readiness_check` already
+records a critical `WeeklyPayoutNotReadyHalfHourBefore` alert 30 minutes
+before the due time; it fired at 09:30Z on Nov 9 naming the Midway Union as
+unprepared (alert event 371464). Its cause, backlog sorted first, is what
+20261109143736 corrected.
+
+Regression gate: `weekly-refusal-cover.yml` now runs on every pull request
+to main and decides relevance from its own path list (fail-open), so it can
+be a required status check; `Weekly refusal receipt cover` is added to the
+`main protection` ruleset once this change is merged and verified (unrelated
+pull request reports success, payout change runs the full suite, deliberate
+regression fails it).
+
+Enabled weekly schedules on production (pg_cron, read 18:16Z):
+
+| job | name                         | schedule      | active |
+| --- | ---------------------------- | ------------- | ------ |
+| 272 | union-weekly-rakeback-close  | `*/5 * * * *` | true   |
+| 523 | weekly-prep-shard-0          | `* * * * *`   | true   |
+| 524 | weekly-prep-shard-1          | `* * * * *`   | true   |
+| 525 | weekly-prep-shard-2          | `* * * * *`   | true   |
+| 526 | weekly-prep-shard-3          | `* * * * *`   | true   |
+| 527 | weekly-payout-readiness-0330 | `*/5 * * * *` | true   |
+| 528 | weekly-payout-rounds         | `* * * * *`   | true   |
+
+FUTURE COVERAGE, NOT YET OBSERVED: the Monday 2026-11-16 04:00 America/Chicago
+run (period Nov 9 to Nov 16) is the first opportunity to observe a full week
+paid with no human intervention and the union prepared first. Until that run
+completes and reconciles, "runs unattended every week" is unproven.

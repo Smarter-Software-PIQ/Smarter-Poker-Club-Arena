@@ -374,7 +374,8 @@ describe('3. a club board opens with its own members', () => {
   it('seedOpenSeatTable no longer gates the opening horses on the house board', () => {
     const body = method(SRC, 'private async seedOpenSeatTable(');
     expect(body).not.toContain('isHouseBoard');
-    expect(body).toMatch(/const opening = !seatFirstHeldEmpty\(tournament\.id, seats\)/);
+    // 2026-11-09: `|| reopening` follows on the next line (anEmptyBoardIsNotOneOfTheEleven).
+    expect(body).toMatch(/const opening =\s*!seatFirstHeldEmpty\(tournament\.id, seats\)/);
     // The pool is what scopes the club: the tournament id reaches the picker.
     expect(body).toContain('this.pickFreeHorses(opening, false, tournament.id)');
   });

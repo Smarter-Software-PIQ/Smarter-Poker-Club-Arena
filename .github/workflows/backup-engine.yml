@@ -1,4 +1,5 @@
 name: Backup Engine (Clone, Stage, Certify)
+run-name: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.release_run_key && format('Backup after seal {0}', github.event.client_payload.release_run_key) || '' }}
 
 # THE BACKUP ENGINE (owner order 2026-11-05). A 1:1 clone of the serving
 # engine runs on its own Hetzner host against an isolated copy of the
@@ -13,7 +14,7 @@ name: Backup Engine (Clone, Stage, Certify)
 #   00:01 Chicago nightly        refresh the production structure and seed,
 #                                re-clone the serving engine, certify main
 #   workflow_dispatch            certify one exact SHA
-#   sealed release (workflow_run) re-clone the serving engine (1:1 Backup)
+#   sealed receiver event re-clone the serving engine (1:1 Backup)
 #
 # THE QUEUE DRAINS ITSELF (2026-11-07). Runs are serialized (one Backup host)
 # and a certificate takes about forty-five minutes, while main receives
@@ -47,9 +48,9 @@ name: Backup Engine (Clone, Stage, Certify)
 # pending keeps walking. A different identity is never asked about. Only
 # push runs inherit; dispatch, schedule and post-seal runs always build.
 on:
-  workflow_run:
-    workflows: ['Auto-Deploy Hetzner Engine (on server/ changes)']
-    types: [completed]
+  repository_dispatch:
+    # The second event lets the owner deliver a previously lost seal to Backup alone.
+    types: [run-post-deploy-e2e, refresh-sealed-engine-backup]
   push:
     branches: [main]
     paths:
@@ -90,7 +91,8 @@ permissions:
   statuses: write
 
 concurrency:
-  group: backup-engine
+  # A client-only E2E event has no sealed engine and must never queue on the Backup host.
+  group: ${{ github.event_name == 'repository_dispatch' && !github.event.client_payload.release_run_key && format('backup-no-seal-{0}', github.run_id) || 'backup-engine' }}
   queue: max
   cancel-in-progress: false
 
@@ -103,7 +105,11 @@ env:
 
 jobs:
   plan:
-    if: github.ref == 'refs/heads/main' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
+    if: github.ref == 'refs/heads/main' && (github.event_name != 'repository_dispatch' || github.event.client_payload.release_run_key != '')
+    permissions:
+      contents: read
+      actions: read
+      statuses: write
     runs-on: ubuntu-latest
     timeout-minutes: 3
     outputs:
@@ -112,12 +118,49 @@ jobs:
       control_sha: ${{ steps.plan.outputs.control_sha || github.sha }}
       refresh: ${{ steps.inherit.outputs.inherited != 'true' && steps.plan.outputs.refresh || '' }}
     steps:
+      - name: Prove the original sealed receiver and claim its first Backup run
+        id: seal
+        if: github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET: ${{ github.event.client_payload.engine_sha }}
+          RUN_KEY: ${{ github.event.client_payload.release_run_key }}
+          RECEIPT: ${{ github.event.client_payload.gameplay_receipt }}
+        run: |
+          set -euo pipefail
+          [[ "$RUN_KEY" =~ ^[1-9][0-9]*-[1-9][0-9]*$ && "$TARGET" =~ ^[0-9a-f]{40}$ ]]
+          api="repos/$GITHUB_REPOSITORY/actions"
+          parent="$api/runs/${RUN_KEY%-*}/attempts/${RUN_KEY#*-}"
+          created=$(gh api "$parent" | jq -er --arg title "Engine Release $TARGET" --arg attempt "${RUN_KEY#*-}" '
+            select(.path==".github/workflows/auto-deploy-hetzner.yml" and .event=="repository_dispatch" and
+              .head_branch=="main" and .display_title==$title and (.run_attempt|tostring)==$attempt) | .created_at')
+          gh api "$parent/jobs?per_page=100" | jq -e '
+            any(.jobs[]; .name=="Record The Append-Only Engine Release Receipt" and .conclusion=="success") and
+            any(.jobs[]; .name=="Publish Through Hetzner Club Arena" and .conclusion=="success" and
+              any(.steps[]; .name=="Read original sealed runtime for the post-deploy gameplay observer" and .conclusion=="success"))' >/dev/null
+          instance=$(jq -er --arg key "$RUN_KEY" --arg sha "$TARGET" '
+            select(.runId==$key and .sha==$sha and .result=="sealed") | .completionRuntime.instanceId |
+            select(type=="string" and test("^[1-9][0-9]*-[0-9a-f]{8}$"))' <<< "$RECEIPT")
+          curl -fsS --max-time 15 https://engine.smarter.poker/health |
+            jq -e --arg sha "$TARGET" --arg instance "$instance" '
+              .running==true and .releaseSha==$sha and .instanceId==$instance' >/dev/null
+          # Serialized Backup runs give the earliest delivery sole custody, including on retries.
+          runs=$(gh api --paginate "$api/workflows/backup-engine.yml/runs?event=repository_dispatch&created=%3E%3D$created&per_page=100" |
+            jq -s --arg title "Backup after seal $RUN_KEY" '[.[].workflow_runs[] | select(.display_title==$title) | .id] | min')
+          if [[ "$runs" != "$GITHUB_RUN_ID" || "$GITHUB_RUN_ATTEMPT" != 1 ]]; then
+            [[ "$runs" =~ ^[1-9][0-9]*$ && "$runs" -le "$GITHUB_RUN_ID" ]] || exit 1
+            echo "Original Backup run $runs owns sealed receiver $RUN_KEY"
+            exit 0
+          fi
+          echo "Sealed receiver $RUN_KEY requests a fresh Backup of $TARGET on instance $instance"
+          echo "sha=$TARGET" >> "$GITHUB_OUTPUT"
       - id: plan
+        if: github.event_name != 'repository_dispatch' || steps.seal.outputs.sha != ''
         env:
           EVENT: ${{ github.event_name }}
           INPUT_SHA: ${{ github.event.inputs.sha }}
           INPUT_REFRESH: ${{ github.event.inputs.refresh }}
-          RELEASE_TITLE: ${{ github.event.workflow_run.display_title }}
+          SEALED_SHA: ${{ steps.seal.outputs.sha }}
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.run_id }}
         run: |
@@ -185,13 +228,9 @@ jobs:
           if [ "$EVENT" = schedule ]; then
             sha=$(git ls-remote "https://github.com/$GITHUB_REPOSITORY" refs/heads/main | cut -f1)
           fi
-          if [ "$EVENT" = workflow_run ]; then
-            # A successful sealed receiver is the event that refreshes Backup.
-            # Refused, cancelled, observation and withdrawal runs never do so.
-            sha="${RELEASE_TITLE#Engine Release }"
-            [[ "$RELEASE_TITLE" = "Engine Release $sha" && "$sha" =~ ^[0-9a-f]{40}$ ]] || exit 1
-            served=$(curl -fsS --max-time 15 https://engine.smarter.poker/health | python3 -c 'import json,sys;print(json.load(sys.stdin).get("releaseSha",""))')
-            [ "$served" = "$sha" ] || { echo 'Sealed release is no longer serving; refusing a stale clone refresh'; exit 1; }
+          if [ "$EVENT" = repository_dispatch ]; then
+            sha="$SEALED_SHA"
+            [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
             refresh=force
           fi
           if [ -n "${retarget_control:-}" ]; then echo "control_sha=$retarget_control" >> "$GITHUB_OUTPUT"; fi

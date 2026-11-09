@@ -1,0 +1,37 @@
+# Graphify scope: application code only. Evidence, logs, generated output,
+# fixtures and static assets are excluded so the graph stays small and accurate.
+docs/
+server/release-evidence/
+supabase/migrations/
+scripts/
+server/scripts/
+e2e-live/
+android/
+ios/
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+**/__tests__/
+**/*.py
+operations/
+tests/
+public/
+design/
+node_modules/
+dist/
+build/
+coverage/
+graphify-out/
+**/*.min.js
+**/*.map
+**/*.snap
+**/*.json
+**/*.md
+**/*.html
+**/*.css
+**/*.svg
+**/*.png
+**/*.jpg
+**/*.webp
+**/*.lock
