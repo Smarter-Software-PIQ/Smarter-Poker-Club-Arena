@@ -1159,7 +1159,8 @@ export class HorseSessionRotator {
           cashPlanPrimaryTables,
           lightningGameIds,
           lightningHumanGames,
-          cashPlanSecondTables
+          cashPlanSecondTables,
+          true
         );
       for (const seat of tableSeats) {
         const uid = String(seat.user_id ?? '');
