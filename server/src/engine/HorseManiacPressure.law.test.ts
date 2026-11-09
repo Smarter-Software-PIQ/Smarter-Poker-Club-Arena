@@ -203,6 +203,12 @@ describe('a style change is seen in a handful of hands, both ways', () => {
         semiBluffNeedsDraw: false,
         currentNutsRaise: false,
         riverBluffBaseline: false,
+        // The 2026-11-08 Omaha EV fold model changes which pots the horses
+        // bet on this fixed deal stream (and so which spots the switcher
+        // reaches: measured 15 with it on); this pin measures the read's
+        // recency, so that later bet-pricing layer is isolated like the ones
+        // above. Its own tests are HorseMindOmahaEvFoldModel.test.ts.
+        omahaEvFoldModel: false,
       });
       expect(t.maniacReadByHand.slice(0, 60).some(Boolean)).toBe(false);
       expect(firstFrom(t.maniacReadByHand, 60, true)).toBeLessThanOrEqual(nitToManiacPin);

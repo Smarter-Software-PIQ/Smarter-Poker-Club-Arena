@@ -150,6 +150,8 @@ Follow `PUBLISHING.md`. The authorized agent finds or creates its PR, handles re
 
 **Solver PCs M1/M2 (2026-11-08).** Reach them only with `~/.smarter-poker/ops/solver-host.sh check` (or `m1|m2 <command>`, `scp`). The agent terminal has no macOS Local Network permission, so a plain ping/nc/ssh always reads them as down; a session that believed this stalled R8 for 11 hours and asked Dan to wake PCs that were on. Never report M1/M2 down without a failed `solver-host.sh check`. Only the solver-round single writer in HORSE-LANES-STATUS.md runs work on them.
 
+**Database checks use the workflow's identity, never a copied key (2026-11-08).** Run a read-only check against production through its workflow, whose database identity is the repository secret (the V31 pre-screen: `Explicit V31 Offline Qualification`, `operation: prescreen`). Never reveal an API key through the Supabase CLI (`projects api-keys`) or the Management API (`?reveal=true`), never source a `.env` file, and never write a key to a new file. An agent did all three to run a local check (`.agent/audits/2026-11-08-SECURITY-INCIDENT-prescreen-credential-copy.md`).
+
 ### 1.3 Never Do
 
 - Never run `vercel deploy` or `vercel --prod` in the Club Arena directory
@@ -584,7 +586,12 @@ RPCs, and sits in the same seat as anybody else. Therefore a horse:
   and super-agent commissions, `player_stats`, rakeback basis, leaderboard
   position, achievements, anything downstream of play or of rake;
 - **IS PAID** everything a human is paid — prizes, bounties, refunds,
-  shortfall back-pay, jackpots. Never "skip the horses" on a repayment;
+  shortfall back-pay, jackpots. Never "skip the horses" on a repayment.
+  Dan, 2026-11-08, HARD RULE: "HORSES GET REFUNDED EXACTLY THE SAME AS A HUMAN
+  100% OF THE TIME!" That covers every closure, cancellation and retirement,
+  horse-only events included. There is no "no refunds to horse entries" rule;
+  Dan never ordered one. Pinned by
+  `tests/a-refund-never-reads-horse-identity.law.test.ts`;
 - **IS SUBJECT TO** every rule a human is subject to — nit/VPIP eviction,
   limits, guards, integrity checks;
 - **COUNTS** everywhere a human counts — player counts, engine provisioning,

@@ -40,6 +40,24 @@ test('only an explicit main dispatch with a canonical dataset can acquire the pr
     { inputs: { ...valid.inputs, reason: 'x'.repeat(501) } }]) assert.throws(() => invocation({ ...valid, ...bad }));
 });
 
+test('a stand-alone prescreen takes an optional exact engine commit; no other operation takes one', () => {
+  const pin = '8017564a' + '1'.repeat(32);
+  // GitHub sends every declared input, so an evaluate dispatch carries engine: ''.
+  assert.deepEqual(invocation({ ...valid, inputs: { ...valid.inputs, engine: '' } }), { dataset: id, operation: 'evaluate', reason: null });
+  assert.deepEqual(invocation({ ...valid, inputs: { dataset: id, operation: 'prescreen', reason: '', engine: '' } }),
+    { dataset: id, operation: 'prescreen', reason: null, engine: null });
+  assert.deepEqual(invocation({ ...valid, inputs: { dataset: id, operation: 'prescreen', reason: '', engine: pin } }),
+    { dataset: id, operation: 'prescreen', reason: null, engine: pin });
+  for (const inputs of [
+    { dataset: id, operation: 'evaluate', reason: '', engine: pin },
+    { dataset: id, operation: 'promote', reason: '', engine: pin },
+    { dataset: id, operation: 'recheck', reason: '', engine: pin },
+    { dataset: id, operation: 'prescreen', reason: '', engine: 'abc1234' },
+    { dataset: id, operation: 'prescreen', reason: '', engine: '0'.repeat(40) },
+    { dataset: id, operation: 'prescreen', reason: '', engine: `${pin};id` },
+    { dataset: id, operation: 'prescreen', reason: '', engine: [pin] }]) assert.throws(() => invocation({ ...valid, inputs }), JSON.stringify(inputs));
+});
+
 test('organization transfer retains immutable source authority', () => {
   assert.equal(invocation({ ...valid, repository: 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena' }).dataset, id);
   for (const repositoryId of [undefined, '', '42']) assert.throws(() => invocation({ ...valid, repositoryId }));

@@ -36,6 +36,7 @@ const FLAGS = {
   readShrinkResponse: { a: { readShrinkResponse: true }, b: {} },
   readBreakEvenBluff: { a: { readBreakEvenBluff: true }, b: {} },
   readScopedShrink: { a: { readScopedShrink: true }, b: {} },
+  omahaEvFoldModel: { a: { omahaEvFoldModel: true }, b: { omahaEvFoldModel: false } },
 } as const;
 const flagName = args.get('flag') ?? '';
 if (!Object.hasOwn(FLAGS, flagName)) throw new Error(`--flag is one of ${Object.keys(FLAGS)}`);

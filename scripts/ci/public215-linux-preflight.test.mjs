@@ -11,11 +11,13 @@ test('only the explicit protected-main immutable dataset/image dispatch is admit
  for(const e of [{...env,GITHUB_EVENT_NAME:'schedule'},{...env,GITHUB_REF:'refs/heads/feature'},{...env,GITHUB_REPOSITORY_ID:'1'}])assert.throws(()=>invocation(e,{inputs}));
  assert.throws(()=>invocation(env,{inputs:{...inputs,image_id:'tag:mutable'}}));
 });
+const legacySteps=['Checkout the requested immutable commit','Prove the request is current protected-main engine code'].map(name=>({name,status:'completed',conclusion:'success'}));
 test('existing exact staged release admission requires every executed shard and production door',()=>{
- const run={path:'.github/workflows/auto-deploy-hetzner.yml',event:'repository_dispatch',head_branch:'main',display_title:'Engine Release '+sha};
- const jobs=[...Array.from({length:4},(_,i)=>`Test The Exact Engine Release Request (shard ${i+1}/4)`),'Prove The Exact Engine Has Every Production Door'].map(name=>({name,status:'completed',conclusion:'success'}));
- stageAdmission(run,jobs,sha);assert.throws(()=>stageAdmission({...run,display_title:'Engine Release '+'d'.repeat(40)},jobs,sha));
+ const run={path:'.github/workflows/auto-deploy-hetzner.yml',event:'repository_dispatch',head_branch:'main',head_sha:sha,display_title:'Engine Release '+sha};
+ const jobs=[...Array.from({length:4},(_,i)=>`Test The Exact Engine Release Request (shard ${i+1}/4)`),'Prove The Exact Engine Has Every Production Door'].map((name,i)=>({id:10+i,name,status:'completed',conclusion:'success',steps:i<4?legacySteps:[]}));
+ assert.deepEqual(stageAdmission(run,jobs,sha),{mode:'legacy_release_shards',receiver_sha:sha,release_verification_job:10});assert.throws(()=>stageAdmission({...run,display_title:'Engine Release '+'d'.repeat(40)},jobs,sha));
  assert.throws(()=>stageAdmission(run,jobs.map((j,i)=>i?j:{...j,conclusion:'skipped'}),sha));assert.throws(()=>stageAdmission(run,jobs.slice(1),sha));
+ assert.throws(()=>stageAdmission(run,jobs.map((j,i)=>i===3?{...j,conclusion:'failure'}:j),sha));
 });
 test('closed ten-file approved graph maps absolute Mac paths to exact committed CA bytes',()=>{
  const descriptor={format:'public_hist215_encoder_source_graph_v1',files:GRAPH_FILES.map(p=>({path:'/Volumes/Fake/owned/'+p,sha256:createHash('sha256').update(p).digest('hex')}))};
@@ -240,4 +242,85 @@ test('corrected79 current request/model bindings reuse79 originals and require28
  let imported=0,fresh=0;for(let i=0;i<107;i++){const c=corrected.contexts[i]||{context_id:i.toString(16).padStart(64,'0'),request_sha256:hex};if(inheritedEvidence(corrected,files,i,c.context_id,c.request_sha256,{model_checksum:model}))imported++;else fresh++;}
  assert.equal(imported,79);assert.equal(fresh,28);
  const c=corrected.contexts[78];assert.throws(()=>inheritedEvidence(corrected,files,78,c.context_id,hex,{model_checksum:model}));assert.throws(()=>inheritedEvidence(corrected,files,78,c.context_id,c.request_sha256,{model_checksum:hex}));assert.throws(()=>inheritedEvidence(corrected,files,79,c.context_id,c.request_sha256,{model_checksum:model}));
+});
+
+// R8 (dataset 1dc9a1b8..., 100 contexts) runs after PR #9960 moved the exact tests out of the receiver.
+import {releaseEvidence,admittedImage,censusAuthority,censusComplete,R7_CENSUS,PREQUALIFICATION_JOBS,RELEASE_PREFLIGHT} from './public215-linux-preflight.mjs';
+const receiver='e'.repeat(40),tree='f'.repeat(40),rollback='sha256:'+'9'.repeat(64);
+const bindingLog=c=>['﻿2026-11-09T09:31:01.0000000Z Current runner version','2026-11-09T09:31:02.0000000Z   REQUESTED_SHA: '+c,`2026-11-09T09:31:03.0000000Z Backup Engine certified ${c} (backup-engine/certified = success).`].join('\r\n')+'\r\n';
+function receiverFixture(){
+ const run={id:900,path:'.github/workflows/auto-deploy-hetzner.yml',event:'repository_dispatch',head_branch:'main',head_sha:receiver,display_title:'Engine Release '+sha};
+ const steps=['Checkout the requested immutable commit','Prove the request is current protected-main engine code','Require the Backup Engine certificate for this exact SHA','Require daily preparation or the protected November 7 owner window','Require previously completed daytime qualification'].map(name=>({name,status:'completed',conclusion:'success'}));
+ const jobs=[{id:901,name:RELEASE_PREFLIGHT,status:'completed',conclusion:'success',started_at:'2026-11-09T09:31:00Z',completed_at:'2026-11-09T09:32:00Z',steps},{id:902,name:'Prove The Exact Engine Has Every Production Door',status:'completed',conclusion:'success',steps:[]}];
+ const qual={id:800,run_attempt:1,path:'.github/workflows/engine-release-prequalification.yml',event:'push',head_sha:sha,head_branch:'main',status:'completed',conclusion:'success',created_at:'2026-11-08T20:00:00Z',repository:{id:1132369872},head_repository:{id:1132369872}};
+ const qjobs=PREQUALIFICATION_JOBS.map((name,i)=>({id:810+i,run_id:800,run_attempt:1,head_sha:sha,name,status:'completed',conclusion:'success',completed_at:'2026-11-08T20:40:00Z',steps:i===4?[{name:`Prepared image ${image} rollback ${rollback} tree ${tree}`,status:'completed',conclusion:'success'}]:[]}));
+ const evidence={receiverContainsCandidate:true,bindingLog:bindingLog(sha),tree,prequalification:{runs:[qual],jobs:qjobs},imageId:image};
+ return {run,jobs,qual,qjobs,evidence};
+}
+test('post-#9960 release: old shard jobs absent, exact prequalification present and receiver-bound candidate is admitted',()=>{
+ const f=receiverFixture();
+ assert.deepEqual(stageAdmission(f.run,f.jobs,sha,f.evidence),{mode:'engine_release_prequalification',receiver_sha:receiver,release_verification_job:901,prequalification_run:800,prequalification_attempt:1,image_id:image,rollback_image_id:rollback,server_tree:tree});
+ const resolved=stageAdmission(f.run,f.jobs,sha,{...f.evidence,imageId:RESOLVE_EXISTING_IMAGE});
+ assert.equal(admittedImage(resolved,image),image);assert.throws(()=>admittedImage(resolved,'sha256:'+'1'.repeat(64)));
+ // A newer success created before the receiver read it is the one that counts; one created afterwards is ignored.
+ const later={...f.qual,id:801,created_at:'2026-11-09T10:00:00Z',conclusion:'failure'};
+ assert.equal(stageAdmission(f.run,f.jobs,sha,{...f.evidence,prequalification:{runs:[f.qual,later],jobs:f.qjobs}}).prequalification_run,800);
+});
+test('missing or failed prequalification refuses',()=>{
+ const f=receiverFixture(),with_=(runs,jobs=f.qjobs)=>({...f.evidence,prequalification:{runs,jobs}});
+ assert.throws(()=>stageAdmission(f.run,f.jobs,sha,{...f.evidence,prequalification:undefined}),/Exact candidate prequalification required/);
+ assert.throws(()=>stageAdmission(f.run,f.jobs,sha,with_([])),/Exact candidate prequalification required/);
+ assert.throws(()=>stageAdmission(f.run,f.jobs,sha,with_([{...f.qual,created_at:'2026-11-09T10:00:00Z'}])),/Exact candidate prequalification required/);
+ for(const change of [{conclusion:'failure'},{status:'in_progress',conclusion:null},{event:'pull_request'},{head_sha:receiver},{head_branch:'feature'},{path:'.github/workflows/ci.yml'},{repository:{id:1}}])assert.throws(()=>stageAdmission(f.run,f.jobs,sha,with_([{...f.qual,...change}])));
+ assert.throws(()=>stageAdmission(f.run,f.jobs,sha,with_([{...f.qual,created_at:'2026-11-09T09:31:30Z'}])),/changed while the receiver read it/);
+ for(let i=0;i<5;i++)assert.throws(()=>stageAdmission(f.run,f.jobs,sha,with_([f.qual],f.qjobs.map((j,k)=>k===i?{...j,conclusion:'failure'}:j))));
+ assert.throws(()=>stageAdmission(f.run,f.jobs,sha,with_([f.qual],f.qjobs.slice(1))));
+ assert.throws(()=>stageAdmission(f.run,f.jobs,sha,with_([f.qual],f.qjobs.map(j=>({...j,completed_at:'2026-11-09T09:40:00Z'})))),/completed before the receiver/);
+ assert.throws(()=>stageAdmission(f.run,f.jobs,sha,with_([f.qual],f.qjobs.map(j=>({...j,head_sha:receiver})))));
+ assert.throws(()=>stageAdmission(f.run,f.jobs.map(j=>j.id===901?{...j,conclusion:'failure'}:j),sha,f.evidence));
+ assert.throws(()=>stageAdmission(f.run,f.jobs.map(j=>j.id===901?{...j,steps:j.steps.filter(s=>!s.name.startsWith('Require previously'))}:j),sha,f.evidence));
+ assert.throws(()=>stageAdmission(f.run,f.jobs.filter(j=>j.id!==902),sha,f.evidence));
+});
+test('immutable image mismatch refuses',()=>{
+ const f=receiverFixture(),marker=name=>({...f.evidence,prequalification:{runs:[f.qual],jobs:f.qjobs.map((j,i)=>i===4?{...j,steps:[{name,status:'completed',conclusion:'success'}]}:j)}});
+ assert.throws(()=>stageAdmission(f.run,f.jobs,sha,{...f.evidence,imageId:'sha256:'+'1'.repeat(64)}),/differs from the prequalified image/);
+ assert.throws(()=>stageAdmission(f.run,f.jobs,sha,marker(`Prepared image ${image} rollback ${rollback} tree ${'0'.repeat(40)}`)),/server tree/);
+ assert.throws(()=>stageAdmission(f.run,f.jobs,sha,marker(`Prepared image club-arena-engine:${sha} rollback ${rollback} tree ${tree}`)));
+ assert.throws(()=>stageAdmission(f.run,f.jobs,sha,marker('Stage the candidate')),/One immutable image receipt/);
+ assert.throws(()=>admittedImage({mode:'engine_release_prequalification',image_id:image},'sha256:'+'1'.repeat(64)));
+});
+test('release head_sha differs from the candidate only when the receiver bound that exact candidate',async()=>{
+ const f=receiverFixture();
+ for(const log of [bindingLog(receiver),bindingLog(sha).replace(/^.*REQUESTED_SHA.*$/m,''),bindingLog(sha)+bindingLog(sha),bindingLog(sha).replace('Backup Engine certified '+sha,'Backup Engine certified '+receiver),'',undefined])assert.throws(()=>stageAdmission(f.run,f.jobs,sha,{...f.evidence,bindingLog:log}),/Receiver did not|Bounded receiver/);
+ assert.throws(()=>stageAdmission(f.run,f.jobs,sha,{...f.evidence,receiverContainsCandidate:false}),/must contain the exact candidate/);
+ assert.throws(()=>stageAdmission({...f.run,display_title:'Engine Release '+receiver},f.jobs,sha,f.evidence),/Existing exact release run/);
+ // A legacy-shape receiver at a later main tip (e.g. run 42413295909) needs the same binding.
+ const legacy=[...Array.from({length:4},(_,i)=>({id:20+i,name:`Test The Exact Engine Release Request (shard ${i+1}/4)`,status:'completed',conclusion:'success',steps:[...legacySteps,{name:'Require the Backup Engine certificate for this exact SHA',status:'completed',conclusion:'success'}]})),f.jobs[1]];
+ assert.equal(stageAdmission(f.run,legacy,sha,{receiverContainsCandidate:true,bindingLog:bindingLog(sha)}).receiver_sha,receiver);
+ assert.throws(()=>stageAdmission(f.run,legacy,sha,{receiverContainsCandidate:true,bindingLog:bindingLog(receiver)}));
+ // Evidence collection reads only the binding job log and that exact candidate's prequalification.
+ const reads=[];const readers={readPages:async(path,key)=>{reads.push(path);return path.includes('/workflows/')?[f.qual]:f.qjobs;},readLog:async id=>{reads.push('log '+id);return bindingLog(sha);},isAncestor:(a,b)=>{reads.push(`ancestor ${a} ${b}`);return true;},serverTree:()=>tree};
+ const evidence=await releaseEvidence(f.run,f.jobs,{candidate_sha:sha,image_id:image},readers);
+ assert.deepEqual(reads,[`ancestor ${sha} ${receiver}`,'log 901',`/actions/workflows/engine-release-prequalification.yml/runs?branch=main&head_sha=${sha}`,'/actions/runs/800/jobs?filter=latest']);
+ assert.equal(stageAdmission(f.run,f.jobs,sha,evidence).image_id,image);
+ assert.deepEqual(await releaseEvidence({...f.run,head_sha:sha},legacy,{candidate_sha:sha,image_id:image},{}),{});
+});
+function censusRows(count){
+ const contexts=Array.from({length:count},(_,i)=>({context:{street:'river',slot:i},cases:[]})),protocol={format:'public_hist215_runtime_parity_protocol_v1',contexts};
+ return contexts.map(g=>({context:g.context,runtime_parity_protocol:protocol}));
+}
+function census(rows){let a=null;const seen=new Set();for(const r of rows){a=censusAuthority(a,r);seen.add(digest(r.context));}return {a,seen};}
+test('census comes from the dataset pinned protocol: R7 still 107, R8 100',()=>{
+ const r7=census(censusRows(107));assert.equal(censusComplete(r7.a,r7.seen,R7_RESUME_HANDOFF.dataset),107);assert.equal(censusComplete(r7.a,r7.seen,CORRECTED_R7_RESUME_HANDOFF.dataset),107);
+ assert.equal(R7_CENSUS[R7_RESUME_HANDOFF.dataset],107);
+ const r8=census(censusRows(100));assert.equal(censusComplete(r8.a,r8.seen,'1dc9a1b8-a78b-46c9-86f6-9b9bfa0d8c3b'),100);
+ assert.throws(()=>censusComplete(r8.a,r8.seen,R7_RESUME_HANDOFF.dataset),/R7 107/);
+ const short=census(censusRows(107).slice(0,106));assert.throws(()=>censusComplete(short.a,short.seen,R7_RESUME_HANDOFF.dataset),/107-context/);
+ const r8short=census(censusRows(100).slice(1));assert.throws(()=>censusComplete(r8short.a,r8short.seen,'1dc9a1b8-a78b-46c9-86f6-9b9bfa0d8c3b'),/100-context/);
+ const foreign=new Set([...r8.seen].slice(1));foreign.add(hex);assert.throws(()=>censusComplete(r8.a,foreign,'1dc9a1b8-a78b-46c9-86f6-9b9bfa0d8c3b'));
+ const rows=censusRows(100),other=censusRows(101);assert.throws(()=>census([...rows.slice(0,50),other[50]]),/One pinned dataset runtime protocol/);
+ assert.throws(()=>censusAuthority(null,{runtime_parity_protocol:{contexts:[]}}));
+ const duplicate=censusRows(2);duplicate[0].runtime_parity_protocol.contexts[1].context=duplicate[0].runtime_parity_protocol.contexts[0].context;assert.throws(()=>censusAuthority(null,duplicate[0]),/Unique/);
+ const source=readFileSync(new URL('./public215-linux-preflight.mjs',import.meta.url),'utf8');
+ assert.doesNotMatch(source,/count===107|count===100/);assert.match(source,/census=censusAuthority\(census,row\)/);assert.match(source,/count===censusComplete\(census,observed,selected.dataset\)/);
 });

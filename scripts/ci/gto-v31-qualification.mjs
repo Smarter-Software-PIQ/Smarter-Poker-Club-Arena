@@ -39,14 +39,21 @@ export function invocation({ eventName, ref, repository, repositoryId, inputs })
   if (eventName !== 'workflow_dispatch' || ref !== 'refs/heads/main' || !isClubArenaRepository(repository, repositoryId))
     throw new Error('Only an explicit dispatch on this repository protected main is admitted');
   const keys = inputs && typeof inputs === 'object' ? Object.keys(inputs).sort().join(',') : '';
-  if (!['dataset,operation', 'dataset,operation,reason'].includes(keys) ||
-      typeof inputs.dataset !== 'string' || !UUID.test(inputs.dataset) || !['evaluate', 'promote', 'recheck'].includes(inputs.operation))
-    throw new Error('A canonical dataset UUID and explicit evaluate/promote/recheck operation are required');
+  if (!['dataset,operation', 'dataset,operation,reason', 'dataset,engine,operation', 'dataset,engine,operation,reason'].includes(keys) ||
+      typeof inputs.dataset !== 'string' || !UUID.test(inputs.dataset) || !['evaluate', 'promote', 'recheck', 'prescreen'].includes(inputs.operation))
+    throw new Error('A canonical dataset UUID and explicit evaluate/promote/recheck/prescreen operation are required');
   const reason = inputs.reason ?? '';
   if (typeof reason !== 'string' || (reason !== '' &&
       (reason.trim().length < 20 || reason.length > 500 || /[\u0000-\u001f\u007f]/.test(reason))))
     throw new Error('An audited reason is 20 to 500 printable characters');
-  return { dataset: inputs.dataset, operation: inputs.operation, reason: reason.trim() || null };
+  // engine names the commit a stand-alone pre-screen plays; every other operation
+  // takes its commit from the database and the serving engine, never from input.
+  const engine = inputs.engine ?? '';
+  if (typeof engine !== 'string' || (engine !== '' && (inputs.operation !== 'prescreen' || !fullSha(engine))))
+    throw new Error('An engine commit is a full 40-character commit and is admitted only for prescreen');
+  const selected = { dataset: inputs.dataset, operation: inputs.operation, reason: reason.trim() || null };
+  if (inputs.operation === 'prescreen') selected.engine = engine || null;
+  return selected;
 }
 
 export function servingIdentity(body) {
@@ -461,7 +468,21 @@ function provider() {
   return `github-actions:${process.env.GITHUB_REPOSITORY}:run-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}:${process.env.GITHUB_ACTOR ?? 'unknown'}`.slice(0, 200);
 }
 
-async function resolveEvaluation(selected, directory, contextPath) {
+/**
+ * The epoch choice an evaluate dispatch would make, read-only: the plan phase
+ * records it before the pre-screen, and resolve recomputes it and refuses to
+ * open or resume an epoch for any other engine commit than the screened one.
+ */
+export function plannedPinHolds(plan, dataset, choice) {
+  if (!plan || plan.operation !== 'evaluate' || plan.dataset !== dataset || !fullSha(plan.releaseSha))
+    throw new Error('The read-only plan of this evaluate dispatch is missing; the pre-screen must run first');
+  if (!fullSha(choice?.engineSha) || choice.engineSha !== plan.releaseSha)
+    throw new Error(`The pin moved from the pre-screened engine ${plan.releaseSha} to ${choice?.engineSha}; ` +
+      'nothing was opened. Dispatch evaluate again so the new pin is pre-screened');
+  return true;
+}
+
+async function chooseEvaluation(selected) {
   const control = resolve(process.env.GITHUB_WORKSPACE, 'control');
   if (git(control, ['rev-parse', 'HEAD']) !== process.env.GITHUB_SHA) throw new Error('Control checkout differs from the dispatched protected commit');
   const serving = await healthy();
@@ -474,10 +495,41 @@ async function resolveEvaluation(selected, directory, contextPath) {
     epochAware: (sha) => epochAwareCommit(control, sha),
     compatibleWithServing: compatibility?.compatible });
   protectedCommit(control, choice.engineSha);
+  // The pin's closure must be complete before an epoch is spent on it.
+  if (choice.action !== 'resume') closureCompatible(control, choice.engineSha, choice.engineSha);
+  return { serving, epoch, compatibility, choice };
+}
+
+/**
+ * Read-only: which engine commit this dispatch pins. Writes nothing to the database.
+ * A stand-alone prescreen plays the commit evaluate would pin, or an explicit
+ * protected-main commit (an earlier epoch pin, say), and then stops.
+ */
+export async function planEvaluation(selected, directory) {
+  let plan;
+  if (selected.operation === 'prescreen' && selected.engine) {
+    const control = resolve(process.env.GITHUB_WORKSPACE, 'control');
+    if (git(control, ['rev-parse', 'HEAD']) !== process.env.GITHUB_SHA) throw new Error('Control checkout differs from the dispatched protected commit');
+    protectedCommit(control, selected.engine);
+    plan = { dataset: selected.dataset, operation: 'prescreen', releaseSha: selected.engine, action: 'explicit', servingAtPlan: null, epochNo: null };
+  } else {
+    const { serving, epoch, choice } = await chooseEvaluation(selected);
+    plan = { dataset: selected.dataset, operation: selected.operation, releaseSha: choice.engineSha, action: choice.action,
+      servingAtPlan: serving.releaseSha, epochNo: epoch?.epoch_no ?? null };
+  }
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, 'plan.json'), JSON.stringify(plan) + '\n');
+  appendFileSync(process.env.GITHUB_OUTPUT, `source_sha=${plan.releaseSha}\nreceipt_directory=${directory}\n`);
+  console.log(plan.action === 'explicit'
+    ? `Pre-screen only, at the explicit protected commit ${plan.releaseSha}; nothing will be opened`
+    : `${plan.operation === 'prescreen' ? 'Pre-screen only, at the commit evaluate' : 'Evaluate'} would ${plan.action} an epoch pinned to ${plan.releaseSha} (serving ${plan.servingAtPlan}); nothing opened`);
+}
+
+async function resolveEvaluation(selected, directory, contextPath) {
+  const { serving, epoch, compatibility, choice } = await chooseEvaluation(selected);
+  plannedPinHolds(JSON.parse(readFileSync(join(directory, 'plan.json'), 'utf8')), selected.dataset, choice);
   let opened = null;
   if (choice.action !== 'resume') {
-    // The pin's closure must be complete before an epoch is spent on it.
-    closureCompatible(control, choice.engineSha, choice.engineSha);
     opened = await rpc('fn_gto_v31_open_evaluation_epoch', { p_dataset_id: selected.dataset,
       p_engine_commit: choice.engineSha, p_opened_by: provider(), p_reason: choice.reason });
     if (!UUID.test(opened?.epoch_id ?? '') || opened.engine_commit !== choice.engineSha)
@@ -679,6 +731,7 @@ async function main() {
   const directory = join(process.env.RUNNER_TEMP, `gto-v31-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`);
   const contextPath = join(directory, 'context.json');
   const phase = process.argv[2];
+  if (phase === 'plan' && (selected.operation === 'evaluate' || selected.operation === 'prescreen')) return planEvaluation(selected, directory);
   if (phase === 'resolve' && selected.operation === 'evaluate') return resolveEvaluation(selected, directory, contextPath);
   if (phase === 'run' && selected.operation === 'evaluate') return runEvaluation(selected, directory, contextPath);
   if (phase === 'promote' && selected.operation === 'promote') return runPromotion(selected, directory);

@@ -106,8 +106,13 @@ describe('the recovery sweep reopens a table closed under a live tournament', ()
   });
 
   it('reopens the husk to waiting and restarts its human window', () => {
+    /* `seats` since 2026-11-08: a repaired board gets a fresh rung of ITS OWN
+       ladder (60-80 min for a Spin, 3-4 hours for a heads-up), so the plan
+       carries the seat count. A row with no max_players reports 0, which the
+       ladder reads as the longer heads-up wait - a repaired board of unknown
+       shape waits longer rather than dealing early, which is the safe side. */
     const plans = planTableReopens(
-      [{ id: 'sng-1', status: 'REGISTERING' }],
+      [{ id: 'sng-1', status: 'REGISTERING', max_players: 2 }],
       [closedTable],
       new Map()
     );
@@ -118,6 +123,7 @@ describe('the recovery sweep reopens a table closed under a live tournament', ()
         toStatus: 'waiting',
         currentPlayers: 0,
         refreshHumanWindow: true,
+        seats: 2,
       },
     ]);
   });
@@ -146,7 +152,7 @@ describe('the recovery sweep reopens a table closed under a live tournament', ()
 
   it('puts a RUNNING field back on its felt with its seat count resynced', () => {
     const plans = planTableReopens(
-      [{ id: 'mtt-1', status: 'RUNNING' }],
+      [{ id: 'mtt-1', status: 'RUNNING', max_players: 9 }],
       [{ ...closedTable, tournament_id: 'mtt-1' }],
       new Map([['tbl-closed', 6]])
     );
@@ -157,6 +163,7 @@ describe('the recovery sweep reopens a table closed under a live tournament', ()
         toStatus: 'running',
         currentPlayers: 6,
         refreshHumanWindow: false,
+        seats: 9,
       },
     ]);
   });

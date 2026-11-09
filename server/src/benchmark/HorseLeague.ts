@@ -2129,6 +2129,21 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { readBreakEvenBluff: true },
     b: {},
   },
+  // OMAHA EV FOLD MODEL (2026-11-08, Omaha threshold calibration; HorseMind
+  // OMAHA_EV_FOLD_MODEL): the EV bet engine's fold multiplier in PLO4/5/6
+  // is the game's measured fold share over MDF scaled by the opponent's
+  // shrunk postflop fold read. Default ON; both arms are explicit, so arm A
+  // is the model and arm B the old multiplier whatever the default.
+  ...(['plo4', 'plo5', 'plo6'] as const).map((variant) => ({
+    name: `${variant}_omaha_ev_fold`,
+    variant,
+    pairs: 6000,
+    a: { omahaEvFoldModel: true },
+    b: { omahaEvFoldModel: false },
+  })),
+  // No tournament card: the model is cash only (tournament Omaha players fold
+  // about MDF), so a tournament table is inert by construction (0 of 12,000
+  // plo4 40bb tournament pairs diverged).
   // The calibrated-human twins of these cards (the same arms against
   // HUMAN_CALIBRATED_POPULATION_ID) were measured for the flag's evidence but
   // are not standing cards: the flag changes about one human-field pair in
