@@ -11,7 +11,7 @@ import {
   HORSE_FEATURE_AUTHORITY_VERSION,
   HORSE_FEATURE_FLAGS,
   admitHorseFeatureReleaseAuthority,
-  admittedHorseFeatureFlags,
+  horseFeatureDomainVerdict,
   type HorseFeatureFlags,
 } from '../HorseFeatureAuthority.js';
 import {
@@ -883,12 +883,20 @@ export class HorseDecisionWorkerRuntime {
       };
     const a = this.featureAuthority.current(),
       receipt = this.featureAuthority.receipt();
-    const flags = admittedHorseFeatureFlags(
+    const verdict = horseFeatureDomainVerdict(
       a,
       this.featureAuthority.verdict(receipt, Date.now()) === 'usable',
       request.gameState,
       request.opts
     );
+    // Only a selected authority has a domain to be inside or outside of.
+    if (verdict.status === 'admitted')
+      this.deps.noteFeature('horse_feature_authority_admitted_in_domain');
+    else if (verdict.reason === 'outside_admitted_domain')
+      this.deps.noteFeature('horse_feature_authority_outside_admitted_domain');
+    else if (verdict.reason !== 'no_authority')
+      this.deps.noteFeature(`horse_feature_authority_refused_${verdict.reason}`);
+    const flags = verdict.flags;
     return {
       flags,
       receipt:

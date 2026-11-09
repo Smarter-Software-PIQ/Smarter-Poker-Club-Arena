@@ -5,6 +5,7 @@ import { featureLiveDomainRefusals } from './HorseFeatureLiveDomain.js';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { HORSE_REFERENCE_DECISION_SOURCE_FILES } from './HorseReferenceDecisionSources.js';
+import { HORSE_DECISION_CLOSURE_BINDING, horseDecisionClosure } from './HorseDecisionClosure.js';
 import { fileURLToPath } from 'node:url';
 import {
   canonical,
@@ -110,6 +111,7 @@ export function admitHorseFeatureAuthority(
       | 'not_qualified'
       | 'source_mismatch'
       | 'policy_digest_mismatch'
+      | 'policy_digest_unavailable'
       | 'expired'
       | 'unselected'
   ): HorseAuthorityAdmission => ({ status: 'refused', reason, transient: false });
@@ -251,10 +253,32 @@ export function admitHorseFeatureAuthority(
       return refuse('policy_digest_mismatch');
     if (sourcePaths().some((p) => !Object.prototype.hasOwnProperty.call(files, p)))
       return refuse('policy_digest_mismatch');
+    // A closure-bound plan binds exactly the decision closure recomputed from
+    // the shipped bytes: a new import, a moved helper or a dropped file
+    // refuses. A plan without sourceBinding keeps the whole-tree binding.
+    if (plan.sourceBinding !== undefined) {
+      if (plan.sourceBinding !== HORSE_DECISION_CLOSURE_BINDING)
+        return refuse('policy_digest_mismatch');
+      let closure: string[];
+      try {
+        closure = featureAuthorityClosure(readSource, sourcePaths());
+      } catch {
+        // A missing or unreadable shipped file is not different bytes: the
+        // running closure cannot be computed at all (the Phase 10-13 name).
+        return refuse('policy_digest_unavailable');
+      }
+      if (hash(closure) !== hash(Object.keys(files).sort()))
+        return refuse('policy_digest_mismatch');
+    }
+    // Only a closure-bound plan may bind a non-TypeScript module (the walker
+    // follows .mjs imports); the whole-tree binding stays .ts/.json exactly.
+    const boundPath =
+      plan.sourceBinding === HORSE_DECISION_CLOSURE_BINDING
+        ? /^src\/[A-Za-z0-9_./-]+\.(ts|json|mjs)$/
+        : /^src\/[A-Za-z0-9_./-]+\.(ts|json)$/;
     for (const [p, h] of Object.entries(files)) {
       if (
-        (!/^src\/[A-Za-z0-9_./-]+\.(ts|json)$/.test(p) &&
-          !HORSE_REFERENCE_DECISION_SOURCE_FILES.includes(p)) ||
+        (!boundPath.test(p) && !HORSE_REFERENCE_DECISION_SOURCE_FILES.includes(p)) ||
         p.includes('..') ||
         !hex(h, 64) ||
         bytesHash(readSource(p)) !== h
@@ -318,6 +342,13 @@ export function runningFeatureSourcePaths(): string[] {
       'src/types.ts',
     ]),
   ].sort();
+}
+/** The exact closure a closure-bound feature plan binds (HorseDecisionClosure.ts). */
+export function featureAuthorityClosure(
+  read: (p: string) => Buffer | string,
+  singles: readonly string[] = runningFeatureSourcePaths()
+): string[] {
+  return horseDecisionClosure(read, singles);
 }
 function validFeatureEconomics(d: HorseFeatureDomain): boolean {
   return (
@@ -388,6 +419,33 @@ export function featureDomainMatches(d: HorseFeatureDomain, gs: HorseGameStateV2
     unmeasuredLiveRulesAbsent(gs)
   );
 }
+/** Per-decision verdict of a selected feature authority. A selection is
+ * measured on one admitted domain (its plan's live profile, and for a
+ * domain-scoped plan nothing else was measured at all); any decision outside
+ * it is refused with its own receipt, never silently treated as unselected. */
+export type HorseFeatureDomainVerdict =
+  | { status: 'admitted'; flags: HorseFeatureFlags }
+  | {
+      status: 'refused';
+      reason: 'no_authority' | 'unusable' | 'outside_admitted_domain' | 'partial_disable';
+      flags: HorseFeatureFlags;
+    };
+export function horseFeatureDomainVerdict(
+  authority: HorseQualifiedAuthority | null,
+  usable: boolean,
+  gs: HorseGameStateV2,
+  caller: Partial<HorseFeatureFlags> | undefined
+): HorseFeatureDomainVerdict {
+  const refused = (reason: Extract<HorseFeatureDomainVerdict, { status: 'refused' }>['reason']) =>
+    ({ status: 'refused', reason, flags: off() }) as const;
+  if (!authority?.featureFlags || !authority.featureDomain) return refused('no_authority');
+  if (!usable) return refused('unusable');
+  if (!featureDomainMatches(authority.featureDomain, gs)) return refused('outside_admitted_domain');
+  // A package cannot silently become a partially disabled, unqualified mixture.
+  if (HORSE_FEATURE_FLAGS.some((k) => authority.featureFlags?.[k] && caller?.[k] === false))
+    return refused('partial_disable');
+  return { status: 'admitted', flags: { ...authority.featureFlags } };
+}
 /** LIVE RULES THE QUALIFICATION HARNESS NEVER DEALS (independent review,
  * 2026-11-09). Admitting the real snapshot must not admit what was never
  * measured: a table commitment cap (the harness sets commitmentCapRemaining
@@ -453,17 +511,7 @@ export function admittedHorseFeatureFlags(
   gs: HorseGameStateV2,
   caller: Partial<HorseFeatureFlags> | undefined
 ): HorseFeatureFlags {
-  if (
-    !usable ||
-    !authority?.featureFlags ||
-    !authority.featureDomain ||
-    !featureDomainMatches(authority.featureDomain, gs)
-  )
-    return off();
-  // A package cannot silently become a partially disabled, unqualified mixture.
-  if (HORSE_FEATURE_FLAGS.some((k) => authority.featureFlags?.[k] && caller?.[k] === false))
-    return off();
-  return { ...authority.featureFlags };
+  return horseFeatureDomainVerdict(authority, usable, gs, caller).flags;
 }
 export function horseFeatureAcceptanceUsable(
   decision: HorseDecision,

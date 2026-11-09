@@ -26,6 +26,7 @@ import {
   type IncrementalTarget,
 } from './IncrementalPressureDevelopment.js';
 import { PLO4_STRENGTH_CONTRACT } from './Plo4StrengthContract.js';
+import { publishedCashPricing as cashPricing } from '../config/leagueCashPricing.js';
 import {
   runFeatureAblationContract,
   runFeatureAblationDevelopment,
@@ -664,4 +665,132 @@ test('separate river schemas preserve exact components and old families remain u
       assert.ok(validateLockedFeatureAblationPlan(wrong).includes('one_flag_contrast'));
     }
   }
+});
+
+// Domain-scoped plans (2026-11-08): every gate applies unchanged to the
+// declared profiles; an unscoped plan still needs every variant and shape.
+function scoped(target: IncrementalTarget = 'river_position_defense') {
+  const p = fixture(target);
+  const keep = (x: any) => x.variant === 'nlh' && x.seats === 2 && x.stackBB === 100;
+  p.profiles = p.profiles.filter(keep);
+  p.matrix = p.matrix.filter((c: any) => p.profiles.some((x: any) => x.id === c.profileId));
+  p.coverage.byProfile = Object.fromEntries(
+    Object.entries(p.coverage.byProfile).filter(([id]) => p.profiles.some((x: any) => x.id === id))
+  );
+  p.admittedDomain = {
+    schema: 'horse-feature-admitted-domain-v1',
+    variant: 'nlh',
+    dealtSeats: 2,
+    stackBB: 100,
+  };
+  p.liveAdmission = {
+    schema: 'horse-feature-live-domain-v1',
+    profileId: p.profiles[0].id,
+    domain: {
+      variant: 'nlh',
+      mode: 'cash',
+      asset: 'chips',
+      chipUnit: 0.01,
+      boardCount: 1,
+      smallBlind: 1,
+      bigBlind: 2,
+      ante: 0,
+      bigBlindAnte: false,
+      bettingStructure: 'no_limit',
+      sidePots: false,
+      dealtSeats: [2],
+      remainingPlayers: [2],
+      startingStackBB: 100,
+      effectiveStackBB: [0, 100],
+      ...cashPricing({ variant: 'nlh', tournament: false, seats: 2, tableSeats: 6 }),
+    },
+  };
+  for (const f of [
+    'src/engine/HorseFeatureAuthority.ts',
+    'src/engine/HorseFeatureLiveDomain.ts',
+    'src/config/leagueCashPricing.ts',
+  ])
+    p.runtimeSourceFiles[f] = H;
+  p.runtimeSourceDigest = hash(p.runtimeSourceFiles);
+  return p;
+}
+test('a domain-scoped plan measures exactly its admitted domain under unchanged gates', async () => {
+  const { summarizeFeatureAblationQualification } =
+    await import('./FeatureAblationQualification.js');
+  const p = scoped();
+  assert.equal(p.profiles.length, 1);
+  assert.deepEqual(validateLockedFeatureAblationPlan(p), []);
+  // Every gate still applies to the declared profile: three seeds, all cells.
+  const summary = summarizeFeatureAblationQualification(p, []);
+  assert.equal(summary.qualified, false);
+  assert.deepEqual(
+    [...summary.reasons].sort(),
+    p.matrix.map((c: any) => 'missing_cell:' + c.key).sort()
+  );
+  assert.equal(p.matrix.length, 3);
+  // Unbound to runtime: a scope must be carried into the selection.
+  const unbound = structuredClone(p);
+  delete unbound.liveAdmission;
+  assert.ok(validateLockedFeatureAblationPlan(unbound).includes('admitted_domain_live_binding'));
+  // Declared profiles must cover the admitted domain, and only it.
+  const extra = structuredClone(p);
+  const outside = fixture('river_position_defense').profiles.find(
+    (x: any) => x.variant === 'nlh' && x.seats === 4
+  );
+  extra.profiles.push(outside);
+  assert.ok(validateLockedFeatureAblationPlan(extra).includes('admitted_domain_coverage'));
+  const uncovered = structuredClone(p);
+  uncovered.admittedDomain.variant = 'plo4';
+  assert.notDeepEqual(validateLockedFeatureAblationPlan(uncovered), []);
+  const empty = structuredClone(p);
+  empty.profiles = [];
+  assert.ok(validateLockedFeatureAblationPlan(empty).includes('admitted_domain_coverage'));
+  for (const change of [
+    { dealtSeats: 3 },
+    { stackBB: 150 },
+    { variant: 'shortdeck' },
+    { schema: 'other' },
+    { extra: 1 },
+  ]) {
+    const bad = structuredClone(p);
+    Object.assign(bad.admittedDomain, change);
+    assert.ok(
+      validateLockedFeatureAblationPlan(bad).includes('admitted_domain'),
+      JSON.stringify(change)
+    );
+  }
+  // The live profile must lie inside the admitted domain.
+  const liveOutside = structuredClone(p);
+  liveOutside.admittedDomain.stackBB = 40;
+  liveOutside.admittedDomain.dealtSeats = 6;
+  assert.notDeepEqual(validateLockedFeatureAblationPlan(liveOutside), []);
+  // Coverage minimum still has to be positive.
+  const zero = structuredClone(p);
+  zero.coverage.byProfile[p.profiles[0].id].acceptedHeroContrastsMinimum = 0;
+  assert.ok(
+    validateLockedFeatureAblationPlan(zero).includes('coverage_minima:' + p.profiles[0].id)
+  );
+});
+test('an unscoped plan still requires every variant and registered shape exactly as before', () => {
+  const p = fixture('river_position_defense');
+  assert.equal(p.profiles.length, 20);
+  assert.deepEqual(validateLockedFeatureAblationPlan(p), []);
+  const narrowed = structuredClone(p);
+  narrowed.profiles = narrowed.profiles.filter((x: any) => x.variant === 'nlh' && x.seats === 2);
+  narrowed.matrix = narrowed.matrix.filter((c: any) =>
+    narrowed.profiles.some((x: any) => x.id === c.profileId)
+  );
+  narrowed.coverage.byProfile = Object.fromEntries(
+    Object.entries(narrowed.coverage.byProfile).filter(([id]) =>
+      narrowed.profiles.some((x: any) => x.id === id)
+    )
+  );
+  const reasons = validateLockedFeatureAblationPlan(narrowed);
+  for (const v of ['nlh', 'plo4', 'plo5', 'plo6'])
+    assert.ok(reasons.includes('physical_profiles:' + v), v);
+  const binding = structuredClone(p);
+  binding.sourceBinding = 'whole-tree-v2';
+  assert.ok(validateLockedFeatureAblationPlan(binding).includes('runtime_source_closure'));
+  binding.sourceBinding = 'horse-decision-closure-v1';
+  assert.deepEqual(validateLockedFeatureAblationPlan(binding), []);
 });

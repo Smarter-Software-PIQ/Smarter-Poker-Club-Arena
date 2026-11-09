@@ -1816,6 +1816,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'Feature authority'
   ),
   receipt(
+    'horse_feature_authority_admitted_in_domain',
+    'workerRuntime feature domain verdict',
+    'A selected feature authority applied to a decision inside its admitted (measured) domain',
+    'Feature authority'
+  ),
+  receipt(
+    'horse_feature_authority_outside_admitted_domain',
+    'workerRuntime feature domain verdict',
+    'A selected feature authority refused a decision outside its admitted (measured) domain; the reference decision runs unchanged',
+    'Feature authority'
+  ),
+  receipt(
+    'horse_feature_authority_refused_*',
+    'workerRuntime feature domain verdict',
+    'A selected feature authority refused a decision because it was not usable or the caller disabled part of the qualified package',
+    'Feature authority'
+  ),
+  receipt(
     'horse_observer_history_*',
     'HorseOwnPublicHistory original observer load',
     'Unavailable original history and source/deadline/provider failures remain distinct from an empty learned read',
