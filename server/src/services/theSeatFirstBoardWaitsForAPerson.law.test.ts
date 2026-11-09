@@ -177,6 +177,28 @@ describe('5. the open board is eleven Spins and six regular heads-up', () => {
     expect(room).toMatch(/boardOpenTarget\(variant\) - count/);
   });
 
+  it('a satellite feeder is not counted into the board it sits beside', () => {
+    /* Measured on production 2026-11-08, before the ladder activated. A
+       satellite feeder carries `variant: 'sng'` in both shapes it takes:
+       `tournament_type: 'SATELLITE'` (createSatelliteHeadsUp) and
+       `tournament_type: 'SNG'` with `satellite_target_id` set (the 6-max and
+       9-max feeders, which are the ones that actually run). Counting by
+       variant alone put 60 open feeders against a target of six beside 36
+       real boards, which closes the regular heads-up board completely while
+       the count reads as "full". Dan put the feeders outside the six, and the
+       engine must call a feeder a feeder by the same test the daily report
+       uses (fn_ca_seat_first_daily_starts). */
+    const room = RECURRING.slice(
+      RECURRING.indexOf('private async seatFirstBoardRoom('),
+      RECURRING.indexOf('private async checkAndLaunchSNGs(')
+    );
+    expect(room).toMatch(
+      /\.eq\('tournament_type', variant === 'spin' \? 'SPIN' : 'SNG'\)/
+    );
+    expect(room).toMatch(/\.is\('satellite_target_id', null\)/);
+    expect(room).toMatch(/\.is\('satellite_target', null\)/);
+  });
+
   it('a count it could not read opens nothing, rather than reading as room to spare', () => {
     // CLAUDE.md 10.86. Defaulting to "plenty of room" would re-open the whole
     // 64-config catalogue, which is the failure the target exists to prevent.
