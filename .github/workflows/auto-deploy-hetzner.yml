@@ -1195,3 +1195,16 @@ jobs:
           [[ "$RECEIVER_ID" =~ ^[0-9]+$ ]] \
             || { echo '::error::GitHub accepted the exact certification event but no correlated post-deploy E2E run appeared.'; exit 1; }
           echo "Post-deploy E2E receiver $RECEIVER_ID accepted exact engine component $ENGINE_SHA."
+
+          if [ "$RELEASE_RESULT" = sealed ]; then
+            title="Backup after seal $GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+            backup_id=''
+            for _ in $(seq 1 8); do
+              backup_id=$(gh api "repos/$REPO/actions/workflows/backup-engine.yml/runs?event=repository_dispatch&per_page=30" |
+                jq -r --arg title "$title" '[.workflow_runs[] | select(.display_title==$title)][0].id // empty')
+              [ -z "$backup_id" ] || break
+              sleep 5
+            done
+            [[ "$backup_id" =~ ^[1-9][0-9]*$ ]] || { echo '::error::No Backup run accepted the original sealed release event'; exit 1; }
+            echo "Backup run $backup_id accepted sealed receiver $GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT for $ENGINE_SHA"
+          fi

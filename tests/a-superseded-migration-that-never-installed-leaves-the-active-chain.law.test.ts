@@ -18,6 +18,12 @@
  * under supabase/migrations/ to be installed, so a file that is superseded and
  * never ran made every candidate after #10142 unselectable.
  *
+ * Third case, same day: 20261109152550 (#10187) was refused before any
+ * database write (PL/pgSQL PERFORM at top-level SQL) and superseded by
+ * 20261109163346 (#10200). Its escrow-shadow patch is owned by the installed
+ * 20261109151859, whose live function digest equals the postimage 152550
+ * demanded; every other statement is carried by 20261109163346.
+ *
  * The disposition is the repository's own for never-installed migrations
  * (supabase/retired-unapplied/, as for the Stage-B chain): the exact bytes
  * move out of the active chain into the archive and are sealed here by
@@ -39,6 +45,10 @@ const manifestPath = resolve(archive, 'SUPERSEDED-UNINSTALLED.sha256');
 const SLUG = 'the_bbj_promo_sweep_label_states_the_allocation_actually_use.sql';
 const SUPERSEDING = `20261109073642_${SLUG}`;
 const retired = new Map([
+  [
+    '20261109152550_settle_capped_satellites_and_resolve_nov08_digest_attention.sql',
+    'c8c10ed9b8a14d04eaa1dcd5019fb7c23b87f8d666e715458544354ec6dc2661',
+  ],
   [
     '20261109132114_split_late_credit_journals_its_own_return.sql',
     '7f31b64193626fc592f9b69a0afa15961adad95d4de7574ad1b11d5bfd034aa3',
@@ -66,7 +76,11 @@ describe('a superseded migration that never installed leaves the active chain', 
       const bytes = readFileSync(resolve(archive, file));
       expect(manifest.get(file), `${file} manifest digest drifted`).toBe(sha);
       expect(createHash('sha256').update(bytes).digest('hex'), `${file} bytes drifted`).toBe(sha);
-      const successor = file.startsWith('20261109132114_') ? '20261109140919' : '20261109073642';
+      const successor = file.startsWith('20261109132114_')
+        ? '20261109140919'
+        : file.startsWith('20261109152550_')
+          ? '20261109163346'
+          : '20261109073642';
       expect(bytes.toString('utf8').split('\n')[0]).toBe(`-- SUPERSEDED BY ${successor}`);
       expect(readdirSync(active).filter((f) => f.startsWith(`${successor}_`))).toHaveLength(1);
     }
