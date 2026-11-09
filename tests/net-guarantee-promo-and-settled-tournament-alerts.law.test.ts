@@ -49,9 +49,10 @@ describe('net guarantee promo conservation and settled tournament alert closure'
     expect(escrow.sql, `${escrow.file} must keep net_guarantee_promo in escrow shadow`).toContain(
       'net_guarantee_promo'
     );
-    expect(escrow.sql, `${escrow.file} must keep free_buy_entry_promo in escrow shadow`).toContain(
-      'free_buy_entry_promo'
-    );
+    expect(
+      escrow.sql,
+      `${escrow.file} must keep guarantee_promo_excess_return in escrow shadow`
+    ).toContain('guarantee_promo_excess_return');
 
     const delta = newestMentioning(
       /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+public\.fn_tournament_conservation_delta\(|pg_get_functiondef\('public\.fn_tournament_conservation_delta\(/
