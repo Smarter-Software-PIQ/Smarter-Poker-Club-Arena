@@ -384,7 +384,22 @@ export function featureDomainMatches(d: HorseFeatureDomain, gs: HorseGameStateV2
     liveRakeMatches(gs.rakeConfig, d.rakeConfig) &&
     gs.bbjConfig !== undefined &&
     hash(gs.bbjConfig) === hash(d.bbjConfig) &&
-    noSidePot(gs)
+    noSidePot(gs) &&
+    unmeasuredLiveRulesAbsent(gs)
+  );
+}
+/** LIVE RULES THE QUALIFICATION HARNESS NEVER DEALS (independent review,
+ * 2026-11-09). Admitting the real snapshot must not admit what was never
+ * measured: a table commitment cap (the harness sets commitmentCapRemaining
+ * null), a dealt seat sitting out (the harness hard-codes false), a dead
+ * blind (the harness posts none) or a Lightning hand (a ring-game domain). */
+function unmeasuredLiveRulesAbsent(gs: HorseGameStateV2): boolean {
+  const dealt = gs.players.filter((p) => gs.dealtSeatIds?.includes(p.seat));
+  return (
+    gs.wagersCapped !== true &&
+    gs.commitmentCapRemaining == null &&
+    gs.publicMemoryDomain?.speed !== 'lightning' &&
+    dealt.every((p) => p.is_sitting_out !== true && !((p.deadInvested ?? 0) > 0))
   );
 }
 /** THE LIVE RAKE SNAPSHOT CARRIES ITS POLICY LABEL (2026-11-08). Every cash
