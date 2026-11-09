@@ -2618,8 +2618,25 @@ test.describe('embedded mobile action-row geometry', () => {
                 measured.rowTop,
                 `${width}px inset${bottomInset} ticker${ticker} ${state}: hero cards`
               ).toBeGreaterThanOrEqual(measured.cardsBottom + 1);
+              // Dan 2026-11-09: "the fold check bet buttons are too small on
+              // movile, they should be double the current size." 52 -> 96, the
+              // most the ring can give before a villain's name plate comes to
+              // rest on the painted felt (measured; 98 is the ceiling, 100 is
+              // not). The number is read from the stylesheet rather than
+              // repeated here, so this beat keeps pinning "every button in the
+              // row is the declared height" without becoming a second place
+              // that has to be kept equal to --sp-action-btn-h.
+              const declaredButtonHeight = await page.evaluate(() =>
+                parseFloat(
+                  getComputedStyle(document.documentElement).getPropertyValue('--sp-action-btn-h')
+                )
+              );
+              expect(declaredButtonHeight, 'the phone action button height').toBeCloseTo(96, 0);
               for (const buttonHeight of measured.buttonHeights)
-                expect(buttonHeight, `${state}: readable button`).toBeCloseTo(52, 0);
+                expect(buttonHeight, `${state}: readable button`).toBeCloseTo(
+                  declaredButtonHeight,
+                  0
+                );
               expect(
                 height - measured.buttonBottom,
                 'Buttons Clear The Home Indicator'
