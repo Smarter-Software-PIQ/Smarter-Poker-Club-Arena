@@ -1,1 +1,17 @@
-{}
+{
+  "283": {
+    "schema": "horse-incremental-crn-family-v1",
+    "members": [
+      {
+        "target": "river_position_defense",
+        "planDigest": "418f16a0d62d3972a68ef8e903d1526f242ee2a48d7d008ad19e4449183a6116"
+      }
+    ],
+    "providerAnchor": {
+      "workflowId": 398426971,
+      "baselineRunId": 42447773710,
+      "baselineRunNumber": 1
+    },
+    "runtimeSourceDigest": "828c6c539521b524a52f882f5ee676c6ae3a201cc6da04f94972d876bd1e4eb3"
+  }
+}

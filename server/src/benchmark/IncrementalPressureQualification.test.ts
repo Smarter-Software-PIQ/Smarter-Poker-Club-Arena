@@ -119,7 +119,12 @@ function fixture(target: IncrementalTarget): any {
 test('separate schema accepts six structural designs but neither empty registry nor JSON grants execution', async () => {
   for (const target of targets) {
     assert.deepEqual(validateLockedFeatureAblationPlan(fixture(target)), []);
-    assert.throws(() => qualificationPlan(target), /plan refused/);
+    if (target === 'river_position_defense')
+      assert.equal(
+        qualificationPlan(target).version,
+        'horse-river-position-defense-nlh-2dealt-100bb-closure-v1'
+      );
+    else assert.throws(() => qualificationPlan(target), /plan refused/);
     await assert.rejects(authenticateIncrementalPlan(fixture(target)), /provider unavailable/);
     let called = 0;
     const profile = incrementalDevelopmentProfiles(target, 'plo4')[0];
@@ -138,16 +143,20 @@ test('separate schema accepts six structural designs but neither empty registry 
           called++;
         }
       ),
-      /plan refused/
+      // The one registered plan gets past the registry and is refused at the
+      // original worker/population check instead; either way nothing is dealt.
+      target === 'river_position_defense' ? /original worker\/population required/ : /plan refused/
     );
     assert.equal(called, 0);
   }
-  assert.deepEqual(
-    JSON.parse(
-      readFileSync(new URL('./IncrementalPressureQualificationPlans.json', import.meta.url), 'utf8')
-    ),
-    {}
+  // The registry holds exactly the one reviewed held-out plan
+  // (docs/horse-measure/2026-11-08/river-position-defense-heldout-plan.md);
+  // every other target stays unregistered and refused above.
+  const registered = JSON.parse(
+    readFileSync(new URL('./IncrementalPressureQualificationPlans.json', import.meta.url), 'utf8')
   );
+  assert.deepEqual(Object.keys(registered), ['river_position_defense']);
+  assert.deepEqual(validateLockedFeatureAblationPlan(registered.river_position_defense), []);
 });
 test('flags, warm seed, physical domain, reserved family and source cannot be substituted', () => {
   for (const mutate of [
@@ -378,14 +387,18 @@ test('joint family locks complete member plans and never reassigns exposed seeds
       ],
     },
   };
+  // Family 283 is registered with exactly one member, river_position_defense
+  // (one-way; see the held-out plan doc). No other family exists.
+  const registeredFamilies = JSON.parse(
+    readFileSync(
+      new URL('./IncrementalPressureQualificationFamilies.json', import.meta.url),
+      'utf8'
+    )
+  );
+  assert.deepEqual(Object.keys(registeredFamilies), ['283']);
   assert.deepEqual(
-    JSON.parse(
-      readFileSync(
-        new URL('./IncrementalPressureQualificationFamilies.json', import.meta.url),
-        'utf8'
-      )
-    ),
-    {}
+    registeredFamilies['283'].members.map((m: { target: string }) => m.target),
+    ['river_position_defense']
   );
   const family = validateIncrementalFamily(a, registry, families);
   assert.throws(() => validateIncrementalFamily(a, registry, {}), /not locked/);
