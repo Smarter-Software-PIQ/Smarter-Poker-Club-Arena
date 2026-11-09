@@ -7,6 +7,8 @@ import {resolve,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {assertClubArenaRepository} from './repository-identity.mjs';
 import {servingIdentity} from './gto-v31-qualification.mjs';
+import {readPages as readPagedCollection} from './pr-status.mjs';
+import {boundedSourceReaders} from './public215-source-admission.mjs';
 const SHA=/^[0-9a-f]{40}$/,HEX=/^[0-9a-f]{64}$/,UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 export const RESOLVE_EXISTING_IMAGE='resolve-existing';
 const IMAGE=/^sha256:[0-9a-f]{64}$/;
@@ -358,7 +360,7 @@ const CAUSES=new Set(['ENOENT','EACCES','ETIMEDOUT','ENOBUFS','ENOTFOUND','EAI_A
 class CollectionRefusal extends Error{constructor(code,facts={}){super(facts.contract??code);this.code=code;this.facts=facts;}}
 const refuse=(code,facts={})=>{throw new CollectionRefusal(code,facts);};
 const causeCode=e=>['AbortError','TimeoutError'].includes(e?.name)?'timeout':CAUSES.has(e?.cause?.code)?e.cause.code:CAUSES.has(e?.code)?e.code:'unavailable';
-export function commandFacts(result,ssh=true){
+export function commandFacts(result,ssh=true,binary=null){
  const stderr=typeof result.stderr==='string'?result.stderr:Buffer.isBuffer(result.stderr)?result.stderr.toString('utf8'):'';
  const native=[...stderr.matchAll(/^PUBLIC215_NATIVE_EXIT=([0-9]{1,3})\r?$/gm)];
  const nativeExit=native.length===1&&Number(native[0][1])<=255?Number(native[0][1]):null;
@@ -369,7 +371,10 @@ export function commandFacts(result,ssh=true){
  const matches=[...stderr.matchAll(/^PUBLIC215_PREFLIGHT_([A-Z0-9_]+)\r?$/gm)].filter(m=>tags.has(m[1]));
  const tag=matches.length===1?'PUBLIC215_PREFLIGHT_'+matches[0][1]:null;
  const http=stderr.match(/\bHTTP ([1-5][0-9]{2})\b/);
- return {command_exit:Number.isInteger(result.status)?result.status:null,ssh_exit:ssh&&Number.isInteger(result.status)?result.status:null,http_status:http?Number(http[1]):null,native_exit:nativeExit,signal:['SIGTERM','SIGKILL','SIGABRT','SIGSEGV'].includes(result.signal)?result.signal:null,errno:result.error?causeCode(result.error):null,host_code:host.length===1?host[0][1]:null,native_code:tag};
+ // Name the refusing tool and whether it said anything, never what it said: a git
+ // ancestry test exits 1 silently, a CLI flag error does not; evidence must tell them apart.
+ const tool=typeof binary==='string'&&binary.length?(ssh?'ssh':binary.split('/').pop()):null;
+ return {command_exit:Number.isInteger(result.status)?result.status:null,ssh_exit:ssh&&Number.isInteger(result.status)?result.status:null,http_status:http?Number(http[1]):null,native_exit:nativeExit,signal:['SIGTERM','SIGKILL','SIGABRT','SIGSEGV'].includes(result.signal)?result.signal:null,errno:result.error?causeCode(result.error):null,host_code:host.length===1?host[0][1]:null,native_code:tag,binary:tool,stderr_empty:stderr.trim().length===0};
 }
 export function failureEvidence(error,state){
  return {format:'public215_linux_preflight_failure_v2',status:'incomplete_unqualified_no_freeze_or_activation',...state,phase:error?.collectionPhase==='health_after'?'health_after':state.phase,code:error instanceof CollectionRefusal?error.code:'contract_refused',facts:error instanceof CollectionRefusal?error.facts:{},secondary_evidence_unavailable:error?.secondaryEvidenceUnavailable===true};
@@ -377,7 +382,7 @@ export function failureEvidence(error,state){
 function command(binary,args,options={}){
  const {native=false,terminal,...spawnOptions}=options;
  const r=spawnSync(binary,args,{encoding:'utf8',timeout:20000,maxBuffer:8*1024*1024,...spawnOptions});
- const facts=commandFacts(r,binary===process.env.PUBLIC215_SSH_COMMAND);
+ const facts=commandFacts(r,binary===process.env.PUBLIC215_SSH_COMMAND,binary);
  if(terminal)terminal(facts);
  if(r.error||r.status!==0||(native&&facts.native_exit!==0))refuse('command_failed',facts);
  return options.encoding===null?r.stdout:r.stdout.trim();
@@ -533,11 +538,14 @@ export async function releaseEvidence(run,jobs,selected,{readPages,readLog,isAnc
  const chosen=chosenPrequalification(runs,binding.job,sha);
  return {...evidence,prequalification:{runs,jobs:await readPages(`/actions/runs/${chosen.id}/jobs?filter=latest`,'jobs')}};
 }
-function preflightReaders(){
- const repo=`repos/${process.env.GITHUB_REPOSITORY}`;
+export function preflightReaders(bounded=boundedSourceReaders()){
+ // The same reader implementation the admission step proved moments earlier in this
+ // job with this token: page loops without --paginate/--slurp and the two-leg log
+ // protocol that keeps the token off storage. Run 42693137251 refused in the source
+ // phase with the previous gh-only readers while the admission step had just passed.
  return {
-  readPages:async(path,key)=>JSON.parse(command('gh',['api','--paginate','--slurp',`${repo}${path}${path.includes('?')?'&':'?'}per_page=100`])).flatMap(page=>page[key]),
-  readLog:async id=>command('gh',['api',`${repo}/actions/jobs/${id}/logs`],{maxBuffer:16*1024*1024}),
+  readPages:async(path,key)=>readPagedCollection(path,key,bounded.read),
+  readLog:async id=>bounded.readLog(id),
   isAncestor:(ancestor,descendant)=>{command('git',['merge-base','--is-ancestor',ancestor,descendant]);return true;},
  };
 }

@@ -30,6 +30,17 @@ export function requireBatch(result, player, amount) {
   assert(b?.success === true && b.processed === 1 && b.results?.length === 1 && b.results[0].user_id === player && b.results[0].success === true, 'The owned funding item did not commit successfully');
   assert(Number.isFinite(amount) && amount > 0 && amount <= BUY_IN, 'Funding budget refused');
 }
+export function requireFundingClub(club, link) {
+  assert(club?.id && club.id !== HOUSE && club.asset === 'chips' && club.status === 'active' &&
+    club.union_id === HOUSE && link?.club_id === club.id && link.union_id === HOUSE,
+    'The designated funding wallet must belong to an active member club of this union');
+  return club.id;
+}
+export function requireFeederAdmission(result) {
+  assert(result.status >= 200 && result.status < 300 && result.body?.ok === true &&
+    result.body.action === 'seat' && /^[0-9a-f-]{36}$/.test(result.body.table_id ?? ''),
+    `Ordinary feeder admission refused: ${result.body?.message ?? result.body?.reason ?? result.body?.action ?? result.status}`);
+}
 export function receiptMatches(receipt, p) {
   const r = receipt?.request;
   return receipt?.status === 'confirmed' && r?.door === 'atomic_table_buyin' &&
@@ -40,6 +51,21 @@ export function requireHealth(h, sha, instance) {
   assert(typeof h.instanceId === 'string' && h.instanceId.length > 0 && h.releaseSha === sha && (!instance || h.instanceId === instance), 'Serving engine changed; proof is UNKNOWN');
   assert(h.liveness === 'ok' && h.maintenance?.phase === 'idle' && h.maintenance?.active === false, 'Engine is not idle and ready');
   assert(gameplayHasResumed(JSON.stringify(h), sha), 'Thaw is incomplete');
+}
+// In feeder mode Join Game assigns/navigates to the ordinary table. The
+// spectator still takes an open chair before the original purchase sheet opens.
+export async function openFeederBuyIn(page) {
+  await page.waitForURL((url) => /\/table\/[0-9a-f-]{36}$/.test(url.pathname), { timeout: 60_000 });
+  const dialog = page.getByRole('dialog', { name: 'Buy-In', exact: true });
+  const slider = dialog.getByRole('slider', { name: 'Buy-In Amount', exact: true });
+  if (!(await slider.isVisible())) {
+    await page
+      .getByRole('button', { name: /^Seat [1-6]: Open - Click To Sit$/ })
+      .first()
+      .click({ timeout: 60_000 });
+  }
+  await slider.waitFor({ state: 'visible', timeout: 60_000 });
+  return { dialog, slider };
 }
 export function summarizeHands(rows, player) {
   return rows.map(({ id, table_id, hand_number, started_at, ended_at, players }) => ({
@@ -102,10 +128,10 @@ export async function main(environment = process.env) {
   report.startingPopulation = 0;
   save();
 
-  let player, cashier, P, C, browser, page, intent;
+  let player, cashier, P, C, browser, page, intent, fundingClub;
   let financialUnknown = false;
-  const roleEnv = role => ({ ...environment, RUNNER_TEMP: out, E2E_CLUB_ID: HOUSE, E2E_TEST_ACCOUNT_FILE: join(out, `${role}-account.private.json`), GITHUB_ENV: join(out, `${role}.private.env`) });
-  const wallet = async id => Number((await one(`club_members?club_id=eq.${HOUSE}&user_id=eq.${id}&select=chip_balance`)).chip_balance);
+  const roleEnv = role => ({ ...environment, RUNNER_TEMP: out, E2E_CLUB_ID: fundingClub, E2E_TEST_ACCOUNT_FILE: join(out, `${role}-account.private.json`), GITHUB_ENV: join(out, `${role}.private.env`) });
+  const wallet = async id => Number((await one(`club_members?club_id=eq.${fundingClub}&user_id=eq.${id}&select=chip_balance`)).chip_balance);
   const assertOnlyOwnedHuman = state => assert(state.profiles.every(p => p.is_horse === true || p.id === player?.id), 'Another real player arrived; stop the owned proof');
   const act = async () => {
     for (const label of ['Check', 'Fold']) {
@@ -152,7 +178,15 @@ export async function main(environment = process.env) {
     player = await createProductionE2EAccount({ environment: roleEnv('player'), fetchImpl });
     cashier = await createProductionE2EAccount({ environment: roleEnv('cashier'), fetchImpl });
     report.accounts = { player: player.id, cashier: cashier.id };
-    await prepareProductionE2EStaffMembership({ environment: roleEnv('player'), fetchImpl, memberRole: 'player' });
+    // The maintained fixture's default member club owns the player wallet.
+    // The union's own bank is not an eligible member-club wallet for play.
+    const membership = await prepareProductionE2EStaffMembership({ environment: roleEnv('player'), fetchImpl, memberRole: 'player' });
+    fundingClub = membership.club_id;
+    requireFundingClub(
+      await one(`clubs?id=eq.${fundingClub}&select=id,union_id,asset,status`),
+      await one(`union_clubs?club_id=eq.${fundingClub}&union_id=eq.${HOUSE}&select=club_id,union_id`)
+    );
+    report.fundingClubId = fundingClub; save();
     await prepareProductionE2EStaffMembership({ environment: roleEnv('cashier'), fetchImpl, memberRole: 'admin' });
     P = await c.sessionFor(player.email); C = await c.sessionFor(cashier.email);
     assert(P.userId === player.id && C.userId === cashier.id, 'Reserved session identity mismatch');
@@ -176,7 +210,7 @@ export async function main(environment = process.env) {
     requireHealth(await health(), sha, initial.instanceId);
     const funding = { batchId: randomUUID(), opId: randomUUID(), amount: BUY_IN };
     report.funding = funding; save(); financialUnknown = true;
-    const funded = await c.rpc(C.token, 'fn_cashier_batch_transfer', { p_club_id: HOUSE, p_kind: 'send', p_batch_id: funding.batchId, p_items: [{ user_id: player.id, amount: BUY_IN, source: 'club_bank', destination: 'player_wallet', reason: 'Cashier Send Out', op_id: funding.opId }] });
+    const funded = await c.rpc(C.token, 'fn_cashier_batch_transfer', { p_club_id: fundingClub, p_kind: 'send', p_batch_id: funding.batchId, p_items: [{ user_id: player.id, amount: BUY_IN, source: 'club_bank', destination: 'player_wallet', reason: 'Cashier Send Out', op_id: funding.opId }] });
     requireBatch(funded, player.id, BUY_IN);
     report.funding.confirmed = true; save();
     financialUnknown = false;
@@ -189,9 +223,17 @@ export async function main(environment = process.env) {
         else if (JSON.stringify(p) !== JSON.stringify(intent)) report.unexpectedBuyInIntent = true;
       }
     });
+    const admissionResponse = page.waitForResponse(r =>
+      r.request().method() === 'POST' && new URL(r.url()).pathname === '/rest/v1/rpc/fn_cash_game_join',
+      { timeout: 60_000 });
     await page.getByRole('button', { name: 'Join Game', exact: true }).click({ timeout: 60_000 });
-    const dialog = page.getByRole('dialog');
-    const slider = dialog.getByRole('slider', { name: 'Buy-In Amount', exact: true });
+    const admission = await admissionResponse;
+    const admissionBody = await admission.json();
+    report.joinAdmission = { status: admission.status(), action: admissionBody?.action,
+      tableId: admissionBody?.table_id, code: admissionBody?.code, message: admissionBody?.message };
+    save();
+    requireFeederAdmission({ status: admission.status(), body: admissionBody });
+    const { dialog, slider } = await openFeederBuyIn(page);
     assert(Number(await slider.getAttribute('max')) === BUY_IN, 'Owned funding must match the supported maximum buy-in');
     await slider.focus();
     await slider.press('End');
@@ -288,7 +330,13 @@ export async function main(environment = process.env) {
       assert(commit.conserved==='true' && commit.success==='true','A witnessed hand lacks its conservation receipt');
     }
     report.status='passed';
-  } catch (e) { report.status='unknown'; report.error=String(e.message); }
+  } catch (e) {
+    report.status='unknown'; report.error=String(e.message);
+    if (page) {
+      try { await page.screenshot({ path: join(out,'journey-failure.png') }); }
+      catch (screenshotError) { report.failureScreenshotError=String(screenshotError.message); }
+    }
+  }
   finally {
     try {
       if (player && P && !financialUnknown) await leave();
@@ -302,14 +350,14 @@ export async function main(environment = process.env) {
         if (report.cashOut) assert(balance === Number(report.cashOut.final_stack), 'Owned cash-out and wallet do not reconcile');
         if (balance>0) {
           const opId=randomUUID(); report.claimBack={opId,amount:balance}; save();
-          const claimed=await c.rpc(C.token,'fn_club_wallet_claim_back',{p_club_id:HOUSE,p_from_user_id:player.id,p_amount:balance,p_source:'player_wallet',p_destination:'club_bank',p_reason:'Certification cleanup: owned PLO lifecycle test credits returned',p_op_id:opId,p_transaction_id:null});
+          const claimed=await c.rpc(C.token,'fn_club_wallet_claim_back',{p_club_id:fundingClub,p_from_user_id:player.id,p_amount:balance,p_source:'player_wallet',p_destination:'club_bank',p_reason:'Certification cleanup: owned PLO lifecycle test credits returned',p_op_id:opId,p_transaction_id:null});
           assert(claimed.status===200 && claimed.body?.success===true,'Owned claim-back has no confirmed receipt');
         }
         assert(await wallet(player.id)===0,'Owned wallet is not reconciled');
         if (report.funding?.confirmed) {
-        const legs=await read(`chip_ledger?club_id=eq.${HOUSE}&or=(idempotency_key.eq.club_bank_send:${report.funding?.opId},idempotency_key.eq.club_wallet_claim:${report.claimBack?.opId})&select=id,amount,idempotency_key,from_entity_id,to_entity_id`);
-        assert(legs.some(x=>x.idempotency_key===`club_bank_send:${report.funding?.opId}` && Number(x.amount)===BUY_IN && x.to_entity_id===player.id),'Funding ledger receipt missing');
-        if(report.claimBack) assert(legs.some(x=>x.idempotency_key===`club_wallet_claim:${report.claimBack.opId}` && Number(x.amount)===report.claimBack.amount && x.from_entity_id===player.id),'Claim-back ledger receipt missing');
+        const legs=await read(`chip_ledger?club_id=eq.${fundingClub}&or=(idempotency_key.eq.club_bank_send:${report.funding?.opId},idempotency_key.eq.club_wallet_claim:${report.claimBack?.opId})&select=id,amount,idempotency_key,from_entity_id,to_entity_id`);
+        assert(legs.some(x=>x.idempotency_key===`club_bank_send:${report.funding?.opId}` && Number(x.amount)===BUY_IN && x.from_entity_id===fundingClub && x.to_entity_id===player.id),'Funding ledger receipt missing');
+        if(report.claimBack) assert(legs.some(x=>x.idempotency_key===`club_wallet_claim:${report.claimBack.opId}` && Number(x.amount)===report.claimBack.amount && x.from_entity_id===player.id && x.to_entity_id===fundingClub),'Claim-back ledger receipt missing');
         report.ownedFundingLegs=legs;
         }
       }
