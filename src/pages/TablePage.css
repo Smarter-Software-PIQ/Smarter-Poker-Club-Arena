@@ -5238,9 +5238,18 @@ button.post-bb-overlay-button {
    hand, so an all-in cannot change the table geometry. */
 @media (max-width: 375px) and (max-height: 700px) and (orientation: portrait) {
   .table-page[data-seats='6'] .table-container {
-    /* The normal 60px hero strip misses the ticker case by 2.2px.
-       Four permanent pixels keep the plate clear, including safe areas. */
-    --sp-hero-clear: 64px;
+    /* The short ring's strip is the ordinary one plus four permanent pixels:
+       the normal reserve misses the ticker case by 2.2px on this phone, and
+       four keeps the plate clear including safe areas.
+
+       2026-11-09: this was the literal 64 that went with a 60px base. The base
+       is clamp(50px, 10vw + 12px, 56px) now (the hero block shrank with the
+       hero avatar), and a literal here would have made the six-max budget 14px
+       short of the nine-max instead of 4 - which `6-max stays shorter and
+       centered` reads as the short ring giving up height it was not asked to.
+       Same curve, shifted by the same four pixels, so the two can no longer
+       drift apart. */
+    --sp-hero-clear: clamp(54px, calc(10vw + 16px), 60px);
   }
   .table-page[data-seats='6'] .table-scaler {
     --sp-seat-h-scale: 0.96;
@@ -5270,7 +5279,7 @@ button.post-bb-overlay-button {
 @media (max-width: 340px) and (orientation: portrait) {
   .table-container {
     --sp-table-top: calc(var(--sp-bbj-h, 22px) + 18px + var(--sp-page-inset-top));
-    --sp-hero-clear: clamp(52px, calc(10vw + 24px), 56px);
+    --sp-hero-clear: clamp(46px, calc(10vw + 16px), 52px);
   }
 }
 @media (max-width: 380px) and (orientation: portrait) {

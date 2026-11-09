@@ -1943,7 +1943,7 @@
        AFTER the <=480px one and therefore wins on a 320px screen, so leaving it
        at 48 would have given the oldest phones the one bar that did not grow -
        the device with the least room to read a button on. */
-    --sp-action-btn-h: 88px;
+    --sp-action-btn-h: 72px;
     --sp-bar-inset: env(safe-area-inset-bottom, 0px);
     --sp-action-pad-top: 4px;
   }
