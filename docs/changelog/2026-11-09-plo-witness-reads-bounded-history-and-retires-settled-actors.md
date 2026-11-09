@@ -1,0 +1,9 @@
+# PLO witness reads bounded history and retires settled actors
+
+The funded witness bought in normally, then its started_at history filter scanned 164,900 old hands at the reused table and exceeded the production statement timeout. Add the existing (table_id, created_at) index bound while retaining the exact started_at acceptance boundary. The production plan now uses that compound index. No index, timeout or gameplay rule changes.
+
+The normal 400-chip cash-out and claim-back were verified, but reserved-account retirement treated its historical seat as live custody because the shared House table remained open. Qualify that exception with the exact immutable occupancy cash-out receipt, every seat identity, credited stack and idempotency key, the existing posted cash-out ledger match, and no open cash session, pool session, pending/committed reservation or departure request. Tournament, unknown and active custody still refuse; all prior identity, wallet, authority, freeze and Auth retirement checks remain. The live table, seat and ledger are retained.
+
+The existing native retirement route reproduces the refusal before and exercises exact receipt success, missing/mismatched receipt data, live custody, rollback, privileges and immutable evidence after. Existing closed-table behavior remains covered. Unreceipted physical-transfer histories are intentionally still refused.
+
+The finite witness also supports cleanup-only recovery of the two actors named by its original protected-main run artifact. It verifies original provider/run/game/funding identity and live zero balances, then uses the same guarded account owner. It creates no account, funding, purchase, refund or release. Unknown financial intents remain retained; cleanup-only success never counts as gameplay proof. One actor retirement failure no longer skips the other owned actor.

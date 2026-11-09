@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { parse } from 'yaml';
 import {
   admitPayload,
+  requireCleanupSource,
   requireBatch,
   receiptMatches,
   requireHealth,
@@ -17,6 +18,51 @@ describe('finite PLO lifecycle production witness', () => {
     expect(admitPayload({ engine_sha: sha })).toBe(sha);
     for (const p of [null, {}, { engine_sha: 'main' }, { engine_sha: sha, game: 'other' }])
       expect(() => admitPayload(p)).toThrow();
+  });
+  it('recovers only the original protected proof actors with reconciled funding, never an unknown purchase', () => {
+    const runId = '42701523531';
+    const run = {
+      id: Number(runId),
+      event: 'repository_dispatch',
+      head_branch: 'main',
+      path: '.github/workflows/post-deploy-e2e.yml',
+      status: 'completed',
+      head_sha: sha,
+    };
+    const original = {
+      gameId: 'c79d8ec2-2281-411d-b4e1-42b5610849e2',
+      engineSha: sha,
+      cleanup: { completed: false },
+      funding: { confirmed: true, opId: 'one' },
+      ownedFundingLegs: [{ idempotency_key: 'club_bank_send:one', amount: 400 }],
+      accounts: {
+        player: '11111111-1111-4111-8111-111111111111',
+        cashier: '22222222-2222-4222-8222-222222222222',
+      },
+    };
+    expect(admitPayload({ engine_sha: sha, cleanup_run_id: runId })).toBe(sha);
+    expect(() => admitPayload({ engine_sha: sha, cleanup_run_id: 'main' })).toThrow();
+    expect(requireCleanupSource(run, original, sha, runId)).toEqual(
+      Object.values(original.accounts)
+    );
+    for (const bad of [
+      { ...run, id: 1 },
+      { ...run, event: 'pull_request' },
+      { ...run, head_branch: 'other' },
+      { ...run, status: 'in_progress' },
+      { ...run, path: 'other.yml' },
+    ])
+      expect(() => requireCleanupSource(bad, original, sha, runId)).toThrow();
+    for (const bad of [
+      { ...original, gameId: 'other' },
+      { ...original, cleanup: { completed: false, retainedUnknownFinancialIntent: true } },
+      { ...original, funding: { confirmed: false } },
+      {
+        ...original,
+        accounts: { player: original.accounts.player, cashier: original.accounts.player },
+      },
+    ])
+      expect(() => requireCleanupSource(run, bad, sha, runId)).toThrow();
   });
   it('refuses a partial cashier failure inside successful HTTP and batch envelopes', () => {
     const body = { success: true, processed: 1, results: [{ user_id: 'p', success: false }] };
