@@ -94,4 +94,4 @@ Workflow `Heads-Up Rematch Certification`, run 42584396854. Route: reserved cert
   reserved players, are settled by the Cert Residue Sweep through `settleStrandedHeadsUpClub` (#10147/#10149) once
   their games end. Run 42569893917's two zero-balance players are in an already retired club and are recovered by the
   same sweep.
-- The old draft branch `claude/heads-up-rematch-1108` (closed PR #10093) was deleted at 05:3xZ.
+- The old draft branch `claude/heads-up-rematch-1108` (closed PR #10093) was deleted at about 05:28Z through the Mac's GitHub login (the cloud proxy refuses ref deletes).
