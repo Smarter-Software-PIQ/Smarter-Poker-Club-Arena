@@ -15,7 +15,10 @@ import { observerParticipantsBind } from './observerParticipants.js';
 import type { FastHorseDecisionRequest, ObserveCompletedHandRequest } from './protocol.js';
 
 export interface PooledPublicProfileReceipt {
-  version: 1;
+  /** 1: the digest covers the exact rows alone (a read with no donor).
+   *  2: the read carried sibling table-size donors and the digest covers
+   *  `{ rows, donors }`. The version names the digest preimage. */
+  version: 1 | 2;
   source: 'accepted_hand_public_profiles' | 'saved_and_accepted_public_profiles';
   availableAtMs: number;
   digest: string;
@@ -266,12 +269,13 @@ export class PooledPublicProfiles {
       rows,
       donors,
       receipt: {
-        version: 1,
+        version: donors.length ? 2 : 1,
         source: this.bootstrapped
           ? 'saved_and_accepted_public_profiles'
           : 'accepted_hand_public_profiles',
         availableAtMs,
-        // Without donors the digest is exactly the exact rows' digest it was.
+        // Without donors the digest is exactly the exact rows' digest it was
+        // (version 1); with donors it covers both (version 2).
         digest: createHash('sha256')
           .update(JSON.stringify(donors.length ? { rows, donors } : rows))
           .digest('hex'),

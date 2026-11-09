@@ -1153,21 +1153,41 @@ export class HorseMind {
     const donorKeys = opponentMemoryDonors(this.decisionMode, size).map(([mode, donorSize]) =>
       opponentMemoryKey(userId, variant, mode, donorSize)
     );
-    const donors = donorKeys.map((key) => this.exploitCounters.get(key));
+    let donors = donorKeys.map((key) => this.exploitCounters.get(key));
     const pooledStaleness = this.donorStaleness;
-    // On the pooled public path the exact context's own evidence is this
-    // horse's individual row when no pooled exact row exists, so a thin
-    // individual read borrows the donor instead of being replaced by it.
-    const exact =
-      this.exploitCounters.get(opponentMemoryKey(userId, variant, this.decisionMode, size)) ??
-      (pooledStaleness && this.decisionScope && donors.some((row) => !!row)
-        ? this.exploitCounters.get(`${this.decisionScope}|${userId}`)
-        : undefined);
+    // The exact evidence a donor is blended with is only the exact
+    // (variant, mode, size, speed/ante domain) row. This horse's individual
+    // row is keyed by card family and table size alone, so it mixes cash and
+    // tournament, the variants of a family and every speed/ante domain, and
+    // is never blended with a domain-exact donor. On the pooled public path,
+    // when no pooled exact row exists but that individual row does, the read
+    // stays what it was before donors reached this path: the individual row
+    // answers alone (the callers' fallback) and no donor is consulted.
+    const exact = this.exploitCounters.get(
+      opponentMemoryKey(userId, variant, this.decisionMode, size)
+    );
+    if (
+      pooledStaleness &&
+      !exact &&
+      this.decisionScope &&
+      this.exploitCounters.has(`${this.decisionScope}|${userId}`)
+    )
+      return undefined;
     let staleness = 0;
+    let stalenessUnknown = false;
     if (pooledStaleness) {
       // The oldest donor sets the staleness, as the import-clock path does.
-      donorKeys.forEach((key, i) => {
-        if (donors[i]) staleness = Math.max(staleness, pooledStaleness.get(key) ?? 0);
+      // A donor with no staleness entry could not be dated on the player's
+      // clock. "Could not tell" is never "fresh": it is not borrowed.
+      donors = donors.map((row, i) => {
+        if (!row) return row;
+        const age = pooledStaleness.get(donorKeys[i]!);
+        if (age === undefined) {
+          stalenessUnknown = true;
+          return undefined;
+        }
+        staleness = Math.max(staleness, age);
+        return row;
       });
     } else {
       const handClock = this.stats.get(userId)?.hands ?? 0;
@@ -1179,8 +1199,10 @@ export class HorseMind {
       staleness = computeDonorHandClockStaleness(donorClock, handClock);
     }
     const blended = blendOpponentMemoryWithExpiry(exact, donors, staleness);
-    const consultedDonor =
-      !(exact && exact.hands >= OPPONENT_MEMORY_THIN_HANDS) && donors.some((row) => !!row);
+    const thinExact = !(exact && exact.hands >= OPPONENT_MEMORY_THIN_HANDS);
+    const consultedDonor = thinExact && donors.some((row) => !!row);
+    if (thinExact && stalenessUnknown && receipt)
+      noteFire('opponent_memory_donor_staleness_unknown');
     if (consultedDonor && receipt) {
       if (blended === exact) noteFire('opponent_memory_donor_expired');
       else if (staleness > 0) noteFire('opponent_memory_donor_stale');

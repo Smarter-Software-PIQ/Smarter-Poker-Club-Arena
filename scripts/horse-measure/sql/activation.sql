@@ -138,7 +138,8 @@ FROM (VALUES
   ('plan_fingerprint_absent', 'Items 21 and 23 plan fingerprint (plan carried none)'),
   ('opponent_memory_donor_fresh', 'Item 12 donor staleness (fresh)'),
   ('opponent_memory_donor_stale', 'Item 12 donor staleness (stale)'),
-  ('opponent_memory_donor_expired', 'Item 12 donor staleness (expired)')
+  ('opponent_memory_donor_expired', 'Item 12 donor staleness (expired)'),
+  ('opponent_memory_donor_staleness_unknown', 'Item 12 donor staleness (could not tell, not borrowed; expected 0)')
 ) AS x(feature, upgrade)
 LEFT JOIN public.horse_brain_telemetry t ON t.feature = x.feature AND t.day >= :START_DAY::date
 GROUP BY x.feature, x.upgrade
