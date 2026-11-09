@@ -249,8 +249,18 @@
      lives on `.seat` in SeatSlot.css, where base and size resolve on the same
      element and the responsive overrides actually take. */
   --seat-avatar-base: 84px;
-  /* "HERO avatar should always be 33% bigger than the villains" — Dan. */
-  --seat-avatar-hero-ratio: 1.3333;
+  /* Dan 2026-11-09: "the 'hero' avatar is smaller then all the other avatars at
+     the table, it should always be the same size." This supersedes his
+     2026-08-15 "HERO avatar should always be 33% bigger than the villains".
+
+     The ratio sized the seat's FRAME. The painted character is sized from
+     --seat-avatar-base (SeatKnockout.css reads it as --sko-unit) and the hero
+     never redeclared that one, so the hero was a villain-sized bust inside a
+     box a third too big - a character filling 75% of its frame beside villains
+     filling 100% of theirs, which is what read as the smaller avatar. At 1 the
+     frame and the bust agree again, for every seat.
+     docs/changelog/2026-11-09-six-live-table-fixes.md */
+  --seat-avatar-hero-ratio: 1;
 
   /* ─── Card Shadows ─── */
   --card-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 1px 4px rgba(0, 0, 0, 0.25);

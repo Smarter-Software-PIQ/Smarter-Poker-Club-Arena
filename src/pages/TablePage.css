@@ -3811,6 +3811,21 @@
   gap: 8px;
 }
 
+/* THE STACK IS TRANSPARENT TO TAPS; ITS CHILDREN ARE NOT (2026-11-09).
+   `.table-hud__corner > *` turns a corner's direct child pointer-events: auto
+   (TableHUD.css), and this wrapper is as WIDE as its widest child - the
+   Lightning leave control at 180px. Left catching taps it is an invisible
+   180px slab at z-index 101 over the seats underneath, which is the exact
+   defect TableHUD.css records for the upper-right corner and the tournament
+   bar. The controls inside it take the input instead. */
+.table-hud__corner > .hud-ul-column--stack {
+  pointer-events: none;
+}
+
+.table-hud__corner > .hud-ul-column--stack > * {
+  pointer-events: auto;
+}
+
 /* EVERY WIDGET IN THIS CORNER IS ONE --sp-hud-tile-size SQUARE (2026-08-27).
    The corner's height budget — --sp-hero-clear, at the foot of this file — is
    derived from that one number, so a widget that sizes itself in pixels instead

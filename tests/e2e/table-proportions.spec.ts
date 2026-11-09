@@ -171,7 +171,7 @@ test.describe('every device gets the same proportions', () => {
     expect(offenders).toEqual([]);
   });
 
-  test('the HERO slot scales too, and stays 1.3333x the villain', async ({ page }) => {
+  test('the HERO slot scales too, and is the same size as the villain', async ({ page }) => {
     /* ADDED 2026-08-28 after this file missed a live regression it existed to
        catch. It rendered only `.seat`, the villain slot, so three
        `@media ... .seat.seat--hero { --seat-avatar-size: calc(66|58|52px * …)
@@ -184,11 +184,17 @@ test.describe('every device gets the same proportions', () => {
        CARD back on a ladder indirectly, after --sp-card2-w had been converted.
 
        Two assertions, because either alone can be satisfied while the bug is
-       present: the hero must hold the 1.3333 ratio to the villain (a rung that
-       pinned both equally would pass a ratio check), and it must itself be a
-       fraction of the felt (a rung that scaled both together would pass that). */
+       present: the hero must hold its ratio to the villain (a rung that pinned
+       both equally would pass a ratio check), and it must itself be a fraction
+       of the felt (a rung that scaled both together would pass that).
+
+       2026-11-09: the ratio is 1. Dan: "the 'hero' avatar is smaller then all
+       the other avatars at the table, it should always be the same size." The
+       frame used to be a third larger than the bust painted inside it, which
+       is what read as the smaller hero - see the note on `.seat.seat--hero` in
+       SeatSlot.css. Both assertions still run; only the constant moved. */
     const rows = await measureAll(page, css);
-    const HERO_RATIO = 1.3333;
+    const HERO_RATIO = 1;
 
     const offenders: string[] = [];
     for (const r of rows) {

@@ -1229,10 +1229,30 @@
    would win and leave the hero's name box at villain width while its art is
    1.33x — the desktop proportion (box 8/7 of the slot) would only hold above
    641px. Deriving both from one token keeps it true everywhere. */
+/* ── 2026-11-09: THE RATIO IS 1. THE HERO IS THE SAME SIZE AS EVERYBODY ────
+   Dan, from a live Lightning seat: "the 'hero' avatar is smaller then all the
+   other avatars at the table, it should always be the same size." This
+   supersedes the 2026-08-15 "33% bigger" above, and it is the whole of the
+   change: the declaration below is unchanged in shape, the ratio token now
+   defaults to 1, and every consumer follows because they all read it.
+
+   WHY HE SAW A SMALLER HERO WHILE THE SLOT WAS 1.3333x, which is the part
+   worth writing down: --seat-avatar-size sizes the seat's FRAME - the wrap,
+   the ring, the mask, the plate. The painted character is sized from
+   --seat-avatar-base (SeatKnockout.css reads it as --sko-unit), and the hero
+   never redeclared that. So the hero got a frame a third larger around a bust
+   drawn at exactly the villain's size, and a character filling 75% of its
+   frame beside villains filling 100% of theirs reads as the smaller avatar.
+   Measured off his screenshot: hero bust 46x76, villain bust 45x73 - the same
+   character in a bigger box. At a ratio of 1 the frame and the bust agree
+   again, for the hero and for every villain, which is what "always the same
+   size" means. */
 .seat.seat--hero {
-  --seat-avatar-size: calc(var(--seat-avatar-base, 84px) * var(--seat-avatar-hero-ratio, 1.3333));
-  /* Must clear the wider avatar. 96/84 = 128/112 = 8/7, so deriving keeps the
-     name box in the same proportion to the art at every breakpoint. */
+  --seat-avatar-size: calc(var(--seat-avatar-base, 84px) * var(--seat-avatar-hero-ratio, 1));
+  /* 96/84 = 128/112 = 8/7, so deriving keeps the name box in the same
+     proportion to the art at every breakpoint - and at a ratio of 1 it is the
+     same 1.143 the villain plate takes on its own slot, so the two plates are
+     one rule computed twice rather than two rules that have to be kept equal. */
   width: max(var(--seat-plate-min-width), calc(var(--seat-avatar-size) * 8 / 7)) !important;
 }
 
