@@ -41,6 +41,21 @@ export function requireHealth(h, sha, instance) {
   assert(h.liveness === 'ok' && h.maintenance?.phase === 'idle' && h.maintenance?.active === false, 'Engine is not idle and ready');
   assert(gameplayHasResumed(JSON.stringify(h), sha), 'Thaw is incomplete');
 }
+// In feeder mode Join Game assigns/navigates to the ordinary table. The
+// spectator still takes an open chair before the original purchase sheet opens.
+export async function openFeederBuyIn(page) {
+  await page.waitForURL((url) => /\/table\/[0-9a-f-]{36}$/.test(url.pathname), { timeout: 60_000 });
+  const dialog = page.getByRole('dialog', { name: 'Buy-In', exact: true });
+  const slider = dialog.getByRole('slider', { name: 'Buy-In Amount', exact: true });
+  if (!(await slider.isVisible())) {
+    await page
+      .getByRole('button', { name: /^Seat [1-6]: Open - Click To Sit$/ })
+      .first()
+      .click({ timeout: 60_000 });
+  }
+  await slider.waitFor({ state: 'visible', timeout: 60_000 });
+  return { dialog, slider };
+}
 export function summarizeHands(rows, player) {
   return rows.map(({ id, table_id, hand_number, started_at, ended_at, players }) => ({
     id, tableId: table_id, handNumber: hand_number, startedAt: started_at, endedAt: ended_at,
@@ -190,8 +205,7 @@ export async function main(environment = process.env) {
       }
     });
     await page.getByRole('button', { name: 'Join Game', exact: true }).click({ timeout: 60_000 });
-    const dialog = page.getByRole('dialog');
-    const slider = dialog.getByRole('slider', { name: 'Buy-In Amount', exact: true });
+    const { dialog, slider } = await openFeederBuyIn(page);
     assert(Number(await slider.getAttribute('max')) === BUY_IN, 'Owned funding must match the supported maximum buy-in');
     await slider.focus();
     await slider.press('End');
@@ -288,7 +302,13 @@ export async function main(environment = process.env) {
       assert(commit.conserved==='true' && commit.success==='true','A witnessed hand lacks its conservation receipt');
     }
     report.status='passed';
-  } catch (e) { report.status='unknown'; report.error=String(e.message); }
+  } catch (e) {
+    report.status='unknown'; report.error=String(e.message);
+    if (page) {
+      try { await page.screenshot({ path: join(out,'journey-failure.png') }); }
+      catch (screenshotError) { report.failureScreenshotError=String(screenshotError.message); }
+    }
+  }
   finally {
     try {
       if (player && P && !financialUnknown) await leave();
