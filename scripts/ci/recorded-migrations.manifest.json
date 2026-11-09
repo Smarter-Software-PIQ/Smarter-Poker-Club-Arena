@@ -2379,6 +2379,17 @@
       "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/10224",
       "refusedBy": [],
       "liveVerdict": "Read-only 2026-11-09: exact applied SQL MD5 matches this file. The original session applied four separate history versions before composite recording20261108212837; preserve their exact sequence, including initial helper bodies later replaced at212338. No replay or history mutation. Both normalizer trigger functions are postgres-owned SECURITY DEFINER, search_path public,pg_temp, ACL postgres-only, anon/authenticated EXECUTE false. Both pure text/JSON helper functions are SECURITY INVOKER, immutable and publicly callable; no elevated access. Direct file-text writer, anonymous-definer, roster and clone checks report no findings for all four recordings."
+    },
+    {
+      "version": "20261109224452",
+      "name": "a_banned_email_cannot_hold_an_account",
+      "file": "supabase/migrations/20261109224452_a_banned_email_cannot_hold_an_account.sql",
+      "md5": "f89fde266dd4249beaa705685ca7b2f1",
+      "recoveredOn": "2026-11-09",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
+      "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/10242",
+      "refusedBy": ["check-explicit-table-access"],
+      "liveVerdict": "Read-only 2026-11-09: exact applied SQL MD5 matches this file (one statement, no replay, no history mutation). Applied by a Claude session through the Supabase MCP before any merge, against PUBLISHING.md; no outage justified it and docs/changelog/2026-11-09-a-banned-email-cannot-hold-an-account.md records that. Live: public.banned_signup_emails is postgres-owned, RLS enabled, zero policies; anon, authenticated, authenticator and supabase_auth_admin hold no table privilege. Trigger a_banned_email_cannot_hold_an_account is enabled BEFORE INSERT OR UPDATE OF email ON auth.users. fn_a_banned_email_cannot_hold_an_account is postgres-owned SECURITY DEFINER, search_path public,pg_temp, anon/authenticated EXECUTE false, a trigger function no client can call. fn_signup_email_key is SECURITY INVOKER, immutable, search_path pg_catalog, publicly callable pure text; no elevated access. Definer-authorization, unqualified-write and band-aid file-text checks report no findings. explicit-table-access finding STILL TRUE at recording time: service_role holds ALL on the table through default grants; closed by forward migration 20261109230038 in the same pull request, installed from protected main."
     }
   ]
 }
