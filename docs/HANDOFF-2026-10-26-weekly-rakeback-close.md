@@ -384,3 +384,83 @@ Unchanged facts that hold under both versions:
 - Funding order: rounds commit 1 -> 2 -> 3 as separate transactions, so the
   union's round-1 club-bank credits are durably committed (receipt in the
   same transaction) before any round-3 agent top-up draws on the club bank.
+
+## 2026-11-09 run completion (recorded 14:55 UTC)
+
+Scope of this record: the Midway Union weekly rakeback and invoicing run for
+2026-11-02 08:00 → 2026-11-09 08:00 UTC, owned end to end in one lane
+(readiness, repairs, payment, reconciliation). One checkpoint; no other
+completion gates.
+
+Run 01c587c9-4c65-4fcd-b820-19feb5acac65, scope union fade0000-0000-0000-0000-000000000001.
+
+- Round 1 (union→clubs) paid 10:52:18Z: 3 clubs, period rake 933,570.79,
+  settlement e336028f-0d55-4b4d-8338-cd5557f65bc6 state final, conservation
+  asserted.
+- Round 2 (clubs→agents) paid 10:53:39Z: 695.49 to 20 agent wallets.
+  WooWoo's 94.20 is this week's commission; the previously settled payment
+  was not touched.
+- Round 3 (agents→players) paid 14:42:14Z: 642,268.52 to 1,339 payees over
+  1,371 player-club periods, shortfalls 0. At the first 10:51Z attempt the
+  prepared set was 498 payees / 306,359.35; preparation kept growing
+  through the refusal window, and everything prepared was paid.
+- Split-departed horses: 17,865.99 credited and then returned to the
+  correct club banks under the 2026-11-03 return-to-bank ruling — 525
+  ca_horse_club_split_late_returns rows across 2 club banks, each with
+  bank_before/bank_after and its own chip_ledger leg. Players retained
+  624,402.53 of the round-3 total.
+- Finalization 14:42:15Z: pause released (stage
+  weekly_payout_financial_complete, paid true); union financial receipt
+  recorded; the period's receipts are 5/5 (4 standalone club scopes at
+  10:49Z under run 595ab7d8, union under this run). Notifications: 1,339
+  player + 21 agent + 3 club + exactly one "Weekly Rakeback Completed" to
+  kingfish. Zero duplicate (scope, round) receipts. No
+  weekly_payout_money_losses row for this run; the table's single row is
+  period 2026-11-02 (run 93a17aff attempt 12, statement timeout), which the
+  receipted run c3c7ea34 superseded the same day at 18:44:30Z.
+- Round 4 and documents: 4 agent credit invoices for the period, status
+  open (they await agent payment by design); settlement_invoices written
+  through 14:45Z; ECO terms uniform for the whole week (enabled, rate 0.10,
+  base club_cash_profit, horses included, agreement 2141, evidence status
+  ready with no issues); books: the 2026-11-02 boundary is the latest
+  sealed checkpoint and the 2026-11-09 seal pre-builds in six-hour layers
+  per this runbook.
+
+Repairs installed for this run (in-place, md5-pinned, each refusing replay):
+
+1. 20261109113744 — the rakeback balance refusal names its wallets (#10161).
+2. 20261109123440 — the balance model expects the split late returns (#10162).
+3. 20261109132254 — member-autoskip clear, proved a NO-OP in production
+   (the clear landed after the debit; the 14:04Z attempt refused with the
+   identical 601.94 gap) (#10163).
+4. 20261109140919 — the clear lands immediately BEFORE the member debit
+   (#10167; merged 14:38:11Z, installed 14:38:59Z, round 3 paid on the next
+   runner minute).
+5. 20261109142552 — the caller's cash-debit ledger key is saved and
+   restored across returns (PR #10174, together with the SUPERSEDED BY
+   20261109140919 marker on 20261109132114).
+
+Competing fix, for the record: 20261109132114 (PR #10164, another lane)
+refused on install at 14:09Z with split_late_return_preimage_changed — it
+was authored against the pre-132254 function. Nothing committed. Its two
+intents are delivered by 140919 and 142552; acknowledgment requested from
+that lane on #10164/#10174. The installed-and-merged 24-hour window for the
+marker runs to 14:08Z on Nov 10.
+
+Timing, against the written requirement (ready-at-four; no two-hour
+completion rule exists in any source checked):
+
+- 10:00Z scheduled start → preparation complete ~10:49Z (49 minutes late:
+  weekly_payout_scope_plan ordered period_start first, so the Oct 26–Nov 2
+  backlog starved the union's prep lanes) → rounds 1–2 by 10:53Z → round 3
+  refused deterministically 10:53Z–14:41Z on the split-return ledger gap
+  (601.94) → paid 14:42Z. Close-to-complete 4h42m: ~49m preparation
+  starvation plus ~3h48m refusal window (a four-layer root cause and two CI
+  round-trips).
+- Cause corrections shipped as permanent source changes with focused
+  regression coverage: the split-return chain above, proved end to end by
+  scripts/ci/test-split-late-return-postgres.py (original refusal, the
+  no-op, the competitor's refusal, the paying chain, rollback safety,
+  exactly-once after retry); and 20261109143736 — the due union week
+  prepares and pays first (scripts/ci/test-union-prepares-first-postgres.py),
+  both running on weekly-refusal-cover.yml for every migrations PR.
