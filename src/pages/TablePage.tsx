@@ -464,10 +464,16 @@ import {
 } from '../lightning/lightningHand';
 import {
   lightningExitHoldMs,
+  lightningFeltLeaving,
   lightningHeroSeatFromRoster,
   lightningHoldsHeroDealSound,
   lightningParkedDealerSeat,
 } from '../lightning/lightningTransitionMotion';
+import {
+  lightningCheckFoldCarries,
+  lightningCheckFoldReleaseDue,
+  lightningCheckFoldSurvives,
+} from '../lightning/lightningCheckFold';
 import {
   detectLightningPlatform,
   lightningCapabilities,
@@ -2836,6 +2842,11 @@ function LiveTablePage({
      `until` is the deadline of the wait in progress; `tick` re-runs the
      apply when it passes. */
   const lightningExitHoldRef = useRef<{ until: number } | null>(null);
+  /* LIGHTNING CHECK/FOLD (Dan 2026-11-09, Lightning only): the hand key a
+     free Check/Fold was armed in, null when none is. It carries the arm
+     across streets (lightningCheckFoldSurvives) and tells the exit hold below
+     that an idle snapshot is the engine folding that arm on a bet. */
+  const lightningCheckFoldArmRef = useRef<string | null>(null);
   const [lightningExitTick, setLightningExitTick] = useState(0);
   const [lightningExitMs, setLightningExitMs] = useState(0);
   // Phase 1.1 PR-3: apply authoritative engine snapshot to tableState when
@@ -2866,6 +2877,29 @@ function LiveTablePage({
           if (ms > 0) {
             lightningExitHoldRef.current = { until: Date.now() + ms };
             setLightningExitMs(ms);
+            /* THE ENGINE FOLDED AN ARMED CHECK/FOLD (2026-11-09). A bet priced
+               it and the host released the player without a press, so nothing
+               had started the hero's cards toward the muck or played the fold
+               cue: they sat face up for the whole hold and then vanished. The
+               hold now shows that fold exactly as a pressed one. */
+            if (lightningCheckFoldArmRef.current !== null) {
+              lightningCheckFoldArmRef.current = null;
+              const idx = tableStateRef.current.heroSeat - 1;
+              const hero = idx >= 0 ? tableStateRef.current.players[idx] : null;
+              if (hero && hero.status !== 'folded') {
+                setTableState((prev) => {
+                  const row = prev.players[idx];
+                  if (!row || row.id !== hero.id || row.status === 'folded') return prev;
+                  const players = [...prev.players];
+                  players[idx] = { ...row, status: 'folded' as typeof row.status };
+                  const lastActions = [...prev.lastActions];
+                  lastActions[idx] = 'fold' as (typeof lastActions)[number];
+                  return { ...prev, players, lastActions };
+                });
+                if (lightningCaps.sound && soundService.isEnabled() && (isActive || !isMultiTable))
+                  soundService.playFold();
+              }
+            }
           }
         }
         const hold = lightningExitHoldRef.current;
@@ -19217,9 +19251,28 @@ function LiveTablePage({
             handNumber: tableStateRef.current.handNumber,
             knownHeroActionAtArm: preActionPriorHeroActionAtRef.current,
             event: data,
-          })
-        )
+          }) &&
+          /* LIGHTNING CHECK/FOLD CARRIES (2026-11-09): the hero's own free
+             check is the armed Check/Fold doing its job, and the engine has
+             armed it again for the next street. Any other action spends it. */
+          !(
+            action === 'check' &&
+            lightningCheckFoldSurvives({
+              lightningRoom: !!lightningRoomRef.current,
+              armedHandKey: lightningCheckFoldArmRef.current,
+              currentHandKey: lightningHandKey(
+                engineSnapshotRef.current as LightningSnapshotFields | null
+              ),
+              handInProgress: tableStateRef.current.isHandInProgress,
+              engineCarries: lightningCheckFoldCarries(
+                engineSnapshotRef.current as LightningSnapshotFields | null
+              ),
+            })
+          )
+        ) {
+          lightningCheckFoldArmRef.current = null;
           setPreAction(null);
+        }
 
         // DEAD-WIRING FIX 2026-08-15: record the action for Share Hand.
         // handActionsRef was declared 2,000 lines up and had ZERO writers and
@@ -26476,7 +26529,29 @@ function LiveTablePage({
     tableState.handNumber,
     tableState.boardStage,
     tableState.isHandInProgress,
-    useCallback(() => setPreAction(null), [])
+    useCallback(() => {
+      /* LIGHTNING CHECK/FOLD CARRIES (Dan 2026-11-09, Lightning only): "the
+         check/fold stays active for all streets until someone bets, or the
+         player reaches showdown". A new street of the SAME hand does not
+         spend it; a new hand, or no hand, still does (and the hand-bound
+         arm effect below drops it too). */
+      if (
+        lightningCheckFoldSurvives({
+          lightningRoom: !!lightningRoomRef.current,
+          armedHandKey: lightningCheckFoldArmRef.current,
+          currentHandKey: lightningHandKey(
+            engineSnapshotRef.current as LightningSnapshotFields | null
+          ),
+          handInProgress: tableStateRef.current.isHandInProgress,
+          engineCarries: lightningCheckFoldCarries(
+            engineSnapshotRef.current as LightningSnapshotFields | null
+          ),
+        })
+      )
+        return;
+      lightningCheckFoldArmRef.current = null;
+      setPreAction(null);
+    }, [])
   );
 
   /* ═══ LIGHTNING PHASE 6: ONE ROOM, MANY HANDS ══════════════════════════════
@@ -26643,7 +26718,13 @@ function LiveTablePage({
     }
   }, [lightningRoom, preAction, lightningHandKeyNow]);
 
-  const seatArrivals = useSeatArrivals(tableId ?? '', lightningRoom ? tableState.players : []);
+  /* 2026-11-09: every Lightning hand is a new table, so its hand number is the
+     arrival epoch: the whole table fades in together (seatArrival.ts). */
+  const seatArrivals = useSeatArrivals(
+    tableId ?? '',
+    lightningRoom ? tableState.players : [],
+    lightningRoom ? (tableState.handNumber ?? null) : null
+  );
   const lightningHero =
     tableState.heroSeat > 0 ? (tableState.players[tableState.heroSeat - 1] ?? null) : null;
   /* THE IDLE SNAPSHOT AFTER A FOLD. The engine answers a fold with stage
@@ -26676,15 +26757,20 @@ function LiveTablePage({
       ? lightningHandId(engineSnapshot as LightningSnapshotFields)
       : null;
   const handleLightningFold = useCallback(
-    async (kind: LightningFoldKind) => {
+    async (kind: LightningFoldKind, quiet = false) => {
       if (!tableId || !lightningRoomRef.current || !userId || userId === 'guest') return;
       if (lightningFoldBusyRef.current) return;
       const queued = lightningFoldOnTurn(engineSnapshotRef.current, userId, kind);
       if (queued) {
         if ('error' in queued) {
-          toast.warning(queued.error);
+          if (!quiet) toast.warning(queued.error);
           return;
         }
+        // A free Check/Fold (the keyboard shortcut) carries like the button's.
+        lightningCheckFoldArmRef.current =
+          queued.toCall === 0
+            ? lightningHandKey(engineSnapshotRef.current as LightningSnapshotFields | null)
+            : null;
         // Snapshot intent before React's effect or the betting street moves.
         // The existing host queues auto_check_fold and executes it on turn;
         // The free keyboard shortcut follows the visible Check/Fold rule.
@@ -26700,6 +26786,7 @@ function LiveTablePage({
       }
       lightningFoldBusyRef.current = true;
       // The fold supersedes any armed pre-action for this hand.
+      lightningCheckFoldArmRef.current = null;
       setPreAction(null);
       /* LIGHTNING TRANSITION, PHASE 3: LIGHTNING FOLD ANSWERS THE PRESS, NOT
          THE ROUND TRIP. The cue and the cards' flight to the muck waited for
@@ -26724,11 +26811,15 @@ function LiveTablePage({
         const result = await sendLightningFold(tableId, userId, kind, lightningFoldHandId);
         if (!result.success) {
           revert();
-          toast.warning(result.error || 'That Action Could Not Be Confirmed');
+          // A release sent for the player (an armed Check/Fold a bet priced)
+          // can cross their own turn, where the engine folds the same arm: a
+          // refusal there is not something the player did or needs to read.
+          if (!quiet) toast.warning(result.error || 'That Action Could Not Be Confirmed');
         }
       } catch (err) {
         revert();
-        throw err;
+        if (!quiet) throw err;
+        reportError(err, 'lightning-check-fold-release');
       } finally {
         lightningFoldBusyRef.current = false;
       }
@@ -26750,6 +26841,34 @@ function LiveTablePage({
         fold: lightningFold.fastFold ? () => void handleLightningFold('fast_fold') : null,
       }
     : { fold: null };
+
+  /* CHECK/FOLD RELEASES ON THE BET, NOT ON THE TURN (Dan 2026-11-09, Lightning
+     only): "it should fold you in that hand right away, even though the action
+     and avatar doesn't change or remove until the action is on you". An engine
+     that carries the arm (check_fold_carries) releases the player itself. For
+     one that does not, the room sends the existing Lightning Fold request the
+     moment a bet prices the armed Check/Fold, through the same handler as the
+     button, so the cue, the muck and the hand-bound request are the same. */
+  const lightningFoldHandlerRef = useRef(handleLightningFold);
+  lightningFoldHandlerRef.current = handleLightningFold;
+  const lightningCheckFoldDue = lightningCheckFoldReleaseDue({
+    lightningRoom: !!lightningRoom,
+    preAction,
+    armedForThisHand:
+      lightningCheckFoldArmRef.current !== null &&
+      lightningCheckFoldArmRef.current === lightningHandKeyNow,
+    callDue: preActionCallDue,
+    heroTurn:
+      tableState.currentPlayerSeat > 0 && tableState.currentPlayerSeat === tableState.heroSeat,
+    handLive: lightningHandLive && tableState.isHandInProgress && !tableHandIsOver,
+    fastFoldOffered: lightningFold.fastFold,
+    engineReleasesPricedFold:
+      (engineSnapshot as LightningSnapshotFields | null)?.lightning?.fold_on_turn === true,
+    engineCarries: lightningCheckFoldCarries(engineSnapshot as LightningSnapshotFields | null),
+  });
+  useEffect(() => {
+    if (lightningCheckFoldDue) void lightningFoldHandlerRef.current('fast_fold', true);
+  }, [lightningCheckFoldDue]);
 
   /* LIGHTNING PHASE 12 (spec ACTION LATENCY TELEMETRY): hand creation ->
      first client render. Once per hand, after the hand is on the felt and
@@ -27280,9 +27399,20 @@ function LiveTablePage({
          CSS collapses it via [data-hero='false'] (see TablePage.css). */
       data-hero={heroAtTable ? 'true' : 'false'}
       /* LIGHTNING TRANSITION, PHASE 3: the folded hand is leaving the felt;
-         LightningFoldBar.css fades the opponents and the board out over the
-         hold (one fold window x Animation Speed). Lightning rooms only. */
-      data-lightning-exit={lightningRoom && lightningExitMs > 0 ? 'true' : undefined}
+         LightningFoldBar.css fades the opponents, the board and the pot out
+         and keeps them out until the next table arrives. 2026-11-09: a hand
+         played to its end leaves the same way once it is over. Lightning
+         rooms only. */
+      data-lightning-exit={
+        lightningFeltLeaving({
+          lightningRoom: !!lightningRoom,
+          observer: lightningObserver,
+          exitHoldMs: lightningExitMs,
+          handIsOver: tableHandIsOver,
+        })
+          ? 'true'
+          : undefined
+      }
       /* THE TOURNAMENT INFO DOCK (Dan 2026-10-04). Present only on a
          tournament table; TournamentHUD.css reads it to reserve the dock's
          height under the felt and to stand the bottom bars on top of it.
@@ -30956,6 +31086,10 @@ function LiveTablePage({
                       void handleLightningFold('fast_fold');
                       return;
                     }
+                    // A free Check/Fold is bound to its hand and carries
+                    // across its streets; every other choice ends that.
+                    lightningCheckFoldArmRef.current =
+                      lightningRoom && next === 'fold' ? lightningHandKeyNow : null;
                     // An undelivered clear may restore the held choice. Keep
                     // its hand-bound mode until another explicit choice replaces it.
                     if (next !== null) preActionFoldOnTurnHandRef.current = null;

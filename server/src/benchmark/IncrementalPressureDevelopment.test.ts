@@ -51,7 +51,14 @@ describe('incremental development boundaries', () => {
           { seed: 1, pairs: 1, startPair: 0, planDigest: 'x', cellKey: 'x' },
           () => {}
         )
-      ).rejects.toThrow('plan refused');
+      ).rejects.toThrow(
+        // river_position_defense has a registered plan (owner decision,
+        // 2026-11-09); a development spec is still refused before any deal,
+        // at the original worker/population check rather than at the plan.
+        target === 'river_position_defense'
+          ? /original worker\/population required/
+          : /plan refused/
+      );
       for (const seed of INCREMENTAL_RESERVED_HOLDOUT_SEEDS)
         await expect(runFeatureAblationDevelopment(spec, { seed, pairs: 1 })).rejects.toThrow(
           'held-out'

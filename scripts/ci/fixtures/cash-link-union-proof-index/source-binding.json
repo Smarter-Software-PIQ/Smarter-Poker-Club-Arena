@@ -16,7 +16,7 @@
     "scripts/ci/contract-index-recovery.mjs": "f348be2a919456e08ec9293bfc0f36b6af0be254588d379bfd3cca297e55bd7c",
     "scripts/ci/contract-index-recovery.test.mjs": "8727c21046ea29fe1a01fb3433ee0d94f975c4e91805a52e0e0673b6671c6e98",
     "scripts/ci/apply-recorded-migration.mjs": "6e2bfb30eab9862cbc2ec9952aaf619e439b454133a82674b38c38a1e21220b8",
-    ".github/workflows/apply-merged-migration.yml": "32a882652058f3be483b2ca81a9624310f29178bd4b9579d62003e2e290fdbef",
+    ".github/workflows/apply-merged-migration.yml": "381d5cf02a6455d23876275ae6e78b71afd4dddcc2ac171c4c6faaafc2f0c77b",
     "docs/changelog/2026-10-28-cash-selector-bounded-build-recovery.md": "30ec99aca57f738f841167aefca2c47c8c68cda088f7b6189b3e46e532137f1e",
     "scripts/ci/fixtures/cash-link-union-proof-index/actual-function-cold-plans.py": "31974fb62fbb677047a80686903e6c96f8f11db1a64c8bc0daccb5242c17ac7d"
   },
@@ -103,5 +103,14 @@
     "review": "Reviewed exact diff. Additions only around the existing ordinary budget: an import of scripts/ci/migration-install-budget.mjs; before send, a file's '-- @install-budget-seconds:' declaration is parsed (malformed refused), a declaration on a non-ordinary route is refused, and the ordinary budget becomes ordinaryMigrationBudgetMs(file, sql) - exactly the previous (TRANSACTION_BUDGET_SECONDS + 4) * 1000 = 12000 ms for every undeclared file, or the declared budget (<= 60 s) only for a file whose every touched relation is public.gto_v31_*/solver_* and function is an offline V31/solver function, with SET LOCAL lock_timeout <= 2s; assertOrdinaryMigrationBudget now receives that value. bindMigrationSession and the session SET transaction_timeout use it (unchanged 12 s value for undeclared files; window route unchanged). For a declared file only, an in-transaction offline-scope check is spliced between the stale-pin check and the history row. Settlement, accounting, thaw, window, preamble, history and stale-pin behavior for undeclared files is byte-for-byte the same SQL.",
     "reason": "2026-11-07 21:14 CT owner instruction: change the 12 s limit that refused the offline V31 v2 SQL chain (20261108011659) three times, keeping the 2026-11-02 live-writer protection for anything touching live play or money. Native PG17 qualification: scripts/ci/test-maintenance-window-migrations.sh section 13 (ALL PASS).",
     "testReview": "contract-index-recovery.test.mjs: the only change is the pinned bindMigrationSession budget argument text in its three occurrences, '(TRANSACTION_BUDGET_SECONDS + 4) * 1000' -> 'ordinaryBudgetMs', matching the reviewed installer; the recovery/body/binding/admission/identity/send ordering assertions are unchanged (node --test: 24/24 pass)."
+  },
+  "applierQueueSkipsANeverStartedRun20261109": {
+    "paths": {
+      ".github/workflows/apply-merged-migration.yml": {
+        "before": "32a882652058f3be483b2ca81a9624310f29178bd4b9579d62003e2e290fdbef",
+        "after": "381d5cf02a6455d23876275ae6e78b71afd4dddcc2ac171c4c6faaafc2f0c77b"
+      }
+    },
+    "review": "Reviewed exact diff. Only the queue step changes: the existing selection of earlier non-completed runs (select(.id < $GITHUB_RUN_ID and .status != \"completed\")) is kept and now lists id, status and created_at instead of a count; an unreadable queue is still REFUSED with nothing sent. A run still queued ten minutes after creation whose jobs endpoint reads total_count 0 is skipped and named in the log; an unreadable job count keeps it ahead. Cause: run 42680942075, dispatched at 19:11:20Z while the workflow was disabled for the November 9 owner ASAP engine cutover, stayed queued with no job and could not be cancelled, re-run or deleted, so every later file would wait 900 s and be refused. Installer, transaction, budget, TLS, certificate and refusal paths are byte-identical."
   }
 }

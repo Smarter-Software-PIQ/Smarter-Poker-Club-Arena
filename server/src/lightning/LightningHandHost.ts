@@ -1133,6 +1133,9 @@ export class LightningHandHost {
       variant: String(rules.game_variant || 'nlh'),
       fast_fold_available: state ? this.foldAvailable(playerId, state) : false,
       fold_on_turn: true,
+      // An armed Check/Fold carries across streets and releases its player the
+      // moment a bet prices it, without waiting for the turn (2026-11-09).
+      check_fold_carries: true,
       // LIGHTNING PHASE 13: which of the two controls the Cluster offers at all.
       ...this.foldFlagFields(),
     };
@@ -1936,6 +1939,7 @@ export class LightningHandHost {
     const me = st?.players.find((p) => p.user_id === userId);
     if (!st || !me) return false;
     const toCall = Math.max(0, st.currentBet - me.bet);
+    const armed = this.preActions.getPreAction(this.timerKey, userId)?.action;
     const r = this.preActions.executePreAction(
       this.timerKey,
       userId,
@@ -1944,13 +1948,60 @@ export class LightningHandHost {
       me.stack
     );
     if (!r.executed || !r.action) return false;
-    return this.applyAction(
+    const hc = this.hc;
+    const done = this.applyAction(
       userId,
       r.action,
       r.amount,
       'pre_action',
       r.action === 'fold' ? 'normal' : undefined
     ).success;
+    // CHECK/FOLD CARRIES (Dan 2026-11-09, Lightning only): "the check/fold
+    // stays active for all streets until someone bets, or the player reaches
+    // showdown ... they do not have to re select check/fold on any other
+    // streets". The shared engine spends every pre-action once; this host
+    // arms the same choice again after its free check, for this hand only.
+    if (
+      done &&
+      armed === 'auto_check_fold' &&
+      r.action === 'check' &&
+      this.hc === hc &&
+      this.state === 'dealing' &&
+      this.watching.has(userId) &&
+      !this.pendingFolds.has(userId)
+    ) {
+      this.preActions.setPreAction(this.timerKey, userId, 'auto_check_fold', undefined, 0);
+    }
+    return done;
+  }
+
+  /**
+   * CHECK/FOLD RELEASES ON THE BET, NOT ON THE TURN (Dan 2026-11-09, Lightning
+   * only): "it should fold you in that hand right away, even though the action
+   * and avatar doesn't change or remove until the action is on you". A player
+   * holding an armed Check/Fold who now owes chips has already answered: the
+   * existing private fold request releases them to their next hand now, and
+   * this controller still publishes their fold in turn order. The seat about
+   * to act is left to its own turn, where the same pre-action folds it.
+   */
+  private releasePricedCheckFolds(): void {
+    const hc = this.hc;
+    if (!hc || this.state !== 'dealing' || this.actionLock) return;
+    if (!this.foldFlagsNow().fastFold) return;
+    const st = hc.getState();
+    if (!BETTING_STAGES.has(st.stage)) return;
+    for (const me of st.players) {
+      const userId = me.user_id;
+      if (me.is_folded || me.is_all_in || me.seat === st.currentPlayerSeat) continue;
+      if (!(st.currentBet - me.bet > 0.005)) continue;
+      if (!this.watching.has(userId) || this.pendingFolds.has(userId)) continue;
+      if (this.preActions.getPreAction(this.timerKey, userId)?.action !== 'auto_check_fold')
+        continue;
+      const had = this.foldRequestedAt.has(userId);
+      if (!had) this.foldRequestedAt.set(userId, this.now());
+      // A refusal leaves the armed choice in place for the ordinary turn.
+      if (!this.requestFold(userId, 'fast').success && !had) this.foldRequestedAt.delete(userId);
+    }
   }
 
   /**
@@ -1980,6 +2031,24 @@ export class LightningHandHost {
     if (!me || me.is_folded) return { success: false, error: 'Player not found at this table' };
     if (action === 'auto_fold')
       return this.handlePlayerAction(userId, 'fast_fold', undefined, `lightning-hand:${handId}`);
+    // A Check/Fold armed while the player already owes chips is a fold: the
+    // small blind, or a big blind facing a raise, leaves for the next hand now.
+    // With the fast fold switched off it stays an ordinary turn-bound arm.
+    if (
+      action === 'auto_check_fold' &&
+      st.currentBet - me.bet > 0.005 &&
+      st.currentPlayerSeat !== me.seat &&
+      !me.is_all_in &&
+      this.foldFlagsNow().fastFold
+    ) {
+      const released = this.handlePlayerAction(
+        userId,
+        'fast_fold',
+        undefined,
+        `lightning-hand:${handId}`
+      );
+      if (released.success) return released;
+    }
     this.preActions.setPreAction(
       this.timerKey,
       userId,
@@ -2664,6 +2733,7 @@ export class LightningHandHost {
     if (decisionMs !== null)
       this.telemetry.decision(this.clusterId, this.handId, userId, decisionMs, this.now());
     if (this.decisionOpenFor === userId) this.retractDecision(a === 'fold' ? 'folded' : 'acted');
+    if (a === 'bet' || a === 'raise' || a === 'all_in') this.releasePricedCheckFolds();
     return { success: true };
   }
 

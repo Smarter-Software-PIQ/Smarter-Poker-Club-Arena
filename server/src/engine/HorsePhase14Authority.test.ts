@@ -142,6 +142,7 @@ describe('P14.4 null proof: no corrective candidate can be admitted today', () =
       'engine/horseDecision/replay/qualifiedAuthority.ts',
       'engine/horseDecision/workerRuntime.ts',
       'scripts/featureAblationDevelop.ts',
+      'scripts/featureAblationDraftPlan.ts',
       'scripts/featureAblationQualify.ts',
       'services/horseDecisionJournal/phaseProof.ts',
     ]);
@@ -153,7 +154,13 @@ describe('P14.4 null proof: no corrective candidate can be admitted today', () =
       /import\s*\{\s*liveHorsePhase14Authorities\s*\}\s*from\s*['"][^'"]*HorsePhase14Authority\.js['"]/
     );
     expect(acceptance).toContain('recheckHorsePhase14BeforeAcceptance(d)');
-    for (const file of ['scripts/featureAblationDevelop.ts', 'scripts/featureAblationQualify.ts']) {
+    // The held-out plan drafter recomputes the same admission identity the
+    // qualification CLI checks, so it is held to exactly the same limits.
+    for (const file of [
+      'scripts/featureAblationDevelop.ts',
+      'scripts/featureAblationDraftPlan.ts',
+      'scripts/featureAblationQualify.ts',
+    ]) {
       const cli = readFileSync(`${root}${file}`, 'utf8');
       expect(cli, file).toMatch(
         /const\s*\{\s*HORSE_PHASE14_DOMAINS\s*\}\s*=\s*await\s+import\(['"][^'"]*HorsePhase14Authority\.js['"]\)/

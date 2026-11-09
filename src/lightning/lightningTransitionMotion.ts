@@ -9,6 +9,8 @@
  *   - `lightningExitHoldMs`: how long the felt keeps the folded hand on screen
  *     after the engine's idle snapshot, so the hero's cards finish flying to
  *     the muck and the opponents and board fade out rather than vanish.
+ *   - `lightningFeltLeaving`: when the felt is marked as leaving, after a fold
+ *     and once the hand on it is over, so every table has an exit.
  *   - `lightningHeroSeatFromRoster`: the chair the hero holds in the incoming
  *     roster, adopted in the same update as the roster, so the hero never sits
  *     in the wrong chair for a frame.
@@ -51,6 +53,31 @@ export function lightningExitHoldMs(input: {
   if (input.feltPlayers <= 0) return 0;
   const speed = Number.isFinite(input.speed) && input.speed > 0 ? input.speed : 1;
   return Math.round(LIGHTNING_EXIT_HOLD_BASE_MS * speed);
+}
+
+/**
+ * Whether the felt is marked as leaving (`data-lightning-exit`), which fades
+ * the opponents, the board and the pot out and keeps them out.
+ *
+ *   - during the exit hold after a fold (above), and
+ *   - 2026-11-09: once the hand on the felt is OVER (the page's hand-bound
+ *     completion latch, set only after the full award hold). A player who
+ *     stayed to the end had no exit at all: the finished table sat there at
+ *     full strength and was swapped for the next one in a single frame. It
+ *     now leaves the way a folded hand does, and the next table fades in.
+ *
+ * Never at a Classic table and never for an observer. The marker ends the
+ * moment a new hand is on the felt, so it can never hide a live hand.
+ */
+export function lightningFeltLeaving(input: {
+  lightningRoom: boolean;
+  observer: boolean;
+  exitHoldMs: number;
+  handIsOver: boolean;
+}): boolean {
+  if (!input.lightningRoom) return false;
+  if (input.exitHoldMs > 0) return true;
+  return input.handIsOver && !input.observer;
 }
 
 /**

@@ -1,28 +1,17 @@
 name: Weekly refusal receipt cover
 
+# Required, not advisory (2026-11-09). On 2026-11-09 the weekly payout refused
+# for hours on a split-return conservation defect, and the proofs in this
+# workflow ran only as a path-filtered workflow that no ruleset required, so a
+# red run could not stop a merge. It is now a required status check on main.
+# A path filter cannot be required (an unmatched pull request would wait
+# forever for the check), so the workflow starts on every pull request and the
+# job decides relevance itself from the same path list, failing open to "run
+# every proof" whenever the diff cannot be read. Unrelated pull requests finish
+# in seconds and still report the check.
 on:
   pull_request:
     branches: [main]
-    paths:
-      - supabase/migrations/**
-      - scripts/ci/test-split-late-return-postgres.py
-      - scripts/ci/fixtures/split-late-return/**
-      - scripts/ci/test-union-prepares-first-postgres.py
-      - scripts/ci/fixtures/union-prepares-first/**
-      - tests/split-late-return-owns-its-leg.law.test.ts
-      - scripts/ci/fixtures/weekly-refusal-cover/**
-      - scripts/ci/test-weekly-refusal-cover-postgres.py
-      - scripts/ci/test-cash-refusal-pointer-batch-postgres.py
-      - scripts/ci/fixtures/cash-refusal-scope-set/**
-      - tests/cash-refusals-read-their-pointer-batch.law.test.ts
-      - scripts/ci/test-cash-assert-status-cover-postgres.py
-      - scripts/ci/fixtures/cash-assert-status-cover/**
-      - tests/cash-evidence-reads-the-accrual-status-cover.law.test.ts
-      - scripts/ci/test-governance-eco-original-week-postgres.py
-      - scripts/ci/fixtures/governance-eco-original-week/**
-      - tests/governance-eco-keeps-original-week.law.test.ts
-      - .github/workflows/weekly-refusal-cover.yml
-      - tests/the-weekly-refusal-check-reads-the-receipt-cover.law.test.ts
 
 permissions:
   contents: read
@@ -38,30 +27,88 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - name: Does this change touch a weekly refusal cover input?
+        id: relevant
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          WEEKLY_COVER_PATHS: |
+            supabase/migrations/**
+            scripts/ci/test-split-late-return-postgres.py
+            scripts/ci/fixtures/split-late-return/**
+            scripts/ci/test-union-prepares-first-postgres.py
+            scripts/ci/fixtures/union-prepares-first/**
+            tests/split-late-return-owns-its-leg.law.test.ts
+            scripts/ci/fixtures/weekly-refusal-cover/**
+            scripts/ci/test-weekly-refusal-cover-postgres.py
+            scripts/ci/test-cash-refusal-pointer-batch-postgres.py
+            scripts/ci/fixtures/cash-refusal-scope-set/**
+            tests/cash-refusals-read-their-pointer-batch.law.test.ts
+            scripts/ci/test-cash-assert-status-cover-postgres.py
+            scripts/ci/fixtures/cash-assert-status-cover/**
+            tests/cash-evidence-reads-the-accrual-status-cover.law.test.ts
+            scripts/ci/test-governance-eco-original-week-postgres.py
+            scripts/ci/fixtures/governance-eco-original-week/**
+            tests/governance-eco-keeps-original-week.law.test.ts
+            .github/workflows/weekly-refusal-cover.yml
+            tests/the-weekly-refusal-check-reads-the-receipt-cover.law.test.ts
+        shell: bash
+        run: |
+          set -uo pipefail
+          if [ -z "$BASE_SHA" ] || [ -z "$HEAD_SHA" ]; then
+            echo "No pull request diff: running every proof."
+            echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if ! changed=$(git diff --name-only --no-renames "$BASE_SHA...$HEAD_SHA" 2>/dev/null); then
+            echo "::notice::The diff could not be read; running every proof."
+            echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          while IFS= read -r pattern; do
+            [ -n "$pattern" ] || continue
+            while IFS= read -r file; do
+              [ -n "$file" ] || continue
+              if [[ "$file" == $pattern ]]; then
+                echo "$file matches $pattern: running every proof."
+                echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+              fi
+            done <<< "$changed"
+          done <<< "$WEEKLY_COVER_PATHS"
+          echo "No weekly refusal cover input changed; the proofs have nothing new to verify."
+          echo "run=false" >> "$GITHUB_OUTPUT"
       - name: Install PostgreSQL 17 from the signed PGDG source only
+        if: steps.relevant.outputs.run == 'true'
         uses: ./.github/actions/install-postgres-17
       # Runs as the runner user (non-root), exactly as the ci.yml step would.
       - name: Weekly refusal receipt cover
+        if: steps.relevant.outputs.run == 'true'
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 -B scripts/ci/test-weekly-refusal-cover-postgres.py --pg-bin "$PG_BIN" --scratch "${{ runner.temp }}"
       - name: Cash refusal pointer batch preserves the original refusal owner
+        if: steps.relevant.outputs.run == 'true'
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 -B scripts/ci/test-cash-refusal-pointer-batch-postgres.py --pg-bin "$PG_BIN" --scratch "${{ runner.temp }}"
       - name: Original raw cash completeness reads the compact batch status cover
+        if: steps.relevant.outputs.run == 'true'
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 -B scripts/ci/test-cash-assert-status-cover-postgres.py --pg-bin "$PG_BIN" --scratch "${{ runner.temp }}"
       - name: Split late return owns its leg under inherited autoskip
+        if: steps.relevant.outputs.run == 'true'
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 -B scripts/ci/test-split-late-return-postgres.py --pg-bin "$PG_BIN" --scratch-root "${{ runner.temp }}" --output "${{ runner.temp }}/split-late-return.json"
       - name: Governance ECO incidents require their original completed week
+        if: steps.relevant.outputs.run == 'true'
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 -B scripts/ci/test-governance-eco-original-week-postgres.py --pg-bin "$PG_BIN" --scratch "$RUNNER_TEMP"
       - name: The due union week prepares and pays first
+        if: steps.relevant.outputs.run == 'true'
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 -B scripts/ci/test-union-prepares-first-postgres.py --pg-bin "$PG_BIN" --scratch-root "${{ runner.temp }}" --output "${{ runner.temp }}/union-prepares-first.json"
