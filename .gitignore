@@ -231,3 +231,6 @@ work/release-journal-pg-*/
 
 # Actual build-graph scratch; the sealed combined inventory ships in dist.
 .client-runtime-*.json
+
+# Graphify local code graph (built per checkout, see CLAUDE.md section 14)
+graphify-out

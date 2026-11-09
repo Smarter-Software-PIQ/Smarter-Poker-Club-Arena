@@ -1685,3 +1685,80 @@ constants true.
 Full history and rationale: `docs/changelog/2026-09-01-scheduled-maintenance-break.md`
 and `docs/changelog/2026-09-01-total-platform-freeze.md`. Remaining backlog:
 issue #2563.
+
+---
+
+## 14. GRAPHIFY CODE GRAPH (advisory, owner-approved November 9, 2026)
+
+Graphify (`graphifyy` on PyPI, CLI `graphify`, pinned to 0.9.105) builds a local
+knowledge graph of the production code so an agent can locate code with one query
+instead of several rounds of grep and file reads. It is **advisory only**: Grep,
+Glob, Read and shell search stay fully available, and source code remains the
+authority for every claim. Use the graph to find where to look, then read the lines.
+
+**Install, build and environment (one command, every account and environment):**
+
+```bash
+scripts/dev/graphify-bootstrap.sh            # install CLI if missing, build or refresh graphify-out/
+```
+
+- The script pins `GRAPHIFY_BACKEND=none` and `GRAPHIFY_QUERY_LOG_DISABLE=1`. Extraction is
+  tree-sitter AST only: no LLM, no API key and no network after the package install.
+  Never run `graphify extract` without `--code-only` or with a backend; an API key in the
+  environment would otherwise select a cloud model.
+- Install route: `uv tool install graphifyy==0.9.105`, falling back to `pipx`, then `pip --user`.
+  Cloud sessions install from PyPI through the approved package proxy.
+- Scope is `.graphifyignore`: production code only (no docs, evidence, migrations, tests,
+  scripts or assets). SQL functions, migrations and client-to-RPC wiring in SQL are therefore
+  **not** in the graph; search for those directly.
+- Storage: `graphify-out/` is gitignored and never committed (the graph is about 45 MB).
+  On the owner's Mac set `GRAPHIFY_STORE="/Volumes/SmarterArchives 1/graphify-store"` so the
+  graph and its cache live on the authorized SSD and `graphify-out` is a symlink. Cloud
+  sessions keep it inside their own checkout.
+- Cost: about 140 s on the Mac Studio and about 4 min on a 2-core cloud container, 0 tokens.
+
+**Use:**
+
+```bash
+graphify query "where is the daily maintenance break triggered"   # scoped subgraph, ~2k tokens
+graphify explain "MaintenanceBreak"                               # one concept and its neighbours
+graphify path "scheduleHorseAction" "performAction"               # how two symbols connect
+```
+
+Then Read only the cited line ranges. If the graph cannot disambiguate (several nodes share
+a name such as `decide()`), fall back to grep.
+
+**Revision matching:** the graph is only valid for the revision it was built from.
+
+```bash
+scripts/dev/graphify-bootstrap.sh --check     # exit 0 = graph matches the checkout, 1 = stale or missing
+scripts/dev/graphify-bootstrap.sh --refresh   # re-extract after pulling or editing code (about as long as a build)
+scripts/dev/graphify-bootstrap.sh --rebuild   # full rebuild
+```
+
+`graphify-out/SOURCE_REVISION` records the commit the graph describes, plus `+dirty-<hash>` of any uncommitted changes, so a later edit makes `--check` report stale. Run
+`--check` before relying on a graph in a reused checkout or after switching branches.
+
+**Hooks (`.claude/settings.json`):** advisory nudges before Bash/Grep and Read/Glob, plus a
+compaction reset. Each hook exits 0 and does nothing when `graphify` is not installed or no
+graph exists, and pins `GRAPHIFY_HOOK_STRICT=0` so no environment variable can turn the
+nudge into a denial. Project hooks add to user-level hooks; they never replace them (the Mac's
+LocalDependencyGuard keeps running). Never install with `--strict`.
+
+**Measured on November 9, 2026 (revision 2389aa15, three architecture questions, graph-only
+agent vs grep/read agent):** both arms' cited lines were accurate. The graph arm used about a
+third fewer question-specific tokens (about 68k vs 102k across the three questions, after a
+measured ~70k fixed per-agent overhead) and fewer tool calls, but the search arm was more
+complete where the answer runs through SQL or client code outside the graph's scope.
+
+**Troubleshooting:**
+- `graphify: command not found`: run the bootstrap, or `export PATH="$HOME/.local/bin:$PATH"`.
+- `--check` reports stale: run `--refresh`.
+- `warning: ... tree_sitter_sql not installed`: expected; SQL is out of scope.
+- A query returns unrelated nodes: narrow it with symbol or file names, or use `explain`/`path`.
+- Turn the nudges off for a session or shell: `export GRAPHIFY_HOOKS=off` (the hooks then exit immediately).
+
+**Removal:** delete `graphify-out` (and the SSD store directory on the Mac), then
+`uv tool uninstall graphifyy` (or `pipx uninstall graphifyy`). To remove it from the
+repository, revert this section, `.claude/settings.json`, `.graphifyignore`,
+`scripts/dev/graphify-bootstrap.sh` and the `graphify-out` line in `.gitignore`.
