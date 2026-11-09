@@ -37,16 +37,13 @@
 --    receipts and conservation check prove zero remaining obligation, but its
 --    receipt_proven_tournament_alerts source list omitted
 --    'Tournament.satellite_qualifiers_refused_repeatedly' and
---    'tournament.real_time_payout_refused', and required p.prize_rows > 0 even
---    for satellites settled entirely by seat/ticket awards with zero cash
---    remainder (where tournament_satellite_settlements exists and
---    tournament_payouts has 0 rows).
+--    'tournament.real_time_payout_refused'.
 --
 -- 3. STALE ALERTS ON RESOLVED INCIDENTS AND CANCELLED FREE BUY ROWS.
 --    - 2 fn_ca_bounty_only_final_two_watch alerts (dfd96268, 43c88313) on
 --      36fc2465 and 21c4c6c2 remained open after 36fc2465 was made good by
 --      20261109010752 and 21c4c6c2 settled cleanly via ca_bounty_only_final_two.
---    - 1 TournamentRecurring.free_buy_board_drift alert (fb2aa1fd) remained open
+--    - 1 TournamentRecurring.freeBuyAudit alert (fb2aa1fd) remained open
 --      from a historical cancelled Free Buy row before auditFreeBuyBoard filtered
 --      out CANCELLED rows, while fn_sp_midway_free_buy_watch() reports 0 issues.
 --
@@ -71,32 +68,106 @@ DECLARE
   v_def text;
   v_new text;
 
-  c_escrow_old_1 constant text := E'      OR (l.category = ''promo_send'' AND COALESCE(l.metadata->>''kind'', '''') = ''free_buy_entry_promo''\n          AND l.from_type = ''union_wallet'' AND l.to_type = ''prize_liability'' AND l.to_entity_id = p_tournament_id)';
-  c_escrow_new_1 constant text := E'      OR (l.category = ''promo_send'' AND COALESCE(l.metadata->>''kind'', '''') IN (''free_buy_entry_promo'', ''net_guarantee_promo'')\n          AND l.from_type = ''union_wallet'' AND l.to_type = ''prize_liability'' AND l.to_entity_id = p_tournament_id)';
+  c_escrow_old_1 constant text :=
+    '      OR (l.metadata->>''kind''=''guarantee_promo_excess_return''' || chr(10)
+    || '          AND l.category=''reversal'' AND l.from_type=''prize_liability''' || chr(10)
+    || '          AND l.from_entity_id=p_tournament_id))';
+  c_escrow_new_1 constant text :=
+    '      OR (l.metadata->>''kind''=''guarantee_promo_excess_return''' || chr(10)
+    || '          AND l.category=''reversal'' AND l.from_type=''prize_liability''' || chr(10)
+    || '          AND l.from_entity_id=p_tournament_id)' || chr(10)
+    || '      OR (l.metadata->>''kind''=''net_guarantee_promo''' || chr(10)
+    || '          AND l.category=''promo_send'' AND l.from_type=''union_wallet''' || chr(10)
+    || '          AND l.to_type=''prize_liability'' AND l.to_entity_id=p_tournament_id))';
 
-  c_escrow_old_2 constant text := E'           WHEN l.category = ''promo_send'' AND COALESCE(l.metadata->>''kind'', '''') = ''free_buy_entry_promo''\n                AND l.from_type = ''union_wallet'' AND l.to_type = ''prize_liability'' AND l.to_entity_id = p_tournament_id\n             THEN round(COALESCE(l.amount, 0), 2)';
-  c_escrow_new_2 constant text := E'           WHEN l.category = ''promo_send'' AND COALESCE(l.metadata->>''kind'', '''') IN (''free_buy_entry_promo'', ''net_guarantee_promo'')\n                AND l.from_type = ''union_wallet'' AND l.to_type = ''prize_liability'' AND l.to_entity_id = p_tournament_id\n             THEN round(COALESCE(l.amount, 0), 2)';
+  c_delta_old_1 constant text :=
+    '             OR (x.category = ''reversal'' AND x.metadata->>''kind'' = ''owner_bounty_guarantee_correction''))), 0) AS owner_out' || chr(10)
+    || '    FROM public.tournaments t WHERE t.id = p_tournament_id';
+  c_delta_new_1 constant text :=
+    '             OR (x.category = ''reversal'' AND x.metadata->>''kind'' = ''owner_bounty_guarantee_correction''))), 0) AS owner_out,' || chr(10)
+    || '      -- UNION PROMO FUNDING (2026-11-09): Midway Free Buy per-head promo,' || chr(10)
+    || '      -- excess promo returns, and net guarantee promo funding.' || chr(10)
+    || '      COALESCE((SELECT sum(CASE WHEN x.category = ''promo_send'' THEN x.amount ELSE -x.amount END)' || chr(10)
+    || '         FROM public.chip_ledger x' || chr(10)
+    || '        WHERE x.tournament_id = t.id' || chr(10)
+    || '          AND ((x.metadata->>''kind'' = ''midway_free_buy_promo_head''' || chr(10)
+    || '                AND x.category IN (''promo_send'', ''reversal''))' || chr(10)
+    || '            OR (x.metadata->>''kind'' = ''guarantee_promo_excess_return''' || chr(10)
+    || '                AND x.category = ''reversal'' AND x.from_type = ''prize_liability''' || chr(10)
+    || '                AND x.from_entity_id = t.id)' || chr(10)
+    || '            OR (x.metadata->>''kind'' = ''net_guarantee_promo''' || chr(10)
+    || '                AND x.category = ''promo_send'' AND x.from_type = ''union_wallet''' || chr(10)
+    || '                AND x.to_type = ''prize_liability'' AND x.to_entity_id = t.id))), 0) AS promo_in' || chr(10)
+    || '    FROM public.tournaments t WHERE t.id = p_tournament_id';
 
-  c_delta_old_1 constant text := E'      CASE WHEN t.union_id = ''fade0000-0000-0000-0000-000000000001''::uuid AND COALESCE(t.free_buy, false) THEN\n        COALESCE((SELECT sum(x.amount) FROM public.chip_ledger x\n           WHERE x.tournament_id = t.id AND x.category = ''promo_send''\n             AND x.from_type = ''union_wallet'' AND x.to_type = ''prize_liability''\n             AND x.to_entity_id = t.id AND x.metadata->>''kind'' = ''free_buy_entry_promo''), 0)\n      ELSE 0 END AS promo_entry_in,';
-  c_delta_new_1 constant text := E'      COALESCE((SELECT sum(x.amount) FROM public.chip_ledger x\n         WHERE x.tournament_id = t.id AND x.category = ''promo_send''\n           AND x.from_type = ''union_wallet'' AND x.to_type = ''prize_liability''\n           AND x.to_entity_id = t.id AND x.metadata->>''kind'' IN (''free_buy_entry_promo'', ''net_guarantee_promo'')), 0) AS promo_entry_in,';
+  c_delta_old_2 constant text :=
+    '    + m.ticket_in' || chr(10)
+    || '    - m.owner_out';
+  c_delta_new_2 constant text :=
+    '    + m.ticket_in' || chr(10)
+    || '    - m.owner_out' || chr(10)
+    || '    + m.promo_in';
 
-  c_delta_old_2 constant text := E'        + CASE WHEN t.union_id = ''fade0000-0000-0000-0000-000000000001''::uuid AND COALESCE(t.free_buy, false) THEN\n            COALESCE((SELECT sum(x.amount) FROM public.chip_ledger x\n               WHERE x.tournament_id = t.id AND x.category = ''promo_send''\n                 AND x.from_type = ''union_wallet'' AND x.to_type = ''prize_liability''\n                 AND x.to_entity_id = t.id AND x.metadata->>''kind'' = ''free_buy_entry_promo''), 0)\n          ELSE 0 END';
-  c_delta_new_2 constant text := E'        + COALESCE((SELECT sum(x.amount) FROM public.chip_ledger x\n             WHERE x.tournament_id = t.id AND x.category = ''promo_send''\n               AND x.from_type = ''union_wallet'' AND x.to_type = ''prize_liability''\n               AND x.to_entity_id = t.id AND x.metadata->>''kind'' IN (''free_buy_entry_promo'', ''net_guarantee_promo'')), 0)';
+  c_deltas_old_1 constant text :=
+    '      AND ((x.category = ''transfer'' AND x.idempotency_key LIKE ''owner-retirement-pool:%'')' || chr(10)
+    || '        OR (x.category = ''reversal'' AND x.metadata->>''kind'' = ''owner_bounty_guarantee_correction''))' || chr(10)
+    || '    GROUP BY x.tournament_id' || chr(10)
+    || '  )' || chr(10)
+    || '  SELECT e.id, e.name, e.variant, e.ended_at,';
+  c_deltas_new_1 constant text :=
+    '      AND ((x.category = ''transfer'' AND x.idempotency_key LIKE ''owner-retirement-pool:%'')' || chr(10)
+    || '        OR (x.category = ''reversal'' AND x.metadata->>''kind'' = ''owner_bounty_guarantee_correction''))' || chr(10)
+    || '    GROUP BY x.tournament_id' || chr(10)
+    || '  ), promo_in AS MATERIALIZED (' || chr(10)
+    || '    -- UNION PROMO FUNDING (2026-11-09): see the scalar.' || chr(10)
+    || '    SELECT x.tournament_id AS id,' || chr(10)
+    || '           sum(CASE WHEN x.category = ''promo_send'' THEN x.amount ELSE -x.amount END) AS amount' || chr(10)
+    || '    FROM public.chip_ledger x JOIN eligible e ON e.id = x.tournament_id' || chr(10)
+    || '    WHERE (x.metadata->>''kind'' = ''midway_free_buy_promo_head''' || chr(10)
+    || '           AND x.category IN (''promo_send'', ''reversal''))' || chr(10)
+    || '       OR (x.metadata->>''kind'' = ''guarantee_promo_excess_return''' || chr(10)
+    || '           AND x.category = ''reversal'' AND x.from_type = ''prize_liability''' || chr(10)
+    || '           AND x.from_entity_id = x.tournament_id)' || chr(10)
+    || '       OR (x.metadata->>''kind'' = ''net_guarantee_promo''' || chr(10)
+    || '           AND x.category = ''promo_send'' AND x.from_type = ''union_wallet''' || chr(10)
+    || '           AND x.to_type = ''prize_liability'' AND x.to_entity_id = x.tournament_id)' || chr(10)
+    || '    GROUP BY x.tournament_id' || chr(10)
+    || '  )' || chr(10)
+    || '  SELECT e.id, e.name, e.variant, e.ended_at,';
 
-  c_deltas_old_1 constant text := E'    SELECT t.id, t.name, t.variant, t.ended_at, COALESCE(t.guaranteed_prize, 0) AS guaranteed_prize,\n           (t.union_id = ''fade0000-0000-0000-0000-000000000001''::uuid AND COALESCE(t.free_buy, false)) AS is_midway_free_buy';
-  c_deltas_new_1 constant text := E'    SELECT t.id, t.name, t.variant, t.ended_at, COALESCE(t.guaranteed_prize, 0) AS guaranteed_prize,\n           ((t.union_id = ''fade0000-0000-0000-0000-000000000001''::uuid OR t.club_id = ''fade0000-0000-0000-0000-000000000001''::uuid) AND COALESCE(t.free_buy, false)) AS is_midway_free_buy';
+  c_deltas_old_2 constant text :=
+    '      + COALESCE(ti.amount, 0) - COALESCE(oo.amount, 0), 2) END AS delta';
+  c_deltas_new_2 constant text :=
+    '      + COALESCE(ti.amount, 0) - COALESCE(oo.amount, 0)' || chr(10)
+    || '      + COALESCE(pi.amount, 0), 2) END AS delta';
 
-  c_deltas_old_2 constant text := E'      AND e.is_midway_free_buy\n      AND x.category = ''promo_send'' AND x.from_type = ''union_wallet''\n      AND x.to_type = ''prize_liability'' AND x.to_entity_id = x.tournament_id\n      AND x.metadata->>''kind'' = ''free_buy_entry_promo''';
-  c_deltas_new_2 constant text := E'      AND x.category = ''promo_send'' AND x.from_type = ''union_wallet''\n      AND x.to_type = ''prize_liability'' AND x.to_entity_id = x.tournament_id\n      AND ((e.is_midway_free_buy AND x.metadata->>''kind'' = ''free_buy_entry_promo'')\n        OR x.metadata->>''kind'' = ''net_guarantee_promo'')';
+  c_deltas_old_3 constant text :=
+    '  LEFT JOIN ticket_in ti ON ti.id = e.id' || chr(10)
+    || '  LEFT JOIN owner_out oo ON oo.id = e.id';
+  c_deltas_new_3 constant text :=
+    '  LEFT JOIN ticket_in ti ON ti.id = e.id' || chr(10)
+    || '  LEFT JOIN owner_out oo ON oo.id = e.id' || chr(10)
+    || '  LEFT JOIN promo_in pi ON pi.id = e.id';
 
-  c_deltas_old_3 constant text := E'      + CASE WHEN e.is_midway_free_buy THEN COALESCE(pe.amount, 0) ELSE 0 END';
-  c_deltas_new_3 constant text := E'      + COALESCE(pe.amount, 0)';
+  c_res_old_1 constant text :=
+    '      AND a.source IN (''Tournament.satellite_boundary_held'',' || chr(10)
+    || '                       ''Tournament.satellite_qualifiers_outcome_unknown'',' || chr(10)
+    || '                       ''GameServer.tournament_repeated_recovery_refused'',' || chr(10)
+    || '                       ''fn_ca_tournament_dark_while_running'')';
+  c_res_new_1 constant text :=
+    '      AND a.source IN (''Tournament.satellite_boundary_held'',' || chr(10)
+    || '                       ''Tournament.satellite_qualifiers_refused_repeatedly'',' || chr(10)
+    || '                       ''Tournament.satellite_qualifiers_outcome_unknown'',' || chr(10)
+    || '                       ''tournament.real_time_payout_refused'',' || chr(10)
+    || '                       ''GameServer.tournament_repeated_recovery_refused'',' || chr(10)
+    || '                       ''fn_ca_tournament_dark_while_running'')';
 
-  c_res_old_1 constant text := E'           ''Tournament.settlement_retry'',\n           ''Tournament.satellite_boundary_held'',\n           ''fn_ca_ensure_running_tournament_has_seats''';
-  c_res_new_1 constant text := E'           ''Tournament.settlement_retry'',\n           ''Tournament.satellite_boundary_held'',\n           ''Tournament.satellite_qualifiers_refused_repeatedly'',\n           ''tournament.real_time_payout_refused'',\n           ''fn_ca_ensure_running_tournament_has_seats''';
-
-  c_res_old_2 constant text := E'          OR (\n            COALESCE(t.is_bounty, false) IS NOT TRUE\n            AND COALESCE(t.is_pko, false) IS NOT TRUE\n            AND COALESCE(t.is_mystery_bounty, false) IS NOT TRUE\n            AND COALESCE(p.prize_rows, 0) > 0\n          )';
-  c_res_new_2 constant text := E'          OR (\n            COALESCE(t.is_bounty, false) IS NOT TRUE\n            AND COALESCE(t.is_pko, false) IS NOT TRUE\n            AND COALESCE(t.is_mystery_bounty, false) IS NOT TRUE\n            AND (\n              COALESCE(p.prize_rows, 0) > 0\n              OR EXISTS (\n                SELECT 1\n                  FROM public.tournament_satellite_settlements s\n                 WHERE s.satellite_id = t.id\n              )\n            )\n          )';
+  c_res_old_2 constant text :=
+    '        OR (a.source IN (''GameServer.tournament_repeated_recovery_refused'',''fn_ca_tournament_dark_while_running'')' || chr(10)
+    || '          AND f.settled_at>=a.created_at AND f.completed_at>=a.created_at';
+  c_res_new_2 constant text :=
+    '        OR (a.source IN (''GameServer.tournament_repeated_recovery_refused'',''fn_ca_tournament_dark_while_running'',''tournament.real_time_payout_refused'')' || chr(10)
+    || '          AND f.settled_at>=a.created_at AND f.completed_at>=a.created_at';
 BEGIN
   -- 1. Patch fn_ca_tournament_escrow_chips(uuid)
   --    Preserves the 20261106203917 guarantee_promo_excess_return clause and adds net_guarantee_promo.
@@ -109,11 +180,6 @@ BEGIN
       RAISE EXCEPTION 'fn_ca_tournament_escrow_chips anchor 1 not found exactly once';
     END IF;
     v_new := replace(v_def, c_escrow_old_1, c_escrow_new_1);
-
-    IF (length(v_new) - length(replace(v_new, c_escrow_old_2, ''))) / length(c_escrow_old_2) <> 1 THEN
-      RAISE EXCEPTION 'fn_ca_tournament_escrow_chips anchor 2 not found exactly once';
-    END IF;
-    v_new := replace(v_new, c_escrow_old_2, c_escrow_new_2);
     EXECUTE v_new;
   END IF;
 
@@ -242,25 +308,31 @@ UPDATE public.ca_drift_incidents d
          '3ba300bc-d2be-4017-bf08-9375e0a8a5f2'::uuid
        )
    AND d.status = 'open'
-   AND e.tournament_id = (d.details->>'tournament_id')::uuid
-   AND round(COALESCE(e.prize_balance, 0) + COALESCE(e.bounty_balance, 0)
-             - (COALESCE(s.prize_balance, 0) + COALESCE(s.bounty_balance, 0)), 2) = 0
-   AND round(COALESCE(e.prize_balance, 0) - COALESCE(s.prize_balance, 0), 2) = 0;
+   AND e.tournament_id = d.tournament_id
+   AND round((COALESCE(e.prize_balance, 0) + COALESCE(e.bounty_balance, 0) + COALESCE(e.fee_balance, 0))
+             - (COALESCE(s.prize_balance, 0) - COALESCE(e.reserve_out, 0) + COALESCE(e.reserve_in, 0)
+                + COALESCE(s.bounty_balance, 0) + COALESCE(s.fee_balance, 0)), 2) = 0
+   AND round(COALESCE(e.prize_balance, 0)
+             - (COALESCE(s.prize_balance, 0) - COALESCE(e.reserve_out, 0) + COALESCE(e.reserve_in, 0)), 2) = 0;
 
 -- 3. Resolve settled transient tournament/satellite refusal alerts whose events
 --    are COMPLETED with receipt-proven settlement and zero remaining obligations.
 UPDATE public.financial_alerts a
    SET resolved = true,
        resolved_at = now(),
-       resolution = format(
-         'auto-resolved by 20261109151859 (fn_resolve_settled_financial_alerts): tournament %s (%s) is COMPLETED at %s with closed zero-balance escrow, conservation delta 0.00, and durable settlement receipts',
-         t.id,
-         COALESCE(t.name, 'unnamed'),
-         to_char(t.ended_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+       resolution = 'Verified the original tournament completed after the alert, with its terminal receipt and zero closed escrow.',
+       context = COALESCE(a.context, '{}'::jsonb) || jsonb_build_object(
+         'resolved_by_fn', 'fn_resolve_settled_financial_alerts',
+         'resolved_on', now(),
+         'receipt_proven_tournament_completion', true
        )
   FROM public.tournaments t
   JOIN public.tournament_escrow te
     ON te.tournament_id = t.id
+  LEFT JOIN public.tournament_satellite_settlements s
+    ON s.tournament_id = t.id
+  LEFT JOIN public.tournament_terminal_settlements f
+    ON f.tournament_id = t.id
  WHERE a.resolved IS NOT TRUE
    AND a.source IN (
          'Tournament.satellite_qualifiers_refused_repeatedly',
@@ -269,35 +341,25 @@ UPDATE public.financial_alerts a
    AND COALESCE(a.context->>'tournament_id', '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
    AND t.id = (a.context->>'tournament_id')::uuid
    AND t.status = 'COMPLETED'
-   AND t.ended_at IS NOT NULL
-   AND te.status = 'closed'
+   AND t.current_players = 0
+   AND te.terminal_closed_at IS NOT NULL
+   AND te.terminal_closed_at >= a.created_at
    AND COALESCE(te.prize_balance, 0) = 0
    AND COALESCE(te.bounty_balance, 0) = 0
-   AND COALESCE(te.rake_held, 0) = 0
-   AND NOT EXISTS (
-         SELECT 1
-           FROM public.tournament_obligations o
-          WHERE o.tournament_id = t.id
-            AND o.status IN ('pending', 'failed')
-       )
-   AND NOT EXISTS (
-         SELECT 1
-           FROM public.tournament_bounty_obligations bo
-          WHERE bo.tournament_id = t.id
-            AND bo.status IN ('pending', 'failed')
-       )
+   AND COALESCE(te.fee_balance, 0) = 0
    AND abs(public.fn_tournament_conservation_delta(t.id)) <= 0.05
    AND (
-         EXISTS (
-           SELECT 1
-             FROM public.tournament_payouts tp
-            WHERE tp.tournament_id = t.id
-         )
-         OR EXISTS (
-           SELECT 1
-             FROM public.tournament_satellite_settlements s
-            WHERE s.satellite_id = t.id
-         )
+         (s.receipt_version = 3
+          AND s.settled_at >= a.created_at
+          AND s.source_escrow_closed_at = te.terminal_closed_at
+          AND s.pool = t.prize_pool
+          AND cardinality(s.qualifier_ids) > 0)
+         OR (f.settled_at >= a.created_at
+             AND f.completed_at >= a.created_at
+             AND f.escrow_closed_at = te.terminal_closed_at
+             AND f.prize_pool = t.prize_pool
+             AND f.cash_payout_total = f.prize_pool
+             AND f.bounty_payout_total = f.bounty_pool)
        );
 
 -- 4. Resolve the two fn_ca_bounty_only_final_two_watch alerts whose events are
@@ -328,15 +390,15 @@ UPDATE public.financial_alerts fa
           WHERE f2.tournament_id = '21c4c6c2-fdbe-42e3-858c-895aad31177c'::uuid
        );
 
--- 5. Resolve the stale TournamentRecurring.free_buy_board_drift alert raised on
---    2026-10-12 from a historical CANCELLED row, conditioned on the live Midway
+-- 5. Resolve the stale TournamentRecurring.freeBuyAudit alert raised on
+--    2026-11-07 from a historical CANCELLED row, conditioned on the live Midway
 --    Free Buy watch reporting zero board format/missing/settings issues.
 UPDATE public.financial_alerts fa
    SET resolved = true,
        resolved_at = now(),
        resolution = 'Resolved by 20261109151859: historical duplicate count came from a CANCELLED Free Buy row; auditFreeBuyBoard now skips CANCELLED rows matching fn_sp_midway_free_buy_watch and freeBuyVerify.ts.'
  WHERE fa.id = 'fb2aa1fd-797f-4f3c-8c8f-39b19f94983f'::uuid
-   AND fa.source = 'TournamentRecurring.free_buy_board_drift'
+   AND fa.source = 'TournamentRecurring.freeBuyAudit'
    AND fa.resolved IS NOT TRUE
    AND NOT EXISTS (
          SELECT 1

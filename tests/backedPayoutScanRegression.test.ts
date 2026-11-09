@@ -69,6 +69,14 @@ const spinBefore = read('scripts/ci/fixtures/backed-payout-scan/spin-reserve-sca
 // tests/the-conservation-books-read-where-money-actually-went.law.test.ts.
 const ownerTicketPath =
   'supabase/migrations/20261105130850_the_conservation_books_read_owner_transfers_and_where_a_tick.sql';
+// The net guarantee promo and Midway Free Buy promo funding terms (2026-11-09)
+// patch the scalar and the set function in place with anchored swaps, and leave
+// this batch untouched: net_guarantee_promo already increments prize_pool and
+// gross_in at registration close before completion, and its post-payment refusal
+// reads the scalar. Pinned by
+// tests/net-guarantee-promo-and-settled-tournament-alerts.law.test.ts.
+const netGuaranteePromoPath =
+  'supabase/migrations/20261109151859_net_guarantee_promo_conservation_and_settled_tournament_aler.sql';
 // The migration's own anchored swaps, in order: [target, anchor, replacement, what].
 const diamondSwaps = [
   ...diamondMigration.matchAll(
@@ -401,6 +409,7 @@ describe('backed payout discovery is the same accounting question in a batch', (
           diamondPath,
           spinPath,
           ownerTicketPath,
+          netGuaranteePromoPath,
         ].some((path) => file === path.split('/').at(-1)) &&
         /pg_get_functiondef[\s\S]{0,180}fn_tournament_conservation_delta/.test(sql) &&
         /\bEXECUTE\b/i.test(stripComments(sql))
