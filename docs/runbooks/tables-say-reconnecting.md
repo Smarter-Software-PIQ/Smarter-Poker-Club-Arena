@@ -81,8 +81,12 @@ limit 12;
 ### 2. Is the engine actually up, and is it the build you think?
 
 ```bash
-ssh root@5.161.252.33 "docker ps --format '{{.Image}} {{.Status}}'"
+ssh ca-engine "docker ps --format '{{.Image}} {{.Status}}'"
 ```
+
+`ca-engine` is the Ops Mac's fail-closed alias for engine-01 (`5.161.252.33`)
+in `~/.ssh/config`. If it is refused, stop and report it; never retry - a
+failed login costs the Mac a 24 h fail2ban ban.
 
 The image tag IS the commit sha. **A green deploy run is not a deployment** -
 the deploy workflow builds the image before the `:55` maintenance break and

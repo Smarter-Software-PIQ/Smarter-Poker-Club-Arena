@@ -221,7 +221,7 @@ describe('the Backup Engine refuses partial restores and proves automatic recove
     (mode) => {
       const workflow = readFileSync(root('.github/workflows/backup-engine.yml'), 'utf8');
       const start = workflow.indexOf(
-        '          if ssh -i ~/.ssh/standby -o ServerAliveInterval=30'
+        '          if ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 -o ServerAliveInterval=30'
       );
       const end = workflow.indexOf('          exit 0', start);
       const body = workflow.slice(start, end);
