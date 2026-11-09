@@ -47,17 +47,63 @@ export function proofFetch(environment, transport = fetch) {
     });
   };
 }
-export async function performOrdinaryTurn(page) {
-  for (const label of ['Check', 'Fold']) {
-    const button = page.locator('.action-panel--active[data-connection="live"] .action-row').getByRole('button', { name: label, exact: true }).first();
-    if (!(await button.isVisible()) || !(await button.isEnabled())) continue;
+export function ordinaryTurnContext(snapshot, player) {
+  if (snapshot.current_player !== player) return null;
+  const own = snapshot.players?.find(p => p.user_id === player);
+  assert(own && [snapshot.current_bet, own.bet, own.totalInvested, own.stack].every(v => Number.isFinite(v) && v >= 0), 'Owned turn amounts are unavailable');
+  assert(typeof snapshot.action_context === 'string' && snapshot.action_context.length > 0 && typeof snapshot.table_id === 'string','Exact owned decision context required');
+  return { tableId:snapshot.table_id, context:snapshot.action_context, stage:snapshot.stage, callAmount:Math.max(0,snapshot.current_bet-own.bet), bet:own.bet,
+    budget:Math.max(0,Math.min(8-own.totalInvested,own.stack-0.01)) };
+}
+export function createParticipationGuard() {
+  const turns=new Map(), intents=new Map();
+  return {
+    approve(turn) { turns.set(turn.context,turn); },
+    allows(body) {
+      if (['check','fold'].includes(body.action)) return true;
+      const turn=turns.get(body.actionContext);
+      if (!turn || body.tableId!==turn.tableId || turn.stage!=='preflop' || typeof body.idempotencyKey!=='string' || !body.idempotencyKey) return false;
+      if (body.action==='call' && body.amount!==undefined) return false;
+      const cost=body.action==='call' ? turn.callAmount : body.action==='raise' && typeof body.amount==='number' ? body.amount-turn.bet : NaN;
+      if (!Number.isFinite(cost) || cost<=0 || cost>turn.budget) return false;
+      const serialized=JSON.stringify(body), prior=intents.get(body.actionContext);
+      if (prior && prior!==serialized) return false;
+      intents.set(body.actionContext,serialized); return true;
+    },
+  };
+}
+export async function performOrdinaryTurn(page, turn) {
+  const panel = page.locator('.action-panel--active[data-connection="live"]');
+  const row = panel.locator('.action-row');
+  const click = async button => {
+    if (!(await button.isVisible()) || !(await button.isEnabled())) return false;
     try { await button.click({ timeout: 2000 }); }
     catch (error) {
       if (error.name !== 'TimeoutError' || (await button.isVisible() && await button.isEnabled())) throw error;
-      // The turn disappeared. Observe its successor instead of replaying an action.
+      // Observe a successor turn instead of replaying the vanished action.
     }
-    return;
+    return true;
+  };
+  // Madness requires40% VPIP in10hands. Participate through the same player
+  // controls, bounded to8chips total investment per hand; never force all-in.
+  if (turn?.stage === 'preflop') {
+    if (turn.callAmount > 0 && turn.callAmount <= turn.budget &&
+      await click(row.getByRole('button',{name:/^Call /}).first())) return;
+    if (turn.callAmount === 0 && turn.budget > 0 &&
+      await click(row.getByRole('button',{name:'Open Raise Panel',exact:true}).first())) {
+      const slider = panel.getByRole('slider',{name:'Raise Amount',exact:true});
+      if (await slider.isVisible()) {
+        const minimum=Number(await slider.getAttribute('min'));
+        if (Number.isFinite(minimum) && minimum > turn.bet && minimum-turn.bet <= turn.budget) {
+          await slider.press('Home');
+          if (await click(panel.getByRole('button',{name:/^Raise [0-9]/}).first())) return;
+        }
+        await click(panel.getByRole('button',{name:'Back',exact:true}).first());
+      } else return; // The original turn vanished while its panel opened.
+    }
   }
+  for (const label of ['Check', 'Fold'])
+    if (await click(row.getByRole('button', { name: label, exact: true }).first())) return;
 }
 export function recoveryClaimId(runId, playerId) {
   const h = createHash('sha256').update(`plo-proof-owned-wallet:${runId}:${playerId}`).digest('hex').slice(0,32).split('');
@@ -262,7 +308,17 @@ export async function main(environment = process.env) {
   const roleEnv = role => ({ ...environment, RUNNER_TEMP: out, E2E_CLUB_ID: fundingClub, E2E_TEST_ACCOUNT_FILE: join(out, `${role}-account.private.json`), GITHUB_ENV: join(out, `${role}.private.env`) });
   const wallet = async id => Number((await one(`club_members?club_id=eq.${fundingClub}&user_id=eq.${id}&select=chip_balance`)).chip_balance);
   const assertOnlyOwnedHuman = state => assert(state.profiles.every(p => p.is_horse === true || p.id === player?.id), 'Another real player arrived; stop the owned proof');
-  const act = () => performOrdinaryTurn(page);
+  const participation=createParticipationGuard();
+  const act = async () => {
+    if (!(await page.locator('.action-panel--active[data-connection="live"] .action-row').getByRole('button',{name:/^(Check$|Fold$|Call )/}).first().isVisible())) return;
+    const tableId = /\/table\/([0-9a-f-]{36})$/.exec(new URL(page.url()).pathname)?.[1];
+    assert(tableId,'Ordinary played table is unavailable');
+    const r=await fetchImpl(`${ENGINE}/state/${tableId}`,{headers:{Authorization:`Bearer ${P.token}`}});
+    assert(r.ok,'Owned current turn is unavailable');
+    const turn=ordinaryTurnContext(await r.json(),player.id);
+    if (turn) { participation.approve(turn); await performOrdinaryTurn(page,turn); }
+    assert(!report.refusedParticipation,'A successor or over-budget voluntary action was refused by the witness');
+  };
   const ownSeats = () => read(`table_seats?user_id=eq.${player.id}&left_at=is.null&select=id,table_id,seat_number,occupancy_id,stack`);
   const leave = async () => {
     const pools = await read(`lightning_pool_session?cluster_id=eq.${GAME}&player_id=eq.${player.id}&exited_at=is.null&select=id,stop_requested_at`);
@@ -347,6 +403,14 @@ export async function main(environment = process.env) {
     financialUnknown = false;
     assert(await wallet(player.id) === BUY_IN, 'Funded wallet readback differs');
     // The published client owns the journal and one normal buy-in click.
+    await page.route(`${ENGINE}/action`, async route => {
+      if (route.request().method()!=='POST') return route.continue();
+      const body=route.request().postDataJSON();
+      if (participation.allows(body)) return route.continue();
+      // Never rewrite or send a replacement intent. Refuse our own stale click.
+      report.refusedParticipation=true; save();
+      return route.abort('blockedbyclient');
+    });
     page.on('request', r => {
       if (new URL(r.url()).pathname === '/rest/v1/rpc/atomic_table_buyin') {
         const p = r.postDataJSON();
@@ -389,6 +453,8 @@ export async function main(environment = process.env) {
     while (Date.now() < t0 + 16 * 60_000) {
       requireHealth(await health(), sha, initial.instanceId);
       const state = await census(); assertOnlyOwnedHuman(state);
+      const currentSession=await one(`cash_player_session?id=eq.${report.cashSessionId}&select=closed_at,closed_reason`);
+      assert(!currentSession.closed_at,`Owned startup session closed: ${currentSession.closed_reason}`);
       assert(!report.unexpectedBuyInIntent, 'Client created another buy-in intent');
       const byId = new Map(state.profiles.map(p => [p.id,p]));
       for (const s of [...state.seats].sort((a,b) => Date.parse(a.joined_at)-Date.parse(b.joined_at))) {
