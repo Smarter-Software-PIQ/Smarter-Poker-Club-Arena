@@ -123,6 +123,18 @@ CREATE TABLE IF NOT EXISTS public.kings_club_downline_repair_20261108 (
   applied boolean NOT NULL DEFAULT false
 );
 
+-- A new table is open until it is closed: Postgres and Supabase's defaults hand
+-- it to the browser roles, so the creation migration declares its access
+-- explicitly and turns RLS on (scripts/ci/check-explicit-table-access.mjs).
+-- This ledger is operator bookkeeping - no policy is defined, so RLS denies
+-- every role that does not bypass it, and only service_role is granted the
+-- operations the correction paths need.
+ALTER TABLE public.kings_club_downline_repair_20261108 ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.kings_club_downline_repair_20261108 FROM public, anon, authenticated, service_role;
+GRANT SELECT, INSERT, UPDATE ON TABLE public.kings_club_downline_repair_20261108 TO service_role;
+REVOKE ALL ON SEQUENCE public.kings_club_downline_repair_20261108_id_seq FROM public, anon, authenticated, service_role;
+GRANT USAGE, SELECT ON SEQUENCE public.kings_club_downline_repair_20261108_id_seq TO service_role;
+
 ALTER TABLE public.kings_club_downline_repair_20261108
   ADD COLUMN IF NOT EXISTS club_id uuid;
 
