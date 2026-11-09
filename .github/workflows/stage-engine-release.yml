@@ -529,6 +529,7 @@ jobs:
           sparse-checkout: |
             scripts/ci
             server/scripts
+            server/standby
       - name: Freeze the exact daily candidate and report inclusion
         id: freeze
         if: needs.detect.outputs.daily_preparation == 'true' || needs.detect.outputs.owner_window_id != ''

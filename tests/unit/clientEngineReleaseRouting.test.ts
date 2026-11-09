@@ -87,6 +87,51 @@ describe('bounded read-only recovery checkouts', () => {
     }
   });
 
+  it('loads the schema evidence through the selector in the actual Stage sparse checkout', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ca-sparse-selection-'));
+    const env = {
+      ...gitEnvironmentForCwd(),
+      GIT_AUTHOR_NAME: 'Fixture',
+      GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
+      GIT_COMMITTER_NAME: 'Fixture',
+      GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
+    };
+    const git = (...args: string[]) => execFileSync('git', args, { cwd, env });
+    try {
+      git('init', '-q');
+      for (const path of [
+        'scripts/ci/select-daily-engine.py',
+        'server/scripts/engine-release-installed-migrations.py',
+        'server/standby/schema-evidence.py',
+      ]) {
+        mkdirSync(dirname(join(cwd, path)), { recursive: true });
+        writeFileSync(join(cwd, path), readFileSync(join(root, path)));
+      }
+      git('add', '.');
+      git('commit', '-qm', 'fixture');
+      const checkout = stage.jobs.selection.steps.find(
+        (step: any) => step.uses === 'actions/checkout@v4'
+      );
+      git(
+        'sparse-checkout',
+        'set',
+        '--cone',
+        ...checkout.with['sparse-checkout'].trim().split('\n')
+      );
+      execFileSync(
+        'python3',
+        [
+          '-B',
+          '-c',
+          "import runpy; reader = runpy.run_path('scripts/ci/select-daily-engine.py')['installed'](); assert reader.evidence_module().SIGNATURES",
+        ],
+        { cwd, env }
+      );
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('hydrates the self-contained scoped observer without changing its authority', () => {
     const job = workflow('production-integrity-audit.yml').jobs.scoped_runtime_errors;
     const checkout = job.steps.find((step: any) => step.uses === 'actions/checkout@v4');
