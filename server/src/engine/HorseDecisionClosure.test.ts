@@ -12,6 +12,8 @@ import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import {
   HORSE_DECISION_CLOSURE_ENTRIES,
+  HORSE_DECISION_CLOSURE_EXTERNAL_INPUTS,
+  HORSE_DECISION_CLOSURE_INDIRECT_LOADS,
   horseDecisionClosure,
   horseDecisionRuntimeSpecifiers,
   isHorseDecisionClosureRegistry,
@@ -63,6 +65,44 @@ function oracleSpecifiers(rel: string): string[] {
   visit(sf);
   return out.filter((s) => s.startsWith('.') && !s.endsWith('/'));
 }
+/**
+ * Load sites whose target is computed, which no import scanner can follow:
+ * `new URL(<non-literal>, import.meta.url)`, `new Worker(x)` unless x is a
+ * literal `new URL('<path>', import.meta.url)`, any `createRequire(...)`, and a
+ * non-literal `import(x)`. Sorted kinds, one per site.
+ */
+export function indirectLoadSites(rel: string, source: string): string[] {
+  const sf = ts.createSourceFile(rel, source, ts.ScriptTarget.Latest, true);
+  const out: string[] = [];
+  const metaUrl = (n: ts.Node | undefined) => !!n && n.getText(sf) === 'import.meta.url';
+  const literalUrl = (n: ts.Node | undefined) =>
+    !!n &&
+    ts.isNewExpression(n) &&
+    ts.isIdentifier(n.expression) &&
+    n.expression.text === 'URL' &&
+    !!n.arguments?.[0] &&
+    ts.isStringLiteralLike(n.arguments[0]) &&
+    metaUrl(n.arguments[1]);
+  const visit = (node: ts.Node) => {
+    if (ts.isNewExpression(node) && ts.isIdentifier(node.expression)) {
+      const [a, b] = node.arguments ?? [];
+      if (node.expression.text === 'URL' && a && !ts.isStringLiteralLike(a) && metaUrl(b))
+        out.push('url');
+      if (node.expression.text === 'Worker' && !literalUrl(a)) out.push('worker');
+    } else if (ts.isCallExpression(node)) {
+      if (ts.isIdentifier(node.expression) && node.expression.text === 'createRequire')
+        out.push('require');
+      if (
+        node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+        !(node.arguments[0] && ts.isStringLiteralLike(node.arguments[0]))
+      )
+        out.push('import');
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return out.sort();
+}
 function oracleClosure(): string[] {
   const seen = new Set<string>(),
     queue = [...HORSE_DECISION_CLOSURE_ENTRIES];
@@ -103,6 +143,8 @@ describe('the decision closure', () => {
       ...runningFeatureSourcePaths(),
       ...FEATURE_ABLATION_REQUIRED_RUNTIME_FILES,
       ...HORSE_DECISION_CLOSURE_ENTRIES,
+      // The thread every production decision runs on (spawned from a computed URL).
+      'src/engine/horseDecision/worker.ts',
       'src/engine/HorseDecisionClosure.ts',
       'src/engine/HorseFeatureLiveDomain.ts',
       'src/benchmark/IncrementalPressureQualification.ts',
@@ -139,6 +181,44 @@ describe('the decision closure', () => {
     files['src/b.ts'] += "\nexport { e } from './missing.js';";
     expect(() => horseDecisionClosure(r, [], ['src/a.ts'])).toThrow(/unresolved/);
   });
+  it('declares every computed load site, and binds what each one executes', () => {
+    const undeclared: Record<string, string[]> = {};
+    for (const rel of closure.filter((p) => /\.(?:ts|mjs|js)$/.test(p))) {
+      const sites = indirectLoadSites(rel, read(rel).toString());
+      const declared = [...(HORSE_DECISION_CLOSURE_INDIRECT_LOADS[rel]?.sites ?? [])].sort();
+      if (sites.join(',') !== declared.join(',')) undeclared[rel] = sites;
+    }
+    expect(
+      undeclared,
+      'a closure file loads a computed target: declare it in HORSE_DECISION_CLOSURE_INDIRECT_LOADS ' +
+        '(HorseDecisionClosure.ts) with the files it loads, and make the executed ones closure entries'
+    ).toEqual({});
+    for (const [rel, entry] of Object.entries(HORSE_DECISION_CLOSURE_INDIRECT_LOADS)) {
+      expect(closure, `declared site file ${rel}`).toContain(rel);
+      // Exactly one of: the files it loads, or why its bytes are bound elsewhere.
+      expect(!!entry.loads?.length !== !!entry.boundElsewhere, rel).toBe(true);
+      for (const p of entry.loads ?? []) expect(closure, `${p} loaded by ${rel}`).toContain(p);
+    }
+    for (const [rel, why] of Object.entries(HORSE_DECISION_CLOSURE_EXTERNAL_INPUTS)) {
+      expect(closure, rel).toContain(rel);
+      expect(read(rel).toString(), rel).toContain(`process.env.${why.split(':')[0]}`);
+    }
+  });
+
+  it('sees the computed load sites a scanner cannot follow', () => {
+    const src = [
+      "const entry = x ? './worker.ts' : './worker.js';",
+      'new Worker(new URL(entry, import.meta.url));',
+      "new Worker(new URL('./literal.js', import.meta.url));",
+      "const r = createRequire(import.meta.url); r('./addon.node');",
+      'await import(name);',
+      "await import('./fine.js');",
+      "new URL('https://example.com');",
+      'new URL(SUPABASE_URL);',
+    ].join('\n');
+    expect(indirectLoadSites('src/x.ts', src)).toEqual(['import', 'require', 'url', 'worker']);
+  });
+
   // Sensitivity is proven at admission itself: HorseFeatureAuthority.test.ts
   // changes each bound byte in turn and every one refuses.
 });

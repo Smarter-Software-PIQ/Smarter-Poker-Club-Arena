@@ -41,7 +41,9 @@ protect:
 - **`sourceBinding: 'horse-decision-closure-v1'`** (optional): the plan binds
   exactly the decision closure (`HorseDecisionClosure.ts`). That is every module
   reachable through runtime imports from HorseLogic, the worker runtime, its
-  client, the feature admission module and the qualification harness, plus the
+  client, the decision worker thread the client spawns and the journal-writer
+  thread that worker prespawns,
+  the feature admission module and the qualification harness, plus the
   acceptance-path files admission names one by one. The qualification provider
   (`authenticateIncrementalPlan`) and runtime admission both recompute it from
   the bytes in front of them and require the plan to equal it exactly. Plans
@@ -61,6 +63,55 @@ The guarantee is that the held-out result describes exactly the bytes and the
 domain that the selection lets act. Both changes keep it at least as strong:
 
 - A scoped selection can act only where it was measured.
-- The closure is recomputed rather than declared, so nothing executed can fall
-  outside it. It is a superset of the files the whole-tree rule bound on the
-  decision path (it adds the `.mjs`).
+- The closure is recomputed rather than declared, so a new or moved import
+  cannot fall outside it. That holds only for loads a scanner can see. A load
+  whose target is computed (a non-literal `new URL(x, import.meta.url)`,
+  `new Worker(x)`, `createRequire`, a non-literal `import(x)`) is invisible to
+  the walker and to the compiler alike, and the first version of this change
+  missed exactly one: `horseDecision/client.ts` builds the production worker
+  from a variable, so `horseDecision/worker.ts`, the thread every production
+  decision runs on, was outside the closure (found in independent review).
+  Every such site is now declared in `HORSE_DECISION_CLOSURE_INDIRECT_LOADS`
+  (`HorseDecisionClosure.ts`) with the files it loads or why the bytes it reads
+  are bound elsewhere; the decision worker and the journal writer worker it
+  prespawns are closure entries, so their own imports are walked; and
+  `HorseDecisionClosure.test.ts` fails on any undeclared site in any closure
+  file and on any declared load that is not in the closure. The one input read
+  from a path the environment names (`SOLVER_POLICY_ARTIFACT_PATH` in
+  `SolverPolicyArtifactLoader.ts`) is data outside the repository; it is
+  listed in `HORSE_DECISION_CLOSURE_EXTERNAL_INPUTS` so the boundary is written
+  down, and no source binding holds it.
+- Admission names its failures: a closure that cannot be computed (a bound
+  file missing or unreadable) refuses as `policy_digest_unavailable`, the
+  existing Phase 10-13 name for a running digest that cannot be computed;
+  different bytes refuse as `policy_digest_mismatch`. A `.mjs` path is accepted
+  only on a closure-bound plan; the whole-tree binding stays `.ts`/`.json`. A
+  legacy-target plan (`plo6_v24`, `v53_pressure`) may not declare
+  `sourceBinding` (`runtime_source_closure`), because only the incremental
+  provider recomputes the closure before a held-out cell runs.
+
+## Decision-closure freeze
+
+Between registering a closure-bound held-out plan and the certified engine
+release that carries its selection, any change to a bound byte turns the
+qualification into a refusal and spends a one-shot held-out partition for
+nothing. The freeze holds those bytes still for that interval.
+
+- **Who activates it.** The agent that registers the closure-bound plan, in the
+  same pull request or the one right after it, from a clean tree at the commit
+  being frozen:
+  `(cd server && npx tsx scripts/write-closure-freeze.mjs --plan=<id> --reason="...")`.
+  That writes `docs/evidence/feature-activation/closure-freeze.json`: the plan
+  id, the frozen commit and the SHA-256 of every bound file (exactly
+  `featureAuthorityClosure()` plus `server/package-lock.json`). With no
+  manifest, or `active: false`, nothing is frozen.
+- **What it blocks.** Only a change to the frozen set.
+  `HorseDecisionClosureFreeze.test.ts` fails a tree whose bound files differ
+  from the frozen hashes, or whose bound set gained or lost a file (a new
+  import counts). A pull request that touches nothing in the closure passes
+  unchanged; one that does is held until the freeze is lifted.
+- **How it is lifted.** After the certified release carrying the selection is
+  serving (its 04:00 America/Chicago activation verified live), a pull request
+  runs `write-closure-freeze.mjs --lift --reason="..."` (which sets
+  `active: false` and keeps the record) or deletes the manifest. A qualification
+  that is abandoned or refused lifts it the same way.

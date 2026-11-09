@@ -12,7 +12,8 @@
  * test fails any tree whose bound files differ from the frozen hashes, or whose
  * bound set differs from the frozen list (so a new or deleted file cannot slip
  * in). Lifting the freeze is a pull request that sets active:false or deletes
- * the manifest. See PUBLISHING.md "Decision-closure freeze".
+ * the manifest. Who activates and lifts it: "Decision-closure freeze" in
+ * docs/changelog/2026-11-08-feature-qualification-is-domain-scoped-and-closure-bound.md.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
@@ -71,7 +72,8 @@ describe('the decision-closure freeze', () => {
     expect(
       { added, removed, changed },
       `FROZEN (${MANIFEST}, plan ${manifest.planId}): ${manifest.reason} ` +
-        'Hold this change until the freeze is lifted; see PUBLISHING.md "Decision-closure freeze".'
+        'Hold this change until the freeze is lifted; see "Decision-closure freeze" in ' +
+        'docs/changelog/2026-11-08-feature-qualification-is-domain-scoped-and-closure-bound.md.'
     ).toEqual({ added: [], removed: [], changed: [] });
   });
 });

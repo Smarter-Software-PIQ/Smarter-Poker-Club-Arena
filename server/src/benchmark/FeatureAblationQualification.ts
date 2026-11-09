@@ -63,7 +63,8 @@ import { V53_PRESSURE_POPULATION_ID } from './V53PressurePopulation.js';
 
 export type LegacyFeatureAblationTarget = 'plo6_v24' | 'v53_pressure';
 export type FeatureAblationTarget =
-  LegacyFeatureAblationTarget | import('./IncrementalPressureDevelopment.js').IncrementalTarget;
+  | LegacyFeatureAblationTarget
+  | import('./IncrementalPressureDevelopment.js').IncrementalTarget;
 export type FeatureVariant = 'nlh' | 'plo4' | 'plo5' | 'plo6';
 export interface FeatureQualificationProfile {
   id: string;
@@ -296,7 +297,11 @@ export function validateLockedFeatureAblationPlan(p: FeatureAblationQualificatio
     ) ||
     Object.values(p.runtimeSourceFiles).some((v) => !digest(v)) ||
     sha(featureQualificationCanonical(p.runtimeSourceFiles)) !== p.runtimeSourceDigest ||
-    (p.sourceBinding !== undefined && p.sourceBinding !== HORSE_DECISION_CLOSURE_BINDING)
+    (p.sourceBinding !== undefined && p.sourceBinding !== HORSE_DECISION_CLOSURE_BINDING) ||
+    // Only the incremental provider (authenticateIncrementalPlan) recomputes the
+    // closure before a held-out cell runs; a legacy plan carrying the binding
+    // would spend its partition and then be refused at admission.
+    (p.sourceBinding !== undefined && !incremental)
   )
     bad('runtime_source_closure');
   if (

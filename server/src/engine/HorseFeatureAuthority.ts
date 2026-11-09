@@ -111,6 +111,7 @@ export function admitHorseFeatureAuthority(
       | 'not_qualified'
       | 'source_mismatch'
       | 'policy_digest_mismatch'
+      | 'policy_digest_unavailable'
       | 'expired'
       | 'unselected'
   ): HorseAuthorityAdmission => ({ status: 'refused', reason, transient: false });
@@ -262,15 +263,22 @@ export function admitHorseFeatureAuthority(
       try {
         closure = featureAuthorityClosure(readSource, sourcePaths());
       } catch {
-        return refuse('policy_digest_mismatch');
+        // A missing or unreadable shipped file is not different bytes: the
+        // running closure cannot be computed at all (the Phase 10-13 name).
+        return refuse('policy_digest_unavailable');
       }
       if (hash(closure) !== hash(Object.keys(files).sort()))
         return refuse('policy_digest_mismatch');
     }
+    // Only a closure-bound plan may bind a non-TypeScript module (the walker
+    // follows .mjs imports); the whole-tree binding stays .ts/.json exactly.
+    const boundPath =
+      plan.sourceBinding === HORSE_DECISION_CLOSURE_BINDING
+        ? /^src\/[A-Za-z0-9_./-]+\.(ts|json|mjs)$/
+        : /^src\/[A-Za-z0-9_./-]+\.(ts|json)$/;
     for (const [p, h] of Object.entries(files)) {
       if (
-        (!/^src\/[A-Za-z0-9_./-]+\.(ts|json|mjs)$/.test(p) &&
-          !HORSE_REFERENCE_DECISION_SOURCE_FILES.includes(p)) ||
+        (!boundPath.test(p) && !HORSE_REFERENCE_DECISION_SOURCE_FILES.includes(p)) ||
         p.includes('..') ||
         !hex(h, 64) ||
         bytesHash(readSource(p)) !== h

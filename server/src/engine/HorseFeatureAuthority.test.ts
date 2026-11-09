@@ -621,6 +621,35 @@ describe('closure-bound selection (2026-11-08)', () => {
       )
     ).toMatchObject({ status: 'refused', reason: 'policy_digest_mismatch' });
   });
+  it('a closure that cannot be computed is unavailable, not a mismatch', () => {
+    const f = fixture(bind(closure));
+    const victim = 'src/engine/HorseDecisionClosure.ts';
+    expect(
+      admit(f, (p) => {
+        if (p === victim) throw Object.assign(Error('ENOENT'), { code: 'ENOENT' });
+        return read(p);
+      })
+    ).toMatchObject({ status: 'refused', reason: 'policy_digest_unavailable' });
+  });
+  it('only a closure-bound plan may bind a .mjs module', () => {
+    // The whole-tree binding stays .ts/.json: the same .mjs, bound and hashed
+    // correctly, refuses there and admits under the closure binding.
+    const mjs = 'src/services/horseCorrectiveReview/kernelGenerationLedgerRules.mjs';
+    expect(closure).toContain(mjs);
+    const wholeTree = fixture((q, p) => {
+      bind(closure)(q, p);
+      delete p.sourceBinding;
+    });
+    expect(admit(wholeTree)).toMatchObject({
+      status: 'refused',
+      reason: 'policy_digest_mismatch',
+    });
+    const noMjs = fixture((q, p) => {
+      bind(closure.filter((f) => !/^src\/.*\.mjs$/.test(f)))(q, p);
+      delete p.sourceBinding;
+    });
+    expect(admit(noMjs).status).toBe('admitted');
+  });
   it('a change to any one bound byte refuses admission', () => {
     const f = fixture(bind(closure));
     // Admission compares every bound file and the lock against the plan...
