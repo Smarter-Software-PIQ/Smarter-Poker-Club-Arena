@@ -30,15 +30,23 @@ try:
   else:assert not z.returncode,z.stderr
   cases.append({'skip':skip,'repeat':repeat,'expected_refusal':fail,'passed':True,'stderr':z.stderr})
  exercise('1',True)
- q(m.read_text())
+ guard_js="import { stalePinGuardSQL } from './scripts/ci/migration-stale-pins.mjs';import {readFileSync} from 'node:fs';const p=process.argv[1],s=readFileSync(p,'utf8');process.stdout.write(stalePinGuardSQL(p,s,s));"
+ guarded=cmd(['node','--input-type=module','-e',guard_js,str(m)]).stdout
+ prehash=q("SELECT md5(pg_get_functiondef('fn_ca_horse_split_return_late_credit()'::regprocedure));").stdout.strip()
+ q("CREATE FUNCTION sr_stale_pin() RETURNS text LANGUAGE sql AS $$SELECT '"+prehash+"'::text$$;")
+ rejected=q(guarded,False)
+ assert rejected.returncode and 'migration_left_a_stale_pin' in rejected.stderr,'actual stale-pin refusal'
+ assert q("SELECT md5(pg_get_functiondef('fn_ca_horse_split_return_late_credit()'::regprocedure));").stdout.strip()==prehash,'stale-pin refusal rolled back source'
+ q('DROP FUNCTION sr_stale_pin();')
+ q(guarded)
  for skip in ['1','']:
   exercise(skip);exercise(skip,repeat=True)
  q("DO $$BEGIN IF (SELECT proacl::text FROM pg_proc WHERE oid='fn_ca_horse_split_return_late_credit()'::regprocedure) IS DISTINCT FROM '{postgres=X/postgres}' THEN RAISE EXCEPTION 'acl_changed'; END IF;END$$;")
  assert q(metadata).stdout.strip()==original_metadata,'metadata changed'
- replay=q(m.read_text(),False)
+ replay=q(guarded,False)
  assert replay.returncode and 'split_late_return_preimage_changed' in replay.stderr,'replay refused'
  post=q("SELECT md5(pg_get_functiondef('fn_ca_horse_split_return_late_credit()'::regprocedure));").stdout.strip()
- a.output.write_text(json.dumps({'passed':True,'cases':cases,'postimage':post,'limits':'Actual split/ledger/tally/guard functions; isolated payment statement replaces full R3. No production writes.'},indent=2)+'\n');print('passed',len(cases),'cases; postimage',post)
+ a.output.write_text(json.dumps({'passed':True,'cases':cases,'preimage':prehash,'actual_applier_stale_pin_refusal_and_rollback':True,'postimage':post,'limits':'Actual split/ledger/tally/guard functions; isolated payment statement replaces full R3. No production writes.'},indent=2)+'\n');print('passed',len(cases),'cases; postimage',post)
 finally:
  if started:subprocess.run([str(a.pg_bin/'pg_ctl'),'-D',str(d),'-m','immediate','stop'],env=e,capture_output=True)
  shutil.rmtree(w)

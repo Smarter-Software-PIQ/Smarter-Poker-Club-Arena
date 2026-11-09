@@ -204,6 +204,38 @@ describe('release-plan: the first-parent walk and the certified candidate', () =
     expect(renderMarkdown(plan)).toContain('### Evening release plan: READY');
   });
 
+  it('publishes the missing version and actual Backup owner and refuses a mismatched candidate', async () => {
+    const plan = await assembleReleasePlan(
+      base({
+        fetch: stubFetch({ commits, health: health(sha(1)), certs: { [sha(3)]: 'success' } }),
+      })
+    );
+    const readiness = {
+      state: 'mismatch',
+      certificateRunId: 17,
+      targetSha: sha(3),
+      certificateUrl: 'https://github.com/owner/repo/actions/runs/17',
+      workflowHead: sha(4),
+      missingInBackup: [{ version: '20261109010000', name: 'schema_probe' }],
+      timing: {
+        state: 'UNKNOWN',
+        reason: 'no executing Backup',
+        cutoffUtc: '2026-11-09T09:30:00Z',
+      },
+    };
+    const enriched = { ...plan, backupReadiness: readiness };
+    enriched.decision = decide(enriched);
+    expect(enriched.decision.verdict).toBe(VERDICTS.NOT_READY);
+    const summary = renderMarkdown(enriched);
+    expect(summary).toContain('20261109010000_schema_probe');
+    expect(summary).toContain(readiness.certificateUrl);
+    expect(summary).toContain('Estimated Backup completion: UNKNOWN');
+    expect(
+      decide({ ...enriched, backupReadiness: { state: 'UNKNOWN', reason: 'expired artifact' } })
+        .verdict
+    ).toBe(VERDICTS.UNKNOWN);
+  });
+
   it('NOTHING_OWED: production serves the newest engine code even when later docs commits exist', async () => {
     const servingNewest = chain([
       [5, ['docs/x.md']],

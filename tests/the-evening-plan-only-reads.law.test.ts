@@ -22,6 +22,7 @@
  *      (CLAUDE.md 10.83) and an unreadable plan is never green (10.86).
  */
 import { describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse } from 'yaml';
@@ -99,6 +100,23 @@ describe('the evening plan only reads', () => {
 
   it.each(WRITE_SHAPES)('the script cannot write through %s', (_name, shape) => {
     expect(scriptCode).not.toMatch(shape);
+  });
+
+  it('runs the report-only contents and timing reader between snapshot and final publication', () => {
+    const shell = workflow.jobs.plan.steps.find((step: any) => step.id === 'plan').run;
+    const helper = 'scripts/ops/evening-backup-readiness.py';
+    expect(shell.indexOf('--snapshot')).toBeLessThan(shell.indexOf(helper));
+    expect(shell.indexOf(helper)).toBeLessThan(shell.indexOf('--readiness'));
+    expect(shell).toContain('|| code=$?');
+    expect(workflow.jobs.plan.steps[0].with['fetch-depth']).toBe(0);
+    const source = read(helper);
+    expect(source).toContain("['gh', 'api', '--method', 'GET',");
+    expect(source).not.toMatch(
+      /dispatches|--method.{1,5}(?:POST|PATCH|DELETE|PUT)|select-daily-engine/
+    );
+    execFileSync('python3', ['-B', 'tests/operations/evening-backup-readiness.test.py'], {
+      cwd: ROOT,
+    });
   });
 
   it('every GitHub and engine read in the script is an explicit GET and nothing else', () => {
