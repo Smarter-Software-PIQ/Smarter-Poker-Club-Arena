@@ -19,7 +19,7 @@ DO $patch$
 DECLARE
  src text;
  needle text := $o$jsonb_agg(j ORDER BY (j->>'period_start')::timestamptz,(j->>'kind'='union') DESC,j->>'id')$o$;
- repl text := $n$jsonb_agg(j ORDER BY (j->>'kind'='union') DESC,(j->>'period_start')::timestamptz,j->>'id')$n$;
+ repl text := $n$jsonb_agg(j ORDER BY (j->>'period_start')::timestamptz,(j->>'kind'='union') DESC,j->>'id')$n$; -- DELIBERATE REGRESSION PROBE: backlog sorts ahead of the union again. DO NOT MERGE.
 BEGIN
  src := pg_get_functiondef('smarter_private.weekly_payout_scope_plan(timestamptz,timestamptz)'::regprocedure);
  IF md5(src) IS DISTINCT FROM '1546f676967f07f809050b210e006a65' THEN
