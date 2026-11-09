@@ -176,7 +176,14 @@ function lineFor(index: number, rng: () => number): NearNutFixtureLine {
 /** The cash HandConfig, field for field as ServerTableEngineDealing builds it
  * for a 1/2 chips table with no straddle, bomb pot, ante or override. */
 export function nearNutCashHandConfig(variant: NearNutFixtureVariant, index: number): HandConfig {
-  const full = getFullRakeConfig(SB, BB, variant, undefined);
+  // The engine always passes the table's override with its scope
+  // (ServerTableEngineBase.getRakeOverride); a standard-scope 1/2 table with
+  // no club or table price set.
+  const full = getFullRakeConfig(SB, BB, variant, {
+    rakePercent: undefined,
+    rakeCapBB: undefined,
+    scope: 'standard',
+  });
   return {
     asset: 'chips',
     tableId: TABLE_ID,
