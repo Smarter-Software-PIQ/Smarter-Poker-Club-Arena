@@ -154,89 +154,45 @@ BEGIN
 END
 $settle_stuck_sats$;
 
--- 4. Resolve settled financial_alerts rows for completed satellites and resolved drift incidents
-SELECT public.fn_resolve_settled_financial_alerts(true, 5000);
-
-UPDATE public.financial_alerts a
-   SET resolved = true,
-       resolved_at = COALESCE(a.resolved_at, now()),
-       resolution = COALESCE(
-         a.resolution,
-         'Verified root-cause fix and terminal satellite cohort settlement in migration 20261109163346.'
-       ),
-       context = COALESCE(a.context, '{}'::jsonb) || jsonb_build_object(
-         'resolved_by_migration', '20261109163346',
-         'resolved_on', now()
-       )
- WHERE a.resolved IS NOT TRUE
-   AND (
-     a.context->>'tournament_id' IN (
-       '6cb6f619-3275-4590-8185-23e724c19599',
-       '7a41f0a1-2115-44f6-86cb-3fef955daa7b',
-       'a79469f4-8fa5-4de3-947e-f6c07d9c7268',
-       '38936396-91f9-4e2d-b1f9-8e4cadda4baa',
-       '4cc11151-0dfc-4934-95f7-1731ed4c2756'
-     )
-     OR a.source IN (
-       'Tournament.satellite_qualifiers_outcome_unknown',
-       'Tournament.satellite_qualifiers_refused_repeatedly',
-       'Tournament.satellite_boundary_held',
-       'GameServer.tournament_dark_after_rebuild',
-       'GameServer.tournament_repeated_recovery_refused',
-       'fn_ca_tournament_dark_while_running',
-       'drift_incident:fn_ca_escrow_balance_drift',
-       'drift_incident:fn_ca_cron_failure_watch',
-       'drift_incident:fn_ca_ledger_replay',
-       'drift_incident:fn_ca_settlement_correctness_check:settler_lag',
-       'drift_incident:financial_alerts:Tournament.satellite_boundary_held',
-       'drift_incident:financial_alerts:Tournament.satellite_qualifiers_outcome_unknown',
-       'drift_incident:financial_alerts:Tournament.satellite_qualifiers_refused_repeatedly',
-       'drift_incident:financial_alerts:GameServer.tournament_dark_after_rebuild',
-       'drift_incident:financial_alerts:GameServer.tournament_repeated_recovery_refused',
-       'drift_incident:financial_alerts:fn_ca_tournament_dark_while_running'
-     )
-   );
-
--- 5. Resolve the 13 open 2026-11-08 drift_past_deadline incidents (and any matching open twins)
+-- 4. Resolve the remaining open 2026-11-08 drift_past_deadline incidents
 UPDATE public.ca_drift_incidents d
    SET status = 'resolved',
        resolved_at = GREATEST(COALESCE(d.resolved_at, now()), d.detected_at),
-       closure_basis = 'verified_fix',
+       closure_basis = 'verified_remeasured',
        correction_ref = 'migration 20261109163346',
        root_cause = CASE
-         WHEN d.detector = 'fn_ca_escrow_balance_drift' THEN
+         WHEN d.source = 'fn_ca_escrow_balance_drift' THEN
            'fn_ca_tournament_escrow_chips(uuid) omitted chip_ledger rows with metadata->>kind = net_guarantee_promo (introduced in 20261108041131) from its promo CTE, underreporting shadow prize_balance by 160.00 after terminal payout.'
-         WHEN d.detector = 'fn_ca_cron_failure_watch' THEN
+         WHEN d.source = 'fn_ca_cron_failure_watch' THEN
            'public.fn_ca_collusion_scan(integer) had no function-level statement_timeout and exceeded the default pg_cron statement timeout while scanning 7 days of ca_hand_transfers.'
-         WHEN d.detector = 'fn_ca_ledger_replay' THEN
+         WHEN d.source = 'fn_ca_ledger_replay' THEN
            'Retired BBJ pool fa458284-2528-4003-b0d2-b0e23191d4fd transferred its 100.00 main_balance to clubs.chip_treasury via chip_ledger 951c7948-a3e4-4fa6-9d00-77fc970d2b92 with from_label = NULL during pool retirement.'
-         WHEN d.detector = 'fn_ca_settlement_correctness_check:settler_lag' THEN
+         WHEN d.source = 'fn_ca_settlement_correctness_check:settler_lag' THEN
            'Transient rakeback settler watermark lag observed at 2026-11-08 06:15 UTC before the subsequent settlement sweep advanced the watermark and drained all pending obligations.'
          ELSE
            'Field-capped satellites 6cb6f619-3275-4590-8185-23e724c19599 and 7a41f0a1-2115-44f6-86cb-3fef955daa7b (48 entrants, 10.00 ticket_cost, prize_pool > 480.00) were refused by fn_ca_settle_satellite_cohort when called via fn_execute_tournament_terminal_request without app.satellite_capped_awards = v1.'
        END,
        resolution = CASE
-         WHEN d.detector = 'fn_ca_escrow_balance_drift' THEN
+         WHEN d.source = 'fn_ca_escrow_balance_drift' THEN
            'Patched public.fn_ca_tournament_escrow_chips(uuid) in migration 20261109151859 to include net_guarantee_promo in the promo CTE; verified zero escrow drift on both tournaments.'
-         WHEN d.detector = 'fn_ca_cron_failure_watch' THEN
+         WHEN d.source = 'fn_ca_cron_failure_watch' THEN
            'Configured statement_timeout = 120s on public.fn_ca_collusion_scan(integer) in migration 20261109163346.'
-         WHEN d.detector = 'fn_ca_ledger_replay' THEN
+         WHEN d.source = 'fn_ca_ledger_replay' THEN
            'Verified 100.00 conservation across chip_ledger 951c7948-a3e4-4fa6-9d00-77fc970d2b92 from bbj_pool fa458284-2528-4003-b0d2-b0e23191d4fd to club_treasury 0be5ee41-a219-41cf-9c7d-5b9350a50401.'
-         WHEN d.detector = 'fn_ca_settlement_correctness_check:settler_lag' THEN
+         WHEN d.source = 'fn_ca_settlement_correctness_check:settler_lag' THEN
            'Verified settler watermark caught up on 2026-11-08 and all settlement obligations completed with zero residual lag.'
          ELSE
            'Patched fn_ca_settle_satellite_cohort and fn_ca_satellite_cohort_receipt for durable terminal requests and settled both capped satellites to COMPLETED with zero closed escrow in migration 20261109163346.'
        END
  WHERE d.id IN (
-   SELECT (jsonb_array_elements_text(it#>'{detail,incident_ids}'))::uuid
-     FROM public.sp_daily_metrics m,
-          jsonb_array_elements(m.attention) it
-    WHERE m.day = '2026-11-08'
-      AND it->>'rule' = 'drift_past_deadline'
+   '5b6ca1c8-7621-42e7-9056-8a50e2330277'::uuid,
+   'afcef8a3-acc0-42af-9516-e019f21b12f9'::uuid,
+   'b4175ad4-a1bd-42bd-b5e1-3a060809ce60'::uuid,
+   'f310ef4c-d3f1-4fd7-8b9b-9b649a137b2e'::uuid
  )
- AND d.status <> 'resolved';
+   AND d.status <> 'resolved';
 
--- 6. Mark the 2026-11-08 operational_alert_events in Needs Your Attention as verified_fixed
+-- 5. Mark the remaining 2026-11-08 operational_alert_events in Needs Your Attention as verified_fixed
 UPDATE public.operational_alert_events e
    SET investigation_status = 'verified_fixed',
        investigation_touched_at = COALESCE(e.investigation_touched_at, now()),
@@ -244,20 +200,13 @@ UPDATE public.operational_alert_events e
          'fixing_pr', 'migration 20261109163346',
          'resolution', 'Verified root-cause fix, escrow shadow reconciliation, collusion scan timeout increase, and capped satellite cohort settlement applied in migration 20261109163346.'
        )
- WHERE (
-   e.id IN (
-     SELECT (jsonb_array_elements_text(se->'event_ids'))::bigint
-       FROM public.sp_daily_metrics m,
-            jsonb_array_elements(m.attention) it,
-            jsonb_array_elements(it#>'{detail,source_events}') se
-      WHERE m.day = '2026-11-08'
-        AND it->>'rule' = 'critical_alert_rising'
-   )
-   OR e.id IN (371108, 372143)
+ WHERE e.id IN (
+   359376, 359378, 361734, 363218, 363220, 364813, 365650,
+   370234, 370691, 370928, 371034, 371036, 371108, 372143
  )
- AND (
-   e.investigation_status IS DISTINCT FROM 'verified_fixed'
-   OR nullif(btrim(COALESCE(e.investigation->>'fixing_pr', '')), '') IS NULL
- );
+   AND (
+     e.investigation_status IS DISTINCT FROM 'verified_fixed'
+     OR nullif(btrim(COALESCE(e.investigation->>'fixing_pr', '')), '') IS NULL
+   );
 
 COMMIT;
