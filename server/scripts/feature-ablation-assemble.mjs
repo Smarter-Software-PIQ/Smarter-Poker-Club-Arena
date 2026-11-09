@@ -1085,8 +1085,23 @@ async function main(argv) {
     })
   );
 }
+/** Ends the CLI once `run` settles. The locked contract imports engine modules
+ * that keep live module-level handles (the ChannelHub lobby interval), so an
+ * implicit exit never comes: --prepare and --assemble would sit until the job
+ * timeout after the held-out partition is reserved. Output files are written
+ * synchronously; both streams are flushed before the exit. */
+export function finishCli(run) {
+  const flush = (stream) => new Promise((done) => stream.write('', () => done()));
+  return Promise.resolve(run)
+    .then(
+      () => undefined,
+      (error) => {
+        console.error('Feature ablation assembly refused: ' + error.message);
+        process.exitCode = 2;
+      }
+    )
+    .then(() => Promise.all([flush(process.stdout), flush(process.stderr)]))
+    .then(() => process.exit(process.exitCode ?? 0));
+}
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url))
-  main(process.argv.slice(2)).catch((error) => {
-    console.error('Feature ablation assembly refused: ' + error.message);
-    process.exitCode = 2;
-  });
+  finishCli(main(process.argv.slice(2)));
