@@ -256,9 +256,11 @@ BEGIN
       RAISE EXCEPTION 'conservation delta for % is scalar %', v_id, v_scalar;
     END IF;
     IF v_shadow.prize_balance IS DISTINCT FROM v_escrow.prize_balance
-       OR v_shadow.gross_in IS DISTINCT FROM v_escrow.gross_in THEN
-      RAISE EXCEPTION 'escrow shadow mismatch for %: shadow (%, %) vs escrow (%, %)',
-        v_id, v_shadow.gross_in, v_shadow.prize_balance, v_escrow.gross_in, v_escrow.prize_balance;
+       OR v_shadow.bounty_balance IS DISTINCT FROM v_escrow.bounty_balance
+       OR v_shadow.fee_balance IS DISTINCT FROM v_escrow.fee_balance THEN
+      RAISE EXCEPTION 'escrow shadow mismatch for %: shadow (%, %, %) vs escrow (%, %, %)',
+        v_id, v_shadow.prize_balance, v_shadow.bounty_balance, v_shadow.fee_balance,
+        v_escrow.prize_balance, v_escrow.bounty_balance, v_escrow.fee_balance;
     END IF;
   END LOOP;
 
@@ -288,7 +290,7 @@ UPDATE public.financial_alerts fa
 --    via trigger zz_ca_incident_resolution_reaches_the_alerts).
 UPDATE public.ca_drift_incidents d
    SET status = 'resolved',
-       resolved_at = now(),
+       resolved_at = GREATEST(now(), d.detected_at),
        closure_basis = 'verified_remeasured',
        root_cause = 'fn_ca_tournament_escrow_chips(uuid) omitted net_guarantee_promo legs introduced by 20261108041131, causing the shadow gross_in and prize_balance to read -160.00 against the balanced tournament_escrow.',
        correction_ref = 'verified: migration 20261109151859_net_guarantee_promo_conservation_and_settled_tournament_aler included net_guarantee_promo in fn_ca_tournament_escrow_chips(uuid); re-measured diff = 0.00',
