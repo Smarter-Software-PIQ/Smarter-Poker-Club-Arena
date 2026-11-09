@@ -378,6 +378,137 @@ export function assertIncrementalUnconsumedRecovery(jobs: any[], attempt: number
     }
   }
 }
+/** Read budgets, measured from process start, sized inside each job's limit:
+ * plan job 20 min, cell job 240 min (prepare + Execute), assemble job 30 min.
+ * TypeScript twin of server/scripts/feature-ablation-github-read.mjs; the two
+ * must classify identically (QualificationGithubRead.test.ts runs both). Every
+ * job of a held-out run is unrecoverable once the run exists, so a transient
+ * provider answer (network error or timeout, 5xx, 429, or a 403 carrying a
+ * rate-limit signal) is waited out inside the step instead of burning the
+ * family. Every other answer is returned unchanged for the caller to refuse. */
+export const QUALIFICATION_READ_BUDGET_MS = Object.freeze({
+  plan: 10 * 60_000,
+  cell: 75 * 60_000,
+  assemble: 20 * 60_000,
+});
+export const QUALIFICATION_READ_MAX_BACKOFF_MS = 60_000;
+export const QUALIFICATION_SECONDARY_LIMIT_WAIT_MS = 60_000;
+export function qualificationReadDeadline(
+  kind: keyof typeof QUALIFICATION_READ_BUDGET_MS,
+  origin = performance.timeOrigin
+) {
+  const budget = QUALIFICATION_READ_BUDGET_MS[kind];
+  if (!Number.isFinite(budget)) throw Error('qualification_read_budget_unknown');
+  return origin + budget;
+}
+async function qualificationTransientWait(response: Response, attempt: number, now: number) {
+  const backoff = Math.min(QUALIFICATION_READ_MAX_BACKOFF_MS, 2000 * 2 ** attempt);
+  // An answer without a numeric status is not a transient provider answer.
+  if (typeof response.status !== 'number') return null;
+  if (response.status >= 500 && response.status <= 599) return backoff;
+  // An absent header is not zero: Number(null) is 0, which would retry a refusal.
+  const header = (name: string) => {
+    const value = typeof response.headers?.get === 'function' ? response.headers.get(name) : null;
+    return value === null || value.trim() === '' ? NaN : Number(value);
+  };
+  const retryAfter = header('retry-after');
+  const remaining = response.headers.get('x-ratelimit-remaining');
+  const reset = header('x-ratelimit-reset');
+  if (response.status === 429 || response.status === 403) {
+    if (Number.isFinite(retryAfter) && retryAfter >= 0) return retryAfter * 1000 + 250;
+    if (remaining === '0' && Number.isFinite(reset) && reset > 0)
+      return Math.max(1000, reset * 1000 - now + 1000);
+    if (response.status === 429) return Math.max(QUALIFICATION_SECONDARY_LIMIT_WAIT_MS, backoff);
+    let text = '';
+    try {
+      text = typeof response.clone === 'function' ? await response.clone().text() : '';
+    } catch {
+      text = '';
+    }
+    if (/rate limit|abuse detection/i.test(text))
+      return Math.max(QUALIFICATION_SECONDARY_LIMIT_WAIT_MS, backoff);
+  }
+  return null;
+}
+export interface QualificationReadDeps {
+  fetch?: (
+    url: string,
+    init: { headers: Record<string, string>; signal: AbortSignal }
+  ) => Promise<Response>;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+  log?: (line: string) => void;
+}
+/** Fetches `url`, waiting out transient answers until `deadline`; returns the
+ * final Response (ok or a permanent refusal), or rethrows the last network
+ * error when the deadline passes on one. */
+export async function readGithubWithRetry(
+  url: string,
+  init: { headers: Record<string, string>; timeoutMs?: number },
+  deadline: number,
+  deps: QualificationReadDeps = {}
+): Promise<Response> {
+  const doFetch = deps.fetch ?? ((u, i) => fetch(u, i)),
+    now = deps.now ?? Date.now,
+    sleep = deps.sleep ?? ((ms: number) => new Promise<void>((done) => setTimeout(done, ms))),
+    log = deps.log ?? ((line: string) => void process.stderr.write(line + '\n')),
+    timeoutMs = init.timeoutMs ?? 20_000,
+    label = url.replace(/^https:\/\/api\.github\.com/, '');
+  for (let attempt = 0; ; attempt++) {
+    let response: Response | undefined, failure: unknown;
+    try {
+      response = await doFetch(url, {
+        headers: init.headers,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (error) {
+      failure = error;
+    }
+    const wait = response
+      ? response.ok
+        ? null
+        : await qualificationTransientWait(response, attempt, now())
+      : Math.min(QUALIFICATION_READ_MAX_BACKOFF_MS, 2000 * 2 ** attempt);
+    if (wait === null) return response!;
+    if (now() + wait > deadline) {
+      log(`[qualification-read] ${label}: transient answer past the read deadline; not retried`);
+      if (!response) throw failure;
+      return response;
+    }
+    log(
+      `[qualification-read] ${label}: transient ${response ? 'HTTP ' + response.status : 'network error'}; retry ${attempt + 1} in ${Math.ceil(wait / 1000)}s`
+    );
+    await sleep(wait);
+  }
+}
+/** Like readGithubWithRetry, and also waits out a JSON body that breaks after
+ * the headers arrived. A non-OK final answer is returned unread with value
+ * undefined; a body unreadable past the deadline rethrows its error. */
+export async function readGithubJsonWithRetry(
+  url: string,
+  init: { headers: Record<string, string>; timeoutMs?: number },
+  deadline: number,
+  deps: QualificationReadDeps = {}
+): Promise<{ response: Response; value: unknown }> {
+  const now = deps.now ?? Date.now,
+    sleep = deps.sleep ?? ((ms: number) => new Promise<void>((done) => setTimeout(done, ms))),
+    log = deps.log ?? ((line: string) => void process.stderr.write(line + '\n')),
+    label = url.replace(/^https:\/\/api\.github\.com/, '');
+  for (let attempt = 0; ; attempt++) {
+    const response = await readGithubWithRetry(url, init, deadline, deps);
+    if (!response.ok) return { response, value: undefined };
+    try {
+      return { response, value: await response.json() };
+    } catch (error) {
+      const wait = Math.min(QUALIFICATION_READ_MAX_BACKOFF_MS, 2000 * 2 ** attempt);
+      if (now() + wait > deadline) throw error;
+      log(
+        `[qualification-read] ${label}: body unreadable; retry ${attempt + 1} in ${Math.ceil(wait / 1000)}s`
+      );
+      await sleep(wait);
+    }
+  }
+}
 /** Original hosted cell job/run verification. Called by the memoized pre-deal
  * guard; no histories, deals, result selection or authority are created here. */
 export async function authenticateFeatureAblationProviderAttempt(
@@ -406,16 +537,14 @@ export async function authenticateFeatureAblationProviderAttempt(
     runAttempt > maxAttempts
   )
     throw Error('Actual provider attempt unavailable');
+  const deadline = qualificationReadDeadline('cell');
   const get = async (suffix: string) => {
-    const r = await fetch(`https://api.github.com/repos/${repo}${suffix}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github+json',
-      },
-      signal: AbortSignal.timeout(20000),
-    });
+    const { response: r, value: body } = await readGithubJsonWithRetry(
+      `https://api.github.com/repos/${repo}${suffix}`,
+      { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' } },
+      deadline
+    );
     if (!r.ok) throw Error('Provider identity read refused');
-    const body: unknown = await r.json();
     if (!body || typeof body !== 'object' || Array.isArray(body))
       throw Error('Provider identity shape refused');
     return body as Record<string, unknown>;
@@ -512,13 +641,16 @@ export async function authenticateIncrementalPlan(
   const familyCommit = git('log', '-1', '--format=%H', '--', familyPath);
   if (git('show', `${familyCommit}:${familyPath}`) !== familyBytes.trim())
     throw Error('Incremental family bytes changed');
+  const deadline = qualificationReadDeadline(
+    assembling ? 'assemble' : cell === undefined ? 'plan' : 'cell'
+  );
   const get = async (suffix: string) => {
-    const response = await fetch(`https://api.github.com/repos/${repo}${suffix}`, {
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
-      signal: AbortSignal.timeout(20000),
-    });
+    const { response, value } = await readGithubJsonWithRetry(
+      `https://api.github.com/repos/${repo}${suffix}`,
+      { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' } },
+      deadline
+    );
     if (!response.ok) throw Error('Incremental provider provenance unavailable');
-    const value: unknown = await response.json();
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
       // The commit-to-PR endpoint alone returns an array.
       if (suffix.endsWith('/pulls') && Array.isArray(value)) return value as any;
