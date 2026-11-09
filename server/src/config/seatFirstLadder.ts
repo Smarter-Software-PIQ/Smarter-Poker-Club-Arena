@@ -143,6 +143,75 @@ export function humanArrivalMs(rand: (spanInclusive: number) => number): number 
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
+ *  A SATELLITE FEEDER DOES NOT CLIMB THIS LADDER (2026-11-09)
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * A REGRESSION THIS LADDER INTRODUCED, and the reason it is fixed here rather
+ * than worked around at the call site.
+ *
+ * A heads-up satellite feeder is two seats, so `ladderForSeats` called it a
+ * Heads-Up and handed it the 3-to-4-hour rung. Before the ladder,
+ * `createSatelliteHeadsUp` opened with the old 90-350 second window and the
+ * feeder filled, played and handed its seat over in minutes.
+ *
+ * Two things make that wrong rather than merely slow:
+ *
+ *  1. The ladder exists to stop the room running ITSELF all day - "SIT ONE
+ *     HORSE AT LIKE 11 DIFFERENT SPINS AND LIKE 6 SIT N GO'S". A feeder is
+ *     not one of those eleven or six: `seatFirstBoardRoom` deliberately
+ *     excludes every row with a satellite target from the count. So a feeder
+ *     was being paced by a quota it is explicitly not part of, which is this
+ *     change disagreeing with itself.
+ *  2. A feeder exists to deliver a seat into ONE event. Waiting 3-4 hours
+ *     means its target can start first, and then it can never award what it
+ *     sold. The existing authority on that is
+ *     `fn_ca_expire_empty_fixed_sng_satellite`, which cancels an EMPTY
+ *     REGISTERING feeder once its target's `start_time` has passed - and the
+ *     ladder seats one horse immediately, so the feeder is no longer empty
+ *     and that reaper answers `not_empty_registering` and leaves it there.
+ *     The ladder did not just slow the feeder down; it put it out of reach of
+ *     the thing that was meant to clean it up.
+ *
+ * So a feeder keeps the short window AND is bounded by its target's own
+ * admission clock. The bound reuses the lead the platform already requires
+ * for this format (`SATELLITE_HU_TARGET_LEAD_MS`, passed in as
+ * `requiredLeadMs` so this module stays free of service imports) rather than
+ * inventing a second number for the same thing. Capping at the target's start
+ * would be too late: the feeder still has to PLAY and hand the seat over.
+ *
+ * `null` means this feeder cannot deliver, so it must not be opened and must
+ * not keep waiting. An unknown or non-finite target clock is also `null`:
+ * not knowing is never permission, which is the same answer
+ * `fn_ca_expire_empty_fixed_sng_satellite` gives as `target_clock_unknown`.
+ */
+export const FEEDER_OPENING_MIN_MS = 90 * 1000;
+export const FEEDER_OPENING_MAX_MS = 350 * 1000;
+
+/** The short window a feeder opens with when its target's clock is unknown. */
+export function feederOpeningMs(rand: (spanInclusive: number) => number): number {
+  return FEEDER_OPENING_MIN_MS + rand(FEEDER_OPENING_MAX_MS - FEEDER_OPENING_MIN_MS);
+}
+
+export function feederWaitMs(
+  nowMs: number,
+  targetStartMs: number,
+  requiredLeadMs: number,
+  rand: (spanInclusive: number) => number
+): number | null {
+  if (!Number.isFinite(nowMs) || !Number.isFinite(targetStartMs)) return null;
+  if (!Number.isFinite(requiredLeadMs) || requiredLeadMs < 0) return null;
+  /* Re-derived from the target's CURRENT start_time by every caller, so a
+     rescheduled target moves this bound instead of leaving a feeder waiting
+     against a clock that no longer exists. */
+  const available = targetStartMs - requiredLeadMs - nowMs;
+  if (available <= 0) return null;
+  const span = FEEDER_OPENING_MAX_MS - FEEDER_OPENING_MIN_MS;
+  const drawn = FEEDER_OPENING_MIN_MS + rand(span);
+  return Math.min(drawn, available);
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
  *  HOW WIDE THE BOARD IS (Dan, 2026-11-08, binding)
  * ═══════════════════════════════════════════════════════════════════════════
  *

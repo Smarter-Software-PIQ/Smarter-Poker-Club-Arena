@@ -7,6 +7,72 @@ instruction each authorized agent owns its own delivery, so "release owner" for
 #10094 is this lane; there is no separate person to coordinate with, and the
 04:00 daily preparation is owned by whichever Stage run reserves the date.
 
+---
+
+## SCOPE OF RECORD (2026-11-09, reset to the original assignment)
+
+> **PICKING THIS UP IN A NEW CHAT? READ
+> [`docs/HANDOFF-2026-11-09-seat-first-waiting-ladder.md`](./docs/HANDOFF-2026-11-09-seat-first-waiting-ladder.md)
+> FIRST.** It is the full continuation document: every phase, every measurement
+> with the time it was read, the exact current state, the open blockers, what
+> was never tested, the traps that cost this lane hours, and the numbered
+> execution plan. This checkpoint is the lane's record; that file is how to
+> resume it.
+
+**This section supersedes every later "Still open, and why" table in this
+file.** Those tables stay as history; this is the only list of gates this lane
+is closed against.
+
+### What this chat owns, and what each one is accepted on
+
+| # | deliverable | accepted when |
+| --- | --- | --- |
+| 1 | Combined Spin and regular Sit and Go starts under 300 per Chicago day | one COMPLETE Chicago day on the activated engine measures under 300 combined, with human-triggered and horse-only reported separately and no reading that turns an over-target day into a pass |
+| 2 | One horse opens a board, 11 Spins and 6 regular Sit and Gos | the live board count converges on 11 and 6, satellite feeders counted in neither |
+| 3 | The waiting ladder: Spin 60-80 then 30-60 minutes, regular Sit and Go 3-4 hours | boards advance on those rungs on the activated engine |
+| 4 | A person who sits is joined in 3 to 7 minutes | the engine fills across the whole band, and the table's countdown is never later than the engine's own deadline |
+| 5 | Horses are refunded exactly as humans, 100% of the time | already accepted: 390 of 390 horse entries refunded, 9,400.00 debited and 9,400.00 returned, to the chip, plus the SQL law that refuses horse status as a reason not to pay |
+| 6 | Taken out of the horse auto-launch schedule | already accepted: the launcher opens one horse per board and no replacement while above target |
+
+Everything in 1 to 4 is observable only on the activated engine. 5 and 6 are
+closed.
+
+### What remains
+
+| item | state |
+| --- | --- |
+| Activation | not this lane's to perform. The 2026-11-09 preparation froze `blocked` on a defect another lane has since fixed; the next activation is the ordinary 04:00 window |
+| Verification at activation | serving identity, SEALED receipt, complete thaw, convergence toward 11 and 6, feeders consuming none of that budget, occupied games keeping players and stacks, a reload keeping the countdown |
+| The acceptance day | the first COMPLETE Chicago day after an activation that actually happened, reported by the digest the following day |
+| Pre-change baseline | Chicago 2026-11-09 ran entirely on the old engine; its numbers are recorded as pre-change and are not an acceptance result |
+
+### Dependencies are coordination points, not work for this lane
+
+The 04:00 activation, its certificate and its receipts belong to the daily
+release operation. This lane READS that operation's record (the selection
+artifact, the certificate status, `/health`, the sealed receipt) and verifies
+its own behaviour afterwards. It does not dispatch a release, re-run a
+selection, write to the Backup host, apply a migration outside its own, or
+build a second implementation of any of it. Where a dependency is missing or
+wrong, this lane reports it to the owning operation with the evidence and
+carries on with what it can measure.
+
+### Unrelated work this lane adopted, and where it has gone
+
+Preserved, handed over, nothing deleted:
+
+| what | established owner | where the evidence is | ACK |
+| --- | --- | --- | --- |
+| The sparse-checkout defect that blocked the 2026-11-09 selection. This lane built a fix and opened a PR for a workflow it does not own; three other lanes did the same within seven minutes | the release lane (`stage-engine-release.yml`) | fixed on main by #10157 with its own law test; this lane's PR closed as superseded with the reason in its comment; the incident record is `docs/changelog/2026-11-09-the-daily-selection-could-not-read-its-own-helper.md` | superseded by the merge |
+| The Backup refresh failure "standby cash cluster parent missing" | the Backup lane | diagnosis in the archived evidence folder; fixed on main by #10144 before this lane's note was read | the fix landed |
+| Nine workflows red at their latest main run, and the audit meant to raise that issue being one of them | the BBJ sweep lane and the production-integrity owner | `COORDINATION-INBOX.md`, 10:43Z entry | one received: the tournament-lobby lane accepted the rematch-certification red as theirs, hand-started, not touching the release or publish gate. The BBJ shard and the detector remain open with their owners |
+| A migration in production that main has never seen (`20261109040704`) | the Kings Club downline lane | `COORDINATION-INBOX.md`, 06:27Z entry, with the installed-set effect for the release owner | open |
+| Cancelled feeders showing debits with no refund row; a feeder inheriting the heads-up ladder; a digest reader that coerces an unreadable answer to empty | their own lanes | "Observations outside this lane" below, unchanged | open, and deliberately not acted on |
+
+The lesson this lane keeps: finding a defect in another lane's file is a
+report, not an assignment. Four agents fixing one missing folder in seven
+minutes cost more than the folder did.
+
 ## The measurement that started it (read from production, 2026-11-08)
 
 Seven days to 2026-11-07, by Chicago day:
@@ -131,7 +197,7 @@ Stage, Certify)` for the merge ran successfully (42530764148). Current main
 - **Stake rotation.** Rotation only ever considers configs with NO open
   instance, so an occupied board is never a rotation candidate.
 
-## Still open, and why
+## Still open, and why (SUPERSEDED by SCOPE OF RECORD above)
 
 | item                                                      | status                                                                                                                                                                                                                                                                                                     |
 | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -320,15 +386,18 @@ board with a person in it is processed whatever its window says, and
 `seatFirstHumanPartnerHoldUntilMs` with a known seat time returns
 `min(seatedAt + 7 min, seatedAt + 3 min + jitter)` - the board's own window does
 not enter into it. So a person sitting on a board whose `start_time` is three
-hours away is filled 3:00 to 3:30 after they sat, which is Dan's rule.
+hours away is filled inside the 3-7 minute band after they sat, which is
+Dan's rule. (The band was 3:00-3:30 as first shipped; widened to the whole
+3:00-7:00 on 2026-11-09, see
+`docs/changelog/2026-11-09-the-human-window-is-the-whole-three-to-seven.md`.)
 
-## Still open, and why
+## Still open, and why (SUPERSEDED by SCOPE OF RECORD above)
 
 | item | status |
 | --- | --- |
 | Engine activation, serving SHA, SEALED receipt, full thaw | waits for 04:00 Chicago 2026-11-09 |
 | Live ladder timings, 11/6 limits, human fill, drain convergence | observable only on the new engine; the lobby's SPINS and SIT N GO'S tabs are the player-visible count, and the DB query above is the exact one |
-| The partner-hold countdown ON SCREEN | requires a seat, and a seat is a registration. The owner's instruction for this pass says observation may not initiate registrations or seating, so this lane does not buy one. The durable chain is proved from the published bundle and the engine's matching arithmetic above. A 30 second owner check settles it: sit in any Spin after 04:00, read "Deals In 3:30 At The Latest", reload, confirm it continues rather than restarting |
+| The partner-hold countdown ON SCREEN | requires a seat, and a seat is a registration. The owner's instruction for this pass says observation may not initiate registrations or seating, so this lane does not buy one. The durable chain is proved from the published bundle and the engine's matching arithmetic above. A 30 second owner check settles it: sit in any Spin after 04:00, read "Deals In 7:00 At The Latest", reload, confirm it continues rather than restarting |
 | The under-300 day | the first COMPLETE Chicago day on the new engine is 2026-11-10, reported by the digest on 2026-11-11 |
 
 ## Observations outside this lane, recorded not acted on
@@ -470,16 +539,103 @@ window, with no people playing at all:
 | Spin             | 1 horse    | 60-80 min   | 30-60 min  | ~115 min   | 11     | ~120-140   |
 | regular heads-up | 1 horse    | 180-240 min | fills      | ~210 min   | 6      | ~36-41     |
 
-So the horse-only floor is about **160 to 180 combined a day**, against a
-ceiling of 300. The headroom is deliberate: it is what a person's play is
-allowed to add. A human who sits is filled in 3:00 to 3:30 rather than waiting
-out the ladder, so an active day adds starts on top of that floor.
+So the horse-only floor is an ESTIMATE of about 160 to 180 combined a day,
+against a ceiling of 300. It is arithmetic from the constants, not a
+measurement, and it stays an estimate until a full Chicago day has been
+counted. A human who sits is filled inside the 3-7 minute band rather than
+waiting out the ladder, so an active day adds starts on top of that floor.
 
-**Read the split before reading the total.** A Tuesday over 300 with a large
-`human_triggered` count is the platform working, not the change failing; a
-Tuesday over 300 that is still almost entirely `horse_only` is the change
-failing and the cause is in the launcher. The digest prints both on the line
-above the total, which is why it prints both.
+**The acceptance test is the combined total, under 300 per Chicago day.**
+Corrected 2026-11-09, because the first version of this paragraph said a day
+over 300 with a large `human_triggered` count was "the platform working, not
+the change failing". That was this lane softening the owner's own acceptance
+criterion, and the owner rejected it. There is no reading of the number that
+turns an over-target day into a pass.
+
+What the split is for is DIAGNOSIS, after the verdict, never instead of it:
+
+- over 300, almost entirely `horse_only` - the launcher is still opening or
+  cycling too much; the cause is in the ladder, the board targets, or
+  something else creating seat-first rows;
+- over 300 with a large `human_triggered` share - the horse floor is not the
+  whole story and the cause has to be found before anything is changed, under
+  the owner's standing instruction to identify the cause before changing the
+  seating rules or restricting human play.
+
+Both numbers are reported separately every time, and the day is reported as
+missing the target whenever the combined count is 300 or more.
 
 Measured baseline to compare against: 2026-11-07 was 12,517 combined with ONE
 human-triggered start in the whole day.
+
+---
+
+## Where the acceptance evidence lives (2026-11-09)
+
+`/Volumes/SmarterArchives 1/agent-evidence/seat-first-ladder-01BbZPDj-20261109/`
+
+Note the ` 1`. The SSD remounted under that name because a stale root-owned
+directory occupies `/Volumes/SmarterArchives`, which is read-only and holds
+only symlinks into the real volume. Writing to the plain path fails with
+"macOS denied access" and a new directory cannot be symlinked back into it, so
+anything written there by hand is lost. Use the ` 1` path.
+
+The folder carries, with a `SHA256SUMS.txt` written in the container before
+transfer and verified after it (all five files OK):
+
+- `acceptance-evidence.md` - every measurement behind this change, with the
+  read time against each one;
+- `check-candidate-contents.sh` - reads a candidate's TREE for the three
+  behaviours; exit 0 present, 1 missing, 3 could not tell;
+- `verify-cutover.sh` - the post-cutover checks from
+  `docs/ENGINE-RELEASE-RUNBOOK.md` section 4.8, read-only;
+- `occupied-snapshot.sql` - one row per occupied game with an md5 of its
+  (player, seat, stack) multiset, for the before/after across the restart;
+- `cert-watch.log` - the certificate and engine-phase readings through the
+  night.
+
+### Contents are checked separately from schema inventory
+
+A candidate has to pass two independent tests and they fail for different
+reasons. `scripts/ci/select-daily-engine.py` checks the INVENTORY: the
+certified copy's installed migration set must equal production's set read at
+selection time. That says nothing about whether the build contains this lane's
+behaviour, and commit ancestry is not enough either, because a later commit
+can revert the lines. So `check-candidate-contents.sh` reads the tree at the
+exact sha for the ladder constants, both satellite predicates in
+`seatFirstBoardRoom`, and the human window on the engine and the client side.
+
+Measured 2026-11-09 06:30Z: `af9ea7bc2d` and `045886dd3c` were both certified
+and both carried the ladder and the feeder exclusion while the human fill was
+still 3:00 to 3:30. They failed the inventory test as well, for an unrelated
+reason. Two tests, two verdicts, and neither implies the other.
+
+### The client and engine corrections may ship apart
+
+The client correction went live with `fc2bfba558` while the engine still
+served `391f7bc0`. That gap is safe in both directions, because the engine's
+hold is never later than the countdown the client paints:
+
+```
+serving engine   min(seated + 350s, max(windowEnd, seated + 90s) + 30s)
+new engine       min(seated + 420s, seated + 180s + jitter)
+client countdown seated + 420s
+```
+
+Both engines act at or before the displayed instant, so "Deals In m:ss At The
+Latest" stays literally true across the cutover; the only visible effect is
+that a board may deal earlier than the countdown promised, which the client's
+own header already allows.
+
+The deadline is anchored to `table_seats.joined_at`, a durable column, not to
+page-load time: all 549 live seat-first seats carried a non-null `joined_at`
+when this was measured. A reload or a reconnect re-reads the same instant, and
+a ladder advance rewrites `start_time`, which the human branch no longer
+consults.
+
+The AI-opponent disclosure is untouched by all of this. It lives in
+`src/components/legal/aiOpponentsDisclosure.ts`, is pinned by
+`tests/ai-opponents-are-disclosed.law.test.tsx`, and none of the three commits
+in this change touches it or any surface that carries it. It already covers
+the ladder's hours-long waits in its own words: AI opponents "Join Waiting
+Lists, Move Between Games And Keep Regular Hours".

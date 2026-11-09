@@ -1,0 +1,3 @@
+# tests/split-late-return-owns-its-leg.law.test.ts
+
+A split late return owns exactly one wallet-to-bank journal leg even when the original payer suppresses automatic member journaling. The scoped trigger restores the caller's ledger declaration and original-debit output. The maintained PG17 regression executes the actual trigger, member writer, bank autoledger, enrichment, tally and deferred invariant in isolation, fails before the repair, and passes inherited and ordinary caller modes including repeated same-transaction returns. Production receipts and money are never replayed by this change.

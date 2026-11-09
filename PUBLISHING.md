@@ -1,3 +1,4 @@
+**November 9 owner ASAP cutover:** the owner ordered "GET THEM LIVE NOW, DO NOT WAIT UNTIL 4AM, DO IT ASAP" in overlay chat `01a1b950` (relayed on PR #10063 comment 6741660924) and confirmed it to the Claude engine-cutover release owner at 13:54 UTC November 9. The single finite window `2026-11-09-owner-asap-engine-1530z` admits only one certified replacement of `391f7bc0d57c71637bd4af5181f70520661e3593` containing the Horse overlay rescue `f21499f` and add-on timing fix `debe1ef`, between 15:30 and 21:30 UTC November 9, after the 15:10 UTC player notice has actually been available for at least twenty minutes. Exact qualification, a Backup certificate matching current production's installed schema, protected target/control, hand drain, full freeze/proof/rollback reserve and thaw remain required. The frozen November 9 original daily selection stays immutable; this does not renew any earlier booking or change the standing daily schedule.
 **November 8 Horse study continuation:** the owner directed completion now in chat `01a1af6b-2112-7fc2-b6bf-f6b5f0e9f430`. The single successor `2026-11-08-horse-study-successor-engine-1820z` preserves the expired prior booking and admits only one certified replacement of `391f7bc0d57c71637bd4af5181f70520661e3593`, between 18:20 UTC November 8 and 00:20 UTC November 9, after the published 18:00 UTC November 8 player notice has actually been available for at least twenty minutes. Exact qualification, Backup, protected target/control, hand drain, full freeze/proof/rollback reserve and thaw remain required. This does not renew the expired prior operation or change the standing daily schedule.
 **Owner direction November 6, 2026 (chat `01a1b095-8bd5-7d42-afcf-1a0843448274`):** All engine upgrades are staged and certified on isolated Backup during the day. Production replacements require certification for the exact version and may activate ONLY in the 04:00-04:05 America/Chicago maintenance window, after the 03:58 notice and all existing custody, freeze, proof, rollback and thaw safeguards. The temporary Phase1 hourly exception and historical urgent/degraded/owner-window replacement exceptions are revoked. A successful sealed release triggers a fresh Backup copy. Agents work in owned branches and merge through required checks; they never edit the live engine or a shared running Backup directly. A failed or missing certificate leaves the current engine running. Source preparation and non-engine delivery continue throughout the day.
 
@@ -264,3 +265,19 @@ Schema changes under `supabase/migrations/**` trigger both existing Backup and e
 The original Backup export captures the installed production migration version/name set and the guarantee, Horse admission, registration and weekly-payout function definitions before and after the dump. Drift refuses the copy. The retained `schema-evidence.json` binds that set and the function hashes to the dump SHA. Restore compares the actual isolated function bodies before publishing validity; the isolated database carries the source migration manifest as evidence rather than an installation ledger.
 
 Before relying on that certificate for this delivery, capture production again through its configured read-only database connection and compare it with the original certificate artifact. Run `python3 -B server/standby/schema-evidence.py capture --output CURRENT_JSON`, then `python3 -B server/standby/schema-evidence.py compare RETAINED_JSON CURRENT_JSON`. A missing or changed migration or required function refuses the comparison. Read the exact sealed result and serving revision independently after cutover.
+
+### Finite PLO Lightning lifecycle witness
+
+After the lifecycle migration is installed and the certified engine is sealed
+and fully thawed, dispatch `run-plo-lightning-lifecycle-proof` through the existing
+Post-Deploy E2E workflow with client payload `{"engine_sha":"FULL_SERVING_SHA"}`.
+This is an explicit finite verification, never a release action. The fixed 1/2
+PLO game must be empty in feeder mode with ON10/OFF4 and heads-up enabled.
+The job creates reserved player/cashier accounts, uses normal cashier funding,
+actual pre-play disclosure/consent and player controls, and normal cash-out.
+It records individual arrivals, the 5–15 minute startup and eight minutes of
+continued gameplay after departure. Read its result and owned balance cleanup
+separately; unknown financial intents retain identities for authoritative
+readback instead of another purchase or transfer. Only result JSON and public
+screenshots are uploaded, never private account files. It does not retire the
+house club or its tables. A refusal or missing evidence is not a live pass.

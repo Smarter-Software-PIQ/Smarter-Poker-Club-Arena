@@ -207,6 +207,15 @@ extra=r'''
         answer=original.result(timeout=30)
         assert '"success": true' in answer.stdout,(answer.stdout,answer.stderr)
     q("SELECT fixture_owned_assert();SELECT caw_assert((SELECT acknowledged_at=money_starts_at AND money_deadline_at=money_starts_at+interval '240 seconds'AND expires_at=money_starts_at+interval '5 minutes'FROM weekly_accounting_payout_pauses),'concurrent-ack-original-deadlines');")
+    # Replay the already committed original public R3 from a separate connection.
+    # Each receipt must remain byte-identical alongside the wallets, invoices and ledger.
+    receipt_state="SELECT jsonb_agg(to_jsonb(r) ORDER BY scope_id) FROM accounting_routed_settlement_runs r WHERE round_no=3"
+    committed=q(receipt_state).stdout.strip()
+    assert len(json.loads(committed))==2
+    money=q("SELECT dr_money();").stdout.strip()
+    q("BEGIN;"+replay+"COMMIT;")
+    assert q(receipt_state).stdout.strip()==committed and q("SELECT dr_money();").stdout.strip()==money
+    print('PASS original public R3 replay after outer commit preserves receipts and all money',flush=True)
     print('PASS original-DUE-waits-without-row-lock-for-concurrent-at-four-ACK-real-all-rounds',flush=True)
     print('PASS focused actual financial owners/global phase; external mint/preparation adapters and runtime/capacity limits retained',flush=True)
 '''

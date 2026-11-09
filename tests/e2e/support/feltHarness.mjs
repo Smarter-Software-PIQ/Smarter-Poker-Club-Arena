@@ -229,9 +229,7 @@ export async function measureAll(page, css) {
   for (const [device, width, height, insetTop = 0, insetBottom = 0] of DEVICES) {
     await page.setViewportSize({ width, height });
     const html =
-      insetTop || insetBottom
-        ? buildHtml(applyInsets(css, insetTop, insetBottom))
-        : plainHtml;
+      insetTop || insetBottom ? buildHtml(applyInsets(css, insetTop, insetBottom)) : plainHtml;
     await page.setContent(html);
     rows.push({ device, vp: `${width}x${height}`, ...(await page.evaluate(PROBE)) });
   }

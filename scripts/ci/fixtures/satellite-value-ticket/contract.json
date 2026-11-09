@@ -1,0 +1,17 @@
+{
+  "before": {
+    "public.fn_union_pnl_satellite_seat_owner(p_registration_id uuid, p_tournament_id uuid)": "3beddbfe1e3d204d1907b428d9358f08",
+    "smarter_private.original_inventory_proof_sources_match()": "bb3f5552448e42e7d55c470d49591049"
+  },
+  "after": {
+    "reader": "58b6c79c412a9e3b26104c0b4b6878d6",
+    "matcher": "514b4ccef3c2fb883fcfe1c30d482df0"
+  },
+  "new_dependency_hashes": {
+    "fn_ca_assert_satellite_value_ticket": "c309132fdcfa88899920a2969a20cee9",
+    "fn_poker_diamond_tournament": "c91028508fecc2d02e9003f2bdc2e38d",
+    "fn_tournament_entry_split": "89cc73d13fe8fbe6905233c8f9f74848"
+  },
+  "source_count": 68,
+  "generation_change_required": true
+}

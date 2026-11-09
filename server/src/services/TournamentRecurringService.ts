@@ -77,6 +77,8 @@ import {
   HUMAN_ARRIVAL_MIN_MS,
   HUMAN_ARRIVAL_MAX_MS,
   openingRungMs,
+  feederOpeningMs,
+  feederWaitMs,
   boardOpenTarget,
 } from '../config/seatFirstLadder.js';
 import { isFixedBoardClub } from '../config/fixedBoard.js';
@@ -1194,8 +1196,24 @@ export const SEAT_FIRST_HUMAN_PARTNER_HOLD_MS = SEAT_FIRST_HUMAN_WINDOW_MIN_MS;
  * engine's two lanes and every pass agree on it), and the table counts down to
  * the END of that spread - "at the latest" is then true, and the opponent's
  * arrival inside it reads like anyone's.
+ *
+ * THE SPREAD IS THE WHOLE BAND DAN GAVE (2026-11-09). It shipped at 30 s,
+ * which put every fill at 3:00 to 3:30 after the person sat. That is INSIDE
+ * "WITHIN 3-7 MIN" and it is not what the sentence describes: a four minute
+ * band used in its first thirty seconds is the same bell, moved. It is also
+ * the tell this constant exists to remove - 10.5, "TIMING IS PART OF THE
+ * TREATMENT ... the tell is never one hand, it is the RHYTHM" - because an
+ * opponent who lands between 3:00 and 3:30 every single time is as marked as
+ * one who lands on the bell. The spread is therefore the full distance from
+ * the floor to the ceiling, so the fill falls anywhere in 3:00 to 7:00 and
+ * `min(ceiling, floor + spread)` reaches the ceiling exactly.
+ *
+ * What it costs the person: the countdown now reads up to 7:00 rather than
+ * 3:30, and most boards still fill well before it. "At the latest" stays
+ * literally true, which is the only promise the table makes.
  */
-export const SEAT_FIRST_HUMAN_PARTNER_HOLD_SPREAD_MS = 30_000;
+export const SEAT_FIRST_HUMAN_PARTNER_HOLD_SPREAD_MS =
+  SEAT_FIRST_HUMAN_WINDOW_MAX_MS - SEAT_FIRST_HUMAN_WINDOW_MIN_MS;
 
 export function seatFirstHumanPartnerHoldJitterMs(tournamentId: string): number {
   return mix32(horseHash(`${tournamentId}:partner-hold`)) % SEAT_FIRST_HUMAN_PARTNER_HOLD_SPREAD_MS;
@@ -2609,6 +2627,8 @@ interface SatelliteHeadsUpConfig extends Omit<SNGConfig, 'type'> {
   targetId: string;
   targetName: string;
   ticketCost: number;
+  /** The target's own start clock, so the feeder's wait is bounded by it. */
+  targetStartMs: number;
 }
 
 function satelliteHeadsUpConfigFor(target: SatelliteTargetRow): SatelliteHeadsUpConfig | null {
@@ -2622,6 +2642,7 @@ function satelliteHeadsUpConfigFor(target: SatelliteTargetRow): SatelliteHeadsUp
   return {
     name: satelliteHeadsUpName(target.name),
     type: 'satellite',
+    targetStartMs: Date.parse(String(target.start_time ?? '')),
     gameVariant,
     buyIn,
     rake: 0,
@@ -3628,11 +3649,12 @@ export class TournamentRecurringService {
       const { data, error } = await supabase
         .from('tournaments')
         .select(
-          'name, club_id, union_id, start_time, guaranteed_prize, buy_in_amount, buy_in_fee, ' +
+          'name, status, club_id, union_id, start_time, guaranteed_prize, buy_in_amount, buy_in_fee, ' +
             'is_pko, is_bounty, is_mystery_bounty, all_in_or_fold, bounty_amount, starting_chips, rebuy_cost, addon_cost, addon_chips, addon_from_start, ' +
             'add_on_available, is_rebuy, max_rebuys, late_reg_mins, late_reg_levels, rebuy_levels, blind_structure'
         )
         .eq('free_buy', true)
+        .neq('status', 'CANCELLED')
         // The board's own rows only: every freeroll carries free_buy
         // (FREE_BUY_BOARD_NAMES in FreeBuy.ts says why).
         .in('name', [...FREE_BUY_BOARD_NAMES])
@@ -4077,7 +4099,21 @@ export class TournamentRecurringService {
         admitted.filter(
           (target) =>
             target.admission_abi === 'legacy-capacity-v1' ||
-            Date.parse(String(target.start_time)) - now >= SATELLITE_MTT_TARGET_LEAD_MS
+            /* A FEEDER NEVER OUTLIVES ITS TARGET (2026-11-09). Deliverability
+               is a property of the TARGET, so it is filtered here, beside the
+               lead this branch already requires, rather than inside the
+               creator - the creator must stay able to report an EXISTING
+               feeder for a target that is still fine. A target whose own clock
+               leaves less than SATELLITE_HU_TARGET_LEAD_MS is one whose feeder
+               could not finish and hand the seat over, so no feeder is offered
+               for it at all. */
+            (Date.parse(String(target.start_time)) - now >= SATELLITE_MTT_TARGET_LEAD_MS &&
+              feederWaitMs(
+                now,
+                Date.parse(String(target.start_time)),
+                SATELLITE_HU_TARGET_LEAD_MS,
+                (span) => secureRandomInt(span + 1)
+              ) !== null)
         ),
         now
       );
@@ -4180,7 +4216,26 @@ export class TournamentRecurringService {
     owner: BoardOwner = this.houseOwner
   ): Promise<{ tournamentId: string | null; registered: number; created?: boolean }> {
     try {
-      const startTime = new Date(Date.now() + seatFirstOpeningWindowMs(config.maxPlayers));
+      /* A FEEDER DOES NOT CLIMB THE LADDER (2026-11-09). This read
+         `seatFirstOpeningWindowMs(config.maxPlayers)`, which is the 3-to-4-hour
+         regular Heads-Up rung, because a feeder is two seats. A feeder is not
+         one of the eleven Spins or six Sit and Gos that rung paces - the board
+         count excludes every row with a satellite target - and a feeder that
+         waits hours lets its target start before it can award the seat it sold.
+
+         The window is bounded by the target's own clock when the caller passes
+         one. A config WITHOUT `targetStartMs` takes the plain short window
+         instead of being refused: a field the caller did not fill is not the
+         same statement as a target clock that says it is too late, the target
+         filter above has already judged deliverability, and refusing here
+         would stop this creator reporting an EXISTING feeder. The strict
+         reading of an unknown clock belongs where the target row is actually
+         read - GameServer.seatFirstNextWaitMs. */
+      const rand = (span: number) => secureRandomInt(span + 1);
+      const bounded = Number.isFinite(config.targetStartMs)
+        ? feederWaitMs(Date.now(), config.targetStartMs, SATELLITE_HU_TARGET_LEAD_MS, rand)
+        : null;
+      const startTime = new Date(Date.now() + (bounded ?? feederOpeningMs(rand)));
       const dbGameType = dbGameTypeFor(config.gameVariant, 'createSatelliteHeadsUp');
 
       const satelliteRow = {

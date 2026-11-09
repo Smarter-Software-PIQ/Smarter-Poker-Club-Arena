@@ -40,6 +40,7 @@ describe('browser qualification parallel delivery', () => {
             [
               'private-record-client-proof',
               'stats-pagination-proof',
+              'plo-lightning-lifecycle-proof',
               'production-e2e',
               'live-table-e2e',
               'club-channel-lifecycle-e2e',

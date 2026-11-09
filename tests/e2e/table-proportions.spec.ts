@@ -2341,13 +2341,13 @@ for (const [width, heightOverride] of occupiedViewports)
           result.violations,
           `${width}px ${count}-max ${jackpot} ${revealed ? 'revealed' : 'playing'} ${villainCards} cards ${state} canvas=${JSON.stringify(result.canvas)}}`
         ).toEqual([]);
+        // Dan 2026-11-01: lobby, chat, previous hand, time bank and rabbit
+        // hunt are all the hamburger's size (--sp-tabbar-control: 52px, 44px
+        // on the smallest short phone).
+        const expectedToolSize = width === 320 ? 44 : 52;
         for (const tool of result.tools) {
-          // Dan 2026-11-01: lobby, chat, previous hand, time bank and rabbit
-          // hunt are all the hamburger's size (--sp-tabbar-control: 52px, 44px
-          // on the smallest short phone).
-          const expected = width === 320 ? 44 : 52;
-          expect(tool.width, tool.selector).toBeCloseTo(expected, 1);
-          expect(tool.height, tool.selector).toBeCloseTo(expected, 1);
+          expect(tool.width, tool.selector).toBeCloseTo(expectedToolSize, 1);
+          expect(tool.height, tool.selector).toBeCloseTo(expectedToolSize, 1);
         }
         for (const [selector, icon] of [
           ['.chat-collapsed', 'chat'],
@@ -2362,8 +2362,17 @@ for (const [width, heightOverride] of occupiedViewports)
               height: r.height * (alpha.bottom - alpha.top),
             };
           }, toolAlpha[icon]);
+          /* THE PAINTED FRAME IS THE SAME SIZE AS THE BOX (Dan 2026-11-09).
+             This expected `width <= 480 ? 48 : 40` - the Lobby footprint -
+             while the loop above asserted the tool's BOX at the hamburger's
+             52/44. Those are the two halves of the same instruction, and only
+             one of them was done on 2026-11-01, so every tool drew a button
+             0.77 of the hamburger inside a hamburger-sized box. Dan, with the
+             screenshot: "the message button, previous hand, time bank and
+             rabbit hunt buttons should all be the same size as the hamburger
+             menu button." One number now, measured where the player sees it. */
           expect(Math.max(painted.width, painted.height), `${icon} painted frame`).toBeCloseTo(
-            width <= 480 ? 48 : 40,
+            expectedToolSize,
             0
           );
         }
@@ -2603,8 +2612,31 @@ test.describe('embedded mobile action-row geometry', () => {
                 measured.rowTop,
                 `${width}px inset${bottomInset} ticker${ticker} ${state}: hero cards`
               ).toBeGreaterThanOrEqual(measured.cardsBottom + 1);
+              // Dan 2026-11-09: "the fold check bet buttons are too small on
+              // movile, they should be double the current size." 52 -> 96, the
+              // most the ring can give before a villain's name plate comes to
+              // rest on the painted felt (measured; 98 is the ceiling, 100 is
+              // not). The number is read from the stylesheet rather than
+              // repeated here, so this beat keeps pinning "every button in the
+              // row is the declared height" without becoming a second place
+              // that has to be kept equal to --sp-action-btn-h.
+              const declaredButtonHeight = await page.evaluate(() =>
+                parseFloat(
+                  getComputedStyle(document.documentElement).getPropertyValue('--sp-action-btn-h')
+                )
+              );
+              // 52 on a 375x667 screen, whose nine-seat ring cannot spare the
+              // other 32px (ActionPanel.css carries the measurement); 96 on
+              // every phone taller than that.
+              expect(declaredButtonHeight, 'the phone action button height').toBeCloseTo(
+                width <= 375 && height <= 700 ? 52 : 96,
+                0
+              );
               for (const buttonHeight of measured.buttonHeights)
-                expect(buttonHeight, `${state}: readable button`).toBeCloseTo(52, 0);
+                expect(buttonHeight, `${state}: readable button`).toBeCloseTo(
+                  declaredButtonHeight,
+                  0
+                );
               expect(
                 height - measured.buttonBottom,
                 'Buttons Clear The Home Indicator'
