@@ -1,0 +1,3 @@
+# tests/bug-reports-reach-the-owner-messenger-and-phone.law.test.ts
+
+Dan, 2026-11-09: "ALL BUGS SHOULD GO DIRECTLY TO MY SMARTER.POKER MESSENGER, AND SEND A PUSH ALERT TO MY PHONE." Pins that every insert into `live_help_tickets` (World Hub and Club Commander report widget, live-help escalation) and `user_feedback` (Club Arena Help form) is routed by a trigger on the row itself into one Messenger message, one `push_outbox` row with its own `bug_report` event (never an operational alert type) and one `bug_report_deliveries` receipt, exactly once per report, with the recipient read from the single `bug_report_routing` row constrained to the owner, no timer or repair job, no player access, and the native PostgreSQL proof `scripts/ci/test-bug-report-routing.sh` kept in CI.
