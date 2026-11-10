@@ -13,6 +13,16 @@ def fixture():
        'actions':[{'actorId':IDS[1],'actionOrdinal':3,'stage':'preflop','action':'check','origin':'horse_policy','amount':0,'seat':1,'timestamp':1793149199000}]}]}
 def make(v=None):return c.packet_from_rows(v or fixture(),SHA,START,END,version=4)
 class CensusTests(unittest.TestCase):
+    def test_fallback_comparison_and_controller_substitution_never_add_worker_execution(self):
+        p,a=make();ledger=c.summarize(p,a,[])['turnCensusLedger'];row=ledger['turns'][0]
+        row.update(origin='horse_fallback',expectedBinding='matched',selection='fallback_worker_action_differs')
+        self.assertEqual(c.ledger_summary(c.validate_ledger(ledger))['selectionCounts'],{'fallback_worker_action_differs':1})
+        row['capture']='present'
+        with self.assertRaises(ValueError):c.validate_ledger(ledger)
+        row.update(origin='horse_policy',action='all_in',selection='whole_stack_all_in',execution='coerced',handReconciliation='reconciled')
+        c.validate_ledger(ledger)
+        row['action']='raise'
+        with self.assertRaises(ValueError):c.validate_ledger(ledger)
     def test_v5_plan_ledger_closes_codes_bindings_and_preserves_old_schemas(self):
         p,a=c.packet_from_rows(fixture(),SHA,START,END)
         self.assertEqual(p['version'],5)

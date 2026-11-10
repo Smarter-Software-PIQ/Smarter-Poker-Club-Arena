@@ -419,6 +419,136 @@ const equalAction = (a, expected, ids) =>
   expected.amount === (a.amount ?? null) &&
   expected.seat === (a.seat ?? null) &&
   expected.timestamp === (a.timestamp ?? null);
+const substitutions = [
+  'authority_withdrawn',
+  'worker_action_changed',
+  'worker_amount_changed',
+  'whole_stack_all_in',
+  'controller_action_changed',
+  'controller_amount_changed',
+];
+const fallbackSelections = [
+  'fallback_lineage_unavailable',
+  'fallback_lineage_ambiguous',
+  'fallback_worker_action_differs',
+  'fallback_worker_amount_differs',
+  'fallback_worker_wager_agrees',
+];
+const sameWager = (a, b) =>
+  !!a && !!b && a.action === b.action && (a.amount ?? null) === (b.amount ?? null);
+
+export function horseTurnSelection(capture, witness, reconciled) {
+  const { selected, executedAction, executedAmount, expectedExecutionAmount } = witness;
+  const accepted = witness.acceptedActions?.[0]?.record;
+  if (
+    !capture.decision ||
+    !selected ||
+    !accepted ||
+    witness.acceptedActions.length !== 1 ||
+    !witness.acceptedActions[0].intended ||
+    !['intended', 'coerced'].includes(witness.executionStatus) ||
+    accepted.action !== executedAction ||
+    (['fold', 'check'].includes(executedAction)
+      ? executedAmount !== null || accepted.amount !== 0
+      : executedAmount !== accepted.amount) ||
+    !Number.isFinite(expectedExecutionAmount) ||
+    !Number.isFinite(accepted.amount)
+  )
+    return 'unknown';
+  if (!sameWager(capture.decision, selected)) {
+    if (!reconciled) return 'unknown';
+    const withdrawal = [
+      'phase8Authority',
+      'phase8GuardAuthority',
+      'phase10Authority',
+      'phase11Authority',
+      'phase12Authority',
+      'phase13Authority',
+      'phase14Authority',
+    ].some(
+      (key) =>
+        witness[key]?.selection === 'withdrawn_before_acceptance' &&
+        sameWager(witness[key].reference, selected)
+    );
+    if (withdrawal) return 'authority_withdrawn';
+    return capture.decision.action === selected.action
+      ? 'worker_amount_changed'
+      : 'worker_action_changed';
+  }
+  if (
+    witness.executionStatus === 'intended' &&
+    selected.action === executedAction &&
+    expectedExecutionAmount === accepted.amount
+  )
+    return 'matched';
+  if (!reconciled || witness.executionStatus !== 'coerced') return 'unknown';
+  const player = capture.snapshot?.player;
+  if (
+    executedAction === 'all_in' &&
+    ['bet', 'raise'].includes(selected.action) &&
+    selected.amount === accepted.amount &&
+    expectedExecutionAmount === accepted.amount &&
+    player?.stack > 0 &&
+    Number.isFinite(player.bet) &&
+    player.bet >= 0 &&
+    Math.round((player.stack + player.bet) * 100) / 100 === accepted.amount
+  )
+    return 'whole_stack_all_in';
+  return selected.action === executedAction
+    ? 'controller_amount_changed'
+    : 'controller_action_changed';
+}
+
+// A fallback can have a worker intention without an execution witness. Compare only
+// against the accepted fallback, without upgrading capture, execution or read coverage.
+function fallbackSelection(records, hand, ordinal, handKey, api, budget) {
+  const accepted = hand.actions[ordinal];
+  const matches = [];
+  for (const row of records) {
+    if (row.kind !== 'request_lifecycle') continue;
+    budget();
+    const admission = JSON.parse(row.body);
+    if (admission.phase !== 'requested' || admission.request?.type === 'DECIDE_DISCARD') continue;
+    const anchor = api.anchorHorseDecisionHand(admission.request);
+    if (
+      anchor.status === 'anchored' &&
+      !anchor.earlyLook &&
+      hash(api.horseHandAnchorKey(anchor)) === handKey &&
+      anchor.actionOrdinal === ordinal &&
+      anchor.actorId === accepted.userId &&
+      anchor.seat === accepted.seat &&
+      admission.request.gameState.stage === accepted.stage &&
+      anchor.priorActionsDigest === api.horsePriorActionsDigest(hand.actions.slice(0, ordinal))
+    )
+      matches.push(row);
+  }
+  if (matches.length !== 1)
+    return matches.length ? 'fallback_lineage_ambiguous' : 'fallback_lineage_unavailable';
+  const original = matches[0];
+  const related = records.filter(
+    (r) => r.turnKey === original.turnKey && r.producerId === original.producerId
+  );
+  const decisions = related.filter((r) => r.kind === 'decision');
+  const terminal = related.filter(
+    (r) => r.kind === 'request_lifecycle' && JSON.parse(r.body).phase === 'terminal'
+  );
+  if (decisions.length > 1 || terminal.length > 1) return 'fallback_lineage_ambiguous';
+  if (
+    decisions.length !== 1 ||
+    terminal.length !== 1 ||
+    JSON.parse(terminal[0].body).outcome !== 'success' ||
+    !api.reconcileHorseJournalHand(related, handKey).requestLifecycleVerified
+  )
+    return 'fallback_lineage_unavailable';
+  const c = JSON.parse(decisions[0].body);
+  if (c.decision.policyFallback != null) return 'fallback_lineage_unavailable';
+  if (c.decision.action !== accepted.action) return 'fallback_worker_action_differs';
+  const amount = api.expectedHorseExecutionAmount?.(c.snapshot, c.decision);
+  if (!Number.isFinite(amount)) return 'fallback_lineage_unavailable';
+  return amount === accepted.amount
+    ? 'fallback_worker_wager_agrees'
+    : 'fallback_worker_amount_differs';
+}
 /** Batch is a private installed-store result. Only closed fields are returned. Missing domains survive every refusal. */
 export function inspectHorseTurnCensus(packet, batch, api, clock = () => performance.now()) {
   const base = {
@@ -576,6 +706,15 @@ export function inspectHorseTurnCensus(packet, batch, api, clock = () => perform
             ? 'matched'
             : 'contradictory';
         rows[n].handReconciliation = reconciled ? 'reconciled' : 'incomplete';
+        if (rows[n].expectedBinding === 'matched' && rows[n].origin === 'horse_fallback')
+          rows[n].selection = fallbackSelection(
+            records,
+            hand,
+            expectedDomain[n],
+            expected.handKey,
+            api,
+            budget
+          );
         if (rows[n].expectedBinding === 'matched' && rows[n].origin === 'forced') {
           // A forced accepted action supplies no strategy/read consumption evidence.
           rows[n].publicRead = 'not_applicable';
@@ -709,18 +848,7 @@ export function inspectHorseTurnCensus(packet, batch, api, clock = () => perform
         out.execution = ['intended', 'coerced', 'retired'].includes(w.executionStatus)
           ? w.executionStatus
           : 'unknown';
-        const zero = w.executedAction === 'fold' || w.executedAction === 'check';
-        out.selection =
-          w.executionStatus === 'intended' &&
-          w.executedAction === w.selected?.action &&
-          w.selected?.action === c.decision?.action &&
-          (zero
-            ? w.executedAmount === null &&
-              w.expectedExecutionAmount === 0 &&
-              w.acceptedActions?.[0]?.record?.amount === 0
-            : w.executedAmount === w.expectedExecutionAmount)
-            ? 'matched'
-            : 'unknown';
+        out.selection = horseTurnSelection(c, w, reconciled && out.expectedBinding === 'matched');
         if (!reconciled || out.expectedBinding !== 'matched') continue;
         const plan = api.horseRetainedPlanContext(c, s);
         if (
@@ -836,6 +964,12 @@ export async function loadInstalledTurnCensusApis() {
     {},
     ...(await Promise.all(paths.map((p) => import(/* @vite-ignore */ p))))
   );
+  try {
+    Object.assign(
+      api,
+      await import(/* @vite-ignore */ '/app/dist/engine/HorseExecutionWitness.js')
+    );
+  } catch {}
   // Optional on older installed images: missing context helpers leave reason unknown.
   try {
     Object.assign(
@@ -989,7 +1123,7 @@ export function sanitizeHorseTurnCensusResult(v) {
     expectedBinding: ['unknown', 'matched', 'contradictory'],
     capture: ['missing', 'present', 'ambiguous'],
     execution: ['missing', 'ambiguous', 'intended', 'coerced', 'retired', 'unknown'],
-    selection: ['unknown', 'matched'],
+    selection: ['unknown', 'matched', ...substitutions, ...fallbackSelections],
     inputBinding: [
       'unknown',
       'canonical_digest_and_read_frame',
@@ -1057,6 +1191,24 @@ export function sanitizeHorseTurnCensusResult(v) {
     )
       throw Error('result_refused');
     if (
+      (fallbackSelections.includes(t.selection) &&
+        (t.origin !== 'horse_fallback' ||
+          t.expectedBinding !== 'matched' ||
+          t.execution !== 'missing' ||
+          t.capture !== 'missing' ||
+          t.inputBinding !== 'unknown')) ||
+      (substitutions.includes(t.selection) &&
+        (t.capture !== 'present' ||
+          t.expectedBinding !== 'matched' ||
+          t.handReconciliation !== 'reconciled' ||
+          !['intended', 'coerced'].includes(t.execution) ||
+          ([
+            'whole_stack_all_in',
+            'controller_action_changed',
+            'controller_amount_changed',
+          ].includes(t.selection) &&
+            t.execution !== 'coerced') ||
+          (t.selection === 'whole_stack_all_in' && t.action !== 'all_in'))) ||
       (t.inputBinding === 'original_discard_request_and_controller' &&
         (t.action !== 'discard' ||
           !['pineapple_discard', 'flop'].includes(t.stage) ||
