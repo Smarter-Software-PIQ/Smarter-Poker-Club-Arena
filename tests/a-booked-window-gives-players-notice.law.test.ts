@@ -180,3 +180,17 @@ it('preserves the original notice until expiry before showing the separate succe
   expect(next?.notAfterMs).toBe(Date.parse('2026-11-10T10:30:00Z'));
   expect(bookedMaintenanceNotice(Date.parse('2026-11-10T10:30:00Z'))).toBeNull();
 });
+
+it('shows the fresh receipt order only after its own notice boundary and preserves fixed expiry', () => {
+  // The earlier database notice retains priority until its fixed expiry.
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-10T21:59:59.999Z'))?.id).toBe(
+    '2026-11-10-closed-person-name-policy-db'
+  );
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-10T22:59:59.999Z'))).toBeNull();
+  const notice = bookedMaintenanceNotice(Date.parse('2026-11-10T23:00:00Z'));
+  expect(notice?.id).toBe('2026-11-10-horse-clock-receipts-engine-2320z');
+  expect(notice?.noticeAtMs).toBe(Date.parse('2026-11-10T23:00:00Z'));
+  expect(notice?.notBeforeMs).toBe(Date.parse('2026-11-10T23:20:00Z'));
+  expect(notice?.notAfterMs).toBe(Date.parse('2026-11-11T05:20:00Z'));
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-11T05:20:00Z'))).toBeNull();
+});
