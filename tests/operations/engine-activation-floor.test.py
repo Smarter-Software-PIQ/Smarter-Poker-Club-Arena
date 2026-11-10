@@ -165,7 +165,7 @@ class ActivationFloor(unittest.TestCase):
         record = dict(schema=floor.OWNER_CAPABILITY, ownerWindowId=window['id'],
                       manifestSha256=__import__('hashlib').sha256(raw).hexdigest(), targetSha=target,
                       activationEpoch=start, expiresEpoch=end)
-        stamp = int(datetime.fromisoformat('2026-11-10T07:10:00+00:00').timestamp()) * 1000
+        stamp = int(datetime.fromisoformat('2026-11-10T09:10:00+00:00').timestamp()) * 1000
         state = {'pending': None, 'finalization': None, 'desired': {'sha': seal.NOV7_PREDECESSOR}, 'highWaterSha': seal.NOV7_PREDECESSOR}
         args = argparse.Namespace(sha=target, run_id='650-1', repo=str(self.repo), cause='urgent',
                  control_sha=target, deadline=end, nov7_owner=True, scheduled_cycle_start=None,
@@ -915,7 +915,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         self.assertEqual(window['releaseWitness']['sha256'], floor.NOV7_MANIFEST_DIGEST)
         canonical = json.dumps(window, sort_keys=True, separators=(',', ':')).encode()
         self.assertEqual(hashlib.sha256(canonical).hexdigest(), floor.NOV7_ORDER_DIGEST)
-        self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-10T06:50:00Z', '2026-11-10T08:30:00Z'))
+        self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-10T08:50:00Z', '2026-11-10T10:30:00Z'))
         self.assertEqual(window['announcementPolicy'], 'earliest-certified')
         self.assertIs(window['supersedesPhase1Schedule'], True)
         self.assertEqual(window['migrations'], [])
@@ -930,8 +930,8 @@ echo CHECKPOINT_MUST_NOT_RUN
         self.assertEqual(hashlib.sha256(original_raw).hexdigest(), 'eab1577724880e91ae89a4f0e73fb5e3cd88bf5a7355331503f6ead38e93b2af')
         original_order = json.dumps(original, sort_keys=True, separators=(',', ':')).encode()
         self.assertEqual(hashlib.sha256(original_order).hexdigest(), '8f54705ab0a0ffc15398a4633944f24d166999c6b304bec4491ad4f376d461b9')
-        self.assertEqual(window['playerNoticeAt'], '2026-11-10T06:30:00Z')
-        self.assertIn('Authorize successor through 08:30 UTC', window['ownerOrder'])
+        self.assertEqual(window['playerNoticeAt'], '2026-11-10T08:30:00Z')
+        self.assertIn('Authorize through 10:30 UTC', window['ownerOrder'])
         self.assertIn('root Codex agent', window['ownerOrder'])
         self.assertEqual(windows['windows'][-4]['id'], '2026-11-09-owner-asap-engine-1530z')
         asap, asap_raw = self.historical_floor('2026-11-09-owner-asap-engine-1530z')
