@@ -36,6 +36,7 @@ import {
 } from '../services/CashBuyInRecovery';
 import { readTableFundingBalance } from '../services/TableFundingService';
 import { reportError } from '../utils/errorReporter';
+import { lightningJoinReasonCode } from './lightningJoinTiming';
 import {
   clearLightningEntryIntent,
   fetchMyLightningSession,
@@ -53,10 +54,11 @@ export interface LightningBuyInContext {
   balance: number | null;
 }
 
+/** `code`: a reason code for join timing (lightningJoinReasonCode), never shown. */
 export type LightningBuyInResult =
   | { kind: 'seated'; tableId: string; poolSessionId: string | null }
-  | { kind: 'rejected'; message: string }
-  | { kind: 'unconfirmed'; tableId: string; message: string };
+  | { kind: 'rejected'; message: string; code: string }
+  | { kind: 'unconfirmed'; tableId: string; message: string; code: string };
 
 export interface LightningBuyInDeps {
   rejoin?: (clusterId: string) => Promise<{ tableId: string; poolSessionId: string } | null>;
@@ -182,18 +184,30 @@ export async function buyIntoLightning(
     const existing = await deps.rejoin?.(args.clusterId);
     if (existing) return { kind: 'seated', ...existing };
   } catch (error) {
-    return { kind: 'rejected', message: joinGameRefusalText(error) };
+    return {
+      kind: 'rejected',
+      message: joinGameRefusalText(error),
+      code: lightningJoinReasonCode(error, 'REJOIN_REFUSED'),
+    };
   }
   for (let tries = 0; tries < 2; tries += 1) {
     let held: CashGameJoinResult;
     try {
       held = await deps.join(args.clusterId);
     } catch (error) {
-      return { kind: 'rejected', message: joinGameRefusalText(error) };
+      return {
+        kind: 'rejected',
+        message: joinGameRefusalText(error),
+        code: lightningJoinReasonCode(error, 'HOLD_REFUSED'),
+      };
     }
     args.mark?.('hold_answered');
     if (!held.table_id) {
-      return { kind: 'rejected', message: 'No Seat Is Open Right Now. Try Again In A Moment.' };
+      return {
+        kind: 'rejected',
+        message: 'No Seat Is Open Right Now. Try Again In A Moment.',
+        code: 'NO_SEAT_OPEN',
+      };
     }
     if (held.action === 'seated') {
       /* Already playing this game: their chips are already in the pool. */
@@ -204,7 +218,11 @@ export async function buyIntoLightning(
       };
     }
     if (held.action !== 'seat') {
-      return { kind: 'rejected', message: 'No Seat Is Open Right Now. Try Again In A Moment.' };
+      return {
+        kind: 'rejected',
+        message: 'No Seat Is Open Right Now. Try Again In A Moment.',
+        code: held.action === 'waitlisted' ? 'WAITLISTED' : 'NO_SEAT_OPEN',
+      };
     }
     const chair = Number(held.seat_number);
     const intent: CashBuyInIntent = {
@@ -229,6 +247,7 @@ export async function buyIntoLightning(
         kind: 'unconfirmed',
         tableId: held.table_id,
         message: 'Review Your Original Buy-In Before Retrying.',
+        code: 'EARLIER_BUYIN_PENDING',
       };
     }
     const outcome = await deps.execute(attempt, recovered);
@@ -249,6 +268,7 @@ export async function buyIntoLightning(
         kind: 'unconfirmed',
         tableId: held.table_id,
         message: 'Buy-In Not Yet Confirmed. Retrying Uses The Same Request.',
+        code: 'BUYIN_UNCONFIRMED',
       };
     }
     await deps.complete(attempt).catch(() => undefined);
@@ -271,6 +291,7 @@ export async function buyIntoLightning(
           (/^SEAT_RESERVED:/.test(errorText(outcome.error))
             ? 'That Seat Was Just Taken. Try Again.'
             : 'The Server Refused This Buy-In.'),
+        code: lightningJoinReasonCode(outcome.error, 'BUYIN_REFUSED'),
       };
     }
     return {
@@ -279,7 +300,7 @@ export async function buyIntoLightning(
       poolSessionId: await deps.readPoolSession(args.clusterId).catch(() => null),
     };
   }
-  return { kind: 'rejected', message: 'That Seat Was Just Taken. Try Again.' };
+  return { kind: 'rejected', message: 'That Seat Was Just Taken. Try Again.', code: 'SEAT_TAKEN' };
 }
 
 /* ─── The amount the player chose last time (per device, per game) ───────────

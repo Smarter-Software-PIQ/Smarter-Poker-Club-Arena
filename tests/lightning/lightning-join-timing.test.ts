@@ -2,14 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-vi.mock('../../src/lib/supabase', () => ({ supabase: { rpc: vi.fn() } }));
+vi.mock('../../src/utils/clientErrorSink', () => ({ signedInAccessToken: () => null }));
 
 import {
   JOIN_TIMEOUT_MS,
   LIGHTNING_JOIN_MARKS,
   __lightningJoinTimingForTests as t,
+  abandonUnseatedLightningJoin,
   bindLightningJoinRoom,
-  cancelLightningJoin,
+  endLightningJoin,
+  lightningJoinReasonCode,
   markLightningJoin,
   markLightningJoinRejoined,
   markLightningJoinRoom,
@@ -27,14 +29,19 @@ const ROOM = '40000000-0000-4000-8000-000000000002';
 const OTHER_ROOM = '40000000-0000-4000-8000-000000000003';
 
 let sent: LightningJoinTimingPayload[];
+let keepalives: boolean[];
 let clock: number;
 
 beforeEach(() => {
   sent = [];
+  keepalives = [];
   clock = 1_000;
   vi.useFakeTimers();
   vi.spyOn(performance, 'now').mockImplementation(() => clock);
-  t.setSender((p) => sent.push(p));
+  t.setSender((p, keepalive) => {
+    sent.push(p);
+    keepalives.push(keepalive);
+  });
 });
 afterEach(() => {
   t.reset();
@@ -81,6 +88,7 @@ describe('a timed Lightning join', () => {
     expect(sent[0]).toMatchObject({
       kind: 'buy_in',
       outcome: 'painted',
+      reason: null,
       cluster_id: CLUSTER,
       hidden: false,
     });
@@ -108,7 +116,7 @@ describe('a timed Lightning join', () => {
     const migration = readFileSync(
       resolve(
         __dirname,
-        '../../supabase/migrations/20261110213810_lightning_joins_are_timed_from_the_click_to_the_painted_card.sql'
+        '../../supabase/migrations/20261110225742_every_lightning_join_ending_is_recorded_with_its_leg_and_rea.sql'
       ),
       'utf8'
     );
@@ -145,33 +153,84 @@ describe('a timed Lightning join', () => {
     });
   });
 
-  it('sends nothing for a refused, abandoned or replaced join', () => {
+  it('reports a refused, failed or abandoned join once, with its reason', () => {
+    startLightningJoin(CLUSTER);
+    endLightningJoin('refused', 'SIGN_IN_REQUIRED');
+    startLightningJoin(CLUSTER);
+    at(300);
+    markLightningJoin('dialog_shown');
+    abandonUnseatedLightningJoin('DIALOG_CLOSED');
     startLightningJoin(CLUSTER);
     markLightningJoin('confirm');
-    cancelLightningJoin();
+    endLightningJoin('failed', 'BUYIN_UNCONFIRMED');
+    // Nothing more once it ended: no timer fires afterwards.
     vi.advanceTimersByTime(JOIN_TIMEOUT_MS + 1);
-    // Abandoned on the question: no timeout either.
+    endLightningJoin('failed', 'LATE');
+    expect(sent.map((p) => `${p.outcome}:${p.reason}`)).toEqual([
+      'refused:SIGN_IN_REQUIRED',
+      'abandoned:DIALOG_CLOSED',
+      'failed:BUYIN_UNCONFIRMED',
+    ]);
+    expect(sent[1].marks).toEqual({ click: 0, dialog_shown: 300 });
+  });
+
+  it('leaves a confirmed or seated join running when the question closes or the page is left', () => {
+    startLightningJoin(CLUSTER);
+    markLightningJoin('confirm');
+    abandonUnseatedLightningJoin('DIALOG_CLOSED');
+    expect(t.active()).not.toBeNull();
+    startLightningJoin(CLUSTER);
+    markLightningJoinRejoined(ROOM);
+    abandonUnseatedLightningJoin('LEFT_PAGE');
+    expect(t.active()?.room).toBe(ROOM);
+    // The second press replaced the first, which ends as abandoned.
+    expect(sent.map((p) => `${p.outcome}:${p.reason}`)).toEqual(['abandoned:REPLACED']);
+  });
+
+  it('ends an unconfirmed join as abandoned and a confirmed one as a timeout', () => {
     startLightningJoin(CLUSTER);
     markLightningJoin('dialog_shown');
     vi.advanceTimersByTime(JOIN_TIMEOUT_MS + 1);
-    // A new press replaces an unsent join and its timer.
-    startLightningJoin(CLUSTER);
-    markLightningJoin('confirm');
-    startLightningJoin(CLUSTER);
-    vi.advanceTimersByTime(JOIN_TIMEOUT_MS + 1);
-    expect(sent).toHaveLength(0);
-  });
-
-  it('reports a confirmed join that never paints, once, as a timeout', () => {
     startLightningJoin(CLUSTER);
     markLightningJoin('confirm');
     markLightningJoin('seated');
     bindLightningJoinRoom(ROOM);
     vi.advanceTimersByTime(JOIN_TIMEOUT_MS + 1);
-    expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({ outcome: 'timeout' });
     markLightningJoinRoom(ROOM, 'cards_painted');
-    expect(sent).toHaveLength(1);
+    expect(sent.map((p) => `${p.outcome}:${p.reason}`)).toEqual([
+      'abandoned:QUESTION_IDLE',
+      'timeout:NO_PAINT',
+    ]);
+  });
+
+  it('sends a join the closing page leaves behind with keepalive', () => {
+    startLightningJoin(CLUSTER);
+    markLightningJoin('seated');
+    window.dispatchEvent(new Event('pagehide'));
+    expect(sent.map((p) => `${p.outcome}:${p.reason}`)).toEqual(['abandoned:PAGE_CLOSED']);
+    expect(keepalives).toEqual([true]);
+  });
+
+  it('keeps only a door code as a reason, never text, ids or amounts', () => {
+    expect(lightningJoinReasonCode(new Error('PLATFORM_FROZEN'), 'X_FALLBACK')).toBe(
+      'PLATFORM_FROZEN'
+    );
+    expect(lightningJoinReasonCode({ message: 'INSUFFICIENT_CHIPS:40' }, 'X_FALLBACK')).toBe(
+      'INSUFFICIENT_CHIPS'
+    );
+    expect(
+      lightningJoinReasonCode({ message: 'GAME_BARRED:120', code: '23514' }, 'X_FALLBACK')
+    ).toBe('GAME_BARRED');
+    expect(
+      lightningJoinReasonCode(
+        { message: 'duplicate key value violates', code: '23505' },
+        'X_FALLBACK'
+      )
+    ).toBe('PG_23505');
+    expect(lightningJoinReasonCode(new Error('Player dan@x.com has 40 chips'), 'X_FALLBACK')).toBe(
+      'X_FALLBACK'
+    );
+    expect(lightningJoinReasonCode(null, 'X_FALLBACK')).toBe('X_FALLBACK');
   });
 
   it('flags a join whose tab was hidden: its paint waited for the player', () => {
@@ -194,6 +253,10 @@ describe('the join paths are wired', () => {
     expect(entry).toContain("markLightningJoin('confirm')");
     expect(entry).toContain('mark: markLightningJoin');
     expect(entry).toContain('warmLightningRoom()');
+    expect(entry).toContain("endLightningJoin('refused', 'SIGN_IN_REQUIRED')");
+    expect(entry).toContain("abandonUnseatedLightningJoin('DIALOG_CLOSED')");
+    expect(entry).toContain("abandonUnseatedLightningJoin('LEFT_PAGE')");
+    expect(entry).toContain("result.kind === 'rejected' ? 'refused' : 'failed', result.code");
     const buy = src('src/lightning/lightningJoinBuyIn.ts');
     expect(buy).toContain("args.mark?.('hold_answered')");
     expect(buy).toContain("args.mark?.('purchase_answered')");

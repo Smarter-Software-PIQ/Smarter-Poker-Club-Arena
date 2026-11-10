@@ -1,21 +1,30 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { cloneElement, isValidElement, useEffect, useRef, type ReactNode } from 'react';
 import { SHORT_LANDSCAPE_QUERY } from '../../hooks/useSceneBudget';
 import { TapHaptic } from '../haptics/TapHaptic';
 import { gameChips } from '../../utils/bonusGameBudget';
 import type { DeckBay } from '../console/DeckConsole';
 import type { PlateButtonProps, ConsoleInk } from '../console/SpadeConsole';
+import deck from './GameControlDeck.module.css';
 import styles from './GameConsole.module.css';
 
 /** A posted terminal receipt takes the same place as the pre-game promise. */
 export function bonusPrizeBay(
   guaranteed: number | null,
   paid: number | null,
-  superAward: boolean
+  superAward: boolean,
+  entryDiamonds?: number | null
 ): DeckBay {
   const chips = paid ?? guaranteed;
   return {
-    label: paid === null ? 'Guaranteed' : 'Paid',
-    value: chips === null ? 'Pending' : `${gameChips(chips)} Chips`,
+    label: paid === null ? (entryDiamonds === undefined ? 'Guaranteed' : 'Entry') : 'Paid',
+    value:
+      paid === null && entryDiamonds !== undefined
+        ? entryDiamonds === null
+          ? 'Pending'
+          : `${entryDiamonds.toLocaleString()} Diamonds`
+        : chips === null
+          ? 'Pending'
+          : `${gameChips(chips)} Chips`,
     ink: paid !== null || superAward ? 'gold' : undefined,
   };
 }
@@ -49,6 +58,7 @@ export type GamePlate = PlateButtonProps & { flash?: boolean };
  */
 export function GameConsole({
   title,
+  game = 'crossing',
   titleId,
   titleArtwork,
   collapseSetup = false,
@@ -59,11 +69,13 @@ export function GameConsole({
   primary,
   setup,
   dock,
+  railLayout = false,
   footer,
   help,
   children,
 }: {
   title: string;
+  game?: 'plinko' | 'crash' | 'crossing' | 'mines';
   titleId?: string;
   titleArtwork?: string;
   collapseSetup?: boolean;
@@ -81,6 +93,7 @@ export function GameConsole({
    * Diamonds is dead until it is answered).
    */
   dock?: ReactNode;
+  railLayout?: boolean;
   /**
    * A quiet line that belongs WITH the controls rather than over the game: the
    * day's count and spend. Named footer, never `foot`, which already means a
@@ -141,7 +154,7 @@ export function GameConsole({
         type="button"
         {...rest}
         ref={buttonRef}
-        className={main ? styles.primary : styles.secondary}
+        className={main ? deck.primary : deck.secondary}
         onClick={pending ? undefined : onClick}
         data-ink={ink}
         // Which of the console's own two plates this is, beside whatever the
@@ -170,48 +183,64 @@ export function GameConsole({
       <header className={styles.header}>
         <h1 id={titleId}>{titleArtwork ? <img src={titleArtwork} alt={title} /> : title}</h1>
         <span className={styles.status}>{pill}</span>
-        {help}
+        {collapseSetup && isValidElement<{ children?: ReactNode }>(help)
+          ? cloneElement(
+              help,
+              {},
+              <>
+                {setup || activeEntryDetails}
+                {footer}
+                {help.props.children}
+              </>
+            )
+          : help}
       </header>
       <div className={styles.playfield}>{children}</div>
-      <aside className={styles.controls} aria-label={`${title} Controls`}>
-        {(setup || activeEntryDetails) && collapseSetup ? (
-          <details className={styles.entryDetails}>
-            <summary>Entry Details</summary>
-            {setup || activeEntryDetails}
-          </details>
-        ) : (
-          setup
-        )}
-        <dl className={styles.metrics}>
-          {bays.map((bay) => (
-            <div key={bay.label}>
-              <dt>{bay.label}</dt>
-              <dd data-ink={bay.ink}>
-                {bay.onPress ? (
-                  <button
-                    type="button"
-                    onClick={bay.onPress}
-                    disabled={bay.disabled}
-                    aria-label={bay.pressLabel ?? `Change ${bay.label}`}
-                  >
-                    {bay.value}
-                    <span aria-hidden="true"> ↻</span>
-                    <TapHaptic disabled={bay.disabled} radius="4px" />
-                  </button>
-                ) : (
-                  bay.value
-                )}
-              </dd>
-            </div>
-          ))}
-        </dl>
-        {footer}
-      </aside>
+      {!collapseSetup && (
+        <aside className={styles.controls} aria-label={`${title} Controls`}>
+          {setup}
+          {footer}
+        </aside>
+      )}
       <div className={styles.bar} role="group" aria-label={`${title} Actions`} data-game-actions>
-        {dock}
-        <div className={styles.actions}>
-          {action(secondary)}
-          {action(primary, true)}
+        <div
+          className={`${deck.deck} ${deck[game]} ${railLayout ? deck.withRail : ''}`}
+          data-game-cabinet={game}
+        >
+          <div className={deck.rail}>{dock}</div>
+          <dl className={deck.metrics}>
+            {bays.map((bay) => (
+              <div key={bay.label}>
+                <dt>{bay.label}</dt>
+                <dd data-ink={bay.ink}>
+                  {bay.onPress ? (
+                    <button
+                      type="button"
+                      onClick={bay.onPress}
+                      disabled={bay.disabled}
+                      aria-label={bay.pressLabel ?? `Change ${bay.label}`}
+                    >
+                      {bay.value}
+                      <span aria-hidden="true"> ↻</span>
+                      <TapHaptic disabled={bay.disabled} radius="4px" />
+                    </button>
+                  ) : (
+                    bay.value
+                  )}
+                </dd>
+              </div>
+            ))}
+          </dl>
+          <div className={deck.actions}>
+            {primary ? (
+              action(primary, true)
+            ) : secondary ? (
+              action(secondary, true)
+            ) : (
+              <span className={deck.prompt}>Select A Diamond</span>
+            )}
+            {primary && action(secondary)}
+          </div>
         </div>
       </div>
     </section>
