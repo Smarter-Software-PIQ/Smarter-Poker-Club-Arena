@@ -1,0 +1,53 @@
+.receipt {
+  margin: auto;
+  width: min(100%, 29rem);
+  box-sizing: border-box;
+  border: 2px solid #91bcd4;
+  border-radius: 18px;
+  background: radial-gradient(ellipse at top, #123559 0, #071323 45%, #030810 88%);
+  box-shadow:
+    inset 0 1px 0 #effaff,
+    inset 0 -2px 0 #2d4c67;
+  padding: clamp(14px, 4vw, 25px);
+  color: #edf7ff;
+  text-align: center;
+}
+.receipt header span,
+.details summary {
+  font:
+    600 0.86rem/1.3 system-ui,
+    sans-serif;
+  color: #a6d8ff;
+}
+.receipt h2 {
+  font-size: clamp(1.8rem, 7vw, 3rem);
+  margin: 0.2em 0;
+}
+.receipt footer {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 0.8rem;
+  flex-wrap: wrap;
+}
+.receipt button {
+  color: #f5fbff;
+  border: 1px solid #afceeb;
+  border-radius: 0.5rem;
+  padding: 0.75rem 1.3rem;
+  min-height: 44px;
+  background: linear-gradient(#265985, #0d2a52 47%, #05152e 51%, #163752);
+  font-weight: 700;
+}
+.receipt button:focus-visible,
+.details summary:focus-visible {
+  outline: 3px solid #62cbff;
+  outline-offset: 2px;
+}
+.details {
+  margin-top: 0.5rem;
+}
+.details summary {
+  cursor: pointer;
+  padding: 0.5rem;
+}

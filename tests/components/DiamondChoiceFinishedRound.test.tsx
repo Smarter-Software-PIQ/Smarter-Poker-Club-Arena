@@ -243,14 +243,18 @@ describe.each(['mines', 'crossing'] as const)('%s: the round that just finished'
         : awardRead(game)
     );
     backend.state.mockResolvedValue(state(game));
-    backend.start.mockImplementation(async () => {
+    backend.start.mockImplementation(async (request) => {
       spent = true;
-      return opened(game);
+      return { ...opened(game), commit_id: request.commitId };
     });
     render(<DiamondChoicePage game={game} />);
     await settle();
-    await keepAndStart();
-    expect(setupOnScreen()).toEqual([]);
+    if (game === 'crossing') {
+      await keepAndStart();
+      expect(setupOnScreen()).toEqual([]);
+    } else {
+      expect(screen.getByText('Entry Details').closest('details')).not.toHaveAttribute('open');
+    }
     backend.state.mockResolvedValue(state(game, { history: [lost(game)] }));
     await loseTheRound(game);
   };

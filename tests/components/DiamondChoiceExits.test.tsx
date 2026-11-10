@@ -48,7 +48,21 @@ vi.mock('../../src/utils/clubIdResolver', () => ({ resolveClubUUID: async (id: s
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 vi.mock('../../src/services/HapticService', () => ({ triggerHaptic: vi.fn() }));
 vi.mock('../../src/components/games/ChoiceScene', () => ({
-  default: ({ phase }: { phase: string }) => <section aria-label={`Scene ${phase}`} />,
+  default: ({
+    phase,
+    busy,
+    onPick,
+  }: {
+    phase: string;
+    busy: boolean;
+    onPick: (i: number) => void;
+  }) => (
+    <section aria-label={`Scene ${phase}`}>
+      <button disabled={busy} onClick={() => onPick(0)}>
+        Pick Tile
+      </button>
+    </section>
+  ),
 }));
 vi.mock('../../src/components/games/SealedPrize', () => ({ default: () => null }));
 vi.mock('../../src/components/games/DiamondSpinsTabs', () => ({ default: () => null }));
@@ -165,9 +179,12 @@ describe.each(['mines', 'crossing'] as const)(
       won(game, 40);
       await mount(game);
       noOffer();
+      if (game === 'mines') fireEvent.click(screen.getByText('Entry Details'));
       // The award is funded, so a short wallet changes nothing about starting it.
       expect(screen.queryByText(/More Diamonds/)).toBeNull();
-      expect(screen.getByRole('button', { name: 'Start Round' })).toBeEnabled();
+      expect(
+        screen.getByRole('button', { name: game === 'mines' ? 'Pick Tile' : 'Start Round' })
+      ).toBeEnabled();
       fireEvent.click(screen.getByRole('button', { name: 'Buy More' }));
       await settle();
       expect(screen.getByRole('heading', { name: 'Marketplace Page' })).toBeInTheDocument();
@@ -182,9 +199,12 @@ describe.each(['mines', 'crossing'] as const)(
       won(game, 10000);
       await mount(game);
       noOffer();
+      if (game === 'mines') fireEvent.click(screen.getByText('Entry Details'));
       await advance(1000);
       // The hold is armed and Start is the player's.
-      expect(screen.getByRole('button', { name: 'Start Round' })).toBeEnabled();
+      expect(
+        screen.getByRole('button', { name: game === 'mines' ? 'Pick Tile' : 'Start Round' })
+      ).toBeEnabled();
       fireEvent.click(screen.getByRole('button', { name: exit }));
       await settle();
       expect(screen.getByRole('heading', { name: page })).toBeInTheDocument();
@@ -200,7 +220,8 @@ describe('money in flight keeps the exits shut', () => {
     won('mines', 10000);
     await mount('mines');
     noOffer();
-    fireEvent.click(screen.getByRole('button', { name: 'Start Round' }));
+    fireEvent.click(screen.getByText('Entry Details'));
+    fireEvent.click(screen.getByRole('button', { name: 'Pick Tile' }));
     await settle();
     expect(backend.start).toHaveBeenCalledTimes(1);
     for (const exit of ['Buy More', 'Earn Diamonds'])
