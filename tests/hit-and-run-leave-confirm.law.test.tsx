@@ -56,16 +56,26 @@ describe('the full screen confirmation', () => {
     expect(container.innerHTML).toBe('');
   });
 
-  it('is fully opaque, full screen, with no yellow', () => {
+  // Owner 2026-11-10 superseded "fully opaque": "UPGRADE THIS POP UP
+  // NOTIFICATION TO LOOK LIKE THE OTHERS, ITS BLOCKING THE WHOLE SCREEN, AND
+  // IS NOT SMARTER.POKER LOOK AND FEEL." It covers the screen as a modal, on a
+  // translucent scrim so the table stays in view, and is the spade console.
+  it('covers the screen on a translucent scrim, on the spade console, with no yellow', () => {
     const css = read('src/components/table/HitRunLeaveConfirm.css').replace(
       /\/\*[\s\S]*?\*\//g,
       ''
     );
     expect(css).toMatch(/\.hit-run-confirm \{[^}]*position: fixed;[^}]*inset: 0;/s);
     const backdrop = /\.hit-run-confirm \{([^}]*)\}/s.exec(css)?.[1] ?? '';
-    expect(backdrop).not.toContain('rgba');
-    expect(backdrop).not.toContain('blur');
+    const alpha = /background: rgb\(0 0 0 \/ (\d+)%\)/.exec(backdrop);
+    expect(alpha).not.toBeNull();
+    expect(Number(alpha![1])).toBeLessThan(80);
+    expect(backdrop).not.toContain('gradient');
+    expect(css).not.toContain('border-radius: 2');
     expect(css.toLowerCase()).not.toMatch(/yellow|#ff0|#ffd|#fc0|#facc15|#eab308/);
+    const source = read('src/components/table/HitRunLeaveConfirm.tsx');
+    expect(source).toContain('<SpadeConsole');
+    expect(source).toContain('buttonRef: stayRef');
   });
 });
 
