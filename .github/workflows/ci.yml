@@ -415,6 +415,19 @@ jobs:
           CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: node scripts/ci/check-owner-window-notice-after-merge.mjs
 
+      # A bad booking cannot merge (2026-11-10): 0440z passed its PR checks
+      # while its 04:20Z notice was still ahead, merged at 04:43:28Z, and the
+      # after-merge check above went red on every pull request. The booking PR
+      # itself must prove each ADDED or CHANGED window record still gives
+      # notice and starts in the future; unchanged records are immutable
+      # history. The after-merge check stays as the backstop.
+      - name: Owner maintenance bookings are valid before they merge
+        env:
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          node --test tests/operations/owner-window-booking-gate.test.mjs
+          node scripts/ci/check-owner-window-booking.mjs
+
       - name: Local dependency preflight refuses incomplete or stale installs
         run: node --test tests/operations/local-dependency-policy.test.mjs
 
