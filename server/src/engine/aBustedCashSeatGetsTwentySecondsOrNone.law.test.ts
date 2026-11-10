@@ -19,12 +19,29 @@ import { sliceMethod } from '../testHelpers/sourceWindow.js';
 const wallets = vi.hoisted(() => ({
   read: vi.fn(async (..._args: unknown[]) => new Map<string, number>()),
 }));
+/* The rows a PostgREST read returns, per table. Anything not modeled answers
+   with an error, which the engine treats as an unreadable read. */
+const db = vi.hoisted(() => ({
+  rows: {} as Record<string, unknown[] | Error>,
+}));
+function query(table: string) {
+  const answer = db.rows[table];
+  const result =
+    answer instanceof Error
+      ? { data: null, error: answer }
+      : answer === undefined
+        ? { data: null, error: new Error('Unmodeled database read: ' + table) }
+        : { data: answer, error: null };
+  const chain: Record<string, unknown> = {};
+  for (const m of ['select', 'eq', 'in', 'is', 'order', 'limit', 'gte']) chain[m] = () => chain;
+  chain.then = (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) =>
+    Promise.resolve(result).then(resolve, reject);
+  return chain;
+}
 
 vi.mock('../services/supabase/client.js', () => ({
   supabase: {
-    from: vi.fn(() => {
-      throw new Error('Unmodeled database read in bust-window fixture');
-    }),
+    from: vi.fn((table: string) => query(table)),
     rpc: vi.fn(() => {
       throw new Error('Unmodeled database RPC in bust-window fixture');
     }),
@@ -37,16 +54,26 @@ vi.mock('../services/supabase/wallets.js', async (original) => ({
 }));
 
 const { ServerTableEngine } = await import('./ServerTableEngine.js');
-const { BUST_REBUY_WINDOW_MS, bustRebuyRemainingMs, bustRebuyVerdict, bustRebuyWindowExpired } =
-  await import('./BustRebuyWindow.js');
+const { setMaintenanceFrozen } = await import('../maintenance/freezeState.js');
+const {
+  BUST_REBUY_WINDOW_MS,
+  bustRebuyRemainingMs,
+  bustRebuyVerdict,
+  bustRebuyWindowExpired,
+  cashRebuyMinimum,
+  durableBustElapsedMs,
+  rebuyRowInTime,
+} = await import('./BustRebuyWindow.js');
 
 const TABLE = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
 const MIN_BUY_IN = 80; // 40 big blinds at 1/2
 
 afterEach(() => {
+  setMaintenanceFrozen(false);
   vi.useRealTimers();
   wallets.read.mockReset();
   wallets.read.mockImplementation(async () => new Map<string, number>());
+  db.rows = {};
 });
 
 function hero() {
@@ -79,6 +106,9 @@ function cashEngine(players: Array<Record<string, unknown>> = [hero()]) {
   engine.hub = { sendToUser: vi.fn(), emitEvent: vi.fn() };
   engine.usersWithPendingLedgerChips = vi.fn(async () => new Set<string>());
   engine.releaseBustedSeat = vi.fn(async () => true);
+  engine.requestPendingAddOnSweep = vi.fn();
+  engine.lifecycleCanMutate = () => true;
+  engine.armBustRebuyExpiry = vi.fn();
   return engine;
 }
 
@@ -128,12 +158,12 @@ describe('a player who has just lost their last chip', () => {
     expect(engine.hub.sendToUser).not.toHaveBeenCalled();
   });
 
-  it('asks the wallet the seat was bought from, with the table club only as fallback', async () => {
+  it('asks the wallet the seat was bought from, never the table club', async () => {
     startClock();
     const engine = cashEngine();
     engine.noteCashBust(engine.seatedPlayers);
     await engine.standUpBustedCashPlayers();
-    expect(wallets.read).toHaveBeenCalledWith(TABLE, ['hero'], 'union-row');
+    expect(wallets.read).toHaveBeenCalledWith(TABLE, ['hero']);
   });
 
   it('is held for twenty seconds from the bust when the wallet covers a rebuy, then released', async () => {
@@ -284,9 +314,216 @@ describe('where the rule does not reach', () => {
   });
 });
 
+describe('the minimum is the one the purchase enforces', () => {
+  it('is greatest(min_buy_in, 40 big blinds), as atomic_table_rebuy reads it', () => {
+    expect(cashRebuyMinimum({ min_buy_in: 40, big_blind: 2 })).toBe(80);
+    expect(cashRebuyMinimum({ min_buy_in: 200, big_blind: 2 })).toBe(200);
+    expect(cashRebuyMinimum({ min_buy_in: null, big_blind: 0.1 })).toBe(4);
+    expect(cashRebuyMinimum({ min_buy_in: 0, big_blind: 0 })).toBe(0);
+  });
+
+  it('stands up a wallet the seat-taking minimum would have held', async () => {
+    startClock();
+    const engine = cashEngine();
+    engine.tableInfo.min_buy_in = 40; // seat-taking minimum 40, rebuy minimum 80
+    wallets.read.mockResolvedValue(new Map([['hero', 60]]));
+    engine.noteCashBust(engine.seatedPlayers);
+    await engine.standUpBustedCashPlayers();
+    expect(engine.releaseBustedSeat.mock.calls[0]?.[1]).toBe('busted_insufficient_chips');
+  });
+});
+
+describe('the end of the window', () => {
+  function judgedEngine() {
+    startClock();
+    const engine = cashEngine();
+    wallets.read.mockResolvedValue(new Map([['hero', 500]]));
+    engine.noteCashBust(engine.seatedPlayers);
+    return engine;
+  }
+
+  it('arms a timer for what is left, so the seat goes at twenty seconds and not at the next hand', async () => {
+    const engine = judgedEngine();
+    vi.setSystemTime(Date.now() + 5_000);
+    await engine.standUpBustedCashPlayers();
+    expect(engine.armBustRebuyExpiry).toHaveBeenCalledWith('occ-hero', 15_000);
+  });
+
+  it('releases an expired seat that has no rebuy row', async () => {
+    const engine = judgedEngine();
+    await engine.standUpBustedCashPlayers();
+    vi.setSystemTime(Date.now() + 20_000);
+    db.rows.table_pending_addons = [];
+    await engine.releaseExpiredBustWindows();
+    expect(engine.releaseBustedSeat).toHaveBeenCalledTimes(1);
+    expect(engine.releaseBustedSeat.mock.calls[0][1]).toBe('busted_no_rebuy');
+    expect(engine.seatedPlayers).toEqual([]);
+    // A row that raced the release is refunded by the next pending pass.
+    expect(engine.requestPendingAddOnSweep).toHaveBeenCalled();
+  });
+
+  it('keeps a seat whose rebuy the database stamped inside the window', async () => {
+    const engine = judgedEngine();
+    await engine.standUpBustedCashPlayers();
+    const paidAt = new Date(Date.now() + 19_000).toISOString();
+    vi.setSystemTime(Date.now() + 20_500);
+    db.rows.table_pending_addons = [{ user_id: 'hero', created_at: paidAt }];
+    await engine.releaseExpiredBustWindows();
+    expect(engine.releaseBustedSeat).not.toHaveBeenCalled();
+    expect(engine.requestPendingAddOnSweep).toHaveBeenCalled();
+  });
+
+  it('releases a seat whose rebuy arrived after the window (the vacated seat refunds it)', async () => {
+    const engine = judgedEngine();
+    await engine.standUpBustedCashPlayers();
+    const lateAt = new Date(Date.now() + 25_000).toISOString();
+    vi.setSystemTime(Date.now() + 25_500);
+    db.rows.table_pending_addons = [{ user_id: 'hero', created_at: lateAt }];
+    await engine.releaseExpiredBustWindows();
+    expect(engine.releaseBustedSeat).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the seat and asks again when the rebuy rows cannot be read', async () => {
+    const engine = judgedEngine();
+    await engine.standUpBustedCashPlayers();
+    vi.setSystemTime(Date.now() + 20_000);
+    db.rows.table_pending_addons = new Error('read failed');
+    await engine.releaseExpiredBustWindows();
+    expect(engine.releaseBustedSeat).not.toHaveBeenCalled();
+    expect(engine.armBustRebuyExpiry).toHaveBeenLastCalledWith('occ-hero', 1_000);
+  });
+
+  it('does nothing during a freeze, and the freeze does not use up the window', async () => {
+    const engine = judgedEngine();
+    await engine.standUpBustedCashPlayers();
+    vi.setSystemTime(Date.now() + 8_000);
+    setMaintenanceFrozen(true);
+    vi.setSystemTime(Date.now() + 300_000); // a five-minute break
+    await engine.releaseExpiredBustWindows();
+    expect(engine.releaseBustedSeat).not.toHaveBeenCalled();
+    setMaintenanceFrozen(false);
+    db.rows.table_pending_addons = [];
+    await engine.releaseExpiredBustWindows();
+    expect(engine.releaseBustedSeat).not.toHaveBeenCalled(); // 12 s still left
+    vi.setSystemTime(Date.now() + 12_000);
+    await engine.releaseExpiredBustWindows();
+    expect(engine.releaseBustedSeat).toHaveBeenCalledTimes(1);
+  });
+
+  it('never releases a player who is still in the live hand', async () => {
+    const engine = judgedEngine();
+    await engine.standUpBustedCashPlayers();
+    vi.setSystemTime(Date.now() + 20_000);
+    db.rows.table_pending_addons = [];
+    engine.handController = {
+      getState: () => ({ players: [{ user_id: 'hero', is_folded: false, is_all_in: true }] }),
+    };
+    await engine.releaseExpiredBustWindows();
+    expect(engine.releaseBustedSeat).not.toHaveBeenCalled();
+  });
+
+  it('releases once when the timer and the boundary sweep arrive together', async () => {
+    const engine = judgedEngine();
+    let finish!: (v: boolean) => void;
+    engine.releaseBustedSeat = vi.fn(() => new Promise<boolean>((r) => (finish = r)));
+    const a = engine.releaseFixedWindowSeat(engine.seatedPlayers[0], 'busted_no_rebuy');
+    const b = engine.releaseFixedWindowSeat(engine.seatedPlayers[0], 'busted_no_rebuy');
+    finish(true);
+    expect(await a).toBe(true);
+    expect(await b).toBe(true);
+    expect(engine.releaseBustedSeat).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('nothing renews the window', () => {
+  it('a reopened or reloaded sheet is told what is left, not twenty seconds', async () => {
+    startClock();
+    const engine = cashEngine();
+    wallets.read.mockResolvedValue(new Map([['hero', 500]]));
+    engine.noteCashBust(engine.seatedPlayers);
+    await engine.standUpBustedCashPlayers();
+    engine.hub.sendToUser.mockClear();
+    vi.setSystemTime(Date.now() + 12_000);
+    engine.noteRebuyPromptOpen('hero');
+    engine.noteRebuyPromptOpen('hero'); // throttled
+    expect(engine.hub.sendToUser).toHaveBeenCalledTimes(1);
+    expect(engine.hub.sendToUser.mock.calls[0][2].remaining_ms).toBe(8_000);
+    expect(engine.rebuyPromptOpenAt.has('hero')).toBe(true);
+  });
+
+  it('a restarted engine resumes the window from the accepted-hand record', async () => {
+    startClock();
+    const engine = cashEngine(); // a fresh engine: it never saw the bust
+    wallets.read.mockResolvedValue(new Map([['hero', 500]]));
+    db.rows.hand_atomic_commits = [
+      {
+        committed_at: new Date(Date.now() - 14_000).toISOString(),
+        stacks: [{ user_id: 'hero', stack: 0 }],
+      },
+    ];
+    db.rows.engine_maintenance_thaws = [];
+    await engine.standUpBustedCashPlayers();
+    expect(engine.hub.sendToUser.mock.calls[0][2].remaining_ms).toBe(6_000);
+    vi.setSystemTime(Date.now() + 6_000);
+    db.rows.table_pending_addons = [];
+    await engine.releaseExpiredBustWindows();
+    expect(engine.releaseBustedSeat).toHaveBeenCalledTimes(1);
+  });
+
+  it('a restart that reads a short wallet releases at once, the bust being on record', async () => {
+    startClock();
+    const engine = cashEngine();
+    wallets.read.mockResolvedValue(new Map([['hero', 3]]));
+    db.rows.hand_atomic_commits = [
+      {
+        committed_at: new Date(Date.now() - 2_000).toISOString(),
+        stacks: [{ user_id: 'hero', stack: 0 }],
+      },
+    ];
+    db.rows.engine_maintenance_thaws = [];
+    await engine.standUpBustedCashPlayers();
+    expect(engine.releaseBustedSeat.mock.calls[0]?.[1]).toBe('busted_insufficient_chips');
+  });
+
+  it('the record excludes a maintenance freeze after the bust', () => {
+    const now = Date.parse('2026-11-11T10:06:00Z');
+    const commits = [
+      { committed_at: '2026-11-11T09:59:58Z', stacks: [{ user_id: 'hero', stack: 0 }] },
+    ];
+    const thaws = [{ freeze_started_at: '2026-11-11T10:00:00Z', frozen_seconds: 352 }];
+    // 362 s on the wall, 352 of them frozen: 10 s of the window used.
+    expect(durableBustElapsedMs(commits, thaws, 'hero', now)).toBe(10_000);
+    // The newest hand listing the player had chips: not a bust on record.
+    expect(
+      durableBustElapsedMs(
+        [
+          { committed_at: '2026-11-11T10:05:00Z', stacks: [{ user_id: 'hero', stack: 40 }] },
+          ...commits,
+        ],
+        thaws,
+        'hero',
+        now
+      )
+    ).toBeNull();
+  });
+
+  it('a row stamped within the clock tolerance of the end counts as paid in time', () => {
+    expect(rebuyRowInTime(10_999, 10_000)).toBe(true);
+    expect(rebuyRowInTime(11_001, 10_000)).toBe(false);
+    expect(rebuyRowInTime(Number.NaN, 10_000)).toBe(true);
+  });
+});
+
 describe('the wiring', () => {
   const dir = join(process.cwd(), 'src');
   const dealing = readFileSync(join(dir, 'engine', 'ServerTableEngineDealing.ts'), 'utf8');
+
+  it('releases expired windows before pending add-ons are delivered at the boundary', () => {
+    const expire = dealing.indexOf('await this.releaseExpiredBustWindows();');
+    const deliver = dealing.indexOf("'pending_addons',");
+    expect(expire).toBeGreaterThan(-1);
+    expect(deliver).toBeGreaterThan(expire);
+  });
 
   it('starts the clock at the end of the hand, before the table pause', () => {
     const noted = dealing.indexOf('this.noteCashBust(justBustedPlayers);');
@@ -307,5 +544,6 @@ describe('the wiring', () => {
     expect(body).toContain(".select('user_id, club_id')");
     expect(body).toContain(".is('left_at', null)");
     expect(body).toContain('readClubChipBalances(club, users)');
+    expect(body).not.toContain('fallbackClubId');
   });
 });
