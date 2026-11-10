@@ -136,6 +136,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.resetAllMocks();
   localStorage.clear();
+  sessionStorage.clear();
 });
 const ready = async () => {
   render(<DiamondWheelPage />);
