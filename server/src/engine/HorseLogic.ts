@@ -5610,6 +5610,7 @@ export class HorseLogic {
     const barrelOutlookApplied = barrelOutlookAppliedPending;
     barrelOutlookAppliedPending = false;
     const v54StationCheck = v54StationChecks.has(decision);
+    const preflopAuthority = decision.preflopAuthority;
     const phase6Attribution =
       gs.stage === 'preflop'
         ? createPhase6Attribution(phase6Reference, gs, isTournamentMode(gs), decision)
@@ -6537,6 +6538,7 @@ export class HorseLogic {
       noteFire(`phase15_policy_${registration.variant}_${decision.policyOwnership.outcome}`);
     // Preserve reference attribution through later policy owners without claiming
     // that this lookup caused the final action or survived their arbitration.
+    if (preflopAuthority) decision.preflopAuthority = preflopAuthority;
     if (phase6Attribution) decision.tournamentPreflopAttribution = phase6Attribution;
     if (phase7Refusal !== null && decision.tournamentUtility === undefined)
       decision.tournamentUtilityRefusal = phase7Refusal;
@@ -8156,7 +8158,12 @@ export class HorseLogic {
         restoreFastRandom(rng53);
       }
     }
-    const intent = decidePreflopV7(intentCtx7);
+    const authorityEvents: import('./HorsePreflop.js').PreflopAuthorityEvent[] = [];
+    // Attach only to the real decision, never the rewound ICM counterfactual.
+    const intent = decidePreflopV7({
+      ...intentCtx7,
+      noteAuthority: (event) => authorityEvents.push(event),
+    });
     if (v53IcmOff) {
       const same53 = v53IcmOff.a === intent.a && v53IcmOff.to === intent.to;
       noteFire(same53 ? 'v53_plo_icm_considered' : 'v53_plo_icm_applied');
@@ -8200,18 +8207,38 @@ export class HorseLogic {
     ) {
       noteFire('horse_continuation_premium_raise');
     }
+    const withAuthority = (decision: HorseDecision): HorseDecision => ({
+      ...decision,
+      preflopAuthority: {
+        version: 1,
+        scope: 'reference_preflop',
+        events: authorityEvents,
+        context: {
+          raises,
+          callers: intentCtx7.callers,
+          toCall,
+          stack: player.stack,
+          position: intentCtx7.position,
+          isOmaha: vi.isOmaha,
+          classNeverThreeBet: intentCtx7.classNeverThreeBet === true,
+        },
+        intent: { ...intent },
+        referenceAction: decision.action,
+        ...(decision.amount !== undefined ? { referenceAmount: decision.amount } : {}),
+      },
+    });
     switch (intent.a) {
       case 'jam':
-        return { action: 'all_in', thinkTime: 0 };
+        return withAuthority({ action: 'all_in', thinkTime: 0 });
       case 'check':
-        return { action: 'check', thinkTime: 0 };
+        return withAuthority({ action: 'check', thinkTime: 0 });
       case 'call':
-        return { action: 'call', amount: toCall, thinkTime: 0 };
+        return withAuthority({ action: 'call', amount: toCall, thinkTime: 0 });
       case 'raiseTo':
-        return this.raiseTo(null, intent.to ?? gs.currentBet * 3, player, gs, vi);
+        return withAuthority(this.raiseTo(null, intent.to ?? gs.currentBet * 3, player, gs, vi));
       case 'fold':
       default:
-        return { action: 'fold', thinkTime: 0 };
+        return withAuthority({ action: 'fold', thinkTime: 0 });
     }
   }
 

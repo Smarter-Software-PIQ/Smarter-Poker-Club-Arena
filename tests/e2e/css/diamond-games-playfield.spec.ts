@@ -639,6 +639,11 @@ for (const game of ['crossing', 'mines'] as const)
           contentType: 'image/png',
         });
       }
+      if (url.pathname.endsWith('/assets/diamond-spins/donkey-coat.webp'))
+        return route.fulfill({
+          path: 'public/assets/diamond-spins/donkey-coat.webp',
+          contentType: 'image/webp',
+        });
       if (url.hostname !== 'diamond-choice.local') network.push(url.href);
       return route.fulfill({
         contentType: 'text/html',
@@ -1100,7 +1105,7 @@ async function openGamePage(page: Page, game: keyof typeof START_LABEL, live = f
     if (url.pathname.endsWith('/images/header-help-v4.png'))
       return route.fulfill({ path: 'public/images/header-help-v4.png', contentType: 'image/png' });
     const receiptArt = url.pathname.match(
-      /\/assets\/diamond-spins\/(result-(?:crash|plinko|crossing|mines)\.webp|(?:super-)?plinko-cabinet-badge\.webp|plinko-(?:backplate|control-deck)\.webp)$/
+      /\/assets\/diamond-spins\/((?:flight-horizon-hd|donkey-coat)\.webp|result-(?:crash|plinko|crossing|mines)\.webp|(?:super-)?plinko-cabinet-badge\.webp|plinko-(?:backplate|control-deck)\.webp)$/
     );
     if (receiptArt)
       return route.fulfill({
@@ -1271,6 +1276,9 @@ test('Plinko denominations scroll both ways on one row and both release controls
     timeout: 25_000,
   });
   await expect(receipt.getByText('Credited To Your Club Balance')).toBeVisible();
+  // Reading details pauses the intended five-second automatic return. Open
+  // them before image decoding/layout checks consume that visible interval.
+  await receipt.getByText('Round Details').click();
   await expect
     .poll(() =>
       receipt.locator('img').evaluate((img: HTMLImageElement) => {
@@ -1283,7 +1291,6 @@ test('Plinko denominations scroll both ways on one row and both release controls
       })
     )
     .toBe(true);
-  await receipt.getByText('Round Details').click();
   await expect(receipt.getByRole('status')).toContainText('10 Drops Completed.');
   await page.screenshot({
     path: test.info().outputPath('plinko-paid-mobile.png'),
