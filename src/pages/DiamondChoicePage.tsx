@@ -1322,7 +1322,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
               ? (round?.payout_version ?? state?.payout_version) === 6
                 ? 'Every Street Is A Fair Coin Flip: Exactly A 50% Chance To Cross Safely, Street One Included. Each Coin Is Sealed Before You Start, And When You Book The Win You See How Far You Would Have Got.'
                 : (round?.payout_version ?? state?.payout_version) === 8
-                  ? 'Street one is always safe. Streets two through four each have an 87.5% chance of a safe crossing. From street five, each crossing has a 50% chance. After you book your win, the sealed coins show how far you would have gone.'
+                  ? 'Street One Is Always Safe. Streets Two Through Four Each Have An 87.5% Chance Of A Safe Crossing. From Street Five, Each Crossing Has A 50% Chance. After You Book Your Win, The Sealed Coins Show How Far You Would Have Gone.'
                   : 'Street One Is Always Safe. Every Street After It Is A Fair Coin Flip: Exactly A 50% Chance To Cross Safely. Each Coin Is Sealed Before You Start, And When You Book The Win You See How Far You Would Have Got.'
               : 'Where The Donkey Would Be Hit Is Sealed Before You Start; Your Only Choice Is When To Book.'}
           </p>
