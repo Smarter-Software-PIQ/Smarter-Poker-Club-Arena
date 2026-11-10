@@ -649,6 +649,7 @@ export function cardBackImageUrl(style: string | undefined | null): string {
 export function CardBack({ style, size = 'md', className = '' }: CardBackProps) {
   const sizeClass = SIZE_CLASSES[size];
   const backStyle = normalizeCardBack(style);
+  const compact = `${MEDIA_BASE}cards/backs/table/compact/${backStyle}.webp`;
   const classes = ['card-image', 'card-image--back', sizeClass, className]
     .filter(Boolean)
     .join(' ');
@@ -663,7 +664,12 @@ export function CardBack({ style, size = 'md', className = '' }: CardBackProps) 
     <div className={classes} role="img" aria-label={FACE_DOWN_WORDS}>
       <div
         className={`card-back card-back--${backStyle}`}
-        style={{ '--cb-image': `url('${cardBackImageUrl(backStyle)}')` } as React.CSSProperties}
+        style={
+          {
+            '--cb-full-image': `url('${cardBackImageUrl(backStyle)}')`,
+            '--cb-compact-image': `url('${compact}')`,
+          } as React.CSSProperties
+        }
       />
     </div>
   );
