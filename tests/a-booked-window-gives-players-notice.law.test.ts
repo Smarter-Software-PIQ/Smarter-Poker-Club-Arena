@@ -159,3 +159,15 @@ describe('the banner sentence', () => {
     );
   });
 });
+
+it('preserves the original notice until expiry before showing the separate successor', () => {
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-10T04:29:59Z'))?.id).toBe(
+    '2026-11-09-owner-asap-engine-2230z'
+  );
+  const successor = bookedMaintenanceNotice(Date.parse('2026-11-10T04:30:00Z'));
+  expect(successor?.id).toBe('2026-11-10-owner-asap-engine-0440z');
+  expect(successor?.noticeAtMs).toBe(Date.parse('2026-11-10T04:20:00Z'));
+  expect(successor?.notBeforeMs).toBe(Date.parse('2026-11-10T04:40:00Z'));
+  expect(successor?.notAfterMs).toBe(Date.parse('2026-11-10T06:30:00Z'));
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-10T06:30:00Z'))).toBeNull();
+});
