@@ -183,3 +183,18 @@
 .trc2__result-hero .trc2__place-title::after {
   content: none;
 }
+
+.postplay-panel.winner-console > .sc__body {
+  background-size: 100% auto;
+  background-position: right center;
+}
+.postplay-panel.winner-console .winnerAwardArt {
+  width: clamp(60px, 21cqw, 104px);
+  height: clamp(52px, 18cqw, 90px);
+}
+.postplay-panel.winner-console .winnerPrize {
+  font-size: clamp(17px, 5.8cqw, 29px);
+  color: #e2f3ff;
+  -webkit-text-fill-color: #e2f3ff;
+  text-shadow: 0 1px 4px #020712;
+}
