@@ -611,7 +611,7 @@ describe('the session summary', () => {
       expect(shell).toContain(declaration);
   });
 
-  it('opens over the lobby, VIEW SESSION shows its hands, PLAY AGAIN only goes to the entry', async () => {
+  it('opens over the lobby, VIEW SESSION shows its hands, Share is available and Game Lobby returns to the lobby', async () => {
     render(
       <MemoryRouter initialEntries={['/']}>
         <LightningSessionSummaryHost />
@@ -643,10 +643,9 @@ describe('the session summary', () => {
       p_limit: 50,
       p_pool_session_id: POOL,
     });
-    fireEvent.click(screen.getByRole('button', { name: 'PLAY AGAIN' }));
-    await waitFor(() =>
-      expect(screen.getByTestId('where').textContent).toBe(`/lightning/${CLUSTER}`)
-    );
+    expect(screen.getByRole('button', { name: 'Share' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Game Lobby' }));
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/'));
     expect(screen.queryByTestId('lightning-summary-host')).toBeNull();
     expect(moneyRpcs()).toEqual([]);
     expect(readLightningPrefs().lastClusterId).toBe(CLUSTER);
@@ -654,10 +653,12 @@ describe('the session summary', () => {
 
   it('the reversion notice carries the summary, with VIEW SESSION and no PLAY AGAIN', async () => {
     render(
-      <LightningEndedNotice
-        onViewGame={vi.fn()}
-        session={{ poolSessionId: POOL, clusterId: CLUSTER, name: 'NLH 1/2 Action' }}
-      />
+      <MemoryRouter>
+        <LightningEndedNotice
+          onViewGame={vi.fn()}
+          session={{ poolSessionId: POOL, clusterId: CLUSTER, name: 'NLH 1/2 Action' }}
+        />
+      </MemoryRouter>
     );
     await screen.findByTestId('lightning-stats-summary');
     expect(screen.getByTestId('lightning-summary-view-session')).toBeTruthy();

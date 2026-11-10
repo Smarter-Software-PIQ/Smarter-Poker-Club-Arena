@@ -52,6 +52,7 @@ import { arenaAssetUnitCents } from '../../lib/arenaUnitCents';
 import { CHIP_UNIT_CENTS, normalizeUnitCents } from '../../../server/src/tournament/tournamentUnit';
 import { formatSessionProfit } from '../../utils/formatSessionProfit';
 import './SessionSummaryHost.css';
+import '../../styles/postPlayResults.css';
 
 /** Ease-out-back: overshoots slightly then settles. Reads as "landing". */
 function easeOutBack(t: number): number {
@@ -743,22 +744,27 @@ export function SessionSummaryHost() {
             <button className="ssh-share" onClick={() => setRetryRecap((n) => n + 1)}>
               Retry Recorded Session
             </button>
-          ) : (
-            <button
-              className="ssh-share"
-              onClick={share}
-              aria-label="Share This Session"
-              disabled={
-                !recordedReady ||
-                displayedHands === null ||
-                (!!target && recordedRecap?.handsPlayed === null)
-              }
-            >
-              {shareLabel}
-            </button>
-          )}
-          <button className="ssh-done" onClick={close}>
-            Done
+          ) : null}
+          <button
+            className="ssh-share"
+            onClick={share}
+            aria-label="Share This Session"
+            disabled={
+              !recordedReady ||
+              displayedHands === null ||
+              (!!target && recordedRecap?.handsPlayed === null)
+            }
+          >
+            {shareLabel}
+          </button>
+          <button
+            className="ssh-done"
+            onClick={() => {
+              close();
+              navigate(currentClubId ? `/clubs/${currentClubId}` : '/');
+            }}
+          >
+            Game Lobby
           </button>
         </div>
       </div>

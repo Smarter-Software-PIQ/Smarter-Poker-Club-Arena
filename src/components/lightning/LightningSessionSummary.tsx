@@ -26,12 +26,12 @@ import {
   closeLightningSessionSummary,
   useLightningSummaryRequest,
 } from '../../lightning/lightningSummaryStore';
-import { lightningJoinRoute } from '../../lightning/lightningLobby';
+import { useUserStore } from '../../stores/useUserStore';
 import { writeLightningPrefs } from '../../lightning/lightningPrefs';
 import { masterBus } from '../../core/MasterBus';
 import { titleCase } from '../../utils/titleCase';
 import { reportError } from '../../utils/errorReporter';
-import LightningStatsGrid from './LightningStatsGrid';
+import LightningStatsGrid, { lightningStatRows } from './LightningStatsGrid';
 import LightningRecentHands from './LightningRecentHands';
 import './LightningSession.css';
 import '../../styles/postPlayResults.css';
@@ -121,13 +121,33 @@ function LightningResult({ summary, name }: { summary: Summary; name?: string | 
   );
 }
 
+function useShareResult(summary: Summary | null, name?: string | null) {
+  const [label, setLabel] = useState('Share');
+  const onClick = async () => {
+    const text = [
+      name || 'Lightning Session',
+      ...(summary
+        ? lightningStatRows(summary, 'summary').map((row) => row.label + ': ' + row.value)
+        : []),
+    ].join('\n');
+    try {
+      if (navigator.share) await navigator.share({ title: 'Session Results', text });
+      else {
+        await navigator.clipboard.writeText(text);
+        setLabel('Copied');
+      }
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) setLabel('Retry Share');
+    }
+  };
+  return { label, onClick };
+}
+
 export interface LightningSessionSummaryCardProps {
   poolSessionId: string;
   clusterId: string;
   name?: string | null;
-  /** PLAY AGAIN is offered (not on a Cluster that has gone back to MUST MOVE). */
-  offerPlayAgain?: boolean;
-  onPlayAgain?: () => void;
+  onGameLobby: () => void;
 }
 
 /** The summary's body: the numbers, VIEW SESSION and PLAY AGAIN. */
@@ -135,11 +155,11 @@ export function LightningSessionSummaryCard({
   poolSessionId,
   clusterId,
   name = null,
-  offerPlayAgain = true,
-  onPlayAgain,
+  onGameLobby,
 }: LightningSessionSummaryCardProps) {
   const { summary, failed } = useLightningSessionSummary(poolSessionId);
   const [viewing, setViewing] = useState(false);
+  const share = useShareResult(summary, name);
   return (
     <div className="lightning-summary" data-testid="lightning-summary" data-cluster={clusterId}>
       <p className="lightning-summary__eyebrow">Lightning</p>
@@ -164,16 +184,16 @@ export function LightningSessionSummaryCard({
         >
           VIEW SESSION
         </button>
-        {offerPlayAgain && onPlayAgain ? (
-          <button
-            type="button"
-            className="lightning-summary__btn lightning-summary__btn--primary"
-            data-testid="lightning-summary-play-again"
-            onClick={onPlayAgain}
-          >
-            PLAY AGAIN
-          </button>
-        ) : null}
+        <button type="button" className="lightning-summary__btn" onClick={share.onClick}>
+          {share.label}
+        </button>
+        <button
+          type="button"
+          className="lightning-summary__btn lightning-summary__btn--primary"
+          onClick={onGameLobby}
+        >
+          Game Lobby
+        </button>
       </div>
       {viewing ? <LightningRecentHands poolSessionId={poolSessionId} sessionOnly /> : null}
     </div>
@@ -198,6 +218,8 @@ export function LightningSessionSummaryHost() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [req]);
+  const share = useShareResult(summary, req?.name);
+  const clubId = useUserStore((state) => state.currentClubId);
   if (!req) return null;
   const body = (
     <div
@@ -226,13 +248,14 @@ export function LightningSessionSummaryHost() {
               type: 'button',
               onClick: () => setViewing((v) => !v),
             },
+            middle: share,
             primary: {
-              label: 'PLAY AGAIN',
+              label: 'Game Lobby',
               type: 'button',
               onClick: () => {
                 writeLightningPrefs({ lastClusterId: req.clusterId, lastClusterName: req.name });
                 closeLightningSessionSummary();
-                navigate(lightningJoinRoute(req.clusterId));
+                navigate(clubId ? `/clubs/${clubId}` : '/');
               },
               ink: 'white',
             },

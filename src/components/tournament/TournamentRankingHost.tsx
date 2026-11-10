@@ -39,8 +39,10 @@
  */
 
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { useUserStore } from '../../stores/useUserStore';
 import { useNavigate } from 'react-router-dom';
 import {
+  offersResultReplay,
   dismissSessionSummary,
   peekSessionSummary,
   subscribeSessionSummary,
@@ -488,7 +490,14 @@ export function TournamentRankingHost() {
       close();
       navigate(payload?.tournament?.isSpin ? '/tournaments?type=spin' : '/tournaments');
     };
-    if (!tournamentId || requested?.formatKind === 'mtt') {
+    if (!offersResultReplay(requested)) {
+      if (!isCurrentReport()) return;
+      close();
+      const clubId = useUserStore.getState().currentClubId;
+      navigate(clubId ? `/clubs/${clubId}` : '/');
+      return;
+    }
+    if (!tournamentId) {
       fallback();
       return;
     }

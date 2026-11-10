@@ -39,7 +39,7 @@ import { readLocalSession } from '../../lib/authUtils';
 import { generateDefaultAvatar } from '../../utils/avatarGenerator';
 import { CardImage } from '../table/CardImage';
 import { formatTournamentTitle } from '../../utils/formatGameTitle';
-import type { TournamentResult } from '../../services/pendingSessionSummary';
+import { offersResultReplay, type TournamentResult } from '../../services/pendingSessionSummary';
 import { playerDisplayName, PLAYER_NAME_COLUMNS } from '../../utils/playerDisplayName';
 import { SpadeConsole } from '../console/SpadeConsole';
 import './TournamentRankingCard.css';
@@ -700,10 +700,10 @@ export default function TournamentRankingCard({
                   ink: 'silver',
                   onClick: () => void handleShare(),
                 },
+            middle: rematch?.secondaryLabel ? { label: 'Share', onClick: handleShare } : undefined,
             primary: {
               label:
-                rematch?.primaryLabel ??
-                (result.formatKind === 'mtt' ? 'Return To Lobby' : 'Play Again'),
+                rematch?.primaryLabel ?? (offersResultReplay(result) ? 'Play Again' : 'Game Lobby'),
               ink: 'white',
               onClick: handlePlayAgain,
               'aria-busy': rematch?.primaryBusy || undefined,

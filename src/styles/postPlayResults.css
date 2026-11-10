@@ -193,3 +193,114 @@
   -webkit-text-fill-color: #e2f3ff;
   text-shadow: 0 1px 4px #020712;
 }
+
+/* Chrome surround, quilted header and chip art from the approved session card. */
+.postplay-panel.sc,
+.ssh-overlay .ssh-card {
+  border: 4px ridge #acb3ba;
+  border-radius: 9px;
+  background: linear-gradient(110deg, #131719, #040607 38%, #121518);
+  box-shadow:
+    inset 0 0 0 1px #030303,
+    inset 0 0 12px #609ac966,
+    0 12px 35px #000;
+}
+.postplay-panel.sc > .sc__head,
+.ssh-card .ssh-head {
+  background: #101214 url('/assets/results/session-quilt.webp') repeat center / 62px auto;
+  border-bottom: 3px ridge #b6bec5;
+  text-align: center;
+  padding: 12px 38px;
+}
+.postplay-panel .sc__head .sc-zone {
+  text-align: center;
+}
+.postplay-panel .sc__head .sc__pill {
+  position: static;
+  transform: none;
+  margin: auto;
+}
+.ssh-card .ssh-hero,
+.postplay-panel .lightning-result,
+.trc2__result-hero {
+  background: #111416 url('/assets/results/session-chips.webp') left center / auto 100% no-repeat;
+  border: 3px ridge #a2a9b0;
+  border-radius: 6px;
+  padding: 9px 7px 9px 36%;
+  text-align: center;
+  align-items: center;
+  background-size: 32% auto;
+}
+.trc2__result-hero .trc2__placeband,
+.trc2__result-hero .trc2__reward {
+  max-width: 100%;
+  align-items: center;
+  text-align: center;
+}
+.trc2__result-hero .trc2__medal {
+  left: 5px;
+  right: auto;
+}
+.postplay-panel .lightning-result[data-result='win'] .lightning-result__value,
+.lightning-summary .lightning-stats__value--up {
+  color: #52ee82;
+}
+.lightning-summary [data-testid='lightning-stats-summary'],
+.ssh-card .ssh-grid,
+.trc2 .trc2__extras,
+.trc2 .trc2__session {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 0;
+  align-items: stretch;
+}
+.lightning-summary [data-testid='lightning-stats-summary'] .lightning-stats__row,
+.ssh-card .ssh-grid .ssh-tile,
+.trc2 .trc2__extra,
+.trc2 .trc2__session-stat {
+  box-sizing: border-box;
+  flex: 1 0 32%;
+  min-width: 0;
+  margin: 0;
+  padding: 7px 3px;
+  border: 1px solid #51595e;
+  border-radius: 0;
+  background: linear-gradient(155deg, #24282b, #101214 70%);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.ssh-card .ssh-tile__label {
+  order: -1;
+}
+.lightning-summary [data-testid='lightning-stats-summary'] dt {
+  color: #c5cbd0;
+  text-transform: uppercase;
+}
+.postplay-panel .sc__foot button.sc-plate,
+.ssh-card .ssh-actions button,
+.postplay-panel .lightning-summary__actions button {
+  border: 7px solid transparent;
+  border-image: url('/assets/results/session-button.webp') 20 22 stretch;
+  color: white;
+  background: linear-gradient(#282c30, #090a0b);
+  min-height: 44px;
+  min-width: 0;
+  text-transform: uppercase;
+  font-weight: 800;
+  text-shadow: 0 1px 2px black;
+}
+.postplay-panel .sc__foot button.sc-plate:last-child,
+.ssh-card .ssh-actions .ssh-done,
+.postplay-panel .lightning-summary__actions button:last-child {
+  background: linear-gradient(#175197, #071733);
+}
+.postplay-panel.sc--plates > .sc__foot {
+  gap: 4px;
+  padding: 6px;
+}
+.postplay-panel .sc__foot .sc-plate__text {
+  font-size: clamp(11px, 3.5cqw, 16px);
+}
