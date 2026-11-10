@@ -138,10 +138,13 @@ it('requires one exact ECO browser case and its own complete component provenanc
   const environment = {
     SUPABASE_URL: 'https://kuklfnapbkmacvwxktbh.supabase.co',
     VITE_SUPABASE_ANON_KEY: 'test-public-key',
-    SP_EMAIL: 'test@example.invalid',
+    SP_EMAIL: 'daniel@smarter.poker',
     SP_PASS: 'test-only',
   };
-  const session = { access_token: 'memory-only', user: { id: 'test-owner' } };
+  const session = {
+    access_token: 'memory-only',
+    user: { id: 'test-owner', email: 'daniel@smarter.poker' },
+  };
   const union = {
     owner_id: 'test-owner',
     settings: {
@@ -154,10 +157,31 @@ it('requires one exact ECO browser case and its own complete component provenanc
   const requests = [];
   const transport = (rows) => async (url, options) => {
     requests.push([url, options.method || 'GET']);
-    return { ok: true, json: async () => (url.includes('/auth/') ? session : rows) };
+    return {
+      ok: true,
+      json: async () =>
+        url.includes('/auth/') ? session : url.includes('/profiles?') ? [{ role: 'God' }] : rows,
+    };
   };
   expect(await readEcoIdentity({ environment, fetchImpl: transport([union]) })).toBe(session);
-  expect(requests.map((r) => r[1])).toEqual(['POST', 'GET']);
+  expect(requests.map((r) => r[1])).toEqual(['POST', 'GET', 'GET']);
+  const beforePersonal = requests.length;
+  await expect(
+    readEcoIdentity({
+      environment: { ...environment, SP_EMAIL: 'personal@example.invalid' },
+      fetchImpl: transport([union]),
+    })
+  ).rejects.toThrow(/canonical/);
+  expect(requests.length).toBe(beforePersonal);
+  await expect(
+    readEcoIdentity({
+      environment,
+      fetchImpl: async (url) => ({
+        ok: true,
+        json: async () => (url.includes('/auth/') ? session : [{ role: 'owner' }]),
+      }),
+    })
+  ).rejects.toThrow(/God role/);
   await expect(
     readEcoIdentity({ environment, fetchImpl: transport([{ ...union, owner_id: 'foreign' }]) })
   ).rejects.toThrow(/unauthorized/);

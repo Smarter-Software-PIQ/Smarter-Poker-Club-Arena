@@ -122,13 +122,24 @@ export async function readEcoIdentity({ environment = process.env, fetchImpl = f
   const origin = 'https://kuklfnapbkmacvwxktbh.supabase.co';
   if (environment.SUPABASE_URL !== origin || !environment.VITE_SUPABASE_ANON_KEY ||
     !environment.SP_EMAIL || !environment.SP_PASS) throw new Error('Configured ECO verification identity is unavailable.');
+  // The approved service identity is an explicit policy boundary. A secret
+  // name or an owner's permissions never authorize a personal account login.
+  if (environment.SP_EMAIL.trim().toLowerCase() !== 'daniel@smarter.poker')
+    throw new Error('Configured identity is not the canonical authorized service account.');
   const login = await fetchImpl(`${origin}/auth/v1/token?grant_type=password`, {
     method: 'POST', headers: { apikey: environment.VITE_SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: environment.SP_EMAIL, password: environment.SP_PASS }), signal: AbortSignal.timeout(15000),
   });
   if (!login.ok) throw new Error('Configured ECO verification identity authentication failed.');
   const session = await login.json();
-  if (!session.access_token || !session.user?.id) throw new Error('Configured ECO verification session is incomplete.');
+  if (!session.access_token || !session.user?.id || session.user.email?.toLowerCase() !== 'daniel@smarter.poker') throw new Error('Configured ECO verification session is incomplete.');
+  const profileResponse = await fetchImpl(`${origin}/rest/v1/profiles?id=eq.${encodeURIComponent(session.user.id)}&select=role`, {
+    headers: { apikey: environment.VITE_SUPABASE_ANON_KEY, Authorization: `Bearer ${session.access_token}` }, signal: AbortSignal.timeout(15000),
+  });
+  if (!profileResponse.ok) throw new Error('Canonical service authority could not be established.');
+  const profiles = await profileResponse.json();
+  if (!Array.isArray(profiles) || profiles.length !== 1 || String(profiles[0].role).toLowerCase() !== 'god')
+    throw new Error('Canonical service identity lacks its required God role.');
   const response = await fetchImpl(`${origin}/rest/v1/unions?id=eq.fade0000-0000-0000-0000-000000000001&select=id,owner_id,settings`, {
     headers: { apikey: environment.VITE_SUPABASE_ANON_KEY, Authorization: `Bearer ${session.access_token}` }, signal: AbortSignal.timeout(15000),
   });
