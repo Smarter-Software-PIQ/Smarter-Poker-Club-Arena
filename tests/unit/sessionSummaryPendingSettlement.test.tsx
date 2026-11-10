@@ -133,7 +133,7 @@ describe('SessionSummaryHost — Pending Settlement annotation', () => {
     expect(screen.queryByText('Pending Settlement')).toBeNull();
     /* And the card itself did render — the absence above must never pass
        because nothing rendered at all. */
-    expect(screen.getByText('Session Complete')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Session Results' })).toBeTruthy();
     /* A payload with no pendingCashout must never touch the ledger. */
     expect(fromCalls).toBe(0);
   });
@@ -159,7 +159,7 @@ describe('SessionSummaryHost — Pending Settlement annotation', () => {
       await Promise.resolve();
     });
     expect(screen.queryByText('Pending Settlement')).toBeNull();
-    expect(screen.getByText('Session Complete')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Session Results' })).toBeTruthy();
     expect(fromCalls).toBeGreaterThan(0);
   });
 

@@ -51,6 +51,7 @@ import { formatPrizeAtUnit, moneySuffixAtUnit } from '../../utils/format';
 import { arenaAssetUnitCents } from '../../lib/arenaUnitCents';
 import { CHIP_UNIT_CENTS, normalizeUnitCents } from '../../../server/src/tournament/tournamentUnit';
 import { formatSessionProfit } from '../../utils/formatSessionProfit';
+import { ChipStackReport } from './ChipStackReport';
 import './SessionSummaryHost.css';
 import '../../styles/postPlayResults.css';
 
@@ -162,6 +163,10 @@ export function SessionSummaryHost() {
   const currentUserId = useUserStore((s) => s.user?.id ?? null);
   const target = publishedPayload?.diamondRecap;
   const recapKey = target ? `${target.userId}:${target.tableId}:${target.occupancyId}` : null;
+  const [detailOpen, setDetailOpen] = useState(false);
+  useEffect(() => {
+    setDetailOpen(false);
+  }, [publishedPayload?.sessionStart, publishedPayload?.tableName, !!publishedPayload]);
   const [retryRecap, setRetryRecap] = useState(0);
   const [recapRead, setRecapRead] = useState<{
     key: string | null;
@@ -587,6 +592,62 @@ export function SessionSummaryHost() {
   if (readsSessionHands && currentUserId !== handStatsTarget?.userId) return null;
   if (typeof document === 'undefined') return null;
 
+  if (!detailOpen && recordedReady) {
+    const stat = (label: string) => stats.find((row) => row.label === label)?.value ?? '–';
+    const handsPerHour =
+      displayedHands !== null && payload.duration > 0
+        ? String(Math.round((displayedHands * 3600) / payload.duration))
+        : '–';
+    const money =
+      (isProfit ? '+' : '-') + formatSessionProfit(Math.abs(payload.profitLoss)) + unitSuffix;
+    return createPortal(
+      <div className="ssh-overlay" onClick={close}>
+        <div
+          className="chip-report-host"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Session Results"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <ChipStackReport
+            name={payload.tableName || 'Classic Cash'}
+            headline={
+              payload.plPending ? 'Estimated Net' : isProfit ? 'Session Profit' : 'Session Loss'
+            }
+            value={money}
+            loss={!isProfit}
+            stats={[
+              { label: 'Hands Played', value: stat('Hands Played') },
+              { label: 'Duration', value: stat('Duration') },
+              { label: 'Hands / Hour', value: handsPerHour },
+              { label: 'Buy In', value: stat('Buy In') },
+              { label: 'Peak Stack', value: stat('Peak Stack') },
+              {
+                label: 'Net',
+                value: (isProfit ? '+' : '-') + formatSessionProfit(Math.abs(payload.profitLoss)),
+              },
+              { label: 'Hands Won', value: displayedWins?.toLocaleString() ?? '–' },
+              { label: 'VPIP', value: stat('VPIP') },
+              { label: 'Win Rate', value: stat('Win Rate') },
+              { label: 'Rebuys', value: String(payload.totalRebuys) },
+              { label: 'Settlement', value: payload.plPending ? 'Pending Settlement' : 'Settled' },
+            ]}
+            onClose={close}
+            onView={() => setDetailOpen(true)}
+            share={{ label: shareLabel, onClick: share, disabled: displayedHands === null }}
+            primary={{
+              label: 'Game Lobby',
+              onClick: () => {
+                close();
+                navigate(currentClubId ? `/clubs/${currentClubId}` : '/');
+              },
+            }}
+          />
+        </div>
+      </div>,
+      document.body
+    );
+  }
   return createPortal(
     <div className="ssh-overlay" onClick={close} role="presentation">
       <div

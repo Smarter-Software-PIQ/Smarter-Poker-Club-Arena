@@ -35,6 +35,7 @@ import LightningStatsGrid, { lightningStatRows } from './LightningStatsGrid';
 import LightningRecentHands from './LightningRecentHands';
 import './LightningSession.css';
 import '../../styles/postPlayResults.css';
+import { ChipStackReport } from '../session/ChipStackReport';
 
 export function useLightningSessionSummary(
   poolSessionId: string | null,
@@ -143,6 +144,59 @@ function useShareResult(summary: Summary | null, name?: string | null) {
   return { label, onClick };
 }
 
+function LightningReport({
+  summary,
+  name,
+  onClose,
+  onView,
+  share,
+  onLobby,
+}: {
+  summary: Summary;
+  name?: string | null;
+  onClose: () => void;
+  onView: () => void;
+  share: ReturnType<typeof useShareResult>;
+  onLobby: () => void;
+}) {
+  const net = summary.net;
+  const rows = lightningStatRows(summary, 'summary');
+  const stats = [
+    'hands',
+    'duration',
+    'hands_per_hour',
+    'starting_stack',
+    'current_stack',
+    'net',
+    'bb_per_100',
+    'vpip',
+    'pfr',
+    'showdowns',
+    'fast_folds',
+  ].map((key) => rows.find((row) => row.key === key) ?? { label: key.toUpperCase(), value: '–' });
+  return (
+    <ChipStackReport
+      name={name || 'Lightning Cash'}
+      headline={
+        net == null
+          ? 'Session Result'
+          : net < 0
+            ? 'Session Loss'
+            : net === 0
+              ? 'Break Even'
+              : 'Session Profit'
+      }
+      value={lightningChipsText(net, true)}
+      loss={net !== null && net < 0}
+      stats={stats}
+      onClose={onClose}
+      onView={onView}
+      share={share}
+      primary={{ label: 'Game Lobby', onClick: onLobby }}
+    />
+  );
+}
+
 export interface LightningSessionSummaryCardProps {
   poolSessionId: string;
   clusterId: string;
@@ -160,6 +214,19 @@ export function LightningSessionSummaryCard({
   const share = useShareResult(summary, name);
   const navigate = useNavigate();
   const clubId = useUserStore((state) => state.currentClubId);
+  if (summary && !viewing) {
+    const lobby = () => navigate(clubId ? `/clubs/${clubId}` : '/');
+    return (
+      <LightningReport
+        name={name}
+        summary={summary}
+        onClose={lobby}
+        onLobby={lobby}
+        onView={() => setViewing(true)}
+        share={share}
+      />
+    );
+  }
   return (
     <div className="lightning-summary" data-testid="lightning-summary" data-cluster={clusterId}>
       <p className="lightning-summary__eyebrow">Lightning</p>
@@ -221,6 +288,37 @@ export function LightningSessionSummaryHost() {
   const share = useShareResult(summary, req?.name);
   const clubId = useUserStore((state) => state.currentClubId);
   if (!req) return null;
+  if (summary && !viewing) {
+    return createPortal(
+      <div
+        className="lightning-sheet__overlay"
+        data-testid="lightning-summary-host"
+        onClick={closeLightningSessionSummary}
+      >
+        <div
+          className="chip-report-host"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Session Results"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <LightningReport
+            name={req.name}
+            summary={summary}
+            share={share}
+            onClose={closeLightningSessionSummary}
+            onView={() => setViewing(true)}
+            onLobby={() => {
+              writeLightningPrefs({ lastClusterId: req.clusterId, lastClusterName: req.name });
+              closeLightningSessionSummary();
+              navigate(clubId ? `/clubs/${clubId}` : '/');
+            }}
+          />
+        </div>
+      </div>,
+      document.body
+    );
+  }
   const body = (
     <div
       className="lightning-sheet__overlay"

@@ -629,15 +629,14 @@ describe('the session summary', () => {
         template_name: 'action',
       })
     );
-    await screen.findByTestId('lightning-stats-summary');
+    await screen.findByText('Ending Stack');
     expect(callsTo('fn_lightning_session_summary')[0][1]).toEqual({ p_pool_session_id: POOL });
     expect(screen.getByText('Ending Stack')).toBeTruthy();
     expect(screen.getByText('Session Profit')).toBeTruthy();
-    expect(screen.getByRole('dialog').querySelectorAll('.sc')).toHaveLength(1);
-    const result = screen.getByRole('dialog').querySelector('.lightning-result');
-    expect(result?.getAttribute('data-result')).toBe('win');
+    const result = screen.getByRole('dialog').querySelector('.chip-report__amount');
+    expect(result?.className).not.toContain('--loss');
     expect(result?.textContent).toContain('+');
-    fireEvent.click(screen.getByRole('button', { name: 'VIEW SESSION' }));
+    fireEvent.click(screen.getByRole('button', { name: 'View Session' }));
     await screen.findAllByTestId('lightning-recent-row');
     expect(callsTo('fn_lightning_recent_hands')[0][1]).toEqual({
       p_limit: 50,
@@ -660,8 +659,8 @@ describe('the session summary', () => {
         />
       </MemoryRouter>
     );
-    await screen.findByTestId('lightning-stats-summary');
-    expect(screen.getByTestId('lightning-summary-view-session')).toBeTruthy();
+    await screen.findByText('Ending Stack');
+    expect(screen.getByRole('button', { name: 'View Session' })).toBeTruthy();
     expect(screen.queryByTestId('lightning-summary-play-again')).toBeNull();
   });
 
