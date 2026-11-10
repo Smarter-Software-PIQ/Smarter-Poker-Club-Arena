@@ -1,7 +1,11 @@
 /** Tournament arrivals owe only the natural blinds, never a cash-style entry post. */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
-vi.mock('../services/supabase/client.js', () => ({ supabase: {}, maintenanceSupabase: {} }));
+const historyFrom = vi.hoisted(() => vi.fn());
+vi.mock('../services/supabase/client.js', () => ({
+  supabase: { from: historyFrom },
+  maintenanceSupabase: {},
+}));
 
 const { ServerTableEngine } = await import('./ServerTableEngine.js');
 
@@ -159,4 +163,77 @@ it('deals both sides of the button pass with the real hand controller', async ()
     engine.lastBigBlindSeat = blinds.bigBlind;
     engine.previousHandOccupants = new Map(selected.map((p) => [p.seat_number, p.user_id]));
   }
+});
+
+describe('button wait at tournament entry boundaries', () => {
+  it('keeps heads-up playable when a new occupant lands between the last button and blind', () => {
+    const engine = tournamentEngine({ tournament: true, seats: [1, 2] });
+    engine.lastButtonSeat = 1;
+    engine.lastBigBlindSeat = 2;
+    engine.previousHandOccupants.set(1, 'u1');
+    const admitted = engine.admitMovedSeats(engine.seatedPlayers);
+    expect(admitted).toEqual(engine.seatedPlayers);
+    expect(engine.waitingForButton.size).toBe(0);
+    expect(engine.predictBlindSeats(admitted)).toMatchObject({
+      button: 2,
+      smallBlind: 2,
+      bigBlind: 1,
+    });
+  });
+
+  it('holds a late registrant inside the interval and admits one outside it', () => {
+    const engine = tournamentEngine({ tournament: true });
+    engine.lastButtonSeat = 2;
+    engine.lastBigBlindSeat = 4;
+    engine.previousHandOccupants = new Map([
+      [1, 'u1'],
+      [2, 'u2'],
+      [4, 'u4'],
+      [6, 'u6'],
+    ]);
+    expect(
+      engine
+        .admitMovedSeats(engine.seatedPlayers)
+        .map((p: { seat_number: number }) => p.seat_number)
+    ).toEqual([1, 2, 4, 5, 6]);
+    expect([...engine.waitingForButton]).toEqual([[3, 'u3']]);
+  });
+
+  it.each([
+    { button: 6, bb: 1, held: true },
+    { button: 8, bb: 2, held: false },
+  ])(
+    'restores admission from settled history with the button at $button',
+    async ({ button, bb, held }) => {
+      const engine = tournamentEngine({ tournament: true, seats: [1, 2, 3, 4, 5, 6, 7, 8] });
+      const query = {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        order: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue({
+          error: null,
+          data: [
+            {
+              button_seat: button,
+              players: engine.seatedPlayers
+                .slice(0, 7)
+                .map((p: { seat_number: number; user_id: string }) => ({
+                  seat: p.seat_number,
+                  userId: p.user_id,
+                })),
+              actions: [{ action: 'bb', origin: 'forced', seat: bb }],
+            },
+          ],
+        }),
+      };
+      historyFrom.mockReturnValue(query);
+      await engine.restoreButtonFromHistory();
+      expect(
+        engine
+          .admitMovedSeats(engine.seatedPlayers)
+          .some((p: { user_id: string }) => p.user_id === 'u8')
+      ).toBe(!held);
+      expect(engine.waitingForButton.has(8)).toBe(held);
+    }
+  );
 });

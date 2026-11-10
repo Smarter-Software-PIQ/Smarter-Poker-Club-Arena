@@ -187,6 +187,58 @@ export async function readClubChipBalances(
   return out;
 }
 
+/**
+ * Each seated player's balance in the wallet THEIR SEAT was bought from.
+ *
+ * `readClubChipBalances(tableInfo.club_id, ...)` asks the table's club. At a
+ * union table that is the union row, which holds no member wallet, so every
+ * player read as unknown and the bust check failed open for everybody: a
+ * player with nothing left was treated as able to rebuy (2026-11-09). The
+ * wallet a rebuy debits is `table_seats.club_id`, so that is the one read
+ * here, falling back to the table's club for a seat that names none.
+ *
+ * Same contract as readClubChipBalances: an ABSENT key means unknown, never
+ * zero. A failed seat read returns an empty map.
+ */
+export async function readSeatWalletBalances(
+  tableId: string,
+  userIds: string[],
+  fallbackClubId: string
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  const ids = userIds.filter(Boolean);
+  if (!tableId || ids.length === 0) return out;
+  const usersByClub = new Map<string, string[]>();
+  try {
+    const { data, error } = await supabase
+      .from('table_seats')
+      .select('user_id, club_id')
+      .eq('table_id', tableId)
+      .in('user_id', ids)
+      .is('left_at', null);
+    if (error) {
+      reportError(error, 'DB.read_seat_wallet_balances_failed');
+      return out;
+    }
+    for (const row of (data ?? []) as Array<{ user_id: string; club_id?: string | null }>) {
+      const club =
+        typeof row.club_id === 'string' && row.club_id.length > 0 ? row.club_id : fallbackClubId;
+      if (!club) continue;
+      const users = usersByClub.get(club) ?? [];
+      users.push(String(row.user_id));
+      usersByClub.set(club, users);
+    }
+  } catch (err) {
+    reportError(err, 'DB.read_seat_wallet_balances_threw');
+    return out;
+  }
+  const reads = await Promise.all(
+    [...usersByClub].map(([club, users]) => readClubChipBalances(club, users))
+  );
+  for (const balances of reads) for (const [user, balance] of balances) out.set(user, balance);
+  return out;
+}
+
 // REMOVED 2026-08-26: ensureHorseWallet.
 //
 // It had ZERO call sites in server/src or src - the "called during fleet

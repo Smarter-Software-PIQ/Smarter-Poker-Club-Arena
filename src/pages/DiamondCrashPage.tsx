@@ -62,7 +62,7 @@ import { useIsMounted } from '../hooks/useIsMounted';
 import PageSkeleton from '../components/common/PageSkeleton';
 import { LoadingState } from '../components/common/EmptyState';
 import CrashCurve, { type CrashPhase } from '../components/crash/CrashCurve';
-import { GameConsole, GamePanel } from '../components/games/GameConsole';
+import { bonusPrizeBay, GameConsole, GamePanel } from '../components/games/GameConsole';
 import { useMeasuredWidth } from '../hooks/useMeasuredWidth';
 import { useSceneBudget } from '../hooks/useSceneBudget';
 import BonusSetup, { guaranteeCopy } from '../components/games/BonusSetup';
@@ -1316,6 +1316,14 @@ function DiamondCrashGame() {
 
   const chartWidth = Math.max(240, Math.min(1440, stageWidth - 4));
   const settledRound = round && round.status !== 'open' ? round : null;
+  const showPaidReceipt = Boolean(
+    settledRound?.outcome &&
+    revealedRoundId === settledRound.round_id &&
+    !uncertain &&
+    !starting &&
+    !cashing
+  );
+
   const finalCents = settledRound
     ? settledRound.status === 'cashed'
       ? (settledRound.outcome?.cashout_cents ?? 100)
@@ -1470,16 +1478,16 @@ function DiamondCrashGame() {
         pillInk={pillInk}
         aria-labelledby="diamond-crash-title"
         bays={[
+          bonusPrizeBay(
+            guaranteed?.chips ?? null,
+            showPaidReceipt ? (settledRound?.outcome?.payout_chips ?? null) : null,
+            guaranteed?.super ?? false
+          ),
           {
             label: 'Bet',
             value: open && round ? compactChips(round.bet_diamonds) : compactChips(bet),
             ink: betOption && !betOption.playable ? 'red' : 'white',
             disabled: true,
-          },
-          {
-            label: 'Guaranteed',
-            value: guaranteed ? `${gameChips(guaranteed.chips)} Chips` : 'Pending',
-            ink: guaranteed?.super ? 'gold' : undefined,
           },
           {
             label: 'Auto',
@@ -1818,44 +1826,40 @@ function DiamondCrashGame() {
       </GamePanel>
 
       {!user ? <p className="sc-copy sc-copy--center sc-ink--muted">Sign In To Play.</p> : null}
-      {settledRound?.outcome &&
-        revealedRoundId === settledRound.round_id &&
-        !uncertain &&
-        !starting &&
-        !cashing && (
-          <BonusCompletion
-            key={settledRound.round_id}
-            clubId={routeClubId ?? ''}
-            clubUuid={clubUuid}
-            awardId={settledRound.award_id ?? null}
-            // The scene already sounded the ending on the frame that showed it
-            // (the booked sting, the gold fanfare at the cap, or the crash
-            // explosion). Either way the receipt adds no chord.
-            silent
-            // A crash is not a win. The receipt says what it is.
-            eyebrow={
-              settledRound.status === 'cashed'
-                ? undefined
-                : settledRound.outcome.payout_chips > 0
-                  ? 'Guarantee Paid'
-                  : 'Round Over'
-            }
-            chips={settledRound.outcome.payout_chips}
-            // A booked win reveals the sealed point it was flying to (Dan,
-            // 2026-10-12); a crash says where it ended.
-            detail={
-              settledRound.status === 'cashed'
-                ? `${crashWouldHaveLabel(settledRound.outcome.crash_cents, settledRound.cap_cents)}.`
-                : `The Flight Crashed At ${multiplierLabel(settledRound.outcome.crash_cents)}.`
-            }
-            // The receipt's own art: the jet at the multiplier it booked, or
-            // where it crashed on a round that was not cashed.
-            game="crash"
-            figure={finalCents === null ? null : finalCents / 100}
-            cap={settledRound.cap_cents / 100}
-            stakeChips={settledRound.bet_chips}
-          />
-        )}
+      {settledRound?.outcome && showPaidReceipt && (
+        <BonusCompletion
+          key={settledRound.round_id}
+          clubId={routeClubId ?? ''}
+          clubUuid={clubUuid}
+          awardId={settledRound.award_id ?? null}
+          // The scene already sounded the ending on the frame that showed it
+          // (the booked sting, the gold fanfare at the cap, or the crash
+          // explosion). Either way the receipt adds no chord.
+          silent
+          // A crash is not a win. The receipt says what it is.
+          eyebrow={
+            settledRound.status === 'cashed'
+              ? undefined
+              : settledRound.outcome.payout_chips > 0
+                ? 'Guarantee Paid'
+                : 'Round Over'
+          }
+          chips={settledRound.outcome.payout_chips}
+          // A booked win reveals the sealed point it was flying to (Dan,
+          // 2026-10-12); a crash says where it ended.
+          detail={
+            settledRound.status === 'cashed'
+              ? `${crashWouldHaveLabel(settledRound.outcome.crash_cents, settledRound.cap_cents)}.`
+              : `The Flight Crashed At ${multiplierLabel(settledRound.outcome.crash_cents)}.`
+          }
+          // The receipt's own art: the jet at the multiplier it booked, or
+          // where it crashed on a round that was not cashed.
+          game="crash"
+          figure={finalCents === null ? null : finalCents / 100}
+          cap={settledRound.cap_cents / 100}
+          stakeChips={settledRound.bet_chips}
+        />
+      )}
     </div>
   );
 }

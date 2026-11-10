@@ -1321,6 +1321,8 @@ export function originalTurnSelectionFailures(capture, witness) {
     failures.push('executed_selected_action_mismatch');
   if (witness.selected?.action !== capture.decision?.action)
     failures.push('selected_captured_action_mismatch');
+  if ((witness.selected?.amount ?? null) !== (capture.decision?.amount ?? null))
+    failures.push('selected_captured_amount_mismatch');
   if (['fold', 'check'].includes(witness.executedAction)) {
     if (witness.executedAmount !== null) failures.push('zero_executed_amount_not_null');
     if (witness.expectedExecutionAmount !== 0) failures.push('zero_expected_amount_not_zero');
