@@ -176,23 +176,29 @@ BEGIN
    p_expected_step:=(pending.decision->>'step')::integer;
  END IF;
  n:=cardinality(r.picked);$n$),
- ('fn_choice_act(uuid,text,integer,integer)',$o$  UPDATE public.diamond_game_pools SET reserved_chips=reserved_chips-r.reserved_chips,$o$,$n$  BEGIN
-  UPDATE public.diamond_game_pools SET reserved_chips=reserved_chips-r.reserved_chips,$n$),
+ ('fn_choice_act(uuid,text,integer,integer)',$o$  UPDATE public.diamond_game_pools SET reserved_chips=reserved_chips-r.reserved_chips,
+   chips_paid=chips_paid+v_pay,updated_at=now() WHERE host_id=r.host_id AND game=r.game;$o$,$n$  BEGIN
+  UPDATE public.diamond_game_pools SET reserved_chips=reserved_chips-r.reserved_chips,
+   chips_paid=chips_paid+v_pay,updated_at=now() WHERE host_id=r.host_id AND game=r.game;$n$),
  ('fn_choice_act(uuid,text,integer,integer)',$o$ END IF;
- UPDATE public.diamond_choice_rounds SET mine_cells=$o$,$n$  EXCEPTION WHEN SQLSTATE 'PMW01' THEN
+ UPDATE public.diamond_choice_rounds SET mine_cells=r.mine_cells,picked=r.picked,status=r.status,payout_chips=v_pay,
+  settled_at=CASE WHEN r.status<>'open' THEN clock_timestamp() END WHERE id=r.id RETURNING * INTO r;$o$,$n$  EXCEPTION WHEN SQLSTATE 'PMW01' THEN
     GET STACKED DIAGNOSTICS reason=PG_EXCEPTION_DETAIL;
     RETURN public.fn_midway_prize_wait(reason,jsonb_build_object('action',p_action,'cell',p_cell,'step',p_expected_step));
   END;
  END IF;
- UPDATE public.diamond_choice_rounds SET mine_cells=$n$),
+ UPDATE public.diamond_choice_rounds SET mine_cells=r.mine_cells,picked=r.picked,status=r.status,payout_chips=v_pay,
+  settled_at=CASE WHEN r.status<>'open' THEN clock_timestamp() END WHERE id=r.id RETURNING * INTO r;$n$),
  ('fn_crash_decide(public.crash_rounds,boolean,text,integer)',$o$  v_intake_chips numeric;$o$,$n$  v_intake_chips numeric; pending public.wheel_midway_prize_claims; reason text;$n$),
  ('fn_crash_decide(public.crash_rounds,boolean,text,integer)',$o$  IF r.auto_cashout_cents IS NOT NULL AND$o$,$n$  SELECT * INTO pending FROM public.wheel_midway_prize_claims WHERE prize_key='crash-prize:'||r.id AND paid_at IS NULL;
   IF FOUND THEN
     v_result:=pending.decision->>'result'; v_at_cents:=(pending.decision->>'cents')::integer;
     v_elapsed_ms:=(pending.decision->>'elapsed_ms')::bigint; p_by:=pending.decision->>'by';
   ELSIF r.auto_cashout_cents IS NOT NULL AND$n$),
- ('fn_crash_decide(public.crash_rounds,boolean,text,integer)',$o$  UPDATE public.diamond_game_pools SET reserved_chips=reserved_chips-r.reserved_chips$o$,$n$  BEGIN
-  UPDATE public.diamond_game_pools SET reserved_chips=reserved_chips-r.reserved_chips$n$),
+ ('fn_crash_decide(public.crash_rounds,boolean,text,integer)',$o$  UPDATE public.diamond_game_pools SET reserved_chips=reserved_chips-r.reserved_chips
+   WHERE host_id=r.host_id AND game='crash';$o$,$n$  BEGIN
+  UPDATE public.diamond_game_pools SET reserved_chips=reserved_chips-r.reserved_chips
+   WHERE host_id=r.host_id AND game='crash';$n$),
  ('fn_crash_decide(public.crash_rounds,boolean,text,integer)',$o$  RETURN r;
 END$o$,$n$  RETURN r;
   EXCEPTION WHEN SQLSTATE 'PMW01' THEN
@@ -220,11 +226,11 @@ END$n$),
  total:=jsonb_array_length(s.sealed_result->'drops');$n$),
  ('fn_wheel_plinko_release(uuid,uuid,boolean)',$o$  PERFORM public.fn_diamond_game_pay_chips('plinko_prize'$o$,$n$  BEGIN
   PERFORM public.fn_diamond_game_pay_chips('plinko_prize'$n$),
- ('fn_wheel_plinko_release(uuid,uuid,boolean)',$o$  UPDATE public.diamond_game_pools SET chips_paid=chips_paid+amount,$o$,$n$  EXCEPTION WHEN SQLSTATE 'PMW01' THEN
+ ('fn_wheel_plinko_release(uuid,uuid,boolean)',$o$  UPDATE public.diamond_game_pools SET chips_paid=chips_paid+amount,reserved_chips=reserved_chips-amount,updated_at=now() WHERE host_id=a.host_id AND game='plinko';$o$,$n$  EXCEPTION WHEN SQLSTATE 'PMW01' THEN
     GET STACKED DIAGNOSTICS reason=PG_EXCEPTION_DETAIL;
     RETURN public.fn_midway_prize_wait(reason,jsonb_build_object('request',p_request_id,'all',p_all));
   END;
-  UPDATE public.diamond_game_pools SET chips_paid=chips_paid+amount,$n$),
+  UPDATE public.diamond_game_pools SET chips_paid=chips_paid+amount,reserved_chips=reserved_chips-amount,updated_at=now() WHERE host_id=a.host_id AND game='plinko';$n$),
  ('fn_wheel_plinko_release(uuid,uuid,boolean)',$o$ INSERT INTO public.wheel_plinko_releases VALUES(p_award_id,p_request_id,p_all,result);$o$,$n$ INSERT INTO public.wheel_plinko_releases VALUES(p_award_id,p_request_id,p_all,result);
  IF pending.prize_key IS NOT NULL AND (pending.decision->>'request')::uuid<>p_request_id THEN
    INSERT INTO public.wheel_plinko_releases VALUES(p_award_id,(pending.decision->>'request')::uuid,p_all,result);
