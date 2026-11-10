@@ -123,6 +123,9 @@ BEGIN
  END IF;
  RETURN public.fn_wheel_spin_v5_core(p_club_id,p_commit_id,p_client_seed,p_entry_diamonds,p_mode,p_bonus_ticket_id);
 END $$;
+REVOKE ALL ON FUNCTION public.fn_wheel_spin_v2(uuid,uuid,text,bigint,text,uuid) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.fn_wheel_spin_v2(uuid,uuid,text,bigint,text,uuid) TO authenticated,service_role;
+
 -- The engine supplies the same authenticated player call for a horse. Its
 -- adapter must follow the new endpoint too; all identity gates stay unchanged.
 DO $horse$
