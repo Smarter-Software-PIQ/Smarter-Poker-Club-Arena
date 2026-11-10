@@ -1,4 +1,5 @@
 """Finite blob hydration for isolated historical-source qualification only."""
+from concurrent.futures import ThreadPoolExecutor
 import os
 import signal
 import subprocess
@@ -36,12 +37,17 @@ def hydrate_historical_sources(root, revisions, paths, budget_seconds=10, allow_
             raise
         finally:
             terminate_group()
-    objects = set()
-    for revision in sorted(set(revisions)):
-        if len(revision) != 40 or any(char not in '0123456789abcdef' for char in revision):
-            raise ValueError('Historical fixture revision is not immutable')
-        if git('rev-parse', '--verify', revision + '^{commit}').decode().strip() != revision:
-            raise ValueError('Historical fixture commit unavailable')
+    revisions = sorted(set(revisions))
+    if not revisions or any(len(rev) != 40 or any(ch not in '0123456789abcdef' for ch in rev)
+                            for rev in revisions):
+        raise ValueError('Historical fixture revision is not immutable')
+    data = ('\n'.join(revisions) + '\n').encode()
+    identities = git('cat-file', '--batch-check=%(objectname) %(objecttype)', data=data)
+    if identities.decode().splitlines() != [rev + ' commit' for rev in revisions]:
+        raise ValueError('Historical fixture commit unavailable')
+
+    def pinned_tree(revision):
+        objects = set()
         for record in git('ls-tree', '-rz', revision, '--', *paths).split(b'\0'):
             if not record: continue
             metadata, path = record.split(b'\t', 1)
@@ -49,6 +55,12 @@ def hydrate_historical_sources(root, revisions, paths, budget_seconds=10, allow_
             if kind != 'blob' or path.decode() not in paths or mode not in {'100644', '100755'}:
                 raise ValueError('Historical fixture object shape refused')
             objects.add(oid)
+        return objects
+
+    # Immutable trees have independent paths. Read four at once under the
+    # original shared deadline, including every child's cleanup reserve.
+    with ThreadPoolExecutor(max_workers=4) as readers:
+        objects = set().union(*readers.map(pinned_tree, revisions))
     if not objects or len(objects) > 128:
         raise ValueError('Historical fixture object closure refused')
     ordered = sorted(objects)
