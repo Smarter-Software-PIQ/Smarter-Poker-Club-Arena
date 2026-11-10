@@ -5,7 +5,7 @@
 -- The 9.9M-row predecessor table has no table/time range cover; bounded reads
 -- timed out. A skinny concurrent cover and private generic-only scalar lookup
 -- are prerequisites before this proof enters the original financial event.
--- @live-proof: (SELECT md5(pg_get_functiondef('public.fn_union_pnl_prove_posthand_escrow(uuid,bigint)'::regprocedure))='acd3dfc914dca2aff6ab5c1505169ef6' AND md5(pg_get_functiondef('public.fn_ca_process_hand_post_commit_obligations(uuid)'::regprocedure))='8b81e8bb218cacb235832285e4fbbb24' AND md5(pg_get_functiondef('smarter_private.original_cash_hand_predecessor(uuid,bigint,timestamptz,uuid)'::regprocedure))='8f4d01a26e41dcb1cbc82c75e2c6a483')
+-- @live-proof: (SELECT md5(pg_get_functiondef('public.fn_union_pnl_prove_posthand_escrow(uuid,bigint)'::regprocedure))='bc53663008b4c64d21bd68d6e5418411' AND md5(pg_get_functiondef('public.fn_ca_process_hand_post_commit_obligations(uuid)'::regprocedure))='8b81e8bb218cacb235832285e4fbbb24' AND md5(pg_get_functiondef('smarter_private.original_cash_hand_predecessor(uuid,bigint,timestamptz,uuid)'::regprocedure))='8f4d01a26e41dcb1cbc82c75e2c6a483')
 CREATE INDEX CONCURRENTLY IF NOT EXISTS cash_hand_provenance_table_time_cover
  ON public.cash_hand_provenance_receipts(table_id,accepted_at,hand_number);
 BEGIN;
@@ -274,7 +274,7 @@ BEGIN
    group_row record;baseline numeric;baseline_at timestamptz;baseline_kind text;baseline_source jsonb;baseline_proofs jsonb:='[]';pre_applications jsonb;pre_applied numeric;
    l chip_ledger;initial cash_participant_funding_receipts;move cash_seat_move_receipts;prior_part jsonb;
    last_stack numeric;next_stack numeric;seat_ids bigint[];refund_ids uuid[];funding_ids uuid[]:=ARRAY[]::uuid[];
-   receipt_owner uuid;posted_count bigint;expected_count bigint;flow_original union_pnl_original_flows;
+   receipt_owner uuid;posted_count bigint;expected_count bigint;flow_original union_pnl_original_flows;direct_prehand jsonb;direct_total numeric;direct_frame union_pnl_transaction_frames;direct_group record;prehand_stack numeric;direct_before numeric;prehand_events jsonb;direct_event_ids bigint[];
   BEGIN
    IF jsonb_typeof(pending_ids) IS DISTINCT FROM 'array' OR jsonb_array_length(pending_ids)<1
     OR (SELECT count(DISTINCT x)FROM jsonb_array_elements_text(pending_ids)x)<>jsonb_array_length(pending_ids)
@@ -351,10 +351,74 @@ BEGIN
      JOIN cash_participant_funding_receipts fr ON fr.id=ap.funding_receipt_id
      WHERE fr.id IN(SELECT(x->>'id')::uuid FROM jsonb_array_elements(part->'funding_receipts')x)
       AND ap.applied_occupancy_id=(part->>'occupancy_id')::uuid AND ap.applied_at>baseline_at AND ap.applied_at<=m.captured_at;
+    -- Direct prehand wallet credits have no pending-application receipt.
+    -- Admit them only through their original debit/frame and the complete
+    -- same-occupancy seat-event chain, grouped with pending credits in the
+    -- same transaction. No credit becomes a played poker delta.
+    direct_prehand:='[]'::jsonb;direct_total:=0;prehand_events:='[]'::jsonb;
+    FOR f IN SELECT fr.*FROM cash_participant_funding_receipts fr
+     WHERE fr.id IN(SELECT(x->>'id')::uuid FROM jsonb_array_elements(part->'funding_receipts')x)
+      AND fr.pending_addon_id IS NULL AND fr.occupancy_id=(part->>'occupancy_id')::uuid
+      AND fr.recorded_at>baseline_at AND fr.recorded_at<=m.captured_at ORDER BY fr.recorded_at,fr.id LOOP
+     SELECT *INTO STRICT l FROM chip_ledger WHERE id=f.source_ledger_id;
+     SELECT *INTO STRICT direct_frame FROM union_pnl_transaction_frames WHERE transaction_id=f.transaction_id;
+     IF f.operation_kind NOT IN('addon','rebuy')OR f.account_type IS DISTINCT FROM 'player_wallet'
+      OR f.account_entity_id IS DISTINCT FROM affected OR f.user_id IS DISTINCT FROM affected
+      OR f.table_id IS DISTINCT FROM p_table OR f.seat_id::text IS DISTINCT FROM part->>'seat_id'
+      OR f.seat_joined_at IS DISTINCT FROM(part->>'seat_joined_at')::timestamptz
+      OR f.funding_club_id IS DISTINCT FROM(SELECT(x->>'earning_club_id')::uuid FROM jsonb_array_elements(proof_people)x WHERE x->>'user_id'=affected::text)
+      OR f.funding_union_id::text IS DISTINCT FROM o.game_scope->>'game_union_id'OR f.asset IS DISTINCT FROM 'chips'OR f.unit_scale<>2
+      OR f.amount IS NULL OR f.amount<=0 OR f.amount<>round(f.amount,2)OR f.amount::text IN('NaN','Infinity','-Infinity')
+      OR f.balance_before-f.balance_after IS DISTINCT FROM f.amount
+      OR direct_frame.observed_at IS NULL OR NOT isfinite(direct_frame.observed_at)
+      OR direct_frame.observed_at<=baseline_at OR direct_frame.observed_at>f.recorded_at
+      OR l.status IS DISTINCT FROM 'posted'OR l.row_hash IS NULL OR l.club_id IS DISTINCT FROM f.funding_club_id
+      OR l.from_type IS DISTINCT FROM 'player_wallet'OR l.from_entity_id IS DISTINCT FROM affected
+      OR l.to_type IS DISTINCT FROM 'table_stack'OR l.to_entity_id IS DISTINCT FROM p_table
+      OR l.amount IS DISTINCT FROM f.amount OR l.category IS DISTINCT FROM f.operation_kind THEN
+      RAISE EXCEPTION 'escrow_refused:original_direct_prehand_funding_required';END IF;
+     direct_total:=direct_total+f.amount;
+     direct_prehand:=direct_prehand||jsonb_build_array(jsonb_build_object('funding_receipt',f.id,'source_ledger',f.source_ledger_id,
+      'transaction_id',f.transaction_id::text,'recorded_at',f.recorded_at,'amount',f.amount,'source_row_md5',md5(to_jsonb(f)::text)));
+    END LOOP;
+    IF jsonb_array_length(direct_prehand)>0 THEN
+     prehand_stack:=baseline;prehand_events:='[]'::jsonb;
+     FOR direct_group IN
+      SELECT credit.tx,sum(credit.amount)amount,max(credit.at)at,fr.observed_at
+      FROM(SELECT x->>'transaction_id'tx,(x->>'amount')::numeric amount,(x->>'recorded_at')::timestamptz at
+       FROM jsonb_array_elements(direct_prehand)x
+       UNION ALL SELECT x->>'application_transaction',(x->>'applied')::numeric,(x->>'applied_at')::timestamptz
+       FROM jsonb_array_elements(pre_applications)x WHERE(x->>'applied')::numeric>0)credit
+      JOIN union_pnl_transaction_frames fr ON fr.transaction_id=credit.tx::xid8
+      GROUP BY credit.tx,fr.observed_at ORDER BY fr.observed_at,credit.tx LOOP
+      direct_before:=prehand_stack;direct_event_ids:=ARRAY[]::bigint[];
+      FOR witness IN SELECT e.*FROM union_pnl_inventory_events e WHERE e.transaction_id=direct_group.tx::xid8
+       AND e.source_name='table_seats'AND e.row_id=(part->>'seat_id')::uuid ORDER BY e.event_id LOOP
+       next_stack:=fn_pnl_evidence_cents(witness.after_row->'stack');
+       IF witness.operation IS DISTINCT FROM 'UPDATE'OR witness.observed_at IS DISTINCT FROM direct_group.observed_at
+        OR witness.observed_at<=baseline_at OR witness.observed_at>direct_group.at OR direct_group.at>m.captured_at
+        OR EXISTS(SELECT 1 FROM(VALUES(witness.before_row),(witness.after_row))r(j)WHERE
+         j->>'id'IS DISTINCT FROM part->>'seat_id'OR j->>'table_id'IS DISTINCT FROM p_table::text
+         OR j->>'user_id'IS DISTINCT FROM affected::text OR j->>'club_id'IS DISTINCT FROM(SELECT x->>'earning_club_id'FROM jsonb_array_elements(proof_people)x WHERE x->>'user_id'=affected::text)
+         OR j->>'occupancy_id'IS DISTINCT FROM part->>'occupancy_id'
+         OR(j->>'joined_at')::timestamptz IS DISTINCT FROM(part->>'seat_joined_at')::timestamptz OR j->'left_at'IS DISTINCT FROM 'null'::jsonb)
+        OR fn_pnl_evidence_cents(witness.before_row->'stack')IS DISTINCT FROM prehand_stack
+        OR next_stack IS NULL OR next_stack<prehand_stack THEN
+        RAISE EXCEPTION 'escrow_refused:original_direct_prehand_event_chain_required';END IF;
+       prehand_stack:=next_stack;direct_event_ids:=array_append(direct_event_ids,witness.event_id);
+      END LOOP;
+      IF cardinality(direct_event_ids)=0 OR prehand_stack-direct_before IS DISTINCT FROM direct_group.amount THEN
+       RAISE EXCEPTION 'escrow_refused:original_direct_prehand_event_conservation_required';END IF;
+      prehand_events:=prehand_events||jsonb_build_array(jsonb_build_object('transaction_id',direct_group.tx,'event_ids',direct_event_ids,'amount',direct_group.amount));
+     END LOOP;
+     IF prehand_stack IS DISTINCT FROM baseline+pre_applied+direct_total THEN
+      RAISE EXCEPTION 'escrow_refused:original_direct_prehand_chain_incomplete';END IF;
+    END IF;
     IF baseline IS NULL OR baseline<0 OR baseline_at IS NULL OR NOT isfinite(baseline_at)OR baseline_at>m.captured_at
-     OR fn_pnl_evidence_cents(part->'stack_before')IS DISTINCT FROM baseline+pre_applied THEN
+     OR fn_pnl_evidence_cents(part->'stack_before')IS DISTINCT FROM baseline+pre_applied+direct_total THEN
      RAISE EXCEPTION 'escrow_refused:played_opening_before_escrow_disagrees';END IF;
-    baseline_proofs:=baseline_proofs||jsonb_build_array(jsonb_build_object('user_id',affected,'baseline_kind',baseline_kind,'source',baseline_source,'baseline_stack',baseline,'baseline_at',baseline_at,'prehand_applications',pre_applications,'played_stack_before',part->'stack_before'));
+    baseline_proofs:=baseline_proofs||jsonb_build_array(jsonb_build_object('user_id',affected,'baseline_kind',baseline_kind,'source',baseline_source,'baseline_stack',baseline,'baseline_at',baseline_at,'prehand_applications',pre_applications,'direct_prehand_funding',direct_prehand,'direct_prehand_events',COALESCE(prehand_events,'[]'::jsonb),'played_stack_before',part->'stack_before'));
+
    END LOOP;
    -- Every sealed ID is proved, including requests made during this hand
    -- after the manifest. Amounts may split into applied and refunded parts.
@@ -406,7 +470,7 @@ BEGIN
      WHERE leg.to_type='player_wallet'AND leg.to_entity_id=group_row.usr::uuid AND leg.from_type='table_stack'AND leg.from_entity_id=p_table
       AND leg.club_id=group_row.club::uuid AND leg.amount=group_row.amount AND leg.category='player_funding'AND leg.status='posted'AND leg.row_hash IS NOT NULL
       AND leg.created_at>=original_committed_at AND leg.created_at<=group_row.at
-      AND original.transaction_id::text=group_row.tx
+      AND original.transaction_id=group_row.tx::xid8
       AND original.ledger_snapshot ?&ARRAY['id','status','row_hash','club_id','from_type','from_entity_id','to_type','to_entity_id','amount','category','created_at']
       AND NOT EXISTS(SELECT 1 FROM jsonb_each(original.ledger_snapshot)x WHERE x.key<>'created_at'
        AND x.value IS DISTINCT FROM to_jsonb(leg)->x.key)
@@ -422,7 +486,7 @@ BEGIN
     SELECT x INTO STRICT part FROM jsonb_array_elements(p.participants)x WHERE x->>'user_id'=group_row.usr;
     last_stack:=fn_pnl_evidence_cents(part->'stack_after');seat_ids:=ARRAY[]::bigint[];
     FOR witness IN SELECT e.*FROM union_pnl_inventory_events e WHERE e.source_name='table_seats'AND e.row_id=group_row.seat::uuid
-     AND e.transaction_id::text=group_row.tx ORDER BY e.event_id LOOP
+     AND e.transaction_id=group_row.tx::xid8 ORDER BY e.event_id LOOP
      next_stack:=fn_pnl_evidence_cents(witness.after_row->'stack');
      IF witness.operation IS DISTINCT FROM 'UPDATE'OR witness.observed_at IS NULL OR witness.observed_at<=p.accepted_at OR witness.observed_at>group_row.at
       OR NOT EXISTS(SELECT 1 FROM union_pnl_transaction_frames fr WHERE fr.transaction_id=witness.transaction_id AND fr.observed_at=witness.observed_at)
@@ -961,7 +1025,7 @@ DO $postimage$
 DECLARE sig text;hash text;p pg_proc;
 BEGIN
  FOR sig,hash IN SELECT *FROM(VALUES
- ('public.fn_union_pnl_prove_posthand_escrow(uuid,bigint)','acd3dfc914dca2aff6ab5c1505169ef6'),
+ ('public.fn_union_pnl_prove_posthand_escrow(uuid,bigint)','bc53663008b4c64d21bd68d6e5418411'),
  ('public.fn_ca_process_hand_post_commit_obligations(uuid)','8b81e8bb218cacb235832285e4fbbb24'),
  ('smarter_private.original_cash_hand_predecessor(uuid,bigint,timestamptz,uuid)','8f4d01a26e41dcb1cbc82c75e2c6a483'))v(s,h)LOOP
   SELECT *INTO STRICT p FROM pg_proc WHERE oid=to_regprocedure(sig);

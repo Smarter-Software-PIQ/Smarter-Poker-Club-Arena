@@ -174,8 +174,8 @@
       "sha256": "8b037b9f60bbb9219d0d47163ea4d2ed74d3b695431e950d4e06c2c2feec9966"
     },
     "tests/fixtures/posthand-escrow/README.md": {
-      "bytes": 4462,
-      "sha256": "6de4d2a87810da8a70f1aa11dfa4d08182c47e775af7547e741f303ddba39638"
+      "bytes": 4852,
+      "sha256": "e5536f08f246e883b12676229ff55ff7ea8782ef8b306b0266d128f04a5db200"
     },
     "tests/fixtures/posthand-escrow/access-preimage.sql": {
       "bytes": 417,
@@ -270,8 +270,8 @@
       "sha256": "c0a317f294f6e2d08f731ec43efc135fc04e049dc5fd86b56b59d05832df810f"
     },
     "tests/fixtures/posthand-escrow/source-binding.json": {
-      "bytes": 9667,
-      "sha256": "173a6172e01da8e20a8a3ed207c78f5df1ed9ff03147eb76da2430713b9551ba"
+      "bytes": 9808,
+      "sha256": "d7b5b705c68a24be6b4964e345d837254ab342623a02c64d793d00edd529d9d4"
     },
     "tests/fixtures/posthand-escrow/source-preservation.sql": {
       "bytes": 2047,
@@ -339,7 +339,7 @@
     }
   },
   "posthandTemporalQualificationAudit": {
-    "reason": "The reviewed posthand README documents the new original-event temporal proof and bounded private lookup. Its maintained binding adds only the successor migration and deterministic native extension; all historical financial source bytes and assertions remain unchanged. Rebind these two current composed inputs after the full existing native route and exact owner installer passed; this is not production certification.",
+    "reason": "The reviewed posthand README documents the new original-event temporal proof and bounded private lookup. Its maintained binding adds only the successor migration and deterministic native extension; all historical financial source bytes and assertions remain unchanged. Rebind these two current composed inputs after the full existing native route and exact owner installer passed; this is not production certification. The successor also proves original direct prehand credits through their exact debit/frame and seat-event chain, with connected positive and forged-event/amount negatives; historical pins remain untouched.",
     "changedCurrentInputs": [
       "tests/fixtures/posthand-escrow/README.md",
       "tests/fixtures/posthand-escrow/source-binding.json"

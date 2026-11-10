@@ -68,6 +68,7 @@ describe('original posthand escrow stays separate from poker winnings', () => {
       'POSTHAND_TEMPORAL_EXACT_VALID_COVER_REQUIRED',
       'POSTHAND_TEMPORAL_DEPENDENT_PIN_CHANGED',
       'POSTHAND_TEMPORAL_ORIGINAL_PROOF_GENERATION_CHANGED',
+      'escrow_refused:original_direct_prehand_event_conservation_required',
       "SET plan_cache_mode TO 'force_generic_plan'",
       'original_unplayed_pending_escrow_completed_after_signed_hand',
       'original_sources_unqualified',
@@ -84,6 +85,7 @@ describe('original posthand escrow stays separate from poker winnings', () => {
       'multiple-native.sql',
       'event-refusal-native.sql',
       'lookup-native.sql',
+      'direct-prehand-native.sql',
       'installation.py',
     ])
       expect(probe).toContain(input);

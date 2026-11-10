@@ -102,6 +102,6 @@ python3 "$T/extract-candidate.py" "$NEXT" "$WORK"
 # This isolated seam intentionally supplies only reporting readiness, not a
 # fabricated 68-source catalog. The real owners and all financial proofs run.
 "${PSQL[@]}" -c 'CREATE FUNCTION smarter_private.original_inventory_proof_sources_match()RETURNS boolean LANGUAGE sql AS $$SELECT true$$'  -f "$T/prover-original.sql" -f "$T/projector-original.sql" -f "$WORK/helper.sql"
-"${PSQL[@]}" -v prover_candidate="$WORK/prover.sql" -v completion_candidate="$WORK/completion.sql" -v completion_original="$T/completion-original.sql"  -f "$T/rebuy-prototype.sql" -f "$T/split-native.sql" -f "$T/initial-native.sql" -f "$T/multiple-native.sql"  -f "$T/extra-native.sql" -f "$T/event-native.sql" -f "$T/negative-native.sql" -f "$T/event-refusal-native.sql" -f "$T/lookup-native.sql"
+"${PSQL[@]}" -v prover_candidate="$WORK/prover.sql" -v completion_candidate="$WORK/completion.sql" -v completion_original="$T/completion-original.sql"  -f "$T/rebuy-prototype.sql" -f "$T/split-native.sql" -f "$T/initial-native.sql" -f "$T/multiple-native.sql"  -f "$T/extra-native.sql" -f "$T/event-native.sql" -f "$T/negative-native.sql" -f "$T/event-refusal-native.sql" -f "$T/direct-prehand-native.sql" -f "$T/lookup-native.sql"
 python3 "$T/installation.py" "$PGBIN" "$WORK" "$NEXT"
 echo 'PASS original completed pending escrow temporal native PostgreSQL17'
