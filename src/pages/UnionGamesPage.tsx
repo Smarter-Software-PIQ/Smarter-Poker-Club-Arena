@@ -24,6 +24,7 @@ import PageSkeleton from '../components/common/PageSkeleton';
 import styles from './UnionGamesPage.module.css';
 import { useIsMounted } from '../hooks/useIsMounted';
 import { fmt, fmtChips } from '../utils/format';
+import { jackpotChips } from '../utils/jackpotExact';
 import { reportError } from '../utils/errorReporter';
 import { useTournamentRegistration } from '../hooks/useTournamentRegistration';
 import CasinoSurfaceHeader from '../components/rewards/RewardsSurfaceHeader';
@@ -540,7 +541,7 @@ export default function UnionGamesPage() {
         </div>
         {bbjPool && (
           <div className={styles.statCard}>
-            <div className={styles.statValuePurple}>{fmtChips(bbjPool.total_pool)}</div>
+            <div className={styles.statValuePurple}>{jackpotChips(bbjPool.total_pool)}</div>
             <div className={styles.statLabel}>BBJ Pool</div>
           </div>
         )}
@@ -729,7 +730,7 @@ export default function UnionGamesPage() {
             <div className={styles.bbjContainer}>
               <div className={styles.bbjPoolCard}>
                 <div className={styles.bbjLabel}>Current BBJ Pool</div>
-                <div className={styles.bbjAmount}>{fmtChips(bbjPool.total_pool)}</div>
+                <div className={styles.bbjAmount}>{jackpotChips(bbjPool.total_pool)}</div>
                 <div className={styles.bbjSublabel}>Bad Beat Jackpot</div>
               </div>
 

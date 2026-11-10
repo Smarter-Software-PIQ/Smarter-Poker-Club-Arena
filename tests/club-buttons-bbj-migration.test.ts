@@ -8,7 +8,7 @@ describe('#ClubButtons BBJ migration', () => {
   it('renders the live amount through the production hero component', () => {
     expect(source).toContain("import { ArenaJackpotDisplay } from '../components/club-buttons'");
     expect(source).toContain('<ArenaJackpotDisplay');
-    expect(source).toContain('(jackpot?.main_balance || 0).toLocaleString()');
+    expect(source).toContain('value={jackpotChips(jackpot?.main_balance)}');
   });
 
   it('preserves the existing realtime refresh path', () => {

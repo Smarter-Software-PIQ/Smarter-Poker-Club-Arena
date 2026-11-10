@@ -25,6 +25,7 @@ import { confirmDialog } from '../components/common/confirmDialog';
 import { useIsMounted } from '../hooks/useIsMounted';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import { fmt, formatWalletChips, timeAgo } from '../utils/format';
+import { jackpotChips } from '../utils/jackpotExact';
 import { UNION_DASHBOARD_CLUB_COLUMNS, clubWithMoneyPanel } from '../services/unionDashboardClubs';
 import UnionWalletModal, { type UnionWalletKey } from '../components/union/UnionWalletModal';
 import UnionTreasuryDetailModal, {
@@ -1371,7 +1372,7 @@ export default function UnionDashboardPage() {
                     onClick={() => setTreasuryModal('backup')}
                   >
                     <div className="admin-stat-value" style={{ color: '#4599FF' }}>
-                      {fmt(bbjPool?.backup_balance ?? 0)}
+                      {jackpotChips(bbjPool?.backup_balance)}
                     </div>
                     {/* 2026-09-11: this bank is what the Mini Jackpot pays from
                         (fn_bbj_mini_payout debits backup_balance), and the tile
@@ -2037,7 +2038,7 @@ export default function UnionDashboardPage() {
                     Move Chips From The Union Bank Into The Shared Bad Beat Jackpot. Split Across
                     Main/Backup/Promo Per Your Union BBJ Settings.
                     {bbjPool
-                      ? ` Current Pool: ${fmt(bbjPool.main_balance)} Main / ${fmt(bbjPool.backup_balance)} Backup / ${fmt(bbjPool.promo_balance)} Promo.`
+                      ? ` Current Pool: ${jackpotChips(bbjPool.main_balance)} Main / ${jackpotChips(bbjPool.backup_balance)} Backup / ${jackpotChips(bbjPool.promo_balance)} Promo.`
                       : ' No Active Pool Found.'}
                   </p>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -2117,7 +2118,7 @@ export default function UnionDashboardPage() {
                     A Second, Smaller Jackpot For The Bad Beats The Main Rule Turns Away. It Pays A
                     Flat Amount Set By The Stakes, Out Of The Backup Pool This Union Shares, And No
                     Extra Fee Is Taken For It. Every Club In This Union Has One Switch And One
-                    Reserve Floor Between Them. Backup Pool: {fmt(bbjPool.backup_balance)}.
+                    Reserve Floor Between Them. Backup Pool: {jackpotChips(bbjPool.backup_balance)}.
                   </p>
                   <div
                     style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}

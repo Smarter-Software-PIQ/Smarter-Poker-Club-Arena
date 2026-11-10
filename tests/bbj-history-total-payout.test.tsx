@@ -44,11 +44,11 @@ describe('BBJ history full payout', () => {
       const open = vi.fn();
       const { container } = render(<BBJRecentHits poolId="pool" kind={kind} onOpenHand={open} />);
       await screen.findByText('Total Paid Out');
-      expect(container.querySelector('.bbj-hits__amt')).toHaveTextContent('4.6K');
-      const row = screen.getByRole('button', { name: /Total Paid Out 4.6K/ });
-      expect(row).not.toHaveAccessibleName(/ramen Won 4.6K/);
+      expect(container.querySelector('.bbj-hits__amt')).toHaveTextContent('4,636.78');
+      const row = screen.getByRole('button', { name: /Total Paid Out 4,636\.78/ });
+      expect(row).not.toHaveAccessibleName(/ramen Won 4,636\.78/);
       expect(screen.getByText('MKEPam')).toBeInTheDocument();
-      expect(container.querySelector('.bbj-hits__name')).toHaveTextContent('ramen+2.3K');
+      expect(container.querySelector('.bbj-hits__name')).toHaveTextContent('ramen+2,318.38');
       expect(
         within(screen.getByRole('group', { name: 'ramen Hole Cards' })).getByText('Unavailable')
       ).toBeInTheDocument();
@@ -67,13 +67,15 @@ describe('BBJ history full payout', () => {
       await waitFor(() =>
         expect(container.querySelector('.bbj-hits__amt')).toHaveTextContent('Unavailable')
       );
-      expect(container.querySelector('.bbj-hits__amt')).not.toHaveTextContent('2.3K');
+      expect(container.querySelector('.bbj-hits__amt')).not.toHaveTextContent('2,318.38');
     }
   );
   it('shows zero as recorded and does not substitute the player share', async () => {
     io.rpc.mockResolvedValue({ data: [{ ...hit, total_payout: 0 }], error: null });
     const { container } = render(<BBJRecentHits poolId="pool" />);
-    await waitFor(() => expect(container.querySelector('.bbj-hits__amt')).toHaveTextContent('0'));
+    await waitFor(() =>
+      expect(container.querySelector('.bbj-hits__amt')).toHaveTextContent('0.00')
+    );
   });
 });
 
@@ -118,13 +120,13 @@ describe('BBJ dealt hole cards and personal award', () => {
       io.rpc.mockResolvedValue({ data: [{ ...hit, bad_beat_amount: share }], error: null });
       const { container } = render(<BBJRecentHits poolId="pool" />);
       await screen.findByText('Payout Unavailable');
-      expect(container.querySelector('.bbj-hits__amt')).toHaveTextContent('4.6K');
+      expect(container.querySelector('.bbj-hits__amt')).toHaveTextContent('4,636.78');
       expect(container.querySelector('.bbj-hits__share')).toBeNull();
     }
   );
   it('preserves a recorded zero personal award', async () => {
     io.rpc.mockResolvedValue({ data: [{ ...hit, bad_beat_amount: 0 }], error: null });
     render(<BBJRecentHits poolId="pool" />);
-    expect(await screen.findByLabelText('Jackpot Winner Received +0')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Jackpot Winner Received +0.00')).toBeInTheDocument();
   });
 });
