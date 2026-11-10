@@ -1,3 +1,4 @@
+import { doorRosterCapsule } from '../horseAcceptedRoster/fixture.test-support.js';
 /** The accepted-hand transaction is the sole hand-history persistence owner. */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -91,6 +92,7 @@ interface CompletedHandObservationPayload {
   fence: string;
   handKey: string;
   committedHandId?: string;
+  acceptedActorRoster?: CompletedHandObservation['acceptedActorRoster'];
   actions: CompletedHandObservation['actions'];
   bigBlind: number;
   showdown: unknown;
@@ -1950,6 +1952,14 @@ describe('retained original accepted terminal transport', () => {
     vi.stubEnv('GIT_COMMIT_SHA', 'a'.repeat(40));
     try {
       const input = obligationsParams();
+      const rawRoster = {
+        version: 1,
+        status: 'captured',
+        reasons: [],
+        payloadDigest: 'c'.repeat(64),
+        producerVersion: 'accepted_hand_roster_v1',
+        roster: doorRosterCapsule(input.tableId, input.handNumber, historyId),
+      };
       atomicRpcResults = [
         {
           data: {
@@ -1958,11 +1968,15 @@ describe('retained original accepted terminal transport', () => {
             history_id: historyId,
             post_commit_completed: true,
             post_commit_obligations: true,
+            post_commit_payload_hash: 'c'.repeat(64),
+            accepted_roster: rawRoster,
           },
           error: null,
         },
       ];
       await logHandHistory(input);
+      const ordinaryRoster = mockObserveCompletedHand.mock.calls[0]![0].acceptedActorRoster;
+      expect(ordinaryRoster).toBeDefined();
       const retained = retentionCalls[0] as any;
       const packet = retained.p_hand_row._accepted_post_commit_facts.horse_accepted_terminal;
       expect(packet.sourceRelease).toBe('a'.repeat(40));
@@ -1983,6 +1997,7 @@ describe('retained original accepted terminal transport', () => {
         submission_hash: 'b'.repeat(64),
         hand_number: String(input.handNumber),
         post_commit_payload_hash: 'c'.repeat(64),
+        accepted_roster: rawRoster,
       };
       resumeReply = { data: receipt, error: null };
       terminalRead = {
@@ -2003,6 +2018,7 @@ describe('retained original accepted terminal transport', () => {
       expect(mockObserveCompletedHand).toHaveBeenCalledTimes(1);
       expect(mockObserveCompletedHand.mock.calls[0]![0]).toMatchObject({
         ...packet.observation,
+        acceptedActorRoster: ordinaryRoster,
         terminalOnlySourceRelease: 'a'.repeat(40),
       });
       terminalRead.data.post_commit_payload_hash = 'd'.repeat(64);
