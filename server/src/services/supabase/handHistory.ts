@@ -4,6 +4,7 @@ import {
   readAcceptedTerminal,
   type AcceptedTerminalTransport,
 } from '../horseDecisionJournal/acceptedTerminal.js';
+import { privateHorseTurnClocks } from '../../engine/HorseTurnClockReceipt.js';
 import {
   publicMemoryDomainIsValid,
   type HorsePublicMemoryDomain,
@@ -982,6 +983,7 @@ export async function logHandHistory(params: {
   // Capture the original producer's terminal before a lost response or lease
   // handoff can separate the atomic commit from the worker observation.
   let capturedAcceptedTerminal: AcceptedTerminalTransport | null = null;
+  const horseTurnClocks = privateHorseTurnClocks(params.actions);
   try {
     if (params.atomicCommit.acceptedPostCommitFacts && params.handId) {
       const terminal = captureAcceptedTerminal(
@@ -993,6 +995,7 @@ export async function logHandHistory(params: {
           handKey: `${params.tableId}:${params.handNumber}`,
           committedHandId: params.handId,
           actions: acceptedActions,
+          ...(horseTurnClocks.length ? { horseTurnClocks } : {}),
           bigBlind: params.bigBlind,
           showdown: params.showdownReveal ?? null,
           scope: readScopeOf(
@@ -1084,6 +1087,7 @@ export async function logHandHistory(params: {
       handKey,
       committedHandId: handId,
       actions: acceptedActions,
+      horseTurnClocks: horseTurnClocks.length ? horseTurnClocks : undefined,
       bigBlind: params.bigBlind,
       showdown: params.showdownReveal ?? null,
       riverCallContext: {

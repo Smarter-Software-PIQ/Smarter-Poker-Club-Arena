@@ -145,6 +145,11 @@ export interface RotatorEngine {
    * does not confirm an early leave does.
    */
   hitRunHandsOwed?(userId: string): number;
+  /**
+   * BANK THE WIN (owner 2026-11-10): hands still owed after a big pot (one
+   * full orbit). No horse stands up the hand after winning a big pot.
+   */
+  bigPotOrbitHandsOwed?(userId: string): number;
   /** V8: hand-boundary-safe top-up (queued mid-hand; wallet-debited). */
   addChips?(
     userId: string,
@@ -403,6 +408,15 @@ export class HorseSessionRotator {
     try {
       const e = engine === undefined ? this.getEngine(tableId) : engine;
       return (e?.hitRunHandsOwed?.(userId) ?? 0) > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /** BANK THE WIN: hands still owed after a big pot (an orbit). */
+  private owesBigPotOrbit(userId: string, engine: RotatorEngine | null | undefined): boolean {
+    try {
+      return (engine?.bigPotOrbitHandsOwed?.(userId) ?? 0) > 0;
     } catch {
       return false;
     }
@@ -1541,11 +1555,16 @@ export class HorseSessionRotator {
          * a decision a player makes, not a coin they flip. Without the
          * figure we fall through to the original swing heuristic unchanged.
          */
+        /* BANK THE WIN (owner 2026-11-10): the winning exit belongs to the
+           engine alone (HorseBankTheWin: 4-6x the starting stack, one orbit
+           after a big pot, before the next big blind). This verdict books
+           only the stop loss now; an immediate rack-up here is exactly the
+           "leaves the hand after a big pot" the owner ruled out. */
         const invested = investedBySeat.get(`${tableId}:${seat.user_id}`);
         if (invested !== undefined && invested > 0) {
           const verdict = sessionVerdict(stack - invested, buyIn, bankrollPolicyFor(seat.user_id));
-          if (verdict !== 'play_on') {
-            bankrollEvent(verdict === 'book_win' ? 'session_book_win' : 'session_stop_loss');
+          if (verdict === 'stop_loss') {
+            bankrollEvent('session_stop_loss');
             best = { seat, p: Number.POSITIVE_INFINITY };
             break;
           }
@@ -1576,7 +1595,12 @@ export class HorseSessionRotator {
         if (!best || p > best.p) best = { seat, p };
       }
 
-      if (best && Math.random() < best.p && !this.owesHands(tableId, best.seat.user_id, engine)) {
+      if (
+        best &&
+        Math.random() < best.p &&
+        !this.owesHands(tableId, best.seat.user_id, engine) &&
+        !this.owesBigPotOrbit(best.seat.user_id, engine)
+      ) {
         try {
           const result = await engine.leaveTable(best.seat.user_id);
           if (!this.lifecycleIsCurrent(generation)) return;
@@ -1611,7 +1635,9 @@ export class HorseSessionRotator {
           draw: Math.random,
           seatsAtTable: tableSeats.length,
           humanPresent,
-          handsOwed: this.handsOwed(tableId, seat.user_id, engine),
+          handsOwed:
+            this.handsOwed(tableId, seat.user_id, engine) +
+            (this.owesBigPotOrbit(seat.user_id, engine) ? 1 : 0),
           sittingOut: seat.is_sitting_out === true,
           leaving: HorseSessionRotator.isLeaving(seat),
           onBreakHere: this.breaks.has(HorseSessionRotator.breakKey(tableId, seat.user_id)),

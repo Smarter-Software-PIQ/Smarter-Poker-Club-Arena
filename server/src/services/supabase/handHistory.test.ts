@@ -1,4 +1,5 @@
 import { doorRosterCapsule } from '../horseAcceptedRoster/fixture.test-support.js';
+import { retainHorseTurnClock } from '../../engine/HorseTurnClockReceipt.js';
 /** The accepted-hand transaction is the sole hand-history persistence owner. */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -88,6 +89,7 @@ vi.mock('../errorReporter.js', () => ({
 }));
 
 interface CompletedHandObservationPayload {
+  horseTurnClocks?: CompletedHandObservation['horseTurnClocks'];
   generation: number;
   fence: string;
   handKey: string;
@@ -422,6 +424,53 @@ describe('logHandHistory - worker-owned completed-hand observation', () => {
       ).toEqual(publicMemoryDomain);
     }
   );
+
+  it('keeps the Horse clock in protected accepted facts and out of the public history fields', async () => {
+    vi.stubEnv('GIT_COMMIT_SHA', 'a'.repeat(40));
+    try {
+      const input = obligationsParams();
+      const index = 1;
+      const action = { ...input.actions[index]!, timestamp: 1000, origin: 'horse_policy' as const };
+      retainHorseTurnClock(action, 100, 2000, 'strategy');
+      atomicRpcResults = [
+        {
+          data: {
+            success: true,
+            atomic_hand_commit: true,
+            history_id: historyId,
+            post_commit_completed: true,
+            post_commit_obligations: true,
+            post_commit_payload_hash: 'c'.repeat(64),
+          },
+          error: null,
+        },
+      ];
+      await logHandHistory({
+        ...input,
+        actions: input.actions.map((row, i) => (i === index ? action : row)),
+      });
+      const clocks = [
+        {
+          actionIndex: index,
+          startedAtMs: 100,
+          deadlineMs: 2000,
+          acceptedAtMs: action.timestamp,
+          path: 'strategy',
+        },
+      ];
+      expect(mockObserveCompletedHand.mock.calls[0][0]).toMatchObject({ horseTurnClocks: clocks });
+      const retained = retentionCalls[0] as any;
+      const { _accepted_post_commit_facts: privateFacts, ...publicHistoryFields } =
+        retained.p_hand_row;
+      expect(privateFacts.horse_accepted_terminal.observation.horseTurnClocks).toEqual(clocks);
+      // The SQL history producer selects actual hand_history columns only;
+      // this reserved envelope is copied separately into hand_atomic_commits.
+      expect(JSON.stringify(publicHistoryFields)).not.toContain('startedAtMs');
+      expect(JSON.stringify(publicHistoryFields.actions)).not.toContain('horseTurnClocks');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 
   it('preserves forced-post and return provenance in the accepted JSON and observation without changing money or order', async () => {
     const input = identityParams();
@@ -1952,6 +2001,13 @@ describe('retained original accepted terminal transport', () => {
     vi.stubEnv('GIT_COMMIT_SHA', 'a'.repeat(40));
     try {
       const input = obligationsParams();
+      const clockAction = {
+        ...input.actions[1]!,
+        timestamp: 1000,
+        origin: 'horse_policy' as const,
+      };
+      input.actions = input.actions.map((action, index) => (index === 1 ? clockAction : action));
+      retainHorseTurnClock(clockAction, 100, 2000, 'strategy');
       const rawRoster = {
         version: 1,
         status: 'captured',
@@ -1981,6 +2037,21 @@ describe('retained original accepted terminal transport', () => {
       const packet = retained.p_hand_row._accepted_post_commit_facts.horse_accepted_terminal;
       expect(packet.sourceRelease).toBe('a'.repeat(40));
       expect(packet.originalLease).toBe(leaseGeneration);
+      expect(packet.observation.horseTurnClocks).toEqual([
+        {
+          actionIndex: 1,
+          startedAtMs: 100,
+          deadlineMs: 2000,
+          acceptedAtMs: 1000,
+          path: 'strategy',
+        },
+      ]);
+      expect(packet.observation.horseTurnClocks).toEqual(
+        mockObserveCompletedHand.mock.calls[0]![0].horseTurnClocks
+      );
+      // Changing the live private sidecar after acceptance cannot rewrite recovery.
+      retainHorseTurnClock(clockAction, 200, 3000, 'strategy');
+
       expect(packet.observation.actions).toEqual(
         mockObserveCompletedHand.mock.calls[0]![0].actions
       );

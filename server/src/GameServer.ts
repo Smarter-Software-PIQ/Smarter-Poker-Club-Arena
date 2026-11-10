@@ -9606,6 +9606,20 @@ export class GameServer {
           }
 
           if (needsPastStartTopUp) {
+            /* A SEAT-FIRST BOARD THAT HAS SOLD A SEAT CLIMBS ITS LADDER ONE
+               RUNG AT A TIME (2026-11-10, measured on 840429a3). This walk
+               fills to effective_max_players; the ladder's fast lane
+               (fillPartialSeatFirstGame) adds one horse per rung and writes
+               the next window. Both reached a Spin the moment its first rung
+               closed, so whichever came first decided it: 6 of the first 9
+               Spins took one horse and a 30-60 minute second rung, 3 went
+               from one horse to three and dealt at 73-76 minutes. A board
+               with a seat sold therefore belongs to the fast lane alone,
+               which also serves a seated person after the 3-7 minute hold.
+               A roster this pass could not read is left too: late is
+               survivable, early is not. A board with nothing sold keeps this
+               path (and its empty-event cancellation) unchanged. */
+            if (isSngOrSpin && rosterByTournament.get(tournament.id) !== 0) continue;
             /**
              * Dan 2026-08-19: fill to a FULL FIELD, every format.
              *

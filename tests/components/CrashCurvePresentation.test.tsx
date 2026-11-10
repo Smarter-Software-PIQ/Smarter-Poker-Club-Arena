@@ -42,7 +42,6 @@ vi.mock('../../src/components/games/sceneKit', async (original) => {
 });
 import CrashCurve, {
   CRASH_FLASH_MS,
-  floorCents,
   tickerHeat,
   tickerLabel,
   type CrashCurveProps,
@@ -416,56 +415,16 @@ describe('what the player set is drawn where it happens', () => {
     expect(auto.getAttribute('visibility')).toBe('hidden');
   });
 
-  it('draws the guaranteed floor below the launch line at its payout equivalent, only when that maps onto the axis', () => {
-    expect(floorCents(1, 2)).toBe(50);
-    expect(floorCents(0.1, 1)).toBe(10);
-    expect(floorCents(0, 1)).toBeNull();
-    expect(floorCents(1, null)).toBeNull();
+  it('keeps the guarantee off the flight glass', () => {
     const { tick: frame } = clock();
-    const { container, rerender } = render(
-      <CrashCurve
-        {...base}
-        phase="open"
-        replayElapsedMs={0}
-        tickerCents={100}
-        minimumPayoutChips={1}
-        betChips={2}
-      />
+    const { container } = render(
+      <CrashCurve {...base} phase="open" minimumPayoutChips={1} betChips={2} />
     );
     frame(100);
-    const floor = container.querySelector('[data-line="floor"]')!;
-    expect(floor.getAttribute('visibility')).not.toBe('hidden');
-    expect(labels(container, '[data-line-label="floor"]')).toEqual(['Guaranteed 1.00 Chips']);
-    // A Super floor is half the stake: below 1.00x, so beneath the launch line, inside the frame.
-    expect(at(floor, 'y1')).toBeGreaterThan(at(tick(container, 100), 'y1'));
-    expect(at(floor, 'y1')).toBeLessThan(310 - 20);
-    // A tenth floor sits too far below a fresh axis to be drawn.
-    rerender(
-      <CrashCurve
-        {...base}
-        phase="open"
-        replayElapsedMs={0}
-        tickerCents={100}
-        minimumPayoutChips={0.1}
-        betChips={1}
-      />
+    expect(container.querySelector('[data-line="floor"]')?.getAttribute('visibility')).toBe(
+      'hidden'
     );
-    frame(140);
-    expect(floor.getAttribute('visibility')).toBe('hidden');
-    // A floor equal to the stake is the launch line itself.
-    rerender(
-      <CrashCurve
-        {...base}
-        phase="open"
-        replayElapsedMs={0}
-        tickerCents={100}
-        minimumPayoutChips={2}
-        betChips={2}
-      />
-    );
-    frame(180);
-    expect(floor.getAttribute('visibility')).not.toBe('hidden');
-    expect(at(floor, 'y1')).toBe(at(tick(container, 100), 'y1'));
+    expect(labels(container, '[data-line-label="floor"]')).toEqual([]);
   });
 });
 

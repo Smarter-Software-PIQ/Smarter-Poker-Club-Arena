@@ -7,7 +7,8 @@ terminal. Its missing original source transport cannot be reconstructed and
 this change does not retrospectively accept it.
 
 The original hand producer now captures a private immutable terminal with its
-exact release SHA, original lease, canonical actions and hand identity inside
+exact release SHA, original lease, canonical actions, original private turn-clock
+receipts and hand identity inside
 the existing accepted facts before retention. After the existing successor
 transaction proves commitment, its consumer reads those committed facts once
 and sends only the bound terminal to the original journal shard. It never
