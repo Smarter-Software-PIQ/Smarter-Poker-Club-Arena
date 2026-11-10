@@ -3949,6 +3949,570 @@
         "ante": 0,
         "durationMinutes": 5
       }
+    ],
+    "B4-25-50": [
+      {
+        "level": 1,
+        "smallBlind": 25,
+        "bigBlind": 50,
+        "ante": 0,
+        "durationMinutes": 8
+      },
+      {
+        "level": 2,
+        "smallBlind": 50,
+        "bigBlind": 100,
+        "ante": 0,
+        "durationMinutes": 8
+      },
+      {
+        "level": 3,
+        "smallBlind": 100,
+        "bigBlind": 200,
+        "ante": 0,
+        "durationMinutes": 8
+      },
+      {
+        "level": 4,
+        "smallBlind": 150,
+        "bigBlind": 300,
+        "ante": 0,
+        "durationMinutes": 8
+      },
+      {
+        "level": 5,
+        "smallBlind": 200,
+        "bigBlind": 400,
+        "ante": 400,
+        "durationMinutes": 8
+      },
+      {
+        "level": 6,
+        "smallBlind": 250,
+        "bigBlind": 500,
+        "ante": 500,
+        "durationMinutes": 8
+      },
+      {
+        "level": 7,
+        "smallBlind": 300,
+        "bigBlind": 600,
+        "ante": 600,
+        "durationMinutes": 8
+      },
+      {
+        "level": 8,
+        "smallBlind": 400,
+        "bigBlind": 800,
+        "ante": 800,
+        "durationMinutes": 8
+      },
+      {
+        "level": 9,
+        "smallBlind": 500,
+        "bigBlind": 1000,
+        "ante": 1000,
+        "durationMinutes": 8
+      },
+      {
+        "level": 10,
+        "smallBlind": 600,
+        "bigBlind": 1200,
+        "ante": 1200,
+        "durationMinutes": 8
+      },
+      {
+        "level": 11,
+        "smallBlind": 800,
+        "bigBlind": 1600,
+        "ante": 1600,
+        "durationMinutes": 8
+      },
+      {
+        "level": 12,
+        "smallBlind": 1000,
+        "bigBlind": 2000,
+        "ante": 2000,
+        "durationMinutes": 8
+      },
+      {
+        "level": 13,
+        "smallBlind": 1200,
+        "bigBlind": 2400,
+        "ante": 2400,
+        "durationMinutes": 8
+      },
+      {
+        "level": 14,
+        "smallBlind": 1600,
+        "bigBlind": 3200,
+        "ante": 3200,
+        "durationMinutes": 8
+      },
+      {
+        "level": 15,
+        "smallBlind": 2000,
+        "bigBlind": 4000,
+        "ante": 4000,
+        "durationMinutes": 8
+      },
+      {
+        "level": 16,
+        "smallBlind": 2500,
+        "bigBlind": 5000,
+        "ante": 5000,
+        "durationMinutes": 8
+      },
+      {
+        "level": 17,
+        "smallBlind": 3000,
+        "bigBlind": 6000,
+        "ante": 6000,
+        "durationMinutes": 8
+      },
+      {
+        "level": 18,
+        "smallBlind": 4000,
+        "bigBlind": 8000,
+        "ante": 8000,
+        "durationMinutes": 8
+      },
+      {
+        "level": 19,
+        "smallBlind": 5000,
+        "bigBlind": 10000,
+        "ante": 10000,
+        "durationMinutes": 8
+      },
+      {
+        "level": 20,
+        "smallBlind": 6000,
+        "bigBlind": 12000,
+        "ante": 12000,
+        "durationMinutes": 8
+      },
+      {
+        "level": 21,
+        "smallBlind": 8000,
+        "bigBlind": 16000,
+        "ante": 16000,
+        "durationMinutes": 8
+      },
+      {
+        "level": 22,
+        "smallBlind": 10000,
+        "bigBlind": 20000,
+        "ante": 20000,
+        "durationMinutes": 8
+      },
+      {
+        "level": 23,
+        "smallBlind": 12000,
+        "bigBlind": 24000,
+        "ante": 24000,
+        "durationMinutes": 8
+      },
+      {
+        "level": 24,
+        "smallBlind": 16000,
+        "bigBlind": 32000,
+        "ante": 32000,
+        "durationMinutes": 8
+      },
+      {
+        "level": 25,
+        "smallBlind": 20000,
+        "bigBlind": 40000,
+        "ante": 40000,
+        "durationMinutes": 8
+      },
+      {
+        "level": 26,
+        "smallBlind": 25000,
+        "bigBlind": 50000,
+        "ante": 50000,
+        "durationMinutes": 8
+      },
+      {
+        "level": 27,
+        "smallBlind": 30000,
+        "bigBlind": 60000,
+        "ante": 60000,
+        "durationMinutes": 8
+      },
+      {
+        "level": 28,
+        "smallBlind": 40000,
+        "bigBlind": 80000,
+        "ante": 80000,
+        "durationMinutes": 8
+      },
+      {
+        "level": 29,
+        "smallBlind": 50000,
+        "bigBlind": 100000,
+        "ante": 100000,
+        "durationMinutes": 8
+      },
+      {
+        "level": 30,
+        "smallBlind": 60000,
+        "bigBlind": 120000,
+        "ante": 120000,
+        "durationMinutes": 8
+      },
+      {
+        "level": 31,
+        "smallBlind": 80000,
+        "bigBlind": 160000,
+        "ante": 160000,
+        "durationMinutes": 8
+      },
+      {
+        "level": 32,
+        "smallBlind": 100000,
+        "bigBlind": 200000,
+        "ante": 200000,
+        "durationMinutes": 8
+      },
+      {
+        "level": 33,
+        "smallBlind": 120000,
+        "bigBlind": 240000,
+        "ante": 240000,
+        "durationMinutes": 8
+      },
+      {
+        "level": 34,
+        "smallBlind": 160000,
+        "bigBlind": 320000,
+        "ante": 320000,
+        "durationMinutes": 8
+      },
+      {
+        "level": 35,
+        "smallBlind": 200000,
+        "bigBlind": 400000,
+        "ante": 400000,
+        "durationMinutes": 8
+      },
+      {
+        "level": 36,
+        "smallBlind": 250000,
+        "bigBlind": 500000,
+        "ante": 500000,
+        "durationMinutes": 8
+      },
+      {
+        "level": 37,
+        "smallBlind": 300000,
+        "bigBlind": 600000,
+        "ante": 600000,
+        "durationMinutes": 8
+      },
+      {
+        "level": 38,
+        "smallBlind": 400000,
+        "bigBlind": 800000,
+        "ante": 800000,
+        "durationMinutes": 8
+      },
+      {
+        "level": 39,
+        "smallBlind": 500000,
+        "bigBlind": 1000000,
+        "ante": 1000000,
+        "durationMinutes": 8
+      },
+      {
+        "level": 40,
+        "smallBlind": 600000,
+        "bigBlind": 1200000,
+        "ante": 1200000,
+        "durationMinutes": 8
+      }
+    ],
+    "B5-25-50": [
+      {
+        "level": 1,
+        "smallBlind": 25,
+        "bigBlind": 50,
+        "ante": 0,
+        "durationMinutes": 10
+      },
+      {
+        "level": 2,
+        "smallBlind": 50,
+        "bigBlind": 100,
+        "ante": 0,
+        "durationMinutes": 10
+      },
+      {
+        "level": 3,
+        "smallBlind": 100,
+        "bigBlind": 200,
+        "ante": 0,
+        "durationMinutes": 10
+      },
+      {
+        "level": 4,
+        "smallBlind": 150,
+        "bigBlind": 300,
+        "ante": 0,
+        "durationMinutes": 10
+      },
+      {
+        "level": 5,
+        "smallBlind": 200,
+        "bigBlind": 400,
+        "ante": 400,
+        "durationMinutes": 10
+      },
+      {
+        "level": 6,
+        "smallBlind": 250,
+        "bigBlind": 500,
+        "ante": 500,
+        "durationMinutes": 10
+      },
+      {
+        "level": 7,
+        "smallBlind": 300,
+        "bigBlind": 600,
+        "ante": 600,
+        "durationMinutes": 10
+      },
+      {
+        "level": 8,
+        "smallBlind": 400,
+        "bigBlind": 800,
+        "ante": 800,
+        "durationMinutes": 10
+      },
+      {
+        "level": 9,
+        "smallBlind": 500,
+        "bigBlind": 1000,
+        "ante": 1000,
+        "durationMinutes": 10
+      },
+      {
+        "level": 10,
+        "smallBlind": 600,
+        "bigBlind": 1200,
+        "ante": 1200,
+        "durationMinutes": 10
+      },
+      {
+        "level": 11,
+        "smallBlind": 800,
+        "bigBlind": 1600,
+        "ante": 1600,
+        "durationMinutes": 10
+      },
+      {
+        "level": 12,
+        "smallBlind": 1000,
+        "bigBlind": 2000,
+        "ante": 2000,
+        "durationMinutes": 10
+      },
+      {
+        "level": 13,
+        "smallBlind": 1200,
+        "bigBlind": 2400,
+        "ante": 2400,
+        "durationMinutes": 10
+      },
+      {
+        "level": 14,
+        "smallBlind": 1600,
+        "bigBlind": 3200,
+        "ante": 3200,
+        "durationMinutes": 10
+      },
+      {
+        "level": 15,
+        "smallBlind": 2000,
+        "bigBlind": 4000,
+        "ante": 4000,
+        "durationMinutes": 10
+      },
+      {
+        "level": 16,
+        "smallBlind": 2500,
+        "bigBlind": 5000,
+        "ante": 5000,
+        "durationMinutes": 10
+      },
+      {
+        "level": 17,
+        "smallBlind": 3000,
+        "bigBlind": 6000,
+        "ante": 6000,
+        "durationMinutes": 10
+      },
+      {
+        "level": 18,
+        "smallBlind": 4000,
+        "bigBlind": 8000,
+        "ante": 8000,
+        "durationMinutes": 10
+      },
+      {
+        "level": 19,
+        "smallBlind": 5000,
+        "bigBlind": 10000,
+        "ante": 10000,
+        "durationMinutes": 10
+      },
+      {
+        "level": 20,
+        "smallBlind": 6000,
+        "bigBlind": 12000,
+        "ante": 12000,
+        "durationMinutes": 10
+      },
+      {
+        "level": 21,
+        "smallBlind": 8000,
+        "bigBlind": 16000,
+        "ante": 16000,
+        "durationMinutes": 10
+      },
+      {
+        "level": 22,
+        "smallBlind": 10000,
+        "bigBlind": 20000,
+        "ante": 20000,
+        "durationMinutes": 10
+      },
+      {
+        "level": 23,
+        "smallBlind": 12000,
+        "bigBlind": 24000,
+        "ante": 24000,
+        "durationMinutes": 10
+      },
+      {
+        "level": 24,
+        "smallBlind": 16000,
+        "bigBlind": 32000,
+        "ante": 32000,
+        "durationMinutes": 10
+      },
+      {
+        "level": 25,
+        "smallBlind": 20000,
+        "bigBlind": 40000,
+        "ante": 40000,
+        "durationMinutes": 10
+      },
+      {
+        "level": 26,
+        "smallBlind": 25000,
+        "bigBlind": 50000,
+        "ante": 50000,
+        "durationMinutes": 10
+      },
+      {
+        "level": 27,
+        "smallBlind": 30000,
+        "bigBlind": 60000,
+        "ante": 60000,
+        "durationMinutes": 10
+      },
+      {
+        "level": 28,
+        "smallBlind": 40000,
+        "bigBlind": 80000,
+        "ante": 80000,
+        "durationMinutes": 10
+      },
+      {
+        "level": 29,
+        "smallBlind": 50000,
+        "bigBlind": 100000,
+        "ante": 100000,
+        "durationMinutes": 10
+      },
+      {
+        "level": 30,
+        "smallBlind": 60000,
+        "bigBlind": 120000,
+        "ante": 120000,
+        "durationMinutes": 10
+      },
+      {
+        "level": 31,
+        "smallBlind": 80000,
+        "bigBlind": 160000,
+        "ante": 160000,
+        "durationMinutes": 10
+      },
+      {
+        "level": 32,
+        "smallBlind": 100000,
+        "bigBlind": 200000,
+        "ante": 200000,
+        "durationMinutes": 10
+      },
+      {
+        "level": 33,
+        "smallBlind": 120000,
+        "bigBlind": 240000,
+        "ante": 240000,
+        "durationMinutes": 10
+      },
+      {
+        "level": 34,
+        "smallBlind": 160000,
+        "bigBlind": 320000,
+        "ante": 320000,
+        "durationMinutes": 10
+      },
+      {
+        "level": 35,
+        "smallBlind": 200000,
+        "bigBlind": 400000,
+        "ante": 400000,
+        "durationMinutes": 10
+      },
+      {
+        "level": 36,
+        "smallBlind": 250000,
+        "bigBlind": 500000,
+        "ante": 500000,
+        "durationMinutes": 10
+      },
+      {
+        "level": 37,
+        "smallBlind": 300000,
+        "bigBlind": 600000,
+        "ante": 600000,
+        "durationMinutes": 10
+      },
+      {
+        "level": 38,
+        "smallBlind": 400000,
+        "bigBlind": 800000,
+        "ante": 800000,
+        "durationMinutes": 10
+      },
+      {
+        "level": 39,
+        "smallBlind": 500000,
+        "bigBlind": 1000000,
+        "ante": 1000000,
+        "durationMinutes": 10
+      },
+      {
+        "level": 40,
+        "smallBlind": 600000,
+        "bigBlind": 1200000,
+        "ante": 1200000,
+        "durationMinutes": 10
+      }
     ]
   },
   "events": [
@@ -5603,7 +6167,7 @@
         "bountyAmount": 0,
         "maxReentries": 0,
         "payoutPercent": 12.5,
-        "startingStack": 10000,
+        "startingStack": 15000,
         "addOnAvailable": false,
         "guaranteedPrize": 1500,
         "payoutStructure": [
@@ -5669,7 +6233,7 @@
         "buy_in_amount": 36,
         "buy_in_fee": 4,
         "guaranteed_prize": 1500,
-        "starting_chips": 10000,
+        "starting_chips": 15000,
         "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": null,
@@ -5679,9 +6243,9 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
+        "short_description": "15,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
-      "blindProfile": "B4"
+      "blindProfile": "B4-25-50"
     },
     {
       "id": "607435bf-1748-4e35-85fb-e409940ce6bf",
@@ -7357,7 +7921,7 @@
         "bountyAmount": 0,
         "maxReentries": 0,
         "payoutPercent": 12.5,
-        "startingStack": 10000,
+        "startingStack": 15000,
         "addOnAvailable": false,
         "guaranteedPrize": 2500,
         "payoutStructure": [
@@ -7423,7 +7987,7 @@
         "buy_in_amount": 36,
         "buy_in_fee": 4,
         "guaranteed_prize": 2500,
-        "starting_chips": 10000,
+        "starting_chips": 15000,
         "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": null,
@@ -7433,9 +7997,9 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
+        "short_description": "15,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
-      "blindProfile": "B4"
+      "blindProfile": "B4-25-50"
     },
     {
       "id": "0aa6e050-9942-4a79-9ce2-045e0194358a",
@@ -9190,7 +9754,7 @@
         "bountyAmount": 10,
         "maxReentries": 0,
         "payoutPercent": 12.5,
-        "startingStack": 10000,
+        "startingStack": 15000,
         "addOnAvailable": false,
         "guaranteedPrize": 2500,
         "payoutStructure": [
@@ -9256,7 +9820,7 @@
         "buy_in_amount": 36,
         "buy_in_fee": 4,
         "guaranteed_prize": 2500,
-        "starting_chips": 10000,
+        "starting_chips": 15000,
         "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": null,
@@ -9266,9 +9830,9 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
+        "short_description": "15,000 Starting Chips. 8 Minute Levels. Late Registration Through Level 10."
       },
-      "blindProfile": "B4"
+      "blindProfile": "B4-25-50"
     },
     {
       "id": "255eb83a-6c6d-4757-b04e-e659885705d0",
@@ -11780,7 +12344,7 @@
         "bigBlindAnte": true,
         "bountyAmount": 0,
         "payoutPreset": "NINE",
-        "startingStack": 10000,
+        "startingStack": 15000,
         "addOnAvailable": true,
         "addonFromStart": false,
         "guaranteedPrize": 10000,
@@ -11833,7 +12397,7 @@
         "buy_in_amount": 31.5,
         "buy_in_fee": 3.5,
         "guaranteed_prize": 10000,
-        "starting_chips": 10000,
+        "starting_chips": 15000,
         "late_reg_levels": 10,
         "late_reg_mins": 0,
         "rebuy_chips": 10000,
@@ -11843,9 +12407,9 @@
         "accelerated_mtt": false,
         "blind_speed": "standard",
         "is_turbo": false,
-        "short_description": "10,000 Starting Chips. 10 Minute Levels. Late Registration Through Level 10."
+        "short_description": "15,000 Starting Chips. 10 Minute Levels. Late Registration Through Level 10."
       },
-      "blindProfile": "B5"
+      "blindProfile": "B5-25-50"
     },
     {
       "id": "3e119b00-5f4d-46d1-bbb1-d2964cbcba93",

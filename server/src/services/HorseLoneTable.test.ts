@@ -189,7 +189,7 @@ describe('THE WIRING (source contract)', () => {
       /import \{ LONE_TABLE_MINUTES, loneStandVerdict \} from '\.\/HorseLoneTable\.js'/
     );
     const loneAt = ROTATOR.indexOf('this.lastLoneStands = await this.standLoneHorses(');
-    const floorAt = ROTATOR.indexOf('tableSeats.length < (humanPresent ? 5 : 4)) continue');
+    const floorAt = ROTATOR.indexOf('tableSeats.length < (humanPresent ? 5 : 4)');
     expect(loneAt).toBeGreaterThan(0);
     // The pass runs BEFORE the discretionary loop whose floor would skip a table at one.
     expect(loneAt).toBeLessThan(floorAt);

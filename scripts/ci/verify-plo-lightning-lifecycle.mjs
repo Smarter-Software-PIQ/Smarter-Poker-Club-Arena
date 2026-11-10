@@ -210,6 +210,38 @@ export function receiptMatches(receipt, p) {
     r.user_id === p.p_user_id && r.table_id === p.p_table_id && r.seat_number === p.p_seat_number &&
     r.amount === p.p_amount && r.auto_rebuy === p.p_auto_rebuy && r.club_id === p.p_club_id;
 }
+export function requirePostHumanDemand(value, previous, ownedOccupancy, verifiedEmpty = false) {
+  const ended = verifiedEmpty && previous?.wind_down === true && value?.continues === false && value?.wind_down === false;
+  assert(value?.game_id === GAME && /^[0-9a-f-]{36}$/.test(value.event_id ?? '') &&
+    typeof value.continues === 'boolean' && typeof value.wind_down === 'boolean' &&
+    (value.continues !== value.wind_down || ended), 'Original post-human demand is unavailable');
+  if (ownedOccupancy) assert(value.event_id === ownedOccupancy, 'Continuation is not bound to the owned original occupancy');
+  if (previous) assert(value.event_id === previous.event_id && (ended ||
+    (value.continues === previous.continues && value.wind_down === previous.wind_down)),
+    'Last-human decision rerolled without a new human exit');
+  return value;
+}
+export function requirePostHumanGameplay({ decision, continued, hands, exitAt, samples }) {
+  assert(continued.length >= 3, 'Remaining participants did not continue valid Lightning hands');
+  assert(hands.every(h => !h.includesTestPlayer), 'Stopped participant was dealt into a later hand');
+  const late = hands.filter(h => h.endedAt && h.playerCount >= 2 && Date.parse(h.startedAt) >= Date.parse(exitAt)+6*60_000);
+  const last = samples.at(-1);
+  assert(last, 'Post-human population observation is unavailable');
+  for (let i=1;i<samples.length;i++) {
+    const gap=Date.parse(samples[i].at)-Date.parse(samples[i-1].at);
+    assert(gap>=0 && samples[i-1].participants-samples[i].participants<=2+Math.floor(gap/60_000),
+      'Synchronized departure burst observed');
+  }
+  if (decision.continues || last.participants >= 2) {
+    assert(late.length, 'No valid gameplay beyond the incident departure-burst interval');
+  } else {
+    const terminal = samples.find(s=>s.participants<2);
+    assert(decision.wind_down && terminal && Date.parse(terminal.at) >= Date.parse(exitAt)+6*60_000 &&
+      new Set(samples.map(s => s.participants)).size >= 3,
+      'Wind-down ended without a gradual observed decline');
+  }
+  return late[0] ?? {tableId:continued.at(-1).host_table_id,handNumber:continued.at(-1).hand_number};
+}
 export function requireHealth(h, sha, instance) {
   assert(typeof h.instanceId === 'string' && h.instanceId.length > 0 && h.releaseSha === sha && (!instance || h.instanceId === instance), 'Serving engine changed; proof is UNKNOWN');
   assert(h.liveness === 'ok' && h.maintenance?.phase === 'idle' && h.maintenance?.active === false, 'Engine is not idle and ready');
@@ -289,6 +321,14 @@ export async function main(environment = process.env) {
     return { tables, ids, seats, pools, profiles };
   };
   if (payload.cleanup_run_id) return recoverProofCleanup(environment, sha, payload.cleanup_run_id, out, c, read);
+  assert(runtime.includes('ploContinuationFor(gameId, continuation)'), 'Selected engine lacks post-human continuation');
+  const departureRuntime = execFileSync('git',['show',`${sha}:server/src/services/HorseSessionRotator.ts`],{encoding:'utf8'});
+  assert(departureRuntime.includes('ploWindDownFor(') && departureRuntime.includes('!windingDown'), 'Selected engine lacks paced wind-down');
+  const postHumanDemand = async (previous, verifiedEmpty = false) => {
+    const r = await fetchImpl(`${environment.SUPABASE_URL}/rest/v1/rpc/fn_plo_lightning_post_human_demand`, {method:'POST', headers:supabaseServerHeaders(environment.SUPABASE_SERVICE_ROLE_KEY,{'Content-Type':'application/json'}),body:'{}'});
+    assert(r.ok,'Post-human demand read unavailable');
+    return requirePostHumanDemand(await r.json(),previous,report.leaveOccupancyId,verifiedEmpty);
+  };
   const initial = await health();
   requireHealth(initial, sha);
   assert(msUntilNextAnnouncement(Date.now(), initial.maintenance.schedule) > 40 * 60_000, 'Not enough normal play before maintenance');
@@ -321,6 +361,8 @@ export async function main(environment = process.env) {
   };
   const ownSeats = () => read(`table_seats?user_id=eq.${player.id}&left_at=is.null&select=id,table_id,seat_number,occupancy_id,stack`);
   const leave = async () => {
+    const beforeStop = await ownSeats();
+    if (beforeStop.length === 1) report.leaveOccupancyId = beforeStop[0].occupancy_id;
     const pools = await read(`lightning_pool_session?cluster_id=eq.${GAME}&player_id=eq.${player.id}&exited_at=is.null&select=id,stop_requested_at`);
     if (pools.length) {
       await c.rpc(P.token, 'fn_lightning_stop_playing', { p_cluster_id: GAME });
@@ -335,6 +377,7 @@ export async function main(environment = process.env) {
       if (!seats.length) return;
       assert(seats.length === 1 && seats[0].occupancy_id, 'Owned occupancy is not uniquely known');
       const s = seats[0];
+      report.leaveOccupancyId = s.occupancy_id;
       if (!requested.has(s.occupancy_id)) {
         let r;
         try { r = await c.engine(P.token, '/leave-occupancy', { tableId: s.table_id, seatNumber: s.seat_number, occupancyId: s.occupancy_id }); }
@@ -506,23 +549,37 @@ export async function main(environment = process.env) {
     const closed = await one(`cash_player_session?id=eq.${report.cashSessionId}&select=id,closed_at,final_stack,financial_capture_status`);
     assert(closed.closed_at && closed.financial_capture_status === 'exact', 'Owned departure has no exact closed cash receipt');
     report.milestones.humanExit = closed.closed_at; report.cashOut = closed;
+    report.postHumanDemand = await postHumanDemand();
+    assert(report.leaveOccupancyId && report.postHumanDemand.event_id === report.leaveOccupancyId, 'Continuation is not bound to the owned original cash-out');
     await page.screenshot({ path: join(out,'human-left.png') });
     const afterDeadline = Date.now()+POST_LEAVE_MS;
+    const postTableIds = new Set([firstLightning.host_table_id]);
     while (Date.now()<afterDeadline) {
       requireHealth(await health(),sha,initial.instanceId);
       const state=await census(); assertOnlyOwnedHuman(state);
+      const empty = !state.seats.length && !state.pools.length;
+      await postHumanDemand(report.postHumanDemand,empty);
+      for (const t of state.tables) postTableIds.add(t.id);
+      const mode = (await gameRead()).cluster_mode;
+      const byId = new Map(state.profiles.map(p=>[p.id,p]));
+      for (const seat of state.seats) {
+        if (byId.get(seat.user_id)?.is_horse && !seen.has(seat.user_id)) {
+          seen.add(seat.user_id);
+          (report.postHumanArrivals ??= []).push({playerId:seat.user_id,at:seat.joined_at});
+        }
+      }
       assert(!state.seats.some(s=>s.user_id===player.id) && !state.pools.some(s=>s.player_id===player.id),'Owned human was redealt after leaving');
-      report.samples.push({at:new Date().toISOString(),afterHumanExit:true,participants:state.profiles.length});
+      report.samples.push({at:new Date().toISOString(),afterHumanExit:true,mode,participants:state.profiles.length});
       await sleep(5000);
     }
     const continued=await read(`lightning_hand?cluster_id=eq.${GAME}&formed_at=gt.${encodeURIComponent(closed.closed_at)}&settled_at=not.is.null&select=hand_id,formed_at,settled_at,hand_number,host_table_id,player_count`);
-    assert(continued.length>=3,'Remaining participants did not continue valid Lightning hands');
-    const late=continued.filter(h=>Date.parse(h.formed_at)>=Date.parse(closed.closed_at)+6*60_000);
-    assert(late.length,'No gameplay beyond the incident departure-burst interval');
+    const postHands = summarizeHands(await read(`hand_history?table_id=in.(${[...postTableIds].join(',')})&created_at=gte.${encodeURIComponent(closed.closed_at)}&started_at=gte.${encodeURIComponent(closed.closed_at)}&order=created_at.asc&select=id,table_id,hand_number,started_at,ended_at,players`),player.id);
+    report.postHumanHands=postHands;
+    const finalHand = requirePostHumanGameplay({decision:report.postHumanDemand,continued,hands:postHands,exitAt:closed.closed_at,samples:report.samples.filter(s=>s.afterHumanExit)});
     const stray=await read(`lightning_hand_player?hand_id=in.(${continued.map(h=>h.hand_id).join(',')})&player_id=eq.${player.id}&select=hand_id`);
     assert(!stray.length,'Stopped participant was included in a later hand');
     report.continuedHands=continued;
-    for (const h of [report.headsUpHand, {tableId:firstLightning.host_table_id,handNumber:firstLightning.hand_number}, {tableId:late[0].host_table_id,handNumber:late[0].hand_number}]) {
+    for (const h of [report.headsUpHand, {tableId:firstLightning.host_table_id,handNumber:firstLightning.hand_number}, finalHand]) {
       const commit=await one(`hand_atomic_commits?table_id=eq.${h.tableId}&hand_number=eq.${h.handNumber}&select=conserved:stack_result->>conservation_checked,success:stack_result->>success`);
       assert(commit.conserved==='true' && commit.success==='true','A witnessed hand lacks its conservation receipt');
     }

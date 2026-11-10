@@ -199,7 +199,12 @@ describe('the wiring: the horse presses the same button', () => {
     expect(moves.length).toBe(1);
     expect(moves[0][1]).toMatch(/^\s*\.select\('to_table_id'\)/);
     expect(moves[0][1]).not.toMatch(/\.(insert|update|upsert|delete)\(/);
-    expect(ROTATOR).not.toMatch(/\.rpc\(/);
+    // The later PLO policy reads one service-only STABLE decision RPC.
+    // Seat changes still use only the shared human request owner above.
+    expect([...ROTATOR.matchAll(/\.rpc\('([^']+)'/g)].map((m) => m[1])).toEqual([
+      'fn_plo_lightning_post_human_demand',
+    ]);
+    expect(ROTATOR.match(/\.rpc\(/g)).toHaveLength(1);
   });
 
   it('the rotator asks through that module, gated by seatChangeVerdict', () => {

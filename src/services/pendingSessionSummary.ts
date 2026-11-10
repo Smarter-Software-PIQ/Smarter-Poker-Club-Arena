@@ -114,6 +114,7 @@ export interface TournamentResult {
    * loss, an MTT wearing one is a lie.
    */
   isSpin?: boolean;
+  formatKind?: 'mtt' | 'sng' | 'spin' | 'unknown';
   /** The hole cards the hero held when they won the tournament. */
   winningCards?: Card[];
   /**

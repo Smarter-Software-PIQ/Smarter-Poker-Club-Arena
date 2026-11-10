@@ -30,6 +30,8 @@
  *     makes that explicit.
  */
 
+import { MAX_TABLE_SEATS } from '../constants/limits';
+
 export interface BountyWinner {
   userId: string;
   name: string;
@@ -89,4 +91,46 @@ export function bountyWinnersOf(payload: WirePayload | null | undefined): Bounty
       addedToHead: num(b.addedToHead),
     },
   ];
+}
+
+/** Both the retained table frame and the tournament broadcast describe one bust. */
+export function admitSeatKnockout(
+  b: Record<string, unknown>,
+  tableId: string | undefined,
+  players: ReadonlyArray<{ id?: string } | null | undefined>,
+  previousSeats: ReadonlyMap<string, number>,
+  seen: Set<string>
+): { id: string; seatIndex: number } | null {
+  if (!tableId || (b.tableId && b.tableId !== tableId)) return null;
+  const victim = String(b.eliminatedUserId || '');
+  if (!victim) return null;
+  const id = b.obligationId ? `ko:${String(b.obligationId)}` : victim;
+  if (seen.has(id)) return null;
+  const historicSeat = Number(b.eliminatedSeat);
+  let seatIndex = historicSeat - 1;
+  if (!Number.isInteger(historicSeat) || historicSeat < 1 || historicSeat > MAX_TABLE_SEATS) {
+    seatIndex = players.findIndex((player) => player?.id === victim);
+    if (seatIndex < 0) seatIndex = previousSeats.get(victim) ?? -1;
+  }
+  if (seatIndex < 0) return null;
+  seen.add(id);
+  return { id, seatIndex };
+}
+
+/** Keep completed generation IDs across a table remount for the hub replay window. */
+export function knockoutPlaybackReceipts(tableId: string, completedId?: string): Set<string> {
+  const key = `ca-ko-played:${tableId}`;
+  const now = Date.now();
+  try {
+    const stored: Record<string, number> = JSON.parse(sessionStorage.getItem(key) || '{}');
+    const current = Object.entries(stored).filter(([, until]) => until > now);
+    if (completedId) {
+      current.push([completedId, now + 60_000]);
+      sessionStorage.setItem(key, JSON.stringify(Object.fromEntries(current)));
+    }
+    return new Set(current.map(([id]) => id));
+  } catch {
+    // In private storage modes the mounted table still deduplicates both feeds.
+    return new Set();
+  }
 }

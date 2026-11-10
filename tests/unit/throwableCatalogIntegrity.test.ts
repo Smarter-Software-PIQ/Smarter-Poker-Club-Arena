@@ -136,9 +136,14 @@ describe('throwable catalog integrity', () => {
     }
   });
 
-  it('the by-category split loses nothing from the flat catalog', () => {
-    const byCategory = throwableService.getThrowablesByCategory();
-    const total = Object.values(byCategory).reduce((n, list) => n + list.length, 0);
-    expect(total).toBe(catalog.length);
+  it('offers every throw except the retired Rocket tile and keeps Missile once', () => {
+    const ids = Object.values(throwableService.getThrowablesByCategory())
+      .flat()
+      .map((item) => item.id);
+    expect(ids).toEqual(
+      expect.arrayContaining(catalog.filter((item) => item.id !== 'rocket').map((item) => item.id))
+    );
+    expect(ids).not.toContain('rocket');
+    expect(ids.filter((id) => id === 'missile')).toHaveLength(1);
   });
 });
