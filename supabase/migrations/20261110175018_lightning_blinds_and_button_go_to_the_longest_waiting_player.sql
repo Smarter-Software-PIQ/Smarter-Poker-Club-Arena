@@ -3,10 +3,30 @@
 -- @live-proof: (SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'lightning_pool_slot' AND column_name = 'hands_since_button') = 1
 -- @live-proof: position('BY RECENCY (20261110)' in pg_get_functiondef('public.fn_lightning_match_plan(uuid,timestamp with time zone,uuid[],text,integer,jsonb)'::regprocedure)) > 0 AND position('BY RECENCY (20261110)' in pg_get_functiondef('public.fn_lightning_form_hand(uuid,uuid[],smallint,smallint,uuid,interval,interval,timestamp with time zone,text,uuid,jsonb)'::regprocedure)) > 0
 -- @live-proof: position('handsSinceButton' in pg_get_functiondef('public.fn_lightning_matcher_snapshot(uuid,timestamp with time zone,uuid[],jsonb)'::regprocedure)) > 0 AND position('hands_since_button' in pg_get_functiondef('public.fn_lightning_instance_releases_its_reservations()'::regprocedure)) > 0
--- 20261110160345_lightning_blinds_and_button_go_to_the_longest_waiting_player.sql
+-- 20261110175018_lightning_blinds_and_button_go_to_the_longest_waiting_player.sql
 --
--- Version reserved by scripts/new-migration.mjs against origin/main and every
--- remote branch, so it cannot collide with another agent's in-flight work.
+-- RENUMBERED 2026-11-10 17:50Z from 20261110160345. The SQL below is byte for
+-- byte what #10373 merged; only the version moved, and it has not run anywhere.
+--
+-- WHY IT HAD TO MOVE. #10373 (merged 11:12) and #10368 (merged 11:16) both took
+-- 20261110160345, and CLAUDE.md 4.5 describes exactly what follows: production
+-- records one row per version, it recorded #10368's
+-- table_seats_live_partial_indexes_keep_a_real_row_estimate, and this file was
+-- left holding a version the database already considered applied. That is not
+-- merely the red `migrationVersionUniqueness` check on main. This file is a
+-- daily-maintenance window migration, so it is installed by
+-- scripts/ci/install-window-migrations.mjs, which builds its queue as
+-- `!versions.has(f.slice(0, 14))` - the 14-digit version, already present. This
+-- migration was therefore filtered out of the queue and would have waited for a
+-- 03:30 window that silently skipped it every night, with nothing to say so,
+-- while Dan's 09:52 Chicago seating complaint stayed unfixed in production.
+--
+-- Read before renumbering (production, read only, 17:4xZ): lightning_pool_slot
+-- has no hands_since_button column, fn_lightning_match_plan carries no
+-- 'BY RECENCY (20261110)' marker - so none of this had been applied, and the
+-- rename strands nothing half done. #10368 keeps 20261110160345, which it is
+-- recorded under and whose live-proof passes (table_seats.left_at
+-- attstattarget = 1000), so nothing it did is disturbed.
 --
 -- WHAT THIS CHANGES, AND WHY (owner, Dan, 2026-11-10 09:52 Chicago):
 --
