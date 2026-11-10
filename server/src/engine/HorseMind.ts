@@ -1329,7 +1329,7 @@ export class HorseMind {
           limpedPending.delete(a.userId);
           if (isNew) {
             s.lrOpps = (s.lrOpps ?? 0) + 1;
-            if (isAggr) s.lrRaises = (s.lrRaises ?? 0) + 1;
+            s.lrRaises = (s.lrRaises ?? 0) + (isAggr ? 1 : 0);
           }
         } else if (preflopRaises === 0 && a.action === 'call') {
           limpedPending.add(a.userId);
