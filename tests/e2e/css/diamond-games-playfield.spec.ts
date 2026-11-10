@@ -1160,6 +1160,25 @@ test('a single tap on the sapphire launches Crash and opens cashout in the same 
   });
 });
 
+for (const reducedMotion of ['no-preference', 'reduce'] as const) {
+  test(`mobile Drop All settles all 100 Plinko drops with ${reducedMotion} motion`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ reducedMotion });
+    await openGamePage(page, 'plinko');
+    await page.getByRole('button', { name: '1 Diamond Per Drop, 100 Drops' }).click();
+    await page.getByRole('button', { name: 'Drop All' }).click();
+    const receipt = page.getByRole('dialog');
+    await expect(receipt.getByRole('heading', { name: '10.00 Chips' })).toBeVisible({
+      timeout: 20000,
+    });
+    await receipt.getByText('Round Details').click();
+    await expect(receipt.getByRole('status')).toContainText('100 Drops Completed.');
+    await expect(receipt.getByText('Credited To Your Club Balance')).toBeVisible();
+  });
+}
+
 test('Plinko denominations scroll both ways on one row and both release controls require a selection', async ({
   page,
 }) => {

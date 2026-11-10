@@ -82,6 +82,7 @@ function DiamondPlinkoGame() {
   const [landed, setLanded] = useState(0);
   /** How many of the sealed drops the player has released onto the board. */
   const [released, setReleased] = useState(0);
+  const [burst, setBurst] = useState<{ id: string; from: number; to: number } | null>(null);
   const [alreadyLanded, setAlreadyLanded] = useState(0);
   const [progressChecked, setProgressChecked] = useState(false);
   /** A sealed batch is still coming down until every one of its drops has landed. */
@@ -164,10 +165,23 @@ function DiamondPlinkoGame() {
       option.version === wantedVersion &&
       (!quotedBet || (quotedBet.playable && quotedBet.cap_cents >= option.max_multiplier_cents))
   );
-  const paths = useMemo(
-    () => result?.drops.slice(alreadyLanded, released).map((ball) => ball.path_bits) ?? null,
-    [result, released, alreadyLanded]
-  );
+  // Each visible path is the last real drop in a consecutive group. Both
+  // counters advance to that group's actual receipt position when it lands.
+  const burstCounts = useMemo(() => {
+    if (!burst || burst.id !== result?.id) return null;
+    const remaining = burst.to - burst.from;
+    return Array.from({ length: 6 }, (_, i) => burst.from + Math.ceil(((i + 1) * remaining) / 6));
+  }, [burst, result?.id]);
+  const receiptKey = result ? Number.parseInt(result.id.slice(0, 8), 16) : 0;
+  const paths = useMemo(() => {
+    if (!result) return null;
+    if (burstCounts) return burstCounts.map((count) => result.drops[count - 1].path_bits);
+    return result.drops.slice(alreadyLanded, released).map((ball) => ball.path_bits);
+  }, [result, released, alreadyLanded, burstCounts]);
+
+  const startBurst = (id: string, from: number, to: number, all: boolean) => {
+    setBurst(all && window.innerWidth <= 640 && to - from > 12 ? { id, from, to } : null);
+  };
   const painted =
     result && animating
       ? result.multipliers_cents
@@ -351,6 +365,7 @@ function DiamondPlinkoGame() {
   const accept = (next: PlinkoBonus | PlinkoProgress, animate: boolean, all = false) => {
     const done = !('complete' in next) || next.complete;
     if (done) earned.consume(next.award_id);
+    startBurst(next.id, 0, next.drops.length, animate && all);
     setResult(next);
     setAlreadyLanded(animate ? 0 : next.drops.length);
     setCompletionId(done ? next.id : null);
@@ -411,7 +426,7 @@ function DiamondPlinkoGame() {
     try {
       const raw = await DiamondBonusService.start(request, user?.id ?? '');
       const next = request.plinkoRelease ? parsePlinkoProgress(raw) : parsePlinkoBonus(raw);
-      if (live.current) accept(next, true, all);
+      if (live.current) accept(next, true, request.plinkoRelease?.all ?? all);
     } catch (e) {
       reportError(e, 'DiamondPlinkoPage.start');
       if (live.current) {
@@ -559,6 +574,7 @@ function DiamondPlinkoGame() {
     if (!result || allReleased || busyRef.current) return;
     if (!incremental || !incremental.award_id) {
       // Historical batches were fully settled before their first animation.
+      startBurst(result.id, released, totalDrops, all);
       setReleased(all ? totalDrops : Math.min(totalDrops, released + 1));
       return;
     }
@@ -587,6 +603,7 @@ function DiamondPlinkoGame() {
         )
       )
         throw new Error('The Plinko Release Could Not Be Verified');
+      startBurst(next.id, released, next.released_count, request.all);
       setResult(next);
       setReleased(next.released_count);
       if (next.complete) {
@@ -812,9 +829,17 @@ function DiamondPlinkoGame() {
             width={Math.max(240, Math.min(680, width))}
             multipliersCents={painted}
             path={null}
-            dropKey={result ? Number.parseInt(result.id.slice(0, 8), 16) : 0}
+            dropKey={burstCounts ? receiptKey + 0x100000000 : receiptKey}
             batchPathBits={animating ? paths : null}
-            onProgress={(count) => setLanded(alreadyLanded + count)}
+            batchLandedTotals={burstCounts ?? undefined}
+            batchStart={burstCounts ? burst?.from : undefined}
+            onProgress={(count) =>
+              setLanded(
+                burstCounts
+                  ? (burstCounts[count - 1] ?? burst?.from ?? alreadyLanded)
+                  : alreadyLanded + count
+              )
+            }
             onLanded={landedAll}
             restingSlot={
               result?.table_version === table?.version
