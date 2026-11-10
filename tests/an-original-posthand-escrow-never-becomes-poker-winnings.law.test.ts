@@ -106,4 +106,29 @@ describe('original posthand escrow stays separate from poker winnings', () => {
         path
       ).toBe(hash);
   });
+  it('admits only the finite eight original certificates after both installed owners', () => {
+    const admission = read(
+      'supabase/migrations/20261110012843_certify_eight_original_posthand_escrow_proofs.sql'
+    );
+    for (const guard of [
+      '20261109234320',
+      '20261110005719',
+      'ORIGINAL_EIGHT_EXPECTED_IMMUTABLE_PROOF_CHANGED',
+      'ORIGINAL_EIGHT_EXISTING_CERTIFICATE_NO_REPLAY',
+      'ORIGINAL_EIGHT_CERTIFICATE_OR_ORIGINAL_PRESERVATION_FAILED',
+      'ORIGINAL_EIGHT_EXPLICIT_TEN_PERCENT_EACH_TERMS_REQUIRED',
+      'ORIGINAL_EIGHT_IMMUTABLE_INDEPENDENT_ECO_SCHEMA_REQUIRED',
+    ])
+      expect(admission).toContain(guard);
+    expect(admission.match(/::uuid,\d+::bigint/g)).toHaveLength(8);
+    expect(admission).toContain(
+      'public.fn_union_pnl_certify_posthand_escrow(k.table_id,k.hand_number,k.proof_md5,k.original_sha256)'
+    );
+    expect(admission).not.toMatch(
+      /(?:INSERT INTO|UPDATE|DELETE FROM)\s+(?:public\.)?(?:chip_ledger|club_members|table_seats|union_pnl_cash_outcomes|union_eco_ledger|settlement_invoices)\b/i
+    );
+    expect(admission).not.toMatch(
+      /CREATE(?: OR REPLACE)? FUNCTION|DELETE FROM.*cache|UPDATE.*status/i
+    );
+  });
 });
