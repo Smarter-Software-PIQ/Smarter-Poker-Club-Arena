@@ -1093,7 +1093,7 @@ const PAVEMENT_TINT = 0x7f8c9b;
 const SIGN_INK = {
   plate: '#05070a',
   bevel: '#3a4756',
-  label: '#ffffff',
+  label: '#FFFFFF',
   figure: '#ffffff',
   start: '#e6edf3',
   led: '#45adff',

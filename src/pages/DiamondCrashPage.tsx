@@ -1467,10 +1467,11 @@ function DiamondCrashGame() {
       <DiamondSpinsTabs clubId={routeClubId ?? ''} />
       <GameConsole
         collapseSetup
+        activeEntryDetails={
+          open ? `${compactChips(round?.bet_chips ?? bet)} Diamonds In This Flight` : undefined
+        }
         setup={
-          open ? (
-            <span>{compactChips(round?.bet_chips ?? bet)} Diamonds In This Flight</span>
-          ) : (
+          !open && (
             <BonusSetup
               game="crash"
               guarantee={earned.quote}
