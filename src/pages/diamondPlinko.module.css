@@ -2,3 +2,29 @@
   color: #ffd98a;
   font-weight: 700;
 }
+
+.cabinet [data-game-console] header {
+  background: linear-gradient(170deg, #26333d, #121c26 48%, #080e15);
+  border-bottom: 1px solid #6a8093;
+}
+.cabinet [data-game-console] header h1 {
+  padding: 6px 14px;
+  border: 1px solid #91a3b6;
+  border-radius: 5px;
+  color: #ecf5ff;
+  background: linear-gradient(#394d68, #0a294d 48%, #0c3d67 65%, #111a25);
+  box-shadow:
+    inset 0 1px #d0deec,
+    inset 0 -2px #394753;
+  text-shadow: 0 2px 2px #04090e;
+}
+.cabinet [data-game-actions] [data-plate] {
+  border: 8px solid transparent;
+  border-image: url('/assets/club-buttons/lobby/shark-panel-v1/button-secondary.png') 26 fill / 8px
+    stretch;
+  background: #0b1015;
+  padding: 4px 8px;
+}
+.cabinet [data-game-actions] [data-plate='primary'] {
+  border-image-source: url('/assets/club-buttons/lobby/shark-panel-v1/button-primary.png');
+}

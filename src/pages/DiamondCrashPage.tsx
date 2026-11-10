@@ -111,7 +111,6 @@ import {
 } from '../utils/diamondGamesFairness';
 import { compactChips, formatWalletChips, formatWalletDiamonds } from '../utils/format';
 import { crossedMilestone } from '../utils/crashMilestones';
-import TodayLine from '../components/games/TodayLine';
 import SealedPrize from '../components/games/SealedPrize';
 import { sealedChipPrize } from '../utils/sealedChipPrize';
 import { autoRunVerdict, cycleRunSize, type AutoRun } from '../utils/autoRun';
@@ -1098,7 +1097,7 @@ function DiamondCrashGame() {
           });
           v.fair =
             v.fair &&
-            prize === r.outcome.payout_chips &&
+            Math.max(prize, r.wheel_minimum_payout_chips ?? 0) === r.outcome.payout_chips &&
             r.outcome.cashout_cents <= Math.min(r.cap_cents, r.fairness.crash_cents);
         } else if (r.status === 'crashed') {
           v.fair = v.fair && r.outcome?.payout_chips === (r.minimum_payout_chips ?? 0);
@@ -1159,7 +1158,7 @@ function DiamondCrashGame() {
   if (loading) return <PageSkeleton />;
   if (loadError || !state) {
     return (
-      <div className={`${styles.page} ${styles.fullscreenPage}`}>
+      <div className={`${styles.page} ${styles.fullscreenPage}`} data-flight-cabinet="">
         <LoadingState message={loadError || 'Reconnecting To Crash'} />
       </div>
     );
@@ -1222,7 +1221,7 @@ function DiamondCrashGame() {
   const guaranteed =
     open && round
       ? {
-          chips: round.minimum_payout_chips ?? 0,
+          chips: Math.max(round.minimum_payout_chips ?? 0, round.wheel_minimum_payout_chips ?? 0),
           betChips: round.bet_chips,
           super: round.bonus?.boost_multiplier === 2,
         }
@@ -1262,7 +1261,7 @@ function DiamondCrashGame() {
         : guaranteed && !settledRound
           ? {
               bet: guaranteed.betChips,
-              minimum: guaranteed.chips,
+              minimum: earned.quote?.gameMinimumPayoutChips ?? guaranteed.chips,
               // The contract the server says the next round will be sealed
               // under: the award quote's, else the game state's (contract 5
               // states itself), else contract 4. Never assumed, so this is
@@ -1299,7 +1298,7 @@ function DiamondCrashGame() {
   const roundAuto = round?.auto_cashout_cents ?? null;
 
   return (
-    <div className={`${styles.page} ${styles.fullscreenPage}`}>
+    <div className={`${styles.page} ${styles.fullscreenPage}`} data-flight-cabinet="">
       <button
         type="button"
         className={styles.back}
@@ -1437,17 +1436,12 @@ function DiamondCrashGame() {
                       }
         }
       >
-        <TodayLine
-          used={player?.rounds_today ?? 0}
-          cap={cfg?.max_rounds_per_player_per_day ?? 0}
-          spentDiamonds={player?.diamonds_today ?? 0}
-          noun="Rounds"
-        />
         <div className={`${styles.stage} ${styles.crashStage}`} ref={stageRef}>
           <CrashPointsStrip points={floor?.crash_points ?? []} />
           <div className={styles.board}>
             <CrashCurve
               phase={phase}
+              onLaunch={canStart && !running && !runSize ? () => void handleStart() : undefined}
               growthK={round?.growth_k ?? growthK}
               capCents={round?.cap_cents ?? capCents}
               startedAtLocalMs={startedAtLocal}
@@ -1486,10 +1480,16 @@ function DiamondCrashGame() {
             role="status"
             aria-live={open || settledRound ? 'off' : 'polite'}
           >
-            <span className="sc-label sc-ink--blue">{readoutLabel}</span>
+            <span className={phase === 'idle' ? 'sc-label sr-only' : 'sc-label sc-ink--blue'}>
+              {readoutLabel}
+            </span>
             <span
               ref={readoutValueRef}
-              className={`${styles.readoutValue} ${styles.readoutCompact} ${readoutInk}`}
+              className={
+                phase === 'idle'
+                  ? 'sr-only'
+                  : `${styles.readoutValue} ${styles.readoutCompact} ${readoutInk}`
+              }
             >
               {readoutValue}
             </span>
@@ -1526,7 +1526,12 @@ function DiamondCrashGame() {
                   'Auto Play Needs An Auto Cash Out: Tap Auto To Set One, Or It Cannot Cash Out For You.'
                 )
               ) : (
-                `${promise ? `${promise} ` : ''}${averageCrash ? `${averageCrash}. ` : ''}${crashCapLabel(capCents)}. ${budget.award ? 'Your Wheel Award Is Ready.' : 'Choose Your Entry And Start.'} Auto Cash Out Is Optional.`
+                <>
+                  {promise && <span className="sr-only">{promise} </span>}
+                  {averageCrash
+                    ? `${averageCrash}. ${crashCapLabel(capCents)}.`
+                    : crashCapLabel(capCents)}
+                </>
               )}
               {autoRun && !open ? ` Auto Play ${autoRun.done} Of ${autoRun.total}.` : ''}
             </span>

@@ -393,3 +393,9 @@ if [ "$(grep -Fc 'NOTICE:  PASS Diamond statement history:' "$fixture/statement-
   echo 'Historical statement display correction did not reach its success witness' >&2
   exit 1
 fi
+
+# Diamond game contracts follow the wallet-balance wheel migration in this fixture.
+"${diamond_psql[@]}" -f "$diamond/plinko-entry-readers.sql" \
+  -f "$root/supabase/migrations/20261110020345_longer_crash_flights_and_positive_plinko_returns.sql" \
+  -f "$root/supabase/migrations/20261110020719_release_plinko_drops_and_their_prizes_one_request_at_a_time.sql" \
+  -f "$root/tests/sql/plinko-drop-release.sql"

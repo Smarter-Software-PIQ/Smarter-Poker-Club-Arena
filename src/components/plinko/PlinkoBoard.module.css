@@ -204,3 +204,11 @@
     animation-iteration-count: 1 !important;
   }
 }
+
+.accessiblePayouts {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}

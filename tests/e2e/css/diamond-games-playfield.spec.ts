@@ -1024,7 +1024,7 @@ const START_VIEWPORTS = [
 ] as const;
 const START_LABEL = {
   crash: /^Start /,
-  plinko: /^Drop Diamonds$/,
+  plinko: /^Drop One$/,
   crossing: /^Start Round$/,
   mines: /^Start Round$/,
 } as const;
@@ -1070,13 +1070,25 @@ async function openGamePage(page: Page, game: keyof typeof START_LABEL, live = f
   await page.unrouteAll({ behavior: 'ignoreErrors' });
   await page.route('**/*', (route) => {
     const url = new URL(route.request().url());
+    const plate = url.pathname.match(
+      /\/assets\/club-buttons\/lobby\/shark-panel-v1\/(button-(?:primary|secondary)\.png)$/
+    );
+    if (plate)
+      return route.fulfill({
+        path: 'public/assets/club-buttons/lobby/shark-panel-v1/' + plate[1],
+        contentType: 'image/png',
+      });
+    if (url.pathname.endsWith('/images/diamond-icon.webp'))
+      return route.fulfill({ path: 'public/images/diamond-icon.webp', contentType: 'image/webp' });
+    if (url.pathname.endsWith('/images/header-help-v4.png'))
+      return route.fulfill({ path: 'public/images/header-help-v4.png', contentType: 'image/png' });
     if (url.hostname !== 'diamond-pages.local') network.push(url.href);
     return route.fulfill({
       contentType: 'text/html',
       body: '<meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div>',
     });
   });
-  await page.goto(`http://diamond-pages.local/game.html?game=${game}${live ? '&live=1' : ''}`);
+  await page.goto(`https://diamond-pages.local/game.html?game=${game}${live ? '&live=1' : ''}`);
   await page.addStyleTag({ content: bundle.css });
   await page.addScriptTag({ content: bundle.javascript });
   await expect(page.locator('[data-game-console]')).toBeVisible({ timeout: 30_000 });
@@ -1089,6 +1101,57 @@ async function noOfferStands(page: Page) {
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByText('Double Your Diamonds')).toHaveCount(0);
 }
+
+test('a single tap on the sapphire launches Crash and opens cashout in the same cabinet', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openGamePage(page, 'crash');
+  const diamond = page.getByRole('button', { name: 'Launch Diamond' });
+  await expect(diamond).toBeEnabled();
+  await expect
+    .poll(() => diamond.evaluate((button) => button.style.left.endsWith('px')))
+    .toBe(true);
+  await page.screenshot({ path: test.info().outputPath('crash-phone.png') });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await onTheGlass(page, 'Crash desktop');
+  await page.screenshot({ path: test.info().outputPath('crash-desktop.png') });
+  await diamond.click();
+  await expect(diamond).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Book The Win' })).toBeEnabled();
+});
+
+test('Plinko denominations scroll both ways on one row and both release controls require a selection', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 667 });
+  await openGamePage(page, 'plinko');
+  const choice = page.getByRole('button', { name: '10 Diamonds Per Drop, 10 Drops' });
+  const row = choice.locator('..');
+  const buttons = row.getByRole('button');
+  const topCount = await buttons.evaluateAll(
+    (items) => new Set(items.map((item) => item.getBoundingClientRect().top)).size
+  );
+  expect(topCount).toBe(1);
+  await expect(page.getByRole('button', { name: 'Drop All' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Next denominations' }).click();
+  await expect.poll(() => row.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+  await page.getByRole('button', { name: 'Previous denominations' }).click();
+  await expect.poll(() => row.evaluate((el) => el.scrollLeft)).toBe(0);
+  await choice.click();
+  await expect(page.getByRole('button', { name: 'Drop All' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Drop One' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Refresh' })).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath('plinko-phone.png') });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.screenshot({ path: test.info().outputPath('plinko-desktop.png') });
+  await page.setViewportSize({ width: 375, height: 667 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.getByRole('button', { name: 'Drop One' }).click();
+  await expect(page.getByText('9 Drops In Hand')).toBeVisible();
+  await page.getByRole('button', { name: 'Drop All' }).click();
+  await expect(page.getByRole('dialog')).toContainText('10 Drops Completed.', { timeout: 25_000 });
+});
 
 for (const viewport of START_VIEWPORTS)
   test(`Every bonus game opens with Start on the screen at ${viewport.width} x ${viewport.height}`, async ({

@@ -10,6 +10,8 @@ const backend = vi.hoisted(() => ({
   getState: vi.fn(),
   commit: vi.fn(),
   start: vi.fn(),
+  plinkoProgress: vi.fn(),
+  releasePlinko: vi.fn(),
   latest: vi.fn(),
   awardState: vi.fn(),
   wheelState: vi.fn(),
@@ -23,6 +25,7 @@ vi.mock('../../src/services/DiamondBonusService', async (original) => ({
   DiamondBonusService: backend,
   BonusRefusal: class extends Error {},
   parsePlinkoBonus: (v: unknown) => v,
+  parsePlinkoProgress: (v: unknown) => v,
 }));
 vi.mock('../../src/services/WheelBonusEntryService', async (original) => ({
   ...(await original<typeof import('../../src/services/WheelBonusEntryService')>()),
@@ -125,7 +128,7 @@ const bay = (label: string) => screen.getByText(label).nextElementSibling;
 const selector = () => screen.getByRole('group', { name: 'Diamonds Per Drop' });
 const choiceLabels = () =>
   within(selector())
-    .getAllByRole('button')
+    .getAllByRole('button', { name: /Per Drop/ })
     .map((b) => b.getAttribute('aria-label'));
 const pressed = () =>
   within(selector())
@@ -165,6 +168,7 @@ const ordinaryAward = {
 beforeEach(() => {
   vi.clearAllMocks();
   sessionStorage.clear();
+  backend.plinkoProgress.mockResolvedValue(null);
   backend.getState.mockResolvedValue(state);
   backend.latest.mockResolvedValue(null);
   backend.wheelState.mockResolvedValue({ pending_awards: [] });
@@ -204,12 +208,12 @@ describe('Plinko starts only its earned funding, on the player choice', () => {
     expect(pressed()).toHaveLength(0);
     expect(bay('Per Drop')).toHaveTextContent('Choose');
     expect(bay('Drops')).toHaveTextContent('Choose');
-    expect(screen.getByRole('button', { name: 'Drop Diamonds' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Drop One' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: '10 Diamonds Per Drop, 10 Drops' }));
     expect(bay('Per Drop')).toHaveTextContent('10');
     expect(bay('Drops')).toHaveTextContent('10');
-    expect(screen.getByRole('button', { name: 'Drop Diamonds' })).toBeEnabled();
-    fireEvent.click(screen.getByRole('button', { name: 'Drop Diamonds' }));
+    expect(screen.getByRole('button', { name: 'Drop One' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Drop One' }));
     await act(async () => {});
     // ORDINARY PLAY IS DEALT ON THE BOARD ITS FLOOR CHOSE (contract 4). 100
     // diamonds at 100 a chip is a 1.00 chip stake with a 0.50 floor, which
@@ -230,11 +234,11 @@ describe('Plinko starts only its earned funding, on the player choice', () => {
     expect(bay('Drops')).toHaveTextContent('1/10');
     // Still nothing more falls until the player says so.
     expect(screen.getByRole('button', { name: 'Land Released (1)' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Drop 2 Of 10' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Drop One' }));
     expect(screen.getByRole('button', { name: 'Land Released (2)' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Drop All' }));
     expect(screen.getByRole('button', { name: 'Land Released (10)' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Dropping' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Drop One' })).toBeDisabled();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Land Released (10)' }));
     await act(async () => {});
@@ -247,6 +251,52 @@ describe('Plinko starts only its earned funding, on the player choice', () => {
       '/clubs/00000000-0000-0000-0000-000000000003/wheel',
       { replace: true }
     );
+  });
+  it('resumes paid drops without replaying their animation and retains the release id across a missing answer', async () => {
+    backend.awardState.mockResolvedValue({
+      enabled: true,
+      award: null,
+      gameState: null,
+      quote: null,
+    });
+    const original = fixtures.receipts.plinko;
+    const progress = (count: number) => {
+      const drops = original.drops.slice(0, count);
+      const chips = drops.reduce((sum, b) => sum + Math.round(b.payout_chips * 100), 0) / 100;
+      return {
+        ...original,
+        award_id: superAward.id,
+        drops,
+        payout_chips: chips,
+        released_chips: chips,
+        complete: count === original.drops.length,
+        total_count: original.drops.length,
+        released_count: count,
+      };
+    };
+    backend.plinkoProgress.mockResolvedValue(progress(2));
+    backend.releasePlinko
+      .mockRejectedValueOnce(new Error('disconnected'))
+      .mockResolvedValueOnce(progress(3))
+      .mockResolvedValueOnce(progress(10));
+    render(<DiamondPlinkoPage />);
+    await act(async () => {});
+    expect(bay('Drops')).toHaveTextContent('2/10');
+    expect(screen.getByRole('button', { name: 'Land Released (0)' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Drop One' }));
+    await act(async () => {});
+    expect(screen.getByText(/Drop confirmation pending/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Drop One' }));
+    await act(async () => {});
+    expect(backend.releasePlinko.mock.calls[1]).toEqual(backend.releasePlinko.mock.calls[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Land Released (1)' }));
+    expect(bay('Drops')).toHaveTextContent('3/10');
+    fireEvent.click(screen.getByRole('button', { name: 'Drop All' }));
+    await act(async () => {});
+    expect(backend.releasePlinko.mock.calls[2][2]).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Land Released (8)' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('10 Drops Completed');
+    expect(backend.start).not.toHaveBeenCalled();
   });
   it('opens a Super award straight on the selector, then plays the Super table with the chosen value', async () => {
     backend.awardState.mockResolvedValue({
@@ -264,7 +314,7 @@ describe('Plinko starts only its earned funding, on the player choice', () => {
     expect(pressed()).toHaveLength(0);
     expect(bay('Per Drop')).toHaveTextContent('Choose');
     expect(bay('Drops')).toHaveTextContent('Choose');
-    expect(screen.getByRole('button', { name: 'Drop Diamonds' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Drop One' })).toBeDisabled();
     // The Guaranteed bay is the server's own quote, in gold for a Super award.
     expect(bay('Guaranteed')).toHaveTextContent('10.00 Chips');
     expect(bay('Guaranteed')).toHaveAttribute('data-ink', 'gold');
@@ -276,7 +326,7 @@ describe('Plinko starts only its earned funding, on the player choice', () => {
     expect(bay('Per Drop')).toHaveTextContent('20');
     expect(bay('Drops')).toHaveTextContent('10');
     expect(screen.getByText('10 Drops × 20 Diamonds = 200 Diamonds')).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: 'Drop Diamonds' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Drop One' }));
     // `tableVersion` is the table the quote named, and `budget.denomination` is
     // what DiamondBonusService sends as `p_denom`: the player's own choice.
     expect(backend.start).toHaveBeenCalledTimes(1);
@@ -321,13 +371,13 @@ describe('Plinko starts only its earned funding, on the player choice', () => {
     expect(choiceLabels()).toContain('2,500 Diamonds Per Drop, 1 Drop');
     expect(bay('Guaranteed')).toHaveTextContent('25.00 Chips');
     expect(bay('Guaranteed')).not.toHaveAttribute('data-ink', 'gold');
-    expect(screen.getByRole('button', { name: 'Drop Diamonds' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Drop One' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: '250 Diamonds Per Drop, 10 Drops' }));
     expect(screen.getByText('10 Drops × 250 Diamonds = 2,500 Diamonds')).toBeVisible();
     expect(screen.queryByText(/Chips Booked From/)).not.toBeInTheDocument();
     // A value is chosen, so Drop is the player's to press (R1).
-    expect(screen.getByRole('button', { name: 'Drop Diamonds' })).toBeEnabled();
-    fireEvent.click(screen.getByRole('button', { name: 'Drop Diamonds' }));
+    expect(screen.getByRole('button', { name: 'Drop One' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Drop One' }));
     expect(backend.start).toHaveBeenCalledTimes(1);
     expect(backend.start).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -359,17 +409,17 @@ describe('Plinko starts only its earned funding, on the player choice', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(120_000);
     });
-    expect(screen.getByRole('button', { name: 'Drop Diamonds' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Drop One' })).toBeDisabled();
     expect(backend.start).not.toHaveBeenCalled();
     expect(backend.navigate).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '20 Diamonds Per Drop, 10 Drops' }));
-    expect(screen.getByRole('button', { name: 'Drop Diamonds' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Drop One' })).toBeEnabled();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(120_000);
     });
     expect(backend.start).not.toHaveBeenCalled();
     expect(backend.navigate).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: 'Drop Diamonds' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Drop One' })).toBeEnabled();
   });
   it('remembers the chosen drop value for this award across a remount, and never carries it to another', async () => {
     backend.awardState.mockResolvedValue({
@@ -389,7 +439,7 @@ describe('Plinko starts only its earned funding, on the player choice', () => {
     expect(pressed().map((b) => b.getAttribute('aria-label'))).toEqual([
       '20 Diamonds Per Drop, 10 Drops',
     ]);
-    expect(screen.getByRole('button', { name: 'Drop Diamonds' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Drop One' })).toBeEnabled();
     cleanup();
     backend.awardState.mockResolvedValue({
       enabled: true,
@@ -402,7 +452,7 @@ describe('Plinko starts only its earned funding, on the player choice', () => {
     // A new award opens on the selector with nothing pressed, and no offer.
     expectNoAddOn();
     expect(pressed()).toHaveLength(0);
-    expect(screen.getByRole('button', { name: 'Drop Diamonds' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Drop One' })).toBeDisabled();
   });
   it('never sends the add-on, even when an older page saved a Double Down answer for this award', async () => {
     // A selection the previous bundle saved with the add-on taken.
@@ -432,7 +482,7 @@ describe('Plinko starts only its earned funding, on the player choice', () => {
     expect(screen.queryByText(/This Bonus Does Not Cover A Doubled Entry/)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '500 Diamonds Per Drop, 5 Drops' }));
     expect(screen.getByText('5 Drops × 500 Diamonds = 2,500 Diamonds')).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: 'Drop Diamonds' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Drop One' }));
     expect(backend.start).toHaveBeenCalledTimes(1);
     expect(backend.start).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -458,7 +508,7 @@ describe('Plinko starts only its earned funding, on the player choice', () => {
     render(<DiamondPlinkoPage />);
     await act(async () => {});
     fireEvent.click(screen.getByRole('button', { name: '20 Diamonds Per Drop, 10 Drops' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Drop Diamonds' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Drop One' }));
     await act(async () => {});
     // An uncertain start is never retried as a fresh wager, and nobody is
     // asked to check anything: the page replays the held request itself.
@@ -500,7 +550,7 @@ describe('Plinko starts only its earned funding, on the player choice', () => {
     await act(async () => {});
     const receipt = screen.getByRole('dialog', { name: '7.50 Chips' });
     expect(receipt).toHaveTextContent('10 Drops Completed.');
-    expect(screen.getByRole('button', { name: 'Drop Diamonds' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Drop One' })).toBeDisabled();
     expect(backend.start).not.toHaveBeenCalled();
     fireEvent.animationEnd(receipt.querySelector('[data-motion="keep"]')!);
     fireEvent.click(within(receipt).getByRole('button', { name: 'Play Next Bonus Game' }));

@@ -63,8 +63,30 @@ export function diamondGamePagesFixture() {
       diamondBonusRecovery: `export class PriorBonusPending extends Error{};export const pendingBonus=()=>null;export const rememberBonus=()=>{};export const clearPendingBonus=()=>{};`,
       // ── The money boundary. A layout fixture may read a round, never bet. ──
       DiamondBonusService: `export class BonusRefusal extends Error{};export class BonusUnreadable extends Error{};export const BONUS_SAVED='Your Round Is Saved';
-        export const parsePlinkoBonus=(value)=>value;
-        export const DiamondBonusService={start:async()=>{throw new Error('This Layout Fixture Cannot Wager')}};`,
+        export const parsePlinkoBonus=(value)=>value;export const parsePlinkoProgress=(value)=>value;
+        import {PLINKO_TABLES} from './src/utils/diamondBonusPayout';
+        import {openFixtureCrash} from 'DiamondGamesService';
+        let entry=null, released=0;
+        const respond=(all)=>{
+          const each=entry.budget.denomination, count=entry.budget.base/each;
+          released=all?count:released+1;
+          const paid=released*0.1;
+          return {ok:true,game:'plinko',id:'beef0000-0000-4000-8000-000000000001',
+            club_id:entry.clubId,award_id:entry.budget.award.id,commit_id:entry.commitId,
+            server_seed_hash:entry.serverSeedHash,diamonds_per_chip:100,diamonds_per_drop:each,
+            table_version:4,multipliers_cents:PLINKO_TABLES[4].multipliersCents,bet_diamonds:entry.budget.base,
+            total_count:count,released_count:released,released_chips:paid,payout_chips:paid,complete:released===count,
+            bonus:{base_diamonds:entry.budget.base,entry_diamonds:entry.budget.base,added_diamonds:0,total_diamonds:entry.budget.base,boost_multiplier:1},
+            drops:Array.from({length:released},(_,index)=>({index,path_bits:255,slot:8,payout_chips:0.1,multiplier_cents:52}))};
+        };
+        export const DiamondBonusService={plinkoProgress:async()=>null,start:async(input)=>{
+          if(input.game==='crash'&&!entry){entry=input;return openFixtureCrash();}
+          if(input.game!=='plinko'||!input.plinkoRelease||entry) throw new Error('This Layout Fixture Cannot Wager');
+          entry=input;return respond(input.plinkoRelease.all);
+        },releasePlinko:async(id,key,all)=>{
+          if(!entry||id!==entry.budget.award.id) throw new Error('Unknown Fixture Award');
+          return respond(all);
+        }};`,
       DiamondGamesService: `
         import {PLINKO_TABLES} from './src/utils/diamondBonusPayout';
         const params=new URLSearchParams(location.search);
@@ -79,7 +101,8 @@ export function diamondGamePagesFixture() {
           server_now:new Date().toISOString(),elapsed_ms:4000,multiplier_now_cents:149,outcome:null,
           fairness:{commit_id:'c0ffee00-0000-4000-8000-000000000001',server_seed_hash:'a'.repeat(64),client_seed:'c'.repeat(32),nonce:1},
           balances:{diamonds:9900,member_chips:5000},pool:{chips_paid:null},created_at:new Date().toISOString()});
-        const round=live?openRound():null;
+        let round=live?openRound():null;
+        export const openFixtureCrash=()=>round=openRound();
         const table=PLINKO_TABLES[4];
         const state={ok:true,available:true,game,host_id:club,host_kind:'club',club_id:club,
           config:{diamonds_per_chip:100,min_bet_diamonds:25,max_bet_diamonds:2500,exposure_allowance_chips:0,

@@ -1,3 +1,4 @@
+import { earnedWheelMinimum } from '../utils/diamondBonusPayout';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  DIAMOND GAMES SERVICE - Plinko and Crash
@@ -188,10 +189,11 @@ export interface CrashRound {
     total_diamonds: number;
   };
   minimum_payout_chips?: number;
+  wheel_minimum_payout_chips?: number;
   /** 1: no floor (historical). 2: a tenth of the stake. 3: the Super half.
    *  4: half the stake, or for a Super award what the player paid, at a 0.80
    *  return. 5: the same floor at a 0.95 return, 1.25x up to 20x (2026-10-12). */
-  payout_version?: 1 | 2 | 3 | 4 | 5;
+  payout_version?: 1 | 2 | 3 | 4 | 5 | 6;
   /** The first hundredth this round's own contract lets a player book: 1.01x
    *  before contract 4, 1.11x under it, 1.26x from contract 5. Mirrors
    *  fn_crash_cashout / fn_crash_decide. */
@@ -481,13 +483,13 @@ function normaliseTable(raw: Record<string, unknown>): PlinkoTable {
 
 /** The receipt versions this client knows how to price. Anything else is not a
  *  contract it can read, so it is not one it pretends to. */
-const CRASH_PAYOUT_VERSIONS = [1, 2, 3, 4, 5] as const;
+const CRASH_PAYOUT_VERSIONS = [1, 2, 3, 4, 5, 6] as const;
 
 export function normaliseCrash(raw: Record<string, unknown>): CrashRound {
   const version = (CRASH_PAYOUT_VERSIONS as readonly number[]).includes(
     raw.payout_version as number
   )
-    ? (raw.payout_version as 1 | 2 | 3 | 4 | 5)
+    ? (raw.payout_version as 1 | 2 | 3 | 4 | 5 | 6)
     : undefined;
   const outcome = raw.outcome ? rec(raw.outcome) : null;
   const fairness = rec(raw.fairness);
@@ -522,6 +524,7 @@ export function normaliseCrash(raw: Record<string, unknown>): CrashRound {
           },
         }
       : {}),
+    wheel_minimum_payout_chips: earnedWheelMinimum(raw) ?? undefined,
     minimum_payout_chips:
       raw.minimum_payout_chips === undefined ? undefined : num(raw.minimum_payout_chips),
     // A RECEIPT KEEPS THE CONTRACT IT WAS SEALED WITH (2026-09-23). This read
