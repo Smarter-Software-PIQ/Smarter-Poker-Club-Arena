@@ -23,6 +23,9 @@
   font-size: clamp(1.8rem, 7vw, 3rem);
   margin: 0.2em 0;
 }
+.receipt header {
+  padding-bottom: 0.8rem;
+}
 .receipt footer {
   display: flex;
   justify-content: center;

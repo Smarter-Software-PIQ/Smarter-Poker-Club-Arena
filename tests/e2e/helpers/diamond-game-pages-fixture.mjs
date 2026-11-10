@@ -120,7 +120,16 @@ export function diamondGamePagesFixture() {
         const DiamondGamesService={
           getState:async()=>state,
           commit:async()=>({ok:true,commit_id:'c0ffee00-0000-4000-8000-000000000001',server_seed_hash:'a'.repeat(64),expires_at:''}),
-          crashSettle:async(roundId,cashout)=>{if(cashout)throw new Error('This Layout Fixture Cannot Cash Out');return {...round,server_now:new Date().toISOString()};},
+          crashSettle:async(roundId,cashout)=>{
+            if(roundId!==round?.round_id) throw new Error('Unknown Fixture Round');
+            if(cashout && round.status==='open'){
+              const now=new Date().toISOString();
+              round={...round,status:'cashed',server_now:now,settled_at:now,
+                outcome:{cashout_cents:150,crash_cents:250,payout_chips:1.5,settled_by:'player'}};
+              state.open_round=null;
+            }
+            return {...round,server_now:new Date().toISOString()};
+          },
           crashHistory:async()=>[],
           plinkoHistory:async()=>[],
           floor:async()=>({ok:true,wins:[],crash_points:[],top_week:[]}),

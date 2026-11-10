@@ -1093,6 +1093,14 @@ async function openGamePage(page: Page, game: keyof typeof START_LABEL, live = f
       return route.fulfill({ path: 'public/images/diamond-icon.webp', contentType: 'image/webp' });
     if (url.pathname.endsWith('/images/header-help-v4.png'))
       return route.fulfill({ path: 'public/images/header-help-v4.png', contentType: 'image/png' });
+    const receiptArt = url.pathname.match(
+      /\/assets\/diamond-spins\/(result-(?:crash|plinko|crossing|mines)\.webp)$/
+    );
+    if (receiptArt)
+      return route.fulfill({
+        path: 'public/assets/diamond-spins/' + receiptArt[1],
+        contentType: 'image/webp',
+      });
     if (url.hostname !== 'diamond-pages.local') network.push(url.href);
     return route.fulfill({
       contentType: 'text/html',
@@ -1129,7 +1137,27 @@ test('a single tap on the sapphire launches Crash and opens cashout in the same 
   await page.screenshot({ path: test.info().outputPath('crash-desktop.png') });
   await diamond.click();
   await expect(diamond).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Book The Win' })).toBeEnabled();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: 'Book The Win' }).click();
+  const receipt = page.getByRole('dialog', { name: '1.50 Chips' });
+  await expect(receipt.getByRole('heading', { name: '1.50 Chips' })).toBeVisible();
+  await expect(receipt.getByText('Credited To Your Club Balance')).toBeVisible();
+  await expect
+    .poll(() =>
+      receipt.locator('img').evaluate((img: HTMLImageElement) => {
+        const credit = img.closest('section')?.querySelector('header small');
+        return (
+          img.naturalWidth > 0 &&
+          !!credit &&
+          img.getBoundingClientRect().top >= credit.getBoundingClientRect().bottom
+        );
+      })
+    )
+    .toBe(true);
+  await page.screenshot({
+    path: test.info().outputPath('crash-paid-mobile.png'),
+    animations: 'disabled',
+  });
 });
 
 test('Plinko denominations scroll both ways on one row and both release controls require a selection', async ({
@@ -1161,7 +1189,29 @@ test('Plinko denominations scroll both ways on one row and both release controls
   await page.getByRole('button', { name: 'Drop One' }).click();
   await expect(page.getByText('9 Drops In Hand')).toBeVisible();
   await page.getByRole('button', { name: 'Drop All' }).click();
-  await expect(page.getByRole('dialog')).toContainText('10 Drops Completed.', { timeout: 25_000 });
+  const receipt = page.getByRole('dialog', { name: '1.00 Chips' });
+  await expect(receipt.getByRole('heading', { name: '1.00 Chips' })).toBeVisible({
+    timeout: 25_000,
+  });
+  await expect(receipt.getByText('Credited To Your Club Balance')).toBeVisible();
+  await expect
+    .poll(() =>
+      receipt.locator('img').evaluate((img: HTMLImageElement) => {
+        const credit = img.closest('section')?.querySelector('header small');
+        return (
+          img.naturalWidth > 0 &&
+          !!credit &&
+          img.getBoundingClientRect().top >= credit.getBoundingClientRect().bottom
+        );
+      })
+    )
+    .toBe(true);
+  await receipt.getByText('Round Details').click();
+  await expect(receipt.getByRole('status')).toContainText('10 Drops Completed.');
+  await page.screenshot({
+    path: test.info().outputPath('plinko-paid-mobile.png'),
+    animations: 'disabled',
+  });
 });
 
 for (const viewport of START_VIEWPORTS)
