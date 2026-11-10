@@ -174,8 +174,8 @@
       "sha256": "8b037b9f60bbb9219d0d47163ea4d2ed74d3b695431e950d4e06c2c2feec9966"
     },
     "tests/fixtures/posthand-escrow/README.md": {
-      "bytes": 2701,
-      "sha256": "dc289e37613f807b78a92b0da4da2b61b167b3cb82a3e9213c8c1fb156466b68"
+      "bytes": 4462,
+      "sha256": "6de4d2a87810da8a70f1aa11dfa4d08182c47e775af7547e741f303ddba39638"
     },
     "tests/fixtures/posthand-escrow/access-preimage.sql": {
       "bytes": 417,
@@ -270,8 +270,8 @@
       "sha256": "c0a317f294f6e2d08f731ec43efc135fc04e049dc5fd86b56b59d05832df810f"
     },
     "tests/fixtures/posthand-escrow/source-binding.json": {
-      "bytes": 7611,
-      "sha256": "f23d21f18d1d8b02d6d88bfa8a51c977c242a1f33ca81dc446e496ab225281a9"
+      "bytes": 9667,
+      "sha256": "910fcf98c7ea9d0f831ef9ecd4216545dabe09ae5a4dfa5e17f336617dad61a7"
     },
     "tests/fixtures/posthand-escrow/source-preservation.sql": {
       "bytes": 2047,
@@ -337,5 +337,12 @@
       "bytes": 1468,
       "sha256": "31328df99941b70a16e8e4e1fe063fdcdca312624cf344d72c2690d7a3d7e327"
     }
+  },
+  "posthandTemporalQualificationAudit": {
+    "reason": "The reviewed posthand README documents the new original-event temporal proof and bounded private lookup. Its maintained binding adds only the successor migration and deterministic native extension; all historical financial source bytes and assertions remain unchanged. Rebind these two current composed inputs after the full existing native route and exact owner installer passed; this is not production certification.",
+    "changedCurrentInputs": [
+      "tests/fixtures/posthand-escrow/README.md",
+      "tests/fixtures/posthand-escrow/source-binding.json"
+    ]
   }
 }
