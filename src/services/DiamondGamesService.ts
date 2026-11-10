@@ -1,3 +1,4 @@
+import { earnedWheelMinimum } from '../utils/diamondBonusPayout';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  DIAMOND GAMES SERVICE - Plinko and Crash
@@ -188,6 +189,7 @@ export interface CrashRound {
     total_diamonds: number;
   };
   minimum_payout_chips?: number;
+  wheel_minimum_payout_chips?: number;
   /** 1: no floor (historical). 2: a tenth of the stake. 3: the Super half.
    *  4: half the stake, or for a Super award what the player paid, at a 0.80
    *  return. 5: the same floor at a 0.95 return, 1.25x up to 20x (2026-10-12). */
@@ -522,6 +524,7 @@ export function normaliseCrash(raw: Record<string, unknown>): CrashRound {
           },
         }
       : {}),
+    wheel_minimum_payout_chips: earnedWheelMinimum(raw) ?? undefined,
     minimum_payout_chips:
       raw.minimum_payout_chips === undefined ? undefined : num(raw.minimum_payout_chips),
     // A RECEIPT KEEPS THE CONTRACT IT WAS SEALED WITH (2026-09-23). This read

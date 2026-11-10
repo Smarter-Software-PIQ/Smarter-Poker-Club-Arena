@@ -196,7 +196,8 @@ function DiamondPlinkoGame() {
   };
   /** The chips this game pays whatever the drops do, shown before Start. */
   const guaranteedChips = (() => {
-    if (result) return result.minimum_payout_chips ?? 0;
+    if (result)
+      return Math.max(result.minimum_payout_chips ?? 0, result.wheel_minimum_payout_chips ?? 0);
     if (earned.quote) return earned.quote.minimumPayoutChips;
     if (earned.award || earned.loading) return null;
     return entryFloor;
