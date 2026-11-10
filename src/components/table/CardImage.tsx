@@ -646,17 +646,10 @@ export function cardBackImageUrl(style: string | undefined | null): string {
   return `${MEDIA_BASE}cards/backs/table/${normalizeCardBack(style)}.webp`;
 }
 
-// Density-filtered prints retain each original design at opponent and gallery sizes.
-const compactBacks = import.meta.glob<string>('../../assets/compact-card-backs/*.webp', {
-  eager: true,
-  import: 'default',
-  query: '?url',
-});
-
 export function CardBack({ style, size = 'md', className = '' }: CardBackProps) {
   const sizeClass = SIZE_CLASSES[size];
   const backStyle = normalizeCardBack(style);
-  const compact = compactBacks[`../../assets/compact-card-backs/${backStyle}.webp`];
+  const compact = `${MEDIA_BASE}cards/backs/table/compact/${backStyle}.webp`;
   const classes = ['card-image', 'card-image--back', sizeClass, className]
     .filter(Boolean)
     .join(' ');
