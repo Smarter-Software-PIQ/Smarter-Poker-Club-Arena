@@ -352,7 +352,7 @@ describe('Tournament details snapshot recovery', () => {
     expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe('tl-tab-detail');
   });
   it('carries received bounties through initial load, realtime and reconnect', async () => {
-    rows('tournament_players', {
+    rows('tournament_players_public', {
       data: [entry('entry-a', { bounty_winnings: '12.25' })],
       error: null,
     });
@@ -371,7 +371,7 @@ describe('Tournament details snapshot recovery', () => {
     act(() => changed({ eventType: 'UPDATE', new: entry('entry-a', { chips: 600 }) }));
     await flush();
     expect(snapshot().entries[0].bounty).toBe(25.5);
-    rows('tournament_players', {
+    rows('tournament_players_public', {
       data: [entry('entry-a', { bounty_winnings: '40' })],
       error: null,
     });
@@ -637,11 +637,11 @@ describe('Tournament details snapshot recovery', () => {
   });
 
   it('keeps confirmed entries and tables when their refresh is refused', async () => {
-    rows('tournament_players', { data: [entry()], error: null });
+    rows('tournament_players_public', { data: [entry()], error: null });
     rows('tables', { data: [{ id: 'table-a', status: 'running' }], error: null });
     render(<Page />);
     await flush();
-    rows('tournament_players', { data: null, error: { message: 'offline' } });
+    rows('tournament_players_public', { data: null, error: { message: 'offline' } });
     rows('tables', { data: null, error: { message: 'offline' } });
     act(() => update());
     await flush();
@@ -651,7 +651,7 @@ describe('Tournament details snapshot recovery', () => {
   });
 
   it('reports an initial failed read instead of claiming an empty field', async () => {
-    rows('tournament_players', { data: null, error: { message: 'offline' } });
+    rows('tournament_players_public', { data: null, error: { message: 'offline' } });
     render(<Page />);
     await flush();
     expect(screen.queryByTestId('snapshot')).toBeNull();
@@ -660,7 +660,7 @@ describe('Tournament details snapshot recovery', () => {
   });
 
   it('retains legitimate zero chips in a recovered snapshot', async () => {
-    rows('tournament_players', {
+    rows('tournament_players_public', {
       data: [entry('out', { chips: 0, status: 'eliminated' })],
       error: null,
     });
@@ -678,7 +678,7 @@ describe('Tournament details snapshot recovery', () => {
   });
 
   it('clears a previous field on a scope change even if the new read fails', async () => {
-    rows('tournament_players', { data: [entry()], error: null });
+    rows('tournament_players_public', { data: [entry()], error: null });
     const view = render(<Page />);
     await flush();
     fixture.getTournament.mockRejectedValueOnce(new Error('offline'));
@@ -709,14 +709,14 @@ describe('Tournament details snapshot recovery', () => {
   });
 
   it('does not erase a live entry update with an older in-flight snapshot', async () => {
-    rows('tournament_players', { data: [entry()], error: null });
+    rows('tournament_players_public', { data: [entry()], error: null });
     render(<Page />);
     await flush();
     const old = deferred<any>();
-    rows('tournament_players', old.promise);
+    rows('tournament_players_public', old.promise);
     act(() => update());
     await flush();
-    rows('tournament_players', { data: [entry('entry-a', { chips: 900 })], error: null });
+    rows('tournament_players_public', { data: [entry('entry-a', { chips: 900 })], error: null });
     act(() =>
       fixture.channels[0].bindings
         .find((b: any) => b.filter.table === 'tournament_players')
@@ -749,10 +749,10 @@ describe('Tournament details snapshot recovery', () => {
   });
 
   it('retries an initial refusal and restores the actual field', async () => {
-    rows('tournament_players', { data: null, error: { message: 'offline' } });
+    rows('tournament_players_public', { data: null, error: { message: 'offline' } });
     render(<Page />);
     await flush();
-    rows('tournament_players', { data: [entry()], error: null });
+    rows('tournament_players_public', { data: [entry()], error: null });
     fireEvent.click(screen.getByRole('button', { name: 'Try Again' }));
     await flush();
     expect(snapshot().entries[0].id).toBe('entry-a');
@@ -785,7 +785,7 @@ describe('Tournament details snapshot recovery', () => {
         error: null,
       });
       fixture.stageRpc.mockReturnValue(Object.assign(response, { abortSignal: () => response }));
-      rows('tournament_players', { data: [entry()], error: null });
+      rows('tournament_players_public', { data: [entry()], error: null });
       render(<Page suppressAutoOpenTable={false} />);
       await flush();
       if (mode === 'ordinary') expect(fixture.navigate).toHaveBeenCalledOnce();
@@ -805,7 +805,7 @@ describe('Tournament details snapshot recovery', () => {
         },
       })
     );
-    rows('tournament_players', { data: [entry()], error: null });
+    rows('tournament_players_public', { data: [entry()], error: null });
     render(<Page suppressAutoOpenTable={false} />);
     await flush();
     expect(fixture.navigate).not.toHaveBeenCalled();
@@ -820,7 +820,7 @@ describe('Tournament details snapshot recovery', () => {
   });
 
   it('opens the purchased seat after the complete snapshot resolves', async () => {
-    rows('tournament_players', { data: [entry()], error: null });
+    rows('tournament_players_public', { data: [entry()], error: null });
     const tables = deferred<any>();
     rows('tables', tables.promise);
     render(<Page suppressAutoOpenTable={false} />);
@@ -833,7 +833,7 @@ describe('Tournament details snapshot recovery', () => {
     });
   });
   it('does not replay a patch received before the entry query over newer database rows', async () => {
-    rows('tournament_players', { data: [entry()], error: null });
+    rows('tournament_players_public', { data: [entry()], error: null });
     render(<Page />);
     await flush();
     const header = deferred<any>();
@@ -849,7 +849,7 @@ describe('Tournament details snapshot recovery', () => {
         })
     );
     await flush();
-    rows('tournament_players', { data: [entry('entry-a', { chips: 700 })], error: null });
+    rows('tournament_players_public', { data: [entry('entry-a', { chips: 700 })], error: null });
     header.resolve(tournament());
     await flush();
     expect(snapshot().entries[0].chips).toBe(700);
