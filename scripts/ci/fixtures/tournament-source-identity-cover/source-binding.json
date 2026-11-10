@@ -10,7 +10,7 @@
   "sourceFiles": {
     "docs/changelog/2026-10-29-tournament-source-identity-cover.md": "563c6c15b9e27de6cdf443ba9175e8f1831279f3b5110799f67a0deefc6fcf25",
     "docs/laws.d/tournament-source-identities-keep-narrow-physical-coverage.md": "35e2fed8e6d6de6270568bc1fbe040c285f104400d960fa5ac82d6ccd56b60ae",
-    "scripts/ci/apply-recorded-migration.mjs": "a0fe1c2fca5a26ba3c2e7deff8b59d86ef6c9bcdabababce85a5f47b4b17faaa",
+    "scripts/ci/apply-recorded-migration.mjs": "5822d31ddc7ce91322943c1d7e9d08ecde5f6d863de8bc6a697b11367cc41792",
     "scripts/ci/fixtures/tournament-source-identity-cover/README.md": "69a44db7363317740ec41fa7bd477d8b5930e4794aa67ecf1a26fa18170825db",
     "scripts/ci/fixtures/tournament-source-identity-cover/actual-table-authority.json": "49ec49708441d27f3d37467659953464890439b0d508d04f5280ae35ab1dc648",
     "scripts/ci/fixtures/tournament-source-identity-cover/meaningful-table-contract.json": "62c3fe9a746c851433e3b5c70089448f634e9433326250a21ef569eb6e511f86",
@@ -141,5 +141,11 @@
     "before": "6e2bfb30eab9862cbc2ec9952aaf619e439b454133a82674b38c38a1e21220b8",
     "after": "a0fe1c2fca5a26ba3c2e7deff8b59d86ef6c9bcdabababce85a5f47b4b17faaa",
     "review": "The changed installer imports a read-only pg_locks observer and calls it only for the exact ordinary Diamond Spins wallet cutover. Prior to the existing timed migration transaction, it waits at most 60 seconds for readers and rechecks the existing DDL admission door. The two index qualifications use other exact filenames and never enter this branch."
+  },
+  "walletObservationImmediatelyBeforeSend20261110": {
+    "path": "scripts/ci/apply-recorded-migration.mjs",
+    "before": "a0fe1c2fca5a26ba3c2e7deff8b59d86ef6c9bcdabababce85a5f47b4b17faaa",
+    "after": "5822d31ddc7ce91322943c1d7e9d08ecde5f6d863de8bc6a697b11367cc41792",
+    "review": "Only moves the existing exact-file ordinary Diamond wallet read-only observation and DDL-door recheck after the existing PostgreSQL transaction budget setup, immediately before the original one owning query. No migration bytes, SQL binding, history, identity, financial admission, time budget, observer, or non-wallet route changes. The two index qualifications never enter this exact wallet filename branch. Existing qualification inputs and financial evidence are unchanged; no native financial proof is restamped."
   }
 }

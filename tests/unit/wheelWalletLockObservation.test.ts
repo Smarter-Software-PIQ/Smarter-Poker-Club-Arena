@@ -15,6 +15,15 @@ describe('wheel wallet cutover observation', () => {
     expect(installer.indexOf('await observeWheelWalletReaders(client, sql)')).toBeLessThan(
       installer.indexOf('const started = Date.now()')
     );
+    expect(installer.indexOf('await observeWheelWalletReaders(client, sql)')).toBeGreaterThan(
+      installer.indexOf('SET transaction_timeout')
+    );
+    const afterObservation = installer.slice(
+      installer.indexOf('await observeWheelWalletReaders(client, sql)'),
+      installer.indexOf('const started = Date.now()')
+    );
+    expect(afterObservation).not.toContain('client.query(');
+    expect(afterObservation).toContain('await refusalNow()');
     expect(source.match(/IN ACCESS EXCLUSIVE MODE NOWAIT;/g)).toHaveLength(1);
   });
 

@@ -61,7 +61,10 @@ import { supersededBy } from './check-migrations-are-live.mjs';
 import { minutesBeforeBreakWindow } from './migration-concurrent-preamble.mjs';
 import { migrationTransactionShape } from './migration-transaction-shape.mjs';
 import { migrationCostRisks, isCostChecked } from './migration-cost-shape.mjs';
-import { observeWheelWalletReaders, WHEEL_WALLET_CUTOVER } from './wheel-wallet-lock-observation.mjs';
+import {
+  observeWheelWalletReaders,
+  WHEEL_WALLET_CUTOVER,
+} from './wheel-wallet-lock-observation.mjs';
 import { stalePinParts } from './migration-stale-pins.mjs';
 
 import {
@@ -931,18 +934,6 @@ try {
   await client.end().catch(() => {});
   refused(e.message);
 }
-if (ordinaryTransaction && file === WHEEL_WALLET_CUTOVER) {
-  try {
-    await observeWheelWalletReaders(client, sql);
-    const refusal = await refusalNow();
-    if (refusal) throw new Error(refusal);
-  } catch (e) {
-    await client.end().catch(() => {});
-    refused(`wallet cutover preflight: ${e.message}; migration transaction not sent`);
-  }
-  console.log('[apply] Wallet relations observed idle; the cutover still requires one NOWAIT acquisition.');
-}
-
 // Ordinary installs must not retain live row locks across an unbounded series
 // of individually short statements. On Nov 2 a membership UPDATE held a payout
 // row for 22.7 s; a statement-only limit did not protect the original writers.
@@ -970,6 +961,20 @@ if (MAINTENANCE_WINDOW || ordinaryTransaction) {
     unknown(`could not bound the owning migration transaction: ${e.message}`);
   }
 }
+if (ordinaryTransaction && file === WHEEL_WALLET_CUTOVER) {
+  try {
+    await observeWheelWalletReaders(client, sql);
+    const refusal = await refusalNow();
+    if (refusal) throw new Error(refusal);
+  } catch (e) {
+    await client.end().catch(() => {});
+    refused(`wallet cutover preflight: ${e.message}; migration transaction not sent`);
+  }
+  console.log(
+    '[apply] Wallet relations observed idle; the cutover still requires one NOWAIT acquisition.'
+  );
+}
+
 const started = Date.now();
 try {
   // Send one owning transaction; history retains the exact source bytes.

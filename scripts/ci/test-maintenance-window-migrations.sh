@@ -92,6 +92,12 @@ export PSQL_BIN="$PG_BIN/psql"
 CA="$WORK/ca-public.crt"
 SERVER_VERSION="$(su_sql 'SHOW server_version_num')"
 
+# Default maintained qualification includes the targeted ordinary wallet seam.
+WINDOW_WORK="$WORK" WINDOW_PORT="$PORT" node "$FIXTURES/wallet-observation-last.mjs" "$ROOT" "$CA" \
+  | tee "$EVIDENCE/wallet-observation-last.log"
+if [ "${WINDOW_CASE:-}" = wallet-observation-last ]; then exit 0; fi
+
+
 # The fixture migrations live in a scratch checkout layout: the applier reads
 # supabase/migrations relative to its working directory.
 CASE="$WORK/case"
