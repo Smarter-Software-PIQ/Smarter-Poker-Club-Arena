@@ -195,15 +195,14 @@ export async function readClubChipBalances(
  * player read as unknown and the bust check failed open for everybody: a
  * player with nothing left was treated as able to rebuy (2026-11-09). The
  * wallet a rebuy debits is `table_seats.club_id`, so that is the one read
- * here, falling back to the table's club for a seat that names none.
+ * here. A seat that names no club is left unknown.
  *
  * Same contract as readClubChipBalances: an ABSENT key means unknown, never
  * zero. A failed seat read returns an empty map.
  */
 export async function readSeatWalletBalances(
   tableId: string,
-  userIds: string[],
-  fallbackClubId: string
+  userIds: string[]
 ): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   const ids = userIds.filter(Boolean);
@@ -221,8 +220,10 @@ export async function readSeatWalletBalances(
       return out;
     }
     for (const row of (data ?? []) as Array<{ user_id: string; club_id?: string | null }>) {
-      const club =
-        typeof row.club_id === 'string' && row.club_id.length > 0 ? row.club_id : fallbackClubId;
+      /* No club on the seat: atomic_table_rebuy would resolve one through
+         fn_seat_club_for_user, which this read does not reproduce, so the
+         wallet is UNKNOWN (absent), never the table club's. */
+      const club = typeof row.club_id === 'string' && row.club_id.length > 0 ? row.club_id : '';
       if (!club) continue;
       const users = usersByClub.get(club) ?? [];
       users.push(String(row.user_id));

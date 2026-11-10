@@ -56,3 +56,15 @@ export function cashMinBuyIn(row: CashBuyInSource | null | undefined): number {
   if (bb <= 0) return 0;
   return bb * CASH_MIN_BB;
 }
+
+/**
+ * The least a busted seat can buy back in for: `greatest(min_buy_in,
+ * big_blind * 40)`, the rule atomic_table_rebuy and resolve_pending_addon
+ * enforce. Not cashMinBuyIn, which prefers a configured min_buy_in even below
+ * 40 big blinds: judging a wallet against that smaller figure held seats for
+ * players the database would then refuse (2026-11-10). 0 means UNKNOWN.
+ */
+export function cashRebuyMinimum(row: CashBuyInSource | null | undefined): number {
+  if (!row) return 0;
+  return Math.max(positive(row.min_buy_in), positive(row.big_blind) * CASH_MIN_BB);
+}
