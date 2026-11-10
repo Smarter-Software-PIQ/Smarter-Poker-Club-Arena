@@ -770,6 +770,12 @@ function DiamondPlinkoGame() {
               },
             ]}
           >
+            {incremental && incremental.released_count > 0 && (
+              <dl>
+                <dt>Last Drop</dt>
+                <dd>{gameChips(incremental.drops[incremental.released_count - 1].payout_chips)}</dd>
+              </dl>
+            )}
             <GameLifetimeAverages clubId={uuid} revision={result?.id} />
             <GamePanel
               title="Bonus Proof"
@@ -872,14 +878,6 @@ function DiamondPlinkoGame() {
                 ? `${gameChips(result.payout_chips)} Chips`
                 : gameChips(incremental?.released_chips ?? shownWin),
           },
-          ...(incremental && incremental.released_count > 0
-            ? [
-                {
-                  label: 'Last Drop',
-                  value: gameChips(incremental.drops[incremental.released_count - 1].payout_chips),
-                },
-              ]
-            : []),
         ]}
         secondary={{
           label: 'Drop All',

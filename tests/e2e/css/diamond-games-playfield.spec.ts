@@ -1156,7 +1156,7 @@ test('a single tap on the fighter launches Crash and opens cashout in the same c
   await page.screenshot({ path: test.info().outputPath('crash-phone.png') });
   await page.setViewportSize({ width: 862, height: 1236 });
   await onTheGlass(page, 'Crash portrait flight deck');
-  const metrics = await page.locator('[data-game-console] > aside').boundingBox();
+  const metrics = await page.locator('[data-game-cabinet]').boundingBox();
   const actions = await page.locator('[data-game-actions]').boundingBox();
   expect(metrics!.width).toBeGreaterThan(800);
   expect(actions!.width).toBeGreaterThan(800);
