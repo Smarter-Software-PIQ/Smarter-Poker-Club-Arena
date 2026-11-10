@@ -189,9 +189,70 @@ def main():
         assert r.returncode == 0, r.stderr
         proof = re.search(r'^-- @live-proof: (.+)$', MIGRATION.read_text(), re.M).group(1)
         assert sql(f'SELECT {proof}') == 't', 'live proof must hold after install'
+        # ---- Rows Stage B skipped before the follow-up existed (production shapes, 2026-11-10).
+        # Inbox ids continue from the first row received after Stage B installed (374266).
+        sql('ALTER TABLE public.operational_alert_events ALTER COLUMN id RESTART WITH 374266')
+
+        def premarked(key, alertname, payload, severity='critical', received_at=None):
+            when = f"'{received_at}'::timestamptz" if received_at else 'clock_timestamp()'
+            return int(sql("INSERT INTO public.operational_alert_events(source, event_key, alertname, status, severity, payload, investigation_status, investigation, received_at, last_received_at) "
+                           f"VALUES ('drift-incidents-updates', '{key}', $a${alertname}$a$, 'firing', '{severity}', $a${json.dumps(payload)}$a$::jsonb, 'informational', "
+                           f"'{{\"rule\": \"mirror_duplicate_of_captured_original\"}}', {when}, {when}) RETURNING id"))
+
+        inner_name = 'fn_tournament_money_conservation'
+        inner_row = int(sql("SELECT public.fn_record_operational_alert('financial-alerts-backfill', 'fa-rc1', $a$%s$a$, 'firing', 'critical', "
+                            "$a${\"original_event\": {\"id\": \"fa-rc1\", \"context\": {\"tournament_id\": \"T-rc\"}}}$a$::jsonb)" % inner_name))
+        inner_id = sql(f"SELECT id FROM smarter_private.reliability_incidents WHERE alertname = '{inner_name}'")
+        assert inner_row == 374266 and sql(f"SELECT status || ' ' || occurrence_count FROM smarter_private.reliability_incidents WHERE id = '{inner_id}'") == 'escalated 1'
+        wrapper_row = premarked('dd-rc1:1', f'financial_alerts:{inner_name}', {'original_incident': {'id': 'dd-rc1', 'metadata': {'alert_id': 'fa-rc1', 'tournament_id': 'T-rc'}}})
+        lone = 'fn_ca_escrow_balance_drift'
+        lone_rows = [premarked(f'dd-rc2:{n}', lone, {'original_incident': {'id': 'dd-rc2', 'metadata': {}, 'source': lone}}) for n in range(3)]
+        early_row = premarked('dd-rc3:1', 'fn_ca_mint_velocity_watch', {'original_incident': {'id': 'dd-rc3'}}, received_at='2026-11-10 07:00:00+00')
+        skipped = [wrapper_row] + lone_rows + [early_row]
+        assert num(f"SELECT count(*) FROM smarter_private.reliability_observations WHERE inbox_event_id IN ({','.join(map(str, skipped))})") == 0
+        incidents_before = num('SELECT count(*) FROM smarter_private.reliability_incidents')
+        notes_before = num('SELECT count(*) FROM smarter_private.reliability_notifications')
+
         # The observation-findings follow-up installs over the exact Stage B definitions; everything below runs against both.
         r = psql(['-f', str(FOLLOW_UP)])
         assert r.returncode == 0, r.stderr
+        assert 'reliability reconciliation: 4 skipped inbox row(s) admitted' in r.stderr, r.stderr
+        assert num('SELECT count(*) FROM smarter_private.reliability_incidents') == incidents_before + 1
+        assert num('SELECT count(*) FROM smarter_private.reliability_notifications') == notes_before
+        assert num(f"SELECT count(*) FROM smarter_private.reliability_incidents WHERE alertname LIKE '%{inner_name}'") == 1
+        assert sql(f'SELECT incident_id FROM smarter_private.reliability_observations WHERE inbox_event_id = {wrapper_row}') == inner_id
+        assert sql(f"SELECT status || ' ' || occurrence_count || ' ' || awaiting_live_delivery FROM smarter_private.reliability_incidents WHERE id = '{inner_id}'") == 'escalated 2 false'
+        lone_id = sql(f"SELECT id FROM smarter_private.reliability_incidents WHERE alertname = '{lone}'")
+        assert sql(f"SELECT status || ' ' || occurrence_count || ' ' || awaiting_live_delivery || ' ' || escalation_state || ' ' || (latest_evidence->>'drift_incident_id') "
+                   f"FROM smarter_private.reliability_incidents WHERE id = '{lone_id}'") == 'investigating 3 true none dd-rc2'
+        assert num(f"SELECT count(*) FROM smarter_private.reliability_observations WHERE inbox_event_id = {early_row}") == 0
+        events = json.loads(sql("SELECT jsonb_object_agg(i.alertname, e.detail) FROM smarter_private.reliability_incident_events e "
+                                "JOIN smarter_private.reliability_incidents i ON i.id = e.incident_id WHERE e.kind = 'reconciled'"))
+        assert events[lone]['inbox_event_ids'] == lone_rows and events[lone]['opened_by_reconciliation'] is True, events
+        assert events[inner_name]['inbox_event_ids'] == [wrapper_row] and events[inner_name]['opened_by_reconciliation'] is False, events
+        ok('one-time admission of the skipped rows: the wrapper is an observation of its inner incident, the standalone drift record is one incident '
+           'awaiting a live delivery, a row from before the install is left alone, and no notification is created')
+        admit = re.search(r'^DO \$admit_skipped\$.*?^\$admit_skipped\$;', FOLLOW_UP.read_text(), re.M | re.S).group(0)
+        counts = "SELECT (SELECT count(*) FROM smarter_private.reliability_incidents) || ' ' || (SELECT count(*) FROM smarter_private.reliability_observations) " \
+                 "|| ' ' || (SELECT count(*) FROM smarter_private.reliability_incident_events) || ' ' || (SELECT count(*) FROM smarter_private.reliability_notifications)"
+        before_rerun = sql(counts)
+        r = psql([], f'BEGIN; {admit} COMMIT;')
+        assert r.returncode == 0 and '0 skipped inbox row(s) admitted' in r.stderr, r.stderr
+        assert sql(counts) == before_rerun
+        ok('running the admission again creates no incident, observation, event or notification')
+        sql(f"UPDATE smarter_private.reliability_incidents SET opened_at = clock_timestamp() - interval '2 hours' WHERE id = '{lone_id}'")
+        tick()
+        assert sql(f"SELECT status FROM smarter_private.reliability_incidents WHERE id = '{lone_id}'") == 'investigating'
+        assert num(f"SELECT count(*) FROM smarter_private.reliability_notification_incidents WHERE incident_id = '{lone_id}'") == 0
+        refused(f"BEGIN; SELECT set_config('reliability.replay', 'on', true); SELECT smarter_private.reliability_escalate('{lone_id}', 'x'); COMMIT;",
+                'RELIABILITY_REPLAY_MAY_NOT_NOTIFY')
+        live = premarked('dd-rc2:live', lone, {'original_incident': {'id': 'dd-rc2', 'metadata': {}, 'source': lone}})
+        assert sql(f"SELECT status || ' ' || occurrence_count || ' ' || awaiting_live_delivery FROM smarter_private.reliability_incidents WHERE id = '{lone_id}'") == 'escalated 4 false'
+        assert num(f"SELECT count(*) FROM smarter_private.reliability_notification_incidents WHERE incident_id = '{lone_id}'") == 1
+        assert num(f"SELECT count(*) FROM smarter_private.reliability_incident_events WHERE incident_id = '{lone_id}' AND kind = 'live_delivery_after_reconciliation' "
+                   f"AND detail->>'observation_id' = (SELECT id::text FROM smarter_private.reliability_observations WHERE inbox_event_id = {live})") == 1
+        assert 'public.ca_drift_incidents dd-rc2' in sql(f"SELECT body FROM smarter_private.reliability_notifications WHERE incident_id = '{lone_id}'")
+        ok('a reconciled incident is not escalated by the tick and escalation refuses while reconciling; its first live delivery starts normal policy')
         proof = re.search(r'^-- @live-proof: (.+)$', FOLLOW_UP.read_text(), re.M).group(1)
         assert sql(f'SELECT {proof}') == 't', 'follow-up live proof must hold after install'
         r = psql(['-f', str(FOLLOW_UP)])
@@ -224,7 +285,8 @@ def main():
         assert incident('HorseDecisionFallbacks', "incident_class || ' ' || status || ' ' || severity || ' ' || occurrence_count || ' ' || escalation_reason") \
             == 'horse_decision_delivery escalated critical 1 no eligible recovery'
         assert notes('HorseDecisionFallbacks') == 1 and notes('HorseDecisionFallbacks', state='suppressed_observe') == 1
-        body = sql("SELECT body FROM smarter_private.reliability_notifications WHERE kind = 'escalation' ORDER BY id LIMIT 1")
+        body = sql("SELECT n.body FROM smarter_private.reliability_notifications n JOIN smarter_private.reliability_incidents i ON i.id = n.incident_id "
+                   "WHERE n.kind = 'escalation' AND i.alertname = 'HorseDecisionFallbacks' ORDER BY n.id LIMIT 1")
         lines = body.split('\n')
         iid = incident('HorseDecisionFallbacks', 'id')
         assert lines[0] == 'AI AGENT NEEDED' and len(body) <= 2000, body
@@ -870,6 +932,30 @@ def main():
         assert num("SELECT count(*) FROM smarter_private.reliability_runbooks WHERE enabled") == 0
         assert num("SELECT count(*) FROM (SELECT fingerprint FROM smarter_private.reliability_incidents WHERE status <> 'closed' GROUP BY 1 HAVING count(*) > 1) d") == 0
         assert num("SELECT count(*) FROM (SELECT request_id FROM public.social_messages GROUP BY 1 HAVING count(*) > 1) d") == 0
+        # ---- leaving observe mode sends nothing about the past; the next new critical sends once.
+        assert sql('SELECT notify_mode FROM smarter_private.reliability_settings') == 'observe'
+        sent, pushes = messages(), num('SELECT count(*) FROM public.push_outbox')
+        am('act-1', 'TournamentFleetUnserved', fingerprint='act1', labels={'instance': 'engine-a'}, starts=now())
+        am('act-2', 'SpinPrizeUnpaid', fingerprint='act2', starts=now())
+        groups = "('tournament_lifecycle|TournamentFleetUnserved', 'money_integrity|SpinPrizeUnpaid')"
+        assert num(f"SELECT count(*) FROM smarter_private.reliability_notifications WHERE group_key IN {groups} AND state = 'suppressed_observe'") == 2
+        group_rows = num(f'SELECT count(*) FROM smarter_private.reliability_notifications WHERE group_key IN {groups}')
+        sql("UPDATE smarter_private.reliability_settings SET notify_mode = 'critical_only' WHERE id")
+        sql(f"UPDATE smarter_private.reliability_notifications SET created_at = created_at - interval '7 hours' WHERE group_key IN {groups}")
+        result = tick()
+        assert result['reminders'] == 0 and result['delivery']['sent'] == 0, result
+        assert messages() == sent and num('SELECT count(*) FROM public.push_outbox') == pushes
+        assert num(f'SELECT count(*) FROM smarter_private.reliability_notifications WHERE group_key IN {groups}') == group_rows
+        assert num("SELECT count(*) FROM smarter_private.reliability_notifications WHERE state IN ('queued', 'rate_limited')") == 0
+        ok('escalations suppressed in observe mode, then a switch to critical_only and a tick past the reminder window: zero messages, zero pushes, no reminder')
+        am('act-3', 'TournamentFleetUnserved', fingerprint='act3', labels={'instance': 'engine-b'}, starts=now())
+        fresh = sql("SELECT n.state || ' ' || n.kind FROM smarter_private.reliability_notifications n JOIN smarter_private.reliability_incidents i ON i.id = n.incident_id "
+                    "WHERE i.alertname = 'TournamentFleetUnserved' AND i.scope->>'instance' = 'engine-b'")
+        assert fresh == 'queued escalation', fresh
+        assert tick()['delivery']['sent'] == 1 and messages() == sent + 1 and num('SELECT count(*) FROM public.push_outbox') == pushes + 1
+        assert tick()['delivery']['sent'] == 0 and messages() == sent + 1
+        ok('the first new critical incident after the switch, in a group whose earlier escalation was suppressed, sends exactly one message and one push')
+
         r = psql(['-f', str(MIGRATION)])
         assert r.returncode != 0, 'a second install must be refused'
         ok('the health view reports the heartbeat and the queue, no fingerprint is open twice, no request id was sent twice, the job is scheduled once, and a second install is refused')

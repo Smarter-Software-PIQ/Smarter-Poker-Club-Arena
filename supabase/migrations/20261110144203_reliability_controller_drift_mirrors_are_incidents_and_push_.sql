@@ -55,16 +55,40 @@
 --    Existing notifications are re-mirrored once here, through the same
 --    function, which is idempotent.
 --
+-- 3. THE SKIPPED ROWS, ONCE, WITHOUT NOTIFYING. The firing rows intake
+--    skipped since install (received from 2026-11-10 07:24:20Z, first inbox
+--    id 374266, pre-marked by the mirror-classify rule, never observed; 401
+--    at 16:03Z) are run once through the corrected intake with a replay flag.
+--    Each lands on the incident its record identity names: a wrapper on its
+--    inner incident, fn_ca_cron_failure_watch on one incident of its own. Under
+--    the flag no status changes, nothing recurs or escalates, and
+--    reliability_escalate refuses outright, so reconciliation creates no
+--    notification. An incident opened this way carries
+--    awaiting_live_delivery: the tick does not escalate it and policy starts
+--    at its first live delivery. Each touched incident gets one 'reconciled'
+--    event listing its inbox rows. Re-running finds nothing (an observation
+--    is unique per inbox row and delivery).
+--
+-- 4. LEAVING OBSERVE MODE SENDS NOTHING ABOUT THE PAST. Delivery already
+--    never picks a suppressed_observe row. Two paths could still have burst
+--    after a mode change, and both are closed: a reminder now repeats only a
+--    message that reached Messenger (a group whose latest escalation or
+--    reminder was suppressed is never reminded), and a new incident never
+--    attaches to a suppressed escalation when its own would be sent.
+--    The evidence line also names the public.ca_drift_incidents and
+--    public.financial_alerts record when the incident carries one.
+--
 -- Nothing else changes: notify_mode, mutation_paused, the alert_classes seed,
 -- the schedule and public.fn_reliability_controller_health are untouched.
--- Both replaced functions are pinned to the md5 of the installed Stage B
+-- Every replaced function (ingest_alert, tick, apply_signal, escalate,
+-- render_escalation) is pinned to the md5 of the installed Stage B
 -- definition, so this file refuses to install over anything else.
 --
 -- Native proof: scripts/ci/test-reliability-controller-stage-b.py applies this
 -- file after Stage B and runs every Stage B behaviour plus the new cases
 -- (PostgreSQL 17, never production).
 
--- @live-proof: (SELECT to_regprocedure('smarter_private.reliability_refresh_push_states(integer)') IS NOT NULL AND strpos(pg_get_functiondef('smarter_private.reliability_tick(timestamp with time zone)'::regprocedure), 'reliability_refresh_push_states') > 0 AND strpos(pg_get_functiondef('smarter_private.reliability_ingest_alert(bigint,text,text,text,text,text,jsonb,timestamp with time zone,timestamp with time zone,bigint,text,text)'::regprocedure), 'mirror_duplicate_of_captured_original') > 0 AND NOT has_function_privilege('authenticated', 'smarter_private.reliability_refresh_push_states(integer)', 'EXECUTE') AND NOT EXISTS (SELECT 1 FROM smarter_private.reliability_notifications n JOIN public.push_outbox p ON p.id = n.push_outbox_id WHERE p.status = 'sent' AND n.push_state <> 'provider_accepted'))
+-- @live-proof: (SELECT to_regprocedure('smarter_private.reliability_refresh_push_states(integer)') IS NOT NULL AND strpos(pg_get_functiondef('smarter_private.reliability_tick(timestamp with time zone)'::regprocedure), 'reliability_refresh_push_states') > 0 AND strpos(pg_get_functiondef('smarter_private.reliability_ingest_alert(bigint,text,text,text,text,text,jsonb,timestamp with time zone,timestamp with time zone,bigint,text,text)'::regprocedure), 'mirror_duplicate_of_captured_original') > 0 AND NOT has_function_privilege('authenticated', 'smarter_private.reliability_refresh_push_states(integer)', 'EXECUTE') AND NOT EXISTS (SELECT 1 FROM smarter_private.reliability_notifications n JOIN public.push_outbox p ON p.id = n.push_outbox_id WHERE p.status = 'sent' AND n.push_state <> 'provider_accepted') AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'smarter_private' AND table_name = 'reliability_incidents' AND column_name = 'awaiting_live_delivery') AND strpos(pg_get_functiondef('smarter_private.reliability_escalate(uuid,text)'::regprocedure), 'RELIABILITY_REPLAY_MAY_NOT_NOTIFY') > 0)
 
 BEGIN;
 SET LOCAL lock_timeout = '2s';
@@ -79,6 +103,18 @@ BEGIN
   IF md5(pg_get_functiondef('smarter_private.reliability_tick(timestamp with time zone)'::regprocedure))
      <> '20ac3df74884ecc3b49cedd04cff67e3' THEN
     RAISE EXCEPTION 'RELIABILITY_FINDINGS_PREIMAGE_CHANGED: reliability_tick';
+  END IF;
+  IF md5(pg_get_functiondef('smarter_private.reliability_apply_signal(text,boolean,text,text,text,text,text,text,jsonb,jsonb,text,text,boolean,timestamp with time zone,bigint,text,timestamp with time zone,timestamp with time zone)'::regprocedure))
+     <> '78870214cc10d5de3f6de921147ea66f' THEN
+    RAISE EXCEPTION 'RELIABILITY_FINDINGS_PREIMAGE_CHANGED: reliability_apply_signal';
+  END IF;
+  IF md5(pg_get_functiondef('smarter_private.reliability_escalate(uuid,text)'::regprocedure))
+     <> 'ff4b9d115c9efa6dcf3f2d515cb46ecb' THEN
+    RAISE EXCEPTION 'RELIABILITY_FINDINGS_PREIMAGE_CHANGED: reliability_escalate';
+  END IF;
+  IF md5(pg_get_functiondef('smarter_private.reliability_render_escalation(uuid,text,bigint)'::regprocedure))
+     <> 'ee9a6063b5af4325ba95b792a69b4530' THEN
+    RAISE EXCEPTION 'RELIABILITY_FINDINGS_PREIMAGE_CHANGED: reliability_render_escalation';
   END IF;
 END
 $pre$;
@@ -246,7 +282,390 @@ END
 $fn$;
 
 -- ---------------------------------------------------------------------------
--- 2. Push state mirrors public.push_outbox
+-- 2. Reconciled history never notifies; observe mode leaves nothing to send
+-- ---------------------------------------------------------------------------
+-- An incident opened from history waits for a live delivery before any
+-- policy (escalation, the 30-minute warning rule) applies to it.
+ALTER TABLE smarter_private.reliability_incidents
+  ADD COLUMN awaiting_live_delivery boolean NOT NULL DEFAULT false;
+
+CREATE OR REPLACE FUNCTION smarter_private.reliability_apply_signal(
+  p_class text, p_escalate_immediately boolean, p_default_severity text,
+  p_source_family text, p_alertname text, p_normalized_name text, p_status text, p_severity text,
+  p_scope jsonb, p_evidence jsonb, p_engine_release text,
+  p_member_key text, p_resolvable boolean, p_event_at timestamptz, p_observation_id bigint,
+  p_episode text, p_episode_at timestamptz, p_received_at timestamptz)
+RETURNS uuid
+LANGUAGE plpgsql
+SET search_path TO 'pg_catalog', 'smarter_private'
+AS $fn$
+DECLARE
+  v_fp text := md5(p_class || '|' || p_source_family || '|' || p_alertname || '|' || coalesce(p_scope, '{}'::jsonb)::text);
+  v_severity text := CASE WHEN smarter_private.reliability_severity_rank(p_severity) > 0 THEN lower(p_severity)
+                          ELSE coalesce(nullif(p_default_severity, ''), 'warning') END;
+  v_resolved boolean := p_status = 'resolved';
+  m smarter_private.reliability_alert_members;
+  v_known boolean;
+  v_fresh boolean;
+  v_created boolean := false;
+  v_policy boolean := false;
+  v_upgraded boolean := false;
+  v_prior smarter_private.reliability_incidents;
+  i smarter_private.reliability_incidents;
+  v_disposition text := 'applied';
+  v_why text := 'stale';
+  v_uncertain boolean := false;
+  v_try integer := 0;
+  -- Set only by this migration's one-time admission of skipped inbox rows.
+  v_replay boolean := coalesce(current_setting('reliability.replay', true), '') = 'on';
+  v_rows integer;
+BEGIN
+  -- 1. The record. One row per concrete alert; a record already known keeps
+  --    the incident it belongs to (identity, not name). Its state moves only
+  --    forward, and "forward" is decided on one clock: the episode when both
+  --    sides name one, the database receipt time otherwise.
+  INSERT INTO smarter_private.reliability_alert_members
+    (member_key, fingerprint, status, resolvable, episode, episode_at, last_event_at, last_received_at, last_firing_at, last_firing_received_at)
+  VALUES (p_member_key, v_fp, p_status, p_resolvable, p_episode, p_episode_at, p_event_at, p_received_at,
+          CASE WHEN v_resolved THEN NULL ELSE p_event_at END, CASE WHEN v_resolved THEN NULL ELSE p_received_at END)
+  ON CONFLICT (member_key) DO NOTHING;
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  v_known := v_rows = 0;
+  SELECT * INTO STRICT m FROM smarter_private.reliability_alert_members WHERE member_key = p_member_key FOR UPDATE;
+  IF NOT v_known THEN
+    v_fresh := true;
+  ELSE
+    v_fp := m.fingerprint;
+    IF v_resolved THEN
+      IF m.status <> 'firing' THEN
+        v_fresh := false; v_why := 'resolved_already';
+      ELSIF p_episode IS NOT NULL AND m.episode IS NOT NULL THEN
+        v_fresh := p_episode = m.episode; v_why := 'resolved_older_episode';
+      ELSIF m.last_firing_received_at IS NULL OR p_received_at = m.last_firing_received_at THEN
+        -- No episode and no usable receipt order: do not guess.
+        v_fresh := false; v_why := 'resolution_order_unknown'; v_uncertain := true;
+      ELSE
+        v_fresh := p_received_at > m.last_firing_received_at;
+        v_why := 'resolved_before_last_firing_receipt';
+      END IF;
+    ELSIF p_episode_at IS NOT NULL AND m.episode_at IS NOT NULL THEN
+      v_fresh := p_episode_at > m.episode_at OR (p_episode = m.episode AND m.status = 'firing');
+    ELSE
+      v_fresh := p_received_at >= m.last_received_at;
+    END IF;
+    IF v_fresh THEN
+      UPDATE smarter_private.reliability_alert_members
+         SET status = p_status, resolvable = p_resolvable, last_event_at = p_event_at, last_received_at = p_received_at,
+             episode = CASE WHEN v_resolved THEN episode ELSE p_episode END,
+             episode_at = CASE WHEN v_resolved THEN episode_at ELSE p_episode_at END,
+             last_firing_at = CASE WHEN v_resolved THEN last_firing_at ELSE p_event_at END,
+             last_firing_received_at = CASE WHEN v_resolved THEN last_firing_received_at ELSE p_received_at END
+       WHERE member_key = p_member_key;
+    END IF;
+  END IF;
+
+  -- 2. The open incident for this fingerprint, created for a fresh firing.
+  LOOP
+    v_try := v_try + 1;
+    SELECT * INTO i FROM smarter_private.reliability_incidents WHERE fingerprint = v_fp AND status <> 'closed' FOR UPDATE;
+    EXIT WHEN FOUND OR v_resolved OR NOT v_fresh OR v_try > 3;
+    SELECT * INTO v_prior FROM smarter_private.reliability_incidents
+     WHERE fingerprint = v_fp AND status = 'closed' ORDER BY created_at DESC LIMIT 1;
+    INSERT INTO smarter_private.reliability_incidents
+      (fingerprint, incident_class, title, severity, source, alertname, group_key, related_incident_id, scope,
+       first_observed_at, last_observed_at, last_firing_at, last_firing_received_at, opened_at, occurrence_count,
+       latest_evidence, engine_release, recurrence_count)
+    VALUES
+      (v_fp, p_class, smarter_private.reliability_one_line(p_normalized_name, 120) || ' (' || replace(p_class, '_', ' ') || ')',
+       v_severity, p_source_family, p_alertname, p_class || '|' || p_normalized_name,
+       -- A wrapper that names no record is linked, never merged.
+       CASE WHEN p_alertname <> p_normalized_name THEN (
+         SELECT r.id FROM smarter_private.reliability_incidents r
+          WHERE r.alertname = p_normalized_name AND r.scope = coalesce(p_scope, '{}'::jsonb) AND r.status <> 'closed'
+          ORDER BY r.created_at DESC LIMIT 1) END,
+       coalesce(p_scope, '{}'::jsonb),
+       p_event_at, p_event_at, p_event_at, p_received_at, p_event_at, 1,
+       coalesce(p_evidence, '{}'::jsonb), p_engine_release,
+       CASE WHEN v_prior.id IS NOT NULL AND v_prior.status_changed_at > clock_timestamp() - interval '24 hours'
+            THEN v_prior.recurrence_count + 1 ELSE 0 END)
+    ON CONFLICT (fingerprint) WHERE status <> 'closed' DO NOTHING
+    RETURNING * INTO i;
+    IF FOUND THEN
+      v_created := true;
+      INSERT INTO smarter_private.reliability_incident_events (incident_id, kind, to_status, detail)
+      VALUES (i.id, 'opened', 'investigating',
+              jsonb_build_object('previous_incident_id', v_prior.id, 'recurrence_count', i.recurrence_count));
+      IF i.recurrence_count > 0 THEN
+        INSERT INTO smarter_private.reliability_incident_events (incident_id, kind, to_status, detail)
+        VALUES (i.id, 'recurrence', 'investigating', jsonb_build_object('previous_incident_id', v_prior.id));
+      END IF;
+      IF v_replay THEN
+        -- Opened from history: no policy runs until a live delivery arrives.
+        UPDATE smarter_private.reliability_incidents SET awaiting_live_delivery = true WHERE id = i.id
+        RETURNING * INTO i;
+        v_disposition := 'reconciled';
+      END IF;
+      EXIT;
+    END IF;
+  END LOOP;
+
+  IF i.id IS NULL THEN
+    -- Nothing open. A resolved row for a closed incident is kept against it
+    -- and reopens nothing; a stale or orphan delivery is only an observation.
+    IF v_resolved THEN
+      SELECT * INTO v_prior FROM smarter_private.reliability_incidents
+       WHERE fingerprint = v_fp AND status = 'closed' ORDER BY created_at DESC LIMIT 1;
+      IF FOUND THEN
+        INSERT INTO smarter_private.reliability_incident_events (incident_id, kind, detail)
+        VALUES (v_prior.id, 'late_resolved', jsonb_build_object('observation_id', p_observation_id, 'event_at', p_event_at));
+        UPDATE smarter_private.reliability_observations SET incident_id = v_prior.id, disposition = 'late_resolved' WHERE id = p_observation_id;
+        RETURN v_prior.id;
+      END IF;
+      UPDATE smarter_private.reliability_observations SET disposition = 'resolved_without_incident' WHERE id = p_observation_id;
+    ELSE
+      UPDATE smarter_private.reliability_observations SET disposition = 'stale' WHERE id = p_observation_id;
+    END IF;
+    RETURN NULL;
+  END IF;
+
+  -- The evidence reference of an escalation reads this.
+  UPDATE smarter_private.reliability_observations SET incident_id = i.id WHERE id = p_observation_id;
+
+  IF NOT v_fresh THEN
+    -- Kept as an observation; no state changes.
+    v_disposition := v_why;
+    UPDATE smarter_private.reliability_incidents
+       SET last_observed_at = greatest(last_observed_at, p_event_at), updated_at = clock_timestamp()
+     WHERE id = i.id;
+  ELSIF v_resolved THEN
+    UPDATE smarter_private.reliability_incidents
+       SET last_observed_at = greatest(last_observed_at, p_event_at), updated_at = clock_timestamp()
+     WHERE id = i.id;
+    IF NOT v_known OR m.last_firing_at IS NULL OR m.last_firing_at < i.opened_at THEN
+      -- Not a record this episode saw firing: it resolves nothing here, and
+      -- whether it speaks for this incident cannot be established.
+      v_disposition := 'resolved_not_of_this_episode';
+      v_uncertain := i.status IN ('investigating', 'recovering', 'contained', 'escalated');
+    ELSE
+      UPDATE smarter_private.reliability_incidents
+         SET last_resolved_at = greatest(coalesce(last_resolved_at, p_received_at), p_received_at)
+       WHERE id = i.id;
+      IF EXISTS (SELECT 1 FROM smarter_private.reliability_alert_members x
+                  WHERE x.fingerprint = v_fp AND x.status = 'firing' AND x.resolvable AND x.last_firing_at >= i.opened_at) THEN
+        v_disposition := 'resolved_others_still_firing';
+      ELSIF i.status IN ('investigating', 'recovering', 'contained', 'escalated') THEN
+        PERFORM smarter_private.reliability_transition(i.id, 'verifying', 'the alert resolved',
+          jsonb_build_object('kind', 'resolved_signal', 'event_at', p_event_at, 'episode', p_episode));
+      END IF;
+    END IF;
+  ELSIF NOT v_created AND v_replay THEN
+    -- Reconciled history: counted and timed against the incident, nothing else.
+    -- No transition, no recurrence, no escalation, no notification.
+    UPDATE smarter_private.reliability_incidents
+       SET occurrence_count = occurrence_count + 1,
+           last_observed_at = greatest(last_observed_at, p_event_at),
+           last_firing_at = greatest(coalesce(last_firing_at, p_event_at), p_event_at),
+           latest_evidence = CASE WHEN p_received_at >= coalesce(last_firing_received_at, p_received_at)
+                                  THEN coalesce(p_evidence, latest_evidence) ELSE latest_evidence END,
+           last_firing_received_at = greatest(coalesce(last_firing_received_at, p_received_at), p_received_at),
+           updated_at = clock_timestamp()
+     WHERE id = i.id;
+    v_disposition := 'reconciled';
+  ELSIF NOT v_created THEN
+    IF i.awaiting_live_delivery THEN
+      -- The first live delivery after reconciliation: normal policy starts here.
+      UPDATE smarter_private.reliability_incidents SET awaiting_live_delivery = false WHERE id = i.id;
+      INSERT INTO smarter_private.reliability_incident_events (incident_id, kind, detail)
+      VALUES (i.id, 'live_delivery_after_reconciliation', jsonb_build_object('observation_id', p_observation_id, 'event_at', p_event_at));
+      v_policy := true;
+    END IF;
+    v_upgraded := smarter_private.reliability_severity_rank(v_severity) > smarter_private.reliability_severity_rank(i.severity);
+    UPDATE smarter_private.reliability_incidents
+       SET occurrence_count = occurrence_count + 1,
+           last_observed_at = greatest(last_observed_at, p_event_at),
+           last_firing_at = greatest(coalesce(last_firing_at, p_event_at), p_event_at),
+           last_firing_received_at = greatest(coalesce(last_firing_received_at, p_received_at), p_received_at),
+           latest_evidence = coalesce(p_evidence, latest_evidence),
+           engine_release = coalesce(p_engine_release, engine_release),
+           severity = CASE WHEN v_upgraded THEN v_severity ELSE severity END,
+           recurrence_count = recurrence_count + CASE WHEN i.status IN ('recovered', 'stale_unverified') THEN 1 ELSE 0 END,
+           opened_at = CASE WHEN i.status IN ('recovered', 'stale_unverified') THEN p_event_at ELSE opened_at END,
+           updated_at = clock_timestamp()
+     WHERE id = i.id;
+    IF i.status = 'recovered' OR (i.status = 'stale_unverified' AND i.escalation_state <> 'escalated') THEN
+      PERFORM smarter_private.reliability_transition(i.id, 'investigating', 'the alert fired again',
+        jsonb_build_object('kind', 'recurrence', 'event_at', p_event_at, 'from', i.status));
+      v_policy := true;
+    ELSIF i.status = 'stale_unverified' THEN
+      PERFORM smarter_private.reliability_transition(i.id, 'escalated', coalesce(i.escalation_reason, 'no eligible recovery'),
+        jsonb_build_object('kind', 'recurrence', 'event_at', p_event_at, 'from', i.status));
+    ELSIF i.status = 'verifying' THEN
+      -- Fired again before recovery was confirmed: back where it was, and no
+      -- second escalation for the same episode.
+      PERFORM smarter_private.reliability_transition(i.id,
+        CASE WHEN i.escalation_state = 'escalated' THEN 'escalated' ELSE 'investigating' END,
+        coalesce(i.escalation_reason, 'the alert fired again while verifying'),
+        jsonb_build_object('kind', 'refire', 'event_at', p_event_at));
+    END IF;
+  END IF;
+
+  -- 3. Stage B escalation policy at creation, recurrence or a rise to critical.
+  IF v_fresh AND NOT v_resolved AND NOT v_replay AND (v_created OR v_policy OR v_upgraded) THEN
+    SELECT * INTO i FROM smarter_private.reliability_incidents WHERE id = i.id;
+    IF i.status = 'investigating'
+       AND (i.severity = 'critical' OR p_escalate_immediately)
+       AND NOT EXISTS (SELECT 1 FROM smarter_private.reliability_runbooks r
+                        WHERE r.enabled AND r.eligibility->>'incident_class' = i.incident_class) THEN
+      PERFORM smarter_private.reliability_escalate(i.id, 'no eligible recovery');
+    END IF;
+  END IF;
+
+  IF v_uncertain AND v_resolved AND i.resolution_state <> 'uncertain' THEN
+    UPDATE smarter_private.reliability_incidents SET resolution_state = 'uncertain', updated_at = clock_timestamp() WHERE id = i.id;
+    INSERT INTO smarter_private.reliability_incident_events (incident_id, kind, detail)
+    VALUES (i.id, 'resolution_uncertain',
+            jsonb_build_object('observation_id', p_observation_id, 'why', v_disposition, 'status_kept', i.status));
+  END IF;
+
+  UPDATE smarter_private.reliability_observations SET disposition = v_disposition WHERE id = p_observation_id;
+  RETURN i.id;
+END
+$fn$;
+
+CREATE OR REPLACE FUNCTION smarter_private.reliability_escalate(p_incident_id uuid, p_reason text)
+RETURNS void
+LANGUAGE plpgsql
+SET search_path TO 'pg_catalog', 'smarter_private'
+AS $fn$
+DECLARE
+  i smarter_private.reliability_incidents;
+  n smarter_private.reliability_notifications;
+  v_hours integer;
+  v_mode text;
+  v_suppressed boolean;
+BEGIN
+  IF coalesce(current_setting('reliability.replay', true), '') = 'on' THEN
+    RAISE EXCEPTION 'RELIABILITY_REPLAY_MAY_NOT_NOTIFY: history is reconciled without escalation' USING ERRCODE = 'RC001';
+  END IF;
+  PERFORM smarter_private.reliability_transition(p_incident_id, 'escalated', p_reason, jsonb_build_object('kind', 'escalation'));
+  SELECT * INTO STRICT i FROM smarter_private.reliability_incidents WHERE id = p_incident_id;
+  IF i.source = 'reliability-controller' AND i.alertname = 'ReliabilityDeliveryFailing' THEN
+    -- A message about not being able to send messages is a loop.
+    INSERT INTO smarter_private.reliability_incident_events (incident_id, kind, detail)
+    VALUES (i.id, 'notification_withheld', jsonb_build_object('reason', 'delivery failures are never announced through delivery'));
+    RETURN;
+  END IF;
+  SELECT reminder_hours, notify_mode INTO STRICT v_hours, v_mode FROM smarter_private.reliability_settings WHERE id;
+  -- A message that will be sent never hides inside one that was suppressed:
+  -- after observe mode ends, a new incident does not attach to an escalation
+  -- nobody received.
+  v_suppressed := v_mode = 'observe' OR (v_mode = 'critical_only' AND i.severity IS DISTINCT FROM 'critical');
+  PERFORM pg_advisory_xact_lock(hashtextextended('reliability-group:' || i.group_key, 0));
+  SELECT * INTO n FROM smarter_private.reliability_notifications x
+   WHERE x.group_key = i.group_key AND x.kind IN ('escalation', 'reminder')
+     AND x.created_at > clock_timestamp() - make_interval(hours => v_hours)
+     AND (v_suppressed OR x.state <> 'suppressed_observe')
+   ORDER BY x.id DESC LIMIT 1
+   FOR UPDATE;
+  IF NOT FOUND THEN
+    PERFORM smarter_private.reliability_enqueue_notification(p_incident_id, 'escalation');
+    RETURN;
+  END IF;
+  INSERT INTO smarter_private.reliability_notification_incidents (notification_id, incident_id)
+  VALUES (n.id, i.id) ON CONFLICT DO NOTHING;
+  INSERT INTO smarter_private.reliability_incident_events (incident_id, kind, detail)
+  VALUES (i.id, 'escalation_attached', jsonb_build_object('notification_id', n.id, 'lead_incident_id', n.incident_id));
+  -- A message nobody has tried to send yet can still say how many it covers.
+  IF n.state IN ('queued', 'rate_limited') AND n.attempts = 0 THEN
+    UPDATE smarter_private.reliability_notifications SET body = smarter_private.reliability_render_escalation(n.incident_id, n.kind, n.id) WHERE id = n.id;
+  END IF;
+END
+$fn$;
+
+CREATE OR REPLACE FUNCTION smarter_private.reliability_render_escalation(p_incident_id uuid, p_kind text, p_notification_id bigint)
+RETURNS text
+LANGUAGE plpgsql
+STABLE
+SET search_path TO 'pg_catalog', 'smarter_private'
+AS $fn$
+DECLARE
+  i smarter_private.reliability_incidents;
+  v_labels text;
+  v_scope text;
+  v_summary text;
+  v_first bigint;
+  v_last bigint;
+  v_scopes integer;
+  v_scope_ids text;
+  v_body text;
+  v_allowed constant text[] := ARRAY['alertname', 'severity', 'component', 'variant', 'format', 'job', 'instance', 'table_id', 'tournament_id', 'source'];
+BEGIN
+  SELECT * INTO STRICT i FROM smarter_private.reliability_incidents WHERE id = p_incident_id;
+  SELECT left(string_agg(e.key || '=' || smarter_private.reliability_one_line(e.value, 60), ', ' ORDER BY e.key), 300)
+    INTO v_labels
+    FROM jsonb_each_text(coalesce(i.latest_evidence->'labels', '{}'::jsonb)) e
+   WHERE e.key = ANY (v_allowed);
+  SELECT left(string_agg(e.key || '=' || smarter_private.reliability_one_line(e.value, 60), ', ' ORDER BY e.key), 240)
+    INTO v_scope
+    FROM jsonb_each_text(i.scope) e;
+  v_summary := nullif(smarter_private.reliability_one_line(i.latest_evidence->>'summary', 160), '');
+  SELECT min(o.inbox_event_id), max(o.inbox_event_id) INTO v_first, v_last
+    FROM smarter_private.reliability_observations o WHERE o.incident_id = i.id;
+  SELECT count(*), string_agg(x.sid, '; ' ORDER BY x.sid) FILTER (WHERE x.rn <= 10)
+    INTO v_scopes, v_scope_ids
+    FROM (SELECT d.sid, row_number() OVER (ORDER BY d.sid) AS rn
+            FROM (SELECT DISTINCT smarter_private.reliability_one_line(smarter_private.reliability_scope_id(j.scope), 54) AS sid
+                    FROM smarter_private.reliability_notification_incidents ni
+                    JOIN smarter_private.reliability_incidents j ON j.id = ni.incident_id
+                   WHERE ni.notification_id = p_notification_id
+                  UNION
+                  SELECT smarter_private.reliability_one_line(smarter_private.reliability_scope_id(i.scope), 54)) d) x;
+  v_body :=
+    'AI AGENT NEEDED' || E'\n'
+    || CASE WHEN p_kind = 'reminder' THEN 'Reminder: this incident is still escalated.' || E'\n' ELSE '' END
+    || 'Incident ID: ' || i.id::text || E'\n'
+    || 'Severity: ' || upper(i.severity) || E'\n'
+    || 'Title: ' || smarter_private.reliability_one_line(i.title, 160) || E'\n'
+    || 'Owner: unassigned, needs an AI coding agent' || E'\n'
+    || 'First detected: ' || to_char(i.first_observed_at AT TIME ZONE 'America/Chicago', 'YYYY-MM-DD HH24:MI:SS') || ' America/Chicago' || E'\n'
+    || 'Latest observation: ' || to_char(i.last_observed_at AT TIME ZONE 'America/Chicago', 'YYYY-MM-DD HH24:MI:SS') || ' America/Chicago' || E'\n'
+    || 'Confirmed impact and scope: '
+       || CASE WHEN v_scope IS NULL THEN 'Not established from the evidence received.' ELSE v_scope || '.' END
+       || ' Delivered firing ' || i.occurrence_count::text || ' time(s).' || E'\n'
+    || 'Affected scopes: ' || v_scopes::text || ' (' || v_scope_ids || CASE WHEN v_scopes > 10 THEN '; and more' ELSE '' END || ')' || E'\n'
+    || 'Attempted: No automatic recovery exists for this class yet.' || E'\n'
+    || 'Why automatic handling cannot complete: '
+       || smarter_private.reliability_one_line(coalesce(i.escalation_reason, 'no eligible recovery'), 120)
+       || ' (class ' || i.incident_class || ' has no enabled runbook).' || E'\n'
+    || 'Containment: None verified.' || E'\n'
+    || 'Current uncertainty: Root cause is not established. The controller saw the alert only and inspected nothing else.'
+       || CASE WHEN i.resolution_state = 'uncertain'
+               THEN ' A resolved signal arrived that could not be ordered against the firing, so whether it cleared is uncertain.' ELSE '' END || E'\n'
+    || 'Next action: Read the evidence below, find what raises this alert at its source, and fix that code or schema.' || E'\n'
+    || E'\n'
+    || 'Agent Handoff' || E'\n'
+    || 'Alert name: ' || smarter_private.reliability_one_line(i.alertname, 120) || E'\n'
+    || 'Source: ' || smarter_private.reliability_one_line(i.source, 80) || E'\n'
+    || 'Incident class: ' || i.incident_class || E'\n'
+    || 'Scope labels: ' || coalesce(v_labels, 'none') || E'\n'
+    || 'Occurrence count: ' || i.occurrence_count::text || E'\n'
+    || 'Recurrence count: ' || i.recurrence_count::text || E'\n'
+    || CASE WHEN i.engine_release IS NOT NULL THEN 'Engine release: ' || smarter_private.reliability_one_line(i.engine_release, 64) || E'\n' ELSE '' END
+    || CASE WHEN v_summary IS NOT NULL THEN 'Rule summary: ' || v_summary || E'\n' ELSE '' END
+    || 'Evidence: smarter_private.reliability_incidents ' || i.id::text || ', inbox events '
+       || CASE WHEN v_first IS NULL THEN 'none' ELSE v_first::text || '..' || v_last::text END
+       || CASE WHEN nullif(i.latest_evidence->>'drift_incident_id', '') IS NOT NULL
+               THEN ', public.ca_drift_incidents ' || smarter_private.reliability_one_line(i.latest_evidence->>'drift_incident_id', 64) ELSE '' END
+       || CASE WHEN nullif(i.latest_evidence->>'financial_alert_id', '') IS NOT NULL
+               THEN ', public.financial_alerts ' || smarter_private.reliability_one_line(i.latest_evidence->>'financial_alert_id', 64) ELSE '' END
+       || E'\n'
+    || 'Acceptance criteria: Identify root cause, fix at source, verify alert clears and stays clear.';
+  RETURN left(v_body, 2000);
+END
+$fn$;
+
+-- ---------------------------------------------------------------------------
+-- 3. Push state mirrors public.push_outbox
 -- ---------------------------------------------------------------------------
 ALTER TABLE smarter_private.reliability_notifications
   DROP CONSTRAINT reliability_notifications_push_state_check;
@@ -342,6 +761,7 @@ BEGIN
                WHERE j.fingerprint = i.fingerprint AND e.kind = 'recurrence' AND e.at > v_now - interval '24 hours') AS recurrences
         FROM smarter_private.reliability_incidents i
        WHERE i.status = 'investigating'
+         AND NOT i.awaiting_live_delivery
          AND (i.opened_at <= v_now - interval '30 minutes' OR i.recurrence_count >= 3)
          AND NOT EXISTS (SELECT 1 FROM smarter_private.reliability_runbooks b
                           WHERE b.enabled AND b.eligibility->>'incident_class' = i.incident_class)
@@ -441,7 +861,10 @@ BEGIN
   END;
 
   -- 5. Reminders: one per group per reminder window, at most 4 per incident,
-  --    then one "reminders stopped" line and no more.
+  --    then one "reminders stopped" line and no more. A reminder repeats a
+  --    message that reached Messenger: a group whose latest escalation or
+  --    reminder was suppressed (observe mode) is never reminded, so leaving
+  --    observe mode sends nothing about the past.
   BEGIN
     v_n := 0;
     FOR r IN
@@ -452,6 +875,9 @@ BEGIN
          AND (SELECT max(n.created_at) FROM smarter_private.reliability_notifications n
                WHERE n.group_key = i.group_key AND n.kind IN ('escalation', 'reminder'))
              <= v_now - make_interval(hours => s.reminder_hours)
+         AND (SELECT n.state FROM smarter_private.reliability_notifications n
+               WHERE n.group_key = i.group_key AND n.kind IN ('escalation', 'reminder')
+               ORDER BY n.id DESC LIMIT 1) = 'persisted_in_messenger'
          AND NOT EXISTS (SELECT 1 FROM smarter_private.reliability_incident_events e WHERE e.incident_id = i.id AND e.kind = 'reminders_stopped')
        ORDER BY i.status_changed_at
        LIMIT c_rows
@@ -527,7 +953,76 @@ $fn$;
 -- preserves the ACL); restated so this file is complete on its own.
 REVOKE ALL ON FUNCTION smarter_private.reliability_ingest_alert(bigint, text, text, text, text, text, jsonb, timestamptz, timestamptz, bigint, text, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION smarter_private.reliability_tick(timestamptz) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION smarter_private.reliability_apply_signal(text, boolean, text, text, text, text, text, text, jsonb, jsonb, text, text, boolean, timestamptz, bigint, text, timestamptz, timestamptz) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION smarter_private.reliability_escalate(uuid, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION smarter_private.reliability_render_escalation(uuid, text, bigint) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION smarter_private.reliability_tick(timestamptz) TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- 4. One time: admit the firing rows intake skipped since Stage B installed
+-- ---------------------------------------------------------------------------
+-- Exactly the rows the old rule dropped: firing, received since the install
+-- (2026-11-10 07:24:20Z; inbox id 374266 is the first such row), pre-marked
+-- informational by the mirror-classify rule, and never observed. Each goes
+-- through the corrected intake with the replay flag set, so it lands on the
+-- incident its record identity names (a wrapper on its inner incident, a
+-- standalone drift record on its own), counts once, changes no status and
+-- creates no notification (reliability_escalate refuses while the flag is
+-- set). Idempotent: an observation is unique per inbox row and delivery, so
+-- a second run finds nothing. Bounded: a run that reaches the limit refuses
+-- rather than leave rows behind. The tick is held off for the duration.
+DO $admit_skipped$
+DECLARE
+  c_first_id CONSTANT bigint := 374266;
+  c_since CONSTANT timestamptz := '2026-11-10 07:24:20+00';
+  c_limit CONSTANT integer := 3000;
+  r public.operational_alert_events;
+  v_watermark bigint;
+  v_rows integer := 0;
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtext('reliability-controller-tick'));
+  SELECT coalesce(max(id), 0) INTO v_watermark FROM smarter_private.reliability_observations;
+  PERFORM set_config('reliability.replay', 'on', true);
+  FOR r IN
+    SELECT e.* FROM public.operational_alert_events e
+     WHERE e.id >= c_first_id AND e.received_at >= c_since
+       AND e.status = 'firing' AND e.investigation_status = 'informational'
+       AND e.investigation->>'rule' = 'mirror_duplicate_of_captured_original'
+       AND NOT EXISTS (SELECT 1 FROM smarter_private.reliability_observations o
+                        WHERE o.inbox_event_id = e.id AND o.status = 'firing')
+     ORDER BY e.id
+     LIMIT c_limit
+  LOOP
+    BEGIN
+      PERFORM smarter_private.reliability_ingest_alert(
+        r.id, r.source, r.event_key, r.alertname, r.status, r.severity, r.payload,
+        r.received_at, r.last_received_at, r.delivery_count, r.investigation_status, 'INSERT');
+    EXCEPTION
+      WHEN SQLSTATE 'RC001' THEN RAISE;
+      WHEN OTHERS THEN
+        INSERT INTO smarter_private.reliability_intake_rejections (inbox_event_id, source, alertname, event_key, operation, reason, sqlstate)
+        VALUES (r.id, left(r.source, 120), left(r.alertname, 240), left(r.event_key, 512), 'RECONCILE', left(SQLERRM, 1000), SQLSTATE);
+    END;
+    v_rows := v_rows + 1;
+  END LOOP;
+  PERFORM set_config('reliability.replay', 'off', true);
+  IF v_rows >= c_limit THEN
+    RAISE EXCEPTION 'RELIABILITY_RECONCILE_LIMIT: % rows reached the limit; refusing to leave rows behind', v_rows;
+  END IF;
+  INSERT INTO smarter_private.reliability_incident_events (incident_id, kind, detail)
+  SELECT o.incident_id, 'reconciled',
+         jsonb_build_object(
+           'reason', 'firing inbox rows skipped by the Stage B intake because the mirror-classify rule pre-marked them informational',
+           'inbox_event_ids', jsonb_agg(o.inbox_event_id ORDER BY o.inbox_event_id),
+           'observations', count(*),
+           'opened_by_reconciliation', bool_or(i.awaiting_live_delivery))
+    FROM smarter_private.reliability_observations o
+    JOIN smarter_private.reliability_incidents i ON i.id = o.incident_id
+   WHERE o.id > v_watermark AND o.inbox_event_id IS NOT NULL
+   GROUP BY o.incident_id;
+  RAISE NOTICE 'reliability reconciliation: % skipped inbox row(s) admitted', v_rows;
+END
+$admit_skipped$;
 
 -- One time: re-mirror the notifications that exist. Idempotent.
 DO $remirror$
