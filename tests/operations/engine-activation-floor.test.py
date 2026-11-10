@@ -165,7 +165,7 @@ class ActivationFloor(unittest.TestCase):
         record = dict(schema=floor.OWNER_CAPABILITY, ownerWindowId=window['id'],
                       manifestSha256=__import__('hashlib').sha256(raw).hexdigest(), targetSha=target,
                       activationEpoch=start, expiresEpoch=end)
-        stamp = int(datetime.fromisoformat('2026-11-10T09:10:00+00:00').timestamp()) * 1000
+        stamp = int(datetime.fromisoformat('2026-11-11T00:10:00+00:00').timestamp()) * 1000
         state = {'pending': None, 'finalization': None, 'desired': {'sha': seal.NOV7_PREDECESSOR}, 'highWaterSha': seal.NOV7_PREDECESSOR}
         args = argparse.Namespace(sha=target, run_id='650-1', repo=str(self.repo), cause='urgent',
                  control_sha=target, deadline=end, nov7_owner=True, scheduled_cycle_start=None,
@@ -212,11 +212,11 @@ class ActivationFloor(unittest.TestCase):
                 seal.cmd_bind_recovery_window(args)
             args.run_id = '650-1'
             with self.assertRaises(SystemExit): seal.require_nov7_reservation_authority(args, target, end*1000-419999)
-            old = dict(record, ownerWindowId='2026-11-09-owner-asap-engine-2230z')
+            old = dict(record, ownerWindowId='2026-11-10-owner-asap-engine-0650z')
             with self.assertRaises(ValueError): floor.nov7_owner(str(self.repo), old, stamp//1000, end)
         transaction = (ROOT / 'server/scripts/engine-release-transaction.sh').read_text()
-        self.assertEqual(transaction.count('2026-11-10-owner-asap-engine-0650z'), 4)
-        self.assertNotIn('2026-11-09-owner-asap-engine-2230z', transaction)
+        self.assertEqual(transaction.count('2026-11-10-owner-asap-engine-2350z'), 4)
+        self.assertNotIn('2026-11-10-owner-asap-engine-0650z', transaction)
         gate = transaction.split('nov7_owner_admitted() {', 1)[1].split('\n}', 1)[0]
         shell = 'python3() { return 0; }; nov7_owner_admitted() {' + gate + '\n}; nov7_owner_admitted'
         env = dict(os.environ, ACTIVATION_FLOOR_OWNER_WINDOW=floor.NOV7_OWNER_ID,
@@ -224,7 +224,7 @@ class ActivationFloor(unittest.TestCase):
                    CONTROL_DIR=str(self.repo), REPO_DIR=str(self.repo), SHA=target,
                    CONTROL_SHA=target, MUTATION_DEADLINE_EPOCH=str(end), DRILL_MODE='')
         self.assertEqual(subprocess.run([BASH, '-c', shell], env=env).returncode, 0)
-        for bad in ({'ACTIVATION_FLOOR_OWNER_WINDOW': '2026-11-09-owner-asap-engine-2230z'},
+        for bad in ({'ACTIVATION_FLOOR_OWNER_WINDOW': '2026-11-10-owner-asap-engine-0650z'},
                     {'CHECKPOINT_PREDECESSOR_SHA': 'f'*40}, {'DRILL_MODE': '1'}):
             self.assertNotEqual(subprocess.run([BASH, '-c', shell], env=dict(env, **bad)).returncode, 0)
 
@@ -909,20 +909,24 @@ echo CHECKPOINT_MUST_NOT_RUN
     def test_cash_room_realism_window_binds_the_live_floor_and_keeps_the_provenance_entry(self):
         import hashlib
         window, raw = self.historical_floor(floor.NOV7_OWNER_ID)
-        self.assertEqual(floor.NOV7_OWNER_ID, '2026-11-10-owner-asap-engine-0650z')
+        self.assertEqual(floor.NOV7_OWNER_ID, '2026-11-10-owner-asap-engine-2350z')
         self.assertEqual(raw, (ROOT / MANIFEST).read_bytes())
         self.assertEqual(hashlib.sha256(raw).hexdigest(), floor.NOV7_MANIFEST_DIGEST)
         self.assertEqual(window['releaseWitness']['sha256'], floor.NOV7_MANIFEST_DIGEST)
         canonical = json.dumps(window, sort_keys=True, separators=(',', ':')).encode()
         self.assertEqual(hashlib.sha256(canonical).hexdigest(), floor.NOV7_ORDER_DIGEST)
-        self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-10T08:50:00Z', '2026-11-10T10:30:00Z'))
+        self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-10T23:50:00Z', '2026-11-11T05:00:00Z'))
         self.assertEqual(window['announcementPolicy'], 'earliest-certified')
         self.assertIs(window['supersedesPhase1Schedule'], True)
         self.assertEqual(window['migrations'], [])
         windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
         self.assertEqual(windows['windows'][-1]['id'], floor.NOV7_OWNER_ID)
-        self.assertEqual(windows['windows'][-3]['id'], '2026-11-09-owner-asap-engine-2230z')
-        self.assertEqual(windows['windows'][-2]['id'], '2026-11-10-owner-asap-engine-0440z')
+        self.assertEqual(windows['windows'][-2]['id'], '2026-11-10-owner-asap-engine-0650z')
+        previous_asap, previous_asap_raw = self.historical_floor('2026-11-10-owner-asap-engine-0650z')
+        self.assertEqual(hashlib.sha256(previous_asap_raw).hexdigest(), 'a171baede07efd880c67e623e896fb4cee13a0fd0bb1be10310911127dd560cb')
+        self.assertEqual(hashlib.sha256(json.dumps(previous_asap, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), 'e36fddfe1a9504881a218b416efb65902699efed4deb476a099eaf56e21d58fa')
+        self.assertEqual(windows['windows'][-4]['id'], '2026-11-09-owner-asap-engine-2230z')
+        self.assertEqual(windows['windows'][-3]['id'], '2026-11-10-owner-asap-engine-0440z')
         corrected, corrected_raw = self.historical_floor('2026-11-10-owner-asap-engine-0440z')
         self.assertEqual(hashlib.sha256(corrected_raw).hexdigest(), '62de2ae6621f8654973670bbc6d79d8595b3514773c18a498b261e0d374c5981')
         self.assertEqual(hashlib.sha256(json.dumps(corrected, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), '7c90789c59b1f4d10993f9e6246ae191e4fb941afaa5e4eba2ba7b58d14ac861')
@@ -930,29 +934,29 @@ echo CHECKPOINT_MUST_NOT_RUN
         self.assertEqual(hashlib.sha256(original_raw).hexdigest(), 'eab1577724880e91ae89a4f0e73fb5e3cd88bf5a7355331503f6ead38e93b2af')
         original_order = json.dumps(original, sort_keys=True, separators=(',', ':')).encode()
         self.assertEqual(hashlib.sha256(original_order).hexdigest(), '8f54705ab0a0ffc15398a4633944f24d166999c6b304bec4491ad4f376d461b9')
-        self.assertEqual(window['playerNoticeAt'], '2026-11-10T08:30:00Z')
-        self.assertIn('Authorize through 10:30 UTC', window['ownerOrder'])
-        self.assertIn('root Codex agent', window['ownerOrder'])
-        self.assertEqual(windows['windows'][-4]['id'], '2026-11-09-owner-asap-engine-1530z')
+        self.assertEqual(window['playerNoticeAt'], '2026-11-10T23:30:00Z')
+        self.assertIn('ASAP today (Recommended)', window['ownerOrder'])
+        self.assertIn('63c9285865a395ff3d333938e2af518b67a45288', window['ownerOrder'])
+        self.assertEqual(windows['windows'][-5]['id'], '2026-11-09-owner-asap-engine-1530z')
         asap, asap_raw = self.historical_floor('2026-11-09-owner-asap-engine-1530z')
         self.assertEqual(hashlib.sha256(asap_raw).hexdigest(), '8cfd5e5343b7d688bb5249bb21efabd45d313de9b80e673d19aa829eb565037a')
         asap_order = json.dumps(asap, sort_keys=True, separators=(',', ':')).encode()
         self.assertEqual(hashlib.sha256(asap_order).hexdigest(), 'f15bd75c7ce4e2866c87cd307af89fb162f0d9156407c5629f2cfb3a64ffaba4')
-        self.assertEqual(windows['windows'][-5]['id'], '2026-11-08-horse-study-successor-engine-1820z')
+        self.assertEqual(windows['windows'][-6]['id'], '2026-11-08-horse-study-successor-engine-1820z')
         successor, successor_raw = self.historical_floor('2026-11-08-horse-study-successor-engine-1820z')
         self.assertEqual(hashlib.sha256(successor_raw).hexdigest(), 'b0cd81bf0f6cff39992da1f8918bce916e112e78ee7f69a33f840b5bc5b687f0')
         successor_order = json.dumps(successor, sort_keys=True, separators=(',', ':')).encode()
         self.assertEqual(hashlib.sha256(successor_order).hexdigest(), '25f70505f62297bf845e1bb068507de89ca14e78be0c3b56f09fb7e7b236984a')
-        self.assertEqual(windows['windows'][-6]['id'], '2026-11-07-cash-room-realism-engine-2230z')
+        self.assertEqual(windows['windows'][-7]['id'], '2026-11-07-cash-room-realism-engine-2230z')
         previous, previous_raw = self.historical_floor('2026-11-07-cash-room-realism-engine-2230z')
         self.assertEqual(hashlib.sha256(previous_raw).hexdigest(), '4e75ef16ef642d53e69139e045cabd23064a5baa55a50d0e2f13c5272ce22769')
         previous_order = json.dumps(previous, sort_keys=True, separators=(',', ':')).encode()
         self.assertEqual(hashlib.sha256(previous_order).hexdigest(), '990c9ccdeb5e42b95176194099f2dac8557e207e6a7656c80c9ce8f2d481bad3')
-        self.assertEqual(windows['windows'][-7]['id'], '2026-11-07-horse-fold-provenance-engine-1800z')
+        self.assertEqual(windows['windows'][-8]['id'], '2026-11-07-horse-fold-provenance-engine-1800z')
         current = self.owner_record(window_id=floor.NOV7_OWNER_ID)
         self.assertEqual(current['ownerWindowId'], floor.NOV7_OWNER_ID)
         self.assertTrue(current['supersedesPhase1Schedule'])
-        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 6000)
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 18600)
 
     def test_process_actor_continuation_preserves_prior_floor_and_expiry(self):
         import hashlib

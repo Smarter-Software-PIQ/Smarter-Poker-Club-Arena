@@ -2040,6 +2040,7 @@ it('binds the two remaining Midway files only to the November 7 database window'
   );
   // Reconstruct the exact registry selected before the Horse provenance booking
   // and the later cash-room realism engine booking.
+  expect(doc.windows.pop().id).toBe('2026-11-10-owner-asap-engine-2350z');
   expect(doc.windows.pop().id).toBe('2026-11-10-owner-asap-engine-0650z');
   expect(doc.windows.pop().id).toBe('2026-11-10-owner-asap-engine-0440z');
   expect(doc.windows.pop().id).toBe('2026-11-09-owner-asap-engine-2230z');
@@ -2076,7 +2077,7 @@ it('binds the November 10 closed-person read policy to one owner-ordered databas
     contains: '0d5f450060d2cc1bee04afdab53648acd06a00b2',
     playerNoticeAt: '2026-11-10T16:40:00Z',
     notBefore: '2026-11-10T17:00:00Z',
-    notAfter: '2026-11-10T22:00:00Z',
+    notAfter: '2026-11-10T23:30:00Z',
     migrations: ['20261110003726_a_closed_persons_tournament_rows_are_read_through_the_public.sql'],
   });
   expect(entry.ownerOrder).toContain('no engine replacement');

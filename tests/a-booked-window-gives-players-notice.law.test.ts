@@ -180,3 +180,15 @@ it('preserves the original notice until expiry before showing the separate succe
   expect(next?.notAfterMs).toBe(Date.parse('2026-11-10T10:30:00Z'));
   expect(bookedMaintenanceNotice(Date.parse('2026-11-10T10:30:00Z'))).toBeNull();
 });
+
+it('keeps the database break notice until it expires, then shows the cash Horse action cutover', () => {
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-10T23:29:59.999Z'))?.id).toBe(
+    '2026-11-10-closed-person-name-policy-db'
+  );
+  const cutover = bookedMaintenanceNotice(Date.parse('2026-11-10T23:30:00Z'));
+  expect(cutover?.id).toBe('2026-11-10-owner-asap-engine-2350z');
+  expect(cutover?.noticeAtMs).toBe(Date.parse('2026-11-10T23:30:00Z'));
+  expect(cutover?.notBeforeMs).toBe(Date.parse('2026-11-10T23:50:00Z'));
+  expect(cutover?.notAfterMs).toBe(Date.parse('2026-11-11T05:00:00Z'));
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-11T05:00:00Z'))).toBeNull();
+});
