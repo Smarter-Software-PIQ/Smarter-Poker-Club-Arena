@@ -505,6 +505,8 @@ import {
   lightningDecisions as pendingLightningDecisions,
 } from '../lightning/lightningDecisionQueue';
 import { scheduleLightningRenderAck } from '../lightning/lightningRenderAck';
+import { markLightningJoinRoom } from '../lightning/lightningJoinTiming';
+import { useLightningJoinTiming } from '../lightning/useLightningJoinTiming';
 // The ShareHand COMPONENT is rendered by TableModalsLayer, not here — the
 // default import this line used to carry was unused. TablePage builds the
 // payload, so it needs the types.
@@ -27189,8 +27191,18 @@ function LiveTablePage({
     return scheduleLightningRenderAck(lightningRenderHandId, (handId, deltaMs, resumed) => {
       lightningRenderAckedRef.current = handId;
       sendEngineRenderAck(handId, deltaMs, resumed);
+      // A timed join (lightningJoinTiming.ts) ends when its first hand paints.
+      markLightningJoinRoom(tableId, 'cards_painted');
     });
-  }, [lightningRenderHandId, sendEngineRenderAck]);
+  }, [lightningRenderHandId, sendEngineRenderAck, tableId]);
+  /* JOIN TIMING (2026-11-10): the room's half of a timed Lightning join - the
+     room mounted, its socket connected, its first snapshot and first hand. */
+  useLightningJoinTiming({
+    roomId: tableId,
+    lightningRoom: !!lightningRoom,
+    connected: engineWsStatus === 'connected',
+    snapshot: lightningRoom ? (engineSnapshot as LightningSnapshotFields | null) : null,
+  });
 
   /* JOIN LIGHTNING: the buy-in landed at the anchor table the player joined
      through, so this tab follows their chair into the pool-session room. */
