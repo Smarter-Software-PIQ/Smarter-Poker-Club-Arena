@@ -6,8 +6,7 @@
    over the art in container units, so it scales with the receipt exactly the
    way the drawing does.
 
-   Inks are the house's: gold #f3f9ff for the number a win is about, lit blue
-   #45adff for the line over it, silver #e4e7ec for a loss. All of them sit on
+   Figures and captions use white lettering, with silver for a loss. All of them sit on
    the console's black glass at well over 4.5:1.
 
    Motion is transform, opacity and stroke-dashoffset only, every duration and
@@ -46,7 +45,7 @@
     calc(520ms * var(--animation-speed, 1)) both;
 }
 .caption {
-  color: #45adff;
+  color: #f3f9ff;
   font-size: max(9px, 4.2cqw);
   font-weight: 700;
   letter-spacing: 0.08em;
