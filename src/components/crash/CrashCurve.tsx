@@ -74,7 +74,7 @@ import { mediaUrl } from '../../utils/mediaBase';
 import * as THREE from 'three';
 import { createFramePacer } from '../games/framePacer';
 import { createSceneTelemetry, reportSceneFailure } from '../games/sceneTelemetry';
-import { gameRenderer, metal } from '../games/sceneKit';
+import { gameRenderer, metal, solid } from '../games/sceneKit';
 import { prefersReducedMotion, getAnimationSpeed } from '../../utils/animationSpeed';
 import { crashMultiplierCents } from '../../utils/diamondGamesFairness';
 import { gameChips } from '../../utils/bonusGameBudget';
@@ -322,46 +322,149 @@ function starfield(
   return { points, material };
 }
 
-/** A brilliant cut with an octagonal table, crown, girdle and pointed pavilion.
- * Alternating the rings' angles breaks up the facets as the sapphire banks. */
-function flightDiamond() {
+/** The jet: a lathed chrome fuselage, a canopy that catches the room, swept wings, canted fins, twin afterburners. */
+function jet(disc: THREE.Texture) {
   const group = new THREE.Group();
-  const vertices: number[] = [];
-  const colors: number[] = [];
-  const rim = (index: number, radius: number, y: number, offset = 0) => {
-    const angle = (Math.PI * (index + offset)) / 4;
-    return new THREE.Vector3(radius * Math.cos(angle), y, radius * Math.sin(angle));
-  };
-  const facet = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, tint: number) => {
-    const color = new THREE.Color(tint);
-    for (const point of [a, b, c]) {
-      vertices.push(point.x, point.y, point.z);
-      colors.push(color.r, color.g, color.b);
-    }
-  };
-  for (let i = 0; i < 8; i++) {
-    const table = rim(i, 0.52, 0.5, 0.5),
-      nextTable = rim(i + 1, 0.52, 0.5, 0.5);
-    const girdle = rim(i, 0.92, 0.11),
-      nextGirdle = rim(i + 1, 0.92, 0.11);
-    facet(new THREE.Vector3(0, 0.5, 0), nextTable, table, 0x9eeaff);
-    facet(table, nextTable, nextGirdle, i % 2 ? 0x62bfff : 0xb1f1ff);
-    facet(table, nextGirdle, girdle, i % 2 ? 0x2e98fa : 0x56d9ff);
-    facet(girdle, nextGirdle, new THREE.Vector3(0, -0.88, 0), i % 2 ? 0x155eb7 : 0x258ef2);
+  const chrome = metal(0xd9e1ea, 0.12),
+    blue = metal(0x1877f2, 0.18),
+    livery = metal(0x1a5fd0, 0.24),
+    dark = metal(0x141d2b, 0.22);
+  const canopyGlass = new THREE.MeshPhysicalMaterial({
+    color: 0x0b1c3a,
+    metalness: 0.6,
+    roughness: 0.04,
+    clearcoat: 1,
+    clearcoatRoughness: 0.03,
+    envMapIntensity: 1.6,
+  });
+  // The hull sits ahead of the group origin, so the head of the curve (and the
+  // glass marker on it) is under the wing root and the ribbon leaves the engines.
+  const hull = new THREE.Group();
+  hull.position.x = 0.55;
+  group.add(hull);
+  const profile = (
+    [
+      [0, -1.55],
+      [0.09, -1.45],
+      [0.16, -1.1],
+      [0.22, -0.5],
+      [0.235, 0.15],
+      [0.2, 0.65],
+      [0.12, 0.98],
+      [0, 1.18],
+    ] as [number, number][]
+  ).map(([r, y]) => new THREE.Vector2(r, y));
+  const fuselage = new THREE.Mesh(new THREE.LatheGeometry(profile, 32), chrome);
+  fuselage.rotation.z = -Math.PI / 2;
+  hull.add(fuselage);
+  const canopy = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 18), canopyGlass);
+  canopy.scale.set(0.5, 0.17, 0.17);
+  canopy.position.set(0.35, 0.16, 0);
+  hull.add(canopy);
+  solid(hull, blue, [1.5, 0.035, 0.46], [-0.35, 0, 0], 0.01);
+  const wingShape = new THREE.Shape();
+  wingShape.moveTo(0.45, 0.15);
+  wingShape.lineTo(-0.85, 1.2);
+  wingShape.lineTo(-1.1, 1.16);
+  wingShape.lineTo(-1.1, 0.15);
+  wingShape.closePath();
+  const wingGeometry = new THREE.ExtrudeGeometry(wingShape, {
+    depth: 0.05,
+    bevelEnabled: true,
+    bevelThickness: 0.015,
+    bevelSize: 0.02,
+    bevelSegments: 2,
+    steps: 1,
+  });
+  const finShape = new THREE.Shape();
+  finShape.moveTo(-0.75, 0);
+  finShape.lineTo(-1.15, 0.58);
+  finShape.lineTo(-1.4, 0.55);
+  finShape.lineTo(-1.45, 0);
+  finShape.closePath();
+  const finGeometry = new THREE.ExtrudeGeometry(finShape, { depth: 0.035, bevelEnabled: false });
+  const tailShape = new THREE.Shape();
+  tailShape.moveTo(-0.9, 0.1);
+  tailShape.lineTo(-1.35, 0.75);
+  tailShape.lineTo(-1.5, 0.72);
+  tailShape.lineTo(-1.5, 0.1);
+  tailShape.closePath();
+  const tailGeometry = new THREE.ExtrudeGeometry(tailShape, { depth: 0.03, bevelEnabled: false });
+  const engineGeometry = new THREE.CylinderGeometry(0.11, 0.14, 1.05, 24);
+  const nozzleGeometry = new THREE.TorusGeometry(0.135, 0.03, 8, 24);
+  const outerCone = new THREE.ConeGeometry(0.13, 1.2, 20, 1, true);
+  outerCone.translate(0, 0.6, 0);
+  const innerCone = new THREE.ConeGeometry(0.06, 0.75, 16, 1, true);
+  innerCone.translate(0, 0.375, 0);
+  const afterburners: { outer: THREE.Mesh; inner: THREE.Mesh; glow: THREE.Sprite }[] = [];
+  for (const side of [-1, 1]) {
+    const wing = new THREE.Mesh(wingGeometry, livery);
+    wing.rotation.x = Math.PI / 2;
+    wing.scale.z = side;
+    wing.position.y = -0.06;
+    hull.add(wing);
+    solid(hull, chrome, [0.3, 0.07, 0.1], [-0.95, -0.06, side * 1.16], 0.02);
+    const wingLight = new THREE.Mesh(
+      new THREE.SphereGeometry(0.04, 10, 8),
+      new THREE.MeshBasicMaterial({ color: side < 0 ? 0xff5b6e : 0x45adff })
+    );
+    wingLight.position.set(-1.0, -0.02, side * 1.22);
+    hull.add(wingLight);
+    const wingGlow = glowSprite(disc, side < 0 ? 0xff5b6e : 0x45adff, 0.42, 0.75);
+    wingGlow.position.copy(wingLight.position);
+    hull.add(wingGlow);
+    const fin = new THREE.Mesh(finGeometry, livery);
+    fin.position.z = side * 0.16;
+    fin.rotation.x = -side * 0.3;
+    hull.add(fin);
+    const tail = new THREE.Mesh(tailGeometry, chrome);
+    tail.rotation.x = Math.PI / 2;
+    tail.scale.z = side;
+    tail.position.y = -0.02;
+    hull.add(tail);
+    const engine = new THREE.Mesh(engineGeometry, chrome);
+    engine.rotation.z = -Math.PI / 2;
+    engine.position.set(-0.85, -0.13, side * 0.4);
+    hull.add(engine);
+    const nozzle = new THREE.Mesh(nozzleGeometry, dark);
+    nozzle.rotation.y = Math.PI / 2;
+    nozzle.position.set(-1.38, -0.13, side * 0.4);
+    hull.add(nozzle);
+    const outer = new THREE.Mesh(
+      outerCone,
+      new THREE.MeshBasicMaterial({
+        color: 0x45adff,
+        transparent: true,
+        opacity: 0.5,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      })
+    );
+    outer.rotation.z = Math.PI / 2;
+    outer.position.set(-1.38, -0.13, side * 0.4);
+    hull.add(outer);
+    const inner = new THREE.Mesh(
+      innerCone,
+      new THREE.MeshBasicMaterial({
+        color: 0xeaf6ff,
+        transparent: true,
+        opacity: 0.85,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      })
+    );
+    inner.rotation.z = Math.PI / 2;
+    inner.position.copy(outer.position);
+    hull.add(inner);
+    const glow = glowSprite(disc, 0x9fd8ff, 0.6, 0.85);
+    glow.position.set(-1.42, -0.13, side * 0.4);
+    hull.add(glow);
+    afterburners.push({ outer, inner, glow });
   }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  geometry.computeVertexNormals();
-  const material = metal(0xffffff, 0.16);
-  material.vertexColors = true;
-  material.side = THREE.DoubleSide;
-  material.metalness = 0.24;
-  material.envMapIntensity = 0.55;
-  const gem = new THREE.Mesh(geometry, material);
-  gem.name = 'Flight Diamond';
-  group.add(gem);
-  return { group, gem };
+  group.rotation.order = 'ZYX';
+  return { group, afterburners };
 }
 
 /** The sky, the stars, the horizon, the jet, its ribbon and fill, the wake, the cash-out ring and the burst. */
@@ -462,7 +565,7 @@ function dressScene(scene: THREE.Scene, path: FlightPath, height: number) {
   const sun = new THREE.DirectionalLight(0xdfe9ff, 1.6);
   sun.position.set(-8, 6, 5);
   scene.add(sun);
-  const flight = flightDiamond();
+  const flight = jet(disc);
   flight.group.scale.setScalar(0.95);
   scene.add(flight.group);
   const headGlow = glowSprite(disc, 0x7fd0ff, 1.7, 0.55);
@@ -793,7 +896,14 @@ function paintScene(art: Art, path: FlightPath, s: FrameState, v: THREE.Vector3[
   art.headGlow.visible = !s.finished || s.atCap;
   art.headGlow.position.copy(flight.position);
   art.headGlow.material.opacity = s.reduced ? 0.55 : 0.45 + Math.sin(s.now / 160) * 0.12;
-  art.flight.gem.rotation.y = s.reduced ? 0.4 : s.now / 960;
+  art.flight.afterburners.forEach(({ outer, inner, glow }, i) => {
+    const flicker = s.reduced
+      ? 1
+      : 0.82 + Math.sin(s.now / 41 + i * 2.1) * 0.12 + Math.sin(s.now / 97 + i) * 0.08;
+    outer.scale.y = flicker;
+    inner.scale.y = flicker * (s.reduced ? 1 : 0.9 + Math.sin(s.now / 63 + i) * 0.1);
+    glow.material.opacity = 0.6 + (flicker - 0.82) * 1.2;
+  });
   // The ribbon and the fill follow the curve to the head.
   const ribbon = art.ribbon.position.array as Float32Array;
   const fill = art.fill.position.array as Float32Array;
@@ -930,6 +1040,7 @@ export default function CrashCurve(props: CrashCurveProps) {
     else if (props.phase !== 'crashed') setShowImpact(false);
     priorPhase.current = props.phase;
   }, [props.phase]);
+  const fallbackJet = useRef<HTMLImageElement>(null);
   const launchButton = useRef<HTMLButtonElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const glass = useRef<SVGSVGElement>(null);
@@ -1241,6 +1352,11 @@ export default function CrashCurve(props: CrashCurveProps) {
         );
       else hide(marks.floor);
       const [hx, hy] = toScreen(progress);
+      if (fallbackJet.current) {
+        fallbackJet.current.style.left = `${hx}px`;
+        fallbackJet.current.style.top = `${hy}px`;
+        fallbackJet.current.hidden = finished && !atCap;
+      }
       if (launchButton.current && p.phase === 'idle') {
         launchButton.current.style.left = `${hx}px`;
         launchButton.current.style.top = `${hy}px`;
@@ -1370,21 +1486,31 @@ export default function CrashCurve(props: CrashCurveProps) {
         <div className={styles.cap} data-cap={props.capCents}>
           Max <b>{tickerLabel(props.capCents)}</b>
         </div>
+        {failed && (
+          <img
+            ref={fallbackJet}
+            className={styles.fallbackJet}
+            src={mediaUrl('assets/diamond-spins/result-crash.webp')}
+            alt=""
+          />
+        )}
         {props.phase === 'idle' && props.onLaunch && (
           <button
             ref={launchButton}
-            className={styles.launchDiamond}
+            className={styles.launchJet}
             type="button"
-            aria-label="Launch Diamond"
+            aria-label="Launch Fighter Jet"
             onClick={props.onLaunch}
           >
-            {failed && (
-              <img src={mediaUrl('images/diamond-icon.webp')} alt="" width={56} height={56} />
-            )}
             <span>Launch</span>
           </button>
         )}
         <div className={styles.launchLine} data-attract="launch-line" aria-hidden="true" />
+        {reveal && props.cashoutCents != null && (
+          <p className={styles.bookedFlight} data-booked-flight="">
+            Booked At <strong>{tickerLabel(props.cashoutCents)}</strong>
+          </p>
+        )}
         {reveal ? (
           <div
             ref={plate}

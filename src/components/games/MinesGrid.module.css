@@ -176,10 +176,10 @@
     800 18px/1.1 'Roboto Condensed',
     Inter,
     sans-serif;
-  color: #ffd700;
+  color: #f4f9ff;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
-  text-shadow: 0 0 10px rgb(255 215 0 / 22%);
+  text-shadow: 0 0 10px rgb(100 205 255 / 22%);
 }
 .readouts dd[data-sign='loss'] {
   color: #ff5b6e;
@@ -472,7 +472,7 @@
 .caption {
   margin: 15px 0 0;
   font:
-    400 12px/1.5 Inter,
+    600 clamp(14px, 2.4vw, 19px)/1.4 Inter,
     sans-serif;
   color: #9aa5b3;
   text-align: center;
@@ -596,8 +596,8 @@
 .seal {
   display: grid;
   place-items: center;
-  width: 80%;
-  height: 80%;
+  width: 100%;
+  height: 100%;
   transform: none;
 }
 
@@ -671,5 +671,39 @@
   [data-choice-game='mines'] .board {
     width: min(100%, 500px);
     padding: 2px;
+  }
+}
+
+.stage::before,
+.seal,
+.number {
+  pointer-events: none;
+}
+.tile[data-pending='true'] {
+  outline: 2px solid white;
+  outline-offset: -3px;
+  background: radial-gradient(ellipse at center, #337adb, #102d57 68%);
+}
+.caption {
+  color: #fff;
+  font-weight: 700;
+}
+.caption[data-attract-prompt] {
+  animation: mine-instruction 2.2s ease-in-out infinite;
+}
+@keyframes mine-instruction {
+  0%,
+  100% {
+    text-shadow: 0 1px 2px #000;
+  }
+  50% {
+    text-shadow:
+      0 0 9px #9bdaff,
+      0 0 20px #277cc7;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .caption[data-attract-prompt] {
+    animation: none;
   }
 }

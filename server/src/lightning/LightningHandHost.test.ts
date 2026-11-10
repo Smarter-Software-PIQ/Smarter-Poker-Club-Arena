@@ -963,6 +963,52 @@ describe('the phase 6 contracts: frozen settlement, the room snapshot, pre-actio
     ).toBe(40000);
   });
 
+  // Production 2026-11-10, hand 58348362: the big blind asked for a fast fold
+  // while it owed nothing; a raise priced it and it stayed seated until its turn.
+  it('a fast fold asked for on a free big blind releases the moment a raise prices it', async () => {
+    const formed = formedHand(4, 3192);
+    const t = buildHost(formed, [100, 100, 100, 100]);
+    await t.host.start();
+    await flush();
+    const st = t.host.peekState()!;
+    const bb = st.players.find((p) => p.user_id === formed.bb)!;
+    expect(st.currentBet - bb.bet).toBe(0);
+    expect(t.host.setPreAction(bb.user_id, 'auto_fold', undefined, formed.handId)).toEqual({
+      success: true,
+    });
+    await flush();
+    // Free: the request is held, the player is not released yet.
+    expect(t.host.isWatching(bb.user_id)).toBe(true);
+    expect(t.calls.fastFold).toEqual([]);
+    const raiser = st.players.find((p) => p.seat === st.currentPlayerSeat)!;
+    expect(t.host.handlePlayerAction(raiser.user_id, 'raise', 6).success).toBe(true);
+    const after = t.host.peekState()!;
+    expect(after.currentPlayerSeat).not.toBe(bb.seat);
+    // Released at the raise; the public fold still waits for the seat's turn.
+    expect(t.host.isWatching(bb.user_id)).toBe(false);
+    expect(after.players.find((p) => p.user_id === bb.user_id)!.is_folded).toBe(false);
+    await flush();
+    expect(t.calls.fastFold.filter((f) => f.playerId === bb.user_id)).toEqual([
+      expect.objectContaining({ foldType: 'fast' }),
+    ]);
+    expect(t.released.filter((r) => r.playerId === bb.user_id)).toHaveLength(1);
+    await playOut(t.host, mulberry32(3192), (userId, legal) => {
+      expect(userId).not.toBe(bb.user_id);
+      return legal.includes('check') ? 'check' : 'call';
+    });
+    await flush();
+    const settled = t.calls.settle[0];
+    const result = settled.results.find((r) => r.playerId === bb.user_id)!;
+    expect(result.foldType).toBe('fast');
+    expect(t.calls.fastFold.filter((f) => f.playerId === bb.user_id)).toHaveLength(1);
+    expect(
+      Math.round(
+        (settled.results.reduce((sum, p) => sum + p.stackAfter, 0) + settled.rake + settled.bbj) *
+          100
+      )
+    ).toBe(40000);
+  });
+
   // "the check/fold stays active for all streets until someone bets, or the
   // player reaches showdown ... they do not have to re select check/fold".
   it('an armed Check/Fold carries across every street of its own hand to showdown', async () => {

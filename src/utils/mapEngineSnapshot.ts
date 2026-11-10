@@ -41,6 +41,7 @@ export interface EnginePublicPlayer {
   is_folded?: boolean;
   is_all_in?: boolean;
   is_sitting_out?: boolean;
+  is_waiting_for_button?: boolean;
   is_disconnected?: boolean;
   time_bank_remaining?: number;
   time_bank_uses_remaining?: number;
@@ -245,6 +246,7 @@ export interface MappedTableStatePatch {
     holeCards?: Array<{ rank: string; suit: string }>;
     showCards: boolean;
     isHero: boolean;
+    waitingForButton?: boolean;
     /** SHOWDOWN SYSTEM 2026-08-25: engine-decided muck — seat shows MUCKED. */
     isMucked?: boolean;
   } | null>;
@@ -493,6 +495,7 @@ export function mapEngineSnapshot(
       holeCards: p.cards && p.cards.length > 0 ? canonicalCards(p.cards) : undefined,
       showCards: !!(p.cards && p.cards.length > 0 && p.user_id !== heroUserId),
       isHero: p.user_id === heroUserId,
+      waitingForButton: p.is_waiting_for_button === true,
       isMucked: p.is_mucked === true,
     };
     positions[idx] = p.position ?? null;

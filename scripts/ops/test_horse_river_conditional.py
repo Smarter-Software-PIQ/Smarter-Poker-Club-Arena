@@ -40,6 +40,16 @@ class ConditionalRiverTests(unittest.TestCase):
         self.assertEqual(r['bets'][0]['evUnits']['exact'],'0')
         self.assertEqual(r['bets'][0]['minusCheckUnits']['exact'],'-25')
 
+    def test_declared_regret_uses_best_priced_legal_choice(self):
+        q = request()
+        q['observedWagerUnits'] = 0
+        self.assertEqual(price_checked_to_river(q)['conditionalOpportunityCost']['regretUnits']['exact'], '50')
+        q['observedWagerUnits'] = 50
+        self.assertEqual(price_checked_to_river(q)['conditionalOpportunityCost']['regretUnits']['exact'], '0')
+        q['observedWagerUnits'] = 1
+        with self.assertRaisesRegex(ValueError, 'outside_priced_menu'):
+            price_checked_to_river(q)
+
     def test_short_call_returns_uncalled_excess(self):
         q=request();q['opponentStackUnits']=20
         self.assertEqual(price_checked_to_river(q)['bets'][0]['evUnits']['exact'],'120')

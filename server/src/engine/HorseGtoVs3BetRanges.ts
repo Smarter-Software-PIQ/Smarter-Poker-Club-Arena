@@ -62,6 +62,7 @@ import {
   holdemClass,
   parseChart,
   scoreAtShare,
+  type CashOpenProfile,
 } from './HorseGtoOpeningRanges.js';
 import { holdemPreflopScore } from './HorseEval.js';
 
@@ -231,7 +232,7 @@ function earlyWeight(openerBehind: number): number {
 }
 
 export interface Vs3BetSpot {
-  cash?: boolean;
+  cash?: CashOpenProfile;
   /** Dealt-in players behind the opener (V70 index; SB 1 .. 9-max UTG 8). */
   openerBehind: number;
   /** The opener will act after the 3-bettor on every later street. */
@@ -288,7 +289,7 @@ export function styledOpenWidth(
   ante: boolean,
   dealt: number,
   tightness = 1,
-  cash = false
+  cash: CashOpenProfile = false
 ): number {
   const base = openWidth(openerBehind, ante, dealt, cash);
   if (!(tightness > 0) || Math.abs(tightness - 1) < 1e-9) return base;
@@ -301,7 +302,7 @@ export function openWidth(
   openerBehind: number,
   ante: boolean,
   dealt: number,
-  cash = false
+  cash: CashOpenProfile = false
 ): number {
   // Preserve the separate heads-up jam caller's established reference.
   if (dealt <= 2) return OPEN_TARGET[ante ? 'ante' : 'cash'][clampIndex(openerBehind)];

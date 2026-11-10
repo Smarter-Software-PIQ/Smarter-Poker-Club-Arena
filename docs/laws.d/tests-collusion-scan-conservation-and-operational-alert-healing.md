@@ -1,0 +1,3 @@
+# tests/collusion-scan-conservation-and-operational-alert-healing.law.test.ts
+
+`public.fn_ca_collusion_scan` drives `public.ca_hand_transfers` via an index-backed `LATERAL` aggregation with pre-materialized `cert_users`, `public.fn_tournament_conservation_deltas` reads special `chip_ledger` categories in one `MATERIALIZED` pass without `BitmapAnd` entity intersections, `plpgsql_check` runtime `pldbgapi2` hooks are disabled on database/roles, historical zero-balance terminal tournament escrows have `closed_at` backfilled, and `public.fn_resolve_settled_financial_alerts` Class 9 self-resolves verified-recovered operational, cron, daily-bonus, lock-sentinel, and fleet-heartbeat alerts while upgrading aged-out cron drift incidents to `verified_remeasured`.

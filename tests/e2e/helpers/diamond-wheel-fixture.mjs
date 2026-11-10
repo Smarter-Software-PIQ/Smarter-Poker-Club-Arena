@@ -27,6 +27,7 @@ export function diamondWheelFixture() {
         resolveDir: process.cwd(),
         loader: 'tsx',
         contents: `
+          import './src/styles/metallic-popups.css';
           import React,{useState} from 'react';import {createRoot} from 'react-dom/client';
           import {MemoryRouter,useNavigate,useLocation} from 'react-router-dom';
           import {WheelExperience} from './src/components/wheel/WheelExperience';

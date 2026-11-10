@@ -39,7 +39,7 @@ export function receiptFigure(game: BonusReceiptGame, figure: number | null | un
 
 /**
  * The Plinko bucket's own tint, for the receipt's plate: the board's cool-to-hot
- * schema ramp (navy, royal blue, light blue, chrome white, gold) on the same
+ * schema ramp (navy, royal blue, light blue, pale blue, bright ice) on the same
  * logarithmic heat, read straight off the multiplier.
  *
  * A mirror of `bucketTint` in src/components/plinko/PlinkoBoard.tsx, kept here
@@ -53,8 +53,8 @@ const TINT_RAMP: ReadonlyArray<readonly [number, number, number, number]> = [
   [0.48, 0x45, 0xad, 0xff],
   [0.64, 0x9f, 0xd3, 0xff],
   [0.78, 0xe4, 0xe7, 0xec],
-  [0.9, 0xff, 0xd7, 0x00],
-  [1, 0xff, 0xb3, 0x00],
+  [0.9, 0xbf, 0xe8, 0xff],
+  [1, 0xe3, 0xf5, 0xff],
 ];
 const HEAT_FLOOR_CENTS = 5;
 const HEAT_CEILING_CENTS = 2500;

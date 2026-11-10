@@ -1,33 +1,7 @@
 /**
- * ═══════════════════════════════════════════════════════════════════════════
- *  LAW - DIAMOND SPINS NEVER START THEMSELVES (Dan, 2026-09-21, R1, BINDING)
- * ═══════════════════════════════════════════════════════════════════════════
- *
- * Dan, verbatim: "Games can NEVER auto start. Remove the countdown clock that
- * triggers an auto start. The only 'auto play' is when the user chooses to
- * spin 5/10/25 at a time. Nothing ever auto-plays just because they are in
- * the game lobby."
- *
- * What shipped before this ruling, each one a path where play started or
- * advanced with no tap:
- *
- *   1. a 30-second idle countdown on the wheel page pressed Spin by itself
- *      (`useIdleSpinCountdown`, armed on every load and every entry change);
- *   2. the win reveal dismissed itself at the end of its own pop animation
- *      whenever the prize was a bonus game or an upgrade, and the page then
- *      navigated into the game;
- *   3. an unfinished bonus award opened its game page on load, by an effect;
- *   4. the upgrade ring started its spin the moment its reveal closed.
- *
- * All four are gone. This law renders the real page and the real wheel flow
- * with the clock under control, lets two minutes pass at every point where
- * a clock used to act, and asserts that no spin was requested, no game was
- * opened and no wheel turned. The one sanctioned automatic press, a run of
- * 5, 10 or 25 the player started, is pinned by
- * tests/components/DiamondWheelAutoRecovery.test.tsx.
- *
- * Source pins close the door the tests cannot see: the idle hook does not
- * exist, and the page does not import one.
+ * The wheel only charges on a player's spin. A freshly won game opens from
+ * that spin's sealed receipt. A historical saved game and upgrade ring still
+ * wait for an explicit choice. No return or idle timer starts a wager.
  */
 vi.mock('../src/hooks/useLiveBonusGuard', () => ({ useLiveBonusGuard: () => () => {} }));
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -162,6 +136,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.resetAllMocks();
   localStorage.clear();
+  sessionStorage.clear();
 });
 const ready = async () => {
   render(<DiamondWheelPage />);
@@ -176,7 +151,7 @@ const nothingHappened = () => {
   expect(backend.navigate).not.toHaveBeenCalled();
 };
 
-describe('the wheel page never presses Spin or opens a game without a tap', () => {
+describe('the wheel never spends a second stake when opening a freshly earned game', () => {
   it('sits idle, ready to spin, for two minutes and spins nothing', async () => {
     await ready();
     await wait(TWO_MINUTES);
@@ -220,7 +195,7 @@ describe('the wheel page never presses Spin or opens a game without a tap', () =
     expect(backend.navigate.mock.calls[0][0]).toMatch(/^\/clubs\/club\/mines\?wheelAward=/);
   });
 
-  it('a won bonus game stays on its reveal until Play Game, and only then opens', async () => {
+  it('a freshly earned game opens automatically from its receipt after exactly one wager', async () => {
     await ready();
     backend.spin.mockImplementation(async (attempt) => sealed(bonus, attempt));
     fireEvent.click(screen.getByRole('button', { name: 'Spin 100', exact: true }));
@@ -234,15 +209,12 @@ describe('the wheel page never presses Spin or opens a game without a tap', () =
       fireEvent.animationEnd(dialog.querySelector('[data-motion="keep"]')!);
     });
     await wait(TWO_MINUTES);
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
-    expect(backend.navigate).not.toHaveBeenCalled();
     expect(backend.spin).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole('button', { name: 'Play Game' }));
     expect(backend.navigate).toHaveBeenCalledTimes(1);
     expect(backend.navigate.mock.calls[0][0]).toMatch(/^\/clubs\/club\/plinko\?wheelAward=/);
   });
 
-  it('a won upgrade waits for Open Upgrade Wheel, then for a gesture on the ring, then for Play Game', async () => {
+  it('a won upgrade waits for Open Upgrade Wheel, then for the ring gesture before opening its sealed prize', async () => {
     await ready();
     backend.spin.mockImplementation(async (attempt) => sealed(upgrade, attempt));
     fireEvent.click(screen.getByRole('button', { name: 'Spin 100', exact: true }));
@@ -270,8 +242,6 @@ describe('the wheel page never presses Spin or opens a game without a tap', () =
       fireEvent.animationEnd(screen.getByRole('dialog').querySelector('[data-motion="keep"]')!);
     });
     await wait(TWO_MINUTES);
-    expect(backend.navigate).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Play Game' }));
     expect(backend.navigate).toHaveBeenCalledTimes(1);
     expect(backend.spin).toHaveBeenCalledTimes(1);
   });
@@ -308,12 +278,9 @@ describe('the clock that pressed Spin is gone from the source', () => {
     }
     expect(page).toContain('const playAward = useCallback(');
   });
-  it('the reveal has no automatic branch for a game', () => {
+  it('the earned-game reveal can navigate but cannot request a paid spin', () => {
     const reveal = readFileSync(resolve(ROOT, 'src/components/wheel/WheelWinReveal.tsx'), 'utf8');
-    expect(reveal).not.toContain("autoContinue || prize.kind === 'bonus'");
-    expect(reveal).toContain(
-      "const gameAhead = prize.kind === 'bonus' || prize.kind === 'upgrade' || holdOpen;"
-    );
-    expect(reveal).toContain('autoContinue && autoContinueAfterMs > 0 && !gameAhead');
+    expect(reveal).not.toMatch(/DiamondWheelService\.|commitAndSpin|spinV2/);
+    expect(reveal).toContain('onOpenRef.current()');
   });
 });
