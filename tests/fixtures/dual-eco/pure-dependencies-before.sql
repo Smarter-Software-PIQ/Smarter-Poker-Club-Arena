@@ -57,3 +57,6 @@ BEGIN
   RETURN true;
 END $function$
 ;
+
+REVOKE ALL ON FUNCTION fn_ca_governance_eco_proven(jsonb)FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION fn_ca_governance_eco_proven(jsonb)TO service_role;

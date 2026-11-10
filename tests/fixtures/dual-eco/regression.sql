@@ -52,3 +52,11 @@ SELECT assert_eco((SELECT fn_ca_governance_eco_proven(m)FROM governance_eco),'or
 SELECT assert_eco((SELECT b#>'{totals,eco_components_complete}'='true'::jsonb AND(b#>>'{totals,cash_eco_amount}')::numeric=8 AND(b#>>'{totals,tournament_eco_amount}')::numeric=-15 FROM(SELECT ca_union_statement_board('fade0000-0000-0000-0000-000000000001','2026-11-02',8)b)x),'actual invoice to board preserves separate immutable activity totals');
 UPDATE settlement_invoices SET breakdown=jsonb_set(breakdown,'{eco_components,0,record_id}',to_jsonb(md5('wrong record')::uuid));
 SELECT assert_eco(NOT(SELECT fn_ca_governance_eco_proven(m)FROM governance_eco),'wrong invoice component identity cannot close original obligation');
+
+INSERT INTO smarter_private.union_eco_v2_terms(union_id,effective_from,cash_enabled,cash_rate,tournament_enabled,tournament_rate,authority)
+VALUES('fade0000-0000-0000-0000-000000000001','2026-11-02 08:00Z',false,.1,false,.1,'synthetic_disabled_book');
+INSERT INTO ca_settlements VALUES('union_rakeback_close','fade0000-0000-0000-0000-000000000001','final','fade0000-0000-0000-0000-000000000001:2026-11-02T08:00:00Z..2026-11-09T08:00:00Z','{}');
+SELECT assert_eco(refuses_eco($q$SELECT fn_union_issue_weekly_invoices('fade0000-0000-0000-0000-000000000001','2026-11-02 08:00Z','2026-11-09 08:00Z',false)$q$,'activity_records_required'),'disabled v2 preview cannot issue without immutable pair');
+SELECT fn_union_eco_record('fade0000-0000-0000-0000-000000000001','2026-11-02 08:00Z','2026-11-09 08:00Z');
+SELECT fn_union_issue_weekly_invoices('fade0000-0000-0000-0000-000000000001','2026-11-02 08:00Z','2026-11-09 08:00Z',false);
+SELECT assert_eco((SELECT count(*)=2 AND bool_and(NOT enabled AND amount=0)FROM smarter_private.union_eco_components WHERE period_start='2026-11-02 08:00Z'),'disabled v2 records two genuine zeros before invoice issuance');

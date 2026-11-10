@@ -43,7 +43,7 @@ ALTER TABLE smarter_private.union_eco_components ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON smarter_private.union_eco_v2_terms,smarter_private.union_eco_components FROM PUBLIC,anon,authenticated,service_role;
 CREATE FUNCTION smarter_private.union_eco_v2_immutable()RETURNS trigger LANGUAGE plpgsql
  SET search_path=pg_catalog AS $f$BEGIN RAISE EXCEPTION 'original_eco_component_and_terms_are_immutable' USING ERRCODE='55000';END$f$;
-REVOKE ALL ON FUNCTION smarter_private.union_eco_v2_immutable()FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION smarter_private.union_eco_v2_immutable() FROM PUBLIC,anon,authenticated,service_role;
 CREATE TRIGGER original_eco_immutable BEFORE UPDATE OR DELETE ON smarter_private.union_eco_v2_terms FOR EACH ROW EXECUTE FUNCTION smarter_private.union_eco_v2_immutable();
 CREATE TRIGGER original_eco_no_truncate BEFORE TRUNCATE ON smarter_private.union_eco_v2_terms FOR EACH STATEMENT EXECUTE FUNCTION smarter_private.union_eco_v2_immutable();
 CREATE TRIGGER original_eco_immutable BEFORE UPDATE OR DELETE ON smarter_private.union_eco_components FOR EACH ROW EXECUTE FUNCTION smarter_private.union_eco_v2_immutable();
@@ -64,7 +64,7 @@ BEGIN
   RAISE EXCEPTION 'original_eco_intra_book_terms_change_refused' USING ERRCODE='55000';END IF;
  RETURN to_jsonb(t);
 END$f$;
-REVOKE ALL ON FUNCTION smarter_private.union_eco_terms_for_book(uuid,timestamptz,timestamptz)FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION smarter_private.union_eco_terms_for_book(uuid,timestamptz,timestamptz) FROM PUBLIC,anon,authenticated,service_role;
 
 CREATE FUNCTION smarter_private.union_eco_calculate(p_club jsonb,p_basis jsonb,p_terms jsonb)
  RETURNS jsonb LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog,public AS $f$
@@ -94,7 +94,7 @@ BEGIN
  END LOOP;
  RETURN jsonb_build_object('club_id',p_club->'club_id','eco_version',2,'eco_components',components,'eco_amount',total,'eco_facts',facts);
 END$f$;
-REVOKE ALL ON FUNCTION smarter_private.union_eco_calculate(jsonb,jsonb,jsonb)FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION smarter_private.union_eco_calculate(jsonb,jsonb,jsonb) FROM PUBLIC,anon,authenticated,service_role;
 
 CREATE FUNCTION public.fn_union_eco_components(p_union_id uuid,p_start timestamptz,p_end timestamptz)
  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,smarter_private AS $f$
@@ -131,8 +131,8 @@ BEGIN
  END LOOP;
  RETURN jsonb_build_object('status','ready','eco_version',2,'clubs',output,'period_start',p_start,'period_end',p_end,'terms_id',terms->'id');
 END$f$;
-REVOKE ALL ON FUNCTION public.fn_union_eco_components(uuid,timestamptz,timestamptz)FROM PUBLIC,anon;
-GRANT EXECUTE ON FUNCTION public.fn_union_eco_components(uuid,timestamptz,timestamptz)TO authenticated,service_role;
+REVOKE ALL ON FUNCTION public.fn_union_eco_components(uuid,timestamptz,timestamptz) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.fn_union_eco_components(uuid,timestamptz,timestamptz) TO authenticated,service_role;
 
 CREATE FUNCTION public.fn_union_patch_settings(p_union_id uuid,p_settings jsonb,p_name text DEFAULT NULL,p_description text DEFAULT NULL)
  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,smarter_private AS $f$
@@ -148,8 +148,8 @@ BEGIN
  SELECT effective_from INTO next_book FROM smarter_private.union_eco_v2_terms WHERE union_id=p_union_id ORDER BY observed_at DESC,id DESC LIMIT 1;
  RETURN jsonb_build_object('success',true,'union',to_jsonb(u),'eco_terms_effective_from',next_book);
 END$f$;
-REVOKE ALL ON FUNCTION public.fn_union_patch_settings(uuid,jsonb,text,text)FROM PUBLIC,anon,service_role;
-GRANT EXECUTE ON FUNCTION public.fn_union_patch_settings(uuid,jsonb,text,text)TO authenticated;
+REVOKE ALL ON FUNCTION public.fn_union_patch_settings(uuid,jsonb,text,text) FROM PUBLIC,anon,service_role;
+GRANT EXECUTE ON FUNCTION public.fn_union_patch_settings(uuid,jsonb,text,text) TO authenticated;
 
 CREATE FUNCTION smarter_private.union_eco_capture_v2()RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
  SET search_path=pg_catalog,public,smarter_private AS $f$
@@ -174,7 +174,7 @@ BEGIN
   (terms->>'eco_tournament_enabled')::boolean,(terms->>'eco_tournament_rate')::numeric,auth.uid(),'original_owner_settings_write_next_book');
  RETURN NULL;
 END$f$;
-REVOKE ALL ON FUNCTION smarter_private.union_eco_capture_v2()FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION smarter_private.union_eco_capture_v2() FROM PUBLIC,anon,authenticated,service_role;
 
 -- This explicit newly observed commercial amendment is not a backdated journal.
 -- No other union is enabled, no legacy term or already recorded result changes.
@@ -303,8 +303,8 @@ BEGIN
  ORDER BY t.observed_at DESC,t.id DESC LIMIT 1;
  RETURN jsonb_build_object('settings',config,'eco_terms_effective_from',effective);
 END$f$;
-REVOKE ALL ON FUNCTION public.fn_union_eco_settings(uuid)FROM PUBLIC,anon,service_role;
-GRANT EXECUTE ON FUNCTION public.fn_union_eco_settings(uuid)TO authenticated;
+REVOKE ALL ON FUNCTION public.fn_union_eco_settings(uuid) FROM PUBLIC,anon,service_role;
+GRANT EXECUTE ON FUNCTION public.fn_union_eco_settings(uuid) TO authenticated;
 
 CREATE FUNCTION smarter_private.union_eco_invoice_components(p_union uuid,p_club uuid,p_start timestamptz,p_end timestamptz)
  RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,smarter_private AS $f$
@@ -322,7 +322,7 @@ BEGIN
   RAISE EXCEPTION 'union_squareup_eco_activity_record_fails_its_own_arithmetic' USING ERRCODE='23514';END IF;
  RETURN jsonb_build_object('eco_version',2,'eco_components',components,'eco_components_complete',true,'eco_amount',total);
 END$f$;
-REVOKE ALL ON FUNCTION smarter_private.union_eco_invoice_components(uuid,uuid,timestamptz,timestamptz)FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION smarter_private.union_eco_invoice_components(uuid,uuid,timestamptz,timestamptz) FROM PUBLIC,anon,authenticated,service_role;
 
 CREATE OR REPLACE FUNCTION public.fn_union_eco_record(p_union_id uuid,p_start timestamptz,p_end timestamptz,p_settlement_id uuid DEFAULT NULL)
  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $f$
@@ -364,8 +364,8 @@ BEGIN
  RETURN jsonb_build_object('success',true,'eco_version',2,'clubs',n,'components',2*n,'eco_base_mode','separate_club_profit','period_start',p_start,'period_end',p_end);
 END$f$;
 -- Preserve original service-only writer authority and owner/admin predicate.
-REVOKE ALL ON FUNCTION public.fn_union_eco_record(uuid,timestamptz,timestamptz,uuid)FROM PUBLIC,anon,authenticated;
-GRANT EXECUTE ON FUNCTION public.fn_union_eco_record(uuid,timestamptz,timestamptz,uuid)TO service_role;
+REVOKE ALL ON FUNCTION public.fn_union_eco_record(uuid,timestamptz,timestamptz,uuid) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_union_eco_record(uuid,timestamptz,timestamptz,uuid) TO service_role;
 
 CREATE OR REPLACE FUNCTION public.fn_union_eco_adjustment(p_union_id uuid, p_start timestamp with time zone, p_end timestamp with time zone)
  RETURNS TABLE(club_id uuid, club_name text, players_won numeric, rake_generated numeric, cash_players_won numeric, cash_rake numeric, tournament_rake numeric, total_rake_generated numeric, club_commission_rate numeric, rake_earned numeric, eco_base numeric, eco_rate numeric, eco_amount numeric, direction text, union_net_eco numeric, eco_base_mode text, baseline_cash_exact boolean, include_horses boolean, eco_enabled boolean)
@@ -391,8 +391,11 @@ BEGIN
  FROM rows r JOIN LATERAL(SELECT q FROM jsonb_array_elements(proof->'clubs')q WHERE q->>'club_id'=r.id::text)facts(x)ON true
  LEFT JOIN public.clubs c ON c.id=r.id CROSS JOIN total ORDER BY r.eco;
 END $function$;
-REVOKE ALL ON FUNCTION public.fn_union_eco_adjustment(uuid,timestamptz,timestamptz)FROM PUBLIC,anon,authenticated;
-GRANT EXECUTE ON FUNCTION public.fn_union_eco_adjustment(uuid,timestamptz,timestamptz)TO service_role;
+REVOKE ALL ON FUNCTION public.fn_union_eco_adjustment(uuid,timestamptz,timestamptz) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_union_eco_adjustment(uuid,timestamptz,timestamptz) TO service_role;
+
+REVOKE ALL ON FUNCTION public.fn_union_eco_adjustment(uuid,timestamptz,timestamptz) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_union_eco_adjustment(uuid,timestamptz,timestamptz) TO service_role;
 
 CREATE OR REPLACE FUNCTION public.fn_union_issue_weekly_invoices(p_union_id uuid, p_start timestamp with time zone DEFAULT NULL::timestamp with time zone, p_end timestamp with time zone DEFAULT NULL::timestamp with time zone, p_notify boolean DEFAULT true)
  RETURNS jsonb
@@ -481,6 +484,8 @@ BEGIN
        against a recorded -11242.82. With ECO terms disabled nothing is
        recorded and nothing may be stated. */
     v_components:=smarter_private.union_eco_invoice_components(p_union_id,r.club_id,v_from,v_to);
+    IF smarter_private.union_eco_terms_for_book(p_union_id,v_from,v_to)IS NOT NULL AND v_components->>'eco_version'IS DISTINCT FROM '2'THEN
+      RAISE EXCEPTION 'union_squareup_eco_activity_records_required' USING ERRCODE='23514';END IF;
     IF v_components->>'eco_version'='2' THEN
       v_recorded_eco:=(v_components->>'eco_amount')::numeric;v_recorded_base:=NULL;v_recorded_rate:=NULL;v_eco_recorded:=true;
     ELSE
@@ -1083,7 +1088,10 @@ END $function$
 ;
 
 DO $governance_preimage$BEGIN
- IF md5(pg_get_functiondef('public.fn_ca_governance_eco_proven(jsonb)'::regprocedure))<>'50e8b8a420ed2ee4c02de39012cea491' THEN
+ IF NOT EXISTS(SELECT FROM pg_proc WHERE oid='public.fn_ca_governance_eco_proven(jsonb)'::regprocedure
+  AND md5(pg_get_functiondef(oid))='50e8b8a420ed2ee4c02de39012cea491'AND proowner='postgres'::regrole
+  AND proacl='{postgres=X/postgres,service_role=X/postgres}'::aclitem[]AND prosecdef AND provolatile='s'
+  AND proconfig=ARRAY['search_path=public, pg_temp'])THEN
   RAISE EXCEPTION 'original_eco_governance_preimage_changed';END IF;
 END$governance_preimage$;
 CREATE OR REPLACE FUNCTION public.fn_ca_governance_eco_proven(p_metadata jsonb)
@@ -1119,6 +1127,8 @@ BEGIN
  RETURN true;
 EXCEPTION WHEN invalid_text_representation OR invalid_datetime_format OR datetime_field_overflow OR numeric_value_out_of_range THEN RETURN false;
 END$f$;
+REVOKE ALL ON FUNCTION public.fn_ca_governance_eco_proven(jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_ca_governance_eco_proven(jsonb) TO service_role;
 -- Insert inside the owned combined migration transaction; no financial writes.
 DO $eco_board_preimage$DECLARE p pg_proc;BEGIN
  SELECT *INTO STRICT p FROM pg_proc WHERE oid='public.ca_union_statement_board(uuid,date,integer)'::regprocedure;
@@ -1333,6 +1343,9 @@ DO $eco_board_postimage$DECLARE p pg_proc;BEGIN
   OR p.proacl IS DISTINCT FROM '{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}'::aclitem[]
  THEN RAISE EXCEPTION 'DUAL_ECO_BOARD_POSTIMAGE_OR_AUTHORITY_CHANGED';END IF;
 END$eco_board_postimage$;
+
+REVOKE ALL ON FUNCTION public.ca_union_statement_board(uuid,date,integer) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.ca_union_statement_board(uuid,date,integer) TO authenticated,service_role;
 
 DO $preserve_financial_sources$BEGIN
  IF NOT EXISTS(SELECT FROM eco_v2_sources_before b WHERE b.matcher=md5(pg_get_functiondef('smarter_private.original_inventory_proof_sources_match()'::regprocedure))
