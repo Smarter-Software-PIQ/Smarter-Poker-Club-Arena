@@ -35,13 +35,24 @@ ALTER TABLE public.diamond_bonus_entries DROP CONSTRAINT diamond_bonus_entries_b
   (wheel_award_id IS NULL AND base_diamonds BETWEEN 25 AND 2500 AND added_diamonds IN (0,base_diamonds))
   OR (wheel_award_id IS NOT NULL AND base_diamonds > 0 AND added_diamonds BETWEEN 0 AND base_diamonds));
 
--- Business rules are sealed in the original spin. Old awards replay and pay
--- under their original table; no live game may reprice an earlier spin.
+-- Apply the guarantee to awards first played after installation, including awards
+-- still waiting from an older wheel. Completed and already-open legacy rounds
+-- keep the contract sealed when they started.
+ALTER TABLE public.wheel_bonus_awards ADD COLUMN play_rules_version smallint;
+CREATE FUNCTION public.fn_wheel_bonus_guarantee(a public.wheel_bonus_awards)
+RETURNS jsonb LANGUAGE sql STABLE STRICT SET search_path=public AS $guarantee$
+ SELECT coalesce((SELECT jsonb_build_object('payout_rules_version',2,
+   'wheel_diamonds_per_chip',s.diamonds_per_chip,
+   'wheel_minimum_payout_chips',coalesce((s.receipt_v2->>'minimum_bonus_payout_chips')::numeric,
+      ceil(a.base_diamonds::numeric*150/s.diamonds_per_chip)/100))
+ FROM public.wheel_spins s WHERE s.id=a.spin_id AND
+ (a.status='pending' OR a.play_rules_version=2 OR s.receipt_v2->>'payout_rules_version'='2')),'{}'::jsonb)
+$guarantee$;
+REVOKE ALL ON FUNCTION public.fn_wheel_bonus_guarantee(public.wheel_bonus_awards) FROM PUBLIC,anon,authenticated;
 CREATE FUNCTION public.fn_wheel_earned_prize_floor(p_commit uuid)
 RETURNS numeric LANGUAGE sql STABLE STRICT SET search_path=public AS $floor$
- SELECT (s.receipt_v2->>'minimum_bonus_payout_chips')::numeric
- FROM public.wheel_bonus_awards a JOIN public.wheel_spins s ON s.id=a.spin_id
- WHERE a.commit_id=p_commit AND s.receipt_v2->>'payout_rules_version'='2'
+ SELECT (public.fn_wheel_bonus_guarantee(a)->>'wheel_minimum_payout_chips')::numeric
+ FROM public.wheel_bonus_awards a WHERE a.commit_id=p_commit
 $floor$;
 REVOKE ALL ON FUNCTION public.fn_wheel_earned_prize_floor(uuid) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_wheel_earned_prize_floor(uuid) TO service_role;
@@ -68,9 +79,13 @@ DECLARE patch record; definition text; bodies jsonb:='{}'::jsonb;
 BEGIN
  FOR patch IN SELECT * FROM (VALUES
  ('public.fn_wheel_award_receipt(uuid)',$old$ WHERE a.commit_id=p_commit),'{}'::jsonb)$old$,$new$ WHERE a.commit_id=p_commit),'{}'::jsonb)
- || COALESCE((SELECT jsonb_build_object('payout_rules_version',2,'wheel_minimum_payout_chips',(s.receipt_v2->>'minimum_bonus_payout_chips')::numeric,
- 'wheel_diamonds_per_chip',(s.receipt_v2->>'diamonds_per_chip')::integer) FROM public.wheel_bonus_awards a JOIN public.wheel_spins s ON s.id=a.spin_id
- WHERE a.commit_id=p_commit AND s.receipt_v2->>'minimum_bonus_payout_chips' IS NOT NULL),'{}'::jsonb)$new$),
+ || COALESCE((SELECT public.fn_wheel_bonus_guarantee(a) FROM public.wheel_bonus_awards a WHERE a.commit_id=p_commit),'{}'::jsonb)$new$),
+  ('public.fn_wheel_spin_v2(uuid,uuid,text,integer,text,uuid)',$old$  IF NOT p_welcome AND pool.chips_paid>pool.intake_diamonds/v_rate+cfg.exposure_allowance_chips THEN RAISE EXCEPTION 'The Wheel Exposure Limit Was Exceeded'; END IF;$old$,$new$$new$),
+  ('public.fn_diamond_spin_chip_payouts(uuid,date)',$old$WHERE l.from_entity_id=h.store_id$old$,$new$WHERE (l.from_entity_id=h.store_id OR
+      (h.host_kind='union' AND l.from_type='club_treasury' AND l.union_id=h.host_id))$new$),
+  ('public.fn_diamond_spin_chip_payouts(uuid,date)',$old$l.from_type IN ('union_wallet','union_bank')$old$,$new$l.from_type IN ('union_wallet','union_bank','club_treasury')$new$),
+  ('public.fn_diamond_spin_chip_payouts(uuid,date)',$old$h.host_kind='club' AND l.from_type IN ('promo_wallet','club_treasury')$old$,$new$h.host_kind='club' AND l.from_type IN ('promo_wallet','club_treasury')
+          AND (l.from_type<>'club_treasury' OR l.union_id IS NULL)$new$),
   ('public.fn_diamond_game_pay_chips(text,uuid,text,uuid,uuid,numeric,text,text,jsonb)',$old$    IF p_kind = 'union' THEN
       UPDATE public.union_wallets SET chip_balance = COALESCE(chip_balance, 0) - from_bank, updated_at = now()
        WHERE union_id = p_host AND COALESCE(chip_balance, 0) >= from_bank
@@ -177,6 +192,7 @@ $new$),
   ('public.fn_wheel_state_v2(uuid,integer)',$old$ELSE 3*c.risk_diamonds END$old$,$new$ELSE 3::bigint*c.risk_diamonds END$new$),
   ('public.fn_wheel_spin_v2(uuid,uuid,text,integer,text,uuid)',$old$v_budget integer;$old$,$new$v_budget bigint;$new$),
   ('public.fn_wheel_spin_v2(uuid,uuid,text,integer,text,uuid)',$old$v_budget:=v_price*v_boost;$old$,$new$v_budget:=v_price::bigint*v_boost;$new$),
+  ('public.fn_wheel_bonus_start(uuid,uuid,text,boolean,text,integer,integer,integer,integer)',$old$SET status='starting',commit_id=p_commit_id,request=wanted$old$,$new$SET status='starting',play_rules_version=2,commit_id=p_commit_id,request=wanted$new$),
   ('public.fn_wheel_bonus_state(uuid,text,boolean,text,uuid)',$old$total integer;$old$,$new$total bigint;$new$),
   ('public.fn_wheel_bonus_state(uuid,text,boolean,text,uuid)',$old$(v_award->>'bet_diamonds')::integer$old$,$new$(v_award->>'bet_diamonds')::bigint$new$),
   ('public.fn_wheel_spin_v2(uuid,uuid,text,integer,text,uuid)',$old$v_price integer;$old$,$new$v_price bigint;$new$),
@@ -217,7 +233,7 @@ $new$),
   ('public.fn_wheel_spin_v2(uuid,uuid,text,integer,text,uuid)',$old$v_half:=(public.fn_diamond_round_chip_cents(v_price*.5/100,cm.server_seed,'wheel-v4-cards-half:'||v_client||':'||v_nonce)*100)::bigint;$old$,$new$v_half:=ceil(v_price::numeric/2)::bigint;$new$),
   ('public.fn_wheel_spin_v2(uuid,uuid,text,integer,text,uuid)',$old$v_result:=jsonb_build_object('ok',true,'contract_version',4,'model','wheel-v4',$old$,$new$v_result:=jsonb_build_object('ok',true,'contract_version',4,'payout_rules_version',2,'minimum_payout_chips',ceil(v_price::numeric*50/v_rate)/100,'minimum_bonus_payout_chips',ceil(v_award.base_diamonds::numeric*150/v_rate)/100,'model','wheel-v4',$new$),
   ('public.fn_wheel_state_v2(uuid,integer)',$old$RETURN s||jsonb_build_object('contract_version',4,'model_version','wheel-v4','vip',vip,'enabled',true,'available',$old$,$new$RETURN s||jsonb_build_object('contract_version',4,'payout_rules_version',2,'minimum_payout_chips',ceil(p_entry_diamonds::numeric*50/rate)/100,'model_version','wheel-v4','vip',vip,'enabled',true,'available',$new$),
-  ('public.fn_wheel_bonus_public_award(wheel_bonus_awards,boolean)',$old$'won_order',public.fn_wheel_prize_order(a.spin_id))$old$,$new$'won_order',public.fn_wheel_prize_order(a.spin_id)) || COALESCE((SELECT jsonb_build_object('payout_rules_version',2,'wheel_minimum_payout_chips',(s.receipt_v2->>'minimum_bonus_payout_chips')::numeric,'wheel_diamonds_per_chip',s.diamonds_per_chip) FROM public.wheel_spins s WHERE s.id=a.spin_id AND s.receipt_v2->>'payout_rules_version'='2'),'{}'::jsonb)$new$),
+  ('public.fn_wheel_bonus_public_award(wheel_bonus_awards,boolean)',$old$'won_order',public.fn_wheel_prize_order(a.spin_id))$old$,$new$'won_order',public.fn_wheel_prize_order(a.spin_id)) || public.fn_wheel_bonus_guarantee(a)$new$),
   ('public.fn_wheel_bonus_state(uuid,text,boolean,text,uuid)',$old$v_paid:=a.entry_diamonds$old$,$new$IF v_award->>'payout_rules_version'='2' THEN v_state:=v_state||jsonb_build_object('payout_rules_version',2,'wheel_minimum_payout_chips',v_award->'wheel_minimum_payout_chips','wheel_diamonds_per_chip',v_award->'wheel_diamonds_per_chip'); END IF;
   v_paid:=a.entry_diamonds$new$),
   ('public.fn_choice_act(uuid,text,integer,integer)',$old$ IF r.status<>'open' THEN
