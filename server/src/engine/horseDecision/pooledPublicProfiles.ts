@@ -247,12 +247,11 @@ export class PooledPublicProfiles {
           opponentMemoryKey(player.user_id, variant, donorMode, donorSize) + domainSuffix
         );
         if (!donor || donor.at > request.decisionTimeMs) continue;
+        const clock = this.clockAt(player.user_id, request.decisionTimeMs, donor.clock);
+        if (clock === null) continue;
         donors.push({
           profile: structuredClone(donor.profile),
-          staleness: computeDonorHandClockStaleness(
-            donor.clock,
-            this.clockAt(player.user_id, request.decisionTimeMs, donor.clock)
-          ),
+          staleness: computeDonorHandClockStaleness(donor.clock, clock),
         });
         noted.add(player.user_id);
         availableAtMs = Math.max(availableAtMs, donor.at);
@@ -294,12 +293,14 @@ export class PooledPublicProfiles {
   }
   /** The player's hand clock as it stood at `cutoffMs`. A row available at the
    * cutoff was learned at or before it, so the clock is never below its mark. */
-  private clockAt(userId: string, cutoffMs: number, floor: number): number {
+  private clockAt(userId: string, cutoffMs: number, floor: number): number | null {
     const clock = this.clocks.get(userId);
     if (!clock) return floor;
     for (let i = clock.marks.length - 1; i >= 0; i--)
       if (clock.marks[i]![0] <= cutoffMs) return Math.max(floor, clock.marks[i]![1]);
-    return Math.max(floor, (clock.marks[0]?.[1] ?? 1) - 1);
+    // An evicted interval may include observations after this decision. Only
+    // the donor floor is provable when no intervening marks are missing.
+    return (clock.marks[0]?.[1] ?? 1) - 1 <= floor ? floor : null;
   }
   clear(): void {
     this.clocks.clear();

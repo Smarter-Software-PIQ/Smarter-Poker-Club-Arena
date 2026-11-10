@@ -501,71 +501,90 @@ for (const action of ['check', 'fold', 'call', 'bet', 'raise', 'all_in'])
     const f = fixture(action);
     expect(inspect(f).cases[0].selection.matched).toBe(actualCensus(f).selection === 'matched');
   });
-it('observes a genuine authority withdrawal without filtering the target selection mismatch', () => {
-  const f = fixture('all_in', ({ capture, w, hand }: any) => {
-    const holder = new HorseQualifiedAuthorityHolder('original-gap-worker');
-    holder.apply(qualifiedTestAdmission(1));
-    const ledger = (authority: any) => ({
-      version: 'horse-tournament-postflop-round2-v1',
-      mode: 'candidate',
-      changed: true,
-      applied: true,
-      selection: 'selected',
-      authority,
-      authorityVerdict: null,
-      baselineAction: 'all_in',
-      baselineAmount: null,
-      candidateAction: 'fold',
-      candidateAmount: null,
-      executionStatus: 'pending',
-      executedAction: null,
-      executedAmount: null,
+it.each(['action', 'amount'])(
+  'observes a genuine authority withdrawal changing the %s',
+  (change) => {
+    const amountOnly = change === 'amount';
+    const action = amountOnly ? 'bet' : 'all_in';
+    const f = fixture(action, ({ capture, w, hand }: any) => {
+      const holder = new HorseQualifiedAuthorityHolder('original-gap-worker');
+      holder.apply(qualifiedTestAdmission(1));
+      const ledger = (authority: any) => ({
+        version: 'horse-tournament-postflop-round2-v1',
+        mode: 'candidate',
+        changed: true,
+        applied: true,
+        selection: 'selected',
+        authority,
+        authorityVerdict: null,
+        baselineAction: action,
+        baselineAmount: amountOnly ? hand.actions[3].amount : null,
+        candidateAction: amountOnly ? 'bet' : 'fold',
+        candidateAmount: amountOnly ? hand.actions[3].amount + 1 : null,
+        executionStatus: 'pending',
+        executedAction: null,
+        executedAmount: null,
+      });
+      capture.decision = {
+        action: amountOnly ? 'bet' : 'fold',
+        ...(amountOnly ? { amount: hand.actions[3].amount + 1 } : {}),
+        thinkTime: 0,
+        tournamentPostflop: ledger(holder.receipt()),
+      };
+      const gate = new HorsePhase8AuthorityGate(
+        () => qualifiedTestAdmission(1),
+        'original-gap-main'
+      );
+      gate.refresh();
+      const delivered = {
+        ...capture.decision,
+        tournamentPostflop: ledger(gate.stamp(holder.receipt())),
+      };
+      const replacement = witness.createHorseExecutionWitness(capture.snapshot, delivered, {
+        requestId: 9,
+        lane: 'fast',
+        computeMs: 1,
+        governorScale: 1,
+      });
+      witness.withdrawHorsePhase8Selection(replacement, capture.snapshot, 'withdrawn');
+      witness.settleHorseExecutionWitness(replacement, {
+        applied: true,
+        acceptedActions: [{ record: hand.actions[3], intended: true }],
+      });
+      Object.assign(w, replacement);
     });
-    capture.decision = {
-      action: 'fold',
-      thinkTime: 0,
-      tournamentPostflop: ledger(holder.receipt()),
-    };
-    const gate = new HorsePhase8AuthorityGate(() => qualifiedTestAdmission(1), 'original-gap-main');
-    gate.refresh();
-    const delivered = {
-      ...capture.decision,
-      tournamentPostflop: ledger(gate.stamp(holder.receipt())),
-    };
-    const replacement = witness.createHorseExecutionWitness(capture.snapshot, delivered, {
-      requestId: 9,
-      lane: 'fast',
-      computeMs: 1,
-      governorScale: 1,
+    const out = inspect(f);
+    expect(out, JSON.stringify(out)).toMatchObject({ status: 'observed' });
+    expect(out.cases[0]).toMatchObject({
+      selection: {
+        matched: false,
+        failures: [
+          amountOnly ? 'selected_captured_amount_mismatch' : 'selected_captured_action_mismatch',
+        ],
+      },
+      actions: {
+        captured: amountOnly ? 'bet' : 'fold',
+        selected: action,
+        executed: action,
+        accepted: action,
+      },
     });
-    witness.withdrawHorsePhase8Selection(replacement, capture.snapshot, 'withdrawn');
-    witness.settleHorseExecutionWitness(replacement, {
-      applied: true,
-      acceptedActions: [{ record: hand.actions[3], intended: true }],
+    expect(out.cases[0].originalWitnessWithdrawals).toEqual([['phase8', 'withdrawn', true]]);
+    expect(actualCensus(f).selection).toBe('authority_withdrawn');
+    const checked = sanitize(f, out);
+    expect(checked.status, checked.stderr).toBe(0);
+    (f.w.phase8Authority as any).verdict = 'private-sentinel';
+    f.rows[1] = f.make('execution', 2, f.w);
+    const refused = inspect(f);
+    expect(refused.cases[0]).toMatchObject({
+      status: 'observed',
+      originalWitnessWithdrawals: [['phase8', null, null]],
     });
-    Object.assign(w, replacement);
-  });
-  const out = inspect(f);
-  expect(out, JSON.stringify(out)).toMatchObject({ status: 'observed' });
-  expect(out.cases[0]).toMatchObject({
-    selection: { matched: false, failures: ['selected_captured_action_mismatch'] },
-    actions: { captured: 'fold', selected: 'all_in', executed: 'all_in', accepted: 'all_in' },
-  });
-  expect(out.cases[0].originalWitnessWithdrawals).toEqual([['phase8', 'withdrawn', true]]);
-  expect(actualCensus(f).selection).toBe('unknown');
-  const checked = sanitize(f, out);
-  expect(checked.status, checked.stderr).toBe(0);
-  (f.w.phase8Authority as any).verdict = 'private-sentinel';
-  f.rows[1] = f.make('execution', 2, f.w);
-  const refused = inspect(f);
-  expect(refused.cases[0]).toMatchObject({
-    status: 'observed',
-    originalWitnessWithdrawals: [['phase8', null, null]],
-  });
-  const sanitizedRefusal = sanitize(f, refused);
-  expect(sanitizedRefusal.status, sanitizedRefusal.stderr).toBe(0);
-  expect(JSON.stringify(refused)).not.toContain('private-sentinel');
-});
+    const sanitizedRefusal = sanitize(f, refused);
+    expect(sanitizedRefusal.status, sanitizedRefusal.stderr).toBe(0);
+    expect(JSON.stringify(refused)).not.toContain('private-sentinel');
+  }
+);
 it('names every census conjunct and never treats null as zero', () => {
   const f = fixture('check'),
     w = JSON.parse(JSON.stringify(f.w));

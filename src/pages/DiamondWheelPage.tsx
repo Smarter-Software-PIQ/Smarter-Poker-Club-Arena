@@ -1581,8 +1581,8 @@ export default function DiamondWheelPage() {
                   if (!clubUuid) return;
                   setClaimingPrize(claim.key);
                   try {
-                    await DiamondWheelService.claimChipPrize(clubUuid, claim.key);
-                    toast.success(`${claim.chips} Chips Credited To Your Club Balance`);
+                    const paid = await DiamondWheelService.claimChipPrize(clubUuid, claim.key);
+                    toast.success(`${paid} Chips Credited To Your Club Balance`);
                     await loadState(clubUuid).catch(() =>
                       toast.error('Reload Diamond Spins To Refresh Your Balance')
                     );
@@ -1596,7 +1596,7 @@ export default function DiamondWheelPage() {
                 }}
               >
                 {claimingPrize === claim.key ? 'Claiming Prize' : 'Claim Prize'} · {claim.chips}{' '}
-                Chips
+                Chips Reserved
               </button>
             ))}
             {state.auto_run && !running && !recovery && !runBusy && (
