@@ -249,8 +249,12 @@ describe.each(['mines', 'crossing'] as const)('%s: the round that just finished'
     });
     render(<DiamondChoicePage game={game} />);
     await settle();
-    if (game === 'crossing') await keepAndStart();
-    expect(setupOnScreen()).toEqual([]);
+    if (game === 'crossing') {
+      await keepAndStart();
+      expect(setupOnScreen()).toEqual([]);
+    } else {
+      expect(screen.getByText('Entry Details').closest('details')).not.toHaveAttribute('open');
+    }
     backend.state.mockResolvedValue(state(game, { history: [lost(game)] }));
     await loseTheRound(game);
   };
