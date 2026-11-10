@@ -22,7 +22,7 @@ import {
   OMAHA_CLASSES,
   SHORT_DECK_CLASSES,
 } from './HorseHandClasses.js';
-import { decidePreflopV7, type PreflopCtx } from './HorsePreflop.js';
+import { decidePreflopV7, type PreflopCtx, type PreflopAuthorityEvent } from './HorsePreflop.js';
 import { variantPreflopShift } from './HorseVariantProfile.js';
 import { HorseLogic, type HorseGameStateV2 } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
@@ -393,5 +393,89 @@ describe('V46 wiring: the receipts fire from a live decision', () => {
       unknown
     >;
     expect(legacy.v46Charts).toBe(false);
+  });
+});
+
+describe('per-decision preflop authority evidence', () => {
+  it('records the selected veto, not classification, without changing draws or choices', () => {
+    const cases: Partial<PreflopCtx>[] = [
+      { strength: 0.97, classNeverThreeBet: true },
+      { strength: 0.97, classNeverThreeBet: false },
+      { strength: 0.99, classNeverThreeBet: true, omahaSuitedPremium: 'aces' },
+      { strength: 0.99, classNeverThreeBet: true, toCall: 40 },
+      { strength: 0.97, classNeverThreeBet: true, raises: 2 },
+      { strength: 0.99, classFoldAlways: true },
+    ];
+    for (const over of cases) {
+      let plainDraws = 0;
+      let tracedDraws = 0;
+      const events: PreflopAuthorityEvent[] = [];
+      const plain = decidePreflopV7(
+        ctx({
+          ...over,
+          rand: () => {
+            plainDraws++;
+            return 0.5;
+          },
+        })
+      );
+      const traced = decidePreflopV7(
+        ctx({
+          ...over,
+          rand: () => {
+            tracedDraws++;
+            return 0.5;
+          },
+          noteAuthority: (event) => events.push(event),
+        })
+      );
+      expect(traced).toEqual(plain);
+      expect(tracedDraws).toBe(plainDraws);
+      expect(events.length).toBeLessThanOrEqual(1);
+      if (over.raises === 2 || over.classFoldAlways) expect(events).toEqual([]);
+      if (over.omahaSuitedPremium) expect(events[0].branch).toBe('premium_value');
+      if (over.toCall === 40) expect(events.some((e) => e.branch === 'v46_class_flat')).toBe(false);
+    }
+    const events: PreflopAuthorityEvent[] = [];
+    decidePreflopV7(
+      ctx({ strength: 0.97, classNeverThreeBet: true, noteAuthority: (e) => events.push(e) })
+    );
+    expect(events).toEqual([
+      expect.objectContaining({
+        branch: 'v46_class_flat',
+        strength: 0.97,
+        premiumValue: false,
+        pressure: false,
+      }),
+    ]);
+  });
+
+  it('distinguishes the non-AA margin and random trap from the class veto', () => {
+    const marginal: PreflopAuthorityEvent[] = [];
+    // Find the existing marginal threshold without inventing a new strategy bar.
+    for (let strength = 0.8; strength <= 0.98 && !marginal.length; strength += 0.001) {
+      const events: PreflopAuthorityEvent[] = [];
+      decidePreflopV7(ctx({ strength, omahaAA: false, noteAuthority: (e) => events.push(e) }));
+      if (events[0]?.branch === 'v16_non_aa_flat') marginal.push(events[0]);
+    }
+    expect(marginal).toHaveLength(1);
+    const trap: PreflopAuthorityEvent[] = [];
+    const out = decidePreflopV7(
+      ctx({ strength: 0.99, rand: () => 0, noteAuthority: (e) => trap.push(e) })
+    );
+    expect(out.a).toBe('call');
+    expect(trap[0].branch).toBe('value_trap');
+  });
+
+  it('keeps a reference receipt through the actual policy graph without claiming final authority', () => {
+    const spot = ploSpot(cc('Ks', 'Qh', 'Js', 'Th'));
+    const decision = HorseLogic.decide(spot.hero, spot.gs, 'balanced', {}, { telemetry: true });
+    expect(decision.preflopAuthority).toMatchObject({
+      version: 1,
+      scope: 'reference_preflop',
+      context: { isOmaha: true, classNeverThreeBet: true },
+    });
+    expect(decision.preflopAuthority?.referenceAction).toBeDefined();
+    expect(decision.preflopAuthority?.intent.a).toBeDefined();
   });
 });
