@@ -2,7 +2,7 @@
  *
  * Every bucket carries two custom properties set by PlinkoBoard from its own
  * multiplier: `--slot-tint` (navy and royal blue for the middle buckets, chrome
- * and gold for the outer ones: the smarter.poker schema, never a rainbow) and `--slot-heat` (0 to 1). Nothing here hardcodes a table,
+ * and ice for the outer ones: the smarter.poker schema, never a rainbow) and `--slot-heat` (0 to 1). Nothing here hardcodes a table,
  * so the Diamond table, the Super table and any table opened later all read
  * correctly, and so does the board when WebGL is unavailable.
  *
@@ -122,17 +122,17 @@
 .payoutList [data-big='true'] strong {
   font-size: clamp(20px, 5.4cqw, 30px);
   text-shadow:
-    0 0 12px var(--slot-tint, #ffd700),
+    0 0 12px var(--slot-tint, #d5f3ff),
     0 1px 0 #050607;
 }
 
 .payoutList [data-big='true']::after {
   height: 4px;
-  box-shadow: 0 0 8px var(--slot-tint, #ffd700);
+  box-shadow: 0 0 8px var(--slot-tint, #d5f3ff);
 }
 
 .payoutList [aria-current='true'] strong {
-  color: #ffd700;
+  color: #d5f3ff;
 }
 
 /* A landing is felt, not just recorded: the bucket squashes and settles. */
@@ -161,7 +161,7 @@
   content: '';
   position: absolute;
   inset: -6px -2px;
-  border: 2px solid #ffd700;
+  border: 2px solid #d5f3ff;
   border-radius: 10px;
   box-shadow: 0 0 7px rgba(255, 215, 0, 0.32);
   pointer-events: none;
@@ -195,7 +195,7 @@
 @media (prefers-reduced-motion: reduce) {
   /* Motion collapses, meaning does not. Both keyframes above end on the state
      the element rests in, so 1ms lands them there at once: the tint, the
-     multiplier, the value bar and the gold ring on the landed bucket all stay.
+     multiplier, the value bar and the ice-blue ring on the landed bucket all stay.
      Not 0s, for the same reason reducedMotion.css gives. */
   .payoutList li[data-hit='true'],
   .payoutList li[data-win='big']::before {

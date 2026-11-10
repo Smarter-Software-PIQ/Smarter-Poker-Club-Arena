@@ -190,6 +190,21 @@ export default function BonusSetup({
         </div>
       </section>
     );
+  const walletLinks = (
+    <div className={styles.links}>
+      <button type="button" disabled={disabled} onClick={() => exit('/marketplace?tab=diamonds')}>
+        Buy More
+      </button>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => exit(`/clubs/${clubId}/earn-diamonds`)}
+      >
+        Earn Diamonds
+      </button>
+    </div>
+  );
+  if (dropsDocked && budget.award) return walletLinks;
   return (
     <section className={styles.setup} aria-label="Your Bonus Setup" data-bonus-step="setup">
       {budget.award ? (
@@ -235,18 +250,7 @@ export default function BonusSetup({
           You Need {(debit - diamonds).toLocaleString()} More Diamonds.
         </p>
       )}
-      <div className={styles.links}>
-        <button type="button" disabled={disabled} onClick={() => exit('/marketplace?tab=diamonds')}>
-          Buy More
-        </button>
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => exit(`/clubs/${clubId}/earn-diamonds`)}
-        >
-          Earn Diamonds
-        </button>
-      </div>
+      {walletLinks}
     </section>
   );
 }

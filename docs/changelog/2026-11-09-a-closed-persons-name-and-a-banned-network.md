@@ -89,3 +89,49 @@ different request.
 
 - `tests/a-closed-persons-tournament-name-is-not-public.law.test.ts`
 - `tests/a-banned-network-cannot-create-an-account.law.test.ts`
+
+## Later stages (2026-11-10 UTC)
+
+Gap 1:
+
+- `20261110051146` (#10315) installed: both views declare
+  `security_invoker = false`. The platform makes a new public view
+  caller-rights by default, and as caller-rights views a signed-out read was
+  refused ("permission denied for table profiles").
+- Client (#10272, `cc77b7d9`) published by `publish-club-arena.yml` run 42836150644. Both `build-info.json` endpoints report it, and the served
+  `readTournamentStandings` and `TournamentResultsPage` chunks read
+  `tournament_players_public`.
+- Live, as a signed-out client over the REST API with the publishable key the
+  served app ships: the view returns all four of the closed person's rows with
+  the closed-profile label and their placements and prizes; in a 193-row
+  control tournament 192 names are unchanged and one is the label. The table
+  itself still returned the recorded name until the read policy installs.
+- Install blocker: the daily window skipped `20261110003726` on November 10.
+  The scheduled preparation events arrived about two hours late (11:34 and
+  12:50 UTC), so no daily preparation was admitted, and the 09:50 UTC owner
+  engine dispatch does not run queued window migrations. The owner authorized
+  one database-only break the same day (window
+  `2026-11-10-closed-person-name-policy-db`).
+- Boundary check of the owner-rights views: `tournament_players_public` has
+  exactly the table's columns. The table's only other read policy is
+  `USING (true)`, so the view bypasses no membership rule, and it masks only
+  `username`. `ca_closed_player_labels`, which ordinary readers must be able
+  to select for the read policy, listed every closed profile id (1,000 per
+  REST page of 2,664). `20261110152707` lists a closed person only where a
+  tournament result names them, which is all either reader asks.
+
+Gap 2, signup entry points:
+
+- Supabase Auth runs the hook on signup, OTP and magic link, OAuth, SAML,
+  web3, anonymous, invite and generate_link. It does not run it on
+  `POST /admin/users` (GoTrue `adminUserCreate`, supabase/auth master
+  `1357a5b90faa`). The email gate is a trigger on `auth.users` and covers every
+  path, including the admin API.
+- Club Commander's public registration creates accounts through the admin
+  API. `20261110152816` lets the service role ask the hook function, and that
+  route asks it with the address Vercel's edge observed before it creates
+  anything.
+- Every other admin-API account creation is server-only, authorized by the
+  service role key, and creates fixture, probe and house accounts.
+  invite and generate_link run the hook with the calling server's address, not
+  a player's.
