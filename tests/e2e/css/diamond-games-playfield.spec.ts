@@ -1140,7 +1140,9 @@ test('a single tap on the sapphire launches Crash and opens cashout in the same 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: 'Book The Win' }).click();
   const receipt = page.getByRole('dialog', { name: '1.50 Chips' });
-  await expect(receipt.getByRole('heading', { name: '1.50 Chips' })).toBeVisible();
+  await expect(
+    receipt.getByRole('heading', { name: 'Paid 1.50 Chips', exact: true })
+  ).toBeVisible();
   await expect(receipt.getByText('Credited To Your Club Balance')).toBeVisible();
   await expect
     .poll(() =>
@@ -1159,6 +1161,25 @@ test('a single tap on the sapphire launches Crash and opens cashout in the same 
     animations: 'disabled',
   });
 });
+
+for (const reducedMotion of ['no-preference', 'reduce'] as const) {
+  test(`mobile Drop All settles all 100 Plinko drops with ${reducedMotion} motion`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ reducedMotion });
+    await openGamePage(page, 'plinko');
+    await page.getByRole('button', { name: '1 Diamond Per Drop, 100 Drops' }).click();
+    await page.getByRole('button', { name: 'Drop All' }).click();
+    const receipt = page.getByRole('dialog');
+    await expect(receipt.getByRole('heading', { name: '10.00 Chips' })).toBeVisible({
+      timeout: 20000,
+    });
+    await receipt.getByText('Round Details').click();
+    await expect(receipt.getByRole('status')).toContainText('100 Drops Completed.');
+    await expect(receipt.getByText('Credited To Your Club Balance')).toBeVisible();
+  });
+}
 
 test('Plinko denominations scroll both ways on one row and both release controls require a selection', async ({
   page,
@@ -1188,9 +1209,11 @@ test('Plinko denominations scroll both ways on one row and both release controls
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.getByRole('button', { name: 'Drop One' }).click();
   await expect(page.getByText('9 Drops In Hand')).toBeVisible();
+  await expect(page.locator('[data-game-console] dt').first()).toHaveText('Guaranteed');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.getByRole('button', { name: 'Drop All' }).click();
   const receipt = page.getByRole('dialog', { name: '1.00 Chips' });
-  await expect(receipt.getByRole('heading', { name: '1.00 Chips' })).toBeVisible({
+  await expect(receipt.getByRole('heading', { name: 'Paid 1.00 Chips', exact: true })).toBeVisible({
     timeout: 25_000,
   });
   await expect(receipt.getByText('Credited To Your Club Balance')).toBeVisible();
