@@ -231,3 +231,12 @@ controls live, final report. Evidence is appended below as each lands.
 ## 7. Evidence Log
 
 (append only: time UTC, what, identifier)
+
+- 2026-11-10 01:10Z `EXTERNAL-PRODUCERS.md` added: 8 of 13 outside families
+  traced, 5 remain unknown (OpenClawJobStale and `workers.deploy-error-poll`
+  in the unconnected workers repo, the Mac-local Git Maintenance script, and
+  two hand-written rows). Seed corrections it implies (InstallQueue to
+  `development_notification`; the five unknown families to `unclassified`) are
+  NOT in migration 20261110000020, whose bytes are the tested ones. They are
+  the first item of the observation-window classification review and ship as
+  a follow-up data migration.
