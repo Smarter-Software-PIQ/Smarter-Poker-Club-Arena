@@ -56,3 +56,63 @@ export function bustRebuyWindowExpired(
 export function bustRebuyRemainingMs(bustedAtMs: number, nowMs: number): number {
   return Math.max(0, BUST_REBUY_WINDOW_MS - (nowMs - bustedAtMs));
 }
+
+export { cashRebuyMinimum } from '../config/cashBuyIn.js';
+
+/**
+ * A pending rebuy row is "in time" when the database stamped it no later than
+ * the window's end. The row's clock is the database's and the deadline is the
+ * engine's, so the comparison allows this much drift in the player's favour.
+ */
+export const REBUY_ROW_CLOCK_TOLERANCE_MS = 1_000;
+
+export function rebuyRowInTime(createdAtMs: number, deadlineWallMs: number): boolean {
+  if (!Number.isFinite(createdAtMs)) return true; // unreadable stamp: never refuse a payer
+  return createdAtMs <= deadlineWallMs + REBUY_ROW_CLOCK_TOLERANCE_MS;
+}
+
+export interface DurableHandCommit {
+  committed_at: string;
+  stacks: Array<{ user_id?: string | null; stack?: number | string | null }> | null;
+}
+export interface DurableThaw {
+  freeze_started_at: string;
+  frozen_seconds: number | string;
+}
+
+/**
+ * How much of a player's window has already been used, read from the record
+ * an engine restart cannot lose: the newest accepted hand at this table that
+ * lists the player. If it left them at zero, the bust happened when that hand
+ * committed, and every maintenance freeze since then is excluded, exactly as
+ * the live engine's maintenance-excluding clock would have excluded it.
+ *
+ * Null when the record does not show this bust (the newest listing has chips,
+ * or the player is in none of the hands read): the caller then does not know
+ * when the seat went to zero.
+ *
+ * @param commits newest first.
+ */
+export function durableBustElapsedMs(
+  commits: DurableHandCommit[],
+  thaws: DurableThaw[],
+  userId: string,
+  nowMs: number
+): number | null {
+  for (const commit of commits) {
+    const entry = (commit.stacks ?? []).find((s) => s?.user_id === userId);
+    if (!entry) continue;
+    if (Number(entry.stack) !== 0) return null;
+    const bustMs = Date.parse(commit.committed_at);
+    if (!Number.isFinite(bustMs)) return null;
+    let frozenMs = 0;
+    for (const thaw of thaws) {
+      const started = Date.parse(thaw.freeze_started_at);
+      const seconds = Number(thaw.frozen_seconds);
+      if (Number.isFinite(started) && started >= bustMs && Number.isFinite(seconds) && seconds > 0)
+        frozenMs += seconds * 1000;
+    }
+    return Math.max(0, nowMs - bustMs - frozenMs);
+  }
+  return null;
+}

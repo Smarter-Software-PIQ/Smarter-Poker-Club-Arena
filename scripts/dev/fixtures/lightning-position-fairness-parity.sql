@@ -1,4 +1,4 @@
--- 14 POSITION FAIRNESS (20261110160345, Dan 2026-11-10: "I was SB 3 hands in
+-- 14 POSITION FAIRNESS (20261110173033, Dan 2026-11-10: "I was SB 3 hands in
 -- a row and was on the button or in the bb multiple times within a couple
 -- hands. this needs to be truly fair and corrected").
 --
