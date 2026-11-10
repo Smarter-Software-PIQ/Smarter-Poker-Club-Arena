@@ -116,7 +116,7 @@ vi.mock('../../src/lib/supabase', () => ({
           fx.tournamentReads.push(id);
           return Promise.resolve(fx.tournamentAnswer(id));
         }
-        if (table === 'tournament_players') {
+        if (table === 'tournament_players_public') {
           const id = String(filters.tournament_id);
           fx.playerReads.push(id);
           return Promise.resolve(fx.playersAnswer(id));
