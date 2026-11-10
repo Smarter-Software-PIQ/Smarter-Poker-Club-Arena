@@ -37,7 +37,13 @@ export function nextSeatArrivals(
   previous: Ledger,
   scope: string,
   players: readonly Occupant[],
-  epoch: string | number | null = null
+  epoch: string | number | null = null,
+  /**
+   * 2026-11-10: a Lightning engine that waits for the new table's arrivals
+   * before its deal sends that window; the arrivals are spaced inside it
+   * (lightningArrivalSpacing). Null keeps the short ripple.
+   */
+  spacing: { stepMs: number; maxDelayMs: number } | null = null
 ): Ledger {
   const base =
     previous.scope === scope
@@ -65,7 +71,9 @@ export function nextSeatArrivals(
         playerId: p.id,
         // A short ripple, not a roll call: the last chair starts 160 ms after
         // the first (it was 400 ms, which read as seats popping in one by one).
-        delayMs: Math.min(SEAT_ARRIVAL_MAX_DELAY_MS, rank++ * SEAT_ARRIVAL_STEP_MS),
+        delayMs: spacing
+          ? Math.min(spacing.maxDelayMs, rank++ * spacing.stepMs)
+          : Math.min(SEAT_ARRIVAL_MAX_DELAY_MS, rank++ * SEAT_ARRIVAL_STEP_MS),
       };
     } else if (base.arrivals[index + 1]?.playerId === p.id)
       arrivals[index + 1] = base.arrivals[index + 1];
@@ -83,7 +91,8 @@ export function nextSeatArrivals(
 export function useSeatArrivals(
   scope: string,
   players: readonly Occupant[],
-  epoch: string | number | null = null
+  epoch: string | number | null = null,
+  spacing: { stepMs: number; maxDelayMs: number } | null = null
 ): Record<number, SeatArrival> {
   const [ledger, setLedger] = useState<Ledger>({
     scope,
@@ -92,7 +101,7 @@ export function useSeatArrivals(
     serial: 0,
     arrivals: {},
   });
-  const next = nextSeatArrivals(ledger, scope, players, epoch);
+  const next = nextSeatArrivals(ledger, scope, players, epoch, spacing);
   useLayoutEffect(() => {
     if (next !== ledger) setLedger(next);
   }, [next, ledger]);

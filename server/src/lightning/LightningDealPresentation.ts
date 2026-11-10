@@ -63,3 +63,52 @@ export function lightningDealPresentationMs(dealtSeats: number): number {
   const deal = (cards - 1) * stagger + LIGHTNING_DEAL_FLIGHT_MS + LIGHTNING_DEAL_SETTLE_MS;
   return Math.min(LIGHTNING_DEAL_HOLD_CEILING_MS, HAND_COMPLETION.BUTTON_TO_DEAL_MS + deal);
 }
+
+/*
+ * ═══════════════════════════════════════════════════════════
+ *  THE NEW TABLE'S PLAYERS ARRIVE BEFORE ITS CARDS (2026-11-10)
+ * ═══════════════════════════════════════════════════════════
+ *
+ * Dan, after the 2026-11-09 transition shipped: "the transition to the next
+ * game feels fake, you are just sitting there, and then all at once all the
+ * players appear and cards are dealt, instead of showing all players as they
+ * arrive."
+ *
+ * The matcher forms a Lightning hand in one step: every player at the new
+ * table is known at the same instant, and nothing about the forming table
+ * reaches a waiting player before it. So there is no earlier arrival to show.
+ * What was wrong is the order: the opponents faded in over 160 ms while the
+ * first cards were already flying, so the table and its deal landed as one
+ * event. Here the new table's opponents arrive one after another FIRST, and
+ * the deal starts once they are all seated.
+ *
+ * That window is engine time, not a client delay: the first actor's clock
+ * (dealShownAtMs) waits for it as it waits for the deal, so nobody - horse or
+ * human - loses any of their clock to it (CLAUDE.md 10.5). The engine sends
+ * the window it waited (`lightning_arrival_ms` on hand_started, `arrival_ms`
+ * in the Lightning block) and the client spaces the arrivals inside it. An
+ * older client ignores both and deals at once, inside the same clock.
+ */
+
+/** SeatSlot.tsx arrival fade at animation speed 1 (`duration: 180 * speed`). */
+export const LIGHTNING_ARRIVAL_FADE_MS = 180;
+/** The gap between two opponents arriving at a new Lightning table. */
+export const LIGHTNING_ARRIVAL_STEP_MS = 120;
+
+/**
+ * How long the new table's opponents take to arrive before its deal: one step
+ * per opponent after the first, then the last one's fade. Bounded so arrival
+ * plus deal still fits the client's deal-hold ceiling.
+ */
+export function lightningArrivalMs(dealtSeats: number): number {
+  const seats = Math.max(1, Math.floor(Number(dealtSeats) || 0));
+  if (seats < 2) return 0;
+  const want = (seats - 2) * LIGHTNING_ARRIVAL_STEP_MS + LIGHTNING_ARRIVAL_FADE_MS;
+  const room = LIGHTNING_DEAL_HOLD_CEILING_MS - lightningDealPresentationMs(seats);
+  return Math.max(0, Math.min(want, room));
+}
+
+/** The whole presentation the first turn clock waits for: arrivals, then the deal. */
+export function lightningHandPresentationMs(dealtSeats: number): number {
+  return lightningArrivalMs(dealtSeats) + lightningDealPresentationMs(dealtSeats);
+}

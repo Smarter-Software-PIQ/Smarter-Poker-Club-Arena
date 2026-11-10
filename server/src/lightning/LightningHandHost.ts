@@ -140,7 +140,7 @@ import type {
 import { lightningMetrics, type LightningMetrics } from './LightningMetrics.js';
 import { traceLightningFold } from './LightningFoldTiming.js';
 import { beginLightningStartTiming, type LightningStartSpan } from './LightningStartTiming.js';
-import { lightningDealPresentationMs } from './LightningDealPresentation.js';
+import { lightningArrivalMs, lightningDealPresentationMs } from './LightningDealPresentation.js';
 import { lightningTelemetry, type LightningTelemetry } from './LightningTelemetry.js';
 import type { LightningDecision } from './LightningRegistry.js';
 import type { LightningWorkerLogger } from './LightningClusterWorker.js';
@@ -549,6 +549,8 @@ export class LightningHandHost {
   private handStartAtMs = 0;
   /** Engine clock: when the client's deal presentation of this hand is over. */
   private dealShownAtMs = 0;
+  /** The new table's arrival window this hand waited before its deal (2026-11-10). */
+  private arrivalMs = 0;
   private startedAtMs = 0;
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
   private horseTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1136,6 +1138,8 @@ export class LightningHandHost {
       // An armed Check/Fold carries across streets and releases its player the
       // moment a bet prices it, without waiting for the turn (2026-11-09).
       check_fold_carries: true,
+      // 2026-11-10: this hand's arrival window (see lightning_arrival_ms).
+      arrival_ms: this.arrivalMs,
       // LIGHTNING PHASE 13: which of the two controls the Cluster offers at all.
       ...this.foldFlagFields(),
     };
@@ -1335,7 +1339,11 @@ export class LightningHandHost {
         this.handStartAtMs = now;
         // The client holds every action panel until its deal has been shown
         // (LightningDealPresentation): no turn clock starts before that.
-        this.dealShownAtMs = now + lightningDealPresentationMs(hc.getState().players.length);
+        // 2026-11-10: the opponents arrive first, then the deal; the clock
+        // waits for both (LightningDealPresentation, lightningArrivalMs).
+        this.arrivalMs = lightningArrivalMs(hc.getState().players.length);
+        this.dealShownAtMs =
+          now + this.arrivalMs + lightningDealPresentationMs(hc.getState().players.length);
         // LIGHTNING PHASE 12: the hand's first frame goes to every room now -
         // the hand_to_first_render leg starts here, on the engine's clock.
         for (const [playerId, room] of this.rooms()) {
@@ -1345,14 +1353,17 @@ export class LightningHandHost {
             // Telemetry never reaches back into a hand.
           }
         }
-        this.emitAll(
-          handStartedFrame({
+        this.emitAll({
+          ...handStartedFrame({
             tableId: '',
             handNumber: this.handNumber,
             dealerSeat: hc.getState().dealerSeat ?? 0,
             timestamp: now,
-          })
-        );
+          }),
+          // The arrival window the first clock waits for: the client seats
+          // the new table's opponents inside it, then deals.
+          lightning_arrival_ms: this.arrivalMs,
+        });
         this.publishState();
         break;
       case 'BLINDS_POSTED' as any: {

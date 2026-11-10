@@ -144,3 +144,37 @@ export function lightningHoldsHeroDealSound(input: {
 // table presentation, independent of Lightning movement or session rules.
 export { earlyHeroCardsReady as lightningEarlyHeroCardsReady } from '../utils/earlyHeroCards';
 export type { EarlyHeroCards as LightningEarlyHeroCards } from '../utils/earlyHeroCards';
+
+/*
+ * THE NEW TABLE'S PLAYERS ARRIVE BEFORE ITS CARDS (Dan 2026-11-10): "all at
+ * once all the players appear and cards are dealt, instead of showing all
+ * players as they arrive." An engine that waits for the arrivals sends the
+ * window it waited (`lightning_arrival_ms` on hand_started, `arrival_ms` in
+ * the Lightning block; server LightningDealPresentation.lightningArrivalMs).
+ * The opponents arrive one step apart inside it, and the deal starts after
+ * it. The engine's first turn clock already includes the window, so it costs
+ * nobody any clock. An engine without the field sends nothing, and the table
+ * deals at once exactly as before.
+ */
+
+/** The engine's LIGHTNING_ARRIVAL_STEP_MS: the gap between two arriving opponents. */
+export const LIGHTNING_ARRIVAL_STEP_MS = 120;
+/** The engine's LIGHTNING_ARRIVAL_FADE_MS: SeatSlot's arrival fade at speed 1. */
+export const LIGHTNING_ARRIVAL_FADE_MS = 180;
+
+/** The arrival window an engine sent, or 0 when it sent none. Never invented. */
+export function lightningArrivalWindowMs(value: unknown): number {
+  const ms = typeof value === 'number' ? value : Number.NaN;
+  return Number.isFinite(ms) && ms > 0 ? Math.min(ms, 2600) : 0;
+}
+
+/** How the arrivals are spaced inside that window, or null for the old short ripple. */
+export function lightningArrivalSpacing(
+  windowMs: number
+): { stepMs: number; maxDelayMs: number } | null {
+  if (!(windowMs > 0)) return null;
+  return {
+    stepMs: LIGHTNING_ARRIVAL_STEP_MS,
+    maxDelayMs: Math.max(0, windowMs - LIGHTNING_ARRIVAL_FADE_MS),
+  };
+}
