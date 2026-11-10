@@ -305,7 +305,10 @@ jobs:
         with:
           node-version: 22
       - run: npm ci --ignore-scripts --no-audit --no-fund
-      - run: npx playwright install --with-deps chromium webkit
+      - name: Install browser dependencies from the primary mirror
+        run: |
+          sudo python3 scripts/ci/ubuntu-apt-mirror.py
+          npx playwright install --with-deps chromium webkit
       - name: Read predecessor before opening a spectator
         run: |
           sha="$(curl -fsS --max-time 10 https://engine.smarter.poker/health | jq -er 'select(.maintenance.active==false) | .releaseSha | select(test("^[a-f0-9]{40}$"))')"
