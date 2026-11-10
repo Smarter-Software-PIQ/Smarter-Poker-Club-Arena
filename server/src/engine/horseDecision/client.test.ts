@@ -65,6 +65,7 @@ import {
   type WorkerLike,
 } from './client.js';
 import { doorRosterTransport } from '../../services/horseAcceptedRoster/fixture.test-support.js';
+import { horseDecisionFallbackReason } from './fallbackReason.js';
 
 // The process-wide main gate admits only the committed release selection,
 // which is null today. These tests replace that one export with a gate whose
@@ -4036,4 +4037,127 @@ it('terminal client stop releases only its cache and prevents a pending load fro
   const stopB = b.stop();
   wb.emitMessage({ type: 'STOPPED' });
   await stopB;
+});
+
+// A FALLBACK SAYS WHICH PATH REJECTED IT (2026-11-09): each rejection below is
+// raised by the real client on the path named, then read back by the pure
+// classifier the fallback counter uses for its `reason` label.
+describe('the client names the path that rejected a FAST decision', () => {
+  const rejectionOf = (pending: Promise<unknown>): Promise<unknown> =>
+    pending.then(
+      () => {
+        throw new Error('expected a rejection');
+      },
+      (error: unknown) => error
+    );
+  const readyClient = () => {
+    const worker = new FakeWorker();
+    const onFatal = vi.fn();
+    const client = new LiveHorseDecisionWorkerClient({ workerFactory: () => worker, onFatal });
+    worker.emitMessage(ready);
+    return { worker, client, onFatal };
+  };
+  const stop = async (client: LiveHorseDecisionWorkerClient, worker: FakeWorker) => {
+    const stopping = client.stop();
+    worker.emitMessage({ type: 'STOPPED' });
+    await stopping;
+  };
+
+  it('validation_failed: the worker answers a recoverable ERROR for this request alone', async () => {
+    const { worker, client, onFatal } = readyClient();
+    const pending = rejectionOf(client.decideFast(snapshot('reason-validation')));
+    worker.emitMessage({
+      type: 'ERROR',
+      requestId: 1,
+      generation: 7,
+      fence: 'reason-validation',
+      message: 'request failed structured-clone validation',
+      recoverable: true,
+    });
+    const error = await pending;
+    expect((error as Error).message).toBe('request failed structured-clone validation');
+    expect(horseDecisionFallbackReason(error)).toBe('validation_failed');
+    expect(client.status()).toMatchObject({ phase: 'ready', recoverableRequestErrors: 1 });
+    expect(onFatal).not.toHaveBeenCalled();
+    await stop(client, worker);
+  });
+
+  it('result_refused: the client refuses a result whose policy receipt is not its own', async () => {
+    const { worker, client, onFatal } = readyClient();
+    const input = snapshot('reason-refused');
+    input.gameState.gameVariant = 'plo4';
+    const pending = rejectionOf(client.decideFast(input));
+    const reply = fastResult(1, 'reason-refused');
+    reply.decision.policyOwnership = {
+      version: 'horse-policy-ownership-v1',
+      variant: 'nlh',
+      owner: 'reference',
+      packVersion: null,
+      mode: 'reference',
+      outcome: 'reference',
+      reason: null,
+    };
+    worker.emitMessage(reply);
+    const error = await pending;
+    expect((error as Error).message).toContain('invalid policy receipt');
+    expect(horseDecisionFallbackReason(error)).toBe('result_refused');
+    expect(client.status().phase).toBe('ready');
+    expect(onFatal).not.toHaveBeenCalled();
+    await stop(client, worker);
+  });
+
+  it('enqueue_failed: the detached request copy throws before the job is queued', async () => {
+    const { worker, client, onFatal } = readyClient();
+    const realClone = globalThis.structuredClone;
+    const clone = vi
+      .spyOn(globalThis, 'structuredClone')
+      .mockImplementation((value: any, options?: Parameters<typeof structuredClone>[1]) => {
+        if (value?.type === 'DECIDE_FAST') throw new Error('request could not be cloned');
+        return realClone(value, options);
+      });
+    let error: unknown;
+    try {
+      error = await rejectionOf(client.decideFast(snapshot('reason-enqueue')));
+    } finally {
+      clone.mockRestore();
+    }
+    expect((error as Error).message).toBe('request could not be cloned');
+    expect(horseDecisionFallbackReason(error)).toBe('enqueue_failed');
+    expect(worker.sent.some((m: any) => m?.type === 'DECIDE_FAST')).toBe(false);
+    expect(client.status()).toMatchObject({ phase: 'ready', queueDepth: 0 });
+    expect(onFatal).not.toHaveBeenCalled();
+    await stop(client, worker);
+  });
+
+  it('post_result_failed: the history acknowledgement throws after a validated result', async () => {
+    const { worker, client, onFatal } = readyClient();
+    const acknowledge = vi.fn(() => {
+      throw new Error('acknowledge failed');
+    });
+    (client as any).ownPublicHistory = {
+      forSnapshot: () => undefined,
+      state: () => undefined,
+      provenance: () => undefined,
+      acknowledge,
+      status: () => null,
+      dispose: () => undefined,
+    };
+    // The acknowledgement runs only for a snapshot whose producer bound its
+    // observer, dealt seats and format; the default fixture carries none.
+    const input = snapshot('reason-post-result');
+    const observer = '66666666-6666-4666-8666-666666666666';
+    input.player.user_id = observer;
+    input.gameState.players[0].user_id = observer;
+    Object.assign(input.gameState, { dealtSeatIds: [1, 2], format: 'cash', gameMode: 'cash' });
+    input.decisionKey = buildHorseDecisionKey(input);
+    const pending = rejectionOf(client.decideFast(input));
+    worker.emitMessage(fastResult(1, 'reason-post-result'));
+    const error = await pending;
+    expect(acknowledge).toHaveBeenCalledTimes(1);
+    expect((error as Error).message).toBe('acknowledge failed');
+    expect(horseDecisionFallbackReason(error)).toBe('post_result_failed');
+    expect(client.status().phase).toBe('ready');
+    expect(onFatal).not.toHaveBeenCalled();
+    await stop(client, worker);
+  });
 });
