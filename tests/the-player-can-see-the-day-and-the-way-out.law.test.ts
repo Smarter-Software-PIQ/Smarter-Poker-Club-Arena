@@ -116,29 +116,17 @@ describe('the day is one figure, from one definition', () => {
   });
 });
 
-describe('one line, three pages', () => {
-  it.each(PAGES)('%s shows the day from the shared component', (page) => {
-    const s = src(page);
-    expect(s).toContain("import TodayLine from '../components/games/TodayLine';");
-    expect(s).toContain('spentDiamonds={player?.diamonds_today ?? 0}');
-  });
-
-  it('says the day once per screen, not twice', () => {
-    // The wheel prints the count in a painted bay already.
-    expect(src('src/pages/DiamondWheelPage.tsx')).toContain('showCount={false}');
-    for (const page of ['src/pages/DiamondPlinkoPage.tsx', 'src/pages/DiamondCrashPage.tsx']) {
-      expect(src(page)).not.toContain('showCount');
+describe('the daily counter stays out of the wheel and bonus cabinets', () => {
+  it.each([...PAGES, 'src/pages/DiamondChoicePage.tsx'])(
+    '%s keeps the daily counter off screen',
+    (page) => {
+      expect(src(page)).not.toContain('TodayLine');
+      expect(src(page)).not.toContain('spentDiamonds={');
     }
-    expect(src('src/components/games/TodayLine.tsx')).toContain(
-      'if (parts.length === 0) return null;'
-    );
-  });
+  );
 
-  it('and the line gets louder as the ceiling comes up', () => {
-    const line = src('src/components/games/TodayLine.tsx');
-    expect(line).toContain('const atWall = capped && used >= cap;');
-    expect(line).toContain('used >= cap * 0.8');
-    expect(line).toContain("That Is Today's Limit Here");
+  it('keeps the wheel cabinet free of a Today counter', () => {
+    expect(src('src/components/wheel/WheelCabinet.tsx')).not.toContain('Today');
   });
 });
 

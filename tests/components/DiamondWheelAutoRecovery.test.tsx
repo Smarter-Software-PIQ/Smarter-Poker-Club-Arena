@@ -71,9 +71,6 @@ const bonusSample = receipts.find(
     !r.value.welcome &&
     !r.value.daily_bonus
 )!.value;
-const upgradeSample = receipts.find(
-  (r) => r.kind === 'wheel' && r.value.outcome?.kind === 'upgrade'
-)!.value;
 const RUN_ID = 'd1000000-0000-4000-8000-00000000run1'.replace('run1', '0a01');
 const state = {
   ok: true,
@@ -195,18 +192,6 @@ const saved = (): WheelPendingSpin => ({
   contractVersion: 2,
   entryDiamonds: 100,
 });
-const startAuto = async () => {
-  fireEvent.click(screen.getByRole('button', { name: 'Run Off' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Auto Spin 5' }));
-  // The run is declared at the server first; the runner presses once it is.
-  await act(async () => {
-    await vi.advanceTimersByTimeAsync(0);
-  });
-  await act(async () => {
-    await vi.advanceTimersByTimeAsync(0);
-  });
-};
-/* A run's spin lands straight onto the tally: no reveal to dismiss (R18). */
 const land = async () => {
   await act(async () => {
     fireEvent.click(screen.getByRole('button', { name: 'Land Wheel' }));
@@ -220,104 +205,32 @@ const landPressed = async () => {
     fireEvent.animationEnd(screen.getByRole('dialog').querySelector('[data-motion="keep"]')!)
   );
 };
-const settle = async (ms = 1200) => {
-  await act(async () => {
-    await vi.advanceTimersByTimeAsync(ms);
-  });
-};
-describe('automatic spins and player-owned recovery', () => {
-  it('finishes all five spins with a distinct sealed ticket after each complete reveal', async () => {
-    await ready();
-    vi.useFakeTimers();
-    await startAuto();
-    for (let i = 1; i <= 5; i++) {
-      expect(backend.spin).toHaveBeenCalledTimes(i);
-      await land();
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(1200);
-      });
-    }
-    expect(backend.spin).toHaveBeenCalledTimes(5);
-    expect(new Set(backend.spin.mock.calls.map(([a]) => a.commitId)).size).toBe(5);
-    // The run was declared once, closed once, and summarised once.
-    expect(backend.runBegin).toHaveBeenCalledTimes(1);
-    expect(backend.runBegin).toHaveBeenCalledWith(sample.club_id, 5);
-    expect(backend.runEnd).toHaveBeenCalledTimes(1);
-    expect(backend.runEnd).toHaveBeenCalledWith(RUN_ID);
-    const summary = screen.getByRole('dialog', { name: 'Run Complete' });
-    expect(
-      within(summary).getByRole('list', { name: 'Prizes Won This Run' }).children
-    ).toHaveLength(5);
-    expect(within(summary).getByText('No Bonus Games This Run')).toBeInTheDocument();
-    // Nothing toasted the prizes one by one (R8) and nothing navigated.
-    expect(backend.toast.success).not.toHaveBeenCalled();
-    expect(backend.navigate).not.toHaveBeenCalled();
-    fireEvent.click(within(summary).getByRole('button', { name: 'Continue' }));
-    expect(screen.queryByRole('dialog')).toBeNull();
-  });
-  it('does not reuse the consumed ticket while the next ticket is delayed', async () => {
-    await ready();
+describe('single spins and player-owned recovery', () => {
+  it('requires an explicit press for each debit, including after a delayed next ticket', async () => {
+    await readyOnFakeTimers();
     let finish!: (v: unknown) => void;
     backend.commit.mockImplementationOnce(
       () =>
-        new Promise((r) => {
-          finish = r;
+        new Promise((resolve) => {
+          finish = resolve;
         })
     );
-    vi.useFakeTimers();
-    await startAuto();
-    await land();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5000);
-    });
+    const spin = screen.getByRole('button', { name: 'Spin 100', exact: true });
+    fireEvent.click(spin);
+    fireEvent.click(spin);
+    await tick(0);
+    await landPressed();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await tick(5000);
     expect(backend.spin).toHaveBeenCalledTimes(1);
-    await act(async () => {
-      finish(nextTicket());
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1200);
-    });
+    await act(async () => finish(nextTicket()));
+    await tick(120000);
+    expect(backend.spin).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Spin 100', exact: true }));
+    await tick(0);
     expect(backend.spin).toHaveBeenCalledTimes(2);
     expect(backend.spin.mock.calls[1][0].commitId).not.toBe(backend.spin.mock.calls[0][0].commitId);
-  });
-  it('waits for the new availability quote before another automatic debit', async () => {
-    await ready();
-    let finish!: (v: unknown) => void;
-    backend.state.mockImplementationOnce(
-      () =>
-        new Promise((r) => {
-          finish = r;
-        })
-    );
-    vi.useFakeTimers();
-    await startAuto();
-    await land();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5000);
-    });
-    expect(backend.spin).toHaveBeenCalledTimes(1);
-    const unfunded = {
-      ...state,
-      available: false,
-      reason: 'The Host Must Fund Every Prize Before A Spin',
-    };
-    backend.state.mockResolvedValue(unfunded);
-    await act(async () => {
-      finish(unfunded);
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1200);
-    });
-    expect(backend.spin).toHaveBeenCalledTimes(1);
-    // The run stopped on the page's own blocker: closed at the server, and
-    // the one spin it made is on the summary with the reason (R18).
-    expect(backend.runEnd).toHaveBeenCalledWith(RUN_ID);
-    const stopped = screen.getByRole('dialog', { name: 'Run Stopped' });
-    expect(
-      within(stopped).getByText('The Host Must Fund Every Prize Before A Spin')
-    ).toBeInTheDocument();
-    fireEvent.click(within(stopped).getByRole('button', { name: 'Continue' }));
-    expect(screen.getByText('The Host Must Fund Every Prize Before A Spin')).toBeInTheDocument();
+    expect(backend.runBegin).not.toHaveBeenCalled();
   });
   it('omits the retired refresh action and reads current readiness on return without placing a spin', async () => {
     backend.state.mockResolvedValueOnce({
@@ -363,51 +276,6 @@ describe('automatic spins and player-owned recovery', () => {
       expect(screen.getByRole('button', { name: 'Spin 100', exact: true })).toBeEnabled()
     );
     expect(backend.spin).not.toHaveBeenCalled();
-  });
-  it('stops the run after a failed next ticket and prepares the next spin by itself, without a debit', async () => {
-    await ready();
-    backend.commit.mockResolvedValueOnce({ ok: false });
-    vi.useFakeTimers();
-    await startAuto();
-    await land();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(500);
-    });
-    expect(backend.spin).toHaveBeenCalledTimes(1);
-    /* The run stops into its summary with the page's own reason, and nobody is
-       told to refresh: the page says what it is doing and does it (#5043). */
-    const stopped = screen.getByRole('dialog', { name: 'Run Stopped' });
-    expect(within(stopped).getByText('Preparing Your Next Spin')).toBeInTheDocument();
-    fireEvent.click(within(stopped).getByRole('button', { name: 'Continue' }));
-    expect(screen.getByText('Preparing Your Next Spin')).toBeInTheDocument();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(3000);
-    });
-    // The ticket came back by itself; the run stayed stopped, so nothing was debited.
-    expect(screen.queryByText('Preparing Your Next Spin')).not.toBeInTheDocument();
-    expect(backend.spin).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole('button', { name: 'Auto Spin 5' })).toBeEnabled();
-  });
-  it('honors Stop while the next quote is pending', async () => {
-    await ready();
-    let finish!: (v: unknown) => void;
-    backend.state.mockImplementationOnce(
-      () =>
-        new Promise((r) => {
-          finish = r;
-        })
-    );
-    vi.useFakeTimers();
-    await startAuto();
-    await land();
-    fireEvent.click(screen.getByRole('button', { name: 'Stop', exact: true }));
-    await act(async () => {
-      finish(state);
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(3000);
-    });
-    expect(backend.spin).toHaveBeenCalledTimes(1);
   });
   it('an unknown spin is recovered by the page itself, with the original identity', async () => {
     // Review finding 9 (2026-09-21): this ran the 1s and 2s backoff on real
@@ -533,152 +401,19 @@ describe('a failed read never leaves a spinner', () => {
     expect(backend.spin).not.toHaveBeenCalled();
   });
 
-  it('accumulates bonus games won mid-run and plays them from the summary, one Play Game at a time', async () => {
-    await ready();
-    // Spins 2 and 4 win a game; the server queues them and keeps accepting spins.
-    backend.spin.mockImplementation(async (attempt) =>
-      backend.spin.mock.calls.length === 2 || backend.spin.mock.calls.length === 4
-        ? receiptFrom(bonusSample, attempt)
-        : receipt(attempt)
-    );
-    const awards: any[] = [];
-    backend.state.mockImplementation(async () => ({ ...state, pending_awards: awards }));
-    backend.runEnd.mockImplementation(async (run_id: string) => ({
-      ok: true,
-      run_id,
-      spins_done: 5,
-      pending_awards: awards,
-    }));
-    vi.useFakeTimers();
-    await startAuto();
-    for (let i = 1; i <= 5; i++) {
-      expect(backend.spin).toHaveBeenCalledTimes(i);
-      const landed = await backend.spin.mock.results[i - 1].value;
-      if (landed.bonus) awards.push(landed.bonus);
-      if (i < 5) expect(screen.getByText(/Won So Far/)).toBeInTheDocument();
-      await land();
-      if (i < 5) expect(screen.queryByRole('dialog')).toBeNull();
-      expect(backend.navigate).not.toHaveBeenCalled();
-      await settle();
-    }
-    expect(backend.spin).toHaveBeenCalledTimes(5);
-    const summary = screen.getByRole('dialog', { name: 'Run Complete' });
-    expect(within(summary).getByText('2 Bonus Games To Play')).toBeInTheDocument();
-    expect(
-      within(summary).getByRole('list', { name: 'Bonus Games Won This Run' }).children
-    ).toHaveLength(2);
-    expect(
-      within(summary).getByRole('list', { name: 'Prizes Won This Run' }).children
-    ).toHaveLength(3);
-    // Not Now leaves the games waiting in the visible queue card, never lost.
-    fireEvent.click(within(summary).getByRole('button', { name: 'Not Now' }));
-    expect(screen.queryByRole('dialog')).toBeNull();
-    expect(screen.getByText('You Have 2 Bonus Games To Play')).toBeInTheDocument();
-    expect(screen.getByText('Play Your Bonus Game Before Another Spin')).toBeInTheDocument();
-    await settle(120_000);
-    expect(backend.navigate).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Play Game' }));
-    expect(backend.navigate).toHaveBeenCalledTimes(1);
-    expect(backend.navigate).toHaveBeenCalledWith(
-      `/clubs/club/plinko?wheelAward=${encodeURIComponent(awards[0].id)}`
-    );
-  });
-  it('the summary Play Game opens the first queued game', async () => {
-    await ready();
-    const awards: any[] = [];
-    backend.spin.mockImplementation(async (attempt) => {
-      const landed = receiptFrom(bonusSample, attempt);
-      awards.push(landed.bonus);
-      return landed;
-    });
-    backend.runEnd.mockImplementation(async (run_id: string) => ({
-      ok: true,
-      run_id,
-      spins_done: 5,
-      pending_awards: awards,
-    }));
-    vi.useFakeTimers();
-    await startAuto();
-    for (let i = 1; i <= 5; i++) {
-      await land();
-      await settle();
-    }
-    // The server's queue is what the summary offers, oldest first.
-    const summary = screen.getByRole('dialog', { name: 'Run Complete' });
-    expect(within(summary).getByText('5 Bonus Games To Play')).toBeInTheDocument();
-    fireEvent.click(within(summary).getByRole('button', { name: 'Play Game' }));
-    expect(backend.navigate).toHaveBeenCalledWith(
-      `/clubs/club/plinko?wheelAward=${encodeURIComponent(awards[0].id)}`
-    );
-  });
-  it('an Upgrade won mid-run pauses for the swipe on the ring, then the run resumes', async () => {
-    await ready();
-    let won: any = null;
-    backend.spin.mockImplementation(async (attempt) => {
-      if (backend.spin.mock.calls.length !== 1) return receipt(attempt);
-      won = receiptFrom(upgradeSample, attempt);
-      return won;
-    });
-    backend.runEnd.mockImplementation(async (run_id: string) => ({
-      ok: true,
-      run_id,
-      spins_done: 5,
-      pending_awards: [won.bonus],
-    }));
-    vi.useFakeTimers();
-    await startAuto();
-    expect(backend.spin).toHaveBeenCalledTimes(1);
-    await land();
-    const stage = screen.getByRole('button', { name: 'Swipe Or Tap The Wheel To Spin' });
-    expect(screen.getByRole('button', { name: 'Land Upgrade Wheel' })).toBeDisabled();
-    await settle(120_000);
-    expect(screen.getByRole('button', { name: 'Land Upgrade Wheel' })).toBeDisabled();
-    expect(backend.spin).toHaveBeenCalledTimes(1);
-    await act(async () => {
-      fireEvent.pointerDown(stage, { pointerId: 1, clientX: 0, clientY: 0 });
-      fireEvent.pointerMove(stage, { pointerId: 1, clientX: 40, clientY: 0 });
-    });
-    expect(screen.getByRole('button', { name: 'Land Upgrade Wheel' })).toBeEnabled();
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Land Upgrade Wheel' }));
-    });
-    await settle();
-    expect(backend.spin).toHaveBeenCalledTimes(2);
-    for (let i = 2; i <= 5; i++) {
-      await land();
-      await settle();
-    }
-    const summary = screen.getByRole('dialog', { name: 'Run Complete' });
-    expect(within(summary).getByText('1 Bonus Game To Play')).toBeInTheDocument();
-  });
-  it('a run found open on load waits for Resume Run or End Run, and never resumes by itself', async () => {
+  it('cannot resume an unfinished historical run into new debits', async () => {
     backend.state.mockResolvedValue({
       ...state,
       auto_run: { run_id: RUN_ID, spins: 10, spins_done: 4 },
     });
-    render(<DiamondWheelPage />);
-    const resume = await screen.findByRole('button', { name: 'Resume Run (6 Left)' });
-    expect(screen.getByText('Resume Or End Your Run Below')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Spin 100', exact: true })).toBeDisabled();
     vi.useFakeTimers();
-    await settle(120_000);
+    render(<DiamondWheelPage />);
+    await tick(0);
+    expect(screen.getByRole('button', { name: 'End Run' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: /Resume Run|Review Saved Run/i })).toBeNull();
+    await tick(120000);
     expect(backend.spin).not.toHaveBeenCalled();
     expect(backend.runBegin).not.toHaveBeenCalled();
-    fireEvent.click(resume);
-    // The fifth spin follows the pause a resumed run owes, like any later spin.
-    await settle(0);
-    await settle(1200);
-    expect(backend.spin).toHaveBeenCalledTimes(1);
-    expect(backend.runBegin).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: 'Spinning' })).toBeInTheDocument();
-    expect(screen.getByText(/^Spin 5 Of 10\./)).toBeInTheDocument();
-    for (let i = 5; i <= 10; i++) {
-      await land();
-      await settle();
-    }
-    expect(backend.spin).toHaveBeenCalledTimes(6);
-    expect(backend.runEnd).toHaveBeenCalledWith(RUN_ID);
-    expect(screen.getByRole('dialog', { name: 'Run Complete' })).toBeInTheDocument();
   });
   it('End Run closes the open run at the server and offers the games it left unplayed', async () => {
     const award = { ...bonusSample.bonus, id: 'd1000000-0000-4000-8000-000000009999' };
@@ -715,77 +450,6 @@ describe('a failed read never leaves a spinner', () => {
     expect(screen.queryByRole('button', { name: 'Recover Spin' })).toBeNull();
     expect(backend.spin).not.toHaveBeenCalled();
   });
-  it('honours the server pause between spins inside a run', async () => {
-    await ready();
-    backend.state.mockImplementation(async () => ({
-      ...state,
-      player: { ...state.player, seconds_until_next: backend.spin.mock.calls.length ? 3 : 0 },
-    }));
-    vi.useFakeTimers();
-    await startAuto();
-    await land();
-    await settle(1200);
-    expect(backend.spin).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole('button', { name: 'Spin 2 Of 5' })).toBeDisabled();
-    await settle(1000);
-    expect(backend.spin).toHaveBeenCalledTimes(1);
-    await settle(3000);
-    await settle(1200);
-    expect(backend.spin).toHaveBeenCalledTimes(2);
-  });
-  it('a double tap on Auto Spin declares one run, and a refused run starts nothing', async () => {
-    await ready();
-    let finish!: (v: unknown) => void;
-    backend.runBegin.mockImplementationOnce(
-      () =>
-        new Promise((r) => {
-          finish = r;
-        })
-    );
-    vi.useFakeTimers();
-    fireEvent.click(screen.getByRole('button', { name: 'Run Off' }));
-    const plate = screen.getByRole('button', { name: 'Auto Spin 5' });
-    fireEvent.click(plate);
-    fireEvent.click(plate);
-    fireEvent.click(plate);
-    await settle(0);
-    expect(backend.runBegin).toHaveBeenCalledTimes(1);
-    await act(async () => {
-      finish({ ok: false, error: 'Finish Your Bonus Game Before Another Spin' });
-    });
-    await settle(1200);
-    expect(backend.spin).not.toHaveBeenCalled();
-    expect(backend.toast.error).toHaveBeenCalledWith('Finish Your Bonus Game Before Another Spin');
-    expect(screen.getByRole('button', { name: 'Auto Spin 5' })).toBeEnabled();
-  });
-  it('Stop mid-run closes the run and shows what it won so far', async () => {
-    await ready();
-    vi.useFakeTimers();
-    await startAuto();
-    await land();
-    await settle();
-    expect(backend.spin).toHaveBeenCalledTimes(2);
-    await land();
-    fireEvent.click(screen.getByRole('button', { name: 'Stop', exact: true }));
-    await settle(3000);
-    expect(backend.spin).toHaveBeenCalledTimes(2);
-    expect(backend.runEnd).toHaveBeenCalledTimes(1);
-    const stopped = screen.getByRole('dialog', { name: 'Run Stopped' });
-    expect(within(stopped).getByText('Auto Spin Stopped')).toBeInTheDocument();
-    expect(
-      within(stopped).getByRole('list', { name: 'Prizes Won This Run' }).children
-    ).toHaveLength(2);
-  });
-  it('leaving the page mid-run presses nothing more and leaves the run open at the server', async () => {
-    await ready();
-    vi.useFakeTimers();
-    await startAuto();
-    await land();
-    cleanup();
-    await settle(30_000);
-    expect(backend.spin).toHaveBeenCalledTimes(1);
-    expect(backend.runEnd).not.toHaveBeenCalled();
-  });
   /* Owner ruling 2026-09-21, R8: no slide-in toast repeats a spin's result.
      The reveal and the control panel notice carry it; errors still toast. */
   it('a single spin shows its result in the reveal and the notice, with no slide-in toast', async () => {
@@ -806,9 +470,9 @@ describe('a failed read never leaves a spinner', () => {
   });
 });
 
-function prepaidFixture(request: PendingWheelBatch, bonus = false): PaidWheelBatch {
+function prepaidFixture(request: PendingWheelBatch, prizes = [bonusSample]): PaidWheelBatch {
   const receipts = Array.from({ length: request.spins }, (_, index) => ({
-    ...receiptFrom(index === 0 && bonus ? bonusSample : sample, {
+    ...receiptFrom(prizes[index] ?? sample, {
       commitId: `d1000000-0000-4000-8000-00000000030${index}`,
       commitHash: 'a'.repeat(64),
       clientSeed: `${request.seed}:${index + 1}`,
@@ -831,14 +495,32 @@ function prepaidFixture(request: PendingWheelBatch, bonus = false): PaidWheelBat
     })),
   };
 }
-describe('complete prepaid runs', () => {
-  it('keeps spinning after Not Now and never requests another paid spin', async () => {
-    backend.state.mockResolvedValue({ ...state, contract_version: 4 });
-    const begin = vi
-      .spyOn(WheelBatchService, 'begin')
-      .mockImplementation(async (p) => prepaidFixture(p, true));
-    await readyOnFakeTimers();
-    await startAuto();
+async function reviewHistoricalPaidRun(prizes = [bonusSample]) {
+  const request: PendingWheelBatch = {
+    userId: 'player',
+    clubId: sample.club_id!,
+    requestId: 'd1000000-0000-4000-8000-000000000abc',
+    spins: 5,
+    entryDiamonds: 100,
+    seed: 'previously-committed',
+    presented: 0,
+  };
+  const paid = prepaidFixture(request, prizes);
+  const open = { run_id: paid.run_id, spins: paid.spins, spins_done: paid.spins };
+  backend.state.mockResolvedValue({ ...state, contract_version: 4, auto_run: open });
+  const read = vi.spyOn(WheelBatchService, 'read').mockResolvedValue(paid);
+  vi.useFakeTimers();
+  render(<DiamondWheelPage />);
+  await tick(0);
+  fireEvent.click(screen.getByRole('button', { name: 'Review Saved Run' }));
+  await tick(0);
+  await tick(0);
+  expect(read).toHaveBeenCalledWith(RUN_ID, request.userId, request.clubId);
+  return { read, paid };
+}
+describe('previously committed prepaid runs', () => {
+  it('presents the remaining saved prizes after Not Now without placing a spin', async () => {
+    await reviewHistoricalPaidRun();
     await land();
     const offer = screen.getByRole('dialog', { name: 'Bonus Game Won' });
     await tick(1200);
@@ -849,27 +531,51 @@ describe('complete prepaid runs', () => {
       await land();
       await tick(1200);
     }
-    expect(begin).toHaveBeenCalledTimes(1);
+    expect(backend.runBegin).not.toHaveBeenCalled();
     expect(backend.spin).not.toHaveBeenCalled();
     expect(backend.runEnd).toHaveBeenCalledWith(RUN_ID);
     expect(screen.getByRole('dialog', { name: 'Run Complete' })).toBeInTheDocument();
   });
-  it('resumes the remaining receipt presentation after an explicitly chosen bonus game returns', async () => {
-    let paid: PaidWheelBatch;
-    backend.state.mockResolvedValue({ ...state, contract_version: 4 });
-    const begin = vi.spyOn(WheelBatchService, 'begin').mockImplementation(async (p) => {
-      paid = prepaidFixture(p, true);
-      return paid;
+  it('preserves queued games in order when several prepaid spins won a game', async () => {
+    const { paid } = await reviewHistoricalPaidRun([bonusSample, sample, bonusSample]);
+    const awards = [paid.receipts[0].bonus!, paid.receipts[2].bonus!];
+    backend.runEnd.mockResolvedValue({
+      ok: true,
+      run_id: RUN_ID,
+      spins_done: 5,
+      pending_awards: awards,
     });
-    const read = vi.spyOn(WheelBatchService, 'read').mockImplementation(async () => paid!);
-    await readyOnFakeTimers();
-    await startAuto();
+    for (const prize of paid.receipts) {
+      await land();
+      if (prize.bonus) {
+        fireEvent.click(
+          within(screen.getByRole('dialog', { name: 'Bonus Game Won' })).getByRole('button', {
+            name: 'Not Now',
+          })
+        );
+      }
+      await tick(1200);
+    }
+    const summary = screen.getByRole('dialog', { name: 'Run Complete' });
+    expect(
+      within(summary).getByRole('list', { name: 'Bonus Games Won This Run' }).children
+    ).toHaveLength(2);
+    expect(
+      within(summary).getByRole('list', { name: 'Prizes Won This Run' }).children
+    ).toHaveLength(3);
+    fireEvent.click(within(summary).getByRole('button', { name: 'Play Game' }));
+    expect(backend.navigate).toHaveBeenCalledWith('/clubs/club/plinko?wheelAward=' + awards[0].id);
+    expect(backend.spin).not.toHaveBeenCalled();
+    expect(backend.runBegin).not.toHaveBeenCalled();
+  });
+  it('resumes the remaining receipt presentation after an explicitly chosen bonus game returns', async () => {
+    const { read, paid } = await reviewHistoricalPaidRun();
     await land();
     backend.state.mockResolvedValue({
       ...state,
       contract_version: 4,
       auto_run: { run_id: RUN_ID, spins: 5, spins_done: 5 },
-      pending_awards: [paid!.receipts[0].bonus],
+      pending_awards: [paid.receipts[0].bonus],
     });
     fireEvent.click(screen.getByRole('button', { name: 'Play Next Saved Game' }));
     await tick(0);
@@ -888,12 +594,8 @@ describe('complete prepaid runs', () => {
       await land();
       await tick(1200);
     }
-    expect(read).toHaveBeenCalledWith(
-      RUN_ID,
-      'player',
-      state.player ? 'd1000000-0000-4000-8000-000000000003' : ''
-    );
-    expect(begin).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledWith(RUN_ID, 'player', sample.club_id!);
+    expect(backend.runBegin).not.toHaveBeenCalled();
     expect(backend.spin).not.toHaveBeenCalled();
     expect(screen.getByRole('dialog', { name: 'Run Complete' })).toBeInTheDocument();
   });

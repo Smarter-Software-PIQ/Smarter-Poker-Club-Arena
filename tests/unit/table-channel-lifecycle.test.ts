@@ -9,12 +9,14 @@ vi.mock('../../src/lib/supabase', () => ({
 }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 vi.mock('../../src/services/GameServerAPI', () => ({ default: {} }));
-vi.mock('../../src/services/RoomService', () => ({ roomService: { registerChannel: vi.fn() } }));
+import { roomService } from '../../src/services/RoomService';
 import { TableWebSocket } from '../../src/services/TableWebSocket';
 function makeChannel() {
   let status: (s: string) => Promise<void>;
   const channel = {
-    on: vi.fn().mockReturnThis(),
+    on: vi.fn(
+      (_type: string, _filter: { event: string }, _handler: (payload: unknown) => void) => channel
+    ),
     track: vi.fn().mockResolvedValue('ok'),
     subscribe: vi.fn((cb) => {
       status = cb;
@@ -106,4 +108,42 @@ it('retries once after a connected channel fails and ignores its stale status', 
   await channels[1].emit('SUBSCRIBED');
   expect(client.connected).toBe(true);
   expect(vi.getTimerCount()).toBe(0);
+});
+
+it('binds presence before joining and delivers one throw across replacement and stale teardown', async () => {
+  const receive = vi.fn();
+  const stop = roomService.onMessage('table-1', receive);
+  const first = client.connect();
+  await flush();
+  const old = channels[0];
+  await old.emit('SUBSCRIBED');
+  await first;
+  const next = new TableWebSocket('table-1', 'user-1', 'test');
+  try {
+    const connecting = next.connect();
+    await flush();
+    const fresh = channels[1];
+    await fresh.emit('SUBSCRIBED');
+    await connecting;
+    await fresh.emit('SUBSCRIBED');
+    await client.disconnect();
+    for (const ch of [old, fresh]) {
+      expect(Math.max(...ch.on.mock.invocationCallOrder)).toBeLessThan(
+        ch.subscribe.mock.invocationCallOrder[0]
+      );
+      expect(ch.subscribe).toHaveBeenCalledOnce();
+      for (const [kind, filter, callback] of ch.on.mock.calls) {
+        if (kind === 'broadcast' && filter.event === 'game_event') {
+          callback({ payload: { type: 'CHAT', payload: { message: '[THROW:tomato:2]' } } });
+        }
+      }
+    }
+    expect(receive).toHaveBeenCalledExactlyOnceWith({
+      type: 'CHAT',
+      payload: { message: '[THROW:tomato:2]' },
+    });
+  } finally {
+    stop();
+    await next.disconnect();
+  }
 });

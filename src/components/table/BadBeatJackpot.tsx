@@ -11,6 +11,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import './BadBeatJackpot.css';
+import { jackpotChips, jackpotTotalAtPercent } from '../../utils/jackpotExact';
 
 export interface BadBeatJackpotProps {
   amount: number;
@@ -114,7 +115,7 @@ export function BadBeatJackpot({
     if (typeof payoutPercent === 'number' && payoutPercent > 0) {
       const share =
         amount > 0
-          ? ` (about ${currency}${Math.trunc((amount * payoutPercent) / 100).toLocaleString('en-US')})`
+          ? ` (${currency}${jackpotChips(jackpotTotalAtPercent(amount, payoutPercent))} if it hits now)`
           : '';
       lines.push(
         `This table hits for ${payoutPercent}% of the pool${share} - 50% bad beat / 25% winner / 25% table.`
@@ -122,7 +123,7 @@ export function BadBeatJackpot({
     }
     if (typeof miniAmount === 'number' && miniAmount > 0) {
       lines.push(
-        `Mini jackpot at these stakes: ${currency}${Math.trunc(miniAmount).toLocaleString('en-US')}` +
+        `Mini jackpot at these stakes: ${currency}${jackpotChips(miniAmount)}` +
           (miniQualifyingHand ? ` - ${miniQualifyingHand}.` : '.')
       );
     }
@@ -147,12 +148,13 @@ export function BadBeatJackpot({
             <span className="bbj-widget__label">BAD BEAT JACKPOT</span>
             <span className={`bbj-widget__amount${bump ? ' bbj-widget__amount--bump' : ''}`}>
               {currency}
-              {asset === 'diamonds' || displayAmount >= 1000
+              {/* Chips to the cent at every size (Dan 2026-11-09); this dropped
+                  the cents from 1,000 up. Diamonds are whole by custody. The
+                  ticker's in-between frames are cut to the cent, and it always
+                  lands on the stored amount. */}
+              {asset === 'diamonds'
                 ? Math.trunc(displayAmount).toLocaleString('en-US')
-                : (Math.trunc(displayAmount * 100) / 100).toLocaleString('en-US', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
+                : jackpotChips(Math.trunc(displayAmount * 100) / 100)}
             </span>
           </button>
         </div>
@@ -171,7 +173,9 @@ export function BadBeatJackpot({
             <span className="bbj-mini-plate__label">MINI BBJ</span>
             <span className="bbj-mini-plate__amount">
               {currency}
-              {Math.trunc(miniAmount as number).toLocaleString('en-US')}
+              {asset === 'diamonds'
+                ? Math.trunc(miniAmount as number).toLocaleString('en-US')
+                : jackpotChips(miniAmount)}
             </span>
           </button>
         </div>
@@ -185,10 +189,9 @@ export function BadBeatJackpot({
             <div className="bbj-hit__subtitle">HIT!</div>
             <div className="bbj-hit__amount">
               {currency}
-              {(Math.trunc(amount * 100) / 100).toLocaleString('en-US', {
-                minimumFractionDigits: asset === 'diamonds' ? 0 : 2,
-                maximumFractionDigits: asset === 'diamonds' ? 0 : 2,
-              })}
+              {asset === 'diamonds'
+                ? Math.trunc(amount).toLocaleString('en-US')
+                : jackpotChips(amount)}
             </div>
             <div className="bbj-hit__particles">
               {/* CSS particles handled in stylesheet */}

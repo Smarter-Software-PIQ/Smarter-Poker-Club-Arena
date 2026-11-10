@@ -261,7 +261,6 @@ describe('every host is a box the switch can cover', () => {
     ['src/components/games/GameConsole.module.css', '.primary,\n.secondary'],
     ['src/components/games/GameConsole.module.css', '.metrics button'],
     ['src/components/wheel/WheelCabinet.module.css', '.primary'],
-    ['src/components/wheel/WheelCabinet.module.css', '.secondary'],
     ['src/components/games/MinesGrid.module.css', '.tile'],
     ['src/components/wheel/WheelRunPanels.module.css', '.cardButton,\n.cardButtonQuiet'],
     ['src/components/wheel/WheelCardTable.module.css', '.card'],

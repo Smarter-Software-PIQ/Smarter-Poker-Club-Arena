@@ -27,10 +27,16 @@ const buildChain = (): any => {
 };
 
 const fromMock = vi.hoisted(() => vi.fn());
+const ecoSettingsRead = vi.hoisted(() =>
+  vi
+    .fn()
+    .mockResolvedValue({ data: { eco_terms_effective_from: '2026-11-16T08:00:00Z' }, error: null })
+);
 
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
     from: fromMock,
+    rpc: ecoSettingsRead,
   },
 }));
 
@@ -194,5 +200,38 @@ describe('UnionService', () => {
       expect(validRoles).toContain('union_lead');
       expect(validRoles).toContain('union_admin');
     });
+  });
+});
+
+describe('Union ECO stored configuration', () => {
+  it('reads the actual four stored terms and leaves missing historical terms unset', async () => {
+    for (const settings of [
+      {
+        eco_cash_enabled: true,
+        eco_cash_rate: 0.1,
+        eco_tournament_enabled: true,
+        eco_tournament_rate: 0.1,
+      },
+      {},
+    ]) {
+      fromMock.mockReturnValue({
+        select: () => ({
+          eq: () => ({
+            maybeSingle: async () => ({
+              data: { id: '11111111-1111-4111-8111-111111111111', settings },
+              error: null,
+            }),
+          }),
+        }),
+      });
+      const union = await UnionService.getUnion('11111111-1111-4111-8111-111111111111');
+      expect(union?.settings.eco_cash_enabled).toBe(settings.eco_cash_enabled);
+      expect(union?.settings.eco_cash_rate).toBe(settings.eco_cash_rate);
+      expect(union?.settings.eco_tournament_enabled).toBe(settings.eco_tournament_enabled);
+      expect(union?.settings.eco_tournament_rate).toBe(settings.eco_tournament_rate);
+      expect(union?.ecoTermsEffectiveFrom).toBe(
+        settings.eco_cash_enabled === undefined ? undefined : '2026-11-16T08:00:00Z'
+      );
+    }
   });
 });

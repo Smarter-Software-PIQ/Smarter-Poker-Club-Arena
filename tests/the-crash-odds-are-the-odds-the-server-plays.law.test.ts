@@ -96,7 +96,7 @@ describe('the crash odds are the odds the server plays', () => {
     expect(src).toMatch(/crash\?\.config\?\.payout_version \?\? CRASH_FLOORED_VERSION/);
     expect(src).toMatch(/awardInstantCrashChances\(1, crashRate, crashContract\)/);
     // Every contract-5 award flight is sealed at exactly 20x, so that is its average's cap.
-    expect(src).toMatch(/crashContract >= CRASH_PAYOUT_VERSION \? CRASH_CAP_CENTS : crashTop/);
+    expect(src).toMatch(/crashContract >= 5 \? CRASH_CAP_CENTS : crashTop/);
     expect(src).toMatch(/awardAverageCrash\(1, crashRate, crashContract, crashAverageCap\)/);
     expect(src).not.toMatch(/Average Crash[^']*\d\.\dx/);
   });

@@ -21,7 +21,7 @@
       "declarationFiles": {
         "tests/a-waiting-release-withdrawal-keeps-its-original-owner.law.test.ts": "b1beb1219ded11daf9abb6ddc798c0a1583036cf85b4206dd4df08e91f658e79",
         "tests/operations/waiting-engine-release-withdrawal.test.py": "980fd0655f6b6a1ba670719af916c364b51e9b8fa743a9942a1259f09051adee",
-        "tests/operations/pinned-history-sources.py": "deacdf339241042a80bcd61bbb64bca67eca36b657ac953c87a9212b9b4520c0",
+        "tests/operations/pinned-history-sources.py": "534cfc7996005284817106218e91a5f669bed5fc2bc5803b7d0c48c8a21b5f91",
         "scripts/ci/withdraw-waiting-engine-release.py": "4f5fc5c4ab3b3d0637557f1d38499e713456039ea07d220c0f90de5adb9bb7c5"
       },
       "replacement": null,

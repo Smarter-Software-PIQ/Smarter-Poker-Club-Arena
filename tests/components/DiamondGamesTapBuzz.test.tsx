@@ -108,20 +108,22 @@ describe('the console plates', () => {
   it("the wheel's own plates carry it too", () => {
     vi.stubGlobal('navigator', { userAgent: IPHONE, maxTouchPoints: 5 });
     const spin = vi.fn();
-    render(
+    const cabinet = (disabled: boolean) => (
       <WheelCabinet
-        {...({
-          title: 'Diamond Spins',
-          bays: [],
-          primary: { label: 'Spin', onClick: spin },
-          secondary: { label: 'Auto', onClick: () => {}, disabled: true },
-          children: null,
-        } as unknown as Parameters<typeof WheelCabinet>[0])}
+        title="Diamond Spins"
+        titleId="diamond-spin-title"
+        bays={[]}
+        primary={{ label: 'Spin', onClick: spin, disabled }}
       />
     );
+    const { rerender } = render(cabinet(false));
     const button = screen.getByRole('button', { name: 'Spin' });
     fireEvent.click(button.querySelector('input[data-tap-haptic]')!);
     expect(spin).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole('button', { name: 'Auto' }).querySelector('input')).toBeNull();
+    rerender(cabinet(true));
+    expect(screen.getByRole('button', { name: 'Spin' })).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Spin' }).querySelector('input[data-tap-haptic]')
+    ).toBeNull();
   });
 });

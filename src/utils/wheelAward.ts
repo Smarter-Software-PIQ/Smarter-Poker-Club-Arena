@@ -26,8 +26,7 @@ export function assertWheelUpgradeTable(
     !table ||
     table.length !== 8 ||
     !Number.isSafeInteger(entry) ||
-    entry < 25 ||
-    entry > 2500 ||
+    entry < 1 ||
     !Number.isSafeInteger(rate) ||
     rate <= 0 ||
     new Set(table.map((s) => s.ord)).size !== 8 ||
@@ -119,7 +118,8 @@ export function assertWheelAward(receipt: WheelSpinResult): void {
       (vip &&
         Object.entries(itemFreeChipMultipliers).some(
           ([ord, multiplier]) =>
-            table.find((s) => s.ord === Number(ord))?.multiplier !== multiplier ||
+            table.find((s) => s.ord === Number(ord))?.multiplier !==
+              (receipt.payout_rules_version === 2 ? 0.5 : multiplier) ||
             table.find((s) => s.ord === Number(ord))?.kind !== 'chips'
         )) ||
       table.some(
@@ -284,16 +284,14 @@ export function assertWheelAward(receipt: WheelSpinResult): void {
     !uuid.test(bonus.id) ||
     !gameNames.includes(bonus.game) ||
     !Number.isSafeInteger(bonus.base_diamonds) ||
-    bonus.base_diamonds < 25 ||
-    bonus.base_diamonds > 5000 ||
+    bonus.base_diamonds < 1 ||
     bonus.boost_multiplier !== (outcome.kind === 'upgrade' ? 2 : 1)
   )
     fail();
   if (
     versioned &&
     (!Number.isSafeInteger(bonus!.entry_diamonds) ||
-      bonus!.entry_diamonds < 25 ||
-      bonus!.entry_diamonds > 2500 ||
+      bonus!.entry_diamonds < 1 ||
       bonus!.entry_diamonds !== receipt.entry_value_diamonds ||
       bonus!.base_diamonds !== bonus!.entry_diamonds * bonus!.boost_multiplier)
   )
@@ -334,15 +332,17 @@ export function assertWheelCardPick(pick: WheelCardPick, awardId: string, card: 
     pick.award_id !== awardId ||
     !uuid.test(pick.spin_id) ||
     !Number.isSafeInteger(risk) ||
-    risk < 25 ||
-    risk > 2500 ||
+    risk < 1 ||
     !Number.isSafeInteger(pick.picked) ||
     pick.picked < 1 ||
     pick.picked > 3 ||
     (!pick.replayed && pick.picked !== card) ||
     pick.cards.length !== 3 ||
-    pick.cards.some((value) => !Number.isSafeInteger(value) || value <= 0) ||
-    !(sealsTo(Math.floor(risk / 2)) || sealsTo(Math.ceil(risk / 2))) ||
+    pick.cards.some((value) => !Number.isSafeInteger(value) || value < 0) ||
+    !(
+      sealsTo(Math.ceil(risk / 2)) ||
+      (pick.payout_rules_version !== 2 && sealsTo(Math.floor(risk / 2)))
+    ) ||
     pick.paid_diamonds !== pick.cards[pick.picked - 1] ||
     pick.fairness.domain !== 'wheel-v4-cards' ||
     !Number.isSafeInteger(pick.fairness.roll) ||

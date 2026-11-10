@@ -442,8 +442,6 @@ export const CARD_BACK_IDS = [
   'classic_red',
   'classic_blue',
   'diamond',
-  'dragon',
-  'galaxy',
   'gold',
   'neon',
   'royal',
@@ -471,6 +469,8 @@ const DEFAULT_CARD_BACK = 'classic_blue';
  * to a DISTINCT one so a purchase always visibly changes the card back.
  */
 const CARD_BACK_ALIASES: Record<string, string> = {
+  dragon: 'diamond',
+  galaxy: 'neon',
   // legacy / free tier
   classic: 'classic_red',
   black: 'classic_blue',
@@ -565,20 +565,18 @@ export interface CardBackDesign {
 
 export const CARD_BACK_CATALOG: readonly CardBackDesign[] = [
   // ── Free ──
-  { id: 'classic_blue', name: 'Classic Blue', tier: 'standard', price: 0 },
-  { id: 'classic_red', name: 'Classic Red', tier: 'standard', price: 0 },
-  { id: 'royal', name: 'Royal', tier: 'standard', price: 0 },
+  { id: 'classic_blue', name: 'Navy Medallion', tier: 'standard', price: 0 },
+  { id: 'classic_red', name: 'Red Lattice', tier: 'standard', price: 0 },
+  { id: 'royal', name: 'Forest Weave', tier: 'standard', price: 0 },
   // ── Premium ──
-  { id: 'neon', name: 'Neon', tier: 'premium', price: 75 },
-  { id: 'galaxy', name: 'Galaxy', tier: 'premium', price: 75 },
-  { id: 'diamond', name: 'Diamond', tier: 'premium', price: 100 },
-  { id: 'dragon', name: 'Dragon', tier: 'premium', price: 125 },
-  { id: 'gold', name: 'Premium Gold', tier: 'premium', price: 150 },
+  { id: 'neon', name: 'Deco Fan', tier: 'premium', price: 75 },
+  { id: 'diamond', name: 'Plum Paisley', tier: 'premium', price: 100 },
+  { id: 'gold', name: 'Golden Sunburst', tier: 'premium', price: 150 },
   // ── Exclusive ──
-  { id: 'carbon', name: 'Carbon Fiber', tier: 'exclusive', price: 175 },
-  { id: 'holographic', name: 'Holographic', tier: 'exclusive', price: 200 },
-  { id: 'club-branded', name: 'Club Crest', tier: 'exclusive', price: 250 },
-  { id: 'diamond-foil', name: 'Diamond Foil', tier: 'exclusive', price: 300 },
+  { id: 'carbon', name: 'Black Herringbone', tier: 'exclusive', price: 175 },
+  { id: 'holographic', name: 'Teal Arabesque', tier: 'exclusive', price: 200 },
+  { id: 'club-branded', name: 'Burgundy Rosette', tier: 'exclusive', price: 250 },
+  { id: 'diamond-foil', name: 'Indigo Fleur', tier: 'exclusive', price: 300 },
 ];
 
 /** The catalogue entry a stored id resolves to. Never undefined. */
@@ -649,6 +647,7 @@ export function cardBackImageUrl(style: string | undefined | null): string {
 export function CardBack({ style, size = 'md', className = '' }: CardBackProps) {
   const sizeClass = SIZE_CLASSES[size];
   const backStyle = normalizeCardBack(style);
+  const compact = `${MEDIA_BASE}cards/backs/table/compact/${backStyle}.webp`;
   const classes = ['card-image', 'card-image--back', sizeClass, className]
     .filter(Boolean)
     .join(' ');
@@ -663,7 +662,12 @@ export function CardBack({ style, size = 'md', className = '' }: CardBackProps) 
     <div className={classes} role="img" aria-label={FACE_DOWN_WORDS}>
       <div
         className={`card-back card-back--${backStyle}`}
-        style={{ '--cb-image': `url('${cardBackImageUrl(backStyle)}')` } as React.CSSProperties}
+        style={
+          {
+            '--cb-full-image': `url('${cardBackImageUrl(backStyle)}')`,
+            '--cb-compact-image': `url('${compact}')`,
+          } as React.CSSProperties
+        }
       />
     </div>
   );

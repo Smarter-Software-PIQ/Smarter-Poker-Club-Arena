@@ -56,7 +56,6 @@ import DiamondGamesService, { type GameState } from '../services/DiamondGamesSer
 import {
   CRASH_CAP_CENTS,
   CRASH_FLOORED_VERSION,
-  CRASH_PAYOUT_VERSION,
   awardAverageCrash,
   awardInstantCrashChances,
   averageRangeLabel,
@@ -261,16 +260,17 @@ export default function DiamondGamesPage() {
   // The contract the server deals Crash under: it states 5 from 2026-10-12, and
   // a server that states nothing is still dealing contract 4.
   const crashContract = crash?.config?.payout_version ?? CRASH_FLOORED_VERSION;
-  const crashOdds = crashRate
-    ? {
-        ordinary: oneInRangeLabel(awardInstantCrashChances(1, crashRate, crashContract)),
-        super: oneInRangeLabel(awardInstantCrashChances(2, crashRate, crashContract)),
-      }
-    : null;
+  const crashOdds =
+    crashRate && crashContract < 6
+      ? {
+          ordinary: oneInRangeLabel(awardInstantCrashChances(1, crashRate, crashContract)),
+          super: oneInRangeLabel(awardInstantCrashChances(2, crashRate, crashContract)),
+        }
+      : null;
   // Every award flight under contract 5 is sealed at exactly 20x (an award that
   // cannot cover it is refused), so that is the cap its average is priced at;
   // an older contract is priced at the cap the server quotes.
-  const crashAverageCap = crashContract >= CRASH_PAYOUT_VERSION ? CRASH_CAP_CENTS : crashTop;
+  const crashAverageCap = crashContract >= 5 ? CRASH_CAP_CENTS : crashTop;
   const crashAverage =
     crashRate && crashAverageCap !== null
       ? {
@@ -473,7 +473,9 @@ export default function DiamondGamesPage() {
               meta="On An Ordinary Award"
             />
           ) : null}
-          {crashOdds ? (
+          {crashContract >= 6 ? (
+            <Row label="Earliest Crash" value="2.50×" ink="silver" meta="Every Flight" />
+          ) : crashOdds ? (
             <Row
               label="Instant Crash"
               value={crashOdds.ordinary}

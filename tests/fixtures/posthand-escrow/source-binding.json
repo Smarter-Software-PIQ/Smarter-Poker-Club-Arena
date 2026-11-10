@@ -3,7 +3,7 @@
   "purpose": "Exact original escrow/native source custody only; no production disposal or whole-week certification claim.",
   "sourceFiles": {
     "scripts/dev/probe-late-seat-flow-pg17.sh": "c3425f94bc8227e9d88fa1c4f58744b862701a48c83144d8939cf23269301d98",
-    "scripts/dev/probe-posthand-escrow-pg17.sh": "d95fc82f252322bda6f2ce91908282f1770348eee5646cf66a07ab842dae4508",
+    "scripts/dev/probe-posthand-escrow-pg17.sh": "3cba2fa8cfd3ebf27c5795c89f675b89b98f3eedc672c9b0493481539a99bdd3",
     "supabase/migrations/20261012201712_late_departed_seat_settlement_proves_its_original_cash_flow.sql": "1d4118810368ba4cf8ab2a702148b34189708f435c6b307baba9fae46980e8b2",
     "supabase/migrations/20261012211046_original_posthand_escrow_retains_its_completed_financial_pro.sql": "075454d4b730ea7cb7ce0c9afe5f8b1e598fec4f6860b3a6b74fc7d8efb891c1",
     "tests/fixtures/late-seat-flow/README.md": "b0350c74bd53abdb4b5fd0a855a38e890d3d17cdbad678410c57b00f8024f7f0",
@@ -30,7 +30,7 @@
     "tests/fixtures/original-unchanged-stack/cents-preimage.sql": "b1af50bae98d16e1d4a640193b669b7f174cfdf2819b8177638d44d512235c10",
     "tests/fixtures/original-unchanged-stack/lineage-preimage.sql": "c49581ca3d55ecfab6499d5d82beb4dab098cb87d35e19d546403323d6003c69",
     "tests/fixtures/original-unchanged-stack/schema-additions.sql": "e0311274a5580043825a8b53b6eba5bcca8429e394b038522515acaf3a71ef02",
-    "tests/fixtures/posthand-escrow/README.md": "dc289e37613f807b78a92b0da4da2b61b167b3cb82a3e9213c8c1fb156466b68",
+    "tests/fixtures/posthand-escrow/README.md": "e5536f08f246e883b12676229ff55ff7ea8782ef8b306b0266d128f04a5db200",
     "tests/fixtures/posthand-escrow/access-preimage.sql": "51b18ce10dbaeefeb957a1f403aa6a6cc6bea1a6fa232a23f6c61a0dd8b57bb0",
     "tests/fixtures/posthand-escrow/admission.py": "c72f1b1cf0a1e5e3cd2da68dbb7d33121b56efb29c8174a7b1584b0299811a86",
     "tests/fixtures/posthand-escrow/arithmetic.py": "05f6ce5d45ffebbce8f7ec0d7d740f151c79e8d2f56634cea2b1412da24fbaa1",
@@ -59,6 +59,23 @@
     "tests/fixtures/posthand-escrow/unchanged-pruner-boundary.sql": "1b9a2521816e3f97cd3838b07778ea5fea5d7bc3c78baa9a46c2585bf8905355",
     "tests/fixtures/posthand-escrow/unchanged-pruner-preimages.sql": "8b78c1f15c5e148bc39baf9c9f1cad3ec0186c7f0a7c870a11148fc7d68e85bb",
     "tests/fixtures/posthand-escrow/writer-boundaries.sql": "316172af754e106c5d9a9922a216c216e246116fff27ff5a0b8955f0b488126f",
-    "tests/fixtures/union-pnl-blocked-resolution/schema.sql": "3f5650d78cbb5e171283ce9ddff00afd1f5a697c39be251d6557e93bdda94c91"
+    "tests/fixtures/union-pnl-blocked-resolution/schema.sql": "3f5650d78cbb5e171283ce9ddff00afd1f5a697c39be251d6557e93bdda94c91",
+    "supabase/migrations/20261109234320_prove_all_original_posthand_pending_escrow_completions.sql": "cab0c4f5a714bea1ca2b56532fffe9648f42570d181bed6b0cfb0b4488f443d3",
+    "tests/fixtures/posthand-escrow/temporal/completion-original.sql": "31b0e07b966b40037d59ebc7f19873cbb78b06bda6ca0d8779157b7a15560742",
+    "tests/fixtures/posthand-escrow/temporal/event-native.sql": "89df48202860a806253ff31cc4d8af608c2c76328fbcda92f0fccc6b680f4e88",
+    "tests/fixtures/posthand-escrow/temporal/event-refusal-native.sql": "bfa51acffc0d895576bf7beaf89efb11a6171ca8185db12cfcd8b0cbf251538b",
+    "tests/fixtures/posthand-escrow/temporal/extra-native.sql": "7e8d2867c7a7fbdc4ac33eda52b683795c50404420386e915bf38db5b17106e3",
+    "tests/fixtures/posthand-escrow/temporal/extract-candidate.py": "7e55bcd042c1cf35670a0f3943b2c62c2b124fbe2e58a3c6f3750376f301eaee",
+    "tests/fixtures/posthand-escrow/temporal/initial-native.sql": "774c25967939e7bfe63dea43beee4e71f302140bd90ccb13669a3dc98e9a473b",
+    "tests/fixtures/posthand-escrow/temporal/installation.py": "eedbee38cd4d61ffbbb37fe01a0ca6c152c34df094fd2e5b6fe75540f2727c96",
+    "tests/fixtures/posthand-escrow/temporal/lookup-native.sql": "0a0f8686bd48e5b60a5a304168c37b0fbf1bba08f49e405c08f1ce614da9bf16",
+    "tests/fixtures/posthand-escrow/temporal/multiple-native.sql": "0dc12f4703bdd5d41d9655860e34b8421311f69c41549def2cf8a6df80967313",
+    "tests/fixtures/posthand-escrow/temporal/negative-native.sql": "c820ec31adcb544fea537448cd16e46d291c747b93a420ac6672897e1d1ad693",
+    "tests/fixtures/posthand-escrow/temporal/projector-original.sql": "61a0a932284d335ae5dc05eb66c63910dbc5bb50f83c8b6c24a2f6c7aea73292",
+    "tests/fixtures/posthand-escrow/temporal/prover-original.sql": "59fe21964d3cadc18334abc346850ca8e59ad993200908933480a9544b8c1757",
+    "tests/fixtures/posthand-escrow/temporal/rebuy-prototype.sql": "90438072934a3e4ffffb08b5dff1142326dc102a91f45e8d4464fb2a94867592",
+    "tests/fixtures/posthand-escrow/temporal/split-native.sql": "930215e07f9cd0b270be97f064f16a93bb8b0991c5efda088b3353584a2cf294",
+    "tests/fixtures/posthand-escrow/temporal/direct-prehand-native.sql": "209120b5855fa25e59a4452c2305b01e5b5ac60477e0e9320e11416fcf3e8c8b",
+    "supabase/migrations/20261110012843_certify_eight_original_posthand_escrow_proofs.sql": "fe3e921dd6ee5afb120ae28d2856b4d97d573cfcaf1bfcff12ea063f28809c07"
   }
 }

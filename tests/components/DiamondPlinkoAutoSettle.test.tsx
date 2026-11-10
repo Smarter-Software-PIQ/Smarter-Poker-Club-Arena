@@ -20,6 +20,7 @@ const backend = vi.hoisted(() => ({
   getState: vi.fn(),
   commit: vi.fn(),
   start: vi.fn(),
+  plinkoProgress: vi.fn(async () => null),
   latest: vi.fn(),
   awardState: vi.fn(),
   navigate: vi.fn(),
@@ -41,6 +42,7 @@ vi.mock('../../src/services/DiamondBonusService', async (original) => ({
     }
   },
   parsePlinkoBonus: (v: unknown) => v,
+  parsePlinkoProgress: (v: unknown) => v,
 }));
 vi.mock('../../src/services/WheelBonusEntryService', async (original) => ({
   ...(await original<typeof import('../../src/services/WheelBonusEntryService')>()),
@@ -77,7 +79,6 @@ vi.mock('../../src/components/wheel/WheelWinReveal', () => ({
   ),
 }));
 vi.mock('../../src/components/games/DiamondSpinsTabs', () => ({ default: () => null }));
-vi.mock('../../src/components/games/TodayLine', () => ({ default: () => null }));
 
 const CLUB = '00000000-0000-0000-0000-000000000003';
 const AWARD_ID = '00000000-0000-0000-0000-000000000077';
@@ -180,7 +181,7 @@ const fakeClock = () => {
 /** The line above the board that says what the game is doing. */
 const statusLine = () =>
   screen.getAllByRole('status').find((node) => node.classList.contains('sc-copy'));
-const drop = () => screen.getByRole('button', { name: 'Drop Diamonds' });
+const drop = () => screen.getByRole('button', { name: 'Drop One' });
 /** Release every drop still in hand, then let the board report them landed. */
 const finishDrops = async () => {
   const all = screen.queryByRole('button', { name: 'Drop All' });
@@ -580,7 +581,7 @@ describe('a read that fails asks again by itself', () => {
     expect(backend.getState).toHaveBeenCalledTimes(2);
     await finishDrops();
     expect(
-      screen.getByText('Checking This Entry And The Available Prize Cover')
+      screen.getByText('Checking Your Entry', { selector: 'p:not([role])' })
     ).toBeInTheDocument();
     expect(drop()).toBeDisabled();
     // The page reads the entry again by itself, on the same schedule as every other read.
@@ -770,13 +771,13 @@ describe('a settled wager is never still settling', () => {
     expect(backend.start).toHaveBeenCalledTimes(1);
   });
 
-  it('never says Settling over a Refresh that found nothing in flight', async () => {
+  it('never shows Refresh or settles an unplayed award on arrival', async () => {
     fakeClock();
     direct();
     backend.getState.mockResolvedValueOnce(DIRECT_STATE).mockRejectedValue(new Error('Offline'));
     render(<DiamondPlinkoPage />);
     await advance();
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull();
     await advance();
     expect(backend.start).not.toHaveBeenCalled();
     expect(statusLine()).not.toHaveTextContent('Settling Your Bonus');

@@ -65,9 +65,7 @@ interface Draft {
   spin_price_diamonds: string;
   exposure_allowance_chips: string;
   diamond_seed: string;
-  max_spins_per_player_per_day: string;
   min_seconds_between_spins: string;
-  purchased_only: boolean;
   allow_fixture_accounts: boolean;
   welcome_budget_chips: string;
   welcome_budget_period_days: string;
@@ -79,9 +77,7 @@ function draftFrom(m: WheelMetrics | null): Draft {
     spin_price_diamonds: String(c?.spin_price_diamonds ?? 100),
     exposure_allowance_chips: String(c?.exposure_allowance_chips ?? 500),
     diamond_seed: String(c?.diamond_seed ?? 2500),
-    max_spins_per_player_per_day: String(c?.max_spins_per_player_per_day ?? 200),
     min_seconds_between_spins: String(c?.min_seconds_between_spins ?? 3),
-    purchased_only: c?.purchased_only ?? true,
     allow_fixture_accounts: c?.allow_fixture_accounts ?? false,
     welcome_budget_chips: String(c?.welcome_budget_chips ?? 0),
     welcome_budget_period_days: String(c?.welcome_budget_period_days ?? 30),
@@ -328,7 +324,6 @@ export default function ClubWheelOperationsPage() {
     const price = Number(draft.spin_price_diamonds);
     const allowance = Number(draft.exposure_allowance_chips);
     const seed = Number(draft.diamond_seed);
-    const cap = Number(draft.max_spins_per_player_per_day);
     const gap = Number(draft.min_seconds_between_spins);
     if (!Number.isInteger(price) || price <= 0)
       return toast.error('The Spin Price Must Be A Whole Number Of Diamonds');
@@ -336,8 +331,6 @@ export default function ClubWheelOperationsPage() {
       return toast.error('The Exposure Allowance Must Be Zero Or More');
     if (!Number.isInteger(seed) || seed < 0)
       return toast.error('The Diamond Seed Must Be A Whole Number Of Diamonds');
-    if (!Number.isInteger(cap) || cap <= 0)
-      return toast.error('The Daily Cap Must Be A Whole Number Of Spins');
     if (!Number.isInteger(gap) || gap < 0)
       return toast.error('The Pause Between Spins Must Be Zero Or More Seconds');
     void apply(
@@ -345,9 +338,7 @@ export default function ClubWheelOperationsPage() {
         spin_price_diamonds: price,
         exposure_allowance_chips: Math.round(allowance * 100) / 100,
         diamond_seed: seed,
-        max_spins_per_player_per_day: cap,
         min_seconds_between_spins: gap,
-        purchased_only: draft.purchased_only,
         allow_fixture_accounts: draft.allow_fixture_accounts,
       },
       'Wheel Settings Saved'
@@ -603,22 +594,13 @@ export default function ClubWheelOperationsPage() {
             onChange={set('diamond_seed')}
             hint="The Float The Diamond Prizes Start From, So No Tier Opens Locked."
           />
-          <Field
-            label="Spins Per Player Per Day"
-            value={draft.max_spins_per_player_per_day}
-            onChange={set('max_spins_per_player_per_day')}
-          />
+
           <Field
             label="Seconds Between Spins"
             value={draft.min_seconds_between_spins}
             onChange={set('min_seconds_between_spins')}
           />
-          <Toggle
-            label="Purchased Diamonds Only"
-            hint="Promotional And Earned Diamonds Cannot Be Spun Into Chips."
-            on={draft.purchased_only}
-            onToggle={() => setDraft((d) => ({ ...d, purchased_only: !d.purchased_only }))}
-          />
+
           <Toggle
             label="Allow Certification Accounts"
             hint="For Burn-In Only. Their Spins Are Kept Out Of The Fairness Statistics."

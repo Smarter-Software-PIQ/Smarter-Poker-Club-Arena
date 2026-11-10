@@ -32,21 +32,27 @@ BEGIN
    'PLO gradual lifecycle','madness','plo4',1,2,6,
    '{"seats":6,"template":"madness","lightning":{"worker_mode":"form","on_threshold":10,"off_threshold":4,"always_on":false}}',
    '00000000-0000-0000-0000-0000000000aa',true,true,true,'must_move',0);
- front:=fx9_table(g,'gradual front','feeder',NULL,6);
+ front:=fx9_table(g,'gradual front','main',1,6);
  UPDATE tables SET game_variant='plo4',is_private=false WHERE id=front;
  INSERT INTO profiles VALUES(human,false);
  human_seat:=fxr_join(g,front,1,400,false,true,human);
  FOR n IN 1..9 LOOP
    u:=gen_random_uuid(); INSERT INTO profiles VALUES(u,true);
    IF n=6 THEN
-     feeder:=fx9_table(g,'gradual feeder','feeder',NULL,6);
-     UPDATE tables SET game_variant='plo4',is_private=false WHERE id=feeder;
+     r:=fn_cash_cluster_tick(g,0);
+     SELECT id INTO feeder FROM tables WHERE cluster_id=g AND role='feeder' AND lifecycle='opening';
+     IF feeder IS NULL OR (r->>'buyers')::integer<>0 THEN RAISE EXCEPTION 'Actual feeder producer did not prepare capacity: %',r; END IF;
+     IF (SELECT auto_start_players FROM tables WHERE id=feeder)<>2 THEN RAISE EXCEPTION 'Real opener lost heads-up minimum'; END IF;
    END IF;
    PERFORM fn_plo_lightning_horse_admit(CASE WHEN n<=5 THEN front ELSE feeder END,u,t);
    IF n<=5 THEN
      PERFORM fxr_join(g,front,n+1,200+n,true,true,u);
    ELSE
      PERFORM fxr_join(g,feeder,n-5,200+n,true,true,u);
+   END IF;
+   IF n=7 THEN
+     PERFORM fn_cash_cluster_tick(g,0);
+     IF (SELECT lifecycle FROM tables WHERE id=feeder)<>'live' THEN RAISE EXCEPTION 'Actual feeder did not promote at two'; END IF;
    END IF;
    IF fn_cash_cluster_live_eligible(g)<>n+1 THEN RAISE EXCEPTION 'ready population drift'; END IF;
    IF n=1 AND (SELECT count(*) FROM table_seats WHERE table_id=front AND left_at IS NULL)<>2 THEN

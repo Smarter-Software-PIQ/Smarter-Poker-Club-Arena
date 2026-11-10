@@ -1073,7 +1073,7 @@ test.describe('production routed gameplay customization', () => {
         writerRoot,
         readerRoot,
         tab: 'Cards',
-        asset: 'Royal',
+        asset: 'Forest Weave',
         attribute: 'data-cards-theme',
         value: 'royal',
         verifyImmediate: async () => {

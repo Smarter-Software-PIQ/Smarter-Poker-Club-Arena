@@ -108,6 +108,8 @@ import {
   buildHorseDecisionKey,
   getLiveHorseDecisionWorker,
   HorseDecisionAbortedError,
+  horseDecisionFallbackReason,
+  markHorseDecisionRejection,
   type FastHorseDecisionResult,
   type LiveHorseDecisionSnapshot,
 } from './horseDecision/index.js';
@@ -4242,7 +4244,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
         { deadlineMs: this.horseDecisionDeadlineMs() }
       );
     } catch (error) {
-      fastDecision = Promise.reject(error);
+      fastDecision = Promise.reject(markHorseDecisionRejection(error, 'enqueue_failed'));
     }
 
     void fastDecision
@@ -4255,7 +4257,9 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
         reportError(error, 'ServerTableEngine.' + this.tableId + '.horse_decision_worker_failed');
         if (!fenceIsCurrent('fallback')) throw new HorseDecisionAbortedError();
         try {
-          EngineMetrics.horseDecisionFallbacksTotal.inc(1);
+          EngineMetrics.horseDecisionFallbacksTotal.inc(1, {
+            reason: horseDecisionFallbackReason(error),
+          });
         } catch {
           /* metrics must never affect gameplay */
         }

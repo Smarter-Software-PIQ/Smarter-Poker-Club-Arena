@@ -86,10 +86,16 @@
   padding-bottom: 6px;
 }
 .docked .choices {
-  grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+  display: flex;
+  min-width: 0;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
   gap: 6px;
 }
 .docked .choices button {
+  flex: 0 0 auto;
+  min-width: 52px;
+  scroll-snap-align: start;
   min-height: 44px;
   padding: 4px 2px;
 }
@@ -148,4 +154,19 @@
 .entry select {
   min-width: 0;
   font-size: 16px;
+}
+
+.docked .selectorRail {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  gap: 4px;
+}
+.arrow {
+  min-height: 44px;
+  border: 1px solid #586d7e;
+  border-radius: 4px;
+  background: #101b23;
+  color: #dbe9f5;
+  font-size: 24px;
+  cursor: pointer;
 }

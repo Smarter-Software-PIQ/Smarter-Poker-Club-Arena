@@ -314,6 +314,8 @@ describe('nothing app-wide is written by four tables at once (2026-08-28)', () =
     expect(ENV_TS, 'the title does not prefer the table name').toMatch(/displayName/);
     // ...and TablePage has to actually pass both, or the hook's default wins.
     expect(code).toMatch(/useTableEnvironment\(tableId,\s*pageRootRef,\s*\{/);
-    expect(code).toMatch(/displayName:\s*tableState\.tableName/);
+    expect(code).toMatch(
+      /displayName:\s*tableState\.isTournament\s*\? formatTournamentTitle\(tableState\.tableName\)\s*: tableState\.tableName/
+    );
   });
 });

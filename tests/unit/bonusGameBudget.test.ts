@@ -95,8 +95,9 @@ describe('the player chooses the Plinko drop value', () => {
     expect(validPlinkoBudget(invalid)).toBe(false);
   });
   it('enforces the starting spin range and whole diamonds', () => {
-    for (const n of [0, 24, 25.5, 2501, NaN, Infinity]) expect(validSpinAmount(n)).toBe(false);
-    for (const n of [25, 100, 2500]) expect(validSpinAmount(n)).toBe(true);
+    for (const n of [-1, 0, 25.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity])
+      expect(validSpinAmount(n)).toBe(false);
+    for (const n of [1, 24, 25, 100, 2500, 2501, 2600000]) expect(validSpinAmount(n)).toBe(true);
   });
 });
 

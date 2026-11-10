@@ -2124,37 +2124,15 @@ export function ThemeSettingsModal({
         aria-labelledby="theme-studio-title"
         onClick={(e) => e.stopPropagation()}
       >
-        <SpadeConsole
-          onClose={saving || modeSaving || purchaseBusy ? undefined : onClose}
-          eyebrow="Player Table Studio"
-          title="Make The Table Yours"
-          titleId="theme-studio-title"
-          pill={gameTypeLabel}
-          pillInk="blue"
-          plates={{
-            secondary: {
-              label: 'Restore Defaults',
-              ink: 'silver',
-              onClick: handleReset,
-              disabled: themeLoadState !== 'ready' || purchaseBusy,
-            },
-            primary: {
-              /* Every tile auto-saves through the ordered writer. Done closes
-                 the studio; it must not launch a redundant full-row write that
-                 can race the final tap the player just made. */
-              label: saving || modeSaving ? 'Saving...' : 'Done',
-              ink: 'white',
-              onClick: () => {
-                if (!purchaseBusyRef.current) onClose();
-              },
-              disabled: saving || modeSaving || purchaseBusy,
-            },
-          }}
-          className="tsc__console"
-        >
-          {/* Header row on the glass: the close word first in the DOM (focus
-              lands on it when the studio opens, as it did on the X), the
-              table-art link beside it. */}
+        <section className="studio-editor">
+          <header className="studio-editor__header">
+            <h2 id="theme-studio-title" aria-label="Make The Table Yours">
+              Table Studio
+            </h2>
+            <button type="button" onClick={onClose} disabled={saving || modeSaving || purchaseBusy}>
+              {saving || modeSaving ? 'Saving...' : 'Done'}
+            </button>
+          </header>
           <div className="tsc__toprow">
             <button
               type="button"
@@ -2277,7 +2255,8 @@ export function ThemeSettingsModal({
                 </div>
               </div>
 
-              <div className="tsc__ledger" aria-label="Current Table Configuration">
+              <details className="tsc__ledger">
+                <summary>Current Table Configuration</summary>
                 {[
                   ['Look', selectedLookName],
                   ['Table', selectedTableName],
@@ -2291,7 +2270,7 @@ export function ThemeSettingsModal({
                     <strong className="tsc__value sc-ink--silver">{value}</strong>
                   </div>
                 ))}
-              </div>
+              </details>
             </aside>
 
             <section className="tsc__catalog" data-theme-tab={activeTab}>
@@ -2817,7 +2796,15 @@ export function ThemeSettingsModal({
               </div>
             </section>
           </div>
-        </SpadeConsole>
+          <button
+            className="studio-editor__reset"
+            type="button"
+            onClick={handleReset}
+            disabled={themeLoadState !== 'ready' || purchaseBusy}
+          >
+            Restore Defaults
+          </button>
+        </section>
 
         {pendingAssetPurchase && !diamondStoreOpen && (
           <div
