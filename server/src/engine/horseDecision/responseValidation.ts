@@ -597,7 +597,11 @@ export function horsePhase8LedgerIsValid(value: unknown, decision: RecordValue):
  * A receipt retained before P10.3 carries no selection and claims no
  * authority, so it may not carry an applied candidate either.
  */
-export function horsePhase10SelectionIsValid(value: unknown, decision: RecordValue): boolean {
+export function horsePhase10SelectionIsValid(
+  value: unknown,
+  decision: RecordValue,
+  verifiedGraph?: HorsePolicyGraphReceipt
+): boolean {
   if (value === undefined) return true;
   if (!record(value)) return false;
   const wager = (action: unknown) => action === 'bet' || action === 'raise';
@@ -629,13 +633,40 @@ export function horsePhase10SelectionIsValid(value: unknown, decision: RecordVal
   return (
     value.mode === 'candidate' &&
     value.changed === true &&
-    value.selection === 'selected' &&
     value.utilityOwner === 'cash' &&
     decision.action === value.proposalAction &&
-    decision.action === value.finalAction &&
-    (!wager(decision.action) ||
-      ((decision.amount ?? null) === value.proposalAmount &&
-        (decision.amount ?? null) === value.finalAmount))
+    (!wager(decision.action) || (decision.amount ?? null) === value.proposalAmount) &&
+    ((value.selection === 'selected' &&
+      decision.action === value.finalAction &&
+      (!wager(decision.action) || (decision.amount ?? null) === value.finalAmount)) ||
+      wagerReplacedVariantSelection(value, verifiedGraph))
+  );
+}
+
+function wagerReplacedVariantSelection(
+  value: RecordValue,
+  verifiedGraph: HorsePolicyGraphReceipt | undefined
+): boolean {
+  const variant = verifiedGraph?.transitions.find((t) => t.node === 'variant_policy');
+  const wager = verifiedGraph?.transitions.find((t) => t.node === 'wager_rules');
+  // Only the verified final wager rule can witness this replacement. Bind
+  // both stage actions and their exact graph amounts, including raise-to.
+  return (
+    record(value) &&
+    value.selection === 'shadow_change' &&
+    variant?.changed === true &&
+    variant.before?.action === value.baselineAction &&
+    variant.before?.amount === value.baselineAmount &&
+    variant.after.action === value.proposalAction &&
+    variant.after.amount === value.proposalAmount &&
+    wager?.changed === true &&
+    wager.before?.action === value.proposalAction &&
+    wager.before?.amount === value.proposalAmount &&
+    wager.after.action === value.finalAction &&
+    wager.after.amount === value.finalAmount &&
+    verifiedGraph !== undefined &&
+    verifiedGraph.finalAction.action === value.finalAction &&
+    verifiedGraph.finalAction.amount === value.finalAmount
   );
 }
 
@@ -654,32 +685,16 @@ export function horsePhase11SelectionIsValid(
   decision: RecordValue,
   verifiedGraph?: HorsePolicyGraphReceipt
 ): boolean {
-  const variant = verifiedGraph?.transitions.find((t) => t.node === 'variant_policy');
-  const wager = verifiedGraph?.transitions.find((t) => t.node === 'wager_rules');
-  // Only the verified final wager rule can witness this replacement. Bind
-  // both stage actions and their exact graph amounts, including raise-to.
-  const superseded =
-    record(value) &&
-    (value.variant === 'plo5' || value.variant === 'plo6') &&
-    value.selection === 'shadow_change' &&
-    variant?.changed === true &&
-    variant.before?.action === value.baselineAction &&
-    variant.before?.amount === value.baselineAmount &&
-    variant.after.action === value.proposalAction &&
-    variant.after.amount === value.proposalAmount &&
-    wager?.changed === true &&
-    wager.before?.action === value.proposalAction &&
-    wager.before?.amount === value.proposalAmount &&
-    wager.after.action === value.finalAction &&
-    wager.after.amount === value.finalAmount &&
-    verifiedGraph !== undefined &&
-    verifiedGraph.finalAction.action === value.finalAction &&
-    verifiedGraph.finalAction.amount === value.finalAmount;
   return packSelectionIsValid(
     value,
     decision,
     (variant) => (isOmahaPolicyVariant(variant) ? OMAHA_VARIANT_PACKS[variant].version : null),
-    { superseded }
+    {
+      superseded:
+        record(value) &&
+        (value.variant === 'plo5' || value.variant === 'plo6') &&
+        wagerReplacedVariantSelection(value, verifiedGraph),
+    }
   );
 }
 
@@ -1165,7 +1180,7 @@ export function horseDecisionReceiptRefusal(
     return 'phase8_guard_ledger';
   if (value.plo4Policy !== undefined && !plo4LiveReceiptBindingIsValid(value.plo4Policy))
     return 'phase10_binding';
-  if (!horsePhase10SelectionIsValid(value.plo4Policy, selected)) return 'phase10_selection';
+  if (!horsePhase10SelectionIsValid(value.plo4Policy, selected, graph)) return 'phase10_selection';
   // P11.1: a Phase 11 receipt's input binding is shape-checked at the boundary.
   if (
     value.omahaVariantPolicy !== undefined &&

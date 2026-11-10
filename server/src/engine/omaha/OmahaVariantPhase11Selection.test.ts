@@ -29,7 +29,11 @@ import { HorseLogic } from '../HorseLogic.js';
 import { seedFastRandom } from '../HorseEval.js';
 import { calculatePots } from '../PokerEngine.js';
 import { horsePhase11AdmittedMode } from '../HorsePhase11Authority.js';
-import { horsePhase11SelectionIsValid } from '../horseDecision/responseValidation.js';
+import { PLO4_POLICY_PACK } from '../plo4/Plo4PolicyPack.js';
+import {
+  horsePhase10SelectionIsValid,
+  horsePhase11SelectionIsValid,
+} from '../horseDecision/responseValidation.js';
 import type { OmahaVariantMode } from './OmahaVariantLivePolicy.js';
 import { OMAHA_VARIANT_PACKS, type OmahaPolicyVariant } from './OmahaVariantPolicyPack.js';
 
@@ -298,4 +302,23 @@ it('requires the exact cash Phase 11 proposal and the wager rule that replaced i
   expect(horsePhase11SelectionIsValid({ ...receipt, finalAction: 'call' }, shove, graph)).toBe(
     false
   );
+  const bet = { action: 'bet', amount: 24.72 } as const;
+  const plo4 = {
+    ...receipt,
+    proposalAction: bet.action,
+    proposalAmount: bet.amount,
+    authority: { ...receipt.authority, continuationVersion: PLO4_POLICY_PACK.version },
+  };
+  const sizedGraph = {
+    ...graph,
+    transitions: [
+      { ...graph.transitions[0], after: bet },
+      { ...graph.transitions[1], before: bet },
+    ],
+  };
+  expect(horsePhase10SelectionIsValid(plo4, bet, sizedGraph)).toBe(true);
+  expect(horsePhase10SelectionIsValid({ ...plo4, proposalAmount: 24.71 }, bet, sizedGraph)).toBe(
+    false
+  );
+  expect(horsePhase10SelectionIsValid(plo4, bet)).toBe(false);
 });
