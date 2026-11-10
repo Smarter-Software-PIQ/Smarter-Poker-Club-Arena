@@ -106,7 +106,7 @@ export function TableStudioGameplayPreview({ selection, avatarUrls, finalTable }
           </div>
         ))}
 
-        <div className="studio-game-preview__card-tab" aria-label="Hand tab">
+        <div className="studio-game-preview__card-tab" aria-label="Hand Tab">
           <b>8♥</b>
           <b>4♦</b>
         </div>
