@@ -212,3 +212,17 @@
     max-height: 72dvh;
   }
 }
+
+.ft-overlay__prize-label {
+  color: #c8d8e6;
+}
+.ft-overlay__prize {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.ft-player__name {
+  font-weight: 600;
+}
+.ft-player__chips {
+  font-weight: 650;
+}
