@@ -86,6 +86,11 @@ CREATE OR REPLACE FUNCTION smarter_private.f06_wait_table_lane(uuid) RETURNS voi
 DROP TABLE IF EXISTS hand_atomic_commits, table_pending_addons;
 CREATE TABLE hand_atomic_commits(hand_id uuid PRIMARY KEY,table_id uuid,hand_number bigint,
  post_commit_payload jsonb,post_commit_payload_hash text,post_commit_completed_at timestamptz,post_commit_result jsonb);
+-- These ordinary cash hands have no blocked accounting outcome. The original
+-- post-commit function still looks up that outcome when it resolves an add-on.
+CREATE TABLE IF NOT EXISTS public.union_pnl_cash_outcomes(
+ table_id uuid NOT NULL, hand_number bigint NOT NULL, evidence jsonb NOT NULL,
+ PRIMARY KEY(table_id,hand_number));
 CREATE TABLE table_pending_addons(id uuid PRIMARY KEY,table_id uuid,user_id uuid,amount numeric,
  resolved_at timestamptz,applied_to_stack numeric,refunded numeric,kind text DEFAULT 'addon',created_at timestamptz DEFAULT now());
 ALTER TABLE tables ADD COLUMN IF NOT EXISTS big_blind numeric, ADD COLUMN IF NOT EXISTS status text DEFAULT 'running';
