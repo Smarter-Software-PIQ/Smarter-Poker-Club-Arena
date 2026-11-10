@@ -106,6 +106,33 @@ describe('an occupied seat stays on the felt outside the hand', () => {
     }
   );
 
+  it('publishes the held occupant through idle, broadcast and reconnect without assigning chips or cards', async () => {
+    const e = fixture();
+    e.waitingForBB.clear();
+    e.lastButtonSeat = 2;
+    e.lastBigBlindSeat = 1;
+    e.seatedPlayers[2].entry_hold = 'moved';
+    e.admitMovedSeats(e.seatedPlayers);
+    e.publishIdleState();
+    const idle = e.hub.publish.mock.calls.at(-1)[1];
+    for (const state of [idle, await live(e), e.getTableState('waiting'), e.getObserverState()]) {
+      expect(state.players.find((p: any) => p.seat === 4)).toMatchObject({
+        user_id: 'waiting',
+        is_waiting_for_button: true,
+        is_sitting_out: true,
+        cards: [],
+        bet: 0,
+        totalInvested: 0,
+        stack: 1796,
+      });
+    }
+    expect(e.captureContinuationEngine().waitingForButton).toEqual([[4, 'waiting']]);
+    e.seatedPlayers[2].user_id = 'replacement';
+    expect((await live(e)).players.find((p: any) => p.seat === 4).is_waiting_for_button).toBe(
+      false
+    );
+  });
+
   it('keeps every occupied position across repeated streets and the next deal', async () => {
     const e = fixture();
     e.tableInfo.max_players = 9;

@@ -172,7 +172,8 @@ const advance = async (ms: number) => {
   await settle();
 };
 const text = () => document.body.textContent ?? '';
-const bay = (label: string) => screen.getByText(label).nextElementSibling as HTMLElement;
+const bay = (label: string) =>
+  screen.getByText(label, { selector: 'dt' }).nextElementSibling as HTMLElement;
 /** Presses Start: the one tap a won game takes (R1). No Double Your Diamonds
  *  offer stands in front of it (retired, Dan 2026-10-16). */
 const keepAndStart = async () => {
@@ -267,7 +268,9 @@ describe.each(['mines', 'crossing'] as const)('%s: the round that just finished'
     expect(text()).toMatch(/0\.10 Chips (Are )?Booked/);
     expect(text()).not.toContain('Win This Game On Diamond Spins To Play.');
     expect(setupOnScreen()).toEqual([]);
-    expect(bay('Guaranteed').textContent).toBe('0.10 Chips');
+    expect(bay(screen.queryByRole('dialog') ? 'Paid' : 'Guaranteed').textContent).toBe(
+      '0.10 Chips'
+    );
   });
 
   it("never opens a next award's setup, or any offer, over the reveal", async () => {
