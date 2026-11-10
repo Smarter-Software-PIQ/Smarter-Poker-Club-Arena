@@ -255,7 +255,11 @@ import { useSeatMoveAnnouncement } from '../hooks/useSeatMoveAnnouncement';
 import TableConnectionBanner from '../components/table/TableConnectionBanner';
 import TournamentStartCountdown from '../components/table/TournamentStartCountdown';
 import { displayBigBlind, type HandBlinds } from '../utils/handBlinds';
-import { isLightningObserverSnapshot, mapEngineSnapshot } from '../utils/mapEngineSnapshot';
+import {
+  collectedSeatBet,
+  isLightningObserverSnapshot,
+  mapEngineSnapshot,
+} from '../utils/mapEngineSnapshot';
 import {
   foldRevealed,
   hasCommittedSeatFold,
@@ -3212,9 +3216,14 @@ function LiveTablePage({
       // Hold the previous amount for the collect window; the sweep's own
       // timer zeroes it when the animation completes.
       const nextBets = mapped.lastBetAmounts.map((amt, i) =>
-        collectingChipSeatsRef.current[i] && !(amt > 0) && prev.lastBetAmounts[i] > 0
-          ? prev.lastBetAmounts[i]
-          : amt
+        collectedSeatBet(
+          amt,
+          prev.lastBetAmounts[i],
+          !!collectingChipSeatsRef.current[i],
+          sameHand,
+          prev.players[i]?.id,
+          mapped.players[i]?.id
+        )
       );
       /* THE ACTION BAR MUST NOT FLASH BACK AFTER YOU ACT (2026-08-27), AND A
          TURN HANDED BACK IS A TURN (2026-10-04).

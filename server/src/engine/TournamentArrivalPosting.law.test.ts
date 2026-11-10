@@ -82,3 +82,81 @@ describe('tournament arrivals never owe an entry blind', () => {
     expect(engine.mustPostBB.size).toBe(0);
   });
 });
+
+describe('moved seat at the dead small blind in hand 58265757', () => {
+  it.each([true, false])('holds seat 8 until the button passes (tournament=%s)', (tournament) => {
+    const engine = tournamentEngine({ tournament, seats: [1, 2, 3, 4, 5, 6, 7, 8] });
+    const seats = engine.seatedPlayers;
+    seats[7].entry_hold = 'moved';
+    engine.previousHandOccupants = new Map(
+      seats.slice(0, 7).map((p: any) => [p.seat_number, p.user_id])
+    );
+    engine.lastButtonSeat = 6;
+    engine.lastBigBlindSeat = 1;
+    expect(engine.admitMovedSeats(seats)).toEqual(seats.slice(0, 7));
+    engine.lastButtonSeat = tournament ? 8 : 1;
+    engine.lastBigBlindSeat = 2;
+    expect(engine.admitMovedSeats(seats)).toEqual(seats);
+  });
+});
+
+it('deals both sides of the button pass with the real hand controller', async () => {
+  const { HandController } = await import('./HandController.js');
+  const engine = tournamentEngine({ tournament: true, seats: [1, 2, 3, 4, 5, 6, 7, 8] });
+  const occupants = engine.seatedPlayers as import('../types.js').SeatedPlayer[];
+  engine.previousHandOccupants = new Map(
+    occupants.slice(0, 7).map((p) => [p.seat_number, p.user_id])
+  );
+  engine.lastButtonSeat = 6;
+  engine.lastSmallBlindSeat = 8;
+  engine.lastBigBlindSeat = 1;
+  for (const handNumber of [1, 2]) {
+    const selected = engine.admitMovedSeats(occupants) as typeof occupants;
+    const blinds = engine.predictBlindSeats(selected);
+    const players = selected.map((p) => ({
+      seat: p.seat_number,
+      user_id: p.user_id,
+      username: p.user_id,
+      stack: 27454,
+      bet: 0,
+      totalInvested: 0,
+      cards: [],
+      is_folded: false,
+      is_all_in: false,
+      is_sitting_out: false,
+    }));
+    const hand = new HandController(
+      {
+        tableId: TABLE,
+        handNumber,
+        gameVariant: 'nlh',
+        isTournament: true,
+        smallBlind: 400,
+        bigBlind: 800,
+        bigBlindAnte: true,
+        ante: 800,
+        blindSeats: blinds,
+        rakeConfig: { percent: 0, cap: 0, noFlopNoDrop: true },
+      },
+      players,
+      blinds.button
+    );
+    hand.start();
+    const state = hand.getState();
+    const arriving = state.players.find((p) => p.seat === 8);
+    expect(state.players.every((p) => p.cards.length === 2)).toBe(true);
+    if (handNumber === 1) {
+      expect(arriving).toBeUndefined();
+      expect(blinds.button).toBe(8);
+    } else {
+      expect(arriving?.cards).toHaveLength(2);
+      expect(arriving?.stack).toBe(27454);
+      expect(arriving?.totalInvested).toBe(0);
+      expect(blinds.button).toBe(1);
+    }
+    engine.lastButtonSeat = blinds.button;
+    engine.lastSmallBlindSeat = blinds.smallBlindSeat;
+    engine.lastBigBlindSeat = blinds.bigBlind;
+    engine.previousHandOccupants = new Map(selected.map((p) => [p.seat_number, p.user_id]));
+  }
+});

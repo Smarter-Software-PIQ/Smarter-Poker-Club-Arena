@@ -695,3 +695,22 @@ export function mapEngineSnapshot(
     isAnonymous: (s as unknown as { is_anonymous?: unknown }).is_anonymous === true,
   };
 }
+
+/** A chip sweep belongs to the player and hand that contributed the chips. */
+export function collectedSeatBet(
+  current: number,
+  previous: number,
+  collecting: boolean,
+  sameHand: boolean,
+  previousUser?: string,
+  currentUser?: string
+): number {
+  return sameHand &&
+    currentUser &&
+    currentUser === previousUser &&
+    collecting &&
+    !(current > 0) &&
+    previous > 0
+    ? previous
+    : current;
+}
