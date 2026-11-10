@@ -518,6 +518,22 @@ describe('TournamentService', () => {
       }
     );
 
+    it('shows two minutes remaining after five minutes of a seven-minute satellite level', () => {
+      const anchor = '2026-11-10T03:27:21.431Z';
+      const state = tournamentService.getCurrentLevelState(
+        {
+          status: 'RUNNING',
+          started_at: anchor,
+          level_started_at: anchor,
+          current_level: 0,
+          buy_in_amount: 27,
+          blind_structure: [{ level: 1, smallBlind: 400, bigBlind: 800, durationMinutes: 5 }],
+        } as never,
+        Date.parse(anchor) + 300_000
+      );
+      expect(state.timeRemainingSeconds).toBe(120);
+    });
+
     // Four levels, each distinguishable by every field.
     const structure = [
       { level: 1, smallBlind: 25, bigBlind: 50, ante: 0, durationMinutes: 10 },
