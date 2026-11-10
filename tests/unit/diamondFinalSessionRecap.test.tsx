@@ -165,7 +165,9 @@ describe('the final Diamond card belongs to its closed custody', () => {
     render(view());
     act(() => publishSessionSummary(oldMount()));
     await screen.findByText('-2,624.00 Diamonds');
-    expect(screen.getAllByText('-')).toHaveLength(2);
+    for (const label of ['VPIP', 'Win Rate', 'Hands Won']) {
+      expect(screen.getByText(label).nextElementSibling?.textContent).toBe('-');
+    }
     expect(screen.queryByText('0%')).toBeNull();
   });
 

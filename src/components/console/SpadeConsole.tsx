@@ -457,6 +457,7 @@ export function SpadeConsole({
   foot?: 'plates' | 'foot';
   plates?: {
     secondary?: PlateButtonProps;
+    middle?: PlateButtonProps;
     primary?: PlateButtonProps;
   };
   children?: ReactNode;
@@ -570,6 +571,15 @@ export function SpadeConsole({
             canvasH={F.FOOT_H}
             wrapBelow={F.plateWrapBelow}
             {...plates.secondary}
+          />
+        )}
+        {!onePlate && footKind === 'plates' && plates?.middle && (
+          <PlateButton
+            zone={(Z as typeof SPADE_CONSOLE_ZONES).plateSecondary}
+            canvasW={W}
+            canvasH={F.FOOT_H}
+            wrapBelow={F.plateWrapBelow}
+            {...plates.middle}
           />
         )}
         {!onePlate && footKind === 'plates' && plates?.primary && (

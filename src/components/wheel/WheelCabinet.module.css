@@ -133,7 +133,12 @@
     0 0 10px #219cff;
   background: radial-gradient(ellipse, #177af786, transparent 70%);
 }
-.presets button:disabled {
+.presets button[aria-pressed='true']:disabled {
+  opacity: 1;
+  filter: none;
+  -webkit-text-fill-color: currentColor;
+}
+.presets button:disabled:not([aria-pressed='true']) {
   color: #97a3b5;
 }
 .actions .primary {

@@ -26,15 +26,16 @@ import {
   closeLightningSessionSummary,
   useLightningSummaryRequest,
 } from '../../lightning/lightningSummaryStore';
-import { lightningJoinRoute } from '../../lightning/lightningLobby';
+import { useUserStore } from '../../stores/useUserStore';
 import { writeLightningPrefs } from '../../lightning/lightningPrefs';
 import { masterBus } from '../../core/MasterBus';
 import { titleCase } from '../../utils/titleCase';
 import { reportError } from '../../utils/errorReporter';
-import LightningStatsGrid from './LightningStatsGrid';
+import LightningStatsGrid, { lightningStatRows } from './LightningStatsGrid';
 import LightningRecentHands from './LightningRecentHands';
 import './LightningSession.css';
 import '../../styles/postPlayResults.css';
+import { ChipStackReport } from '../session/ChipStackReport';
 
 export function useLightningSessionSummary(
   poolSessionId: string | null,
@@ -121,13 +122,85 @@ function LightningResult({ summary, name }: { summary: Summary; name?: string | 
   );
 }
 
+function useShareResult(summary: Summary | null, name?: string | null) {
+  const [label, setLabel] = useState('Share');
+  const onClick = async () => {
+    const text = [
+      name || 'Lightning Session',
+      ...(summary
+        ? lightningStatRows(summary, 'summary').map((row) => row.label + ': ' + row.value)
+        : []),
+    ].join('\n');
+    try {
+      if (navigator.share) await navigator.share({ title: 'Session Results', text });
+      else {
+        await navigator.clipboard.writeText(text);
+        setLabel('Copied');
+      }
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) setLabel('Retry Share');
+    }
+  };
+  return { label, onClick };
+}
+
+function LightningReport({
+  summary,
+  name,
+  onClose,
+  onView,
+  share,
+  onLobby,
+}: {
+  summary: Summary;
+  name?: string | null;
+  onClose: () => void;
+  onView: () => void;
+  share: ReturnType<typeof useShareResult>;
+  onLobby: () => void;
+}) {
+  const net = summary.net;
+  const rows = lightningStatRows(summary, 'summary');
+  const stats = [
+    'hands',
+    'duration',
+    'hands_per_hour',
+    'starting_stack',
+    'current_stack',
+    'net',
+    'bb_per_100',
+    'vpip',
+    'pfr',
+    'showdowns',
+    'fast_folds',
+  ].map((key) => rows.find((row) => row.key === key) ?? { label: key.toUpperCase(), value: '-' });
+  return (
+    <ChipStackReport
+      name={name || 'Lightning Cash'}
+      headline={
+        net == null
+          ? 'Session Result'
+          : net < 0
+            ? 'Session Loss'
+            : net === 0
+              ? 'Break Even'
+              : 'Session Profit'
+      }
+      value={lightningChipsText(net, true)}
+      loss={net !== null && net < 0}
+      stats={stats}
+      onClose={onClose}
+      onView={onView}
+      share={share}
+      primary={{ label: 'Game Lobby', onClick: onLobby }}
+    />
+  );
+}
+
 export interface LightningSessionSummaryCardProps {
   poolSessionId: string;
   clusterId: string;
   name?: string | null;
-  /** PLAY AGAIN is offered (not on a Cluster that has gone back to MUST MOVE). */
-  offerPlayAgain?: boolean;
-  onPlayAgain?: () => void;
 }
 
 /** The summary's body: the numbers, VIEW SESSION and PLAY AGAIN. */
@@ -135,11 +208,25 @@ export function LightningSessionSummaryCard({
   poolSessionId,
   clusterId,
   name = null,
-  offerPlayAgain = true,
-  onPlayAgain,
 }: LightningSessionSummaryCardProps) {
   const { summary, failed } = useLightningSessionSummary(poolSessionId);
   const [viewing, setViewing] = useState(false);
+  const share = useShareResult(summary, name);
+  const navigate = useNavigate();
+  const clubId = useUserStore((state) => state.currentClubId);
+  if (summary && !viewing) {
+    const lobby = () => navigate(clubId ? `/clubs/${clubId}` : '/');
+    return (
+      <LightningReport
+        name={name}
+        summary={summary}
+        onClose={lobby}
+        onLobby={lobby}
+        onView={() => setViewing(true)}
+        share={share}
+      />
+    );
+  }
   return (
     <div className="lightning-summary" data-testid="lightning-summary" data-cluster={clusterId}>
       <p className="lightning-summary__eyebrow">Lightning</p>
@@ -164,16 +251,16 @@ export function LightningSessionSummaryCard({
         >
           VIEW SESSION
         </button>
-        {offerPlayAgain && onPlayAgain ? (
-          <button
-            type="button"
-            className="lightning-summary__btn lightning-summary__btn--primary"
-            data-testid="lightning-summary-play-again"
-            onClick={onPlayAgain}
-          >
-            PLAY AGAIN
-          </button>
-        ) : null}
+        <button type="button" className="lightning-summary__btn" onClick={share.onClick}>
+          {share.label}
+        </button>
+        <button
+          type="button"
+          className="lightning-summary__btn lightning-summary__btn--primary"
+          onClick={() => navigate(clubId ? `/clubs/${clubId}` : '/')}
+        >
+          Game Lobby
+        </button>
       </div>
       {viewing ? <LightningRecentHands poolSessionId={poolSessionId} sessionOnly /> : null}
     </div>
@@ -198,7 +285,40 @@ export function LightningSessionSummaryHost() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [req]);
+  const share = useShareResult(summary, req?.name);
+  const clubId = useUserStore((state) => state.currentClubId);
   if (!req) return null;
+  if (summary && !viewing) {
+    return createPortal(
+      <div
+        className="lightning-sheet__overlay"
+        data-testid="lightning-summary-host"
+        onClick={closeLightningSessionSummary}
+      >
+        <div
+          className="chip-report-host"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Session Results"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <LightningReport
+            name={req.name}
+            summary={summary}
+            share={share}
+            onClose={closeLightningSessionSummary}
+            onView={() => setViewing(true)}
+            onLobby={() => {
+              writeLightningPrefs({ lastClusterId: req.clusterId, lastClusterName: req.name });
+              closeLightningSessionSummary();
+              navigate(clubId ? `/clubs/${clubId}` : '/');
+            }}
+          />
+        </div>
+      </div>,
+      document.body
+    );
+  }
   const body = (
     <div
       className="lightning-sheet__overlay"
@@ -226,13 +346,14 @@ export function LightningSessionSummaryHost() {
               type: 'button',
               onClick: () => setViewing((v) => !v),
             },
+            middle: share,
             primary: {
-              label: 'PLAY AGAIN',
+              label: 'Game Lobby',
               type: 'button',
               onClick: () => {
                 writeLightningPrefs({ lastClusterId: req.clusterId, lastClusterName: req.name });
                 closeLightningSessionSummary();
-                navigate(lightningJoinRoute(req.clusterId));
+                navigate(clubId ? `/clubs/${clubId}` : '/');
               },
               ink: 'white',
             },

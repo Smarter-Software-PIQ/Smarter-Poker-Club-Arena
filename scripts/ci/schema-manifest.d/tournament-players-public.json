@@ -1,0 +1,37 @@
+{
+  "_owner": "claude/closed-player-results-read. Views created by migration 20261109235153 (installed from main through Apply Merged Migration, read back 2026-11-10) and redefined by 20261110004344: the public read surface for tournament players and the closed-person labels it joins.",
+  "tables": ["tournament_players_public", "ca_closed_player_labels"],
+  "functions": [],
+  "columns": {
+    "tournament_players_public": [
+      "id",
+      "tournament_id",
+      "user_id",
+      "username",
+      "chips",
+      "status",
+      "position",
+      "prize",
+      "rebuys",
+      "add_on",
+      "registered_at",
+      "eliminated_at",
+      "bounties_collected",
+      "bounty_winnings",
+      "mystery_bounty_value",
+      "current_bounty",
+      "table_id",
+      "seat_number",
+      "chip_count",
+      "club_id",
+      "is_satellite_qualifier",
+      "rebuy_prompt_until",
+      "push_15m_sent",
+      "push_2m_sent",
+      "source_satellite_id",
+      "elimination_sequence",
+      "terminal_closed_at"
+    ],
+    "ca_closed_player_labels": ["id", "label"]
+  }
+}

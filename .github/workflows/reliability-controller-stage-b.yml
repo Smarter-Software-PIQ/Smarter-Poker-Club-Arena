@@ -12,6 +12,7 @@ on:
     branches: [main]
     paths:
       - supabase/migrations/20261110000020_reliability_controller_stage_b.sql
+      - supabase/migrations/20261110144203_reliability_controller_drift_mirrors_are_incidents_and_push_.sql
       - scripts/ci/test-reliability-controller-stage-b.py
       - scripts/ci/fixtures/reliability-controller-production-objects.sql
       - .github/workflows/reliability-controller-stage-b.yml

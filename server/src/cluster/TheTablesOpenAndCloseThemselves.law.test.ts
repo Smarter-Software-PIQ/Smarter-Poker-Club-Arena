@@ -854,7 +854,8 @@ describe('the must move lobby: the roster is the order, the seat change is once,
     );
     // On restart, retain the move until the first eligible deal.
     expect(DEALING).toContain("if (rowHold === 'moved') continue;");
-    expect(BASE).toContain("if (!this.isTournamentTable()) return p.entry_hold !== 'moved';");
+    expect(BASE).toContain("p.entry_hold === 'moved'");
+    expect(BASE).toContain('this.waitingForButton.set(seat, p.user_id)');
   });
 
   it('a held swap side is out of the deal, and released when its move is gone', () => {

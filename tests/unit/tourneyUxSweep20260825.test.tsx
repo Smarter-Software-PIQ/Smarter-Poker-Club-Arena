@@ -132,7 +132,7 @@ describe('Item 1 - a running tournament can be watched', () => {
       const playersQuery = sliceCall(src, 'readTournamentStandings(');
       expect(playersQuery).toMatch(/\btable_id\b/);
       const reader = code(read('src/services/readTournamentStandings.ts'));
-      expect(reader).toContain(".from('tournament_players')");
+      expect(reader).toContain(".from('tournament_players_public')");
       expect(reader).toContain('.select(projection,');
       expect(src).toMatch(/table_id: \(e\.table_id as string \| null\) \|\| null/);
     }

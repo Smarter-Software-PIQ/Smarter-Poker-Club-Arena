@@ -21,7 +21,7 @@ Acceptance follow-up (owner, 2026-11-08 23:03 Chicago):
 | --- | --- | --- | --- |
 | A1 | Two independent sessions accepting at once produce one rematch and one charge per player, including an interrupted request and its retry | PASSED. Native proof on the production definitions (md5-checked), run green at main by `heads-up-rematch-concurrency.yml` (run 42569886982). Details below | No (database only) |
 | A2 | A committed signed-in rematch reaches its first hand with the correct opponent, stacks and rake | PASSED in production. Run 42584396854: browser Play Again, same two players, 300-chip stacks, 0.95 + 0.05 rake each, one transaction for both charges, browser moved to the new table, engine start and first hand; finish and chip conservation read afterwards. Details below | No. Proven on the serving engine 391f7bc0, which predates this work |
-| A3 | The next weekly-schedule satellite is created with the target-derived name and no duplicate | FIX MERGED, INSTALL QUEUED FOR THE DAILY WINDOW. Observed 2026-11-09 18:00:12Z: right target, no duplicate, wrong name (`tournaments_lock_level_clock` restamps the catalog name after the copy trigger). Root fix 20261109180446 (#10204, 64b67b241). The release owner declared it `-- @install-window: daily-maintenance` in #10235 (4e7ba6d35) after the live applier refused it four times on lock timeouts; it installs inside the 04:00 Chicago freeze. Acceptance: see "Weekly satellite" below | No (database trigger; the existing engine spawns it) |
+| A3 | The next weekly-schedule satellite is created with the target-derived name and no duplicate | PASSED in production 2026-11-10. The root fix shipped twice: 20261109180446 (#10204, trigger order; DDL on tournaments, still queued for the daily window by #10235) and 20261110144349 (#10339, cf1d72bc0: the level clock no longer restamps `name`/`short_description`; no table lock), installed 16:06:55Z by applier run 42851002311. All six misnamed open satellites renamed; natural spawns verified (see "Weekly satellite") | No (database only) |
 | A4 | The frozen-satellite recovery has an acknowledged owner and a tracked outcome | RESOLVED BY ITS OWNER. Both satellites were settled by the recovery lane's migration 20261109163346 `settle_capped_satellites_and_nov08_digest_v2` (PR #10200, merged 19:09:20Z): 6cb6f619 COMPLETED 2026-11-09 19:38:31Z, pool 1,003.00 finalized; 7a41f0a1 COMPLETED 19:38:41Z, pool 982.00 finalized; one `tournament_satellite_settlements` row each (read 00:15Z Nov 10). This lane made no mutation | No longer applicable |
 
 Other items closed in this task:
@@ -80,6 +80,37 @@ Other items closed in this task:
   | b0b29b72-5888-4e3b-96d0-1a7318583018 | 40 Chip Freezeout - 0 GTD (NLH) Satellite 5 | a5351c7c 40 Chip Freezeout - 2.5K GTD (NLH) | Satellite Into 40 Chip Freezeout (NLH) |
   | 9cfec282-d846-41e3-b592-158e8a8e8e6a | Grand Championship Satellite 10 | e6c16d67 Union Grand Championship (NLH) | Satellite Into Union Grand Championship (NLH) |
 
+- INSTALLED AND VERIFIED 2026-11-10. The 04:00 Chicago window on 2026-11-10 installed nothing (every
+  `stage-engine-release.yml` run that morning reported `daily_preparation=false`, so `window-migrations` was skipped). The
+  writer was fixed instead: 20261110144349 (#10339, merged cf1d72bc0 at 16:03:25Z) removes `name` and `short_description`
+  from the level clock's restamp of the weekly terms, which the creation guard already applies under the same condition.
+  A function replacement takes no lock on `tournaments`; the merge-time applier run 42851002311 installed it at
+  16:06:55Z. #10339 also carried the four-line `union_pnl_cash_outcomes` fixture fix from #10338/#10341 that every PR
+  needed for TypeScript Check that day.
+- Readback 16:07:06Z: history row 20261110144349 `the_level_clock_keeps_the_satellite_name`; the installed level clock
+  subtracts `name` and `short_description`; open misnamed satellites 0; open events saying "0 GTD" 0. Rows (all
+  REGISTERING, target unchanged):
+
+  | id | name now | target |
+  | --- | --- | --- |
+  | e0c83025-f40f-4810-9d47-e08d4bb16e99 | Satellite Into Sunday 200 Deep Stack | f5331b28 Sunday 200 Deep Stack |
+  | 7eae51cb-ea7d-406a-95a6-78ef1f7e829a | Satellite Into 40 Chip Freezeout (NLH) | 80e0c952 40 Chip Freezeout - 1.5K GTD (NLH) |
+  | d5621eac-fbc6-4004-bcc5-8bd4aedf3e8d | Satellite Into Sunday 200 Deep Stack | f5331b28 Sunday 200 Deep Stack |
+  | 01ad7670-8ff6-48cb-a30a-867cf205a74e | Satellite Into Union Mystery Bounty (PLO5) | 91ea137f Union Mystery Bounty (PLO5) |
+  | b0b29b72-5888-4e3b-96d0-1a7318583018 | Satellite Into 40 Chip Freezeout (NLH) | a5351c7c 40 Chip Freezeout - 2.5K GTD (NLH) |
+  | 9cfec282-d846-41e3-b592-158e8a8e8e6a | Satellite Into Union Grand Championship (NLH) | e6c16d67 Union Grand Championship (NLH) |
+
+  The maintained rule (`fn_ca_satellite_name_for_row`) gave both Sunday 200 feeders the plain name, not a "#2" form.
+- NATURAL SPAWN 1 (insert path): schedule b0b18d55-26de-428c-a016-6963e67433fe "Sunday Deep Stack Satellite 25", daily
+  11:15 America/Chicago, occurrence 2026-11-13 17:15Z; created 2026-11-10 17:15:26.976Z as 1339ddf3-8c28-4c56-bcab-
+  a05fd75fbffa, target f5331b28-3f2b-44c8-b35e-bd0c2281abb4 "Sunday 200 Deep Stack" (2026-11-15 19:00Z), name "Satellite
+  Into Sunday 200 Deep Stack" (equals the rule), one non-cancelled row for the slot, no "0 GTD". PASS.
+- NATURAL SPAWN 2 (the schedule that failed on 2026-11-09): schedule d84a104f-2e43-4514-8f5f-142566033956 "40 Chip
+  Freezeout - 0 GTD (NLH) Satellite 5", daily 09:45 America/Chicago, occurrence 2026-11-13 15:45Z; created 2026-11-10
+  18:00:29.752Z as 254bfa94-4813-4f9d-bf81-329565505418, target 8b9baf82-da04-45c4-99da-de7047e25cce "40 Chip Freezeout -
+  1.5K GTD (NLH)" (2026-11-13 18:00Z), name "Satellite Into 40 Chip Freezeout (NLH)" (equals the rule), one non-cancelled
+  row for the slot, no "0 GTD" in name or short description. PASS.
+
 ## Engine dependency
 
 - Database only, verified on the serving engine 391f7bc0 (which predates this work): deliverables 1-6 and items A1-A3.
@@ -88,13 +119,13 @@ Other items closed in this task:
 
 ## What this lane leaves open
 
-- A3: after the daily-window install of 20261109180446, read its history row and trigger, the renamed rows above, and the
-  first house weekly satellite created after it (one row per schedule occurrence, intended target, "Satellite Into ..."
-  name, no "0 GTD").
 - Owner acknowledgment not yet received: #9830 (certification leftovers, and the retirement rule for played clubs).
   Recorded as a standing handoff, not a completion gate. The certification workflow stays held: run 42638767037
   execution SUCCEEDED, certification UNKNOWN.
 - Nothing is in flight from this lane: no open PR, no running workflow, no worktree, no timer.
+- 20261109180446 (#10204) stays queued for a daily window (#10235). It is compatible with 20261110144349 and no longer
+  needed for correctness; it moves the copy trigger after the level clock when a window installs it.
+- READY TO ARCHIVE (2026-11-10 18:01Z): deliverables 1-6 live; A1, A2 and A3 passed; A4 settled by its owner.
 
 ## Deployed identities (read 2026-11-09 08:30Z)
 

@@ -59,6 +59,7 @@ export function WheelExperience({
   receipt,
   spinKey,
   spinning,
+  awaitingResult = false,
   onFinished,
   size,
   runMode = false,
@@ -70,6 +71,7 @@ export function WheelExperience({
   receipt: WheelSpinResult | null;
   spinKey: number;
   spinning: boolean;
+  awaitingResult?: boolean;
   onFinished: () => void;
   size: number;
   /** A run the player started: prizes go to the tally, no reveal opens per spin. */
@@ -203,6 +205,7 @@ export function WheelExperience({
             presentation="assembly"
             landingOrd={receipt?.outcome.ord ?? null}
             spinKey={spinKey}
+            awaitingResult={awaitingResult}
             spinning={spinning && phase === 'primary'}
             fitViewport={fitViewport}
             size={size}
@@ -238,7 +241,7 @@ export function WheelExperience({
                 : prize.kind === 'upgrade'
                   ? 'Your Upgrade Wheel Opens With Super Games And Instant Chip Wins. You Spin It Yourself.'
                   : prize.kind === 'bonus'
-                    ? 'Your Game Is Ready. Tap Play Game When You Are Ready To Play It.'
+                    ? 'Opening Your Awarded Game.'
                     : prize.grants
                       ? prize.grants
                           .map(
@@ -246,7 +249,9 @@ export function WheelExperience({
                               `${g.uses.toLocaleString()} ${inventoryNames[g.feature] ?? 'Reward'}${g.uses === 1 ? '' : 's'}`
                           )
                           .join(' + ') + ' Added To Your Account.'
-                      : 'Your Prize Has Been Added To Your Account.'
+                      : prize.kind === 'chips'
+                        ? 'Paid To Your Club Balance.'
+                        : 'Your Prize Has Been Added To Your Account.'
           }
           onOpen={() => {
             if (prize.kind === 'upgrade') {

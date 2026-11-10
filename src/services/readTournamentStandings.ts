@@ -15,8 +15,11 @@ export async function readTournamentStandings(
   let count: number | null = null;
   let cursor: string | null = null;
   for (;;) {
+    // The public view, not the table: it answers a closed person's username
+    // with the scrubbed profile's label, and the table hides those rows from
+    // ordinary readers, so standings read here keep every placement.
     let query = supabase
-      .from('tournament_players')
+      .from('tournament_players_public')
       .select(projection, cursor === null ? { count: 'exact' } : undefined)
       .eq('tournament_id', tournamentId)
       .order('id', { ascending: true })
