@@ -132,6 +132,7 @@ export function WheelWinReveal({
           animationDuration: `${480 * getAnimationSpeed()}ms`,
           animationPlayState: visible ? 'running' : 'paused',
         }}
+        data-receipt-game={prize.kind === 'bonus' ? prize.game : undefined}
         data-award-impact={
           prize.kind === 'bonus' || prize.kind === 'upgrade'
             ? 'burst'

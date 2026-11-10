@@ -388,7 +388,7 @@ for (const superGame of [false, true])
         );
         await sits(readouts, 'the Mines profit readouts');
         await expect(page.getByRole('button', { name: /^Tile / })).toHaveCount(25);
-        await expect(page.getByText('25 Tiles. Your Next Discovery Awaits.')).toBeVisible();
+        await expect(page.getByText('Preparing Your Board')).toBeVisible();
       }
 
       if (game === 'crash') {

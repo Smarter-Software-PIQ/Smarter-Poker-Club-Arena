@@ -43,6 +43,7 @@ export type CrossingMoment = 'landed' | 'hit' | 'booked';
 
 interface Props {
   game: ChoiceGame;
+  pendingMine?: number | null;
   picked: number[];
   mines: number[] | null;
   phase: 'idle' | 'open' | 'cashed' | 'lost';
