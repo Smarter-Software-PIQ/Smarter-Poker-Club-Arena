@@ -873,7 +873,7 @@
 
 /* ─── FOLD (Red) ──────────────────────────────────────────── */
 .action-panel .action-btn--fold {
-  background: linear-gradient(180deg, #f0524d 0%, #dc2626 40%, #7f1212 100%);
+  background: var(--action-paint-fold);
   box-shadow:
     0 4px 0 #4c0a0a,
     0 6px 20px rgba(220, 38, 38, 0.35),
@@ -883,7 +883,7 @@
 
 /* ─── CHECK ────────────────────────────────────────────────── */
 .action-panel .action-btn--check {
-  background: linear-gradient(180deg, #1587f8 0%, #0078ff 40%, #003a9e 100%);
+  background: var(--action-paint-call);
   box-shadow:
     0 4px 0 #002070,
     0 6px 20px rgba(21, 135, 248, 0.35),
@@ -893,7 +893,7 @@
 
 /* ─── CALL ─────────────────────────────────────────────────── */
 .action-panel .action-btn--call {
-  background: linear-gradient(180deg, #1587f8 0%, #0078ff 40%, #003a9e 100%);
+  background: var(--action-paint-call);
   box-shadow:
     0 4px 0 #002070,
     0 6px 20px rgba(21, 135, 248, 0.35),
@@ -908,7 +908,7 @@
    #34d374/#16a34a/#0b5426 - a different green from every other green in the
    app, on the single most-looked-at control in the product. */
 .action-panel .action-btn--raise {
-  background: linear-gradient(180deg, #4dc660 0%, #3fb950 40%, #2ea043 100%);
+  background: var(--action-paint-raise);
   box-shadow:
     0 4px 0 #063317,
     0 6px 20px rgba(63, 185, 80, 0.35),
@@ -931,7 +931,7 @@
 
 /* ─── ALL-IN — The big play (green family with the bet — item 8) ── */
 .action-panel .action-btn--allin {
-  background: linear-gradient(180deg, #4dc660 0%, #3fb950 40%, #2ea043 100%);
+  background: var(--action-paint-raise);
   box-shadow:
     0 4px 0 #063317,
     0 6px 20px rgba(63, 185, 80, 0.4),

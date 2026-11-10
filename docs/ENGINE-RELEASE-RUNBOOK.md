@@ -438,6 +438,8 @@ A failed observer never authorizes another cutover.
 
 ## 5. Verification checklist after a cutover
 
+For authenticated spectator continuity, open the original receiver's `sealed-spectator-<release-run>-<attempt>` artifact. The same WebKit context and reserved identity observe the predecessor, natural reconnect and committed hand on the same occupied cash table. The receiver compares the witness with its sealed instance and container start after fixture cleanup. Late arrival, loss of the table, missing evidence or cleanup failure leaves this observation unverified. The release owner proceeds independently.
+
 Run every line; record the outputs in the changelog for the day.
 
 ```sh

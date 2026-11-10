@@ -227,6 +227,33 @@ Three terminal PLO4 preflop spots across two Spins and one heads-up SNG had no a
 
 In 13 separate heads-up one-paid hold'em decisions, ten calls gained chips under uniform holdings and three lost chips. Limiting each compatible holding to twice its uniform weight left only five calls positive under every permitted range. At five times uniform one remained and at ten times none remained strictly positive under every allowed allocation. These ranges and one-paid models cannot establish a multi-place bubble verdict.
 
+## Reviewing the alternatives across all 48 entries
+
+The nine frozen volumes contain 554 candidate flags across 495 distinct decisions. A decision can appear in both a hand-strength review and a full-house rule review. The three comparisons below use the original legal menus and chips still available to match. The action someone eventually took cannot price an alternative.
+
+**Could a call have earned more by raising?** Eleven entries contain 105 river calls, including 68 in high-only PLO4/5/6. Across the 105 menus there were 193 distinct legal raise endpoints indexed by decision. For an intermediate permitted size, subtract the Horse's prior street contribution and call price from the raise-to amount to get the extra investment. At each other seat, cap additional matched chips at that player's remaining contribution capacity over the current price. Chips beyond the largest opposing capacity must return uncalled.
+
+In eight cases a larger wager was legal but no opponent could match another chip. In the remaining 97, 95 high-only holdings could lose to at least one legal opposing hand, and two FLO8 holdings required separate high and low shares. In 37 of the 105 cases an eligible human could match extra chips. Against a single fully matched caller with unchanged fees, each additional chip gains one when ahead and loses one when behind. A raise also changes which hands continue and whether they reraise. The audit establishes no missed absolute-nut value raise in these 105 calls. The independently established nut-straight flat call belongs to a separate screen.
+
+**Was a check a checkback, and what price did a fold decline?** Across another 24 entries, all 242 position-and-inducement checks left a player to act. All 28 checkbacks closed the river. Each of these 270 decisions had a legal bet size. Checking through is a valid showdown baseline for the closing group. In the other group, include the pending players' bets and the Horse's response. All 22 strong folds had a gross call-price comparison, including 16 with a normal raise available. In two short-stack PLO6 pots, reconstructing the contestable amounts gave thresholds of 10.66/84.10 (12.68%) and 13.04/45.89 (28.42%) before rake. A price alone cannot identify the opponent range or establish that a fold lost chips.
+
+**Would the sealed full-house rule have changed the recorded action?** In the remaining 13 entries, the source predicate for checked-to non-bottom boats passed on all 49 original checked hands. Among 108 historical decisions facing a wager, applying the isolated call rule from the sealed revision changes 18 original actions to calls: nine all-ins, seven raises and two folds. The other 90 actions pass through this component. These are offline comparisons against the original decision state. A production behavior claim requires its own accepted action, and a strategic EV verdict requires a priced response range.
+
+### How concentrated can the river bettor's range be before a call loses value?
+
+Across the 18 historical decisions changed to calls by the sealed large-wager component, exact enumeration covered 27,713,130 compatible single-opponent holdings summed across boards. Under uniform holdings, the Horse's heads-up showdown share ranged from 77.43% to 99.34%. A stronger hand was possible at every node, and two decisions actually had multiple opponents. A high share against uniformly dealt cards leaves open how strong the range is after a river bet.
+
+Ten of those 18 were cash hands with one remaining opponent, equal final contributions after a call, and no folded seat with a higher contribution. In these ten, assign the worst possible range for the Horse while limiting each holding's probability relative to uniform. With a conservative upper bound on fees, calling beats folding in all ten at a 2× limit, nine at 5× and six at 10×. A 5× limit means any specific holding may carry at most five times its uniform probability and all probabilities still sum to one. The other eight lacked this exact comparison geometry. To rank a raise, also price how much the opponent can match and which holdings call or reraise.
+
+The two short-stack PLO6 river fold examples illustrate how this changes an individual decision. Each has one live opponent and 4,496,388 compatible six-card holdings after card removal, counting ties. With the captured BBJ disabled and rake caps of 0.31 or 0.62 chips, the fee-adjusted thresholds and shares were:
+
+| Horse's full house   | Share required to call | Share against uniform holdings | Share against full houses or better |
+| -------------------- | ---------------------: | -----------------------------: | ----------------------------------: |
+| Tens full of queens  |          12.72%–12.77% |                         67.52% |                              55.98% |
+| Queens full of fours |          28.61%–28.80% |                         37.31% |                              15.71% |
+
+For tens full of queens, conditioning on opponents who tie or beat it reduces its share to 2.23%. For queens full of fours, moving from uniform holdings to full houses or better moves the call from a gain of 3.85–3.97 chips to a loss of 5.88–5.93 chips relative to folding. The opponent's actual betting range remains unmeasured. These comparisons support different actions under different ranges and do not assign a realized loss to either historical fold.
+
 ## Loading and verifying a correction
 
 The [machine-readable entry directory](./HORSE-HUMAN-PLAYBOOK-ENTRIES.json) lists each situation, its candidate counts, owner, required evidence and source qualification routes. The core entries account for 538 flags. Later frozen volumes add 16 flags to those same entries. A decision can carry multiple flags. The frozen manifest maps 48 distinct entries across 14 game, format and speed combinations to their qualification paths. The candidate counts overlap. Each entry still needs its own decision inputs, policy artifact and receipt. None of the 48 entries carries a qualified artifact in the frozen manifest. To assess a later release, use its exact revision and the accepted receipt from the Horse that consumed it.

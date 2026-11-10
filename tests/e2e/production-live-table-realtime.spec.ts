@@ -13,7 +13,7 @@ import {
 } from './support/naturalBoardReveal';
 import { createClient } from '@supabase/supabase-js';
 import { execFileSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import {
   horseSocialFrames,
   horseSocialTableEligible,
@@ -2142,6 +2142,164 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
   test.beforeEach(async ({ browserName }, testInfo) => {
     requireCertificationConfiguration(testInfo, browserName);
   });
+
+  if (process.env.CUTOVER_SPECTATOR_TARGET) {
+    test('an authenticated spectator spans the original production engine replacement', async ({
+      page,
+      request,
+    }, testInfo) => {
+      testInfo.setTimeout(45 * 60_000);
+      const target = process.env.CUTOVER_SPECTATOR_TARGET!;
+      const fixture = JSON.parse(readFileSync(process.env.E2E_TEST_ACCOUNT_FILE!, 'utf8'));
+      const subject = () =>
+        page.evaluate(
+          () => JSON.parse(localStorage.getItem('smarter-poker-auth') ?? 'null')?.user?.id
+        );
+      const journal = new EngineSocketJournal(page);
+      const mutations: string[] = [];
+      await page.route('**/*', async (route) => {
+        const req = route.request();
+        if (isSpectatorParticipationMutation(req.method(), req.url())) {
+          mutations.push(new URL(req.url()).pathname);
+          return route.abort();
+        }
+        return route.continue();
+      });
+      const selected = await selectOccupiedRunningCashTables(page, request);
+      const { candidate } = selected.tables[0];
+      const tableId = candidate.id;
+      await page.goto(`table/${tableId}`);
+      await expect(page).toHaveURL((url) => url.pathname.endsWith(`/table/${tableId}`));
+      const initial = await journal.waitForFrame(
+        { direction: 'received', tableId, type: 'SNAPSHOT' },
+        30_000,
+        'Missing predecessor snapshot'
+      );
+      expect(await subject()).toBe(fixture.id);
+      const identity = async () => {
+        const res = await request.get(ENGINE_HEALTH_URL, {
+          params: { cb: Date.now() },
+          timeout: 5000,
+        });
+        if (!res.ok()) throw new Error('Serving identity unavailable');
+        return await res.json();
+      };
+      const before = await identity();
+      expect(before.releaseSha).toBe(EXPECTED_ENGINE_SHA);
+      expect(before.releaseSha).not.toBe(target);
+      expect(before.instanceId).toMatch(/^[1-9][0-9]*-[0-9a-f]{8}$/);
+      expect(before.maintenance?.active).toBe(false);
+      const armedAt = Date.now();
+      expect(journal.transportIdsOpenAt(armedAt)).toEqual([initial.socketId]);
+      expect(journal.openTransportUrls().map((url) => new URL(url).pathname)).toEqual([
+        '/ws/multi',
+      ]);
+      await expect
+        .poll(
+          async () => {
+            try {
+              const health = await identity();
+              return health.releaseSha === target && health.maintenance?.active === false;
+            } catch {
+              return false;
+            }
+          },
+          { timeout: 39 * 60_000, intervals: [5000] }
+        )
+        .toBe(true);
+      const after = await identity();
+      expect(after.releaseSha).toBe(target);
+      expect(after.instanceId).not.toBe(before.instanceId);
+      await expect.poll(() => journal.areTransportsClosed([initial.socketId])).toBe(true);
+      const since = Date.now();
+      const cycle = await journal.waitForCausalHandCycle(
+        tableId,
+        since,
+        240_000,
+        MAX_GAMEPLAY_SILENCE_MS,
+        'No natural post-replacement hand boundary'
+      );
+      const [socket] = journal.transportIdsOpenAt(Date.now());
+      expect(journal.openTransportCount()).toBe(1);
+      expect(socket).not.toBe(initial.socketId);
+      expect(journal.openTransportUrls().map((url) => new URL(url).pathname)).toEqual([
+        '/ws/multi',
+      ]);
+      for (const [direction, type] of [
+        ['sent', 'SUBSCRIBE'],
+        ['received', 'SUBSCRIBED'],
+        ['received', 'SNAPSHOT'],
+      ] as const) {
+        expect(
+          journal
+            .matchingFrames({ direction, type, tableId, since: armedAt })
+            .some((frame) => frame.socketId === socket && frame.at <= cycle.completedAt)
+        ).toBe(true);
+      }
+      expect(await subject()).toBe(fixture.id);
+      expect(mutations).toEqual([]);
+      expect(journal.matchingFrames({ direction: 'sent', tableId, type: 'ACTION' })).toEqual([]);
+      const db = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+      const hand = await db
+        .from('hand_history')
+        .select('created_at')
+        .eq('table_id', tableId)
+        .eq('hand_number', cycle.handNumber)
+        .single();
+      expect(hand.error).toBeNull();
+      expect(Date.parse(hand.data!.created_at)).toBeGreaterThan(armedAt);
+      const boundary = await db
+        .from('engine_maintenance_break_log')
+        .select('break_started_at,break_ended_at')
+        .eq('engine_version', target.slice(0, 8))
+        .eq('thaw_ok', true)
+        .gte('break_started_at', new Date(armedAt).toISOString())
+        .lte('break_ended_at', hand.data!.created_at)
+        .single();
+      expect(boundary.error).toBeNull();
+      const freeze = Date.parse(boundary.data!.break_started_at);
+      const thaw = Date.parse(boundary.data!.break_ended_at);
+      expect(journal.transportIdsOpenAt(freeze)).toEqual([initial.socketId]);
+      expect(
+        journal
+          .gameplayEventFacts(tableId, since)
+          .filter((fact) => fact.at <= cycle.nextHandStartedAt)
+          .every((fact) => fact.frame.socketId === socket)
+      ).toBe(true);
+      const restoredSnapshot = journal
+        .matchingFrames({
+          direction: 'received',
+          tableId,
+          type: 'SNAPSHOT',
+          since: freeze,
+        })
+        .find((frame) => frame.socketId === socket);
+      expect(restoredSnapshot).toBeDefined();
+      const final = await identity();
+      expect(final.releaseSha).toBe(target);
+      expect(final.instanceId).toBe(after.instanceId);
+      writeFileSync(
+        'cutover-spectator.json',
+        JSON.stringify({
+          runId: `${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`,
+          target,
+          predecessor: before.releaseSha,
+          beforeInstance: before.instanceId,
+          afterInstance: after.instanceId,
+          tableId,
+          armedAt,
+          handNumber: cycle.handNumber,
+          freeze,
+          thaw,
+          restoredAt: restoredSnapshot!.at,
+          committedAt: hand.data!.created_at,
+          sameAuthenticatedSpectator: true,
+        })
+      );
+    });
+  }
 
   for (const gameFormat of TOURNAMENT_FORMATS) {
     test(`an already-running ${gameFormat.toUpperCase()} table stays realtime and recovers one owner`, async ({

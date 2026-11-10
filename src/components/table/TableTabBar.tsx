@@ -39,6 +39,7 @@ export interface TabInfo {
   pot?: number;
   /** Public engine hand identity reported by the owning table page. */
   handNumber?: number;
+  buttonTheme?: string;
   isAutoRebuyEnabled?: boolean;
   /** The owning table page's `seatCanAddFunds` answer for this seat. `false`
    *  removes Top Up and Auto Top Up from the hamburger (B12, 2026-09-19): a
@@ -899,6 +900,7 @@ export function TableTabBar({
           return (
             <button
               key={tab.id}
+              data-button-theme={tab.buttonTheme || 'classic-white'}
               className={[
                 'table-tab-bar__tab',
                 isActive && 'table-tab-bar__tab--active',

@@ -7,7 +7,11 @@ import {
 } from './terminalDurableRequest.js';
 import { freezeTerminalRequest, type TerminalRequestIdentity } from './terminalRequestIdentity.js';
 import { maintenanceSupabase } from '../services/supabase.js';
-import { isDeterministicSettlementRefusal } from './settlementRefusal.js';
+import {
+  isDeterministicSettlementRefusal,
+  isLaneContention,
+  isRolledBackStatementError,
+} from './settlementRefusal.js';
 import {
   verifySatelliteSettlementReceipt,
   type VerifiedSatelliteSettlementReceipt,
@@ -32,7 +36,20 @@ export class SatelliteSettlementOutcomeUnknownError extends Error {
 
 interface SatelliteSettlementRetryOptions {
   attempts?: number;
+  resolverAttempts?: number;
   wait?: (delayMs: number) => Promise<void>;
+}
+
+function databaseStatedRollback(error: unknown): boolean {
+  if (!error || typeof error !== 'object' || Array.isArray(error)) return false;
+  const code = (error as { code?: unknown }).code;
+  return (
+    isRolledBackStatementError(error) || (typeof code === 'string' && /^PGRST\d{3}$/.test(code))
+  );
+}
+
+function isRetryableResolverError(error: unknown): boolean {
+  return isLaneContention(error);
 }
 
 // Satellite settlement permits 30 seconds in PostgreSQL and its serialized
@@ -72,7 +89,7 @@ function record(value: unknown): Record<string, unknown> {
 export type OriginalSatelliteOutcome =
   | { state: 'committed'; receipt: VerifiedSatelliteSettlementReceipt }
   | { state: 'not_committed' }
-  | { state: 'unknown'; reason: string };
+  | { state: 'unknown'; reason: string; error?: unknown; retry?: boolean };
 
 /** Serialized read of one original satellite request; never invokes settlement. */
 export async function resolveOriginalSatelliteOutcome(
@@ -103,7 +120,13 @@ async function resolveOriginalSatelliteOutcomeWithArgs(
     const { data, error } = durable
       ? await resolveDurableTerminalRequest(durable)
       : await authority.rpc('fn_resolve_satellite_settlement_outcome', args);
-    if (error) return { state: 'unknown', reason: errorMessage(error) };
+    if (error)
+      return {
+        state: 'unknown',
+        reason: errorMessage(error),
+        error,
+        retry: isRetryableResolverError(error),
+      };
     const outcome = record(data);
     const exact =
       outcome.ok === true &&
@@ -133,7 +156,12 @@ async function resolveOriginalSatelliteOutcomeWithArgs(
       return { state: 'not_committed' };
     return { state: 'unknown', reason: 'serialized outcome shape was invalid' };
   } catch (error) {
-    return { state: 'unknown', reason: errorMessage(error) };
+    return {
+      state: 'unknown',
+      reason: errorMessage(error),
+      error,
+      retry: isRetryableResolverError(error),
+    };
   }
 }
 
@@ -151,6 +179,7 @@ export async function requestSatelliteSettlementReceipt(
   options: SatelliteSettlementRetryOptions = {}
 ): Promise<VerifiedSatelliteSettlementReceipt> {
   const attempts = Math.max(1, Math.min(8, Math.trunc(options.attempts ?? 5)));
+  const resolverAttempts = Math.max(1, Math.min(5, Math.trunc(options.resolverAttempts ?? 3)));
   const wait = options.wait ?? defaultWait;
   const request = {
     p_tournament_id: tournamentId,
@@ -164,6 +193,7 @@ export async function requestSatelliteSettlementReceipt(
   const durable = await prepareDurableTerminalRequest(originalRequest);
   let lastFailure = 'satellite settlement returned no receipt';
   let attemptedWrites = 0;
+  let unprovenAttempts = 0;
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
@@ -174,29 +204,53 @@ export async function requestSatelliteSettlementReceipt(
       if (!error) {
         const receipt = verifySatelliteSettlementReceipt(data, tournamentId, observedWinnerId);
         if (receipt) return receipt;
+        unprovenAttempts++;
         lastFailure = 'satellite settlement returned an invalid stored receipt';
       } else {
+        if (!databaseStatedRollback(error)) unprovenAttempts++;
         lastFailure = errorMessage(error);
         if (isDeterministicSettlementRefusal(error, tournamentId)) break;
       }
     } catch (error) {
+      unprovenAttempts++;
       lastFailure = errorMessage(error);
     }
 
     if (attempt < attempts) await wait(200 * 2 ** (attempt - 1));
   }
 
-  const resolved = await resolveOriginalSatelliteOutcomeWithArgs(originalRequest, request, durable);
-  if (resolved.state === 'committed') return resolved.receipt;
-  if (resolved.state === 'not_committed') {
-    if (durable && !(await closeDurableTerminalRequest(durable)))
-      throw new SatelliteSettlementOutcomeUnknownError(
-        'Original satellite request close is unproven',
-        originalRequest
-      );
-    throw new SatelliteSettlementRefusedError(lastFailure);
+  let resolved: OriginalSatelliteOutcome = {
+    state: 'unknown',
+    reason: 'serialized outcome check did not run',
+  };
+  for (let resolverAttempt = 1; resolverAttempt <= resolverAttempts; resolverAttempt++) {
+    resolved = await resolveOriginalSatelliteOutcomeWithArgs(originalRequest, request, durable);
+    if (resolved.state === 'committed') return resolved.receipt;
+    if (resolved.state === 'not_committed') {
+      if (durable && !(await closeDurableTerminalRequest(durable)))
+        throw new SatelliteSettlementOutcomeUnknownError(
+          'Original satellite request close is unproven',
+          originalRequest
+        );
+      throw new SatelliteSettlementRefusedError(lastFailure);
+    }
+    if (!resolved.retry || resolverAttempt === resolverAttempts) break;
+    await wait(500 * 2 ** (resolverAttempt - 1));
   }
+
+  const resolverRolledBack = resolved.error ? databaseStatedRollback(resolved.error) : false;
   lastFailure = `${lastFailure}; serialized outcome check failed: ${resolved.reason}`;
+
+  if (
+    attemptedWrites > 0 &&
+    unprovenAttempts === 0 &&
+    resolverRolledBack &&
+    (!durable || (await closeDurableTerminalRequest(durable)))
+  ) {
+    throw new SatelliteSettlementRefusedError(
+      `${lastFailure}; all ${attemptedWrites} attempt(s) were rolled back by the database, so none committed`
+    );
+  }
 
   throw new SatelliteSettlementOutcomeUnknownError(
     `Satellite settlement outcome is unknown after ${attemptedWrites} identical attempt(s): ${lastFailure}`,

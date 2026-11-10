@@ -1375,7 +1375,7 @@
 
 /* ─── FOLDED ──────────────────────────────────────────────────────────── */
 
-.seat--folded {
+.seat--folded > :not(.seat__bounty) {
   /* Dan 2026-08-15: 0.4 was near-invisible on the dark felt -- "you can
      barely see the players". Folded now reads as clearly OUT via heavier
      desaturation while staying clearly VISIBLE via higher opacity. */
@@ -2893,8 +2893,12 @@
   box-sizing: border-box;
   justify-content: center;
   border-radius: 999px;
-  background: #1877f2;
-  border: none;
+  background:
+    var(--action-control-overlay, linear-gradient(transparent, transparent)),
+    var(--action-paint-call);
+  border: var(--action-control-border);
+  border-radius: var(--action-control-radius);
+  gap: 2px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
   color: #ffffff;
   font-size: 0.72rem;
@@ -5079,4 +5083,10 @@
 .table-page .seat:not(.seat--empty) {
   translate: var(--sp-opponent-x, 0px) var(--sp-opponent-y, 0px) !important;
   rotate: 0deg !important;
+}
+
+.seat__bounty::before {
+  content: '⌖' / '';
+  font-size: 1em;
+  line-height: 1;
 }
