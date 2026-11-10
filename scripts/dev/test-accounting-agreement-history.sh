@@ -42,6 +42,10 @@ PY
   -f "$root/tests/fixtures/accounting-agreement-history/regression.sql" \
   -f "$root/tests/fixtures/accounting-agreement-history/eco-regression.sql"
 
+# Independent cash/tournament ECO terms and immutable component records use
+# this same owned cluster and the existing required agreement-history route.
+bash "$root/scripts/dev/test-dual-eco.sh" "$fixture" "$pgbin"
+
 # The member role editor writes the same observed agreement history. Qualify
 # its original RPC and explicit-zero consumer alongside this existing CI gate.
 TMPDIR="${TMPDIR:-${RUNNER_TEMP:?Set An Owned Scratch Directory}}" bash "$root/scripts/dev/test-member-rakeback.sh"
