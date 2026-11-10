@@ -3365,6 +3365,17 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       // race (#2318): a delayed continuation acting on whatever controller
       // the table holds when it wakes.
       const controllerAtBeat = this.handController;
+      const preActionClock = this.horseActionableClock;
+      if (
+        preActionClock &&
+        controllerAtBeat &&
+        preActionClock.seat === seat &&
+        preActionClock.context === playerActionContext(controllerAtBeat)
+      ) {
+        // This visible pre-action already owns an actionable turn. A refusal
+        // may arm its first timer below, but must retain this earlier start.
+        preActionClock.armed = true;
+      }
       await this.weeklyPayoutContinuation(this.sleepHand(this.preActionVisibleMs));
       // The hand can be replaced while we hold that beat.
       if (
