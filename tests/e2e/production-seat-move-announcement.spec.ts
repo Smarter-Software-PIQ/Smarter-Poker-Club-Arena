@@ -164,15 +164,15 @@ test('the published table explains controlled seat moves without moving a player
       client.onMessage((message) => {
         // Every upstream socket, including Realtime, is read-only during this
         // phase. Never forward synthetic client participation or diagnostics.
+        if (syntheticPhase && engine && destinationId) {
+          const frame = JSON.parse(String(message));
+          if (frame.type === 'SUBSCRIBE' && frame.tableId === destinationId) {
+            destinationSocket = client;
+            client.send(JSON.stringify({ type: 'SUBSCRIBED', tableId: destinationId }));
+          }
+        }
         if (syntheticPhase) {
           refusedSynthetic.websocket++;
-          if (engine && destinationId) {
-            const frame = JSON.parse(String(message));
-            if (frame.type === 'SUBSCRIBE' && frame.tableId === destinationId) {
-              destinationSocket = client;
-              client.send(JSON.stringify({ type: 'SUBSCRIBED', tableId: destinationId }));
-            }
-          }
           return;
         }
         if (!engine) {
