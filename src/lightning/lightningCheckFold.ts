@@ -186,3 +186,28 @@ export function lightningCheckFoldRestoreDue(input: {
   if (input.preAction !== null || input.heroTurn || input.callDue > 0) return false;
   return !!input.heroStatus && input.heroStatus !== 'folded' && input.heroStatus !== 'all_in';
 }
+
+/**
+ * WHAT THE HERO OWES, FROM THE ENGINE (2026-11-10, Dan in the big blind:
+ * "i clicked check fold but it didn't move me"). The pre-action bar judged
+ * "owes nothing" from the page's per-seat bet display, which can trail the
+ * hero's own posted blind by a frame. In that frame the big blind's bar
+ * offered Fold instead of Check/Fold and armed the wrong thing. This reads the
+ * same two numbers lightningFoldOnTurn reads (the hand's current bet and the
+ * hero's bet on the engine's snapshot), so the bar, its arm and the Lightning
+ * fold all agree. null when the snapshot cannot say: the caller keeps its own.
+ */
+export function lightningHeroToCall(
+  snapshot: Record<string, unknown> | null | undefined,
+  userId: string | null | undefined
+): number | null {
+  if (!snapshot || !userId) return null;
+  const players = snapshot.players;
+  const price = snapshot.current_bet;
+  if (!Array.isArray(players) || typeof price !== 'number' || !Number.isFinite(price)) return null;
+  const hero = players.find(
+    (p) => p && typeof p === 'object' && (p as { user_id?: unknown }).user_id === userId
+  ) as { bet?: unknown } | undefined;
+  if (!hero || typeof hero.bet !== 'number' || !Number.isFinite(hero.bet)) return null;
+  return Math.max(0, Math.round((price - hero.bet) * 100) / 100);
+}

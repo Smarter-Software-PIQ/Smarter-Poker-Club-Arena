@@ -656,8 +656,11 @@ describe('conversion of an already seated player', () => {
     );
     /* Check/Fold while checking is free arms the ordinary auto check/fold:
        an immediate fold there would throw away a free look (2026-10-24). */
+    // 2026-11-10: a Lightning room reads the engine's own current bet and
+    // hero bet first; the per-seat display is the fallback (Classic, or a
+    // snapshot that cannot say).
     expect(PAGE).toMatch(
-      /const heroOwesNothing =\s+\(tableState\.currentBet \|\| 0\) <=\s+\(tableState\.lastBetAmounts\?\.\[tableState\.heroSeat - 1\] \|\| 0\);/
+      /const heroOwesNothing =\s+lightningOwes !== null\s+\? lightningOwes <= 0\s+: \(tableState\.currentBet \|\| 0\) <=\s+\(tableState\.lastBetAmounts\?\.\[tableState\.heroSeat - 1\] \|\| 0\);/
     );
     expect(PAGE).toContain('if (lightningFoldBusyRef.current) return;');
     expect(PAGE).toContain('lightningFoldOnTurn(engineSnapshotRef.current, userId, kind)');
