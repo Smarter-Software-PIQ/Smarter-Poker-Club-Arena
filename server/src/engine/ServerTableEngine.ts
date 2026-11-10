@@ -108,6 +108,7 @@ export class ServerTableEngine extends ServerTableEngineHandEvents {
         time_bank_remaining: this.timeBankEngine.getRemainingSeconds(this.tableId, p.user_id),
         time_bank_uses_remaining: this.timeBankEngine.getUsesRemaining(this.tableId, p.user_id),
         position: '',
+        is_waiting_for_button: this.waitingForButton.get(p.seat_number) === p.user_id,
         is_waiting_for_bb: this.waitingForBB.has(p.user_id),
         hand_name: '',
         ...this.chipContinuity.seatFields(p.user_id, p.stack),
@@ -701,12 +702,14 @@ export class ServerTableEngine extends ServerTableEngineHandEvents {
         is_folded: false,
         is_all_in: false,
         is_sitting_out:
+          this.waitingForButton.get(p.seat_number) === p.user_id ||
           this.waitingForBB.has(p.user_id) ||
           this.disconnectEngine.isSittingOut(this.tableId, p.user_id),
         is_disconnected: !this.disconnectEngine.isConnected(this.tableId, p.user_id),
         time_bank_remaining: this.timeBankEngine.getRemainingSeconds(this.tableId, p.user_id),
         time_bank_uses_remaining: this.timeBankEngine.getUsesRemaining(this.tableId, p.user_id),
         position: '',
+        is_waiting_for_button: this.waitingForButton.get(p.seat_number) === p.user_id,
         is_waiting_for_bb: this.waitingForBB.has(p.user_id),
         hand_name: '',
         // CHIP CONTINUITY: the stay clock keeps counting between hands, so the
