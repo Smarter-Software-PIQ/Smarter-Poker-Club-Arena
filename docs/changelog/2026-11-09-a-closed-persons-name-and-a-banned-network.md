@@ -43,6 +43,48 @@ hook and its closed list. Installing it changes nothing until the hook is
 enabled in the project's Auth configuration; enablement, the listed networks
 and the live checks are recorded in the pull request that completes this work.
 
+## Stage record (2026-11-10 UTC)
+
+Gap 1:
+
+- `20261109235153` merged in #10253. Its dispatch fell in the applier's
+  break-window budget (a CONCURRENTLY preamble needs 12 minutes before :50), so
+  it is dispatched by hand after :03, as the dispatcher's summary directs.
+- Found before any client read the view: a function named in a view runs with
+  the reader's privileges, and anon may not execute `fn_is_platform_admin`, so
+  a signed-out read of `username` through the view would have been refused.
+  `20261110004344` replaces the view with the staff test written as a read of
+  `profiles`. Forward migration; the first file is not edited.
+- `20261110003726` is the read policy, queued for the daily maintenance
+  window: one RESTRICTIVE policy for `authenticated` (staff exempt) and one for
+  `anon` that names no function anon cannot call.
+- Client: `readTournamentStandings` and the archive's Biggest Hits read ask
+  `tournament_players_public`. Those two reads serve the results archive, the
+  tournament detail entries and the table standings.
+- Until the policy installs, the REST API still answers a direct read of the
+  table with the recorded name.
+
+Gap 2:
+
+- `20261109235402` installed from main (schema_migrations row read back). The
+  list holds the four addresses; each is refused by the function, a neighbour
+  address and an IPv6 address are allowed.
+- The hook was enabled in the project's Auth configuration at 00:43:52 UTC
+  and read back.
+- Live, from an origin the task controls, through the real Auth endpoint
+  (`/auth/v1/otp`, which the browser calls on the Supabase host directly and
+  which never passes Vercel): unlisted, the request passed the hook; with a
+  temporary rule for that origin it was refused 403 with the hook's message;
+  with the rule removed it passed again. Every attempt used a made-up address
+  that was on the email ban list for the test, so no account was created. The
+  temporary rule and the temporary email entry were removed and read back.
+  Ordinary signups continued after enablement.
+- The address Auth acts on is the one Supabase's own edge observed for the
+  connection. No forwarding header sent by a client was treated as proof.
+
+What an address rule cannot do is unchanged: a different network is a
+different request.
+
 ## Laws
 
 - `tests/a-closed-persons-tournament-name-is-not-public.law.test.ts`
