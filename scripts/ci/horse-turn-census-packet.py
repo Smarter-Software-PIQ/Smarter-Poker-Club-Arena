@@ -152,7 +152,9 @@ def partition_packets(packet):
     return parts
 
 TURN_FIELDS={'actorIndex','handKey','actionOrdinal','stage','action','origin','expectedBinding','capture','execution','selection','inputBinding','publicRead','historicalRead','handReconciliation','phases'}
-TURN_ENUMS={'expectedBinding':{'unknown','matched','contradictory'},'capture':{'missing','present','ambiguous'},'execution':{'missing','ambiguous','intended','coerced','retired','unknown'},'selection':{'unknown','matched'},'inputBinding':{'unknown','canonical_digest_and_read_frame','original_discard_request_and_controller'},'publicRead':{'unknown','pooled_public','independent','unqualified','not_applicable'},'historicalRead':{'unknown','loaded','pending','unavailable','volatile_only','not_applicable'},'handReconciliation':{'unknown','reconciled','incomplete'}}
+SUBSTITUTIONS={'authority_withdrawn','worker_amount_changed','worker_action_changed','whole_stack_all_in','controller_action_changed','controller_amount_changed'}
+FALLBACK_COMPARISONS={'fallback_lineage_unavailable','fallback_lineage_ambiguous','fallback_worker_action_differs','fallback_worker_amount_differs','fallback_worker_wager_agrees'}
+TURN_ENUMS={'expectedBinding':{'unknown','matched','contradictory'},'capture':{'missing','present','ambiguous'},'execution':{'missing','ambiguous','intended','coerced','retired','unknown'},'selection':{'unknown','matched'}|SUBSTITUTIONS|FALLBACK_COMPARISONS,'inputBinding':{'unknown','canonical_digest_and_read_frame','original_discard_request_and_controller'},'publicRead':{'unknown','pooled_public','independent','unqualified','not_applicable'},'historicalRead':{'unknown','loaded','pending','unavailable','volatile_only','not_applicable'},'handReconciliation':{'unknown','reconciled','incomplete'}}
 PHASE_ENUMS={'status':{'applicable-active','shadow','refused','outside-domain','unobserved','unknown'},'eligibility':{'eligible','outside-domain','unknown'},'application':{'accepted','not-selected','shadow','refused','not-applicable','unknown'},'capability':{'captured','unobserved'},'qualification':{'verified','owner-forced','unknown','refused'}}
 
 def expected_rows(packet):
@@ -190,6 +192,13 @@ def validate_turn(row, contextual=False, ranged=False, planned=False):
     if type(row['actorIndex']) is not int or not 0<=row['actorIndex']<1000 or type(row['actionOrdinal']) is not int or not 0<=row['actionOrdinal']<MAX_ACTIONS or not isinstance(row['handKey'],str) or not re.fullmatch('[0-9a-f]{64}',row['handKey']) or row['stage'] not in STAGES or row['action'] not in ACTIONS or row['origin'] not in ORIGINS:raise ValueError('turn_domain')
     for k,values in TURN_ENUMS.items():
         if row[k] not in values:raise ValueError('turn_status')
+    selection=row['selection']
+    if selection in FALLBACK_COMPARISONS and any(row[k]!=v for k,v in {'origin':'horse_fallback','expectedBinding':'matched','execution':'missing','capture':'missing','inputBinding':'unknown'}.items()):
+        raise ValueError('fallback_is_not_worker_execution')
+    if selection in SUBSTITUTIONS and (row['capture']!='present' or row['handReconciliation']!='reconciled' or row['expectedBinding']!='matched' or row['execution'] not in ('intended','coerced') or
+            (selection in ('whole_stack_all_in','controller_action_changed','controller_amount_changed') and row['execution']!='coerced') or
+            (selection=='whole_stack_all_in' and row['action']!='all_in')):
+        raise ValueError('selection_comparison_unbound')
     if contextual and row['contextBinding'] not in ('unknown','matched','contradictory'):raise ValueError('turn_context_binding')
     if contextual and ((row['contextBinding']=='matched' and (row['inputBinding']!='canonical_digest_and_read_frame' or row['capture']!='present' or row['expectedBinding']!='matched' or row['handReconciliation']!='reconciled')) or (row['inputBinding']=='canonical_digest_and_read_frame' and row['contextBinding']!='matched')):raise ValueError('turn_context_consumption')
     if contextual and (row['historyReason'] not in HISTORY_REASONS or (row['historyReason']!='unknown' and row['inputBinding']!='canonical_digest_and_read_frame')):raise ValueError('turn_history_reason')
@@ -301,7 +310,11 @@ def ledger_summary(ledger):
         cell=by_context.setdefault(key,{'expectedTurns':0,'matchedContextTurns':0,'actors':set()});cell['expectedTurns']+=1
         if r.get('contextBinding')=='matched':cell['matchedContextTurns']+=1;cell['actors'].add(r['actorIndex'])
     by_context={k:{**v,'actors':sorted(v['actors'])} for k,v in by_context.items()}
-    return {'contextEvidence':by_context,'turnCensusLedger':ledger,'nonDecisionDiagnostics':diagnostics,'expectedTurns':len(rows),'observedHorses':len(observed),'unobservedHorses':1000-len(observed),'missingTurns':sum(r['capture']=='missing' for r in rows),'contradictoryTurns':sum(r['expectedBinding']=='contradictory' for r in rows),'inputBoundTurns':sum(r['inputBinding']=='canonical_digest_and_read_frame' for r in rows),'discardInputBoundTurns':sum(r['inputBinding']=='original_discard_request_and_controller' for r in rows),'completePopulation':False,'allPhasesVerified':False,'durablePersistenceVerified':False,'strategyCorrectnessVerified':False}
+    selection_counts={}
+    for row in rows:
+        key=row['selection']
+        selection_counts[key]=selection_counts.get(key,0)+1
+    return {'selectionCounts':selection_counts,'contextEvidence':by_context,'turnCensusLedger':ledger,'nonDecisionDiagnostics':diagnostics,'expectedTurns':len(rows),'observedHorses':len(observed),'unobservedHorses':1000-len(observed),'missingTurns':sum(r['capture']=='missing' for r in rows),'contradictoryTurns':sum(r['expectedBinding']=='contradictory' for r in rows),'inputBoundTurns':sum(r['inputBinding']=='canonical_digest_and_read_frame' for r in rows),'discardInputBoundTurns':sum(r['inputBinding']=='original_discard_request_and_controller' for r in rows),'completePopulation':False,'allPhasesVerified':False,'durablePersistenceVerified':False,'strategyCorrectnessVerified':False}
 
 def union_ledgers(ledgers):
     if not 1<=len(ledgers)<=16:raise ValueError('census_union_bound')
