@@ -65,6 +65,7 @@ import { parseBlindStructure, parsePayoutStructure } from '../utils/parseBlindSt
 /* The canonical level-length reader. It is the ONLY one that gets the
    three-spelling precedence right - see getCurrentLevelState. Pure, no React,
    despite living under components/lobby. */
+import { playableLevelSeconds } from '../utils/tournamentPlayableClock';
 import { blindLevelMinutes } from '../components/lobby/tournamentFigures';
 import { tournamentRowUnitCents } from '../components/tournament/details/types';
 import { readCommittedTournamentBlinds } from '../utils/committedTournamentBlinds';
@@ -2231,7 +2232,8 @@ class TournamentService {
          falls back to position, so a single-element array asked for level 1
          resolves to that element either way. */
       const mins = blindLevelMinutes([level] as Parameters<typeof blindLevelMinutes>[0], 1);
-      return mins > 0 ? mins : DEFAULT_LEVEL_MINUTES;
+      const seconds = (mins > 0 ? mins : DEFAULT_LEVEL_MINUTES) * 60;
+      return playableLevelSeconds(seconds, tournament.buy_in_amount, level.isBreak) / 60;
     };
 
     // A maintenance break stops the level clock (Dan 2026-11-05). Every
