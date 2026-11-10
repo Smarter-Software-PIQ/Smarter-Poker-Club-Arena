@@ -1,0 +1,10 @@
+{
+  "schema": "horse-feature-release-selection-v1",
+  "qualificationPath": "docs/evidence/feature-activation/river_position_defense-3ddb7d901afecf6868a9ba821a7c7f5fc62fd2ff-db8314f44cbc267f7c54b3d46db91c3d4f1bfa12a8d760075ceb03be9f5d3463-admission.json",
+  "qualificationSha256": "419187ff9c2cc92f766293fa21eba97165fb61b5347ad3f407e22ef8a5312231",
+  "sourceSha": "3ddb7d901afecf6868a9ba821a7c7f5fc62fd2ff",
+  "approvalGeneration": 1,
+  "issuedAt": "2026-11-10T22:44:44Z",
+  "expiresAt": "2027-02-08T22:44:44Z",
+  "withdrawn": null
+}

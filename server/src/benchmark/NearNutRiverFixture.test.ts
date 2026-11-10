@@ -24,7 +24,7 @@
  * The release still ships no selection, so the flag stays off in production.
  */
 import { describe, expect, it } from 'vitest';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   HORSE_FEATURE_AUTHORITY_VERSION,
@@ -159,16 +159,27 @@ function admittedNearNut(variant: NearNutFixtureVariant) {
 }
 
 describe('production PLO cash rivers reach the near-nut gate only through an admitted selection', () => {
-  it('the release ships no feature selection, so the flag is off', () => {
-    const selection = fileURLToPath(
+  it('the release ships only the riverPositionDefense selection, so the near-nut flag is off', () => {
+    const selectionPath = fileURLToPath(
       new URL(`../../../${HORSE_FEATURE_SELECTION_PATH}`, import.meta.url)
     );
-    expect(existsSync(selection)).toBe(false);
-    expect(admitHorseFeatureReleaseAuthority()).toEqual({
-      status: 'refused',
-      reason: 'unselected',
-      transient: false,
-    });
+    expect(existsSync(selectionPath)).toBe(true);
+    const selection = JSON.parse(readFileSync(selectionPath, 'utf8'));
+    const admission = admitHorseFeatureReleaseAuthority();
+    if (Date.now() >= Date.parse(selection.expiresAt)) {
+      // An expired selection fails safe: nothing is admitted.
+      expect(admission).toEqual({ status: 'refused', reason: 'expired', transient: false });
+      return;
+    }
+    expect(admission.status).toBe('admitted');
+    if (admission.status !== 'admitted') return;
+    expect(admission.authority.packId).toBe('river_position_defense');
+    expect(
+      Object.entries(admission.authority.featureFlags ?? {})
+        .filter(([, on]) => on)
+        .map(([flag]) => flag)
+    ).toEqual(['riverPositionDefense']);
+    expect(admission.authority.featureFlags?.smallPotNearNutRiverValue).toBe(false);
   });
 
   it.each(NEAR_NUT_FIXTURE_VARIANTS)(

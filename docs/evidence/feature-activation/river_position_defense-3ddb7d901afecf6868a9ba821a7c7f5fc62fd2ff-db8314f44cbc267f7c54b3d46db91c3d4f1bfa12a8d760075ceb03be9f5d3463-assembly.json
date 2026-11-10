@@ -1,0 +1,1559 @@
+{
+  "schema": "horse-feature-ablation-assembly-v1",
+  "target": "river_position_defense",
+  "planDigest": "db8314f44cbc267f7c54b3d46db91c3d4f1bfa12a8d760075ceb03be9f5d3463",
+  "sourceSha": "3ddb7d901afecf6868a9ba821a7c7f5fc62fd2ff",
+  "qualified": true,
+  "activationAllowed": false,
+  "reasons": [],
+  "summary": {
+    "schema": "horse-feature-ablation-qualification-v1",
+    "target": "river_position_defense",
+    "planDigest": "db8314f44cbc267f7c54b3d46db91c3d4f1bfa12a8d760075ceb03be9f5d3463",
+    "qualified": true,
+    "activationAllowed": false,
+    "reasons": [],
+    "byVariant": {
+      "nlh": {
+        "qualified": true,
+        "reasons": [],
+        "primary": {
+          "cell": "nlh:primary",
+          "profiles": [
+            "river_position_defense-nlh-6max-2dealt-100bb"
+          ],
+          "pairs": 48384,
+          "minimumProfilePairs": 48384,
+          "meanBbPer100": 177.1928943452381,
+          "standardErrorBbPer100": 7.499744274397748,
+          "confidence99BbPer100": [
+            157.8748332741213,
+            196.5109554163549
+          ],
+          "estimatorSkewness": 0.023166712918735965,
+          "edgeworthCoverageError": 0.0007966937695364245,
+          "intervalTrusted": true
+        },
+        "seeds": [
+          {
+            "cell": "nlh:seed:28401109",
+            "profiles": [
+              "river_position_defense-nlh-6max-2dealt-100bb"
+            ],
+            "pairs": 16128,
+            "minimumProfilePairs": 16128,
+            "meanBbPer100": 175.3329613095238,
+            "standardErrorBbPer100": 12.935052958037769,
+            "confidence99BbPer100": [
+              142.01447285725322,
+              208.65144976179434
+            ],
+            "estimatorSkewness": 0.04093389106161676,
+            "edgeworthCoverageError": 0.0014076997494667533,
+            "intervalTrusted": false
+          },
+          {
+            "cell": "nlh:seed:28402231",
+            "profiles": [
+              "river_position_defense-nlh-6max-2dealt-100bb"
+            ],
+            "pairs": 16128,
+            "minimumProfilePairs": 16128,
+            "meanBbPer100": 167.52371651785714,
+            "standardErrorBbPer100": 12.641130670069378,
+            "confidence99BbPer100": [
+              134.96232170790168,
+              200.0851113278126
+            ],
+            "estimatorSkewness": 0.03991876381154947,
+            "edgeworthCoverageError": 0.0013727899390740502,
+            "intervalTrusted": false
+          },
+          {
+            "cell": "nlh:seed:28403347",
+            "profiles": [
+              "river_position_defense-nlh-6max-2dealt-100bb"
+            ],
+            "pairs": 16128,
+            "minimumProfilePairs": 16128,
+            "meanBbPer100": 188.72200520833334,
+            "standardErrorBbPer100": 13.383137535370865,
+            "confidence99BbPer100": [
+              154.24932737129987,
+              223.19468304536682
+            ],
+            "estimatorSkewness": 0.039461235691554894,
+            "edgeworthCoverageError": 0.001357055734404358,
+            "intervalTrusted": false
+          }
+        ],
+        "criticalCells": [
+          {
+            "cell": "nlh:profile:river_position_defense-nlh-6max-2dealt-100bb",
+            "profiles": [
+              "river_position_defense-nlh-6max-2dealt-100bb"
+            ],
+            "pairs": 48384,
+            "minimumProfilePairs": 48384,
+            "meanBbPer100": 177.1928943452381,
+            "standardErrorBbPer100": 7.499744274397748,
+            "confidence99BbPer100": [
+              157.8748332741213,
+              196.5109554163549
+            ],
+            "estimatorSkewness": 0.023166712918735965,
+            "edgeworthCoverageError": 0.0007966937695364245,
+            "intervalTrusted": true
+          },
+          {
+            "cell": "nlh:relative_position:button",
+            "profiles": [
+              "river_position_defense-nlh-6max-2dealt-100bb"
+            ],
+            "pairs": 24192,
+            "minimumProfilePairs": 24192,
+            "meanBbPer100": 0,
+            "standardErrorBbPer100": 0,
+            "confidence99BbPer100": [
+              0,
+              0
+            ],
+            "estimatorSkewness": 0,
+            "edgeworthCoverageError": 0,
+            "intervalTrusted": true
+          },
+          {
+            "cell": "nlh:relative_position:big_blind",
+            "profiles": [
+              "river_position_defense-nlh-6max-2dealt-100bb"
+            ],
+            "pairs": 24192,
+            "minimumProfilePairs": 24192,
+            "meanBbPer100": 354.3857886904762,
+            "standardErrorBbPer100": 14.912864296956748,
+            "confidence99BbPer100": [
+              315.97279583452683,
+              392.7987815464256
+            ],
+            "estimatorSkewness": 0.02209938066715957,
+            "edgeworthCoverageError": 0.0007599886505219572,
+            "intervalTrusted": true
+          },
+          {
+            "cell": "nlh:depth:100",
+            "profiles": [
+              "river_position_defense-nlh-6max-2dealt-100bb"
+            ],
+            "pairs": 48384,
+            "minimumProfilePairs": 48384,
+            "meanBbPer100": 177.1928943452381,
+            "standardErrorBbPer100": 7.499744274397748,
+            "confidence99BbPer100": [
+              157.8748332741213,
+              196.5109554163549
+            ],
+            "estimatorSkewness": 0.023166712918735965,
+            "edgeworthCoverageError": 0.0007966937695364245,
+            "intervalTrusted": true
+          }
+        ],
+        "coverage": [
+          {
+            "profile": "river_position_defense-nlh-6max-2dealt-100bb",
+            "candidateHeroDecisions": 199305,
+            "referenceHeroDecisions": 199305,
+            "acceptedHeroActionContrastPairs": 4181,
+            "candidateHeroEvaluationCounters": {
+              "river_position_defense_accepted": 4181
+            }
+          }
+        ],
+        "opportunityDenominator": "not_measured"
+      }
+    },
+    "opportunityDenominator": "not_measured",
+    "scope": "Registered after-rake contrast against the versioned adversarial stress workload; not calibrated human or market profitability",
+    "componentApplicability": [
+      {
+        "profile": "river_position_defense-nlh-6max-2dealt-100bb",
+        "components": [
+          {
+            "component": "river_position_defense",
+            "applicable": true,
+            "counter": "river_position_defense_accepted"
+          }
+        ]
+      }
+    ],
+    "componentScope": "Package qualification is only the exact combined contrast; no individual component qualification is inferred from pooled effects",
+    "intervalScope": "Original per-cell 99 percent intervals; every registered critical cell must clear its original trust/nonregression gate"
+  },
+  "attempts": [
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28401109-c0-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c0",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381440",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381440"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "601fc2e703e93c43101727a763e53a33ad5712f94b0bfe502bf800c9d93d33b4"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28401109-c1-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c1",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381400",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381400"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "d8971607ca265d26fedf499c354e5337b6034f2d3bcf3c16dfffe8b298f84e6e"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28401109-c10-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c10",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381554",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381554"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "3d85b848e1f0eec9957a5c4484622acedead35e66812670948184b6d7f0e0580"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28401109-c11-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c11",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381460",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381460"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "e4ba1970a7815d2888c8c7c2040330e1eec2af73a7a9c635f70e626325165b2f"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28401109-c12-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c12",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381392",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381392"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "11071e6264c1ac8f1ad6da50cc6375eb78722c6a6f4460bdfec8261840f61103"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28401109-c13-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c13",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381409",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381409"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "e076c8c973a4bdafb357c667709c66a0ede9cfc841281d75ec3e88ab27005378"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28401109-c2-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c2",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381451",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381451"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "7d22d430d721551899148a65ed5c7f34516d8de85c2bc9afd2103c1423e14bb7"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28401109-c3-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c3",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381557",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381557"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "f2929991c1b235f4ae8e03846ae671ff7cf963c5f7e1419b3785600d1391c15f"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28401109-c4-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c4",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381446",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381446"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "75acb9eb9bde98ce0b939d0ab6e4b712415dc86a9cfdf7adb1ffc68f1b812b43"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28401109-c5-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c5",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381455",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381455"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "6a21f3b931edd98388bf3d01e5554d5833be844b7045a8404de747819dcc610e"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28401109-c6-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c6",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381370",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381370"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "caad158dc002f13f8a64eebe1a783b6f67b0f1520f2f2a4578bbedccf8d36209"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28401109-c7-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c7",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381431",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381431"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "1d9232a550606374364353a916aa923a8fefb7e9c85b03a916172b53a617e7d6"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28401109-c8-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c8",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381328",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381328"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "afbae711fe365454e5db7d603794242044cad67058a3dff88e516eb4b31478e5"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28401109-c9-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c9",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381417",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381417"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "b6b821caa8df0a00b8e8644d9f24c7f1e3d3fa1e5e35f760ffb36902f3047112"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28402231-c0-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c0",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381432",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381432"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "616648e958f587e713c0624d4815991a087db72248559bda447ade18bf109fa1"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28402231-c1-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c1",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381497",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381497"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "b1184321050891ef15b093aa1a3d765f7460c0c853048abccf2a47ee4ac0db5c"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28402231-c10-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c10",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381604",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381604"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "0936e747d94241f7fbfbbbc0ed840040b3a84aac2cd5e9213a0f895cabcef9d9"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28402231-c11-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c11",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381806",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381806"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "4950795bf46e829ed0d94e2482dfe6228ab88a3e6c205787a1c7f40350550494"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28402231-c12-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c12",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381429",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381429"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "52104be86617018cba88e61af7067d17a234f5c8caef74818070660fed620e33"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28402231-c13-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c13",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381716",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381716"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "f4257ae8dab66577ed2f638432a198034ff6acc8ae87b92aeb4922e88c4908e4"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28402231-c2-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c2",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160382795",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160382795"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "8d77d03dcb84424e77fd753c93e0903fde11e2493110be5501e6d92bf938e56f"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28402231-c3-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c3",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381463",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381463"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "9720c2b642cf5adf9618d3ebfabd618802894e41416dc2b51c2ff1112059c404"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28402231-c4-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c4",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381423",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381423"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "3b3aaf05c6c4bd15b0492438c5d4e3d983a104462f8cb5c8d2c30dd0057bbe35"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28402231-c5-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c5",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381479",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381479"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "97bfc754c603490c1863619554136969be8d6356453f9718fb3f0d3238eb5ece"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28402231-c6-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c6",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381375",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381375"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "32ce1f5ba01763b8927e6b8a606d67aaa21105acd9de46fee146164ffaccdc21"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28402231-c7-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c7",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381459",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381459"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "cca5bfdad6bfea585bf92982cfa85b46ef1cc4da96dd5f1aa192184786dfa9f8"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28402231-c8-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c8",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381933",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381933"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "4acab762a311b28feece487ff3631a6a3c6244bc569de4115b942f381b1af8ef"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28402231-c9-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c9",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381520",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381520"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "4b3408386b1d975a5fdb1a4d628ee8bfbe3463b03884155228f0a9fbe150d96f"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28403347-c0-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c0",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381769",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381769"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "aff6881ff7c35a85a9edd02f480d3782fb5b932cae69d04a4d6ee24b00024cc5"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28403347-c1-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c1",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381733",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381733"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "bd26891c57d54e897f264b48ef04bcd0cf7d2eddae310c98254659b94d154844"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28403347-c10-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c10",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381808",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381808"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "569da6c8a55cb4b24ef5b2e4fc6a331b044e8f4c531ce03c796b6ff15c70f4b2"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28403347-c11-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c11",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381535",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381535"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "9abffc6a532d435051c9db090c7064bd8c75884ba9705e3b8a55355f17e708b3"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28403347-c12-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c12",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381792",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381792"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "38ff0740471901e77ce84dc600f515fadb841d6f9d3c1a32eef05be755c57c55"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28403347-c13-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c13",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381877",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381877"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "bbc7aa5755626cfec790ca9013fc22ec5159a740b76f53eba1fa94e37c5b8fc4"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28403347-c2-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c2",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381951",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381951"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "888d1c9e0182bea7cce9611f2fb62d99659b652d9896daafb1a2e181f8e61034"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28403347-c3-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c3",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381800",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381800"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "23674bfe6fc5ac1b2433f6b61e1677074a050a1110530d7bab6e60422ad60bec"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28403347-c4-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c4",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381416",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381416"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "0655c8aaabda9e1823d3506d2befe9926892eb3d5898b3475203e59669ab3fdf"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28403347-c5-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c5",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381914",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381914"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "33dba813a887a0c17b7bf8257ca7be6b875edb6c5b2e9f6b01accd32829a5254"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28403347-c6-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c6",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381622",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381622"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "decd89f78c7e67da7a655b9ad54605e8f727dc4f9c7a7e592a0f70ed81e6345a"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28403347-c7-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c7",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381746",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381746"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "ef19676162d7aed10097eba8bafe61721bb587ffb2f0ff08fe0e5e9160133efd"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28403347-c8-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c8",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381827",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381827"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "ca6ac70785f767e7aa3fb2c2ecde818bca01ecc5512d222fdd790eff55396bb3"
+    },
+    {
+      "artifact": "fa-river_position_defense-river_position_defense-nlh-6max-2dealt-100bb-s28403347-c9-a1",
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c9",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381608",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381608"
+      },
+      "exitCode": 0,
+      "rawProofError": null,
+      "rawInterruption": null,
+      "validRawPrefixPairs": 1152,
+      "receiptSha256": "0d6007b74a14dd771bd959ea8040c02dbab996750783fded37c1b9edc83299d9"
+    }
+  ],
+  "selected": [
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c0",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381440",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381440"
+      },
+      "receiptSha256": "ff7d7b71525680c183dcfd4806501fe0222f4cef98a34158dc3d9e8e1811d8b9",
+      "rawPairsSha256": "09a5ab473828cebc158bf4e82502fb473bc3243f3b11ba087154f80b9dd63430"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c1",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381400",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381400"
+      },
+      "receiptSha256": "a7df3eeda0ab997fb4019fcdfdfe9781d02f97cd23e6182ab2762fa537da378d",
+      "rawPairsSha256": "23a693532f92cdb68f170ec4e7b8c37816c08f0247eb63f28e68fec9e19f40c2"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c2",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381451",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381451"
+      },
+      "receiptSha256": "1b0f2c5ec63792834565ecf27b96067968a541fe8a96e7fdfe6b90ee56791ff4",
+      "rawPairsSha256": "ca396839b11db778b3248cced7a61ab959865da78626c683adf082a34cda8553"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c3",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381557",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381557"
+      },
+      "receiptSha256": "450b3dccf5d392934646982321f56401e28b3092f8d0d43e83be2b0b88fe210e",
+      "rawPairsSha256": "dd476219a310ae6e01ed2a308d66cdb3cb3284bbe61e494bbcf167389b701328"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c4",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381446",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381446"
+      },
+      "receiptSha256": "eef35bfd4a20a738a432582db8a6bd79e149b045d274e645cca49220dd8e2d4e",
+      "rawPairsSha256": "77de44da3424cba8db884e50839a915032a3199a4dc923b2438ad518fd67d180"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c5",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381455",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381455"
+      },
+      "receiptSha256": "051d0c79b327ea0645a69afd95f8eb8f1ee73a410dd9ca680b3648d1ada5c246",
+      "rawPairsSha256": "dfa732c5dbdf1e6c7aebacb48ddd750a1a3dd5d722a1cc10f07d50094be5736d"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c6",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381370",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381370"
+      },
+      "receiptSha256": "572a7d0da667de78733686a3571a39e0028f059364c0d756a2b8c89540eea683",
+      "rawPairsSha256": "b3d7128d00ce8576d8080a563b6019c6c4084742dd7ed7cbf606d8f1c772e965"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c7",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381431",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381431"
+      },
+      "receiptSha256": "b09fad8c77332e51e97f130aa971740dd9c54e2960ab10091cf26da071c0a698",
+      "rawPairsSha256": "20e3903dbf1d8faeb1c276c88289df8d33fbe407b50b0e0397106e1be23887d1"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c8",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381328",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381328"
+      },
+      "receiptSha256": "4f44942175c038313c082a8db74e13f9eb69cc58da21314c0e262db54fe2df05",
+      "rawPairsSha256": "5bbd452203a3a1b7357af82fc264e5238d83fda57d0cb8f0dc34cc8fee5c3ce7"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c9",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381417",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381417"
+      },
+      "receiptSha256": "e23e75c92aa81e2733577d3bb57b447440f3fba875d4aee48684f09dd63cc4fe",
+      "rawPairsSha256": "3f2fe087030153454f01190e7ca12d9b8b38279749ebd4f03c251b96106be653"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c10",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381554",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381554"
+      },
+      "receiptSha256": "687329cf125e4c02711e8bf3a896b5050a9434903f73e76bf96cefb0ecc381bd",
+      "rawPairsSha256": "c36657ed954da255bbe689b05b324f31636e248410716033a52a85b50161c898"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c11",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381460",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381460"
+      },
+      "receiptSha256": "8c4b453d9e5a356d7b40940c3b66647e641cc5528b30d8e962beb4d20c99ae60",
+      "rawPairsSha256": "ae60cf8d1ec9faa2329df2c55c5bd2c911eb73b900a69c1104442ef725112725"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c12",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381392",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381392"
+      },
+      "receiptSha256": "c234c7712c34ba7eb55fbf74c52c49741dcb594c0779eeea03399bfc62782372",
+      "rawPairsSha256": "1cd21122bd6c001ba2ee8b5e55f8607fc304c23fd1069462c856573df0a743c1"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28401109-c13",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381409",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381409"
+      },
+      "receiptSha256": "af0c24952c73de0f22952e9172f905885f5b3f923048d72be239c791a505d602",
+      "rawPairsSha256": "5c7797482b0061430403ddfc5566525c462320bf7b8ceb019579ab7f2be407c2"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c0",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381432",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381432"
+      },
+      "receiptSha256": "cb1e1302d99da08ff5655a1c10fe0d6a04b4099c65b2c82985c7c1286236ec28",
+      "rawPairsSha256": "423cc233a7f0e9878fd4ec4eb907475f3810008ee84fcaf5e9eea0de7b3faf21"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c1",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381497",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381497"
+      },
+      "receiptSha256": "502305663a006cc4c6366d85a190ae197f21966cda5bc9cf8d99e741f1ea4739",
+      "rawPairsSha256": "58cd900fc73ec1a765969ea6140183e1321145ab539d575f0027120052c4b4df"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c2",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160382795",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160382795"
+      },
+      "receiptSha256": "f07fe880c75a4df5abb78db7f6e0df1f85415baa58a5000783bffdc0a77368a9",
+      "rawPairsSha256": "17255ae96fac551c997e85e4946635ef9acce53d254e3ef654a26f0d0b7ee661"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c3",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381463",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381463"
+      },
+      "receiptSha256": "c16ba325c35818231fe822cb2ed849075d4af4fa6bce71461edfe619989b8c52",
+      "rawPairsSha256": "4dff9f923a6970fa683447eba0800ff8f4f59729e88eeb42d3db1568b9a2df6e"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c4",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381423",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381423"
+      },
+      "receiptSha256": "c053cd1166e7d7ccb4caa65d74ca056519c9bd6393d2d1c71a4ebc293247ce50",
+      "rawPairsSha256": "e5bab6cf04a617bcc3090041d0811906faa3fb3262f2ecc68dbcc132a628363a"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c5",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381479",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381479"
+      },
+      "receiptSha256": "7ca46751ada7a35f918f22f7cfd25571c7f052660ca8f37a5a12d9e612c68948",
+      "rawPairsSha256": "02d681efa1841152c7464615ed30851a344399dba2d6a5d2c996bcf6e9e05a6d"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c6",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381375",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381375"
+      },
+      "receiptSha256": "cdc35dce7b9f103f8ef6ebde65ffdfc00c261a55c5e8eaf4f7a84938d2d5955a",
+      "rawPairsSha256": "0254a1ec6565811d5a1cccb7fd804326caac1a135e6620cb2b3814faa68366aa"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c7",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381459",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381459"
+      },
+      "receiptSha256": "018183c4b7b0ba4dab7391164fab80abd06851edac274ed99de60e6bfde0fee5",
+      "rawPairsSha256": "99efe4bc318f920a594634d17e29e4e3a66f2ac81f494524ea3a0c3398e11298"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c8",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381933",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381933"
+      },
+      "receiptSha256": "6e9b149735d8526ad5d4494ef2ce0388d57c913f78b3ed42981423d1ba3f82e9",
+      "rawPairsSha256": "4d911d268ecd6f4ebabca660919d66335c5e7dbb50b6a1a3e26a0b03fc0bed43"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c9",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381520",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381520"
+      },
+      "receiptSha256": "29f1d0a7da8ea40e9807b7f454c131c8a96e4e4374171e5ac99c59124fe5ea8c",
+      "rawPairsSha256": "f512678f97531b8a4a19ece6db3609ca0d96b4592176b1de1b3ec3f803b46ad4"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c10",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381604",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381604"
+      },
+      "receiptSha256": "13a4a1e918f85ffda3cfa6b33c7c2d39b406b5dc2648cae9272051bc1d8e40d1",
+      "rawPairsSha256": "fbd343517284f921ac0bc6cb55fcce6b1040bef6f1bd5027ae78c4287f19d9eb"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c11",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381806",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381806"
+      },
+      "receiptSha256": "f95129533139f40131596b55ac5968e0a6df9813cb54fda091ec3180f84e9ea7",
+      "rawPairsSha256": "186e49274ca3d98bb6468ae450542505108bf25a5768f1a3a752ef6f7750af9c"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c12",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381429",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381429"
+      },
+      "receiptSha256": "1b0c84df0944f2478cf1ce949f9bf9891ddf4bfdb6dc0add96eb6305da43c67c",
+      "rawPairsSha256": "dad70aed2cbefc39f8e58e6e9ef7fb65fb9d94ae2b98c29c5d57acf7d6e9b451"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28402231-c13",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381716",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381716"
+      },
+      "receiptSha256": "a6e2ef81c25d5d5a8b18ffb24e2ff8b3926a4b10ef511df4413f58a26de34f5f",
+      "rawPairsSha256": "3556b81f617062762f12ce29d67ad758e47bf6e5d9ffa840b88a159dec6355c9"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c0",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381769",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381769"
+      },
+      "receiptSha256": "1a335ccfe8dab8973e1d2f2e199ac4b8fb9901ca0beec74c1c4830ce3144c153",
+      "rawPairsSha256": "9b5fe5b35708b0b60bfe9d769065798685855fc4fc4f529d6bca41a06497ba6c"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c1",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381733",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381733"
+      },
+      "receiptSha256": "bdd608e22531b96631b5b10caf1e88bbdb5a631093eed78dd6126ac41eff2960",
+      "rawPairsSha256": "3bfc2a5c04d10a67c7101ecd55fb66efd9c62dd84a1ea278cc3109321d3ada14"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c2",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381951",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381951"
+      },
+      "receiptSha256": "e4e84df46acc5f979ecd07505dda7bba3c283bda8246293ebc2279ffb2b5757a",
+      "rawPairsSha256": "fc928b53722b7c5562dfe9bd166aca1e74692394791fcfa1e577975317580580"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c3",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381800",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381800"
+      },
+      "receiptSha256": "0fe8ffb132f4a68469c0e68dcc51bbe4c24146bd0123e963735ebd0d2de42693",
+      "rawPairsSha256": "0f4d159330ee3ad507fd4b16e2508e543a4a6fd9958076756a76faec2915bfaf"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c4",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381416",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381416"
+      },
+      "receiptSha256": "038e669ecabdf4be301981d4c55220e37988eac591c12c9e343fc4f8b919b5ff",
+      "rawPairsSha256": "24334afd0eef662bf616ae2c33050a6db0814eee6b6df79ac94c1b05e1092a75"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c5",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381914",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381914"
+      },
+      "receiptSha256": "8cce3882327c11c5266bccc3ffb7ddac73ae03184a6e056819107f85d3509b11",
+      "rawPairsSha256": "55d86932864ed3df8272942cddb8bdb62cfb4104bf695ef065bac8d3327ee055"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c6",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381622",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381622"
+      },
+      "receiptSha256": "af924164675646a64b3e811a02ae0ce94b557d977414064d3f17e3db43f51007",
+      "rawPairsSha256": "1c9ac921dd20d96f6e91fa781a4d9012b4911057552c2816999f89dc008179fb"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c7",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381746",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381746"
+      },
+      "receiptSha256": "023cf4fa7040a94d855ec34b51abbeb3e246e772e0dd9a411e9c9ef8a632a454",
+      "rawPairsSha256": "7072c19ef4eac32d6c49f1f5b01894c505edb6dddc85bbed5a5a208d73aa0dfc"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c8",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381827",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381827"
+      },
+      "receiptSha256": "5b8c21cb0c776f4f2ae4b00e36b9690afcb94d767792b1b1bdb3d094edb60143",
+      "rawPairsSha256": "9546d258bae71bc7f7e1d536b7d677a56cbb253b6c0d24344de214e10130a29d"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c9",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381608",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381608"
+      },
+      "receiptSha256": "c9fa2d78c440a48994a275d48e4fe66e27f1236e46c8c7b7b588f0e8c9760d05",
+      "rawPairsSha256": "043657640bbf0cf1337436b9ac6569f9f0a05de0f507fd89a35486c2217b9221"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c10",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381808",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381808"
+      },
+      "receiptSha256": "91123aa6f215db8fcf91e2ee8be53299d62bd18c14eb504f0a9ad9266112afdd",
+      "rawPairsSha256": "d48cc323bf23591ea48af5d3131f54ff8925874eea2bec292d52b81777eb7974"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c11",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381535",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381535"
+      },
+      "receiptSha256": "5df5c7689d1bcd8fd2332c4e6f8d98889d0ed95a6772314be63dec4274c7add7",
+      "rawPairsSha256": "844987549856cdf3755564ffcd382f147d5110ec693fbbdb67a53ab49293e445"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c12",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381792",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381792"
+      },
+      "receiptSha256": "31307932921de7a738f67b4251f9e4e4ace0c1e4daf87b04874b6c31c83e0207",
+      "rawPairsSha256": "7657c1624bfd03a323fe59dda867aafa7ac65b0a732bdad0548082eea17dc3b6"
+    },
+    {
+      "cellKey": "river_position_defense-nlh-6max-2dealt-100bb-s28403347-c13",
+      "operation": {
+        "providerRunId": "42910542259",
+        "runAttempt": 1,
+        "jobId": "130160381877",
+        "createdAt": "2026-11-10T22:02:12Z",
+        "createdAtSource": "job.created_at",
+        "attemptOrdinal": 1,
+        "firstOperationId": "42910542259:1:130160381877"
+      },
+      "receiptSha256": "24d84f1c45069a9b4705d731e482b5352ef87ceaa413d7f67ac6b7a39a8dee32",
+      "rawPairsSha256": "262ecc371a53b367547bbf6b2acfdc6c69aeea838f38cf1ced22eef85e5b75cc"
+    }
+  ],
+  "provider": {
+    "runId": "42910542259",
+    "workflowControlSha": "90ec19f5261d30358a2d6be13554961f8e0bb78f",
+    "attemptsThrough": 1,
+    "inventorySha256": "b9a74daeaec3ccf80bcbb7dcac6d6d97c03670731c32c95deaf8693069654e15",
+    "rawArtifactsRetained": true,
+    "familyCustody": {
+      "protectedPlanCommit": "3ddb7d901afecf6868a9ba821a7c7f5fc62fd2ff",
+      "protectedFamilyCommit": "3ddb7d901afecf6868a9ba821a7c7f5fc62fd2ff",
+      "firstProtectedFamilyCommit": "3ddb7d901afecf6868a9ba821a7c7f5fc62fd2ff",
+      "providerAnchor": {
+        "workflowId": 398426971,
+        "baselineRunId": 42703327017,
+        "baselineRunNumber": 2
+      },
+      "familyDigest": "9e4dd45933a8f1eeb0377677f92bca481c72ffa558301d58ad15cfad6a1f1c3e",
+      "providerRunId": "42910542259",
+      "priorFamilyRuns": []
+    }
+  }
+}

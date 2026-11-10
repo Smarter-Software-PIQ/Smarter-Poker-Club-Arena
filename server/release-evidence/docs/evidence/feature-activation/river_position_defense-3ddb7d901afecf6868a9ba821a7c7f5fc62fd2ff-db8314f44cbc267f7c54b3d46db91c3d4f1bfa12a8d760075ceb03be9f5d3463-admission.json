@@ -1,0 +1,70 @@
+{
+  "schema": "horse-feature-live-admission-v1",
+  "version": "horse-feature-promotion-v1",
+  "qualificationKind": "locked_paired_condition_a",
+  "sourceSha": "3ddb7d901afecf6868a9ba821a7c7f5fc62fd2ff",
+  "qualified": true,
+  "activationAllowed": false,
+  "reasons": [],
+  "assembly": {
+    "path": "docs/evidence/feature-activation/river_position_defense-3ddb7d901afecf6868a9ba821a7c7f5fc62fd2ff-db8314f44cbc267f7c54b3d46db91c3d4f1bfa12a8d760075ceb03be9f5d3463-assembly.json",
+    "sha256": "c92da8608a3ae759607b3d05cae645c2008be362e5c084cb1abbb144b67dcdc8"
+  },
+  "plan": {
+    "path": "docs/evidence/feature-activation/river_position_defense-3ddb7d901afecf6868a9ba821a7c7f5fc62fd2ff-db8314f44cbc267f7c54b3d46db91c3d4f1bfa12a8d760075ceb03be9f5d3463-plan.json",
+    "sha256": "0686bb3b18391e721d9efbfb89f6d3a775536fccb8ee46a78842298f0b44a442"
+  },
+  "profileId": "river_position_defense-nlh-6max-2dealt-100bb",
+  "domain": {
+    "variant": "nlh",
+    "mode": "cash",
+    "asset": "chips",
+    "boardCount": 1,
+    "dealtSeats": [
+      2
+    ],
+    "remainingPlayers": [
+      2
+    ],
+    "effectiveStackBB": [
+      0,
+      100
+    ],
+    "startingStackBB": 100,
+    "smallBlind": 1,
+    "bigBlind": 2,
+    "ante": 0,
+    "bigBlindAnte": false,
+    "bettingStructure": "no_limit",
+    "chipUnit": 0.01,
+    "rakeConfig": {
+      "percent": 10,
+      "cap": 5,
+      "noFlopNoDrop": true,
+      "playerCountCaps": [
+        {
+          "players": 2,
+          "cap": 2.5
+        },
+        {
+          "players": 3,
+          "cap": 5
+        },
+        {
+          "players": 4,
+          "cap": 5
+        }
+      ]
+    },
+    "bbjConfig": {
+      "enabled": true,
+      "feeBB": 0.25,
+      "minPotBB": 10,
+      "minPlayersDealt": 3
+    },
+    "sidePots": false
+  },
+  "compositionDigest": "ea812b49f7013c3a12b03b991c3585d79f4734cd1cb46ef181b4855a00a6cee2",
+  "conditionB": "post_launch_monitoring_withdrawal_only",
+  "scope": "Only the exact declared locked profile and flag composition; not universal profitability"
+}
