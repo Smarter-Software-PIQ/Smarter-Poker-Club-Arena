@@ -19,7 +19,7 @@
     "members": [
       {
         "target": "river_position_defense",
-        "planDigest": "a4cd425713811b1e295b9882c23ea0df5aebe563297ca021e01c38cf67f5b9f7"
+        "planDigest": "d577b225c3d880b37363b7b9a14470dff8fd43081e993f6975a41155484a325c"
       }
     ],
     "providerAnchor": {
@@ -27,6 +27,6 @@
       "baselineRunId": 42703327017,
       "baselineRunNumber": 2
     },
-    "runtimeSourceDigest": "dfbfa4df105ed1ce59a905006092abe56a34e223cae20aef3f13a42ba87e1c7d"
+    "runtimeSourceDigest": "4985a67762b9fe1dffd64bfe4d5763b560534e0db5cfc0b5104d56c8e0f370c1"
   }
 }
