@@ -17,6 +17,7 @@ the whole screen, and is not smarter.poker look and feel."
   in red ink beneath it, then the question, and the two answers are the
   painted plates: Leave in red ink on the steel plate, Stay And Play on the
   blue glass. Nothing is drawn.
+- The head carries the console's painted X (`tests/unit/everyPopupHasAnX.law.test.ts`); it answers like Escape, keeping the player at the table, and goes dark while a Leave is in flight.
 - The backdrop was an opaque gradient over the whole screen. It is now a 62%
   black scrim, so the table stays in view behind the question.
 - Copy, Title Case, the alertdialog role, the portal to `<body>`, Escape to

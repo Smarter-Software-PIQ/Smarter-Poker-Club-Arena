@@ -102,6 +102,9 @@ export default function HitRunLeaveConfirm({
     >
       <div className="hit-run-confirm__dialog ac-popup">
         <SpadeConsole
+          /* The painted X answers like Escape: it keeps the player at the
+             table. It goes dark while a Leave is in flight. */
+          onClose={leaving ? undefined : onStay}
           as="div"
           family="riveted"
           /* The head carries the same words as the ordinary leave confirmation,
