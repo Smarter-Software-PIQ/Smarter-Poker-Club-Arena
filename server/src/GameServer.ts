@@ -176,6 +176,11 @@ import {
   stopLightningFoldSession,
   lightningFoldSessionToPrometheus,
 } from './services/lightningFoldSession.js';
+import {
+  startLightningLaneSession,
+  stopLightningLaneSession,
+  lightningLaneToPrometheus,
+} from './services/lightningLaneSession.js';
 import { handProjectionWakesToPrometheus } from './services/supabase/handProjection.js';
 import {
   wsAuthRefusalPrometheusLines,
@@ -4165,6 +4170,8 @@ export class GameServer {
     // Lightning Phase 13: a drained, reverting or paused Cluster's rooms are
     // told so (lightning_cluster_status), once per change and on RESYNC.
     clusterStatus: (clusterId, status) => this.lightningRooms.setClusterStatus(clusterId, status),
+    // REAL ARRIVALS WHILE WAITING (2026-11-10): idle rooms hear the waiting count.
+    poolWaiting: (clusterId, waiting) => this.lightningRooms.setPoolWaiting(clusterId, waiting),
   });
   /* Lightning Phase 12 (surge protection): a room's first socket is a player
      arriving in the pool, so their Cluster's worker forms within the admission
@@ -4880,6 +4887,9 @@ export class GameServer {
     // answers, heartbeats use the shared client exactly as before.
     void resolveLeaseHeartbeatSessionUrl();
     void startLightningFoldSession();
+    // Lightning's per-hand lane (matcher writer, dealing, settlement); until it
+    // is ready those calls use PostgREST exactly as before.
+    void startLightningLaneSession();
     // E2E test mode — when set, MAINTENANCE_MODE still applies (no auto-spawn,
     // no recurring tournaments, no horse fleet) but a single table engine is
     // booted for this exact tableId so a tester can sit down and play hands
@@ -5997,6 +6007,7 @@ export class GameServer {
     // Renewal is over once the leases are released; close its sessions.
     await stopLeaseHeartbeatSessions();
     await stopLightningFoldSession();
+    await stopLightningLaneSession();
     markShutdownStep('leadership-release');
 
     // Phase 1.1 PR-5: no Supabase Realtime channels to clean up — engine
@@ -7008,6 +7019,7 @@ export class GameServer {
       // See services/leaseHeartbeatSession.ts.
       ...leaseHeartbeatSessionsToPrometheus(),
       ...lightningFoldSessionToPrometheus(),
+      ...lightningLaneToPrometheus(),
       ...this.handOutboxMetrics.toPrometheus(),
       // ── IS ANYBODY ACTUALLY PLAYING? (2026-09-04) ────────────────────
       //

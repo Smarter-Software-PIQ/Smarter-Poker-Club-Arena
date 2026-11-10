@@ -158,6 +158,17 @@ async function warmSocket(tableId: string, entry: WarmEntry): Promise<void> {
 }
 
 /**
+ * JOIN LIGHTNING (2026-11-10, join timing): the room a Join leads to is a
+ * pool-session room on the table view, and it has no `tables` row to read or
+ * subscribe ahead of time - but its page chunk does not depend on which room.
+ * It is fetched while the player answers the buy-in question, so the room
+ * opens the moment the purchase answers instead of waiting for the download.
+ */
+export function warmLightningRoom(): void {
+  preloadRoute('/table/lightning-room');
+}
+
+/**
  * Start loading a table in the background. Idempotent while fresh: a table
  * already warming (or already live) is left alone; a stale one restarts.
  */

@@ -66,6 +66,7 @@
  * this file behaves exactly as before.
  */
 import { supabase } from '../services/supabase.js';
+import { isLightningLaneFunction, lightningLaneCall } from '../services/lightningLaneSession.js';
 import { isMaintenanceFrozen } from '../maintenance/freezeState.js';
 import {
   LIGHTNING_DISCOVERY_INTERVAL_MS,
@@ -133,6 +134,8 @@ export interface LightningSupervisorDeps {
    * Called once per change. Absent (tests, an older wiring) tells nobody.
    */
   clusterStatus?: (clusterId: string, status: LightningClusterStatus | null) => void;
+  /** REAL ARRIVALS WHILE WAITING (2026-11-10): the players a forming pass left waiting. */
+  poolWaiting?: (clusterId: string, waiting: number) => void;
 }
 
 /** LIGHTNING PHASE 13: what a held Cluster's rooms are told. */
@@ -281,13 +284,30 @@ function normalizeDiscovered(
 
 // Every Lightning RPC says this engine posts the entry big blind
 // (LIGHTNING_ENTRY_BIG_BLIND_HEADER): the matcher and the barrier read it.
-const defaultRpc: LightningRpcClient = (fn, args) =>
+// LIGHTNING'S OWN DATABASE LANE (2026-11-10): the matcher's writer goes on
+// the dedicated engine_lightning_lane login first (lightningLaneSession.ts), so
+// a storm on the shared PostgREST pool cannot hold up formation. null means
+// nothing reached the database, so the same call is made through PostgREST.
+const postgrestRpc: LightningRpcClient = (fn, args) =>
   supabase
     .rpc(fn, args)
     .setHeader(LIGHTNING_ENTRY_BIG_BLIND_HEADER, '1') as unknown as PromiseLike<{
     data: unknown;
     error: unknown;
   }>;
+export function lightningLaneFirstRpc(
+  lane: typeof lightningLaneCall,
+  fallback: LightningRpcClient
+): LightningRpcClient {
+  return async (fn, args) => {
+    if (isLightningLaneFunction(fn)) {
+      const direct = await lane(fn, args, { entryBigBlind: true });
+      if (direct !== null) return direct;
+    }
+    return fallback(fn, args);
+  };
+}
+const defaultRpc: LightningRpcClient = lightningLaneFirstRpc(lightningLaneCall, postgrestRpc);
 
 const consoleLogger: LightningWorkerLogger = {
   log: (m) => console.log(m),
@@ -632,6 +652,7 @@ export class LightningSupervisor {
       // LIGHTNING PHASE 13: the drain's progress report (hands still in the air here).
       handsInFlight: () => hosting?.handsInFlight?.(clusterId) ?? 0,
       onHeldIdle: () => this.discoverSoon(),
+      onPoolWaiting: (waiting) => this.deps.poolWaiting?.(clusterId, waiting),
       ...(hosting
         ? {
             startHand: (hand) => {
