@@ -53,11 +53,13 @@ describe('incremental development boundaries', () => {
           () => {}
         )
       ).rejects.toThrow(
-        // Until the family 284 registration replaces the spent 283 plan,
-        // river_position_defense is refused at the plan like every other
-        // target; the registration PR restores the original
-        // worker/population refusal pin for it.
-        /plan refused/
+        // river_position_defense has the registered family 284 plan (owner
+        // approval 2026-11-09); a development spec is still refused before
+        // any deal, at the original worker/population check rather than at
+        // the plan.
+        target === 'river_position_defense'
+          ? /original worker\/population required/
+          : /plan refused/
       );
       for (const seed of INCREMENTAL_RESERVED_HOLDOUT_SEEDS)
         await expect(runFeatureAblationDevelopment(spec, { seed, pairs: 1 })).rejects.toThrow(
