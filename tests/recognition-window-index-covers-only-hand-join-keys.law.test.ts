@@ -37,3 +37,27 @@ describe('Original recognition windows cover only scalar hand join keys', () => 
     expect(workflow).toContain('scripts/ci/fixtures/outcome-recognition-join-cover/**');
   });
 });
+
+describe('Original linked witness uses its unconditional point cover', () => {
+  it('preserves strict counts and original source qualification through the existing native route', () => {
+    const cover = readFileSync(
+      'supabase/migrations/20261110050427_cover_original_link_witness_scope_and_join_keys.sql',
+      'utf8'
+    );
+    const qualification = readFileSync(
+      'scripts/ci/fixtures/outcome-recognition-join-cover/witness-cover.py',
+      'utf8'
+    );
+    expect(cover).toContain('CREATE INDEX CONCURRENTLY IF NOT EXISTS');
+    expect(cover).toContain('(table_id,hand_number)');
+    expect(cover).toContain('INCLUDE(game_scope)');
+    expect(cover).toContain('i.indisvalid AND i.indisready AND i.indislive AND i.indpred IS NULL');
+    expect(cover).toContain('LINK_WITNESS_COVER_ORIGINAL_SOURCE_REQUIRED');
+    expect(cover).not.toMatch(
+      /CREATE(?: OR REPLACE)? FUNCTION|UPDATE public\.|DELETE FROM|ALTER TABLE|DISABLE TRIGGER|DROP INDEX|INCLUDE\([^)]*proof/i
+    );
+    expect(native).toContain("runpy.run_path(str(F/'witness-cover.py'))");
+    expect(qualification).toContain('Index Only Scan');
+    expect(qualification).not.toMatch(/enable_seqscan|enable_bitmapscan|enable_indexscan/);
+  });
+});
