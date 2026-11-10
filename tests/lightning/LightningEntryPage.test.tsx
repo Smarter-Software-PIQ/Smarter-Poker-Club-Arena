@@ -218,7 +218,11 @@ describe('the Lightning route', () => {
         ? { data: { pool_session_id: null, state: null, cluster_mode: 'lightning' }, error: null }
         : { data: null, error: null }
     );
-    buyIntoLightning.mockResolvedValue({ kind: 'rejected', message: 'Not Enough Chips.' });
+    buyIntoLightning.mockResolvedValue({
+      kind: 'rejected',
+      message: 'Not Enough Chips.',
+      code: 'INSUFFICIENT_CHIPS',
+    });
     renderAt(`/lightning/${CLUSTER}`);
     fireEvent.click(await screen.findByRole('button', { name: /join lightning/i }));
     fireEvent.click(await screen.findByRole('button', { name: 'Buy Chips' }));
