@@ -16,3 +16,8 @@ its index, the view's mask and grants, and the refusal to install with a
 column missing. The base table itself hides a closed person's rows from
 ordinary readers through a read policy installed in the daily maintenance
 window.
+A function named in a view or a policy runs with the reader's privileges, and
+anon may not execute `fn_is_platform_admin`: the view therefore tests staff by
+reading `profiles`, and anon has its own policy that names no such function.
+This law holds both, and holds the policies to RESTRICTIVE, read-only and the
+daily window.

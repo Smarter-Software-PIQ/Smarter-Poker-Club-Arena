@@ -151,7 +151,6 @@ vi.mock('../../src/services/DiamondWheelService', () => ({
   default: { getStateV2: () => Promise.resolve({ pending_awards: [] }) },
 }));
 vi.mock('../../src/components/games/DiamondSpinsTabs', () => ({ default: () => null }));
-vi.mock('../../src/components/games/TodayLine', () => ({ default: () => null }));
 vi.mock('../../src/components/games/SealedPrize', () => ({ default: () => null }));
 vi.mock('../../src/components/games/FloorFeed', () => ({ default: () => null }));
 

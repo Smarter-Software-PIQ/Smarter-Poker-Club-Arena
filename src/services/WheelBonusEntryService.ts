@@ -17,7 +17,11 @@ import {
   plinkoTableForFloor,
   plinkoTableVersion,
 } from '../utils/diamondBonusPayout';
-import { crashCashoutFloorCents, crashReturnPpm } from '../utils/diamondGamesFairness';
+import {
+  crashCashoutFloorCents,
+  crashPointFloorCents,
+  crashReturnPpm,
+} from '../utils/diamondGamesFairness';
 import { CHOICE_MODE } from '../utils/diamondChoiceMath';
 
 /** What the server says this award will start with, read before Start. The
@@ -90,7 +94,9 @@ export function parseBonusGuarantee(
   const floor = sealedWithFloor
     ? diamondBonusFloor(betChips, boost, paid, rate)
     : diamondBonusMinimum(betChips, boost);
-  const table = sealedWithFloor ? plinkoTableForFloor(betChips, floor) : plinkoTableVersion(boost);
+  const table = sealedWithFloor
+    ? plinkoTableForFloor(betChips, floor, typeof g.plinko_table === 'number' && g.plinko_table < 7)
+    : plinkoTableVersion(boost);
   if (
     !Number.isSafeInteger(rate) ||
     rate < 1 ||
@@ -102,6 +108,9 @@ export function parseBonusGuarantee(
     (g.mode ?? null) !== expectedMode ||
     g.plinko_table !== table ||
     (sealedWithFloor && g.paid_diamonds !== undefined && g.paid_diamonds !== paid) ||
+    (game === 'crash' &&
+      version >= 6 &&
+      (g.crash_floor_cents !== crashPointFloorCents(version) || g.crash_return_ppm != null)) ||
     (sealedWithFloor &&
       game === 'crash' &&
       g.cashout_floor_cents !== undefined &&
@@ -109,7 +118,7 @@ export function parseBonusGuarantee(
     // Contract 5 states the return the start will seal (Dan, 2026-10-12: a 2.9x
     // average); it is the mirror's, from the same stake and floor, or refused.
     (game === 'crash' &&
-      version >= 5 &&
+      version === 5 &&
       g.crash_return_ppm !== undefined &&
       g.crash_return_ppm !== crashReturnPpm(betChips, floor, version))
   )

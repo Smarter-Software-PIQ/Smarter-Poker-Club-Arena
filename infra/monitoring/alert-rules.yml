@@ -2404,10 +2404,12 @@ groups:
           runbook: docs/changelog/2026-09-12-a-lease-that-is-not-renewed-says-so.md
 
       - alert: HorseDecisionFallbacks
-        # The worker failed or expired a job and the seat took the legal
-        # check/fold. The path reported to external telemetry only before this release, so
+        # A FAST decision was rejected and the seat took the legal check/fold.
+        # The path reported to external telemetry only before this release, so
         # the baseline is the worker's own expired-job count, which read 0 on
         # the live scrape. 5/min over 10 m is fifty seats folded blind.
+        # The counter carries `reason` (2026-11-09); sum() spans every reason,
+        # so the threshold is the same fleet-wide rate it always was.
         expr: sum(rate(poker_horse_decision_fallbacks_total[10m])) * 60 > 5
         for: 10m
         labels:
@@ -2417,9 +2419,12 @@ groups:
         annotations:
           summary: '{{ $value | printf "%.1f" }} horse decisions/min are falling back to check/fold'
           description: |
-            The decision worker is failing or expiring jobs and seated horses are
-            acting without a decision. Read
-            poker_horse_decision_worker_oldest_queued_age_ms and _expired_jobs.
+            FAST horse decisions are being rejected and seated horses are taking
+            the legal check/fold without a decision. The rejection path is not
+            assumed: read poker_horse_decision_fallbacks_total by reason
+            (expired, capacity_refused, shard_failed, shard_stopping,
+            enqueue_failed, validation_failed, result_refused,
+            post_result_failed, unknown), then the series that reason points at.
           runbook: docs/changelog/2026-09-11-the-horse-audit.md
 
       - alert: HorseSeatsUnactable

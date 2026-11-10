@@ -940,8 +940,8 @@ function donkey(kit: SceneParts) {
   // A matte coat with a sheen, the way short fur takes a rim light: the blue
   // rim from behind the road and the warm lamp pool both catch on it without
   // ever reading as lacquer. The hooves and the muzzle are the only gloss.
-  const coat = kit.material(0x7a6e60, 0, 0.92),
-    pale = kit.material(0xd9cec0, 0, 0.88);
+  const coat = kit.material(0xa38b71, 0, 0.92),
+    pale = kit.material(0xe9d6b8, 0, 0.88);
   const dark = kit.material(0x1c2127, 0.1, 0.42),
     eye = kit.material(0x080b0d, 0.1, 0.05);
   for (const fur of [coat, pale]) {
@@ -954,13 +954,20 @@ function donkey(kit: SceneParts) {
   sphere(kit, animal, coat, 0, 0.95, 0, 0.65, 0.43, 0.35);
   sphere(kit, animal, pale, 0, 0.8, 0, 0.49, 0.28, 0.32);
   const legs: THREE.Group[] = [];
+  const knees: THREE.Group[] = [];
   for (const x of [-0.38, 0.4])
     for (const z of [-0.23, 0.23]) {
       const leg = new THREE.Group();
       leg.position.set(x, 0.82, z);
       leg.name = `walking-leg-${legs.length}`;
-      sphere(kit, leg, coat, 0, -0.25, 0, 0.1, 0.34, 0.105);
-      box(kit, leg, dark, 0.035, -0.61, 0, 0.22, 0.17, 0.21, 0.06);
+      sphere(kit, leg, coat, 0, -0.16, 0, 0.12, 0.24, 0.115);
+      const knee = new THREE.Group();
+      knee.position.y = -0.34;
+      sphere(kit, knee, pale, 0, -0.12, 0, 0.08, 0.19, 0.08);
+      box(kit, knee, dark, 0.035, -0.29, 0, 0.2, 0.15, 0.18, 0.05);
+      mergeParts(kit, knee);
+      leg.add(knee);
+      knees.push(knee);
       animal.add(leg);
       legs.push(leg);
     }
@@ -994,7 +1001,7 @@ function donkey(kit: SceneParts) {
   animal.traverse((obj) => {
     if (obj instanceof THREE.Mesh) obj.castShadow = true;
   });
-  return { animal, legs, ears };
+  return { animal, legs, knees, ears };
 }
 
 export default function ChoiceScene(props: Props) {
@@ -1497,7 +1504,12 @@ function CrossingScene(props: Props) {
       box(kit, car, body, 0, 0.64, 0, 1.3, 0.18, 2.52, 0.11);
       box(kit, car, glass, 0, 0.9, -0.12, 1.12, 0.5, 1.42, 0.2);
       box(kit, car, body, 0, 1.17, -0.15, 1.0, 0.08, 0.98, 0.06);
+      // A split bonnet stripe, ducktail spoiler and blade lights give the
+      // approaching rally coupe a distinct silhouette from either direction.
+      box(kit, car, body, 0, 0.86, -1.17, 1.48, 0.075, 0.23, 0.03);
       for (const side of [-1, 1]) {
+        box(kit, car, rubber, side * 0.51, 0.77, -1.17, 0.075, 0.16, 0.12, 0.025);
+        box(kit, car, chrome, side * 0.16, 0.737, 0.86, 0.092, 0.017, 0.66, 0.007);
         box(kit, car, chrome, side * 0.715, 0.6, -0.05, 0.02, 0.03, 2.3, 0.01);
         box(kit, car, rubber, side * 0.716, 0.48, 0.12, 0.012, 0.28, 0.02, 0.005);
         box(kit, car, body, side * 0.78, 0.86, 0.5, 0.1, 0.07, 0.14, 0.03);
@@ -1514,7 +1526,7 @@ function CrossingScene(props: Props) {
       box(kit, car, chrome, 0, 0.34, -1.41, 1.2, 0.1, 0.08, 0.03);
       box(kit, car, rubber, 0, 0.5, 1.415, 0.62, 0.12, 0.03, 0.01);
       for (const side of [-1, 1]) {
-        box(kit, car, headlamp, side * 0.47, 0.56, 1.41, 0.28, 0.12, 0.05, 0.03);
+        box(kit, car, headlamp, side * 0.47, 0.56, 1.41, 0.42, 0.07, 0.05, 0.03);
         box(kit, car, taillight, side * 0.47, 0.56, -1.41, 0.3, 0.1, 0.05, 0.03);
       }
       const slots = mergeParts(kit, car).map((mesh) => ({
@@ -2114,7 +2126,12 @@ function CrossingScene(props: Props) {
       animal.animal.rotation.set(0, 0, 0);
       animal.animal.scale.setScalar(DONKEY_SCALE);
       animal.legs.forEach((leg, i) => {
-        leg.rotation.z = walk < 1 ? Math.sin(walk * Math.PI * 4 + (i % 2) * Math.PI) * 0.5 : 0;
+        // Opposing diagonal feet touch down together. Fold each free hoof
+        // during recovery so it clears the road instead of sliding through it.
+        const diagonal = i === 0 || i === 3 ? 1 : -1;
+        const stride = walk < 1 ? Math.sin(walk * Math.PI * 4) * diagonal : 0;
+        leg.rotation.z = stride * 0.53;
+        animal.knees[i].rotation.z = Math.max(0, stride) * -0.72;
       });
       // A hoof on the road each time a pair of legs passes the vertical: the
       // gait above is two strides a street, so four steps, on the walk's clock.

@@ -1,14 +1,11 @@
 import type { DiamondGame } from '../services/DiamondGamesService';
-import { crashReturnPpmV5 } from './diamondGamesFairness';
+import { crashFlightReach } from './diamondGamesFairness';
 
-/** Every Diamond game is built to pay back 80 percent of what it takes in, except Crash. */
+/** Historical table target when the operator response has no active table. */
 export const DESIGNED_RETURN = 0.8;
-/** Diamond Crash pays back each round's own return from contract 5, chosen for a
- * 2.9x average (Dan, 2026-10-12: "CRASH CAN GO NEGATIVE, IT CAN PAY OUT UP TO
- * 120%"; migration 20261012140447). The console prints the return of the round
- * nearly every award is played on, a standard one at half the stake: 1.006430.
- * A Super award with the add-on returns 1.137983, and none returns above 1.20. */
-export const CRASH_DESIGNED_RETURN = crashReturnPpmV5(1, 0.5) / 1e6;
+/** Reference only: banking at 2.50× succeeds on every contract-6 flight.
+ * Operators see realized payouts because other cash-out targets have different returns. */
+export const CRASH_DESIGNED_RETURN = 2.5 * crashFlightReach(250);
 
 /**
  * What the game is built to return: the live Plinko table's own figure when
