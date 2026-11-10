@@ -547,7 +547,7 @@ ALTER TABLE public.wheel_owner_credit ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.wheel_prize_financing ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.wheel_owner_credit_repayments ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.wheel_owner_credit, public.wheel_prize_financing,
- public.wheel_owner_credit_repayments FROM PUBLIC,anon,authenticated;
+ public.wheel_owner_credit_repayments FROM PUBLIC,anon,authenticated,service_role;
 GRANT SELECT ON public.wheel_owner_credit, public.wheel_prize_financing,
  public.wheel_owner_credit_repayments TO service_role;
 
