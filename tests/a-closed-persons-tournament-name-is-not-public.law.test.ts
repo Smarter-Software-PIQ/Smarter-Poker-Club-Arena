@@ -32,12 +32,34 @@ const OWNER_RIGHTS = readMigration(
 const POLICY = readMigration(
   '20261110003726_a_closed_persons_tournament_rows_are_read_through_the_public.sql'
 );
+const LISTED = readMigration(
+  '20261110152707_a_closed_persons_label_is_listed_only_where_results_name_the.sql'
+);
 
 describe('the closed-person label has one definition', () => {
   it('is a closed profile that is not a horse, labelled by its scrubbed profile', () => {
     expect(SQL).toMatch(
       /CREATE VIEW public\.ca_closed_player_labels AS\s+SELECT p\.id,\s+COALESCE\(NULLIF\(btrim\(p\.username\), ''\), 'Player'\) AS label\s+FROM public\.profiles p\s+WHERE p\.status = 'deleted' AND p\.is_horse IS NOT TRUE;/
     );
+  });
+
+  // Ordinary readers may select the label view (the read policy asks it as
+  // them), so it lists only people a tournament result already names. It must
+  // never become a directory of who closed an account.
+  it('lists a closed person only where a tournament result names them', () => {
+    expect(LISTED).toMatch(
+      /CREATE OR REPLACE VIEW public\.ca_closed_player_labels\s+WITH \(security_invoker = false\) AS\s+SELECT p\.id,\s+COALESCE\(NULLIF\(btrim\(p\.username\), ''\), 'Player'\) AS label\s+FROM public\.profiles p\s+WHERE p\.status = 'deleted'\s+AND p\.is_horse IS NOT TRUE\s+AND EXISTS \(SELECT 1 FROM public\.tournament_players tp WHERE tp\.user_id = p\.id\);/
+    );
+    expect(LISTED).toContain(
+      'GRANT SELECT ON public.ca_closed_player_labels TO anon, authenticated, service_role;'
+    );
+    for (const file of migrationFiles().filter((f) => f > '20261110152707')) {
+      const sql = readMigration(file);
+      if (!/CREATE (?:OR REPLACE )?VIEW\s+public\.ca_closed_player_labels\b/i.test(sql)) continue;
+      expect(sql, file).toMatch(
+        /EXISTS \(SELECT 1 FROM public\.tournament_players tp WHERE tp\.user_id = p\.id\)/
+      );
+    }
   });
 
   it('is served by an index with the same predicate', () => {
