@@ -478,28 +478,31 @@ describe('a won game waits for the player, and starts on the entry they answered
 });
 
 describe('the exit guard holds money in flight, not a won game that cannot start', () => {
-  it('holds a won game this page can start', async () => {
+  it('holds a playable won game beyond the standalone daily limit', async () => {
+    backend.awardState.mockImplementation(async (_club, name: Game, doubled: boolean) =>
+      awardRead(name, doubled, { rounds_today: 501, daily_limit: 500 })
+    );
     render(<DiamondChoicePage game="crossing" />);
     await noOfferToAnswer();
     expect(guardHolds()).toBe(true);
   });
 
-  it.each([
-    { reason: 'the maintenance break', game: { frozen: true } },
-    { reason: 'the daily limit', game: { rounds_today: 500, daily_limit: 500 } },
-  ])('lets the player leave a won game blocked by $reason', async ({ game }) => {
-    backend.awardState.mockImplementation(async (_club, name: Game, doubled: boolean) =>
-      awardRead(name, doubled, game)
-    );
-    render(<DiamondChoicePage game="crossing" />);
-    await settle();
-    expect(guardHolds()).toBe(false);
-    // A game that cannot start says so on its plate, and nothing is sent.
-    expect(screen.getByRole('button', { name: 'Start Round' })).toBeDisabled();
-    await advance(10000);
-    expect(backend.start).not.toHaveBeenCalled();
-    expect(guardHolds()).toBe(false);
-  });
+  it.each([{ reason: 'the maintenance break', game: { frozen: true } }])(
+    'lets the player leave a won game blocked by $reason',
+    async ({ game }) => {
+      backend.awardState.mockImplementation(async (_club, name: Game, doubled: boolean) =>
+        awardRead(name, doubled, game)
+      );
+      render(<DiamondChoicePage game="crossing" />);
+      await settle();
+      expect(guardHolds()).toBe(false);
+      // A game that cannot start says so on its plate, and nothing is sent.
+      expect(screen.getByRole('button', { name: 'Start Round' })).toBeDisabled();
+      await advance(10000);
+      expect(backend.start).not.toHaveBeenCalled();
+      expect(guardHolds()).toBe(false);
+    }
+  );
 
   it('lets the player leave while the ticket cannot be dealt, and holds once it is', async () => {
     backend.rpc.mockRejectedValueOnce(new Error('The Network Dropped'));

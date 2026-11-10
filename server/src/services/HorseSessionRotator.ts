@@ -1,3 +1,5 @@
+import { readPloLightningDemand } from './PloLightningDemandRead.js';
+import { PLO_LIGHTNING_GAME, ploWindDownFor } from './PloLightningDemand.js';
 import { horseCashGameAllowed } from './HorseCashSchedule.js';
 import {
   horseCashPlanPrimaryTables,
@@ -1101,6 +1103,15 @@ export class HorseSessionRotator {
       horseIds,
       lightningGameIds
     );
+    const ploDemand = await readPloLightningDemand(() =>
+      supabase.rpc('fn_plo_lightning_post_human_demand')
+    );
+    const occupiedHumanGames = new Set<string>();
+    for (const seats of byTable.values()) {
+      const gameId = (seats[0] as any)?.tables?.cluster_id;
+      if (typeof gameId === 'string' && seats.some((s) => !horseIds.has(s.user_id)))
+        occupiedHumanGames.add(gameId);
+    }
     /* A game's second table follows its Main 1 (Dan 2026-11-06). */
     const cashPlanSecondTables = horseCashPlanSecondTables(
       [...byTable.entries()].map(([id, tableSeats]) => ({
@@ -1371,6 +1382,12 @@ export class HorseSessionRotator {
     }
 
     let departures = 0;
+    // Earlier lone-table and tournament passes already own these departures.
+    let ploDepartureThisCycle = [...byTable.values()].some(
+      (tableSeats) =>
+        (tableSeats[0] as any)?.tables?.cluster_id === PLO_LIGHTNING_GAME &&
+        tableSeats.some((seat) => departedThisCycle.has(`${seat.table_id}:${seat.user_id}`))
+    );
     let breakTaken = false;
     for (const [tableId, tableSeats] of byTable) {
       if (!this.lifecycleIsCurrent(generation)) return;
@@ -1419,7 +1436,11 @@ export class HorseSessionRotator {
       const openSeats = Math.max(0, maxPlayers - tableSeats.length);
       const releaseWanted = Math.max(0, (humansWaiting.get(tableId) ?? 0) - openSeats);
       const fill = cashTableFill(tableId);
-      if (releaseWanted === 0 && tableSeats.length < (humanPresent ? 5 : 4)) continue;
+      const windingDown = ploWindDownFor(tableRow?.cluster_id, ploDemand, occupiedHumanGames);
+      if (windingDown && ploDepartureThisCycle) continue;
+      // The owner's 80% branch keeps ordinary session departures below three.
+      if (!windingDown && releaseWanted === 0 && tableSeats.length < (humanPresent ? 5 : 4))
+        continue;
 
       const engine = this.getEngine(tableId);
       if (!engine) continue; // no live engine - not our business
@@ -1488,7 +1509,7 @@ export class HorseSessionRotator {
            on the sparse quarter, which is where the floor's visible churn now
            lives, and they still run the moment somebody is waiting (that path
            is certain and returns above). */
-        const holdsFull = fill === 'full' && releaseWanted === 0;
+        const holdsFull = !windingDown && fill === 'full' && releaseWanted === 0;
 
         if (
           !holdsFull &&
@@ -1562,6 +1583,7 @@ export class HorseSessionRotator {
           this.noteLeaveResult(tableId, best.seat.user_id, result);
           if (result.success) {
             departures++;
+            if (windingDown) ploDepartureThisCycle = true;
             departedThisCycle.add(`${tableId}:${best.seat.user_id}`);
             // Only THIS table's break record — a break at another table is
             // still live and must still sit back in over there.

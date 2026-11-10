@@ -76,10 +76,10 @@ afterEach(() => {
 });
 
 describe('tournament card information', () => {
-  it('puts the authoritative guarantee and variant in the title; omits zero guarantees', () => {
-    expect(card().title).toBe('Nightly 10K (NLH) · 10K Guaranteed');
-    expect(card({ guaranteed_prize: 0 }).title).toBe('Nightly 10K (NLH)');
-    expect(card({ name: 'Nightly 10K Guaranteed' }).title).toBe('Nightly 10K Guaranteed (NLH)');
+  it('keeps the compact event name separate from the guarantee', () => {
+    expect(card().title).toBe('Nightly 10K');
+    expect(card({ guaranteed_prize: 0 }).title).toBe('Nightly 10K');
+    expect(card({ name: 'Nightly 10K Guaranteed' }).title).toBe('Nightly 10K Guaranteed');
   });
   it('ticks the start countdown and awaits an authoritative start without rule clutter', () => {
     vi.useFakeTimers();

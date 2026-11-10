@@ -1,4 +1,7 @@
+import { unionEcoComponents, unionEcoSummary, type UnionEcoComponent } from './unionEco';
 export interface UnionStatementClub {
+  eco_version?: number | null;
+  eco_components?: UnionEcoComponent[] | null;
   club_id: string;
   club_name: string;
   club_code: string | null;
@@ -20,6 +23,9 @@ export interface UnionStatementClub {
   union_fee_kept: number;
   players_won: number;
   eco_amount: number;
+  eco_components_complete?: boolean;
+  cash_eco_amount?: number | null;
+  tournament_eco_amount?: number | null;
   presettled: number;
 }
 
@@ -30,6 +36,9 @@ export interface UnionStatementPeriod {
   total_amount: number;
   rake_generated: number;
   eco_amount: number;
+  eco_components_complete?: boolean;
+  cash_eco_amount?: number | null;
+  tournament_eco_amount?: number | null;
   paid: number;
   delivered: number;
 }
@@ -48,6 +57,9 @@ export interface UnionStatementTotals {
   outstanding: number | null;
   rake_generated: number;
   eco_amount: number;
+  eco_components_complete?: boolean;
+  cash_eco_amount?: number | null;
+  tournament_eco_amount?: number | null;
 }
 
 export interface UnionStatementBoard {
@@ -185,8 +197,13 @@ function parseClub(value: unknown): ParsedClub {
     union_fee_kept: moneyValue(row.union_fee_kept, 'Statement union fee', true),
     players_won: moneyValue(row.players_won, 'Statement player result'),
     eco_amount: moneyValue(row.eco_amount, 'Statement ECO amount'),
+    eco_version: row.eco_version === 2 ? 2 : null,
+    eco_components: unionEcoComponents(row),
     presettled: moneyValue(row.presettled, 'Statement presettled amount'),
   };
+
+  if (row.eco_version === 2 && !parsed.eco_components)
+    throw new Error('Statement ECO components are invalid');
 
   if (status === 'missing') {
     if (
@@ -269,6 +286,7 @@ function parseTotals(value: unknown): UnionStatementTotals {
     outstanding: available ? moneyValue(totals.outstanding, 'Statement outstanding', true) : null,
     rake_generated: moneyValue(totals.rake_generated, 'Statement rake generated', true),
     eco_amount: moneyValue(totals.eco_amount, 'Statement ECO total'),
+    ...unionEcoSummary(totals),
   };
 }
 
@@ -298,6 +316,7 @@ function parseHistory(value: unknown): UnionStatementPeriod[] {
       total_amount: moneyValue(row.total_amount, 'Statement history amount'),
       rake_generated: moneyValue(row.rake_generated, 'Statement history rake', true),
       eco_amount: moneyValue(row.eco_amount, 'Statement history ECO'),
+      ...unionEcoSummary(row),
       paid,
       delivered,
     };
@@ -402,6 +421,17 @@ export function parseUnionStatementBoard(
     [totals.rake_generated, sumCents(clubs.map((row) => row.rake_generated)), 'rake'],
     [totals.eco_amount, sumCents(clubs.map((row) => row.eco_amount)), 'ECO'],
   ];
+  if (totals.eco_components_complete) {
+    if (clubs.some((c) => !c.eco_components))
+      throw new Error('Separate ECO totals omit an original club');
+    for (const [index, actual] of [
+      [0, totals.cash_eco_amount],
+      [1, totals.tournament_eco_amount],
+    ] as const) {
+      if (cents(actual as number) !== sumCents(clubs.map((c) => c.eco_components![index].amount)))
+        throw new Error('Separate ECO lane total does not reconcile');
+    }
+  }
   for (const [actual, expectedCents, label] of moneyChecks) {
     if (cents(actual) !== expectedCents)
       throw new Error(`Statement ${label} total does not reconcile`);

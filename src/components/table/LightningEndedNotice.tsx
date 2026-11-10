@@ -43,7 +43,7 @@ export default function LightningEndedNotice({
         title="Session Results"
         pill="Ended"
         crest="flat"
-        className="lightning-ended__console"
+        className="lightning-ended__console postplay-panel"
       >
         <p className="lightning-ended__text">{text}</p>
         <button

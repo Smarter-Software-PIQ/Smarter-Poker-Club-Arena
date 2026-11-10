@@ -18,6 +18,8 @@ import { DisconnectEngine } from '../engine/DisconnectEngine.js';
 import { supabase } from './supabase.js';
 import { HorseSessionRotator, type RotatorEngine } from './HorseSessionRotator.js';
 import { setMaintenanceFrozen } from '../maintenance/freezeState.js';
+import { PLO_LIGHTNING_GAME } from './PloLightningDemand.js';
+import { cashTableFill } from './HorseBehavior.js';
 import { JAQK_CLUB_ID } from './StableHand.js';
 
 const base: HorseSitOutInput = {
@@ -112,6 +114,7 @@ function fakeDb(tables: Record<string, Rows>) {
     b.in = (c: string, v: unknown[]) => ((rows = rows.filter((r) => v.includes(r[c]))), b);
     b.is = (c: string, v: unknown) => ((rows = rows.filter((r) => (r[c] ?? null) === v)), b);
     b.gt = (c: string, v: any) => ((rows = rows.filter((r) => String(r[c]) > String(v))), b);
+    b.gte = (c: string, v: unknown) => ((rows = rows.filter((r) => String(r[c]) >= String(v))), b);
     b.lte = () => b;
     b.not = () => b;
     b.order = () => b;
@@ -146,7 +149,7 @@ const tableRow = (id: string) => ({
   max_buy_in: 4,
 });
 
-function floor() {
+function floor(): Record<string, Rows> {
   const tables = [tableRow(TABLE_A), tableRow(TABLE_B)];
   const seats: Rows = [];
   tables.forEach((t, ti) => {
@@ -240,6 +243,119 @@ describe('THE CALL PATH: the rotator pass steps a horse away, and never one owin
       vi.restoreAllMocks();
       for (const m of ['log', 'warn', 'error'] as const)
         vi.spyOn(console, m).mockImplementation(() => {});
+    }
+  });
+});
+
+describe('post-human PLO sessions retain their safe ordinary departure path', () => {
+  beforeEach(() => {
+    setMaintenanceFrozen(false);
+    vi.useFakeTimers({ now: NOW, toFake: ['Date'] });
+    for (const m of ['log', 'warn', 'error'] as const)
+      vi.spyOn(console, m).mockImplementation(() => {});
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+  async function run(
+    continues: boolean | null,
+    owed = 0,
+    humanElsewhere = false,
+    secondTable = false,
+    count = 3
+  ) {
+    const db = floor();
+    const id = Array.from({ length: 100 }, (_, i) => `plo-full-${i}`).find(
+      (id) => cashTableFill(id, NOW) === 'full'
+    )!;
+    db.table_seats = db.table_seats.slice(0, count).map((s) => ({
+      ...s,
+      table_id: id,
+      tables: {
+        ...s.tables,
+        id,
+        cluster_id: PLO_LIGHTNING_GAME,
+        game_variant: 'plo4',
+        small_blind: 1,
+        big_blind: 2,
+        min_buy_in: 80,
+        max_buy_in: 400,
+        union_id: null,
+      },
+    }));
+    if (secondTable)
+      db.table_seats.push(
+        ...db.table_seats.map((s, i) => ({
+          ...s,
+          id: `other-${i}`,
+          user_id: HORSES[i + 3],
+          table_id: 'other-plo-main',
+          tables: { ...s.tables, id: 'other-plo-main' },
+        }))
+      );
+    db.cash_games = [{ id: PLO_LIGHTNING_GAME, lightning_enabled: true, enabled: true }];
+    if (humanElsewhere)
+      db.table_seats.push({
+        ...db.table_seats[0],
+        user_id: 'person',
+        table_id: 'human-feeder',
+        tables: { ...db.table_seats[0].tables, id: 'human-feeder' },
+        is_sitting_out: true,
+      });
+    fakeDb(db);
+    vi.mocked(supabase.rpc).mockImplementation((() =>
+      Promise.resolve(
+        continues === null
+          ? { data: null, error: { message: 'unknown' } }
+          : {
+              data: {
+                game_id: PLO_LIGHTNING_GAME,
+                event_id: '00000000-0000-4000-8000-000000000001',
+                continues,
+                wind_down: !continues,
+              },
+              error: null,
+            }
+      )) as never);
+    const e = fakeEngines(owed),
+      rot = new HorseSessionRotator(() => e.engine) as any;
+    await rotateOnce(rot);
+    return e;
+  }
+  it('the 80% branch can leave below three, one through the ordinary engine door', async () => {
+    const e = await run(false);
+    expect(e.leaveTable).toHaveBeenCalledTimes(1);
+    expect(e.leaveTable.mock.calls[0]).toHaveLength(1);
+  });
+  it('a lone-table departure is not requested again by the new short-table rotation', async () => {
+    const e = await run(false, 0, false, false, 1);
+    expect(e.leaveTable).toHaveBeenCalledTimes(1);
+  });
+
+  it('two tables of the same winding-down game still leave only one participant per cycle', async () => {
+    const e = await run(false, 0, false, true);
+    expect(e.leaveTable).toHaveBeenCalledTimes(1);
+  });
+  it('the 20% continuation retains a full six-player table under its ordinary full-table hold', async () => {
+    const e = await run(true, 0, false, false, 6);
+    expect(e.leaveTable).not.toHaveBeenCalled();
+  });
+
+  it('the 20% continuation and unknown reads retain the existing population floor', async () => {
+    for (const c of [true, null]) {
+      const e = await run(c);
+      expect(e.leaveTable).not.toHaveBeenCalled();
+    }
+  });
+  it('owed hands and a returning human at another feeder still prevent wind-down', async () => {
+    for (const [owed, human] of [
+      [5, false],
+      [0, true],
+    ] as const) {
+      const e = await run(false, owed, human);
+      expect(e.leaveTable).not.toHaveBeenCalled();
     }
   });
 });

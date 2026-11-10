@@ -1,3 +1,4 @@
+import { readPloLightningDemand } from './PloLightningDemandRead.js';
 import { horseCashGameAllowed } from './HorseCashSchedule.js';
 import {
   horseCashPlanPrimaryTables,
@@ -2535,6 +2536,9 @@ export class HorseFleetManager {
         horseIdSet,
         cashPlanLightningGames
       );
+      const ploDemand = await readPloLightningDemand(() =>
+        supabase.rpc('fn_plo_lightning_post_human_demand')
+      );
       /* A game's second table follows its Main 1 (Dan 2026-11-06). */
       const cashPlanSecondTables = horseCashPlanSecondTables(
         tables,
@@ -2546,7 +2550,10 @@ export class HorseFleetManager {
             Date.now(),
             cashPlanPrimaryTables,
             cashPlanLightningGames,
-            cashPlanLightningHumanGames
+            cashPlanLightningHumanGames,
+            null,
+            false,
+            ploDemand
           )
       );
       // V8: tables with a short-handed HUMAN seed first (never leave a human
@@ -3143,7 +3150,9 @@ export class HorseFleetManager {
               cashPlanPrimaryTables,
               cashPlanLightningGames,
               cashPlanLightningHumanGames,
-              cashPlanSecondTables
+              cashPlanSecondTables,
+              false,
+              ploDemand
             )
           ) {
             beat.withheldTables++;
@@ -5117,6 +5126,9 @@ export class HorseFleetManager {
         horseIdSet,
         cashPlanLightningGames
       );
+      const ploDemand = await readPloLightningDemand(() =>
+        supabase.rpc('fn_plo_lightning_post_human_demand')
+      );
       /* A game's second table follows its Main 1 (Dan 2026-11-06). */
       const cashPlanSecondTables = horseCashPlanSecondTables(
         tables,
@@ -5128,7 +5140,10 @@ export class HorseFleetManager {
             Date.now(),
             cashPlanPrimaryTables,
             cashPlanLightningGames,
-            cashPlanLightningHumanGames
+            cashPlanLightningHumanGames,
+            null,
+            false,
+            ploDemand
           )
       );
 
@@ -5221,7 +5236,9 @@ export class HorseFleetManager {
             cashPlanPrimaryTables,
             cashPlanLightningGames,
             cashPlanLightningHumanGames,
-            cashPlanSecondTables
+            cashPlanSecondTables,
+            false,
+            ploDemand
           )
         )
           continue;

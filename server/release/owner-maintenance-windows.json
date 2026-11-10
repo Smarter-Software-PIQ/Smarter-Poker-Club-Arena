@@ -1158,6 +1158,21 @@
         "path": "server/release/activation-floor.json",
         "sha256": "eab1577724880e91ae89a4f0e73fb5e3cd88bf5a7355331503f6ead38e93b2af"
       }
+    },
+    {
+      "id": "2026-11-10-owner-asap-engine-0440z",
+      "ownerOrder": "Dan, the owner, directly in current Codex chat 01a1bbdd-33d6-7680-b41e-fff1cf188f3f replied verbatim \"Authorize successor ASAP through 06:30 UTC\" on November 10, 2026, after the original 2230 booking could not retain a full fresh Backup soak after the corrected prerequisite installation. He earlier explicitly replied \"Transfer custody to you\" to the self-contained original-operation custody question. The root Codex agent in this chat is the cutover custodian and alone owns Stage, receiver, Backup and installation operations. This NEW single-use successor admits one earliest-certified replacement of serving bff6eed3522ee894da747f91a532b35a3d8cee4f from 04:40 through 06:30 UTC November 10. The protected target must contain de2e79762d5ec60b9b37792ed4e9acda83b25cab and all engine work merged since BFF through this successor booking. It neither renews nor replays 2026-11-09-owner-asap-engine-2230z or any earlier booking; preserve their exact entries, expiry, notices, witnesses and unconsumed operation state. No database migration and no new tournament-start hold. Publish the new player notice from 04:20 UTC and observe its actual public visibility for at least twenty minutes before admission. The unchanged earlier-notice priority keeps the original 2230 notice visible until 04:30; no earlier declared timestamp backdates the new notice lead, so first admission cannot precede 04:50 even with timely publication. A later publication or observation moves that earliest admission later within this fixed expiry. Require exact-head protected checks, immutable target/control and image qualification, a fresh exact Backup certificate with the full 1800-second soak and installed migration/schema equality to production, both-direction serving-predecessor reconnect rehearsal, a fresh announcement between :05:30 and :49:00, normal hand-boundary drain, durable sealed freeze and full 285-second proof/rollback reserve, single-use custody, exact production identity, healthy completed thaw and post-seal fresh Backup. Use only the existing Stage/receiver and original bounded release transaction. No direct restart, financial or migration replay, competing operation, timer, watcher, repair loop, reserve reduction or freeze extension. Expiry is final and grants no retry or automatic extension; the standing daily schedule remains unchanged.",
+      "contains": "de2e79762d5ec60b9b37792ed4e9acda83b25cab",
+      "playerNoticeAt": "2026-11-10T04:20:00Z",
+      "notBefore": "2026-11-10T04:40:00Z",
+      "notAfter": "2026-11-10T06:30:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "2fda02a8be63aa6a0597a6a87726eb772a657cdbaca2a88b4405fe3c873c63f7"
+      }
     }
   ],
   "databaseWindows": [

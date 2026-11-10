@@ -67,7 +67,7 @@ ALTER TABLE public.push_outbox ENABLE ROW LEVEL SECURITY;
 
 -- The production guards, byte for byte where it matters to this route.
 CREATE FUNCTION public.fn_is_platform_alert_recipient(p_user uuid) RETURNS boolean LANGUAGE sql IMMUTABLE AS
-  $$ SELECT COALESCE(p_user IN ('47965354-0e56-43ef-931c-ddaab82af765'::uuid,'3bb71bfe-f723-427c-aac7-a853ba04a014'::uuid),false) $$;
+  $$ SELECT COALESCE(p_user = '47965354-0e56-43ef-931c-ddaab82af765'::uuid,false) $$;
 CREATE FUNCTION public.fn_is_platform_operational_alert(p_type text, p_title text, p_data jsonb) RETURNS boolean LANGUAGE sql IMMUTABLE AS $$
  SELECT COALESCE(p_type='platform_admin_alert' OR p_data->>'audience'='platform_admin' OR p_type IN ('financial_incident','financial_incident_resolved','financial_attestation',
  'engine_break_failed','engine_break_recovered','guarantee_bank_short','guarantee_bank_recovered','estate_digest')

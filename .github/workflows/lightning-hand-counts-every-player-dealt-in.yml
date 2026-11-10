@@ -58,6 +58,13 @@ on:
       - src/services/GameServerAPI.ts
       - src/services/SessionStatsService.ts
       - src/pages/TablePage.tsx
+      - supabase/migrations/20261109224717_a_lightning_blind_off_always_completes.sql
+      - supabase/migrations/20261106203853_hit_and_run_ten_hands_in_profit.sql
+      - supabase/migrations/20261107040516_clubs_choose_their_hand_count_before_leaving.sql
+      - scripts/qualify-lightning-blind-off.mjs
+      - scripts/qualification/lightning-blind-off/**
+      - scripts/qualification/stable-admin-floor/fixture.mjs
+      - tests/a-lightning-blind-off-always-completes.law.test.ts
       - scripts/ci/test-lightning-stats-facts.py
       - scripts/ci/test-lightning-hand-counts-every-player-dealt-in.py
       - .github/workflows/lightning-hand-counts-every-player-dealt-in.yml
@@ -78,6 +85,17 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install PostgreSQL 17 from the signed PGDG source only
         uses: ./.github/actions/install-postgres-17
+      # BUG-7C1347FF (migration 20261109224717): the installed production
+      # images (hash-checked) must strand an owed blind off before the
+      # migration and complete it after. Node 22 for import.meta.dirname.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: A Lightning blind off always completes
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: node scripts/qualify-lightning-blind-off.mjs
       # Runs as the runner user (non-root), exactly as the ci.yml step would.
       - name: Lightning hand counts every player dealt in, not every payer
         env:

@@ -1,12 +1,8 @@
 import { choiceLossGuarantee } from '../utils/choiceProgressiveGuarantee';
-import {
-  isRoadCoinVersion,
-  roadCoinEnd,
-  roadCoinPrizes,
-} from '../utils/roadCoin';
+import { isRoadCoinVersion, roadCoinEnd, roadCoinPrizes } from '../utils/roadCoin';
 import { supabase } from '../lib/supabase';
 import { earnedReceiptBudget } from '../utils/bonusGameBudget';
-import { validBonusMinimum } from '../utils/diamondBonusPayout';
+import { earnedWheelMinimum, validBonusMinimum } from '../utils/diamondBonusPayout';
 import {
   CHOICE_PAYOUT_VERSION,
   MINE_COUNTS,
@@ -41,6 +37,7 @@ export interface ChoiceRound {
   prizes: number[];
   payout_chips: number;
   minimum_payout_chips?: number;
+  wheel_minimum_payout_chips?: number;
   /** 1: no floor (historical). 2: a tenth of the stake. 3: the Super half.
    *  4: half the stake, or for a Super award what the player paid, with the
    *  first step of the game certain (owner ruling 2026-09-21, R3).
@@ -91,6 +88,9 @@ export function parseChoiceRound(value: unknown): ChoiceRound {
   // Written without a `payout_version : <digit>` shape on purpose: that is the
   // exact spelling scripts/ci/check-diamond-contract-parity.mjs reads as a
   // version the client ACCEPTS, and a fallback is not an accepted version.
+  const wheelFloor = earnedWheelMinimum(v);
+  if (wheelFloor !== null && !earnedReceiptBudget(v))
+    throw new Error('The Wheel Prize Guarantee Could Not Be Verified');
   const version = Number.isSafeInteger(v.payout_version) ? Number(v.payout_version) : 0;
   const sealedV4 = version >= CHOICE_PAYOUT_VERSION;
   const finite = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
@@ -126,9 +126,10 @@ export function parseChoiceRound(value: unknown): ChoiceRound {
     !finite(v.bet_chips) ||
     v.bet_chips <= 0 ||
     !Number.isSafeInteger(v.bet_diamonds) ||
-    Number(v.bet_diamonds) < 25 ||
-    (v.award_id !== undefined && !earnedReceiptBudget(v)) ||
-    Number(v.bet_diamonds) > (earnedReceiptBudget(v) ? 7500 : 5000) ||
+    Number(v.bet_diamonds) < 1 ||
+    (v.award_id !== undefined
+      ? !earnedReceiptBudget(v)
+      : Number(v.bet_diamonds) < 25 || Number(v.bet_diamonds) > 5000) ||
     !Number.isSafeInteger(v.diamonds_per_chip) ||
     Number(v.diamonds_per_chip) <= 0 ||
     Math.abs(Number(v.bet_diamonds) / Number(v.diamonds_per_chip) - v.bet_chips) > 1e-8 ||
@@ -171,15 +172,19 @@ export function parseChoiceRound(value: unknown): ChoiceRound {
   if (
     !validBonusMinimum(v) ||
     (v.status === 'open' && v.payout_chips !== 0) ||
+    (v.status !== 'open' && v.payout_chips < (wheelFloor ?? 0)) ||
     (v.status === 'lost' &&
       v.payout_chips !==
-        (version === 5 || isRoadCoinVersion(version)
-          ? choiceLossGuarantee(
-              v.prizes as number[],
-              v.picked.length - 1,
-              Number(v.minimum_payout_chips)
-            )
-          : (v.minimum_payout_chips ?? 0)))
+        Math.max(
+          wheelFloor ?? 0,
+          version === 5 || isRoadCoinVersion(version)
+            ? choiceLossGuarantee(
+                v.prizes as number[],
+                v.picked.length - 1,
+                Number(v.minimum_payout_chips)
+              )
+            : Number(v.minimum_payout_chips ?? 0)
+        ))
   )
     throw new Error('The Game Response Could Not Be Verified');
   if (v.status !== 'open') {

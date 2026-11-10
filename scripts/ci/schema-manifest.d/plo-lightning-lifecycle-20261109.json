@@ -1,8 +1,8 @@
 {
   "_owner": "plo-lightning-lifecycle-01a1c0a0",
-  "_comment": "Declared by migration20261109141301; this records source requirements, not production installation. Private admission progress and trigger-only transaction helper; protected installation and exact readback remain required.",
+  "_comment": "Declared by migration20261109141301; this records source requirements, not production installation. Private admission progress and trigger-only transaction helper; protected installation and exact readback remain required. Migration20261110023119 adds a service-only immutable-exit continuation reader; no installation claim.",
   "tables": ["lightning_horse_admission"],
-  "functions": ["fn_plo_lightning_horse_admit"],
+  "functions": ["fn_plo_lightning_horse_admit", "fn_plo_lightning_post_human_demand"],
   "columns": {
     "lightning_horse_admission": [
       "game_id",

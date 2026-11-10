@@ -247,6 +247,7 @@ interface TableInstance {
   /** TablePage's `seatCanAddFunds` answer; the tab bar drops its Top Up items
    *  on `false`. Reported, never derived here: this page cannot see the arena. */
   canAddFunds?: boolean;
+  buttonTheme?: string;
   isAutoRebuyEnabled?: boolean;
   /** Dan 2026-08-21: short game code the tab shows when no hand is live
    *  (NLH / PLO5 / SPIN / MTT / HU). Best-effort at first paint, replaced by
@@ -2190,6 +2191,7 @@ export default function MultiTablePage() {
              nothing else. */
           seated: t.seated,
           canAddFunds: t.canAddFunds,
+          buttonTheme: t.buttonTheme,
           isAutoRebuyEnabled: t.isAutoRebuyEnabled,
           /* Dan 2026-10-04: a tournament tab prints its buy-in, never its
              blinds or a pot. The bar decides; it only needs to be told. */

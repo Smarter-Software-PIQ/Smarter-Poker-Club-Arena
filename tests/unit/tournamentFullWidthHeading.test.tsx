@@ -119,7 +119,7 @@ describe('tournament headers span their whole event frame', () => {
       const span = Number(heading.querySelector('td')!.getAttribute('colspan'));
       expect(span).toBe(table.querySelectorAll('thead th').length);
       expect(heading.nextElementSibling).toBe(body);
-      expect(within(heading as HTMLElement).getByText('Nightly 10K (NLH)')).toBeTruthy();
+      expect(within(heading as HTMLElement).getByText('Nightly 10K')).toBeTruthy();
       expect(
         within(heading as HTMLElement).getByRole('img', { name: 'Freezeout Tournament' })
       ).toBeTruthy();

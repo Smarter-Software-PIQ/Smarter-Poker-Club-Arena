@@ -316,12 +316,12 @@ export function BBJAdminAnalytics({ poolId }: BBJAdminAnalyticsProps) {
             >
               <span className="bbj-admin__stat-label">Mini Headroom</span>
               <span className="bbj-admin__stat-value">
-                {money(Number(data.mini_available ?? 0), 0)}
+                {money(Number(data.mini_available ?? 0))}
               </span>
               <span className="bbj-admin__stat-sub">
-                Backup Above Its {money(Number(data.mini_reserve_floor ?? 0), 0)} Chip Floor
+                Backup Above Its {money(Number(data.mini_reserve_floor ?? 0))} Chip Floor
                 {Number(data.mini_parked ?? 0) > 0
-                  ? ` (${money(Number(data.mini_parked), 0)} Parked)`
+                  ? ` (${money(Number(data.mini_parked))} Parked)`
                   : ''}
               </span>
             </div>
@@ -343,8 +343,8 @@ export function BBJAdminAnalytics({ poolId }: BBJAdminAnalyticsProps) {
           a flow on the jackpot page (fn_bbj_promo_facts). */}
       <div className="bbj-admin__bar">
         <div className="bbj-admin__bar-label">
-          Jackpot Banks - Main {money(data.main_balance, 0)} / Backup{' '}
-          {money(data.backup_balance, 0)} Chips
+          Jackpot Banks - Main {money(data.main_balance)} / Backup {money(data.backup_balance)}{' '}
+          Chips
         </div>
         <div className="bbj-admin__bar-track">
           {(() => {
@@ -424,7 +424,7 @@ export function BBJAdminAnalytics({ poolId }: BBJAdminAnalyticsProps) {
                 <span className="bbj-admin__miss-sub">
                   {m.last_at ? `Last ${new Date(m.last_at).toLocaleDateString()}` : ''}
                   {Number(m.biggest_pot) > 0
-                    ? ` - Biggest Pot ${money(Number(m.biggest_pot), 0)} Chips`
+                    ? ` - Biggest Pot ${money(Number(m.biggest_pot))} Chips`
                     : ''}
                 </span>
                 {/* The sentence the ENGINE already wrote for the player at the

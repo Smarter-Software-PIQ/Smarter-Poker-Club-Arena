@@ -328,4 +328,75 @@ describe('deterministic settlement refusals retain serialized outcome ownership'
       requestSatelliteSettlementReceipt(TOURNAMENT_ID, WINNER_ID, { wait })
     ).rejects.toThrow('unknown after 1 identical attempt(s)');
   });
+
+  it('retries the serialized resolver on lane contention (55P03) and returns the committed receipt', async () => {
+    const wait = vi.fn(async (_delayMs: number): Promise<void> => undefined);
+    mocks.rpc
+      .mockResolvedValueOnce({ data: null, error: { code: '', message: 'supabase_timeout' } })
+      .mockResolvedValueOnce({
+        data: null,
+        error: { code: '55P03', message: 'canceling statement due to lock timeout' },
+      })
+      .mockResolvedValueOnce(resolvedOutcome(true, 'COMPLETED'));
+
+    await expect(
+      requestSatelliteSettlementReceipt(TOURNAMENT_ID, WINNER_ID, {
+        attempts: 1,
+        resolverAttempts: 3,
+        wait,
+      })
+    ).resolves.toBe(RECEIPT);
+    expect(mocks.rpc.mock.calls.map(([name]) => name)).toEqual([
+      writeName,
+      resolverName,
+      resolverName,
+    ]);
+    expect(wait.mock.calls.map(([ms]) => ms)).toEqual([500]);
+  });
+
+  it('treats all database-stated rollbacks plus a rolled-back resolver as a retryable refusal, not unknown', async () => {
+    const wait = vi.fn(async (_delayMs: number): Promise<void> => undefined);
+    mocks.rpc.mockResolvedValue({
+      data: null,
+      error: { code: '55P03', message: 'canceling statement due to lock timeout' },
+    });
+
+    await expect(
+      requestSatelliteSettlementReceipt(TOURNAMENT_ID, WINNER_ID, {
+        attempts: 2,
+        resolverAttempts: 2,
+        wait,
+      })
+    ).rejects.toBeInstanceOf(SatelliteSettlementRefusedError);
+    expect(mocks.rpc.mock.calls.map(([name]) => name)).toEqual([
+      writeName,
+      writeName,
+      resolverName,
+      resolverName,
+    ]);
+    expect(wait.mock.calls.map(([ms]) => ms)).toEqual([200, 500]);
+  });
+
+  it('keeps an unproven transport attempt unknown even if the resolver is rolled back on lock contention', async () => {
+    const wait = vi.fn(async (_delayMs: number): Promise<void> => undefined);
+    mocks.rpc
+      .mockResolvedValueOnce({ data: null, error: { code: '', message: 'supabase_timeout' } })
+      .mockResolvedValueOnce({
+        data: null,
+        error: { code: '55P03', message: 'canceling statement due to lock timeout' },
+      })
+      .mockResolvedValueOnce({
+        data: null,
+        error: { code: '55P03', message: 'canceling statement due to lock timeout' },
+      });
+
+    await expect(
+      requestSatelliteSettlementReceipt(TOURNAMENT_ID, WINNER_ID, {
+        attempts: 1,
+        resolverAttempts: 2,
+        wait,
+      })
+    ).rejects.toBeInstanceOf(SatelliteSettlementOutcomeUnknownError);
+    expect(wait.mock.calls.map(([ms]) => ms)).toEqual([500]);
+  });
 });

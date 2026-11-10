@@ -209,6 +209,19 @@ whichever test the next agent notices first.
   it is Dan's call, made by changing `fn_lightning_variant_allowed` and
   `LIGHTNING_EXCLUDED_VARIANTS` together.
 
+- **The Bad Beat Jackpot is printed to the cent (ruled 2026-11-09, Dan):** "for
+  the bbj display the full amount down to the decimal and the exact amounts for
+  the payouts... no rounded numbers. use exact numbers 100% of the time." This
+  later, narrower instruction takes every jackpot chip figure out of the
+  2026-09-09 forward-facing compact rule ("NEVER USE DECIMAL POINTS ... ONCE
+  SOMETHING HITS OVER 1,000 USE 1K"), which still governs the surfaces it was
+  written for. The pool, the mini, each recorded payout and each share print
+  through `jackpotChips` (`src/utils/jackpotExact.ts`): separators, both
+  decimals, never a K/M suffix, never rounded or truncated. Do not restore
+  `compactChips`, `Math.trunc` or `Math.round` on a jackpot surface when
+  applying #ClubArenaConsole. Diamond jackpots are whole by custody and
+  unchanged. Pinned by `tests/the-jackpot-is-printed-to-the-cent.law.test.ts`.
+
 ## Registry
 
 **The registry is the directory `docs/laws.d/` - one file per law.** This

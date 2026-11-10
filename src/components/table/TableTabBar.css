@@ -266,8 +266,8 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 17px;
-  height: 24px;
+  width: 23px;
+  height: 34px;
   border-radius: 3px;
   background: #f8f9fb;
   box-shadow:
@@ -285,13 +285,13 @@
 }
 
 .table-tab-bar__mini-card-rank {
-  font-size: 0.6rem;
+  font-size: 0.87rem;
   font-weight: 800;
   letter-spacing: -0.3px;
 }
 
 .table-tab-bar__mini-card-suit {
-  font-size: 0.5rem;
+  font-size: 0.72rem;
   margin-top: -1px;
 }
 
@@ -586,8 +586,8 @@
   }
 
   .table-tab-bar__mini-card {
-    width: 16px;
-    height: 26px;
+    width: 21px;
+    height: 32px;
   }
 
   /* ── Dan 2026-08-26 mobile pass, item 1: "the action pills need to be large
@@ -1101,4 +1101,13 @@
     --sp-tabbar-control: 44px;
     --sp-tabbar-pad-top: 0px;
   }
+}
+
+.table-tab-bar__tab--cards[data-button-theme] {
+  background:
+    var(--action-control-overlay, linear-gradient(transparent, transparent)),
+    var(--action-paint-call);
+  border: var(--action-control-border);
+  border-radius: var(--action-control-radius);
+  box-shadow: var(--action-control-inset);
 }

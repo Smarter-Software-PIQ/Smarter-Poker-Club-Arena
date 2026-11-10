@@ -39,10 +39,10 @@ describe('ThrowableService catalog', () => {
     }
   });
 
-  it('grouping is a partition: no item lost, none duplicated across tabs', () => {
+  it('grouping includes each selectable throwable once', () => {
     const grouped = throwableService.getThrowablesByCategory();
     const total = CATEGORIES.reduce((n, c) => n + grouped[c].length, 0);
-    expect(total).toBe(all.length);
+    expect(total).toBe(all.filter((item) => item.id !== 'rocket').length);
   });
 
   it('every item is renderable: name, sound, physics, impact, color present', () => {

@@ -361,6 +361,68 @@ test('actual CLI reports the failing bounded stage and preserves successful outp
         witnesses: [],
       })),
     });
+    // The refused hand contains an otherwise usable decision BEFORE the bad
+    // frame. A batch cannot take credit for that partial hand in either order.
+    writeFileSync(
+      join(cwd, 'dist/services/horseDecisionJournal/review.js'),
+      `export function readHorseJournalHandRecords(_,handKey) {
+        const snapshot={type:'DECIDE_FAST',player:{user_id:'${id}'},decisionTimeMs:123,
+          gameState:{players:[{user_id:'${id}'}],actionHistory:[]}};
+        const capture={snapshot,decision:{action:'check'},readFrame:'ok',observerReads:{
+          context:{version:2,format:'cash',variant:'plo4',dealtCount:2,publicMemoryDomain:{speed:'table',ante:'none'}},
+          pooledPublicProfiles:{digest:'profile',source:'public'}}};
+        const r=(kind,body,turnKey='1')=>({kind,body:JSON.stringify(body),sourceRelease:'${selection.sourceSha}',bytes:1,producerId:'p',turnKey});
+        const records=[r('accepted_hand',{}),r('execution',{executionStatus:'intended',executedAction:'check',selected:{action:'check',amount:null}}),r('decision',capture)];
+        if(handKey==='${other}') records.push(r('decision',{...capture,readFrame:'PRIVATE_CARDS_AND_RAW_RECORD'},'2'));
+        return records;
+      }
+      export function reconcileHorseJournalHand(){return {status:'reconciled'};}`
+    );
+    writeFileSync(
+      join(cwd, 'dist/engine/HorseDecisionReadFrame.js'),
+      `export function decodeHorseDecisionReads(frame){if(frame!=='ok') throw Error(frame);return {stats:new Map()};}`
+    );
+    writeFileSync(
+      join(cwd, 'dist/engine/HorseObserverReadEvidence.js'),
+      'export const horseObserverReadsWereIndependent=()=>false, horseObserverReadsUsedPublicPool=()=>true;'
+    );
+    writeFileSync(
+      join(cwd, 'dist/engine/HorseDecisionHandBinding.js'),
+      "export const bindHorseDecisionToCommittedHand=()=>({status:'bound',actionOrdinal:7});"
+    );
+    const goodKey = selection.handKeys[0];
+    const singleton = run('', undefined, {
+      sourceSha: selection.sourceSha,
+      targets: [{ handKey: goodKey, opponentId: id }],
+    });
+    assert.equal(singleton.status, 0, singleton.stderr);
+    const [good] = JSON.parse(singleton.stdout).hands;
+    assert.equal(good.witnesses.length, 1);
+    assert.equal(good.witnesses[0].acceptedSharedRead.actionOrdinal, 7);
+    const rejected = {
+      handKey: other,
+      reconciled: true,
+      inspectionStatus: 'unavailable',
+      reason: 'read_frame_refused',
+      witnesses: [],
+    };
+    for (const keys of [
+      [goodKey, other],
+      [other, goodKey],
+    ]) {
+      const result = run('', undefined, {
+        sourceSha: selection.sourceSha,
+        targets: keys.map((handKey) => ({ handKey, opponentId: id })),
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stderr, '');
+      assert.deepEqual(
+        JSON.parse(result.stdout).hands,
+        keys.map((k) => (k === goodKey ? good : rejected))
+      );
+      assert.ok(!result.stdout.includes('PRIVATE'));
+      assert.ok(!result.stdout.includes(id));
+    }
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }

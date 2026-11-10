@@ -59,6 +59,41 @@ describe('original posthand escrow stays separate from poker winnings', () => {
       expect(probe).toContain(text);
     expect(probe).not.toContain('DATABASE_URL');
   });
+  it('qualifies completed pending shapes at the original event with a bounded private lookup', () => {
+    const next = read(
+      'supabase/migrations/20261109234320_prove_all_original_posthand_pending_escrow_completions.sql'
+    );
+    for (const guard of [
+      'CREATE INDEX CONCURRENTLY IF NOT EXISTS cash_hand_provenance_table_time_cover',
+      'POSTHAND_TEMPORAL_EXACT_VALID_COVER_REQUIRED',
+      'POSTHAND_TEMPORAL_DEPENDENT_PIN_CHANGED',
+      'POSTHAND_TEMPORAL_ORIGINAL_PROOF_GENERATION_CHANGED',
+      'escrow_refused:original_direct_prehand_event_conservation_required',
+      "SET plan_cache_mode TO 'force_generic_plan'",
+      'original_unplayed_pending_escrow_completed_after_signed_hand',
+      'original_sources_unqualified',
+      "jsonb_build_object('accounting_admission',escrow_proof)",
+      'posthand_escrow_original_snapshot(v_commit.table_id,v_commit.hand_number)',
+    ])
+      expect(next).toContain(guard);
+    expect(next).not.toMatch(
+      /CREATE(?: OR REPLACE)? FUNCTION (?:public|smarter_private)\.(?:fn_pnl_cash_hand_evidence|fn_cash_participant_funding_lineage|original_inventory_proof_sources_match|original_inventory_basis_generation)\(/
+    );
+    const probe = read('scripts/dev/probe-posthand-escrow-pg17.sh');
+    for (const input of [
+      'initial-native.sql',
+      'multiple-native.sql',
+      'event-refusal-native.sql',
+      'lookup-native.sql',
+      'direct-prehand-native.sql',
+      'installation.py',
+    ])
+      expect(probe).toContain(input);
+    const installer = read('tests/fixtures/posthand-escrow/temporal/installation.py');
+    expect(installer).toContain('execute(preamble)');
+    expect(installer).toContain('execute(body)');
+    expect(installer).toContain('POSTHAND_TEMPORAL_ALREADY_INSTALLED');
+  });
   it('binds every retained native input to reviewed exact bytes', () => {
     const binding = JSON.parse(read('tests/fixtures/posthand-escrow/source-binding.json')) as {
       sourceFiles: Record<string, string>;
@@ -70,5 +105,34 @@ describe('original posthand escrow stays separate from poker winnings', () => {
           .digest('hex'),
         path
       ).toBe(hash);
+  });
+  it('admits only the finite eight original certificates after both installed owners', () => {
+    const admission = read(
+      'supabase/migrations/20261110012843_certify_eight_original_posthand_escrow_proofs.sql'
+    );
+    for (const guard of [
+      '20261109234320',
+      '20261110005719',
+      'ORIGINAL_EIGHT_EXPECTED_IMMUTABLE_PROOF_CHANGED',
+      'ORIGINAL_EIGHT_EXISTING_CERTIFICATE_NO_REPLAY',
+      'ORIGINAL_EIGHT_CERTIFICATE_OR_ORIGINAL_PRESERVATION_FAILED',
+      'ORIGINAL_EIGHT_EXPLICIT_TEN_PERCENT_EACH_TERMS_REQUIRED',
+      'ORIGINAL_EIGHT_IMMUTABLE_INDEPENDENT_ECO_SCHEMA_REQUIRED',
+      'a011306b57345b96d58f1f86d236baf9',
+      '57a53cfc307edcae807fc676f63b14fe',
+    ])
+      expect(admission).toContain(guard);
+    expect(admission.match(/::uuid,\d+::bigint/g)).toHaveLength(16);
+    expect(admission).toContain('-- @live-proof: (SELECT count(*)=8');
+    expect(admission).toContain("md5((c.original->'proof')::text)=e.proof_md5");
+    expect(admission).toContain(
+      'public.fn_union_pnl_certify_posthand_escrow(v_hand.table_id,v_hand.hand_number,v_hand.proof_md5,v_hand.original_sha256)'
+    );
+    expect(admission).not.toMatch(
+      /(?:INSERT INTO|UPDATE|DELETE FROM)\s+(?:public\.)?(?:chip_ledger|club_members|table_seats|union_pnl_cash_outcomes|union_eco_ledger|settlement_invoices)\b/i
+    );
+    expect(admission).not.toMatch(
+      /CREATE(?: OR REPLACE)? FUNCTION|DELETE FROM.*cache|UPDATE.*status/i
+    );
   });
 });

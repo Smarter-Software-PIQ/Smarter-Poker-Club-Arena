@@ -1192,8 +1192,12 @@
   display: block;
   color: #45adff;
 }
+/* Five financial lines must fit inside the 116px virtual row at every width.
+   Inherited body leading previously pushed both the final figure and the
+   adjacent identity subline below the card above the phone breakpoint. */
 .member-simple-balance {
   display: flex;
+  line-height: 1.15;
   flex-direction: column;
   grid-column: 2;
   grid-row: 1 / 3;
