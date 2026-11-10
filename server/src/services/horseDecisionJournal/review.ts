@@ -688,6 +688,7 @@ export function reconcileHorseJournalHand(
           !same(w.policyOwnership, expectedWitness.policyOwnership) ||
           !same(w.policyGraph, expectedWitness.policyGraph) ||
           !same(w.phase6Attribution ?? null, expectedWitness.phase6Attribution ?? null) ||
+          !same(w.preflopAuthority ?? null, expectedWitness.preflopAuthority ?? null) ||
           !same(w.phase7Evidence ?? null, expectedWitness.phase7Evidence ?? null) ||
           !same(w.phase10Inputs ?? null, expectedWitness.phase10Inputs ?? null) ||
           !same(w.phase11Inputs ?? null, expectedWitness.phase11Inputs ?? null) ||

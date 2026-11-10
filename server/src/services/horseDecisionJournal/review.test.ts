@@ -569,6 +569,43 @@ describe('private retained-hand journal consumer', () => {
     });
   });
 
+  it('rejects substituted preflop branch evidence even when the action still matches', () => {
+    const f = fixture('plo4');
+    f.w = {
+      ...f.w,
+      preflopAuthority: {
+        version: 1,
+        scope: 'reference_preflop',
+        context: {
+          raises: 1,
+          callers: 0,
+          toCall: 6,
+          stack: 200,
+          position: 'bb',
+          isOmaha: true,
+          classNeverThreeBet: true,
+        },
+        events: [
+          {
+            branch: 'v46_class_flat',
+            strength: 0.97,
+            threeBetThreshold: 0.9,
+            effectiveThreeBetThreshold: 0.9,
+            premiumValue: false,
+            pressure: false,
+          },
+        ],
+        intent: { a: 'call' },
+        referenceAction: 'call',
+        referenceAmount: 6,
+      },
+    };
+    const report = reconcileHorseJournalHand(f.rows(), handKey);
+    expect(report.status).toBe('incomplete');
+    expect(report.matchedActions).toBe(0);
+    expect(report.gaps).toContain('input_mismatch');
+  });
+
   it('rejects a changed Phase 10 input commitment even when the accepted action still matches', () => {
     const f = fixture('plo4', [], false, true);
     f.w = { ...f.w, phase10Inputs: { ...f.w.phase10Inputs!, inputSha256: 'f'.repeat(64) } };
