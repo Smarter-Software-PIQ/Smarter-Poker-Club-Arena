@@ -102,13 +102,13 @@ production at the time of reading. Recorded as its own incident lead.
 
 ## 2. Architecture Decision (designed, not implemented)
 
-Postgres-native controller in PokerIQ-Production, schema `reliability`,
+Postgres-native controller in PokerIQ-Production, schema `smarter_private` (objects prefixed `reliability_`),
 because intake, incident history, Messenger and push already live there and it
 keeps running with every chat closed and the Mac off.
 
 1. Intake: an `AFTER INSERT OR UPDATE` trigger on
-   `operational_alert_events` writes one `reliability.observations` row per
-   delivery and upserts `reliability.incidents` by a stable fingerprint
+   `operational_alert_events` writes one `smarter_private.reliability_observations` row per
+   delivery and upserts `smarter_private.reliability_incidents` by a stable fingerprint
    (producer class, alert name, scope labels). Unknown alert names create an
    incident with class `unclassified` and enter escalation. Informational and
    test rows, and repository notifications, never create incidents.
@@ -120,13 +120,13 @@ keeps running with every chat closed and the Mac off.
    rules (attempt budget spent, verification window, reminder due, intake
    silent). It reads current state before acting; a stale alert cannot trigger
    a repair.
-4. Messenger outbox: `reliability.notifications` rows are created in the same
+4. Messenger outbox: `smarter_private.reliability_notifications` rows are created in the same
    transaction as the transition that caused them. Delivery calls
    `fn_send_message_once` with `request_id = uuid_v5(incident, sequence)`, so a
    lost acknowledgment replays the same message instead of duplicating it.
    Recorded states: `queued`, `persisted_in_messenger`, `push_sent`, `read`,
    each only when the backend proves it.
-5. Recovery catalog: `reliability.runbooks` rows (versioned, enable flag,
+5. Recovery catalog: `smarter_private.reliability_runbooks` rows (versioned, enable flag,
    limits) bound to compiled procedures. Engine-side actions go through narrow
    authenticated engine endpoints still to be audited; none exist in this
    design until section 4 is complete. Global `mutation_paused` switch leaves
@@ -240,3 +240,13 @@ controls live, final report. Evidence is appended below as each lands.
   NOT in migration 20261110000020, whose bytes are the tested ones. They are
   the first item of the observation-window classification review and ship as
   a follow-up data migration.
+- 2026-11-10 04:51Z PR #10260 (fallback reason label) squash-merged as
+  `70fee8f20f92599c79edccce491cd35bdff12f84`; 37 checks passed, 0 failed on
+  head `42e6118a`. Merged, not live: needs an engine activation by the release
+  route. A comment on that PR from another workstream attributes the 04:27 to
+  04:45Z fallbacks on engine `bff6eed3` to route_gate worker errors, with the
+  fix in merged #10223; not verified by this project.
+- 2026-11-10 05:10Z Stage B objects live in `smarter_private` with prefix
+  `reliability_` (the repository's `check-migrations-applied` allows only
+  `public` and `smarter_private`); browser roles are revoked per object.
+  Native test 41/41 after the move. Local pre-push gate passed at `7bde6e6d7`.
