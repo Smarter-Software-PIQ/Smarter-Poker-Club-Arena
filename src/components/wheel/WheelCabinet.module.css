@@ -58,6 +58,7 @@
 .dashboard {
   position: relative;
   width: 100%;
+  margin-top: 40px;
   aspect-ratio: 3 / 1;
   min-height: 177px;
   background: url('/assets/diamond-spins/sapphire-spin-deck.webp') center / 100% 100% no-repeat;
@@ -96,7 +97,9 @@
   width: max(44px, 13.2%);
   height: max(44px, 23%);
   font-size: clamp(14px, 3.6cqw, 28px);
-  transform: translate(-50%, -50%) rotate(var(--tilt));
+  translate: -50% -50%;
+  rotate: var(--tilt);
+  transform: none;
 }
 .presets button:nth-child(1) {
   left: 21.5%;
@@ -152,20 +155,21 @@
   background: #072a5570;
 }
 .metrics {
-  position: absolute;
-  top: 66%;
-  bottom: 9%;
-  left: 3.5%;
-  width: 33%;
-  margin: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-around;
-  gap: 2%;
-  text-align: center;
+  display: contents;
 }
 .metrics > div {
-  min-width: 0;
+  position: absolute;
+  inset: 66% 64% 9% 3.5%;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+}
+.metrics > div:nth-child(2) {
+  inset: 66% 3.5% 9% 64%;
+}
+.presets button:active,
+.actions .primary:active {
+  transform: none;
 }
 .metrics dt,
 .entry label {
@@ -179,14 +183,45 @@
   font-weight: 800;
   line-height: 1;
 }
-/* The dark inset inside the right chrome frame. All three controls share its geometry. */
-.stakePanel {
+.amountToggle,
+.done {
+  border: 1px solid #829cb8;
+  border-radius: 6px;
+  background: linear-gradient(#203a52, #09131e 65%);
+  padding: 5px 12px;
+}
+.amountToggle {
   position: absolute;
-  inset: 67% 4% 8% 64%;
+  bottom: 100%;
+  left: 50%;
+  translate: -50% 0;
+  height: 38px;
+  white-space: nowrap;
+}
+.amountDialog {
+  width: min(288px, 85vw);
+  box-sizing: border-box;
+  margin: auto;
+  padding: 18px;
+  color: #eef6ff;
+  border: 1px solid #839eb7;
+  border-radius: 10px;
+  background: #0c1926;
+}
+.amountDialog::backdrop {
+  background: #0009;
+}
+.stakePanel {
   display: grid;
-  grid-template: auto minmax(32px, 1fr) / minmax(0, 1fr) minmax(30px, 30%);
-  gap: 2px 4px;
-  align-content: center;
+  grid-template-columns: minmax(0, 1fr) 58px;
+  gap: 12px 8px;
+}
+.stakePanel input,
+.stakePanel button {
+  min-height: 44px;
+}
+.done {
+  grid-column: 1 / -1;
 }
 .stakePanel label {
   grid-column: 1 / -1;
@@ -266,6 +301,8 @@
   border-color: #61beff;
 }
 .notice {
+  display: flow-root;
+  min-height: 24px;
   text-align: center;
   color: #c8d9e8;
   font-size: clamp(12px, 2cqw, 16px);
@@ -281,23 +318,6 @@
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
-}
-@container (max-width: 440px) {
-  .metrics {
-    flex-direction: column;
-    align-items: stretch;
-    justify-content: center;
-    gap: 3px;
-  }
-  .metrics > div {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 2px;
-  }
-  .metrics dd {
-    margin: 0;
-  }
 }
 @media (max-height: 450px) {
   .titleBadge {
@@ -329,10 +349,12 @@
   }
   .dashboard {
     min-height: 137px;
+    margin-top: 0;
   }
-  .stakePanel {
-    top: 62%;
-    bottom: 6%;
+  .amountToggle {
+    left: calc(100% + 8px);
+    bottom: 50%;
+    translate: 0;
   }
 }
 

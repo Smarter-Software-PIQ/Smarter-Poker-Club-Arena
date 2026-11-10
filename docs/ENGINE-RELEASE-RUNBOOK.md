@@ -1,4 +1,5 @@
-**November 10 owner-authorized ASAP successor:** in current Codex chat `01a1bbdd`, the owner replied "Authorize successor ASAP through 06:30 UTC" after explicitly transferring cutover custody to this root Codex agent. New single-use window `2026-11-10-owner-asap-engine-0440z` admits one certified BFF successor from 04:40 to 06:30 UTC, containing `de2e7976` and all engine work merged since BFF. It carries no migration or new-start hold and preserves the original 2230 booking unchanged. Publish the new notice from 04:20 UTC; its actual twenty-minute public lead starts only when the new notice is visible. The old notice remains until 04:30, so admission is no earlier than 04:50, and later publication or observation delays it further within the fixed expiry. Exact qualification, fresh Backup/schema equality, full 1,800-second soak, drain, freeze, proof, rollback, single-use custody and healthy thaw remain mandatory. Root owns Stage/receiver/Backup/installation; no replay, automatic extension or replacement operation.
+**November 10 owner-authorized 08:30 UTC successor:** the owner directly replied "Authorize successor through 08:30 UTC" after the corrected 0440 booking and remaining schema required a fresh exact Backup and full thirty-minute soak after the current operation. Single-use `2026-11-10-owner-asap-engine-0650z` publishes its separate notice from 06:30 UTC after protected merge, admits no earlier than 06:50 UTC, and expires finally at 08:30 UTC. Actual twenty-minute public visibility must be independently observed; the prior 04:50 notice cannot prove this new notice. Earlier 0440 notice priority remains until 06:30; later publication or observation delays admission, and the existing announcement-minute guard may defer it further. Root retains sole Stage/receiver/Backup/installation custody. All exact qualification, current schema, full soak, drain, freeze, rollback and thaw safeguards remain. No migration, new-start hold, replay or automatic extension.
+**November 10 owner-authorized ASAP successor:** in current Codex chat `01a1bbdd`, the owner replied "Authorize successor ASAP through 06:30 UTC" after explicitly transferring cutover custody to this root Codex agent. New single-use window `2026-11-10-owner-asap-engine-0440z` admits one certified BFF successor from 05:10:38 to 06:30 UTC, containing `de2e7976` and all engine work merged since BFF. It carries no migration or new-start hold and preserves the original 2230 booking unchanged. The new notice was observed publicly at 04:50:37.347 UTC after the original protected booking merged at 04:43:28 UTC; its twenty-minute lead permits admission no earlier than 05:10:38 UTC. This corrects the same unconsumed booking without extending expiry. Exact qualification, fresh Backup/schema equality, full 1,800-second soak, drain, freeze, proof, rollback, single-use custody and healthy thaw remain mandatory. Root owns Stage/receiver/Backup/installation; no replay, automatic extension or replacement operation.
 
 **November 9 owner follow-up ASAP cutover:** after the sealed `bff6eed3` cutover the owner told the Claude engine-cutover release owner at 20:58 UTC November 9: "NO CUT OVER HAPPENS AS SOON AS ITS AVALILABLE, NOT 4AM". The single finite window `2026-11-09-owner-asap-engine-2230z` admits only one certified replacement of `bff6eed3522ee894da747f91a532b35a3d8cee4f`, between 22:30 UTC November 9 and 04:30 UTC November 10, after the published 22:10 UTC notice. It contains `de2e7976` (#10208), carries no migration, and neither renews nor replays `2026-11-09-owner-asap-engine-1530z`. Every existing qualification, Backup contents, drain, freeze, proof, rollback and thaw safeguard applies unchanged.
 
@@ -695,6 +696,19 @@ selection job, cutoff, owner identity and still-open protected admission before
 handoff. Missing or changed evidence keeps the current engine serving. The
 host's one-use predecessor, actual notice, custody, freeze, proof, rollback and
 thaw checks remain mandatory. Do not dispatch the receiver directly.
+
+An open owner window tells its release owner; it never starts itself (owner
+order 2026-11-09). `.github/workflows/owner-window-ready.yml` runs
+`scripts/ci/owner-window-ready.py` on protected pushes and successful push
+Backup or prequalification completions. When the window is open, the served
+client has carried the booked notice for at least twenty minutes, 420 s still fit
+before the window closes, the protected owner admission passes, a candidate has
+complete current evidence, no release of this window is serving and no owner
+selection or receiver is running, it opens or comments on the GitHub issue
+`Owner Window <owner_window_id> Is Ready To Start`, once per window and
+evidence. It holds no `actions: write` and dispatches, retries and cancels
+nothing (`tests/an-open-owner-window-only-notifies-its-owner.law.test.ts`). The
+release owner then starts the selection above by hand.
 
 ### Capped satellite awards: schema before compatible engine
 

@@ -648,6 +648,26 @@ const donkeyX = () =>
   ).getObjectByName('walking-leg-0').parent.position.x;
 
 describe('every street gets a beat', () => {
+  it('walks with opposing diagonal legs and folds only the airborne knees', () => {
+    motion(false);
+    const road = mountScene({ phase: 'open', picked: [0] });
+    tick(16);
+    road.update({ phase: 'open', picked: [0, 1] });
+    tick(100);
+    tick(150);
+    const graph = frames.scene as import('three').Scene;
+    const legs = [0, 1, 2, 3].map((i) => graph.getObjectByName(`walking-leg-${i}`)!);
+    const angles = legs.map((leg) => leg.rotation.z);
+    expect(Math.abs(angles[0])).toBeGreaterThan(0.01);
+    expect(angles[0]).toBeCloseTo(angles[3]);
+    expect(angles[0]).toBeCloseTo(-angles[1]);
+    expect(angles[1]).toBeCloseTo(angles[2]);
+    const knees = legs.map((leg) => leg.children.find((child) => child.type === 'Group')!);
+    expect(knees.filter((knee) => knee.rotation.z < -0.01)).toHaveLength(2);
+    tick(800);
+    expect(knees.every((knee) => knee.rotation.z === 0)).toBe(true);
+  });
+
   it('steps the donkey to the kerb while the answer is in flight, and no further', () => {
     motion(false);
     const scene = mountScene({ phase: 'open', picked: [0] });

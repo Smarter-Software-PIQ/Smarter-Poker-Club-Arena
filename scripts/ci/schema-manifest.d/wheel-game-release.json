@@ -1,0 +1,23 @@
+{
+  "_owner": "codex/diamond-games-flight-plinko-01a1c316",
+  "tables": ["wheel_plinko_sessions", "wheel_plinko_releases"],
+  "functions": [
+    "fn_crash_point_cents_v6",
+    "fn_wheel_plinko_progress",
+    "fn_wheel_plinko_release",
+    "fn_wheel_plinko_begin"
+  ],
+  "columns": {
+    "wheel_plinko_sessions": [
+      "award_id",
+      "user_id",
+      "club_id",
+      "commit_id",
+      "sealed_result",
+      "released_count",
+      "released_chips",
+      "complete"
+    ],
+    "wheel_plinko_releases": ["award_id", "request_id", "drop_all", "receipt"]
+  }
+}

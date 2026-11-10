@@ -16,7 +16,6 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { GameConsole, GamePanel } from '../components/games/GameConsole';
 import BonusSetup, { guaranteeCopy } from '../components/games/BonusSetup';
-import TodayLine from '../components/games/TodayLine';
 import SealedPrize from '../components/games/SealedPrize';
 import { useGameCooldown } from '../hooks/useGameCooldown';
 import { useAutoSettle, useStandingRefresh } from '../hooks/useAutoSettle';
@@ -188,6 +187,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
   currentRound.current = round;
   const uncertainTicket = useRef<string | null>(null);
   const heldStart = useRef<BonusStart | null>(null);
+  const mineIntentKey = `mine-first-tile:${user?.id}:${uuid}`;
   // The exact wager the server refused for its ticket alone. It goes again,
   // unchanged but for the fresh ticket: never rebuilt from what the page
   // happens to show by then (another award, another Double Down answer).
@@ -469,6 +469,12 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
           seed: sent,
           maxSteps: state.max_steps,
         };
+    if (resend && game === 'mines') {
+      const original = sessionStorage.getItem(mineIntentKey);
+      const [commit, cell] = original?.split(':') ?? [];
+      if (commit === resend.commitId)
+        sessionStorage.setItem(mineIntentKey, `${request.commitId}:${cell}`);
+    }
     uncertainTicket.current = request.commitId;
     heldStart.current = request;
     try {
@@ -483,6 +489,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
       uncertainTicket.current = null;
       setUncertain(false);
       await load(uuid);
+      return next;
     } catch (e) {
       reportError(e, 'DiamondChoicePage.start');
       if (mounted.current) {
@@ -527,7 +534,11 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
       if (mounted.current) setBusy(false);
     }
   };
-  const act = async (action: 'pick' | 'cashout', cell: number | null) => {
+  const act = async (
+    action: 'pick' | 'cashout',
+    cell: number | null,
+    round = currentRound.current
+  ) => {
     if (!uuid || !round || round.status !== 'open' || busyRef.current || uncertain || sceneBusy)
       return;
     const stepping = game === 'crossing' && action === 'pick';
@@ -629,6 +640,20 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
   }, [round]);
   // A wager the server refused for its ticket alone is sent again on the
   // fresh ticket, once, without the player pressing Start twice.
+  const firstMove = useRef(act);
+  firstMove.current = act;
+  useEffect(() => {
+    if (game !== 'mines' || busy || uncertain || !round || round.status !== 'open') return;
+    const stored = sessionStorage.getItem(mineIntentKey);
+    if (!stored) return;
+    const [commit, rawCell] = stored.split(':');
+    const cell = Number(rawCell);
+    if (round.commit_id !== commit) return;
+    sessionStorage.removeItem(mineIntentKey);
+    if (round.picked.length === 0 && Number.isInteger(cell) && cell >= 0 && cell < 25)
+      void firstMove.current('pick', cell, round);
+  }, [game, busy, uncertain, round, mineIntentKey]);
+
   const startRef = useRef(start);
   startRef.current = start;
   const restarts = useRef(0);
@@ -742,7 +767,13 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
     state !== null &&
     state.prizes.length > 0 &&
     state.prizes[0] / quoteChips >= 0.8 &&
-    state.prizes[0] / quoteChips <= 1.1;
+    (state.payout_version === 8 && earned.quote
+      ? Math.abs(
+          state.prizes[0] -
+            Math.max(1.05 * quoteChips, earned.quote.minimumPayoutChips + 0.05 * quoteChips)
+        ) <
+        Math.max(1, quoteChips) * 1e-10
+      : state.prizes[0] / quoteChips <= 1.1);
   const quoteLadder: readonly number[] = quotedCoinRoad
     ? quoteFits
       ? roadCoinLadderCents(state.prizes, quoteChips)
@@ -1001,7 +1032,10 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
           .join(' ')
       : null;
   return (
-    <div className={`${styles.page} ${styles.fullscreenPage} ${styles.choicePage}`}>
+    <div
+      className={`${styles.page} ${styles.fullscreenPage} ${styles.choicePage}`}
+      data-choice-game={game}
+    >
       <button
         type="button"
         className={styles.back}
@@ -1011,6 +1045,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
       </button>
       <DiamondSpinsTabs clubId={clubId ?? ''} />
       <GameConsole
+        collapseSetup
         setup={
           // The setup describes the next entry. A round on the board, open or
           // finished, is the only game this page plays until its receipt has
@@ -1050,13 +1085,16 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
               },
               {
                 title: 'Play',
-                body: 'The Plates At The Foot Of The Game Start A Round And Book Your Win.',
+                body:
+                  game === 'mines'
+                    ? 'Tap A Diamond To Start. After A Safe Pick, Tap Another Diamond Or Book Your Win.'
+                    : 'The Plates At The Foot Of The Game Start A Round And Book Your Win.',
                 target: '[data-game-actions]',
               },
             ]}
           />
         }
-        pill={status}
+        pill={status === 'Ready' ? '' : status}
         pillInk={round?.status === 'cashed' ? 'green' : 'blue'}
         bays={[
           {
@@ -1076,70 +1114,64 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
             ink: 'gold',
           },
         ]}
-        secondary={{
-          label: pendingAction === 'book' ? 'Booking Win' : cashLabel,
-          // Gold is value on this panel: the prize bays and the plate that books it.
-          ink: 'gold',
-          'aria-label':
-            pendingAction === 'book' || bookable === null
-              ? undefined
-              : `Book The Win For ${bookable} Chips`,
-          // Inside the tap: the one place an iOS switch haptic is granted.
-          onClick: () => {
-            if (!canBook) return;
-            triggerHaptic('selection');
-            void act('cashout', null);
-          },
-          // In flight: the plate keeps the player's focus. Unavailable: it does
-          // not. A wager the page is still settling, and a board with no win on
-          // it to book, are both unavailable.
-          disabled: uncertain || bookable === null,
-          'aria-disabled': busy || sceneBusy || undefined,
-        }}
-        primary={{
-          label:
-            pendingAction === 'cross'
-              ? 'Crossing'
-              : viewOpen
-                ? game === 'crossing'
-                  ? crossable === null
-                    ? 'Cross Street'
-                    : `Cross For ${gameChips(crossable)}`
-                  : 'Choose A Tile'
-                : waitSeconds > 0
-                  ? `Ready In ${waitSeconds}s`
-                  : 'Start Round',
-          'aria-label':
-            pendingAction === 'cross' || crossable === null
-              ? undefined
-              : `Cross Street ${picks + 1} For ${gameChips(crossable)} Chips`,
-          onClick: () => {
-            if (!open) {
-              // Inside the tap: a phone only allows a buzz here, not when the
-              // server answers.
-              triggerHaptic('medium');
-              void start();
-              return;
-            }
-            triggerHaptic('selection');
-            void act('pick', picks);
-          },
-          disabled: uncertain || (open ? game === 'mines' : blocked || !ticket),
-          'aria-disabled': busy || sceneBusy || undefined,
-        }}
-        // THE DAY BELONGS BESIDE THE CONTROLS, NOT OVER THE GAME. On a phone
-        // the console is one column, so this line sat between the header and
-        // the scene and pushed both plates down by its own height in every
-        // round. It renders at every count - "Today: 0 Of 200 Rounds" is still
-        // a count - so hiding it while a round is open would jump the scene the
-        // instant the auto-start fires. It moves instead.
-        footer={
-          <TodayLine
-            used={state?.rounds_today ?? 0}
-            cap={state?.daily_limit ?? 0}
-            spentDiamonds={state?.diamonds_today ?? 0}
-            noun="Rounds"
-          />
+        secondary={
+          game === 'mines' && (!open || !picks)
+            ? undefined
+            : {
+                label: pendingAction === 'book' ? 'Booking Win' : cashLabel,
+                // Gold is value on this panel: the prize bays and the plate that books it.
+                ink: 'gold',
+                'aria-label':
+                  pendingAction === 'book' || bookable === null
+                    ? undefined
+                    : `Book The Win For ${bookable} Chips`,
+                // Inside the tap: the one place an iOS switch haptic is granted.
+                onClick: () => {
+                  if (!canBook) return;
+                  triggerHaptic('selection');
+                  void act('cashout', null);
+                },
+                // In flight: the plate keeps the player's focus. Unavailable: it does
+                // not. A wager the page is still settling, and a board with no win on
+                // it to book, are both unavailable.
+                disabled: uncertain || bookable === null,
+                'aria-disabled': busy || sceneBusy || undefined,
+              }
+        }
+        primary={
+          game === 'mines'
+            ? undefined
+            : {
+                label:
+                  pendingAction === 'cross'
+                    ? 'Crossing'
+                    : viewOpen
+                      ? game === 'crossing'
+                        ? crossable === null
+                          ? 'Cross Street'
+                          : `Cross For ${gameChips(crossable)}`
+                        : 'Choose A Tile'
+                      : waitSeconds > 0
+                        ? `Ready In ${waitSeconds}s`
+                        : 'Start Round',
+                'aria-label':
+                  pendingAction === 'cross' || crossable === null
+                    ? undefined
+                    : `Cross Street ${picks + 1} For ${gameChips(crossable)} Chips`,
+                onClick: () => {
+                  if (!open) {
+                    // Inside the tap: a phone only allows a buzz here, not when the
+                    // server answers.
+                    triggerHaptic('medium');
+                    void start();
+                    return;
+                  }
+                  triggerHaptic('selection');
+                  void act('pick', picks);
+                },
+                disabled: uncertain || (!open && (blocked || !ticket)),
+                'aria-disabled': busy || sceneBusy || undefined,
+              }
         }
       >
         <ChoiceScene
@@ -1171,8 +1203,16 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
           picked={sceneRound?.picked ?? []}
           mines={sceneRound?.proof?.mine_cells ?? null}
           roadEnd={sceneRound ? roadEnd : null}
-          busy={busy || uncertain}
-          onPick={(cell) => void act('pick', cell)}
+          busy={busy || uncertain || (game === 'mines' && !open && (blocked || !ticket))}
+          onPick={async (cell) => {
+            if (game === 'mines' && !currentRound.current) {
+              if (!ticket || blocked || busyRef.current || uncertain) return;
+              sessionStorage.setItem(mineIntentKey, `${ticket.id}:${cell}`);
+              await start();
+            } else {
+              await act('pick', cell);
+            }
+          }}
           ladder={
             game === 'crossing'
               ? sceneRound
@@ -1189,18 +1229,18 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
             sceneRound && sceneRound.status !== 'open' ? sceneRound.payout_chips : undefined
           }
         />
-        <div className={styles.choiceRisk}>
-          {nextOdds && (
-            <p className="sc-copy">
-              {game === 'mines'
-                ? `Next Tile: ${nextOdds.loss.toFixed(1)}% Mine · ${nextOdds.safe.toFixed(1)}% Diamond`
-                : `Next Street: ${nextOdds.safe.toFixed(1)}% Safe Crossing · ${nextOdds.loss.toFixed(1)}% Car Hit`}
-            </p>
-          )}
-          {guaranteedChips !== null && (
-            <p className="sc-copy">A Loss Pays At Least {gameChips(guaranteedChips)} Chips.</p>
-          )}
-        </div>
+        {game !== 'mines' && (
+          <div className={styles.choiceRisk}>
+            {nextOdds && (
+              <p className="sc-copy">
+                {`Next Street: ${nextOdds.safe.toFixed(1)}% Safe Crossing · ${nextOdds.loss.toFixed(1)}% Car Hit`}
+              </p>
+            )}
+            {guaranteedChips !== null && (
+              <p className="sc-copy">A Loss Pays At Least {gameChips(guaranteedChips)} Chips.</p>
+            )}
+          </div>
+        )}
         <div className={styles.readout} aria-live="polite" aria-atomic="true">
           {crossingSpoken ? <p className="sr-only">{crossingSpoken}</p> : null}
           {error ? (
@@ -1262,7 +1302,9 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
                             : !state.available
                               ? 'This Game Is Not Open Here Yet'
                               : 'This Bet Is Not Available Right Now'
-                      : `${promise ?? `${compactChips(bet)} Diamonds To Play.`} ${state.max_steps} ${game === 'mines' ? 'Safe Picks' : 'Streets'} In This Round.`}
+                      : game === 'mines'
+                        ? 'Tap A Diamond'
+                        : `${promise ?? `${compactChips(bet)} Diamonds To Play.`} ${state.max_steps} Streets In This Round.`}
             </p>
           )}
         </div>
@@ -1279,7 +1321,9 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
             {coinRoad
               ? (round?.payout_version ?? state?.payout_version) === 6
                 ? 'Every Street Is A Fair Coin Flip: Exactly A 50% Chance To Cross Safely, Street One Included. Each Coin Is Sealed Before You Start, And When You Book The Win You See How Far You Would Have Got.'
-                : 'Street One Is Always Safe. Every Street After It Is A Fair Coin Flip: Exactly A 50% Chance To Cross Safely. Each Coin Is Sealed Before You Start, And When You Book The Win You See How Far You Would Have Got.'
+                : (round?.payout_version ?? state?.payout_version) === 8
+                  ? 'Street One Is Always Safe. Streets Two Through Four Each Have An 87.5% Chance Of A Safe Crossing. From Street Five, Each Crossing Has A 50% Chance. After You Book Your Win, The Sealed Coins Show How Far You Would Have Gone.'
+                  : 'Street One Is Always Safe. Every Street After It Is A Fair Coin Flip: Exactly A 50% Chance To Cross Safely. Each Coin Is Sealed Before You Start, And When You Book The Win You See How Far You Would Have Got.'
               : 'Where The Donkey Would Be Hit Is Sealed Before You Start; Your Only Choice Is When To Book.'}
           </p>
         ) : null}

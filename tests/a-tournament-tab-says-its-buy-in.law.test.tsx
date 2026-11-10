@@ -1,28 +1,4 @@
-/**
- * ═══════════════════════════════════════════════════════════════════════════════
- *  A TOURNAMENT TAB SAYS ITS BUY-IN, NEVER ITS BLINDS
- * ═══════════════════════════════════════════════════════════════════════════════
- *
- * Dan, 2026-10-04, verbatim: "THE ACTION BOX SHOULDN'T SAY MTT 200/400 OR MTT
- * 25/50 IT SHOULD BE DISPLAYING THE HOLE CARDS WHEN THEY ARE PRESENT, OR MTT
- * AND BUY IN AMOUNT UNDER IT FOR QUICK REFERENCE."
- *
- * The multi-table pill's sub-line was written for cash tables: the live pot
- * while a hand runs, otherwise `stakes`. A tournament reports its current blind
- * level as `stakes`, so an MTT tab read "MTT 200/400", changed every level, and
- * once the numbers outgrew a ~47px pill was cut mid-figure ("51115/...").
- *
- * What is pinned here:
- *   - a tournament tab with no live hand prints its code over its buy-in total
- *     (the lobby's total: buy-in plus fee), and never blinds or a pot;
- *   - a freeroll prints the lobby's own word for one;
- *   - an unknown buy-in prints the code alone, not a fallback to blinds;
- *   - hole cards, when present, replace all of it;
- *   - the figure cannot outgrow the pill, whatever the buy-in;
- *   - a cash tab is exactly what it was.
- *
- * Registry: docs/laws.d/a-tournament-tab-says-its-buy-in.md
- */
+/** Tournament titles, live hands, cash stakes, and return-banner metadata. */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
@@ -131,24 +107,24 @@ describe('a tournament tab with no live hand', () => {
         tournamentBuyInLabel: info.buyInLabel,
       })
     );
-    expect(subOf(el)).toBe('5.50');
+    expect(subOf(el)).toBeNull();
     expect(tournamentTabBuyInLabel(5.5)).toBe('6');
     metadata.read.mockClear();
   });
 
-  it('prints the code over the buy-in total, and neither blinds nor a pot', () => {
+  it('prints the fallback code alone when only the price is known', () => {
     const el = pill(tab({ gameCode: 'MTT', isTournament: true, tournamentBuyIn: 55, pot: 51115 }));
     expect(nameOf(el)).toBe('MTT');
-    expect(subOf(el)).toBe('55');
+    expect(subOf(el)).toBeNull();
     expect(el.textContent).not.toContain('200/400');
     expect(el.textContent).not.toContain('Pot');
     expect(el.textContent).not.toContain('51');
   });
 
-  it('prints the lobby word for a freeroll', () => {
+  it('shows the fallback code for an unnamed freeroll', () => {
     const el = pill(tab({ gameCode: 'MTT', isTournament: true, tournamentBuyIn: 0 }));
     expect(nameOf(el)).toBe('MTT');
-    expect(subOf(el)).toBe(FREE_BUY_LABEL);
+    expect(subOf(el)).toBeNull();
     expect(el.textContent).not.toContain('200/400');
   });
 
@@ -163,7 +139,7 @@ describe('a tournament tab with no live hand', () => {
     for (const code of ['MTT', 'SNG', 'SPIN']) {
       const el = pill(tab({ id: `t-${code}`, gameCode: code, tournamentBuyIn: 11 }));
       expect(nameOf(el)).toBe(code);
-      expect(subOf(el)).toBe('11');
+      expect(subOf(el)).toBeNull();
       expect(el.textContent).not.toContain('200/400');
       cleanup();
     }
@@ -173,32 +149,32 @@ describe('a tournament tab with no live hand', () => {
     const el = pill(
       tab({ gameCode: 'MTT', isTournament: true, tournamentBuyIn: 215, seated: false, pot: 4000 })
     );
-    expect(subOf(el)).toBe('215');
+    expect(subOf(el)).toBeNull();
     expect(el.textContent).not.toContain('Pot');
   });
 });
 
-describe('an MTT tab names its event over its buy-in', () => {
+describe('a tournament pill centers its event title', () => {
   /* Dan 2026-10-21, verbatim: "FOR MTT'S IT SHOULD SAY THE TOURNAMENT NAME AS
      WELL AS THE BUY IN INSIDE THE ACTION TAB. NOT JUST 35". */
-  it('prints the tournament name on top and the buy-in under it', () => {
+  it('prints the event name alone when it includes the buy-in', () => {
     const el = pill(
       tab({
         gameCode: 'MTT',
         isTournament: true,
-        tournamentBuyIn: 35,
-        tournamentName: 'Midway Nightly Bounty',
+        tournamentBuyIn: 40,
+        tournamentName: '40 Chip Bounty',
       })
     );
-    expect(nameOf(el)).toBe('Midway Nightly Bounty');
-    expect(subOf(el)).toBe('35');
+    expect(nameOf(el)).toBe('40 Chip Bounty');
+    expect(subOf(el)).toBeNull();
     expect(el.querySelector('.table-tab-bar__tab-name')?.getAttribute('title')).toBe(
-      'Midway Nightly Bounty'
+      '40 Chip Bounty'
     );
     expect(el.textContent).not.toContain('200/400');
   });
 
-  it('a freeroll names its event over the freeroll word', () => {
+  it('a freeroll shows its event name alone', () => {
     const el = pill(
       tab({
         gameCode: 'MTT',
@@ -208,7 +184,7 @@ describe('an MTT tab names its event over its buy-in', () => {
       })
     );
     expect(nameOf(el)).toBe('Daily Freeroll');
-    expect(subOf(el)).toBe(FREE_BUY_LABEL);
+    expect(subOf(el)).toBeNull();
   });
 
   it('keeps MTT on top while the name is unknown or empty, never a blank line', () => {
@@ -217,7 +193,7 @@ describe('an MTT tab names its event over its buy-in', () => {
         tab({ gameCode: 'MTT', isTournament: true, tournamentBuyIn: 35, tournamentName })
       );
       expect(nameOf(el)).toBe('MTT');
-      expect(subOf(el)).toBe('35');
+      expect(subOf(el)).toBeNull();
       cleanup();
     }
   });
@@ -232,7 +208,7 @@ describe('an MTT tab names its event over its buy-in', () => {
       })
     );
     expect(nameOf(el)).toBe('Prime Time Main Event');
-    expect(subOf(el)).toBe('30');
+    expect(subOf(el)).toBeNull();
     expect(el.querySelector('.table-tab-bar__tab-name')?.getAttribute('title')).toBe(
       'Prime Time Main Event (NLH)'
     );
@@ -350,7 +326,7 @@ describe('an MTT tab names its event over its buy-in', () => {
           })
         );
         expect(nameOf(el), name).toBe(shown);
-        expect(subOf(el), `${name} @ ${total}`).toBe(tournamentTabBuyInLabel(total));
+        expect(subOf(el), `${name} @ ${total}`).toBeNull();
         expect(el.textContent).not.toContain('200/400');
         cleanup();
       }
@@ -366,7 +342,7 @@ describe('an MTT tab names its event over its buy-in', () => {
     );
   });
 
-  it('SNG and SPIN keep their code', () => {
+  it('SNG and SPIN center their event title alone', () => {
     for (const code of ['SNG', 'SPIN']) {
       const el = pill(
         tab({
@@ -377,7 +353,7 @@ describe('an MTT tab names its event over its buy-in', () => {
           tournamentName: 'Some Event',
         })
       );
-      expect(nameOf(el)).toBe(code);
+      expect(el.textContent).toBe('Some Event');
       cleanup();
     }
   });
@@ -461,7 +437,7 @@ describe('the figure cannot outgrow the pill', () => {
     }
     // The pill renders exactly that string, whole.
     const el = pill(tab({ gameCode: 'MTT', isTournament: true, tournamentBuyIn: 987654321 }));
-    expect(subOf(el)).toBe('987.6M');
+    expect(subOf(el)).toBeNull();
   });
 
   it('the sub-line still ellipsises rather than cutting a glyph, as a last guard', () => {

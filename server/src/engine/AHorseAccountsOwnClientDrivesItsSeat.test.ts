@@ -295,6 +295,35 @@ describe('a horse account driven by its own client plays on the human clock', ()
     expect(h.engine.isOwnClientControlling(PLAYER)).toBe(true);
   });
 
+  it('clears an eligible tournament Horse check/fold when the preceding seat shoves', async () => {
+    const h = harness();
+    h.engine.tableInfo.tournament_id = 'fixture-tournament';
+    h.engine.hub.sendToUser = vi.fn();
+    h.state.currentPlayerSeat = 2;
+    expect(h.engine.setPreAction(PLAYER, 'auto_check_fold').success).toBe(true);
+    h.state.players[1].is_all_in = true;
+    h.state.players[1].bet = 30;
+    h.state.currentBet = 30;
+    h.state.currentPlayerSeat = 1;
+    await turn(h);
+    expect(h.engine.preActionEngine.getPreAction(TABLE, PLAYER)).toBeNull();
+    expect(h.performAction).not.toHaveBeenCalled();
+    expect(h.engine.setPreAction(PLAYER, 'auto_check_fold').success).toBe(false);
+  });
+
+  it('rejects tournament check/fold for an account outside the fixed cohort', () => {
+    const h = harness();
+    const id = '005d5fd2-ae8c-4d21-bb55-f33592a88b31';
+    h.engine.tableInfo.tournament_id = 'fixture-tournament';
+    h.state.currentPlayerSeat = 2;
+    h.seated.user_id = h.state.players[0].user_id = id;
+    expect(h.engine.setPreAction(id, 'auto_check_fold')).toMatchObject({
+      success: false,
+      code: 'PREACTION_UNAVAILABLE',
+    });
+    expect(h.engine.preActionEngine.getPreAction(TABLE, id)).toBeNull();
+  });
+
   it('a client claim mid-turn stops the brain decision already waiting out its think time', async () => {
     const h = harness();
     h.engine.heartbeat(PLAYER, { transportOnly: true });
