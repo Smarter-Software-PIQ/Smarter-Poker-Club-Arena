@@ -1,0 +1,28 @@
+{
+  "_owner": "codex/spins-balance-01a1c316",
+  "tables": ["wheel_owner_credit", "wheel_owner_credit_repayments", "wheel_prize_financing"],
+  "functions": [
+    "fn_wheel_finance_prize",
+    "fn_wheel_house_diamond_leg",
+    "fn_wheel_repay_owner_advance"
+  ],
+  "columns": {
+    "wheel_owner_credit": ["owner_id", "outstanding"],
+    "wheel_owner_credit_repayments": ["owner_id", "day", "amount", "outstanding_after"],
+    "wheel_prize_financing": [
+      "award_id",
+      "owner_id",
+      "player_id",
+      "host_id",
+      "club_id",
+      "day",
+      "prize",
+      "owner_cash",
+      "owner_advance",
+      "platform_expense",
+      "house_cash",
+      "issued",
+      "outstanding_after"
+    ]
+  }
+}
