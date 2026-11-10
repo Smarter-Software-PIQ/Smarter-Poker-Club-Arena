@@ -22,6 +22,7 @@ import {
   lease,
 } from '../../testing/horseRegression/plan/fixture.js';
 import { HorseMind } from '../HorseMind.js';
+import { horseDecisionFallbackReason } from './fallbackReason.js';
 
 class LocalWorker extends EventEmitter implements WorkerLike {
   readonly h = workerHarness({}, (m: HorseDecisionWorkerResponse) =>
@@ -166,3 +167,48 @@ it.each(['validated', 'rejected'] as const)(
     }
   }
 );
+
+it('names a throw in the pool continuation after a validated result post_result_failed', async () => {
+  const transports: LocalWorker[] = [];
+  const pool = new LiveHorseDecisionWorkerPool({
+    workers: 2,
+    journalCapacity: { shards: 2 },
+    workerFactory: () => {
+      const w = new LocalWorker();
+      transports.push(w);
+      return w;
+    },
+  });
+  const request = requestAt(1, '33333333-3333-4333-8333-000000000001', 1000100);
+  request.handJournalContext = captureHorseHandJournalContext(request.gameState.actionHistory!);
+  request.decisionTimeMs = Date.now() + 100000;
+  request.decisionKey = buildHorseDecisionKey(request);
+  try {
+    await Promise.all(transports.map((t) => t.h.runtime.start()));
+    await pool.ready();
+    // The shard answered and its client accepted the result; only the pool's
+    // own participant capture, which runs after that, fails.
+    const capture = vi
+      .spyOn((pool as any).observerParticipants, 'capture')
+      .mockImplementation(() => {
+        throw new Error('participant capture failed');
+      });
+    const error = await pool.decideFast(request).then(
+      () => {
+        throw new Error('expected a rejection');
+      },
+      (rejected: unknown) => rejected
+    );
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect((error as Error).message).toBe('participant capture failed');
+    expect(horseDecisionFallbackReason(error)).toBe('post_result_failed');
+    capture.mockRestore();
+    // The same turn is answered normally once the continuation holds.
+    request.decisionTimeMs += 1;
+    request.decisionKey = buildHorseDecisionKey(request);
+    await expect(pool.decideFast(request)).resolves.toMatchObject({ type: 'FAST_RESULT' });
+  } finally {
+    await pool.stop();
+    HorseMind.reset();
+  }
+});

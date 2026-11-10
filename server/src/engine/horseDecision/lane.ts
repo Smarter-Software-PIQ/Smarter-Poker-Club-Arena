@@ -1,4 +1,5 @@
 import { horseRequestAllowance } from './requestRetentionBudget.js';
+import { markHorseDecisionRejection } from './fallbackReason.js';
 import type { V31ControlRequest, V31ControlAck } from './v31ReloadControl.js';
 import { mainHorseHistoryRetentionBudget } from './ownPublicHistoryBudget.js';
 import { readHorseOwnPublicHistory } from '../../services/HorseOwnPublicHistory.js';
@@ -700,7 +701,11 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
       .then((result) => {
         // Only the validated original FAST can register this observer. A rejected
         // or never-delivered decision cannot enroll another horse in a hand.
-        this.observerParticipants.capture(original);
+        try {
+          this.observerParticipants.capture(original);
+        } catch (error) {
+          throw markHorseDecisionRejection(error, 'post_result_failed');
+        }
         return result;
       });
   }

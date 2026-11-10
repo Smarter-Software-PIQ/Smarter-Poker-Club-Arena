@@ -12,8 +12,39 @@
 BEGIN;
 SET LOCAL lock_timeout='1s';
 SET LOCAL statement_timeout='5s';
--- Refuse immediately unless the entire finite set is idle before any change.
-LOCK TABLE public.profiles, public.diamond_transactions, public.diamond_wallets, public.user_diamonds, public.user_diamond_balance, public.ca_diamond_balance_audit, public.ca_diamond_journal_archive, public.diamond_spin_movements, public.wheel_card_awards, public.wheel_bonus_awards, public.diamond_bonus_entries, public.diamond_choice_rounds, public.crash_rounds, public.wheel_spins, public.diamond_spin_days IN ACCESS EXCLUSIVE MODE NOWAIT;
+-- Observe current holders in this backend before asking once. A remote probe
+-- precedes runner setup by tens of seconds and cannot predict this lock.
+-- No gameplay or wallet table is locked while sampling pg_locks.
+DO $quiet$
+DECLARE
+  targets constant oid[] := ARRAY[
+    'public.profiles'::regclass,
+    'public.diamond_transactions'::regclass,
+    'public.diamond_wallets'::regclass,
+    'public.user_diamonds'::regclass,
+    'public.user_diamond_balance'::regclass,
+    'public.ca_diamond_balance_audit'::regclass,
+    'public.ca_diamond_journal_archive'::regclass,
+    'public.diamond_spin_movements'::regclass,
+    'public.wheel_card_awards'::regclass,
+    'public.wheel_bonus_awards'::regclass,
+    'public.diamond_bonus_entries'::regclass,
+    'public.diamond_choice_rounds'::regclass,
+    'public.crash_rounds'::regclass,
+    'public.wheel_spins'::regclass,
+    'public.diamond_spin_days'::regclass
+  ];
+  deadline constant timestamptz := clock_timestamp() + interval '2 seconds';
+BEGIN
+  WHILE clock_timestamp() < deadline AND EXISTS (
+    SELECT 1 FROM pg_locks l WHERE l.relation = ANY(targets)
+      AND l.database = (SELECT oid FROM pg_database WHERE datname=current_database())
+      AND l.pid IS DISTINCT FROM pg_backend_pid()
+  ) LOOP
+    PERFORM pg_sleep(0.025);
+  END LOOP;
+  LOCK TABLE public.profiles, public.diamond_transactions, public.diamond_wallets, public.user_diamonds, public.user_diamond_balance, public.ca_diamond_balance_audit, public.ca_diamond_journal_archive, public.diamond_spin_movements, public.wheel_card_awards, public.wheel_bonus_awards, public.diamond_bonus_entries, public.diamond_choice_rounds, public.crash_rounds, public.wheel_spins, public.diamond_spin_days IN ACCESS EXCLUSIVE MODE NOWAIT;
+END $quiet$;
 -- Require a finished, independently verified copy of the two large relations.
 -- The staging triggers have remained active since their copy horizon was sealed.
 DO $prepared$ BEGIN

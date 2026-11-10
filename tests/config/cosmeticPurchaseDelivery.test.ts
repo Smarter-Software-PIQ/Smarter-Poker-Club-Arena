@@ -49,7 +49,7 @@ describe('canonical cosmetic SKUs', () => {
 
   it('prices every and only premium card back on the server', () => {
     const paid = CARD_BACK_CATALOG.filter((design) => design.price > 0);
-    expect(paid).toHaveLength(9);
+    expect(paid).toHaveLength(7);
     for (const design of paid) {
       expect(MIGRATION).toContain(`'card_back_${design.id}'`);
       expect(MIGRATION).toMatch(

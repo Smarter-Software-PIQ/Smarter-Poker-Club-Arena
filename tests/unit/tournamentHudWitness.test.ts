@@ -36,6 +36,23 @@ const row = {
 };
 
 describe('a natural HUD witness must fit the real clock and keep independent wire facts', () => {
+  it('waits for the seven-minute level paid by the 27-chip satellite', () => {
+    const observedAt = Date.parse('2026-11-10T03:31:54.963Z');
+    const recorded = {
+      ...row,
+      buy_in_amount: '27.00',
+      current_level: 9,
+      level_started_at: '2026-11-10T03:27:21.431Z',
+      blind_structure: Array.from({ length: 12 }, () => ({ durationMinutes: 5 })),
+    };
+    const clock = eligibleHudClock(recorded, observedAt);
+    expect(clock?.remainingMs).toBe(146468);
+    expect(selectableHudClock(recorded, observedAt)?.nextIntervalMs).toBe(420000);
+    expect(eligibleHudClock({ ...recorded, buy_in_amount: 25 }, observedAt)?.remainingMs).toBe(
+      26468
+    );
+  });
+
   it('refuses the recorded index-five clock before its level-six add-on drain', () => {
     const observedAt = Date.parse('2026-11-01T00:23:58.155Z');
     const recorded = {

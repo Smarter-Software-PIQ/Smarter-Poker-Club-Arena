@@ -239,6 +239,7 @@ import { askToSignInAgain, isDeadSessionRefusal } from '../lib/deadSessionRefusa
 import { useTableWebSocket } from '../services/TableWebSocket';
 import { supabase, getAuthUser } from '../lib/supabase';
 import { ownProfile } from '../lib/ownProfile';
+import { playableLevelSeconds } from '../utils/tournamentPlayableClock';
 import { parseBlindStructure } from '../utils/parseBlindStructure';
 import {
   playerDisplayName,
@@ -255,7 +256,11 @@ import { useSeatMoveAnnouncement } from '../hooks/useSeatMoveAnnouncement';
 import TableConnectionBanner from '../components/table/TableConnectionBanner';
 import TournamentStartCountdown from '../components/table/TournamentStartCountdown';
 import { displayBigBlind, type HandBlinds } from '../utils/handBlinds';
-import { isLightningObserverSnapshot, mapEngineSnapshot } from '../utils/mapEngineSnapshot';
+import {
+  collectedSeatBet,
+  isLightningObserverSnapshot,
+  mapEngineSnapshot,
+} from '../utils/mapEngineSnapshot';
 import {
   foldRevealed,
   hasCommittedSeatFold,
@@ -3219,9 +3224,14 @@ function LiveTablePage({
       // Hold the previous amount for the collect window; the sweep's own
       // timer zeroes it when the animation completes.
       const nextBets = mapped.lastBetAmounts.map((amt, i) =>
-        collectingChipSeatsRef.current[i] && !(amt > 0) && prev.lastBetAmounts[i] > 0
-          ? prev.lastBetAmounts[i]
-          : amt
+        collectedSeatBet(
+          amt,
+          prev.lastBetAmounts[i],
+          !!collectingChipSeatsRef.current[i],
+          sameHand,
+          prev.players[i]?.id,
+          mapped.players[i]?.id
+        )
       );
       /* THE ACTION BAR MUST NOT FLASH BACK AFTER YOU ACT (2026-08-27), AND A
          TURN HANDED BACK IS A TURN (2026-10-04).
@@ -6506,12 +6516,14 @@ function LiveTablePage({
   } | null>(null);
   // Blind structure kept for level_up events, whose payload names the new
   // level but not its duration.
+  const blindClockBuyInRef = useRef<unknown>(null);
   const blindStructRef = useRef<
     Array<{
       level?: number;
       duration?: number;
       duration_minutes?: number;
       durationMinutes?: number;
+      isBreak?: boolean;
     }>
   >([]);
 
@@ -15676,6 +15688,7 @@ function LiveTablePage({
               duration?: number;
               duration_minutes?: number;
               durationMinutes?: number;
+              isBreak?: boolean;
             }>;
             // LEVEL INDEXING 2026-08-21: tournaments.current_level is a
             // 0-BASED INDEX into blind_structure (engine convention: the
@@ -15687,6 +15700,7 @@ function LiveTablePage({
             // until the first level-up.
             const levelIdx = Number(tournData.current_level ?? 0);
             const currentLevel = levelIdx + 1; // display number
+            blindClockBuyInRef.current = tournData.buy_in_amount;
             blindStructRef.current = blindStructure || [];
             const entryAt = (idx: number) => {
               const struct = blindStructure || [];
@@ -15733,7 +15747,11 @@ function LiveTablePage({
                 : Date.now();
               setLevelClock({
                 startedAtMs: Number.isFinite(startedAtMs) ? startedAtMs : Date.now(),
-                durationSec: durSec,
+                durationSec: playableLevelSeconds(
+                  durSec,
+                  blindClockBuyInRef.current,
+                  levelEntry?.isBreak
+                ),
               });
             }
             const formatKind = getTournamentFormatKind(tournData);
@@ -17604,7 +17622,15 @@ function LiveTablePage({
                     ? Number(entry.duration) ||
                       (Number(entry.duration_minutes ?? entry.durationMinutes) || 0) * 60
                     : 0;
-                  if (durSec > 0) setLevelClock({ startedAtMs: Date.now(), durationSec: durSec });
+                  if (durSec > 0)
+                    setLevelClock({
+                      startedAtMs: Date.now(),
+                      durationSec: playableLevelSeconds(
+                        durSec,
+                        blindClockBuyInRef.current,
+                        entry?.isBreak
+                      ),
+                    });
                 }
                 /* Dan 2026-08-25 (binding): the banner used to receive
                  * `levelData` raw, and `levelData.level` is the engine's
@@ -24286,7 +24312,7 @@ function LiveTablePage({
           const startedAtMs = row?.level_started_at ? Date.parse(row.level_started_at) : Date.now();
           setLevelClock({
             startedAtMs: Number.isFinite(startedAtMs) ? startedAtMs : Date.now(),
-            durationSec: durSec,
+            durationSec: playableLevelSeconds(durSec, blindClockBuyInRef.current, entry?.isBreak),
           });
         }
       }

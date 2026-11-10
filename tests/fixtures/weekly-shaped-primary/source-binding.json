@@ -270,8 +270,8 @@
       "sha256": "c0a317f294f6e2d08f731ec43efc135fc04e049dc5fd86b56b59d05832df810f"
     },
     "tests/fixtures/posthand-escrow/source-binding.json": {
-      "bytes": 9808,
-      "sha256": "d7b5b705c68a24be6b4964e345d837254ab342623a02c64d793d00edd529d9d4"
+      "bytes": 9968,
+      "sha256": "6b14496c9a0f3eff7c1d31dcb26d5f282f75f70dace71b01b6e94c7b2df35646"
     },
     "tests/fixtures/posthand-escrow/source-preservation.sql": {
       "bytes": 2047,
@@ -339,7 +339,7 @@
     }
   },
   "posthandTemporalQualificationAudit": {
-    "reason": "The reviewed posthand README documents the new original-event temporal proof and bounded private lookup. Its maintained binding adds only the successor migration and deterministic native extension; all historical financial source bytes and assertions remain unchanged. Rebind these two current composed inputs after the full existing native route and exact owner installer passed; this is not production certification. The successor also proves original direct prehand credits through their exact debit/frame and seat-event chain, with connected positive and forged-event/amount negatives; historical pins remain untouched.",
+    "reason": "The reviewed posthand README documents the new original-event temporal proof and bounded private lookup. Its maintained binding adds only the successor migration and deterministic native extension; all historical financial source bytes and assertions remain unchanged. Rebind these two current composed inputs after the full existing native route and exact owner installer passed; this is not production certification. The successor also proves original direct prehand credits through their exact debit/frame and seat-event chain, with connected positive and forged-event/amount negatives; historical pins remain untouched. The finite eight-hand admission now separates its procedural iterator from the SQL witness alias; the existing native installer route extracts the exact declaration/witness against complete synthetic originals and proves the prior refusal and corrected assignment. Only this directly composed posthand binding changes; historical financial owners and proof generation are unchanged.",
     "changedCurrentInputs": [
       "tests/fixtures/posthand-escrow/README.md",
       "tests/fixtures/posthand-escrow/source-binding.json"

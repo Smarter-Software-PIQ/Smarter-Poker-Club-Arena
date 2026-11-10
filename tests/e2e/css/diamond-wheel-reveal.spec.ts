@@ -253,6 +253,8 @@ for (const width of [320, 390, 1280]) {
 // the control panel. The old width-only wheel put Spin below the first screen.
 for (const viewport of [
   { width: 320, height: 568 },
+  { width: 375, height: 667 },
+  { width: 784, height: 1236 },
   { width: 390, height: 844 },
   { width: 393, height: 844 },
   { width: 1280, height: 720 },
@@ -340,6 +342,32 @@ for (const viewport of [
     const amountLabel = await controls.locator('label[for="diamond-spin-entry"]').boundingBox();
     if (!amountLabel) throw new Error('The amount label is unavailable');
     expect(amountLabel.y + amountLabel.height).toBeLessThanOrEqual(amountBounds.y + 1);
+    const headerAction = page.locator('header').getByRole('button', { name: 'Prizes & More' });
+    const header = await titleBadge.locator('xpath=ancestor::header').boundingBox();
+    const detailsButton = await headerAction.boundingBox();
+    const badge = await titleBadge.boundingBox();
+    const max = await controls.getByRole('button', { name: 'Max', exact: true }).boundingBox();
+    const deck = await controls.locator('dl').locator('..').boundingBox();
+    if (!header || !detailsButton || !badge || !max || !deck)
+      throw new Error('Wheel layout is unavailable');
+    expect(detailsButton.x).toBeGreaterThanOrEqual(badge.x + badge.width);
+    expect(detailsButton.y).toBeGreaterThanOrEqual(header.y);
+    expect(detailsButton.y + detailsButton.height).toBeLessThanOrEqual(
+      header.y + header.height + 1
+    );
+    expect(detailsButton.x + detailsButton.width).toBeGreaterThanOrEqual(
+      header.x + header.width - 10
+    );
+    // The chrome seat is bounded by the physical deck artwork, independently of the form wrapper.
+    for (const control of [amountLabel, amountBounds, max]) {
+      expect(control.x).toBeGreaterThanOrEqual(deck.x + deck.width * 0.63);
+      expect(control.x + control.width).toBeLessThanOrEqual(deck.x + deck.width * 0.965);
+      expect(control.y).toBeGreaterThanOrEqual(deck.y + deck.height * 0.62 - 1);
+      expect(control.y + control.height).toBeLessThanOrEqual(deck.y + deck.height * 0.94 + 1);
+    }
+    expect(Math.abs(max.y - amountBounds.y)).toBeLessThan(1);
+    expect(Math.abs(max.height - amountBounds.height)).toBeLessThan(1);
+    expect(max.x).toBeGreaterThanOrEqual(amountBounds.x + amountBounds.width + 1);
     expect(walletBounds.x + walletBounds.width).toBeLessThanOrEqual(spinBounds.x);
     expect(amountBounds.x).toBeGreaterThanOrEqual(spinBounds.x + spinBounds.width);
     let lastCenter = 0;
@@ -428,12 +456,14 @@ for (const viewport of [
     ).toHaveCount(0);
     await expect(controls.getByText('Today', { exact: true })).toHaveCount(0);
     await assertFits();
+    await controls.getByRole('button', { name: '500', exact: true }).click();
+    await expect(page.getByLabel('Diamonds To Spin')).toHaveValue('500');
     await page.screenshot({ path: testInfo.outputPath('paid-controls.png') });
     await controls.getByRole('button', { name: 'Bonus Spins (2)', exact: true }).click();
     await expect(page.getByLabel('Diamonds To Spin')).toBeDisabled();
     await expect(controls.getByRole('button', { name: 'Bonus Spin', exact: true })).toBeEnabled();
     await assertFits();
-    await controls.getByRole('button', { name: 'Prizes & More', exact: true }).click();
+    await headerAction.click();
     const details = page.getByRole('dialog', { name: 'Diamond Spins Details' });
     await expect(details).toBeVisible();
     await expect(

@@ -18,15 +18,20 @@
 }
 
 .heading {
-  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 3px;
+  padding: 0 4px;
   text-align: center;
 }
 .heading h1 {
+  grid-column: 2;
   margin: 0;
   line-height: 0;
 }
 .titleBadge {
-  width: clamp(160px, 34%, 278px);
+  width: clamp(132px, 42vw, 278px);
   height: auto;
   max-height: 5.2dvh;
   object-fit: contain;
@@ -54,7 +59,7 @@
   position: relative;
   width: 100%;
   aspect-ratio: 3 / 1;
-  min-height: 146px;
+  min-height: 177px;
   background: url('/assets/diamond-spins/sapphire-spin-deck.webp') center / 100% 100% no-repeat;
 }
 .entry,
@@ -174,14 +179,24 @@
   font-weight: 800;
   line-height: 1;
 }
-.entry label {
+/* The dark inset inside the right chrome frame. All three controls share its geometry. */
+.stakePanel {
   position: absolute;
-  top: 68%;
-  left: 65%;
+  inset: 67% 4% 8% 64%;
+  display: grid;
+  grid-template: auto minmax(32px, 1fr) / minmax(0, 1fr) minmax(30px, 30%);
+  gap: 2px 4px;
+  align-content: center;
+}
+.stakePanel label {
+  grid-column: 1 / -1;
+  align-self: end;
+  text-align: center;
+  white-space: nowrap;
 }
 .entry input,
 .max,
-.controlHeading button,
+.headerAction button,
 .entryModes button {
   box-sizing: border-box;
   border: 1px solid #74808e;
@@ -193,12 +208,9 @@
     0 1px 2px black;
 }
 .entry input {
-  position: absolute;
-  top: 75%;
-  left: 64%;
-  width: 21%;
-  height: 17%;
-  min-height: 32px;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
   font:
     700 clamp(16px, 3cqw, 26px) 'Roboto Condensed',
     sans-serif;
@@ -210,21 +222,16 @@
   appearance: none;
 }
 .max {
-  position: absolute;
-  left: 86%;
-  width: 10%;
-  height: 18%;
-  top: 75%;
-  min-height: 32px;
+  width: 100%;
+  height: 100%;
   font-size: clamp(12px, 2.4cqw, 18px);
   padding: 0;
 }
-.controlHeading {
-  position: absolute;
-  top: 46%;
-  right: 2.8%;
+.headerAction {
+  grid-column: 3;
+  justify-self: end;
 }
-.controlHeading button,
+.headerAction button,
 .entryModes button {
   min-height: 32px;
   padding: 1px clamp(3px, 1.3cqw, 12px);
@@ -232,8 +239,20 @@
     700 clamp(12px, 2.3cqw, 17px) 'Roboto Condensed',
     sans-serif;
 }
-.controlHeading button {
+.headerAction button {
+  display: block;
+  min-height: 32px;
+  padding: 3px clamp(4px, 1vw, 14px);
+  font:
+    700 clamp(11px, 1.6vw, 16px) 'Roboto Condensed',
+    'Arial Narrow',
+    sans-serif;
   color: #d1e8ff;
+  cursor: pointer;
+}
+.headerAction button:focus-visible {
+  outline: 2px solid #b6eaff;
+  outline-offset: 1px;
 }
 .entryModes {
   display: flex;
@@ -279,17 +298,8 @@
   .metrics dd {
     margin: 0;
   }
-  .entry label {
-    top: 66%;
-  }
-  .controlHeading {
-    top: 42%;
-  }
 }
 @media (max-height: 450px) {
-  .dashboard {
-    min-height: 120px;
-  }
   .titleBadge {
     max-height: 24px;
   }
@@ -299,7 +309,7 @@
   font-size: clamp(12px, 3.2cqw, 22px);
   white-space: normal;
 }
-.controls .controlHeading button,
+.headerAction button,
 .controls .entryModes button {
   text-transform: none;
   letter-spacing: 0;
@@ -308,13 +318,21 @@
 @media (max-height: 450px) and (min-width: 601px) {
   .controls {
     width: min(100%, 93dvh);
+    position: relative;
   }
-  .entry input,
-  .max {
-    top: min(75%, calc(100% - 34px));
+  .notice {
+    position: absolute;
+    left: calc(100% + 8px);
+    bottom: 8%;
+    width: min(16ch, calc((100vw - 100%) / 2 - 14px));
+    text-align: left;
   }
   .dashboard {
-    min-height: 104px;
+    min-height: 137px;
+  }
+  .stakePanel {
+    top: 62%;
+    bottom: 6%;
   }
 }
 
@@ -323,27 +341,8 @@
     left: 39%;
     width: 22%;
   }
-  .controlHeading {
-    top: 41%;
-    right: 3%;
-  }
-  .controlHeading button {
-    font-size: 11px;
-    padding: 0 2px;
-  }
-  .entry input {
-    left: 62.8%;
-    width: 23.7%;
-    padding: 0;
-  }
-  .max {
-    left: 87%;
-    width: 10%;
-  }
-}
-@media (max-height: 450px) and (min-width: 601px) {
-  .entry label {
-    top: 61%;
+  .stakePanel {
+    column-gap: 2px;
   }
 }
 .prizes {

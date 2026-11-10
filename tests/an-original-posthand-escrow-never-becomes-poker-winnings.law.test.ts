@@ -126,7 +126,7 @@ describe('original posthand escrow stays separate from poker winnings', () => {
     expect(admission).toContain('-- @live-proof: (SELECT count(*)=8');
     expect(admission).toContain("md5((c.original->'proof')::text)=e.proof_md5");
     expect(admission).toContain(
-      'public.fn_union_pnl_certify_posthand_escrow(k.table_id,k.hand_number,k.proof_md5,k.original_sha256)'
+      'public.fn_union_pnl_certify_posthand_escrow(v_hand.table_id,v_hand.hand_number,v_hand.proof_md5,v_hand.original_sha256)'
     );
     expect(admission).not.toMatch(
       /(?:INSERT INTO|UPDATE|DELETE FROM)\s+(?:public\.)?(?:chip_ledger|club_members|table_seats|union_pnl_cash_outcomes|union_eco_ledger|settlement_invoices)\b/i
