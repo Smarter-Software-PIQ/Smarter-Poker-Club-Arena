@@ -231,6 +231,11 @@ BEGIN
         'bb_unresolved', coalesce(bl.missed_bb_debt, 0) > 0 OR coalesce(bl.bb_owed, 0) > 0,
         'debt_since_us', pp.us(coalesce(bl.debt_since, sl.opened_at)),
         'hands_since_bb', sl.hands_since_bb, 'newcomer', bl.player_id IS NULL,
+        -- The recency keys (20261110), only once the chain has the counter:
+        -- before it, the plan is the old rule and so is the port.
+        'hands_since_sb', CASE WHEN to_jsonb(sl) ? 'hands_since_button' THEN sl.hands_since_sb END,
+        'hands_since_button', (to_jsonb(sl) ->> 'hands_since_button')::integer,
+        'last_button_at_us', CASE WHEN to_jsonb(sl) ? 'hands_since_button' THEN pp.us(sl.last_button_at) END,
         'btn', coalesce(bl.btn_count, 0), 'co', coalesce(bl.co_count, 0),
         'hj', coalesce(bl.hj_count, 0), 'utg', coalesce(bl.utg_count, 0)) ORDER BY l.player_id), '[]'::jsonb)
         FROM public.fn_lightning_player_legality(p_game, v_now, NULL, NULL) l
@@ -542,15 +547,20 @@ proof=$(sed -n 's/^-- @live-proof: //p' "$M/20261015214203_lightning_calibration
   -f "$M/20261025050528_lightning_newcomer_posts_a_live_entry_big_blind.sql" \
   -f "$M/20261025050534_lightning_hand_player_admits_the_entry_big_blind_role.sql" \
   -f "$M/20261026131624_lightning_five_ready_players_wait_one_second_for_a_sixth.sql" \
+  -f "$M/20261110160345_lightning_blinds_and_button_go_to_the_longest_waiting_player.sql" \
   -c "SET request.headers = '{\"x-smarter-lightning-entry-bb\":\"1\"}'" \
   -f "$F/lightning-current-policy-parity.sql" \
-  -f "$F/lightning-entry-big-blind-parity.sql" > "$fixture/current-policy.out" 2>&1 || {
+  -f "$F/lightning-entry-big-blind-parity.sql" \
+  -f "$F/lightning-position-fairness-parity.sql" > "$fixture/current-policy.out" 2>&1 || {
   cat "$fixture/current-policy.out"; exit 1;
 }
 grep '^  ok  12' "$fixture/current-policy.out"
 [ "$(grep -c '^  ok  13[ABCDE] ENTRY BIG BLIND' "$fixture/current-policy.out")" = 5 ] \
   || { cat "$fixture/current-policy.out"; echo 'FAIL: section 13 (entry big blind) did not report five scenarios'; exit 1; }
 grep '^  ok  13' "$fixture/current-policy.out"
+grep -q '^  ok  14 POSITION FAIRNESS' "$fixture/current-policy.out" \
+  || { cat "$fixture/current-policy.out"; echo 'FAIL: section 14 (position fairness) did not report'; exit 1; }
+grep '^  ok  14' "$fixture/current-policy.out"
 n=$(Q "SELECT count(*) FROM pp.out")
 Q "SELECT jsonb_build_object('fixtures', jsonb_agg(doc || jsonb_build_object('discriminates', discriminates) ORDER BY n)) FROM pp.out" > "$fixture/fixtures.json"
 groups=$(Q "SELECT sum(jsonb_array_length(doc -> 'plan' -> 'groups')) FROM pp.out")
