@@ -27,7 +27,12 @@ export async function verifyHeroCelebrations(
     const frequencies: number[] = [];
     Object.assign(window, { __heroCelebrationFrequencies: frequencies });
     OscillatorNode.prototype.start = function (when?: number) {
-      frequencies.push(this.frequency.value);
+      // Count the win arpeggio, excluding ordinary chip-collection clicks.
+      if (
+        [523.25, 659.25, 783.99, 1046.5].some((note) => Math.abs(note - this.frequency.value) < 0.1)
+      ) {
+        frequencies.push(this.frequency.value);
+      }
       return start.call(this, when);
     };
   });
