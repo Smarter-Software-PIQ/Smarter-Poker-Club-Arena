@@ -1134,9 +1134,9 @@ test('Plinko denominations scroll both ways on one row and both release controls
   );
   expect(topCount).toBe(1);
   await expect(page.getByRole('button', { name: 'Drop All' })).toBeDisabled();
-  await page.getByRole('button', { name: 'Next denominations' }).click();
+  await page.getByRole('button', { name: 'Next Denominations' }).click();
   await expect.poll(() => row.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
-  await page.getByRole('button', { name: 'Previous denominations' }).click();
+  await page.getByRole('button', { name: 'Previous Denominations' }).click();
   await expect.poll(() => row.evaluate((el) => el.scrollLeft)).toBe(0);
   await choice.click();
   await expect(page.getByRole('button', { name: 'Drop All' })).toBeEnabled();

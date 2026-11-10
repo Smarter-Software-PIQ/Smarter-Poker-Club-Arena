@@ -722,7 +722,7 @@ function DiamondPlinkoGame() {
         help={
           <PageHelp
             title={diamondGameTitle('plinko', boost)}
-            summary="You Choose How Many Diamonds Each Drop Plays. Every Diamond Lands In A Prize Slot, And Your Chips Are Booked When The Last Drop Lands."
+            summary="Choose A Drop Value, Then Drop One Or Drop All. Each Released Drop Credits Your Chip Balance."
             steps={[
               {
                 title: 'Your Numbers',
@@ -848,7 +848,7 @@ function DiamondPlinkoGame() {
                         ? 'Buy More Diamonds To Play.'
                         : 'Buy More Diamonds Or Change Your Entry.'
                       : !validPlinkoBudget(budget)
-                        ? `Choose a drop value.`
+                        ? `Choose A Drop Value.`
                         : !table
                           ? 'The Plinko Table Is Not Open For This Entry. Return To The Wheel.'
                           : waitSeconds > 0
@@ -861,8 +861,8 @@ function DiamondPlinkoGame() {
       <GamePanel title="How To Play" pill="Rules" foot="foot">
         <p className="sc-copy">
           You Choose How Many Diamonds Each Drop Plays, From 1 To {PLINKO_MAX_DROPS} Drops Of Your
-          Entry. Every Diamond Lands In A Prize Slot, And Your Chips Are Booked When The Last Drop
-          Lands. Tap Drop For Each Diamond, Or Drop All To Release The Rest.
+          Entry. Drop One Credits Its Prize And Saves The Remaining Drops. Drop All Releases The
+          Rest.
         </p>
         <p className="sc-copy">
           One Table For Every Game. Nobody Picks A Risk Level; It Is Built Into The Payout. The

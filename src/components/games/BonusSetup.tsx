@@ -80,7 +80,7 @@ export function PlinkoDropSelector({
           <button
             className={styles.arrow}
             type="button"
-            aria-label="Previous denominations"
+            aria-label="Previous Denominations"
             onClick={() => scroll(-1)}
           >
             ‹
@@ -107,7 +107,7 @@ export function PlinkoDropSelector({
           <button
             className={styles.arrow}
             type="button"
-            aria-label="Next denominations"
+            aria-label="Next Denominations"
             onClick={() => scroll(1)}
           >
             ›
