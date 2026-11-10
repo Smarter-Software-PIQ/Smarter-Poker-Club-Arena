@@ -13,7 +13,8 @@ test(ECO_CASE, async ({ page }) => {
   expect(process.env.E2E_ECO_READONLY === '1', 'The closed read-only profile is required').toBe(
     true
   );
-  const session = await readEcoIdentity();
+  const identity = await readEcoIdentity();
+  const session = identity.session;
   await page.setViewportSize({ width: 393, height: 852 });
   await page.addInitScript((value) => {
     localStorage.setItem('smarter-poker-auth', JSON.stringify(value));
@@ -37,28 +38,30 @@ test(ECO_CASE, async ({ page }) => {
     } else await route.continue();
   });
   const base = 'https://smarter.poker/hub/club-arena/';
-  await page.goto(`${base}unions/${UNION}`, { waitUntil: 'domcontentloaded' });
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  for (const label of ['Cash ECO', 'Tournament ECO']) {
+  if (identity.ownerSettingsAuthorized) {
+    await page.goto(`${base}unions/${UNION}`, { waitUntil: 'domcontentloaded' });
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    for (const label of ['Cash ECO', 'Tournament ECO']) {
+      expect(
+        await page.getByLabel(label, { exact: true }).isChecked(),
+        'The stored ECO switch must be enabled'
+      ).toBe(true);
+      expect(
+        Number(
+          await page.getByRole('spinbutton', { name: `${label} Rate`, exact: true }).inputValue()
+        ) === 10,
+        'The stored configured rate must be ten percent'
+      ).toBe(true);
+    }
+    await expect(page.getByText(/^ECO Terms Effective From /)).toBeVisible();
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await expect(page.getByText(/^ECO Terms Effective From /)).toBeVisible();
     expect(
-      await page.getByLabel(label, { exact: true }).isChecked(),
-      'The stored ECO switch must be enabled'
-    ).toBe(true);
-    expect(
-      Number(
-        await page.getByRole('spinbutton', { name: `${label} Rate`, exact: true }).inputValue()
-      ) === 10,
-      'The stored configured rate must be ten percent'
+      (await page.getByText('ECO Effective Accounting Boundary Unavailable.').count()) === 0,
+      'The canonical effective boundary must survive reload'
     ).toBe(true);
   }
-  await expect(page.getByText(/^ECO Terms Effective From /)).toBeVisible();
-  await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  await expect(page.getByText(/^ECO Terms Effective From /)).toBeVisible();
-  expect(
-    (await page.getByText('ECO Effective Accounting Boundary Unavailable.').count()) === 0,
-    'The canonical effective boundary must survive reload'
-  ).toBe(true);
 
   const boardResponse = page.waitForResponse((response) =>
     new URL(response.url()).pathname.endsWith('/rpc/ca_union_statement_board')
@@ -73,7 +76,8 @@ test(ECO_CASE, async ({ page }) => {
   expect(Boolean(club), 'A persisted two-component invoice is required for live proof').toBe(true);
   const components = unionEcoComponents(club)!;
   expect(
-    components.length === 2 && components.every((c) => c.status === 'recorded'),
+    components.length === 2 &&
+      components.every((c) => c.status === 'recorded' && c.enabled && c.rate === 0.1),
     'Both lane records must be authoritative'
   ).toBe(true);
   const details = page.getByRole('button', { name: / Statement Details$/ });

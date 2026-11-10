@@ -156,7 +156,7 @@ jobs:
           retention-days: 7
 
   union-eco:
-    name: Read Existing Owner ECO Settings And Recorded Invoice Components
+    name: Read Authorized ECO Statements And Available Owner Controls
     if: github.event.client_payload.eco_components == true
     runs-on: ubuntu-24.04
     timeout-minutes: 12
@@ -198,7 +198,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/verification-harness/cashier-ui-proof.mjs pin e2e-report/cashier-ui-proof/before.json
-      - name: Read only the existing owner's settings and issued ECO invoice
+      - name: Read the recorded ECO invoice and any authorized owner controls
         env:
           BASE_URL: https://smarter.poker/hub/club-arena/
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

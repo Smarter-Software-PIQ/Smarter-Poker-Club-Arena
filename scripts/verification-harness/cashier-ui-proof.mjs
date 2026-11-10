@@ -140,17 +140,27 @@ export async function readEcoIdentity({ environment = process.env, fetchImpl = f
   const profiles = await profileResponse.json();
   if (!Array.isArray(profiles) || profiles.length !== 1 || String(profiles[0].role).toLowerCase() !== 'god')
     throw new Error('Canonical service identity lacks its required God role.');
+  const access = await fetchImpl(`${origin}/rest/v1/rpc/ca_can_oversee_union`, {
+    method: 'POST', headers: { apikey: environment.VITE_SUPABASE_ANON_KEY, Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ p_union_id: 'fade0000-0000-0000-0000-000000000001' }), signal: AbortSignal.timeout(15000),
+  });
+  if (!access.ok || await access.json() !== true) throw new Error('Canonical service identity is unauthorized to read the union board.');
   const response = await fetchImpl(`${origin}/rest/v1/unions?id=eq.fade0000-0000-0000-0000-000000000001&select=id,owner_id,settings`, {
     headers: { apikey: environment.VITE_SUPABASE_ANON_KEY, Authorization: `Bearer ${session.access_token}` }, signal: AbortSignal.timeout(15000),
   });
-  if (!response.ok) throw new Error('ECO union access could not be established.');
-  const rows = await response.json();
-  if (!Array.isArray(rows) || rows.length !== 1 || rows[0].owner_id !== session.user.id ||
-    rows[0].settings?.eco_cash_enabled !== true || rows[0].settings?.eco_tournament_enabled !== true ||
-    rows[0].settings?.eco_cash_rate !== .1 || rows[0].settings?.eco_tournament_rate !== .1)
-    throw new Error('Existing verification identity is unauthorized or stored dual ECO terms are unavailable.');
-  // Retained only in memory by the browser case. Never log or attach this value.
-  return session;
+  const rows = response.ok ? await response.json() : [];
+  const union = Array.isArray(rows) && rows.length === 1 ? rows[0] : null;
+  const configuredTermsConfirmed = union?.settings?.eco_cash_enabled === true && union?.settings?.eco_tournament_enabled === true &&
+    union?.settings?.eco_cash_rate === .1 && union?.settings?.eco_tournament_rate === .1;
+  // Owner controls and overseer reads are different permissions. Never promote
+  // this account or invent owner proof merely because its board read is allowed.
+  return { session, ownerSettingsAuthorized: union?.owner_id === session.user.id, configuredTermsConfirmed };
+
+}
+export function ecoProofScope(preflight) {
+  if (preflight.authorized !== true || typeof preflight.ownerControls !== 'boolean' || typeof preflight.configuredTermsConfirmed !== 'boolean') throw new Error('ECO identity preflight did not pass.');
+  const ownerSettingsVerified = preflight.ownerControls && preflight.configuredTermsConfirmed;
+  return { verdict: ownerSettingsVerified ? 'passed' : 'partial', boardVerified: true, ownerSettingsVerified };
 }
 async function jsonResponse(url, headers = {}) {
   const response = await fetch(url, {
@@ -272,17 +282,18 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   } else if (process.argv[2] === 'eco-preflight' && process.argv.length === 3) {
     admitDispatch(process.env, readJson(process.env.GITHUB_EVENT_PATH));
     if (!ecoRequest(readJson(process.env.GITHUB_EVENT_PATH))) throw new Error('Wrong ECO request.');
-    await readEcoIdentity();
-    writeFileSync('e2e-report/cashier-ui-proof/eco-preflight.json', JSON.stringify({ authorized: true, ownerControls: true, configuredTermsConfirmed: true }));
-    console.log('Configured verification identity has existing union-owner access and both stored terms.');
+    const identity = await readEcoIdentity();
+    writeFileSync('e2e-report/cashier-ui-proof/eco-preflight.json', JSON.stringify({ authorized: true, ownerControls: identity.ownerSettingsAuthorized, configuredTermsConfirmed: identity.configuredTermsConfirmed }));
+    console.log('Canonical service identity has actual union-board read permission; owner settings authority is reported separately.');
   } else if (process.argv[2] === 'assert-eco' && process.argv.length === 7) {
     const [before, after, report, preflight] = process.argv.slice(3).map(readJson);
     assertPins(before, after, null, true);
-    if (preflight.authorized !== true || preflight.ownerControls !== true || preflight.configuredTermsConfirmed !== true) throw new Error('ECO identity preflight did not pass.');
+    const scope = ecoProofScope(preflight);
     const cases = assertCases(report, true);
-    writeFileSync('cashier-ui-proof.json', JSON.stringify({ schema: 1, verdict: 'passed', scope: cases, readonly: true,
+    writeFileSync('cashier-ui-proof.json', JSON.stringify({ schema: 1, ...scope, scope: cases, readonly: true,
       clientSha: before.clientSha, publisherRunId: before.publisherRunId, verificationSha: before.verificationSha, runId: before.runId }));
-    console.log('The scoped ECO case passed once on the pinned live client with the existing authorized identity.');
+    console.log('The recorded ECO board case passed on the pinned live client. Owner settings proof is a separate permission-bound result.');
+    if (!scope.ownerSettingsVerified) process.exitCode = 2;
   } else if (process.argv[2] === 'pin' && process.argv.length === 4) await pin(process.argv[3]);
   else if (process.argv[2] === 'assert' && process.argv.length === 7) {
     const [before, after, report, cleanup] = process.argv.slice(3).map(readJson);

@@ -160,11 +160,21 @@ it('requires one exact ECO browser case and its own complete component provenanc
     return {
       ok: true,
       json: async () =>
-        url.includes('/auth/') ? session : url.includes('/profiles?') ? [{ role: 'God' }] : rows,
+        url.includes('/auth/')
+          ? session
+          : url.includes('/profiles?')
+            ? [{ role: 'God' }]
+            : url.includes('/rpc/ca_can_oversee_union')
+              ? true
+              : rows,
     };
   };
-  expect(await readEcoIdentity({ environment, fetchImpl: transport([union]) })).toBe(session);
-  expect(requests.map((r) => r[1])).toEqual(['POST', 'GET', 'GET']);
+  expect(await readEcoIdentity({ environment, fetchImpl: transport([union]) })).toEqual({
+    session,
+    ownerSettingsAuthorized: true,
+    configuredTermsConfirmed: true,
+  });
+  expect(requests.map((r) => r[1])).toEqual(['POST', 'GET', 'POST', 'GET']);
   const beforePersonal = requests.length;
   await expect(
     readEcoIdentity({
@@ -182,12 +192,35 @@ it('requires one exact ECO browser case and its own complete component provenanc
       }),
     })
   ).rejects.toThrow(/God role/);
+  expect(
+    (
+      await readEcoIdentity({
+        environment,
+        fetchImpl: transport([{ ...union, owner_id: 'foreign' }]),
+      })
+    ).ownerSettingsAuthorized
+  ).toBe(false);
+  expect(
+    (await readEcoIdentity({ environment, fetchImpl: transport([{ ...union, settings: {} }]) }))
+      .configuredTermsConfirmed
+  ).toBe(false);
   await expect(
-    readEcoIdentity({ environment, fetchImpl: transport([{ ...union, owner_id: 'foreign' }]) })
+    readEcoIdentity({
+      environment,
+      fetchImpl: async (url) => ({
+        ok: true,
+        json: async () =>
+          url.includes('/auth/') ? session : url.includes('/profiles?') ? [{ role: 'God' }] : false,
+      }),
+    })
   ).rejects.toThrow(/unauthorized/);
-  await expect(
-    readEcoIdentity({ environment, fetchImpl: transport([{ ...union, settings: {} }]) })
-  ).rejects.toThrow(/unavailable/);
+  const { ecoProofScope } = await import('../../scripts/verification-harness/cashier-ui-proof.mjs');
+  expect(
+    ecoProofScope({ authorized: true, ownerControls: false, configuredTermsConfirmed: true })
+  ).toEqual({ verdict: 'partial', boardVerified: true, ownerSettingsVerified: false });
+  expect(() =>
+    ecoProofScope({ authorized: false, ownerControls: true, configuredTermsConfirmed: true })
+  ).toThrow();
 });
 
 it('keeps the ECO case read only and excludes private browser data from retained artifacts', () => {
