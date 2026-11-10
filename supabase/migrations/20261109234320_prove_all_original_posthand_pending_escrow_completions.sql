@@ -60,7 +60,7 @@ AS $function$
    AND pr.participants @>jsonb_build_array(jsonb_build_object('occupancy_id',p_occupancy::text))OFFSET 0
  )original ORDER BY k.hand_number DESC LIMIT 1
 $function$;
-REVOKE ALL ON FUNCTION smarter_private.original_cash_hand_predecessor(uuid,bigint,timestamptz,uuid)FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION smarter_private.original_cash_hand_predecessor(uuid,bigint,timestamptz,uuid) FROM PUBLIC,anon,authenticated,service_role;
 
 CREATE OR REPLACE FUNCTION public.fn_union_pnl_prove_posthand_escrow(p_table uuid, p_number bigint)
  RETURNS jsonb
@@ -951,6 +951,11 @@ END;
 $function$;
 
 
+
+-- CREATE OR REPLACE preserves these exact live privileges. State the same
+-- service-only boundary explicitly for maintained source authorization checks.
+REVOKE ALL ON FUNCTION public.fn_union_pnl_prove_posthand_escrow(uuid,bigint),public.fn_ca_process_hand_post_commit_obligations(uuid) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_union_pnl_prove_posthand_escrow(uuid,bigint),public.fn_ca_process_hand_post_commit_obligations(uuid) TO service_role;
 
 DO $postimage$
 DECLARE sig text;hash text;p pg_proc;

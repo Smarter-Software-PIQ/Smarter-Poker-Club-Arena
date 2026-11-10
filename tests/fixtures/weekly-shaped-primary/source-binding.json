@@ -271,7 +271,7 @@
     },
     "tests/fixtures/posthand-escrow/source-binding.json": {
       "bytes": 9667,
-      "sha256": "910fcf98c7ea9d0f831ef9ecd4216545dabe09ae5a4dfa5e17f336617dad61a7"
+      "sha256": "173a6172e01da8e20a8a3ed207c78f5df1ed9ff03147eb76da2430713b9551ba"
     },
     "tests/fixtures/posthand-escrow/source-preservation.sql": {
       "bytes": 2047,
