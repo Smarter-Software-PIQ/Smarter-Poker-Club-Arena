@@ -372,7 +372,7 @@ describe('a booked Donkey Cross round under the fair coin', () => {
     await revealEnds();
     const headline = 'You Would Have Got To Street 5 At 5.57x, Then Been Hit On Street 6';
     expect(text()).toContain(headline);
-    expect(text()).toContain('Sealed Coins: 1 Safe · 2 Safe · 3 Safe · 4 Safe · 5 Safe · 6 Hit');
+    expect(text()).not.toContain('Sealed Coins:');
     const receipt = screen.getByRole('dialog', { name: '41.25 Chips' });
     expect(receipt.querySelector('[data-receipt-headline]')?.textContent).toBe(
       `Booked On Street 2 At 1.65x. ${headline}.`

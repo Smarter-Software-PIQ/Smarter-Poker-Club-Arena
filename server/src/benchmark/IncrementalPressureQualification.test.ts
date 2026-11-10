@@ -119,12 +119,11 @@ function fixture(target: IncrementalTarget): any {
 test('separate schema accepts six structural designs but neither empty registry nor JSON grants execution', async () => {
   for (const target of targets) {
     assert.deepEqual(validateLockedFeatureAblationPlan(fixture(target)), []);
-    // Family 283's plan was spent by run 42703327017 and its seeds no longer
-    // match riverPositionDefense's approved family 284, so until the family
-    // 284 registration replaces the plan entry, every target, the registered
-    // one included, is refused here. The registration PR restores the
-    // heldout_locked pin for river_position_defense.
-    assert.throws(() => qualificationPlan(target), /plan refused/);
+    // The one registered plan (family 284, owner approval 2026-11-09) is
+    // read; every other target stays unregistered and refused.
+    if (target === 'river_position_defense')
+      assert.equal(qualificationPlan(target).state, 'heldout_locked');
+    else assert.throws(() => qualificationPlan(target), /plan refused/);
     await assert.rejects(authenticateIncrementalPlan(fixture(target)), /provider unavailable/);
     let called = 0;
     const profile = incrementalDevelopmentProfiles(target, 'plo4')[0];
@@ -394,19 +393,28 @@ test('joint family locks complete member plans and never reassigns exposed seeds
       ],
     },
   };
-  // Family 283 is registered for river_position_defense alone (owner decision
-  // 2026-11-09); no other family exists.
+  // Two families are registered, both for river_position_defense alone:
+  // 283 (spent by run 42703327017) and 284 (owner approval 2026-11-09).
   const registered = JSON.parse(
     readFileSync(
       new URL('./IncrementalPressureQualificationFamilies.json', import.meta.url),
       'utf8'
     )
   );
-  assert.deepEqual(Object.keys(registered), ['283']);
+  assert.deepEqual(Object.keys(registered), ['283', '284']);
   assert.deepEqual(
     registered['283'].members.map((m: any) => m.target),
     ['river_position_defense']
   );
+  assert.deepEqual(
+    registered['284'].members.map((m: any) => m.target),
+    ['river_position_defense']
+  );
+  assert.deepEqual(registered['284'].providerAnchor, {
+    workflowId: 398426971,
+    baselineRunId: 42703327017,
+    baselineRunNumber: 2,
+  });
   const family = validateIncrementalFamily(a, registry, families);
   assert.throws(() => validateIncrementalFamily(a, registry, {}), /not locked/);
   assert.throws(
