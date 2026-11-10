@@ -485,3 +485,12 @@
 [data-choice-game='mines'] .bar:not(:has(button)) {
   display: none;
 }
+
+.entryDetails summary {
+  cursor: pointer;
+  font:
+    500 0.8rem/1.4 system-ui,
+    sans-serif;
+  color: #a6cce7;
+  padding: 0.25rem;
+}

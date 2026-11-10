@@ -1027,12 +1027,12 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
       </button>
       <DiamondSpinsTabs clubId={clubId ?? ''} />
       <GameConsole
+        collapseSetup={game === 'mines'}
         setup={
           // The setup describes the next entry. A round on the board, open or
           // finished, is the only game this page plays until its receipt has
           // taken the player back, so the setup waits off screen: it never says
           // "Win This Game" over a reveal, nor opens a next award's offer on it.
-          game !== 'mines' &&
           !open &&
           !finishedOnScene && (
             <BonusSetup
