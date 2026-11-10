@@ -48,9 +48,9 @@ assert query(f"SELECT (settings->>'native_a'='1' AND settings->>'native_b'='2' A
 print('PASS: actual concurrent owner patches serialize and preserve both independent settings')
 book = f"SELECT fn_union_eco_record({union},'2026-10-26 07:00Z','2026-11-02 08:00Z');"
 before = query('SELECT md5(jsonb_agg(to_jsonb(c)ORDER BY id)::text)FROM smarter_private.union_eco_components c', check=True).stdout
-first = holder(book)
+first = holder("SET LOCAL TimeZone='America/Chicago';" + book)
 try:
-    refused = query(book)
+    refused = query("SET TimeZone='UTC';" + book)
     assert refused.returncode != 0 and 'original_eco_book_already_owned' in refused.stderr
 finally:
     release(first)

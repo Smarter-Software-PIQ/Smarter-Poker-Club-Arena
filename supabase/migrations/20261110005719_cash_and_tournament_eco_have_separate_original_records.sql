@@ -331,7 +331,7 @@ BEGIN
  IF auth.uid()IS NOT NULL AND NOT EXISTS(SELECT FROM public.unions WHERE id=p_union_id AND owner_id=auth.uid())
   AND NOT EXISTS(SELECT FROM public.union_admins WHERE union_id=p_union_id AND user_id=auth.uid())THEN
   RETURN jsonb_build_object('success',false,'error','not authorized');END IF;
- IF NOT pg_try_advisory_xact_lock(hashtextextended('union-eco-components:'||p_union_id::text||':'||p_start::text,0))THEN
+ IF NOT pg_try_advisory_xact_lock(hashtextextended('union-eco-components:'||p_union_id::text||':'||extract(epoch from p_start)::text,0))THEN
   RAISE EXCEPTION 'original_eco_book_already_owned' USING ERRCODE='55006';END IF;
  terms:=smarter_private.union_eco_terms_for_book(p_union_id,p_start,p_end);
  IF terms IS NOT NULL AND p_end>clock_timestamp()THEN RAISE EXCEPTION 'original_eco_book_not_closed' USING ERRCODE='55000';END IF;
@@ -391,9 +391,6 @@ BEGIN
  FROM rows r JOIN LATERAL(SELECT q FROM jsonb_array_elements(proof->'clubs')q WHERE q->>'club_id'=r.id::text)facts(x)ON true
  LEFT JOIN public.clubs c ON c.id=r.id CROSS JOIN total ORDER BY r.eco;
 END $function$;
-REVOKE ALL ON FUNCTION public.fn_union_eco_adjustment(uuid,timestamptz,timestamptz) FROM PUBLIC,anon,authenticated;
-GRANT EXECUTE ON FUNCTION public.fn_union_eco_adjustment(uuid,timestamptz,timestamptz) TO service_role;
-
 REVOKE ALL ON FUNCTION public.fn_union_eco_adjustment(uuid,timestamptz,timestamptz) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_union_eco_adjustment(uuid,timestamptz,timestamptz) TO service_role;
 
@@ -484,7 +481,8 @@ BEGIN
        against a recorded -11242.82. With ECO terms disabled nothing is
        recorded and nothing may be stated. */
     v_components:=smarter_private.union_eco_invoice_components(p_union_id,r.club_id,v_from,v_to);
-    IF smarter_private.union_eco_terms_for_book(p_union_id,v_from,v_to)IS NOT NULL AND v_components->>'eco_version'IS DISTINCT FROM '2'THEN
+    IF smarter_private.union_eco_terms_for_book(p_union_id,v_from,v_to)IS NOT NULL AND v_components->>'eco_version'IS DISTINCT FROM '2'
+      AND NOT EXISTS(SELECT FROM public.union_eco_ledger WHERE union_id=p_union_id AND club_id=r.club_id AND period_start=v_from AND period_end=v_to)THEN
       RAISE EXCEPTION 'union_squareup_eco_activity_records_required' USING ERRCODE='23514';END IF;
     IF v_components->>'eco_version'='2' THEN
       v_recorded_eco:=(v_components->>'eco_amount')::numeric;v_recorded_base:=NULL;v_recorded_rate:=NULL;v_eco_recorded:=true;

@@ -60,3 +60,16 @@ SELECT assert_eco(refuses_eco($q$SELECT fn_union_issue_weekly_invoices('fade0000
 SELECT fn_union_eco_record('fade0000-0000-0000-0000-000000000001','2026-11-02 08:00Z','2026-11-09 08:00Z');
 SELECT fn_union_issue_weekly_invoices('fade0000-0000-0000-0000-000000000001','2026-11-02 08:00Z','2026-11-09 08:00Z',false);
 SELECT assert_eco((SELECT count(*)=2 AND bool_and(NOT enabled AND amount=0)FROM smarter_private.union_eco_components WHERE period_start='2026-11-02 08:00Z'),'disabled v2 records two genuine zeros before invoice issuance');
+
+-- A genuine older scalar book remains authoritative even under the amendment.
+INSERT INTO unions VALUES('fade0000-0000-0000-0000-000000000002',md5('native owner')::uuid,'Legacy Union','Preserve','{"eco_enabled":true,"eco_rate":0.1,"eco_base_mode":"club_cash_profit","eco_include_horses":true}');
+INSERT INTO union_clubs SELECT 'fade0000-0000-0000-0000-000000000002',id FROM clubs;
+INSERT INTO smarter_private.union_eco_v2_terms(union_id,effective_from,cash_enabled,cash_rate,tournament_enabled,tournament_rate,authority)
+VALUES('fade0000-0000-0000-0000-000000000002','2026-10-26 07:00Z',true,.1,true,.1,'synthetic_forward_amendment');
+INSERT INTO union_eco_ledger(union_id,club_id,period_start,period_end,eco_base,eco_rate,eco_amount,eco_base_mode,cash_players_won,total_rake_generated,rake_earned,include_horses)
+SELECT 'fade0000-0000-0000-0000-000000000002',club_id,'2026-11-02 08:00Z','2026-11-09 08:00Z',-30,.1,3,'club_cash_profit',100,70,70,true FROM native_eco_facts;
+CREATE TEMP TABLE legacy_eco_bytes AS SELECT to_jsonb(l)j FROM union_eco_ledger l;
+INSERT INTO ca_settlements VALUES('union_rakeback_close','fade0000-0000-0000-0000-000000000002','final','fade0000-0000-0000-0000-000000000002:2026-11-02T08:00:00Z..2026-11-09T08:00:00Z','{}');
+SELECT fn_union_issue_weekly_invoices('fade0000-0000-0000-0000-000000000002','2026-11-02 08:00Z','2026-11-09 08:00Z',false);
+SELECT assert_eco((SELECT count(*)=1 AND bool_and(breakdown->'eco_components'='null'::jsonb AND(breakdown->>'eco_amount')::numeric=3)FROM settlement_invoices WHERE breakdown->>'union_id'='fade0000-0000-0000-0000-000000000002'),'actual issuer preserves authoritative older scalar under later v2 terms');
+SELECT assert_eco((SELECT to_jsonb(l)=(SELECT j FROM legacy_eco_bytes)FROM union_eco_ledger l)AND NOT EXISTS(SELECT FROM smarter_private.union_eco_components WHERE union_id='fade0000-0000-0000-0000-000000000002'),'legacy issuer creates no component fiction and leaves scalar record byte-exact');
