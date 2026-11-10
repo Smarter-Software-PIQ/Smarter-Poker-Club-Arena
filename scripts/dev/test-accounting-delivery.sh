@@ -403,7 +403,27 @@ fi
   -f "$root/supabase/migrations/20261110023502_build_the_wide_diamond_journal_trivia_index_concurrently.sql" \
   -f "$root/tests/sql/diamond-wallet-wide-copy.sql" \
   -f "$root/tests/fixtures/accounting-delivery/diamond-games/trivia-journal-views.sql"
-"${diamond_psql[@]}" -f "$root/supabase/migrations/20261110023653_admit_single_full_wallet_spins_and_guarantee_earned_payouts.sql"
+wheel_cutover="$root/supabase/migrations/20261110023653_admit_single_full_wallet_spins_and_guarantee_earned_payouts.sql"
+# Hold a real reader and wait for its acknowledgement before the single attempt.
+mkfifo "$fixture/cutover-reader"
+"${diamond_psql[@]}" < "$fixture/cutover-reader" > "$fixture/cutover-reader.log" &
+reader=$!
+exec 7>"$fixture/cutover-reader"
+printf 'BEGIN; LOCK TABLE public.profiles IN ACCESS SHARE MODE;\n\\echo locked\n' >&7
+for ((attempt=0; attempt<100; attempt++)); do
+  grep -qx locked "$fixture/cutover-reader.log" && break
+  sleep 0.05
+done
+grep -qx locked "$fixture/cutover-reader.log"
+if "${diamond_psql[@]}" -f "$wheel_cutover" > "$fixture/cutover-refusal.log" 2>&1; then
+  echo 'Cutover admitted while a profile reader held the wallet' >&2
+  exit 1
+fi
+grep -Fq 'could not obtain lock on relation "public.profiles"' "$fixture/cutover-refusal.log"
+printf 'ROLLBACK;\n' >&7
+exec 7>&-
+wait "$reader"
+"${diamond_psql[@]}" -f "$wheel_cutover"
 "${diamond_psql[@]}" -f "$root/tests/sql/diamond-wallet-wide-cutover.sql" -f "$root/tests/sql/diamond-wheel-balance-entry.sql"
 "${diamond_psql[@]}" -f "$root/tests/sql/diamond-wheel-prize-funding.sql"
 "${diamond_psql[@]}" -f "$root/tests/sql/diamond-wheel-owner-credit.sql"
