@@ -12026,7 +12026,7 @@ export abstract class ServerTableEngineBase {
    */
   protected async releaseBustedSeat(
     player: { user_id: string; seat_number: number; username?: string; occupancy_id?: string },
-    reason: 'busted_no_rebuy' | 'busted_stop_loss' | 'busted_unfunded'
+    reason: 'busted_no_rebuy' | 'busted_insufficient_chips' | 'busted_stop_loss' | 'busted_unfunded'
   ): Promise<boolean> {
     try {
       /* atomicCashout, not markSeatAsLeft-by-hand: it takes the seat lock,
