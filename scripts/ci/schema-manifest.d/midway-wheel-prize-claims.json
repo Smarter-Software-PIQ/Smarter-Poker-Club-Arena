@@ -1,0 +1,5 @@
+{
+  "_owner": "codex/midway-wheel-chip-backstop",
+  "tables": ["wheel_midway_chip_funding", "wheel_midway_prize_claims"],
+  "functions": ["fn_midway_prize_wait", "fn_wheel_pending_chip_prizes", "fn_wheel_claim_chip_prize"]
+}

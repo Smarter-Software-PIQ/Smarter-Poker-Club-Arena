@@ -36,6 +36,7 @@ export function WheelWinReveal({
   autoContinueAfterMs = 0,
   eyebrow,
   silent = false,
+  reserved = false,
   openLabel,
   holdOpen = false,
   art,
@@ -59,6 +60,7 @@ export function WheelWinReveal({
    * players that the sounds mean nothing.
    */
   silent?: boolean;
+  reserved?: boolean;
   /**
    * What the one plate says, when the prize's own kind does not say it. The
    * Diamonds card game is the case: its plate opens three sealed cards rather
@@ -148,7 +150,13 @@ export function WheelWinReveal({
           eyebrow={eyebrow ?? (prize.kind === 'upgrade' ? 'Wheel Upgrade' : 'You Won')}
           title={title}
           pill={
-            prize.kind === 'bonus' ? 'Bonus Game' : prize.kind === 'upgrade' ? 'Super Spin' : 'Paid'
+            prize.kind === 'bonus'
+              ? 'Bonus Game'
+              : prize.kind === 'upgrade'
+                ? 'Super Spin'
+                : reserved
+                  ? 'Reserved'
+                  : 'Paid'
           }
           foot="foot"
         >

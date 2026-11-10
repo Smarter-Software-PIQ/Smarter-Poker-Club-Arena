@@ -151,6 +151,7 @@ export interface WheelRunEnd {
 }
 
 export interface WheelState {
+  pending_chip_prizes?: { key: string; chips: string }[];
   payout_rules_version?: number;
   contract_version?: WheelContractVersion;
   enabled?: boolean;
@@ -348,6 +349,7 @@ export interface WheelCardPick {
 }
 
 export interface WheelSpinResult {
+  chip_prize_reserved?: boolean;
   minimum_payout_chips?: number;
   payout_rules_version?: number;
   contract_version?: WheelContractVersion;
@@ -648,6 +650,11 @@ function normaliseState(raw: Record<string, unknown>): WheelState {
   const pool = raw.pool as Record<string, unknown> | undefined;
   const player = raw.player as Record<string, unknown> | undefined;
   return {
+    pending_chip_prizes: Array.isArray(raw.pending_chip_prizes)
+      ? raw.pending_chip_prizes.filter(
+          (claim) => typeof claim?.key === 'string' && typeof claim?.chips === 'string'
+        )
+      : [],
     payout_rules_version:
       raw.payout_rules_version == null ? undefined : num(raw.payout_rules_version),
     contract_version: contractVersion(raw.contract_version),
@@ -788,6 +795,7 @@ function normaliseSpin(raw: Record<string, unknown>): WheelSpinResult {
     segments: Array.isArray(raw.segments)
       ? (raw.segments as Record<string, unknown>[]).map(normaliseSegment)
       : undefined,
+    chip_prize_reserved: raw.chip_prize_reserved === true,
     replayed: Boolean(raw.replayed),
     welcome: Boolean(raw.welcome),
     minimum_payout_chips:
@@ -1003,6 +1011,14 @@ function normaliseWelcomeState(raw: Record<string, unknown>): WheelWelcomeState 
 }
 
 const DiamondWheelService = {
+  async claimChipPrize(clubId: string, key: string): Promise<void> {
+    const { data, error } = await supabase.rpc('fn_wheel_claim_chip_prize', {
+      p_club_id: clubId,
+      p_key: key,
+    });
+    if (error) throw error;
+    if (data?.paid !== true) throw new Error(data?.error || 'Your Prize Is Still Reserved');
+  },
   /** An explicit inactive contract permits legacy play; an unreadable one never does. */
   async getStateV2(clubId: string, entryDiamonds = 100): Promise<WheelState> {
     const { data, error } = await supabase.rpc('fn_wheel_state_v2', {

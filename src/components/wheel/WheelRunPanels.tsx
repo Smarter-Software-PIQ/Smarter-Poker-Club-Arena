@@ -192,7 +192,7 @@ export function WheelRunSummary({
           <h3 className={styles.summaryHeading}>
             {summary.prizes.length === 0
               ? 'No Instant Prizes This Run'
-              : `Instant Prizes${chips > 0 ? `: ${chips.toLocaleString(undefined, { maximumFractionDigits: 2 })} Chips Paid` : ''}`}
+              : `Instant Prizes${chips > 0 ? `: ${chips.toLocaleString(undefined, { maximumFractionDigits: 2 })} Chips Won` : ''}`}
           </h3>
           {summary.prizes.length > 0 && (
             <ul className={styles.list} aria-label="Prizes Won This Run">
