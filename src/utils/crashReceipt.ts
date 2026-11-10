@@ -1,5 +1,5 @@
 import type { CrashRound } from '../services/DiamondGamesService';
-import { validBonusMinimum } from './diamondBonusPayout';
+import { earnedWheelMinimum, validBonusMinimum } from './diamondBonusPayout';
 import {
   CRASH_FLOORED_VERSION,
   crashCashoutFloorCents,
@@ -32,6 +32,7 @@ export function validateCrashSettlement(
   // every round since, so there their absence is itself a refusal: silence is
   // what a round priced by the old rule would look like.
   const version = typeof value.payout_version === 'number' ? value.payout_version : undefined;
+  const earnedFloor = earnedWheelMinimum(value) ?? 0;
   const pointFloor = crashPointFloorCents(version);
   const cashoutFloor = crashCashoutFloorCents(version);
   const statesItsFloors =
@@ -108,10 +109,11 @@ export function validateCrashSettlement(
     proof.roll < 0 ||
     proof.roll >= 281474976710656 ||
     (value.status === 'crashed' &&
-      (outcome.payout_chips !== (value.minimum_payout_chips ?? 0) ||
+      (outcome.payout_chips !== Math.max(earnedFloor, Number(value.minimum_payout_chips ?? 0)) ||
         outcome.cashout_cents !== null)) ||
     (value.status === 'cashed' &&
-      (!integer(outcome.cashout_cents) ||
+      (Number(outcome.payout_chips) < earnedFloor ||
+        !integer(outcome.cashout_cents) ||
         outcome.cashout_cents < cashoutFloor ||
         outcome.cashout_cents > Math.min(Number(value.cap_cents), Number(outcome.crash_cents))))
   )

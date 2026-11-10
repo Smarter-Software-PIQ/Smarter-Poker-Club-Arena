@@ -18,6 +18,7 @@ import {
   plinkoTableForFloor,
   plinkoTableVersion,
   validBonusMinimum,
+  earnedWheelMinimum,
 } from '../utils/diamondBonusPayout';
 import { crashCashoutFloorCents } from '../utils/diamondGamesFairness';
 
@@ -152,6 +153,7 @@ export interface PlinkoBonus {
   /** The chips this batch pays whatever the drops do: half the stake, or for a
    *  Super award with the add-on what the player paid. */
   minimum_payout_chips?: number;
+  wheel_minimum_payout_chips?: number;
   /** 1: no floor (historical). 3: the Super half. 4: the paid floor. */
   payout_version?: 1 | 3 | 4;
   /** Contract 4: the spin entry plus the Double Diamonds add-on, in diamonds. */
@@ -250,7 +252,12 @@ export function parsePlinkoBonus(value: unknown): PlinkoBonus {
     // The batch pays its drops, or the Super guarantee when the drops fall short.
     Math.max(
       v.drops.reduce((sum, ball) => sum + Math.round(ball.payout_chips * 100), 0),
-      Math.round((v.minimum_payout_chips ?? 0) * 100)
+      Math.round(
+        Math.max(
+          v.minimum_payout_chips ?? 0,
+          earnedWheelMinimum(v as unknown as Record<string, unknown>) ?? 0
+        ) * 100
+      )
     ) !== Math.round(v.payout_chips * 100)
   ) {
     throw new Error('The Plinko Bonus Could Not Be Verified');

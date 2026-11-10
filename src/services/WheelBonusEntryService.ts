@@ -13,6 +13,7 @@ import {
   BONUS_PAYOUT_VERSION,
   diamondBonusFloor,
   diamondBonusMinimum,
+  earnedWheelMinimum,
   plinkoTableForFloor,
   plinkoTableVersion,
 } from '../utils/diamondBonusPayout';
@@ -26,6 +27,7 @@ export interface BonusGuarantee {
   guarantee: 'super' | 'standard';
   /** Chips paid on any loss or un-cashed round, from the full funded entry. */
   minimumPayoutChips: number;
+  gameMinimumPayoutChips?: number;
   /** The one setting for Donkey Cross and Diamond Mines; null for the others. */
   mode: string | null;
   /** The Plinko table this award plays: the open board its FLOOR chose, Super
@@ -114,7 +116,11 @@ export function parseBonusGuarantee(
     throw new Error('The Award Guarantee Could Not Be Quoted');
   return {
     guarantee: boost === 2 ? 'super' : 'standard',
-    minimumPayoutChips: g.minimum_payout_chips,
+    minimumPayoutChips: Math.max(
+      g.minimum_payout_chips,
+      earnedWheelMinimum({ ...g, bonus: { base_diamonds: award.base_diamonds } }) ?? 0
+    ),
+    gameMinimumPayoutChips: g.minimum_payout_chips,
     mode: expectedMode,
     plinkoTable: g.plinko_table as number,
     payoutVersion: version,

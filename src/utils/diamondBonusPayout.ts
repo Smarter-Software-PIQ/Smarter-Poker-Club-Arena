@@ -205,3 +205,27 @@ export function validBonusMinimum(value: Record<string, unknown>): boolean {
     return false;
   }
 }
+
+/** The wheel guarantees 150% of the funded base using the bridge rate sealed by
+ * the spin. Keep this separate from the underlying game's probability model. */
+export function earnedWheelMinimum(value: Record<string, unknown>): number | null {
+  if (value.payout_rules_version !== 2) return null;
+  const base = (value.bonus as Record<string, unknown> | undefined)?.base_diamonds;
+  const rate = value.wheel_diamonds_per_chip;
+  if (
+    typeof base !== 'number' ||
+    !Number.isSafeInteger(base) ||
+    base < 1 ||
+    typeof rate !== 'number' ||
+    !Number.isSafeInteger(rate) ||
+    rate < 1
+  ) {
+    throw new Error('The Wheel Prize Guarantee Could Not Be Verified');
+  }
+  const cents = (BigInt(base) * 150n + BigInt(rate) - 1n) / BigInt(rate);
+  const floor = Number(cents) / 100;
+  if (!Number.isSafeInteger(Number(cents)) || value.wheel_minimum_payout_chips !== floor) {
+    throw new Error('The Wheel Prize Guarantee Could Not Be Verified');
+  }
+  return floor;
+}

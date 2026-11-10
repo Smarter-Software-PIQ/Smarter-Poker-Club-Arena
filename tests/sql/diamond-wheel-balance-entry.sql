@@ -98,7 +98,8 @@ BEGIN
    ELSE settled:=started;
    END IF;
    payout:=COALESCE(settled#>>'{outcome,payout_chips}',settled->>'payout_chips')::numeric;
-   IF payout IS NULL OR payout<ceil(balance::numeric/2)/100 OR
+   IF payout IS NULL OR payout<ceil(a.base_diamonds::numeric*1.5)/100 OR
+    (spin_result->>'minimum_bonus_payout_chips')::numeric IS DISTINCT FROM ceil(a.base_diamonds::numeric*1.5)/100 OR
     (SELECT chip_balance FROM public.club_members WHERE club_id=club AND user_id=player) IS DISTINCT FROM before_chips+payout
     THEN RAISE EXCEPTION 'Earned % payout/ledger below promised minimum: %',game,settled; END IF;
    RAISE EXCEPTION USING ERRCODE='P0099',MESSAGE='isolate case';

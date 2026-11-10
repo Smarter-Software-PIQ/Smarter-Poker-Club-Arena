@@ -1222,7 +1222,7 @@ function DiamondCrashGame() {
   const guaranteed =
     open && round
       ? {
-          chips: round.minimum_payout_chips ?? 0,
+          chips: Math.max(round.minimum_payout_chips ?? 0, round.wheel_minimum_payout_chips ?? 0),
           betChips: round.bet_chips,
           super: round.bonus?.boost_multiplier === 2,
         }
@@ -1262,7 +1262,7 @@ function DiamondCrashGame() {
         : guaranteed && !settledRound
           ? {
               bet: guaranteed.betChips,
-              minimum: guaranteed.chips,
+              minimum: earned.quote?.gameMinimumPayoutChips ?? guaranteed.chips,
               // The contract the server says the next round will be sealed
               // under: the award quote's, else the game state's (contract 5
               // states itself), else contract 4. Never assumed, so this is

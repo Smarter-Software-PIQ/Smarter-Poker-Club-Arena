@@ -39,7 +39,7 @@ ALTER TABLE public.diamond_bonus_entries DROP CONSTRAINT diamond_bonus_entries_b
 -- under their original table; no live game may reprice an earlier spin.
 CREATE FUNCTION public.fn_wheel_earned_prize_floor(p_commit uuid)
 RETURNS numeric LANGUAGE sql STABLE STRICT SET search_path=public AS $floor$
- SELECT (s.receipt_v2->>'minimum_payout_chips')::numeric
+ SELECT (s.receipt_v2->>'minimum_bonus_payout_chips')::numeric
  FROM public.wheel_bonus_awards a JOIN public.wheel_spins s ON s.id=a.spin_id
  WHERE a.commit_id=p_commit AND s.receipt_v2->>'payout_rules_version'='2'
 $floor$;
@@ -67,6 +67,10 @@ DO $migration$
 DECLARE patch record; definition text; bodies jsonb:='{}'::jsonb;
 BEGIN
  FOR patch IN SELECT * FROM (VALUES
+ ('public.fn_wheel_award_receipt(uuid)',$old$ WHERE a.commit_id=p_commit),'{}'::jsonb)$old$,$new$ WHERE a.commit_id=p_commit),'{}'::jsonb)
+ || COALESCE((SELECT jsonb_build_object('payout_rules_version',2,'wheel_minimum_payout_chips',(s.receipt_v2->>'minimum_bonus_payout_chips')::numeric,
+ 'wheel_diamonds_per_chip',(s.receipt_v2->>'diamonds_per_chip')::integer) FROM public.wheel_bonus_awards a JOIN public.wheel_spins s ON s.id=a.spin_id
+ WHERE a.commit_id=p_commit AND s.receipt_v2->>'minimum_bonus_payout_chips' IS NOT NULL),'{}'::jsonb)$new$),
   ('public.fn_diamond_game_pay_chips(text,uuid,text,uuid,uuid,numeric,text,text,jsonb)',$old$    IF p_kind = 'union' THEN
       UPDATE public.union_wallets SET chip_balance = COALESCE(chip_balance, 0) - from_bank, updated_at = now()
        WHERE union_id = p_host AND COALESCE(chip_balance, 0) >= from_bank
@@ -211,20 +215,20 @@ $new$),
   ('public.fn_wheel_spin_v2(uuid,uuid,text,integer,text,uuid)',$old$   v_value_chips:=v_prize_chips;$old$,$new$   v_prize_chips:=GREATEST(v_prize_chips,ceil(v_price::numeric*50/v_rate)/100);
    v_value_chips:=v_prize_chips;$new$),
   ('public.fn_wheel_spin_v2(uuid,uuid,text,integer,text,uuid)',$old$v_half:=(public.fn_diamond_round_chip_cents(v_price*.5/100,cm.server_seed,'wheel-v4-cards-half:'||v_client||':'||v_nonce)*100)::bigint;$old$,$new$v_half:=ceil(v_price::numeric/2)::bigint;$new$),
-  ('public.fn_wheel_spin_v2(uuid,uuid,text,integer,text,uuid)',$old$v_result:=jsonb_build_object('ok',true,'contract_version',4,'model','wheel-v4',$old$,$new$v_result:=jsonb_build_object('ok',true,'contract_version',4,'payout_rules_version',2,'minimum_payout_chips',ceil(v_price::numeric*50/v_rate)/100,'model','wheel-v4',$new$),
+  ('public.fn_wheel_spin_v2(uuid,uuid,text,integer,text,uuid)',$old$v_result:=jsonb_build_object('ok',true,'contract_version',4,'model','wheel-v4',$old$,$new$v_result:=jsonb_build_object('ok',true,'contract_version',4,'payout_rules_version',2,'minimum_payout_chips',ceil(v_price::numeric*50/v_rate)/100,'minimum_bonus_payout_chips',ceil(v_award.base_diamonds::numeric*150/v_rate)/100,'model','wheel-v4',$new$),
   ('public.fn_wheel_state_v2(uuid,integer)',$old$RETURN s||jsonb_build_object('contract_version',4,'model_version','wheel-v4','vip',vip,'enabled',true,'available',$old$,$new$RETURN s||jsonb_build_object('contract_version',4,'payout_rules_version',2,'minimum_payout_chips',ceil(p_entry_diamonds::numeric*50/rate)/100,'model_version','wheel-v4','vip',vip,'enabled',true,'available',$new$),
-  ('public.fn_wheel_bonus_public_award(wheel_bonus_awards,boolean)',$old$'won_order',public.fn_wheel_prize_order(a.spin_id))$old$,$new$'won_order',public.fn_wheel_prize_order(a.spin_id)) || COALESCE((SELECT jsonb_build_object('payout_rules_version',2,'wheel_minimum_payout_chips',(s.receipt_v2->>'minimum_payout_chips')::numeric) FROM public.wheel_spins s WHERE s.id=a.spin_id AND s.receipt_v2->>'payout_rules_version'='2'),'{}'::jsonb)$new$),
-  ('public.fn_wheel_bonus_state(uuid,text,boolean,text,uuid)',$old$v_paid:=a.entry_diamonds$old$,$new$IF v_award->>'payout_rules_version'='2' THEN v_state:=v_state||jsonb_build_object('payout_rules_version',2,'wheel_minimum_payout_chips',v_award->'wheel_minimum_payout_chips'); END IF;
+  ('public.fn_wheel_bonus_public_award(wheel_bonus_awards,boolean)',$old$'won_order',public.fn_wheel_prize_order(a.spin_id))$old$,$new$'won_order',public.fn_wheel_prize_order(a.spin_id)) || COALESCE((SELECT jsonb_build_object('payout_rules_version',2,'wheel_minimum_payout_chips',(s.receipt_v2->>'minimum_bonus_payout_chips')::numeric,'wheel_diamonds_per_chip',s.diamonds_per_chip) FROM public.wheel_spins s WHERE s.id=a.spin_id AND s.receipt_v2->>'payout_rules_version'='2'),'{}'::jsonb)$new$),
+  ('public.fn_wheel_bonus_state(uuid,text,boolean,text,uuid)',$old$v_paid:=a.entry_diamonds$old$,$new$IF v_award->>'payout_rules_version'='2' THEN v_state:=v_state||jsonb_build_object('payout_rules_version',2,'wheel_minimum_payout_chips',v_award->'wheel_minimum_payout_chips','wheel_diamonds_per_chip',v_award->'wheel_diamonds_per_chip'); END IF;
   v_paid:=a.entry_diamonds$new$),
   ('public.fn_choice_act(uuid,text,integer,integer)',$old$ IF r.status<>'open' THEN
   IF v_pay>r.reserved_chips THEN$old$,$new$ IF r.status<>'open' THEN
   v_pay:=greatest(v_pay,public.fn_wheel_earned_prize_floor(r.commit_id));
   IF v_pay>r.reserved_chips THEN$new$),
+  ('public.fn_choice_start(uuid,text,text,integer,uuid,text,integer)',$old$v_reserve:=ceil(v_prizes[p_max_steps]*100)/100;$old$,$new$v_reserve:=greatest(ceil(v_prizes[p_max_steps]*100)/100,public.fn_wheel_earned_prize_floor(p_commit_id));$new$),
   ('public.fn_crash_decide(crash_rounds,boolean,text,integer)',$old$  IF v_payout > 0 THEN$old$,$new$  v_payout:=greatest(v_payout,public.fn_wheel_earned_prize_floor(r.commit_id));
   IF v_payout > 0 THEN$new$),
   ('public.fn_crash_decide(crash_rounds,boolean,text,integer)',$old$IF pool.chips_paid + pool.reserved_chips >$old$,$new$IF public.fn_wheel_earned_prize_floor(r.commit_id) IS NULL AND pool.chips_paid + pool.reserved_chips >$new$),
-  ('public.fn_plinko_bonus_run(uuid,uuid,text,integer,integer,integer)',$old$ paid:=GREATEST(paid,v_minimum);$old$,$new$ v_minimum:=greatest(v_minimum,public.fn_wheel_earned_prize_floor(p_commit));
- paid:=GREATEST(paid,v_minimum);$new$)
+  ('public.fn_plinko_bonus_run(uuid,uuid,text,integer,integer,integer)',$old$ paid:=GREATEST(paid,v_minimum);$old$,$new$ paid:=greatest(paid,v_minimum,public.fn_wheel_earned_prize_floor(p_commit));$new$)
  ) AS changes(signature, prior, replacement)
  LOOP
   definition:=COALESCE(bodies->>patch.signature,pg_get_functiondef(patch.signature::regprocedure));

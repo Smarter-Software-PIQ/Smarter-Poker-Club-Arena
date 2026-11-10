@@ -195,7 +195,8 @@ function DiamondPlinkoGame() {
   };
   /** The chips this game pays whatever the drops do, shown before Start. */
   const guaranteedChips = (() => {
-    if (result) return result.minimum_payout_chips ?? 0;
+    if (result)
+      return Math.max(result.minimum_payout_chips ?? 0, result.wheel_minimum_payout_chips ?? 0);
     if (earned.quote) return earned.quote.minimumPayoutChips;
     if (earned.award || earned.loading) return null;
     return entryFloor;
@@ -650,16 +651,16 @@ function DiamondPlinkoGame() {
             title={diamondGameTitle('plinko', boost)}
             summary="You Choose How Many Diamonds Each Drop Plays. Every Diamond Lands In A Prize Slot, And Your Chips Are Booked When The Last Drop Lands."
             steps={[
-          {
-            title: 'Your Numbers',
-            body: 'Your Entry, The Guaranteed Minimum And The Prize So Far, Updated As You Play.',
-            target: '[data-game-console] dl',
-          },
-          {
-            title: 'Play',
-            body: 'The Plates At The Foot Of The Game Start A Round And Book Your Win.',
-            target: '[data-game-actions]',
-          },
+              {
+                title: 'Your Numbers',
+                body: 'Your Entry, The Guaranteed Minimum And The Prize So Far, Updated As You Play.',
+                target: '[data-game-console] dl',
+              },
+              {
+                title: 'Play',
+                body: 'The Plates At The Foot Of The Game Start A Round And Book Your Win.',
+                target: '[data-game-actions]',
+              },
             ]}
           />
         }
@@ -821,11 +822,7 @@ function DiamondPlinkoGame() {
           </p>
         )}
       </GamePanel>
-      <GamePanel
-        title="Bonus Proof"
-        pill={verified === true ? 'Verified' : 'Sealed'}
-        foot="foot"
-      >
+      <GamePanel title="Bonus Proof" pill={verified === true ? 'Verified' : 'Sealed'} foot="foot">
         <p className={`sc-copy ${styles.proofHash}`}>
           {ticket?.hash ?? result?.server_seed_hash ?? 'Preparing Your Ticket'}
         </p>
