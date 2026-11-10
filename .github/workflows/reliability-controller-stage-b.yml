@@ -1,0 +1,37 @@
+name: Reliability Controller Stage B
+
+# The reliability schema, its intake triggers on operational_alert_events, the
+# incident state machine, the Messenger outbox and reliability.tick()
+# (migration 20261110000020). Runs
+# scripts/ci/test-reliability-controller-stage-b.py against a throwaway
+# PostgreSQL 17 cluster, never production. No timer (CLAUDE.md 10.85):
+# pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261110000020_reliability_controller_stage_b.sql
+      - scripts/ci/test-reliability-controller-stage-b.py
+      - scripts/ci/fixtures/reliability-controller-production-objects.sql
+      - .github/workflows/reliability-controller-stage-b.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reliability-controller-stage-b-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  reliability-controller-stage-b:
+    name: Inbox rows become incidents, escalate once and never break intake
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: Inbox rows become incidents, escalate once and never break intake
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-reliability-controller-stage-b.py
