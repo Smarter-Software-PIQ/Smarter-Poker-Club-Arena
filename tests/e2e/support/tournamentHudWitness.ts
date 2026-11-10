@@ -1,3 +1,4 @@
+import { playableLevelSeconds } from '../../../src/utils/tournamentPlayableClock';
 import { createClient } from '@supabase/supabase-js';
 import type { Page } from '@playwright/test';
 import { remainingObservationMs } from './observationDeadline';
@@ -180,7 +181,13 @@ export function eligibleHudClock(
   if (!level || !next || level.isBreak || next.isBreak) return null;
   const durationMs = (entry: Row) => {
     const minutes = Number(entry.durationMinutes ?? entry.duration_minutes);
-    return (minutes > 0 ? minutes * 60 : Number(entry.duration)) * 1000;
+    return (
+      playableLevelSeconds(
+        minutes > 0 ? minutes * 60 : Number(entry.duration),
+        row.buy_in_amount,
+        entry.isBreak
+      ) * 1000
+    );
   };
   const intervalMs = durationMs(level);
   const nextIntervalMs = durationMs(next);
@@ -280,7 +287,12 @@ export function selectableHudClock(
     const entry = levels[index] as Row | undefined;
     if (!entry || entry.isBreak) return null;
     const minutes = Number(entry.durationMinutes ?? entry.duration_minutes);
-    const durationMs = (minutes > 0 ? minutes * 60 : Number(entry.duration)) * 1000;
+    const durationMs =
+      playableLevelSeconds(
+        minutes > 0 ? minutes * 60 : Number(entry.duration),
+        row.buy_in_amount,
+        entry.isBreak
+      ) * 1000;
     if (!Number.isFinite(durationMs) || durationMs <= 0 || durationMs > levelCapMs) return null;
     // Recovery may consume the current boundary. Each existing look-ahead
     // baseline must still have its complete natural transition/render reserve
@@ -537,7 +549,7 @@ export async function createHudClockReader() {
   const qualificationBatches: HudQualificationBatchEvidence[] = [];
   const discoveries: HudDiscoveryEvidence[] = [];
   const tournamentClockColumns =
-    'id,format_contract,status,current_players,current_level,blind_structure,started_at,level_started_at,on_break,synchronized_breaks,accelerated_mtt,addon_period_started_at,addon_period_ends_at,add_on_available,addon_period_triggered,prize_pool_finalized,late_reg_levels,rebuy_levels';
+    'id,format_contract,status,current_players,current_level,buy_in_amount,blind_structure,started_at,level_started_at,on_break,synchronized_breaks,accelerated_mtt,addon_period_started_at,addon_period_ends_at,add_on_available,addon_period_triggered,prize_pool_finalized,late_reg_levels,rebuy_levels';
   return {
     qualifications,
     qualificationBatches,
