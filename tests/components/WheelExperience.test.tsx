@@ -138,7 +138,7 @@ describe('wheel to prize to earned game', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Land Bonus Wheel' }));
     expect(screen.getByRole('heading', { name: '2,500 Chips' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
     finishReveal();
     expect(onFinished).not.toHaveBeenCalled();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
@@ -151,7 +151,7 @@ describe('wheel to prize to earned game', () => {
      waits under a flashing instruction for a swipe or a tap on the wheel, or
      Enter or Space from the keyboard, and R9: the won game then waits for
      Play Game. Both pins moved here from the auto-advancing versions. */
-  it('waits for the player to swipe the upgrade ring, then for Play Game, before opening the game', () => {
+  it('waits for the player to swipe the upgrade ring, then opens the game from its sealed outcome', () => {
     vi.useFakeTimers();
     const onFinished = vi.fn();
     render(
@@ -202,8 +202,7 @@ describe('wheel to prize to earned game', () => {
     act(() => {
       vi.advanceTimersByTime(120_000);
     });
-    expect(onFinished).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Play Game' }));
+
     expect(onFinished).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
@@ -294,7 +293,7 @@ describe('wheel to prize to earned game', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Land Bonus Wheel' }));
     expect(onFinished).toHaveBeenCalledTimes(1);
   });
-  it('opens a normal bonus only when Play Game is tapped after one complete wheel and reveal', () => {
+  it('automatically opens a freshly won bonus after its landed reveal', () => {
     vi.useFakeTimers();
     const onFinished = vi.fn();
     render(
@@ -314,9 +313,7 @@ describe('wheel to prize to earned game', () => {
     act(() => {
       vi.advanceTimersByTime(120_000);
     });
-    expect(onFinished).not.toHaveBeenCalled();
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Play Game' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(onFinished).toHaveBeenCalledTimes(1);
   });
   it('a new spinKey starts the next spin at the main wheel without a remount', () => {
