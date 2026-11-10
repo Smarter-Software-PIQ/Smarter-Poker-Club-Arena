@@ -889,6 +889,24 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       );
       selected[0].if = previous;
     }
+    // A bad booking cannot merge (2026-11-10): one exact added step, pinned
+    // here and by tests/operations/owner-window-booking-gate.test.mjs.
+    {
+      const validStep = {
+        name: 'Owner maintenance bookings are valid before they merge',
+        env: { CI_BASE_SHA: '${{ github.event.pull_request.base.sha }}' },
+        run:
+          'node --test tests/operations/owner-window-booking-gate.test.mjs\n' +
+          'node scripts/ci/check-owner-window-booking.mjs\n',
+      };
+      const steps = normalized.jobs.typecheck_compile.steps;
+      const index = steps.findIndex((s: { name: string }) => s.name === validStep.name);
+      expect(steps.filter((s: { name: string }) => s.name === validStep.name)).toHaveLength(1);
+      expect(steps[index]).toStrictEqual(validStep);
+      expect(steps[index - 1].name).toBe('Native fixture gate rejects missing and skipped proof');
+      expect(steps[index + 1].name).toBe('Owner maintenance bookings give notice after they merge');
+      steps.splice(index, 1);
+    }
     // A booking cannot start in the past (2026-11-07): one exact added step,
     // pinned here and by tests/a-booking-cannot-start-in-the-past.law.test.ts.
     {
