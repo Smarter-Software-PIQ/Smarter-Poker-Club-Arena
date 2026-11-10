@@ -284,7 +284,6 @@ import {
   heroAwaitsADecision,
   isPreActionHonorable,
   PRE_ACTION_EXEC_GRACE_MS,
-  PRE_ACTION_GAP_BRIDGE_MS,
 } from '../lib/preActionPanelGate';
 import { seatTapTarget } from '../lib/heroSeatTap';
 import { usePlayerNoteMarkers } from '../hooks/usePlayerNoteMarkers';
@@ -679,6 +678,7 @@ import { CASH_TEMPLATES, cashTemplateKey } from '../config/cashGames';
 import HeroVpipTracker from '../components/table/HeroVpipTracker';
 import HitRunLeaveConfirm from '../components/table/HitRunLeaveConfirm';
 import { useHeroHandCount } from '../hooks/useHeroHandCount';
+import { useActorGapBridge } from '../hooks/useActorGapBridge';
 import HitRunCountPill from '../components/table/HitRunCountPill';
 import { useCountdownStarted, useHandsAddedByDouble } from '../hooks/useHeroHandCount';
 import {
@@ -24986,16 +24986,13 @@ function LiveTablePage({
    *   cover the gap and short enough that any OTHER silence - a runout, a
    *   stall - gives up quickly instead of lying for the rest of the hand.
    */
-  const [actorGapBridged, setActorGapBridged] = useState(false);
-  useEffect(() => {
-    if (tableState.currentPlayerSeat > 0 || !tableState.isHandInProgress) {
-      setActorGapBridged(false);
-      return;
-    }
-    setActorGapBridged(true);
-    const t = window.setTimeout(() => setActorGapBridged(false), PRE_ACTION_GAP_BRIDGE_MS);
-    return () => window.clearTimeout(t);
-  }, [tableState.currentPlayerSeat, tableState.isHandInProgress]);
+  // Derived in the render that opens the gap (src/hooks/useActorGapBridge.ts):
+  // an effect-set bridge was off for one commit on every action, unmounting
+  // and remounting the bar each time (Dan 2026-11-10).
+  const actorGapBridged = useActorGapBridge(
+    tableState.currentPlayerSeat,
+    tableState.isHandInProgress
+  );
 
   /** True while a turn is still to be taken by somebody at this table. */
   const handStillTakingAction =
