@@ -52,6 +52,7 @@ import { arenaAssetUnitCents } from '../../lib/arenaUnitCents';
 import { CHIP_UNIT_CENTS, normalizeUnitCents } from '../../../server/src/tournament/tournamentUnit';
 import { formatSessionProfit } from '../../utils/formatSessionProfit';
 import './SessionSummaryHost.css';
+import '../../styles/postPlayResults.css';
 
 /** Ease-out-back: overshoots slightly then settles. Reads as "landing". */
 function easeOutBack(t: number): number {

@@ -1,0 +1,185 @@
+/* Shared surface for completed sessions. Live results stay in the document
+   flow while the sapphire artwork occupies the right half of the hero. */
+.postplay-panel.sc,
+.ssh-overlay .ssh-card {
+  border: 1px solid #556779;
+  border-radius: 12px;
+  background: linear-gradient(155deg, #152237, #090e17 50%, #111b2a);
+  box-shadow:
+    inset 0 1px #aabccd66,
+    0 16px 48px #0009;
+}
+
+.postplay-panel.sc > .sc__head {
+  display: grid;
+  justify-items: start;
+  align-content: center;
+  gap: 3px;
+  aspect-ratio: auto;
+  min-height: 76px;
+  padding: 12px 52px 13px 18px;
+  background: linear-gradient(120deg, #243c59, #111e30 70%);
+  border-radius: 11px 11px 0 0;
+  border-bottom: 1px solid #42566c;
+}
+.postplay-panel .sc__head .sc-zone {
+  position: static;
+  width: 100% !important;
+  height: auto !important;
+  display: block;
+  overflow: visible;
+  text-align: left;
+  line-height: 1.15;
+}
+.postplay-panel .sc__head .sc-zone > span {
+  display: block;
+  white-space: normal;
+}
+.postplay-panel .sc__head .sc__eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+.postplay-panel .sc__head .sc__title {
+  font-size: clamp(21px, 6cqw, 27px);
+}
+.postplay-panel .sc__head .sc__subtitle {
+  font-size: 14px;
+}
+.postplay-panel .sc__head .sc__pill {
+  font-size: 12px;
+}
+.postplay-panel .sc__head .sc__close {
+  inset: 6px 6px auto auto !important;
+  width: 44px !important;
+  height: 44px !important;
+  font-size: 26px;
+}
+.postplay-panel.sc > .sc__body {
+  padding: 12px 16px;
+  margin: 0;
+  background: transparent;
+}
+.postplay-panel.sc > .sc__foot {
+  aspect-ratio: auto;
+  margin: 0;
+  background: none;
+}
+.postplay-panel.sc--plates > .sc__foot {
+  display: flex;
+  gap: 8px;
+  padding: 8px 14px 14px;
+}
+.postplay-panel .sc__foot .sc-plate {
+  position: relative;
+  inset: auto !important;
+  width: auto !important;
+  height: auto !important;
+  min-height: 44px;
+  flex: 1 1 0;
+  border: 1px solid #60778b;
+  border-radius: 6px;
+  background: linear-gradient(#2c3e51, #111d2c);
+}
+.postplay-panel .sc__foot .sc-plate:last-child {
+  border-color: #467db5;
+  background: linear-gradient(#245887, #10294a);
+}
+.postplay-panel .sc__foot .sc-plate__well {
+  position: static;
+  width: auto;
+  height: auto;
+}
+.postplay-panel .sc__foot .sc-plate__text {
+  font-size: 15px;
+}
+
+.trc2__result-hero,
+.ssh-card .ssh-hero,
+.postplay-panel .lightning-result,
+.postplay-panel.winner-console > .sc__body {
+  background: #0b1524 url('/assets/results/post-play-sapphire.webp') center right / cover no-repeat;
+}
+.trc2__result-hero {
+  position: relative;
+  border-radius: 6px;
+  padding: clamp(14px, 4cqw, 24px);
+  isolation: isolate;
+  margin: 8px 0;
+}
+.trc2__result-hero .trc2__placeband,
+.trc2__result-hero .trc2__reward {
+  align-items: flex-start;
+  text-align: left;
+  padding: 0;
+  margin: 0;
+  max-width: 63%;
+  background: none;
+}
+.trc2__result-hero .trc2__placeband::before,
+.trc2__result-hero .trc2__placeband::after {
+  content: none;
+}
+.trc2__result-hero .trc2__reward {
+  margin-top: 10px;
+  overflow-wrap: anywhere;
+}
+.trc2__result-hero .trc2__medal {
+  position: absolute;
+  right: 7px;
+  bottom: 9px;
+  width: 33px;
+  height: 33px;
+  margin: 0;
+}
+.trc2__result-hero .trc2__medal-ring {
+  width: 100%;
+  height: 100%;
+}
+.trc2__result-hero .trc2__medal-place {
+  font-size: 16px;
+}
+.trc2__result-hero .trc2__trophy {
+  width: 22px;
+  height: 22px;
+}
+.trc2__result-hero .trc2__place-num {
+  font-size: clamp(44px, 13cqw, 68px);
+}
+.trc2__result-hero .trc2__reward-label {
+  font-size: 11px;
+}
+.trc2__result-hero .trc2__reward-value {
+  font-size: clamp(18px, 6cqw, 29px);
+}
+.ssh-card .ssh-hero,
+.postplay-panel .lightning-result {
+  padding-right: 36%;
+  text-align: left;
+  align-items: start;
+}
+.ssh-overlay .ssh-tile {
+  border-radius: 5px;
+}
+.postplay-panel.winner-console > .sc__body {
+  padding-right: 38%;
+}
+
+.trc2__result-hero .trc2__medal-rays,
+.trc2__result-hero .trc2__medal-glow {
+  inset: -8%;
+}
+.trc2__result-hero .trc2__place-title {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+}
+.trc2__result-hero .trc2__reward-label {
+  letter-spacing: 0.11em;
+}
+.trc2 .postplay-panel .sc__head .sc__pill {
+  display: none;
+}
+.trc2__result-hero .trc2__place-title::before,
+.trc2__result-hero .trc2__place-title::after {
+  content: none;
+}
