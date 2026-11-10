@@ -208,6 +208,7 @@ const GESTURE_FOR_ACTION: Partial<
 const CELEBRATE_MS = 940;
 
 export interface SeatPlayer {
+  waitingForButton?: boolean;
   id: string;
   name: string;
   avatar?: string;
@@ -593,7 +594,7 @@ export interface SeatSlotProps {
    * Decided by the parent from the engine's waiting_for_bb_user_ids and
    * post_bb_deferred_user_ids, the same two lists the hero's footer reads.
    */
-  entryWait?: 'waiting_for_bb' | 'posting_bb' | null;
+  entryWait?: 'waiting_for_button' | 'waiting_for_bb' | 'posting_bb' | null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -3470,7 +3471,13 @@ export const SeatSlot = memo(
               the engine formally sits them out, and SITTING OUT after. */}
           {/* The engine's entry reason remains authoritative even between
               independent DB seat-status refreshes. */}
-          {(player.status === 'sitting_out' || entryWait === 'waiting_for_bb') &&
+          {entryWait === 'waiting_for_button' && (
+            <div className="seat__sitout-badge" data-testid="seat-waiting-button-badge">
+              Waiting for the button to pass
+            </div>
+          )}
+          {entryWait !== 'waiting_for_button' &&
+            (player.status === 'sitting_out' || entryWait === 'waiting_for_bb') &&
             entryWait !== 'posting_bb' &&
             (entryWait === 'waiting_for_bb' ? (
               /* An entrant the engine holds for the blind is not sitting out;
