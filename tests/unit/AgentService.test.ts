@@ -73,7 +73,6 @@ const CLUB_ID = '44444444-4444-4444-8444-444444444444';
 const TRANSACTION_ID = '55555555-5555-4555-8555-555555555555';
 
 const resolvedChain = (result: { data: unknown; error: unknown }): any => {
-  const proxy: any;
   const handler: ProxyHandler<any> = {
     get: (_target, prop) => {
       if (prop === 'then') return Promise.resolve(result).then.bind(Promise.resolve(result));
@@ -81,7 +80,7 @@ const resolvedChain = (result: { data: unknown; error: unknown }): any => {
       return vi.fn(() => proxy);
     },
   };
-  proxy = new Proxy({}, handler);
+  const proxy: any = new Proxy({}, handler);
   return proxy;
 };
 
