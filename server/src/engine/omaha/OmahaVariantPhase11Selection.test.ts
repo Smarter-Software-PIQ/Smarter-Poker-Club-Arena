@@ -247,3 +247,55 @@ describe('P11.3 illegal candidate retention', () => {
     }
   );
 });
+
+it('requires the exact cash Phase 11 proposal and the wager rule that replaced it', () => {
+  const check = { action: 'check', amount: null } as const;
+  const shove = { action: 'all_in', amount: null } as const;
+  const version = OMAHA_VARIANT_PACKS.plo6.version;
+  const receipt = {
+    variant: 'plo6',
+    version,
+    inputs: null,
+    mode: 'candidate',
+    utilityOwner: 'cash',
+    changed: true,
+    applied: true,
+    selection: 'shadow_change',
+    baselineAction: 'check',
+    baselineAmount: null,
+    proposalAction: 'all_in',
+    proposalAmount: null,
+    finalAction: 'check',
+    finalAmount: null,
+    authority: {
+      version: 'horse-qualified-authority-receipt-v1',
+      epoch: 'e',
+      generation: 1,
+      state: 'usable',
+      reason: 'admitted',
+      continuationVersion: version,
+      approvalGeneration: 1,
+      authorityKey: 'k',
+      evidenceSha256: null,
+      sourceSha: null,
+      expiresAt: null,
+      mainGeneration: null,
+    },
+  };
+  const graph: import('../HorsePolicyGraph.js').HorsePolicyGraphReceipt = {
+    version: 'horse-policy-order-v3',
+    finalAction: check,
+    transitions: [
+      { node: 'variant_policy', before: check, after: shove, changed: true, elapsedMs: 1 },
+      { node: 'wager_rules', before: shove, after: check, changed: true, elapsedMs: 1 },
+    ],
+  };
+  expect(horsePhase11SelectionIsValid(receipt, shove, graph)).toBe(true);
+  expect(horsePhase11SelectionIsValid(receipt, shove)).toBe(false);
+  expect(horsePhase11SelectionIsValid({ ...receipt, proposalAmount: 10 }, shove, graph)).toBe(
+    false
+  );
+  expect(horsePhase11SelectionIsValid({ ...receipt, finalAction: 'call' }, shove, graph)).toBe(
+    false
+  );
+});

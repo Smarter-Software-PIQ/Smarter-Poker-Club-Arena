@@ -649,9 +649,37 @@ export function horsePhase10SelectionIsValid(value: unknown, decision: RecordVal
  * stay unset. A receipt retained before P11.3 carries no selection and claims
  * no authority, so it may not carry an applied candidate either.
  */
-export function horsePhase11SelectionIsValid(value: unknown, decision: RecordValue): boolean {
-  return packSelectionIsValid(value, decision, (variant) =>
-    isOmahaPolicyVariant(variant) ? OMAHA_VARIANT_PACKS[variant].version : null
+export function horsePhase11SelectionIsValid(
+  value: unknown,
+  decision: RecordValue,
+  verifiedGraph?: HorsePolicyGraphReceipt
+): boolean {
+  const variant = verifiedGraph?.transitions.find((t) => t.node === 'variant_policy');
+  const wager = verifiedGraph?.transitions.find((t) => t.node === 'wager_rules');
+  // Only the verified final wager rule can witness this replacement. Bind
+  // both stage actions and their exact graph amounts, including raise-to.
+  const superseded =
+    record(value) &&
+    (value.variant === 'plo5' || value.variant === 'plo6') &&
+    value.selection === 'shadow_change' &&
+    variant?.changed === true &&
+    variant.before?.action === value.baselineAction &&
+    variant.before?.amount === value.baselineAmount &&
+    variant.after.action === value.proposalAction &&
+    variant.after.amount === value.proposalAmount &&
+    wager?.changed === true &&
+    wager.before?.action === value.proposalAction &&
+    wager.before?.amount === value.proposalAmount &&
+    wager.after.action === value.finalAction &&
+    wager.after.amount === value.finalAmount &&
+    verifiedGraph !== undefined &&
+    verifiedGraph.finalAction.action === value.finalAction &&
+    verifiedGraph.finalAction.amount === value.finalAmount;
+  return packSelectionIsValid(
+    value,
+    decision,
+    (variant) => (isOmahaPolicyVariant(variant) ? OMAHA_VARIANT_PACKS[variant].version : null),
+    { superseded }
   );
 }
 
@@ -1144,7 +1172,8 @@ export function horseDecisionReceiptRefusal(
     !omahaVariantReceiptBindingIsValid(value.omahaVariantPolicy)
   )
     return 'phase11_binding';
-  if (!horsePhase11SelectionIsValid(value.omahaVariantPolicy, selected)) return 'phase11_selection';
+  if (!horsePhase11SelectionIsValid(value.omahaVariantPolicy, selected, graph))
+    return 'phase11_selection';
   // P12.1: a Phase 12 receipt's bindings (inputs, and the P12-B net-action
   // economics) are re-checked at the boundary.
   if (
