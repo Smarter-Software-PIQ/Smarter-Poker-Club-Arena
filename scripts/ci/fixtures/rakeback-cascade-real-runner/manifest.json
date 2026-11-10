@@ -1,9 +1,9 @@
 {
   "fixture_files_md5": {
     "clock.sql": "7f586f9e95ee34e0891c61f42909254e",
-    "production-config.json": "c26b101be32bf56f69fef702197346e9",
-    "production-functions.json": "bfedb6376584c4b15d5c4d7d6fe7ab18",
-    "production-relations.json": "efa246e10dc6c4f3cbfb2549893629f9"
+    "production-config.json": "8a0cef06d72c5a934888a0a668272e7a",
+    "production-functions.json": "2974430712b5aec9153f28dbd04c80bc",
+    "production-relations.json": "a2df7834639155b207f4ec0a874f38d0"
   },
   "foreign_keys_dropped": 257,
   "functions": {
