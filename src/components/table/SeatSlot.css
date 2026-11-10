@@ -1708,7 +1708,7 @@
      2026-08-26: set to 50 % of original (0.52 → 0.26, floor 26 → 13 px).
      2026-08-26 round 2: increased 33 % from that base (0.26 × 1.33 = 0.346, floor 13 → 17 px). */
   --vh-card-h: max(17px, calc(var(--seat-avatar-size, 84px) * 0.346 * var(--vh-reveal, 1)));
-  --vh-card-w: calc(var(--vh-card-h) * 0.714);
+  --vh-card-w: calc(var(--vh-card-h) * 2 / 3);
   --vh-step: calc(var(--vh-card-w) * var(--vh-step-f));
   /* How far the cluster's inner card reaches ONTO the avatar. Dan 2026-08-26
      round 3: "opponents' hole cards should be overlapping the avatar faces
@@ -1735,7 +1735,7 @@
      badge pair and every action pill, which must stay readable over it. */
   z-index: 4;
   /* ONE shadow on the group — per-card shadows stack into mud at 6 cards. */
-  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.45));
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
   pointer-events: none;
 }
 
@@ -1943,10 +1943,10 @@
 /* The acting player's highlight includes the fan — the hand must sit INSIDE
    the glow, not next to it looking detached. Winner glow, same idea in gold. */
 .seat--active .seat__cards--opponent {
-  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.45)) drop-shadow(0 0 5px rgba(0, 229, 255, 0.4));
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45)) drop-shadow(0 0 5px rgba(0, 229, 255, 0.4));
 }
 .seat--winner .seat__cards--opponent {
-  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.45)) drop-shadow(0 0 7px rgba(255, 215, 0, 0.45));
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45)) drop-shadow(0 0 7px rgba(255, 215, 0, 0.45));
 }
 
 /* When opponent cards are revealed at showdown, they pop out larger.
