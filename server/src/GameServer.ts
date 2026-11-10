@@ -4165,6 +4165,8 @@ export class GameServer {
     // Lightning Phase 13: a drained, reverting or paused Cluster's rooms are
     // told so (lightning_cluster_status), once per change and on RESYNC.
     clusterStatus: (clusterId, status) => this.lightningRooms.setClusterStatus(clusterId, status),
+    // REAL ARRIVALS WHILE WAITING (2026-11-10): idle rooms hear the waiting count.
+    poolWaiting: (clusterId, waiting) => this.lightningRooms.setPoolWaiting(clusterId, waiting),
   });
   /* Lightning Phase 12 (surge protection): a room's first socket is a player
      arriving in the pool, so their Cluster's worker forms within the admission

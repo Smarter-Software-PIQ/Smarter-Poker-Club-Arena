@@ -17,6 +17,7 @@
  * nothing that reads it, changes which table is shown without that tap.
  */
 import { serverNow } from '../utils/serverClock';
+import { noteLightningPoolWaiting } from './lightningPoolArrivals';
 
 export type LightningDecisionUrgency = 'normal' | 'high' | 'critical';
 
@@ -59,6 +60,8 @@ export function noteLightningUserEvent(
   payload: Record<string, unknown> | null | undefined
 ): boolean {
   const type = payload?.type;
+  // REAL ARRIVALS WHILE WAITING (2026-11-10): the waiting count, per room.
+  if (noteLightningPoolWaiting(payload)) return true;
   if (type === 'lightning_cluster_status') {
     noteLightningClusterStatus(payload);
     return true;
