@@ -69,10 +69,17 @@ export function plinkoTableVersion(boost: 1 | 2 = 1): number {
  *   6 Super Double: 20x on the two outer slots each side, 10x, 1.7x, then
  *                   0.80x, 0.75x, 0.75x, 0.73x, 0.72x. Lowest 0.72x, above the two
  *                   thirds a Super player with the add-on paid.
- * All three are exactly 0.800000 and top out at exactly 20x. The server's table
+ * 7 Diamond: every slot pays at least 1x; the binomial gross mean is 1.059448.
+ * Historical boards 4, 5 and 6 averaged 0.80. All top out at 20x. The server's table
  * is the authority; this mirror lets a page paint the board before its quote
  * arrives and lets the test page play the same game offline. */
 export const PLINKO_TABLES: Record<number, { name: string; multipliersCents: number[] }> = {
+  7: {
+    name: 'Diamond',
+    multipliersCents: [
+      2000, 500, 200, 140, 125, 110, 105, 102, 100, 102, 105, 110, 125, 140, 200, 500, 2000,
+    ],
+  },
   4: {
     name: 'Super',
     multipliersCents: [
@@ -93,24 +100,28 @@ export const PLINKO_TABLES: Record<number, { name: string; multipliersCents: num
   },
 };
 
-/** The tables a new run may be dealt on, since 2026-09-21. Mirrors the
- * activated_at rows of public.plinko_tables after migration 20260921203512. */
-export const PLINKO_LIVE_TABLES: readonly number[] = [4, 6];
+/** New batches use board 7. Historical receipts still verify against their exact board. */
+export const PLINKO_LIVE_TABLES: readonly number[] = [7];
 
 /** The table follows the FLOOR, not the boost: the open table with the lowest
  * slot that still carries the floor on this stake, so the multipliers themselves
  * keep the guarantee and the floor adds nothing beyond cent rounding. Null when
- * no open table can carry it (a floor at or above 0.72 of the stake), which the
- * server refuses to start. Mirrors public.fn_plinko_table_for_floor. */
-export function plinkoTableForFloor(betChips: number, floorChips: number): number | null {
+ * no open table can carry the underlying game floor. A wheel award guarantee
+ * is settled separately when its final ball is released. Mirrors public.fn_plinko_table_for_floor. */
+export function plinkoTableForFloor(
+  betChips: number,
+  floorChips: number,
+  legacy = false
+): number | null {
   const betCents = Math.round(betChips * 100);
   const floorCents = Math.round(floorChips * 100);
   if (!Number.isSafeInteger(betCents) || betCents <= 0 || !Number.isSafeInteger(floorCents))
     return null;
-  const candidates = PLINKO_LIVE_TABLES.map((version) => ({
-    version,
-    lowest: Math.min(...PLINKO_TABLES[version].multipliersCents),
-  }))
+  const candidates = (legacy ? [4, 6] : PLINKO_LIVE_TABLES)
+    .map((version) => ({
+      version,
+      lowest: Math.min(...PLINKO_TABLES[version].multipliersCents),
+    }))
     // lowest x bet / 100 >= floor, cleared of fractions.
     .filter((t) => t.lowest * betCents >= 100 * floorCents)
     .sort((a, b) => a.lowest - b.lowest || a.version - b.version);
@@ -185,6 +196,7 @@ export function validBonusMinimum(value: Record<string, unknown>): boolean {
   if (
     version !== BONUS_PAYOUT_VERSION &&
     !(version === 5 && ['mines', 'crossing', 'crash'].includes(String(value.game))) &&
+    !(version === 6 && value.game === 'crash') &&
     !((version === 6 || version === 7) && value.game === 'crossing')
   )
     return false;

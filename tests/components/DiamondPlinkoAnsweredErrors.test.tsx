@@ -108,7 +108,7 @@ const won = () =>
     gameState: state,
     quote: { guarantee: 'super', minimumPayoutChips: 10, mode: null, plinkoTable: 4 },
   });
-const START = new Set(['fn_wheel_bonus_start', 'fn_diamond_bonus_start']);
+const START = new Set(['fn_wheel_plinko_begin', 'fn_wheel_bonus_start', 'fn_diamond_bonus_start']);
 let startAnswer: () => unknown = () => new Promise(() => {});
 const failure = (code: string) => ({
   data: null,
@@ -171,7 +171,11 @@ beforeEach(() => {
   backend.rpc
     .mockReset()
     .mockImplementation(async (fn: string) =>
-      START.has(fn) ? startAnswer() : { data: null, error: null }
+      fn === 'fn_wheel_plinko_progress'
+        ? { data: { ok: true, active: false }, error: null }
+        : START.has(fn)
+          ? startAnswer()
+          : { data: null, error: null }
     );
 });
 afterEach(() => {
@@ -189,7 +193,7 @@ describe('an error the database answered is an answer', () => {
     // Screen two (R6): the player chooses what each drop plays, then drops.
     fireEvent.click(screen.getByRole('button', { name: '10 Diamonds Per Drop, 10 Drops' }));
     await advance();
-    fireEvent.click(screen.getByRole('button', { name: 'Drop Diamonds' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Drop One' }));
     await advance();
     expect(starts()).toHaveLength(1);
     expect(starts()[0][0]).toBe('fn_diamond_bonus_start');
@@ -270,7 +274,7 @@ describe('an answer this browser cannot verify', () => {
     expect(screen.queryByText('Settling')).toBeNull();
     // Nothing is dealt or dropped over it: the plate stays shut.
     expect(backend.commit).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: 'Drop Diamonds' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Drop One' })).toBeDisabled();
     noCheckControl();
   });
 });

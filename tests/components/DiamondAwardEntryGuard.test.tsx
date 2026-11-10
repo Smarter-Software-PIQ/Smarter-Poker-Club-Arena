@@ -9,6 +9,7 @@ const backend = vi.hoisted(() => ({
   commit: vi.fn(),
   start: vi.fn(),
   latest: vi.fn(),
+  plinkoProgress: vi.fn().mockResolvedValue(null),
   awardState: vi.fn(),
   navigate: vi.fn(),
 }));

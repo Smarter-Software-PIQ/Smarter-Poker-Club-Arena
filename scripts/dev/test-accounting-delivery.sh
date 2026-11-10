@@ -428,3 +428,9 @@ wait "$reader"
 "${diamond_psql[@]}" -f "$root/tests/sql/diamond-wheel-prize-funding.sql"
 "${diamond_psql[@]}" -f "$root/tests/sql/diamond-wheel-owner-credit.sql"
 bash "$root/scripts/dev/test-diamond-wheel-single-spin-race.sh" "$fixture"
+
+# Diamond game contracts follow the wallet-balance wheel migration in this fixture.
+"${diamond_psql[@]}" -f "$diamond/plinko-entry-readers.sql" \
+  -f "$root/supabase/migrations/20261110023836_longer_crash_flights_and_positive_plinko_returns.sql" \
+  -f "$root/supabase/migrations/20261110023916_release_plinko_drops_and_their_prizes_one_request_at_a_time.sql" \
+  -f "$root/tests/sql/diamond-plinko-drop-release.sql"
