@@ -11,7 +11,7 @@ import BonusCompletion from '../components/games/BonusCompletion';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuthUser } from '../hooks/useAuthUser';
-import { GameConsole, GamePanel } from '../components/games/GameConsole';
+import { bonusPrizeBay, GameConsole, GamePanel } from '../components/games/GameConsole';
 import BonusSetup, { PlinkoDropSelector } from '../components/games/BonusSetup';
 import { useGameCooldown } from '../hooks/useGameCooldown';
 import PlinkoBoard from '../components/plinko/PlinkoBoard';
@@ -224,7 +224,7 @@ function DiamondPlinkoGame() {
     if (result)
       return Math.max(result.minimum_payout_chips ?? 0, result.wheel_minimum_payout_chips ?? 0);
     if (earned.quote) return earned.quote.minimumPayoutChips;
-    if (earned.award || earned.loading) return null;
+    if (earned.required || earned.award || earned.loading) return null;
     return entryFloor;
   })();
 
@@ -690,6 +690,14 @@ function DiamondPlinkoGame() {
   // whose drops fell short is topped up to its guarantee, and that is what paid.
   const settled = Boolean(result) && landed >= (result?.drops.length ?? 0) && !animating;
   const shownWin = settled ? (result?.payout_chips ?? 0) : droppedChips;
+  const showPaidReceipt = Boolean(
+    result &&
+    completionId === result.id &&
+    (!incremental || incremental.complete) &&
+    !animating &&
+    !uncertain &&
+    !busy
+  );
   const toppedUp = Boolean(
     result && settled && Math.round(result.payout_chips * 100) > Math.round(droppedChips * 100)
   );
@@ -767,6 +775,11 @@ function DiamondPlinkoGame() {
                   : undefined
         }
         bays={[
+          bonusPrizeBay(
+            guaranteedChips,
+            showPaidReceipt && result ? result.payout_chips : null,
+            isSuper
+          ),
           {
             label: 'Per Drop',
             value: animating
@@ -783,11 +796,6 @@ function DiamondPlinkoGame() {
                 : chosenDrops === null
                   ? 'Choose'
                   : chosenDrops.toLocaleString(),
-          },
-          {
-            label: 'Guaranteed',
-            value: guaranteedChips === null ? 'Pending' : `${gameChips(guaranteedChips)} Chips`,
-            ink: isSuper ? 'gold' : undefined,
           },
           {
             label: 'Chip Prize',
@@ -961,7 +969,7 @@ function DiamondPlinkoGame() {
           )}
         </GamePanel>
       )}
-      {result && completionId === result.id && !animating && !uncertain && !busy && (
+      {result && showPaidReceipt && (
         <BonusCompletion
           key={result.id}
           clubId={clubId ?? ''}
