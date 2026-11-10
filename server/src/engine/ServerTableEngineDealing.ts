@@ -4231,6 +4231,14 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         ante: originalConfig.ante,
       };
     const capture = original.batch.engine;
+    this.waitingForButton.clear();
+    if (Array.isArray(capture.waitingForButton)) {
+      for (const entry of capture.waitingForButton) {
+        if (Array.isArray(entry) && Number.isInteger(entry[0]) && typeof entry[1] === 'string') {
+          this.waitingForButton.set(entry[0], entry[1]);
+        }
+      }
+    }
     await this.restoreContinuationAccounting(capture);
     if (!this.running || !this.isCurrentEngine() || !this.lifecycleCanMutate()) return;
     if (capture.disconnectStates && typeof capture.disconnectStates === 'object')
