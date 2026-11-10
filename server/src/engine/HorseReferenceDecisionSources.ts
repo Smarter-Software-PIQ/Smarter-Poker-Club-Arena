@@ -19,6 +19,8 @@
  */
 export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, string>> =
   Object.freeze({
+    'src/engine/HorseQuickCheckFold.ts':
+      'the fixed tournament Horse check/fold cohort and current all-in price used by the reference timing decision',
     'src/engine/HorseNonBottomRiverValue.ts':
       'the checked-to high-only Omaha turn and river boat eligibility for legal value wagers and the river initiative release',
     'src/engine/HorseFlopTurnBluffRange.ts':

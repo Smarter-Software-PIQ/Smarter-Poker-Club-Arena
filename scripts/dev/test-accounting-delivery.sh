@@ -438,3 +438,20 @@ wait "$cutover" || { cat "$fixture/cutover-success.log" >&2; exit 1; }
 "${diamond_psql[@]}" -f "$root/tests/sql/diamond-wheel-prize-funding.sql"
 "${diamond_psql[@]}" -f "$root/tests/sql/diamond-wheel-owner-credit.sql"
 bash "$root/scripts/dev/test-diamond-wheel-single-spin-race.sh" "$fixture"
+"${diamond_psql[@]}" -f "$root/supabase/migrations/20261110023808_donkey_cross_favors_early_streets_and_rewards_progress.sql" \
+  -f "$root/tests/sql/diamond-crossing-gross-return.sql"
+
+# Diamond game contracts follow the wallet-balance wheel migration in this fixture.
+"${diamond_psql[@]}" -f "$diamond/plinko-entry-readers.sql" \
+  -f "$root/supabase/migrations/20261110023836_longer_crash_flights_and_positive_plinko_returns.sql" \
+  -f "$root/supabase/migrations/20261110023916_release_plinko_drops_and_their_prizes_one_request_at_a_time.sql" \
+  -f "$root/supabase/migrations/20261110055229_earned_mines_opens_the_board_its_award_funds.sql" \
+  -f "$root/tests/sql/diamond-plinko-drop-release.sql"
+
+# The private fixture predates the registered October house-funding door. Load its canonical definition.
+sed -n '/^CREATE OR REPLACE FUNCTION public.fn_ca_fund_club/,/^GRANT EXECUTE ON FUNCTION public.fn_ca_fund_club/p' \
+  "$root/supabase/migrations/20261002134346_a_house_mint_carries_its_reason_and_stranded_certification_p.sql" | "${diamond_psql[@]}"
+"${diamond_psql[@]}" -f "$root/supabase/migrations/20261110035950_fund_midway_wheel_prize_shortfalls_from_the_union_bank_and_p.sql" \
+  -v midway_race_fixture=true -f "$root/tests/sql/diamond-midway-chip-backstop.sql" \
+  -f "$root/tests/sql/diamond-midway-earned-claim.sql"
+bash "$root/scripts/dev/test-midway-chip-prize-race.sh" "$fixture"

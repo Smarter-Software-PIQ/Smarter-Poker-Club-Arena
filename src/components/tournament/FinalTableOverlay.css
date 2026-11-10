@@ -1,260 +1,442 @@
-/* ═══════════════════════════════════════════════════════════════════════════
-   FINAL TABLE - on the spade console (2026-09-08)
-
-   The frame, the crest, the header well, the pill slot, the inks and the flat
-   closing cap all come from the approved master via SpadeConsole.css. This
-   sheet places the console on the backdrop and types the lineup on the black
-   glass between the rails. No card, no tile, no disc, no drawn button; sizes
-   are cqw against the console; no :hover anywhere.
-
-   EVERY ANIMATION THIS OVERLAY EVER PLAYED STILL PLAYS (CLAUDE.md 10.6), at
-   its original duration:
-
-     ftSlideIn / ftSlideOut  the console arrives and leaves, as before
-     ftPlayerIn              each row still arrives, on its inline stagger
-     ftPulse                 the dismiss line still breathes
-     ftCrownPulse            MOVED. The crown it breathed on is painted into
-                             the master's crest now, so the beat runs on the
-                             prize figure - the thing this moment is about.
-
-   The one thing still drawn is the chip-share bar. It is kept deliberately:
-   it is a measurement, in the same class as the slider the standard permits,
-   and the master paints no equivalent. It is a flat brand-blue fill on an
-   engraved groove - no gradient, no radius, no shadow.
-   ═══════════════════════════════════════════════════════════════════════════ */
-
 .ft-overlay {
   position: fixed;
+  z-index: 950;
   inset: 0;
-  z-index: 9999;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 12px;
-  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 25%, #02061159);
+  color: #f0f6ff;
 }
-
-.ft-overlay__backdrop {
+.ft-overlay__content {
+  width: min(480px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  pointer-events: auto;
+  background: #071324;
+  box-shadow: 0 18px 55px #0009;
+  scrollbar-width: thin;
+}
+.ft-stage {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  padding: clamp(32px, 8vh, 80px) 20px 17px;
+  background:
+    linear-gradient(0deg, #061222 0%, #06122266 58%, transparent),
+    url('/images/final-table-stage.webp') center 48% / cover;
+}
+.ft-stage p,
+.ft-stage h2 {
+  margin: 0;
+  color: #fff;
+  text-shadow: 0 2px 8px #010510;
+}
+.ft-stage p {
+  font:
+    650 13px/1.35 system-ui,
+    sans-serif;
+  overflow-wrap: anywhere;
+}
+.ft-stage h2 {
+  font:
+    900 clamp(36px, 7vw, 56px)/1 system-ui,
+    sans-serif;
+  letter-spacing: -0.055em;
+  text-transform: uppercase;
+}
+.ft-stage span {
+  color: #bce5ff;
+  font-size: 13px;
+}
+.ft-stage__lights,
+.ft-stage__burst {
   position: absolute;
   inset: 0;
-  /* Black, not a violet wash: one tone behind the frame and inside it. */
-  background: rgb(0 0 0 / 92%);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  pointer-events: none;
+  z-index: -1;
 }
-
-.ft-overlay__content {
-  position: relative;
-  width: min(100%, 440px);
-  max-height: 100%;
-  overflow: visible auto;
+.ft-stage__lights::before,
+.ft-stage__lights::after {
+  content: '';
+  position: absolute;
+  inset: -80% -20% -25%;
+  transform-origin: 50% 0;
+  background: conic-gradient(from 174deg at 50% 0, transparent, #b4ecff7a 5deg, transparent 12deg);
+  animation: ft-sweep 2.3s ease-out 2 alternate both;
 }
-
-/* ── Phase animations ─────────────────────────────────────────────────── */
-
-.ft-overlay--enter .ft-overlay__content {
-  animation: ftSlideIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+.ft-stage__lights::after {
+  animation-direction: alternate-reverse;
 }
-
-.ft-overlay--show .ft-overlay__content {
-  opacity: 1;
-  transform: scale(1);
+.ft-stage__burst {
+  background: radial-gradient(ellipse at 72% 60%, #d2efff99, transparent 54%);
+  animation: ft-impact 0.8s ease-out both;
 }
-
-.ft-overlay--exit .ft-overlay__content {
-  animation: ftSlideOut 0.6s ease-in forwards;
+.ft-scoreboard {
+  padding: 0 18px 12px;
 }
-
-@keyframes ftSlideIn {
-  0% {
-    opacity: 0;
-    transform: scale(0.7) translateY(30px);
-  }
-
-  100% {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
-@keyframes ftSlideOut {
-  0% {
-    opacity: 1;
-    transform: scale(1);
-  }
-
-  100% {
-    opacity: 0;
-    transform: scale(0.85) translateY(-20px);
-  }
-}
-
-/* ── The prize, as a row on the glass ─────────────────────────────────── */
-
-.ft-overlay__prize-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 3cqw;
-  align-items: baseline;
-  padding: 1cqw 0.5cqw 2.6cqw;
-}
-
-.ft-overlay__prize-label {
-  font-size: 2.7cqw;
-}
-
-.ft-overlay__prize {
-  justify-self: end;
-  font-size: 5.4cqw;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  text-align: right;
-  /* The crown's beat, on the figure the crown was celebrating. */
-  animation: ftCrownPulse 2s ease-in-out infinite;
-}
-
-@keyframes ftCrownPulse {
-  0%,
-  100% {
-    transform: scale(1);
-    filter: brightness(1);
-  }
-
-  50% {
-    transform: scale(1.06);
-    filter: brightness(1.25);
-  }
-}
-
-/* ── The lineup ───────────────────────────────────────────────────────── */
-
-.ft-overlay__players {
-  display: grid;
-}
-
-.ft-player {
-  display: grid;
-  grid-template-columns: 7cqw minmax(0, 1fr);
-  grid-template-rows: auto auto;
-  gap: 0 3cqw;
-  align-items: center;
-  padding: 2.4cqw 0.5cqw 2cqw;
-  /* An engraved rule between rows: a black cut with a light lip, the same
-     cut the master's own chrome rules are made of. */
-  border-top: 1px solid #000;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
-  opacity: 0;
-  animation: ftPlayerIn 0.5s ease-out forwards;
-}
-
-@keyframes ftPlayerIn {
-  0% {
-    opacity: 0;
-    transform: translateX(-15px);
-  }
-
-  100% {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-.ft-player__rank {
-  font-size: 4.4cqw;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  text-align: center;
-}
-
-.ft-player__info {
-  grid-column: 2;
-  display: grid;
-  gap: 0.6cqw;
-  min-width: 0;
-}
-
-.ft-player__name-row {
+.ft-overlay__prize-row,
+.ft-player,
+.ft-player__info,
+.ft-player__chips-row {
   display: flex;
-  gap: 2.4cqw;
-  align-items: baseline;
-  min-width: 0;
+  align-items: center;
 }
-
-.ft-player__name {
+.ft-overlay__prize-row {
+  justify-content: space-between;
+  padding: 9px 0;
+  color: #eccf85;
+}
+.ft-overlay__players {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.ft-player {
+  position: relative;
+  isolation: isolate;
+  gap: 12px;
+  min-height: 32px;
+  border-top: 1px solid #47607d66;
+  animation: ft-arrive 0.38s ease-out both;
+}
+.ft-player__rank {
+  width: 2ch;
+  color: #8bceff;
+  font-variant-numeric: tabular-nums;
+}
+.ft-player__info {
+  flex: 1;
   min-width: 0;
-  font-size: 4cqw;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ft-player__name-row {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
 .ft-player__chips-row {
-  display: flex;
-  gap: 2.6cqw;
-  align-items: baseline;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
 }
-
-.ft-player__chips {
-  font-size: 3.6cqw;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-
 .ft-player__chip-pct {
-  font-size: 2.9cqw;
-  font-weight: 600;
+  width: 4ch;
+  color: #a9c5df;
+  font-size: 12px;
+  text-align: right;
 }
-
-/* The share bar: a groove cut into the glass with a flat brand fill. */
 .ft-player__bar-wrap {
-  grid-column: 1 / -1;
-  height: 0.7cqw;
-  margin-top: 1.6cqw;
-  border-top: 1px solid #000;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 6%);
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
 }
-
 .ft-player__bar {
   height: 100%;
-  background: #1877f2;
-  transition: width 0.6s ease-out;
+  background: #3989b0;
 }
-
-/* ── Dismiss line ─────────────────────────────────────────────────────── */
-
 .ft-overlay__dismiss {
-  padding-top: 2.4cqw;
-  color: #7c8794;
-  font-size: 2.9cqw;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  animation: ftPulse 2s ease-in-out infinite;
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-height: 44px;
+  padding: 0 13px;
+  color: #def2ff;
+  background: #071324d9;
+  border: 0;
+  cursor: pointer;
 }
-
-@keyframes ftPulse {
-  0%,
-  100% {
-    opacity: 0.35;
-  }
-
-  50% {
-    opacity: 0.75;
-  }
+.ft-overlay--exit {
+  opacity: 0;
+  transition: opacity 0.45s;
 }
-
-/* Reduced motion collapses MOTION, never meaning (10.6). */
-@media (prefers-reduced-motion: reduce) {
-  .ft-overlay--enter .ft-overlay__content,
-  .ft-overlay--exit .ft-overlay__content,
-  .ft-overlay__prize,
-  .ft-overlay__dismiss {
-    animation: none;
+.ft-overlay--exit .ft-overlay__content {
+  pointer-events: none;
+}
+@keyframes ft-arrive {
+  from {
+    transform: translateX(14px);
+    opacity: 0;
   }
-
-  .ft-player {
-    animation: none;
+  to {
+    transform: translateX(0);
     opacity: 1;
+  }
+}
+@keyframes ft-sweep {
+  from {
+    transform: rotate(-24deg);
+  }
+  to {
+    transform: rotate(24deg);
+  }
+}
+@keyframes ft-impact {
+  from {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  35% {
+    opacity: 0.8;
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.4);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ft-overlay *,
+  .ft-stage__lights::before,
+  .ft-stage__lights::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  .ft-stage__lights,
+  .ft-stage__burst {
+    display: none;
+  }
+  .ft-overlay--exit {
+    transition: none;
+  }
+}
+
+@media (max-height: 700px) {
+  .ft-overlay {
+    align-items: start;
+  }
+  .ft-overlay__content {
+    max-height: 72dvh;
+  }
+}
+
+.ft-overlay__prize-label {
+  color: #c8d8e6;
+}
+.ft-overlay__prize {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.ft-player__name {
+  font-weight: 600;
+}
+.ft-player__chips {
+  font-weight: 650;
+}
+
+.ft-overlay__content {
+  width: min(860px, 100%);
+  background: #050b12;
+  box-shadow: 0 22px 100px #010812;
+  font-family: system-ui, sans-serif;
+}
+.ft-stage {
+  padding: clamp(80px, 14vh, 148px) clamp(17px, 4vw, 46px) 20px;
+  background: #07192c;
+}
+.ft-stage__arena {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background:
+    linear-gradient(0deg, #050b12, transparent 76%),
+    url('/images/final-table-stage.webp') center 47% / cover;
+  animation: ft-camera 3.5s cubic-bezier(0.13, 0.74, 0.22, 1) both;
+}
+.ft-stage__lights::before,
+.ft-stage__lights::after {
+  animation-duration: 1.75s;
+  opacity: 0.9;
+}
+.ft-stage__burst {
+  inset: -40%;
+  background: radial-gradient(
+    ellipse at 50% 55%,
+    #fff6bd 1%,
+    #ffba4e 4%,
+    #ff793766 13%,
+    transparent 50%
+  );
+  animation: ft-impact 0.62s 0.68s both;
+}
+.ft-stage__sparks {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+}
+.ft-stage__sparks i {
+  position: absolute;
+  left: 50%;
+  top: 55%;
+  height: 3px;
+  width: 42px;
+  background: linear-gradient(90deg, transparent, #fff0a2);
+  transform-origin: 0 50%;
+  animation: ft-ray 0.88s 0.68s both;
+}
+.ft-stage p {
+  color: #e6d5a1;
+  font:
+    750 clamp(10px, 2.2vw, 14px)/1.3 system-ui,
+    sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.13em;
+  animation: ft-copy 0.4s 0.35s both;
+}
+.ft-stage h2 {
+  font:
+    950 italic clamp(50px, 10.6vw, 102px)/0.91 system-ui,
+    sans-serif;
+  letter-spacing: -0.08em;
+  text-shadow:
+    0 3px 0 #285577,
+    0 7px 19px #000;
+  animation: ft-title 0.72s 0.62s both;
+}
+.ft-stage span {
+  display: block;
+  margin-top: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-weight: 750;
+  font-size: 10px;
+  animation: ft-copy 0.4s 0.92s both;
+}
+.ft-scoreboard {
+  padding: 0 clamp(14px, 3vw, 34px) 19px;
+}
+.ft-overlay__prize-row {
+  padding: 6px 0 11px;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+.ft-overlay__players {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+.ft-player {
+  display: grid;
+  align-content: center;
+  min-height: 74px;
+  padding: 7px 8px 7px 37px;
+  border: 0;
+  background: linear-gradient(105deg, #1d3547, #0a141f 75%);
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 8px);
+}
+.ft-player__rank {
+  position: absolute;
+  left: 7px;
+  top: 50%;
+  transform: translateY(-50%);
+  font: 900 italic clamp(16px, 3vw, 29px)/1 system-ui;
+  color: #a3c9e5;
+}
+.ft-player:first-child {
+  background: linear-gradient(105deg, #4c3c21, #0d1822 90%);
+}
+.ft-player:first-child .ft-player__rank {
+  color: #ffdb82;
+}
+.ft-player__info {
+  display: block;
+}
+.ft-player__name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: clamp(11px, 2vw, 17px);
+  line-height: 1.28;
+}
+.ft-player__chips-row {
+  justify-content: space-between;
+  gap: 3px;
+}
+.ft-player__chips {
+  color: #c5e2fa;
+  font-size: clamp(11px, 1.9vw, 14px);
+}
+.ft-player__chip-pct {
+  font-size: 10px;
+}
+.ft-player__bar {
+  background: #62bcf0;
+}
+.ft-overlay__dismiss {
+  z-index: 2;
+  font: 600 12px system-ui;
+}
+@keyframes ft-camera {
+  from {
+    transform: scale(1.57) translateY(6%);
+    filter: blur(6px);
+    opacity: 0.1;
+  }
+  28% {
+    opacity: 1;
+    filter: blur(0);
+  }
+  to {
+    transform: scale(1.04);
+  }
+}
+@keyframes ft-title {
+  from {
+    transform: translateY(35px) scale(1.28);
+    opacity: 0;
+    filter: blur(8px);
+  }
+  to {
+    transform: none;
+    opacity: 1;
+    filter: none;
+  }
+}
+@keyframes ft-copy {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@keyframes ft-ray {
+  from {
+    transform: rotate(calc(var(--ray) * 22.5deg)) translateX(0) scaleX(0.12);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.95;
+  }
+  to {
+    transform: rotate(calc(var(--ray) * 22.5deg)) translateX(clamp(120px, 27vw, 300px)) scaleX(1.2);
+    opacity: 0;
+  }
+}
+@media (max-width: 520px) {
+  .ft-overlay__players {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ft-player {
+    min-height: 46px;
+    padding-left: 29px;
+  }
+  .ft-stage {
+    padding-top: 89px;
+  }
+  .ft-stage__arena {
+    background-position: center 48%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ft-stage__sparks {
+    display: none;
   }
 }

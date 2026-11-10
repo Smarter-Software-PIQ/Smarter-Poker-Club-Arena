@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import fixtures from '../fixtures/diamond-spins/local-postgres-receipts.json';
+import releases from '../fixtures/diamond-spins/plinko-release-receipts.json';
 import cents from '../fixtures/diamond-spins/fractional-cent-vectors.json';
 import {
   DiamondBonusService,
   parsePlinkoBonus,
+  parsePlinkoProgress,
   validateBonusReceipt,
   type BonusStart,
 } from '../../src/services/DiamondBonusService';
@@ -314,6 +316,132 @@ describe('earned wheel receipt identity', () => {
       'Could Not Be Verified'
     );
     expect(pendingBonus('player-a', input.clubId, 'crash')).toEqual(input);
+  });
+  it('verifies only the paid prefix on partial Plinko receipts and requires the sealed seed on completion', () => {
+    const { server_seed, ...sealed } = plinko;
+    const bonus = {
+      ...plinko.bonus,
+      base_diamonds: 50,
+      added_diamonds: 0,
+      entry_diamonds: 50,
+      boost_multiplier: 1,
+    };
+    const partial = {
+      ...sealed,
+      bonus,
+      award_id: awardId,
+      complete: false,
+      total_count: 10,
+      released_count: 1,
+      released_chips: plinko.drops[0].payout_chips,
+      payout_chips: plinko.drops[0].payout_chips,
+      drops: plinko.drops.slice(0, 1),
+    };
+    expect(parsePlinkoProgress(partial)).toEqual(partial);
+    for (const bad of [
+      { server_seed },
+      { complete: true },
+      { released_count: 2 },
+      { total_count: 9 },
+      { released_chips: 100 },
+    ])
+      expect(() => parsePlinkoProgress({ ...partial, ...bad })).toThrow();
+    expect(() => parsePlinkoBonus(partial)).toThrow();
+    const completed = {
+      ...partial,
+      server_seed,
+      complete: true,
+      drops: plinko.drops,
+      released_count: 10,
+      payout_chips: plinko.payout_chips,
+      released_chips: plinko.payout_chips,
+    };
+    expect(parsePlinkoProgress(completed)).toEqual(completed);
+    expect(() => parsePlinkoProgress({ ...completed, server_seed: undefined })).toThrow();
+  });
+  it.each([
+    [1, 1],
+    [10000, 500],
+  ])('reads a funded %i-diamond receipt with a %i-diamond ball', (stake, denomination) => {
+    const count = stake / denomination;
+    for (const complete of count === 1 ? [true] : [false, true]) {
+      const template = complete ? releases.completed : releases.partial;
+      const drops = template.drops.slice(0, complete ? count : 1).map((ball) => ({
+        ...ball,
+        payout_chips: Math.floor((denomination * ball.multiplier_cents) / 100) / 100,
+      }));
+      const rawCents = drops.reduce((sum, ball) => sum + Math.round(ball.payout_chips * 100), 0);
+      const minimumCents = Math.ceil(stake * 1.5);
+      const paidCents = complete ? Math.max(minimumCents, rawCents) : rawCents;
+      const receipt = {
+        ...template,
+        bonus: {
+          ...template.bonus,
+          base_diamonds: stake,
+          entry_diamonds: stake,
+          total_diamonds: stake,
+        },
+        bet_diamonds: stake,
+        paid_diamonds: stake,
+        diamonds_per_drop: denomination,
+        drop_count: count,
+        total_count: count,
+        drops,
+        released_count: drops.length,
+        minimum_payout_chips: stake === 1 ? 0 : stake / 200,
+        wheel_minimum_payout_chips: minimumCents / 100,
+        payout_chips: paidCents / 100,
+        released_chips: paidCents / 100,
+        guarantee_top_up_chips: (paidCents - rawCents) / 100,
+      };
+      expect(parsePlinkoProgress(receipt)).toEqual(receipt);
+    }
+  });
+  it('verifies the real PG17 incremental entry, terminal guarantee, and release RPC arguments', async () => {
+    const { partial, completed } = releases;
+    const input: BonusStart = {
+      clubId: partial.club_id,
+      game: 'plinko',
+      commitId: partial.commit_id,
+      serverSeedHash: partial.server_seed_hash,
+      seed: partial.client_seed,
+      tableVersion: partial.table_version,
+      budget: {
+        base: 25,
+        doubled: false,
+        denomination: 1,
+        award: { id: partial.award_id, entryDiamonds: 25, boostMultiplier: 1 },
+      },
+      plinkoRelease: { requestId: '00000000-0000-4000-8000-000000000101', all: false },
+    };
+    rpc.mockResolvedValueOnce({ data: partial, error: null });
+    await expect(DiamondBonusService.start(input, 'player-a')).resolves.toEqual(partial);
+    expect(rpc.mock.calls[0]).toEqual([
+      'fn_wheel_plinko_begin',
+      {
+        p_award_id: partial.award_id,
+        p_commit_id: partial.commit_id,
+        p_client_seed: partial.client_seed,
+        p_double: false,
+        p_denom: 1,
+        p_table_version: 7,
+        p_request_id: input.plinkoRelease!.requestId,
+        p_all: false,
+      },
+    ]);
+    expect(parsePlinkoProgress(partial).released_chips).toBe(0.01);
+    expect(partial).not.toHaveProperty('server_seed');
+    const next = '00000000-0000-4000-8000-000000000102';
+    rpc.mockResolvedValueOnce({ data: completed, error: null });
+    const end = await DiamondBonusService.releasePlinko(partial.award_id, next, true);
+    expect(end.released_chips).toBe(0.38);
+    expect(end.guarantee_top_up_chips).toBe(0.12);
+    expect(rpc.mock.calls[1]).toEqual([
+      'fn_wheel_plinko_release',
+      { p_award_id: partial.award_id, p_request_id: next, p_all: true },
+    ]);
+    for (const changed of [{ guarantee_top_up_chips: 0 }, { wheel_minimum_payout_chips: 0.37 }])
+      expect(() => parsePlinkoProgress({ ...completed, ...changed })).toThrow();
   });
   it('accepts maximum upgraded Plinko funding but does not loosen legacy or incomplete receipts', () => {
     const drops = Array.from({ length: 75 }, (_, index) => ({ ...plinko.drops[0], index }));

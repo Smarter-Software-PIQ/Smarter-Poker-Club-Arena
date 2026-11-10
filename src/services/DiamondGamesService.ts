@@ -193,7 +193,7 @@ export interface CrashRound {
   /** 1: no floor (historical). 2: a tenth of the stake. 3: the Super half.
    *  4: half the stake, or for a Super award what the player paid, at a 0.80
    *  return. 5: the same floor at a 0.95 return, 1.25x up to 20x (2026-10-12). */
-  payout_version?: 1 | 2 | 3 | 4 | 5;
+  payout_version?: 1 | 2 | 3 | 4 | 5 | 6;
   /** The first hundredth this round's own contract lets a player book: 1.01x
    *  before contract 4, 1.11x under it, 1.26x from contract 5. Mirrors
    *  fn_crash_cashout / fn_crash_decide. */
@@ -483,13 +483,13 @@ function normaliseTable(raw: Record<string, unknown>): PlinkoTable {
 
 /** The receipt versions this client knows how to price. Anything else is not a
  *  contract it can read, so it is not one it pretends to. */
-const CRASH_PAYOUT_VERSIONS = [1, 2, 3, 4, 5] as const;
+const CRASH_PAYOUT_VERSIONS = [1, 2, 3, 4, 5, 6] as const;
 
 export function normaliseCrash(raw: Record<string, unknown>): CrashRound {
   const version = (CRASH_PAYOUT_VERSIONS as readonly number[]).includes(
     raw.payout_version as number
   )
-    ? (raw.payout_version as 1 | 2 | 3 | 4 | 5)
+    ? (raw.payout_version as 1 | 2 | 3 | 4 | 5 | 6)
     : undefined;
   const outcome = raw.outcome ? rec(raw.outcome) : null;
   const fairness = rec(raw.fairness);
@@ -773,13 +773,17 @@ const DiamondGamesService = {
       (!Number.isSafeInteger(displayedCents) || displayedCents < floor)
     )
       throw new Error(`Cash Out Starts At ${(floor / 100).toFixed(2)}x`);
-    const { data, error } =
+    const request =
       cashout && displayedCents !== undefined
-        ? await supabase.rpc('fn_crash_cashout', {
+        ? supabase.rpc('fn_crash_cashout', {
             p_round_id: roundId,
             p_multiplier_cents: displayedCents,
           })
-        : await supabase.rpc('fn_crash_settle', { p_round_id: roundId, p_cashout: cashout });
+        : supabase.rpc('fn_crash_settle', { p_round_id: roundId, p_cashout: cashout });
+    // Bound a stalled transport; a timeout leaves the same round authoritative.
+    const { data, error } = await (typeof request.abortSignal === 'function'
+      ? request.abortSignal(AbortSignal.timeout(8000))
+      : request);
     if (error) throw error;
     const receipt = rec(data);
     validateCrashSettlement(receipt, roundId, expected);
@@ -794,6 +798,29 @@ const DiamondGamesService = {
     });
     if (error) throw error;
     return Array.isArray(data) ? (data as Record<string, unknown>[]).map(normaliseDrop) : [];
+  },
+
+  /** Read an already booked receipt through the player's own history, without a cashout. */
+  async crashTerminalReceipt(
+    clubId: string,
+    roundId: string,
+    expected?: CrashRound
+  ): Promise<CrashRound | null> {
+    const request = supabase.rpc('fn_diamond_game_history', {
+      p_club_id: clubId,
+      p_game: 'crash',
+      p_limit: 100,
+    });
+    const { data, error } = await (typeof request.abortSignal === 'function'
+      ? request.abortSignal(AbortSignal.timeout(8000))
+      : request);
+    if (error) throw error;
+    const receipt = Array.isArray(data) ? data.find((row) => row?.round_id === roundId) : undefined;
+    if (!receipt) return null;
+    validateCrashSettlement(receipt, roundId, expected);
+    if (receipt.ok !== true || receipt.club_id !== clubId || receipt.status === 'open')
+      throw new Error('The Crash History Receipt Does Not Match');
+    return normaliseCrash(receipt);
   },
 
   async crashHistory(clubId: string, limit = 25): Promise<CrashRound[]> {

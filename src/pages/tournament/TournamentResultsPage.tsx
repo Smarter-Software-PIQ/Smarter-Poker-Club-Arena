@@ -366,7 +366,7 @@ export default function TournamentResultsPage() {
 
         const ids = hits.map((h) => h.id);
         const { data: winners, error: winnersErr } = await supabase
-          .from('tournament_players')
+          .from('tournament_players_public')
           .select('tournament_id, username, prize')
           .in('tournament_id', ids)
           .eq('position', 1);

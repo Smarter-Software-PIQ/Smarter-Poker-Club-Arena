@@ -9,6 +9,7 @@ const backend = vi.hoisted(() => ({
   spinV2: vi.fn(),
   spin: vi.fn(),
   runBegin: vi.fn(),
+  claimPrize: vi.fn(),
 }));
 vi.mock('../../src/services/DiamondWheelService', async (importOriginal) => ({
   // The page reads the service's named exports (the unverified-receipt error).
@@ -18,6 +19,7 @@ vi.mock('../../src/services/DiamondWheelService', async (importOriginal) => ({
     spinV2: backend.spinV2,
     spin: backend.spin,
     runBegin: backend.runBegin,
+    claimChipPrize: backend.claimPrize,
     welcomeState: async () => ({ available: false, enabled: false }),
     dailyBonusState: async () => ({ available: false, ticket_count: 0 }),
     commit: async () => ({
@@ -95,6 +97,31 @@ const state = {
   },
 };
 describe('the selected wheel stake owns its availability quote', () => {
+  it('restores an unpaid prize and credits the exact amount only after a successful claim', async () => {
+    const claim = { key: 'wheel-prize:saved-spin', chips: '17.25' };
+    backend.state.mockResolvedValue({ ...state, pending_chip_prizes: [claim] });
+    backend.claimPrize
+      .mockRejectedValueOnce(new Error('Your Prize Is Still Reserved'))
+      .mockResolvedValueOnce(undefined);
+    const first = render(<DiamondWheelPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /Claim Prize.*17.25 Chips/ }));
+    await waitFor(() =>
+      expect(backend.toast.error).toHaveBeenCalledWith('Your Prize Is Still Reserved')
+    );
+    expect(backend.toast.success).not.toHaveBeenCalled();
+    first.unmount();
+    render(<DiamondWheelPage />);
+    const retry = await screen.findByRole('button', { name: /Claim Prize.*17.25 Chips/ });
+    backend.state.mockResolvedValue({ ...state, pending_chip_prizes: [] });
+    fireEvent.click(retry);
+    await waitFor(() =>
+      expect(backend.toast.success).toHaveBeenCalledWith(
+        '17.25 Chips Credited To Your Club Balance'
+      )
+    );
+    expect(screen.queryByRole('button', { name: /Claim Prize/ })).not.toBeInTheDocument();
+    expect(backend.spinV2).not.toHaveBeenCalled();
+  });
   it.each([2, 3, 4])(
     'quotes and submits a custom amount through contract %s, preserving one single-spin action',
     async (version) => {

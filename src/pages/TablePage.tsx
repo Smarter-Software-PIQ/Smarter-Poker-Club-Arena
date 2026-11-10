@@ -17165,6 +17165,9 @@ function LiveTablePage({
                           userId: r.user_id,
                           username: r.username || 'Player',
                           chips: Number(r.chips) || 0,
+                          avatar: tableStateRef.current.players.find(
+                            (seat) => seat?.id === r.user_id
+                          )?.avatar,
                         });
                         masterBus.emit('HEADS_UP_SWITCH', {
                           tournamentId: tid,

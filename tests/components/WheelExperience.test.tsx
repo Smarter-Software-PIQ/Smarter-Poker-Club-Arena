@@ -95,6 +95,25 @@ describe('wheel to prize to earned game', () => {
       'peek'
     );
   });
+  it('identifies a reserved chip win without announcing a credit', () => {
+    const receipt = {
+      outcome: outcome('chips'),
+      chip_prize_reserved: true,
+    } as unknown as WheelSpinResult;
+    render(
+      <WheelExperience
+        segments={[]}
+        receipt={receipt}
+        spinKey={1}
+        spinning
+        onFinished={() => {}}
+        size={500}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Land Main Wheel' }));
+    expect(screen.getByText(/Choose Claim Prize On Diamond Spins/)).toBeInTheDocument();
+    expect(screen.queryByText('Paid')).not.toBeInTheDocument();
+  });
   it('opens an upgraded instant chip prize and waits for acknowledgement without entering a game', () => {
     const onFinished = vi.fn();
     const receipt = {

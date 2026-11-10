@@ -60,7 +60,6 @@ vi.mock('../../src/components/wheel/WheelWinReveal', () => ({
 }));
 vi.mock('../../src/components/games/SealedPrize', () => ({ default: () => null }));
 vi.mock('../../src/components/games/DiamondSpinsTabs', () => ({ default: () => null }));
-vi.mock('../../src/components/games/TodayLine', () => ({ default: () => null }));
 
 const CLUB = '00000000-0000-0000-0000-000000000003';
 const SAVED_KEY = `diamond-spins-pending:player-a:${CLUB}:crossing`;

@@ -9,6 +9,7 @@ on:
     branches: [main]
     paths:
       - supabase/migrations/20261107024448_v31_evaluation_contract_v3_tests_the_playbooks_own_tables.sql
+      - supabase/migrations/20261110050500_v31_v3_breadth_is_the_streets_the_playbook_carries.sql
       - scripts/ci/test-v31-evaluation-contract-v3.py
       - scripts/ci/fixtures/v31-evaluation-contract-v3/**
       - .github/workflows/v31-evaluation-contract-v3.yml

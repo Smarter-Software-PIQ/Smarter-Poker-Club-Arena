@@ -253,6 +253,9 @@ describe('a transient leave_pending failure costs a retry, not the boundary', ()
     mocks.recount.mockRejectedValue(new Error('supabase_timeout'));
 
     await engine.postHandTasks(players, 1);
+    // A cash recount runs after the deal is released, still tracked as
+    // settlement in flight (2026-11-09); wait for it as stop and the drain do.
+    await engine.tableUnlockTail;
 
     expect(mocks.recount).toHaveBeenCalledTimes(1);
     const other = vi
@@ -543,6 +546,7 @@ describe('exact-hand timing observes the existing settlement barrier', () => {
     expect(completed).toBe(false);
     leave([]);
     await work;
+    await engine.tableUnlockTail;
     expect(engine.postHandTimingSnapshot()).toMatchObject({
       handNumber: 9459694,
       pipelineComplete: true,
