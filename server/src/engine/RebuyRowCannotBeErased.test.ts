@@ -140,9 +140,9 @@ describe('the busted-seat stand-up keeps a seat with money in flight', () => {
     };
     engine.seatedPlayers = [hero];
     engine.pendingAddOns = new Map();
-    // Seen at zero long ago: the grace has expired.
+    // Seen at zero long ago: the twenty-second rebuy window has expired.
     engine.bustedSince = new Map([
-      ['hero', Date.now() - ServerTableEngineDealing.BUSTED_GRACE_MS - 1],
+      ['hero', Date.now() - ServerTableEngineDealing.BUST_REBUY_WINDOW_MS - 1],
     ]);
     return { engine, hero };
   }
@@ -161,7 +161,7 @@ describe('the busted-seat stand-up keeps a seat with money in flight', () => {
     expect(engine.pendingAddOnSweepNeeded).toBe(true);
   });
 
-  it('stands the player up after the grace when there is no row (negative control)', async () => {
+  it('stands the player up after the rebuy window when there is no row (negative control)', async () => {
     const { engine } = bustedEngine();
     vi.spyOn(supabase, 'from').mockImplementation(fromStub({ table_pending_addons: [] }) as never);
     atomicCashout.mockResolvedValue(undefined);
