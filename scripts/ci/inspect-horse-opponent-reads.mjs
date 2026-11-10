@@ -330,7 +330,7 @@ export async function inspect(p) {
       p.foldTargets ??
       p.targets ??
       p.handKeys.map((handKey) => ({ handKey, opponentId: p.opponentId }));
-    for (const { handKey, opponentId, ordinals } of targets) {
+    handLoop: for (const { handKey, opponentId, ordinals } of targets) {
       stage = 'inspection_bound';
       if (Date.now() - started > 30000) throw Error('inspection_bound');
       stage = 'journal_read_failed';
@@ -393,12 +393,27 @@ export async function inspect(p) {
         if (plan.kind === 'invalid') throw Error('plan_invalid');
         const context = plan.kind === 'current' ? plan.context : undefined;
         stage = 'read_frame_refused';
-        const view = decodeHorseDecisionReads(
-          c.readFrame,
-          s.gameState.players,
-          horsePlanHandKey(s.gameState.actionHistory, context),
-          context
-        );
+        let view;
+        try {
+          view = decodeHorseDecisionReads(
+            c.readFrame,
+            s.gameState.players,
+            horsePlanHandKey(s.gameState.actionHistory, context),
+            context
+          );
+        } catch (error) {
+          if (!p.targets || p.targets.length < 2) throw error;
+          // Earlier decisions buffered for this hand cannot be witnesses.
+          // Keep only the fixed diagnostic code and the requested hand key.
+          hands.push({
+            handKey,
+            reconciled: review.status === 'reconciled',
+            inspectionStatus: 'unavailable',
+            reason: 'read_frame_refused',
+            witnesses: [],
+          });
+          continue handLoop;
+        }
         stage = 'decision_summary_failed';
         const execution = executions.get(turnKey(r));
         const row = summarizeDecision(

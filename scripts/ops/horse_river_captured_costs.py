@@ -25,15 +25,57 @@ def captured_terminal_prices(request):
         if cents.denominator != 1 or cents < 0:
             raise ValueError('original_amount_off_cent_grid')
         return int(cents)
-    if (len(seats) != 2 or not hero or not other or info.get('street') != 'river'
-            or info.get('tournamentStage', {}).get('phase') != 'cash'
+    lightning = request.get('costModel') == 'captured-lightning-bb-ante-v1'
+    if lightning:
+        rule = original.get('ruleContext') or {}
+        context = request['context']
+        if (original.get('domain') != 'cash/' + str(info.get('variant')) + '/lightning'
+                or any(rule.get(k) != v for k, v in {
+                    'format': 'cash', 'variant': info.get('variant'), 'speedFormat': 'lightning',
+                    'bettingStructure': 'pot_limit', 'anteType': 'big_blind', 'ante': state.get('ante'),
+                    'bigBlind': state.get('bigBlind'), 'asset': 'chips', 'boardCount': 1,
+                    'bombPot': False, 'allInOrFold': False, 'tournamentStage': 'cash'
+                }.items())):
+            raise ValueError('lightning_rule_context_required')
+        if (not 2 <= len(seats) <= 10 or context['dealtCount'] != len(seats)
+                or not all(len(s) == 7 and s[2] == s[5] == 0 and s[6] in (0, 1) for s in seats)
+                or len({s[0] for s in seats}) != len(seats)):
+            raise ValueError('unsupported_lightning_seats')
+        live = sorted((s for s in seats if s[6] == 0), key=lambda s: (s[0] <= state['dealerSeat'], s[0]))
+        if len(live) != 2 or not hero or live[-1] != hero:
+            raise ValueError('original_closing_check_unproven')
+        other = live[0]
+        pre = [a for a in info.get('priorPublicActions', []) if a.get('stage') == 'preflop']
+        blinds = [a for a in pre if a.get('action') == 'bb']
+        antes = [a for a in pre if a.get('action') == 'ante']
+        if (state.get('anteType') != 'big_blind' or units(state.get('ante')) != context['anteUnits']
+                or len(blinds) != 1 or len(antes) != 1 or antes[0].get('dead') is not True
+                or any(a.get('origin') != 'forced' for a in (blinds[0], antes[0]))
+                or blinds[0].get('seat') != antes[0].get('seat')
+                or units(blinds[0].get('amount')) != units(state.get('bigBlind'))
+                or units(antes[0].get('amount')) != context['anteUnits']
+                or context['deadUnits'] != context['anteUnits']
+                or sum(units(s[4]) for s in seats) != context['deadUnits']
+                or not any(s[0] == antes[0]['seat'] and units(s[4]) == context['anteUnits'] for s in seats)):
+            raise ValueError('original_bb_ante_unproven')
+        # Both continuing seats contest every chip. Refuse unmatched prior
+        # money or a folded contribution beyond either live player's level.
+        levels = [units(s[3]) - units(s[4]) for s in seats]
+        matched = units(hero[3]) - units(hero[4])
+        if (min(levels) < 0 or matched != units(other[3]) - units(other[4])
+                or max(levels) != matched):
+            raise ValueError('unsupported_original_pot')
+    elif (len(seats) != 2 or not hero or not other or state.get('ante') != 0
+            or info.get('heroSeat') != state.get('dealerSeat')
+            or not all(len(s) == 7 and s[2] == s[4] == s[5] == s[6] == 0 for s in seats)
+            or hero[3] != other[3]):
+        raise ValueError('unsupported_original_context')
+    if (info.get('street') != 'river' or info.get('tournamentStage', {}).get('phase') != 'cash'
             or info.get('structure') != 'pot_limit' or state.get('asset') != 'chips'
             or state.get('chipUnit') != 0.01 or state.get('boardCount') != 1
             or state.get('bombPot') is not False or state.get('allInOrFold') is not False
-            or state.get('ante') != 0 or state.get('toCall') != 0
-            or state.get('currentBet') != 0 or info.get('heroSeat') != state.get('dealerSeat')
-            or not all(len(s) == 7 and s[2] == 0 and s[4] == 0 and s[5] == 0 and s[6] == 0 for s in seats)
-            or hero[3] != other[3] or units(state.get('pot')) != units(hero[3]) + units(other[3])):
+            or state.get('toCall') != 0 or state.get('currentBet') != 0
+            or units(state.get('pot')) != sum(units(s[3]) for s in seats)):
         raise ValueError('unsupported_original_context')
     prior = [a for a in info.get('priorPublicActions', []) if (a.get('stage') or a.get('street')) == 'river']
     if not prior or prior[-1].get('seat') != other[0] or prior[-1].get('action') != 'check':
@@ -59,6 +101,8 @@ def captured_terminal_prices(request):
     bridge = root / 'scripts/ops/horse-river-terminal-prices.mjs'
     payload = {'seats': seats, 'heroSeat': hero[0], 'dealerSeat': state['dealerSeat'],
                'bigBlind': state['bigBlind'], 'deductions': costs, 'bets': request['betSizesUnits']}
+    if lightning:
+        payload['lightningBbAnte'] = True
     result = subprocess.run(['node', str(bridge)], cwd=root,
                             input=json.dumps(payload), text=True, capture_output=True, timeout=30)
     if result.returncode:

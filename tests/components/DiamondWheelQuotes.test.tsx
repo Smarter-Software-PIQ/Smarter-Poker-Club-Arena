@@ -9,6 +9,7 @@ const backend = vi.hoisted(() => ({
   spinV2: vi.fn(),
   spin: vi.fn(),
   runBegin: vi.fn(),
+  claimPrize: vi.fn(),
 }));
 vi.mock('../../src/services/DiamondWheelService', async (importOriginal) => ({
   // The page reads the service's named exports (the unverified-receipt error).
@@ -18,6 +19,7 @@ vi.mock('../../src/services/DiamondWheelService', async (importOriginal) => ({
     spinV2: backend.spinV2,
     spin: backend.spin,
     runBegin: backend.runBegin,
+    claimChipPrize: backend.claimPrize,
     welcomeState: async () => ({ available: false, enabled: false }),
     dailyBonusState: async () => ({ available: false, ticket_count: 0 }),
     commit: async () => ({
@@ -95,6 +97,31 @@ const state = {
   },
 };
 describe('the selected wheel stake owns its availability quote', () => {
+  it('restores an unpaid prize and credits the exact amount only after a successful claim', async () => {
+    const claim = { key: 'wheel-prize:saved-spin', chips: '17.25' };
+    backend.state.mockResolvedValue({ ...state, pending_chip_prizes: [claim] });
+    backend.claimPrize
+      .mockRejectedValueOnce(new Error('Your Prize Is Still Reserved'))
+      .mockResolvedValueOnce(undefined);
+    const first = render(<DiamondWheelPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /Claim Prize.*17.25 Chips/ }));
+    await waitFor(() =>
+      expect(backend.toast.error).toHaveBeenCalledWith('Your Prize Is Still Reserved')
+    );
+    expect(backend.toast.success).not.toHaveBeenCalled();
+    first.unmount();
+    render(<DiamondWheelPage />);
+    const retry = await screen.findByRole('button', { name: /Claim Prize.*17.25 Chips/ });
+    backend.state.mockResolvedValue({ ...state, pending_chip_prizes: [] });
+    fireEvent.click(retry);
+    await waitFor(() =>
+      expect(backend.toast.success).toHaveBeenCalledWith(
+        '17.25 Chips Credited To Your Club Balance'
+      )
+    );
+    expect(screen.queryByRole('button', { name: /Claim Prize/ })).not.toBeInTheDocument();
+    expect(backend.spinV2).not.toHaveBeenCalled();
+  });
   it.each([2, 3, 4])(
     'quotes and submits a custom amount through contract %s, preserving one single-spin action',
     async (version) => {
@@ -113,8 +140,8 @@ describe('the selected wheel stake owns its availability quote', () => {
         expect(screen.getByRole('button', { name: 'Spin 375', exact: true })).toBeEnabled()
       );
       expect(backend.state).toHaveBeenLastCalledWith('club-a', 375);
-      fireEvent.click(screen.getByRole('button', { name: 'Run Off' }));
-      expect(screen.getByRole('button', { name: 'Auto Spin 5' })).toBeEnabled();
+      expect(screen.queryByRole('button', { name: 'Run Off' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /auto spin/i })).not.toBeInTheDocument();
       const spin = screen.getByRole('button', { name: 'Spin 375', exact: true });
       fireEvent.click(spin);
       fireEvent.click(spin);
@@ -130,6 +157,27 @@ describe('the selected wheel stake owns its availability quote', () => {
     }
   );
 
+  it('admits the full available balance after 201 spins and refuses one diamond more', async () => {
+    backend.state.mockImplementation((_club: string, amount: number) =>
+      Promise.resolve({
+        ...state,
+        config: { ...state.config, spin_price_diamonds: amount },
+        player: { ...state.player, spins_today: 201 },
+      })
+    );
+    render(<DiamondWheelPage />);
+    const entry = await screen.findByLabelText('Diamonds To Spin');
+    expect(screen.queryByText('Today')).not.toBeInTheDocument();
+    fireEvent.change(entry, { target: { value: '10000' } });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Spin 10,000', exact: true })).toBeEnabled()
+    );
+    fireEvent.change(entry, { target: { value: '10001' } });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Spin 10,001', exact: true })).toBeDisabled()
+    );
+  });
+
   it('shows a version 4 server refusal and lets a lower funded amount reopen play', async () => {
     backend.state.mockImplementation((_club: string, amount: number) =>
       Promise.resolve({
@@ -142,7 +190,7 @@ describe('the selected wheel stake owns its availability quote', () => {
     );
     render(<DiamondWheelPage />);
     expect(await screen.findByText('The Host Must Fund Every Bonus Before A Spin')).toBeVisible();
-    expect(screen.getByText('Funded To 25')).toBeVisible();
+    expect(screen.getByText('Available: 10,000')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Spin 100', exact: true })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: '25', exact: true }));
     await waitFor(() =>

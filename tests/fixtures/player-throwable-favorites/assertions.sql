@@ -36,3 +36,17 @@ DO $$ BEGIN
    RAISE EXCEPTION 'Empty usage must still supply ten catalog choices';
  END IF;
 END $$;
+
+RESET ROLE;
+INSERT INTO public.throw_usage(user_id, throwable_id, created_at)
+SELECT '00000000-0000-0000-0000-000000000003', id, '2026-01-01'::timestamptz + n * interval '1 second'
+FROM unnest(ARRAY['rocket','bomb','ufo','heart','tomato','star','dice','beer','coffee','banana_peel','shark','missile']) WITH ORDINALITY items(id,n);
+SET ROLE authenticated;
+DO $$
+DECLARE ids text[];
+BEGIN
+  SELECT array_agg(throwable_id) INTO ids FROM public.fn_player_throwable_favorites();
+  IF cardinality(ids) <> 11 OR ids[1] <> 'missile' OR ids[11] <> 'bomb' OR 'rocket'=ANY(ids) THEN
+    RAISE EXCEPTION 'New throw, historical alias or retained favorites wrong: %',ids;
+  END IF;
+END $$;

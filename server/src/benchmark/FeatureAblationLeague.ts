@@ -32,6 +32,7 @@ import { V53_PRESSURE_RESERVED_HOLDOUT_SEEDS } from './PressureQualificationCont
 import {
   INCREMENTAL_RESERVED_HOLDOUT_SEEDS,
   ADDITIONAL_RESERVED_HOLDOUT_SEEDS,
+  PRESSURE_PACKAGE_RESERVED_HOLDOUT_SEEDS,
   SEPARATE_RIVER_FLAGS,
   SEPARATE_RIVER_DESIGNS,
   MULTIWAY_RIVER_POPULATION,
@@ -291,6 +292,7 @@ export async function runFeatureAblationDevelopment(
     (V53_PRESSURE_RESERVED_HOLDOUT_SEEDS as readonly number[]).includes(seed) ||
     (INCREMENTAL_RESERVED_HOLDOUT_SEEDS as readonly number[]).includes(seed) ||
     (ADDITIONAL_RESERVED_HOLDOUT_SEEDS as readonly number[]).includes(seed) ||
+    (PRESSURE_PACKAGE_RESERVED_HOLDOUT_SEEDS as readonly number[]).includes(seed) ||
     (TOURNAMENT_RESERVED_HOLDOUT_SEEDS as readonly number[]).includes(seed) ||
     Object.values(SEPARATE_RIVER_DESIGNS).some((d) => d.reservedHoldoutSeeds.includes(seed)) ||
     request.reservedSeeds?.includes(seed)

@@ -125,7 +125,7 @@ describe('completed Diamond replay parsing', () => {
     { ...crash, completed_at: 0 },
     { ...crash, boost: 3 },
     { ...crash, diamonds: 0 },
-    { ...crash, diamonds: 7501 },
+    { ...crash, diamonds: Number.MAX_SAFE_INTEGER + 1 },
     { ...crash, payout_chips: 0.001 },
     { ...crash, data: { ...crash.data, status: 'open' } },
     { ...crash, data: { ...crash.data, elapsed_ms: 2147483648 } },

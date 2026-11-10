@@ -143,7 +143,6 @@ const RETAINED: Record<string, string> = {
   'src/config/headsUpSpec.ts':
     'read by path: server/src/config/headsUpSpec.ts server/src/services/TournamentRecurringService.ts supabase/migrations/20260831164500_heads_up_rake_is_five_percent_not_a_convention.sql',
   'src/constants/index.ts': 'read by path: tests/unit/theAppDoesNotLieToPlayers.test.ts',
-  'src/constants/limits.ts': 'imported only by another retained file',
   'src/constants/timing.ts': 'imported only by another retained file',
   'src/core/AntiGravityBoot.tsx': 'read by path: tests/unit/AntiGravityBoot.test.ts',
   'src/core/SupabaseIntegration.ts': 'read by path: tests/unit/SupabaseIntegration.test.ts',

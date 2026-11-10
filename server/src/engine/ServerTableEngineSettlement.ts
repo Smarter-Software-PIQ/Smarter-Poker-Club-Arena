@@ -3223,6 +3223,69 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
        * unbounded exactly as before. `postCommitStateCanReflect` below is
        * re-read from `lifecycleCanMutate()` and is UNCHANGED - the drain loses
        * the lease term, the reflection never does. */
+      /* THE COMMITTED STACKS ARE READ BESIDE THE ENVELOPE (2026-11-09).
+         Dan 2026-11-05: the next cash hand starts within two seconds of the
+         last one finishing. The stack read below used to be sent only after
+         the envelope answered, so every hand's barrier paid one more round
+         trip in series (production 2026-11-09, 823 cash hands: the read p50
+         147 ms, p99 800 ms, after the envelope's own p99 900 ms).
+
+         It is now sent here, once the hand's atomic commit is proven, and is
+         used only when nothing can have written a seat stack since it was
+         sent:
+           - the envelope's receipt says it resolved no add-on. Its one seat
+             writer is resolve_pending_addon over the ids this hand's commit
+             froze (every row unresolved at that instant); its other legs
+             (rake, BBJ, promo, insurance) never touch table_seats. A count
+             of 0 from the hand's own receipt means no envelope wrote a seat
+             after this read was sent;
+           - no between-hands direct top-up (atomic_table_addon applying to
+             the seat) was in flight when it was sent, or started after.
+         Anything else - a non-zero or missing count, an overlapping top-up,
+         a failed or fenced read - reads again after the envelope exactly as
+         before. The next hand is still dealt from its own roster read after
+         the whole barrier. */
+      const seatCreditsInFlightAtRead = this.directSeatCreditsInFlight ?? 0;
+      const seatCreditEpochAtRead = this.directSeatCreditEpoch ?? 0;
+      const readCommittedStacks = () =>
+        readCommittedSeatStacks({
+          read: () =>
+            supabase
+              .from('table_seats')
+              .select('user_id,stack')
+              .eq('table_id', this.tableId)
+              .is('left_at', null),
+          canReflect: () => this.lifecycleCanMutate(),
+          progress: () => this.markProgress(),
+          sleep: (ms) => this.sleep(ms),
+          report: (error, attempt) =>
+            reportError(error, 'ServerTableEngine.post_commit_stack_refresh_failed', {
+              tableId: this.tableId,
+              attempt,
+            }),
+        });
+      /* An earlier hand's envelope at this table, still unapplied, would be
+         completed first by the call below (predecessor_pending) and could
+         resolve add-ons after this read; the receipt below counts only this
+         hand's. This engine applied the previous envelope itself only when
+         envelopeChainApplied is set, and an applied envelope proves every
+         earlier one at the table applied (the function refuses otherwise).
+         A fresh engine, a handoff, or a tournament reads after, as before. */
+      const stacksReadBesideEnvelope =
+        this.envelopeChainApplied === true &&
+        !this.isTournamentTable() &&
+        // Chip cash only: a Diamond top-up door writes the seat on its own.
+        !isDiamondCash &&
+        // A Lightning hand settles its own envelopes on its anchor tables.
+        !this.dealingHaltLock &&
+        (!this.tableInfo?.cluster_id || this.clusterLightningEnabled === false) &&
+        seatCreditsInFlightAtRead === 0 &&
+        this.lifecycleCanMutate()
+          ? readCommittedStacks().then(
+              (rows) => ({ ok: true as const, rows }),
+              () => ({ ok: false as const, rows: null })
+            )
+          : null;
       const drainDeadline = Date.now() + POST_COMMIT_DRAIN_BUDGET_MS;
       const mayStillDrain = (): boolean => this.lifecycleCanMutate() || Date.now() < drainDeadline;
       while (!obligationsApplied && mayStillDrain()) {
@@ -3258,6 +3321,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
               ? outcome.pending_addons
               : undefined;
           obligationsApplied = true;
+          this.envelopeChainApplied = true;
         } catch (err) {
           lastObligationError = err;
           if (shouldReportPostCommitAttempt(attempt, err)) {
@@ -3319,6 +3383,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
       postCommitStateCanReflect = this.lifecycleCanMutate();
 
       if (!obligationsApplied) {
+        this.envelopeChainApplied = false;
         // The exact outbox row remains authoritative. This predecessor lost
         // its lifecycle proof; the event-driven successor may finish the DB
         // envelope, but this process must reflect or schedule nothing else.
@@ -3365,22 +3430,15 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
         let persistedSeatError: unknown = null;
         const finishRefreshTiming = stageTiming.start('committed_seat_refresh', 'barrier');
         try {
-          persistedSeats = await readCommittedSeatStacks({
-            read: () =>
-              supabase
-                .from('table_seats')
-                .select('user_id,stack')
-                .eq('table_id', this.tableId)
-                .is('left_at', null),
-            canReflect: () => this.lifecycleCanMutate(),
-            progress: () => this.markProgress(),
-            sleep: (ms) => this.sleep(ms),
-            report: (error, attempt) =>
-              reportError(error, 'ServerTableEngine.post_commit_stack_refresh_failed', {
-                tableId: this.tableId,
-                attempt,
-              }),
-          });
+          const beside = stacksReadBesideEnvelope ? await stacksReadBesideEnvelope : null;
+          persistedSeats =
+            beside?.ok === true &&
+            beside.rows !== null &&
+            resolvedAddOnCount === 0 &&
+            (this.directSeatCreditsInFlight ?? 0) === 0 &&
+            (this.directSeatCreditEpoch ?? 0) === seatCreditEpochAtRead
+              ? beside.rows
+              : await readCommittedStacks();
           finishRefreshTiming('returned');
         } catch (error) {
           finishRefreshTiming('threw');
@@ -4351,8 +4409,35 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     });
     if (!this.lifecycleCanMutate()) return;
 
+    /* THE NEXT CASH DEAL DOES NOT WAIT FOR THE RECOUNT (2026-11-09). Dan
+       2026-11-05: the next cash hand starts within two seconds. Everything the
+       next hand is dealt from is settled once the lanes reach this line: the
+       record, the envelope, the committed stacks, add-ons, horse funding, the
+       stay clocks, departures and announced moves. Step 15 below only reads
+       the seat count, corrects the tables row's current_players/status when
+       they disagree (never to 'closed'), and announces table_unlocked; no
+       input of the next deal reads either column. It was still the last round
+       trip in series on every hand (production 2026-11-09, 823 cash hands:
+       p50 132 ms, p99 807 ms). On a cash table the deal now waits for the
+       lanes up to here, and the recount, its event and the Cluster wake run
+       after it as settlement still in flight: stop, the drain and every
+       hasSettlementInFlight() reader keep waiting for them exactly as before.
+       Tournament tables keep the whole barrier. */
+    const dealReady = this.dealWaitsForRecount() ? null : Promise.all([lanes.record, lanes.seats]);
+    // Observed below; an early lifecycle return must not leave it unhandled.
+    dealReady?.catch(() => undefined);
+
+    // The previous hand's recount runs after its deal (below); this one is
+    // never sent before it has answered, so recounts land in hand order. Read
+    // HERE, when the step is queued: by the time a serialized lane (insurance,
+    // a BBJ hit) runs the step, the continuation below has already published
+    // THIS hand's tail, and a step that waited on its own tail never ends.
+    const previousRecount = this.tableUnlockTail;
+
     // SETTLEMENT STEP 15: Unlock table — authoritative recount, ready for next hand
     await runStep('table_unlock', true, async () => {
+      if (previousRecount) await previousRecount;
+      if (!this.lifecycleCanMutate()) return;
       // Fresh authoritative recount, with no update request when the stored
       // summary already agrees. Unavailable reads stay unknown, never zero,
       // and a generation that loses lifecycle authority cannot repair or emit.
@@ -4381,6 +4466,35 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
 
     // Both lanes must land before the barrier releases the next deal.
     const finishLanesTiming = stageTiming.start('lane_join', 'barrier');
+    if (dealReady) {
+      try {
+        await dealReady;
+        finishLanesTiming('returned');
+      } catch (error) {
+        finishLanesTiming('threw');
+        throw error;
+      }
+      const recount = Promise.all([lanes.record, lanes.seats]).then(() => {
+        stageTiming.complete();
+        // A HAND ENDED (2026-09-05): leavers cashed out, announced moves
+        // landed, the recount is written. The ClusterController tick is woken
+        // so a must-move plan or a break decision follows this boundary.
+        if (this.lifecycleCanMutate()) this.wakeClusterGame('hand_complete');
+      });
+      const tail = recount.catch((error) =>
+        reportError(error, `ServerTableEngine.${this.tableId}.table_unlock_tail_failed`, {
+          handNumber: snap.handNumber,
+        })
+      );
+      this.tableUnlockTail = tail;
+      this.trackSettlementInFlight(tail);
+      void tail
+        .then(() => {
+          if (this.tableUnlockTail === tail) this.tableUnlockTail = null;
+        })
+        .catch(() => undefined);
+      return;
+    }
     try {
       await Promise.all([lanes.record, lanes.seats]);
       finishLanesTiming('returned');
@@ -4395,6 +4509,11 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     // the recount is written. The game's ClusterController tick is woken so a
     // must-move plan or a break decision follows this boundary, not the clock.
     this.wakeClusterGame('hand_complete');
+  }
+
+  /** Tournament tables keep the whole barrier, recount included (step 15). */
+  protected dealWaitsForRecount(): boolean {
+    return this.isTournamentTable();
   }
 
   /**

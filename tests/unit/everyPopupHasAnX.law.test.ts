@@ -48,8 +48,6 @@ const NO_X_BY_DESIGN: Record<string, string> = {
     'the profile is required to play; the only ways out are Save and Skip, both audited',
   'src/components/modals/ClubArenaWelcomeModal.tsx':
     'a legal welcome that is acknowledged once through I Understand, never dismissed',
-  'src/components/games/BonusCompletion.tsx':
-    'a paid reveal with closeOnOverlay/closeOnEscape false; the plates are the only exits',
 };
 
 const BUSY_FLAGS = [

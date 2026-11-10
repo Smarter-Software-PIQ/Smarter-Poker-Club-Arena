@@ -455,6 +455,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
                here ("a new player never gets the button"). A 'posting' hold
                the restore DID see is left alone: its billing clears it. */
             const rowHold = (p as { entry_hold?: string | null }).entry_hold ?? null;
+            if (rowHold === 'moved') continue;
             if (rowHold !== null && !this.postingBBToEnter.has(p.user_id)) {
               this.persistEntryHold(p.user_id, { hold: null, agreed: false });
               continue;
@@ -480,19 +481,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
               const entryAgreed =
                 (p as { entry_post_agreed?: boolean | null }).entry_post_agreed === true;
               if (!this.isTournamentTable() && entryHold === 'moved') {
-                // MOVED BY THE GAME (Dan 2026-09-05): a must-move or a break
-                // brought them here. "IF THEY ARE AUTO MOVED, NO POST ... FREE
-                // HANDS UNTIL BB BECAUSE THEY ALREADY POSTED AT THE PREVIOUS
-                // TABLE." Not registered as waiting, nothing owed: they are in
-                // the next deal and take the big blind when it comes round.
-                // Not a veteran either (dealtInUserIds is filled by the deal),
-                // so the button cannot land on them before they have played a
-                // hand here. The marker is cleared now; a restart between here
-                // and the deal reads a plain seat, which is the same thing.
-                this.persistEntryHold(p.user_id, { hold: null, agreed: false });
-                console.log(
-                  `[ServerTableEngine:${this.tableId}] ${p.user_id.slice(0, 8)} arrived by must-move: dealt in, nothing to post`
-                );
+                // Preserve the move marker until the destination admits this seat.
               } else if (!this.returningFromSitout.has(p.user_id) && !this.isTournamentTable()) {
                 this.registerWaitForBB(p.user_id);
                 if (entryHold === 'waiting' && entryAgreed) {
@@ -729,6 +718,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
             this.tableFSM.transition('paused');
           }
           this.setLoopPhase('cluster_dealing_halted');
+          // Lightning settles envelopes here while halted (see envelopeChainApplied).
+          this.envelopeChainApplied = false;
           await this.passWhileDealingHalted();
           if (!this.lifecycleCanMutate()) return;
           this.consecutiveErrors = 0;
@@ -1001,7 +992,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         // and auto-acted like a tournament sit-out - but only while somebody
         // who is actually playing is dealt in with it. Blinded-off seats alone
         // never deal a hand among themselves.
-        const dealable = this.seatedPlayers.filter(
+        const candidates = this.seatedPlayers.filter(
           (p) =>
             p.stack > 0 &&
             (!this.disconnectEngine.isSittingOut(this.tableId, p.user_id) ||
@@ -1010,6 +1001,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
             // A swap side holding for its partner's table (Dan 2026-09-05).
             !this.isHeldForSwap(p.user_id)
         );
+        const dealable = this.admitMovedSeats(candidates);
         const activePlayers = dealable.some((p) => !this.isBlindedOff(p.user_id))
           ? dealable
           : dealable.filter((p) => !this.isBlindedOff(p.user_id));
@@ -3083,6 +3075,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       // the button reaches them on the following orbit. Recorded after the button
       // is chosen, never before, or a first-time player would qualify to receive
       // the very button this line exists to keep away from them.
+      this.previousHandOccupants = new Map(players.map((p) => [p.seat_number, p.user_id]));
       for (const p of players) {
         this.dealtInUserIds.add(p.user_id);
       }
@@ -3918,6 +3911,10 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         }
         this.postingBBToEnter.clear();
       }
+      for (const p of players) {
+        if (p.entry_hold === 'moved')
+          this.persistEntryHold(p.user_id, { hold: null, agreed: false });
+      }
       // Retire legacy tournament arrival markers without billing them.
       if (this.mustPostBB.size > 0) {
         for (const p of players) {
@@ -4216,6 +4213,9 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       .players.map((p) => p.seat)
       .sort((a, b) => a - b);
     this.dealerSeatIndex = Math.max(0, originalSeats.indexOf(this.lastButtonSeat)) + 1;
+    this.previousHandOccupants = new Map(
+      controller.getState().players.map((p) => [p.seat, p.user_id])
+    );
     for (const p of controller.getState().players) this.dealtInUserIds.add(p.user_id);
     const blinds = controller.getBlindSeatsSnapshot();
     if (blinds) {

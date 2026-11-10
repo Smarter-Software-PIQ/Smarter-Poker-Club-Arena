@@ -1,9 +1,9 @@
 {
   "schema": "engine-release-activation-floor/v2-owner-window",
-  "preparationAt": "2026-11-09T22:30:00Z",
-  "activationAt": "2026-11-09T22:30:00Z",
-  "expiresAt": "2026-11-10T04:30:00Z",
+  "preparationAt": "2026-11-10T08:50:00Z",
+  "activationAt": "2026-11-10T08:50:00Z",
+  "expiresAt": "2026-11-10T10:30:00Z",
   "timeZone": "America/Chicago",
-  "ownerWindowId": "2026-11-09-owner-asap-engine-2230z",
-  "clientPublicationAt": "2026-11-09T22:30:00Z"
+  "ownerWindowId": "2026-11-10-owner-asap-engine-0650z",
+  "clientPublicationAt": "2026-11-10T08:50:00Z"
 }

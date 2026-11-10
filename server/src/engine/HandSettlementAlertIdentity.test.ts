@@ -295,6 +295,7 @@ describe('the original request identity survives both hand-failure reports', () 
     const { engine, players } = cashTable();
     mocks.recount.mockRejectedValue(new Error('seat count refused'));
     await engine.postHandTasks(players, 1);
+    await engine.tableUnlockTail; // the cash recount runs after the deal is released
     const other = reported('postHandTasks.table_unlock_failed');
     expect(other).toHaveLength(1);
     expect(other[0][3]).not.toHaveProperty('hand_request_identity_v1');

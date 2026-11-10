@@ -16,7 +16,7 @@ vi.mock('../../src/hooks/useMasterBusSubscription', () => ({
   },
 }));
 vi.mock('../../src/services/SoundService', () => ({
-  soundService: { playTournamentFinalTable: vi.fn() },
+  soundService: { playTournamentFinalTable: vi.fn(), playTournamentHeadsUp: vi.fn() },
 }));
 
 import { FinalTableOverlay } from '../../src/components/tournament/FinalTableOverlay';
@@ -105,4 +105,87 @@ it('never classifies opponents even when an old event includes populated statist
   expect(container.textContent).toContain('Bob');
   expect(container.querySelector('.ft-player__style')).toBeNull();
   expect(container.textContent).not.toMatch(/Shark|Fish|Rock|Maniac|TAG|LAG|Nit|REG|VPIP|PFR/);
+});
+
+it('reveals the sorted lineup with stack shares, then releases the table on Escape', () => {
+  vi.useFakeTimers();
+  try {
+    const { queryByRole, getAllByRole, getByRole } = render(
+      <FinalTableOverlay tournamentId="t-1" tournamentName="Night Championship" unitCents={null} />
+    );
+    reachFinalTable('another-event');
+    expect(queryByRole('region')).toBeNull();
+    act(() =>
+      bus.handlers.get('FINAL_TABLE_REACHED')!({
+        tournamentId: 't-1',
+        players: [...PLAYERS].reverse(),
+      })
+    );
+    expect(getByRole('heading', { name: 'Final Table' })).toBeTruthy();
+    expect(getAllByRole('listitem').map((row) => row.textContent)).toEqual([
+      `1Alice${compactChips(60000)}60%`,
+      `2Bob${compactChips(40000)}40%`,
+    ]);
+    act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+    act(() => vi.advanceTimersByTime(600));
+    expect(queryByRole('region')).toBeNull();
+    reachFinalTable();
+    expect(queryByRole('region')).toBeNull();
+    act(() => vi.advanceTimersByTime(8000));
+    expect(queryByRole('region')).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+import { HeadsUpOverlay } from '../../src/components/tournament/HeadsUpOverlay';
+import { soundService } from '../../src/services/SoundService';
+
+it('sounds one cue per duel and releases the cue when the face-off is dismissed', () => {
+  vi.useFakeTimers();
+  try {
+    const stop = vi.fn();
+    vi.mocked(soundService.playTournamentHeadsUp).mockReturnValue(stop);
+    const { getByRole, queryByRole } = render(
+      <HeadsUpOverlay tournamentId="duel" tournamentName="Championship" />
+    );
+    const payload = {
+      tournamentId: 'duel',
+      player1: { ...PLAYERS[0], avatar: '/avatars/free/owl.webp' },
+      player2: PLAYERS[1],
+    };
+    act(() => {
+      bus.handlers.get('HEADS_UP_SWITCH')!(payload);
+      bus.handlers.get('HEADS_UP_SWITCH')!(payload);
+    });
+    expect(soundService.playTournamentHeadsUp).toHaveBeenCalledTimes(1);
+    const region = getByRole('region', { name: 'Heads Up Announcement' });
+    expect(region.textContent).toContain('Alice');
+    expect(region.textContent).toContain('Bob');
+    expect(region.querySelector('img')?.getAttribute('src')).toContain('free_owl');
+    act(() => getByRole('button', { name: 'Return To Table' }).click());
+    expect(stop).toHaveBeenCalledTimes(1);
+    act(() => vi.advanceTimersByTime(600));
+    expect(queryByRole('region')).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('releases the final table automatically at the original eight-second deadline', () => {
+  vi.useFakeTimers();
+  try {
+    const stop = vi.fn();
+    vi.mocked(soundService.playTournamentFinalTable).mockReturnValue(stop);
+    const { queryByRole } = render(<FinalTableOverlay tournamentId="t-1" unitCents={null} />);
+    reachFinalTable();
+    reachFinalTable();
+    act(() => vi.advanceTimersByTime(7999));
+    expect(queryByRole('region')).toBeTruthy();
+    act(() => vi.advanceTimersByTime(1));
+    expect(queryByRole('region')).toBeNull();
+    expect(stop).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.useRealTimers();
+  }
 });

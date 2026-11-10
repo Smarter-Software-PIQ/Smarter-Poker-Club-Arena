@@ -17,6 +17,7 @@ concurrency:
 
 jobs:
   verify:
+    if: github.event.client_payload.eco_components != true
     name: Verify Player History And Existing Credit Display
     # Playwright has no Chromium build for ubuntu26.04 (what ubuntu-latest
     # now resolves to); pinned like post-deploy-e2e and lobby-ui-proof.
@@ -151,5 +152,82 @@ jobs:
             test-results/cashier-ui-proof/**/*.jpg
             test-results/cashier-ui-proof/**/attachments/*.json
             test-results/cashier-ui-proof/**/error-context.md
+          if-no-files-found: warn
+          retention-days: 7
+
+  union-eco:
+    name: Read Authorized ECO Statements And Available Owner Controls
+    if: github.event.client_payload.eco_components == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      PROOF_RUN_ID: ${{ github.run_id }}
+      E2E_ECO_READONLY: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          filter: blob:none
+      - name: Admit only the closed protected ECO observation
+        run: |
+          git fetch --no-tags --filter=blob:none origin main
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          node scripts/verification-harness/cashier-ui-proof.mjs admit
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install locked verifier dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Check the configured existing identity without changing its roles
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
+          SP_EMAIL: ${{ secrets.SP_EMAIL }}
+          SP_PASS: ${{ secrets.SP_PASS }}
+        run: |
+          mkdir -p e2e-report/cashier-ui-proof
+          node scripts/verification-harness/cashier-ui-proof.mjs eco-preflight
+      - name: Install Chromium only
+        run: |
+          sudo python3 scripts/ci/ubuntu-apt-mirror.py
+          npx playwright install --with-deps chromium
+      - name: Pin the served ECO components before observation
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/verification-harness/cashier-ui-proof.mjs pin e2e-report/cashier-ui-proof/before.json
+      - name: Read the recorded ECO invoice and any authorized owner controls
+        env:
+          BASE_URL: https://smarter.poker/hub/club-arena/
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
+          SP_EMAIL: ${{ secrets.SP_EMAIL }}
+          SP_PASS: ${{ secrets.SP_PASS }}
+          PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/cashier-ui-proof/report.json
+        run: >-
+          npx playwright test tests/e2e/production-union-eco.spec.ts
+          --project=chromium --workers=1 --retries=0 --trace=off --reporter=line,json
+          --output=test-results/union-eco-proof
+      - name: Pin the served ECO components after observation
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/verification-harness/cashier-ui-proof.mjs pin e2e-report/cashier-ui-proof/after.json
+      - name: Certify the one read-only ECO case without an account-cleanup claim
+        run: >-
+          node scripts/verification-harness/cashier-ui-proof.mjs assert-eco
+          e2e-report/cashier-ui-proof/before.json e2e-report/cashier-ui-proof/after.json
+          e2e-report/cashier-ui-proof/report.json e2e-report/cashier-ui-proof/eco-preflight.json
+      - name: Retain only provenance and boolean ECO verdicts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: union-eco-ui-proof-${{ github.run_id }}
+          path: |
+            cashier-ui-proof.json
+            e2e-report/cashier-ui-proof/before.json
+            e2e-report/cashier-ui-proof/after.json
+            e2e-report/cashier-ui-proof/eco-preflight.json
           if-no-files-found: warn
           retention-days: 7

@@ -34,6 +34,7 @@ import {
   type BbjMiniSnapshot,
 } from '../../lib/bbjMiniFeed';
 import { useToast } from '../common/Toast';
+import { jackpotChips } from '../../utils/jackpotExact';
 
 interface Props {
   clubId: string;
@@ -41,7 +42,8 @@ interface Props {
   canEdit: boolean;
 }
 
-const chips = (n: number) => Math.round(n).toLocaleString('en-US');
+/* To the cent, never rounded (Dan 2026-11-09, utils/jackpotExact). */
+const chips = jackpotChips;
 
 /** Why the database refused, in words an operator can act on. */
 function refusalText(reason: string): string {
@@ -267,7 +269,7 @@ export default function BBJMiniPanel({ clubId, canEdit }: Props) {
               type="number"
               min={mini.floorMinimum}
               step="100"
-              value={floorDraft ?? String(Math.round(mini.reserveFloor))}
+              value={floorDraft ?? String(mini.reserveFloor)}
               onChange={(e) => setFloorDraft(e.target.value)}
               disabled={busy}
             />

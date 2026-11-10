@@ -96,24 +96,14 @@ describe('the crash odds are the odds the server plays', () => {
     expect(src).toMatch(/crash\?\.config\?\.payout_version \?\? CRASH_FLOORED_VERSION/);
     expect(src).toMatch(/awardInstantCrashChances\(1, crashRate, crashContract\)/);
     // Every contract-5 award flight is sealed at exactly 20x, so that is its average's cap.
-    expect(src).toMatch(/crashContract >= CRASH_PAYOUT_VERSION \? CRASH_CAP_CENTS : crashTop/);
+    expect(src).toMatch(/crashContract >= 5 \? CRASH_CAP_CENTS : crashTop/);
     expect(src).toMatch(/awardAverageCrash\(1, crashRate, crashContract, crashAverageCap\)/);
     expect(src).not.toMatch(/Average Crash[^']*\d\.\dx/);
   });
 
-  it('the crash page prints the average crash and where a booked flight would have crashed, from the round', () => {
+  it('the crash page shows where a booked flight would have crashed, from the round', () => {
     const page = code('src/pages/DiamondCrashPage.tsx');
-    // The average of THAT round's own terms (Dan, 2026-10-12: "MAKE SURE THAT
-    // PLAYERS ARE AWARE THAT THE 'AVERAGE CRASH' IS BETWEEN 2.4 - 3.0X").
-    expect(page).toContain(
-      'crashAverageMultiplier(terms.bet, terms.minimum, terms.version, terms.cap)'
-    );
-    expect(page).not.toMatch(/Average Crash \d/);
-    // "IT SHOULD SHOW HOW FAR 'IT WOULD OF GONE'": from the settled receipt only.
-    // "Up To 20x" is the round's own cap, through the same label everywhere.
-    expect(page).toContain('crashCapLabel(capCents)');
-    expect(page).toContain('crashCapLabel(round?.cap_cents ?? capCents)');
-    expect(page).not.toMatch(/Up To \d/);
+    expect(page).not.toMatch(/crashAverageLabel|crashCapLabel/);
     expect(page).toContain(
       'crashWouldHaveLabel(settledRound.outcome.crash_cents, settledRound.cap_cents)'
     );

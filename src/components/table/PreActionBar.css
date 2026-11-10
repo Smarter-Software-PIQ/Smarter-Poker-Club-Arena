@@ -268,19 +268,6 @@
   line-height: 1;
 }
 
-/* Glass overlay */
-.pre-action-btn::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 50%;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03) 0%, transparent 100%);
-  pointer-events: none;
-  border-radius: 22px 22px 0 0;
-}
-
 .pre-action-btn:active {
   transform: scale(0.96);
 }
@@ -307,94 +294,35 @@
    FOLD — Red tint
    ═══════════════════════════════════════════════════════════════ */
 
-.pre-action-btn.fold {
-  border-color: rgba(239, 68, 68, 0.2);
+/* Queue indication changes the outline and glyph, preserving the selected finish. */
+.pre-action-bar .pre-action-btn {
+  background:
+    var(--action-control-overlay, linear-gradient(transparent, transparent)),
+    var(--action-paint-call);
+  border: var(--action-control-border);
+  border-radius: var(--action-control-radius);
+  box-shadow: var(--action-control-inset);
+  color: white;
 }
-
-.pre-action-btn.fold.active {
-  background: linear-gradient(180deg, rgba(239, 68, 68, 0.3) 0%, rgba(185, 28, 28, 0.3) 100%);
-  border-color: #ef4444;
-  color: #fca5a5;
-  box-shadow:
-    0 0 16px rgba(239, 68, 68, 0.25),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+.pre-action-bar .pre-action-btn.fold {
+  background:
+    var(--action-control-overlay, linear-gradient(transparent, transparent)),
+    var(--action-paint-fold);
 }
-
-.pre-action-btn.fold.active .pre-action-btn__dot--on {
-  background: #ef4444;
-  border-color: #ef4444;
-  box-shadow: 0 0 8px rgba(239, 68, 68, 0.55);
+.pre-action-bar .pre-action-btn.active {
+  outline: 2px solid white;
+  outline-offset: -3px;
 }
-
-/* ═══════════════════════════════════════════════════════════════
-   CHECK — Green tint
-   ═══════════════════════════════════════════════════════════════ */
-
-.pre-action-btn.check {
-  border-color: rgba(63, 185, 80, 0.2);
+.pre-action-btn__dot--on::after {
+  content: '✓';
 }
-
-.pre-action-btn.check.active {
-  background: linear-gradient(180deg, rgba(63, 185, 80, 0.3) 0%, rgba(63, 185, 80, 0.3) 100%);
-  border-color: #3fb950;
-  color: #4dc660;
-  box-shadow:
-    0 0 16px rgba(63, 185, 80, 0.25),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+.pre-action-bar .pre-action-btn__dot--on {
+  background: none;
+  border: none;
+  box-shadow: none;
+  width: auto;
+  height: auto;
 }
-
-.pre-action-btn.check.active .pre-action-btn__dot--on {
-  background: #3fb950;
-  border-color: #3fb950;
-  box-shadow: 0 0 8px rgba(63, 185, 80, 0.55);
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   CALL — Amber tint
-   ═══════════════════════════════════════════════════════════════ */
-
-.pre-action-btn.call {
-  border-color: rgba(245, 158, 11, 0.2);
-}
-
-.pre-action-btn.call.active {
-  background: linear-gradient(180deg, rgba(245, 158, 11, 0.3) 0%, rgba(217, 119, 6, 0.3) 100%);
-  border-color: #f59e0b;
-  color: #fcd34d;
-  box-shadow:
-    0 0 16px rgba(245, 158, 11, 0.25),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
-}
-
-.pre-action-btn.call.active .pre-action-btn__dot--on {
-  background: #f59e0b;
-  border-color: #f59e0b;
-  box-shadow: 0 0 8px rgba(245, 158, 11, 0.55);
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   CALL ANY — Same amber but slightly different shade (FIX 185)
-   ═══════════════════════════════════════════════════════════════ */
-
-.pre-action-btn.call-any {
-  border-color: rgba(245, 158, 11, 0.2);
-}
-
-.pre-action-btn.call-any.active {
-  background: linear-gradient(180deg, rgba(245, 158, 11, 0.3) 0%, rgba(217, 119, 6, 0.3) 100%);
-  border-color: #f59e0b;
-  color: #fcd34d;
-  box-shadow:
-    0 0 16px rgba(245, 158, 11, 0.25),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
-}
-
-.pre-action-btn.call-any.active .pre-action-btn__dot--on {
-  background: #f59e0b;
-  border-color: #f59e0b;
-  box-shadow: 0 0 8px rgba(245, 158, 11, 0.55);
-}
-
 /* ═══════════════════════════════════════════════════════════════
    RESPONSIVE
    ═══════════════════════════════════════════════════════════════ */

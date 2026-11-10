@@ -31,6 +31,7 @@ export function diamondWheelFixture() {
           import {MemoryRouter,useNavigate,useLocation} from 'react-router-dom';
           import {WheelExperience} from './src/components/wheel/WheelExperience';
           import {WheelCabinet,WheelPrizeGallery,WheelEntry} from './src/components/wheel/WheelCabinet';
+          import cabinetStyles from './src/components/wheel/WheelCabinet.module.css';
           import {useMeasuredWidth} from './src/hooks/useMeasuredWidth';
           const receipts=${JSON.stringify(receipts)};
           const previews=${JSON.stringify(wheel.filter((r) => r.secondary))};
@@ -74,14 +75,14 @@ export function diamondWheelFixture() {
             return <main style={{containerType:'inline-size',width:'100%'}}>
               <output data-testid="destination">{location.pathname+location.search}</output>
               {location.pathname.endsWith('/wheel')?<>
-                <WheelCabinet title="Diamond Spins" titleId="wheel-heading" pill="Local Preview"
+                <div className={cabinetStyles.page}><WheelCabinet title="Diamond Spins" titleId="wheel-heading" pill="Local Preview"
                   bays={[{label:'Entry',value:String(entry)},{label:'Balance',value:'10,000'}]}
-                  setup={<WheelEntry value={entry} disabled={spinning} onChange={setEntry}/>}
-                  primary={{label:'Preview Spin',disabled:spinning,onClick:()=>setSpinning(true)}}
-                  secondary={{label:'Buy More',disabled:spinning,onClick:()=>{}}}>
-                  <div ref={stageRef}><WheelExperience segments={receipt.segments} upgradeSegments={previews[0].secondary.segments} receipt={spinning?receipt:null} spinKey={1}
+                  notice={spinning?<p>Checking Your Spin</p>:null}
+                  entry={<WheelEntry value={entry} availableDiamonds={10000} disabled={spinning} onChange={setEntry}/>}
+                  primary={{label:'Preview Spin',disabled:spinning,onClick:()=>setSpinning(true)}}>
+                  <div ref={stageRef} className={cabinetStyles.stage}><WheelExperience fitViewport segments={receipt.segments} upgradeSegments={previews[0].secondary.segments} receipt={spinning?receipt:null} spinKey={1}
                     spinning={spinning} size={Math.max(240,stageWidth)} onFinished={finish}/></div>
-                </WheelCabinet>
+                </WheelCabinet></div>
                 <WheelPrizeGallery segments={receipt.segments}/>
               </>:<h1>Earned Game Entry</h1>}
             </main>;

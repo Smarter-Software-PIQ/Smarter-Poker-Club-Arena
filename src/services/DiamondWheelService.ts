@@ -151,6 +151,8 @@ export interface WheelRunEnd {
 }
 
 export interface WheelState {
+  pending_chip_prizes?: { key: string; chips: string }[];
+  payout_rules_version?: number;
   contract_version?: WheelContractVersion;
   enabled?: boolean;
   min_entry?: number;
@@ -322,6 +324,7 @@ export const CARD_NOT_PICKED = 'That Card Could Not Be Turned Over';
 export type WheelCardPickAnswer = { ok: true; pick: WheelCardPick } | { ok: false; error: string };
 
 export interface WheelCardPick {
+  payout_rules_version?: number;
   ok: boolean;
   error?: string;
   replayed?: boolean;
@@ -346,6 +349,9 @@ export interface WheelCardPick {
 }
 
 export interface WheelSpinResult {
+  chip_prize_reserved?: boolean;
+  minimum_payout_chips?: number;
+  payout_rules_version?: number;
   contract_version?: WheelContractVersion;
   /** The draw model this receipt was produced by, from contract 4 on. */
   model?: string;
@@ -579,11 +585,7 @@ function normaliseCardAwards(raw: Record<string, unknown>): WheelCardAward[] {
     .map(normaliseCardAward)
     .sort((a, b) => (a.won_order ?? 0) - (b.won_order ?? 0))
     .filter(
-      (c) =>
-        UUID.test(c.award_id) &&
-        Number.isSafeInteger(c.risk_diamonds) &&
-        c.risk_diamonds >= 25 &&
-        c.risk_diamonds <= 2500
+      (c) => UUID.test(c.award_id) && Number.isSafeInteger(c.risk_diamonds) && c.risk_diamonds >= 1
     );
 }
 
@@ -599,6 +601,8 @@ function normaliseCardPick(raw: Record<string, unknown>): WheelCardPick {
     spin_id: String(raw.spin_id ?? ''),
     picked: num(raw.picked),
     cards: Array.isArray(raw.cards) ? raw.cards.map(num) : [],
+    payout_rules_version:
+      raw.payout_rules_version == null ? undefined : num(raw.payout_rules_version),
     paid_diamonds: num(raw.paid_diamonds),
     risk_diamonds: num(raw.risk_diamonds),
     ...(raw.value_chips == null ? {} : { value_chips: num(raw.value_chips) }),
@@ -646,6 +650,13 @@ function normaliseState(raw: Record<string, unknown>): WheelState {
   const pool = raw.pool as Record<string, unknown> | undefined;
   const player = raw.player as Record<string, unknown> | undefined;
   return {
+    pending_chip_prizes: Array.isArray(raw.pending_chip_prizes)
+      ? raw.pending_chip_prizes.filter(
+          (claim) => typeof claim?.key === 'string' && typeof claim?.chips === 'string'
+        )
+      : [],
+    payout_rules_version:
+      raw.payout_rules_version == null ? undefined : num(raw.payout_rules_version),
     contract_version: contractVersion(raw.contract_version),
     enabled: raw.enabled === true,
     min_entry: num(raw.min_entry),
@@ -778,12 +789,17 @@ function normaliseSpin(raw: Record<string, unknown>): WheelSpinResult {
     ok: Boolean(raw.ok),
     error: raw.error ? String(raw.error) : undefined,
     detail: raw.detail ? String(raw.detail) : undefined,
+    payout_rules_version:
+      raw.payout_rules_version == null ? undefined : num(raw.payout_rules_version),
     contract_version: contractVersion(raw.contract_version),
     segments: Array.isArray(raw.segments)
       ? (raw.segments as Record<string, unknown>[]).map(normaliseSegment)
       : undefined,
+    chip_prize_reserved: raw.chip_prize_reserved === true,
     replayed: Boolean(raw.replayed),
     welcome: Boolean(raw.welcome),
+    minimum_payout_chips:
+      raw.minimum_payout_chips == null ? undefined : num(raw.minimum_payout_chips),
     daily_bonus: raw.daily_bonus === true,
     bonus_ticket_id: typeof raw.bonus_ticket_id === 'string' ? raw.bonus_ticket_id : null,
     player_cost_diamonds: num(raw.player_cost_diamonds ?? raw.spin_price_diamonds),
@@ -995,6 +1011,14 @@ function normaliseWelcomeState(raw: Record<string, unknown>): WheelWelcomeState 
 }
 
 const DiamondWheelService = {
+  async claimChipPrize(clubId: string, key: string): Promise<void> {
+    const { data, error } = await supabase.rpc('fn_wheel_claim_chip_prize', {
+      p_club_id: clubId,
+      p_key: key,
+    });
+    if (error) throw error;
+    if (data?.paid !== true) throw new Error(data?.error || 'Your Prize Is Still Reserved');
+  },
   /** An explicit inactive contract permits legacy play; an unreadable one never does. */
   async getStateV2(clubId: string, entryDiamonds = 100): Promise<WheelState> {
     const { data, error } = await supabase.rpc('fn_wheel_state_v2', {
@@ -1014,8 +1038,12 @@ const DiamondWheelService = {
     // Keep that closed state visible without downgrading to another play route.
     if (state.ok && !state.available && state.reason === 'not_configured') return state;
     if (
-      state.min_entry !== 25 ||
-      state.max_entry !== 2500 ||
+      !(
+        (state.min_entry === 25 && state.max_entry === 2500) ||
+        (state.min_entry === 1 &&
+          Number.isSafeInteger(state.max_entry) &&
+          (state.max_entry ?? -1) >= 0)
+      ) ||
       state.segments.length !== 12 ||
       state.segments.some((s) => s.kind === 'nothing')
     )

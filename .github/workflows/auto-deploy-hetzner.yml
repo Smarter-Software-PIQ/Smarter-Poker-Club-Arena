@@ -286,6 +286,94 @@ jobs:
           echo "image_id=$(jq -er .imageId <<< "$receipt")" >> "$GITHUB_OUTPUT"
           echo "rollback_image_id=$(jq -er .rollbackImageId <<< "$receipt")" >> "$GITHUB_OUTPUT"
 
+  cutover-spectator:
+    name: Observe one authenticated spectator across replacement
+    needs: preflight
+    continue-on-error: true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    permissions:
+      contents: read
+    outputs:
+      witness: ${{ steps.retired.outputs.witness }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install browser dependencies from the primary mirror
+        run: |
+          sudo python3 scripts/ci/ubuntu-apt-mirror.py
+          npx playwright install --with-deps chromium webkit
+      - name: Read predecessor before opening a spectator
+        run: |
+          sha="$(curl -fsS --max-time 10 https://engine.smarter.poker/health | jq -er 'select(.maintenance.active==false) | .releaseSha | select(test("^[a-f0-9]{40}$"))')"
+          echo "EXPECTED_ENGINE_SHA=$sha" >> "$GITHUB_ENV"
+      - name: Create the reserved spectator
+        id: account
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/ci/production-e2e-account.mjs create
+      - name: Prepare its ordinary zero-balance membership
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
+          E2E_SPECTATOR_CLUB_ID: a41434bb-8d0c-400a-8f0d-e8b3d65afed4
+        run: node scripts/ci/production-e2e-account.mjs prepare-spectator
+      - name: Observe the natural reconnect and committed hand
+        id: observe
+        env:
+          BASE_URL: https://smarter.poker/hub/club-arena/
+          ARENA_BASE_URL: https://smarter.poker/hub/club-arena
+          E2E_REQUIRE_AUTH: '1'
+          LIVE_TABLE_REALTIME_CERTIFICATION: '1'
+          ENGINE_HEALTH_URL: https://engine.smarter.poker/health
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
+          E2E_CLUB_ID: a41434bb-8d0c-400a-8f0d-e8b3d65afed4
+          CUTOVER_SPECTATOR_TARGET: ${{ needs.preflight.outputs.target_sha }}
+        run: |
+          npx playwright test tests/e2e/production-live-table-realtime.spec.ts --grep 'an authenticated spectator spans' --project=webkit-live-table-realtime --workers=1 --retries=0 --reporter=line
+      - name: Retire and verify only this fixture
+        id: retired
+        if: always() && steps.account.outcome != 'skipped'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          node scripts/ci/production-e2e-account.mjs cleanup
+          if [ -f cutover-spectator.json ]; then echo "witness=$(jq -ce . cutover-spectator.json)" >> "$GITHUB_OUTPUT"; fi
+
+  correlate-cutover-spectator:
+    name: Bind spectator evidence to the original sealed release
+    needs: [deploy, cutover-spectator]
+    continue-on-error: true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - env:
+          SEALED_RECEIPT: ${{ needs.deploy.outputs.gameplay_receipt }}
+          SPECTATOR: ${{ needs.cutover-spectator.outputs.witness }}
+        run: node scripts/ci/correlate-cutover-spectator.mjs > sealed-spectator.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sealed-spectator-${{ github.run_id }}-${{ github.run_attempt }}
+          path: sealed-spectator.json
+          if-no-files-found: error
+
   engine-doors:
     name: Prove The Exact Engine Has Every Production Door
     needs: preflight

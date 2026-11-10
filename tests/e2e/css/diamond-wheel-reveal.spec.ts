@@ -117,7 +117,17 @@ for (const width of [320, 390, 1280]) {
         await wheel.locator('[data-wheel-rotor]').evaluate((rotor) => rotor.getAnimations().length)
       ).toBe(1);
       await expect(wheel.locator('[data-wheel-rotor] svg [data-slot]')).toHaveCount(12);
-      await page.getByRole('button', { name: 'Preview Spin', exact: true }).click();
+      const plate = page.getByRole('button', { name: '100', exact: true });
+      const spin = page.getByRole('button', { name: 'Preview Spin', exact: true });
+      const geometry = async () => [await plate.boundingBox(), await spin.boundingBox()];
+      const resting = await geometry();
+      await spin.hover();
+      await page.mouse.down();
+      expect(await geometry()).toEqual(resting);
+      await page.mouse.up();
+      await expect(spin).toBeDisabled();
+      expect(await geometry()).toEqual(resting);
+
       await expect(page.getByRole('button', { name: 'Preview Spin', exact: true })).toBeDisabled();
       await expect(page.getByLabel('Diamonds To Spin')).toBeDisabled();
       await expect(page.getByTestId('destination')).toHaveText('/clubs/fixture/wheel');
@@ -223,6 +233,7 @@ for (const width of [320, 390, 1280]) {
           `/clubs/fixture/${receipt.bonus.game}?wheelAward=${receipt.bonus.id}`
         );
       }
+      if (!receipt.bonus) expect(await geometry()).toEqual(resting);
       const proof = await page.evaluate(() => window.wheelProof);
       expect(proof.finished).toBe(1);
       const starts = proof.events.filter((event) => event.event === 'animationstart');
@@ -253,6 +264,8 @@ for (const width of [320, 390, 1280]) {
 // the control panel. The old width-only wheel put Spin below the first screen.
 for (const viewport of [
   { width: 320, height: 568 },
+  { width: 375, height: 667 },
+  { width: 784, height: 1236 },
   { width: 390, height: 844 },
   { width: 393, height: 844 },
   { width: 1280, height: 720 },
@@ -268,15 +281,16 @@ for (const viewport of [
     await page.route('**/*', async (route) => {
       const url = new URL(route.request().url());
       if (url.hostname !== 'diamond-wheel.test') return route.abort();
+      const publicPath = url.pathname.replace(/^\/hub\/club-arena\//, '/');
       if (
-        url.pathname.startsWith('/assets/') ||
-        url.pathname.startsWith('/fonts/') ||
-        url.pathname.startsWith('/images/') ||
-        url.pathname === '/default-avatar.png'
+        publicPath.startsWith('/assets/') ||
+        publicPath.startsWith('/fonts/') ||
+        publicPath.startsWith('/images/') ||
+        publicPath === '/default-avatar.png'
       ) {
         const { resolve, sep } = await import('node:path');
         const root = resolve('public');
-        const path = resolve(root, '.' + decodeURIComponent(url.pathname));
+        const path = resolve(root, '.' + decodeURIComponent(publicPath));
         return path.startsWith(root + sep) ? route.fulfill({ path }) : route.abort();
       }
       return route.fulfill({
@@ -301,9 +315,71 @@ for (const viewport of [
       controls.getByRole('button', { name: /Hold Automatic Spin|Auto Held/ })
     ).toHaveCount(0);
     await expect(page.locator('#global-header')).toBeVisible();
+    const titleBadge = page
+      .getByRole('heading', { name: 'Diamond Spins', exact: true })
+      .getByRole('img');
+    await expect(titleBadge).toBeVisible();
+    await expect
+      .poll(() => titleBadge.evaluate((el) => (el as HTMLImageElement).naturalWidth))
+      .toBeGreaterThan(0);
     await expect(controls.getByText('Club Chips', { exact: true })).toBeVisible();
     await expect(controls.getByText('12,345.00', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Spin 100', exact: true })).toBeEnabled();
+    // Wait for the physical console art to decode through its published asset path.
+    const deckLoaded = await controls.evaluate(async (el) => {
+      const elements = [el, ...el.querySelectorAll('*')];
+      for (const node of elements) {
+        for (const pseudo of [null, '::before', '::after']) {
+          const image = getComputedStyle(node, pseudo).backgroundImage;
+          const url = image.match(/url\(["']?([^)"']*sapphire-spin-deck\.webp)["']?\)/)?.[1];
+          if (url) {
+            const art = new Image();
+            art.src = url;
+            await art.decode();
+            return art.naturalWidth > 0;
+          }
+        }
+      }
+      return false;
+    });
+    expect(deckLoaded).toBe(true);
+    const spinBounds = await controls
+      .getByRole('button', { name: 'Spin 100', exact: true })
+      .boundingBox();
+    const walletBounds = await controls.locator('dl > div').first().boundingBox();
+    const chipBounds = await controls.locator('dl > div').nth(1).boundingBox();
+    const selector = controls.getByRole('button', { name: /^Amount / });
+    const toggle = await selector.boundingBox();
+    if (!spinBounds || !walletBounds || !chipBounds || !toggle)
+      throw new Error('Missing wheel controls');
+    await expect(controls.getByRole('button', { name: 'Max' })).toHaveCount(0);
+    const headerAction = page.locator('header').getByRole('button', { name: 'Prizes & More' });
+    const header = await titleBadge.locator('xpath=ancestor::header').boundingBox();
+    const detailsButton = await headerAction.boundingBox();
+    const badge = await titleBadge.boundingBox();
+    const deck = await controls.locator('dl').locator('..').boundingBox();
+    if (!header || !detailsButton || !badge || !deck)
+      throw new Error('Wheel layout is unavailable');
+    expect(detailsButton.x).toBeGreaterThanOrEqual(badge.x + badge.width);
+    expect(detailsButton.y).toBeGreaterThanOrEqual(header.y);
+    expect(detailsButton.y + detailsButton.height).toBeLessThanOrEqual(
+      header.y + header.height + 1
+    );
+    expect(detailsButton.x + detailsButton.width).toBeGreaterThanOrEqual(
+      header.x + header.width - 10
+    );
+    expect(walletBounds.x + walletBounds.width).toBeLessThanOrEqual(spinBounds.x);
+    expect(chipBounds.x).toBeGreaterThanOrEqual(spinBounds.x + spinBounds.width);
+    expect(Math.abs(chipBounds.y - walletBounds.y)).toBeLessThan(1);
+    expect(toggle.y + toggle.height <= deck.y + 1 || toggle.x >= deck.x + deck.width).toBe(true);
+    let lastCenter = 0;
+    for (const name of ['25', '100', '500', '1,000', '2,500']) {
+      const preset = await controls.getByRole('button', { name, exact: true }).boundingBox();
+      if (!preset) throw new Error('Missing wheel preset ' + name);
+      expect(preset.x + preset.width / 2).toBeGreaterThan(lastCenter);
+      expect(preset.y + preset.height / 2).toBeLessThan(spinBounds.y + spinBounds.height / 2);
+      lastCenter = preset.x + preset.width / 2;
+    }
     const assertFits = async () => {
       const measured = await controls.evaluate((el) => {
         const wheel = document.querySelector('[data-wheel-assembly]')!.getBoundingClientRect();
@@ -316,7 +392,7 @@ for (const viewport of [
           scrollHeight: document.documentElement.scrollHeight,
           scrollWidth: document.documentElement.scrollWidth,
           targets: [...el.querySelectorAll('button,input')]
-            .filter((e) => !(e as HTMLElement).hidden)
+            .filter((e) => e.getClientRects().length > 0)
             .map((e) => {
               const b = e.getBoundingClientRect();
               return (
@@ -338,16 +414,38 @@ for (const viewport of [
       expect(
         await controls.locator('button').evaluateAll((elements) =>
           elements.flatMap((el) => {
-            const range = document.createRange();
-            range.selectNodeContents(el);
-            const text = range.getBoundingClientRect(),
-              button = el.getBoundingClientRect();
-            return text.left >= button.left &&
-              text.right <= button.right &&
-              text.top >= button.top &&
-              text.bottom <= button.bottom
-              ? []
-              : [{ label: el.textContent, text: text.toJSON(), button: button.toJSON() }];
+            const button = el.getBoundingClientRect();
+            if (!button.width) return [];
+            const nodes = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+            const clipped = [];
+            while (nodes.nextNode()) {
+              const node = nodes.currentNode;
+              if (!node.textContent?.trim()) continue;
+              let parent = node.parentElement;
+              while (parent && parent !== el) {
+                const style = getComputedStyle(parent);
+                if (style.clip !== 'auto' || style.clipPath === 'inset(50%)') break;
+                parent = parent.parentElement;
+              }
+              // Screen-reader-only stake descriptions may extend outside the painted label.
+              if (parent !== el) continue;
+              const range = document.createRange();
+              range.selectNodeContents(node);
+              const text = range.getBoundingClientRect();
+              if (
+                text.left < button.left ||
+                text.right > button.right ||
+                text.top < button.top ||
+                text.bottom > button.bottom
+              ) {
+                clipped.push({
+                  label: node.textContent,
+                  text: text.toJSON(),
+                  button: button.toJSON(),
+                });
+              }
+            }
+            return clipped;
           })
         )
       ).toEqual([]);
@@ -356,16 +454,19 @@ for (const viewport of [
     await controls.getByRole('button', { name: '2,500', exact: true }).click();
     await expect(page.getByLabel('Diamonds To Spin')).toHaveValue('2500');
     await expect(page.getByRole('button', { name: 'Spin 2,500', exact: true })).toBeEnabled();
-    await controls.getByRole('button', { name: 'Run Off', exact: true }).click();
-    await expect(controls.getByRole('button', { name: /^Auto Spin / })).toBeEnabled();
-    await expect(controls.getByRole('button', { name: 'Spin 2,500', exact: true })).toBeEnabled();
+    await expect(
+      controls.getByRole('button', { name: /Auto Spin|Run Off|Run (5|10|25)/ })
+    ).toHaveCount(0);
+    await expect(controls.getByText('Today', { exact: true })).toHaveCount(0);
     await assertFits();
+    await controls.getByRole('button', { name: '500', exact: true }).click();
+    await expect(page.getByLabel('Diamonds To Spin')).toHaveValue('500');
     await page.screenshot({ path: testInfo.outputPath('paid-controls.png') });
     await controls.getByRole('button', { name: 'Bonus Spins (2)', exact: true }).click();
     await expect(page.getByLabel('Diamonds To Spin')).toBeDisabled();
     await expect(controls.getByRole('button', { name: 'Bonus Spin', exact: true })).toBeEnabled();
     await assertFits();
-    await controls.getByRole('button', { name: 'Prizes & More', exact: true }).click();
+    await headerAction.click();
     const details = page.getByRole('dialog', { name: 'Diamond Spins Details' });
     await expect(details).toBeVisible();
     await expect(
@@ -391,25 +492,45 @@ for (const viewport of [
       await assertFits();
       await page.screenshot({ path: testInfo.outputPath('one-screen-paused.png') });
     }
-    await page.goto('https://diamond-wheel.test/?limited');
-    await page.addStyleTag({ content: bundle.css });
-    if ('fallbackFonts' in viewport) {
-      await page.addStyleTag({
-        content:
-          '[aria-label="Diamond Spins Controls"] button {font-family: Arial, sans-serif !important}',
-      });
+    if (viewport.width === 320) {
+      await page.goto('https://diamond-wheel.test/');
+      await page.addStyleTag({ content: bundle.css });
+      await page.addScriptTag({ content: bundle.javascript });
     }
-    await page.addScriptTag({ content: bundle.javascript });
     await controls.getByRole('button', { name: 'Use Diamonds', exact: true }).click();
-    await expect(controls.getByText('Funded To 1,277', { exact: true })).toBeVisible();
-    await page.getByLabel('Diamonds To Spin').fill('2000');
-    await expect(controls.getByRole('button', { name: 'Spin 2,000', exact: true })).toBeDisabled();
+    await selector.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByLabel('Diamonds To Spin')).toBeFocused();
+    await controls.getByRole('button', { name: 'Max', exact: true }).click();
+    await expect(page.getByLabel('Diamonds To Spin')).toHaveValue('2600000');
+    const amountFits = await page
+      .getByLabel('Diamonds To Spin')
+      .evaluate((el: HTMLInputElement) => {
+        const style = getComputedStyle(el);
+        const context = document.createElement('canvas').getContext('2d')!;
+        context.font = style.font;
+        const contentWidth =
+          el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+        return context.measureText(el.value).width <= contentWidth;
+      });
+    expect(amountFits).toBe(true);
+    await page.keyboard.press('Escape');
+    await expect(selector).toBeFocused();
     await expect(
-      controls.getByText('The Host Must Fund Every Prize Before A Spin', { exact: true })
+      controls.getByRole('button', { name: 'Spin 2,600,000', exact: true })
+    ).toBeEnabled();
+    await page.screenshot({ path: testInfo.outputPath('full-wallet.png') });
+    await selector.click();
+    await page.getByLabel('Diamonds To Spin').fill('2600001');
+    await page.keyboard.press('Escape');
+    await expect(
+      controls.getByText('Not Enough Diamonds For A Spin', { exact: true })
     ).toBeVisible();
-    await controls.getByRole('button', { name: '1,000', exact: true }).click();
-    await expect(controls.getByRole('button', { name: 'Spin 1,000', exact: true })).toBeEnabled();
+    await expect(controls.getByRole('button', { name: 'Spin 2,600,001', exact: true })).toHaveCount(
+      0
+    );
+    await expect(controls.getByRole('button', { name: 'Get Diamonds', exact: true })).toBeVisible();
     await assertFits();
-    await page.screenshot({ path: testInfo.outputPath('funded-controls.png') });
+    await page.screenshot({ path: testInfo.outputPath('insufficient-wallet.png') });
   });
 }

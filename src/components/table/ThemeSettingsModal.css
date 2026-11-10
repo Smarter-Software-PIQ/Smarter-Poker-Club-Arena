@@ -713,15 +713,15 @@
 }
 
 .theme-asset__actionset i:nth-child(1) {
-  background: linear-gradient(#f04a50, #8f1117);
+  background: var(--action-paint-fold);
 }
 
 .theme-asset__actionset i:nth-child(2) {
-  background: linear-gradient(#2a9afa, #0751a9);
+  background: var(--action-paint-call);
 }
 
 .theme-asset__actionset i:nth-child(3) {
-  background: linear-gradient(#4dc660, #2ea043);
+  background: var(--action-paint-raise);
 }
 
 .theme-asset__actionset i::after {
@@ -735,16 +735,14 @@
   gap: 0;
 }
 
-.theme-asset__cardstage > * {
-  transform: scale(1.35) rotate(-6deg);
-  margin: -2px;
-  filter: drop-shadow(0 8px 9px rgb(0 0 0 / 72%));
+.theme-asset__cardstage > .card-image {
+  width: 44px;
+  height: 66px;
 }
-
 .theme-asset__cardstage > :last-child {
-  transform: scale(1.35) rotate(7deg);
+  margin-left: -12px;
+  margin-top: -4px;
 }
-
 .theme-asset__facedeckstage {
   display: flex;
   align-items: center;
@@ -758,7 +756,8 @@
 
 .theme-asset__facedeckstage .card-image {
   flex: 0 0 auto;
-  transform: rotate(-5deg);
+  width: 25px;
+  height: 35px;
 }
 
 .theme-asset__facedeckstage .card-image:nth-child(2) {
@@ -767,7 +766,7 @@
 }
 
 .theme-asset__facedeckstage .card-image:nth-child(3) {
-  transform: rotate(5deg);
+  transform: none;
 }
 
 /* Locked: the price is a lit gold word over the dimmed art; checking: muted. */
@@ -1011,14 +1010,14 @@
   position: absolute;
   right: 0;
   bottom: 0;
-  transform: scale(0.54) rotate(7deg);
-  transform-origin: bottom right;
+  width: 18px;
+  height: 27px;
   box-shadow: 0 2px 5px rgb(0 0 0 / 50%);
 }
 
 .theme-loadout__cards .card-image:first-child {
   right: 9px;
-  transform: scale(0.54) rotate(-7deg);
+  bottom: 2px;
 }
 
 .theme-loadout__face {
@@ -1031,8 +1030,8 @@
 }
 
 .theme-loadout__face .card-image {
-  transform: scale(0.64) rotate(-4deg);
-  transform-origin: bottom left;
+  width: 22px;
+  height: 31px;
 }
 
 .theme-loadout__name {
@@ -1108,5 +1107,51 @@
   .theme-asset,
   .theme-asset__favorite {
     transition: none;
+  }
+}
+
+.studio-editor {
+  container-type: inline-size;
+  max-width: 1100px;
+  margin: auto;
+  padding: 0 clamp(12px, 2vw, 24px) 18px;
+  background: #10161c;
+  color: #f4f6f8;
+}
+.studio-editor__header {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  background: #10161c;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #35404b;
+}
+.studio-editor__header h2 {
+  margin: 12px 0;
+  font: 700 1.2rem/1.3 system-ui;
+}
+.studio-editor__header button,
+.studio-editor__reset {
+  min-height: 44px;
+  color: inherit;
+  border: 1px solid #45515e;
+  background: #202b36;
+  border-radius: 6px;
+  padding: 0 16px;
+}
+.studio-editor__reset {
+  margin-top: 16px;
+}
+.studio-editor summary {
+  cursor: pointer;
+  padding: 12px 0;
+}
+@media (max-width: 959px) {
+  .studio-editor .theme-modal__live-preview {
+    width: min(100%, 32vh);
+    min-height: 0;
+    align-self: center;
   }
 }

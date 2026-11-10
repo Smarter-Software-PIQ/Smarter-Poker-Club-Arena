@@ -9,6 +9,7 @@ const backend = vi.hoisted(() => ({
   commit: vi.fn(),
   start: vi.fn(),
   latest: vi.fn(),
+  plinkoProgress: vi.fn().mockResolvedValue(null),
   awardState: vi.fn(),
   navigate: vi.fn(),
 }));
@@ -63,7 +64,6 @@ vi.mock('../../src/components/wheel/WheelWinReveal', () => ({
   ),
 }));
 vi.mock('../../src/components/games/DiamondSpinsTabs', () => ({ default: () => null }));
-vi.mock('../../src/components/games/TodayLine', () => ({ default: () => null }));
 /**
  * A WON GAME STARTS ITSELF.
  *
@@ -155,15 +155,15 @@ describe('a won game holds the page only while it can be played', () => {
     await act(async () => {});
     expect(held()).toBe(true);
     cleanup();
-    // Today's limit is reached: the award stays pending server-side and the
-    // wheel reopens it tomorrow, so nothing here may trap the player.
+    // An earned award remains playable beyond the standalone limit.
     const spent = { ...state, player: { ...state.player, rounds_today: 500 } };
     backend.getState.mockResolvedValue(spent);
     backend.awardState.mockResolvedValue({ enabled: true, award, gameState: spent, quote });
     render(<DiamondPlinkoPage />);
     await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: '20 Diamonds Per Drop, 10 Drops' }));
     await tick(10_000);
-    expect(held()).toBe(false);
+    expect(held()).toBe(true);
     expect(backend.start).not.toHaveBeenCalled();
   });
 

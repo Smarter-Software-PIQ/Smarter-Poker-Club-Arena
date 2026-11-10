@@ -910,6 +910,22 @@ export abstract class ServerTableEngineBase {
   // is not in here has never played, so the button rotation passes over them;
   // they pick it up on the following orbit like everyone else.
   protected dealtInUserIds: Set<string> = new Set();
+  protected previousHandOccupants = new Map<number, string>();
+
+  protected admitMovedSeats(candidates: SeatedPlayer[]): SeatedPlayer[] {
+    const button = this.lastButtonSeat;
+    const bb = this.lastBigBlindSeat;
+    if (candidates.length <= 2 || button <= 0 || bb <= 0 || button === bb) return candidates;
+    return candidates.filter((p) => {
+      const seat = p.seat_number;
+      const between = button < bb ? seat > button && seat <= bb : seat > button || seat <= bb;
+      if (!between) return true;
+      if (!this.isTournamentTable()) return p.entry_hold !== 'moved';
+      return (
+        this.previousHandOccupants.size === 0 || this.previousHandOccupants.get(seat) === p.user_id
+      );
+    });
+  }
 
   // Guard for the dealing loop's first iteration. On the first pass — whether
   // this is a cold start or a crash-recovery resume — every currently-seated
@@ -1118,6 +1134,19 @@ export abstract class ServerTableEngineBase {
   // If a player wins a pot and their stack + add-on exceeds max buy-in,
   // the add-on is reduced or canceled. Map<userId, requestedAmount>.
   protected pendingAddOns: Map<string, number> = new Map();
+  /**
+   * Between-hands direct top-ups that write table_seats.stack (2026-11-09).
+   * Settlement reads the committed stacks beside the post-commit envelope and
+   * uses that read only when no such top-up overlapped it (one in flight when
+   * it was sent, or one started after); otherwise it reads again after the
+   * envelope, as before. Process-local; no money or row depends on it.
+   */
+  protected directSeatCreditsInFlight = 0;
+  protected directSeatCreditEpoch = 0;
+  /** This engine applied the table's last post-commit envelope itself. */
+  protected envelopeChainApplied = false;
+  /** A cash hand's recount, still running after the next deal (Settlement step 15). */
+  protected tableUnlockTail: Promise<void> | null = null;
   /**
    * ═══════════════════════════════════════════════════════════════════════
    *  MID-HAND DIAMOND TOP-UPS ARE AN INTENT, NOT A DEBIT
@@ -5127,6 +5156,26 @@ export abstract class ServerTableEngineBase {
         const pending = this.postHandTasksPromise;
         await pending;
         if (this.postHandTasksPromise === pending) break;
+      }
+      // A LIGHTNING ANCHOR'S COUNT MOVES WHERE THIS ENGINE CANNOT SEE IT
+      // (2026-11-09, BUG-7C1347FF). The owed hands of a held leave are played
+      // in the pool and counted by the Lightning settlement trigger, and a
+      // responsible-gaming end waives them in the database. The mirror is
+      // refreshed only by this table's own settlements and presence changes,
+      // neither of which a blinded-off anchor seat has, so it went on reading
+      // "hands owed" after the count completed and the seat was never cashed
+      // out. Read every held seat fresh before deciding (the same read POST
+      // /leave makes for an anchor); a read that fails keeps the old row and
+      // the seat is simply asked again on the next pass.
+      if (this.isLightningAnchorNow()) {
+        const held = [...this.leaveHeldByClock.keys()].filter((userId) =>
+          this.seatedPlayers.some((p) => p.user_id === userId)
+        );
+        if (held.length > 0) {
+          await this.chipContinuity.evaluate(
+            held.map((userId) => ({ user_id: userId, active: this.isContinuityActive(userId) }))
+          );
+        }
       }
       for (const [userId, occupancyId] of [...this.leaveHeldByClock]) {
         const seated = this.seatedPlayers.find((p) => p.user_id === userId);
@@ -12569,12 +12618,6 @@ export abstract class ServerTableEngineBase {
         // to the next hand, and they owe the live big blind for it.
         this.postingBBToEnter.add(p.user_id);
         restored += 1;
-      } else if (hold === 'moved') {
-        // Moved here by the game (must-move / break) and the restart landed
-        // before this table's first deal read the marker: they are dealt in
-        // owing nothing, exactly as the arrival path would have done, and the
-        // marker is cleared so nothing reads it twice.
-        this.persistEntryHold(p.user_id, { hold: null, agreed: false });
       }
     }
 
@@ -12637,11 +12680,16 @@ export abstract class ServerTableEngineBase {
 
       type HistoryRow = {
         button_seat?: number;
-        players?: Array<{ seat?: number }>;
+        players?: Array<{ seat?: number; userId?: string }>;
         actions?: Array<{ seat?: number; action?: string; origin?: string }>;
       };
       const rows = (Array.isArray(data) ? data : data ? [data] : []) as HistoryRow[];
       const row = rows[0] ?? null;
+      this.previousHandOccupants.clear();
+      for (const player of row?.players ?? []) {
+        if (player.seat && player.userId)
+          this.previousHandOccupants.set(player.seat, player.userId);
+      }
       const seat = Number(row?.button_seat ?? 0);
       /**
        * The big blind seat comes back with the button, derived from the same

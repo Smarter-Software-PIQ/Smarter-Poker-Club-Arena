@@ -1696,6 +1696,8 @@ instead of several rounds of grep and file reads. It is **advisory only**: Grep,
 Glob, Read and shell search stay fully available, and source code remains the
 authority for every claim. Use the graph to find where to look, then read the lines.
 
+**Skill:** `/graphify` (`.claude/skills/graphify/SKILL.md`) is the short how-to: what the graph is, setup, revision check, queries and rules.
+
 **Install, build and environment (one command, every account and environment):**
 
 ```bash

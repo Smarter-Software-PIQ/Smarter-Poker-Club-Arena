@@ -14,6 +14,7 @@
 import { RealtimeChannel, RealtimePresenceState } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { reportError } from '../utils/errorReporter';
+import { roomService } from './RoomService';
 import GameServerAPI from './GameServerAPI';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -217,6 +218,7 @@ export class TableWebSocket {
       // deliveries of every reaction/chat/presence event.
       if (this.channel) {
         const stale = this.channel;
+        roomService.unregisterChannel(this.tableId, stale);
         this.channel = null;
         try {
           await this.supabase.removeChannel(stale);
@@ -306,6 +308,7 @@ export class TableWebSocket {
       // Subscribe to channel - returns the channel, callback receives status
       // Only register with RoomService after SUBSCRIBED so RoomService never holds a dead channel.
       const subscribedChannel = this.channel;
+      roomService.prepareChannel(this.tableId, subscribedChannel);
       await new Promise<void>((resolve) => {
         const settle = () => {
           if (this.cancelPendingConnect === settle) this.cancelPendingConnect = null;
@@ -324,13 +327,7 @@ export class TableWebSocket {
               clearTimeout(this.reconnectTimer);
               this.reconnectTimer = null;
             }
-            import('./RoomService')
-              .then(({ roomService }) => {
-                if (!this.destroyed && this.channel === subscribedChannel) {
-                  roomService.registerChannel(this.tableId, subscribedChannel);
-                }
-              })
-              .catch(() => {});
+            roomService.registerChannel(this.tableId, subscribedChannel);
             this.notifyConnection(true);
             try {
               await subscribedChannel.track({
@@ -345,6 +342,7 @@ export class TableWebSocket {
               settle();
             }
           } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+            roomService.unregisterChannel(this.tableId, subscribedChannel);
             this.isConnected = false;
             this.notifyConnection(false);
             this.scheduleReconnect();
@@ -380,6 +378,7 @@ export class TableWebSocket {
     this.isConnected = false;
     this.cancelPendingConnect?.();
     if (channel) {
+      roomService.unregisterChannel(this.tableId, channel);
       try {
         await this.supabase.removeChannel(channel);
       } catch (error) {

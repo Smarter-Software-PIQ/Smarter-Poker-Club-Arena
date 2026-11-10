@@ -132,7 +132,7 @@ describe('Item 1 - a running tournament can be watched', () => {
       const playersQuery = sliceCall(src, 'readTournamentStandings(');
       expect(playersQuery).toMatch(/\btable_id\b/);
       const reader = code(read('src/services/readTournamentStandings.ts'));
-      expect(reader).toContain(".from('tournament_players')");
+      expect(reader).toContain(".from('tournament_players_public')");
       expect(reader).toContain('.select(projection,');
       expect(src).toMatch(/table_id: \(e\.table_id as string \| null\) \|\| null/);
     }
@@ -329,13 +329,13 @@ describe('Item 5 - the bounty badge sits on the avatar corner, clear of the acti
   });
 
   // Dan 2026-10-20: keep the amount alone, inside a close solid pill.
-  it('puts the amount in a solid blue pill close to the avatar, without a chip glyph', () => {
+  it('uses the selected call finish and target close to the avatar, without a chip glyph', () => {
     const start = css.indexOf('.seat__bounty {');
     const block = css.slice(start, css.indexOf('}', start));
-    expect(block).not.toMatch(/linear-gradient/);
+    expect(block).toContain('var(--action-control-overlay');
     expect(block).not.toMatch(/#f97316|#fbbf24|#dc2626|249,\s*115,\s*22/i);
-    expect(block).toMatch(/background:\s*#1877f2/);
-    expect(block).toMatch(/border-radius:\s*999px/);
+    expect(block).toContain('var(--action-paint-call)');
+    expect(block).toContain('border-radius: var(--action-control-radius)');
     expect(topOf('.seat__bounty')).toBeGreaterThanOrEqual(-28);
     expect(css).not.toContain('.seat__bounty-target');
     const seat = read('src/components/table/SeatSlot.tsx');

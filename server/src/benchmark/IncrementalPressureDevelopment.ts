@@ -218,6 +218,12 @@ export const PRESSURE_PACKAGE_POPULATION: Plo4AblationPopulation = Object.freeze
 });
 export const ADDITIONAL_DEVELOPMENT_SEEDS = Object.freeze([27401101, 27402203, 27403307]);
 export const ADDITIONAL_RESERVED_HOLDOUT_SEEDS = Object.freeze([28401109, 28402231, 28403347]);
+/** Declaration only, never authority to register or deal: the pressure-package
+ * targets' reserved holdout set after family 284 went to riverPositionDefense
+ * (owner approval 2026-11-09). Registration still needs its own approval. */
+export const PRESSURE_PACKAGE_RESERVED_HOLDOUT_SEEDS = Object.freeze([
+  28501109, 28502231, 28503347,
+]);
 export const INCREMENTAL_DEVELOPMENT_DESIGN = Object.freeze({
   version: 'incremental-pressure-development-v1',
   state: 'development_only',
@@ -258,6 +264,13 @@ export function incrementalDevelopmentDesign(target: IncrementalTarget) {
           ? 'riverBluffCheckRaise held true in both arms; only multiwayRiverBluffCheckRaise differs'
           : 'Only smallPotNearNutRiverValue differs; NLH unsupported',
     };
+  if (target === 'river_position_defense')
+    // Family 283's seeds were dealt by provider run 42703327017; the approved
+    // second family (284) uses the previously declared 284 reserved set.
+    return {
+      ...INCREMENTAL_DEVELOPMENT_DESIGN,
+      reservedHoldoutSeeds: ADDITIONAL_RESERVED_HOLDOUT_SEEDS,
+    };
   if (target !== 'pressure_package' && target !== 'barrel_continuation_outlook')
     return INCREMENTAL_DEVELOPMENT_DESIGN;
   return {
@@ -267,7 +280,7 @@ export function incrementalDevelopmentDesign(target: IncrementalTarget) {
         ? 'five-flag-pressure-package-development-v1'
         : 'barrel-continuation-development-v1',
     developmentSeeds: ADDITIONAL_DEVELOPMENT_SEEDS,
-    reservedHoldoutSeeds: ADDITIONAL_RESERVED_HOLDOUT_SEEDS,
+    reservedHoldoutSeeds: PRESSURE_PACKAGE_RESERVED_HOLDOUT_SEEDS,
     warmSeed: 27407777,
     population:
       target === 'pressure_package'
@@ -442,6 +455,7 @@ export function assertSeparateRiverSeedSeparation(): void {
   const oldReserved = [
     ...INCREMENTAL_RESERVED_HOLDOUT_SEEDS,
     ...ADDITIONAL_RESERVED_HOLDOUT_SEEDS,
+    ...PRESSURE_PACKAGE_RESERVED_HOLDOUT_SEEDS,
     ...V53_PRESSURE_RESERVED_HOLDOUT_SEEDS,
     ...PLO6_V24_DEVELOPMENT_DESIGN.reservedHeldoutSeeds,
     53901101,

@@ -16,6 +16,7 @@ import { watchBbjMini, type BbjMiniSnapshot, type BbjMiniReadOutcome } from '../
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useToast } from '../components/common/Toast';
 import './BadBeatJackpotPage.css';
+import { jackpotChips, jackpotPercent } from '../utils/jackpotExact';
 /* The Bad Beat Jackpot | Mini pill pair (.bbj-modal__tiers) is styled with the
    popup; the page uses the same pair for its winners list. */
 import '../components/bbj/BBJInfoModal.css';
@@ -582,8 +583,8 @@ export default function BadBeatJackpotPage() {
     if (!pageMini.enabled) return 'Off';
     const payable = pageMini.tiers.filter((t) => t.enabled && t.payable).map((t) => t.amount);
     if (payable.length === 0) return 'Paused';
-    const lo = Math.trunc(Math.min(...payable)).toLocaleString();
-    const hi = Math.trunc(Math.max(...payable)).toLocaleString();
+    const lo = jackpotChips(Math.min(...payable));
+    const hi = jackpotChips(Math.max(...payable));
     return lo === hi ? `${lo} Chips` : `${lo} - ${hi} Chips`;
   })();
   const mainBalance = jackpot?.main_balance || 0;
@@ -600,8 +601,8 @@ export default function BadBeatJackpotPage() {
           className="bbj-clubbuttons-hero"
           badge="BBJ"
           eyebrow="Bad Beat Jackpot"
-          value={(jackpot?.main_balance || 0).toLocaleString()}
-          valueLabel={`Bad Beat Jackpot ${(jackpot?.main_balance || 0).toLocaleString()} Chips`}
+          value={jackpotChips(jackpot?.main_balance)}
+          valueLabel={`Bad Beat Jackpot ${jackpotChips(jackpot?.main_balance)} Chips`}
           label="Main Jackpot"
           dataState={justUpdated ? 'updating' : 'loaded'}
         />
@@ -648,11 +649,10 @@ export default function BadBeatJackpotPage() {
               <div className="bbj-page__pivot">
                 <div className="bbj-page__row">
                   <span className="bbj-page__row-label sc-ink--blue">
-                    Approaching{' '}
-                    {Math.round(allocationPolicy.pivotThreshold).toLocaleString('en-US')}
+                    Approaching {jackpotChips(allocationPolicy.pivotThreshold)}
                   </span>
                   <span className="bbj-page__row-value sc-ink--silver">
-                    {Math.round(pivotPct)}%
+                    {jackpotPercent(pivotPct)}%
                   </span>
                 </div>
                 <div className="bbj-page__meter" aria-hidden="true">
@@ -666,10 +666,10 @@ export default function BadBeatJackpotPage() {
                   promotions, so the jackpot keeps growing and grows more slowly.
                   The percentages are the policy's, never typed beside it. */}
                 <p className="sc-copy bbj-page__row-note sc-ink--muted">
-                  At {Math.round(allocationPolicy.pivotThreshold).toLocaleString('en-US')} Chips,
-                  Each Hand Starts Sending {Math.round(allocationPolicy.pivotMain * 100)}% Of Its
-                  Jackpot Drop Here Instead Of {Math.round(allocationPolicy.standardMain * 100)}%,
-                  And {Math.round(allocationPolicy.pivotPromo * 100)}% To Club Promotions. The
+                  At {jackpotChips(allocationPolicy.pivotThreshold)} Chips, Each Hand Starts Sending{' '}
+                  {jackpotPercent(allocationPolicy.pivotMain * 100)}% Of Its Jackpot Drop Here
+                  Instead Of {jackpotPercent(allocationPolicy.standardMain * 100)}%, And{' '}
+                  {jackpotPercent(allocationPolicy.pivotPromo * 100)}% To Club Promotions. The
                   Jackpot Keeps Growing, More Slowly.
                 </p>
               </div>
@@ -680,12 +680,12 @@ export default function BadBeatJackpotPage() {
             <div className="bbj-page__row-line">
               <span className="bbj-page__row-label sc-ink--blue">Backup Pool</span>
               <span className="bbj-page__row-value sc-ink--silver">
-                {(jackpot?.backup_balance || 0).toLocaleString()} Chips
+                {jackpotChips(jackpot?.backup_balance)} Chips
               </span>
             </div>
             <span className="bbj-page__row-sub sc-ink--muted">
               Funds The Mini Jackpot
-              {pageMini ? ` - ${pageMini.reserveFloor.toLocaleString()} Floor` : ''}
+              {pageMini ? ` - ${jackpotChips(pageMini.reserveFloor)} Floor` : ''}
             </span>
           </div>
           <div className="bbj-page__row bbj-page__row--stacked">
@@ -719,7 +719,7 @@ export default function BadBeatJackpotPage() {
           <div className="bbj-page__row">
             <span className="bbj-page__row-label sc-ink--blue">Total Collected</span>
             <span className="bbj-page__row-value sc-ink--silver">
-              {(poolFacts?.chips || 0).toLocaleString()} Chips
+              {jackpotChips(poolFacts?.chips)} Chips
             </span>
           </div>
           {playerContribution > 0 && (
@@ -727,7 +727,7 @@ export default function BadBeatJackpotPage() {
               <div className="bbj-page__row-line">
                 <span className="bbj-page__row-label sc-ink--blue">Your Contribution (90D)</span>
                 <span className="bbj-page__row-value sc-ink--green">
-                  {Math.round(playerContribution).toLocaleString()} Chips
+                  {jackpotChips(playerContribution)} Chips
                 </span>
               </div>
               <span className="bbj-page__row-sub sc-ink--muted">
@@ -744,15 +744,14 @@ export default function BadBeatJackpotPage() {
               <div className="bbj-page__row-line">
                 <span className="bbj-page__row-label sc-ink--blue">The Promo Slice</span>
                 <span className="bbj-page__row-value sc-ink--silver">
-                  {Math.round(promoFacts.purseAvailable).toLocaleString()} Chips
+                  {jackpotChips(promoFacts.purseAvailable)} Chips
                 </span>
               </div>
               <p className="sc-copy bbj-page__row-note">
                 Every Raked Hand Sends {promoFacts.observedRatePct.toFixed(1)}% To Promo -{' '}
-                {Math.round(promoFacts.contributedAllTime).toLocaleString()} Chips So Far. It Does
-                Not Sit In This Pool: It Is Swept To{' '}
-                {promoFacts.purseKind === 'union' ? 'The Union' : 'The Club'} Promo Wallet, Which
-                Holds {Math.round(promoFacts.purseAvailable).toLocaleString()} Chips Right Now.
+                {jackpotChips(promoFacts.contributedAllTime)} Chips So Far. It Does Not Sit In This
+                Pool: It Is Swept To {promoFacts.purseKind === 'union' ? 'The Union' : 'The Club'}{' '}
+                Promo Wallet, Which Holds {jackpotChips(promoFacts.purseAvailable)} Chips Right Now.
               </p>
               <p className="sc-copy bbj-page__row-note sc-ink--muted">
                 Promo Is Paid Out Two Ways: An Owner Sends It From The Wallet Page, And Leaderboards

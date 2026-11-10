@@ -589,6 +589,38 @@ describe('the clock, the time bank and a horse', () => {
     expect(t.released).toContainEqual({ playerId: current.user_id, why: 'normal' });
   });
 
+  it('HIT AND RUN: a blinded-off seat with no socket anywhere is folded on its turn at once, never by the clock', async () => {
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+    });
+    const formed = formedHand(3, 2310);
+    let asked: readonly string[] = [];
+    let owed = new Set<string>();
+    const t = buildHost(formed, [100, 100, 100], {
+      deps: {
+        sleep: () => Promise.resolve(),
+        // Nobody is connected: the confirmed leaver went away (BUG-7C1347FF).
+        isConnected: () => false,
+        blindOffPlayers: async (poolSessionIds: readonly string[]) => {
+          asked = poolSessionIds;
+          return owed;
+        },
+      },
+    });
+    // The first seat to act owes the blind: it is the one being blinded off.
+    owed = new Set([formed.players.find((id) => id !== formed.sb && id !== formed.bb)!]);
+    await t.host.start();
+    await flush();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await flush();
+    expect(asked.length).toBe(3);
+    const [leaver] = [...owed];
+    const seat = t.host.peekState()!.players.find((p) => p.user_id === leaver)!;
+    expect(seat.is_folded).toBe(true);
+    // Folded well inside the 15 s turn clock, with no time bank and no client.
+    expect(t.hub.frames.some((f) => f.payload.type === 'TIME_BANK_ACTIVATED')).toBe(false);
+  });
+
   it('a stale action context from another turn is refused', async () => {
     const formed = formedHand(3, 2350);
     const t = buildHost(formed, [100, 100, 100]);

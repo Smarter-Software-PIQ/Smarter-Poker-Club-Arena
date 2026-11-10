@@ -44,8 +44,8 @@ import { getAvatarWithFallback } from '../../utils/avatarGenerator';
 import { titleCase } from '../../utils/handReplay';
 import { reportError } from '../../utils/errorReporter';
 import './BBJRecentHits.css';
-import { compactChips } from '../../utils/format';
-import { gameTypeLabel, money, stamp } from '../../utils/handFormat';
+import { jackpotChips, jackpotSplit, jackpotTotalAtPercent } from '../../utils/jackpotExact';
+import { gameTypeLabel, stamp } from '../../utils/handFormat';
 
 export interface BBJRecentHitsProps {
   poolId: string | null;
@@ -482,7 +482,7 @@ export function BBJRecentHits({
     // A stakes tier has to be assumed to show any figure at all; Small (40% of
     // the pool) is the middle of the published ladder. While the pool is still
     // empty there is no honest figure, so the row names the share instead.
-    const examplePool = poolAmount > 0 ? (poolAmount * 40) / 100 : 0;
+    const examplePool = poolAmount > 0 ? jackpotTotalAtPercent(poolAmount, 40) : 0;
     return (
       <div className="bbj-hits" data-initial-layout="settled">
         {/* NOT "Last 3 Bad Beat Jackpot Winners". That is a factual claim that
@@ -528,7 +528,9 @@ export function BBJRecentHits({
             </div>
             <div className="bbj-hits__right">
               <span className="bbj-hits__amt">
-                {examplePool > 0 ? `+ ${money(examplePool * ex.share, 0)}` : 'Bad Beat Share'}
+                {examplePool > 0
+                  ? `+ ${jackpotChips(jackpotSplit(examplePool, { loser: ex.share, winner: 0 }).loser)}`
+                  : 'Bad Beat Share'}
               </span>
               <span className="bbj-hits__when">{ex.dateStr}</span>
             </div>
@@ -560,17 +562,19 @@ export function BBJRecentHits({
         const clickable = !!onOpenHand;
         // The event total includes every recipient. Never substitute one player's
         // share or derive historical totals from today's payout percentages.
+        // Both figures are the STORED amounts to the cent (Dan 2026-11-09): a
+        // 5,022.37 payout read "5K" here and the winner's 2,511.18 read "+2.5K".
         const amount =
           hit.total_payout == null || String(hit.total_payout).trim() === ''
             ? NaN
             : Number(hit.total_payout);
         const amountLabel =
-          Number.isFinite(amount) && amount >= 0 ? compactChips(amount) : 'Unavailable';
+          Number.isFinite(amount) && amount >= 0 ? jackpotChips(amount) : 'Unavailable';
         const share =
           hit.bad_beat_amount == null || String(hit.bad_beat_amount).trim() === ''
             ? NaN
             : Number(hit.bad_beat_amount);
-        const shareLabel = Number.isFinite(share) && share >= 0 ? `+${compactChips(share)}` : null;
+        const shareLabel = Number.isFinite(share) && share >= 0 ? `+${jackpotChips(share)}` : null;
         const gameType = gameTypeLabel(hit.game_variant);
 
         return (

@@ -34,6 +34,20 @@ describe('Table Studio gameplay preview avatars', () => {
     ).toEqual(avatarUrls);
   });
 
+  it('keeps the hand tab, seat bounties and queued actions inside the selected control theme', () => {
+    const { container } = render(
+      <TableStudioGameplayPreview
+        selection={{ ...SELECTION, button_id: 'gray-d-gear' }}
+        avatarUrls={[]}
+        finalTable={false}
+      />
+    );
+    const theme = container.querySelector('[data-button-theme="gray-d-gear"]');
+    expect(theme?.querySelector('.studio-game-preview__card-tab')).toHaveTextContent('8♥');
+    expect(theme?.querySelectorAll('.studio-game-preview__bounty')).toHaveLength(6);
+    expect(theme?.querySelector('.studio-game-preview__queue')).toHaveTextContent('✓ Call 300');
+  });
+
   it('replaces a rejected portrait with the neutral seat silhouette', () => {
     const { container } = render(
       <TableStudioGameplayPreview

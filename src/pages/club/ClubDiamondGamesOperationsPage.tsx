@@ -431,7 +431,11 @@ export default function ClubDiamondGamesOperationsPage() {
             label="Paid Back"
             value={pct(metrics?.realized_rtp_lifetime)}
             ink="silver"
-            meta={`Built To Pay ${pct(designedReturn(game, metrics?.tables))}`}
+            meta={
+              game === 'crash'
+                ? 'Return Depends On Cash-Out Target'
+                : `Built To Pay ${pct(designedReturn(game, metrics?.tables))}`
+            }
           />
           <Row
             label="House Take"
@@ -535,10 +539,12 @@ export default function ClubDiamondGamesOperationsPage() {
           ))}
         </div>
         <p className="sc-copy">
-          Paid Back Is Chips Paid Out Of Chips Taken In, Next To The{' '}
-          {pct(designedReturn(game, metrics?.tables))} The Game Is Built To Pay. A Short Window
-          Swings Far From It; Review Highlights Activity That Needs An Operator Check. Intake And
-          Paid Chips Come From The Settled Game Records.
+          Paid Back Is Chips Paid Out Of Chips Taken In.{' '}
+          {game === 'crash'
+            ? 'Crash Returns Depend On The Cash-Out Target.'
+            : `Designed Return Is ${pct(designedReturn(game, metrics?.tables))}.`}{' '}
+          A Short Window Swings Far From It; Review Highlights Activity That Needs An Operator
+          Check. Intake And Paid Chips Come From The Settled Game Records.
         </p>
         {game === 'plinko' && metrics?.tables?.length ? (
           <div className={`${styles.rows} ${styles.rowsCompact}`}>

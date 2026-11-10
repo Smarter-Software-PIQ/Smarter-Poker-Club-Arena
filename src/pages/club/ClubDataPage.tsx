@@ -1,3 +1,4 @@
+import { unionEcoRows, unionEcoComponents } from '../../utils/unionEco';
 import { usePlayerPreference } from '../../hooks/usePlayerPreference';
 /**
  * CLUB DATA
@@ -3568,7 +3569,12 @@ export default function ClubDataPage() {
                       ],
                       ['Player Win/Loss', latestInvoice.breakdown.players_won],
                       ['Settled In Chips', latestInvoice.breakdown.settled_in_chips],
-                      ['ECO Adjustment', latestInvoice.breakdown.eco_amount],
+                      ['Combined ECO Adjustment', latestInvoice.breakdown.eco_amount],
+                      ...unionEcoRows(latestInvoice.breakdown),
+                      ...(unionEcoComponents(latestInvoice.breakdown) || []).map((eco) => [
+                        `${eco.activity === 'cash' ? 'Cash' : 'Tournament'} ECO Base (${(eco.rate * 100).toFixed(1)}%)`,
+                        eco.base,
+                      ]),
                       ['Payments Received', latestInvoice.breakdown.presettled],
                     ].map(([label, value]) => (
                       <div className={styles.dataRow} key={String(label)}>
@@ -3576,7 +3582,9 @@ export default function ClubDataPage() {
                         {/* money(Number('n/a')) is NaN, and NaN is falsy, so a corrupt
                           line item printed as a real zero. Show that it is missing. */}
                         <span className={`sc-ink--silver ${styles.dataValue}`}>
-                          {Number.isFinite(Number(value)) ? money(Number(value)) : NO_VALUE}
+                          {value !== null && value !== undefined && Number.isFinite(Number(value))
+                            ? money(Number(value))
+                            : NO_VALUE}
                         </span>
                       </div>
                     ))}

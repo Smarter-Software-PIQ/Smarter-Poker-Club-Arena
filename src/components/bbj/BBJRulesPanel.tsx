@@ -31,7 +31,7 @@ import {
 import { BBJ_MAIN_SPLIT } from '../../config/RakeConfig';
 import type { BbjMiniSnapshot } from '../../lib/bbjMiniFeed';
 import { SpadeConsole } from '../console/SpadeConsole';
-import { compactChips } from '../../utils/format';
+import { jackpotChips, jackpotSplit, jackpotTotalAtPercent } from '../../utils/jackpotExact';
 import './BBJRulesPanel.css';
 
 /** Stakes tiers as the SERVER pays them (server/src/config/RakeConfig.ts). */
@@ -84,9 +84,8 @@ export interface BBJRulesPanelProps {
   mini?: BbjMiniSnapshot | null;
 }
 
-function chips(n: number): string {
-  return Math.round(n).toLocaleString('en-US');
-}
+/* To the cent, never rounded (Dan 2026-11-09, utils/jackpotExact). */
+const chips = jackpotChips;
 
 type RulesTab = 'qualifying' | 'payout' | 'mini';
 
@@ -101,7 +100,7 @@ export function BBJRulesPanel({ poolAmount = 0, mini = null }: BBJRulesPanelProp
       className="bbj-rules"
       eyebrow="How It Pays"
       title="Jackpot Rules"
-      pill={poolAmount > 0 ? compactChips(poolAmount) : 'Rules'}
+      pill={poolAmount > 0 ? jackpotChips(poolAmount) : 'Rules'}
       pillInk={poolAmount > 0 ? 'gold' : 'blue'}
       foot="foot"
     >
@@ -231,7 +230,7 @@ export function BBJRulesPanel({ poolAmount = 0, mini = null }: BBJRulesPanelProp
                     <td className="bbj-rules__money">
                       {chips(t.amount)}
                       <span className="bbj-rules__money-sub">
-                        Bad Beat {chips(t.amount * BBJ_MINI_SPLIT.loser)}
+                        Bad Beat {chips(jackpotSplit(t.amount, BBJ_MINI_SPLIT).loser)}
                       </span>
                     </td>
                     <td className="bbj-rules__pct">
@@ -245,7 +244,7 @@ export function BBJRulesPanel({ poolAmount = 0, mini = null }: BBJRulesPanelProp
 
           <ul className="bbj-rules__list">
             {/* The percentages come from the same constant as the figure in
-                the table above (`chips(t.amount * BBJ_MINI_SPLIT.loser)`).
+                the table above (`jackpotSplit(t.amount, BBJ_MINI_SPLIT).loser`).
                 They were typed here as "50% ... 25% ... 25%", so retuning the
                 split would have left this line describing the old one while
                 the money beside it moved. */}
@@ -346,7 +345,7 @@ export function BBJRulesPanel({ poolAmount = 0, mini = null }: BBJRulesPanelProp
             <tbody>
               {PAYOUT_TIERS.map((t) => {
                 const pct = getBBJPayoutPercentForBB(t.sampleBB);
-                const total = (poolAmount * pct) / 100;
+                const total = jackpotTotalAtPercent(poolAmount, pct);
                 return (
                   <tr key={t.label}>
                     <td>
@@ -361,7 +360,7 @@ export function BBJRulesPanel({ poolAmount = 0, mini = null }: BBJRulesPanelProp
                             bare 0.5 - the same reasoning as the mini's row
                             above it. */}
                         <span className="bbj-rules__money-sub">
-                          Bad Beat {chips(total * BBJ_MAIN_SPLIT.loser)}
+                          Bad Beat {chips(jackpotSplit(total, BBJ_MAIN_SPLIT).loser)}
                         </span>
                       </td>
                     )}

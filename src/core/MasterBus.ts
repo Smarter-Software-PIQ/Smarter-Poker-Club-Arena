@@ -763,8 +763,8 @@ export interface BusPayloadMap {
   };
   HEADS_UP_SWITCH: {
     tournamentId: string;
-    player1: { userId: string; username: string; chips: number };
-    player2: { userId: string; username: string; chips: number };
+    player1: { userId: string; username: string; chips: number; avatar?: string };
+    player2: { userId: string; username: string; chips: number; avatar?: string };
   };
   // Run It Twice event payloads
   RIT_OFFERED: {

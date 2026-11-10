@@ -41,36 +41,7 @@ describe('player plates stay readable across the complete responsive cascade', (
 });
 
 describe('Diamond Spins data and actions own separate layout space', () => {
-  const css = read('src/components/wheel/WheelCabinet.module.css');
-  it('never reserves a fixed minimum action width at any breakpoint', () => {
-    for (const body of rules(css, '.dashboard')) {
-      const columns = body.match(/grid-template-columns:\s*([^;]+)/);
-      if (columns) {
-        expect(columns[1]).toMatch(/^minmax\(0, 1fr\)( minmax\(0, 310px\))?$/);
-      }
-    }
-    for (const body of rules(css, '.actions button')) {
-      const size = body.match(/font-size:\s*([\d.]+)px/);
-      if (size) expect(Number(size[1])).toBeGreaterThanOrEqual(18);
-    }
-  });
-  it('keeps complete action plates and slices small-control corners beyond their chamfers', () => {
-    const action = rules(css, '.actions button')[0];
-    expect(action).toMatch(/background-size:\s*contain/);
-    expect(action).not.toMatch(/clip-path/);
-    expect(css).not.toContain('wheel-matte-controls-v1');
-    expect(css).not.toContain('shark-panel-v1/button-');
-    for (const selector of ['.entry input', '.presets button']) {
-      expect(rules(css, selector)[0]).toMatch(/260 fill \/ 7px/);
-    }
-    for (const name of ['frame', 'silver', 'blue']) {
-      const png = readFileSync(`public/assets/diamond-spins/controls-clean-v2/${name}.png`);
-      expect(png.readUInt32BE(16)).toBeGreaterThan(2000);
-      expect(png.readUInt32BE(20)).toBeGreaterThan(700);
-      expect(png[25]).toBe(6); // RGBA, preserving the generated exterior transparency.
-    }
-  });
-  it('preserves live balances, explicit entry and separate Run/Spin controls', () => {
+  it('preserves live balances, explicit entry and a single paid action', () => {
     let stake = 0;
     render(
       <WheelCabinet
@@ -80,26 +51,37 @@ describe('Diamond Spins data and actions own separate layout space', () => {
           { label: 'Diamonds', value: '471K' },
           { label: 'Club Chips', value: '2.6K' },
         ]}
-        setup={
+        entry={
           <WheelEntry
             value={100}
+            availableDiamonds={10000}
             disabled={false}
             onChange={(value) => {
               stake = value;
             }}
           />
         }
-        secondary={{ label: 'Run Off', onClick: () => {} }}
         primary={{ label: 'Spin 100', disabled: true, onClick: () => {} }}
       />
     );
     const list = screen.getByText('471K').closest('dl')!;
     expect(list.textContent).toContain('471K');
     expect(list.parentElement).toBe(
-      screen.getByRole('button', { name: 'Run Off' }).parentElement?.parentElement
+      screen.getByRole('button', { name: 'Spin 100' }).parentElement?.parentElement
     );
     expect(screen.getByRole('button', { name: 'Spin 100' })).toBeDisabled();
+    // jsdom does not implement showModal. Keyboard and modal activation run in Chromium.
+    screen.getByRole('dialog', { hidden: true }).setAttribute('open', '');
     fireEvent.change(screen.getByLabelText('Diamonds To Spin'), { target: { value: '375' } });
     expect(stake).toBe(375);
+    fireEvent.click(screen.getByRole('button', { name: 'Max' }));
+    expect(stake).toBe(10000);
+    expect(screen.getByLabelText('Diamonds To Spin')).toHaveAccessibleDescription(
+      'Available: 10,000'
+    );
+    expect(
+      screen.getByRole('heading', { name: 'Diamond Spins' }).querySelector('img')
+    ).toHaveAttribute('src', expect.stringMatching(/diamond-spins-badge\.webp$/));
+    expect(screen.queryByRole('button', { name: /Run Off|Auto Spin/i })).toBeNull();
   });
 });

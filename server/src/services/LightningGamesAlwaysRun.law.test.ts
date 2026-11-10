@@ -114,6 +114,57 @@ describe('Lightning: no cap and no clock; horses start only a few games, people 
     ).toBe(false);
   });
 
+  it('the original exit can retain demand without inventing a playing human', () => {
+    const demand = {
+      game_id: STARTED_BY_PEOPLE,
+      event_id: '00000000-0000-4000-8000-000000000001',
+      continues: true,
+      wind_down: false,
+    } as const;
+    for (const table of byPeople) {
+      expect(
+        horseUnionCashTableAllowed(
+          table,
+          0,
+          Date.UTC(2026, 10, 10),
+          primary,
+          lightningGames,
+          new Set(),
+          null,
+          false,
+          demand
+        )
+      ).toBe(true);
+      expect(
+        horseUnionCashTableAllowed(
+          table,
+          0,
+          Date.UTC(2026, 10, 10),
+          primary,
+          lightningGames,
+          new Set(),
+          null,
+          false,
+          { ...demand, continues: false, wind_down: true }
+        )
+      ).toBe(false);
+    }
+    const other = { ...byPeople[0], cluster_id: 'other' };
+    expect(
+      horseUnionCashTableAllowed(
+        other,
+        0,
+        Date.UTC(2026, 10, 10),
+        primary,
+        new Set(['other']),
+        new Set(),
+        null,
+        false,
+        demand
+      )
+    ).toBe(false);
+  });
+
   it('a horse, a sitting-out person or a departing person does not start a game', () => {
     const seats = new Map([
       [
@@ -183,7 +234,8 @@ describe('Lightning: no cap and no clock; horses start only a few games, people 
   it('seating, existing offers and the walk-out pass all use the same person read', () => {
     const fleet = readFileSync(new URL('./HorseFleetManager.ts', import.meta.url), 'utf8');
     const rotator = readFileSync(new URL('./HorseSessionRotator.ts', import.meta.url), 'utf8');
-    expect(fleet.split('cashPlanLightningHumanGames\n').length - 1).toBeGreaterThanOrEqual(2);
+    expect(fleet.split('cashPlanLightningHumanGames,').length - 1).toBe(4);
+    expect(fleet.split("supabase.rpc('fn_plo_lightning_post_human_demand')").length - 1).toBe(2);
     expect(fleet.split('lightningGamesWithPlayingHumans(').length - 1).toBe(2);
     expect(rotator).toContain('lightningGamesWithPlayingHumans(');
     expect(rotator).toMatch(/lightningHumanGames,\n\s+cashPlanSecondTables,\n\s+true\n\s+\);/);

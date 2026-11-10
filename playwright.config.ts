@@ -64,15 +64,17 @@ export default defineConfig({
    * 47 route specs skip themselves on /auth today — this is what lets them
    * actually run, without requiring a credential to exist for the rest to work.
    */
-  globalSetup: './tests/e2e/global-setup.ts',
+  // The closed ECO proof uses an existing authorized identity and must never
+  // run the ordinary fixture's onboarding/membership preparation.
+  globalSetup: process.env.E2E_ECO_READONLY === '1' ? undefined : './tests/e2e/global-setup.ts',
   use: {
     baseURL,
     /* Written by globalSetup on every run, so it is never stale and never
        missing. Gitignored — a committed one is a leaked session token. */
-    storageState: 'tests/e2e/.auth/state.json',
-    trace: 'on-first-retry',
-    screenshot: 'only-on-failure',
-    video: 'on-first-retry',
+    storageState: process.env.E2E_ECO_READONLY === '1' ? undefined : 'tests/e2e/.auth/state.json',
+    trace: process.env.E2E_ECO_READONLY === '1' ? 'off' : 'on-first-retry',
+    screenshot: process.env.E2E_ECO_READONLY === '1' ? 'off' : 'only-on-failure',
+    video: process.env.E2E_ECO_READONLY === '1' ? 'off' : 'on-first-retry',
   },
   projects: [
     {

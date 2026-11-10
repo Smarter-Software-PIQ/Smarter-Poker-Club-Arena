@@ -1,0 +1,11 @@
+# Separate Cash And Tournament ECO
+
+Owner-authorized cash and tournament ECO remain separate recorded components at 10% of each activity's own club profit or loss, including horses and all players. The browser reads stored settings, never assumes a missing rate, and reads the immutable server effective accounting boundary after a save and after reload. An explicit ECO edit requires both enabled states and rates; unrelated settings saves omit ECO keys.
+
+Statements, invoice details and CSV consume the version 2 recorded component contract. They reconcile the exact cash/tournament pair, signed independently rounded amounts, terms and record identities, and aggregate totals. Legacy combined invoices retain their original total with separate amounts unavailable. No live recomputation or client calendar arithmetic replaces a persisted invoice.
+
+The matching World Hub adapter calls the authenticated atomic settings patch; its database owner preserves unrelated settings under a row lock. Database installation must precede publishing that adapter. These client changes do not alter payment or engine behavior. Focused parser, service and component regressions cover stored settings, legacy uncertainty, CSV and malformed components. Protected publication and actual live browser proof remain separate acceptance requirements.
+
+The existing scoped Cashier proof route accepts one closed ECO observation profile. It preflights the configured existing identity's actual union-board read permission, with owner controls and stored terms reported separately, then observes one fixed read-only production case against exact served-component provenance. It creates no account or role, skips ordinary mutating fixture preparation, and retains only boolean verdicts and publication hashes. Missing authority or a missing recorded invoice fails closed; it is not live UI success.
+
+The canonical service identity has no automatic Midway authority. The proof reads the real authorization function; a denial stops before invoice data or browser observation. A legitimate board-only observation remains partial and cannot certify owner-settings UI behavior. No account is promoted and no personal owner login is substituted.

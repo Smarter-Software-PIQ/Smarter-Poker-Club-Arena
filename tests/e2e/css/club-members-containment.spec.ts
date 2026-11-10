@@ -5,6 +5,10 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const CSS = readFileSync(resolve(process.cwd(), 'src/pages/ClubMembersPage.css'), 'utf8');
+const ADMIN_CSS = readFileSync(
+  resolve(process.cwd(), 'src/components/admin/ClubMemberManagement.css'),
+  'utf8'
+);
 const PAGE_BAR_CSS = readFileSync(
   resolve(process.cwd(), 'src/components/help/PageHelp.css'),
   'utf8'
@@ -341,6 +345,14 @@ for (const width of [375, 393]) {
  * of the fixed-height row. Every ordinary name, upline, PlayerID, role and
  * status prints in full and inside its row at every phone width. */
 const PHONE_ROWS = [
+  {
+    alias: 'Burls',
+    upline: 'KingFish',
+    role: 'Super Agent',
+    id: '1004278',
+    status: 'Seen 2 Hours Ago',
+    downline: '23.80',
+  },
   { alias: 'PostDealerDelux', role: 'Admin', id: '1004114', status: 'Online' },
   {
     alias: 'CoachTimTheGreat',
@@ -357,60 +369,62 @@ const PHONE_ROWS = [
     downline: '12.3K',
   },
 ];
-for (const width of [320, 360, 375, 393, 430]) {
-  test(`every player row prints its name, upline, PlayerID and status in full at ${width}px`, async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width, height: 812 });
-    const rows = PHONE_ROWS.map(
-      (
-        m
-      ) => `<div class="member-row" role="listitem"><button type="button" class="member-row__open">
+for (const adminLoadsLast of [false, true]) {
+  for (const width of [320, 360, 375, 393, 430, 568, 751, 1024, 1440]) {
+    test(`every player row prints its name, upline, PlayerID and status in full at ${width}px (admin CSS ${adminLoadsLast ? 'after' : 'before'})`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 812 });
+      const rows = PHONE_ROWS.map(
+        (
+          m
+        ) => `<div class="member-row" role="listitem"><button type="button" class="member-row__open">
         <span class="member-avatar"><span>${m.alias[0]}</span></span>
         <span class="member-main"><span class="member-identity"><span class="member-alias">${m.alias}</span>${
           m.upline ? `<span class="member-upline">Upline: ${m.upline}</span>` : ''
         }</span><span class="member-subline">${m.role ? `<span class="member-role">${m.role}</span>` : ''}<span class="member-number">PlayerID: ${m.id}</span><span class="member-seen">${m.status}</span></span>
-        <span class="member-simple-balance"><strong>5.73</strong><span>Fees Generated</span><span>Rakeback 70%</span>${
+        <span class="member-simple-balance"><strong>5.73</strong><span>Fees This Week</span><span>Rakeback 70%</span>${
           m.downline
             ? `<span class="member-simple-balance__downline">Downline ${m.downline}</span>`
             : ''
         }<strong class="member-simple-balance__winloss">-1.2K</strong></span></span>
         <span class="member-chevron" aria-hidden="true">&rsaquo;</span></button></div>`
-    ).join('');
-    await page.setContent(`
-      <style>${CSS}
+      ).join('');
+      await page.setContent(`
+      <style>${adminLoadsLast ? CSS + ADMIN_CSS : ADMIN_CSS + CSS}
         *, *::before, *::after { box-sizing: border-box; }
-        html, body { margin: 0; background: #000; color: #fff; }
+        html, body { margin: 0; background: #000; color: #fff; font-family: sans-serif; line-height: 1.6; }
         .application-shell { width: calc(100% - 32px); margin: auto; }
       </style>
       <main class="application-shell"><section class="club-members-page members-simple">
         <section class="members-list" role="list">${rows}</section>
       </section></main>`);
-    const problems = await page.evaluate(() => {
-      const found: string[] = [];
-      document.querySelectorAll('.member-row').forEach((row) => {
-        const r = row.getBoundingClientRect();
-        row
-          .querySelectorAll(
-            '.member-alias, .member-upline, .member-number, .member-role, .member-seen, .member-simple-balance > *'
+      const problems = await page.evaluate(() => {
+        const found: string[] = [];
+        document.querySelectorAll('.member-row').forEach((row) => {
+          const r = row.getBoundingClientRect();
+          row
+            .querySelectorAll(
+              '.member-alias, .member-upline, .member-number, .member-role, .member-seen, .member-simple-balance > *'
+            )
+            .forEach((e) => {
+              const b = e.getBoundingClientRect();
+              if (e.scrollWidth > e.clientWidth + 1) found.push(`clipped: ${e.textContent}`);
+              if (b.top < r.top || b.bottom > r.bottom || b.right > r.right)
+                found.push(`outside its row: ${e.textContent}`);
+            });
+          const alias = row.querySelector('.member-alias')!;
+          if (
+            alias.getBoundingClientRect().height >
+            parseFloat(getComputedStyle(alias).fontSize) * 1.6
           )
-          .forEach((e) => {
-            const b = e.getBoundingClientRect();
-            if (e.scrollWidth > e.clientWidth + 1) found.push(`clipped: ${e.textContent}`);
-            if (b.top < r.top || b.bottom > r.bottom || b.right > r.right)
-              found.push(`outside its row: ${e.textContent}`);
-          });
-        const alias = row.querySelector('.member-alias')!;
-        if (
-          alias.getBoundingClientRect().height >
-          parseFloat(getComputedStyle(alias).fontSize) * 1.6
-        )
-          found.push(`name broke over two lines: ${alias.textContent}`);
+            found.push(`name broke over two lines: ${alias.textContent}`);
+        });
+        if (document.documentElement.scrollWidth > document.documentElement.clientWidth + 1)
+          found.push('page scrolls sideways');
+        return found;
       });
-      if (document.documentElement.scrollWidth > document.documentElement.clientWidth + 1)
-        found.push('page scrolls sideways');
-      return found;
+      expect(problems, `player rows at ${width}px`).toEqual([]);
     });
-    expect(problems, `player rows at ${width}px`).toEqual([]);
-  });
+  }
 }

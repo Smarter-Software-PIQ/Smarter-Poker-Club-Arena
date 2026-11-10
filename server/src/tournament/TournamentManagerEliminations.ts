@@ -9,6 +9,7 @@
  */
 
 import nodeCrypto from 'node:crypto';
+import { tableStateHub } from '../transport/TableStateHub.js';
 import {
   readDurableTerminalRequest,
   adoptDurableTerminalRequest,
@@ -136,6 +137,8 @@ interface CandidateBackedKnockoutEvidence extends PersistedKnockoutEvidence {
   candidateId: string;
   seatId: string;
   seatJoinedAt: string;
+  eliminatedName?: string;
+  eliminatedSeat?: number;
   /**
    * A PLACE IS NOT A BOUNTY (2026-09-10). True when the bust itself is fully
    * proven - accepted zero-stack settlement, matching atomic receipt, the
@@ -3420,6 +3423,16 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         .maybeSingle();
       if (handErr) return defer(`knockout hand #${handNumber} is unreadable`, handErr);
 
+      const victim = Array.isArray(hand?.players)
+        ? hand.players.find(
+            (p: { userId?: string; user_id?: string }) => (p?.userId ?? p?.user_id) === userId
+          )
+        : undefined;
+      const seat = Number(victim?.seat);
+      const presentation = {
+        eliminatedSeat: Number.isInteger(seat) && seat > 0 ? seat : undefined,
+        eliminatedName: victim?.username,
+      };
       const evidence = persistedKnockoutEvidence(settlement, hand, userId);
       if (!evidence.ready) {
         /* A PLACE IS NOT A BOUNTY (2026-09-10).
@@ -3452,6 +3465,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
           seatId,
           seatJoinedAt,
           attribution: { knockerUserId: null, claimants: [], basis: 'none', potIndex: null },
+          ...presentation,
           attributionUnavailable: true,
         };
       }
@@ -3462,6 +3476,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
       this.bountyEvidenceDeferred.delete(userId);
       return {
         ...evidence,
+        ...presentation,
         settledAt: String(atomic?.committed_at ?? ''),
         candidateId,
         seatId,
@@ -3889,6 +3904,24 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         if (row!.mode !== 'mystery_chest' && row!.hand_id === bountyEvidence!.handId)
           verifiedDoorObligationId = String(row!.id);
       }
+      // This is the committed elimination, before an independent bounty or
+      // chest can delay its presentation. Never retry a payment for a UI error.
+      try {
+        tableStateHub.emitEvent(bountyEvidence!.tableId, {
+          type: 'seat_knockout',
+          obligationId: row?.id || `${bountyEvidence!.handId}:${userId}`,
+          handId: bountyEvidence!.handId,
+          tableId: bountyEvidence!.tableId,
+          eliminatedUserId: userId,
+          eliminatedName: bountyEvidence!.eliminatedName,
+          eliminatedSeat: bountyEvidence!.eliminatedSeat,
+          knockerUserId: durableBountyKnocker,
+          shares: durableBountyClaimants,
+          replay_until: Date.now() + 60_000,
+        });
+      } catch (error) {
+        reportError(error, 'Tournament.seat_knockout_delivery_failed');
+      }
       // An `already` row is the replay of that exact generation, not permission
       // to run a place or Bubble payer here.
     } else {
@@ -4006,7 +4039,8 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
             : attribution.claimants.map((claimant) => ({ ...claimant })),
           bountyEvidence.handId,
           bountyMode,
-          verifiedDoorObligationId
+          verifiedDoorObligationId,
+          bountyEvidence.eliminatedSeat
         );
         if (!bountySettled) {
           this.requestUrgentEliminationSweepAfter(TournamentManagerBase.UNRESOLVED_BUST_RETRY_MS);
@@ -4104,7 +4138,8 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
      * verify the claim). Passing it spares the payer a second read of the same
      * row; null keeps the lookup below.
      */
-    knownObligationId: string | null = null
+    knownObligationId: string | null = null,
+    eliminatedSeat?: number
   ): Promise<boolean> {
     // ── MYSTERY PHASE ──────────────────────────────────────────────────────
     // Once the chests are open, this knockout draws one. fn_collect_bounty
@@ -4468,6 +4503,9 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
       // — which is why it works at all today — so this name is the correct one
       // and the only one this path may send.
       await this.broadcast('bounty_collected', {
+        obligationId: settledObligation.id,
+        handId,
+        eliminatedSeat,
         mode: res.mode,
         amount: res.paid_cash,
         addedToHead: res.added_to_head,

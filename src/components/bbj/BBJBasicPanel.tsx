@@ -63,6 +63,7 @@ import { supabase } from '../../lib/supabase';
 import { reportError } from '../../utils/errorReporter';
 import { miniTierForBB, type BbjMiniSnapshot } from '../../lib/bbjMiniFeed';
 import { BBJ_MINI_SPLIT } from '../../config/bbjMini';
+import { jackpotChips, jackpotSplit, jackpotTotalAtPercent } from '../../utils/jackpotExact';
 import './BBJBasicPanel.css';
 
 export interface BBJBasicPanelProps {
@@ -114,9 +115,8 @@ function trimNum(n: number): string {
   return Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
 
-function chips(n: number): string {
-  return Math.round(n).toLocaleString('en-US');
-}
+/* To the cent, never rounded (Dan 2026-11-09, utils/jackpotExact). */
+const chips = jackpotChips;
 
 /**
  * OFFLINE FALLBACK ONLY. Groups the client's published rake schedule by the
@@ -275,9 +275,7 @@ export function BBJMiniBasicPanel({
             <tbody>
               {tiers.map((t) => {
                 const isHere = here?.tierId === t.tierId;
-                const loser = t.amount * BBJ_MINI_SPLIT.loser;
-                const winner = t.amount * BBJ_MINI_SPLIT.winner;
-                const table = t.amount - loser - winner;
+                const { loser, winner, table } = jackpotSplit(t.amount, BBJ_MINI_SPLIT);
                 return (
                   <tr key={t.tierId} className={isHere ? 'is-current' : ''}>
                     <td>
@@ -425,7 +423,7 @@ export function BBJBasicPanel({
           <tbody>
             {tiers.map((t) => {
               const isHere = hlPct !== null && hlPct === t.pct;
-              const total = (poolAmount * t.pct) / 100;
+              const total = jackpotTotalAtPercent(poolAmount, t.pct);
               return (
                 <tr key={t.pct} className={isHere ? 'is-current' : ''}>
                   <td>

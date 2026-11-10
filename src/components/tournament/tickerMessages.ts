@@ -51,7 +51,7 @@
  * is always a parameter. Same shape as overlayAnnouncements and topChrome.
  */
 
-import { formatGameTitle } from '../../utils/formatGameTitle';
+import { formatGameTitle, formatTournamentTitle } from '../../utils/formatGameTitle';
 import { formatPopupText } from '../../utils/popupStyle';
 import { formatBuyInShort } from '../../utils/buyIn';
 import { overlayMessage, type OverlayAnnouncement } from '../../utils/overlayAnnouncements';
@@ -234,13 +234,13 @@ export function startingSoonItem(t: UpcomingTournament): TickerItem {
     flagShort: 'SOON',
     severity: SEVERITY.starting_soon,
     parts: [
-      copy(`${formatGameTitle(t.name)} starts in ${CLOCK_TOKEN}`),
+      copy(`${formatTournamentTitle(t.name)} starts in ${CLOCK_TOKEN}`),
       copy(costField),
       copy(`${t.registered.toLocaleString()} entered`),
     ],
     deadlineMs: t.startsAt,
     windowMs: 5 * 60_000,
-    subject: formatGameTitle(t.name),
+    subject: formatTournamentTitle(t.name),
     registeredByViewer: t.isRegistered,
     // Matches the window the render used to filter on: an event stays on the
     // bar for thirty seconds past its start time, then it is simply running.
@@ -283,11 +283,11 @@ export function registrationClosingItem(
     flag: 'REG CLOSING',
     flagShort: 'REG',
     severity: SEVERITY.registration_closing,
-    parts: [copy(`${formatGameTitle(name)} registration closes in ${CLOCK_TOKEN}`)],
+    parts: [copy(`${formatTournamentTitle(name)} registration closes in ${CLOCK_TOKEN}`)],
     deadlineMs: closesAtMs,
     windowMs: 5 * 60_000,
     expiresAt: closesAtMs,
-    subject: formatGameTitle(name),
+    subject: formatTournamentTitle(name),
     tournamentId,
   });
 }
@@ -309,14 +309,14 @@ export function guaranteeItem(
     severity: SEVERITY.guarantees,
     parts: [
       copy(`${Math.round(guarantee).toLocaleString()} guaranteed`),
-      copy(formatGameTitle(name)),
+      copy(formatTournamentTitle(name)),
       copy(`${Math.round(entered).toLocaleString()} entered`),
       copy(`starts in ${CLOCK_TOKEN}`),
     ],
     deadlineMs: startsAtMs,
     windowMs: 2 * 60 * 60_000,
     expiresAt: startsAtMs,
-    subject: formatGameTitle(name),
+    subject: formatTournamentTitle(name),
     tournamentId,
   });
 }
@@ -336,12 +336,12 @@ export function winnerResultsItem(
     flagShort: 'RESULTS',
     severity: SEVERITY.winner_results,
     parts: [
-      copy(`${formatGameTitle(name)} is complete`),
+      copy(`${formatTournamentTitle(name)} is complete`),
       copy(`${Math.round(prizePool).toLocaleString()} prize pool`),
       copy('results available'),
     ],
     expiresAt: endedAtMs + 10 * 60_000,
-    subject: formatGameTitle(name),
+    subject: formatTournamentTitle(name),
     tournamentId,
   });
 }

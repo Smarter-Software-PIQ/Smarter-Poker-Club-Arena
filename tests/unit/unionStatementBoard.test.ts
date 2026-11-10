@@ -1,3 +1,4 @@
+import { unionEcoSettingsPatch } from '../../src/utils/unionEco';
 import { describe, expect, it } from 'vitest';
 import { parseUnionStatementBoard } from '../../src/utils/unionStatementBoard';
 
@@ -256,4 +257,67 @@ describe('parseUnionStatementBoard', () => {
       /invoice is duplicated/
     );
   });
+});
+
+it('retains historical combined ECO without inventing a zero split', () => {
+  const parsed = parseUnionStatementBoard(board(), 'union-a', '2026-09-14');
+  expect(parsed.clubs[0].eco_components).toBeNull();
+  expect(parsed.totals.cash_eco_amount).toBeNull();
+  expect(parsed.totals.tournament_eco_amount).toBeNull();
+  expect(parsed.history[0].eco_components_complete).toBe(false);
+});
+
+it('validates both original recorded ECO lanes and complete-only totals', () => {
+  const value: any = board();
+  const components = [
+    {
+      activity: 'cash',
+      enabled: true,
+      base_mode: 'club_profit',
+      base: 100.05,
+      rate: 0.1,
+      amount: -10.01,
+      terms_id: '11111111-1111-4111-8111-111111111111',
+      record_id: '22222222-2222-4222-8222-222222222222',
+      status: 'recorded',
+    },
+    {
+      activity: 'tournament',
+      enabled: true,
+      base_mode: 'club_profit',
+      base: -100.05,
+      rate: 0.1,
+      amount: 10.01,
+      terms_id: '11111111-1111-4111-8111-111111111111',
+      record_id: '33333333-3333-4333-8333-333333333333',
+      status: 'recorded',
+    },
+  ];
+  Object.assign(value.clubs[0], { eco_version: 2, eco_components: components });
+  Object.assign(value.totals, {
+    eco_components_complete: true,
+    cash_eco_amount: -10.01,
+    tournament_eco_amount: 10.01,
+  });
+  expect(parseUnionStatementBoard(value, 'union-a', '2026-09-14').totals.cash_eco_amount).toBe(
+    -10.01
+  );
+  value.totals.cash_eco_amount = -10;
+  expect(() => parseUnionStatementBoard(value, 'union-a', '2026-09-14')).toThrow(/ECO/);
+  value.totals.cash_eco_amount = -10.01;
+  components[1].activity = 'cash';
+  expect(() => parseUnionStatementBoard(value, 'union-a', '2026-09-14')).toThrow(/ECO/);
+});
+
+it('requires an explicit complete two-lane settings patch and leaves legacy generic saves untouched', () => {
+  expect(unionEcoSettingsPatch({ eco_cash_rate: 0.1 }, false)).toEqual({});
+  expect(() => unionEcoSettingsPatch({ eco_cash_rate: 0.1 }, true)).toThrow(/Both ECO/);
+  const settings = {
+    eco_cash_enabled: true,
+    eco_cash_rate: 0.1,
+    eco_tournament_enabled: true,
+    eco_tournament_rate: 0.1,
+  };
+  expect(unionEcoSettingsPatch(settings, true)).toEqual(settings);
+  expect(() => unionEcoSettingsPatch({ ...settings, eco_cash_rate: NaN }, true)).toThrow();
 });

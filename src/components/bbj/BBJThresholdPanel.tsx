@@ -38,7 +38,7 @@ import { reportError } from '../../utils/errorReporter';
 import { watchBbjPool } from '../../lib/bbjPoolFeed';
 import { isUUID, resolveClubUUID } from '../../utils/clubIdResolver';
 import { money } from '../../utils/handFormat';
-import { compactChips } from '../../utils/format';
+import { jackpotChips } from '../../utils/jackpotExact';
 import { titleCase } from '../../utils/titleCase';
 import { SpadeConsole } from '../console/SpadeConsole';
 import './BBJThresholdPanel.css';
@@ -211,10 +211,10 @@ export default function BBJThresholdPanel({ clubId: clubParam, canEdit }: Props)
       crest="diamond"
       eyebrow="Bad Beat Jackpot"
       title="Announcements"
-      /* The live pool, so the number an operator picks is not a guess. A
-         browsing figure, so it is compact; the thresholds below are terms and
-         stay exact. */
-      pill={jackpot !== null ? compactChips(jackpot) : 'Live'}
+      /* The live pool, so the number an operator picks is not a guess. To the
+         cent like every jackpot figure (Dan 2026-11-09); it was compacted to
+         "15.3K" beside thresholds that were already exact. */
+      pill={jackpot !== null ? jackpotChips(jackpot) : 'Live'}
       pillInk="gold"
       foot={canEdit ? 'plates' : 'foot'}
       plates={

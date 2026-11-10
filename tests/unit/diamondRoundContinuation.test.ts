@@ -59,6 +59,64 @@ describe('a Diamond game continuation keeps its accepted round', () => {
       expect(() => normaliseCrash({ ...crash, award_id })).toThrow('Award Could Not Be Verified');
     }
   });
+  it('verifies the actual v5 1.61x loss terms and a 15-chip earned guarantee from history', async () => {
+    const raw = {
+      ...crash,
+      game: 'crash',
+      status: 'crashed',
+      bet_diamonds: 1000,
+      bet_chips: 10,
+      diamonds_per_chip: 100,
+      award_id: '5fe71761-b478-4e60-a1de-b6d5c8998b92',
+      bonus: {
+        game: 'crash',
+        base_diamonds: 1000,
+        entry_diamonds: 1000,
+        added_diamonds: 0,
+        total_diamonds: 1000,
+        boost_multiplier: 1,
+      },
+      payout_version: 5,
+      minimum_payout_chips: 5,
+      crash_return_ppm: 1006430,
+      crash_floor_cents: 125,
+      cashout_floor_cents: 126,
+      payout_rules_version: 2,
+      wheel_diamonds_per_chip: 100,
+      wheel_minimum_payout_chips: 15,
+      cap_cents: 2000,
+      growth_k: 0.08,
+      fairness: { ...crash.fairness, crash_cents: 161 },
+      outcome: {
+        ...crash.outcome,
+        status: 'crashed',
+        cashout_cents: null,
+        crash_cents: 161,
+        payout_chips: 15,
+      },
+    };
+    rpc.mockResolvedValue({ data: [{ ...raw, round_id: 'another' }, raw], error: null });
+    const receipt = await DiamondGamesService.crashTerminalReceipt(raw.club_id, raw.round_id);
+    expect(receipt?.outcome?.payout_chips).toBe(15);
+    expect(receipt?.outcome?.crash_cents).toBe(161);
+    expect(rpc).toHaveBeenCalledWith('fn_diamond_game_history', {
+      p_club_id: raw.club_id,
+      p_game: 'crash',
+      p_limit: 100,
+    });
+    rpc.mockResolvedValue({
+      data: [{ ...raw, outcome: { ...raw.outcome, payout_chips: 5 } }],
+      error: null,
+    });
+    await expect(
+      DiamondGamesService.crashTerminalReceipt(raw.club_id, raw.round_id)
+    ).rejects.toThrow('Verified');
+    rpc.mockResolvedValue({ data: [{ ...raw, round_id: 'another' }], error: null });
+    await expect(
+      DiamondGamesService.crashTerminalReceipt(raw.club_id, raw.round_id)
+    ).resolves.toBeNull();
+  });
+
   it('sends the clicked hundredth unchanged to the authenticated cash-out endpoint', async () => {
     rpc.mockResolvedValue({ data: crash, error: null });
     await DiamondGamesService.crashSettle(crash.round_id, true, expectedCrash, 257);

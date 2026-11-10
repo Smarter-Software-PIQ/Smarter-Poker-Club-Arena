@@ -35,6 +35,12 @@ import {
 } from '@/components/table/CardImage';
 
 describe('the catalogue covers exactly the designs that exist', () => {
+  it('offers ten printed backs and honors prior purchases of retired designs', () => {
+    expect(CARD_BACK_CATALOG).toHaveLength(10);
+    expect(hasPurchasedCardBack('diamond', ['dragon'])).toBe(true);
+    expect(hasPurchasedCardBack('neon', ['galaxy'])).toBe(true);
+  });
+
   it('offers every id that has artwork', () => {
     const offered = CARD_BACK_CATALOG.map((d) => d.id).sort();
     expect(offered).toEqual([...CARD_BACK_IDS].sort());

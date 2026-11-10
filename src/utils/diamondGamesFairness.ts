@@ -59,17 +59,16 @@ import { MAX_DIAMOND_SPIN, MIN_DIAMOND_SPIN } from './bonusGameBudget';
 
 const TWO_48 = 281474976710656n;
 
-/** The contract every crash round sealed since 2026-10-12 carries (migration
- * 20261012140447). Rounds sealed under 4 and earlier keep their own rules. */
-export const CRASH_PAYOUT_VERSION = 5;
+/** Contract 6 uses a 2.50× floor and independently priced flight bands. */
+export const CRASH_PAYOUT_VERSION = 6;
 /** The contract that first floored the point (1.10x) and stated its floors on every receipt. */
 export const CRASH_FLOORED_VERSION = 4;
 /** The lowest crash point a round of this contract can seal: 1.00x before
- * contract 4, 1.10x under it, 1.25x from contract 5. Mirrors the GREATEST in
+ * contract 4, 1.10x under it, 1.25x under contract 5 and 2.50x under contract 6. Mirrors the GREATEST in
  * fn_crash_point_cents (contract 4) and fn_crash_point_cents_v5. */
 export function crashPointFloorCents(payoutVersion?: number): number {
   const v = payoutVersion ?? 0;
-  return v >= 5 ? 125 : v >= CRASH_FLOORED_VERSION ? 110 : 100;
+  return v >= 6 ? 250 : v >= 5 ? 125 : v >= CRASH_FLOORED_VERSION ? 110 : 100;
 }
 /** The first multiplier a round of this contract may cash out at: 1.01x before
  * contract 4, 1.11x under it, 1.26x from contract 5. Mirrors fn_crash_decide and
@@ -152,6 +151,7 @@ export function crashReturnPpm(
   minimumPayoutChips: number,
   payoutVersion?: number
 ): number {
+  if ((payoutVersion ?? 0) >= 6) throw new Error('This Crash Contract Has Target-Specific Returns');
   return (payoutVersion ?? 0) >= 5
     ? crashReturnPpmV5(betChips, minimumPayoutChips)
     : CRASH_V4_RETURN_PPM;
@@ -233,6 +233,39 @@ export function crashPointCentsFromRoll(
   return cents < BigInt(pointFloorCents) ? pointFloorCents : Number(cents);
 }
 
+const FLIGHT_BANDS = [
+  { start: 0, end: 1500, low: 250, high: 299 },
+  { start: 1500, end: 3500, low: 300, high: 499 },
+  { start: 3500, end: 6500, low: 500, high: 999 },
+  { start: 6500, end: 8500, low: 1000, high: 1499 },
+  { start: 8500, end: 10000, low: 1500, high: 2000 },
+] as const;
+
+/** Contract 6 assigns the signed 48-bit draw to one of 10,000 ordered tickets. */
+export function crashFlightFromRoll(roll: number | bigint): number {
+  const raw = BigInt(roll);
+  if (raw < 0n || raw >= TWO_48) throw new Error('Invalid Crash Outcome');
+  const ticket = Number(((TWO_48 - 1n - raw) * 10000n) / TWO_48);
+  const band = FLIGHT_BANDS.find(({ end }) => ticket < end)!;
+  return (
+    band.low +
+    Math.floor(((ticket - band.start) * (band.high - band.low + 1)) / (band.end - band.start))
+  );
+}
+
+export function crashFlightReach(target: number): number {
+  if (!Number.isSafeInteger(target)) throw new Error('Invalid Flight Target');
+  const band = FLIGHT_BANDS.find(({ high }) => target <= high);
+  if (!band) return 0;
+  const first =
+    band.start +
+    Math.max(
+      0,
+      Math.ceil(((target - band.low) * (band.end - band.start)) / (band.high - band.low + 1))
+    );
+  return Number(TWO_48 - (BigInt(first) * TWO_48 + 9999n) / 10000n) / Number(TWO_48);
+}
+
 /** The sealed crash point of a round under its own contract: floor and return both read from the version. */
 export function crashPointCentsForContract(
   roll: number | bigint,
@@ -240,6 +273,7 @@ export function crashPointCentsForContract(
   minimumPayoutChips: number,
   payoutVersion?: number
 ): number {
+  if ((payoutVersion ?? 0) >= 6) return crashFlightFromRoll(roll);
   return crashPointCentsFromRoll(
     roll,
     betChips,
@@ -340,13 +374,15 @@ export const crashInstantChance = (
   minimumPayoutChips: number,
   payoutVersion?: number
 ): number =>
-  crashMissChance(
-    crashCashoutFloorCents(payoutVersion),
-    betChips,
-    minimumPayoutChips,
-    crashPointFloorCents(payoutVersion),
-    crashReturnPpm(betChips, minimumPayoutChips, payoutVersion)
-  );
+  (payoutVersion ?? 0) >= 6
+    ? 0
+    : crashMissChance(
+        crashCashoutFloorCents(payoutVersion),
+        betChips,
+        minimumPayoutChips,
+        crashPointFloorCents(payoutVersion),
+        crashReturnPpm(betChips, minimumPayoutChips, payoutVersion)
+      );
 
 /**
  * THE AVERAGE CRASH (Dan, 2026-10-12: "MAKE SURE THAT PLAYERS ARE AWARE THAT
@@ -378,6 +414,11 @@ export function crashAverageMultiplier(
     throw new Error('Invalid Crash Outcome');
   const floor = crashPointFloorCents(payoutVersion);
   if (capCents <= floor) return capCents / 100;
+  if ((payoutVersion ?? 0) >= 6) {
+    let mean = Math.min(capCents, 250);
+    for (let t = 251; t <= Math.min(capCents, CRASH_CAP_CENTS); t++) mean += crashFlightReach(t);
+    return mean / 100;
+  }
   const ret = crashReturnPpm(betChips, minimumPayoutChips, payoutVersion);
   // The count depends on M / B, the return, the floor and the cap alone, and a
   // page asks for the same terms on every render: one walk per set of terms.
@@ -487,6 +528,7 @@ export function awardInstantCrashChances(
 ): { most: number; least: number } {
   if (!Number.isFinite(diamondsPerChip) || diamondsPerChip <= 0)
     throw new Error('Invalid Crash Outcome');
+  if (payoutVersion >= 6) return { most: 0, least: 0 };
   let most = 0;
   let least = 1;
   for (let entry = MIN_DIAMOND_SPIN; entry <= MAX_DIAMOND_SPIN; entry++) {
@@ -523,6 +565,10 @@ export function awardAverageCrash(
 ): { low: number; high: number } {
   if (!Number.isFinite(diamondsPerChip) || diamondsPerChip <= 0)
     throw new Error('Invalid Crash Outcome');
+  if (payoutVersion >= 6) {
+    const mean = crashAverageMultiplier(1, 0.5, payoutVersion, capCents);
+    return { low: mean, high: mean };
+  }
   let low = Infinity;
   let high = 0;
   for (let entry = MIN_DIAMOND_SPIN; entry <= MAX_DIAMOND_SPIN; entry++) {

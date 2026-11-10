@@ -45,7 +45,7 @@ function Location() {
   );
 }
 let generation = 0;
-async function showCard() {
+async function showCard(formatKind: 'mtt' | 'spin' = 'spin') {
   render(
     <MemoryRouter initialEntries={['/clubs/home']}>
       <TournamentRankingHost />
@@ -66,7 +66,8 @@ async function showCard() {
         userId: 'hero',
         tournamentId: 'finished-spin',
         finishSequence: String(++generation),
-        isSpin: true,
+        isSpin: formatKind === 'spin',
+        formatKind,
         finishPlace: 3,
         entrants: 3,
         prize: 0,
@@ -107,6 +108,13 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 describe('Spin result Play Again', () => {
+  it('returns an MTT finisher to the tournament lobby without looking for a new seat', async () => {
+    await showCard('mtt');
+    fireEvent.click(screen.getByRole('button', { name: /return to lobby/i }));
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/tournaments'));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(mocks.resolve).not.toHaveBeenCalled();
+  });
   it('opens the same-club, same-stake Spin without purchasing a seat and deduplicates taps', async () => {
     await showCard();
     await act(async () => {

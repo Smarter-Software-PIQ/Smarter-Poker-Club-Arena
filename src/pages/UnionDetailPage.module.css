@@ -771,6 +771,16 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
+.ecoRate {
+  width: 6em;
+  max-width: 100%;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: right;
+}
+
 .settingRow:last-of-type {
   border-bottom: none;
 }

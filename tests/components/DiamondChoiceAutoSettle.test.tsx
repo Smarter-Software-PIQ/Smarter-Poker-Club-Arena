@@ -148,7 +148,6 @@ vi.mock('../../src/services/DiamondWheelService', () => ({
 }));
 vi.mock('../../src/components/games/SealedPrize', () => ({ default: () => null }));
 vi.mock('../../src/components/games/DiamondSpinsTabs', () => ({ default: () => null }));
-vi.mock('../../src/components/games/TodayLine', () => ({ default: () => null }));
 
 const CLUB = '00000000-0000-0000-0000-000000000003';
 const SAVED_KEY = `diamond-spins-pending:player-a:${CLUB}:crossing`;
@@ -250,7 +249,7 @@ const statusLine = (text: string) => spoken().some((line) => line.textContent ==
 const receiptCopy = () =>
   screen.getByRole('dialog').querySelector('p.sc-copy')?.textContent?.trim() ?? '';
 const receiptEyebrow = () =>
-  screen.getByRole('dialog').querySelector('.sc__eyebrow')?.textContent?.trim() ?? '';
+  screen.getByRole('dialog').querySelector('[data-result-label]')?.textContent?.trim() ?? '';
 const settle = async () => {
   for (let i = 0; i < 5; i++)
     await act(async () => {
@@ -421,7 +420,7 @@ describe('a refused ticket is re-dealt and the wager goes again', () => {
     render(<DiamondChoicePage game="mines" />);
     await settle();
     const quotes = backend.state.mock.calls.length;
-    fireEvent.click(screen.getByRole('button', { name: 'Start Round' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pick Tile' }));
     await settle();
     // The refusal spent the entry quote, so the page read it again by itself
     // before sending the wager on the new ticket.
@@ -429,7 +428,7 @@ describe('a refused ticket is re-dealt and the wager goes again', () => {
     expect(backend.start).toHaveBeenCalledTimes(2);
     expect(backend.start.mock.calls[1][0].commitId).toBe(dealt[1].commit_id);
     expect(backend.start.mock.calls[1][0].seed).toBe(backend.start.mock.calls[0][0].seed);
-    expect(screen.getByRole('button', { name: 'Choose A Tile' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Start Round' })).toBeNull();
     await advance(60000);
     expect(backend.start).toHaveBeenCalledTimes(2);
   });
@@ -478,28 +477,31 @@ describe('a won game waits for the player, and starts on the entry they answered
 });
 
 describe('the exit guard holds money in flight, not a won game that cannot start', () => {
-  it('holds a won game this page can start', async () => {
+  it('holds a playable won game beyond the standalone daily limit', async () => {
+    backend.awardState.mockImplementation(async (_club, name: Game, doubled: boolean) =>
+      awardRead(name, doubled, { rounds_today: 501, daily_limit: 500 })
+    );
     render(<DiamondChoicePage game="crossing" />);
     await noOfferToAnswer();
     expect(guardHolds()).toBe(true);
   });
 
-  it.each([
-    { reason: 'the maintenance break', game: { frozen: true } },
-    { reason: 'the daily limit', game: { rounds_today: 500, daily_limit: 500 } },
-  ])('lets the player leave a won game blocked by $reason', async ({ game }) => {
-    backend.awardState.mockImplementation(async (_club, name: Game, doubled: boolean) =>
-      awardRead(name, doubled, game)
-    );
-    render(<DiamondChoicePage game="crossing" />);
-    await settle();
-    expect(guardHolds()).toBe(false);
-    // A game that cannot start says so on its plate, and nothing is sent.
-    expect(screen.getByRole('button', { name: 'Start Round' })).toBeDisabled();
-    await advance(10000);
-    expect(backend.start).not.toHaveBeenCalled();
-    expect(guardHolds()).toBe(false);
-  });
+  it.each([{ reason: 'the maintenance break', game: { frozen: true } }])(
+    'lets the player leave a won game blocked by $reason',
+    async ({ game }) => {
+      backend.awardState.mockImplementation(async (_club, name: Game, doubled: boolean) =>
+        awardRead(name, doubled, game)
+      );
+      render(<DiamondChoicePage game="crossing" />);
+      await settle();
+      expect(guardHolds()).toBe(false);
+      // A game that cannot start says so on its plate, and nothing is sent.
+      expect(screen.getByRole('button', { name: 'Start Round' })).toBeDisabled();
+      await advance(10000);
+      expect(backend.start).not.toHaveBeenCalled();
+      expect(guardHolds()).toBe(false);
+    }
+  );
 
   it('lets the player leave while the ticket cannot be dealt, and holds once it is', async () => {
     backend.rpc.mockRejectedValueOnce(new Error('The Network Dropped'));
@@ -1192,9 +1194,8 @@ describe('focus stays on the plate from street to street', () => {
     });
     render(<DiamondChoicePage game="mines" />);
     await settle();
-    const tile = screen.getByRole('button', { name: 'Choose A Tile' });
-    expect(tile).toBeDisabled();
-    expect(tile).not.toHaveAttribute('aria-disabled');
+    expect(screen.queryByRole('button', { name: 'Choose A Tile' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Pick Tile' })).toBeEnabled();
   });
 });
 

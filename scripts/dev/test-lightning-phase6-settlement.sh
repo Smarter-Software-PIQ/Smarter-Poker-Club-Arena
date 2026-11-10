@@ -1517,6 +1517,10 @@ if [ -z "${LIGHTNING_P6S_FOLLOWUP_SQL:-}" ]; then
   PG_BIN="$pgbin" LIGHTNING_ZERO_PAYER_SOCKET="$fixture/socket" LIGHTNING_ZERO_PAYER_PORT="$port" \
     python3 "$root/scripts/ci/test-lightning-anchor-lock-order.py"
   PG_BIN="$pgbin" LIGHTNING_ZERO_PAYER_SOCKET="$fixture/socket" LIGHTNING_ZERO_PAYER_PORT="$port" \
+    python3 -B "$root/scripts/qualification/plo-lightning-lifecycle/producer-integration.py"
+  PG_BIN="$pgbin" LIGHTNING_ZERO_PAYER_SOCKET="$fixture/socket" LIGHTNING_ZERO_PAYER_PORT="$port" \
+    python3 -B "$root/scripts/qualification/plo-lightning-lifecycle/demand-integration.py"
+  PG_BIN="$pgbin" LIGHTNING_ZERO_PAYER_SOCKET="$fixture/socket" LIGHTNING_ZERO_PAYER_PORT="$port" \
     python3 -B "$root/scripts/qualification/plo-lightning-lifecycle/pool-integration.py"
   PG_BIN="$pgbin" python3 -B "$root/scripts/qualification/plo-lightning-lifecycle/native.py"
 fi
