@@ -52,6 +52,7 @@ export function GameConsole({
   titleId,
   titleArtwork,
   collapseSetup = false,
+  activeEntryDetails,
   pill,
   bays,
   secondary,
@@ -66,6 +67,7 @@ export function GameConsole({
   titleId?: string;
   titleArtwork?: string;
   collapseSetup?: boolean;
+  activeEntryDetails?: string;
   pill?: string;
   pillInk?: ConsoleInk;
   bays: DeckBay[];
@@ -172,10 +174,10 @@ export function GameConsole({
       </header>
       <div className={styles.playfield}>{children}</div>
       <aside className={styles.controls} aria-label={`${title} Controls`}>
-        {setup && collapseSetup ? (
+        {(setup || activeEntryDetails) && collapseSetup ? (
           <details className={styles.entryDetails}>
             <summary>Entry Details</summary>
-            {setup}
+            {setup || activeEntryDetails}
           </details>
         ) : (
           setup

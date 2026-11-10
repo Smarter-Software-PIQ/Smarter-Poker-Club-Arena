@@ -1466,6 +1466,10 @@ function DiamondCrashGame() {
 
       <DiamondSpinsTabs clubId={routeClubId ?? ''} />
       <GameConsole
+        collapseSetup
+        activeEntryDetails={
+          open ? `${compactChips(round?.bet_chips ?? bet)} Diamonds In This Flight` : undefined
+        }
         setup={
           !open && (
             <BonusSetup
@@ -1507,7 +1511,7 @@ function DiamondCrashGame() {
             ]}
           />
         }
-        pill={pill}
+        pill={pill === 'Open' || pill === 'Live' ? undefined : pill}
         pillInk={pillInk}
         aria-labelledby="diamond-crash-title"
         bays={[
@@ -1639,13 +1643,15 @@ function DiamondCrashGame() {
             role="status"
             aria-live={open || settledRound ? 'off' : 'polite'}
           >
-            <span className={phase === 'idle' ? 'sc-label sr-only' : 'sc-label sc-ink--blue'}>
+            <span
+              className={phase === 'idle' || open ? 'sc-label sr-only' : 'sc-label sc-ink--blue'}
+            >
               {readoutLabel}
             </span>
             <span
               ref={readoutValueRef}
               className={
-                phase === 'idle'
+                phase === 'idle' || open
                   ? 'sr-only'
                   : `${styles.readoutValue} ${styles.readoutCompact} ${readoutInk}`
               }
@@ -1880,6 +1886,11 @@ function DiamondCrashGame() {
                 : 'Round Over'
           }
           chips={settledRound.outcome.payout_chips}
+          headline={
+            settledRound.status === 'cashed' && settledRound.outcome.cashout_cents != null
+              ? `Booked At ${(settledRound.outcome.cashout_cents / 100).toFixed(2)}× · ${crashWouldHaveLabel(settledRound.outcome.crash_cents, settledRound.cap_cents)}`
+              : undefined
+          }
           // A booked win reveals the sealed point it was flying to (Dan,
           // 2026-10-12); a crash says where it ended.
           detail={
