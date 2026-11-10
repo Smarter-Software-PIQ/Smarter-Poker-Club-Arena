@@ -62,6 +62,7 @@ export function WheelCabinet({
                       type="button"
                       className={styles.balancePicker}
                       aria-label="Choose Spin Amount"
+                      aria-describedby="diamond-spin-range"
                       aria-haspopup="dialog"
                       onClick={() => controls.current?.querySelector('dialog')?.showModal()}
                     >
