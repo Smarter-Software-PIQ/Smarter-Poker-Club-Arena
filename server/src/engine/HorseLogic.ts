@@ -14129,7 +14129,21 @@ export class HorseLogic {
     // pile-up. The exponential is the maximum-entropy choice for "a bit more
     // than X", which is exactly the claim being made, and its mean is scaled
     // to the floor so the shape holds for both.
-    const floor = facingBet ? FACING_FLOOR_MS : FREE_FLOOR_MS;
+    // A tournament shove merits a visible decision, even for an obvious fold.
+    // Match the outstanding price: an old short-stack all-in in a side pot
+    // should not slow unrelated action on a later street.
+    const facingTournamentShove =
+      facingBet &&
+      isTournamentMode(gs) &&
+      gs.players.some(
+        (p) =>
+          p.user_id !== tempoSeed &&
+          !p.is_folded &&
+          p.is_all_in &&
+          p.bet >= gs.currentBet &&
+          p.bet > 0
+      );
+    const floor = facingTournamentShove ? 2000 : facingBet ? FACING_FLOOR_MS : FREE_FLOOR_MS;
     if (think >= floor) return Math.round(think);
 
     // THE JITTER IS DERIVED, NOT DRAWN. An obvious implementation calls
