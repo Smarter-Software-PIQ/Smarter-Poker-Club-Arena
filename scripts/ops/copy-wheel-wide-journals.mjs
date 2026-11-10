@@ -16,6 +16,16 @@ async function rpc(name, args) {
   if (!response.ok) throw new Error(`${name} returned HTTP ${response.status}; inspect the durable copy cursor`);
   return response.json();
 }
+const status = await fetch(
+  `${expectedProject}/rest/v1/wheel_journal_copy_progress?id=eq.true&select=verified_at,journal_count,audit_count`,
+  { headers: { apikey: key, Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(10000) }
+);
+if (!status.ok) throw new Error(`Copy status returned HTTP ${status.status}`);
+const [existing] = await status.json();
+if (existing?.verified_at) {
+  console.log(JSON.stringify(existing));
+  process.exit(0);
+}
 let complete = false;
 for (let page = 0; page < 2000 && !complete; page++) {
   const progress = await rpc('fn_wheel_copy_wide_journal_batch', { p_rows: 1000 });

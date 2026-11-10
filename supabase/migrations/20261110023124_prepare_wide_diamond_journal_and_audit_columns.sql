@@ -27,6 +27,13 @@ CREATE TRIGGER zzzz_wheel_copy_wide_journal BEFORE INSERT OR UPDATE ON public.di
 CREATE TRIGGER zzzz_wheel_copy_wide_audit BEFORE INSERT OR UPDATE ON public.ca_diamond_balance_audit
  FOR EACH ROW EXECUTE FUNCTION public.fn_wheel_copy_wide_journal_row();
 
+-- CHECKs also bind new writes from roles which suppress ordinary triggers.
+-- Prior unmatched rows remain eligible for the exact historical copy.
+ALTER TABLE public.diamond_transactions ADD CONSTRAINT wheel_stage_journal_matches
+ CHECK ((wheel_amount64,wheel_balance_after64) IS NOT DISTINCT FROM (amount::bigint,balance_after::bigint)) NOT VALID;
+ALTER TABLE public.ca_diamond_balance_audit ADD CONSTRAINT wheel_stage_audit_matches
+ CHECK ((wheel_old64,wheel_new64,wheel_delta64) IS NOT DISTINCT FROM (old_diamonds::bigint,new_diamonds::bigint,delta::bigint)) NOT VALID;
+
 CREATE TABLE public.wheel_journal_copy_progress (
  id boolean PRIMARY KEY DEFAULT true CHECK(id),
  journal_end uuid, journal_after uuid, audit_end bigint, audit_after bigint,
