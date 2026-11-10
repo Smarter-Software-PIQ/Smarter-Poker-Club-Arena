@@ -342,6 +342,22 @@ with tempfile.TemporaryDirectory(prefix='midway-weekly-',dir=parent) as folder:
         sql("UPDATE tournaments SET is_rebuy=is_rebuy WHERE id='91000000-0000-4000-8000-000000000001'")
         assert sql("SELECT late_reg_levels=10 AND rebuy_levels=12 FROM tournaments WHERE id='91000000-0000-4000-8000-000000000001'")=='t'
         print('PASS: twelve to ten at total25; all other persisted event/schedule fields, lower prices, currencies, other caps and terminal records preserved; future insert and repeated write keep rebuy12')
+        # Apply the revised opening against all 143 real catalog definitions.
+        sql("CREATE TABLE before_opening AS SELECT id,config FROM tournament_schedules")
+        opening=next((root/'supabase/migrations').glob('*midway_35_40_chip_mtt_opening.sql'))
+        sql(installer(opening.read_text()))
+        changed=sql("SELECT count(*) FROM tournament_schedules s JOIN before_opening b USING(id) WHERE s.config IS DISTINCT FROM b.config")
+        assert changed=='4',changed
+        for event in document['events']:
+            if event['config']['buyIn'] not in (35,40):
+                continue
+            new_id=event['id']
+            row_id=sql("SELECT gen_random_uuid()")
+            insert_event(row_id,new_id)
+            actual=json.loads(sql("SELECT to_jsonb(t) FROM tournaments t WHERE id='"+row_id+"'"))
+            assert actual['starting_chips']==15000 and actual['short_description']==event['terms']['short_description']
+            assert json.loads(actual['blind_structure'])==document['profiles'][event['blindProfile']]
+        print('PASS: four revised schedules spawn 15,000 at 25/50 with every subsequent level preserved')
         # Execute the maintained snapshot against this production-shaped schema.
         # Empty read inputs do not emulate cancellation or certify a refund.
         sql("""ALTER TABLE tournament_players ADD COLUMN IF NOT EXISTS user_id uuid;
