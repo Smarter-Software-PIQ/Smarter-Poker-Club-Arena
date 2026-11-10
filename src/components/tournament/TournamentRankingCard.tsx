@@ -39,11 +39,12 @@ import { readLocalSession } from '../../lib/authUtils';
 import { generateDefaultAvatar } from '../../utils/avatarGenerator';
 import { CardImage } from '../table/CardImage';
 import { formatTournamentTitle } from '../../utils/formatGameTitle';
-import type { TournamentResult } from '../../services/pendingSessionSummary';
+import { offersResultReplay, type TournamentResult } from '../../services/pendingSessionSummary';
 import { playerDisplayName, PLAYER_NAME_COLUMNS } from '../../utils/playerDisplayName';
 import { SpadeConsole } from '../console/SpadeConsole';
 import './TournamentRankingCard.css';
 import '../../styles/postPlayResults.css';
+import { ChipStackReport } from '../session/ChipStackReport';
 import { publicOrigin } from '../../lib/appBase';
 import { downloadBlob } from '../../utils/downloadCsv';
 import { TROPHY_PATHS, type ShareTier } from './rankingTrophy';
@@ -354,6 +355,10 @@ export default function TournamentRankingCard({
   const navigate = useNavigate();
   /* Desktop has no share sheet, so the button reports the clipboard copy on
      itself rather than assuming a toast provider above this portal. */
+  const [detailOpen, setDetailOpen] = useState(false);
+  useEffect(() => {
+    setDetailOpen(false);
+  }, [result.tournamentId, result.finishSequence]);
   const [shared, setShared] = useState<null | 'copied' | 'saved'>(null);
   const [profile, setProfile] = useState<{
     username: string;
@@ -653,6 +658,65 @@ export default function TournamentRankingCard({
      other popup has it. Escape still closes it for a keyboard. */
   if (typeof document === 'undefined') return null;
 
+  if (!detailOpen) {
+    const fmt = (amount: number) => moneyAtUnit(amount, unitCents) + moneySuffixAtUnit(unitCents);
+    return createPortal(
+      <div className="trc2" role="dialog" aria-modal="true" aria-label="Tournament Ranking">
+        <div className="trc2__backdrop" />
+        <div className="chip-report-host">
+          <ChipStackReport
+            name={eventName}
+            headline={payoutLabel.replace(/:$/, '')}
+            value={payoutDisplay}
+            stats={[
+              {
+                label: 'Place',
+                value: place != null ? ordinal(place) : qualification ? 'Qualified' : 'Pending',
+              },
+              { label: 'Entrants', value: result.entrants?.toLocaleString() ?? '-' },
+              {
+                label: 'Buy-In',
+                value: result.buyInAmount == null ? '-' : fmt(result.buyInAmount),
+              },
+              { label: 'Prize', value: settlementPending ? 'Pending' : fmt(result.prize) },
+              { label: 'Bounties', value: fmt(result.bountyWinnings) },
+              { label: qualification ? 'Award' : 'Total Payout', value: payoutDisplay },
+              { label: 'Knockouts', value: String(result.knockouts) },
+              { label: 'Rebuys', value: String(result.rebuys) },
+              { label: 'Add Ons', value: String(result.addOns) },
+              {
+                label: 'Duration',
+                value: durationSeconds == null ? '-' : formatDuration(durationSeconds),
+              },
+              { label: 'Hands', value: handsPlayed?.toLocaleString() ?? '-' },
+            ]}
+            onClose={onDismiss}
+            onView={() => setDetailOpen(true)}
+            share={{
+              label:
+                shared === 'saved' ? 'Image Saved' : shared === 'copied' ? 'Link Copied' : 'Share',
+              onClick: handleShare,
+            }}
+            primary={{
+              label:
+                rematch?.primaryLabel ?? (offersResultReplay(result) ? 'Play Again' : 'Game Lobby'),
+              onClick: handlePlayAgain,
+              disabled: rematch?.primaryBusy,
+            }}
+          />
+          {rematch?.line && (
+            <div className="chip-report-note" role="status">
+              {rematch.line}
+              {rematch.secondaryLabel && (
+                <button onClick={rematch.onSecondary}>{rematch.secondaryLabel}</button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>,
+      document.body
+    );
+  }
   return createPortal(
     <div className="trc2" role="dialog" aria-modal="true" aria-label="Tournament Ranking">
       {/* Dan 2026-08-30: "USER MUST CLICK THE 'X' TO CLOSE IT." The backdrop
@@ -700,10 +764,10 @@ export default function TournamentRankingCard({
                   ink: 'silver',
                   onClick: () => void handleShare(),
                 },
+            middle: rematch?.secondaryLabel ? { label: 'Share', onClick: handleShare } : undefined,
             primary: {
               label:
-                rematch?.primaryLabel ??
-                (result.formatKind === 'mtt' ? 'Return To Lobby' : 'Play Again'),
+                rematch?.primaryLabel ?? (offersResultReplay(result) ? 'Play Again' : 'Game Lobby'),
               ink: 'white',
               onClick: handlePlayAgain,
               'aria-busy': rematch?.primaryBusy || undefined,
@@ -830,26 +894,28 @@ export default function TournamentRankingCard({
           )}
 
           {/* ── Player row: who this was ── */}
-          <div className="trc2__player">
-            <img
-              className="trc2__avatar"
-              src={profile?.avatarUrl || generateDefaultAvatar()}
-              alt=""
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = generateDefaultAvatar();
-              }}
-            />
-            <div className="trc2__identity">
-              <span className="trc2__username sc-ink--silver">{profile?.username ?? ' '}</span>
-              {profile?.playerNumber != null && (
-                /* "ID:", the label every other surface in the app prints this
+          {profile && (
+            <div className="trc2__player">
+              <img
+                className="trc2__avatar"
+                src={profile?.avatarUrl || generateDefaultAvatar()}
+                alt=""
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = generateDefaultAvatar();
+                }}
+              />
+              <div className="trc2__identity">
+                <span className="trc2__username sc-ink--silver">{profile?.username ?? ' '}</span>
+                {profile?.playerNumber != null && (
+                  /* "ID:", the label every other surface in the app prints this
                    number with (ClubProfileModal, the cashier). Bare, a "1"
                    directly under a "#1" finishing place read as a second
                    placing (2026-10-05). */
-                <span className="trc2__playernum sc-ink--muted">ID: {profile.playerNumber}</span>
-              )}
+                  <span className="trc2__playernum sc-ink--muted">ID: {profile.playerNumber}</span>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* ── Winning hand (if applicable) ── */}
           {result.winningCards && result.winningCards.length > 0 && (
