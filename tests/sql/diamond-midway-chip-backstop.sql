@@ -47,7 +47,7 @@ BEGIN
    PERFORM public.fn_diamond_game_pay_chips('wheel_prize',host,'union',club,player,
     (SELECT per_operation_cap_chips+1 FROM public.ca_mint_policy WHERE id=1),k||':too-large','Ceiling proof','{}');
    RAISE EXCEPTION 'Unfunded prize returned a success';
- EXCEPTION WHEN SQLSTATE 'P0403' THEN
+ EXCEPTION WHEN SQLSTATE 'PMW01' THEN
    GET STACKED DIAGNOSTICS detail=PG_EXCEPTION_DETAIL;
    IF (detail::jsonb->>'paid')::boolean IS DISTINCT FROM false OR (detail::jsonb->>'uncovered_chips')::numeric<=0 THEN
     RAISE EXCEPTION 'The uncovered obligation was not identified: %',detail;
@@ -57,7 +57,7 @@ BEGIN
    UPDATE public.ca_mint_policy SET rolling_24h_cap_chips=public.fn_ca_mint_issued_24h('chips')+0.25 WHERE id=1;
    PERFORM public.fn_diamond_game_pay_chips('wheel_prize',host,'union',club,player,1.25,k||':rolling','Rolling ceiling proof','{}');
    RAISE EXCEPTION 'Rolling issuance ceiling did not bound sponsor';
- EXCEPTION WHEN SQLSTATE 'P0403' THEN
+ EXCEPTION WHEN SQLSTATE 'PMW01' THEN
    GET STACKED DIAGNOSTICS detail=PG_EXCEPTION_DETAIL;
    IF (detail::jsonb->>'uncovered_chips')::numeric IS DISTINCT FROM 1.00 THEN RAISE EXCEPTION 'Unexpected rolling shortfall: %',detail; END IF;
  END;

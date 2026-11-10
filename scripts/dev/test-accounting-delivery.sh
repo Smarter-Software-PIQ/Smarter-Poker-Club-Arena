@@ -441,5 +441,6 @@ bash "$root/scripts/dev/test-diamond-wheel-single-spin-race.sh" "$fixture"
 sed -n '/^CREATE OR REPLACE FUNCTION public.fn_ca_fund_club/,/^GRANT EXECUTE ON FUNCTION public.fn_ca_fund_club/p' \
   "$root/supabase/migrations/20261002134346_a_house_mint_carries_its_reason_and_stranded_certification_p.sql" | "${diamond_psql[@]}"
 "${diamond_psql[@]}" -f "$root/supabase/migrations/20261110035950_fund_midway_wheel_prize_shortfalls_from_the_union_bank_and_p.sql" \
-  -v midway_race_fixture=true -f "$root/tests/sql/diamond-midway-chip-backstop.sql"
+  -v midway_race_fixture=true -f "$root/tests/sql/diamond-midway-chip-backstop.sql" \
+  -f "$root/tests/sql/diamond-midway-earned-claim.sql"
 bash "$root/scripts/dev/test-midway-chip-prize-race.sh" "$fixture"

@@ -14,6 +14,29 @@ CREATE TABLE public.wheel_midway_chip_funding (
 ALTER TABLE public.wheel_midway_chip_funding ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.wheel_midway_chip_funding FROM PUBLIC,anon,authenticated,service_role;
 GRANT SELECT,INSERT ON TABLE public.wheel_midway_chip_funding TO service_role;
+-- Earned games keep their original decision and reservation while a real source is unavailable.
+CREATE TABLE public.wheel_midway_prize_claims (
+ prize_key text PRIMARY KEY, club_id uuid NOT NULL, player_id uuid NOT NULL, category text NOT NULL,
+ amount numeric NOT NULL CHECK(amount>0), uncovered numeric NOT NULL CHECK(uncovered>0 AND uncovered<=amount),
+ decision jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), paid_at timestamptz
+);
+ALTER TABLE public.wheel_midway_prize_claims ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.wheel_midway_prize_claims FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT,INSERT,UPDATE ON TABLE public.wheel_midway_prize_claims TO service_role;
+CREATE FUNCTION public.fn_midway_prize_wait(p_detail text,p_decision jsonb) RETURNS jsonb
+LANGUAGE plpgsql SET search_path=public AS $wait$
+DECLARE d jsonb:=p_detail::jsonb; amount_due numeric:=(d->>'prize_chips')::numeric;
+BEGIN
+ IF d->>'source' IS DISTINCT FROM 'midway_wheel' THEN RAISE EXCEPTION 'Unrecognized prize refusal'; END IF;
+ INSERT INTO public.wheel_midway_prize_claims(prize_key,club_id,player_id,category,amount,uncovered,decision)
+ VALUES(d->>'prize_key',(d->>'club_id')::uuid,(d->>'player_id')::uuid,d->>'category',amount_due,(d->>'uncovered_chips')::numeric,p_decision)
+ ON CONFLICT(prize_key) DO NOTHING;
+ RETURN jsonb_build_object('ok',false,'pending_prize',true,'paid',false,'prize_chips',amount_due,
+   'error',format('Your %s Chip Prize Is Reserved. Return To This Game To Retry Payment.',amount_due));
+END $wait$;
+REVOKE ALL ON FUNCTION public.fn_midway_prize_wait(text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_midway_prize_wait(text,jsonb) TO service_role;
+
 DO $migration$
 DECLARE
  target regprocedure:='public.fn_diamond_game_pay_chips(text,uuid,text,uuid,uuid,numeric,text,text,jsonb)'::regprocedure;
@@ -57,8 +80,9 @@ BEGIN
         -- Preserve the unpaid obligation in the database event log across that rollback.
         RAISE LOG 'MIDWAY_WHEEL_UNFUNDED prize_key=% category=% club=% amount=% platform_required=% available=% uncovered=%',
           p_key,p_category,p_club,p_amount,platform_part,issuer_room,platform_part-issuer_room;
-        RAISE EXCEPTION 'Midway Prize Funding Unavailable' USING ERRCODE='P0403',
-          DETAIL=jsonb_build_object('paid',false,'prize_key',p_key,'prize_chips',p_amount,
+        RAISE EXCEPTION 'Midway Prize Funding Unavailable' USING ERRCODE='PMW01',
+          DETAIL=jsonb_build_object('source','midway_wheel','category',p_category,'club_id',p_club,'player_id',p_user,
+            'paid',false,'prize_key',p_key,'prize_chips',p_amount,
             'platform_required',platform_part,'platform_available',issuer_room,
             'uncovered_chips',platform_part-issuer_room)::text;
       END IF;
@@ -99,6 +123,11 @@ BEGIN
 
   PERFORM set_config('app.ledger_category', '', true);$new$),
  ($old$  INSERT INTO public.chip_transactions (club_id, from_user_id$old$,$new$  IF midway THEN
+    IF EXISTS(SELECT 1 FROM public.wheel_midway_prize_claims WHERE prize_key=p_key AND
+      (amount,club_id,player_id,category) IS DISTINCT FROM (p_amount,p_club,p_user,p_category)) THEN
+      RAISE EXCEPTION 'Midway prize does not match its reserved obligation';
+    END IF;
+    UPDATE public.wheel_midway_prize_claims SET paid_at=now() WHERE prize_key=p_key AND paid_at IS NULL;
     p_meta:=coalesce(p_meta,'{}'::jsonb)||jsonb_build_object('funding_version',2,'from_club_treasury',from_bank,
       'from_union_bank',union_part,'from_platform',platform_part,'funding_key',p_key);
     INSERT INTO public.wheel_midway_chip_funding(prize_key,category,club_id,player_id,amount,promo,club_cash,
@@ -117,4 +146,98 @@ BEGIN
  END LOOP;
  EXECUTE definition;
 END $migration$;
+-- The round and pool locks are outside each recoverable payment block. A second request cannot
+-- replace a player's first sealed cashout, pick or drop while the claim is awaiting funds.
+DO $decisions$
+DECLARE edit record; target regprocedure; definition text; definitions jsonb:='{}';
+BEGIN
+ FOR edit IN SELECT * FROM (VALUES
+ ('fn_wheel_bonus_start(uuid,uuid,text,boolean,text,bigint,integer,integer,integer)',$o$ IF a.status='redeemed' THEN$o$,$n$ IF a.host_id='fade0000-0000-0000-0000-000000000001' AND a.host_kind='union' AND a.game='plinko'
+    AND p_mode IS NULL AND p_auto_cashout_cents IS NULL AND p_max_steps IS NULL THEN
+   -- The old one-shot entry also runs on a durable sealed batch. The staged entry inserts a session
+   -- before recursively opening the ordinary award, so this routes only the original legacy call.
+   IF a.status='pending' AND NOT EXISTS(SELECT 1 FROM public.wheel_plinko_sessions WHERE award_id=a.id) THEN
+     RETURN public.fn_wheel_plinko_begin(a.id,p_commit_id,p_client_seed,p_double,p_denom,p_table_version,p_commit_id,true);
+   END IF;
+   IF a.status='redeemed' AND a.request=wanted AND EXISTS(
+      SELECT 1 FROM public.wheel_midway_prize_claims q WHERE q.prize_key LIKE 'plinko-drop:'||a.id||':%'
+        AND q.paid_at IS NULL AND q.decision->>'request'=p_commit_id::text) THEN
+     RETURN public.fn_wheel_plinko_release(a.id,p_commit_id,true);
+   END IF;
+ END IF;
+ IF a.status='redeemed' THEN$n$),
+ ('fn_choice_act(uuid,text,integer,integer)',$o$BEGIN
+ IF auth.uid()$o$,$n$pending public.wheel_midway_prize_claims; reason text;
+BEGIN
+ IF auth.uid()$n$),
+ ('fn_choice_act(uuid,text,integer,integer)',$o$ n:=cardinality(r.picked);$o$,$n$ SELECT * INTO pending FROM public.wheel_midway_prize_claims WHERE prize_key='choice-prize:'||r.id AND paid_at IS NULL;
+ IF FOUND THEN
+   p_action:=pending.decision->>'action'; p_cell:=(pending.decision->>'cell')::integer;
+   p_expected_step:=(pending.decision->>'step')::integer;
+ END IF;
+ n:=cardinality(r.picked);$n$),
+ ('fn_choice_act(uuid,text,integer,integer)',$o$  UPDATE public.diamond_game_pools SET reserved_chips=reserved_chips-r.reserved_chips,$o$,$n$  BEGIN
+  UPDATE public.diamond_game_pools SET reserved_chips=reserved_chips-r.reserved_chips,$n$),
+ ('fn_choice_act(uuid,text,integer,integer)',$o$ END IF;
+ UPDATE public.diamond_choice_rounds SET mine_cells=$o$,$n$  EXCEPTION WHEN SQLSTATE 'PMW01' THEN
+    GET STACKED DIAGNOSTICS reason=PG_EXCEPTION_DETAIL;
+    RETURN public.fn_midway_prize_wait(reason,jsonb_build_object('action',p_action,'cell',p_cell,'step',p_expected_step));
+  END;
+ END IF;
+ UPDATE public.diamond_choice_rounds SET mine_cells=$n$),
+ ('fn_crash_decide(public.crash_rounds,boolean,text,integer)',$o$  v_intake_chips numeric;$o$,$n$  v_intake_chips numeric; pending public.wheel_midway_prize_claims; reason text;$n$),
+ ('fn_crash_decide(public.crash_rounds,boolean,text,integer)',$o$  IF r.auto_cashout_cents IS NOT NULL AND$o$,$n$  SELECT * INTO pending FROM public.wheel_midway_prize_claims WHERE prize_key='crash-prize:'||r.id AND paid_at IS NULL;
+  IF FOUND THEN
+    v_result:=pending.decision->>'result'; v_at_cents:=(pending.decision->>'cents')::integer;
+    v_elapsed_ms:=(pending.decision->>'elapsed_ms')::bigint; p_by:=pending.decision->>'by';
+  ELSIF r.auto_cashout_cents IS NOT NULL AND$n$),
+ ('fn_crash_decide(public.crash_rounds,boolean,text,integer)',$o$  UPDATE public.diamond_game_pools SET reserved_chips=reserved_chips-r.reserved_chips$o$,$n$  BEGIN
+  UPDATE public.diamond_game_pools SET reserved_chips=reserved_chips-r.reserved_chips$n$),
+ ('fn_crash_decide(public.crash_rounds,boolean,text,integer)',$o$  RETURN r;
+END$o$,$n$  RETURN r;
+  EXCEPTION WHEN SQLSTATE 'PMW01' THEN
+    GET STACKED DIAGNOSTICS reason=PG_EXCEPTION_DETAIL;
+    PERFORM public.fn_midway_prize_wait(reason,jsonb_build_object('result',v_result,'cents',v_at_cents,'elapsed_ms',v_elapsed_ms,'by',p_by));
+    RETURN p_round;
+  END;
+END$n$),
+ ('fn_crash_round_result(public.crash_rounds)',$o$SELECT public.fn_wheel_award_receipt(r.commit_id)||$o$,$n$SELECT coalesce((SELECT jsonb_build_object('ok',false,'pending_prize',true,'paid',false,'prize_chips',q.amount,
+    'error',format('Your %s Chip Prize Is Reserved. Return To This Game To Retry Payment.',q.amount))
+    FROM public.wheel_midway_prize_claims q WHERE q.prize_key='crash-prize:'||r.id AND q.paid_at IS NULL),
+    public.fn_wheel_award_receipt(r.commit_id)||$n$),
+ ('fn_crash_round_result(public.crash_rounds)',$o$'created_at', r.created_at);$o$,$n$'created_at', r.created_at));$n$),
+ ('fn_wheel_plinko_release(uuid,uuid,boolean)',$o$ target integer; total integer; amount numeric; result jsonb;$o$,$n$ target integer; total integer; amount numeric; result jsonb; pending public.wheel_midway_prize_claims; reason text;$n$),
+ ('fn_wheel_plinko_release(uuid,uuid,boolean)',$o$ total:=jsonb_array_length(s.sealed_result->'drops');$o$,$n$ SELECT * INTO pending FROM public.wheel_midway_prize_claims
+   WHERE prize_key IN ('plinko-drop:'||p_award_id||':'||(s.released_count+1),
+     'plinko-drop:'||p_award_id||':'||jsonb_array_length(s.sealed_result->'drops')) AND paid_at IS NULL;
+ IF FOUND THEN
+   IF p_all IS DISTINCT FROM (pending.decision->>'all')::boolean THEN
+     RETURN jsonb_build_object('ok',false,'pending_prize',true,'paid',false,'prize_chips',pending.amount,
+       'error',CASE WHEN (pending.decision->>'all')::boolean THEN 'Choose Drop All To Retry Your Reserved Prize'
+                    ELSE 'Choose Drop One To Retry Your Reserved Prize' END);
+   END IF;
+ END IF;
+ total:=jsonb_array_length(s.sealed_result->'drops');$n$),
+ ('fn_wheel_plinko_release(uuid,uuid,boolean)',$o$  PERFORM public.fn_diamond_game_pay_chips('plinko_prize'$o$,$n$  BEGIN
+  PERFORM public.fn_diamond_game_pay_chips('plinko_prize'$n$),
+ ('fn_wheel_plinko_release(uuid,uuid,boolean)',$o$  UPDATE public.diamond_game_pools SET chips_paid=chips_paid+amount,$o$,$n$  EXCEPTION WHEN SQLSTATE 'PMW01' THEN
+    GET STACKED DIAGNOSTICS reason=PG_EXCEPTION_DETAIL;
+    RETURN public.fn_midway_prize_wait(reason,jsonb_build_object('request',p_request_id,'all',p_all));
+  END;
+  UPDATE public.diamond_game_pools SET chips_paid=chips_paid+amount,$n$),
+ ('fn_wheel_plinko_release(uuid,uuid,boolean)',$o$ INSERT INTO public.wheel_plinko_releases VALUES(p_award_id,p_request_id,p_all,result);$o$,$n$ INSERT INTO public.wheel_plinko_releases VALUES(p_award_id,p_request_id,p_all,result);
+ IF pending.prize_key IS NOT NULL AND (pending.decision->>'request')::uuid<>p_request_id THEN
+   INSERT INTO public.wheel_plinko_releases VALUES(p_award_id,(pending.decision->>'request')::uuid,p_all,result);
+ END IF;$n$)
+ ) edits(signature,before_text,after_text)
+ LOOP
+  target:=('public.'||edit.signature)::regprocedure;
+  definition:=coalesce(definitions->>edit.signature,pg_get_functiondef(target));
+  IF (length(definition)-length(replace(definition,edit.before_text,'')))/length(edit.before_text)<>1 THEN
+    RAISE EXCEPTION 'Unexpected % eligibility or result source at %',target,edit.before_text;
+  END IF;
+  definitions:=definitions||jsonb_build_object(edit.signature,replace(definition,edit.before_text,edit.after_text));
+ END LOOP;
+ FOR definition IN SELECT value FROM jsonb_each_text(definitions) LOOP EXECUTE definition; END LOOP;
+END $decisions$;
 COMMIT;
