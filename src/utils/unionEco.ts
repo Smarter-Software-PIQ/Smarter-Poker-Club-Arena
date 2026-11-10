@@ -10,6 +10,27 @@ export interface UnionEcoComponent {
   status: 'preview' | 'recorded';
 }
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export function unionEcoSettingsPatch(
+  settings: Record<string, unknown>,
+  changed: boolean
+): Record<string, boolean | number> {
+  if (!changed) return {};
+  if (
+    typeof settings.eco_cash_enabled !== 'boolean' ||
+    typeof settings.eco_tournament_enabled !== 'boolean' ||
+    [settings.eco_cash_rate, settings.eco_tournament_rate].some(
+      (rate) => typeof rate !== 'number' || !Number.isFinite(rate) || rate < 0 || rate > 1
+    )
+  ) {
+    throw new Error('Configure Both ECO Switches And Rates Before Saving');
+  }
+  return {
+    eco_cash_enabled: settings.eco_cash_enabled,
+    eco_cash_rate: settings.eco_cash_rate as number,
+    eco_tournament_enabled: settings.eco_tournament_enabled,
+    eco_tournament_rate: settings.eco_tournament_rate as number,
+  };
+}
 const money = (v: unknown): v is number =>
   typeof v === 'number' &&
   Number.isFinite(v) &&

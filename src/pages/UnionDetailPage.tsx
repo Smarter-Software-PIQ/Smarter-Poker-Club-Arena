@@ -1,3 +1,4 @@
+import { unionEcoSettingsPatch } from '../utils/unionEco';
 import { isRetiredTournament, isRetiredTournamentTable } from '../lib/retiredTournamentVisibility';
 import { getTournamentEntryCapacity } from '../utils/tournamentPresentation';
 /**
@@ -170,6 +171,7 @@ export default function UnionDetailPage() {
     club: null,
   });
   const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
+  const [ecoSettingsDirty, setEcoSettingsDirty] = useState(false);
   const [showXmttModal, setShowXmttModal] = useState(false);
   const [settingsForm, setSettingsForm] = useState({
     eco_cash_enabled: undefined as boolean | undefined,
@@ -432,6 +434,7 @@ export default function UnionDetailPage() {
   // Sync settings form when union data loads or tab switches to settings
   useEffect(() => {
     if (activeTab === 'settings' && union?.settings) {
+      setEcoSettingsDirty(false);
       setSettingsForm({
         eco_cash_enabled: union.settings.eco_cash_enabled,
         eco_cash_rate: union.settings.eco_cash_rate,
@@ -1744,9 +1747,10 @@ export default function UnionDetailPage() {
                       <input
                         type="checkbox"
                         checked={settingsForm[enabledKey] === true}
-                        onChange={(e) =>
-                          setSettingsForm((prev) => ({ ...prev, [enabledKey]: e.target.checked }))
-                        }
+                        onChange={(e) => {
+                          setEcoSettingsDirty(true);
+                          setSettingsForm((prev) => ({ ...prev, [enabledKey]: e.target.checked }));
+                        }}
                       />
                       {label}
                     </label>
@@ -1763,13 +1767,14 @@ export default function UnionDetailPage() {
                         value={
                           settingsForm[rateKey] === undefined ? '' : settingsForm[rateKey]! * 100
                         }
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          setEcoSettingsDirty(true);
                           setSettingsForm((prev) => ({
                             ...prev,
                             [rateKey]:
                               e.target.value === '' ? undefined : Number(e.target.value) / 100,
-                          }))
-                        }
+                          }));
+                        }}
                       />
                     </label>
                     <p className={styles.settingHint}>
@@ -1788,22 +1793,30 @@ export default function UnionDetailPage() {
                 </p>
               )}
 
+              {!union.ecoTermsEffectiveFrom && (
+                <p className={styles.settingHint}>ECO Effective Accounting Boundary Unavailable.</p>
+              )}
+
               <button
                 className={styles.saveButton}
                 onClick={async () => {
                   if (!unionId || isUpdatingSettings) return;
-                  if (
-                    (settingsForm.eco_cash_enabled && settingsForm.eco_cash_rate === undefined) ||
-                    (settingsForm.eco_tournament_enabled &&
-                      settingsForm.eco_tournament_rate === undefined)
-                  ) {
-                    toast.error('Enter A Rate For Each Enabled ECO');
+                  let ecoPatch: Record<string, boolean | number>;
+                  try {
+                    ecoPatch = unionEcoSettingsPatch(settingsForm, ecoSettingsDirty);
+                  } catch {
+                    toast.error('Configure Both ECO Switches And Rates Before Saving');
                     return;
                   }
+                  const generalSettings = {
+                    revenueSharePercent: settingsForm.revenueSharePercent,
+                    sharedPlayerPool: settingsForm.sharedPlayerPool,
+                    crossClubTournaments: settingsForm.crossClubTournaments,
+                  };
                   setIsUpdatingSettings(true);
                   try {
                     const updated = await unionService.updateUnion(unionId, {
-                      settings: settingsForm,
+                      settings: { ...generalSettings, ...ecoPatch },
                     });
                     if (updated) {
                       setUnion(updated);

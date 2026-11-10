@@ -284,7 +284,19 @@ class UnionServiceClass {
     if (error && error.code !== 'PGRST116') throw error;
     if (!data) return null;
 
-    return this.mapUnion(data);
+    const union = this.mapUnion(data);
+    if (
+      union.settings.eco_cash_enabled !== undefined ||
+      union.settings.eco_tournament_enabled !== undefined
+    ) {
+      const { data: terms, error: termsError } = await supabase.rpc('fn_union_eco_settings', {
+        p_union_id: unionId,
+      });
+      if (termsError) reportError(termsError, 'UnionService.eco_settings');
+      else if (typeof terms?.eco_terms_effective_from === 'string')
+        union.ecoTermsEffectiveFrom = terms.eco_terms_effective_from;
+    }
+    return union;
   }
 
   /**

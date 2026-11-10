@@ -27,10 +27,16 @@ const buildChain = (): any => {
 };
 
 const fromMock = vi.hoisted(() => vi.fn());
+const ecoSettingsRead = vi.hoisted(() =>
+  vi
+    .fn()
+    .mockResolvedValue({ data: { eco_terms_effective_from: '2026-11-16T08:00:00Z' }, error: null })
+);
 
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
     from: fromMock,
+    rpc: ecoSettingsRead,
   },
 }));
 
@@ -223,6 +229,9 @@ describe('Union ECO stored configuration', () => {
       expect(union?.settings.eco_cash_rate).toBe(settings.eco_cash_rate);
       expect(union?.settings.eco_tournament_enabled).toBe(settings.eco_tournament_enabled);
       expect(union?.settings.eco_tournament_rate).toBe(settings.eco_tournament_rate);
+      expect(union?.ecoTermsEffectiveFrom).toBe(
+        settings.eco_cash_enabled === undefined ? undefined : '2026-11-16T08:00:00Z'
+      );
     }
   });
 });

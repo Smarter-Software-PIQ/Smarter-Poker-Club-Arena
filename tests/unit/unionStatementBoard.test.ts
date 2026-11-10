@@ -1,3 +1,4 @@
+import { unionEcoSettingsPatch } from '../../src/utils/unionEco';
 import { describe, expect, it } from 'vitest';
 import { parseUnionStatementBoard } from '../../src/utils/unionStatementBoard';
 
@@ -306,4 +307,17 @@ it('validates both original recorded ECO lanes and complete-only totals', () => 
   value.totals.cash_eco_amount = -10.01;
   components[1].activity = 'cash';
   expect(() => parseUnionStatementBoard(value, 'union-a', '2026-09-14')).toThrow(/ECO/);
+});
+
+it('requires an explicit complete two-lane settings patch and leaves legacy generic saves untouched', () => {
+  expect(unionEcoSettingsPatch({ eco_cash_rate: 0.1 }, false)).toEqual({});
+  expect(() => unionEcoSettingsPatch({ eco_cash_rate: 0.1 }, true)).toThrow(/Both ECO/);
+  const settings = {
+    eco_cash_enabled: true,
+    eco_cash_rate: 0.1,
+    eco_tournament_enabled: true,
+    eco_tournament_rate: 0.1,
+  };
+  expect(unionEcoSettingsPatch(settings, true)).toEqual(settings);
+  expect(() => unionEcoSettingsPatch({ ...settings, eco_cash_rate: NaN }, true)).toThrow();
 });
