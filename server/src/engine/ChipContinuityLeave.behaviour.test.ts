@@ -231,6 +231,42 @@ describe('a locked player is refused synchronously, human and horse alike', () =
       expect(e.seatedPlayers.some((p: { user_id: string }) => p.user_id === id)).toBe(false);
     });
 
+    it(`${who}: LIGHTNING ANCHOR - the pool played the owed hands; the held leave reads the database and cashes out with nobody there`, async () => {
+      const e = makeEngine();
+      // This table is a Lightning anchor: its hands are dealt in the pool.
+      e.tableInfo.cluster_id = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+      e.dealingHaltLock = true;
+      e.dealingHaltReason = 'lightning';
+      expect(e.isLightningAnchorNow()).toBe(true);
+      // This engine holds its table's authority, so a database answer is adopted.
+      e.lifecycleCanMutate = () => true;
+      const owing = row(id, { hands_required: 10, hands_played: 3, hands_remaining: 7 });
+      e.chipContinuity.rows.set(id, owing);
+      evaluate.mockResolvedValue([owing] as never);
+      await e.leaveTable(id, { confirmHandCount: true });
+      expect(e.leaveHeldByClock.has(id)).toBe(true);
+      cashoutVoluntary.mockResolvedValue({ ok: true, stack: 180 });
+      // Still owed in the database: asked, refused by the count, seat kept.
+      evaluate.mockClear();
+      await e.releaseLeavesHeldByClock();
+      expect(evaluate).toHaveBeenCalledTimes(1);
+      expect(cashoutVoluntary).not.toHaveBeenCalled();
+      // The Lightning settlement trigger counted the last hand. This engine
+      // dealt none of them and no presence changed: only a fresh read can know.
+      evaluate.mockResolvedValue([
+        row(id, {
+          hands_required: 10,
+          hands_played: 10,
+          hands_remaining: 0,
+          hit_run_completed: true,
+        }),
+      ] as never);
+      await e.releaseLeavesHeldByClock();
+      expect(cashoutVoluntary).toHaveBeenCalledTimes(1);
+      expect(e.leaveHeldByClock.has(id)).toBe(false);
+      expect(e.seatedPlayers.some((p: { user_id: string }) => p.user_id === id)).toBe(false);
+    });
+
     it(`${who}: the database accepts -> success, seat_left AFTER the money, registrations torn down`, async () => {
       const e = makeEngine();
       const order: string[] = [];

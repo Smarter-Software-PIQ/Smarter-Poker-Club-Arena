@@ -420,10 +420,20 @@ if "${diamond_psql[@]}" -f "$wheel_cutover" > "$fixture/cutover-refusal.log" 2>&
   exit 1
 fi
 grep -Fq 'could not obtain lock on relation "public.profiles"' "$fixture/cutover-refusal.log"
+# Start the same cutover while the reader still holds its lock. Verify that
+# it is only observing, with no writer queued, before releasing the reader.
+PGAPPNAME=wheel-cutover-regression "${diamond_psql[@]}" -f "$wheel_cutover" > "$fixture/cutover-success.log" 2>&1 &
+cutover=$!
+for ((attempt=0; attempt<40; attempt++)); do
+  observing=$("${diamond_psql[@]}" -Atc "SELECT EXISTS(SELECT 1 FROM pg_stat_activity a WHERE application_name='wheel-cutover-regression' AND wait_event='PgSleep' AND NOT EXISTS(SELECT 1 FROM pg_locks l WHERE l.pid=a.pid AND NOT l.granted))")
+  [ "$observing" = t ] && break
+  sleep 0.025
+done
+[ "$observing" = t ]
 printf 'ROLLBACK;\n' >&7
 exec 7>&-
 wait "$reader"
-"${diamond_psql[@]}" -f "$wheel_cutover"
+wait "$cutover" || { cat "$fixture/cutover-success.log" >&2; exit 1; }
 "${diamond_psql[@]}" -f "$root/tests/sql/diamond-wallet-wide-cutover.sql" -f "$root/tests/sql/diamond-wheel-balance-entry.sql"
 "${diamond_psql[@]}" -f "$root/tests/sql/diamond-wheel-prize-funding.sql"
 "${diamond_psql[@]}" -f "$root/tests/sql/diamond-wheel-owner-credit.sql"
