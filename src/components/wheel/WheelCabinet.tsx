@@ -17,7 +17,6 @@ export function WheelCabinet({
   setup,
   navigation,
   notice,
-  help,
   children,
 }: {
   title: string;
@@ -31,7 +30,6 @@ export function WheelCabinet({
   navigation?: ReactNode;
   notice?: ReactNode;
   /** The painted "?" (Dan 2026-10-17), top right of the cabinet's heading. */
-  help?: ReactNode;
   children?: ReactNode;
 } & Record<string, unknown>) {
   return (
@@ -46,7 +44,6 @@ export function WheelCabinet({
             alt={title}
           />
         </h1>
-        {help && <div className={styles.help}>{help}</div>}
       </header>
       <div className={styles.wheel}>{children}</div>
       <aside className={styles.controls} aria-label="Diamond Spins Controls">
