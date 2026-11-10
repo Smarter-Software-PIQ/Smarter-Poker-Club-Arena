@@ -238,7 +238,7 @@ function quoteSuperAward() {
     })
   );
 }
-const guaranteedBay = () => screen.getByText('Guaranteed').nextElementSibling!;
+const entryBay = () => screen.getByText('Entry').nextElementSibling!;
 /** The console readout under the curve: the one status region that carries a printed label. */
 const readout = () =>
   screen.getAllByRole('status').find((node) => node.querySelector('.sc-label'))!;
@@ -398,6 +398,7 @@ describe('Crash settles one displayed round once', () => {
     backend.awardState.mockResolvedValue({ enabled: true, award: null, gameState: null });
     render(<DiamondCrashPage />);
     await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: 'Page Help' }));
     const controls = screen.getAllByRole('button', { name: 'Spin The Wheel' });
     expect(controls).toHaveLength(2);
     for (const control of controls) fireEvent.click(control);
@@ -532,6 +533,7 @@ describe('Crash settles one displayed round once', () => {
     backend.crashSettle.mockResolvedValueOnce(settled);
     await mountOpen();
     fireEvent.click(screen.getByText('Check Any Round'));
+    fireEvent.click(screen.getByRole('button', { name: 'Page Help' }));
     fireEvent.click(screen.getByRole('button', { name: 'Verify Round' }));
     expect(backend.verify).toHaveBeenCalledTimes(1);
     backend.start.mockReturnValue(new Promise(() => {}));
@@ -716,8 +718,8 @@ describe('Crash uses its earned entry without blocking existing cashouts', () =>
     for (const call of backend.awardState.mock.calls) expect(call[2]).toBe(false);
     expect(screen.getByRole('heading', { name: 'Super Crash' })).toBeInTheDocument();
     // The funded stake is quoted by the server: half of 2 chips.
-    expect(guaranteedBay()).toHaveTextContent('1.00 Chips');
-    expect(guaranteedBay()).toHaveAttribute('data-ink', 'gold');
+    expect(entryBay()).toHaveTextContent('100 Diamonds');
+    expect(entryBay()).toHaveAttribute('data-ink', 'gold');
     expect(readout()).toHaveTextContent(
       'Super Crash Pays At Least 1.00 Chips, Even If It Crashes Before You Cash Out.'
     );
@@ -761,8 +763,8 @@ describe('Crash uses its earned entry without blocking existing cashouts', () =>
     expect(screen.getByRole('heading', { name: 'Super Crash' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Book The Win' })).toBeEnabled();
     // The round on the table prints its own sealed floor, in Super gold.
-    expect(guaranteedBay()).toHaveTextContent('1.00 Chips');
-    expect(guaranteedBay()).toHaveAttribute('data-ink', 'gold');
+    expect(entryBay()).toHaveTextContent('100 Diamonds');
+    expect(entryBay()).toHaveAttribute('data-ink', 'gold');
     expect(backend.start).not.toHaveBeenCalled();
   });
   it('prepares the game again by itself after a failed ticket, without submitting a round', async () => {
@@ -808,8 +810,8 @@ describe('Crash shows its guarantee before the round starts', () => {
     expect(screen.getByRole('heading', { name: 'Super Crash' })).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/Upgraded/);
     // The 200-diamond stake is 2 chips, half of it 1.00.
-    expect(guaranteedBay()).toHaveTextContent('1.00 Chips');
-    expect(guaranteedBay()).toHaveAttribute('data-ink', 'gold');
+    expect(entryBay()).toHaveTextContent('100 Diamonds');
+    expect(entryBay()).toHaveAttribute('data-ink', 'gold');
     const sentence =
       'Super Crash Pays At Least 1.00 Chips, Even If It Crashes Before You Cash Out.';
     expect(readout()).toHaveTextContent(sentence);
@@ -824,8 +826,8 @@ describe('Crash shows its guarantee before the round starts', () => {
     backend.awardState.mockReturnValue(new Promise(() => {}));
     render(<DiamondCrashPage />);
     await act(async () => {});
-    expect(guaranteedBay()).toHaveTextContent('Pending');
-    expect(guaranteedBay()).not.toHaveAttribute('data-ink', 'gold');
+    expect(entryBay()).toHaveTextContent('Pending');
+    expect(entryBay()).not.toHaveAttribute('data-ink', 'gold');
     expect(readout()).toHaveTextContent('Checking Your Wheel Award');
   });
 
@@ -835,13 +837,13 @@ describe('Crash shows its guarantee before the round starts', () => {
     expect(screen.getByRole('heading', { name: 'Diamond Crash' })).toBeInTheDocument();
     // 100 diamonds at 100 per chip is 1 chip, and ordinary play pays for the
     // whole stake, so contract 4 keeps HALF of it. It kept a tenth before.
-    expect(guaranteedBay()).toHaveTextContent('0.50 Chips');
-    expect(guaranteedBay()).not.toHaveAttribute('data-ink', 'gold');
+    expect(entryBay()).toHaveTextContent('100 Diamonds');
+    expect(entryBay()).not.toHaveAttribute('data-ink', 'gold');
     expect(readout()).toHaveTextContent('Pays At Least 0.50 Chips On Any Loss.');
     expect(readout()).not.toHaveTextContent(/Average Crash|Up To/i);
     fireEvent.change(screen.getByLabelText('Entry Diamonds'), { target: { value: '250' } });
     await act(async () => {});
-    expect(guaranteedBay()).toHaveTextContent('1.25 Chips');
+    expect(entryBay()).toHaveTextContent('250 Diamonds');
   });
 
   it('omits the average and cap before a contract-5 flight', async () => {

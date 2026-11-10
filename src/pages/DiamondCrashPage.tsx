@@ -1466,6 +1466,7 @@ function DiamondCrashGame() {
 
       <DiamondSpinsTabs clubId={routeClubId ?? ''} />
       <GameConsole
+        game="crash"
         collapseSetup
         activeEntryDetails={
           open ? `${compactChips(round?.bet_chips ?? bet)} Diamonds In This Flight` : undefined
@@ -1509,7 +1510,150 @@ function DiamondCrashGame() {
                 target: '[data-game-actions]',
               },
             ]}
-          />
+          >
+            <div>
+              <GameLifetimeAverages
+                clubId={clubUuid}
+                revision={round ? `${round.round_id}:${round.status}` : null}
+              />
+              <GamePanel title="How To Play" foot="foot">
+                <p className="sc-copy">
+                  Cash Out Before The Crash To Collect Your Chip Prize. Your Confirmed Result Shows
+                  The Chips Paid. An Auto Cash Out Target Is Saved With The Round And Remains Active
+                  If You Disconnect.
+                </p>
+              </GamePanel>
+            </div>
+
+            <GamePanel
+              title="Check Any Round"
+              plates={{
+                secondary: {
+                  label: 'New Seed',
+                  onClick: () => setClientSeed(randomClientSeed()),
+                  disabled: open,
+                },
+                primary: {
+                  label: verifying ? 'Checking' : 'Verify Round',
+                  ink: 'white',
+                  onClick: () => settledRound && handleVerify(settledRound),
+                  disabled: verifying || !settledRound?.fairness.server_seed,
+                },
+              }}
+            >
+              <p className="sc-copy">
+                Before You Bet, The Server Commits To A Secret Seed By Showing You Its SHA-256 Hash.
+                The Round Reveals The Seed Once It Is Settled. Verify Round Checks The Saved
+                Outcome. Nothing About The Crash Point Changes After The Bet Is Placed.
+              </p>
+              <label className={styles.seedField}>
+                <span className="sc-label sc-ink--blue">Your Client Seed</span>
+                <input
+                  className={styles.seedInput}
+                  value={clientSeed}
+                  maxLength={MAX_CLIENT_SEED}
+                  onChange={(e) => setClientSeed(e.target.value)}
+                  onBlur={(e) => {
+                    if (!e.target.value.trim()) setClientSeed(randomClientSeed());
+                  }}
+                  disabled={open}
+                  spellCheck={false}
+                />
+              </label>
+              <div className={styles.seedField}>
+                <span className="sc-label sc-ink--blue">Next Round Commitment</span>
+                <code className={styles.mono}>{commit?.hash || 'Taking A Fresh Commitment'}</code>
+              </div>
+              {settledRound && settledRound.fairness.server_seed ? (
+                <div className={`${styles.rows} ${styles.rowsCompact}`}>
+                  <div className={styles.row}>
+                    <span className={`sc-label sc-ink--blue ${styles.rowLabel}`}>Server Seed</span>
+                    <code className={styles.mono}>{settledRound.fairness.server_seed}</code>
+                  </div>
+                  <div className={styles.row}>
+                    <span className={`sc-label sc-ink--blue ${styles.rowLabel}`}>Its Hash</span>
+                    <code className={styles.mono}>{settledRound.fairness.server_seed_hash}</code>
+                  </div>
+                  <div className={styles.row}>
+                    <span className={`sc-label sc-ink--blue ${styles.rowLabel}`}>Client Seed</span>
+                    <code className={styles.mono}>{settledRound.fairness.client_seed}</code>
+                  </div>
+                  <div className={styles.row}>
+                    <span className={`sc-label sc-ink--blue ${styles.rowLabel}`}>Nonce</span>
+                    <span className={`${styles.rowValue} sc-ink--silver`}>
+                      {settledRound.fairness.nonce}
+                    </span>
+                  </div>
+                  <div className={styles.row}>
+                    <span className={`sc-label sc-ink--blue ${styles.rowLabel}`}>Roll</span>
+                    <code className={styles.mono}>
+                      {(settledRound.fairness.roll ?? 0).toLocaleString()} Of 281,474,976,710,656
+                    </code>
+                  </div>
+                  <div className={styles.row}>
+                    <span className={`sc-label sc-ink--blue ${styles.rowLabel}`}>Crash Point</span>
+                    <span className={`${styles.rowValue} sc-ink--red`}>
+                      {multiplierLabel(settledRound.fairness.crash_cents ?? 100)}
+                    </span>
+                  </div>
+                  {verdict ? (
+                    <p
+                      className={`sc-copy sc-copy--center ${verdict.fair ? 'sc-ink--green' : 'sc-ink--red'}`}
+                    >
+                      {verdict.fair
+                        ? 'Verified: The Hash, The Roll And The Crash Point All Match'
+                        : `Mismatch: Hash ${verdict.hashMatches ? 'Ok' : 'Differs'}, Roll ${verdict.rollMatches ? 'Ok' : 'Differs'}, Crash Point ${verdict.crashMatches ? 'Ok' : 'Differs'}`}
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="sc-copy sc-copy--center sc-ink--muted">
+                  Finish A Round And The Revealed Seed Will Appear Here For You To Check.
+                </p>
+              )}
+            </GamePanel>
+
+            <FloorFeed
+              wins={floor?.wins ?? []}
+              game="crash"
+              eyebrow="The Floor"
+              title="Recent Wins"
+              limit={8}
+            />
+
+            <GamePanel title="History" foot="foot">
+              {history.length === 0 ? (
+                <p className="sc-copy sc-copy--center sc-ink--muted">No Rounds Yet.</p>
+              ) : (
+                <div className={`${styles.rows} ${styles.rowsCompact}`}>
+                  {history.map((h) => (
+                    <div key={h.round_id} className={styles.row}>
+                      <span
+                        className={`${styles.rowLabel} ${h.status === 'cashed' ? 'sc-ink--silver' : 'sc-ink--muted'}`}
+                      >
+                        {h.status === 'cashed'
+                          ? `Cashed ${multiplierLabel(h.outcome?.cashout_cents ?? 100)} On ${chipsLabel(h.bet_chips)} Chips`
+                          : `Crashed ${multiplierLabel(h.outcome?.crash_cents ?? 100)} On ${chipsLabel(h.bet_chips)} Chips`}
+                        <span className={`${styles.rowMeta} sc-ink--muted`}>
+                          {new Date(h.created_at).toLocaleString(undefined, {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: 'numeric',
+                            minute: '2-digit',
+                          })}
+                        </span>
+                      </span>
+                      <span
+                        className={`${styles.rowValue} ${h.status === 'cashed' ? 'sc-ink--gold' : 'sc-ink--red'}`}
+                      >
+                        {`${chipsLabel(h.outcome?.payout_chips ?? 0)} Chips`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </GamePanel>
+          </PageHelp>
         }
         pill={pill === 'Open' || pill === 'Live' ? undefined : pill}
         pillInk={pillInk}
@@ -1518,14 +1662,10 @@ function DiamondCrashGame() {
           bonusPrizeBay(
             guaranteed?.chips ?? null,
             showPaidReceipt ? (settledRound?.outcome?.payout_chips ?? null) : null,
-            guaranteed?.super ?? false
+            guaranteed?.super ?? false,
+            earned.loading ? null : (budget.award?.entryDiamonds ?? budget.base)
           ),
-          {
-            label: 'Bet',
-            value: open && round ? compactChips(round.bet_diamonds) : compactChips(bet),
-            ink: betOption && !betOption.playable ? 'red' : 'white',
-            disabled: true,
-          },
+          { label: 'Chips', value: formatWalletChips(player?.member_chips ?? 0), ink: 'silver' },
           {
             label: 'Auto',
             value: open
@@ -1541,7 +1681,6 @@ function DiamondCrashGame() {
             disabled: open || starting || running,
           },
           { label: 'Diamonds', value: formatWalletDiamonds(player?.diamonds ?? 0), ink: 'blue' },
-          { label: 'Chips', value: formatWalletChips(player?.member_chips ?? 0), ink: 'silver' },
         ]}
         secondary={
           earned.required || budget.award
@@ -1722,149 +1861,6 @@ function DiamondCrashGame() {
           </div>
         </div>
       </GameConsole>
-
-      <div>
-        <GameLifetimeAverages
-          clubId={clubUuid}
-          revision={round ? `${round.round_id}:${round.status}` : null}
-        />
-        <GamePanel title="How To Play" foot="foot">
-          <p className="sc-copy">
-            Cash Out Before The Crash To Collect Your Chip Prize. Your Confirmed Result Shows The
-            Chips Paid. An Auto Cash Out Target Is Saved With The Round And Remains Active If You
-            Disconnect.
-          </p>
-        </GamePanel>
-      </div>
-
-      <GamePanel
-        title="Check Any Round"
-        plates={{
-          secondary: {
-            label: 'New Seed',
-            onClick: () => setClientSeed(randomClientSeed()),
-            disabled: open,
-          },
-          primary: {
-            label: verifying ? 'Checking' : 'Verify Round',
-            ink: 'white',
-            onClick: () => settledRound && handleVerify(settledRound),
-            disabled: verifying || !settledRound?.fairness.server_seed,
-          },
-        }}
-      >
-        <p className="sc-copy">
-          Before You Bet, The Server Commits To A Secret Seed By Showing You Its SHA-256 Hash. The
-          Round Reveals The Seed Once It Is Settled. Verify Round Checks The Saved Outcome. Nothing
-          About The Crash Point Changes After The Bet Is Placed.
-        </p>
-        <label className={styles.seedField}>
-          <span className="sc-label sc-ink--blue">Your Client Seed</span>
-          <input
-            className={styles.seedInput}
-            value={clientSeed}
-            maxLength={MAX_CLIENT_SEED}
-            onChange={(e) => setClientSeed(e.target.value)}
-            onBlur={(e) => {
-              if (!e.target.value.trim()) setClientSeed(randomClientSeed());
-            }}
-            disabled={open}
-            spellCheck={false}
-          />
-        </label>
-        <div className={styles.seedField}>
-          <span className="sc-label sc-ink--blue">Next Round Commitment</span>
-          <code className={styles.mono}>{commit?.hash || 'Taking A Fresh Commitment'}</code>
-        </div>
-        {settledRound && settledRound.fairness.server_seed ? (
-          <div className={`${styles.rows} ${styles.rowsCompact}`}>
-            <div className={styles.row}>
-              <span className={`sc-label sc-ink--blue ${styles.rowLabel}`}>Server Seed</span>
-              <code className={styles.mono}>{settledRound.fairness.server_seed}</code>
-            </div>
-            <div className={styles.row}>
-              <span className={`sc-label sc-ink--blue ${styles.rowLabel}`}>Its Hash</span>
-              <code className={styles.mono}>{settledRound.fairness.server_seed_hash}</code>
-            </div>
-            <div className={styles.row}>
-              <span className={`sc-label sc-ink--blue ${styles.rowLabel}`}>Client Seed</span>
-              <code className={styles.mono}>{settledRound.fairness.client_seed}</code>
-            </div>
-            <div className={styles.row}>
-              <span className={`sc-label sc-ink--blue ${styles.rowLabel}`}>Nonce</span>
-              <span className={`${styles.rowValue} sc-ink--silver`}>
-                {settledRound.fairness.nonce}
-              </span>
-            </div>
-            <div className={styles.row}>
-              <span className={`sc-label sc-ink--blue ${styles.rowLabel}`}>Roll</span>
-              <code className={styles.mono}>
-                {(settledRound.fairness.roll ?? 0).toLocaleString()} Of 281,474,976,710,656
-              </code>
-            </div>
-            <div className={styles.row}>
-              <span className={`sc-label sc-ink--blue ${styles.rowLabel}`}>Crash Point</span>
-              <span className={`${styles.rowValue} sc-ink--red`}>
-                {multiplierLabel(settledRound.fairness.crash_cents ?? 100)}
-              </span>
-            </div>
-            {verdict ? (
-              <p
-                className={`sc-copy sc-copy--center ${verdict.fair ? 'sc-ink--green' : 'sc-ink--red'}`}
-              >
-                {verdict.fair
-                  ? 'Verified: The Hash, The Roll And The Crash Point All Match'
-                  : `Mismatch: Hash ${verdict.hashMatches ? 'Ok' : 'Differs'}, Roll ${verdict.rollMatches ? 'Ok' : 'Differs'}, Crash Point ${verdict.crashMatches ? 'Ok' : 'Differs'}`}
-              </p>
-            ) : null}
-          </div>
-        ) : (
-          <p className="sc-copy sc-copy--center sc-ink--muted">
-            Finish A Round And The Revealed Seed Will Appear Here For You To Check.
-          </p>
-        )}
-      </GamePanel>
-
-      <FloorFeed
-        wins={floor?.wins ?? []}
-        game="crash"
-        eyebrow="The Floor"
-        title="Recent Wins"
-        limit={8}
-      />
-
-      <GamePanel title="History" foot="foot">
-        {history.length === 0 ? (
-          <p className="sc-copy sc-copy--center sc-ink--muted">No Rounds Yet.</p>
-        ) : (
-          <div className={`${styles.rows} ${styles.rowsCompact}`}>
-            {history.map((h) => (
-              <div key={h.round_id} className={styles.row}>
-                <span
-                  className={`${styles.rowLabel} ${h.status === 'cashed' ? 'sc-ink--silver' : 'sc-ink--muted'}`}
-                >
-                  {h.status === 'cashed'
-                    ? `Cashed ${multiplierLabel(h.outcome?.cashout_cents ?? 100)} On ${chipsLabel(h.bet_chips)} Chips`
-                    : `Crashed ${multiplierLabel(h.outcome?.crash_cents ?? 100)} On ${chipsLabel(h.bet_chips)} Chips`}
-                  <span className={`${styles.rowMeta} sc-ink--muted`}>
-                    {new Date(h.created_at).toLocaleString(undefined, {
-                      month: 'short',
-                      day: 'numeric',
-                      hour: 'numeric',
-                      minute: '2-digit',
-                    })}
-                  </span>
-                </span>
-                <span
-                  className={`${styles.rowValue} ${h.status === 'cashed' ? 'sc-ink--gold' : 'sc-ink--red'}`}
-                >
-                  {`${chipsLabel(h.outcome?.payout_chips ?? 0)} Chips`}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </GamePanel>
 
       {!user ? <p className="sc-copy sc-copy--center sc-ink--muted">Sign In To Play.</p> : null}
       {settledRound?.outcome && showPaidReceipt && (

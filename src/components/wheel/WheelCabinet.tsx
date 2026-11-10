@@ -32,6 +32,7 @@ export function WheelCabinet({
   /** The painted "?" (Dan 2026-10-17), top right of the cabinet's heading. */
   children?: ReactNode;
 } & Record<string, unknown>) {
+  const controls = useRef<HTMLElement>(null);
   return (
     <section className={styles.cabinet} aria-labelledby={titleId}>
       <header className={styles.heading}>
@@ -47,15 +48,30 @@ export function WheelCabinet({
         {navigation && <div className={styles.headerAction}>{navigation}</div>}
       </header>
       <div className={styles.wheel}>{children}</div>
-      <aside className={styles.controls} aria-label="Diamond Spins Controls">
+      <aside ref={controls} className={styles.controls} aria-label="Diamond Spins Controls">
         {setup}
         <div className={styles.dashboard}>
           {entry}
           <dl className={styles.metrics}>
-            {bays.map((bay) => (
+            {bays.map((bay, index) => (
               <div key={bay.label}>
                 <dt>{bay.label}</dt>
-                <dd data-ink={bay.ink}>{bay.value}</dd>
+                <dd data-ink={bay.ink}>
+                  {index === 0 && entry ? (
+                    <button
+                      type="button"
+                      className={styles.balancePicker}
+                      aria-label="Choose Spin Amount"
+                      aria-haspopup="dialog"
+                      onClick={() => controls.current?.querySelector('dialog')?.showModal()}
+                    >
+                      {bay.value}
+                      <span aria-hidden="true"> ▾</span>
+                    </button>
+                  ) : (
+                    bay.value
+                  )}
+                </dd>
               </div>
             ))}
           </dl>
@@ -75,7 +91,7 @@ export function WheelCabinet({
               >
                 {primary.label?.startsWith('Spin ') && /^Spin [\d,]+$/.test(primary.label) ? (
                   <span aria-label={primary.label}>
-                    Spin<span className={styles.srOnly}> {primary.label.slice(5)}</span>
+                    Spin<small className={styles.spinAmount}>{primary.label.slice(5)}</small>
                   </span>
                 ) : (
                   primary.label
@@ -132,15 +148,6 @@ export function WheelEntry({
   const picker = useRef<HTMLDialogElement>(null);
   return (
     <div className={styles.entry}>
-      <button
-        type="button"
-        className={styles.amountToggle}
-        disabled={disabled}
-        aria-haspopup="dialog"
-        onClick={() => picker.current?.showModal()}
-      >
-        Amount {Number.isFinite(value) && value.toLocaleString()} ▾
-      </button>
       <span className={styles.srOnly} id="diamond-spin-range">
         {availableDiamonds != null ? `Available: ${availableDiamonds.toLocaleString()}` : null}
       </span>
