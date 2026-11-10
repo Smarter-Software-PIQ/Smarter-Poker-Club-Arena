@@ -142,3 +142,16 @@ def verify_bust_rebuy_window(run):
   print(f"TOTAL bust rebuy window: {count} PostgreSQL cases passed",flush=True)
  finally:
   os.environ["PGDATABASE"]=original;run("DROP DATABASE bust_rebuy_window_probe")
+
+
+if __name__=='__main__':
+ # run-isolated.sh runs this beside test_deferred_settlement.py, against the
+ # same PostgreSQL 17; the probe builds and drops its own database.
+ import subprocess
+ here=Path(__file__).resolve().parent
+ def run(sql,database=None):
+  env=dict(os.environ,PGDATABASE=database) if database else None
+  r=subprocess.run([os.environ['PGNODE'],str(here/'postgres-runtime/query.mjs')],input=sql,text=True,capture_output=True,env=env)
+  if r.returncode: raise RuntimeError(r.stderr)
+  return r.stdout
+ verify_bust_rebuy_window(run)

@@ -118,7 +118,7 @@ leaves at once. That asymmetry predates this change and is not altered here.
 ### Database proof (existing chip-journal fixture route)
 
 `scripts/ci/probes/chip-journal-atomicity/test_bust_rebuy_window.py`, run by
-`test_atomicity.py fixed` in `run-isolated.sh`, installs the real
+`run-isolated.sh` (beside `test_deferred_settlement.py`), installs the real
 `atomic_table_rebuy`, `resolve_pending_addon` and `atomic_credit_wallet_and_log`
 closures from migration history (stubs only for branches a cash refund never
 reaches) and proves, each case rolled back:
