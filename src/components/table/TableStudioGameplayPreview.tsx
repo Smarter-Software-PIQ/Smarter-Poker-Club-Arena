@@ -97,6 +97,7 @@ export function TableStudioGameplayPreview({ selection, avatarUrls, finalTable }
             key={avatarUrls[index] || `${seat.name}-loading`}
             src={avatarUrls[index]}
           />
+          <span className="studio-game-preview__bounty">⌖ 10</span>
           <span className="studio-game-preview__plate">
             <strong>{seat.name}</strong>
             <b>{seat.stack}</b>
@@ -104,6 +105,10 @@ export function TableStudioGameplayPreview({ selection, avatarUrls, finalTable }
         </div>
       ))}
 
+      <div className="studio-game-preview__card-tab" aria-label="Hand tab">
+        <b>8♥</b>
+        <b>4♦</b>
+      </div>
       <div className="studio-game-preview__pot">POT 24,800</div>
       <div className="studio-game-preview__board" aria-hidden="true">
         {(
@@ -131,6 +136,11 @@ export function TableStudioGameplayPreview({ selection, avatarUrls, finalTable }
       </div>
       <div className="studio-game-preview__dealer" data-button-theme={selection.button_id}>
         D
+      </div>
+      <div className="studio-game-preview__actions studio-game-preview__queue" aria-hidden="true">
+        <span>Fold</span>
+        <span>✓ Call 300</span>
+        <span>Call Any</span>
       </div>
       <div className="studio-game-preview__actions" aria-hidden="true">
         <span>FOLD</span>
