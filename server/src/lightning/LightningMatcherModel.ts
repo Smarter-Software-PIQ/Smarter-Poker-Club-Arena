@@ -107,6 +107,31 @@ export interface LightningPoolPlayer {
   newcomer: boolean;
   /** P3: how often the player has held each labelled position. */
   positions: { btn: number; co: number; hj: number; utg: number };
+  /**
+   * POSITION FAIRNESS BY RECENCY (20261110, Dan 2026-11-10: "I was SB 3 hands
+   * in a row ... this needs to be truly fair"). The slot's dealt hands since
+   * its last small blind (sl.hands_since_sb) and since its last button
+   * (sl.hands_since_button), and when it last held the button
+   * (sl.last_button_at, null = never). A snapshot that carries
+   * `handsSinceButton` for every legal player is planned by the recency rule
+   * (the SQL from that migration on); one that does not is planned exactly as
+   * before, so an older database and a newer engine still agree.
+   */
+  handsSinceSb?: number | null;
+  handsSinceButton?: number | null;
+  lastButtonAtMs?: number | null;
+}
+
+/**
+ * The recency rule applies when the snapshot carries the button counter for
+ * every legal player (the database from 20261110 on).
+ */
+export function lightningRecencyPositions(players: readonly LightningPoolPlayer[]): boolean {
+  const legal = players.filter((p) => p.legal);
+  return (
+    legal.length > 0 &&
+    legal.every((p) => typeof p.handsSinceButton === 'number' && typeof p.handsSinceSb === 'number')
+  );
 }
 
 /** One recent hand of the Cluster (P5's memory). */
@@ -540,10 +565,19 @@ function planWith(
     for (const p of h.players) if (seated.has(p) && !lastOf.has(p)) lastOf.set(p, h.players);
 
   // The small blinds come from the players who are not entry posters first
-  // (ORDER BY (pid = ANY (v_entry)), p2).
+  // (ORDER BY (pid = ANY (v_entry)), hands_since_sb DESC, p2): the player who
+  // has gone the most hands without a small blind posts it, so nobody posts
+  // it twice in a row while somebody else is owed it (20261110). Without the
+  // counter (an older database) the order is P2 alone, as it was.
+  const recency = lightningRecencyPositions(snapshot.players);
   const isEntry = (p: LightningPoolPlayer) => (entry.has(p.playerId) ? 1 : 0);
   const sbs = [...rest]
-    .sort((a, b) => isEntry(a) - isEntry(b) || compareBlindOrder(a, b))
+    .sort(
+      (a, b) =>
+        isEntry(a) - isEntry(b) ||
+        (recency ? (b.handsSinceSb ?? 0) - (a.handsSinceSb ?? 0) : 0) ||
+        compareBlindOrder(a, b)
+    )
     .slice(0, g);
   const sbSet = new Set(sbs.map((p) => p.playerId));
   rest = rest.filter((p) => !sbSet.has(p.playerId));
@@ -594,17 +628,34 @@ function planWith(
               : seat === 3
                 ? 'utg'
                 : null;
+      // P3 BY RECENCY (20261110): filled from the button backward, each
+      // seat goes to the remaining member who has gone the most hands without
+      // the button, then the one who held it longest ago (never first), so
+      // the button moves round the pool as it moves round a ring table.
+      // Without the counter (an older database) each seat goes to the member
+      // who has held that labelled position least, as before. A full tie
+      // keeps the queue rule.
       let pickIdx = -1;
       let pickKey = Infinity;
+      let pickAt = -Infinity;
       for (let i = 0; i < left.length; i++) {
-        const key =
-          params.positionFairness && label
-            ? left[i].positions[label as 'btn' | 'co' | 'hj' | 'utg']
-            : 0;
-        const better = knobs.p3TieTakesNewest ? key <= pickKey : key < pickKey;
-        if (pickIdx < 0 || better) {
+        const key = !params.positionFairness
+          ? 0
+          : recency
+            ? -(left[i].handsSinceButton ?? 0)
+            : label
+              ? left[i].positions[label as 'btn' | 'co' | 'hj' | 'utg']
+              : 0;
+        // ORDER BY last_button_at ASC NULLS FIRST: never held sorts first.
+        const at = params.positionFairness && recency ? (left[i].lastButtonAtMs ?? -Infinity) : 0;
+        const better =
+          pickIdx < 0 ||
+          key < pickKey ||
+          (key === pickKey && (at < pickAt || (at === pickAt && knobs.p3TieTakesNewest)));
+        if (better) {
           pickIdx = i;
           pickKey = key;
+          pickAt = at;
         }
       }
       order.unshift(left[pickIdx].playerId);

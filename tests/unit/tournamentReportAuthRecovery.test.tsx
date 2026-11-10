@@ -85,7 +85,7 @@ it('restores the finish after SSO refresh and removes it when the account change
   });
   const card = await screen.findByRole('dialog', { name: /tournament ranking/i });
   expect(card.textContent).toContain('353');
-  expect(card.textContent).toContain('Buy-In: 35');
+  expect(card.textContent).toContain('Buy-In35');
   await act(async () => {
     auth.id = 'other';
     masterBus.emit('AUTH_STATE_CHANGED', { userId: 'other', isAuthenticated: true });

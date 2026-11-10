@@ -6,6 +6,7 @@ future board, hand result, policy writer or production activation is available.
 from itertools import combinations
 from omaha_reference import card, five, omaha, river_high_ceiling, HOLES
 from horse_river_opportunities import river_opportunity
+from horse_wager_geometry import wager_geometry
 
 CATEGORIES=('high_card','one_pair','two_pair','trips','straight','flush',
             'full_house','quads','straight_flush')
@@ -70,7 +71,10 @@ def review_decision(d, exact_river_ceiling=False):
                 if action in ('bet','raise','all_in') else None})
     result['facts']['decisionOrigin']=d.get('origin')
     result['facts']['decisionSource']='policy' if d.get('origin')=='horse_policy' else 'execution_or_unknown'
-    result['facts']['bbAnte']=state.get('anteType')=='big_blind'
+    result['facts']['bbAnte']=(state['anteType']=='big_blind'
+                              if state.get('anteType') in ('big_blind','per_player') else None)
+    if variant not in ('plo8','flo8'):
+        result['facts']['wagerGeometry']=wager_geometry(info)
     opportunity=river_opportunity(info,d['action'])
     if opportunity is not None:result['facts']['riverOpportunity']=opportunity
     if street=='preflop':

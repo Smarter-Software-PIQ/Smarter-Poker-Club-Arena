@@ -30,7 +30,7 @@ describe('spin phase 6 wiring', () => {
   it('skips full siblings before Play Again navigation', () => {
     const host = read('src/components/tournament/TournamentRankingHost.tsx');
     expect(host).toMatch(/select\(\s*'format_contract, id, current_players, max_players/);
-    expect(host).toContain('isSeatFirstTournamentFormat(candidate)');
+    expect(host).toContain("readTournamentFormat(candidate) === 'sng-v1'");
     expect(host).toContain(
       '!isTournamentEntryUnavailable(candidate, Number(candidate.current_players ?? 0))'
     );

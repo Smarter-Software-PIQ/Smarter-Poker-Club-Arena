@@ -38,6 +38,10 @@ const { LightningTimeBankLedger } = await import('./LightningHandHost.js');
 const { HAND_COMPLETION } = await import('../config/handCompletionSpec.js');
 const {
   lightningDealPresentationMs,
+  lightningHandPresentationMs,
+  lightningArrivalMs,
+  LIGHTNING_ARRIVAL_STEP_MS,
+  LIGHTNING_ARRIVAL_FADE_MS,
   LIGHTNING_DEAL_CARD_STAGGER_MS,
   LIGHTNING_DEAL_MIN_CARD_STAGGER_MS,
   LIGHTNING_DEAL_FLIGHT_MS,
@@ -72,10 +76,10 @@ describe('the first turn clock starts only once the deal has been shown', () => 
       const presentation = lightningDealPresentationMs(6);
       // 700 ms button + (12 cards: 11 x 80 ms + 320 ms flight + 100 ms rest).
       expect(presentation).toBe(HAND_COMPLETION.BUTTON_TO_DEAL_MS + 11 * 80 + 320 + 100);
-      expect(s.asked.map((a) => a.ms)).toEqual([presentation]);
+      expect(s.asked.map((a) => a.ms)).toEqual([lightningHandPresentationMs(6)]);
       // No clock, no turn frame, while the deal is still being shown.
       expect(t.hub.frames.some((f) => f.payload.type === 'turn_change')).toBe(false);
-      now.v += presentation;
+      now.v += lightningHandPresentationMs(6);
       s.asked[0].release();
       await flush();
       const turn = t.hub.frames.find((f) => f.payload.type === 'turn_change');
@@ -98,7 +102,7 @@ describe('the first turn clock starts only once the deal has been shown', () => 
     try {
       await t.host.start();
       await flush();
-      expect(s.asked.map((a) => a.ms)).toEqual([lightningDealPresentationMs(2)]);
+      expect(s.asked.map((a) => a.ms)).toEqual([lightningHandPresentationMs(2)]);
       expect(t.horseLane.raw.decideFast).not.toHaveBeenCalled();
       s.asked[0].release();
       await flush();
@@ -124,7 +128,7 @@ describe('the first turn clock starts only once the deal has been shown', () => 
     try {
       await t.host.start();
       await flush();
-      expect(waits[0]).toBe(lightningDealPresentationMs(2));
+      expect(waits[0]).toBe(lightningHandPresentationMs(2));
       now.v += 5_000; // the deal is long over
       await playOut(
         t.host,
@@ -133,10 +137,61 @@ describe('the first turn clock starts only once the deal has been shown', () => 
       );
       // Every later turn settle is the physical one (0 or the 500 ms street beat).
       expect(waits.slice(1).every((ms) => ms <= 500 || ms > 1_000)).toBe(true);
-      expect(waits.slice(1).filter((ms) => ms === lightningDealPresentationMs(2))).toEqual([]);
+      expect(waits.slice(1).filter((ms) => ms === lightningHandPresentationMs(2))).toEqual([]);
     } finally {
       await t.host.abort('test_cleanup');
     }
+  });
+
+  it('the new table arrives before its deal, inside the clock wait (2026-11-10)', async () => {
+    // One step per opponent after the first, then the last one's fade.
+    expect(lightningArrivalMs(6)).toBe(4 * LIGHTNING_ARRIVAL_STEP_MS + LIGHTNING_ARRIVAL_FADE_MS);
+    expect(lightningArrivalMs(2)).toBe(LIGHTNING_ARRIVAL_FADE_MS);
+    expect(lightningArrivalMs(1)).toBe(0);
+    for (let n = 2; n <= 10; n++)
+      expect(lightningHandPresentationMs(n)).toBeLessThanOrEqual(LIGHTNING_DEAL_HOLD_CEILING_MS);
+    const s = heldSleeps();
+    const t = buildHost(formedHand(6, 9150), [100, 100, 100, 100, 100, 100], {
+      deps: { sleep: s.sleep, now: () => 6_000_000 },
+    });
+    try {
+      await t.host.start();
+      await flush();
+      const started = t.hub.frames.find((f) => f.payload.type === 'hand_started');
+      expect(started?.payload.lightning_arrival_ms).toBe(lightningArrivalMs(6));
+      const snap = t.hub.frames.find(
+        (f) =>
+          (f.payload.lightning as { arrival_ms?: number } | undefined)?.arrival_ms !== undefined
+      );
+      expect((snap?.payload.lightning as { arrival_ms?: number }).arrival_ms).toBe(
+        lightningArrivalMs(6)
+      );
+      // The first clock waits for the arrivals and the deal together.
+      expect(s.asked.map((a) => a.ms)).toEqual([lightningHandPresentationMs(6)]);
+    } finally {
+      for (const a of s.asked) a.release();
+      await t.host.abort('test_cleanup');
+    }
+  });
+
+  it('the arrival numbers are the client arrival numbers (2026-11-10)', () => {
+    const motion = readFileSync(
+      resolve(process.cwd(), '../src/lightning/lightningTransitionMotion.ts'),
+      'utf8'
+    );
+    const num = (name: string) =>
+      Number(new RegExp(`export const ${name} = (\\d+);`).exec(motion)?.[1]);
+    expect(num('LIGHTNING_ARRIVAL_STEP_MS')).toBe(LIGHTNING_ARRIVAL_STEP_MS);
+    expect(num('LIGHTNING_ARRIVAL_FADE_MS')).toBe(LIGHTNING_ARRIVAL_FADE_MS);
+    const seat = readFileSync(
+      resolve(process.cwd(), '../src/components/table/SeatSlot.tsx'),
+      'utf8'
+    );
+    expect(seat).toMatch(
+      new RegExp(
+        `duration: ${LIGHTNING_ARRIVAL_FADE_MS} \\* getAnimationSpeed\\(\\),\\s*delay: arrival\\.delayMs`
+      )
+    );
   });
 
   it('the engine numbers are the client deal numbers (a change on either side fails here)', () => {

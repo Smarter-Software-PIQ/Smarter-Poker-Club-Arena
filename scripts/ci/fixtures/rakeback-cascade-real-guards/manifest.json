@@ -1,0 +1,1528 @@
+{
+"fixture_files_md5": {
+"production-config.json": "85f1ad80fad0697e337c705e703e968d",
+"production-functions.json": "3947b23acc70b90a8135d91bcb3de340",
+"production-relations.json": "1e0dbc5a4373540a2afb936ef0a8aee8"
+},
+"foreign_keys_dropped": 96,
+"functions": {
+"public.enforce_chip_ledger_performed_by()": "ed92ea331aeddaffca0ae46a7f6801ea",
+"public.fn_accounting_agent_terms_at(p_club_id uuid, p_user_id uuid, p_at timestamp with time zone)": "727b249d33b322b1fc85b4c3437e37de",
+"public.fn_accounting_agreement_capture()": "746fab25cd56f6ad761325e7c0d525d5",
+"public.fn_accounting_agreement_history_immutable()": "3fa4099435ff1e9d5c48fa1934b63549",
+"public.fn_accounting_agreement_terms(p_entity_type text, p_row jsonb)": "cbdfa5ee62c71e62a03560c09bf526bd",
+"public.fn_accounting_close_proof_lifetime()": "80e026be0041fd1bdb04114c87ec368c",
+"public.fn_accounting_correction_is_unverified(p_invoice_id uuid)": "c199422b447ff87c8438e21f065111af",
+"public.fn_accounting_document_immutable()": "8ec25e2d39e02451020b5ce8e9ec5a1b",
+"public.fn_accounting_invoice_deliver_on_insert()": "4fb74e8fcf5caa0294c55deeefbbc6b3",
+"public.fn_accounting_next_invoice_number()": "dcb7a6315174e984f767268d04cfdb8b",
+"public.fn_accounting_terms_at(p_entity_type text, p_entity_key text, p_at timestamp with time zone)": "3752cf9b57688dab0bf32acd2b43e3a3",
+"public.fn_accounting_tournament_recognized_evidence_immutable()": "a5a71f9b0ba989721663a85cbb407ea9",
+"public.fn_accounting_transfer_document_on_insert()": "164aae2fca35c964331ed8aecd225411",
+"public.fn_accounting_union_earned_plan(p_union_id uuid, p_start timestamp with time zone, p_end timestamp with time zone)": "420996ce67179bc3f4ddf449fefc42e2",
+"public.fn_active_maintenance_release_boundary()": "05b537b57c9f51a5164e20a1cd0e67e0",
+"public.fn_admin_holds_no_player_wallet()": "3c54c86c548917606c846febfadf704b",
+"public.fn_agent_credit_control_revision_v1()": "5ec011a69c2c9e9bc5c2da28f226ba25",
+"public.fn_agent_default_prepaid()": "ab764c788f16650da4b2fc6df2d2a0a7",
+"public.fn_agents_staff_earn_no_rakeback()": "17346b77ec8f5a1d6d42dca3eb06e061",
+"public.fn_apply_club_ladder(p_club_id uuid)": "8d86d9cd53f0deede1f375f0b90d51e3",
+"public.fn_apply_union_ladder(p_union_id uuid)": "f89ed554327651823c3abad9a6969811",
+"public.fn_audit_club_entry_mutation()": "551c99f71d70848ef8115bbcfb5b7c71",
+"public.fn_audit_club_member_change()": "06515aa426034c1174450e2dc37204ef",
+"public.fn_audit_club_settings_change()": "5403c57f2dbe265c8fd185c924e2eb14",
+"public.fn_batch_union_realtime_member_counts(p_union_ids uuid[])": "0a1293119a48dafffe65085e2eaafb63",
+"public.fn_block_browser_balance_writes()": "c7390598f411e7d6bc4b8daf00e12c6e",
+"public.fn_ca_agent_payables(p_club_id uuid)": "5b86542b4686a504209767ac9a70e1e8",
+"public.fn_ca_attested_day_is_restated()": "268e0f244b2df7f88b933530b1cad822",
+"public.fn_ca_autoledger()": "ceb53c916648f025bdae6fe0e03e5e8b",
+"public.fn_ca_autoledger_delete()": "c6d7e02df8b654fbccc3e8844418bd01",
+"public.fn_ca_balance_has_its_ledger_row()": "2df7b3f67e95b8a6c0abe7ba3faff63c",
+"public.fn_ca_block_browser_money_table()": "c894814808498e86ac14d59924cfa145",
+"public.fn_ca_capture_tournament_charge_entitlement()": "d18629d96b3f5e3b5d6826c2bf309ac4",
+"public.fn_ca_capture_tournament_credit_ledger()": "81b1abbedb544e2fca0f8edec7d27cae",
+"public.fn_ca_chip_ledger_enrich()": "5931f47d922eea26ab1ea2b12f3f7c8c",
+"public.fn_ca_chip_store_declared()": "d5b08956826e56a0d414db4bfd022d3b",
+"public.fn_ca_club_gets_a_baseline()": "9e234dd984e7c47d448a33aae2292938",
+"public.fn_ca_current_epoch()": "6a803a80ab2b368acdbded9435112f98",
+"public.fn_ca_declare_ledger(p_category text, p_counterparty text, p_counterparty_entity uuid, p_settlement_id uuid, p_idempotency_key text, p_autoskip_tables text[])": "2eb458ce27b0116d2f7ad4603ca719dd",
+"public.fn_ca_deleted_wallet_bank_return(p_club uuid, p_user uuid, p_source text)": "b1938403621af2397590c6ce004faf3b",
+"public.fn_ca_deleted_wallet_credit()": "38381e35aa9804fb1e109c20855e4854",
+"public.fn_ca_escrow_on_overlay_leg()": "1b916fb576271d94c481099c11ca8b93",
+"public.fn_ca_escrow_on_reserve_leg()": "0d7f735d58aadeb6fe03e9daf5e21a92",
+"public.fn_ca_escrow_on_seat_transfer_leg()": "e9c56f9c21635b21c7cf0d456eb18b8a",
+"public.fn_ca_escrow_on_wallet_tx()": "ff49b681d06f7d9ca57e846ae4578acb",
+"public.fn_ca_funded_chip_return_journal()": "83a1c235e73e3544707aed186c9e1541",
+"public.fn_ca_has_committed_tournament_receipt(p_tournament_id uuid)": "9158c2424a5ae75e3ca9fcdb13339d12",
+"public.fn_ca_horse_split_return_late_credit()": "b4d29a312a1d98b8a1b9c9ef7d0bb19b",
+"public.fn_ca_house_board_allows_automation(p_club_id uuid)": "a95046f6df38e34b5650f7e762b12c8f",
+"public.fn_ca_is_cert_account(p_user_id uuid)": "fc72ec9fdc035fb51d052eefa9308e74",
+"public.fn_ca_issuance_leg_is_registered()": "164b9494b161bca655a313a9a4adfd93",
+"public.fn_ca_journal_append_only()": "ac9d66e60d077d886981c428c71e5c3c",
+"public.fn_ca_launch_accounting_actor(p_club_id uuid)": "865343ac328dce4459573e2a5527cea5",
+"public.fn_ca_launch_accounting_club_cutoffs()": "e1d1b8650141fe35df5bf5c0a66dcaed",
+"public.fn_ca_launch_accounting_cutoff(p_kind text, p_id uuid)": "cc3063873cf25be4b70e7cc893617c37",
+"public.fn_ca_launch_accounting_invoice_transition(p_old jsonb, p_new jsonb)": "d4e00efdb5795e1bd98e7ca20dcb48aa",
+"public.fn_ca_launch_accounting_waived(p_kind text, p_id uuid, p_end timestamp with time zone)": "611c553556e3acaaa341dc790a2c1b29",
+"public.fn_ca_launch_closing_leg_guard()": "cd0ed08f29a45782c3458f14d0610c1f",
+"public.fn_ca_launch_is_internal_transfer(p_leg uuid)": "73da8a517ea5cb0c4c1673da8b014b70",
+"public.fn_ca_launch_is_retirement_reversal(p_leg uuid)": "bb23de741f70b08bf78ff71d77e35391",
+"public.fn_ca_launch_opening_authorized(p_key text, p_asset text, p_destination text, p_target uuid, p_amount numeric)": "222df1e2c01eb66bf0ddf4a71387ea6c",
+"public.fn_ca_ledger_refusal_record(p_refusal jsonb)": "fdf30f6d74bd36520ea4d2225a3500a5",
+"public.fn_ca_ledger_tally_add(p_key text, p_side text, p_delta numeric)": "03b49d93d25551e4e74dedbb5dc7c08e",
+"public.fn_ca_ledger_tally_key(p_type text, p_entity uuid, p_club uuid)": "ff30c09043719389496193946bbec15e",
+"public.fn_ca_legacy_fee_resolution_write_is_exact(p_table text, p_operation text, p_old jsonb, p_new jsonb)": "0a123d50d4bd6d9364fdceb81c5cce8a",
+"public.fn_ca_legacy_period_maturity()": "c47a76d289ba6c37a6411f447948c61b",
+"public.fn_ca_legacy_round3_wallet_receipt()": "633c22d5e80a33097315dd3835f28784",
+"public.fn_ca_mint_issued_24h(p_asset text, p_except_leg uuid)": "62c322f14ae099a13930e3241cb544c3",
+"public.fn_ca_money_path_log()": "85686efcef00637c90f8b8e48ec33526",
+"public.fn_ca_noncirculating_chip_stores()": "0b1f2c1035aa66ee67f3d1f553b8f334",
+"public.fn_ca_rakeback_payout_leg_is_documented()": "27b613b98de1d922d0ee65e9259c0cea",
+"public.fn_ca_refuse_replica_money_write()": "42ed613371ddac424b618f5ac767a733",
+"public.fn_ca_refuse_restricted_transfer()": "65a2cb12ec806144a074efc2614563d1",
+"public.fn_ca_register_issuance_leg(p_ledger_id uuid)": "8d3d5e1feccd96fcf0045afefdb9fcdc",
+"public.fn_ca_reject_automated_user_club_row()": "d2d3dfb50e8cdf6bfce78c16526da539",
+"public.fn_ca_sep8_spin_original_fee_proof(p_tournament_id uuid)": "3224402eb784a60fbbc129135df632fb",
+"public.fn_ca_tally_balance_move()": "b7911a245d4bf33134a9a2f474c1f410",
+"public.fn_ca_tally_ledger_leg()": "9b3ab2f5a78cb7fa0adfb377706ecb85",
+"public.fn_ca_tally_pair(p_k_old text, p_v_old numeric, p_k_new text, p_v_new numeric)": "54e8f073910b0a538bf26d8e625cce33",
+"public.fn_ca_tally_store_move()": "6db4f04e33013c8f9b00e2155b31e72d",
+"public.fn_ca_treasury_positions()": "661626483fac80dc874f982954e0c4c3",
+"public.fn_caller_is_engine()": "d9a70f1d932538025e656bfe2b4d091d",
+"public.fn_cancelled_tournament_evidence_is_immutable()": "c361537b74dd7b12f05cc58bd0d2ef4f",
+"public.fn_cancelled_tournament_wallet_is_immutable()": "50e0c7764f3a250f8116e0c6010d1503",
+"public.fn_capture_club_messenger_admission()": "a2cdfdb7e9b9e9b650f0cfc72e693eae",
+"public.fn_cashier_agent_status_mutex()": "bf7d74a44d3676cfc733602fc35f10b6",
+"public.fn_cashier_assert_active_actor(p_club uuid)": "3ceb097db1a05a550e8b2a42fe931d36",
+"public.fn_cashier_balance_actor_guard()": "178146284da8fbab643c2e6fcbb8bd42",
+"public.fn_cashier_operation_intent_guard()": "60350724279387da3b548bd370d082db",
+"public.fn_cashier_operation_mutex_guard()": "344aae5352ca162b3f89971599fcda78",
+"public.fn_chip_drift_since_baseline()": "9b9a4a9408b962c740e8e9a4e0dec027",
+"public.fn_club_bank_send(p_club_id uuid, p_to_user_id uuid, p_amount numeric, p_destination text, p_reason text, p_op_id uuid)": "08e0c75b5fb1f51fc8c31a8928271fb6",
+"public.fn_club_bank_send_core_20261004(p_club_id uuid, p_to_user_id uuid, p_amount numeric, p_destination text, p_reason text, p_op_id uuid)": "d7af9cfcae41f32f17e49605249f7454",
+"public.fn_club_level_for_members(p_members integer)": "29da4c29ea51c677561ab6f1d2e7fc84",
+"public.fn_club_level_min_members(p_level integer)": "1167d5120f25757905fc266edf4d39f1",
+"public.fn_club_member_notes_guard()": "cc7bae672aea44a800052d2aba490360",
+"public.fn_club_members_bot_follows_horse()": "02033ded814911b9a5a74ecf91dfa2e9",
+"public.fn_club_members_ledger_writer()": "68030454cdb78329bb6c41eabe8bff24",
+"public.fn_club_members_no_agent_cycle()": "a7ad3c53fcab80a15831e71544b53c56",
+"public.fn_club_members_role_guard()": "2374cfedbbe89d3a69c75cdfdb240fe6",
+"public.fn_club_members_staff_earn_no_rakeback()": "09ae811a57faa517720d493d89262f31",
+"public.fn_club_members_status_guard()": "587b8157ec37354992b230b9d10035b1",
+"public.fn_club_messenger_staff_role(p_club uuid, p_user uuid)": "da62bfb09a4aa2d5446af6ea56ccc43c",
+"public.fn_club_opening_checklist_complete(p_club_id uuid)": "0e51fff026d1e37b1c143bbfb1fe021f",
+"public.fn_club_owner_has_a_player_wallet()": "a933cd2505c6345ef907ddaadf28b6e8",
+"public.fn_club_staff_notice_role_event()": "a7f817a4fc8c54ae1b401462862cf8a9",
+"public.fn_clubs_lobby_message_keeps_its_own_books()": "4c78df3a6bde52c2cc7c42b05f91708a",
+"public.fn_deep_stack_society_cannot_be_deleted_by_accident()": "213a7fa40330c703cb23dc001a99d31e",
+"public.fn_deliver_accounting_invoice(p_invoice_id uuid)": "5a76ce1162d43b158e496bf3574c86d3",
+"public.fn_deliver_club_messenger_welcome()": "11fc6eb8b03ccdea3b4cf799cc9bce99",
+"public.fn_diamond_game_reserved_cover_guard()": "c7a4c4fa4763924d7f76d9f70656014e",
+"public.fn_diamond_spin_ledger_category(p_category text)": "025ddccd3543a614dc75ef4b4a5f49b7",
+"public.fn_emit_club_union_access_event()": "035603d32853b823b20877214ade334f",
+"public.fn_emit_game_management_event(p_event_type text, p_club_id uuid, p_union_id uuid, p_recipient_id uuid, p_entity_type text, p_entity_id uuid, p_command_id uuid, p_payload jsonb)": "7286c5f7f9f749b236a0021f16194ca7",
+"public.fn_emit_management_access_event()": "fd10e300f81d5bd5f68efccb7ad1cb54",
+"public.fn_emit_management_content_event()": "2f5883eca4e555ddaacf18fb71e9704f",
+"public.fn_enforce_agent_commission_bounds()": "3e4f5df422b121391cc40f711ae5b5ee",
+"public.fn_enforce_four_club_limit()": "7c79db5e707510912f4fa3c6f9ff7cb5",
+"public.fn_ensure_agent_row(p_club_id uuid, p_user_id uuid, p_role text)": "e885afc4b733e075041a8c37c4750692",
+"public.fn_freeze_bypass_active()": "2bfad412c70b965fd9d2c72b2ad83310",
+"public.fn_game_management_scope(p_club_id uuid)": "31fd59df95b75b241f42f5b3c19056b4",
+"public.fn_get_club_realtime_member_count(p_club_id uuid)": "4b931a188b9ec15ee47560f67cbb61a4",
+"public.fn_guard_agent_agreement()": "6128f73fa007125996f909799e59c9d8",
+"public.fn_guard_club_lifecycle_write()": "6384708997b9c213bd727d02ad53aaca",
+"public.fn_guard_membership_lifecycle_write()": "8a72d76f51c5fc08e5424eb5b0db1493",
+"public.fn_guard_retired_club_mutation()": "66b05912e3963815a560db03d54c74c9",
+"public.fn_invoice_accounting_ledger_transfer(p_ledger_id uuid)": "2b9d4a150c45608118ba20b2f90f6aa7",
+"public.fn_is_platform_admin()": "16d104b60272d5c511b53f9ec88fb039",
+"public.fn_lock_rakeback_payer_clubs(p_club_ids uuid[])": "f59f1c9899c4f5d2ad1383c28fa29331",
+"public.fn_member_rakeback_explicit_guard()": "7afde97b841511ee0553beeb6a703bc7",
+"public.fn_membership_approval_gate()": "b5edea413fa87af75f47b925a23b1d10",
+"public.fn_midway_cash_rake_write_guard()": "6ba00e7372c24fea08d27fb6947c8a02",
+"public.fn_platform_frozen()": "ec683805e052fceeae74789e82dce4cc",
+"public.fn_poker_guard_arena_structure()": "0bcf6105fbcabf5cb68236d67817b952",
+"public.fn_poker_reject_diamond_chip_money()": "7c61e72bf8bc26c15490b31bed7bc912",
+"public.fn_poker_reject_diamond_hierarchy()": "49037a2bf4322d2a327bc9141a7a7a89",
+"public.fn_publish_agent_wallet_change()": "6f1c28ffce6de828bec8c4984a425883",
+"public.fn_publish_club_member_scope(p_club uuid, p_roots uuid[])": "34c169f9e2513aa673fa2b755734f404",
+"public.fn_publish_club_roster(p_club uuid)": "51efd705ee0cbcf733a4d92d154de2ee",
+"public.fn_publish_member_record_context()": "0705c55c836ed5a95491891070fa66dd",
+"public.fn_publish_member_record_row()": "ba43ce21b9e59680c981674fd0b2cc89",
+"public.fn_publish_member_record_transaction()": "2ed90a47b868be864b77459a901015a1",
+"public.fn_publish_member_record_user(p_user uuid)": "0b13c06b5afded0aa4f64f7a32978a35",
+"public.fn_recompute_club_level_on_member_change()": "0a761d5d6027c26ddbe4a7760d23d434",
+"public.fn_refuse_operator_move_while_settling()": "4dd93ff68d573144d73edc71e166f36f",
+"public.fn_refuse_while_frozen()": "a8dd811942377b0e67fa219ba039681e",
+"public.fn_remember_club_owner_transfer()": "e5c9074f06097745f4db72d4a0ec5dfa",
+"public.fn_resolve_accounting_routing_scope(p_scope_kind text, p_scope_id uuid, p_period_start timestamp with time zone, p_period_end timestamp with time zone)": "e773d469ebeb010df4ac46757fca724e",
+"public.fn_satellite_transfer_ledger_is_immutable()": "b4012023e95bf3ee041776a03bd2d731",
+"public.fn_settle_accounting_rakeback_pairs(p_scope_kind text, p_scope_id uuid, p_period_start timestamp with time zone, p_period_end timestamp with time zone)": "03d452df060e96f9a5a2a46d36ad1c5c",
+"public.fn_settle_accounting_rakeback_plan_get(p_scope_kind text, p_scope_id uuid, p_period_start timestamp with time zone, p_period_end timestamp with time zone, p_club_ids uuid[], p_union_id uuid, p_standalone_club_id uuid, p_legacy boolean)": "f4c135f1c425de4f5d257dd7c59eaa38",
+"public.fn_settle_accounting_rakeback_stage(p_scope_kind text, p_scope_id uuid, p_period_start timestamp with time zone, p_period_end timestamp with time zone)": "21409a0d24523597e10b5da44c252840",
+"public.fn_spin_pool_follows_union_membership()": "e75fb18ad642da209188ab5347b9fa82",
+"public.fn_standalone_foreign_certificate_periods(p_scope_kind text, p_club uuid, p_from_date date, p_to_date date, p_period_start timestamp with time zone, p_period_end timestamp with time zone)": "9f8457664adb8bc0b171ca75d831126b",
+"public.fn_sync_agent_player_counts()": "76a5848cfdb6c1674b48cb62ae1f22dd",
+"public.fn_sync_club_member_count()": "2abaebf91e89f56487f01b25d7e3ac98",
+"public.fn_sync_club_staff_notice_group(p_club uuid)": "136de2a943b60ce8340d7239c194870e",
+"public.fn_sync_mfa_required_on_club_owner()": "2d4608c7506e302fd46f73d102f30f92",
+"public.fn_sync_mfa_required_on_club_role()": "b09cbcddc87075221d72aee3899e97b4",
+"public.fn_terminal_tournament_evidence_is_immutable()": "1b3ab2bd7823977943d1baa0816997d0",
+"public.fn_terminal_wallet_transaction_is_immutable()": "bcdd12571b044b395523e648eecab2a3",
+"public.fn_union_accounting_run_at(p_period_end timestamp with time zone)": "85e9f0ab83b1655a90af953c0d547117",
+"public.fn_union_owner_membership_is_kept()": "033446b62c65f4f0ade7c19e392f92cc",
+"public.fn_union_pnl_capture_original_flow()": "df060874f0ffaf8105cce1d3bdaed35b",
+"public.fn_union_prev_week_start(p_at timestamp with time zone)": "538130fb95504d2854a9c6e8b75214cc",
+"public.fn_union_setting(p_union_id uuid, p_key text, p_default numeric)": "d6be437ef1f4974beb778eb4e1b02196",
+"public.fn_union_totals_follow_club_counts()": "b504648fecedb704e0247a90fd476db2",
+"public.fn_union_week_start(p_at timestamp with time zone)": "103f192a228084dad0e4268c36c82c4b",
+"public.fn_weekly_accounting_deadline_check()": "cc0ab45c0c4fdcfed6dd050580d47acf",
+"public.fn_weekly_statement_issue_settled()": "69ffddc6c6477d11515b81661b122d0e",
+"public.get_club_agents(p_club_id uuid)": "7c4fc71f953f809d1d4e40780c747ac0",
+"public.guard_agent_wallet_direct_update()": "736aa9e92265453c3015223562108141",
+"public.guard_wallet_balance_write()": "2af2718d22fcf12be394f9239e88e3c7",
+"public.lock_club_cashier_hierarchy_mutation()": "2bf2e0dc1876c5b1238603fc18558907",
+"public.recompute_union_levels(p_union_id uuid, p_force boolean)": "4197ced0e46129a2fb9baad118f05e1d",
+"public.sync_agent_wallet_columns()": "3a3d351dd05b5dc13b525b7eb4635e5c",
+"public.trg_auto_recompute_club_level()": "91f239bc0f5b75e5147ef6bd19ff761b",
+"public.trg_ca_club_data_fact_wallet()": "fc3aecf79531fc9a9fb9f512b8307e6f",
+"public.trg_ca_reporting_follows_a_changed_fact()": "ec90ea234e621bc8d01d24a92b0427b2",
+"public.trg_ca_reporting_repair_changed_days()": "601c605e44856e42ee0d00e72a0fdb1e",
+"public.trg_ca_reporting_wallet_insert()": "95a73948ec5ce91c83060dfc4411bb2d",
+"public.trg_protect_club_level_columns()": "c9fcb0739efd7af35c84851ea6836c29",
+"public.update_updated_at_column()": "54801f8bc343c4928383a3e7a1d57d61",
+"public.zz_chip_ledger_key_is_claimed_once()": "57a2b2eb1bc5b1c5ac36394c2ac23bcd",
+"smarter_private.assert_own_agent_scope_interpreted(p_kind text, p_scope uuid, p_from timestamp with time zone, p_to timestamp with time zone, p_round integer)": "e1fb96151324d44215c10047f7604ddd",
+"smarter_private.deleted_reserve_certificate_payers(p_calculation bigint)": "51fd3608c78f2f700c277fb9287bca3b",
+"smarter_private.deleted_wallet_published_rakeback_reserve(p_club uuid, p_user uuid)": "2673336b266659907cb9a787d9847a18",
+"smarter_private.ensure_rakeback_payer_contracts(p_calculation bigint)": "69687be498ba5264afedaff49e7f14ae",
+"smarter_private.existing_rakeback_transfer_complete(p_role text, p_obligation uuid)": "adf0cee5b8c0cee59bcaae1ed49d1c25",
+"smarter_private.existing_rakeback_transfer_scope_economic_plan(p_scope_kind text, p_scope_id uuid, p_start timestamp with time zone, p_end timestamp with time zone, p_role text)": "9a9eadead5e586774b86f7873fe1b08d",
+"smarter_private.existing_rakeback_transfer_scope_receipts(p_scope_kind text, p_scope_id uuid, p_start timestamp with time zone, p_end timestamp with time zone, p_role text)": "5273b9b7ebda51abfd1fb57fff7a1278",
+"smarter_private.f06_new_lifecycle()": "dca29a92ad46c6adb6e561f639e5a208",
+"smarter_private.own_agent_destination_contract(p_contract jsonb, p_club uuid, p_player uuid, p_terms_at timestamp with time zone)": "65d809f307db4bea0ead0dcd7a3d1534",
+"smarter_private.rakeback_certificate_payers(p_calculation bigint)": "89b7297462b6cd4ba6bf145c7d5fa261",
+"smarter_private.rakeback_certificate_wallets(p_calculation bigint)": "984721591c0295a6ca5c5552ec7bfae0",
+"smarter_private.rakeback_payer_plan(p_allocations jsonb, p_amount numeric)": "02296e698ad2377afa9dc4ee18315d68",
+"smarter_private.rakeback_wallet_payout_complete(p_payout uuid, p_calculation bigint)": "0f5fbe00efb06f9a49dcfae37d5830cc",
+"smarter_private.rakeback_wallet_plan(p_allocations jsonb, p_amount numeric)": "48f1c18a1e83272bad0d0b1e1371ce42",
+"smarter_private.record_rakeback_payer_contracts()": "73325c330ea577c08b4704319c0f89ec",
+"smarter_private.record_rakeback_wallet_contracts()": "e0ba664285b5b6cc885fd6a2357d8596",
+"smarter_private.split_rakeback_payout_complete(p_payout uuid, p_calculation bigint)": "516cd5a271fd21f4b2fe6f98e503dc75",
+"smarter_private.weekly_payout_clock()": "f34c68613fe7bc5512a341ec9b8b257e",
+"smarter_private.weekly_payout_fund_agent_shortfalls(p_run uuid, p_kind text, p_id uuid, p_from timestamp with time zone, p_to timestamp with time zone)": "018a0fcbad1fabcf1b5427b9fa454028",
+"smarter_private.weekly_payout_owned_money_write(p_table text)": "6addc8752858f6ecbf2dddd8f8742f23",
+"smarter_private.weekly_payout_owns_round(p_kind text, p_id uuid, p_from timestamp with time zone, p_to timestamp with time zone, p_round integer)": "5e4a055ee5f34744283bea32b4669828",
+"smarter_private.weekly_payout_require_round(p_kind text, p_id uuid, p_from timestamp with time zone, p_to timestamp with time zone, p_round integer)": "efa13f6a903603d4948b57569e059a6e"
+},
+"relations": [
+"public.accounting_agreement_history",
+"public.accounting_cash_accrual_cutover",
+"public.accounting_cash_atomic_contract_admissions",
+"public.accounting_cash_funding_contract_admissions",
+"public.accounting_cash_rake_sources",
+"public.accounting_cashier_events",
+"public.accounting_close_partials",
+"public.accounting_correction_documents",
+"public.accounting_credit_change_documents_v1",
+"public.accounting_credit_reduction_operations_v1",
+"public.accounting_effective_cash_rake_sources",
+"public.accounting_effective_tournament_fee_sources",
+"public.accounting_invoice_counters",
+"public.accounting_invoice_deliveries",
+"public.accounting_own_agent_interpretations",
+"public.accounting_payable_earning_sources",
+"public.accounting_rakeback_payer_contracts",
+"public.accounting_rakeback_payer_transfers",
+"public.accounting_rakeback_period_calculations",
+"public.accounting_rakeback_wallet_contracts",
+"public.accounting_rakeback_wallet_transfers",
+"public.accounting_routed_settlement_runs",
+"public.accounting_tournament_fee_custody_obligations",
+"public.accounting_tournament_fee_custody_resolutions",
+"public.accounting_tournament_fee_owner_bases",
+"public.accounting_tournament_fee_recognitions",
+"public.accounting_tournament_fee_sources",
+"public.accounting_tournament_recognized_sources",
+"public.agent_commissions",
+"public.agents",
+"public.audit_trail",
+"public.ca_cert_accounts",
+"public.ca_chip_baseline",
+"public.ca_chip_store_coverage",
+"public.ca_financial_epochs",
+"public.ca_horse_club_split_late_returns",
+"public.ca_launch_accounting_boundaries",
+"public.ca_launch_reset_operations",
+"public.ca_launch_reset_positions",
+"public.ca_launch_reset_retirement_reversals",
+"public.ca_launch_reset_wallet_movements",
+"public.ca_ledger_audit_marks",
+"public.ca_ledger_audit_member_net",
+"public.ca_ledger_invariant_findings",
+"public.ca_ledger_invariant_mode",
+"public.ca_ledger_invariant_refusal_counter",
+"public.ca_ledger_invariant_refusals",
+"public.ca_ledger_invariant_store_mode",
+"public.ca_mint_ledger",
+"public.ca_mint_policy",
+"public.ca_private_record_transport_state",
+"public.ca_settlements",
+"public.ca_treasury_baseline",
+"public.cashier_rpc_operation_intents",
+"public.chip_ledger",
+"public.chip_ledger_chain_seq",
+"public.chip_ledger_idem",
+"public.chip_transactions",
+"public.club_display_member_boost",
+"public.club_level_thresholds",
+"public.club_members",
+"public.club_messenger_admissions",
+"public.club_messenger_staff_notice_groups",
+"public.clubs",
+"public.diamond_game_pools",
+"public.engine_maintenance_break",
+"public.engine_maintenance_thaws",
+"public.game_management_events",
+"public.player_number_seq",
+"public.profiles",
+"public.rakeback_period_payouts",
+"public.rakeback_periods",
+"public.settlement_invoices",
+"public.settlement_locks",
+"public.social_conversation_participants",
+"public.social_conversations",
+"public.tables",
+"public.tournament_cancellation_receipts",
+"public.tournament_refund_authorizations",
+"public.tournament_satellite_settlements",
+"public.tournament_terminal_settlements",
+"public.tournaments",
+"public.union_clubs",
+"public.union_pnl_transaction_frames",
+"public.union_settlement_floor",
+"public.union_settlement_rounds",
+"public.union_wallets",
+"public.unions",
+"public.wallet_transactions",
+"public.weekly_accounting_payout_pauses",
+"smarter_private.daily_window_policy",
+"smarter_private.existing_rakeback_transfer_allocations",
+"smarter_private.existing_rakeback_transfer_instructions",
+"smarter_private.weekly_payout_owned_transactions",
+"smarter_private.weekly_payout_phase_configuration",
+"smarter_private.weekly_payout_rounds_config"
+],
+"source": "production kuklfnapbkmacvwxktbh, read 2026-11-09 (SELECT only)",
+"stand_ins": {
+"public.fn_accounting_union_earned_plan": "420996ce67179bc3f4ddf449fefc42e2",
+"smarter_private.assert_own_agent_scope_interpreted": "e1fb96151324d44215c10047f7604ddd"
+},
+"triggers_not_wired_on_clubs_and_club_members": [
+[
+"public.club_members",
+"aaa_ca_refuse_replica_money_truncate",
+"TRUNCATE"
+],
+[
+"public.club_members",
+"lock_cashier_hierarchy_insert_delete",
+"INSERT OR DELETE"
+],
+[
+"public.club_members",
+"trg_approval_gate_ins",
+"INSERT"
+],
+[
+"public.club_members",
+"trg_audit_club_member_delete",
+"DELETE"
+],
+[
+"public.club_members",
+"trg_block_browser_balance_inserts",
+"INSERT"
+],
+[
+"public.club_members",
+"trg_ca_autoledger_delete",
+"DELETE"
+],
+[
+"public.club_members",
+"trg_ca_autoledger_insert",
+"INSERT"
+],
+[
+"public.club_members",
+"trg_club_members_no_agent_cycle_ins",
+"INSERT"
+],
+[
+"public.club_members",
+"trg_club_members_require_explicit_join",
+"INSERT"
+],
+[
+"public.club_members",
+"trg_deep_stack_members_are_protected",
+"DELETE"
+],
+[
+"public.club_members",
+"trg_four_club_limit_ins",
+"INSERT"
+],
+[
+"public.club_members",
+"trg_membership_starts_with_zero_chips",
+"INSERT"
+],
+[
+"public.clubs",
+"aaa_ca_refuse_replica_money_truncate",
+"TRUNCATE"
+],
+[
+"public.clubs",
+"trg_audit_club_created",
+"INSERT"
+],
+[
+"public.clubs",
+"trg_audit_club_delete",
+"DELETE"
+],
+[
+"public.clubs",
+"trg_autocreate_club_social_page",
+"INSERT"
+],
+[
+"public.clubs",
+"trg_ca_autoledger_delete",
+"DELETE"
+],
+[
+"public.clubs",
+"trg_create_canonical_club_wallet",
+"INSERT"
+],
+[
+"public.clubs",
+"trg_delete_club_social_page",
+"DELETE"
+],
+[
+"public.clubs",
+"trg_guard_clubs_chip_pool_ins",
+"INSERT"
+],
+[
+"public.clubs",
+"trg_mark_new_club_opening_checklist",
+"INSERT"
+],
+[
+"public.clubs",
+"trg_new_club_gets_the_ladder",
+"INSERT"
+],
+[
+"public.clubs",
+"trg_record_new_club_opening_bank",
+"INSERT"
+],
+[
+"public.clubs",
+"trg_seed_all_throwables_shop_item",
+"INSERT"
+],
+[
+"public.clubs",
+"trg_seed_new_club_opening_bank",
+"INSERT"
+]
+],
+"wired_triggers": [
+[
+"public.accounting_agreement_history",
+"accounting_agreement_history_immutable",
+"public.fn_accounting_agreement_history_immutable",
+"3fa4099435ff1e9d5c48fa1934b63549"
+],
+[
+"public.accounting_agreement_history",
+"accounting_agreement_history_no_truncate",
+"public.fn_accounting_agreement_history_immutable",
+"3fa4099435ff1e9d5c48fa1934b63549"
+],
+[
+"public.accounting_rakeback_payer_contracts",
+"accounting_rakeback_payer_contract_immutable",
+"public.fn_accounting_agreement_history_immutable",
+"3fa4099435ff1e9d5c48fa1934b63549"
+],
+[
+"public.accounting_rakeback_payer_contracts",
+"accounting_rakeback_payer_contract_no_truncate",
+"public.fn_accounting_agreement_history_immutable",
+"3fa4099435ff1e9d5c48fa1934b63549"
+],
+[
+"public.accounting_rakeback_payer_transfers",
+"accounting_rakeback_payer_transfer_immutable",
+"public.fn_accounting_agreement_history_immutable",
+"3fa4099435ff1e9d5c48fa1934b63549"
+],
+[
+"public.accounting_rakeback_payer_transfers",
+"accounting_rakeback_payer_transfer_no_truncate",
+"public.fn_accounting_agreement_history_immutable",
+"3fa4099435ff1e9d5c48fa1934b63549"
+],
+[
+"public.accounting_rakeback_period_calculations",
+"accounting_rakeback_calculation_immutable",
+"public.fn_accounting_agreement_history_immutable",
+"3fa4099435ff1e9d5c48fa1934b63549"
+],
+[
+"public.accounting_rakeback_period_calculations",
+"accounting_rakeback_calculation_no_truncate",
+"public.fn_accounting_agreement_history_immutable",
+"3fa4099435ff1e9d5c48fa1934b63549"
+],
+[
+"public.accounting_rakeback_period_calculations",
+"accounting_rakeback_payer_contracts_at_calculation",
+"smarter_private.record_rakeback_payer_contracts",
+"73325c330ea577c08b4704319c0f89ec"
+],
+[
+"public.accounting_rakeback_period_calculations",
+"zz_accounting_rakeback_wallet_contracts",
+"smarter_private.record_rakeback_wallet_contracts",
+"e0ba664285b5b6cc885fd6a2357d8596"
+],
+[
+"public.accounting_rakeback_wallet_contracts",
+"own_agent_wallet_contract_immutable",
+"public.fn_accounting_agreement_history_immutable",
+"3fa4099435ff1e9d5c48fa1934b63549"
+],
+[
+"public.accounting_rakeback_wallet_contracts",
+"own_agent_wallet_contract_no_truncate",
+"public.fn_accounting_agreement_history_immutable",
+"3fa4099435ff1e9d5c48fa1934b63549"
+],
+[
+"public.accounting_rakeback_wallet_transfers",
+"own_agent_wallet_transfer_immutable",
+"public.fn_accounting_agreement_history_immutable",
+"3fa4099435ff1e9d5c48fa1934b63549"
+],
+[
+"public.accounting_rakeback_wallet_transfers",
+"own_agent_wallet_transfer_no_truncate",
+"public.fn_accounting_agreement_history_immutable",
+"3fa4099435ff1e9d5c48fa1934b63549"
+],
+[
+"public.accounting_routed_settlement_runs",
+"accounting_routed_run_immutable",
+"public.fn_accounting_agreement_history_immutable",
+"3fa4099435ff1e9d5c48fa1934b63549"
+],
+[
+"public.accounting_routed_settlement_runs",
+"accounting_routed_run_no_truncate",
+"public.fn_accounting_agreement_history_immutable",
+"3fa4099435ff1e9d5c48fa1934b63549"
+],
+[
+"public.agents",
+"aaa_ca_refuse_replica_money_truncate",
+"public.fn_ca_refuse_replica_money_write",
+"42ed613371ddac424b618f5ac767a733"
+],
+[
+"public.agents",
+"aaa_ca_refuse_replica_money_write",
+"public.fn_ca_refuse_replica_money_write",
+"42ed613371ddac424b618f5ac767a733"
+],
+[
+"public.agents",
+"accounting_agreement_history",
+"public.fn_accounting_agreement_capture",
+"746fab25cd56f6ad761325e7c0d525d5"
+],
+[
+"public.agents",
+"agent_wallet_changed",
+"public.fn_publish_agent_wallet_change",
+"6f1c28ffce6de828bec8c4984a425883"
+],
+[
+"public.agents",
+"cashier_agent_balance_actor_guard",
+"public.fn_cashier_balance_actor_guard",
+"178146284da8fbab643c2e6fcbb8bd42"
+],
+[
+"public.agents",
+"cashier_agent_operation_mutex",
+"public.fn_cashier_operation_mutex_guard",
+"344aae5352ca162b3f89971599fcda78"
+],
+[
+"public.agents",
+"cashier_agent_status_mutex_delete",
+"public.fn_cashier_agent_status_mutex",
+"bf7d74a44d3676cfc733602fc35f10b6"
+],
+[
+"public.agents",
+"cashier_agent_status_mutex_update",
+"public.fn_cashier_agent_status_mutex",
+"bf7d74a44d3676cfc733602fc35f10b6"
+],
+[
+"public.agents",
+"club_staff_notice_agents",
+"public.fn_club_staff_notice_role_event",
+"a7f817a4fc8c54ae1b401462862cf8a9"
+],
+[
+"public.agents",
+"guard_agent_wallet_direct_update",
+"public.guard_agent_wallet_direct_update",
+"736aa9e92265453c3015223562108141"
+],
+[
+"public.agents",
+"member_record_agent",
+"public.fn_publish_member_record_row",
+"ba43ce21b9e59680c981674fd0b2cc89"
+],
+[
+"public.agents",
+"poker_arena_no_hierarchy",
+"public.fn_poker_reject_diamond_hierarchy",
+"49037a2bf4322d2a327bc9141a7a7a89"
+],
+[
+"public.agents",
+"trg_agent_default_prepaid",
+"public.fn_agent_default_prepaid",
+"ab764c788f16650da4b2fc6df2d2a0a7"
+],
+[
+"public.agents",
+"trg_agents_commission_bounds",
+"public.fn_enforce_agent_commission_bounds",
+"3e4f5df422b121391cc40f711ae5b5ee"
+],
+[
+"public.agents",
+"trg_agents_human_user_club_only",
+"public.fn_ca_reject_automated_user_club_row",
+"d2d3dfb50e8cdf6bfce78c16526da539"
+],
+[
+"public.agents",
+"trg_agents_staff_earn_no_rakeback",
+"public.fn_agents_staff_earn_no_rakeback",
+"17346b77ec8f5a1d6d42dca3eb06e061"
+],
+[
+"public.agents",
+"trg_ca_autoledger",
+"public.fn_ca_autoledger",
+"ceb53c916648f025bdae6fe0e03e5e8b"
+],
+[
+"public.agents",
+"trg_ca_autoledger_delete",
+"public.fn_ca_autoledger_delete",
+"c6d7e02df8b654fbccc3e8844418bd01"
+],
+[
+"public.agents",
+"trg_ca_autoledger_insert",
+"public.fn_ca_autoledger",
+"ceb53c916648f025bdae6fe0e03e5e8b"
+],
+[
+"public.agents",
+"trg_deep_stack_agents_are_protected",
+"public.fn_deep_stack_society_cannot_be_deleted_by_accident",
+"213a7fa40330c703cb23dc001a99d31e"
+],
+[
+"public.agents",
+"trg_guard_retired_club_mutation",
+"public.fn_guard_retired_club_mutation",
+"66b05912e3963815a560db03d54c74c9"
+],
+[
+"public.agents",
+"trg_sync_agent_wallets",
+"public.sync_agent_wallet_columns",
+"3a3d351dd05b5dc13b525b7eb4635e5c"
+],
+[
+"public.agents",
+"zy_ca_tally_store_move",
+"public.fn_ca_tally_store_move",
+"6db4f04e33013c8f9b00e2155b31e72d"
+],
+[
+"public.agents",
+"zz_ca_store_has_its_ledger_row",
+"public.fn_ca_balance_has_its_ledger_row",
+"2df7b3f67e95b8a6c0abe7ba3faff63c"
+],
+[
+"public.agents",
+"zz_guard_agent_agreement",
+"public.fn_guard_agent_agreement",
+"6128f73fa007125996f909799e59c9d8"
+],
+[
+"public.agents",
+"zzzz_credit_control_revision_v1",
+"public.fn_agent_credit_control_revision_v1",
+"5ec011a69c2c9e9bc5c2da28f226ba25"
+],
+[
+"public.agents",
+"zzzz_deleted_agent_credit",
+"public.fn_ca_deleted_wallet_credit",
+"38381e35aa9804fb1e109c20855e4854"
+],
+[
+"public.chip_ledger",
+"aa_ca_capture_tournament_charge_entitlement",
+"public.fn_ca_capture_tournament_charge_entitlement",
+"d18629d96b3f5e3b5d6826c2bf309ac4"
+],
+[
+"public.chip_ledger",
+"aa_poker_arena_no_chip_money",
+"public.fn_poker_reject_diamond_chip_money",
+"7c61e72bf8bc26c15490b31bed7bc912"
+],
+[
+"public.chip_ledger",
+"aaa_ca_refuse_replica_money_truncate",
+"public.fn_ca_refuse_replica_money_write",
+"42ed613371ddac424b618f5ac767a733"
+],
+[
+"public.chip_ledger",
+"aaa_ca_refuse_replica_money_write",
+"public.fn_ca_refuse_replica_money_write",
+"42ed613371ddac424b618f5ac767a733"
+],
+[
+"public.chip_ledger",
+"aaa_launch_closing_leg",
+"public.fn_ca_launch_closing_leg_guard",
+"cd0ed08f29a45782c3458f14d0610c1f"
+],
+[
+"public.chip_ledger",
+"ab_ca_chip_store_declared",
+"public.fn_ca_chip_store_declared",
+"d5b08956826e56a0d414db4bfd022d3b"
+],
+[
+"public.chip_ledger",
+"accounting_tournament_recognized_bank_immutable",
+"public.fn_accounting_tournament_recognized_evidence_immutable",
+"a5a71f9b0ba989721663a85cbb407ea9"
+],
+[
+"public.chip_ledger",
+"accounting_transfer_document",
+"public.fn_accounting_transfer_document_on_insert",
+"164aae2fca35c964331ed8aecd225411"
+],
+[
+"public.chip_ledger",
+"cancelled_tournament_evidence_is_immutable",
+"public.fn_cancelled_tournament_evidence_is_immutable",
+"c361537b74dd7b12f05cc58bd0d2ef4f"
+],
+[
+"public.chip_ledger",
+"original_union_pnl_flow",
+"public.fn_union_pnl_capture_original_flow",
+"df060874f0ffaf8105cce1d3bdaed35b"
+],
+[
+"public.chip_ledger",
+"satellite_transfer_ledger_is_immutable",
+"public.fn_satellite_transfer_ledger_is_immutable",
+"b4012023e95bf3ee041776a03bd2d731"
+],
+[
+"public.chip_ledger",
+"terminal_tournament_evidence_is_immutable",
+"public.fn_terminal_tournament_evidence_is_immutable",
+"1b3ab2bd7823977943d1baa0816997d0"
+],
+[
+"public.chip_ledger",
+"trg_ca_append_only",
+"public.fn_ca_journal_append_only",
+"ac9d66e60d077d886981c428c71e5c3c"
+],
+[
+"public.chip_ledger",
+"trg_ca_chip_ledger_enrich",
+"public.fn_ca_chip_ledger_enrich",
+"5931f47d922eea26ab1ea2b12f3f7c8c"
+],
+[
+"public.chip_ledger",
+"trg_chip_ledger_performed_by",
+"public.enforce_chip_ledger_performed_by",
+"ed92ea331aeddaffca0ae46a7f6801ea"
+],
+[
+"public.chip_ledger",
+"trg_chip_ledger_performed_by_update",
+"public.enforce_chip_ledger_performed_by",
+"ed92ea331aeddaffca0ae46a7f6801ea"
+],
+[
+"public.chip_ledger",
+"zy_ca_tally_ledger_leg",
+"public.fn_ca_tally_ledger_leg",
+"9b3ab2f5a78cb7fa0adfb377706ecb85"
+],
+[
+"public.chip_ledger",
+"zz_ca_attested_day_is_restated_del",
+"public.fn_ca_attested_day_is_restated",
+"268e0f244b2df7f88b933530b1cad822"
+],
+[
+"public.chip_ledger",
+"zz_ca_attested_day_is_restated_upd",
+"public.fn_ca_attested_day_is_restated",
+"268e0f244b2df7f88b933530b1cad822"
+],
+[
+"public.chip_ledger",
+"zz_ca_escrow_overlay_leg",
+"public.fn_ca_escrow_on_overlay_leg",
+"1b916fb576271d94c481099c11ca8b93"
+],
+[
+"public.chip_ledger",
+"zz_ca_escrow_reserve_leg",
+"public.fn_ca_escrow_on_reserve_leg",
+"0d7f735d58aadeb6fe03e9daf5e21a92"
+],
+[
+"public.chip_ledger",
+"zz_ca_escrow_seat_transfer_leg",
+"public.fn_ca_escrow_on_seat_transfer_leg",
+"e9c56f9c21635b21c7cf0d456eb18b8a"
+],
+[
+"public.chip_ledger",
+"zz_ca_funded_return_journal",
+"public.fn_ca_funded_chip_return_journal",
+"83a1c235e73e3544707aed186c9e1541"
+],
+[
+"public.chip_ledger",
+"zz_ca_issuance_leg_is_registered",
+"public.fn_ca_issuance_leg_is_registered",
+"164b9494b161bca655a313a9a4adfd93"
+],
+[
+"public.chip_ledger",
+"zz_ca_ledger_row_has_its_balance",
+"public.fn_ca_balance_has_its_ledger_row",
+"2df7b3f67e95b8a6c0abe7ba3faff63c"
+],
+[
+"public.chip_ledger",
+"zz_ca_own_agent_rakeback_leg_documented",
+"public.fn_ca_rakeback_payout_leg_is_documented",
+"27b613b98de1d922d0ee65e9259c0cea"
+],
+[
+"public.chip_ledger",
+"zz_ca_rakeback_payout_leg_is_documented",
+"public.fn_ca_rakeback_payout_leg_is_documented",
+"27b613b98de1d922d0ee65e9259c0cea"
+],
+[
+"public.chip_ledger",
+"zz_chip_ledger_key_is_claimed_once",
+"public.zz_chip_ledger_key_is_claimed_once",
+"57a2b2eb1bc5b1c5ac36394c2ac23bcd"
+],
+[
+"public.chip_ledger",
+"zz_freeze_guard",
+"public.fn_refuse_while_frozen",
+"a8dd811942377b0e67fa219ba039681e"
+],
+[
+"public.chip_ledger",
+"zz_tournament_accounting_credit_ledger",
+"public.fn_ca_capture_tournament_credit_ledger",
+"81b1abbedb544e2fca0f8edec7d27cae"
+],
+[
+"public.chip_transactions",
+"cashier_operation_intent_guard",
+"public.fn_cashier_operation_intent_guard",
+"60350724279387da3b548bd370d082db"
+],
+[
+"public.chip_transactions",
+"member_record_transaction",
+"public.fn_publish_member_record_transaction",
+"2ed90a47b868be864b77459a901015a1"
+],
+[
+"public.chip_transactions",
+"trg_ca_append_only",
+"public.fn_ca_journal_append_only",
+"ac9d66e60d077d886981c428c71e5c3c"
+],
+[
+"public.chip_transactions",
+"zz_freeze_guard",
+"public.fn_refuse_while_frozen",
+"a8dd811942377b0e67fa219ba039681e"
+],
+[
+"public.chip_transactions",
+"zz_restriction_transfer_guard",
+"public.fn_ca_refuse_restricted_transfer",
+"65a2cb12ec806144a074efc2614563d1"
+],
+[
+"public.chip_transactions",
+"zz_settlement_freeze_guard",
+"public.fn_refuse_operator_move_while_settling",
+"4dd93ff68d573144d73edc71e166f36f"
+],
+[
+"public.club_members",
+"aaa_ca_refuse_replica_money_write",
+"public.fn_ca_refuse_replica_money_write",
+"42ed613371ddac424b618f5ac767a733"
+],
+[
+"public.club_members",
+"accounting_agreement_history",
+"public.fn_accounting_agreement_capture",
+"746fab25cd56f6ad761325e7c0d525d5"
+],
+[
+"public.club_members",
+"capture_club_messenger_admission",
+"public.fn_capture_club_messenger_admission",
+"a2cdfdb7e9b9e9b650f0cfc72e693eae"
+],
+[
+"public.club_members",
+"cashier_member_balance_actor_guard",
+"public.fn_cashier_balance_actor_guard",
+"178146284da8fbab643c2e6fcbb8bd42"
+],
+[
+"public.club_members",
+"cashier_member_operation_mutex",
+"public.fn_cashier_operation_mutex_guard",
+"344aae5352ca162b3f89971599fcda78"
+],
+[
+"public.club_members",
+"club_members_updated_at",
+"public.update_updated_at_column",
+"54801f8bc343c4928383a3e7a1d57d61"
+],
+[
+"public.club_members",
+"club_staff_notice_membership",
+"public.fn_club_staff_notice_role_event",
+"a7f817a4fc8c54ae1b401462862cf8a9"
+],
+[
+"public.club_members",
+"deliver_club_messenger_welcome",
+"public.fn_deliver_club_messenger_welcome",
+"11fc6eb8b03ccdea3b4cf799cc9bce99"
+],
+[
+"public.club_members",
+"lock_cashier_hierarchy_update",
+"public.lock_club_cashier_hierarchy_mutation",
+"2bf2e0dc1876c5b1238603fc18558907"
+],
+[
+"public.club_members",
+"member_rakeback_explicit_guard",
+"public.fn_member_rakeback_explicit_guard",
+"7afde97b841511ee0553beeb6a703bc7"
+],
+[
+"public.club_members",
+"member_record_membership",
+"public.fn_publish_member_record_row",
+"ba43ce21b9e59680c981674fd0b2cc89"
+],
+[
+"public.club_members",
+"poker_arena_membership_guard",
+"public.fn_poker_guard_arena_structure",
+"0bcf6105fbcabf5cb68236d67817b952"
+],
+[
+"public.club_members",
+"trg_admin_holds_no_player_wallet",
+"public.fn_admin_holds_no_player_wallet",
+"3c54c86c548917606c846febfadf704b"
+],
+[
+"public.club_members",
+"trg_approval_gate_upd",
+"public.fn_membership_approval_gate",
+"b5edea413fa87af75f47b925a23b1d10"
+],
+[
+"public.club_members",
+"trg_audit_club_join",
+"public.fn_audit_club_entry_mutation",
+"551c99f71d70848ef8115bbcfb5b7c71"
+],
+[
+"public.club_members",
+"trg_audit_club_member_update",
+"public.fn_audit_club_member_change",
+"06515aa426034c1174450e2dc37204ef"
+],
+[
+"public.club_members",
+"trg_block_browser_balance_writes",
+"public.fn_block_browser_balance_writes",
+"c7390598f411e7d6bc4b8daf00e12c6e"
+],
+[
+"public.club_members",
+"trg_ca_autoledger",
+"public.fn_ca_autoledger",
+"ceb53c916648f025bdae6fe0e03e5e8b"
+],
+[
+"public.club_members",
+"trg_club_member_notes_guard",
+"public.fn_club_member_notes_guard",
+"cc7bae672aea44a800052d2aba490360"
+],
+[
+"public.club_members",
+"trg_club_members_audit_chip_movement",
+"public.fn_club_members_ledger_writer",
+"68030454cdb78329bb6c41eabe8bff24"
+],
+[
+"public.club_members",
+"trg_club_members_bot_follows_horse",
+"public.fn_club_members_bot_follows_horse",
+"02033ded814911b9a5a74ecf91dfa2e9"
+],
+[
+"public.club_members",
+"trg_club_members_emit_management_access",
+"public.fn_emit_management_access_event",
+"fd10e300f81d5bd5f68efccb7ad1cb54"
+],
+[
+"public.club_members",
+"trg_club_members_guard_lifecycle_write",
+"public.fn_guard_membership_lifecycle_write",
+"8a72d76f51c5fc08e5424eb5b0db1493"
+],
+[
+"public.club_members",
+"trg_club_members_human_user_club_only",
+"public.fn_ca_reject_automated_user_club_row",
+"d2d3dfb50e8cdf6bfce78c16526da539"
+],
+[
+"public.club_members",
+"trg_club_members_level_sync",
+"public.trg_auto_recompute_club_level",
+"91f239bc0f5b75e5147ef6bd19ff761b"
+],
+[
+"public.club_members",
+"trg_club_members_no_agent_cycle_upd",
+"public.fn_club_members_no_agent_cycle",
+"a7ad3c53fcab80a15831e71544b53c56"
+],
+[
+"public.club_members",
+"trg_club_members_role_guard",
+"public.fn_club_members_role_guard",
+"2374cfedbbe89d3a69c75cdfdb240fe6"
+],
+[
+"public.club_members",
+"trg_club_members_staff_earn_no_rakeback",
+"public.fn_club_members_staff_earn_no_rakeback",
+"09ae811a57faa517720d493d89262f31"
+],
+[
+"public.club_members",
+"trg_club_members_status_guard",
+"public.fn_club_members_status_guard",
+"587b8157ec37354992b230b9d10035b1"
+],
+[
+"public.club_members",
+"trg_four_club_limit_upd",
+"public.fn_enforce_four_club_limit",
+"7c79db5e707510912f4fa3c6f9ff7cb5"
+],
+[
+"public.club_members",
+"trg_guard_retired_club_mutation",
+"public.fn_guard_retired_club_mutation",
+"66b05912e3963815a560db03d54c74c9"
+],
+[
+"public.club_members",
+"trg_recompute_club_level_on_member_change",
+"public.fn_recompute_club_level_on_member_change",
+"0a761d5d6027c26ddbe4a7760d23d434"
+],
+[
+"public.club_members",
+"trg_sync_agent_player_counts",
+"public.fn_sync_agent_player_counts",
+"76a5848cfdb6c1674b48cb62ae1f22dd"
+],
+[
+"public.club_members",
+"trg_sync_club_member_count",
+"public.fn_sync_club_member_count",
+"2abaebf91e89f56487f01b25d7e3ac98"
+],
+[
+"public.club_members",
+"trg_sync_mfa_required_on_club_role",
+"public.fn_sync_mfa_required_on_club_role",
+"b09cbcddc87075221d72aee3899e97b4"
+],
+[
+"public.club_members",
+"trg_union_owner_membership_is_kept",
+"public.fn_union_owner_membership_is_kept",
+"033446b62c65f4f0ade7c19e392f92cc"
+],
+[
+"public.club_members",
+"zy_ca_tally_balance_move",
+"public.fn_ca_tally_balance_move",
+"b7911a245d4bf33134a9a2f474c1f410"
+],
+[
+"public.club_members",
+"zy_ca_tally_store_move",
+"public.fn_ca_tally_store_move",
+"6db4f04e33013c8f9b00e2155b31e72d"
+],
+[
+"public.club_members",
+"zz_ca_balance_has_its_ledger_row",
+"public.fn_ca_balance_has_its_ledger_row",
+"2df7b3f67e95b8a6c0abe7ba3faff63c"
+],
+[
+"public.club_members",
+"zz_ca_store_has_its_ledger_row",
+"public.fn_ca_balance_has_its_ledger_row",
+"2df7b3f67e95b8a6c0abe7ba3faff63c"
+],
+[
+"public.club_members",
+"zz_freeze_guard",
+"public.fn_refuse_while_frozen",
+"a8dd811942377b0e67fa219ba039681e"
+],
+[
+"public.club_members",
+"zzzz_deleted_member_credit",
+"public.fn_ca_deleted_wallet_credit",
+"38381e35aa9804fb1e109c20855e4854"
+],
+[
+"public.club_members",
+"zzzz_horse_split_late_credit_returns_to_bank",
+"public.fn_ca_horse_split_return_late_credit",
+"b4d29a312a1d98b8a1b9c9ef7d0bb19b"
+],
+[
+"public.clubs",
+"aaa_ca_refuse_replica_money_write",
+"public.fn_ca_refuse_replica_money_write",
+"42ed613371ddac424b618f5ac767a733"
+],
+[
+"public.clubs",
+"cashier_club_balance_actor_guard",
+"public.fn_cashier_balance_actor_guard",
+"178146284da8fbab643c2e6fcbb8bd42"
+],
+[
+"public.clubs",
+"cashier_club_operation_mutex",
+"public.fn_cashier_operation_mutex_guard",
+"344aae5352ca162b3f89971599fcda78"
+],
+[
+"public.clubs",
+"club_staff_notice_owner",
+"public.fn_club_staff_notice_role_event",
+"a7f817a4fc8c54ae1b401462862cf8a9"
+],
+[
+"public.clubs",
+"clubs_updated_at",
+"public.update_updated_at_column",
+"54801f8bc343c4928383a3e7a1d57d61"
+],
+[
+"public.clubs",
+"diamond_game_club_reserves",
+"public.fn_diamond_game_reserved_cover_guard",
+"c7a4c4fa4763924d7f76d9f70656014e"
+],
+[
+"public.clubs",
+"member_record_club",
+"public.fn_publish_member_record_context",
+"0705c55c836ed5a95491891070fa66dd"
+],
+[
+"public.clubs",
+"midway_cash_rake_write_guard",
+"public.fn_midway_cash_rake_write_guard",
+"6ba00e7372c24fea08d27fb6947c8a02"
+],
+[
+"public.clubs",
+"poker_arena_identity_guard",
+"public.fn_poker_guard_arena_structure",
+"0bcf6105fbcabf5cb68236d67817b952"
+],
+[
+"public.clubs",
+"trg_audit_club_settings",
+"public.fn_audit_club_settings_change",
+"5403c57f2dbe265c8fd185c924e2eb14"
+],
+[
+"public.clubs",
+"trg_block_browser_treasury_writes",
+"public.fn_block_browser_balance_writes",
+"c7390598f411e7d6bc4b8daf00e12c6e"
+],
+[
+"public.clubs",
+"trg_ca_autoledger",
+"public.fn_ca_autoledger",
+"ceb53c916648f025bdae6fe0e03e5e8b"
+],
+[
+"public.clubs",
+"trg_ca_club_gets_a_baseline",
+"public.fn_ca_club_gets_a_baseline",
+"9e234dd984e7c47d448a33aae2292938"
+],
+[
+"public.clubs",
+"trg_club_identity_emit_management_event",
+"public.fn_emit_management_content_event",
+"2f5883eca4e555ddaacf18fb71e9704f"
+],
+[
+"public.clubs",
+"trg_club_owner_emit_management_access",
+"public.fn_emit_club_union_access_event",
+"035603d32853b823b20877214ade334f"
+],
+[
+"public.clubs",
+"trg_club_owner_has_a_player_wallet",
+"public.fn_club_owner_has_a_player_wallet",
+"a933cd2505c6345ef907ddaadf28b6e8"
+],
+[
+"public.clubs",
+"trg_club_union_emit_management_access",
+"public.fn_emit_club_union_access_event",
+"035603d32853b823b20877214ade334f"
+],
+[
+"public.clubs",
+"trg_clubs_guard_lifecycle_write",
+"public.fn_guard_club_lifecycle_write",
+"6384708997b9c213bd727d02ad53aaca"
+],
+[
+"public.clubs",
+"trg_clubs_lobby_message_keeps_its_own_books",
+"public.fn_clubs_lobby_message_keeps_its_own_books",
+"4c78df3a6bde52c2cc7c42b05f91708a"
+],
+[
+"public.clubs",
+"trg_clubs_protect_level_columns",
+"public.trg_protect_club_level_columns",
+"c9fcb0739efd7af35c84851ea6836c29"
+],
+[
+"public.clubs",
+"trg_guard_clubs_chip_pool_upd",
+"public.guard_wallet_balance_write",
+"2af2718d22fcf12be394f9239e88e3c7"
+],
+[
+"public.clubs",
+"trg_remember_club_owner_transfer",
+"public.fn_remember_club_owner_transfer",
+"e5c9074f06097745f4db72d4a0ec5dfa"
+],
+[
+"public.clubs",
+"trg_spin_pool_follows_union_membership",
+"public.fn_spin_pool_follows_union_membership",
+"e75fb18ad642da209188ab5347b9fa82"
+],
+[
+"public.clubs",
+"trg_sync_mfa_required_on_club_owner",
+"public.fn_sync_mfa_required_on_club_owner",
+"2d4608c7506e302fd46f73d102f30f92"
+],
+[
+"public.clubs",
+"trg_union_totals_follow_club_counts",
+"public.fn_union_totals_follow_club_counts",
+"b504648fecedb704e0247a90fd476db2"
+],
+[
+"public.clubs",
+"zy_ca_tally_balance_move",
+"public.fn_ca_tally_balance_move",
+"b7911a245d4bf33134a9a2f474c1f410"
+],
+[
+"public.clubs",
+"zy_ca_tally_store_move",
+"public.fn_ca_tally_store_move",
+"6db4f04e33013c8f9b00e2155b31e72d"
+],
+[
+"public.clubs",
+"zz_ca_balance_has_its_ledger_row",
+"public.fn_ca_balance_has_its_ledger_row",
+"2df7b3f67e95b8a6c0abe7ba3faff63c"
+],
+[
+"public.clubs",
+"zz_ca_store_has_its_ledger_row",
+"public.fn_ca_balance_has_its_ledger_row",
+"2df7b3f67e95b8a6c0abe7ba3faff63c"
+],
+[
+"public.clubs",
+"zz_freeze_guard",
+"public.fn_refuse_while_frozen",
+"a8dd811942377b0e67fa219ba039681e"
+],
+[
+"public.rakeback_period_payouts",
+"poker_arena_no_hierarchy",
+"public.fn_poker_reject_diamond_hierarchy",
+"49037a2bf4322d2a327bc9141a7a7a89"
+],
+[
+"public.rakeback_period_payouts",
+"trg_ca_append_only",
+"public.fn_ca_journal_append_only",
+"ac9d66e60d077d886981c428c71e5c3c"
+],
+[
+"public.rakeback_periods",
+"ca_legacy_period_maturity",
+"public.fn_ca_legacy_period_maturity",
+"c47a76d289ba6c37a6411f447948c61b"
+],
+[
+"public.rakeback_periods",
+"poker_arena_no_hierarchy",
+"public.fn_poker_reject_diamond_hierarchy",
+"49037a2bf4322d2a327bc9141a7a7a89"
+],
+[
+"public.settlement_invoices",
+"accounting_invoice_deliver",
+"public.fn_accounting_invoice_deliver_on_insert",
+"4fb74e8fcf5caa0294c55deeefbbc6b3"
+],
+[
+"public.settlement_invoices",
+"accounting_invoice_immutable",
+"public.fn_accounting_document_immutable",
+"8ec25e2d39e02451020b5ce8e9ec5a1b"
+],
+[
+"public.settlement_invoices",
+"trg_weekly_statement_issue_settled",
+"public.fn_weekly_statement_issue_settled",
+"69ffddc6c6477d11515b81661b122d0e"
+],
+[
+"public.union_wallets",
+"aaa_ca_refuse_replica_money_truncate",
+"public.fn_ca_refuse_replica_money_write",
+"42ed613371ddac424b618f5ac767a733"
+],
+[
+"public.union_wallets",
+"aaa_ca_refuse_replica_money_write",
+"public.fn_ca_refuse_replica_money_write",
+"42ed613371ddac424b618f5ac767a733"
+],
+[
+"public.union_wallets",
+"diamond_game_union_reserves",
+"public.fn_diamond_game_reserved_cover_guard",
+"c7a4c4fa4763924d7f76d9f70656014e"
+],
+[
+"public.union_wallets",
+"trg_ca_autoledger",
+"public.fn_ca_autoledger",
+"ceb53c916648f025bdae6fe0e03e5e8b"
+],
+[
+"public.union_wallets",
+"trg_ca_autoledger_delete",
+"public.fn_ca_autoledger_delete",
+"c6d7e02df8b654fbccc3e8844418bd01"
+],
+[
+"public.union_wallets",
+"trg_ca_block_browser",
+"public.fn_ca_block_browser_money_table",
+"c894814808498e86ac14d59924cfa145"
+],
+[
+"public.union_wallets",
+"zy_ca_tally_balance_move",
+"public.fn_ca_tally_balance_move",
+"b7911a245d4bf33134a9a2f474c1f410"
+],
+[
+"public.union_wallets",
+"zz_ca_balance_has_its_ledger_row",
+"public.fn_ca_balance_has_its_ledger_row",
+"2df7b3f67e95b8a6c0abe7ba3faff63c"
+],
+[
+"public.wallet_transactions",
+"ca_club_data_fact_wallet",
+"public.trg_ca_club_data_fact_wallet",
+"fc3aecf79531fc9a9fb9f512b8307e6f"
+],
+[
+"public.wallet_transactions",
+"ca_legacy_round3_wallet_receipt",
+"public.fn_ca_legacy_round3_wallet_receipt",
+"633c22d5e80a33097315dd3835f28784"
+],
+[
+"public.wallet_transactions",
+"ca_reporting_wallet_change",
+"public.trg_ca_reporting_follows_a_changed_fact",
+"ec90ea234e621bc8d01d24a92b0427b2"
+],
+[
+"public.wallet_transactions",
+"ca_reporting_wallet_change_del",
+"public.trg_ca_reporting_repair_changed_days",
+"601c605e44856e42ee0d00e72a0fdb1e"
+],
+[
+"public.wallet_transactions",
+"ca_reporting_wallet_change_upd",
+"public.trg_ca_reporting_repair_changed_days",
+"601c605e44856e42ee0d00e72a0fdb1e"
+],
+[
+"public.wallet_transactions",
+"ca_reporting_wallet_insert",
+"public.trg_ca_reporting_wallet_insert",
+"95a73948ec5ce91c83060dfc4411bb2d"
+],
+[
+"public.wallet_transactions",
+"cancelled_tournament_wallet_is_immutable",
+"public.fn_cancelled_tournament_wallet_is_immutable",
+"50e0c7764f3a250f8116e0c6010d1503"
+],
+[
+"public.wallet_transactions",
+"terminal_wallet_transaction_is_immutable",
+"public.fn_terminal_wallet_transaction_is_immutable",
+"bcdd12571b044b395523e648eecab2a3"
+],
+[
+"public.wallet_transactions",
+"trg_ca_append_only",
+"public.fn_ca_journal_append_only",
+"ac9d66e60d077d886981c428c71e5c3c"
+],
+[
+"public.wallet_transactions",
+"trg_ca_money_path_log",
+"public.fn_ca_money_path_log",
+"85686efcef00637c90f8b8e48ec33526"
+],
+[
+"public.wallet_transactions",
+"zz_ca_escrow_wallet_tx",
+"public.fn_ca_escrow_on_wallet_tx",
+"ff49b681d06f7d9ca57e846ae4578acb"
+],
+[
+"public.wallet_transactions",
+"zz_freeze_guard",
+"public.fn_refuse_while_frozen",
+"a8dd811942377b0e67fa219ba039681e"
+],
+[
+"public.wallet_transactions",
+"zz_restriction_transfer_guard",
+"public.fn_ca_refuse_restricted_transfer",
+"65a2cb12ec806144a074efc2614563d1"
+]
+]
+}

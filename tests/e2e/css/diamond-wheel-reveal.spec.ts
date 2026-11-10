@@ -117,7 +117,27 @@ for (const width of [320, 390, 1280]) {
         await wheel.locator('[data-wheel-rotor]').evaluate((rotor) => rotor.getAnimations().length)
       ).toBe(1);
       await expect(wheel.locator('[data-wheel-rotor] svg [data-slot]')).toHaveCount(12);
-      await page.getByRole('button', { name: 'Preview Spin', exact: true }).click();
+      const plate = page.getByRole('button', { name: '100', exact: true });
+      const spin = page.getByRole('button', { name: 'Preview Spin', exact: true });
+      const geometry = async () => [await plate.boundingBox(), await spin.boundingBox()];
+      const selected = page.getByRole('button', { name: '2,500', exact: true });
+      await selected.click();
+      const selectedAppearance = () =>
+        selected.evaluate((button) => {
+          const style = getComputedStyle(button);
+          return [style.color, style.opacity, style.filter, style.backgroundImage];
+        });
+      const readyAppearance = await selectedAppearance();
+      const resting = await geometry();
+      await spin.hover();
+      await page.mouse.down();
+      expect(await geometry()).toEqual(resting);
+      await page.mouse.up();
+      await expect(spin).toBeDisabled();
+      await expect(selected).toBeDisabled();
+      expect(await selectedAppearance()).toEqual(readyAppearance);
+      expect(await geometry()).toEqual(resting);
+
       await expect(page.getByRole('button', { name: 'Preview Spin', exact: true })).toBeDisabled();
       await expect(page.getByLabel('Diamonds To Spin')).toBeDisabled();
       await expect(page.getByTestId('destination')).toHaveText('/clubs/fixture/wheel');
@@ -189,13 +209,11 @@ for (const width of [320, 390, 1280]) {
         await expect(proceed).toBeEnabled();
         expect(await insideViewport(page, '[role="dialog"], [role="dialog"] button')).toBe(true);
         await expect(proceed).toBeInViewport();
-        // Give a completed reveal another full reveal duration: a timer must not
-        // dismiss a booked prize without the player's explicit acknowledgement.
-        await page.evaluate(async () => {
-          const opening = document.querySelector('[role="dialog"] [data-motion="keep"]')!;
-          const duration = parseFloat(getComputedStyle(opening).animationDuration) * 1000;
-          await new Promise((resolve) => setTimeout(resolve, duration));
+        const shell = await dialog.evaluate((el) => {
+          const css = getComputedStyle(el);
+          return [css.borderTopWidth, css.boxShadow, css.backgroundColor];
         });
+        expect(shell).toEqual(['0px', 'none', 'rgba(0, 0, 0, 0)']);
         await expect(dialog).toBeVisible();
         expect(await page.evaluate(() => window.wheelProof.finished)).toBe(0);
         await page.screenshot({ path: testInfo.outputPath(`wheel-prize-${width}.png`) });
@@ -203,32 +221,20 @@ for (const width of [320, 390, 1280]) {
         await expect(dialog).toHaveCount(0);
         await expect(page.getByTestId('destination')).toHaveText('/clubs/fixture/wheel');
       } else {
-        // Owner ruling 2026-09-21 (R1, R9): a won game stays on its reveal until
-        // Play Game is tapped; a full extra reveal duration passes and nothing
-        // navigates.
-        const dialog = page.getByRole('dialog');
-        const play = dialog.getByRole('button', { name: 'Play Game', exact: true });
-        await expect(play).toBeEnabled({ timeout: WHEEL_SPIN_MS + 1400 + 650 });
-        await page.evaluate(async () => {
-          const opening = document.querySelector('[role="dialog"] [data-motion="keep"]')!;
-          const duration = parseFloat(getComputedStyle(opening).animationDuration) * 1000;
-          await new Promise((resolve) => setTimeout(resolve, duration));
-        });
-        await expect(dialog).toBeVisible();
-        expect(await page.evaluate(() => window.wheelProof.finished)).toBe(0);
-        await expect(page.getByTestId('destination')).toHaveText('/clubs/fixture/wheel');
-        await play.click();
         await expect(page.getByRole('heading', { name: 'Earned Game Entry' })).toBeVisible();
         await expect(page.getByTestId('destination')).toHaveText(
           `/clubs/fixture/${receipt.bonus.game}?wheelAward=${receipt.bonus.id}`
         );
       }
+      if (!receipt.bonus) expect(await geometry()).toEqual(resting);
       const proof = await page.evaluate(() => window.wheelProof);
       expect(proof.finished).toBe(1);
       const starts = proof.events.filter((event) => event.event === 'animationstart');
       const ends = proof.events.filter((event) => event.event === 'animationend');
       expect(starts).toHaveLength(kind.startsWith('upgrade') ? 2 : 1);
-      expect(ends).toHaveLength(starts.length);
+      // Manual Continue can legitimately interrupt the entrance. An automatically
+      // opened earned game must first show its landed prize.
+      if (receipt.bonus) expect(ends).toHaveLength(starts.length);
       expect(proof.events.at(-1)?.event).toBe('finished');
       if (kind.startsWith('upgrade')) {
         expect(starts[0].title).toBe('Bonus Upgrade');
@@ -335,20 +341,19 @@ for (const viewport of [
     const spinBounds = await controls
       .getByRole('button', { name: 'Spin 100', exact: true })
       .boundingBox();
-    const walletBounds = await controls.locator('dl').boundingBox();
-    const amountBounds = await page.getByLabel('Diamonds To Spin').boundingBox();
-    if (!spinBounds || !walletBounds || !amountBounds)
-      throw new Error('Wheel control geometry is unavailable');
-    const amountLabel = await controls.locator('label[for="diamond-spin-entry"]').boundingBox();
-    if (!amountLabel) throw new Error('The amount label is unavailable');
-    expect(amountLabel.y + amountLabel.height).toBeLessThanOrEqual(amountBounds.y + 1);
+    const walletBounds = await controls.locator('dl > div').first().boundingBox();
+    const chipBounds = await controls.locator('dl > div').nth(1).boundingBox();
+    const selector = controls.getByRole('button', { name: /^Amount / });
+    const toggle = await selector.boundingBox();
+    if (!spinBounds || !walletBounds || !chipBounds || !toggle)
+      throw new Error('Missing wheel controls');
+    await expect(controls.getByRole('button', { name: 'Max' })).toHaveCount(0);
     const headerAction = page.locator('header').getByRole('button', { name: 'Prizes & More' });
     const header = await titleBadge.locator('xpath=ancestor::header').boundingBox();
     const detailsButton = await headerAction.boundingBox();
     const badge = await titleBadge.boundingBox();
-    const max = await controls.getByRole('button', { name: 'Max', exact: true }).boundingBox();
     const deck = await controls.locator('dl').locator('..').boundingBox();
-    if (!header || !detailsButton || !badge || !max || !deck)
+    if (!header || !detailsButton || !badge || !deck)
       throw new Error('Wheel layout is unavailable');
     expect(detailsButton.x).toBeGreaterThanOrEqual(badge.x + badge.width);
     expect(detailsButton.y).toBeGreaterThanOrEqual(header.y);
@@ -358,18 +363,10 @@ for (const viewport of [
     expect(detailsButton.x + detailsButton.width).toBeGreaterThanOrEqual(
       header.x + header.width - 10
     );
-    // The chrome seat is bounded by the physical deck artwork, independently of the form wrapper.
-    for (const control of [amountLabel, amountBounds, max]) {
-      expect(control.x).toBeGreaterThanOrEqual(deck.x + deck.width * 0.63);
-      expect(control.x + control.width).toBeLessThanOrEqual(deck.x + deck.width * 0.965);
-      expect(control.y).toBeGreaterThanOrEqual(deck.y + deck.height * 0.62 - 1);
-      expect(control.y + control.height).toBeLessThanOrEqual(deck.y + deck.height * 0.94 + 1);
-    }
-    expect(Math.abs(max.y - amountBounds.y)).toBeLessThan(1);
-    expect(Math.abs(max.height - amountBounds.height)).toBeLessThan(1);
-    expect(max.x).toBeGreaterThanOrEqual(amountBounds.x + amountBounds.width + 1);
     expect(walletBounds.x + walletBounds.width).toBeLessThanOrEqual(spinBounds.x);
-    expect(amountBounds.x).toBeGreaterThanOrEqual(spinBounds.x + spinBounds.width);
+    expect(chipBounds.x).toBeGreaterThanOrEqual(spinBounds.x + spinBounds.width);
+    expect(Math.abs(chipBounds.y - walletBounds.y)).toBeLessThan(1);
+    expect(toggle.y + toggle.height <= deck.y + 1 || toggle.x >= deck.x + deck.width).toBe(true);
     let lastCenter = 0;
     for (const name of ['25', '100', '500', '1,000', '2,500']) {
       const preset = await controls.getByRole('button', { name, exact: true }).boundingBox();
@@ -390,7 +387,7 @@ for (const viewport of [
           scrollHeight: document.documentElement.scrollHeight,
           scrollWidth: document.documentElement.scrollWidth,
           targets: [...el.querySelectorAll('button,input')]
-            .filter((e) => !(e as HTMLElement).hidden)
+            .filter((e) => e.getClientRects().length > 0)
             .map((e) => {
               const b = e.getBoundingClientRect();
               return (
@@ -413,6 +410,7 @@ for (const viewport of [
         await controls.locator('button').evaluateAll((elements) =>
           elements.flatMap((el) => {
             const button = el.getBoundingClientRect();
+            if (!button.width) return [];
             const nodes = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
             const clipped = [];
             while (nodes.nextNode()) {
@@ -495,11 +493,11 @@ for (const viewport of [
       await page.addScriptTag({ content: bundle.javascript });
     }
     await controls.getByRole('button', { name: 'Use Diamonds', exact: true }).click();
+    await selector.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByLabel('Diamonds To Spin')).toBeFocused();
     await controls.getByRole('button', { name: 'Max', exact: true }).click();
     await expect(page.getByLabel('Diamonds To Spin')).toHaveValue('2600000');
-    await expect(
-      controls.getByRole('button', { name: 'Spin 2,600,000', exact: true })
-    ).toBeEnabled();
     const amountFits = await page
       .getByLabel('Diamonds To Spin')
       .evaluate((el: HTMLInputElement) => {
@@ -511,8 +509,15 @@ for (const viewport of [
         return context.measureText(el.value).width <= contentWidth;
       });
     expect(amountFits).toBe(true);
+    await page.keyboard.press('Escape');
+    await expect(selector).toBeFocused();
+    await expect(
+      controls.getByRole('button', { name: 'Spin 2,600,000', exact: true })
+    ).toBeEnabled();
     await page.screenshot({ path: testInfo.outputPath('full-wallet.png') });
+    await selector.click();
     await page.getByLabel('Diamonds To Spin').fill('2600001');
+    await page.keyboard.press('Escape');
     await expect(
       controls.getByText('Not Enough Diamonds For A Spin', { exact: true })
     ).toBeVisible();

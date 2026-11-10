@@ -23,10 +23,11 @@ function pegStudGeometry() {
   const profile = [
     [0.05, -0.17],
     [0.05, -0.03],
-    [0.116, -0.01],
-    [0.118, 0.03],
-    [0.104, 0.075],
-    [0.078, 0.108],
+    [0.134, -0.01],
+    [0.137, 0.02],
+    [0.117, 0.045],
+    [0.1, 0.079],
+    [0.073, 0.117],
     [0.042, 0.126],
     [0, 0.13],
   ].map(([x, y]) => new THREE.Vector2(x, y));
@@ -63,7 +64,7 @@ export function plinkoPegField(steel: THREE.MeshPhysicalMaterial) {
   const group = new THREE.Group();
   const geometry = pegStudGeometry();
   const bright = steel.clone();
-  bright.emissive.setHex(0x45adff);
+  bright.emissive.setHex(0x8edfff);
   bright.emissiveIntensity = 1.5;
   const unlit = new THREE.InstancedMesh(geometry, steel, PEG_COUNT);
   const lit = new THREE.InstancedMesh(geometry, bright, LIT_PEGS);

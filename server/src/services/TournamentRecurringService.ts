@@ -4774,10 +4774,21 @@ export class TournamentRecurringService {
           const j = secureRandomInt(i + 1);
           [empty[i], empty[j]] = [empty[j], empty[i]];
         }
+        /* A BOARD NOBODY CAN OPEN SPENDS NO BUDGET (2026-11-10, measured on
+           840429a3). All 48 empty boards belonged to four certification
+           fixture clubs with zero horse members; a club board seats only its
+           own members, so every reopen failed. Spending the budget on each
+           attempt meant a fixture club drawn ahead of the house took the whole
+           tick, and the house opened Spins only when drawn first: 5 of 11 two
+           and a half hours after the 6 AM reopen. Each failed attempt also
+           rewrote that board's window for nothing. So the owner's pool is
+           asked first: with no free horse, nothing is written, nothing is
+           spent, and the turn passes to the next owner. This owner still
+           creates nothing while it has an empty board. */
         for (const board of empty) {
           if (budget.left <= 0 || isMaintenanceFrozen()) return;
+          if (!(await this.reopenEmptySeatFirstBoard(board))) return;
           budget.left--;
-          await this.reopenEmptySeatFirstBoard(board);
         }
         return;
       }
@@ -5535,8 +5546,11 @@ export class TournamentRecurringService {
     id: string;
     name: string;
     max_players: number;
-  }): Promise<void> {
+  }): Promise<boolean> {
     const seats = Number(board.max_players) || 0;
+    // The same pool seedOpenSeatTable draws from, scoped to this board's owner.
+    // No free horse: no window write and no budget (see ensureBoardOpen).
+    if ((await this.pickFreeHorses(1, false, board.id)).length === 0) return false;
     const startTime = new Date(Date.now() + seatFirstOpeningWindowMs(seats)).toISOString();
     const { data: moved, error } = await supabase
       .from('tournaments')
@@ -5552,12 +5566,13 @@ export class TournamentRecurringService {
           ),
           'TournamentRecurring.reopen_window_write_failed'
         );
-      return;
+      return true;
     }
     const row = moved[0] as { id: string; club_id?: string | null; name: string };
     // seedOpenSeatTable seats through the RPC by tournament id; the table id it
     // hands back is unused here.
     await this.seedOpenSeatTable(row, seats, '', true);
+    return true;
   }
 
   private async seedOpenSeatTable(

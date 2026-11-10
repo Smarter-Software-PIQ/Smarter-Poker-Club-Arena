@@ -1,30 +1,120 @@
 .guaranteeRow {
-  color: #ffd98a;
+  color: #fff;
   font-weight: 700;
 }
 
+.cabinet [data-game-console] {
+  --plate-gold: #fff;
+  --realism-gold: #fff;
+  width: min(100%, 760px);
+  min-height: auto;
+  margin-inline: auto;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto auto auto;
+  grid-template-areas: 'header' 'play' 'controls' 'bar';
+  overflow: visible;
+}
 .cabinet [data-game-console] header {
-  background: linear-gradient(170deg, #26333d, #121c26 48%, #080e15);
-  border-bottom: 1px solid #6a8093;
+  position: relative;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 5px 50px;
+  background: linear-gradient(180deg, #202a39, #070c14 46%, #0c1727);
 }
 .cabinet [data-game-console] header h1 {
-  padding: 6px 14px;
-  border: 1px solid #91a3b6;
-  border-radius: 5px;
-  color: #ecf5ff;
-  background: linear-gradient(#394d68, #0a294d 48%, #0c3d67 65%, #111a25);
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: none;
+}
+.cabinet [data-game-console] header h1 img {
+  display: block;
+  width: clamp(180px, 45vw, 280px);
+  height: auto;
+}
+.cabinet [data-game-console] header :global(.ca-page-help) {
+  position: absolute;
+  right: 6px;
+  margin: 0;
+}
+.cabinet [data-game-console] header > span {
+  position: absolute;
+  left: 6px;
+  color: white;
+}
+.cabinet [data-scene='plinko'] {
+  width: min(100%, 46dvh, 540px);
+  align-self: center;
+  margin-inline: auto;
+}
+.cabinet [data-game-console] aside {
+  gap: 4px;
+  padding: 5px 12px;
+  background: linear-gradient(#151d28, #070c15);
+}
+.cabinet [data-game-console] dl {
+  grid-template-columns: repeat(auto-fit, minmax(48px, 1fr));
+  gap: 5px;
+}
+.cabinet [data-game-console] dl > div {
+  padding-bottom: 3px;
+  border: none;
+  text-align: center;
+}
+.cabinet [data-game-console] dt,
+.cabinet [data-game-console] dd,
+.cabinet [data-game-actions] button,
+.cabinet [data-game-actions] legend,
+.cabinet [data-game-actions] small,
+.guaranteeRow {
+  color: #fff;
+}
+.cabinet [data-game-actions] {
+  padding: 12px 14px max(12px, env(safe-area-inset-bottom));
+  gap: 6px;
+  border: 0;
+  border-radius: 7px;
+  background: #030910 url('/assets/diamond-spins/plinko-control-deck.webp') center / 100% 100%
+    no-repeat;
+}
+.cabinet [data-game-actions] > div:last-child {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.cabinet [data-game-actions] [aria-pressed] {
+  border: 1px solid #8b9fb7;
+  border-radius: 6px;
+  background: linear-gradient(165deg, #263c53, #0b1727 54%, #06101c);
   box-shadow:
-    inset 0 1px #d0deec,
-    inset 0 -2px #394753;
-  text-shadow: 0 2px 2px #04090e;
+    inset 0 1px #b3c8de,
+    inset 0 -2px #020510;
+}
+.cabinet [data-game-actions] [aria-pressed='true'] {
+  background: linear-gradient(165deg, #184e98, #08264b 55%, #0a4997);
+  border-color: #a3deff;
+  box-shadow:
+    inset 0 1px white,
+    0 0 7px #289cff;
 }
 .cabinet [data-game-actions] [data-plate] {
+  min-height: 44px;
   border: 8px solid transparent;
-  border-image: url('/assets/club-buttons/lobby/shark-panel-v1/button-secondary.png') 26 fill / 8px
-    stretch;
+  border-image-slice: 26 fill;
+  border-image-width: 8px;
+  border-image-repeat: stretch;
   background: #0b1015;
   padding: 4px 8px;
+  border-image-source: url('/assets/diamond-spins/controls-clean-v2/silver.png');
 }
 .cabinet [data-game-actions] [data-plate='primary'] {
-  border-image-source: url('/assets/club-buttons/lobby/shark-panel-v1/button-primary.png');
+  border-image-source: url('/assets/diamond-spins/controls-clean-v2/blue.png');
+}
+.cabinet [role='status']:empty {
+  display: none;
+}
+
+.cabinet [data-game-actions] [aria-pressed='true'] small {
+  color: white;
 }

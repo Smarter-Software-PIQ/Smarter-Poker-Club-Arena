@@ -17,7 +17,17 @@ BEGIN
   UPDATE pp.out SET doc = jsonb_set(doc, '{players}', (
     SELECT coalesce(jsonb_agg(p || jsonb_build_object('newcomer', (
              SELECT (s ->> 'newcomer')::boolean FROM jsonb_array_elements(snap) s
-              WHERE s ->> 'playerId' = p ->> 'player_id')) ORDER BY o), '[]'::jsonb)
+              WHERE s ->> 'playerId' = p ->> 'player_id'))
+             -- 20261110: the recency keys are the snapshot's too, so the port
+             -- plans each re-evaluated fixture by the rule the SQL now uses.
+             || coalesce((SELECT jsonb_build_object(
+                    'hands_since_sb', s -> 'handsSinceSb',
+                    'hands_since_button', s -> 'handsSinceButton',
+                    'last_button_at_us', CASE WHEN s ->> 'lastButtonAtMs' IS NULL THEN NULL
+                                              ELSE to_jsonb(((s ->> 'lastButtonAtMs')::numeric * 1000)::bigint) END)
+                    FROM jsonb_array_elements(snap) s
+                   WHERE s ->> 'playerId' = p ->> 'player_id' AND s ? 'handsSinceButton'), '{}'::jsonb)
+             ORDER BY o), '[]'::jsonb)
       FROM jsonb_array_elements(doc -> 'players') WITH ORDINALITY t(p, o)))
    WHERE n = p_n;
   IF EXISTS (SELECT 1 FROM pp.out, jsonb_array_elements(doc -> 'players') p

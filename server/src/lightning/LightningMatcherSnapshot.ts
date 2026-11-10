@@ -63,6 +63,10 @@ export function parseLightningMatcherSnapshot(
         'handsSinceBb',
         'newcomer',
         'positions',
+        // 20261110: the recency keys of the small blind and the button.
+        'handsSinceSb',
+        'handsSinceButton',
+        'lastButtonAtMs',
       ]) ||
       !uuid(p.playerId) ||
       seen.has(p.playerId) ||
@@ -79,6 +83,10 @@ export function parseLightningMatcherSnapshot(
       !['idleSinceMs', 'enteredAtMs', 'slotOpenedAtMs', 'debtSinceMs'].every((k) => finite(p[k])) ||
       !['joinedAtMs', 'lastBbAtMs'].every((k) => p[k] === null || finite(p[k])) ||
       (p.handsSinceBb !== null && !count(p.handsSinceBb)) ||
+      ['handsSinceSb', 'handsSinceButton'].some(
+        (k) => p[k] !== undefined && p[k] !== null && !count(p[k])
+      ) ||
+      (p.lastButtonAtMs !== undefined && p.lastButtonAtMs !== null && !finite(p.lastButtonAtMs)) ||
       !['btn', 'co', 'hj', 'utg'].every((k) => count((p.positions as Record<string, unknown>)[k]))
     )
       return null;

@@ -1,0 +1,362 @@
+{
+  "coverage": [
+    {
+      "added_at": "2026-09-11T16:10:27.128168+00:00",
+      "counted_by": "agent_wallets",
+      "notes": "agents agent_wallet_balance and promo_wallet_balance",
+      "store": "agent_wallet",
+      "treatment": "counted"
+    },
+    {
+      "added_at": "2026-09-11T16:10:27.128168+00:00",
+      "counted_by": "bbj_pools",
+      "notes": "main, backup and promo",
+      "store": "bbj_pool",
+      "treatment": "counted"
+    },
+    {
+      "added_at": "2026-09-11T16:10:27.128168+00:00",
+      "counted_by": "tournament_liability",
+      "notes": "tournament_escrow bounty_balance",
+      "store": "bounty_liability",
+      "treatment": "counted"
+    },
+    {
+      "added_at": "2026-09-11T16:10:27.128168+00:00",
+      "counted_by": null,
+      "notes": "retirement holding",
+      "store": "chip_retirement",
+      "treatment": "noncirculating"
+    },
+    {
+      "added_at": "2026-09-11T16:10:27.128168+00:00",
+      "counted_by": "treasuries",
+      "notes": "clubs chip_treasury",
+      "store": "club_treasury",
+      "treatment": "counted"
+    },
+    {
+      "added_at": "2026-09-11T16:10:27.128168+00:00",
+      "counted_by": "club_wallets",
+      "notes": "club_wallets chip_balance",
+      "store": "club_wallet",
+      "treatment": "counted"
+    },
+    {
+      "added_at": "2026-09-11T16:10:27.128168+00:00",
+      "counted_by": null,
+      "notes": "never used in the journal to date. Movement raises a finding so its treatment is decided before it carries money",
+      "store": "credit_facility",
+      "treatment": "uncounted"
+    },
+    {
+      "added_at": "2026-09-11T16:10:27.128168+00:00",
+      "counted_by": null,
+      "notes": "never used in the journal to date. Movement raises a finding so its treatment is decided before it carries money",
+      "store": "credit_receivable",
+      "treatment": "uncounted"
+    },
+    {
+      "added_at": "2026-09-11T16:10:27.128168+00:00",
+      "counted_by": "ticket_escrow",
+      "notes": "Outstanding tournament tickets. ADDED 2026-09-11: it was in no list at all, which is the whole of the five supply incidents of that morning",
+      "store": "escrow",
+      "treatment": "counted"
+    },
+    {
+      "added_at": "2026-09-11T16:10:27.128168+00:00",
+      "counted_by": "club_insurance + union insurance_wallet",
+      "notes": "clubs insurance_balance",
+      "store": "insurance_bank",
+      "treatment": "counted"
+    },
+    {
+      "added_at": "2026-09-11T16:10:27.128168+00:00",
+      "counted_by": null,
+      "notes": "issuance held before it enters circulation",
+      "store": "issuance_reserve",
+      "treatment": "noncirculating"
+    },
+    {
+      "added_at": "2026-09-11T16:10:27.128168+00:00",
+      "counted_by": "leaderboard_liability",
+      "notes": "the same seed, while a round is being settled",
+      "store": "leaderboard_round",
+      "treatment": "counted"
+    },
+    {
+      "added_at": "2026-09-11T16:10:27.128168+00:00",
+      "counted_by": "leaderboard_liability",
+      "notes": "club_opening_setups leaderboard_seed_remaining",
+      "store": "opening_setup",
+      "treatment": "counted"
+    },
+    {
+      "added_at": "2026-09-11T16:10:27.128168+00:00",
+      "counted_by": "member_wallets + member_promo",
+      "notes": "club_members chip_balance and promo_balance",
+      "store": "player_wallet",
+      "treatment": "counted"
+    },
+    {
+      "added_at": "2026-09-11T16:10:27.128168+00:00",
+      "counted_by": "tournament_liability",
+      "notes": "tournament_escrow prize_balance, or the counters where an event has no escrow row yet",
+      "store": "prize_liability",
+      "treatment": "counted"
+    },
+    {
+      "added_at": "2026-09-11T16:10:27.128168+00:00",
+      "counted_by": "club_promo + agent_promo + union promo_wallet",
+      "notes": "the promo floats, brought inside the total on 2026-09-03",
+      "store": "promo_wallet",
+      "treatment": "counted"
+    },
+    {
+      "added_at": "2026-09-11T16:10:27.128168+00:00",
+      "counted_by": null,
+      "notes": "never used in the journal to date. Movement raises a finding so its treatment is decided before it carries money",
+      "store": "rakeback_payable",
+      "treatment": "uncounted"
+    },
+    {
+      "added_at": "2026-09-11T16:10:27.128168+00:00",
+      "counted_by": null,
+      "notes": "never used in the journal to date. Movement raises a finding so its treatment is decided before it carries money",
+      "store": "refund_payable",
+      "treatment": "uncounted"
+    },
+    {
+      "added_at": "2026-09-11T16:10:27.128168+00:00",
+      "counted_by": null,
+      "notes": "NOT in the basis and NOT verified as a routing label. It holds a large historical net and has not moved in the sixty hours to 2026-09-11 15:00, so it is not implicated in the incidents this migration fixes. Declared uncounted deliberately rather than guessed into the total, where a wrong guess would double count. Any movement now raises a finding, which is the point",
+      "store": "settlement_suspense",
+      "treatment": "uncounted"
+    },
+    {
+      "added_at": "2026-09-11T16:10:27.128168+00:00",
+      "counted_by": "spin_pools + union spin_reserve_wallet",
+      "notes": "spin_bonus_pools balance",
+      "store": "spin_reserve",
+      "treatment": "counted"
+    },
+    {
+      "added_at": "2026-09-11T16:10:27.128168+00:00",
+      "counted_by": null,
+      "notes": "retirement. A move into it is a burn",
+      "store": "system_burn",
+      "treatment": "noncirculating"
+    },
+    {
+      "added_at": "2026-09-11T16:10:27.128168+00:00",
+      "counted_by": null,
+      "notes": "issuance. A move out of it is a mint",
+      "store": "system_mint",
+      "treatment": "noncirculating"
+    },
+    {
+      "added_at": "2026-09-11T16:10:27.128168+00:00",
+      "counted_by": "felt",
+      "notes": "table_seats stack on cash tables. Tournament felt is deliberately excluded and carried by tournament_liability instead",
+      "store": "table_stack",
+      "treatment": "counted"
+    },
+    {
+      "added_at": "2026-09-11T16:10:27.128168+00:00",
+      "counted_by": "union_wallets",
+      "notes": "union_wallets chip_balance",
+      "store": "union_bank",
+      "treatment": "counted"
+    },
+    {
+      "added_at": "2026-09-11T16:10:27.128168+00:00",
+      "counted_by": "union_wallets",
+      "notes": "the union rake, bbj, promo, insurance and spin reserve wallets",
+      "store": "union_wallet",
+      "treatment": "counted"
+    }
+  ],
+  "cutover": {
+    "singleton": true,
+    "starts_at": "2026-09-17T18:24:04.643251+00:00"
+  },
+  "mode": [
+    {
+      "changed_at": "2026-10-02T02:31:54.143466+00:00",
+      "mode": "refuse",
+      "reason": "20261002015339: stage 2. Zero findings from 00:05 UTC (after 20261001231409 fixed the one live class) under full traffic; bbj_payout proved in a rolled-back probe; a transaction whose covered balance and chip_ledger legs disagree no longer commits",
+      "singleton": true
+    }
+  ],
+  "phase_cfg": [
+    {
+      "cutover_period_end": "2026-11-02T08:00:00+00:00",
+      "installed_at": "2026-10-29T04:05:08.859362+00:00",
+      "singleton": true
+    }
+  ],
+  "role_settings": [
+    {
+      "cfg": ["statement_timeout=8s"],
+      "db": "0",
+      "role": "authenticated"
+    },
+    {
+      "cfg": ["statement_timeout=3s"],
+      "db": "0",
+      "role": "anon"
+    },
+    {
+      "cfg": ["statement_timeout=8s"],
+      "db": "0",
+      "role": "service_role"
+    },
+    {
+      "cfg": [
+        "session_preload_libraries=safeupdate",
+        "statement_timeout=5min",
+        "lock_timeout=8s",
+        "idle_in_transaction_session_timeout=60s",
+        "pgrst.db_pre_request=smarter_private.fn_smarter_data_api_pre_request"
+      ],
+      "db": "0",
+      "role": "authenticator"
+    },
+    {
+      "cfg": ["search_path=\"\\$user\", public, extensions", "statement_timeout=2min"],
+      "db": "0",
+      "role": "postgres"
+    }
+  ],
+  "rounds_cfg": [
+    {
+      "enabled": true,
+      "report_user_id": "47965354-0e56-43ef-931c-ddaab82af765",
+      "singleton": true
+    }
+  ],
+  "store_mode": [
+    {
+      "changed_at": "2026-10-02T04:14:45.611383+00:00",
+      "mode": "refuse",
+      "reason": "20261002015339: refusing since 02:31:54 UTC, carried here unchanged",
+      "store": "player_wallet"
+    },
+    {
+      "changed_at": "2026-10-02T04:14:45.611383+00:00",
+      "mode": "refuse",
+      "reason": "20261002015339: refusing since 02:31:54 UTC, carried here unchanged",
+      "store": "club_treasury"
+    },
+    {
+      "changed_at": "2026-10-02T04:14:45.611383+00:00",
+      "mode": "refuse",
+      "reason": "20261002015339: refusing since 02:31:54 UTC, carried here unchanged",
+      "store": "table_stack"
+    },
+    {
+      "changed_at": "2026-10-02T04:14:45.611383+00:00",
+      "mode": "refuse",
+      "reason": "20261002015339: refusing since 02:31:54 UTC, carried here unchanged",
+      "store": "union_bank"
+    },
+    {
+      "changed_at": "2026-10-02T04:14:45.611383+00:00",
+      "mode": "refuse",
+      "reason": "20261002015339: refusing since 02:31:54 UTC, carried here unchanged",
+      "store": "union_wallet"
+    },
+    {
+      "changed_at": "2026-10-02T04:14:45.611383+00:00",
+      "mode": "refuse",
+      "reason": "20261002015339: refusing since 02:31:54 UTC, carried here unchanged",
+      "store": "bbj_pool"
+    },
+    {
+      "changed_at": "2026-10-02T05:26:27.409598+00:00",
+      "mode": "refuse",
+      "reason": "20261002042417: stage 2. Zero findings from 04:14:45 UTC under full traffic; the doors with no traffic proved in rolled-back probes; a transaction whose chip store and chip_ledger legs disagree no longer commits",
+      "store": "promo_wallet"
+    },
+    {
+      "changed_at": "2026-10-02T05:26:27.409598+00:00",
+      "mode": "refuse",
+      "reason": "20261002042417: stage 2. Zero findings from 04:14:45 UTC under full traffic; the doors with no traffic proved in rolled-back probes; a transaction whose chip store and chip_ledger legs disagree no longer commits",
+      "store": "agent_wallet"
+    },
+    {
+      "changed_at": "2026-10-02T05:26:27.409598+00:00",
+      "mode": "refuse",
+      "reason": "20261002042417: stage 2. Zero findings from 04:14:45 UTC under full traffic; the doors with no traffic proved in rolled-back probes; a transaction whose chip store and chip_ledger legs disagree no longer commits",
+      "store": "club_wallet"
+    },
+    {
+      "changed_at": "2026-10-02T05:26:27.409598+00:00",
+      "mode": "refuse",
+      "reason": "20261002042417: stage 2. Zero findings from 04:14:45 UTC under full traffic; the doors with no traffic proved in rolled-back probes; a transaction whose chip store and chip_ledger legs disagree no longer commits",
+      "store": "insurance_bank"
+    },
+    {
+      "changed_at": "2026-10-02T05:26:27.409598+00:00",
+      "mode": "refuse",
+      "reason": "20261002042417: stage 2. Zero findings from 04:14:45 UTC under full traffic; the doors with no traffic proved in rolled-back probes; a transaction whose chip store and chip_ledger legs disagree no longer commits",
+      "store": "spin_reserve"
+    },
+    {
+      "changed_at": "2026-10-02T05:26:27.409598+00:00",
+      "mode": "refuse",
+      "reason": "20261002042417: stage 2. Zero findings from 04:14:45 UTC under full traffic; the doors with no traffic proved in rolled-back probes; a transaction whose chip store and chip_ledger legs disagree no longer commits",
+      "store": "tournament_liability"
+    },
+    {
+      "changed_at": "2026-10-02T05:26:27.409598+00:00",
+      "mode": "refuse",
+      "reason": "20261002042417: stage 2. Zero findings from 04:14:45 UTC under full traffic; the doors with no traffic proved in rolled-back probes; a transaction whose chip store and chip_ledger legs disagree no longer commits",
+      "store": "ticket_escrow"
+    },
+    {
+      "changed_at": "2026-10-02T05:26:27.409598+00:00",
+      "mode": "refuse",
+      "reason": "20261002042417: stage 2. Zero findings from 04:14:45 UTC under full traffic; the doors with no traffic proved in rolled-back probes; a transaction whose chip store and chip_ledger legs disagree no longer commits",
+      "store": "opening_setup"
+    },
+    {
+      "changed_at": "2026-10-02T05:26:27.409598+00:00",
+      "mode": "refuse",
+      "reason": "20261002042417: stage 2. Zero findings from 04:14:45 UTC under full traffic; the doors with no traffic proved in rolled-back probes; a transaction whose chip store and chip_ledger legs disagree no longer commits",
+      "store": "leaderboard_round"
+    },
+    {
+      "changed_at": "2026-10-02T08:36:58.667944+00:00",
+      "mode": "refuse",
+      "reason": "20261002073930: stage 2. Zero settlement_suspense findings from 07:36:04 UTC under live traffic; both modes proved live in rolled-back probes; a transaction that moves a covered balance against settlement_suspense no longer commits",
+      "store": "settlement_suspense"
+    },
+    {
+      "changed_at": "2026-10-06T18:24:58.741575+00:00",
+      "mode": "refuse",
+      "reason": "The exact cashout escrow row and its canonical hold/release leg must move equally in the original transaction.",
+      "store": "cashout_escrow"
+    }
+  ],
+  "weekly_runner": {
+    "active": true,
+    "command": "SELECT set_config('statement_timeout','1500s',false),set_config('lock_timeout','30s',false); SELECT smarter_private.weekly_payout_next_round();",
+    "jobname": "weekly-payout-rounds",
+    "schedule": "* * * * *",
+    "username": "postgres"
+  },
+  "window_policy": [
+    {
+      "first_tournament_start": "06:00:00",
+      "last_hand": "03:58:00",
+      "last_tournament_start": "23:00:00",
+      "monday_reopen_limit": "07:00:00",
+      "singleton": true,
+      "spin_sng_stop": "03:00:00",
+      "time_zone": "America/Chicago",
+      "window_end": "06:00:00",
+      "window_start": "04:00:00"
+    }
+  ]
+}

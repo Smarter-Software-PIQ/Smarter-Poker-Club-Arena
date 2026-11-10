@@ -361,6 +361,12 @@ export interface TableModalsLayerProps {
   bustWalletBalance: number | null;
   /** External purchase activity also disables the cash rebuy controls. */
   bustRebuyProcessing: boolean;
+  /**
+   * Seconds left of the engine's bust rebuy window (Dan 2026-11-09: twenty
+   * seconds to rebuy, then the seat is released), or null when the engine has
+   * not announced one. TablePage owns the clock; this only displays it.
+   */
+  bustRebuySecondsLeft?: number | null;
   onCancelBustRebuy: () => void;
   onRetryBustBalance: () => void;
   onConfirmBustRebuy: (amount: number) => Promise<void>;
@@ -689,6 +695,7 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
     bustRebuyOpen,
     bustWalletBalance,
     bustRebuyProcessing,
+    bustRebuySecondsLeft,
     onCancelBustRebuy,
     onRetryBustBalance,
     onConfirmBustRebuy,
@@ -1246,7 +1253,7 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
         accountBalance={bustWalletBalance}
         onRetryBalance={onRetryBustBalance}
         bigBlind={safeBB(blinds)}
-        countdown={undefined}
+        countdown={bustRebuySecondsLeft ?? undefined}
         onTopUp={onTopUpAccount}
         diamondGamesClubId={diamondGamesClubId}
         onPlayDiamonds={onPlayDiamonds}

@@ -186,6 +186,21 @@ SELECT jsonb_object_agg(proname,md5(pg_get_functiondef(oid)))pnl_postimages FROM
  WHERE pronamespace='public'::regnamespace AND proname IN('fn_lightning_original_pnl_proof','fn_lightning_record_original_pnl','fn_lightning_original_pnl_at_settlement');
 \\echo 'PASS original pool proof, historical hash guard, rollback, no payment, immutable outcome, native live transition and duplicate settlement'
 """
+# One additional original public Union case uses the same real producer chain.
+# It is captured BEFORE loading unchanged source guard definitions in the clone.
+public_case = 'CREATE FUNCTION harness.pnl_case' + setup.split('CREATE FUNCTION harness.pnl_case', 1)[1].split('END $body$;', 1)[0] + 'END $body$;'
+public_case = public_case.replace('harness.pnl_case(', 'harness.pnl_owner_case(').replace('SET is_private=true,union_id=NULL WHERE cluster_id=g', 'SET is_private=false,union_id=club_id WHERE cluster_id=g')
+setup += public_case + "\nSELECT harness.pnl_owner_case('funding_owner');\n"
+setup += """
+DO $owner_original$DECLARE c harness.pnl_cases;r jsonb;BEGIN
+ SELECT * INTO c FROM harness.pnl_cases WHERE label='funding_owner';
+ r:=harness.settle(c.hand_id,c.request_id,c.results,.03,.02,c.hand_row);
+ IF r->>'ok'IS DISTINCT FROM 'true'THEN RAISE EXCEPTION 'original public native settlement refused';END IF;
+END$owner_original$;
+"""
+import runpy
+setup += runpy.run_path(str(ROOT / 'scripts/ci/fixtures/lightning-original-funding-owner-native.py'))['build_sql'](ROOT)
+
 with tempfile.TemporaryDirectory(prefix='lpnl-') as work:
     followup = pathlib.Path(work) / 'followup.sql'
     followup.write_text(setup)

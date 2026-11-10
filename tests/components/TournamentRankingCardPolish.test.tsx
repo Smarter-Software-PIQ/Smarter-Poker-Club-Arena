@@ -69,9 +69,11 @@ function result(over: Partial<TournamentResult> = {}): TournamentResult {
 }
 
 function renderCard(r: TournamentResult = result()) {
-  return render(
+  const mounted = render(
     <TournamentRankingCard result={r} onDismiss={vi.fn()} unitCents={CHIP_UNIT_CENTS} />
   );
+  fireEvent.click(screen.getByRole('button', { name: 'View Session' }));
+  return mounted;
 }
 
 const nav = navigator as Navigator & Record<string, unknown>;

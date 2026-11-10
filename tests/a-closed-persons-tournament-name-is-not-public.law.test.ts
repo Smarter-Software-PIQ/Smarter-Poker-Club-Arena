@@ -18,7 +18,7 @@
  * Registry: docs/laws.d/a-closed-persons-tournament-name-is-not-public.md
  */
 import { describe, expect, it } from 'vitest';
-import { readMigration } from './helpers/migrations';
+import { migrationFiles, readMigration } from './helpers/migrations';
 
 const INTRODUCED =
   '20261109235153_a_closed_persons_tournament_name_is_read_through_the_public_.sql';
@@ -26,8 +26,14 @@ const SQL = readMigration(INTRODUCED);
 const VIEW = readMigration(
   '20261110004344_the_public_tournament_view_checks_staff_without_a_function_a.sql'
 );
+const OWNER_RIGHTS = readMigration(
+  '20261110051146_the_public_tournament_views_read_with_their_owners_rights.sql'
+);
 const POLICY = readMigration(
   '20261110003726_a_closed_persons_tournament_rows_are_read_through_the_public.sql'
+);
+const LISTED = readMigration(
+  '20261110152707_a_closed_persons_label_is_listed_only_where_results_name_the.sql'
 );
 
 describe('the closed-person label has one definition', () => {
@@ -35,6 +41,25 @@ describe('the closed-person label has one definition', () => {
     expect(SQL).toMatch(
       /CREATE VIEW public\.ca_closed_player_labels AS\s+SELECT p\.id,\s+COALESCE\(NULLIF\(btrim\(p\.username\), ''\), 'Player'\) AS label\s+FROM public\.profiles p\s+WHERE p\.status = 'deleted' AND p\.is_horse IS NOT TRUE;/
     );
+  });
+
+  // Ordinary readers may select the label view (the read policy asks it as
+  // them), so it lists only people a tournament result already names. It must
+  // never become a directory of who closed an account.
+  it('lists a closed person only where a tournament result names them', () => {
+    expect(LISTED).toMatch(
+      /CREATE OR REPLACE VIEW public\.ca_closed_player_labels\s+WITH \(security_invoker = false\) AS\s+SELECT p\.id,\s+COALESCE\(NULLIF\(btrim\(p\.username\), ''\), 'Player'\) AS label\s+FROM public\.profiles p\s+WHERE p\.status = 'deleted'\s+AND p\.is_horse IS NOT TRUE\s+AND EXISTS \(SELECT 1 FROM public\.tournament_players tp WHERE tp\.user_id = p\.id\);/
+    );
+    expect(LISTED).toContain(
+      'GRANT SELECT ON public.ca_closed_player_labels TO anon, authenticated, service_role;'
+    );
+    for (const file of migrationFiles().filter((f) => f > '20261110152707')) {
+      const sql = readMigration(file);
+      if (!/CREATE (?:OR REPLACE )?VIEW\s+public\.ca_closed_player_labels\b/i.test(sql)) continue;
+      expect(sql, file).toMatch(
+        /EXISTS \(SELECT 1 FROM public\.tournament_players tp WHERE tp\.user_id = p\.id\)/
+      );
+    }
   });
 
   it('is served by an index with the same predicate', () => {
@@ -107,5 +132,38 @@ describe('the table itself withholds a closed person from ordinary readers', () 
     );
     expect(anon).toMatch(/AS RESTRICTIVE\s+FOR SELECT\s+TO anon\s+USING \(\s+NOT EXISTS \(/);
     expect(anon).not.toContain('fn_is_platform_admin');
+  });
+});
+
+describe("both views read with their owner's rights, and say so", () => {
+  // trg_new_view_respects_the_caller makes a new public view caller-rights
+  // unless it declares otherwise. Caller rights cannot mask: the reader may not
+  // read the columns that say who is closed, and the table's own policy would
+  // hide the row the view exists to label.
+  it('declares security_invoker = false on each, explicitly', () => {
+    expect(OWNER_RIGHTS).toContain(
+      'ALTER VIEW public.ca_closed_player_labels SET (security_invoker = false);'
+    );
+    expect(OWNER_RIGHTS).toContain(
+      'ALTER VIEW public.tournament_players_public SET (security_invoker = false);'
+    );
+  });
+
+  it('is never turned back into a caller-rights view', () => {
+    for (const file of migrationFiles().filter((f) => f > '20261110051146')) {
+      const sql = readMigration(file);
+      if (!/tournament_players_public|ca_closed_player_labels/.test(sql)) continue;
+      expect(sql, file).not.toMatch(
+        /ALTER VIEW\s+public\.(?:tournament_players_public|ca_closed_player_labels)\s+SET\s+\(\s*security_invoker\s*=\s*true/i
+      );
+      // A re-created view is reset by the trigger unless it declares itself.
+      for (const view of ['tournament_players_public', 'ca_closed_player_labels']) {
+        if (new RegExp(`CREATE (?:OR REPLACE )?VIEW\\s+public\\.${view}\\b`, 'i').test(sql)) {
+          expect(sql, `${file} re-creates ${view}`).toMatch(
+            new RegExp(`public\\.${view}[\\s\\S]*security_invoker\\s*=\\s*false`, 'i')
+          );
+        }
+      }
+    }
   });
 });

@@ -39,8 +39,10 @@
  */
 
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { useUserStore } from '../../stores/useUserStore';
 import { useNavigate } from 'react-router-dom';
 import {
+  offersResultReplay,
   dismissSessionSummary,
   peekSessionSummary,
   subscribeSessionSummary,
@@ -488,7 +490,14 @@ export function TournamentRankingHost() {
       close();
       navigate(payload?.tournament?.isSpin ? '/tournaments?type=spin' : '/tournaments');
     };
-    if (!tournamentId || requested?.formatKind === 'mtt') {
+    if (!rematchEligible && !offersResultReplay(requested)) {
+      if (!isCurrentReport()) return;
+      close();
+      const clubId = useUserStore.getState().currentClubId;
+      navigate(clubId ? `/clubs/${clubId}` : '/');
+      return;
+    }
+    if (!tournamentId) {
       fallback();
       return;
     }
@@ -514,9 +523,13 @@ export function TournamentRankingHost() {
         )) ?? { data: null, error: new Error('Play Again Origin Read Timed Out') };
         if (originErr) throw originErr;
 
-        /* Seat-first games only: an MTT's "again" genuinely is the list. */
         const seatFirst = origin && isSeatFirstTournamentFormat(origin);
-        if (!origin || !seatFirst) {
+        if (
+          !origin ||
+          readTournamentFormat(origin) !== 'sng-v1' ||
+          origin.satellite_target_id ||
+          origin.satellite_target
+        ) {
           fallback();
           return;
         }
@@ -538,8 +551,7 @@ export function TournamentRankingHost() {
           .limit(6);
         if (origin.club_id) q = q.eq('club_id', origin.club_id);
         q = q.eq('format_contract', readTournamentFormat(origin));
-        const target = origin.satellite_target_id ?? origin.satellite_target;
-        if (target) q = q.or(`satellite_target_id.eq.${target},satellite_target.eq.${target}`);
+        q = q.eq('max_players', origin.max_players);
         const { data: siblings, error: siblingErr } = (await awaitTournamentResultEnrichment(
           q
         )) ?? { data: null, error: new Error('Play Again Sibling Read Timed Out') };
@@ -547,11 +559,19 @@ export function TournamentRankingHost() {
 
         const sibling = siblings?.find(
           (candidate) =>
-            isSeatFirstTournamentFormat(candidate) &&
+            readTournamentFormat(candidate) === 'sng-v1' &&
+            !candidate.satellite_target_id &&
             !isTournamentEntryUnavailable(candidate, Number(candidate.current_players ?? 0))
         );
         if (!sibling) {
           fallback();
+          return;
+        }
+
+        if (!seatFirst) {
+          if (!isCurrentReport()) return;
+          close();
+          navigate(`/tournaments/${sibling.id}`);
           return;
         }
 
@@ -575,13 +595,13 @@ export function TournamentRankingHost() {
         playAgainBusyRef.current = false;
       }
     })();
-  }, [tournamentId, payload?.tournament, close, navigate]);
+  }, [tournamentId, payload?.tournament, rematchEligible, close, navigate]);
 
   /* The rematch's two plates. Play Again is a Yes while the offer is open;
      once it has fallen through it is the ordinary Play Again above. */
   const rematchPrimary = useCallback(() => {
     const status = rematchStatusRef.current;
-    if (rematchJoinStartedRef.current) return;
+    if (rematchJoinStartedRef.current || rematchRespondBusyRef.current) return;
     if (rematchFellThrough(status)) {
       playAgain();
       return;

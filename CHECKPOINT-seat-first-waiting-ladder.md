@@ -639,3 +639,58 @@ The AI-opponent disclosure is untouched by all of this. It lives in
 in this change touches it or any surface that carries it. It already covers
 the ladder's hours-long waits in its own words: AI opponents "Join Waiting
 Lists, Move Between Games And Keep Regular Hours".
+
+# Fourth pass, 2026-11-09 to 2026-11-10: activation, and three defects found on the live engine
+
+Owner: session 01BNteGYH1cLZBgWwC6SvW3W (continued the handoff of session 01BbZPDj).
+
+## Activations, from the release owners' own receipts
+
+| When (UTC) | Serving | Route | Result |
+|---|---|---|---|
+| 2026-11-09 19:28-19:41 | `bff6eed3` instance `1-cc09e13a` | owner window `2026-11-09-owner-asap-engine-1530z`, Stage 42683454803, receiver 42683596427 | `RELEASE_RESULT: sealed`, `VERIFIED: true`, `SHIPPED: true`; break ended 19:38:29.416Z |
+| 2026-11-10 06:10-06:30 | (none) | owner window `2026-11-10-owner-asap-engine-0440z`, Stage 42766761198, receiver 42766862282, candidate `8589213e` | `failed:observe`, `SHIPPED: false`: "the engine did not present a restart certificate with enough proof time remaining"; `bff6eed3` recovered, no player moved |
+| 2026-11-10 09:51-10:05 | `840429a3` instance `1-eaca1bce` | standing 04:00 America/Chicago daily, receiver 42794253316 | `RELEASE_RESULT: sealed`, `VERIFIED: true`, `SHIPPED: true` |
+
+Contents checked from each tree, not ancestry (`check-candidate-contents.sh`, exit 0 on `bff6eed3`, `8589213e`, `840429a3`): the ladder, the satellite-feeder exclusion, the full 3-7 minute window; `840429a3` also carries #10181 (feeder bound) and #10234 (opened-board room).
+
+## Cutover reconciliation (first activation)
+
+Snapshot A at drain start 19:31:31Z (58 games) against the in-freeze snapshot 19:36:18Z (53): 5 games COMPLETED by their final drain hand, 27 changed by exactly one drain hand each; 32 hands, all created 19:31:32-19:32:24Z, **zero hands during the countdown or freeze**. The in-freeze seat and stack comparison is the host's sealed proof (receipts 1475/159). Files: SSD archive `seat-first-ladder-01BbZPDj-20261109/cutover-capture/`.
+
+## Backup refresh and the installers
+
+- Post-seal D2 refresh 42687157923 failed `database_refresh_failed` (two installs this lane re-dispatched overlapped its export); the receipt-bound recovery 42703827039 **passed at 22:34:19Z** (owned by the #10222 lane).
+- Installers: this lane disabled Apply/Dispatch Merged Migrations 18:12Z-19:43Z for the first window and re-enabled them. Disabling left run 42680942075 queued with no job, which wedged the applier queue; fixed at the root by #10220 (`ad095029`: a run queued ten minutes with zero jobs is skipped by name). Deferred files reinstalled and handed back: `20261109170604` and `20261109195211` installed; `20261109163346` (42703 column, #10200) and `20261109180446` (lock timeout, #10204) returned to their owners; `20261109152550` absent from main. GZo later paused and restored both workflows for later windows (#10273, and 06:35:04Z on 2026-11-10).
+
+## The countdown is durable
+
+Published `TablePage-Mq3jc1g8-v6.js`: the deadline is `min(t + 420 s, t + 180 s + spread)` with `t` read from this player's own `table_seats.joined_at` on every load (`nf`) and the server clock offset from `fn_db_now` (`rf`); a reload re-reads the same seat time. Engine side: the hold is counted from `joined_at` and the fill gate serves a human whatever the board window says, so a reset of an empty board's wait cannot postpone a seated person. No human seated at a seat-first board between the two activations, so the behavioural measurement is carried into the acceptance day.
+
+## Defect 1: empty boards filled the room (#10234, `89ad71df`, live in `840429a3`)
+
+On `bff6eed3`, 21:03Z: 32 Spin and 16 heads-up boards REGISTERING, all with no entrant and no live seat; room read 11-32 and 6-16, the launcher opened nothing, no seat-first board started after 19:42:55Z. Fix: the eleven and six count boards with a live seat; `ensureBoardOpen` reopens an owner's empty board (opening rung written first, then one horse) before creating one. Law: `anEmptyBoardIsNotOneOfTheEleven.law.test.ts`.
+
+## Defect 2: horse-less clubs starved the budget (#10340, open)
+
+On `840429a3`, 14:37Z: the house opened 6 heads-up boards at 12:00:53Z but only 5 Spins by 14:09Z; the 48 old empty boards belong to four certification fixture clubs ("Cert HU ...") with zero horse members, so every reopen failed yet spent budget and rewrote a window. Fix: a reopen asks the owner pool first; no free horse spends nothing.
+
+## Defect 3: the 30-minute Spin expiry cancelled every Spin before its first rung (#10342, open)
+
+`fn_spin_expire_unfilled` cancels a Spin once a seated player has waited past `spin_fill_policy.unfilled_timeout_minutes` = 30. Measured 2026-11-10: 40 house Spins created 12:01-14:09Z cancelled after an average 38 minutes, **40/40 refunded in full (998.00 chips)**, no Spin started. Fix: migration `20261110144739_a_spin_waits_out_its_horse_ladder` (timeout 160, constraint `0 OR >= 150`, law tied to `SPIN_LADDER`); takes effect at install.
+
+## Horse-only rungs, measured on `840429a3`
+
+Heads-up boards opened 12:00Z with first windows 187-230 minutes ahead (rung 180-240). Spin opening windows 60-82 minutes (rung 60-80 plus the reopen tick). Satellite feeders since activation: 9 (one 6-max, eight 9-max), none heads-up, so #10181's bound has not yet been exercised by a heads-up feeder.
+
+## The acceptance day
+
+Not 2026-11-09 or 2026-11-10: each contains a known defect (the old engine, then defects 2 and 3). The acceptance day is the first complete America/Chicago day after **both** #10342 is installed **and** #10340 is serving, derived from the serving history and the install receipt; under 300 does not pass if the intended boards did not operate.
+
+## Verified working access routes (2026-11-10)
+
+- GitHub: `gh` in the Mac host terminal (`mcp__remote-devices__counselors__host_terminal`); the cloud container's `GH_TOKEN` is invalid. When the shared REST quota is exhausted, GraphQL keeps working (`gh api graphql`).
+- Production reads: Supabase Management API `POST /v1/projects/kuklfnapbkmacvwxktbh/database/query` with `read_only: true`, using the Mac's `SUPABASE_ACCESS_TOKEN`; never a DB password.
+- Schema comparison without a DB URL: `capture-via-api.py` (SSD archive) runs `schema-evidence.py`'s exact capture through that API and validates with the module's own `validate()`.
+- SSD archive: `/Volumes/SmarterArchives 1/agent-evidence/seat-first-ladder-01BbZPDj-20261109/` (note the space and the 1); `check-candidate-contents.sh` now takes `REPO=` and defaults to the Mac checkout.
+- Long scripts on the Mac: launch with `subprocess.Popen(..., start_new_session=True)`; the bridge kills foreground process groups after about 60 s.

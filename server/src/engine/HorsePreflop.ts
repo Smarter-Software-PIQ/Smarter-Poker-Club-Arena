@@ -307,6 +307,8 @@ export interface PreflopCtx {
    *  on, false = the V28 ladder (the recorded corpora, and every variant that
    *  is not two-card full-deck no-limit hold'em). */
   nlhOpenSizes?: boolean;
+  /** V85 (owner direction 2026-11-09): cash opens draw from the 2.5-4.5bb bands. */
+  cashActionSizes?: boolean;
   /** Dan 2026-10-24 NLH cash pressure (3-bet and defend wider); undefined = on. */
   cashAggression?: boolean;
   /** Receipt callback (#8694): the caller fires the V60 cash pressure receipt
@@ -348,6 +350,8 @@ export interface PreflopCtx {
     valueBar: number;
     bluffProb: number;
     defender: 'bb' | 'sb' | 'ip';
+    /** V85: the cash action base, which also answers an open that was called. */
+    cashAction?: boolean;
   };
   /**
    * V73 THE OPENER FACING A 3-BET (2026-11-01, HorseGtoVs3BetRanges): hero
@@ -1526,6 +1530,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
           tournament: isTourney,
           anteInPlay: ctx.anteInPlay === true,
           tableSize: ctx.tableSize ?? 6,
+          cashAction: ctx.cashActionSizes === true,
           openUnit,
           bigBlind: bb,
           limpers,
@@ -1583,8 +1588,15 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // V72: one open, nobody in, hold'em - the defence is the (defender,
     // opener seat) reference base from HorseGtoDefenceRanges, and every layer
     // below moves it the way it moved the bucketed base.
+    // V85: on a cash table the same base also answers an open that has been
+    // called (squeeze, overcall, the multiway big blind).
     const def72 =
-      ctx.gtoDefend !== undefined && callers === 0 && !ctx.isOmaha ? ctx.gtoDefend : null;
+      ctx.gtoDefend !== undefined &&
+      (callers === 0 || ctx.gtoDefend.cashAction === true) &&
+      !ctx.isOmaha
+        ? ctx.gtoDefend
+        : null;
+    const def85 = def72 !== null && def72.cashAction === true;
     let threeBetThresh =
       t53((def72 ? def72.valueBar : THREEBET_VS[vs]) - (ctx.aggression - 1) * 0.08, 'threeBet') +
       vs35.threeBet +
@@ -1594,7 +1606,9 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // not the full one. See the note on riskScaled above.
     let callThresh =
       tCall53(def72 ? def72.continueBar : CALL_VS[vs]) +
-      callers * 0.025 +
+      // V85: the multiway width is already the base's (wider for the big
+      // blind, a shade narrower for an overcall).
+      (def85 ? 0 : callers * 0.025) +
       depthTighten -
       depthLoosen +
       vs35.coldCall +
@@ -1853,6 +1867,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // V7 SQUEEZE BLUFF: raiser + caller(s) — attack the capped caller range.
     if (
       callers >= 1 &&
+      !def85 &&
       strength >= t(0.55) &&
       strength < threeBetThresh &&
       !ctx.isOmaha &&
@@ -1905,7 +1920,8 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         (cAggro ? 1.3 : 1)
       : 0;
     if (
-      callers === 0 &&
+      // V85: the squeeze bluffs are the same chart classes, at the squeeze width.
+      (callers === 0 || def85) &&
       (def72
         ? bluff72 > 0 && strength < threeBetThresh
         : strength >= t53(bluffFloor, 'threeBet') && strength < threeBetThresh) &&
@@ -1985,7 +2001,8 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       // own continue width without the cold-caller depth tighten or the
       // 16-25bb flat-to-3-bet shift; style and the survival premium still
       // apply, and V57's tournament big blind widening stays a deviation.
-      if (position === 'bb' && toCall <= bb * 2.5) {
+      // V85: cash opens run to 4.5bb, so the catch reaches the open it faces.
+      if (position === 'bb' && toCall <= bb * (def85 ? 3.5 : 2.5)) {
         const bbBar72 = phase6CapBar(
           tCall53(def72.continueBar) -
             (tAggro ? (stackBB <= 25 ? 0.06 : 0.04) : 0) +

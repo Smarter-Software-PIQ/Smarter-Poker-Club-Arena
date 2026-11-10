@@ -57,9 +57,7 @@ describe('the tournament result card closes from its corner X', () => {
     render(
       <TournamentRankingCard result={result(1)} onDismiss={onDismiss} unitCents={CHIP_UNIT_CENTS} />
     );
-    const x = screen.getByTestId('sc-close');
-    expect(x.closest('.sc__head')).not.toBeNull();
-    expect(x).toHaveAttribute('aria-label', 'Close');
+    const x = screen.getByRole('button', { name: 'Close Session Results' });
     fireEvent.click(x);
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
@@ -68,6 +66,7 @@ describe('the tournament result card closes from its corner X', () => {
     render(
       <TournamentRankingCard result={result(1)} onDismiss={vi.fn()} unitCents={CHIP_UNIT_CENTS} />
     );
+    fireEvent.click(screen.getByRole('button', { name: 'View Session' }));
     expect(screen.getByText('Champion')).toBeInTheDocument();
     expect(screen.getByLabelText('1st')).toBeInTheDocument();
   });
@@ -80,6 +79,7 @@ describe('the tournament result card closes from its corner X', () => {
         unitCents={CHIP_UNIT_CENTS}
       />
     );
+    fireEvent.click(screen.getByRole('button', { name: 'View Session' }));
     expect(screen.getByText('Finished')).toBeInTheDocument();
     expect(screen.getByLabelText('47th')).toBeInTheDocument();
   });

@@ -33,7 +33,11 @@ import {
 import { parseChoiceRound } from '../../src/services/DiamondChoiceService';
 import { normaliseCrash } from '../../src/services/DiamondGamesService';
 import DiamondGamesService from '../../src/services/DiamondGamesService';
-import { parseBonusGuarantee } from '../../src/services/WheelBonusEntryService';
+import { bonusPrizeBay } from '../../src/components/games/GameConsole';
+import {
+  parseBonusGuarantee,
+  type EarnedGameAward,
+} from '../../src/services/WheelBonusEntryService';
 import { diamondBonusFloor, plinkoTableForFloor } from '../../src/utils/diamondBonusPayout';
 import {
   awardInstantCrashChances,
@@ -345,6 +349,58 @@ describe('contract 4: the receipt readers speak the contract production seals', 
     // A contract-4 crossing round may only name the one road the v4 ladder deals.
     expect(() => parseChoiceRound({ ...crossing, mode: 'bold' })).toThrow();
   });
+
+  it.each(['plinko', 'crash', 'crossing', 'mines'] as const)(
+    'shows the funded guarantee and then the posted cents in %s',
+    (game) => {
+      for (const boost of [1, 2] as const) {
+        for (const rate of [100, 200]) {
+          const base = 1000 * boost;
+          const stake = base / rate;
+          const underlying = diamondBonusFloor(stake, boost, 1000, rate);
+          const expected = ((boost === 1 ? 15 : 30) * 100) / rate;
+          const award: EarnedGameAward = {
+            id: String(plinkoSuper.award_id),
+            club_id: String(plinkoSuper.club_id),
+            status: 'pending',
+            game,
+            cap_cents: 4000,
+            bet_diamonds: base,
+            added_diamonds: 0,
+            base_diamonds: base,
+            entry_diamonds: 1000,
+            boost_multiplier: boost,
+            result: null,
+            commit_id: null,
+          };
+          const quote = parseBonusGuarantee(
+            {
+              diamonds_per_chip: rate,
+              wheel_diamonds_per_chip: rate,
+              payout_rules_version: 2,
+              wheel_minimum_payout_chips: expected,
+              payout_version: 4,
+              paid_diamonds: 1000,
+              guarantee: boost === 2 ? 'super' : 'standard',
+              minimum_payout_chips: underlying,
+              mode: game === 'mines' ? '6' : game === 'crossing' ? 'road' : null,
+              plinko_table: plinkoTableForFloor(stake, underlying),
+            },
+            award,
+            game
+          );
+          expect(bonusPrizeBay(quote.minimumPayoutChips, null, boost === 2)).toMatchObject({
+            label: 'Guaranteed',
+            value: `${expected.toFixed(2)} Chips`,
+          });
+          expect(bonusPrizeBay(quote.minimumPayoutChips, 43.21, boost === 2)).toMatchObject({
+            label: 'Paid',
+            value: '43.21 Chips',
+          });
+        }
+      }
+    }
+  );
 
   it('quotes the award guarantee production would seal, with the board that floor chose', () => {
     const award = {

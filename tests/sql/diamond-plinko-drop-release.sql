@@ -106,4 +106,46 @@ BEGIN
  END LOOP;
 END $$;
 SET CONSTRAINTS ALL IMMEDIATE;
+DO $$
+DECLARE player constant uuid:='d1000000-0000-4000-8000-000000000005';
+ club constant uuid:='d1000000-0000-4000-8000-000000000003'; seed text; ticket uuid; a public.wheel_bonus_awards;
+ first_id uuid:=gen_random_uuid(); last_id uuid:=gen_random_uuid(); spin jsonb; stage jsonb; replay jsonb; final jsonb; quoted_limit integer;
+BEGIN
+ IF NOT EXISTS(SELECT 1 FROM public.ca_financial_epochs WHERE name='Isolated Diamond financial probe' AND is_current) THEN RAISE EXCEPTION 'Private fixture only'; END IF;
+ UPDATE public.wheel_configs SET enabled=true,min_seconds_between_spins=0,welcome_spin_enabled=false WHERE host_id=club;
+ INSERT INTO public.diamond_game_configs(host_id,host_kind,game,enabled,min_seconds_between_rounds,exposure_allowance_chips)
+ SELECT club,'club',g,true,0,1 FROM unnest(ARRAY['plinko','crash','crossing','mines']) g ON CONFLICT DO NOTHING;
+ INSERT INTO public.diamond_game_pools(host_id,game) SELECT club,g FROM unnest(ARRAY['plinko','crash','crossing','mines']) g ON CONFLICT DO NOTHING;
+ UPDATE public.diamond_game_configs SET enabled=true,min_seconds_between_rounds=0,max_multiplier_cents=2000 WHERE host_id=club;
+ UPDATE public.diamond_wheel_release SET enabled=true;
+ FOR i IN 1..500 LOOP
+  BEGIN
+   seed:=encode(extensions.digest('drop-one:'||i,'sha256'),'hex'); ticket:=gen_random_uuid();
+   INSERT INTO public.wheel_seed_commits(id,user_id,server_seed,server_seed_hash) VALUES(ticket,player,seed,encode(extensions.digest(seed,'sha256'),'hex'));
+   SET LOCAL ROLE authenticated;
+   spin:=public.fn_wheel_spin_v2(club,ticket,'earned-plinko',100,'paid',NULL);
+   RESET ROLE;
+   SELECT * INTO a FROM wheel_bonus_awards WHERE spin_id=(spin->>'spin_id')::uuid;
+   IF a.game='mines' AND a.boost_multiplier=1 THEN EXIT; END IF;
+   RAISE EXCEPTION USING ERRCODE='P0098',MESSAGE='another fixture roll';
+  EXCEPTION WHEN SQLSTATE 'P0098' THEN NULL; END;
+ END LOOP;
+ IF a.game IS DISTINCT FROM 'mines' THEN RAISE EXCEPTION 'No target award: %',spin; END IF;
+
+ SET LOCAL ROLE authenticated;
+ quoted_limit := (public.fn_wheel_bonus_state(club,'mines',false,'6',a.id)#>>'{game_state,max_steps}')::integer;
+ RESET ROLE;
+ IF quoted_limit < 2 OR a.cap_cents <= 2000 THEN RAISE EXCEPTION 'Fixture did not quote the funded cap above the standalone limit'; END IF;
+ ticket:=gen_random_uuid();
+ INSERT INTO public.diamond_game_commits(id,user_id,game,server_seed,server_seed_hash)
+ VALUES(ticket,player,'mines',seed,encode(extensions.digest(seed,'sha256'),'hex'));
+ SET LOCAL ROLE authenticated;
+ stage:=public.fn_wheel_bonus_start(a.id,ticket,'tap-mine',false,'6',NULL,NULL,NULL,quoted_limit);
+ IF stage->>'ok' IS DISTINCT FROM 'true' OR (stage->>'max_steps')::integer IS DISTINCT FROM quoted_limit THEN
+  RAISE EXCEPTION 'Earned Mines refused or shortened the board it quoted: %',stage; END IF;
+ replay:=public.fn_choice_act((stage->>'id')::uuid,'pick',0,0);
+ IF replay->>'status' IS DISTINCT FROM 'open' OR replay->'picked' IS DISTINCT FROM '[0]'::jsonb THEN
+  RAISE EXCEPTION 'First tap did not reveal its guaranteed gem: %',replay; END IF;
+ RESET ROLE;
+END $$;
 ROLLBACK;
