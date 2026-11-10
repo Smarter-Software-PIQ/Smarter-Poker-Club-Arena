@@ -703,7 +703,7 @@ export default function TournamentRankingCard({
             primary: {
               label:
                 rematch?.primaryLabel ??
-                (result.formatKind === 'mtt' ? 'Return to Lobby' : 'Play Again'),
+                (result.formatKind === 'mtt' ? 'Return To Lobby' : 'Play Again'),
               ink: 'white',
               onClick: handlePlayAgain,
               'aria-busy': rematch?.primaryBusy || undefined,
