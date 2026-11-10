@@ -44,7 +44,7 @@
 -- definition). CI: .github/workflows/a-merged-migration-left-uninstalled-is-paged.yml.
 --
 -- periodic-work: a detector that pages a person; it moves no money, seats, lobbies, releases or schema, retries nothing and repairs nothing. It must run from the database clock because the failure it reports is an install event that never happened.
--- @live-proof: strpos(pg_get_functiondef('public.fn_ca_merged_migration_install_watch(timestamp with time zone)'::regprocedure), 'WINDOW HEADER FROM THE WHOLE FILE (20261110194917)') > 0 AND NOT has_function_privilege('anon', 'public.fn_ca_merged_migration_install_watch(timestamp with time zone)', 'EXECUTE') AND NOT has_function_privilege('authenticated', 'public.fn_ca_merged_migration_install_watch(timestamp with time zone)', 'EXECUTE') AND EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'ca-merged-migration-install-watch-10m' AND active)
+-- @live-proof: strpos(pg_get_functiondef('public.fn_ca_merged_migration_install_watch(timestamp with time zone)'::regprocedure), 'WINDOW HEADER FROM THE WHOLE FILE (20261110194917)') > 0 AND strpos(pg_get_functiondef('public.fn_ca_merged_migration_install_watch(timestamp with time zone)'::regprocedure), 'AN EMPTY BODY IS UNREADABLE (20261110194917)') > 0 AND NOT has_function_privilege('anon', 'public.fn_ca_merged_migration_install_watch(timestamp with time zone)', 'EXECUTE') AND NOT has_function_privilege('authenticated', 'public.fn_ca_merged_migration_install_watch(timestamp with time zone)', 'EXECUTE') AND EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'ca-merged-migration-install-watch-10m' AND active)
 
 BEGIN;
 SET LOCAL lock_timeout = '2s';
@@ -122,11 +122,18 @@ BEGIN
           -- changed hunk, so the window declaration on line 1 is not in it:
           -- read the raw file. If that cannot be read either, nothing is
           -- guessed: this commit stays unread and is read again next run.
+          -- AN EMPTY BODY IS UNREADABLE (20261110194917). GitHub can answer
+          -- 200 with an empty body and ca_migration_watch_raw returns that ''
+          -- rather than NULL, so blank text would have read as "no window
+          -- header" and put a window file on the ordinary route - the same
+          -- false page this file exists to stop. Only the emptiness is tested;
+          -- the text itself is passed to the match untouched, because the
+          -- window regex anchors on the start of a line.
           v_text := CASE WHEN v_f->>'status' = 'added' THEN v_f->>'patch' END;
-          IF v_text IS NULL THEN
+          IF v_text IS NULL OR v_text !~ '[^[:space:]]' THEN
             v_text := smarter_private.ca_migration_watch_raw(v_sha, v_name);
           END IF;
-          IF v_text IS NULL THEN
+          IF v_text IS NULL OR v_text !~ '[^[:space:]]' THEN
             v_unread := true;
             EXIT;
           END IF;
