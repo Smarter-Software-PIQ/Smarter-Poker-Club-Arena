@@ -60,7 +60,7 @@ CREATE OR REPLACE FUNCTION public.fn_ca_collusion_scan(p_days integer DEFAULT 7)
  SET statement_timeout TO '120s'
 AS $fn$
 DECLARE
-  v_since timestamptz := now() - make_interval(days => GREATEST(p_days, 1));
+  v_since timestamptz := now() - make_interval(days => GREATEST(p_days, 0));
   r RECORD;
   v_flagged int := 0;
   v_scanned int := 0;
@@ -489,7 +489,13 @@ BEGIN
   ) s;
   v_released := COALESCE(array_length(v_rel_ids, 1), 0);
 
-  -- CLASS 5: a tournament operational alarm whose condition has ended.
+  -- CLASS 5: a tournament operational alarm whose condition has ended. A
+  -- "table can't start" alarm is over when that table has committed a hand
+  -- since the alarm, or is closed; a "tournament dark after rebuild" alarm is
+  -- over when any of its tables has committed a hand since the alarm. Either
+  -- is over when the tournament reached COMPLETED or CANCELLED. Money is not
+  -- this class's evidence: a completed event's payout has its own alarm
+  -- (class 1, fn_payout_guarantee_check), which this never touches.
   SELECT COALESCE(array_agg(id), '{}') INTO v_ops_ids FROM (
     SELECT a.id
       FROM public.financial_alerts a, public.tournaments t
@@ -523,6 +529,7 @@ BEGIN
   v_ops := COALESCE(array_length(v_ops_ids, 1), 0);
 
   IF p_apply THEN
+    -- The whole predicate again under UPDATE: a preview is not authority.
     WITH changed AS (
       UPDATE public.financial_alerts a
          SET resolved = true, resolved_at = now(),
@@ -539,108 +546,66 @@ BEGIN
              context = COALESCE(a.context, '{}'::jsonb) || jsonb_build_object(
                'resolved_by_fn', 'fn_resolve_settled_financial_alerts',
                'resolved_on', now(),
-               'operational_condition_resolution_v1', jsonb_build_object(
-                 'version', 1,
-                 'tournament_id', t.id,
-                 'tournament_status', t.status,
-                 'tournament_ended_at', t.ended_at,
-                 'first_commit_after_alert', CASE
-                   WHEN a.source = 'Tournament.table_admission_failing' THEN (
-                     SELECT min(c.committed_at) FROM public.hand_atomic_commits c
-                      WHERE c.table_id = CASE WHEN (a.context->>'table_id') ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-                                              THEN (a.context->>'table_id')::uuid END
-                        AND c.committed_at > a.created_at)
-                   ELSE (
-                     SELECT min(c.committed_at) FROM public.tables tb
-                       JOIN public.hand_atomic_commits c ON c.table_id = tb.id
-                      WHERE tb.tournament_id = t.id
-                        AND c.committed_at > a.created_at)
-                 END))
+               'tournament_status_at_resolution', t.status)
         FROM public.tournaments t
        WHERE a.id = ANY(v_ops_ids)
          AND a.resolved IS NOT TRUE
-         AND a.source IN ('Tournament.table_admission_failing',
-                          'GameServer.tournament_dark_after_rebuild')
-         AND t.id = CASE WHEN (a.context->>'tournament_id') ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-                         THEN (a.context->>'tournament_id')::uuid END
-         AND (
-               t.status IN ('COMPLETED', 'CANCELLED')
-            OR (a.source = 'Tournament.table_admission_failing'
-                AND EXISTS (
-                      SELECT 1 FROM public.tables tb
-                       WHERE tb.id = CASE WHEN (a.context->>'table_id') ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-                                          THEN (a.context->>'table_id')::uuid END
-                         AND tb.tournament_id = t.id
-                         AND (lower(tb.status) = 'closed'
-                              OR EXISTS (SELECT 1 FROM public.hand_atomic_commits c
-                                          WHERE c.table_id = tb.id
-                                            AND c.committed_at > a.created_at))))
-            OR (a.source = 'GameServer.tournament_dark_after_rebuild'
-                AND EXISTS (
-                      SELECT 1 FROM public.tables tb
-                        JOIN public.hand_atomic_commits c ON c.table_id = tb.id
-                       WHERE tb.tournament_id = t.id
-                         AND c.committed_at > a.created_at))
-             )
+       AND a.source IN ('Tournament.table_admission_failing',
+                        'GameServer.tournament_dark_after_rebuild')
+       AND t.id = CASE WHEN (a.context->>'tournament_id') ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+                       THEN (a.context->>'tournament_id')::uuid END
+       AND (
+             t.status IN ('COMPLETED', 'CANCELLED')
+          OR (a.source = 'Tournament.table_admission_failing'
+              AND EXISTS (
+                    SELECT 1 FROM public.tables tb
+                     WHERE tb.id = CASE WHEN (a.context->>'table_id') ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+                                        THEN (a.context->>'table_id')::uuid END
+                       AND tb.tournament_id = t.id
+                       AND (lower(tb.status) = 'closed'
+                            OR EXISTS (SELECT 1 FROM public.hand_atomic_commits c
+                                        WHERE c.table_id = tb.id
+                                          AND c.committed_at > a.created_at))))
+          OR (a.source = 'GameServer.tournament_dark_after_rebuild'
+              AND EXISTS (
+                    SELECT 1 FROM public.tables tb
+                      JOIN public.hand_atomic_commits c ON c.table_id = tb.id
+                     WHERE tb.tournament_id = t.id
+                       AND c.committed_at > a.created_at))
+           )
       RETURNING a.id
     )
     SELECT COALESCE(array_agg(id), '{}') INTO v_ops_ids FROM changed;
     v_ops := COALESCE(array_length(v_ops_ids, 1), 0);
   END IF;
 
-  -- CLASS 6: a tournament finish refusal whose finish has since committed.
+  -- CLASS 6: a proven finish refusal whose tournament has since finished. The
+  -- engine retries a refused finish and, once it commits, the tournament is
+  -- COMPLETED with its terminal receipt (a satellite: its settlement receipt)
+  -- and its escrow closed at zero after the alarm was raised. That receipt is
+  -- the end of the condition the alarm described. A refusal whose outcome is
+  -- unknown, or a tournament in any other state, stays open.
   SELECT COALESCE(array_agg(id), '{}') INTO v_fin_ids FROM (
     SELECT a.id
       FROM public.financial_alerts a, public.tournaments t, public.tournament_escrow e
      WHERE a.resolved IS NOT TRUE
-       AND a.source = 'Tournament.finish_refused_repeatedly'
+       AND a.source IN ('Tournament.atomic_finish_refused',
+                        'Tournament.atomic_satellite_finish_refused')
+       AND lower(COALESCE(a.context->>'proven_refusal', '')) IN ('true', 't', '1')
        AND t.id = CASE WHEN (a.context->>'tournament_id') ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
                        THEN (a.context->>'tournament_id')::uuid END
-       AND e.tournament_id = t.id
        AND t.status = 'COMPLETED'
-       AND t.ended_at IS NOT NULL
+       AND e.tournament_id = t.id
        AND e.terminal_closed_at IS NOT NULL
-       AND e.prize_balance = 0 AND e.bounty_balance = 0 AND e.fee_balance = 0
-       AND e.gross_in > 0
-       AND round(e.gross_in, 2) = round(e.prize_out + e.bounty_out + e.fee_out
-                                      + e.refund_prize + e.refund_bounty + e.refund_fee, 2)
-       AND NOT EXISTS (SELECT 1 FROM public.tables tb
-                        WHERE tb.tournament_id = t.id AND lower(tb.status) <> 'closed')
-       AND NOT EXISTS (SELECT 1 FROM public.tables tb
-                         JOIN public.table_seats ts ON ts.table_id = tb.id
-                        WHERE tb.tournament_id = t.id AND ts.left_at IS NULL)
-       AND (
-             (COALESCE(t.variant, '') <> 'satellite'
-              AND EXISTS (SELECT 1 FROM public.tournament_players tp
-                           WHERE tp.tournament_id = t.id
-                             AND tp.status = 'winner' AND tp.position = 1
-                             AND COALESCE(tp.prize_amount, 0) > 0)
-              AND COALESCE((SELECT round(sum(tp.prize_amount), 2)
-                              FROM public.tournament_players tp
-                             WHERE tp.tournament_id = t.id
-                               AND COALESCE(tp.prize_amount, 0) > 0), 0) = round(e.prize_out, 2)
-              AND COALESCE((SELECT round(sum(w.amount), 2)
-                              FROM public.wallet_transactions w
-                             WHERE w.related_entity_id = t.id
-                               AND w.type = 'credit' AND w.category = 'prize'), 0) = round(e.prize_out, 2)
-              AND NOT EXISTS (SELECT 1 FROM public.tournament_players tp
-                               WHERE tp.tournament_id = t.id
-                                 AND COALESCE(tp.prize_amount, 0) > 0
-                                 AND COALESCE((SELECT round(sum(w.amount), 2)
-                                                 FROM public.wallet_transactions w
-                                                WHERE w.related_entity_id = t.id
-                                                  AND w.user_id = tp.user_id
-                                                  AND w.type = 'credit' AND w.category = 'prize'), 0)
-                                     < round(tp.prize_amount, 2) - 0.01))
-          OR (t.variant = 'satellite'
-              AND EXISTS (SELECT 1 FROM public.tournament_satellite_settlements s
-                           WHERE s.tournament_id = t.id
-                             AND s.pool = t.prize_pool
-                             AND (cardinality(s.qualifier_ids) > 0 OR s.winner_id IS NOT NULL))
-              AND COALESCE((SELECT round(sum(sp.amount), 2)
-                              FROM public.tournament_payouts sp
-                             WHERE sp.tournament_id = t.id), 0) = round(e.prize_out, 2))
-           )
+       AND e.terminal_closed_at >= a.created_at
+       AND COALESCE(e.prize_balance, 0) = 0
+       AND COALESCE(e.bounty_balance, 0) = 0
+       AND CASE WHEN a.source = 'Tournament.atomic_satellite_finish_refused'
+             THEN EXISTS (SELECT 1 FROM public.tournament_satellite_settlements s
+                           WHERE s.tournament_id = t.id AND s.settled_at IS NOT NULL)
+             ELSE EXISTS (SELECT 1 FROM public.tournament_terminal_settlements s
+                           WHERE s.tournament_id = t.id)
+           END
      ORDER BY a.created_at, a.id
      LIMIT p_limit
   ) s;
@@ -650,263 +615,144 @@ BEGIN
     WITH changed AS (
       UPDATE public.financial_alerts a
          SET resolved = true, resolved_at = now(),
-             resolution = 'verified: tournament ' || t.id::text
-               || ' (' || COALESCE(t.variant, 'mtt') || ') reached COMPLETED at ' || t.ended_at::text
-               || ', escrow terminally closed at ' || e.terminal_closed_at::text
-               || ' with zero balances (gross_in ' || e.gross_in::text
-               || ', prize_out ' || e.prize_out::text
-               || ', fee_out ' || e.fee_out::text
-               || '), every table closed, no active seats, and the full prize pool accounted for; the refused finish has since committed.',
+             resolution = 'verified: tournament ' || t.id::text || ' COMPLETED after this refusal; '
+               || CASE WHEN a.source = 'Tournament.atomic_satellite_finish_refused'
+                       THEN 'its satellite settlement receipt is written'
+                       ELSE 'its terminal receipt is written' END
+               || ' and its escrow closed at zero at ' || e.terminal_closed_at::text
+               || ', so the refused finish was retried and committed.',
              context = COALESCE(a.context, '{}'::jsonb) || jsonb_build_object(
                'resolved_by_fn', 'fn_resolve_settled_financial_alerts',
-               'resolved_on', now(),
-               'finish_commit_resolution_v1', jsonb_build_object(
-                 'version', 1,
-                 'tournament_id', t.id,
-                 'variant', t.variant,
-                 'ended_at', t.ended_at,
-                 'escrow_terminal_closed_at', e.terminal_closed_at,
-                 'gross_in', e.gross_in,
-                 'prize_out', e.prize_out,
-                 'bounty_out', e.bounty_out,
-                 'fee_out', e.fee_out))
+               'resolved_on', now())
         FROM public.tournaments t, public.tournament_escrow e
        WHERE a.id = ANY(v_fin_ids)
          AND a.resolved IS NOT TRUE
-         AND a.source = 'Tournament.finish_refused_repeatedly'
-         AND t.id = CASE WHEN (a.context->>'tournament_id') ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-                         THEN (a.context->>'tournament_id')::uuid END
-         AND e.tournament_id = t.id
-         AND t.status = 'COMPLETED'
-         AND t.ended_at IS NOT NULL
-         AND e.terminal_closed_at IS NOT NULL
-         AND e.prize_balance = 0 AND e.bounty_balance = 0 AND e.fee_balance = 0
-         AND e.gross_in > 0
-         AND round(e.gross_in, 2) = round(e.prize_out + e.bounty_out + e.fee_out
-                                        + e.refund_prize + e.refund_bounty + e.refund_fee, 2)
-         AND NOT EXISTS (SELECT 1 FROM public.tables tb
-                          WHERE tb.tournament_id = t.id AND lower(tb.status) <> 'closed')
-         AND NOT EXISTS (SELECT 1 FROM public.tables tb
-                           JOIN public.table_seats ts ON ts.table_id = tb.id
-                          WHERE tb.tournament_id = t.id AND ts.left_at IS NULL)
-         AND (
-               (COALESCE(t.variant, '') <> 'satellite'
-                AND EXISTS (SELECT 1 FROM public.tournament_players tp
-                             WHERE tp.tournament_id = t.id
-                               AND tp.status = 'winner' AND tp.position = 1
-                               AND COALESCE(tp.prize_amount, 0) > 0)
-                AND COALESCE((SELECT round(sum(tp.prize_amount), 2)
-                                FROM public.tournament_players tp
-                               WHERE tp.tournament_id = t.id
-                                 AND COALESCE(tp.prize_amount, 0) > 0), 0) = round(e.prize_out, 2)
-                AND COALESCE((SELECT round(sum(w.amount), 2)
-                                FROM public.wallet_transactions w
-                               WHERE w.related_entity_id = t.id
-                                 AND w.type = 'credit' AND w.category = 'prize'), 0) = round(e.prize_out, 2)
-                AND NOT EXISTS (SELECT 1 FROM public.tournament_players tp
-                                 WHERE tp.tournament_id = t.id
-                                   AND COALESCE(tp.prize_amount, 0) > 0
-                                   AND COALESCE((SELECT round(sum(w.amount), 2)
-                                                   FROM public.wallet_transactions w
-                                                  WHERE w.related_entity_id = t.id
-                                                    AND w.user_id = tp.user_id
-                                                    AND w.type = 'credit' AND w.category = 'prize'), 0)
-                                       < round(tp.prize_amount, 2) - 0.01))
-            OR (t.variant = 'satellite'
-                AND EXISTS (SELECT 1 FROM public.tournament_satellite_settlements s
-                             WHERE s.tournament_id = t.id
-                               AND s.pool = t.prize_pool
-                               AND (cardinality(s.qualifier_ids) > 0 OR s.winner_id IS NOT NULL))
-                AND COALESCE((SELECT round(sum(sp.amount), 2)
-                                FROM public.tournament_payouts sp
-                               WHERE sp.tournament_id = t.id), 0) = round(e.prize_out, 2))
-             )
+       AND a.source IN ('Tournament.atomic_finish_refused',
+                        'Tournament.atomic_satellite_finish_refused')
+       AND lower(COALESCE(a.context->>'proven_refusal', '')) IN ('true', 't', '1')
+       AND t.id = CASE WHEN (a.context->>'tournament_id') ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+                       THEN (a.context->>'tournament_id')::uuid END
+       AND t.status = 'COMPLETED'
+       AND e.tournament_id = t.id
+       AND e.terminal_closed_at IS NOT NULL
+       AND e.terminal_closed_at >= a.created_at
+       AND COALESCE(e.prize_balance, 0) = 0
+       AND COALESCE(e.bounty_balance, 0) = 0
+       AND CASE WHEN a.source = 'Tournament.atomic_satellite_finish_refused'
+             THEN EXISTS (SELECT 1 FROM public.tournament_satellite_settlements s
+                           WHERE s.tournament_id = t.id AND s.settled_at IS NOT NULL)
+             ELSE EXISTS (SELECT 1 FROM public.tournament_terminal_settlements s
+                           WHERE s.tournament_id = t.id)
+           END
       RETURNING a.id
     )
     SELECT COALESCE(array_agg(id), '{}') INTO v_fin_ids FROM changed;
     v_fin := COALESCE(array_length(v_fin_ids, 1), 0);
   END IF;
 
-  -- CLASS 7: an "outcome unknown" finish alarm whose outcome is now known.
+  -- CLASS 7: a finish whose OUTCOME WAS UNKNOWN, closed only on the single
+  -- receipt that proves the finish committed exactly once.
   SELECT COALESCE(array_agg(id), '{}') INTO v_unk_ids FROM (
     SELECT a.id
-      FROM public.financial_alerts a, public.tournaments t, public.tournament_escrow e
+      FROM public.financial_alerts a, public.tournaments t, public.tournament_escrow e,
+           public.tournament_terminal_settlements r
      WHERE a.resolved IS NOT TRUE
-       AND a.source IN ('Tournament.finish_outcome_unknown',
-                        'Tournament.satellite_winner_outcome_unknown')
+       AND a.source = 'Tournament.atomic_finish_outcome_unknown'
+       AND lower(COALESCE(a.context->>'outcome_unknown', '')) IN ('true', 't', '1')
        AND t.id = CASE WHEN (a.context->>'tournament_id') ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
                        THEN (a.context->>'tournament_id')::uuid END
-       AND e.tournament_id = t.id
        AND t.status = 'COMPLETED'
-       AND t.ended_at IS NOT NULL
+       AND t.satellite_target_id IS NULL
+       AND e.tournament_id = t.id
        AND e.terminal_closed_at IS NOT NULL
-       AND e.prize_balance = 0 AND e.bounty_balance = 0 AND e.fee_balance = 0
-       AND e.gross_in > 0
-       AND round(e.gross_in, 2) = round(e.prize_out + e.bounty_out + e.fee_out
-                                      + e.refund_prize + e.refund_bounty + e.refund_fee, 2)
-       AND NOT EXISTS (SELECT 1 FROM public.tables tb
-                        WHERE tb.tournament_id = t.id AND lower(tb.status) <> 'closed')
-       AND NOT EXISTS (SELECT 1 FROM public.tables tb
-                         JOIN public.table_seats ts ON ts.table_id = tb.id
-                        WHERE tb.tournament_id = t.id AND ts.left_at IS NULL)
-       AND (
-             (a.source = 'Tournament.finish_outcome_unknown'
-              AND COALESCE(t.variant, '') <> 'satellite'
-              AND EXISTS (SELECT 1 FROM public.tournament_terminal_settlements ts
-                           WHERE ts.tournament_id = t.id
-                             AND ts.receipt_version = 3
-                             AND ts.escrow_closed_at = e.terminal_closed_at
-                             AND round(ts.prize_pool, 2) = round(e.prize_out, 2)
-                             AND round(ts.cash_payout_total, 2) = round(e.prize_out, 2)
-                             AND round(ts.bounty_payout_total, 2) = round(e.bounty_out, 2))
-              AND COALESCE((SELECT round(sum(tp.prize_amount), 2)
-                              FROM public.tournament_players tp
-                             WHERE tp.tournament_id = t.id
-                               AND COALESCE(tp.prize_amount, 0) > 0), 0) = round(e.prize_out, 2)
-              AND COALESCE((SELECT round(sum(w.amount), 2)
-                              FROM public.wallet_transactions w
-                             WHERE w.related_entity_id = t.id
-                               AND w.type = 'credit' AND w.category = 'prize'), 0) = round(e.prize_out, 2)
-              AND NOT EXISTS (SELECT 1 FROM public.tournament_players tp
-                               WHERE tp.tournament_id = t.id
-                                 AND COALESCE(tp.prize_amount, 0) > 0
-                                 AND COALESCE((SELECT round(sum(w.amount), 2)
-                                                 FROM public.wallet_transactions w
-                                                WHERE w.related_entity_id = t.id
-                                                  AND w.user_id = tp.user_id
-                                                  AND w.type = 'credit' AND w.category = 'prize'), 0)
-                                     <> round(tp.prize_amount, 2)))
-          OR (a.source = 'Tournament.satellite_winner_outcome_unknown'
-              AND t.variant = 'satellite'
-              AND EXISTS (SELECT 1 FROM public.tournament_satellite_settlements s
-                           WHERE s.tournament_id = t.id
-                             AND s.receipt_version = 3
-                             AND s.source_escrow_closed_at = e.terminal_closed_at
-                             AND round(s.pool, 2) = round(t.prize_pool, 2)
-                             AND round(s.pool, 2) = round(e.prize_out, 2)
-                             AND s.winner_id IS NOT NULL
-                             AND s.winner_id = CASE
-                               WHEN (a.context->>'winner_id') ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-                               THEN (a.context->>'winner_id')::uuid END)
-              AND COALESCE((SELECT round(sum(sp.amount), 2)
-                              FROM public.tournament_payouts sp
-                             WHERE sp.tournament_id = t.id), 0) = round(e.prize_out, 2))
-           )
+       AND e.terminal_closed_at >= a.created_at
+       AND COALESCE(e.prize_balance, 0) = 0
+       AND COALESCE(e.bounty_balance, 0) = 0
+       AND r.tournament_id = t.id
+       AND r.settled_at IS NOT NULL
+       AND r.settled_at >= a.created_at
+       AND (SELECT count(*) FROM public.tournament_terminal_settlements r2
+             WHERE r2.tournament_id = t.id) = 1
+       AND round(COALESCE(r.prize_pool, 0), 2) = round(COALESCE(t.prize_pool, 0), 2)
+       AND round(COALESCE(r.bounty_pool, 0), 2) = round(COALESCE(t.bounty_pool, 0), 2)
+       AND round(COALESCE((SELECT sum(p.amount) FROM public.tournament_payouts p
+                            WHERE p.tournament_id = t.id), 0), 2)
+             = round(COALESCE(t.prize_pool, 0), 2)
      ORDER BY a.created_at, a.id
      LIMIT p_limit
   ) s;
   v_unk := COALESCE(array_length(v_unk_ids, 1), 0);
 
   IF p_apply THEN
+    -- The whole predicate again under UPDATE: a preview is not authority.
     WITH changed AS (
       UPDATE public.financial_alerts a
          SET resolved = true, resolved_at = now(),
              resolution = 'verified: tournament ' || t.id::text
-               || ' (' || COALESCE(t.variant, 'mtt') || ') carries one v3 terminal settlement receipt matching its closed escrow at '
-               || e.terminal_closed_at::text || ' (gross_in ' || e.gross_in::text
-               || ', prize_out ' || e.prize_out::text
-               || ', bounty_out ' || e.bounty_out::text
-               || ', fee_out ' || e.fee_out::text
-               || '), and payouts match prize_out exactly with no duplicate credit; the unknown RPC outcome resolved to that single committed settlement.',
+               || ' COMPLETED after this unknown outcome and committed exactly once: one terminal receipt, settled at '
+               || r.settled_at::text || ', accounts for prize pool '
+               || round(COALESCE(t.prize_pool, 0), 2)::text || ' and bounty pool '
+               || round(COALESCE(t.bounty_pool, 0), 2)::text
+               || '; its payout rows conserve that prize pool to the cent and its escrow closed at zero at '
+               || e.terminal_closed_at::text || '.',
              context = COALESCE(a.context, '{}'::jsonb) || jsonb_build_object(
                'resolved_by_fn', 'fn_resolve_settled_financial_alerts',
                'resolved_on', now(),
-               'unknown_outcome_resolution_v1', jsonb_build_object(
-                 'version', 1,
+               'unknown_finish_outcome_resolution_v1', jsonb_build_object(
+                 'version', 1, 'kind', 'single_terminal_receipt_conserved',
                  'tournament_id', t.id,
-                 'variant', t.variant,
-                 'ended_at', t.ended_at,
-                 'escrow_terminal_closed_at', e.terminal_closed_at,
-                 'gross_in', e.gross_in,
-                 'prize_out', e.prize_out,
-                 'bounty_out', e.bounty_out,
-                 'fee_out', e.fee_out))
-        FROM public.tournaments t, public.tournament_escrow e
+                 'terminal_receipt_count', (SELECT count(*) FROM public.tournament_terminal_settlements r3
+                                             WHERE r3.tournament_id = t.id),
+                 'receipt_settled_at', r.settled_at,
+                 'prize_pool', round(COALESCE(t.prize_pool, 0), 2),
+                 'bounty_pool', round(COALESCE(t.bounty_pool, 0), 2),
+                 'payouts_total', round(COALESCE((SELECT sum(p.amount) FROM public.tournament_payouts p
+                                                   WHERE p.tournament_id = t.id), 0), 2),
+                 'escrow_terminal_closed_at', e.terminal_closed_at))
+        FROM public.tournaments t, public.tournament_escrow e,
+             public.tournament_terminal_settlements r
        WHERE a.id = ANY(v_unk_ids)
          AND a.resolved IS NOT TRUE
-         AND a.source IN ('Tournament.finish_outcome_unknown',
-                          'Tournament.satellite_winner_outcome_unknown')
-         AND t.id = CASE WHEN (a.context->>'tournament_id') ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-                         THEN (a.context->>'tournament_id')::uuid END
-         AND e.tournament_id = t.id
-         AND t.status = 'COMPLETED'
-         AND t.ended_at IS NOT NULL
-         AND e.terminal_closed_at IS NOT NULL
-         AND e.prize_balance = 0 AND e.bounty_balance = 0 AND e.fee_balance = 0
-         AND e.gross_in > 0
-         AND round(e.gross_in, 2) = round(e.prize_out + e.bounty_out + e.fee_out
-                                        + e.refund_prize + e.refund_bounty + e.refund_fee, 2)
-         AND NOT EXISTS (SELECT 1 FROM public.tables tb
-                          WHERE tb.tournament_id = t.id AND lower(tb.status) <> 'closed')
-         AND NOT EXISTS (SELECT 1 FROM public.tables tb
-                           JOIN public.table_seats ts ON ts.table_id = tb.id
-                          WHERE tb.tournament_id = t.id AND ts.left_at IS NULL)
-         AND (
-               (a.source = 'Tournament.finish_outcome_unknown'
-                AND COALESCE(t.variant, '') <> 'satellite'
-                AND EXISTS (SELECT 1 FROM public.tournament_terminal_settlements ts
-                             WHERE ts.tournament_id = t.id
-                               AND ts.receipt_version = 3
-                               AND ts.escrow_closed_at = e.terminal_closed_at
-                               AND round(ts.prize_pool, 2) = round(e.prize_out, 2)
-                               AND round(ts.cash_payout_total, 2) = round(e.prize_out, 2)
-                               AND round(ts.bounty_payout_total, 2) = round(e.bounty_out, 2))
-                AND COALESCE((SELECT round(sum(tp.prize_amount), 2)
-                                FROM public.tournament_players tp
-                               WHERE tp.tournament_id = t.id
-                                 AND COALESCE(tp.prize_amount, 0) > 0), 0) = round(e.prize_out, 2)
-                AND COALESCE((SELECT round(sum(w.amount), 2)
-                                FROM public.wallet_transactions w
-                               WHERE w.related_entity_id = t.id
-                                 AND w.type = 'credit' AND w.category = 'prize'), 0) = round(e.prize_out, 2)
-                AND NOT EXISTS (SELECT 1 FROM public.tournament_players tp
-                                 WHERE tp.tournament_id = t.id
-                                   AND COALESCE(tp.prize_amount, 0) > 0
-                                   AND COALESCE((SELECT round(sum(w.amount), 2)
-                                                   FROM public.wallet_transactions w
-                                                  WHERE w.related_entity_id = t.id
-                                                    AND w.user_id = tp.user_id
-                                                    AND w.type = 'credit' AND w.category = 'prize'), 0)
-                                       <> round(tp.prize_amount, 2)))
-            OR (a.source = 'Tournament.satellite_winner_outcome_unknown'
-                AND t.variant = 'satellite'
-                AND EXISTS (SELECT 1 FROM public.tournament_satellite_settlements s
-                             WHERE s.tournament_id = t.id
-                               AND s.receipt_version = 3
-                               AND s.source_escrow_closed_at = e.terminal_closed_at
-                               AND round(s.pool, 2) = round(t.prize_pool, 2)
-                               AND round(s.pool, 2) = round(e.prize_out, 2)
-                               AND s.winner_id IS NOT NULL
-                               AND s.winner_id = CASE
-                                 WHEN (a.context->>'winner_id') ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-                                 THEN (a.context->>'winner_id')::uuid END)
-                AND COALESCE((SELECT round(sum(sp.amount), 2)
-                                FROM public.tournament_payouts sp
-                               WHERE sp.tournament_id = t.id), 0) = round(e.prize_out, 2))
-             )
+       AND a.source = 'Tournament.atomic_finish_outcome_unknown'
+       AND lower(COALESCE(a.context->>'outcome_unknown', '')) IN ('true', 't', '1')
+       AND t.id = CASE WHEN (a.context->>'tournament_id') ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+                       THEN (a.context->>'tournament_id')::uuid END
+       AND t.status = 'COMPLETED'
+       AND t.satellite_target_id IS NULL
+       AND e.tournament_id = t.id
+       AND e.terminal_closed_at IS NOT NULL
+       AND e.terminal_closed_at >= a.created_at
+       AND COALESCE(e.prize_balance, 0) = 0
+       AND COALESCE(e.bounty_balance, 0) = 0
+       AND r.tournament_id = t.id
+       AND r.settled_at IS NOT NULL
+       AND r.settled_at >= a.created_at
+       AND (SELECT count(*) FROM public.tournament_terminal_settlements r2
+             WHERE r2.tournament_id = t.id) = 1
+       AND round(COALESCE(r.prize_pool, 0), 2) = round(COALESCE(t.prize_pool, 0), 2)
+       AND round(COALESCE(r.bounty_pool, 0), 2) = round(COALESCE(t.bounty_pool, 0), 2)
+       AND round(COALESCE((SELECT sum(p.amount) FROM public.tournament_payouts p
+                            WHERE p.tournament_id = t.id), 0), 2)
+             = round(COALESCE(t.prize_pool, 0), 2)
       RETURNING a.id
     )
     SELECT COALESCE(array_agg(id), '{}') INTO v_unk_ids FROM changed;
     v_unk := COALESCE(array_length(v_unk_ids, 1), 0);
   END IF;
 
-  -- CLASS 8: a fn_ca_escrow_balance_drift alert whose own event, re-measured
-  -- right here against the live escrow row and fn_ca_tournament_escrow(), has
-  -- no unanswered discrepancy.
+  -- CLASS 8: an escrow DRIFT ALERT that a fresh re-measure refutes.
   SELECT COALESCE(array_agg(id), '{}') INTO v_drift_ids FROM (
     SELECT a.id
-      FROM public.financial_alerts a, public.tournament_escrow r,
-           LATERAL public.fn_ca_tournament_escrow(r.tournament_id) e,
-           LATERAL (
-             SELECT round((r.prize_balance + r.bounty_balance + r.fee_balance)
-                        - (e.prize_balance - r.reserve_out + r.reserve_in
-                           + e.bounty_balance + e.fee_balance), 2) AS v_diff,
-                    round(r.prize_balance
-                        - (e.prize_balance - r.reserve_out + r.reserve_in), 2) AS v_prize_gap) g
+      FROM public.financial_alerts a
+      JOIN public.tournament_escrow r
+        ON r.tournament_id = CASE WHEN (a.context->>'tournament_id') ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+                                  THEN (a.context->>'tournament_id')::uuid END
+      CROSS JOIN LATERAL public.fn_ca_tournament_escrow(r.tournament_id) e
+      CROSS JOIN LATERAL (
+        SELECT round((r.prize_balance + r.bounty_balance + r.fee_balance) - (e.prize_balance - r.reserve_out + r.reserve_in + e.bounty_balance + e.fee_balance), 2) AS v_diff,
+               round(r.prize_balance - (e.prize_balance - r.reserve_out + r.reserve_in), 2) AS v_prize_gap) g
      WHERE a.resolved IS NOT TRUE
        AND a.source = 'drift_incident:fn_ca_escrow_balance_drift'
-       AND r.tournament_id = CASE WHEN (a.context->>'tournament_id') ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-                                  THEN (a.context->>'tournament_id')::uuid END
        AND r.terminal_closed_at IS NOT NULL
        AND (g.v_diff = 0
             OR (g.v_diff <> 0
@@ -931,6 +777,7 @@ BEGIN
   v_drift := COALESCE(array_length(v_drift_ids, 1), 0);
 
   IF p_apply THEN
+    -- The whole predicate again under UPDATE: a preview is not authority.
     WITH changed AS (
       UPDATE public.financial_alerts a
          SET resolved = true, resolved_at = now(),
@@ -1093,6 +940,8 @@ BEGIN
              'resolved_on', now())
      WHERE a.id = ANY(v_settled_ids);
 
+    -- Repeat the complete guard under UPDATE: preview membership alone is not
+    -- authority after a concurrent original-alert identity or status change.
     WITH changed AS (
       UPDATE public.financial_alerts a
          SET resolved = true, resolved_at = now(),
@@ -1615,13 +1464,13 @@ BEGIN
        AND status <> 'resolved';
   END IF;
 
-  -- 5. Execute the index-backed public.fn_ca_collusion_scan(1) inside the 12s
+  -- 5. Execute the index-backed public.fn_ca_collusion_scan(0) inside the 12s
   --    migration install budget and resolve incident c3f667d5-422b-47bb-9b1b-0898fa1c7003
   --    (+ mirror alert 26737a09-cfb7-49a4-a4b5-e63671356d63).
   IF EXISTS (SELECT 1 FROM public.ca_drift_incidents WHERE id = 'c3f667d5-422b-47bb-9b1b-0898fa1c7003'::uuid AND status <> 'resolved') THEN
-    v_collusion_res := public.fn_ca_collusion_scan(1);
+    v_collusion_res := public.fn_ca_collusion_scan(0);
     IF COALESCE((v_collusion_res->>'ok')::boolean, false) IS NOT TRUE THEN
-      RAISE EXCEPTION 'fn_ca_collusion_scan(1) did not return ok=true: %', v_collusion_res;
+      RAISE EXCEPTION 'fn_ca_collusion_scan(0) did not return ok=true: %', v_collusion_res;
     END IF;
 
     UPDATE public.ca_drift_incidents
