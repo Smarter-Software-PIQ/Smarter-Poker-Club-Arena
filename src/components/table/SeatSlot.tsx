@@ -470,13 +470,6 @@ export interface SeatSlotProps {
    */
   hideEmptyChair?: boolean;
   /**
-   * REAL ARRIVALS WHILE WAITING (Dan 2026-11-10): with hideEmptyChair, this
-   * open chair draws an anonymous arriving player - a real player the
-   * matcher has waiting for this table, whose identity is not known yet. No
-   * name, avatar or stack is ever drawn for it.
-   */
-  arriving?: boolean;
-  /**
    * Dan 2026-08-18: true for the hero's OWN reserved seat while they wait to
    * be dealt in. Every other open seat reads EMPTY; this one reads YOUR SEAT
    * so the player can see where they'll appear.
@@ -956,7 +949,6 @@ export const SeatSlot = memo(
       onSit,
       canSit = true,
       hideEmptyChair = false,
-      arriving = false,
       isHeroReservedSeat = false,
       onAction,
       onAvatarClick,
@@ -2540,22 +2532,6 @@ export const SeatSlot = memo(
       // a passive "EMPTY" marker. No onClick, no role="button", no tabIndex:
       // the seat is removed from the interaction model entirely rather than
       // accepting the click and rejecting it downstream.
-      if (!canSit && hideEmptyChair && !isHeroReservedSeat && arriving) {
-        /* A real player waiting for this table (the engine's own count),
-           identity not known until the table forms: an anonymous chair that
-           fades in where they will sit. */
-        return (
-          <div
-            className={`${containerClasses} seat--empty-locked seat--arriving`}
-            data-seat-num={seatNumber}
-            data-testid={`seat-arriving-${seatNumber}`}
-            data-motion="keep"
-            aria-label={`Seat ${seatNumber}: Player Arriving`}
-          >
-            <span className="seat__arriving-silhouette" aria-hidden="true" />
-          </div>
-        );
-      }
       if (!canSit && hideEmptyChair && !isHeroReservedSeat) {
         /* A Lightning room's open chair: the slot keeps its seat number (the
            ring and the throwable scopes address seats by it) and draws
@@ -4044,7 +4020,6 @@ export const SeatSlot = memo(
     if (prev.arrival?.key !== next.arrival?.key) return false;
     if (prev.canSit !== next.canSit) return false;
     if (prev.hideEmptyChair !== next.hideEmptyChair) return false;
-    if (prev.arriving !== next.arriving) return false;
     /**
      * AUDIT 2026-08-25 — two props that were passed, read, and then blocked.
      *
