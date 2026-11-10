@@ -15,6 +15,7 @@ const retentionCalls: Record<string, unknown>[] = [];
 /** Ordered replies for the accepted-hand transaction. */
 let atomicRpcResults: Array<{ data: unknown; error: unknown }> = [];
 /** The reply fn_ca_resume_hand_submission gives a restarted engine. */
+let terminalRead: { data: any; error: unknown } | undefined;
 let resumeReply: { data: unknown; error: unknown } = { data: null, error: null };
 /** Ordered replies for fn_ca_retain_hand_submission; empty means a fresh retention. */
 let retentionReplies: Array<{ data: unknown; error: unknown } | Error> = [];
@@ -23,6 +24,10 @@ vi.mock('./client.js', () => ({
   supabase: {
     from: (table: string) => {
       calls.push({ table });
+      if (table === 'hand_atomic_commits' && terminalRead) {
+        const read = { select: () => read, eq: () => read, maybeSingle: async () => terminalRead };
+        return read;
+      }
       throw new Error(`unexpected legacy table write: ${table}`);
     },
     rpc: async (fn: string, args: Record<string, unknown>) => {
@@ -295,6 +300,7 @@ function deferred<T>() {
 }
 
 beforeEach(() => {
+  terminalRead = undefined;
   calls.length = 0;
   rpcCalls.length = 0;
   retentionCalls.length = 0;
@@ -1935,6 +1941,75 @@ describe('a lapsed cash proof retains its finished hand before refusing', () => 
       expect(rpcCalls).toHaveLength(1);
     } finally {
       vi.useRealTimers();
+    }
+  });
+});
+
+describe('retained original accepted terminal transport', () => {
+  it('captures before settlement and recovery journals that exact original without a financial replay', async () => {
+    vi.stubEnv('GIT_COMMIT_SHA', 'a'.repeat(40));
+    try {
+      const input = obligationsParams();
+      atomicRpcResults = [
+        {
+          data: {
+            success: true,
+            atomic_hand_commit: true,
+            history_id: historyId,
+            post_commit_completed: true,
+            post_commit_obligations: true,
+          },
+          error: null,
+        },
+      ];
+      await logHandHistory(input);
+      const retained = retentionCalls[0] as any;
+      const packet = retained.p_hand_row._accepted_post_commit_facts.horse_accepted_terminal;
+      expect(packet.sourceRelease).toBe('a'.repeat(40));
+      expect(packet.originalLease).toBe(leaseGeneration);
+      expect(packet.observation.actions).toEqual(
+        mockObserveCompletedHand.mock.calls[0]![0].actions
+      );
+      const receipt = {
+        found: true,
+        completed: true,
+        success: true,
+        atomic_hand_commit: true,
+        snapshot_completed: true,
+        post_commit_completed: true,
+        table_id: input.tableId,
+        history_id: historyId,
+        submission_id: historyId,
+        submission_hash: 'b'.repeat(64),
+        hand_number: String(input.handNumber),
+        post_commit_payload_hash: 'c'.repeat(64),
+      };
+      resumeReply = { data: receipt, error: null };
+      terminalRead = {
+        data: {
+          hand_id: historyId,
+          table_id: input.tableId,
+          hand_number: input.handNumber,
+          post_commit_completed_at: '2026-11-10T00:00:00Z',
+          post_commit_payload_hash: 'c'.repeat(64),
+          post_commit_payload: { accepted_hand_facts: { horse_accepted_terminal: packet } },
+        },
+        error: null,
+      };
+      const writes = rpcCalls.length;
+      mockObserveCompletedHand.mockClear();
+      await resumeRetainedHandSubmission(input.tableId, 'successor', 'successor-lease');
+      expect(rpcCalls).toHaveLength(writes);
+      expect(mockObserveCompletedHand).toHaveBeenCalledTimes(1);
+      expect(mockObserveCompletedHand.mock.calls[0]![0]).toMatchObject({
+        ...packet.observation,
+        terminalOnlySourceRelease: 'a'.repeat(40),
+      });
+      terminalRead.data.post_commit_payload_hash = 'd'.repeat(64);
+      await resumeRetainedHandSubmission(input.tableId, 'successor', 'successor-lease');
+      expect(mockObserveCompletedHand).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllEnvs();
     }
   });
 });

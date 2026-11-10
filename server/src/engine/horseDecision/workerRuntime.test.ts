@@ -2258,6 +2258,43 @@ describe('HorseDecisionWorkerRuntime', () => {
     expect(h.messages.at(-1)).not.toHaveProperty('recoverable');
   });
 
+  it('journals duplicate recovered terminals without learning and rejects a changed source', async () => {
+    const h = harness();
+    const journaled: CompletedHandObservation[] = [];
+    let persisted = 0;
+    h.deps.sourceRelease = () => 'a'.repeat(40);
+    h.deps.journalAcceptedHand = (hand) => {
+      journaled.push(hand);
+    };
+    h.deps.learnPersistedMemory = () => {
+      persisted++;
+    };
+    const original: ObserveCompletedHandRequest = {
+      type: 'OBSERVE_COMPLETED_HAND',
+      requestId: 2,
+      generation: 4,
+      fence: 'table:4:original-lease:observe',
+      handKey: 'table:4',
+      actions: [],
+      bigBlind: 2,
+      terminalOnlySourceRelease: 'a'.repeat(40),
+    };
+    h.runtime.receive(original);
+    h.runtime.receive({ ...original, requestId: 3 });
+    await h.runtime.drain();
+    expect(journaled).toHaveLength(2);
+    expect(h.observations).toEqual([]);
+    expect(persisted).toBe(0);
+    expect(h.features).not.toContain('horse_observer_completion_learned');
+    h.runtime.receive({ ...original, requestId: 4, terminalOnlySourceRelease: 'b'.repeat(40) });
+    await h.runtime.drain();
+    expect(journaled).toHaveLength(2);
+    expect(h.messages.at(-1)).toMatchObject({
+      type: 'ERROR',
+      message: 'accepted_terminal_source_mismatch',
+    });
+  });
+
   it('serializes completed-hand learning with decisions and drains services on shutdown', async () => {
     const h = harness();
     h.runtime.receive(fastRequest(1));

@@ -1,3 +1,9 @@
+import { resolveReleaseIdentity } from '../../releaseIdentity.js';
+import {
+  captureAcceptedTerminal,
+  readAcceptedTerminal,
+  type AcceptedTerminalTransport,
+} from '../horseDecisionJournal/acceptedTerminal.js';
 import {
   publicMemoryDomainIsValid,
   type HorsePublicMemoryDomain,
@@ -179,6 +185,48 @@ export async function resumeRetainedHandSubmission(
     !Number.isSafeInteger(handNumber)
   )
     throw new Error('retained_hand_submission_receipt_unproven');
+  // Recovery has already settled the original request. Read its immutable
+  // terminal once; do not repeat settlement or any opponent-memory learning.
+  try {
+    const { data: committed, error: terminalError } = await supabase
+      .from('hand_atomic_commits')
+      .select(
+        'hand_id,table_id,hand_number,post_commit_completed_at,post_commit_payload_hash,post_commit_payload'
+      )
+      .eq('hand_id', data.submission_id)
+      .eq('table_id', tableId)
+      .eq('hand_number', handNumber)
+      .maybeSingle();
+    if (terminalError) throw terminalError;
+    const sourceRelease = resolveReleaseIdentity().releaseSha;
+    const terminal =
+      typeof committed?.post_commit_completed_at === 'string' &&
+      Number.isFinite(Date.parse(committed.post_commit_completed_at)) &&
+      committed.hand_id === data.submission_id &&
+      committed.table_id === tableId &&
+      Number(committed.hand_number) === handNumber &&
+      typeof data.post_commit_payload_hash === 'string' &&
+      /^[0-9a-f]{64}$/.test(data.post_commit_payload_hash) &&
+      committed.post_commit_payload_hash === data.post_commit_payload_hash
+        ? readAcceptedTerminal(
+            committed.post_commit_payload?.accepted_hand_facts?.horse_accepted_terminal,
+            { sourceRelease, tableId, handNumber, handId: data.submission_id }
+          )
+        : null;
+    if (terminal && sourceRelease) {
+      const roster = acceptedRosterForObservation(data, tableId, handNumber, data.submission_id);
+      void getLiveHorseDecisionWorker()
+        .observeCompletedHand({
+          ...terminal,
+          ...(roster ? { acceptedActorRoster: roster } : {}),
+          terminalOnlySourceRelease: sourceRelease,
+        })
+        .catch((cause) => reportError(cause, 'hand_submission.accepted_terminal_failed'));
+    }
+  } catch (cause) {
+    // A journal outage cannot change an already accepted financial outcome.
+    reportError(cause, 'hand_submission.accepted_terminal_failed');
+  }
   // Existing durable projection work owns notifications; a wake is not proof.
   void wakeHandProjection().catch((cause) => reportError(cause, 'hand_submission.projection_wake'));
   return { handNumber, submissionId: data.submission_id };
@@ -248,6 +296,7 @@ export interface AtomicHandCommitInput {
      * never in participant-readable hand_history.
      */
     stats_facts?: DurableStatsFactPayload;
+    horse_accepted_terminal?: AcceptedTerminalTransport;
     /** Paid inside this same acceptance, never by the asynchronous chip leg. */
     diamond_jackpot?: import('../../engine/diamondCashJackpot.js').DiamondJackpotVerdict;
   };
@@ -929,6 +978,34 @@ export async function logHandHistory(params: {
     amount: u.amount,
     hand_name: u.hand_name ?? null,
   }));
+  // Capture the original producer's terminal before a lost response or lease
+  // handoff can separate the atomic commit from the worker observation.
+  let capturedAcceptedTerminal: AcceptedTerminalTransport | null = null;
+  try {
+    if (params.atomicCommit.acceptedPostCommitFacts && params.handId) {
+      const terminal = captureAcceptedTerminal(
+        resolveReleaseIdentity().releaseSha,
+        params.atomicCommit.leaseGeneration,
+        {
+          generation: params.handNumber,
+          fence: `${params.tableId}:${params.handNumber}:${params.atomicCommit.leaseGeneration}:observe`,
+          handKey: `${params.tableId}:${params.handNumber}`,
+          committedHandId: params.handId,
+          actions: acceptedActions,
+          bigBlind: params.bigBlind,
+          showdown: params.showdownReveal ?? null,
+          scope: readScopeOf(
+            params.gameVariant,
+            params.holeCardsAll?.size ?? params.roster?.length ?? params.players?.length ?? 0
+          ),
+        }
+      );
+      capturedAcceptedTerminal = terminal;
+      if (terminal) params.atomicCommit.acceptedPostCommitFacts.horse_accepted_terminal = terminal;
+    }
+  } catch (cause) {
+    reportError(cause, 'HandHistory.accepted_terminal_capture_failed');
+  }
   const inserted = await insertHandHistoryRow(row, bombUnits, params.atomicCommit);
   const handId = inserted.id;
   if (params.atomicCommit.acceptedPostCommitFacts?.stats_facts) {
@@ -1024,6 +1101,7 @@ export async function logHandHistory(params: {
         params.gameVariant,
         params.holeCardsAll?.size ?? params.roster?.length ?? params.players?.length ?? 0
       ),
+      ...(capturedAcceptedTerminal?.observation ?? {}),
       ...acceptedRosterField,
     });
     void observation.catch((error) =>
