@@ -6,8 +6,13 @@ const MIGRATION_PATH = resolve(
   __dirname,
   '../supabase/migrations/20261109212210_freebuy_rebuy_cutoff_and_rebuild_storm_resolution.sql'
 );
+const WATCH_MIGRATION_PATH = resolve(
+  __dirname,
+  '../supabase/migrations/20261110000927_freebuy_watch_jsonb_array_length_and_audit_resolution.sql'
+);
 
 const sql = readFileSync(MIGRATION_PATH, 'utf8');
+const watchSql = readFileSync(WATCH_MIGRATION_PATH, 'utf8');
 
 describe('freebuy rebuy cutoff parity and rebuild storm resolution law (20261109212210)', () => {
   it('declares a live-proof header and runs inside a single bounded transaction', () => {
@@ -66,6 +71,12 @@ describe('freebuy rebuy cutoff parity and rebuild storm resolution law (20261109
   it('revokes public/browser execute on fn_ca_free_buy_transition_audit_guard and moves no chips', () => {
     expect(sql).toContain(
       'REVOKE ALL ON FUNCTION public.fn_ca_free_buy_transition_audit_guard() FROM PUBLIC, anon, authenticated;'
+    );
+    expect(watchSql).toContain(
+      'coalesce(jsonb_array_length(public.fn_sp_midway_free_buy_watch()), 0) > 0'
+    );
+    expect(watchSql).toContain(
+      'coalesce(jsonb_array_length(public.fn_sp_midway_free_buy_watch()), 0) = 0'
     );
     expect(sql).not.toMatch(/INSERT INTO public\.chip_ledger/i);
     expect(sql).not.toMatch(
