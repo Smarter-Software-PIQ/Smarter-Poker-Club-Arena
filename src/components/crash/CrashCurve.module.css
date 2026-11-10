@@ -146,26 +146,26 @@
 
 /* The cap: gold, dashed, drawn where the flight would stop. */
 .capLine line {
-  stroke: #ffd700;
+  stroke: #ffffff;
   stroke-width: 1;
   stroke-dasharray: 2 3;
   opacity: 0.7;
 }
 
 .capLine text {
-  fill: #ffd700;
+  fill: #ffffff;
   text-anchor: end;
 }
 
 .autoLine line {
-  stroke: #ffd700;
+  stroke: #ffffff;
   stroke-width: 1;
   stroke-dasharray: 5 4;
   opacity: 0.85;
 }
 
 .autoLine text {
-  fill: #ffd700;
+  fill: #ffffff;
   text-anchor: end;
 }
 
@@ -194,7 +194,7 @@
 }
 
 .cashMark text {
-  fill: #c8ffd2;
+  fill: #ffffff;
   text-anchor: middle;
 }
 
@@ -255,16 +255,16 @@
 }
 
 .ticker[data-heat='warm'] {
-  color: #ffd700;
+  color: #ffffff;
   text-shadow:
-    0 0 20px rgb(255 215 0 / 55%),
-    0 0 46px rgb(255 215 0 / 28%),
+    0 0 20px rgb(69 147 255 / 55%),
+    0 0 46px rgb(69 147 255 / 28%),
     0 2px 0 rgb(0 0 0 / 70%),
     0 4px 14px rgb(0 0 0 / 70%);
 }
 
 .ticker[data-heat='hot'] {
-  color: #ff8a3d;
+  color: #ffffff;
   text-shadow:
     0 0 26px rgb(255 120 40 / 75%),
     0 0 52px rgb(255 160 60 / 35%),
@@ -282,7 +282,7 @@
 }
 
 .ticker[data-phase='cashed'] {
-  color: #c8ffd2;
+  color: #ffffff;
   text-shadow:
     0 0 24px rgb(53 217 90 / 70%),
     0 0 52px rgb(53 217 90 / 30%),
@@ -314,8 +314,8 @@
 
 .cap b {
   font-weight: 800;
-  color: #ffd700;
-  text-shadow: 0 0 10px rgb(255 215 0 / 45%);
+  color: #ffffff;
+  text-shadow: 0 0 10px rgb(69 147 255 / 45%);
 }
 
 /* The plate over a booked flight: how high it would have gone. It sits in the
@@ -397,9 +397,9 @@
   font-size: 34px;
   font-weight: 800;
   line-height: 1.15;
-  color: #ffd700;
+  color: #ffffff;
   text-shadow:
-    0 0 18px rgb(255 215 0 / 55%),
+    0 0 18px rgb(69 147 255 / 55%),
     0 2px 0 rgb(0 0 0 / 70%);
 }
 
@@ -408,7 +408,7 @@
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  color: #c8ffd2;
+  color: #ffffff;
 }
 
 /* A phone-height frame gets a tighter plate, so it stays in the lower third. */
@@ -483,9 +483,9 @@
    keeps every colour and drops the breathing and the sheen. */
 .frame[data-max='true']::before {
   box-shadow:
-    inset 0 0 0 2px rgb(255 215 0 / 70%),
+    inset 0 0 0 2px rgb(69 147 255 / 70%),
     inset 0 0 46px rgb(0 0 0 / 40%),
-    inset 0 0 72px rgb(255 215 0 / 18%);
+    inset 0 0 72px rgb(69 147 255 / 18%);
   animation: maxBreathe calc(1.8s * var(--animation-speed, 1)) ease-in-out infinite;
 }
 
@@ -493,32 +493,32 @@
   color: #f4f7fb;
   background: linear-gradient(180deg, rgb(120 90 0 / 92%), rgb(60 44 0 / 94%));
   box-shadow:
-    0 0 0 1px rgb(255 215 0 / 85%),
+    0 0 0 1px rgb(69 147 255 / 85%),
     inset 0 1px 0 rgb(255 246 208 / 30%),
-    0 0 18px rgb(255 215 0 / 45%),
+    0 0 18px rgb(69 147 255 / 45%),
     0 6px 16px rgb(0 0 0 / 55%);
   animation: maxChip calc(1.2s * var(--animation-speed, 1)) ease-in-out infinite;
 }
 
 .frame[data-max='true'] .ticker {
-  color: #ffd700;
+  color: #ffffff;
   text-shadow:
-    0 0 24px rgb(255 215 0 / 70%),
-    0 0 56px rgb(255 215 0 / 35%),
+    0 0 24px rgb(69 147 255 / 70%),
+    0 0 56px rgb(69 147 255 / 35%),
     0 2px 0 rgb(0 0 0 / 70%),
     0 4px 14px rgb(0 0 0 / 70%);
 }
 
 .frame[data-max='true'] .reveal {
   box-shadow:
-    0 0 0 1px rgb(255 215 0 / 80%),
+    0 0 0 1px rgb(69 147 255 / 80%),
     inset 0 1px 0 rgb(255 246 208 / 22%),
-    0 0 26px rgb(255 215 0 / 30%),
+    0 0 26px rgb(69 147 255 / 30%),
     0 14px 30px rgb(0 0 0 / 60%);
 }
 
 .frame[data-max='true'] .revealTitle {
-  color: #ffd700;
+  color: #ffffff;
 }
 
 @keyframes maxBreathe {
@@ -746,4 +746,16 @@
 .bookedFlight strong {
   font-variant-numeric: tabular-nums;
   color: #fff2cd;
+}
+
+.frame .ticker,
+.frame .ticker[data-heat],
+.frame .cap b,
+.frame .revealFigure {
+  color: white;
+  text-shadow: 0 0 24px #318dff80;
+}
+.frame .cashLabel,
+.frame .capLabel {
+  fill: white;
 }
