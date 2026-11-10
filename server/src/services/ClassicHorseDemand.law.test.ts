@@ -37,7 +37,7 @@ describe('actual full Classic games queue and expand', () => {
   });
   it('uses actual empty seats for the fleet ask, never the random target shape', () => {
     const fleet = readFileSync(new URL('./HorseFleetManager.ts', import.meta.url), 'utf8');
-    expect(fleet).toContain('if (emptySeats.length === 0) {\n              horseQueueAsks.push(');
+    expect(fleet).toContain('if (queueOnly) {\n              horseQueueAsks.push(');
     expect(fleet).toContain(
       'waitTarget: fullGameWaitTarget(table.id, table.max_players, Date.now())'
     );
