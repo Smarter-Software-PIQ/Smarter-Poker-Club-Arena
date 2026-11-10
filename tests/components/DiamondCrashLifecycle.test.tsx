@@ -458,6 +458,9 @@ describe('Crash settles one displayed round once', () => {
       });
       expect(readout()).toHaveTextContent(label);
       expect(voice()).toHaveTextContent(label);
+      if (status === 'cashed') {
+        expect(screen.getByText('Cashed Out At').nextElementSibling).toHaveClass('sc-ink--white');
+      }
       await act(async () => {
         receipt.reject(new Error('Transport broke after authoritative tick'));
       });

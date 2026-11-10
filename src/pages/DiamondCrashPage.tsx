@@ -1362,8 +1362,7 @@ function DiamondCrashGame() {
       ? (settledRound.outcome?.cashout_cents ?? 100)
       : (settledRound.outcome?.crash_cents ?? 100)
     : null;
-  const readoutInk =
-    phase === 'crashed' ? 'sc-ink--red' : phase === 'cashed' ? 'sc-ink--gold' : 'sc-ink--white';
+  const readoutInk = phase === 'crashed' ? 'sc-ink--red' : 'sc-ink--white';
   const readoutLabel =
     phase === 'crashed'
       ? 'Crashed At'
