@@ -153,8 +153,8 @@ export async function fetchTournamentResult(
       addOns:
         typeof entry?.add_on === 'boolean' ? (entry.add_on ? 1 : 0) : Number(entry?.add_on) || 0,
       isSatellite: Boolean(
-        tourney.satellite_target_id ||
-        tourney.satellite_target ||
+        tourney?.satellite_target_id ||
+        tourney?.satellite_target ||
         readTournamentFormat(tourney) === 'seat-first-satellite-v1'
       ),
       formatKind: getTournamentFormatKind(tourney),

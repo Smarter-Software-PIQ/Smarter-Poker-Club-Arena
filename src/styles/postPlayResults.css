@@ -304,3 +304,39 @@
 .postplay-panel .sc__foot .sc-plate__text {
   font-size: clamp(11px, 3.5cqw, 16px);
 }
+
+.postplay-panel.sc.sc--plates,
+.ssh-overlay .ssh-card[class] {
+  border: 12px solid transparent;
+  border-image: url('/assets/results/session-frame.webp') 25 27 / 12px stretch;
+  background-color: #090b0c;
+}
+.ssh-overlay .ssh-card .ssh-hero {
+  background: #111416 url('/assets/results/session-chips.webp') left center / 32% auto no-repeat;
+  padding: 10px 8px 10px 36%;
+  align-items: center;
+  text-align: center;
+}
+.ssh-overlay .ssh-card .ssh-head {
+  background: #111 url('/assets/results/session-quilt.webp') repeat center / 62px auto;
+}
+.postplay-panel .sc__head .sc-zone {
+  text-align: center !important;
+}
+.postplay-panel .lightning-summary dl.lightning-stats {
+  display: flex;
+  gap: 5px 0;
+}
+.postplay-panel .lightning-summary dl.lightning-stats > div {
+  flex: 1 0 32%;
+  padding: 7px 2px;
+}
+[role='dialog'] .postplay-panel .sc__foot button.sc-plate {
+  border: 7px solid transparent !important;
+  border-image: url('/assets/results/session-button.webp') 20 22 stretch !important;
+  background: linear-gradient(#292d31, #090a0b) !important;
+  min-height: 44px !important;
+}
+[role='dialog'] .postplay-panel .sc__foot button.sc-plate:last-child {
+  background: linear-gradient(#1857a8, #081c43) !important;
+}
