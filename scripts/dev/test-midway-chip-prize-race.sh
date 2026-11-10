@@ -9,6 +9,8 @@ pay() {
   "${db[@]}" -v app="$1" -v key="$2" -v hold="$3" <<'SQL'
 BEGIN;
 SET LOCAL statement_timeout='12s';
+-- The first test session holds the wallet for 2s. Contenders must have time to observe that lock, then commit.
+SET LOCAL lock_timeout='10s';
 SET LOCAL application_name=:'app';
 SET LOCAL "test.user"='d1000000-0000-4000-8000-000000000005';
 SELECT member_after FROM public.fn_diamond_game_pay_chips('wheel_prize','fade0000-0000-0000-0000-000000000001','union',
