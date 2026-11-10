@@ -101,7 +101,13 @@ CREATE FUNCTION public.fn_union_eco_components(p_union_id uuid,p_start timestamp
 DECLARE terms jsonb;proof jsonb;basis jsonb;club jsonb;club_basis jsonb;output jsonb:='[]';n integer;
 BEGIN
  IF auth.uid()IS NULL AND COALESCE(auth.role(),'')<>'service_role'AND session_user NOT IN('postgres','supabase_admin')THEN RAISE EXCEPTION 'ECO authentication required' USING ERRCODE='42501';END IF;
- IF auth.uid()IS NOT NULL AND NOT public.ca_can_oversee_union(p_union_id)THEN RAISE EXCEPTION 'not authorized to read union ECO' USING ERRCODE='42501';END IF;
+ -- Preserve exactly the original ECO disclosure boundary for nested invoices.
+ IF auth.uid()IS NOT NULL
+  AND NOT EXISTS(SELECT 1 FROM public.unions u WHERE u.id=p_union_id AND u.owner_id=auth.uid())
+  AND NOT EXISTS(SELECT 1 FROM public.union_admins ua WHERE ua.union_id=p_union_id AND ua.user_id=auth.uid())
+  AND NOT EXISTS(SELECT 1 FROM public.union_clubs uc JOIN public.club_members cm ON cm.club_id=uc.club_id
+   WHERE uc.union_id=p_union_id AND cm.user_id=auth.uid()AND cm.role IN('owner','co_owner','admin','super_agent'))THEN
+  RAISE EXCEPTION 'not authorized to read union ECO' USING ERRCODE='42501';END IF;
  PERFORM smarter_private.union_eco_terms_for_book(p_union_id,p_start,p_end);
  IF EXISTS(SELECT FROM smarter_private.union_eco_components WHERE union_id=p_union_id AND period_start=p_start AND period_end=p_end)THEN
   FOR club IN SELECT DISTINCT jsonb_build_object('club_id',club_id)FROM smarter_private.union_eco_components WHERE union_id=p_union_id AND period_start=p_start AND period_end=p_end LOOP

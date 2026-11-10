@@ -77,3 +77,13 @@ SELECT assert_eco((SELECT to_jsonb(l)=(SELECT j FROM legacy_eco_bytes)FROM union
 INSERT INTO unions VALUES('fade0000-0000-0000-0000-000000000003',md5('native owner')::uuid,'Legacy Preview','Preserve','{"eco_enabled":true,"eco_rate":0.1,"eco_base_mode":"club_cash_profit","eco_include_horses":true}');
 INSERT INTO union_clubs SELECT 'fade0000-0000-0000-0000-000000000003',id FROM clubs;
 SELECT assert_eco((SELECT count(*)=1 AND bool_and(period_start='2026-10-28 12:00Z'::timestamptz AND period_end='2026-10-30 12:00Z'::timestamptz AND eco_amount=3)FROM fn_union_club_invoice('fade0000-0000-0000-0000-000000000003','2026-10-28 12:00Z','2026-10-30 12:00Z')),'actual legacy invoice reader preserves noncanonical finite accounting range');
+-- Preserve the original nested invoice disclosure, not new writer authority.
+INSERT INTO club_members SELECT id,md5('native club staff')::uuid,'super_agent'FROM clubs;
+SELECT set_config('test.uid',md5('native club staff')::uuid::text,false);
+SELECT set_config('test.denied','yes',false);
+SELECT assert_eco((SELECT count(*)=1 FROM fn_union_club_invoice('fade0000-0000-0000-0000-000000000001','2026-10-26 07:00Z','2026-11-02 08:00Z')),'actual nested v2 invoice preserves existing union club-staff disclosure');
+SELECT assert_eco(fn_union_eco_record('fade0000-0000-0000-0000-000000000001','2026-10-26 07:00Z','2026-11-02 08:00Z')->'success'='false'::jsonb,'club disclosure does not grant ECO recording authority');
+SELECT set_config('test.uid',md5('foreign staff')::uuid::text,false);
+SELECT assert_eco(refuses_eco($q$SELECT * FROM fn_union_club_invoice('fade0000-0000-0000-0000-000000000001','2026-10-26 07:00Z','2026-11-02 08:00Z')$q$,'not authorized'),'actual nested v2 invoice refuses unrelated authenticated reader');
+SELECT set_config('test.uid','',false);
+SELECT set_config('test.denied','',false);
