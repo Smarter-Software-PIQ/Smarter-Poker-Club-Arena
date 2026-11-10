@@ -25,9 +25,9 @@ CERTIFIED_END = 1793854800
 
 # The owner-directed receipt successor has a fresh single-use claim and fixed bounds.
 # Prior immutable controls and entries keep their original authority and expiry.
-NOV7_OWNER_ID = '2026-11-10-horse-clock-receipts-engine-2320z'
-NOV7_MANIFEST_DIGEST = 'a7fff465174d6c48732027f21b637b91eec2adcc7637d7c8539073cc9e096331'
-NOV7_ORDER_DIGEST = 'df6ad4cda4d56230367f2fa91cd9dd3a4d27644613a655baaf94d5f51e241149'
+NOV7_OWNER_ID = '2026-11-10-horse-clock-receipts-engine-2350z'
+NOV7_MANIFEST_DIGEST = '723bb3d92016a2594fd8770a83d8726b8d28555699d6717f6a450545619de69c'
+NOV7_ORDER_DIGEST = 'bec612860b7271ada13611b9d2e3c36660e5c7ca026c4b4554bfdfcdccd1075d'
 
 
 

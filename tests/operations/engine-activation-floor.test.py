@@ -165,7 +165,7 @@ class ActivationFloor(unittest.TestCase):
         record = dict(schema=floor.OWNER_CAPABILITY, ownerWindowId=window['id'],
                       manifestSha256=__import__('hashlib').sha256(raw).hexdigest(), targetSha=target,
                       activationEpoch=start, expiresEpoch=end)
-        stamp = int(datetime.fromisoformat('2026-11-10T23:30:00+00:00').timestamp()) * 1000
+        stamp = int(datetime.fromisoformat('2026-11-11T00:10:00+00:00').timestamp()) * 1000
         state = {'pending': None, 'finalization': None, 'desired': {'sha': seal.NOV7_PREDECESSOR}, 'highWaterSha': seal.NOV7_PREDECESSOR}
         args = argparse.Namespace(sha=target, run_id='650-1', repo=str(self.repo), cause='urgent',
                  control_sha=target, deadline=end, nov7_owner=True, scheduled_cycle_start=None,
@@ -218,7 +218,7 @@ class ActivationFloor(unittest.TestCase):
             old = dict(record, ownerWindowId='2026-11-09-owner-asap-engine-2230z')
             with self.assertRaises(ValueError): floor.nov7_owner(str(self.repo), old, stamp//1000, end)
         transaction = (ROOT / 'server/scripts/engine-release-transaction.sh').read_text()
-        self.assertEqual(transaction.count('2026-11-10-horse-clock-receipts-engine-2320z'), 4)
+        self.assertEqual(transaction.count('2026-11-10-horse-clock-receipts-engine-2350z'), 4)
         self.assertNotIn('2026-11-09-owner-asap-engine-2230z', transaction)
         gate = transaction.split('nov7_owner_admitted() {', 1)[1].split('\n}', 1)[0]
         shell = 'python3() { return 0; }; nov7_owner_admitted() {' + gate + '\n}; nov7_owner_admitted'
@@ -788,7 +788,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         current = self.owner_record(window_id='2026-11-03-phase1-plo-horse-55-2330z')
         self.assertEqual(current['ownerWindowId'], '2026-11-03-phase1-plo-horse-55-2330z')
         self.assertTrue(current['supersedesPhase1Schedule'])
-        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 15000)
 
     def test_hybrid_phase1_55_window_binds_its_own_floor_and_the_hybrid_merge(self):
         import hashlib
@@ -807,7 +807,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         current = self.owner_record(window_id='2026-11-05-hybrid-and-phase1-55-0645z')
         self.assertEqual(current['ownerWindowId'], '2026-11-05-hybrid-and-phase1-55-0645z')
         self.assertTrue(current['supersedesPhase1Schedule'])
-        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 15000)
 
     def test_hybrid_earliest_safe_window_binds_the_live_floor_and_keeps_the_expired_minute53_entry(self):
         import hashlib
@@ -826,7 +826,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         current = self.owner_record(window_id='2026-11-05-hybrid-earliest-safe-1345z')
         self.assertEqual(current['ownerWindowId'], '2026-11-05-hybrid-earliest-safe-1345z')
         self.assertTrue(current['supersedesPhase1Schedule'])
-        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 15000)
 
     def test_lightning_always_runs_window_binds_the_live_floor_and_keeps_the_hybrid_entry(self):
         import hashlib
@@ -844,7 +844,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         self.assertEqual(hybrid['notAfter'], '2026-11-05T19:45:00Z')
         current = self.owner_record(window_id='2026-11-05-lightning-always-runs-1945z')
         self.assertEqual(current['ownerWindowId'], '2026-11-05-lightning-always-runs-1945z')
-        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 15000)
 
     def test_cash_styles_window_binds_the_live_floor_and_keeps_the_lightning_entry(self):
         import hashlib
@@ -862,7 +862,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         self.assertEqual(lightning['notAfter'], '2026-11-06T01:45:00Z')
         current = self.owner_record(window_id='2026-11-05-cash-styles-and-deal-timing-2045z')
         self.assertEqual(current['ownerWindowId'], '2026-11-05-cash-styles-and-deal-timing-2045z')
-        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 15000)
 
     def test_cutover_recovery_window_binds_the_live_floor_and_keeps_the_cash_styles_entry(self):
         import hashlib
@@ -882,7 +882,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         current = self.owner_record(window_id='2026-11-07-cutover-recovery-engine-release-1445z')
         self.assertEqual(current['ownerWindowId'], '2026-11-07-cutover-recovery-engine-release-1445z')
         self.assertTrue(current['supersedesPhase1Schedule'])
-        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 15000)
 
     def test_provenance_archive_gate_refuses_absent_and_unreadable_catalogs(self):
         spec = importlib.util.spec_from_file_location('doors', ROOT / 'server/scripts/engine-release-window-doors.py')
@@ -912,13 +912,13 @@ echo CHECKPOINT_MUST_NOT_RUN
     def test_receipt_successor_binds_a_fresh_floor_and_preserves_single_use_custody(self):
         import hashlib
         window, raw = self.historical_floor(floor.NOV7_OWNER_ID)
-        self.assertEqual(floor.NOV7_OWNER_ID, '2026-11-10-horse-clock-receipts-engine-2320z')
+        self.assertEqual(floor.NOV7_OWNER_ID, '2026-11-10-horse-clock-receipts-engine-2350z')
         self.assertEqual(raw, (ROOT / MANIFEST).read_bytes())
         self.assertEqual(hashlib.sha256(raw).hexdigest(), floor.NOV7_MANIFEST_DIGEST)
         self.assertEqual(window['releaseWitness']['sha256'], floor.NOV7_MANIFEST_DIGEST)
         self.assertEqual(hashlib.sha256(json.dumps(window, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), floor.NOV7_ORDER_DIGEST)
-        self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-10T23:20:00Z', '2026-11-11T05:20:00Z'))
-        self.assertEqual(window['playerNoticeAt'], '2026-11-10T23:00:00Z')
+        self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-10T23:50:00Z', '2026-11-11T04:00:00Z'))
+        self.assertEqual(window['playerNoticeAt'], '2026-11-10T23:30:00Z')
         self.assertEqual(window['announcementPolicy'], 'earliest-certified')
         self.assertIs(window['supersedesPhase1Schedule'], True)
         self.assertEqual(window['migrations'], [])
@@ -927,7 +927,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
         self.assertEqual(windows['windows'][-1]['id'], floor.NOV7_OWNER_ID)
         current = self.owner_record(window_id=floor.NOV7_OWNER_ID)
-        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 15000)
 
     def test_consumed_0650_floor_and_all_prior_orders_remain_immutable(self):
         import hashlib
@@ -1080,7 +1080,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         self.assertTrue(window['supersedesPhase1Schedule'])
         current = self.owner_record()
         self.assertEqual(current['ownerWindowId'], window['id'])
-        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 15000)
         for now in (current['activationEpoch'], current['activationEpoch'] + 1, current['expiresEpoch'] - 420):
             floor.check_window(current, now, current['expiresEpoch'], 'admit')
         for now in (current['activationEpoch'] - 1, current['expiresEpoch'] - 419, current['expiresEpoch']):
