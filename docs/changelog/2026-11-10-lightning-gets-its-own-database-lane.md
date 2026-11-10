@@ -18,6 +18,11 @@ On 2026-11-10 a tournament settlement lock storm (#10361) held the shared PostgR
   - Dispatched with no knowable outcome (lost socket, request boundary): reported as the same transport failure a PostgREST error is today; every one of these functions is keyed by its own request or instance id.
 - Metrics: `poker_lightning_lane_ready`, `_disabled`, `_active`, `_committed_total`, `_rolled_back_total`, `_unknown_total`, `_admission_refused_total` on `/metrics`.
 
+## Proof before activation
+
+- Engine: `lightningLaneSession.test.ts` (14 cases: lane selection, fallback before ready and without a credential, rolled-back refusal falls back, wrapper refusal disables, lost socket is an unknown outcome, non-COMMIT is unknown, entry big blind header, URL validation); the raw-session guard `TournamentManagerRequestFence.guard.test.ts` admits this lane by name with the fold lane's pins; server Lightning suite 55 files, 678 tests; typecheck clean.
+- Database (2026-11-10 22:10Z, production, one self-aborting transaction, nothing kept): a pg_temp copy of the wrapper's dispatch, without only its session check, ran all four functions with the engine's argument shapes through the data-API guard. Each returned its ordinary answer for unknown ids (`not_found`, `hand_not_found`, `formed: 0`), and an unexpected argument key was refused with `LIGHTNING_LANE_ARGS_INVALID`.
+
 ## Activation
 
 The migration installs on merge through the protected route (no hot-table lock). The engine half is in `server/**` and activates only at the 04:00 America/Chicago daily window. Until then, and on any engine that cannot reach the lane, behaviour is unchanged.

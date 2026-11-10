@@ -40,7 +40,11 @@ import pg from 'pg';
 import { supabase } from './supabase/client.js';
 import { resolveClientTimeoutMs } from './cashAccountingBatchBudget.js';
 import { enginePgSsl } from './supabase/enginePgSession.js';
-import { dataActorHeaders } from './supabase/dataActorContext.js';
+import { currentTournamentDataAuthority, dataActorHeaders } from './supabase/dataActorContext.js';
+import {
+  isTournamentManagerFencedError,
+  notifyTournamentManagerFenced,
+} from './supabase/tournamentManagerFence.js';
 
 export const LIGHTNING_LANE_POOL_MAX = 6;
 export const LIGHTNING_LANE_ACQUIRE_MS = 100;
@@ -65,7 +69,10 @@ export function isLightningLaneFunction(fn: string): fn is LightningLaneFunction
 
 export type LightningLaneResult =
   | { data: unknown; error: null }
-  | { data: null; error: { message: 'lightning_lane_outcome_unknown'; code: 'LIGHTNING_LANE_UNKNOWN' } };
+  | {
+      data: null;
+      error: { message: 'lightning_lane_outcome_unknown'; code: 'LIGHTNING_LANE_UNKNOWN' };
+    };
 
 export interface LightningLaneClient {
   query(
@@ -219,7 +226,9 @@ export function createLightningLaneSession(deps: {
     if (disabled) return;
     disabled = true;
     ready = false;
-    safeLog(`[LightningLaneSession] disabled (${reason}); Lightning per-hand calls stay on PostgREST`);
+    safeLog(
+      `[LightningLaneSession] disabled (${reason}); Lightning per-hand calls stay on PostgREST`
+    );
     const closing = pool;
     pool = null;
     if (closing) void closing.end().catch(() => {});
@@ -232,6 +241,7 @@ export function createLightningLaneSession(deps: {
     options: { entryBigBlind?: boolean } = {}
   ): Promise<LightningLaneResult | null> {
     if (!isLightningLaneFunction(fn)) return null;
+    const authority = currentTournamentDataAuthority();
     const selected = pool;
     if (!ready || stopped || disabled || !selected || active >= LIGHTNING_LANE_POOL_MAX) {
       admissionRefused++;
@@ -302,6 +312,7 @@ export function createLightningLaneSession(deps: {
           if (hasSqlState(refused) && done.command === 'ROLLBACK') {
             if (expired) throw new Error('lane_request_boundary');
             rolledBack++;
+            if (isTournamentManagerFencedError(refused)) notifyTournamentManagerFenced(authority);
             if (laneDefinitionRefusal(refused)) disable('the lane wrapper refused the call');
             return null;
           }
@@ -322,8 +333,9 @@ export function createLightningLaneSession(deps: {
         requestTimer.unref?.();
       });
       return await Promise.race([transaction, boundary]);
-    } catch {
+    } catch (error) {
       destroy = true;
+      if (isTournamentManagerFencedError(error)) notifyTournamentManagerFenced(authority);
       if (!dispatched) {
         admissionRefused++;
         return null;
