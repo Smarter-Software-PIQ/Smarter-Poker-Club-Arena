@@ -120,7 +120,9 @@ describe('original posthand escrow stays separate from poker winnings', () => {
       'ORIGINAL_EIGHT_IMMUTABLE_INDEPENDENT_ECO_SCHEMA_REQUIRED',
     ])
       expect(admission).toContain(guard);
-    expect(admission.match(/::uuid,\d+::bigint/g)).toHaveLength(8);
+    expect(admission.match(/::uuid,\d+::bigint/g)).toHaveLength(16);
+    expect(admission).toContain('-- @live-proof: (SELECT count(*)=8');
+    expect(admission).toContain("md5((c.original->'proof')::text)=e.proof_md5");
     expect(admission).toContain(
       'public.fn_union_pnl_certify_posthand_escrow(k.table_id,k.hand_number,k.proof_md5,k.original_sha256)'
     );
