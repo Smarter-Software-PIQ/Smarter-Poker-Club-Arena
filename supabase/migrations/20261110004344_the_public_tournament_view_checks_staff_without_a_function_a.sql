@@ -60,6 +60,10 @@ SELECT tp.id,
   FROM public.tournament_players tp
   LEFT JOIN public.ca_closed_player_labels closed ON closed.id = tp.user_id;
 
+-- The access boundary is restated with the definition, unchanged.
+REVOKE ALL ON public.tournament_players_public FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON public.tournament_players_public TO anon, authenticated, service_role;
+
 DO $$
 DECLARE
   v_base integer;
