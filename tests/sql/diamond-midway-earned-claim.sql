@@ -63,20 +63,27 @@ BEGIN
    SELECT * INTO STRICT due FROM public.wheel_midway_prize_claims WHERE player_id=player AND paid_at IS NULL;
    IF due.amount IS DISTINCT FROM (answer->>'prize_chips')::numeric OR
     (SELECT chip_balance FROM public.club_members WHERE club_id=club AND user_id=player)<>0 THEN RAISE EXCEPTION 'Unpaid % reported a credit',target; END IF;
+   IF NOT EXISTS(SELECT 1 FROM jsonb_array_elements(public.fn_wheel_pending_chip_prizes(club)) c
+      WHERE c->>'key'=due.prize_key AND (c->>'chips')::numeric=due.amount)
+      OR public.fn_wheel_claim_chip_prize(gen_random_uuid(),due.prize_key)->>'paid'='true' THEN
+    RAISE EXCEPTION 'Unpaid % prize was not visible to its player or escaped club isolation',target; END IF;
    UPDATE public.ca_mint_policy SET per_operation_cap_chips=original_cap WHERE id=1;
    IF target='crash' THEN
      PERFORM set_config('app.ledger_maintenance','private delayed retry',true);
      UPDATE public.crash_rounds SET started_at=clock_timestamp()-interval '15 minutes' WHERE id=round_id;
      PERFORM set_config('app.ledger_maintenance','',true);
+     IF public.fn_wheel_claim_chip_prize(club,due.prize_key)->>'paid' IS DISTINCT FROM 'true' THEN RAISE EXCEPTION 'Cannot claim the original Crash flight'; END IF;
      answer:=public.fn_crash_settle(round_id,false);
      IF answer#>>'{outcome,cashout_cents}' IS DISTINCT FROM '130' THEN RAISE EXCEPTION 'Delayed retry replaced captured cashout: %',answer; END IF;
    ELSIF route='legacy_plinko' THEN
+     IF public.fn_wheel_claim_chip_prize(club,due.prize_key)->>'paid' IS DISTINCT FROM 'true' THEN RAISE EXCEPTION 'Legacy Plinko claim did not pay'; END IF;
      answer:=public.fn_wheel_bonus_start(a.id,ticket,'held-plinko',false,NULL,1,7,NULL,NULL);
      IF answer->>'complete' IS DISTINCT FROM 'true' THEN RAISE EXCEPTION 'Legacy Plinko retry did not settle'; END IF;
    ELSIF target='plinko' THEN
      answer:=public.fn_wheel_plinko_release(a.id,second_request,true);
      IF answer<>public.fn_wheel_plinko_release(a.id,original_request,true) THEN RAISE EXCEPTION 'Original held Plinko request did not replay'; END IF;
    ELSE
+     IF public.fn_wheel_claim_chip_prize(club,due.prize_key)->>'paid' IS DISTINCT FROM 'true' THEN RAISE EXCEPTION 'Choice claim did not pay'; END IF;
      answer:=public.fn_choice_act(round_id,'pick',1,1);
      IF answer->>'status' IS DISTINCT FROM 'cashed' THEN RAISE EXCEPTION 'Retry changed the earned cashout: %',answer; END IF;
    END IF;
@@ -84,8 +91,40 @@ BEGIN
      OR (SELECT chip_balance FROM public.club_members WHERE club_id=club AND user_id=player) IS DISTINCT FROM due.amount
      OR (SELECT sum(amount) FROM public.chip_transactions WHERE metadata->>'funding_key'=due.prize_key) IS DISTINCT FROM due.amount
     THEN RAISE EXCEPTION 'Held % claim did not reconcile: %, %',target,due,answer; END IF;
+   IF public.fn_wheel_claim_chip_prize(club,due.prize_key)->>'paid' IS DISTINCT FROM 'true'
+      OR public.fn_wheel_pending_chip_prizes(club)<>'[]'::jsonb OR
+      (SELECT chip_balance FROM public.club_members WHERE club_id=club AND user_id=player)<>due.amount THEN
+     RAISE EXCEPTION 'Claim screen replay changed a paid %',target; END IF;
    RAISE EXCEPTION USING ERRCODE='P0099',MESSAGE='restore fixture';
   EXCEPTION WHEN SQLSTATE 'P0099' THEN NULL; END;
+ END LOOP;
+ UPDATE public.ca_mint_policy SET per_operation_cap_chips=.01 WHERE id=1;
+ FOR i IN 1..1000 LOOP
+  BEGIN
+   ticket:=gen_random_uuid(); seed:=encode(extensions.digest('midway-wheel-claim:'||i,'sha256'),'hex');
+   INSERT INTO public.wheel_seed_commits(id,user_id,server_seed,server_seed_hash) VALUES(ticket,player,seed,encode(extensions.digest(seed,'sha256'),'hex'));
+   spin:=public.fn_wheel_spin_v2(club,ticket,'saved-chip-prize',100,'paid',NULL);
+   IF spin->>'chip_prize_reserved'='true' THEN EXIT; END IF;
+   RAISE EXCEPTION USING ERRCODE='P0098',MESSAGE='next sealed draw';
+  EXCEPTION WHEN SQLSTATE 'P0098' THEN NULL; END;
+ END LOOP;
+ SELECT * INTO STRICT due FROM public.wheel_midway_prize_claims WHERE player_id=player AND paid_at IS NULL;
+ IF due.amount IS DISTINCT FROM (spin->>'prize_chips')::numeric OR (SELECT chips_paid FROM public.wheel_pools WHERE host_id=host)<>0 OR
+   (public.fn_wheel_state_v2(club,100)#>>'{pending_chip_prizes,0,key}') IS DISTINCT FROM due.prize_key OR
+   public.fn_wheel_spin_v2(club,ticket,'saved-chip-prize',100,'paid',NULL)->>'spin_id' IS DISTINCT FROM spin->>'spin_id' OR
+   public.fn_wheel_claim_chip_prize(club,due.prize_key)->>'paid' IS DISTINCT FROM 'false' THEN
+  RAISE EXCEPTION 'Immediate prize did not retain the sealed wheel spin and unpaid balance: %',spin; END IF;
+ PERFORM set_config('test.user',owner_id::text,true);
+ IF public.fn_wheel_pending_chip_prizes(club)<>'[]'::jsonb OR public.fn_wheel_claim_chip_prize(club,due.prize_key)->>'ok'<>'false' THEN
+  RAISE EXCEPTION 'Another player could access the reserved prize'; END IF;
+ PERFORM set_config('test.user',player::text,true);
+ UPDATE public.ca_mint_policy SET per_operation_cap_chips=original_cap WHERE id=1;
+ FOR attempt IN 1..2 LOOP
+  answer:=public.fn_wheel_claim_chip_prize(club,due.prize_key);
+  IF answer->>'paid' IS DISTINCT FROM 'true' OR (answer->>'chips')::numeric<>due.amount
+     OR (SELECT chips_paid FROM public.wheel_pools WHERE host_id=host)<>due.amount
+     OR (SELECT chip_balance FROM public.club_members WHERE club_id=club AND user_id=player)<>due.amount THEN
+   RAISE EXCEPTION 'Immediate wheel claim did not settle exactly once: %',answer; END IF;
  END LOOP;
 END $test$;
 SET CONSTRAINTS ALL IMMEDIATE;
