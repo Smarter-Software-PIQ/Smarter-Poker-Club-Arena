@@ -220,13 +220,6 @@ export interface LightningClusterWorkerDeps {
   onHeldIdle?: () => void;
   /** How long a match_and_form call may go unanswered (tests shorten it). */
   formTimeoutMs?: number;
-  /**
-   * REAL ARRIVALS WHILE WAITING (Dan 2026-11-10). After a forming pass that
-   * answered: how many players the matcher found legal and did NOT place in a
-   * hand. They are the players waiting for the next table (the hero among
-   * them), counted by the database itself. Never a name, never a guess.
-   */
-  onPoolWaiting?: (waiting: number) => void;
 }
 
 export type LightningWorkerPassResult =
@@ -240,25 +233,6 @@ export type LightningWorkerPassResult =
       /** LIGHTNING PHASE 13: a draining pass's progress - the hands still in the air here. */
       handsInFlight?: number;
     };
-
-/**
- * REAL ARRIVALS WHILE WAITING (Dan 2026-11-10): the players a forming pass
- * found legal (`legal_count`, the database's own count for the plan it ran)
- * less every player it placed in a hand. Null when the answer carries no
- * count. Pure, so the rule can be pinned without a database.
- */
-export function lightningPoolWaitingAfterPass(
-  legalCount: unknown,
-  hands: readonly unknown[]
-): number | null {
-  if (typeof legalCount !== 'number' || !Number.isFinite(legalCount) || legalCount < 0) return null;
-  let placed = 0;
-  for (const raw of hands) {
-    const players = (raw as { players?: unknown } | null)?.players;
-    if (Array.isArray(players)) placed += players.filter(isUuid).length;
-  }
-  return Math.max(0, Math.floor(legalCount) - placed);
-}
 
 const consoleLogger: LightningWorkerLogger = {
   log: (m) => console.log(m),
@@ -962,17 +936,6 @@ export class LightningClusterWorker {
         formedAtMs,
       });
       started++;
-    }
-    // REAL ARRIVALS WHILE WAITING: the legal players this pass left unplaced.
-    if (result.ok === true && result.frozen !== true) {
-      const waiting = lightningPoolWaitingAfterPass(result.legal_count, hands);
-      if (waiting !== null) {
-        try {
-          this.deps.onPoolWaiting?.(waiting);
-        } catch {
-          // a notice must never take a pass down
-        }
-      }
     }
     this.observeShadow(
       passNow,

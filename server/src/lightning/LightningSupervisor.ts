@@ -134,8 +134,6 @@ export interface LightningSupervisorDeps {
    * Called once per change. Absent (tests, an older wiring) tells nobody.
    */
   clusterStatus?: (clusterId: string, status: LightningClusterStatus | null) => void;
-  /** REAL ARRIVALS WHILE WAITING (2026-11-10): the players a forming pass left waiting. */
-  poolWaiting?: (clusterId: string, waiting: number) => void;
 }
 
 /** LIGHTNING PHASE 13: what a held Cluster's rooms are told. */
@@ -652,7 +650,6 @@ export class LightningSupervisor {
       // LIGHTNING PHASE 13: the drain's progress report (hands still in the air here).
       handsInFlight: () => hosting?.handsInFlight?.(clusterId) ?? 0,
       onHeldIdle: () => this.discoverSoon(),
-      onPoolWaiting: (waiting) => this.deps.poolWaiting?.(clusterId, waiting),
       ...(hosting
         ? {
             startHand: (hand) => {
