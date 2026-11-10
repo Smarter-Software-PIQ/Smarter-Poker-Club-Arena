@@ -253,13 +253,13 @@
     0 4px 8px rgba(0, 0, 0, 0.48);
 }
 .studio-game-preview__actions span:nth-child(1) {
-  background: linear-gradient(#f05257, #8f1118);
+  background: var(--action-paint-fold);
 }
 .studio-game-preview__actions span:nth-child(2) {
-  background: linear-gradient(#289cfb, #0751ab);
+  background: var(--action-paint-call);
 }
 .studio-game-preview__actions span:nth-child(3) {
-  background: linear-gradient(#4dc660, #2ea043);
+  background: var(--action-paint-raise);
 }
 .studio-game-preview__actions span::after {
   content: '';
@@ -328,4 +328,54 @@
   .studio-game-preview * {
     animation: none !important;
   }
+}
+
+.studio-game-preview__bounty,
+.studio-game-preview__card-tab {
+  position: absolute;
+  background:
+    var(--action-control-overlay, linear-gradient(transparent, transparent)),
+    var(--action-paint-call);
+  border: var(--action-control-border);
+  border-radius: var(--action-control-radius);
+  box-shadow: var(--action-control-inset);
+  color: white;
+  padding: 1px 4px;
+}
+.studio-game-preview__bounty {
+  left: 0;
+  top: 22%;
+  font: 700 8px/1.2 system-ui;
+}
+.studio-game-preview__card-tab {
+  z-index: 8;
+  top: 4px;
+  left: 4px;
+  display: flex;
+  gap: 2px;
+}
+.studio-game-preview__card-tab b {
+  background: white;
+  color: #ab1419;
+  padding: 3px;
+  border-radius: 2px;
+}
+.studio-game-preview__card-tab b + b {
+  color: #164da2;
+}
+.studio-game-preview .studio-game-preview__queue {
+  bottom: 27px;
+}
+.studio-game-preview__queue span:nth-child(3) {
+  background: var(--action-paint-call);
+}
+.studio-game-preview__queue span:nth-child(2) {
+  outline: 1px solid white;
+  outline-offset: -2px;
+}
+
+.studio-game-preview__felt {
+  position: absolute;
+  inset: 0 0 50px;
+  overflow: hidden;
 }

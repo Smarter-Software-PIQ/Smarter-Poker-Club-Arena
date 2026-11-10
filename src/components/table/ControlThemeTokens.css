@@ -1,3 +1,9 @@
+:root {
+  --action-paint-fold: linear-gradient(180deg, #f0524d 0%, #dc2626 40%, #7f1212 100%);
+  --action-paint-call: linear-gradient(180deg, #1587f8 0%, #0078ff 40%, #003a9e 100%);
+  --action-paint-raise: linear-gradient(180deg, #4dc660 0%, #3fb950 40%, #2ea043 100%);
+}
+
 /*
  * Shared visual tokens for the ten selectable Controls designs.
  *
@@ -11,6 +17,7 @@
 
 :where(
   .table-page,
+  .table-tab-bar__tab,
   .theme-asset__btnstage,
   .studio-game-preview
 )[data-button-theme='classic-white'] {
@@ -23,7 +30,12 @@
   --action-control-letter-spacing: 1.2px;
 }
 
-:where(.table-page, .theme-asset__btnstage, .studio-game-preview)[data-button-theme='red-d-gear'] {
+:where(
+  .table-page,
+  .table-tab-bar__tab,
+  .theme-asset__btnstage,
+  .studio-game-preview
+)[data-button-theme='red-d-gear'] {
   --dealer-btn-bg: linear-gradient(135deg, #c62828, #e53935);
   --dealer-btn-color: #fff;
   --action-control-radius: 8px;
@@ -37,7 +49,12 @@
   --action-control-letter-spacing: 1.6px;
 }
 
-:where(.table-page, .theme-asset__btnstage, .studio-game-preview)[data-button-theme='gray-d-gear'] {
+:where(
+  .table-page,
+  .table-tab-bar__tab,
+  .theme-asset__btnstage,
+  .studio-game-preview
+)[data-button-theme='gray-d-gear'] {
   --dealer-btn-bg: linear-gradient(135deg, #616161, #757575);
   --dealer-btn-color: #fff;
   --action-control-radius: 8px;
@@ -53,6 +70,7 @@
 
 :where(
   .table-page,
+  .table-tab-bar__tab,
   .theme-asset__btnstage,
   .studio-game-preview
 )[data-button-theme='blue-crystal'] {
@@ -70,7 +88,12 @@
   --action-control-letter-spacing: 1.7px;
 }
 
-:where(.table-page, .theme-asset__btnstage, .studio-game-preview)[data-button-theme='gold-star'] {
+:where(
+  .table-page,
+  .table-tab-bar__tab,
+  .theme-asset__btnstage,
+  .studio-game-preview
+)[data-button-theme='gold-star'] {
   --dealer-btn-bg: linear-gradient(135deg, #f57f17, #fbc02d);
   --dealer-btn-color: #1a1a1e;
   --action-control-radius: 12px;
@@ -87,6 +110,7 @@
 
 :where(
   .table-page,
+  .table-tab-bar__tab,
   .theme-asset__btnstage,
   .studio-game-preview
 )[data-button-theme='sports-themed'] {
@@ -103,7 +127,12 @@
   --action-control-letter-spacing: 2px;
 }
 
-:where(.table-page, .theme-asset__btnstage, .studio-game-preview)[data-button-theme='jade-seal'] {
+:where(
+  .table-page,
+  .table-tab-bar__tab,
+  .theme-asset__btnstage,
+  .studio-game-preview
+)[data-button-theme='jade-seal'] {
   --dealer-btn-bg: radial-gradient(
     circle at 34% 28%,
     #d6f7df 0%,
@@ -125,6 +154,7 @@
 
 :where(
   .table-page,
+  .table-tab-bar__tab,
   .theme-asset__btnstage,
   .studio-game-preview
 )[data-button-theme='amethyst-chip'] {
@@ -148,7 +178,12 @@
   --action-control-letter-spacing: 1.5px;
 }
 
-:where(.table-page, .theme-asset__btnstage, .studio-game-preview)[data-button-theme='carbon-ion'] {
+:where(
+  .table-page,
+  .table-tab-bar__tab,
+  .theme-asset__btnstage,
+  .studio-game-preview
+)[data-button-theme='carbon-ion'] {
   --dealer-btn-bg: conic-gradient(from 20deg, #12181b, #38464a, #0d1214, #263438, #12181b);
   --dealer-btn-color: #65ead8;
   --action-control-radius: 6px;
@@ -162,7 +197,12 @@
   --action-control-letter-spacing: 1.8px;
 }
 
-:where(.table-page, .theme-asset__btnstage, .studio-game-preview)[data-button-theme='ocean-pearl'] {
+:where(
+  .table-page,
+  .table-tab-bar__tab,
+  .theme-asset__btnstage,
+  .studio-game-preview
+)[data-button-theme='ocean-pearl'] {
   --dealer-btn-bg: radial-gradient(
     circle at 32% 25%,
     #ffffff 0%,

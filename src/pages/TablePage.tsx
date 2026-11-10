@@ -1220,6 +1220,7 @@ interface TablePageProps {
     actionContext?: string;
     pot?: number;
     handNumber?: number;
+    buttonTheme?: string;
     isAutoRebuyEnabled?: boolean;
     /**
      * PokerBros parity (Dan 2026-08-20, from live multi-table footage): each
@@ -10476,6 +10477,9 @@ function LiveTablePage({
     tournamentFormat ?? undefined,
     Boolean(tableState.gameType)
   );
+  useEffect(() => {
+    onTableInfoUpdate?.({ buttonTheme: v8Theme.button_id || 'classic-white' });
+  }, [onTableInfoUpdate, v8Theme.button_id]);
 
   /* Dan 2026-10-15: "IT MUST ALWAYS LOAD THE ACTUAL TABLE AND BACKGROUND
      IMAGES AND EVERYTHING AT ONCE." Both rasters are fetched, decoded and
