@@ -213,6 +213,21 @@ class CapturedChipRakeTests(unittest.TestCase):
         self.assertEqual((fold['refundUnits'], fold['bbjUnits'], fold['heroIncrementalUnits']),
                          (50,13,707))
         self.assertFalse(result['activationAllowed'])
+        # Original matched totals of 31.63 per live player plus folded .25
+        # and 1.00 sum to 64.50999999999999 in binary floating point.
+        q2 = copy.deepcopy(q)
+        i2 = q2['capturedOriginal']['informationSet']
+        st2 = i2['publicState']
+        st2.update(pot=64.51, maxRaiseTo=64.51)
+        st2['seats'][0][1:4] = [51.28,0,31.63]
+        st2['seats'][4][1:4] = [76.94,0,31.63]
+        st2['seats'][2][3] = .25
+        q2.update(potUnits=6451,heroStackUnits=7694,opponentStackUnits=5128,betSizesUnits=[6451])
+        q2['range'][0]['responses'] = {'6451': {'fold':0,'call':1,'raise':0}}
+        q2['capturedOriginal']['informationSha256'] = hashlib.sha256(json.dumps(
+            i2,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+        priced = price_checked_to_river(q2)['capturedAccounting']['terminalPrices']
+        self.assertEqual(next(r for r in priced if r['bet']==6451 and r['result']=='win')['refundUnits'],1323)
         info['priorPublicActions'][1]['seat'] = 1
         rebind()
         with self.assertRaisesRegex(ValueError, 'bb_ante_unproven'):

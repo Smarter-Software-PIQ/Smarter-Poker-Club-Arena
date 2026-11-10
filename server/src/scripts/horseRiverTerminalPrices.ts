@@ -67,9 +67,10 @@ export function riverTerminalPrices(input: {
   const hero = base.find((s) => s.user_id === 'hero')!;
   const other = base.find((s) => s.user_id === 'other')!;
   const rows = [];
+  const potUnits = base.reduce((total, seat) => total + Math.round(seat.totalInvested * 100), 0);
+  const heroStackUnits = Math.round(hero.stack * 100);
   for (const bet of [0, ...input.bets]) {
-    if (bet / 100 > hero.stack || bet / 100 > base.reduce((n, s) => n + s.totalInvested, 0))
-      throw new Error('illegal_terminal_bet');
+    if (bet > heroStackUnits || bet > potUnits) throw new Error('illegal_terminal_bet');
     for (const result of ['win', 'tie', 'loss', 'fold'] as const) {
       const seats = base.map((p) => ({ ...p }));
       for (const p of seats) {
