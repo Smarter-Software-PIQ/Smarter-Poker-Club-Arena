@@ -1,4 +1,4 @@
--- 20261110224637_the_lightning_post_commit_handoff_is_a_warning_when_its_successor_owns_it.sql
+-- 20261110224637_the_lightning_post_commit_handoff_is_a_warning.sql
 --
 -- Version reserved by scripts/reserve-migration-version.sh against this tree,
 -- origin/main and every sibling worktree on this machine.
