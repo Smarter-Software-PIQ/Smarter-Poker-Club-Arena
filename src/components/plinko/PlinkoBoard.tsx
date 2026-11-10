@@ -31,9 +31,9 @@ const SLOT_REST_Y = -4.55;
  *
  * The scale is ABSOLUTE - anchored on the multiplier itself rather than on the
  * table's own smallest and largest - so it works for the Diamond table, the
- * Super table and any table opened later, and so 20x is the same gold wherever
+ * Super table and any table opened later, and so 20x is the same chrome wherever
  * it appears. It also makes the difference between the tables legible: the
- * Super table's 0.52x floor correctly reads warmer than the Diamond table's
+ * Super table's 0.52x floor reads brighter than the Diamond table's
  * 0.08x, because it genuinely pays more. Logarithmic, because 0.08x to 0.60x
  * is the same size of step in a player's head as 5x to 20x.
  */
@@ -46,22 +46,15 @@ export function bucketHeat(multiplierCents: number): number {
   return Math.log(cents / HEAT_FLOOR_CENTS) / Math.log(HEAT_CEILING_CENTS / HEAT_FLOOR_CENTS);
 }
 
-/**
- * The smarter.poker schema, cold to hot (Dan, 2026-09-21: "the bottom is
- * rainbow colored instead of smarter.poker color schema"): deep navy through
- * royal blue and light blue for the middle buckets, chrome white at the
- * threshold, and gold, the one colour that means money everywhere else on the
- * platform, for the buckets worth chasing. No green, no orange, no red: the
- * loud end reads as gold on black, exactly like a win.
- */
+/** Sapphire bucket wells brighten toward icy chrome as their multiplier rises. */
 const TINT_RAMP: Array<[heat: number, r: number, g: number, b: number]> = [
   [0, 0x1c, 0x3d, 0x74],
   [0.25, 0x18, 0x77, 0xf2],
   [0.48, 0x45, 0xad, 0xff],
   [0.64, 0x9f, 0xd3, 0xff],
   [0.78, 0xe4, 0xe7, 0xec],
-  [0.9, 0xff, 0xd7, 0x00],
-  [1, 0xff, 0xb3, 0x00],
+  [0.9, 0xbf, 0xe8, 0xff],
+  [1, 0xe3, 0xf5, 0xff],
 ];
 const channel = (value: number) =>
   Math.round(Math.max(0, Math.min(255, value)))
@@ -205,11 +198,11 @@ function payoutInscription(multiplier: number) {
     ctx.strokeStyle = '#050607';
     ctx.lineWidth = 9;
     ctx.strokeText(value, 80, 104, 140);
-    ctx.fillStyle = bucketInk(multiplier);
+    ctx.fillStyle = '#ffffff';
     ctx.fillText(value, 80, 104, 140);
     ctx.font = '800 84px "Roboto Condensed", "Arial Narrow", Arial, sans-serif';
     ctx.strokeText('x', 80, 206);
-    ctx.fillStyle = tint;
+    ctx.fillStyle = '#ffffff';
     ctx.fillText('x', 80, 206);
   }
   const texture = new THREE.CanvasTexture(canvas);
@@ -401,7 +394,7 @@ export default function PlinkoBoard(props: PlinkoBoardProps) {
     const winRing = new THREE.Mesh(
       new THREE.RingGeometry(0.3, 0.42, 36),
       new THREE.MeshBasicMaterial({
-        color: 0xffd700,
+        color: 0xb6eaff,
         transparent: true,
         opacity: 0,
         depthWrite: false,
@@ -412,7 +405,7 @@ export default function PlinkoBoard(props: PlinkoBoardProps) {
     winRing.position.set(0, -4.22, 0.62);
     winRing.visible = false;
     scene.add(winRing);
-    const GOLD = new THREE.Color(0xffd700);
+    const ICE_FLASH = new THREE.Color(0xb6eaff);
     const hitAt = new Array<number>(PLINKO_SLOTS).fill(Number.NEGATIVE_INFINITY);
     const hitBig = new Array<boolean>(PLINKO_SLOTS).fill(false);
     let raf = 0,
@@ -486,7 +479,7 @@ export default function PlinkoBoard(props: PlinkoBoardProps) {
       const p = latest.current;
       // Read once a frame: a setting change mid-flight must not split a timeline.
       const speed = getAnimationSpeed();
-      cabinet.setTitle((p.title ?? 'Diamond Plinko').toUpperCase());
+      cabinet.setTitle(p.compactLegend ? '' : (p.title ?? 'Diamond Plinko').toUpperCase());
       const nextLabel = p.multipliersCents.join(',');
       if (labelKey !== nextLabel) {
         labelKey = nextLabel;
@@ -665,12 +658,12 @@ export default function PlinkoBoard(props: PlinkoBoardProps) {
         slot.scale.set(1 + squash * 0.4, 1 - squash, 1);
         slot.position.y = SLOT_REST_Y - squash * 0.14;
         const resting = i === p.restingSlot;
-        if (level > 0) m.emissive.copy(big ? GOLD : tints[i]);
+        if (level > 0) m.emissive.copy(big ? ICE_FLASH : tints[i]);
         else m.emissive.setHex(resting ? 0x1877f2 : 0);
         m.emissiveIntensity = level * (big ? 3.4 : 1.9) + (resting ? 1.1 : 0);
         cabinet.flashBucket(i, level);
       });
-      // The win pulse: a gold ring thrown out of the bucket that paid 5x or more.
+      // The win pulse: an ice-blue ring thrown out of the bucket that paid 5x or more.
       const ringSpan = 700 * speed;
       const ringAge = visibleElapsed - ringAt;
       const pulsing = Number.isFinite(ringAge) && ringAge >= 0 && ringAge < ringSpan;
@@ -767,7 +760,7 @@ export default function PlinkoBoard(props: PlinkoBoardProps) {
         aria-label="Payout Multipliers"
       >
         <h3>Slot Multipliers</h3>
-        <p>Slots Run From Left To Right. Gold Pays The Most.</p>
+        <p>Slots Run From Left To Right. Outer Slots Pay The Most.</p>
         <p className={styles.tally} ref={tally} role="status" aria-live="polite" />
         <ol className={styles.payoutList} aria-label="Plinko Payout Slots">
           {props.multipliersCents.map((multiplier, index) => {
