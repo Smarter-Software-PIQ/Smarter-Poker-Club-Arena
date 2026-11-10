@@ -17,7 +17,7 @@ async function rpc(name, args) {
   return response.json();
 }
 const status = await fetch(
-  `${expectedProject}/rest/v1/wheel_journal_copy_progress?id=eq.true&select=verified_at,journal_count,audit_count`,
+  `${expectedProject}/rest/v1/wheel_journal_copy_progress?id=eq.true&select=verified_at,journal_count,audit_count,journal_checked,audit_checked`,
   { headers: { apikey: key, Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(10000) }
 );
 if (!status.ok) throw new Error(`Copy status returned HTTP ${status.status}`);
@@ -27,8 +27,8 @@ if (existing?.verified_at) {
   process.exit(0);
 }
 let complete = false;
-for (let page = 0; page < 2000 && !complete; page++) {
-  const progress = await rpc('fn_wheel_copy_wide_journal_batch', { p_rows: 1000 });
+for (let page = 0; page < 10000 && !complete; page++) {
+  const progress = await rpc('fn_wheel_copy_wide_journal_batch', { p_rows: 500 });
   if (typeof progress.complete !== 'boolean') throw new Error('The copy RPC returned no completion status');
   complete = progress.complete;
 }
