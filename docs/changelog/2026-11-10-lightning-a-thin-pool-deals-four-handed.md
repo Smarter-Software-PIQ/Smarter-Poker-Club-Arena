@@ -1,6 +1,6 @@
 # Lightning: A Thin Pool Deals Four-Handed
 
-Owner direction (Dan, 2026-11-10 15:31 Chicago), follow-up item 4: form tables sooner when the pool is thin.
+Owner direction (Dan, 2026-11-10 15:31 Chicago), follow-up item 4: form tables sooner when the pool is thin. Coordinator requirements applied: four-player minimum under races, concurrency proof, fairness at four and five, a hard dependency on the position fairness migration, and an engine model that follows whichever matcher image is live.
 
 ## The rule
 
@@ -39,34 +39,56 @@ The median rises slightly in a thin pool (20 players: 1.38 s to 1.46 s), because
 
 ## Where it lives
 
-- `supabase/migrations/20261110214134_lightning_a_thin_pool_deals_four_handed.sql` patches four functions by exact anchor:
+- `supabase/migrations/20261110214134_lightning_a_thin_pool_deals_four_handed.sql` is a **daily-maintenance window file**. It patches five functions by exact anchor:
   - `fn_lightning_formation_sizes`
   - `fn_lightning_match_plan`: sizing, the pool guard, the newcomer hold and the group's 1.5 s test
   - `fn_lightning_form_hand`: a direct caller may ask for four, and gets `WAITING_FOR_FIFTH_PLAYER` inside 1.5 s
   - `fn_lightning_instance_begin_dealing`: deals 4 to 6
-- Every anchor must occur exactly once or the transaction aborts. It takes no table lock and is applied on merge.
-- **Order with the position fairness file (20261110173033, queued for the 03:30 window):** checked read-only against production's current images before merge. Each file's anchors occur exactly once in the current image, after the other file alone and before it, so either may install first. The parity harness installs fairness, then this file.
-- **Engine model (live at the 04:00 America/Chicago engine release):**
-  - `LightningMatcherModel`: `LIGHTNING_FOUR_HANDED_WAIT_MS`, `LIGHTNING_FOUR_HANDED_POOL_MAX`, `lightningPassSizes`, and the group's 1.5 s test
-  - `LightningClusterWorker`: a deadline pass at the four's 1.5 s, as at the five's second
-  - `LightningMatcherSim`: lists players in hands as the database does, and counts table sizes
-- Until the engine release the database decides, since it forms every hand, and the worker's routine pass serves the 1.5 s.
+  - `fn_lightning_config`: `thin_pool_four_handed: true`
+- Every anchor must occur exactly once or the transaction aborts.
+- **It requires 20261110173033 (position fairness) and refuses without it.** Its first statement checks for that file's installed image (the `hands_since_button` column and the `BY RECENCY (20261110)` text in the matcher and the barrier). It raises before changing anything, so the file stays queued. A four-handed table is only fair with that rule.
+- **Order in the window.** It declares `-- @locks: public.lightning_pool_slot`, the fairness file's relation, so `scripts/ci/install-window-migrations.mjs` sends it in the same group, after 20261110173033, in the same run. The file itself takes no table lock; the declaration is for that order.
+- **Edits don't collide.** Checked read-only against production's current images: each file's anchors occur exactly once in the current image, after the other file alone, and before it.
+- **The engine follows the database.**
+  - `LightningMatcherModel` plans four-handed tables only when `fn_lightning_config` says `thin_pool_four_handed: true` (`lightningMatcherParams`, exactly `true`).
+  - An engine reading a database without this file plans five or six only, and an engine without this model change ignores the key. Whichever activates first, the engine's plan is the live matcher's.
+  - The engine's matcher snapshot is not changed; its key set is validated strictly, so a new key there would have broken an older engine.
+  - `LightningClusterWorker` adds a deadline pass at the four's 1.5 s.
+  - `LightningMatcherSim` lists players in hands as the database does, counts table sizes, and takes a `fourHanded` option.
+- **Activation.** The database part installs at the next daily window after fairness. The engine part reaches production only in a release whose candidate the release owner selects; nothing here promises inclusion.
 
 ## Proof
 
-- `scripts/dev/test-lightning-matcher-parity.sh`, section 15, on PostgreSQL 17 over the real chain:
-  - a thin four is formed, dealt and settled by the real barrier, `begin_dealing` and settlement, with a button and both blinds
-  - inside 1.5 s nothing forms, from the plan or from a direct caller
-  - ten deal 6+4, 22 deal 6+6+6+4, and a healthy 28 keeps sixes
-  - five is unchanged at one second, and three never deal
-  - in twelve passes of four and fifteen of five, no blind or button repeats back to back, and every share is within one
-- Section 12 now admits four only in a pool of at most 24, and section 13A (the entry big blind) is unchanged.
-- The TypeScript port decides exactly what `fn_lightning_match_plan` decides: `PARITY 21 fixtures 64 groups identical`.
-- `server/src/lightning/LightningThinPoolFourHanded.test.ts` covers the same rule plus the newcomer hold.
-- Four pins moved in the same commit, by the owner's change of rule. Each now admits four only when the pool is at most 24:
-  - `LightningFormWorker.test.ts` (the deadline pass at 1950 ms)
-  - `ANewPlayersFirstLightningHandIsTheBigBlind.law.test.ts`
-  - `ALightningConversionSeatIsNotANewcomer.law.test.ts`
-  - `tests/lightning-matcher-parity.test.ts`
+- `scripts/dev/test-lightning-matcher-parity.sh` on PostgreSQL 17 over the real chain:
+  - **Refusal:** on the image without position fairness the file is refused and changes nothing (match_plan and config md5 unchanged).
+  - **Section 15:**
+    - a thin four is formed, dealt and settled by the real barrier, `begin_dealing` and settlement, with a button and both blinds
+    - inside 1.5 s nothing forms, from the plan or from a direct caller
+    - ten deal 6+4, 22 deal 6+6+6+4, and a healthy 28 keeps sixes
+    - five is unchanged at one second, and three never deal
+    - in twelve passes of four and fifteen of five, no blind or button repeats back to back, and every share is within one
+  - **Section 15R, real concurrent backends:**
+    - four matcher passes at once on ten aged players form exactly 6+4
+    - three barrier calls at once for the same four form one hand
+    - a direct call for three forms nothing
+    - nobody is seated twice, and every hand has four to six players
+  - **Sections 12 and 13A:** section 12 admits four only in a pool of at most 24, and section 13A (the entry big blind) is unchanged.
+  - **Parity:** the TypeScript port decides exactly what `fn_lightning_match_plan` decides: `PARITY 21 fixtures 64 groups identical`.
+- `server/src/lightning/LightningThinPoolFourHanded.test.ts` covers the same rule, the newcomer hold, and the old rule when the database flag is absent.
+- Server Lightning suite (54 files) passes; `tsc` is clean.
+- **One pin moved:** `LightningFormWorker.test.ts` gains the deadline pass at 1950 ms. Tests that construct params without the flag keep the five-or-six rule unchanged.
+
+## Blind fairness at four and five (simulated, the same plan)
+
+Big blinds per 100 hands, standard deviation across players, rule without and with four-handed tables:
+
+| Pool | std dev without | std dev with | longest big-blind gap without | with |
+| ---- | --------------- | ------------ | ----------------------------- | ---- |
+| 12   | 1.74            | 1.83         | 13                            | 14   |
+| 16   | 1.60            | 1.95         | 14                            | 15   |
+| 20   | 1.83            | 1.96         | 16                            | 16   |
+| 25   | 1.88            | 1.72         | 17                            | 17   |
+
+The parity fixtures above prove the recency rule itself (no repeats, shares within one) at four and five.
 
 Horses are players (CLAUDE.md 10.5): nothing here reads a horse marker. No money, seat or ledger row is written by the migration.

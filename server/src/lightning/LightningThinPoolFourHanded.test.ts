@@ -17,12 +17,15 @@ import {
   LIGHTNING_MATCHER_PARAM_DEFAULTS,
   lightningFormationSizes,
   lightningMatcherModel,
+  lightningMatcherParams,
   lightningPassSizes,
   type LightningPoolPlayer,
 } from './LightningMatcherModel.js';
 import { runLightningMatcherSim } from './LightningMatcherSim.js';
 
-const params = { ...LIGHTNING_MATCHER_PARAM_DEFAULTS };
+const params = { ...LIGHTNING_MATCHER_PARAM_DEFAULTS, fourHanded: true };
+// An older database (no thin_pool_four_handed in fn_lightning_config).
+const before = { ...LIGHTNING_MATCHER_PARAM_DEFAULTS };
 const id = (i: number) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`;
 
 function player(i: number, idleSinceMs: number, legal = true): LightningPoolPlayer {
@@ -59,6 +62,9 @@ const sizes = (p: ReturnType<typeof plan>) => p.groups.map((g) => g.players.leng
 
 describe('the pure sizing (fn_lightning_formation_sizes)', () => {
   const p = (n: number) => Array.from({ length: n }, (_, i) => player(i, 0));
+  it('gives no four from an older database (the flag absent)', () => {
+    expect(lightningFormationSizes(p(4), 60_000, before)).toEqual([]);
+  });
   it('gives a four only when four are left over and the latest has waited 1.5 s', () => {
     expect(lightningFormationSizes(p(4), LIGHTNING_FOUR_HANDED_WAIT_MS, params)).toEqual([4]);
     expect(lightningFormationSizes(p(4), LIGHTNING_FOUR_HANDED_WAIT_MS - 1, params)).toEqual([]);
@@ -122,6 +128,22 @@ describe('the pool lived through (LightningMatcherSim, the same plan)', () => {
     });
     expect(thin.table_sizes[4] ?? 0).toBeGreaterThan(0);
     expect(healthy.table_sizes[4] ?? 0).toBe(0);
+  });
+});
+
+describe('the engine follows the database it reads', () => {
+  it('plans five or six only until fn_lightning_config says the thin-pool rule is installed', () => {
+    const nowMs = 100_000;
+    const four = Array.from({ length: 4 }, (_, i) => player(i, nowMs - 60_000));
+    const m = lightningMatcherModel('m1')!;
+    expect(m.plan({ nowMs, players: four, recentHands: [] }, before).groups).toHaveLength(0);
+    expect(lightningMatcherParams({}).fourHanded).toBe(false);
+    expect(lightningMatcherParams({ thin_pool_four_handed: 'true' }).fourHanded).toBe(false);
+    const live = lightningMatcherParams({ thin_pool_four_handed: true });
+    expect(live.fourHanded).toBe(true);
+    expect(
+      m.plan({ nowMs, players: four, recentHands: [] }, live).groups.map((g) => g.players.length)
+    ).toEqual([4]);
   });
 });
 

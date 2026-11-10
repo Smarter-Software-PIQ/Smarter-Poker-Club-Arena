@@ -176,9 +176,17 @@ describe('the parity harness', () => {
     const fairness = HCODE.indexOf(
       '-f "$M/20261110173033_lightning_blinds_and_button_go_to_the_longest_waiting_player.sql"'
     );
-    const thin = HCODE.indexOf(
+    const thin = HCODE.lastIndexOf(
       '-f "$M/20261110214134_lightning_a_thin_pool_deals_four_handed.sql"'
     );
+    // Before fairness is installed the file must be refused, changing nothing.
+    const refused = HCODE.indexOf(
+      '"${PSQL[@]}" -f "$M/20261110214134_lightning_a_thin_pool_deals_four_handed.sql" > "$fixture/thin-refusal.out"'
+    );
+    expect(refused).toBeGreaterThan(0);
+    expect(refused).toBeLessThan(fairness);
+    expect(HCODE).toContain('requires 20261110173033 (position fairness) installed first');
+    expect(HCODE).toContain("echo '  ok  15R RACES");
     const section = HCODE.indexOf('-f "$F/lightning-thin-pool-parity.sql"');
     expect(fairness).toBeGreaterThan(0);
     expect(thin).toBeGreaterThan(fairness);

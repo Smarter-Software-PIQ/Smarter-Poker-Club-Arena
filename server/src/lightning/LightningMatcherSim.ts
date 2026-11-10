@@ -72,6 +72,8 @@ export interface LightningSimOptions {
    */
   conversionSeating: boolean;
   positionFairness: boolean;
+  /** The thin pool's four-handed rule (20261110214134; false = five or six only). */
+  fourHanded: boolean;
   /** The candidate's knobs (m2): P5 thin-band weight (null = half the medium) and diversity scale. */
   candidateThinWeight: number | null;
   candidateDiversityScale: number;
@@ -100,6 +102,7 @@ export const LIGHTNING_SIM_DEFAULTS: Readonly<LightningSimOptions> = Object.free
   firstEntryRule: 'big_blind',
   conversionSeating: true,
   positionFairness: true,
+  fourHanded: true,
   candidateThinWeight: null,
   candidateDiversityScale: 1,
   maxSimHours: 2_000,
@@ -196,6 +199,7 @@ export function runLightningMatcherSim(partial: Partial<LightningSimOptions>): L
     instanceMax: o.instanceMax,
     firstEntryRule: o.firstEntryRule,
     positionFairness: o.positionFairness,
+    fourHanded: o.fourHanded,
     candidate: { thinWeight: o.candidateThinWeight, diversityScale: o.candidateDiversityScale },
   };
   const dt = Math.max(100, o.passIntervalMs);

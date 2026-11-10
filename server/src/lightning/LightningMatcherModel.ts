@@ -192,6 +192,13 @@ export interface LightningMatcherParams {
    * (the header and constraint gate of 20261025050528) is closed.
    */
   entryBigBlind: boolean;
+  /**
+   * THIN POOL, FOUR-HANDED (20261110214134): the database's fn_lightning_config
+   * says `thin_pool_four_handed: true` once that migration is installed. Absent
+   * (an older database) the model plans the old rule - five or six only - so
+   * the engine's plan matches whichever matcher image is live.
+   */
+  fourHanded: boolean;
   positionFairness: boolean;
   recentWindowHands: number;
   recentWindowSeconds: number;
@@ -212,6 +219,7 @@ export const LIGHTNING_MATCHER_PARAM_DEFAULTS: Readonly<LightningMatcherParams> 
   instanceMax: 6,
   firstEntryRule: 'big_blind',
   entryBigBlind: true,
+  fourHanded: false,
   positionFairness: true,
   recentWindowHands: 60,
   recentWindowSeconds: 900,
@@ -324,7 +332,7 @@ export const LIGHTNING_FOUR_HANDED_POOL_MAX = 24;
 export function lightningFormationSizes(
   players: readonly LightningPoolPlayer[],
   nowMs: number,
-  _params: LightningMatcherParams
+  params: LightningMatcherParams
 ): number[] {
   const sizes = Array.from({ length: Math.floor(players.length / 6) }, () => 6);
   // The fifth arrival starts the wait. An old first arrival must never
@@ -332,9 +340,14 @@ export function lightningFormationSizes(
   const fifthReadyAt = players.reduce((t, p) => Math.max(t, p.idleSinceMs), -Infinity);
   if (players.length % 6 === 5 && nowMs - fifthReadyAt >= LIGHTNING_FORMATION_MAX_WAIT_MS)
     sizes.push(5);
-  // THIN POOL (20261110): four who waited 1.5 s from the fourth arrival. The
-  // pool-size condition is the plan's (lightningPassSizes), as in the SQL.
-  else if (players.length % 6 === 4 && nowMs - fifthReadyAt >= LIGHTNING_FOUR_HANDED_WAIT_MS)
+  // THIN POOL (20261110): four who waited 1.5 s from the fourth arrival, only
+  // when the database runs that rule (params.fourHanded). The pool-size
+  // condition is the plan's (lightningPassSizes), as in the SQL.
+  else if (
+    params.fourHanded &&
+    players.length % 6 === 4 &&
+    nowMs - fifthReadyAt >= LIGHTNING_FOUR_HANDED_WAIT_MS
+  )
     sizes.push(4);
   return sizes;
 }
@@ -814,6 +827,7 @@ export function lightningMatcherParams(raw: unknown, maxGroups?: number): Lightn
     firstEntryRule: 'big_blind',
     // This engine posts the entry big blind (LightningHandHost).
     entryBigBlind: true,
+    fourHanded: row.thin_pool_four_handed === true,
     positionFairness:
       typeof row.position_fairness === 'boolean' ? row.position_fairness : d.positionFairness,
     recentWindowHands: Math.round(

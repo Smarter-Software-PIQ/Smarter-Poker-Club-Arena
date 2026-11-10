@@ -1,6 +1,9 @@
+-- @install-window: daily-maintenance
+-- @locks: public.lightning_pool_slot
 -- @live-proof: position('THIN POOL (20261110)' in pg_get_functiondef('public.fn_lightning_formation_sizes(integer,integer,integer,integer,timestamp with time zone,timestamp with time zone)'::regprocedure)) > 0
 -- @live-proof: position('THIN POOL (20261110)' in pg_get_functiondef('public.fn_lightning_match_plan(uuid,timestamp with time zone,uuid[],text,integer,jsonb)'::regprocedure)) > 0 AND position('interval ''1.5 seconds'', v_now)' in pg_get_functiondef('public.fn_lightning_match_plan(uuid,timestamp with time zone,uuid[],text,integer,jsonb)'::regprocedure)) > 0
 -- @live-proof: position('GREATEST(4, LEAST(6' in pg_get_functiondef('public.fn_lightning_form_hand(uuid,uuid[],smallint,smallint,uuid,interval,interval,timestamp with time zone,text,uuid,jsonb)'::regprocedure)) > 0
+-- @live-proof: position('''thin_pool_four_handed'', true' in pg_get_functiondef('public.fn_lightning_config(uuid)'::regprocedure)) > 0
 -- @live-proof: position('NOT BETWEEN 4 AND 6' in pg_get_functiondef('public.fn_lightning_instance_begin_dealing(uuid,interval,timestamp with time zone)'::regprocedure)) > 0
 -- 20261110214134_lightning_a_thin_pool_deals_four_handed.sql
 --
@@ -61,6 +64,7 @@
 --     same 1.5 s from the latest arrival (WAITING_FOR_FIFTH_PLAYER).
 --   - fn_lightning_instance_begin_dealing: a four-player instance deals
 --     (4 to 6 dealt, reserved and committed, instead of 5 to 6).
+--   - fn_lightning_config: 'thin_pool_four_handed': true (see below).
 -- Seat positions and blinds already scale to any table from two to nine
 -- (fn_lightning_form_hand: btn, sb, bb and co at four), and the position
 -- fairness rule (20261110173033) orders the same seats at four as at five
@@ -72,14 +76,31 @@
 -- the database decides (it forms every hand) and the worker's routine pass
 -- interval serves the 1.5 s.
 --
--- ORDER WITH 20261110173033 (position fairness, queued for the 03:30 window).
--- The two files edit different text: every anchor below is absent from that
--- file's anchors and replacements, and each of its anchors is absent from
--- these, so either may install first and both find their text exactly once
--- (checked read-only against production's current images before merge, and
--- in the matcher parity harness, which installs that file and then this one).
--- This file takes no table lock (CREATE OR REPLACE of four functions), so it
--- is an ordinary migration, installed on merge.
+-- IT NEEDS 20261110173033 (position fairness) INSTALLED FIRST, AND REFUSES
+-- OTHERWISE. Four-handed tables are only fair with that file's rule (blinds
+-- and the button by recency), so this file's first statement checks for its
+-- installed image (the lightning_pool_slot.hands_since_button column and the
+-- 'BY RECENCY (20261110)' text in fn_lightning_match_plan and
+-- fn_lightning_form_hand) and raises before anything changes when it is
+-- absent: the whole transaction rolls back and the file stays queued. That
+-- file is a daily-maintenance window file, so this one is too
+-- (scripts/ci/install-window-migrations.mjs: "a window file that depends on
+-- an earlier window file must assert its prerequisite itself"). It declares
+-- the same relation, public.lightning_pool_slot, so the installer sends it in
+-- the same group, after 20261110173033, in the same run. This file itself
+-- takes no table lock (CREATE OR REPLACE of five functions); the
+-- declaration is for that order. The two files edit different text (checked
+-- read-only against production's images before merge: each file's anchors
+-- occur exactly once in the current image, after the other file alone, and
+-- before it), and the matcher parity harness installs that file and then
+-- this one, and proves this one is refused on an image without it.
+--
+-- THE ENGINE FOLLOWS THE DATABASE. fn_lightning_config gains
+-- 'thin_pool_four_handed': true. The engine's model plans four-handed tables
+-- only when that key is exactly true (lightningMatcherParams), so an engine
+-- running against a database without this file plans five or six only, and
+-- an engine without the model change ignores the key: whichever activates
+-- first, the engine's plan is the live matcher's.
 --
 -- Each function is patched in place from its installed image by exact anchor
 -- (the house pattern of 20261026131624): every anchor must occur exactly the
@@ -90,7 +111,21 @@
 
 BEGIN;
 SET LOCAL lock_timeout = '1s';
-SET LOCAL statement_timeout = '8s';
+SET LOCAL statement_timeout = '5s';
+
+DO $requires_position_fairness$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_schema = 'public' AND table_name = 'lightning_pool_slot'
+                    AND column_name = 'hands_since_button')
+     OR position('BY RECENCY (20261110)' in pg_get_functiondef(
+          'public.fn_lightning_match_plan(uuid,timestamp with time zone,uuid[],text,integer,jsonb)'::regprocedure)) = 0
+     OR position('BY RECENCY (20261110)' in pg_get_functiondef(
+          'public.fn_lightning_form_hand(uuid,uuid[],smallint,smallint,uuid,interval,interval,timestamp with time zone,text,uuid,jsonb)'::regprocedure)) = 0 THEN
+    RAISE EXCEPTION 'Lightning thin-pool four-handed requires 20261110173033 (position fairness) installed first; nothing changed, stays queued';
+  END IF;
+END
+$requires_position_fairness$;
 
 DO $thin_pool$
 DECLARE
@@ -156,7 +191,13 @@ BEGIN
      $a$IF h.player_count NOT BETWEEN 5 AND 6 OR v_players NOT BETWEEN 5 AND 6
      OR v_committed NOT BETWEEN 5 AND 6 THEN$a$,
      $a$IF h.player_count NOT BETWEEN 4 AND 6 OR v_players NOT BETWEEN 4 AND 6
-     OR v_committed NOT BETWEEN 4 AND 6 THEN$a$)
+     OR v_committed NOT BETWEEN 4 AND 6 THEN$a$),
+    (8, 'public.fn_lightning_config(uuid)',
+     $a$    'position_fairness', v_p3,$a$,
+     $a$    'position_fairness', v_p3,
+    -- THIN POOL (20261110214134): the engine's model plans four-handed
+    -- tables only while this says the database does.
+    'thin_pool_four_handed', true,$a$)
   ) x(ord, sig, old_text, new_text) ORDER BY ord LOOP
     s := pg_get_functiondef(r.sig::regprocedure);
     k := (length(s) - length(replace(s, r.old_text, ''))) / length(r.old_text);
