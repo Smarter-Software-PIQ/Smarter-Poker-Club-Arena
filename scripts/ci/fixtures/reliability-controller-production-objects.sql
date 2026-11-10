@@ -108,6 +108,14 @@ BEGIN
 END;
 $function$;
 
+-- Who may write the inbox, as on production (pg_class.relacl and pg_proc.proacl
+-- read 2026-11-10): postgres and service_role only.
+REVOKE ALL ON public.operational_alert_events FROM PUBLIC, anon, authenticated;
+GRANT ALL ON public.operational_alert_events TO service_role;
+REVOKE ALL ON FUNCTION public.fn_record_operational_alert(text, text, text, text, text, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_record_operational_alert(text, text, text, text, text, jsonb) TO service_role;
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+
 CREATE TABLE public.profiles (id uuid PRIMARY KEY, username text);
 
 CREATE TABLE public.social_conversations (

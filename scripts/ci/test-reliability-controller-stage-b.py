@@ -715,6 +715,57 @@ def main():
             refused(f"SET ROLE {role}; SELECT nextval('smarter_private.reliability_notifications_id_seq')", 'permission denied for sequence reliability_notifications_id_seq')
             refused(f"SET ROLE {role}; UPDATE smarter_private.reliability_settings SET notify_mode = 'all' WHERE id", 'permission denied for table reliability_settings')
         assert sql('SELECT notify_mode FROM smarter_private.reliability_settings') == 'observe'
+        # ---- the authorized callers work: service_role and the object owner (the role pg_cron runs as).
+        sequences = sql("SELECT string_agg(c.relname, ',' ORDER BY c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                        "WHERE n.nspname = 'smarter_private' AND c.relname LIKE 'reliability\\_%' AND c.relkind = 'S'").split(',')
+        assert len(sequences) == 5, sequences
+        for role in ('anon', 'authenticated', 'service_role'):
+            for sequence in sequences:
+                assert sql(f"SELECT has_sequence_privilege('{role}', 'smarter_private.{sequence}', 'USAGE, SELECT, UPDATE')") == 'f', (role, sequence)
+        assert num("SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'smarter_private' "
+                   "AND p.proname LIKE 'reliability\\_%' AND (p.proacl IS NULL OR has_function_privilege('public', p.oid, 'EXECUTE'))") == 0
+        assert sql("SELECT string_agg(DISTINCT pg_get_userbyid(c.relowner), ',') FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                   "WHERE n.nspname = 'smarter_private' AND c.relname LIKE 'reliability\\_%'") == 'postgres'
+        definers = sql("SELECT string_agg(p.proname, ',' ORDER BY p.proname) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
+                       "WHERE p.prosecdef AND ((n.nspname = 'smarter_private' AND p.proname LIKE 'reliability\\_%') OR p.proname = 'fn_reliability_incident_for_owner') "
+                       "AND p.proconfig::text LIKE '%search_path=pg_catalog, smarter_private%'")
+        assert definers == ('fn_reliability_incident_for_owner,reliability_deliver_notifications,reliability_send_validation_message,'
+                            'reliability_tick,reliability_transition,reliability_trg_operational_alert_intake'), definers
+        granted = sql("SELECT string_agg(p.proname, ',' ORDER BY p.proname) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
+                      "WHERE n.nspname = 'smarter_private' AND p.proname LIKE 'reliability\\_%' AND has_function_privilege('service_role', p.oid, 'EXECUTE')")
+        assert granted == 'reliability_deliver_notifications,reliability_send_validation_message,reliability_tick,reliability_transition', granted
+        # service_role writes the inbox the way World Hub does; the intake trigger runs as its owner.
+        sid = sql("SET ROLE service_role; SELECT public.fn_record_operational_alert('alertmanager', 'svc-1', 'MttBreakDidNotEnd', 'firing', 'critical', "
+                  "'{\"alert\": {\"fingerprint\": \"svc1\", \"startsAt\": \"2026-11-10T01:00:00Z\", \"labels\": {\"alertname\": \"MttBreakDidNotEnd\"}}}'::jsonb)")
+        assert incident('MttBreakDidNotEnd', "incident_class || ' ' || status") == 'tournament_lifecycle escalated'
+        assert num(f'SELECT count(*) FROM smarter_private.reliability_observations WHERE inbox_event_id = {sid}') == 1
+        sql("SET ROLE service_role; SELECT public.fn_record_operational_alert('alertmanager', 'svc-1', 'MttBreakDidNotEnd', 'firing', 'critical', '{}'::jsonb)")
+        assert incident('MttBreakDidNotEnd', 'occurrence_count') == '2'
+        sql(f"SET ROLE service_role; UPDATE public.operational_alert_events SET status = 'resolved' WHERE id = {sid}")
+        assert num(f"SELECT count(*) FROM smarter_private.reliability_observations WHERE inbox_event_id = {sid} AND status = 'resolved'") == 1
+        assert num('SELECT count(*) FROM smarter_private.reliability_intake_rejections') == 2
+        # the same writes as the owner role, which is what a pg_cron job and a SECURITY DEFINER producer are.
+        assert sql('SELECT current_user') == 'postgres' and sql("SELECT command FROM cron.job WHERE jobname = 'reliability-controller-tick'").count('reliability_tick()') == 1
+        record('ca-stall-watch', 'table:cron-1:1', 'TableStoppedDealing', 'firing', 'warning', {'table_id': 'cron-1'})
+        assert num("SELECT count(*) FROM smarter_private.reliability_incidents WHERE alertname = 'TableStoppedDealing' AND scope->>'table_id' = 'cron-1'") == 1
+        assert json.loads(sql(sql("SELECT command FROM cron.job WHERE jobname = 'reliability-controller-tick'")))['errors'] == []
+        # service_role: reads everything, runs the four entry points, writes nothing directly, reaches no internal function.
+        for relation in relations:
+            sql(f'SET ROLE service_role; SELECT count(*) FROM smarter_private.{relation}')
+            assert sql(f"SELECT has_table_privilege('service_role', 'smarter_private.{relation}', 'INSERT, UPDATE, DELETE, TRUNCATE')") == 'f', relation
+        assert json.loads(sql('SET ROLE service_role; SELECT smarter_private.reliability_deliver_notifications(1)'))['sent'] == 0
+        park = incident('MttBreakDidNotEnd', 'id')
+        sql(f"SET ROLE service_role; SELECT smarter_private.reliability_transition('{park}', 'investigating', 'service role reopened it')")
+        assert incident('MttBreakDidNotEnd') == 'investigating'
+        v2 = json.loads(sql("SET ROLE service_role; SELECT smarter_private.reliability_send_validation_message('service role check')"))
+        assert v2['state'] == 'persisted_in_messenger', v2
+        refused("SET ROLE service_role; UPDATE smarter_private.reliability_settings SET notify_mode = 'all' WHERE id", 'permission denied for table reliability_settings')
+        refused("SET ROLE service_role; INSERT INTO smarter_private.reliability_runbooks (key, version, enabled) VALUES ('x', 1, true)", 'permission denied for table reliability_runbooks')
+        refused(f"SET ROLE service_role; SELECT smarter_private.reliability_escalate('{park}', 'x')", 'permission denied for function reliability_escalate')
+        refused(f"SET ROLE service_role; SELECT smarter_private.reliability_enqueue_notification('{park}', 'escalation')", 'permission denied for function reliability_enqueue_notification')
+        refused("SET ROLE service_role; SELECT smarter_private.reliability_owner_conversation()", 'permission denied for function reliability_owner_conversation')
+        ok('service_role and the owner role write the inbox and intake runs; service_role reads every object, runs tick, deliver, transition and validation, and reaches no table write and no internal function')
+
         # ---- the one browser surface: the owner reads one incident, nobody else does.
         target = sql("SELECT i.id FROM smarter_private.reliability_incidents i JOIN smarter_private.reliability_notifications n ON n.incident_id = i.id WHERE i.alertname = 'PokerTablesFrozen'")
         owner_fn = f"SELECT public.fn_reliability_incident_for_owner('{target}')"

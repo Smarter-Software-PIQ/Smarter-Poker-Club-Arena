@@ -1951,6 +1951,10 @@ REVOKE ALL ON smarter_private.reliability_runbooks FROM PUBLIC, anon, authentica
 REVOKE ALL ON smarter_private.reliability_v_open_incidents FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON smarter_private.reliability_v_controller_health FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE smarter_private.reliability_notifications_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE smarter_private.reliability_alert_classes_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE smarter_private.reliability_observations_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE smarter_private.reliability_incident_events_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE smarter_private.reliability_intake_rejections_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION smarter_private.reliability_safe_timestamp(text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION smarter_private.reliability_source_family(text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION smarter_private.reliability_normalize_alertname(text) FROM PUBLIC, anon, authenticated;
