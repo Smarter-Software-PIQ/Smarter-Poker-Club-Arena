@@ -333,7 +333,7 @@ function RabbitHuntReplayBlock({
   const statusNote: string | null = settled
     ? null
     : offer.pastRetention
-      ? 'Expired after 24 hours'
+      ? 'Expired After 24 Hours'
       : withinFeltWindow || !needsStatus
         ? null
         : replayStatus === null
@@ -345,7 +345,7 @@ function RabbitHuntReplayBlock({
               : replayStatus.status === 'not_eligible'
                 ? 'You Were Not Dealt Into This Hand'
                 : replayStatus.status === 'expired'
-                  ? 'Expired after 24 hours'
+                  ? 'Expired After 24 Hours'
                   : null;
   const vipNoteInsteadOfButton = !isVIP && !withinFeltWindow && !settled && !statusNote;
   const showsButton = !settled && !statusNote && !vipNoteInsteadOfButton;
@@ -385,7 +385,7 @@ function RabbitHuntReplayBlock({
       <div className="hdm-section-count">Hand {hand.handNumber.toLocaleString()} · Only You</div>
       {settled ? null : (
         <div className="hdm-section-count hdm-rabbit__limit">
-          {savedUntil ? `Available Until ${savedUntil}` : 'VIP access · 24 hours'}
+          {savedUntil ? `Available Until ${savedUntil}` : 'VIP Access · 24 Hours'}
         </div>
       )}
       {hasRevealed || owned ? (
@@ -1016,7 +1016,7 @@ export function HandDetailModal({
                 </section>
               );
             })()}
-            <section className="hdm-result" aria-label="Hand result">
+            <section className="hdm-result" aria-label="Hand Result">
               <div className="hdm-potline hdm-potline--top">
                 <span className="hdm-potline__label">Pot</span>
                 <span className="hdm-potline__pots">

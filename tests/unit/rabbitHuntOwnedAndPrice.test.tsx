@@ -143,7 +143,7 @@ describe('a run-out you bought is yours to keep', () => {
     const { findByText, queryByRole, queryByText } = view(ago(25 * 60 * 60_000));
     expect(await findByText('You Bought This Run Out. It Stays In Your Hand History')).toBeTruthy();
     expect(queryByRole('button', BUTTON)).toBeNull();
-    expect(queryByText('Expired after 24 hours')).toBeNull();
+    expect(queryByText('Expired After 24 Hours')).toBeNull();
     expect(fetchOwned).toHaveBeenCalledWith('t-9', 777);
     expect(onRabbitHunt).not.toHaveBeenCalled();
     expect(fetchPreview).not.toHaveBeenCalled();
@@ -159,6 +159,6 @@ describe('a run-out you bought is yours to keep', () => {
 
   it('nothing owned: the limit is still stated', async () => {
     const { findByText } = view(ago(25 * 60 * 60_000));
-    expect(await findByText('Expired after 24 hours')).toBeTruthy();
+    expect(await findByText('Expired After 24 Hours')).toBeTruthy();
   });
 });

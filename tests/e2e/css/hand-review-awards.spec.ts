@@ -36,7 +36,7 @@ for (const viewport of [
     await page.evaluate(() => document.fonts.ready);
     for (const tab of ['Hand Summary', 'Hand Detail']) {
       await page.getByRole('tab', { name: tab, exact: true }).click();
-      const result = page.getByRole('region', { name: 'Hand result' });
+      const result = page.getByRole('region', { name: 'Hand Result' });
       await expect(result).toContainText('No Showdown');
       await expect(result).toContainText('Pot Taken By');
       if (tab === 'Hand Summary') {

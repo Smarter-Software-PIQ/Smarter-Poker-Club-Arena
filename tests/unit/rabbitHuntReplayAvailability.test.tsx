@@ -108,7 +108,7 @@ describe("past the felt window the block reports the hand's real state", () => {
     for (const [status, text] of [
       ['not_saved', 'This Hand Was Not Saved For Rabbit Hunt'],
       ['not_eligible', 'You Were Not Dealt Into This Hand'],
-      ['expired', 'Expired after 24 hours'],
+      ['expired', 'Expired After 24 Hours'],
     ] as const) {
       fetchStatus.mockResolvedValue({ status });
       const { findByText, queryByRole, unmount } = view(ago(5 * 60_000));
@@ -128,7 +128,7 @@ describe("past the felt window the block reports the hand's real state", () => {
 describe('the one-day limit is stated, not inferred', () => {
   it('a hand older than one day says the limit instead of vanishing', () => {
     const { getByText, queryByRole } = view(ago(25 * 60 * 60_000));
-    expect(getByText('Expired after 24 hours')).toBeTruthy();
+    expect(getByText('Expired After 24 Hours')).toBeTruthy();
     expect(queryByRole('button', BUTTON)).toBeNull();
     expect(fetchStatus).not.toHaveBeenCalled();
   });
@@ -136,7 +136,7 @@ describe('the one-day limit is stated, not inferred', () => {
   it('an eligible hand states the 1 day availability', () => {
     fetchStatus.mockResolvedValue({ status: 'saved', expiresAt: Date.now() + 3_600_000 });
     const { getByText } = view(ago(10_000));
-    expect(getByText('VIP access · 24 hours')).toBeTruthy();
+    expect(getByText('VIP Access · 24 Hours')).toBeTruthy();
   });
 
   it('inside the felt window nothing is looked up: the original purchase is unchanged', () => {
