@@ -10914,6 +10914,23 @@ export abstract class ServerTableEngineBase {
           this.dealsInWhileSittingOut(p.user_id))
     );
     if (roster.length < 2) return -1;
+    if (!this.isTournamentTable() && this.waitingForBB.size > 0) {
+      const playing = roster.filter((p) => !this.waitingForBB.has(p.user_id));
+      if (playing.length >= 2) {
+        // A waiter cannot occupy the small blind. Counting every waiter in
+        // that position can skip alternating waiting seats forever, or admit
+        // an entrant who actually posts the SB once the other waiters are
+        // removed. Predict the real hand with only the first seat after the
+        // playing small blind eligible to enter at BB.
+        const button = this.predictButtonSeat(roster);
+        const smallBlind = this.getNextSeat(button, playing);
+        const nextBigBlind = this.getNextSeat(smallBlind, roster);
+        const entering = roster.find(
+          (p) => p.seat_number === nextBigBlind && this.waitingForBB.has(p.user_id)
+        );
+        return this.predictBlindSeats(entering ? [...playing, entering] : playing)?.bigBlind ?? -1;
+      }
+    }
     return this.predictBlindSeats(roster)?.bigBlind ?? -1;
   }
 
