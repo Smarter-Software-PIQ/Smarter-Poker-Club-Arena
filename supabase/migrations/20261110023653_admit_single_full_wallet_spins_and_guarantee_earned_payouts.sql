@@ -407,9 +407,31 @@ SET LOCAL lock_timeout = '1s';
 
 -- Integer wallets can overflow from a legal spin: 715,827,883 diamonds can
 -- win 2,147,483,649. Keep the same canonical wallet, mirrors and journal.
+DO $reconciliation$
+DECLARE view_rec record; staged_views jsonb:='[]';
+BEGIN
+ -- Temporarily detach only the SELECT rule of each reconciliation view.
+ -- Its OID, downstream views, ACL, ownership, comments and options survive.
+ -- Neither its placeholder nor the column swap is visible outside this transaction.
+ FOR view_rec IN SELECT c.oid,c.relname::text AS name,pg_get_viewdef(c.oid) AS body,
+  CASE WHEN c.reloptions IS NULL THEN '' ELSE ' WITH ('||array_to_string(c.reloptions,',')||')' END AS opts,
+  (SELECT string_agg(format('NULL::%s AS %I',format_type(a.atttypid,a.atttypmod),a.attname),',' ORDER BY a.attnum)
+   FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped) AS placeholder,
+  (SELECT string_agg(format('s.%I::%s AS %I',a.attname,format_type(a.atttypid,a.atttypmod),a.attname),',' ORDER BY a.attnum)
+   FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped) AS projection
+  FROM pg_class c WHERE c.relnamespace='public'::regnamespace AND c.relkind='v' AND
+   c.relname IN ('trivia_ledger_recon_date','trivia_ledger_recon_reference','trivia_ledger_recon_user')
+ LOOP
+  staged_views:=staged_views||to_jsonb(view_rec);
+  EXECUTE format('CREATE OR REPLACE VIEW public.%I%s AS SELECT %s WHERE false',view_rec.name,view_rec.opts,view_rec.placeholder);
+ END LOOP;
+ PERFORM set_config('app.wheel_reconciliation_views',staged_views::text,true);
+END $reconciliation$;
+-- Give the archive rewrite its own bounded statement inside the same transaction.
+ALTER TABLE public.ca_diamond_journal_archive ALTER COLUMN amount TYPE bigint, ALTER COLUMN balance_after TYPE bigint;
 DO $width$
 DECLARE t record; rel record; restored record; ddl text; saved jsonb:='[]'::jsonb;
- view_rec record; staged_views jsonb:='[]'; original_index_comment text;
+ view_rec record; staged_views jsonb:=current_setting('app.wheel_reconciliation_views')::jsonb; original_index_comment text;
  directory_oid oid:=to_regclass('public.all_users'); directory_sql text; directory_options text;
  directory_owner name; directory_comment text; directory_columns text; grants text:=''; comments text:=''; grant_row record;
 BEGIN
@@ -444,21 +466,6 @@ BEGIN
   END LOOP;
   DROP VIEW public.all_users; -- RESTRICT deliberately protects unknown dependents.
  END IF;
- -- Temporarily detach only the SELECT rule of each reconciliation view.
- -- Its OID, downstream views, ACL, ownership, comments and options survive.
- -- Neither its placeholder nor the column swap is visible outside this transaction.
- FOR view_rec IN SELECT c.oid,c.relname::text AS name,pg_get_viewdef(c.oid) AS body,
-  CASE WHEN c.reloptions IS NULL THEN '' ELSE ' WITH ('||array_to_string(c.reloptions,',')||')' END AS opts,
-  (SELECT string_agg(format('NULL::%s AS %I',format_type(a.atttypid,a.atttypmod),a.attname),',' ORDER BY a.attnum)
-   FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped) AS placeholder,
-  (SELECT string_agg(format('s.%I::%s AS %I',a.attname,format_type(a.atttypid,a.atttypmod),a.attname),',' ORDER BY a.attnum)
-   FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped) AS projection
-  FROM pg_class c WHERE c.relnamespace='public'::regnamespace AND c.relkind='v' AND
-   c.relname IN ('trivia_ledger_recon_date','trivia_ledger_recon_reference','trivia_ledger_recon_user')
- LOOP
-  staged_views:=staged_views||to_jsonb(view_rec);
-  EXECUTE format('CREATE OR REPLACE VIEW public.%I%s AS SELECT %s WHERE false',view_rec.name,view_rec.opts,view_rec.placeholder);
- END LOOP;
  -- Postgres will not widen columns referenced by an UPDATE OF or WHEN
  -- trigger. Preserve their definitions, enable mode and comment atomically.
  FOR t IN
@@ -509,7 +516,6 @@ BEGIN
  ALTER TABLE public.ca_diamond_balance_audit RENAME COLUMN wheel_delta64 TO delta;
  FOR rel IN SELECT * FROM (VALUES
   ('public.profiles'::regclass,ARRAY['diamonds','diamond_balance']),
-  ('public.ca_diamond_journal_archive'::regclass,ARRAY['amount','balance_after']),
   ('public.user_diamonds'::regclass,ARRAY['balance','lifetime_earned','lifetime_spent']),
   ('public.user_diamond_balance'::regclass,ARRAY['balance','lifetime_earned','lifetime_spent']),
   ('public.diamond_wallets'::regclass,ARRAY['balance','lifetime_earned','lifetime_spent']),
