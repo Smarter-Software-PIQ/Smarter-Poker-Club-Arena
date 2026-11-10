@@ -600,3 +600,76 @@
   height: 80%;
   transform: none;
 }
+
+.blastWave {
+  position: fixed;
+  inset: -10%;
+  z-index: 20;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      circle at center,
+      transparent 19%,
+      #ffdf89a8 21%,
+      #f96a176b 24%,
+      transparent 32%
+    ),
+    repeating-conic-gradient(
+      from 13deg,
+      transparent 0 17deg,
+      #ffa34366 18deg,
+      transparent 20deg 37deg
+    );
+  animation: mine-impact calc(750ms * var(--animation-speed, 1)) cubic-bezier(0.12, 0.74, 0.35, 1)
+    both;
+}
+@keyframes mine-impact {
+  from {
+    opacity: 0;
+    transform: scale(0.12);
+  }
+  16% {
+    opacity: 0.92;
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.8);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .blastWave {
+    display: none;
+  }
+}
+
+.stage {
+  background:
+    radial-gradient(ellipse at center, #08172bcc 18%, #081524eb 62%, #03080dfc),
+    url('/assets/diamond-spins/result-mines.webp') center / cover;
+  border-radius: 14px;
+}
+.tile:not([data-revealed='true']) {
+  background: linear-gradient(
+    133deg,
+    #8294a4,
+    #1a3654 9%,
+    #05142a 36%,
+    #10385e 72%,
+    #78a0ba 96%,
+    #142433
+  );
+  box-shadow:
+    inset 1px 1px #c0d8ed,
+    inset -2px -2px #020710,
+    0 2px 3px #010711;
+}
+.tile:not([data-revealed='true']) .seal {
+  filter: drop-shadow(0 0 4px #3bade077);
+}
+
+@media (max-width: 760px) and (orientation: portrait) {
+  [data-choice-game='mines'] .board {
+    width: min(100%, 500px);
+    padding: 2px;
+  }
+}

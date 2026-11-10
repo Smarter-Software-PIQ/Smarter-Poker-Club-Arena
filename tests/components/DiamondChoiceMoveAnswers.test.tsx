@@ -257,11 +257,10 @@ describe('the second plate books the win and nothing else', () => {
     backend.state.mockResolvedValue(state('mines', { open_round: null }));
     render(<DiamondChoicePage game="mines" />);
     await settle();
-    expect(screen.getByRole('button', { name: 'Start Round' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Book The Win' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Tile 1' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Book The Win' })).toBeNull();
     expect(screen.queryByRole('button', { name: /Refresh/ })).toBeNull();
     const reads = backend.state.mock.calls.length;
-    fireEvent.click(screen.getByRole('button', { name: 'Book The Win' }));
     await settle();
     expect(backend.state.mock.calls.length).toBe(reads);
     expect(backend.move).not.toHaveBeenCalled();
@@ -271,7 +270,7 @@ describe('the second plate books the win and nothing else', () => {
     backend.state.mockResolvedValue(state('mines'));
     render(<DiamondChoicePage game="mines" />);
     await settle();
-    expect(screen.getByRole('button', { name: 'Book The Win' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Book The Win' })).toBeNull();
     expect(screen.queryByRole('button', { name: /Refresh/ })).toBeNull();
     backend.move.mockResolvedValueOnce({ error: null, data: moved('mines') });
     backend.state.mockResolvedValue(state('mines', { open_round: moved('mines') }));

@@ -50,16 +50,20 @@ vi.mock('../../src/services/HapticService', () => ({ triggerHaptic: vi.fn() }));
 vi.mock('../../src/components/games/ChoiceScene', () => ({
   default: ({
     phase,
+    busy,
     onSettled,
     onPick,
   }: {
     phase: string;
+    busy: boolean;
     onSettled: () => void;
     onPick: (n: number) => void;
   }) => (
     <section aria-label={`Scene ${phase}`}>
       <button onClick={onSettled}>Finish Scene</button>
-      <button onClick={() => onPick(0)}>Pick Tile</button>
+      <button disabled={busy} onClick={() => onPick(0)}>
+        Pick Tile
+      </button>
     </section>
   ),
 }));
@@ -186,6 +190,11 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+const entryControl = () =>
+  document.querySelector('[data-choice-game="mines"]')
+    ? screen.getByRole('button', { name: 'Pick Tile' })
+    : screen.getByRole('button', { name: 'Start Round' });
+
 describe('choice-game entry quotes belong to the selected settings', () => {
   it.each([
     { game: 'crossing' as const, status: 'lost', amount: 0 },
@@ -275,7 +284,7 @@ describe('choice-game entry quotes belong to the selected settings', () => {
     }
   );
 
-  it('does not show a previous proof verdict while starting another round', async () => {
+  it('keeps the earned result available without starting another Mines round', async () => {
     const proof = deferred<Record<string, boolean>>();
     backend.verify.mockReturnValue(proof.promise);
     backend.state
@@ -293,14 +302,14 @@ describe('choice-game entry quotes belong to the selected settings', () => {
     // Twice: the page checks a finished round by itself, and the player can
     // still press to run the same check again.
     expect(backend.verify).toHaveBeenCalledTimes(2);
-    fireEvent.click(screen.getByRole('button', { name: 'Start Round' }));
-    expect(backend.start).toHaveBeenCalledTimes(1);
+    fireEvent.click(entryControl());
+    expect(backend.start).not.toHaveBeenCalled();
     await act(async () => {
       proof.resolve({ seal: true, draw: true, prizes: true, payout: true });
     });
     expect(
-      screen.queryByText('The Revealed Outcome And Chip Prize Match The Sealed Round.')
-    ).not.toBeInTheDocument();
+      screen.getByText('The Revealed Outcome And Chip Prize Match The Sealed Round.')
+    ).toBeInTheDocument();
   });
   it.each(['mines', 'crossing'] as const)(
     'offers no difficulty for %s: the one setting is quoted and sent, never chosen',
@@ -317,8 +326,8 @@ describe('choice-game entry quotes belong to the selected settings', () => {
         100
       );
       expect(backend.state.mock.calls.every((call) => call[2] === CHOICE_MODE[game])).toBe(true);
-      expect(screen.getByRole('button', { name: 'Start Round' })).toBeEnabled();
-      fireEvent.click(screen.getByRole('button', { name: 'Start Round' }));
+      expect(entryControl()).toBeEnabled();
+      fireEvent.click(entryControl());
       expect(backend.start).toHaveBeenCalledTimes(1);
       expect(backend.start.mock.calls[0][0]).toMatchObject({
         game,
@@ -363,7 +372,7 @@ describe('choice-game entry quotes belong to the selected settings', () => {
     render(<DiamondChoicePage game="mines" />);
     await act(async () => {});
     expect(screen.getByText('Guaranteed').nextElementSibling).toHaveTextContent('Pending');
-    expect(screen.getByRole('button', { name: 'Start Round' })).toBeDisabled();
+    expect(entryControl()).toBeDisabled();
   });
   it('shows an open round its own sealed floor as the guarantee', async () => {
     backend.state.mockResolvedValue({
@@ -390,15 +399,16 @@ describe('choice-game entry quotes belong to the selected settings', () => {
     );
     render(<DiamondChoicePage game="mines" />);
     await act(async () => {});
+    fireEvent.click(screen.getByText('Entry Details'));
     fireEvent.change(screen.getByLabelText('Entry Diamonds'), { target: { value: '200' } });
     await act(async () => {});
-    expect(screen.getByRole('button', { name: 'Start Round' })).toBeDisabled();
-    fireEvent.click(screen.getByRole('button', { name: 'Start Round' }));
+    expect(entryControl()).toBeDisabled();
+    fireEvent.click(entryControl());
     expect(backend.start).not.toHaveBeenCalled();
     await act(async () => {
       next.resolve(state);
     });
-    expect(screen.getByRole('button', { name: 'Start Round' })).toBeEnabled();
+    expect(entryControl()).toBeEnabled();
   });
 });
 
@@ -468,15 +478,15 @@ describe('choice games consume wheel-funded entry', () => {
           : 'Super Donkey Cross Pays At Least 1.00 Chips, Even If You Do Not Make It Across.';
       // The page says it in its one live region, not in a nested status.
       expect(
-        Array.from(document.querySelectorAll('[aria-live] p')).some((line) =>
-          line.textContent?.includes(sentence)
+        Array.from(document.querySelectorAll(game === 'mines' ? 'details' : '[aria-live] p')).some(
+          (line) => line.textContent?.includes(sentence)
         )
       ).toBe(true);
       // No offer screen stands in front of Start Round (Double Diamonds retired).
       noOffer();
-      expect(screen.getByRole('button', { name: 'Start Round' })).toBeEnabled();
+      expect(entryControl()).toBeEnabled();
       expect(screen.queryByLabelText('Entry Diamonds')).toBeNull();
-      fireEvent.click(screen.getByRole('button', { name: 'Start Round' }));
+      fireEvent.click(entryControl());
       expect(backend.start).toHaveBeenCalledWith(
         expect.objectContaining({
           game,
@@ -524,8 +534,8 @@ describe('choice games consume wheel-funded entry', () => {
       expect(guaranteed).toHaveTextContent('0.10 Chips');
       expect(guaranteed).not.toHaveAttribute('data-ink', 'gold');
       expect(
-        Array.from(document.querySelectorAll('[aria-live] p')).some((line) =>
-          line.textContent?.includes('Pays At Least 0.10 Chips On Any Loss.')
+        Array.from(document.querySelectorAll(game === 'mines' ? 'details' : '[aria-live] p')).some(
+          (line) => line.textContent?.includes('Pays At Least 0.10 Chips On Any Loss.')
         )
       ).toBe(true);
     }
@@ -557,13 +567,13 @@ describe('choice games consume wheel-funded entry', () => {
       render(<DiamondChoicePage game={game} />);
       await act(async () => {});
       noOffer();
-      expect(screen.getByRole('button', { name: 'Start Round' })).toBeEnabled();
+      expect(entryControl()).toBeEnabled();
       await act(async () => {
         await vi.advanceTimersByTimeAsync(120_000);
       });
       expect(backend.start).not.toHaveBeenCalled();
       expect(backend.navigate).not.toHaveBeenCalled();
-      expect(screen.getByRole('button', { name: 'Start Round' })).toBeEnabled();
+      expect(entryControl()).toBeEnabled();
       noOffer();
     }
   );
@@ -573,7 +583,8 @@ describe('choice games consume wheel-funded entry', () => {
       backend.awardState.mockResolvedValue({ enabled: true, award: null, gameState: null });
       render(<DiamondChoicePage game={game} />);
       await act(async () => {});
-      expect(screen.getByRole('button', { name: 'Start Round' })).toBeDisabled();
+      expect(entryControl()).toBeDisabled();
+      if (game === 'mines') fireEvent.click(screen.getByText('Entry Details'));
       expect(screen.getByRole('button', { name: 'Spin The Wheel' })).toBeEnabled();
       expect(screen.getByRole('button', { name: 'Buy More' })).toBeEnabled();
       expect(backend.start).not.toHaveBeenCalled();

@@ -665,7 +665,9 @@ for (const game of ['crossing', 'mines'] as const)
     await expect(frame).toBeVisible();
     // The plates ride in the console's pinned action bar (2026-10-12).
     const plates = frame.locator('button[data-plate]');
-    await expect(plates, 'the console offers exactly the two plates').toHaveCount(2);
+    await expect(plates, 'the console shows only actionable plates').toHaveCount(
+      game === 'mines' ? 1 : 2
+    );
     // Donkey Cross paints a road and Diamond Mines a board; both are the thing
     // the player must still be able to see while they decide.
     const sceneSelector = game === 'mines' ? '[aria-label="Diamond Mines Board"]' : '[data-phase]';
@@ -1031,7 +1033,7 @@ const START_LABEL = {
 const PRIMARY_PLATE = '[data-game-console] button[data-plate="primary"]';
 
 /** The plate's box against the viewport, measured with the window where it started. */
-async function onTheGlass(page: Page, what: string) {
+async function onTheGlass(page: Page, what: string, selector = PRIMARY_PLATE) {
   await expect
     .poll(
       () =>
@@ -1053,14 +1055,14 @@ async function onTheGlass(page: Page, what: string) {
           const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
           if (!hit || !plate.contains(hit)) return 'something covers its centre';
           return 'on the glass';
-        }, PRIMARY_PLATE),
+        }, selector),
       { message: `${what} is whole, uncovered and on the first screen`, timeout: 30_000 }
     )
     .toBe('on the glass');
   return page.evaluate((selector) => {
     const box = document.querySelector(selector)!.getBoundingClientRect();
     return { top: box.top, left: box.left, width: box.width, height: box.height };
-  }, PRIMARY_PLATE);
+  }, selector);
 }
 
 async function openGamePage(page: Page, game: keyof typeof START_LABEL, live = false) {
@@ -1098,8 +1100,11 @@ for (const viewport of START_VIEWPORTS)
     for (const game of GAMES) {
       const network = await openGamePage(page, game);
       await noOfferStands(page);
-      const start = page.locator(PRIMARY_PLATE);
-      await expect(start).toHaveText(START_LABEL[game]);
+      const selector = game === 'mines' ? 'button[aria-label="Tile 13"]' : PRIMARY_PLATE;
+      const start = page.locator(selector);
+      if (game === 'mines')
+        await expect(page.getByRole('button', { name: 'Start Round' })).toHaveCount(0);
+      else await expect(start).toHaveText(START_LABEL[game]);
       if (game === 'plinko') {
         // Nothing is pre-selected (R6): the drop value is the one choice Drop
         // Diamonds waits on, so it shares the first screen with the plate.
@@ -1114,7 +1119,7 @@ for (const viewport of START_VIEWPORTS)
       await expect(start, `${game} Start is pressable on arrival`).toBeEnabled({
         timeout: 30_000,
       });
-      await onTheGlass(page, `${TITLES[game]} Start at ${viewport.width}px`);
+      await onTheGlass(page, `${TITLES[game]} Start at ${viewport.width}px`, selector);
       await page.screenshot({
         path: test.info().outputPath(`${game}-start-${viewport.width}x${viewport.height}.png`),
       });

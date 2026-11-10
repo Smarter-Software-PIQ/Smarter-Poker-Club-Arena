@@ -83,7 +83,7 @@ describe('the bonus receipt shows the game that produced it', () => {
       const popup = screen.getByRole('dialog', { name: '3.50 Chips' });
       const art = popup.querySelector(`[data-receipt-art="${game}"]`);
       expect(art).not.toBeNull();
-      expect(art!.querySelector('svg')).not.toBeNull();
+      expect(art!.querySelector('img')).not.toBeNull();
       expect(art!.querySelector(`[data-receipt-figure="${game}"]`)).toHaveTextContent(
         `${caption}${label}`
       );
@@ -196,18 +196,15 @@ describe('the bonus receipt shows the game that produced it', () => {
     expect(crowned()).toBe(true);
   });
 
-  it('shows no gem beside "0 Gems Found": a first-pick loss gets one ghost outline', () => {
+  it('keeps the exact gem count over the Mines artwork', () => {
     render(<BonusReceiptArt game="mines" figure={0} dim />);
-    const fan = document.querySelectorAll('[data-receipt-art="mines"] svg g[style*="--fan-angle"]');
-    expect(fan).toHaveLength(1);
-    expect(fan[0]).toHaveAttribute('data-empty', 'true');
-    cleanup();
-    render(<BonusReceiptArt game="mines" figure={3} />);
-    const three = document.querySelectorAll(
-      '[data-receipt-art="mines"] svg g[style*="--fan-angle"]'
+    expect(document.querySelector('[data-receipt-figure="mines"]')).toHaveTextContent(
+      'Gems Found0'
     );
-    expect(three).toHaveLength(3);
-    expect(three[0]).not.toHaveAttribute('data-empty');
+    expect(document.querySelector('[data-receipt-art="mines"] img')).toHaveAttribute(
+      'src',
+      expect.stringContaining('result-mines.webp')
+    );
   });
 
   it('dresses a lost round down: the same art, dimmed, the figure out of gold', () => {
@@ -245,7 +242,7 @@ describe('the bonus receipt shows the game that produced it', () => {
     const art = document.querySelector('[data-receipt-art="mines"]');
     expect(art).toHaveAttribute('data-reduced');
     // Nothing is taken away: every gem of the fan and the count still print.
-    expect(art!.querySelectorAll('svg use')).toHaveLength(6);
+    expect(art!.querySelector('img')).toBeInTheDocument();
     expect(art).toHaveTextContent('Gems Found6');
     expect(ART_CSS).toMatch(/\.stage\[data-reduced\] \*[^{]*\{\s*animation: none;/);
     expect(ART_CSS).toMatch(
@@ -306,7 +303,7 @@ describe('the bonus receipt shows the game that produced it', () => {
     expect(receiptFigure('crash', Number.NaN)).toBeNull();
     render(<BonusReceiptArt game="crossing" />);
     const art = document.querySelector('[data-receipt-art="crossing"]');
-    expect(art!.querySelector('svg')).not.toBeNull();
+    expect(art!.querySelector('img')).not.toBeNull();
     expect(art!.querySelector('[data-receipt-figure]')).toBeNull();
   });
 });

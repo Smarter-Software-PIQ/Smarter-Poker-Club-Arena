@@ -172,7 +172,7 @@ export default function MinesGrid({
   // browser drops focus from a control the moment it is disabled, and every
   // pick used to throw a keyboard player back to the top of the page. Only a
   // board with no round in play is taken out of the tab order.
-  const live = phase === 'open';
+  const live = phase === 'open' || (phase === 'idle' && !busy);
   // What the last pick turned over, said once by the status beside the board.
   const last = picked[picked.length - 1];
   const outcome =
@@ -214,6 +214,7 @@ export default function MinesGrid({
             </div>
           </dl>
         )}
+        {phase === 'lost' && lastIsMine && <div aria-hidden="true" className={styles.blastWave} />}
         <div className={styles.stage}>
           <div className={styles.grid}>
             {Array.from({ length: 25 }, (_, cell) => {
