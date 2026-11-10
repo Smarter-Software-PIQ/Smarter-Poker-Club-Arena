@@ -102,7 +102,7 @@ describe('the selected wheel stake owns its availability quote', () => {
     backend.state.mockResolvedValue({ ...state, pending_chip_prizes: [claim] });
     backend.claimPrize
       .mockRejectedValueOnce(new Error('Your Prize Is Still Reserved'))
-      .mockResolvedValueOnce(undefined);
+      .mockResolvedValueOnce('17.250');
     const first = render(<DiamondWheelPage />);
     fireEvent.click(await screen.findByRole('button', { name: /Claim Prize.*17.25 Chips/ }));
     await waitFor(() =>
@@ -116,7 +116,7 @@ describe('the selected wheel stake owns its availability quote', () => {
     fireEvent.click(retry);
     await waitFor(() =>
       expect(backend.toast.success).toHaveBeenCalledWith(
-        '17.25 Chips Credited To Your Club Balance'
+        '17.250 Chips Credited To Your Club Balance'
       )
     );
     expect(screen.queryByRole('button', { name: /Claim Prize/ })).not.toBeInTheDocument();

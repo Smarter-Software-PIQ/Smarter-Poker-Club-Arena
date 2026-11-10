@@ -285,7 +285,7 @@ function fixture(probe: 'matched_risk' | 'phase7_allocated' = 'matched_risk', ra
     sourceRelease: source,
     recordsByHand: [{ handKey, records: rows() }],
   });
-  return { input, batch, capture, witness, hand, rows };
+  return { input, batch, capture, witness, hand, rows, make };
 }
 afterEach(() => HorseMind.reset());
 function census(ranged = false) {
@@ -381,6 +381,73 @@ it('refuses omitted expected domain, wrong actor, amount, source and malformed o
     expect(r.status).toBe('unknown');
     expect(r.turns.every((t: any) => t.inputBinding === 'unknown')).toBe(true);
   }
+});
+it('compares a successful worker request with the committed fallback without crediting execution', () => {
+  const x = census();
+  const { capture, hand, make } = x.f;
+  const ordinal = hand.actions.length - 1;
+  const accepted = hand.actions[ordinal]!;
+  Object.assign(accepted, { origin: 'horse_fallback', action: 'check', amount: 0 });
+  Object.assign(x.packet.hands[0]!.actions[ordinal]!, {
+    origin: 'horse_fallback',
+    action: 'check',
+    amount: 0,
+  });
+  const requestDigest = recordsApi.journalHash(recordsApi.horseJournalJson(capture.snapshot));
+  const admission = {
+    version: 1,
+    phase: 'requested',
+    origin: 'worker_compute',
+    request: capture.snapshot,
+    requestDigest,
+  };
+  const records = [
+    make('request_lifecycle', 1, admission),
+    make('decision', 2, capture),
+    make('request_lifecycle', 3, {
+      version: 1,
+      phase: 'terminal',
+      outcome: 'success',
+      requestDigest,
+    }),
+    make('accepted_hand', 4, hand),
+  ];
+  const observe = () => {
+    const result = inspectHorseTurnCensus(
+      x.packet,
+      { sourceRelease: source, recordsByHand: [{ handKey: x.packet.hands[0]!.handKey, records }] },
+      { ...api, expectedHorseExecutionAmount }
+    );
+    return sanitizeHorseTurnCensusResult(result).turns[ordinal];
+  };
+  expect(observe()).toMatchObject({
+    selection: 'fallback_worker_action_differs',
+    capture: 'missing',
+    execution: 'missing',
+    inputBinding: 'unknown',
+  });
+  records.push(make('request_lifecycle', 5, admission));
+  expect(observe().selection).toBe('fallback_lineage_ambiguous');
+  records.splice(0, records.length, make('accepted_hand', 4, hand));
+  expect(observe().selection).toBe('fallback_lineage_unavailable');
+});
+it('separates a whole-stack controller promotion from a changed wager', () => {
+  const capture = {
+    snapshot: { player: { stack: 8, bet: 2 } },
+    decision: { action: 'raise', amount: 10 },
+  };
+  const witness = {
+    selected: capture.decision,
+    executedAction: 'all_in',
+    executedAmount: 10,
+    expectedExecutionAmount: 10,
+    executionStatus: 'coerced',
+    acceptedActions: [{ intended: true, record: { action: 'all_in', amount: 10 } }],
+  };
+  expect(censusApi.horseTurnSelection(capture, witness, true)).toBe('whole_stack_all_in');
+  capture.snapshot.player.stack = 9;
+  expect(censusApi.horseTurnSelection(capture, witness, true)).toBe('controller_action_changed');
+  expect(censusApi.horseTurnSelection(capture, witness, false)).toBe('unknown');
 });
 it('retains forced and fallback expected rows when their decision capture is absent', () => {
   const x = census();

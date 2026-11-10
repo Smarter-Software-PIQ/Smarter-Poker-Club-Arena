@@ -183,6 +183,18 @@ describe('a thin opponent row borrows its sibling table size on the pooled publi
     expect(pool.read(request(reader, 2, TABLE, 1000))).toBeNull();
   });
 
+  it('refuses a donor when later observations have displaced its cutoff clock', () => {
+    let now = 100;
+    const pool = new PooledPublicProfiles(() => now);
+    pool.observe(hand(1, 6, TABLE, true));
+    for (let n = 2; n <= 12; n++) {
+      now = 100 + n * 10;
+      pool.observe(hand(n, 3, TABLE, false));
+    }
+    expect(pool.read(request(reader, 3, TABLE, 135))).toBeNull();
+    expect(pool.read(request(reader, 3, TABLE, 150))?.donors[0]?.staleness).toBe(4);
+  });
+
   it("the exact evidence blended with a donor is domain-exact: the horse's own family row is never it", () => {
     // The horse's own row is keyed by card family and table size alone, so
     // nothing proves its variant, mode or speed/ante domain. With no pooled

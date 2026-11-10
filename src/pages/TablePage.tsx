@@ -3041,6 +3041,7 @@ function LiveTablePage({
         if (!p) return null;
         if (!lightningObserver && leftSeatPendingRef.current && p.id === userId) return null;
         let sp = p as unknown as SeatPlayer;
+        if (sp.waitingForButton) return { ...sp, holeCards: undefined, status: 'sitting_out' };
         /* Dan 2026-10-14: an all-in / showdown snapshot carries the hero's
            cards in DEALT order. Keep the row in its display order. */
         if (sp.isHero && sp.holeCards && sp.holeCards.length > 0) {
@@ -17165,6 +17166,9 @@ function LiveTablePage({
                           userId: r.user_id,
                           username: r.username || 'Player',
                           chips: Number(r.chips) || 0,
+                          avatar: tableStateRef.current.players.find(
+                            (seat) => seat?.id === r.user_id
+                          )?.avatar,
                         });
                         masterBus.emit('HEADS_UP_SWITCH', {
                           tournamentId: tid,
@@ -29917,15 +29921,17 @@ function LiveTablePage({
                      to post on the next deal is in neither of the other two,
                      so that window still read SITTING OUT. */
                   entryWait={
-                    !displayPlayer?.id || tableState.isTournament
-                      ? null
-                      : (tableState.postBBDeferredUserIds ?? []).includes(displayPlayer.id) ||
-                          (tableState.postingBBUserIds ?? []).includes(displayPlayer.id) ||
-                          (displayPlayer.isHero && bbPostAgreed)
-                        ? 'posting_bb'
-                        : (tableState.waitingForBBUserIds ?? []).includes(displayPlayer.id)
-                          ? 'waiting_for_bb'
-                          : null
+                    displayPlayer?.waitingForButton
+                      ? 'waiting_for_button'
+                      : !displayPlayer?.id || tableState.isTournament
+                        ? null
+                        : (tableState.postBBDeferredUserIds ?? []).includes(displayPlayer.id) ||
+                            (tableState.postingBBUserIds ?? []).includes(displayPlayer.id) ||
+                            (displayPlayer.isHero && bbPostAgreed)
+                          ? 'posting_bb'
+                          : (tableState.waitingForBBUserIds ?? []).includes(displayPlayer.id)
+                            ? 'waiting_for_bb'
+                            : null
                   }
                   /* Dan 2026-08-18: only the hero can mark their own cards. */
                   showPickedCardIndexes={displayPlayer?.isHero ? shownCardIndexes : undefined}

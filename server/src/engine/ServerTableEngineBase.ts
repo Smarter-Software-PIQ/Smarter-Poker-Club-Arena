@@ -419,6 +419,7 @@ export abstract class ServerTableEngineBase {
     const capturedAt = Date.now();
     return {
       fields,
+      waitingForButton: Array.from(this.waitingForButton),
       capturedAt,
       disconnectStates: this.disconnectEngine.getFsmStatesForTable(this.tableId),
       timeBankMeta: structuredClone(this.timeBankMeta),
@@ -912,7 +913,11 @@ export abstract class ServerTableEngineBase {
   protected dealtInUserIds: Set<string> = new Set();
   protected previousHandOccupants = new Map<number, string>();
 
+  // Snapshot reason for the current deal. The button anchors advance once a hand starts.
+  protected waitingForButton = new Map<number, string>();
+
   protected admitMovedSeats(candidates: SeatedPlayer[]): SeatedPlayer[] {
+    this.waitingForButton.clear();
     const button = this.lastButtonSeat;
     const bb = this.lastBigBlindSeat;
     if (candidates.length <= 2 || button <= 0 || bb <= 0 || button === bb) return candidates;
@@ -920,10 +925,11 @@ export abstract class ServerTableEngineBase {
       const seat = p.seat_number;
       const between = button < bb ? seat > button && seat <= bb : seat > button || seat <= bb;
       if (!between) return true;
-      if (!this.isTournamentTable()) return p.entry_hold !== 'moved';
-      return (
-        this.previousHandOccupants.size === 0 || this.previousHandOccupants.get(seat) === p.user_id
-      );
+      const held = this.isTournamentTable()
+        ? this.previousHandOccupants.size > 0 && this.previousHandOccupants.get(seat) !== p.user_id
+        : p.entry_hold === 'moved';
+      if (held) this.waitingForButton.set(seat, p.user_id);
+      return !held;
     });
   }
 
@@ -1134,6 +1140,19 @@ export abstract class ServerTableEngineBase {
   // If a player wins a pot and their stack + add-on exceeds max buy-in,
   // the add-on is reduced or canceled. Map<userId, requestedAmount>.
   protected pendingAddOns: Map<string, number> = new Map();
+  /**
+   * Between-hands direct top-ups that write table_seats.stack (2026-11-09).
+   * Settlement reads the committed stacks beside the post-commit envelope and
+   * uses that read only when no such top-up overlapped it (one in flight when
+   * it was sent, or one started after); otherwise it reads again after the
+   * envelope, as before. Process-local; no money or row depends on it.
+   */
+  protected directSeatCreditsInFlight = 0;
+  protected directSeatCreditEpoch = 0;
+  /** This engine applied the table's last post-commit envelope itself. */
+  protected envelopeChainApplied = false;
+  /** A cash hand's recount, still running after the next deal (Settlement step 15). */
+  protected tableUnlockTail: Promise<void> | null = null;
   /**
    * ═══════════════════════════════════════════════════════════════════════
    *  MID-HAND DIAMOND TOP-UPS ARE AN INTENT, NOT A DEBIT

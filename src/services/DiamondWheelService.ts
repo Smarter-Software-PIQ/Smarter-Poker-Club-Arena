@@ -1011,13 +1011,17 @@ function normaliseWelcomeState(raw: Record<string, unknown>): WheelWelcomeState 
 }
 
 const DiamondWheelService = {
-  async claimChipPrize(clubId: string, key: string): Promise<void> {
+  async claimChipPrize(clubId: string, key: string): Promise<string> {
     const { data, error } = await supabase.rpc('fn_wheel_claim_chip_prize', {
       p_club_id: clubId,
       p_key: key,
     });
     if (error) throw error;
-    if (data?.paid !== true) throw new Error(data?.error || 'Your Prize Is Still Reserved');
+    if (data?.ok !== true || data.paid !== true)
+      throw new Error(data?.error || 'Your Prize Is Still Reserved');
+    if (typeof data.chips !== 'string' || !/^\d+(?:\.\d+)?$/.test(data.chips))
+      throw new Error('The Paid Chip Amount Could Not Be Read');
+    return data.chips;
   },
   /** An explicit inactive contract permits legacy play; an unreadable one never does. */
   async getStateV2(clubId: string, entryDiamonds = 100): Promise<WheelState> {

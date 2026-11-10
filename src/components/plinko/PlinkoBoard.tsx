@@ -225,6 +225,8 @@ export interface PlinkoBoardProps {
   path: number[] | null;
   dropKey: number;
   batchPathBits?: number[] | null;
+  batchLandedTotals?: number[];
+  batchStart?: number;
   onProgress?: (landed: number) => void;
   restingSlot: number | null;
   onLanded?: () => void;
@@ -459,7 +461,12 @@ export default function PlinkoBoard(props: PlinkoBoardProps) {
       if (hitBig[index]) clinkBig = true;
     };
     const writeTally = (count: number, total: number) => {
-      if (tally.current) tally.current.textContent = tallyLine(count, total, bestCents);
+      if (tally.current)
+        tally.current.textContent = tallyLine(
+          count,
+          total,
+          latest.current.batchLandedTotals ? -1 : bestCents
+        );
     };
     // Every display frame while diamonds fall or a landing plays, about 30 a
     // second between drops, nothing at all once parked (framePacer.ts).
@@ -600,7 +607,10 @@ export default function PlinkoBoard(props: PlinkoBoardProps) {
         if (reported !== finished) {
           reported = finished;
           pendingProgress = finished;
-          writeTally(finished, count);
+          writeTally(
+            p.batchLandedTotals?.[finished - 1] ?? p.batchStart ?? finished,
+            p.batchLandedTotals?.[count - 1] ?? count
+          );
         }
         if (finished === count) {
           landed = true;
