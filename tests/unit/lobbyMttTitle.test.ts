@@ -105,10 +105,10 @@ describe('formatClock', () => {
 
 describe('mttTitleLine — line 1 is name AND variation', () => {
   it('leaves a name that already carries the variation alone', () => {
-    expect(mttTitleLine(entry({ name: 'Late Night Grind (NLH)' }))).toBe('Late Night Grind (NLH)');
+    expect(mttTitleLine(entry({ name: 'Late Night Grind (NLH)' }))).toBe('Late Night Grind');
   });
   it('appends the variation when the name lacks it', () => {
-    expect(mttTitleLine(entry({ name: 'Midnight Special' }))).toBe('Midnight Special (NLH)');
+    expect(mttTitleLine(entry({ name: 'Midnight Special' }))).toBe('Midnight Special');
   });
 });
 
@@ -304,4 +304,14 @@ describe('the lobby stylesheet and table (shipped invariants)', () => {
   it("the ALL tab's cost column is titled just Stakes", () => {
     expect(TSX).not.toContain("'Stakes / Buy-In'");
   });
+});
+
+it.each([
+  ['40 Chip Bounty Freezeout - 2.5K GTD (NLH)', '40 Chip Bounty'],
+  ['25 Chip Mystery Bounty - 1K GTD (PLO4)', '25 Chip Mystery Bounty'],
+  ['Satellite Into 40 Chip Freezeout', 'Satellite Into 40 Chip Freezeout'],
+  ['Prime Time Free Buy (NLH)', 'Prime Time Free Buy'],
+  ['Progressive Knockout - 1K GTD (NLH) - Table 2', 'Progressive Knockout - Table 2'],
+])('shows a compact event identity for %s', (name, expected) => {
+  expect(mttTitleLine(entry({ name }))).toBe(expected);
 });

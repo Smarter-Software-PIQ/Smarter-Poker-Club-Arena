@@ -169,7 +169,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { TableRouteBoundary } from '../components/table/TableRouteBoundary';
 import { hubMarketplaceDestination } from '../utils/hubMarketplace';
 import { cachedAuthUserId, hydrateIdentity, persistIdentity } from '../lib/cachedIdentity';
-import { formatGameTitle } from '../utils/formatGameTitle';
+import { formatGameTitle, formatTournamentTitle } from '../utils/formatGameTitle';
 import { customCashGameName } from '../utils/customCashGameName';
 import { tournamentTabBuyInLabel } from '../lib/tournamentTabLabel';
 import {
@@ -2714,7 +2714,9 @@ function LiveTablePage({
      the tab says "NLH 0.25/0.50" instead of a table UUID. */
   useTableEnvironment(tableId, pageRootRef, {
     isActive,
-    displayName: tableState.tableName,
+    displayName: tableState.isTournament
+      ? formatTournamentTitle(tableState.tableName)
+      : tableState.tableName,
   });
 
   // REST fetch for initial seats while WS connects (3-5s speedup)
@@ -15733,7 +15735,7 @@ function LiveTablePage({
               Math.round(Number(tournData.buy_in_amount ?? 0) + Number(tournData.buy_in_fee ?? 0))
             );
             setTournamentEventName(
-              formatGameTitle(String((tournData as { name?: unknown }).name ?? '').trim())
+              formatTournamentTitle(String((tournData as { name?: unknown }).name ?? '').trim())
             );
             setTournamentTypeLine(
               fmt === 'mtt' ? tournamentTypeLabel(tournData as Record<string, unknown>) : null
@@ -27957,7 +27959,11 @@ function LiveTablePage({
         <div className="header-center">
           <div className="header-center__top-row">
             {tableState.tableName && (
-              <span className="header-table-name">{tableState.tableName}</span>
+              <span className="header-table-name">
+                {tableState.isTournament
+                  ? formatTournamentTitle(tableState.tableName)
+                  : tableState.tableName}
+              </span>
             )}
             <span className="header-game-type">
               {tableState.gameType ? getGameVariantLabel(tableState.gameType) : ''}

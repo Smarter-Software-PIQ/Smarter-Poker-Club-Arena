@@ -1,3 +1,4 @@
+import { formatTournamentTitle } from '../../utils/formatGameTitle';
 import { displayTotalPool, tournamentEntryDescription } from '../../utils/tournamentPrizeFunding';
 import {
   markTournamentEntered,
@@ -2175,7 +2176,7 @@ export default function TournamentDetails({
             {tournament.guaranteed_prize && tournament.guaranteed_prize > 0
               ? `${chipsCompact(tournament.guaranteed_prize)} GTD `
               : ''}
-            {tournament.name}
+            {formatTournamentTitle(tournament.name)}
           </h1>
           <div className="tournament-desc">
             {/* Whole chips only (Dan 2026-08-20) - formatBuyIn leads with the
@@ -2293,7 +2294,7 @@ export default function TournamentDetails({
       {tournament.status === 'RUNNING' && tournamentId && (
         <FinalTableOverlay
           tournamentId={tournamentId}
-          tournamentName={tournament.name || 'Tournament'}
+          tournamentName={formatTournamentTitle(tournament.name) || 'Tournament'}
           prizePool={displayTotalPool(tournament.prize_pool, null, tournament.bounty_pool)}
           /* The pool's unit, off the arena this row was read with - the same
              reading every tab on this page prices through (2026-09-21). */
