@@ -315,6 +315,7 @@ export interface TableInfo {
 }
 
 export interface SeatedPlayer {
+  entry_hold?: string | null;
   /** Required by the dealt-hand boundary; preserved from the authoritative roster read. */
   seat_id?: string;
   seat_joined_at?: string;
