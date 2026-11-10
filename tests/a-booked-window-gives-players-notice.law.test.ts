@@ -171,10 +171,12 @@ it('preserves the original notice until expiry before showing the separate succe
   expect(successor?.noticeAtMs).toBe(Date.parse('2026-11-10T04:50:37.347Z'));
   expect(successor?.notBeforeMs).toBe(Date.parse('2026-11-10T05:10:38Z'));
   expect(successor?.notAfterMs).toBe(Date.parse('2026-11-10T06:30:00Z'));
-  const next = bookedMaintenanceNotice(Date.parse('2026-11-10T06:30:00Z'));
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-10T06:30:00Z'))).toBeNull();
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-10T08:29:59.999Z'))).toBeNull();
+  const next = bookedMaintenanceNotice(Date.parse('2026-11-10T08:30:00Z'));
   expect(next?.id).toBe('2026-11-10-owner-asap-engine-0650z');
-  expect(next?.noticeAtMs).toBe(Date.parse('2026-11-10T06:30:00Z'));
-  expect(next?.notBeforeMs).toBe(Date.parse('2026-11-10T06:50:00Z'));
-  expect(next?.notAfterMs).toBe(Date.parse('2026-11-10T08:30:00Z'));
-  expect(bookedMaintenanceNotice(Date.parse('2026-11-10T08:30:00Z'))).toBeNull();
+  expect(next?.noticeAtMs).toBe(Date.parse('2026-11-10T08:30:00Z'));
+  expect(next?.notBeforeMs).toBe(Date.parse('2026-11-10T08:50:00Z'));
+  expect(next?.notAfterMs).toBe(Date.parse('2026-11-10T10:30:00Z'));
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-10T10:30:00Z'))).toBeNull();
 });
