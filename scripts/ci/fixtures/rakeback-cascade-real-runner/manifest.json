@@ -1,0 +1,3951 @@
+{
+  "fixture_files_md5": {
+    "clock.sql": "7f586f9e95ee34e0891c61f42909254e",
+    "production-config.json": "c26b101be32bf56f69fef702197346e9",
+    "production-functions.json": "bfedb6376584c4b15d5c4d7d6fe7ab18",
+    "production-relations.json": "efa246e10dc6c4f3cbfb2549893629f9"
+  },
+  "foreign_keys_dropped": 257,
+  "functions": {
+    "public.apply_rakeback_player_stats(p_rake_record_id uuid, p_user_id uuid, p_club_id uuid, p_hands integer, p_rake numeric)": "1519023c9ec579568a347b6088c898ec",
+    "public.ca_refresh_reporting_cash_rollup(p_start date, p_end date)": "8350d1342c6fbeebfd5ab6faf6d7497d",
+    "public.ca_refresh_reporting_rollups(p_start date, p_end date)": "e7f0794793a8f7516731da27ebe20fee",
+    "public.ca_refresh_reporting_rollups_base(p_start date, p_end date)": "4a54ed1c61558ccbcaa0f23aeda3dfd6",
+    "public.enforce_chip_ledger_performed_by()": "ed92ea331aeddaffca0ae46a7f6801ea",
+    "public.fn_accounting_agent_terms_at(p_club_id uuid, p_user_id uuid, p_at timestamp with time zone)": "727b249d33b322b1fc85b4c3437e37de",
+    "public.fn_accounting_agreement_capture()": "746fab25cd56f6ad761325e7c0d525d5",
+    "public.fn_accounting_agreement_history_immutable()": "3fa4099435ff1e9d5c48fa1934b63549",
+    "public.fn_accounting_agreement_terms(p_entity_type text, p_row jsonb)": "cbdfa5ee62c71e62a03560c09bf526bd",
+    "public.fn_accounting_cash_batch_is_placed_in_time()": "b6266bab230995172bf12926854fcacd",
+    "public.fn_accounting_cash_commission_plan(p_rake_record_id uuid)": "d0d8183bca67b319cdc595db8f0f9870",
+    "public.fn_accounting_cash_commission_source_guard()": "f6bb6de73cb43d54a42dbc31caab4a3b",
+    "public.fn_accounting_cash_source_matches_its_batch()": "f7bdcfd619f7a6dfd9952cee175b2c4e",
+    "public.fn_accounting_close_certificate(p_kind text, p_union_id uuid, p_start timestamp with time zone, p_end timestamp with time zone)": "7b4a5f4572a45db069b6058899614021",
+    "public.fn_accounting_close_certify(p_kind text, p_union_id uuid, p_start timestamp with time zone, p_end timestamp with time zone, p_value jsonb)": "58501728a93f9f4534dbf26d26aba63f",
+    "public.fn_accounting_close_problem(p_kind text, p_union_id uuid, p_start timestamp with time zone, p_end timestamp with time zone)": "9667c8b8c5aa74bf2ad2c57fbfa3991d",
+    "public.fn_accounting_close_proof_lifetime()": "80e026be0041fd1bdb04114c87ec368c",
+    "public.fn_accounting_close_warm_stop()": "e00f2396197ac40bd8d3d6af48872540",
+    "public.fn_accounting_close_windows(p_start timestamp with time zone, p_end timestamp with time zone)": "349f940293dfe6175faae2787840ede1",
+    "public.fn_accounting_close_windows_advance_due()": "701d0c2c2bed0549ad3789e4a8923aa6",
+    "public.fn_accounting_close_windows_pending(p_union_id uuid, p_club_id uuid, p_period_start timestamp with time zone, p_period_end timestamp with time zone)": "826742c9bddfd39892524232c9438e61",
+    "public.fn_accounting_clubs_scope_digest()": "a03f99fbe26eb65d7f7b8e6b1730bca0",
+    "public.fn_accounting_commit_horizon()": "0a9f158b134f958dc6371d7e947301cf",
+    "public.fn_accounting_correction_assert_delivery(p_document_id uuid)": "9b2d615bbd9ffdffccbf17da89ad6d54",
+    "public.fn_accounting_correction_contract(p_invoice_id uuid)": "cd748306fdfa5cfb207b8a3ee9e139d6",
+    "public.fn_accounting_correction_document_body(p_document_id uuid, p_invoice_number text)": "5a8259385cfdec75596fd228a94a77ff",
+    "public.fn_accounting_correction_is_unverified(p_invoice_id uuid)": "c199422b447ff87c8438e21f065111af",
+    "public.fn_accounting_correction_payload(d accounting_correction_documents)": "2302d21794d2be89dab77ed35462b970",
+    "public.fn_accounting_correction_prepare(p_ledger_id uuid)": "ad480c3174ab26d6761c4a49d2d6e006",
+    "public.fn_accounting_credit_change_body_v1(p_document_id uuid, p_invoice_number text)": "7e4bd343c3e3d696ec0bc7f615e8dd64",
+    "public.fn_accounting_credit_change_contract_v1(p_invoice_id uuid)": "7d9c613ef06964a57539033fabf8e454",
+    "public.fn_accounting_credit_change_payload_v1(p_document_id uuid)": "901112ea7a8aa8c7f18121bede3dc497",
+    "public.fn_accounting_document_immutable()": "8ec25e2d39e02451020b5ce8e9ec5a1b",
+    "public.fn_accounting_earning_contract(p_club_id uuid, p_player_id uuid, p_rake numeric, p_game_union_id uuid, p_terms_at timestamp with time zone)": "62bd1db4a493c3f86ca90f32eaca456a",
+    "public.fn_accounting_invoice_deliver_on_insert()": "4fb74e8fcf5caa0294c55deeefbbc6b3",
+    "public.fn_accounting_invoice_party_users(p_kind text, p_id uuid)": "415fb20fcbac87a99e480e90b0ae4ea7",
+    "public.fn_accounting_mixed_cutover_spin_proof_valid(p_rake_record_id uuid)": "f660a8b47bf88a86f2e236a4794ed4e6",
+    "public.fn_accounting_next_invoice_number()": "dcb7a6315174e984f767268d04cfdb8b",
+    "public.fn_accounting_owner_direct_fee_proof_valid(p_rake_record_id uuid)": "09d89e47325477bb2da91763f8cc7f74",
+    "public.fn_accounting_party_users(p_kind text, p_id uuid)": "dd8941d9caba28d258313dfdb0499c82",
+    "public.fn_accounting_terms_at(p_entity_type text, p_entity_key text, p_at timestamp with time zone)": "3752cf9b57688dab0bf32acd2b43e3a3",
+    "public.fn_accounting_tournament_commission_source_guard()": "a27f5faacd2c469df32f4b5e9692113c",
+    "public.fn_accounting_tournament_fee_fingerprint(p_row rake_records)": "89523554d8b64da3e73f8d82f9f9acbd",
+    "public.fn_accounting_tournament_fee_net_plan(p_tournament_id uuid)": "7946b732f1d66adb7b746a6e8ef80f0f",
+    "public.fn_accounting_tournament_owner_basis_terms_at(p_tournament_id uuid, p_charged_at timestamp with time zone, p_contract jsonb)": "bc3aea770a35ea4897d5ac195b86f532",
+    "public.fn_accounting_tournament_recognized_evidence_immutable()": "a5a71f9b0ba989721663a85cbb407ea9",
+    "public.fn_accounting_tournament_source_terms_at(p_tournament_id uuid, p_charged_at timestamp with time zone, p_contract jsonb)": "06a81c3ebb5a1292090ea96d267c9bb7",
+    "public.fn_accounting_tournament_week_quality(p_club_id uuid, p_from timestamp with time zone, p_to timestamp with time zone)": "c9e08ef6460bc1b9d27af7339f3c42cc",
+    "public.fn_accounting_transfer_document_on_insert()": "164aae2fca35c964331ed8aecd225411",
+    "public.fn_accounting_union_earned_plan(p_union_id uuid, p_start timestamp with time zone, p_end timestamp with time zone)": "420996ce67179bc3f4ddf449fefc42e2",
+    "public.fn_accounting_union_earned_plan_advance(p_union_id uuid, p_start timestamp with time zone, p_end timestamp with time zone)": "4b5bc9cae04ce0f98ce56381b7dd524f",
+    "public.fn_accounting_union_earned_plan_combine(p_union_id uuid, p_start timestamp with time zone, p_end timestamp with time zone)": "79ea1825fc78b42b0928bac70b5ac4f6",
+    "public.fn_accounting_union_earned_plan_sets(p_union_id uuid, p_start timestamp with time zone, p_end timestamp with time zone)": "dce90bd407404e6bf8e135874b7b9209",
+    "public.fn_accounting_union_earned_plan_v3(p_union_id uuid, p_start timestamp with time zone, p_end timestamp with time zone)": "e42fa0ee1e5d6ce48ad27ed79ed9ed53",
+    "public.fn_accounting_union_earned_plan_window(p_union_id uuid, p_start timestamp with time zone, p_end timestamp with time zone)": "737ffac96388517d170c9962174f0222",
+    "public.fn_accounting_union_eco_capture()": "ad0313532d2fac77c0b33444f0e36782",
+    "public.fn_accounting_week_clubs(p_union_id uuid, p_club_id uuid, p_from timestamp with time zone, p_to timestamp with time zone)": "e5ec460a159bfb46735d99be1a0738a3",
+    "public.fn_accrue_cash_hand_commissions(p_hand_id uuid)": "4aa221bbfd11da75209271697b3f95a0",
+    "public.fn_active_maintenance_release_boundary()": "05b537b57c9f51a5164e20a1cd0e67e0",
+    "public.fn_admin_holds_no_player_wallet()": "3c54c86c548917606c846febfadf704b",
+    "public.fn_admin_update_agent(p_agent_id uuid, p_status text, p_role text, p_credit_limit numeric, p_commission_rate numeric, p_player_rakeback_rate numeric, p_assigned_by uuid, p_credit_reason text, p_is_prepaid boolean)": "74121bfa795ab12fe2c1cd8ecc0790db",
+    "public.fn_agent_claim_commission(p_club_id uuid, p_op_id uuid, p_max_rows integer)": "893790b01f2108772bddb6912ce5db3b",
+    "public.fn_agent_commission_paid_by_period(p_club_id uuid, p_user_id uuid, p_created_at timestamp with time zone)": "bf3d7279f773b121cb8704ffc7e4b057",
+    "public.fn_agent_commission_rollup_recompute(p_pairs jsonb)": "53ee6c18fe657b488c50feb092cf8331",
+    "public.fn_agent_credit_control_revision_v1()": "5ec011a69c2c9e9bc5c2da28f226ba25",
+    "public.fn_agent_default_prepaid()": "ab764c788f16650da4b2fc6df2d2a0a7",
+    "public.fn_agent_set_player_rakeback(p_club_id uuid, p_rate numeric)": "9a02b730f24e7c038f371dfc4d260cda",
+    "public.fn_agent_wallet_send_core_20260830(p_club_id uuid, p_to_user_id uuid, p_amount numeric, p_destination text, p_reason text, p_op_id uuid)": "1ee7dc270ba19bf1b6a4a894900d9b38",
+    "public.fn_agents_staff_earn_no_rakeback()": "17346b77ec8f5a1d6d42dca3eb06e061",
+    "public.fn_apply_club_ladder(p_club_id uuid)": "8d86d9cd53f0deede1f375f0b90d51e3",
+    "public.fn_apply_union_ladder(p_union_id uuid)": "f89ed554327651823c3abad9a6969811",
+    "public.fn_audit_actor_role(p_club_id uuid, p_actor uuid)": "9a3d78a571e7c12ebeb9168ea8bc1e69",
+    "public.fn_audit_club_delete()": "b9f9486d42050e7517e506f655438bb9",
+    "public.fn_audit_club_entry_mutation()": "551c99f71d70848ef8115bbcfb5b7c71",
+    "public.fn_audit_club_member_change()": "06515aa426034c1174450e2dc37204ef",
+    "public.fn_audit_club_settings_change()": "5403c57f2dbe265c8fd185c924e2eb14",
+    "public.fn_bank_standalone_week_rake(p_club_id uuid, p_period_start timestamp with time zone, p_period_end timestamp with time zone)": "b1f78d08489b0609db3bf4c354fa5b36",
+    "public.fn_batch_union_realtime_member_counts(p_union_ids uuid[])": "0a1293119a48dafffe65085e2eaafb63",
+    "public.fn_bbj_default_mini_floor()": "334f1f7d7c59a33d616c0515bdb90e9b",
+    "public.fn_bbj_parked_reserve(p_pool_id uuid, p_bank text)": "0422448da8762dedc060b3e1ddc9857d",
+    "public.fn_block_browser_balance_inserts()": "88e61c03b82bedcdc67113f795355d4a",
+    "public.fn_block_browser_balance_writes()": "c7390598f411e7d6bc4b8daf00e12c6e",
+    "public.fn_bomb_pot_ledger_gaps(p_since interval, p_grace interval, p_epoch timestamp with time zone)": "46248abed27a7f366a4ae76cfe439dfc",
+    "public.fn_ca_agent_payables(p_club_id uuid)": "5b86542b4686a504209767ac9a70e1e8",
+    "public.fn_ca_assert_player_action(p_user_id uuid, p_scope text, p_source text)": "1f5e930010ce5204e5407001268bd880",
+    "public.fn_ca_attested_day_is_restated()": "268e0f244b2df7f88b933530b1cad822",
+    "public.fn_ca_autoledger()": "ceb53c916648f025bdae6fe0e03e5e8b",
+    "public.fn_ca_autoledger_delete()": "c6d7e02df8b654fbccc3e8844418bd01",
+    "public.fn_ca_balance_has_its_ledger_row()": "2df7b3f67e95b8a6c0abe7ba3faff63c",
+    "public.fn_ca_block_browser_money_table()": "c894814808498e86ac14d59924cfa145",
+    "public.fn_ca_capture_tournament_charge_entitlement()": "d18629d96b3f5e3b5d6826c2bf309ac4",
+    "public.fn_ca_capture_tournament_credit_ledger()": "81b1abbedb544e2fca0f8edec7d27cae",
+    "public.fn_ca_cash_reporting_club(p_union uuid, p_table_club uuid, p_user uuid)": "5818a1b694022ba61f7663848952065b",
+    "public.fn_ca_cash_seat_club(p_table uuid, p_user uuid)": "148f2246fc0ee3ab11cd86456765e419",
+    "public.fn_ca_cash_table_reporting_club(p_union uuid, p_table_club uuid, p_user uuid, p_table uuid)": "465a55122c0e7a0570c0271de4ec663d",
+    "public.fn_ca_chicago_day(p_at timestamp with time zone)": "10db06562a292b2ec59974712da8fdef",
+    "public.fn_ca_chip_ledger_enrich()": "5931f47d922eea26ab1ea2b12f3f7c8c",
+    "public.fn_ca_chip_store_declared()": "d5b08956826e56a0d414db4bfd022d3b",
+    "public.fn_ca_club_data_ct_live_from()": "f63c2949045dc9a7ff902da0d25f0ac0",
+    "public.fn_ca_club_data_fact_live_from()": "8a9bffd7d3bb5c2e1aceea236ae21d97",
+    "public.fn_ca_club_data_fact_put(p_club uuid, p_day date, p_kind text, p_game uuid, p_user uuid, p_fee numeric, p_buyins numeric, p_cashouts numeric, p_winnings numeric, p_at timestamp with time zone)": "319564fc56bc1433848a2b2f88fa2006",
+    "public.fn_ca_club_data_facts_from()": "0aad50ac6f07ce75ce8efd659ac27d94",
+    "public.fn_ca_club_gets_a_baseline()": "9e234dd984e7c47d448a33aae2292938",
+    "public.fn_ca_current_epoch()": "6a803a80ab2b368acdbded9435112f98",
+    "public.fn_ca_declare_ledger(p_category text, p_counterparty text, p_counterparty_entity uuid, p_settlement_id uuid, p_idempotency_key text, p_autoskip_tables text[])": "2eb458ce27b0116d2f7ad4603ca719dd",
+    "public.fn_ca_deleted_wallet_bank_return(p_club uuid, p_user uuid, p_source text)": "b1938403621af2397590c6ce004faf3b",
+    "public.fn_ca_deleted_wallet_credit()": "38381e35aa9804fb1e109c20855e4854",
+    "public.fn_ca_diamond_incident(p_rule text, p_severity text, p_user_id uuid, p_amount numeric, p_writer text, p_detail jsonb)": "184127186e82dcfecd7d0dac92310fab",
+    "public.fn_ca_escrow_apply(p_tournament_id uuid, p_what text, p_gross_in numeric, p_fee_entries_in numeric, p_satellite_fee_in numeric, p_bounty_in numeric, p_overlay_in numeric, p_satellite_in numeric, p_prize_out numeric, p_bounty_out numeric, p_fee_out numeric, p_refund numeric, p_reserve_out numeric, p_reserve_in numeric)": "c6c26c25ab8a8b1222d375c7d6df0d2f",
+    "public.fn_ca_escrow_apply_exact_refund(p_tournament_id uuid, p_what text, p_refund_prize numeric, p_refund_bounty numeric, p_refund_fee numeric)": "2d76b04e7ed4feda16b6e9420d7c00cd",
+    "public.fn_ca_escrow_can_pay(p_tournament_id uuid, p_kind text, p_amount numeric)": "44534508da577df94a34d2055e99b1d6",
+    "public.fn_ca_escrow_on_overlay_leg()": "1b916fb576271d94c481099c11ca8b93",
+    "public.fn_ca_escrow_on_reserve_leg()": "0d7f735d58aadeb6fe03e9daf5e21a92",
+    "public.fn_ca_escrow_on_seat_transfer_leg()": "e9c56f9c21635b21c7cf0d456eb18b8a",
+    "public.fn_ca_escrow_on_wallet_tx()": "ff49b681d06f7d9ca57e846ae4578acb",
+    "public.fn_ca_felt_counts_table(p_table uuid)": "f927a7f671c765112799d5e36bd552ba",
+    "public.fn_ca_finding_key(p_dedupe_key text, p_classification text, p_layer text, p_club_id uuid, p_union_id uuid)": "62efa65ca1a66494427aead9edc28c5b",
+    "public.fn_ca_fund_club(p_club_id uuid, p_amount numeric, p_reason text, p_idempotency_key text)": "d5ba21370956aeef876a130f26ff08f8",
+    "public.fn_ca_funded_chip_return_journal()": "83a1c235e73e3544707aed186c9e1541",
+    "public.fn_ca_has_committed_tournament_receipt(p_tournament_id uuid)": "9158c2424a5ae75e3ca9fcdb13339d12",
+    "public.fn_ca_horse_assigned_club(p_horse uuid)": "29b860def017b65c1430a93fcb24abb5",
+    "public.fn_ca_horse_club_refusal(p_horse uuid, p_host uuid, p_wallet uuid, p_membership boolean)": "77463789e69d8ee4e323e950f7c924f2",
+    "public.fn_ca_horse_split_phase()": "a920620ca7b2436b37942bdf7ddbc521",
+    "public.fn_ca_horse_split_return_late_credit()": "b4d29a312a1d98b8a1b9c9ef7d0bb19b",
+    "public.fn_ca_house_board_allows_automation(p_club_id uuid)": "a95046f6df38e34b5650f7e762b12c8f",
+    "public.fn_ca_incident_notify(p_incident_id uuid, p_kind text, p_headline text, p_senior_only boolean)": "0abfd723b4d2e129d5038e6b849c6288",
+    "public.fn_ca_incident_recipient_ids(p_incident ca_drift_incidents, p_senior_only boolean)": "c4db682ce0dea4c63265dab3d97b83ff",
+    "public.fn_ca_is_cert_account(p_user_id uuid)": "fc72ec9fdc035fb51d052eefa9308e74",
+    "public.fn_ca_is_fixture_account(p_user_id uuid)": "e848c01dd4b6c7a3ad1f93ea66b645ee",
+    "public.fn_ca_is_midway_scope(p_union_id uuid, p_club_id uuid, p_table_id uuid, p_tournament_id uuid, p_metadata jsonb)": "a5a8bb3048872ea4c8acf58f1f64390d",
+    "public.fn_ca_is_protected_cluster()": "86373211d46df13c712106136ce2d8ca",
+    "public.fn_ca_issuance_leg_is_registered()": "164b9494b161bca655a313a9a4adfd93",
+    "public.fn_ca_journal_append_only()": "ac9d66e60d077d886981c428c71e5c3c",
+    "public.fn_ca_kill_switch_trip(p_detector text, p_amount numeric, p_detail text)": "b3e5add18f798d95cff8b8d576ebdcf4",
+    "public.fn_ca_launch_accounting_accepts(p_club_id uuid, p_earned_at timestamp with time zone)": "0f902b31908c9b6634635c1fab7363c4",
+    "public.fn_ca_launch_accounting_actor(p_club_id uuid)": "865343ac328dce4459573e2a5527cea5",
+    "public.fn_ca_launch_accounting_club_cutoffs()": "e1d1b8650141fe35df5bf5c0a66dcaed",
+    "public.fn_ca_launch_accounting_cutoff(p_kind text, p_id uuid)": "cc3063873cf25be4b70e7cc893617c37",
+    "public.fn_ca_launch_accounting_invoice_transition(p_old jsonb, p_new jsonb)": "d4e00efdb5795e1bd98e7ca20dcb48aa",
+    "public.fn_ca_launch_accounting_start(p_kind text, p_id uuid, p_start timestamp with time zone)": "c358dd81a0086d32e53e29155b9b1c32",
+    "public.fn_ca_launch_accounting_waived(p_kind text, p_id uuid, p_end timestamp with time zone)": "611c553556e3acaaa341dc790a2c1b29",
+    "public.fn_ca_launch_closing_leg_guard()": "cd0ed08f29a45782c3458f14d0610c1f",
+    "public.fn_ca_launch_is_internal_transfer(p_leg uuid)": "73da8a517ea5cb0c4c1673da8b014b70",
+    "public.fn_ca_launch_is_retirement_reversal(p_leg uuid)": "bb23de741f70b08bf78ff71d77e35391",
+    "public.fn_ca_launch_opening_authorized(p_key text, p_asset text, p_destination text, p_target uuid, p_amount numeric)": "222df1e2c01eb66bf0ddf4a71387ea6c",
+    "public.fn_ca_launch_rakeback_period_waived(p_id uuid)": "fbd19ea9e600c43effef72dae3cd2283",
+    "public.fn_ca_launch_reporting_fee_credit(p_club uuid, p_record uuid, p_at timestamp with time zone, p_metadata jsonb, p_amount numeric, p_legacy numeric)": "e14be90e024438725f6056aef9456e21",
+    "public.fn_ca_launch_reporting_wallet_accepts(p_club uuid, p_at timestamp with time zone, p_category text, p_tournament uuid, p_user uuid)": "f674319280f18d74bc748d8a6c0cf8bb",
+    "public.fn_ca_ledger_day_manifest(p_day date, p_restate_reason text)": "6c469f924c5d5d94976318014edb9f97",
+    "public.fn_ca_ledger_declaration_restore(p_saved jsonb)": "ead8093832ebe1845217bbe91ba81361",
+    "public.fn_ca_ledger_declaration_save(p_autoskip_tables text[])": "a11c4a4d59384037d4fdc62a1c9ba899",
+    "public.fn_ca_ledger_invariant_refusal_census()": "2cb3f0746e866e007b4503163a8e9579",
+    "public.fn_ca_ledger_leg_club(p_user uuid, p_amount numeric, p_type text, p_at timestamp with time zone, p_table uuid)": "c57a1b6f6afd3e981dda74745b823a7f",
+    "public.fn_ca_ledger_refusal_file(p_refusal jsonb)": "ba7be97ec69f5885cbfe469b2b936210",
+    "public.fn_ca_ledger_refusal_raise(p_id bigint)": "7e171973a2ce1c8a320c15b085ad9d3f",
+    "public.fn_ca_ledger_refusal_record(p_refusal jsonb)": "fdf30f6d74bd36520ea4d2225a3500a5",
+    "public.fn_ca_ledger_tally_add(p_key text, p_side text, p_delta numeric)": "03b49d93d25551e4e74dedbb5dc7c08e",
+    "public.fn_ca_ledger_tally_key(p_type text, p_entity uuid, p_club uuid)": "ff30c09043719389496193946bbec15e",
+    "public.fn_ca_legacy_fee_custody_cohort(p_tournament_id uuid)": "1a0321e70d38708ff96db5fd6ebe0067",
+    "public.fn_ca_legacy_fee_resolution_write_is_exact(p_table text, p_operation text, p_old jsonb, p_new jsonb)": "0a123d50d4bd6d9364fdceb81c5cce8a",
+    "public.fn_ca_legacy_period_maturity()": "c47a76d289ba6c37a6411f447948c61b",
+    "public.fn_ca_legacy_round3_wallet_receipt()": "633c22d5e80a33097315dd3835f28784",
+    "public.fn_ca_midway_free_buy_format(p_tournament_id uuid)": "f9522dffe07a3d8d446e5e3bebd11f68",
+    "public.fn_ca_mint(p_asset text, p_destination text, p_target_id uuid, p_amount numeric, p_reason text, p_op_id text, p_class text)": "c273d9130ed6d45aab23a159e28812ac",
+    "public.fn_ca_mint_issued_24h(p_asset text, p_except_leg uuid)": "62c322f14ae099a13930e3241cb544c3",
+    "public.fn_ca_money_path_log()": "85686efcef00637c90f8b8e48ec33526",
+    "public.fn_ca_noncirculating_chip_stores()": "0b1f2c1035aa66ee67f3d1f553b8f334",
+    "public.fn_ca_post_correction(p_from_type text, p_from_entity uuid, p_to_type text, p_to_entity uuid, p_amount numeric, p_reason text, p_incident_id uuid, p_write_failure_id bigint, p_club_id uuid, p_union_id uuid, p_metadata jsonb)": "4492ef51ddb64edfac10a0535efb40b5",
+    "public.fn_ca_raise_drift_incident(p_source text, p_classification text, p_severity text, p_dedupe_key text, p_discrepancy numeric, p_expected numeric, p_actual numeric, p_layer text, p_entity_type text, p_entity_id uuid, p_club_id uuid, p_union_id uuid, p_table_id uuid, p_tournament_id uuid, p_hand_id uuid, p_settlement_id text, p_wallet_ids uuid[], p_transaction_ids uuid[], p_suspected_cause text, p_ledger_balanced boolean, p_metadata jsonb)": "8687f48f6ebd164536a561a5d4e57dfb",
+    "public.fn_ca_rakeback_payout_leg_is_documented()": "27b613b98de1d922d0ee65e9259c0cea",
+    "public.fn_ca_reconcile_owned_entity_types()": "a11c52586264e145cc7f2aed070a55ee",
+    "public.fn_ca_recovery_fee_cents(p_gross_cents bigint, p_ratio numeric, p_unit_cents integer)": "3960a8bc558ead330e1e47e7a38e31c4",
+    "public.fn_ca_refuse_replica_money_write()": "42ed613371ddac424b618f5ac767a733",
+    "public.fn_ca_refuse_restricted_transfer()": "65a2cb12ec806144a074efc2614563d1",
+    "public.fn_ca_register_issuance_leg(p_ledger_id uuid)": "8d3d5e1feccd96fcf0045afefdb9fcdc",
+    "public.fn_ca_reject_automated_user_club_row()": "d2d3dfb50e8cdf6bfce78c16526da539",
+    "public.fn_ca_release_claim(p_fn text, p_op_id text, p_refusal jsonb)": "e73b9eb40be251ea88e8be7ee8cf1985",
+    "public.fn_ca_reporting_rollups_from_facts(p_day date)": "4f166689d6790b1543d0ade667f97624",
+    "public.fn_ca_sep8_spin_original_fee_proof(p_tournament_id uuid)": "3224402eb784a60fbbc129135df632fb",
+    "public.fn_ca_settlement_transition_guard()": "c69ec19d86f2184422769187b08191ea",
+    "public.fn_ca_stable_dedupe_key(p_key text)": "c894c79fd08c95666e25d6f0ee4f11d0",
+    "public.fn_ca_supply_snapshot()": "de5f2ec2b0897d91d12689288723b57f",
+    "public.fn_ca_tally_balance_move()": "b7911a245d4bf33134a9a2f474c1f410",
+    "public.fn_ca_tally_ledger_leg()": "9b3ab2f5a78cb7fa0adfb377706ecb85",
+    "public.fn_ca_tally_pair(p_k_old text, p_v_old numeric, p_k_new text, p_v_new numeric)": "54e8f073910b0a538bf26d8e625cce33",
+    "public.fn_ca_tally_store_move()": "6db4f04e33013c8f9b00e2155b31e72d",
+    "public.fn_ca_terminal_marker_transition_is_exact(p_old jsonb, p_new jsonb, p_tournament_id uuid)": "3c608ba8885be6350dbca50902735495",
+    "public.fn_ca_ticket_escrow_float()": "e53889753c2e871840266f8ac2682018",
+    "public.fn_ca_tournament_charge_split(p_tournament_id uuid, p_charge_category text, p_gross numeric)": "ee3d7779a4f0289419b6bf5bf80ab250",
+    "public.fn_ca_tournament_counts(p_tournament uuid)": "86e9255968e9dbf6e114b41b22f3649a",
+    "public.fn_ca_tournament_escrow(p_tournament_id uuid)": "9d06895cfcd2d9902d343e54b633bad0",
+    "public.fn_ca_tournament_escrow_chips(p_tournament_id uuid)": "106048822dd555a8bef8fc3e6c119f11",
+    "public.fn_ca_tournament_fee_ratio(p_buy_in numeric, p_buy_in_fee numeric)": "858c3f3cda609a0b427f294d1c9edf36",
+    "public.fn_ca_tournament_purchase_fee_ratio(p_buy_in numeric, p_buy_in_fee numeric, p_unit_cents integer)": "df828634be00eac4e90cdee78dd826c9",
+    "public.fn_ca_tournament_reporting_club(p_tournament uuid, p_user uuid, p_amount numeric, p_type text, p_at timestamp with time zone)": "b24da5b871c4a464d9fe9ddd50cb8932",
+    "public.fn_ca_tournament_unit_cents(p_tournament_id uuid)": "426ba550ff84f4210906a0071538803b",
+    "public.fn_ca_treasury_positions()": "661626483fac80dc874f982954e0c4c3",
+    "public.fn_ca_unit_floor_cents(p_cents bigint, p_unit_cents integer)": "1aee5e7fa9aa60b575aeccd2793bd215",
+    "public.fn_calculate_cash_rakeback_periods(p_club_id uuid, p_period_start date, p_period_end date, p_user_ids uuid[])": "15ec06cce006c02f7ca3b07e017ed668",
+    "public.fn_caller_is_engine()": "d9a70f1d932538025e656bfe2b4d091d",
+    "public.fn_cancelled_tournament_evidence_is_immutable()": "c361537b74dd7b12f05cc58bd0d2ef4f",
+    "public.fn_cancelled_tournament_wallet_is_immutable()": "50e0c7764f3a250f8116e0c6010d1503",
+    "public.fn_capture_agent_credit_week(p_clubs uuid[], p_from timestamp with time zone, p_to timestamp with time zone, p_kind text, p_scope uuid)": "0d3ab6e7532fc9a3ee245658c617d79a",
+    "public.fn_capture_club_messenger_admission()": "a2cdfdb7e9b9e9b650f0cfc72e693eae",
+    "public.fn_cash_original_funding_lineage(p_user uuid, p_table uuid, p_seat uuid, p_occupancy uuid, p_join timestamp with time zone, p_at timestamp with time zone, p_boundary boolean)": "8269577929892d8634e32dcfac08ff77",
+    "public.fn_cash_period_evidence_since(p_club_id uuid, p_from timestamp with time zone, p_to timestamp with time zone, p_scope_union uuid, p_batched_from timestamp with time zone, p_settle_before timestamp with time zone)": "b56c9b0fe5227ac3d3cf42e206876d01",
+    "public.fn_cash_rakeback_period_basis(p_club_id uuid, p_period_start date, p_period_end date, p_user_ids uuid[])": "62bd84b8ba4af4ccd33d3477f42d63bc",
+    "public.fn_cash_source_refusal_scope(p_rake_record_id uuid)": "a9e3060bd297da670f480e59e2713a04",
+    "public.fn_cash_source_refusals_for_period(p_union_id uuid, p_club_id uuid, p_from timestamp with time zone, p_to timestamp with time zone)": "7fbe2d3602dad60f979a1e39f55a402e",
+    "public.fn_cashier_agent_status_mutex()": "bf7d74a44d3676cfc733602fc35f10b6",
+    "public.fn_cashier_assert_active_actor(p_club uuid)": "3ceb097db1a05a550e8b2a42fe931d36",
+    "public.fn_cashier_balance_actor_guard()": "178146284da8fbab643c2e6fcbb8bd42",
+    "public.fn_cashier_document_body(p_event_id uuid, p_invoice_number text)": "2c5abb061168c53ddb6fcfea5be3097b",
+    "public.fn_cashier_event_payload(e accounting_cashier_events)": "2c608576fe8693d5b75b1d28439f7b70",
+    "public.fn_cashier_exact_intent_begin(p_action text, p_club uuid, p_operation uuid, p_intent jsonb)": "2257e5b62072a0263ada8bcc6ca8489e",
+    "public.fn_cashier_exact_intent_finish(p_operation uuid, p_receipt jsonb)": "8024321912caaf9f379fd0033ca1a1f8",
+    "public.fn_cashier_member_is_active(p_club uuid, p_user uuid)": "2cabb4a5d0eb8e1cbb32d25cf4c4fa34",
+    "public.fn_cashier_notice_copy(e accounting_cashier_events, p_recipient uuid, p_invoice_number text)": "86010c1c66e4ac1b941680aff474fdf8",
+    "public.fn_cashier_operation_intent_guard()": "60350724279387da3b548bd370d082db",
+    "public.fn_cashier_operation_mutex_guard()": "344aae5352ca162b3f89971599fcda78",
+    "public.fn_check_club_message_permission()": "b2d543229701ece76b58ae4a85b98333",
+    "public.fn_chip_drift_since_baseline()": "9b9a4a9408b962c740e8e9a4e0dec027",
+    "public.fn_close_club_wallets_on_union_join(p_club_id uuid, p_union_id uuid)": "419e7065873b03e51b2532db2f7e4a70",
+    "public.fn_club_bank_role(p_club_id uuid, p_user_id uuid)": "36d48c9e935b77e4410075a482194dab",
+    "public.fn_club_bank_send(p_club_id uuid, p_to_user_id uuid, p_amount numeric, p_destination text, p_reason text, p_op_id uuid)": "08e0c75b5fb1f51fc8c31a8928271fb6",
+    "public.fn_club_bank_send_core_20261004(p_club_id uuid, p_to_user_id uuid, p_amount numeric, p_destination text, p_reason text, p_op_id uuid)": "d7af9cfcae41f32f17e49605249f7454",
+    "public.fn_club_cashier_can_transact(p_club_id uuid, p_actor uuid, p_target uuid)": "a812c44870554f37cddb36edf600e386",
+    "public.fn_club_cashier_scope(p_club_id uuid, p_user_id uuid)": "166dddd19d1419cc8b17861003e0239a",
+    "public.fn_club_chip_circulation(p_club_id uuid)": "4fe3cfa36f539c6fa486c9bb47b9bbcb",
+    "public.fn_club_grantable_roles(p_club_id uuid, p_actor_user_id uuid, p_target_user_id uuid)": "e41c05bbe0c3b3ec9448f536c38d26af",
+    "public.fn_club_is_in_downline(p_club_id uuid, p_upline_user_id uuid, p_member_user_id uuid)": "35a7df4cfd5bce2d221ccb74058d4d92",
+    "public.fn_club_level_for_members(p_members integer)": "29da4c29ea51c677561ab6f1d2e7fc84",
+    "public.fn_club_level_min_members(p_level integer)": "1167d5120f25757905fc266edf4d39f1",
+    "public.fn_club_member_notes_guard()": "cc7bae672aea44a800052d2aba490360",
+    "public.fn_club_members_bot_follows_horse()": "02033ded814911b9a5a74ecf91dfa2e9",
+    "public.fn_club_members_ledger_writer()": "68030454cdb78329bb6c41eabe8bff24",
+    "public.fn_club_members_no_agent_cycle()": "a7ad3c53fcab80a15831e71544b53c56",
+    "public.fn_club_members_role_guard()": "2374cfedbbe89d3a69c75cdfdb240fe6",
+    "public.fn_club_members_staff_earn_no_rakeback()": "09ae811a57faa517720d493d89262f31",
+    "public.fn_club_members_status_guard()": "587b8157ec37354992b230b9d10035b1",
+    "public.fn_club_membership_cap()": "6511fc3913189151b46c3953033a289d",
+    "public.fn_club_membership_count(p_user_id uuid, p_excluding_club uuid)": "3e9b2104d51842cfd202bd30e0a1c9a1",
+    "public.fn_club_membership_lock(p_user_id uuid)": "07343122ba0f2fa43bfb879184d56be9",
+    "public.fn_club_messenger_staff_role(p_club uuid, p_user uuid)": "da62bfb09a4aa2d5446af6ea56ccc43c",
+    "public.fn_club_opening_checklist_complete(p_club_id uuid)": "0e51fff026d1e37b1c143bbfb1fe021f",
+    "public.fn_club_owner_has_a_player_wallet()": "a933cd2505c6345ef907ddaadf28b6e8",
+    "public.fn_club_role_rank(p_role text)": "f82821272c05d956ddb83cfb2b2ffb3d",
+    "public.fn_club_set_member_role(p_club_id uuid, p_user_id uuid, p_role text, p_actor_user_id uuid, p_commission_rate numeric, p_player_rakeback_rate numeric, p_is_prepaid boolean, p_credit_limit numeric)": "c0f4657b3a53265b0d7fe03784d1b83b",
+    "public.fn_club_set_member_status(p_club_id uuid, p_user_id uuid, p_status text, p_reason text)": "a9d607f3c41ed17bba6ea80a11a90dde",
+    "public.fn_club_settlement_floor_week(p_club_id uuid)": "9e7e293af19b244b2176c27e62f678e4",
+    "public.fn_club_settlement_frozen(p_club_id uuid)": "93579cd20397b592447167d5ac512189",
+    "public.fn_club_staff_notice_role_event()": "a7f817a4fc8c54ae1b401462862cf8a9",
+    "public.fn_club_unclaimable_commission(p_club_id uuid)": "724734f791eb3b2fcfb93e3c20d293ab",
+    "public.fn_clubs_lobby_message_keeps_its_own_books()": "4c78df3a6bde52c2cc7c42b05f91708a",
+    "public.fn_create_agent(p_user_id uuid, p_club_id uuid, p_role text, p_parent_agent_id uuid, p_commission_rate numeric, p_player_rakeback_rate numeric, p_credit_limit numeric, p_is_prepaid boolean)": "d854a18e5a640ad527536710981ac736",
+    "public.fn_create_canonical_club_wallet()": "7fa333e3b33038828af885b88382905c",
+    "public.fn_credit_and_log(p_user_id uuid, p_amount numeric, p_idempotency_key text, p_category text, p_description text, p_related_entity_id uuid, p_wallet_type text, p_table_id uuid, p_hand_id uuid, p_payout_position integer, p_payout_source text)": "f7bcbff31505ec690f310df7dc0a19ff",
+    "public.fn_credit_treasury(p_club_id uuid, p_amount numeric, p_reason text, p_metadata jsonb, p_op_id text)": "3c0d8eac4a2f20e92f3c66501ff82642",
+    "public.fn_credit_treasury_zd4core(p_club_id uuid, p_amount numeric, p_reason text, p_metadata jsonb)": "6d0913005585c11ef3c8d6d3d4676aa6",
+    "public.fn_deep_stack_society_cannot_be_deleted_by_accident()": "213a7fa40330c703cb23dc001a99d31e",
+    "public.fn_deliver_accounting_invoice(p_invoice_id uuid)": "5a76ce1162d43b158e496bf3574c86d3",
+    "public.fn_deliver_club_messenger_welcome()": "11fc6eb8b03ccdea3b4cf799cc9bce99",
+    "public.fn_diamond_game_reserved_cover_guard()": "c7a4c4fa4763924d7f76d9f70656014e",
+    "public.fn_diamond_spin_ledger_category(p_category text)": "025ddccd3543a614dc75ef4b4a5f49b7",
+    "public.fn_diamond_spin_profit_burn(p_net bigint, p_bps integer)": "948e5f01e70562ecb4d47d64c20bbedd",
+    "public.fn_dispatch_private_record_signal(p_topic text, p_payload jsonb)": "03a00df810ebfe92e0f852d2c6259686",
+    "public.fn_emit_club_union_access_event()": "035603d32853b823b20877214ade334f",
+    "public.fn_emit_game_management_event(p_event_type text, p_club_id uuid, p_union_id uuid, p_recipient_id uuid, p_entity_type text, p_entity_id uuid, p_command_id uuid, p_payload jsonb)": "7286c5f7f9f749b236a0021f16194ca7",
+    "public.fn_emit_management_access_event()": "fd10e300f81d5bd5f68efccb7ad1cb54",
+    "public.fn_emit_management_content_event()": "2f5883eca4e555ddaacf18fb71e9704f",
+    "public.fn_emit_union_owner_access_event()": "edc0863e1994a9ce199dd6c98349f13f",
+    "public.fn_enforce_agent_commission_bounds()": "3e4f5df422b121391cc40f711ae5b5ee",
+    "public.fn_enforce_four_club_limit()": "7c79db5e707510912f4fa3c6f9ff7cb5",
+    "public.fn_ensure_agent_row(p_club_id uuid, p_user_id uuid, p_role text)": "e885afc4b733e075041a8c37c4750692",
+    "public.fn_ensure_social_page_for_club(p_club_id uuid)": "d932e5e9158b3bb696262ca503ce1428",
+    "public.fn_entry_purchases_frozen()": "0b05e2e7905caf71f14c8327a172cea0",
+    "public.fn_freeze_bypass_active()": "2bfad412c70b965fd9d2c72b2ad83310",
+    "public.fn_game_management_scope(p_club_id uuid)": "31fd59df95b75b241f42f5b3c19056b4",
+    "public.fn_generate_credit_invoice(p_agent_id uuid, p_period_start timestamp with time zone, p_period_end timestamp with time zone, p_debt_owed numeric, p_due_date timestamp with time zone)": "c87928c03ef42c498377c17bbaa51a7f",
+    "public.fn_generate_scope_credit_invoices(p_club_id uuid, p_from timestamp with time zone, p_to timestamp with time zone)": "851f015057ecefc7ab4162cc36fa522c",
+    "public.fn_get_club_realtime_member_count(p_club_id uuid)": "4b931a188b9ec15ee47560f67cbb61a4",
+    "public.fn_guard_agent_agreement()": "6128f73fa007125996f909799e59c9d8",
+    "public.fn_guard_club_lifecycle_write()": "6384708997b9c213bd727d02ad53aaca",
+    "public.fn_guard_membership_lifecycle_write()": "8a72d76f51c5fc08e5424eb5b0db1493",
+    "public.fn_guard_retired_club_mutation()": "66b05912e3963815a560db03d54c74c9",
+    "public.fn_guard_union_creation()": "9c952591b04f14c5e11e550edc3bc1a2",
+    "public.fn_invoice_accounting_ledger_transfer(p_ledger_id uuid)": "2b9d4a150c45608118ba20b2f90f6aa7",
+    "public.fn_is_club_admin_uid(p_club_id uuid)": "021940a1e457cf22312eb139d3d05267",
+    "public.fn_is_platform_admin()": "16d104b60272d5c511b53f9ec88fb039",
+    "public.fn_is_union_overseer(p_union_id uuid, p_user_id uuid)": "f16c14bc47eb6e6db203412b683ea5f4",
+    "public.fn_lock_rakeback_payer_clubs(p_club_ids uuid[])": "f59f1c9899c4f5d2ad1383c28fa29331",
+    "public.fn_managed_game_contract_hash(p_contract jsonb)": "1aa2f356d6d3b17135cf5505ec4166f5",
+    "public.fn_mark_new_club_opening_checklist()": "bb20d9829b37c6e09852dd735f57b101",
+    "public.fn_member_rakeback_explicit_guard()": "7afde97b841511ee0553beeb6a703bc7",
+    "public.fn_membership_approval_gate()": "b5edea413fa87af75f47b925a23b1d10",
+    "public.fn_membership_starts_with_zero_chips()": "e865fa31892646611ec011821a9fd219",
+    "public.fn_midway_cash_rake_write_guard()": "6ba00e7372c24fea08d27fb6947c8a02",
+    "public.fn_new_club_gets_the_ladder()": "57db9a052f46aebcdb59e217248e75a3",
+    "public.fn_new_union_gets_the_ladder()": "4a8ac617525c66762717e71b82333ddf",
+    "public.fn_platform_frozen()": "ec683805e052fceeae74789e82dce4cc",
+    "public.fn_player_rakeback_rate(p_user_id uuid, p_club_id uuid, p_volume numeric)": "b3e9c2946f419b0e134a3bf5d0c7fdf2",
+    "public.fn_pnl_evidence_cents(p_value jsonb)": "8d712bd799c3dfa691f2d8d9ff5101e8",
+    "public.fn_poker_diamond_play_state_columns(p_table text)": "f53dea87eb2d45bcc1c6fdcee2cf9407",
+    "public.fn_poker_diamond_tournament(p_tournament_id uuid)": "c91028508fecc2d02e9003f2bdc2e38d",
+    "public.fn_poker_diamond_tournament_escrow(p_tournament_id uuid)": "27868561da07971209857c063c7ba235",
+    "public.fn_poker_guard_arena_structure()": "0bcf6105fbcabf5cb68236d67817b952",
+    "public.fn_poker_reject_diamond_chip_money()": "7c61e72bf8bc26c15490b31bed7bc912",
+    "public.fn_poker_reject_diamond_hierarchy()": "49037a2bf4322d2a327bc9141a7a7a89",
+    "public.fn_post_accounting_commission_source(p_source_id uuid, p_source_type text, p_earned_at timestamp with time zone, p_contract jsonb)": "b647df60b45c25183638f4cdbaec57fd",
+    "public.fn_prepare_accounting_week(p_union_id uuid, p_club_id uuid, p_from timestamp with time zone, p_to timestamp with time zone)": "39a7e057da9a65dab5d0b2f761428f13",
+    "public.fn_process_cash_accounting_source(p_rake_record_id uuid)": "460e4b0a936b41246548cb0a9efc9f7f",
+    "public.fn_process_weekly_accounting(p_union_id uuid)": "5aec6700bf043463e9db2933ca63bca1",
+    "public.fn_process_weekly_accounting_scope(p_union_id uuid, p_club_id uuid)": "4179282ab83f30094d4c3b2885102917",
+    "public.fn_publish_agent_wallet_change()": "6f1c28ffce6de828bec8c4984a425883",
+    "public.fn_publish_club_member_scope(p_club uuid, p_roots uuid[])": "34c169f9e2513aa673fa2b755734f404",
+    "public.fn_publish_club_roster(p_club uuid)": "51efd705ee0cbcf733a4d92d154de2ee",
+    "public.fn_publish_member_record_context()": "0705c55c836ed5a95491891070fa66dd",
+    "public.fn_publish_member_record_row()": "ba43ce21b9e59680c981674fd0b2cc89",
+    "public.fn_publish_member_record_topic(p_topic text, p_payload jsonb)": "48c94bb14a84908fb58ff6320e5b466d",
+    "public.fn_publish_member_record_transaction()": "2ed90a47b868be864b77459a901015a1",
+    "public.fn_publish_member_record_user(p_user uuid)": "0b13c06b5afded0aa4f64f7a32978a35",
+    "public.fn_raise_notification(p_user_id uuid, p_type text, p_title text, p_message text, p_link text, p_data jsonb)": "087fdcb4d44e022ea8409b185ed164fa",
+    "public.fn_raise_server_financial_alert(p_severity text, p_source text, p_message text, p_context jsonb, p_dedupe_key text, p_entity_id text)": "264d32bcba8f6430ea68b7ca9738fbc8",
+    "public.fn_rake_record_is_ghost_twin(p_hand_id uuid, p_table_id uuid, p_metadata jsonb)": "d59ea94ab309a36c5d5a1298cbc604d3",
+    "public.fn_rakeback_recompute_periods(p_club_id uuid, p_period_start date, p_period_end date, p_user_ids uuid[])": "ab0d968bb5228ca44cf2a5d703aeb925",
+    "public.fn_rakeback_recompute_split(p_club_id uuid, p_period_start date, p_period_end date)": "c588b50d35036fc2be1fecbbe5514324",
+    "public.fn_rakeback_split_check(p_club_id uuid, p_period_start date, p_period_end date, p_user_ids uuid[])": "c20e05ce485ba8253c2bb21aca91781d",
+    "public.fn_rakeback_split_counts(p_club_id uuid, v_from timestamp with time zone, v_to timestamp with time zone, w_from timestamp with time zone, w_to timestamp with time zone)": "cc867dea81e8737ae29af82c1d58623e",
+    "public.fn_rakeback_split_write(p_club_id uuid, p_period_start date, p_period_end date, p_user_ids uuid[])": "2f1f220d3a6f0299e8db26a9136e5347",
+    "public.fn_recompute_club_level_on_member_change()": "0a761d5d6027c26ddbe4a7760d23d434",
+    "public.fn_record_new_club_opening_bank()": "cef97b2c3914625761ee140736be52d5",
+    "public.fn_record_operational_alert(p_source text, p_event_key text, p_alertname text, p_status text, p_severity text, p_payload jsonb)": "42d7a1af30b4f8e83c40ad9dd21de11c",
+    "public.fn_refuse_operator_move_while_settling()": "4dd93ff68d573144d73edc71e166f36f",
+    "public.fn_refuse_while_frozen()": "a8dd811942377b0e67fa219ba039681e",
+    "public.fn_remember_club_owner_transfer()": "e5c9074f06097745f4db72d4a0ec5dfa",
+    "public.fn_require_explicit_club_membership_source()": "ea458fa4c9177544002cb8f40fdcbd73",
+    "public.fn_resolve_accounting_routing_scope(p_scope_kind text, p_scope_id uuid, p_period_start timestamp with time zone, p_period_end timestamp with time zone)": "e773d469ebeb010df4ac46757fca724e",
+    "public.fn_satellite_transfer_ledger_is_immutable()": "b4012023e95bf3ee041776a03bd2d731",
+    "public.fn_schedule_time_zone_is_known(p_zone text)": "0fe6c641a93674740394fd523f107faf",
+    "public.fn_seed_all_throwables_shop_item()": "5de69e125c0bf0ce14e8bd6693adc90c",
+    "public.fn_seed_new_club_opening_bank()": "d926c3930f8737b9a708285c35f6828e",
+    "public.fn_send_club_welcome_text(p_club uuid, p_recipient uuid, p_sender uuid, p_content text, p_revision bigint, p_kind text)": "dc87a812a3cd86d42cb37502b0044076",
+    "public.fn_settle_accounting_commission_advance(p_scope_kind text, p_scope_id uuid, p_period_start timestamp with time zone, p_period_end timestamp with time zone)": "0662b3bc85703680047bdd6713a08c1b",
+    "public.fn_settle_accounting_commission_combine(p_scope_kind text, p_scope_id uuid, p_period_start timestamp with time zone, p_period_end timestamp with time zone)": "a267a0f650cf4dcb2337d85d638ebc62",
+    "public.fn_settle_accounting_commission_stage(p_scope_kind text, p_scope_id uuid, p_period_start timestamp with time zone, p_period_end timestamp with time zone)": "ce1a9dd4344c7987918dcf8a82427ef5",
+    "public.fn_settle_accounting_commission_stage_v3(p_scope_kind text, p_scope_id uuid, p_period_start timestamp with time zone, p_period_end timestamp with time zone)": "4e44bbbaf769aafe445819ab7a6683a4",
+    "public.fn_settle_accounting_commission_window(p_union_id uuid, p_standalone_club_id uuid, p_club_ids uuid[], p_window_start timestamp with time zone, p_window_end timestamp with time zone)": "c99fd8bcf27dee2047db451d8c65111e",
+    "public.fn_settle_accounting_rakeback_advance(p_scope_kind text, p_scope_id uuid, p_period_start timestamp with time zone, p_period_end timestamp with time zone)": "93a5401e78c3eb466a1e04f25581aad4",
+    "public.fn_settle_accounting_rakeback_pairs(p_scope_kind text, p_scope_id uuid, p_period_start timestamp with time zone, p_period_end timestamp with time zone)": "03d452df060e96f9a5a2a46d36ad1c5c",
+    "public.fn_settle_accounting_rakeback_plan(p_scope_kind text, p_scope_id uuid, p_period_start timestamp with time zone, p_period_end timestamp with time zone)": "29fe66e159512fbfe76afd36807c6d8b",
+    "public.fn_settle_accounting_rakeback_plan_get(p_scope_kind text, p_scope_id uuid, p_period_start timestamp with time zone, p_period_end timestamp with time zone, p_club_ids uuid[], p_union_id uuid, p_standalone_club_id uuid, p_legacy boolean)": "f4c135f1c425de4f5d257dd7c59eaa38",
+    "public.fn_settle_accounting_rakeback_stage(p_scope_kind text, p_scope_id uuid, p_period_start timestamp with time zone, p_period_end timestamp with time zone)": "21409a0d24523597e10b5da44c252840",
+    "public.fn_settle_accounting_rakeback_window(p_union_id uuid, p_standalone_club_id uuid, p_window_start timestamp with time zone, p_window_end timestamp with time zone)": "972a500c104aa969b2358887dc1a9407",
+    "public.fn_settle_tournament_obligation(p_tournament_id uuid, p_kind text, p_place integer, p_user_id uuid, p_amount numeric, p_source text, p_description text, p_adjustment_id uuid)": "5a881321824161ae69c1c623982d4a29",
+    "public.fn_settle_tournament_obligation_before_atomic_batch_gate(p_tournament_id uuid, p_kind text, p_place integer, p_user_id uuid, p_amount numeric, p_source text, p_description text, p_adjustment_id uuid)": "df387bd37001630d94ab2e380144ccab",
+    "public.fn_spin_absorb_club_pool_into_union(p_club_id uuid, p_union_id uuid)": "8e5ae3e81141ac672da66413f61275e2",
+    "public.fn_spin_move_owner_wallet(p_owner_id uuid, p_owner_kind text, p_wallet text, p_delta numeric)": "1cbfcf55f0abf1475f76d2861b96b71e",
+    "public.fn_spin_pool_follows_union_membership()": "e75fb18ad642da209188ab5347b9fa82",
+    "public.fn_standalone_foreign_certificate_periods(p_scope_kind text, p_club uuid, p_from_date date, p_to_date date, p_period_start timestamp with time zone, p_period_end timestamp with time zone)": "9f8457664adb8bc0b171ca75d831126b",
+    "public.fn_sync_agent_player_counts()": "76a5848cfdb6c1674b48cb62ae1f22dd",
+    "public.fn_sync_club_member_count()": "2abaebf91e89f56487f01b25d7e3ac98",
+    "public.fn_sync_club_staff_notice_group(p_club uuid)": "136de2a943b60ce8340d7239c194870e",
+    "public.fn_sync_mfa_required_on_club_owner()": "2d4608c7506e302fd46f73d102f30f92",
+    "public.fn_sync_mfa_required_on_club_role()": "b09cbcddc87075221d72aee3899e97b4",
+    "public.fn_terminal_tournament_evidence_is_immutable()": "1b3ab2bd7823977943d1baa0816997d0",
+    "public.fn_terminal_wallet_transaction_is_immutable()": "bcdd12571b044b395523e648eecab2a3",
+    "public.fn_tournament_entry_split(p_buy_in numeric, p_fee numeric, p_bounty numeric, p_is_bounty boolean)": "89cc73d13fe8fbe6905233c8f9f74848",
+    "public.fn_unaccounted_seat_exits(p_since interval, p_grace interval)": "9b4bd9fcada25292668ed80c5ccf7a0c",
+    "public.fn_union_accounting_run_at(p_period_end timestamp with time zone)": "85e9f0ab83b1655a90af953c0d547117",
+    "public.fn_union_close_post_rake_debit(p jsonb)": "4c5b6f74ee68731ebc36668d8c6b80a6",
+    "public.fn_union_club_rake_basis(p_union_id uuid, p_start timestamp with time zone, p_end timestamp with time zone, p_live boolean)": "d6153bdb65372494a0284062f6786d3a",
+    "public.fn_union_eco_terms_evidence(p_union_id uuid, p_start timestamp with time zone, p_end timestamp with time zone)": "0aa798fc25464f579debbffd78c8e103",
+    "public.fn_union_overseer_of_record(p_union_id uuid, p_user_id uuid)": "7f892f09fed9a0a768b2741a69ddf6b2",
+    "public.fn_union_owner_membership_is_kept()": "033446b62c65f4f0ade7c19e392f92cc",
+    "public.fn_union_pnl_award_owner_resolved(c tournament_accounting_credit_receipts, p_union_id uuid, p_start timestamp with time zone, p_resolved uuid[])": "639b5a724967f7779f8134275c93dfa1",
+    "public.fn_union_pnl_award_satellite_owner(c tournament_accounting_credit_receipts)": "5fb230326324bcbdafd60ba611cd7715",
+    "public.fn_union_pnl_boundary(p_union_id uuid, p_at timestamp with time zone)": "5e4e878524a91518de209bc5e008db36",
+    "public.fn_union_pnl_capture_original_flow()": "df060874f0ffaf8105cce1d3bdaed35b",
+    "public.fn_union_pnl_cash_outcome_accepted(o union_pnl_cash_outcomes)": "224fc9de5f7941a7e77b32a68bfa29f9",
+    "public.fn_union_pnl_cash_outcome_link(o union_pnl_cash_outcomes)": "627c6a7dd232bb8030d5400adf8346f2",
+    "public.fn_union_pnl_closed_book_barrier(p_at timestamp with time zone)": "9ffd3378eaecf900c1a5764514c8a837",
+    "public.fn_union_pnl_evidence_report(p_union_id uuid, p_start timestamp with time zone, p_end timestamp with time zone)": "b36f9e252823addb55be086a26f3dedf",
+    "public.fn_union_pnl_inventory_immutable()": "307d83a1ee3d912bade24c48144aa801",
+    "public.fn_union_pnl_linked_cash_outcomes(p_union_id uuid, p_start timestamp with time zone, p_end timestamp with time zone)": "798e8c95a26ad587da13151675f47fd1",
+    "public.fn_union_pnl_original_flow_evidence(p_union_id uuid, p_start timestamp with time zone, p_end timestamp with time zone)": "b23655a15587192f137ae4ad57859742",
+    "public.fn_union_pnl_original_frame()": "9a6559774cc1ed4ed49b315a3428abdb",
+    "public.fn_union_pnl_posthand_escrow_participants(o union_pnl_cash_outcomes)": "2db7263f8d42e2e0e5a45b42b7198e4d",
+    "public.fn_union_pnl_posthand_escrow_touch(h union_pnl_cash_outcome_touches)": "e51decda42bbe46dd90aaf1bd3119023",
+    "public.fn_union_pnl_projection_ready(p_projection text)": "5f643c03d3595c20354d753087988476",
+    "public.fn_union_pnl_prove_late_settlement(p_ledger_id uuid)": "e2daa1c8c9cf6f2cf21582983445a645",
+    "public.fn_union_pnl_satellite_seat_owner(p_registration_id uuid, p_tournament_id uuid)": "58b6c79c412a9e3b26104c0b4b6878d6",
+    "public.fn_union_pnl_touched_registrations(p_start timestamp with time zone, p_end timestamp with time zone, p_projected boolean)": "5e99f9d6957afdad7da857ed75b4ff97",
+    "public.fn_union_pnl_tournament_entry_club_of(p_asset text, p_amount numeric, p_funding_club_id uuid, p_ledger_id uuid, p_entitlement_id uuid, p_registration_snapshot jsonb)": "ca8c0a50c5ce097a587f380eef248972",
+    "public.fn_union_pnl_week_bbj_stack_awards(p_union_id uuid, p_start timestamp with time zone, p_end timestamp with time zone)": "faf875701e49db1cf99b481119e87404",
+    "public.fn_union_pnl_week_hand_lines(p_union_id uuid, p_start timestamp with time zone, p_end timestamp with time zone, p_projected boolean)": "9dee2921c7b956281be61a3eb9d7df6e",
+    "public.fn_union_pnl_week_rake_straddle(p_union_id uuid, p_start timestamp with time zone, p_end timestamp with time zone)": "9e6e85c51b06dae44b0639ee843dfa56",
+    "public.fn_union_pnl_week_shaped_hands(p_union_id uuid, p_start timestamp with time zone, p_end timestamp with time zone, p_projected boolean)": "721f83d46db66d517722c9fd054332ba",
+    "public.fn_union_pnl_week_union_credits(p_union_id uuid, p_start timestamp with time zone, p_end timestamp with time zone, p_projected boolean)": "b74693f685ad4b69b2738d1f3abfba19",
+    "public.fn_union_prev_week_start(p_at timestamp with time zone)": "538130fb95504d2854a9c6e8b75214cc",
+    "public.fn_union_setting(p_union_id uuid, p_key text, p_default numeric)": "d6be437ef1f4974beb778eb4e1b02196",
+    "public.fn_union_settlement_conservation_assert(p_union_id uuid, p_from timestamp with time zone, p_to timestamp with time zone, p_r1 jsonb, p_r2 jsonb, p_r3 jsonb)": "3e3c35066e330f736c6a948b527c02e9",
+    "public.fn_union_totals_follow_club_counts()": "b504648fecedb704e0247a90fd476db2",
+    "public.fn_union_week_start(p_at timestamp with time zone)": "103f192a228084dad0e4268c36c82c4b",
+    "public.fn_union_weekly_rakeback_close(p_union_id uuid, p_period_start timestamp with time zone, p_period_end timestamp with time zone)": "64c4c5191e1263399cf63e63b1a7b46b",
+    "public.fn_unions_new_owner_joins_every_club()": "715a68659d8fa60d9f43f0fad9b22192",
+    "public.fn_unions_set_slug()": "40b9d6ab0e30caebefabef8ee893615f",
+    "public.fn_unresolved_insurance_offers(p_window interval)": "a95e6c77657aaa2113ba8fa697fef69c",
+    "public.fn_weekly_accounting_attempt_begin(p_memo boolean)": "e3ed8ea6d1ba204440e2201f6f9cbc46",
+    "public.fn_weekly_accounting_attempt_end()": "670b36dde972d573c4838ed3e967d7bd",
+    "public.fn_weekly_accounting_deadline_check()": "cc0ab45c0c4fdcfed6dd050580d47acf",
+    "public.fn_weekly_statement_issue_settled()": "69ffddc6c6477d11515b81661b122d0e",
+    "public.get_club_agents(p_club_id uuid)": "7c4fc71f953f809d1d4e40780c747ac0",
+    "public.guard_agent_wallet_direct_update()": "736aa9e92265453c3015223562108141",
+    "public.guard_wallet_balance_write()": "2af2718d22fcf12be394f9239e88e3c7",
+    "public.is_club_admin(p_club_id uuid)": "54ee7a793d84f9053477e5aa694908ae",
+    "public.is_club_admin(p_club_id uuid, p_user_id uuid)": "eb0b2e9bae84dbf1075f8d995c336e56",
+    "public.lock_club_cashier_hierarchy_mutation()": "2bf2e0dc1876c5b1238603fc18558907",
+    "public.recompute_union_levels(p_union_id uuid, p_force boolean)": "4197ced0e46129a2fb9baad118f05e1d",
+    "public.reconcile_ledger_nightly()": "a1c37e2bbe7d077555ddf2ab0fc93f45",
+    "public.sync_agent_wallet_columns()": "3a3d351dd05b5dc13b525b7eb4635e5c",
+    "public.trg_agent_commission_rollup_change()": "4ec76190867a2fe990abddeb01b8cad5",
+    "public.trg_agent_commission_rollup_insert()": "1a07fad61faa37c4f9c1c78835fb7843",
+    "public.trg_auto_recompute_club_level()": "91f239bc0f5b75e5147ef6bd19ff761b",
+    "public.trg_ca_club_data_fact_wallet()": "fc3aecf79531fc9a9fb9f512b8307e6f",
+    "public.trg_ca_reporting_follows_a_changed_fact()": "ec90ea234e621bc8d01d24a92b0427b2",
+    "public.trg_ca_reporting_repair_changed_days()": "601c605e44856e42ee0d00e72a0fdb1e",
+    "public.trg_ca_reporting_wallet_insert()": "95a73948ec5ce91c83060dfc4411bb2d",
+    "public.trg_fn_autocreate_club_social_page()": "3b0f2c28c8ed64b6ecdd4f8a7359b85e",
+    "public.trg_fn_delete_club_social_page()": "9c6183a75ee12eb13fe696fff78f88f6",
+    "public.trg_protect_club_level_columns()": "c9fcb0739efd7af35c84851ea6836c29",
+    "public.trg_union_rake_weekly()": "18ad69490d6201ff23d689737ab632f5",
+    "public.trivia_ledger_platform_family(p_kind text, p_reference text)": "935f7548d680a16dd6c50477b1e229f1",
+    "public.update_updated_at_column()": "54801f8bc343c4928383a3e7a1d57d61",
+    "public.zz_chip_ledger_key_is_claimed_once()": "57a2b2eb1bc5b1c5ac36394c2ac23bcd",
+    "smarter_private.admit_own_agent_source(p_type text, p_source uuid)": "dbac86129f9285e95a50408959f50c9f",
+    "smarter_private.apply_existing_rakeback_transfer(p_scope_kind text, p_scope_id uuid, p_start timestamp with time zone, p_end timestamp with time zone, p_role text, p_club uuid, p_user uuid, p_period uuid, p_certificate bigint)": "3b27d25933b16459d01452d50d919209",
+    "smarter_private.assert_own_agent_scope_interpreted(p_kind text, p_scope uuid, p_from timestamp with time zone, p_to timestamp with time zone, p_round integer)": "e1fb96151324d44215c10047f7604ddd",
+    "smarter_private.cash_initial_funding_receipt(p_receipt uuid)": "e111dad7c0f5d5e3b74710053835caa4",
+    "smarter_private.deleted_reserve_certificate_payers(p_calculation bigint)": "51fd3608c78f2f700c277fb9287bca3b",
+    "smarter_private.deleted_wallet_published_rakeback_reserve(p_club uuid, p_user uuid)": "2673336b266659907cb9a787d9847a18",
+    "smarter_private.ensure_rakeback_payer_contracts(p_calculation bigint)": "69687be498ba5264afedaff49e7f14ae",
+    "smarter_private.existing_rakeback_transfer_complete(p_role text, p_obligation uuid)": "adf0cee5b8c0cee59bcaae1ed49d1c25",
+    "smarter_private.existing_rakeback_transfer_plan(p_club uuid, p_user uuid, p_start timestamp with time zone, p_end timestamp with time zone, p_role text, p_period uuid, p_certificate bigint)": "07067e8f2a841a8339d3bdde73a5f296",
+    "smarter_private.existing_rakeback_transfer_scope_economic_plan(p_scope_kind text, p_scope_id uuid, p_start timestamp with time zone, p_end timestamp with time zone, p_role text)": "9a9eadead5e586774b86f7873fe1b08d",
+    "smarter_private.existing_rakeback_transfer_scope_receipts(p_scope_kind text, p_scope_id uuid, p_start timestamp with time zone, p_end timestamp with time zone, p_role text)": "5273b9b7ebda51abfd1fb57fff7a1278",
+    "smarter_private.f06_new_lifecycle()": "dca29a92ad46c6adb6e561f639e5a208",
+    "smarter_private.historical_rakeback_wallet_admission(p_period uuid, p_certificate bigint, p_start timestamp with time zone, p_end timestamp with time zone)": "5452bda6bd3c6e6880a5350b6ddd7750",
+    "smarter_private.invalidate_agent_commission_report_days()": "2a1cde231f6a8036f51179d630fbbd2d",
+    "smarter_private.inventory_basis_cache_read(p_generation text, p_problem boolean, p_kind text, p_union uuid, p_start timestamp with time zone, p_end timestamp with time zone)": "058d499ade9d0609f83cc07d551b7f35",
+    "smarter_private.inventory_basis_cache_write(p_generation text, p_kind text, p_union uuid, p_start timestamp with time zone, p_end timestamp with time zone, p_value jsonb)": "2c3f0af276c29f33d09cdb7ecd86df6a",
+    "smarter_private.original_erased_cash_base_discharge_receipt(e bigint, h text)": "f2c22efcfd9231094732ca82edff9101",
+    "smarter_private.original_erased_cash_discharge_returns(p_union_id uuid, p_start timestamp with time zone, p_end timestamp with time zone)": "2a41fe7ccedc2947cf3ab84cead2493c",
+    "smarter_private.original_inventory_basis_generation()": "58dc20e1ba380ccb9b9dee8809731d33",
+    "smarter_private.original_inventory_finite_witness(p_event_id bigint)": "0ef0a8a5b9e85633cf4bf8b0cd15c8d7",
+    "smarter_private.original_inventory_proof_sources_match()": "514b4ccef3c2fb883fcfe1c30d482df0",
+    "smarter_private.original_inventory_source_ref_md5(ref jsonb)": "81fba77f13564999931e8a7a47cbd609",
+    "smarter_private.original_restoration_cash_returns(p_union_id uuid, p_start timestamp with time zone, p_end timestamp with time zone)": "e7cecf308d34108e12c0006029c1a3fa",
+    "smarter_private.original_returned_cash_base_proof(f jsonb, lo timestamp with time zone, hi timestamp with time zone)": "7ed06b6ccded0d6eb2bc3357742e360d",
+    "smarter_private.original_treasury_gift_evidence(p_ledger uuid)": "df84a641f40ee44d9db83e979398f9af",
+    "smarter_private.original_treasury_return_evidence(p_ledger uuid)": "3f2b8626b018cc5d22d9ebe9e6d3fb72",
+    "smarter_private.own_agent_destination_contract(p_contract jsonb, p_club uuid, p_player uuid, p_terms_at timestamp with time zone)": "65d809f307db4bea0ead0dcd7a3d1534",
+    "smarter_private.own_agent_interpreted_contract(p_contract jsonb, p_club uuid, p_player uuid, p_rake numeric, p_union uuid, p_terms timestamp with time zone)": "038e7a69161b7d9b8434fe270fe45f59",
+    "smarter_private.posthand_escrow_certificate_immutable()": "14b1ddb37d4e3e83a9a42a34438e4b6e",
+    "smarter_private.prepare_own_agent_interpretation(p_union uuid, p_club uuid, p_from timestamp with time zone, p_to timestamp with time zone, p_limit integer)": "9e016cec1b72cee87e2921246e4db23e",
+    "smarter_private.preserve_historical_rakeback_wallet(p_period uuid, p_certificate bigint, p_start timestamp with time zone, p_end timestamp with time zone)": "b4cdc75b354df1b73a34a26433a419ca",
+    "smarter_private.rake_record_jsonb_raw_size(p_value jsonb)": "8d3d0d4056ec8367eb9bd321809bae05",
+    "smarter_private.rakeback_certificate_payers(p_calculation bigint)": "89b7297462b6cd4ba6bf145c7d5fa261",
+    "smarter_private.rakeback_certificate_wallets(p_calculation bigint)": "984721591c0295a6ca5c5552ec7bfae0",
+    "smarter_private.rakeback_payer_plan(p_allocations jsonb, p_amount numeric)": "02296e698ad2377afa9dc4ee18315d68",
+    "smarter_private.rakeback_wallet_payout_complete(p_payout uuid, p_calculation bigint)": "0f5fbe00efb06f9a49dcfae37d5830cc",
+    "smarter_private.rakeback_wallet_plan(p_allocations jsonb, p_amount numeric)": "48f1c18a1e83272bad0d0b1e1371ce42",
+    "smarter_private.record_rakeback_payer_contracts()": "73325c330ea577c08b4704319c0f89ec",
+    "smarter_private.record_rakeback_wallet_contracts()": "e0ba664285b5b6cc885fd6a2357d8596",
+    "smarter_private.split_rakeback_payout_complete(p_payout uuid, p_calculation bigint)": "516cd5a271fd21f4b2fe6f98e503dc75",
+    "smarter_private.tournament_abort_ingress(p_tournament_id uuid)": "efaf998fc4e268f748060da2806b9764",
+    "smarter_private.union_pnl_original_flow_evidence_window(p_union_id uuid, p_start timestamp with time zone, p_end timestamp with time zone, p_window_start timestamp with time zone, p_window_end timestamp with time zone)": "c4ea982db893a45aade32874bd7cd495",
+    "smarter_private.weekly_hand_parts_read(p_union uuid, p_start timestamp with time zone, p_end timestamp with time zone, p_generation text, p_projected boolean)": "d427fd27d163ba72a7dc3cd50866163d",
+    "smarter_private.weekly_hand_parts_reduce(p_union uuid, p_start timestamp with time zone, p_end timestamp with time zone, p_projected boolean)": "97fc255997a2faeac593b5b1f5420d4c",
+    "smarter_private.weekly_hand_parts_witness(p_union uuid, p_start timestamp with time zone, p_end timestamp with time zone, p_projected boolean)": "a7c22cb171d6d6548707c6aa73fada6d",
+    "smarter_private.weekly_payout_claims_match(p_instance text, p_claims jsonb)": "147334d00da5a3eb65c47d2ec4f4722d",
+    "smarter_private.weekly_payout_clock()": "f34c68613fe7bc5512a341ec9b8b257e",
+    "smarter_private.weekly_payout_due()": "b33273e0047cfaa12aac8ba2979b6aaa",
+    "smarter_private.weekly_payout_eligible_scopes(p_end timestamp with time zone, p_now timestamp with time zone)": "f1a135b2555d4dfee67836d0b43af390",
+    "smarter_private.weekly_payout_execute(p_run uuid)": "a1523c58347e0d077e5537ff2e30c9d7",
+    "smarter_private.weekly_payout_finalize(p_run uuid)": "5b83618b59f043376c87361c986adca8",
+    "smarter_private.weekly_payout_fund_agent_shortfalls(p_run uuid, p_kind text, p_id uuid, p_from timestamp with time zone, p_to timestamp with time zone)": "018a0fcbad1fabcf1b5427b9fa454028",
+    "smarter_private.weekly_payout_lost_money_run(p_from timestamp with time zone, p_to timestamp with time zone)": "6e5b6f2c5dc07f653cc3707ef0bdd8fc",
+    "smarter_private.weekly_payout_next_round()": "332b762a004a779e32dc3fd2d1aef60d",
+    "smarter_private.weekly_payout_owned_money_write(p_table text)": "6addc8752858f6ecbf2dddd8f8742f23",
+    "smarter_private.weekly_payout_owns_round(p_kind text, p_id uuid, p_from timestamp with time zone, p_to timestamp with time zone, p_round integer)": "5e4a055ee5f34744283bea32b4669828",
+    "smarter_private.weekly_payout_pause_json(p_row weekly_accounting_payout_pauses)": "9cf7e90e3d861e29a3cd5ab292aa7f2f",
+    "smarter_private.weekly_payout_prepare_due()": "b74ade398c53fc375940a941997d5ae6",
+    "smarter_private.weekly_payout_readiness_check()": "14b2352f5d255bc4a9b1405248b9ce74",
+    "smarter_private.weekly_payout_record_claims(p_run uuid, p_instance text, p_claims jsonb)": "032715a8b48c96442f612386870cb536",
+    "smarter_private.weekly_payout_require_round(p_kind text, p_id uuid, p_from timestamp with time zone, p_to timestamp with time zone, p_round integer)": "efa13f6a903603d4948b57569e059a6e",
+    "smarter_private.weekly_payout_scope_plan(p_end timestamp with time zone, p_now timestamp with time zone)": "ec30840469438a995d15dbbbefafefb0",
+    "smarter_private.weekly_prep_shard(IN p_shard integer, IN p_shards integer)": "c2188f253dab440846951fe852f44584",
+    "smarter_private.weekly_prep_unit(p_kind text, p_scope uuid, p_from timestamp with time zone, p_to timestamp with time zone, p_step text, p_club uuid, p_idx integer)": "0d108c0a0e62d78885f8138479eea5ad",
+    "smarter_private.zero_standalone_foreign_commissions_proven(p_club uuid, p_start timestamp with time zone, p_end timestamp with time zone)": "69099f3bac93cb29fad83cb82cb1fe4a"
+  },
+  "relations": [
+    "public.accounting_agreement_history",
+    "public.accounting_cash_accrual_batches",
+    "public.accounting_cash_accrual_cutover",
+    "public.accounting_cash_atomic_contract_admissions",
+    "public.accounting_cash_bank_receipts",
+    "public.accounting_cash_funding_contract_admissions",
+    "public.accounting_cash_rake_sources",
+    "public.accounting_cash_source_receipts",
+    "public.accounting_cash_source_work",
+    "public.accounting_cashier_events",
+    "public.accounting_close_certificates",
+    "public.accounting_close_partials",
+    "public.accounting_conversations",
+    "public.accounting_correction_documents",
+    "public.accounting_credit_change_documents_v1",
+    "public.accounting_credit_reduction_operations_v1",
+    "public.accounting_effective_cash_rake_sources",
+    "public.accounting_effective_tournament_fee_sources",
+    "public.accounting_invoice_counters",
+    "public.accounting_invoice_deliveries",
+    "public.accounting_legacy_rakeback_certificates",
+    "public.accounting_mixed_cutover_spin_fee_proofs",
+    "public.accounting_own_agent_interpretations",
+    "public.accounting_own_agent_preparation_versions",
+    "public.accounting_own_agent_source_reviews",
+    "public.accounting_owner_direct_fee_incident",
+    "public.accounting_owner_direct_fee_proofs",
+    "public.accounting_owner_legacy_operations",
+    "public.accounting_payable_earning_sources",
+    "public.accounting_period_recompute_requests",
+    "public.accounting_rakeback_payer_contracts",
+    "public.accounting_rakeback_payer_transfers",
+    "public.accounting_rakeback_period_calculations",
+    "public.accounting_rakeback_period_evidence_checkpoints",
+    "public.accounting_rakeback_wallet_contracts",
+    "public.accounting_rakeback_wallet_transfers",
+    "public.accounting_recompute_split_parts",
+    "public.accounting_routed_settlement_runs",
+    "public.accounting_tournament_fee_batches",
+    "public.accounting_tournament_fee_custody_obligations",
+    "public.accounting_tournament_fee_custody_resolutions",
+    "public.accounting_tournament_fee_cutover",
+    "public.accounting_tournament_fee_owner_bases",
+    "public.accounting_tournament_fee_recognitions",
+    "public.accounting_tournament_fee_sources",
+    "public.accounting_tournament_recognized_sources",
+    "public.agent_commission_settlements",
+    "public.agent_commission_unsettled_rollup",
+    "public.agent_commissions",
+    "public.agent_credit_tracking_policy",
+    "public.agent_credit_weekly_basis",
+    "public.agent_credit_weekly_scopes",
+    "public.agents",
+    "public.anti_cheat_exemptions",
+    "public.audit_trail",
+    "public.avatar_style_catalog",
+    "public.avatar_unlocks",
+    "public.bbj_payout_recipients",
+    "public.bbj_payouts",
+    "public.bbj_pools",
+    "public.bbj_unclaimed_shares",
+    "public.bomb_pot_award_units",
+    "public.ca_cert_accounts",
+    "public.ca_chip_baseline",
+    "public.ca_chip_store_coverage",
+    "public.ca_club_commission_daily",
+    "public.ca_club_data_ct_state",
+    "public.ca_club_data_fact",
+    "public.ca_club_data_fact_ct",
+    "public.ca_club_data_fact_seed_log",
+    "public.ca_club_data_fact_state",
+    "public.ca_club_data_game_ct",
+    "public.ca_club_member_tournament_fee_daily",
+    "public.ca_club_player_daily",
+    "public.ca_club_table_player_daily",
+    "public.ca_club_tournament_daily",
+    "public.ca_club_tournament_player_daily",
+    "public.ca_detector_registry",
+    "public.ca_diamond_balance_audit",
+    "public.ca_diamond_house_earmarks",
+    "public.ca_diamond_incidents",
+    "public.ca_diamond_journal_archive",
+    "public.ca_diamond_rule_modes",
+    "public.ca_drift_incidents",
+    "public.ca_emergency_refund_provenance",
+    "public.ca_financial_epochs",
+    "public.ca_frozen_pool_baseline",
+    "public.ca_frozen_pool_deletions",
+    "public.ca_guard_def_history",
+    "public.ca_horse_club_assignments",
+    "public.ca_horse_club_split_late_returns",
+    "public.ca_horse_club_split_receipts",
+    "public.ca_horse_club_split_state",
+    "public.ca_incident_events",
+    "public.ca_incident_file_failures",
+    "public.ca_incident_notify_ledger",
+    "public.ca_incident_recipients",
+    "public.ca_kill_switch_policy",
+    "public.ca_launch_accounting_archives",
+    "public.ca_launch_accounting_boundaries",
+    "public.ca_launch_reset_opening_authorizations",
+    "public.ca_launch_reset_operations",
+    "public.ca_launch_reset_positions",
+    "public.ca_launch_reset_retirement_reversals",
+    "public.ca_launch_reset_rows",
+    "public.ca_launch_reset_wallet_movements",
+    "public.ca_ledger_audit_marks",
+    "public.ca_ledger_audit_member_net",
+    "public.ca_ledger_day_manifests",
+    "public.ca_ledger_invariant_findings",
+    "public.ca_ledger_invariant_mode",
+    "public.ca_ledger_invariant_refusal_counter",
+    "public.ca_ledger_invariant_refusals",
+    "public.ca_ledger_invariant_store_mode",
+    "public.ca_ledger_maintenance_kinds",
+    "public.ca_ledger_mutation_log",
+    "public.ca_ledger_write_failures",
+    "public.ca_mint_ledger",
+    "public.ca_mint_policy",
+    "public.ca_money_path_enforcement",
+    "public.ca_money_path_violations",
+    "public.ca_op_claims",
+    "public.ca_operator_policy",
+    "public.ca_player_restrictions",
+    "public.ca_private_record_transport_state",
+    "public.ca_profile_deletions",
+    "public.ca_restriction_observations",
+    "public.ca_seat_stack_exits",
+    "public.ca_settle_sources",
+    "public.ca_settlements",
+    "public.ca_supply_snapshots",
+    "public.ca_test_account_ledger_actor_archive",
+    "public.ca_treasury_baseline",
+    "public.cash_funding_application_receipts",
+    "public.cash_hand_participant_manifests",
+    "public.cash_hand_provenance_receipts",
+    "public.cash_participant_funding_receipts",
+    "public.cash_seat_move_receipts",
+    "public.cashier_rpc_operation_intents",
+    "public.cashout_requests",
+    "public.chip_escrow",
+    "public.chip_escrow_holds",
+    "public.chip_ledger",
+    "public.chip_ledger_chain_seq",
+    "public.chip_ledger_idem",
+    "public.chip_requests",
+    "public.chip_transactions",
+    "public.club_display_member_boost",
+    "public.club_invite_attributions",
+    "public.club_level_thresholds",
+    "public.club_members",
+    "public.club_messenger_admissions",
+    "public.club_messenger_owner_followups",
+    "public.club_messenger_owner_welcome_templates",
+    "public.club_messenger_staff_notice_groups",
+    "public.club_messenger_welcome_deliveries",
+    "public.club_messenger_welcome_templates",
+    "public.club_owner_creation_history",
+    "public.club_settlement_floor",
+    "public.club_shop_items",
+    "public.club_table_daily",
+    "public.club_wallets",
+    "public.clubs",
+    "public.content_authors",
+    "public.credit_invoices",
+    "public.daemon_state",
+    "public.daily_challenge_dashboard_revisions",
+    "public.deep_stack_delete_attempts",
+    "public.diamond_game_configs",
+    "public.diamond_game_pools",
+    "public.diamond_spin_days",
+    "public.diamond_transactions",
+    "public.diamond_wallets",
+    "public.engine_maintenance_break",
+    "public.engine_maintenance_thaws",
+    "public.entry_purchase_idempotency_receipts",
+    "public.financial_alerts",
+    "public.friendships",
+    "public.game_management_events",
+    "public.hand_atomic_commits",
+    "public.hand_history",
+    "public.hand_history_retention_policy",
+    "public.hand_players",
+    "public.hands",
+    "public.insurance_offer_events",
+    "public.insurance_transactions",
+    "public.ledger_reconcile_log",
+    "public.managed_game_contract_versions",
+    "public.messenger_blocked",
+    "public.notifications",
+    "public.operational_alert_events",
+    "public.player_number_seq",
+    "public.player_stats",
+    "public.poker_diamond_custody",
+    "public.poker_diamond_movements",
+    "public.poker_diamond_tournament_ledger",
+    "public.profiles",
+    "public.rake_attributions",
+    "public.rake_records",
+    "public.rakeback_period_payouts",
+    "public.rakeback_periods",
+    "public.rakeback_stats_applied",
+    "public.referrals",
+    "public.settlement_idempotency_keys",
+    "public.settlement_invoices",
+    "public.settlement_locks",
+    "public.settlement_periods",
+    "public.signup_errors",
+    "public.social_conversation_participants",
+    "public.social_conversations",
+    "public.social_follows",
+    "public.social_messages",
+    "public.social_pages",
+    "public.spin_bonus_pools",
+    "public.spin_draw_receipts",
+    "public.spin_reserve_ledger",
+    "public.table_pending_addons",
+    "public.table_seats",
+    "public.tables",
+    "public.tournament_accounting_credit_receipts",
+    "public.tournament_cancellation_receipts",
+    "public.tournament_escrow",
+    "public.tournament_guarantee_overlays",
+    "public.tournament_launch_receipts",
+    "public.tournament_obligations",
+    "public.tournament_participant_funding_receipts",
+    "public.tournament_payouts",
+    "public.tournament_players",
+    "public.tournament_rake_settlements",
+    "public.tournament_refund_authorizations",
+    "public.tournament_refund_entitlements",
+    "public.tournament_refund_tranches",
+    "public.tournament_satellite_awards",
+    "public.tournament_satellite_settlements",
+    "public.tournament_schedules",
+    "public.tournament_spin_cancellation_unwinds",
+    "public.tournament_terminal_settlements",
+    "public.tournament_tickets",
+    "public.tournament_unregistration_receipts",
+    "public.tournaments",
+    "public.union_accounting_runs",
+    "public.union_admins",
+    "public.union_clubs",
+    "public.union_creators",
+    "public.union_pnl_cash_outcome_link_resolutions",
+    "public.union_pnl_cash_outcome_resolutions",
+    "public.union_pnl_cash_outcome_touches",
+    "public.union_pnl_cash_outcomes",
+    "public.union_pnl_credit_touches",
+    "public.union_pnl_eco_observations",
+    "public.union_pnl_inventory_capture",
+    "public.union_pnl_inventory_events",
+    "public.union_pnl_inventory_touches",
+    "public.union_pnl_opening_registration_resolutions",
+    "public.union_pnl_original_flows",
+    "public.union_pnl_projection_build",
+    "public.union_pnl_transaction_frames",
+    "public.union_pnl_weekly_capture",
+    "public.union_rake_weekly",
+    "public.union_rakeback_log",
+    "public.union_settlement_floor",
+    "public.union_settlement_rounds",
+    "public.union_wallet_transactions",
+    "public.union_wallets",
+    "public.unions",
+    "public.user_diamond_balance",
+    "public.user_diamonds",
+    "public.user_mfa_factors",
+    "public.users",
+    "public.wallet_credit_idempotency",
+    "public.wallet_transactions",
+    "public.wallets",
+    "public.weekly_accounting_payout_pauses",
+    "public.weekly_accounting_scheduler_visits",
+    "public.wheel_configs",
+    "smarter_private.agent_commission_report_daily",
+    "smarter_private.agent_commission_report_days",
+    "smarter_private.agent_commission_report_frontiers",
+    "smarter_private.daily_window_policy",
+    "smarter_private.existing_rakeback_transfer_allocations",
+    "smarter_private.existing_rakeback_transfer_instructions",
+    "smarter_private.free_buy_ticket_days",
+    "smarter_private.free_buy_ticket_redemptions",
+    "smarter_private.hand_submission_disposals",
+    "smarter_private.hand_submissions",
+    "smarter_private.horse_settlement_key_certificates",
+    "smarter_private.original_erased_cash_base_discharges",
+    "smarter_private.original_inventory_restoration_cases",
+    "smarter_private.original_inventory_restoration_certificates",
+    "smarter_private.original_treasury_funding_cutover",
+    "smarter_private.original_treasury_funding_witnesses",
+    "smarter_private.original_treasury_historical_admissions",
+    "smarter_private.own_agent_clean_windows",
+    "smarter_private.owner_retirement_bank_refunds",
+    "smarter_private.owner_retirement_manual_refunds",
+    "smarter_private.owner_retirement_pool_transfers",
+    "smarter_private.owner_tournament_deletion_intents",
+    "smarter_private.posthand_escrow_certificates",
+    "smarter_private.retired_cash_hand_custody",
+    "smarter_private.retired_cash_hand_qualification",
+    "smarter_private.retirement_original_hand_qualification",
+    "smarter_private.retirement_original_hand_restorations",
+    "smarter_private.retirement_undealt_paid_entry_qualification",
+    "smarter_private.retirement_undealt_paid_entry_restorations",
+    "smarter_private.tournament_abort_recoveries",
+    "smarter_private.tournament_abort_targets",
+    "smarter_private.weekly_payout_financial_receipts",
+    "smarter_private.weekly_payout_owned_transactions",
+    "smarter_private.weekly_payout_phase_configuration",
+    "smarter_private.weekly_payout_round_receipts",
+    "smarter_private.weekly_payout_rounds_config",
+    "smarter_private.weekly_prep_scope_clubs",
+    "smarter_private.weekly_prep_shard_runs"
+  ],
+  "source": "production kuklfnapbkmacvwxktbh (SELECT only): definitions read 2026-11-09",
+  "stand_ins": {},
+  "triggers_not_wired": [
+    [
+      "public.accounting_cash_accrual_cutover",
+      "accounting_cash_cutover_immutable",
+      "DELETE OR UPDATE"
+    ],
+    ["public.accounting_cash_accrual_cutover", "accounting_cash_cutover_no_truncate", "TRUNCATE"],
+    ["public.accounting_cash_accrual_cutover", "ca_cash_cutover_is_week_aligned", "INSERT"],
+    [
+      "public.accounting_cash_accrual_cutover",
+      "ca_cash_cutover_not_ahead_of_settler",
+      "INSERT OR UPDATE"
+    ],
+    [
+      "public.accounting_cash_atomic_contract_admissions",
+      "accounting_cash_atomic_admission_immutable",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "public.accounting_cash_atomic_contract_admissions",
+      "accounting_cash_atomic_admission_no_truncate",
+      "TRUNCATE"
+    ],
+    [
+      "public.accounting_cash_funding_contract_admissions",
+      "accounting_cash_funding_admission_immutable",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "public.accounting_cash_funding_contract_admissions",
+      "accounting_cash_funding_admission_no_truncate",
+      "TRUNCATE"
+    ],
+    [
+      "public.accounting_cash_source_receipts",
+      "accounting_cash_source_receipts_immutable",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "public.accounting_cash_source_receipts",
+      "accounting_cash_source_receipts_no_truncate",
+      "TRUNCATE"
+    ],
+    ["public.accounting_cashier_events", "cashier_event_append_only", "DELETE OR UPDATE"],
+    ["public.accounting_cashier_events", "cashier_event_messenger_thread", "INSERT"],
+    [
+      "public.accounting_correction_documents",
+      "correction_document_append_only",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "public.accounting_credit_change_documents_v1",
+      "credit_change_document_immutable_v1",
+      "DELETE OR UPDATE OR TRUNCATE"
+    ],
+    [
+      "public.accounting_credit_reduction_operations_v1",
+      "accounting_credit_change_on_operation_v1",
+      "INSERT"
+    ],
+    [
+      "public.accounting_credit_reduction_operations_v1",
+      "credit_reduction_operation_exclusive_v1",
+      "INSERT"
+    ],
+    [
+      "public.accounting_credit_reduction_operations_v1",
+      "credit_reduction_operation_immutable",
+      "DELETE OR UPDATE OR TRUNCATE"
+    ],
+    [
+      "public.accounting_credit_reduction_operations_v1",
+      "zz_accounting_credit_change_deferred_v1",
+      "INSERT"
+    ],
+    [
+      "public.accounting_legacy_rakeback_certificates",
+      "accounting_legacy_rakeback_certificate_immutable",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "public.accounting_legacy_rakeback_certificates",
+      "accounting_legacy_rakeback_certificate_no_truncate",
+      "TRUNCATE"
+    ],
+    [
+      "public.accounting_mixed_cutover_spin_fee_proofs",
+      "mixed_cutover_spin_proof_immutable",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "public.accounting_mixed_cutover_spin_fee_proofs",
+      "mixed_cutover_spin_proof_no_truncate",
+      "TRUNCATE"
+    ],
+    [
+      "public.accounting_own_agent_interpretations",
+      "own_agent_interpretation_immutable",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "public.accounting_own_agent_interpretations",
+      "own_agent_interpretation_no_truncate",
+      "TRUNCATE"
+    ],
+    [
+      "public.accounting_owner_direct_fee_incident",
+      "owner_fee_incident_immutable",
+      "DELETE OR UPDATE"
+    ],
+    ["public.accounting_owner_direct_fee_incident", "owner_fee_incident_no_truncate", "TRUNCATE"],
+    ["public.accounting_owner_direct_fee_proofs", "owner_fee_proof_immutable", "DELETE OR UPDATE"],
+    ["public.accounting_owner_direct_fee_proofs", "owner_fee_proof_no_truncate", "TRUNCATE"],
+    [
+      "public.accounting_owner_legacy_operations",
+      "accounting_owner_legacy_operation_no_truncate",
+      "TRUNCATE"
+    ],
+    [
+      "public.accounting_owner_legacy_operations",
+      "accounting_owner_legacy_operation_transition",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "public.accounting_tournament_fee_batches",
+      "accounting_tournament_fee_batches_immutable",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "public.accounting_tournament_fee_batches",
+      "accounting_tournament_fee_batches_no_truncate",
+      "TRUNCATE"
+    ],
+    [
+      "public.accounting_tournament_fee_custody_obligations",
+      "legacy_fee_custody_is_append_only",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "public.accounting_tournament_fee_custody_obligations",
+      "legacy_fee_custody_refuses_truncate",
+      "TRUNCATE"
+    ],
+    [
+      "public.accounting_tournament_fee_custody_obligations",
+      "legacy_fee_custody_requires_terminal",
+      "INSERT"
+    ],
+    [
+      "public.accounting_tournament_fee_custody_resolutions",
+      "legacy_fee_resolution_is_append_only",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "public.accounting_tournament_fee_custody_resolutions",
+      "legacy_fee_resolution_refuses_truncate",
+      "TRUNCATE"
+    ],
+    [
+      "public.accounting_tournament_fee_custody_resolutions",
+      "legacy_fee_resolution_requires_recognition",
+      "INSERT"
+    ],
+    [
+      "public.accounting_tournament_fee_cutover",
+      "accounting_tournament_fee_cutover_immutable",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "public.accounting_tournament_fee_cutover",
+      "accounting_tournament_fee_cutover_no_truncate",
+      "TRUNCATE"
+    ],
+    ["public.accounting_tournament_fee_cutover", "ca_fee_cutover_is_drained", "INSERT"],
+    [
+      "public.accounting_tournament_fee_owner_bases",
+      "owner_fee_basis_is_append_only",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "public.accounting_tournament_fee_owner_bases",
+      "owner_fee_basis_refuses_truncate",
+      "TRUNCATE"
+    ],
+    [
+      "public.accounting_tournament_fee_recognitions",
+      "accounting_tournament_fee_recognitions_immutable",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "public.accounting_tournament_fee_recognitions",
+      "accounting_tournament_fee_recognitions_no_truncate",
+      "TRUNCATE"
+    ],
+    [
+      "public.accounting_tournament_fee_sources",
+      "aa_poker_arena_no_chip_money",
+      "INSERT OR UPDATE OF club_id, tournament_id"
+    ],
+    [
+      "public.accounting_tournament_fee_sources",
+      "accounting_tournament_fee_sources_immutable",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "public.accounting_tournament_fee_sources",
+      "accounting_tournament_fee_sources_no_truncate",
+      "TRUNCATE"
+    ],
+    [
+      "public.accounting_tournament_fee_sources",
+      "trg_ca_club_member_tournament_fee_daily",
+      "INSERT"
+    ],
+    [
+      "public.accounting_tournament_recognized_sources",
+      "accounting_tournament_recognized_sources_immutable",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "public.accounting_tournament_recognized_sources",
+      "accounting_tournament_recognized_sources_no_truncate",
+      "TRUNCATE"
+    ],
+    ["public.audit_trail", "player_history_changed", "INSERT"],
+    ["public.bbj_payout_recipients", "trg_bbj_recipients_delete_guard", "DELETE"],
+    ["public.bbj_payouts", "trg_bbj_payouts_delete_guard", "DELETE"],
+    ["public.bbj_payouts", "trg_log_jackpot_payout_without_hand", "INSERT"],
+    ["public.bbj_pools", "aa_poker_arena_no_chip_money", "INSERT OR UPDATE OF club_id"],
+    ["public.bbj_pools", "aaa_ca_refuse_replica_money_truncate", "TRUNCATE"],
+    ["public.bbj_pools", "aaa_ca_refuse_replica_money_write", "INSERT OR DELETE OR UPDATE"],
+    ["public.bbj_pools", "poker_arena_no_chip_jackpot", "INSERT OR UPDATE"],
+    [
+      "public.bbj_pools",
+      "trg_ca_autoledger",
+      "INSERT OR UPDATE OF main_balance, backup_balance, promo_balance"
+    ],
+    ["public.bbj_pools", "trg_ca_autoledger_delete", "DELETE"],
+    ["public.bbj_pools", "trg_ca_block_browser", "INSERT OR DELETE OR UPDATE"],
+    ["public.bbj_pools", "trg_guard_retired_club_mutation", "INSERT OR DELETE OR UPDATE"],
+    [
+      "public.bbj_pools",
+      "zy_ca_tally_balance_move",
+      "INSERT OR DELETE OR UPDATE OF main_balance, backup_balance, promo_balance"
+    ],
+    [
+      "public.bbj_pools",
+      "zz_ca_balance_has_its_ledger_row",
+      "INSERT OR DELETE OR UPDATE OF main_balance, backup_balance, promo_balance"
+    ],
+    ["public.ca_club_commission_daily", "poker_arena_no_hierarchy", "INSERT OR UPDATE"],
+    [
+      "public.ca_club_member_tournament_fee_daily",
+      "member_record_tournament_fee",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    ["public.ca_diamond_house_earmarks", "trg_ca_diamond_earmark_guard", "INSERT"],
+    [
+      "public.ca_diamond_house_earmarks",
+      "trg_ca_diamond_house_earmarks_append_only",
+      "DELETE OR UPDATE"
+    ],
+    ["public.ca_diamond_house_earmarks", "trg_ca_diamond_house_earmarks_no_truncate", "TRUNCATE"],
+    ["public.ca_diamond_incidents", "ca_diamond_incident_critical_pages", "INSERT"],
+    ["public.ca_diamond_incidents", "ca_diamond_journal_notice_arrives_closed", "INSERT"],
+    ["public.ca_diamond_incidents", "ca_diamond_reopened_critical_pages", "UPDATE OF resolved_at"],
+    ["public.ca_diamond_incidents", "ca_diamond_resolution_reaches_drift", "UPDATE OF resolved_at"],
+    [
+      "public.ca_diamond_incidents",
+      "ca_diamond_rule_transition_lock",
+      "INSERT OR UPDATE OF resolved_at, rule, severity"
+    ],
+    ["public.ca_diamond_incidents", "trg_ca_diamond_incident_person_hold", "UPDATE"],
+    ["public.ca_diamond_rule_modes", "zz_touch_updated_at", "INSERT OR UPDATE"],
+    ["public.ca_drift_incidents", "a00_operational_source_intake", "INSERT OR UPDATE"],
+    [
+      "public.ca_drift_incidents",
+      "trg_ca_drift_incident_timeline",
+      "INSERT OR UPDATE OF status, detected_at, deadline_at, resolved_at"
+    ],
+    ["public.ca_drift_incidents", "trg_ca_incidents_stay_in_midway", "INSERT"],
+    ["public.ca_drift_incidents", "trg_ca_resolution_needs_a_cause", "UPDATE"],
+    [
+      "public.ca_drift_incidents",
+      "zz_ca_incident_resolution_reaches_the_alerts",
+      "UPDATE OF status, closure_basis"
+    ],
+    ["public.ca_frozen_pool_baseline", "zz_ca_frozen_baseline_needs_a_reason", "DELETE OR UPDATE"],
+    ["public.ca_incident_events", "trg_ca_incident_events_append_only", "DELETE OR UPDATE"],
+    [
+      "public.ca_launch_accounting_archives",
+      "launch_accounting_archive_immutable",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "public.ca_launch_accounting_boundaries",
+      "launch_accounting_boundary_immutable",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "public.ca_launch_reset_opening_authorizations",
+      "immutable_launch_opening_authorizations",
+      "DELETE OR UPDATE"
+    ],
+    ["public.ca_launch_reset_positions", "immutable_launch_positions", "DELETE OR UPDATE"],
+    [
+      "public.ca_launch_reset_retirement_reversals",
+      "immutable_launch_retirement_reversals",
+      "DELETE OR UPDATE"
+    ],
+    ["public.ca_launch_reset_rows", "immutable_launch_rows", "DELETE OR UPDATE"],
+    [
+      "public.ca_launch_reset_wallet_movements",
+      "immutable_launch_wallet_movements",
+      "DELETE OR UPDATE"
+    ],
+    ["public.ca_ledger_day_manifests", "zz_ca_manifest_is_restated_not_edited", "DELETE OR UPDATE"],
+    ["public.ca_mint_ledger", "ca_emergency_positive_issuance", "INSERT"],
+    ["public.ca_mint_ledger", "trg_ca_mint_register_append_only", "DELETE OR UPDATE"],
+    ["public.ca_player_restrictions", "ca_player_control_decision_lock", "INSERT OR UPDATE"],
+    [
+      "public.ca_test_account_ledger_actor_archive",
+      "trg_ca_test_account_ledger_actor_archive_immutable",
+      "DELETE OR UPDATE"
+    ],
+    ["public.cash_funding_application_receipts", "cash_application_immutable", "DELETE OR UPDATE"],
+    [
+      "public.cash_funding_application_receipts",
+      "cash_funding_application_receipts_no_truncate",
+      "TRUNCATE"
+    ],
+    ["public.cash_funding_application_receipts", "original_union_pnl_frame", "INSERT"],
+    [
+      "public.cash_hand_participant_manifests",
+      "cash_hand_participant_manifests_no_truncate",
+      "TRUNCATE"
+    ],
+    ["public.cash_hand_participant_manifests", "cash_manifest_immutable", "DELETE OR UPDATE"],
+    ["public.cash_hand_provenance_receipts", "cash_hand_provenance_immutable", "DELETE OR UPDATE"],
+    [
+      "public.cash_hand_provenance_receipts",
+      "cash_hand_provenance_receipts_no_truncate",
+      "TRUNCATE"
+    ],
+    ["public.cash_hand_provenance_receipts", "original_union_pnl_frame", "INSERT"],
+    ["public.cash_participant_funding_receipts", "cash_funding_immutable", "DELETE OR UPDATE"],
+    [
+      "public.cash_participant_funding_receipts",
+      "cash_participant_funding_receipts_no_truncate",
+      "TRUNCATE"
+    ],
+    ["public.cash_participant_funding_receipts", "original_union_pnl_frame", "INSERT"],
+    ["public.cash_seat_move_receipts", "cash_move_receipt_immutable", "DELETE OR UPDATE"],
+    ["public.cash_seat_move_receipts", "cash_move_receipt_no_truncate", "TRUNCATE"],
+    ["public.cash_seat_move_receipts", "original_union_pnl_frame", "INSERT"],
+    ["public.cashout_requests", "aaa_launch_cashier_boundary", "INSERT OR UPDATE"],
+    ["public.cashout_requests", "ca_emergency_cashout", "INSERT OR UPDATE"],
+    ["public.cashout_requests", "trg_guard_retired_club_mutation", "INSERT OR DELETE OR UPDATE"],
+    ["public.chip_escrow", "aaa_ca_refuse_replica_money_truncate", "TRUNCATE"],
+    ["public.chip_escrow", "aaa_ca_refuse_replica_money_write", "INSERT OR DELETE OR UPDATE"],
+    ["public.chip_escrow", "trg_guard_retired_club_mutation", "INSERT OR DELETE OR UPDATE"],
+    ["public.chip_escrow", "zy_ca_tally_store_move", "INSERT OR DELETE OR UPDATE"],
+    ["public.chip_escrow", "zz_ca_store_has_its_ledger_row", "INSERT OR DELETE OR UPDATE"],
+    ["public.chip_escrow_holds", "trg_chip_escrow_holds_updated", "UPDATE"],
+    ["public.chip_escrow_holds", "trg_guard_retired_club_mutation", "INSERT OR DELETE OR UPDATE"],
+    ["public.chip_requests", "aaa_launch_cashier_boundary", "INSERT OR UPDATE"],
+    ["public.chip_requests", "trg_guard_retired_club_mutation", "INSERT OR DELETE OR UPDATE"],
+    ["public.club_members", "aaa_ca_refuse_replica_money_truncate", "TRUNCATE"],
+    ["public.club_members", "lock_cashier_hierarchy_insert_delete", "INSERT OR DELETE"],
+    ["public.club_members", "trg_approval_gate_ins", "INSERT"],
+    ["public.club_members", "trg_audit_club_member_delete", "DELETE"],
+    ["public.club_members", "trg_block_browser_balance_inserts", "INSERT"],
+    ["public.club_members", "trg_ca_autoledger_delete", "DELETE"],
+    ["public.club_members", "trg_ca_autoledger_insert", "INSERT"],
+    ["public.club_members", "trg_club_members_no_agent_cycle_ins", "INSERT"],
+    ["public.club_members", "trg_club_members_require_explicit_join", "INSERT"],
+    ["public.club_members", "trg_deep_stack_members_are_protected", "DELETE"],
+    ["public.club_members", "trg_four_club_limit_ins", "INSERT"],
+    ["public.club_members", "trg_membership_starts_with_zero_chips", "INSERT"],
+    [
+      "public.club_settlement_floor",
+      "a_floor_cannot_pass_owed_agent_commission",
+      "INSERT OR UPDATE OF earliest_period_start"
+    ],
+    [
+      "public.club_shop_items",
+      "trg_validate_shop_theme_preset",
+      "INSERT OR UPDATE OF grant_spec, is_active, category, stackable"
+    ],
+    ["public.club_wallets", "aa_poker_arena_no_chip_money", "INSERT OR UPDATE OF club_id"],
+    ["public.club_wallets", "aaa_ca_refuse_replica_money_truncate", "TRUNCATE"],
+    ["public.club_wallets", "aaa_ca_refuse_replica_money_write", "INSERT OR DELETE OR UPDATE"],
+    ["public.club_wallets", "poker_arena_no_chip_rake", "INSERT OR UPDATE"],
+    [
+      "public.club_wallets",
+      "trg_ca_autoledger",
+      "INSERT OR UPDATE OF chip_balance, insurance_balance"
+    ],
+    ["public.club_wallets", "trg_ca_autoledger_delete", "DELETE"],
+    ["public.club_wallets", "trg_ca_block_browser", "INSERT OR DELETE OR UPDATE"],
+    ["public.club_wallets", "trg_club_wallets_updated", "UPDATE"],
+    ["public.club_wallets", "trg_guard_retired_club_mutation", "INSERT OR DELETE OR UPDATE"],
+    ["public.club_wallets", "zy_ca_tally_store_move", "INSERT OR DELETE OR UPDATE"],
+    ["public.club_wallets", "zz_ca_store_has_its_ledger_row", "INSERT OR DELETE OR UPDATE"],
+    ["public.clubs", "aaa_ca_refuse_replica_money_truncate", "TRUNCATE"],
+    ["public.clubs", "trg_audit_club_created", "INSERT"],
+    ["public.clubs", "trg_audit_club_delete", "DELETE"],
+    ["public.clubs", "trg_autocreate_club_social_page", "INSERT"],
+    ["public.clubs", "trg_ca_autoledger_delete", "DELETE"],
+    ["public.clubs", "trg_create_canonical_club_wallet", "INSERT"],
+    ["public.clubs", "trg_delete_club_social_page", "DELETE"],
+    ["public.clubs", "trg_guard_clubs_chip_pool_ins", "INSERT"],
+    ["public.clubs", "trg_mark_new_club_opening_checklist", "INSERT"],
+    ["public.clubs", "trg_new_club_gets_the_ladder", "INSERT"],
+    ["public.clubs", "trg_record_new_club_opening_bank", "INSERT"],
+    ["public.clubs", "trg_seed_all_throwables_shop_item", "INSERT"],
+    ["public.clubs", "trg_seed_new_club_opening_bank", "INSERT"],
+    ["public.credit_invoices", "accounting_credit_invoice_document", "INSERT"],
+    ["public.credit_invoices", "trg_guard_retired_club_mutation", "INSERT OR DELETE OR UPDATE"],
+    ["public.diamond_game_configs", "crash_config_limits", "INSERT OR UPDATE"],
+    [
+      "public.diamond_game_configs",
+      "diamond_game_configs_allowance_floor",
+      "INSERT OR UPDATE OF exposure_allowance_chips"
+    ],
+    ["public.diamond_game_configs", "trg_diamond_game_config_history", "INSERT OR UPDATE"],
+    [
+      "public.diamond_game_configs",
+      "trg_guard_retired_club_mutation",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    ["public.diamond_game_pools", "trg_guard_retired_club_mutation", "INSERT OR DELETE OR UPDATE"],
+    ["public.diamond_spin_days", "diamond_spin_days_immutable", "DELETE OR UPDATE"],
+    ["public.diamond_spin_days", "diamond_spin_settlement_receipt", "INSERT OR UPDATE"],
+    ["public.diamond_transactions", "aa_ca_diamond_journal_classifier", "INSERT"],
+    ["public.diamond_transactions", "aa_ca_emergency_diamond_issuance", "INSERT"],
+    ["public.diamond_transactions", "ab_ca_diamond_transfer_names_its_counterparty", "INSERT"],
+    ["public.diamond_transactions", "trg_allocate_lifetime_vip_diamond_spend", "INSERT"],
+    ["public.diamond_transactions", "trg_ca_append_only", "DELETE OR UPDATE"],
+    ["public.diamond_transactions", "trg_ca_diamond_earn_ledger", "INSERT"],
+    ["public.diamond_transactions", "trg_ca_diamond_register_follows_journal", "INSERT"],
+    ["public.diamond_transactions", "trg_enforce_anti_farming_caps", "INSERT"],
+    ["public.diamond_transactions", "trg_phase9_guard_lifeline_ledger", "INSERT"],
+    ["public.diamond_transactions", "zz_restriction_transfer_guard", "INSERT"],
+    [
+      "public.engine_maintenance_break",
+      "aa_serialize_maintenance_break_write",
+      "INSERT OR DELETE OR UPDATE OR TRUNCATE"
+    ],
+    [
+      "public.entry_purchase_idempotency_receipts",
+      "z_entry_purchase_receipt_is_immutable",
+      "DELETE OR UPDATE"
+    ],
+    ["public.financial_alerts", "a00_operational_source_intake", "INSERT OR UPDATE"],
+    ["public.financial_alerts", "a0_closed_arena_finding_is_intended", "INSERT"],
+    ["public.financial_alerts", "a1_manual_adjustment_approval_notice_is_informational", "INSERT"],
+    ["public.financial_alerts", "a2_post_commit_handoff_is_a_warning", "INSERT"],
+    ["public.financial_alerts", "trg_ca_financial_alert_incident", "INSERT"],
+    [
+      "public.financial_alerts",
+      "zz_ca_alert_resolution_reaches_the_incident",
+      "UPDATE OF resolved"
+    ],
+    ["public.friendships", "trg_daily_missions_friend_accepted", "INSERT OR UPDATE OF status"],
+    ["public.friendships", "trg_notify_friend_request", "INSERT"],
+    ["public.friendships", "zz_restriction_social_guard", "INSERT"],
+    ["public.game_management_events", "trg_game_management_events_append_only", "DELETE OR UPDATE"],
+    ["public.hand_atomic_commits", "a00_f06_aborted_hand", "INSERT OR UPDATE"],
+    ["public.hand_atomic_commits", "a00_f06_cancelled_preparation", "INSERT OR UPDATE"],
+    ["public.hand_atomic_commits", "aaa_ca_refuse_replica_money_truncate", "TRUNCATE"],
+    [
+      "public.hand_atomic_commits",
+      "aaa_ca_refuse_replica_money_write",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    ["public.hand_atomic_commits", "horse_exact_accept_hand", "INSERT"],
+    ["public.hand_atomic_commits", "original_union_pnl_cash_acceptance", "INSERT"],
+    [
+      "public.hand_atomic_commits",
+      "poker_diamond_jackpot_accept_hand",
+      "UPDATE OF post_commit_payload"
+    ],
+    ["public.hand_atomic_commits", "tournament_abort_archived_write", "INSERT OR UPDATE"],
+    [
+      "public.hand_atomic_commits",
+      "zy_ca_tally_balance_move",
+      "INSERT OR DELETE OR UPDATE OF post_commit_payload, post_commit_completed_at, stack_result, table_id"
+    ],
+    [
+      "public.hand_atomic_commits",
+      "zz_ca_balance_has_its_ledger_row",
+      "INSERT OR DELETE OR UPDATE OF post_commit_payload, post_commit_completed_at, stack_result, table_id"
+    ],
+    [
+      "public.hand_atomic_commits",
+      "zzzz_f06_accepted_hand",
+      "INSERT OR UPDATE OF post_commit_completed_at"
+    ],
+    ["public.hand_history", "a00_f06_aborted_history", "INSERT OR UPDATE"],
+    ["public.hand_history", "a00_f06_cancelled_preparation", "INSERT OR UPDATE"],
+    ["public.hand_history", "hand_history_club_member_stats", "INSERT"],
+    ["public.hand_history", "hand_history_fold_stats", "INSERT"],
+    ["public.hand_history", "hand_history_position_stats", "INSERT"],
+    ["public.hand_history", "horse_exploit_accept_hand", "INSERT"],
+    ["public.hand_history", "horse_exploit_mark_hand", "INSERT"],
+    ["public.hand_history", "tournament_abort_archived_write", "INSERT OR UPDATE"],
+    ["public.hand_history", "trg_ca_capture_hand_facts", "DELETE"],
+    ["public.hand_history", "trg_ca_stats_live_from_hand", "INSERT"],
+    ["public.hand_history", "trg_enqueue_hand_daily_missions", "INSERT"],
+    ["public.hand_history", "trg_hand_history_royal_flush_achievement", "INSERT"],
+    ["public.hand_history", "trg_hand_history_straight_flush_quads_achievements", "INSERT"],
+    ["public.hand_history", "trg_log_jackpot_hand_deleted", "DELETE"],
+    ["public.hand_history", "zz_ca_bomb_hand_keeps_its_award_units", "INSERT"],
+    ["public.ledger_reconcile_log", "trg_ca_reconcile_log_incident", "INSERT"],
+    [
+      "public.managed_game_contract_versions",
+      "trg_managed_game_contract_version_immutable",
+      "DELETE OR UPDATE"
+    ],
+    ["public.notifications", "aa_notification_delivery_guard", "INSERT OR UPDATE"],
+    ["public.notifications", "ca_capture_weekly_revenue_digest", "INSERT"],
+    ["public.notifications", "trg_accounting_push_after_delivery", "INSERT"],
+    ["public.notifications", "trg_campaign_notification_once", "INSERT"],
+    ["public.notifications", "trg_mirror_notification_to_push_outbox", "INSERT"],
+    ["public.notifications", "trg_notification_fill_action_url", "INSERT"],
+    ["public.notifications", "trg_sync_notification_read_state", "INSERT OR UPDATE"],
+    ["public.notifications", "zz_capture_owner_notification_destination", "INSERT"],
+    ["public.operational_alert_events", "a00_operational_alert_stamp_destination", "INSERT"],
+    ["public.operational_alert_events", "a0_operational_alert_mirror_classify", "INSERT"],
+    [
+      "public.operational_alert_events",
+      "a_operational_alert_investigation_touched",
+      "UPDATE OF investigation, investigation_status"
+    ],
+    [
+      "public.operational_alert_events",
+      "b_operational_alert_resolved_twin_closes_firing",
+      "INSERT"
+    ],
+    ["public.operational_alert_events", "ca_native_alert_committed", "INSERT"],
+    ["public.operational_alert_events", "zz_a_real_alert_reaches_the_owner", "INSERT"],
+    [
+      "public.player_stats",
+      "trg_sync_profile_total_hands",
+      "INSERT OR DELETE OR UPDATE OF hands_played"
+    ],
+    ["public.poker_diamond_custody", "zzz_diamond_entry_custody_is_the_entry", "INSERT OR UPDATE"],
+    ["public.poker_diamond_movements", "poker_diamond_movements_append_only", "DELETE OR UPDATE"],
+    [
+      "public.poker_diamond_tournament_ledger",
+      "poker_diamond_tournament_ledger_append_only",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "public.profiles",
+      "clear_stale_vip_gift_provenance",
+      "INSERT OR UPDATE OF is_vip, vip_tier, vip_expires_at, vip_gift_id"
+    ],
+    [
+      "public.profiles",
+      "member_record_profile",
+      "UPDATE OF player_number, alias, username, display_name, first_name, last_name, full_name, arena_avatar_url, avatar_url, last_login, last_seen, is_online, status"
+    ],
+    [
+      "public.profiles",
+      "profile_account_changed",
+      "UPDATE OF username, display_name, alias, first_name, last_name, full_name, display_name_preference, use_real_name, bio, player_tags, login_streak, vip_tier, settings, diamonds"
+    ],
+    [
+      "public.profiles",
+      "profile_appearance_changed",
+      "UPDATE OF avatar_url, arena_avatar_url, use_avatar_as_profile_pic, is_vip, vip_expires_at, equipped_frame, equipped_aura"
+    ],
+    [
+      "public.profiles",
+      "profiles_trivia_preferences_revision_guard",
+      "UPDATE OF trivia_preferences, trivia_preferences_revision"
+    ],
+    ["public.profiles", "tr_generate_referral_code", "INSERT"],
+    [
+      "public.profiles",
+      "trg_00_social_horse_public_real_name",
+      "INSERT OR UPDATE OF display_name, full_name, first_name, last_name, is_horse, horse_status"
+    ],
+    ["public.profiles", "trg_a_benched_horse_stays_benched", "UPDATE OF horse_status"],
+    ["public.profiles", "trg_a_closed_account_cannot_rewrite_itself", "UPDATE"],
+    [
+      "public.profiles",
+      "trg_aa_diamond_balance_mirrors_canonical",
+      "INSERT OR UPDATE OF diamonds, diamond_balance"
+    ],
+    ["public.profiles", "trg_auto_connect_dan", "INSERT"],
+    ["public.profiles", "trg_ca_profile_deletion_journal", "DELETE"],
+    [
+      "public.profiles",
+      "trg_clear_stale_lifetime_card_provenance",
+      "UPDATE OF is_vip, vip_tier, vip_expires_at, vip_lifetime_card_purchase_id"
+    ],
+    ["public.profiles", "trg_club_invite_phone_verified", "UPDATE OF phone_verified"],
+    ["public.profiles", "trg_daily_challenge_revision_from_diamonds", "UPDATE OF diamonds"],
+    ["public.profiles", "trg_deleted_account_custody_settled", "UPDATE OF status"],
+    ["public.profiles", "trg_diamond_side_tables_follow_profiles", "INSERT OR UPDATE OF diamonds"],
+    ["public.profiles", "trg_guard_horse_avatar", "UPDATE OF avatar_url"],
+    ["public.profiles", "trg_guard_profile_privileged_columns", "UPDATE"],
+    ["public.profiles", "trg_guard_profile_privileged_columns_on_insert", "INSERT"],
+    [
+      "public.profiles",
+      "trg_guard_profile_trust_columns",
+      "UPDATE OF email_verified, phone_verified, access_tier, tier, skill_tier, level"
+    ],
+    ["public.profiles", "trg_mirror_profile_into_legacy_users", "INSERT"],
+    ["public.profiles", "trg_normalize_username", "INSERT OR UPDATE OF username"],
+    ["public.profiles", "trg_only_close_account_closes_an_account", "UPDATE"],
+    ["public.profiles", "trg_profiles_assign_player_number", "INSERT OR UPDATE OF player_number"],
+    [
+      "public.profiles",
+      "trg_profiles_cosmetics_ownership",
+      "INSERT OR UPDATE OF equipped_frame, equipped_aura"
+    ],
+    ["public.profiles", "trg_profiles_horse_is_born_social", "INSERT OR UPDATE OF is_horse"],
+    ["public.profiles", "trg_protect_profile_username_and_gate", "INSERT OR UPDATE"],
+    [
+      "public.profiles",
+      "trg_reject_horse_name_on_human",
+      "INSERT OR UPDATE OF display_name, is_horse"
+    ],
+    ["public.profiles", "trg_sync_mfa_required_on_role_change", "INSERT OR UPDATE OF role, is_vip"],
+    [
+      "public.profiles",
+      "trg_track_lifetime_vip_since",
+      "UPDATE OF is_vip, vip_tier, lifetime_vip_since"
+    ],
+    ["public.profiles", "trg_validate_home_url_fields", "INSERT OR UPDATE"],
+    ["public.profiles", "zz_ca_audit_diamond_change", "INSERT OR UPDATE OF diamonds"],
+    ["public.profiles", "zz_ca_diamond_born_with_balance", "INSERT"],
+    ["public.profiles", "zz_diamond_spin_wallet_reserve", "DELETE OR UPDATE OF diamonds"],
+    ["public.profiles", "zzzz_deleted_profile_bank_return", "UPDATE OF status"],
+    ["public.profiles", "zzzz_guard_horse_profile_authority", "INSERT OR UPDATE"],
+    ["public.profiles", "zzzzz_deleted_profile_leaves_every_club", "UPDATE OF status"],
+    [
+      "public.rake_attributions",
+      "aa_poker_arena_no_chip_money",
+      "INSERT OR UPDATE OF club_id, table_id"
+    ],
+    ["public.rake_attributions", "accounting_cash_source_immutable", "INSERT OR DELETE OR UPDATE"],
+    ["public.rake_attributions", "poker_arena_no_chip_rake", "INSERT OR UPDATE"],
+    ["public.rake_attributions", "trg_ca_club_rake_daily_user_del", "DELETE"],
+    ["public.rake_attributions", "trg_ca_club_rake_daily_user_ins", "INSERT"],
+    ["public.rake_attributions", "trg_ca_club_rake_daily_user_upd", "UPDATE"],
+    [
+      "public.rake_records",
+      "aa_poker_arena_no_chip_money",
+      "INSERT OR UPDATE OF club_id, table_id, tournament_id"
+    ],
+    ["public.rake_records", "accounting_cash_source_immutable", "DELETE OR UPDATE"],
+    ["public.rake_records", "accounting_tournament_fee_commit_capture", "INSERT"],
+    ["public.rake_records", "accounting_tournament_fee_source_immutable", "DELETE OR UPDATE"],
+    [
+      "public.rake_records",
+      "accounting_tournament_recognized_evidence_immutable",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    ["public.rake_records", "ca_club_data_fact_rake", "INSERT"],
+    ["public.rake_records", "ca_reporting_rake_change_del", "DELETE"],
+    ["public.rake_records", "ca_reporting_rake_change_upd", "UPDATE"],
+    ["public.rake_records", "ca_reporting_rake_insert", "INSERT"],
+    [
+      "public.rake_records",
+      "cancelled_tournament_evidence_is_immutable",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    ["public.rake_records", "poker_arena_no_chip_rake", "INSERT OR UPDATE"],
+    ["public.rake_records", "satellite_target_rake_is_immutable", "INSERT OR DELETE OR UPDATE"],
+    [
+      "public.rake_records",
+      "terminal_tournament_evidence_is_immutable",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    [
+      "public.rake_records",
+      "tournament_unregistration_rake_evidence_is_immutable",
+      "DELETE OR UPDATE"
+    ],
+    ["public.rake_records", "trg_award_vip_points_from_rake", "INSERT"],
+    ["public.rake_records", "trg_ca_club_rake_daily_del", "DELETE"],
+    ["public.rake_records", "trg_ca_club_rake_daily_ins", "INSERT"],
+    ["public.rake_records", "trg_ca_club_rake_daily_upd", "UPDATE"],
+    ["public.rake_records", "trg_guard_rake_belongs_to_club", "INSERT OR UPDATE"],
+    ["public.rake_records", "trg_tournament_fee_names_its_player", "INSERT"],
+    ["public.rake_records", "zz_ca_escrow_rake_record", "INSERT"],
+    ["public.referrals", "on_referral_recorded_settles_referral", "INSERT"],
+    ["public.settlement_idempotency_keys", "horse_settlement_key_guard", "DELETE OR UPDATE"],
+    ["public.settlement_idempotency_keys", "horse_settlement_keys_no_truncate", "TRUNCATE"],
+    ["public.settlement_periods", "trg_guard_retired_club_mutation", "INSERT OR DELETE OR UPDATE"],
+    ["public.settlement_periods", "zz_closed_period_is_immutable", "DELETE OR UPDATE"],
+    [
+      "public.social_conversation_participants",
+      "accounting_conversation_audience",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    [
+      "public.social_conversation_participants",
+      "guard_club_staff_notice_participant",
+      "INSERT OR UPDATE"
+    ],
+    [
+      "public.social_conversations",
+      "messenger_safe_accounting_preview",
+      "INSERT OR UPDATE OF last_message_preview"
+    ],
+    ["public.social_conversations", "retire_club_staff_notice_mapping", "DELETE"],
+    ["public.social_follows", "trg_award_follow", "INSERT"],
+    ["public.social_follows", "zz_restriction_social_guard", "INSERT"],
+    ["public.social_messages", "accounting_discussion_observed", "INSERT"],
+    ["public.social_messages", "accounting_message_immutable", "DELETE OR UPDATE"],
+    ["public.social_messages", "trg_block_message_field_reassignment", "UPDATE"],
+    ["public.social_messages", "trg_live_invite_notification", "INSERT"],
+    ["public.social_messages", "trg_update_conversation_last_message", "INSERT"],
+    ["public.social_messages", "zz_restriction_social_edit_guard", "UPDATE OF content, sender_id"],
+    ["public.social_messages", "zz_restriction_social_guard", "INSERT"],
+    ["public.spin_bonus_pools", "aaa_ca_refuse_replica_money_truncate", "TRUNCATE"],
+    ["public.spin_bonus_pools", "aaa_ca_refuse_replica_money_write", "INSERT OR DELETE OR UPDATE"],
+    ["public.spin_bonus_pools", "trg_ca_autoledger", "INSERT OR UPDATE OF balance"],
+    ["public.spin_bonus_pools", "trg_ca_autoledger_delete", "DELETE"],
+    ["public.spin_bonus_pools", "trg_ca_block_browser", "INSERT OR DELETE OR UPDATE"],
+    ["public.spin_bonus_pools", "trg_guard_retired_club_mutation", "INSERT OR DELETE OR UPDATE"],
+    ["public.spin_bonus_pools", "zy_ca_tally_store_move", "INSERT OR DELETE OR UPDATE"],
+    ["public.spin_bonus_pools", "zz_ca_store_has_its_ledger_row", "INSERT OR DELETE OR UPDATE"],
+    ["public.spin_draw_receipts", "spin_draw_receipt_is_immutable", "DELETE OR UPDATE"],
+    [
+      "public.spin_reserve_ledger",
+      "cancelled_tournament_evidence_is_immutable",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    ["public.spin_reserve_ledger", "spin_reserve_receipt_is_immutable", "DELETE OR UPDATE"],
+    ["public.spin_reserve_ledger", "spin_reserve_row_requires_exact_journal", "INSERT"],
+    [
+      "public.spin_reserve_ledger",
+      "terminal_tournament_evidence_is_immutable",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    ["public.spin_reserve_ledger", "zz_spin_shortfall_funds_escrow", "INSERT"],
+    ["public.table_pending_addons", "aaa_ca_refuse_replica_money_truncate", "TRUNCATE"],
+    [
+      "public.table_pending_addons",
+      "aaa_ca_refuse_replica_money_write",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    [
+      "public.table_pending_addons",
+      "zy_ca_tally_balance_move",
+      "INSERT OR DELETE OR UPDATE OF amount, resolved_at, table_id"
+    ],
+    [
+      "public.table_pending_addons",
+      "zz_ca_balance_has_its_ledger_row",
+      "INSERT OR DELETE OR UPDATE OF amount, resolved_at, table_id"
+    ],
+    [
+      "public.table_seats",
+      "a00_f06_source_seat",
+      "INSERT OR DELETE OR UPDATE OF table_id, user_id, seat_number, left_at"
+    ],
+    [
+      "public.table_seats",
+      "a0_tournament_live_seat_root_guard",
+      "INSERT OR UPDATE OF table_id, user_id, seat_number, left_at"
+    ],
+    ["public.table_seats", "aa_tournament_live_seat_proof_lock", "INSERT OR DELETE OR UPDATE"],
+    ["public.table_seats", "aaa_ca_refuse_replica_money_truncate", "TRUNCATE"],
+    ["public.table_seats", "aaa_ca_refuse_replica_money_write", "INSERT OR DELETE OR UPDATE"],
+    [
+      "public.table_seats",
+      "ab_refuse_live_seat_on_closed_tournament_table",
+      "INSERT OR UPDATE OF table_id, user_id, left_at"
+    ],
+    [
+      "public.table_seats",
+      "ca_operator_floor_entry_guard",
+      "INSERT OR UPDATE OF left_at, occupancy_id"
+    ],
+    ["public.table_seats", "cancelled_tournament_seat_is_immutable", "INSERT OR DELETE OR UPDATE"],
+    [
+      "public.table_seats",
+      "member_record_seat",
+      "INSERT OR DELETE OR UPDATE OF user_id, club_id, left_at, joined_at, table_id"
+    ],
+    ["public.table_seats", "poker_arena_chip_seat_guard", "INSERT OR UPDATE OF table_id"],
+    ["public.table_seats", "poker_bind_diamond_seat", "INSERT"],
+    ["public.table_seats", "terminal_tournament_seat_is_immutable", "INSERT OR DELETE OR UPDATE"],
+    ["public.table_seats", "tournament_live_seat_has_active_roster", "INSERT"],
+    [
+      "public.table_seats",
+      "tournament_live_seat_update_has_active_roster",
+      "UPDATE OF table_id, user_id, left_at"
+    ],
+    ["public.table_seats", "trg_ca_arena_seat_is_same_asset", "INSERT"],
+    ["public.table_seats", "trg_ca_guard_seat_creation", "INSERT OR UPDATE OF left_at"],
+    ["public.table_seats", "trg_cash_game_roster_track", "INSERT OR UPDATE OF left_at, user_id"],
+    ["public.table_seats", "trg_clear_sitout_on_turnover", "UPDATE"],
+    ["public.table_seats", "trg_enforce_four_table_limit", "INSERT OR UPDATE OF left_at"],
+    ["public.table_seats", "trg_guard_retired_club_mutation", "INSERT OR DELETE OR UPDATE"],
+    ["public.table_seats", "trg_log_seat_stack_exit", "DELETE OR UPDATE OF left_at"],
+    ["public.table_seats", "trg_new_seat_clear_sitout", "INSERT"],
+    ["public.table_seats", "trg_no_live_seat_on_finished_game", "INSERT OR UPDATE"],
+    ["public.table_seats", "trg_notify_blinding_off", "UPDATE OF is_sitting_out, is_away"],
+    [
+      "public.table_seats",
+      "trg_one_live_seat_per_tournament",
+      "INSERT OR UPDATE OF user_id, left_at, table_id"
+    ],
+    ["public.table_seats", "trg_refuse_seat_on_closed_cluster_table", "INSERT"],
+    [
+      "public.table_seats",
+      "trg_refuse_seat_revive_on_closed_cluster_table",
+      "UPDATE OF user_id, left_at, table_id"
+    ],
+    [
+      "public.table_seats",
+      "trg_seat_change_syncs_seat_first_count",
+      "INSERT OR DELETE OR UPDATE OF left_at"
+    ],
+    ["public.table_seats", "trg_seat_insert_cancel_waitlist", "INSERT"],
+    ["public.table_seats", "trg_stamp_seat_horse_id", "INSERT OR UPDATE OF user_id, horse_id"],
+    ["public.table_seats", "trg_stamp_sit_out_at", "INSERT OR UPDATE"],
+    [
+      "public.table_seats",
+      "trg_table_seats_human_user_club_only",
+      "INSERT OR UPDATE OF table_id, user_id, left_at"
+    ],
+    ["public.table_seats", "trg_table_seats_lightning_anchor_delete_guard", "DELETE"],
+    ["public.table_seats", "trg_table_seats_lightning_anchor_guard", "UPDATE"],
+    ["public.table_seats", "trg_table_seats_lightning_pool_follows_seat", "UPDATE"],
+    ["public.table_seats", "trg_table_seats_lightning_pool_on_insert", "INSERT"],
+    ["public.table_seats", "trg_table_seats_stamp_club", "INSERT OR UPDATE"],
+    ["public.table_seats", "union_pnl_original_inventory", "INSERT OR DELETE OR UPDATE"],
+    ["public.table_seats", "union_pnl_original_inventory_no_truncate", "TRUNCATE"],
+    [
+      "public.table_seats",
+      "zy_ca_tally_balance_move",
+      "INSERT OR DELETE OR UPDATE OF stack, left_at, table_id"
+    ],
+    [
+      "public.table_seats",
+      "zz_ca_balance_has_its_ledger_row",
+      "INSERT OR DELETE OR UPDATE OF stack, left_at, table_id"
+    ],
+    ["public.table_seats", "zz_close_session_when_seat_vacated", "UPDATE OF left_at"],
+    ["public.table_seats", "zz_freeze_entry_guard", "INSERT OR UPDATE OF left_at, user_id"],
+    ["public.table_seats", "zz_freeze_guard", "INSERT OR DELETE OR UPDATE"],
+    ["public.table_seats", "zz_restriction_seat_guard", "INSERT"],
+    ["public.table_seats", "zz_restriction_seat_revive_guard", "UPDATE OF user_id, left_at"],
+    ["public.table_seats", "zzz_diamond_seat_keeps_custody", "INSERT OR DELETE OR UPDATE"],
+    ["public.table_seats", "zzz_stamp_seat_occupancy", "INSERT OR UPDATE"],
+    ["public.table_seats", "zzzz_stamp_active_seat_game_scope", "INSERT OR UPDATE"],
+    ["public.table_seats", "zzzzz_require_live_seat_parent", "INSERT OR UPDATE"],
+    ["public.table_seats", "zzzzz_seat_parent_keys_match", "INSERT OR UPDATE"],
+    [
+      "public.table_seats",
+      "zzzzzz_horse_roster_seat_guard",
+      "INSERT OR UPDATE OF user_id, table_id, left_at"
+    ],
+    [
+      "public.table_seats",
+      "zzzzzz_tournament_felt_may_not_exceed_supply",
+      "INSERT OR UPDATE OF stack, left_at"
+    ],
+    [
+      "public.tables",
+      "a00_f06_lifecycle",
+      "INSERT OR DELETE OR UPDATE OF id, tournament_id, status, lifecycle, is_deleted, f06_lifecycle"
+    ],
+    ["public.tables", "aa_tournament_table_launch_proof_lock", "INSERT OR DELETE OR UPDATE"],
+    ["public.tables", "ab_tournament_table_close_requires_empty", "UPDATE OF status, is_deleted"],
+    ["public.tables", "cancelled_tournament_evidence_is_immutable", "INSERT OR DELETE OR UPDATE"],
+    [
+      "public.tables",
+      "member_record_table",
+      "UPDATE OF status, club_id, name, stakes, tournament_id, is_deleted"
+    ],
+    [
+      "public.tables",
+      "midway_cash_rake_write_guard",
+      "INSERT OR UPDATE OF rake_percent, rake_cap_bb, club_id, union_id"
+    ],
+    ["public.tables", "poker_arena_table_guard", "INSERT OR UPDATE"],
+    ["public.tables", "tables_updated_at", "UPDATE"],
+    ["public.tables", "tournament_table_inherits_committed_blinds", "INSERT"],
+    [
+      "public.tables",
+      "tournament_table_terminal_close_is_irreversible",
+      "INSERT OR DELETE OR UPDATE OF id, tournament_id, status, current_players, lifecycle, terminal_closed_at"
+    ],
+    ["public.tables", "trg_guard_retired_club_mutation", "INSERT OR DELETE OR UPDATE"],
+    ["public.tables", "trg_on_table_status_change", "UPDATE OF status"],
+    ["public.tables", "trg_tables_auto_cashout_on_close", "UPDATE OF status"],
+    [
+      "public.tables",
+      "trg_tables_autostart_guard",
+      "INSERT OR UPDATE OF auto_start_players, max_players"
+    ],
+    ["public.tables", "trg_tables_block_deleted_revival", "UPDATE"],
+    ["public.tables", "trg_tables_capture_management_contract", "INSERT OR UPDATE"],
+    [
+      "public.tables",
+      "trg_tables_closed_main_releases_index",
+      "INSERT OR UPDATE OF lifecycle, is_deleted, main_index, cluster_id"
+    ],
+    ["public.tables", "trg_tables_cluster_table_ceiling", "INSERT"],
+    ["public.tables", "trg_tables_creation_guard", "INSERT"],
+    ["public.tables", "trg_tables_emit_game_management_event", "INSERT OR DELETE OR UPDATE"],
+    ["public.tables", "trg_tables_managed_delete_guard", "DELETE"],
+    ["public.tables", "trg_tables_managed_lifecycle_guard", "UPDATE OF status, is_deleted"],
+    ["public.tables", "trg_tables_sync_club_counts_del", "DELETE"],
+    ["public.tables", "trg_tables_sync_club_counts_ins", "INSERT"],
+    [
+      "public.tables",
+      "trg_tables_sync_club_counts_upd",
+      "UPDATE OF status, is_deleted, club_id, union_id, tournament_id"
+    ],
+    ["public.tables", "trg_tables_sync_rit", "INSERT OR UPDATE"],
+    ["public.tables", "trg_tables_union_ownership", "INSERT"],
+    ["public.tables", "trg_tables_union_ownership_upd", "UPDATE"],
+    ["public.tables", "union_pnl_original_inventory", "INSERT OR DELETE OR UPDATE"],
+    ["public.tables", "union_pnl_original_inventory_no_truncate", "TRUNCATE"],
+    [
+      "public.tables",
+      "zz_cancel_cash_seat_moves_on_table_close",
+      "UPDATE OF status, seat_admission_key"
+    ],
+    ["public.tables", "zz_close_sessions_when_table_closes", "UPDATE OF status, is_deleted"],
+    [
+      "public.tables",
+      "zz_tables_kill_pot_guard",
+      "INSERT OR UPDATE OF kill_mode, kill_threshold_bb, game_variant, game_type, tournament_id, bomb_pot_enabled, big_blind, club_id"
+    ],
+    ["public.tables", "zzzz_stamp_table_game_scope", "INSERT OR UPDATE"],
+    ["public.tables", "zzzz_stamp_table_seat_admission", "INSERT OR UPDATE"],
+    ["public.tables", "zzzzz_table_parent_keys_guard", "UPDATE"],
+    ["public.tables", "zzzzz_table_scope_cascade", "UPDATE"],
+    [
+      "public.tables",
+      "zzzzzz_tables_stakes_follows_its_own_blinds",
+      "UPDATE OF small_blind, big_blind, stakes"
+    ],
+    [
+      "public.tournament_accounting_credit_receipts",
+      "original_evidence_immutable",
+      "DELETE OR UPDATE"
+    ],
+    ["public.tournament_accounting_credit_receipts", "original_evidence_no_truncate", "TRUNCATE"],
+    ["public.tournament_accounting_credit_receipts", "original_union_pnl_frame", "INSERT"],
+    ["public.tournament_accounting_credit_receipts", "union_pnl_credit_touch", "INSERT"],
+    [
+      "public.tournament_cancellation_receipts",
+      "tournament_cancellation_receipts_append_only",
+      "DELETE OR UPDATE"
+    ],
+    ["public.tournament_escrow", "aaa_ca_refuse_replica_money_truncate", "TRUNCATE"],
+    ["public.tournament_escrow", "aaa_ca_refuse_replica_money_write", "INSERT OR DELETE OR UPDATE"],
+    [
+      "public.tournament_escrow",
+      "cancelled_tournament_evidence_is_immutable",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_escrow",
+      "terminal_tournament_escrow_is_immutable",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    ["public.tournament_escrow", "trg_guard_retired_club_mutation", "INSERT OR DELETE OR UPDATE"],
+    ["public.tournament_escrow", "zy_ca_tally_store_move", "INSERT OR DELETE OR UPDATE"],
+    ["public.tournament_escrow", "zz_ca_store_has_its_ledger_row", "INSERT OR DELETE OR UPDATE"],
+    ["public.tournament_escrow", "zz_spin_escrow_is_enforced", "INSERT"],
+    [
+      "public.tournament_guarantee_overlays",
+      "aa_poker_arena_no_chip_money",
+      "INSERT OR UPDATE OF club_id, tournament_id"
+    ],
+    [
+      "public.tournament_guarantee_overlays",
+      "cancelled_tournament_evidence_is_immutable",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_guarantee_overlays",
+      "terminal_tournament_evidence_is_immutable",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_launch_receipts",
+      "tournament_launch_receipt_is_immutable",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_obligations",
+      "cancelled_tournament_evidence_is_immutable",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_obligations",
+      "terminal_tournament_evidence_is_immutable",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_obligations",
+      "zz_tournament_accounting_obligation_event",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_obligations",
+      "zzz_notify_tournament_cash",
+      "INSERT OR UPDATE OF settled_at"
+    ],
+    [
+      "public.tournament_obligations",
+      "zzzz_freeze_batched_tournament_place",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_obligations",
+      "zzzzz_freeze_atomic_final_table_deal_obligation",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_participant_funding_receipts",
+      "original_evidence_immutable",
+      "DELETE OR UPDATE"
+    ],
+    ["public.tournament_participant_funding_receipts", "original_evidence_no_truncate", "TRUNCATE"],
+    ["public.tournament_participant_funding_receipts", "original_union_pnl_frame", "INSERT"],
+    [
+      "public.tournament_payouts",
+      "cancelled_tournament_evidence_is_immutable",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_payouts",
+      "terminal_tournament_evidence_is_immutable",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    ["public.tournament_payouts", "trg_tournament_payouts_append_only", "DELETE OR UPDATE"],
+    ["public.tournament_payouts", "zz_a_payout_row_carries_its_key", "INSERT"],
+    ["public.tournament_payouts", "zz_ca_escrow_seat_payout", "INSERT"],
+    [
+      "public.tournament_players",
+      "a00_f06_source_roster",
+      "INSERT OR DELETE OR UPDATE OF table_id, user_id, seat_number, status"
+    ],
+    [
+      "public.tournament_players",
+      "a_player_is_not_eliminated_from_a_game_that_never_started",
+      "INSERT OR UPDATE"
+    ],
+    ["public.tournament_players", "aa_serialize_tournament_player_insert", "INSERT"],
+    [
+      "public.tournament_players",
+      "aa_tournament_player_launch_proof_lock",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    ["public.tournament_players", "aaa_ca_refuse_replica_money_truncate", "TRUNCATE"],
+    [
+      "public.tournament_players",
+      "aaa_ca_refuse_replica_money_write",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    ["public.tournament_players", "ca_emergency_registration", "INSERT OR UPDATE"],
+    ["public.tournament_players", "ca_fixed_sng_horse_paid_admission", "INSERT"],
+    [
+      "public.tournament_players",
+      "cancelled_tournament_evidence_is_immutable",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_players",
+      "satellite_target_player_provenance_is_immutable",
+      "INSERT OR DELETE OR UPDATE OF id, tournament_id, user_id, is_satellite_qualifier, source_satellite_id"
+    ],
+    ["public.tournament_players", "seed_bounty_head", "INSERT"],
+    [
+      "public.tournament_players",
+      "terminal_tournament_evidence_is_immutable",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_players",
+      "tournament_elimination_has_a_place",
+      "INSERT OR UPDATE OF status, \"position\""
+    ],
+    [
+      "public.tournament_players",
+      "tournament_place_collision_watch",
+      "INSERT OR UPDATE OF \"position\""
+    ],
+    ["public.tournament_players", "tournament_player_name", "INSERT"],
+    ["public.tournament_players", "tournament_roster_cannot_orphan_live_seat", "DELETE"],
+    [
+      "public.tournament_players",
+      "tournament_roster_update_cannot_orphan_live_seat",
+      "UPDATE OF tournament_id, user_id, status"
+    ],
+    ["public.tournament_players", "trg_ca_tournament_entry_gate", "INSERT"],
+    ["public.tournament_players", "trg_daily_missions_tournament_registered", "UPDATE"],
+    ["public.tournament_players", "trg_daily_missions_tournament_registered_insert", "INSERT"],
+    ["public.tournament_players", "trg_enforce_booking_game_cap", "INSERT OR UPDATE OF status"],
+    ["public.tournament_players", "trg_enforce_tournament_capacity", "INSERT"],
+    ["public.tournament_players", "trg_guard_retired_club_mutation", "INSERT OR DELETE OR UPDATE"],
+    ["public.tournament_players", "trg_refuse_reentry_with_pending_bounty", "UPDATE OF status"],
+    ["public.tournament_players", "trg_refuse_zero_chip_field_elimination", "UPDATE"],
+    [
+      "public.tournament_players",
+      "trg_sync_tournament_current_players",
+      "INSERT OR DELETE OR UPDATE OF status, tournament_id"
+    ],
+    [
+      "public.tournament_players",
+      "trg_tournament_players_bagged_custody_fence",
+      "INSERT OR DELETE OR UPDATE OF chips, status, current_bounty, tournament_id"
+    ],
+    [
+      "public.tournament_players",
+      "trg_tournament_players_human_user_club_only",
+      "INSERT OR UPDATE OF tournament_id, user_id"
+    ],
+    ["public.tournament_players", "trg_tournament_players_stamp_club", "INSERT OR UPDATE"],
+    ["public.tournament_players", "union_pnl_original_inventory", "INSERT OR DELETE OR UPDATE"],
+    ["public.tournament_players", "union_pnl_original_inventory_no_truncate", "TRUNCATE"],
+    ["public.tournament_players", "zz_freeze_entry_guard", "INSERT"],
+    ["public.tournament_players", "zz_restriction_tourney_guard", "INSERT"],
+    [
+      "public.tournament_players",
+      "zz_restriction_tourney_paid_guard",
+      "UPDATE OF user_id, rebuys, add_on, status"
+    ],
+    [
+      "public.tournament_players",
+      "zz_stamp_tournament_elimination_sequence",
+      "INSERT OR UPDATE OF status, elimination_sequence"
+    ],
+    ["public.tournament_players", "zzz_pay_finisher_at_bust", "UPDATE OF status"],
+    ["public.tournament_players", "zzz_provisional_ladder_follows_entries", "INSERT"],
+    ["public.tournament_players", "zzz_provisional_ladder_follows_removals", "DELETE"],
+    [
+      "public.tournament_players",
+      "zzzz_freeze_batched_tournament_result",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    ["public.tournament_players", "zzzz_refuse_finalized_tournament_entry", "INSERT"],
+    [
+      "public.tournament_rake_settlements",
+      "cancelled_tournament_evidence_is_immutable",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_rake_settlements",
+      "terminal_tournament_evidence_is_immutable",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_rake_settlements",
+      "zz_ca_escrow_rake_settlement",
+      "INSERT OR UPDATE OF settled_at"
+    ],
+    [
+      "public.tournament_refund_entitlements",
+      "cancelled_tournament_evidence_is_immutable",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_refund_entitlements",
+      "terminal_tournament_evidence_is_immutable",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_refund_entitlements",
+      "tournament_refund_entitlement_commit_valid",
+      "INSERT"
+    ],
+    [
+      "public.tournament_refund_entitlements",
+      "tournament_refund_entitlement_locks_parent_contract",
+      "INSERT"
+    ],
+    [
+      "public.tournament_refund_entitlements",
+      "tournament_refund_entitlements_append_only",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_refund_tranches",
+      "cancelled_tournament_evidence_is_immutable",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    ["public.tournament_refund_tranches", "original_union_pnl_frame", "INSERT"],
+    [
+      "public.tournament_refund_tranches",
+      "terminal_tournament_evidence_is_immutable",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_refund_tranches",
+      "tournament_refund_tranches_append_only",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_satellite_awards",
+      "terminal_tournament_evidence_is_immutable",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_satellite_awards",
+      "tournament_satellite_award_captures_refund_entitlement",
+      "INSERT"
+    ],
+    [
+      "public.tournament_satellite_awards",
+      "tournament_satellite_awards_append_only",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_satellite_settlements",
+      "satellite_receipt_requires_original_request",
+      "INSERT"
+    ],
+    [
+      "public.tournament_satellite_settlements",
+      "tournament_satellite_settlements_append_only",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_schedules",
+      "a00_tournament_schedules_chat_default",
+      "INSERT OR UPDATE OF config"
+    ],
+    [
+      "public.tournament_schedules",
+      "a01_tournament_schedule_board_is_hard_coded",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    ["public.tournament_schedules", "a02_closed_diamond_schedule", "INSERT OR UPDATE"],
+    [
+      "public.tournament_schedules",
+      "aa_diamond_guarantee_copy",
+      "INSERT OR UPDATE OF name, description, config"
+    ],
+    [
+      "public.tournament_schedules",
+      "tournament_schedule_level_clock_floor",
+      "INSERT OR UPDATE OF config"
+    ],
+    [
+      "public.tournament_schedules",
+      "trg_guard_retired_club_mutation",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_schedules",
+      "trg_union_member_schedule_stays_off",
+      "INSERT OR UPDATE OF active, club_id"
+    ],
+    [
+      "public.tournament_spin_cancellation_unwinds",
+      "cancelled_tournament_evidence_is_immutable",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_spin_cancellation_unwinds",
+      "terminal_tournament_evidence_is_immutable",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_spin_cancellation_unwinds",
+      "tournament_spin_cancellation_unwinds_append_only",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_terminal_settlements",
+      "terminal_receipt_requires_original_request",
+      "INSERT"
+    ],
+    [
+      "public.tournament_terminal_settlements",
+      "tournament_terminal_settlements_append_only",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_tickets",
+      "aa_poker_arena_no_chip_money",
+      "INSERT OR UPDATE OF club_id, source_tournament_id, source_satellite_id"
+    ],
+    ["public.tournament_tickets", "aaa_ca_refuse_replica_money_truncate", "TRUNCATE"],
+    [
+      "public.tournament_tickets",
+      "aaa_ca_refuse_replica_money_write",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    [
+      "public.tournament_tickets",
+      "tournament_satellite_entry_ticket_is_guarded",
+      "DELETE OR UPDATE"
+    ],
+    ["public.tournament_tickets", "trg_guard_retired_club_mutation", "INSERT OR DELETE OR UPDATE"],
+    ["public.tournament_tickets", "zy_ca_tally_store_move", "INSERT OR DELETE OR UPDATE"],
+    ["public.tournament_tickets", "zz_ca_store_has_its_ledger_row", "INSERT OR DELETE OR UPDATE"],
+    [
+      "public.tournament_unregistration_receipts",
+      "tournament_unregistration_receipts_append_only",
+      "DELETE OR UPDATE"
+    ],
+    ["public.tournaments", "a00_tournaments_chat_default", "INSERT"],
+    ["public.tournaments", "a00_union_member_schedule_cannot_spawn", "INSERT"],
+    [
+      "public.tournaments",
+      "a0_tournaments_dual_entry_capacity",
+      "INSERT OR UPDATE OF max_players, tournament_type, variant, satellite_target_id, satellite_target"
+    ],
+    [
+      "public.tournaments",
+      "a1_tournaments_restart_source",
+      "INSERT OR DELETE OR UPDATE OF restart_source_id"
+    ],
+    [
+      "public.tournaments",
+      "a2_tournaments_new_satellite_target",
+      "INSERT OR UPDATE OF satellite_target_id, satellite_target, is_bounty, is_pko, is_mystery_bounty, is_premium_spin, variant, tournament_type, club_id, union_id"
+    ],
+    [
+      "public.tournaments",
+      "a3_bounty_mtt_rebuys_until_registration_closes",
+      "INSERT OR UPDATE OF is_bounty, is_pko, is_mystery_bounty, tournament_type, variant, satellite_target_id, is_rebuy, is_reentry, rebuy_cost, rebuy_chips, rebuy_levels, max_rebuys, max_reentries, late_reg_levels, buy_in_amount, buy_in_fee"
+    ],
+    [
+      "public.tournaments",
+      "a4_mystery_mtt_terms",
+      "INSERT OR UPDATE OF is_mystery_bounty, mystery_bounty_pool_percent, mystery_bounty_regular_pool_percent, mystery_bounty_activation, mystery_bounty_activation_value"
+    ],
+    [
+      "public.tournaments",
+      "aa_diamond_guarantee_copy",
+      "INSERT OR UPDATE OF name, description, short_description"
+    ],
+    ["public.tournaments", "aa_guard_tournament_completing_claim", "UPDATE OF status"],
+    ["public.tournaments", "aaa_ca_refuse_replica_money_truncate", "TRUNCATE"],
+    ["public.tournaments", "aaa_ca_refuse_replica_money_write", "INSERT OR DELETE OR UPDATE"],
+    ["public.tournaments", "aaa_guard_atomic_satellite_completion", "UPDATE OF status"],
+    [
+      "public.tournaments",
+      "ab_nov3_zero_guarantee",
+      "INSERT OR UPDATE OF status, start_time, buy_in_amount, buy_in_fee, guaranteed_prize, name, description, short_description"
+    ],
+    [
+      "public.tournaments",
+      "ac_tournament_copy_never_says_zero_guarantee",
+      "INSERT OR UPDATE OF name, description, short_description, satellite_target_id, satellite_target"
+    ],
+    [
+      "public.tournaments",
+      "ca_mtt_payout_depth_guard",
+      "INSERT OR UPDATE OF payout_depth_percent, payout_percent"
+    ],
+    [
+      "public.tournaments",
+      "cancelled_tournament_parent_is_immutable",
+      "DELETE OR UPDATE OF status, variant, tournament_type, satellite_target_id, satellite_target, satellite_seats, prize_pool, prize_pool_finalized, bounty_pool, bounty_pool_paid, is_bounty, is_pko, is_mystery_bounty, mystery_bounty_stage, mystery_bounty_pool_cents, club_id, ended_at, total_rake, current_players, on_break, break_started_at, break_ends_at"
+    ],
+    [
+      "public.tournaments",
+      "non_satellite_completed_requires_terminal_receipt",
+      "INSERT OR UPDATE OF status"
+    ],
+    ["public.tournaments", "poker_arena_tournament_guard", "INSERT OR UPDATE"],
+    [
+      "public.tournaments",
+      "receipted_tournament_is_immutable",
+      "DELETE OR UPDATE OF status, variant, tournament_type, satellite_target_id, satellite_target, satellite_seats, prize_pool, prize_pool_finalized, bounty_pool, bounty_pool_paid, is_bounty, is_pko, is_mystery_bounty, mystery_bounty_stage, mystery_bounty_pool_cents, club_id, ended_at, current_players, on_break, break_started_at, break_ends_at"
+    ],
+    [
+      "public.tournaments",
+      "satellite_completed_requires_settlement_receipt",
+      "INSERT OR UPDATE OF status"
+    ],
+    [
+      "public.tournaments",
+      "satellite_feeds_only_a_deliverable_target",
+      "INSERT OR UPDATE OF satellite_target_id, satellite_target, is_bounty, is_pko, is_mystery_bounty, is_premium_spin, variant, tournament_type"
+    ],
+    [
+      "public.tournaments",
+      "satellite_target_contract_is_immutable",
+      "UPDATE OF buy_in_amount, buy_in_fee, bounty_amount, rebuy_cost, addon_cost, is_bounty, is_pko, is_mystery_bounty, is_premium_spin, variant, tournament_type, club_id, entry_contract_locked"
+    ],
+    [
+      "public.tournaments",
+      "spin_tournament_contract_is_draw",
+      "UPDATE OF spin_multiplier, prize_pool, spin_locked_tiers"
+    ],
+    [
+      "public.tournaments",
+      "stamp_tournament_terminal_evidence_markers",
+      "INSERT OR UPDATE OF status"
+    ],
+    ["public.tournaments", "tournament_completed_stats", "UPDATE OF status"],
+    [
+      "public.tournaments",
+      "tournament_prize_math_contract",
+      "INSERT OR UPDATE OF payout_math_version, payout_unit_cents, club_id"
+    ],
+    ["public.tournaments", "tournament_start_time_locked_during_launch", "UPDATE OF start_time"],
+    ["public.tournaments", "tournaments_cancel_must_refund", "UPDATE"],
+    ["public.tournaments", "tournaments_creation_guard", "INSERT"],
+    ["public.tournaments", "tournaments_d_copy_follows_the_weekly_terms", "INSERT"],
+    ["public.tournaments", "tournaments_guarantee_affordable_ins", "INSERT"],
+    ["public.tournaments", "tournaments_guarantee_affordable_upd", "UPDATE"],
+    ["public.tournaments", "tournaments_lock_level_clock", "INSERT OR UPDATE OF blind_structure"],
+    [
+      "public.tournaments",
+      "tournaments_mystery_creation_contract",
+      "INSERT OR UPDATE OF is_mystery_bounty, mystery_bounty_profile, mystery_bounty_activation, mystery_bounty_activation_value, mystery_bounty_pool_percent, mystery_bounty_regular_pool_percent, mystery_bounty_top_percent"
+    ],
+    [
+      "public.tournaments",
+      "tournaments_new_mtt_blind_contract",
+      "INSERT OR UPDATE OF blind_structure, starting_chips, tournament_type, variant, max_players"
+    ],
+    ["public.tournaments", "tournaments_rank_before_complete", "UPDATE"],
+    [
+      "public.tournaments",
+      "tournaments_short_formats_never_break",
+      "INSERT OR UPDATE OF tournament_type, variant, synchronized_breaks"
+    ],
+    ["public.tournaments", "tournaments_spin_completed_guard", "UPDATE"],
+    ["public.tournaments", "trg_clear_seats_on_game_end", "UPDATE OF status"],
+    ["public.tournaments", "trg_fence_welcome_package_schedule_spawn", "INSERT"],
+    ["public.tournaments", "trg_guard_retired_club_mutation", "INSERT OR DELETE OR UPDATE"],
+    ["public.tournaments", "trg_receipt_mystery_activation", "UPDATE OF mystery_bounty_stage"],
+    ["public.tournaments", "trg_refuse_completed_with_pending_bounties", "UPDATE OF status"],
+    [
+      "public.tournaments",
+      "trg_refuse_mystery_activation_with_pending_heads",
+      "UPDATE OF mystery_bounty_stage, mystery_bounty_activation_generation"
+    ],
+    ["public.tournaments", "trg_release_seats_on_tournament_finish", "UPDATE OF status"],
+    ["public.tournaments", "trg_retire_manager_wakes_after_terminal_status", "UPDATE OF status"],
+    ["public.tournaments", "trg_tournaments_bagged_status_door", "INSERT OR UPDATE OF status"],
+    ["public.tournaments", "trg_tournaments_capture_management_contract", "INSERT OR UPDATE"],
+    [
+      "public.tournaments",
+      "trg_tournaments_emit_game_management_event",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    ["public.tournaments", "trg_tournaments_managed_delete_guard", "DELETE"],
+    ["public.tournaments", "trg_tournaments_managed_lifecycle_guard", "UPDATE"],
+    [
+      "public.tournaments",
+      "trg_tournaments_publish_readiness",
+      "INSERT OR UPDATE OF guaranteed_prize, club_id, union_id, is_private, variant, tournament_type, satellite_target_id, satellite_target, satellite_seats"
+    ],
+    ["public.tournaments", "trg_tournaments_record_acceptance", "INSERT"],
+    ["public.tournaments", "trg_tournaments_record_conclusion", "UPDATE OF status"],
+    [
+      "public.tournaments",
+      "trg_tournaments_refuse_unbuilt_multi_day",
+      "INSERT OR UPDATE OF is_multi_day, total_days, day_number, parent_tournament_id, survivors_advance_to, flight_number, flight_end_chips_snapshot"
+    ],
+    ["public.tournaments", "trg_tournaments_registered_contract_lock", "UPDATE"],
+    ["public.tournaments", "trg_tournaments_start_readiness", "UPDATE OF status"],
+    ["public.tournaments", "trg_tournaments_union_ownership", "INSERT"],
+    ["public.tournaments", "trg_tournaments_union_ownership_upd", "UPDATE"],
+    ["public.tournaments", "trg_whole_dollar_buyin", "INSERT OR UPDATE"],
+    ["public.tournaments", "union_pnl_original_inventory", "INSERT OR DELETE OR UPDATE"],
+    ["public.tournaments", "union_pnl_original_inventory_no_truncate", "TRUNCATE"],
+    [
+      "public.tournaments",
+      "zz_addon_pays_the_starting_stack",
+      "INSERT OR UPDATE OF addon_chips, starting_chips, add_on_available"
+    ],
+    ["public.tournaments", "zz_ca_fund_overlay_on_lock", "UPDATE OF status"],
+    [
+      "public.tournaments",
+      "zz_closed_target_pays_its_satellite_tickets",
+      "UPDATE OF status, prize_pool_finalized"
+    ],
+    [
+      "public.tournaments",
+      "zz_freerolls_are_free_buy",
+      "INSERT OR UPDATE OF buy_in_amount, buy_in_fee, tournament_type, variant, is_rebuy, add_on_available, rebuy_cost, addon_cost, rebuy_chips, addon_chips, rebuy_levels, addon_levels, max_rebuys"
+    ],
+    ["public.tournaments", "zz_freeze_launch_guard", "UPDATE OF status"],
+    [
+      "public.tournaments",
+      "zzz_pay_finishers_when_pool_finalizes",
+      "UPDATE OF prize_pool_finalized"
+    ],
+    ["public.tournaments", "zzz_spin_ladder_is_the_drawn_one", "INSERT OR UPDATE"],
+    ["public.tournaments", "zzzy_lock_atomic_place_tournament_status", "UPDATE OF status"],
+    [
+      "public.tournaments",
+      "zzzz_capture_satellite_economics_on_start",
+      "INSERT OR UPDATE OF status"
+    ],
+    [
+      "public.tournaments",
+      "zzzz_freeze_finalized_tournament_prize_pool",
+      "UPDATE OF prize_pool, guaranteed_prize, prize_pool_finalized, payout_structure, spin_multiplier"
+    ],
+    [
+      "public.tournaments",
+      "zzzz_freeze_registered_tournament_settlement_contract",
+      "UPDATE OF variant, tournament_type, satellite_target_id, bubble_protection, buy_in_amount, guaranteed_prize"
+    ],
+    ["public.tournaments", "zzzz_refuse_normal_tournament_completed_insert", "INSERT"],
+    [
+      "public.tournaments",
+      "zzzz_tournament_pool_finalization_window_guard",
+      "UPDATE OF prize_pool_finalized"
+    ],
+    ["public.tournaments", "zzzz_tournaments_atomic_place_completion_guard", "UPDATE"],
+    ["public.tournaments", "zzzzy_lock_atomic_final_table_deal_status", "UPDATE OF status"],
+    [
+      "public.tournaments",
+      "zzzzz_tournaments_atomic_final_table_deal_completion_guard",
+      "UPDATE OF status"
+    ],
+    ["public.tournaments", "zzzzzz_tournaments_financial_certificate", "UPDATE OF status"],
+    [
+      "public.tournaments",
+      "zzzzzzz_tournaments_record_format",
+      "INSERT OR UPDATE OF format_contract, tournament_type, variant, max_players, min_players, table_size, satellite_target_id, satellite_target, club_id, union_id"
+    ],
+    [
+      "public.tournaments",
+      "zzzzzzzz_launch_tournament_admission",
+      "INSERT OR UPDATE OF club_id, union_id, status, started_at, spin_multiplier"
+    ],
+    ["public.tournaments", "zzzzzzzzzz_tournament_level_clock_floor", "INSERT OR UPDATE"],
+    [
+      "public.tournaments",
+      "zzzzzzzzzzz_a_built_midway_free_buy_matches_its_schedule",
+      "INSERT OR UPDATE OF is_pko, is_bounty, is_mystery_bounty, all_in_or_fold, bounty_amount, guaranteed_prize, schedule_id, free_buy, union_id, club_id"
+    ],
+    [
+      "public.union_accounting_runs",
+      "midway_weekly_horse_promo_close",
+      "INSERT OR UPDATE OF status, result"
+    ],
+    [
+      "public.union_admins",
+      "trg_union_admins_emit_management_access",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    ["public.union_clubs", "poker_arena_union_guard", "INSERT OR UPDATE"],
+    ["public.union_clubs", "trg_club_enters_a_union_empty", "INSERT"],
+    ["public.union_clubs", "trg_guard_retired_club_mutation", "INSERT OR DELETE OR UPDATE"],
+    [
+      "public.union_clubs",
+      "trg_recompute_union_level_on_club_change",
+      "INSERT OR DELETE OR UPDATE OF union_id, club_id"
+    ],
+    ["public.union_clubs", "trg_union_clubs_emit_management_access", "INSERT OR DELETE"],
+    [
+      "public.union_clubs",
+      "trg_union_clubs_reassignment_management_access",
+      "UPDATE OF union_id, club_id"
+    ],
+    ["public.union_clubs", "trg_union_clubs_sync_mirror", "INSERT OR DELETE"],
+    ["public.union_clubs", "trg_union_clubs_sync_table_counts", "INSERT OR DELETE OR UPDATE"],
+    [
+      "public.union_clubs",
+      "trg_union_join_removes_club_games",
+      "INSERT OR UPDATE OF club_id, union_id"
+    ],
+    [
+      "public.union_clubs",
+      "trg_union_owner_joins_every_club",
+      "INSERT OR UPDATE OF union_id, club_id"
+    ],
+    ["public.union_clubs", "union_pnl_original_inventory", "INSERT OR DELETE OR UPDATE"],
+    ["public.union_clubs", "union_pnl_original_inventory_no_truncate", "TRUNCATE"],
+    [
+      "public.union_pnl_cash_outcome_link_resolutions",
+      "original_pnl_immutable",
+      "DELETE OR UPDATE OR TRUNCATE"
+    ],
+    [
+      "public.union_pnl_cash_outcome_resolutions",
+      "original_pnl_immutable",
+      "DELETE OR UPDATE OR TRUNCATE"
+    ],
+    [
+      "public.union_pnl_cash_outcome_touches",
+      "original_pnl_immutable",
+      "DELETE OR UPDATE OR TRUNCATE"
+    ],
+    ["public.union_pnl_cash_outcomes", "original_pnl_immutable", "DELETE OR UPDATE OR TRUNCATE"],
+    ["public.union_pnl_cash_outcomes", "union_pnl_cash_outcome_touch", "INSERT"],
+    ["public.union_pnl_credit_touches", "original_pnl_immutable", "DELETE OR UPDATE OR TRUNCATE"],
+    ["public.union_pnl_eco_observations", "original_pnl_immutable", "DELETE OR UPDATE OR TRUNCATE"],
+    [
+      "public.union_pnl_inventory_capture",
+      "original_pnl_inventory_capture_immutable",
+      "DELETE OR UPDATE OR TRUNCATE"
+    ],
+    [
+      "public.union_pnl_inventory_events",
+      "original_pnl_inventory_events_immutable",
+      "DELETE OR UPDATE OR TRUNCATE"
+    ],
+    ["public.union_pnl_inventory_events", "union_pnl_inventory_touch", "INSERT"],
+    [
+      "public.union_pnl_inventory_touches",
+      "original_pnl_immutable",
+      "DELETE OR UPDATE OR TRUNCATE"
+    ],
+    [
+      "public.union_pnl_opening_registration_resolutions",
+      "original_pnl_immutable",
+      "DELETE OR UPDATE OR TRUNCATE"
+    ],
+    ["public.union_pnl_original_flows", "original_pnl_immutable", "DELETE OR UPDATE OR TRUNCATE"],
+    ["public.union_pnl_projection_build", "union_pnl_projection_build_guard", "DELETE OR UPDATE"],
+    ["public.union_pnl_projection_build", "union_pnl_projection_build_no_truncate", "TRUNCATE"],
+    [
+      "public.union_pnl_transaction_frames",
+      "original_pnl_immutable",
+      "DELETE OR UPDATE OR TRUNCATE"
+    ],
+    ["public.union_pnl_weekly_capture", "original_pnl_immutable", "DELETE OR UPDATE OR TRUNCATE"],
+    [
+      "public.union_settlement_floor",
+      "a_floor_cannot_pass_owed_agent_commission",
+      "INSERT OR UPDATE OF earliest_period_start"
+    ],
+    ["public.unions", "aaa_ca_refuse_replica_money_truncate", "TRUNCATE"],
+    ["public.unions", "aaa_ca_refuse_replica_money_write", "INSERT OR DELETE OR UPDATE"],
+    ["public.unions", "accounting_union_eco_history", "INSERT OR DELETE OR UPDATE OF id, settings"],
+    [
+      "public.unions",
+      "trg_ca_autoledger",
+      "UPDATE OF chip_balance, rake_wallet, main_bbj_balance, backup_bbj_balance, promo_fund_balance, insurance_balance"
+    ],
+    ["public.unions", "trg_ca_autoledger_delete", "DELETE"],
+    ["public.unions", "trg_ca_autoledger_insert", "INSERT"],
+    ["public.unions", "trg_guard_retired_club_mutation", "INSERT OR DELETE OR UPDATE"],
+    ["public.unions", "trg_new_union_gets_the_ladder", "INSERT"],
+    ["public.unions", "trg_union_creation_is_allowlisted", "INSERT"],
+    ["public.unions", "trg_union_new_owner_joins_every_club", "UPDATE OF owner_id"],
+    ["public.unions", "trg_union_owner_emit_management_access", "UPDATE OF owner_id"],
+    ["public.unions", "trg_unions_set_slug", "INSERT OR UPDATE OF slug, name"],
+    ["public.unions", "zy_ca_tally_store_move", "INSERT OR DELETE OR UPDATE"],
+    ["public.unions", "zz_ca_store_has_its_ledger_row", "INSERT OR DELETE OR UPDATE"],
+    [
+      "public.wallet_credit_idempotency",
+      "terminal_credit_key_is_immutable",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    ["public.wallets", "trg_guard_wallets_balance_ins", "INSERT"],
+    ["public.wallets", "trg_guard_wallets_balance_upd", "UPDATE OF balance"],
+    ["public.wallets", "zz_ca_record_frozen_pool_deletion", "DELETE"],
+    ["public.wallets", "zz_freeze_guard", "INSERT OR DELETE OR UPDATE"],
+    ["public.wheel_configs", "trg_guard_retired_club_mutation", "INSERT OR DELETE OR UPDATE"],
+    ["public.wheel_configs", "trg_wheel_config_history", "INSERT OR UPDATE"],
+    [
+      "public.wheel_configs",
+      "wheel_configs_allowance_floor",
+      "INSERT OR UPDATE OF exposure_allowance_chips"
+    ],
+    [
+      "smarter_private.existing_rakeback_transfer_allocations",
+      "existing_transfer_allocation_complete",
+      "INSERT"
+    ],
+    [
+      "smarter_private.existing_rakeback_transfer_allocations",
+      "existing_transfer_allocation_immutable",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "smarter_private.existing_rakeback_transfer_allocations",
+      "existing_transfer_allocation_no_truncate",
+      "TRUNCATE"
+    ],
+    [
+      "smarter_private.existing_rakeback_transfer_instructions",
+      "existing_transfer_instruction_immutable",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "smarter_private.existing_rakeback_transfer_instructions",
+      "existing_transfer_instruction_no_truncate",
+      "TRUNCATE"
+    ],
+    [
+      "smarter_private.hand_submission_disposals",
+      "hand_submission_disposal_immutable",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "smarter_private.hand_submission_disposals",
+      "hand_submission_disposal_no_truncate",
+      "TRUNCATE"
+    ],
+    ["smarter_private.hand_submissions", "hand_submission_immutable", "DELETE OR UPDATE"],
+    ["smarter_private.hand_submissions", "hand_submission_no_truncate", "TRUNCATE"],
+    ["smarter_private.hand_submissions", "tournament_abort_archived_write", "INSERT OR UPDATE"],
+    [
+      "smarter_private.horse_settlement_key_certificates",
+      "horse_settlement_certificate_immutable",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "smarter_private.horse_settlement_key_certificates",
+      "horse_settlement_certificate_no_truncate",
+      "TRUNCATE"
+    ],
+    [
+      "smarter_private.original_erased_cash_base_discharges",
+      "original_cash_discharge_immutable",
+      "DELETE OR UPDATE OR TRUNCATE"
+    ],
+    [
+      "smarter_private.original_erased_cash_base_discharges",
+      "original_cash_discharge_insert_guard",
+      "INSERT"
+    ],
+    [
+      "smarter_private.original_inventory_restoration_cases",
+      "finite_original_inventory_case_insert",
+      "INSERT"
+    ],
+    [
+      "smarter_private.original_inventory_restoration_cases",
+      "original_restoration_case_immutable",
+      "DELETE OR UPDATE OR TRUNCATE"
+    ],
+    [
+      "smarter_private.original_inventory_restoration_certificates",
+      "finite_original_inventory_certificate_insert",
+      "INSERT"
+    ],
+    [
+      "smarter_private.original_inventory_restoration_certificates",
+      "original_restoration_certificate_immutable",
+      "DELETE OR UPDATE OR TRUNCATE"
+    ],
+    [
+      "smarter_private.original_treasury_funding_cutover",
+      "original_treasury_cutover_immutable",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "smarter_private.original_treasury_funding_cutover",
+      "original_treasury_cutover_no_truncate",
+      "TRUNCATE"
+    ],
+    [
+      "smarter_private.original_treasury_funding_witnesses",
+      "original_treasury_witness_immutable",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "smarter_private.original_treasury_funding_witnesses",
+      "original_treasury_witness_no_truncate",
+      "TRUNCATE"
+    ],
+    [
+      "smarter_private.original_treasury_historical_admissions",
+      "original_treasury_historical_immutable",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "smarter_private.original_treasury_historical_admissions",
+      "original_treasury_historical_no_truncate",
+      "TRUNCATE"
+    ],
+    [
+      "smarter_private.owner_retirement_bank_refunds",
+      "owner_refund_receipt_immutable",
+      "DELETE OR UPDATE OR TRUNCATE"
+    ],
+    [
+      "smarter_private.owner_retirement_manual_refunds",
+      "owner_manual_refund_immutable",
+      "DELETE OR UPDATE OR TRUNCATE"
+    ],
+    [
+      "smarter_private.owner_retirement_pool_transfers",
+      "owner_retirement_pool_transfer_immutable",
+      "DELETE OR UPDATE OR TRUNCATE"
+    ],
+    [
+      "smarter_private.owner_retirement_pool_transfers",
+      "owner_retirement_transfer_must_close",
+      "INSERT"
+    ],
+    [
+      "smarter_private.owner_tournament_deletion_intents",
+      "owner_deletion_manifest_immutable",
+      "INSERT OR DELETE OR UPDATE OR TRUNCATE"
+    ],
+    [
+      "smarter_private.posthand_escrow_certificates",
+      "posthand_escrow_certificate_immutable",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    [
+      "smarter_private.posthand_escrow_certificates",
+      "posthand_escrow_certificate_no_truncate",
+      "TRUNCATE"
+    ],
+    [
+      "smarter_private.retired_cash_hand_custody",
+      "retired_cash_custody_guard",
+      "INSERT OR DELETE OR UPDATE"
+    ],
+    ["smarter_private.retired_cash_hand_custody", "retired_cash_custody_no_truncate", "TRUNCATE"],
+    [
+      "smarter_private.retired_cash_hand_qualification",
+      "retired_cash_qualification_immutable",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "smarter_private.retired_cash_hand_qualification",
+      "retired_cash_qualification_no_truncate",
+      "TRUNCATE"
+    ],
+    [
+      "smarter_private.retirement_original_hand_qualification",
+      "retirement_original_qualification_immutable",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "smarter_private.retirement_original_hand_qualification",
+      "retirement_original_qualification_no_truncate",
+      "TRUNCATE"
+    ],
+    [
+      "smarter_private.retirement_original_hand_restorations",
+      "retirement_original_restoration_immutable",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "smarter_private.retirement_original_hand_restorations",
+      "retirement_original_restoration_no_truncate",
+      "TRUNCATE"
+    ],
+    [
+      "smarter_private.retirement_undealt_paid_entry_qualification",
+      "qualification_immutable",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "smarter_private.retirement_undealt_paid_entry_restorations",
+      "restoration_immutable",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "smarter_private.tournament_abort_recoveries",
+      "tournament_abort_recovery_immutable",
+      "DELETE OR UPDATE"
+    ],
+    [
+      "smarter_private.tournament_abort_recoveries",
+      "tournament_abort_recovery_no_truncate",
+      "TRUNCATE"
+    ],
+    ["smarter_private.tournament_abort_targets", "equal_share_retirement_must_close", "UPDATE"]
+  ],
+  "wired_triggers": [
+    [
+      "public.accounting_agreement_history",
+      "accounting_agreement_history_immutable",
+      "public.fn_accounting_agreement_history_immutable",
+      "3fa4099435ff1e9d5c48fa1934b63549"
+    ],
+    [
+      "public.accounting_agreement_history",
+      "accounting_agreement_history_no_truncate",
+      "public.fn_accounting_agreement_history_immutable",
+      "3fa4099435ff1e9d5c48fa1934b63549"
+    ],
+    [
+      "public.accounting_cash_accrual_batches",
+      "accounting_cash_batch_immutable",
+      "public.fn_accounting_agreement_history_immutable",
+      "3fa4099435ff1e9d5c48fa1934b63549"
+    ],
+    [
+      "public.accounting_cash_accrual_batches",
+      "accounting_cash_batch_is_placed_in_time",
+      "public.fn_accounting_cash_batch_is_placed_in_time",
+      "b6266bab230995172bf12926854fcacd"
+    ],
+    [
+      "public.accounting_cash_accrual_batches",
+      "accounting_cash_batch_no_truncate",
+      "public.fn_accounting_agreement_history_immutable",
+      "3fa4099435ff1e9d5c48fa1934b63549"
+    ],
+    [
+      "public.accounting_cash_bank_receipts",
+      "accounting_cash_bank_immutable",
+      "public.fn_accounting_agreement_history_immutable",
+      "3fa4099435ff1e9d5c48fa1934b63549"
+    ],
+    [
+      "public.accounting_cash_bank_receipts",
+      "accounting_cash_bank_no_truncate",
+      "public.fn_accounting_agreement_history_immutable",
+      "3fa4099435ff1e9d5c48fa1934b63549"
+    ],
+    [
+      "public.accounting_cash_rake_sources",
+      "aa_poker_arena_no_chip_money",
+      "public.fn_poker_reject_diamond_chip_money",
+      "7c61e72bf8bc26c15490b31bed7bc912"
+    ],
+    [
+      "public.accounting_cash_rake_sources",
+      "accounting_cash_source_immutable",
+      "public.fn_accounting_agreement_history_immutable",
+      "3fa4099435ff1e9d5c48fa1934b63549"
+    ],
+    [
+      "public.accounting_cash_rake_sources",
+      "accounting_cash_source_matches_its_batch",
+      "public.fn_accounting_cash_source_matches_its_batch",
+      "f7bdcfd619f7a6dfd9952cee175b2c4e"
+    ],
+    [
+      "public.accounting_cash_rake_sources",
+      "accounting_cash_source_no_truncate",
+      "public.fn_accounting_agreement_history_immutable",
+      "3fa4099435ff1e9d5c48fa1934b63549"
+    ],
+    [
+      "public.accounting_own_agent_preparation_versions",
+      "own_agent_preparation_version_immutable",
+      "public.fn_accounting_agreement_history_immutable",
+      "3fa4099435ff1e9d5c48fa1934b63549"
+    ],
+    [
+      "public.accounting_own_agent_preparation_versions",
+      "own_agent_preparation_version_no_truncate",
+      "public.fn_accounting_agreement_history_immutable",
+      "3fa4099435ff1e9d5c48fa1934b63549"
+    ],
+    [
+      "public.accounting_own_agent_source_reviews",
+      "own_agent_source_review_immutable",
+      "public.fn_accounting_agreement_history_immutable",
+      "3fa4099435ff1e9d5c48fa1934b63549"
+    ],
+    [
+      "public.accounting_own_agent_source_reviews",
+      "own_agent_source_review_no_truncate",
+      "public.fn_accounting_agreement_history_immutable",
+      "3fa4099435ff1e9d5c48fa1934b63549"
+    ],
+    [
+      "public.accounting_rakeback_payer_contracts",
+      "accounting_rakeback_payer_contract_immutable",
+      "public.fn_accounting_agreement_history_immutable",
+      "3fa4099435ff1e9d5c48fa1934b63549"
+    ],
+    [
+      "public.accounting_rakeback_payer_contracts",
+      "accounting_rakeback_payer_contract_no_truncate",
+      "public.fn_accounting_agreement_history_immutable",
+      "3fa4099435ff1e9d5c48fa1934b63549"
+    ],
+    [
+      "public.accounting_rakeback_payer_transfers",
+      "accounting_rakeback_payer_transfer_immutable",
+      "public.fn_accounting_agreement_history_immutable",
+      "3fa4099435ff1e9d5c48fa1934b63549"
+    ],
+    [
+      "public.accounting_rakeback_payer_transfers",
+      "accounting_rakeback_payer_transfer_no_truncate",
+      "public.fn_accounting_agreement_history_immutable",
+      "3fa4099435ff1e9d5c48fa1934b63549"
+    ],
+    [
+      "public.accounting_rakeback_period_calculations",
+      "accounting_rakeback_calculation_immutable",
+      "public.fn_accounting_agreement_history_immutable",
+      "3fa4099435ff1e9d5c48fa1934b63549"
+    ],
+    [
+      "public.accounting_rakeback_period_calculations",
+      "accounting_rakeback_calculation_no_truncate",
+      "public.fn_accounting_agreement_history_immutable",
+      "3fa4099435ff1e9d5c48fa1934b63549"
+    ],
+    [
+      "public.accounting_rakeback_period_calculations",
+      "accounting_rakeback_payer_contracts_at_calculation",
+      "smarter_private.record_rakeback_payer_contracts",
+      "73325c330ea577c08b4704319c0f89ec"
+    ],
+    [
+      "public.accounting_rakeback_period_calculations",
+      "zz_accounting_rakeback_wallet_contracts",
+      "smarter_private.record_rakeback_wallet_contracts",
+      "e0ba664285b5b6cc885fd6a2357d8596"
+    ],
+    [
+      "public.accounting_rakeback_wallet_contracts",
+      "own_agent_wallet_contract_immutable",
+      "public.fn_accounting_agreement_history_immutable",
+      "3fa4099435ff1e9d5c48fa1934b63549"
+    ],
+    [
+      "public.accounting_rakeback_wallet_contracts",
+      "own_agent_wallet_contract_no_truncate",
+      "public.fn_accounting_agreement_history_immutable",
+      "3fa4099435ff1e9d5c48fa1934b63549"
+    ],
+    [
+      "public.accounting_rakeback_wallet_transfers",
+      "own_agent_wallet_transfer_immutable",
+      "public.fn_accounting_agreement_history_immutable",
+      "3fa4099435ff1e9d5c48fa1934b63549"
+    ],
+    [
+      "public.accounting_rakeback_wallet_transfers",
+      "own_agent_wallet_transfer_no_truncate",
+      "public.fn_accounting_agreement_history_immutable",
+      "3fa4099435ff1e9d5c48fa1934b63549"
+    ],
+    [
+      "public.accounting_routed_settlement_runs",
+      "accounting_routed_run_immutable",
+      "public.fn_accounting_agreement_history_immutable",
+      "3fa4099435ff1e9d5c48fa1934b63549"
+    ],
+    [
+      "public.accounting_routed_settlement_runs",
+      "accounting_routed_run_no_truncate",
+      "public.fn_accounting_agreement_history_immutable",
+      "3fa4099435ff1e9d5c48fa1934b63549"
+    ],
+    [
+      "public.agent_commission_settlements",
+      "poker_arena_no_hierarchy",
+      "public.fn_poker_reject_diamond_hierarchy",
+      "49037a2bf4322d2a327bc9141a7a7a89"
+    ],
+    [
+      "public.agent_commissions",
+      "accounting_cash_commission_source_guard",
+      "public.fn_accounting_cash_commission_source_guard",
+      "f6bb6de73cb43d54a42dbc31caab4a3b"
+    ],
+    [
+      "public.agent_commissions",
+      "accounting_tournament_commission_source_guard",
+      "public.fn_accounting_tournament_commission_source_guard",
+      "a27f5faacd2c469df32f4b5e9692113c"
+    ],
+    [
+      "public.agent_commissions",
+      "poker_arena_no_hierarchy",
+      "public.fn_poker_reject_diamond_hierarchy",
+      "49037a2bf4322d2a327bc9141a7a7a89"
+    ],
+    [
+      "public.agent_commissions",
+      "trg_agent_commission_rollup_del",
+      "public.trg_agent_commission_rollup_change",
+      "4ec76190867a2fe990abddeb01b8cad5"
+    ],
+    [
+      "public.agent_commissions",
+      "trg_agent_commission_rollup_ins",
+      "public.trg_agent_commission_rollup_insert",
+      "1a07fad61faa37c4f9c1c78835fb7843"
+    ],
+    [
+      "public.agent_commissions",
+      "trg_agent_commission_rollup_upd",
+      "public.trg_agent_commission_rollup_change",
+      "4ec76190867a2fe990abddeb01b8cad5"
+    ],
+    [
+      "public.agent_commissions",
+      "trg_ca_append_only",
+      "public.fn_ca_journal_append_only",
+      "ac9d66e60d077d886981c428c71e5c3c"
+    ],
+    [
+      "public.agent_commissions",
+      "zz_commission_report_invalidate_delete",
+      "smarter_private.invalidate_agent_commission_report_days",
+      "2a1cde231f6a8036f51179d630fbbd2d"
+    ],
+    [
+      "public.agent_commissions",
+      "zz_commission_report_invalidate_truncate",
+      "smarter_private.invalidate_agent_commission_report_days",
+      "2a1cde231f6a8036f51179d630fbbd2d"
+    ],
+    [
+      "public.agent_commissions",
+      "zz_commission_report_invalidate_update",
+      "smarter_private.invalidate_agent_commission_report_days",
+      "2a1cde231f6a8036f51179d630fbbd2d"
+    ],
+    [
+      "public.agents",
+      "aaa_ca_refuse_replica_money_truncate",
+      "public.fn_ca_refuse_replica_money_write",
+      "42ed613371ddac424b618f5ac767a733"
+    ],
+    [
+      "public.agents",
+      "aaa_ca_refuse_replica_money_write",
+      "public.fn_ca_refuse_replica_money_write",
+      "42ed613371ddac424b618f5ac767a733"
+    ],
+    [
+      "public.agents",
+      "accounting_agreement_history",
+      "public.fn_accounting_agreement_capture",
+      "746fab25cd56f6ad761325e7c0d525d5"
+    ],
+    [
+      "public.agents",
+      "agent_wallet_changed",
+      "public.fn_publish_agent_wallet_change",
+      "6f1c28ffce6de828bec8c4984a425883"
+    ],
+    [
+      "public.agents",
+      "cashier_agent_balance_actor_guard",
+      "public.fn_cashier_balance_actor_guard",
+      "178146284da8fbab643c2e6fcbb8bd42"
+    ],
+    [
+      "public.agents",
+      "cashier_agent_operation_mutex",
+      "public.fn_cashier_operation_mutex_guard",
+      "344aae5352ca162b3f89971599fcda78"
+    ],
+    [
+      "public.agents",
+      "cashier_agent_status_mutex_delete",
+      "public.fn_cashier_agent_status_mutex",
+      "bf7d74a44d3676cfc733602fc35f10b6"
+    ],
+    [
+      "public.agents",
+      "cashier_agent_status_mutex_update",
+      "public.fn_cashier_agent_status_mutex",
+      "bf7d74a44d3676cfc733602fc35f10b6"
+    ],
+    [
+      "public.agents",
+      "club_staff_notice_agents",
+      "public.fn_club_staff_notice_role_event",
+      "a7f817a4fc8c54ae1b401462862cf8a9"
+    ],
+    [
+      "public.agents",
+      "guard_agent_wallet_direct_update",
+      "public.guard_agent_wallet_direct_update",
+      "736aa9e92265453c3015223562108141"
+    ],
+    [
+      "public.agents",
+      "member_record_agent",
+      "public.fn_publish_member_record_row",
+      "ba43ce21b9e59680c981674fd0b2cc89"
+    ],
+    [
+      "public.agents",
+      "poker_arena_no_hierarchy",
+      "public.fn_poker_reject_diamond_hierarchy",
+      "49037a2bf4322d2a327bc9141a7a7a89"
+    ],
+    [
+      "public.agents",
+      "trg_agent_default_prepaid",
+      "public.fn_agent_default_prepaid",
+      "ab764c788f16650da4b2fc6df2d2a0a7"
+    ],
+    [
+      "public.agents",
+      "trg_agents_commission_bounds",
+      "public.fn_enforce_agent_commission_bounds",
+      "3e4f5df422b121391cc40f711ae5b5ee"
+    ],
+    [
+      "public.agents",
+      "trg_agents_human_user_club_only",
+      "public.fn_ca_reject_automated_user_club_row",
+      "d2d3dfb50e8cdf6bfce78c16526da539"
+    ],
+    [
+      "public.agents",
+      "trg_agents_staff_earn_no_rakeback",
+      "public.fn_agents_staff_earn_no_rakeback",
+      "17346b77ec8f5a1d6d42dca3eb06e061"
+    ],
+    [
+      "public.agents",
+      "trg_ca_autoledger",
+      "public.fn_ca_autoledger",
+      "ceb53c916648f025bdae6fe0e03e5e8b"
+    ],
+    [
+      "public.agents",
+      "trg_ca_autoledger_delete",
+      "public.fn_ca_autoledger_delete",
+      "c6d7e02df8b654fbccc3e8844418bd01"
+    ],
+    [
+      "public.agents",
+      "trg_ca_autoledger_insert",
+      "public.fn_ca_autoledger",
+      "ceb53c916648f025bdae6fe0e03e5e8b"
+    ],
+    [
+      "public.agents",
+      "trg_deep_stack_agents_are_protected",
+      "public.fn_deep_stack_society_cannot_be_deleted_by_accident",
+      "213a7fa40330c703cb23dc001a99d31e"
+    ],
+    [
+      "public.agents",
+      "trg_guard_retired_club_mutation",
+      "public.fn_guard_retired_club_mutation",
+      "66b05912e3963815a560db03d54c74c9"
+    ],
+    [
+      "public.agents",
+      "trg_sync_agent_wallets",
+      "public.sync_agent_wallet_columns",
+      "3a3d351dd05b5dc13b525b7eb4635e5c"
+    ],
+    [
+      "public.agents",
+      "zy_ca_tally_store_move",
+      "public.fn_ca_tally_store_move",
+      "6db4f04e33013c8f9b00e2155b31e72d"
+    ],
+    [
+      "public.agents",
+      "zz_ca_store_has_its_ledger_row",
+      "public.fn_ca_balance_has_its_ledger_row",
+      "2df7b3f67e95b8a6c0abe7ba3faff63c"
+    ],
+    [
+      "public.agents",
+      "zz_guard_agent_agreement",
+      "public.fn_guard_agent_agreement",
+      "6128f73fa007125996f909799e59c9d8"
+    ],
+    [
+      "public.agents",
+      "zzzz_credit_control_revision_v1",
+      "public.fn_agent_credit_control_revision_v1",
+      "5ec011a69c2c9e9bc5c2da28f226ba25"
+    ],
+    [
+      "public.agents",
+      "zzzz_deleted_agent_credit",
+      "public.fn_ca_deleted_wallet_credit",
+      "38381e35aa9804fb1e109c20855e4854"
+    ],
+    [
+      "public.ca_settlements",
+      "trg_ca_settlement_guard",
+      "public.fn_ca_settlement_transition_guard",
+      "c69ec19d86f2184422769187b08191ea"
+    ],
+    [
+      "public.chip_ledger",
+      "aa_ca_capture_tournament_charge_entitlement",
+      "public.fn_ca_capture_tournament_charge_entitlement",
+      "d18629d96b3f5e3b5d6826c2bf309ac4"
+    ],
+    [
+      "public.chip_ledger",
+      "aa_poker_arena_no_chip_money",
+      "public.fn_poker_reject_diamond_chip_money",
+      "7c61e72bf8bc26c15490b31bed7bc912"
+    ],
+    [
+      "public.chip_ledger",
+      "aaa_ca_refuse_replica_money_truncate",
+      "public.fn_ca_refuse_replica_money_write",
+      "42ed613371ddac424b618f5ac767a733"
+    ],
+    [
+      "public.chip_ledger",
+      "aaa_ca_refuse_replica_money_write",
+      "public.fn_ca_refuse_replica_money_write",
+      "42ed613371ddac424b618f5ac767a733"
+    ],
+    [
+      "public.chip_ledger",
+      "aaa_launch_closing_leg",
+      "public.fn_ca_launch_closing_leg_guard",
+      "cd0ed08f29a45782c3458f14d0610c1f"
+    ],
+    [
+      "public.chip_ledger",
+      "ab_ca_chip_store_declared",
+      "public.fn_ca_chip_store_declared",
+      "d5b08956826e56a0d414db4bfd022d3b"
+    ],
+    [
+      "public.chip_ledger",
+      "accounting_tournament_recognized_bank_immutable",
+      "public.fn_accounting_tournament_recognized_evidence_immutable",
+      "a5a71f9b0ba989721663a85cbb407ea9"
+    ],
+    [
+      "public.chip_ledger",
+      "accounting_transfer_document",
+      "public.fn_accounting_transfer_document_on_insert",
+      "164aae2fca35c964331ed8aecd225411"
+    ],
+    [
+      "public.chip_ledger",
+      "cancelled_tournament_evidence_is_immutable",
+      "public.fn_cancelled_tournament_evidence_is_immutable",
+      "c361537b74dd7b12f05cc58bd0d2ef4f"
+    ],
+    [
+      "public.chip_ledger",
+      "original_union_pnl_flow",
+      "public.fn_union_pnl_capture_original_flow",
+      "df060874f0ffaf8105cce1d3bdaed35b"
+    ],
+    [
+      "public.chip_ledger",
+      "satellite_transfer_ledger_is_immutable",
+      "public.fn_satellite_transfer_ledger_is_immutable",
+      "b4012023e95bf3ee041776a03bd2d731"
+    ],
+    [
+      "public.chip_ledger",
+      "terminal_tournament_evidence_is_immutable",
+      "public.fn_terminal_tournament_evidence_is_immutable",
+      "1b3ab2bd7823977943d1baa0816997d0"
+    ],
+    [
+      "public.chip_ledger",
+      "trg_ca_append_only",
+      "public.fn_ca_journal_append_only",
+      "ac9d66e60d077d886981c428c71e5c3c"
+    ],
+    [
+      "public.chip_ledger",
+      "trg_ca_chip_ledger_enrich",
+      "public.fn_ca_chip_ledger_enrich",
+      "5931f47d922eea26ab1ea2b12f3f7c8c"
+    ],
+    [
+      "public.chip_ledger",
+      "trg_chip_ledger_performed_by",
+      "public.enforce_chip_ledger_performed_by",
+      "ed92ea331aeddaffca0ae46a7f6801ea"
+    ],
+    [
+      "public.chip_ledger",
+      "trg_chip_ledger_performed_by_update",
+      "public.enforce_chip_ledger_performed_by",
+      "ed92ea331aeddaffca0ae46a7f6801ea"
+    ],
+    [
+      "public.chip_ledger",
+      "zy_ca_tally_ledger_leg",
+      "public.fn_ca_tally_ledger_leg",
+      "9b3ab2f5a78cb7fa0adfb377706ecb85"
+    ],
+    [
+      "public.chip_ledger",
+      "zz_ca_attested_day_is_restated_del",
+      "public.fn_ca_attested_day_is_restated",
+      "268e0f244b2df7f88b933530b1cad822"
+    ],
+    [
+      "public.chip_ledger",
+      "zz_ca_attested_day_is_restated_upd",
+      "public.fn_ca_attested_day_is_restated",
+      "268e0f244b2df7f88b933530b1cad822"
+    ],
+    [
+      "public.chip_ledger",
+      "zz_ca_escrow_overlay_leg",
+      "public.fn_ca_escrow_on_overlay_leg",
+      "1b916fb576271d94c481099c11ca8b93"
+    ],
+    [
+      "public.chip_ledger",
+      "zz_ca_escrow_reserve_leg",
+      "public.fn_ca_escrow_on_reserve_leg",
+      "0d7f735d58aadeb6fe03e9daf5e21a92"
+    ],
+    [
+      "public.chip_ledger",
+      "zz_ca_escrow_seat_transfer_leg",
+      "public.fn_ca_escrow_on_seat_transfer_leg",
+      "e9c56f9c21635b21c7cf0d456eb18b8a"
+    ],
+    [
+      "public.chip_ledger",
+      "zz_ca_funded_return_journal",
+      "public.fn_ca_funded_chip_return_journal",
+      "83a1c235e73e3544707aed186c9e1541"
+    ],
+    [
+      "public.chip_ledger",
+      "zz_ca_issuance_leg_is_registered",
+      "public.fn_ca_issuance_leg_is_registered",
+      "164b9494b161bca655a313a9a4adfd93"
+    ],
+    [
+      "public.chip_ledger",
+      "zz_ca_ledger_row_has_its_balance",
+      "public.fn_ca_balance_has_its_ledger_row",
+      "2df7b3f67e95b8a6c0abe7ba3faff63c"
+    ],
+    [
+      "public.chip_ledger",
+      "zz_ca_own_agent_rakeback_leg_documented",
+      "public.fn_ca_rakeback_payout_leg_is_documented",
+      "27b613b98de1d922d0ee65e9259c0cea"
+    ],
+    [
+      "public.chip_ledger",
+      "zz_ca_rakeback_payout_leg_is_documented",
+      "public.fn_ca_rakeback_payout_leg_is_documented",
+      "27b613b98de1d922d0ee65e9259c0cea"
+    ],
+    [
+      "public.chip_ledger",
+      "zz_chip_ledger_key_is_claimed_once",
+      "public.zz_chip_ledger_key_is_claimed_once",
+      "57a2b2eb1bc5b1c5ac36394c2ac23bcd"
+    ],
+    [
+      "public.chip_ledger",
+      "zz_freeze_guard",
+      "public.fn_refuse_while_frozen",
+      "a8dd811942377b0e67fa219ba039681e"
+    ],
+    [
+      "public.chip_ledger",
+      "zz_tournament_accounting_credit_ledger",
+      "public.fn_ca_capture_tournament_credit_ledger",
+      "81b1abbedb544e2fca0f8edec7d27cae"
+    ],
+    [
+      "public.chip_transactions",
+      "cashier_operation_intent_guard",
+      "public.fn_cashier_operation_intent_guard",
+      "60350724279387da3b548bd370d082db"
+    ],
+    [
+      "public.chip_transactions",
+      "member_record_transaction",
+      "public.fn_publish_member_record_transaction",
+      "2ed90a47b868be864b77459a901015a1"
+    ],
+    [
+      "public.chip_transactions",
+      "trg_ca_append_only",
+      "public.fn_ca_journal_append_only",
+      "ac9d66e60d077d886981c428c71e5c3c"
+    ],
+    [
+      "public.chip_transactions",
+      "zz_freeze_guard",
+      "public.fn_refuse_while_frozen",
+      "a8dd811942377b0e67fa219ba039681e"
+    ],
+    [
+      "public.chip_transactions",
+      "zz_restriction_transfer_guard",
+      "public.fn_ca_refuse_restricted_transfer",
+      "65a2cb12ec806144a074efc2614563d1"
+    ],
+    [
+      "public.chip_transactions",
+      "zz_settlement_freeze_guard",
+      "public.fn_refuse_operator_move_while_settling",
+      "4dd93ff68d573144d73edc71e166f36f"
+    ],
+    [
+      "public.club_members",
+      "aaa_ca_refuse_replica_money_write",
+      "public.fn_ca_refuse_replica_money_write",
+      "42ed613371ddac424b618f5ac767a733"
+    ],
+    [
+      "public.club_members",
+      "accounting_agreement_history",
+      "public.fn_accounting_agreement_capture",
+      "746fab25cd56f6ad761325e7c0d525d5"
+    ],
+    [
+      "public.club_members",
+      "capture_club_messenger_admission",
+      "public.fn_capture_club_messenger_admission",
+      "a2cdfdb7e9b9e9b650f0cfc72e693eae"
+    ],
+    [
+      "public.club_members",
+      "cashier_member_balance_actor_guard",
+      "public.fn_cashier_balance_actor_guard",
+      "178146284da8fbab643c2e6fcbb8bd42"
+    ],
+    [
+      "public.club_members",
+      "cashier_member_operation_mutex",
+      "public.fn_cashier_operation_mutex_guard",
+      "344aae5352ca162b3f89971599fcda78"
+    ],
+    [
+      "public.club_members",
+      "club_members_updated_at",
+      "public.update_updated_at_column",
+      "54801f8bc343c4928383a3e7a1d57d61"
+    ],
+    [
+      "public.club_members",
+      "club_staff_notice_membership",
+      "public.fn_club_staff_notice_role_event",
+      "a7f817a4fc8c54ae1b401462862cf8a9"
+    ],
+    [
+      "public.club_members",
+      "deliver_club_messenger_welcome",
+      "public.fn_deliver_club_messenger_welcome",
+      "11fc6eb8b03ccdea3b4cf799cc9bce99"
+    ],
+    [
+      "public.club_members",
+      "lock_cashier_hierarchy_update",
+      "public.lock_club_cashier_hierarchy_mutation",
+      "2bf2e0dc1876c5b1238603fc18558907"
+    ],
+    [
+      "public.club_members",
+      "member_rakeback_explicit_guard",
+      "public.fn_member_rakeback_explicit_guard",
+      "7afde97b841511ee0553beeb6a703bc7"
+    ],
+    [
+      "public.club_members",
+      "member_record_membership",
+      "public.fn_publish_member_record_row",
+      "ba43ce21b9e59680c981674fd0b2cc89"
+    ],
+    [
+      "public.club_members",
+      "poker_arena_membership_guard",
+      "public.fn_poker_guard_arena_structure",
+      "0bcf6105fbcabf5cb68236d67817b952"
+    ],
+    [
+      "public.club_members",
+      "trg_admin_holds_no_player_wallet",
+      "public.fn_admin_holds_no_player_wallet",
+      "3c54c86c548917606c846febfadf704b"
+    ],
+    [
+      "public.club_members",
+      "trg_approval_gate_upd",
+      "public.fn_membership_approval_gate",
+      "b5edea413fa87af75f47b925a23b1d10"
+    ],
+    [
+      "public.club_members",
+      "trg_audit_club_join",
+      "public.fn_audit_club_entry_mutation",
+      "551c99f71d70848ef8115bbcfb5b7c71"
+    ],
+    [
+      "public.club_members",
+      "trg_audit_club_member_update",
+      "public.fn_audit_club_member_change",
+      "06515aa426034c1174450e2dc37204ef"
+    ],
+    [
+      "public.club_members",
+      "trg_block_browser_balance_writes",
+      "public.fn_block_browser_balance_writes",
+      "c7390598f411e7d6bc4b8daf00e12c6e"
+    ],
+    [
+      "public.club_members",
+      "trg_ca_autoledger",
+      "public.fn_ca_autoledger",
+      "ceb53c916648f025bdae6fe0e03e5e8b"
+    ],
+    [
+      "public.club_members",
+      "trg_club_member_notes_guard",
+      "public.fn_club_member_notes_guard",
+      "cc7bae672aea44a800052d2aba490360"
+    ],
+    [
+      "public.club_members",
+      "trg_club_members_audit_chip_movement",
+      "public.fn_club_members_ledger_writer",
+      "68030454cdb78329bb6c41eabe8bff24"
+    ],
+    [
+      "public.club_members",
+      "trg_club_members_bot_follows_horse",
+      "public.fn_club_members_bot_follows_horse",
+      "02033ded814911b9a5a74ecf91dfa2e9"
+    ],
+    [
+      "public.club_members",
+      "trg_club_members_emit_management_access",
+      "public.fn_emit_management_access_event",
+      "fd10e300f81d5bd5f68efccb7ad1cb54"
+    ],
+    [
+      "public.club_members",
+      "trg_club_members_guard_lifecycle_write",
+      "public.fn_guard_membership_lifecycle_write",
+      "8a72d76f51c5fc08e5424eb5b0db1493"
+    ],
+    [
+      "public.club_members",
+      "trg_club_members_human_user_club_only",
+      "public.fn_ca_reject_automated_user_club_row",
+      "d2d3dfb50e8cdf6bfce78c16526da539"
+    ],
+    [
+      "public.club_members",
+      "trg_club_members_level_sync",
+      "public.trg_auto_recompute_club_level",
+      "91f239bc0f5b75e5147ef6bd19ff761b"
+    ],
+    [
+      "public.club_members",
+      "trg_club_members_no_agent_cycle_upd",
+      "public.fn_club_members_no_agent_cycle",
+      "a7ad3c53fcab80a15831e71544b53c56"
+    ],
+    [
+      "public.club_members",
+      "trg_club_members_role_guard",
+      "public.fn_club_members_role_guard",
+      "2374cfedbbe89d3a69c75cdfdb240fe6"
+    ],
+    [
+      "public.club_members",
+      "trg_club_members_staff_earn_no_rakeback",
+      "public.fn_club_members_staff_earn_no_rakeback",
+      "09ae811a57faa517720d493d89262f31"
+    ],
+    [
+      "public.club_members",
+      "trg_club_members_status_guard",
+      "public.fn_club_members_status_guard",
+      "587b8157ec37354992b230b9d10035b1"
+    ],
+    [
+      "public.club_members",
+      "trg_four_club_limit_upd",
+      "public.fn_enforce_four_club_limit",
+      "7c79db5e707510912f4fa3c6f9ff7cb5"
+    ],
+    [
+      "public.club_members",
+      "trg_guard_retired_club_mutation",
+      "public.fn_guard_retired_club_mutation",
+      "66b05912e3963815a560db03d54c74c9"
+    ],
+    [
+      "public.club_members",
+      "trg_recompute_club_level_on_member_change",
+      "public.fn_recompute_club_level_on_member_change",
+      "0a761d5d6027c26ddbe4a7760d23d434"
+    ],
+    [
+      "public.club_members",
+      "trg_sync_agent_player_counts",
+      "public.fn_sync_agent_player_counts",
+      "76a5848cfdb6c1674b48cb62ae1f22dd"
+    ],
+    [
+      "public.club_members",
+      "trg_sync_club_member_count",
+      "public.fn_sync_club_member_count",
+      "2abaebf91e89f56487f01b25d7e3ac98"
+    ],
+    [
+      "public.club_members",
+      "trg_sync_mfa_required_on_club_role",
+      "public.fn_sync_mfa_required_on_club_role",
+      "b09cbcddc87075221d72aee3899e97b4"
+    ],
+    [
+      "public.club_members",
+      "trg_union_owner_membership_is_kept",
+      "public.fn_union_owner_membership_is_kept",
+      "033446b62c65f4f0ade7c19e392f92cc"
+    ],
+    [
+      "public.club_members",
+      "zy_ca_tally_balance_move",
+      "public.fn_ca_tally_balance_move",
+      "b7911a245d4bf33134a9a2f474c1f410"
+    ],
+    [
+      "public.club_members",
+      "zy_ca_tally_store_move",
+      "public.fn_ca_tally_store_move",
+      "6db4f04e33013c8f9b00e2155b31e72d"
+    ],
+    [
+      "public.club_members",
+      "zz_ca_balance_has_its_ledger_row",
+      "public.fn_ca_balance_has_its_ledger_row",
+      "2df7b3f67e95b8a6c0abe7ba3faff63c"
+    ],
+    [
+      "public.club_members",
+      "zz_ca_store_has_its_ledger_row",
+      "public.fn_ca_balance_has_its_ledger_row",
+      "2df7b3f67e95b8a6c0abe7ba3faff63c"
+    ],
+    [
+      "public.club_members",
+      "zz_freeze_guard",
+      "public.fn_refuse_while_frozen",
+      "a8dd811942377b0e67fa219ba039681e"
+    ],
+    [
+      "public.club_members",
+      "zzzz_deleted_member_credit",
+      "public.fn_ca_deleted_wallet_credit",
+      "38381e35aa9804fb1e109c20855e4854"
+    ],
+    [
+      "public.club_members",
+      "zzzz_horse_split_late_credit_returns_to_bank",
+      "public.fn_ca_horse_split_return_late_credit",
+      "b4d29a312a1d98b8a1b9c9ef7d0bb19b"
+    ],
+    [
+      "public.clubs",
+      "aaa_ca_refuse_replica_money_write",
+      "public.fn_ca_refuse_replica_money_write",
+      "42ed613371ddac424b618f5ac767a733"
+    ],
+    [
+      "public.clubs",
+      "cashier_club_balance_actor_guard",
+      "public.fn_cashier_balance_actor_guard",
+      "178146284da8fbab643c2e6fcbb8bd42"
+    ],
+    [
+      "public.clubs",
+      "cashier_club_operation_mutex",
+      "public.fn_cashier_operation_mutex_guard",
+      "344aae5352ca162b3f89971599fcda78"
+    ],
+    [
+      "public.clubs",
+      "club_staff_notice_owner",
+      "public.fn_club_staff_notice_role_event",
+      "a7f817a4fc8c54ae1b401462862cf8a9"
+    ],
+    [
+      "public.clubs",
+      "clubs_updated_at",
+      "public.update_updated_at_column",
+      "54801f8bc343c4928383a3e7a1d57d61"
+    ],
+    [
+      "public.clubs",
+      "diamond_game_club_reserves",
+      "public.fn_diamond_game_reserved_cover_guard",
+      "c7a4c4fa4763924d7f76d9f70656014e"
+    ],
+    [
+      "public.clubs",
+      "member_record_club",
+      "public.fn_publish_member_record_context",
+      "0705c55c836ed5a95491891070fa66dd"
+    ],
+    [
+      "public.clubs",
+      "midway_cash_rake_write_guard",
+      "public.fn_midway_cash_rake_write_guard",
+      "6ba00e7372c24fea08d27fb6947c8a02"
+    ],
+    [
+      "public.clubs",
+      "poker_arena_identity_guard",
+      "public.fn_poker_guard_arena_structure",
+      "0bcf6105fbcabf5cb68236d67817b952"
+    ],
+    [
+      "public.clubs",
+      "trg_audit_club_settings",
+      "public.fn_audit_club_settings_change",
+      "5403c57f2dbe265c8fd185c924e2eb14"
+    ],
+    [
+      "public.clubs",
+      "trg_block_browser_treasury_writes",
+      "public.fn_block_browser_balance_writes",
+      "c7390598f411e7d6bc4b8daf00e12c6e"
+    ],
+    [
+      "public.clubs",
+      "trg_ca_autoledger",
+      "public.fn_ca_autoledger",
+      "ceb53c916648f025bdae6fe0e03e5e8b"
+    ],
+    [
+      "public.clubs",
+      "trg_ca_club_gets_a_baseline",
+      "public.fn_ca_club_gets_a_baseline",
+      "9e234dd984e7c47d448a33aae2292938"
+    ],
+    [
+      "public.clubs",
+      "trg_club_identity_emit_management_event",
+      "public.fn_emit_management_content_event",
+      "2f5883eca4e555ddaacf18fb71e9704f"
+    ],
+    [
+      "public.clubs",
+      "trg_club_owner_emit_management_access",
+      "public.fn_emit_club_union_access_event",
+      "035603d32853b823b20877214ade334f"
+    ],
+    [
+      "public.clubs",
+      "trg_club_owner_has_a_player_wallet",
+      "public.fn_club_owner_has_a_player_wallet",
+      "a933cd2505c6345ef907ddaadf28b6e8"
+    ],
+    [
+      "public.clubs",
+      "trg_club_union_emit_management_access",
+      "public.fn_emit_club_union_access_event",
+      "035603d32853b823b20877214ade334f"
+    ],
+    [
+      "public.clubs",
+      "trg_clubs_guard_lifecycle_write",
+      "public.fn_guard_club_lifecycle_write",
+      "6384708997b9c213bd727d02ad53aaca"
+    ],
+    [
+      "public.clubs",
+      "trg_clubs_lobby_message_keeps_its_own_books",
+      "public.fn_clubs_lobby_message_keeps_its_own_books",
+      "4c78df3a6bde52c2cc7c42b05f91708a"
+    ],
+    [
+      "public.clubs",
+      "trg_clubs_protect_level_columns",
+      "public.trg_protect_club_level_columns",
+      "c9fcb0739efd7af35c84851ea6836c29"
+    ],
+    [
+      "public.clubs",
+      "trg_guard_clubs_chip_pool_upd",
+      "public.guard_wallet_balance_write",
+      "2af2718d22fcf12be394f9239e88e3c7"
+    ],
+    [
+      "public.clubs",
+      "trg_remember_club_owner_transfer",
+      "public.fn_remember_club_owner_transfer",
+      "e5c9074f06097745f4db72d4a0ec5dfa"
+    ],
+    [
+      "public.clubs",
+      "trg_spin_pool_follows_union_membership",
+      "public.fn_spin_pool_follows_union_membership",
+      "e75fb18ad642da209188ab5347b9fa82"
+    ],
+    [
+      "public.clubs",
+      "trg_sync_mfa_required_on_club_owner",
+      "public.fn_sync_mfa_required_on_club_owner",
+      "2d4608c7506e302fd46f73d102f30f92"
+    ],
+    [
+      "public.clubs",
+      "trg_union_totals_follow_club_counts",
+      "public.fn_union_totals_follow_club_counts",
+      "b504648fecedb704e0247a90fd476db2"
+    ],
+    [
+      "public.clubs",
+      "zy_ca_tally_balance_move",
+      "public.fn_ca_tally_balance_move",
+      "b7911a245d4bf33134a9a2f474c1f410"
+    ],
+    [
+      "public.clubs",
+      "zy_ca_tally_store_move",
+      "public.fn_ca_tally_store_move",
+      "6db4f04e33013c8f9b00e2155b31e72d"
+    ],
+    [
+      "public.clubs",
+      "zz_ca_balance_has_its_ledger_row",
+      "public.fn_ca_balance_has_its_ledger_row",
+      "2df7b3f67e95b8a6c0abe7ba3faff63c"
+    ],
+    [
+      "public.clubs",
+      "zz_ca_store_has_its_ledger_row",
+      "public.fn_ca_balance_has_its_ledger_row",
+      "2df7b3f67e95b8a6c0abe7ba3faff63c"
+    ],
+    [
+      "public.clubs",
+      "zz_freeze_guard",
+      "public.fn_refuse_while_frozen",
+      "a8dd811942377b0e67fa219ba039681e"
+    ],
+    [
+      "public.rakeback_period_payouts",
+      "poker_arena_no_hierarchy",
+      "public.fn_poker_reject_diamond_hierarchy",
+      "49037a2bf4322d2a327bc9141a7a7a89"
+    ],
+    [
+      "public.rakeback_period_payouts",
+      "trg_ca_append_only",
+      "public.fn_ca_journal_append_only",
+      "ac9d66e60d077d886981c428c71e5c3c"
+    ],
+    [
+      "public.rakeback_periods",
+      "ca_legacy_period_maturity",
+      "public.fn_ca_legacy_period_maturity",
+      "c47a76d289ba6c37a6411f447948c61b"
+    ],
+    [
+      "public.rakeback_periods",
+      "poker_arena_no_hierarchy",
+      "public.fn_poker_reject_diamond_hierarchy",
+      "49037a2bf4322d2a327bc9141a7a7a89"
+    ],
+    [
+      "public.settlement_invoices",
+      "accounting_invoice_deliver",
+      "public.fn_accounting_invoice_deliver_on_insert",
+      "4fb74e8fcf5caa0294c55deeefbbc6b3"
+    ],
+    [
+      "public.settlement_invoices",
+      "accounting_invoice_immutable",
+      "public.fn_accounting_document_immutable",
+      "8ec25e2d39e02451020b5ce8e9ec5a1b"
+    ],
+    [
+      "public.settlement_invoices",
+      "trg_weekly_statement_issue_settled",
+      "public.fn_weekly_statement_issue_settled",
+      "69ffddc6c6477d11515b81661b122d0e"
+    ],
+    [
+      "public.union_clubs",
+      "accounting_agreement_history",
+      "public.fn_accounting_agreement_capture",
+      "746fab25cd56f6ad761325e7c0d525d5"
+    ],
+    [
+      "public.union_wallet_transactions",
+      "accounting_tournament_recognized_bank_immutable",
+      "public.fn_accounting_tournament_recognized_evidence_immutable",
+      "a5a71f9b0ba989721663a85cbb407ea9"
+    ],
+    [
+      "public.union_wallet_transactions",
+      "trg_ca_append_only",
+      "public.fn_ca_journal_append_only",
+      "ac9d66e60d077d886981c428c71e5c3c"
+    ],
+    [
+      "public.union_wallet_transactions",
+      "union_rake_weekly_maintain",
+      "public.trg_union_rake_weekly",
+      "18ad69490d6201ff23d689737ab632f5"
+    ],
+    [
+      "public.union_wallets",
+      "aaa_ca_refuse_replica_money_truncate",
+      "public.fn_ca_refuse_replica_money_write",
+      "42ed613371ddac424b618f5ac767a733"
+    ],
+    [
+      "public.union_wallets",
+      "aaa_ca_refuse_replica_money_write",
+      "public.fn_ca_refuse_replica_money_write",
+      "42ed613371ddac424b618f5ac767a733"
+    ],
+    [
+      "public.union_wallets",
+      "diamond_game_union_reserves",
+      "public.fn_diamond_game_reserved_cover_guard",
+      "c7a4c4fa4763924d7f76d9f70656014e"
+    ],
+    [
+      "public.union_wallets",
+      "trg_ca_autoledger",
+      "public.fn_ca_autoledger",
+      "ceb53c916648f025bdae6fe0e03e5e8b"
+    ],
+    [
+      "public.union_wallets",
+      "trg_ca_autoledger_delete",
+      "public.fn_ca_autoledger_delete",
+      "c6d7e02df8b654fbccc3e8844418bd01"
+    ],
+    [
+      "public.union_wallets",
+      "trg_ca_block_browser",
+      "public.fn_ca_block_browser_money_table",
+      "c894814808498e86ac14d59924cfa145"
+    ],
+    [
+      "public.union_wallets",
+      "zy_ca_tally_balance_move",
+      "public.fn_ca_tally_balance_move",
+      "b7911a245d4bf33134a9a2f474c1f410"
+    ],
+    [
+      "public.union_wallets",
+      "zz_ca_balance_has_its_ledger_row",
+      "public.fn_ca_balance_has_its_ledger_row",
+      "2df7b3f67e95b8a6c0abe7ba3faff63c"
+    ],
+    [
+      "public.wallet_transactions",
+      "ca_club_data_fact_wallet",
+      "public.trg_ca_club_data_fact_wallet",
+      "fc3aecf79531fc9a9fb9f512b8307e6f"
+    ],
+    [
+      "public.wallet_transactions",
+      "ca_legacy_round3_wallet_receipt",
+      "public.fn_ca_legacy_round3_wallet_receipt",
+      "633c22d5e80a33097315dd3835f28784"
+    ],
+    [
+      "public.wallet_transactions",
+      "ca_reporting_wallet_change",
+      "public.trg_ca_reporting_follows_a_changed_fact",
+      "ec90ea234e621bc8d01d24a92b0427b2"
+    ],
+    [
+      "public.wallet_transactions",
+      "ca_reporting_wallet_change_del",
+      "public.trg_ca_reporting_repair_changed_days",
+      "601c605e44856e42ee0d00e72a0fdb1e"
+    ],
+    [
+      "public.wallet_transactions",
+      "ca_reporting_wallet_change_upd",
+      "public.trg_ca_reporting_repair_changed_days",
+      "601c605e44856e42ee0d00e72a0fdb1e"
+    ],
+    [
+      "public.wallet_transactions",
+      "ca_reporting_wallet_insert",
+      "public.trg_ca_reporting_wallet_insert",
+      "95a73948ec5ce91c83060dfc4411bb2d"
+    ],
+    [
+      "public.wallet_transactions",
+      "cancelled_tournament_wallet_is_immutable",
+      "public.fn_cancelled_tournament_wallet_is_immutable",
+      "50e0c7764f3a250f8116e0c6010d1503"
+    ],
+    [
+      "public.wallet_transactions",
+      "terminal_wallet_transaction_is_immutable",
+      "public.fn_terminal_wallet_transaction_is_immutable",
+      "bcdd12571b044b395523e648eecab2a3"
+    ],
+    [
+      "public.wallet_transactions",
+      "trg_ca_append_only",
+      "public.fn_ca_journal_append_only",
+      "ac9d66e60d077d886981c428c71e5c3c"
+    ],
+    [
+      "public.wallet_transactions",
+      "trg_ca_money_path_log",
+      "public.fn_ca_money_path_log",
+      "85686efcef00637c90f8b8e48ec33526"
+    ],
+    [
+      "public.wallet_transactions",
+      "zz_ca_escrow_wallet_tx",
+      "public.fn_ca_escrow_on_wallet_tx",
+      "ff49b681d06f7d9ca57e846ae4578acb"
+    ],
+    [
+      "public.wallet_transactions",
+      "zz_freeze_guard",
+      "public.fn_refuse_while_frozen",
+      "a8dd811942377b0e67fa219ba039681e"
+    ],
+    [
+      "public.wallet_transactions",
+      "zz_restriction_transfer_guard",
+      "public.fn_ca_refuse_restricted_transfer",
+      "65a2cb12ec806144a074efc2614563d1"
+    ]
+  ]
+}

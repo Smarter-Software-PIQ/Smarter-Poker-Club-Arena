@@ -67,6 +67,7 @@ const HARNESSES = [
   'scripts/ci/test-owner-routing-wallet-postgres.py',
   'scripts/ci/test-rakeback-cascade-funding-postgres.py',
   'scripts/ci/test-rakeback-cascade-real-guards-postgres.py',
+  'scripts/ci/test-rakeback-cascade-real-runner-postgres.py',
 ];
 
 describe('a superseded certificate never funds', () => {

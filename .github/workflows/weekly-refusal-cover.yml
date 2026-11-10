@@ -56,6 +56,7 @@ jobs:
             scripts/ci/test-rakeback-cascade-funding-plan-postgres.py
             scripts/ci/test-rakeback-cascade-funding-postgres.py
             scripts/ci/test-rakeback-cascade-real-guards-postgres.py
+            scripts/ci/test-rakeback-cascade-real-runner-postgres.py
             scripts/ci/fixtures/rakeback-cascade*/**
             scripts/ci/test-owner-routing-wallet-postgres.py
             scripts/ci/fixtures/owner-routing-wallet/**
@@ -159,4 +160,13 @@ jobs:
         run: |
           set -o pipefail
           python3 -B scripts/ci/test-rakeback-cascade-real-guards-postgres.py --pg-bin "$PG_BIN" --scratch "${{ runner.temp }}" | tee "$VERDICT_LOG"
+          tail -n 1 "$VERDICT_LOG" | python3 -c 'import json,sys; v=json.load(sys.stdin); sys.exit(0 if v.get("status")=="passed" and isinstance(v.get("cases"),int) and v["cases"]>0 else "the harness printed no passed verdict with cases")'
+      - name: The real weekly runner pays one union week through the funding cascade
+        if: steps.relevant.outputs.run == 'true'
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          VERDICT_LOG: ${{ runner.temp }}/rakeback-cascade-real-runner.log
+        run: |
+          set -o pipefail
+          python3 -B scripts/ci/test-rakeback-cascade-real-runner-postgres.py --pg-bin "$PG_BIN" --scratch "${{ runner.temp }}" | tee "$VERDICT_LOG"
           tail -n 1 "$VERDICT_LOG" | python3 -c 'import json,sys; v=json.load(sys.stdin); sys.exit(0 if v.get("status")=="passed" and isinstance(v.get("cases"),int) and v["cases"]>0 else "the harness printed no passed verdict with cases")'

@@ -241,6 +241,24 @@ Read from source and from the installed definitions, not checked in a browser:
   present.
 - The roster and member detail figures described above.
 
+## The preparation shards could not record a unit
+
+Found while running the real weekly runner in the fixture, and confirmed on production (read only).
+`smarter_private.weekly_prep_shard` declares a variable named `units` and then runs
+`UPDATE ... SET units=units+1`, which PL/pgSQL refuses as an ambiguous reference. On 2026-11-09 each
+of the four preparation shard jobs failed about 167 times, recorded 0 units, and the weekly run was
+booked at 10:47Z, about 47 minutes after its 10:00Z payout time.
+
+Migration `20261110053814` replaces the procedure from its installed text with only those two
+references qualified, pinned by preimage and postimage md5. It is not a window file and installs at
+merge. The real-runner harness first shows the installed body failing on all four shards, then
+installs this file and pays the week on the first eligible ticks.
+
+The real-runner harness (`scripts/ci/test-rakeback-cascade-real-runner-postgres.py`) loads 499
+production functions byte for byte, installs all three migrations and drives production's own
+`weekly_payout_next_round()` with the cron command, one connection per tick: preparation, booking,
+round 1, round 2, funding with round 3, finalize, then proves that further ticks move nothing.
+
 ## Install route
 
 Both files declare `-- @install-window: daily-maintenance`, so merging them
