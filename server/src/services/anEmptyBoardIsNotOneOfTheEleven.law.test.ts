@@ -63,7 +63,10 @@ describe('2. an empty board is reopened before another is created', () => {
     expect(create).toBeGreaterThan(reopen);
     // The reopen block ends the pass: even a refused reopen spends the budget.
     const block = open.slice(open.indexOf('if (empty.length > 0) {'), create);
-    expect(block).toMatch(/budget\.left--;\s*await this\.reopenEmptySeatFirstBoard/);
+    // A reopen that found no free horse spends nothing and ends this owner's turn.
+    expect(block).toMatch(
+      /if \(!\(await this\.reopenEmptySeatFirstBoard\(board\)\)\) return;\s*budget\.left--;/
+    );
     expect(block).toMatch(/\}\s*return;\s*\}/);
   });
 
@@ -80,6 +83,17 @@ describe('2. an empty board is reopened before another is created', () => {
   });
 });
 
+describe('2b. a board nobody can open spends no budget (2026-11-10)', () => {
+  it('asks the owner pool before writing the window', () => {
+    const reopen = method('private async reopenEmptySeatFirstBoard(');
+    const pool = reopen.indexOf(
+      '(await this.pickFreeHorses(1, false, board.id)).length === 0) return false;'
+    );
+    expect(pool).toBeGreaterThan(0);
+    expect(reopen.indexOf('.update({ start_time: startTime })')).toBeGreaterThan(pool);
+  });
+});
+
 describe('3. a reopened board gets its opening rung before its horse', () => {
   const reopen = method('private async reopenEmptySeatFirstBoard(');
 
@@ -89,7 +103,7 @@ describe('3. a reopened board gets its opening rung before its horse', () => {
     expect(write).toBeGreaterThan(0);
     expect(seat).toBeGreaterThan(write);
     expect(reopen).toContain(".eq('status', 'REGISTERING')");
-    expect(reopen).toMatch(/moved\.length !== 1\)[\s\S]*?return;/);
+    expect(reopen).toMatch(/moved\.length !== 1\)[\s\S]*?return true;/);
     expect(reopen).toContain('seatFirstOpeningWindowMs(seats)');
   });
 
