@@ -731,15 +731,22 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
   const viewOpen = view?.status === 'open';
   const picks = view?.picked.length ?? 0;
   const prizes = viewOpen ? view.prizes : (state?.prizes ?? []);
+  const wheelFloor = view
+    ? view.wheel_minimum_payout_chips
+    : earned.quote?.gameMinimumPayoutChips === undefined
+      ? undefined
+      : earned.quote.minimumPayoutChips;
+  const payablePrizes =
+    wheelFloor === undefined ? prizes : prizes.map((value) => Math.max(value, wheelFloor));
   const prize =
     view?.status === 'lost'
       ? view.payout_chips
       : view?.status === 'cashed'
         ? view.payout_chips
         : viewOpen && picks > 0
-          ? prizes[picks - 1]
+          ? payablePrizes[picks - 1]
           : 0;
-  const nextPrize = viewOpen ? prizes[picks] : view ? undefined : prizes[0];
+  const nextPrize = viewOpen ? payablePrizes[picks] : view ? undefined : payablePrizes[0];
   // THE LADDER THE PAGE PAINTS IS THE LADDER THE SERVER PAYS (2026-09-23). A
   // round carries the contract it was sealed under, and the ladder is that
   // contract's: contract 4's road starts at 0.80x, the one before it at 1.10x.
@@ -953,7 +960,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
   // landing the scene is showing; a finished one keeps its floor and its chips
   // on screen until its receipt has taken the player back to the wheel.
   const boardRound = viewOpen ? view : sceneRound;
-  const guaranteedChips = boardRound
+  const gameFloor = boardRound
     ? boardRound.payout_version === 5 || isRoadCoinVersion(boardRound.payout_version)
       ? choiceLossGuarantee(
           boardRound.prizes,
@@ -966,6 +973,11 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
       : earned.ready && !earned.award
         ? standardFloor
         : null;
+  const sealedWheelFloor =
+    boardRound && 'wheel_minimum_payout_chips' in boardRound
+      ? Number(boardRound.wheel_minimum_payout_chips)
+      : 0;
+  const guaranteedChips = gameFloor === null ? null : Math.max(gameFloor, sealedWheelFloor);
   const nextOdds =
     (!view || viewOpen) && prizes.length
       ? choiceNextOdds(
@@ -973,6 +985,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
           picks,
           prizes,
           boardRound?.minimum_payout_chips ??
+            earned.quote?.gameMinimumPayoutChips ??
             earned.quote?.minimumPayoutChips ??
             standardFloor ??
             0,
@@ -1207,7 +1220,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
                 : quoteLadder
               : undefined
           }
-          prizes={sceneRound ? sceneRound.prizes : prizes}
+          prizes={game === 'mines' ? payablePrizes : sceneRound ? sceneRound.prizes : prizes}
           betChips={stakeChips}
           floorChips={guaranteedChips}
           superFloor={guaranteedSuper}

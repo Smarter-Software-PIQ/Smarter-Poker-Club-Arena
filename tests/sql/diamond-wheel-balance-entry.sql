@@ -8,7 +8,7 @@ DECLARE
  player constant uuid := 'd1000000-0000-4000-8000-000000000005';
  club constant uuid := 'd1000000-0000-4000-8000-000000000003';
  stake integer; ticket uuid; seed text; spin_result jsonb; replay jsonb; quote jsonb; balance integer;
- attempt integer; spin_index integer; verified integer; game text; a public.wheel_bonus_awards; started jsonb; settled jsonb; before_chips numeric; payout numeric; round_id uuid; award_id uuid;
+ boost integer; attempt integer; spin_index integer; verified integer; game text; a public.wheel_bonus_awards; started jsonb; settled jsonb; before_chips numeric; payout numeric; round_id uuid; award_id uuid;
 BEGIN
  IF NOT EXISTS(SELECT 1 FROM public.ca_financial_epochs WHERE name='Isolated Diamond financial probe' AND is_current) THEN
   RAISE EXCEPTION 'Private accounting fixture required';
@@ -56,9 +56,10 @@ BEGIN
   EXCEPTION WHEN SQLSTATE 'P0099' THEN NULL;
   END;
  END LOOP;
+ FOR boost IN 1..2 LOOP
  FOR game IN SELECT unnest(ARRAY['plinko','crash','crossing','mines']) LOOP
   BEGIN
-   FOR i IN 1..500 LOOP
+   FOR i IN 1..5000 LOOP
     BEGIN
      seed:=encode(extensions.digest('wheel:single-bonus:'||game||':'||i,'sha256'),'hex'); ticket:=gen_random_uuid();
      INSERT INTO public.wheel_seed_commits(id,user_id,server_seed,server_seed_hash)
@@ -68,13 +69,13 @@ BEGIN
      RESET ROLE;
      IF spin_result->>'ok' IS DISTINCT FROM 'true' THEN RAISE EXCEPTION 'Full balance refused: %',spin_result; END IF;
      SELECT * INTO a FROM public.wheel_bonus_awards WHERE spin_id=(spin_result->>'spin_id')::uuid;
-     IF a.game=game THEN EXIT; END IF;
+     IF a.game=game AND a.boost_multiplier=boost THEN EXIT; END IF;
      RAISE EXCEPTION USING ERRCODE='P0098',MESSAGE='try next deterministic seed';
     EXCEPTION WHEN SQLSTATE 'P0098' THEN NULL;
     END;
    END LOOP;
    IF spin_result->>'payout_rules_version' IS DISTINCT FROM '2' THEN RAISE EXCEPTION 'Missing wheel payout version'; END IF;
-   IF a.game IS DISTINCT FROM game THEN RAISE EXCEPTION 'No target bonus generated: %',game; END IF;
+   IF a.game IS DISTINCT FROM game OR a.boost_multiplier IS DISTINCT FROM boost THEN RAISE EXCEPTION 'No target bonus generated: %',game; END IF;
    ticket:=gen_random_uuid();
    INSERT INTO public.diamond_game_commits(id,user_id,game,server_seed,server_seed_hash)
     VALUES(ticket,player,game,seed,encode(extensions.digest(seed,'sha256'),'hex'));
@@ -105,6 +106,7 @@ BEGIN
    RAISE EXCEPTION USING ERRCODE='P0099',MESSAGE='isolate case';
   EXCEPTION WHEN SQLSTATE 'P0099' THEN NULL;
   END;
+ END LOOP;
  END LOOP;
  -- Pick a real sealed card from a paid odd entry and retry the same claim.
  FOR attempt IN 1..500 LOOP
