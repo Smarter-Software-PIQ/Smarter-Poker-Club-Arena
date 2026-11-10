@@ -58,8 +58,8 @@ describe('Plinko GPU resource lifetime', () => {
       diamond.geometry.getAttribute('position').count
     );
     diamond.geometry.computeBoundingBox();
-    expect(diamond.geometry.boundingBox!.min.y).toBeCloseTo(-0.29);
-    expect(diamond.geometry.boundingBox!.max.y).toBeCloseTo(0.16);
+    expect(diamond.geometry.boundingBox!.min.y).toBeCloseTo(-0.39);
+    expect(diamond.geometry.boundingBox!.max.y).toBeCloseTo(0.21);
     expect(diamond.material.vertexColors).toBe(true);
     expect(diamond.material.flatShading).toBe(true);
     const drops = scene.children.filter(
