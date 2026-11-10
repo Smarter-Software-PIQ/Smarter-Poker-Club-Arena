@@ -1,3 +1,4 @@
+import { ploActivityPool } from './PloLightningDemand.js';
 import { readPloLightningDemand } from './PloLightningDemandRead.js';
 import { horseCashGameAllowed } from './HorseCashSchedule.js';
 import {
@@ -3813,6 +3814,14 @@ export class HorseFleetManager {
              `asleep` and `hour_widened` counters below. */
           const awake = pool.length;
           if (pool.length < emptySeats.length && humanNeedsRescue) pool = sittable;
+          pool = ploActivityPool(
+            table.cluster_id,
+            cashPlanLightningHumanGames,
+            ploDemand,
+            pool,
+            sittable,
+            emptySeats.length
+          );
           /* ── AN OPENING FEEDER WIDENS THE HOUR TOO (2026-09-06, measured) ──
              The activity window is texture: it decides WHICH of the horses
              that could sit do sit, so the floor rotates through the stable.

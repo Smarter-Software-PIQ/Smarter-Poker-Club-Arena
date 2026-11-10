@@ -161,6 +161,18 @@ function chipsLabel(v: number): string {
   return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/** Booking feedback must use the terminal receipt, even when the tick wins the race. */
+function bookingResult(round: CrashRound): string | null {
+  if (!round.outcome || round.status === 'open') return null;
+  const booked = round.status === 'cashed';
+  const cents = booked ? round.outcome.cashout_cents : round.outcome.crash_cents;
+  if (cents == null) return null;
+  const figure = `${(cents / 100).toFixed(2)}×`;
+  return booked
+    ? `Booked At ${figure}`
+    : `Flight Ended At ${figure} · ${chipsLabel(round.outcome.payout_chips)} Chips Paid`;
+}
+
 /**
  * THE ONE BLOCKER WITH A WAY OUT (2026-09-11). Every other reason the plate is
  * dead is the club's to fix or the clock's; this one is the player's, and it
@@ -265,6 +277,7 @@ function DiamondCrashGame() {
   const [cashoutOpen, setCashoutOpen] = useState(false);
   const cashoutOpenRef = useRef(false);
   const cashingRef = useRef(false);
+  const bookingRound = useRef<string | null>(null);
   const [checkingRound, setCheckingRound] = useState(false);
   const freshUntil = useRef(0);
   const staleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -451,7 +464,11 @@ function DiamondCrashGame() {
          it: the booked sting (the gold fanfare at the cap) with a medium buzz,
          or the crash burst with a strong one. The page used to sing the
          cash-out and buzz here as well, which would now be every ending twice. */
-      if (cashed) {
+      const result = bookingRound.current === settled.round_id ? bookingResult(settled) : null;
+      if (result) {
+        if (cashed) toast.success(result);
+        else toast.info(result);
+      } else if (cashed) {
         toast.success(
           `Cashed Out At ${multiplierLabel(settled.outcome?.cashout_cents ?? 100)} For ${chipsLabel(settled.outcome?.payout_chips ?? 0)} Chips`
         );
@@ -1171,6 +1188,7 @@ function DiamondCrashGame() {
       return;
     busyRef.current = true;
     cashingRef.current = true;
+    bookingRound.current = current.round_id;
     setCashing(true);
     triggerHaptic('heavy');
     try {
@@ -1180,7 +1198,12 @@ function DiamondCrashGame() {
         current,
         liveCents
       );
-      if (!live()) return;
+      if (
+        !live() ||
+        roundRef.current?.round_id !== current.round_id ||
+        roundRef.current.status !== 'open'
+      )
+        return;
       if (!next.ok) {
         markChecking();
         reconcileRef.current?.();
@@ -1204,7 +1227,12 @@ function DiamondCrashGame() {
         reconcileRef.current?.();
       }
       reportError(err, 'DiamondCrashPage.cashout');
-      if (live()) toast.error('The Cash Out Could Not Be Confirmed. Checking Your Round');
+      if (
+        live() &&
+        roundRef.current?.round_id === current.round_id &&
+        roundRef.current.status === 'open'
+      )
+        toast.error('The Cash Out Could Not Be Confirmed. Checking Your Round');
     } finally {
       busyRef.current = false;
       cashingRef.current = false;
@@ -1299,9 +1327,10 @@ function DiamondCrashGame() {
     if (lastFinishedRound.current !== endedRoundId) return;
     const paid = chipsLabel(ended.outcome?.payout_chips ?? 0);
     announce(
-      ended.status === 'cashed'
-        ? `Round Over. Cashed Out At ${multiplierLabel(ended.outcome?.cashout_cents ?? 100)} For ${paid} Chips`
-        : `Round Over. Crashed At ${multiplierLabel(ended.outcome?.crash_cents ?? 100)}, ${paid} Chips Paid`
+      (ended.round_id === bookingRound.current ? bookingResult(ended) : null) ??
+        (ended.status === 'cashed'
+          ? `Round Over. Cashed Out At ${multiplierLabel(ended.outcome?.cashout_cents ?? 100)} For ${paid} Chips`
+          : `Round Over. Crashed At ${multiplierLabel(ended.outcome?.crash_cents ?? 100)}, ${paid} Chips Paid`)
     );
   }, [endedRoundId, announce]);
 
@@ -1316,6 +1345,10 @@ function DiamondCrashGame() {
 
   const chartWidth = Math.max(240, Math.min(1440, stageWidth - 4));
   const settledRound = round && round.status !== 'open' ? round : null;
+  const confirmedBooking =
+    settledRound?.round_id === bookingRound.current && settledRound
+      ? bookingResult(settledRound)
+      : null;
   const showPaidReceipt = Boolean(
     settledRound?.outcome &&
     revealedRoundId === settledRound.round_id &&
@@ -1534,11 +1567,7 @@ function DiamondCrashGame() {
               }
             : open
               ? {
-                  label: checkingRound
-                    ? 'Checking Round'
-                    : cashing
-                      ? 'Booking Win'
-                      : 'Book The Win',
+                  label: checkingRound ? 'Checking Round' : cashing ? 'Booking…' : 'Book The Win',
                   // Gold is value on this panel: Get Diamonds already reads that
                   // way, and booking a win is the same kind of act. Green was the
                   // last plate painted a colour of its own.
@@ -1630,6 +1659,12 @@ function DiamondCrashGame() {
                 >{`Worth ${chipsLabel(liveWorth)} Chips Right Now`}</span>
               ) : saved ? (
                 BONUS_SAVED
+              ) : confirmedBooking && settledRound?.outcome ? (
+                settledRound.status === 'cashed' ? (
+                  `${confirmedBooking} · ${chipsLabel(settledRound.outcome.payout_chips)} Chips Paid`
+                ) : (
+                  confirmedBooking
+                )
               ) : settledRound ? (
                 settledRound.status === 'cashed' ? (
                   `${chipsLabel(settledRound.outcome?.payout_chips ?? 0)} Chips Paid${settledRound.outcome?.settled_by === 'time' ? ' By Your Auto Cash Out' : ''}`
@@ -1658,7 +1693,7 @@ function DiamondCrashGame() {
             {settledRound?.status === 'cashed' ? (
               <span className="sc-copy sc-ink--silver" data-would-have-crashed="">
                 {settledRound.outcome
-                  ? `${crashWouldHaveLabel(settledRound.outcome.crash_cents, settledRound.cap_cents)}.`
+                  ? `${confirmedBooking ? confirmedBooking + '. ' : ''}${crashWouldHaveLabel(settledRound.outcome.crash_cents, settledRound.cap_cents)}.`
                   : ''}{' '}
                 {settledRound.fairness.server_seed && settledRound.outcome ? (
                   <SealedPrize
@@ -1849,8 +1884,9 @@ function DiamondCrashGame() {
           // 2026-10-12); a crash says where it ended.
           detail={
             settledRound.status === 'cashed'
-              ? `${crashWouldHaveLabel(settledRound.outcome.crash_cents, settledRound.cap_cents)}.`
-              : `The Flight Crashed At ${multiplierLabel(settledRound.outcome.crash_cents)}.`
+              ? `${confirmedBooking ? confirmedBooking + '. ' : ''}${crashWouldHaveLabel(settledRound.outcome.crash_cents, settledRound.cap_cents)}.`
+              : (confirmedBooking ??
+                `The Flight Crashed At ${multiplierLabel(settledRound.outcome.crash_cents)}.`)
           }
           // The receipt's own art: the jet at the multiplier it booked, or
           // where it crashed on a round that was not cashed.
