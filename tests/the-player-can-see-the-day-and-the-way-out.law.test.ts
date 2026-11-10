@@ -117,18 +117,14 @@ describe('the day is one figure, from one definition', () => {
 });
 
 describe('one line, three pages', () => {
-  it.each(PAGES)('%s shows the day from the shared component', (page) => {
-    const s = src(page);
-    expect(s).toContain("import TodayLine from '../components/games/TodayLine';");
-    expect(s).toContain('spentDiamonds={player?.diamonds_today ?? 0}');
-  });
-
-  it('says the day once per screen, not twice', () => {
-    // The wheel prints the count in a painted bay already.
-    expect(src('src/pages/DiamondWheelPage.tsx')).toContain('showCount={false}');
-    for (const page of ['src/pages/DiamondPlinkoPage.tsx', 'src/pages/DiamondCrashPage.tsx']) {
-      expect(src(page)).not.toContain('showCount');
+  it.each(PAGES.filter((page) => !page.includes('Wheel')))(
+    '%s keeps the daily counter out of the cabinet',
+    (page) => {
+      expect(src(page)).not.toContain('TodayLine');
     }
+  );
+
+  it('keeps an empty daily line off screen', () => {
     expect(src('src/components/games/TodayLine.tsx')).toContain(
       'if (parts.length === 0) return null;'
     );

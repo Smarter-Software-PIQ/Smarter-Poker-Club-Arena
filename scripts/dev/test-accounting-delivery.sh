@@ -398,4 +398,4 @@ fi
 "${diamond_psql[@]}" -f "$diamond/plinko-entry-readers.sql" \
   -f "$root/supabase/migrations/20261110020345_longer_crash_flights_and_positive_plinko_returns.sql" \
   -f "$root/supabase/migrations/20261110020719_release_plinko_drops_and_their_prizes_one_request_at_a_time.sql" \
-  -f "$root/tests/sql/plinko-drop-release.sql"
+  -f "$root/tests/sql/diamond-plinko-drop-release.sql"
