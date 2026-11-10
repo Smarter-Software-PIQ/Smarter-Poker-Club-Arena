@@ -46,16 +46,20 @@ export const FinalTableOverlay: React.FC<FinalTableOverlayProps> = ({
   const [phase, setPhase] = useState<'enter' | 'show' | 'exit'>('enter');
   const timerRefs = React.useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  // Clean up timers on unmount
+  const seen = React.useRef<string | null>(null);
+  const stopAudio = React.useRef<(() => void) | undefined>(undefined);
+
   useEffect(() => {
     return () => {
+      stopAudio.current?.();
       timerRefs.current.forEach(clearTimeout);
     };
   }, []);
 
   // Listen for FINAL_TABLE bus event
   useMasterBusSubscription('FINAL_TABLE_REACHED', (payload) => {
-    if (payload.tournamentId !== tournamentId) return;
+    if (payload.tournamentId !== tournamentId || seen.current === tournamentId) return;
+    seen.current = tournamentId;
 
     const ftPlayers = payload.players || [];
     // Sort by chips descending — spread first to avoid mutating source array
@@ -65,7 +69,7 @@ export const FinalTableOverlay: React.FC<FinalTableOverlayProps> = ({
     setIsVisible(true);
 
     // Cinematic power-chord fanfare for final table reveal
-    soundService.playTournamentFinalTable();
+    stopAudio.current = soundService.playTournamentFinalTable();
 
     // Clear any previous timers
     timerRefs.current.forEach(clearTimeout);
@@ -74,11 +78,17 @@ export const FinalTableOverlay: React.FC<FinalTableOverlayProps> = ({
     // Phase transitions — tracked for cleanup
     timerRefs.current.push(setTimeout(() => setPhase('show'), 800));
     timerRefs.current.push(setTimeout(() => setPhase('exit'), 7200));
-    timerRefs.current.push(setTimeout(() => setIsVisible(false), 8000));
+    timerRefs.current.push(
+      setTimeout(() => {
+        stopAudio.current?.();
+        setIsVisible(false);
+      }, 8000)
+    );
   });
 
   // Dismiss on tap
   const handleDismiss = useCallback(() => {
+    stopAudio.current?.();
     timerRefs.current.forEach(clearTimeout);
     timerRefs.current = [];
     setPhase('exit');
@@ -103,8 +113,14 @@ export const FinalTableOverlay: React.FC<FinalTableOverlayProps> = ({
     <section className={`ft-overlay ft-overlay--${phase}`} aria-label="Final Table Announcement">
       <div className="ft-overlay__content">
         <header className="ft-stage">
+          <div className="ft-stage__arena" aria-hidden="true" />
           <div className="ft-stage__lights" aria-hidden="true" />
           <div className="ft-stage__burst" aria-hidden="true" />
+          <div className="ft-stage__sparks" aria-hidden="true">
+            {Array.from({ length: 16 }, (_, i) => (
+              <i key={i} style={{ '--ray': i } as React.CSSProperties} />
+            ))}
+          </div>
           <button type="button" className="ft-overlay__dismiss" onClick={handleDismiss}>
             Return To Table
           </button>
@@ -135,7 +151,7 @@ export const FinalTableOverlay: React.FC<FinalTableOverlayProps> = ({
                 <li
                   key={player.userId}
                   className="ft-player"
-                  style={{ animationDelay: `${index * 100 + 400}ms` }}
+                  style={{ animationDelay: `${index * 130 + 1040}ms` }}
                 >
                   {/* Rank */}
                   <div className="ft-player__rank">{index + 1}</div>

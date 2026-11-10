@@ -325,6 +325,7 @@ class SoundService {
      varies it today, and no comment here should imply otherwise. */
   private effectsVolume: number = 1.0;
   private masterGain: GainNode | null = null;
+  private tournamentSting: GainNode | null = null;
   /**
    * The idling engine under the starting tree. Retained because it must be
    * stoppable: a bed that outlived its reveal would idle under the first hand.
@@ -601,7 +602,10 @@ class SoundService {
     // Off: back to the mixing, switch-respecting session at once, so music
     // another app was playing is free again. On: the session turns "playback"
     // with the next sound the game actually plays (ensureContext).
-    if (!enabled) applyAudioSession(false);
+    if (!enabled) {
+      this.stopTournamentSting();
+      applyAudioSession(false);
+    }
   }
 
   /**
@@ -2935,24 +2939,76 @@ class SoundService {
    * Tournament Final Table — epic ascending power chord
    */
   playTournamentFinalTable() {
+    return this.playTournamentSting('final');
+  }
+
+  playTournamentHeadsUp() {
+    return this.playTournamentSting('duel');
+  }
+
+  private stopTournamentSting() {
+    this.tournamentSting?.disconnect();
+    this.tournamentSting = null;
+  }
+
+  private playTournamentSting(kind: 'final' | 'duel') {
     if (!this.shouldPlay('big_win', 'event') || !this.ensureContext()) return;
-
-    // Power chord: C4 → E4 → G4 → C5 → E5 → G5
-    const notes = [261.63, 329.63, 392.0, 523.25, 659.25, 783.99];
-    notes.forEach((freq, i) => {
-      this.playTone(freq, 0.8 - i * 0.06, 0.14, 'sine', i * 0.06);
-    });
-
-    // Sub-bass foundation
-    this.playTone(65.41, 0.8, 0.1, 'sine', 0.15);
-
-    // Shimmer
-    setTimeout(() => {
-      if (!this.ctx) return;
-      this.createNoiseBurst(this.ctx.currentTime, 0.3, 0.05, 6000);
-    }, 500);
-
+    const ctx = this.ctx!;
+    // An autoplay-blocked context must never save up a late fanfare.
+    if (ctx.state !== 'running') return;
+    this.stopTournamentSting();
+    const mix = ctx.createGain();
+    mix.connect(this.out);
+    this.tournamentSting = mix;
+    const start = ctx.currentTime;
+    const note = (
+      time: number,
+      hz: number,
+      length: number,
+      volume: number,
+      type: OscillatorType = 'triangle',
+      endHz = hz
+    ) => {
+      const voice = ctx.createOscillator();
+      const envelope = ctx.createGain();
+      voice.type = type;
+      voice.frequency.setValueAtTime(hz, start + time);
+      voice.frequency.exponentialRampToValueAtTime(endHz, start + time + length);
+      envelope.gain.setValueAtTime(0.0001, start + time);
+      envelope.gain.exponentialRampToValueAtTime(volume, start + time + 0.021);
+      envelope.gain.exponentialRampToValueAtTime(0.0001, start + time + length);
+      voice.connect(envelope);
+      envelope.connect(mix);
+      voice.start(start + time);
+      voice.stop(start + time + length + 0.01);
+      voice.onended = () => {
+        voice.disconnect();
+        envelope.disconnect();
+      };
+    };
+    if (kind === 'final') {
+      // Lift, downbeat, then six answering brass and bell notes as the field enters.
+      note(0, 82.4, 0.68, 0.16, 'sine', 329.6);
+      note(0.68, 144, 1.1, 0.49, 'sine', 43);
+      [146.83, 185, 220, 293.66].forEach((hz) => note(0.68, hz, 1.45, 0.12));
+      [293.66, 369.99, 440, 554.37, 659.25, 880].forEach((hz, i) => {
+        note(1.08 + i * 0.25, hz, 0.65, 0.14);
+        note(1.08 + i * 0.25, hz * 2, 0.47, 0.045, 'sine');
+      });
+      note(2.72, 146.83, 1.1, 0.21, 'sine');
+    } else {
+      // Two low entrances answer from opposite sides, then a single clash.
+      note(0.04, 98, 0.51, 0.29, 'triangle', 73.42);
+      note(0.39, 130.81, 0.51, 0.25, 'triangle', 98);
+      note(0.92, 202, 0.78, 0.45, 'sine', 45);
+      [146.83, 220, 349.23].forEach((hz) => note(0.92, hz, 1.3, 0.13));
+      note(1.54, 440, 0.8, 0.14, 'sine');
+      note(1.85, 587.33, 1.05, 0.17);
+    }
     haptic.triple();
+    return () => {
+      if (this.tournamentSting === mix) this.stopTournamentSting();
+    };
   }
 
   /**

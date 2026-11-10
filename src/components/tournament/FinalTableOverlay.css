@@ -226,3 +226,217 @@
 .ft-player__chips {
   font-weight: 650;
 }
+
+.ft-overlay__content {
+  width: min(860px, 100%);
+  background: #050b12;
+  box-shadow: 0 22px 100px #010812;
+  font-family: system-ui, sans-serif;
+}
+.ft-stage {
+  padding: clamp(80px, 14vh, 148px) clamp(17px, 4vw, 46px) 20px;
+  background: #07192c;
+}
+.ft-stage__arena {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background:
+    linear-gradient(0deg, #050b12, transparent 76%),
+    url('/images/final-table-stage.webp') center 47% / cover;
+  animation: ft-camera 3.5s cubic-bezier(0.13, 0.74, 0.22, 1) both;
+}
+.ft-stage__lights::before,
+.ft-stage__lights::after {
+  animation-duration: 1.75s;
+  opacity: 0.9;
+}
+.ft-stage__burst {
+  inset: -40%;
+  background: radial-gradient(
+    ellipse at 50% 55%,
+    #fff6bd 1%,
+    #ffba4e 4%,
+    #ff793766 13%,
+    transparent 50%
+  );
+  animation: ft-impact 0.62s 0.68s both;
+}
+.ft-stage__sparks {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+}
+.ft-stage__sparks i {
+  position: absolute;
+  left: 50%;
+  top: 55%;
+  height: 3px;
+  width: 42px;
+  background: linear-gradient(90deg, transparent, #fff0a2);
+  transform-origin: 0 50%;
+  animation: ft-ray 0.88s 0.68s both;
+}
+.ft-stage p {
+  color: #e6d5a1;
+  font:
+    750 clamp(10px, 2.2vw, 14px)/1.3 system-ui,
+    sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.13em;
+  animation: ft-copy 0.4s 0.35s both;
+}
+.ft-stage h2 {
+  font:
+    950 italic clamp(50px, 10.6vw, 102px)/0.91 system-ui,
+    sans-serif;
+  letter-spacing: -0.08em;
+  text-shadow:
+    0 3px 0 #285577,
+    0 7px 19px #000;
+  animation: ft-title 0.72s 0.62s both;
+}
+.ft-stage span {
+  display: block;
+  margin-top: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-weight: 750;
+  font-size: 10px;
+  animation: ft-copy 0.4s 0.92s both;
+}
+.ft-scoreboard {
+  padding: 0 clamp(14px, 3vw, 34px) 19px;
+}
+.ft-overlay__prize-row {
+  padding: 6px 0 11px;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+.ft-overlay__players {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+.ft-player {
+  display: grid;
+  align-content: center;
+  min-height: 74px;
+  padding: 7px 8px 7px 37px;
+  border: 0;
+  background: linear-gradient(105deg, #1d3547, #0a141f 75%);
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 8px);
+}
+.ft-player__rank {
+  position: absolute;
+  left: 7px;
+  top: 50%;
+  transform: translateY(-50%);
+  font: 900 italic clamp(16px, 3vw, 29px)/1 system-ui;
+  color: #a3c9e5;
+}
+.ft-player:first-child {
+  background: linear-gradient(105deg, #4c3c21, #0d1822 90%);
+}
+.ft-player:first-child .ft-player__rank {
+  color: #ffdb82;
+}
+.ft-player__info {
+  display: block;
+}
+.ft-player__name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: clamp(11px, 2vw, 17px);
+  line-height: 1.28;
+}
+.ft-player__chips-row {
+  justify-content: space-between;
+  gap: 3px;
+}
+.ft-player__chips {
+  color: #c5e2fa;
+  font-size: clamp(11px, 1.9vw, 14px);
+}
+.ft-player__chip-pct {
+  font-size: 10px;
+}
+.ft-player__bar {
+  background: #62bcf0;
+}
+.ft-overlay__dismiss {
+  z-index: 2;
+  font: 600 12px system-ui;
+}
+@keyframes ft-camera {
+  from {
+    transform: scale(1.57) translateY(6%);
+    filter: blur(6px);
+    opacity: 0.1;
+  }
+  28% {
+    opacity: 1;
+    filter: blur(0);
+  }
+  to {
+    transform: scale(1.04);
+  }
+}
+@keyframes ft-title {
+  from {
+    transform: translateY(35px) scale(1.28);
+    opacity: 0;
+    filter: blur(8px);
+  }
+  to {
+    transform: none;
+    opacity: 1;
+    filter: none;
+  }
+}
+@keyframes ft-copy {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@keyframes ft-ray {
+  from {
+    transform: rotate(calc(var(--ray) * 22.5deg)) translateX(0) scaleX(0.12);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.95;
+  }
+  to {
+    transform: rotate(calc(var(--ray) * 22.5deg)) translateX(clamp(120px, 27vw, 300px)) scaleX(1.2);
+    opacity: 0;
+  }
+}
+@media (max-width: 520px) {
+  .ft-overlay__players {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ft-player {
+    min-height: 46px;
+    padding-left: 29px;
+  }
+  .ft-stage {
+    padding-top: 89px;
+  }
+  .ft-stage__arena {
+    background-position: center 48%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ft-stage__sparks {
+    display: none;
+  }
+}
