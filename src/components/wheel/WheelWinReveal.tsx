@@ -74,6 +74,7 @@ export function WheelWinReveal({
   art?: ReactNode;
 }) {
   const opened = useRef(false);
+  const opening = useRef<HTMLDivElement>(null);
   const onOpenRef = useRef(onOpen);
   onOpenRef.current = onOpen;
   const remaining = useRef(
@@ -108,12 +109,25 @@ export function WheelWinReveal({
   useEffect(() => {
     if (!timedPrize || !visible || opened.current) return;
     const started = Date.now();
-    const timer = window.setTimeout(finish, remaining.current);
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      if (prize.kind === 'bonus') {
+        // A slow software-rendered frame may start the CSS entrance after the
+        // timer starts. Let its real visible motion finish before navigation.
+        const animations = opening.current?.getAnimations?.() ?? [];
+        if (animations.length) {
+          await Promise.allSettled(animations.map((animation) => animation.finished));
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        }
+      }
+      if (!cancelled) finish();
+    }, remaining.current);
     return () => {
+      cancelled = true;
       window.clearTimeout(timer);
       remaining.current = Math.max(0, remaining.current - (Date.now() - started));
     };
-  }, [timedPrize, visible, finish]);
+  }, [timedPrize, visible, finish, prize.kind]);
   return (
     <Modal
       isOpen
@@ -126,6 +140,7 @@ export function WheelWinReveal({
       className={styles.dialog}
     >
       <div
+        ref={opening}
         className={styles.opening}
         data-motion="keep"
         style={{
