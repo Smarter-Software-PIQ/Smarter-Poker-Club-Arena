@@ -9,41 +9,24 @@ import { diamondGamesFixture } from '../helpers/diamond-games-fixture.mjs';
 // shards while CI retains one software-WebGL worker per VM.
 test.describe.configure({ mode: 'parallel', timeout: 180_000 });
 
-/**
- * THE TWO LIVE PLINKO BOARDS, BY NAME (2026-09-19).
- *
- * Nobody chooses a board: the stake kind owns it. An ordinary award plays table
- * version 5, named "Diamond"; a Super award plays table version 4, named
- * "Super". Tables 1 ("Steady"), 2 ("Bold") and 3 ("Moonshot") are deactivated
- * server-side, so no new round can be dealt on them and there is no payout
- * range to select. These are the slot multipliers the migration that opened
- * the two boards installed, printed by multiplierLabel. Every Diamond slot
- * pays something (the lowest is 0.08x) and every Super slot pays at least
- * 0.52x, which is above the half-stake that is a Super award's original spin.
- *
- * Transcribed from the migration rather than derived from the client's own
- * mirror on purpose: a spec that recomputes the labels with the same function
- * the page prints them with cannot notice the two disagreeing.
- */
-/** Super (4), the board every half-the-stake floor is carried by: an ordinary
- *  entry and a Super award that did not take the add-on are both dealt here. */
-const SUPER_SLOTS = [
+/** Contract seven's seventeen physical buckets, transcribed from the SQL table. */
+const DIAMOND_SLOTS = [
   '20x',
-  '20x',
-  '15x',
-  '7.5x',
-  '1.75x',
-  '0.64x',
-  '0.56x',
-  '0.53x',
-  '0.52x',
-  '0.53x',
-  '0.56x',
-  '0.64x',
-  '1.75x',
-  '7.5x',
-  '15x',
-  '20x',
+  '5x',
+  '2x',
+  '1.4x',
+  '1.25x',
+  '1.1x',
+  '1.05x',
+  '1.02x',
+  '1x',
+  '1.02x',
+  '1.05x',
+  '1.1x',
+  '1.25x',
+  '1.4x',
+  '2x',
+  '5x',
   '20x',
 ];
 /**
@@ -267,8 +250,8 @@ for (const width of [320, 390, 1280])
     await expect(page.getByText('10 Drops × 10 Diamonds = 100 Diamonds')).toBeVisible();
     const payoutLabels = page.getByRole('list', { name: 'Plinko Payout Slots' }).locator('strong');
     await expect(payoutLabels).toHaveCount(17);
-    await expect(payoutLabels).toHaveText(SUPER_SLOTS);
-    await bucketLegendReads(page.getByRole('list', { name: 'Plinko Payout Slots' }), SUPER_SLOTS);
+    await expect(payoutLabels).toHaveText(DIAMOND_SLOTS);
+    await bucketLegendReads(page.getByRole('list', { name: 'Plinko Payout Slots' }), DIAMOND_SLOTS);
     await page.getByRole('button', { name: 'crossing', exact: true }).click();
     await streetStripReads(page.getByRole('list', { name: 'Streets And Their Multipliers' }));
     await page.getByRole('button', { name: 'Preview Safe Crossing', exact: true }).click();
@@ -357,14 +340,11 @@ for (const superGame of [false, true])
         // their own colours before the first diamond falls.
         await expect(page.getByLabel('Payout Range')).toHaveCount(0);
         await expect(page.getByRole('button', { name: /Diamonds Per Drop/ })).toHaveCount(0);
-        // THE BOARD FOLLOWS THE FLOOR, NOT THE BOOST (contract 4). Every
-        // half-the-stake floor is carried by Super (4), and with the Double
-        // Diamonds add-on retired every live stake keeps half. The Diamond
-        // board (5) closed on 2026-09-21 and no stake reaches it any more.
-        await expect(page.getByText('On The Super Table')).toBeVisible();
+        // Both award tiers use the current board.
+        await expect(page.getByText('On The Diamond Table')).toBeVisible();
         const legend = page.getByRole('list', { name: 'Plinko Payout Slots' });
         await sits(legend, 'the Plinko bucket legend');
-        await bucketLegendReads(legend, SUPER_SLOTS);
+        await bucketLegendReads(legend, DIAMOND_SLOTS);
       }
 
       if (game === 'crossing') {
@@ -476,16 +456,12 @@ for (const game of ['plinko', 'crash', 'crossing', 'mines'])
         )
       ).toBeVisible();
       if (game === 'plinko') {
-        // Nobody chooses a board, so there is no payout range to select: the
-        // stake's FLOOR chooses it, and without the Double Diamonds add-on both
-        // an ordinary stake and a Super one keep half, so both are dealt Super
-        // (4). The board is named on the glass, and its seventeen slots are
-        // that board's, printed before the first drop.
+        // Both award tiers use the current board.
         await expect(page.getByLabel('Payout Range')).toHaveCount(0);
-        await expect(page.getByText('On The Super Table')).toBeVisible();
+        await expect(page.getByText('On The Diamond Table')).toBeVisible();
         await expect(
           page.getByRole('list', { name: 'Plinko Payout Slots' }).locator('strong')
-        ).toHaveText(SUPER_SLOTS);
+        ).toHaveText(DIAMOND_SLOTS);
         // TEN DROPS ARE OVER IN ABOUT FIVE SECONDS, AND THE HOLD BELOW IS OWED
         // ONLY WHILE THEY ARE IN THE AIR. Plinko is the one game that ends
         // itself: the batch runs on the scene clock with nothing left to press,
