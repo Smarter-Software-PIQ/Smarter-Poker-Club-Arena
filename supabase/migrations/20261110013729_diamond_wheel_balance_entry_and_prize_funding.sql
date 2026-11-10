@@ -6,12 +6,12 @@
 -- advance follows the owner across clubs and Chicago business days. The house
 -- funds that advance and any excess; only the advance is recoverable.
 -- @install-window: daily-maintenance
--- @locks: public.profiles, public.diamond_transactions, public.diamond_wallets, public.user_diamonds, public.user_diamond_balance, public.ca_diamond_balance_audit, public.diamond_spin_movements, public.wheel_card_awards
+-- @locks: public.profiles, public.diamond_transactions, public.diamond_wallets, public.user_diamonds, public.user_diamond_balance, public.ca_diamond_balance_audit, public.diamond_spin_movements, public.wheel_card_awards, public.wheel_bonus_awards, public.diamond_bonus_entries, public.diamond_choice_rounds, public.crash_rounds, public.wheel_spins, public.diamond_spin_days
 -- @live-proof: (SELECT a.atttypid='bigint'::regtype FROM pg_attribute a WHERE a.attrelid='public.profiles'::regclass AND a.attname='diamonds') AND (SELECT c.convalidated FROM pg_constraint c WHERE c.conrelid='public.profiles'::regclass AND c.conname='profiles_diamonds_nonnegative')
 -- @live-proof: position('fn_wheel_finance_prize' IN pg_get_functiondef('public.fn_wheel_diamond_cards_pick(uuid,smallint)'::regprocedure))>0 AND position('fn_wheel_repay_owner_advance' IN pg_get_functiondef('public.fn_diamond_spin_settle_day(uuid,date)'::regprocedure))>0 AND NOT has_function_privilege('authenticated','public.fn_wheel_finance_prize(public.wheel_card_awards,bigint)','execute')
 -- @live-proof: (SELECT public.fn_wheel_card_values(500000000::bigint,1000000000::bigint,0::smallint)=ARRAY[500000000,2000000000,3000000000]::bigint[]) AND position('payout_rules_version' IN pg_get_functiondef('public.fn_wheel_diamond_cards_pick(uuid,smallint)'::regprocedure))>0
 BEGIN;
-SET LOCAL lock_timeout='2s';
+SET LOCAL lock_timeout='1s';
 CREATE FUNCTION public.fn_wheel_prize_funding(p_available bigint, p_prize bigint)
 RETURNS TABLE(owner_diamonds bigint, platform_diamonds bigint, owner_shortfall bigint)
 LANGUAGE plpgsql IMMUTABLE STRICT SET search_path=pg_catalog AS $$
@@ -160,12 +160,6 @@ $old$,$new$    IF cfg.purchased_only THEN
       END IF;
     END IF;
 $new$),
-  ('public.fn_wheel_spin_v2(uuid,uuid,text,integer,text,uuid)',$old$  PERFORM pg_advisory_xact_lock(hashtextextended(v_user::text||':'||p_club_id::text,94614));
-  PERFORM pg_advisory_xact_lock(hashtextextended(v_user::text,94615));
-$old$,$new$$new$),
-  ('public.fn_wheel_spin_v2(uuid,uuid,text,integer,text,uuid)',$old$  -- ── replay:$old$,$new$  PERFORM pg_advisory_xact_lock(hashtextextended(v_user::text||':'||p_club_id::text,94614));
-  PERFORM pg_advisory_xact_lock(hashtextextended(v_user::text,94615));
-  -- ── replay:$new$),
   ('public.fn_wheel_spin_v2(uuid,uuid,text,integer,text,uuid)',$old$  SELECT * INTO v_run FROM public.wheel_runs WHERE user_id=v_user AND club_id=p_club_id AND status='open' FOR UPDATE;$old$,$new$  UPDATE public.wheel_runs SET status='closed',closed_at=transaction_timestamp()
    WHERE user_id=v_user AND club_id=p_club_id AND status='open';$new$),
   ('public.fn_diamond_game_admit(text,uuid,uuid,text,integer)',$old$p_bet<25 OR p_bet>(CASE WHEN award.id IS NULL THEN 5000 ELSE 7500 END)$old$,$new$p_bet<1 OR (award.id IS NULL AND p_bet NOT BETWEEN 25 AND 5000)$new$),
@@ -251,7 +245,6 @@ DECLARE r public.wheel_batch_requests;
 BEGIN
  IF auth.uid() IS NULL THEN RETURN jsonb_build_object('ok',false,'error','Sign In To Spin'); END IF;
  IF p_client_seed IS NULL OR length(p_client_seed) NOT BETWEEN 1 AND 60 THEN RETURN jsonb_build_object('ok',false,'error','Choose A Valid Batch Seed'); END IF;
- PERFORM pg_advisory_xact_lock(hashtextextended(auth.uid()::text,94615));
  SELECT * INTO r FROM public.wheel_batch_requests WHERE id=p_request_id AND user_id=auth.uid() FOR UPDATE;
  IF NOT FOUND THEN RETURN jsonb_build_object('ok',false,'error','That Batch Could Not Be Found'); END IF;
  IF r.status='complete' THEN
@@ -270,7 +263,6 @@ DECLARE r public.wheel_batch_requests;
 BEGIN
  IF auth.uid() IS NULL THEN RETURN jsonb_build_object('ok',false,'error','Sign In To Spin'); END IF;
  IF p_request_id IS NULL OR p_spins IS NULL OR p_spins NOT IN(5,10,25) OR p_entry_diamonds IS NULL OR p_entry_diamonds < 1 THEN RETURN jsonb_build_object('ok',false,'error','Choose Valid Batch Settings'); END IF;
- PERFORM pg_advisory_xact_lock(hashtextextended(p_request_id::text,94618));
  SELECT * INTO r FROM public.wheel_batch_requests WHERE id=p_request_id;
  IF FOUND THEN
   IF r.user_id IS DISTINCT FROM auth.uid() OR r.club_id IS DISTINCT FROM p_club_id OR r.spins IS DISTINCT FROM p_spins OR r.entry_diamonds IS DISTINCT FROM p_entry_diamonds THEN RETURN jsonb_build_object('ok',false,'error','This Batch Belongs To Different Settings'); END IF;
@@ -293,7 +285,6 @@ BEGIN
  IF v_host IS NULL THEN RETURN jsonb_build_object('ok',false,'error','That Club Could Not Be Found'); END IF;
  IF NOT public.fn_wheel_v2_enabled() THEN
   RETURN jsonb_build_object('ok',false,'error','The New Wheel Is Not Open Yet'); END IF;
- PERFORM pg_advisory_xact_lock(hashtextextended(v_user::text,94615));
  SELECT * INTO v_run FROM public.wheel_runs WHERE user_id=v_user AND status='open' FOR UPDATE;
  IF v_run.id IS NOT NULL THEN
   IF v_run.club_id IS DISTINCT FROM p_club_id OR v_run.spins IS DISTINCT FROM p_spins THEN
@@ -382,7 +373,7 @@ BEGIN
  END LOOP;
 END $wide$;
 
-SET LOCAL lock_timeout = '2s';
+SET LOCAL lock_timeout = '1s';
 
 -- Integer wallets can overflow from a legal spin: 715,827,883 diamonds can
 -- win 2,147,483,649. Keep the same canonical wallet, mirrors and journal.
