@@ -2,16 +2,26 @@
 -- wheel movements. The player's prize is never reduced by the funding split.
 -- Qualify on the fixture through the paid-spin and earned-bonus RPCs.
 -- @live-proof: to_regprocedure('public.fn_wheel_spin_v2(uuid,uuid,text,bigint,text,uuid)') IS NOT NULL AND to_regprocedure('public.fn_wheel_state_v2(uuid,bigint)') IS NOT NULL AND position('Choose One Spin At A Time' IN pg_get_functiondef('public.fn_wheel_batch_begin(uuid,text)'::regprocedure))>0
+-- @live-proof: (SELECT count(*)=5 FROM pg_attribute WHERE (attrelid='public.diamond_transactions'::regclass AND attname IN ('amount','balance_after') OR attrelid='public.ca_diamond_balance_audit'::regclass AND attname IN ('old_diamonds','new_diamonds','delta')) AND atttypid='bigint'::regtype) AND EXISTS(SELECT 1 FROM public.wheel_journal_copy_progress WHERE verified_at IS NOT NULL)
 -- A club or union has no diamond wallet. Its owner pays personally. An unpaid
 -- advance follows the owner across clubs and Chicago business days. The house
 -- funds that advance and any excess; only the advance is recoverable.
 -- @install-window: daily-maintenance
--- @locks: public.profiles, public.diamond_transactions, public.diamond_wallets, public.user_diamonds, public.user_diamond_balance, public.ca_diamond_balance_audit, public.diamond_spin_movements, public.wheel_card_awards, public.wheel_bonus_awards, public.diamond_bonus_entries, public.diamond_choice_rounds, public.crash_rounds, public.wheel_spins, public.diamond_spin_days
+-- @locks: public.profiles, public.diamond_transactions, public.diamond_wallets, public.user_diamonds, public.user_diamond_balance, public.ca_diamond_balance_audit, public.ca_diamond_journal_archive, public.diamond_spin_movements, public.wheel_card_awards, public.wheel_bonus_awards, public.diamond_bonus_entries, public.diamond_choice_rounds, public.crash_rounds, public.wheel_spins, public.diamond_spin_days
 -- @live-proof: (SELECT a.atttypid='bigint'::regtype FROM pg_attribute a WHERE a.attrelid='public.profiles'::regclass AND a.attname='diamonds') AND (SELECT c.convalidated FROM pg_constraint c WHERE c.conrelid='public.profiles'::regclass AND c.conname='profiles_diamonds_nonnegative')
 -- @live-proof: position('fn_wheel_finance_prize' IN pg_get_functiondef('public.fn_wheel_diamond_cards_pick(uuid,smallint)'::regprocedure))>0 AND position('fn_wheel_repay_owner_advance' IN pg_get_functiondef('public.fn_diamond_spin_settle_day(uuid,date)'::regprocedure))>0 AND NOT has_function_privilege('authenticated','public.fn_wheel_finance_prize(public.wheel_card_awards,bigint)','execute')
--- @live-proof: (SELECT public.fn_wheel_card_values(500000000::bigint,1000000000::bigint,0::smallint)=ARRAY[500000000,2000000000,3000000000]::bigint[]) AND position('payout_rules_version' IN pg_get_functiondef('public.fn_wheel_diamond_cards_pick(uuid,smallint)'::regprocedure))>0
+-- @live-proof: (SELECT public.fn_wheel_card_values_wide(500000000::bigint,1000000000::bigint,0::smallint)=ARRAY[500000000,2000000000,3000000000]::bigint[]) AND position('payout_rules_version' IN pg_get_functiondef('public.fn_wheel_diamond_cards_pick(uuid,smallint)'::regprocedure))>0
 BEGIN;
 SET LOCAL lock_timeout='1s';
+-- Require a finished, independently verified copy of the two large relations.
+-- The staging triggers have remained active since their copy horizon was sealed.
+DO $prepared$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM public.wheel_journal_copy_progress WHERE id AND journal_done AND audit_done AND verified_at IS NOT NULL)
+  OR 2<>(SELECT count(*) FROM pg_trigger WHERE tgfoid='public.fn_wheel_copy_wide_journal_row()'::regprocedure AND tgenabled IN('O','A')
+   AND ((tgrelid='public.diamond_transactions'::regclass AND tgname='zzzz_wheel_copy_wide_journal')
+    OR (tgrelid='public.ca_diamond_balance_audit'::regclass AND tgname='zzzz_wheel_copy_wide_audit'))) THEN
+  RAISE EXCEPTION 'Complete and verify the staged diamond journal copy before cutover'; END IF;
+END $prepared$;
 CREATE FUNCTION public.fn_wheel_prize_funding(p_available bigint, p_prize bigint)
 RETURNS TABLE(owner_diamonds bigint, platform_diamonds bigint, owner_shortfall bigint)
 LANGUAGE plpgsql IMMUTABLE STRICT SET search_path=pg_catalog AS $$
@@ -399,7 +409,56 @@ SET LOCAL lock_timeout = '1s';
 -- win 2,147,483,649. Keep the same canonical wallet, mirrors and journal.
 DO $width$
 DECLARE t record; rel record; restored record; ddl text; saved jsonb:='[]'::jsonb;
+ view_rec record; staged_views jsonb:='[]'; original_index_comment text;
+ directory_oid oid:=to_regclass('public.all_users'); directory_sql text; directory_options text;
+ directory_owner name; directory_comment text; directory_columns text; grants text:=''; comments text:=''; grant_row record;
 BEGIN
+ -- World Hub's unified directory selects profiles.diamonds. Preserve its
+ -- existing projection and permissions only when it actually depends on this column.
+ IF EXISTS(SELECT 1 FROM pg_rewrite r JOIN pg_depend d ON d.classid='pg_rewrite'::regclass AND d.objid=r.oid
+  JOIN pg_attribute a ON a.attrelid=d.refobjid AND a.attnum=d.refobjsubid
+  WHERE r.ev_class=directory_oid AND d.refclassid='pg_class'::regclass AND a.attrelid='public.profiles'::regclass AND a.attname='diamonds') THEN
+  SELECT pg_get_viewdef(c.oid),array_to_string(c.reloptions,','),pg_get_userbyid(c.relowner),obj_description(c.oid,'pg_class')
+   INTO STRICT directory_sql,directory_options,directory_owner,directory_comment FROM pg_class c WHERE c.oid=directory_oid AND c.relkind='v';
+  SELECT string_agg(quote_ident(a.attname),',' ORDER BY a.attnum),
+   coalesce(string_agg(format('COMMENT ON COLUMN public.all_users.%I IS %L;',a.attname,col_description(a.attrelid,a.attnum)),'')
+    FILTER(WHERE col_description(a.attrelid,a.attnum) IS NOT NULL),'')
+   INTO directory_columns,comments FROM pg_attribute a WHERE a.attrelid=directory_oid AND a.attnum>0 AND NOT a.attisdropped;
+  IF EXISTS(SELECT 1 FROM pg_rewrite WHERE ev_class=directory_oid AND rulename<>'_RETURN') OR
+    EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid=directory_oid AND NOT tgisinternal) OR
+    EXISTS(SELECT 1 FROM pg_attrdef WHERE adrelid=directory_oid) OR
+    EXISTS(SELECT 1 FROM pg_seclabel WHERE classoid='pg_class'::regclass AND objoid=directory_oid)
+   THEN RAISE EXCEPTION 'Unexpected writable or security-labelled all_users view'; END IF;
+  FOR grant_row IN
+   SELECT ac.*,NULL::text AS col,c.relowner FROM pg_class c CROSS JOIN LATERAL aclexplode(c.relacl) ac WHERE c.oid=directory_oid
+   UNION ALL SELECT ac.*,a.attname::text,c.relowner FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid
+    CROSS JOIN LATERAL aclexplode(a.attacl) ac WHERE c.oid=directory_oid
+  LOOP
+   IF grant_row.grantor<>grant_row.relowner THEN RAISE EXCEPTION 'Unexpected all_users privilege grantor'; END IF;
+   IF grant_row.grantee<>grant_row.relowner THEN
+    grants:=grants||format('GRANT %s%s ON public.all_users TO %s%s;',grant_row.privilege_type,
+     CASE WHEN grant_row.col IS NULL THEN '' ELSE format(' (%I)',grant_row.col) END,
+     CASE WHEN grant_row.grantee=0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(grant_row.grantee)) END,
+     CASE WHEN grant_row.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END);
+   END IF;
+  END LOOP;
+  DROP VIEW public.all_users; -- RESTRICT deliberately protects unknown dependents.
+ END IF;
+ -- Temporarily detach only the SELECT rule of each reconciliation view.
+ -- Its OID, downstream views, ACL, ownership, comments and options survive.
+ -- Neither its placeholder nor the column swap is visible outside this transaction.
+ FOR view_rec IN SELECT c.oid,c.relname::text AS name,pg_get_viewdef(c.oid) AS body,
+  CASE WHEN c.reloptions IS NULL THEN '' ELSE ' WITH ('||array_to_string(c.reloptions,',')||')' END AS opts,
+  (SELECT string_agg(format('NULL::%s AS %I',format_type(a.atttypid,a.atttypmod),a.attname),',' ORDER BY a.attnum)
+   FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped) AS placeholder,
+  (SELECT string_agg(format('s.%I::%s AS %I',a.attname,format_type(a.atttypid,a.atttypmod),a.attname),',' ORDER BY a.attnum)
+   FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped) AS projection
+  FROM pg_class c WHERE c.relnamespace='public'::regnamespace AND c.relkind='v' AND
+   c.relname IN ('trivia_ledger_recon_date','trivia_ledger_recon_reference','trivia_ledger_recon_user')
+ LOOP
+  staged_views:=staged_views||to_jsonb(view_rec);
+  EXECUTE format('CREATE OR REPLACE VIEW public.%I%s AS SELECT %s WHERE false',view_rec.name,view_rec.opts,view_rec.placeholder);
+ END LOOP;
  -- Postgres will not widen columns referenced by an UPDATE OF or WHEN
  -- trigger. Preserve their definitions, enable mode and comment atomically.
  FOR t IN
@@ -416,13 +475,44 @@ BEGIN
   saved:=saved||to_jsonb(t);
   EXECUTE format('DROP TRIGGER %I ON %s',t.tgname,t.tbl);
  END LOOP;
+ -- Most of the financial journal's indexes are untouched: the row id, their
+ -- indexed columns and all foreign keys retain identity. The one partial index
+ -- on amount was built concurrently from the staged column ahead of this window.
+ IF NOT EXISTS(SELECT 1 FROM pg_index s JOIN pg_index o ON o.indrelid=s.indrelid
+  WHERE s.indexrelid='public.wheel_stage_trivia_family_created_idx'::regclass AND s.indisvalid AND s.indisready
+   AND o.indexrelid='public.diamond_transactions_trivia_family_created_idx'::regclass AND o.indisvalid AND s.indkey=o.indkey
+   AND replace(pg_get_expr(s.indpred,s.indrelid),'wheel_amount64','amount')=pg_get_expr(o.indpred,o.indrelid)) THEN
+  RAISE EXCEPTION 'Staged trivia index is not qualified'; END IF;
+ original_index_comment:=obj_description('public.diamond_transactions_trivia_family_created_idx'::regclass,'pg_class');
+ DROP INDEX public.diamond_transactions_trivia_family_created_idx;
+ ALTER TABLE public.diamond_transactions DROP CONSTRAINT wheel_stage_journal_matches;
+ ALTER TABLE public.ca_diamond_balance_audit DROP CONSTRAINT wheel_stage_audit_matches;
+ DROP TRIGGER zzzz_wheel_copy_wide_journal ON public.diamond_transactions;
+ DROP TRIGGER zzzz_wheel_copy_wide_audit ON public.ca_diamond_balance_audit;
+ -- DROP COLUMN can silently take table-local indexes and constraints. Refuse
+ -- any newly introduced dependency rather than removing its protection.
+ IF EXISTS(SELECT 1 FROM pg_depend d JOIN pg_attribute a ON a.attrelid=d.refobjid AND a.attnum=d.refobjsubid
+   WHERE d.refclassid='pg_class'::regclass AND
+   ((a.attrelid='public.diamond_transactions'::regclass AND a.attname IN('amount','balance_after')) OR
+    (a.attrelid='public.ca_diamond_balance_audit'::regclass AND a.attname IN('old_diamonds','new_diamonds','delta'))))
+  THEN RAISE EXCEPTION 'Unrecognized dependency on an original diamond journal column'; END IF;
+ ALTER TABLE public.diamond_transactions DROP COLUMN amount,DROP COLUMN balance_after;
+ ALTER TABLE public.diamond_transactions RENAME COLUMN wheel_amount64 TO amount;
+ ALTER TABLE public.diamond_transactions RENAME COLUMN wheel_balance_after64 TO balance_after;
+ ALTER TABLE public.diamond_transactions ALTER COLUMN amount DROP DEFAULT;
+ ALTER INDEX public.wheel_stage_trivia_family_created_idx RENAME TO diamond_transactions_trivia_family_created_idx;
+ IF original_index_comment IS NOT NULL THEN
+  EXECUTE format('COMMENT ON INDEX public.diamond_transactions_trivia_family_created_idx IS %L',original_index_comment); END IF;
+ ALTER TABLE public.ca_diamond_balance_audit DROP COLUMN old_diamonds,DROP COLUMN new_diamonds,DROP COLUMN delta;
+ ALTER TABLE public.ca_diamond_balance_audit RENAME COLUMN wheel_old64 TO old_diamonds;
+ ALTER TABLE public.ca_diamond_balance_audit RENAME COLUMN wheel_new64 TO new_diamonds;
+ ALTER TABLE public.ca_diamond_balance_audit RENAME COLUMN wheel_delta64 TO delta;
  FOR rel IN SELECT * FROM (VALUES
   ('public.profiles'::regclass,ARRAY['diamonds','diamond_balance']),
-  ('public.diamond_transactions'::regclass,ARRAY['amount','balance_after']),
+  ('public.ca_diamond_journal_archive'::regclass,ARRAY['amount','balance_after']),
   ('public.user_diamonds'::regclass,ARRAY['balance','lifetime_earned','lifetime_spent']),
   ('public.user_diamond_balance'::regclass,ARRAY['balance','lifetime_earned','lifetime_spent']),
   ('public.diamond_wallets'::regclass,ARRAY['balance','lifetime_earned','lifetime_spent']),
-  ('public.ca_diamond_balance_audit'::regclass,ARRAY['old_diamonds','new_diamonds','delta']),
   ('public.diamond_spin_movements'::regclass,ARRAY['amount']),
   ('public.wheel_card_awards'::regclass,ARRAY['risk_diamonds','half_diamonds','paid_diamonds'])
  ) AS cols(tbl,names)
@@ -447,7 +537,40 @@ BEGIN
   IF restored.comment IS NOT NULL THEN EXECUTE format('COMMENT ON TRIGGER %I ON %s IS %L',
    restored.tgname,restored.tbl,restored.comment); END IF;
  END LOOP;
+ FOR view_rec IN SELECT * FROM jsonb_to_recordset(staged_views) AS v(name text,body text,opts text,projection text) LOOP
+  -- SUM(int8) is numeric. Keep the two public platform_net aggregate columns
+  -- at their original bigint ABI, together with every other declared field.
+  IF view_rec.name IN ('trivia_ledger_recon_date','trivia_ledger_recon_user') THEN
+   EXECUTE format('CREATE OR REPLACE VIEW public.%I%s AS SELECT %s FROM (%s) s', view_rec.name,view_rec.opts,
+    view_rec.projection,rtrim(view_rec.body,E'; \n\t'));
+  ELSE EXECUTE format('CREATE OR REPLACE VIEW public.%I%s AS %s',view_rec.name,view_rec.opts,view_rec.body);
+  END IF;
+ END LOOP;
+ IF directory_sql IS NOT NULL THEN
+  EXECUTE format('CREATE VIEW public.all_users (%s) %s AS %s',directory_columns,
+   CASE WHEN directory_options IS NULL THEN '' ELSE 'WITH ('||directory_options||')' END,directory_sql);
+  EXECUTE format('ALTER VIEW public.all_users OWNER TO %I',directory_owner);
+  -- Supabase default ACLs can differ from the original view's effective grants.
+  FOR grant_row IN SELECT DISTINCT ac.grantee FROM pg_class c CROSS JOIN LATERAL aclexplode(c.relacl) ac
+   WHERE c.oid='public.all_users'::regclass AND ac.grantee<>c.relowner LOOP
+   EXECUTE format('REVOKE ALL ON public.all_users FROM %s',CASE WHEN grant_row.grantee=0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(grant_row.grantee)) END);
+  END LOOP;
+  IF grants<>'' THEN EXECUTE grants; END IF;
+  IF directory_comment IS NOT NULL THEN EXECUTE format('COMMENT ON VIEW public.all_users IS %L',directory_comment); END IF;
+  IF comments<>'' THEN EXECUTE comments; END IF;
+ END IF;
 END $width$;
+DROP FUNCTION public.fn_wheel_copy_wide_journal_batch(integer);
+DROP FUNCTION public.fn_wheel_verify_wide_journal_copy();
+DROP FUNCTION public.fn_wheel_copy_wide_journal_row();
+DO $archive$
+DECLARE original text:=pg_get_functiondef('public.fn_ca_journal_append_only()'::regprocedure);
+BEGIN
+ IF position($narrow$(v_j->>'amount')::integer, (v_j->>'balance_after')::integer$narrow$ IN original)=0 THEN
+  RAISE EXCEPTION 'Diamond archive writer changed'; END IF;
+ EXECUTE replace(original,$narrow$(v_j->>'amount')::integer, (v_j->>'balance_after')::integer$narrow$,
+  $wide$(v_j->>'amount')::bigint, (v_j->>'balance_after')::bigint$wide$);
+END $archive$;
 ALTER TABLE public.diamond_spin_days DROP CONSTRAINT diamond_spin_days_pending_diamonds_check;
 
 -- One wide implementation behind each existing integer entry point. Keep the
@@ -516,14 +639,14 @@ BEGIN
  EXECUTE replace(replace(replace(body,'v_net integer','v_net bigint'),'v_credit integer','v_credit bigint'),'pending_diamonds::integer','pending_diamonds::bigint');
 END $mirrors$;
 
-CREATE FUNCTION public.fn_wheel_card_values(p_half bigint,p_risk bigint,p_permutation smallint)
+CREATE FUNCTION public.fn_wheel_card_values_wide(p_half bigint,p_risk bigint,p_permutation smallint)
 RETURNS bigint[] LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
  SELECT CASE p_permutation
   WHEN 0 THEN ARRAY[p_half,2*p_risk,3*p_risk] WHEN 1 THEN ARRAY[p_half,3*p_risk,2*p_risk]
   WHEN 2 THEN ARRAY[2*p_risk,p_half,3*p_risk] WHEN 3 THEN ARRAY[2*p_risk,3*p_risk,p_half]
   WHEN 4 THEN ARRAY[3*p_risk,p_half,2*p_risk] WHEN 5 THEN ARRAY[3*p_risk,2*p_risk,p_half] END
 $$;
-REVOKE ALL ON FUNCTION public.fn_wheel_card_values(bigint,bigint,smallint) FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.fn_wheel_card_values_wide(bigint,bigint,smallint) FROM PUBLIC,anon,authenticated,service_role;
 
 CREATE TABLE public.wheel_owner_credit (
  owner_id uuid PRIMARY KEY REFERENCES public.profiles(id),
@@ -561,6 +684,28 @@ REVOKE ALL ON public.wheel_owner_credit, public.wheel_prize_financing,
  public.wheel_owner_credit_repayments FROM PUBLIC,anon,authenticated,service_role;
 GRANT SELECT ON public.wheel_owner_credit, public.wheel_prize_financing,
  public.wheel_owner_credit_repayments TO service_role;
+
+-- Historical owner liability belongs to the sealed award and to the close's
+-- recorded owner. A club sale can change the current owner between those
+-- events. New wagers still require the current host and owner.
+DO $historical$
+DECLARE body text; denial text:='  RAISE EXCEPTION ''Diamond Spin Custody Does Not Match The Current Host Owner''; END IF;';
+BEGIN
+ body:=pg_get_functiondef('public.fn_diamond_spin_book(uuid,uuid,uuid,text,uuid,text,bigint,text,text,date)'::regprocedure);
+ IF strpos(body,denial)=0 THEN RAISE EXCEPTION 'Current spin owner guard changed'; END IF;
+ EXECUTE replace(body,denial,$rule$
+  IF p_movement<>'diamond_prize' OR p_day IS NULL OR NOT (
+   EXISTS(SELECT 1 FROM public.wheel_prize_financing f JOIN public.wheel_card_awards a ON a.id=f.award_id
+    WHERE f.owner_id=p_owner AND f.day=p_day AND f.player_id=p_player AND f.club_id=p_club AND f.host_id=p_host
+      AND a.host_kind=p_kind AND a.status='picked' AND f.owner_cash=-p_wide_amount
+      AND p_operation='wheel-cards:'||f.award_id||':custody' AND p_description='Diamond Spins: Diamonds Cards')
+   OR (p_operation='wheel-credit-repayment:'||p_owner||':'||p_day AND p_description='Diamond Spins Owner Advance Repayment'
+     AND EXISTS(SELECT 1 FROM public.wheel_owner_credit_repayments c WHERE c.owner_id=p_owner AND c.day=p_day AND c.amount=-p_wide_amount)
+     AND EXISTS(SELECT 1 FROM public.diamond_spin_movements m WHERE m.owner_id=p_owner AND m.day=p_day
+       AND m.player_id=p_player AND m.club_id=p_club AND m.host_id=p_host AND m.host_kind=p_kind))
+  ) THEN RAISE EXCEPTION 'Diamond Spin Custody Does Not Match The Current Host Owner'; END IF;
+ END IF;$rule$);
+END $historical$;
 
 -- The normal player transfer check proves a profile exists. For a transfer
 -- from the house prove the debit itself, including account, player and award.
@@ -633,10 +778,6 @@ BEGIN
  advance_part:=allocation.owner_diamonds;
  house_part:=advance_part+allocation.platform_diamonds;
  day_now:=(clock_timestamp() AT TIME ZONE 'America/Chicago')::date;
- IF cash_part>0 THEN
-  PERFORM public.fn_diamond_spin_book(a.owner_id,a.club_id,a.host_id,a.host_kind,a.user_id,
-   'diamond_prize',-cash_part,op||':custody','Diamond Spins: Diamonds Cards',day_now);
- END IF;
  IF house_part>0 THEN
   INSERT INTO public.ca_diamond_house(id,balance) VALUES(1,0) ON CONFLICT(id) DO NOTHING;
   PERFORM 1 FROM public.ca_diamond_house WHERE id=1 FOR UPDATE;
@@ -658,6 +799,8 @@ BEGIN
  INSERT INTO public.wheel_prize_financing(award_id,owner_id,player_id,host_id,club_id,day,prize,owner_cash,owner_advance,platform_expense,house_cash,issued,outstanding_after)
  VALUES(a.id,a.owner_id,a.user_id,a.host_id,a.club_id,day_now,p_prize,cash_part,advance_part,allocation.platform_diamonds,house_cash,issued,outstanding_before+advance_part);
  IF cash_part>0 THEN
+  PERFORM public.fn_diamond_spin_book(a.owner_id,a.club_id,a.host_id,a.host_kind,a.user_id,
+   'diamond_prize',-cash_part,op||':custody','Diamond Spins: Diamonds Cards',day_now);
   credit:=public.add_diamonds_to_balance(a.user_id,cash_part,'transfer','Diamond Spins: Diamonds',op,a.owner_id);
   IF credit->>'success' IS DISTINCT FROM 'true' THEN RAISE EXCEPTION 'Owner prize payment failed: %',credit; END IF;
  END IF;
@@ -700,12 +843,12 @@ BEGIN
  FROM public.diamond_spin_movements m WHERE m.owner_id=p_owner AND m.day=p_day
  ORDER BY m.created_at,m.id LIMIT 1;
  op:='wheel-credit-repayment:'||p_owner||':'||p_day;
+ INSERT INTO public.wheel_owner_credit_repayments(owner_id,day,amount,outstanding_after)
+ VALUES(p_owner,p_day,recovered,due-recovered);
  PERFORM public.fn_diamond_spin_book(p_owner,target.club_id,target.host_id,target.host_kind,target.player_id,
   'diamond_prize',-recovered::integer,op,'Diamond Spins Owner Advance Repayment',p_day);
  PERFORM public.fn_wheel_house_diamond_leg(recovered,op,p_owner);
  UPDATE public.wheel_owner_credit SET outstanding=outstanding-recovered WHERE owner_id=p_owner;
- INSERT INTO public.wheel_owner_credit_repayments(owner_id,day,amount,outstanding_after)
- VALUES(p_owner,p_day,recovered,due-recovered);
 END $$;
 REVOKE ALL ON FUNCTION public.fn_wheel_repay_owner_advance(uuid,date) FROM PUBLIC,anon,authenticated,service_role;
 
@@ -721,7 +864,7 @@ BEGIN
  body:=replace(body,' v_values:=public.fn_wheel_card_values',$seal$ SELECT CASE WHEN receipt_v2->>'payout_rules_version'='2' THEN '{"payout_rules_version":2}'::jsonb
    ELSE '{}'::jsonb END INTO v_rules FROM public.wheel_spins WHERE id=a.spin_id;
  v_rules:=coalesce(v_rules,'{}'::jsonb);
- v_values:=public.fn_wheel_card_values$seal$);
+ v_values:=public.fn_wheel_card_values_wide$seal$);
  body:=replace(body,'RETURN jsonb_build_object(''ok'',true,''replayed''','RETURN v_rules || jsonb_build_object(''ok'',true,''replayed''');
  body:=replace(body,old_leg,'PERFORM public.fn_wheel_finance_prize(a,v_paid);');
  IF position($old$  v_credit:=public.add_diamonds_to_balance(v_user,v_paid,'transfer','Diamond Spins: Diamonds',

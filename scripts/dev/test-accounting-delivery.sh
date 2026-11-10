@@ -398,8 +398,13 @@ fi
 "${diamond_psql[@]}" -f "$root/supabase/migrations/20261015093545_donkey_cross_street_one_is_always_safe.sql"
 "${diamond_psql[@]}" -f "$root/supabase/migrations/20261017040017_double_diamonds_is_retired_from_the_wheel_bonus_games.sql"
 "${diamond_psql[@]}" -f "$root/supabase/migrations/20261019023857_horses_spin_diamond_spins_through_the_engine_door.sql"
-"${diamond_psql[@]}" -f "$root/supabase/migrations/20261110013729_diamond_wheel_balance_entry_and_prize_funding.sql"
-"${diamond_psql[@]}" -f "$root/tests/sql/diamond-wheel-balance-entry.sql"
+"${diamond_psql[@]}" -f "$root/tests/fixtures/accounting-delivery/diamond-games/trivia-journal-index.sql" \
+  -f "$root/supabase/migrations/20261110023124_prepare_wide_diamond_journal_and_audit_columns.sql" \
+  -f "$root/supabase/migrations/20261110023502_build_the_wide_diamond_journal_trivia_index_concurrently.sql" \
+  -f "$root/tests/sql/diamond-wallet-wide-copy.sql" \
+  -f "$root/tests/fixtures/accounting-delivery/diamond-games/trivia-journal-views.sql"
+"${diamond_psql[@]}" -f "$root/supabase/migrations/20261110023653_admit_single_full_wallet_spins_and_guarantee_earned_payouts.sql"
+"${diamond_psql[@]}" -f "$root/tests/sql/diamond-wallet-wide-cutover.sql" -f "$root/tests/sql/diamond-wheel-balance-entry.sql"
 "${diamond_psql[@]}" -f "$root/tests/sql/diamond-wheel-prize-funding.sql"
 "${diamond_psql[@]}" -f "$root/tests/sql/diamond-wheel-owner-credit.sql"
 bash "$root/scripts/dev/test-diamond-wheel-single-spin-race.sh" "$fixture"
