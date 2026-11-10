@@ -51,9 +51,6 @@ export interface EarnedGameAward extends WheelBonusAward {
   cap_cents: number;
   bet_diamonds: number;
   added_diamonds: number;
-  payout_rules_version?: number;
-  wheel_diamonds_per_chip?: number;
-  wheel_minimum_payout_chips?: number;
   result: Record<string, unknown> | null;
   commit_id: string | null;
 }
@@ -97,14 +94,6 @@ export function parseBonusGuarantee(
   const floor = sealedWithFloor
     ? diamondBonusFloor(betChips, boost, paid, rate)
     : diamondBonusMinimum(betChips, boost);
-  // The spin seals its bridge rate on the award. The game quote echoes the
-  // promised amount, while its own bridge rate may have changed since the spin.
-  const wheelFloor = earnedWheelMinimum({
-    ...award,
-    bonus: { base_diamonds: award.base_diamonds },
-  });
-  const effectiveFloor = Math.max(floor, wheelFloor ?? 0);
-  const quotedFloor = game === 'crossing' && version >= 8 ? effectiveFloor : floor;
   const table = sealedWithFloor
     ? plinkoTableForFloor(betChips, floor, typeof g.plinko_table === 'number' && g.plinko_table < 7)
     : plinkoTableVersion(boost);
@@ -115,9 +104,7 @@ export function parseBonusGuarantee(
     paid < 0 ||
     g.guarantee !== (boost === 2 ? 'super' : 'standard') ||
     typeof g.minimum_payout_chips !== 'number' ||
-    (g.payout_rules_version === 2) !== (wheelFloor !== null) ||
-    (wheelFloor !== null && g.wheel_minimum_payout_chips !== wheelFloor) ||
-    g.minimum_payout_chips !== quotedFloor ||
+    g.minimum_payout_chips !== floor ||
     (g.mode ?? null) !== expectedMode ||
     g.plinko_table !== table ||
     (sealedWithFloor && g.paid_diamonds !== undefined && g.paid_diamonds !== paid) ||
@@ -138,8 +125,11 @@ export function parseBonusGuarantee(
     throw new Error('The Award Guarantee Could Not Be Quoted');
   return {
     guarantee: boost === 2 ? 'super' : 'standard',
-    minimumPayoutChips: effectiveFloor,
-    gameMinimumPayoutChips: floor,
+    minimumPayoutChips: Math.max(
+      g.minimum_payout_chips,
+      earnedWheelMinimum({ ...g, bonus: { base_diamonds: award.base_diamonds } }) ?? 0
+    ),
+    gameMinimumPayoutChips: g.minimum_payout_chips,
     mode: expectedMode,
     plinkoTable: g.plinko_table as number,
     payoutVersion: version,

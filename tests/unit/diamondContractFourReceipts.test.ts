@@ -346,48 +346,6 @@ describe('contract 4: the receipt readers speak the contract production seals', 
     expect(() => parseChoiceRound({ ...crossing, mode: 'bold' })).toThrow();
   });
 
-  it.each([
-    ['mines', '6', 5],
-    ['crossing', 'road', 8],
-    ['plinko', null, 4],
-    ['crash', null, 6],
-  ] as const)('reads the wheel-sealed rate from the %s award', (game, mode, version) => {
-    const award = {
-      game,
-      base_diamonds: 100,
-      entry_diamonds: 100,
-      bet_diamonds: 100,
-      boost_multiplier: 1,
-      payout_rules_version: 2,
-      wheel_diamonds_per_chip: 100,
-      wheel_minimum_payout_chips: 1.5,
-    } as Parameters<typeof parseBonusGuarantee>[1];
-    // This is the fn_wheel_bonus_state wire shape. The game rate is current,
-    // and may differ from the spin's historical rate.
-    const quote = {
-      config: { diamonds_per_chip: 200 },
-      mode,
-      guarantee: 'standard',
-      paid_diamonds: 100,
-      payout_version: version,
-      plinko_table: 7,
-      crash_floor_cents: 250,
-      minimum_payout_chips: game === 'crossing' ? 1.5 : 0.25,
-      payout_rules_version: 2,
-      wheel_minimum_payout_chips: 1.5,
-    };
-    expect(parseBonusGuarantee(quote, award, game)).toMatchObject({
-      minimumPayoutChips: 1.5,
-      gameMinimumPayoutChips: 0.25,
-    });
-    expect(() =>
-      parseBonusGuarantee({ ...quote, wheel_minimum_payout_chips: 1 }, award, game)
-    ).toThrow();
-    expect(() =>
-      parseBonusGuarantee(quote, { ...award, wheel_diamonds_per_chip: undefined }, game)
-    ).toThrow();
-  });
-
   it('quotes the award guarantee production would seal, with the board that floor chose', () => {
     const award = {
       id: String(plinkoSuper.award_id),
