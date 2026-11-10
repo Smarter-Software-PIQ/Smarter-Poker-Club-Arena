@@ -42,9 +42,16 @@ import {
   markSeatAsLeft,
   atomicCashout,
   processLeavePending,
-  readClubChipBalances,
+  readSeatWalletBalances,
 } from '../services/supabase.js';
 import { cashMinBuyIn } from '../config/cashBuyIn.js';
+import {
+  BUST_REBUY_WINDOW_MS,
+  bustRebuyRemainingMs,
+  bustRebuyVerdict,
+  bustRebuyWindowExpired,
+  type BustRebuyVerdict,
+} from './BustRebuyWindow.js';
 import {
   atRebuyStopLoss,
   horseRebuyAmount,
@@ -1369,6 +1376,10 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           if (justBustedPlayers.length > 0) {
             let needsRebuyPause = false;
             if (!this.isTournamentTable()) {
+              /* THE TWENTY SECONDS START AT THE BUST (Dan 2026-11-09), not at
+                 the first sweep that notices the empty stack: that sweep runs
+                 after the pause below, which would hand out twenty-five. */
+              this.noteCashBust(justBustedPlayers);
               /* CAN THEY ACTUALLY COME BACK? (Dan 2026-08-28)
                *
                * "IN A CASH GAME, CHECK IF THEY HAVE ENOUGH CHIPS TO REBUY, (40
@@ -5049,12 +5060,13 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     const humans = busted.filter((p) => !p.is_horse);
     if (humans.length === 0) return false; // Every horse present is at stop-loss.
 
-    const clubId = this.tableInfo?.club_id || '';
-    if (!clubId) return true; // Unknown club -> unknown wallets -> fail open.
-
-    const balances = await readClubChipBalances(
-      clubId,
-      humans.map((p) => p.user_id).filter(Boolean)
+    /* The wallet each SEAT was bought from, not the table's club: a union
+       table's club row holds no member wallet, so every player there read as
+       unknown and the felt paused for a player with nothing (2026-11-09). */
+    const balances = await readSeatWalletBalances(
+      this.tableId,
+      humans.map((p) => p.user_id).filter(Boolean),
+      this.tableInfo?.club_id || ''
     );
 
     for (const human of humans) {
@@ -5116,6 +5128,74 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
 
   static readonly LIGHTNING_BUSTED_GRACE_MS = 20_000;
 
+  /**
+   * THE BUST REBUY WINDOW (Dan 2026-11-09), for an ordinary chip cash seat.
+   * See BustRebuyWindow.ts for the rule. userId -> what the wallet said when
+   * this bust was judged; the bust's own instant lives in `bustedSince`.
+   * Judged once per bust, so a seat is not stood up and then held, or held
+   * and then stood up, because a second read disagreed with the first.
+   */
+  static readonly BUST_REBUY_WINDOW_MS = BUST_REBUY_WINDOW_MS;
+  private bustRebuyVerdictMap?: Map<string, BustRebuyVerdict>;
+  private get bustRebuyVerdicts(): Map<string, BustRebuyVerdict> {
+    return (this.bustRebuyVerdictMap ??= new Map());
+  }
+  /**
+   * Players this engine WATCHED lose their last chip in a hand. Only they can
+   * be released with no wait. A seat merely found at zero (just taken, moved
+   * in, or read back after a restart) may have its first chips on the way by
+   * a path the ledger read does not show, so it keeps BUSTED_GRACE_MS first.
+   */
+  private witnessedCashBustSet?: Set<string>;
+  private get witnessedCashBusts(): Set<string> {
+    return (this.witnessedCashBustSet ??= new Set());
+  }
+
+  /**
+   * Tells the player's own rebuy sheet how long it really has. A notice only:
+   * the deadline is this engine's, and a frame that cannot be sent changes
+   * nothing about when the seat is released.
+   */
+  private announceBustRebuyWindow(userId: string, remainingMs: number): void {
+    try {
+      this.hub?.sendToUser(this.tableId, userId, {
+        kind: 'bust_rebuy_window',
+        table_id: this.tableId,
+        user_id: userId,
+        remaining_ms: remainingMs,
+        window_ms: BUST_REBUY_WINDOW_MS,
+      });
+    } catch (err) {
+      reportError(err, 'ServerTableEngine.' + this.tableId + '.bust_rebuy_window_notice');
+    }
+  }
+
+  /** Does the fixed bust window govern this table? Chips, classic dealing. */
+  private bustRebuyWindowApplies(): boolean {
+    return (
+      !this.isTournamentTable() &&
+      this.tableInfo?.arena?.asset !== 'diamonds' &&
+      this.clusterLightningEnabled !== true &&
+      !this.dealingHaltLock
+    );
+  }
+
+  /**
+   * Start the clock for players who have just lost their last chip. Called at
+   * the end of the hand that busted them; the verdict is read by the sweep,
+   * which runs once the hand's own stack write has reached the database.
+   */
+  private noteCashBust(busted: SeatedPlayer[]): void {
+    if (!this.bustRebuyWindowApplies()) return;
+    const now = Date.now();
+    for (const player of busted) {
+      if (!player.user_id) continue;
+      this.bustRebuyVerdicts.delete(player.user_id);
+      this.bustedSince.set(player.user_id, now);
+      this.witnessedCashBusts.add(player.user_id);
+    }
+  }
+
   protected override async passWhileDealingHalted(): Promise<void> {
     await super.passWhileDealingHalted();
     if (!this.lifecycleCanMutate() || this.isTournamentTable() || isMaintenanceFrozen()) return;
@@ -5168,6 +5248,34 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
 
     const now = lightning ? maintenanceActiveNow() : Date.now();
     const removed: string[] = [];
+    const fixedWindow = this.bustRebuyWindowApplies();
+    for (const [id] of this.bustRebuyVerdicts) {
+      if (!brokeIds.has(id)) this.bustRebuyVerdicts.delete(id);
+    }
+    for (const id of this.witnessedCashBusts) {
+      if (!brokeIds.has(id)) this.witnessedCashBusts.delete(id);
+    }
+
+    /* THE REALTIME WALLET CHECK (Dan 2026-11-09). Read for every busted seat
+       not yet judged, and read BEFORE the ledger below on purpose: a rebuy
+       commits its wallet debit and its `table_pending_addons` row together,
+       so a purchase landing between the two reads is seen either as a wallet
+       that still covers the minimum (held) or as a row (owed). The other
+       order could read "no row", then a wallet the purchase had just emptied,
+       and stand up a player who had paid. */
+    let wallets: Map<string, number> | null = null;
+    if (fixedWindow) {
+      const unjudged = broke
+        .filter((p) => !this.bustRebuyVerdicts.has(p.user_id))
+        .map((p) => p.user_id);
+      if (unjudged.length > 0) {
+        wallets = await readSeatWalletBalances(
+          this.tableId,
+          unjudged,
+          this.tableInfo?.club_id || ''
+        );
+      }
+    }
 
     /* CHIP STANDARD C3 (2026-09-02): the in-memory `pendingAddOns` map only
        knows about add-ons THIS engine debited. A bust rebuy is debited by the
@@ -5188,6 +5296,50 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
          DEBITED already and is owed their chips, not their seat taken away. */
       if (this.pendingAddOns.has(player.user_id) || owed.has(player.user_id)) {
         clocks.delete(key);
+        this.bustRebuyVerdicts.delete(player.user_id);
+        continue;
+      }
+
+      if (fixedWindow) {
+        /* No chips to rebuy with: out at once. Chips to rebuy with: twenty
+           seconds from the bust, and not a second more because the rebuy
+           sheet is open. That hold (below, still Diamond's) let a seat sit at
+           zero for as long as its owner left the sheet on screen. */
+        let bustedAt = clocks.get(key);
+        if (bustedAt === undefined) {
+          bustedAt = now;
+          clocks.set(key, bustedAt);
+        }
+        let verdict = this.bustRebuyVerdicts.get(player.user_id);
+        if (verdict === undefined) {
+          verdict = bustRebuyVerdict(wallets?.get(player.user_id), cashMinBuyIn(this.tableInfo));
+          this.bustRebuyVerdicts.set(player.user_id, verdict);
+          if (verdict === 'can_rebuy') {
+            this.announceBustRebuyWindow(player.user_id, bustRebuyRemainingMs(bustedAt, now));
+          }
+        }
+        const due =
+          verdict === 'cannot_rebuy' && !this.witnessedCashBusts.has(player.user_id)
+            ? now - bustedAt >= ServerTableEngineDealing.BUSTED_GRACE_MS
+            : bustRebuyWindowExpired(verdict, bustedAt, now);
+        if (!due) continue;
+
+        const liveSeat = this.handController
+          ?.getState()
+          ?.players.find((p) => p.user_id === player.user_id);
+        if (liveSeat?.is_all_in && !liveSeat.is_folded) continue;
+
+        const reason = verdict === 'cannot_rebuy' ? 'busted_insufficient_chips' : 'busted_no_rebuy';
+        const released = await this.releaseBustedSeat(player, reason);
+        if (!released) continue;
+        clocks.delete(key);
+        this.bustRebuyVerdicts.delete(player.user_id);
+        this.witnessedCashBusts.delete(player.user_id);
+        this.rebuyPromptOpenAt.delete(player.user_id);
+        removed.push(player.occupancy_id!);
+        console.log(
+          `[ServerTableEngine:${this.tableId}] ${player.username} busted, ${reason} - seat ${player.seat_number} released`
+        );
         continue;
       }
 
