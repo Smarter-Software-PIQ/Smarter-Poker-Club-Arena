@@ -1151,7 +1151,7 @@
 }
 @media (max-width: 959px) {
   .studio-editor .theme-modal__live-preview {
-    width: min(100%, 24vh);
+    width: min(100%, 32vh);
     min-height: 0;
     align-self: center;
   }

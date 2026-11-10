@@ -348,6 +348,7 @@
   font: 700 8px/1.2 system-ui;
 }
 .studio-game-preview__card-tab {
+  z-index: 8;
   top: 4px;
   left: 4px;
   display: flex;
@@ -371,4 +372,10 @@
 .studio-game-preview__queue span:nth-child(2) {
   outline: 1px solid white;
   outline-offset: -2px;
+}
+
+.studio-game-preview__felt {
+  position: absolute;
+  inset: 0 0 50px;
+  overflow: hidden;
 }

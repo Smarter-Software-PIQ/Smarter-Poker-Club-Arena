@@ -63,79 +63,87 @@ export function TableStudioGameplayPreview({ selection, avatarUrls, finalTable }
           : 'Gameplay Preview Using Avatars From Your Avatar Library'
       }
     >
-      <img
-        className="studio-game-preview__background-ambient"
-        src={background}
-        alt=""
-        loading="eager"
-        decoding="async"
-      />
-      <img
-        className="studio-game-preview__background"
-        src={background}
-        alt=""
-        loading="eager"
-        decoding="async"
-        fetchPriority="high"
-      />
-      <div className="studio-game-preview__scrim" />
-      <img
-        className="studio-game-preview__table"
-        src={table}
-        alt=""
-        loading="eager"
-        decoding="async"
-        fetchPriority="high"
-      />
+      <div className="studio-game-preview__felt">
+        <img
+          className="studio-game-preview__background-ambient"
+          src={background}
+          alt=""
+          loading="eager"
+          decoding="async"
+        />
+        <img
+          className="studio-game-preview__background"
+          src={background}
+          alt=""
+          loading="eager"
+          decoding="async"
+          fetchPriority="high"
+        />
+        <div className="studio-game-preview__scrim" />
+        <img
+          className="studio-game-preview__table"
+          src={table}
+          alt=""
+          loading="eager"
+          decoding="async"
+          fetchPriority="high"
+        />
 
-      {SEATS.map((seat, index) => (
-        <div
-          className={`studio-game-preview__seat studio-game-preview__seat--${index + 1}`}
-          key={seat.name}
-        >
-          <PreviewAvatar
-            key={avatarUrls[index] || `${seat.name}-loading`}
-            src={avatarUrls[index]}
-          />
-          <span className="studio-game-preview__bounty">⌖ 10</span>
-          <span className="studio-game-preview__plate">
-            <strong>{seat.name}</strong>
-            <b>{seat.stack}</b>
-          </span>
-        </div>
-      ))}
-
-      <div className="studio-game-preview__card-tab" aria-label="Hand tab">
-        <b>8♥</b>
-        <b>4♦</b>
-      </div>
-      <div className="studio-game-preview__pot">POT 24,800</div>
-      <div className="studio-game-preview__board" aria-hidden="true">
-        {(
-          [
-            { rank: 'A', suit: 'h' },
-            { rank: 'T', suit: 'c' },
-            { rank: '7', suit: 'd' },
-            { rank: '6', suit: 's' },
-            { rank: '4', suit: 'c' },
-          ] as Card[]
-        ).map((card) => (
-          <CardImage
-            key={`${card.rank}${card.suit}`}
-            card={card}
-            deckStyle="4color"
-            faceDeckId={selection.faceDeckId}
-            size="xs"
-            loading="eager"
-          />
+        {SEATS.map((seat, index) => (
+          <div
+            className={`studio-game-preview__seat studio-game-preview__seat--${index + 1}`}
+            key={seat.name}
+          >
+            <PreviewAvatar
+              key={avatarUrls[index] || `${seat.name}-loading`}
+              src={avatarUrls[index]}
+            />
+            <span className="studio-game-preview__bounty">⌖ 10</span>
+            <span className="studio-game-preview__plate">
+              <strong>{seat.name}</strong>
+              <b>{seat.stack}</b>
+            </span>
+          </div>
         ))}
-      </div>
-      <div className="studio-game-preview__hole-cards">
-        <CardBack style={normalizeCardBack(selection.cards_id)} size="sm" />
-        <CardBack style={normalizeCardBack(selection.cards_id)} size="sm" />
-      </div>
-      <div className="studio-game-preview__dealer" data-button-theme={selection.button_id}>
-        D
+
+        <div className="studio-game-preview__card-tab" aria-label="Hand tab">
+          <b>8♥</b>
+          <b>4♦</b>
+        </div>
+        <div className="studio-game-preview__pot">POT 24,800</div>
+        <div className="studio-game-preview__board" aria-hidden="true">
+          {(
+            [
+              { rank: 'A', suit: 'h' },
+              { rank: 'T', suit: 'c' },
+              { rank: '7', suit: 'd' },
+              { rank: '6', suit: 's' },
+              { rank: '4', suit: 'c' },
+            ] as Card[]
+          ).map((card) => (
+            <CardImage
+              key={`${card.rank}${card.suit}`}
+              card={card}
+              deckStyle="4color"
+              faceDeckId={selection.faceDeckId}
+              size="xs"
+              loading="eager"
+            />
+          ))}
+        </div>
+        <div className="studio-game-preview__hole-cards">
+          <CardBack style={normalizeCardBack(selection.cards_id)} size="sm" />
+          <CardBack style={normalizeCardBack(selection.cards_id)} size="sm" />
+        </div>
+        <div className="studio-game-preview__dealer" data-button-theme={selection.button_id}>
+          D
+        </div>
+        {finalTable && (
+          <div className="studio-game-preview__broadcast">
+            <span>CHAMPIONSHIP TABLE</span>
+            <strong>FINAL 6</strong>
+          </div>
+        )}
       </div>
       <div className="studio-game-preview__actions studio-game-preview__queue" aria-hidden="true">
         <span>Fold</span>
@@ -147,12 +155,6 @@ export function TableStudioGameplayPreview({ selection, avatarUrls, finalTable }
         <span>CHECK</span>
         <span>RAISE</span>
       </div>
-      {finalTable && (
-        <div className="studio-game-preview__broadcast">
-          <span>CHAMPIONSHIP TABLE</span>
-          <strong>FINAL 6</strong>
-        </div>
-      )}
     </div>
   );
 }
