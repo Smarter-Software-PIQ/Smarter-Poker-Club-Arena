@@ -44,6 +44,7 @@ import type {
   ActionRecord,
 } from '../types.js';
 
+import { canQuickCheckFold, facingShovePrice } from './HorseQuickCheckFold.js';
 import { HorseLogic, holdemPremiumAggression, type HorseGameStateV2 } from './HorseLogic.js';
 import { resolveHorseHybridProfile } from './HorseHybridProfile.js';
 import { riverNutsRaise, fullPotNearPotWager } from './HorseRiverNuts.js';
@@ -2169,6 +2170,19 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       return { success: false, error: 'Player not found at this table', code: 'NOT_IN_HAND' };
     }
 
+    if (
+      action === 'auto_check_fold' &&
+      this.isTournamentTable() &&
+      this.seatedPlayers.some((seat) => seat.user_id === userId && seat.is_horse) &&
+      (!canQuickCheckFold(userId) || facingShovePrice(state.currentBet, player.bet, state.players))
+    ) {
+      return {
+        success: false,
+        error: 'Choose an action on your turn',
+        code: 'PREACTION_UNAVAILABLE',
+      };
+    }
+
     // Validate the pre-action type
     const validPreActions = [
       'auto_fold',
@@ -3246,6 +3260,16 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     const canCheckForPreAction = toCallForPreAction === 0;
     if (this.hasCommittedLeaveFold(player.user_id)) {
       this.preActionEngine.setPreAction(this.tableId, player.user_id, 'auto_fold');
+    } else if (
+      player.is_horse &&
+      this.isTournamentTable() &&
+      this.preActionEngine.getPreAction(this.tableId, player.user_id)?.action ===
+        'auto_check_fold' &&
+      (!canQuickCheckFold(player.user_id) ||
+        facingShovePrice(state.currentBet, enginePlayer.bet, state.players))
+    ) {
+      // A shove can arrive after arming. Return the seat to its ordinary turn.
+      this.preActionEngine.clearPreAction(this.tableId, player.user_id);
     }
     const preResult = this.preActionEngine.executePreAction(
       this.tableId,
