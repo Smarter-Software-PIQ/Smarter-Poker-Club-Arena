@@ -44,6 +44,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / 'supabase/migrations/20261110000020_reliability_controller_stage_b.sql'
+FOLLOW_UP = ROOT / 'supabase/migrations/20261110144203_reliability_controller_drift_mirrors_are_incidents_and_push_.sql'
 FIXTURE = ROOT / 'scripts/ci/fixtures/reliability-controller-production-objects.sql'
 OWNER = '47965354-0e56-43ef-931c-ddaab82af765'
 # md5 of the whitespace-normalized definition, read from production (PokerIQ,
@@ -188,6 +189,13 @@ def main():
         assert r.returncode == 0, r.stderr
         proof = re.search(r'^-- @live-proof: (.+)$', MIGRATION.read_text(), re.M).group(1)
         assert sql(f'SELECT {proof}') == 't', 'live proof must hold after install'
+        # The observation-findings follow-up installs over the exact Stage B definitions; everything below runs against both.
+        r = psql(['-f', str(FOLLOW_UP)])
+        assert r.returncode == 0, r.stderr
+        proof = re.search(r'^-- @live-proof: (.+)$', FOLLOW_UP.read_text(), re.M).group(1)
+        assert sql(f'SELECT {proof}') == 't', 'follow-up live proof must hold after install'
+        r = psql(['-f', str(FOLLOW_UP)])
+        assert r.returncode != 0 and 'RELIABILITY_FINDINGS_PREIMAGE_CHANGED' in r.stderr, r.stderr
         assert sql("SELECT mutation_paused::text || ' ' || notify_mode || ' ' || system_sender_id || ' ' || owner_user_id FROM smarter_private.reliability_settings") == f'true observe {SENDER} {OWNER}'
         refused(f"UPDATE smarter_private.reliability_settings SET owner_user_id = '{SENDER}' WHERE id", 'settings_')
         refused("UPDATE smarter_private.reliability_settings SET owner_user_id = gen_random_uuid() WHERE id", 'settings_recipient_is_owner')
@@ -354,7 +362,7 @@ def main():
         record('club-arena.post-deploy-e2e', 'ep:failed-release:1', 'PostDeployVerificationIncomplete', 'info', 'info', {'kind': 'failed-release'})
         sql("INSERT INTO public.operational_alert_events(source, event_key, alertname, status, severity, payload, investigation_status) "
             "VALUES ('install-queue', 't1', 'InstallQueueJobFailed', 'firing', 'critical', '{}', 'test'), "
-            "('financial-alerts-updates', 'dup:1', 'lightning_alerts', 'firing', 'critical', '{}', 'informational')")
+            "('drift-incidents-updates', 'info-1:h', 'ca_manual_adjustments', 'info', 'info', '{\"original_incident\": {\"id\": \"info-1\"}}', 'informational')")
         am('canary-1', 'MonitoringCanary', severity='canary')
         am('canary-2', 'HorseTurnTimeouts', severity='warning', labels={'severity': 'canary'})
         record('mac-studio-git-maintenance', 'g1', 'Git Maintenance Not Keeping Up', 'firing', 'warning', {'repo': 'x'})
@@ -368,6 +376,43 @@ def main():
         record('club-arena.post-deploy-e2e', 'ep3:resolved', 'PostDeployVerificationIncomplete', 'resolved', 'info', {'resolves': 'ep3'})
         assert incident('PostDeployVerificationIncomplete') == 'verifying'
         ok("info, test, informational, canary, development and the controller's own rows open nothing; a critical post-deploy episode is a release incident its info receipt resolves")
+
+        # ---- a mirror row the inbox pre-marked informational is still an incident (production shapes, 2026-11-10).
+        def drift(key, alertname, incident_id, metadata, severity='critical', status='firing', mark='informational'):
+            payload = {'captured_at': '2026-11-10T14:37:01.788561+00:00', 'snapshot_kind': 'update_new', 'original_inbox_id': 373382,
+                       'original_incident': {'id': incident_id, 'layer': 'reporting', 'source': alertname.replace('financial_alerts:', ''), 'status': 'open',
+                                             'hand_id': None, 'table_id': None, 'tournament_id': None, 'metadata': metadata, 'severity': severity,
+                                             'dedupe_key': 'k', 'occurrences': 35}}
+            return int(sql("INSERT INTO public.operational_alert_events(source, event_key, alertname, status, severity, payload, investigation_status, investigation) "
+                           f"VALUES ('drift-incidents-updates', '{key}', $a${alertname}$a$, '{status}', '{severity}', $a${json.dumps(payload)}$a$::jsonb, '{mark}', "
+                           "'{\"rule\": \"mirror_duplicate_of_captured_original\"}') RETURNING id"))
+
+        before = incidents()
+        d1 = drift('c3f667d5-422b-47bb-9b1b-0898fa1c7003:5f93', 'fn_ca_cron_failure_watch', 'c3f667d5-422b-47bb-9b1b-0898fa1c7003',
+                   {'jobname': 'ca-collusion-daily', 'fails_24h': 1, 'failed_in_a_row': 3})
+        assert incidents() == before + 1 and incidents('fn_ca_cron_failure_watch') == 1
+        assert incident('fn_ca_cron_failure_watch', "incident_class || ' ' || status || ' ' || severity || ' ' || source || ' ' || scope::text") \
+            == 'database escalated critical drift-incidents {"jobname": "ca-collusion-daily"}'
+        assert incident('fn_ca_cron_failure_watch', "latest_evidence->>'drift_incident_id'") == 'c3f667d5-422b-47bb-9b1b-0898fa1c7003'
+        assert notes('fn_ca_cron_failure_watch') == 1 and num(f'SELECT count(*) FROM smarter_private.reliability_observations WHERE inbox_event_id = {d1}') == 1
+        drift('c3f667d5-422b-47bb-9b1b-0898fa1c7003:2995', 'fn_ca_cron_failure_watch', 'c3f667d5-422b-47bb-9b1b-0898fa1c7003', {'jobname': 'ca-collusion-daily'})
+        assert incidents('fn_ca_cron_failure_watch') == 1 and incident('fn_ca_cron_failure_watch', 'occurrence_count') == '2'
+        drift('aaaa1111:1', 'fn_ca_cron_failure_watch', 'aaaa1111', {'jobname': 'another-job'})
+        assert incidents('fn_ca_cron_failure_watch') == 2
+        ok('a critical drift mirror row the inbox pre-marked informational, with no inner alert, is an escalated incident per failing job that names its drift incident id')
+        held = 'ServerTableEngine.authoritative_hand_semantic_refusal'
+        record('financial-alerts-backfill', 'fa-77', held, 'firing', 'critical', {'original_event': {'id': 'fa-77', 'context': {'table_id': 'tbl-77', 'hand_id': 'h-1'}}})
+        inner = incident(held, 'id')
+        w = drift('dd-77:1', f'financial_alerts:{held}', 'dd-77', {'alert_id': 'fa-77', 'table_id': 'tbl-77'})
+        assert incidents(f'financial_alerts:{held}') == 0 and incidents(held) == 1
+        assert sql(f'SELECT incident_id FROM smarter_private.reliability_observations WHERE inbox_event_id = {w}') == inner
+        assert incident(held, 'occurrence_count') == '2' and notes(held) == 1
+        ok('a pre-marked wrapper that carries its inner record id is an observation on the inner incident, never a second incident')
+        before = incidents()
+        drift('info-2:1', 'ca_manual_adjustments', 'info-2', {}, severity='info', status='info')
+        record('drift-incidents-updates', 'info-3:1', 'ca_manual_adjustments', 'info', 'info', {'original_incident': {'id': 'info-3'}})
+        assert incidents() == before
+        ok('a row whose status and severity are both info is still a record and opens nothing')
 
         # ---- grouping: scopes never merge, a hand id never splits, wrappers join by record id only.
         dark = 'fn_ca_tournament_dark_while_running'
@@ -564,6 +609,31 @@ def main():
         assert num('SELECT count(*) FROM public.push_outbox') == 4 and num("SELECT count(*) FROM smarter_private.reliability_notifications WHERE push_state = 'pending'") == 4
         ok('past max_dm_per_hour a notification is rate_limited, stays unsent with no push, and a later tick sends it once the hour allows')
 
+        # ---- push_state follows what push_outbox records, and 'sent' is named for what it is.
+        pid = sql("SELECT n.push_outbox_id FROM smarter_private.reliability_notifications n JOIN smarter_private.reliability_incidents i ON i.id = n.incident_id "
+                  "WHERE i.alertname = 'PokerTablesFrozen'")
+
+        def mirrored():
+            return sql(f"SELECT push_state || '|' || push_detail FROM smarter_private.reliability_notifications WHERE push_outbox_id = '{pid}'")
+
+        sql(f"UPDATE public.push_outbox SET status = 'processing', claimed_at = now() WHERE id = '{pid}'")
+        assert tick()['push_states_refreshed'] == 1 and mirrored() == 'claimed|processing'
+        sql(f"UPDATE public.push_outbox SET status = 'failed', attempts = 1, failure_reason = 'no_active_subscription' WHERE id = '{pid}'")
+        assert tick()['push_states_refreshed'] == 1 and mirrored() == 'failed|failed, attempts 1: no_active_subscription'
+        sql(f"UPDATE public.push_outbox SET status = 'sent', attempts = 2, failure_reason = NULL, sent_at = '2026-11-10 07:28:15.244+00' WHERE id = '{pid}'")
+        assert tick()['push_states_refreshed'] == 1
+        assert mirrored() == 'provider_accepted|sent, attempts 2, accepted by the push provider at 2026-11-10T07:28:15Z (not proof of delivery to a device)'
+        sql(f"UPDATE public.push_outbox SET status = 'failed' WHERE id = '{pid}'")
+        assert tick()['push_states_refreshed'] == 0 and mirrored().startswith('provider_accepted|')
+        assert num("SELECT count(*) FROM smarter_private.reliability_notifications WHERE push_state IN ('delivered', 'read', 'sent')") == 0
+        refused("UPDATE smarter_private.reliability_notifications SET push_state = 'delivered' WHERE true", 'reliability_notifications_push_state_check')
+        other = sql("SELECT push_outbox_id FROM smarter_private.reliability_notifications WHERE push_state = 'pending' ORDER BY id LIMIT 1")
+        sql(f"UPDATE public.push_outbox SET status = 'skipped', failure_reason = 'recipient_opted_out' WHERE id = '{other}'")
+        assert tick()['push_states_refreshed'] == 1
+        assert sql(f"SELECT push_state || '|' || push_detail FROM smarter_private.reliability_notifications WHERE push_outbox_id = '{other}'") == 'skipped|skipped: recipient_opted_out'
+        assert num("SELECT count(*) FROM smarter_private.reliability_notifications WHERE push_state = 'pending'") == 2
+        ok('the tick mirrors push_outbox: processing is claimed, sent is provider_accepted (never delivered or read), failed carries its reason, skipped is skipped, and a terminal state is not re-read')
+
         # ---- a guard that diverts or refuses the push never undoes the message.
         sql("CREATE FUNCTION public.test_divert() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
             "IF NEW.title LIKE '%EngineDown%' THEN NEW.status := 'skipped'; NEW.failure_reason := 'routed_to_production_alerts'; END IF; "
@@ -691,7 +761,7 @@ def main():
         functions = sql("SELECT string_agg(p.oid::regprocedure::text, ';' ORDER BY p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
                         "WHERE n.nspname = 'smarter_private' AND p.proname LIKE 'reliability\\_%'").split(';')
         assert sql("SELECT has_schema_privilege('anon', 'smarter_private', 'USAGE')::text || has_schema_privilege('authenticated', 'smarter_private', 'USAGE')::text") == 'truetrue'
-        assert len(relations) == 15 and len(functions) == 21, (len(relations), len(functions))
+        assert len(relations) == 15 and len(functions) == 22, (len(relations), len(functions))
         for role in ('anon', 'authenticated'):
             for relation in relations:
                 refused(f'SET ROLE {role}; SELECT 1 FROM smarter_private.{relation} LIMIT 1', f'permission denied for')
