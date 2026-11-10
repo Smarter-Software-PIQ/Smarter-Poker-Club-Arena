@@ -145,6 +145,9 @@ function decideOpen(
   const d = HorseLogic.decide(players[heroSeat - 1], gs, style, mods, {
     mind: false,
     telemetry: false,
+    // This file pins the V70 reference base. V85 (owner direction 2026-11-09)
+    // widens cash from it and is pinned by HorseCashAction.law.test.ts.
+    v85CashAction: false,
     ...opts,
   } as never);
   const raise = d.action === 'raise' || d.action === 'bet' || d.action === 'all_in';

@@ -92,6 +92,9 @@ describe('the squeezed opener end to end (HorseLogic.decide)', () => {
           {
             mind: false,
             telemetry: false,
+            // Pins V75's own base; V85 (owner direction 2026-11-09) widens cash
+            // from it and is pinned by HorseCashAction.law.test.ts.
+            v85CashAction: false,
             ...opts,
           } as never
         );
@@ -139,6 +142,7 @@ describe('the squeezed opener end to end (HorseLogic.decide)', () => {
           {
             mind: false,
             telemetry: false,
+            v85CashAction: false,
           } as never
         );
         const hu = stateFor(CASH6, 4, 2, holeFor(h.cls, s));
@@ -151,6 +155,7 @@ describe('the squeezed opener end to end (HorseLogic.decide)', () => {
           {
             mind: false,
             telemetry: false,
+            v85CashAction: false,
           } as never
         );
         if (dSq.action !== 'fold') sqContinue += w / seeds;
