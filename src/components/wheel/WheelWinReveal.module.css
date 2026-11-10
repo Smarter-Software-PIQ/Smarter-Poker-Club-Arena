@@ -199,7 +199,7 @@
 .opening[data-award-impact='major'] .rays {
   background: repeating-conic-gradient(
     transparent 0deg 13deg,
-    #ffce56b3 16deg,
+    #c6f4ffb3 16deg,
     transparent 19deg 30deg
   );
 }
@@ -221,5 +221,47 @@
   .opening[data-award-impact] .rays,
   .opening[data-award-impact] .art {
     animation: none;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .opening[data-receipt-game='crash'] .prize {
+    animation: flight-receipt 0.55s ease-out both;
+  }
+  .opening[data-receipt-game='crossing'] .prize {
+    animation: crossing-receipt 0.5s ease-out both;
+  }
+  .opening[data-receipt-game='mines'] .prize {
+    animation: gem-receipt 0.52s ease-out both;
+  }
+  .opening[data-receipt-game='plinko'] .prize {
+    animation: drop-receipt 0.52s ease-out both;
+  }
+}
+@keyframes flight-receipt {
+  from {
+    transform: translate(-13%, 8%) rotate(-5deg);
+    opacity: 0.3;
+  }
+}
+@keyframes crossing-receipt {
+  from {
+    transform: translateX(-14%);
+    opacity: 0.3;
+  }
+}
+@keyframes gem-receipt {
+  from {
+    transform: scale(0.72) rotate(-4deg);
+    opacity: 0.3;
+  }
+}
+@keyframes drop-receipt {
+  from {
+    transform: translateY(-15%);
+    opacity: 0.3;
+  }
+  68% {
+    transform: translateY(3%);
   }
 }

@@ -233,6 +233,75 @@ export const CASH_ACTION_OPEN_TARGET: Readonly<Record<number, number>> = {
 };
 
 /**
+ * V85 CASH ACTION, EVERY TABLE SIZE (owner direction, 2026-11-09). A real
+ * player reported, for the fourth time, that the cash horses play far too
+ * tight, and production agreed: nine-handed no-limit cash horses ran 15.9%
+ * VPIP, 11.8% PFR and a 4.0% 3-bet over 7,806 horse-hands (six-handed 26.5 /
+ * 17.7 / 5.1). The owner: "FOR A 9 HANDED GAME, THESE NUMBERS NEED TO BE
+ * INCREASED TO 25-30% VPIP, AND INCREASE THE 3 BETTING ... WHILE MAINTAINING
+ * GTO DISCIPLINE", then "THIS NEEDS TO BE FULLY ADJUSTED FOR 6 HANDED GAMES
+ * AND SHORT HANDED PLAY AS WELL".
+ *
+ * The discipline is that nothing here is a quota: each seat still opens the
+ * top of ITS OWN reference order (GTO_OPEN_CHARTS), and only the width moves,
+ * to the top of each solver band and a little past it late. These replace
+ * CASH_ACTION_OPEN_TARGET (which applied at exactly six or nine dealt in, so
+ * a nine-seat table with an empty chair fell back to the tighter base) at
+ * every cash table of four or more. Conditional raise-first-in shares for a
+ * balanced horse, before style; no-ante cash only.
+ */
+export const V85_CASH_OPEN_TARGET: Readonly<Record<number, number>> = {
+  1: 50,
+  2: 52,
+  3: 35,
+  4: 27,
+  5: 22.5,
+  6: 20.5,
+  7: 18.5,
+  8: 17,
+};
+/** V85 three-handed and heads-up cash opens (button / small blind). */
+export const V85_CASH_OPEN_TARGET_THREE: Readonly<Record<number, number>> = { 1: 50, 2: 55 };
+export const V85_CASH_OPEN_TARGET_HU = 80;
+
+/**
+ * V85 IS A DEEP-STACK PROFILE. Measured against the human-calibrated field
+ * (30,000 pairs, one hero, six-handed), the full V85 widths at a 40bb stack
+ * ran -7.64 +/- 3.55 bb/100 against the prior ranges: a short stack cannot
+ * realise the implied odds wide calls and wide opens are made for. The
+ * widths therefore taper with the effective stack: none of V85 at
+ * V85_DEPTH_NONE_BB or less (the prior ranges, exactly), all of it from
+ * V85_DEPTH_FULL_BB, linear between. Cash buy-ins start at 50bb.
+ */
+export const V85_DEPTH_NONE_BB = 50;
+export const V85_DEPTH_FULL_BB = 85;
+export function v85DepthWeight(depthBB: number | undefined): number {
+  if (depthBB === undefined || !Number.isFinite(depthBB)) return 1;
+  return Math.max(
+    0,
+    Math.min(1, (depthBB - V85_DEPTH_NONE_BB) / (V85_DEPTH_FULL_BB - V85_DEPTH_NONE_BB))
+  );
+}
+/** The V85 cash open share at this depth: the prior cash share blended toward V85. */
+export function v85OpenTargetShare(
+  playersBehind: number,
+  ante: boolean,
+  dealt: number,
+  depthBB: number | undefined
+): number {
+  const prior = openTargetShare(playersBehind, ante, dealt, true);
+  const full = openTargetShare(playersBehind, ante, dealt, 'action');
+  return prior + (full - prior) * v85DepthWeight(depthBB);
+}
+
+/**
+ * Which cash opening profile a table plays: false = not a cash table (or an
+ * ablation without the cash profile), true = the 2026-11-03 six/nine-handed
+ * profile, 'action' = V85 at every table size.
+ */
+export type CashOpenProfile = boolean | 'action';
+
+/**
  * Short-handed targets. Three-handed the button and small blind play wider
  * than the same seats at a full table (two players to get through and, in a
  * spin, blinds that eat the stack: standard 3-max charts BTN ~50-60%, SB
@@ -367,17 +436,27 @@ export function openTargetShare(
   playersBehind: number,
   ante: boolean,
   dealt = 6,
-  cash = false
+  cash: CashOpenProfile = false
 ): number {
   const key = ante ? 'ante' : 'cash';
   const k = chartSeat(playersBehind);
+  if (cash === 'action' && !ante) {
+    if (dealt <= 2) return V85_CASH_OPEN_TARGET_HU;
+    if (dealt === 3 && k <= 2) return V85_CASH_OPEN_TARGET_THREE[k];
+    return V85_CASH_OPEN_TARGET[k];
+  }
   if (dealt <= 2) return OPEN_TARGET_HU[key];
   if (dealt === 3 && k <= 2) return OPEN_TARGET_THREE[key][k];
   if (cash && !ante && (dealt === 6 || dealt === 9)) return CASH_ACTION_OPEN_TARGET[k];
   return OPEN_TARGET[key][k];
 }
 
-export function gtoOpenBar(playersBehind: number, ante: boolean, dealt = 6, cash = false): number {
+export function gtoOpenBar(
+  playersBehind: number,
+  ante: boolean,
+  dealt = 6,
+  cash: CashOpenProfile = false
+): number {
   return scoreAtShare(openTargetShare(playersBehind, ante, dealt, cash) / 100);
 }
 

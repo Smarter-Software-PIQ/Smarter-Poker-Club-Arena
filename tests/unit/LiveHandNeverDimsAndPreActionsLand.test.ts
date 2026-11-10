@@ -94,7 +94,11 @@ describe('pre-actions reach the engine, and never hide an armed one', () => {
     expect(sync).toMatch(
       /serverAction === 'auto_call' \? preActionCallAmountRef\.current : undefined/
     );
-    expect(code).toMatch(/preActionCallAmountRef\.current = Math\.max\(/);
+    // 2026-11-10: in a Lightning room the price is the engine's own pair;
+    // everywhere else it is still the price on the button the player pressed.
+    expect(code).toMatch(
+      /preActionCallAmountRef\.current =\s+lightningOwes !== null\s+\? lightningOwes\s+: Math\.max\(/
+    );
   });
 
   it('clearing retries too - it is the direction that folds a live hand', () => {

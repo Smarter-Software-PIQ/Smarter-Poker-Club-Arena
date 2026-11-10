@@ -181,6 +181,10 @@ function defend(
         {
           mind: false,
           telemetry: false,
+          // This file pins the V72 reference base. V85 (owner direction
+          // 2026-11-09) widens cash from it and is pinned by
+          // HorseCashAction.law.test.ts.
+          v85CashAction: false,
           // Pin the clock: the V9 hourly mood hashes the current hour, so an
           // unpinned measurement moves with the wall clock.
           decisionTimeMs: DEFENCE_CLOCK_MS,

@@ -625,6 +625,10 @@ test('the published table explains controlled seat moves without moving a player
       'Waiting For The Button To Pass'
     );
     await expect(hero.getByTestId('seat-waiting-button-badge')).toBeVisible();
+    const waitingFooter = page.locator('.spectator-footer-bar[data-state="waiting-for-button"]');
+    await expect(waitingFooter).toHaveText('Waiting For The Button To Pass');
+    await expect(waitingFooter).toBeVisible();
+    await expect(page.getByRole('button', { name: "I'm Back", exact: true })).toHaveCount(0);
     await expect(hero.locator('.seat__card')).toHaveCount(0);
     await expect(hero.locator('.seat__bet-chips')).toHaveCount(0);
     await expect(page.locator('.action-btn--fold:visible')).toHaveCount(0);
@@ -648,6 +652,7 @@ test('the published table explains controlled seat moves without moving a player
       ],
     });
     destination.send(JSON.stringify(admitted));
+    await expect(waitingFooter).toHaveCount(0);
     await expect(hero.getByTestId('seat-waiting-button-badge')).toHaveCount(0);
     await expect(hero.locator('.seat__cards--hero .seat__card--face')).toHaveCount(2);
     await expect(hero.locator('.seat__bet-chips')).toHaveCount(0);

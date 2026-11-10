@@ -189,7 +189,7 @@ Email is NOT switched off by this project until Stage B is verified live.
   display name.
 - No production data, schedule, route or alert rule was changed in Stage A.
 
-## 6. Delivery State (updated 2026-11-10 01:00Z)
+## 6. Delivery State (updated 2026-11-10 07:30Z)
 
 Supersedes the earlier publication blocker: the repository was attached to the
 owning session with push access at 00:16Z and the repo hooks run in the cloud
@@ -197,12 +197,12 @@ clone (`AGENT_CLONE_OK=1` for the disposable clone, approved commit identity,
 locked `npm ci`). The Mac folders remain unconnected; nothing here depends on
 them except engine logs (section 4, B2).
 
-| Component                  | Branch / PR                                              | State                                                                                                                                                                          |
-| -------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Stage B database (this PR) | `feat/reliability-controller-stage-b`                    | implemented, tested (native 41/41 on PostgreSQL 17.11; 16 fixture objects hash-identical to production, 4 stand-in groups, see `FIXTURE-PARITY.md`); not merged, not installed |
-| Fallback reason label      | `fix/horse-fallback-reason-label`, PR #10260             | implemented, tested (nine reasons driven); not merged; engine part needs an activation by the release owner                                                                    |
-| World Hub controls         | World Hub `feat/reliability-incident-messenger-controls` | in progress                                                                                                                                                                    |
-| Independent health signal  | `feat/reliability-controller-health-signal`              | in progress                                                                                                                                                                    |
+| Component                 | Branch / PR                                              | State                                                                                                                                                                                                                  |
+| ------------------------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stage B database          | `feat/reliability-controller-stage-b`, PR #10312         | merged as `f741b472e67511689dffdbead6616b3d00da18e6`; migration 20261110000020 installed; enabled in observe mode (`notify_mode = observe`, `mutation_paused = true`); verified live, see section 7 (07:23Z to 07:28Z) |
+| Fallback reason label     | `fix/horse-fallback-reason-label`, PR #10260             | merged; the engine serving `bff6eed3` at 06:56Z does not contain it                                                                                                                                                    |
+| World Hub controls        | World Hub `feat/reliability-incident-messenger-controls` | in progress                                                                                                                                                                                                            |
+| Independent health signal | `feat/reliability-controller-health-signal`              | in progress                                                                                                                                                                                                            |
 
 Stage B design changes since section 2 was written:
 
@@ -250,3 +250,42 @@ controls live, final report. Evidence is appended below as each lands.
   `reliability_` (the repository's `check-migrations-applied` allows only
   `public` and `smarter_private`); browser roles are revoked per object.
   Native test 41/41 after the move. Local pre-push gate passed at `7bde6e6d7`.
+- 2026-11-10 07:23:50Z PR #10312 squash-merged as
+  `f741b472e67511689dffdbead6616b3d00da18e6`; exact-head checks on `aff9a633`:
+  50 passed; one non-required check red ("Installed and merged migrations
+  agree": production migration 20261109040704
+  kings_club_downline_reattach_snapshot has no file; not this project's).
+- 07:24:20Z "Apply Merged Migration" run 42775056016 succeeded;
+  `supabase_migrations.schema_migrations` holds 20261110000020; 50
+  `reliability_` relations and 21 functions in `smarter_private`.
+- 07:26:00Z first scheduled tick: job `reliability-controller-tick`, user
+  `postgres` (not a superuser in production), status succeeded in 0.016 s,
+  heartbeat written. This closes the superuser-fixture limitation for the
+  tick.
+- Installed state read back: `notify_mode = observe`, `mutation_paused =
+true`, 0 enabled runbooks, triggers `zzz_reliability_intake_insert` and
+  `zzz_reliability_intake_update` enabled, 0 reliability functions or
+  relations reachable by anon or authenticated, owner function executable by
+  authenticated only.
+- Real intake observed within three minutes of installation: Alertmanager
+  `DatabaseRepliesLost` became a warning incident;
+  `LightningHandHost.post_commit_obligations_pending` for one table became a
+  critical unclassified incident, escalated, and its notification was recorded
+  `suppressed_observe` with no message sent. 0 intake rejections.
+- 07:27:08Z validation message: notification 2 `persisted_in_messenger`,
+  message `97efa73c-d55d-4de6-91a1-c15f75b2fc90`, conversation
+  `5dde8c6a-7132-4983-953b-f4670742eb2d` between platform sender
+  `2d1cd6c3-...` and owner `47965354-...`. Replaying `fn_send_message_once`
+  with the same request id returned `replayed: true`; one message carries that
+  request id.
+- Push for that message: `push_outbox` row `04b51507-...`, event
+  `reliability_escalation`, status `pending`, 0 attempts at 07:28Z. Pending
+  proves neither dispatch nor phone delivery; dispatcher outcome still to be
+  traced.
+- Owner function at the database level (role authenticated with the caller's
+  claims, rolled back): owner received the incident object; a non-owner and
+  anon each received SQLSTATE 42501.
+- Release coordination: the booking check that blocked every branch was
+  corrected by its owner in #10317 (06:22Z). The applier itself holds installs
+  while a Backup export runs (`backup-export-holds-installs.mjs`), which is
+  what protects the release snapshot; this install went through that route.
