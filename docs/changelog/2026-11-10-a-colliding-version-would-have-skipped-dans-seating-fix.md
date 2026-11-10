@@ -75,6 +75,29 @@ who looks the version up does not land on the unrelated table_seats migration:
 changelog's own filename line. The table_seats migration and its changelog keep
 `20261110160345`, which is the version production recorded them under.
 
+## A push through the renamed owner does not synchronize the pull request
+
+Worth knowing before it costs somebody else half an hour. This worktree's
+`origin` was `git@github.com:Smarter-Poker/Smarter-Poker-Club-Arena.git`, the
+owner GitHub renamed to `Smarter-Software-PIQ`. Pushes through that redirect
+UPDATE THE REF and report success - `git ls-remote` agrees, and
+`scripts/agent-push.sh` verified the ref each time - but they do not produce a
+`pull_request` synchronize event, so `ci.yml`, which is `pull_request`-only,
+never entered for the new head.
+
+How it reads if you do not look at the event column: 22 runs attached to the
+first head and 4 to the second, no run for the branch in pending, waiting,
+requested, queued or action_required state, and a close/reopen that re-fired
+the small workflows and still not CI. Listing the branch's runs with their
+events is what names it: the first head carries `pull_request` runs, the later
+heads carry only `pull_request_target` and `push`. The one real `pull_request`
+event on this branch came from the autopilot bot OPENING the PR, not from any
+push of mine.
+
+CLAUDE.md section 11 already says to prefer the new owner path. This is what
+the old one costs on a push rather than on an API call. Fixed by pointing
+`origin` at `https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena.git`.
+
 ## Verified
 
 `migrationVersionUniqueness`, `a-window-migration-waits-for-the-daily-break`
