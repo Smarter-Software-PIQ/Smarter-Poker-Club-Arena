@@ -4305,9 +4305,9 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
         for (const id of [...this.horseHandsSinceBigPot.keys()])
           if (!seatedIds.has(id)) this.horseHandsSinceBigPot.delete(id);
         for (const p of players) {
-          if (!p.is_horse) continue;
+          // Identification only: the big pot hold is a horse's own exit rule.
+          const before = p.is_horse ? snap.dealtStacks.get(p.user_id) : undefined;
           const start = startingStackFor(this.chipContinuity?.row(p.user_id)?.baseline, maxBuyIn);
-          const before = snap.dealtStacks.get(p.user_id);
           if (before !== undefined && isBigPot(before, p.stack, start)) {
             this.horseHandsSinceBigPot.set(p.user_id, 0);
           } else {
@@ -4362,6 +4362,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
           this.preActionEngine.removePlayer(this.tableId, horse.user_id);
           this.horseRebuys.delete(horse.user_id);
           this.horseHandsSinceBigPot.delete(horse.user_id);
+          bankrollEvent('session_book_win');
           console.log(
             `[ServerTableEngine:${this.tableId}] Bankroll Management: Horse ${horse.username} hit profit target (${Math.floor(horse.stack)} chips) and cashed out before posting the Big Blind.`
           );
