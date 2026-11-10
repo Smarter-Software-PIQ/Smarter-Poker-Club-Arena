@@ -1008,7 +1008,7 @@ export async function logHandHistory(params: {
       handKey,
       committedHandId: handId,
       actions: acceptedActions,
-      ...(horseTurnClocks.length ? { horseTurnClocks } : {}),
+      horseTurnClocks: horseTurnClocks.length ? horseTurnClocks : undefined,
       bigBlind: params.bigBlind,
       showdown: params.showdownReveal ?? null,
       riverCallContext: {
