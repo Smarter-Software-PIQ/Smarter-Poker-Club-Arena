@@ -474,7 +474,9 @@ export function createHorseExecutionWitness(
           ...decision.preflopAuthority,
           context: Object.freeze({ ...decision.preflopAuthority.context }),
           intent: Object.freeze({ ...decision.preflopAuthority.intent }),
-          events: decision.preflopAuthority.events.map((event) => Object.freeze({ ...event })),
+          events: Object.freeze(
+            decision.preflopAuthority.events.map((event) => Object.freeze({ ...event }))
+          ),
         })
       : null,
     phase6Attribution: decision.tournamentPreflopAttribution

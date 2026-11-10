@@ -66,7 +66,7 @@ export interface PreflopAuthorityEvent {
 export interface PreflopAuthorityReceipt {
   version: 1;
   scope: 'reference_preflop';
-  events: PreflopAuthorityEvent[];
+  events: readonly PreflopAuthorityEvent[];
   context: {
     raises: number;
     callers: number;
@@ -77,6 +77,7 @@ export interface PreflopAuthorityReceipt {
     classNeverThreeBet: boolean;
   };
   intent: PreflopIntent;
+  /** Direct V7 glue return, before later reference wrappers or policy owners. */
   referenceAction: string;
   referenceAmount?: number;
 }

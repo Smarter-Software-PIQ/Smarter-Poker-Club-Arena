@@ -1,3 +1,4 @@
+import { variantInfo } from '../../engine/HorseEval.js';
 import {
   horseObserverReadsWereIndependent,
   horseObserverReadsUsedPublicPool,
@@ -613,6 +614,18 @@ export function reconcileHorseJournalHand(
         )
           throw Error();
         if (
+          (d.decision.preflopAuthority !== undefined &&
+            (d.decision.preflopAuthority.version !== 1 ||
+              d.decision.preflopAuthority.scope !== 'reference_preflop' ||
+              s.gameState.stage !== 'preflop' ||
+              d.decision.preflopAuthority.context.stack !== s.player.stack ||
+              d.decision.preflopAuthority.context.toCall !==
+                Math.max(0, s.gameState.currentBet - s.player.bet) ||
+              d.decision.preflopAuthority.context.isOmaha !==
+                (s.gameState.variantRules
+                  ? s.gameState.variantRules.holeCardsUse === 'exactly_two' &&
+                    s.gameState.variantRules.boardCardsUse === 'exactly_three'
+                  : variantInfo(s.gameState.gameVariant).isOmaha))) ||
           !horsePhase6AttributionMatchesSnapshot(d.decision, s) ||
           horsePhase7EvidenceMismatch(d.decision, s) !== null
         )

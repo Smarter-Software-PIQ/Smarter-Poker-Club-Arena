@@ -569,6 +569,40 @@ describe('private retained-hand journal consumer', () => {
     });
   });
 
+  it.each(['stack', 'toCall', 'isOmaha'] as const)(
+    'rejects matching decision/witness preflop %s that contradicts the original request',
+    (field) => {
+      const f = fixture('plo4');
+      const snapshot = f.d.snapshot;
+      const receipt: NonNullable<HorseDecision['preflopAuthority']> = {
+        version: 1,
+        scope: 'reference_preflop',
+        events: [],
+        context: {
+          raises: 1,
+          callers: 0,
+          toCall: Math.max(0, snapshot.gameState.currentBet - snapshot.player.bet),
+          stack: snapshot.player.stack,
+          position: 'bb',
+          isOmaha: true,
+          classNeverThreeBet: false,
+        },
+        intent: { a: 'call' },
+        referenceAction: 'call',
+      };
+      f.d.decision.preflopAuthority = receipt;
+      f.w = { ...f.w, preflopAuthority: JSON.parse(JSON.stringify(receipt)) };
+      expect(reconcileHorseJournalHand(f.rows(), handKey).status).toBe('reconciled');
+      if (field === 'isOmaha') receipt.context.isOmaha = false;
+      else receipt.context[field] += 1;
+      f.w = { ...f.w, preflopAuthority: JSON.parse(JSON.stringify(receipt)) };
+      const report = reconcileHorseJournalHand(f.rows(), handKey);
+      expect(report.status).toBe('incomplete');
+      expect(report.matchedActions).toBe(0);
+      expect(report.gaps).toContain('input_mismatch');
+    }
+  );
+
   it('rejects substituted preflop branch evidence even when the action still matches', () => {
     const f = fixture('plo4');
     f.w = {

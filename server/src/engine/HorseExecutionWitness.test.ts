@@ -101,6 +101,8 @@ describe('private execution witness', () => {
     expect(witness.preflopAuthority?.context.toCall).toBe(6);
     expect(witness.preflopAuthority?.events[0].branch).toBe('v46_class_flat');
     expect(witness.preflopAuthority?.intent.a).toBe('call');
+    expect(Object.isFrozen(witness.preflopAuthority?.events)).toBe(true);
+    expect(Reflect.set(witness.preflopAuthority!.events, 0, {})).toBe(false);
   });
 
   it.each(['accepted', 'withdrawn'] as const)(
