@@ -64,7 +64,7 @@
 -- @install-window: daily-maintenance
 -- @locks: public.hand_history
 --
--- @live-proof: (SELECT to_regclass('public.horse_brain_activity_rollup') IS NOT NULL AND to_regclass('public.horse_daily_brain_coverage') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.hand_history'::regclass AND tgname = 'zz_horse_brain_activity_rollup' AND NOT tgisinternal) AND NOT has_table_privilege('anon', 'public.horse_daily_brain_coverage', 'SELECT') AND NOT has_table_privilege('authenticated', 'public.horse_daily_brain_coverage', 'SELECT') AND has_table_privilege('service_role', 'public.horse_daily_brain_coverage', 'SELECT') AND NOT has_table_privilege('anon', 'public.horse_brain_activity_rollup', 'SELECT') AND position('fn_audit_per_horse_brain_coverage' in pg_get_functiondef('public.fn_run_horse_daily_audit(date)'::regprocedure)) > 0)
+-- @live-proof: (SELECT to_regclass('public.horse_brain_activity_rollup') IS NOT NULL AND to_regclass('public.horse_daily_brain_coverage') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.hand_history'::regclass AND tgname = 'zz_horse_brain_activity_rollup' AND NOT tgisinternal) AND NOT has_table_privilege('anon', 'public.horse_daily_brain_coverage', 'SELECT') AND NOT has_table_privilege('authenticated', 'public.horse_daily_brain_coverage', 'SELECT') AND has_table_privilege('service_role', 'public.horse_daily_brain_coverage', 'SELECT') AND NOT has_table_privilege('anon', 'public.horse_brain_activity_rollup', 'SELECT') AND (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.horse_daily_brain_coverage'::regclass) AND (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.horse_brain_activity_rollup'::regclass) AND position('fn_audit_per_horse_brain_coverage' in pg_get_functiondef('public.fn_run_horse_daily_audit(date)'::regprocedure)) > 0)
 
 BEGIN;
 
@@ -256,11 +256,17 @@ $function$;
 
 -- == 4. PRIVILEGES, THE 20261108191909 PATTERN ==============================
 -- GRANT and REVOKE do not trigger a PostgREST schema reload (CLAUDE.md DDL
--- policy rule 5). Writes happen only inside the SECURITY DEFINER functions;
--- service_role may read, the browser roles may not.
+-- policy rule 5). RLS is enabled with no policies in the creation migration
+-- (the explicit-access gate's rule for new public tables): the browser roles
+-- hold no privilege and no policy, service_role holds exactly SELECT after an
+-- explicit REVOKE ALL, and writes happen only inside the SECURITY DEFINER
+-- functions, which run as the table owner.
 
-REVOKE ALL ON TABLE public.horse_brain_activity_rollup FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON TABLE public.horse_daily_brain_coverage FROM PUBLIC, anon, authenticated;
+ALTER TABLE public.horse_brain_activity_rollup ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.horse_daily_brain_coverage ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE public.horse_brain_activity_rollup FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.horse_daily_brain_coverage FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON TABLE public.horse_brain_activity_rollup TO service_role;
 GRANT SELECT ON TABLE public.horse_daily_brain_coverage TO service_role;
 
