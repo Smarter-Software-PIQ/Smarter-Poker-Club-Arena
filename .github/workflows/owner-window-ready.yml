@@ -1,0 +1,91 @@
+name: Tell The Release Owner An Owner Window Is Ready
+
+# PHASE 3 (owner order 2026-11-09): "Phase 3 must notify the release owner
+# without dispatching." When a booked owner maintenance window
+# (server/release/owner-maintenance-windows.json) is open and a candidate has
+# complete current evidence, this workflow opens or comments on one GitHub
+# issue for the release owner, once per window and evidence. It never
+# dispatches, retries or cancels anything and holds no actions: write; the
+# release owner starts the explicit finite owner selection by hand
+# (docs/ENGINE-RELEASE-RUNBOOK.md). It runs on events that already happen
+# (protected pushes and successful push Backup or prequalification
+# completions) and adds no timer.
+# tests/an-open-owner-window-only-notifies-its-owner.law.test.ts
+on:
+  push:
+    branches: [main]
+  workflow_run:
+    workflows: ['Backup Engine (Clone, Stage, Certify)', 'Engine release prequalification']
+    branches: [main]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: owner-window-ready
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    name: Tell The Release Owner
+    if: >-
+      github.run_attempt == 1 && github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' ||
+       (github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.conclusion == 'success'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      statuses: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          sparse-checkout: |
+            scripts/ci
+            server/scripts
+            server/standby
+            server/release
+      - name: Ask whether an owner window is open
+        id: open
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON' >> "$GITHUB_OUTPUT"
+          import json, time
+          from datetime import datetime
+          floor = json.load(open('server/release/activation-floor.json'))
+          at = lambda v: datetime.fromisoformat(v.replace('Z', '+00:00')).timestamp()
+          owner = floor.get('ownerWindowId') if floor.get('schema') == 'engine-release-activation-floor/v2-owner-window' else None
+          print('open=' + ('true' if owner and at(floor['activationAt']) <= time.time() < at(floor['expiresAt']) else 'false'))
+          PYTHON
+      - name: Decide whether the release owner needs to hear about it
+        id: decide
+        if: steps.open.outputs.open == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Read-only, for the selector's own schema evidence checks.
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          python3 -B scripts/ci/owner-window-ready.py --repo "$GITHUB_REPOSITORY" \
+            --control "$GITHUB_SHA" --output owner-window-ready.json
+          jq -r '.reason' owner-window-ready.json
+          jq -r '"notify=" + (.notify | tostring), "issue=" + ((.issue // "") | tostring)' owner-window-ready.json >> "$GITHUB_OUTPUT"
+      - name: Notify the release owner
+        if: steps.decide.outputs.notify == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ steps.decide.outputs.issue }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          jq -r '.body' owner-window-ready.json > owner-window-ready.md
+          if [ -n "$ISSUE" ]; then
+            gh issue comment "$ISSUE" --repo "$REPO" --body-file owner-window-ready.md
+          else
+            gh issue create --repo "$REPO" --title "$(jq -r '.title' owner-window-ready.json)" --body-file owner-window-ready.md
+          fi
