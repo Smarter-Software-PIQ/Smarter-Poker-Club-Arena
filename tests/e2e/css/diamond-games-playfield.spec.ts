@@ -388,7 +388,7 @@ for (const superGame of [false, true])
         );
         await sits(readouts, 'the Mines profit readouts');
         await expect(page.getByRole('button', { name: /^Tile / })).toHaveCount(25);
-        await expect(page.getByText('25 Tiles. Your Next Discovery Awaits.')).toBeVisible();
+        await expect(page.getByText('Preparing Your Board')).toBeVisible();
       }
 
       if (game === 'crash') {
@@ -1276,6 +1276,36 @@ test('Plinko denominations scroll both ways on one row and both release controls
     animations: 'disabled',
   });
 });
+
+for (const viewport of [
+  { width: 390, height: 844 },
+  { width: 844, height: 390 },
+]) {
+  test(`Every Mines diamond receives its own first tap at ${viewport.width} x ${viewport.height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    await openGamePage(page, 'mines');
+    await expect(page.getByText('Select Any Diamond To Start')).toBeVisible();
+    const tiles = page.locator('[aria-label="Diamond Mines Board"] button');
+    await expect(tiles).toHaveCount(25);
+    const hitTargets = await tiles.evaluateAll((buttons) =>
+      buttons.map((button) => {
+        const box = button.getBoundingClientRect();
+        return (
+          box.left >= 0 &&
+          box.right <= innerWidth &&
+          box.top >= 0 &&
+          box.bottom <= innerHeight &&
+          document
+            .elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)
+            ?.closest('button') === button
+        );
+      })
+    );
+    expect(hitTargets).toEqual(Array(25).fill(true));
+  });
+}
 
 for (const viewport of START_VIEWPORTS)
   test(`Every bonus game opens with Start on the screen at ${viewport.width} x ${viewport.height}`, async ({

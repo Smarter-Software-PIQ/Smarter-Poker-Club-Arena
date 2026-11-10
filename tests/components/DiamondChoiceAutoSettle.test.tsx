@@ -410,6 +410,34 @@ describe('a refused ticket is re-dealt and the wager goes again', () => {
     noCheckControl();
   });
 
+  it('keeps the tapped earned tile through a standalone quote outage and a delayed start', async () => {
+    backend.state.mockRejectedValue(new Error('Standalone quote unavailable'));
+    let release!: () => void;
+    backend.start.mockImplementationOnce(async (request) => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { ...opened('mines'), commit_id: request.commitId };
+    });
+    backend.act.mockImplementationOnce(async (round, _action, cell) => ({
+      ...round,
+      picked: [cell],
+    }));
+    render(<DiamondChoicePage game="mines" />);
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: 'Pick Tile' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pick Tile' }));
+    await settle();
+    expect(backend.start).toHaveBeenCalledTimes(1);
+    expect(backend.act).not.toHaveBeenCalled();
+    await act(async () => release());
+    await settle();
+    expect(backend.act).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ commit_id: dealt[0].commit_id }),
+      'pick',
+      0
+    );
+  });
   it('restarts a pressed start the same way, once the fresh quote and ticket are in', async () => {
     backend.awardState.mockResolvedValue({ enabled: false, award: null, gameState: null });
     backend.start
