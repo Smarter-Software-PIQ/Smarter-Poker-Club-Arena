@@ -194,12 +194,12 @@ describe('contract 4: the first step never ruins a game, and the floor is what t
   });
 
   it("the table follows the floor, and the drop value is the player's within one to a hundred drops", () => {
-    expect([...PLINKO_LIVE_TABLES]).toEqual([4, 6]);
-    expect(plinkoTableForFloor(1, 0.5)).toBe(4);
-    expect(plinkoTableForFloor(0.25, 0.13)).toBe(4);
-    expect(plinkoTableForFloor(75, 50)).toBe(6);
-    expect(plinkoTableForFloor(0.75, 0.5)).toBe(6);
-    expect(plinkoTableForFloor(1, 0.8)).toBeNull();
+    expect([...PLINKO_LIVE_TABLES]).toEqual([7]);
+    expect(plinkoTableForFloor(1, 0.5, true)).toBe(4);
+    expect(plinkoTableForFloor(0.25, 0.13, true)).toBe(4);
+    expect(plinkoTableForFloor(75, 50, true)).toBe(6);
+    expect(plinkoTableForFloor(0.75, 0.5, true)).toBe(6);
+    expect(plinkoTableForFloor(1, 0.8, true)).toBeNull();
     expect(Math.min(...PLINKO_TABLES[6].multipliersCents)).toBe(72);
     expect(plinkoDropChoices(7500).map((c) => c.denomination)).toEqual([100, 250, 500, 7500]);
     expect(plinkoDropChoices(100).map((c) => c.denomination)).toEqual([
@@ -408,9 +408,9 @@ describe('contract 4: the first step never ruins a game, and the floor is what t
           payout_chips: number;
           slot: number;
         }[];
-        expect(PLINKO_LIVE_TABLES).toContain(Number(value.table_version));
+        expect([4, 6]).toContain(Number(value.table_version));
         expect(Number(value.table_version)).toBe(
-          plinkoTableForFloor(betChips, Number(value.minimum_payout_chips))
+          plinkoTableForFloor(betChips, Number(value.minimum_payout_chips), true)
         );
         expect(value.multipliers_cents).toEqual(table.multipliersCents);
         expect(

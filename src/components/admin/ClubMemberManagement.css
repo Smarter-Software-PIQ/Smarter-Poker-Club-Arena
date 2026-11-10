@@ -57,7 +57,7 @@
   overflow-y: auto;
 }
 
-.member-row {
+.member-management .member-row {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -69,13 +69,13 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
-.member-row.banned {
+.member-management .member-row.banned {
   opacity: 0.5;
   background: rgba(239, 68, 68, 0.05);
   border-color: rgba(239, 68, 68, 0.2);
 }
 
-.member-row .avatar {
+.member-management .member-row .avatar {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -89,7 +89,7 @@
   font-weight: 700;
 }
 
-.member-row .avatar img {
+.member-management .member-row .avatar img {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -111,19 +111,19 @@
   cursor: pointer;
 }
 
-.member-row .actions button:disabled {
+.member-management .member-row .actions button:disabled {
   opacity: 0.5;
   cursor: default;
 }
 
-.member-row .info {
+.member-management .member-row .info {
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.member-row .name {
+.member-management .member-row .name {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
@@ -132,24 +132,24 @@
   gap: 8px;
 }
 
-.member-row .role {
+.member-management .member-row .role {
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
 }
 
-.member-row .stats {
+.member-management .member-row .stats {
   font-size: 11px;
   color: var(--text-muted);
 }
 
-.member-row .actions {
+.member-management .member-row .actions {
   display: flex;
   gap: 6px;
   align-items: center;
 }
 
-.member-row .actions select {
+.member-management .member-row .actions select {
   padding: 4px 8px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -158,7 +158,7 @@
   font-size: 16px; /* was 11px; under 16px makes iOS zoom the page on focus */
 }
 
-.member-row .actions button {
+.member-management .member-row .actions button {
   width: 28px;
   height: 28px;
   border-radius: 6px;
@@ -167,17 +167,17 @@
   font-size: 12px;
 }
 
-.member-row .actions .ban {
+.member-management .member-row .actions .ban {
   background: rgba(239, 68, 68, 0.15);
   color: #f87171;
 }
 
-.member-row .actions .unban {
+.member-management .member-row .actions .unban {
   background: rgba(74, 222, 128, 0.15);
   color: #4ade80;
 }
 
-.member-row .actions .kick {
+.member-management .member-row .actions .kick {
   background: rgba(239, 68, 68, 0.15);
   color: #f87171;
 }

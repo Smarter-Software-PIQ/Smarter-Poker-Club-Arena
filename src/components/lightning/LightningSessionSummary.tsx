@@ -34,6 +34,7 @@ import { reportError } from '../../utils/errorReporter';
 import LightningStatsGrid from './LightningStatsGrid';
 import LightningRecentHands from './LightningRecentHands';
 import './LightningSession.css';
+import '../../styles/postPlayResults.css';
 
 export function useLightningSessionSummary(
   poolSessionId: string | null,
@@ -212,6 +213,7 @@ export function LightningSessionSummaryHost() {
         onClick={(e) => e.stopPropagation()}
       >
         <SpadeConsole
+          className="postplay-panel"
           eyebrow="Lightning"
           title="Session Results"
           titleId="lightning-summary-title"

@@ -74,8 +74,8 @@ describe('a refused move is an answer', () => {
     expect(page).toMatch(/const cashLabel = bookable === null \? 'Book The Win' : /);
     expect(page).toMatch(/const canBook = open && picks > 0 && !busy && !sceneBusy && !uncertain;/);
     const plate = page.slice(
-      page.indexOf('secondary={{'),
-      page.indexOf('}}', page.indexOf('secondary={{'))
+      page.indexOf('secondary={'),
+      page.indexOf('primary={', page.indexOf('secondary={'))
     );
     expect(plate).toMatch(/label: pendingAction === 'book' \? 'Booking Win' : cashLabel,/);
     expect(plate).toMatch(/if \(!canBook\) return;/);

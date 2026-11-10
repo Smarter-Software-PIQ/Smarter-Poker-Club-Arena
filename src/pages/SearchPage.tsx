@@ -1,3 +1,4 @@
+import { formatTournamentTitle } from '../utils/formatGameTitle';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import { getTournamentEntryCapacity } from '../utils/tournamentPresentation';
 /**
@@ -1235,7 +1236,7 @@ export default function SearchPage() {
                             rememberSearch(query);
                             navigate(`/tournaments/${tournament.id}`);
                           }}
-                          aria-label={`Open ${tournament.name}`}
+                          aria-label={`Open ${formatTournamentTitle(tournament.name)}`}
                         >
                           <span className={styles.avatar} data-shape="square">
                             <b className={styles.variant}>
@@ -1250,7 +1251,7 @@ export default function SearchPage() {
                           </span>
                           <span className={styles.copy}>
                             <span className={styles.titleRow}>
-                              <strong>{tournament.name}</strong>
+                              <strong>{formatTournamentTitle(tournament.name)}</strong>
                               <span
                                 className={styles.kindPill}
                                 data-kind={tournament.status.toLowerCase()}

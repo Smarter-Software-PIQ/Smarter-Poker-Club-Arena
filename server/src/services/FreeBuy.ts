@@ -184,6 +184,17 @@ export const FREE_BUY_PREVIOUS_GUARANTEES: Record<FreeBuyTier, number> = {
  * its slot's own format (midwayFreeBuyPolicy.ts). */
 export const MIDWAY_FREE_BUY_ROTATION_FROM_MS = Date.parse('2026-11-05T14:30:00Z');
 
+/**
+ * 20261108212837 (2026-11-08 21:28 UTC) stripped the repeated opening blind
+ * level and stepped late_reg_levels down from 12 to 11 without stepping
+ * rebuy_levels down with it. The five Free Buy slots that started between
+ * 2026-11-08T22:30:00Z and 2026-11-09T18:30:00Z ran with late_reg_levels = 11
+ * and rebuy_levels = 12 and are immutable after start; every unstarted row from
+ * 2026-11-09T22:30:00Z onward has both columns normalized to 11.
+ */
+export const FREE_BUY_REPEATED_LEVEL_TRANSITION_FROM_MS = Date.parse('2026-11-08T22:30:00Z');
+export const FREE_BUY_REPEATED_LEVEL_TRANSITION_TO_MS = Date.parse('2026-11-09T18:30:00Z');
+
 /** 'HH:MM' Chicago start of a slot. */
 export function freeBuySlotTime(slot: FreeBuySlot): string {
   return `${String(slot.chicagoHour).padStart(2, '0')}:${String(FREE_BUY_SLOT_MINUTE).padStart(2, '0')}`;
@@ -963,8 +974,13 @@ export function auditFreeBuyRow(
     num(row.late_reg_mins) === cfg.lateRegMinutes,
     `late reg ${row.late_reg_mins} minutes, not ${cfg.lateRegMinutes}`
   );
+  const inRepeatedLevelTransitionWindow =
+    startMs >= FREE_BUY_REPEATED_LEVEL_TRANSITION_FROM_MS &&
+    startMs <= FREE_BUY_REPEATED_LEVEL_TRANSITION_TO_MS &&
+    num(row.late_reg_levels) === 11 &&
+    num(row.rebuy_levels) === 12;
   say(
-    num(row.rebuy_levels) === num(row.late_reg_levels),
+    num(row.rebuy_levels) === num(row.late_reg_levels) || inRepeatedLevelTransitionWindow,
     'the rebuy period and late registration do not close together'
   );
 

@@ -224,7 +224,7 @@ test.describe('real Table Studio browser flows', () => {
     await expect(preview).toHaveAttribute('data-background-theme', 'emerald_room');
 
     await tapReadyControl(studio.getByRole('tab', { name: 'Cards' }));
-    await tapReadyControl(studio.getByRole('button', { name: 'Royal', exact: true }));
+    await tapReadyControl(studio.getByRole('button', { name: 'Forest Weave', exact: true }));
     await expect(preview).toHaveAttribute('data-card-back', 'royal');
 
     /* POLL ALL FOUR, NOT JUST THE FIRST (2026-09-05).

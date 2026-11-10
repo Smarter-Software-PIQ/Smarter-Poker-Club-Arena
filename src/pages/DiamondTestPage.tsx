@@ -20,9 +20,7 @@ import {
   CRASH_CAP_CENTS,
   CRASH_PAYOUT_VERSION,
   crashMultiplierCents,
-  crashPointCentsFromRoll,
-  crashPointFloorCents,
-  crashReturnPpm,
+  crashPointCentsForContract,
   plinkoBitsFromPathBits,
 } from '../utils/diamondGamesFairness';
 import { plinkoAllocations } from '../utils/bonusGameBudget';
@@ -183,13 +181,7 @@ export default function DiamondTestPage() {
     } else if (game === 'crash')
       crash.current = Math.min(
         CRASH_CAP,
-        crashPointCentsFromRoll(
-          fixedRoll ?? roll48(),
-          chips,
-          minimum,
-          crashPointFloorCents(CRASH_PAYOUT_VERSION),
-          crashReturnPpm(chips, minimum, CRASH_PAYOUT_VERSION)
-        )
+        crashPointCentsForContract(fixedRoll ?? roll48(), chips, minimum, CRASH_PAYOUT_VERSION)
       );
     // A fixed road for screenshots and demos: ?roll=0.07 seals the road at that
     // fraction of the draw space (0 crosses every street, 1 is hit on street 2).

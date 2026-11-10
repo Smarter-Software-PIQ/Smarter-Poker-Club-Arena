@@ -94,7 +94,7 @@ describe('versioned wheel entry and recovery', () => {
       p_bonus_ticket_id: null,
     });
   });
-  it.each([24, 2501, 25.5, NaN])(
+  it.each([0, -1, Number.MAX_SAFE_INTEGER + 1, 25.5, NaN])(
     'refuses an invalid saved entry %s before a money request',
     (entryDiamonds) => {
       expect(() => saveWheelPending({ ...attempt, entryDiamonds })).toThrow();

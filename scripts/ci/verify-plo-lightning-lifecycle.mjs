@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -31,11 +31,116 @@ export function requireCleanupSource(run, original, sha, runId) {
     /^[0-9a-f]{40}$/.test(run.head_sha ?? ''), 'Original protected proof run required');
   assert(original.gameId === GAME && original.engineSha === sha && original.cleanup?.completed === false &&
     !original.cleanup?.retainedUnknownFinancialIntent && original.funding?.confirmed === true &&
-    original.ownedFundingLegs?.some(l => l.idempotency_key === `club_bank_send:${original.funding.opId}` && Number(l.amount) === BUY_IN),
-    'Only reconciled original proof cleanup can recover; unknown money remains retained');
+    (/^[0-9a-f-]{36}$/.test(original.cashSessionId ?? '') && original.buyInIntent?.p_user_id === original.accounts?.player),
+    'Original confirmed buy-in proof required; unknown purchases remain retained');
   const accounts = Object.values(original.accounts ?? {});
   assert(accounts.length === 2 && new Set(accounts).size === 2 && accounts.every(id => /^[0-9a-f-]{36}$/.test(id)), 'Exact original owned actors required');
   return accounts;
+}
+export function proofFetch(environment, transport = fetch) {
+  return (url, init = {}) => {
+    const headers = new Headers(init.headers);
+    const service = headers.get('apikey') === environment.SUPABASE_SERVICE_ROLE_KEY;
+    return transport(url, { ...init,
+      headers: service ? supabaseServerHeaders(environment.SUPABASE_SERVICE_ROLE_KEY, Object.fromEntries(headers)) : init.headers,
+      signal: init.signal ?? AbortSignal.timeout(20_000),
+    });
+  };
+}
+export function ordinaryTurnContext(snapshot, player) {
+  if (snapshot.current_player !== player) return null;
+  const own = snapshot.players?.find(p => p.user_id === player);
+  assert(own && [snapshot.current_bet, own.bet, own.totalInvested, own.stack].every(v => Number.isFinite(v) && v >= 0), 'Owned turn amounts are unavailable');
+  assert(typeof snapshot.action_context === 'string' && snapshot.action_context.length > 0 && typeof snapshot.table_id === 'string','Exact owned decision context required');
+  return { tableId:snapshot.table_id, context:snapshot.action_context, stage:snapshot.stage, callAmount:Math.max(0,snapshot.current_bet-own.bet), bet:own.bet,
+    budget:Math.max(0,Math.min(8-own.totalInvested,own.stack-0.01)) };
+}
+export function createParticipationGuard() {
+  const turns=new Map(), intents=new Map();
+  return {
+    approve(turn) { turns.set(turn.context,turn); },
+    allows(body) {
+      if (['check','fold'].includes(body.action)) return true;
+      const turn=turns.get(body.actionContext);
+      if (!turn || body.tableId!==turn.tableId || turn.stage!=='preflop' || typeof body.idempotencyKey!=='string' || !body.idempotencyKey) return false;
+      if (body.action==='call' && body.amount!==undefined) return false;
+      const cost=body.action==='call' ? turn.callAmount : body.action==='raise' && typeof body.amount==='number' ? body.amount-turn.bet : NaN;
+      if (!Number.isFinite(cost) || cost<=0 || cost>turn.budget) return false;
+      const serialized=JSON.stringify(body), prior=intents.get(body.actionContext);
+      if (prior && prior!==serialized) return false;
+      intents.set(body.actionContext,serialized); return true;
+    },
+  };
+}
+export async function performOrdinaryTurn(page, turn) {
+  const panel = page.locator('.action-panel--active[data-connection="live"]');
+  const row = panel.locator('.action-row');
+  const click = async button => {
+    if (!(await button.isVisible()) || !(await button.isEnabled())) return false;
+    try { await button.click({ timeout: 2000 }); }
+    catch (error) {
+      if (error.name !== 'TimeoutError' || (await button.isVisible() && await button.isEnabled())) throw error;
+      // Observe a successor turn instead of replaying the vanished action.
+    }
+    return true;
+  };
+  // Madness requires40% VPIP in10hands. Participate through the same player
+  // controls, bounded to8chips total investment per hand; never force all-in.
+  if (turn?.stage === 'preflop') {
+    if (turn.callAmount > 0 && turn.callAmount <= turn.budget &&
+      await click(row.getByRole('button',{name:/^Call /}).first())) return;
+    if (turn.callAmount === 0 && turn.budget > 0 &&
+      await click(row.getByRole('button',{name:'Open Raise Panel',exact:true}).first())) {
+      const slider = panel.getByRole('slider',{name:'Raise Amount',exact:true});
+      if (await slider.isVisible()) {
+        const minimum=Number(await slider.getAttribute('min'));
+        if (Number.isFinite(minimum) && minimum > turn.bet && minimum-turn.bet <= turn.budget) {
+          await slider.press('Home');
+          if (await click(panel.getByRole('button',{name:/^Raise [0-9]/}).first())) return;
+        }
+        await click(panel.getByRole('button',{name:'Back',exact:true}).first());
+      } else return; // The original turn vanished while its panel opened.
+    }
+  }
+  for (const label of ['Check', 'Fold'])
+    if (await click(row.getByRole('button', { name: label, exact: true }).first())) return;
+}
+export function recoveryClaimId(runId, playerId) {
+  const h = createHash('sha256').update(`plo-proof-owned-wallet:${runId}:${playerId}`).digest('hex').slice(0,32).split('');
+  h[12] = '8'; h[16] = '8';
+  const v=h.join(''); return `${v.slice(0,8)}-${v.slice(8,12)}-${v.slice(12,16)}-${v.slice(16,20)}-${v.slice(20)}`;
+}
+export async function reconcileProofWallet(original, runId, { read, sessionFor, claim, report, save }) {
+  const player=original.accounts.player, cashier=original.accounts.cashier, club=original.fundingClubId;
+  const one = async path => { const rows=await read(path); assert(rows.length===1,'Exact original financial row required'); return rows[0]; };
+  const closed=await one(`cash_player_session?id=eq.${original.cashSessionId}&select=id,player_id,cluster_id,closed_at,final_stack,financial_capture_status`);
+  assert(closed.player_id===player && closed.cluster_id===GAME && closed.closed_at && closed.financial_capture_status==='exact' && Number.isFinite(Number(closed.final_stack)) && Number(closed.final_stack)>=0,'Original cash-out is not authoritatively closed');
+  requireFundingClub(await one(`clubs?id=eq.${club}&select=id,union_id,asset,status`),await one(`union_clubs?club_id=eq.${club}&union_id=eq.${HOUSE}&select=club_id,union_id`));
+  for (const [table,filter] of [['table_seats','user_id=eq.'+player+'&left_at=is.null'],['cash_player_session','player_id=eq.'+player+'&closed_at=is.null'],['lightning_pool_session','player_id=eq.'+player+'&exited_at=is.null']]) assert(!(await read(`${table}?${filter}&select=id`)).length,'Original actor still has active custody');
+  const fund=await one(`chip_ledger?club_id=eq.${club}&idempotency_key=eq.club_bank_send:${original.funding.opId}&select=id,amount,idempotency_key,from_entity_id,to_entity_id`);
+  assert(Number(fund.amount)===BUY_IN && fund.from_entity_id===club && fund.to_entity_id===player,'Original funding receipt differs');
+  const balance = async () => {
+    const rows=await read(`club_members?user_id=eq.${player}&select=club_id,chip_balance,promo_balance,held_chips,locked_chips,credit_used,credit_limit`);
+    assert(rows.every(m=>['promo_balance','held_chips','locked_chips','credit_used','credit_limit'].every(k=>Number(m[k])===0) && (m.club_id===club || Number(m.chip_balance)===0)),'Original actor has unrelated custody');
+    return Number(rows.find(m=>m.club_id===club)?.chip_balance ?? 0);
+  };
+  const amount=Number(closed.final_stack), opId=original.claimBack?.opId ?? recoveryClaimId(runId,player);
+  report.cashOut=closed; report.claimBack={opId,amount}; save();
+  const receiptPath=`chip_ledger?club_id=eq.${club}&idempotency_key=eq.club_wallet_claim:${opId}&select=id,amount,idempotency_key,from_entity_id,to_entity_id`;
+  let receipts=await read(receiptPath), available=await balance();
+  const valid = rows => rows.length===1 && Number(rows[0].amount)===amount && rows[0].from_entity_id===player && rows[0].to_entity_id===club;
+  if (!amount) { assert(available===0 && !receipts.length,'Zero cash-out differs'); report.ownedFundingLegs=[fund]; return; }
+  if (receipts.length) assert(valid(receipts) && available===0,'Original claim-back receipt differs');
+  else {
+    assert(available===amount,'Original cash-out and wallet do not reconcile');
+    const session=await sessionFor(cashier); assert(session.userId===cashier,'Original cashier session differs');
+    report.claimBack.pending=true; save();
+    const r=await claim(session.token,{p_club_id:club,p_from_user_id:player,p_amount:amount,p_source:'player_wallet',p_destination:'club_bank',p_reason:'Certification cleanup: original PLO proof wallet returned',p_op_id:opId,p_transaction_id:null});
+    assert(r.status===200 && r.body?.success===true,'Original claim-back has no confirmed response; retain its operation key');
+    receipts=await read(receiptPath); available=await balance();
+    assert(valid(receipts) && available===0,'Original claim-back has no reconciled receipt');
+  }
+  report.claimBack.confirmed=true; delete report.claimBack.pending; report.ownedFundingLegs=[fund,...receipts]; save();
 }
 export async function requestGuardedCleanup(environment, id, fetchImpl = fetch) {
   const response = await fetchImpl(`${environment.SUPABASE_URL}/rest/v1/rpc/cleanup_reserved_certification_account`, {
@@ -44,7 +149,7 @@ export async function requestGuardedCleanup(environment, id, fetchImpl = fetch) 
   });
   return { status: response.status, body: await response.json() };
 }
-async function recoverProofCleanup(environment, sha, runId, out, read) {
+async function recoverProofCleanup(environment, sha, runId, out, c, read) {
   const result = { status: 'cleanup-only', engineSha: sha, gameId: GAME, originalRunId: runId, cleanup: { completed: false }, accounts: {} };
   const save = () => writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, 2));
   const gh = args => execFileSync('gh', args, { encoding: 'utf8', timeout: 60_000, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -58,13 +163,16 @@ async function recoverProofCleanup(environment, sha, runId, out, read) {
     const accounts = requireCleanupSource(run, original, sha, runId);
     execFileSync('git', ['merge-base', '--is-ancestor', run.head_sha, 'origin/main'], { stdio: 'pipe' });
     result.accounts = original.accounts; save();
-    // The guarded door owns live custody checks. No funding, seat write,
-    // claim-back or replay of an uncertain financial operation exists here.
-    for (const id of accounts) {
-      const seats = await read(`table_seats?user_id=eq.${id}&left_at=is.null&select=id`);
-      const members = await read(`club_members?user_id=eq.${id}&select=chip_balance,promo_balance,held_chips,locked_chips,credit_used,credit_limit`);
-      assert(!seats.length && members.every(m => Object.values(m).every(v => Number(v) === 0)), 'Original actor still holds live custody');
-    }
+    await reconcileProofWallet(original, runId, {
+      read, report:result, save,
+      sessionFor: async id => {
+        const r=await fetch(`${environment.SUPABASE_URL}/auth/v1/admin/users/${id}`,{headers:supabaseServerHeaders(environment.SUPABASE_SERVICE_ROLE_KEY),signal:AbortSignal.timeout(20_000)});
+        assert(r.ok,'Original cashier identity unavailable'); const b=await r.json(),user=b.user??b;
+        assert(user.id===id && !user.deleted_at && user.email?.startsWith('ca-customization-cert-postdeploy-') && user.email.endsWith('@example.invalid'),'Original reserved cashier required');
+        return c.sessionFor(user.email);
+      },
+      claim: (token,parameters)=>c.rpc(token,'fn_club_wallet_claim_back',parameters),
+    });
     for (const id of accounts) {
       const checked = await requestGuardedCleanup(environment, id);
       assert(checked.status === 200, 'Original guarded cleanup is unavailable or refused');
@@ -101,6 +209,38 @@ export function receiptMatches(receipt, p) {
   return receipt?.status === 'confirmed' && r?.door === 'atomic_table_buyin' &&
     r.user_id === p.p_user_id && r.table_id === p.p_table_id && r.seat_number === p.p_seat_number &&
     r.amount === p.p_amount && r.auto_rebuy === p.p_auto_rebuy && r.club_id === p.p_club_id;
+}
+export function requirePostHumanDemand(value, previous, ownedOccupancy, verifiedEmpty = false) {
+  const ended = verifiedEmpty && previous?.wind_down === true && value?.continues === false && value?.wind_down === false;
+  assert(value?.game_id === GAME && /^[0-9a-f-]{36}$/.test(value.event_id ?? '') &&
+    typeof value.continues === 'boolean' && typeof value.wind_down === 'boolean' &&
+    (value.continues !== value.wind_down || ended), 'Original post-human demand is unavailable');
+  if (ownedOccupancy) assert(value.event_id === ownedOccupancy, 'Continuation is not bound to the owned original occupancy');
+  if (previous) assert(value.event_id === previous.event_id && (ended ||
+    (value.continues === previous.continues && value.wind_down === previous.wind_down)),
+    'Last-human decision rerolled without a new human exit');
+  return value;
+}
+export function requirePostHumanGameplay({ decision, continued, hands, exitAt, samples }) {
+  assert(continued.length >= 3, 'Remaining participants did not continue valid Lightning hands');
+  assert(hands.every(h => !h.includesTestPlayer), 'Stopped participant was dealt into a later hand');
+  const late = hands.filter(h => h.endedAt && h.playerCount >= 2 && Date.parse(h.startedAt) >= Date.parse(exitAt)+6*60_000);
+  const last = samples.at(-1);
+  assert(last, 'Post-human population observation is unavailable');
+  for (let i=1;i<samples.length;i++) {
+    const gap=Date.parse(samples[i].at)-Date.parse(samples[i-1].at);
+    assert(gap>=0 && samples[i-1].participants-samples[i].participants<=2+Math.floor(gap/60_000),
+      'Synchronized departure burst observed');
+  }
+  if (decision.continues || last.participants >= 2) {
+    assert(late.length, 'No valid gameplay beyond the incident departure-burst interval');
+  } else {
+    const terminal = samples.find(s=>s.participants<2);
+    assert(decision.wind_down && terminal && Date.parse(terminal.at) >= Date.parse(exitAt)+6*60_000 &&
+      new Set(samples.map(s => s.participants)).size >= 3,
+      'Wind-down ended without a gradual observed decline');
+  }
+  return late[0] ?? {tableId:continued.at(-1).host_table_id,handNumber:continued.at(-1).hand_number};
 }
 export function requireHealth(h, sha, instance) {
   assert(typeof h.instanceId === 'string' && h.instanceId.length > 0 && h.releaseSha === sha && (!instance || h.instanceId === instance), 'Serving engine changed; proof is UNKNOWN');
@@ -149,7 +289,7 @@ export async function main(environment = process.env) {
   mkdirSync(out, { recursive: true });
   const report = { status: 'unknown', engineSha: sha, gameId: GAME, milestones: {}, admissions: [], samples: [], cleanup: {}, accounts: {} };
   const save = () => writeFileSync(join(out, 'result.json'), JSON.stringify(report, null, 2));
-  const fetchImpl = (url, init = {}) => fetch(url, { ...init, signal: init.signal ?? AbortSignal.timeout(20_000) });
+  const fetchImpl = proofFetch(environment);
   const c = clients({ SUPA: environment.SUPABASE_URL, SR: environment.SUPABASE_SERVICE_ROLE_KEY, ANON: environment.VITE_SUPABASE_ANON_KEY, fetchImpl });
   const read = async path => {
     const r = await fetchImpl(`${environment.SUPABASE_URL}/rest/v1/${path}`, { headers: supabaseServerHeaders(environment.SUPABASE_SERVICE_ROLE_KEY, { Prefer: 'count=exact', Range: '0-999' }) });
@@ -180,7 +320,15 @@ export async function main(environment = process.env) {
     assert(profiles.length === users.length, 'Participant identity read incomplete');
     return { tables, ids, seats, pools, profiles };
   };
-  if (payload.cleanup_run_id) return recoverProofCleanup(environment, sha, payload.cleanup_run_id, out, read);
+  if (payload.cleanup_run_id) return recoverProofCleanup(environment, sha, payload.cleanup_run_id, out, c, read);
+  assert(runtime.includes('ploContinuationFor(gameId, continuation)'), 'Selected engine lacks post-human continuation');
+  const departureRuntime = execFileSync('git',['show',`${sha}:server/src/services/HorseSessionRotator.ts`],{encoding:'utf8'});
+  assert(departureRuntime.includes('ploWindDownFor(') && departureRuntime.includes('!windingDown'), 'Selected engine lacks paced wind-down');
+  const postHumanDemand = async (previous, verifiedEmpty = false) => {
+    const r = await fetchImpl(`${environment.SUPABASE_URL}/rest/v1/rpc/fn_plo_lightning_post_human_demand`, {method:'POST', headers:supabaseServerHeaders(environment.SUPABASE_SERVICE_ROLE_KEY,{'Content-Type':'application/json'}),body:'{}'});
+    assert(r.ok,'Post-human demand read unavailable');
+    return requirePostHumanDemand(await r.json(),previous,report.leaveOccupancyId,verifiedEmpty);
+  };
   const initial = await health();
   requireHealth(initial, sha);
   assert(msUntilNextAnnouncement(Date.now(), initial.maintenance.schedule) > 40 * 60_000, 'Not enough normal play before maintenance');
@@ -200,14 +348,21 @@ export async function main(environment = process.env) {
   const roleEnv = role => ({ ...environment, RUNNER_TEMP: out, E2E_CLUB_ID: fundingClub, E2E_TEST_ACCOUNT_FILE: join(out, `${role}-account.private.json`), GITHUB_ENV: join(out, `${role}.private.env`) });
   const wallet = async id => Number((await one(`club_members?club_id=eq.${fundingClub}&user_id=eq.${id}&select=chip_balance`)).chip_balance);
   const assertOnlyOwnedHuman = state => assert(state.profiles.every(p => p.is_horse === true || p.id === player?.id), 'Another real player arrived; stop the owned proof');
+  const participation=createParticipationGuard();
   const act = async () => {
-    for (const label of ['Check', 'Fold']) {
-      const buttons = page.getByRole('button', { name: label, exact: true });
-      for (const b of await buttons.all()) if (await b.isVisible() && await b.isEnabled()) { await b.click({ timeout: 2000 }); return; }
-    }
+    if (!(await page.locator('.action-panel--active[data-connection="live"] .action-row').getByRole('button',{name:/^(Check$|Fold$|Call )/}).first().isVisible())) return;
+    const tableId = /\/table\/([0-9a-f-]{36})$/.exec(new URL(page.url()).pathname)?.[1];
+    assert(tableId,'Ordinary played table is unavailable');
+    const r=await fetchImpl(`${ENGINE}/state/${tableId}`,{headers:{Authorization:`Bearer ${P.token}`}});
+    assert(r.ok,'Owned current turn is unavailable');
+    const turn=ordinaryTurnContext(await r.json(),player.id);
+    if (turn) { participation.approve(turn); await performOrdinaryTurn(page,turn); }
+    assert(!report.refusedParticipation,'A successor or over-budget voluntary action was refused by the witness');
   };
   const ownSeats = () => read(`table_seats?user_id=eq.${player.id}&left_at=is.null&select=id,table_id,seat_number,occupancy_id,stack`);
   const leave = async () => {
+    const beforeStop = await ownSeats();
+    if (beforeStop.length === 1) report.leaveOccupancyId = beforeStop[0].occupancy_id;
     const pools = await read(`lightning_pool_session?cluster_id=eq.${GAME}&player_id=eq.${player.id}&exited_at=is.null&select=id,stop_requested_at`);
     if (pools.length) {
       await c.rpc(P.token, 'fn_lightning_stop_playing', { p_cluster_id: GAME });
@@ -222,8 +377,16 @@ export async function main(environment = process.env) {
       if (!seats.length) return;
       assert(seats.length === 1 && seats[0].occupancy_id, 'Owned occupancy is not uniquely known');
       const s = seats[0];
+      report.leaveOccupancyId = s.occupancy_id;
       if (!requested.has(s.occupancy_id)) {
-        const r = await c.engine(P.token, '/leave-occupancy', { tableId: s.table_id, seatNumber: s.seat_number, occupancyId: s.occupancy_id });
+        let r;
+        try { r = await c.engine(P.token, '/leave-occupancy', { tableId: s.table_id, seatNumber: s.seat_number, occupancyId: s.occupancy_id }); }
+        catch (error) {
+          // The original occupancy request may have committed. Never send a
+          // second leave intent: observe its durable seat/cash-session result.
+          report.leaveTransportUnknown={occupancyId:s.occupancy_id,message:String(error.message)}; save();
+          requested.add(s.occupancy_id); await sleep(1000); continue;
+        }
         if (r.status >= 200 && r.status < 300 && r.body?.success === true) requested.add(s.occupancy_id);
         else if (r.body?.code === 'LEAVE_LOCKED') {
           if (r.body.needs_confirmation === true) {
@@ -283,6 +446,14 @@ export async function main(environment = process.env) {
     financialUnknown = false;
     assert(await wallet(player.id) === BUY_IN, 'Funded wallet readback differs');
     // The published client owns the journal and one normal buy-in click.
+    await page.route(`${ENGINE}/action`, async route => {
+      if (route.request().method()!=='POST') return route.continue();
+      const body=route.request().postDataJSON();
+      if (participation.allows(body)) return route.continue();
+      // Never rewrite or send a replacement intent. Refuse our own stale click.
+      report.refusedParticipation=true; save();
+      return route.abort('blockedbyclient');
+    });
     page.on('request', r => {
       if (new URL(r.url()).pathname === '/rest/v1/rpc/atomic_table_buyin') {
         const p = r.postDataJSON();
@@ -325,6 +496,8 @@ export async function main(environment = process.env) {
     while (Date.now() < t0 + 16 * 60_000) {
       requireHealth(await health(), sha, initial.instanceId);
       const state = await census(); assertOnlyOwnedHuman(state);
+      const currentSession=await one(`cash_player_session?id=eq.${report.cashSessionId}&select=closed_at,closed_reason`);
+      assert(!currentSession.closed_at,`Owned startup session closed: ${currentSession.closed_reason}`);
       assert(!report.unexpectedBuyInIntent, 'Client created another buy-in intent');
       const byId = new Map(state.profiles.map(p => [p.id,p]));
       for (const s of [...state.seats].sort((a,b) => Date.parse(a.joined_at)-Date.parse(b.joined_at))) {
@@ -376,23 +549,37 @@ export async function main(environment = process.env) {
     const closed = await one(`cash_player_session?id=eq.${report.cashSessionId}&select=id,closed_at,final_stack,financial_capture_status`);
     assert(closed.closed_at && closed.financial_capture_status === 'exact', 'Owned departure has no exact closed cash receipt');
     report.milestones.humanExit = closed.closed_at; report.cashOut = closed;
+    report.postHumanDemand = await postHumanDemand();
+    assert(report.leaveOccupancyId && report.postHumanDemand.event_id === report.leaveOccupancyId, 'Continuation is not bound to the owned original cash-out');
     await page.screenshot({ path: join(out,'human-left.png') });
     const afterDeadline = Date.now()+POST_LEAVE_MS;
+    const postTableIds = new Set([firstLightning.host_table_id]);
     while (Date.now()<afterDeadline) {
       requireHealth(await health(),sha,initial.instanceId);
       const state=await census(); assertOnlyOwnedHuman(state);
+      const empty = !state.seats.length && !state.pools.length;
+      await postHumanDemand(report.postHumanDemand,empty);
+      for (const t of state.tables) postTableIds.add(t.id);
+      const mode = (await gameRead()).cluster_mode;
+      const byId = new Map(state.profiles.map(p=>[p.id,p]));
+      for (const seat of state.seats) {
+        if (byId.get(seat.user_id)?.is_horse && !seen.has(seat.user_id)) {
+          seen.add(seat.user_id);
+          (report.postHumanArrivals ??= []).push({playerId:seat.user_id,at:seat.joined_at});
+        }
+      }
       assert(!state.seats.some(s=>s.user_id===player.id) && !state.pools.some(s=>s.player_id===player.id),'Owned human was redealt after leaving');
-      report.samples.push({at:new Date().toISOString(),afterHumanExit:true,participants:state.profiles.length});
+      report.samples.push({at:new Date().toISOString(),afterHumanExit:true,mode,participants:state.profiles.length});
       await sleep(5000);
     }
     const continued=await read(`lightning_hand?cluster_id=eq.${GAME}&formed_at=gt.${encodeURIComponent(closed.closed_at)}&settled_at=not.is.null&select=hand_id,formed_at,settled_at,hand_number,host_table_id,player_count`);
-    assert(continued.length>=3,'Remaining participants did not continue valid Lightning hands');
-    const late=continued.filter(h=>Date.parse(h.formed_at)>=Date.parse(closed.closed_at)+6*60_000);
-    assert(late.length,'No gameplay beyond the incident departure-burst interval');
+    const postHands = summarizeHands(await read(`hand_history?table_id=in.(${[...postTableIds].join(',')})&created_at=gte.${encodeURIComponent(closed.closed_at)}&started_at=gte.${encodeURIComponent(closed.closed_at)}&order=created_at.asc&select=id,table_id,hand_number,started_at,ended_at,players`),player.id);
+    report.postHumanHands=postHands;
+    const finalHand = requirePostHumanGameplay({decision:report.postHumanDemand,continued,hands:postHands,exitAt:closed.closed_at,samples:report.samples.filter(s=>s.afterHumanExit)});
     const stray=await read(`lightning_hand_player?hand_id=in.(${continued.map(h=>h.hand_id).join(',')})&player_id=eq.${player.id}&select=hand_id`);
     assert(!stray.length,'Stopped participant was included in a later hand');
     report.continuedHands=continued;
-    for (const h of [report.headsUpHand, {tableId:firstLightning.host_table_id,handNumber:firstLightning.hand_number}, {tableId:late[0].host_table_id,handNumber:late[0].hand_number}]) {
+    for (const h of [report.headsUpHand, {tableId:firstLightning.host_table_id,handNumber:firstLightning.hand_number}, finalHand]) {
       const commit=await one(`hand_atomic_commits?table_id=eq.${h.tableId}&hand_number=eq.${h.handNumber}&select=conserved:stack_result->>conservation_checked,success:stack_result->>success`);
       assert(commit.conserved==='true' && commit.success==='true','A witnessed hand lacks its conservation receipt');
     }
@@ -413,6 +600,10 @@ export async function main(environment = process.env) {
       }
       if (player && C) {
         assert(!(await ownSeats()).length,'Owned seat must close before claim-back');
+        if (report.cashSessionId && !report.cashOut) {
+          const closed=await one(`cash_player_session?id=eq.${report.cashSessionId}&select=id,closed_at,final_stack,financial_capture_status`);
+          assert(closed.closed_at && closed.financial_capture_status==='exact','Original departure outcome remains unknown'); report.cashOut=closed;
+        }
         const balance=await wallet(player.id);
         if (report.cashOut) assert(balance === Number(report.cashOut.final_stack), 'Owned cash-out and wallet do not reconcile');
         if (balance>0) {

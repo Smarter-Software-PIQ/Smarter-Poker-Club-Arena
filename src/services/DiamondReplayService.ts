@@ -52,7 +52,7 @@ export type BonusReplay = ReplayBase &
           mine_cells: number[] | null;
           road_end: number | null;
           /** Contract 6 roads only: the sealed coin of every street (true = safe). */
-          payout_version?: 6 | 7;
+          payout_version?: 6 | 7 | 8;
           coins?: boolean[];
           /** Contract 6 roads only: each street's prize over the stake (1.1 = 1.10x). */
           street_multipliers?: number[];
@@ -79,8 +79,7 @@ export function parseBonusReplay(value: unknown): BonusReplay {
     r.version !== 1 ||
     !game(r.game) ||
     !integer(r.diamonds) ||
-    r.diamonds < 25 ||
-    r.diamonds > 7500 ||
+    r.diamonds < 1 ||
     ![1, 2].includes(r.boost) ||
     !amount(r.payout_chips) ||
     !date(r.completed_at) ||
@@ -177,8 +176,8 @@ export function parseBonusReplay(value: unknown): BonusReplay {
       // is the first smash among those coins.
       (r.game === 'crossing' &&
         d.payout_version !== undefined &&
-        ((d.payout_version !== 6 && d.payout_version !== 7) ||
-          (d.payout_version === 7 && d.coins?.[0] !== true) ||
+        ((d.payout_version !== 6 && d.payout_version !== 7 && d.payout_version !== 8) ||
+          (d.payout_version >= 7 && d.coins?.[0] !== true) ||
           !Array.isArray(d.coins) ||
           d.coins.length !== d.prizes.length ||
           !d.coins.every((c) => typeof c === 'boolean') ||
@@ -219,8 +218,7 @@ export const DiamondReplayService = {
           !game(r.game) ||
           !amount(r.payout_chips) ||
           !integer(r.diamonds) ||
-          r.diamonds < 25 ||
-          r.diamonds > 7500 ||
+          r.diamonds < 1 ||
           ![1, 2].includes(r.boost) ||
           !date(r.created_at)
       )

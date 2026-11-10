@@ -231,20 +231,23 @@ describe('SeatKnockout — the glove, the star, the stamp', () => {
     expect(onDone.mock.calls.map((c) => c[0]).sort()).toEqual(['bob', 'carol']);
   });
 
-  it('a knockout it cannot place still EXPIRES', () => {
-    // A bust at another table, or one whose seat this client never saw. It
-    // draws nothing — a 50/50 fallback would put a boxing glove on the board —
-    // but it must still tell the parent, or it leaks in the hits array forever.
+  it('plays a retained KO after the seat ring hydrates on reconnect', () => {
     const onDone = vi.fn();
-    const { container } = render(
-      <SeatKnockoutLayer hits={[hit({ seatIndex: 42 })]} seatPositions={SEATS} onDone={onDone} />
+    const hits = [hit()];
+    const { container, rerender } = render(
+      <SeatKnockoutLayer hits={hits} seatPositions={[]} onDone={onDone} />
     );
-    expect(container.querySelector('.sko')).toBeNull();
-    expect(soundService.playKnockoutFlurry, 'invisible means inaudible too').not.toHaveBeenCalled();
     act(() => {
       vi.advanceTimersByTime(SKO_DURATION_MS + 50);
     });
-    expect(onDone).toHaveBeenCalledWith('bob');
+    expect(container.querySelector('.sko')).toBeNull();
+    expect(onDone).not.toHaveBeenCalled();
+    rerender(<SeatKnockoutLayer hits={hits} seatPositions={SEATS} onDone={onDone} />);
+    expect(container.querySelector('.sko__stamp')).not.toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(SKO_DURATION_MS + 50);
+    });
+    expect(onDone.mock.calls).toEqual([['bob']]);
   });
 
   it('stays silent on a background table', () => {

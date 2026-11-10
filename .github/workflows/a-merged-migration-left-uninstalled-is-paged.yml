@@ -1,0 +1,37 @@
+name: A merged migration left uninstalled is paged
+
+# fn_ca_merged_migration_install_watch() (migration 20261109182123). Runs
+# scripts/ci/test-a-merged-migration-left-uninstalled-is-paged.py against a
+# throwaway PostgreSQL 17 cluster, never production. No timer (CLAUDE.md
+# 10.85): pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261109182123_a_merged_migration_still_uninstalled_after_an_hour_pages_the.sql
+      - supabase/migrations/20261109024836_a_missed_engine_cutover_and_a_failing_lobby_close_page_the_o.sql
+      - scripts/ci/test-a-merged-migration-left-uninstalled-is-paged.py
+      - scripts/ci/test-a-missed-engine-cutover-is-paged.py
+      - scripts/ci/fixtures/engine-cutover-preimages.json
+      - .github/workflows/a-merged-migration-left-uninstalled-is-paged.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: a-merged-migration-left-uninstalled-is-paged-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  a-merged-migration-left-uninstalled-is-paged:
+    name: A merged migration left uninstalled for an hour is paged once and resolved
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: A merged migration left uninstalled for an hour is paged once and resolved
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-a-merged-migration-left-uninstalled-is-paged.py

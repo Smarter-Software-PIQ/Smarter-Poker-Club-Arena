@@ -6,6 +6,7 @@
 
 .card-image {
   position: relative;
+  container: playing-card / inline-size;
   display: inline-block;
   box-sizing: border-box;
   border-radius: 4px;
@@ -32,8 +33,8 @@
 .card-image:not(.card-image--back):not(.card-image--unreadable)::before {
   background: var(--face-deck-edge-pattern, none);
   box-shadow:
-    inset 0 0 0 var(--face-deck-edge-width, 0) var(--face-deck-edge, transparent),
-    inset 0 0 0 var(--face-deck-inner-width, 0) var(--face-deck-inner, transparent);
+    inset 0 0 0 min(var(--face-deck-edge-width, 0px), 3cqw) var(--face-deck-edge, transparent),
+    inset 0 0 0 min(var(--face-deck-inner-width, 0px), 5cqw) var(--face-deck-inner, transparent);
   opacity: var(--face-deck-edge-opacity, 1);
 }
 
@@ -48,9 +49,9 @@
   --face-deck-stock: transparent;
   --face-deck-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
   --face-deck-edge-pattern: none;
-  --face-deck-edge-width: 0;
+  --face-deck-edge-width: 0px;
   --face-deck-edge: transparent;
-  --face-deck-inner-width: 0;
+  --face-deck-inner-width: 0px;
   --face-deck-inner: transparent;
   --face-deck-edge-opacity: 1;
   --face-deck-glint: none;
@@ -358,14 +359,16 @@
    element that somehow carries neither a design class nor an inline image is
    still a solid navy card rather than a hole. */
 .card-image--back .card-back {
+  --cb-image: var(--cb-full-image);
+  box-sizing: border-box;
   width: 100%;
   height: 100%;
   background-image:
     var(--cb-image, none), var(--cb-gradient, linear-gradient(135deg, #1e3a5f 0%, #0d2137 100%));
-  background-size: cover;
+  background-size: contain, cover;
   background-position: center center;
   background-repeat: no-repeat;
-  border: 2px solid var(--cb-border, #3a6ea5);
+  border: 1px solid var(--cb-border, #3a6ea5);
   border-radius: inherit;
   display: flex;
   align-items: center;
@@ -544,5 +547,11 @@
   }
   50% {
     opacity: 0.62;
+  }
+}
+
+@container playing-card (max-width: 48px) {
+  .card-image--back .card-back {
+    --cb-image: var(--cb-compact-image, var(--cb-full-image));
   }
 }

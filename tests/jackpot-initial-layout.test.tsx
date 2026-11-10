@@ -384,13 +384,13 @@ it.each(['club', 'user'] as const)(
       Object.values(requests).forEach((r) => r.resolve(result([])));
     });
     expect(await screen.findByText('The Promo Slice')).toBeInTheDocument();
-    expect(screen.getByText('98,765 Chips')).toBeInTheDocument();
+    expect(screen.getByText('98,765.00 Chips')).toBeInTheDocument();
     promo = deferred();
     if (scope === 'club') io.clubId = 'club-b';
     else io.userId = 'other-viewer';
     rerender(<Page />);
     expect(screen.queryByText('The Promo Slice')).not.toBeInTheDocument();
-    expect(screen.queryByText('98,765 Chips')).not.toBeInTheDocument();
+    expect(screen.queryByText('98,765.00 Chips')).not.toBeInTheDocument();
     expect(root(container)).toHaveAttribute('data-initial-layout', 'pending');
     await waitFor(() =>
       expect(io.rpc.mock.calls.filter(([name]) => name === 'fn_bbj_promo_facts')).toHaveLength(2)
@@ -427,7 +427,7 @@ it.each(['club', 'user'] as const)(
     await act(async () => oldPromo.resolve(operatorFacts(98765)));
     expect(root(container)).toHaveAttribute('data-initial-layout', 'settled');
     expect(screen.queryByText('The Promo Slice')).not.toBeInTheDocument();
-    expect(screen.queryByText('98,765 Chips')).not.toBeInTheDocument();
+    expect(screen.queryByText('98,765.00 Chips')).not.toBeInTheDocument();
   }
 );
 
@@ -461,9 +461,9 @@ it('does not let a retired A request settle a later A after an A to B to A switc
   expect(root(container)).toHaveAttribute('data-initial-layout', 'pending');
   expect(screen.queryByText('The Promo Slice')).not.toBeInTheDocument();
   await act(async () => promo.resolve(operatorFacts(12345)));
-  expect(await screen.findByText('12,345 Chips')).toBeInTheDocument();
-  expect(screen.queryByText('98,765 Chips')).not.toBeInTheDocument();
-  expect(screen.queryByText('87,654 Chips')).not.toBeInTheDocument();
+  expect(await screen.findByText('12,345.00 Chips')).toBeInTheDocument();
+  expect(screen.queryByText('98,765.00 Chips')).not.toBeInTheDocument();
+  expect(screen.queryByText('87,654.00 Chips')).not.toBeInTheDocument();
   expect(root(container)).toHaveAttribute('data-initial-layout', 'settled');
 });
 

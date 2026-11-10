@@ -23,11 +23,11 @@ CERTIFIED_PREDECESSOR = 'eed06fe51dea622069c661a6213d5b031ff3a9e3'
 CERTIFIED_START = 1793833200
 CERTIFIED_END = 1793854800
 
-# The owner-directed November 9 follow-up ASAP cutover rebinds the existing single-use exception.
+# The owner-directed November 10 successor rebinds the existing single-use exception.
 # Prior immutable controls and entries keep their original authority and expiry.
-NOV7_OWNER_ID = '2026-11-09-owner-asap-engine-2230z'
-NOV7_MANIFEST_DIGEST = 'eab1577724880e91ae89a4f0e73fb5e3cd88bf5a7355331503f6ead38e93b2af'
-NOV7_ORDER_DIGEST = '8f54705ab0a0ffc15398a4633944f24d166999c6b304bec4491ad4f376d461b9'
+NOV7_OWNER_ID = '2026-11-10-owner-asap-engine-0650z'
+NOV7_MANIFEST_DIGEST = 'c811496c6d91d0dcdf64bb55e33c670f1094565e11b8c46f8a2d970e312b9e03'
+NOV7_ORDER_DIGEST = 'a5b426659b97245f0b1fb29e5898ee9bdea161726644391280c3e788512279df'
 
 
 

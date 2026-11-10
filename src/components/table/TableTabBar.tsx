@@ -20,7 +20,7 @@ import { masterBus } from '../../core/MasterBus';
 import { formatGameTitle } from '../../utils/formatGameTitle';
 import { useButtonImage } from '../../hooks/useButtonImage';
 import { isTournamentGameCode } from '../../utils/gameCode';
-import { tournamentTabBuyInLabel, tournamentTabEventName } from '../../lib/tournamentTabLabel';
+import { tournamentTabEventName } from '../../lib/tournamentTabLabel';
 import './TableTabBar.css';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -39,6 +39,7 @@ export interface TabInfo {
   pot?: number;
   /** Public engine hand identity reported by the owning table page. */
   handNumber?: number;
+  buttonTheme?: string;
   isAutoRebuyEnabled?: boolean;
   /** The owning table page's `seatCanAddFunds` answer for this seat. `false`
    *  removes Top Up and Auto Top Up from the hamburger (B12, 2026-09-19): a
@@ -110,28 +111,11 @@ export interface TabInfo {
    * to decide whether the tab is allowed to move.
    */
   seated?: boolean;
-  /**
-   * This tab is a TOURNAMENT table (MTT / SNG / Spin), as its table page
-   * reports it. Dan 2026-10-04: "THE ACTION BOX SHOULDN'T SAY MTT 200/400 OR
-   * MTT 25/50 IT SHOULD BE DISPLAYING THE HOLE CARDS WHEN THEY ARE PRESENT, OR
-   * MTT AND BUY IN AMOUNT UNDER IT FOR QUICK REFERENCE." A tournament pill
-   * therefore never prints `stakes` (its blind level) or `pot`.
-   */
+  /** Reported by the table page while its format and name resolve. */
   isTournament?: boolean;
-  /**
-   * What it costs to enter this tournament: buy-in plus fee, the total the
-   * tournament lobby prints. 0 is a freeroll. Undefined means not known yet,
-   * and the pill then shows its code alone rather than fall back to blinds.
-   */
   tournamentBuyIn?: number;
   tournamentBuyInLabel?: string;
-  /**
-   * The tournament's own event name, read from its `tournaments` row. Dan
-   * 2026-10-21: "FOR MTT'S IT SHOULD SAY THE TOURNAMENT NAME AS WELL AS THE BUY
-   * IN INSIDE THE ACTION TAB. NOT JUST 35". An MTT pill prints this name over
-   * its buy-in. Undefined or '' means not known yet, and the pill keeps its
-   * code ("MTT") on the top line until it is.
-   */
+  /** Shortened for the pill, retained in full for its tooltip. */
   tournamentName?: string;
 }
 
@@ -866,44 +850,21 @@ export function TableTabBar({
              only one that has to be silenced explicitly. Stakes take its place,
              which is what tells two NLH tabs apart anyway. */
           const potToShow = !observing && tab.pot !== undefined && tab.pot > 0 ? tab.pot : null;
-          /* ── A TOURNAMENT PILL SAYS ITS BUY-IN (Dan 2026-10-04) ─────────────
-             "THE ACTION BOX SHOULDN'T SAY MTT 200/400 OR MTT 25/50 IT SHOULD BE
-             DISPLAYING THE HOLE CARDS WHEN THEY ARE PRESENT, OR MTT AND BUY IN
-             AMOUNT UNDER IT FOR QUICK REFERENCE."
-
-             Both sub-lines below were written for cash. On a tournament
-             `stakes` is the current BLIND LEVEL, so the pill read "MTT 200/400"
-             and changed every level, and a deep-stacked pot or level outgrew
-             the pill and was cut mid-number ("51115/..."). Neither one says
-             WHICH tournament this is; the buy-in does, it never changes, and
-             its compact form cannot outgrow the pill (tournamentTabLabel.ts).
-
-             The page's own `isTournament` is the authority; the code covers the
-             moments before that page has reported anything. */
           const isTournamentTab = tab.isTournament === true || isTournamentGameCode(tab.gameCode);
-          const tournamentSub = isTournamentTab
-            ? tournamentTabBuyInLabel(tab.tournamentBuyIn, tab.tournamentBuyInLabel)
-            : '';
-          /* Dan 2026-10-21: "FOR MTT'S IT SHOULD SAY THE TOURNAMENT NAME AS
-             WELL AS THE BUY IN INSIDE THE ACTION TAB. NOT JUST 35". A multi-
-             table tournament's top line is its event name (the buy-in stays
-             under it); SNG and SPIN keep their code. While the name is not
-             known the top line stays "MTT", never blank. The pill's width
-             caps and the name ellipsises, so a long title cannot break it. */
-          const isMttTab = isTournamentTab && tab.gameCode !== 'SNG' && tab.gameCode !== 'SPIN';
-          const mttName = isMttTab ? tournamentTabEventName(tab.tournamentName) : '';
-          const mttFullName =
-            mttName && tab.tournamentName ? formatGameTitle(tab.tournamentName.trim()) : '';
+          const eventName = isTournamentTab ? tournamentTabEventName(tab.tournamentName) : '';
+          const fullEventName =
+            eventName && tab.tournamentName ? formatGameTitle(tab.tournamentName.trim()) : '';
           const isDragging = dragState?.id === tab.id;
 
           return (
             <button
               key={tab.id}
+              data-button-theme={tab.buttonTheme || 'classic-white'}
               className={[
                 'table-tab-bar__tab',
                 isActive && 'table-tab-bar__tab--active',
                 hasCards && 'table-tab-bar__tab--cards',
-                mttName && !hasCards && 'table-tab-bar__tab--event',
+                eventName && !hasCards && 'table-tab-bar__tab--event',
                 isFlashing && 'table-tab-bar__tab--flash',
                 !observing && tab.decisionKind && 'table-tab-bar__tab--decision',
                 !observing && tab.folded && 'table-tab-bar__tab--folded',
@@ -1007,26 +968,20 @@ export function TableTabBar({
                       Dan 2026-08-20: variants are acronyms - NLH, not nlh. */}
                   <span
                     className={`table-tab-bar__tab-name${
-                      mttName ? ' table-tab-bar__tab-name--event' : ''
+                      eventName ? ' table-tab-bar__tab-name--event' : ''
                     }`}
-                    {...(mttName ? { title: mttFullName || mttName } : {})}
+                    {...(eventName ? { title: fullEventName || eventName } : {})}
                   >
-                    {mttName || tab.gameCode || formatGameTitle(tab.name)}
+                    {eventName || tab.gameCode || formatGameTitle(tab.name)}
                   </span>
-                  {/* Sub-line: the live pot while a hand runs without the
-                      hero, otherwise the stakes - which is what tells two
-                      NLH tabs apart. */}
-                  {/* A TOURNAMENT never takes either of those: its sub-line
-                      is its buy-in, or nothing at all until that is known. */}
-                  {isTournamentTab ? (
-                    tournamentSub && <span className="table-tab-bar__tab-sub">{tournamentSub}</span>
-                  ) : potToShow !== null ? (
-                    <span className="table-tab-bar__tab-sub">
-                      Pot {potToShow.toLocaleString('en-US')}
-                    </span>
-                  ) : (
-                    tab.stakes && <span className="table-tab-bar__tab-sub">{tab.stakes}</span>
-                  )}
+                  {!isTournamentTab &&
+                    (potToShow !== null ? (
+                      <span className="table-tab-bar__tab-sub">
+                        Pot {potToShow.toLocaleString('en-US')}
+                      </span>
+                    ) : (
+                      tab.stakes && <span className="table-tab-bar__tab-sub">{tab.stakes}</span>
+                    ))}
                 </span>
               )}
 

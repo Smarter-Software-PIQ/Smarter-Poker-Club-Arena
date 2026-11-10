@@ -41,6 +41,7 @@ import {
   getBBJQualifyingInfo,
   getBBJPayoutPercentForBB,
   normalizeVariantKey,
+  BBJ_MAIN_SPLIT,
 } from '../../config/RakeConfig';
 import {
   getBBJMiniQualifyingInfo,
@@ -51,6 +52,7 @@ import {
 } from '../../config/bbjMini';
 import { miniTierForBB, type BbjMiniSnapshot } from '../../lib/bbjMiniFeed';
 import { SpadeConsole } from '../console/SpadeConsole';
+import { jackpotChips, jackpotSplit, jackpotTotalAtPercent } from '../../utils/jackpotExact';
 import './BBJInfoModal.css';
 
 export interface BBJInfoModalProps {
@@ -229,7 +231,10 @@ export function BBJInfoModal({
   const hasTableContext = !!gameType && bigBlind > 0;
   const info = getBBJQualifyingInfo(gameType);
   const pct = getBBJPayoutPercentForBB(bigBlind);
-  const tableShare = (poolAmount * pct) / 100;
+  /* What this table pays if it hits now, and its three shares, by the
+     payout's own cent arithmetic (utils/jackpotExact). */
+  const tableShare = jackpotTotalAtPercent(poolAmount, pct);
+  const tableSplit = jackpotSplit(tableShare, BBJ_MAIN_SPLIT);
 
   /* THE MINI FOR THESE STAKES. The tier is chosen by big blind exactly as the
      payout RPC chooses it; a tier that cannot pay right now is shown as paused
@@ -237,6 +242,7 @@ export function BBJInfoModal({
      shows the range the mini pays across the club's tiers. */
   const miniInfo = getBBJMiniQualifyingInfo(gameType);
   const miniTier = hasTableContext && mini ? miniTierForBB(mini, bigBlind) : null;
+  const miniSplit = jackpotSplit(miniTier?.amount ?? 0, BBJ_MINI_SPLIT);
   /* A SHOWN MINI IS A PAYABLE MINI. This filtered on `enabled` alone, so the
      lobby header - which has no stake and falls through to the range - printed
      "250 - 1,500" while every tier was paused at the reserve floor, or while
@@ -286,8 +292,9 @@ export function BBJInfoModal({
   };
 
   /* THE HEADER FOLLOWS THE ROW: the main pool, or the flat mini for this
-     table's stakes. Printed as the console's title, whole chips, never
-     overstated (Math.trunc) and never a decimal on a forward-facing page. */
+     table's stakes. Printed as the console's title, TO THE CENT (Dan
+     2026-11-09: "display the full amount down to the decimal ... no rounded
+     numbers"). It truncated a 15,379.83 pool to "15,379". */
   const diamondStake = diamond?.stakes.find((s) => s.big_blind === bigBlind);
   const diamondMiniAmounts =
     diamond?.stakes.filter((s) => s.mini_payable).map((s) => s.mini_amount) ?? [];
@@ -320,19 +327,19 @@ export function BBJInfoModal({
             ? 'Off'
             : miniTier
               ? miniTier.payable
-                ? Math.trunc(miniTier.amount).toLocaleString('en-US')
+                ? jackpotChips(miniTier.amount)
                 : 'Paused'
               : miniRange
                 ? miniRange.lo === miniRange.hi
-                  ? Math.trunc(miniRange.lo).toLocaleString('en-US')
-                  : `${Math.trunc(miniRange.lo).toLocaleString('en-US')} - ${Math.trunc(miniRange.hi).toLocaleString('en-US')}`
+                  ? jackpotChips(miniRange.lo)
+                  : `${jackpotChips(miniRange.lo)} - ${jackpotChips(miniRange.hi)}`
                 : /* "Off" is only true when the switch is off. A club whose
                  reserve is at its floor is PAUSED, and the subtitle says so -
                  the same words the jackpot page uses. */
                   miniPause === 'reserve_at_floor'
                   ? 'Paused'
                   : 'Off'
-        : Math.trunc(Number(poolAmount || 0)).toLocaleString('en-US');
+        : jackpotChips(poolAmount);
   const sublabel =
     isMini && (miniTier || miniPause)
       ? miniPause
@@ -475,8 +482,8 @@ export function BBJInfoModal({
                         </>
                       ) : (
                         <>
-                          <strong>{Math.trunc(miniTier.amount).toLocaleString('en-US')}</strong>{' '}
-                          Flat ({miniTier.label} Stakes)
+                          <strong>{jackpotChips(miniTier.amount)}</strong> Flat ({miniTier.label}{' '}
+                          Stakes)
                         </>
                       )}
                     </p>
@@ -485,28 +492,20 @@ export function BBJInfoModal({
                         <div className="bbj-modal__split-row">
                           <span>Bad Beat Hand</span>
                           <span>
-                            {BBJ_MINI_SPLIT_PERCENT.loser} &middot;{' '}
-                            {Math.trunc(miniTier.amount * BBJ_MINI_SPLIT.loser).toLocaleString(
-                              'en-US'
-                            )}
+                            {BBJ_MINI_SPLIT_PERCENT.loser} &middot; {jackpotChips(miniSplit.loser)}
                           </span>
                         </div>
                         <div className="bbj-modal__split-row">
                           <span>Won The Hand</span>
                           <span>
                             {BBJ_MINI_SPLIT_PERCENT.winner} &middot;{' '}
-                            {Math.trunc(miniTier.amount * BBJ_MINI_SPLIT.winner).toLocaleString(
-                              'en-US'
-                            )}
+                            {jackpotChips(miniSplit.winner)}
                           </span>
                         </div>
                         <div className="bbj-modal__split-row">
                           <span>Everyone Else Dealt In</span>
                           <span>
-                            {BBJ_MINI_SPLIT_PERCENT.table} &middot;{' '}
-                            {Math.trunc(miniTier.amount * BBJ_MINI_SPLIT.table).toLocaleString(
-                              'en-US'
-                            )}
+                            {BBJ_MINI_SPLIT_PERCENT.table} &middot; {jackpotChips(miniSplit.table)}
                           </span>
                         </div>
                       </div>
@@ -535,28 +534,20 @@ export function BBJInfoModal({
                     <span className="bbj-modal__rule-label">If It Hits At This Table</span>
                     <p className="bbj-modal__rule-text">
                       <strong>{pct}%</strong> Of The Pool
-                      {poolAmount > 0 && (
-                        <> (About {Math.trunc(tableShare).toLocaleString('en-US')} Today)</>
-                      )}
+                      {poolAmount > 0 && <> ({jackpotChips(tableShare)} If It Hits Now)</>}
                     </p>
                     <div className="bbj-modal__split">
                       <div className="bbj-modal__split-row">
                         <span>Bad Beat Hand</span>
-                        <span>
-                          50% &middot; {Math.trunc(tableShare * 0.5).toLocaleString('en-US')}
-                        </span>
+                        <span>50% &middot; {jackpotChips(tableSplit.loser)}</span>
                       </div>
                       <div className="bbj-modal__split-row">
                         <span>Won The Hand</span>
-                        <span>
-                          25% &middot; {Math.trunc(tableShare * 0.25).toLocaleString('en-US')}
-                        </span>
+                        <span>25% &middot; {jackpotChips(tableSplit.winner)}</span>
                       </div>
                       <div className="bbj-modal__split-row">
                         <span>Everyone Else Dealt In</span>
-                        <span>
-                          25% &middot; {Math.trunc(tableShare * 0.25).toLocaleString('en-US')}
-                        </span>
+                        <span>25% &middot; {jackpotChips(tableSplit.table)}</span>
                       </div>
                     </div>
                   </div>

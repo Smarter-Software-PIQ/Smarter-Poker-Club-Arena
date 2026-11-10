@@ -21,8 +21,8 @@ Acceptance follow-up (owner, 2026-11-08 23:03 Chicago):
 | --- | --- | --- | --- |
 | A1 | Two independent sessions accepting at once produce one rematch and one charge per player, including an interrupted request and its retry | PASSED. Native proof on the production definitions (md5-checked), run green at main by `heads-up-rematch-concurrency.yml` (run 42569886982). Details below | No (database only) |
 | A2 | A committed signed-in rematch reaches its first hand with the correct opponent, stacks and rake | PASSED in production. Run 42584396854: browser Play Again, same two players, 300-chip stacks, 0.95 + 0.05 rake each, one transaction for both charges, browser moved to the new table, engine start and first hand; finish and chip conservation read afterwards. Details below | No. Proven on the serving engine 391f7bc0, which predates this work |
-| A3 | The next weekly-schedule satellite is created with the target-derived name and no duplicate | OBSERVED 2026-11-09 18:00:12Z, FAILED on the name, FIXED at the root. `7eae51cb` had the right target and no duplicate but was named "40 Chip Freezeout - 0 GTD (NLH) Satellite 5" (and `e0c83025`, 17:15Z, "Sunday Deep Stack Satellite 25"): `tournaments_lock_level_clock` restamps the catalog name after the copy trigger. Fixed by 20261109180446 (copy trigger moved after every rewriter, law test generalized). Live result: see "Weekly satellite" below | No (database trigger; the existing engine spawns it) |
-| A4 | The frozen-satellite recovery has an acknowledged owner and a tracked outcome | HANDED OFF, not a gate of this lane. Verifier ACK: release-blockers lane, 06:56Z (COORDINATION-INBOX.md). Recovery: the release owner's ASAP owner-window operation (PR #10063 comment 6741660924), which must carry 66cfdde743. Who acts if either stays dark after a sealed release: asked at PR #10063 comment 6742262566, answer pending. This lane makes no mutation and reuses the verifier's receipt | Yes: the recovery needs an engine carrying 66cfdde743 |
+| A3 | The next weekly-schedule satellite is created with the target-derived name and no duplicate | FIX MERGED, INSTALL QUEUED FOR THE DAILY WINDOW. Observed 2026-11-09 18:00:12Z: right target, no duplicate, wrong name (`tournaments_lock_level_clock` restamps the catalog name after the copy trigger). Root fix 20261109180446 (#10204, 64b67b241). The release owner declared it `-- @install-window: daily-maintenance` in #10235 (4e7ba6d35) after the live applier refused it four times on lock timeouts; it installs inside the 04:00 Chicago freeze. Acceptance: see "Weekly satellite" below | No (database trigger; the existing engine spawns it) |
+| A4 | The frozen-satellite recovery has an acknowledged owner and a tracked outcome | RESOLVED BY ITS OWNER. Both satellites were settled by the recovery lane's migration 20261109163346 `settle_capped_satellites_and_nov08_digest_v2` (PR #10200, merged 19:09:20Z): 6cb6f619 COMPLETED 2026-11-09 19:38:31Z, pool 1,003.00 finalized; 7a41f0a1 COMPLETED 19:38:41Z, pool 982.00 finalized; one `tournament_satellite_settlements` row each (read 00:15Z Nov 10). This lane made no mutation | No longer applicable |
 
 Other items closed in this task:
 - The old draft branch `claude/heads-up-rematch-1108` (closed PR #10093) was deleted at about 05:28Z through the Mac's GitHub login. The cloud proxy refuses ref deletes.
@@ -30,7 +30,7 @@ Other items closed in this task:
 
 ## Handed to other owners (not gates of this lane)
 
-- Frozen satellites 6cb6f619 and 7a41f0a1: see A4. Read at 10:12Z: both RUNNING at level 12, last hands 2026-11-08 04:53:56Z and 23:48:49Z. The Nov 9 04:00 Chicago selection was blocked by a sparse-checkout defect, fixed in #10154/#10155.
+- Frozen satellites 6cb6f619 and 7a41f0a1: settled by their owner on 2026-11-09 (see A4). PR #10063 comment 6742262566 point 3 (who acts if one stays dark) is superseded by that settlement; a follow-up was posted at 23:39Z (6754465925).
 - Certification leftovers, handed to issue #9830 (comment 6742913924):
   - four active `Cert HU` clubs;
   - four zero-balance reserved players in two retired clubs;
@@ -38,7 +38,7 @@ Other items closed in this task:
   The `Heads-Up Rematch Certification` workflow now ends UNKNOWN before creating anything until such a path exists (PR #10175).
   Run 42638767037: the workflow execution SUCCEEDED, but the certification result is UNKNOWN. It created nothing, and its
   stated reason is that no door retires a certification club after a Sit & Go is played. The evidence for that blocker
-  is on #9830 (comment 6742913924). The #9830 owner had not acknowledged as of 15:55Z.
+  is on #9830 (comment 6742913924). The #9830 owner had not acknowledged as of 00:40Z Nov 10 (one follow-up, 6754465580 at 23:39Z). The handoff stands; this lane does not gate on it.
 - "Friday Feature Satellite 5" (schedule b997f1e3) has not spawned since 2026-11-04. It is not this lane's; noted only.
 
 ## Weekly satellite (A3), and the corrected spawn rule
@@ -63,6 +63,23 @@ Other items closed in this task:
   (`NEW := jsonb_populate_record(NEW, fn_ca_midway_weekly_terms(...))`, name included) and sorted after the copy trigger.
   Fixed by 20261109180446 (see docs/changelog/2026-11-09-the-satellite-name-follows-the-level-clock-terms.md).
 
+- INSTALL ROUTE (2026-11-09/10). #10204 merged 19:03Z; its merge-time dispatcher never ran (Actions backlog) and the
+  applier was disabled by the release hold. The live applier later refused the file four times with 55P03 (pg_cron holds
+  AccessShare on `tournaments` almost continuously), so the release owner declared it a daily-window file in #10235. A
+  hand dispatch at 00:36Z Nov 10 (run 42729573328) was REFUSED with nothing sent, as designed: QUEUED for the daily
+  window (`stage-engine-release.yml`, job `window-migrations`, 03:30 Chicago run, inside the 04:00 freeze).
+- Open satellites carrying a catalog name at 00:15Z Nov 10 (all REGISTERING; the install renames them oldest first, so
+  the later of two feeding one target becomes "#2"):
+
+  | id | stored name | target | expected (maintained rule) |
+  | --- | --- | --- | --- |
+  | e0c83025-f40f-4810-9d47-e08d4bb16e99 | Sunday Deep Stack Satellite 25 | f5331b28 Sunday 200 Deep Stack | Satellite Into Sunday 200 Deep Stack |
+  | 7eae51cb-ea7d-406a-95a6-78ef1f7e829a | 40 Chip Freezeout - 0 GTD (NLH) Satellite 5 | 80e0c952 40 Chip Freezeout - 1.5K GTD (NLH) | Satellite Into 40 Chip Freezeout (NLH) |
+  | d5621eac-fbc6-4004-bcc5-8bd4aedf3e8d | Sunday Deep Stack Satellite 30 | f5331b28 Sunday 200 Deep Stack | Satellite Into Sunday 200 Deep Stack (#2 after the twin) |
+  | 01ad7670-8ff6-48cb-a30a-867cf205a74e | PLO5 Mystery Bounty Satellite 5 | 91ea137f Union Mystery Bounty (PLO5) | Satellite Into Union Mystery Bounty (PLO5) |
+  | b0b29b72-5888-4e3b-96d0-1a7318583018 | 40 Chip Freezeout - 0 GTD (NLH) Satellite 5 | a5351c7c 40 Chip Freezeout - 2.5K GTD (NLH) | Satellite Into 40 Chip Freezeout (NLH) |
+  | 9cfec282-d846-41e3-b592-158e8a8e8e6a | Grand Championship Satellite 10 | e6c16d67 Union Grand Championship (NLH) | Satellite Into Union Grand Championship (NLH) |
+
 ## Engine dependency
 
 - Database only, verified on the serving engine 391f7bc0 (which predates this work): deliverables 1-6 and items A1-A3.
@@ -71,11 +88,12 @@ Other items closed in this task:
 
 ## What this lane leaves open
 
-- A3: the next natural spawn after 20261109180446 is installed should carry the target-derived name. The install itself
-  renames the open rows, and the build law pins the trigger order.
-- Owner acknowledgments not yet received:
-  - #9830 (certification leftovers, and the retirement rule for played clubs);
-  - PR #10063 comment 6742262566 point 3 (who acts if a satellite stays dark after a sealed release).
+- A3: after the daily-window install of 20261109180446, read its history row and trigger, the renamed rows above, and the
+  first house weekly satellite created after it (one row per schedule occurrence, intended target, "Satellite Into ..."
+  name, no "0 GTD").
+- Owner acknowledgment not yet received: #9830 (certification leftovers, and the retirement rule for played clubs).
+  Recorded as a standing handoff, not a completion gate. The certification workflow stays held: run 42638767037
+  execution SUCCEEDED, certification UNKNOWN.
 - Nothing is in flight from this lane: no open PR, no running workflow, no worktree, no timer.
 
 ## Deployed identities (read 2026-11-09 08:30Z)

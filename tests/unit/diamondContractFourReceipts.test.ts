@@ -34,11 +34,7 @@ import { parseChoiceRound } from '../../src/services/DiamondChoiceService';
 import { normaliseCrash } from '../../src/services/DiamondGamesService';
 import DiamondGamesService from '../../src/services/DiamondGamesService';
 import { parseBonusGuarantee } from '../../src/services/WheelBonusEntryService';
-import {
-  diamondBonusFloor,
-  plinkoTableForFloor,
-  PLINKO_LIVE_TABLES,
-} from '../../src/utils/diamondBonusPayout';
+import { diamondBonusFloor, plinkoTableForFloor } from '../../src/utils/diamondBonusPayout';
 import {
   awardInstantCrashChances,
   crashInstantChance,
@@ -97,11 +93,12 @@ describe('contract 4: the receipt readers speak the contract production seals', 
       const parsed = parsePlinkoBonus(value);
       expect(parsed.payout_version).toBe(4);
       // The board is the one the FLOOR chose, never the one the boost used to choose.
-      expect(PLINKO_LIVE_TABLES).toContain(parsed.table_version);
+      expect([4, 6]).toContain(parsed.table_version);
       expect(parsed.table_version).toBe(
         plinkoTableForFloor(
           parsed.bet_diamonds / parsed.diamonds_per_chip,
-          parsed.minimum_payout_chips as number
+          parsed.minimum_payout_chips as number,
+          true
         )
       );
       // The floor is recomputed from what was paid, never trusted.
@@ -134,7 +131,7 @@ describe('contract 4: the receipt readers speak the contract production seals', 
       const input = startFor(value, 'plinko');
       expect(() => validateBonusReceipt(input, value)).not.toThrow();
       // A receipt naming any other open board is refused.
-      const other = PLINKO_LIVE_TABLES.find((t) => t !== value.table_version) as number;
+      const other = [4, 6].find((t) => t !== value.table_version) as number;
       expect(() =>
         validateBonusReceipt({ ...input, tableVersion: other }, { ...value, table_version: other })
       ).toThrow();

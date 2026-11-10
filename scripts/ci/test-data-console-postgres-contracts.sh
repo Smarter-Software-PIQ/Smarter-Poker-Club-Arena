@@ -123,6 +123,11 @@ PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
 PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
   TMPDIR="$DATA_CONSOLE_PG_SCRATCH_PARENT" \
   bash "$repo/scripts/ci/test-platform-admin-check.sh"
+# Every bug report reaches the owner's Messenger and the push outbox once,
+# from the report row's own insert (owner instruction, 2026-11-09).
+PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
+  TMPDIR="$DATA_CONSOLE_PG_SCRATCH_PARENT" \
+  bash "$repo/scripts/ci/test-bug-report-routing.sh"
 # A VIP purchase paid with admin-minted test funding is voided once, audited,
 # with no refund and no ledger rewrite.
 PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \

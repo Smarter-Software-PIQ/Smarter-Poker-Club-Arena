@@ -16,29 +16,25 @@
   background: #000;
   color: #e4e7ec;
 }
+
 .heading {
-  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 3px;
+  padding: 0 4px;
   text-align: center;
-  font-family: 'Roboto Condensed', sans-serif;
-}
-/* The painted "?" holds the top right of the heading; the title stays centred
-   and the heading keeps its height, so the wheel's viewport budget is
-   unchanged (Dan 2026-10-17). */
-.help {
-  position: absolute;
-  top: 50%;
-  right: 8px;
-  transform: translateY(-50%);
 }
 .heading h1 {
+  grid-column: 2;
   margin: 0;
-  font-size: clamp(20px, 3cqw, 30px);
-  line-height: 1.15;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  text-shadow:
-    0 2px #000,
-    0 -1px #9aa5b3;
+  line-height: 0;
+}
+.titleBadge {
+  width: clamp(132px, 42vw, 278px);
+  height: auto;
+  max-height: 5.2dvh;
+  object-fit: contain;
 }
 .wheel {
   position: relative;
@@ -50,303 +46,303 @@
   inset: 0;
 }
 .controls {
-  width: min(100%, 1000px);
-  margin-inline: auto;
+  width: min(100%, 820px, max(355px, 102dvh));
+  justify-self: center;
   box-sizing: border-box;
-  min-width: 0;
-  padding: 8px 16px max(8px, env(safe-area-inset-bottom));
-  border: 16px solid transparent;
-  border-image: url('/assets/diamond-spins/controls-clean-v2/frame.png') 250 190 / 20px 15px / 0
-    stretch;
-  background: #000;
-  font-family: 'Roboto Condensed', sans-serif;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  align-items: center;
-}
-.controlHeading {
-  grid-column: 2;
-  grid-row: 1;
-  justify-self: stretch;
-  width: 100%;
-  max-width: 180px;
-  margin-left: auto;
-}
-.entryModes {
-  grid-column: 1;
-  grid-row: 1;
-  justify-self: stretch;
-  max-width: 420px;
-}
-.entry,
-.dashboard,
-.notice {
-  grid-column: 1 / -1;
-}
-.controlHeading,
-.entryModes {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  flex-wrap: nowrap;
-  min-width: 0;
-  gap: 0 8px;
-}
-.controlHeading > span {
-  margin-right: auto;
-  font-size: 13px;
-}
-.controls button {
-  letter-spacing: 0;
-  text-transform: none;
-}
-.controls .controlHeading button,
-.controls .entryModes button {
-  min-height: 44px;
-  min-width: 0;
-  flex: 1;
-  font-family: 'Roboto Condensed', sans-serif;
-  font-size: 16px;
-  color: #45adff;
-  white-space: normal;
-  line-height: 1;
-  padding: 0 6px;
-  /* The 260px cuts sit beyond the entire chamfer, in straight rails.
-     Corner squares retain equal scales while only the empty face stretches. */
-  border: 7px solid transparent;
-  border-image: url('/assets/diamond-spins/controls-clean-v2/silver.png') 260 fill / 7px / 0 stretch;
-  background: transparent;
-}
-.entryModes button[aria-pressed='true'] {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   color: #f4f7fb;
+  font-family: 'Roboto Condensed', 'Arial Narrow', sans-serif;
+  font-variant-numeric: tabular-nums;
+  container-type: inline-size;
 }
 .dashboard {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 1;
+  min-height: 177px;
+  background: url('/assets/diamond-spins/sapphire-spin-deck.webp') center / 100% 100% no-repeat;
+}
+.entry,
+.presets,
+.actions {
+  display: contents;
+}
+.controls button {
+  cursor: pointer;
+  color: inherit;
+  font-family: inherit;
+}
+.controls button:disabled {
+  cursor: default;
+}
+.controls :is(button, input):focus-visible {
+  outline: 2px solid #b6eaff;
+  outline-offset: 1px;
+}
+.presets button,
+.actions .primary {
+  position: absolute;
   display: grid;
-  /* Portrait balances own a full row, even in a narrow table tab. */
-  grid-template-columns: minmax(0, 1fr);
-  align-items: center;
-  gap: 16px;
-  padding-block: 6px;
+  place-items: center;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  text-shadow:
+    0 1px 3px black,
+    0 2px 5px black;
+  font-weight: 800;
+}
+.presets button {
+  width: max(44px, 13.2%);
+  height: max(44px, 23%);
+  font-size: clamp(14px, 3.6cqw, 28px);
+  transform: translate(-50%, -50%) rotate(var(--tilt));
+}
+.presets button:nth-child(1) {
+  left: 21.5%;
+  top: 33%;
+  --tilt: -17deg;
+}
+.presets button:nth-child(2) {
+  left: 35%;
+  top: 22%;
+  --tilt: -10deg;
+}
+.presets button:nth-child(3) {
+  left: 50%;
+  top: 17%;
+  --tilt: 0deg;
+}
+.presets button:nth-child(4) {
+  left: 65%;
+  top: 22%;
+  --tilt: 10deg;
+}
+.presets button:nth-child(5) {
+  left: 78.5%;
+  top: 33%;
+  --tilt: 17deg;
+}
+.presets button[aria-pressed='true'] {
+  color: white;
+  text-shadow:
+    0 0 5px white,
+    0 0 10px #219cff;
+  background: radial-gradient(ellipse, #177af786, transparent 70%);
+}
+.presets button:disabled {
+  color: #97a3b5;
+}
+.actions .primary {
+  left: 40%;
+  top: 34%;
+  width: 20%;
+  height: 55%;
+  border-radius: 50%;
+  isolation: isolate;
+  font-size: clamp(16px, 4.5cqw, 38px);
+  line-height: 1;
+  text-transform: uppercase;
+}
+.actions .primary:disabled {
+  color: #b3bdc9;
+  background: #05132269;
+}
+.actions .primary:not(:disabled):active {
+  background: #072a5570;
 }
 .metrics {
+  position: absolute;
+  top: 66%;
+  bottom: 9%;
+  left: 3.5%;
+  width: 33%;
   margin: 0;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  gap: 2%;
   text-align: center;
 }
 .metrics > div {
   min-width: 0;
 }
-.metrics dt {
-  color: #45adff;
-  font-size: 14px;
-  letter-spacing: 0.035em;
+.metrics dt,
+.entry label {
+  font-size: clamp(10px, 1.9cqw, 16px);
+  color: #b4d9f9;
+  line-height: 1;
 }
 .metrics dd {
-  margin: 0;
-  font-size: clamp(22px, 3cqw, 28px);
+  margin: 2px 0 0;
+  font-size: clamp(13px, 2.8cqw, 24px);
   font-weight: 800;
-  font-variant-numeric: tabular-nums;
-}
-.metrics [data-ink='gold'] {
-  color: #ffd700;
-}
-.actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: min(100%, 540px);
-  margin-inline: auto;
-}
-.actions button {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  aspect-ratio: 348 / 114;
-  white-space: nowrap;
   line-height: 1;
-  padding: 4px 8px;
-  border: 0;
-  color: #f4f7fb;
-  font:
-    800 clamp(18px, 2.5cqw, 22px) 'Roboto Condensed',
-    sans-serif;
-  text-shadow: 0 2px 2px #000;
-  background-color: transparent;
-  background-position: center;
-  /* The complete clean-alpha plate keeps its native ratio and all four corners. */
-  background-size: contain;
-  background-repeat: no-repeat;
-  cursor: pointer;
 }
-.secondary {
-  background-image: url('/assets/diamond-spins/controls-clean-v2/silver.png');
-  /* Positioned for TapHaptic's switch (an iPhone browser's only buzz). */
-  position: relative;
-}
-.actions .primary {
-  flex: 1;
-  background-image: url('/assets/diamond-spins/controls-clean-v2/blue.png');
-  position: relative;
-  isolation: isolate;
-}
-/* The primary plate breathes through an opacity-only overlay of its own lit
-   art (behind the label, above the plate), so the pulse never re-filters the
-   button every frame. */
-.primary:not(:disabled)::after {
-  content: '';
+/* The dark inset inside the right chrome frame. All three controls share its geometry. */
+.stakePanel {
   position: absolute;
-  inset: 0;
-  z-index: -1;
-  background: inherit;
-  filter: brightness(1.2);
-  opacity: 0;
-  animation: control-light calc(3s * var(--animation-speed, 1)) ease-in-out infinite;
-}
-.controls button:active {
-  filter: brightness(1.25);
-}
-.controls button:focus-visible {
-  outline: 2px solid #45adff;
-  outline-offset: 1px;
-}
-.actions button:focus-visible {
-  outline-offset: -5px;
-}
-.controls button:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-@keyframes control-light {
-  0%,
-  100% {
-    opacity: 0;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-.entry {
+  inset: 67% 4% 8% 64%;
   display: grid;
-  grid-template-columns: auto 100px 1fr;
-  align-items: center;
-  gap: 0 14px;
-  width: min(100%, 900px);
-  margin: 6px auto;
+  grid-template: auto minmax(32px, 1fr) / minmax(0, 1fr) minmax(30px, 30%);
+  gap: 2px 4px;
+  align-content: center;
 }
-.entry label {
-  color: #45adff;
-  font-size: 16px;
+.stakePanel label {
+  grid-column: 1 / -1;
+  align-self: end;
+  text-align: center;
+  white-space: nowrap;
+}
+.entry input,
+.max,
+.headerAction button,
+.entryModes button {
+  box-sizing: border-box;
+  border: 1px solid #74808e;
+  border-radius: 4px;
+  background: linear-gradient(#213141, #050a10 48%, #141d27);
+  color: #f5faff;
+  box-shadow:
+    inset 0 1px #c3d1de7a,
+    0 1px 2px black;
 }
 .entry input {
-  box-sizing: border-box;
-  width: 100%;
   min-width: 0;
-  height: 40px;
-  padding: 0;
-  background: transparent;
-  border: 7px solid transparent;
-  border-image: url('/assets/diamond-spins/controls-clean-v2/silver.png') 260 fill / 7px / 0 stretch;
-  color: #f4f7fb;
+  width: 100%;
+  height: 100%;
   font:
-    800 26px 'Roboto Condensed',
+    700 clamp(16px, 3cqw, 26px) 'Roboto Condensed',
     sans-serif;
+  padding: 0 2px;
   text-align: center;
-  font-variant-numeric: tabular-nums;
+  appearance: textfield;
 }
-.entry > span {
-  grid-column: 1;
-  font-size: 11px;
-  color: #9aa5b3;
-  margin-top: -12px;
+.entry input::-webkit-inner-spin-button {
+  appearance: none;
 }
-.presets {
-  grid-column: 3;
-  grid-row: 1 / 3;
-  display: flex;
-  justify-content: space-between;
-  gap: 2px;
-}
-.presets button {
-  flex: 1 1 44px;
-  min-width: 44px;
-  min-height: 44px;
-  color: #9aa5b3;
-  /* The 260px cuts sit beyond the entire chamfer, in straight rails.
-     Corner squares retain equal scales while only the empty face stretches. */
-  border: 7px solid transparent;
-  border-image: url('/assets/diamond-spins/controls-clean-v2/silver.png') 260 fill / 7px / 0 stretch;
-  background: transparent;
+.max {
+  width: 100%;
+  height: 100%;
+  font-size: clamp(12px, 2.4cqw, 18px);
   padding: 0;
+}
+.headerAction {
+  grid-column: 3;
+  justify-self: end;
+}
+.headerAction button,
+.entryModes button {
+  min-height: 32px;
+  padding: 1px clamp(3px, 1.3cqw, 12px);
   font:
-    700 18px 'Roboto Condensed',
+    700 clamp(12px, 2.3cqw, 17px) 'Roboto Condensed',
     sans-serif;
+}
+.headerAction button {
+  display: block;
+  min-height: 32px;
+  padding: 3px clamp(4px, 1vw, 14px);
+  font:
+    700 clamp(11px, 1.6vw, 16px) 'Roboto Condensed',
+    'Arial Narrow',
+    sans-serif;
+  color: #d1e8ff;
   cursor: pointer;
 }
-.presets button[aria-pressed='true'] {
-  color: #f4f7fb;
-  border-image-source: url('/assets/diamond-spins/controls-clean-v2/blue.png');
-  text-shadow: 0 0 10px #1877f2;
+.headerAction button:focus-visible {
+  outline: 2px solid #b6eaff;
+  outline-offset: 1px;
 }
-.entry :disabled {
-  opacity: 0.5;
-  cursor: default;
+.entryModes {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
 }
-.entry :focus-visible {
-  outline: 2px solid #45adff;
-  outline-offset: 2px;
+.entryModes:empty {
+  display: none;
+}
+.entryModes button[aria-pressed='true'] {
+  border-color: #61beff;
 }
 .notice {
-  color: #ffd700;
   text-align: center;
-  font-size: 12px;
-  line-height: 1.25;
+  color: #c8d9e8;
+  font-size: clamp(12px, 2cqw, 16px);
 }
 .notice p {
-  margin: 0;
+  margin: 2px 4px;
 }
-@container (max-width: 700px) {
-  .controls {
-    padding-left: 4px;
-    padding-right: 4px;
-    border-width: 8px;
-    grid-template-columns: 1fr;
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@container (max-width: 440px) {
+  .metrics {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    gap: 3px;
   }
-  .controlHeading,
-  .entryModes {
-    grid-column: 1;
-    grid-row: auto;
-    justify-self: stretch;
-  }
-  .controls .entryModes {
+  .metrics > div {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
     gap: 2px;
-    flex-wrap: nowrap;
   }
-  .controls .entryModes button {
-    flex: 1;
-    min-width: 0;
-    padding: 0;
-    font-size: 14px;
+  .metrics dd {
+    margin: 0;
+  }
+}
+@media (max-height: 450px) {
+  .titleBadge {
+    max-height: 24px;
+  }
+}
+
+.actions .primary[data-compact-label] {
+  font-size: clamp(12px, 3.2cqw, 22px);
+  white-space: normal;
+}
+.headerAction button,
+.controls .entryModes button {
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: 'Roboto Condensed', 'Arial Narrow', sans-serif;
+}
+@media (max-height: 450px) and (min-width: 601px) {
+  .controls {
+    width: min(100%, 93dvh);
+    position: relative;
+  }
+  .notice {
+    position: absolute;
+    left: calc(100% + 8px);
+    bottom: 8%;
+    width: min(16ch, calc((100vw - 100%) / 2 - 14px));
+    text-align: left;
   }
   .dashboard {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 0;
+    min-height: 137px;
   }
-  .actions {
-    max-width: 420px;
-    margin: 4px auto 0;
+  .stakePanel {
+    top: 62%;
+    bottom: 6%;
   }
-  .entry {
-    grid-template-columns: 1fr 100px;
-    gap: 0 8px;
+}
+
+@container (max-width: 360px) {
+  .actions .primary[data-compact-label] {
+    left: 39%;
+    width: 22%;
   }
-  .entry > span {
-    grid-column: 1;
-  }
-  .presets {
-    grid-column: 1 / -1;
-    grid-row: 3;
+  .stakePanel {
+    column-gap: 2px;
   }
 }
 .prizes {
@@ -455,229 +451,4 @@
 }
 .details :global(.sc-copy) {
   font-size: 14px;
-}
-
-@container (max-width: 400px) {
-  .presets button {
-    font-size: 16px;
-    padding-inline: 0;
-  }
-  .entry label {
-    font-size: 15px;
-  }
-  .controls .controlHeading button {
-    min-width: 0;
-    flex: 1;
-    padding-inline: 0;
-    font-size: 15px;
-  }
-  .metrics dt {
-    font-size: 13px;
-  }
-}
-@media (max-height: 450px) and (min-width: 601px) {
-  .heading h1 {
-    font-size: 20px;
-  }
-  .controls {
-    padding-top: 2px;
-    padding-bottom: 2px;
-  }
-}
-
-.batchCost {
-  grid-column: 1 / -1;
-  margin: 4px 0;
-  color: #9aa5b3;
-  text-align: center;
-  font-size: 12px;
-  line-height: 1.35;
-}
-@container (max-width: 700px) {
-  .controlHeading {
-    justify-self: end;
-    max-width: 150px;
-  }
-  .entry {
-    margin-block: 6px;
-  }
-  .metrics {
-    padding-block: 4px;
-  }
-  .actions {
-    gap: 8px;
-  }
-  .actions .primary {
-    flex: 1;
-  }
-  .batchCost {
-    font-size: 11px;
-    margin-block: 3px;
-  }
-}
-
-@media (max-height: 450px) and (min-width: 601px) {
-  .controls {
-    padding-inline: 8px;
-    border-width: 8px;
-  }
-  .entry {
-    margin-block: 2px;
-  }
-  .dashboard {
-    padding-block: 2px;
-    gap: 8px;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 310px);
-  }
-  .actions button {
-    font-size: 18px;
-    min-height: 0;
-  }
-  .batchCost {
-    margin-block: 2px;
-    font-size: 11px;
-    line-height: 1.2;
-  }
-}
-
-@container (max-width: 400px) {
-  .actions button {
-    font-size: 18px;
-    padding-inline: 4px;
-  }
-}
-@media (max-height: 450px) and (min-width: 601px) {
-  .entryModes {
-    grid-column: 1;
-    grid-row: 1;
-    max-width: none;
-  }
-  .controlHeading {
-    grid-column: 2;
-    grid-row: 1;
-  }
-  .entry {
-    grid-template-columns: auto 80px 1fr;
-    margin-block: 2px;
-  }
-  .presets {
-    grid-column: 3;
-    grid-row: 1 / 3;
-  }
-  .dashboard {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 310px);
-  }
-  .actions {
-    margin-block: 0;
-  }
-}
-
-@media (max-height: 450px) and (min-width: 601px) {
-  .dashboard {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 310px);
-  }
-  .actions .primary {
-    flex: 1;
-  }
-}
-
-@media (max-height: 450px) and (min-width: 601px) {
-  .metrics dt {
-    line-height: 1.2;
-  }
-  .metrics dd {
-    font-size: 18px;
-    line-height: 1.2;
-  }
-}
-
-@media (max-height: 450px) and (min-width: 601px) {
-  .controls .entryModes button,
-  .controls .controlHeading button {
-    min-height: 44px;
-    font-size: 14px;
-    line-height: 1;
-  }
-  .entry {
-    margin-block: 0;
-  }
-  .dashboard {
-    padding-block: 0;
-  }
-}
-
-/* A prepaid run adds a third action. Its selector uses the free header slot
-   on the narrow phone; the two actual spin actions keep full-size plates. */
-@container (max-width: 400px) {
-  .controls:has(.actions > :nth-child(3)) {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    column-gap: 8px;
-  }
-  .controls:has(.actions > :nth-child(3)) .dashboard,
-  .controls:has(.actions > :nth-child(3)) .actions {
-    display: contents;
-  }
-  .controls:has(.actions > :nth-child(3)) .controlHeading {
-    grid-column: 2;
-    grid-row: 1;
-    width: 100%;
-    max-width: none;
-    margin: 0;
-  }
-  .controls:has(.actions > :nth-child(3)) .controlHeading button {
-    min-height: 44px;
-    line-height: 1;
-  }
-  .controls:has(.actions > :nth-child(3)) .entryModes {
-    grid-column: 1 / -1;
-    grid-row: 2;
-  }
-  .controls:has(.actions > :nth-child(3)) .entryModes button {
-    min-height: 46px;
-    line-height: 1;
-  }
-  .controls:has(.actions > :nth-child(3)) .entry {
-    grid-row: 3;
-  }
-  .controls:has(.actions > :nth-child(3)) .batchCost {
-    grid-row: 4;
-  }
-  .controls:has(.actions > :nth-child(3)) .metrics {
-    grid-column: 1 / -1;
-    grid-row: 5;
-  }
-  .controls:has(.actions > :nth-child(3)) .actions > button {
-    width: 100%;
-    margin: 0;
-    align-self: center;
-  }
-  .controls:has(.actions > :nth-child(3)) .actions > :nth-child(1) {
-    grid-column: 1;
-    grid-row: 1;
-  }
-  .controls:has(.actions > :nth-child(3)) .actions > :nth-child(2) {
-    grid-column: 1;
-    grid-row: 6;
-  }
-  .controls:has(.actions > :nth-child(3)) .actions > :nth-child(3) {
-    grid-column: 2;
-    grid-row: 6;
-  }
-  .controls:has(.actions > :nth-child(3)) .notice {
-    grid-row: 7;
-  }
-}
-@media (max-height: 450px) and (min-width: 601px) {
-  .dashboard:has(.actions > :nth-child(3)) {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 440px);
-  }
-}
-
-/* Larger phone navigation must leave the wheel readable on short screens.
-   Reclaim empty panel padding while preserving the controls and painted plates. */
-@media (max-width: 600px) and (max-height: 650px) {
-  .controls {
-    padding-top: 4px;
-    padding-bottom: max(4px, env(safe-area-inset-bottom));
-  }
 }

@@ -897,6 +897,36 @@ describe('auditFreeBuyRow', () => {
     expect(
       auditFreeBuyRow(good({ rebuy_levels: 4 })).some((x) => x.includes('do not close together'))
     ).toBe(true);
+    // An upcoming event after the 2026-11-08..09 repeated-level transition window
+    // must still have matching late_reg_levels and rebuy_levels.
+    expect(
+      auditFreeBuyRow(
+        good({
+          name: 'Afternoon Free Buy (NLH)',
+          start_time: '2026-11-09T22:30:00.000Z',
+          guaranteed_prize: 500,
+          all_in_or_fold: true,
+          add_on_available: false,
+          addon_from_start: false,
+          late_reg_levels: 11,
+          rebuy_levels: 12,
+        })
+      ).some((x) => x.includes('do not close together'))
+    ).toBe(true);
+    // The 5 started occurrences during the 2026-11-08T22:30:00Z..2026-11-09T18:30:00Z
+    // transition window are immutable after start and accepted at 11 / 12.
+    expect(
+      auditFreeBuyRow(
+        good({
+          name: 'Morning Free Buy (NLH)',
+          start_time: '2026-11-09T14:30:00.000Z',
+          guaranteed_prize: 250,
+          bounty_amount: 0,
+          late_reg_levels: 11,
+          rebuy_levels: 12,
+        })
+      )
+    ).toEqual([]);
   });
 });
 

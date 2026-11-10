@@ -512,7 +512,9 @@ describe('ThemeSettingsModal hardening', () => {
     );
     fireEvent.click(screen.getByRole('tab', { name: 'Cards' }));
 
-    expect(screen.getByRole('button', { name: 'Premium Gold, Checking Ownership' })).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Golden Sunburst, Checking Ownership' })
+    ).toBeDisabled();
     expect(screen.getByText('Checking Your Purchases And Rewards')).toBeVisible();
 
     await act(async () => {
@@ -520,7 +522,9 @@ describe('ThemeSettingsModal hardening', () => {
       await pendingOwnership.promise;
     });
 
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Premium Gold' })).toBeEnabled());
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Golden Sunburst' })).toBeEnabled()
+    );
   });
 
   it('keeps premium card backs unavailable when ownership cannot be verified', async () => {
@@ -537,7 +541,7 @@ describe('ThemeSettingsModal hardening', () => {
 
     expect(await screen.findByText('Purchases Could Not Be Verified')).toBeVisible();
     expect(
-      screen.getByRole('button', { name: 'Premium Gold, Ownership Unavailable' })
+      screen.getByRole('button', { name: 'Golden Sunburst, Ownership Unavailable' })
     ).toBeDisabled();
   });
 

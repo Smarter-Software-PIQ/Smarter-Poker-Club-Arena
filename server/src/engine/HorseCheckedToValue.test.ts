@@ -777,3 +777,95 @@ it.each([
     expect(checkedToNonBottomBoat(hero, { ...state, bombPot: true })).toBe(false);
   }
 );
+
+describe('PLO4 river response after value betting a non-nut full house', () => {
+  it.each([
+    { stack: 100, raiseTo: 70, expected: 'call', paid: 50 },
+    { stack: 40, raiseTo: 40, expected: 'all_in', paid: 20 },
+  ])(
+    'pays only the call when the opponent raises to $raiseTo',
+    ({ stack, raiseTo, expected, paid }) => {
+      const { hero, state } = jointPolicyFixture('plo4', 1, 'cash', 'river');
+      Object.assign(hero, {
+        user_id: 'hero',
+        seat: 2,
+        cards: cards('6h Td Tc Qd'),
+        stack,
+        bet: 0,
+        totalInvested: 10,
+      });
+      const opponent = { ...hero, user_id: 'opponent', seat: 1, cards: [] };
+      Object.assign(state, {
+        players: [opponent, hero],
+        communityCards: cards('Kd 2h 2c Th 4d'),
+        heroSeat: 2,
+        dealtSeatIds: [1, 2],
+        dealerSeat: 2,
+        blindSeats: { smallBlind: 2, bigBlind: 1 },
+      });
+      const controller = new HandController(
+        {
+          tableId: 'river-check-raise',
+          handNumber: 1,
+          gameVariant: 'plo4',
+          smallBlind: 1,
+          bigBlind: 2,
+          rakeConfig: { percent: 0, cap: 0, noFlopNoDrop: true },
+        },
+        state.players,
+        2
+      );
+      const internal = controller as unknown as {
+        state: GameState;
+        handFSM: { transition(s: string): void };
+      };
+      Object.assign(internal.state, {
+        players: state.players,
+        communityCards: state.communityCards,
+        stage: 'river',
+        currentBet: 0,
+        pot: 20,
+        minRaise: 2,
+        lastRaise: 2,
+        currentPlayerSeat: 1,
+        dealerSeat: 2,
+        actionHistory: [],
+      });
+      for (const stage of ['posting_blinds', 'dealing', 'preflop', 'flop', 'turn', 'river'])
+        internal.handFSM.transition(stage);
+      function decideAtCurrentPrice() {
+        const current = controller.getState({ includeActionOrigins: true });
+        const player = current.players.find((p) => p.seat === hero.seat)!;
+        const menu = controller.getAuthoritativeActionState(hero.user_id)!;
+        Object.assign(
+          state,
+          {
+            players: current.players,
+            actionHistory: current.actionHistory,
+            pot: current.pot,
+            contestablePot: controller.getContestablePotForCall(hero.user_id),
+            currentBet: current.currentBet,
+            currentPlayerSeat: current.currentPlayerSeat,
+            pots: calculatePots(current.players),
+          },
+          menu,
+          { bettingStructure: menu.structure }
+        );
+        seedFastRandom(1);
+        return HorseLogic.decide(player, state, 'balanced', {});
+      }
+      expect(controller.performAction(1, 'check')).toBe(true);
+      const open = decideAtCurrentPrice();
+      expect(open).toMatchObject({ action: 'bet', amount: 20 });
+      expect(controller.performAction(2, open.action, open.amount)).toBe(true);
+      expect(controller.performAction(1, raiseTo === stack ? 'all_in' : 'raise', raiseTo)).toBe(
+        true
+      );
+      const response = decideAtCurrentPrice();
+      expect(state.toCall).toBe(paid);
+      expect(response.action).toBe(expected);
+      if (expected === 'call') expect(response.amount).toBe(paid);
+      expect(controller.performAction(2, response.action, response.amount)).toBe(true);
+    }
+  );
+});

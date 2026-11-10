@@ -1,3 +1,4 @@
+import { formatTournamentTitle } from '../utils/formatGameTitle';
 import { isRetiredTournament, isRetiredTournamentTable } from '../lib/retiredTournamentVisibility';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import { satelliteStartsWhenFull } from '../utils/satelliteQualification';
@@ -24,6 +25,7 @@ import PageSkeleton from '../components/common/PageSkeleton';
 import styles from './UnionGamesPage.module.css';
 import { useIsMounted } from '../hooks/useIsMounted';
 import { fmt, fmtChips } from '../utils/format';
+import { jackpotChips } from '../utils/jackpotExact';
 import { reportError } from '../utils/errorReporter';
 import { useTournamentRegistration } from '../hooks/useTournamentRegistration';
 import CasinoSurfaceHeader from '../components/rewards/RewardsSurfaceHeader';
@@ -540,7 +542,7 @@ export default function UnionGamesPage() {
         </div>
         {bbjPool && (
           <div className={styles.statCard}>
-            <div className={styles.statValuePurple}>{fmtChips(bbjPool.total_pool)}</div>
+            <div className={styles.statValuePurple}>{jackpotChips(bbjPool.total_pool)}</div>
             <div className={styles.statLabel}>BBJ Pool</div>
           </div>
         )}
@@ -596,7 +598,9 @@ export default function UnionGamesPage() {
                 <div key={t.id} className={styles.tournCard}>
                   <div className={styles.tournHeader}>
                     <div>
-                      <div className={styles.tournName}>{t.name || 'Tournament'}</div>
+                      <div className={styles.tournName}>
+                        {formatTournamentTitle(t.name) || 'Tournament'}
+                      </div>
                       <div className={styles.tournClub}>
                         {(Array.isArray(t.clubs) ? t.clubs[0]?.name : t.clubs?.name) || ''}{' '}
                         {t.is_xmtt && <span className={styles.xmttBadge}>XMTT</span>}
@@ -729,7 +733,7 @@ export default function UnionGamesPage() {
             <div className={styles.bbjContainer}>
               <div className={styles.bbjPoolCard}>
                 <div className={styles.bbjLabel}>Current BBJ Pool</div>
-                <div className={styles.bbjAmount}>{fmtChips(bbjPool.total_pool)}</div>
+                <div className={styles.bbjAmount}>{jackpotChips(bbjPool.total_pool)}</div>
                 <div className={styles.bbjSublabel}>Bad Beat Jackpot</div>
               </div>
 

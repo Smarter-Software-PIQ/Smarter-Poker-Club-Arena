@@ -2,7 +2,7 @@
 set -euo pipefail
 root=$(git rev-parse --show-toplevel)
 pgbin=${PG_BIN:-/opt/homebrew/opt/postgresql@17/bin}
-fixture=$(mktemp -d "${TMPDIR:-/tmp}/accounting-delivery-test.XXXXXX")
+fixture=$(mktemp -d "${TMPDIR:-/tmp}/acct.XXXXXX")
 started=0
 cleanup() {
   status=$?
@@ -393,3 +393,56 @@ if [ "$(grep -Fc 'NOTICE:  PASS Diamond statement history:' "$fixture/statement-
   echo 'Historical statement display correction did not reach its success witness' >&2
   exit 1
 fi
+
+# Qualify wallet-balance admission and the prize guarantee together.
+"${diamond_psql[@]}" -f "$root/supabase/migrations/20261015093545_donkey_cross_street_one_is_always_safe.sql"
+"${diamond_psql[@]}" -f "$root/supabase/migrations/20261017040017_double_diamonds_is_retired_from_the_wheel_bonus_games.sql"
+"${diamond_psql[@]}" -f "$root/supabase/migrations/20261019023857_horses_spin_diamond_spins_through_the_engine_door.sql"
+"${diamond_psql[@]}" -f "$root/tests/fixtures/accounting-delivery/diamond-games/trivia-journal-index.sql" \
+  -f "$root/supabase/migrations/20261110023124_prepare_wide_diamond_journal_and_audit_columns.sql" \
+  -f "$root/supabase/migrations/20261110023502_build_the_wide_diamond_journal_trivia_index_concurrently.sql" \
+  -f "$root/tests/sql/diamond-wallet-wide-copy.sql" \
+  -f "$root/tests/fixtures/accounting-delivery/diamond-games/trivia-journal-views.sql"
+wheel_cutover="$root/supabase/migrations/20261110023653_admit_single_full_wallet_spins_and_guarantee_earned_payouts.sql"
+# Hold a real reader and wait for its acknowledgement before the single attempt.
+mkfifo "$fixture/cutover-reader"
+"${diamond_psql[@]}" < "$fixture/cutover-reader" > "$fixture/cutover-reader.log" &
+reader=$!
+exec 7>"$fixture/cutover-reader"
+printf 'BEGIN; LOCK TABLE public.profiles IN ACCESS SHARE MODE;\n\\echo locked\n' >&7
+for ((attempt=0; attempt<100; attempt++)); do
+  grep -qx locked "$fixture/cutover-reader.log" && break
+  sleep 0.05
+done
+grep -qx locked "$fixture/cutover-reader.log"
+if "${diamond_psql[@]}" -f "$wheel_cutover" > "$fixture/cutover-refusal.log" 2>&1; then
+  echo 'Cutover admitted while a profile reader held the wallet' >&2
+  exit 1
+fi
+grep -Fq 'could not obtain lock on relation "public.profiles"' "$fixture/cutover-refusal.log"
+# Start the same cutover while the reader still holds its lock. Verify that
+# it is only observing, with no writer queued, before releasing the reader.
+PGAPPNAME=wheel-cutover-regression "${diamond_psql[@]}" -f "$wheel_cutover" > "$fixture/cutover-success.log" 2>&1 &
+cutover=$!
+for ((attempt=0; attempt<40; attempt++)); do
+  observing=$("${diamond_psql[@]}" -Atc "SELECT EXISTS(SELECT 1 FROM pg_stat_activity a WHERE application_name='wheel-cutover-regression' AND wait_event='PgSleep' AND NOT EXISTS(SELECT 1 FROM pg_locks l WHERE l.pid=a.pid AND NOT l.granted))")
+  [ "$observing" = t ] && break
+  sleep 0.025
+done
+[ "$observing" = t ]
+printf 'ROLLBACK;\n' >&7
+exec 7>&-
+wait "$reader"
+wait "$cutover" || { cat "$fixture/cutover-success.log" >&2; exit 1; }
+"${diamond_psql[@]}" -f "$root/tests/sql/diamond-wallet-wide-cutover.sql" -f "$root/tests/sql/diamond-wheel-balance-entry.sql"
+"${diamond_psql[@]}" -f "$root/tests/sql/diamond-wheel-prize-funding.sql"
+"${diamond_psql[@]}" -f "$root/tests/sql/diamond-wheel-owner-credit.sql"
+bash "$root/scripts/dev/test-diamond-wheel-single-spin-race.sh" "$fixture"
+"${diamond_psql[@]}" -f "$root/supabase/migrations/20261110023808_donkey_cross_favors_early_streets_and_rewards_progress.sql" \
+  -f "$root/tests/sql/diamond-crossing-gross-return.sql"
+
+# Diamond game contracts follow the wallet-balance wheel migration in this fixture.
+"${diamond_psql[@]}" -f "$diamond/plinko-entry-readers.sql" \
+  -f "$root/supabase/migrations/20261110023836_longer_crash_flights_and_positive_plinko_returns.sql" \
+  -f "$root/supabase/migrations/20261110023916_release_plinko_drops_and_their_prizes_one_request_at_a_time.sql" \
+  -f "$root/tests/sql/diamond-plinko-drop-release.sql"

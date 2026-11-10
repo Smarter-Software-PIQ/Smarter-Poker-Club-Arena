@@ -38,11 +38,12 @@ import { supabase } from '../../lib/supabase';
 import { readLocalSession } from '../../lib/authUtils';
 import { generateDefaultAvatar } from '../../utils/avatarGenerator';
 import { CardImage } from '../table/CardImage';
-import { formatGameTitle } from '../../utils/formatGameTitle';
+import { formatTournamentTitle } from '../../utils/formatGameTitle';
 import type { TournamentResult } from '../../services/pendingSessionSummary';
 import { playerDisplayName, PLAYER_NAME_COLUMNS } from '../../utils/playerDisplayName';
 import { SpadeConsole } from '../console/SpadeConsole';
 import './TournamentRankingCard.css';
+import '../../styles/postPlayResults.css';
 import { publicOrigin } from '../../lib/appBase';
 import { downloadBlob } from '../../utils/downloadCsv';
 import { TROPHY_PATHS, type ShareTier } from './rankingTrophy';
@@ -415,7 +416,7 @@ export default function TournamentRankingCard({
 
   const qualification = result.satelliteQualification;
   const place = result.finishPlace;
-  const eventName = formatGameTitle(result.name || tableName || 'Tournament');
+  const eventName = formatTournamentTitle(result.name || tableName || 'Tournament');
   const totalWon = (result.prize || 0) + (result.bountyWinnings || 0);
   /* MYSTERY BOUNTY (section 43). Cents, and absent on any non-mystery event. */
   const mysteryBounties = Math.max(0, Number(result.mysteryBounties) || 0);
@@ -662,6 +663,7 @@ export default function TournamentRankingCard({
 
       <div className="trc2__card">
         <SpadeConsole
+          className="postplay-panel"
           crest="vip"
           /* RANKING is the card's own name in Dan's reference, and it is what
              the engraved title says. The EVENT NAME is the long string here -
@@ -699,7 +701,9 @@ export default function TournamentRankingCard({
                   onClick: () => void handleShare(),
                 },
             primary: {
-              label: rematch?.primaryLabel ?? 'Play Again',
+              label:
+                rematch?.primaryLabel ??
+                (result.formatKind === 'mtt' ? 'Return To Lobby' : 'Play Again'),
               ink: 'white',
               onClick: handlePlayAgain,
               'aria-busy': rematch?.primaryBusy || undefined,
@@ -728,88 +732,89 @@ export default function TournamentRankingCard({
             {!result.isSpin && <span className="trc2__brand-mark">TOURNAMENT</span>}
           </div>
 
-          {/* ── Medal ──
+          <div className="trc2__result-hero">
+            {/* ── Medal ──
               The rays are the reference card's starburst, cast in the medal's
               own light: bright cool beams for the podium, a faint steel wash
               for everyone else. Light on the glass, not a shape on it. */}
-          <div className={`trc2__medal ${tier}`}>
-            <span className="trc2__medal-rays" aria-hidden="true" />
-            <div className="trc2__medal-ring">
-              {qualification ? (
-                <PlacementTrophy label="Satellite Trophy" />
-              ) : place != null && place <= 3 ? (
-                <PlacementTrophy label={`${ordinal(place)} Place Trophy`} />
-              ) : (
-                <span className="trc2__medal-place">{place ?? '-'}</span>
-              )}
+            <div className={`trc2__medal ${tier}`}>
+              <span className="trc2__medal-rays" aria-hidden="true" />
+              <div className="trc2__medal-ring">
+                {qualification ? (
+                  <PlacementTrophy label="Satellite Trophy" />
+                ) : place != null && place <= 3 ? (
+                  <PlacementTrophy label={`${ordinal(place)} Place Trophy`} />
+                ) : (
+                  <span className="trc2__medal-place">{place ?? '-'}</span>
+                )}
+              </div>
+              <span className="trc2__medal-glow" aria-hidden="true" />
             </div>
-            <span className="trc2__medal-glow" aria-hidden="true" />
-          </div>
 
-          {/* ── Place band ──
+            {/* ── Place band ──
               Was a flat blue slab with "1ST" centred in it, the one thing on
               the card that looked like every other app. The result is now
               set as the result: what the finish is called, lit, between two
               engraved rules, then the place itself in the master's engraved
               silver at the largest size on the sheet. The band colour is
               still the finish's metal; it is the light the numeral sits in. */}
-          <div className={`trc2__placeband ${tier}`}>
-            <span className="trc2__place-title sc-ink--blue">{placeWord}</span>
-            {qualification && place == null ? (
-              <span className="trc2__place-word sc-ink--silver">{bandWord}</span>
-            ) : place != null ? (
-              <span className="trc2__place-ordinal sc-ink--silver" aria-label={ordinal(place)}>
-                <span className="trc2__place-num">{ordinalParts(place).num}</span>
-                <span className="trc2__place-suffix">{ordinalParts(place).suffix}</span>
-              </span>
-            ) : (
-              <span className="trc2__place-word sc-ink--silver">Finished</span>
-            )}
-          </div>
+            <div className={`trc2__placeband ${tier}`}>
+              <span className="trc2__place-title sc-ink--blue">{placeWord}</span>
+              {qualification && place == null ? (
+                <span className="trc2__place-word sc-ink--silver">{bandWord}</span>
+              ) : place != null ? (
+                <span className="trc2__place-ordinal sc-ink--silver" aria-label={ordinal(place)}>
+                  <span className="trc2__place-num">{ordinalParts(place).num}</span>
+                  <span className="trc2__place-suffix">{ordinalParts(place).suffix}</span>
+                </span>
+              ) : (
+                <span className="trc2__place-word sc-ink--silver">Finished</span>
+              )}
+            </div>
 
-          {/* ── What it paid ──
+            {/* ── What it paid ──
               The figure a player came back to the card to read, so it is the
               second largest print on the sheet, directly under the place,
               rather than a corner of the player row. */}
-          <div className="trc2__reward">
-            {/* Dan section 44: the champion's card must not imply the placement
+            <div className="trc2__reward">
+              {/* Dan section 44: the champion's card must not imply the placement
                 prize was the whole story. It never was on this card - "Reward"
                 has always been prize + bounties - but a single opaque figure
                 does not SAY so, and in a mystery bounty event the split is
                 frequently most of the interest. The label names it as the
                 total, and the line underneath shows the two halves whenever
                 there are two. */}
-            <span className="trc2__reward-label">{payoutLabel}</span>
-            <span className="trc2__reward-value sc-ink--silver">
-              {/* The real figure is always here; while the count runs it is
+              <span className="trc2__reward-label">{payoutLabel}</span>
+              <span className="trc2__reward-value sc-ink--silver">
+                {/* The real figure is always here; while the count runs it is
                   held invisible (it still sets the width, so nothing shifts
                   when the count lands) and the running number prints over it,
                   hidden from assistive tech. */}
-              <span
-                className={
-                  counting != null ? 'trc2__reward-final is-counting' : 'trc2__reward-final'
-                }
-              >
-                {/* The headline figure is otherwise a bare number, and a bare
+                <span
+                  className={
+                    counting != null ? 'trc2__reward-final is-counting' : 'trc2__reward-final'
+                  }
+                >
+                  {/* The headline figure is otherwise a bare number, and a bare
                     number in the Diamond Arena does not say what was won. Adds
                     nothing at a chip event. While settlement is pending the
                     figure is the word Pending - see settlementPending above. */}
-                {payoutDisplay}
-              </span>
-              {counting != null && (
-                /* Printed by the stylesheet from data-count, not as a text
+                  {payoutDisplay}
+                </span>
+                {counting != null && (
+                  /* Printed by the stylesheet from data-count, not as a text
                    node: the running figure is never part of the card's text,
                    so nothing that reads the card (a screen reader, a copy, a
                    test) can catch it mid-count. */
-                <span
-                  className="trc2__reward-count"
-                  aria-hidden="true"
-                  data-count={`${formatPrizeCentsAtUnit(counting, unitCents)}${moneySuffixAtUnit(unitCents)}`}
-                />
-              )}
-            </span>
+                  <span
+                    className="trc2__reward-count"
+                    aria-hidden="true"
+                    data-count={`${formatPrizeCentsAtUnit(counting, unitCents)}${moneySuffixAtUnit(unitCents)}`}
+                  />
+                )}
+              </span>
+            </div>
           </div>
-
           {result.bountyWinnings > 0 && (
             <div className="trc2__payout-split">
               <span className="trc2__payout-part">

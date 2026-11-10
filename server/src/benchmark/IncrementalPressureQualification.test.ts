@@ -119,11 +119,12 @@ function fixture(target: IncrementalTarget): any {
 test('separate schema accepts six structural designs but neither empty registry nor JSON grants execution', async () => {
   for (const target of targets) {
     assert.deepEqual(validateLockedFeatureAblationPlan(fixture(target)), []);
-    // The one registered plan (2026-11-09, owner decision for family 283) is
-    // read; every other target stays unregistered and refused.
-    if (target === 'river_position_defense')
-      assert.equal(qualificationPlan(target).state, 'heldout_locked');
-    else assert.throws(() => qualificationPlan(target), /plan refused/);
+    // Family 283's plan was spent by run 42703327017 and its seeds no longer
+    // match riverPositionDefense's approved family 284, so until the family
+    // 284 registration replaces the plan entry, every target, the registered
+    // one included, is refused here. The registration PR restores the
+    // heldout_locked pin for river_position_defense.
+    assert.throws(() => qualificationPlan(target), /plan refused/);
     await assert.rejects(authenticateIncrementalPlan(fixture(target)), /provider unavailable/);
     let called = 0;
     const profile = incrementalDevelopmentProfiles(target, 'plo4')[0];
@@ -440,7 +441,9 @@ test('joint family locks complete member plans and never reassigns exposed seeds
     run(1, a.target, 'c'.repeat(40)),
     { ...previous, display_title: null },
     { ...previous, created_at: current.created_at },
-    run(1, 'river_position_defense'),
+    // river_position_defense moved to family 284 (owner approval 2026-11-09),
+    // so a same-family alien run is represented by river_bluff_checkraise.
+    run(1, 'river_bluff_checkraise'),
   ])
     assert.throws(() =>
       assertIncrementalFamilyRuns([current, old], current, b.target, source, family)

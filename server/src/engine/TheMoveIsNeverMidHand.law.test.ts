@@ -314,10 +314,10 @@ describe('D4 - an entry hold never outlives the deal that made it meaningless', 
     expect(wait).toMatch(/this\.restoreEntryHoldsFromSeats\(\);/);
   });
 
-  it('the two arrival states are still exactly as Dan set them', () => {
+  it('clears a move on admission to the deal and preserves voluntary entry posting', () => {
     // moved by the game: nothing owed. seat change: posts the BB.
     expect(DEALING).toMatch(
-      /entryHold === 'moved'[\s\S]{0,900}?this\.persistEntryHold\(p\.user_id, \{ hold: null, agreed: false \}\)/
+      /for \(const p of players\) \{\s*if \(p\.entry_hold === 'moved'\)\s*this\.persistEntryHold\(p\.user_id, \{ hold: null, agreed: false \}\)/
     );
     expect(DEALING).toMatch(
       /entryHold === 'waiting' && entryAgreed[\s\S]{0,600}?this\.postBBWhenClear\.add\(p\.user_id\)/

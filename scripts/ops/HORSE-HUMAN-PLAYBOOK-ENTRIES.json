@@ -1,0 +1,2260 @@
+{
+  "schemaVersion": 1,
+  "kind": "horse_human_frozen_research_directory",
+  "cutoffExclusive": "2026-11-08T00:00:00Z",
+  "corePopulation": {
+    "histories": 41400,
+    "includedHands": 35620,
+    "decisions": 304414
+  },
+  "candidateFlagCountsOverlap": true,
+  "sourceManifestSha256": "9420e3823619ea53a178b097e8d3ca39fef697dd924bbf5cb9528900cf48f5ca",
+  "crossCuttingRequirements": {
+    "ownerValueDirective": "Middle/top full houses and near nuts checked to in PLO require value-bet-default evaluation; facing a big bet compare calling before escalating. Separate bottom full, stronger boats/quads, multi-board and tournament utility exceptions. No blanket hand-category profitability claim.",
+    "memory": "Prior public observations only; no private-card pooling or coordinated actions; exact domain and uncertainty retained.",
+    "lightning": "Require captured Lightning rules/version and public seat history; do not infer rules from speed alone.",
+    "bbAnte": "Preserve actual dead investment, ante payer, pot odds and stack geometry; no blanket aggression multiplier.",
+    "bubble": "Prize utility requires historical field/payout evidence; stage labels alone do not supply ICM.",
+    "riverBluff": "Measure eligible opportunities, proposal, acceptance and outcomes separately; compare size-specific fold/call/raise responses.",
+    "activation": "Use existing source-owned qualification and selection; this manifest is not accepted as an approval or runtime policy."
+  },
+  "sourceRoutes": {
+    "manifestBuilder": {
+      "path": "scripts/ops/horse_playbook.py",
+      "line": 19,
+      "symbolOrAnchor": "def build_playbook",
+      "sha256": "bc531eb938025dcdff285d26836d3394d2d1918cd0df448c06e01cfda361f42a"
+    },
+    "phase10Loader": {
+      "path": "server/src/engine/HorsePhase10Authority.ts",
+      "line": 461,
+      "symbolOrAnchor": "export function admitHorsePhase10LiveAuthority",
+      "sha256": "5077f1322497cd4de36e6cb6496489ef46bf91eb5327185995ad50976aad209a"
+    },
+    "phase10Mode": {
+      "path": "server/src/engine/HorsePhase10Authority.ts",
+      "line": 489,
+      "symbolOrAnchor": "export function horsePhase10AdmittedMode",
+      "sha256": "5077f1322497cd4de36e6cb6496489ef46bf91eb5327185995ad50976aad209a"
+    },
+    "phase10Contract": {
+      "path": "server/src/benchmark/Plo4StrengthContract.ts",
+      "line": 251,
+      "symbolOrAnchor": "antes and straddles",
+      "sha256": "89d7ad27a8e75c78849858b43108d16b15ca2a811d2114c99d22d3f79aa6a458"
+    },
+    "phase11Loader": {
+      "path": "server/src/engine/HorsePhase11Authority.ts",
+      "line": 818,
+      "symbolOrAnchor": "export function admitHorsePhase11LiveAuthority",
+      "sha256": "7db2d5288e1db694d2a7675e67dd9003aad113755c6889e312845bfb2b712abf"
+    },
+    "phase11Mode": {
+      "path": "server/src/engine/HorsePhase11Authority.ts",
+      "line": 862,
+      "symbolOrAnchor": "export function horsePhase11AdmittedMode",
+      "sha256": "7db2d5288e1db694d2a7675e67dd9003aad113755c6889e312845bfb2b712abf"
+    },
+    "phase11Contract": {
+      "path": "server/src/benchmark/OmahaVariantStrengthContract.ts",
+      "line": 355,
+      "symbolOrAnchor": "antes and straddles",
+      "sha256": "50aa3198c2811d2f2a5785d953722dcdfeedc1289c5e01bbe6db699e3944688e"
+    },
+    "phase12Loader": {
+      "path": "server/src/engine/HorsePhase12Authority.ts",
+      "line": 900,
+      "symbolOrAnchor": "export function admitHorsePhase12LiveAuthority",
+      "sha256": "e878c70ff7806f49b97f7901d85641a30328a1c5c1a85eab16cd021995c6d339"
+    },
+    "phase12Mode": {
+      "path": "server/src/engine/HorsePhase12Authority.ts",
+      "line": 945,
+      "symbolOrAnchor": "export function horsePhase12AdmittedMode",
+      "sha256": "e878c70ff7806f49b97f7901d85641a30328a1c5c1a85eab16cd021995c6d339"
+    },
+    "phase12Contract": {
+      "path": "server/src/benchmark/RemainingVariantStrengthContract.ts",
+      "line": 523,
+      "symbolOrAnchor": "antes and straddles",
+      "sha256": "bb422693783c860e4933426bc2a2f5655dea5d5a0177e675cc4ec4e9ca8bb735"
+    },
+    "phase13Loader": {
+      "path": "server/src/engine/HorsePhase13Authority.ts",
+      "line": 1014,
+      "symbolOrAnchor": "export function admitHorsePhase13LiveAuthority",
+      "sha256": "69fdaea41163740d5016752a69303189b5b9b468b2550b54872ea979fa20ed18"
+    },
+    "phase13Mode": {
+      "path": "server/src/engine/HorsePhase13Authority.ts",
+      "line": 1070,
+      "symbolOrAnchor": "export function horsePhase13AdmittedMode",
+      "sha256": "69fdaea41163740d5016752a69303189b5b9b468b2550b54872ea979fa20ed18"
+    },
+    "phase13Contract": {
+      "path": "server/src/benchmark/JointStrengthContract.ts",
+      "line": 673,
+      "symbolOrAnchor": "antes and straddles outside",
+      "sha256": "fd1fe9bcb240cf3bba48659d843a912f492d1cb13ff4bd86edecb5d1ed6533e7"
+    },
+    "phase8Loader": {
+      "path": "server/src/engine/HorseQualifiedAuthority.ts",
+      "line": 411,
+      "symbolOrAnchor": "export function admitHorsePhase8LiveAuthority",
+      "sha256": "02776038201ea1bfa676b01594032508a0853a0e7ec3b40c6cdda329c0b79082"
+    },
+    "phase8Domain": {
+      "path": "server/src/engine/HorseQualifiedAuthority.ts",
+      "line": 39,
+      "symbolOrAnchor": "export const HORSE_PHASE8_DOMAIN",
+      "sha256": "02776038201ea1bfa676b01594032508a0853a0e7ec3b40c6cdda329c0b79082"
+    },
+    "phase14Loader": {
+      "path": "server/src/engine/HorsePhase14Authority.ts",
+      "line": 303,
+      "symbolOrAnchor": "export function admitHorsePhase14LiveAttachment",
+      "sha256": "0a216cb6b190a0e7db199b5b28af70ae1dbe9ccc52027f7c345b8cd83d7fdcfb"
+    },
+    "phase14Mode": {
+      "path": "server/src/engine/HorsePhase14Authority.ts",
+      "line": 356,
+      "symbolOrAnchor": "export function horsePhase14CorrectiveMode",
+      "sha256": "0a216cb6b190a0e7db199b5b28af70ae1dbe9ccc52027f7c345b8cd83d7fdcfb"
+    },
+    "phase14Domain": {
+      "path": "server/src/services/horseCorrectiveReview/domain.ts",
+      "line": 55,
+      "symbolOrAnchor": "export function correctiveDecisionDomain",
+      "sha256": "6028a2cebe7756500848db814a026682a49734a854b13e64871bf416fccb6464"
+    },
+    "phase14TournamentObjectives": {
+      "path": "server/src/services/horseCorrectiveReview/kernelTournamentDefinition.ts",
+      "line": 63,
+      "symbolOrAnchor": "export function tournamentKernelDefinitionFor(objective",
+      "sha256": "27355644a92d300b45ba89edcbaedbc5fd30abb1daba32f5f163c4afdf461b46"
+    },
+    "correctiveReview": {
+      "path": "server/src/services/horseCorrectiveReview/kernelQualificationReview.ts",
+      "line": 109,
+      "symbolOrAnchor": "export function createCorrectiveKernelEvidenceReviewer",
+      "sha256": "5e2befbd95e1852c8811d827f0504d60a60eb04ff5af09831342d8b5ea32fb10"
+    }
+  },
+  "qualificationGates": {
+    "original_information_set_bound": "not_proved_by_this_report",
+    "independent_reference_qualified": "not_proved_by_this_report",
+    "causal_source_reproduction": "not_proved_by_this_report",
+    "regression_passed": "not_proved_by_this_report",
+    "untouched_holdout_passed": "not_proved_by_this_report",
+    "existing_domain_authority_issued": "not_proved_by_this_report",
+    "protected_merge": "not_proved_by_this_report",
+    "deployed_source_verified": "not_proved_by_this_report",
+    "natural_selected_and_accepted_use_verified": "not_proved_by_this_report"
+  },
+  "entries": [
+    {
+      "entryId": "cash/flo8/table/strong_hand_call_requires_value_raise_comparison",
+      "domain": {
+        "format": "cash",
+        "variant": "flo8",
+        "speedFormat": "table"
+      },
+      "coreFlags": 2,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/HorseLogic.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "exact call and legal raises, worse-hand calls, better continuing hands, reraise responses and resulting utility",
+        "low qualification, separate high/low shares, scoop/quarter, ties and side-pot eligibility"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase12Loader", "phase12Mode", "phase12Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/flo8/table/strong_hand_check_requires_position_and_induce_review",
+      "domain": {
+        "format": "cash",
+        "variant": "flo8",
+        "speedFormat": "table"
+      },
+      "coreFlags": 3,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/HorseLogic.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "remaining action order, joint check/bet/raise responses to checking and candidate sizes",
+        "low qualification, separate high/low shares, scoop/quarter, ties and side-pot eligibility"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase12Loader", "phase12Mode", "phase12Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/flo8/table/strong_hand_checkback",
+      "domain": {
+        "format": "cash",
+        "variant": "flo8",
+        "speedFormat": "table"
+      },
+      "coreFlags": 1,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/HorseLogic.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "closing action status, attainable worse calls and raises for each legal size",
+        "low qualification, separate high/low shares, scoop/quarter, ties and side-pot eligibility"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase12Loader", "phase12Mode", "phase12Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/nlh/lightning/strong_hand_call_requires_value_raise_comparison",
+      "domain": {
+        "format": "cash",
+        "variant": "nlh",
+        "speedFormat": "lightning"
+      },
+      "coreFlags": 1,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/HorseLogic.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "exact call and legal raises, worse-hand calls, better continuing hands, reraise responses and resulting utility",
+        "original Lightning rule version, ante payer/amount, eligible controlled population, matching speed/ante qualification; ordinary cash qualification excludes non-bomb antes"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/nlh/lightning/strong_hand_check_requires_position_and_induce_review",
+      "domain": {
+        "format": "cash",
+        "variant": "nlh",
+        "speedFormat": "lightning"
+      },
+      "coreFlags": 1,
+      "supplementalFlags": 1,
+      "sourceOwner": "server/src/engine/HorseLogic.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "remaining action order, joint check/bet/raise responses to checking and candidate sizes",
+        "original Lightning rule version, ante payer/amount, eligible controlled population, matching speed/ante qualification; ordinary cash qualification excludes non-bomb antes"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/nlh/table/strong_hand_call_requires_value_raise_comparison",
+      "domain": {
+        "format": "cash",
+        "variant": "nlh",
+        "speedFormat": "table"
+      },
+      "coreFlags": 14,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/HorseLogic.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "exact call and legal raises, worse-hand calls, better continuing hands, reraise responses and resulting utility"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/nlh/table/strong_hand_check_requires_position_and_induce_review",
+      "domain": {
+        "format": "cash",
+        "variant": "nlh",
+        "speedFormat": "table"
+      },
+      "coreFlags": 19,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/HorseLogic.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "remaining action order, joint check/bet/raise responses to checking and candidate sizes"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/nlh/table/strong_hand_checkback",
+      "domain": {
+        "format": "cash",
+        "variant": "nlh",
+        "speedFormat": "table"
+      },
+      "coreFlags": 4,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/HorseLogic.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "closing action status, attainable worse calls and raises for each legal size"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/nlh/table/strong_hand_fold_requires_range_review",
+      "domain": {
+        "format": "cash",
+        "variant": "nlh",
+        "speedFormat": "table"
+      },
+      "coreFlags": 4,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/HorseLogic.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "original bet, call odds, legal alternatives, weighted bettor range and downstream utility"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/plo4/lightning/middle_top_full_house_facing_bet_call_comparison",
+      "domain": {
+        "format": "cash",
+        "variant": "plo4",
+        "speedFormat": "lightning"
+      },
+      "coreFlags": 3,
+      "supplementalFlags": 3,
+      "sourceOwner": "server/src/engine/plo4/Plo4LivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "exact Omaha boat class, bet fraction, opener versus raise, call and raise prices, joint continuations",
+        "original Lightning rule version, ante payer/amount, eligible controlled population, matching speed/ante qualification; ordinary cash qualification excludes non-bomb antes"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase10Loader", "phase10Mode", "phase10Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/plo4/lightning/strong_hand_call_requires_value_raise_comparison",
+      "domain": {
+        "format": "cash",
+        "variant": "plo4",
+        "speedFormat": "lightning"
+      },
+      "coreFlags": 2,
+      "supplementalFlags": 1,
+      "sourceOwner": "server/src/engine/plo4/Plo4LivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "exact call and legal raises, worse-hand calls, better continuing hands, reraise responses and resulting utility",
+        "original Lightning rule version, ante payer/amount, eligible controlled population, matching speed/ante qualification; ordinary cash qualification excludes non-bomb antes"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase10Loader", "phase10Mode", "phase10Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/plo4/lightning/strong_hand_check_requires_position_and_induce_review",
+      "domain": {
+        "format": "cash",
+        "variant": "plo4",
+        "speedFormat": "lightning"
+      },
+      "coreFlags": 3,
+      "supplementalFlags": 1,
+      "sourceOwner": "server/src/engine/plo4/Plo4LivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "remaining action order, joint check/bet/raise responses to checking and candidate sizes",
+        "original Lightning rule version, ante payer/amount, eligible controlled population, matching speed/ante qualification; ordinary cash qualification excludes non-bomb antes"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase10Loader", "phase10Mode", "phase10Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/plo4/table/middle_top_full_house_checked_to_value_bet_review",
+      "domain": {
+        "format": "cash",
+        "variant": "plo4",
+        "speedFormat": "table"
+      },
+      "coreFlags": 5,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/plo4/Plo4LivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "exact Omaha boat class, board multiplicity, pending or checked aggressor, legal bet sizes and joint responses"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase10Loader", "phase10Mode", "phase10Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/plo4/table/middle_top_full_house_facing_bet_call_comparison",
+      "domain": {
+        "format": "cash",
+        "variant": "plo4",
+        "speedFormat": "table"
+      },
+      "coreFlags": 15,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/plo4/Plo4LivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "exact Omaha boat class, bet fraction, opener versus raise, call and raise prices, joint continuations"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase10Loader", "phase10Mode", "phase10Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/plo4/table/strong_hand_call_requires_value_raise_comparison",
+      "domain": {
+        "format": "cash",
+        "variant": "plo4",
+        "speedFormat": "table"
+      },
+      "coreFlags": 11,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/plo4/Plo4LivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "exact call and legal raises, worse-hand calls, better continuing hands, reraise responses and resulting utility"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase10Loader", "phase10Mode", "phase10Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/plo4/table/strong_hand_check_requires_position_and_induce_review",
+      "domain": {
+        "format": "cash",
+        "variant": "plo4",
+        "speedFormat": "table"
+      },
+      "coreFlags": 25,
+      "supplementalFlags": 1,
+      "sourceOwner": "server/src/engine/plo4/Plo4LivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "remaining action order, joint check/bet/raise responses to checking and candidate sizes"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase10Loader", "phase10Mode", "phase10Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/plo4/table/strong_hand_checkback",
+      "domain": {
+        "format": "cash",
+        "variant": "plo4",
+        "speedFormat": "table"
+      },
+      "coreFlags": 1,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/plo4/Plo4LivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "closing action status, attainable worse calls and raises for each legal size"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase10Loader", "phase10Mode", "phase10Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/plo5/lightning/middle_top_full_house_checked_to_value_bet_review",
+      "domain": {
+        "format": "cash",
+        "variant": "plo5",
+        "speedFormat": "lightning"
+      },
+      "coreFlags": 2,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/omaha/OmahaVariantLivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "exact Omaha boat class, board multiplicity, pending or checked aggressor, legal bet sizes and joint responses",
+        "original Lightning rule version, ante payer/amount, eligible controlled population, matching speed/ante qualification; ordinary cash qualification excludes non-bomb antes"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase11Loader", "phase11Mode", "phase11Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/plo5/lightning/middle_top_full_house_facing_bet_call_comparison",
+      "domain": {
+        "format": "cash",
+        "variant": "plo5",
+        "speedFormat": "lightning"
+      },
+      "coreFlags": 10,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/omaha/OmahaVariantLivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "exact Omaha boat class, bet fraction, opener versus raise, call and raise prices, joint continuations",
+        "original Lightning rule version, ante payer/amount, eligible controlled population, matching speed/ante qualification; ordinary cash qualification excludes non-bomb antes"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase11Loader", "phase11Mode", "phase11Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/plo5/lightning/strong_hand_call_requires_value_raise_comparison",
+      "domain": {
+        "format": "cash",
+        "variant": "plo5",
+        "speedFormat": "lightning"
+      },
+      "coreFlags": 5,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/omaha/OmahaVariantLivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "exact call and legal raises, worse-hand calls, better continuing hands, reraise responses and resulting utility",
+        "original Lightning rule version, ante payer/amount, eligible controlled population, matching speed/ante qualification; ordinary cash qualification excludes non-bomb antes"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase11Loader", "phase11Mode", "phase11Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/plo5/lightning/strong_hand_check_requires_position_and_induce_review",
+      "domain": {
+        "format": "cash",
+        "variant": "plo5",
+        "speedFormat": "lightning"
+      },
+      "coreFlags": 6,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/omaha/OmahaVariantLivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "remaining action order, joint check/bet/raise responses to checking and candidate sizes",
+        "original Lightning rule version, ante payer/amount, eligible controlled population, matching speed/ante qualification; ordinary cash qualification excludes non-bomb antes"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase11Loader", "phase11Mode", "phase11Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/plo5/lightning/strong_hand_checkback",
+      "domain": {
+        "format": "cash",
+        "variant": "plo5",
+        "speedFormat": "lightning"
+      },
+      "coreFlags": 1,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/omaha/OmahaVariantLivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "closing action status, attainable worse calls and raises for each legal size",
+        "original Lightning rule version, ante payer/amount, eligible controlled population, matching speed/ante qualification; ordinary cash qualification excludes non-bomb antes"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase11Loader", "phase11Mode", "phase11Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/plo5/table/middle_top_full_house_checked_to_value_bet_review",
+      "domain": {
+        "format": "cash",
+        "variant": "plo5",
+        "speedFormat": "table"
+      },
+      "coreFlags": 35,
+      "supplementalFlags": 1,
+      "sourceOwner": "server/src/engine/omaha/OmahaVariantLivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "exact Omaha boat class, board multiplicity, pending or checked aggressor, legal bet sizes and joint responses"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase11Loader", "phase11Mode", "phase11Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/plo5/table/middle_top_full_house_facing_bet_call_comparison",
+      "domain": {
+        "format": "cash",
+        "variant": "plo5",
+        "speedFormat": "table"
+      },
+      "coreFlags": 58,
+      "supplementalFlags": 1,
+      "sourceOwner": "server/src/engine/omaha/OmahaVariantLivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "exact Omaha boat class, bet fraction, opener versus raise, call and raise prices, joint continuations"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase11Loader", "phase11Mode", "phase11Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/plo5/table/strong_hand_call_requires_value_raise_comparison",
+      "domain": {
+        "format": "cash",
+        "variant": "plo5",
+        "speedFormat": "table"
+      },
+      "coreFlags": 37,
+      "supplementalFlags": 2,
+      "sourceOwner": "server/src/engine/omaha/OmahaVariantLivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "exact call and legal raises, worse-hand calls, better continuing hands, reraise responses and resulting utility"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase11Loader", "phase11Mode", "phase11Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/plo5/table/strong_hand_check_requires_position_and_induce_review",
+      "domain": {
+        "format": "cash",
+        "variant": "plo5",
+        "speedFormat": "table"
+      },
+      "coreFlags": 112,
+      "supplementalFlags": 2,
+      "sourceOwner": "server/src/engine/omaha/OmahaVariantLivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "remaining action order, joint check/bet/raise responses to checking and candidate sizes"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase11Loader", "phase11Mode", "phase11Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/plo5/table/strong_hand_checkback",
+      "domain": {
+        "format": "cash",
+        "variant": "plo5",
+        "speedFormat": "table"
+      },
+      "coreFlags": 4,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/omaha/OmahaVariantLivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "closing action status, attainable worse calls and raises for each legal size"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase11Loader", "phase11Mode", "phase11Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/plo5/table/strong_hand_fold_requires_range_review",
+      "domain": {
+        "format": "cash",
+        "variant": "plo5",
+        "speedFormat": "table"
+      },
+      "coreFlags": 2,
+      "supplementalFlags": 1,
+      "sourceOwner": "server/src/engine/omaha/OmahaVariantLivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "original bet, call odds, legal alternatives, weighted bettor range and downstream utility"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase11Loader", "phase11Mode", "phase11Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/plo6/lightning/middle_top_full_house_facing_bet_call_comparison",
+      "domain": {
+        "format": "cash",
+        "variant": "plo6",
+        "speedFormat": "lightning"
+      },
+      "coreFlags": 1,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/omaha/OmahaVariantLivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "exact Omaha boat class, bet fraction, opener versus raise, call and raise prices, joint continuations",
+        "original Lightning rule version, ante payer/amount, eligible controlled population, matching speed/ante qualification; ordinary cash qualification excludes non-bomb antes"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase11Loader", "phase11Mode", "phase11Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/plo6/lightning/strong_hand_check_requires_position_and_induce_review",
+      "domain": {
+        "format": "cash",
+        "variant": "plo6",
+        "speedFormat": "lightning"
+      },
+      "coreFlags": 1,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/omaha/OmahaVariantLivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "remaining action order, joint check/bet/raise responses to checking and candidate sizes",
+        "original Lightning rule version, ante payer/amount, eligible controlled population, matching speed/ante qualification; ordinary cash qualification excludes non-bomb antes"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase11Loader", "phase11Mode", "phase11Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/plo6/lightning/strong_hand_fold_requires_range_review",
+      "domain": {
+        "format": "cash",
+        "variant": "plo6",
+        "speedFormat": "lightning"
+      },
+      "coreFlags": 1,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/omaha/OmahaVariantLivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "original bet, call odds, legal alternatives, weighted bettor range and downstream utility",
+        "original Lightning rule version, ante payer/amount, eligible controlled population, matching speed/ante qualification; ordinary cash qualification excludes non-bomb antes"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase11Loader", "phase11Mode", "phase11Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/plo6/table/middle_top_full_house_checked_to_value_bet_review",
+      "domain": {
+        "format": "cash",
+        "variant": "plo6",
+        "speedFormat": "table"
+      },
+      "coreFlags": 5,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/omaha/OmahaVariantLivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "exact Omaha boat class, board multiplicity, pending or checked aggressor, legal bet sizes and joint responses"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase11Loader", "phase11Mode", "phase11Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/plo6/table/middle_top_full_house_facing_bet_call_comparison",
+      "domain": {
+        "format": "cash",
+        "variant": "plo6",
+        "speedFormat": "table"
+      },
+      "coreFlags": 11,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/omaha/OmahaVariantLivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "exact Omaha boat class, bet fraction, opener versus raise, call and raise prices, joint continuations"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase11Loader", "phase11Mode", "phase11Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/plo6/table/strong_hand_call_requires_value_raise_comparison",
+      "domain": {
+        "format": "cash",
+        "variant": "plo6",
+        "speedFormat": "table"
+      },
+      "coreFlags": 6,
+      "supplementalFlags": 1,
+      "sourceOwner": "server/src/engine/omaha/OmahaVariantLivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "exact call and legal raises, worse-hand calls, better continuing hands, reraise responses and resulting utility"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase11Loader", "phase11Mode", "phase11Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/plo6/table/strong_hand_check_requires_position_and_induce_review",
+      "domain": {
+        "format": "cash",
+        "variant": "plo6",
+        "speedFormat": "table"
+      },
+      "coreFlags": 11,
+      "supplementalFlags": 1,
+      "sourceOwner": "server/src/engine/omaha/OmahaVariantLivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "remaining action order, joint check/bet/raise responses to checking and candidate sizes"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase11Loader", "phase11Mode", "phase11Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/plo6/table/strong_hand_fold_requires_range_review",
+      "domain": {
+        "format": "cash",
+        "variant": "plo6",
+        "speedFormat": "table"
+      },
+      "coreFlags": 8,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/omaha/OmahaVariantLivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "original bet, call odds, legal alternatives, weighted bettor range and downstream utility"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase11Loader", "phase11Mode", "phase11Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "cash/short_deck/table/strong_hand_call_requires_value_raise_comparison",
+      "domain": {
+        "format": "cash",
+        "variant": "short_deck",
+        "speedFormat": "table"
+      },
+      "coreFlags": 1,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/HorseLogic.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics"
+      ],
+      "specificInputs": [
+        "exact call and legal raises, worse-hand calls, better continuing hands, reraise responses and resulting utility"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase12Loader", "phase12Mode", "phase12Contract"],
+          "scope": "variant cash pack only; exact profile required; ante/straddle outside contract"
+        },
+        {
+          "sources": ["phase13Loader", "phase13Mode", "phase13Contract"],
+          "scope": "joint multiway cash pack only, conditional on joint-owner eligibility and matching asset, board count and population"
+        },
+        {
+          "sources": ["correctiveReview", "phase14Loader", "phase14Mode", "phase14Domain"],
+          "scope": "cash corrective domain name only; eligibility requires objective-specific kernel, admitted matching catalog and worker authority"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "tournament/nlh/table/strong_hand_call_requires_value_raise_comparison",
+      "domain": {
+        "format": "tournament",
+        "variant": "nlh",
+        "speedFormat": "table"
+      },
+      "coreFlags": 19,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/HorseLogic.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics",
+        "historical_whole_field_stacks_payouts_and_bounties"
+      ],
+      "specificInputs": [
+        "exact call and legal raises, worse-hand calls, better continuing hands, reraise responses and resulting utility",
+        "original tournament subtype, payouts/bounties, whole-field stacks, clock/stage and applicable prize-utility reference"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase8Loader", "phase8Domain"],
+          "scope": "single-board NLH tournament postflop only"
+        },
+        {
+          "sources": [
+            "correctiveReview",
+            "phase14Loader",
+            "phase14Mode",
+            "phase14Domain",
+            "phase14TournamentObjectives"
+          ],
+          "scope": "only NLH Spin WTA HU or closed HU ladder MTT/SNG/HU SNG river call/fold objective after original format is established"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "tournament/nlh/table/strong_hand_check_requires_position_and_induce_review",
+      "domain": {
+        "format": "tournament",
+        "variant": "nlh",
+        "speedFormat": "table"
+      },
+      "coreFlags": 48,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/HorseLogic.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics",
+        "historical_whole_field_stacks_payouts_and_bounties"
+      ],
+      "specificInputs": [
+        "remaining action order, joint check/bet/raise responses to checking and candidate sizes",
+        "original tournament subtype, payouts/bounties, whole-field stacks, clock/stage and applicable prize-utility reference"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase8Loader", "phase8Domain"],
+          "scope": "single-board NLH tournament postflop only"
+        },
+        {
+          "sources": [
+            "correctiveReview",
+            "phase14Loader",
+            "phase14Mode",
+            "phase14Domain",
+            "phase14TournamentObjectives"
+          ],
+          "scope": "only NLH Spin WTA HU or closed HU ladder MTT/SNG/HU SNG river call/fold objective after original format is established"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "tournament/nlh/table/strong_hand_checkback",
+      "domain": {
+        "format": "tournament",
+        "variant": "nlh",
+        "speedFormat": "table"
+      },
+      "coreFlags": 17,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/HorseLogic.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics",
+        "historical_whole_field_stacks_payouts_and_bounties"
+      ],
+      "specificInputs": [
+        "closing action status, attainable worse calls and raises for each legal size",
+        "original tournament subtype, payouts/bounties, whole-field stacks, clock/stage and applicable prize-utility reference"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase8Loader", "phase8Domain"],
+          "scope": "single-board NLH tournament postflop only"
+        },
+        {
+          "sources": [
+            "correctiveReview",
+            "phase14Loader",
+            "phase14Mode",
+            "phase14Domain",
+            "phase14TournamentObjectives"
+          ],
+          "scope": "only NLH Spin WTA HU or closed HU ladder MTT/SNG/HU SNG river call/fold objective after original format is established"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "tournament/nlh/table/strong_hand_fold_requires_range_review",
+      "domain": {
+        "format": "tournament",
+        "variant": "nlh",
+        "speedFormat": "table"
+      },
+      "coreFlags": 6,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/HorseLogic.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics",
+        "historical_whole_field_stacks_payouts_and_bounties"
+      ],
+      "specificInputs": [
+        "original bet, call odds, legal alternatives, weighted bettor range and downstream utility",
+        "original tournament subtype, payouts/bounties, whole-field stacks, clock/stage and applicable prize-utility reference"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase8Loader", "phase8Domain"],
+          "scope": "single-board NLH tournament postflop only"
+        },
+        {
+          "sources": [
+            "correctiveReview",
+            "phase14Loader",
+            "phase14Mode",
+            "phase14Domain",
+            "phase14TournamentObjectives"
+          ],
+          "scope": "only NLH Spin WTA HU or closed HU ladder MTT/SNG/HU SNG river call/fold objective after original format is established"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "tournament/plo4/table/middle_top_full_house_checked_to_value_bet_review",
+      "domain": {
+        "format": "tournament",
+        "variant": "plo4",
+        "speedFormat": "table"
+      },
+      "coreFlags": 1,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/plo4/Plo4LivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics",
+        "historical_whole_field_stacks_payouts_and_bounties"
+      ],
+      "specificInputs": [
+        "exact Omaha boat class, board multiplicity, pending or checked aggressor, legal bet sizes and joint responses",
+        "original tournament subtype, payouts/bounties, whole-field stacks, clock/stage and applicable prize-utility reference"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase10Mode", "phase10Contract"],
+          "scope": "cash pack stays shadow for tournament decisions"
+        },
+        {
+          "sources": [
+            "correctiveReview",
+            "phase14Loader",
+            "phase14Mode",
+            "phase14Domain",
+            "phase14TournamentObjectives"
+          ],
+          "scope": "registry can name format; existing tournament corrective kernel rejects non-NLH"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "tournament/plo4/table/middle_top_full_house_facing_bet_call_comparison",
+      "domain": {
+        "format": "tournament",
+        "variant": "plo4",
+        "speedFormat": "table"
+      },
+      "coreFlags": 2,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/plo4/Plo4LivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics",
+        "historical_whole_field_stacks_payouts_and_bounties"
+      ],
+      "specificInputs": [
+        "exact Omaha boat class, bet fraction, opener versus raise, call and raise prices, joint continuations",
+        "original tournament subtype, payouts/bounties, whole-field stacks, clock/stage and applicable prize-utility reference"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase10Mode", "phase10Contract"],
+          "scope": "cash pack stays shadow for tournament decisions"
+        },
+        {
+          "sources": [
+            "correctiveReview",
+            "phase14Loader",
+            "phase14Mode",
+            "phase14Domain",
+            "phase14TournamentObjectives"
+          ],
+          "scope": "registry can name format; existing tournament corrective kernel rejects non-NLH"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "tournament/plo4/table/strong_hand_check_requires_position_and_induce_review",
+      "domain": {
+        "format": "tournament",
+        "variant": "plo4",
+        "speedFormat": "table"
+      },
+      "coreFlags": 3,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/plo4/Plo4LivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics",
+        "historical_whole_field_stacks_payouts_and_bounties"
+      ],
+      "specificInputs": [
+        "remaining action order, joint check/bet/raise responses to checking and candidate sizes",
+        "original tournament subtype, payouts/bounties, whole-field stacks, clock/stage and applicable prize-utility reference"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase10Mode", "phase10Contract"],
+          "scope": "cash pack stays shadow for tournament decisions"
+        },
+        {
+          "sources": [
+            "correctiveReview",
+            "phase14Loader",
+            "phase14Mode",
+            "phase14Domain",
+            "phase14TournamentObjectives"
+          ],
+          "scope": "registry can name format; existing tournament corrective kernel rejects non-NLH"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "tournament/plo6/table/middle_top_full_house_facing_bet_call_comparison",
+      "domain": {
+        "format": "tournament",
+        "variant": "plo6",
+        "speedFormat": "table"
+      },
+      "coreFlags": 4,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/omaha/OmahaVariantLivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics",
+        "historical_whole_field_stacks_payouts_and_bounties"
+      ],
+      "specificInputs": [
+        "exact Omaha boat class, bet fraction, opener versus raise, call and raise prices, joint continuations",
+        "original tournament subtype, payouts/bounties, whole-field stacks, clock/stage and applicable prize-utility reference"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase11Mode", "phase11Contract"],
+          "scope": "cash pack stays shadow for tournament decisions"
+        },
+        {
+          "sources": [
+            "correctiveReview",
+            "phase14Loader",
+            "phase14Mode",
+            "phase14Domain",
+            "phase14TournamentObjectives"
+          ],
+          "scope": "registry can name format; existing tournament corrective kernel rejects non-NLH"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "tournament/plo6/table/strong_hand_call_requires_value_raise_comparison",
+      "domain": {
+        "format": "tournament",
+        "variant": "plo6",
+        "speedFormat": "table"
+      },
+      "coreFlags": 3,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/omaha/OmahaVariantLivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics",
+        "historical_whole_field_stacks_payouts_and_bounties"
+      ],
+      "specificInputs": [
+        "exact call and legal raises, worse-hand calls, better continuing hands, reraise responses and resulting utility",
+        "original tournament subtype, payouts/bounties, whole-field stacks, clock/stage and applicable prize-utility reference"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase11Mode", "phase11Contract"],
+          "scope": "cash pack stays shadow for tournament decisions"
+        },
+        {
+          "sources": [
+            "correctiveReview",
+            "phase14Loader",
+            "phase14Mode",
+            "phase14Domain",
+            "phase14TournamentObjectives"
+          ],
+          "scope": "registry can name format; existing tournament corrective kernel rejects non-NLH"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "tournament/plo6/table/strong_hand_check_requires_position_and_induce_review",
+      "domain": {
+        "format": "tournament",
+        "variant": "plo6",
+        "speedFormat": "table"
+      },
+      "coreFlags": 3,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/omaha/OmahaVariantLivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics",
+        "historical_whole_field_stacks_payouts_and_bounties"
+      ],
+      "specificInputs": [
+        "remaining action order, joint check/bet/raise responses to checking and candidate sizes",
+        "original tournament subtype, payouts/bounties, whole-field stacks, clock/stage and applicable prize-utility reference"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase11Mode", "phase11Contract"],
+          "scope": "cash pack stays shadow for tournament decisions"
+        },
+        {
+          "sources": [
+            "correctiveReview",
+            "phase14Loader",
+            "phase14Mode",
+            "phase14Domain",
+            "phase14TournamentObjectives"
+          ],
+          "scope": "registry can name format; existing tournament corrective kernel rejects non-NLH"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    },
+    {
+      "entryId": "tournament/plo8/table/strong_hand_check_requires_position_and_induce_review",
+      "domain": {
+        "format": "tournament",
+        "variant": "plo8",
+        "speedFormat": "table"
+      },
+      "coreFlags": 1,
+      "supplementalFlags": 0,
+      "sourceOwner": "server/src/engine/omaha/OmahaVariantLivePolicy.ts",
+      "requiredOriginalInputs": [
+        "original_cards_and_public_action_line",
+        "exact_ruleContext",
+        "chronological_opponent_response_model",
+        "legal_action_economics",
+        "historical_whole_field_stacks_payouts_and_bounties"
+      ],
+      "specificInputs": [
+        "remaining action order, joint check/bet/raise responses to checking and candidate sizes",
+        "original tournament subtype, payouts/bounties, whole-field stacks, clock/stage and applicable prize-utility reference",
+        "low qualification, separate high/low shares, scoop/quarter, ties and side-pot eligibility"
+      ],
+      "qualificationRoute": "existing_variant_authority_and_corrective_review_where_supported",
+      "authorityRoutes": [
+        {
+          "sources": ["phase11Mode", "phase11Contract"],
+          "scope": "cash pack stays shadow for tournament decisions"
+        },
+        {
+          "sources": [
+            "correctiveReview",
+            "phase14Loader",
+            "phase14Mode",
+            "phase14Domain",
+            "phase14TournamentObjectives"
+          ],
+          "scope": "registry can name format; existing tournament corrective kernel rejects non-NLH"
+        }
+      ],
+      "missingManifestFields": [
+        "sourceFix",
+        "regressionEvidence",
+        "qualifiedArtifact",
+        "deployment",
+        "liveUseEvidence"
+      ],
+      "activationAllowed": false
+    }
+  ],
+  "supplementalFlagsInAdditionalDomains": {},
+  "activationAllowed": false,
+  "sourceRouteReferenceRevision": "684d11117d58143fc33327a478c45d40a5d90cf3"
+}

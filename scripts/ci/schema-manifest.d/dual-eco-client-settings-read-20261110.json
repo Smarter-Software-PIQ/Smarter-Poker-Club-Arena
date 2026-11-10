@@ -1,0 +1,5 @@
+{
+  "_owner": "codex/dual-eco-client-01a1bbdd",
+  "_comment": "The UI reads fn_union_eco_settings(uuid), defined at line 290 by core PR #10276 / commit 9ea42055927e83fb8d26d0ee3e8ccbd9861a2e5c in 20261110005719_cash_and_tournament_eco_have_separate_original_records.sql (SHA256 14f53f1f37df3179fc0fb66889e0ad723b450046aeb43ad01c9634e0ede82a1a). This source-backed declaration is not an installation receipt. Protected core merge and actual installation remain prerequisites to client publication.",
+  "functions": ["fn_union_eco_settings"]
+}

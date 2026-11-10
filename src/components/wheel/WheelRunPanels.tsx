@@ -80,7 +80,6 @@ export function WheelRunResume({
   onResume: () => void;
   onEnd: () => void;
 }) {
-  const left = Math.max(0, spins - spinsDone);
   return (
     <section className={styles.card} aria-labelledby="wheel-run-resume-title">
       <h2 id="wheel-run-resume-title" className={styles.cardTitle}>
@@ -89,17 +88,19 @@ export function WheelRunResume({
       <p className={styles.cardCopy}>
         {prepaid
           ? `All ${spins.toLocaleString()} Paid Spins Are Saved. Review Your Results And Play Your Saved Bonus Games In Order.`
-          : `${spinsDone.toLocaleString()} Of ${spins.toLocaleString()} Spins Done. Resume To Spin The Rest, Or End The Run And Keep What It Won.`}
+          : `${spinsDone.toLocaleString()} Of ${spins.toLocaleString()} Spins Done. Close This Run To Keep Its Prizes And Return To Single Spins.`}
       </p>
       <div className={styles.cardActions}>
         <button type="button" className={styles.cardButtonQuiet} disabled={busy} onClick={onEnd}>
           End Run
           <TapHaptic disabled={busy} radius="0px" />
         </button>
-        <button type="button" className={styles.cardButton} disabled={busy} onClick={onResume}>
-          {left === 0 ? 'Review Saved Run' : `Resume Run (${left.toLocaleString()} Left)`}
-          <TapHaptic disabled={busy} radius="0px" />
-        </button>
+        {prepaid && (
+          <button type="button" className={styles.cardButton} disabled={busy} onClick={onResume}>
+            Review Saved Run
+            <TapHaptic disabled={busy} radius="0px" />
+          </button>
+        )}
       </div>
     </section>
   );

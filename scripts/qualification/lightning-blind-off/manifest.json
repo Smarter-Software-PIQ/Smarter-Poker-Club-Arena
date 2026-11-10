@@ -1,0 +1,31 @@
+{
+  "note": "md5(pg_get_functiondef) read from production (kuklfnapbkmacvwxktbh) on 2026-11-09, before migration 20261109224717.",
+  "installed": {
+    "public.fn_lightning_stop_playing(uuid)": "1b32acb1f0779fc10d162ae2debdf440",
+    "public.fn_lightning_reap_expired_disconnects(uuid,timestamptz,integer)": "982d09db9e40ccde65476081152a384b",
+    "public.fn_lightning_player_legality(uuid,timestamptz,uuid[],jsonb)": "5c93a296a71bcb65508b4ad9b1a4a303",
+    "public.fn_lightning_presence_report(uuid,uuid[],uuid[],timestamptz)": "eb29c7bc94990a06365061ed3c309613",
+    "public.fn_table_seats_lightning_pool_follows_seat()": "0f738b5541890d55753de110b23d3dc7",
+    "public.fn_lightning_pool_enter(uuid,timestamptz)": "9149913448f4d27054de4b6334d60aeb",
+    "public.fn_lightning_pool_stack(uuid)": "fcec5810bbbb6cb60abcdc27341dff1c",
+    "public.fn_lightning_anchor_is_live_eligible(uuid,uuid,uuid)": "a121611dd69437875e82a06832715981",
+    "public.fn_lightning_player_live_hand(uuid,uuid)": "6cffa285d39d3bd4dd42e5fa4c83253e",
+    "public.fn_lightning_player_in_hand(uuid,uuid)": "36e38991a83968c97a8d69f5e7ee0549",
+    "public.fn_lightning_blind_off_players(uuid[])": "c9b71cb81d9eff0af96fcb0aba464fe2",
+    "public.fn_cash_hit_run_hands_remaining(integer,integer,boolean,boolean,numeric,numeric)": "d74cc252eb7cce9a255b5a7537aad1a6",
+    "public.fn_cash_leave_check(uuid,uuid)": "504476448db50af394275027c1ff426c",
+    "public.fn_cash_session_evaluate(uuid,jsonb)": "51e5cf628d1f522425b7be60f69a438a",
+    "public.fn_cash_session_set_blind_off(uuid,uuid,boolean)": "50209a2089eef3b84d1fd14e87ec605c"
+  },
+  "fromRepository": [
+    ["20261008050805", "fn_lightning_presence_report"],
+    ["20260926072615", "fn_lightning_anchor_is_live_eligible"],
+    ["20261001154813", "fn_lightning_player_live_hand"],
+    ["20260926072615", "fn_lightning_player_in_hand"],
+    ["20261106203853", "fn_cash_hit_run_hands_remaining"],
+    ["20261106203853", "fn_lightning_blind_off_players"],
+    ["20261106203853", "fn_cash_leave_check"],
+    ["20261106203853", "fn_cash_session_evaluate"],
+    ["20261106203853", "fn_cash_session_set_blind_off"]
+  ]
+}
