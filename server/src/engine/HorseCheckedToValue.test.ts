@@ -9,7 +9,7 @@ import {
 } from './HorseNonBottomRiverValue.js';
 import { omahaBoatPosition, omahaBoatsAbove, seedFastRandom } from './HorseEval.js';
 import { jointPolicyFixture } from './multiway/JointRangeFixture.test-support.js';
-import { calculatePots } from './PokerEngine.js';
+import { calculatePots, Deck } from './PokerEngine.js';
 import { HandController } from './HandController.js';
 import type { GameState } from '../types.js';
 
@@ -780,11 +780,15 @@ it.each([
 
 describe('PLO4 river response after value betting a non-nut full house', () => {
   it.each([
-    { stack: 100, raiseTo: 70, expected: 'call', paid: 50 },
-    { stack: 40, raiseTo: 40, expected: 'all_in', paid: 20 },
+    { stack: 100, opponentStack: 100, raiseTo: 70, expected: 'call', paid: 50 },
+    { stack: 40, opponentStack: 40, raiseTo: 40, expected: 'all_in', paid: 20 },
+    { stack: 200, opponentStack: 200, raiseTo: 40, expected: null, paid: 20 },
+    { stack: 200, opponentStack: 200, raiseTo: 80, expected: 'call', paid: 60 },
+    { stack: 200, opponentStack: 30, raiseTo: 30, expected: 'call', paid: 10 },
+    { stack: 200, opponentStack: 200, raiseTo: null, expected: 'bet', paid: 0 },
   ])(
-    'pays only the call when the opponent raises to $raiseTo',
-    ({ stack, raiseTo, expected, paid }) => {
+    'accepts the next decision at price $paid after opponent response $raiseTo',
+    ({ stack, opponentStack, raiseTo, expected, paid }) => {
       const { hero, state } = jointPolicyFixture('plo4', 1, 'cash', 'river');
       Object.assign(hero, {
         user_id: 'hero',
@@ -794,10 +798,10 @@ describe('PLO4 river response after value betting a non-nut full house', () => {
         bet: 0,
         totalInvested: 10,
       });
-      const opponent = { ...hero, user_id: 'opponent', seat: 1, cards: [] };
+      const opponent = { ...hero, stack: opponentStack, user_id: 'opponent', seat: 1, cards: [] };
       Object.assign(state, {
         players: [opponent, hero],
-        communityCards: cards('Kd 2h 2c Th 4d'),
+        communityCards: cards(raiseTo === null ? 'Kd 2h 2c Th' : 'Kd 2h 2c Th 4d'),
         heroSeat: 2,
         dealtSeatIds: [1, 2],
         dealerSeat: 2,
@@ -822,7 +826,8 @@ describe('PLO4 river response after value betting a non-nut full house', () => {
       Object.assign(internal.state, {
         players: state.players,
         communityCards: state.communityCards,
-        stage: 'river',
+        stage: raiseTo === null ? 'turn' : 'river',
+        deck: new Deck(cards('4d')),
         currentBet: 0,
         pot: 20,
         minRaise: 2,
@@ -832,7 +837,7 @@ describe('PLO4 river response after value betting a non-nut full house', () => {
         actionHistory: [],
       });
       for (const stage of ['posting_blinds', 'dealing', 'preflop', 'flop', 'turn', 'river'])
-        internal.handFSM.transition(stage);
+        if (stage !== 'river' || raiseTo !== null) internal.handFSM.transition(stage);
       function decideAtCurrentPrice() {
         const current = controller.getState({ includeActionOrigins: true });
         const player = current.players.find((p) => p.seat === hero.seat)!;
@@ -841,6 +846,8 @@ describe('PLO4 river response after value betting a non-nut full house', () => {
           state,
           {
             players: current.players,
+            stage: current.stage,
+            communityCards: current.communityCards,
             actionHistory: current.actionHistory,
             pot: current.pot,
             contestablePot: controller.getContestablePotForCall(hero.user_id),
@@ -858,12 +865,20 @@ describe('PLO4 river response after value betting a non-nut full house', () => {
       const open = decideAtCurrentPrice();
       expect(open).toMatchObject({ action: 'bet', amount: 20 });
       expect(controller.performAction(2, open.action, open.amount)).toBe(true);
-      expect(controller.performAction(1, raiseTo === stack ? 'all_in' : 'raise', raiseTo)).toBe(
-        true
-      );
+      if (raiseTo === null) {
+        expect(controller.performAction(1, 'call')).toBe(true);
+        expect(controller.getState().stage).toBe('river');
+        expect(controller.getState().communityCards).toEqual(cards('Kd 2h 2c Th 4d'));
+        expect(controller.performAction(1, 'check')).toBe(true);
+      } else {
+        const reply = raiseTo === opponentStack ? 'all_in' : 'raise';
+        expect(controller.performAction(1, reply, raiseTo)).toBe(true);
+      }
       const response = decideAtCurrentPrice();
       expect(state.toCall).toBe(paid);
-      expect(response.action).toBe(expected);
+      expect(response.policyFallback).toBeUndefined();
+      if (expected !== null) expect(response.action).toBe(expected);
+      if (opponentStack === 30) expect(state.legalActions).toEqual(['fold', 'call']);
       if (expected === 'call') expect(response.amount).toBe(paid);
       expect(controller.performAction(2, response.action, response.amount)).toBe(true);
     }
