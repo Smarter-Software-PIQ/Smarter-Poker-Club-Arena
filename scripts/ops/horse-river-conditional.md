@@ -86,3 +86,5 @@ bytes, not authenticity; `originalRuntimeAuthenticated`, `qualified`, `gtoVerifi
 and `activationAllowed` stay false. Explicit range weights and size-specific responses
 remain assumptions. Raises, facing bets, tournament utility, split-low, multiway,
 antes/dead money and omitted original context remain refused.
+
+For a captured Lightning cash river, select `costModel: "captured-lightning-bb-ante-v1"`. Supply the study decision's original `domain` and `ruleContext` inside `capturedOriginal` alongside its information set and hash. Set `context.dealtCount` to the original number dealt and `anteUnits` and `deadUnits` to the posted BB ante in cents. As with captured chip rake, omit `rakeUnits` and supply the captured deduction rules. The scorer checks the forced BB and dead ante against the contributing seat, preserves folded investments, requires exactly two live river players and a preceding check to the closing actor, and applies fees for the original number dealt. Other dead contributions, unresolved side-pot eligibility, and unpriced raises are refused. Opportunity-specific conditional results do not qualify a Lightning pack.
