@@ -67,11 +67,13 @@ describe('LAW: a seat opens for a person, and for nothing else', () => {
     expect(ROTATOR).toMatch(/if \(releaseWanted > 0\) \{[\s\S]{0,120}POSITIVE_INFINITY/);
   });
 
-  it('a full table with nobody waiting does not shed players', () => {
+  it('a full table retains the hold outside the owner-specified PLO wind-down', () => {
     // Both discretionary departures - fancying a change, and the session
     // simply ending - are held on a full table. This is the half of the rule
     // that stops the floor draining itself back out of the seats it fills.
-    expect(ROTATOR).toMatch(/const holdsFull =\s*fill === 'full' && releaseWanted === 0/);
+    expect(ROTATOR).toMatch(
+      /const holdsFull =\s*!windingDown && fill === 'full' && releaseWanted === 0/
+    );
     expect(ROTATOR).toMatch(/!holdsFull &&[\s\S]{0,160}wantsTableChange\(/);
     expect(ROTATOR).toMatch(/if \(holdsFull\) p = 0;/);
   });
