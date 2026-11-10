@@ -1271,6 +1271,9 @@ test('Plinko denominations scroll both ways on one row and both release controls
     timeout: 25_000,
   });
   await expect(receipt.getByText('Credited To Your Club Balance')).toBeVisible();
+  // Reading details pauses the intended five-second automatic return. Open
+  // them before image decoding/layout checks consume that visible interval.
+  await receipt.getByText('Round Details').click();
   await expect
     .poll(() =>
       receipt.locator('img').evaluate((img: HTMLImageElement) => {
@@ -1283,7 +1286,6 @@ test('Plinko denominations scroll both ways on one row and both release controls
       })
     )
     .toBe(true);
-  await receipt.getByText('Round Details').click();
   await expect(receipt.getByRole('status')).toContainText('10 Drops Completed.');
   await page.screenshot({
     path: test.info().outputPath('plinko-paid-mobile.png'),
