@@ -109,7 +109,7 @@ test(ECO_CASE, async ({ page }) => {
       if (!this.download) click.call(this);
     };
   });
-  await page.getByRole('button', { name: 'Export CSV', exact: true }).click();
+  await page.getByRole('button', { name: 'Export As CSV', exact: true }).click();
   const csv = await page.evaluate(
     async () => await (window as unknown as { ecoCsv?: Promise<string> }).ecoCsv
   );
