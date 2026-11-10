@@ -403,3 +403,5 @@ fi
 "${diamond_psql[@]}" -f "$root/tests/sql/diamond-wheel-prize-funding.sql"
 "${diamond_psql[@]}" -f "$root/tests/sql/diamond-wheel-owner-credit.sql"
 bash "$root/scripts/dev/test-diamond-wheel-single-spin-race.sh" "$fixture"
+"${diamond_psql[@]}" -f "$root/supabase/migrations/20261110020247_donkey_cross_pays_105_percent_and_three_in_four_reach_street.sql" \
+  -f "$root/tests/sql/diamond-crossing-gross-return.sql"

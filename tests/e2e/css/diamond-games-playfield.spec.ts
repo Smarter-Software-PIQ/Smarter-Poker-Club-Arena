@@ -648,6 +648,21 @@ for (const game of ['crossing', 'mines'] as const)
     const network: string[] = [];
     await page.route('**/*', (route) => {
       const url = new URL(route.request().url());
+      const plate = url.pathname.match(
+        /\/assets\/club-buttons\/lobby\/shark-panel-v1\/(button-(?:primary|secondary)\.png)$/
+      );
+      if (plate) {
+        return route.fulfill({
+          path: 'public/assets/club-buttons/lobby/shark-panel-v1/' + plate[1],
+          contentType: 'image/png',
+        });
+      }
+      if (url.pathname.endsWith('/images/header-help-v4.png')) {
+        return route.fulfill({
+          path: 'public/images/header-help-v4.png',
+          contentType: 'image/png',
+        });
+      }
       if (url.hostname !== 'diamond-choice.local') network.push(url.href);
       return route.fulfill({
         contentType: 'text/html',
@@ -743,6 +758,24 @@ for (const game of ['crossing', 'mines'] as const)
           timeout: 20_000,
         })
         .toBeLessThanOrEqual(0);
+    }
+    if (game === 'crossing') {
+      await expect(frame.getByText(/Today.*Rounds/i)).toHaveCount(0);
+      await expect(frame.locator('[data-plate="primary"]')).toBeEnabled();
+      await expect(frame.locator('[data-plate="secondary"]')).toBeEnabled();
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await expect
+        .poll(
+          () =>
+            frame.evaluate((cabinet) => {
+              const road = cabinet.querySelector('[data-phase]')?.getBoundingClientRect();
+              const strip = cabinet.querySelector('dl')?.getBoundingClientRect();
+              return Boolean(road && strip && strip.top >= road.bottom - 1);
+            }),
+          { timeout: 20_000 }
+        )
+        .toBe(true);
+      await frame.screenshot({ path: test.info().outputPath('crossing-desktop.png') });
     }
     expect(network).toEqual([]);
   });

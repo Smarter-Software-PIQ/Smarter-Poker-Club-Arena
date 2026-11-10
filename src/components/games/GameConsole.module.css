@@ -434,3 +434,60 @@
     line-height: 1.15;
   }
 }
+
+/* The road cabinet has an instrument strip beneath the windshield. */
+[data-choice-game='crossing'] .console {
+  border: 1px solid #65747c;
+  border-radius: 12px;
+  background: #0c1319;
+  box-shadow:
+    inset 0 1px #c4cbd0,
+    inset 0 -3px #3a444a;
+}
+[data-choice-game='crossing'] .header {
+  background: linear-gradient(175deg, #303a40, #131d23 48%, #10171b);
+  border-bottom: 2px solid #dba651;
+}
+[data-choice-game='crossing'] .metrics {
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid #58646b;
+  border-radius: 5px;
+  background: #455259;
+}
+[data-choice-game='crossing'] .metrics > div {
+  background: linear-gradient(#0c1419, #202a2e);
+  border: 0;
+  border-radius: 0;
+}
+[data-choice-game='crossing'] .bar {
+  background: linear-gradient(#425057, #20292e 8%, #101619 84%, #38434a);
+}
+@media (min-width: 761px) and (min-height: 501px) {
+  [data-choice-game='crossing'] .console {
+    grid-template-columns: minmax(0, 3fr) minmax(240px, 2fr);
+    grid-template-rows: auto auto auto;
+    grid-template-areas: 'header header' 'play play' 'controls bar';
+  }
+  [data-choice-game='crossing'] .metrics {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  [data-choice-game='crossing'] .bar {
+    align-self: stretch;
+    align-content: center;
+  }
+  [data-choice-game='crossing'] .actions {
+    grid-template-columns: 1fr 1.2fr;
+  }
+}
+[data-choice-game='crossing'] .actions > button {
+  border: 8px solid transparent;
+  border-image: url('/assets/club-buttons/lobby/shark-panel-v1/button-secondary.png') 26 fill / 8px
+    stretch;
+  background: #0b1015;
+  padding: 4px 8px;
+  box-shadow: none;
+}
+[data-choice-game='crossing'] .actions > .primary {
+  border-image-source: url('/assets/club-buttons/lobby/shark-panel-v1/button-primary.png');
+}

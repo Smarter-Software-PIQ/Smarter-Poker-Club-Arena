@@ -90,7 +90,7 @@ import {
   ROAD_COIN_MAX_STREETS,
   ROAD_COIN_TOP_MULTIPLE,
   ROAD_COIN_V6 as ROAD_COIN_VERSION,
-  ROAD_COIN_VERSION as ROAD_COIN_V7,
+  ROAD_COIN_V7,
   roadCoin,
   roadCoinEnd,
   roadCoinPrizeFifths,

@@ -32,12 +32,13 @@ import { hmacSha256Hex } from './wheelFairness';
  * contract 6 receipts remain readable as they were sealed.
  *
  * The contract a NEW Donkey Cross round is dealt. */
-export const ROAD_COIN_VERSION = 7;
+export const ROAD_COIN_VERSION = 8;
+export const ROAD_COIN_V7 = 7;
 /** The first coin contract, street one included in the coin. Read-only now. */
 export const ROAD_COIN_V6 = 6;
 /** Every contract whose road is a sealed coin per street. */
-export function isRoadCoinVersion(version: unknown): version is 6 | 7 {
-  return version === ROAD_COIN_V6 || version === ROAD_COIN_VERSION;
+export function isRoadCoinVersion(version: unknown): version is 6 | 7 | 8 {
+  return version === ROAD_COIN_V6 || version === ROAD_COIN_V7 || version === ROAD_COIN_VERSION;
 }
 /** The most streets a round may have (diamond_choice_rounds.max_steps). */
 export const ROAD_COIN_MAX_STREETS = 20;
@@ -60,9 +61,11 @@ function cents(chips: number, label: string) {
 export function roadCoinPrizeFifths(
   betChips: number,
   floorChips: number,
-  version: number = ROAD_COIN_VERSION
+  version: number = ROAD_COIN_V7
 ): number[] {
-  if (version === ROAD_COIN_VERSION) {
+  if (version !== ROAD_COIN_V6 && version !== ROAD_COIN_V7)
+    throw new Error('Invalid Historical Road Version');
+  if (version === ROAD_COIN_V7) {
     // Contract 7: the sure first street (0.80B), then contract 6's road.
     const B7 = cents(betChips, 'Road Stake');
     return [4 * B7, ...roadCoinPrizeFifths(betChips, floorChips, ROAD_COIN_V6)].slice(
@@ -90,12 +93,30 @@ export function roadCoinPrizeFifths(
   return out;
 }
 
+/** Sixtieths of a cent represent both 1.05 times a whole cent and the
+ * division by three on street two exactly. End before the 20x prize cap. */
+function roadPrizesV8(betChips: number, floorChips: number): bigint[] {
+  const bet = BigInt(cents(betChips, 'Road Stake'));
+  const floor = BigInt(cents(floorChips, 'Road Floor'));
+  if (bet < 1n || floor < 0n || floor > bet) throw new Error('Invalid Road Floor');
+  const prizes: bigint[] = [];
+  let next = 63n * bet;
+  while (next <= 1200n * bet && prizes.length < ROAD_COIN_MAX_STREETS) {
+    prizes.push(next);
+    const half = (next + 119n) / 120n;
+    const loss = 60n * (half > floor ? half : floor);
+    next = prizes.length === 1 ? (4n * next - loss) / 3n : 2n * next - loss;
+  }
+  return prizes;
+}
+
 /** The ladder in chips, as the server stores it in `prizes`. */
 export function roadCoinPrizes(
   betChips: number,
   floorChips: number,
   version: number = ROAD_COIN_VERSION
 ): number[] {
+  if (version === 8) return roadPrizesV8(betChips, floorChips).map((value) => Number(value) / 6000);
   return roadCoinPrizeFifths(betChips, floorChips, version).map((fifths) => fifths / 500);
 }
 
@@ -106,6 +127,11 @@ export function roadCoinPrize(
   street: number,
   version: number = ROAD_COIN_VERSION
 ): Fraction {
+  if (version === 8) {
+    const value = roadPrizesV8(betChips, floorChips)[street - 1];
+    if (value === undefined) throw new Error('Invalid Road Prize');
+    return { numerator: value, denominator: 60n };
+  }
   const ladder = roadCoinPrizeFifths(betChips, floorChips, version);
   if (!Number.isInteger(street) || street < 1 || street > ladder.length)
     throw new Error('Invalid Road Prize');
@@ -136,9 +162,9 @@ export async function roadCoin(
 ): Promise<boolean> {
   if (!Number.isSafeInteger(street) || street < 1) throw new Error('Invalid Street');
   // Contract 7: street one is always safe (public.fn_choice_road_coin_v7).
-  if (version === ROAD_COIN_VERSION && street === 1) return true;
+  if (version >= ROAD_COIN_V7 && street === 1) return true;
   const hash = await hmacSha256Hex(serverSeed, `${clientSeed}:${nonce}:street:${street}`);
-  return Number.parseInt(hash.slice(0, 2), 16) < 128;
+  return Number.parseInt(hash.slice(0, 2), 16) < (version === 8 && street === 2 ? 192 : 128);
 }
 
 /** Every street's coin, street one first. Mirrors public.fn_choice_road_coins_v6. */
@@ -173,7 +199,26 @@ export function roadCoinStopValue(
   street: number,
   version: number = ROAD_COIN_VERSION
 ): Fraction {
-  if (version === ROAD_COIN_VERSION) {
+  if (version === 8) {
+    const prizes = roadPrizesV8(betChips, floorChips);
+    if (!Number.isInteger(street) || street < 1 || street > prizes.length)
+      throw new Error('Invalid Road Stop');
+    const floor = BigInt(cents(floorChips, 'Road Floor'));
+    let value = prizes[street - 1];
+    let denominator = 1n;
+    for (let n = street; n > 1; n--) {
+      const half = (prizes[n - 2] + 119n) / 120n;
+      const loss = 60n * (half > floor ? half : floor);
+      const safe = n === 2 ? 3n : 1n;
+      value = safe * value + loss * denominator;
+      denominator *= safe + 1n;
+    }
+    return {
+      numerator: value,
+      denominator: denominator * 60n * BigInt(cents(betChips, 'Road Stake')),
+    };
+  }
+  if (version === ROAD_COIN_V7) {
     // The sure first street pays its prize outright; every later stop is the
     // contract-6 stop one street earlier (the coins start at street two).
     const B7 = cents(betChips, 'Road Stake');

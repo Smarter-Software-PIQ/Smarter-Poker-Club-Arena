@@ -87,7 +87,8 @@ export function choiceNextOdds(
   if (game === 'crossing' && version === 6) return { safe: 50, loss: 50 };
   // CONTRACT 7 (Dan, 2026-10-15): "STREET 1 IS ALWAYS SUPPOSED TO BE 100% SAFE".
   // The first street is certain; every later street is the fair coin.
-  if (game === 'crossing' && version === 7)
+  if (game === 'crossing' && version === 8 && safeSteps === 1) return { safe: 75, loss: 25 };
+  if (game === 'crossing' && (version === 7 || version === 8))
     return safeSteps === 0 ? { safe: 100, loss: 0 } : { safe: 50, loss: 50 };
   if (safeSteps === 0 && version >= 4) return { safe: 100, loss: 0 };
   let safe: number;

@@ -988,7 +988,10 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
           .join(' ')
       : null;
   return (
-    <div className={`${styles.page} ${styles.fullscreenPage} ${styles.choicePage}`}>
+    <div
+      className={`${styles.page} ${styles.fullscreenPage} ${styles.choicePage}`}
+      data-choice-game={game}
+    >
       <button
         type="button"
         className={styles.back}
@@ -1114,19 +1117,15 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
           disabled: uncertain || (open ? game === 'mines' : blocked || !ticket),
           'aria-disabled': busy || sceneBusy || undefined,
         }}
-        // THE DAY BELONGS BESIDE THE CONTROLS, NOT OVER THE GAME. On a phone
-        // the console is one column, so this line sat between the header and
-        // the scene and pushed both plates down by its own height in every
-        // round. It renders at every count - "Today: 0 Of 200 Rounds" is still
-        // a count - so hiding it while a round is open would jump the scene the
-        // instant the auto-start fires. It moves instead.
         footer={
-          <TodayLine
-            used={state?.rounds_today ?? 0}
-            cap={state?.daily_limit ?? 0}
-            spentDiamonds={state?.diamonds_today ?? 0}
-            noun="Rounds"
-          />
+          game === 'mines' && (
+            <TodayLine
+              used={state?.rounds_today ?? 0}
+              cap={state?.daily_limit ?? 0}
+              spentDiamonds={state?.diamonds_today ?? 0}
+              noun="Rounds"
+            />
+          )
         }
       >
         <ChoiceScene
@@ -1266,7 +1265,9 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
             {coinRoad
               ? (round?.payout_version ?? state?.payout_version) === 6
                 ? 'Every Street Is A Fair Coin Flip: Exactly A 50% Chance To Cross Safely, Street One Included. Each Coin Is Sealed Before You Start, And When You Book The Win You See How Far You Would Have Got.'
-                : 'Street One Is Always Safe. Every Street After It Is A Fair Coin Flip: Exactly A 50% Chance To Cross Safely. Each Coin Is Sealed Before You Start, And When You Book The Win You See How Far You Would Have Got.'
+                : (round?.payout_version ?? state?.payout_version) === 8
+                  ? 'Street one is always safe. Street two has a 75% chance of crossing safely. Each later street has a 50% chance. After you book your win, the sealed coins show how far you would have gone.'
+                  : 'Street One Is Always Safe. Every Street After It Is A Fair Coin Flip: Exactly A 50% Chance To Cross Safely. Each Coin Is Sealed Before You Start, And When You Book The Win You See How Far You Would Have Got.'
               : 'Where The Donkey Would Be Hit Is Sealed Before You Start; Your Only Choice Is When To Book.'}
           </p>
         ) : null}
