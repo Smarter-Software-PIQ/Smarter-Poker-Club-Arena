@@ -6,13 +6,14 @@
 -- A club or union has no diamond wallet. Its owner pays personally. An unpaid
 -- advance follows the owner across clubs and Chicago business days. The house
 -- funds that advance and any excess; only the advance is recoverable.
--- @install-window: daily-maintenance
--- @locks: public.profiles, public.diamond_transactions, public.diamond_wallets, public.user_diamonds, public.user_diamond_balance, public.ca_diamond_balance_audit, public.ca_diamond_journal_archive, public.diamond_spin_movements, public.wheel_card_awards, public.wheel_bonus_awards, public.diamond_bonus_entries, public.diamond_choice_rounds, public.crash_rounds, public.wheel_spins, public.diamond_spin_days
 -- @live-proof: (SELECT a.atttypid='bigint'::regtype FROM pg_attribute a WHERE a.attrelid='public.profiles'::regclass AND a.attname='diamonds') AND (SELECT c.convalidated FROM pg_constraint c WHERE c.conrelid='public.profiles'::regclass AND c.conname='profiles_diamonds_nonnegative')
 -- @live-proof: position('fn_wheel_finance_prize' IN pg_get_functiondef('public.fn_wheel_diamond_cards_pick(uuid,smallint)'::regprocedure))>0 AND position('fn_wheel_repay_owner_advance' IN pg_get_functiondef('public.fn_diamond_spin_settle_day(uuid,date)'::regprocedure))>0 AND NOT has_function_privilege('authenticated','public.fn_wheel_finance_prize(public.wheel_card_awards,bigint)','execute')
 -- @live-proof: (SELECT public.fn_wheel_card_values_wide(500000000::bigint,1000000000::bigint,0::smallint)=ARRAY[500000000,2000000000,3000000000]::bigint[]) AND position('payout_rules_version' IN pg_get_functiondef('public.fn_wheel_diamond_cards_pick(uuid,smallint)'::regprocedure))>0
 BEGIN;
 SET LOCAL lock_timeout='1s';
+SET LOCAL statement_timeout='5s';
+-- Refuse immediately unless the entire finite set is idle before any change.
+LOCK TABLE public.profiles, public.diamond_transactions, public.diamond_wallets, public.user_diamonds, public.user_diamond_balance, public.ca_diamond_balance_audit, public.ca_diamond_journal_archive, public.diamond_spin_movements, public.wheel_card_awards, public.wheel_bonus_awards, public.diamond_bonus_entries, public.diamond_choice_rounds, public.crash_rounds, public.wheel_spins, public.diamond_spin_days IN ACCESS EXCLUSIVE MODE NOWAIT;
 -- Require a finished, independently verified copy of the two large relations.
 -- The staging triggers have remained active since their copy horizon was sealed.
 DO $prepared$ BEGIN
@@ -893,4 +894,15 @@ $old$,'');
  SELECT * INTO STRICT bucket FROM public.diamond_spin_days WHERE owner_id=p_owner AND day=p_day;
 '||anchor);
 END $patch$;
+DO $budget$ BEGIN
+ IF clock_timestamp()-transaction_timestamp() >= interval '8 seconds' THEN
+  RAISE EXCEPTION 'Diamond wallet cutover exceeded eight seconds';
+ END IF;
+ IF EXISTS(SELECT 1 FROM pg_locks l JOIN pg_class c ON c.oid=l.relation
+  WHERE l.pid=pg_backend_pid() AND c.relnamespace='public'::regnamespace
+  AND c.relname IN ('clubs','tables','hand_history') AND l.mode IN
+  ('ShareLock','ShareRowExclusiveLock','ExclusiveLock','AccessExclusiveLock')) THEN
+  RAISE EXCEPTION 'Unexpected gameplay relation in Diamond wallet cutover';
+ END IF;
+END $budget$;
 COMMIT;
