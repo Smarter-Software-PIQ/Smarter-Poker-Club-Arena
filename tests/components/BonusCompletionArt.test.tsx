@@ -115,10 +115,10 @@ describe('the bonus receipt shows the game that produced it', () => {
     expect(popup).toHaveTextContent('You Won');
     expect(popup).toHaveTextContent('Your Prize Is Booked. All Drops Completed.');
     const back = within(popup).getByRole('button', { name: 'Back To The Wheel' });
-    expect(back).toBeDisabled();
-    // The art's own entrance ending is not the receipt's: it never arms the plate.
+    expect(back).toBeEnabled();
+    // The artwork never gates navigation or starts the next round.
     fireEvent.animationEnd(popup.querySelector('[data-receipt-figure]')!);
-    expect(back).toBeDisabled();
+    expect(back).toBeEnabled();
     reveal(popup);
     expect(back).toBeEnabled();
     act(() => vi.advanceTimersByTime(120_000));

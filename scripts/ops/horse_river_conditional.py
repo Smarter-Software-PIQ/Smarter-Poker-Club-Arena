@@ -123,6 +123,21 @@ def price_checked_to_river(request):
               'conditionalOnDeclaredRangeAndResponse': True,
               'originalRuntimeAuthenticated': False, 'qualified': False,
               'gtoVerified': False, 'activationAllowed': False}
+    if 'observedWagerUnits' in request:
+        observed = request['observedWagerUnits']
+        if type(observed) is not int or observed not in {0, *bets}:
+            raise ValueError('observed_wager_outside_priced_menu')
+        options = {0: check / total, **{b: values[b] / total for b in bets}}
+        best = max(options.values())
+        result['conditionalOpportunityCost'] = {
+            'observedWagerUnits': observed,
+            'bestPricedWagersUnits': sorted(b for b, ev in options.items() if ev == best),
+            'regretUnits': number(best - options[observed]),
+        }
+        if captured_costs:
+            from horse_river_opportunity_cost import terminal_cost_bounds
+            result['conditionalOpportunityCost']['sensitivity'] = terminal_cost_bounds(
+                provenance['terminalPrices'], observed)
     if captured_costs:
         result['model'] = ('declared-hu-omaha-river-lightning-bb-ante-v1' if lightning
                            else 'declared-hu-omaha-river-captured-chip-rake-v1')

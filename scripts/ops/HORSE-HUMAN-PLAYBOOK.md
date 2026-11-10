@@ -264,3 +264,21 @@ The [machine-readable entry directory](./HORSE-HUMAN-PLAYBOOK-ENTRIES.json) list
 4. Verify the serving revision, installed schema contract, natural populated read and policy execution on the same eligible decision. For wager changes bind the selected and accepted action and amount to the original decision. Reconcile receipts against each distinct Horse on the roster, with explicit counts for Horses awaiting an eligible opportunity. A protected merge, backup certificate or fleet-wide aggregate alone cannot establish individual adoption.
 
 The aggregate edition contains no loadable production authority. The private study supplies candidate evidence. Runtime selection and fleet acceptance depend on the owning engine release and its original receipts.
+
+## Flop and turn raises against an identified human
+
+Use the original legal menu and the stack the opponent can actually match. In the frozen ordinary PLO5 cash sample, a Horse holding trips or better took a passive action on 143 of 200 flop opportunities and 160 of 222 turn opportunities facing a human wager. The corresponding PLO6 counts were 20 of 26 and 41 of 51. Passive here includes calls and folds. These counts identify decisions for review. They do not establish that a raise earns more.
+
+In the PLO5 big-blind-ante table sample, 124 of 216 turn opportunities were calls. The single-pot heads-up comparison priced 59 calls and withheld 65 multiway calls. Under the declared fold/call and check-through scenarios, increasing the wager by the minimum priced amount averaged between −29.54 and +37.21 BB relative to calling across the 59. The interval spans losses and gains. Keep the existing policy pending evidence on actual human responses and future betting.
+
+The heads-up cash river comparison joined 376 original bets to a human response from 21 opponents. A model adding bet size to the game and stake context had a Brier score of 0.3093 on 33 later decisions from seven previously unseen opponents. The context-only model scored 0.3002, where lower is better. The opponent-cluster interval for the difference crosses zero. Keep the current bluff thresholds. An observed fold after a certain size cannot establish what the same opponent would have done against another size.
+
+Run the analysis with the private frozen artifact root and a private output directory:
+
+```sh
+python3 -B scripts/ops/horse_plo56_initiative_study.py --root "$study_root" --output "$study_output"
+python3 -B scripts/ops/horse_plo56_sensitivity.py --root "$study_root" --output "$study_output"
+python3 -B scripts/ops/horse_plo_opportunity_ranking.py --initiative "$study_output/individual.jsonl.gz" --geometry "$geometry_rows"
+```
+
+The final command reports opportunity counts, unpriced calls and scenario deltas by format, street and ante. The geometry file contains the original per-decision input digest and eligible side-pot layers. Tournament rows require payout utility. Individual action records stay in the private evidence archive.
