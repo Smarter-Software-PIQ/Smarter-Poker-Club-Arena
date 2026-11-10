@@ -275,6 +275,3 @@ operations/release/native/original-web-artifact-api.json
 
 # Immutable old-engine client bytes are SHA-pinned by native bootstrap qualification.
 scripts/ci/fixtures/maintenance-promise/old-eed-maintenanceThawV3.ts
-# Production readouts pinned by md5 in their manifest: never reformat.
-scripts/ci/fixtures/rakeback-cascade-real-guards/*.json
-scripts/ci/fixtures/owner-routing-wallet/live-definitions.json
