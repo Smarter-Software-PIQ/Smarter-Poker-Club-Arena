@@ -830,26 +830,28 @@ export default function TournamentRankingCard({
           )}
 
           {/* ── Player row: who this was ── */}
-          <div className="trc2__player">
-            <img
-              className="trc2__avatar"
-              src={profile?.avatarUrl || generateDefaultAvatar()}
-              alt=""
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = generateDefaultAvatar();
-              }}
-            />
-            <div className="trc2__identity">
-              <span className="trc2__username sc-ink--silver">{profile?.username ?? ' '}</span>
-              {profile?.playerNumber != null && (
-                /* "ID:", the label every other surface in the app prints this
+          {profile && (
+            <div className="trc2__player">
+              <img
+                className="trc2__avatar"
+                src={profile?.avatarUrl || generateDefaultAvatar()}
+                alt=""
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = generateDefaultAvatar();
+                }}
+              />
+              <div className="trc2__identity">
+                <span className="trc2__username sc-ink--silver">{profile?.username ?? ' '}</span>
+                {profile?.playerNumber != null && (
+                  /* "ID:", the label every other surface in the app prints this
                    number with (ClubProfileModal, the cashier). Bare, a "1"
                    directly under a "#1" finishing place read as a second
                    placing (2026-10-05). */
-                <span className="trc2__playernum sc-ink--muted">ID: {profile.playerNumber}</span>
-              )}
+                  <span className="trc2__playernum sc-ink--muted">ID: {profile.playerNumber}</span>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* ── Winning hand (if applicable) ── */}
           {result.winningCards && result.winningCards.length > 0 && (

@@ -147,7 +147,6 @@ export interface LightningSessionSummaryCardProps {
   poolSessionId: string;
   clusterId: string;
   name?: string | null;
-  onGameLobby: () => void;
 }
 
 /** The summary's body: the numbers, VIEW SESSION and PLAY AGAIN. */
@@ -155,11 +154,12 @@ export function LightningSessionSummaryCard({
   poolSessionId,
   clusterId,
   name = null,
-  onGameLobby,
 }: LightningSessionSummaryCardProps) {
   const { summary, failed } = useLightningSessionSummary(poolSessionId);
   const [viewing, setViewing] = useState(false);
   const share = useShareResult(summary, name);
+  const navigate = useNavigate();
+  const clubId = useUserStore((state) => state.currentClubId);
   return (
     <div className="lightning-summary" data-testid="lightning-summary" data-cluster={clusterId}>
       <p className="lightning-summary__eyebrow">Lightning</p>
@@ -190,7 +190,7 @@ export function LightningSessionSummaryCard({
         <button
           type="button"
           className="lightning-summary__btn lightning-summary__btn--primary"
-          onClick={onGameLobby}
+          onClick={() => navigate(clubId ? `/clubs/${clubId}` : '/')}
         >
           Game Lobby
         </button>

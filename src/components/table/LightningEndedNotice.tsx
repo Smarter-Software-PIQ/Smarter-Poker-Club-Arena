@@ -6,8 +6,6 @@
  * one line, and offers the player's own table. The player moves themselves
  * (CLAUDE.md 10.6): nothing here navigates without the button.
  */
-import { useNavigate } from 'react-router-dom';
-import { useUserStore } from '../../stores/useUserStore';
 import {
   LIGHTNING_ENDED_EYEBROW,
   LIGHTNING_ENDED_TEXT,
@@ -38,8 +36,6 @@ export default function LightningEndedNotice({
   eyebrow?: string;
   text?: string;
 }) {
-  const navigate = useNavigate();
-  const clubId = useUserStore((state) => state.currentClubId);
   return (
     <div className="lightning-ended" data-testid="lightning-ended" role="alert">
       <SpadeConsole
@@ -63,7 +59,6 @@ export default function LightningEndedNotice({
             poolSessionId={session.poolSessionId}
             clusterId={session.clusterId}
             name={session.name}
-            onGameLobby={() => navigate(clubId ? `/clubs/${clubId}` : '/')}
           />
         ) : null}
       </SpadeConsole>
