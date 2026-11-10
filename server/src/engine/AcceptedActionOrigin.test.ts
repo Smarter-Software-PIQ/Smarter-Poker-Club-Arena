@@ -1,3 +1,5 @@
+import { playerActionContext } from './PlayerActionContext.js';
+import { privateHorseTurnClocks, reviewHorseTurnClocks } from './HorseTurnClockReceipt.js';
 import { describe, expect, it, vi } from 'vitest';
 import { HandController } from './HandController.js';
 import { ServerTableEngine } from './ServerTableEngine.js';
@@ -216,6 +218,39 @@ describe('accepted action origin is an executor fact, not a roster inference', (
       h.engine.handlePlayerAction('u1', 'call', undefined, undefined, 'pre_action').success
     ).toBe(true);
     expect(h.events[0].origin).toBe('pre_action');
+  });
+
+  it('records a timeout on the accepted controller action, including elapsed enforcement grace', () => {
+    const { engine, controller, events } = harness();
+    const start = Date.now() - 2200;
+    Object.assign(engine, {
+      horseActionableClock: {
+        context: playerActionContext(controller),
+        seat: 1,
+        startedAtMs: start,
+        armed: true,
+      },
+      playerTurnStartTime: start,
+      playerTurnDuration: 2,
+    });
+    expect(engine.forceResolveSeat(1, true, 'timer_expired')).toBe(true);
+    const r = events[0].record!;
+    const report = reviewHorseTurnClocks(privateHorseTurnClocks([r]), [{ ...r, origin: 'forced' }]);
+    expect(report).toEqual([
+      {
+        seat: 1,
+        action: 'fold',
+        path: 'timeout',
+        reason: 'timer_expired',
+        actionIndex: 0,
+        startedAtMs: start,
+        deadlineMs: start + 2000,
+        acceptedAtMs: r.timestamp,
+        elapsedMs: r.timestamp - start,
+        remainingMs: start + 2000 - r.timestamp,
+      },
+    ]);
+    expect(report[0].remainingMs).toBeLessThan(0);
   });
 
   it('distinguishes a forced recovery from a voluntary fold by the same seat', () => {

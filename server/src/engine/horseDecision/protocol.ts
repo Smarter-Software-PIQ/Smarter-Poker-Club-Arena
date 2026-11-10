@@ -215,6 +215,9 @@ export interface DeepHorseDecisionRequest extends LiveHorseDecisionSnapshot {
 }
 
 export interface CompletedHandObservation extends HorseDecisionFence {
+  horseTurnClocks?: Array<
+    import('../HorseTurnClockReceipt.js').HorseTurnClockReceipt & { actionIndex: number }
+  >;
   /** Public rules captured in the original accepted hand, never current table config. */
   publicMemoryDomain?: import('../HorsePublicMemoryDomain.js').HorsePublicMemoryDomain | null;
   /** Pool-owned original observer routing; separate from the accepted Phase 14 roster. */
