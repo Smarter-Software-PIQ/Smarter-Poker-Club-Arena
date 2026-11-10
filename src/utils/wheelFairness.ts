@@ -330,7 +330,9 @@ export async function verifyWheelCardPick(pick: WheelCardPick): Promise<WheelCar
   const computedRoll = rollFromHmacHex(hmac);
   const computedPermutation = Number((BigInt(computedRoll) * 6n) / TWO_48);
   const half = pick.cards.find(
-    (value) => value === Math.floor(risk / 2) || value === Math.ceil(risk / 2)
+    (value) =>
+      value === Math.ceil(risk / 2) ||
+      (pick.payout_rules_version !== 2 && value === Math.floor(risk / 2))
   );
   const computedCards =
     half === undefined

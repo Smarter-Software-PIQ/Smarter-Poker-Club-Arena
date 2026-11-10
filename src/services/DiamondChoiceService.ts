@@ -1,9 +1,5 @@
 import { choiceLossGuarantee } from '../utils/choiceProgressiveGuarantee';
-import {
-  isRoadCoinVersion,
-  roadCoinEnd,
-  roadCoinPrizes,
-} from '../utils/roadCoin';
+import { isRoadCoinVersion, roadCoinEnd, roadCoinPrizes } from '../utils/roadCoin';
 import { supabase } from '../lib/supabase';
 import { earnedReceiptBudget } from '../utils/bonusGameBudget';
 import { validBonusMinimum } from '../utils/diamondBonusPayout';
@@ -126,9 +122,10 @@ export function parseChoiceRound(value: unknown): ChoiceRound {
     !finite(v.bet_chips) ||
     v.bet_chips <= 0 ||
     !Number.isSafeInteger(v.bet_diamonds) ||
-    Number(v.bet_diamonds) < 25 ||
-    (v.award_id !== undefined && !earnedReceiptBudget(v)) ||
-    Number(v.bet_diamonds) > (earnedReceiptBudget(v) ? 7500 : 5000) ||
+    Number(v.bet_diamonds) < 1 ||
+    (v.award_id !== undefined
+      ? !earnedReceiptBudget(v)
+      : Number(v.bet_diamonds) < 25 || Number(v.bet_diamonds) > 5000) ||
     !Number.isSafeInteger(v.diamonds_per_chip) ||
     Number(v.diamonds_per_chip) <= 0 ||
     Math.abs(Number(v.bet_diamonds) / Number(v.diamonds_per_chip) - v.bet_chips) > 1e-8 ||

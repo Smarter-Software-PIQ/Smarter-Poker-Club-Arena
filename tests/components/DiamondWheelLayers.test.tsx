@@ -251,7 +251,9 @@ describe('R20: the reveal and the controls stop re-filtering every frame', () =>
     ]) {
       const source = css(file);
       const frames = source.split('@keyframes ').slice(1);
-      expect(frames.length, `${file} has keyframes`).toBeGreaterThan(0);
+      // The static cabinet needs no animation; any introduced keyframe still has to pass.
+      if (file !== 'WheelCabinet.module.css')
+        expect(frames.length, `${file} has keyframes`).toBeGreaterThan(0);
       for (const frame of frames) {
         const body = frame.slice(0, frame.indexOf('\n}'));
         expect(body, `${file} animates a filter`).not.toMatch(/(^|[^-])filter:/);
@@ -269,6 +271,8 @@ describe('R20: the reveal and the controls stop re-filtering every frame', () =>
 
 describe('the art the wheel names is sealed in the append-only pool', () => {
   it.each([
+    'diamond-spins-badge.webp',
+    'sapphire-spin-deck.webp',
     'wheel-selector-holder-v2.png',
     'wheel-selector-holder-v2.webp',
     'wheel-selector-pointer-v2.png',

@@ -188,13 +188,11 @@ describe('the wheel page never presses Spin or opens a game without a tap', () =
     ).toBeNull();
   });
 
-  it('changing the entry, or choosing a run size, arms nothing', async () => {
+  it('changing the entry arms nothing and offers no run size', async () => {
     await ready();
     fireEvent.change(screen.getByLabelText('Diamonds To Spin'), { target: { value: '500' } });
     await wait(TWO_MINUTES);
-    fireEvent.click(screen.getByRole('button', { name: 'Run Off' }));
-    expect(screen.getByRole('button', { name: 'Auto Spin 5' })).toBeInTheDocument();
-    await wait(TWO_MINUTES);
+    expect(screen.queryByRole('button', { name: /Run Off|Auto Spin/ })).toBeNull();
     nothingHappened();
   });
 
@@ -278,13 +276,14 @@ describe('the wheel page never presses Spin or opens a game without a tap', () =
     expect(backend.spin).toHaveBeenCalledTimes(1);
   });
 
-  it('a run found open at the server on load waits for Resume Run', async () => {
+  it('a historical partially played run stays idle until explicitly closed', async () => {
     backend.state.mockResolvedValue({
       ...state,
       auto_run: { run_id: 'd1000000-0000-4000-8000-000000000a01', spins: 10, spins_done: 2 },
     });
     render(<DiamondWheelPage />);
-    await screen.findByRole('button', { name: 'Resume Run (8 Left)' });
+    await screen.findByRole('button', { name: 'End Run' });
+    expect(screen.queryByRole('button', { name: /Resume Run|Review Saved Run/ })).toBeNull();
     vi.useFakeTimers();
     await wait(TWO_MINUTES);
     nothingHappened();
