@@ -286,6 +286,30 @@ describe('commitUnderPot: a stack smaller than the pot does not fold the flop or
 });
 
 describe('the limp-reraise tallies travel in a v12 read frame', () => {
+  it.each(['call', 'fold'] as const)(
+    'retains an original first limp-%s as one opportunity and zero raises',
+    (answer) => {
+      const { gs } = buttonOverLimp('KQs');
+      const view = HorseMind.runInSandbox(HorseMind.createSandbox(), () => {
+        HorseMind.observe(limpHand(answer), []);
+        expect(HorseMind.limpReraiseOf(LIMPER)).toEqual({ opps: 1, raises: 0 });
+        return HorseMind.snapshotDecisionReads(gs.players, null);
+      });
+      const frame = encodeHorseDecisionReads(view, gs.players, null);
+      const restored = decodeHorseDecisionReads(frame, gs.players, null);
+      expect(HorseMind.runInSandbox(restored, () => HorseMind.limpReraiseOf(LIMPER))).toEqual({
+        opps: 1,
+        raises: 0,
+      });
+      expect(encodeHorseDecisionReads(restored, gs.players, null)).toEqual(frame);
+      const row = view.stats.get(LIMPER)!;
+      row.lrRaises = 2;
+      expect(() => encodeHorseDecisionReads(view, gs.players, null)).toThrow();
+      delete row.lrOpps;
+      expect(() => encodeHorseDecisionReads(view, gs.players, null)).toThrow();
+    }
+  );
+
   it('round-trips exactly, and a view without them keeps its older version and bytes', () => {
     const players = [{ user_id: HORSE }, { user_id: LIMPER }] as SeatPlayer[];
     const ctx = { variant: 'nlh', mode: 'cash', size: 'short' } as const;

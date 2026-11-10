@@ -26,7 +26,9 @@ it('rejects every obsolete channel event after a reconnect', () => {
     current = channel('current'),
     receive = vi.fn();
   roomService.onMessage(table, receive);
+  roomService.prepareChannel(table, old as unknown as RealtimeChannel);
   roomService.registerChannel(table, old as unknown as RealtimeChannel);
+  roomService.prepareChannel(table, current as unknown as RealtimeChannel);
   roomService.registerChannel(table, current as unknown as RealtimeChannel);
   current.emit('presence', 'sync');
   receive.mockClear();
@@ -41,6 +43,7 @@ it('rejects every obsolete channel event after a reconnect', () => {
 });
 it('does not repopulate presence or deliver to new handlers after leaving', async () => {
   const old = channel('old');
+  roomService.prepareChannel(table, old as unknown as RealtimeChannel);
   roomService.registerChannel(table, old as unknown as RealtimeChannel);
   await roomService.leaveRoom(table);
   const receive = vi.fn();
@@ -52,6 +55,7 @@ it('does not repopulate presence or deliver to new handlers after leaving', asyn
 });
 it('registering the same channel twice installs one listener set', () => {
   const c = channel('current');
+  roomService.prepareChannel(table, c as unknown as RealtimeChannel);
   roomService.registerChannel(table, c as unknown as RealtimeChannel);
   roomService.registerChannel(table, c as unknown as RealtimeChannel);
   expect(c.on).toHaveBeenCalledTimes(4);
