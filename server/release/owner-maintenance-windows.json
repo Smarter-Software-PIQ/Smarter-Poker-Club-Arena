@@ -1188,6 +1188,21 @@
         "path": "server/release/activation-floor.json",
         "sha256": "a171baede07efd880c67e623e896fb4cee13a0fd0bb1be10310911127dd560cb"
       }
+    },
+    {
+      "id": "2026-11-10-owner-asap-engine-2350z",
+      "ownerOrder": "Dan, the owner, directly in Claude chat session_01BNteGXa3Wmbom5UJdN3PhE on November 10, 2026 at about 17:05Z (11:05 America/Chicago), answered the question \"Do you want the cutover as soon as Backup certifies today, or at 04:00 tomorrow (Nov 11)?\" for the merged cash Horse action change #10350 (63c9285865a395ff3d333938e2af518b67a45288, v85CashAction) by choosing verbatim \"ASAP today (Recommended)\", whose stated meaning was \"Book one single-use owner window opening once Backup certifies; I take release custody for it.\" This follows his standing direction of November 9 (\"NO CUT OVER HAPPENS AS SOON AS ITS AVALILABLE, NOT 4AM\") and his November 9 to 10 instructions in this chat that the change be fully built, activated and used by every Horse. The Claude agent in this chat is the sole cutover custodian for this operation and alone owns its Stage, receiver and Backup operations. This NEW single-use window admits one earliest-certified replacement of serving 840429a332ecb536d19b3b719fa6809e7bc63ca7 from 23:50 UTC November 10 through 05:00 UTC November 11. The protected target must contain 63c9285865a395ff3d333938e2af518b67a45288 and all engine work merged since 840429a3 through this booking. The separately booked database-only retry window 2026-11-10-closed-person-name-policy-db-retry (23:35 UTC November 10 through 04:00 UTC November 11) overlaps this window; it keeps its own notice, custody and operation, and the two operations never run at the same time: this cutover is dispatched only while no database break or other release operation is active. Until 04:00 UTC players see that earlier-starting notice, which already announces a possible break through 04:00 UTC; after 04:00 UTC this window's own notice shows, and admission then waits until it has been visible for twenty minutes (not before 04:20 UTC). It neither renews nor replays any earlier booking; preserve their exact entries, expiry, notices, witnesses and operation state. No database migration and no new tournament-start hold. Publish the player notice from 23:30 UTC, after this authorization has actually merged, and observe its actual public visibility for at least twenty minutes before admission; a later publication or observation moves earliest admission later within the 05:00 UTC expiry. Require exact-head protected checks, immutable target/control and image qualification, a fresh exact Backup certificate with the full 1800-second soak and installed migration/schema equality to production, both-direction serving-predecessor reconnect rehearsal, a fresh announcement between :05:30 and :49:00, normal hand-boundary drain, durable sealed freeze and full 285-second proof/rollback reserve, single-use custody, exact production identity, healthy completed thaw and post-seal fresh Backup. Use only the existing Stage/receiver and original bounded release transaction. No direct restart, financial or migration replay, competing operation, timer, watcher, repair loop, reserve reduction or freeze extension. No automatic extension or replay is authorized; the standing daily schedule remains unchanged.",
+      "contains": "63c9285865a395ff3d333938e2af518b67a45288",
+      "playerNoticeAt": "2026-11-10T23:30:00Z",
+      "notBefore": "2026-11-10T23:50:00Z",
+      "notAfter": "2026-11-11T05:00:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "72bbb5fe8f245ad98d7b78f883009a16a2289816bd50cf4edd3258a121dffa48"
+      }
     }
   ],
   "databaseWindows": [
