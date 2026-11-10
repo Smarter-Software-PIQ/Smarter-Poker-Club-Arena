@@ -170,7 +170,7 @@ describe('Stage-A tournament-manager Data API request fence', () => {
      arguments. The lease session may run exactly those two functions. The separate
      original-fold exception below reinstates the same actor fence in its fixed
      private wrapper and preserves synchronous commit before acknowledgement. */
-  it('admits only the exact heartbeat, shared LISTEN opener, fenced original-fold and two offline qualification raw sessions', () => {
+  it('admits only the exact heartbeat, shared LISTEN opener, fenced original-fold, fenced Lightning lane and two offline qualification raw sessions', () => {
     const src = join(process.cwd(), 'src');
     const rawSessions = runtimeTypescriptFiles(src)
       .filter((path) => /\bnew pg\.(?:Client|Pool)\s*\(/.test(readFileSync(path, 'utf8')))
@@ -181,6 +181,7 @@ describe('Stage-A tournament-manager Data API request fence', () => {
       'services/horseCorrectiveReview/riverAcceptedWindow.ts',
       'services/leaseHeartbeatSession.ts',
       'services/lightningFoldSession.ts',
+      'services/lightningLaneSession.ts',
       // Same verified-TLS opener, extracted so record fallback imports no game worker.
       'services/supabase/pgListenSession.ts',
     ]);
@@ -319,6 +320,50 @@ describe('Stage-A tournament-manager Data API request fence', () => {
     expect(fold).toMatch(/if \(!dispatched\)\s*\{\s*admissionRefused\+\+;\s*return null;\s*\}/);
     expect(fold).toContain('client?.release(destroy)');
     expect(fold).not.toMatch(
+      /export (?:async )?function (?:query|execute)|\.query\(args\.|\.query\(text/
+    );
+  });
+
+  /* DELIBERATE EXCEPTION (2026-11-10, Dan: "isolate Lightning's database
+     connections"). Lightning's per-hand calls leave the shared Data API pool
+     for their own restricted login, on the fold lane's exact shape: one fixed
+     private wrapper that reinstates the actor fence and the data-API
+     pre-request guard, four named functions only, durable only on COMMIT. */
+  it('keeps the Lightning lane raw exception fixed, actor-fenced and durable before acknowledgement', () => {
+    const lane = readFileSync(
+      join(process.cwd(), 'src', 'services', 'lightningLaneSession.ts'),
+      'utf8'
+    );
+    expect(lane).toContain("supabase.rpc('fn_engine_lightning_lane_session_url')");
+    expect(lane).toContain("export const LIGHTNING_LANE_ROLE = 'engine_lightning_lane'");
+    expect(lane).toContain(
+      "decodeURIComponent(url.username).split('.')[0] !== LIGHTNING_LANE_ROLE"
+    );
+    expect(lane).toContain('ssl: enginePgSsl()');
+    expect(lane).toContain('export const LIGHTNING_LANE_POOL_MAX = 6');
+    expect(lane).toContain('export const LIGHTNING_LANE_ACQUIRE_MS = 100');
+    expect(lane).toContain('SET LOCAL synchronous_commit = on');
+    expect(lane).not.toContain('synchronous_commit = off');
+    expect(lane).toContain(
+      "'SELECT smarter_private.fn_engine_lightning_lane($1::text,$2::jsonb,$3::jsonb) AS result'"
+    );
+    expect(lane).toContain('const authority = currentTournamentDataAuthority();');
+    expect(lane).toContain('Object.fromEntries(dataActorHeaders().entries())');
+    expect(lane.indexOf('headers = { ...actorHeaders() }')).toBeLessThan(
+      lane.indexOf('const acquisition = selected.connect()')
+    );
+    expect(lane).toContain('JSON.stringify(headers)');
+    expect(lane).toContain('notifyTournamentManagerFenced(authority)');
+    expect(lane).toContain("const commit = connection.query('COMMIT')");
+    expect(lane).toContain("if (done.command !== 'COMMIT') throw new Error('lane_not_committed')");
+    expect(lane.indexOf('const done = await commit;\n        if (done.command')).toBeLessThan(
+      lane.indexOf('return { data: result.rows[0]?.result')
+    );
+    expect(lane).toContain('pipeline: true');
+    expect(lane).toContain("code: 'LIGHTNING_LANE_UNKNOWN'");
+    expect(lane).toMatch(/if \(!dispatched\)\s*\{\s*admissionRefused\+\+;\s*return null;\s*\}/);
+    expect(lane).toContain('client?.release(destroy)');
+    expect(lane).not.toMatch(
       /export (?:async )?function (?:query|execute)|\.query\(args\.|\.query\(text/
     );
   });

@@ -2040,12 +2040,14 @@ it('binds the two remaining Midway files only to the November 7 database window'
   );
   // Reconstruct the exact registry selected before the Horse provenance booking
   // and the later cash-room realism engine booking.
+  expect(doc.windows.pop().id).toBe('2026-11-10-owner-asap-engine-2350z');
   expect(doc.windows.pop().id).toBe('2026-11-10-owner-asap-engine-0650z');
   expect(doc.windows.pop().id).toBe('2026-11-10-owner-asap-engine-0440z');
   expect(doc.windows.pop().id).toBe('2026-11-09-owner-asap-engine-2230z');
   expect(doc.windows.pop().id).toBe('2026-11-09-owner-asap-engine-1530z');
   expect(doc.windows.pop().id).toBe('2026-11-08-horse-study-successor-engine-1820z');
   expect(doc.windows.pop().id).toBe('2026-11-07-cash-room-realism-engine-2230z');
+  expect(doc.databaseWindows.pop().id).toBe('2026-11-10-closed-person-name-policy-db-retry');
   expect(doc.databaseWindows.pop().id).toBe('2026-11-10-closed-person-name-policy-db');
   expect(doc.databaseWindows.pop().id).toBe('2026-11-07-horse-fold-provenance-db-1800z');
   expect(doc.windows.pop().id).toBe('2026-11-07-horse-fold-provenance-engine-1800z');
@@ -2069,7 +2071,9 @@ it('binds the two remaining Midway files only to the November 7 database window'
 it('binds the November 10 closed-person read policy to one owner-ordered database-only break', () => {
   const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
   const doc = JSON.parse(raw);
-  const entry = doc.databaseWindows.at(-1);
+  const entry = doc.databaseWindows.find(
+    (w: { id: string }) => w.id === '2026-11-10-closed-person-name-policy-db'
+  );
   expect(entry).toEqual({
     id: '2026-11-10-closed-person-name-policy-db',
     ownerOrder: expect.stringContaining('"Authorize break today"'),
@@ -2085,5 +2089,28 @@ it('binds the November 10 closed-person read policy to one owner-ordered databas
   expect(start).toBeGreaterThan(0);
   const before = JSON.parse(raw.slice(0, start) + raw.slice(raw.lastIndexOf('\n  ]')));
   expect(before.databaseWindows.at(-1).id).toBe('2026-11-07-horse-fold-provenance-db-1800z');
+  expect(before.windows).toEqual(doc.windows);
+});
+
+it('binds the one owner-ordered retry of the closed-person read policy break', () => {
+  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const doc = JSON.parse(raw);
+  const entry = doc.databaseWindows.at(-1);
+  expect(entry.id).toBe('2026-11-10-closed-person-name-policy-db-retry');
+  expect(entry.ownerOrder).toContain('"Authorize one more break"');
+  expect(entry.ownerOrder).toContain('run 42861001229');
+  expect(entry.ownerOrder).toContain('"Retry tonight after 22:00"');
+  expect(entry.playerNoticeAt).toBe('2026-11-10T23:15:00Z');
+  expect(entry.notBefore).toBe('2026-11-10T23:35:00Z');
+  expect(entry.notAfter).toBe('2026-11-11T04:00:00Z');
+  expect(entry.migrations).toEqual([
+    '20261110003726_a_closed_persons_tournament_rows_are_read_through_the_public.sql',
+  ]);
+  const start = raw.indexOf(
+    ',\n    {\n      "id": "2026-11-10-closed-person-name-policy-db-retry"'
+  );
+  expect(start).toBeGreaterThan(0);
+  const before = JSON.parse(raw.slice(0, start) + raw.slice(raw.lastIndexOf('\n  ]')));
+  expect(before.databaseWindows.at(-1).id).toBe('2026-11-10-closed-person-name-policy-db');
   expect(before.windows).toEqual(doc.windows);
 });

@@ -1130,6 +1130,14 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
                 : 'Guide The Donkey Across The Road. Each Safe Crossing Raises Your Prize, And You Can Book The Win After Any Street.'
             }
             steps={[
+              ...(game === 'crossing' && finished
+                ? [
+                    {
+                      title: 'Your Booked Route',
+                      body: `${wouldHaveGot ?? roadEnded ?? ''}${coinsFlipped ? ` Coins: ${coinsFlipped}.` : ''}`,
+                    },
+                  ]
+                : []),
               {
                 title: 'Your Numbers',
                 body: 'Your Entry, The Guaranteed Minimum And The Prize So Far, Updated As You Play.',
@@ -1303,7 +1311,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
               <p className="sc-copy sc-ink--red">{error}</p>
             )
           ) : null}
-          {view?.status === 'cashed' ? (
+          {view?.status === 'cashed' && game === 'crossing' ? null : view?.status === 'cashed' ? (
             <>
               <strong className="sc-ink--gold">{gameChips(view.payout_chips)} Chips Booked</strong>
               {wouldHaveGot ? (

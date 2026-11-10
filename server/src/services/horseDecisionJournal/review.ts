@@ -1,3 +1,5 @@
+import { variantInfo } from '../../engine/HorseEval.js';
+import { reviewHorseTurnClocks } from '../../engine/HorseTurnClockReceipt.js';
 import {
   horseObserverReadsWereIndependent,
   horseObserverReadsUsedPublicPool,
@@ -95,6 +97,7 @@ export interface HorseJournalHandReview {
   status: 'reconciled' | 'incomplete' | 'unavailable';
   manifest: string | null;
   retainedRecords: number;
+  horseTurnClocks?: ReturnType<typeof reviewHorseTurnClocks>;
   acceptedHorseActions: number;
   matchedActions: number;
   independentReadActions: number;
@@ -342,6 +345,7 @@ export function reconcileHorseJournalHand(
           handKey: raw.handKey,
           committedHandId: raw.committedHandId,
           actions: raw.actions,
+          ...(raw.horseTurnClocks !== undefined ? { horseTurnClocks: raw.horseTurnClocks } : {}),
           bigBlind: raw.bigBlind,
           showdown: raw.showdown,
           scope: raw.scope,
@@ -493,6 +497,8 @@ export function reconcileHorseJournalHand(
       gap('accepted_hand_missing');
       return out;
     }
+    if (hand.horseTurnClocks !== undefined)
+      out.horseTurnClocks = reviewHorseTurnClocks(hand.horseTurnClocks, hand.actions!);
     const expected = new Set<number>();
     hand.actions!.forEach((action, i) => {
       if (ritBoardNumber(action) !== null) return;
@@ -613,6 +619,18 @@ export function reconcileHorseJournalHand(
         )
           throw Error();
         if (
+          (d.decision.preflopAuthority !== undefined &&
+            (d.decision.preflopAuthority.version !== 1 ||
+              d.decision.preflopAuthority.scope !== 'reference_preflop' ||
+              s.gameState.stage !== 'preflop' ||
+              d.decision.preflopAuthority.context.stack !== s.player.stack ||
+              d.decision.preflopAuthority.context.toCall !==
+                Math.max(0, s.gameState.currentBet - s.player.bet) ||
+              d.decision.preflopAuthority.context.isOmaha !==
+                (s.gameState.variantRules
+                  ? s.gameState.variantRules.holeCardsUse === 'exactly_two' &&
+                    s.gameState.variantRules.boardCardsUse === 'exactly_three'
+                  : variantInfo(s.gameState.gameVariant).isOmaha))) ||
           !horsePhase6AttributionMatchesSnapshot(d.decision, s) ||
           horsePhase7EvidenceMismatch(d.decision, s) !== null
         )
@@ -688,6 +706,7 @@ export function reconcileHorseJournalHand(
           !same(w.policyOwnership, expectedWitness.policyOwnership) ||
           !same(w.policyGraph, expectedWitness.policyGraph) ||
           !same(w.phase6Attribution ?? null, expectedWitness.phase6Attribution ?? null) ||
+          !same(w.preflopAuthority ?? null, expectedWitness.preflopAuthority ?? null) ||
           !same(w.phase7Evidence ?? null, expectedWitness.phase7Evidence ?? null) ||
           !same(w.phase10Inputs ?? null, expectedWitness.phase10Inputs ?? null) ||
           !same(w.phase11Inputs ?? null, expectedWitness.phase11Inputs ?? null) ||

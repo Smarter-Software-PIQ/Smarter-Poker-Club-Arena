@@ -5090,3 +5090,44 @@
   font-size: 1em;
   line-height: 1;
 }
+
+/* REAL ARRIVALS WHILE WAITING (Dan 2026-11-10): a real player the matcher has
+   waiting for this Lightning table, identity not known until the table forms.
+   An anonymous seat outline the size of an avatar, faded in where they will
+   sit (at the player's Animation Speed), with a slow breath so it reads as
+   arriving, never as a seated opponent. No name, art or stack is drawn. */
+.seat--empty.seat--arriving {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: seatArrivingIn calc(0.32s * var(--animation-speed, 1)) ease-out both;
+}
+.seat__arriving-silhouette {
+  display: block;
+  width: var(--seat-avatar-size, 56px);
+  height: var(--seat-avatar-size, 56px);
+  border-radius: var(--radius-circle);
+  border: 2px solid rgba(255, 255, 255, 0.28);
+  background: rgba(10, 14, 22, 0.55);
+  animation: seatArrivingBreath calc(1.6s * var(--animation-speed, 1)) ease-in-out
+    calc(0.32s * var(--animation-speed, 1)) infinite;
+}
+@keyframes seatArrivingIn {
+  from {
+    opacity: 0;
+    transform: scale(0.86);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes seatArrivingBreath {
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
+}

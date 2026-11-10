@@ -127,18 +127,26 @@ export async function readLightningBuyInContext(
   const range = cashBuyInRange(row);
   let min = range.min;
   /* The rejoin floor (a player who just cashed out comes back with at least
-     what they left with). The buy-in door enforces it; the question says it. */
-  try {
-    const { data: floor, error: floorError } = await supabase.rpc('fn_cash_effective_buyin', {
-      p_table_id: row.id,
-    });
-    if (floorError) reportError(floorError, 'lightningJoinBuyIn.effective_buyin_read');
-    const f = floor as { min?: unknown; floor_applied?: unknown } | null;
-    if (f?.floor_applied === true && Number(f.min) > min) min = Number(f.min);
-  } catch {
-    /* the door is still the authority */
-  }
-  const { balance } = await readTableFundingBalance(userId, { tableId: row.id });
+     what they left with) and the wallet are independent reads of the same
+     table: asked together, one round trip instead of two (2026-11-10, join
+     timing). The buy-in door enforces the floor; the question says it. */
+  const floorRead = (async () => {
+    try {
+      const { data: floor, error: floorError } = await supabase.rpc('fn_cash_effective_buyin', {
+        p_table_id: row.id,
+      });
+      if (floorError) reportError(floorError, 'lightningJoinBuyIn.effective_buyin_read');
+      return floor as { min?: unknown; floor_applied?: unknown } | null;
+    } catch {
+      /* the door is still the authority */
+      return null;
+    }
+  })();
+  const [f, { balance }] = await Promise.all([
+    floorRead,
+    readTableFundingBalance(userId, { tableId: row.id }),
+  ]);
+  if (f?.floor_applied === true && Number(f.min) > min) min = Number(f.min);
   return {
     tableId: row.id,
     minBuyIn: min,
@@ -160,7 +168,14 @@ const errorText = (error: unknown): string =>
  * nothing else is asked of them.
  */
 export async function buyIntoLightning(
-  args: { clusterId: string; userId: string; amount: number; clubId: string | null },
+  args: {
+    clusterId: string;
+    userId: string;
+    amount: number;
+    clubId: string | null;
+    /** Join timing (telemetry only): told when each door answers. */
+    mark?: (step: 'hold_answered' | 'purchase_answered') => void;
+  },
   deps: LightningBuyInDeps = defaultDeps
 ): Promise<LightningBuyInResult> {
   try {
@@ -176,6 +191,7 @@ export async function buyIntoLightning(
     } catch (error) {
       return { kind: 'rejected', message: joinGameRefusalText(error) };
     }
+    args.mark?.('hold_answered');
     if (!held.table_id) {
       return { kind: 'rejected', message: 'No Seat Is Open Right Now. Try Again In A Moment.' };
     }
@@ -216,6 +232,7 @@ export async function buyIntoLightning(
       };
     }
     const outcome = await deps.execute(attempt, recovered);
+    args.mark?.('purchase_answered');
     if (outcome.kind === 'unknown') {
       /* NOT CONFIRMED IS NOT JOINING (Lightning transition phase 2). The intent
          is what makes the anchor table say "Joining Lightning..." and wait for

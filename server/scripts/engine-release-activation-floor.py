@@ -23,11 +23,11 @@ CERTIFIED_PREDECESSOR = 'eed06fe51dea622069c661a6213d5b031ff3a9e3'
 CERTIFIED_START = 1793833200
 CERTIFIED_END = 1793854800
 
-# The owner-directed November 10 successor rebinds the existing single-use exception.
+# The owner-directed November 10 cash Horse action cutover rebinds the existing single-use exception.
 # Prior immutable controls and entries keep their original authority and expiry.
-NOV7_OWNER_ID = '2026-11-10-owner-asap-engine-0650z'
-NOV7_MANIFEST_DIGEST = 'a171baede07efd880c67e623e896fb4cee13a0fd0bb1be10310911127dd560cb'
-NOV7_ORDER_DIGEST = 'e36fddfe1a9504881a218b416efb65902699efed4deb476a099eaf56e21d58fa'
+NOV7_OWNER_ID = '2026-11-10-owner-asap-engine-2350z'
+NOV7_MANIFEST_DIGEST = '72bbb5fe8f245ad98d7b78f883009a16a2289816bd50cf4edd3258a121dffa48'
+NOV7_ORDER_DIGEST = '18b1ca2d8b8ab54ec36380c623687bbd5ba6f249e4fbdf04095e1a02a0cd2c23'
 
 
 
