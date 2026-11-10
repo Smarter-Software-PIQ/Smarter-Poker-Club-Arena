@@ -166,7 +166,9 @@ export default function BonusCompletion({
         <section className={cabinet.receipt}>
           <header>
             <span data-result-label>{eyebrow ?? (big ? 'Big Win' : 'You Won')}</span>
-            <h2>{title}</h2>
+            <h2>
+              <span className={cabinet.paidLabel}>Paid</span> {title}
+            </h2>
             <small>Credited To Your Club Balance</small>
           </header>
           <div className={styles.prize} aria-hidden="true" data-big={big ? 'true' : undefined}>

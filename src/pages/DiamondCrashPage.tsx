@@ -62,7 +62,7 @@ import { useIsMounted } from '../hooks/useIsMounted';
 import PageSkeleton from '../components/common/PageSkeleton';
 import { LoadingState } from '../components/common/EmptyState';
 import CrashCurve, { type CrashPhase } from '../components/crash/CrashCurve';
-import { GameConsole, GamePanel } from '../components/games/GameConsole';
+import { bonusPrizeBay, GameConsole, GamePanel } from '../components/games/GameConsole';
 import { useMeasuredWidth } from '../hooks/useMeasuredWidth';
 import { useSceneBudget } from '../hooks/useSceneBudget';
 import BonusSetup, { guaranteeCopy } from '../components/games/BonusSetup';
@@ -159,6 +159,18 @@ const AUTO_PRESETS = [0, 150, 200, 300, 500, 1000, 2000, 5000] as const;
 /** A prize is an exact ledger amount, including all digits of large wins. */
 function chipsLabel(v: number): string {
   return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** Booking feedback must use the terminal receipt, even when the tick wins the race. */
+function bookingResult(round: CrashRound): string | null {
+  if (!round.outcome || round.status === 'open') return null;
+  const booked = round.status === 'cashed';
+  const cents = booked ? round.outcome.cashout_cents : round.outcome.crash_cents;
+  if (cents == null) return null;
+  const figure = `${(cents / 100).toFixed(2)}×`;
+  return booked
+    ? `Booked At ${figure}`
+    : `Flight Ended At ${figure} · ${chipsLabel(round.outcome.payout_chips)} Chips Paid`;
 }
 
 /**
@@ -265,6 +277,7 @@ function DiamondCrashGame() {
   const [cashoutOpen, setCashoutOpen] = useState(false);
   const cashoutOpenRef = useRef(false);
   const cashingRef = useRef(false);
+  const bookingRound = useRef<string | null>(null);
   const [checkingRound, setCheckingRound] = useState(false);
   const freshUntil = useRef(0);
   const staleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -451,7 +464,11 @@ function DiamondCrashGame() {
          it: the booked sting (the gold fanfare at the cap) with a medium buzz,
          or the crash burst with a strong one. The page used to sing the
          cash-out and buzz here as well, which would now be every ending twice. */
-      if (cashed) {
+      const result = bookingRound.current === settled.round_id ? bookingResult(settled) : null;
+      if (result) {
+        if (cashed) toast.success(result);
+        else toast.info(result);
+      } else if (cashed) {
         toast.success(
           `Cashed Out At ${multiplierLabel(settled.outcome?.cashout_cents ?? 100)} For ${chipsLabel(settled.outcome?.payout_chips ?? 0)} Chips`
         );
@@ -1171,6 +1188,7 @@ function DiamondCrashGame() {
       return;
     busyRef.current = true;
     cashingRef.current = true;
+    bookingRound.current = current.round_id;
     setCashing(true);
     triggerHaptic('heavy');
     try {
@@ -1180,7 +1198,12 @@ function DiamondCrashGame() {
         current,
         liveCents
       );
-      if (!live()) return;
+      if (
+        !live() ||
+        roundRef.current?.round_id !== current.round_id ||
+        roundRef.current.status !== 'open'
+      )
+        return;
       if (!next.ok) {
         markChecking();
         reconcileRef.current?.();
@@ -1204,7 +1227,12 @@ function DiamondCrashGame() {
         reconcileRef.current?.();
       }
       reportError(err, 'DiamondCrashPage.cashout');
-      if (live()) toast.error('The Cash Out Could Not Be Confirmed. Checking Your Round');
+      if (
+        live() &&
+        roundRef.current?.round_id === current.round_id &&
+        roundRef.current.status === 'open'
+      )
+        toast.error('The Cash Out Could Not Be Confirmed. Checking Your Round');
     } finally {
       busyRef.current = false;
       cashingRef.current = false;
@@ -1299,9 +1327,10 @@ function DiamondCrashGame() {
     if (lastFinishedRound.current !== endedRoundId) return;
     const paid = chipsLabel(ended.outcome?.payout_chips ?? 0);
     announce(
-      ended.status === 'cashed'
-        ? `Round Over. Cashed Out At ${multiplierLabel(ended.outcome?.cashout_cents ?? 100)} For ${paid} Chips`
-        : `Round Over. Crashed At ${multiplierLabel(ended.outcome?.crash_cents ?? 100)}, ${paid} Chips Paid`
+      (ended.round_id === bookingRound.current ? bookingResult(ended) : null) ??
+        (ended.status === 'cashed'
+          ? `Round Over. Cashed Out At ${multiplierLabel(ended.outcome?.cashout_cents ?? 100)} For ${paid} Chips`
+          : `Round Over. Crashed At ${multiplierLabel(ended.outcome?.crash_cents ?? 100)}, ${paid} Chips Paid`)
     );
   }, [endedRoundId, announce]);
 
@@ -1316,6 +1345,18 @@ function DiamondCrashGame() {
 
   const chartWidth = Math.max(240, Math.min(1440, stageWidth - 4));
   const settledRound = round && round.status !== 'open' ? round : null;
+  const confirmedBooking =
+    settledRound?.round_id === bookingRound.current && settledRound
+      ? bookingResult(settledRound)
+      : null;
+  const showPaidReceipt = Boolean(
+    settledRound?.outcome &&
+    revealedRoundId === settledRound.round_id &&
+    !uncertain &&
+    !starting &&
+    !cashing
+  );
+
   const finalCents = settledRound
     ? settledRound.status === 'cashed'
       ? (settledRound.outcome?.cashout_cents ?? 100)
@@ -1470,16 +1511,16 @@ function DiamondCrashGame() {
         pillInk={pillInk}
         aria-labelledby="diamond-crash-title"
         bays={[
+          bonusPrizeBay(
+            guaranteed?.chips ?? null,
+            showPaidReceipt ? (settledRound?.outcome?.payout_chips ?? null) : null,
+            guaranteed?.super ?? false
+          ),
           {
             label: 'Bet',
             value: open && round ? compactChips(round.bet_diamonds) : compactChips(bet),
             ink: betOption && !betOption.playable ? 'red' : 'white',
             disabled: true,
-          },
-          {
-            label: 'Guaranteed',
-            value: guaranteed ? `${gameChips(guaranteed.chips)} Chips` : 'Pending',
-            ink: guaranteed?.super ? 'gold' : undefined,
           },
           {
             label: 'Auto',
@@ -1526,11 +1567,7 @@ function DiamondCrashGame() {
               }
             : open
               ? {
-                  label: checkingRound
-                    ? 'Checking Round'
-                    : cashing
-                      ? 'Booking Win'
-                      : 'Book The Win',
+                  label: checkingRound ? 'Checking Round' : cashing ? 'Booking…' : 'Book The Win',
                   // Gold is value on this panel: Get Diamonds already reads that
                   // way, and booking a win is the same kind of act. Green was the
                   // last plate painted a colour of its own.
@@ -1622,6 +1659,12 @@ function DiamondCrashGame() {
                 >{`Worth ${chipsLabel(liveWorth)} Chips Right Now`}</span>
               ) : saved ? (
                 BONUS_SAVED
+              ) : confirmedBooking && settledRound?.outcome ? (
+                settledRound.status === 'cashed' ? (
+                  `${confirmedBooking} · ${chipsLabel(settledRound.outcome.payout_chips)} Chips Paid`
+                ) : (
+                  confirmedBooking
+                )
               ) : settledRound ? (
                 settledRound.status === 'cashed' ? (
                   `${chipsLabel(settledRound.outcome?.payout_chips ?? 0)} Chips Paid${settledRound.outcome?.settled_by === 'time' ? ' By Your Auto Cash Out' : ''}`
@@ -1650,7 +1693,7 @@ function DiamondCrashGame() {
             {settledRound?.status === 'cashed' ? (
               <span className="sc-copy sc-ink--silver" data-would-have-crashed="">
                 {settledRound.outcome
-                  ? `${crashWouldHaveLabel(settledRound.outcome.crash_cents, settledRound.cap_cents)}.`
+                  ? `${confirmedBooking ? confirmedBooking + '. ' : ''}${crashWouldHaveLabel(settledRound.outcome.crash_cents, settledRound.cap_cents)}.`
                   : ''}{' '}
                 {settledRound.fairness.server_seed && settledRound.outcome ? (
                   <SealedPrize
@@ -1818,44 +1861,41 @@ function DiamondCrashGame() {
       </GamePanel>
 
       {!user ? <p className="sc-copy sc-copy--center sc-ink--muted">Sign In To Play.</p> : null}
-      {settledRound?.outcome &&
-        revealedRoundId === settledRound.round_id &&
-        !uncertain &&
-        !starting &&
-        !cashing && (
-          <BonusCompletion
-            key={settledRound.round_id}
-            clubId={routeClubId ?? ''}
-            clubUuid={clubUuid}
-            awardId={settledRound.award_id ?? null}
-            // The scene already sounded the ending on the frame that showed it
-            // (the booked sting, the gold fanfare at the cap, or the crash
-            // explosion). Either way the receipt adds no chord.
-            silent
-            // A crash is not a win. The receipt says what it is.
-            eyebrow={
-              settledRound.status === 'cashed'
-                ? undefined
-                : settledRound.outcome.payout_chips > 0
-                  ? 'Guarantee Paid'
-                  : 'Round Over'
-            }
-            chips={settledRound.outcome.payout_chips}
-            // A booked win reveals the sealed point it was flying to (Dan,
-            // 2026-10-12); a crash says where it ended.
-            detail={
-              settledRound.status === 'cashed'
-                ? `${crashWouldHaveLabel(settledRound.outcome.crash_cents, settledRound.cap_cents)}.`
-                : `The Flight Crashed At ${multiplierLabel(settledRound.outcome.crash_cents)}.`
-            }
-            // The receipt's own art: the jet at the multiplier it booked, or
-            // where it crashed on a round that was not cashed.
-            game="crash"
-            figure={finalCents === null ? null : finalCents / 100}
-            cap={settledRound.cap_cents / 100}
-            stakeChips={settledRound.bet_chips}
-          />
-        )}
+      {settledRound?.outcome && showPaidReceipt && (
+        <BonusCompletion
+          key={settledRound.round_id}
+          clubId={routeClubId ?? ''}
+          clubUuid={clubUuid}
+          awardId={settledRound.award_id ?? null}
+          // The scene already sounded the ending on the frame that showed it
+          // (the booked sting, the gold fanfare at the cap, or the crash
+          // explosion). Either way the receipt adds no chord.
+          silent
+          // A crash is not a win. The receipt says what it is.
+          eyebrow={
+            settledRound.status === 'cashed'
+              ? undefined
+              : settledRound.outcome.payout_chips > 0
+                ? 'Guarantee Paid'
+                : 'Round Over'
+          }
+          chips={settledRound.outcome.payout_chips}
+          // A booked win reveals the sealed point it was flying to (Dan,
+          // 2026-10-12); a crash says where it ended.
+          detail={
+            settledRound.status === 'cashed'
+              ? `${confirmedBooking ? confirmedBooking + '. ' : ''}${crashWouldHaveLabel(settledRound.outcome.crash_cents, settledRound.cap_cents)}.`
+              : (confirmedBooking ??
+                `The Flight Crashed At ${multiplierLabel(settledRound.outcome.crash_cents)}.`)
+          }
+          // The receipt's own art: the jet at the multiplier it booked, or
+          // where it crashed on a round that was not cashed.
+          game="crash"
+          figure={finalCents === null ? null : finalCents / 100}
+          cap={settledRound.cap_cents / 100}
+          stakeChips={settledRound.bet_chips}
+        />
+      )}
     </div>
   );
 }

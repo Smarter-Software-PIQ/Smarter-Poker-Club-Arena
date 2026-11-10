@@ -14,7 +14,7 @@ import BonusCompletion from '../components/games/BonusCompletion';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuthUser } from '../hooks/useAuthUser';
-import { GameConsole, GamePanel } from '../components/games/GameConsole';
+import { bonusPrizeBay, GameConsole, GamePanel } from '../components/games/GameConsole';
 import BonusSetup, { guaranteeCopy } from '../components/games/BonusSetup';
 import SealedPrize from '../components/games/SealedPrize';
 import { useGameCooldown } from '../hooks/useGameCooldown';
@@ -1097,11 +1097,11 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
         pill={status === 'Ready' ? '' : status}
         pillInk={round?.status === 'cashed' ? 'green' : 'blue'}
         bays={[
-          {
-            label: 'Guaranteed',
-            value: guaranteedChips === null ? 'Pending' : `${gameChips(guaranteedChips)} Chips`,
-            ink: guaranteedSuper ? 'gold' : undefined,
-          },
+          bonusPrizeBay(
+            guaranteedChips,
+            receiptShowing && round ? round.payout_chips : null,
+            guaranteedSuper
+          ),
           {
             label: game === 'mines' ? 'Revealed' : 'Street',
             value: String(picks),
