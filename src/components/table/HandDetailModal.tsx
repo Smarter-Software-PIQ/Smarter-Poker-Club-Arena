@@ -333,7 +333,7 @@ function RabbitHuntReplayBlock({
   const statusNote: string | null = settled
     ? null
     : offer.pastRetention
-      ? 'Past The 1 Day Limit. Rabbit Hunts Are Kept For 1 Day After Each Hand'
+      ? 'Expired after 24 hours'
       : withinFeltWindow || !needsStatus
         ? null
         : replayStatus === null
@@ -345,7 +345,7 @@ function RabbitHuntReplayBlock({
               : replayStatus.status === 'not_eligible'
                 ? 'You Were Not Dealt Into This Hand'
                 : replayStatus.status === 'expired'
-                  ? 'Past The 1 Day Limit. Rabbit Hunts Are Kept For 1 Day After Each Hand'
+                  ? 'Expired after 24 hours'
                   : null;
   const vipNoteInsteadOfButton = !isVIP && !withinFeltWindow && !settled && !statusNote;
   const showsButton = !settled && !statusNote && !vipNoteInsteadOfButton;
@@ -385,9 +385,7 @@ function RabbitHuntReplayBlock({
       <div className="hdm-section-count">Hand {hand.handNumber.toLocaleString()} · Only You</div>
       {settled ? null : (
         <div className="hdm-section-count hdm-rabbit__limit">
-          {savedUntil
-            ? `Available Until ${savedUntil}`
-            : 'VIP Rabbit Hunt On A Previous Hand Is Available For 1 Day'}
+          {savedUntil ? `Available Until ${savedUntil}` : 'VIP access · 24 hours'}
         </div>
       )}
       {hasRevealed || owned ? (
@@ -781,20 +779,17 @@ export function HandDetailModal({
     }
   };
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const copyText = useCallback(
-    async (kind: 'number' | 'link', text: string): Promise<boolean> => {
-      // Falls back to a selection copy when the Clipboard API is present but
-      // refused (an in-app webview, an embedded browser pane).
-      const ok = await copyToClipboard(text);
-      setCopied(ok ? kind : null);
-      if (ok) {
-        if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
-        copiedTimerRef.current = setTimeout(() => setCopied(null), 1600);
-      }
-      return ok;
-    },
-    []
-  );
+  const copyText = useCallback(async (kind: 'number' | 'link', text: string): Promise<boolean> => {
+    // Falls back to a selection copy when the Clipboard API is present but
+    // refused (an in-app webview, an embedded browser pane).
+    const ok = await copyToClipboard(text);
+    setCopied(ok ? kind : null);
+    if (ok) {
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+      copiedTimerRef.current = setTimeout(() => setCopied(null), 1600);
+    }
+    return ok;
+  }, []);
   useEffect(
     () => () => {
       if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
@@ -1021,6 +1016,24 @@ export function HandDetailModal({
                 </section>
               );
             })()}
+            <section className="hdm-result" aria-label="Hand result">
+              <div className="hdm-potline hdm-potline--top">
+                <span className="hdm-potline__label">Pot</span>
+                <span className="hdm-potline__pots">
+                  {model.pots.map((p, i) => (
+                    <span key={`${i}-${p.label}`}>
+                      {p.label} {money(p.amount)}
+                    </span>
+                  ))}
+                </span>
+              </div>
+              {showdownRows.length === 0 && (
+                <p className="hdm-result__winner">
+                  No Showdown{takenBy ? ` · Pot Taken By ${takenBy}` : ''}
+                </p>
+              )}
+              {tab === 'summary' && <RecordedPotAwards model={model} variant="summary" />}
+            </section>
             {tab === 'detail' ? (
               <HandDetailView
                 model={model}
@@ -1031,17 +1044,6 @@ export function HandDetailModal({
               />
             ) : (
               <>
-                <div className="hdm-potline hdm-potline--top">
-                  <span className="hdm-potline__label">Pot</span>
-                  <span className="hdm-potline__pots">
-                    {model.pots.map((p, i) => (
-                      <span key={`${i}-${p.label}`}>
-                        {p.label} {money(p.amount)}
-                      </span>
-                    ))}
-                  </span>
-                </div>
-
                 <BoardsBlock model={model} isBomb={isBomb} />
 
                 {onRabbitHunt ? (
@@ -1057,12 +1059,7 @@ export function HandDetailModal({
                   />
                 ) : null}
 
-                <RecordedPotAwards model={model} variant="summary" />
-                {showdownRows.length === 0 ? (
-                  <div className="hdm-empty hdm-empty--inline">
-                    No Showdown{takenBy ? ` · Pot Taken By ${takenBy}` : ''}
-                  </div>
-                ) : (
+                {showdownRows.length > 0 && (
                   <section className="hdm-showdown" aria-label="Showdown">
                     <header className="hdm-section-head">
                       <span>Showdown</span>
