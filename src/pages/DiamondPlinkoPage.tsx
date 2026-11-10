@@ -701,6 +701,26 @@ function DiamondPlinkoGame() {
   const toppedUp = Boolean(
     result && settled && Math.round(result.payout_chips * 100) > Math.round(droppedChips * 100)
   );
+  const setup = !animating && (
+    <BonusSetup
+      budget={budget}
+      entryReady={earned.ready}
+      awardLoading={earned.loading}
+      awardError={earned.error}
+      onChange={setBudget}
+      diamonds={state?.player?.spendable ?? null}
+      disabled={busy || uncertain || restartOwed}
+      game="plinko"
+      guarantee={earned.quote}
+      clubId={clubId ?? ''}
+      leave={(to) => {
+        if (busyRef.current) return;
+        releaseGuard();
+        navigate(to);
+      }}
+      dropsDocked
+    />
+  );
   return (
     <div className={`${styles.page} ${styles.fullscreenPage} ${plinkoStyles.cabinet}`}>
       <button className={styles.back} onClick={() => navigate(`/clubs/${clubId}/diamond-games`)}>
@@ -708,29 +728,7 @@ function DiamondPlinkoGame() {
       </button>
       <DiamondSpinsTabs clubId={clubId ?? ''} />
       <GameConsole
-        setup={
-          !animating &&
-          !budget.award && (
-            <BonusSetup
-              budget={budget}
-              entryReady={earned.ready}
-              awardLoading={earned.loading}
-              awardError={earned.error}
-              onChange={setBudget}
-              diamonds={state?.player?.spendable ?? null}
-              disabled={busy || uncertain || restartOwed}
-              game="plinko"
-              guarantee={earned.quote}
-              clubId={clubId ?? ''}
-              leave={(to) => {
-                if (busyRef.current) return;
-                releaseGuard();
-                navigate(to);
-              }}
-              dropsDocked
-            />
-          )
-        }
+        setup={!budget.award && setup}
         // The drop value is the one choice Drop Diamonds cannot be pressed
         // without (R6), so it rides in the pinned bar beside that plate: the
         // choice and the press are both on the opening screen (2026-10-12).
@@ -896,6 +894,7 @@ function DiamondPlinkoGame() {
           </p>
         )}
       </GameConsole>
+      {budget.award && setup}
       <GameLifetimeAverages clubId={uuid} revision={result?.id} />
       <GamePanel title="Bonus Proof" pill={verified === true ? 'Verified' : 'Sealed'} foot="foot">
         <p className={`sc-copy ${styles.proofHash}`}>
