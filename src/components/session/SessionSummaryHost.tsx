@@ -593,11 +593,13 @@ export function SessionSummaryHost() {
   if (typeof document === 'undefined') return null;
 
   if (!detailOpen && recordedReady) {
-    const stat = (label: string) => stats.find((row) => row.label === label)?.value ?? '–';
+    const stat = (label: string) => stats.find((row) => row.label === label)?.value ?? '-';
     const handsPerHour =
-      displayedHands !== null && payload.duration > 0
+      displayedHands !== null &&
+      (!target || recordedRecap?.handsPlayed != null) &&
+      payload.duration > 0
         ? String(Math.round((displayedHands * 3600) / payload.duration))
-        : '–';
+        : '-';
     const money =
       (isProfit ? '+' : '-') + formatSessionProfit(Math.abs(payload.profitLoss)) + unitSuffix;
     return createPortal(
@@ -626,7 +628,13 @@ export function SessionSummaryHost() {
                 label: 'Net',
                 value: (isProfit ? '+' : '-') + formatSessionProfit(Math.abs(payload.profitLoss)),
               },
-              { label: 'Hands Won', value: displayedWins?.toLocaleString() ?? '–' },
+              {
+                label: 'Hands Won',
+                value:
+                  target && recordedRecap?.handsWon == null
+                    ? '-'
+                    : (displayedWins?.toLocaleString() ?? '-'),
+              },
               { label: 'VPIP', value: stat('VPIP') },
               { label: 'Win Rate', value: stat('Win Rate') },
               { label: 'Rebuys', value: String(payload.totalRebuys) },
@@ -634,7 +642,11 @@ export function SessionSummaryHost() {
             ]}
             onClose={close}
             onView={() => setDetailOpen(true)}
-            share={{ label: shareLabel, onClick: share, disabled: displayedHands === null }}
+            share={{
+              label: shareLabel,
+              onClick: share,
+              disabled: displayedHands === null || (!!target && recordedRecap?.handsPlayed == null),
+            }}
             primary={{
               label: 'Game Lobby',
               onClick: () => {

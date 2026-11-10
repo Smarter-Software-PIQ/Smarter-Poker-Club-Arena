@@ -173,7 +173,7 @@ function LightningReport({
     'pfr',
     'showdowns',
     'fast_folds',
-  ].map((key) => rows.find((row) => row.key === key) ?? { label: key.toUpperCase(), value: '–' });
+  ].map((key) => rows.find((row) => row.key === key) ?? { label: key.toUpperCase(), value: '-' });
   return (
     <ChipStackReport
       name={name || 'Lightning Cash'}

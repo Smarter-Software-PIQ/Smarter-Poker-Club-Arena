@@ -673,10 +673,10 @@ export default function TournamentRankingCard({
                 label: 'Place',
                 value: place != null ? ordinal(place) : qualification ? 'Qualified' : 'Pending',
               },
-              { label: 'Entrants', value: result.entrants?.toLocaleString() ?? '–' },
+              { label: 'Entrants', value: result.entrants?.toLocaleString() ?? '-' },
               {
                 label: 'Buy-In',
-                value: result.buyInAmount == null ? '–' : fmt(result.buyInAmount),
+                value: result.buyInAmount == null ? '-' : fmt(result.buyInAmount),
               },
               { label: 'Prize', value: settlementPending ? 'Pending' : fmt(result.prize) },
               { label: 'Bounties', value: fmt(result.bountyWinnings) },
@@ -686,9 +686,9 @@ export default function TournamentRankingCard({
               { label: 'Add Ons', value: String(result.addOns) },
               {
                 label: 'Duration',
-                value: durationSeconds == null ? '–' : formatDuration(durationSeconds),
+                value: durationSeconds == null ? '-' : formatDuration(durationSeconds),
               },
-              { label: 'Hands', value: handsPlayed?.toLocaleString() ?? '–' },
+              { label: 'Hands', value: handsPlayed?.toLocaleString() ?? '-' },
             ]}
             onClose={onDismiss}
             onView={() => setDetailOpen(true)}
