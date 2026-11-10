@@ -435,8 +435,8 @@ export const gestureBeforeAllIn = bindToProcessRoot(
       const { table, horse, handNumber } = input;
       if (!hasAudience(table.tableId)) return 'no_audience';
       const form = allInForm(horse.userId, handNumber, tableRefusal(table) === null);
-      // Choose the form before its participation roll: a chat-only horse can
-      // still speak, while a silent horse never gets chat via its throw habit.
+      // Choose the form before its participation roll so talking and
+      // gestures retain their independent personal frequencies.
       const participates =
         form === 'chat'
           ? speaksThisTime('all_in', horse.userId, table.tableId, handNumber)
