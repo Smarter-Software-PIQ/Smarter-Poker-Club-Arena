@@ -697,6 +697,19 @@ handoff. Missing or changed evidence keeps the current engine serving. The
 host's one-use predecessor, actual notice, custody, freeze, proof, rollback and
 thaw checks remain mandatory. Do not dispatch the receiver directly.
 
+An open owner window tells its release owner; it never starts itself (owner
+order 2026-11-09). `.github/workflows/owner-window-ready.yml` runs
+`scripts/ci/owner-window-ready.py` on protected pushes and successful push
+Backup or prequalification completions. When the window is open, the served
+client has carried the booked notice for at least twenty minutes, 420 s still fit
+before the window closes, the protected owner admission passes, a candidate has
+complete current evidence, no release of this window is serving and no owner
+selection or receiver is running, it opens or comments on the GitHub issue
+`Owner Window <owner_window_id> Is Ready To Start`, once per window and
+evidence. It holds no `actions: write` and dispatches, retries and cancels
+nothing (`tests/an-open-owner-window-only-notifies-its-owner.law.test.ts`). The
+release owner then starts the selection above by hand.
+
 ### Capped satellite awards: schema before compatible engine
 
 Follow the capped satellite compatibility section in `PUBLISHING.md` for migration
