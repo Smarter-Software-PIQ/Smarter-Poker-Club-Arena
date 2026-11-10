@@ -130,7 +130,10 @@ def resume_roster_probe(e, db, mode):
     elif mode == 'mismatch':
         expected += " AND r#>>'{accepted_roster,status}'='unavailable' AND r#>'{accepted_roster,reasons}'='[\"roster_discriminator_mismatch\"]'::jsonb"
     assertion = "\n  IF (" + expected + ") IS DISTINCT FROM true THEN RAISE EXCEPTION 'resume roster " + mode + " differs: %',r; END IF;\n  RAISE NOTICE 'RESUME ROSTER PASS: " + mode + "';"
-    probe = probe.replace(call, mutation + call + assertion)
+    original = "  IF (" + replay + "->>'status') IS DISTINCT FROM 'captured' OR jsonb_array_length(" + replay + "#>'{roster,actors}') IS DISTINCT FROM 2 THEN RAISE EXCEPTION 'resume fixture original roster is not captured'; END IF;\n"
+    if mode == 'equal':
+        assertion += "\n  IF r#>>'{accepted_roster,status}' IS DISTINCT FROM 'captured' OR jsonb_array_length(r#>'{accepted_roster,roster,actors}') IS DISTINCT FROM 2 THEN RAISE EXCEPTION 'resume positive roster not captured'; END IF;"
+    probe = probe.replace(call, original + mutation + call + assertion)
     script = 'BEGIN;\n' + (e.output / 'opening.sql').read_text() + probe + '\nROLLBACK;\n'
     label = 'resume-roster-' + mode
     path = e.output / (label + '.sql'); path.write_text(script)
@@ -235,6 +238,14 @@ def main():
         if before != e.snapshot(db, 'after-data') or catalog != e.catalog_snapshot(db, 'after-catalog') or private != hs.private_snapshot(e, db, 'after-private'):
             raise RuntimeError('roster cases did not roll back completely')
         e.report['cases'].append({'case': 'existing-probe-after-migration', 'passes': existing_probe(e, db, 'existing-probe-after')})
+        e.report['cases'].append(resume_roster_probe(e, db, 'baseline'))
+        e.sql(db, file=ROOT / RESUME_FIX, label='resume-original-roster-install')
+        for mode in ('equal', 'missing', 'mismatch'):
+            e.report['cases'].append(resume_roster_probe(e, db, mode))
+        code, _, err = e.sql(db, file=ROOT / RESUME_FIX, label='resume-roster-reinstall-refused', check=False)
+        if code == 0 or 'RETAINED_HAND_ROSTER_PREIMAGE_DRIFT' not in err:
+            raise RuntimeError('resume roster duplicate install not refused')
+
         # A real original formation roster fails before the corrective owner.
         fixture = ('BEGIN;\n' + (out / 'opening.sql').read_text() + (ROOT / FIXTURE).read_text()
                    + (ROOT / LIGHTNING_FIXTURE).read_text())
@@ -252,14 +263,6 @@ def main():
         if code == 0 or 'LIGHTNING_ACCEPTED_ROSTER_PREIMAGE_DRIFT' not in err:
             raise RuntimeError('Lightning correction replay not refused')
         e.report['cases'].append({'case': 'existing-probe-after-lightning-correction', 'passes': existing_probe(e, db, 'existing-probe-after-lightning')})
-
-        e.report['cases'].append(resume_roster_probe(e, db, 'baseline'))
-        e.sql(db, file=ROOT / RESUME_FIX, label='resume-original-roster-install')
-        for mode in ('equal', 'missing', 'mismatch'):
-            e.report['cases'].append(resume_roster_probe(e, db, mode))
-        code, _, err = e.sql(db, file=ROOT / RESUME_FIX, label='resume-roster-reinstall-refused', check=False)
-        if code == 0 or 'RETAINED_HAND_ROSTER_PREIMAGE_DRIFT' not in err:
-            raise RuntimeError('resume roster duplicate install not refused')
 
         for path, digest in e.report['source_sha256'].items():
             if sha(ROOT / path) != digest:
