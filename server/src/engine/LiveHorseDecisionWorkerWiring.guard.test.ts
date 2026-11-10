@@ -148,7 +148,13 @@ describe('live horse decisions stay outside the table event loop', () => {
    * has added yet.
    */
   it('observes the hand that was dealt, never a constant standing in for it', () => {
-    const call = sliceCall(handHistory, 'observeCompletedHand({');
+    // Recovery emits a terminal-only receipt earlier in this module. This
+    // invariant targets the original completed-hand learning producer.
+    const producer = handHistory.slice(
+      handHistory.indexOf('export async function logHandHistory(')
+    );
+    expect(producer).toContain('export async function logHandHistory(');
+    const call = sliceCall(producer, 'observeCompletedHand({');
     const code = withoutComments(call);
 
     // Each field says where it came from.

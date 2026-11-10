@@ -1278,6 +1278,15 @@ if [ -f server/package.json ]; then
       break
     fi
   done
+  # Original hand history is read as text/VM by these contracts, so imports
+  # cannot select them. PR #10400 exposed this gap in hosted engine shard 4.
+  for rel in $SRV_SRC; do
+    if [ "$rel" = src/services/supabase/handHistory.ts ]; then
+      ca_add_contract src/engine/OriginalPayloadRetry.test.ts
+      ca_add_contract src/engine/LiveHorseDecisionWorkerWiring.guard.test.ts
+      break
+    fi
+  done
   # DECISION DIGESTS (2026-11-07). The policy digests bind every runtime
   # import of HorseLogic and every reference decision source, and their laws
   # read those lists rather than importing the changed file, so `related`
