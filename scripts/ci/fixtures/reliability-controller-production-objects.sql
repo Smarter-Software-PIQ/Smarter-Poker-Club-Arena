@@ -17,6 +17,10 @@ CREATE ROLE service_role NOLOGIN;
 CREATE SCHEMA auth;
 CREATE SCHEMA extensions;
 CREATE SCHEMA cron;
+-- The existing private schema. Production: USAGE for anon, authenticated and
+-- service_role (read from pg_namespace.nspacl on 2026-11-09), no default ACL.
+CREATE SCHEMA smarter_private;
+GRANT USAGE ON SCHEMA smarter_private TO anon, authenticated, service_role;
 GRANT USAGE ON SCHEMA auth TO PUBLIC;
 
 CREATE TABLE cron.job (jobid bigserial PRIMARY KEY, jobname text UNIQUE, schedule text, command text, active boolean DEFAULT true);

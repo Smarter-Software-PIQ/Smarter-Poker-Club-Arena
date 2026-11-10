@@ -1,7 +1,8 @@
 name: Reliability Controller Stage B
 
-# The reliability schema, its intake triggers on operational_alert_events, the
-# incident state machine, the Messenger outbox and reliability.tick()
+# The smarter_private.reliability_* objects, their intake triggers on
+# operational_alert_events, the incident state machine, the Messenger outbox
+# and smarter_private.reliability_tick()
 # (migration 20261110000020). Runs
 # scripts/ci/test-reliability-controller-stage-b.py against a throwaway
 # PostgreSQL 17 cluster, never production. No timer (CLAUDE.md 10.85):
