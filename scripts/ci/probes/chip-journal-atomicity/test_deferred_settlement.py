@@ -92,6 +92,11 @@ ALTER TABLE tables ADD COLUMN IF NOT EXISTS big_blind numeric, ADD COLUMN IF NOT
 ALTER TABLE bbj_pools ADD COLUMN IF NOT EXISTS union_id uuid, ADD COLUMN IF NOT EXISTS status text DEFAULT 'active',
  ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
 CREATE TABLE IF NOT EXISTS hand_rake_in_flight(hand_id uuid PRIMARY KEY,amount numeric);
+-- The live post-commit processor (20261109234320) asks, before it admits a
+-- hand's add-ons, whether that hand's original cash outcome is blocked on
+-- pending escrow. A plain cash hand has no outcome row, so the branch is never
+-- taken here; the relation only has to exist for the body to run.
+CREATE TABLE IF NOT EXISTS public.union_pnl_cash_outcomes(table_id uuid,hand_number bigint,evidence jsonb);
 -- The rake leaves the hand (where the accepted commit put it) exactly when the
 -- envelope books it: one helper so the closed-system total can count it.
 CREATE OR REPLACE FUNCTION pg_temp_envelope(p_hand uuid) RETURNS jsonb LANGUAGE plpgsql AS $$
