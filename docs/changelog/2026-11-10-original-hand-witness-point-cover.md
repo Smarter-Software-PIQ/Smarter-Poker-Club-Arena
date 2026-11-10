@@ -1,0 +1,11 @@
+# Original hand witness point cover
+
+The original paid November 2 book exhausted its four-minute statement in the hand-parts witness after all five affected hand windows had requalified. Its strict linked count looked up resolution rows by primary key and fetched heap scope. The existing union index excludes invalid proofs and cannot serve that unconditional count.
+
+Add one concurrent `(table_id, hand_number) INCLUDE(game_scope)` cover through the maintained installer. Preserve every function, predicate, financial row, source pin and the original 68-source generation. Exact index ownership, definition and valid/ready/live state are required. A leading union-expression variant was rejected: fresh generic planning underestimated its expression and scanned the whole union. Point keys avoid that statistics dependency without ANALYZE.
+
+The existing enforced PostgreSQL 17 route now executes the actual current witness expression and whole installer, including strict ordinary/projected/raw/link/escrow count equality, boundary cases, invalid-proof inclusion, guard refusals, replay and metadata preservation. The source snapshot has the actual witness MD5 a7c22cb171d6d6548707c6aa73fada6d; only unchanged readiness/generation dependencies use the existing explicit native adapters.
+
+Representative final qualification used 1.2 million outcomes and 300,000 links: natural generic point Index Only Scan, 14,399 loops, zero heap fetches; index 70,688,768 bytes, concurrent build 1.53 seconds. Live cardinality scaling estimates 603 MB, not a production build measurement. Scope averages 156 bytes and the canonical writer emits six scalar fields; absolute maximum is unknown after a bounded read refused.
+
+Warm direct expression timing was 9.35 ms before and 11.91 ms after; this is no warm CPU speedup claim. Heap access was eliminated and linked buffers fell from 46,798 to 43,198. The observed 255-call extrapolation is 3.04 seconds, or 12.15 seconds with fourfold headroom, excluding owner-hash/caller/reducer work and not a hard production bound. Production completion requires valid installed-index readback and the original natural book/ECO close; no manual advancement or financial replay is introduced.

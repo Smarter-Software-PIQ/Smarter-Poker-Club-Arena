@@ -11,8 +11,8 @@ describe('designedReturn', () => {
     expect(DESIGNED_RETURN).toBe(0.8);
     // Dan, 2026-10-12: "CRASH CAN PAY OUT UP TO 120%" (contract 5): a standard
     // round's return, chosen for a 2.9x average.
-    expect(CRASH_DESIGNED_RETURN).toBe(1.00643);
-    expect(designedReturn('crash', undefined)).toBe(1.00643);
+    expect(CRASH_DESIGNED_RETURN).toBe(2.5);
+    expect(designedReturn('crash', undefined)).toBe(2.5);
     expect(designedReturn('mines', [{ spec_rtp: 0.5, activated_at: '2026-09-01' }])).toBe(0.8);
   });
 

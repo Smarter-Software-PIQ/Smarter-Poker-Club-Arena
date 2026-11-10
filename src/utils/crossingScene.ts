@@ -1,7 +1,7 @@
 import type { PerspectiveCamera } from 'three';
 
 export const STREET_WIDTH = 2.8;
-export const DONKEY_SCALE = 0.78;
+export const DONKEY_SCALE = 1.06;
 /** Street zero is the starting refuge. Each successful step is centered in its own street. */
 export const streetCenter = (step: number) => step * STREET_WIDTH;
 /**

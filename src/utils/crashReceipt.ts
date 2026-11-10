@@ -46,11 +46,13 @@ export function validateCrashSettlement(
   let statesItsReturn = false;
   try {
     statesItsReturn =
-      (version ?? 0) >= 5
-        ? typeof value.bet_chips === 'number' &&
-          value.crash_return_ppm ===
-            crashReturnPpm(value.bet_chips, Number(value.minimum_payout_chips ?? 0), version)
-        : value.crash_return_ppm === undefined || value.crash_return_ppm === 800000;
+      (version ?? 0) >= 6
+        ? value.crash_return_ppm == null
+        : (version ?? 0) >= 5
+          ? typeof value.bet_chips === 'number' &&
+            value.crash_return_ppm ===
+              crashReturnPpm(value.bet_chips, Number(value.minimum_payout_chips ?? 0), version)
+          : value.crash_return_ppm === undefined || value.crash_return_ppm === 800000;
   } catch {
     statesItsReturn = false;
   }
