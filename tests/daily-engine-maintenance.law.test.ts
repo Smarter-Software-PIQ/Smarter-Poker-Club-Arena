@@ -2040,11 +2040,13 @@ it('binds the two remaining Midway files only to the November 7 database window'
   );
   // Reconstruct the exact registry selected before the Horse provenance booking
   // and the later cash-room realism engine booking.
+  expect(doc.windows.pop().id).toBe('2026-11-10-owner-asap-engine-0650z');
   expect(doc.windows.pop().id).toBe('2026-11-10-owner-asap-engine-0440z');
   expect(doc.windows.pop().id).toBe('2026-11-09-owner-asap-engine-2230z');
   expect(doc.windows.pop().id).toBe('2026-11-09-owner-asap-engine-1530z');
   expect(doc.windows.pop().id).toBe('2026-11-08-horse-study-successor-engine-1820z');
   expect(doc.windows.pop().id).toBe('2026-11-07-cash-room-realism-engine-2230z');
+  expect(doc.databaseWindows.pop().id).toBe('2026-11-10-closed-person-name-policy-db');
   expect(doc.databaseWindows.pop().id).toBe('2026-11-07-horse-fold-provenance-db-1800z');
   expect(doc.windows.pop().id).toBe('2026-11-07-horse-fold-provenance-engine-1800z');
   const entry = doc.databaseWindows.pop();
@@ -2062,4 +2064,26 @@ it('binds the two remaining Midway files only to the November 7 database window'
   expect(createHash('sha256').update(JSON.stringify(doc)).digest('hex')).toBe(
     'c853bd1d3347bb2e6daed07fe042ecc2341b49857dbf77c327272fb0aea39de3'
   );
+});
+
+it('binds the November 10 closed-person read policy to one owner-ordered database-only break', () => {
+  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const doc = JSON.parse(raw);
+  const entry = doc.databaseWindows.at(-1);
+  expect(entry).toEqual({
+    id: '2026-11-10-closed-person-name-policy-db',
+    ownerOrder: expect.stringContaining('"Authorize break today"'),
+    contains: '0d5f450060d2cc1bee04afdab53648acd06a00b2',
+    playerNoticeAt: '2026-11-10T16:40:00Z',
+    notBefore: '2026-11-10T17:00:00Z',
+    notAfter: '2026-11-10T22:00:00Z',
+    migrations: ['20261110003726_a_closed_persons_tournament_rows_are_read_through_the_public.sql'],
+  });
+  expect(entry.ownerOrder).toContain('no engine replacement');
+  // Nothing before it changes: removing the new entry restores the prior bytes.
+  const start = raw.indexOf(',\n    {\n      "id": "2026-11-10-closed-person-name-policy-db"');
+  expect(start).toBeGreaterThan(0);
+  const before = JSON.parse(raw.slice(0, start) + raw.slice(raw.lastIndexOf('\n  ]')));
+  expect(before.databaseWindows.at(-1).id).toBe('2026-11-07-horse-fold-provenance-db-1800z');
+  expect(before.windows).toEqual(doc.windows);
 });

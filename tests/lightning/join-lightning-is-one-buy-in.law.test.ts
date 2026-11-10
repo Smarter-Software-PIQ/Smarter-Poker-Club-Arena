@@ -147,7 +147,7 @@ describe('Join Lightning is one tap from everywhere, and nobody picks a Lightnin
     expect(read('src/pages/ClubHomePage.tsx')).toContain(
       'navigate(lightningJoinRoute(row.cluster_id));'
     );
-    expect(read('src/components/lightning/LightningSessionSummary.tsx')).toContain(
+    expect(read('src/components/lightning/LightningSessionSummary.tsx')).not.toContain(
       'navigate(lightningJoinRoute(req.clusterId));'
     );
   });

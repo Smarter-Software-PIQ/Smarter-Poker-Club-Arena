@@ -180,6 +180,9 @@ import {
   gtoSbLimpFloor,
   holdemClass,
   OPEN_TARGET_HU,
+  scoreAtShare,
+  V85_DEPTH_NONE_BB,
+  v85OpenTargetShare,
 } from './HorseGtoOpeningRanges.js';
 import {
   huBbEquityVsOpener,
@@ -357,6 +360,7 @@ import {
   makeBarrelContinuation,
   rangeAdvantageFor,
 } from './HorseContinuation.js';
+import { canQuickCheckFold, facingShovePrice } from './HorseQuickCheckFold.js';
 import { personaFromValue, followsSolver, type HorsePersonaV2 } from './HorsePersona.js';
 // V38 (2026-09-03): the EV engine — the arithmetic behind every choice, the
 // arbiter for the games with no solver export and for every river fold/call
@@ -2416,6 +2420,13 @@ export interface HorseDecideOpts {
    *  charts instead of five position buckets; style, ICM, exploit, V53, V57
    *  and V60 move it as before. Default on; explicit false keeps today's. */
   v72DefenceByOpener?: boolean;
+  /** V85 (2026-11-09, owner direction): the cash action profile at every
+   *  table size - wider per-seat opens, the facing-open defence without the
+   *  per-player collapse, squeezes, the multiway big blind, the heads-up big
+   *  blind and 2.5-4.5bb cash opens (HorseGtoOpeningRanges,
+   *  HorseGtoDefenceRanges, HorseNlhOpenSize). Default on; false = the prior
+   *  ranges and sizes, kept for the paired league. No-limit hold'em cash only. */
+  v85CashAction?: boolean;
   /** V73 (2026-11-01): Hold'em opener facing one 3-bet with nobody else in
    *  (three or more dealt in, 25bb+ effective, 3-bet 1.8x-7x the open) - the
    *  call-or-4-bet width is a share of the opener seat's own open width
@@ -4451,6 +4462,7 @@ function holdemPremiumOpenRaiseTo(
     tournament: isTournamentMode(gs),
     anteInPlay: (gs.ante ?? 0) > 0,
     tableSize: dealt,
+    cashAction: gs.gameMode === 'cash' && opts.v85CashAction !== false,
     openUnit: straddled ? gs.currentBet : bb,
     bigBlind: bb,
     limpers,
@@ -7631,6 +7643,21 @@ export class HorseLogic {
     // hold'em seat (two or more dealt in), the open reads the hand on the
     // seat's own reference order (HorseGtoOpeningRanges). Players behind come
     // from the dealt census, never from who they are.
+    // V85: which cash opening/defence profile this table plays.
+    const cashAction85 = gs.gameMode === 'cash' && opts.v85CashAction !== false;
+    const cashProfile85 = cashAction85 ? ('action' as const) : gs.gameMode === 'cash';
+    // V85 tapers with hero's effective stack (v85DepthWeight).
+    const depth85 = (() => {
+      let cover = 0;
+      for (const p of gs.players) {
+        if (p.seat === player.seat || p.is_folded) continue;
+        if (p.is_sitting_out && !p.is_all_in) continue;
+        cover = Math.max(cover, (p.stack ?? 0) + (p.bet ?? 0));
+      }
+      return Math.min(player.stack + player.bet, cover) / bb;
+    })();
+    // At 50bb or less V85's ranges are the prior ranges, exactly.
+    const defend85 = cashAction85 && depth85 > V85_DEPTH_NONE_BB;
     const gtoOpen70 = (() => {
       if (opts.v70GtoOpeningRanges === false) return undefined;
       if (raises !== 0 || limpers !== 0 || player.cards.length !== 2) return undefined;
@@ -7646,7 +7673,9 @@ export class HorseLogic {
       if (telemetryOn(opts)) noteFire('v70_gto_open');
       return {
         strength: clamp01(mapped + strengthJitter),
-        bar: gtoOpenBar(behind, ante70, dealt70, gs.gameMode === 'cash'),
+        bar: cashAction85
+          ? scoreAtShare(v85OpenTargetShare(behind, ante70, dealt70, depth85) / 100)
+          : gtoOpenBar(behind, ante70, dealt70, cashProfile85),
         tightness: params.nlhOpeningTightness ?? params.tightness,
         sbLimpFloor: gtoSbLimpFloor(ante70, dealt70),
         behind,
@@ -7659,12 +7688,16 @@ export class HorseLogic {
     // exactly as V70 indexes the open, never from who anybody is.
     const gtoDefend72 = (() => {
       if (opts.v72DefenceByOpener === false) return undefined;
-      if (raises !== 1 || callers !== 0 || limpers !== 0 || lastRaiserSeat < 0) return undefined;
+      if (raises !== 1 || limpers !== 0 || lastRaiserSeat < 0) return undefined;
+      // V85: on a cash table the same base answers an open that has been
+      // called (the squeeze, the overcall, the multiway big blind).
+      if (callers !== 0 && !defend85) return undefined;
       if (heroPreviouslyActed || player.cards.length !== 2) return undefined;
       if (vi.isOmaha || vi.isShortDeck || vi.isFixedLimit || vi.isPotLimit) return undefined;
       if (gs.allInOrFold === true || gs.straddleActive === true) return undefined;
       const dealt72 = dealtHorseTableSize(gs, player.seat);
-      if (dealt72 < 3) return undefined;
+      // V85: heads-up cash, the big blind reads its own base too.
+      if (dealt72 < (defend85 && callers === 0 ? 2 : 3)) return undefined;
       const opener = gs.players.find((p) => p.seat === lastRaiserSeat);
       if (!opener || opener.is_all_in) return undefined;
       const openToBB = bb > 0 ? gs.currentBet / bb : 0;
@@ -7681,6 +7714,7 @@ export class HorseLogic {
         defenderBehind: heroBehind,
         ante: (gs.ante ?? 0) > 0,
         openToBB,
+        ...(defend85 ? { cashAction: true, callers, depthBB: depth85 } : {}),
       });
       if (!d72) return undefined;
       if (telemetryOn(opts)) noteFire('v72_defend_vs_opener');
@@ -7690,6 +7724,7 @@ export class HorseLogic {
         valueBar: d72.valueBar,
         bluffProb: d72.bluffProb,
         defender,
+        ...(defend85 ? { cashAction: true } : {}),
       } as const;
     })();
     // ═══ V73 THE OPENER FACING A 3-BET (2026-11-01) ═══ hero made the only
@@ -7750,7 +7785,7 @@ export class HorseLogic {
       const risk73 = Math.max(0, reRaiser.bet - posted73);
       const potBefore73 = Math.max(0, gs.pot - risk73);
       const r73 = gtoVs3Bet(player.cards[0], player.cards[1], {
-        cash: gs.gameMode === 'cash',
+        cash: cashProfile85,
         openerBehind,
         ip: ip73,
         ante: (gs.ante ?? 0) > 0,
@@ -7785,7 +7820,7 @@ export class HorseLogic {
       const dealt77 = dealtHorseTableSize(gs, player.seat);
       if (dealt77 < 2) return undefined;
       if (telemetryOn(opts)) noteFire('v77_seat_jam');
-      return openWidth(ob77, (gs.ante ?? 0) > 0, dealt77, gs.gameMode === 'cash');
+      return openWidth(ob77, (gs.ante ?? 0) > 0, dealt77, cashProfile85);
     })();
     // ═══ HU BB DEFENDS TO ITS PRICE (2026-11-07, default off) ═══ two dealt
     // in, hero the big blind facing the only open: the class's equity against
@@ -8008,6 +8043,7 @@ export class HorseLogic {
       tournamentAggression: (opts.v57TournamentAggression ?? true) !== false,
       // V74 is no-limit hold'em only: short deck, pineapple, fixed limit and
       // Omaha have their own qualified packs and keep the V28 ladder.
+      cashActionSizes: cashAction85,
       nlhOpenSizes:
         opts.v74NlhOpenSizes !== false &&
         vi.holeCount === 2 &&
@@ -14129,7 +14165,21 @@ export class HorseLogic {
     // pile-up. The exponential is the maximum-entropy choice for "a bit more
     // than X", which is exactly the claim being made, and its mean is scaled
     // to the floor so the shape holds for both.
-    const floor = facingBet ? FACING_FLOOR_MS : FREE_FLOOR_MS;
+    // A tournament shove merits a visible decision, even for an obvious fold.
+    // Match the outstanding price: an old short-stack all-in in a side pot
+    // should not slow unrelated action on a later street.
+    const facingTournamentShove =
+      facingBet &&
+      isTournamentMode(gs) &&
+      facingShovePrice(gs.currentBet, gs.currentBet - toCall, gs.players);
+    const deliberateCheckFold =
+      gs.gameMode === 'tournament' && simple && !canQuickCheckFold(tempoSeed);
+    const floor =
+      facingTournamentShove || deliberateCheckFold
+        ? 2000
+        : facingBet
+          ? FACING_FLOOR_MS
+          : FREE_FLOOR_MS;
     if (think >= floor) return Math.round(think);
 
     // THE JITTER IS DERIVED, NOT DRAWN. An obvious implementation calls

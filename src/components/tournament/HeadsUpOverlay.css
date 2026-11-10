@@ -1,275 +1,226 @@
-/* ═══════════════════════════════════════════════════════════════════════════
-   HEADS UP - on the spade console (2026-09-08)
-
-   The frame, the pill slot, the inks and the closing cap all come from the
-   approved master via SpadeConsole.css. This sheet places the console on the
-   backdrop and types the duel on the black glass between the rails. Nothing
-   is drawn here: no card, no tile, no pill, no button. Sizes are cqw against
-   the console, so a 320px phone and a 430px one get the same picture.
-
-   EVERY ANIMATION THIS OVERLAY EVER PLAYED STILL PLAYS (CLAUDE.md 10.6). The
-   keyframes below are the same ones, at the same durations and delays; only
-   the elements they drive have moved, because the elements they used to drive
-   were drawn in CSS and are now painted in the master:
-
-     huSwordsIn -> the VS mark (the clash, previously a glyph)
-     huBadgeIn  -> the word in the painted pill slot (previously a white disc)
-     huTitleIn  -> the header well (which carries the headline)
-     huSheen    -> a light-catch on the ENGRAVED headline. It used to sweep a
-                   clipped gradient across the type; the standard forbids
-                   background-clip: text (it reads as a sticker and breaks on
-                   small sizes), so the same 3.4s loop now runs the highlight
-                   across the engraving instead of across a gradient.
-
-   The `letter-spacing` term inside huTitleIn is inert on the head, because
-   .sc__eyebrow / .sc__title / .sc__subtitle / .sc__pill each declare their
-   own. That is deliberate: the entrance must not move fitted type, which is
-   measured once by useFitText.
-   ═══════════════════════════════════════════════════════════════════════════ */
-
 .hu-overlay {
   position: fixed;
   inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 12px;
-  z-index: 9998;
-  cursor: pointer;
-}
-
-.hu-overlay__backdrop {
-  position: absolute;
-  inset: 0;
-  /* Black, not a coloured wash: the console floats on the same black the
-     felt and every other console surface float on. */
-  background: rgb(0 0 0 / 92%);
-  backdrop-filter: blur(8px) saturate(115%);
-  -webkit-backdrop-filter: blur(8px) saturate(115%);
-  animation: huFade 0.45s ease both;
-}
-
-.hu-overlay__content {
-  position: relative;
-  z-index: 2;
-  width: min(100%, 420px);
-  max-height: 100%;
-  overflow: visible auto;
-}
-
-/* The head carries the headline, so it carries the headline's entrance. */
-.hu-overlay__console .sc__head {
-  animation: huTitleIn 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.hu-overlay__console .sc__title {
-  animation: huSheen 3.4s ease-in-out 0.7s infinite;
-}
-
-.hu-overlay__console .sc__pill {
-  animation: huBadgeIn 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) 0.42s both;
-}
-
-/* ── The duel, printed on the glass ───────────────────────────────────── */
-
-.hu-overlay__duel {
-  display: grid;
-  padding-top: 1cqw;
-}
-
-.hu-overlay__seat {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 3cqw;
-  align-items: baseline;
-  padding: 3cqw 0.5cqw;
-  /* An engraved rule: a black cut with a light lip, the same cut the
-     master's own chrome rules are made of. Nothing filled, nothing framed. */
-  border-top: 1px solid #000;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
-}
-
-.hu-overlay__seat--left {
-  animation: huSlideL 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.12s both;
-}
-
-.hu-overlay__seat--right {
-  animation: huSlideR 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.12s both;
-}
-
-.hu-overlay__player-name {
-  min-width: 0;
-  font-size: 3.4cqw;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.hu-overlay__player-chips {
-  justify-self: end;
-  font-size: 5cqw;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  text-align: right;
-}
-
-/* The clash. A lit word on the glass, not a disc: the master paints the
-   controls, and VS is type, not a control. */
-.hu-overlay__versus {
+  z-index: 950;
   display: grid;
   place-items: center;
-  padding: 2.4cqw 0 1.4cqw;
+  padding: 12px;
+  pointer-events: none;
+  color: #f6faff;
+  font-family: system-ui, sans-serif;
 }
-
-.hu-overlay__vs {
+.hu-stage {
   position: relative;
-  display: inline-block;
-  font-size: 5.4cqw;
-  font-weight: 900;
-  letter-spacing: 0.22em;
-  text-indent: 0.22em;
-  text-transform: uppercase;
-  animation: huSwordsIn 0.65s cubic-bezier(0.16, 1, 0.3, 1) both;
+  isolation: isolate;
+  width: min(900px, 100%);
+  overflow: hidden;
+  background: #090e1b;
+  box-shadow: 0 25px 100px #000a;
+  pointer-events: auto;
 }
-
-/* THE SHOCKWAVE. The one thing on this surface that is still drawn, and it
-   is kept deliberately: 10.6 says an animation that is owed must always
-   play, and this ring IS the impact - it is a light beat over the black
-   glass, not a card, tile, pill or button, and the master paints no
-   equivalent. Brand blue, hairline, no fill. */
-.hu-overlay__vs::after {
+.hu-stage__scenery {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background:
+    linear-gradient(105deg, #00426390, #0106125c 45%, #7453176b),
+    url('/images/heads-up-duel.webp') center / cover;
+  animation: hu-push 2.1s both;
+}
+.hu-stage__heading {
+  padding: clamp(41px, 6vw, 70px) 12px 12px;
+  text-align: center;
+  position: relative;
+}
+.hu-stage__heading p {
+  margin: 0 0 6px;
+  color: #f1dbb3;
+  font: 750 11px/1.3 system-ui;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+}
+.hu-stage__heading h2 {
+  margin: 0;
+  color: #fff;
+  text-shadow:
+    0 5px 0 #46657b,
+    0 8px 16px #000;
+  font: 950 italic clamp(50px, 10vw, 104px)/0.88 system-ui;
+  letter-spacing: -0.08em;
+  text-transform: uppercase;
+  animation: hu-title 0.66s 0.3s both;
+}
+.hu-stage__dismiss {
+  position: absolute;
+  z-index: 3;
+  right: 0;
+  top: 0;
+  min-height: 44px;
+  color: white;
+  border: 0;
+  background: #040c19d9;
+  padding: 0 14px;
+  font: 600 12px system-ui;
+  cursor: pointer;
+}
+.hu-stage__match {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: clamp(200px, 33vh, 340px);
+  overflow: hidden;
+}
+.hu-contender {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  min-width: 0;
+  padding: 15px 8px;
+  isolation: isolate;
+  background: linear-gradient(0deg, #041b35 8%, #12547c99 47%, transparent 98%);
+}
+.hu-contender--left {
+  animation: hu-left 0.68s 0.04s both;
+}
+.hu-contender--right {
+  background: linear-gradient(0deg, #352711 8%, #92671199 47%, transparent 98%);
+  animation: hu-right 0.68s 0.39s both;
+}
+.hu-contender__portrait {
+  width: 68%;
+  height: clamp(100px, 18vh, 185px);
+  object-fit: contain;
+  filter: drop-shadow(0 5px 12px #0009);
+}
+.hu-contender__plate {
+  width: 100%;
+  text-align: center;
+  z-index: 1;
+  overflow-wrap: anywhere;
+}
+.hu-contender__plate strong,
+.hu-contender__plate span {
+  display: block;
+}
+.hu-contender__plate strong {
+  font: 900 clamp(20px, 4.6vw, 44px)/1.05 system-ui;
+  letter-spacing: -0.045em;
+}
+.hu-contender__plate span {
+  color: #f7d492;
+  font: 750 clamp(14px, 2.8vw, 23px)/1.5 system-ui;
+  font-variant-numeric: tabular-nums;
+}
+.hu-stage__clash {
+  position: absolute;
+  left: 50%;
+  top: 40%;
+  transform: translate(-50%, -50%) rotate(-7deg);
+  color: #ffe0a1;
+  text-shadow:
+    0 4px #673713,
+    0 0 21px #f60a;
+  font: 950 italic clamp(32px, 7vw, 75px)/1 system-ui;
+  letter-spacing: -0.12em;
+  animation: hu-clash 0.58s 0.92s both;
+}
+.hu-stage__clash::before {
   content: '';
   position: absolute;
-  inset: -2.2cqw -3.4cqw;
-  border: 0.35cqw solid rgb(69 173 255 / 55%);
+  inset: -40%;
+  z-index: -1;
+  border: 2px solid #ffda80;
   border-radius: 50%;
-  animation: huShock 1.6s ease-out 0.62s infinite;
+  animation: hu-ring 0.7s 0.92s both;
+}
+.hu-overlay--exit {
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+.hu-overlay--exit .hu-stage {
   pointer-events: none;
 }
-
-.hu-overlay__dismiss {
-  padding-top: 2cqw;
-  color: #7c8794;
-  font-size: 2.9cqw;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  animation: huFade 0.5s ease 0.25s both;
-}
-
-.hu-overlay--exit {
-  animation: huFadeOut 0.6s ease forwards;
-}
-
-@keyframes huFade {
+@keyframes hu-push {
   from {
-    opacity: 0;
+    transform: scale(1.5);
+    filter: blur(5px);
   }
-
   to {
-    opacity: 1;
-  }
-}
-
-@keyframes huFadeOut {
-  to {
-    opacity: 0;
-  }
-}
-
-/* The light travelling across the engraving, on the original 3.4s loop. */
-@keyframes huSheen {
-  0%,
-  100% {
-    filter: brightness(1);
-  }
-
-  45% {
-    filter: brightness(1.45);
-  }
-}
-
-@keyframes huSwordsIn {
-  0% {
-    opacity: 0;
-    transform: rotate(-35deg) scale(0.5);
-  }
-
-  100% {
-    opacity: 1;
-    transform: rotate(0) scale(1);
-  }
-}
-
-@keyframes huTitleIn {
-  0% {
-    opacity: 0;
-    transform: translateY(14px);
-    letter-spacing: 0.6em;
-  }
-
-  100% {
-    opacity: 1;
-    transform: translateY(0);
-    letter-spacing: 0.2em;
-  }
-}
-
-@keyframes huSlideL {
-  0% {
-    opacity: 0;
-    transform: translateX(-46px);
-  }
-
-  100% {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes huSlideR {
-  0% {
-    opacity: 0;
-    transform: translateX(46px);
-  }
-
-  100% {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes huBadgeIn {
-  0% {
-    opacity: 0;
-    transform: scale(0.2) rotate(-25deg);
-  }
-
-  100% {
-    opacity: 1;
-    transform: scale(1) rotate(0);
-  }
-}
-
-@keyframes huShock {
-  0% {
-    opacity: 0.85;
     transform: scale(1);
-  }
-
-  100% {
-    opacity: 0;
-    transform: scale(1.75);
+    filter: none;
   }
 }
-
-/* Reduced motion collapses MOTION, never meaning (10.6): the duel still
-   arrives, it simply does not travel. */
+@keyframes hu-left {
+  from {
+    transform: translateX(-65%);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@keyframes hu-right {
+  from {
+    transform: translateX(65%);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@keyframes hu-clash {
+  from {
+    transform: translate(-50%, -50%) rotate(-17deg) scale(2);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(-7deg);
+    opacity: 1;
+  }
+}
+@keyframes hu-title {
+  from {
+    transform: scale(1.18);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@keyframes hu-ring {
+  from {
+    transform: scale(0.3);
+    opacity: 0;
+  }
+  30% {
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(1.8);
+    opacity: 0;
+  }
+}
+@media (max-height: 700px) {
+  .hu-overlay {
+    align-items: start;
+  }
+  .hu-stage {
+    max-height: 75dvh;
+    overflow: auto;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
-  .hu-overlay__console .sc__head,
-  .hu-overlay__console .sc__title,
-  .hu-overlay__console .sc__pill,
-  .hu-overlay__seat,
-  .hu-overlay__vs,
-  .hu-overlay__vs::after {
-    animation: none;
+  .hu-overlay *,
+  .hu-overlay *::before {
+    animation: none !important;
+    transition: none !important;
+  }
+  .hu-stage__clash::before {
+    display: none;
   }
 }

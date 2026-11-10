@@ -6,8 +6,7 @@
    over the art in container units, so it scales with the receipt exactly the
    way the drawing does.
 
-   Inks are the house's: gold #ffd700 for the number a win is about, lit blue
-   #45adff for the line over it, silver #e4e7ec for a loss. All of them sit on
+   Figures and captions use white lettering, with silver for a loss. All of them sit on
    the console's black glass at well over 4.5:1.
 
    Motion is transform, opacity and stroke-dashoffset only, every duration and
@@ -46,7 +45,7 @@
     calc(520ms * var(--animation-speed, 1)) both;
 }
 .caption {
-  color: #45adff;
+  color: #f3f9ff;
   font-size: max(9px, 4.2cqw);
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -54,14 +53,14 @@
   text-shadow: 0 0 6px rgb(24 119 242 / 60%);
 }
 .value {
-  color: #ffd700;
+  color: #f3f9ff;
   font-size: 13cqw;
   font-weight: 800;
   letter-spacing: 0.01em;
   white-space: nowrap;
   text-shadow:
     0 1px 0 #050607,
-    0 0 14px rgb(255 215 0 / 45%);
+    0 0 14px rgb(113 196 255 / 45%);
 }
 .stage[data-dim] .value {
   color: #e4e7ec;
@@ -85,12 +84,12 @@
 .stage[data-crown] .value {
   text-shadow:
     0 1px 0 #050607,
-    0 0 10px rgb(255 215 0 / 70%),
-    0 0 30px rgb(255 165 0 / 55%);
+    0 0 10px rgb(113 196 255 / 70%),
+    0 0 30px rgb(60 170 255 / 55%);
 }
 .stage[data-crown] .caption {
-  color: #ffd700;
-  text-shadow: 0 0 8px rgb(255 215 0 / 55%);
+  color: #f3f9ff;
+  text-shadow: 0 0 8px rgb(113 196 255 / 55%);
 }
 /* On the sign: x 49..311 and y 179..247 of the drawing. */
 .stage[data-receipt-art='crossing'] .figure {

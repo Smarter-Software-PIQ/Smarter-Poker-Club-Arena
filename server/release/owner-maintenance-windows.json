@@ -1161,17 +1161,32 @@
     },
     {
       "id": "2026-11-10-owner-asap-engine-0440z",
-      "ownerOrder": "Dan, the owner, directly in current Codex chat 01a1bbdd-33d6-7680-b41e-fff1cf188f3f replied verbatim \"Authorize successor ASAP through 06:30 UTC\" on November 10, 2026, after the original 2230 booking could not retain a full fresh Backup soak after the corrected prerequisite installation. He earlier explicitly replied \"Transfer custody to you\" to the self-contained original-operation custody question. The root Codex agent in this chat is the cutover custodian and alone owns Stage, receiver, Backup and installation operations. This NEW single-use successor admits one earliest-certified replacement of serving bff6eed3522ee894da747f91a532b35a3d8cee4f from 04:40 through 06:30 UTC November 10. The protected target must contain de2e79762d5ec60b9b37792ed4e9acda83b25cab and all engine work merged since BFF through this successor booking. It neither renews nor replays 2026-11-09-owner-asap-engine-2230z or any earlier booking; preserve their exact entries, expiry, notices, witnesses and unconsumed operation state. No database migration and no new tournament-start hold. Publish the new player notice from 04:20 UTC and observe its actual public visibility for at least twenty minutes before admission. The unchanged earlier-notice priority keeps the original 2230 notice visible until 04:30; no earlier declared timestamp backdates the new notice lead, so first admission cannot precede 04:50 even with timely publication. A later publication or observation moves that earliest admission later within this fixed expiry. Require exact-head protected checks, immutable target/control and image qualification, a fresh exact Backup certificate with the full 1800-second soak and installed migration/schema equality to production, both-direction serving-predecessor reconnect rehearsal, a fresh announcement between :05:30 and :49:00, normal hand-boundary drain, durable sealed freeze and full 285-second proof/rollback reserve, single-use custody, exact production identity, healthy completed thaw and post-seal fresh Backup. Use only the existing Stage/receiver and original bounded release transaction. No direct restart, financial or migration replay, competing operation, timer, watcher, repair loop, reserve reduction or freeze extension. Expiry is final and grants no retry or automatic extension; the standing daily schedule remains unchanged.",
+      "ownerOrder": "Dan, the owner, directly in current Codex chat 01a1bbdd-33d6-7680-b41e-fff1cf188f3f replied verbatim \"Authorize successor ASAP through 06:30 UTC\" on November 10, 2026, after the original 2230 booking could not retain a full fresh Backup soak after the corrected prerequisite installation. He earlier explicitly replied \"Transfer custody to you\" to the self-contained original-operation custody question. The root Codex agent in this chat is the cutover custodian and alone owns Stage, receiver, Backup and installation operations. This NEW single-use successor admits one earliest-certified replacement of serving bff6eed3522ee894da747f91a532b35a3d8cee4f from 05:10:38 through 06:30 UTC November 10. The protected target must contain de2e79762d5ec60b9b37792ed4e9acda83b25cab and all engine work merged since BFF through this successor booking. It neither renews nor replays 2026-11-09-owner-asap-engine-2230z or any earlier booking; preserve their exact entries, expiry, notices, witnesses and unconsumed operation state. No database migration and no new tournament-start hold. The new player notice was actually observed publicly at 04:50:37.347 UTC after protected booking merge 04:43:28 UTC and publication 42757659815. Observe its actual public visibility for at least twenty minutes before admission, so first admission cannot precede 05:10:38 UTC. This corrects the unconsumed booking to the actual notice witness without extending its fixed expiry; no earlier declared timestamp backdates the notice lead. Require exact-head protected checks, immutable target/control and image qualification, a fresh exact Backup certificate with the full 1800-second soak and installed migration/schema equality to production, both-direction serving-predecessor reconnect rehearsal, a fresh announcement between :05:30 and :49:00, normal hand-boundary drain, durable sealed freeze and full 285-second proof/rollback reserve, single-use custody, exact production identity, healthy completed thaw and post-seal fresh Backup. Use only the existing Stage/receiver and original bounded release transaction. No direct restart, financial or migration replay, competing operation, timer, watcher, repair loop, reserve reduction or freeze extension. Expiry is final and grants no retry or automatic extension; the standing daily schedule remains unchanged. This corrected source-definition witness was never activated or served. The actual original protected booking at 7019bbee1d78fe2240923058b99a65c7eb371985 used floor witness 2fda02a8be63aa6a0597a6a87726eb772a657cdbaca2a88b4405fe3c873c63f7; no release receipt is claimed for the corrected source witness.",
       "contains": "de2e79762d5ec60b9b37792ed4e9acda83b25cab",
-      "playerNoticeAt": "2026-11-10T04:20:00Z",
-      "notBefore": "2026-11-10T04:40:00Z",
+      "playerNoticeAt": "2026-11-10T04:50:37.347Z",
+      "notBefore": "2026-11-10T05:10:38Z",
       "notAfter": "2026-11-10T06:30:00Z",
       "announcementPolicy": "earliest-certified",
       "supersedesPhase1Schedule": true,
       "migrations": [],
       "releaseWitness": {
         "path": "server/release/activation-floor.json",
-        "sha256": "2fda02a8be63aa6a0597a6a87726eb772a657cdbaca2a88b4405fe3c873c63f7"
+        "sha256": "62de2ae6621f8654973670bbc6d79d8595b3514773c18a498b261e0d374c5981"
+      }
+    },
+    {
+      "id": "2026-11-10-owner-asap-engine-0650z",
+      "ownerOrder": "Dan, the owner, directly in current Codex chat 01a1bbdd-33d6-7680-b41e-fff1cf188f3f replied verbatim \"Authorize successor through 08:30 UTC\" on November 10, 2026, after the corrected 0440 booking and remaining prerequisite schema required a fresh exact Backup with its full thirty-minute soak after the current Backup operation. His prior explicit \"Transfer custody to you\" remains in force: the root Codex agent in this chat is the cutover custodian and alone owns Stage, receiver, Backup and installation operations. This NEW single-use successor admits one earliest-certified replacement of serving bff6eed3522ee894da747f91a532b35a3d8cee4f from 08:50 through 10:30 UTC November 10. The protected target must contain de2e79762d5ec60b9b37792ed4e9acda83b25cab and all engine work merged since BFF through this successor booking. It neither renews nor replays the 0440 or 2230 booking or any earlier booking; preserve their exact entries, expiry, notices, witnesses and unconsumed operation state. No database migration and no new tournament-start hold. Publish the updated player notice from 08:30 UTC, after this authorization has actually merged, and observe its actual public visibility for at least twenty minutes before admission. The earlier 06:47:10.840 UTC observation promised the former 08:30 expiry and cannot establish the updated notice lead. A later publication or observation moves earliest admission later within the authorized 10:30 expiry. Require exact-head protected checks, immutable target/control and image qualification, a fresh exact Backup certificate with the full 1800-second soak and installed migration/schema equality to production, both-direction serving-predecessor reconnect rehearsal, a fresh announcement between :05:30 and :49:00, normal hand-boundary drain, durable sealed freeze and full 285-second proof/rollback reserve, single-use custody, exact production identity, healthy completed thaw and post-seal fresh Backup. Use only the existing Stage/receiver and original bounded release transaction. No direct restart, financial or migration replay, competing operation, timer, watcher, repair loop, reserve reduction or freeze extension. The owner subsequently replied verbatim \"Authorize through 10:30 UTC\" in this same chat. That explicit direction amends only this still-unconsumed 0650 booking and requires the fresh updated public notice lead above. Its sole custody, ID, BFF predecessor, all existing guards and earlier booking history remain unchanged. No automatic extension or replay is authorized; the standing daily schedule remains unchanged.",
+      "contains": "de2e79762d5ec60b9b37792ed4e9acda83b25cab",
+      "playerNoticeAt": "2026-11-10T08:30:00Z",
+      "notBefore": "2026-11-10T08:50:00Z",
+      "notAfter": "2026-11-10T10:30:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "a171baede07efd880c67e623e896fb4cee13a0fd0bb1be10310911127dd560cb"
       }
     }
   ],
@@ -1289,6 +1304,17 @@
       "notBefore": "2026-11-07T18:00:00Z",
       "notAfter": "2026-11-08T00:00:00Z",
       "migrations": ["20261107160549_horse_memory_excludes_forced_folds.sql"]
+    },
+    {
+      "id": "2026-11-10-closed-person-name-policy-db",
+      "ownerOrder": "Dan, the owner, in Claude chat session_01BNteGbJLpMVVDd7K7WpuSL at about 2026-11-10 15:10Z (09:10 America/Chicago), answered the question to authorize one database-only Deployment Recovery break of up to five minutes between 16:00 and 22:00 UTC today for 20261110003726 only, verbatim: \"Authorize break today\". Earlier in the same chat he ordered verbatim: \"Do not wait until November 11 by default\". The daily window skipped this file on November 10. One break, one attempt, no engine replacement.",
+      "contains": "0d5f450060d2cc1bee04afdab53648acd06a00b2",
+      "playerNoticeAt": "2026-11-10T16:40:00Z",
+      "notBefore": "2026-11-10T17:00:00Z",
+      "notAfter": "2026-11-10T22:00:00Z",
+      "migrations": [
+        "20261110003726_a_closed_persons_tournament_rows_are_read_through_the_public.sql"
+      ]
     }
   ]
 }

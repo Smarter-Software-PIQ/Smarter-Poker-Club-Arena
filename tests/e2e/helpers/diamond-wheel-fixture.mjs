@@ -27,6 +27,7 @@ export function diamondWheelFixture() {
         resolveDir: process.cwd(),
         loader: 'tsx',
         contents: `
+          import './src/styles/metallic-popups.css';
           import React,{useState} from 'react';import {createRoot} from 'react-dom/client';
           import {MemoryRouter,useNavigate,useLocation} from 'react-router-dom';
           import {WheelExperience} from './src/components/wheel/WheelExperience';
@@ -77,7 +78,8 @@ export function diamondWheelFixture() {
               {location.pathname.endsWith('/wheel')?<>
                 <div className={cabinetStyles.page}><WheelCabinet title="Diamond Spins" titleId="wheel-heading" pill="Local Preview"
                   bays={[{label:'Entry',value:String(entry)},{label:'Balance',value:'10,000'}]}
-                  setup={<WheelEntry value={entry} availableDiamonds={10000} disabled={spinning} onChange={setEntry}/>}
+                  notice={spinning?<p>Checking Your Spin</p>:null}
+                  entry={<WheelEntry value={entry} availableDiamonds={10000} disabled={spinning} onChange={setEntry}/>}
                   primary={{label:'Preview Spin',disabled:spinning,onClick:()=>setSpinning(true)}}>
                   <div ref={stageRef} className={cabinetStyles.stage}><WheelExperience fitViewport segments={receipt.segments} upgradeSegments={previews[0].secondary.segments} receipt={spinning?receipt:null} spinKey={1}
                     spinning={spinning} size={Math.max(240,stageWidth)} onFinished={finish}/></div>

@@ -773,13 +773,17 @@ const DiamondGamesService = {
       (!Number.isSafeInteger(displayedCents) || displayedCents < floor)
     )
       throw new Error(`Cash Out Starts At ${(floor / 100).toFixed(2)}x`);
-    const { data, error } =
+    const request =
       cashout && displayedCents !== undefined
-        ? await supabase.rpc('fn_crash_cashout', {
+        ? supabase.rpc('fn_crash_cashout', {
             p_round_id: roundId,
             p_multiplier_cents: displayedCents,
           })
-        : await supabase.rpc('fn_crash_settle', { p_round_id: roundId, p_cashout: cashout });
+        : supabase.rpc('fn_crash_settle', { p_round_id: roundId, p_cashout: cashout });
+    // Bound a stalled transport; a timeout leaves the same round authoritative.
+    const { data, error } = await (typeof request.abortSignal === 'function'
+      ? request.abortSignal(AbortSignal.timeout(8000))
+      : request);
     if (error) throw error;
     const receipt = rec(data);
     validateCrashSettlement(receipt, roundId, expected);
@@ -794,6 +798,29 @@ const DiamondGamesService = {
     });
     if (error) throw error;
     return Array.isArray(data) ? (data as Record<string, unknown>[]).map(normaliseDrop) : [];
+  },
+
+  /** Read an already booked receipt through the player's own history, without a cashout. */
+  async crashTerminalReceipt(
+    clubId: string,
+    roundId: string,
+    expected?: CrashRound
+  ): Promise<CrashRound | null> {
+    const request = supabase.rpc('fn_diamond_game_history', {
+      p_club_id: clubId,
+      p_game: 'crash',
+      p_limit: 100,
+    });
+    const { data, error } = await (typeof request.abortSignal === 'function'
+      ? request.abortSignal(AbortSignal.timeout(8000))
+      : request);
+    if (error) throw error;
+    const receipt = Array.isArray(data) ? data.find((row) => row?.round_id === roundId) : undefined;
+    if (!receipt) return null;
+    validateCrashSettlement(receipt, roundId, expected);
+    if (receipt.ok !== true || receipt.club_id !== clubId || receipt.status === 'open')
+      throw new Error('The Crash History Receipt Does Not Match');
+    return normaliseCrash(receipt);
   },
 
   async crashHistory(clubId: string, limit = 25): Promise<CrashRound[]> {

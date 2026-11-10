@@ -152,7 +152,9 @@ describe('heads up rematch, from the card', { timeout: 20_000 }, () => {
     expect(screen.getByRole('status').textContent).toContain('Your Opponent Wants To Play Again');
     expect(screen.getByText('No Thanks')).toBeTruthy();
 
-    db.respond = [{ status: 'matched', table_id: 'tbl-9', seat_number: 2, cost: 20, asset: 'chips' }];
+    db.respond = [
+      { status: 'matched', table_id: 'tbl-9', seat_number: 2, cost: 20, asset: 'chips' },
+    ];
     db.state = [{ status: 'matched', table_id: 'tbl-9', seat_number: 2, cost: 20, asset: 'chips' }];
     fireEvent.click(screen.getByText('Play Again'));
     fireEvent.click(screen.getByText('Play Again'));
@@ -237,6 +239,6 @@ describe('heads up rematch, from the card', { timeout: 20_000 }, () => {
     await flush(1600);
     expect(rpcCalls('ca_heads_up_rematch_state')).toHaveLength(0);
     expect(screen.queryByRole('status')).toBeNull();
-    expect(screen.getByText('Share')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Share' })).toBeTruthy();
   });
 });

@@ -2,7 +2,7 @@ import { supabase } from '../lib/supabase';
 import type { TournamentResult } from './pendingSessionSummary';
 import { MysteryBountyService, playerTotalsFromAwards } from './MysteryBountyService';
 import { readMySatelliteQualifierResult } from './satelliteQualifierResult';
-import { getTournamentFormatKind } from '../utils/tournamentPresentation';
+import { getTournamentFormatKind, readTournamentFormat } from '../utils/tournamentPresentation';
 import { reportError } from '../utils/errorReporter';
 
 export interface TournamentResultRead extends TournamentResult {
@@ -152,6 +152,11 @@ export async function fetchTournamentResult(
       // "how many add-ons", so coerce rather than trusting the column type.
       addOns:
         typeof entry?.add_on === 'boolean' ? (entry.add_on ? 1 : 0) : Number(entry?.add_on) || 0,
+      isSatellite: Boolean(
+        tourney?.satellite_target_id ||
+        tourney?.satellite_target ||
+        readTournamentFormat(tourney) === 'seat-first-satellite-v1'
+      ),
       formatKind: getTournamentFormatKind(tourney),
       isSpin: getTournamentFormatKind(tourney) === 'spin',
     };

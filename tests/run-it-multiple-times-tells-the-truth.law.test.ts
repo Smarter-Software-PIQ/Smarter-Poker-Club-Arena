@@ -187,17 +187,30 @@ describe('second sweep (2026-09-04): the parts the first fix missed or broke', (
     expect(cashier).toContain('formatWalletChips(accountBalance)');
   });
 
-  it('an ordinary cash seat keeps its dialog grace while Lightning has a fixed deadline', () => {
+  it('a Diamond cash seat keeps its dialog grace while chip and Lightning seats have a fixed deadline', () => {
     const dealing = read('server/src/engine/ServerTableEngineDealing.ts');
+    /* Dan 2026-11-09: a chip cash seat has twenty seconds from the bust and an
+       open rebuy sheet no longer extends it. The fixed window is decided and
+       left BEFORE the dialog hold, which now only a Diamond seat reaches. */
+    const fixedWindow = dealing.indexOf('if (fixedWindow) {\n        /* No chips to rebuy with');
+    const dialogHold = dealing.indexOf(
+      'if (!lightning && now - promptSeen < ServerTableEngineDealing.REBUY_PROMPT_HOLD_MS) {'
+    );
+    expect(fixedWindow).toBeGreaterThan(-1);
+    expect(dialogHold).toBeGreaterThan(fixedWindow);
+    expect(dealing).toContain('static readonly BUST_REBUY_WINDOW_MS = BUST_REBUY_WINDOW_MS;');
     expect(dealing).toContain('static readonly REBUY_PROMPT_HOLD_MS = 12_000;');
     expect(dealing).toContain(
       'if (!lightning && now - promptSeen < ServerTableEngineDealing.REBUY_PROMPT_HOLD_MS) {'
     );
     expect(dealing).toContain('static readonly LIGHTNING_BUSTED_GRACE_MS = 20_000;');
     const turns = read('server/src/engine/ServerTableEngineTurns.ts');
+    // The sheet heartbeat still stamps the prompt; a chip seat's engine also
+    // answers it with the time LEFT (noteRebuyPromptOpen, 2026-11-10).
     expect(turns).toContain(
-      'if (presenceOptions?.rebuyPromptOpen) this.rebuyPromptOpenAt.set(userId, Date.now());'
+      'if (presenceOptions?.rebuyPromptOpen) this.noteRebuyPromptOpen(userId);'
     );
+    expect(turns).toContain('this.rebuyPromptOpenAt.set(userId, Date.now());');
     expect(page).toContain('rebuyPromptOpen: bustRebuyOpenRef.current,');
   });
 });

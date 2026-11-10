@@ -9,6 +9,7 @@ const backend = vi.hoisted(() => ({
   spinV2: vi.fn(),
   spin: vi.fn(),
   runBegin: vi.fn(),
+  claimPrize: vi.fn(),
 }));
 vi.mock('../../src/services/DiamondWheelService', async (importOriginal) => ({
   // The page reads the service's named exports (the unverified-receipt error).
@@ -18,6 +19,7 @@ vi.mock('../../src/services/DiamondWheelService', async (importOriginal) => ({
     spinV2: backend.spinV2,
     spin: backend.spin,
     runBegin: backend.runBegin,
+    claimChipPrize: backend.claimPrize,
     welcomeState: async () => ({ available: false, enabled: false }),
     dailyBonusState: async () => ({ available: false, ticket_count: 0 }),
     commit: async () => ({
@@ -77,6 +79,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   localStorage.clear();
+  sessionStorage.clear();
 });
 const state = {
   ok: true,
@@ -95,6 +98,31 @@ const state = {
   },
 };
 describe('the selected wheel stake owns its availability quote', () => {
+  it('restores an unpaid prize and credits the exact amount only after a successful claim', async () => {
+    const claim = { key: 'wheel-prize:saved-spin', chips: '17.25' };
+    backend.state.mockResolvedValue({ ...state, pending_chip_prizes: [claim] });
+    backend.claimPrize
+      .mockRejectedValueOnce(new Error('Your Prize Is Still Reserved'))
+      .mockResolvedValueOnce('17.250');
+    const first = render(<DiamondWheelPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /Claim Prize.*17.25 Chips/ }));
+    await waitFor(() =>
+      expect(backend.toast.error).toHaveBeenCalledWith('Your Prize Is Still Reserved')
+    );
+    expect(backend.toast.success).not.toHaveBeenCalled();
+    first.unmount();
+    render(<DiamondWheelPage />);
+    const retry = await screen.findByRole('button', { name: /Claim Prize.*17.25 Chips/ });
+    backend.state.mockResolvedValue({ ...state, pending_chip_prizes: [] });
+    fireEvent.click(retry);
+    await waitFor(() =>
+      expect(backend.toast.success).toHaveBeenCalledWith(
+        '17.250 Chips Credited To Your Club Balance'
+      )
+    );
+    expect(screen.queryByRole('button', { name: /Claim Prize/ })).not.toBeInTheDocument();
+    expect(backend.spinV2).not.toHaveBeenCalled();
+  });
   it.each([2, 3, 4])(
     'quotes and submits a custom amount through contract %s, preserving one single-spin action',
     async (version) => {
@@ -129,6 +157,24 @@ describe('the selected wheel stake owns its availability quote', () => {
       ).toMatchObject({ entryDiamonds: 375, contractVersion: version });
     }
   );
+
+  it('restores the selected stake on return and uses it for the first quote', async () => {
+    backend.state.mockImplementation((_club: string, amount: number) =>
+      Promise.resolve({ ...state, config: { ...state.config, spin_price_diamonds: amount } })
+    );
+    const first = render(<DiamondWheelPage />);
+    fireEvent.change(await screen.findByLabelText('Diamonds To Spin'), {
+      target: { value: '2500' },
+    });
+    await waitFor(() => expect(backend.state).toHaveBeenLastCalledWith('club-a', 2500));
+    first.unmount();
+    backend.state.mockClear();
+    render(<DiamondWheelPage />);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Spin 2,500', exact: true })).toBeEnabled()
+    );
+    expect(backend.state.mock.calls).toEqual([['club-a', 2500]]);
+  });
 
   it('admits the full available balance after 201 spins and refuses one diamond more', async () => {
     backend.state.mockImplementation((_club: string, amount: number) =>

@@ -511,3 +511,30 @@
     height: clamp(240px, calc(59dvh - var(--choice-risk-reserve, 0px)), 540px);
   }
 }
+
+[data-choice-game='crossing'] .caption {
+  color: white;
+  border: 1px solid #98b7d4;
+  border-top: 0;
+  background: linear-gradient(170deg, #596a7a, #16344e 28%, #0a1627 66%, #244d79);
+  box-shadow:
+    inset 0 -2px #254b73,
+    0 2px 5px #020b16;
+}
+[data-choice-game='crossing'] .streetNumber,
+[data-choice-game='crossing'] .streetMultiplier,
+[data-choice-game='crossing'] .streetPrize,
+[data-choice-game='crossing'] .readoutLabel,
+[data-choice-game='crossing'] .readoutValue,
+[data-choice-game='crossing'] .readoutNote {
+  color: #fff;
+}
+
+[data-choice-game='crossing'] .street[data-hazard]:not([data-state='crash']):not([data-route]) {
+  border-color: #789ab7;
+}
+[data-choice-game='crossing'] .street[data-state='next'],
+[data-choice-game='crossing'] .street[data-state='current'] {
+  outline: 1px solid #3f9cff;
+  outline-offset: -2px;
+}

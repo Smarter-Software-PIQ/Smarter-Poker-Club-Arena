@@ -125,6 +125,9 @@ function decide(spot: Spot, cls: string, s: number, on: boolean): string {
     {
       mind: false,
       decisionTimeMs: Date.UTC(2026, 10, 7, 12, 0, 0),
+      // Pins this feature's own base; V85 (owner direction 2026-11-09) widens
+      // cash from it and is pinned by HorseCashAction.law.test.ts.
+      v85CashAction: false,
       ...(on ? { huBbDefendsToPrice: true } : {}),
     }
   );
