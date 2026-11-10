@@ -39,11 +39,11 @@ BEGIN
   OR NOT EXISTS(SELECT FROM supabase_migrations.schema_migrations WHERE version='20261110005719'
    AND name='cash_and_tournament_eco_have_separate_original_records')THEN RAISE EXCEPTION 'ORIGINAL_EIGHT_BOTH_PROTECTED_OWNERS_MUST_BE_INSTALLED';END IF;
  FOR sig,expected_hash IN SELECT *FROM(VALUES
- ('public.fn_union_eco_components(uuid,timestamptz,timestamptz)','c86c0d4a067910823944765c7890c5a7'),
+ ('public.fn_union_eco_components(uuid,timestamptz,timestamptz)','a011306b57345b96d58f1f86d236baf9'),
  ('public.fn_union_eco_record(uuid,timestamptz,timestamptz,uuid)','fb5cfd611583f960e63f322a2f068327'),
  ('public.fn_union_issue_weekly_invoices(uuid,timestamptz,timestamptz,boolean)','1a1a070e6a32766db137af3817defc8a'),
  ('smarter_private.union_eco_invoice_components(uuid,uuid,timestamptz,timestamptz)','e2af45bf39e2827bb4d22614a936e632'),
- ('smarter_private.union_eco_terms_for_book(uuid,timestamptz,timestamptz)','fb099d001c6e943fb2b48dca4910a4bb'),
+ ('smarter_private.union_eco_terms_for_book(uuid,timestamptz,timestamptz)','57a53cfc307edcae807fc676f63b14fe'),
  ('smarter_private.union_eco_v2_immutable()','d6d17e3fd7da549548377a777e87ea34'),
  ('public.fn_union_pnl_prove_posthand_escrow(uuid,bigint)','bc53663008b4c64d21bd68d6e5418411'),
  ('public.fn_ca_process_hand_post_commit_obligations(uuid)','8b81e8bb218cacb235832285e4fbbb24'),

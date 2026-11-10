@@ -118,6 +118,8 @@ describe('original posthand escrow stays separate from poker winnings', () => {
       'ORIGINAL_EIGHT_CERTIFICATE_OR_ORIGINAL_PRESERVATION_FAILED',
       'ORIGINAL_EIGHT_EXPLICIT_TEN_PERCENT_EACH_TERMS_REQUIRED',
       'ORIGINAL_EIGHT_IMMUTABLE_INDEPENDENT_ECO_SCHEMA_REQUIRED',
+      'a011306b57345b96d58f1f86d236baf9',
+      '57a53cfc307edcae807fc676f63b14fe',
     ])
       expect(admission).toContain(guard);
     expect(admission.match(/::uuid,\d+::bigint/g)).toHaveLength(16);
