@@ -73,11 +73,41 @@ A chronological development sample examined actual cash PLO4/5/6 opening river b
 
 Keep the size-based estimate out of live bluff selection. A fold observed against an actual bet does not identify the response to a hypothetical bet from a checked node. Opponent selection, multiway play, the Horse's hand and tournament utility can change the decision.
 
+### Facing a river bet with a non-bottom full house
+
+In the 34 reviewed large-wager cases across high-only PLO4/5/6 cash and PLO6 tournaments, Horses made 15 effective calls, six raises, ten all-ins beyond the call price and three folds. These 34 are part of a 308-decision facing-bet appendix. Keep the populations distinct when counting mistakes. The 34 original menus supplied 66 legal decision/raise-size comparisons. The stack-capped gross call thresholds ranged from 24.76% to 33.33%. For a common pot fully available at showdown, divide the call by the sum of current pot and call. To price a raise, subtract the actual call investment from the new commitment, then value worse calls, stronger continuations and reraises. A gross call threshold alone cannot settle whether to raise.
+
+Across the larger 308-decision appendix, effective actions were 227 calls, 30 raises, 42 all-ins beyond the call price and nine folds. There were 748 decision/raise-size comparisons. One accepted raise had ambiguous extra investment. The appendix covers selected facing-bet decisions. Tournament prize and bounty effects, fees, side pots and actual response ranges remain relevant to each comparison.
+
+### Preflop folds with suit-supported aces
+
+A four-volume screen found 60 folds with at least two aces, suit support, a priced raise and a human able to respond. Thirty-nine holdings had three aces, one had four, and 20 had exactly two. Sixteen of the 20 exact-two-ace folds faced a reraise. All 60 original decision records supplied the call price and legal raise endpoints.
+
+Among the 20 exact-two-ace hands, call divided by pot plus call ranged from 22.22% to 41.03%. The four Lightning examples all faced reraises and ranged from 33.33% to 39.47%. The single PLO6 tournament example had a 30.77% chip threshold. Compare future equity realization, players left to act, fees, and tournament utility before treating a fold as a mistake. One PLO5 opponent was already all-in, so an isolation raise could never win the entire pot through folds.
+
+### A PLO5 trip board with four opponents still able to respond
+
+On a board of three eights, a four and a five, a PLO5 Horse checked eights full of nines after a human checked. Removing the Horse's five cards and the board leaves 850,668 legal holdings for a single opponent. Of those, 548,943 are weaker, 8,279 tie and 293,446 are stronger. Four opponents were able to respond, and their holdings compete for the same cards.
+
+A sensitivity model dealt all 20 opposing cards without replacement in 200,000 uniform joint deals. At least one opponent beat the Horse in 85.16% of deals. The Horse's average share including ties was 14.43%, with a simulation standard error of 0.08 percentage points. If all four always fully match a bet, nobody raises, fees stay fixed and checking gives a free showdown, each additional chip bet changes expected gross value by approximately −0.278 chip. Prior betting changes range weights. Folds, selective calls, raises and induced bets can change the preferred play. Apply this example to pricing a multiway wager, while keeping the live trip-board policy and its own qualifying action receipt distinct.
+
 ## Pot-limit Omaha eight-or-better
 
 Across 302 PLO8 river decisions, 106 still had a human able to wager, two had only an all-in eligible human, and 194 followed all eligible humans folding. Of 35 checked-to opportunities, nine were cash. The 26 tournament records included 20 pre-money, three in the money and three with unknown stage. Horses checked 31 times, bet three times and went all-in once. Twenty-one checks closed the action. Of ten that left action behind, nine checked through and one drew a human bet.
 
 Evaluate both halves with the same opposing four-card holding. In these 35 cases every Horse could be scooped by at least one legal holding and 18 could receive exactly one quarter. None held an unbeatable high or low. For a fully matched heads-up bet compared with checking through, winning one quarter costs half the additional bet before fees. Winning half breaks even on the added chips, while a scoop gains the entire matched bet. Evaluate which weaker high or low hands will actually call. For a double board remove every exposed card from the common deck. For the 15 multiway opportunities use a joint opponent range. More players can share the low, and pairwise shares cannot price that pot.
+
+### When a quarter of the pot is enough to call in FLO8
+
+The nine frozen volumes supplied 107 fixed-limit Omaha eight-or-better river decisions. A one-quarter share was possible against one legal holding in 58, including 27 of the 44 decisions with a human able to respond. Of 34 decisions facing a positive price, Horses called 20 times, folded eight times and raised six times. Only ten of the 34 had a human able to respond. Six faced a prior river raise and none of those six had a human able to respond.
+
+Nine heads-up facing decisions could leave the Horse quartered while still making a call profitable before deductions. In the two direct human opportunities, a 0.50 call returned 0.275 or 0.40 more than folding if the Horse received a quarter. Raising to 1.00 and getting one matching call while still quartered cost another 0.25 versus calling in either case. Apply the fixed raise cap, rake and odd-chip rules before using that price. The calculation establishes what a quarter is worth, while the opponent's holding and continuation frequency remain unknown.
+
+### Calling-range sensitivity in PLO8
+
+Nineteen single-board river decisions allowed a closing check with one eligible human able to respond. The original legal minimum and maximum supplied 38 decision–size comparisons. At a hypothetical 50% call frequency, changing which holdings called could reverse the gross-chip ranking in 17 of 38 comparisons, including three of six cash comparisons and 14 of 32 tournament comparisons. The other 21 favored betting under every allocation of call mass considered.
+
+The bounds assume uniform reach among legal holdings before the river response, one contested pot, one fully matching caller, zero fees and zero raises. A fold wins the share of the existing pot the Horse would otherwise lose. A call adds chips in proportion to the Horse's high/low share, including ties and quarters. Actual pre-river actions can change the range. Tournament chip gains require a separate payout and bounty calculation before selecting a wager.
 
 ## No-limit hold'em Lightning cash
 
@@ -142,6 +172,12 @@ Changes are relative to folding. With ace-deuce in the opener's hand, adding chi
 Five legal decisions by one Horse across two hands in an NLH bounty MTT had no stage in the original public decision records. Frozen payouts, registration and elimination evidence later established that 25 remained and 24 places paid. Four decisions involved a human still able to act. On the fifth, the human had already folded and the Horse faced another Horse. Preserve this distinction when diagnosing play against humans.
 
 On a turn call costing 20,000 to contest 100,000, the checkdown chip threshold was 20%. Three field-stack scenarios gave no-tie regular-prize thresholds of 20.36%–20.40%. At the later checked-to river, a comparison of a minimum bluff against checking required 16.67% folds among better hands in chips and 17.05%–17.09% in those scenarios, assuming worse hands fold and ties call. The true field stacks, bounty utility and human ranges remain unresolved. The figures describe the stated scenarios only. Preserve the historically missing input in the study, and verify stage consumption on the actual decision before attributing an action to bubble awareness.
+
+### A PLO5 bubble with 13 left and 11 places paid
+
+The Horse faced a terminal matched call of 29,561 into 100,687 and had 52,966 behind. The opponent was all-in. The accepted action label indicated all-in, but a losing call left the Horse 23,405. Winning probability needed to break even in chips was 22.696% with no ties.
+
+The other table held 4,500 chips in blind escrow. Using the retained 11-place ladder and regular-prize ICM, allocating those chips among the seven remote players gave a no-tie threshold of 34.864%–34.914%. The 133 evaluated scenarios include a single winner and equal splits with every possible odd-chip recipient. They conserve the same 4,500 chips across fold, call-win and call-loss. A hypothetical 30% winning chance would favor calling for chips and folding for regular prizes. Actual opponent equity, mystery-bounty value, remote side pots and subsequent betting remain unresolved. Seven other multi-place cases lacked verified remote stacks at the decision. Keep their prize thresholds open.
 
 ## Loading and verifying a correction
 
