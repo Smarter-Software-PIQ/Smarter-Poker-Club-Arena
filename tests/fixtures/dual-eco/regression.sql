@@ -73,3 +73,7 @@ INSERT INTO ca_settlements VALUES('union_rakeback_close','fade0000-0000-0000-000
 SELECT fn_union_issue_weekly_invoices('fade0000-0000-0000-0000-000000000002','2026-11-02 08:00Z','2026-11-09 08:00Z',false);
 SELECT assert_eco((SELECT count(*)=1 AND bool_and(breakdown->'eco_components'='null'::jsonb AND(breakdown->>'eco_amount')::numeric=3)FROM settlement_invoices WHERE breakdown->>'union_id'='fade0000-0000-0000-0000-000000000002'),'actual issuer preserves authoritative older scalar under later v2 terms');
 SELECT assert_eco((SELECT to_jsonb(l)=(SELECT j FROM legacy_eco_bytes)FROM union_eco_ledger l)AND NOT EXISTS(SELECT FROM smarter_private.union_eco_components WHERE union_id='fade0000-0000-0000-0000-000000000002'),'legacy issuer creates no component fiction and leaves scalar record byte-exact');
+-- Existing scalar-only callers read launch-clamped and current partial ranges.
+INSERT INTO unions VALUES('fade0000-0000-0000-0000-000000000003',md5('native owner')::uuid,'Legacy Preview','Preserve','{"eco_enabled":true,"eco_rate":0.1,"eco_base_mode":"club_cash_profit","eco_include_horses":true}');
+INSERT INTO union_clubs SELECT 'fade0000-0000-0000-0000-000000000003',id FROM clubs;
+SELECT assert_eco((SELECT count(*)=1 AND bool_and(period_start='2026-10-28 12:00Z'::timestamptz AND period_end='2026-10-30 12:00Z'::timestamptz AND eco_amount=3)FROM fn_union_club_invoice('fade0000-0000-0000-0000-000000000003','2026-10-28 12:00Z','2026-10-30 12:00Z')),'actual legacy invoice reader preserves noncanonical finite accounting range');

@@ -55,11 +55,11 @@ DECLARE t smarter_private.union_eco_v2_terms;
 BEGIN
  IF p_start IS NULL OR p_end IS NULL OR NOT isfinite(p_start)OR NOT isfinite(p_end)OR p_end<=p_start THEN
   RAISE EXCEPTION 'original_eco_book_boundary_required' USING ERRCODE='22023';END IF;
+ SELECT * INTO t FROM smarter_private.union_eco_v2_terms WHERE union_id=p_union AND effective_from<=p_start ORDER BY effective_from DESC,observed_at DESC,id DESC LIMIT 1;
+ IF NOT FOUND THEN RETURN NULL;END IF;
  IF public.fn_union_week_start(p_start)IS DISTINCT FROM p_start
   OR public.fn_union_week_start(p_start+interval '8 days')IS DISTINCT FROM p_end THEN
   RAISE EXCEPTION 'original_eco_book_boundary_required' USING ERRCODE='22023';END IF;
- SELECT * INTO t FROM smarter_private.union_eco_v2_terms WHERE union_id=p_union AND effective_from<=p_start ORDER BY effective_from DESC,observed_at DESC,id DESC LIMIT 1;
- IF NOT FOUND THEN RETURN NULL;END IF;
  IF EXISTS(SELECT FROM smarter_private.union_eco_v2_terms WHERE union_id=p_union AND effective_from>p_start AND effective_from<p_end)THEN
   RAISE EXCEPTION 'original_eco_intra_book_terms_change_refused' USING ERRCODE='55000';END IF;
  RETURN to_jsonb(t);
