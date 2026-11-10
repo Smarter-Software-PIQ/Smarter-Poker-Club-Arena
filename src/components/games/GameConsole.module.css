@@ -551,3 +551,41 @@
   color: #a6cce7;
   padding: 0.25rem;
 }
+
+[data-flight-cabinet] .header {
+  border-bottom: 1px solid #91a3b6;
+  background: linear-gradient(170deg, #26333d, #121c26 48%, #080e15);
+}
+[data-flight-cabinet] .header h1 {
+  padding: 4px 16px;
+  border: 6px solid transparent;
+  border-image: url('/assets/club-buttons/lobby/shark-panel-v1/button-primary.png') 26 fill / 6px
+    stretch;
+  font-size: clamp(17px, 2.6vw, 24px);
+  color: #eef7ff;
+}
+[data-flight-cabinet] .actions > button {
+  border: 8px solid transparent;
+  border-image: url('/assets/club-buttons/lobby/shark-panel-v1/button-secondary.png') 26 fill / 8px
+    stretch;
+  padding: 4px 8px;
+}
+[data-flight-cabinet] .actions > .primary {
+  border-image-source: url('/assets/club-buttons/lobby/shark-panel-v1/button-primary.png');
+}
+@media (min-width: 761px) and (min-height: 501px) {
+  [data-flight-cabinet] .console {
+    grid-template-columns: minmax(0, 3fr) minmax(252px, 2fr);
+    grid-template-rows: auto auto auto;
+    grid-template-areas: 'header header' 'play play' 'controls bar';
+  }
+  [data-flight-cabinet] .metrics {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+  [data-flight-cabinet] .bar {
+    align-self: end;
+  }
+  [data-flight-cabinet] .actions {
+    grid-template-columns: 1fr 1.3fr;
+  }
+}

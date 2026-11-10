@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import {
   plinkoAllocations,
   plinkoDrops,
@@ -60,6 +61,11 @@ export function PlinkoDropSelector({
   disabled: boolean;
   docked?: boolean;
 }) {
+  const rail = useRef<HTMLDivElement>(null);
+  const scroll = (direction: number) => {
+    const row = rail.current;
+    if (row) row.scrollBy({ left: direction * Math.max(44, row.clientWidth * 0.8) });
+  };
   if (!validBonusBudget(budget)) return null;
   const choices = plinkoAllocations(bonusTotal(budget));
   return (
@@ -69,22 +75,44 @@ export function PlinkoDropSelector({
       data-plinko-selector
     >
       <legend>Diamonds Per Drop</legend>
-      <div className={styles.choices}>
-        {choices.map((choice) => (
+      <div className={styles.selectorRail}>
+        {docked && (
           <button
+            className={styles.arrow}
             type="button"
-            key={choice.diamondsPerDrop}
-            disabled={disabled}
-            aria-pressed={budget.denomination === choice.diamondsPerDrop}
-            onClick={() => onChange({ ...budget, denomination: choice.diamondsPerDrop })}
-            aria-label={`${choice.diamondsPerDrop.toLocaleString()} ${choice.diamondsPerDrop === 1 ? 'Diamond' : 'Diamonds'} Per Drop, ${choice.drops.toLocaleString()} ${choice.drops === 1 ? 'Drop' : 'Drops'}`}
+            aria-label="Previous Denominations"
+            onClick={() => scroll(-1)}
           >
-            <strong>{choice.diamondsPerDrop.toLocaleString()}</strong>
-            <small>
-              {choice.drops.toLocaleString()} {choice.drops === 1 ? 'Drop' : 'Drops'}
-            </small>
+            ‹
           </button>
-        ))}
+        )}
+        <div ref={rail} className={styles.choices}>
+          {choices.map((choice) => (
+            <button
+              type="button"
+              key={choice.diamondsPerDrop}
+              disabled={disabled}
+              aria-pressed={budget.denomination === choice.diamondsPerDrop}
+              onClick={() => onChange({ ...budget, denomination: choice.diamondsPerDrop })}
+              aria-label={`${choice.diamondsPerDrop.toLocaleString()} ${choice.diamondsPerDrop === 1 ? 'Diamond' : 'Diamonds'} Per Drop, ${choice.drops.toLocaleString()} ${choice.drops === 1 ? 'Drop' : 'Drops'}`}
+            >
+              <strong>{choice.diamondsPerDrop.toLocaleString()}</strong>
+              <small>
+                {choice.drops.toLocaleString()} {choice.drops === 1 ? 'Drop' : 'Drops'}
+              </small>
+            </button>
+          ))}
+        </div>
+        {docked && (
+          <button
+            className={styles.arrow}
+            type="button"
+            aria-label="Next Denominations"
+            onClick={() => scroll(1)}
+          >
+            ›
+          </button>
+        )}
       </div>
     </fieldset>
   );

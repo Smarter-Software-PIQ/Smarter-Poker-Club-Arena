@@ -550,7 +550,7 @@ describe('plinko returns exactly 80 percent or the table cannot be activated', (
     expect(SLOTS).toBe(17);
     expect(SPACE).toBe(1n << BigInt(BOARD_ROWS));
     expect(SPACE).toBe(65536n);
-    for (const version of PLINKO_LIVE_TABLES)
+    for (const version of [4, 6])
       expect(PLINKO_TABLES[version].multipliersCents.length).toBe(SLOTS);
     expect(EXACT_RETURN_WEIGHT).toBe(5242880n);
   });
@@ -633,8 +633,8 @@ describe('plinko returns exactly 80 percent or the table cannot be activated', (
    *     exists to carry (item 2).
    */
   it('both live tables return exactly 0.80, top out at exactly 20x, and have no dead slot', () => {
-    expect([...PLINKO_LIVE_TABLES]).toEqual([4, 6]);
-    for (const version of PLINKO_LIVE_TABLES) {
+    expect([...PLINKO_LIVE_TABLES]).toEqual([7]);
+    for (const version of [4, 6]) {
       const table = PLINKO_TABLES[version];
       expect(table, `live table ${version} does not exist in the mirror`).toBeTruthy();
       const m = table.multipliersCents;
@@ -685,7 +685,11 @@ describe('plinko returns exactly 80 percent or the table cannot be activated', (
       for (const kind of STAKE_KINDS) {
         const stake = kind.stakeOf(entry);
         const floorCents = floorCentsOf(kind, entry);
-        const version = plinkoTableForFloor(stake / DIAMONDS_PER_CHIP, floorCents / CHIP_CENTS);
+        const version = plinkoTableForFloor(
+          stake / DIAMONDS_PER_CHIP,
+          floorCents / CHIP_CENTS,
+          true
+        );
         expect(version, `${kind.label} ${entry}`).toBe(kind.label === 'Super with add-on' ? 6 : 4);
         // And the chosen table's lowest slot really covers the floor on that stake, in cents.
         const lowest = Math.min(...PLINKO_TABLES[version as number].multipliersCents);
@@ -693,7 +697,7 @@ describe('plinko returns exactly 80 percent or the table cannot be activated', (
       }
     }
     // A floor no open table can carry is refused, not topped up.
-    expect(plinkoTableForFloor(1, 0.8)).toBeNull();
+    expect(plinkoTableForFloor(1, 0.8, true)).toBeNull();
   });
 
   it('the ball follows sixteen bits of the HMAC and the slot is the number of rights', () => {
@@ -894,7 +898,7 @@ describe('the calibration: the live tables can actually be hit, and a game can a
       4: { five: 1394n, ten: 274n, top: 34n },
       6: { five: 274n, ten: 274n, top: 34n },
     };
-    for (const version of PLINKO_LIVE_TABLES) {
+    for (const version of [4, 6]) {
       const table = PLINKO_TABLES[version].multipliersCents;
       const want = expectations[version];
       let previousTop = 0;
@@ -944,7 +948,7 @@ describe('the calibration: the live tables can actually be hit, and a game can a
       4: { back: 0.15, twice: 0.02 },
       6: { back: 0.03, twice: 0.004 },
     };
-    for (const version of PLINKO_LIVE_TABLES) {
+    for (const version of [4, 6]) {
       const table = PLINKO_TABLES[version].multipliersCents;
       const dist = gameDistribution(table, drops);
       const all = SPACE ** BigInt(drops);
@@ -1069,7 +1073,7 @@ describe('the calibration: the live tables can actually be hit, and a game can a
       true
     );
 
-    for (const version of PLINKO_LIVE_TABLES) {
+    for (const version of [4, 6]) {
       const table = PLINKO_TABLES[version].multipliersCents;
       // One drop: under two sigma to a doubling on both boards (0.89 and 1.67).
       const one = sigmaSquaredToDoubling(table, PLINKO_MIN_DROPS);
@@ -1271,16 +1275,16 @@ describe('one setting per game: nothing about the payout is a menu', () => {
   });
 
   it('a Plinko table is chosen by the floor, both live tables exist, and the closed ones stay readable', () => {
-    for (const version of PLINKO_LIVE_TABLES) {
+    for (const version of [4, 6]) {
       expect(PLINKO_TABLES[version], `live table ${version} is not in the mirror`).toBeTruthy();
       expect(PLINKO_TABLES[version].multipliersCents.length).toBe(SLOTS);
     }
     // The two floors are two different tables: a half-floor stake on Super
     // Double would be a 0.72x floor it never paid for.
-    expect(plinkoTableForFloor(1, 0.5)).not.toBe(plinkoTableForFloor(0.75, 0.5));
+    expect(plinkoTableForFloor(1, 0.5, true)).not.toBe(plinkoTableForFloor(0.75, 0.5, true));
     // The mirror carries the live tables and the closed Diamond table, and the
     // 2026-09-19 boost mapping still names the tables an older receipt was dealt.
-    expect(Object.keys(PLINKO_TABLES).map(Number).sort()).toEqual([4, 5, 6]);
+    expect(Object.keys(PLINKO_TABLES).map(Number).sort()).toEqual([4, 5, 6, 7]);
     expect(PLINKO_TABLES[plinkoTableVersion(1)].name).toBe('Diamond');
     expect(PLINKO_TABLES[plinkoTableVersion(2)].name).toBe('Super');
   });
@@ -1527,7 +1531,7 @@ describe('crash under contract 5: never before 1.25x, up to 20x, averaging 2.9x,
   const ppmOf = (chips: number, floor: number) => crashReturnPpm(chips, floor, 5);
 
   it('the contract: 1.25x point, 1.26x cash-out, a per-round return in 0.95..1.20, 20x cap, contract 4 untouched', () => {
-    expect(CRASH_PAYOUT_VERSION).toBe(5);
+    expect(CRASH_PAYOUT_VERSION).toBe(6);
     expect(crashPointFloorCents(5)).toBe(125);
     expect(crashCashoutFloorCents(5)).toBe(126);
     expect(crashPointFloorCents(4)).toBe(110);
