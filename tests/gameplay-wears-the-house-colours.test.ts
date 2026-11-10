@@ -294,14 +294,22 @@ describe('the action buttons ramp through the house family', () => {
     // ramped #34d374 -> #16a34a -> #0b5426, a shade that appeared nowhere else
     // in the product, on the control the player looks at most.
     const ramp = `linear-gradient(180deg, ${HOUSE_LIGHT} 0%, ${HOUSE} 40%, ${HOUSE_DARK} 100%)`;
-    const count = PANEL.split(ramp).length - 1;
-    expect(count).toBe(2);
+    expect(read('src/components/table/ControlThemeTokens.css')).toContain(
+      '--action-paint-raise: ' + ramp
+    );
+    expect(PANEL.match(/background: var\(--action-paint-raise\)/g)).toHaveLength(2);
   });
 
   it('check and call stay blue', () => {
     // The blue/green split is the whole point of item 8 - it is how a player
     // tells a passive action from an aggressive one without reading.
-    expect(PANEL).toMatch(/action-btn--call\s*\{[\s\S]{0,120}#1587f8/);
-    expect(PANEL).not.toMatch(/action-btn--call\s*\{[\s\S]{0,120}#3fb950/);
+    for (const action of ['check', 'call']) {
+      expect(PANEL).toContain(
+        '.action-panel .action-btn--' + action + ' {\n  background: var(--action-paint-call)'
+      );
+    }
+    expect(read('src/components/table/ControlThemeTokens.css')).toContain(
+      '--action-paint-call: linear-gradient(180deg, #1587f8 0%, #0078ff 40%, #003a9e 100%)'
+    );
   });
 });
