@@ -38,7 +38,7 @@ PY
 if "${psql[@]}" -d original_dual_eco_native -f "$root/supabase/migrations/20261110005719_cash_and_tournament_eco_have_separate_original_records.sql" >"$fixture/dual-eco-refusal.log" 2>&1; then
  echo 'FAIL: recorded legacy book accepted' >&2; exit 1
 fi
-rg -q original_eco_owner_amendment_legacy_record_exists "$fixture/dual-eco-refusal.log"
+grep -Fq original_eco_owner_amendment_legacy_record_exists "$fixture/dual-eco-refusal.log"
 [[ "$("${psql[@]}" -d original_dual_eco_native -c "SELECT (to_regclass('smarter_private.union_eco_components')IS NULL AND(SELECT eco_amount=17 FROM union_eco_ledger))::text")" == true ]]
 echo 'PASS: original legacy record rejects whole installer atomically'
 "${psql[@]}" -d original_dual_eco_native -c "DELETE FROM union_eco_ledger WHERE union_id='fade0000-0000-0000-0000-000000000001'"
