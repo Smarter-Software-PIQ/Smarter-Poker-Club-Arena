@@ -19,9 +19,8 @@ production), over the Stage B fixture and the Stage B migration it requires
   * an incident opened before the corrections keeps its class;
   * a second install succeeds and changes no row.
 
-Stage B's files are read from this checkout. Before Stage B has merged, point
-RELIABILITY_STAGE_B_ROOT at a checkout that has them; nothing is skipped when
-they are absent, the run fails.
+Stage B's files are read from this checkout (RELIABILITY_STAGE_B_ROOT may name
+another checkout). Nothing is skipped when they are absent: the run fails.
 """
 import hashlib
 import json
