@@ -40,6 +40,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS = ROOT / 'supabase/migrations'
+BREADTH_MIGRATION = MIGRATIONS / '20261110050500_v31_v3_breadth_is_the_streets_the_playbook_carries.sql'
 FIXTURES = ROOT / 'scripts/ci/fixtures/v31-evaluation-contract-v3'
 LIVE_MD5 = {
     'fn_gto_v31_record_evaluation(uuid,text,text,bigint)': '6c75961616dd0c48513a11b6aa0fba3b',
@@ -457,6 +458,25 @@ def scenario(cluster, migration_text):
     assert 'ELSIF NOT EXISTS (SELECT 1 FROM public.gto_v31_runtime_cells WHERE dataset_id=p_dataset_id AND street=' in seal
     assert 'FOREACH v_family IN ARRAY public.fn_gto_v31_required_families(p_dataset_id) LOOP' in seal
     assert seal.count("required Phase 4 street, family, utility, table, pot, or response coverage is incomplete") == 1
+    seal_identity = db.sql("SELECT prosecdef::text||provolatile::text||array_to_string(proconfig,';') FROM pg_proc WHERE oid='public.fn_gto_v31_public215_seal_prepared(uuid)'::regprocedure")
+    # ── breadth patch (2026-11-10): breadth is the streets the playbook carries ──
+    # R8 carried turn and river only and was refused at seal_dataset by the flop/turn/river rule.
+    apply_migration(db, BREADTH_MIGRATION.read_text())
+    assert db.sql(f"SELECT public.fn_gto_v31_v3_breadth_ok('{holes}')") == 't', \
+        'a playbook that carries flop and turn for every family/objective it has is complete within its own scope'
+    spin_flop = dict(CASH_CELLS[0], game_family='spin', objective='chip_ev', utility_context='chip_ev')
+    uneven, _ = dataset(db, 'r10-uneven', [CASH_CELLS[0], CASH_CELLS[1], CASH_CELLS[2], spin_flop], ['cash', 'spin'], state='building')
+    assert db.sql(f"SELECT public.fn_gto_v31_v3_breadth_ok('{uneven}')") == 'f', \
+        'a family/objective missing a street another one carries must fail breadth'
+    even, _ = dataset(db, 'r10-even', [CASH_CELLS[1], CASH_CELLS[2], dict(spin_flop, street='turn'), dict(spin_flop, street='river')],
+                      ['cash', 'spin'], state='building')
+    assert db.sql(f"SELECT public.fn_gto_v31_v3_breadth_ok('{even}')") == 't', \
+        'turn and river for every carried family/objective is complete without flop'
+    seal2 = db.sql("SELECT pg_get_functiondef('public.fn_gto_v31_public215_seal_prepared(uuid)'::regprocedure)")
+    assert seal2.count('must cover every street the playbook carries') == 1 and 'must cover flop, turn and river' not in seal2
+    assert "IF v_dataset.evaluation_contract='gto_v31_candidate.v3' THEN" in seal2 and 'IF NOT public.fn_gto_v31_v3_breadth_ok(p_dataset_id) THEN' in seal2
+    assert db.sql("SELECT prosecdef::text||provolatile::text||array_to_string(proconfig,';') FROM pg_proc WHERE oid='public.fn_gto_v31_public215_seal_prepared(uuid)'::regprocedure") == \
+        seal_identity, 'seal_prepared must keep its security, volatility and SET clauses'
     db.cluster.psql(db.name, ['-c', 'SELECT 1'])
     return 'ok'
 
