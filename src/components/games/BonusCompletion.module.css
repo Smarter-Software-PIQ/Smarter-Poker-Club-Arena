@@ -54,3 +54,9 @@
   cursor: pointer;
   padding: 0.5rem;
 }
+
+.paidLabel {
+  display: block;
+  font-size: 0.45em;
+  letter-spacing: 0.08em;
+}

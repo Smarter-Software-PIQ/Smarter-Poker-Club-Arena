@@ -1,9 +1,24 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { SHORT_LANDSCAPE_QUERY } from '../../hooks/useSceneBudget';
 import { TapHaptic } from '../haptics/TapHaptic';
+import { gameChips } from '../../utils/bonusGameBudget';
 import type { DeckBay } from '../console/DeckConsole';
 import type { PlateButtonProps, ConsoleInk } from '../console/SpadeConsole';
 import styles from './GameConsole.module.css';
+
+/** A posted terminal receipt takes the same place as the pre-game promise. */
+export function bonusPrizeBay(
+  guaranteed: number | null,
+  paid: number | null,
+  superAward: boolean
+): DeckBay {
+  const chips = paid ?? guaranteed;
+  return {
+    label: paid === null ? 'Guaranteed' : 'Paid',
+    value: chips === null ? 'Pending' : `${gameChips(chips)} Chips`,
+    ink: paid !== null || superAward ? 'gold' : undefined,
+  };
+}
 
 /**
  * One of the console's two plates. `flash` lights the plate in a slow gold
