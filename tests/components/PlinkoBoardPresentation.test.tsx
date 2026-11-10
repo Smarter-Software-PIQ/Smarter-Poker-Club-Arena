@@ -120,7 +120,7 @@ describe('the bucket colour scale is derived from the multiplier, not from the t
           if (table[i] < table[j]) expect(heats[i]).toBeLessThan(heats[j]);
     }
   });
-  it('anchors the scale on the multiplier so 20x is the same gold on both tables', () => {
+  it('anchors the scale on the multiplier so 20x is the same icy chrome on both tables', () => {
     expect(bucketTint(2000)).toBe(bucketTint(2000));
     expect(bucketHeat(2000)).toBeGreaterThan(0.9);
     expect(bucketTint(DIAMOND[0])).toBe(bucketTint(SUPER[0]));
@@ -138,16 +138,17 @@ describe('the bucket colour scale is derived from the multiplier, not from the t
     expect(bucketTint(0)).toMatch(/^#[0-9a-f]{6}$/);
     expect(bucketTint(1_000_000)).toMatch(/^#[0-9a-f]{6}$/);
   });
-  it('paints the low middle blue and the high outside gold, in the smarter.poker schema', () => {
+  it('paints the low middle blue and the high outside icy chrome, in the smarter.poker schema', () => {
     const rgb = (tint: string) =>
       [1, 3, 5].map((at) => Number.parseInt(tint.slice(at, at + 2), 16));
     const [coldR, , coldB] = rgb(bucketTint(8));
     const [hotR, hotG, hotB] = rgb(bucketTint(2000));
     expect(coldB).toBeGreaterThan(coldR);
-    // The loud end is gold on black, the platform's one colour for money.
+    // The highest payouts are bright, cool chrome.
     expect(hotR).toBeGreaterThan(200);
     expect(hotG).toBeGreaterThan(150);
-    expect(hotB).toBeLessThan(60);
+    expect(hotB).toBeGreaterThanOrEqual(hotG);
+    expect(hotG).toBeGreaterThanOrEqual(hotR);
     // A mid bucket is light blue: still blue-dominant, brighter than the floor.
     const [midR, midG, midB] = rgb(bucketTint(100));
     expect(midB).toBeGreaterThan(midR);
@@ -236,7 +237,9 @@ describe('the DOM legend carries the whole scale, so it survives a dead WebGL co
       );
     });
     // The value bar is a second channel; the printed multiplier always carries it too.
-    expect(screen.getByText('Slots Run From Left To Right. Gold Pays The Most.')).toBeVisible();
+    expect(
+      screen.getByText('Slots Run From Left To Right. Outer Slots Pay The Most.')
+    ).toBeVisible();
   });
   it('marks the high buckets before anything is dropped, and the landed one when it is', () => {
     const props = { multipliersCents: SUPER, path: null, dropKey: 0 };

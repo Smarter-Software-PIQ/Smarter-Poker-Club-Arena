@@ -22,6 +22,7 @@ const groups = [
     cases: [
       'test_phase1_policy_owns_fresh_admission_without_retargeting_prior_owner',
       'test_nov7_exception_binds_the_exact_order_and_current_deadline',
+      'test_current_owner_reservation_reaches_countdown_and_refuses_replay',
       'test_provenance_worker_and_database_windows_bind_the_same_corrective_release',
       'test_provenance_archive_gate_refuses_absent_and_unreadable_catalogs',
       'test_cash_room_realism_window_binds_the_live_floor_and_keeps_the_provenance_entry',
@@ -120,7 +121,7 @@ beforeAll(() => {
   ]);
   expect(result.status, result.stdout + result.stderr).toBe(0);
   const selected = groups.flatMap((group) => group.cases);
-  expect(selected).toHaveLength(55);
+  expect(selected).toHaveLength(56);
   expect(new Set(selected).size).toBe(selected.length);
   expect(JSON.parse(result.stdout)).toEqual([...selected].sort());
 }, 420_000);

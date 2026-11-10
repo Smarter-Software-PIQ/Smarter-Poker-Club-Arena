@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import TournamentRankingCard from '../../src/components/tournament/TournamentRankingCard';
 import type { TournamentResult } from '../../src/services/pendingSessionSummary';
 import { CHIP_UNIT_CENTS, DIAMOND_UNIT_CENTS } from '../../server/src/tournament/tournamentUnit';
@@ -79,9 +79,11 @@ const CHAMPION: TournamentResult = {
  * this file.
  */
 function renderCard(result: TournamentResult, unitCents: number = CHIP_UNIT_CENTS) {
-  return render(
+  const mounted = render(
     <TournamentRankingCard result={result} onDismiss={vi.fn()} unitCents={unitCents} />
   );
+  fireEvent.click(screen.getByRole('button', { name: 'View Session' }));
+  return mounted;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

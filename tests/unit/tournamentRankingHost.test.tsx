@@ -22,7 +22,7 @@
 
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 
 import TournamentRankingHost from '../../src/components/tournament/TournamentRankingHost';
@@ -83,6 +83,10 @@ const publishAndSettle = async (payload: SessionSummaryPayload) => {
     // Drain the profile query's promise chain (thenable builder -> setProfile).
     for (let i = 0; i < 6; i++) await Promise.resolve();
   });
+  if (payload.tournament) {
+    const details = screen.queryByRole('button', { name: 'View Session' });
+    if (details) fireEvent.click(details);
+  }
 };
 
 const spinResult = (finishPlace: number, prize: number): TournamentResult => ({

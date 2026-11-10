@@ -1,9 +1,24 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { SHORT_LANDSCAPE_QUERY } from '../../hooks/useSceneBudget';
 import { TapHaptic } from '../haptics/TapHaptic';
+import { gameChips } from '../../utils/bonusGameBudget';
 import type { DeckBay } from '../console/DeckConsole';
 import type { PlateButtonProps, ConsoleInk } from '../console/SpadeConsole';
 import styles from './GameConsole.module.css';
+
+/** A posted terminal receipt takes the same place as the pre-game promise. */
+export function bonusPrizeBay(
+  guaranteed: number | null,
+  paid: number | null,
+  superAward: boolean
+): DeckBay {
+  const chips = paid ?? guaranteed;
+  return {
+    label: paid === null ? 'Guaranteed' : 'Paid',
+    value: chips === null ? 'Pending' : `${gameChips(chips)} Chips`,
+    ink: paid !== null || superAward ? 'gold' : undefined,
+  };
+}
 
 /**
  * One of the console's two plates. `flash` lights the plate in a slow gold
@@ -35,7 +50,9 @@ export type GamePlate = PlateButtonProps & { flash?: boolean };
 export function GameConsole({
   title,
   titleId,
+  titleArtwork,
   collapseSetup = false,
+  activeEntryDetails,
   pill,
   bays,
   secondary,
@@ -48,7 +65,9 @@ export function GameConsole({
 }: {
   title: string;
   titleId?: string;
+  titleArtwork?: string;
   collapseSetup?: boolean;
+  activeEntryDetails?: string;
   pill?: string;
   pillInk?: ConsoleInk;
   bays: DeckBay[];
@@ -149,16 +168,16 @@ export function GameConsole({
       data-game-console
     >
       <header className={styles.header}>
-        <h1 id={titleId}>{title}</h1>
+        <h1 id={titleId}>{titleArtwork ? <img src={titleArtwork} alt={title} /> : title}</h1>
         <span className={styles.status}>{pill}</span>
         {help}
       </header>
       <div className={styles.playfield}>{children}</div>
       <aside className={styles.controls} aria-label={`${title} Controls`}>
-        {setup && collapseSetup ? (
+        {(setup || activeEntryDetails) && collapseSetup ? (
           <details className={styles.entryDetails}>
             <summary>Entry Details</summary>
-            {setup}
+            {setup || activeEntryDetails}
           </details>
         ) : (
           setup

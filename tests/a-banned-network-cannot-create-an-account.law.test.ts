@@ -12,8 +12,12 @@
  * documented error object, and answers every other request with an empty
  * object. A missing or unreadable address is allowed: this function runs for
  * every signup on the platform and must never be the reason nobody can join.
- * Only supabase_auth_admin may execute it, and the list is closed to players
- * and to the service role.
+ * supabase_auth_admin executes it for every Auth path that runs the hook.
+ * GoTrue's POST /admin/users does not run the hook, so service_role may
+ * execute it too: a server route that creates accounts through the admin API
+ * (Club Commander's public registration) asks it with the address its edge
+ * observed before creating anything. No client may execute it, and the list is
+ * closed to players and to the service role.
  *
  * WHAT IT DOES NOT CLAIM: a different address is not on the list, and the hook
  * is in force only while the project's Auth configuration names this function.
@@ -55,6 +59,21 @@ describe(`${HOOK} (in force: ${MIGRATION})`, () => {
     expect(SQL).toContain(
       `GRANT EXECUTE ON FUNCTION public.${HOOK}(jsonb) TO supabase_auth_admin;`
     );
+  });
+});
+
+describe('a server signup asks the same rule', () => {
+  const GRANT = readMigration('20261110152816_a_server_signup_asks_the_banned_network_rule.sql');
+  it('lets the service role ask, and never a client', () => {
+    expect(GRANT).toContain(`GRANT EXECUTE ON FUNCTION public.${HOOK}(jsonb) TO service_role;`);
+    for (const file of migrationFiles().filter((f) => f >= INTRODUCED)) {
+      expect(readMigration(file), file).not.toMatch(
+        new RegExp(
+          `^\\s*GRANT[^;]*\\b${HOOK}\\b[^;]*\\bTO\\b[^;]*\\b(?:anon|authenticated|PUBLIC)\\b`,
+          'im'
+        )
+      );
+    }
   });
 });
 

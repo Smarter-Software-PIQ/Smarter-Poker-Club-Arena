@@ -38,3 +38,64 @@ Hardening found by reading, corrected in the client (no engine change needed):
 2. A carried arm lives in the engine for the whole hand, so a page reloaded mid-hand came back unlit while the engine kept acting. The room now remembers which hand it armed (localStorage, per pool session, 15 minute expiry, this browser's record and never authority) and a reload of that same hand lights the toggle again without sending anything.
 
 Engine hardening tests (server/src/lightning/LightningCheckFoldCarries.test.ts, 8 cases, all pass on the merged engine source, so no engine correction): repeated taps, a cleared arm, requests arriving after the release, stale-hand arms, a dropped and returning socket, several armed players priced by one raise, an all-in, and 40 seeded hands of random arms, clears, repeats, stale arms, fast folds and presence changes asserting one settlement, at most one fold and one release per player, no decision offered to a released player and every chip accounted for. That file lives under server/\*\* and is held unmerged until the release owner's seal.
+
+## State at 2026-11-10 00:45Z (same session)
+
+Client, delivered and published: PR #10238 squash-merged 22:57:23Z as d9187dfab93e304102f8170a17d07658224f8fc4 (the arm belongs to its own hand; a reload of the armed hand relights the toggle). Publisher run 42716404395; both build-info endpoints served d9187dfa at 23:04Z. At 00:44Z they serve 95a62df5a75597d77efb9d0f87024da31917c076, which contains it (compare: ahead, behind 0). The first push of that change was refused by the pre-push law tests/no-tdz-in-table-route.law.test.ts (a read of a later-declared ref); corrected at the source rather than baselined.
+
+Engine, NOT delivered: at 00:43Z engine.smarter.poker/health still reports releaseSha bff6eed3522ee894da747f91a532b35a3d8cee4f, instance 1-cc09e13a, uptime 18464 s (receiver 42683596427, 19:28Z). No receiver has run since. The release owner (GZo, sole custody of window 2026-11-09-owner-asap-engine-2230z, admission until 04:30Z) pinned 89ad71df, then e603a0cd (Backup 42716683116), and at 00:33Z re-pinned to 923a821c9cef0429e82dde2f5c57d2fb962e8aaf (push Backup 42726872498, pending) after production installs staled each certificate (PR #10063 comments 6753766127 and 6755378011). Every one of those candidates carries #10231's engine change: 616b10ba is an ancestor, server/src/lightning/LightningHandHost.ts is untouched since it, and its three constructs were read from the tree at each SHA. This lane dispatched nothing.
+
+Observed on production (read-only, hands formed 23:24Z to 23:47Z, published client against bff6eed3, two non-horse players):
+
+- Small blind owing chips, released before the turn: four hands with fold_type fast where lightning_hand_player.folded_at precedes the public fold action by 0.7 s to 14.4 s (for example formed 23:37:07Z, released 23:37:13.376Z, public fold 23:37:27.817Z). Seat and public action stayed until the turn.
+- Big blind priced by a raise: formed 23:36:19Z, raise 23:36:25.088Z, released 23:36:25.355Z (267 ms after the raise), public fold 23:36:26.405Z.
+- The database cannot say which button was pressed, so these are consistent with the Check/Fold release and with the Fold button; they are not proof of the Check/Fold press itself.
+- No duplicate seating or double fold in those rows: one lightning_hand_player row per player per hand.
+
+Not verified, and why:
+
+- Cross-street persistence and the engine's own release need an engine containing #10231. None is serving.
+- No supported route presses Check/Fold as a player on production. The only funded Lightning route is the PLO lifecycle witness (run-plo-lightning-lifecycle-proof), which belongs to the PLO lane, never arms a pre-action and is mid-recovery. No new funded facility was built and no real chips were spent by this lane (CLAUDE.md 11.5).
+- The table-change motion, and cards, pot and controls staying in step through it, have not been watched on a live table by this lane. They are covered by the client tests named above only.
+
+Held, on branch test/lightning-check-fold-ownership-20261109: server/src/lightning/LightningCheckFoldCarries.test.ts (8 cases, pass with LightningHandHost.test.ts, 47 tests, on main cc652c44ca). It is under server/\*\*, so it must not merge until the release owner posts SEALED and thaw: a server-path push to main starts a push Backup that supersedes the pinned certification.
+
+Left with their owners: the red, non-required "Installed and merged migrations agree" check (migration 20261109224452 applied outside the applier, issue #10246). Shared clone origin URL restored to its original SSH form after each use; this lane's two earlier worktrees removed.
+
+Next action after SEALED and thaw: read /health for the sealed SHA and confirm it contains 616b10ba; merge the held test PR; for hands after the thaw read lightning_hand_player and hand_history actions for (a) a blind released within about 100 ms of the pricing raise with the public fold later, which only the engine release produces, and (b) one player's origin pre_action checks on consecutive streets of one hand; record both here. A person pressing Check/Fold once in the big blind on a Lightning table is the direct proof of the carry.
+
+## Post-cutover evidence, 2026-11-10 14:45Z (same session)
+
+Engine, delivered. The 0440z owner window ended NOT RELEASED (receiver 42766862282 failed at the restart-certificate step, production recovered to bff6eed3; release owner note, PR #10063 comment 6760823773). The daily 04:00 America/Chicago route then released: receiver 42794253316 (created 09:51:49Z), "Publish Through Hetzner Club Arena" success 10:10:43Z, append-only release receipt 10:11:20Z, spectator evidence bound to the sealed release 10:14:24Z. At 14:36Z engine.smarter.poker/health reports releaseSha 840429a332ecb536d19b3b719fa6809e7bc63ca7, instance 1-eaca1bce, phase idle, maintenance inactive, uptime 16061 s, liveness ok. This lane dispatched nothing.
+
+That exact revision contains #10231: 616b10ba is an ancestor (compare: ahead 90, behind 0), and server/src/lightning/LightningHandHost.ts at 840429a3 is byte-identical to the file at 616b10ba (sha256 prefix 01072d1703684422b10f) with all four constructs present (check_fold_carries: true, releasePricedCheckFolds declared and called, the auto_check_fold re-arm).
+
+Client at 14:36Z: both build-info endpoints serve 884b85df1e5dbdf1dec6d5aa5f486c9d22a05c73 (publisher run 42834627148), which contains d9187dfa (#10238) and therefore #10231.
+
+Observed on production against 840429a3 (read-only; hands formed after 10:15Z; one non-horse player, 74 Lightning hands, 33 fast folds, 10 of them from a blind):
+
+- Small blind owing chips, released before its turn, seat and public action unchanged until the turn: seven hands. Examples: formed 10:23:18Z, released 10:23:28.955Z, public fold 10:23:29.776Z; formed 10:26:38Z, released 10:26:42.717Z, a raise at 10:26:44.483Z, public fold 10:26:44.489Z; formed 10:30:06Z, released 10:30:10.704Z, raise 10:30:12.337Z, public fold 10:30:12.354Z.
+- Big blind priced by a raise, released before the public fold: raise 10:21:31.729Z, released 10:21:37.095Z, public fold 10:21:38.417Z; raise 10:28:21.462Z, released 10:28:24.916Z, public fold 10:28:28.369Z. One further big blind folded 3 ms after the raise that priced it (raise 10:20:48.553Z, public fold 10:20:48.556Z, release recorded 10:20:48.598Z), which is a queued decision and not a live click.
+- One lightning_hand_player row per hand for that player and one fold per hand: no duplicate seating, no second fold.
+- One pre-action check on the flop (hand 23f00e1c, 10:30:48.807Z). No hand in the sample shows pre-action checks on two or more streets.
+
+What this does and does not establish. The rows are consistent with Check/Fold releasing a priced blind at once and folding publicly in turn. The database does not record which button was pressed, so they are equally consistent with the Fold button and are not proof of a Check/Fold press. Cross-street carry of one press has NOT been observed on production: it is covered by the engine tests (LightningHandHost.test.ts and LightningCheckFoldCarries.test.ts, including the 40 seeded hands with more than 20 carried checks) and the client tests only. The table-change motion has not been watched on a live table by this lane; tests do not establish that it looks smooth.
+
+Outstanding live observation (a person at a Lightning table on client 884b85df or later, engine 840429a3 or later): (1) in the big blind of an unraised hand press Check/Fold once and leave it; it should check each street and stay lit until a bet folds the hand or showdown; (2) in the small blind press Check/Fold; the next hand should arrive at once; (3) watch the table change after a fold and after a showdown for cards, pot, seats and controls arriving together. No supported route does this without a funded player, and none was built (CLAUDE.md 11.5). After item 1 is played, the carry can be confirmed read-only as origin pre_action checks on consecutive streets of that hand.
+
+Left with their owners: issue #10246 and the unrecorded migration 20261109040704 (comment 6761066024); the 0440z booking-record check failure. Shared clone origin unchanged.
+
+## Live owner session and corrections, 2026-11-10 15:41Z to 16:50Z (same session)
+
+Correction to the post-cutover section above. folded_at is written when the engine accepts the fold request; an armed Check/Fold priced by a bet is released inside the same applyAction as that bet, so it appears within database-write latency of the raise. The two big-blind releases listed above came 5.366 s and 3.454 s after their raises: each was a separate press after the raise, not an armed release, and says nothing about engine delay. The third (public fold 3 ms after the raise, origin player) matches an earlier fast Fold published at its turn, not Check/Fold. No post-cutover hand showed the armed release at a raise.
+
+Direct owner observation (Dan, Lightning table 8122f139, player ...2af765, client 884b85df then later, engine 840429a3): "check fold is working correctly now" for the ordinary and small-blind cases. In the big blind he reported it did not release him on a raise and, at his turn, the lit Check/Fold cleared and he had to press Fold. The rows confirm it:
+
+- Hand 58348210 (formed 15:45:53.880Z, BB): horse raise 15:46:09.649Z; hero fold 15:46:27.514Z origin player, fold_type normal (a manual click). The engine held no pre-action at the turn (runPreAction records origin pre_action).
+- Hand 58348362 (formed 15:47:43.147Z, BB): horse raise 15:47:49.462Z; hero fold 15:47:53.303Z origin player, fold_type fast, folded_at 15:47:53.300Z: a pending fast fold from an unpriced seat, published at the turn and not released by the raise.
+
+Root causes being fixed in a separate change: the bar decides "owes nothing" from render-time table state but "can check" from a ref, so a lagging posted blind sends auto_fold instead of auto_check_fold; the engine holds a fast fold from an unpriced seat until its turn and releasePricedCheckFolds skips pending folds; and an arm the engine refuses can stay lit. Engine part activates at the next 04:00 America/Chicago window.
+
+Other findings from the same session, each with its own owner change: the Charles Rule compared the post-rake stack with 2 x the reference (228.12 against 228.92 after a 0.80 rake); blind and button assignment let one player take the small blind three times in about 30 s; the action bar remounted on every action (fixed and live, #10363, served in 708e42bb); and the joining and fold-to-next-hand delays traced to a tournament settlement lock storm (#10361), not to the Lightning path (fold ack p50 about 1 ms, release about 83 ms, deal to screen 61 to 97 ms; the remaining wait is for five other free players).
+
+Still to observe after the big-blind fix is live: one big-blind press of Check/Fold carried to a raise (release within write latency of the raise) and one carried across streets (origin pre_action checks on consecutive streets of one hand).

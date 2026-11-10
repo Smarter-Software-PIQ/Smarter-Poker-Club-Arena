@@ -410,6 +410,34 @@ describe('a refused ticket is re-dealt and the wager goes again', () => {
     noCheckControl();
   });
 
+  it('keeps the tapped earned tile through a standalone quote outage and a delayed start', async () => {
+    backend.state.mockRejectedValue(new Error('Standalone quote unavailable'));
+    let release!: () => void;
+    backend.start.mockImplementationOnce(async (request) => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { ...opened('mines'), commit_id: request.commitId };
+    });
+    backend.act.mockImplementationOnce(async (round, _action, cell) => ({
+      ...round,
+      picked: [cell],
+    }));
+    render(<DiamondChoicePage game="mines" />);
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: 'Pick Tile' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pick Tile' }));
+    await settle();
+    expect(backend.start).toHaveBeenCalledTimes(1);
+    expect(backend.act).not.toHaveBeenCalled();
+    await act(async () => release());
+    await settle();
+    expect(backend.act).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ commit_id: dealt[0].commit_id }),
+      'pick',
+      0
+    );
+  });
   it('restarts a pressed start the same way, once the fresh quote and ticket are in', async () => {
     backend.awardState.mockResolvedValue({ enabled: false, award: null, gameState: null });
     backend.start
@@ -1417,7 +1445,9 @@ describe('every choice names its chips, and every outcome has one name', () => {
     expect(eyebrow).toBe('You Won');
     expect(detail).toBe('Your Prize Is Booked. Street 2 At 1.45x; Street 3 Was The Crash.');
     // HOW FAR YOU WOULD HAVE GOT: its own line on the receipt, every booked crossing.
-    expect(receiptHeadline()).toBe('You Got Out Just In Time: Street 3 Was A Hit');
+    expect(receiptHeadline()).toBe(
+      'Booked On Street 2 At 1.45x. You Got Out Just In Time: Street 3 Was A Hit.'
+    );
   });
 
   it('tells a booked round how much further the road actually went', async () => {
@@ -1434,7 +1464,7 @@ describe('every choice names its chips, and every outcome has one name', () => {
       'Your Prize Is Booked. Street 2 At 1.45x; The Donkey Would Have Made It To Street 5 At 3.15x.'
     );
     expect(receiptHeadline()).toBe(
-      'You Would Have Got To Street 5 At 3.15x, Then Been Hit On Street 6'
+      'Booked On Street 2 At 1.45x. You Would Have Got To Street 5 At 3.15x, Then Been Hit On Street 6.'
     );
   });
 
@@ -1453,7 +1483,7 @@ describe('every choice names its chips, and every outcome has one name', () => {
     expect(detail).toBe(
       'Big Win. Your Prize Is Booked. Street 12 At 20.00x; The Donkey Would Have Crossed Every Street, To 20.00x.'
     );
-    expect(receiptHeadline()).toBe('You Crossed Every Street');
+    expect(receiptHeadline()).toBe('Booked On Street 12 At 20.00x. You Crossed Every Street.');
   });
 
   it('names a finished round in Recent Rounds the way the scene named it', async () => {
@@ -1728,7 +1758,7 @@ describe('every finished round verifies itself', () => {
     await toTheReceipt();
     // Once it has ended, the same line is the NEXT round's ticket, and this
     // round's own sealed hash is named as such.
-    expect(proofLines().some((line) => line?.startsWith('Next Round Sealed: '))).toBe(true);
+    expect(proofLines().some((line) => line?.startsWith('Next Ticket: '))).toBe(true);
     expect(proofLines()).toContain(`This Round Was Sealed As: ${sealed.server_seed_hash}`);
   });
 

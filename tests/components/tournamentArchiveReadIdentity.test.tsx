@@ -207,7 +207,7 @@ describe('Tournament archive read identity', () => {
     mocks.query.mockImplementation((table, args) =>
       table === 'tournaments'
         ? success([tournament('A'), tournament('B')])
-        : table === 'tournament_players'
+        : table === 'tournament_players_public'
           ? args.tournament_id === 'A'
             ? old.promise
             : success([winner('Current Winner')])
@@ -229,7 +229,7 @@ describe('Tournament archive read identity', () => {
     mocks.query.mockImplementation((table) =>
       table === 'tournaments'
         ? success([tournament('A')])
-        : table === 'tournament_players'
+        : table === 'tournament_players_public'
           ? ++reads === 2
             ? stale.promise
             : success([winner(reads === 1 ? 'Initial Winner' : 'Latest Winner')])
@@ -257,7 +257,7 @@ describe('Tournament archive read identity', () => {
       success(
         table === 'tournaments'
           ? [tournament('A'), ...(updated ? [tournament('B')] : [])]
-          : table === 'tournament_players'
+          : table === 'tournament_players_public'
             ? [winner(updated ? 'Paid Winner' : 'Initial Winner')]
             : []
       )
@@ -318,7 +318,7 @@ describe('Tournament archive read identity', () => {
     mocks.query.mockImplementation((table, args) =>
       table === 'tournaments'
         ? success([tournament('A'), tournament('B')])
-        : table === 'tournament_players'
+        : table === 'tournament_players_public'
           ? args.tournament_id === 'A'
             ? success([winner('Previous Winner')])
             : refused
@@ -411,7 +411,7 @@ describe('Tournament archive read identity', () => {
     mocks.query.mockImplementation((table, args) =>
       table === 'tournaments'
         ? success(args.id ? tournament('Linked') : [])
-        : table === 'tournament_players'
+        : table === 'tournament_players_public'
           ? success([winner('Linked Winner')])
           : success([])
     );
@@ -437,7 +437,7 @@ describe('Biggest Hits uses recorded individual awards', () => {
                 ? [{ id: 'S', buy_in_amount: 1, spin_multiplier: 50, ended_at: null }]
                 : []
             )
-          : table === 'tournament_players'
+          : table === 'tournament_players_public'
             ? success([{ tournament_id: 'S', username: 'Spin Winner', prize }])
             : success([])
       );
@@ -481,7 +481,7 @@ describe('satellite archive award denominations', () => {
           ? [tournament('A', { variant: 'satellite', satellite_target_id: target })]
           : table === 'tournament_payouts'
             ? awards
-            : table === 'tournament_players'
+            : table === 'tournament_players_public'
               ? field
               : []
       )
@@ -527,16 +527,16 @@ describe('complete archived tournament standings', () => {
     }));
     mocks.query.mockImplementation((table, args) => {
       if (table === 'tournaments') return success([tournament('A')]);
-      if (table !== 'tournament_players') return success([]);
+      if (table !== 'tournament_players_public') return success([]);
       const cursor = args.gt ? Number(args.gt) : 0;
       return { data: rows.slice(cursor, cursor + 1000), error: null, count: rows.length };
     });
     mount();
     await select('A');
     await screen.findByText('Finisher 1001');
-    expect(mocks.query.mock.calls.filter(([table]) => table === 'tournament_players')).toHaveLength(
-      2
-    );
+    expect(
+      mocks.query.mock.calls.filter(([table]) => table === 'tournament_players_public')
+    ).toHaveLength(2);
   });
 
   it('refuses partial standings when a later response fails', async () => {
@@ -547,7 +547,7 @@ describe('complete archived tournament standings', () => {
     }));
     mocks.query.mockImplementation((table, args) => {
       if (table === 'tournaments') return success([tournament('A')]);
-      if (table !== 'tournament_players') return success([]);
+      if (table !== 'tournament_players_public') return success([]);
       return args.gt
         ? { data: null, error: new Error('later page unavailable') }
         : { data: rows, error: null, count: 1001 };
@@ -599,7 +599,7 @@ describe('archive read completion and selection ownership', () => {
             : args.spin_multiplier
               ? success([{ id: 'Old', buy_in_amount: 1, spin_multiplier: 50 }])
               : success([tournament('B')])
-          : table === 'tournament_players' && args.in
+          : table === 'tournament_players_public' && args.in
             ? success([{ tournament_id: 'Old', username: 'Older Hit', prize: 50 }])
             : success([])
       );
@@ -652,7 +652,9 @@ describe('the results list prints the TOTAL prize pool (2026-11-07)', () => {
 
   it('an event with no bounty pool prints its places pool unchanged', async () => {
     mocks.query.mockImplementation((table) =>
-      success(table === 'tournaments' ? [tournament('A', { prize_pool: 90, bounty_pool: null })] : [])
+      success(
+        table === 'tournaments' ? [tournament('A', { prize_pool: 90, bounty_pool: null })] : []
+      )
     );
     mount();
     await screen.findByText('Event A');

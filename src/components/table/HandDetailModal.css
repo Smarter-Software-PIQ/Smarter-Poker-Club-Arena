@@ -1087,3 +1087,81 @@
   opacity: 0.5;
   cursor: default;
 }
+
+/* Keep the controls anchored while giving the hand record most of the glass. */
+.hdm-console .sc__head {
+  height: clamp(84px, 14dvh, 110px);
+  aspect-ratio: auto;
+  background-size: 100% 100%;
+}
+.hdm-console .sc__head .sc__title {
+  font-size: clamp(16px, 4.2cqw, 24px);
+}
+.hdm-console .sc__body {
+  gap: 4px;
+  padding-inline: 8%;
+}
+.hdm-console .sc__foot {
+  height: 12px;
+  aspect-ratio: auto;
+  background-size: 100% 100%;
+}
+.hdm-result {
+  padding: 8px 12px;
+  border-inline-start: 3px solid #56b4fa;
+  background: linear-gradient(105deg, #102941, #081119 75%);
+}
+.hdm-result .hdm-potline {
+  align-items: center;
+  padding: 0;
+}
+.hdm-result__winner {
+  margin: 4px 0;
+  color: #d1e8f9;
+  font:
+    600 clamp(12px, 3cqw, 16px)/1.4 Inter,
+    sans-serif;
+}
+.hdm-yours .hdm-empty--inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px;
+  text-align: start;
+}
+.hdm-yours .hdm-word-btn {
+  width: auto;
+  margin: 0;
+  padding: 2px;
+  border: 0 !important;
+}
+.hdm-rabbit .hdm-section-count {
+  white-space: normal;
+  letter-spacing: 0.04em;
+}
+.hdm-panel .hdm-actions > button {
+  height: 44px;
+  aspect-ratio: auto;
+  background-size: 100% 100% !important;
+  font-size: clamp(12px, 2.6cqw, 15px);
+}
+.hdm-yours .hdm-sd__cards:empty {
+  display: none;
+}
+.hdm-yours .hdm-sd__right {
+  grid-column: 2;
+  grid-row: 1;
+}
+.hdm-yours .hdm-sd__who {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+.hdm-panel .hdm-rabbit__btn {
+  color: #8dd7ff;
+  -webkit-text-fill-color: #8dd7ff;
+  text-shadow: 0 1px 2px #020811;
+}

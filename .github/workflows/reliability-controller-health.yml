@@ -1,0 +1,40 @@
+name: Reliability Controller Health
+
+# public.fn_reliability_controller_health() and the alert class corrections
+# (migration 20261110045731), installed over the Stage B fixture and the Stage
+# B migration (20261110000020) it requires. Runs
+# scripts/ci/test-reliability-controller-health.py against a throwaway
+# PostgreSQL 17 cluster, never production. No timer (CLAUDE.md 10.85):
+# pull_request only, scoped to the paths it proves. The Stage B migration and
+# fixture are listed so a change to either proves this file still installs
+# over it.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261110045731_reliability_controller_health_function_and_seed_corrections.sql
+      - supabase/migrations/20261110000020_reliability_controller_stage_b.sql
+      - scripts/ci/test-reliability-controller-health.py
+      - scripts/ci/fixtures/reliability-controller-production-objects.sql
+      - .github/workflows/reliability-controller-health.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reliability-controller-health-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  reliability-controller-health:
+    name: The controller health read is service-only and its own alerts never loop
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: The controller health read is service-only and its own alerts never loop
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-reliability-controller-health.py

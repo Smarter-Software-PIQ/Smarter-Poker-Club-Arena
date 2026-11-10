@@ -43,6 +43,7 @@ export type CrossingMoment = 'landed' | 'hit' | 'booked';
 
 interface Props {
   game: ChoiceGame;
+  pendingMine?: number | null;
   picked: number[];
   mines: number[] | null;
   phase: 'idle' | 'open' | 'cashed' | 'lost';
@@ -934,6 +935,40 @@ function mergeParts(kit: SceneParts, parent: THREE.Object3D) {
   return merged;
 }
 
+/**
+ * A continuous equine silhouette, lofted through measured sections. Each
+ * section gives the position, ventral line, dorsal line and half-width.
+ * Preserve the sphere's UVs and seam topology for the merged shadow mesh.
+ */
+function donkeyContour(
+  kit: SceneParts,
+  parent: THREE.Object3D,
+  material: THREE.Material,
+  sections: ReadonlyArray<readonly [number, number, number, number]>
+) {
+  const geometry = kit.own(kit.ball.clone());
+  const positions = geometry.getAttribute('position');
+  for (let i = 0; i < positions.count; i++) {
+    const longitudinal = (1 - positions.getY(i)) * 0.5 * (sections.length - 1);
+    const index = Math.min(Math.floor(longitudinal), sections.length - 2);
+    const left = sections[index],
+      right = sections[index + 1],
+      t = longitudinal - index;
+    const x = THREE.MathUtils.lerp(left[0], right[0], t);
+    const bottom = THREE.MathUtils.lerp(left[1], right[1], t);
+    const top = THREE.MathUtils.lerp(left[2], right[2], t);
+    const width = THREE.MathUtils.lerp(left[3], right[3], t);
+    const theta = Math.atan2(positions.getZ(i), positions.getX(i));
+    positions.setXYZ(
+      i,
+      x,
+      (bottom + top + (top - bottom) * Math.cos(theta)) / 2,
+      width * Math.sin(theta)
+    );
+  }
+  geometry.computeVertexNormals();
+  parent.add(new THREE.Mesh(geometry, material));
+}
 /** Original sculpted donkey, with separate ears, muzzle, mane, tail and walking legs. */
 function donkey(kit: SceneParts) {
   const animal = new THREE.Group();
@@ -951,8 +986,23 @@ function donkey(kit: SceneParts) {
     fur.sheenColor.setHex(0x9ab8d8);
     fur.envMapIntensity = 0.5;
   }
-  sphere(kit, animal, coat, 0, 0.95, 0, 0.65, 0.43, 0.35);
-  sphere(kit, animal, pale, 0, 0.8, 0, 0.49, 0.28, 0.32);
+  donkeyContour(kit, animal, coat, [
+    [-0.76, 1.03, 1.03, 0],
+    [-0.67, 0.78, 1.26, 0.22],
+    [-0.48, 0.72, 1.36, 0.31],
+    [-0.24, 0.65, 1.32, 0.32],
+    [0.02, 0.64, 1.3, 0.34],
+    [0.25, 0.72, 1.36, 0.3],
+    [0.41, 0.83, 1.49, 0.23],
+    [0.52, 1.0, 1.58, 0.19],
+    [0.61, 1.26, 1.65, 0.155],
+    [0.65, 1.53, 1.53, 0],
+  ]);
+  // Dark shoulder cross and dorsal stripe run through a donkey’s summer coat.
+  sphere(kit, animal, dark, -0.05, 1.345, 0, 0.5, 0.035, 0.038);
+  for (const side of [-1, 1])
+    sphere(kit, animal, dark, 0.26, 1.235, side * 0.215, 0.047, 0.16, 0.065).rotation.x =
+      side * -0.48;
   const legs: THREE.Group[] = [];
   const knees: THREE.Group[] = [];
   for (const x of [-0.38, 0.4])
@@ -971,16 +1021,28 @@ function donkey(kit: SceneParts) {
       animal.add(leg);
       legs.push(leg);
     }
-  sphere(kit, animal, coat, 0.49, 1.27, 0, 0.25, 0.51, 0.26).rotation.z = -0.35;
-  sphere(kit, animal, coat, 0.68, 1.66, 0, 0.35, 0.3, 0.28);
-  sphere(kit, animal, pale, 0.96, 1.52, 0, 0.28, 0.21, 0.255);
+  donkeyContour(kit, animal, coat, [
+    [0.49, 1.6, 1.6, 0],
+    [0.56, 1.42, 1.77, 0.16],
+    [0.67, 1.41, 1.82, 0.21],
+    [0.81, 1.45, 1.78, 0.18],
+    [0.95, 1.41, 1.68, 0.14],
+    [1.09, 1.44, 1.53, 0.08],
+  ]);
+  donkeyContour(kit, animal, pale, [
+    [0.95, 1.48, 1.58, 0.1],
+    [1.01, 1.38, 1.61, 0.14],
+    [1.13, 1.36, 1.54, 0.13],
+    [1.19, 1.38, 1.49, 0.1],
+    [1.2, 1.43, 1.43, 0],
+  ]);
   // The ears are groups like the legs, pivoted at their base, so the idle
   // attract can flick one; the parts inside each are merged as the body's are.
   const ears: THREE.Group[] = [];
   for (const z of [-0.215, 0.215]) {
-    sphere(kit, animal, eye, 0.83, 1.74, z, 0.064, 0.076, 0.034);
-    sphere(kit, animal, pale, 0.84, 1.77, z * 1.1, 0.018, 0.019, 0.014);
-    sphere(kit, animal, dark, 1.16, 1.55, z * 0.75, 0.035, 0.023, 0.03);
+    sphere(kit, animal, eye, 0.75, 1.69, z * 0.85, 0.043, 0.032, 0.019);
+    sphere(kit, animal, pale, 0.76, 1.7, z * 0.92, 0.009, 0.009, 0.006);
+    sphere(kit, animal, dark, 1.14, 1.47, z * 0.57, 0.036, 0.02, 0.012);
     const ear = new THREE.Group();
     ear.position.set(0.53, 1.68, z * 0.65);
     ear.name = `ear-${ears.length}`;
@@ -1032,15 +1094,15 @@ const PAVEMENT_TINT = 0x7f8c9b;
 const SIGN_INK = {
   plate: '#05070a',
   bevel: '#3a4756',
-  label: '#45adff',
-  figure: '#ffd700',
+  label: '#FFFFFF',
+  figure: '#ffffff',
   start: '#e6edf3',
   led: '#45adff',
   bust: '#ff5b6e',
   gold: '#ffd700',
   spentEdge: '#9aa5b3',
-  spentInk: '#9aa5b3',
-  edge: ['#9aa5b3', '#e8c877', '#ffd700', '#ff8a62'],
+  spentInk: '#ffffff',
+  edge: ['#91a8b9', '#aec6dc', '#679dcc', '#348eee'],
 } as const;
 /**
  * The eight paints on the road: the first four are the near lane, the last
@@ -1504,6 +1566,9 @@ function CrossingScene(props: Props) {
       box(kit, car, body, 0, 0.64, 0, 1.3, 0.18, 2.52, 0.11);
       box(kit, car, glass, 0, 0.9, -0.12, 1.12, 0.5, 1.42, 0.2);
       box(kit, car, body, 0, 1.17, -0.15, 1.0, 0.08, 0.98, 0.06);
+      // Raked windscreens and the rear quarter lights slope into the bonnet and boot.
+      box(kit, car, glass, 0, 0.91, 0.59, 1.09, 0.43, 0.12, 0.05).rotation.x = -0.52;
+      box(kit, car, glass, 0, 0.91, -0.8, 1.06, 0.39, 0.12, 0.05).rotation.x = 0.53;
       // A split bonnet stripe, ducktail spoiler and blade lights give the
       // approaching rally coupe a distinct silhouette from either direction.
       box(kit, car, body, 0, 0.86, -1.17, 1.48, 0.075, 0.23, 0.03);
@@ -2028,7 +2093,8 @@ function CrossingScene(props: Props) {
       const live = latest.current;
       const pace = pacer.pace(now, {
         reduced,
-        moving: animating || needsDraw,
+        moving:
+          animating || needsDraw || (live.phase === 'open' && !live.paused && onScreen && !reduced),
         signature: `${live.game}|${live.roundId}|${live.phase}|${live.picked.length}|${live.paused}|${live.mines?.length ?? -1}`,
       });
       if (document.hidden || now - last < pace) return;
@@ -2150,7 +2216,8 @@ function CrossingScene(props: Props) {
        * Nothing is allocated: two rotations, one position, and an instance
        * colour rewritten only when a lamp's level actually changes.
        */
-      const attract = seen.phase === 'idle' && p.phase === 'idle' && !reduced;
+      const attract =
+        !reduced && (seen.phase === 'idle' || (seen.phase === 'open' && walk === 1 && !stepping));
       const beat = attract ? now / speed : 0;
       const flick = (beat % IDLE.earEvery) / IDLE.earMs;
       const flicking = Math.floor(beat / IDLE.earEvery) % 2;
@@ -2492,12 +2559,6 @@ function CrossingScene(props: Props) {
   const mult = (index: number) =>
     streetMultiplier(ladder[Math.min(Math.max(0, index), lastStreet - 1)]);
   const booked = props.payoutChips ?? reached;
-  const floor = props.floorChips ?? null;
-  /** The amount a hit still pays, said beside the amount being risked. */
-  const guarantee =
-    floor === null
-      ? null
-      : `${props.superFloor ? 'Super Guarantee' : 'A Hit Pays'} ${gameChips(floor)}`;
   const reach = `${lastStreet} Streets Up To ${mult(lastStreet - 1)}`;
   const readout = lost
     ? {
@@ -2528,23 +2589,15 @@ function CrossingScene(props: Props) {
             value: reached === null ? mult(shownStep - 1) : `${gameChips(reached)} Chips`,
             note:
               shownStep < lastStreet
-                ? [
-                    ahead === null
-                      ? `Next Street At ${mult(shownStep)}`
-                      : `Next Street ${gameChips(ahead)} At ${mult(shownStep)}`,
-                    guarantee,
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')
+                ? ahead === null
+                  ? `Next Street At ${mult(shownStep)}`
+                  : `Next Street ${gameChips(ahead)} At ${mult(shownStep)}`
                 : 'The Final Street. Book The Win.',
           }
         : {
             label: 'First Street Pays',
             value: ahead === null ? mult(0) : `${gameChips(ahead)} Chips At ${mult(0)}`,
-            note:
-              floor === null
-                ? reach
-                : `${props.superFloor ? 'A Super Hit Still Pays' : 'A Hit Still Pays'} ${gameChips(floor)} Chips · ${reach}`,
+            note: reach,
           };
   /**
    * HOW FAR THE DONKEY COULD HAVE GONE (Dan: "if a user books a win, it should
@@ -2563,8 +2616,8 @@ function CrossingScene(props: Props) {
               : roadEnd >= lastStreet
                 ? `You Could Have Gone All The Way To Street ${lastStreet} At ${mult(lastStreet - 1)}`
                 : roadEnd <= shownStep
-                  ? 'The Next Street Was The Crash'
-                  : `You Could Have Gone To Street ${roadEnd} At ${mult(roadEnd - 1)}`,
+                  ? `First Hit On Street ${roadEnd + 1}`
+                  : `Safe Through Street ${roadEnd} At ${mult(roadEnd - 1)} · First Hit On Street ${roadEnd + 1}`,
           note: `You Booked Street ${shownStep} At ${mult(shownStep - 1)}`,
           outcome: roadEnd >= lastStreet ? 'all' : roadEnd <= shownStep ? 'crash' : 'further',
         }
@@ -2590,9 +2643,7 @@ function CrossingScene(props: Props) {
           : shownPhase === 'cashed'
             ? 'Win Booked · Showing The Remaining Route'
             : shownPhase === 'idle'
-              ? props.sealed
-                ? `Round Sealed · ${props.sealed}`
-                : 'Start · Highway Ahead'
+              ? 'Highway Ahead'
               : // Never "Next Street Clear": the next street is sealed, and the
                 // traffic on screen does not decide it.
                 shownStep === 0

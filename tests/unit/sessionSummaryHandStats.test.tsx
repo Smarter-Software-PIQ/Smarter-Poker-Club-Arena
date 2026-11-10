@@ -94,9 +94,7 @@ it('keeps new-target hand metrics unknown and re-reads at the existing settlemen
   expect(within(tile('Hands Played')).getByText('-')).toBeTruthy();
   expect(within(tile('VPIP')).getByText('-')).toBeTruthy();
   expect(within(tile('Win Rate')).getByText('-')).toBeTruthy();
-  expect(
-    (screen.getByRole('button', { name: 'Share This Session' }) as HTMLButtonElement).disabled
-  ).toBe(true);
+  expect((screen.getByRole('button', { name: 'Share' }) as HTMLButtonElement).disabled).toBe(true);
   expect(mocked.refresh).not.toHaveBeenCalled();
   act(() => settlePendingSummary(172));
   await waitFor(() => expect(mocked.refresh).toHaveBeenCalledTimes(1));

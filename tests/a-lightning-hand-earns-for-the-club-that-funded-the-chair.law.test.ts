@@ -72,7 +72,11 @@ describe('the migration is one guarded transaction', () => {
   it('replaces no other function and writes no row', () => {
     expect(SQL).not.toMatch(/CREATE (OR REPLACE )?FUNCTION/);
     expect(SQL.match(/EXECUTE patched;/g)?.length).toBe(1);
-    expect(SQL.match(/pg_get_functiondef\('public\.([a-z_]+)\(/g)?.every((m) => m.includes('fn_cash_earning_club'))).toBe(true);
+    expect(
+      SQL.match(/pg_get_functiondef\('public\.([a-z_]+)\(/g)?.every((m) =>
+        m.includes('fn_cash_earning_club')
+      )
+    ).toBe(true);
     expect(SQL).not.toMatch(/^\s*(UPDATE|INSERT INTO|DELETE FROM)\s+public\./im);
     expect(SQL).not.toMatch(/ALTER TABLE|LOCK TABLE/i);
   });
@@ -106,14 +110,18 @@ describe('the edits land only inside the Lightning branch', () => {
 
 describe('the earning club is the funding chair club', () => {
   it('reads the anchor chair of the original pool session, same player, live at the hand start', () => {
-    expect(R).toContain('LEFT JOIN public.table_seats s ON s.id=ps.anchor_seat_id AND s.user_id=hp.player_id');
+    expect(R).toContain(
+      'LEFT JOIN public.table_seats s ON s.id=ps.anchor_seat_id AND s.user_id=hp.player_id'
+    );
     expect(R).toContain('s.joined_at<=started AND (s.left_at IS NULL OR s.left_at>started)');
     expect(R).toContain('array_agg(DISTINCT s.club_id) FILTER (WHERE s.club_id IS NOT NULL)');
   });
 
   it("falls back to that chair's immutable buy-in funding receipt, through its indexed columns", () => {
     expect(R).toContain('FROM public.cash_participant_funding_receipts f');
-    expect(R).toContain("f.operation_kind='buyin' AND f.table_id=cs.table_id AND f.account_entity_id=hp.player_id");
+    expect(R).toContain(
+      "f.operation_kind='buyin' AND f.table_id=cs.table_id AND f.account_entity_id=hp.player_id"
+    );
     expect(R).toContain('f.user_id=hp.player_id AND f.seat_id=ps.anchor_seat_id');
     expect(R).toContain('f.seat_joined_at<=ps.entered_at AND f.recorded_at<=started');
   });
@@ -121,13 +129,19 @@ describe('the earning club is the funding chair club', () => {
   it('decides chair first, receipt only when no chair, and never weakens validation', () => {
     const v = (x: string) =>
       `EXISTS(SELECT 1 FROM public.clubs c WHERE c.id=${x}[1]\n    AND (c.is_union IS NOT TRUE OR (p_union_id IS NOT NULL AND (c.id=p_union_id OR c.union_id=p_union_id))))`;
-    expect(R).toContain(`IF cardinality(chair)=1\n   AND ${v('chair')}\n  THEN RETURN chair[1]; END IF;`);
-    expect(R).toContain(`IF chair IS NULL AND cardinality(paid)=1\n   AND ${v('paid')}\n  THEN RETURN paid[1]; END IF;`);
+    expect(R).toContain(
+      `IF cardinality(chair)=1\n   AND ${v('chair')}\n  THEN RETURN chair[1]; END IF;`
+    );
+    expect(R).toContain(
+      `IF chair IS NULL AND cardinality(paid)=1\n   AND ${v('paid')}\n  THEN RETURN paid[1]; END IF;`
+    );
     expect(R.indexOf('RETURN chair[1]')).toBeLessThan(R.indexOf('RETURN paid[1]'));
   });
 
   it('then re-enters the unchanged session reader, so nothing that banked today starts raising', () => {
-    expect(edit(4).replacement.trimEnd().endsWith('IF cardinality(clubs)=1 AND clubs[1] IS NOT NULL')).toBe(true);
+    expect(
+      edit(4).replacement.trimEnd().endsWith('IF cardinality(clubs)=1 AND clubs[1] IS NOT NULL')
+    ).toBe(true);
     expect(R).not.toContain('cash_earning_seat_provenance_missing_or_ambiguous');
   });
 
@@ -135,5 +149,27 @@ describe('the earning club is the funding chair club', () => {
     expect(R).not.toMatch(/club_members/);
     expect(R).not.toMatch(/public\.tables\b/);
     expect(R).not.toMatch(/is_horse/);
+  });
+});
+
+describe('retained original Lightning results follow the same funding owner', () => {
+  it('projects only original ownership and qualifies its real existing native consumer', () => {
+    const current = migrationNamed('original_lightning_results_follow_the_original_funding_owner');
+    const helper = fs.readFileSync(
+      'scripts/ci/fixtures/lightning-original-funding-owner.sql',
+      'utf8'
+    );
+    const native = fs.readFileSync('scripts/ci/test-lightning-original-pnl-postgres.py', 'utf8');
+    expect(helper).toContain("person:=jsonb_set(person,'{earning_club_id}',to_jsonb(funding))");
+    expect(helper).toContain('r.recorded_at<=started');
+    expect(helper).toContain('r.funding_union_id IS NOT DISTINCT FROM game_union');
+    expect(helper).not.toMatch(
+      /UPDATE public\.|DELETE FROM|INSERT INTO|session_replication_role|public\.union_clubs|public\.club_members/
+    );
+    expect(current).toContain('count(*)=69');
+    expect(current).toContain('LIGHTNING_OWNER_PREIMAGE_CHANGED');
+    expect(current).toContain('app.original_lightning_owner_pre_generation');
+    expect(current).not.toMatch(/SET(?: LOCAL)? session_replication_role\s*=/i);
+    expect(native).toContain('lightning-original-funding-owner-native.py');
   });
 });

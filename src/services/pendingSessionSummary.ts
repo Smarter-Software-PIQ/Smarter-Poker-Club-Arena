@@ -114,6 +114,7 @@ export interface TournamentResult {
    * loss, an MTT wearing one is a lie.
    */
   isSpin?: boolean;
+  isSatellite?: boolean;
   formatKind?: 'mtt' | 'sng' | 'spin' | 'unknown';
   /** The hole cards the hero held when they won the tournament. */
   winningCards?: Card[];
@@ -126,6 +127,15 @@ export interface TournamentResult {
    * its list-navigation fallback.
    */
   tournamentId?: string;
+}
+
+export function offersResultReplay(result?: TournamentResult): boolean {
+  return (
+    result?.formatKind === 'sng' &&
+    !result.isSpin &&
+    !result.isSatellite &&
+    !result.satelliteQualification
+  );
 }
 
 export interface SessionSummaryPayload {
