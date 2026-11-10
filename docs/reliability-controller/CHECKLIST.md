@@ -172,12 +172,25 @@ Email is NOT switched off by this project until Stage B is verified live.
 
 ## 4. Open Blockers
 
-- B1 Mac access. The session's request for `/Users/smarter.poker/Documents`
-  was refused by the app's permission layer, so the canonical policies, the
-  owner handoff section, the SSD worktree (`/Volumes/SmarterWork/agent-work`)
-  and the local pre-push prechecks are unavailable. Work so far is from a
-  cloud clone and read-only database access. Needed: the owner adds the
-  Documents folder and the SSD work volume to this chat in the desktop app.
+- B1 Mac access. CLEARED 2026-11-10 22:30Z, without the folder grant. The
+  Cowork folder request for `/Users/smarter.poker/Documents` is still refused
+  by the app's permission layer and was not retried or worked around. The
+  route that does work is the local `counselors` MCP server's host terminal
+  (tool `counselors__host_terminal`): raw bash on this Mac as the owner's
+  account, working directory defaulting to the canonical checkout, with the
+  GitHub CLI already authenticated. No credential is read, printed or copied
+  to use it, and the Supabase service role is deliberately NOT in that
+  shell's environment, so database checks still go through their workflow's
+  identity as CLAUDE.md requires. Two practical limits: the bridge hard-caps
+  every call at about 80 seconds, so anything longer (a pre-push hook, an
+  `npm ci`, a native test) must be started with `nohup` and polled from a log
+  file; and `scripts/new-migration.mjs` does not complete through it, while
+  `scripts/reserve-migration-version.sh` does, so a reserved version needs
+  its name length checked by hand against the 60-character ledger limit.
+  With this route the canonical policies, the owner handoff section, the
+  verified SSD2 worktree and the full local pre-push prechecks are all
+  reachable, and all four were used for the 2026-11-10 incident batch in
+  section 8.
 - B2 Engine evidence. Engine logs and Prometheus on Hetzner are not reachable
   from this session. Needed to name the `decideFast` rejection class and the
   failing cluster game. Reachable through the Mac once B1 is cleared.
@@ -289,3 +302,236 @@ true`, 0 enabled runbooks, triggers `zzz_reliability_intake_insert` and
   corrected by its owner in #10317 (06:22Z). The applier itself holds installs
   while a Backup export runs (`backup-export-holds-installs.mjs`), which is
   what protects the release snapshot; this install went through that route.
+
+## 8. Production Alert Batch, 2026-11-10 (by incident UUID)
+
+Six critical incidents arrived as AI-AGENT-NEEDED handoffs. Status words are
+the exact ones defined at the top of this file. Three of the six turned out to
+be false pages whose cause was in the controller's own reading of the world,
+not in the thing being reported, and one single defect (8.3) explains why
+three recovered incidents still presented as needing an agent.
+
+### 8.0 Owned cleanup that was blocking every merge
+
+`Installed and merged migrations agree` was red on EVERY open pull request
+(seen on #10385 and #10386), so nothing could be delivered. Cause:
+`20261109040704 kings_club_downline_reattach_snapshot` had been applied to
+production through the Supabase MCP and never committed, so SQL ran that main
+had never seen. `merged` and `installed` and `verified live`: PR #10396,
+squash `be5ca3b7`, 50 checks pass and 0 fail.
+
+- Forward fix `20261110215108` installed. Readback: `anon`, `authenticated`
+  and `PUBLIC` hold no privilege on `kings_club_downline_repair_20261108`;
+  `service_role` holds exactly SELECT, INSERT, UPDATE, DELETE; RLS still
+  enabled; all 10 snapshot rows preserved.
+- The historical recording was NOT replayed. The applier REFUSED it with "does
+  not open with BEGIN; and close with COMMIT;" and committed nothing, which is
+  the correct outcome for already-applied SQL; production's statements for
+  that version still hash to `93cad27fd8322c1025d8957fb8984caa`, equal to the
+  committed file. The refusal does leave a red `apply-merged-migration` run on
+  main for every recording merge, because the dispatcher has no skip for a
+  manifest recording. Recorded here as a known characteristic, not fixed.
+
+### 8.1 `9f5b0304-8634-48b9-a8ec-ea9c2fc563e4` MergedMigrationNotInstalled
+
+False page. `fn_ca_merged_migration_install_watch` judged a whole-file property
+from a diff hunk: commit `22c1fe09` carried `20261110173033_lightning_...` as
+`renamed`, so GitHub returned a patch beginning `@@ -3,7 +3,7 @@` and line 1,
+where `-- @install-window: daily-maintenance` lives, was absent.
+`COALESCE(patch, raw)` preferred that fragment and `COALESCE(..., false)`
+recorded it as ordinary-route, so a migration correctly queued for the 04:00
+window was paged critical after 60 minutes.
+
+Owned by another lane in PR #10386, which already read the raw file at the
+merge SHA and set `v_unread` BEFORE recording the commit, so an unreadable file
+cannot advance the cursor or strand later commits. That branch was continued,
+not duplicated: its preimage pin `050181cc806cb87f389881b72e543330` was
+verified still equal to the installed function, and the one open case was
+closed. An empty body is now unreadable: GitHub can answer 200 with `''` and
+`ca_migration_watch_raw` returns that rather than NULL, so blank text read as
+"no window header". The test is `v_text !~ '[^[:space:]]'`, not `btrim()`,
+because one-argument `btrim()` strips only spaces and a body of newlines and
+tabs survived it. That was caught by the new regression case, not by review.
+`implemented` and `tested`: two cases added to
+`scripts/ci/test-a-merged-migration-left-uninstalled-is-paged.py`, run locally
+against throwaway PostgreSQL 17. Without the migration change they fail
+(`state` reads `read`, the version is recorded, `raised=1`); with it the whole
+suite reports `all passed`. Current main merged in; the branch had been 18
+commits behind.
+
+`merged` and `installed` and `verified live`: PR #10386, squash `b5320c9d`,
+merged 2026-11-10 23:36:27Z, 51 checks pass and 0 fail; migration
+`20261110194917` dispatched and installed by `apply-merged-migration` run
+`42924853123` (success). Readback: the installed
+`fn_ca_merged_migration_install_watch` carries BOTH
+`WINDOW HEADER FROM THE WHOLE FILE (20261110194917)` and
+`AN EMPTY BODY IS UNREADABLE (20261110194917)`.
+
+Controller outcome: the source is fixed, so no future renamed or empty-bodied
+window file is mis-routed. The one page the defect already raised
+(`operational_alert_events` 376392) was still firing after the install,
+because the mis-recorded `window_install = false` row for `20261110173033`
+predates the fix and step 2 of the watch only resolves on installed-or-retired.
+That row is corrected and the page withdrawn, with its evidence, by migration
+`20261110233941` in the follow-up pull request; the migration itself still
+waits for its 04:00 America/Chicago window, which is correct.
+
+### 8.2 `61fc0986-d4dd-4b54-9c58-14b2605aecc0` fn_ca_cron_failure_watch, ca-collusion-daily
+
+Real. Cron job 202 failed every day from 2026-11-07 with
+`canceling statement due to statement timeout` at
+`fn_ca_collusion_scan(integer) line 6`, against the function's own 120s.
+`fn_ca_collusion_scan` drove from `public.profiles` with one lateral aggregate
+per profile: 5,015 profiles, 5,198,530 transfer rows in the 7-day window, only
+1,056 distinct winners, and the shape pinned to
+`idx_ca_hand_transfers_winner`, so it could not use
+`ca_hand_transfers_played_at_idx` added the same day by `20261110162314` for
+this very scan.
+
+`implemented` and `tested` read-only on production, `merged` pending: migration
+`20261110224528`, PR #10406. Equivalence proved on a fixed dataset
+(`played_at > '2026-11-09 22:00:00+00'`, both shapes): 85,357 = 85,357 directed
+rows, `EXCEPT ALL` zero in both directions so duplicate multiplicity matches,
+`sum(cnt)` 415,007 both, `sum(gross)` 705,462,952.76 both, 68 = 68 qualified
+pairs with all three thresholds applied, `EXCEPT ALL` zero both ways again.
+Performance on the real 7-day window 9.03 s against a 120 s cancellation.
+`ca_detector_registry` holds the detector at `retired`, so this resumes the
+`ca_collusion_signals` inserts missing since Nov 7 and raises no incident.
+
+### 8.3 `38ae668f-352c-4ef3-80b8-d1f8931383fa` Tournament.atomic_finish_outcome_unknown
+
+No money defect, and the one defect that explains three handoffs. Financial
+alert `235060db` resolved itself at 18:44Z with proof on the row: tournament
+`4b551d52` COMPLETED and committed exactly once, one terminal receipt settled
+`2026-11-10 18:39:50.676782+00`, prize pool 386.00 conserved to the cent by its
+payout rows, bounty pool 345.00, escrow closed at zero at the same instant. The
+unknown-outcome guard did its job.
+
+What was broken is propagation. `smarter_private.reliability_transition` wrote
+`escalation_state` on the way INTO `escalated` and never cleared it, while
+`closure_basis` and `resolution_state` in the same UPDATE both special-case the
+terminal statuses. Escalation was a latch, so a recovered incident kept
+`escalation_state='escalated'` and `escalation_reason='no eligible recovery'`
+for ever, and `fn_reliability_incident_for_owner` kept presenting it as AI
+AGENT NEEDED. There is no second path:
+`fn_ca_alert_resolution_reaches_the_incident` propagates a resolved financial
+alert to `public.ca_drift_incidents`, not to the controller.
+
+`implemented`, `merged` pending: migration `20261110224707`, PR #10406. Cleared
+on `recovered` and `closed` only. `verifying` must not clear it because
+`verifying -> escalated` is a legal edge and verification can fail;
+`stale_unverified` must not because that closure is explicitly unverified and
+must never read as a verified one. `escalation_reason` is left as written and
+`reliability_incident_events` keeps every transition, so no history is lost.
+This also restores the designed recurrence path: `reliability_apply_signal`
+chooses a recurrence's status with
+`CASE WHEN i.escalation_state = 'escalated' THEN 'escalated' ELSE 'investigating' END`,
+so with the latch a new signal on a recovered incident jumped back to escalated
+with nothing measured.
+
+Two incidents are reconciled through the supported `recovered -> closed` edge,
+each gated on its own resolved financial alert and each a no-op if the incident
+has since moved: this one on `235060db`, and 8.4 on `ea0ae17c`. The existing
+terminal receipt is reused as the evidence it already is; no settlement is
+replayed. `78afb154` is deliberately NOT reconciled and a postimage assertion
+fails the install if it was cleared, because the Spin fault is still live.
+
+### 8.4 `a974b740-b4d4-4c50-9b92-b4b89a1730da` LightningHandHost.post_commit_obligations_pending
+
+False page, 27 occurrences and 3 recurrences in one day for table `ea34f32d`,
+every one completed by its successor. `fn_post_commit_handoff_is_a_warning`
+existed to stop exactly this, but matched only
+`ServerTableEngine.post_commit_obligations_pending` with error
+`f06_owner_changed`, so the Lightning host's identical designed handoff kept
+`critical`.
+
+A substring match would have been wrong. Over 7 days that one source raises six
+distinct conditions: the designed handoff
+`post-commit obligations refused (predecessor_pending)` 263 times, plus 124
+statement timeouts, 8 `LIGHTNING_HAND_IN_PROGRESS` refusals, 3 and 2 and 1
+`supabase_timeout` variants on the RPC, the predecessor lookup and the
+predecessor scan. Those five are genuine failures or unknown outcomes and must
+keep paging, so source and error are compared for EQUALITY, which also excludes
+the `drift_incident:financial_alerts:...` mirror rows.
+
+Recognising the words is not enough either. A handoff is downgraded only when a
+durable successor demonstrably owns the work: the hand's row in
+`hand_atomic_commits` must carry a persisted `post_commit_payload`, which is
+precisely what the projection worker applies and precisely what
+`fn_post_commit_stranded_watchdog` reads. No payload means nothing owns it and
+the alert stays critical. The migration refuses to install if
+`post-commit-stranded-watchdog-5m` is not active.
+
+Watchdog delivery verified read-only: that job is `*/5 * * * *`, active, last
+run 2026-11-10 21:55:00Z succeeded, and 0 envelopes are stranded past 10
+minutes. Its own critical `financial_alerts` row reaches the controller through
+`trg_ca_financial_alert_incident`. Trigger order on `financial_alerts` is
+`a00_operational_source_intake`, `a2_post_commit_handoff_is_a_warning`,
+`trg_ca_financial_alert_incident`,
+`zz_ca_alert_resolution_reaches_the_incident`, so the reclassification lands
+before the incident is created and the watchdog's row is untouched by it.
+`implemented`, `merged` pending: migration `20261110224637`, PR #10406.
+
+### 8.5 `a544b469-9226-4770-9f77-d5a77e085ea7` union_accounting_scheduler
+
+Real, and the only one of the six with money not settled. The weekly close for
+`2026-11-02 08:00Z` to `2026-11-09 08:00Z` (union
+`fade0000-0000-0000-0000-000000000001`) will not certify. Two independent
+causes, both traced, neither yet fixed.
+
+Cause A, performance. The chunked close tick (job 272, 4-minute statement
+budget) is exhausted inside `fn_union_pnl_evidence_report` at line 228, the
+uncached `touched` CTE over `fn_union_pnl_touched_registrations`.
+`fn_accounting_close_warm_stop()` only yields BETWEEN steps, so a single
+statement that overruns aborts the attempt (sqlstate 57014) and keeps nothing,
+which is why attempts climb without progress. The function already reads a
+certificate for that step through
+`smarter_private.inventory_basis_cache_read(..., 'pnl_touched', union, start, end)`
+and that cache is keyed by range, so sub-range certification is the natural
+bounded, resumable correction.
+
+Cause B, data. A `pnl_flows_problem` certificate holds `bad = 10` of 353,520
+flows, all `kind='unsupported'`. Traced: all ten are cancellation refunds of
+satellite-won seats in one CANCELLED tournament `f4153d52`, each 200.00,
+`prize_liability -> player_wallet`, total 2000.00, which does not net to zero.
+Each has a valid `tournament_refund_entitlements` row; they fail the predicate
+at `fn_union_pnl_original_flow_evidence` line 181 because
+`fn_union_pnl_satellite_seat_owner` resolves the owning club only from a
+wallet-funded `entry` receipt on the IMMEDIATE satellite. Of 85 satellite_seat
+entitlements in that tournament 75 resolve, and the ten split cleanly:
+
+- 8 chained satellite seats. The player was admitted by WINNING an upstream
+  satellite (`tournament_players.is_satellite_qualifier`, `source_satellite_id`),
+  so no wallet entry exists on the immediate one. One hop upstream each has
+  exactly one `entry` receipt whose funding club EQUALS
+  `refund_wallet_club_id`, and that upstream registration is not itself a
+  qualifier, so the chain terminates in one hop. The owner is determinable from
+  evidence; the classifier simply does not follow the hop.
+- 2 departed funding club. A proper wallet entry resolves to KINGS CLUB
+  `a41434bb`, but both players left that club on 2026-11-02, before the
+  2026-11-07 refund, and the 200.00 was paid into The Felt Society
+  `a0000000`. KINGS CLUB's wallet paid the satellite entry and another club's
+  member wallet received the refund, so this is a real unattributed inter-club
+  value movement, not a missing code path.
+
+Every participant in that tournament tree is `is_bot=true`, so this is seeded
+play. That bears on urgency, not on whether the book certifies.
+
+State: `audited`. The 8-row group is fixable from evidence. The 2-row group
+needs an owner decision on which club's P&L bears it, and must not be guessed.
+
+### 8.6 `78afb154-54ae-4661-bf7d-e5e3c18a6eb3` SpinFleetProducingNothing
+
+Real degradation, and deliberately left escalated. The alertmanager condition
+(`poker_spin_seconds_since_last_start > 1800 and poker_spin_open_boards > 0`)
+cleared, but at 2026-11-10 21:17Z there were 6 Spin starts in the previous hour
+against the runbook's documented ~100/hour, 45 boards in REGISTERING, and
+`v_spin_unfilled_waits` showed 9 boards at 1 live seat and 2 at 2, none at 3,
+oldest wait 1h43m. By the runbook's own step-2 test that is seating and demand
+distribution, not the start path and not a quiet room.
+
+PR #10385 `a seat-first board climbs one rung at a time, from every lane`
+merged as `a364cb39` during this batch. It is engine-side
+(`server/src/GameServer.ts`), so it is not serving until an engine release
+carries it, and its actual behaviour has not yet been read against this
+symptom. State: `audited`, not attributed as the fix.
