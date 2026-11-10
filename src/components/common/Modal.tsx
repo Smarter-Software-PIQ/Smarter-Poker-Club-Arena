@@ -35,6 +35,7 @@ interface ModalProps {
   closeOnEscape?: boolean;
   showCloseButton?: boolean;
   className?: string;
+  popupChassis?: 'none';
   /**
    * An accessible name for a dialog that renders no `title` header.
    * A full-screen panel that draws its own heading and its own close control
@@ -106,6 +107,7 @@ export function Modal({
   closeOnEscape = true,
   showCloseButton = true,
   className = '',
+  popupChassis,
   ariaLabel,
 }: ModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
@@ -200,6 +202,7 @@ export function Modal({
             exit={modalExit}
             onClick={(e) => e.stopPropagation()}
             role="dialog"
+            data-popup-chassis={popupChassis}
             aria-modal="true"
             aria-labelledby={title ? 'ca-modal-title' : undefined}
             aria-label={!title && ariaLabel ? ariaLabel : undefined}
