@@ -16,6 +16,7 @@ Recorded with their rows in `docs/changelog/2026-11-10-a-rebuy-is-taking-a-seat-
 
 - `tests/a-rebuy-is-taking-a-seat-again.law.test.ts`: 6 of 6 pass; 4 of 6 fail on the page before the change.
 - With it: `tests/law-registry.law.test.ts`, `tests/the-hero-always-holds-the-cards-they-were-dealt.law.test.ts`, `tests/unit/tournamentSeatCardArrival.test.ts`, `tests/unit/expiredSeatClears.test.ts`: 1,560 tests pass.
+- First hosted run on head `521e8803` failed `Client Unit Tests shard 2`: `tests/unit/mobileLobbyAndLeaveRealtime.test.tsx` pinned exactly two latch clears on the page. That pin is what this change replaces; it now requires three and names the rebuy receipt. All 272 test files that read `src/pages/TablePage.tsx` then pass locally (4,501 tests).
 - `npx tsc --noEmit -p .`: no errors. Prettier and ESLint clean on the changed files.
 
 ## Limits
