@@ -25,6 +25,15 @@ BEGIN
  PERFORM public.fn_diamond_spin_book(owner_id_fixture,club,club,'club',player,'diamond_prize',-7500,'credit-test:opening-draw','Opening fixture custody');
  INSERT INTO public.ca_diamond_house(id,balance) VALUES(1,initial_house)
  ON CONFLICT(id) DO UPDATE SET balance=EXCLUDED.balance;
+ PERFORM public.fn_diamond_spin_book(owner_id_fixture,club,club,'club',player,'entry',12500,'credit-test:closed-day','Closed Day Intake',yesterday);
+ -- The pending award and past day retain the old owner across a club sale.
+ UPDATE public.clubs SET owner_id=player WHERE id=club;
+ BEGIN
+  PERFORM public.fn_diamond_spin_book(owner_id_fixture,club,club,'club',player,'diamond_prize',-1,'forged-owner-change','Unsealed expense');
+  RAISE EXCEPTION 'Unsealed old-owner debit accepted';
+ EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM<>'Diamond Spin Custody Does Not Match The Current Host Owner' THEN RAISE; END IF;
+ END;
  PERFORM set_config('request.jwt.claims','{"role":"authenticated"}',true);
  FOR idx IN 1..2 LOOP
   INSERT INTO public.wheel_card_awards(spin_id,user_id,club_id,host_id,host_kind,owner_id,risk_diamonds,half_diamonds,
@@ -52,7 +61,6 @@ BEGIN
   RAISE EXCEPTION 'Player, owner or platform did not reconcile after both cards'; END IF;
 
  PERFORM set_config('request.jwt.claims','{"role":"service_role"}',true);
- PERFORM public.fn_diamond_spin_book(owner_id_fixture,club,club,'club',player,'entry',12500,'credit-test:closed-day','Closed Day Intake',yesterday);
  result:=public.fn_diamond_spin_settle_day(owner_id_fixture,yesterday);
  again:=public.fn_diamond_spin_settle_day(owner_id_fixture,yesterday);
  IF result->>'ok' IS DISTINCT FROM 'true' OR again->>'replayed' IS DISTINCT FROM 'true'
@@ -61,6 +69,7 @@ BEGIN
   OR (SELECT amount FROM public.wheel_owner_credit_repayments WHERE owner_id=owner_id_fixture AND day=yesterday)<>10000
   OR (result->>'credited_net')::bigint<>2000 THEN
   RAISE EXCEPTION 'Daily repayment or replay failed: % / %',result,again; END IF;
+ UPDATE public.clubs SET owner_id=owner_id_fixture WHERE id=club;
 END $$;
 -- A one-billion stake can seal a three-billion prize. A player's balance,
 -- every mirror, the permanent receipt and the ordinary debit still agree.
