@@ -5048,6 +5048,24 @@ function LiveTablePage({
   const bustRebuyOpenRef = useRef(false);
   bustRebuyOpenRef.current = bustRebuyOpen;
   const [bustRebuyProcessing, setBustRebuyProcessing] = useState(false);
+  /* THE BUST REBUY WINDOW (Dan 2026-11-09). The engine gives a busted cash
+     player with the chips to rebuy twenty seconds, and says how long is left
+     in a private `bust_rebuy_window` frame. The deadline is the engine's; this
+     is only the clock the rebuy sheet shows. Kept as "time left when told"
+     plus this device's own clock, so a wrong device clock cannot skew it. */
+  const [bustRebuyDeadlineAt, setBustRebuyDeadlineAt] = useState<number | null>(null);
+  const [bustRebuySecondsLeft, setBustRebuySecondsLeft] = useState<number | null>(null);
+  useEffect(() => {
+    if (bustRebuyDeadlineAt === null) {
+      setBustRebuySecondsLeft(null);
+      return;
+    }
+    const tick = () =>
+      setBustRebuySecondsLeft(Math.max(0, Math.ceil((bustRebuyDeadlineAt - Date.now()) / 1000)));
+    tick();
+    const timer = setInterval(tick, 250);
+    return () => clearInterval(timer);
+  }, [bustRebuyDeadlineAt]);
   /* Lightning transition phase 2: the allowed maximum for a busted Lightning
      player's rebuy, as the database answered it (readLightningTopUp). Set
      only while that prompt is the one open; null at every other table. */
@@ -5951,6 +5969,9 @@ function LiveTablePage({
       setHeroRowStack(null);
       setShowBuyInModal(false);
       setShowRebuyModal(false);
+      // The seat the bust rebuy sheet was offering to refill is gone.
+      setBustRebuyOpen(false);
+      setBustRebuyDeadlineAt(null);
       sittingOutIdsRef.current.delete(heroId);
       setHeroSitsOutPerRow(false);
       setShowSitOut(false);
@@ -11144,6 +11165,8 @@ function LiveTablePage({
     // Also only once per bust — bustPromptFiredRef guards against repeat.
     if (stack > 0) {
       bustPromptFiredRef.current = false;
+      // Funded again: the last bust's rebuy window is over.
+      setBustRebuyDeadlineAt(null);
       // Chips have been seen for this taking of the seat.
       chipsSeenForSeatAtRef.current = seatAcquiredAtRef.current;
       return;
@@ -13128,6 +13151,13 @@ function LiveTablePage({
       ev.user_id === userId
     ) {
       toast.error('The Queued Top Up Could Not Be Added. Your Diamonds Were Not Charged.');
+      return;
+    }
+    if (ev.kind === 'bust_rebuy_window' && ev.table_id === tableId && ev.user_id === userId) {
+      const remainingMs = Number(ev.remaining_ms);
+      if (Number.isFinite(remainingMs) && remainingMs > 0) {
+        setBustRebuyDeadlineAt(Date.now() + remainingMs);
+      }
       return;
     }
     if (ev.kind === 'add_on_adjusted') {
@@ -31992,6 +32022,7 @@ function LiveTablePage({
         bustRebuyOpen={bustRebuyOpen}
         bustWalletBalance={bustWalletBalance}
         bustRebuyProcessing={bustRebuyProcessing}
+        bustRebuySecondsLeft={bustRebuySecondsLeft}
         onCancelBustRebuy={cancelBustRebuy}
         onRetryBustBalance={retryBustBalance}
         onConfirmBustRebuy={confirmBustRebuy}

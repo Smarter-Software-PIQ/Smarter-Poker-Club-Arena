@@ -234,7 +234,8 @@ describe('Lightning: no cap and no clock; horses start only a few games, people 
   it('seating, existing offers and the walk-out pass all use the same person read', () => {
     const fleet = readFileSync(new URL('./HorseFleetManager.ts', import.meta.url), 'utf8');
     const rotator = readFileSync(new URL('./HorseSessionRotator.ts', import.meta.url), 'utf8');
-    expect(fleet.split('cashPlanLightningHumanGames,').length - 1).toBe(4);
+    // The same game-wide human read also supplies paced activity-hour demand.
+    expect(fleet.split('cashPlanLightningHumanGames,').length - 1).toBe(5);
     expect(fleet.split("supabase.rpc('fn_plo_lightning_post_human_demand')").length - 1).toBe(2);
     expect(fleet.split('lightningGamesWithPlayingHumans(').length - 1).toBe(2);
     expect(rotator).toContain('lightningGamesWithPlayingHumans(');

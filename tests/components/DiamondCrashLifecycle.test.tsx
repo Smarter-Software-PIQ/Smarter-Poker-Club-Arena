@@ -423,6 +423,44 @@ describe('Crash settles one displayed round once', () => {
     });
     expect(screen.getByText('Climbing').nextElementSibling!.textContent).toBe(shown);
   });
+  const voice = () =>
+    screen.getAllByRole('status').find((node) => node.classList.contains('sr-only'))!;
+  it.each([
+    ['cashed', 780, 'Booked At 7.80×'],
+    ['crashed', null, 'Flight Ended At 1.61× · 15.00 Chips Paid'],
+  ] as const)(
+    'acknowledges a tap and displays only the sealed %s outcome',
+    async (status, cashout, label) => {
+      const tick = deferred<typeof settled>(),
+        receipt = deferred<typeof settled>();
+      backend.crashSettle.mockReturnValueOnce(tick.promise).mockReturnValueOnce(receipt.promise);
+      await mountOpen();
+      fireEvent.click(screen.getByRole('button', { name: 'Book The Win' }));
+      expect(screen.getByRole('button', { name: 'Booking…' })).toBeDisabled();
+      expect(readout()).not.toHaveTextContent(label);
+      const confirmed = {
+        ...settled,
+        status,
+        outcome: {
+          ...settled.outcome,
+          status,
+          cashout_cents: cashout,
+          crash_cents: cashout ? 927 : 161,
+          payout_chips: cashout ? 78 : 15,
+        },
+      } as typeof settled;
+      await act(async () => {
+        tick.resolve(confirmed);
+      });
+      expect(readout()).toHaveTextContent(label);
+      expect(voice()).toHaveTextContent(label);
+      await act(async () => {
+        receipt.reject(new Error('Transport broke after authoritative tick'));
+      });
+      expect(backend.toast.error).not.toHaveBeenCalled();
+      expect(backend.crashSettle.mock.calls.filter((call) => call[1] === true)).toHaveLength(1);
+    }
+  );
   it('prints each frame into the readout without a render, and books exactly the printed figure (R20)', async () => {
     backend.crashSettle.mockResolvedValueOnce(open);
     await mountOpen();
@@ -450,8 +488,6 @@ describe('Crash settles one displayed round once', () => {
   it('speaks the start, each mark the climb passes and the ending, never every frame', async () => {
     backend.crashSettle.mockResolvedValueOnce(open);
     await mountOpen();
-    const voice = () =>
-      screen.getAllByRole('status').find((node) => node.classList.contains('sr-only'))!;
     // Through a round the readout redraws every frame, so it is not spoken by itself.
     expect(readout()).toHaveAttribute('aria-live', 'off');
     expect(voice()).toHaveAttribute('aria-live', 'polite');

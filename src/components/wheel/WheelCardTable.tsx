@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { WheelCardAward, WheelCardPick } from '../../services/DiamondWheelService';
 import type { WheelCardVerdict } from '../../utils/wheelFairness';
 import { Modal } from '../common/Modal';
-import { SpadeConsole } from '../console/SpadeConsole';
+import cabinet from '../games/BonusCompletion.module.css';
 import { WheelPrizeArt } from './WheelPrizeArt';
 import revealStyles from './WheelWinReveal.module.css';
 import { TapHaptic } from '../haptics/TapHaptic';
@@ -139,43 +139,14 @@ export function WheelCardTable({
       closeOnOverlay={false}
       closeOnEscape={plated}
       showCloseButton={false}
+      popupChassis="none"
       className={revealStyles.dialog}
     >
-      <SpadeConsole
-        onClose={plated ? onClose : undefined}
-        eyebrow="Diamond Cards"
-        title={revealed ? 'Your Card' : 'Pick A Card'}
-        crest="diamond"
-        pill={revealed ? 'Paid' : 'Sealed'}
-        pillInk={revealed ? 'green' : 'gold'}
-        foot={plated ? 'plates' : 'foot'}
-        plates={
-          revealed
-            ? {
-                secondary: {
-                  label: verifying ? 'Checking' : 'Check These Cards',
-                  onClick: onVerify,
-                  disabled: verifying,
-                },
-                primary: {
-                  label: 'Continue',
-                  ink: 'gold',
-                  onClick: onClose,
-                  buttonRef: continuePlate,
-                },
-              }
-            : held
-              ? {
-                  primary: {
-                    label: 'Close',
-                    ink: 'white',
-                    onClick: onClose,
-                    buttonRef: continuePlate,
-                  },
-                }
-              : undefined
-        }
-      >
+      <section className={cabinet.receipt}>
+        <header>
+          <span>Diamond Cards</span>
+          <h2>{revealed ? 'Your Card' : 'Pick A Card'}</h2>
+        </header>
         <p className={`sc-copy sc-copy--center ${styles.stakes}`}>
           {revealed
             ? `${diamonds(pick.paid_diamonds)} Diamonds Paid Into Your Account.`
@@ -226,7 +197,19 @@ export function WheelCardTable({
             <code className={styles.mono}>{pick.fairness.server_seed_hash}</code>
           </div>
         ) : null}
-      </SpadeConsole>
+        {plated && (
+          <footer>
+            {revealed && (
+              <button type="button" disabled={verifying} onClick={onVerify}>
+                {verifying ? 'Checking' : 'Check These Cards'}
+              </button>
+            )}
+            <button type="button" ref={continuePlate} onClick={onClose}>
+              {revealed ? 'Continue' : 'Close'}
+            </button>
+          </footer>
+        )}
+      </section>
     </Modal>
   );
 }

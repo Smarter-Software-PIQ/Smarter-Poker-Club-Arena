@@ -103,10 +103,6 @@ CREATE TABLE table_pending_addons(id uuid PRIMARY KEY,table_id uuid,user_id uuid
 ALTER TABLE tables ADD COLUMN IF NOT EXISTS big_blind numeric, ADD COLUMN IF NOT EXISTS status text DEFAULT 'running';
 ALTER TABLE bbj_pools ADD COLUMN IF NOT EXISTS union_id uuid, ADD COLUMN IF NOT EXISTS status text DEFAULT 'active',
  ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
--- The post-hand processor checks this original-result key before certifying
--- blocked escrow. The plain cash hands below have no blocked original.
-CREATE TABLE public.union_pnl_cash_outcomes(
- table_id uuid NOT NULL,hand_number bigint NOT NULL,evidence jsonb NOT NULL,PRIMARY KEY(table_id,hand_number));
 CREATE TABLE IF NOT EXISTS hand_rake_in_flight(hand_id uuid PRIMARY KEY,amount numeric);
 -- The rake leaves the hand (where the accepted commit put it) exactly when the
 -- envelope books it: one helper so the closed-system total can count it.

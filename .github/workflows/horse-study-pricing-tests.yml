@@ -1,0 +1,37 @@
+name: Horse study pricing tests
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/horse-study-pricing-tests.yml'
+      - 'scripts/ops/*plo*'
+      - 'scripts/ops/*river*'
+      - 'scripts/ops/*omaha*'
+      - 'server/src/scripts/horseRiverTerminalPrices.ts'
+      - 'server/src/engine/PokerEngine.ts'
+      - 'server/src/engine/WinnerUnitScaling.ts'
+      - 'server/src/engine/multiway/JointPotDistribution.ts'
+      - 'server/src/engine/multiway/JointDeductions.ts'
+
+concurrency:
+  group: horse-study-pricing-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pricing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - working-directory: scripts/ops
+        run: |
+          python3 -B -m unittest test_horse_plo56_initiative test_horse_plo_opportunity_ranking \
+            test_horse_river_conditional test_horse_river_opportunity_cost

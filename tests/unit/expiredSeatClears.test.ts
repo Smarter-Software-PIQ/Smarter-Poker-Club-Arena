@@ -76,6 +76,8 @@ function fixture() {
     setHeroRowStack: vi.fn(),
     setShowBuyInModal: vi.fn(),
     setShowRebuyModal: vi.fn(),
+    setBustRebuyOpen: vi.fn(),
+    setBustRebuyDeadlineAt: vi.fn(),
     setHeroSitsOutPerRow: vi.fn(),
     setShowSitOut: vi.fn(),
     setSitOutSince: vi.fn(),
@@ -171,6 +173,9 @@ describe('confirmed seat removal clears every local seat claim', () => {
     expect(f.deps.pendingSeatStackRef.current).toBe(0);
     expect(f.deps.setHeroRowStack).toHaveBeenCalledWith(null);
     expect(f.deps.setShowRebuyModal).toHaveBeenCalledWith(false);
+    // The bust rebuy sheet cannot outlive the seat it was offering to refill.
+    expect(f.deps.setBustRebuyOpen).toHaveBeenCalledWith(false);
+    expect(f.deps.setBustRebuyDeadlineAt).toHaveBeenCalledWith(null);
     expect(f.deps.setShowBuyInModal).toHaveBeenCalledWith(false);
   });
 
