@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { getAnimationSpeed } from '../../utils/animationSpeed';
 import { gameChips } from '../../utils/bonusGameBudget';
 import { soundService } from '../../services/SoundService';
@@ -102,6 +103,7 @@ export const cascadeDelay = (cell: number, origin: number, stepMs: number) => {
   return distance * stepMs;
 };
 export default function MinesGrid({
+  pendingMine = null,
   picked,
   mines,
   phase,
@@ -113,6 +115,7 @@ export default function MinesGrid({
   betChips,
   payoutChips,
 }: {
+  pendingMine?: number | null;
   picked: number[];
   mines: number[] | null;
   phase: 'idle' | 'open' | 'cashed' | 'lost';
@@ -214,7 +217,12 @@ export default function MinesGrid({
             </div>
           </dl>
         )}
-        {phase === 'lost' && lastIsMine && <div aria-hidden="true" className={styles.blastWave} />}
+        {phase === 'lost' &&
+          lastIsMine &&
+          createPortal(
+            <div data-mine-impact aria-hidden="true" className={styles.blastWave} />,
+            document.body
+          )}
         <div className={styles.stage}>
           <div className={styles.grid}>
             {Array.from({ length: 25 }, (_, cell) => {
@@ -235,6 +243,7 @@ export default function MinesGrid({
                   data-revealed={revealed}
                   data-mine={revealed && mine}
                   data-picked={selected}
+                  data-pending={(pendingMine === cell && !selected) || undefined}
                   data-hit={selected && mine}
                   data-flip={flip}
                   data-cascade={cascade}
@@ -277,14 +286,22 @@ export default function MinesGrid({
             })}
           </div>
         </div>
-        <p className={styles.caption}>
+        <p
+          className={styles.caption}
+          data-attract-prompt={(phase === 'idle' && !busy) || undefined}
+          aria-live="polite"
+        >
           {mines
             ? phase === 'lost'
               ? 'A Mine Ended The Round. Every Mine And Gem Is Revealed.'
               : 'Win Booked. Every Mine And Gem Is Revealed.'
-            : phase === 'open'
-              ? 'Choose A Tile. Find A Diamond.'
-              : '25 Tiles. Your Next Discovery Awaits.'}
+            : pendingMine !== null
+              ? `Revealing Tile ${pendingMine + 1}`
+              : phase === 'open'
+                ? 'Select A Diamond'
+                : busy
+                  ? 'Preparing Your Board'
+                  : 'Select Any Diamond To Start'}
         </p>
       </div>
       {/* Outside the keyed board, which a finished round rebuilds for its reveal:

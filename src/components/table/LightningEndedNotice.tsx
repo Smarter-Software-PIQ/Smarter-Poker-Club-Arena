@@ -59,7 +59,6 @@ export default function LightningEndedNotice({
             poolSessionId={session.poolSessionId}
             clusterId={session.clusterId}
             name={session.name}
-            offerPlayAgain={false}
           />
         ) : null}
       </SpadeConsole>

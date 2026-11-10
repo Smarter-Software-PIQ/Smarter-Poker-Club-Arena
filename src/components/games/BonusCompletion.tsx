@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Modal } from '../common/Modal';
 import cabinet from './BonusCompletion.module.css';
@@ -17,15 +17,9 @@ export function bonusGameRoute(clubId: string, award: WheelBonusAward): string {
   return `/clubs/${clubId}/${award.game}?wheelAward=${encodeURIComponent(award.id)}`;
 }
 
-/**
- * A confirmed receipt is displayed here only after its game has finished
- * revealing, and it STAYS until the player taps (Dan 2026-09-21, R1: games can
- * never auto start; nothing ever auto-plays because the player is in the
- * lobby). The five-second return to the wheel that used to sit here armed the
- * wheel's own countdown, so a finished game rolled into a paid spin with no
- * tap at all. Now: Back To The Wheel, and when more won bonus games are
- * waiting, Play Next Bonus Game. Both are the player's own tap.
- */
+/** Game scenes deliver a settled receipt after their reveal. Earned games
+ * return to the wheel after reading time. Expanded details and an actionable
+ * next-game choice keep the receipt open. No navigation starts a new spin. */
 export default function BonusCompletion({
   clubId,
   clubUuid = null,
@@ -92,6 +86,8 @@ export default function BonusCompletion({
   const [visible, setVisible] = useState(() => document.visibilityState !== 'hidden');
   const sounded = useRef(false);
   const left = useRef(false);
+  const [reading, setReading] = useState(false);
+  const remaining = useRef(5000);
   useEffect(() => {
     const update = () => setVisible(document.visibilityState !== 'hidden');
     document.addEventListener('visibilitychange', update);
@@ -129,11 +125,23 @@ export default function BonusCompletion({
       cancelled = true;
     };
   }, [clubUuid, awardId]);
-  const go = (to: string) => {
-    if (left.current) return;
-    left.current = true;
-    navigate(to, { replace: true });
-  };
+  const go = useCallback(
+    (to: string) => {
+      if (left.current) return;
+      left.current = true;
+      navigate(to, { replace: true });
+    },
+    [navigate]
+  );
+  useEffect(() => {
+    if (!awardId || next || !visible || reading || left.current) return;
+    const started = performance.now();
+    const timer = window.setTimeout(() => go(`/clubs/${clubId}/wheel`), remaining.current);
+    return () => {
+      window.clearTimeout(timer);
+      remaining.current = Math.max(0, remaining.current - (performance.now() - started));
+    };
+  }, [awardId, clubId, go, next, visible, reading]);
   const back = {
     label: 'Back To The Wheel',
     onClick: () => go(`/clubs/${clubId}/wheel`),
@@ -158,6 +166,7 @@ export default function BonusCompletion({
           animationDuration: `${480 * getAnimationSpeed()}ms`,
           animationPlayState: visible ? 'running' : 'paused',
         }}
+        data-receipt-game={game}
         data-award-impact={big ? 'major' : eyebrow ? 'guarantee' : 'regular'}
       >
         <section className={cabinet.receipt}>
@@ -180,11 +189,14 @@ export default function BonusCompletion({
           </div>
           {headline ? (
             // A block of its own, above the receipt's sentence and read with it.
-            <div className="sc-copy sc-copy--center sc-ink--gold" data-receipt-headline="true">
+            <div className={cabinet.headline} data-receipt-headline="true">
               <strong>{headline}</strong>
             </div>
           ) : null}
-          <details className={cabinet.details}>
+          <details
+            className={cabinet.details}
+            onToggle={(event) => setReading(event.currentTarget.open)}
+          >
             <summary>Round Details</summary>
             <p role="status" className="sc-copy">
               {`${big ? 'Big Win. ' : ''}${chips > 0 ? 'Your Prize Is Booked.' : 'No Chips Won This Round.'} ${detail}`}

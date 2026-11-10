@@ -228,6 +228,9 @@ export function openFreq(
       const d = HorseLogic.decide(hero, gs, style, mods, {
         mind: false,
         telemetry: false,
+        // Pins this feature's own base; V85 (owner direction 2026-11-09) widens
+        // cash from it and is pinned by HorseCashAction.law.test.ts.
+        v85CashAction: false,
       } as never);
       if (isRaise(d.action)) r++;
     }
@@ -265,6 +268,9 @@ export function vs3(
       const d = HorseLogic.decide(hero, gs, style, mods, {
         mind: false,
         telemetry: false,
+        // Pins this feature's own base; V85 (owner direction 2026-11-09) widens
+        // cash from it and is pinned by HorseCashAction.law.test.ts.
+        v85CashAction: false,
         ...opts,
       } as never);
       if (d.action === 'call') {

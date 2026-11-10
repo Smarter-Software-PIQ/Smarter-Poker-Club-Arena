@@ -129,6 +129,7 @@ describe('tiles turn over', () => {
     expect(tiles.every((tile) => tile.getAttribute('data-revealed') === 'true')).toBe(true);
     expect(screen.getAllByRole('button', { name: /, Mine$/ })).toHaveLength(2);
     expect(screen.getAllByRole('button', { name: /, Gem$/ })).toHaveLength(23);
+    expect(document.querySelector('[data-mine-impact]')?.parentElement).toBe(document.body);
     const hit = screen.getByRole('button', { name: 'Tile 13, Mine' });
     expect(hit).toHaveAttribute('data-hit', 'true');
     expect(hit).toHaveAttribute('data-cascade', 'false');

@@ -49,7 +49,8 @@ describe('the sibling lookup is scoped the way #1702 made law', () => {
   it('is seat-first only - an MTT keeps the list', () => {
     expect(lookup).toContain('isSeatFirstTournamentFormat(origin)');
     expect(lookup).toContain("q.eq('format_contract', readTournamentFormat(origin))");
-    expect(lookup).toContain('if (!origin || !seatFirst)');
+    expect(lookup).toContain("readTournamentFormat(origin) !== 'sng-v1'");
+    expect(lookup).toContain("q.eq('max_players', origin.max_players)");
   });
 
   it('resolves the live table through the occupancy election, never a raw newest-table guess', () => {

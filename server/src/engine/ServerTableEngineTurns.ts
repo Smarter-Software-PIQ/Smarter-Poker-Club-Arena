@@ -1922,9 +1922,14 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     if (presenceOptions?.turnRendered) {
       this.disconnectEngine.noteTurnRendered(this.tableId, userId);
     }
-    if (presenceOptions?.rebuyPromptOpen) this.rebuyPromptOpenAt.set(userId, Date.now());
+    if (presenceOptions?.rebuyPromptOpen) this.noteRebuyPromptOpen(userId);
     const connected = this.disconnectEngine.isConnected(this.tableId, userId);
     return { success: true, connected, gracePeriodRemaining: 0 };
+  }
+
+  /** A heartbeat said this player's rebuy sheet is on screen. */
+  protected noteRebuyPromptOpen(userId: string): void {
+    this.rebuyPromptOpenAt.set(userId, Date.now());
   }
 
   /**

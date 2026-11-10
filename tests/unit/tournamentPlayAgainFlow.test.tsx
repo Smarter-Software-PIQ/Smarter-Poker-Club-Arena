@@ -45,7 +45,7 @@ function Location() {
   );
 }
 let generation = 0;
-async function showCard(formatKind: 'mtt' | 'spin' = 'spin') {
+async function showCard(formatKind: 'mtt' | 'spin' | 'sng' = 'sng') {
   render(
     <MemoryRouter initialEntries={['/clubs/home']}>
       <TournamentRankingHost />
@@ -64,7 +64,7 @@ async function showCard(formatKind: 'mtt' | 'spin' = 'spin') {
       peakStack: 0,
       tournament: {
         userId: 'hero',
-        tournamentId: 'finished-spin',
+        tournamentId: 'finished-tournament',
         finishSequence: String(++generation),
         isSpin: formatKind === 'spin',
         formatKind,
@@ -89,13 +89,13 @@ beforeEach(() => {
     data:
       kind === 'origin'
         ? {
-            format_contract: 'spin-v1',
+            format_contract: 'sng-v1',
             club_id: 'home',
             buy_in_amount: 100,
             game_type: 'plo4',
-            max_players: 3,
+            max_players: 2,
           }
-        : [{ format_contract: 'spin-v1', id: 'next-spin', current_players: 1, max_players: 3 }],
+        : [{ format_contract: 'sng-v1', id: 'next-sng', current_players: 1, max_players: 2 }],
     error: null,
   }));
   mocks.resolve.mockResolvedValue('next-table');
@@ -107,15 +107,18 @@ afterEach(() => {
   vi.useRealTimers();
   vi.clearAllMocks();
 });
-describe('Spin result Play Again', () => {
-  it('returns an MTT finisher to the tournament lobby without looking for a new seat', async () => {
-    await showCard('mtt');
-    fireEvent.click(screen.getByRole('button', { name: /return to lobby/i }));
-    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/tournaments'));
-    expect(screen.queryByRole('dialog')).toBeNull();
-    expect(mocks.resolve).not.toHaveBeenCalled();
-  });
-  it('opens the same-club, same-stake Spin without purchasing a seat and deduplicates taps', async () => {
+describe('format-specific session report actions', () => {
+  it.each(['spin', 'mtt'] as const)(
+    'returns a %s finisher to the game lobby without looking for a new seat',
+    async (format) => {
+      await showCard(format);
+      fireEvent.click(screen.getByRole('button', { name: /game lobby/i }));
+      await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/'));
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(mocks.resolve).not.toHaveBeenCalled();
+    }
+  );
+  it('opens the same-club, same-stake Sit & Go without purchasing a seat and deduplicates taps', async () => {
     await showCard();
     await act(async () => {
       const button = screen.getByRole('button', { name: /play again/i });
@@ -125,11 +128,32 @@ describe('Spin result Play Again', () => {
     await waitFor(() =>
       expect(screen.getByTestId('location').textContent).toBe('/table/next-table')
     );
-    expect(mocks.resolve).toHaveBeenCalledExactlyOnceWith('next-spin');
+    expect(mocks.resolve).toHaveBeenCalledExactlyOnceWith('next-sng');
     expect(mocks.filters).toHaveBeenCalledWith('club_id', 'home');
     expect(mocks.filters).toHaveBeenCalledWith('buy_in_amount', 100);
     expect(mocks.filters).toHaveBeenCalledWith('game_type', 'plo4');
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+  it('opens registration for the matching multi-seat Sit & Go', async () => {
+    mocks.query.mockImplementation(async (kind) => ({
+      data:
+        kind === 'origin'
+          ? {
+              format_contract: 'sng-v1',
+              club_id: 'home',
+              buy_in_amount: 100,
+              game_type: 'nlh',
+              max_players: 9,
+            }
+          : [{ format_contract: 'sng-v1', id: 'nine-seat', current_players: 1, max_players: 9 }],
+      error: null,
+    }));
+    await showCard();
+    fireEvent.click(screen.getByRole('button', { name: /play again/i }));
+    await waitFor(() =>
+      expect(screen.getByTestId('location').textContent).toBe('/tournaments/nine-seat')
+    );
+    expect(mocks.resolve).not.toHaveBeenCalled();
   });
   it('does not navigate a dismissed report when a slow lookup eventually returns', async () => {
     await showCard();
@@ -167,7 +191,7 @@ describe('Spin result Play Again', () => {
         await vi.dynamicImportSettled();
         await vi.advanceTimersByTimeAsync(5000);
       });
-      expect(screen.getByTestId('location').textContent).toBe('/tournaments?type=spin');
+      expect(screen.getByTestId('location').textContent).toBe('/tournaments');
       expect(screen.queryByRole('dialog')).toBeNull();
     }
   );

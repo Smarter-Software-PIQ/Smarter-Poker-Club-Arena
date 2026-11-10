@@ -41,6 +41,10 @@ interface FixturePlayer {
   debt_since_us: number | null;
   hands_since_bb: number | null;
   newcomer: boolean;
+  /** 20261110: present (non-null) once the chain carries the button counter. */
+  hands_since_sb?: number | null;
+  hands_since_button?: number | null;
+  last_button_at_us?: number | null;
   btn: number;
   co: number;
   hj: number;
@@ -102,6 +106,17 @@ export function parityGroups(f: Fixture, version: string, prior = false) {
     handsSinceBb: p.hands_since_bb,
     newcomer: p.newcomer,
     positions: { btn: p.btn, co: p.co, hj: p.hj, utg: p.utg },
+    // 20261110: the recency keys, only when the database carried them.
+    ...(typeof p.hands_since_button === 'number'
+      ? {
+          handsSinceSb: p.hands_since_sb ?? null,
+          handsSinceButton: p.hands_since_button,
+          lastButtonAtMs:
+            p.last_button_at_us === null || p.last_button_at_us === undefined
+              ? null
+              : ms(p.last_button_at_us),
+        }
+      : {}),
   }));
   if (prior)
     for (const p of players) {

@@ -140,6 +140,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
   const [seed, setSeed] = useState(randomClientSeed);
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pendingMine, setPendingMine] = useState<number | null>(null);
   const [sceneBusy, setSceneBusy] = useState(false);
   // The player has committed to the next street and the server has not
   // answered. Only a crossing pick: a start, a settle and an uncertain round
@@ -344,10 +345,19 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
   /** Stop sending a saved wager whose answers will not verify, let the player
    * go, and read the game again: the read shows any round the wager opened. */
   const keepForNextVisit = (id: string) => {
+    setPendingMine(null);
     setSaved(true);
     setError(BONUS_SAVED);
     void earned.refresh();
     void load(id).catch((readError) => reportError(readError, 'DiamondChoicePage.saved'));
+  };
+  const refreshAfterOpen = (id: string) => {
+    // The verified start already owns this round. A delayed or unavailable
+    // history read must never turn that success into an uncertain wager.
+    void load(id).catch((error) => {
+      reportError(error, 'DiamondChoicePage.refreshAfterOpen');
+      if (mounted.current) setLoadFailures((count) => count + 1);
+    });
   };
   const refresh = async (): Promise<boolean> => {
     if (!uuid || busyRef.current) return false;
@@ -367,6 +377,12 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
         uncertainTicket.current = null;
         setUncertain(false);
         setTicket(null);
+        if (game === 'mines') {
+          setError(null);
+          setSettleAttempts(0);
+          refreshAfterOpen(uuid);
+          return true;
+        }
       }
       await earned.refresh();
       await load(uuid);
@@ -414,7 +430,11 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
     (!earned.award && state.rounds_today >= state.daily_limit) ||
     waitSeconds > 0 ||
     state.diamonds < bonusWalletDebit(budget);
-  const blocked = stateBlocked || quotedEntry !== `${uuid}:${game}:${mode}:${bet}`;
+  // An earned award has its own validated quote for this exact game, setting and stake.
+  // The separately fetched standalone quote is only required for a wallet-funded entry.
+  const hasEntryQuote =
+    (game === 'mines' && !!earned.gameState) || quotedEntry === `${uuid}:${game}:${mode}:${bet}`;
+  const blocked = stateBlocked || !hasEntryQuote;
   const refusal = useRefusedAward(earned.award?.id, stateBlocked);
   /** One place decides what a refusal means; the start and the replay both land here. */
   const settleRefusal = (e: BonusRefusal, refused: BonusStart | null) => {
@@ -427,6 +447,11 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
     }
     // Anything else: read the award again so the page shows why, and let go of
     // the player until the server's reasons change.
+    if (game === 'mines') {
+      setPendingMine(null);
+      if (sessionStorage.getItem(mineIntentKey)?.startsWith(`${refused?.commitId}:`))
+        sessionStorage.removeItem(mineIntentKey);
+    }
     refusal.refuse(refused?.budget.award?.id);
     void earned.refresh();
   };
@@ -488,7 +513,8 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
       setTicket(null);
       uncertainTicket.current = null;
       setUncertain(false);
-      await load(uuid);
+      if (game === 'mines') refreshAfterOpen(uuid);
+      else await load(uuid);
       return next;
     } catch (e) {
       reportError(e, 'DiamondChoicePage.start');
@@ -541,6 +567,15 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
   ) => {
     if (!uuid || !round || round.status !== 'open' || busyRef.current || uncertain || sceneBusy)
       return;
+    const firstTile =
+      game === 'mines' &&
+      action === 'pick' &&
+      round.picked.length === 0 &&
+      sessionStorage.getItem(mineIntentKey) === `${round.commit_id}:${cell}`;
+    const settleTile = () => {
+      if (firstTile) sessionStorage.removeItem(mineIntentKey);
+      if (game === 'mines') setPendingMine(null);
+    };
     const stepping = game === 'crossing' && action === 'pick';
     let handedToScene = false;
     busyRef.current = true;
@@ -556,6 +591,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
     try {
       const next = await DiamondChoiceService.act(round, action, cell);
       if (!mounted.current) return;
+      settleTile();
       currentRound.current = next;
       if (
         game === 'crossing' &&
@@ -591,6 +627,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
       reportError(e, 'DiamondChoicePage.act');
       if (mounted.current) {
         if (e instanceof ChoiceMoveRefused) {
+          settleTile();
           // The server answered, and nothing on the round moved: its reason is
           // shown as it is. The game is read again, so a break shows and the
           // page's own break reads run; they take the reason down when play
@@ -643,15 +680,25 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
   const firstMove = useRef(act);
   firstMove.current = act;
   useEffect(() => {
-    if (game !== 'mines' || busy || uncertain || !round || round.status !== 'open') return;
+    if (game !== 'mines' || busy || busyRef.current || uncertain || !round) return;
     const stored = sessionStorage.getItem(mineIntentKey);
     if (!stored) return;
     const [commit, rawCell] = stored.split(':');
-    const cell = Number(rawCell);
     if (round.commit_id !== commit) return;
-    sessionStorage.removeItem(mineIntentKey);
-    if (round.picked.length === 0 && Number.isInteger(cell) && cell >= 0 && cell < 25)
-      void firstMove.current('pick', cell, round);
+    const cell = Number(rawCell);
+    if (
+      round.status !== 'open' ||
+      round.picked.length > 0 ||
+      !Number.isInteger(cell) ||
+      cell < 0 ||
+      cell >= 25
+    ) {
+      sessionStorage.removeItem(mineIntentKey);
+      setPendingMine(null);
+      return;
+    }
+    setPendingMine(cell);
+    void firstMove.current('pick', cell, round);
   }, [game, busy, uncertain, round, mineIntentKey]);
 
   const startRef = useRef(start);
@@ -670,12 +717,17 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
       // Fresh tickets keep being refused. The wager is not sent again, and its
       // award is let go like any other refusal: the page says why and never
       // holds the player on a game that will not start by itself.
+      if (game === 'mines') {
+        setPendingMine(null);
+        if (sessionStorage.getItem(mineIntentKey)?.startsWith(`${wager.commitId}:`))
+          sessionStorage.removeItem(mineIntentKey);
+      }
       refuseAward(wager.budget.award?.id);
       return;
     }
     restarts.current += 1;
     void startRef.current(wager);
-  }, [restartOwed, ticket, uncertain, busy, round?.status, refuseAward]);
+  }, [restartOwed, ticket, uncertain, busy, round?.status, refuseAward, game, mineIntentKey]);
   // Games paused by the platform come back by themselves after the break.
   useStandingRefresh(Boolean(state?.frozen) && !busy && !uncertain && !sceneBusy, () => {
     void earned.refresh();
@@ -782,7 +834,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
   const coinRoad = round ? isRoadCoinVersion(round.payout_version) : quotedCoinRoad;
   const ladder = game !== 'crossing' ? undefined : round ? roadRoundLadder(round) : quoteLadder;
   const roadEnd =
-    game === 'crossing' && round?.proof && ladder
+    game === 'crossing' && round?.status !== 'open' && round?.proof && ladder
       ? // The coin road states where it ended, and this device re-flips every
         // coin from the revealed seed to check it (verifyChoiceRoundDetailed).
         isRoadCoinVersion(round.payout_version)
@@ -1083,6 +1135,14 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
                 body: 'Your Entry, The Guaranteed Minimum And The Prize So Far, Updated As You Play.',
                 target: '[data-game-console] dl',
               },
+              ...(game === 'crossing' && nextOdds
+                ? [
+                    {
+                      title: 'Crossing Odds',
+                      body: `The Next Street Has A ${nextOdds.safe.toFixed(1)}% Chance Of A Safe Crossing.${guaranteedChips === null ? '' : ` A Hit Pays At Least ${gameChips(guaranteedChips)} Chips.`}`,
+                    },
+                  ]
+                : []),
               {
                 title: 'Play',
                 body:
@@ -1204,13 +1264,18 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
           mines={sceneRound?.proof?.mine_cells ?? null}
           roadEnd={sceneRound ? roadEnd : null}
           busy={busy || uncertain || (game === 'mines' && !open && (blocked || !ticket))}
+          pendingMine={pendingMine}
           onPick={async (cell) => {
-            if (game === 'mines' && !currentRound.current) {
+            if (game === 'mines' && phase !== 'open' && phase !== 'idle') return;
+            if (game === 'mines' && phase === 'idle' && currentRound.current?.status !== 'open') {
               if (!ticket || blocked || busyRef.current || uncertain) return;
+              setPendingMine(cell);
               sessionStorage.setItem(mineIntentKey, `${ticket.id}:${cell}`);
               await start();
             } else {
+              if (game === 'mines') setPendingMine(cell);
               await act('pick', cell);
+              if (mounted.current) setPendingMine(null);
             }
           }}
           ladder={
@@ -1229,21 +1294,9 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
             sceneRound && sceneRound.status !== 'open' ? sceneRound.payout_chips : undefined
           }
         />
-        {game !== 'mines' && (
-          <div className={styles.choiceRisk}>
-            {nextOdds && (
-              <p className="sc-copy">
-                {`Next Street: ${nextOdds.safe.toFixed(1)}% Safe Crossing · ${nextOdds.loss.toFixed(1)}% Car Hit`}
-              </p>
-            )}
-            {guaranteedChips !== null && (
-              <p className="sc-copy">A Loss Pays At Least {gameChips(guaranteedChips)} Chips.</p>
-            )}
-          </div>
-        )}
         <div className={styles.readout} aria-live="polite" aria-atomic="true">
           {crossingSpoken ? <p className="sr-only">{crossingSpoken}</p> : null}
-          {error ? (
+          {error && !(game === 'mines' && error === RECONNECTING && (earned.gameState || open)) ? (
             CALM.has(error) ? (
               <p className="sc-copy">{error}</p>
             ) : (
@@ -1290,7 +1343,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
                     : 'Win This Game On Diamond Spins To Play.'))
                 : !state
                   ? 'Loading Your Game'
-                  : quotedEntry !== `${uuid}:${game}:${mode}:${bet}`
+                  : !hasEntryQuote
                     ? 'Checking Your Entry'
                     : blocked
                       ? state.frozen
@@ -1303,7 +1356,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
                               ? 'This Game Is Not Open Here Yet'
                               : 'This Bet Is Not Available Right Now'
                       : game === 'mines'
-                        ? 'Tap A Diamond'
+                        ? null
                         : `${promise ?? `${compactChips(bet)} Diamonds To Play.`} ${state.max_steps} Streets In This Round.`}
             </p>
           )}
@@ -1342,7 +1395,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
       </GamePanel>
       <GamePanel title={proofTitle} pill="Sealed" foot="foot">
         <p className={`sc-copy ${styles.proofHash}`}>
-          {finished ? 'Next Round Sealed: ' : 'Sealed Before Play: '}
+          {finished ? 'Next Ticket: ' : 'Sealed Before Play: '}
           {open ? round.server_seed_hash : (ticket?.hash ?? 'Preparing Your Ticket')}
         </p>
         <label className={styles.seedField}>
@@ -1434,7 +1487,11 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
           }
           // HOW FAR YOU WOULD HAVE GOT, on a line of its own above the receipt's
           // sentence (Dan, 2026-10-11), so a booked crossing never hides it.
-          headline={wouldHaveGot ?? undefined}
+          headline={
+            wouldHaveGot && bookedAt
+              ? `Booked On Street ${picks} At ${bookedAt}. ${wouldHaveGot}.`
+              : undefined
+          }
           // The street the donkey reached (or was hit on), or the gems found:
           // a lost Mines round's last pick was the mine.
           game={game}

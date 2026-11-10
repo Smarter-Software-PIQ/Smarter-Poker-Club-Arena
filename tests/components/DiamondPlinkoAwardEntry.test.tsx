@@ -378,17 +378,15 @@ describe('Plinko starts only its earned funding, on the player choice', () => {
     expect(bay('Per Drop')).toHaveTextContent('Choose');
     expect(bay('Drops')).toHaveTextContent('Choose');
     expect(screen.getByRole('button', { name: 'Drop One' })).toBeDisabled();
-    // The Guaranteed bay is the server's own quote, in gold for a Super award.
-    expect(bay('Guaranteed')).toHaveTextContent('10.00 Chips');
-    expect(bay('Guaranteed')).toHaveAttribute('data-ink', 'gold');
-    expect(
-      screen.getAllByText('Super Plinko Pays At Least 10.00 Chips, Even If Every Drop Lands Low.')
-        .length
-    ).toBeGreaterThan(0);
+    expect(bay('Entry')).toHaveTextContent('200');
+    expect(screen.queryByText('Guaranteed')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '20 Diamonds Per Drop, 10 Drops' }));
     expect(bay('Per Drop')).toHaveTextContent('20');
     expect(bay('Drops')).toHaveTextContent('10');
-    expect(screen.getByText('10 Drops × 20 Diamonds = 200 Diamonds')).toBeVisible();
+    expect(screen.getByRole('button', { name: '20 Diamonds Per Drop, 10 Drops' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Drop One' }));
     // `tableVersion` is the table the quote named, and `budget.denomination` is
     // what DiamondBonusService sends as `p_denom`: the player's own choice.
@@ -432,11 +430,12 @@ describe('Plinko starts only its earned funding, on the player choice', () => {
     expect(choiceLabels()).toEqual(expectedChoices(2500));
     expect(choiceLabels()).toContain('250 Diamonds Per Drop, 10 Drops');
     expect(choiceLabels()).toContain('2,500 Diamonds Per Drop, 1 Drop');
-    expect(bay('Guaranteed')).toHaveTextContent('25.00 Chips');
-    expect(bay('Guaranteed')).not.toHaveAttribute('data-ink', 'gold');
+    expect(bay('Entry')).toHaveTextContent('2,500');
+    expect(screen.queryByText('Guaranteed')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Drop One' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: '250 Diamonds Per Drop, 10 Drops' }));
-    expect(screen.getByText('10 Drops × 250 Diamonds = 2,500 Diamonds')).toBeVisible();
+    expect(bay('Drops')).toHaveTextContent('10');
+    expect(bay('Per Drop')).toHaveTextContent('250');
     expect(screen.queryByText(/Chips Booked From/)).not.toBeInTheDocument();
     // A value is chosen, so Drop is the player's to press (R1).
     expect(screen.getByRole('button', { name: 'Drop One' })).toBeEnabled();
@@ -544,7 +543,8 @@ describe('Plinko starts only its earned funding, on the player choice', () => {
     expectNoAddOn();
     expect(screen.queryByText(/This Bonus Does Not Cover A Doubled Entry/)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '500 Diamonds Per Drop, 5 Drops' }));
-    expect(screen.getByText('5 Drops × 500 Diamonds = 2,500 Diamonds')).toBeVisible();
+    expect(bay('Drops')).toHaveTextContent('5');
+    expect(bay('Per Drop')).toHaveTextContent('500');
     fireEvent.click(screen.getByRole('button', { name: 'Drop One' }));
     expect(backend.start).toHaveBeenCalledTimes(1);
     expect(backend.start).toHaveBeenCalledWith(

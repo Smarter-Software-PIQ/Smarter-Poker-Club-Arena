@@ -36,6 +36,10 @@ python3 "$probe_dir/test_atomicity.py" fixed --bootstrap
 # concurrency, retry-once and whole-or-nothing failure on the bootstrapped journal.
 python3 "$probe_dir/test_deferred_settlement.py"
 
+# A busted cash seat (2026-11-10): the wallet the engine reads is the one the
+# rebuy debits, a released seat cannot buy, and a raced rebuy is refunded once.
+python3 "$probe_dir/test_bust_rebuy_window.py"
+
 python3 "$probe_dir/test_satellite_split.py"
 
 "$PGNODE" "$probe_dir/postgres-runtime/lease-heartbeat-concurrency.mjs"

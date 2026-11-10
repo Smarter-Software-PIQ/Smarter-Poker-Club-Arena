@@ -526,7 +526,10 @@ it('keeps distinct isolate ownership and main-cache totals in the existing pool 
       'STATUS_RESULT'
     );
     workers[i]!.emit({
-      ...ready(),
+      ...ready({
+        solverStores: { ...ready().solverStores, charts: i + 1 },
+        solverPolicyArtifact: { ...ready().solverPolicyArtifact, totalPolicies: 10 + i },
+      }),
       type: 'STATUS_RESULT',
       requestId: 1,
       generation: 0,
@@ -556,6 +559,9 @@ it('keeps distinct isolate ownership and main-cache totals in the existing pool 
     };
   }
   const status = pool.status();
+  expect(status.workers.map((s) => s.solverStores?.charts)).toEqual([1, 2]);
+  expect(status.workers.map((s) => s.solverPolicyArtifact?.totalPolicies)).toEqual([10, 11]);
+  expect(status.solverPolicyArtifact?.totalPolicies).toBe(10);
   expect(status.isolateMemory).toBeNull();
   expect(status.mainHistoryCacheClientCount).toBe(2);
   expect(

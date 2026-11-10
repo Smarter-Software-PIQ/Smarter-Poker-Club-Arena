@@ -99,6 +99,20 @@ describe('bonus completion presentation', () => {
     expect(screen.getByRole('dialog', { name: '12,345.67 Chips' })).toBeInTheDocument();
     expect(popup.querySelector('[data-bonus-step="completed"]')).not.toBeNull();
   });
+  it('returns an earned result after five visible seconds and pauses for the player to read', () => {
+    vi.useFakeTimers();
+    render(<BonusCompletion clubId="shark-club" awardId="earned" chips={15} detail="Settled." />);
+    const details = screen.getByText('Round Details').closest('details')!;
+    act(() => vi.advanceTimersByTime(2000));
+    details.open = true;
+    fireEvent(details, new Event('toggle'));
+    act(() => vi.advanceTimersByTime(20000));
+    expect(navigate).not.toHaveBeenCalled();
+    details.open = false;
+    fireEvent(details, new Event('toggle'));
+    act(() => vi.advanceTimersByTime(5000));
+    expect(navigate).toHaveBeenCalledExactlyOnceWith('/clubs/shark-club/wheel', { replace: true });
+  });
   it('returns to the wheel on Back To The Wheel, immediately and once', () => {
     render(<BonusCompletion clubId="shark-club" chips={5} detail="Round Complete." />);
     const popup = screen.getByRole('dialog', { name: '5.00 Chips' });

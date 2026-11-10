@@ -174,7 +174,7 @@ describe('4. the new table arrives as one table', () => {
   });
   it('only a Lightning room passes its hand number as the epoch', () => {
     expect(PAGE).toMatch(
-      /useSeatArrivals\(\s*tableId \?\? '',\s*lightningRoom \? tableState\.players : \[\],\s*lightningRoom \? \(tableState\.handNumber \?\? null\) : null\s*\)/
+      /useSeatArrivals\(\s*tableId \?\? '',\s*lightningRoom \? tableState\.players : \[\],\s*lightningRoom \? \(tableState\.handNumber \?\? null\) : null,\s*\/\*[^*]*\*\/\s*lightningRoom\s*\?\s*lightningArrivalSpacing\(/
     );
   });
 });
