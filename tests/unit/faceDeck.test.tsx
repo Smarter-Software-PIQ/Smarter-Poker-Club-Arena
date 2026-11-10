@@ -113,7 +113,7 @@ describe('face-deck catalog', () => {
     expect(readable).toHaveAttribute('data-face-deck', 'ivory-club');
   });
 
-  it('keeps the twelve-card-back product separate from face-deck finishes', () => {
+  it('keeps the ten-card-back product separate from face-deck finishes', () => {
     const view = render(
       <section data-face-deck="neon-circuit">
         <CardBack style="classic_red" size="sm" />
@@ -121,7 +121,7 @@ describe('face-deck catalog', () => {
     );
     const back = view.container.querySelector<HTMLElement>('.card-image--back');
 
-    expect(CARD_BACK_CATALOG).toHaveLength(12);
+    expect(CARD_BACK_CATALOG).toHaveLength(10);
     expect(back).toBeInTheDocument();
     expect(back).not.toHaveAttribute('data-face-deck');
   });
