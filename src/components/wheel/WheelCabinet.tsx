@@ -44,13 +44,13 @@ export function WheelCabinet({
             alt={title}
           />
         </h1>
+        {navigation && <div className={styles.headerAction}>{navigation}</div>}
       </header>
       <div className={styles.wheel}>{children}</div>
       <aside className={styles.controls} aria-label="Diamond Spins Controls">
         {setup}
         <div className={styles.dashboard}>
           {entry}
-          <div className={styles.controlHeading}>{navigation}</div>
           <dl className={styles.metrics}>
             {bays.map((bay) => (
               <div key={bay.label}>
@@ -131,32 +131,34 @@ export function WheelEntry({
 }) {
   return (
     <div className={styles.entry}>
-      <label htmlFor="diamond-spin-entry">Diamonds To Spin</label>
-      <input
-        id="diamond-spin-entry"
-        aria-describedby="diamond-spin-range"
-        type="number"
-        inputMode="numeric"
-        min={1}
-        max={availableDiamonds}
-        step={1}
-        value={Number.isNaN(value) ? '' : value}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.valueAsNumber)}
-      />
-      <span className={styles.srOnly} id="diamond-spin-range">
-        {availableDiamonds != null ? `Available: ${availableDiamonds.toLocaleString()}` : null}
-      </span>
-      <button
-        type="button"
-        className={styles.max}
-        disabled={disabled || !availableDiamonds}
-        onClick={() => {
-          if (availableDiamonds) onChange(availableDiamonds);
-        }}
-      >
-        Max
-      </button>
+      <div className={styles.stakePanel}>
+        <label htmlFor="diamond-spin-entry">Diamonds To Spin</label>
+        <input
+          id="diamond-spin-entry"
+          aria-describedby="diamond-spin-range"
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={availableDiamonds}
+          step={1}
+          value={Number.isNaN(value) ? '' : value}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.valueAsNumber)}
+        />
+        <span className={styles.srOnly} id="diamond-spin-range">
+          {availableDiamonds != null ? `Available: ${availableDiamonds.toLocaleString()}` : null}
+        </span>
+        <button
+          type="button"
+          className={styles.max}
+          disabled={disabled || !availableDiamonds}
+          onClick={() => {
+            if (availableDiamonds) onChange(availableDiamonds);
+          }}
+        >
+          Max
+        </button>
+      </div>
       <div className={styles.presets}>
         {[25, 100, 500, 1000, 2500].map((amount) => (
           <button
