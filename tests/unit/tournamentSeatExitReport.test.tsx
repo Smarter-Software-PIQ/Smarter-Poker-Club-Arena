@@ -160,7 +160,7 @@ describe('closed tournament seats deliver their reports before prune', () => {
     });
     const card = await screen.findByRole('dialog', { name: /tournament ranking/i });
     expect(card.textContent).toContain('3rd');
-    expect(screen.getByRole('button', { name: /play again/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /game lobby/i })).toBeTruthy();
   });
   it('retains an omitted table rather than treating an unreadable row as a cash exit', async () => {
     mocks.rows = [];
