@@ -79,6 +79,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   localStorage.clear();
+  sessionStorage.clear();
 });
 const state = {
   ok: true,
@@ -156,6 +157,24 @@ describe('the selected wheel stake owns its availability quote', () => {
       ).toMatchObject({ entryDiamonds: 375, contractVersion: version });
     }
   );
+
+  it('restores the selected stake on return and uses it for the first quote', async () => {
+    backend.state.mockImplementation((_club: string, amount: number) =>
+      Promise.resolve({ ...state, config: { ...state.config, spin_price_diamonds: amount } })
+    );
+    const first = render(<DiamondWheelPage />);
+    fireEvent.change(await screen.findByLabelText('Diamonds To Spin'), {
+      target: { value: '2500' },
+    });
+    await waitFor(() => expect(backend.state).toHaveBeenLastCalledWith('club-a', 2500));
+    first.unmount();
+    backend.state.mockClear();
+    render(<DiamondWheelPage />);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Spin 2,500', exact: true })).toBeEnabled()
+    );
+    expect(backend.state.mock.calls).toEqual([['club-a', 2500]]);
+  });
 
   it('admits the full available balance after 201 spins and refuses one diamond more', async () => {
     backend.state.mockImplementation((_club: string, amount: number) =>
