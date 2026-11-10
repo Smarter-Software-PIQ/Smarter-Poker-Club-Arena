@@ -14,6 +14,7 @@ const backend = vi.hoisted(() => ({
   getState: vi.fn(),
   commit: vi.fn(),
   crashHistory: vi.fn(),
+  crashTerminalReceipt: vi.fn(),
   crashSettle: vi.fn(),
   start: vi.fn(),
   navigate: vi.fn(),
@@ -267,6 +268,7 @@ beforeEach(() => {
     server_seed_hash: 'a'.repeat(64),
   });
   backend.crashHistory.mockResolvedValue([]);
+  backend.crashTerminalReceipt.mockReset().mockResolvedValue(null);
   backend.floor = null;
   sessionStorage.clear();
 });
@@ -527,6 +529,67 @@ describe('Crash settles one displayed round once', () => {
     expect(screen.getByRole('button', { name: 'Start 200' })).toBeEnabled();
     expect(screen.getByText(/Up To 50x\./)).toBeInTheDocument();
   });
+  it('freezes a flight with a stalled poll, then shows the sealed 1.61x terminal result without a second cashout', async () => {
+    const pending = deferred<typeof settled>();
+    const history = deferred<typeof settled>();
+    backend.crashSettle.mockReturnValueOnce(pending.promise);
+    backend.crashTerminalReceipt.mockReturnValueOnce(history.promise);
+    await mountOpen();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2200);
+    });
+    expect(screen.queryByRole('button', { name: 'Book The Win' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Checking Round' })).toBeDisabled();
+    expect(backend.crashTerminalReceipt).toHaveBeenCalledWith(open.club_id, open.round_id, open);
+    const terminal = {
+      ...settled,
+      status: 'crashed',
+      outcome: {
+        ...settled.outcome,
+        status: 'crashed',
+        payout_chips: 15,
+        crash_cents: 161,
+        cashout_cents: null,
+      },
+    };
+    await act(async () => {
+      history.resolve(terminal as typeof settled);
+      pending.resolve(open as unknown as typeof settled);
+    });
+    expect(readout()).toHaveTextContent('1.61x');
+    fireEvent.click(screen.getByRole('button', { name: 'Finish Flight' }));
+    expect(screen.getByRole('dialog', { name: '15.00 Chips' })).toBeInTheDocument();
+    expect(backend.crashSettle.mock.calls.every((call) => call[1] === false)).toBe(true);
+  });
+
+  it('reconciles an ambiguous Book response when the tab comes back and never resends the tap', async () => {
+    const tick = deferred<typeof settled>();
+    backend.crashSettle
+      .mockReturnValueOnce(tick.promise)
+      .mockRejectedValueOnce(new Error('Connection Lost'));
+    await mountOpen();
+    fireEvent.click(screen.getByRole('button', { name: 'Book The Win' }));
+    await act(async () => {});
+    expect(screen.getByRole('button', { name: 'Checking Round' })).toBeDisabled();
+    backend.crashTerminalReceipt.mockResolvedValueOnce(settled);
+    await act(async () => {
+      window.dispatchEvent(new Event('pageshow'));
+    });
+    expect(backend.crashSettle.mock.calls.filter((call) => call[1] === true)).toHaveLength(1);
+    expect(backend.toast.success).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores the exact settled round after a new build loads without attempting another cashout', async () => {
+    sessionStorage.setItem(`diamond-crash-open:player-a:${open.club_id}`, open.round_id);
+    backend.crashTerminalReceipt.mockResolvedValueOnce(settled);
+    render(<DiamondCrashPage />);
+    await act(async () => {});
+    expect(backend.crashTerminalReceipt).toHaveBeenCalledWith(open.club_id, open.round_id);
+    expect(backend.crashSettle).not.toHaveBeenCalled();
+    expect(backend.toast.success).toHaveBeenCalledTimes(1);
+    expect(sessionStorage.getItem(`diamond-crash-open:player-a:${open.club_id}`)).toBeNull();
+  });
+
   it('does not let an old poll overwrite a new round after cashout', async () => {
     const poll = deferred<typeof settled>();
     backend.crashSettle.mockReturnValueOnce(poll.promise).mockResolvedValueOnce(settled);

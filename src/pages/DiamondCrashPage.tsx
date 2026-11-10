@@ -148,6 +148,18 @@ const DEFAULT_CASHOUT_OPENS_CENTS = crashCashoutFloorCents(CRASH_PAYOUT_VERSION)
  * about the outcome depends on how often this tab asks: only the reveal waits,
  * and it waits at most this long past the end of the break. */
 const BREAK_POLL_MS = 2000;
+// A stalled request cannot keep a locally animated flight cashable indefinitely.
+const RECEIPT_FRESH_MS = 2000;
+function crashSessionRound(key: string, value?: string | null): string | null {
+  try {
+    if (value === undefined) return sessionStorage.getItem(key);
+    if (value === null) sessionStorage.removeItem(key);
+    else sessionStorage.setItem(key, value);
+  } catch {
+    /* Opening a round still works when browser storage is unavailable. */
+  }
+  return null;
+}
 /** What the page says about a round it can no longer follow. Never the
  * server's own words, and never a claim about money the page cannot see. */
 const ROUND_UNREACHABLE =
@@ -267,6 +279,25 @@ function DiamondCrashGame() {
   const [cashoutOpen, setCashoutOpen] = useState(false);
   const cashoutOpenRef = useRef(false);
   const cashingRef = useRef(false);
+  const [checkingRound, setCheckingRound] = useState(false);
+  const freshUntil = useRef(0);
+  const staleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const reconcileRef = useRef<(() => void) | null>(null);
+  const buildChecked = useRef(false);
+  const savedRoundKey = `diamond-crash-open:${user?.id ?? ''}:${routeClubId ?? ''}`;
+  const markChecking = useCallback(() => {
+    freshUntil.current = 0;
+    setCheckingRound(true);
+  }, []);
+  const markFresh = useCallback(() => {
+    clearTimeout(staleTimer.current);
+    freshUntil.current = performance.now() + RECEIPT_FRESH_MS;
+    setCheckingRound(false);
+    staleTimer.current = setTimeout(() => {
+      markChecking();
+      reconcileRef.current?.();
+    }, RECEIPT_FRESH_MS);
+  }, [markChecking]);
   const openCashout = useCallback((cents: number) => {
     const opens = cents >= cashoutOpensRef.current;
     if (cashoutOpenRef.current === opens) return;
@@ -311,7 +342,12 @@ function DiamondCrashGame() {
    */
   const onTick = useCallback(
     (cents: number) => {
-      if (cashingRef.current || roundRef.current?.status !== 'open' || roundRef.current.frozen)
+      if (
+        performance.now() >= freshUntil.current ||
+        cashingRef.current ||
+        roundRef.current?.status !== 'open' ||
+        roundRef.current.frozen
+      )
         return;
       liveCentsRef.current = cents;
       if (readoutValueRef.current) readoutValueRef.current.textContent = multiplierLabel(cents);
@@ -403,6 +439,8 @@ function DiamondCrashGame() {
   );
 
   const stopPolling = useCallback(() => {
+    clearTimeout(staleTimer.current);
+    reconcileRef.current = null;
     pollGeneration.current++;
     if (pollRef.current) {
       clearTimeout(pollRef.current);
@@ -415,6 +453,8 @@ function DiamondCrashGame() {
     (settled: CrashRound) => {
       if (!live() || lastFinishedRound.current === settled.round_id) return;
       lastFinishedRound.current = settled.round_id;
+      crashSessionRound(savedRoundKey, null);
+      setCheckingRound(false);
       stopPolling();
       roundRef.current = settled;
       setRound(settled);
@@ -442,7 +482,17 @@ function DiamondCrashGame() {
       setCommit(null);
       void freshCommit().catch((error) => reportError(error, 'DiamondCrashPage.nextTicket'));
     },
-    [live, stopPolling, toast, clubUuid, loadState, loadHistory, freshCommit, refreshFloor]
+    [
+      live,
+      stopPolling,
+      toast,
+      clubUuid,
+      loadState,
+      loadHistory,
+      freshCommit,
+      refreshFloor,
+      savedRoundKey,
+    ]
   );
 
   /** Adopt an open round (fresh or resumed) and start asking the server about it. */
@@ -461,6 +511,8 @@ function DiamondCrashGame() {
       );
       openCashout(liveCentsRef.current);
       stopPolling();
+      crashSessionRound(savedRoundKey, open.round_id);
+      markFresh();
       const generation = pollGeneration.current;
       const current = () =>
         live() &&
@@ -470,8 +522,45 @@ function DiamondCrashGame() {
       // Said once per break, not once per ask. A break that ends and begins
       // again is a new break, and is said again.
       let onBreak = false;
+      let readingHistory = false;
+      let revision = 0;
+      const reconcile = async () => {
+        if (!current() || readingHistory || document.hidden) return;
+        readingHistory = true;
+        try {
+          const receipt = await DiamondGamesService.crashTerminalReceipt(
+            open.club_id,
+            open.round_id,
+            open
+          );
+          if (current() && receipt) finish(receipt);
+        } catch (error) {
+          reportError(error, 'DiamondCrashPage.terminalReceipt');
+          if (!buildChecked.current && current()) {
+            buildChecked.current = true;
+            try {
+              const { readLiveBuild, hardReload } = await import('../utils/lazyWithRetry');
+              if (
+                (await readLiveBuild()) === 'other' &&
+                current() &&
+                crashSessionRound(savedRoundKey) === open.round_id
+              )
+                await hardReload();
+            } catch (buildError) {
+              reportError(buildError, 'DiamondCrashPage.buildRecovery');
+            }
+          }
+        } finally {
+          readingHistory = false;
+        }
+      };
+      reconcileRef.current = () => {
+        revision++;
+        void reconcile();
+      };
       const tick = async () => {
         if (!current()) return;
+        const requestedRevision = revision;
         try {
           const next = await DiamondGamesService.crashSettle(open.round_id, false, open);
           if (!current()) return;
@@ -491,6 +580,9 @@ function DiamondCrashGame() {
           }
           // The server excludes maintenance time. Re-anchor on every answer,
           // and hold the scene at that elapsed time while the break is active.
+          if (requestedRevision === revision && !document.hidden) {
+            markFresh();
+          }
           roundRef.current = next;
           setRound(next);
           setStartedAtLocal(performance.now() - next.elapsed_ms);
@@ -501,14 +593,45 @@ function DiamondCrashGame() {
             toast.info('The Platform Is In Its Maintenance Break. The Round Waits');
           onBreak = Boolean(next.frozen);
         } catch (err) {
+          if (!current()) return;
+          markChecking();
+          void reconcile();
           reportError(err, 'DiamondCrashPage.tick');
         }
         if (current()) pollRef.current = setTimeout(tick, onBreak ? BREAK_POLL_MS : POLL_MS);
       };
       pollRef.current = setTimeout(tick, POLL_MS);
     },
-    [stopPolling, live, finish, toast, openCashout, announce]
+    [
+      stopPolling,
+      live,
+      finish,
+      toast,
+      openCashout,
+      announce,
+      markChecking,
+      markFresh,
+      savedRoundKey,
+    ]
   );
+
+  useEffect(() => {
+    const recheck = () => {
+      if (roundRef.current?.status !== 'open') return;
+      markChecking();
+      reconcileRef.current?.();
+    };
+    document.addEventListener('visibilitychange', recheck);
+    window.addEventListener('pageshow', recheck);
+    window.addEventListener('online', recheck);
+    window.addEventListener('offline', recheck);
+    return () => {
+      document.removeEventListener('visibilitychange', recheck);
+      window.removeEventListener('pageshow', recheck);
+      window.removeEventListener('online', recheck);
+      window.removeEventListener('offline', recheck);
+    };
+  }, [markChecking]);
 
   useEffect(() => {
     let cancelled = false;
@@ -535,6 +658,23 @@ function DiamondCrashGame() {
         void loadHistory(uuid);
         if (!pending && next.open_round && next.open_round.status === 'open')
           adopt(next.open_round);
+        else if (!pending) {
+          const savedRound = crashSessionRound(savedRoundKey);
+          if (savedRound) {
+            const receipt =
+              (await DiamondGamesService.crashTerminalReceipt(uuid, savedRound)) ??
+              (await DiamondGamesService.crashSettle(savedRound, false));
+            if (cancelled || !live()) return;
+            if (receipt.ok && receipt.round_id === savedRound && receipt.club_id === uuid) {
+              if (receipt.status === 'open') adopt(receipt);
+              else finish(receipt);
+            } else if (!receipt.ok) {
+              crashSessionRound(savedRoundKey, null);
+            } else {
+              throw new Error('The Restored Crash Receipt Belongs To A Different Round');
+            }
+          }
+        }
         setLoadFailures(0);
       } catch (err) {
         reportError(err, 'DiamondCrashPage.load');
@@ -761,6 +901,7 @@ function DiamondCrashGame() {
    * round rather than opening a second one. The page stops asking, says so
    * once, drops the spent ticket and reads the game again. */
   const loseRound = useCallback(() => {
+    crashSessionRound(savedRoundKey, null);
     stopPolling();
     roundRef.current = null;
     setRound(null);
@@ -772,7 +913,7 @@ function DiamondCrashGame() {
     void freshCommit().catch((error) => reportError(error, 'DiamondCrashPage.lostTicket'));
     if (clubUuid)
       void loadState(clubUuid).catch((error) => reportError(error, 'DiamondCrashPage.lost'));
-  }, [stopPolling, endRun, toast, freshCommit, loadState, clubUuid]);
+  }, [stopPolling, endRun, toast, freshCommit, loadState, clubUuid, savedRoundKey]);
   loseRoundRef.current = loseRound;
 
   /** Starts the round the plate shows, or - given `resend` - re-sends exactly the
@@ -1033,6 +1174,8 @@ function DiamondCrashGame() {
     const liveCents = liveCentsRef.current;
     if (
       !current ||
+      document.hidden ||
+      performance.now() >= freshUntil.current ||
       current.status !== 'open' ||
       current.frozen ||
       phase !== 'open' ||
@@ -1053,6 +1196,8 @@ function DiamondCrashGame() {
       );
       if (!live()) return;
       if (!next.ok) {
+        markChecking();
+        reconcileRef.current?.();
         toast.error(next.error || 'The Cash Out Was Refused');
         return;
       }
@@ -1064,6 +1209,14 @@ function DiamondCrashGame() {
       }
       finish(next);
     } catch (err) {
+      if (
+        live() &&
+        roundRef.current?.round_id === current.round_id &&
+        roundRef.current.status === 'open'
+      ) {
+        markChecking();
+        reconcileRef.current?.();
+      }
       reportError(err, 'DiamondCrashPage.cashout');
       if (live()) toast.error('The Cash Out Could Not Be Confirmed. Checking Your Round');
     } finally {
@@ -1071,7 +1224,7 @@ function DiamondCrashGame() {
       cashingRef.current = false;
       if (live()) setCashing(false);
     }
-  }, [phase, live, toast, finish]);
+  }, [phase, live, toast, finish, markChecking]);
 
   const handleVerify = useCallback(
     async (r: CrashRound) => {
@@ -1190,7 +1343,9 @@ function DiamondCrashGame() {
       : phase === 'cashed'
         ? 'Cashed Out At'
         : open
-          ? 'Climbing'
+          ? checkingRound
+            ? 'Checking Round'
+            : 'Climbing'
           : 'Ready';
   const readoutValue =
     phase === 'idle' ? '1x' : multiplierLabel(open ? liveCentsRef.current : (finalCents ?? 100));
@@ -1421,13 +1576,17 @@ function DiamondCrashGame() {
               }
             : open
               ? {
-                  label: cashing ? 'Booking Win' : 'Book The Win',
+                  label: checkingRound
+                    ? 'Checking Round'
+                    : cashing
+                      ? 'Booking Win'
+                      : 'Book The Win',
                   // Gold is value on this panel: Get Diamonds already reads that
                   // way, and booking a win is the same kind of act. Green was the
                   // last plate painted a colour of its own.
                   ink: 'gold',
                   onClick: handleCashOut,
-                  disabled: cashing || !cashoutOpen || Boolean(round?.frozen),
+                  disabled: checkingRound || cashing || !cashoutOpen || Boolean(round?.frozen),
                   // Pulses while the climb is live and cashable: the plate
                   // that stops the round and books the win (Dan 2026-10-12).
                   // GameConsole lights it only while it is pressable.
@@ -1456,12 +1615,14 @@ function DiamondCrashGame() {
               growthK={round?.growth_k ?? growthK}
               capCents={round?.cap_cents ?? capCents}
               startedAtLocalMs={startedAtLocal}
-              pausedElapsedMs={open && round?.frozen ? round.elapsed_ms : undefined}
+              pausedElapsedMs={
+                open && (round?.frozen || checkingRound) ? round?.elapsed_ms : undefined
+              }
               finalCents={finalCents}
               crashCents={settledRound?.outcome?.crash_cents ?? null}
               cashoutCents={settledRound?.outcome?.cashout_cents ?? null}
               autoCashoutCents={open ? roundAuto : autoTarget}
-              tickerCents={open && cashing ? liveCentsRef.current : null}
+              tickerCents={open && (cashing || checkingRound) ? liveCentsRef.current : null}
               onTick={onTick}
               minimumPayoutChips={guaranteed?.chips ?? null}
               betChips={guaranteed?.betChips ?? null}
