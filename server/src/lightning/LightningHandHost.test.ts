@@ -866,6 +866,8 @@ describe('the phase 6 contracts: frozen settlement, the room snapshot, pre-actio
         fast_fold_enabled: true,
         fold_on_turn: true,
         check_fold_carries: true,
+        // 2026-11-10: three seats arrive in one 120 ms step plus the 180 ms fade.
+        arrival_ms: 300,
         fold_watch_enabled: true,
       });
       expect(JSON.stringify(snap)).not.toContain(formed.instanceId);

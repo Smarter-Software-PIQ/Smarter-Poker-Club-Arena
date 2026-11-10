@@ -468,6 +468,8 @@ import {
   type LightningSnapshotFields,
 } from '../lightning/lightningHand';
 import {
+  lightningArrivalSpacing,
+  lightningArrivalWindowMs,
   lightningExitHoldMs,
   lightningFeltLeaving,
   lightningHeroSeatFromRoster,
@@ -8586,8 +8588,13 @@ function LiveTablePage({
    * normal HAND_STARTED event and a proven transport-gap recovery pass through
    * here, so recovery cannot invent a shorter animation law.
    */
+  /* 2026-11-10: the arrival window the engine sent with THIS hand_started,
+     consumed once by the scheduler below, so a recovery deal never inherits it. */
+  const pendingLightningArrivalMsRef = useRef(0);
   const scheduleDealPresentation = useCallback(
     (handNumber: number): boolean => {
+      const lightningArrivalMs = pendingLightningArrivalMsRef.current;
+      pendingLightningArrivalMsRef.current = 0;
       if (handNumber > 0 && lastDealPresentationHandRef.current === handNumber) return false;
       if (handNumber > 0) {
         lastDealPresentationHandRef.current = handNumber;
@@ -8601,7 +8608,13 @@ function LiveTablePage({
       beginDealHold();
       if (dealStartTimerRef.current) clearTimeout(dealStartTimerRef.current);
       const heardHere = dealSoundsAllowedRef.current;
-      const beatMs = Math.round(HAND_COMPLETION.BUTTON_TO_DEAL_MS * getAnimationSpeed());
+      /* 2026-11-10: a Lightning engine that waits for the new table's
+         opponents to arrive before its deal sends that window; the cards
+         wait for it too (lightningTransitionMotion, lightningArrivalWindowMs).
+         Engine time, not a client delay: the first clock includes it. */
+      const beatMs =
+        Math.round(HAND_COMPLETION.BUTTON_TO_DEAL_MS * getAnimationSpeed()) +
+        (lightningRoomRef.current ? lightningArrivalWindowMs(lightningArrivalMs) : 0);
       if (lightningRoomRef.current) {
         setLightningDealPending(true);
         if (lightningDealPendingTimerRef.current)
@@ -19960,7 +19973,11 @@ function LiveTablePage({
         setAllInEquities([]);
         handHadAllInRef.current = false;
         // THE BUTTON BEAT (Dan 2026-08-27): the puck glides first, then cards
-        // fly. Gap recovery uses this exact same timing law.
+        // fly. Gap recovery uses this exact same timing law. A Lightning
+        // engine's arrival window (2026-11-10) comes first.
+        pendingLightningArrivalMsRef.current = lightningArrivalWindowMs(
+          (evt.data as { lightning_arrival_ms?: unknown } | undefined)?.lightning_arrival_ms
+        );
         scheduleDealPresentation(startedHandNumber);
         break;
       }
@@ -26937,7 +26954,16 @@ function LiveTablePage({
   const seatArrivals = useSeatArrivals(
     tableId ?? '',
     lightningRoom ? tableState.players : [],
-    lightningRoom ? (tableState.handNumber ?? null) : null
+    lightningRoom ? (tableState.handNumber ?? null) : null,
+    /* 2026-11-10: spaced inside the engine's arrival window, before the deal. */
+    lightningRoom
+      ? lightningArrivalSpacing(
+          lightningArrivalWindowMs(
+            (engineSnapshot as { lightning?: { arrival_ms?: unknown } | null } | null)?.lightning
+              ?.arrival_ms
+          )
+        )
+      : null
   );
   const lightningHero =
     tableState.heroSeat > 0 ? (tableState.players[tableState.heroSeat - 1] ?? null) : null;
