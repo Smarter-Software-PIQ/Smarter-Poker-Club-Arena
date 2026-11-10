@@ -788,7 +788,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         current = self.owner_record(window_id='2026-11-03-phase1-plo-horse-55-2330z')
         self.assertEqual(current['ownerWindowId'], '2026-11-03-phase1-plo-horse-55-2330z')
         self.assertTrue(current['supersedesPhase1Schedule'])
-        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 15000)
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
 
     def test_hybrid_phase1_55_window_binds_its_own_floor_and_the_hybrid_merge(self):
         import hashlib
@@ -807,7 +807,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         current = self.owner_record(window_id='2026-11-05-hybrid-and-phase1-55-0645z')
         self.assertEqual(current['ownerWindowId'], '2026-11-05-hybrid-and-phase1-55-0645z')
         self.assertTrue(current['supersedesPhase1Schedule'])
-        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 15000)
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
 
     def test_hybrid_earliest_safe_window_binds_the_live_floor_and_keeps_the_expired_minute53_entry(self):
         import hashlib
@@ -826,7 +826,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         current = self.owner_record(window_id='2026-11-05-hybrid-earliest-safe-1345z')
         self.assertEqual(current['ownerWindowId'], '2026-11-05-hybrid-earliest-safe-1345z')
         self.assertTrue(current['supersedesPhase1Schedule'])
-        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 15000)
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
 
     def test_lightning_always_runs_window_binds_the_live_floor_and_keeps_the_hybrid_entry(self):
         import hashlib
@@ -844,7 +844,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         self.assertEqual(hybrid['notAfter'], '2026-11-05T19:45:00Z')
         current = self.owner_record(window_id='2026-11-05-lightning-always-runs-1945z')
         self.assertEqual(current['ownerWindowId'], '2026-11-05-lightning-always-runs-1945z')
-        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 15000)
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
 
     def test_cash_styles_window_binds_the_live_floor_and_keeps_the_lightning_entry(self):
         import hashlib
@@ -862,7 +862,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         self.assertEqual(lightning['notAfter'], '2026-11-06T01:45:00Z')
         current = self.owner_record(window_id='2026-11-05-cash-styles-and-deal-timing-2045z')
         self.assertEqual(current['ownerWindowId'], '2026-11-05-cash-styles-and-deal-timing-2045z')
-        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 15000)
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
 
     def test_cutover_recovery_window_binds_the_live_floor_and_keeps_the_cash_styles_entry(self):
         import hashlib
@@ -882,7 +882,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         current = self.owner_record(window_id='2026-11-07-cutover-recovery-engine-release-1445z')
         self.assertEqual(current['ownerWindowId'], '2026-11-07-cutover-recovery-engine-release-1445z')
         self.assertTrue(current['supersedesPhase1Schedule'])
-        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 15000)
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
 
     def test_provenance_archive_gate_refuses_absent_and_unreadable_catalogs(self):
         spec = importlib.util.spec_from_file_location('doors', ROOT / 'server/scripts/engine-release-window-doors.py')
@@ -1080,7 +1080,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         self.assertTrue(window['supersedesPhase1Schedule'])
         current = self.owner_record()
         self.assertEqual(current['ownerWindowId'], window['id'])
-        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 15000)
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
         for now in (current['activationEpoch'], current['activationEpoch'] + 1, current['expiresEpoch'] - 420):
             floor.check_window(current, now, current['expiresEpoch'], 'admit')
         for now in (current['activationEpoch'] - 1, current['expiresEpoch'] - 419, current['expiresEpoch']):
