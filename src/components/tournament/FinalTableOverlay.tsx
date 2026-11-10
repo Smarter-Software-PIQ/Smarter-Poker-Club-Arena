@@ -100,17 +100,17 @@ export const FinalTableOverlay: React.FC<FinalTableOverlayProps> = ({
   const seatsLeft = players.length;
 
   return (
-    <section className={`ft-overlay ft-overlay--${phase}`} aria-label="Final table announcement">
+    <section className={`ft-overlay ft-overlay--${phase}`} aria-label="Final Table Announcement">
       <div className="ft-overlay__content">
         <header className="ft-stage">
           <div className="ft-stage__lights" aria-hidden="true" />
           <div className="ft-stage__burst" aria-hidden="true" />
           <button type="button" className="ft-overlay__dismiss" onClick={handleDismiss}>
-            Return to table
+            Return To Table
           </button>
           <p>{tournamentName}</p>
           <h2 aria-live="polite">Final Table</h2>
-          {seatsLeft > 0 && <span>{seatsLeft} finalists</span>}
+          {seatsLeft > 0 && <span>{seatsLeft} Finalists</span>}
         </header>
         <div className="ft-scoreboard">
           {prizePool > 0 && unitCents != null && (
@@ -128,7 +128,7 @@ export const FinalTableOverlay: React.FC<FinalTableOverlayProps> = ({
           )}
 
           {/* Player List */}
-          <ol className="ft-overlay__players" aria-label="Finalists by chip count">
+          <ol className="ft-overlay__players" aria-label="Finalists By Chip Count">
             {players.map((player, index) => {
               const chipPct = totalChips > 0 ? (player.chips / totalChips) * 100 : 0;
               return (
