@@ -96,4 +96,14 @@ describe("a satellite's name survives the weekly terms", () => {
       /BEFORE\s+INSERT\s+OR\s+UPDATE\s+OF\s+name/i
     );
   });
+  it('the level clock never restamps the catalog name over the copy (20261110144349)', () => {
+    const body = latestBody('fn_ca_tournament_lock_level_clock');
+    expect(body).toBeTruthy();
+    const restamps = [...(body as string).matchAll(/jsonb_populate_record\(\s*NEW\s*,([^;]*);/gi)].map((m) => m[1]);
+    expect(restamps.length).toBeGreaterThan(0);
+    for (const r of restamps) {
+      expect(r).toMatch(/-\s*'name'/);
+      expect(r).toMatch(/-\s*'short_description'/);
+    }
+  });
 });
