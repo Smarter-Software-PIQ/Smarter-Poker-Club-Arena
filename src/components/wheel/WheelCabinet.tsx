@@ -13,8 +13,7 @@ export function WheelCabinet({
   titleId,
   bays,
   primary,
-  secondary,
-  batch,
+  entry,
   setup,
   navigation,
   notice,
@@ -27,8 +26,7 @@ export function WheelCabinet({
   pillInk?: ConsoleInk;
   bays: DeckBay[];
   primary?: PlateButtonProps;
-  secondary?: PlateButtonProps;
-  batch?: PlateButtonProps;
+  entry?: ReactNode;
   setup?: ReactNode;
   navigation?: ReactNode;
   notice?: ReactNode;
@@ -39,14 +37,23 @@ export function WheelCabinet({
   return (
     <section className={styles.cabinet} aria-labelledby={titleId}>
       <header className={styles.heading}>
-        <h1 id={titleId}>{title}</h1>
+        <h1 id={titleId}>
+          <img
+            className={styles.titleBadge}
+            src={`${import.meta.env.BASE_URL}assets/diamond-spins/diamond-spins-badge.webp`}
+            width="780"
+            height="131"
+            alt={title}
+          />
+        </h1>
         {help && <div className={styles.help}>{help}</div>}
       </header>
       <div className={styles.wheel}>{children}</div>
       <aside className={styles.controls} aria-label="Diamond Spins Controls">
-        <div className={styles.controlHeading}>{navigation}</div>
         {setup}
         <div className={styles.dashboard}>
+          {entry}
+          <div className={styles.controlHeading}>{navigation}</div>
           <dl className={styles.metrics}>
             {bays.map((bay) => (
               <div key={bay.label}>
@@ -56,29 +63,6 @@ export function WheelCabinet({
             ))}
           </dl>
           <div className={styles.actions}>
-            {secondary && (
-              <button
-                type="button"
-                className={styles.secondary}
-                onClick={secondary.onClick}
-                disabled={secondary.disabled}
-                data-ink={secondary.ink}
-              >
-                {secondary.label}
-                <TapHaptic disabled={secondary.disabled} radius="4px" />
-              </button>
-            )}
-            {batch && (
-              <button
-                type="button"
-                className={styles.secondary}
-                onClick={batch.onClick}
-                disabled={batch.disabled}
-              >
-                {batch.label}
-                <TapHaptic disabled={batch.disabled} radius="4px" />
-              </button>
-            )}
             {primary && (
               <button
                 type="button"
@@ -86,8 +70,19 @@ export function WheelCabinet({
                 onClick={primary.onClick}
                 disabled={primary.disabled}
                 data-ink={primary.ink}
+                data-compact-label={
+                  primary.label !== undefined && !/^Spin [\d,]+$/.test(primary.label)
+                    ? true
+                    : undefined
+                }
               >
-                {primary.label}
+                {primary.label?.startsWith('Spin ') && /^Spin [\d,]+$/.test(primary.label) ? (
+                  <span aria-label={primary.label}>
+                    Spin<span className={styles.srOnly}> {primary.label.slice(5)}</span>
+                  </span>
+                ) : (
+                  primary.label
+                )}
                 <TapHaptic disabled={primary.disabled} radius="4px" />
               </button>
             )}
@@ -128,12 +123,12 @@ export function WheelPrizeGallery({ segments }: { segments: WheelSegment[] }) {
 
 export function WheelEntry({
   value,
-  fundedMaximum,
+  availableDiamonds,
   disabled,
   onChange,
 }: {
   value: number;
-  fundedMaximum?: number;
+  availableDiamonds?: number;
   disabled: boolean;
   onChange: (value: number) => void;
 }) {
@@ -145,26 +140,32 @@ export function WheelEntry({
         aria-describedby="diamond-spin-range"
         type="number"
         inputMode="numeric"
-        min={25}
-        max={2500}
+        min={1}
+        max={availableDiamonds}
         step={1}
         value={Number.isNaN(value) ? '' : value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.valueAsNumber)}
       />
-      <span id="diamond-spin-range">
-        {fundedMaximum != null && fundedMaximum < 2500
-          ? fundedMaximum >= 25
-            ? `Funded To ${fundedMaximum.toLocaleString()}`
-            : 'Host Funding Needed'
-          : '25 To 2,500'}
+      <span className={styles.srOnly} id="diamond-spin-range">
+        {availableDiamonds != null ? `Available: ${availableDiamonds.toLocaleString()}` : null}
       </span>
+      <button
+        type="button"
+        className={styles.max}
+        disabled={disabled || !availableDiamonds}
+        onClick={() => {
+          if (availableDiamonds) onChange(availableDiamonds);
+        }}
+      >
+        Max
+      </button>
       <div className={styles.presets}>
         {[25, 100, 500, 1000, 2500].map((amount) => (
           <button
             key={amount}
             type="button"
-            disabled={disabled}
+            disabled={disabled || (availableDiamonds != null && amount > availableDiamonds)}
             aria-pressed={value === amount}
             onClick={() => onChange(amount)}
           >

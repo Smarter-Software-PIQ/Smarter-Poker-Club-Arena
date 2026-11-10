@@ -113,8 +113,8 @@ describe('the selected wheel stake owns its availability quote', () => {
         expect(screen.getByRole('button', { name: 'Spin 375', exact: true })).toBeEnabled()
       );
       expect(backend.state).toHaveBeenLastCalledWith('club-a', 375);
-      fireEvent.click(screen.getByRole('button', { name: 'Run Off' }));
-      expect(screen.getByRole('button', { name: 'Auto Spin 5' })).toBeEnabled();
+      expect(screen.queryByRole('button', { name: 'Run Off' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /auto spin/i })).not.toBeInTheDocument();
       const spin = screen.getByRole('button', { name: 'Spin 375', exact: true });
       fireEvent.click(spin);
       fireEvent.click(spin);
@@ -130,6 +130,27 @@ describe('the selected wheel stake owns its availability quote', () => {
     }
   );
 
+  it('admits the full available balance after 201 spins and refuses one diamond more', async () => {
+    backend.state.mockImplementation((_club: string, amount: number) =>
+      Promise.resolve({
+        ...state,
+        config: { ...state.config, spin_price_diamonds: amount },
+        player: { ...state.player, spins_today: 201 },
+      })
+    );
+    render(<DiamondWheelPage />);
+    const entry = await screen.findByLabelText('Diamonds To Spin');
+    expect(screen.queryByText('Today')).not.toBeInTheDocument();
+    fireEvent.change(entry, { target: { value: '10000' } });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Spin 10,000', exact: true })).toBeEnabled()
+    );
+    fireEvent.change(entry, { target: { value: '10001' } });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Spin 10,001', exact: true })).toBeDisabled()
+    );
+  });
+
   it('shows a version 4 server refusal and lets a lower funded amount reopen play', async () => {
     backend.state.mockImplementation((_club: string, amount: number) =>
       Promise.resolve({
@@ -142,7 +163,7 @@ describe('the selected wheel stake owns its availability quote', () => {
     );
     render(<DiamondWheelPage />);
     expect(await screen.findByText('The Host Must Fund Every Bonus Before A Spin')).toBeVisible();
-    expect(screen.getByText('Funded To 25')).toBeVisible();
+    expect(screen.getByText('Available: 10,000')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Spin 100', exact: true })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: '25', exact: true }));
     await waitFor(() =>

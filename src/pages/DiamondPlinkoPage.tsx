@@ -175,7 +175,8 @@ function DiamondPlinkoGame() {
     !state.player?.is_member ||
     state.player.spendable < bonusWalletDebit(budget) ||
     !table ||
-    state.player.rounds_today >= (state.config?.max_rounds_per_player_per_day ?? 0) ||
+    (!earned.award &&
+      state.player.rounds_today >= (state.config?.max_rounds_per_player_per_day ?? 0)) ||
     waitSeconds > 0;
   const blocked = stateBlocked || (!earned.award && quotedAmount !== total);
   const refusal = useRefusedAward(earned.award?.id, stateBlocked);

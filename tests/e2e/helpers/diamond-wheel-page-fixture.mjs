@@ -21,11 +21,11 @@ export function diamondWheelPageFixture() {
       pending_awards: [],
       config: { spin_price_diamonds: 100, max_spins_per_player_per_day: 200 },
       player: {
-        diamonds: 10000,
+        diamonds: 2_600_000,
         member_chips: 12345,
-        spendable: 10000,
+        spendable: 2_600_000,
         is_member: true,
-        spins_today: 8,
+        spins_today: 201,
         diamonds_today: 2000,
         seconds_until_next: 0,
       },
@@ -58,7 +58,7 @@ export function diamondWheelPageFixture() {
         export const saveWheelPendingCard=()=>{};
         export const clearWheelPendingCard=()=>{};
         export default {
-        getStateV2:async(_club,entry=100)=>({...state,max_funded_entry:location.search.includes('limited')?1277:2500,available:!location.search.includes('paused')&&(!location.search.includes('limited')||entry<=1277),reason:location.search.includes('paused')?'Local Connection Is Paused':'The Host Must Fund Every Prize Before A Spin'}),
+        getStateV2:async(_club,entry=100)=>({...state,config:{...state.config,spin_price_diamonds:entry},min_entry:1,max_entry:state.player.spendable,available:!location.search.includes('paused'),reason:location.search.includes('paused')?'Local Connection Is Paused':null}),
         welcomeState:async()=>({available:true,enabled:true,price:100}),
         dailyBonusState:async()=>({available:true,ticket_count:2}), history:async()=>[],
         commit:async()=>({ok:true,commit_id:'d1000000-0000-4000-8000-000000000001',server_seed_hash:'a'.repeat(64)}),

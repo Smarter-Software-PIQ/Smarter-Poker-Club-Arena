@@ -28,7 +28,7 @@ export { PLINKO_MIN_DROPS, PLINKO_MAX_DROPS } from './diamondBonusPayout';
 export const PLINKO_DIAMONDS_PER_DROP = PLINKO_DENOMINATIONS;
 
 export function validSpinAmount(amount: number): boolean {
-  return Number.isSafeInteger(amount) && amount >= MIN_DIAMOND_SPIN && amount <= MAX_DIAMOND_SPIN;
+  return Number.isSafeInteger(amount) && amount > 0;
 }
 
 export interface PlinkoAllocation {
@@ -79,7 +79,9 @@ export function validBonusBudget(budget: BonusBudget): boolean {
         validSpinAmount(award.entryDiamonds) &&
         [1, 2].includes(award.boostMultiplier) &&
         budget.base === award.entryDiamonds * award.boostMultiplier
-      : validSpinAmount(budget.base))
+      : validSpinAmount(budget.base) &&
+        budget.base >= MIN_DIAMOND_SPIN &&
+        budget.base <= MAX_DIAMOND_SPIN)
   );
 }
 /**

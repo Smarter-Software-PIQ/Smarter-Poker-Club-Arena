@@ -597,9 +597,9 @@ function DiamondCrashGame() {
       return state.reason === 'not_configured' ? 'Crash Is Not Open Here Yet' : 'Crash Is Paused';
     if (state.frozen) return 'The Platform Is In Its Maintenance Break';
     if (player && !player.is_member) return 'Join The Club To Play';
-    if (player && cfg && player.rounds_today >= cfg.max_rounds_per_player_per_day)
+    if (!earned.award && player && cfg && player.rounds_today >= cfg.max_rounds_per_player_per_day)
       return 'You Have Reached Today’s Limit';
-    if (betOption && !betOption.playable)
+    if (!earned.award && betOption && !betOption.playable)
       return 'The Club Cannot Cover A Win At That Bet Right Now';
     if (player && player.spendable < bonusWalletDebit(budget)) {
       return cfg?.purchased_only && player.diamonds >= bonusWalletDebit(budget)
@@ -607,7 +607,18 @@ function DiamondCrashGame() {
         : SHORT_OF_DIAMONDS;
     }
     return null;
-  }, [state, player, cfg, bet, betOption, earned.ready, earned.error, earned.loading, budget]);
+  }, [
+    state,
+    player,
+    cfg,
+    bet,
+    betOption,
+    earned.award,
+    earned.ready,
+    earned.error,
+    earned.loading,
+    budget,
+  ]);
   // The blocker is the server's own state (a closed or paused game, the day's
   // limit, the wallet), never a transient flag such as a start in flight.
   const refusal = useRefusedAward(earned.award?.id, blocker !== null);

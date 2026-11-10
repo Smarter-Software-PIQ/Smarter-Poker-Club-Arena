@@ -212,8 +212,9 @@ export function parsePlinkoBonus(value: unknown): PlinkoBonus {
     v.bonus.total_diamonds !== v.bet_diamonds ||
     v.bonus.base_diamonds + v.bonus.added_diamonds !== v.bet_diamonds ||
     !Number.isSafeInteger(v.bet_diamonds) ||
-    v.bet_diamonds < 25 ||
-    v.bet_diamonds > (v.award_id ? 7500 : 5000) ||
+    v.bet_diamonds < 1 ||
+    (!v.award_id &&
+      (v.bonus.base_diamonds < 25 || v.bonus.base_diamonds > 2500 || v.bet_diamonds > 5000)) ||
     !Number.isSafeInteger(v.diamonds_per_drop) ||
     v.diamonds_per_drop < 1 ||
     v.bet_diamonds % v.diamonds_per_drop !== 0 ||

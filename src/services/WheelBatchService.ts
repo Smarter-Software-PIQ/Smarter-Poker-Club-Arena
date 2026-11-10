@@ -58,8 +58,7 @@ export function readWheelBatch(user: string, club: string): PendingWheelBatch | 
     !/^[a-f0-9-]{36}$/i.test(p.requestId) ||
     ![5, 10, 25].includes(p.spins) ||
     !Number.isSafeInteger(p.entryDiamonds) ||
-    p.entryDiamonds < 25 ||
-    p.entryDiamonds > 2500 ||
+    p.entryDiamonds < 1 ||
     typeof p.seed !== 'string' ||
     !p.seed.length ||
     p.seed.length > 60 ||
@@ -108,8 +107,7 @@ export function parsePaidWheelBatch(
   if (
     ![5, 10, 25].includes(batch.spins) ||
     !Number.isSafeInteger(batch.entry_diamonds) ||
-    batch.entry_diamonds < 25 ||
-    batch.entry_diamonds > 2500 ||
+    batch.entry_diamonds < 1 ||
     batch.total_cost_diamonds !== batch.spins * batch.entry_diamonds ||
     !Array.isArray(batch.receipts) ||
     batch.receipts.length !== batch.spins ||
