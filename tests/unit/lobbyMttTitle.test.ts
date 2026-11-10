@@ -103,11 +103,11 @@ describe('formatClock', () => {
   });
 });
 
-describe('mttTitleLine — line 1 is name AND variation', () => {
+describe('mttTitleLine — line 1 is the event name', () => {
   it('leaves a name that already carries the variation alone', () => {
     expect(mttTitleLine(entry({ name: 'Late Night Grind (NLH)' }))).toBe('Late Night Grind');
   });
-  it('appends the variation when the name lacks it', () => {
+  it('preserves a concise standalone name', () => {
     expect(mttTitleLine(entry({ name: 'Midnight Special' }))).toBe('Midnight Special');
   });
 });
