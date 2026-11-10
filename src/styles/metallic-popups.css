@@ -168,7 +168,7 @@
   [class*='_confirmModal_'],
   [class*='_bonusWheelModal_'],
   [class*='_logoGeneratorModalContainer_']
-) {
+):not(:where([data-popup-chassis='none'])) {
   position: relative;
   isolation: isolate;
   background: var(--ca-popup-shell) !important;
@@ -460,7 +460,7 @@
     [class*='_modal_']:not([class*='Overlay']):not([class*='overlay']),
     [class*='_modalContainer_'],
     [class*='_modalContent_']
-  ) {
+  ):not(:where([data-popup-chassis='none'])) {
     border-radius: 12px !important;
     box-shadow:
       inset 0 3px 0 var(--ca-popup-rail),

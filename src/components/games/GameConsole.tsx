@@ -50,6 +50,7 @@ export type GamePlate = PlateButtonProps & { flash?: boolean };
 export function GameConsole({
   title,
   titleId,
+  titleArtwork,
   collapseSetup = false,
   pill,
   bays,
@@ -63,6 +64,7 @@ export function GameConsole({
 }: {
   title: string;
   titleId?: string;
+  titleArtwork?: string;
   collapseSetup?: boolean;
   pill?: string;
   pillInk?: ConsoleInk;
@@ -164,7 +166,7 @@ export function GameConsole({
       data-game-console
     >
       <header className={styles.header}>
-        <h1 id={titleId}>{title}</h1>
+        <h1 id={titleId}>{titleArtwork ? <img src={titleArtwork} alt={title} /> : title}</h1>
         <span className={styles.status}>{pill}</span>
         {help}
       </header>

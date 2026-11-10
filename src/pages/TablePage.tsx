@@ -5389,9 +5389,12 @@ function LiveTablePage({
   const heroDisplayStack = lightningRoom
     ? (lightningHeroInRoster?.stack ?? lightningWaitingSeat?.stack ?? 0)
     : tableState.players[tableState.heroSeat - 1]?.stack || 0;
+  const heroEntrySeat = tableState.players[tableState.heroSeat - 1];
+  const heroWaitingForButton = heroEntrySeat?.isHero && heroEntrySeat.waitingForButton === true;
   const heroIsSittingOut =
     (tableState.heroSeat > 0 &&
-      (tableState.players[tableState.heroSeat - 1]?.status === 'sitting_out' ||
+      ((!heroWaitingForButton &&
+        tableState.players[tableState.heroSeat - 1]?.status === 'sitting_out') ||
         heroSitsOutPerRow)) ||
     (!!lightningRoom && lightningSitOut.sittingOut);
   /**
@@ -30624,7 +30627,11 @@ function LiveTablePage({
       <div className="action-panel-wrapper">
         {/* POKERBROS-spec: persistent footer bar — NEVER empty. Dan rule
             2026-04-17: action bar fixed to footer at all times, every state. */}
-        {lightningRoom && !lightningHeroInRoster && !heroIsSittingOut ? (
+        {heroWaitingForButton ? (
+          <div className="spectator-footer-bar" data-state="waiting-for-button" role="status">
+            <span className="spectator-footer-bar__label">Waiting For The Button To Pass</span>
+          </div>
+        ) : lightningRoom && !lightningHeroInRoster && !heroIsSittingOut ? (
           /* LIGHTNING BETWEEN HANDS (Dan 2026-10-24). The player is in the pool
              and is dealt the next hand at once: not a spectator, not a reserved
              seat waiting on a deal. The bar stays (it is never removed) and says
