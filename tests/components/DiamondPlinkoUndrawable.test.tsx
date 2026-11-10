@@ -20,6 +20,7 @@ const backend = vi.hoisted(() => ({
   getState: vi.fn(),
   commit: vi.fn(),
   start: vi.fn(),
+  plinkoProgress: vi.fn(async () => null),
   latest: vi.fn(),
   awardState: vi.fn(),
   navigate: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock('../../src/services/DiamondBonusService', async (original) => ({
   ...(await original<typeof import('../../src/services/DiamondBonusService')>()),
   DiamondBonusService: backend,
   parsePlinkoBonus: (v: unknown) => v,
+  parsePlinkoProgress: (v: unknown) => v,
 }));
 vi.mock('../../src/services/WheelBonusEntryService', async (original) => ({
   ...(await original<typeof import('../../src/services/WheelBonusEntryService')>()),
@@ -61,7 +63,6 @@ vi.mock('../../src/components/wheel/WheelWinReveal', () => ({
   ),
 }));
 vi.mock('../../src/components/games/DiamondSpinsTabs', () => ({ default: () => null }));
-vi.mock('../../src/components/games/TodayLine', () => ({ default: () => null }));
 
 const state = {
   available: true,
@@ -137,7 +138,7 @@ describe('a won Plinko game on a board that cannot draw', () => {
     // The player chooses their drops and presses Drop (R1, R6)...
     fireEvent.click(screen.getByRole('button', { name: '20 Diamonds Per Drop, 10 Drops' }));
     await advance();
-    fireEvent.click(screen.getByRole('button', { name: 'Drop Diamonds' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Drop One' }));
     await advance();
     expect(backend.start).toHaveBeenCalledTimes(1);
     // ...releases the rest, and the booked batch lands with no renderer at all:

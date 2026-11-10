@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Modal } from '../common/Modal';
-import { SpadeConsole } from '../console/SpadeConsole';
+import cabinet from './BonusCompletion.module.css';
 import { WheelPrizeArt } from '../wheel/WheelPrizeArt';
 import { getAnimationSpeed } from '../../utils/animationSpeed';
 import { soundService } from '../../services/SoundService';
@@ -163,23 +163,12 @@ export default function BonusCompletion({
           if (event.target === event.currentTarget) setReady(true);
         }}
       >
-        <SpadeConsole
-          eyebrow={eyebrow ?? (big ? 'Big Win' : 'You Won')}
-          title={title}
-          pill="Paid"
-          plates={
-            next
-              ? {
-                  secondary: back,
-                  primary: {
-                    label: 'Play Next Bonus Game',
-                    disabled: !ready,
-                    onClick: () => go(bonusGameRoute(clubId, next)),
-                  },
-                }
-              : { primary: back }
-          }
-        >
+        <section className={cabinet.receipt}>
+          <header>
+            <span data-result-label>{eyebrow ?? (big ? 'Big Win' : 'You Won')}</span>
+            <h2>{title}</h2>
+            <small>Credited To Your Club Balance</small>
+          </header>
           <div className={styles.prize} aria-hidden="true" data-big={big ? 'true' : undefined}>
             <div className={styles.rays} />
             {game ? (
@@ -196,12 +185,29 @@ export default function BonusCompletion({
               <strong>{headline}</strong>
             </div>
           ) : null}
-          <p className="sc-copy sc-copy--center" role="status">
-            {`${big ? 'Big Win. ' : ''}${chips > 0 ? 'Your Prize Is Booked.' : 'No Chips Won This Round.'} ${detail}`}
-            {proof ? ` ${proof}` : ''}
-            {next ? ' Another Bonus Game Is Waiting For You.' : ''}
-          </p>
-        </SpadeConsole>
+          <details className={cabinet.details}>
+            <summary>Round Details</summary>
+            <p role="status" className="sc-copy">
+              {`${big ? 'Big Win. ' : ''}${chips > 0 ? 'Your Prize Is Booked.' : 'No Chips Won This Round.'} ${detail}`}
+              {proof ? ` ${proof}` : ''}
+              {next ? ' Another Bonus Game Is Waiting For You.' : ''}
+            </p>
+          </details>
+          <footer>
+            <button type="button" disabled={back.disabled} onClick={back.onClick}>
+              {back.label}
+            </button>
+            {next && (
+              <button
+                type="button"
+                disabled={!ready}
+                onClick={() => go(bonusGameRoute(clubId, next))}
+              >
+                Play Next Bonus Game
+              </button>
+            )}
+          </footer>
+        </section>
       </div>
     </Modal>
   );

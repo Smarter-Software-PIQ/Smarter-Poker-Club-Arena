@@ -357,6 +357,7 @@ import {
   makeBarrelContinuation,
   rangeAdvantageFor,
 } from './HorseContinuation.js';
+import { canQuickCheckFold, facingShovePrice } from './HorseQuickCheckFold.js';
 import { personaFromValue, followsSolver, type HorsePersonaV2 } from './HorsePersona.js';
 // V38 (2026-09-03): the EV engine — the arithmetic behind every choice, the
 // arbiter for the games with no solver export and for every river fold/call
@@ -14129,7 +14130,21 @@ export class HorseLogic {
     // pile-up. The exponential is the maximum-entropy choice for "a bit more
     // than X", which is exactly the claim being made, and its mean is scaled
     // to the floor so the shape holds for both.
-    const floor = facingBet ? FACING_FLOOR_MS : FREE_FLOOR_MS;
+    // A tournament shove merits a visible decision, even for an obvious fold.
+    // Match the outstanding price: an old short-stack all-in in a side pot
+    // should not slow unrelated action on a later street.
+    const facingTournamentShove =
+      facingBet &&
+      isTournamentMode(gs) &&
+      facingShovePrice(gs.currentBet, gs.currentBet - toCall, gs.players);
+    const deliberateCheckFold =
+      gs.gameMode === 'tournament' && simple && !canQuickCheckFold(tempoSeed);
+    const floor =
+      facingTournamentShove || deliberateCheckFold
+        ? 2000
+        : facingBet
+          ? FACING_FLOOR_MS
+          : FREE_FLOOR_MS;
     if (think >= floor) return Math.round(think);
 
     // THE JITTER IS DERIVED, NOT DRAWN. An obvious implementation calls

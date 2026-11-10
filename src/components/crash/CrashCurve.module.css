@@ -614,3 +614,90 @@
 .frame[data-phase='idle'][data-reduced='true']::after {
   animation: none;
 }
+
+.launchDiamond {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  top: 61%;
+  transform: translate(-50%, -50%);
+  width: 82px;
+  height: 76px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #dfedff;
+  font:
+    700 15px/1.1 'Roboto Condensed',
+    sans-serif;
+  cursor: pointer;
+}
+.launchDiamond span {
+  position: absolute;
+  bottom: -4px;
+  font-size: 13px;
+  text-shadow: 0 1px 3px #000;
+}
+.launchDiamond img {
+  width: clamp(56px, 14vw, 88px);
+  height: auto;
+  filter: drop-shadow(0 3px 7px #05438d);
+}
+.launchDiamond:focus-visible {
+  outline: solid 2px #a5deff;
+  border-radius: 6px;
+}
+.frame:has(.launchDiamond) .ticker {
+  font-size: clamp(26px, 6vw, 44px) !important;
+}
+.impact {
+  position: fixed;
+  z-index: 1200;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at center,
+    #ddecff7a,
+    #408bc347 18%,
+    #ff633128 45%,
+    transparent 68%
+  );
+  animation: impactFade var(--impact-time, 760ms) ease-out both;
+}
+.impact i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: clamp(12px, 2vw, 30px);
+  height: clamp(20px, 4vw, 58px);
+  clip-path: polygon(0 12%, 73% 0, 100% 31%, 36% 100%);
+  background: linear-gradient(130deg, #d8f9ff, #54c4ff 44%, #13539b 46%, #75cfff);
+  animation: crystalScatter var(--impact-time, 760ms) cubic-bezier(0.16, 0.76, 0.4, 1) both;
+}
+@keyframes crystalScatter {
+  from {
+    transform: rotate(var(--angle)) translateY(0) scale(0.35);
+  }
+  to {
+    transform: rotate(var(--angle)) translateY(calc(-1 * var(--distance))) rotate(65deg);
+  }
+}
+@keyframes impactFade {
+  0% {
+    opacity: 0.8;
+  }
+  35% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .impact {
+    display: none;
+  }
+}

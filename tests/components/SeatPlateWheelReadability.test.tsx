@@ -70,6 +70,8 @@ describe('Diamond Spins data and actions own separate layout space', () => {
       screen.getByRole('button', { name: 'Spin 100' }).parentElement?.parentElement
     );
     expect(screen.getByRole('button', { name: 'Spin 100' })).toBeDisabled();
+    // jsdom does not implement showModal. Keyboard and modal activation run in Chromium.
+    screen.getByRole('dialog', { hidden: true }).setAttribute('open', '');
     fireEvent.change(screen.getByLabelText('Diamonds To Spin'), { target: { value: '375' } });
     expect(stake).toBe(375);
     fireEvent.click(screen.getByRole('button', { name: 'Max' }));

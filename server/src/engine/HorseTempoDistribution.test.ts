@@ -229,3 +229,28 @@ describe('horse tempo: the distribution a player could time', () => {
     expect(p50, `median moved to ${p50}ms; V35 must not retune the tempo`).toBeLessThan(2700);
   });
 });
+
+describe('tournament blinds facing a shove', () => {
+  it.each([50, 100])('allows at least two seconds with %i posted', (posted) => {
+    const times: number[] = [];
+    for (let i = 0; i < 48; i++) {
+      const hero = { ...mkHorse('blind-' + i), seat: 1, bet: posted };
+      const jammer = { ...mkVillain(0), seat: 2, bet: 2000, is_all_in: true };
+      const gs = {
+        players: [hero, jammer],
+        communityCards: [],
+        stage: 'preflop',
+        gameMode: 'tournament',
+        pot: 2000 + posted,
+        currentBet: 2000,
+        minRaise: 1900,
+        bigBlind: 100,
+        gameVariant: 'nlh',
+        dealerSeat: posted === 50 ? 1 : 2,
+      };
+      times.push(HorseLogic.decide(hero as never, gs as never, 'balanced').thinkTime);
+    }
+    expect(Math.min(...times)).toBeGreaterThanOrEqual(2000);
+    expect(new Set(times).size).toBeGreaterThan(1);
+  });
+});

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 import type { DeckBay } from '../console/DeckConsole';
 import { type PlateButtonProps, type ConsoleInk } from '../console/SpadeConsole';
 import { WheelPrizeArt } from './WheelPrizeArt';
@@ -85,7 +85,7 @@ export function WheelCabinet({
             )}
           </div>
         </div>
-        {notice && <div className={styles.notice}>{notice}</div>}
+        <div className={styles.notice}>{notice}</div>
       </aside>
     </section>
   );
@@ -129,36 +129,53 @@ export function WheelEntry({
   disabled: boolean;
   onChange: (value: number) => void;
 }) {
+  const picker = useRef<HTMLDialogElement>(null);
   return (
     <div className={styles.entry}>
-      <div className={styles.stakePanel}>
-        <label htmlFor="diamond-spin-entry">Diamonds To Spin</label>
-        <input
-          id="diamond-spin-entry"
-          aria-describedby="diamond-spin-range"
-          type="number"
-          inputMode="numeric"
-          min={1}
-          max={availableDiamonds}
-          step={1}
-          value={Number.isNaN(value) ? '' : value}
-          disabled={disabled}
-          onChange={(e) => onChange(e.target.valueAsNumber)}
-        />
-        <span className={styles.srOnly} id="diamond-spin-range">
-          {availableDiamonds != null ? `Available: ${availableDiamonds.toLocaleString()}` : null}
-        </span>
-        <button
-          type="button"
-          className={styles.max}
-          disabled={disabled || !availableDiamonds}
-          onClick={() => {
-            if (availableDiamonds) onChange(availableDiamonds);
-          }}
-        >
-          Max
-        </button>
-      </div>
+      <button
+        type="button"
+        className={styles.amountToggle}
+        disabled={disabled}
+        aria-haspopup="dialog"
+        onClick={() => picker.current?.showModal()}
+      >
+        Amount {Number.isFinite(value) && value.toLocaleString()} ▾
+      </button>
+      <span className={styles.srOnly} id="diamond-spin-range">
+        {availableDiamonds != null ? `Available: ${availableDiamonds.toLocaleString()}` : null}
+      </span>
+      <dialog ref={picker} className={styles.amountDialog} aria-label="Choose Spin Amount">
+        <form method="dialog" className={styles.stakePanel}>
+          <label htmlFor="diamond-spin-entry">Diamonds To Spin</label>
+          <input
+            id="diamond-spin-entry"
+            aria-describedby="diamond-spin-range"
+            autoFocus
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={availableDiamonds}
+            step={1}
+            value={Number.isNaN(value) ? '' : value}
+            disabled={disabled}
+            onChange={(e) => onChange(e.target.valueAsNumber)}
+          />
+
+          <button
+            type="button"
+            className={styles.max}
+            disabled={disabled || !availableDiamonds}
+            onClick={() => {
+              if (availableDiamonds) onChange(availableDiamonds);
+            }}
+          >
+            Max
+          </button>
+          <button className={styles.done} type="submit">
+            Done
+          </button>
+        </form>
+      </dialog>
       <div className={styles.presets}>
         {[25, 100, 500, 1000, 2500].map((amount) => (
           <button

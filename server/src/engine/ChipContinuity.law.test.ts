@@ -277,6 +277,14 @@ describe('the engine wiring (source pins - each one is a leak that shipped once 
     expect(sliceMethod(BASE, 'protected scheduleHeartbeatCheck()')).toContain(
       'releaseLeavesHeldByClock()'
     );
+    // A Lightning anchor's count moves at the pool's settlement, which this
+    // engine's mirror never sees: every held seat is read fresh before the
+    // release decides (2026-11-09, a completed blind off was never cashed out).
+    const fresh = release.indexOf('await this.chipContinuity.evaluate(');
+    expect(fresh).toBeGreaterThan(release.indexOf('if (this.isLightningAnchorNow()) {'));
+    expect(fresh).toBeLessThan(
+      release.indexOf('this.chipContinuity.leaveLock(userId, seated.stack).locked')
+    );
     expect(sliceMethod(SEATING, 'public sitOut(')).toContain('this.withdrawBlindOff(userId)');
     expect(sliceMethod(SEATING, 'protected withdrawBlindOff(')).toContain(
       'this.leaveHeldByClock.delete(userId)'
