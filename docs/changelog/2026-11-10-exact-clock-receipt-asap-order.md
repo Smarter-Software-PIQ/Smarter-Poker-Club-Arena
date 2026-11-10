@@ -7,3 +7,5 @@ Public notice must actually be visible for twenty minutes. Exact protected sourc
 The protected inclusion floor is #10346 squash `d86753a866822c0d038b1c64bfd2fcca8f6be107`, merged22:04:54UTC after all required checks passed. Final containing release identity and live receipts are verified independently after qualification and cutover.
 
 Final pre-submission bounds: notice23:30UTC/admission23:50UTCNov10 through04:00UTCNov11. The independent earlier database retry notice keeps its priority; after23:50 both bookings have the same public five-minute-pause promise and04:00expiry. Observe that actual displayed promise for the full twenty minutes before dispatch. No priority change or second banner is introduced.
+
+Current protected #10393 introduced a separate cash order and custodian before submission. Preserve that complete order, notice, producer profile and all protected native cases. The fresh receipt order is now `2026-11-11-horse-clock-receipts-engine-0020z`, notice00:00UTC, admission00:20–04:00UTCNovember11, pending sole-operation custody reconciliation before dispatch. All unchanged historical native methods remain byte-identical to protected main.

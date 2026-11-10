@@ -181,16 +181,35 @@ it('preserves the original notice until expiry before showing the separate succe
   expect(bookedMaintenanceNotice(Date.parse('2026-11-10T10:30:00Z'))).toBeNull();
 });
 
+it('shows the earlier-starting database retry notice until it expires, then the cash Horse action cutover', () => {
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-10T21:59:59.999Z'))?.id).toBe(
+    '2026-11-10-closed-person-name-policy-db'
+  );
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-10T23:14:59.999Z'))).toBeNull();
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-10T23:30:00Z'))?.id).toBe(
+    '2026-11-10-closed-person-name-policy-db-retry'
+  );
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-11T03:59:59.999Z'))?.id).toBe(
+    '2026-11-10-closed-person-name-policy-db-retry'
+  );
+  const cutover = bookedMaintenanceNotice(Date.parse('2026-11-11T04:00:00Z'));
+  expect(cutover?.id).toBe('2026-11-10-owner-asap-engine-2350z');
+  expect(cutover?.noticeAtMs).toBe(Date.parse('2026-11-10T23:30:00Z'));
+  expect(cutover?.notBeforeMs).toBe(Date.parse('2026-11-10T23:50:00Z'));
+  expect(cutover?.notAfterMs).toBe(Date.parse('2026-11-11T05:00:00Z'));
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-11T05:00:00Z'))).toBeNull();
+});
+
 it('retains both overlapping notices and the same public promise during receipt admission', () => {
   const own = BOOKED_MAINTENANCE_NOTICES.find(
-    (n) => n.id === '2026-11-10-horse-clock-receipts-engine-2350z'
+    (n) => n.id === '2026-11-11-horse-clock-receipts-engine-0020z'
   );
-  expect(own?.noticeAtMs).toBe(Date.parse('2026-11-10T23:30:00Z'));
-  expect(own?.notBeforeMs).toBe(Date.parse('2026-11-10T23:50:00Z'));
+  expect(own?.noticeAtMs).toBe(Date.parse('2026-11-11T00:00:00Z'));
+  expect(own?.notBeforeMs).toBe(Date.parse('2026-11-11T00:20:00Z'));
   expect(own?.notAfterMs).toBe(Date.parse('2026-11-11T04:00:00Z'));
-  const at = Date.parse('2026-11-10T23:50:00Z');
+  const at = Date.parse('2026-11-11T00:20:00Z');
   const primary = bookedMaintenanceNotice(at);
   expect(primary?.id).toBe('2026-11-10-closed-person-name-policy-db-retry');
   expect(bookedMaintenanceNoticeText(primary!, at)).toBe(bookedMaintenanceNoticeText(own!, at));
-  expect(bookedMaintenanceNotice(Date.parse('2026-11-11T04:00:00Z'))).toBeNull();
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-11T04:00:00Z'), [own!])).toBeNull();
 });

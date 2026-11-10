@@ -1,3 +1,4 @@
+import { orbitHandsOwed } from '../services/HorseBankTheWin.js';
 import { broadcastTimeBankActivation } from '../services/timeBankBroadcast.js';
 import { cashRakeScope } from '../config/cashRakePolicy.js';
 import { noteFire } from './BrainTelemetry.js';
@@ -820,6 +821,11 @@ export abstract class ServerTableEngineBase {
   // Bankroll Management: Track how many times a horse has re-bought at this table.
   // Max is 2 rebuys (meaning 3 total buy-ins). If they bust a 3rd time, they leave.
   protected horseRebuys: Map<string, number> = new Map();
+  /**
+   * BANK THE WIN (owner 2026-11-10): hands this table has completed since a
+   * horse's last big pot. Absent means no big pot is being held for.
+   */
+  protected horseHandsSinceBigPot: Map<string, number> = new Map();
 
   // Bible V8 §4.2: Track players returning from sit-out who must post dead blind
   protected returningFromSitout: Set<string> = new Set();
@@ -3380,6 +3386,15 @@ export abstract class ServerTableEngineBase {
     const seat = this.seatedPlayers.find((p) => p.user_id === userId);
     if (!seat) return 0;
     return this.chipContinuity?.leaveLock(userId, seat.stack)?.handsRemaining ?? 0;
+  }
+
+  /**
+   * BANK THE WIN (owner 2026-11-10): hands a horse still plays after a big
+   * pot before it may leave (one full orbit). The horse rotator asks before
+   * choosing who stands up, so no horse leaves the hand after a big pot.
+   */
+  public bigPotOrbitHandsOwed(userId: string): number {
+    return orbitHandsOwed(this.horseHandsSinceBigPot.get(userId), this.seatedPlayers.length);
   }
 
   /** This cash table is a Lightning anchor right now (hands are dealt in its pool). */

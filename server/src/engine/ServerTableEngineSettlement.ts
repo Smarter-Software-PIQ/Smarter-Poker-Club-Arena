@@ -1,3 +1,9 @@
+import {
+  isBigPot,
+  orbitHandsOwed,
+  shouldBankTheWin,
+  startingStackFor,
+} from '../services/HorseBankTheWin.js';
 import { publicMemoryDomainFromRules } from './HorsePublicMemoryDomain.js';
 import { isMaximumHorseCashStake } from '../services/HorseBehavior.js';
 import { PostHandStageTiming } from './PostHandStageTiming.js';
@@ -4290,19 +4296,40 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
         const nextBbSeat = this.getNextSeat(nextSbSeat, players);
         const nextBbPlayer = players.find((p) => p.seat_number === nextBbSeat);
 
+        /* BANK THE WIN (owner 2026-11-10, HorseBankTheWin). The line is 4-6x
+           the horse's OWN starting stack (its cash session baseline), not a
+           multiple of the table maximum. A big pot (net half a starting
+           stack or more) holds the horse for one more orbit; the exit is
+           taken at the boundary right before its next big blind. */
+        const seatedIds = new Set(players.map((p) => p.user_id));
+        for (const id of [...this.horseHandsSinceBigPot.keys()])
+          if (!seatedIds.has(id)) this.horseHandsSinceBigPot.delete(id);
+        for (const p of players) {
+          // Identification only: the big pot hold is a horse's own exit rule.
+          const before = p.is_horse ? snap.dealtStacks.get(p.user_id) : undefined;
+          const start = startingStackFor(this.chipContinuity?.row(p.user_id)?.baseline, maxBuyIn);
+          if (before !== undefined && isBigPot(before, p.stack, start)) {
+            this.horseHandsSinceBigPot.set(p.user_id, 0);
+          } else {
+            const since = this.horseHandsSinceBigPot.get(p.user_id);
+            if (since !== undefined) {
+              if (orbitHandsOwed(since + 1, players.length) === 0)
+                this.horseHandsSinceBigPot.delete(p.user_id);
+              else this.horseHandsSinceBigPot.set(p.user_id, since + 1);
+            }
+          }
+        }
+
         const cashedOutHorses = players.filter((p) => {
           if (!p.is_horse) return false;
-
-          // Target is dynamically between 2.5x and 3.5x max buy-in
-          // We use their user_id to deterministically seed their target, so they don't randomly flip-flop
-          const idInt = parseInt(p.user_id.replace(/-/g, '').substring(0, 8), 16) || 0;
-          const targetMultiplier = 2.5 + idInt / 0xffffffff;
-          const cashOutTarget = maxBuyIn * targetMultiplier;
-
-          // Only depart if they hit the target AND their NEXT hand is the Big Blind
-          const isNextBb = p.user_id === nextBbPlayer?.user_id;
-
-          return p.stack >= cashOutTarget && isNextBb;
+          return shouldBankTheWin({
+            horseId: p.user_id,
+            stack: p.stack,
+            startingStack: startingStackFor(this.chipContinuity?.row(p.user_id)?.baseline, maxBuyIn),
+            handsSinceBigPot: this.horseHandsSinceBigPot.get(p.user_id),
+            playersAtTable: players.length,
+            nextHandIsBigBlind: p.user_id === nextBbPlayer?.user_id,
+          });
         });
 
         for (const horse of cashedOutHorses) {
@@ -4334,6 +4361,8 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
           this.straddleEngine.removePlayer(this.tableId, horse.user_id);
           this.preActionEngine.removePlayer(this.tableId, horse.user_id);
           this.horseRebuys.delete(horse.user_id);
+          this.horseHandsSinceBigPot.delete(horse.user_id);
+          bankrollEvent('session_book_win');
           console.log(
             `[ServerTableEngine:${this.tableId}] Bankroll Management: Horse ${horse.username} hit profit target (${Math.floor(horse.stack)} chips) and cashed out before posting the Big Blind.`
           );

@@ -23,11 +23,11 @@ CERTIFIED_PREDECESSOR = 'eed06fe51dea622069c661a6213d5b031ff3a9e3'
 CERTIFIED_START = 1793833200
 CERTIFIED_END = 1793854800
 
-# The owner-directed receipt successor has a fresh single-use claim and fixed bounds.
+# The directly authorized receipt successor binds its own fresh single-use claim.
 # Prior immutable controls and entries keep their original authority and expiry.
-NOV7_OWNER_ID = '2026-11-10-horse-clock-receipts-engine-2350z'
-NOV7_MANIFEST_DIGEST = '723bb3d92016a2594fd8770a83d8726b8d28555699d6717f6a450545619de69c'
-NOV7_ORDER_DIGEST = 'bec612860b7271ada13611b9d2e3c36660e5c7ca026c4b4554bfdfcdccd1075d'
+NOV7_OWNER_ID = '2026-11-11-horse-clock-receipts-engine-0020z'
+NOV7_MANIFEST_DIGEST = '970a233be867ce7685efa60a67eccd3802a9d9ed533d025ffa3e37cb90fa89d1'
+NOV7_ORDER_DIGEST = '60a86482c5c4f92e7fda2f58cdd12b344e5e762e50d09c1f58815afb3ccb7138'
 
 
 

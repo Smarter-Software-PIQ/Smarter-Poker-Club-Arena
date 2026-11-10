@@ -362,6 +362,12 @@ import {
   lightningWaitingHero,
   heroIsAtTable,
 } from '../lightning/lightningWaitingHero';
+import {
+  lightningArrivingSeats,
+  lightningPoolWaitingFor,
+  subscribeLightningPoolWaiting,
+  type LightningPoolWaitingEntry,
+} from '../lightning/lightningPoolArrivals';
 import { lightningBustCandidate, useLightningBustRebuy } from '../lightning/lightningBustRebuy';
 import { useLightningAutoTopUp } from '../lightning/useLightningAutoTopUp';
 import { useLightningTopUpReceipts } from '../lightning/useLightningTopUpReceipts';
@@ -505,6 +511,8 @@ import {
   lightningDecisions as pendingLightningDecisions,
 } from '../lightning/lightningDecisionQueue';
 import { scheduleLightningRenderAck } from '../lightning/lightningRenderAck';
+import { markLightningJoinRoom } from '../lightning/lightningJoinTiming';
+import { useLightningJoinTiming } from '../lightning/useLightningJoinTiming';
 // The ShareHand COMPONENT is rendered by TableModalsLayer, not here — the
 // default import this line used to carry was unused. TablePage builds the
 // payload, so it needs the types.
@@ -23313,6 +23321,42 @@ function LiveTablePage({
     [tableState.players]
   );
 
+  /* REAL ARRIVALS WHILE WAITING (Dan 2026-11-10): "you are just sitting there,
+     and then all at once all the players appear". Between hands the engine
+     tells this room how many legal players are waiting for the next table
+     (lightning/lightningPoolArrivals.ts). Each OTHER waiting player is drawn
+     as an anonymous arriving chair - a real player whose seat is not known
+     yet, never a name - and the formed hand's real players take the chairs.
+     A count held when this wait began described the previous wait: it is not
+     used again (the engine re-tells a newly waiting room on its next pass). */
+  const lightningPoolWaitingEntry = useSyncExternalStore(subscribeLightningPoolWaiting, () =>
+    lightningPoolWaitingFor(tableId ?? null)
+  );
+  const lightningWaitBeganRef = useRef<{
+    inHand: boolean;
+    stale: LightningPoolWaitingEntry | null;
+  }>({ inHand: false, stale: null });
+  {
+    const inHand = !!lightningRoom && !!lightningHeroInRoster;
+    const began = lightningWaitBeganRef.current;
+    if (began.inHand !== inHand) {
+      // Leaving a hand: what is held now describes the wait before that hand.
+      lightningWaitBeganRef.current = {
+        inHand,
+        stale: began.inHand && !inHand ? lightningPoolWaitingEntry : null,
+      };
+    }
+  }
+  const lightningArrivingSeatSet = lightningArrivingSeats({
+    entry: lightningPoolWaitingEntry,
+    staleEntry: lightningWaitBeganRef.current.stale,
+    heroWaiting: lightningHeroWaiting,
+    sittingOut: lightningSitOut.sittingOut,
+    heroSeat: tableState.heroSeat,
+    seatCount: seatPositions.length,
+    occupied: (seat) => !!getPlayerAtSeat(seat),
+  });
+
   /**
    * Dan 2026-08-21 (bug list item 15): "display the current strength of the
    * hero's hand under their box total — preflop, on the flop, on the turn and
@@ -27189,8 +27233,18 @@ function LiveTablePage({
     return scheduleLightningRenderAck(lightningRenderHandId, (handId, deltaMs, resumed) => {
       lightningRenderAckedRef.current = handId;
       sendEngineRenderAck(handId, deltaMs, resumed);
+      // A timed join (lightningJoinTiming.ts) ends when its first hand paints.
+      markLightningJoinRoom(tableId, 'cards_painted');
     });
-  }, [lightningRenderHandId, sendEngineRenderAck]);
+  }, [lightningRenderHandId, sendEngineRenderAck, tableId]);
+  /* JOIN TIMING (2026-11-10): the room's half of a timed Lightning join - the
+     room mounted, its socket connected, its first snapshot and first hand. */
+  useLightningJoinTiming({
+    roomId: tableId,
+    lightningRoom: !!lightningRoom,
+    connected: engineWsStatus === 'connected',
+    snapshot: lightningRoom ? (engineSnapshot as LightningSnapshotFields | null) : null,
+  });
 
   /* JOIN LIGHTNING: the buy-in landed at the anchor table the player joined
      through, so this tab follows their chair into the pool-session room. */
@@ -30235,6 +30289,9 @@ function LiveTablePage({
                      chairs draw nothing (nobody can sit there). Classic
                      tables never pass it and keep EMPTY. */
                   hideEmptyChair={!!lightningRoom}
+                  /* Real arrivals while waiting: a real player waiting for
+                     this table, identity not yet known. */
+                  arriving={lightningArrivingSeatSet.has(seatNumber)}
                   /* Dan 2026-08-18: the hero's own reserved seat reads
                      "YOUR SEAT" instead of the generic EMPTY. */
                   isHeroReservedSeat={
