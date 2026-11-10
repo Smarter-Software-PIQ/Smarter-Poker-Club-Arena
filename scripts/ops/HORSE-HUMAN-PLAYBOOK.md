@@ -239,6 +239,21 @@ In eight cases a larger wager was legal but no opponent could match another chip
 
 **Would the sealed full-house rule have changed the recorded action?** In the remaining 13 entries, the source predicate for checked-to non-bottom boats passed on all 49 original checked hands. Among 108 historical decisions facing a wager, applying the isolated call rule from the sealed revision changes 18 original actions to calls: nine all-ins, seven raises and two folds. The other 90 actions pass through this component. These are offline comparisons against the original decision state. A production behavior claim requires its own accepted action, and a strategic EV verdict requires a priced response range.
 
+### How concentrated can the river bettor's range be before a call loses value?
+
+Across the 18 historical decisions changed to calls by the sealed large-wager component, exact enumeration covered 27,713,130 compatible single-opponent holdings summed across boards. Under uniform holdings, the Horse's heads-up showdown share ranged from 77.43% to 99.34%. A stronger hand was possible at every node, and two decisions actually had multiple opponents. A high share against uniformly dealt cards leaves open how strong the range is after a river bet.
+
+Ten of those 18 were cash hands with one remaining opponent, equal final contributions after a call, and no folded seat with a higher contribution. In these ten, assign the worst possible range for the Horse while limiting each holding's probability relative to uniform. With a conservative upper bound on fees, calling beats folding in all ten at a 2× limit, nine at 5× and six at 10×. A 5× limit means any specific holding may carry at most five times its uniform probability and all probabilities still sum to one. The other eight lacked this exact comparison geometry. To rank a raise, also price how much the opponent can match and which holdings call or reraise.
+
+The two short-stack PLO6 river fold examples illustrate how this changes an individual decision. Each has one live opponent and 4,496,388 compatible six-card holdings after card removal, counting ties. With the captured BBJ disabled and rake caps of 0.31 or 0.62 chips, the fee-adjusted thresholds and shares were:
+
+| Horse's full house   | Share required to call | Share against uniform holdings | Share against full houses or better |
+| -------------------- | ---------------------: | -----------------------------: | ----------------------------------: |
+| Tens full of queens  |          12.72%–12.77% |                         67.52% |                              55.98% |
+| Queens full of fours |          28.61%–28.80% |                         37.31% |                              15.71% |
+
+For tens full of queens, conditioning on opponents who tie or beat it reduces its share to 2.23%. For queens full of fours, moving from uniform holdings to full houses or better moves the call from a gain of 3.85–3.97 chips to a loss of 5.88–5.93 chips relative to folding. The opponent's actual betting range remains unmeasured. These comparisons support different actions under different ranges and do not assign a realized loss to either historical fold.
+
 ## Loading and verifying a correction
 
 The [machine-readable entry directory](./HORSE-HUMAN-PLAYBOOK-ENTRIES.json) lists each situation, its candidate counts, owner, required evidence and source qualification routes. The core entries account for 538 flags. Later frozen volumes add 16 flags to those same entries. A decision can carry multiple flags. The frozen manifest maps 48 distinct entries across 14 game, format and speed combinations to their qualification paths. The candidate counts overlap. Each entry still needs its own decision inputs, policy artifact and receipt. None of the 48 entries carries a qualified artifact in the frozen manifest. To assess a later release, use its exact revision and the accepted receipt from the Horse that consumed it.
