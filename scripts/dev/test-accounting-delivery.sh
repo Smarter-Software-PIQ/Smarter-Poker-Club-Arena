@@ -445,4 +445,5 @@ bash "$root/scripts/dev/test-diamond-wheel-single-spin-race.sh" "$fixture"
 "${diamond_psql[@]}" -f "$diamond/plinko-entry-readers.sql" \
   -f "$root/supabase/migrations/20261110023836_longer_crash_flights_and_positive_plinko_returns.sql" \
   -f "$root/supabase/migrations/20261110023916_release_plinko_drops_and_their_prizes_one_request_at_a_time.sql" \
+  -f "$root/supabase/migrations/20261110055229_earned_mines_opens_the_board_its_award_funds.sql" \
   -f "$root/tests/sql/diamond-plinko-drop-release.sql"
