@@ -57,7 +57,7 @@ import { useAuthUser } from '../../hooks/useAuthUser';
 import styles from './TournamentLobbyCard.module.css';
 import { reportError } from '../../utils/errorReporter';
 import { runWithRequestDeadline } from '../../utils/requestDeadline';
-import { formatGameTitle } from '../../utils/formatGameTitle';
+import { formatTournamentTitle } from '../../utils/formatGameTitle';
 // Whole-number tournament money (Dan 2026-08-20).
 import { money } from '../../utils/buyIn';
 import {
@@ -824,7 +824,7 @@ function TournamentLobbyCardInner({
       /* The recorded format names the card; a format nobody has recorded is
          plainly a Tournament, never a guess. */
       eyebrow={formatKnown ? getTypeLabel(displayType) : 'Tournament'}
-      title={formatGameTitle(tournament.name)}
+      title={formatTournamentTitle(tournament.name)}
       subtitle={[guarantee, destination].filter(Boolean).join(' · ') || undefined}
       pill={pill}
       pillInk={pillInk}

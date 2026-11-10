@@ -36,7 +36,7 @@ import {
   type MttStructureDescription,
 } from '../../../server/src/tournament/mttStructureDescription';
 import { FREE_BUY_HELPER, FREE_BUY_LABEL } from '../../utils/freeBuy';
-import { formatGameTitle } from '../../utils/formatGameTitle';
+import { formatGameTitle, formatTournamentTitle } from '../../utils/formatGameTitle';
 import {
   isGuaranteedTournament,
   isInLateRegistration,
@@ -1704,7 +1704,7 @@ export function tournamentEntry(
   return {
     id: t.id,
     kind,
-    name: formatGameTitle(t.name),
+    name: formatTournamentTitle(t.name),
     gameLabel: v.short,
     variantLabel: v.long,
     stakesLabel: null,
@@ -2178,13 +2178,7 @@ export function mttPhaseText(entry: LobbyEntry, now: number): string | null {
 /** MTT names carry their variation; make sure it is there even when the
     creator left it out of the name text. */
 export function mttTitleLine(entry: LobbyEntry): string {
-  const name = entry.name || '';
-  // formatGameTitle returns '' for a nameless tournament, which used to render
-  // as a leading space and a parenthesised label: " (NLH)".
-  if (!name) return entry.gameLabel;
-  return name.toUpperCase().includes(entry.gameLabel.toUpperCase())
-    ? name
-    : `${name} (${entry.gameLabel})`;
+  return formatTournamentTitle(entry.name) || entry.gameLabel;
 }
 
 /** Format metadata preserves funded seat-first satellites and fixed SNG/Spin

@@ -29,7 +29,7 @@ import { supabase } from './supabase';
 import { compactChips } from '../utils/format';
 import { FREE_BUY_LABEL } from '../utils/freeBuy';
 import { totalBuyIn, moneyExact } from '../utils/buyIn';
-import { formatGameTitle } from '../utils/formatGameTitle';
+import { formatTournamentTitle } from '../utils/formatGameTitle';
 
 /** The longest sub-line a tournament pill can ever print, in glyphs. */
 export const TOURNAMENT_TAB_LABEL_MAX_GLYPHS = 8;
@@ -68,7 +68,7 @@ export function tournamentTabBuyInLabel(
  * is kept whole. '' means no usable name, and the pill then says "MTT".
  */
 export function tournamentTabEventName(name: string | null | undefined): string {
-  const full = formatGameTitle(typeof name === 'string' ? name.trim() : '').trim();
+  const full = formatTournamentTitle(typeof name === 'string' ? name.trim() : '').trim();
   if (!full) return '';
   const short = full.replace(/\s*\([^()]*\)\s*$/, '').trim();
   return short || full;

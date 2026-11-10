@@ -1,4 +1,4 @@
-import { formatGameTitle } from '../../utils/formatGameTitle';
+import { formatTournamentTitle } from '../../utils/formatGameTitle';
 import { useVisiblePokerTable } from '../../lib/visiblePokerTable';
 import { warmTable } from '../../services/tableWarmup';
 /**
@@ -120,7 +120,7 @@ function writeWarned(s: Set<string>) {
  * table, or a rename - falls through to a single line rather than inventing one.
  */
 function renderTwoLineTitle(raw: string): ReactNode {
-  const name = formatGameTitle(raw).trim();
+  const name = formatTournamentTitle(raw).trim();
   const cut = name.lastIndexOf(' - ');
   if (cut <= 0) return name;
   const event = name.slice(0, cut).trim();

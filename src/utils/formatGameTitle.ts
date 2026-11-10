@@ -82,3 +82,16 @@ export function formatGameTitle(name: string | null | undefined): string {
 }
 
 export default formatGameTitle;
+
+/** Keep the event identity and table number while leaving terms in their dedicated fields. */
+export function formatTournamentTitle(name: string | null | undefined): string {
+  const full = formatGameTitle(name).trim();
+  const table = full.match(/\s+[-–—]\s+Table \d+$/i);
+  const event = table ? full.slice(0, table.index) : full;
+  const short = event
+    .replace(/\s*\((?:[^()]*\b(?:NLH|NLHE|PLO[4568]?|FLH|FLO8|Hold'em)\b[^()]*)\)\s*$/i, '')
+    .replace(/\s+[-–—]\s*[\d,.]+\s*[KMB]?\s+(?:Chip\s+)?(?:GTD|Guarantee(?:d)?)\s*$/i, '')
+    .replace(/\bBounty Freezeout\b/gi, 'Bounty')
+    .trim();
+  return (short || event) + (table?.[0] ?? '');
+}
