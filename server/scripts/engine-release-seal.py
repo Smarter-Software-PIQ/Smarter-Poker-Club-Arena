@@ -691,7 +691,7 @@ def cmd_bind_routine_window(args: argparse.Namespace) -> None:
 # Written under SealLock before the per-run reservation. An interrupted write
 # consumes the exception conservatively. Existing release recovery reads keep
 # their original run identity and never request a second announcement.
-NOV7_OWNER_CLAIM = 'engine-release-owner-2026-11-11-horse-clock-receipts-engine-0020z.json'
+NOV7_OWNER_CLAIM = 'engine-release-owner-2026-11-11-horse-clock-receipts-engine-0050z.json'
 NOV7_PREDECESSOR = '840429a332ecb536d19b3b719fa6809e7bc63ca7'
 
 
