@@ -13,7 +13,7 @@
  * the glass is read straight off the DOM the frame loop places.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 const frames = vi.hoisted(() => ({ render: vi.fn(() => true), cleanup: vi.fn(), fail: false }));
@@ -106,6 +106,34 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   vi.clearAllMocks();
+});
+
+describe('the flight diamond', () => {
+  it('launches only when pressed and shows one full-screen diamond burst on a confirmed crash', () => {
+    clock();
+    const launch = vi.fn();
+    const page = render(<CrashCurve {...base} onLaunch={launch} />);
+    expect(launch).not.toHaveBeenCalled();
+    fireEvent.click(page.getByRole('button', { name: 'Launch Diamond' }));
+    expect(launch).toHaveBeenCalledTimes(1);
+    page.rerender(<CrashCurve {...base} phase="open" onLaunch={launch} />);
+    expect(page.queryByRole('button', { name: 'Launch Diamond' })).toBeNull();
+    expect(document.querySelector('[data-crash-impact]')).toBeNull();
+    page.rerender(<CrashCurve {...base} phase="crashed" finalCents={251} />);
+    const burst = document.querySelector('[data-crash-impact]')!;
+    expect(burst.parentElement).toBe(document.body);
+    expect(burst.children.length).toBeGreaterThan(1);
+    fireEvent.animationEnd(burst);
+    expect(document.querySelector('[data-crash-impact]')).toBeNull();
+  });
+  it('keeps reduced-motion crash feedback on the board', () => {
+    motion.reduced = true;
+    clock();
+    const page = render(<CrashCurve {...base} phase="open" />);
+    page.rerender(<CrashCurve {...base} phase="crashed" finalCents={251} />);
+    expect(document.querySelector('[data-crash-impact]')).toBeNull();
+    expect(page.container.querySelector('[data-phase="crashed"]')).not.toBeNull();
+  });
 });
 
 describe('the multiplier is the hero', () => {

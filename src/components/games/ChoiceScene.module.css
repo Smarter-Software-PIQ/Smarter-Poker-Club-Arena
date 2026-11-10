@@ -487,3 +487,27 @@
     animation: none;
   }
 }
+
+/* In live play the cabinet already prints both prizes and the hit guarantee.
+   Leave the windshield clear for the donkey and its approaching traffic. */
+[data-choice-game='crossing'] .scene[data-phase='open'] .readout {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  padding: 0;
+  border: 0;
+}
+[data-choice-game='crossing'] .caption {
+  top: 0;
+  padding: 5px 13px;
+  border-radius: 0 0 7px 7px;
+  border-top: 0;
+  color: #e5e9e9;
+}
+@media (max-width: 760px) and (orientation: portrait) {
+  [data-choice-game='crossing'] .scene {
+    height: clamp(240px, calc(59dvh - var(--choice-risk-reserve, 0px)), 540px);
+  }
+}

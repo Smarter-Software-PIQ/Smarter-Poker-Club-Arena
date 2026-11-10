@@ -44,7 +44,7 @@ export interface ChoiceRound {
    *  5: a loss keeps half the last safe prize (2026-10-10).
    *  6: Donkey Cross only, a fair coin on every street (2026-10-11).
    *  7: Donkey Cross only, street one always safe, a fair coin after (2026-10-15). */
-  payout_version?: 1 | 2 | 3 | 4 | 5 | 6 | 7;
+  payout_version?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
   server_seed_hash: string;
   client_seed: string;
   nonce: number;

@@ -281,7 +281,10 @@ describe('a saved round settles itself', () => {
     expect(bonusErrorKind(new Error('Connection Lost'))).toBe('unknown');
     expect(BONUS_SENDS_PER_REQUEST).toBe(3);
     const service = code('src/services/DiamondBonusService.ts');
-    const start = service.slice(service.indexOf('async start('), service.indexOf('async latest('));
+    const start = service.slice(
+      service.indexOf('async start('),
+      service.indexOf('async plinkoProgress(')
+    );
     // The start door classifies its error; it never rethrows every one.
     expect(start).not.toMatch(/if \(error\) throw error;/);
     expect(start).toMatch(/bonusErrorKind\(error\)/);

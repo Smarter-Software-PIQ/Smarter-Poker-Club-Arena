@@ -96,7 +96,6 @@ vi.mock('../../src/components/wheel/WheelWinReveal', () => ({
   WheelWinReveal: ({ title }: { title: string }) => <div role="dialog" aria-label={title} />,
 }));
 vi.mock('../../src/components/games/DiamondSpinsTabs', () => ({ default: () => null }));
-vi.mock('../../src/components/games/TodayLine', () => ({ default: () => null }));
 vi.mock('../../src/components/games/SealedPrize', () => ({ default: () => null }));
 vi.mock('../../src/components/games/FloorFeed', () => ({ default: () => null }));
 
