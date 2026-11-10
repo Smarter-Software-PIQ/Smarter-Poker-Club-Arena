@@ -1,0 +1,177 @@
+rule_files:
+  - ../../infra/monitoring/recovery-rules.yml
+evaluation_interval: 1m
+tests:
+  - name: a ticking controller with an empty outbox raises nothing
+    interval: 1m
+    input_series:
+      - series: 'reliability_controller_heartbeat_age_seconds'
+        values: '20x60'
+      - series: 'reliability_controller_heartbeat_timestamp_seconds'
+        values: '-20+60x60'
+      - series: 'reliability_controller_notifications_queued'
+        values: '0x60'
+      - series: 'reliability_controller_notifications_failed_24h'
+        values: '0x60'
+      - series: 'reliability_controller_intake_rejections_24h'
+        values: '0x60'
+    promql_expr_test:
+      - expr: 'count(ALERTS{component="reliability-controller"}) or vector(0)'
+        eval_time: 60m
+        exp_samples:
+          - labels: '{}'
+            value: 0
+
+  - name: a heartbeat the database reports as old is critical after five minutes
+    interval: 1m
+    input_series:
+      - series: 'reliability_controller_heartbeat_age_seconds'
+        values: '20 20 400+60x20'
+      - series: 'reliability_controller_heartbeat_timestamp_seconds'
+        values: '-20 40 -280x20'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: ReliabilityControllerStale
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: ReliabilityControllerStale
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: reliability-controller
+            exp_annotations:
+              summary: 'The Reliability Controller has not ticked for 12m 40s'
+              description: >-
+                reliability_tick() writes reliability_heartbeat every minute from
+                pg_cron job reliability-controller-tick. The heartbeat is more than
+                five minutes old, so incidents are not being escalated, confirmed,
+                closed or delivered. The second half of the expression keeps
+                counting from the last heartbeat time when the collector can no
+                longer reach the database, so this also fires when the database or
+                its REST API is down. Read cron.job_run_details for the job and
+                reliability_heartbeat.last_result.
+              runbook: docs/reliability-controller/HEALTH-SIGNAL.md
+
+  # The database is unreachable: the collector fails closed and leaves the old
+  # textfile, so every gauge repeats its last healthy value. Only the heartbeat
+  # time keeps ageing.
+  - name: a frozen textfile cannot hold the heartbeat young
+    interval: 1m
+    input_series:
+      - series: 'reliability_controller_heartbeat_age_seconds'
+        values: '20x30'
+      - series: 'reliability_controller_heartbeat_timestamp_seconds'
+        values: '-20 40 100x28'
+    promql_expr_test:
+      - expr: 'count(ALERTS{alertname="ReliabilityControllerStale",alertstate="firing"}) or vector(0)'
+        eval_time: 11m
+        exp_samples:
+          - labels: '{}'
+            value: 0
+      - expr: 'ALERTS{alertname="ReliabilityControllerStale",alertstate="firing"}'
+        eval_time: 13m
+        exp_samples:
+          - labels: 'ALERTS{alertname="ReliabilityControllerStale",alertstate="firing",severity="critical",component="reliability-controller"}'
+            value: 1
+
+  - name: missing telemetry is critical after fifteen minutes
+    interval: 1m
+    input_series:
+      - series: 'reliability_controller_collect_ok'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: ReliabilityControllerMetricsAbsent
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: ReliabilityControllerMetricsAbsent
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: reliability-controller
+            exp_annotations:
+              summary: 'No Reliability Controller health has been published for 15 minutes'
+              description: >-
+                Missing telemetry is not health. The collector publishes no
+                reliability_controller_heartbeat_age_seconds series when
+                public.fn_reliability_controller_health() is missing or refuses,
+                when the heartbeat has never ticked, when the answer is incomplete,
+                or when the textfile or node_exporter on the engine host is gone.
+                reliability_controller_collect_ok says whether the read itself
+                failed; the collector's journal (club-arena-money-health.service)
+                says why.
+              runbook: docs/reliability-controller/HEALTH-SIGNAL.md
+      - eval_time: 16m
+        alertname: ReliabilityControllerStale
+        exp_alerts: []
+
+  - name: a queue that drains is quiet, a queue that does not shrink for 30 minutes warns
+    interval: 1m
+    input_series:
+      # Busy but draining: touches zero inside every 30 minute window.
+      - series: 'reliability_controller_notifications_queued'
+        values: '0 3 1 0 2 0 0 4 0 0 2x50'
+      - series: 'reliability_controller_notifications_failed_24h'
+        values: '0x60'
+    promql_expr_test:
+      - expr: 'count(ALERTS{alertname="ReliabilityControllerOutboxStuck",alertstate="firing"}) or vector(0)'
+        eval_time: 30m
+        exp_samples:
+          - labels: '{}'
+            value: 0
+      # Queued at 2 from minute 10. The 30 minute window is all non-zero from
+      # minute 40, then for: 5m.
+      - expr: 'count(ALERTS{alertname="ReliabilityControllerOutboxStuck",alertstate="firing"}) or vector(0)'
+        eval_time: 43m
+        exp_samples:
+          - labels: '{}'
+            value: 0
+      - expr: 'ALERTS{alertname="ReliabilityControllerOutboxStuck",alertstate="firing"}'
+        eval_time: 46m
+        exp_samples:
+          - labels: 'ALERTS{alertname="ReliabilityControllerOutboxStuck",alertstate="firing",severity="warning",component="reliability-controller"}'
+            value: 1
+
+  - name: one failed notification warns without a queue, and both halves true is still one alert
+    interval: 1m
+    input_series:
+      - series: 'reliability_controller_notifications_queued'
+        values: '0x9 5x60'
+      - series: 'reliability_controller_notifications_failed_24h'
+        values: '1x70'
+    promql_expr_test:
+      - expr: 'ALERTS{alertname="ReliabilityControllerOutboxStuck",alertstate="firing"}'
+        eval_time: 6m
+        exp_samples:
+          - labels: 'ALERTS{alertname="ReliabilityControllerOutboxStuck",alertstate="firing",severity="warning",component="reliability-controller"}'
+            value: 1
+      - expr: 'count(ALERTS{alertname="ReliabilityControllerOutboxStuck",alertstate="firing"})'
+        eval_time: 60m
+        exp_samples:
+          - labels: '{}'
+            value: 1
+
+  - name: an intake rejection in the last 24 hours warns
+    interval: 1m
+    input_series:
+      - series: 'reliability_controller_intake_rejections_24h'
+        values: '0 0 2x20'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: ReliabilityControllerIntakeRejections
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: ReliabilityControllerIntakeRejections
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: reliability-controller
+            exp_annotations:
+              summary: 'The Reliability Controller rejected 2 alert event(s) in the last 24 hours'
+              description: >-
+                An alert reached the operational inbox and the controller's intake
+                could not turn it into an observation, so it belongs to no
+                incident. reliability_intake_rejections holds the reason and
+                sqlstate for each. The inbox row itself is intact. This clears 24
+                hours after the last rejection.
+              runbook: docs/reliability-controller/HEALTH-SIGNAL.md
