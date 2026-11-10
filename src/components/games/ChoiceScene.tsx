@@ -1099,7 +1099,7 @@ const SIGN_INK = {
   start: '#e6edf3',
   led: '#45adff',
   bust: '#ff5b6e',
-  gold: '#ffd700',
+  gold: '#5FAAFF',
   spentEdge: '#9aa5b3',
   spentInk: '#ffffff',
   edge: ['#91a8b9', '#aec6dc', '#679dcc', '#348eee'],

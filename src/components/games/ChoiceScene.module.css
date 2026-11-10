@@ -145,13 +145,13 @@
   width: max-content;
   max-width: calc(100% - 24px);
   padding: 9px 16px 10px;
-  border: 1px solid rgb(255 215 0 / 78%);
+  border: 1px solid rgb(69 147 255 / 78%);
   border-radius: 4px;
   background: rgb(5 7 10 / 92%);
   box-shadow:
     var(--realism-bevel, inset 0 1px 0 rgba(255, 255, 255, 0.07)),
-    inset 0 0 0 1px rgb(255 215 0 / 22%),
-    inset 0 0 18px rgb(255 215 0 / 14%),
+    inset 0 0 0 1px rgb(69 147 255 / 22%),
+    inset 0 0 18px rgb(69 147 255 / 14%),
     0 10px 30px rgb(0 0 0 / 55%);
   color: var(--realism-chrome, #b8c3cd);
   text-align: center;
@@ -187,10 +187,10 @@
     800 19px/1.15 'Roboto Condensed',
     Inter,
     sans-serif;
-  color: #ffd700;
+  color: #fff;
   font-variant-numeric: tabular-nums;
   text-shadow:
-    0 0 16px rgb(255 215 0 / 35%),
+    0 0 16px rgb(69 147 255 / 35%),
     0 1px 0 #050607;
 }
 .route[data-outcome='crash'] .routeValue {
@@ -314,11 +314,11 @@
   border-color: rgb(214 173 82 / 72%);
 }
 .street[data-hazard='3'] {
-  border-color: #ffd700;
+  border-color: #6eafff;
   box-shadow:
     var(--realism-bevel, inset 0 1px 0 rgba(255, 255, 255, 0.07)),
     var(--realism-cavity, inset 0 -1px 0 rgba(0, 0, 0, 0.6)),
-    inset 0 0 8px rgb(255 215 0 / 16%);
+    inset 0 0 8px rgb(69 147 255 / 16%);
 }
 .streetNumber {
   font:
@@ -340,7 +340,7 @@
   font:
     500 10px/1.2 Inter,
     sans-serif;
-  color: #ffd700;
+  color: #fff;
   text-shadow: 0 1px 0 #050607;
 }
 .street[data-state='crossed'] {
@@ -372,14 +372,14 @@
    met. The same colours the signs on the road wear for the same streets. */
 .street[data-route='reachable'] {
   opacity: 1;
-  border-color: #ffd700;
+  border-color: #6eafff;
   box-shadow:
     var(--realism-bevel, inset 0 1px 0 rgba(255, 255, 255, 0.07)),
-    inset 0 0 0 1px rgb(255 215 0 / 45%),
-    inset 0 0 14px rgb(255 215 0 / 30%);
+    inset 0 0 0 1px rgb(69 147 255 / 45%),
+    inset 0 0 14px rgb(69 147 255 / 30%);
 }
 .street[data-route='reachable'] .streetMultiplier {
-  color: #ffd700;
+  color: #fff;
 }
 .street[data-route='crash'] {
   border-color: #ff5b6e;
