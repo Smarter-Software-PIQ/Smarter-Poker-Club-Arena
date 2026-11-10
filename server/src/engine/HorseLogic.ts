@@ -357,6 +357,7 @@ import {
   makeBarrelContinuation,
   rangeAdvantageFor,
 } from './HorseContinuation.js';
+import { canQuickCheckFold, facingShovePrice } from './HorseQuickCheckFold.js';
 import { personaFromValue, followsSolver, type HorsePersonaV2 } from './HorsePersona.js';
 // V38 (2026-09-03): the EV engine — the arithmetic behind every choice, the
 // arbiter for the games with no solver export and for every river fold/call
@@ -14135,15 +14136,15 @@ export class HorseLogic {
     const facingTournamentShove =
       facingBet &&
       isTournamentMode(gs) &&
-      gs.players.some(
-        (p) =>
-          p.user_id !== tempoSeed &&
-          !p.is_folded &&
-          p.is_all_in &&
-          p.bet >= gs.currentBet &&
-          p.bet > 0
-      );
-    const floor = facingTournamentShove ? 2000 : facingBet ? FACING_FLOOR_MS : FREE_FLOOR_MS;
+      facingShovePrice(gs.currentBet, gs.currentBet - toCall, gs.players);
+    const deliberateCheckFold =
+      gs.gameMode === 'tournament' && simple && !canQuickCheckFold(tempoSeed);
+    const floor =
+      facingTournamentShove || deliberateCheckFold
+        ? 2000
+        : facingBet
+          ? FACING_FLOOR_MS
+          : FREE_FLOOR_MS;
     if (think >= floor) return Math.round(think);
 
     // THE JITTER IS DERIVED, NOT DRAWN. An obvious implementation calls
