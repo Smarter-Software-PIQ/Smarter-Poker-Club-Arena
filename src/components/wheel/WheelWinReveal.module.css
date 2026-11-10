@@ -183,3 +183,42 @@
     margin: 4px auto;
   }
 }
+
+.opening[data-award-impact='burst'] .rays,
+.opening[data-award-impact='major'] .rays {
+  inset: -24%;
+  background: repeating-conic-gradient(
+    transparent 0deg 13deg,
+    #64c8ffb3 16deg,
+    transparent 19deg 30deg
+  );
+  animation: award-burst calc(900ms * var(--animation-speed, 1)) cubic-bezier(0.15, 0.65, 0.23, 1)
+    both;
+}
+.opening[data-award-impact='major'] .rays {
+  background: repeating-conic-gradient(
+    transparent 0deg 13deg,
+    #ffce56b3 16deg,
+    transparent 19deg 30deg
+  );
+}
+@keyframes award-burst {
+  0% {
+    transform: scale(0.25) rotate(-12deg);
+    opacity: 0;
+  }
+  24% {
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.12) rotate(5deg);
+    opacity: 0.55;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .opening[data-award-impact],
+  .opening[data-award-impact] .rays,
+  .opening[data-award-impact] .art {
+    animation: none;
+  }
+}

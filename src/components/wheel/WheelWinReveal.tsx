@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { WheelSegment } from '../../services/DiamondWheelService';
 import { Modal } from '../common/Modal';
-import { SpadeConsole } from '../console/SpadeConsole';
+import cabinet from '../games/BonusCompletion.module.css';
 import { getAnimationSpeed } from '../../utils/animationSpeed';
 import { soundService } from '../../services/SoundService';
 import { triggerHaptic } from '../../services/HapticService';
@@ -18,22 +18,14 @@ export function revealButtonLabel(kind: WheelSegment['kind']): string {
 /**
  * Display only: the receipt already owns the award. Opening never books a bet.
  *
- * A WON GAME WAITS FOR PLAY GAME (owner ruling 2026-09-21, R1 and R9). This
- * reveal used to dismiss itself at the end of its pop-open animation whenever
- * the prize was a bonus game or an upgrade, and the page then navigated into
- * the game: play advanced with no tap. Now the only way off a bonus or upgrade
- * reveal is its plate; Escape and the backdrop do not open a game either. The
- * one timed continue left is the completion card a finished game shows on its
- * way back to the wheel (`autoContinue` with `autoContinueAfterMs`), which
- * starts nothing.
  */
 export function WheelWinReveal({
   prize,
   title,
   detail,
   onOpen,
-  autoContinue = false,
-  autoContinueAfterMs = 0,
+  autoContinue = true,
+  autoContinueAfterMs = 3000,
   eyebrow,
   silent = false,
   reserved = false,
@@ -84,7 +76,9 @@ export function WheelWinReveal({
   const opened = useRef(false);
   const onOpenRef = useRef(onOpen);
   onOpenRef.current = onOpen;
-  const remaining = useRef(autoContinueAfterMs);
+  const remaining = useRef(
+    prize.kind === 'bonus' ? 1000 * getAnimationSpeed() : autoContinueAfterMs
+  );
   const sounded = useRef(false);
   const [visible, setVisible] = useState(() => document.visibilityState !== 'hidden');
   useEffect(() => {
@@ -100,12 +94,12 @@ export function WheelWinReveal({
     triggerHaptic('success');
   }, [prize.kind, visible, silent]);
   const continueButton = useRef<HTMLButtonElement>(null);
-  const [ready, setReady] = useState(false);
-  const gameAhead = prize.kind === 'bonus' || prize.kind === 'upgrade' || holdOpen;
-  const timedPrize = autoContinue && autoContinueAfterMs > 0 && !gameAhead;
+  const choiceAhead = reserved || holdOpen || prize.kind === 'upgrade';
+  const timedPrize =
+    !choiceAhead && (prize.kind === 'bonus' || (autoContinue && autoContinueAfterMs > 0));
   useEffect(() => {
-    if (ready && !timedPrize) continueButton.current?.focus();
-  }, [ready, timedPrize]);
+    continueButton.current?.focus();
+  }, []);
   const finish = useCallback(() => {
     if (opened.current) return;
     opened.current = true;
@@ -124,42 +118,42 @@ export function WheelWinReveal({
     <Modal
       isOpen
       ariaLabel={title}
-      onClose={() => !gameAhead && (ready || timedPrize) && finish()}
-      closeOnOverlay={timedPrize}
-      closeOnEscape={!gameAhead && (ready || timedPrize)}
+      onClose={() => !choiceAhead && finish()}
+      closeOnOverlay={!choiceAhead}
+      closeOnEscape={!choiceAhead}
       showCloseButton={false}
+      popupChassis="none"
       className={styles.dialog}
     >
       <div
         className={styles.opening}
         data-motion="keep"
         style={{
-          animationDuration: `${1400 * getAnimationSpeed()}ms`,
+          animationDuration: `${480 * getAnimationSpeed()}ms`,
           animationPlayState: visible ? 'running' : 'paused',
         }}
-        onAnimationEnd={(event) => {
-          if (event.target !== event.currentTarget) return;
-          setReady(true);
-        }}
+        data-award-impact={
+          prize.kind === 'bonus' || prize.kind === 'upgrade'
+            ? 'burst'
+            : (prize.multiplier ?? 0) >= 5
+              ? 'major'
+              : 'regular'
+        }
       >
-        <SpadeConsole
-          /* The X follows Escape exactly: only once the reveal has played
-             (ANIMATIONS MUST ALWAYS PLAY) and never while a bonus game is
-             still ahead of the player. */
-          onClose={!gameAhead && (ready || timedPrize) ? finish : undefined}
-          eyebrow={eyebrow ?? (prize.kind === 'upgrade' ? 'Wheel Upgrade' : 'You Won')}
-          title={title}
-          pill={
-            prize.kind === 'bonus'
-              ? 'Bonus Game'
-              : prize.kind === 'upgrade'
-                ? 'Super Spin'
-                : reserved
-                  ? 'Reserved'
-                  : 'Paid'
-          }
-          foot="foot"
-        >
+        <section className={cabinet.receipt}>
+          <header>
+            <span data-eyebrow>
+              {eyebrow ??
+                (prize.kind === 'upgrade'
+                  ? 'Wheel Upgrade'
+                  : prize.kind === 'bonus'
+                    ? 'Bonus Game'
+                    : reserved
+                      ? 'Reserved'
+                      : 'You Won')}
+            </span>
+            <h2>{title}</h2>
+          </header>
           <div className={styles.prize} aria-hidden="true">
             <div className={styles.rays} />
             {art ?? <WheelPrizeArt segment={prize} className={styles.art} />}
@@ -167,15 +161,10 @@ export function WheelWinReveal({
           <p className="sc-copy sc-copy--center" role="status">
             {detail}
           </p>
-          <button
-            ref={continueButton}
-            className={styles.continue}
-            disabled={!ready && !timedPrize}
-            onClick={finish}
-          >
+          <button ref={continueButton} className={styles.continue} onClick={finish}>
             {openLabel ?? revealButtonLabel(prize.kind)}
           </button>
-        </SpadeConsole>
+        </section>
       </div>
     </Modal>
   );
