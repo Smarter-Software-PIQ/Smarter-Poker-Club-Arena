@@ -2021,6 +2021,16 @@ describe('retained original accepted terminal transport', () => {
         acceptedActorRoster: ordinaryRoster,
         terminalOnlySourceRelease: 'a'.repeat(40),
       });
+      for (const unusable of [
+        undefined,
+        { ...rawRoster, payloadDigest: 'd'.repeat(64) },
+        { ...rawRoster, status: 'legacy_missing', roster: null },
+      ]) {
+        resumeReply = { data: { ...receipt, accepted_roster: unusable }, error: null };
+        await resumeRetainedHandSubmission(input.tableId, 'successor', 'successor-lease');
+        expect(mockObserveCompletedHand).toHaveBeenCalledTimes(1);
+      }
+      resumeReply = { data: receipt, error: null };
       terminalRead.data.post_commit_payload_hash = 'd'.repeat(64);
       await resumeRetainedHandSubmission(input.tableId, 'successor', 'successor-lease');
       expect(mockObserveCompletedHand).toHaveBeenCalledTimes(1);

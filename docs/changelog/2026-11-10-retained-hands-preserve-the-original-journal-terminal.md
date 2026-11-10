@@ -19,10 +19,23 @@ or a mismatched hand/payload stays unaccepted. Recovery across different engine
 revisions deliberately remains unavailable rather than attributing an old
 choice to a new source. Identical terminal copies use the existing reconciler's
 identical-acceptance semantics; duplicate delivery cannot duplicate learning.
-No migration, schedule, backfill or new release operation is introduced.
+The already-atomic resume branch previously dropped the original accepted roster
+when rebuilding its response from stack_result. Migration
+`20261110214347_retained_hand_resume_returns_original_accepted_roster.sql`
+returns the existing protected capsule through accepted_hand_roster_replay,
+using the original payload hash. It never captures a new roster or changes the
+committed envelope. Missing or malformed capsules cannot create a conflicting
+terminal. No schedule, backfill or new release operation is introduced.
 
 Focused protection covers original mutation, missing and mismatched provenance,
 receipt-hash mismatch, no additional financial RPC, worker source refusal,
 no-learning duplicates and owner-only journal routing. Deployment requires the
 existing protected engine route and a naturally recovered prospective terminal;
 source/test success alone is not live acceptance.
+
+The maintained PostgreSQL accepted-roster contract proves the missing capsule
+before the correction, exact stored-capsule replay afterward, missing and
+mismatched discriminator refusals, unchanged single financial claim and install
+replay refusal. The actual journal reconciler accepts ordinary plus duplicate
+recovered terminals with the same roster. This engine candidate requires the
+migration's protected installation and readback before live acceptance.

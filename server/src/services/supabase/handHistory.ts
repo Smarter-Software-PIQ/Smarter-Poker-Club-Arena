@@ -213,12 +213,13 @@ export async function resumeRetainedHandSubmission(
             { sourceRelease, tableId, handNumber, handId: data.submission_id }
           )
         : null;
-    if (terminal && sourceRelease) {
-      const roster = acceptedRosterForObservation(data, tableId, handNumber, data.submission_id);
+    const roster = acceptedRosterForObservation(data, tableId, handNumber, data.submission_id);
+    // A missing original capsule must not create a conflicting terminal.
+    if (terminal && sourceRelease && roster) {
       void getLiveHorseDecisionWorker()
         .observeCompletedHand({
           ...terminal,
-          ...(roster ? { acceptedActorRoster: roster } : {}),
+          acceptedActorRoster: roster,
           terminalOnlySourceRelease: sourceRelease,
         })
         .catch((cause) => reportError(cause, 'hand_submission.accepted_terminal_failed'));
