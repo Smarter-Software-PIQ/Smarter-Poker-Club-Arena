@@ -16,6 +16,19 @@ def build_sql(root):
 CREATE DATABASE lightning_owner_qualified_native TEMPLATE postgres;
 \\connect lightning_owner_qualified_native postgres
 SET check_function_bodies=off;
+-- The preceding real zero-payer fixture deliberately uses a text-valued
+-- boundary control. Retire only that exact fixture stub, only in our clone;
+-- the unchanged qualified catalog below installs the real timestamptz owner.
+DO $boundary_stub$DECLARE p pg_proc%ROWTYPE;BEGIN
+ IF current_database()<>'lightning_owner_qualified_native' THEN RAISE EXCEPTION 'owner_fixture_clone_required';END IF;
+ SELECT * INTO p FROM pg_proc WHERE oid=to_regprocedure('public.fn_active_maintenance_release_boundary()');
+ IF FOUND AND p.prorettype<>'timestamptz'::regtype THEN
+  IF p.prorettype<>'text'::regtype OR p.prosrc IS DISTINCT FROM 'SELECT NULL::text'
+   OR p.prolang IS DISTINCT FROM(SELECT oid FROM pg_language WHERE lanname='sql') OR p.pronargs<>0 OR p.prosecdef OR p.provolatile<>'v'
+  THEN RAISE EXCEPTION 'owner_fixture_boundary_stub_changed';END IF;
+  DROP FUNCTION public.fn_active_maintenance_release_boundary();
+ END IF;
+END$boundary_stub$;
 CREATE SCHEMA IF NOT EXISTS auth;
 DO $auth$BEGIN IF to_regprocedure('auth.role()')IS NULL THEN EXECUTE $role$CREATE FUNCTION auth.role()RETURNS text LANGUAGE sql STABLE AS 'SELECT NULL::text'$role$;END IF;END$auth$;
 CREATE TABLE IF NOT EXISTS public.engine_maintenance_break(enforce_freeze boolean,announced_at timestamptz,phase text,break_started_at timestamptz,break_ends_at timestamptz);
