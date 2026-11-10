@@ -163,6 +163,9 @@ with tempfile.TemporaryDirectory(prefix='lw-',dir=a.scratch)as tmp:
   assert q("SELECT pg_get_functiondef('smarter_private.original_inventory_basis_generation()'::regprocedure)")==generation_definition and q("SELECT to_jsonb(p)FROM pg_proc p WHERE oid='smarter_private.original_inventory_basis_generation()'::regprocedure")==generation_metadata
   assert q(logical)==before_logical;cases.append('all_four_actual_logical_table_catalogs_unchanged')
   assert q(meta)==metadata;cases.append('complete_actual_source65_and_original_five_bodies_metadata_unchanged')
+  import runpy
+  cover=runpy.run_path(str(F/'witness-cover.py'))['qualify'](q,env,R,t,cases)
   out={'status':'passed','cases':cases,'case_count':len(cases),'migration_sha256':hashlib.sha256(migration.encode()).hexdigest(),'natural_index_nodes':access,'old_plan':old,'new_plan':new,'full_row_bag_md5':hashlib.md5(before[0].encode()).hexdigest(),'reducer':json.loads(before[1]),'witness':json.loads(before[2]),'wholeweek_reducer':json.loads(before_week_reducer),'all84_witness_json':json.loads(before84),'fixture_rows':96700,'baseline_installed_thin220709_index_retained':True,'whole_generation_definition_metadata_unchanged':True,'source65_definition_md5':hashlib.md5((guard+'\n').encode()).hexdigest(),'limits':'Actual original linked/reducer/witness/read bodies and full captured relation columns/constraints. Original hand-line/append owners reused unchanged. Unrelated source65 proof collaborators controlled only for functional native calls, then COMPLETE actual source65 loaded and preserved across exact installer replay. No production speed, whole84-window readiness, financial or deployment claim.'}
+  out['current_witness_cover']=cover
   a.output.parent.mkdir(parents=True,exist_ok=True);a.output.write_text(json.dumps(out,indent=2)+'\n');print(json.dumps({'status':'passed','case_count':len(cases),'output':str(a.output)}))
  finally:run([pg/'pg_ctl','-D',data,'-m','immediate','-w','stop'])
