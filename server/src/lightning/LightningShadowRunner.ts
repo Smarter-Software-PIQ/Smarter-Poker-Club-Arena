@@ -248,6 +248,10 @@ interface ModelPlayer {
   idleSinceMs: number;
   lastBbAtMs: number | null;
   handsSinceBb: number | null;
+  /** 20261110: the recency keys, kept as fn_lightning_form_hand keeps them. */
+  handsSinceSb: number;
+  handsSinceButton: number;
+  lastButtonAtMs: number | null;
   positions: { btn: number; co: number; hj: number; utg: number };
   inHand: boolean;
   inHandSinceMs: number;
@@ -646,6 +650,9 @@ export class LightningShadowRunner implements LightningClusterTelemetrySink {
           idleSinceMs: nowMs,
           lastBbAtMs: null,
           handsSinceBb: null,
+          handsSinceSb: 0,
+          handsSinceButton: 0,
+          lastButtonAtMs: null,
           positions: { btn: 0, co: 0, hj: 0, utg: 0 },
           inHand: false,
           inHandSinceMs: 0,
@@ -688,6 +695,9 @@ export class LightningShadowRunner implements LightningClusterTelemetrySink {
         bbUnresolved: false,
         debtSinceMs: m.enteredAtMs,
         handsSinceBb: m.handsSinceBb,
+        handsSinceSb: m.handsSinceSb,
+        handsSinceButton: m.handsSinceButton,
+        lastButtonAtMs: m.lastButtonAtMs,
         // The engine cannot see which seats the epoch's conversion made, so
         // its estimate of the pool keeps the plain key (never the big blind).
         newcomer: m.lastBbAtMs === null,
@@ -818,6 +828,9 @@ export class LightningShadowRunner implements LightningClusterTelemetrySink {
             idleSinceMs: pass.nowMs,
             lastBbAtMs: null,
             handsSinceBb: null,
+            handsSinceSb: 0,
+            handsSinceButton: 0,
+            lastButtonAtMs: null,
             positions: { btn: 0, co: 0, hj: 0, utg: 0 },
             inHand: false,
             inHandSinceMs: 0,
@@ -835,6 +848,17 @@ export class LightningShadowRunner implements LightningClusterTelemetrySink {
         } else if (m.handsSinceBb !== null) {
           m.handsSinceBb++;
         }
+        // The recency keys (20261110), as the barrier keeps them: the small
+        // blind (matcher seat 2, never an entry poster) and the button (the
+        // last seat; heads-up, the small blind) restart at zero, every other
+        // seat of the hand counts one more.
+        const isButton = size === 2 ? i === 1 : i === size - 1;
+        if (i === 1 && size > 1 && !g.entryBb?.includes(id)) m.handsSinceSb = 0;
+        else m.handsSinceSb++;
+        if (isButton) {
+          m.handsSinceButton = 0;
+          m.lastButtonAtMs = stampMs;
+        } else m.handsSinceButton++;
         // The matcher order: bb, sb, seat 3 (utg) onward, the button last -
         // the barrier's own position names (heads-up, the small blind is the
         // button and its btn_count moves).
