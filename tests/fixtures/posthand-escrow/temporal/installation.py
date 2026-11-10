@@ -60,3 +60,27 @@ for key in ['outcomes', 'ledger', 'certificates']:
     if old[key] != new[key]:
         raise SystemExit('installation changed original ' + key)
 print('PASS exact concurrent cover, guarded atomic owner install, rollback, metadata/ACL, unchanged generation/originals and refused replay')
+
+# This finite certificate installer uses ordinary aliases beside procedural
+# variables. Execute its exact declaration and financial-witness SELECT on
+# the maintained synthetic originals: an unassigned record must never shadow
+# a SQL relation alias before the certificate loop even starts.
+import re
+admission = (Path(migration).parents[2] / 'supabase/migrations/20261110012843_certify_eight_original_posthand_escrow_proofs.sql').read_text()
+declaration = admission[admission.index('DECLARE ', admission.index('DO $original_eight_admission$')):]
+declaration = declaration[:declaration.index('\nBEGIN')]
+witness = admission[admission.index(' SELECT jsonb_agg', admission.index('DO $original_eight_admission$')):]
+witness = witness[:witness.index(';') + 1]
+iteration = re.search(r'FOR (\w+) IN SELECT \*FROM original_eight_admission_expected', admission)[1]
+setup = """BEGIN;
+CREATE TEMP TABLE original_eight_admission_expected AS
+ SELECT p.table_id,p.hand_number FROM public.cash_hand_provenance_receipts p
+ JOIN public.union_pnl_cash_outcomes o USING(table_id,hand_number)
+ JOIN public.cash_hand_participant_manifests m ON m.id=p.manifest_id
+ JOIN public.hand_atomic_commits a ON a.hand_id=p.hand_id LIMIT 1;
+"""
+def witness_block(declare):
+    return setup + 'DO $witness$\n' + declare + '\nBEGIN\n' + witness + "\nIF before_rows IS NULL THEN RAISE EXCEPTION 'native witness selected no original';END IF;\nEND$witness$;ROLLBACK;"
+execute(witness_block(re.sub(r'\b' + re.escape(iteration) + r'\b', 'k', declaration)), 'record "k" is not assigned yet')
+execute(witness_block(declaration))
+print('PASS exact certificate-installer declaration/witness: prior unassigned-record alias fails; maintained source selects original financial witness')

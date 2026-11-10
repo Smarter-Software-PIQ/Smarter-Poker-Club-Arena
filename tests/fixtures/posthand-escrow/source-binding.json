@@ -67,7 +67,7 @@
     "tests/fixtures/posthand-escrow/temporal/extra-native.sql": "7e8d2867c7a7fbdc4ac33eda52b683795c50404420386e915bf38db5b17106e3",
     "tests/fixtures/posthand-escrow/temporal/extract-candidate.py": "7e55bcd042c1cf35670a0f3943b2c62c2b124fbe2e58a3c6f3750376f301eaee",
     "tests/fixtures/posthand-escrow/temporal/initial-native.sql": "774c25967939e7bfe63dea43beee4e71f302140bd90ccb13669a3dc98e9a473b",
-    "tests/fixtures/posthand-escrow/temporal/installation.py": "02449aa4e6e97348403d6840754ede9baa40145350ad7cee3135ce4c9d541a8f",
+    "tests/fixtures/posthand-escrow/temporal/installation.py": "eedbee38cd4d61ffbbb37fe01a0ca6c152c34df094fd2e5b6fe75540f2727c96",
     "tests/fixtures/posthand-escrow/temporal/lookup-native.sql": "0a0f8686bd48e5b60a5a304168c37b0fbf1bba08f49e405c08f1ce614da9bf16",
     "tests/fixtures/posthand-escrow/temporal/multiple-native.sql": "0dc12f4703bdd5d41d9655860e34b8421311f69c41549def2cf8a6df80967313",
     "tests/fixtures/posthand-escrow/temporal/negative-native.sql": "c820ec31adcb544fea537448cd16e46d291c747b93a420ac6672897e1d1ad693",
@@ -75,6 +75,7 @@
     "tests/fixtures/posthand-escrow/temporal/prover-original.sql": "59fe21964d3cadc18334abc346850ca8e59ad993200908933480a9544b8c1757",
     "tests/fixtures/posthand-escrow/temporal/rebuy-prototype.sql": "90438072934a3e4ffffb08b5dff1142326dc102a91f45e8d4464fb2a94867592",
     "tests/fixtures/posthand-escrow/temporal/split-native.sql": "930215e07f9cd0b270be97f064f16a93bb8b0991c5efda088b3353584a2cf294",
-    "tests/fixtures/posthand-escrow/temporal/direct-prehand-native.sql": "209120b5855fa25e59a4452c2305b01e5b5ac60477e0e9320e11416fcf3e8c8b"
+    "tests/fixtures/posthand-escrow/temporal/direct-prehand-native.sql": "209120b5855fa25e59a4452c2305b01e5b5ac60477e0e9320e11416fcf3e8c8b",
+    "supabase/migrations/20261110012843_certify_eight_original_posthand_escrow_proofs.sql": "fe3e921dd6ee5afb120ae28d2856b4d97d573cfcaf1bfcff12ea063f28809c07"
   }
 }
