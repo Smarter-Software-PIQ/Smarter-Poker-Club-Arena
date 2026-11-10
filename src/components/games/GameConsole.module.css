@@ -575,6 +575,9 @@
 }
 @media (min-width: 761px) and (min-height: 501px) {
   [data-flight-cabinet] .console {
+    min-height: 0;
+    height: auto;
+    align-content: start;
     grid-template-columns: minmax(0, 3fr) minmax(252px, 2fr);
     grid-template-rows: auto auto auto;
     grid-template-areas: 'header header' 'play play' 'controls bar';
@@ -588,4 +591,138 @@
   [data-flight-cabinet] .actions {
     grid-template-columns: 1fr 1.3fr;
   }
+}
+
+/* One flight deck at phone and tablet widths. Keep the action dock in the
+   same column as the graph so the booking control stays aligned at launch. */
+[data-flight-cabinet] .console {
+  min-height: 0;
+  height: auto;
+  align-content: start;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto 1fr auto auto;
+  grid-template-areas: 'header' 'play' 'controls' 'bar';
+}
+[data-flight-cabinet] .header {
+  min-height: 46px;
+  padding: 6px clamp(12px, 3vw, 28px);
+  background: linear-gradient(105deg, #10283e, #08121e 55%, #101b29);
+  border-bottom: 1px solid #47637a;
+}
+[data-flight-cabinet] .header h1 {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-image: none;
+  box-shadow: none;
+  color: #e5f5ff;
+  font:
+    700 clamp(20px, 3vw, 30px)/1.05 Rajdhani,
+    'Arial Narrow',
+    sans-serif;
+  letter-spacing: 0.065em;
+  text-transform: uppercase;
+}
+[data-flight-cabinet] .header .status:empty {
+  display: none;
+}
+[data-flight-cabinet] .header :global(.ca-page-help) {
+  margin-inline-start: auto;
+}
+[data-flight-cabinet] .playfield {
+  justify-content: flex-start;
+  padding: 5px clamp(5px, 1.3vw, 16px);
+}
+[data-flight-cabinet] .controls,
+[data-flight-cabinet] .bar {
+  background: linear-gradient(100deg, #101f2d, #09131f 55%, #172737);
+  border: 0;
+  box-shadow: none;
+}
+[data-flight-cabinet] .controls {
+  padding: 5px clamp(8px, 2vw, 20px);
+  gap: 5px;
+  border-block-start: 1px solid #405368;
+}
+[data-flight-cabinet] .entryDetails {
+  font-family: Rajdhani, 'Arial Narrow', sans-serif;
+}
+[data-flight-cabinet] .entryDetails summary {
+  padding: 3px 2px;
+}
+[data-flight-cabinet] .metrics {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0;
+}
+[data-flight-cabinet] .metrics > div {
+  padding: 3px 4px;
+  min-width: 0;
+  border: 0;
+  text-align: center;
+}
+[data-flight-cabinet] .metrics > div + div {
+  border-inline-start: 1px solid #34485c;
+}
+[data-flight-cabinet] .metrics dt {
+  font:
+    600 clamp(10px, 1.5vw, 13px)/1.2 Rajdhani,
+    'Arial Narrow',
+    sans-serif;
+  letter-spacing: 0.055em;
+}
+[data-flight-cabinet] .metrics dd {
+  font:
+    700 clamp(14px, 2.6vw, 22px)/1.15 Rajdhani,
+    'Arial Narrow',
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+[data-flight-cabinet] .bar {
+  padding: 6px clamp(8px, 2vw, 20px) max(7px, env(safe-area-inset-bottom));
+}
+[data-flight-cabinet] .actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
+  gap: clamp(8px, 2vw, 18px);
+}
+[data-flight-cabinet] .actions button {
+  min-height: 46px;
+  font-family: Rajdhani, 'Arial Narrow', sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.035em;
+}
+
+[data-flight-cabinet] .actions .primary,
+[data-flight-cabinet] .actions .secondary {
+  padding: 8px 16px;
+  border: 1px solid #6887a0;
+  border-image: none;
+  border-radius: 4px;
+}
+[data-flight-cabinet] .actions .primary {
+  color: #effbff;
+  border-color: #61caff;
+  background: linear-gradient(175deg, #176b97, #104268 48%, #0b2f4e 53%, #123f62);
+  box-shadow:
+    inset 0 1px #b3e9ff,
+    inset 0 -3px #07192f,
+    0 2px 6px #0008;
+}
+[data-flight-cabinet] .actions .primary[data-ink='gold'] {
+  color: #fff5dd;
+  border-color: #ffc776;
+  background: linear-gradient(175deg, #755120, #4a3016 48%, #41270f 53%, #5a3919);
+  box-shadow:
+    inset 0 1px #ffe2a8,
+    inset 0 -3px #24170c;
+}
+[data-flight-cabinet] .actions .secondary {
+  color: #c5d7e5;
+  background: linear-gradient(175deg, #233749, #111e2b);
+  box-shadow: inset 0 1px #496077;
+}
+[data-flight-cabinet] .actions button:focus-visible {
+  outline: 2px solid white;
+  outline-offset: 2px;
 }

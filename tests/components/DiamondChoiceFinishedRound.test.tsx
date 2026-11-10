@@ -374,7 +374,9 @@ describe('a booked Donkey Cross round under the fair coin', () => {
     expect(text()).toContain(headline);
     expect(text()).toContain('Sealed Coins: 1 Safe · 2 Safe · 3 Safe · 4 Safe · 5 Safe · 6 Hit');
     const receipt = screen.getByRole('dialog', { name: '41.25 Chips' });
-    expect(receipt.querySelector('[data-receipt-headline]')?.textContent).toBe(headline);
+    expect(receipt.querySelector('[data-receipt-headline]')?.textContent).toBe(
+      `Booked On Street 2 At 1.65x. ${headline}.`
+    );
     // The odds a coin road prints are a fair coin, never the old ladder's.
     expect(text()).not.toMatch(/31\.\d% Safe Crossing/);
   });

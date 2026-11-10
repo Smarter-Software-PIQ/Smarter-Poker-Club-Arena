@@ -1121,22 +1121,37 @@ async function noOfferStands(page: Page) {
   await expect(page.getByText('Double Your Diamonds')).toHaveCount(0);
 }
 
-test('a single tap on the sapphire launches Crash and opens cashout in the same cabinet', async ({
+test('a single tap on the fighter launches Crash and opens cashout in the same cabinet', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openGamePage(page, 'crash');
-  const diamond = page.getByRole('button', { name: 'Launch Diamond' });
-  await expect(diamond).toBeEnabled();
+  const fighter = page.getByRole('button', { name: 'Launch Fighter Jet' });
+  await expect(fighter).toBeEnabled();
   await expect
-    .poll(() => diamond.evaluate((button) => button.style.left.endsWith('px')))
+    .poll(() => fighter.evaluate((button) => button.style.left.endsWith('px')))
     .toBe(true);
   await page.screenshot({ path: test.info().outputPath('crash-phone.png') });
+  await page.setViewportSize({ width: 862, height: 1236 });
+  await onTheGlass(page, 'Crash portrait flight deck');
+  const metrics = await page.locator('[data-game-console] > aside').boundingBox();
+  const actions = await page.locator('[data-game-actions]').boundingBox();
+  expect(metrics!.width).toBeGreaterThan(800);
+  expect(actions!.width).toBeGreaterThan(800);
+  // The WebGL canvas is recreated on viewport resize. Two animation frames
+  // let the camera and the newly sized framebuffer paint the fighter.
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      )
+  );
+  await page.screenshot({ path: test.info().outputPath('crash-cockpit-862.png') });
   await page.setViewportSize({ width: 1280, height: 800 });
   await onTheGlass(page, 'Crash desktop');
   await page.screenshot({ path: test.info().outputPath('crash-desktop.png') });
-  await diamond.click();
-  await expect(diamond).toHaveCount(0);
+  await fighter.click();
+  await expect(fighter).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: 'Book The Win' }).click();
   const receipt = page.getByRole('dialog', { name: '1.50 Chips' });
@@ -1272,7 +1287,7 @@ for (const viewport of START_VIEWPORTS)
     }
   });
 
-for (const viewport of START_VIEWPORTS)
+for (const viewport of [...START_VIEWPORTS, { width: 862, height: 1236 }])
   test(`Crash books the win from Start's own spot, lit, at ${viewport.width} x ${viewport.height}`, async ({
     page,
   }) => {

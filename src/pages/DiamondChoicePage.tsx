@@ -782,7 +782,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
   const coinRoad = round ? isRoadCoinVersion(round.payout_version) : quotedCoinRoad;
   const ladder = game !== 'crossing' ? undefined : round ? roadRoundLadder(round) : quoteLadder;
   const roadEnd =
-    game === 'crossing' && round?.proof && ladder
+    game === 'crossing' && round?.status !== 'open' && round?.proof && ladder
       ? // The coin road states where it ended, and this device re-flips every
         // coin from the revealed seed to check it (verifyChoiceRoundDetailed).
         isRoadCoinVersion(round.payout_version)
@@ -1434,7 +1434,11 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
           }
           // HOW FAR YOU WOULD HAVE GOT, on a line of its own above the receipt's
           // sentence (Dan, 2026-10-11), so a booked crossing never hides it.
-          headline={wouldHaveGot ?? undefined}
+          headline={
+            wouldHaveGot && bookedAt
+              ? `Booked On Street ${picks} At ${bookedAt}. ${wouldHaveGot}.`
+              : undefined
+          }
           // The street the donkey reached (or was hit on), or the gems found:
           // a lost Mines round's last pick was the mine.
           game={game}

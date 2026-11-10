@@ -1417,7 +1417,9 @@ describe('every choice names its chips, and every outcome has one name', () => {
     expect(eyebrow).toBe('You Won');
     expect(detail).toBe('Your Prize Is Booked. Street 2 At 1.45x; Street 3 Was The Crash.');
     // HOW FAR YOU WOULD HAVE GOT: its own line on the receipt, every booked crossing.
-    expect(receiptHeadline()).toBe('You Got Out Just In Time: Street 3 Was A Hit');
+    expect(receiptHeadline()).toBe(
+      'Booked On Street 2 At 1.45x. You Got Out Just In Time: Street 3 Was A Hit.'
+    );
   });
 
   it('tells a booked round how much further the road actually went', async () => {
@@ -1434,7 +1436,7 @@ describe('every choice names its chips, and every outcome has one name', () => {
       'Your Prize Is Booked. Street 2 At 1.45x; The Donkey Would Have Made It To Street 5 At 3.15x.'
     );
     expect(receiptHeadline()).toBe(
-      'You Would Have Got To Street 5 At 3.15x, Then Been Hit On Street 6'
+      'Booked On Street 2 At 1.45x. You Would Have Got To Street 5 At 3.15x, Then Been Hit On Street 6.'
     );
   });
 
@@ -1453,7 +1455,7 @@ describe('every choice names its chips, and every outcome has one name', () => {
     expect(detail).toBe(
       'Big Win. Your Prize Is Booked. Street 12 At 20.00x; The Donkey Would Have Crossed Every Street, To 20.00x.'
     );
-    expect(receiptHeadline()).toBe('You Crossed Every Street');
+    expect(receiptHeadline()).toBe('Booked On Street 12 At 20.00x. You Crossed Every Street.');
   });
 
   it('names a finished round in Recent Rounds the way the scene named it', async () => {

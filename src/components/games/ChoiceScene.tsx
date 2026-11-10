@@ -2563,8 +2563,8 @@ function CrossingScene(props: Props) {
               : roadEnd >= lastStreet
                 ? `You Could Have Gone All The Way To Street ${lastStreet} At ${mult(lastStreet - 1)}`
                 : roadEnd <= shownStep
-                  ? 'The Next Street Was The Crash'
-                  : `You Could Have Gone To Street ${roadEnd} At ${mult(roadEnd - 1)}`,
+                  ? `First Hit On Street ${roadEnd + 1}`
+                  : `Safe Through Street ${roadEnd} At ${mult(roadEnd - 1)} · First Hit On Street ${roadEnd + 1}`,
           note: `You Booked Street ${shownStep} At ${mult(shownStep - 1)}`,
           outcome: roadEnd >= lastStreet ? 'all' : roadEnd <= shownStep ? 'crash' : 'further',
         }
