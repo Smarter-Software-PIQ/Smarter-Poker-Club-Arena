@@ -290,6 +290,9 @@ describe('Crash settles one displayed round once', () => {
     const receipt = screen.getByRole('dialog', { name: `${amount} Chips` });
     // A booked win's receipt reveals where the sealed flight was going.
     expect(receipt).toHaveTextContent('It Would Have Crashed At 2.32x.');
+    expect(receipt.querySelector('[data-receipt-headline]')).toHaveTextContent(
+      /Booked At .+× · It Would Have Crashed At 2.32x/i
+    );
     expect(receipt).not.toHaveTextContent('The Flight Crashed At');
     fireEvent.animationEnd(receipt.querySelector('[data-motion="keep"]')!);
     // Games can never auto start (R1): two idle minutes and the receipt is still up.

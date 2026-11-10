@@ -284,7 +284,6 @@ import {
   heroAwaitsADecision,
   isPreActionHonorable,
   PRE_ACTION_EXEC_GRACE_MS,
-  PRE_ACTION_GAP_BRIDGE_MS,
 } from '../lib/preActionPanelGate';
 import { seatTapTarget } from '../lib/heroSeatTap';
 import { usePlayerNoteMarkers } from '../hooks/usePlayerNoteMarkers';
@@ -679,6 +678,7 @@ import { CASH_TEMPLATES, cashTemplateKey } from '../config/cashGames';
 import HeroVpipTracker from '../components/table/HeroVpipTracker';
 import HitRunLeaveConfirm from '../components/table/HitRunLeaveConfirm';
 import { useHeroHandCount } from '../hooks/useHeroHandCount';
+import { useActorGapBridge } from '../hooks/useActorGapBridge';
 import HitRunCountPill from '../components/table/HitRunCountPill';
 import { useCountdownStarted, useHandsAddedByDouble } from '../hooks/useHeroHandCount';
 import {
@@ -5389,9 +5389,12 @@ function LiveTablePage({
   const heroDisplayStack = lightningRoom
     ? (lightningHeroInRoster?.stack ?? lightningWaitingSeat?.stack ?? 0)
     : tableState.players[tableState.heroSeat - 1]?.stack || 0;
+  const heroEntrySeat = tableState.players[tableState.heroSeat - 1];
+  const heroWaitingForButton = heroEntrySeat?.isHero && heroEntrySeat.waitingForButton === true;
   const heroIsSittingOut =
     (tableState.heroSeat > 0 &&
-      (tableState.players[tableState.heroSeat - 1]?.status === 'sitting_out' ||
+      ((!heroWaitingForButton &&
+        tableState.players[tableState.heroSeat - 1]?.status === 'sitting_out') ||
         heroSitsOutPerRow)) ||
     (!!lightningRoom && lightningSitOut.sittingOut);
   /**
@@ -24983,16 +24986,13 @@ function LiveTablePage({
    *   cover the gap and short enough that any OTHER silence - a runout, a
    *   stall - gives up quickly instead of lying for the rest of the hand.
    */
-  const [actorGapBridged, setActorGapBridged] = useState(false);
-  useEffect(() => {
-    if (tableState.currentPlayerSeat > 0 || !tableState.isHandInProgress) {
-      setActorGapBridged(false);
-      return;
-    }
-    setActorGapBridged(true);
-    const t = window.setTimeout(() => setActorGapBridged(false), PRE_ACTION_GAP_BRIDGE_MS);
-    return () => window.clearTimeout(t);
-  }, [tableState.currentPlayerSeat, tableState.isHandInProgress]);
+  // Derived in the render that opens the gap (src/hooks/useActorGapBridge.ts):
+  // an effect-set bridge was off for one commit on every action, unmounting
+  // and remounting the bar each time (Dan 2026-11-10).
+  const actorGapBridged = useActorGapBridge(
+    tableState.currentPlayerSeat,
+    tableState.isHandInProgress
+  );
 
   /** True while a turn is still to be taken by somebody at this table. */
   const handStillTakingAction =
@@ -30624,7 +30624,11 @@ function LiveTablePage({
       <div className="action-panel-wrapper">
         {/* POKERBROS-spec: persistent footer bar — NEVER empty. Dan rule
             2026-04-17: action bar fixed to footer at all times, every state. */}
-        {lightningRoom && !lightningHeroInRoster && !heroIsSittingOut ? (
+        {heroWaitingForButton ? (
+          <div className="spectator-footer-bar" data-state="waiting-for-button" role="status">
+            <span className="spectator-footer-bar__label">Waiting For The Button To Pass</span>
+          </div>
+        ) : lightningRoom && !lightningHeroInRoster && !heroIsSittingOut ? (
           /* LIGHTNING BETWEEN HANDS (Dan 2026-10-24). The player is in the pool
              and is dealt the next hand at once: not a spectator, not a reserved
              seat waiting on a deal. The bar stays (it is never removed) and says

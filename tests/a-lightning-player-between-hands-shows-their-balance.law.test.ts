@@ -193,7 +193,7 @@ describe('a Lightning player between hands', () => {
 
     it('says nothing in the footer between hands, but keeps I am Back for a real sit-out', () => {
       expect(page).toMatch(
-        /\{lightningRoom && !lightningHeroInRoster && !heroIsSittingOut \? \(\s*\/\*[\s\S]*?\*\/\s*<div className="spectator-footer-bar" data-state="lightning-between-hands">\s*<span className="spectator-footer-bar__label" \/>/
+        /\) : lightningRoom && !lightningHeroInRoster && !heroIsSittingOut \? \(\s*\/\*[\s\S]*?\*\/\s*<div className="spectator-footer-bar" data-state="lightning-between-hands">\s*<span className="spectator-footer-bar__label" \/>/
       );
     });
 

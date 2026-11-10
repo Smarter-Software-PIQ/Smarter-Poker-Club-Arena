@@ -28,6 +28,7 @@ export interface DiamondWheelProps {
   landingOrd: number | null;
   spinKey: number;
   spinning: boolean;
+  awaitingResult?: boolean;
   onLanded: () => void;
   size?: number;
   fitViewport?: boolean;
@@ -188,6 +189,7 @@ export default function DiamondWheel({
   landingOrd,
   spinKey,
   spinning,
+  awaitingResult = false,
   onLanded,
   size = 760,
   fitViewport = false,
@@ -238,6 +240,7 @@ export default function DiamondWheel({
   callback.current = onLanded;
   const hold = holdResult ?? landingOrd !== null;
   const live = useRef({
+    awaitingResult,
     spinning,
     count: arranged.length,
     idleDirection,
@@ -246,7 +249,15 @@ export default function DiamondWheel({
     reducedMotion: false,
     onScreen: true,
   });
-  live.current = { ...live.current, spinning, count: arranged.length, idleDirection, hold, paused };
+  live.current = {
+    ...live.current,
+    awaitingResult,
+    spinning,
+    count: arranged.length,
+    idleDirection,
+    hold,
+    paused,
+  };
   const [settledOrd, setSettledOrd] = useState<number | null>(null);
   const [settledAngle, setSettledAngle] = useState(0);
   const settledRef = useRef<number | null>(null);
@@ -371,6 +382,12 @@ export default function DiamondWheel({
           soundService.playSpinResult();
           callback.current();
         }
+      } else if (state.awaitingResult) {
+        settleDrift();
+        if (!state.reducedMotion) {
+          position.current += (Math.min(elapsed, 100) / 1000) * 300;
+          moving = true;
+        }
       } else if (!state.spinning) {
         animation.current = null;
         // The reveal has been acknowledged: let go of the landed prize and
@@ -405,7 +422,7 @@ export default function DiamondWheel({
           moving = true;
         } else settleDrift();
       }
-      const direction = state.spinning ? 1 : state.idleDirection;
+      const direction = state.spinning || state.awaitingResult ? 1 : state.idleDirection;
       write(
         position.current,
         moving ? wheelPointerDeflection(position.current, state.count, direction) : 0
@@ -467,7 +484,7 @@ export default function DiamondWheel({
   // A released hold or an unpaused wheel needs a frame to notice.
   useEffect(() => {
     wake.current();
-  }, [hold, paused, spinning]);
+  }, [awaitingResult, hold, paused, spinning]);
 
   const assembled = presentation === 'assembly';
   const outerRing = assembled && upgraded;
@@ -515,7 +532,15 @@ export default function DiamondWheel({
       aria-label={upgraded ? 'Upgrade Wheel' : 'Diamond Wheel'}
       data-fit-viewport={fitViewport || undefined}
       data-motion="keep"
-      data-phase={spinning ? 'spinning' : settledOrd === null ? 'idle' : 'landed'}
+      data-phase={
+        awaitingResult
+          ? 'requesting'
+          : spinning
+            ? 'spinning'
+            : settledOrd === null
+              ? 'idle'
+              : 'landed'
+      }
       data-upgraded={upgraded || undefined}
       data-idle-direction={idleDirection}
       data-presentation={presentation}

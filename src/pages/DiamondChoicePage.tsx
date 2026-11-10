@@ -782,7 +782,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
   const coinRoad = round ? isRoadCoinVersion(round.payout_version) : quotedCoinRoad;
   const ladder = game !== 'crossing' ? undefined : round ? roadRoundLadder(round) : quoteLadder;
   const roadEnd =
-    game === 'crossing' && round?.proof && ladder
+    game === 'crossing' && round?.status !== 'open' && round?.proof && ladder
       ? // The coin road states where it ended, and this device re-flips every
         // coin from the revealed seed to check it (verifyChoiceRoundDetailed).
         isRoadCoinVersion(round.payout_version)
@@ -1083,6 +1083,14 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
                 body: 'Your Entry, The Guaranteed Minimum And The Prize So Far, Updated As You Play.',
                 target: '[data-game-console] dl',
               },
+              ...(game === 'crossing' && nextOdds
+                ? [
+                    {
+                      title: 'Crossing Odds',
+                      body: `The Next Street Has A ${nextOdds.safe.toFixed(1)}% Chance Of A Safe Crossing.${guaranteedChips === null ? '' : ` A Hit Pays At Least ${gameChips(guaranteedChips)} Chips.`}`,
+                    },
+                  ]
+                : []),
               {
                 title: 'Play',
                 body:
@@ -1229,18 +1237,6 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
             sceneRound && sceneRound.status !== 'open' ? sceneRound.payout_chips : undefined
           }
         />
-        {game !== 'mines' && (
-          <div className={styles.choiceRisk}>
-            {nextOdds && (
-              <p className="sc-copy">
-                {`Next Street: ${nextOdds.safe.toFixed(1)}% Safe Crossing · ${nextOdds.loss.toFixed(1)}% Car Hit`}
-              </p>
-            )}
-            {guaranteedChips !== null && (
-              <p className="sc-copy">A Loss Pays At Least {gameChips(guaranteedChips)} Chips.</p>
-            )}
-          </div>
-        )}
         <div className={styles.readout} aria-live="polite" aria-atomic="true">
           {crossingSpoken ? <p className="sr-only">{crossingSpoken}</p> : null}
           {error ? (
@@ -1342,7 +1338,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
       </GamePanel>
       <GamePanel title={proofTitle} pill="Sealed" foot="foot">
         <p className={`sc-copy ${styles.proofHash}`}>
-          {finished ? 'Next Round Sealed: ' : 'Sealed Before Play: '}
+          {finished ? 'Next Ticket: ' : 'Sealed Before Play: '}
           {open ? round.server_seed_hash : (ticket?.hash ?? 'Preparing Your Ticket')}
         </p>
         <label className={styles.seedField}>
@@ -1434,7 +1430,11 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
           }
           // HOW FAR YOU WOULD HAVE GOT, on a line of its own above the receipt's
           // sentence (Dan, 2026-10-11), so a booked crossing never hides it.
-          headline={wouldHaveGot ?? undefined}
+          headline={
+            wouldHaveGot && bookedAt
+              ? `Booked On Street ${picks} At ${bookedAt}. ${wouldHaveGot}.`
+              : undefined
+          }
           // The street the donkey reached (or was hit on), or the gems found:
           // a lost Mines round's last pick was the mine.
           game={game}

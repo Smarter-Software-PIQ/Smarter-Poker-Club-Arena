@@ -120,12 +120,22 @@ for (const width of [320, 390, 1280]) {
       const plate = page.getByRole('button', { name: '100', exact: true });
       const spin = page.getByRole('button', { name: 'Preview Spin', exact: true });
       const geometry = async () => [await plate.boundingBox(), await spin.boundingBox()];
+      const selected = page.getByRole('button', { name: '2,500', exact: true });
+      await selected.click();
+      const selectedAppearance = () =>
+        selected.evaluate((button) => {
+          const style = getComputedStyle(button);
+          return [style.color, style.opacity, style.filter, style.backgroundImage];
+        });
+      const readyAppearance = await selectedAppearance();
       const resting = await geometry();
       await spin.hover();
       await page.mouse.down();
       expect(await geometry()).toEqual(resting);
       await page.mouse.up();
       await expect(spin).toBeDisabled();
+      await expect(selected).toBeDisabled();
+      expect(await selectedAppearance()).toEqual(readyAppearance);
       expect(await geometry()).toEqual(resting);
 
       await expect(page.getByRole('button', { name: 'Preview Spin', exact: true })).toBeDisabled();
