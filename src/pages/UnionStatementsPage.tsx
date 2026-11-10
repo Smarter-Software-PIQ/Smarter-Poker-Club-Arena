@@ -1,3 +1,4 @@
+import { unionEcoRows } from '../utils/unionEco';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 /**
  * UNION STATEMENTS
@@ -151,6 +152,16 @@ function boardToCsv(rows: BoardClub[]): string {
     'union_fee_kept',
     'players_won',
     'eco_amount',
+    'cash_eco_amount',
+    'tournament_eco_amount',
+    'cash_eco_base',
+    'cash_eco_rate',
+    'cash_eco_terms_id',
+    'cash_eco_record_id',
+    'tournament_eco_base',
+    'tournament_eco_rate',
+    'tournament_eco_terms_id',
+    'tournament_eco_record_id',
     'presettled',
   ];
   const lines = rows.map((r) =>
@@ -170,6 +181,13 @@ function boardToCsv(rows: BoardClub[]): string {
       r.union_fee_kept,
       r.players_won,
       r.eco_amount,
+      ...unionEcoRows(r).map(([, value]) => (value === null ? 'Unavailable' : value)),
+      ...(['cash', 'tournament'] as const).flatMap((activity) => {
+        const c = r.eco_components?.find((component) => component.activity === activity);
+        return c
+          ? [c.base, c.rate, c.terms_id, c.record_id]
+          : ['Unavailable', 'Unavailable', 'Unavailable', 'Unavailable'];
+      }),
       r.presettled,
     ]
       .map(esc)
@@ -823,13 +841,27 @@ export default function UnionStatementsPage() {
                 <dd className={styles.tileValue}>{money(totals.outstanding)}</dd>
               </div>
               <div className={styles.tile}>
-                <dt className={styles.tileLabel}>ECO</dt>
+                <dt className={styles.tileLabel}>Combined ECO</dt>
                 <dd
                   className={`${styles.tileValue} ${totals.eco_amount < 0 ? styles.neg : styles.pos}`}
                 >
                   {money(totals.eco_amount)}
                 </dd>
               </div>
+              {(['cash', 'tournament'] as const).map((activity) => (
+                <div className={styles.tile} key={activity}>
+                  <dt className={styles.tileLabel}>
+                    {activity === 'cash' ? 'Cash ECO' : 'Tournament ECO'}
+                  </dt>
+                  <dd className={styles.tileValue}>
+                    {money(
+                      (activity === 'cash'
+                        ? totals.cash_eco_amount
+                        : totals.tournament_eco_amount) ?? null
+                    )}
+                  </dd>
+                </div>
+              ))}
             </dl>
           )}
 
@@ -953,12 +985,17 @@ export default function UnionStatementsPage() {
                             ['Club Rakeback', c.rakeback_due],
                             ['Union Fee Kept', c.union_fee_kept],
                             ['Player Win/Loss', c.players_won],
-                            ['ECO Adjustment', c.eco_amount],
+                            ['Combined ECO Adjustment', c.eco_amount],
+                            ...unionEcoRows(c),
+                            ...(c.eco_components || []).map((eco) => [
+                              `${eco.activity === 'cash' ? 'Cash' : 'Tournament'} ECO Base (${(eco.rate * 100).toFixed(1)}%)`,
+                              eco.base,
+                            ]),
                             ['Recorded Presettlements', c.presettled],
                           ].map(([label, value]) => (
                             <div className={styles.breakdownLine} key={String(label)}>
                               <span>{String(label)}</span>
-                              <span>{money(Number(value || 0))}</span>
+                              <span>{value === null ? 'Unavailable' : money(Number(value))}</span>
                             </div>
                           ))
                         )}

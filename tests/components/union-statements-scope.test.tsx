@@ -703,3 +703,19 @@ describe('Union Statements painted-console contract', () => {
     expect(amount).toBeEnabled();
   });
 });
+
+it('renders legacy separate ECO as unavailable and exports that uncertainty', async () => {
+  const value = statementBoard('union-a', 'Midway Union', 'Legacy ECO Club');
+  testState.rpc.mockImplementation((name: string) =>
+    Promise.resolve(name === 'ca_union_insurance_pnl' ? insurance() : { data: value, error: null })
+  );
+  render(<UnionStatementsPage />);
+  expect(await screen.findByText('Legacy ECO Club')).toBeVisible();
+  expect(screen.getByText('Cash ECO')).toBeVisible();
+  expect(screen.getByText('Tournament ECO')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
+  const args = testState.downloadCsv.mock.calls[0];
+  expect(JSON.stringify(args)).toContain('cash_eco_amount');
+  expect(JSON.stringify(args)).toContain('tournament_eco_amount');
+  expect(JSON.stringify(args)).toContain('Unavailable');
+});

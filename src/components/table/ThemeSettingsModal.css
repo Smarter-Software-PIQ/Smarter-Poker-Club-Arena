@@ -735,16 +735,14 @@
   gap: 0;
 }
 
-.theme-asset__cardstage > * {
-  transform: scale(1.35) rotate(-6deg);
-  margin: -2px;
-  filter: drop-shadow(0 8px 9px rgb(0 0 0 / 72%));
+.theme-asset__cardstage > .card-image {
+  width: 44px;
+  height: 66px;
 }
-
 .theme-asset__cardstage > :last-child {
-  transform: scale(1.35) rotate(7deg);
+  margin-left: -12px;
+  margin-top: -4px;
 }
-
 .theme-asset__facedeckstage {
   display: flex;
   align-items: center;
@@ -758,7 +756,8 @@
 
 .theme-asset__facedeckstage .card-image {
   flex: 0 0 auto;
-  transform: rotate(-5deg);
+  width: 25px;
+  height: 35px;
 }
 
 .theme-asset__facedeckstage .card-image:nth-child(2) {
@@ -767,7 +766,7 @@
 }
 
 .theme-asset__facedeckstage .card-image:nth-child(3) {
-  transform: rotate(5deg);
+  transform: none;
 }
 
 /* Locked: the price is a lit gold word over the dimmed art; checking: muted. */
@@ -1011,14 +1010,14 @@
   position: absolute;
   right: 0;
   bottom: 0;
-  transform: scale(0.54) rotate(7deg);
-  transform-origin: bottom right;
+  width: 18px;
+  height: 27px;
   box-shadow: 0 2px 5px rgb(0 0 0 / 50%);
 }
 
 .theme-loadout__cards .card-image:first-child {
   right: 9px;
-  transform: scale(0.54) rotate(-7deg);
+  bottom: 2px;
 }
 
 .theme-loadout__face {
@@ -1031,8 +1030,8 @@
 }
 
 .theme-loadout__face .card-image {
-  transform: scale(0.64) rotate(-4deg);
-  transform-origin: bottom left;
+  width: 22px;
+  height: 31px;
 }
 
 .theme-loadout__name {

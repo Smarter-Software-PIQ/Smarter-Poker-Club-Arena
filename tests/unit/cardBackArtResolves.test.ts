@@ -67,3 +67,10 @@ describe('card back artwork resolves under the Club Arena base', () => {
     ).toEqual([]);
   });
 });
+
+it('ships a compact print for every selectable back design', () => {
+  const prints = import.meta.glob('../../public/cards/backs/table/compact/*.webp');
+  for (const id of CARD_BACK_IDS) {
+    expect(prints).toHaveProperty(['../../public/cards/backs/table/compact/' + id + '.webp']);
+  }
+});

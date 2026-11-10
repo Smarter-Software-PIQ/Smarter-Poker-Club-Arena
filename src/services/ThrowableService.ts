@@ -1247,7 +1247,7 @@ class ThrowableServiceClass {
    */
   getThrowablesByCategory(): Record<ThrowableCategory, Throwable[]> {
     return {
-      premium: THROWABLES.filter((t) => t.category === 'premium'),
+      premium: THROWABLES.filter((t) => t.category === 'premium' && t.id !== 'rocket'),
       throws: THROWABLES.filter((t) => t.category === 'throws'),
       sports: THROWABLES.filter((t) => t.category === 'sports'),
       cheers: THROWABLES.filter((t) => t.category === 'cheers'),

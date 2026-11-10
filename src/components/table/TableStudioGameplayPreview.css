@@ -199,13 +199,13 @@
   bottom: 8%;
   display: flex;
 }
-.studio-game-preview__hole-cards > * {
-  transform: scale(0.62) rotate(-5deg);
-  margin: -8px;
-  filter: drop-shadow(0 4px 4px rgba(0, 0, 0, 0.7));
+.studio-game-preview__hole-cards > .card-image {
+  width: 18px;
+  height: 27px;
+  border-radius: 2px;
 }
 .studio-game-preview__hole-cards > :last-child {
-  transform: scale(0.62) rotate(6deg);
+  margin-left: -6px;
 }
 .studio-game-preview__dealer {
   right: 25%;

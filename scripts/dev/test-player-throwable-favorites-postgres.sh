@@ -11,5 +11,6 @@ mkdir "$work/s"
 psql=("$pgbin/psql" -X -q -v ON_ERROR_STOP=1 -h "$work/s" -p 57648 -U fixture_admin -d postgres)
 "${psql[@]}" -f "$repo/tests/fixtures/player-throwable-favorites/bootstrap.sql" \
   -f "$repo/supabase/migrations/20261031003808_player_throwable_favorites_ranking.sql" \
+  -f "$repo/supabase/migrations/20261110032126_keep_every_personal_throwable_favorite.sql" \
   -f "$repo/tests/fixtures/player-throwable-favorites/assertions.sql"
 echo 'PASS: personal ranking, popular defaults, ten unique valid items, anonymous refusal, private usage protected'
