@@ -488,7 +488,7 @@ export function TournamentRankingHost() {
       close();
       navigate(payload?.tournament?.isSpin ? '/tournaments?type=spin' : '/tournaments');
     };
-    if (!tournamentId) {
+    if (!tournamentId || requested?.formatKind === 'mtt') {
       fallback();
       return;
     }
