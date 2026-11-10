@@ -11,10 +11,11 @@ CREATE EXTENSION pgcrypto WITH SCHEMA extensions;
 CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$SELECT NULLIF(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
 CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$SELECT NULLIF(current_setting('request.jwt.claim.role',true),'')$$;
 
-CREATE TABLE public.profiles(id uuid PRIMARY KEY,username text,display_name text,status text DEFAULT 'active',is_horse boolean DEFAULT false);
+CREATE TABLE public.profiles(id uuid PRIMARY KEY,username text,display_name text,alias text,avatar_url text,status text DEFAULT 'active',is_horse boolean DEFAULT false);
 CREATE TABLE public.unions(id uuid PRIMARY KEY,owner_id uuid,settings jsonb NOT NULL DEFAULT '{}');
 CREATE TABLE public.clubs(id uuid PRIMARY KEY,name text,owner_id uuid,union_id uuid,is_union boolean DEFAULT false,asset text DEFAULT 'chips',
- lifecycle_status text DEFAULT 'active',chip_treasury numeric DEFAULT 0,chip_pool numeric DEFAULT 0,promo_balance numeric DEFAULT 0,updated_at timestamptz DEFAULT now());
+ lifecycle_status text DEFAULT 'active',chip_treasury numeric DEFAULT 0,chip_pool numeric DEFAULT 0,promo_balance numeric DEFAULT 0,updated_at timestamptz DEFAULT now(),
+ logo_url text,avatar_url text,tagline text);
 CREATE TABLE public.union_clubs(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),club_id uuid,union_id uuid,club_commission_rate numeric);
 CREATE TABLE public.club_members(club_id uuid,user_id uuid,role text DEFAULT 'player',status text DEFAULT 'active',is_active boolean DEFAULT true,
  agent_id uuid,parent_agent_id uuid,chip_balance numeric DEFAULT 0,held_chips numeric DEFAULT 0,locked_chips numeric DEFAULT 0,
@@ -80,7 +81,18 @@ CREATE TABLE public.ca_ledger_invariant_store_mode(store text,mode text);
 INSERT INTO public.ca_ledger_invariant_mode VALUES('refuse');
 INSERT INTO public.ca_ledger_invariant_store_mode VALUES('player_wallet','refuse'),('club_treasury','refuse'),('agent_wallet','refuse'),('promo_wallet','refuse'),('settlement_suspense','refuse');
 
+-- What the three agent readers the migration replaces read besides agents
+-- (fn_ca_agent_payables, get_club_agents, fn_club_opening_checklist_complete):
+-- only the columns they name.
+CREATE TABLE public.agent_commission_unsettled_rollup(club_id uuid,user_id uuid,owed numeric,rows_behind bigint,oldest_unsettled timestamptz,updated_at timestamptz,PRIMARY KEY(club_id,user_id));
+CREATE TABLE public.club_opening_checklists(club_id uuid PRIMARY KEY,completed_at timestamptz,completed_by uuid,skipped_task_ids text[] NOT NULL DEFAULT '{}',updated_at timestamptz DEFAULT now());
+CREATE TABLE public.club_opening_setups(club_id uuid PRIMARY KEY);
+CREATE TABLE public.tables(id uuid DEFAULT gen_random_uuid(),club_id uuid,game_variant text,status text);
+CREATE TABLE public.tournaments(id uuid DEFAULT gen_random_uuid(),club_id uuid,format_contract text);
+
 -- STUBS (not the installed bodies; each is outside what this proof judges).
+CREATE FUNCTION public.fn_ca_can_manage_agents(uuid) RETURNS boolean LANGUAGE sql AS $$SELECT true$$;
+CREATE FUNCTION public.fn_club_opening_checklist_eligible(uuid) RETURNS boolean LANGUAGE sql AS $$SELECT true$$;
 CREATE FUNCTION public.fn_ca_ledger_refusal_record(jsonb) RETURNS void LANGUAGE sql AS $$SELECT$$;
 CREATE FUNCTION public.fn_ca_current_epoch() RETURNS uuid LANGUAGE sql AS $$SELECT md5('epoch')::uuid$$;
 CREATE FUNCTION public.fn_cashier_exact_intent_begin(text,uuid,uuid,jsonb) RETURNS jsonb LANGUAGE sql AS $$SELECT jsonb_build_object('state','proceed')$$;

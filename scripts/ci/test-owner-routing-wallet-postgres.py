@@ -3,7 +3,7 @@
 
 Native PostgreSQL 17 proof for migration 20261109231325 (owner-approved weekly
 rakeback cascade, 2026-11-09). It builds public.agents exactly as production
-declares it, loads 40 installed function definitions byte-exact
+declares it, loads 43 installed function definitions byte-exact
 (scripts/ci/fixtures/owner-routing-wallet/live-definitions.json, each checked
 against the md5 read from production), wires the installed triggers, shows the
 defect the migration avoids on the preimage, installs the migration file
@@ -104,7 +104,7 @@ try:
         q('SET check_function_bodies=off;' + row['definition'] + ';')
         got = q(f"SELECT md5(pg_get_functiondef('{row['signature']}'::regprocedure));").stdout.strip()
         assert got == row['md5'], ('installed definition did not load byte-exact', row['signature'], got)
-    assert len(live) == 40
+    assert len(live) == 43
     q((F / 'wiring.sql').read_text())
     q((F / 'seed.sql').read_text())
     q('GRANT USAGE ON SCHEMA smarter_private TO anon,authenticated,service_role;')
@@ -128,12 +128,14 @@ try:
       "public.orw_entitlements('X',ARRAY['PX1','OX'],now()) AS doc_x,(SELECT count(*) FROM public.agents WHERE status='active') AS active_agents,"
       "(SELECT count(*) FROM public.fn_union_weekly_agent_statements(orw_u('U'),NULL)) AS statements;")
     q(a("(SELECT public.orw_terms_error('D','OD',now()))='accounting_terms_not_observed'", 'no row: terms not observed'))
+    # What the agent lists answer before the migration, while no wallet_only row can exist.
+    q("CREATE TABLE public.orw_lists_before AS SELECT c AS club,public.orw_agent_lists(c) AS doc FROM unnest(ARRAY['D','E','K','S','X']) c;")
 
     # ── Install the migration file whole, as production receives it ───────────
     text = MIG.read_text()
     q('SET check_function_bodies=off;\n' + text)
     proofs = [l.split(': ', 1)[1] for l in text.splitlines() if l.startswith('-- @live-proof: ')]
-    assert len(proofs) == 3 and all(q('SELECT ' + p + ';').stdout.strip() == 't' for p in proofs), 'live proof false after install'
+    assert len(proofs) == 6 and all(q('SELECT ' + p + ';').stdout.strip() == 't' for p in proofs), 'live proof false after install'
     replay = q('SET check_function_bodies=off;\n' + text, check=False)
     assert replay.returncode and 'owner_routing_wallet_preimage_changed' in replay.stderr, 'a replay must refuse on the changed preimage'
     q('ROLLBACK;')
@@ -141,6 +143,17 @@ try:
     block = re.search(r"\n  -- THE OWNER ROUTING WALLET \(owner, 2026-11-09\)\..*?\n  END IF;\n", text, re.S).group(0)
     assert q("SELECT md5(replace(pg_get_functiondef('public.fn_enforce_agent_commission_bounds()'::regprocedure),$blk$" + block + "$blk$,''));").stdout.strip() == BOUNDS_PRE, \
         'the band function differs from the installed body by more than the one exemption'
+    # Each replaced agent reader is the installed body plus one exclusion, nothing else.
+    for sig, pre, added in (
+            ('public.fn_ca_agent_payables(uuid)', '5b86542b4686a504209767ac9a70e1e8',
+             "\n       -- An owner routing wallet is a wallet, not an agent (20261109231325).\n       AND coalesce(a.status, 'active') <> 'wallet_only'"),
+            ('public.get_club_agents(uuid)', '7c4fc71f953f809d1d4e40780c747ac0',
+             "\n      -- An owner routing wallet is a wallet, not an agent (20261109231325).\n      AND COALESCE(a.status, 'active') <> 'wallet_only'"),
+            ('public.fn_club_opening_checklist_complete(uuid)', '0e51fff026d1e37b1c143bbfb1fe021f',
+             " AND lower(COALESCE(a.status,'active'))<>'wallet_only'")):
+        assert text.count(added) == 1, ('the exclusion is not in the migration exactly once', sig)
+        assert q("SELECT md5(replace(pg_get_functiondef('" + sig + "'::regprocedure),$blk$" + added + "$blk$,''));").stdout.strip() == pre, \
+            (sig, 'differs from the installed body by more than the one exclusion')
     assert q("SELECT count(*) FROM public.agents WHERE status='wallet_only';").stdout.strip() == '0', 'the migration wrote a row'
     results.append({'case': 'install-live-proofs-replay-refused-and-band-differs-by-one-block', 'passed': True, 'expected_refusal': None})
     print('PASS install-live-proofs-replay-refused-and-band-differs-by-one-block', flush=True)
@@ -283,6 +296,35 @@ try:
          + a("(SELECT count(*) FROM public.agents WHERE status='active')=(SELECT active_agents FROM public.orw_baseline)", 'the active agent count every report filters on is unchanged')
          + a("(SELECT count(*) FROM public.fn_union_weekly_agent_statements(orw_u('U'),NULL))=(SELECT statements FROM public.orw_baseline)", 'no weekly agent statement for the wallet')
          + a("public.fn_club_bank_role(orw_u('D'),orw_u('OD'))='owner'", 'the owner is the owner, by clubs.owner_id, as before'))
+
+    # ── A wallet is not an agent in any list or count ─────────────────────────
+    # D now holds a committed wallet_only row for OD beside agent A1; X holds
+    # one and nothing else. K and S hold none.
+    case('the-payouts-tab-and-the-agent-list-leave-the-wallet-out-row-and-count',
+         a(f"{WAL('D','OD')}.status='wallet_only' AND (SELECT count(*)=2 FROM public.agents WHERE club_id={U('D')})", 'the club holds the wallet and one real agent')
+         + a(f"(SELECT (p->>'agents')::int=1 AND jsonb_array_length(p->'rows')=1 AND p->'rows'->0->>'user_id'={U('A1')}::text AND p->'rows'->0->>'status'='active' FROM public.fn_ca_agent_payables({U('D')}) p)", 'payables: one row, count one, the real agent')
+         + a(f"(SELECT NOT EXISTS(SELECT 1 FROM jsonb_array_elements(p->'rows') r WHERE r->>'user_id'={U('OD')}::text OR r->>'status'='wallet_only') FROM public.fn_ca_agent_payables({U('D')}) p)", 'payables: the wallet is not a row')
+         + a(f"(SELECT count(*)=1 AND bool_and(g.user_id={U('A1')} AND g.status='active') FROM public.get_club_agents({U('D')}) g)", 'agent list: the real agent only')
+         + a(f"(SELECT (p->>'agents')::int=0 AND p->'rows'='[]'::jsonb AND (p->>'total_owed')::numeric=0 FROM public.fn_ca_agent_payables({U('X')}) p) AND NOT EXISTS(SELECT 1 FROM public.get_club_agents({U('X')}))", 'a club holding only the wallet lists no agent and counts none')
+         + a("(SELECT doc FROM public.orw_lists_before WHERE club='D')=public.orw_agent_lists('D') AND (SELECT doc FROM public.orw_lists_before WHERE club='X')=public.orw_agent_lists('X')", 'with the wallet present both answers equal what they were before it existed'))
+    case('a-funded-wallet-is-still-not-listed-and-adds-nothing-to-the-totals',
+         FUND + SETTLED
+         + a(f"{WAL('D','OD')}.agent_wallet_balance=250", 'the wallet holds chips')
+         + a("(SELECT doc FROM public.orw_lists_before WHERE club='D')=public.orw_agent_lists('D')", 'the lists are unchanged by the balance'))
+    case('clubs-with-no-wallet-only-row-answer-exactly-as-before',
+         a("(SELECT bool_and(b.doc=public.orw_agent_lists(b.club)) AND count(*)=3 FROM public.orw_lists_before b WHERE b.club IN('E','K','S'))", 'payables and agent list identical for E, K and S')
+         + a(f"(SELECT (p->>'agents')::int=1 AND p->'rows'->0->>'status'='suspended' FROM public.fn_ca_agent_payables({U('S')}) p) AND (SELECT count(*)=1 FROM public.get_club_agents({U('K')}))", 'a suspended agent and an active owner agent are still listed'))
+    case('a-suspended-former-wallet-is-listed-like-any-suspended-row',
+         f"UPDATE public.agents SET status='suspended' WHERE club_id={U('D')} AND user_id={U('OD')};"
+         + a(f"(SELECT (p->>'agents')::int=2 AND jsonb_array_length(p->'rows')=2 FROM public.fn_ca_agent_payables({U('D')}) p)", 'only the wallet_only status is excluded, not the person'))
+    case('a-wallet-does-not-finish-the-first-agent-opening-step',
+         f"SELECT {ENSURE('E')};SELECT public.orw_checklist_open('E');SELECT orw_as('OE');"
+         f"SELECT public.fn_club_opening_checklist_complete({U('E')});", 'Finish Or Skip Every Opening Checklist Step: first-agent')
+    case('a-real-agent-still-finishes-the-first-agent-opening-step',
+         "SELECT public.orw_checklist_open('K');SELECT orw_as('OK');"
+         + a(f"(SELECT public.fn_club_opening_checklist_complete({U('K')})->>'completedAt') IS NOT NULL", 'completed with a real agent row')
+         + f"SELECT public.orw_checklist_open('D');SELECT orw_as('OD');"
+         + a(f"(SELECT public.fn_club_opening_checklist_complete({U('D')})->>'completedAt') IS NOT NULL", 'a club with a wallet and a real agent completes on the agent'))
 
     # ── (d) Nothing strands, nothing is blocked ──────────────────────────────
     case('the-owner-returns-the-balance-to-the-club-bank',

@@ -73,7 +73,7 @@ const CLUB_ID = '44444444-4444-4444-8444-444444444444';
 const TRANSACTION_ID = '55555555-5555-4555-8555-555555555555';
 
 const resolvedChain = (result: { data: unknown; error: unknown }): any => {
-  let proxy: any;
+  const proxy: any;
   const handler: ProxyHandler<any> = {
     get: (_target, prop) => {
       if (prop === 'then') return Promise.resolve(result).then.bind(Promise.resolve(result));
@@ -353,6 +353,31 @@ describe('AgentService', () => {
           displayName: 'Agent Alpha',
         },
       ]);
+    });
+
+    it('leaves an owner routing wallet out of the roster: it is a wallet, not an agent', async () => {
+      const ownerWallet = validAgentRow({
+        id: '77777777-7777-4777-8777-777777777777',
+        user_id: '88888888-8888-4888-8888-888888888888',
+        status: 'wallet_only',
+      });
+      vi.mocked(supabase.from)
+        .mockReturnValueOnce(resolvedChain({ data: [ownerWallet, validAgentRow()], error: null }))
+        .mockReturnValueOnce(resolvedChain({ data: [validProfile()], error: null }));
+      const roster = await AgentService.getAgents(CLUB_ID);
+      expect(roster.map((agent) => agent.id)).toEqual([AGENT_ID]);
+
+      vi.mocked(supabase.from).mockReturnValueOnce(
+        resolvedChain({ data: [ownerWallet], error: null })
+      );
+      await expect(AgentService.getAgents(CLUB_ID)).resolves.toEqual([]);
+    });
+
+    it('still fails the roster closed for a status nobody defined', async () => {
+      vi.mocked(supabase.from).mockReturnValueOnce(
+        resolvedChain({ data: [validAgentRow({ status: 'paused' })], error: null })
+      );
+      await expect(AgentService.getAgents(CLUB_ID)).rejects.toThrow(/Malformed \(agent\.status\)/);
     });
 
     it.each([

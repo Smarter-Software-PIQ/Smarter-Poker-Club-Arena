@@ -24,6 +24,12 @@
 --     (accounting_agreement_history; agent_history_id and agreement_at are in
 --     the certificate), one keyed leg per edge per week, parents first, and no
 --     hop may leave a wallet short;
+--   * an upline whose account is deleted is skipped: the path continues to its
+--     nearest live upline, or to the club bank when there is none, so nothing
+--     is credited to a wallet whose credits are returned to the bank. A
+--     deleted direct payer is still funded and pays (its published rakeback
+--     is reserved for it). An upline deleted after it already passed this
+--     week's funding down is refused, naming it;
 --   * a share whose recorded upline is the club owner is funded club bank ->
 --     owner agent wallet (smarter_private.ensure_owner_routing_wallet) and
 --     round 3 then pays those players from that wallet. A player with no
@@ -40,7 +46,7 @@
 --
 -- Requires 20261109231325 (smarter_private.ensure_owner_routing_wallet).
 -- Proof: scripts/ci/test-rakeback-cascade-funding-postgres.py (PostgreSQL 17).
--- @live-proof: md5(pg_get_functiondef('smarter_private.weekly_payout_fund_agent_shortfalls(uuid,text,uuid,timestamptz,timestamptz)'::regprocedure))='93ef89948542085c8a82721228ff7566'
+-- @live-proof: md5(pg_get_functiondef('smarter_private.weekly_payout_fund_agent_shortfalls(uuid,text,uuid,timestamptz,timestamptz)'::regprocedure))='dddb67b5024a01bb4f2dadc0ba1009f2'
 
 BEGIN;
 SET LOCAL lock_timeout='1s';
@@ -204,6 +210,27 @@ BEGIN
   IF FOUND OR d>=64 THEN RAISE EXCEPTION 'rakeback_cascade_hierarchy_cycle: club % agent % is its own upline',COALESCE(bad.club_id::text,'?'),COALESCE(bad.user_id::text,'?') USING ERRCODE='23514'; END IF;
  END LOOP;
  DELETE FROM pg_temp._rcf_chain c USING public.clubs o WHERE o.id=c.club_id AND c.user_id=o.owner_id AND c.depth>0;
+ -- A DELETED UPLINE IS ROUTED AROUND (owner decision 2026-11-09; proved under
+ -- the live trigger stack, scripts/ci/test-rakeback-cascade-real-guards-postgres.py).
+ -- zzzz_deleted_agent_credit returns any credit to a deleted account's agent
+ -- wallet to the club bank inside the crediting statement, so chips sent
+ -- through such an upline never reach the next hop. The path therefore skips
+ -- it and continues to its nearest live upline, or to the club bank when
+ -- there is none: the same collapse applied to the owner above. Nothing is
+ -- credited to the deleted account. A deleted DIRECT payer (depth 0) stays:
+ -- what it owes its players is held back for it
+ -- (deleted_wallet_published_rakeback_reserve) and round 3 pays from it.
+ -- The one shape that cannot be routed: the account already passed this
+ -- week's funding down before it was deleted, so a new route would send the
+ -- same chips to the same agent a second time. Refused, naming both.
+ CREATE TEMP TABLE IF NOT EXISTS _rcf_skipped(club_id uuid,user_id uuid,PRIMARY KEY(club_id,user_id)) ON COMMIT DROP;
+ TRUNCATE pg_temp._rcf_skipped;
+ INSERT INTO pg_temp._rcf_skipped SELECT DISTINCT c.club_id,c.user_id FROM pg_temp._rcf_chain c JOIN public.profiles p ON p.id=c.user_id AND p.status='deleted' WHERE c.depth>0;
+ SELECT c.club_id,c.user_id,lo.user_id AS payee INTO bad FROM pg_temp._rcf_chain c JOIN pg_temp._rcf_skipped s ON s.club_id=c.club_id AND s.user_id=c.user_id
+  JOIN pg_temp._rcf_chain lo ON lo.ah=c.ah AND lo.at=c.at AND lo.depth<c.depth
+  WHERE c.depth>0 AND EXISTS(SELECT 1 FROM public.chip_ledger l WHERE l.idempotency_key=smarter_private.rakeback_cascade_key(c.club_id,d_from,c.user_id,lo.user_id)) ORDER BY 1,2,3 LIMIT 1;
+ IF FOUND THEN RAISE EXCEPTION 'rakeback_cascade_upline_deleted_after_funding: club % upline agent % passed this week''s funding down to agent % and its account was deleted afterwards; a route around it would fund that agent twice',bad.club_id,bad.user_id,bad.payee USING ERRCODE='23514'; END IF;
+ DELETE FROM pg_temp._rcf_chain c USING pg_temp._rcf_skipped s WHERE s.club_id=c.club_id AND s.user_id=c.user_id AND c.depth>0;
  -- 4. Each need is split over the paths its sources were earned under, in
  --    proportion to their unrounded rakeback, by running cents: nothing is
  --    lost or invented when an upline changed inside the week.
@@ -314,6 +341,7 @@ BEGIN
  END LOOP;
  PERFORM set_config('app.ledger_autoskip_clubs',COALESCE(club_skip,''),true);PERFORM set_config('app.ledger_autoskip_agents',COALESCE(agent_skip,''),true);
  RETURN jsonb_build_object('version','rakeback-funding-v1','week_start',d_from,'run_id',p_run,'ledger_ids',sent,
+  'skipped_deleted_uplines',COALESCE((SELECT jsonb_agg(jsonb_build_object('club_id',s.club_id,'user_id',s.user_id) ORDER BY s.club_id,s.user_id) FROM pg_temp._rcf_skipped s),'[]'::jsonb),
   'edges',COALESCE((SELECT jsonb_agg(jsonb_build_object('club_id',x.club_id,'payer_user_id',x.payer_user,'payee_user_id',x.payee_user,'amount',x.amount,'route',x.route,'tier',x.sort_order,'state',x.state,
      'key',smarter_private.rakeback_cascade_key(x.club_id,d_from,x.payer_user,x.payee_user)) ORDER BY x.club_id,x.sort_order,x.payer_user NULLS FIRST,x.payee_user) FROM pg_temp._rcf_edges x),'[]'::jsonb),
   'nodes',COALESCE((SELECT jsonb_agg(jsonb_build_object('club_id',n.club_id,'user_id',n.user_id,'tier',n.sort_order,
@@ -396,5 +424,5 @@ BEGIN
  EXECUTE src;
  IF md5(pg_get_functiondef('public.fn_settle_accounting_rakeback_stage(text,uuid,timestamptz,timestamptz)'::regprocedure)) IS DISTINCT FROM 'db6ba33eed8762b2534d349024e4219f' THEN RAISE EXCEPTION 'rakeback_cascade_round3_postimage_changed';END IF;
 END $patch_round3$;
-DO $post$BEGIN IF md5(pg_get_functiondef('smarter_private.weekly_payout_fund_agent_shortfalls(uuid,text,uuid,timestamptz,timestamptz)'::regprocedure)) IS DISTINCT FROM '93ef89948542085c8a82721228ff7566' THEN RAISE EXCEPTION 'rakeback_cascade_fund_postimage_changed';END IF;END $post$;
+DO $post$BEGIN IF md5(pg_get_functiondef('smarter_private.weekly_payout_fund_agent_shortfalls(uuid,text,uuid,timestamptz,timestamptz)'::regprocedure)) IS DISTINCT FROM 'dddb67b5024a01bb4f2dadc0ba1009f2' THEN RAISE EXCEPTION 'rakeback_cascade_fund_postimage_changed';END IF;END $post$;
 COMMIT;

@@ -53,6 +53,13 @@ jobs:
             scripts/ci/test-governance-eco-original-week-postgres.py
             scripts/ci/fixtures/governance-eco-original-week/**
             tests/governance-eco-keeps-original-week.law.test.ts
+            scripts/ci/test-rakeback-cascade-funding-plan-postgres.py
+            scripts/ci/test-rakeback-cascade-funding-postgres.py
+            scripts/ci/test-rakeback-cascade-real-guards-postgres.py
+            scripts/ci/fixtures/rakeback-cascade*/**
+            scripts/ci/test-owner-routing-wallet-postgres.py
+            scripts/ci/fixtures/owner-routing-wallet/**
+            tests/superseded-certificates-never-fund.law.test.ts
             .github/workflows/weekly-refusal-cover.yml
             tests/the-weekly-refusal-check-reads-the-receipt-cover.law.test.ts
         shell: bash
@@ -112,3 +119,44 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 -B scripts/ci/test-union-prepares-first-postgres.py --pg-bin "$PG_BIN" --scratch-root "${{ runner.temp }}" --output "${{ runner.temp }}/union-prepares-first.json"
+      # Weekly rakeback funding cascade (2026-11-09). Each harness is named
+      # directly, so a missing file is exit 2 and a red required check, never
+      # a silent skip. Each must also end by printing its own verdict line,
+      # {"status": "passed", "cases": N} with N above zero: a harness that
+      # exits 0 having run nothing is refused here, not counted as proof.
+      - name: Weekly rakeback funding plan counts each chip once
+        if: steps.relevant.outputs.run == 'true'
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          VERDICT_LOG: ${{ runner.temp }}/rakeback-cascade-funding-plan.log
+        run: |
+          set -o pipefail
+          python3 -B scripts/ci/test-rakeback-cascade-funding-plan-postgres.py --pg-bin "$PG_BIN" --scratch "${{ runner.temp }}" | tee "$VERDICT_LOG"
+          tail -n 1 "$VERDICT_LOG" | python3 -c 'import json,sys; v=json.load(sys.stdin); sys.exit(0 if v.get("status")=="passed" and isinstance(v.get("cases"),int) and v["cases"]>0 else "the harness printed no passed verdict with cases")'
+      - name: An owner routing wallet is wallet only and earns nothing
+        if: steps.relevant.outputs.run == 'true'
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          VERDICT_LOG: ${{ runner.temp }}/owner-routing-wallet.log
+        run: |
+          set -o pipefail
+          python3 -B scripts/ci/test-owner-routing-wallet-postgres.py --pg-bin "$PG_BIN" --scratch "${{ runner.temp }}" | tee "$VERDICT_LOG"
+          tail -n 1 "$VERDICT_LOG" | python3 -c 'import json,sys; v=json.load(sys.stdin); sys.exit(0 if v.get("status")=="passed" and isinstance(v.get("cases"),int) and v["cases"]>0 else "the harness printed no passed verdict with cases")'
+      - name: Weekly rakeback funding cascades from the latest certificate only
+        if: steps.relevant.outputs.run == 'true'
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          VERDICT_LOG: ${{ runner.temp }}/rakeback-cascade-funding.log
+        run: |
+          set -o pipefail
+          python3 -B scripts/ci/test-rakeback-cascade-funding-postgres.py --pg-bin "$PG_BIN" --scratch "${{ runner.temp }}" | tee "$VERDICT_LOG"
+          tail -n 1 "$VERDICT_LOG" | python3 -c 'import json,sys; v=json.load(sys.stdin); sys.exit(0 if v.get("status")=="passed" and isinstance(v.get("cases"),int) and v["cases"]>0 else "the harness printed no passed verdict with cases")'
+      - name: Weekly rakeback funding legs pass the real ledger guards
+        if: steps.relevant.outputs.run == 'true'
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          VERDICT_LOG: ${{ runner.temp }}/rakeback-cascade-real-guards.log
+        run: |
+          set -o pipefail
+          python3 -B scripts/ci/test-rakeback-cascade-real-guards-postgres.py --pg-bin "$PG_BIN" --scratch "${{ runner.temp }}" | tee "$VERDICT_LOG"
+          tail -n 1 "$VERDICT_LOG" | python3 -c 'import json,sys; v=json.load(sys.stdin); sys.exit(0 if v.get("status")=="passed" and isinstance(v.get("cases"),int) and v["cases"]>0 else "the harness printed no passed verdict with cases")'

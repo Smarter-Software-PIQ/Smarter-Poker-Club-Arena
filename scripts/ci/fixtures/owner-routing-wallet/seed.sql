@@ -75,3 +75,12 @@ CREATE FUNCTION public.orw_as(p_user text) RETURNS void LANGUAGE sql AS $$
  SELECT set_config('request.jwt.claims',jsonb_build_object('sub',orw_u(p_user),'role','authenticated')::text,true) $$;
 CREATE FUNCTION public.orw_wallet(p_club text,p_user text) RETURNS public.agents LANGUAGE sql AS $$
  SELECT a FROM public.agents a WHERE a.club_id=orw_u(p_club) AND a.user_id=orw_u(p_user) $$;
+-- What the agent lists answer for a club: the Payouts tab receipt (without its
+-- clock) and the agent list, as one document.
+CREATE FUNCTION public.orw_agent_lists(p_club text) RETURNS jsonb LANGUAGE sql AS $$
+ SELECT jsonb_build_object('payables',public.fn_ca_agent_payables(orw_u(p_club))-'generated_at',
+  'agents',COALESCE((SELECT jsonb_agg(to_jsonb(g) ORDER BY g.id) FROM public.get_club_agents(orw_u(p_club)) g),'[]'::jsonb)) $$;
+-- An opening checklist with every step skipped except "first-agent".
+CREATE FUNCTION public.orw_checklist_open(p_club text) RETURNS void LANGUAGE sql AS $$
+ INSERT INTO public.club_opening_setups(club_id) VALUES(orw_u(p_club));
+ INSERT INTO public.club_opening_checklists(club_id,skipped_task_ids) VALUES(orw_u(p_club),ARRAY['identity','tagline','nlh','plo','limit','mtt','spin','heads-up','first-player']) $$;
