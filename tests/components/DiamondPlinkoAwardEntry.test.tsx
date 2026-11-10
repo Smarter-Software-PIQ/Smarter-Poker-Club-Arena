@@ -58,22 +58,29 @@ vi.mock('../../src/services/SoundService', () => ({
 vi.mock('../../src/components/plinko/PlinkoBoard', () => ({
   default: ({
     batchPathBits,
+    batchLandedTotals,
     onProgress,
     onLanded,
   }: {
     batchPathBits: number[] | null;
+    batchLandedTotals?: number[];
     onProgress: (landed: number) => void;
     onLanded: () => void;
   }) =>
     batchPathBits ? (
-      <button
-        onClick={() => {
-          onProgress(batchPathBits.length);
-          onLanded();
-        }}
-      >
-        Land Released ({batchPathBits.length})
-      </button>
+      <>
+        {batchLandedTotals && (
+          <button onClick={() => onProgress(3)}>Land Three Representatives</button>
+        )}
+        <button
+          onClick={() => {
+            onProgress(batchPathBits.length);
+            onLanded();
+          }}
+        >
+          Land Released ({batchPathBits.length})
+        </button>
+      </>
     ) : null,
 }));
 vi.mock('../../src/components/games/DiamondSpinsTabs', () => ({ default: () => null }));
@@ -297,6 +304,63 @@ describe('Plinko starts only its earned funding, on the player choice', () => {
     expect(screen.getByRole('dialog')).toHaveTextContent('10 Drops Completed');
     expect(backend.start).not.toHaveBeenCalled();
   });
+  it.each([
+    [390, 6],
+    [1024, 98],
+  ])(
+    'plays a 100-drop receipt at %ipx with %i new paths and the full credit',
+    async (width, paths) => {
+      const viewport = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(width);
+      try {
+        backend.awardState.mockResolvedValue({
+          enabled: true,
+          award: null,
+          gameState: null,
+          quote: null,
+        });
+        const original = fixtures.receipts.plinko;
+        const drops = Array.from({ length: 100 }, (_, index) => ({
+          ...original.drops[index % 10],
+          payout_chips: 0.01,
+        }));
+        const progress = {
+          ...original,
+          award_id: superAward.id,
+          total_count: 100,
+          drop_count: 100,
+          complete: false,
+          released_count: 2,
+          released_chips: 0.02,
+          payout_chips: 0.02,
+          drops: drops.slice(0, 2),
+        };
+        backend.plinkoProgress.mockResolvedValue(progress);
+        backend.releasePlinko.mockResolvedValue({
+          ...progress,
+          drops,
+          released_count: 100,
+          released_chips: 7.5,
+          payout_chips: 7.5,
+          complete: true,
+        });
+        render(<DiamondPlinkoPage />);
+        await act(async () => {});
+        expect(bay('Drops')).toHaveTextContent('2/100');
+        fireEvent.click(screen.getByRole('button', { name: 'Drop All' }));
+        await act(async () => {});
+        if (width === 390) {
+          fireEvent.click(screen.getByRole('button', { name: 'Land Three Representatives' }));
+          expect(bay('Drops')).toHaveTextContent('51/100');
+        }
+        fireEvent.click(screen.getByRole('button', { name: `Land Released (${paths})` }));
+        const receipt = screen.getByRole('dialog', { name: '7.50 Chips' });
+        expect(receipt).toHaveTextContent('100 Drops Completed');
+        expect(backend.releasePlinko).toHaveBeenCalledTimes(1);
+      } finally {
+        viewport.mockRestore();
+      }
+    }
+  );
   it('opens a Super award straight on the selector, then plays the Super table with the chosen value', async () => {
     backend.awardState.mockResolvedValue({
       enabled: true,

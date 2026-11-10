@@ -84,6 +84,8 @@ test('the published table explains controlled seat moves without moving a player
   let tableClient: WebSocketRoute | null = null;
   let latestSequence = 0;
   let syntheticPhase = false;
+  let destinationId: string | null = null;
+  let destinationSocket: WebSocketRoute | null = null;
   const refusedSynthetic = { http: 0, websocket: 0 };
   let forwardedSyntheticUpstream = 0;
   const heroDiagnostics: string[] = [];
@@ -162,6 +164,13 @@ test('the published table explains controlled seat moves without moving a player
       client.onMessage((message) => {
         // Every upstream socket, including Realtime, is read-only during this
         // phase. Never forward synthetic client participation or diagnostics.
+        if (syntheticPhase && engine && destinationId) {
+          const frame = JSON.parse(String(message));
+          if (frame.type === 'SUBSCRIBE' && frame.tableId === destinationId) {
+            destinationSocket = client;
+            client.send(JSON.stringify({ type: 'SUBSCRIBED', tableId: destinationId }));
+          }
+        }
         if (syntheticPhase) {
           refusedSynthetic.websocket++;
           return;
@@ -530,6 +539,120 @@ test('the published table explains controlled seat moves without moving a player
       String(seat)
     );
     expect(heroDiagnostics).toEqual([]);
+    // Replay the destination snapshots on the rendered table with all upstream
+    // writes blocked. The vacated seat first shows its previous player's blind.
+    const hero = page.locator(`.seat--hero[data-player-id="${fixtureUserId}"]`);
+    await page.getByRole('button', { name: 'Stop Following', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Stop Following', exact: true })).toHaveCount(0);
+    destinationId = main.id;
+    tableClient!.send(
+      JSON.stringify({
+        type: 'EVENT',
+        tableId: source.id,
+        ts: Date.now(),
+        payload: {
+          type: 'seat_moved',
+          table_id: source.id,
+          to_table_id: destinationId,
+          user_id: fixtureUserId,
+          reason: 'table_balance',
+          timestamp: Date.now(),
+        },
+      })
+    );
+    await expect
+      .poll(() => new URL(page.url()).pathname.endsWith('/table/' + destinationId))
+      .toBe(true);
+    await expect.poll(() => destinationSocket !== null).toBe(true);
+    const destination = destinationSocket! as WebSocketRoute;
+    const blind = structuredClone(input);
+    blind.tableId = destinationId;
+    blind.state.table_id = destinationId;
+    blind.seq++;
+    blind.state.stage = 'preflop';
+    blind.state.hand_number = Number(input.state.hand_number) + 1;
+    const previous = blind.state.players[index];
+    Object.assign(previous, {
+      user_id: diagnosticActorId,
+      cards: [],
+      bet: 400,
+      position: 'SB',
+      is_folded: false,
+      is_sitting_out: false,
+      is_all_in: false,
+    });
+    blind.state.current_player = null;
+    destination.send(JSON.stringify(blind));
+    await expect(
+      page.locator(`.seat[data-player-id="${diagnosticActorId}"] .seat__bet-chips`)
+    ).toBeVisible();
+
+    const board = ['2clubs', '7diamonds', '9hearts'];
+    destination.send(
+      JSON.stringify({
+        type: 'EVENT',
+        tableId: destinationId,
+        ts: Date.now(),
+        payload: {
+          type: 'community_cards_dealt',
+          table_id: destinationId,
+          hand_number: blind.state.hand_number,
+          stage: 'flop',
+          new_cards: board,
+          board,
+          timestamp: Date.now(),
+        },
+      })
+    );
+    await expect(
+      page.locator(`.seat[data-player-id="${diagnosticActorId}"] .cp--collect`)
+    ).toBeVisible();
+    const waiting = structuredClone(blind);
+    waiting.state.stage = 'flop';
+    waiting.state.community_cards = board.map((card) => ({ rank: card[0], suit: card.slice(1) }));
+    waiting.seq++;
+    Object.assign(waiting.state.players[index], {
+      user_id: fixtureUserId,
+      stack: 27454,
+      is_waiting_for_button: true,
+      is_sitting_out: true,
+      cards: [],
+      bet: 0,
+      position: '',
+    });
+    destination.send(JSON.stringify(waiting));
+    await expect(hero.getByTestId('seat-waiting-button-badge')).toHaveText(
+      'Waiting For The Button To Pass'
+    );
+    await expect(hero.getByTestId('seat-waiting-button-badge')).toBeVisible();
+    await expect(hero.locator('.seat__card')).toHaveCount(0);
+    await expect(hero.locator('.seat__bet-chips')).toHaveCount(0);
+    await expect(page.locator('.action-btn--fold:visible')).toHaveCount(0);
+
+    await info.attach('moved-seat-waiting-for-button', {
+      body: await page.screenshot(),
+      contentType: 'image/png',
+    });
+    const admitted = structuredClone(waiting);
+    admitted.seq++;
+    admitted.state.hand_number++;
+    admitted.state.stage = 'preflop';
+    admitted.state.community_cards = [];
+    admitted.state.dealer_seat = seat === 1 ? 2 : 1;
+    Object.assign(admitted.state.players[index], {
+      is_waiting_for_button: false,
+      is_sitting_out: false,
+      cards: [
+        { rank: 'K', suit: 'clubs' },
+        { rank: '3', suit: 'spades' },
+      ],
+    });
+    destination.send(JSON.stringify(admitted));
+    await expect(hero.getByTestId('seat-waiting-button-badge')).toHaveCount(0);
+    await expect(hero.locator('.seat__cards--hero .seat__card--face')).toHaveCount(2);
+    await expect(hero.locator('.seat__bet-chips')).toHaveCount(0);
+    evidence.buttonWait = { heldWithoutCardsChipsOrActions: true, cardsAfterPass: 2 };
+
     await page.evaluate(requestObserverForegroundProbe);
     await page.evaluate(async () => {
       // A nonread against a nonexistent static path proves the HTTP guard

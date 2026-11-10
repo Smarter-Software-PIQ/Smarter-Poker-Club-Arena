@@ -184,6 +184,8 @@ function bustedEngine() {
   const e = engine();
   e.seatedPlayers[0].stack = 0;
   e.bustedSince = new Map([['player', Date.now() - 3600000]]);
+  // Judged when it busted (wallet covered a rebuy); the window has long expired.
+  e.bustRebuyVerdictMap = new Map([['player', 'can_rebuy']]);
   e.rebuyPromptOpenAt = new Map();
   e.pendingAddOns = new Map();
   e.usersWithPendingLedgerChips = vi.fn().mockResolvedValue(new Set());

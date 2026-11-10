@@ -674,7 +674,7 @@ def sanitize_original_turn_gap_result(result, value):
     amount_names=names|{'expected'}
     guard_names={'recordHashesVerified','originalHandBound','uniqueOriginalPair','wholeHandReconciled','canonicalInputAndReadFrameBound'}
     failure_names={'execution_status_not_intended','executed_selected_action_mismatch','selected_captured_action_mismatch',
-                   'zero_executed_amount_not_null','zero_expected_amount_not_zero','zero_accepted_amount_not_zero',
+                   'selected_captured_amount_mismatch','zero_executed_amount_not_null','zero_expected_amount_not_zero','zero_accepted_amount_not_zero',
                    'wager_executed_expected_amount_mismatch'}
     gaps={'original_snapshot_missing','domain_metadata_invalid','street_metadata_invalid','betting_metadata_invalid',
           'chip_unit_missing_or_invalid','ante_metadata_missing_or_invalid','board_metadata_missing_or_invalid',
@@ -734,6 +734,7 @@ def sanitize_original_turn_gap_result(result, value):
         if c['executionStatus']!='intended': expected_failures.append('execution_status_not_intended')
         if a['executed']!=a['selected']: expected_failures.append('executed_selected_action_mismatch')
         if a['selected']!=a['captured']: expected_failures.append('selected_captured_action_mismatch')
+        if m['captured']['value']!=m['selected']['value']: expected_failures.append('selected_captured_amount_mismatch')
         if a['executed'] in ('fold','check'):
             if m['executed']['kind']!='null': expected_failures.append('zero_executed_amount_not_null')
             if m['expected']!={'kind':'number','value':0}: expected_failures.append('zero_expected_amount_not_zero')
