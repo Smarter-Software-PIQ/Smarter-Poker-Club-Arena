@@ -1,3 +1,4 @@
+import { formatTournamentTitle } from '../utils/formatGameTitle';
 import { isRetiredTournament, isRetiredTournamentTable } from '../lib/retiredTournamentVisibility';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import { satelliteStartsWhenFull } from '../utils/satelliteQualification';
@@ -597,7 +598,9 @@ export default function UnionGamesPage() {
                 <div key={t.id} className={styles.tournCard}>
                   <div className={styles.tournHeader}>
                     <div>
-                      <div className={styles.tournName}>{t.name || 'Tournament'}</div>
+                      <div className={styles.tournName}>
+                        {formatTournamentTitle(t.name) || 'Tournament'}
+                      </div>
                       <div className={styles.tournClub}>
                         {(Array.isArray(t.clubs) ? t.clubs[0]?.name : t.clubs?.name) || ''}{' '}
                         {t.is_xmtt && <span className={styles.xmttBadge}>XMTT</span>}

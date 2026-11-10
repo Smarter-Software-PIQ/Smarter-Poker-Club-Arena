@@ -38,7 +38,7 @@ import { supabase } from '../../lib/supabase';
 import { readLocalSession } from '../../lib/authUtils';
 import { generateDefaultAvatar } from '../../utils/avatarGenerator';
 import { CardImage } from '../table/CardImage';
-import { formatGameTitle } from '../../utils/formatGameTitle';
+import { formatTournamentTitle } from '../../utils/formatGameTitle';
 import type { TournamentResult } from '../../services/pendingSessionSummary';
 import { playerDisplayName, PLAYER_NAME_COLUMNS } from '../../utils/playerDisplayName';
 import { SpadeConsole } from '../console/SpadeConsole';
@@ -415,7 +415,7 @@ export default function TournamentRankingCard({
 
   const qualification = result.satelliteQualification;
   const place = result.finishPlace;
-  const eventName = formatGameTitle(result.name || tableName || 'Tournament');
+  const eventName = formatTournamentTitle(result.name || tableName || 'Tournament');
   const totalWon = (result.prize || 0) + (result.bountyWinnings || 0);
   /* MYSTERY BOUNTY (section 43). Cents, and absent on any non-mystery event. */
   const mysteryBounties = Math.max(0, Number(result.mysteryBounties) || 0);

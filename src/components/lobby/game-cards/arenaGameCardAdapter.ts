@@ -180,12 +180,7 @@ export function arenaGameCardDataFromEntry(entry: LobbyEntry): ArenaGameCardData
   return {
     id: entry.id,
     family,
-    title:
-      entry.kind !== 'cash' &&
-      Number(entry.guaranteeValue) > 0 &&
-      !/\b(?:GTD|Guaranteed)\b/i.test(heading.title)
-        ? `${heading.title} · ${compactChips(entry.guaranteeValue!)} Guaranteed`
-        : heading.title,
+    title: heading.title,
     subtitle: renderedSubtitle,
     styleNote: renderedStyleNote,
     gameType: entry.gameLabel,

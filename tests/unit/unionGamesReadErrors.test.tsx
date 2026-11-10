@@ -187,7 +187,7 @@ describe('Union Games complete tournament board', () => {
         <UnionGamesPage />
       </MemoryRouter>
     );
-    const event = await screen.findByText('Tomorrow Bounty Freezeout', {}, { timeout: 5000 });
+    const event = await screen.findByText('Tomorrow Bounty', {}, { timeout: 5000 });
     const card = event.parentElement!.parentElement!.parentElement!;
     expect(card).toHaveTextContent('40');
     expect(card).toHaveTextContent('5.0K GTD');
