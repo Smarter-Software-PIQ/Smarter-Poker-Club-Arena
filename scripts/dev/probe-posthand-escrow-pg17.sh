@@ -4,10 +4,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PGBIN="${PGBIN:-/opt/homebrew/opt/postgresql@17/bin}"
 case "$("$PGBIN/postgres" --version)" in *' 17.'*) ;; *) echo 'PostgreSQL17 required' >&2;exit 1;;esac
-if [[ -d /Volumes/SmarterWork ]]; then
- [[ "$(df /Volumes/SmarterWork | tail -1 | awk '{print $NF}')" == /Volumes/SmarterWork ]]
- BASE=/Volumes/SmarterWork/agent-work
-elif [[ "$(uname)" == Darwin ]]; then echo 'SSD not mounted' >&2;exit 1
+if [[ "$(uname)" == Darwin ]]; then
+ BASE="${POSTHAND_ESCROW_SCRATCH_ROOT:-/Volumes/SmarterWork/agent-work/extreme-capacity}"
+ # Check the configured scratch itself: SSD2 can remain mounted while the
+ # SSD1 parent is absent. Never fall back to the internal mountpoint.
+ [[ -d "$BASE" && "$(df "$BASE" | tail -1 | awk '{print $1}')" == /dev/disk* ]]
+ mounted="$(df "$BASE" | tail -1 | awk '{print $NF}')"
+ case "$mounted" in /Volumes/SmarterWork|/Volumes/SmarterWork/agent-work/*) ;; *) echo 'external scratch SSD not mounted' >&2;exit 1;;esac
+ [[ "$(head -1 "$mounted/SSD-IDENTITY.txt")" == SSD[12]* ]]
 else BASE="${RUNNER_TEMP:-${TMPDIR:-/tmp}}";fi
 WORK="$(mktemp -d "$BASE/postescrow.XXXXXX")"
 started=false
@@ -38,8 +42,9 @@ OLD="$ROOT/tests/fixtures/union-pnl-blocked-resolution"
 ORIGINAL="$ROOT/tests/fixtures/original-unchanged-stack"
 PRIOR="$ROOT/supabase/migrations/20261012201712_late_departed_seat_settlement_proves_its_original_cash_flow.sql"
 MIG="$ROOT/supabase/migrations/20261012211046_original_posthand_escrow_retains_its_completed_financial_pro.sql"
+load_original() {
 python3 "$FLOW/load-captured.py" "$F/captured.jsonb" "$WORK/load.sql"
-"${PSQL[@]}" -f "$OLD/schema.sql" -f "$FLOW/schema-additions.sql" -f "$ORIGINAL/schema-additions.sql" \
+"${PSQL[@]}" -f "${NATIVE_SCHEMA:-$OLD/schema.sql}" -f "$FLOW/schema-additions.sql" -f "$ORIGINAL/schema-additions.sql" \
  -f "$FLOW/admission-preimages.sql" -f "$ORIGINAL/cents-preimage.sql" -f "$FLOW/consumer-preimage.sql" \
  -f "$FLOW/retained-preimages.sql" -f "$FLOW/retained-key-preimage.sql" -f "$FLOW/compact-preimages.sql" \
  -f "$F/atomic-original-preimage.sql" -f "$F/retained-atomic-preimage.sql" -f "$FLOW/unused-original-dependencies.sql" -f "$ORIGINAL/lineage-preimage.sql" \
@@ -54,6 +59,8 @@ assert '$original_prior$' not in s
 Path(sys.argv[2]).write_text("CREATE SCHEMA supabase_migrations;CREATE TABLE supabase_migrations.schema_migrations(version text PRIMARY KEY,name text,statements text[]);INSERT INTO supabase_migrations.schema_migrations VALUES('20261012201712','native qualified predecessor',ARRAY[$original_prior$"+s+"$original_prior$]);\n")
 PY
 "${PSQL[@]}" -f "$WORK/prior-history.sql" -f "$F/before.sql"
+}
+load_original
 python3 "$F/admission.py" "$PGBIN" "$WORK" "$MIG"
 sed 's/^COMMIT;$/ROLLBACK;/' "$MIG" >"$WORK/rollback.sql"
 "${PSQL[@]}" -f "$WORK/rollback.sql" -f "$F/rollback-readback.sql"
@@ -81,3 +88,20 @@ grep -q POSTHAND_ESCROW_ALREADY_INSTALLED "$WORK/replay.log"
 echo 'PASS exact posthand migration replay refuses'
 "${PSQL[@]}" -At -c "SELECT jsonb_object_agg(p.oid::regprocedure::text,jsonb_build_object('md5',md5(pg_get_functiondef(p.oid)),'owner',pg_get_userbyid(p.proowner),'acl',p.proacl::text,'config',p.proconfig,'security_definer',p.prosecdef)) FROM pg_proc p WHERE p.proname LIKE '%posthand_escrow%' OR p.oid=ANY(ARRAY['public.fn_union_pnl_cash_outcome_accepted(public.union_pnl_cash_outcomes)'::regprocedure,'public.fn_union_pnl_week_hand_lines(uuid,timestamptz,timestamptz,boolean)'::regprocedure,'public.fn_pnl_cash_hand_evidence(uuid,bigint)'::regprocedure]);"
 echo 'PASS original posthand escrow native PostgreSQL17'
+
+# The same maintained native route qualifies the successor temporal proof in
+# a fresh local database, preserving every historical case above unchanged.
+"$PGBIN/createdb" -h "$WORK" -p 56436 -U postgres posthand_temporal
+PSQL=("$PGBIN/psql" -X -q -v ON_ERROR_STOP=1 -h "$WORK" -p 56436 -U postgres -d posthand_temporal)
+sed '/^CREATE ROLE /d' "$OLD/schema.sql" >"$WORK/temporal-schema.sql"
+NATIVE_SCHEMA="$WORK/temporal-schema.sql" load_original
+"${PSQL[@]}" -f "$MIG"
+T="$F/temporal"
+NEXT="$ROOT/supabase/migrations/20261109234320_prove_all_original_posthand_pending_escrow_completions.sql"
+python3 "$T/extract-candidate.py" "$NEXT" "$WORK"
+# This isolated seam intentionally supplies only reporting readiness, not a
+# fabricated 68-source catalog. The real owners and all financial proofs run.
+"${PSQL[@]}" -c 'CREATE FUNCTION smarter_private.original_inventory_proof_sources_match()RETURNS boolean LANGUAGE sql AS $$SELECT true$$'  -f "$T/prover-original.sql" -f "$T/projector-original.sql" -f "$WORK/helper.sql"
+"${PSQL[@]}" -v prover_candidate="$WORK/prover.sql" -v completion_candidate="$WORK/completion.sql" -v completion_original="$T/completion-original.sql"  -f "$T/rebuy-prototype.sql" -f "$T/split-native.sql" -f "$T/initial-native.sql" -f "$T/multiple-native.sql"  -f "$T/extra-native.sql" -f "$T/event-native.sql" -f "$T/negative-native.sql" -f "$T/event-refusal-native.sql" -f "$T/lookup-native.sql"
+python3 "$T/installation.py" "$PGBIN" "$WORK" "$NEXT"
+echo 'PASS original completed pending escrow temporal native PostgreSQL17'
