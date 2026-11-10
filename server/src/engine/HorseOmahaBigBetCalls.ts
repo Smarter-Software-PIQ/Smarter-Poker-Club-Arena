@@ -371,6 +371,48 @@ function checkedPlo6ClosingFold(
   );
 }
 
+/** Closing PLO4 cash response after the Horse bet for value and was check-raised.
+ * Size the raise increment against the pot after the opponent matches our bet. */
+function facesLargeClosingCheckRaise(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  faced: NonNullable<ReturnType<typeof v81StreetWager>>
+): boolean {
+  if (
+    gs.gameVariant !== 'plo4' ||
+    gs.gameMode !== 'cash' ||
+    gs.wagersCapped !== false ||
+    gs.currentPlayerSeat !== player.seat ||
+    !(player.bet > 0)
+  )
+    return false;
+  const live = gs.players.filter((p) => !p.is_folded && !p.is_sitting_out);
+  const opponent = live.find((p) => p.seat !== player.seat);
+  if (
+    live.length !== 2 ||
+    !opponent ||
+    opponent.seat !== faced.bettorSeat ||
+    opponent.bet !== gs.currentBet ||
+    !(opponent.stack > 0)
+  )
+    return false;
+  const river = gs.actionHistory?.filter((a) => a.stage === 'river') ?? [];
+  if (river.length !== 3) return false;
+  const [check, bet, raise] = river;
+  return (
+    check!.action === 'check' &&
+    check!.seat === opponent.seat &&
+    check!.amount === 0 &&
+    bet!.action === 'bet' &&
+    bet!.seat === player.seat &&
+    bet!.amount === player.bet &&
+    raise!.action === 'raise' &&
+    raise!.seat === opponent.seat &&
+    raise!.amount === gs.currentBet &&
+    gs.toCall! + 0.000001 >= 0.75 * (faced.potBefore + player.bet)
+  );
+}
+
 /** A high-only Omaha middle/top boat flats a pot-sized opening river bet.
  * Physical nuts retain their existing wager rule. Reconstruct the price from
  * the opening wager before any callers added chips to the current pot. */
@@ -394,7 +436,8 @@ export function callLargeRiverBoatWager(
     !(gs.toCall! > 0) ||
     !Number.isFinite(player.stack) ||
     !(player.stack > 0) ||
-    player.bet !== 0 ||
+    !Number.isFinite(player.bet) ||
+    player.bet < 0 ||
     player.is_folded ||
     player.is_all_in ||
     player.is_sitting_out ||
@@ -403,19 +446,22 @@ export function callLargeRiverBoatWager(
       (decision.action !== 'all_in' || player.stack <= gs.toCall! + 0.005))
   )
     return decision;
-  const paid = Math.min(player.stack, gs.currentBet);
+  const paid = Math.min(player.stack, gs.currentBet - player.bet);
   if (Math.abs(Math.min(player.stack, gs.toCall!) - paid) > 0.005) return decision;
-  const allInCall = player.stack <= gs.currentBet + 0.005 && gs.legalActions?.includes('all_in');
+  const allInCall = player.stack <= gs.toCall! + 0.005 && gs.legalActions?.includes('all_in');
   if (!allInCall && !gs.legalActions?.includes('call')) return decision;
   const opener = gs.actionHistory?.find(
     (a) => a.stage === 'river' && ['bet', 'raise', 'all_in'].includes(a.action)
   );
-  if (opener?.action !== 'bet' || opener.seat === player.seat || opener.amount !== gs.currentBet)
-    return decision;
   const bets = new Map(gs.players.map((p) => [p.seat, p.bet]));
   const faced = v81StreetWager(gs.actionHistory, 'river', bets, gs.pot);
-  if (
-    !faced ||
+  if (!faced) return decision;
+  if (player.bet > 0) {
+    if (!facesLargeClosingCheckRaise(player, gs, faced)) return decision;
+  } else if (
+    opener?.action !== 'bet' ||
+    opener.seat === player.seat ||
+    opener.amount !== gs.currentBet ||
     faced.bettorSeat !== opener.seat ||
     faced.wager !== opener.amount ||
     (faced.wager + 0.000001 < faced.potBefore &&
