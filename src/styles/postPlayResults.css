@@ -1,7 +1,6 @@
 /* Shared surface for completed sessions. Live results stay in the document
    flow while the sapphire artwork occupies the right half of the hero. */
-.postplay-panel.sc,
-.ssh-overlay .ssh-card {
+.postplay-panel.sc {
   border: 1px solid #556779;
   border-radius: 12px;
   background: linear-gradient(155deg, #152237, #090e17 50%, #111b2a);
@@ -94,7 +93,6 @@
 }
 
 .trc2__result-hero,
-.ssh-card .ssh-hero,
 .postplay-panel .lightning-result,
 .postplay-panel.winner-console > .sc__body {
   background: #0b1524 url('/assets/results/post-play-sapphire.webp') center right / cover no-repeat;
@@ -151,15 +149,12 @@
 .trc2__result-hero .trc2__reward-value {
   font-size: clamp(18px, 6cqw, 29px);
 }
-.ssh-card .ssh-hero,
 .postplay-panel .lightning-result {
   padding-right: 36%;
   text-align: left;
   align-items: start;
 }
-.ssh-overlay .ssh-tile {
-  border-radius: 5px;
-}
+
 .postplay-panel.winner-console > .sc__body {
   padding-right: 38%;
 }
