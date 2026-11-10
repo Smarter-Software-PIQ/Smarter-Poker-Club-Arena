@@ -17,7 +17,7 @@ CREATE TABLE public.wheel_plinko_releases (
 );
 ALTER TABLE public.wheel_plinko_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.wheel_plinko_releases ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.wheel_plinko_sessions,public.wheel_plinko_releases FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON public.wheel_plinko_sessions,public.wheel_plinko_releases FROM PUBLIC,anon,authenticated,service_role;
 
 CREATE FUNCTION public.fn_wheel_plinko_progress(p_award_id uuid DEFAULT NULL,p_club_id uuid DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $$
