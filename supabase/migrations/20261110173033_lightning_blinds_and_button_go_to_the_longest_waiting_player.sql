@@ -3,7 +3,7 @@
 -- @live-proof: (SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'lightning_pool_slot' AND column_name = 'hands_since_button') = 1
 -- @live-proof: position('BY RECENCY (20261110)' in pg_get_functiondef('public.fn_lightning_match_plan(uuid,timestamp with time zone,uuid[],text,integer,jsonb)'::regprocedure)) > 0 AND position('BY RECENCY (20261110)' in pg_get_functiondef('public.fn_lightning_form_hand(uuid,uuid[],smallint,smallint,uuid,interval,interval,timestamp with time zone,text,uuid,jsonb)'::regprocedure)) > 0
 -- @live-proof: position('handsSinceButton' in pg_get_functiondef('public.fn_lightning_matcher_snapshot(uuid,timestamp with time zone,uuid[],jsonb)'::regprocedure)) > 0 AND position('hands_since_button' in pg_get_functiondef('public.fn_lightning_instance_releases_its_reservations()'::regprocedure)) > 0
--- 20261110160345_lightning_blinds_and_button_go_to_the_longest_waiting_player.sql
+-- 20261110173033_lightning_blinds_and_button_go_to_the_longest_waiting_player.sql
 --
 -- Version reserved by scripts/new-migration.mjs against origin/main and every
 -- remote branch, so it cannot collide with another agent's in-flight work.

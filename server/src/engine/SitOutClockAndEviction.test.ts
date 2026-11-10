@@ -285,8 +285,12 @@ describe('a busted cash seat is released', () => {
   });
 
   it('the 40BB floor is the shared definition, not a fifth local answer', () => {
-    expect(dealing).toMatch(/cashMinBuyIn/);
+    // 2026-11-10: a bust is judged against the REBUY minimum the purchase
+    // enforces, which lives beside cashMinBuyIn on the same CASH_MIN_BB.
+    expect(dealing).toMatch(/import \{ cashRebuyMinimum \} from '\.\.\/config\/cashBuyIn\.js'/);
+    expect(dealing).toMatch(/cashRebuyMinimum\(this\.tableInfo\)/);
     const cfg = readFileSync(join(process.cwd(), 'src', 'config', 'cashBuyIn.ts'), 'utf8');
     expect(cfg).toMatch(/CASH_MIN_BB = 40/);
+    expect(cfg).toMatch(/positive\(row\.big_blind\) \* CASH_MIN_BB/);
   });
 });

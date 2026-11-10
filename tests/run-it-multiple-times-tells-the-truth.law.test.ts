@@ -205,9 +205,12 @@ describe('second sweep (2026-09-04): the parts the first fix missed or broke', (
     );
     expect(dealing).toContain('static readonly LIGHTNING_BUSTED_GRACE_MS = 20_000;');
     const turns = read('server/src/engine/ServerTableEngineTurns.ts');
+    // The sheet heartbeat still stamps the prompt; a chip seat's engine also
+    // answers it with the time LEFT (noteRebuyPromptOpen, 2026-11-10).
     expect(turns).toContain(
-      'if (presenceOptions?.rebuyPromptOpen) this.rebuyPromptOpenAt.set(userId, Date.now());'
+      'if (presenceOptions?.rebuyPromptOpen) this.noteRebuyPromptOpen(userId);'
     );
+    expect(turns).toContain('this.rebuyPromptOpenAt.set(userId, Date.now());');
     expect(page).toContain('rebuyPromptOpen: bustRebuyOpenRef.current,');
   });
 });
