@@ -1094,12 +1094,20 @@ async function openGamePage(page: Page, game: keyof typeof START_LABEL, live = f
     if (url.pathname.endsWith('/images/header-help-v4.png'))
       return route.fulfill({ path: 'public/images/header-help-v4.png', contentType: 'image/png' });
     const receiptArt = url.pathname.match(
-      /\/assets\/diamond-spins\/(result-(?:crash|plinko|crossing|mines)\.webp)$/
+      /\/assets\/diamond-spins\/(result-(?:crash|plinko|crossing|mines)\.webp|(?:super-)?plinko-cabinet-badge\.webp|plinko-(?:backplate|control-deck)\.webp)$/
     );
     if (receiptArt)
       return route.fulfill({
         path: 'public/assets/diamond-spins/' + receiptArt[1],
         contentType: 'image/webp',
+      });
+    const controlArt = url.pathname.match(
+      /\/assets\/diamond-spins\/controls-clean-v2\/(blue|silver)\.png$/
+    );
+    if (controlArt)
+      return route.fulfill({
+        path: 'public/assets/diamond-spins/controls-clean-v2/' + controlArt[1] + '.png',
+        contentType: 'image/png',
       });
     if (url.hostname !== 'diamond-pages.local') network.push(url.href);
     return route.fulfill({
@@ -1186,6 +1194,11 @@ test('Plinko denominations scroll both ways on one row and both release controls
 }) => {
   await page.setViewportSize({ width: 375, height: 667 });
   await openGamePage(page, 'plinko');
+  const badge = page.getByRole('img', { name: 'Diamond Plinko', exact: true });
+  await expect
+    .poll(() => badge.evaluate((image: HTMLImageElement) => image.naturalWidth))
+    .toBeGreaterThan(200);
+  await expect(page.getByText('Guaranteed', { exact: true })).toHaveCount(0);
   const choice = page.getByRole('button', { name: '10 Diamonds Per Drop, 10 Drops' });
   const row = choice.locator('..');
   const buttons = row.getByRole('button');
@@ -1202,6 +1215,12 @@ test('Plinko denominations scroll both ways on one row and both release controls
   await expect(page.getByRole('button', { name: 'Drop All' })).toBeEnabled();
   await expect(page.getByRole('button', { name: 'Drop One' })).toBeEnabled();
   await expect(page.getByRole('button', { name: 'Refresh' })).toHaveCount(0);
+  const metric = page.locator('[data-game-console] dl');
+  const deck = page.locator('[data-game-actions]');
+  expect(
+    (await metric.boundingBox())!.y + (await metric.boundingBox())!.height
+  ).toBeLessThanOrEqual((await deck.boundingBox())!.y + 1);
+  await expect(choice.locator('small')).toHaveCSS('color', 'rgb(255, 255, 255)');
   await page.screenshot({ path: test.info().outputPath('plinko-phone.png') });
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.screenshot({ path: test.info().outputPath('plinko-desktop.png') });
@@ -1209,7 +1228,7 @@ test('Plinko denominations scroll both ways on one row and both release controls
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.getByRole('button', { name: 'Drop One' }).click();
   await expect(page.getByText('9 Drops In Hand')).toBeVisible();
-  await expect(page.locator('[data-game-console] dt').first()).toHaveText('Guaranteed');
+  await expect(page.locator('[data-game-console] dt').first()).toHaveText('Entry');
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.getByRole('button', { name: 'Drop All' }).click();
   const receipt = page.getByRole('dialog', { name: '1.00 Chips' });
@@ -1254,6 +1273,11 @@ for (const viewport of START_VIEWPORTS)
         // Nothing is pre-selected (R6): the drop value is the one choice Drop
         // Diamonds waits on, so it shares the first screen with the plate.
         await expect(start).toBeDisabled();
+        const badge = page.getByRole('img', { name: 'Diamond Plinko', exact: true });
+        await expect
+          .poll(() => badge.evaluate((image: HTMLImageElement) => image.naturalWidth))
+          .toBeGreaterThan(200);
+        await expect(page.getByText('Guaranteed', { exact: true })).toHaveCount(0);
         const choice = page.getByRole('button', { name: '10 Diamonds Per Drop, 10 Drops' });
         const box = await choice.boundingBox();
         expect(box, 'the drop value Drop Diamonds waits on is on the page').not.toBeNull();

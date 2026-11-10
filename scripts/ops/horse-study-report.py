@@ -188,11 +188,20 @@ if __name__=='__main__':
     parser.add_argument('--source',required=True);parser.add_argument('--output',required=True)
     parser.add_argument('--river-opportunities',action='store_true',
                         help='Generate the private conditional PLO river appendix after this study batch')
+    parser.add_argument('--exact-variant-report',action='store_true',
+                        help='Read a frozen four-domain evidence directory and write per-horse.json')
     args=parser.parse_args();os.umask(0o077)
     spec=importlib.util.spec_from_file_location('acquisition',Path(__file__).with_name('horse-human-study.py'))
     acquisition=importlib.util.module_from_spec(spec);spec.loader.exec_module(acquisition)
     source=acquisition.private_directory(args.source);destination=Path(args.output)
     if destination.exists():raise ValueError('new_output_directory_required')
     output=acquisition.private_directory(destination)
+    if args.exact_variant_report:
+        if args.river_opportunities:
+            parser.error('select one report mode')
+        from horse_variant_report import write_variant_report
+        write_variant_report(source, output/'per-horse.json')
+        print(output/'per-horse.json')
+        raise SystemExit(0)
     result=run(source,output,river_opportunities=args.river_opportunities)
     print(json.dumps({k:result[k] for k in ('status','uniqueHistoryRows','counts','completeHistory','strategicAnalysisComplete','activationAllowed')}))

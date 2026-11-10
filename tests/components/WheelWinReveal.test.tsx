@@ -46,39 +46,47 @@ describe('the winning sector opens the awarded experience', () => {
     unmount();
     visibility.mockRestore();
   });
-  /* Owner ruling 2026-09-21, R1 and R9: a won game is opened by Play Game and
-     by nothing else. The reveal used to open it at the end of its own pop
-     animation; that pin moved here with the ruling. */
-  it('keeps a won bonus game on screen until Play Game is tapped, then opens it once', () => {
+  it('opens the earned game once after the burst without another tap', () => {
     vi.useFakeTimers();
     const opened = vi.fn();
-    const { container } = render(
+    render(
       <WheelWinReveal
         prize={{ kind: 'bonus', game: 'mines' }}
         title="Diamond Mines"
-        detail="Your Bonus"
+        detail="Your bonus"
         onOpen={opened}
       />
     );
-    const opening = container.querySelector('[data-motion="keep"]')!;
     const play = screen.getByRole('button', { name: 'Play Game' });
-    expect(play).toBeDisabled();
-    fireEvent.animationEnd(screen.getByRole('status'));
-    expect(opened).not.toHaveBeenCalled();
-    fireEvent.animationEnd(opening);
-    fireEvent.animationEnd(opening);
     expect(play).toBeEnabled();
-    expect(play).toHaveFocus();
-    act(() => {
-      vi.advanceTimersByTime(120_000);
-    });
-    fireEvent.keyDown(document, { key: 'Escape' });
+    act(() => vi.advanceTimersByTime(999));
     expect(opened).not.toHaveBeenCalled();
-    fireEvent.click(play);
+    act(() => vi.advanceTimersByTime(1));
     fireEvent.click(play);
     expect(opened).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
   });
+  it.each([{ reserved: true }, { holdOpen: true }])(
+    'preserves outstanding choices and reserved prizes',
+    (props) => {
+      vi.useFakeTimers();
+      const opened = vi.fn();
+      render(
+        <WheelWinReveal
+          {...props}
+          prize={{ kind: 'chips' }}
+          title="Claim"
+          detail="Reserved"
+          onOpen={opened}
+        />
+      );
+      act(() => vi.advanceTimersByTime(6000));
+      expect(opened).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole('button'));
+      expect(opened).toHaveBeenCalledTimes(1);
+      vi.useRealTimers();
+    }
+  );
   it('labels an upgrade Open Upgrade Wheel and waits for that tap as well', () => {
     const opened = vi.fn();
     const { container } = render(
@@ -94,7 +102,7 @@ describe('the winning sector opens the awarded experience', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open Upgrade Wheel' }));
     expect(opened).toHaveBeenCalledTimes(1);
   });
-  it('a timed continue is honoured only for an instant prize, never for a game', () => {
+  it('auto-continues ordinary prizes after three seconds and reveals earned games earlier', () => {
     vi.useFakeTimers();
     const chips = vi.fn();
     const game = vi.fn();
@@ -103,8 +111,6 @@ describe('the winning sector opens the awarded experience', () => {
         prize={{ kind: 'chips' }}
         title="12 Chips"
         detail="Returning"
-        autoContinue
-        autoContinueAfterMs={5000}
         onOpen={chips}
       />
     );
@@ -113,16 +119,16 @@ describe('the winning sector opens the awarded experience', () => {
         prize={{ kind: 'bonus', game: 'plinko' }}
         title="Diamond Plinko"
         detail="Your Bonus"
-        autoContinue
-        autoContinueAfterMs={5000}
         onOpen={game}
       />
     );
     act(() => {
-      vi.advanceTimersByTime(120_000);
+      vi.advanceTimersByTime(2999);
     });
+    expect(game).toHaveBeenCalledTimes(1);
+    expect(chips).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
     expect(chips).toHaveBeenCalledTimes(1);
-    expect(game).not.toHaveBeenCalled();
     vi.useRealTimers();
   });
   it('keeps an instant prize open for the player to read before continuing', () => {
@@ -135,7 +141,7 @@ describe('the winning sector opens the awarded experience', () => {
         onOpen={opened}
       />
     );
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
     fireEvent.animationEnd(container.querySelector('[data-motion="keep"]')!);
     expect(opened).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'Continue' })).toHaveFocus();

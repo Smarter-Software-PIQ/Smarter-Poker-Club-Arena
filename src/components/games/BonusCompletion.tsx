@@ -88,7 +88,6 @@ export default function BonusCompletion({
 }) {
   const big = eyebrow === undefined && isBigPayout(chips, stakeChips);
   const navigate = useNavigate();
-  const [ready, setReady] = useState(false);
   const [next, setNext] = useState<WheelBonusAward | null>(null);
   const [visible, setVisible] = useState(() => document.visibilityState !== 'hidden');
   const sounded = useRef(false);
@@ -137,7 +136,6 @@ export default function BonusCompletion({
   };
   const back = {
     label: 'Back To The Wheel',
-    disabled: !ready,
     onClick: () => go(`/clubs/${clubId}/wheel`),
   };
   const title = `${chips.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Chips`;
@@ -149,6 +147,7 @@ export default function BonusCompletion({
       closeOnOverlay={false}
       closeOnEscape={false}
       showCloseButton={false}
+      popupChassis="none"
       className={styles.dialog}
     >
       <div
@@ -156,12 +155,10 @@ export default function BonusCompletion({
         data-motion="keep"
         data-bonus-step="completed"
         style={{
-          animationDuration: `${1400 * getAnimationSpeed()}ms`,
+          animationDuration: `${480 * getAnimationSpeed()}ms`,
           animationPlayState: visible ? 'running' : 'paused',
         }}
-        onAnimationEnd={(event) => {
-          if (event.target === event.currentTarget) setReady(true);
-        }}
+        data-award-impact={big ? 'major' : eyebrow ? 'guarantee' : 'regular'}
       >
         <section className={cabinet.receipt}>
           <header>
@@ -196,15 +193,11 @@ export default function BonusCompletion({
             </p>
           </details>
           <footer>
-            <button type="button" disabled={back.disabled} onClick={back.onClick}>
+            <button type="button" onClick={back.onClick}>
               {back.label}
             </button>
             {next && (
-              <button
-                type="button"
-                disabled={!ready}
-                onClick={() => go(bonusGameRoute(clubId, next))}
-              >
+              <button type="button" onClick={() => go(bonusGameRoute(clubId, next))}>
                 Play Next Bonus Game
               </button>
             )}
