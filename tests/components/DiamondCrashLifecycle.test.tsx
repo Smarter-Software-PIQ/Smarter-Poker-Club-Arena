@@ -14,6 +14,7 @@ const backend = vi.hoisted(() => ({
   getState: vi.fn(),
   commit: vi.fn(),
   crashHistory: vi.fn(),
+  crashTerminalReceipt: vi.fn(),
   crashSettle: vi.fn(),
   start: vi.fn(),
   navigate: vi.fn(),
@@ -267,6 +268,7 @@ beforeEach(() => {
     server_seed_hash: 'a'.repeat(64),
   });
   backend.crashHistory.mockResolvedValue([]);
+  backend.crashTerminalReceipt.mockReset().mockResolvedValue(null);
   backend.floor = null;
   sessionStorage.clear();
 });
@@ -302,15 +304,13 @@ describe('Crash settles one displayed round once', () => {
       { replace: true }
     );
   });
-  it('while it climbs, prints the average crash of the round on the table (Dan, 2026-10-12)', async () => {
+  it('shows the current chip value without average or cap copy during the climb', async () => {
     backend.getState.mockResolvedValueOnce({ ...state, open_round: open });
     render(<DiamondCrashPage />);
     await act(async () => {});
     expect(screen.getByRole('button', { name: 'Book The Win' })).toBeEnabled();
-    // The fixture is a round sealed before any floor: no minimum, a 0.80 return
-    // and a 1000x cap. Its own terms average 1 + 0.8 ln(1000 / 1) = 6.5x, and
-    // that is what it prints: computed from the round, never typed.
-    expect(readout()).toHaveTextContent('Average Crash 6.5x.');
+    expect(readout()).toHaveTextContent(/Worth .+ Chips Right Now/);
+    expect(readout()).not.toHaveTextContent(/Average Crash|Up To/i);
   });
   it('after a booked win, says where the sealed flight would have crashed (Dan, 2026-10-12)', async () => {
     // The fixture booked 1.28x on a flight sealed at 2.32x. The point is in the
@@ -525,8 +525,71 @@ describe('Crash settles one displayed round once', () => {
       older.resolve({ ...state, bets: [{ bet_diamonds: 150, cap_cents: 150, playable: true }] });
     });
     expect(screen.getByRole('button', { name: 'Start 200' })).toBeEnabled();
-    expect(screen.getByText(/Up To 50x\./)).toBeInTheDocument();
+    const auto = screen.getByRole('button', { name: 'Change Auto Cash Out' });
+    for (let i = 0; i < 7; i++) fireEvent.click(auto);
+    expect(auto).toHaveTextContent('50x');
   });
+  it('freezes a flight with a stalled poll, then shows the sealed 1.61x terminal result without a second cashout', async () => {
+    const pending = deferred<typeof settled>();
+    const history = deferred<typeof settled>();
+    backend.crashSettle.mockReturnValueOnce(pending.promise);
+    backend.crashTerminalReceipt.mockReturnValueOnce(history.promise);
+    await mountOpen();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2200);
+    });
+    expect(screen.queryByRole('button', { name: 'Book The Win' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Checking Round' })).toBeDisabled();
+    expect(backend.crashTerminalReceipt).toHaveBeenCalledWith(open.club_id, open.round_id, open);
+    const terminal = {
+      ...settled,
+      status: 'crashed',
+      outcome: {
+        ...settled.outcome,
+        status: 'crashed',
+        payout_chips: 15,
+        crash_cents: 161,
+        cashout_cents: null,
+      },
+    };
+    await act(async () => {
+      history.resolve(terminal as typeof settled);
+      pending.resolve(open as unknown as typeof settled);
+    });
+    expect(readout()).toHaveTextContent('1.61x');
+    fireEvent.click(screen.getByRole('button', { name: 'Finish Flight' }));
+    expect(screen.getByRole('dialog', { name: '15.00 Chips' })).toBeInTheDocument();
+    expect(backend.crashSettle.mock.calls.every((call) => call[1] === false)).toBe(true);
+  });
+
+  it('reconciles an ambiguous Book response when the tab comes back and never resends the tap', async () => {
+    const tick = deferred<typeof settled>();
+    backend.crashSettle
+      .mockReturnValueOnce(tick.promise)
+      .mockRejectedValueOnce(new Error('Connection Lost'));
+    await mountOpen();
+    fireEvent.click(screen.getByRole('button', { name: 'Book The Win' }));
+    await act(async () => {});
+    expect(screen.getByRole('button', { name: 'Checking Round' })).toBeDisabled();
+    backend.crashTerminalReceipt.mockResolvedValueOnce(settled);
+    await act(async () => {
+      window.dispatchEvent(new Event('pageshow'));
+    });
+    expect(backend.crashSettle.mock.calls.filter((call) => call[1] === true)).toHaveLength(1);
+    expect(backend.toast.success).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores the exact settled round after a new build loads without attempting another cashout', async () => {
+    sessionStorage.setItem(`diamond-crash-open:player-a:${open.club_id}`, open.round_id);
+    backend.crashTerminalReceipt.mockResolvedValueOnce(settled);
+    render(<DiamondCrashPage />);
+    await act(async () => {});
+    expect(backend.crashTerminalReceipt).toHaveBeenCalledWith(open.club_id, open.round_id);
+    expect(backend.crashSettle).not.toHaveBeenCalled();
+    expect(backend.toast.success).toHaveBeenCalledTimes(1);
+    expect(sessionStorage.getItem(`diamond-crash-open:player-a:${open.club_id}`)).toBeNull();
+  });
+
   it('does not let an old poll overwrite a new round after cashout', async () => {
     const poll = deferred<typeof settled>();
     backend.crashSettle.mockReturnValueOnce(poll.promise).mockResolvedValueOnce(settled);
@@ -736,19 +799,13 @@ describe('Crash shows its guarantee before the round starts', () => {
     expect(guaranteedBay()).toHaveTextContent('0.50 Chips');
     expect(guaranteedBay()).not.toHaveAttribute('data-ink', 'gold');
     expect(readout()).toHaveTextContent('Pays At Least 0.50 Chips On Any Loss.');
-    expect(readout()).toHaveTextContent('Up To 1000x.');
-    // THE AVERAGE CRASH (Dan, 2026-10-12): computed from THIS round's own terms
-    // before Start - its stake, the half it keeps, the contract it will be
-    // sealed under and its cap - never typed. This server does not say which
-    // contract it deals, so it is still contract 4: 1.1 + 0.3 ln(999.5 / 0.6)
-    // at this fixture's 1000x cap.
-    expect(readout()).toHaveTextContent('Average Crash 3.3x.');
+    expect(readout()).not.toHaveTextContent(/Average Crash|Up To/i);
     fireEvent.change(screen.getByLabelText('Entry Diamonds'), { target: { value: '250' } });
     await act(async () => {});
     expect(guaranteedBay()).toHaveTextContent('1.25 Chips');
   });
 
-  it('prints the contract-5 average when the server says it deals contract 5 at 20x (Dan, 2026-10-12)', async () => {
+  it('omits the average and cap before a contract-5 flight', async () => {
     backend.getState.mockResolvedValue({
       ...state,
       config: { ...state.config, max_multiplier_cents: 2000, growth_k: 0.08, payout_version: 5 },
@@ -756,10 +813,7 @@ describe('Crash shows its guarantee before the round starts', () => {
     });
     render(<DiamondCrashPage />);
     await act(async () => {});
-    // Contract 5 chooses this round's return (1.006430 at half the stake) so its
-    // 20x-capped average is 2.9x; the exact sealed-hundredth mean is 2.8968.
-    expect(readout()).toHaveTextContent('Average Crash 2.9x.');
-    expect(readout()).toHaveTextContent('Up To 20x.');
+    expect(readout()).not.toHaveTextContent(/Average Crash|Up To/i);
     expect(readout().textContent).not.toMatch(/\u2014/);
   });
 

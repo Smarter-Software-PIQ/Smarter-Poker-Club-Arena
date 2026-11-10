@@ -417,8 +417,11 @@ class AgentServiceClass {
     if (!Array.isArray(data) || data.length > QUERY_LIMITS.MODERATE) {
       return malformedAgentPayload('agents');
     }
-    if (data.length === 0) return [];
-    const agents = data.map((row) => parseAgentRow(row, resolvedId));
+    // An owner routing wallet (status 'wallet_only') is a wallet, not an agent:
+    // it has no agreement and earns nothing, so no roster lists or counts it.
+    const roster = data.filter((row) => row?.status !== 'wallet_only');
+    if (roster.length === 0) return [];
+    const agents = roster.map((row) => parseAgentRow(row, resolvedId));
     const agentIds = new Set<string>();
     const agentUserIds = new Set<string>();
     for (const agent of agents) {

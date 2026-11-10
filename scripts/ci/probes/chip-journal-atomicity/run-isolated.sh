@@ -32,6 +32,10 @@ unset PGCONTAINER
 "$PGBIN/postgres" --version
 python3 "$probe_dir/test_atomicity.py" fixed --bootstrap
 
+# The cash deal released before the deferred recount (#10165): conservation,
+# concurrency, retry-once and whole-or-nothing failure on the bootstrapped journal.
+python3 "$probe_dir/test_deferred_settlement.py"
+
 python3 "$probe_dir/test_satellite_split.py"
 
 "$PGNODE" "$probe_dir/postgres-runtime/lease-heartbeat-concurrency.mjs"

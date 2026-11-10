@@ -18,13 +18,16 @@
  * Registry: docs/laws.d/a-closed-persons-tournament-name-is-not-public.md
  */
 import { describe, expect, it } from 'vitest';
-import { readMigration } from './helpers/migrations';
+import { migrationFiles, readMigration } from './helpers/migrations';
 
 const INTRODUCED =
   '20261109235153_a_closed_persons_tournament_name_is_read_through_the_public_.sql';
 const SQL = readMigration(INTRODUCED);
 const VIEW = readMigration(
   '20261110004344_the_public_tournament_view_checks_staff_without_a_function_a.sql'
+);
+const OWNER_RIGHTS = readMigration(
+  '20261110051146_the_public_tournament_views_read_with_their_owners_rights.sql'
 );
 const POLICY = readMigration(
   '20261110003726_a_closed_persons_tournament_rows_are_read_through_the_public.sql'
@@ -107,5 +110,38 @@ describe('the table itself withholds a closed person from ordinary readers', () 
     );
     expect(anon).toMatch(/AS RESTRICTIVE\s+FOR SELECT\s+TO anon\s+USING \(\s+NOT EXISTS \(/);
     expect(anon).not.toContain('fn_is_platform_admin');
+  });
+});
+
+describe("both views read with their owner's rights, and say so", () => {
+  // trg_new_view_respects_the_caller makes a new public view caller-rights
+  // unless it declares otherwise. Caller rights cannot mask: the reader may not
+  // read the columns that say who is closed, and the table's own policy would
+  // hide the row the view exists to label.
+  it('declares security_invoker = false on each, explicitly', () => {
+    expect(OWNER_RIGHTS).toContain(
+      'ALTER VIEW public.ca_closed_player_labels SET (security_invoker = false);'
+    );
+    expect(OWNER_RIGHTS).toContain(
+      'ALTER VIEW public.tournament_players_public SET (security_invoker = false);'
+    );
+  });
+
+  it('is never turned back into a caller-rights view', () => {
+    for (const file of migrationFiles().filter((f) => f > '20261110051146')) {
+      const sql = readMigration(file);
+      if (!/tournament_players_public|ca_closed_player_labels/.test(sql)) continue;
+      expect(sql, file).not.toMatch(
+        /ALTER VIEW\s+public\.(?:tournament_players_public|ca_closed_player_labels)\s+SET\s+\(\s*security_invoker\s*=\s*true/i
+      );
+      // A re-created view is reset by the trigger unless it declares itself.
+      for (const view of ['tournament_players_public', 'ca_closed_player_labels']) {
+        if (new RegExp(`CREATE (?:OR REPLACE )?VIEW\\s+public\\.${view}\\b`, 'i').test(sql)) {
+          expect(sql, `${file} re-creates ${view}`).toMatch(
+            new RegExp(`public\\.${view}[\\s\\S]*security_invoker\\s*=\\s*false`, 'i')
+          );
+        }
+      }
+    }
   });
 });

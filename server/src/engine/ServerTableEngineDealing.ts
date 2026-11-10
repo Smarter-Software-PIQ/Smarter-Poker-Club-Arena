@@ -725,6 +725,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
             this.tableFSM.transition('paused');
           }
           this.setLoopPhase('cluster_dealing_halted');
+          // Lightning settles envelopes here while halted (see envelopeChainApplied).
+          this.envelopeChainApplied = false;
           await this.passWhileDealingHalted();
           if (!this.lifecycleCanMutate()) return;
           this.consecutiveErrors = 0;

@@ -1,0 +1,9 @@
+# Original Lightning results follow their funding owner
+
+The original October 26–November 2 book retained Lightning link proofs made before the November 1 funding-owner rule. Those proofs assigned results to the Union's pool session while the original wallet funding, returns and rake belonged to its member clubs. The original numerical evidence remains correct; the missing historical ownership projection prevents cash reconciliation and both ECO records.
+
+The linked reader now derives only affected participants' earning club from their original hand, pool slot/session and cash session, then the original as-of buy-in occupancy and its single funding club. Receipt-time union attribution preserves history without relying on current membership. Ambiguous funding retains the existing session fallback and cannot force an unreconciled book through. Original outcome, link proof, money, signed result, ledger and payout rows remain unchanged.
+
+The exact original reader and its three pinned consumers are qualified together. The 68-source matcher adds the new helper as its 69th dependency. A fully qualified pre-generation is captured and must change after installation; the existing pipeline naturally requalifies derived windows. No original certificate is retagged. The existing real Lightning settlement native route executes the whole installer and focused original-owner examples. Its unchanged unrelated source definitions are loaded only for hash guards, and its generation algorithm uses synthetic fingerprints; this is not a new qualification of unrelated financial owners.
+
+The existing failed original book remains eligible under the scheduler's status-not-complete rule. Its failed transaction status is not manually reset. Source, protected checks, installation, natural requalification and actual book/ECO/invoice completion remain distinct requirements.

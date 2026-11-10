@@ -254,6 +254,7 @@ export default function DiamondWheelPage() {
   const [closeOwed, setCloseOwed] = useState<string | null>(null);
   const [closeFailures, setCloseFailures] = useState(0);
   const [pending, setPending] = useState<WheelSpinResult | null>(null);
+  const [claimingPrize, setClaimingPrize] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<WheelSpinResult | null>(null);
   const [spinKey, setSpinKey] = useState(0);
   const [history, setHistory] = useState<WheelSpinResult[]>([]);
@@ -1528,7 +1529,9 @@ export default function DiamondWheelPage() {
       : lastResult.bonus
         ? 'Your Awarded Game Is Ready'
         : finalOutcome?.kind === 'chips'
-          ? 'Paid Into Your Club Chips'
+          ? lastResult.chip_prize_reserved
+            ? 'Chip Prize Reserved At Spin Time'
+            : 'Paid Into Your Club Chips'
           : finalOutcome?.kind === 'diamonds'
             ? 'Paid Into Your Diamonds'
             : 'Added To Your Account';
@@ -1568,6 +1571,34 @@ export default function DiamondWheelPage() {
         }
         setup={
           <>
+            {state.pending_chip_prizes?.map((claim) => (
+              <button
+                key={claim.key}
+                type="button"
+                className={styles.back}
+                disabled={Boolean(claimingPrize) || !clubUuid}
+                onClick={async () => {
+                  if (!clubUuid) return;
+                  setClaimingPrize(claim.key);
+                  try {
+                    await DiamondWheelService.claimChipPrize(clubUuid, claim.key);
+                    toast.success(`${claim.chips} Chips Credited To Your Club Balance`);
+                    await loadState(clubUuid).catch(() =>
+                      toast.error('Reload Diamond Spins To Refresh Your Balance')
+                    );
+                  } catch (error) {
+                    toast.error(
+                      error instanceof Error ? error.message : 'Your Prize Is Still Reserved'
+                    );
+                  } finally {
+                    setClaimingPrize(null);
+                  }
+                }}
+              >
+                {claimingPrize === claim.key ? 'Claiming Prize' : 'Claim Prize'} · {claim.chips}{' '}
+                Chips
+              </button>
+            ))}
             {state.auto_run && !running && !recovery && !runBusy && (
               <WheelRunResume
                 spins={state.auto_run.spins}

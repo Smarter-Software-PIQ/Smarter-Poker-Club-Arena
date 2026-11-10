@@ -21,3 +21,8 @@ anon may not execute `fn_is_platform_admin`: the view therefore tests staff by
 reading `profiles`, and anon has its own policy that names no such function.
 This law holds both, and holds the policies to RESTRICTIVE, read-only and the
 daily window.
+Both views read with their owner's rights and say so (`security_invoker =
+false`): the platform makes a new public view caller-rights by default, and a
+caller-rights view cannot mask, because its reader may not read the columns
+that say who is closed and the table's own policy would hide the row the view
+exists to label. This law refuses a later migration that turns either back.

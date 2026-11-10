@@ -25,9 +25,9 @@ CERTIFIED_END = 1793854800
 
 # The owner-directed November 10 successor rebinds the existing single-use exception.
 # Prior immutable controls and entries keep their original authority and expiry.
-NOV7_OWNER_ID = '2026-11-10-owner-asap-engine-0440z'
-NOV7_MANIFEST_DIGEST = '2fda02a8be63aa6a0597a6a87726eb772a657cdbaca2a88b4405fe3c873c63f7'
-NOV7_ORDER_DIGEST = 'f5359b09f652d89937bfc1ccea506d12113a7cf1af2e168711f8893bb8cffece'
+NOV7_OWNER_ID = '2026-11-10-owner-asap-engine-0650z'
+NOV7_MANIFEST_DIGEST = 'a171baede07efd880c67e623e896fb4cee13a0fd0bb1be10310911127dd560cb'
+NOV7_ORDER_DIGEST = 'e36fddfe1a9504881a218b416efb65902699efed4deb476a099eaf56e21d58fa'
 
 
 

@@ -200,6 +200,10 @@ const isInternal = (rel) => INTERNAL_ONLY.includes(rel) || rel.startsWith('src/p
 const RULED = {
   'src/components/table/ActionPanel.tsx':
     'Dan art-directed the three action buttons by screenshot (2026-08-26: FOLD = RED, CHECK = BLUE, BET = GREEN) and gameplay-wears-the-house-colours pins those exact gradients; the raise overlay geometry is pinned by actionBarSliderAndFooter. Repainting either deletes a written law s subject.',
+  'src/components/tournament/HeadsUpOverlay.tsx':
+    'The owner directed a broadcast face-off on the actual heads-up event (2026-11-09). The opposite player entrances and central clash use the original duel stage. Keep the tournament portraits and dismissal in the play area.',
+  'src/components/tournament/FinalTableOverlay.tsx':
+    'The owner requested a broadcast-style final table ceremony in place of the bulky frame (2026-11-09). This timed felt announcement uses original stage artwork and moving lights for the arrival and standings. FinalTableOverlayUnit.test.tsx pins the event, lineup and dismissal.',
   'src/components/table/BombPotOverlay.tsx':
     'Felt cinematics, not a card (Dan 2026-09-09): inked to the schema, never framed in a console.',
   'src/components/table/TournamentAnnouncementOverlay.tsx':
