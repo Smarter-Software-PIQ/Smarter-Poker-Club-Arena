@@ -5,6 +5,12 @@ root=$(git rev-parse --show-toplevel)
 fixture=${1:?existing isolated fixture required}
 pgbin=${2:?PostgreSQL binary directory required}
 [[ -f "$fixture/data/PG_VERSION" && -f "$fixture/data/postmaster.pid" && -d "$fixture/socket" ]]
+# The parent initdb owner is the invoking OS user (runner on GitHub), not
+# necessarily postgres. Bootstrap the production owner only after proving
+# this is that exact owned private cluster, never an arbitrary local service.
+parent_psql=("$pgbin/psql" -XAtq -v ON_ERROR_STOP=1 -h "$fixture/socket" -p 55487)
+[[ "$("${parent_psql[@]}" -d postgres -c "SELECT current_setting('data_directory')||'|'||(inet_server_addr()IS NULL)::text||'|'||(SELECT rolsuper FROM pg_roles WHERE rolname=current_user)::text")" == "$fixture/data|true|true" ]]
+"${parent_psql[@]}" -d postgres -c "DO \$native_owner\$BEGIN IF NOT EXISTS(SELECT FROM pg_roles WHERE rolname='postgres')THEN CREATE ROLE postgres SUPERUSER LOGIN;END IF;END\$native_owner\$;"
 psql=("$pgbin/psql" -XAtq -v ON_ERROR_STOP=1 -h "$fixture/socket" -p 55487 -U postgres)
 [[ "$("${psql[@]}" -d postgres -c "SELECT current_user||'|'||(inet_server_addr()IS NULL)::text")" == 'postgres|true' ]]
 "${psql[@]}" -d postgres -c 'CREATE DATABASE original_dual_eco_native'
