@@ -21,7 +21,7 @@ describe('the fixed tournament check/fold cohort', () => {
     const expected = ids
       .slice()
       .sort((a, b) => rank(a).localeCompare(rank(b)))
-      .slice(0, 500)
+      .slice(0, Math.floor(ids.length / 2))
       .sort();
     expect(ids.filter(canQuickCheckFold).sort()).toEqual(expected);
     expect(canQuickCheckFold('unknown-account')).toBe(false);
