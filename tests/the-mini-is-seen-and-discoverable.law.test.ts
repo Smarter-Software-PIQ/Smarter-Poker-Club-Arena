@@ -291,7 +291,10 @@ describe('the felt: a thinner frame, and the mini under it', () => {
   it('the mini row is its own element under the plate, with the flat amount', () => {
     expect(plate).toContain('className="bbj-mini-plate"');
     expect(plate).toContain('MINI BBJ');
-    expect(plate).toMatch(/\{Math\.trunc\(miniAmount as number\)\.toLocaleString\('en-US'\)\}/);
+    /* 2026-11-09: the flat amount is printed to the cent (Dan: "no rounded
+       numbers"); the pin moved from Math.trunc to the exact formatter with
+       tests/the-jackpot-is-printed-to-the-cent.law.test.ts. Diamonds stay whole. */
+    expect(plate).toMatch(/: jackpotChips\(miniAmount\)\}/);
     expect(plateCss).toContain('.bbj-mini-plate {');
   });
 
