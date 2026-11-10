@@ -77,7 +77,6 @@ vi.mock('../../src/components/plinko/PlinkoBoard', () => ({
     ) : null,
 }));
 vi.mock('../../src/components/games/DiamondSpinsTabs', () => ({ default: () => null }));
-vi.mock('../../src/components/games/TodayLine', () => ({ default: () => null }));
 /**
  * THE PLAYER CHOOSES, AND NOTHING STARTS BY ITSELF (Dan 2026-09-21).
  *

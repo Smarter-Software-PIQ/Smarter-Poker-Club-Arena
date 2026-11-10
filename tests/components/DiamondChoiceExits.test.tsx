@@ -66,7 +66,6 @@ vi.mock('../../src/components/games/ChoiceScene', () => ({
 }));
 vi.mock('../../src/components/games/SealedPrize', () => ({ default: () => null }));
 vi.mock('../../src/components/games/DiamondSpinsTabs', () => ({ default: () => null }));
-vi.mock('../../src/components/games/TodayLine', () => ({ default: () => null }));
 
 type Game = 'crossing' | 'mines';
 const CLUB = '00000000-0000-0000-0000-000000000003';

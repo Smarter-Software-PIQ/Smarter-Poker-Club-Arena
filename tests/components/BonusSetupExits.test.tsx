@@ -62,7 +62,6 @@ vi.mock('../../src/components/crash/CrashCurve', () => ({ default: () => null })
 vi.mock('../../src/components/common/PageSkeleton', () => ({ default: () => null }));
 vi.mock('../../src/components/wheel/WheelWinReveal', () => ({ WheelWinReveal: () => null }));
 vi.mock('../../src/components/games/DiamondSpinsTabs', () => ({ default: () => null }));
-vi.mock('../../src/components/games/TodayLine', () => ({ default: () => null }));
 vi.mock('../../src/components/games/SealedPrize', () => ({ default: () => null }));
 vi.mock('../../src/components/games/FloorFeed', () => ({ default: () => null }));
 

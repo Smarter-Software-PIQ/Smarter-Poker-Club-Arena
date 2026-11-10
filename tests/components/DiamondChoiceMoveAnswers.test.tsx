@@ -89,7 +89,6 @@ vi.mock('../../src/components/games/ChoiceScene', async () => {
 });
 vi.mock('../../src/components/games/SealedPrize', () => ({ default: () => null }));
 vi.mock('../../src/components/games/DiamondSpinsTabs', () => ({ default: () => null }));
-vi.mock('../../src/components/games/TodayLine', () => ({ default: () => null }));
 
 type Game = 'crossing' | 'mines';
 const BREAK = 'The Platform Is In Its Maintenance Break';

@@ -79,7 +79,6 @@ const noOffer = () => {
 };
 vi.mock('../../src/components/games/SealedPrize', () => ({ default: () => null }));
 vi.mock('../../src/components/games/DiamondSpinsTabs', () => ({ default: () => null }));
-vi.mock('../../src/components/games/TodayLine', () => ({ default: () => null }));
 vi.mock('../../src/components/console/SpadeConsole', () => ({
   SpadeConsole: ({
     children,

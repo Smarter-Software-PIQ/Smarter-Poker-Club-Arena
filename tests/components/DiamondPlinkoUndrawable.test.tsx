@@ -63,7 +63,6 @@ vi.mock('../../src/components/wheel/WheelWinReveal', () => ({
   ),
 }));
 vi.mock('../../src/components/games/DiamondSpinsTabs', () => ({ default: () => null }));
-vi.mock('../../src/components/games/TodayLine', () => ({ default: () => null }));
 
 const state = {
   available: true,

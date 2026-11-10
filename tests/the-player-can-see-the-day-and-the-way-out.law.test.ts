@@ -117,26 +117,16 @@ describe('the day is one figure, from one definition', () => {
 });
 
 describe('the daily counter stays out of the wheel and bonus cabinets', () => {
-  it.each(PAGES.filter((page) => !page.includes('Wheel')))(
-    '%s keeps the daily counter out of the cabinet',
+  it.each([...PAGES, 'src/pages/DiamondChoicePage.tsx'])(
+    '%s keeps the daily counter off screen',
     (page) => {
       expect(src(page)).not.toContain('TodayLine');
+      expect(src(page)).not.toContain('spentDiamonds={');
     }
   );
 
-  it('keeps an empty daily line off screen', () => {
-    expect(src('src/pages/DiamondWheelPage.tsx')).not.toContain('TodayLine');
+  it('keeps the wheel cabinet free of a Today counter', () => {
     expect(src('src/components/wheel/WheelCabinet.tsx')).not.toContain('Today');
-    expect(src('src/components/games/TodayLine.tsx')).toContain(
-      'if (parts.length === 0) return null;'
-    );
-  });
-
-  it('and the line gets louder as the ceiling comes up', () => {
-    const line = src('src/components/games/TodayLine.tsx');
-    expect(line).toContain('const atWall = capped && used >= cap;');
-    expect(line).toContain('used >= cap * 0.8');
-    expect(line).toContain("That Is Today's Limit Here");
   });
 });
 
