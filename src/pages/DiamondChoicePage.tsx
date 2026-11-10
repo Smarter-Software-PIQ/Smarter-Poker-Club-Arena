@@ -411,7 +411,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
     state.frozen ||
     !state.is_member ||
     state.max_steps < 1 ||
-    state.rounds_today >= state.daily_limit ||
+    (!earned.award && state.rounds_today >= state.daily_limit) ||
     waitSeconds > 0 ||
     state.diamonds < bonusWalletDebit(budget);
   const blocked = stateBlocked || quotedEntry !== `${uuid}:${game}:${mode}:${bet}`;
@@ -1030,16 +1030,16 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
                 : 'Guide The Donkey Across The Road. Each Safe Crossing Raises Your Prize, And You Can Book The Win After Any Street.'
             }
             steps={[
-          {
-            title: 'Your Numbers',
-            body: 'Your Entry, The Guaranteed Minimum And The Prize So Far, Updated As You Play.',
-            target: '[data-game-console] dl',
-          },
-          {
-            title: 'Play',
-            body: 'The Plates At The Foot Of The Game Start A Round And Book Your Win.',
-            target: '[data-game-actions]',
-          },
+              {
+                title: 'Your Numbers',
+                body: 'Your Entry, The Guaranteed Minimum And The Prize So Far, Updated As You Play.',
+                target: '[data-game-console] dl',
+              },
+              {
+                title: 'Play',
+                body: 'The Plates At The Foot Of The Game Start A Round And Book Your Win.',
+                target: '[data-game-actions]',
+              },
             ]}
           />
         }
@@ -1255,11 +1255,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
         </div>
       </GameConsole>
       <GameLifetimeAverages clubId={uuid} revision={round ? `${round.id}:${round.status}` : null} />
-      <GamePanel
-        title="Your Game"
-        pill="Rules"
-        foot="foot"
-      >
+      <GamePanel title="Your Game" pill="Rules" foot="foot">
         <p className="sc-copy">
           {game === 'mines'
             ? `${ONE_SETTING.mines} Pick Hidden Gems On The Board; Every Safe Pick Raises Your Prize. Book The Win After Any Safe Pick, And The Remaining Mines Are Then Revealed. A Mine Ends The Round And Pays The Guaranteed Minimum.`

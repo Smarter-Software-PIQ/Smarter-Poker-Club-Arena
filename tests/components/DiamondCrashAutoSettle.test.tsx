@@ -407,7 +407,6 @@ describe('a won game waits for the player, and starts on the entry they answered
 
 describe('the exit guard never traps a player on a won game that cannot start', () => {
   it.each([
-    ['the day’s limit is reached', { player: { ...state.player, rounds_today: 500 } }, /Limit/],
     ['the platform is in its maintenance break', { frozen: true }, /Maintenance Break/],
     ['the game is closed', { available: false, reason: 'paused' }, /Crash Is Paused/],
   ])('lets the player leave when %s', async (_why, game, blocker) => {
@@ -422,8 +421,8 @@ describe('the exit guard never traps a player on a won game that cannot start', 
     expect(guardHolds()).toBe(false);
   });
 
-  it('holds a won game that can start', async () => {
-    quoteSuperAward();
+  it('can start a won game beyond the standalone daily limit', async () => {
+    quoteSuperAward({ player: { ...state.player, rounds_today: 501 } });
     render(<DiamondCrashPage />);
     await act(async () => {});
     await expectNoOffer();
