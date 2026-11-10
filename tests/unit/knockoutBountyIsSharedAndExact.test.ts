@@ -26,7 +26,11 @@ import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 
-import { bountyWinnersOf } from '../../src/utils/bountyBroadcast';
+import {
+  admitSeatKnockout,
+  bountyWinnersOf,
+  knockoutPlaybackReceipts,
+} from '../../src/utils/bountyBroadcast';
 import { formatChipAward } from '../../src/utils/format';
 
 const read = (p: string) => fs.readFileSync(path.join(process.cwd(), p), 'utf8');
@@ -146,7 +150,9 @@ describe('the wiring: the engine sends shares and TablePage reads them', () => {
   });
 
   it('TablePage resolves winners through bountyWinnersOf for the glove, the money and the badge', () => {
-    expect(TABLE).toContain("import { bountyWinnersOf } from '../utils/bountyBroadcast'");
+    expect(TABLE).toMatch(
+      /import\s*\{[^}]*\bbountyWinnersOf\b[^}]*\} from '\.\.\/utils\/bountyBroadcast'/
+    );
     expect(TABLE).toContain('const koWinners = bountyWinnersOf(b)');
     expect(TABLE).toContain('const koIsHero = koWinners.some((w) => w.userId === userId)');
     expect(TABLE).toContain('for (const w of koWinners)');
@@ -185,5 +191,42 @@ describe('the wiring: the engine sends shares and TablePage reads them', () => {
     expect(TABLE).toMatch(
       /if \(prevRoster\.size > 0\) \{[\s\S]*?if \(!prevRoster\.has\(id\)\) koSeenRef\.current\.delete\(id\);/
     );
+  });
+});
+
+describe('admission of a committed knockout', () => {
+  it('places each victim once through either transport across an empty roster and re-entry', () => {
+    const seen = new Set<string>();
+    const seats = new Map<string, number>();
+    const event = {
+      tableId: 'one',
+      obligationId: 'hand1-victim1',
+      eliminatedSeat: 1,
+      eliminatedUserId: 'victim1',
+    };
+    const accept = (b: typeof event, table = 'one') => admitSeatKnockout(b, table, [], seats, seen);
+    expect(accept(event, 'two')).toBeNull();
+    expect(accept(event)).toEqual({ id: `ko:${event.obligationId}`, seatIndex: 0 });
+    expect(accept(event)).toBeNull();
+    expect(
+      accept({
+        ...event,
+        obligationId: 'hand1-victim2',
+        eliminatedUserId: 'victim2',
+        eliminatedSeat: 3,
+      })?.seatIndex
+    ).toBe(2);
+    expect(accept({ ...event, obligationId: 'hand2-victim1' })?.seatIndex).toBe(0);
+  });
+  it('remembers a completed generation across a remount within the replay window', () => {
+    knockoutPlaybackReceipts('one', 'obligation');
+    expect(knockoutPlaybackReceipts('one').has('obligation')).toBe(true);
+    expect(knockoutPlaybackReceipts('two').has('obligation')).toBe(false);
+  });
+  it('keeps an unplaced legacy packet eligible for a later delivery', () => {
+    const seen = new Set<string>();
+    const event = { eliminatedUserId: 'victim' };
+    expect(admitSeatKnockout(event, 'one', [], new Map(), seen)).toBeNull();
+    expect(admitSeatKnockout(event, 'one', [], new Map([['victim', 1]]), seen)?.seatIndex).toBe(1);
   });
 });

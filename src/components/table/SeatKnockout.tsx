@@ -507,15 +507,12 @@ function SeatKnockoutHitView({
      makes <defs> gradients safe in a multi-table view. */
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
 
-  /* A hit we cannot place still has to EXPIRE. This view is mounted either
-     way and always owns the done timer; without that, a knockout arriving for
-     a seat this client has never seen would sit in the parent's array forever
-     and leak a little more on every one. Only the drawing and the audio are
-     conditional. Boolean rather than the position object so the effect's
-     dependency is stable across the re-render that follows any table resize. */
+  // A rejoin can deliver the KO before the seat ring has hydrated. Start
+  // its timer only when the renderer actually has a chair to draw on.
   const placed = !!pos;
 
   useEffect(() => {
+    if (!placed) return;
     const speed = getAnimationSpeed();
     const reduced = prefersReducedMotion();
     const timers: ReturnType<typeof setTimeout>[] = [];
@@ -621,7 +618,7 @@ function SeatKnockoutHitView({
     // sequence and is pinned in tests/animations-always-play.law.test.ts.
   }, [hit.id, hit.isHero, hit.seatIndex, placed, playSoundsRef]);
 
-  // Nothing to draw on. The timer above still runs, so the parent is told.
+  // A later layout supplies the missing position.
   if (!pos) return null;
 
   return (
@@ -661,11 +658,6 @@ export default function SeatKnockoutLayer({
   return (
     <div className="sko-layer" aria-hidden={false}>
       {hits.map((hit) => (
-        // Every hit is MOUNTED, including one whose seat cannot be resolved —
-        // that view draws nothing but still expires itself. Filtering here
-        // instead would strand the unplaceable hit in the parent's array.
-        // Drawing it at a 50/50 fallback is the other wrong answer: it puts a
-        // boxing glove in the middle of the board.
         <SeatKnockoutHitView
           key={hit.id}
           hit={hit}
