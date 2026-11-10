@@ -1304,6 +1304,17 @@
       "notBefore": "2026-11-07T18:00:00Z",
       "notAfter": "2026-11-08T00:00:00Z",
       "migrations": ["20261107160549_horse_memory_excludes_forced_folds.sql"]
+    },
+    {
+      "id": "2026-11-10-closed-person-name-policy-db",
+      "ownerOrder": "Dan, the owner, in Claude chat session_01BNteGbJLpMVVDd7K7WpuSL at about 2026-11-10 15:10Z (09:10 America/Chicago), answered the question to authorize one database-only Deployment Recovery break of up to five minutes between 16:00 and 22:00 UTC today for 20261110003726 only, verbatim: \"Authorize break today\". Earlier in the same chat he ordered verbatim: \"Do not wait until November 11 by default\". The daily window skipped this file on November 10. One break, one attempt, no engine replacement.",
+      "contains": "0d5f450060d2cc1bee04afdab53648acd06a00b2",
+      "playerNoticeAt": "2026-11-10T16:40:00Z",
+      "notBefore": "2026-11-10T17:00:00Z",
+      "notAfter": "2026-11-10T22:00:00Z",
+      "migrations": [
+        "20261110003726_a_closed_persons_tournament_rows_are_read_through_the_public.sql"
+      ]
     }
   ]
 }
