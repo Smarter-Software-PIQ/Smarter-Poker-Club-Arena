@@ -567,6 +567,15 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
   ) => {
     if (!uuid || !round || round.status !== 'open' || busyRef.current || uncertain || sceneBusy)
       return;
+    const firstTile =
+      game === 'mines' &&
+      action === 'pick' &&
+      round.picked.length === 0 &&
+      sessionStorage.getItem(mineIntentKey) === `${round.commit_id}:${cell}`;
+    const settleTile = () => {
+      if (firstTile) sessionStorage.removeItem(mineIntentKey);
+      if (game === 'mines') setPendingMine(null);
+    };
     const stepping = game === 'crossing' && action === 'pick';
     let handedToScene = false;
     busyRef.current = true;
@@ -582,6 +591,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
     try {
       const next = await DiamondChoiceService.act(round, action, cell);
       if (!mounted.current) return;
+      settleTile();
       currentRound.current = next;
       if (
         game === 'crossing' &&
@@ -617,6 +627,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
       reportError(e, 'DiamondChoicePage.act');
       if (mounted.current) {
         if (e instanceof ChoiceMoveRefused) {
+          settleTile();
           // The server answered, and nothing on the round moved: its reason is
           // shown as it is. The game is read again, so a break shows and the
           // page's own break reads run; they take the reason down when play
@@ -669,17 +680,25 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
   const firstMove = useRef(act);
   firstMove.current = act;
   useEffect(() => {
-    if (game !== 'mines' || busy || uncertain || !round || round.status !== 'open') return;
+    if (game !== 'mines' || busy || busyRef.current || uncertain || !round) return;
     const stored = sessionStorage.getItem(mineIntentKey);
     if (!stored) return;
     const [commit, rawCell] = stored.split(':');
-    const cell = Number(rawCell);
     if (round.commit_id !== commit) return;
-    sessionStorage.removeItem(mineIntentKey);
-    if (round.picked.length === 0 && Number.isInteger(cell) && cell >= 0 && cell < 25)
-      void firstMove.current('pick', cell, round).finally(() => {
-        if (mounted.current) setPendingMine(null);
-      });
+    const cell = Number(rawCell);
+    if (
+      round.status !== 'open' ||
+      round.picked.length > 0 ||
+      !Number.isInteger(cell) ||
+      cell < 0 ||
+      cell >= 25
+    ) {
+      sessionStorage.removeItem(mineIntentKey);
+      setPendingMine(null);
+      return;
+    }
+    setPendingMine(cell);
+    void firstMove.current('pick', cell, round);
   }, [game, busy, uncertain, round, mineIntentKey]);
 
   const startRef = useRef(start);
@@ -1239,7 +1258,8 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
           busy={busy || uncertain || (game === 'mines' && !open && (blocked || !ticket))}
           pendingMine={pendingMine}
           onPick={async (cell) => {
-            if (game === 'mines' && currentRound.current?.status !== 'open') {
+            if (game === 'mines' && phase !== 'open' && phase !== 'idle') return;
+            if (game === 'mines' && phase === 'idle' && currentRound.current?.status !== 'open') {
               if (!ticket || blocked || busyRef.current || uncertain) return;
               setPendingMine(cell);
               sessionStorage.setItem(mineIntentKey, `${ticket.id}:${cell}`);
