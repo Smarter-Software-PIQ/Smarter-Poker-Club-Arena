@@ -9,41 +9,24 @@ import { diamondGamesFixture } from '../helpers/diamond-games-fixture.mjs';
 // shards while CI retains one software-WebGL worker per VM.
 test.describe.configure({ mode: 'parallel', timeout: 180_000 });
 
-/**
- * THE TWO LIVE PLINKO BOARDS, BY NAME (2026-09-19).
- *
- * Nobody chooses a board: the stake kind owns it. An ordinary award plays table
- * version 5, named "Diamond"; a Super award plays table version 4, named
- * "Super". Tables 1 ("Steady"), 2 ("Bold") and 3 ("Moonshot") are deactivated
- * server-side, so no new round can be dealt on them and there is no payout
- * range to select. These are the slot multipliers the migration that opened
- * the two boards installed, printed by multiplierLabel. Every Diamond slot
- * pays something (the lowest is 0.08x) and every Super slot pays at least
- * 0.52x, which is above the half-stake that is a Super award's original spin.
- *
- * Transcribed from the migration rather than derived from the client's own
- * mirror on purpose: a spec that recomputes the labels with the same function
- * the page prints them with cannot notice the two disagreeing.
- */
-/** Super (4), the board every half-the-stake floor is carried by: an ordinary
- *  entry and a Super award that did not take the add-on are both dealt here. */
-const SUPER_SLOTS = [
+/** Contract seven's seventeen physical buckets, transcribed from the SQL table. */
+const DIAMOND_SLOTS = [
   '20x',
-  '20x',
-  '15x',
-  '7.5x',
-  '1.75x',
-  '0.64x',
-  '0.56x',
-  '0.53x',
-  '0.52x',
-  '0.53x',
-  '0.56x',
-  '0.64x',
-  '1.75x',
-  '7.5x',
-  '15x',
-  '20x',
+  '5x',
+  '2x',
+  '1.4x',
+  '1.25x',
+  '1.1x',
+  '1.05x',
+  '1.02x',
+  '1x',
+  '1.02x',
+  '1.05x',
+  '1.1x',
+  '1.25x',
+  '1.4x',
+  '2x',
+  '5x',
   '20x',
 ];
 /**
@@ -267,8 +250,8 @@ for (const width of [320, 390, 1280])
     await expect(page.getByText('10 Drops × 10 Diamonds = 100 Diamonds')).toBeVisible();
     const payoutLabels = page.getByRole('list', { name: 'Plinko Payout Slots' }).locator('strong');
     await expect(payoutLabels).toHaveCount(17);
-    await expect(payoutLabels).toHaveText(SUPER_SLOTS);
-    await bucketLegendReads(page.getByRole('list', { name: 'Plinko Payout Slots' }), SUPER_SLOTS);
+    await expect(payoutLabels).toHaveText(DIAMOND_SLOTS);
+    await bucketLegendReads(page.getByRole('list', { name: 'Plinko Payout Slots' }), DIAMOND_SLOTS);
     await page.getByRole('button', { name: 'crossing', exact: true }).click();
     await streetStripReads(page.getByRole('list', { name: 'Streets And Their Multipliers' }));
     await page.getByRole('button', { name: 'Preview Safe Crossing', exact: true }).click();
@@ -357,14 +340,11 @@ for (const superGame of [false, true])
         // their own colours before the first diamond falls.
         await expect(page.getByLabel('Payout Range')).toHaveCount(0);
         await expect(page.getByRole('button', { name: /Diamonds Per Drop/ })).toHaveCount(0);
-        // THE BOARD FOLLOWS THE FLOOR, NOT THE BOOST (contract 4). Every
-        // half-the-stake floor is carried by Super (4), and with the Double
-        // Diamonds add-on retired every live stake keeps half. The Diamond
-        // board (5) closed on 2026-09-21 and no stake reaches it any more.
-        await expect(page.getByText('On The Super Table')).toBeVisible();
+        // Both award tiers use the current board.
+        await expect(page.getByText('On The Diamond Table')).toBeVisible();
         const legend = page.getByRole('list', { name: 'Plinko Payout Slots' });
         await sits(legend, 'the Plinko bucket legend');
-        await bucketLegendReads(legend, SUPER_SLOTS);
+        await bucketLegendReads(legend, DIAMOND_SLOTS);
       }
 
       if (game === 'crossing') {
@@ -476,16 +456,12 @@ for (const game of ['plinko', 'crash', 'crossing', 'mines'])
         )
       ).toBeVisible();
       if (game === 'plinko') {
-        // Nobody chooses a board, so there is no payout range to select: the
-        // stake's FLOOR chooses it, and without the Double Diamonds add-on both
-        // an ordinary stake and a Super one keep half, so both are dealt Super
-        // (4). The board is named on the glass, and its seventeen slots are
-        // that board's, printed before the first drop.
+        // Both award tiers use the current board.
         await expect(page.getByLabel('Payout Range')).toHaveCount(0);
-        await expect(page.getByText('On The Super Table')).toBeVisible();
+        await expect(page.getByText('On The Diamond Table')).toBeVisible();
         await expect(
           page.getByRole('list', { name: 'Plinko Payout Slots' }).locator('strong')
-        ).toHaveText(SUPER_SLOTS);
+        ).toHaveText(DIAMOND_SLOTS);
         // TEN DROPS ARE OVER IN ABOUT FIVE SECONDS, AND THE HOLD BELOW IS OWED
         // ONLY WHILE THEY ARE IN THE AIR. Plinko is the one game that ends
         // itself: the batch runs on the scene clock with nothing left to press,
@@ -648,6 +624,21 @@ for (const game of ['crossing', 'mines'] as const)
     const network: string[] = [];
     await page.route('**/*', (route) => {
       const url = new URL(route.request().url());
+      const plate = url.pathname.match(
+        /\/assets\/club-buttons\/lobby\/shark-panel-v1\/(button-(?:primary|secondary)\.png)$/
+      );
+      if (plate) {
+        return route.fulfill({
+          path: 'public/assets/club-buttons/lobby/shark-panel-v1/' + plate[1],
+          contentType: 'image/png',
+        });
+      }
+      if (url.pathname.endsWith('/images/header-help-v4.png')) {
+        return route.fulfill({
+          path: 'public/images/header-help-v4.png',
+          contentType: 'image/png',
+        });
+      }
       if (url.hostname !== 'diamond-choice.local') network.push(url.href);
       return route.fulfill({
         contentType: 'text/html',
@@ -665,7 +656,9 @@ for (const game of ['crossing', 'mines'] as const)
     await expect(frame).toBeVisible();
     // The plates ride in the console's pinned action bar (2026-10-12).
     const plates = frame.locator('button[data-plate]');
-    await expect(plates, 'the console offers exactly the two plates').toHaveCount(2);
+    await expect(plates, 'the console shows only actionable plates').toHaveCount(
+      game === 'mines' ? 1 : 2
+    );
     // Donkey Cross paints a road and Diamond Mines a board; both are the thing
     // the player must still be able to see while they decide.
     const sceneSelector = game === 'mines' ? '[aria-label="Diamond Mines Board"]' : '[data-phase]';
@@ -743,6 +736,24 @@ for (const game of ['crossing', 'mines'] as const)
           timeout: 20_000,
         })
         .toBeLessThanOrEqual(0);
+    }
+    if (game === 'crossing') {
+      await expect(frame.getByText(/Today.*Rounds/i)).toHaveCount(0);
+      await expect(frame.locator('[data-plate="primary"]')).toBeEnabled();
+      await expect(frame.locator('[data-plate="secondary"]')).toBeEnabled();
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await expect
+        .poll(
+          () =>
+            frame.evaluate((cabinet) => {
+              const road = cabinet.querySelector('[data-phase]')?.getBoundingClientRect();
+              const strip = cabinet.querySelector('dl')?.getBoundingClientRect();
+              return Boolean(road && strip && strip.top >= road.bottom - 1);
+            }),
+          { timeout: 20_000 }
+        )
+        .toBe(true);
+      await frame.screenshot({ path: test.info().outputPath('crossing-desktop.png') });
     }
     expect(network).toEqual([]);
   });
@@ -1024,14 +1035,14 @@ const START_VIEWPORTS = [
 ] as const;
 const START_LABEL = {
   crash: /^Start /,
-  plinko: /^Drop Diamonds$/,
+  plinko: /^Drop One$/,
   crossing: /^Start Round$/,
   mines: /^Start Round$/,
 } as const;
 const PRIMARY_PLATE = '[data-game-console] button[data-plate="primary"]';
 
 /** The plate's box against the viewport, measured with the window where it started. */
-async function onTheGlass(page: Page, what: string) {
+async function onTheGlass(page: Page, what: string, selector = PRIMARY_PLATE) {
   await expect
     .poll(
       () =>
@@ -1053,14 +1064,14 @@ async function onTheGlass(page: Page, what: string) {
           const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
           if (!hit || !plate.contains(hit)) return 'something covers its centre';
           return 'on the glass';
-        }, PRIMARY_PLATE),
+        }, selector),
       { message: `${what} is whole, uncovered and on the first screen`, timeout: 30_000 }
     )
     .toBe('on the glass');
   return page.evaluate((selector) => {
     const box = document.querySelector(selector)!.getBoundingClientRect();
     return { top: box.top, left: box.left, width: box.width, height: box.height };
-  }, PRIMARY_PLATE);
+  }, selector);
 }
 
 async function openGamePage(page: Page, game: keyof typeof START_LABEL, live = false) {
@@ -1070,13 +1081,33 @@ async function openGamePage(page: Page, game: keyof typeof START_LABEL, live = f
   await page.unrouteAll({ behavior: 'ignoreErrors' });
   await page.route('**/*', (route) => {
     const url = new URL(route.request().url());
+    const plate = url.pathname.match(
+      /\/assets\/club-buttons\/lobby\/shark-panel-v1\/(button-(?:primary|secondary)\.png)$/
+    );
+    if (plate)
+      return route.fulfill({
+        path: 'public/assets/club-buttons/lobby/shark-panel-v1/' + plate[1],
+        contentType: 'image/png',
+      });
+    if (url.pathname.endsWith('/images/diamond-icon.webp'))
+      return route.fulfill({ path: 'public/images/diamond-icon.webp', contentType: 'image/webp' });
+    if (url.pathname.endsWith('/images/header-help-v4.png'))
+      return route.fulfill({ path: 'public/images/header-help-v4.png', contentType: 'image/png' });
+    const receiptArt = url.pathname.match(
+      /\/assets\/diamond-spins\/(result-(?:crash|plinko|crossing|mines)\.webp)$/
+    );
+    if (receiptArt)
+      return route.fulfill({
+        path: 'public/assets/diamond-spins/' + receiptArt[1],
+        contentType: 'image/webp',
+      });
     if (url.hostname !== 'diamond-pages.local') network.push(url.href);
     return route.fulfill({
       contentType: 'text/html',
       body: '<meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div>',
     });
   });
-  await page.goto(`http://diamond-pages.local/game.html?game=${game}${live ? '&live=1' : ''}`);
+  await page.goto(`https://diamond-pages.local/game.html?game=${game}${live ? '&live=1' : ''}`);
   await page.addStyleTag({ content: bundle.css });
   await page.addScriptTag({ content: bundle.javascript });
   await expect(page.locator('[data-game-console]')).toBeVisible({ timeout: 30_000 });
@@ -1090,6 +1121,99 @@ async function noOfferStands(page: Page) {
   await expect(page.getByText('Double Your Diamonds')).toHaveCount(0);
 }
 
+test('a single tap on the sapphire launches Crash and opens cashout in the same cabinet', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openGamePage(page, 'crash');
+  const diamond = page.getByRole('button', { name: 'Launch Diamond' });
+  await expect(diamond).toBeEnabled();
+  await expect
+    .poll(() => diamond.evaluate((button) => button.style.left.endsWith('px')))
+    .toBe(true);
+  await page.screenshot({ path: test.info().outputPath('crash-phone.png') });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await onTheGlass(page, 'Crash desktop');
+  await page.screenshot({ path: test.info().outputPath('crash-desktop.png') });
+  await diamond.click();
+  await expect(diamond).toHaveCount(0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: 'Book The Win' }).click();
+  const receipt = page.getByRole('dialog', { name: '1.50 Chips' });
+  await expect(receipt.getByRole('heading', { name: '1.50 Chips' })).toBeVisible();
+  await expect(receipt.getByText('Credited To Your Club Balance')).toBeVisible();
+  await expect
+    .poll(() =>
+      receipt.locator('img').evaluate((img: HTMLImageElement) => {
+        const credit = img.closest('section')?.querySelector('header small');
+        return (
+          img.naturalWidth > 0 &&
+          !!credit &&
+          img.getBoundingClientRect().top >= credit.getBoundingClientRect().bottom
+        );
+      })
+    )
+    .toBe(true);
+  await page.screenshot({
+    path: test.info().outputPath('crash-paid-mobile.png'),
+    animations: 'disabled',
+  });
+});
+
+test('Plinko denominations scroll both ways on one row and both release controls require a selection', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 667 });
+  await openGamePage(page, 'plinko');
+  const choice = page.getByRole('button', { name: '10 Diamonds Per Drop, 10 Drops' });
+  const row = choice.locator('..');
+  const buttons = row.getByRole('button');
+  const topCount = await buttons.evaluateAll(
+    (items) => new Set(items.map((item) => item.getBoundingClientRect().top)).size
+  );
+  expect(topCount).toBe(1);
+  await expect(page.getByRole('button', { name: 'Drop All' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Next Denominations' }).click();
+  await expect.poll(() => row.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+  await page.getByRole('button', { name: 'Previous Denominations' }).click();
+  await expect.poll(() => row.evaluate((el) => el.scrollLeft)).toBe(0);
+  await choice.click();
+  await expect(page.getByRole('button', { name: 'Drop All' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Drop One' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Refresh' })).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath('plinko-phone.png') });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.screenshot({ path: test.info().outputPath('plinko-desktop.png') });
+  await page.setViewportSize({ width: 375, height: 667 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.getByRole('button', { name: 'Drop One' }).click();
+  await expect(page.getByText('9 Drops In Hand')).toBeVisible();
+  await page.getByRole('button', { name: 'Drop All' }).click();
+  const receipt = page.getByRole('dialog', { name: '1.00 Chips' });
+  await expect(receipt.getByRole('heading', { name: '1.00 Chips' })).toBeVisible({
+    timeout: 25_000,
+  });
+  await expect(receipt.getByText('Credited To Your Club Balance')).toBeVisible();
+  await expect
+    .poll(() =>
+      receipt.locator('img').evaluate((img: HTMLImageElement) => {
+        const credit = img.closest('section')?.querySelector('header small');
+        return (
+          img.naturalWidth > 0 &&
+          !!credit &&
+          img.getBoundingClientRect().top >= credit.getBoundingClientRect().bottom
+        );
+      })
+    )
+    .toBe(true);
+  await receipt.getByText('Round Details').click();
+  await expect(receipt.getByRole('status')).toContainText('10 Drops Completed.');
+  await page.screenshot({
+    path: test.info().outputPath('plinko-paid-mobile.png'),
+    animations: 'disabled',
+  });
+});
+
 for (const viewport of START_VIEWPORTS)
   test(`Every bonus game opens with Start on the screen at ${viewport.width} x ${viewport.height}`, async ({
     page,
@@ -1098,8 +1222,11 @@ for (const viewport of START_VIEWPORTS)
     for (const game of GAMES) {
       const network = await openGamePage(page, game);
       await noOfferStands(page);
-      const start = page.locator(PRIMARY_PLATE);
-      await expect(start).toHaveText(START_LABEL[game]);
+      const selector = game === 'mines' ? 'button[aria-label="Tile 13"]' : PRIMARY_PLATE;
+      const start = page.locator(selector);
+      if (game === 'mines')
+        await expect(page.getByRole('button', { name: 'Start Round' })).toHaveCount(0);
+      else await expect(start).toHaveText(START_LABEL[game]);
       if (game === 'plinko') {
         // Nothing is pre-selected (R6): the drop value is the one choice Drop
         // Diamonds waits on, so it shares the first screen with the plate.
@@ -1114,7 +1241,7 @@ for (const viewport of START_VIEWPORTS)
       await expect(start, `${game} Start is pressable on arrival`).toBeEnabled({
         timeout: 30_000,
       });
-      await onTheGlass(page, `${TITLES[game]} Start at ${viewport.width}px`);
+      await onTheGlass(page, `${TITLES[game]} Start at ${viewport.width}px`, selector);
       await page.screenshot({
         path: test.info().outputPath(`${game}-start-${viewport.width}x${viewport.height}.png`),
       });

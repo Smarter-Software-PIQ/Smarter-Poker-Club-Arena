@@ -847,15 +847,14 @@ describe('the must move lobby: the roster is the order, the seat change is once,
     );
     // The engine honours both on arrival.
     expect(DEALING).toMatch(
-      /entryHold === 'moved'[\s\S]*?persistEntryHold\(p\.user_id, \{ hold: null, agreed: false \}\)/
+      /for \(const p of players\) \{\s*if \(p\.entry_hold === 'moved'\)\s*this\.persistEntryHold\(p\.user_id, \{ hold: null, agreed: false \}\)/
     );
     expect(DEALING).toMatch(
       /entryHold === 'waiting' && entryAgreed[\s\S]*?this\.postBBWhenClear\.add\(p\.user_id\)/
     );
-    // And on a restart before the first deal.
-    expect(BASE).toMatch(
-      /else if \(hold === 'moved'\)[\s\S]*?persistEntryHold\(p\.user_id, \{ hold: null, agreed: false \}\)/
-    );
+    // On restart, retain the move until the first eligible deal.
+    expect(DEALING).toContain("if (rowHold === 'moved') continue;");
+    expect(BASE).toContain("if (!this.isTournamentTable()) return p.entry_hold !== 'moved';");
   });
 
   it('a held swap side is out of the deal, and released when its move is gone', () => {

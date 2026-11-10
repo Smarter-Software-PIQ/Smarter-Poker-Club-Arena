@@ -39,6 +39,7 @@ vi.stubGlobal(
   })
 );
 
+const { tableStateHub } = await import('../transport/TableStateHub.js');
 const { TournamentManagerEliminations } = await import('./TournamentManagerEliminations.js');
 
 const TRIP_MS = 100;
@@ -183,6 +184,8 @@ function manager() {
         tableId,
         handId,
         handNumber: 41,
+        eliminatedSeat: 1,
+        eliminatedName: 'sledge',
         seatJoinedAt: '2026-11-06T00:00:00.000Z',
         attribution: {
           basis: 'pot_award',
@@ -224,6 +227,31 @@ describe('a bust reaches its bounty in fewer trips', () => {
       addedToHead: 2.16,
       tableId,
     });
+    const packets: any[] = [];
+    const subscriber = {
+      id: 'reconnected',
+      readyState: 1,
+      send: (raw: string) => packets.push(JSON.parse(raw)),
+    };
+    try {
+      tableStateHub.subscribe(tableId, subscriber);
+      tableStateHub.subscribe(tableId, subscriber);
+      expect(packets.filter((p) => p.payload?.type === 'seat_knockout')).toMatchObject([
+        {
+          tableId,
+          payload: {
+            obligationId,
+            handId,
+            eliminatedSeat: 1,
+            eliminatedUserId: bustedId,
+            knockerUserId: knockerId,
+          },
+        },
+      ]);
+      expect(knockout!.payload.obligationId).toBe(obligationId);
+    } finally {
+      tableStateHub.unsubscribe(tableId, subscriber);
+    }
     expect(fixture.reportError).not.toHaveBeenCalled();
   });
 

@@ -159,3 +159,22 @@ describe('the banner sentence', () => {
     );
   });
 });
+
+it('preserves the original notice until expiry before showing the separate successor', () => {
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-10T04:29:59Z'))?.id).toBe(
+    '2026-11-09-owner-asap-engine-2230z'
+  );
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-10T04:30:00Z'))).toBeNull();
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-10T04:50:37.346Z'))).toBeNull();
+  const successor = bookedMaintenanceNotice(Date.parse('2026-11-10T04:50:37.347Z'));
+  expect(successor?.id).toBe('2026-11-10-owner-asap-engine-0440z');
+  expect(successor?.noticeAtMs).toBe(Date.parse('2026-11-10T04:50:37.347Z'));
+  expect(successor?.notBeforeMs).toBe(Date.parse('2026-11-10T05:10:38Z'));
+  expect(successor?.notAfterMs).toBe(Date.parse('2026-11-10T06:30:00Z'));
+  const next = bookedMaintenanceNotice(Date.parse('2026-11-10T06:30:00Z'));
+  expect(next?.id).toBe('2026-11-10-owner-asap-engine-0650z');
+  expect(next?.noticeAtMs).toBe(Date.parse('2026-11-10T06:30:00Z'));
+  expect(next?.notBeforeMs).toBe(Date.parse('2026-11-10T06:50:00Z'));
+  expect(next?.notAfterMs).toBe(Date.parse('2026-11-10T08:30:00Z'));
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-10T08:30:00Z'))).toBeNull();
+});

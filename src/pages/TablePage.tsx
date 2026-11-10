@@ -239,6 +239,7 @@ import { askToSignInAgain, isDeadSessionRefusal } from '../lib/deadSessionRefusa
 import { useTableWebSocket } from '../services/TableWebSocket';
 import { supabase, getAuthUser } from '../lib/supabase';
 import { ownProfile } from '../lib/ownProfile';
+import { playableLevelSeconds } from '../utils/tournamentPlayableClock';
 import { parseBlindStructure } from '../utils/parseBlindStructure';
 import {
   playerDisplayName,
@@ -255,7 +256,11 @@ import { useSeatMoveAnnouncement } from '../hooks/useSeatMoveAnnouncement';
 import TableConnectionBanner from '../components/table/TableConnectionBanner';
 import TournamentStartCountdown from '../components/table/TournamentStartCountdown';
 import { displayBigBlind, type HandBlinds } from '../utils/handBlinds';
-import { isLightningObserverSnapshot, mapEngineSnapshot } from '../utils/mapEngineSnapshot';
+import {
+  collectedSeatBet,
+  isLightningObserverSnapshot,
+  mapEngineSnapshot,
+} from '../utils/mapEngineSnapshot';
 import {
   foldRevealed,
   hasCommittedSeatFold,
@@ -743,7 +748,11 @@ import { moneyWordAtUnit } from '../utils/format';
 // Its own line: the import above is pinned as the pot-win label's formatter
 // (tests/unit/knockoutBountyIsSharedAndExact.test.ts).
 import { compactChips } from '../utils/format';
-import { bountyWinnersOf } from '../utils/bountyBroadcast';
+import {
+  admitSeatKnockout,
+  bountyWinnersOf,
+  knockoutPlaybackReceipts,
+} from '../utils/bountyBroadcast';
 import { formatPopupText } from '../utils/popupStyle';
 import {
   MYSTERY_BOUNTIES_LIVE_TEXT,
@@ -3215,9 +3224,14 @@ function LiveTablePage({
       // Hold the previous amount for the collect window; the sweep's own
       // timer zeroes it when the animation completes.
       const nextBets = mapped.lastBetAmounts.map((amt, i) =>
-        collectingChipSeatsRef.current[i] && !(amt > 0) && prev.lastBetAmounts[i] > 0
-          ? prev.lastBetAmounts[i]
-          : amt
+        collectedSeatBet(
+          amt,
+          prev.lastBetAmounts[i],
+          !!collectingChipSeatsRef.current[i],
+          sameHand,
+          prev.players[i]?.id,
+          mapped.players[i]?.id
+        )
       );
       /* THE ACTION BAR MUST NOT FLASH BACK AFTER YOU ACT (2026-08-27), AND A
          TURN HANDED BACK IS A TURN (2026-10-04).
@@ -6502,12 +6516,14 @@ function LiveTablePage({
   } | null>(null);
   // Blind structure kept for level_up events, whose payload names the new
   // level but not its duration.
+  const blindClockBuyInRef = useRef<unknown>(null);
   const blindStructRef = useRef<
     Array<{
       level?: number;
       duration?: number;
       duration_minutes?: number;
       durationMinutes?: number;
+      isBreak?: boolean;
     }>
   >([]);
 
@@ -15672,6 +15688,7 @@ function LiveTablePage({
               duration?: number;
               duration_minutes?: number;
               durationMinutes?: number;
+              isBreak?: boolean;
             }>;
             // LEVEL INDEXING 2026-08-21: tournaments.current_level is a
             // 0-BASED INDEX into blind_structure (engine convention: the
@@ -15683,6 +15700,7 @@ function LiveTablePage({
             // until the first level-up.
             const levelIdx = Number(tournData.current_level ?? 0);
             const currentLevel = levelIdx + 1; // display number
+            blindClockBuyInRef.current = tournData.buy_in_amount;
             blindStructRef.current = blindStructure || [];
             const entryAt = (idx: number) => {
               const struct = blindStructure || [];
@@ -15729,7 +15747,11 @@ function LiveTablePage({
                 : Date.now();
               setLevelClock({
                 startedAtMs: Number.isFinite(startedAtMs) ? startedAtMs : Date.now(),
-                durationSec: durSec,
+                durationSec: playableLevelSeconds(
+                  durSec,
+                  blindClockBuyInRef.current,
+                  levelEntry?.isBreak
+                ),
               });
             }
             const formatKind = getTournamentFormatKind(tournData);
@@ -17503,42 +17525,7 @@ function LiveTablePage({
                      WHOLE bounty to one of the two winners and nothing to the
                      other (55 such knockouts in production, 08-30..09-04). */
                   const koWinners = bountyWinnersOf(b);
-                  const koIsHero = koWinners.some((w) => w.userId === userId);
-
-                  /* ONE STAMP PER BUSTED PLAYER. A reconnect replays the
-                     broadcast and the 5s elimination sweep can re-emit it;
-                     without this the same chair is punched twice. */
-                  const koKey = eliminatedUserId || `${b.eliminatedName}-${Date.now()}`;
-                  if (!koSeenRef.current.has(koKey)) {
-                    koSeenRef.current.add(koKey);
-
-                    /* The roster still holds the busted player at THIS moment
-                       — the engine broadcasts the bounty before it broadcasts
-                       `player_eliminated`. The ref is the fallback for the
-                       race where it does not, and for a client that joined
-                       mid-elimination. */
-                    const liveSeat = eliminatedUserId
-                      ? (tableStateRef.current?.players?.findIndex(
-                          (p) => p?.id === eliminatedUserId
-                        ) ?? -1)
-                      : -1;
-                    const seatIndex =
-                      liveSeat >= 0
-                        ? liveSeat
-                        : (lastSeatOfUserRef.current.get(eliminatedUserId) ?? -1);
-
-                    if (seatIndex >= 0) {
-                      setKoHits((prev) => [
-                        ...prev,
-                        {
-                          id: koKey,
-                          seatIndex,
-                          eliminatedName: b.eliminatedName || 'Player',
-                          isHero: koIsHero,
-                        },
-                      ]);
-                    }
-                  }
+                  queueSeatKnockout(b);
 
                   /* THE MONEY, SUMMED PER WINNER. Busting two players in one
                      hand pays two bounties and the reference shows ONE number
@@ -17635,7 +17622,15 @@ function LiveTablePage({
                     ? Number(entry.duration) ||
                       (Number(entry.duration_minutes ?? entry.durationMinutes) || 0) * 60
                     : 0;
-                  if (durSec > 0) setLevelClock({ startedAtMs: Date.now(), durationSec: durSec });
+                  if (durSec > 0)
+                    setLevelClock({
+                      startedAtMs: Date.now(),
+                      durationSec: playableLevelSeconds(
+                        durSec,
+                        blindClockBuyInRef.current,
+                        entry?.isBreak
+                      ),
+                    });
                 }
                 /* Dan 2026-08-25 (binding): the banner used to receive
                  * `levelData` raw, and `levelData.level` is the engine's
@@ -18875,6 +18870,27 @@ function LiveTablePage({
      lived here as a marker that the block above had been removed. The comment
      block IS the marker; a variable carrying an eslint suppression is not. */
 
+  function queueSeatKnockout(b: Record<string, unknown>) {
+    const hit = admitSeatKnockout(
+      b,
+      tableId,
+      tableStateRef.current.players,
+      lastSeatOfUserRef.current,
+      koSeenRef.current
+    );
+    if (!hit) return;
+    const koWinners = bountyWinnersOf(b);
+    const koIsHero = koWinners.some((w) => w.userId === userId);
+    setKoHits((previous) => [
+      ...previous,
+      {
+        ...hit,
+        eliminatedName: String(b.eliminatedName || 'Player'),
+        isHero: koIsHero,
+      },
+    ]);
+  }
+
   // Handle incoming game events from WebSocket.
   // 2026-04-16 ROOT-CAUSE FIX: the server sends discrete game events
   // (hand_started, blinds_posted, player_action, community_cards_dealt,
@@ -18894,6 +18910,9 @@ function LiveTablePage({
     observePublicEventRef.current(tableId ?? '', evt.type, evt.data);
 
     switch (evt.type) {
+      case 'SEAT_KNOCKOUT':
+        queueSeatKnockout(evt.data);
+        break;
       case 'ENGINE_RESTARTING':
         // Retirement uses the existing restart frame. Only durable database
         // cancellation can close this tab; an ordinary restart stays mounted.
@@ -23084,7 +23103,7 @@ function LiveTablePage({
   /** A different table is a different set of chairs, and a different event. */
   useEffect(() => {
     lastSeatOfUserRef.current.clear();
-    koSeenRef.current.clear();
+    koSeenRef.current = tableId ? knockoutPlaybackReceipts(tableId) : new Set();
     rosterIdsRef.current = new Set();
     setKoHits([]);
   }, [tableId]);
@@ -23102,9 +23121,13 @@ function LiveTablePage({
   );
 
   /** A stamp that has finished burning. Frees the seat for the next knockout. */
-  const handleSeatKnockoutDone = useCallback((id: string) => {
-    setKoHits((prev) => prev.filter((h) => h.id !== id));
-  }, []);
+  const handleSeatKnockoutDone = useCallback(
+    (id: string) => {
+      if (tableId && id.startsWith('ko:')) knockoutPlaybackReceipts(tableId, id);
+      setKoHits((prev) => prev.filter((h) => h.id !== id));
+    },
+    [tableId]
+  );
 
   /**
    * ═══════════════════════════════════════════════════════════════════════
@@ -24289,7 +24312,7 @@ function LiveTablePage({
           const startedAtMs = row?.level_started_at ? Date.parse(row.level_started_at) : Date.now();
           setLevelClock({
             startedAtMs: Number.isFinite(startedAtMs) ? startedAtMs : Date.now(),
-            durationSec: durSec,
+            durationSec: playableLevelSeconds(durSec, blindClockBuyInRef.current, entry?.isBreak),
           });
         }
       }
@@ -29345,7 +29368,7 @@ function LiveTablePage({
               mid-punch. Here, the chair empties underneath a KO that is still
               burning — exactly what the reference does. */}
           <SeatKnockoutLayer
-            hits={koHits}
+            hits={mysteryChest ? [] : koHits}
             seatPositions={seatPositions}
             onDone={handleSeatKnockoutDone}
             playSounds={ambientSoundsAllowed}

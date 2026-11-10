@@ -34,6 +34,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { WheelPrizeArt } from '../wheel/WheelPrizeArt';
 import { SpadeConsole } from '../console/SpadeConsole';
 import './TournamentWinnerOverlay.css';
+import '../../styles/postPlayResults.css';
 import { formatPrizeAtUnit, moneySuffixAtUnit } from '../../utils/format';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useDialogEscape } from '../../hooks/useDialogEscape';
@@ -189,7 +190,7 @@ const TournamentWinnerOverlay: React.FC<TournamentWinnerOverlayProps> = ({
       <SpadeConsole
         onClose={handleDismiss}
         as="div"
-        className="winner-console winner-entrance winner-golden"
+        className="winner-console winner-entrance winner-golden postplay-panel"
         eyebrow={tournamentName}
         title={qualifiedFinish ? 'Qualified!' : paidFinish ? 'Paid Finish!' : 'Champion!'}
         pill={qualifiedFinish ? 'Qualifiers' : paidFinish ? positionLabel : '1st Place'}

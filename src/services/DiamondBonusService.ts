@@ -18,6 +18,8 @@ import {
   plinkoTableForFloor,
   plinkoTableVersion,
   validBonusMinimum,
+  earnedWheelMinimum,
+  PLINKO_TABLES,
 } from '../utils/diamondBonusPayout';
 import { crashCashoutFloorCents } from '../utils/diamondGamesFairness';
 
@@ -126,6 +128,8 @@ export interface BonusStart {
   seed: string;
   mode?: string;
   tableVersion?: number;
+  /** Present on a player-authorized incremental Plinko entry. Old requests replay their original contract. */
+  plinkoRelease?: { all: boolean; requestId: string };
   autoCashoutCents?: number | null;
   maxSteps?: number;
 }
@@ -152,6 +156,7 @@ export interface PlinkoBonus {
   /** The chips this batch pays whatever the drops do: half the stake, or for a
    *  Super award with the add-on what the player paid. */
   minimum_payout_chips?: number;
+  wheel_minimum_payout_chips?: number;
   /** 1: no floor (historical). 3: the Super half. 4: the paid floor. */
   payout_version?: 1 | 3 | 4;
   /** Contract 4: the spin entry plus the Double Diamonds add-on, in diamonds. */
@@ -173,8 +178,41 @@ export interface PlinkoBonus {
     boost_multiplier?: number;
   };
 }
+export interface PlinkoProgress extends Omit<PlinkoBonus, 'server_seed'> {
+  server_seed?: string;
+  complete: boolean;
+  released_count: number;
+  total_count: number;
+  released_chips: number;
+  guarantee_top_up_chips?: number;
+  wheel_minimum_payout_chips?: number;
+}
 export function parsePlinkoBonus(value: unknown): PlinkoBonus {
-  const v = value as PlinkoBonus;
+  return parsePlinkoReceipt(value, false) as PlinkoBonus;
+}
+export function parsePlinkoProgress(value: unknown): PlinkoProgress {
+  const v = parsePlinkoReceipt(value, true) as PlinkoProgress;
+  if (
+    typeof v.complete !== 'boolean' ||
+    !v.award_id ||
+    v.total_count !== v.bet_diamonds / v.diamonds_per_drop ||
+    v.released_count !== v.drops.length ||
+    v.complete !== (v.released_count === v.total_count) ||
+    v.released_chips !== v.payout_chips ||
+    (v.guarantee_top_up_chips !== undefined &&
+      Math.round(v.guarantee_top_up_chips * 100) !==
+        Math.round(v.payout_chips * 100) -
+          v.drops.reduce((sum, ball) => sum + Math.round(ball.payout_chips * 100), 0))
+  )
+    throw new Error('The Plinko Release Could Not Be Verified');
+  return v;
+}
+function parsePlinkoReceipt(value: unknown, allowPartial: boolean): PlinkoBonus | PlinkoProgress {
+  const v = value as PlinkoBonus & Partial<PlinkoProgress>;
+  const partial = allowPartial && v?.complete === false;
+  const wheelMinimum = v?.award_id
+    ? (earnedWheelMinimum(v as unknown as Record<string, unknown>) ?? 0)
+    : 0;
   const finite = (n: unknown) => typeof n === 'number' && Number.isFinite(n) && n >= 0;
   const cents = (n: unknown) =>
     finite(n) && Math.abs(Number(n) * 100 - Math.round(Number(n) * 100)) < 1e-8;
@@ -221,18 +259,22 @@ export function parsePlinkoBonus(value: unknown): PlinkoBonus {
     // R6). A batch sealed under the current rule (it carries payout_version)
     // plays between PLINKO_MIN_DROPS and PLINKO_MAX_DROPS drops; older receipts
     // keep the count they were dealt.
-    v.drops.length !== v.bet_diamonds / v.diamonds_per_drop ||
+    (partial
+      ? v.drops.length >= v.bet_diamonds / v.diamonds_per_drop
+      : v.drops.length !== v.bet_diamonds / v.diamonds_per_drop) ||
     (v.payout_version !== undefined &&
       (v.drops.length < PLINKO_MIN_DROPS || v.drops.length > PLINKO_MAX_DROPS)) ||
     !Array.isArray(v.multipliers_cents) ||
     v.multipliers_cents.length !== 17 ||
     !v.multipliers_cents.every((m) => Number.isSafeInteger(m) && m >= 0) ||
+    (v.table_version === 7 &&
+      !v.multipliers_cents.every((m, i) => m === PLINKO_TABLES[7].multipliersCents[i])) ||
     !cents(v.payout_chips) ||
-    !validPlinkoMinimum(v) ||
+    !validPlinkoMinimum(v, partial) ||
     !Number.isSafeInteger(v.nonce) ||
     v.nonce < 1 ||
     !/^[a-f0-9]{64}$/.test(v.server_seed_hash) ||
-    !/^[a-f0-9]{64}$/.test(v.server_seed) ||
+    (partial ? v.server_seed != null : !/^[a-f0-9]{64}$/.test(v.server_seed)) ||
     !Number.isSafeInteger(v.diamonds_per_chip) ||
     v.diamonds_per_chip <= 0 ||
     v.drops.some(
@@ -251,7 +293,7 @@ export function parsePlinkoBonus(value: unknown): PlinkoBonus {
     // The batch pays its drops, or the Super guarantee when the drops fall short.
     Math.max(
       v.drops.reduce((sum, ball) => sum + Math.round(ball.payout_chips * 100), 0),
-      Math.round((v.minimum_payout_chips ?? 0) * 100)
+      partial ? 0 : Math.round(Math.max(v.minimum_payout_chips ?? 0, wheelMinimum) * 100)
     ) !== Math.round(v.payout_chips * 100)
   ) {
     throw new Error('The Plinko Bonus Could Not Be Verified');
@@ -264,7 +306,7 @@ export function parsePlinkoBonus(value: unknown): PlinkoBonus {
  * floor fn_diamond_bonus_floor seals - half the stake, or for a Super award the
  * greater of that and what the player PAID. Every one is recomputed from the
  * funded diamonds and the bridge rate exactly as the server did, never trusted. */
-function validPlinkoMinimum(v: PlinkoBonus) {
+function validPlinkoMinimum(v: PlinkoBonus, partial = false) {
   const floor = v.minimum_payout_chips;
   const version = v.payout_version;
   if (floor === undefined && version === undefined) return true;
@@ -281,7 +323,8 @@ function validPlinkoMinimum(v: PlinkoBonus) {
       return false;
     if (
       v.drop_count !== undefined &&
-      (!Number.isSafeInteger(v.drop_count) || v.drop_count !== v.drops.length)
+      (!Number.isSafeInteger(v.drop_count) ||
+        v.drop_count !== (partial ? v.bet_diamonds / v.diamonds_per_drop : v.drops.length))
     )
       return false;
     return validBonusMinimum({
@@ -334,8 +377,13 @@ export const DiamondBonusService = {
       reportError(error, 'DiamondBonusService.remember');
       throw new BonusRefusal(BONUS_NOT_SAVED);
     }
+    const incremental = input.game === 'plinko' && input.budget.award && input.plinkoRelease;
     const { data, error } = await supabase.rpc(
-      (input.budget.award ? 'fn_wheel_bonus_start' : 'fn_diamond_bonus_start') as never,
+      (incremental
+        ? 'fn_wheel_plinko_begin'
+        : input.budget.award
+          ? 'fn_wheel_bonus_start'
+          : 'fn_diamond_bonus_start') as never,
       {
         ...(input.budget.award
           ? { p_award_id: input.budget.award.id }
@@ -344,14 +392,19 @@ export const DiamondBonusService = {
               p_game: input.game,
               p_base_diamonds: input.budget.base,
             }),
+        ...(incremental ? { p_request_id: incremental.requestId, p_all: incremental.all } : {}),
         p_double: input.budget.doubled,
         p_commit_id: input.commitId,
         p_client_seed: input.seed,
-        p_mode: input.mode ?? null,
+        ...(!incremental
+          ? {
+              p_mode: input.mode ?? null,
+              p_auto_cashout_cents: input.autoCashoutCents ?? null,
+              p_max_steps: input.maxSteps ?? null,
+            }
+          : {}),
         p_denom: input.game === 'plinko' ? input.budget.denomination : null,
         p_table_version: input.tableVersion ?? null,
-        p_auto_cashout_cents: input.autoCashoutCents ?? null,
-        p_max_steps: input.maxSteps ?? null,
       } as never
     );
     if (error) {
@@ -407,6 +460,37 @@ export const DiamondBonusService = {
     clearPendingBonus(userId, input);
     return data;
   },
+  async plinkoProgress(clubId: string): Promise<PlinkoProgress | null> {
+    const { data, error } = await supabase.rpc(
+      'fn_wheel_plinko_progress' as never,
+      {
+        p_club_id: clubId,
+      } as never
+    );
+    if (error) throw error;
+    const reply = data as { ok?: boolean; active?: boolean };
+    if (reply?.ok === true && reply.active === false) return null;
+    const progress = parsePlinkoProgress(data);
+    if (progress.club_id !== clubId) throw new Error('The Saved Plinko Club Could Not Be Verified');
+    return progress;
+  },
+  async releasePlinko(awardId: string, requestId: string, all: boolean): Promise<PlinkoProgress> {
+    const { data, error } = await supabase.rpc(
+      'fn_wheel_plinko_release' as never,
+      {
+        p_award_id: awardId,
+        p_request_id: requestId,
+        p_all: all,
+      } as never
+    );
+    if (error) throw error;
+    const reply = data as { ok?: boolean; error?: string };
+    if (reply?.ok === false)
+      throw new BonusRefusal(reply.error ?? 'The Drop Could Not Be Released');
+    const progress = parsePlinkoProgress(data);
+    if (progress.award_id !== awardId) throw new Error('The Plinko Award Could Not Be Verified');
+    return progress;
+  },
   async latest(clubId: string, game: BonusGame): Promise<unknown | null> {
     const { data, error } = await supabase.rpc(
       'fn_diamond_bonus_latest' as never,
@@ -461,7 +545,7 @@ export function validateBonusReceipt(input: BonusStart, raw: Record<string, unkn
   )
     fail();
   if (input.game === 'plinko') {
-    const result = parsePlinkoBonus(raw);
+    const result = input.plinkoRelease ? parsePlinkoProgress(raw) : parsePlinkoBonus(raw);
     const boost = input.budget.award?.boostMultiplier ?? 1;
     const betChips = bonusTotal(input.budget) / result.diamonds_per_chip;
     // THE TABLE FOLLOWS THE FLOOR (contract 4, Dan 2026-09-21, R10/R11). Before
@@ -482,7 +566,7 @@ export function validateBonusReceipt(input: BonusStart, raw: Record<string, unkn
     const floor = diamondBonusFloor(betChips, boost, paidDiamonds, result.diamonds_per_chip);
     const expectedTable =
       result.payout_version === BONUS_PAYOUT_VERSION
-        ? plinkoTableForFloor(betChips, floor)
+        ? plinkoTableForFloor(betChips, floor, result.table_version < 7)
         : plinkoTableVersion(boost);
     if (
       result.table_version !== input.tableVersion ||

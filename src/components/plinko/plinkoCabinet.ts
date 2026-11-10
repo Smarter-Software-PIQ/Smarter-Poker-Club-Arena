@@ -119,14 +119,13 @@ function sparkTexture() {
  * by two light-blue diamonds. Painted onto a transparent canvas so the black
  * glass of the plate is what shows between the letters.
  */
-function paintTitle(ctx: CanvasRenderingContext2D, width: number, height: number) {
+function paintTitle(ctx: CanvasRenderingContext2D, width: number, height: number, text: string) {
   ctx.clearRect(0, 0, width, height);
   const mid = height / 2 + 4;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.font = '800 92px "Roboto Condensed", "Arial Narrow", Arial, sans-serif';
   if ('letterSpacing' in ctx) (ctx as { letterSpacing: string }).letterSpacing = '6px';
-  const text = 'DIAMOND PLINKO';
   // The LED bloom behind the lettering.
   ctx.save();
   ctx.shadowColor = 'rgba(24,119,242,0.95)';
@@ -231,7 +230,8 @@ export function plinkoCabinet(scene: THREE.Scene, slots: readonly THREE.Mesh[]) 
   // THE SIGN PLATE: chrome rim, black glass face, chrome lettering.
   solid(scene, chrome, [5.9, 0.9, 0.16], [0, 5.8, 0.02], 0.08);
   solid(scene, glass, [5.7, 0.74, 0.16], [0, 5.8, 0.07], 0.05);
-  const title = paint(1024, 136, (ctx) => paintTitle(ctx, 1024, 136));
+  let titleText = 'DIAMOND PLINKO';
+  const title = paint(1024, 136, (ctx) => paintTitle(ctx, 1024, 136, titleText));
   const titleMaterial = new THREE.MeshBasicMaterial({
     map: title.texture,
     transparent: true,
@@ -251,7 +251,7 @@ export function plinkoCabinet(scene: THREE.Scene, slots: readonly THREE.Mesh[]) 
       if (disposed) return;
       const ctx = title.canvas.getContext('2d');
       if (!ctx) return;
-      paintTitle(ctx, 1024, 136);
+      paintTitle(ctx, 1024, 136, titleText);
       title.texture.needsUpdate = true;
     })
     .catch(() => {});
@@ -401,6 +401,13 @@ export function plinkoCabinet(scene: THREE.Scene, slots: readonly THREE.Mesh[]) 
     idleMix = 1;
 
   return {
+    setTitle(name: string) {
+      if (name === titleText) return;
+      titleText = name;
+      const ctx = title.canvas.getContext('2d');
+      if (ctx) paintTitle(ctx, 1024, 136, name);
+      title.texture.needsUpdate = true;
+    },
     /** The buckets' own colours, read when the table is painted. */
     paintBuckets(tints: readonly THREE.Color[], big: readonly boolean[]) {
       for (let i = 0; i < SLOTS; i++) {

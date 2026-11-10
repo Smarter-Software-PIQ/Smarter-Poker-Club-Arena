@@ -5,6 +5,7 @@ import {
   RANDOM_SPACE,
 } from './choiceProgressiveGuarantee';
 /** Internal game mathematics. Presentation never advertises return percentages. */
+import { earnedWheelMinimum } from './diamondBonusPayout';
 import { hmacSha256Hex, sha256Hex } from './wheelFairness';
 import {
   isRoadCoinVersion,
@@ -382,12 +383,16 @@ export async function verifyChoiceRoundDetailed(
       return true;
     }),
     payout: await checked(async () => {
+      const wheelFloor = earnedWheelMinimum(round as unknown as Record<string, unknown>) ?? 0;
       if (round.status === 'lost')
         return (
           round.payout_chips ===
-          (version === 5 || coinRoad
-            ? choiceLossGuarantee(round.prizes, round.picked.length - 1, floor)
-            : floor)
+          Math.max(
+            wheelFloor,
+            version === 5 || coinRoad
+              ? choiceLossGuarantee(round.prizes, round.picked.length - 1, floor)
+              : floor
+          )
         );
       if (round.status !== 'cashed') return false;
       const n = round.picked.length;
@@ -401,7 +406,10 @@ export async function verifyChoiceRoundDetailed(
         rational.denominator,
         BigInt(`0x${hash.slice(0, 12)}`)
       );
-      return Number(cents) === Math.round(round.payout_chips * 100);
+      return (
+        Math.max(Number(cents), Math.round(wheelFloor * 100)) ===
+        Math.round(round.payout_chips * 100)
+      );
     }),
   };
 }

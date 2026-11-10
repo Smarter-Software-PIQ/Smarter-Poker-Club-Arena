@@ -28,7 +28,7 @@ INSERT INTO original_eight_admission_expected VALUES
  ('e474c3ca-ae34-4540-bb2e-6d1313228990'::uuid,53313725::bigint,'b4652516ee8c0b25f7324177242410b8'::text,'1f4eed961afffd4d85e17cbe604b38de8e0d143d199ac10f0e93a314dfddc072'::text),
  ('e474c3ca-ae34-4540-bb2e-6d1313228990'::uuid,53314813::bigint,'84b1c795d79f57d5655a7df85c4d71f3'::text,'73e0f459c0235b5ee74b8ded56d7bea6472802633f496a92f6a2ac89c5a32c62'::text);
 DO $original_eight_admission$
-DECLARE k record;s jsonb;r jsonb;accepted_outcome public.union_pnl_cash_outcomes;before_rows jsonb;after_rows jsonb;terms jsonb;
+DECLARE v_hand record;s jsonb;r jsonb;accepted_outcome public.union_pnl_cash_outcomes;before_rows jsonb;after_rows jsonb;terms jsonb;
  sig text;expected_hash text;n integer:=0;
 BEGIN
  IF current_user<>'postgres'OR session_user<>'postgres'OR NULLIF(current_setting('request.jwt.claims',true),'')IS NOT NULL
@@ -97,17 +97,17 @@ BEGIN
  JOIN public.cash_hand_participant_manifests m ON m.id=p.manifest_id
  JOIN public.hand_atomic_commits a ON a.hand_id=p.hand_id;
  IF jsonb_array_length(before_rows)IS DISTINCT FROM 8 THEN RAISE EXCEPTION 'ORIGINAL_EIGHT_COMPLETE_ORIGINALS_REQUIRED';END IF;
- FOR k IN SELECT *FROM original_eight_admission_expected ORDER BY table_id,hand_number LOOP
-  s:=smarter_private.posthand_escrow_original_snapshot(k.table_id,k.hand_number);
-  IF md5((s->'proof')::text)IS DISTINCT FROM k.proof_md5
-   OR encode(extensions.digest(convert_to(s::text,'UTF8'),'sha256'),'hex')IS DISTINCT FROM k.original_sha256 THEN
+ FOR v_hand IN SELECT *FROM original_eight_admission_expected ORDER BY table_id,hand_number LOOP
+  s:=smarter_private.posthand_escrow_original_snapshot(v_hand.table_id,v_hand.hand_number);
+  IF md5((s->'proof')::text)IS DISTINCT FROM v_hand.proof_md5
+   OR encode(extensions.digest(convert_to(s::text,'UTF8'),'sha256'),'hex')IS DISTINCT FROM v_hand.original_sha256 THEN
    RAISE EXCEPTION 'ORIGINAL_EIGHT_EXPECTED_IMMUTABLE_PROOF_CHANGED';END IF;
-  r:=public.fn_union_pnl_certify_posthand_escrow(k.table_id,k.hand_number,k.proof_md5,k.original_sha256);
-  IF r->>'status'IS DISTINCT FROM 'certified'OR r->>'original_sha256'IS DISTINCT FROM k.original_sha256 THEN
+  r:=public.fn_union_pnl_certify_posthand_escrow(v_hand.table_id,v_hand.hand_number,v_hand.proof_md5,v_hand.original_sha256);
+  IF r->>'status'IS DISTINCT FROM 'certified'OR r->>'original_sha256'IS DISTINCT FROM v_hand.original_sha256 THEN
    RAISE EXCEPTION 'ORIGINAL_EIGHT_WRITER_REFUSED';END IF;
-  SELECT actual.*INTO STRICT accepted_outcome FROM public.union_pnl_cash_outcomes actual WHERE actual.table_id=k.table_id AND actual.hand_number=k.hand_number;
+  SELECT actual.*INTO STRICT accepted_outcome FROM public.union_pnl_cash_outcomes actual WHERE actual.table_id=v_hand.table_id AND actual.hand_number=v_hand.hand_number;
   IF public.fn_union_pnl_cash_outcome_accepted(accepted_outcome)IS DISTINCT FROM true
-   OR public.fn_pnl_cash_hand_evidence(k.table_id,k.hand_number)->>'status'IS DISTINCT FROM 'ready' THEN
+   OR public.fn_pnl_cash_hand_evidence(v_hand.table_id,v_hand.hand_number)->>'status'IS DISTINCT FROM 'ready' THEN
    RAISE EXCEPTION 'ORIGINAL_EIGHT_UNCHANGED_CONSUMERS_REFUSED';END IF;
   n:=n+1;
  END LOOP;
