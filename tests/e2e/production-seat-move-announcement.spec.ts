@@ -84,6 +84,8 @@ test('the published table explains controlled seat moves without moving a player
   let tableClient: WebSocketRoute | null = null;
   let latestSequence = 0;
   let syntheticPhase = false;
+  let destinationId: string | null = null;
+  let destinationSocket: WebSocketRoute | null = null;
   const refusedSynthetic = { http: 0, websocket: 0 };
   let forwardedSyntheticUpstream = 0;
   const heroDiagnostics: string[] = [];
@@ -164,6 +166,13 @@ test('the published table explains controlled seat moves without moving a player
         // phase. Never forward synthetic client participation or diagnostics.
         if (syntheticPhase) {
           refusedSynthetic.websocket++;
+          if (engine && destinationId) {
+            const frame = JSON.parse(String(message));
+            if (frame.type === 'SUBSCRIBE' && frame.tableId === destinationId) {
+              destinationSocket = client;
+              client.send(JSON.stringify({ type: 'SUBSCRIBED', tableId: destinationId }));
+            }
+          }
           return;
         }
         if (!engine) {
@@ -533,7 +542,32 @@ test('the published table explains controlled seat moves without moving a player
     // Replay the destination snapshots on the rendered table with all upstream
     // writes blocked. The vacated seat first shows its previous player's blind.
     const hero = page.locator(`.seat--hero[data-player-id="${fixtureUserId}"]`);
+    await page.getByRole('button', { name: 'Stop Following', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Stop Following', exact: true })).toHaveCount(0);
+    destinationId = main.id;
+    tableClient!.send(
+      JSON.stringify({
+        type: 'EVENT',
+        tableId: source.id,
+        ts: Date.now(),
+        payload: {
+          type: 'seat_moved',
+          table_id: source.id,
+          to_table_id: destinationId,
+          user_id: fixtureUserId,
+          reason: 'table_balance',
+          timestamp: Date.now(),
+        },
+      })
+    );
+    await expect
+      .poll(() => new URL(page.url()).pathname.endsWith('/table/' + destinationId))
+      .toBe(true);
+    await expect.poll(() => destinationSocket !== null).toBe(true);
+    const destination = destinationSocket! as WebSocketRoute;
     const blind = structuredClone(input);
+    blind.tableId = destinationId;
+    blind.state.table_id = destinationId;
     blind.seq++;
     blind.state.stage = 'preflop';
     blind.state.hand_number = Number(input.state.hand_number) + 1;
@@ -548,20 +582,20 @@ test('the published table explains controlled seat moves without moving a player
       is_all_in: false,
     });
     blind.state.current_player = null;
-    tableClient!.send(JSON.stringify(blind));
+    destination.send(JSON.stringify(blind));
     await expect(
       page.locator(`.seat[data-player-id="${diagnosticActorId}"] .seat__bet-chips`)
     ).toBeVisible();
 
     const board = ['2clubs', '7diamonds', '9hearts'];
-    tableClient!.send(
+    destination.send(
       JSON.stringify({
         type: 'EVENT',
-        tableId: source.id,
+        tableId: destinationId,
         ts: Date.now(),
         payload: {
           type: 'community_cards_dealt',
-          table_id: source.id,
+          table_id: destinationId,
           hand_number: blind.state.hand_number,
           stage: 'flop',
           new_cards: board,
@@ -586,9 +620,9 @@ test('the published table explains controlled seat moves without moving a player
       bet: 0,
       position: '',
     });
-    tableClient!.send(JSON.stringify(waiting));
+    destination.send(JSON.stringify(waiting));
     await expect(hero.getByTestId('seat-waiting-button-badge')).toHaveText(
-      'Waiting for the button to pass'
+      'Waiting For The Button To Pass'
     );
     await expect(hero.getByTestId('seat-waiting-button-badge')).toBeVisible();
     await expect(hero.locator('.seat__card')).toHaveCount(0);
@@ -613,7 +647,7 @@ test('the published table explains controlled seat moves without moving a player
         { rank: '3', suit: 'spades' },
       ],
     });
-    tableClient!.send(JSON.stringify(admitted));
+    destination.send(JSON.stringify(admitted));
     await expect(hero.getByTestId('seat-waiting-button-badge')).toHaveCount(0);
     await expect(hero.locator('.seat__cards--hero .seat__card--face')).toHaveCount(2);
     await expect(hero.locator('.seat__bet-chips')).toHaveCount(0);
