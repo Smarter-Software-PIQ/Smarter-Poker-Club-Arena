@@ -470,7 +470,7 @@ describe('the entry big blind in SQL, and its activation order (20261025050528, 
     // The TypeScript port mirrors it line for line.
     expect(MODEL).toContain('const entryOn = snapshot.entryBigBlind ?? params.entryBigBlind;');
     expect(MODEL).toContain('rest.filter(isLightningNewcomer)');
-    // Entry posters last; then (20261110160345, position fairness) the most
+    // Entry posters last; then (20261110175018, position fairness) the most
     // hands since a small blind; then the big-blind order, as before.
     expect(MODEL).toMatch(
       /isEntry\(a\) - isEntry\(b\) \|\|\s*\(recency \? \(b\.handsSinceSb \?\? 0\) - \(a\.handsSinceSb \?\? 0\) : 0\) \|\|\s*compareBlindOrder\(a, b\)/

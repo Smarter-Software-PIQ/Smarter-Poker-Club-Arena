@@ -547,7 +547,7 @@ proof=$(sed -n 's/^-- @live-proof: //p' "$M/20261015214203_lightning_calibration
   -f "$M/20261025050528_lightning_newcomer_posts_a_live_entry_big_blind.sql" \
   -f "$M/20261025050534_lightning_hand_player_admits_the_entry_big_blind_role.sql" \
   -f "$M/20261026131624_lightning_five_ready_players_wait_one_second_for_a_sixth.sql" \
-  -f "$M/20261110160345_lightning_blinds_and_button_go_to_the_longest_waiting_player.sql" \
+  -f "$M/20261110175018_lightning_blinds_and_button_go_to_the_longest_waiting_player.sql" \
   -c "SET request.headers = '{\"x-smarter-lightning-entry-bb\":\"1\"}'" \
   -f "$F/lightning-current-policy-parity.sql" \
   -f "$F/lightning-entry-big-blind-parity.sql" \

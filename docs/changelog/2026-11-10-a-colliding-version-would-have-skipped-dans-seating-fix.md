@@ -57,6 +57,24 @@ and `validateWindowMigration` refused the file because an install window
 declaration must be exactly one line. The validator was right and was not
 weakened; the prose was reworded.
 
+## The rename has a second half (CLAUDE.md 10.86 rule 4)
+
+A migration's version is not only a filename. `scripts/dev/test-lightning-matcher-parity.sh`
+line 550 loads this migration by exact filename with `psql -f`, to prove the
+TypeScript matcher port decides what `fn_lightning_match_plan` decides on the
+same snapshot. Renaming the file broke that load, and the first push of this
+change turned `Accounting transactions (PostgreSQL 17) shard 3/7` red on the
+step named for that proof. The harness reference is updated here, in the same
+change as the rename.
+
+Four provenance mentions of the old version are updated with it, so a reader
+who looks the version up does not land on the unrelated table_seats migration:
+`server/src/lightning/LightningPositionFairness.test.ts`,
+`server/src/lightning/ANewPlayersFirstLightningHandIsTheBigBlind.law.test.ts`,
+`scripts/dev/fixtures/lightning-position-fairness-parity.sql`, and the #10373
+changelog's own filename line. The table_seats migration and its changelog keep
+`20261110160345`, which is the version production recorded them under.
+
 ## Verified
 
 `migrationVersionUniqueness`, `a-window-migration-waits-for-the-daily-break`
