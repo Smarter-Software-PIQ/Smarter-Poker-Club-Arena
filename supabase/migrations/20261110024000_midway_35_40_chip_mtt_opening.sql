@@ -1,6 +1,6 @@
 -- Total entry includes the fee. The public event label determines exclusions.
 -- Nightly 10K is included by explicit owner direction despite its legacy preset.
--- @live-proof: (SELECT count(*)=4 AND bool_and(config->>'startingStack'='15000' AND config#>>'{blindStructure,0,smallBlind}'='25' AND config#>>'{blindStructure,0,bigBlind}'='50' AND config#>>'{midwayWeeklyTerms,starting_chips}'='15000') FROM public.tournament_schedules WHERE active AND union_id='fade0000-0000-0000-0000-000000000001' AND (config->>'buyIn')::numeric IN (35,40) AND name !~* 'deep[[:space:]_-]*stacks?|special[[:space:]_-]*events?')
+-- @live-proof: (SELECT count(*)=4 AND bool_and(config->>'startingStack'='15000' AND config#>>'{blindStructure,0,smallBlind}'='25' AND config#>>'{blindStructure,0,bigBlind}'='50' AND config#>>'{midwayWeeklyTerms,starting_chips}'='15000' AND config->>'lateRegistrationLevels'='10' AND config#>>'{midwayWeeklyTerms,late_reg_levels}'='10') FROM public.tournament_schedules WHERE active AND union_id='fade0000-0000-0000-0000-000000000001' AND (config->>'buyIn')::numeric IN (35,40) AND name !~* 'deep[[:space:]_-]*stacks?|special[[:space:]_-]*events?')
 BEGIN;
 SET LOCAL lock_timeout='1s';
 SET LOCAL statement_timeout='8s';
@@ -45,9 +45,11 @@ BEGIN
   WHERE s.id=r.id AND s.id=ANY(updated_ids) AND s.active AND s.union_id=r.union_id;
 
   UPDATE public.tournaments t SET starting_chips=15000,
-    blind_structure=jsonb_set(t.blind_structure::jsonb,'{0}',t.blind_structure::jsonb->0 || '{"smallBlind":25,"bigBlind":50}'::jsonb)::text,
+    blind_structure=(s.config->'blindStructure')::text,
+    late_reg_levels=(s.config->>'lateRegistrationLevels')::integer,
     short_description=replace(t.short_description,'10,000 Starting Chips','15,000 Starting Chips')
-  WHERE t.schedule_id=ANY(updated_ids) AND t.union_id='fade0000-0000-0000-0000-000000000001'
+  FROM public.tournament_schedules s
+  WHERE s.id=t.schedule_id AND t.schedule_id=ANY(updated_ids) AND t.union_id='fade0000-0000-0000-0000-000000000001'
     AND t.tournament_type='MTT' AND t.buy_in_amount+t.buy_in_fee IN (35,40)
     AND t.name !~* 'deep[[:space:]_-]*stacks?|special[[:space:]_-]*events?'
     AND t.status IN ('ANNOUNCED','REGISTERING','SCHEDULED','PENDING') AND t.started_at IS NULL
