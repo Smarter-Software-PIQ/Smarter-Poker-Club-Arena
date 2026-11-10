@@ -1160,6 +1160,20 @@ test('a single tap on the fighter launches Crash and opens cashout in the same c
         requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
       )
   );
+  const cabinetPaint = await page.locator('[data-game-console]').evaluate((cabinet) => ({
+    title: getComputedStyle(cabinet.querySelector('h1')!).borderImageSource,
+    buttons: [...cabinet.querySelectorAll('button[data-plate]')].map((button) => ({
+      border: getComputedStyle(button).borderImageSource,
+      color: getComputedStyle(button).color,
+    })),
+  }));
+  expect(cabinetPaint.title).toContain('button-secondary.png');
+  expect(cabinetPaint.buttons.length).toBeGreaterThan(0);
+  for (const button of cabinetPaint.buttons) {
+    expect(button.border).toMatch(/button-(primary|secondary)\.png/);
+    expect(button.color).toBe('rgb(255, 255, 255)');
+  }
+  await expect(page.locator('[data-line-label="floor"]')).not.toBeVisible();
   await page.screenshot({ path: test.info().outputPath('crash-cockpit-862.png') });
   await page.setViewportSize({ width: 1280, height: 800 });
   await onTheGlass(page, 'Crash desktop');

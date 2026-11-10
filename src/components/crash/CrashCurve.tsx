@@ -77,7 +77,6 @@ import { createSceneTelemetry, reportSceneFailure } from '../games/sceneTelemetr
 import { gameRenderer, metal, solid } from '../games/sceneKit';
 import { prefersReducedMotion, getAnimationSpeed } from '../../utils/animationSpeed';
 import { crashMultiplierCents } from '../../utils/diamondGamesFairness';
-import { gameChips } from '../../utils/bonusGameBudget';
 import { reportError } from '../../utils/errorReporter';
 import { soundService } from '../../services/SoundService';
 import styles from './CrashCurve.module.css';
@@ -704,14 +703,14 @@ const RIBBON_HEAT = {
     glow: new THREE.Color(0x7fd0ff),
   },
   warm: {
-    core: new THREE.Color(0xffe27a),
-    halo: new THREE.Color(0xd9a500),
-    glow: new THREE.Color(0xffd700),
+    core: new THREE.Color(0xe3f5ff),
+    halo: new THREE.Color(0x1877f2),
+    glow: new THREE.Color(0x369cff),
   },
   hot: {
-    core: new THREE.Color(0xfff8e1),
-    halo: new THREE.Color(0xffd700),
-    glow: new THREE.Color(0xfff2c4),
+    core: new THREE.Color(0xffffff),
+    halo: new THREE.Color(0x369cff),
+    glow: new THREE.Color(0xc9eaff),
   },
 };
 
@@ -857,8 +856,8 @@ const BURST_PALETTE = {
   },
   max: {
     flash: new THREE.Color(0xfff6d0),
-    fire: new THREE.Color(0xffd700).multiplyScalar(1.5),
-    shock: new THREE.Color(0xffd700).multiplyScalar(1.4),
+    fire: new THREE.Color(0x369cff).multiplyScalar(1.5),
+    shock: new THREE.Color(0x369cff).multiplyScalar(1.4),
     bright: new THREE.Color(0xfff6d0),
     dim: new THREE.Color(0xffb300),
   },
@@ -1326,31 +1325,7 @@ export default function CrashCurve(props: CrashCurveProps) {
           capLabelY !== null && Math.abs(capLabelY - above) < TICK_LABEL_GAP ? y + 12 : above;
         place(marks.auto, 6, y, width - 6, y, width - 8, labelY, `Auto ${tickerLabel(auto)}`);
       } else hide(marks.auto);
-      const floor = floorCents(p.minimumPayoutChips, p.betChips);
-      let floorY: number | null = null;
-      if (floor !== null) {
-        if (floor >= 100) {
-          const q = progressOf(floor);
-          if (q <= 1) floorY = toScreen(q)[1];
-        } else {
-          // Below the launch line the axis is extended at its own scale; the
-          // floor is drawn only while that puts it inside the frame.
-          const y = y0 + (Math.log(100 / floor) / maxLog) * (y0 - y1);
-          if (y <= height - 20) floorY = y;
-        }
-      }
-      if (floorY !== null && p.minimumPayoutChips)
-        place(
-          marks.floor,
-          6,
-          floorY,
-          width - 6,
-          floorY,
-          width - 8,
-          floorY - 4,
-          `Guaranteed ${gameChips(p.minimumPayoutChips)} Chips`
-        );
-      else hide(marks.floor);
+      hide(marks.floor);
       const [hx, hy] = toScreen(progress);
       if (fallbackJet.current) {
         fallbackJet.current.style.left = `${hx}px`;
