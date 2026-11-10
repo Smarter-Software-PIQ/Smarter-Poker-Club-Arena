@@ -23,6 +23,7 @@ import { createDefaultRegistry, type Counter, type Histogram } from './Metrics.j
 import { Tracer, InMemorySpanExporter } from './Tracing.js';
 import { MetricsRegistry as AlwaysOnRegistryCtor } from './Metrics.js';
 import { sampleProcessMemory } from './processMemory.js';
+import { HORSE_DECISION_FALLBACK_REASONS } from '../engine/horseDecision/fallbackReason.js';
 
 /**
  * ALWAYS-ON registry: exposed by /metrics unconditionally, and therefore the
@@ -700,8 +701,10 @@ for (const audience of ['human', 'horse']) {
  *                    kind=timer (17 s primary expiry) or kind=timebank (a bank
  *                    deadline, including an orphaned one from a previous turn,
  *                    which was 67/hour on 2026-09-11 before the settle fix);
- *   decision_fallbacks  the worker failed or expired and the seat took the
- *                    legal check/fold instead of a computed decision;
+ *   decision_fallbacks  the FAST decision was rejected and the seat took the
+ *                    legal check/fold instead of a computed decision; `reason`
+ *                    names the rejection path from a closed set
+ *                    (engine/horseDecision/fallbackReason.ts);
  *   seat_unactable   every one of the three commit attempts was rejected and
  *                    the seat was left to the watchdog;
  *   forced_sit_outs  the three-strike ladder sat a horse out - a horse has no
@@ -716,7 +719,7 @@ export const horseTurnTimeoutsTotal: Counter = alwaysOnRegistry.counter(
 );
 export const horseDecisionFallbacksTotal: Counter = alwaysOnRegistry.counter(
   'poker_horse_decision_fallbacks_total',
-  'Horse turns that took the legal check/fold because the decision worker failed or expired'
+  'Horse turns that took the legal check/fold because the decision was rejected (label: reason, the closed set in engine/horseDecision/fallbackReason.ts)'
 );
 export const horseSeatUnactableTotal: Counter = alwaysOnRegistry.counter(
   'poker_horse_seat_unactable_total',
@@ -816,7 +819,8 @@ for (const variant of HORSE_POLICY_LEDGER_VARIANTS) {
 }
 horseTurnTimeoutsTotal.inc(0, { kind: 'timer' });
 horseTurnTimeoutsTotal.inc(0, { kind: 'timebank' });
-horseDecisionFallbacksTotal.inc(0);
+for (const reason of HORSE_DECISION_FALLBACK_REASONS)
+  horseDecisionFallbacksTotal.inc(0, { reason });
 horseSeatUnactableTotal.inc(0);
 for (const format of ['cash', 'spin', 'hu_sng', 'sng', 'mtt']) {
   horseForcedSitOutsTotal.inc(0, { format });

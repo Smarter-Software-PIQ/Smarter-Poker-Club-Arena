@@ -36,7 +36,7 @@ vi.mock('../../src/services/DiamondGamesService', () => ({
 }));
 vi.mock('../../src/services/DiamondBonusService', async (original) => ({
   ...(await original<typeof import('../../src/services/DiamondBonusService')>()),
-  DiamondBonusService: { start: backend.start },
+  DiamondBonusService: { start: backend.start, plinkoProgress: async () => null },
 }));
 vi.mock('../../src/services/WheelBonusEntryService', async (original) => ({
   ...(await original<typeof import('../../src/services/WheelBonusEntryService')>()),
@@ -62,7 +62,6 @@ vi.mock('../../src/components/crash/CrashCurve', () => ({ default: () => null })
 vi.mock('../../src/components/common/PageSkeleton', () => ({ default: () => null }));
 vi.mock('../../src/components/wheel/WheelWinReveal', () => ({ WheelWinReveal: () => null }));
 vi.mock('../../src/components/games/DiamondSpinsTabs', () => ({ default: () => null }));
-vi.mock('../../src/components/games/TodayLine', () => ({ default: () => null }));
 vi.mock('../../src/components/games/SealedPrize', () => ({ default: () => null }));
 vi.mock('../../src/components/games/FloorFeed', () => ({ default: () => null }));
 
@@ -130,7 +129,7 @@ const won = (page: Page) =>
     quote: { guarantee: 'super', minimumPayoutChips: 1, mode: null, plinkoTable: 4 },
   }));
 /** The plate the player presses on screen two: nothing presses it for them (R1). */
-const PLATE: Record<Page, string> = { plinko: 'Drop Diamonds', crash: 'Start 200' };
+const PLATE: Record<Page, string> = { plinko: 'Drop One', crash: 'Start 200' };
 /** Plinko's screen two: the drop value is the player's choice (R6). */
 const chooseDrops = async (page: Page) => {
   if (page !== 'plinko') return;

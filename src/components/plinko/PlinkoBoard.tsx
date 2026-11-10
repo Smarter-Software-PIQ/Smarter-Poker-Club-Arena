@@ -171,10 +171,11 @@ function dropDiamondGeometry() {
  */
 function payoutInscription(multiplier: number) {
   const canvas = document.createElement('canvas');
-  canvas.width = 160;
-  canvas.height = 272;
+  canvas.width = 320;
+  canvas.height = 544;
   const ctx = canvas.getContext('2d');
   if (ctx) {
+    ctx.scale?.(2, 2);
     const tint = bucketTint(multiplier);
     const big = isBigWin(multiplier);
     // The glass sheen across the top of the plate.
@@ -197,7 +198,7 @@ function payoutInscription(multiplier: number) {
     // The backlight: the numeral glows in the bucket's colour.
     ctx.save();
     ctx.shadowColor = tint;
-    ctx.shadowBlur = big ? 30 : 18;
+    ctx.shadowBlur = big ? 10 : 5;
     ctx.fillStyle = tint;
     ctx.fillText(value, 80, 104, 140);
     ctx.restore();
@@ -217,6 +218,8 @@ function payoutInscription(multiplier: number) {
 }
 
 export interface PlinkoBoardProps {
+  compactLegend?: boolean;
+  title?: string;
   multipliersCents: number[];
   tableMultipliersCents?: number[];
   path: number[] | null;
@@ -476,6 +479,7 @@ export default function PlinkoBoard(props: PlinkoBoardProps) {
       const p = latest.current;
       // Read once a frame: a setting change mid-flight must not split a timeline.
       const speed = getAnimationSpeed();
+      cabinet.setTitle((p.title ?? 'Diamond Plinko').toUpperCase());
       const nextLabel = p.multipliersCents.join(',');
       if (labelKey !== nextLabel) {
         labelKey = nextLabel;
@@ -748,7 +752,7 @@ export default function PlinkoBoard(props: PlinkoBoardProps) {
         aria-label="Plinko Board"
       />
       <section
-        className={styles.payouts}
+        className={props.compactLegend && !failed ? styles.accessiblePayouts : styles.payouts}
         style={{ maxWidth: width }}
         aria-label="Payout Multipliers"
       >

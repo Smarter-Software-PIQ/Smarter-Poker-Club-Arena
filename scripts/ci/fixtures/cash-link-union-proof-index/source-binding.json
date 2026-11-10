@@ -15,7 +15,7 @@
     ".github/workflows/unpaid-lightning-funding-contracts.yml": "5a2a703ad7d198e1154ee7e5adcab6ea2b774981957c0027344b4c0a8f6f1e7d",
     "scripts/ci/contract-index-recovery.mjs": "f348be2a919456e08ec9293bfc0f36b6af0be254588d379bfd3cca297e55bd7c",
     "scripts/ci/contract-index-recovery.test.mjs": "8727c21046ea29fe1a01fb3433ee0d94f975c4e91805a52e0e0673b6671c6e98",
-    "scripts/ci/apply-recorded-migration.mjs": "6e2bfb30eab9862cbc2ec9952aaf619e439b454133a82674b38c38a1e21220b8",
+    "scripts/ci/apply-recorded-migration.mjs": "a0fe1c2fca5a26ba3c2e7deff8b59d86ef6c9bcdabababce85a5f47b4b17faaa",
     ".github/workflows/apply-merged-migration.yml": "9049e437ac500dbda7da0db90c33101205d8af9cb559541ca62c670a11ca07d1",
     "docs/changelog/2026-10-28-cash-selector-bounded-build-recovery.md": "30ec99aca57f738f841167aefca2c47c8c68cda088f7b6189b3e46e532137f1e",
     "scripts/ci/fixtures/cash-link-union-proof-index/actual-function-cold-plans.py": "31974fb62fbb677047a80686903e6c96f8f11db1a64c8bc0daccb5242c17ac7d"
@@ -122,5 +122,11 @@
     },
     "review": "Reviewed exact diff. The only change in apply-merged-migration.yml is inside the existing bounded queue loop of the 'Apply the migration' step: once no earlier applier run is active, it asks scripts/ci/backup-export-holds-installs.mjs (read-only GitHub GETs, no database credential) whether a backup-engine refresh is between a successful due decision and the end of its production export, and keeps waiting under the same 900 s deadline while one is. An unreadable answer or a timeout is REFUSED with nothing sent (code=1), exactly like the existing queue refusals; plus comment and message lines. Triggers, inputs, concurrency, permissions, timeout, the apply command and its recovery arguments are unchanged. No financial, native or production qualification is restamped or claimed.",
     "reason": "2026-11-09: an install committing inside a Backup refresh export makes the copy disagree with itself (schema-evidence compare) and costs the Backup certificate a full rerun."
+  },
+  "wheelWalletLockObservation20261110": {
+    "path": "scripts/ci/apply-recorded-migration.mjs",
+    "before": "6e2bfb30eab9862cbc2ec9952aaf619e439b454133a82674b38c38a1e21220b8",
+    "after": "a0fe1c2fca5a26ba3c2e7deff8b59d86ef6c9bcdabababce85a5f47b4b17faaa",
+    "review": "The changed installer imports a read-only pg_locks observer and calls it only for the exact ordinary Diamond Spins wallet cutover. Prior to the existing timed migration transaction, it waits at most 60 seconds for readers and rechecks the existing DDL admission door. The two index qualifications use other exact filenames and never enter this branch."
   }
 }

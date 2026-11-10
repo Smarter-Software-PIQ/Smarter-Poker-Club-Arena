@@ -73,7 +73,7 @@ const CATEGORY_ALTERNATIVES = {
   Tables: ['Classic Green', 'Carbon Red', 'Ocean Blue'],
   Scenes: ['Midnight', 'Royal Indigo', 'Emerald Room'],
   Buttons: ['White D', 'Red D', 'Gray D'],
-  Cards: ['Classic Blue', 'Classic Red', 'Royal'],
+  Cards: ['Navy Medallion', 'Red Lattice', 'Forest Weave'],
 } as const;
 
 const CATEGORY_APPEARANCE_FIELD = {
@@ -93,9 +93,9 @@ const FREE_ASSET_ID_BY_NAME: Record<string, string> = {
   'White D': 'classic-white',
   'Red D': 'red-d-gear',
   'Gray D': 'gray-d-gear',
-  'Classic Blue': 'classic_blue',
-  'Classic Red': 'classic_red',
-  Royal: 'royal',
+  'Navy Medallion': 'classic_blue',
+  'Red Lattice': 'classic_red',
+  'Forest Weave': 'royal',
 };
 
 const PRODUCTION_RESPONSE_TIMEOUT = 60_000;

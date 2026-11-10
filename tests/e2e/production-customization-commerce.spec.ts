@@ -637,7 +637,7 @@ test.describe('production Table Studio commerce certification', () => {
       await applyAsset(secondStudio, 'Tables', 'Neon City');
       await applyAsset(secondStudio, 'Scenes', 'Las Vegas');
       await applyAsset(secondStudio, 'Buttons', 'Amethyst Chip');
-      await applyAsset(secondStudio, 'Cards', 'Premium Gold');
+      await applyAsset(secondStudio, 'Cards', 'Golden Sunburst');
       await applyAsset(secondStudio, 'Decks', 'Neon Circuit');
       await expectPersistedAppearance(environment, buyer.id, FINAL_APPEARANCE);
       await expectAppearance(firstStudio, FINAL_APPEARANCE);

@@ -1,4 +1,5 @@
 import { HorseRequestRetentionBudget, horseRequestAllowance } from './requestRetentionBudget.js';
+import { markHorseDecisionRejection } from './fallbackReason.js';
 import type { HorseOwnPublicHistoryLoader } from './ownPublicHistoryProvenance.js';
 import {
   V31ControlClient,
@@ -254,6 +255,7 @@ export class HorseDecisionExpiredError extends Error {
 
   constructor(message = 'horse decision expired before worker dispatch') {
     super(message);
+    markHorseDecisionRejection(this, 'expired');
   }
 }
 
@@ -856,8 +858,12 @@ export class LiveHorseDecisionWorkerClient {
       false,
       Math.max(1, callerBudget - (Date.now() - startedAt))
     ).then((result) => {
-      if (context)
-        this.ownPublicHistory?.acknowledge(context, result.observerHistoryAckDigest ?? null);
+      try {
+        if (context)
+          this.ownPublicHistory?.acknowledge(context, result.observerHistoryAckDigest ?? null);
+      } catch (error) {
+        throw markHorseDecisionRejection(error, 'post_result_failed');
+      }
       return result;
     });
   }
@@ -1241,10 +1247,20 @@ export class LiveHorseDecisionWorkerClient {
     deadlineMs?: number
   ): Promise<T> {
     if (this.phase === 'stopping' || this.phase === 'stopped') {
-      return Promise.reject(new Error('live horse decision worker is stopping'));
+      return Promise.reject(
+        markHorseDecisionRejection(
+          new Error('live horse decision worker is stopping'),
+          'shard_stopping'
+        )
+      );
     }
     if (this.phase === 'failed') {
-      return Promise.reject(new Error(this.lastError ?? 'live horse decision worker failed'));
+      return Promise.reject(
+        markHorseDecisionRejection(
+          new Error(this.lastError ?? 'live horse decision worker failed'),
+          'shard_failed'
+        )
+      );
     }
     if (signal?.aborted) return Promise.reject(new HorseDecisionAbortedError());
 
@@ -1256,7 +1272,7 @@ export class LiveHorseDecisionWorkerClient {
       request = structuredClone(request);
     } catch (error) {
       if (reserved) this.requestRetention.release(request.requestId);
-      return Promise.reject(error);
+      return Promise.reject(markHorseDecisionRejection(error, 'enqueue_failed'));
     }
     return new Promise<T>((resolve, reject) => {
       const enqueuedAt = Date.now();
@@ -1471,6 +1487,7 @@ export class LiveHorseDecisionWorkerClient {
     this.lastRecoverableRequestErrorAt = this.lastCompletedAt;
     this.lastRecoverableRequestErrorType = active.request.type;
     this.lastRecoverableRequestError = error.message;
+    markHorseDecisionRejection(error, 'result_refused');
     noteFire('horse_decision_refused_isolated');
     if (
       message.type === 'FAST_RESULT' &&
@@ -1636,7 +1653,7 @@ export class LiveHorseDecisionWorkerClient {
         this.fail(new Error(message.message));
         return;
       }
-      const error = new Error(message.message);
+      const error = markHorseDecisionRejection(new Error(message.message), 'validation_failed');
       this.retireHead(active);
       this.lastCompletedAt = Date.now();
       this.recoverableRequestErrors += 1;
@@ -2264,6 +2281,7 @@ export class LiveHorseDecisionWorkerClient {
   private fail(error: Error): void {
     this.v31Control?.close(error);
     if (this.phase === 'failed' || this.phase === 'stopped') return;
+    markHorseDecisionRejection(error, 'shard_failed');
     // Work returned by a dead worker is restarted authority from here on.
     liveHorsePhase8Authority.forgetWorker(this.phase8WorkerEpoch);
     liveHorsePhase8GuardAuthority.forgetWorker(this.phase8GuardWorkerEpoch);

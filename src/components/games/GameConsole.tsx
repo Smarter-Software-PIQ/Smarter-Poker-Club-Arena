@@ -35,6 +35,7 @@ export type GamePlate = PlateButtonProps & { flash?: boolean };
 export function GameConsole({
   title,
   titleId,
+  collapseSetup = false,
   pill,
   bays,
   secondary,
@@ -47,6 +48,7 @@ export function GameConsole({
 }: {
   title: string;
   titleId?: string;
+  collapseSetup?: boolean;
   pill?: string;
   pillInk?: ConsoleInk;
   bays: DeckBay[];
@@ -153,7 +155,14 @@ export function GameConsole({
       </header>
       <div className={styles.playfield}>{children}</div>
       <aside className={styles.controls} aria-label={`${title} Controls`}>
-        {setup}
+        {setup && collapseSetup ? (
+          <details className={styles.entryDetails}>
+            <summary>Entry Details</summary>
+            {setup}
+          </details>
+        ) : (
+          setup
+        )}
         <dl className={styles.metrics}>
           {bays.map((bay) => (
             <div key={bay.label}>

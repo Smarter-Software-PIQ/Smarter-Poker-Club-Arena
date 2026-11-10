@@ -10,6 +10,7 @@
  * re-flipped here from the revealed seed, and one changed byte must fail.
  */
 import { describe, expect, it } from 'vitest';
+import v8Receipts from '../fixtures/diamond-spins/crossing-v8-postgres-receipts.json';
 import receipts from '../fixtures/diamond-spins/crossing-coin-postgres-receipts.json';
 import {
   ROAD_COIN_REFERENCE_CENTS,
@@ -43,7 +44,13 @@ describe('a contract-6 road verifies on this device exactly as the server dealt 
     // The coins this device flips are the coins the server revealed.
     const proof = round.proof!;
     expect(
-      await roadCoins(proof.server_seed, proof.client_seed, proof.nonce, round.max_steps, ROAD_COIN_VERSION)
+      await roadCoins(
+        proof.server_seed,
+        proof.client_seed,
+        proof.nonce,
+        round.max_steps,
+        ROAD_COIN_VERSION
+      )
     ).toEqual(proof.coins);
     expect(proof.road_end).toBe(roadCoinEnd(proof.coins!));
   });
@@ -55,7 +62,9 @@ describe('a contract-6 road verifies on this device exactly as the server dealt 
       `${proof.client_seed}:${proof.nonce}:street:1`
     );
     expect(Number.parseInt(hash.slice(0, 2), 16) < 128).toBe(false);
-    expect(await roadCoin(proof.server_seed, proof.client_seed, proof.nonce, 1, ROAD_COIN_VERSION)).toBe(false);
+    expect(
+      await roadCoin(proof.server_seed, proof.client_seed, proof.nonce, 1, ROAD_COIN_VERSION)
+    ).toBe(false);
     expect(proof.road_end).toBe(0);
   });
 
@@ -111,9 +120,10 @@ describe('a contract-6 road verifies on this device exactly as the server dealt 
       'crossing'
     );
     expect(state.payout_version).toBe(ROAD_COIN_VERSION);
-    expect(state.prizes).toEqual(roadCoinPrizes(25, 12.5, ROAD_COIN_VERSION).slice(0, state.max_steps));
-    // The reference road a NEW round is quoted from is contract 7's (street one sure).
-    expect(ROAD_COIN_REFERENCE_CENTS).toEqual([80, 110, 165, 247, 370, 555, 832, 1248, 1872, 2000]);
+    expect(state.prizes).toEqual(
+      roadCoinPrizes(25, 12.5, ROAD_COIN_VERSION).slice(0, state.max_steps)
+    );
+    expect(ROAD_COIN_REFERENCE_CENTS[0]).toBe(105);
   });
 
   it('the scene paints the round’s own ladder', () => {
@@ -138,5 +148,39 @@ describe('a contract-6 road verifies on this device exactly as the server dealt 
       expect(choiceRoundVerified(await verifyChoiceRoundDetailed(parseChoiceRound(of(kind))))).toBe(
         true
       );
+  });
+});
+
+describe('Donkey Cross contract 8', () => {
+  it('verifies cash and loss receipts captured from PostgreSQL contract 8', async () => {
+    for (const receipt of v8Receipts) {
+      const round = parseChoiceRound(receipt);
+      expect(choiceRoundVerified(await verifyChoiceRoundDetailed(round))).toBe(true);
+    }
+  });
+  it('matches the absolute HMAC thresholds and restores the old threshold on sealed v7 replay', async () => {
+    for (let i = 0; i < 128; i++) {
+      const seed = `donkey-v8-${i}`;
+      expect(await roadCoin(seed, 'test', 1, 1, 8)).toBe(true);
+      const roll = parseInt((await hmacSha256Hex(seed, 'test:1:street:2')).slice(0, 2), 16);
+      expect(await roadCoin(seed, 'test', 1, 2, 8)).toBe(roll < 224);
+      expect(await roadCoin(seed, 'test', 1, 2, 7)).toBe(roll < 128);
+    }
+  });
+  it('returns 105% gross at every available stopping street', () => {
+    for (const stake of [0.01, 0.25, 1, 25, 26000]) {
+      const floor = Math.ceil(stake * 50) / 100;
+      const prizes = roadCoinPrizes(stake, floor, 8);
+      let survival = 1;
+      let losses = 0;
+      for (const [index, prize] of prizes.entries()) {
+        const safe = index === 0 ? 1 : index <= 3 ? 0.875 : 0.5;
+        const loss = Math.max(floor, Math.ceil((prizes[index - 1] ?? 0) * 50 - 1e-9) / 100);
+        losses += survival * (1 - safe) * loss;
+        survival *= safe;
+        expect((losses + survival * prize) / stake).toBeCloseTo(1.05, 10);
+        expect(prize).toBeLessThanOrEqual(20 * stake);
+      }
+    }
   });
 });

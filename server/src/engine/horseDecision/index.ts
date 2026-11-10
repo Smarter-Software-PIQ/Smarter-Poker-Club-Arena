@@ -1,3 +1,4 @@
 export * from './protocol.js';
 export * from './client.js';
 export * from './lane.js';
+export * from './fallbackReason.js';

@@ -355,3 +355,18 @@
     transform: rotate(0deg) translateY(30px) scale(0.6);
   }
 }
+
+.stage .art {
+  object-fit: cover;
+  border-radius: 10px;
+}
+.stage[data-receipt-art] .figure {
+  top: auto;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  width: auto;
+  padding: 14% 0.4rem 0.5rem;
+  justify-items: center;
+  background: linear-gradient(transparent, #020a15ec);
+}
