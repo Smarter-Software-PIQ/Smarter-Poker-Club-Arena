@@ -1043,6 +1043,13 @@ export class LightningHandHost {
     if (!this.participants.has(playerId) || this.isTerminal()) return;
     if (connected) this.disconnect.heartbeat(this.timerKey, playerId);
     else this.disconnect.markTransportGone(this.timerKey, playerId);
+    this.noteArmHeld(playerId, connected ? 'socket_connected' : 'socket_dropped');
+  }
+
+  /** A reconnect while an arm is held: the record shows the arm persisting. */
+  private noteArmHeld(playerId: string, why: string): void {
+    const armed = this.preActions.getPreAction(this.timerKey, playerId)?.action;
+    if (armed) this.notePreAction(playerId, 'held', armed, why);
   }
 
   private isTerminal(): boolean {
@@ -1314,6 +1321,7 @@ export class LightningHandHost {
     const room = this.watching.get(playerId);
     if (!h || !room || this.isTerminal()) return;
     this.sendHoleCards(playerId, room, h.seat, h.cards);
+    this.noteArmHeld(playerId, 'resync');
   }
 
   private sendHoleCards(playerId: string, room: string, seat: number, cards: Card[]): void {
@@ -1993,10 +2001,12 @@ export class LightningHandHost {
         handId: this.handId,
         clusterId: this.clusterId,
         requestedHandId,
+        roomId: this.roomOf(userId),
         action,
         detail,
         toCall: st && me ? Math.max(0, st.currentBet - me.bet) : null,
         stage: st?.stage ?? null,
+        actionSeq: st ? (st.actionHistory?.length ?? 0) : null,
         atMs: this.now(),
       });
     } catch {

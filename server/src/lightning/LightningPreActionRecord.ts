@@ -23,6 +23,12 @@
  *   rearmed   a carried Check/Fold armed again after its free check
  *   cleared   by the player, invalidated by a bet or at the turn, by a fold
  *             request, or at the hand's end
+ *   held      still armed across a reconnect: the room's socket dropped,
+ *             came back, or asked for a resync while the arm was held
+ *
+ * Every row names the player, the room (their pool session), the hand, the
+ * street and the hand's action sequence at that moment (how many actions the
+ * hand had recorded), so a press can be placed on its exact turn.
  *
  * NEVER ON THE ACTION PATH. `record` is a push into a bounded in-memory
  * buffer and a timer; it never awaits, never throws into its caller and
@@ -40,8 +46,9 @@
  * HORSES ARE PLAYERS (CLAUDE.md 10.5). Nothing here knows or asks whether a
  * player is a horse; every event at the door is recorded the same way.
  *
- * NO CARDS. Who, which hand, which pre-action, what happened, the price owed
- * and the street: never a card.
+ * NO CARDS, NO SECRETS. Who, which room, which hand, which pre-action, what
+ * happened, the price owed, the street and the action sequence: never a card,
+ * a credential or a token.
  */
 import { randomUUID } from 'node:crypto';
 import { isMissingFunctionError } from './rpcErrors.js';
@@ -58,6 +65,7 @@ export const LIGHTNING_PREACTION_EVENT_KINDS = [
   'executed',
   'rearmed',
   'cleared',
+  'held',
 ] as const;
 export type LightningPreActionEventKind = (typeof LIGHTNING_PREACTION_EVENT_KINDS)[number];
 
@@ -79,6 +87,8 @@ export interface LightningPreActionEvent {
   /** Chips owed by the player at that moment, when the engine knew it. */
   readonly toCall?: number | null;
   readonly stage?: string | null;
+  /** How many actions the hand had recorded at that moment (the turn's place). */
+  readonly actionSeq?: number | null;
   /** Engine clock (epoch ms). */
   readonly atMs: number;
 }
@@ -132,6 +142,7 @@ interface Row {
   detail: string | null;
   to_call: number | null;
   stage: string | null;
+  action_seq: number | null;
   at: string;
 }
 
@@ -203,6 +214,10 @@ export class LightningPreActionRecorder {
             ? Math.round(event.toCall * 100) / 100
             : null,
         stage: clip(event.stage ?? null),
+        action_seq:
+          typeof event.actionSeq === 'number' && Number.isInteger(event.actionSeq)
+            ? event.actionSeq
+            : null,
         at: new Date(event.atMs).toISOString(),
       });
       const over = this.buffer.length - this.maxBuffered;

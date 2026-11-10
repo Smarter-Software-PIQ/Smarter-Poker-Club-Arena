@@ -187,6 +187,53 @@ describe('the pre-action record: one row for every outcome at the door', () => {
     expect(mine(bb)).toEqual(['set:auto_call_any:null', 'cleared:auto_call_any:fold_requested']);
   });
 
+  it('every row names the room, the hand, the street and the turn it happened on', async () => {
+    const { formed, t, events } = recorded(5108);
+    await t.host.start();
+    await flush();
+    const bb = formed.bb;
+    const seqBefore = t.host.peekState()!.actionHistory.length;
+    expect(t.host.setPreAction(bb, 'auto_check_fold', undefined, formed.handId).success).toBe(true);
+    expect(t.host.handlePlayerAction(firstToAct(t).user_id, 'raise', 6).success).toBe(true);
+    await flush();
+    const [set, released] = events.filter((e) => e.playerId === bb);
+    expect(set).toMatchObject({
+      kind: 'set',
+      roomId: t.host.roomOf(bb),
+      handId: formed.handId,
+      stage: 'preflop',
+      actionSeq: seqBefore,
+    });
+    expect(set.roomId).toBeTruthy();
+    // The raise that priced it is one more action on the same hand.
+    expect(released).toMatchObject({ kind: 'released', actionSeq: seqBefore + 1 });
+    // Nothing private: no cards and no credentials ride on a row.
+    for (const e of events) expect(JSON.stringify(e)).not.toMatch(/cards|token|secret|password/i);
+  });
+
+  it('an arm held across a socket drop, a reconnect and a resync is recorded as held each time', async () => {
+    const { formed, t, mine } = recorded(5109);
+    await t.host.start();
+    await flush();
+    const bb = formed.bb;
+    expect(t.host.setPreAction(bb, 'auto_check_fold', undefined, formed.handId).success).toBe(true);
+    t.host.notePresence(bb, false);
+    t.host.notePresence(bb, true);
+    t.host.rePushHoleCards(bb);
+    // A reconnect with nothing armed records nothing.
+    t.host.notePresence(formed.sb, false);
+    expect(mine(formed.sb)).toEqual([]);
+    expect(t.host.handlePlayerAction(firstToAct(t).user_id, 'raise', 6).success).toBe(true);
+    await flush();
+    expect(mine(bb)).toEqual([
+      'set:auto_check_fold:null',
+      'held:auto_check_fold:socket_dropped',
+      'held:auto_check_fold:socket_connected',
+      'held:auto_check_fold:resync',
+      'released:auto_check_fold:armed_check_fold_priced_by_bet',
+    ]);
+  });
+
   it('a recorder that throws never reaches the action path', async () => {
     const formed = formedHand(4, 5107);
     const t = buildHost(formed, [100, 100, 100, 100], {

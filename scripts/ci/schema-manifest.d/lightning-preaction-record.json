@@ -16,6 +16,7 @@
       "detail",
       "to_call",
       "stage",
+      "action_seq",
       "at",
       "recorded_at"
     ]

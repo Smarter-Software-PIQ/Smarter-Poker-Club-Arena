@@ -11,7 +11,10 @@
 -- engine did with a player's pre-action. The engine now records every arm
 -- that reaches a Lightning room's pre-action door and every consequence of it
 -- (server/src/lightning/LightningPreActionRecord.ts): set, refused, pending,
--- released, executed, rearmed, cleared. This file is the database half.
+-- released, executed, rearmed, cleared, and held (the arm persisting across a
+-- socket drop, reconnect or resync). Each row names the player, the room
+-- (pool session), the hand, the street and the hand's action sequence at that
+-- moment. This file is the database half.
 --
 --   public.lightning_preaction_event   one row per event, append only. No
 --                                      foreign key to any hot table (CLAUDE.md
@@ -31,8 +34,7 @@
 --                                      read-only workflows).
 --
 -- HORSES ARE PLAYERS (CLAUDE.md 10.5): nothing here reads whether a player is
--- a horse. NO CARDS: who, which hand, which pre-action, what happened, the
--- price owed and the street.
+-- a horse. NO CARDS, NO SECRETS: never a card, a credential or a token.
 --
 -- New table and two new functions: no lock on any existing relation, so no
 -- install window.
@@ -43,7 +45,7 @@ SET LOCAL lock_timeout = '1s';
 CREATE TABLE public.lightning_preaction_event (
   event_id          uuid PRIMARY KEY,
   kind              text NOT NULL CHECK (kind IN
-                      ('set','refused','pending','released','executed','rearmed','cleared')),
+                      ('set','refused','pending','released','executed','rearmed','cleared','held')),
   player_id         uuid NOT NULL,
   hand_id           uuid,
   cluster_id        uuid,
@@ -53,6 +55,7 @@ CREATE TABLE public.lightning_preaction_event (
   detail            text,
   to_call           numeric(14,2),
   stage             text,
+  action_seq        integer,
   at                timestamptz NOT NULL,
   recorded_at       timestamptz NOT NULL DEFAULT now()
 );
@@ -88,7 +91,7 @@ BEGIN
 
   INSERT INTO public.lightning_preaction_event
     (event_id, kind, player_id, hand_id, cluster_id, requested_hand_id, room_id,
-     action, detail, to_call, stage, at)
+     action, detail, to_call, stage, action_seq, at)
   SELECT (e->>'event_id')::uuid,
          e->>'kind',
          (e->>'player_id')::uuid,
@@ -100,9 +103,10 @@ BEGIN
          left(e->>'detail', 120),
          (e->>'to_call')::numeric,
          left(e->>'stage', 40),
+         CASE WHEN e->>'action_seq' ~ '^[0-9]{1,6}$' THEN (e->>'action_seq')::integer END,
          (e->>'at')::timestamptz
   FROM jsonb_array_elements(p_events) AS e
-  WHERE e->>'kind' IN ('set','refused','pending','released','executed','rearmed','cleared')
+  WHERE e->>'kind' IN ('set','refused','pending','released','executed','rearmed','cleared','held')
     AND e->>'event_id' ~* '^[0-9a-f-]{36}$'
     AND e->>'player_id' ~* '^[0-9a-f-]{36}$'
   LIMIT 1000
@@ -134,6 +138,7 @@ RETURNS TABLE (
   detail            text,
   to_call           numeric,
   stage             text,
+  action_seq        integer,
   requested_hand_id text,
   room_id           text
 )
@@ -143,7 +148,7 @@ SECURITY DEFINER
 SET search_path TO 'public', 'pg_temp'
 AS $fn$
   SELECT e.at, e.player_id, e.kind, e.action, e.detail, e.to_call, e.stage,
-         e.requested_hand_id, e.room_id
+         e.action_seq, e.requested_hand_id, e.room_id
   FROM public.lightning_preaction_event e
   WHERE e.hand_id = p_hand_id
      OR e.requested_hand_id = p_hand_id::text
