@@ -142,6 +142,10 @@ import { traceLightningFold } from './LightningFoldTiming.js';
 import { beginLightningStartTiming, type LightningStartSpan } from './LightningStartTiming.js';
 import { lightningArrivalMs, lightningDealPresentationMs } from './LightningDealPresentation.js';
 import { lightningTelemetry, type LightningTelemetry } from './LightningTelemetry.js';
+import {
+  lightningPreActionRecorder,
+  type LightningPreActionEvent,
+} from './LightningPreActionRecord.js';
 import type { LightningDecision } from './LightningRegistry.js';
 import type { LightningWorkerLogger } from './LightningClusterWorker.js';
 import { settleLightningJackpot, type LightningJackpotDeps } from './LightningJackpot.js';
@@ -363,6 +367,11 @@ export interface LightningHandHostDeps {
    * telemetry is off). Timing only - never a card, an amount or an action.
    */
   telemetry?: LightningTelemetry;
+  /**
+   * What the engine did with each pre-action (LightningPreActionRecord): the
+   * process-wide recorder otherwise. Never awaited, never on the action path.
+   */
+  recordPreAction?: (event: LightningPreActionEvent) => void;
   logger?: LightningWorkerLogger;
   /** Injected for tests; one per host otherwise. */
   timer?: PreciseActionTimer;
@@ -586,6 +595,15 @@ export class LightningHandHost {
   private readonly preActions = new PreActionEngine();
   private readonly metrics: LightningMetrics;
   private readonly telemetry: LightningTelemetry;
+  private readonly recordPreActionSink: (event: LightningPreActionEvent) => void;
+  /**
+   * Players whose held fold request came through the pre-action door (an
+   * auto_fold, or a Check/Fold that was already priced): its release on a
+   * bet and its publication at the turn belong to that pre-action's record.
+   */
+  private readonly preActionFolds = new Set<string>();
+  /** True while a pre-action's own fold request is in flight (its clear is not a separate fact). */
+  private foldFromPreAction = false;
   private readonly logger: LightningWorkerLogger;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly now: () => number;
@@ -607,6 +625,8 @@ export class LightningHandHost {
     this.disconnect = new DisconnectEngine(this.timer);
     this.metrics = deps.metrics ?? lightningMetrics;
     this.telemetry = deps.telemetry ?? lightningTelemetry;
+    this.recordPreActionSink =
+      deps.recordPreAction ?? ((e) => lightningPreActionRecorder.record(e));
     this.logger = deps.logger ?? defaultLogger;
     this.now = deps.now ?? Date.now;
     this.random = deps.random ?? Math.random;
@@ -1475,6 +1495,15 @@ export class LightningHandHost {
         );
         this.publishState();
         if (event.action === 'bet' || event.action === 'raise' || event.action === 'all_in') {
+          // The shared engine drops every other player's armed Check on a bet:
+          // recorded first, since the engine does not say whose it dropped.
+          for (const p of this.hc?.getState().players ?? []) {
+            if (
+              p.user_id !== actor &&
+              this.preActions.getPreAction(this.timerKey, p.user_id)?.action === 'auto_check'
+            )
+              this.notePreAction(p.user_id, 'cleared', 'auto_check', 'invalidated_by_bet');
+          }
           this.preActions.onBetPlaced(this.timerKey, actor);
         }
         if (event.action === 'fold') this.afterFold(actor);
@@ -1641,6 +1670,8 @@ export class LightningHandHost {
       );
       if (folded.success) {
         this.pendingFolds.delete(userId);
+        if (this.preActionFolds.has(userId))
+          this.notePreAction(userId, 'executed', 'fast_fold', 'held_fold_published');
         return;
       }
       this.logger.error(
@@ -1945,6 +1976,34 @@ export class LightningHandHost {
     ).success;
   }
 
+  /** One fact for the pre-action record (LightningPreActionRecord). Never throws. */
+  private notePreAction(
+    userId: string,
+    kind: LightningPreActionEvent['kind'],
+    action: string | null,
+    detail: string | null,
+    requestedHandId: string | null = null
+  ): void {
+    try {
+      const st = this.hc?.getState();
+      const me = st?.players.find((p) => p.user_id === userId);
+      this.recordPreActionSink({
+        kind,
+        playerId: userId,
+        handId: this.handId,
+        clusterId: this.clusterId,
+        requestedHandId,
+        action,
+        detail,
+        toCall: st && me ? Math.max(0, st.currentBet - me.bet) : null,
+        stage: st?.stage ?? null,
+        atMs: this.now(),
+      });
+    } catch {
+      /* the record never reaches into the action path */
+    }
+  }
+
   private runPreAction(userId: string): boolean {
     const st = this.hc?.getState();
     const me = st?.players.find((p) => p.user_id === userId);
@@ -1958,7 +2017,10 @@ export class LightningHandHost {
       toCall,
       me.stack
     );
-    if (!r.executed || !r.action) return false;
+    if (!r.executed || !r.action) {
+      if (armed) this.notePreAction(userId, 'cleared', armed, 'invalidated_at_turn');
+      return false;
+    }
     const hc = this.hc;
     const done = this.applyAction(
       userId,
@@ -1967,6 +2029,7 @@ export class LightningHandHost {
       'pre_action',
       r.action === 'fold' ? 'normal' : undefined
     ).success;
+    this.notePreAction(userId, 'executed', armed ?? null, done ? r.action : `${r.action}_rejected`);
     // CHECK/FOLD CARRIES (Dan 2026-11-09, Lightning only): "the check/fold
     // stays active for all streets until someone bets, or the player reaches
     // showdown ... they do not have to re select check/fold on any other
@@ -1982,6 +2045,7 @@ export class LightningHandHost {
       !this.pendingFolds.has(userId)
     ) {
       this.preActions.setPreAction(this.timerKey, userId, 'auto_check_fold', undefined, 0);
+      this.notePreAction(userId, 'rearmed', 'auto_check_fold', 'after_free_check');
     }
     return done;
   }
@@ -2014,7 +2078,11 @@ export class LightningHandHost {
       // release it now, exactly as a priced request is released, and the
       // controller still publishes the fold in turn order.
       if (this.pendingFolds.has(userId)) {
-        if (!this.releasedOrRecorded.has(userId)) this.afterFold(userId, 'fast');
+        if (!this.releasedOrRecorded.has(userId)) {
+          this.afterFold(userId, 'fast');
+          if (this.preActionFolds.has(userId))
+            this.notePreAction(userId, 'released', 'fast_fold', 'held_fold_priced_by_bet');
+        }
         continue;
       }
       if (this.preActions.getPreAction(this.timerKey, userId)?.action !== 'auto_check_fold')
@@ -2022,7 +2090,25 @@ export class LightningHandHost {
       const had = this.foldRequestedAt.has(userId);
       if (!had) this.foldRequestedAt.set(userId, this.now());
       // A refusal leaves the armed choice in place for the ordinary turn.
-      if (!this.requestFold(userId, 'fast').success && !had) this.foldRequestedAt.delete(userId);
+      this.foldFromPreAction = true;
+      let out: { success: boolean; error?: string; code?: string };
+      try {
+        out = this.requestFold(userId, 'fast');
+      } finally {
+        this.foldFromPreAction = false;
+      }
+      if (out.success) {
+        this.preActionFolds.add(userId);
+        this.notePreAction(userId, 'released', 'auto_check_fold', 'armed_check_fold_priced_by_bet');
+      } else {
+        if (!had) this.foldRequestedAt.delete(userId);
+        this.notePreAction(
+          userId,
+          'refused',
+          'auto_check_fold',
+          `release_on_bet_refused:${out.code ?? out.error ?? 'unknown'}`
+        );
+      }
     }
   }
 
@@ -2036,23 +2122,40 @@ export class LightningHandHost {
     maxCallAmount?: number,
     handId?: string
   ): { success: boolean; error?: string; code?: string } {
-    if (this.state !== 'dealing' || !this.hc) return { success: false, error: 'No active hand' };
-    if (!this.watching.has(userId) || this.pendingFolds.has(userId))
-      return { success: false, error: 'You have left this hand' };
+    const refuse = (
+      detail: string,
+      out: { success: false; error: string; code?: string }
+    ): { success: false; error: string; code?: string } => {
+      this.notePreAction(userId, 'refused', action, detail, handId ?? null);
+      return out;
+    };
+    if (this.state !== 'dealing' || !this.hc)
+      return refuse('no_active_hand', { success: false, error: 'No active hand' });
+    if (!this.watching.has(userId))
+      return refuse('left_hand', { success: false, error: 'You have left this hand' });
+    if (this.pendingFolds.has(userId))
+      return refuse('fold_pending', { success: false, error: 'You have left this hand' });
     if (action === 'clear') {
+      const armed = this.preActions.getPreAction(this.timerKey, userId)?.action ?? null;
       this.preActions.clearPreAction(this.timerKey, userId);
+      if (armed) this.notePreAction(userId, 'cleared', armed, 'by_player');
       return { success: true };
     }
     if (handId !== this.handId) {
-      return { success: false, error: 'That hand is over', code: 'STALE_HAND' };
+      return refuse('stale_hand', {
+        success: false,
+        error: 'That hand is over',
+        code: 'STALE_HAND',
+      });
     }
     const valid = ['auto_fold', 'auto_check_fold', 'auto_check', 'auto_call', 'auto_call_any'];
-    if (!valid.includes(action)) return { success: false, error: `Invalid pre-action: ${action}` };
+    if (!valid.includes(action))
+      return refuse('invalid_action', { success: false, error: `Invalid pre-action: ${action}` });
     const st = this.hc.getState();
     const me = st.players.find((p) => p.user_id === userId);
-    if (!me || me.is_folded) return { success: false, error: 'Player not found at this table' };
-    if (action === 'auto_fold')
-      return this.handlePlayerAction(userId, 'fast_fold', undefined, `lightning-hand:${handId}`);
+    if (!me || me.is_folded)
+      return refuse('not_in_hand', { success: false, error: 'Player not found at this table' });
+    if (action === 'auto_fold') return this.preActionFold(userId, action, handId);
     // A Check/Fold armed while the player already owes chips is a fold: the
     // small blind, or a big blind facing a raise, leaves for the next hand now.
     // With the fast fold switched off it stays an ordinary turn-bound arm.
@@ -2063,12 +2166,7 @@ export class LightningHandHost {
       !me.is_all_in &&
       this.foldFlagsNow().fastFold
     ) {
-      const released = this.handlePlayerAction(
-        userId,
-        'fast_fold',
-        undefined,
-        `lightning-hand:${handId}`
-      );
+      const released = this.preActionFold(userId, action, handId);
       if (released.success) return released;
     }
     this.preActions.setPreAction(
@@ -2078,9 +2176,43 @@ export class LightningHandHost {
       maxCallAmount,
       Math.max(0, st.currentBet - me.bet)
     );
+    this.notePreAction(userId, 'set', action, null);
     // Armed during the player's own turn: it acts now, as at a physical table.
     if (st.currentPlayerSeat === me.seat && this.turnUser === userId) this.runPreAction(userId);
     return { success: true };
+  }
+
+  /**
+   * An arm that is a fold now (auto_fold, or a Check/Fold already priced):
+   * the same fast fold request as the LIGHTNING FOLD button, recorded as what
+   * it became - released now, held until the seat's turn, or refused.
+   */
+  private preActionFold(
+    userId: string,
+    action: string,
+    handId: string | undefined
+  ): { success: boolean; error?: string; code?: string } {
+    this.foldFromPreAction = true;
+    let out: { success: boolean; error?: string; code?: string };
+    try {
+      out = this.handlePlayerAction(userId, 'fast_fold', undefined, `lightning-hand:${handId}`);
+    } finally {
+      this.foldFromPreAction = false;
+    }
+    if (!out.success) {
+      this.notePreAction(
+        userId,
+        'refused',
+        action,
+        `fold_refused:${out.code ?? out.error ?? 'unknown'}`
+      );
+    } else {
+      this.preActionFolds.add(userId);
+      if (this.releasedOrRecorded.has(userId))
+        this.notePreAction(userId, 'released', action, 'on_arm');
+      else this.notePreAction(userId, 'pending', action, 'held_until_turn');
+    }
+    return out;
   }
 
   /** A manual request belongs to exactly one authenticated player's live decision. */
@@ -2656,7 +2788,11 @@ export class LightningHandHost {
       onAccepted: as?.onAccepted,
       onAbandoned: as?.onAbandoned,
     });
+    const armedBefore = this.foldFromPreAction
+      ? null
+      : (this.preActions.getPreAction(this.timerKey, userId)?.action ?? null);
     this.preActions.clearPreAction(this.timerKey, userId);
+    if (armedBefore) this.notePreAction(userId, 'cleared', armedBefore, 'fold_requested');
     // A priced fold cannot win a walk: the live bettor must still remain.
     // Its committed exposure is fixed, so the existing reservation door can
     // release it now without changing the controller or opponents' views.
@@ -3533,6 +3669,10 @@ export class LightningHandHost {
     this.releaseAtHandEnd();
     this.timeBank.dispose(this.timerKey);
     this.disconnect.dispose(this.timerKey);
+    for (const p of this.participants.values()) {
+      const armed = this.preActions.getPreAction(this.timerKey, p.playerId)?.action;
+      if (armed) this.notePreAction(p.playerId, 'cleared', armed, 'hand_end');
+    }
     this.preActions.dispose(this.timerKey);
     this.watching.clear();
     this.telemetry.handEnded(this.clusterId, this.handId, this.now());
