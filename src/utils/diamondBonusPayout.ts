@@ -200,6 +200,9 @@ export function validBonusMinimum(value: Record<string, unknown>): boolean {
   const boost = bonus?.boost_multiplier === 2 ? 2 : 1;
   if (betChips === null || paid === null || typeof rate !== 'number') return false;
   try {
+    if (version === 8 && value.game === 'crossing' && value.payout_rules_version === 2) {
+      return floor === earnedWheelMinimum(value);
+    }
     return floor === diamondBonusFloor(betChips, boost, paid, rate);
   } catch {
     return false;

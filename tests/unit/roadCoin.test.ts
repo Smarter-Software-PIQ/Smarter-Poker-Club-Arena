@@ -163,7 +163,7 @@ describe('Donkey Cross contract 8', () => {
       const seed = `donkey-v8-${i}`;
       expect(await roadCoin(seed, 'test', 1, 1, 8)).toBe(true);
       const roll = parseInt((await hmacSha256Hex(seed, 'test:1:street:2')).slice(0, 2), 16);
-      expect(await roadCoin(seed, 'test', 1, 2, 8)).toBe(roll < 192);
+      expect(await roadCoin(seed, 'test', 1, 2, 8)).toBe(roll < 224);
       expect(await roadCoin(seed, 'test', 1, 2, 7)).toBe(roll < 128);
     }
   });
@@ -174,7 +174,7 @@ describe('Donkey Cross contract 8', () => {
       let survival = 1;
       let losses = 0;
       for (const [index, prize] of prizes.entries()) {
-        const safe = [1, 0.75][index] ?? 0.5;
+        const safe = index === 0 ? 1 : index <= 3 ? 0.875 : 0.5;
         const loss = Math.max(floor, Math.ceil((prizes[index - 1] ?? 0) * 50 - 1e-9) / 100);
         losses += survival * (1 - safe) * loss;
         survival *= safe;

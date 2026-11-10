@@ -93,19 +93,23 @@ export function roadCoinPrizeFifths(
   return out;
 }
 
-/** Sixtieths of a cent represent both 1.05 times a whole cent and the
- * division by three on street two exactly. End before the 20x prize cap. */
+// Three early 7/8 survival steps and a starting prize in twentieths
+// of a cent all stay exact in this integer unit.
+const ROAD_UNITS_PER_CENT = 20n * 7n ** 3n;
+
 function roadPrizesV8(betChips: number, floorChips: number): bigint[] {
   const bet = BigInt(cents(betChips, 'Road Stake'));
   const floor = BigInt(cents(floorChips, 'Road Floor'));
-  if (bet < 1n || floor < 0n || floor > bet) throw new Error('Invalid Road Floor');
+  if (bet < 1n || floor < 0n) throw new Error('Invalid Road Floor');
   const prizes: bigint[] = [];
-  let next = 63n * bet;
-  while (next <= 1200n * bet && prizes.length < ROAD_COIN_MAX_STREETS) {
+  const standardFirst = (ROAD_UNITS_PER_CENT * 21n * bet) / 20n;
+  const earnedFirst = ROAD_UNITS_PER_CENT * floor + (ROAD_UNITS_PER_CENT * bet) / 20n;
+  let next = earnedFirst > standardFirst ? earnedFirst : standardFirst;
+  while (next <= 20n * ROAD_UNITS_PER_CENT * bet && prizes.length < ROAD_COIN_MAX_STREETS) {
     prizes.push(next);
-    const half = (next + 119n) / 120n;
-    const loss = 60n * (half > floor ? half : floor);
-    next = prizes.length === 1 ? (4n * next - loss) / 3n : 2n * next - loss;
+    const half = (next + 2n * ROAD_UNITS_PER_CENT - 1n) / (2n * ROAD_UNITS_PER_CENT);
+    const loss = ROAD_UNITS_PER_CENT * (half > floor ? half : floor);
+    next = prizes.length <= 3 ? (8n * next - loss) / 7n : 2n * next - loss;
   }
   return prizes;
 }
@@ -116,7 +120,10 @@ export function roadCoinPrizes(
   floorChips: number,
   version: number = ROAD_COIN_VERSION
 ): number[] {
-  if (version === 8) return roadPrizesV8(betChips, floorChips).map((value) => Number(value) / 6000);
+  if (version === 8)
+    return roadPrizesV8(betChips, floorChips).map(
+      (value) => Number(value) / Number(100n * ROAD_UNITS_PER_CENT)
+    );
   return roadCoinPrizeFifths(betChips, floorChips, version).map((fifths) => fifths / 500);
 }
 
@@ -130,7 +137,7 @@ export function roadCoinPrize(
   if (version === 8) {
     const value = roadPrizesV8(betChips, floorChips)[street - 1];
     if (value === undefined) throw new Error('Invalid Road Prize');
-    return { numerator: value, denominator: 60n };
+    return { numerator: value, denominator: ROAD_UNITS_PER_CENT };
   }
   const ladder = roadCoinPrizeFifths(betChips, floorChips, version);
   if (!Number.isInteger(street) || street < 1 || street > ladder.length)
@@ -164,7 +171,7 @@ export async function roadCoin(
   // Contract 7: street one is always safe (public.fn_choice_road_coin_v7).
   if (version >= ROAD_COIN_V7 && street === 1) return true;
   const hash = await hmacSha256Hex(serverSeed, `${clientSeed}:${nonce}:street:${street}`);
-  return Number.parseInt(hash.slice(0, 2), 16) < (version === 8 && street === 2 ? 192 : 128);
+  return Number.parseInt(hash.slice(0, 2), 16) < (version === 8 && street <= 4 ? 224 : 128);
 }
 
 /** Every street's coin, street one first. Mirrors public.fn_choice_road_coins_v6. */
@@ -207,15 +214,15 @@ export function roadCoinStopValue(
     let value = prizes[street - 1];
     let denominator = 1n;
     for (let n = street; n > 1; n--) {
-      const half = (prizes[n - 2] + 119n) / 120n;
-      const loss = 60n * (half > floor ? half : floor);
-      const safe = n === 2 ? 3n : 1n;
+      const half = (prizes[n - 2] + 2n * ROAD_UNITS_PER_CENT - 1n) / (2n * ROAD_UNITS_PER_CENT);
+      const loss = ROAD_UNITS_PER_CENT * (half > floor ? half : floor);
+      const safe = n <= 4 ? 7n : 1n;
       value = safe * value + loss * denominator;
       denominator *= safe + 1n;
     }
     return {
       numerator: value,
-      denominator: denominator * 60n * BigInt(cents(betChips, 'Road Stake')),
+      denominator: denominator * ROAD_UNITS_PER_CENT * BigInt(cents(betChips, 'Road Stake')),
     };
   }
   if (version === ROAD_COIN_V7) {

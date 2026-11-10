@@ -735,7 +735,13 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
     state !== null &&
     state.prizes.length > 0 &&
     state.prizes[0] / quoteChips >= 0.8 &&
-    state.prizes[0] / quoteChips <= 1.1;
+    (state.payout_version === 8 && earned.quote
+      ? Math.abs(
+          state.prizes[0] -
+            Math.max(1.05 * quoteChips, earned.quote.minimumPayoutChips + 0.05 * quoteChips)
+        ) <
+        Math.max(1, quoteChips) * 1e-10
+      : state.prizes[0] / quoteChips <= 1.1);
   const quoteLadder: readonly number[] = quotedCoinRoad
     ? quoteFits
       ? roadCoinLadderCents(state.prizes, quoteChips)
@@ -1266,7 +1272,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
               ? (round?.payout_version ?? state?.payout_version) === 6
                 ? 'Every Street Is A Fair Coin Flip: Exactly A 50% Chance To Cross Safely, Street One Included. Each Coin Is Sealed Before You Start, And When You Book The Win You See How Far You Would Have Got.'
                 : (round?.payout_version ?? state?.payout_version) === 8
-                  ? 'Street one is always safe. Street two has a 75% chance of crossing safely. Each later street has a 50% chance. After you book your win, the sealed coins show how far you would have gone.'
+                  ? 'Street one is always safe. Streets two through four each have an 87.5% chance of a safe crossing. From street five, each crossing has a 50% chance. After you book your win, the sealed coins show how far you would have gone.'
                   : 'Street One Is Always Safe. Every Street After It Is A Fair Coin Flip: Exactly A 50% Chance To Cross Safely. Each Coin Is Sealed Before You Start, And When You Book The Win You See How Far You Would Have Got.'
               : 'Where The Donkey Would Be Hit Is Sealed Before You Start; Your Only Choice Is When To Book.'}
           </p>
