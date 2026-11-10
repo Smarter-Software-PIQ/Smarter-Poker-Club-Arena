@@ -1315,6 +1315,17 @@
       "migrations": [
         "20261110003726_a_closed_persons_tournament_rows_are_read_through_the_public.sql"
       ]
+    },
+    {
+      "id": "2026-11-10-closed-person-name-policy-db-retry",
+      "ownerOrder": "Dan, the owner, in Claude chat session_01BNteGbJLpMVVDd7K7WpuSL at about 2026-11-10 17:20Z (11:20 America/Chicago), after the first break (run 42861001229) ended unproven because a table was still finishing a hand when the 285-second drained reserve was due, answered the question to authorize one more database-only break for the same file, verbatim: \"Authorize one more break\". At about 21:05Z (15:05 America/Chicago), told that the booking could not land before 22:00 UTC, he answered verbatim: \"Retry tonight after 22:00\" (one break between 22:00 UTC today and 04:00 UTC tomorrow). One more break, one attempt, no engine replacement.",
+      "contains": "d10ccd6cdff643607d19615fe28d863bffccb8a1",
+      "playerNoticeAt": "2026-11-10T23:15:00Z",
+      "notBefore": "2026-11-10T23:35:00Z",
+      "notAfter": "2026-11-11T04:00:00Z",
+      "migrations": [
+        "20261110003726_a_closed_persons_tournament_rows_are_read_through_the_public.sql"
+      ]
     }
   ]
 }
