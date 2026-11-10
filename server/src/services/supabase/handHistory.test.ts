@@ -1,4 +1,3 @@
-import { retainHorseTurnClock } from '../../engine/HorseTurnClockReceipt.js';
 /** The accepted-hand transaction is the sole hand-history persistence owner. */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -415,30 +414,6 @@ describe('logHandHistory - worker-owned completed-hand observation', () => {
       ).toEqual(publicMemoryDomain);
     }
   );
-
-  it('delivers the exact Horse clock only to the private accepted-hand observer', async () => {
-    const input = identityParams();
-    const index = 1;
-    const action = { ...input.actions[index]!, timestamp: 1000, origin: 'horse_policy' as const };
-    retainHorseTurnClock(action, 100, 2000, 'strategy');
-    acceptAtomicHand();
-    await logHandHistory({
-      ...input,
-      actions: input.actions.map((row, i) => (i === index ? action : row)),
-    });
-    expect(mockObserveCompletedHand.mock.calls[0][0]).toMatchObject({
-      horseTurnClocks: [
-        {
-          actionIndex: index,
-          startedAtMs: 100,
-          deadlineMs: 2000,
-          acceptedAtMs: action.timestamp,
-          path: 'strategy',
-        },
-      ],
-    });
-    expect(JSON.stringify(rpcCalls[0].args.p_hand_row)).not.toContain('startedAtMs');
-  });
 
   it('preserves forced-post and return provenance in the accepted JSON and observation without changing money or order', async () => {
     const input = identityParams();

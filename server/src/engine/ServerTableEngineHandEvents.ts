@@ -34,8 +34,6 @@ import { reportError } from '../services/errorReporter.js';
 import { raiseFinancialAlert } from '../services/financialAlerts.js';
 import { ServerTableEngineSettlement } from './ServerTableEngineSettlement.js';
 
-import { carryHorseTurnClock } from './HorseTurnClockReceipt.js';
-
 export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettlement {
   /**
    * SHOWDOWN POLISH 2026-08-25 (spec 16/19/33): fold the unmerged per-pot
@@ -547,14 +545,6 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
         // below; it reads the same fields so the client + server agree.
         this.playerTurnStartTime = Date.now();
         this.playerTurnDuration = effectiveActionSec;
-        if (!tcSeatedPlayer?.is_horse || !decisionContext) this.horseActionableClock = null;
-        else if (this.horseActionableClock?.context !== decisionContext)
-          this.horseActionableClock = {
-            context: decisionContext,
-            seat: event.seat,
-            armed: false,
-            startedAtMs: this.playerTurnStartTime,
-          };
         this.timeBankActivatedThisTurn = false;
 
         // 2026-08-15 ROOT-CAUSE FIX (freeze at preflop, first actor never acts).
@@ -692,11 +682,6 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
               ? event.record.isFullRaise
               : hcState?.actionHistory[hcState.actionHistory.length - 1]?.isFullRaise,
           });
-
-          carryHorseTurnClock(
-            event.record,
-            this.currentHandActions[this.currentHandActions.length - 1]!
-          );
 
           // ── ADDITIVE event-sourcing shadow (#1): record PlayerActed ──
           if (this.shadowRecorder) {

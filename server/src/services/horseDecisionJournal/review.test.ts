@@ -1058,31 +1058,6 @@ describe('private retained-hand journal consumer', () => {
         expect(publicJson).not.toContain(secret);
     }
   );
-  it('reads exact private clock evidence and refuses a clock attributed to another action', () => {
-    const f = fixture();
-    const actionIndex = f.a.actions.length - 1;
-    const clock = {
-      actionIndex,
-      startedAtMs: 100,
-      deadlineMs: 1100,
-      acceptedAtMs: 1001,
-      path: 'strategy',
-    };
-    const review = (clocks: unknown[]) =>
-      reconcileHorseJournalHand(
-        [...f.rows().slice(0, 2), f.make('accepted_hand', 3, { ...f.a, horseTurnClocks: clocks })],
-        handKey
-      );
-    expect(review([clock])).toMatchObject({
-      status: 'reconciled',
-      horseTurnClocks: [{ ...clock, elapsedMs: 901, remainingMs: 99 }],
-    });
-    expect(review([{ ...clock, path: 'timeout' }]).gaps).toContain('invalid_records');
-    expect(review([{ ...clock, acceptedAtMs: 999 }]).gaps).toContain('invalid_records');
-    expect(review([clock, clock]).gaps).toContain('invalid_records');
-    expect(reconcileHorseJournalHand(f.rows(), handKey).horseTurnClocks).toBeUndefined();
-  });
-
   it('recovers from a fresh read-only connection without altering the spool', () => {
     const dir = directory(),
       f = fixture(),

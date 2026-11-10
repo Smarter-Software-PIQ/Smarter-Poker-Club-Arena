@@ -196,9 +196,6 @@ vi.mock('./HorsePhase13Authority.js', async (importOriginal) => {
 });
 
 import { HandController } from './HandController.js';
-import { playerActionContext } from './PlayerActionContext.js';
-import { privateHorseTurnClocks, reviewHorseTurnClocks } from './HorseTurnClockReceipt.js';
-import { horseDecisionRefusalError } from './horseDecision/refusalContext.js';
 import { Deck, RANKS } from './PokerEngine.js';
 import {
   horsePhase13ContinuationVersion,
@@ -1370,75 +1367,6 @@ describe('authoritative horse action effect commit', () => {
 
     expect(performAction).toHaveBeenCalledTimes(1);
     expect(performAction).toHaveBeenCalledWith(1, 'check', undefined, 'horse_fallback');
-    expect(decisionWorker.commitDecisionEffects).not.toHaveBeenCalled();
-  });
-
-  it('records the exact worker refusal on the real accepted fallback action', async () => {
-    const { engine, player, enginePlayer } = harness(true);
-    const controller = new HandController(
-      {
-        tableId: TABLE,
-        handNumber: 12,
-        gameVariant: 'nlh',
-        smallBlind: 1,
-        bigBlind: 2,
-        rakeConfig: { percent: 0, cap: 0, noFlopNoDrop: true },
-      } as HandConfig,
-      [1, 2, 3, 4].map((seat) => ({
-        ...enginePlayer,
-        seat,
-        cards: [],
-        user_id: seat === 1 ? player.user_id : `opponent-${seat}`,
-      })) as SeatPlayer[],
-      2
-    );
-    controller.start();
-    const accepted: Array<Extract<import('../types.js').HandEvent, { type: 'PLAYER_ACTION' }>> = [];
-    controller.onEvent((event) => {
-      if (event.type === 'PLAYER_ACTION') accepted.push(event);
-    });
-    const startedAtMs = Date.now() - 400;
-    Object.assign(engine, {
-      handController: controller,
-      horseActionableClock: {
-        context: playerActionContext(controller),
-        seat: 1,
-        startedAtMs,
-        armed: true,
-      },
-      playerTurnStartTime: startedAtMs,
-      playerTurnDuration: 15,
-    });
-    decisionWorker.decideFast.mockImplementationOnce(async (snapshot) => {
-      const request = { ...snapshot, type: 'DECIDE_FAST' as const, requestId: 1 };
-      throw horseDecisionRefusalError('route_gate', request);
-    });
-    const state = controller.getState();
-    engine.scheduleHorseAction(player, 1, state.players.find((p) => p.seat === 1)!, state);
-    await vi.advanceTimersByTimeAsync(0);
-
-    expect(accepted).toHaveLength(1);
-    expect(accepted[0]).toMatchObject({ seat: 1, action: 'fold', origin: 'horse_fallback' });
-    const record = accepted[0].record!;
-    expect(record).toMatchObject({ userId: player.user_id, stage: 'preflop' });
-    expect(
-      reviewHorseTurnClocks(privateHorseTurnClocks([record]), [
-        { ...record, origin: accepted[0].origin },
-      ])
-    ).toEqual([
-      {
-        actionIndex: 0,
-        seat: 1,
-        action: 'fold',
-        path: 'fallback',
-        reason: 'route_gate',
-        startedAtMs,
-        deadlineMs: startedAtMs + 15_000,
-        acceptedAtMs: record.timestamp,
-        elapsedMs: 400,
-        remainingMs: 14_600,
-      },
-    ]);
     expect(decisionWorker.commitDecisionEffects).not.toHaveBeenCalled();
   });
 

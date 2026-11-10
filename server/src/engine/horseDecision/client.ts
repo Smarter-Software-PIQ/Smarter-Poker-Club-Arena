@@ -930,7 +930,6 @@ export class LiveHorseDecisionWorkerClient {
     }
     const mirror: CompletedHandObservation = { ...observation };
     delete mirror.acceptedActorRoster;
-    delete mirror.horseTurnClocks;
     const request = {
       ...mirror,
       type: 'OBSERVE_COMPLETED_HAND' as const,

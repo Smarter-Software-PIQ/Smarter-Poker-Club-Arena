@@ -1,4 +1,3 @@
-import { privateHorseTurnClocks } from '../../engine/HorseTurnClockReceipt.js';
 import {
   publicMemoryDomainIsValid,
   type HorsePublicMemoryDomain,
@@ -992,7 +991,6 @@ export async function logHandHistory(params: {
         else reportError(error, 'HandHistory.durable_opponent_read');
       }
     }
-    const horseTurnClocks = privateHorseTurnClocks(params.actions);
     const observation = getLiveHorseDecisionWorker().observeCompletedHand({
       ...(params.publicMemoryDomain !== undefined
         ? { publicMemoryDomain: params.publicMemoryDomain }
@@ -1008,7 +1006,6 @@ export async function logHandHistory(params: {
       handKey,
       committedHandId: handId,
       actions: acceptedActions,
-      horseTurnClocks: horseTurnClocks.length ? horseTurnClocks : undefined,
       bigBlind: params.bigBlind,
       showdown: params.showdownReveal ?? null,
       riverCallContext: {
