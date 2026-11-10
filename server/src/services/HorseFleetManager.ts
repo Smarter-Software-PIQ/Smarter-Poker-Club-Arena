@@ -139,6 +139,7 @@ import {
   isNightParkedTable,
   isRetiringTable,
   occupancyTargetFor,
+  fullGameWaitTarget,
   secondTablePicked,
   stakeBandAllows,
   stakeBandFor,
@@ -2555,7 +2556,9 @@ export class HorseFleetManager {
             null,
             false,
             ploDemand
-          )
+          ),
+        Date.now(),
+        cashPlanLightningGames
       );
       // V8: tables with a short-handed HUMAN seed first (never leave a human
       // stranded); everything else keeps its natural order. Precomputed rather
@@ -3925,10 +3928,10 @@ export class HorseFleetManager {
             /* A FULL GAME GROWS A LINE (Dan 2026-11-06). Only a table with no
                empty seat asks; syncHorseGameQueues checks the whole game is
                full before anyone joins it. See HorseGameQueue. */
-            if (emptySeats.length === 0 && target.waitTarget > 0) {
+            if (emptySeats.length === 0) {
               horseQueueAsks.push({
                 gameId: String(table.cluster_id),
-                waitTarget: target.waitTarget,
+                waitTarget: fullGameWaitTarget(table.id, table.max_players, Date.now()),
                 pool: pool.map((h) => h.id),
                 variant: table.game_variant,
                 bigBlind: Number(table.big_blind),
@@ -5153,7 +5156,9 @@ export class HorseFleetManager {
             null,
             false,
             ploDemand
-          )
+          ),
+        Date.now(),
+        cashPlanLightningGames
       );
 
       /* PAGED (2026-09-09), like every other read of this queue in the file.

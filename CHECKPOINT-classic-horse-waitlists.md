@@ -1,0 +1,29 @@
+# Classic Horse waitlists and multiple tables
+
+Owner: Codex chat 01a1c791, November 10 2026.
+Scope: full Classic games retain real Horse waitlists; varied games can grow to two or three playing tables via existing queue, offer, buy-in and cluster paths. Preserve Lightning, financial admission, FIFO and human seating. No cosmetic counts, manual production row repairs, or unrelated release changes.
+
+Checkout: /Volumes/SmarterWork/agent-work/extreme-capacity/classic-horse-waitlists-01a1c791
+Branch: codex/classic-horse-waitlists-01a1c791
+Base: a2fda5ac5d4d3c1f5cb2c4d57adfed8dccb6c209
+Evidence: /Volumes/SmarterArchives/agent-evidence/extreme-archive/classic-horse-waitlists-01a1c791
+
+Read canonical four policies via reader (2.9); full emitted content read, truncation recovered by separate full law/standard reads. Receipt policy-read.txt: manifest e78254a8d7b401b5e9f8fdcefa1f6f36088fa1a7128e1c2d18622c2a952ac2cb; owner f5633d1b9e2b3d3ad7f30dea9e89691ec3044e05ff68471e7d9d8de36e079256; operating a8bc3c04dce3354ebdd51a89c0b7d715af3344edcc794d33f6b3ad64506961d5; hardening d5fc451ce5caf6d6b5e64597a13883e1246581678fe53c962339d0a66136993e; reference adce89c3f838f2f373cd504a00329d53906404d1dd42a647f672af6c16f95555. Read MAC-STORAGE, root AGENTS, full CLAUDE, AGENT-PLAYBOOK, PUBLISHING, deploy-paths, changelog README. Root files identical between inspected existing tree and new protected-main checkout. No nested AGENTS/CLAUDE found in server/src/supabase. SSD2 work/archive verified by canonical discovery. GitHub authenticated login Smarter-Poker verified.
+
+Initial source findings: queue asks depend on the random occupancy shape being full even when actual seats are full; plan cancels to zero when no ask is produced. Existing SQL/engine second-table policy has maximum two, and cash-plan admits only one secondary table. Trace actual production and connected admission before edits. Read-only baseline pending. No source changes or release action yet.
+
+Acceptance: focused regressions for actual-full queue demand, varied one/two/three table allowance with SQL/engine agreement, queue-fed arrival and existing exclusions; required local/hosted gates; protected merge; installed migration readback and serving engine inclusion; natural live queue and multi-table evidence. Engine activation must follow current certified release route; no inherited expired owner window.
+
+## November 10 implementation and qualification
+
+Production read at approximately 22:30 UTC confirmed full games with zero waiting: NLH 0.10/0.25 and 0.25/0.50 each had two tables/18 seats/zero waiting; multiple single-table Classic games also had zero waiting. Other games had one waiting. Serving engine 840429a332ecb536d19b3b719fa6809e7bc63ca7, instance 1-eaca1bce, liveness ok, maintenance idle, all four resume waves finished. No production writes performed.
+
+Permanent changes: actual-full fleet asks use fullGameWaitTarget independently of occupancy shape; nine-seat tables request four to five eligible waiters so existing four-name opening threshold is reachable. A full game with no ask preserves existing rows (normal expiry/exclusions retained). Existing deterministic second-table choices gain a 40% third-table subset. Secondary admission allows up to two secondary tables, inheriting Main 1 policy; all callers pass Lightning identity and unknown identity never grants the extra Classic allowance. SQL migration 20261110223419 extends only non-Lightning capacity, preserves existing larger configured caps and PLO startup.
+
+Checks: owned locked root/server npm ci succeeded. Server tsc passed. Focused 72 tests in five files passed before final Lightning exclusion wiring; complete server suite now running. Original queue planner failed the new no-ask regression (one failure/16 passing), corrected implementation passed. Native PG17 suite passed actual migrated capacity for 100 games across 24 hours, one/two/three variation, Lightning exclusion, PLO floor, larger capacity, grants and freeze. First fixture run failed because pg_get_functiondef output lacked trailing SQL semicolons; fixed fixture serialization, then passed. Native extension reuses existing test-cash-half-top-horses.py CI gate and its already-classified fixture subtree; no new workflow or dependency. Root required laws running. Full execution preview selects typecheck, isolated simulations, client unit, engine unit, accounting postgres and component native; no gate exemptions.
+
+An earlier test invocation from repository root found no server tests; corrected cwd to server immediately. Test failure/output is retained under task-owned \_agent_tmp, final evidence to archive. Migration version reader finished successfully and reserved version; no hand-picked timestamp.
+
+Policy comparison: the four documents, reader and policy tests are byte-identical to canonical. `check --canonical` reports a manifest mismatch caused only by formatting of the active-reference JSON array; standalone policy check passes, parsed manifests have identical policy content. No policy mutation is in scope. Required root laws passed: six files, 1,633 tests. Final server typecheck passed after all Lightning caller changes. Full engine suite is still running; no release claims.
+
+Resumption 2026-11-10 22:42 UTC: canonical reader emitted policy 2.9 with the same hashes above; read full policies (recovered truncated law separately), root instructions, complete CLAUDE, PUBLISHING, deploy paths and full engine release runbook. Recovered this unchanged owned branch and running full-suite process; no prior push or deployment to duplicate. Reviewed source and SQL capacity patch, primary-policy inheritance and all three runtime callers. Full suite remains running.
