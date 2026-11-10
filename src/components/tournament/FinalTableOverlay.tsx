@@ -1,41 +1,6 @@
-/**
- * ═══════════════════════════════════════════════════════════════════════════════
- *  FINAL TABLE OVERLAY - the announcement, on the spade console
- * ═══════════════════════════════════════════════════════════════════════════════
- *
- * Shows:
- * - "FINAL TABLE" engraved in the master's header well
- * - Player lineup with names and chip counts
- * - Chip counts + rankings, printed as rows on the black glass
- * - Prize pool reminder
- * - Auto-dismiss after 8 seconds (or tap to dismiss)
- *
- * NO player introductions per user requirement.
- *
- * THE CONSOLE (#ClubArenaConsole, 2026-09-08). This was a rounded violet sheet
- * with a crown glyph on top, a headline painted with a clipped gradient, avatar
- * discs and a row of soft-filled tiles. It is now Dan's approved spade master:
- * the event name is the eyebrow, FINAL TABLE is engraved in the header well,
- * the survivor count sits in the well's painted pill slot, and the lineup
- * prints as rows on the glass - rank in the master's lit blue, name and stack
- * in silver, an engraved rule between rows. Nothing is drawn except the
- * chip-share bar, which is data rather than a control (see the stylesheet).
- *
- * EVERY ANIMATION STILL PLAYS (CLAUDE.md 10.6): ftSlideIn, ftSlideOut,
- * ftPlayerIn (with its per-row stagger), ftPulse and ftCrownPulse are all
- * present at their original durations. Only ftCrownPulse moved - the crown it
- * breathed on is painted into the master now, so the beat runs on the prize
- * figure, which is the thing that moment is actually about.
- *
- * FIGURES ARE WHOLE (Dan: never a decimal on a forward-facing page). The chip
- * share printed `chipPct.toFixed(1)` - "18.3%" - and the stacks printed raw
- * separators; both go through the house formatters now.
- */
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { useMasterBusSubscription } from '../../hooks/useMasterBusSubscription';
 import { soundService } from '../../services/SoundService';
-import { SpadeConsole } from '../console/SpadeConsole';
 import { compactChips, formatPrizeAtUnit, moneyWordAtUnit } from '../../utils/format';
 import { CHIP_UNIT_CENTS, normalizeUnitCents } from '../../../server/src/tournament/tournamentUnit';
 import './FinalTableOverlay.css';
@@ -89,10 +54,10 @@ export const FinalTableOverlay: React.FC<FinalTableOverlayProps> = ({
   }, []);
 
   // Listen for FINAL_TABLE bus event
-  useMasterBusSubscription('FINAL_TABLE_REACHED', (payload: any) => {
+  useMasterBusSubscription('FINAL_TABLE_REACHED', (payload) => {
     if (payload.tournamentId !== tournamentId) return;
 
-    const ftPlayers = (payload.players || []) as FinalTablePlayer[];
+    const ftPlayers = payload.players || [];
     // Sort by chips descending — spread first to avoid mutating source array
     const sorted = [...ftPlayers].sort((a, b) => b.chips - a.chips);
     setPlayers(sorted);
@@ -120,32 +85,37 @@ export const FinalTableOverlay: React.FC<FinalTableOverlayProps> = ({
     timerRefs.current.push(setTimeout(() => setIsVisible(false), 600));
   }, []);
 
+  useEffect(() => {
+    if (!isVisible) return;
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') handleDismiss();
+    };
+    window.addEventListener('keydown', dismissOnEscape);
+    return () => window.removeEventListener('keydown', dismissOnEscape);
+  }, [isVisible, handleDismiss]);
+
   if (!isVisible) return null;
 
   const totalChips = players.reduce((s, p) => s + p.chips, 0);
   const seatsLeft = players.length;
 
   return (
-    <div className={`ft-overlay ft-overlay--${phase}`} onClick={handleDismiss}>
-      <div className="ft-overlay__backdrop" />
-
+    <section className={`ft-overlay ft-overlay--${phase}`} aria-label="Final table announcement">
       <div className="ft-overlay__content">
-        <SpadeConsole
-          onClose={handleDismiss}
-          as="div"
-          eyebrow={tournamentName}
-          title="Final Table"
-          subtitle="The Last Table Standing"
-          pill={seatsLeft > 0 ? `${seatsLeft} Left` : undefined}
-          pillInk="gold"
-          foot="foot"
-        >
+        <header className="ft-stage">
+          <div className="ft-stage__lights" aria-hidden="true" />
+          <div className="ft-stage__burst" aria-hidden="true" />
+          <p>{tournamentName}</p>
+          <h2 aria-live="polite">Final Table</h2>
+          {seatsLeft > 0 && <span>{seatsLeft} finalists</span>}
+        </header>
+        <div className="ft-scoreboard">
           {prizePool > 0 && unitCents != null && (
             <div className="ft-overlay__prize-row">
-              <span className="ft-overlay__prize-label sc-label sc-ink--blue">Prize Pool</span>
+              <span className="ft-overlay__prize-label">Prize Pool</span>
               {/* A chip pool prints exactly as it always has; a Diamond pool
                   is whole Diamonds, named, never "Chips" (2026-09-21). */}
-              <span className="ft-overlay__prize sc-ink--gold">
+              <span className="ft-overlay__prize">
                 {normalizeUnitCents(unitCents) === CHIP_UNIT_CENTS
                   ? compactChips(prizePool)
                   : formatPrizeAtUnit(prizePool, unitCents)}{' '}
@@ -155,31 +125,27 @@ export const FinalTableOverlay: React.FC<FinalTableOverlayProps> = ({
           )}
 
           {/* Player List */}
-          <div className="ft-overlay__players">
+          <ol className="ft-overlay__players" aria-label="Finalists by chip count">
             {players.map((player, index) => {
               const chipPct = totalChips > 0 ? (player.chips / totalChips) * 100 : 0;
               return (
-                <div
+                <li
                   key={player.userId}
                   className="ft-player"
                   style={{ animationDelay: `${index * 100 + 400}ms` }}
                 >
                   {/* Rank */}
-                  <div className="ft-player__rank sc-ink--blue">{index + 1}</div>
+                  <div className="ft-player__rank">{index + 1}</div>
 
                   {/* Info */}
                   <div className="ft-player__info">
                     <div className="ft-player__name-row">
-                      <span className="ft-player__name sc-ink--silver">{player.username}</span>
+                      <span className="ft-player__name">{player.username}</span>
                     </div>
                     <div className="ft-player__chips-row">
-                      <span className="ft-player__chips sc-ink--silver">
-                        {compactChips(player.chips)}
-                      </span>
+                      <span className="ft-player__chips">{compactChips(player.chips)}</span>
                       {/* Whole numbers on a forward-facing page. */}
-                      <span className="ft-player__chip-pct sc-ink--muted">
-                        {Math.round(chipPct)}%
-                      </span>
+                      <span className="ft-player__chip-pct">{Math.round(chipPct)}%</span>
                     </div>
                   </div>
 
@@ -187,16 +153,16 @@ export const FinalTableOverlay: React.FC<FinalTableOverlayProps> = ({
                   <div className="ft-player__bar-wrap">
                     <div className="ft-player__bar" style={{ width: `${chipPct}%` }} />
                   </div>
-                </div>
+                </li>
               );
             })}
-          </div>
-
-          {/* Tap to dismiss */}
-          <p className="sc-copy sc-copy--center ft-overlay__dismiss">Tap To Continue</p>
-        </SpadeConsole>
+          </ol>
+          <button type="button" className="ft-overlay__dismiss" onClick={handleDismiss}>
+            Return to table
+          </button>
+        </div>
       </div>
-    </div>
+    </section>
   );
 };
 

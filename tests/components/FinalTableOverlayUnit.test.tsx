@@ -106,3 +106,33 @@ it('never classifies opponents even when an old event includes populated statist
   expect(container.querySelector('.ft-player__style')).toBeNull();
   expect(container.textContent).not.toMatch(/Shark|Fish|Rock|Maniac|TAG|LAG|Nit|REG|VPIP|PFR/);
 });
+
+it('reveals the sorted lineup with stack shares, then releases the table on Escape', () => {
+  vi.useFakeTimers();
+  try {
+    const { queryByRole, getAllByRole, getByRole } = render(
+      <FinalTableOverlay tournamentId="t-1" tournamentName="Night Championship" unitCents={null} />
+    );
+    reachFinalTable('another-event');
+    expect(queryByRole('region')).toBeNull();
+    act(() =>
+      bus.handlers.get('FINAL_TABLE_REACHED')!({
+        tournamentId: 't-1',
+        players: [...PLAYERS].reverse(),
+      })
+    );
+    expect(getByRole('heading', { name: 'Final Table' })).toBeTruthy();
+    expect(getAllByRole('listitem').map((row) => row.textContent)).toEqual([
+      `1Alice${compactChips(60000)}60%`,
+      `2Bob${compactChips(40000)}40%`,
+    ]);
+    act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+    act(() => vi.advanceTimersByTime(600));
+    expect(queryByRole('region')).toBeNull();
+    reachFinalTable();
+    act(() => vi.advanceTimersByTime(8000));
+    expect(queryByRole('region')).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
