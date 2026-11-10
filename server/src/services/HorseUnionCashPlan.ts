@@ -1,3 +1,4 @@
+import { ploContinuationFor, type PloLightningDemand } from './PloLightningDemand.js';
 import { secondTablePicked } from './HorseBehavior.js';
 import plan from './horseUnionCashPlan.json' with { type: 'json' };
 import { horseCashGameAllowed } from './HorseCashSchedule.js';
@@ -114,7 +115,8 @@ export function horseUnionCashTableAllowed(
   lightningGames: ReadonlySet<string> | null = null,
   lightningHumanGames: ReadonlySet<string> | null = null,
   secondTables: ReadonlySet<string> | null = null,
-  existingSeat = false
+  existingSeat = false,
+  continuation: PloLightningDemand | null = null
 ): boolean {
   if (table.tournament_id != null || table.is_spins === true) return true;
   /* A GAME'S SECOND TABLE (Dan 2026-11-06: "THERE SHOULD BE SOME GAMES WITH
@@ -150,6 +152,7 @@ export function horseUnionCashTableAllowed(
     // other participants' sessions. Admission still needs demand. Existing
     // bankroll, session and safe table-boundary exits retain their authority.
     if (existingSeat && gameId === 'c79d8ec2-2281-411d-b4e1-42b5610849e2') return true;
+    if (ploContinuationFor(gameId, continuation)) return true;
     if (LIGHTNING_HORSE_SEEDED.has(gameId)) return true;
     return lightningHumanGames !== null && lightningHumanGames.has(gameId);
   }

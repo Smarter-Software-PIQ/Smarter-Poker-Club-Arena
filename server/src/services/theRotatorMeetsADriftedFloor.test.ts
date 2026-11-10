@@ -207,7 +207,7 @@ describe('9: a reload is not a departure', () => {
   it('top-ups run for every cash table, before the departure loop and outside its cap', () => {
     const topupAt = ROT.indexOf('if (!engine?.addChips) continue;');
     const capAt = ROT.indexOf('if (departures >= GLOBAL_DEPARTURES_PER_CYCLE) break;');
-    const floorAt = ROT.indexOf('tableSeats.length < (humanPresent ? 5 : 4)) continue');
+    const floorAt = ROT.indexOf('tableSeats.length < (humanPresent ? 5 : 4)');
     expect(topupAt).toBeGreaterThan(0);
     expect(topupAt).toBeLessThan(capAt);
     expect(topupAt).toBeLessThan(floorAt);
