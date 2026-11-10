@@ -88,9 +88,8 @@
   font-weight: 800;
 }
 .presets button {
-  width: 13.2%;
-  height: 23%;
-  min-height: 32px;
+  width: max(44px, 13.2%);
+  height: max(44px, 23%);
   font-size: clamp(14px, 3.6cqw, 28px);
   transform: translate(-50%, -50%) rotate(var(--tilt));
 }
@@ -320,6 +319,10 @@
 }
 
 @container (max-width: 360px) {
+  .actions .primary[data-compact-label] {
+    left: 39%;
+    width: 22%;
+  }
   .controlHeading {
     top: 41%;
     right: 3%;
