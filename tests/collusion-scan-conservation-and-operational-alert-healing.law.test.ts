@@ -18,7 +18,7 @@ describe('Phase 3 self-healing: index-backed collusion scan, single-pass conserv
 
   it('optimizes fn_ca_collusion_scan to use an index-backed LATERAL aggregation over profiles and ca_hand_transfers with pre-materialized cert_users and detector retirement check', () => {
     const start = migrationSql.indexOf('CREATE OR REPLACE FUNCTION public.fn_ca_collusion_scan');
-    const end = migrationSql.indexOf('$function$;', start);
+    const end = migrationSql.indexOf('$fn$;', start);
     const fnBody = migrationSql.slice(start, end);
 
     expect(fnBody).toContain('FROM public.profiles p');
@@ -38,7 +38,7 @@ describe('Phase 3 self-healing: index-backed collusion scan, single-pass conserv
     const start = migrationSql.indexOf(
       'CREATE OR REPLACE FUNCTION public.fn_tournament_conservation_deltas'
     );
-    const end = migrationSql.indexOf('$function$;', start);
+    const end = migrationSql.indexOf('$deltas$;', start);
     const fnBody = migrationSql.slice(start, end);
 
     expect(fnBody).toContain('special_ledger AS MATERIALIZED');
@@ -56,7 +56,7 @@ describe('Phase 3 self-healing: index-backed collusion scan, single-pass conserv
     const start = migrationSql.indexOf(
       'CREATE OR REPLACE FUNCTION public.fn_resolve_settled_financial_alerts'
     );
-    const end = migrationSql.indexOf('$function$;', start);
+    const end = migrationSql.indexOf('$fn$;', start);
     const fnBody = migrationSql.slice(start, end);
 
     expect(fnBody).toContain("a.source = 'postHandTasks.leave_pending_failed'");

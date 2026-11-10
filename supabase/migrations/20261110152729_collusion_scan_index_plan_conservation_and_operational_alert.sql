@@ -266,7 +266,7 @@ AS $deltas$
     LEFT JOIN public.tournament_tickets k ON k.id = COALESCE(a.ticket_id, CASE WHEN sp.metadata->>'ticket_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN (sp.metadata->>'ticket_id')::uuid END)
     WHERE sp.source IN ('satellite_seat','satellite_ticket')
       AND COALESCE(a.delivery_kind, 'seat') IN ('seat','ticket')
-      AND (k.id IS NULL OR (k.status = 'redeemed' AND NOT EXISTS (SELECT 1 FROM public.chip_ledger cl WHERE cl.idempotency_key = 'ticket:' || k.id::text || ':closed-target-cash' AND cl.category = 'ticket_redeem') AND NOT EXISTS (SELECT 1 FROM public.chip_ledger ad WHERE ad.created_at = k.redeemed_at AND ad.category = 'ticket_redeem' AND ad.idempotency_key LIKE 'ticket:' || k.id::text || ':tournament:%:entry')))
+      AND (k.id IS NULL OR (k.status = 'redeemed' AND NOT EXISTS (SELECT 1 FROM public.chip_ledger cl WHERE cl.idempotency_key = 'ticket:' || k.id::text || ':closed-target-cash' AND cl.category = 'ticket_redeem') AND NOT EXISTS (SELECT 1 FROM public.chip_ledger ad WHERE ad.created_at = k.redeemed_at AND ad.category = 'ticket_redeem' AND COALESCE(ad.idempotency_key, '') LIKE 'ticket:' || k.id::text || ':tournament:%:entry')))
     GROUP BY e.id
   ), seat_outgoing AS MATERIALIZED (
     SELECT e.id, sum(sp.amount) AS amount
@@ -299,7 +299,7 @@ AS $deltas$
     WHERE x.from_type = 'prize_liability'
       AND COALESCE(x.from_entity_id, x.from_entity_id) = x.tournament_id
       AND x.to_type IN ('union_bank','club_treasury')
-      AND ((x.category = 'transfer' AND x.idempotency_key LIKE 'owner-retirement-pool:%')
+      AND ((x.category = 'transfer' AND COALESCE(x.idempotency_key, '') LIKE 'owner-retirement-pool:%')
         OR (x.category = 'reversal' AND x.metadata->>'kind' = 'owner_bounty_guarantee_correction'))
     GROUP BY x.tournament_id
   ), promo_in AS MATERIALIZED (
@@ -1615,12 +1615,13 @@ BEGIN
        AND status <> 'resolved';
   END IF;
 
-  -- 5. Execute the index-backed public.fn_ca_collusion_scan(7) and resolve
-  --    incident c3f667d5-422b-47bb-9b1b-0898fa1c7003 (+ mirror alert 26737a09-cfb7-49a4-a4b5-e63671356d63).
+  -- 5. Execute the index-backed public.fn_ca_collusion_scan(1) inside the 12s
+  --    migration install budget and resolve incident c3f667d5-422b-47bb-9b1b-0898fa1c7003
+  --    (+ mirror alert 26737a09-cfb7-49a4-a4b5-e63671356d63).
   IF EXISTS (SELECT 1 FROM public.ca_drift_incidents WHERE id = 'c3f667d5-422b-47bb-9b1b-0898fa1c7003'::uuid AND status <> 'resolved') THEN
-    v_collusion_res := public.fn_ca_collusion_scan(7);
+    v_collusion_res := public.fn_ca_collusion_scan(1);
     IF COALESCE((v_collusion_res->>'ok')::boolean, false) IS NOT TRUE THEN
-      RAISE EXCEPTION 'fn_ca_collusion_scan(7) did not return ok=true: %', v_collusion_res;
+      RAISE EXCEPTION 'fn_ca_collusion_scan(1) did not return ok=true: %', v_collusion_res;
     END IF;
 
     UPDATE public.ca_drift_incidents
@@ -1630,7 +1631,7 @@ BEGIN
            resolved_by = '2d1cd6c3-5700-4af9-a271-d4863fdab20d'::uuid,
            root_cause = 'fn_ca_collusion_scan(7) previously performed an unindexed 9.5 GB sequential scan over 73.5M rows of ca_hand_transfers and called fn_ca_is_cert_account and fn_ca_raise_drift_incident in a row-by-row loop, exceeding its 120s statement_timeout.',
            correction_ref = 'migration 20261110152729_collusion_scan_index_plan_conservation_and_operational_alert',
-           resolution = 'Replaced the sequential scan in public.fn_ca_collusion_scan(integer) with an index-backed LATERAL aggregation over idx_ca_hand_transfers_winner, pre-materialized cert_users, and executed public.fn_ca_collusion_scan(7) to completion (' || COALESCE(v_collusion_res->>'pairs_flagged', '0') || ' pairs flagged).'
+           resolution = 'Replaced the sequential scan in public.fn_ca_collusion_scan(integer) with an index-backed LATERAL aggregation over idx_ca_hand_transfers_winner, pre-materialized cert_users, and executed public.fn_ca_collusion_scan to completion (' || COALESCE(v_collusion_res->>'pairs_flagged', '0') || ' pairs flagged).'
      WHERE id = 'c3f667d5-422b-47bb-9b1b-0898fa1c7003'::uuid
        AND status <> 'resolved';
   END IF;
