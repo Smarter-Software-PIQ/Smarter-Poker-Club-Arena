@@ -20,13 +20,13 @@
  * return to the wallet then.
  *
  * #ClubArenaConsole: the riveted console the other table popups use (Time
- * Banks), the spade master's sibling family whose wide header well carries
- * the owner's whole sentence at a readable size. The title is engraved in the
- * header well, the
- * count prints in red ink on the glass, and the two answers are the plates
- * painted into the foot: Leave in red ink on the steel plate, Stay And Play
- * on the blue glass, which takes focus. Nothing is drawn. The scrim is
- * translucent, so the table stays in view behind the question.
+ * Banks). The head reads Leave Table? with Sure? in its painted pill slot,
+ * as the ordinary leave confirmation does. The owner's sentence is too long
+ * for the head's title band, so it leads on the glass in engraved silver and
+ * names the dialog; the count follows in red ink, then the question. The two
+ * answers are the plates painted into the foot: Leave in red ink on the steel
+ * plate, Stay And Play on the blue glass, which takes focus. Nothing is
+ * drawn. The scrim is translucent, so the table stays in view behind it.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -104,8 +104,14 @@ export default function HitRunLeaveConfirm({
         <SpadeConsole
           as="div"
           family="riveted"
-          title={HIT_RUN_CONFIRM_TITLE}
-          titleId="hit-run-confirm-title"
+          /* The head carries the same words as the ordinary leave confirmation,
+             and fills the painted pill slot the way ConfirmModal's destructive
+             confirmation does. The owner's sentence is too long for the head's
+             title band beside that slot, so it leads on the glass, whole and
+             in its own words, and names the dialog. */
+          title="Leave Table?"
+          pill="Sure?"
+          pillInk="red"
           plates={{
             secondary: {
               label: leaving ? 'Leaving' : 'Leave',
@@ -124,6 +130,9 @@ export default function HitRunLeaveConfirm({
             },
           }}
         >
+          <h2 id="hit-run-confirm-title" className="hit-run-confirm__lead sc-ink--silver">
+            {HIT_RUN_CONFIRM_TITLE}
+          </h2>
           <div className="hit-run-confirm__count" data-testid="hit-run-confirm-count">
             <span className="hit-run-confirm__number sc-ink--red">{handsRemaining}</span>
             <span className="hit-run-confirm__unit sc-label sc-ink--muted">

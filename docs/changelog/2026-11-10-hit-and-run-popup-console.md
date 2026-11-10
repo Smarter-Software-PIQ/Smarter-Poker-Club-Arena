@@ -8,10 +8,15 @@ the whole screen, and is not smarter.poker look and feel."
 
 - `src/components/table/HitRunLeaveConfirm.tsx` renders on the riveted console
   (`SpadeConsole family="riveted"`), the family the Time Bank popup uses. The
-  owner's sentence is engraved in the header well, the hands still owed print
-  in red ink on the glass with their words beneath, and the two answers are the
-  painted plates: Leave in red ink on the steel plate, Stay And Play on the blue
-  glass. Nothing is drawn.
+  head reads "Leave Table?" with "Sure?" in red in its painted pill slot, the
+  same words as the ordinary leave confirmation and `ConfirmModal`'s
+  destructive confirm. The owner's sentence did not fit the head's title band
+  without crossing the painted pill slot (measured: 210px of text for a 177px
+  band at the minimum size beside the pill), so it leads on the glass in
+  engraved silver, verbatim, and names the dialog. The hands still owed print
+  in red ink beneath it, then the question, and the two answers are the
+  painted plates: Leave in red ink on the steel plate, Stay And Play on the
+  blue glass. Nothing is drawn.
 - The backdrop was an opaque gradient over the whole screen. It is now a 62%
   black scrim, so the table stays in view behind the question.
 - Copy, Title Case, the alertdialog role, the portal to `<body>`, Escape to
@@ -23,6 +28,6 @@ the whole screen, and is not smarter.poker look and feel."
 
 `docs/changelog/2026-11-10-hit-and-run-popup-console/`: `before-6-393.jpg`,
 `after-6-393.jpg`, `after-1-393.jpg` (singular), `after-30-leave-393.jpg`
-(two-digit count, Leave pressed and in flight). Measured in the render: the
-title fills its zone without crossing it, both plate labels fit their faces,
+(two-digit count, Leave pressed and in flight). Measured in the render: every
+head string sits inside its zone, both plate labels fit their faces,
 Stay And Play takes focus.

@@ -45,6 +45,18 @@
   filter: drop-shadow(0 18px 34px rgb(0 0 0 / 85%));
 }
 
+/* The owner's sentence, engraved silver on the glass. */
+.hit-run-confirm__lead {
+  margin: 0;
+  padding: 1cqw 2cqw 3cqw;
+  font:
+    800 5.2cqw/1.2 'Roboto Condensed',
+    Inter,
+    sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 /* The count prints straight onto the glass: the figure in red ink, its words
    in muted caps beneath, an engraved rule closing it off from the question. */
 .hit-run-confirm__count {
