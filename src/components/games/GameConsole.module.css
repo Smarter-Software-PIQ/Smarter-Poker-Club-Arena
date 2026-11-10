@@ -446,7 +446,7 @@
 }
 [data-choice-game='crossing'] .header {
   background: linear-gradient(175deg, #303a40, #131d23 48%, #10171b);
-  border-bottom: 2px solid #dba651;
+  border-bottom: 2px solid #437eb9;
 }
 [data-choice-game='crossing'] .metrics {
   gap: 1px;
@@ -461,13 +461,13 @@
   border-radius: 0;
 }
 [data-choice-game='crossing'] .bar {
-  background: linear-gradient(#425057, #20292e 8%, #101619 84%, #38434a);
+  background: linear-gradient(#acc4d9, #233e5c 5%, #081523 14%, #061021 82%, #375272);
 }
 @media (min-width: 761px) and (min-height: 501px) {
   [data-choice-game='crossing'] .console {
-    grid-template-columns: minmax(0, 3fr) minmax(240px, 2fr);
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto auto;
-    grid-template-areas: 'header header' 'play play' 'controls bar';
+    grid-template-areas: 'header' 'play' 'controls' 'bar';
   }
   [data-choice-game='crossing'] .metrics {
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -490,6 +490,18 @@
 }
 [data-choice-game='crossing'] .actions > .primary {
   border-image-source: url('/assets/club-buttons/lobby/shark-panel-v1/button-primary.png');
+}
+
+[data-choice-game='crossing'] .header h1 {
+  color: white;
+  background: linear-gradient(155deg, #2d4c6c, #0b1b30 60%, #204463);
+  border: 1px solid #91afc9;
+  border-radius: 4px;
+  padding: 3px 12px;
+}
+[data-choice-game='crossing'] .metrics dt,
+[data-choice-game='crossing'] .metrics dd {
+  color: white;
 }
 
 [data-choice-game='mines'] .console {

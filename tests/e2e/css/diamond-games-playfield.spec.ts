@@ -738,7 +738,13 @@ for (const game of ['crossing', 'mines'] as const)
         .toBeLessThanOrEqual(0);
     }
     if (game === 'crossing') {
-      await expect(frame.getByText(/Today.*Rounds/i)).toHaveCount(0);
+      await expect(
+        frame.getByText(/Today.*Rounds|Round Sealed|% Safe Crossing|A Loss Pays/i)
+      ).toHaveCount(0);
+      await page.setViewportSize({ width: 847, height: 1040 });
+      await expect(frame.locator('[data-plate="primary"]')).toBeInViewport();
+      await frame.screenshot({ path: test.info().outputPath('crossing-847.png') });
+
       await expect(frame.locator('[data-plate="primary"]')).toBeEnabled();
       await expect(frame.locator('[data-plate="secondary"]')).toBeEnabled();
       await page.setViewportSize({ width: 1280, height: 800 });

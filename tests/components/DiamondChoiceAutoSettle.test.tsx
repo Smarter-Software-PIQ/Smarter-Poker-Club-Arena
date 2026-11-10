@@ -1730,7 +1730,7 @@ describe('every finished round verifies itself', () => {
     await toTheReceipt();
     // Once it has ended, the same line is the NEXT round's ticket, and this
     // round's own sealed hash is named as such.
-    expect(proofLines().some((line) => line?.startsWith('Next Round Sealed: '))).toBe(true);
+    expect(proofLines().some((line) => line?.startsWith('Next Ticket: '))).toBe(true);
     expect(proofLines()).toContain(`This Round Was Sealed As: ${sealed.server_seed_hash}`);
   });
 
