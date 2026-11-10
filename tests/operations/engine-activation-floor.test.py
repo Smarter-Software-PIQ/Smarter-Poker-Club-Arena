@@ -148,6 +148,86 @@ class ActivationFloor(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'owner order differs'):
             floor.nov7_owner(str(self.repo), dict(record, targetSha=self.commit()), start, end)
 
+    def test_current_owner_reservation_reaches_countdown_and_refuses_replay(self):
+        # Execute the real seal reservation and countdown consumer against a
+        # disposable state directory. Existing policy tests cover protected Git;
+        # route its subprocess authority boundary through the actual pinned judge.
+        import argparse, contextlib, io, sys
+        from datetime import datetime
+        spec = importlib.util.spec_from_file_location('current_owner_seal', ROOT / 'server/scripts/engine-release-seal.py')
+        seal = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = seal
+        spec.loader.exec_module(seal)
+        window, raw = self.historical_floor(floor.NOV7_OWNER_ID)
+        (self.repo / 'server/release/owner-maintenance-windows.json').write_text(json.dumps({'version': 1, 'windows': [window]}))
+        target = self.commit()
+        start, end = [int(datetime.fromisoformat(window[k].replace('Z', '+00:00')).timestamp()) for k in ('notBefore', 'notAfter')]
+        record = dict(schema=floor.OWNER_CAPABILITY, ownerWindowId=window['id'],
+                      manifestSha256=__import__('hashlib').sha256(raw).hexdigest(), targetSha=target,
+                      activationEpoch=start, expiresEpoch=end)
+        stamp = int(datetime.fromisoformat('2026-11-10T07:10:00+00:00').timestamp()) * 1000
+        state = {'pending': None, 'finalization': None, 'desired': {'sha': seal.NOV7_PREDECESSOR}, 'highWaterSha': seal.NOV7_PREDECESSOR}
+        args = argparse.Namespace(sha=target, run_id='650-1', repo=str(self.repo), cause='urgent',
+                 control_sha=target, deadline=end, nov7_owner=True, scheduled_cycle_start=None,
+                 certified_policy=None, predecessor_sha=None, include_eligibility=True)
+        real_run = subprocess.run
+        def authority(command, **kwargs):
+            if command[0] == 'git': return real_run(command, **kwargs)
+            self.assertEqual(command[3], 'nov7-owner')
+            self.assertIn(target, command)
+            floor.nov7_owner(str(self.repo), record, int(seal.time.time()), args.deadline)
+            return subprocess.CompletedProcess(command, 0)
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(patch.object(seal, 'STATE_DIR', self.repo))
+            stack.enter_context(patch.object(seal, 'SealLock', contextlib.nullcontext))
+            stack.enter_context(patch.object(seal, 'load_state', return_value=state))
+            stack.enter_context(patch.object(seal, 'git_is_ancestor'))
+            stack.enter_context(patch.object(seal, 'recovery_window_eligibility', return_value=('', 0)))
+            stack.enter_context(patch.object(seal, 'certified_recovery_request', return_value=None))
+            stack.enter_context(patch.object(seal, 'audit_once'))
+            stack.enter_context(patch.object(seal.subprocess, 'run', side_effect=authority))
+            stack.enter_context(patch.object(seal.time, 'time', return_value=stamp/1000))
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out): seal.cmd_reserve_recovery_window(args)
+            self.assertEqual(out.getvalue().strip(), str(stamp))
+            self.assertEqual(seal.NOV7_OWNER_CLAIM, 'engine-release-owner-' + floor.NOV7_OWNER_ID + '.json')
+            claim = json.loads((self.repo / seal.NOV7_OWNER_CLAIM).read_text())
+            self.assertEqual(claim, seal.nov7_claim(args.run_id, target, target, stamp))
+            replay = io.StringIO()
+            with contextlib.redirect_stdout(replay): seal.cmd_reserve_recovery_window(args)
+            self.assertEqual(replay.getvalue().strip(), 'unavailable')
+            # Observe the original announcement and the real countdown witness.
+            presentation = dict(active=True, phase='counting_down', reason='Deployment Recovery',
+                                break_id=stamp, break_ends_at=stamp+420000, scheduled_ends_at=stamp+420000)
+            health = dict(releaseSha=seal.NOV7_PREDECESSOR, running=True, weeklyPayout=None,
+                          maintenance=dict(active=True, durableConfirmed=True, phase='counting_down',
+                          reason='Deployment Recovery', breakEndsAt=stamp+420000, presentation=presentation))
+            args.announced_at = stamp
+            args.promise_floor_proof = None
+            with patch.object(seal.time, 'time', return_value=stamp/1000+121), patch.object(seal.sys, 'stdin', io.StringIO(json.dumps(health))), contextlib.redirect_stdout(io.StringIO()):
+                seal.cmd_bind_recovery_window(args)
+            # A foreign run cannot bind the claim and expiry never slides.
+            args.run_id = '650-2'
+            with patch.object(seal.sys, 'stdin', io.StringIO(json.dumps(health))), self.assertRaises(SystemExit):
+                seal.cmd_bind_recovery_window(args)
+            args.run_id = '650-1'
+            with self.assertRaises(SystemExit): seal.require_nov7_reservation_authority(args, target, end*1000-419999)
+            old = dict(record, ownerWindowId='2026-11-09-owner-asap-engine-2230z')
+            with self.assertRaises(ValueError): floor.nov7_owner(str(self.repo), old, stamp//1000, end)
+        transaction = (ROOT / 'server/scripts/engine-release-transaction.sh').read_text()
+        self.assertEqual(transaction.count('2026-11-10-owner-asap-engine-0650z'), 4)
+        self.assertNotIn('2026-11-09-owner-asap-engine-2230z', transaction)
+        gate = transaction.split('nov7_owner_admitted() {', 1)[1].split('\n}', 1)[0]
+        shell = 'python3() { return 0; }; nov7_owner_admitted() {' + gate + '\n}; nov7_owner_admitted'
+        env = dict(os.environ, ACTIVATION_FLOOR_OWNER_WINDOW=floor.NOV7_OWNER_ID,
+                   CHECKPOINT_PREDECESSOR_SHA=seal.NOV7_PREDECESSOR, PHASE1_CYCLE_START='0',
+                   CONTROL_DIR=str(self.repo), REPO_DIR=str(self.repo), SHA=target,
+                   CONTROL_SHA=target, MUTATION_DEADLINE_EPOCH=str(end), DRILL_MODE='')
+        self.assertEqual(subprocess.run([BASH, '-c', shell], env=env).returncode, 0)
+        for bad in ({'ACTIVATION_FLOOR_OWNER_WINDOW': '2026-11-09-owner-asap-engine-2230z'},
+                    {'CHECKPOINT_PREDECESSOR_SHA': 'f'*40}, {'DRILL_MODE': '1'}):
+            self.assertNotEqual(subprocess.run([BASH, '-c', shell], env=dict(env, **bad)).returncode, 0)
+
     def test_explicit_later_owner_window_precedes_fresh_phase1_but_keeps_original_entries(self):
         import contextlib
         import io
