@@ -7,6 +7,7 @@ DECLARE player uuid:='d1000000-0000-4000-8000-000000000005'; club uuid:='d100000
  ticket uuid; result jsonb; before_balance bigint; before_claims text; mode text;
 BEGIN
  IF NOT EXISTS(SELECT 1 FROM public.ca_financial_epochs WHERE name='Isolated Diamond financial probe' AND is_current) THEN RAISE EXCEPTION 'Private fixture required'; END IF;
+ IF to_regprocedure('public.fn_wheel_spin_v2(uuid,uuid,text,integer,text,uuid)') IS NOT NULL THEN RAISE EXCEPTION 'Old integer wheel overload remains'; END IF;
  UPDATE public.wheel_configs SET enabled=true,min_seconds_between_spins=0,welcome_spin_enabled=true,welcome_budget_chips=1000000 WHERE host_id=club;
  UPDATE public.diamond_wheel_release SET enabled=true;
  INSERT INTO public.diamond_game_configs(host_id,host_kind,game,enabled,min_seconds_between_rounds,exposure_allowance_chips)

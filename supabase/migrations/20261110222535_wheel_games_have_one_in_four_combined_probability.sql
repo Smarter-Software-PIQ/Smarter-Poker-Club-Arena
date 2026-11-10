@@ -6,6 +6,10 @@ BEGIN;
 SET LOCAL lock_timeout = '2s';
 SET LOCAL statement_timeout = '15s';
 
+-- Earlier wallet widening removed this door dynamically. Keep its retirement
+-- explicit so no integer overload can shadow the single bigint RPC.
+DROP FUNCTION IF EXISTS public.fn_wheel_spin_v2(uuid,uuid,text,integer,text,uuid);
+
 CREATE FUNCTION public.fn_wheel_v5_weights(p_prev_ord smallint, p_prev_super_game text DEFAULT NULL)
 RETURNS integer[] LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$
 DECLARE
