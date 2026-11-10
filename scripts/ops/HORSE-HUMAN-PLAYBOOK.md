@@ -53,6 +53,26 @@ Five folds had four distinct ranks within a five-rank straight window. Eleven ot
 
 A two-pair lead of 4.40 into 19.68 illustrates the sizing decision. The Horse blocked four of 16 board-nut pairs. Before that hand, the public histories contained zero comparable first-to-act leads of quarter-pot or smaller. Across all sizes in the same position the pool folded nine times, called eight times and raised twice. A separate fold-or-call sensitivity used the captured rake and jackpot fees, half of worse hands calling, 10% of better hands folding and tied hands always calling. Relative to a check-through the bet gained 0.03 chips under a hypothetical 49% weaker, 2% tied and 49% stronger range. It lost 1.02 chips at 25% weaker, 2% tied and 73% stronger. In the second range the bet needed better hands to fold more than 16.2% of the time. A human could also bet after a check or raise the lead. Price those branches separately. Observed overall folds cannot identify the fraction of better hands that fold.
 
+### What the 29 observed boat checks can support
+
+The frozen denominator contains 29 policy-eligible checks with a middle or top full house on a single high-only board. A human could respond in 22. Five legal bet sizes per decision produced 145 decision–size pairs. For 141 pairs the available fee schedules agreed on the marginal cost for at least one matched-caller branch. The four unresolved sizes came from regular PLO5 cash.
+
+| Format          | Checks | Sizes with a price | Priced caller-count branches |
+| --------------- | -----: | -----------------: | ---------------------------: |
+| PLO4 cash       |      3 |              15/15 |                        35/35 |
+| PLO5 Lightning  |      1 |                5/5 |                        10/10 |
+| PLO5 cash       |     19 |              91/95 |                      262/271 |
+| PLO6 cash       |      5 |              25/25 |                        80/80 |
+| PLO4 tournament |      1 |                5/5 |                        10/10 |
+
+With one matched caller, the required conditional showdown share ranged from 50.00% to 55.56%. With `m` equal callers each matching a bet of `B` and a marginal deduction of `D`, the threshold is `B / ((m + 1) × B − D)`. Use this price on a common pot when comparing a matched bet with the same showdown after checking through. Weight raises, unequal contributions, induced bets and side pots separately. All 397 priced branches use chip values, including the tournament branch. For nine other branches, plausible fee schedules disagreed. Split pots and trip boards require separate evidence.
+
+### How much fold equity can a river bluff assume?
+
+A chronological development sample examined actual cash PLO4/5/6 opening river bets on a single board with one identifiable human responder. A model trained on 447 earlier bets could price 218 of 224 later bets by matching the domain and bet-size bucket. For the 59 later bets of half pot or less, the model predicted 58.7% folds and observed 39.0%. Its average squared probability error was 0.2346 versus 0.2417 using domain alone. Size improved that score by 0.0163 in one week and worsened it by 0.0100 in the next. Some training groups contained a single bet.
+
+Keep the size-based estimate out of live bluff selection. A fold observed against an actual bet does not identify the response to a hypothetical bet from a checked node. Opponent selection, multiway play, the Horse's hand and tournament utility can change the decision.
+
 ## Pot-limit Omaha eight-or-better
 
 Across 302 PLO8 river decisions, 106 still had a human able to wager, two had only an all-in eligible human, and 194 followed all eligible humans folding. Of 35 checked-to opportunities, nine were cash. The 26 tournament records included 20 pre-money, three in the money and three with unknown stage. Horses checked 31 times, bet three times and went all-in once. Twenty-one checks closed the action. Of ten that left action behind, nine checked through and one drew a human bet.
@@ -124,6 +144,8 @@ Five legal decisions by one Horse across two hands in an NLH bounty MTT had no s
 On a turn call costing 20,000 to contest 100,000, the checkdown chip threshold was 20%. Three field-stack scenarios gave no-tie regular-prize thresholds of 20.36%–20.40%. At the later checked-to river, a comparison of a minimum bluff against checking required 16.67% folds among better hands in chips and 17.05%–17.09% in those scenarios, assuming worse hands fold and ties call. The true field stacks, bounty utility and human ranges remain unresolved. The figures describe the stated scenarios only. Preserve the historically missing input in the study, and verify stage consumption on the actual decision before attributing an action to bubble awareness.
 
 ## Loading and verifying a correction
+
+The frozen manifest maps 48 distinct entries across 14 game, format and speed combinations to their qualification paths. The candidate counts overlap. Each entry still needs its own decision inputs, policy artifact and receipt. None of the 48 entries carries a qualified artifact in the frozen manifest. To assess a later release, use its exact revision and the accepted receipt from the Horse that consumed it.
 
 1. Build the private study using the documented report command. The report emits the machine-readable implementation playbook. Inspect individual records privately using the multi-database query. Select a rule by domain, street, legal alternatives, inputs and evidence gaps. [Study commands and source-owner table](HORSE-HUMAN-STUDY.md)
 2. Change the owning engine rule using qualified evidence for its supported domain. Run the original decision through the normal chooser and worker, check the final legal wager, and retain the relevant controls. Use the existing corrective issuer and its signature, selection and holdout requirements where its contract supports the correction.
