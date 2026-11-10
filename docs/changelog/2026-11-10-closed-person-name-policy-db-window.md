@@ -10,4 +10,4 @@ Dan authorized one database-only Deployment Recovery break today. The window `20
 
 Run 42861001229 announced the break at 17:04:54 UTC. One table was still finishing a hand when the controller's deadline passed: it needs every table parked with 285 seconds of the break left. The controller therefore refused to send the migration (`Full 285-second drained/frozen reserve was not certified`). The tables thawed at 17:11:54, the serving engine was unchanged, and the receipt reads `result: unproven`, `installer: unknown`, `thawed: true`. `20261110003726` is still not recorded in `schema_migrations`.
 
-Dan then authorized one more break before 22:00 UTC. The window `2026-11-10-closed-person-name-policy-db-retry` names the same file: players are told at 18:10, and the break may run between 18:30 and 22:00 UTC. It is dispatched once.
+Dan then authorized one more break. Under runner load the booking could not land before 22:00 UTC, so he moved it to tonight. The window `2026-11-10-closed-person-name-policy-db-retry` names the same file: players are told at 23:15 UTC, and the break may run between 23:35 UTC and 04:00 UTC on November 11. It is dispatched once.

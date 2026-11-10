@@ -2098,9 +2098,10 @@ it('binds the one owner-ordered retry of the closed-person read policy break', (
   expect(entry.id).toBe('2026-11-10-closed-person-name-policy-db-retry');
   expect(entry.ownerOrder).toContain('"Authorize one more break"');
   expect(entry.ownerOrder).toContain('run 42861001229');
-  expect(entry.playerNoticeAt).toBe('2026-11-10T18:10:00Z');
-  expect(entry.notBefore).toBe('2026-11-10T18:30:00Z');
-  expect(entry.notAfter).toBe('2026-11-10T22:00:00Z');
+  expect(entry.ownerOrder).toContain('"Retry tonight after 22:00"');
+  expect(entry.playerNoticeAt).toBe('2026-11-10T23:15:00Z');
+  expect(entry.notBefore).toBe('2026-11-10T23:35:00Z');
+  expect(entry.notAfter).toBe('2026-11-11T04:00:00Z');
   expect(entry.migrations).toEqual([
     '20261110003726_a_closed_persons_tournament_rows_are_read_through_the_public.sql',
   ]);
