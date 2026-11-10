@@ -60,11 +60,11 @@ const person = {
   is_horse: false,
 };
 
-async function sweepPastGrace(engine: any) {
+async function sweepPastGrace(engine: any, graceMs: number = ServerTableEngine.BUSTED_GRACE_MS) {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-10-06T16:00:00Z'));
   await engine.standUpBustedCashPlayers(); // starts the grace clock
-  vi.setSystemTime(Date.now() + ServerTableEngine.BUSTED_GRACE_MS + 1);
+  vi.setSystemTime(Date.now() + graceMs + 1);
   await engine.standUpBustedCashPlayers(); // past the grace: released
 }
 
@@ -90,7 +90,8 @@ describe('a busted seat at a Diamond cash table', () => {
 
   it('still leaves a horse at a CHIP table to its own recovery pass', async () => {
     const engine = engineWith('chips', [{ ...horse }, { ...person }]);
-    await sweepPastGrace(engine);
+    // A chip seat is held for the bust rebuy window, not the Diamond grace.
+    await sweepPastGrace(engine, ServerTableEngine.BUST_REBUY_WINDOW_MS);
     const released = engine.releaseBustedSeat.mock.calls.map((c: any[]) => c[0].user_id);
     expect(released).toEqual(['person-1']);
   });
