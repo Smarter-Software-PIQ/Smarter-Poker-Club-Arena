@@ -19,17 +19,7 @@ import BonusCompletion from '../components/games/BonusCompletion';
  * The curve climbs as e^(k t) at the round's own sealed k (0.08 from contract
  * 5, 20x in about 37 seconds), with exact displayed-hundredth cash-outs.
  *
- * THE AVERAGE CRASH AND HOW FAR IT WOULD HAVE GONE (Dan, 2026-10-12: "MAKE
- * SURE THAT PLAYERS ARE AWARE THAT THE 'AVERAGE CRASH' IS BETWEEN 2.4 - 3.0X
- * AND IF THEY 'BOOK THE WIN' OR STOP BEFORE IT CRASHES, IT SHOULD SHOW HOW FAR
- * 'IT WOULD OF GONE'"). Before Start and through the climb the readout prints
- * the average crash of THAT round's own terms (crashAverageMultiplier: its
- * stake, its sealed minimum, its contract and its cap), and the most it can
- * fly to ("Average Crash 2.9x. Up To 20x."). Contract 5 chooses each round's
- * return so that average is 2.9x whatever its floor. Once a win is booked the
- * flight keeps climbing to the sealed point the settled receipt reveals, and
- * the readout and the receipt say "It Would Have Crashed At 4.37x", or "It
- * Would Have Reached 20x". The point is never sent before the cash-out.
+ * A booked flight keeps climbing to the sealed point revealed by settlement.
  *
  * THE CLOCK IS THE SERVER'S. fn_crash_start seals the crash point and stamps
  * started_at; the page draws e^(k t) from that stamp (offset from the server's
@@ -98,11 +88,7 @@ import DiamondGamesService, {
 } from '../services/DiamondGamesService';
 import { randomClientSeed } from '../utils/wheelFairness';
 import {
-  CRASH_FLOORED_VERSION,
   CRASH_PAYOUT_VERSION,
-  crashAverageLabel,
-  crashAverageMultiplier,
-  crashCapLabel,
   crashCashoutFloorCents,
   crashWouldHaveLabel,
   multiplierLabel,
@@ -1254,42 +1240,6 @@ function DiamondCrashGame() {
           : earned.ready && !earned.award && standardFloor !== null
             ? { chips: standardFloor, betChips: bet / rate, super: false }
             : null;
-  /**
-   * The average crash of the terms on the table: the open round's own sealed
-   * stake, minimum, contract and cap, else the quote for the round about to
-   * start under the contract it will be sealed with. Never a typed figure; null
-   * while those terms are still being checked.
-   */
-  const averageCrash = (() => {
-    const terms =
-      open && round
-        ? {
-            bet: round.bet_chips,
-            minimum: round.minimum_payout_chips ?? 0,
-            version: round.payout_version,
-            cap: round.cap_cents,
-          }
-        : guaranteed && !settledRound
-          ? {
-              bet: guaranteed.betChips,
-              minimum: earned.quote?.gameMinimumPayoutChips ?? guaranteed.chips,
-              // The contract the server says the next round will be sealed
-              // under: the award quote's, else the game state's (contract 5
-              // states itself), else contract 4. Never assumed, so this is
-              // true before and after the database moves to contract 5.
-              version: earned.quote?.payoutVersion ?? cfg?.payout_version ?? CRASH_FLOORED_VERSION,
-              cap: capCents,
-            }
-          : null;
-    if (!terms) return null;
-    try {
-      return crashAverageLabel(
-        crashAverageMultiplier(terms.bet, terms.minimum, terms.version, terms.cap)
-      );
-    } catch {
-      return null;
-    }
-  })();
   /** The sentence read before Start: what this round pays whatever happens. */
   const promise = earned.quote
     ? guaranteeCopy('crash', earned.quote)
@@ -1506,14 +1456,9 @@ function DiamondCrashGame() {
             </span>
             <span className={`sc-copy ${styles.readoutSub}`}>
               {open ? (
-                <>
-                  <span
-                    ref={readoutWorthRef}
-                  >{`Worth ${chipsLabel(liveWorth)} Chips Right Now`}</span>
-                  {averageCrash ? (
-                    <span data-average-crash="">{` ${averageCrash}. ${crashCapLabel(round?.cap_cents ?? capCents)}.`}</span>
-                  ) : null}
-                </>
+                <span
+                  ref={readoutWorthRef}
+                >{`Worth ${chipsLabel(liveWorth)} Chips Right Now`}</span>
               ) : saved ? (
                 BONUS_SAVED
               ) : settledRound ? (
@@ -1537,12 +1482,7 @@ function DiamondCrashGame() {
                   'Auto Play Needs An Auto Cash Out: Tap Auto To Set One, Or It Cannot Cash Out For You.'
                 )
               ) : (
-                <>
-                  {promise && <span className="sr-only">{promise} </span>}
-                  {averageCrash
-                    ? `${averageCrash}. ${crashCapLabel(capCents)}.`
-                    : crashCapLabel(capCents)}
-                </>
+                promise && <span className="sr-only">{promise}</span>
               )}
               {autoRun && !open ? ` Auto Play ${autoRun.done} Of ${autoRun.total}.` : ''}
             </span>
@@ -1581,8 +1521,8 @@ function DiamondCrashGame() {
         <GamePanel title="How To Play" foot="foot">
           <p className="sc-copy">
             Cash Out Before The Crash To Collect Your Chip Prize. Your Confirmed Result Shows The
-            Chips Paid. Your Round Limit Is Shown Before You Start. An Auto Cash Out Target Is Saved
-            With The Round And Remains Active If You Disconnect.
+            Chips Paid. An Auto Cash Out Target Is Saved With The Round And Remains Active If You
+            Disconnect.
           </p>
         </GamePanel>
       </div>
