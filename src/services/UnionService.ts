@@ -43,11 +43,16 @@ export interface Union {
   hierarchyThresholdCurrent: number;
   hierarchyThresholdNext: number;
   settings: UnionSettings;
+  ecoTermsEffectiveFrom?: string;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface UnionSettings {
+  eco_cash_enabled?: boolean;
+  eco_cash_rate?: number;
+  eco_tournament_enabled?: boolean;
+  eco_tournament_rate?: number;
   revenueSharePercent: number; // % taken from member clubs
   sharedPlayerPool: boolean; // Cross-club player visibility
   crossClubTournaments: boolean; // Allow union-wide tournaments
@@ -346,7 +351,13 @@ class UnionServiceClass {
 
     masterBus.emit('UNION_UPDATED', { unionId });
 
-    return data ? this.mapUnion(data) : this.getUnion(unionId);
+    if (data) {
+      const updated = this.mapUnion(data);
+      if (typeof result.eco_terms_effective_from === 'string')
+        updated.ecoTermsEffectiveFrom = result.eco_terms_effective_from;
+      return updated;
+    }
+    return this.getUnion(unionId);
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -795,6 +806,23 @@ class UnionServiceClass {
       hierarchyThresholdCurrent: u.hierarchy_threshold_current || 0,
       hierarchyThresholdNext: u.hierarchy_threshold_next || 0,
       settings: {
+        eco_cash_enabled:
+          typeof u.settings?.eco_cash_enabled === 'boolean'
+            ? u.settings.eco_cash_enabled
+            : undefined,
+        eco_cash_rate:
+          typeof u.settings?.eco_cash_rate === 'number' && Number.isFinite(u.settings.eco_cash_rate)
+            ? u.settings.eco_cash_rate
+            : undefined,
+        eco_tournament_enabled:
+          typeof u.settings?.eco_tournament_enabled === 'boolean'
+            ? u.settings.eco_tournament_enabled
+            : undefined,
+        eco_tournament_rate:
+          typeof u.settings?.eco_tournament_rate === 'number' &&
+          Number.isFinite(u.settings.eco_tournament_rate)
+            ? u.settings.eco_tournament_rate
+            : undefined,
         // UNION AUDIT FIX 2026-07-21: tolerate legacy camelCase keys written by
         // the old (broken) Detail-page save path, preferring canonical snake_case.
         revenueSharePercent:

@@ -257,3 +257,53 @@ describe('parseUnionStatementBoard', () => {
     );
   });
 });
+
+it('retains historical combined ECO without inventing a zero split', () => {
+  const parsed = parseUnionStatementBoard(board(), 'union-a', '2026-09-14');
+  expect(parsed.clubs[0].eco_components).toBeNull();
+  expect(parsed.totals.cash_eco_amount).toBeNull();
+  expect(parsed.totals.tournament_eco_amount).toBeNull();
+  expect(parsed.history[0].eco_components_complete).toBe(false);
+});
+
+it('validates both original recorded ECO lanes and complete-only totals', () => {
+  const value: any = board();
+  const components = [
+    {
+      activity: 'cash',
+      enabled: true,
+      base_mode: 'club_profit',
+      base: 100.05,
+      rate: 0.1,
+      amount: -10.01,
+      terms_id: '11111111-1111-4111-8111-111111111111',
+      record_id: '22222222-2222-4222-8222-222222222222',
+      status: 'recorded',
+    },
+    {
+      activity: 'tournament',
+      enabled: true,
+      base_mode: 'club_profit',
+      base: -100.05,
+      rate: 0.1,
+      amount: 10.01,
+      terms_id: '11111111-1111-4111-8111-111111111111',
+      record_id: '33333333-3333-4333-8333-333333333333',
+      status: 'recorded',
+    },
+  ];
+  Object.assign(value.clubs[0], { eco_version: 2, eco_components: components });
+  Object.assign(value.totals, {
+    eco_components_complete: true,
+    cash_eco_amount: -10.01,
+    tournament_eco_amount: 10.01,
+  });
+  expect(parseUnionStatementBoard(value, 'union-a', '2026-09-14').totals.cash_eco_amount).toBe(
+    -10.01
+  );
+  value.totals.cash_eco_amount = -10;
+  expect(() => parseUnionStatementBoard(value, 'union-a', '2026-09-14')).toThrow(/ECO/);
+  value.totals.cash_eco_amount = -10.01;
+  components[1].activity = 'cash';
+  expect(() => parseUnionStatementBoard(value, 'union-a', '2026-09-14')).toThrow(/ECO/);
+});

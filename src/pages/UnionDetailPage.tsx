@@ -172,6 +172,10 @@ export default function UnionDetailPage() {
   const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
   const [showXmttModal, setShowXmttModal] = useState(false);
   const [settingsForm, setSettingsForm] = useState({
+    eco_cash_enabled: undefined as boolean | undefined,
+    eco_cash_rate: undefined as number | undefined,
+    eco_tournament_enabled: undefined as boolean | undefined,
+    eco_tournament_rate: undefined as number | undefined,
     revenueSharePercent: 10,
     sharedPlayerPool: true,
     crossClubTournaments: false,
@@ -429,6 +433,10 @@ export default function UnionDetailPage() {
   useEffect(() => {
     if (activeTab === 'settings' && union?.settings) {
       setSettingsForm({
+        eco_cash_enabled: union.settings.eco_cash_enabled,
+        eco_cash_rate: union.settings.eco_cash_rate,
+        eco_tournament_enabled: union.settings.eco_tournament_enabled,
+        eco_tournament_rate: union.settings.eco_tournament_rate,
         revenueSharePercent: union.settings.revenueSharePercent,
         sharedPlayerPool: union.settings.sharedPlayerPool,
         crossClubTournaments: union.settings.crossClubTournaments,
@@ -975,6 +983,10 @@ export default function UnionDetailPage() {
               // Load current settings
               if (union?.settings) {
                 setSettingsForm({
+                  eco_cash_enabled: union.settings.eco_cash_enabled,
+                  eco_cash_rate: union.settings.eco_cash_rate,
+                  eco_tournament_enabled: union.settings.eco_tournament_enabled,
+                  eco_tournament_rate: union.settings.eco_tournament_rate,
                   revenueSharePercent: union.settings.revenueSharePercent,
                   sharedPlayerPool: union.settings.sharedPlayerPool,
                   crossClubTournaments: union.settings.crossClubTournaments,
@@ -1721,19 +1733,88 @@ export default function UnionDetailPage() {
                 <p className={styles.settingHint}>Enable Union-Wide Tournament Scheduling</p>
               </div>
 
+              {(['cash', 'tournament'] as const).map((activity) => {
+                const enabledKey =
+                  activity === 'cash' ? 'eco_cash_enabled' : 'eco_tournament_enabled';
+                const rateKey = activity === 'cash' ? 'eco_cash_rate' : 'eco_tournament_rate';
+                const label = activity === 'cash' ? 'Cash ECO' : 'Tournament ECO';
+                return (
+                  <div className={styles.settingRow} key={activity}>
+                    <label className={styles.toggleLabel}>
+                      <input
+                        type="checkbox"
+                        checked={settingsForm[enabledKey] === true}
+                        onChange={(e) =>
+                          setSettingsForm((prev) => ({ ...prev, [enabledKey]: e.target.checked }))
+                        }
+                      />
+                      {label}
+                    </label>
+                    <label>
+                      {label} Configured Rate %
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.1"
+                        className={styles.ecoRate}
+                        aria-label={`${label} Rate`}
+                        placeholder="Not Configured"
+                        value={
+                          settingsForm[rateKey] === undefined ? '' : settingsForm[rateKey]! * 100
+                        }
+                        onChange={(e) =>
+                          setSettingsForm((prev) => ({
+                            ...prev,
+                            [rateKey]:
+                              e.target.value === '' ? undefined : Number(e.target.value) / 100,
+                          }))
+                        }
+                      />
+                    </label>
+                    <p className={styles.settingHint}>
+                      {settingsForm[enabledKey] === undefined ? 'Not Configured. ' : ''}Separate
+                      Club Profit / Loss. Horses And All Players Included.
+                    </p>
+                  </div>
+                );
+              })}
+              <p className={styles.settingHint}>
+                ECO Changes Apply At The Server-Confirmed Accounting Boundary.
+              </p>
+              {union.ecoTermsEffectiveFrom && (
+                <p className={styles.settingHint}>
+                  ECO Terms Effective From {union.ecoTermsEffectiveFrom}
+                </p>
+              )}
+
               <button
                 className={styles.saveButton}
                 onClick={async () => {
                   if (!unionId || isUpdatingSettings) return;
-                  setIsUpdatingSettings(true);
-                  const updated = await unionService.updateUnion(unionId, {
-                    settings: settingsForm,
-                  });
-                  if (updated) {
-                    setUnion(updated);
-                    toast.success('Settings saved successfully!');
+                  if (
+                    (settingsForm.eco_cash_enabled && settingsForm.eco_cash_rate === undefined) ||
+                    (settingsForm.eco_tournament_enabled &&
+                      settingsForm.eco_tournament_rate === undefined)
+                  ) {
+                    toast.error('Enter A Rate For Each Enabled ECO');
+                    return;
                   }
-                  setIsUpdatingSettings(false);
+                  setIsUpdatingSettings(true);
+                  try {
+                    const updated = await unionService.updateUnion(unionId, {
+                      settings: settingsForm,
+                    });
+                    if (updated) {
+                      setUnion(updated);
+                      toast.success('Settings saved successfully!');
+                    }
+                  } catch (error) {
+                    reportError(error, 'Union Settings');
+                    toast.error('Settings Could Not Be Saved');
+                  } finally {
+                    setIsUpdatingSettings(false);
+                  }
                 }}
                 disabled={isUpdatingSettings}
               >
