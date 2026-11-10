@@ -434,3 +434,54 @@
     line-height: 1.15;
   }
 }
+
+[data-choice-game='mines'] .console {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto 1fr auto auto;
+  grid-template-areas: 'header' 'play' 'controls' 'bar';
+}
+[data-choice-game='mines'] .header {
+  background: linear-gradient(165deg, #1b2b40, #060c16 65%);
+}
+[data-choice-game='mines'] .header h1 {
+  margin-inline: auto;
+  padding: 0.4em 1.5em;
+  font-size: clamp(16px, 4vw, 23px);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #e4f7ff;
+  border: 1px solid #beccd7;
+  border-radius: 0.35em;
+  background: linear-gradient(#364d65, #0c1b2f 46%, #060e1b 52%, #1d3954);
+  box-shadow:
+    inset 0 1px white,
+    inset 0 -2px #49779a,
+    0 2px 5px #000;
+}
+[data-choice-game='mines'] .metrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.2rem;
+}
+[data-choice-game='mines'] .controls,
+[data-choice-game='mines'] .bar {
+  padding: 0.6rem;
+  background: linear-gradient(#233141, #09111d 16%, #0d1928 88%, #334254);
+}
+[data-choice-game='mines'] .metrics > div {
+  padding: 0.25em;
+  border: none;
+  text-align: center;
+}
+[data-choice-game='mines'] .actions {
+  display: flex;
+  justify-content: center;
+}
+[data-choice-game='mines'] .actions button {
+  width: min(100%, 20rem);
+  border: 8px solid transparent;
+  border-image: url('/assets/club-buttons/lobby/shark-panel-v1/button-primary.png') 26 fill / 8px
+    stretch;
+}
+[data-choice-game='mines'] .bar:not(:has(button)) {
+  display: none;
+}

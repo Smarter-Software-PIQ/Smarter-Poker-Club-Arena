@@ -250,7 +250,7 @@ const statusLine = (text: string) => spoken().some((line) => line.textContent ==
 const receiptCopy = () =>
   screen.getByRole('dialog').querySelector('p.sc-copy')?.textContent?.trim() ?? '';
 const receiptEyebrow = () =>
-  screen.getByRole('dialog').querySelector('.sc__eyebrow')?.textContent?.trim() ?? '';
+  screen.getByRole('dialog').querySelector('[data-result-label]')?.textContent?.trim() ?? '';
 const settle = async () => {
   for (let i = 0; i < 5; i++)
     await act(async () => {
@@ -421,7 +421,7 @@ describe('a refused ticket is re-dealt and the wager goes again', () => {
     render(<DiamondChoicePage game="mines" />);
     await settle();
     const quotes = backend.state.mock.calls.length;
-    fireEvent.click(screen.getByRole('button', { name: 'Start Round' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pick Tile' }));
     await settle();
     // The refusal spent the entry quote, so the page read it again by itself
     // before sending the wager on the new ticket.
@@ -429,7 +429,7 @@ describe('a refused ticket is re-dealt and the wager goes again', () => {
     expect(backend.start).toHaveBeenCalledTimes(2);
     expect(backend.start.mock.calls[1][0].commitId).toBe(dealt[1].commit_id);
     expect(backend.start.mock.calls[1][0].seed).toBe(backend.start.mock.calls[0][0].seed);
-    expect(screen.getByRole('button', { name: 'Choose A Tile' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Start Round' })).toBeNull();
     await advance(60000);
     expect(backend.start).toHaveBeenCalledTimes(2);
   });
@@ -1195,9 +1195,8 @@ describe('focus stays on the plate from street to street', () => {
     });
     render(<DiamondChoicePage game="mines" />);
     await settle();
-    const tile = screen.getByRole('button', { name: 'Choose A Tile' });
-    expect(tile).toBeDisabled();
-    expect(tile).not.toHaveAttribute('aria-disabled');
+    expect(screen.queryByRole('button', { name: 'Choose A Tile' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Pick Tile' })).toBeEnabled();
   });
 });
 
