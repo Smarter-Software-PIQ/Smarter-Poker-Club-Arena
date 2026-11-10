@@ -62,6 +62,21 @@ const degrees = (rotor: Element) =>
   Number((rotor as HTMLElement).style.transform.match(/rotate\(([-\d.e]+)deg\)/)![1]);
 
 describe('the main wheel idles like the upper wheel until it is spun', () => {
+  it('moves on the first request frame and can return to idle without landing a prize', () => {
+    const { advance } = clock();
+    const landed = vi.fn();
+    const props = { segments, landingOrd: null, spinKey: 0, spinning: false, onLanded: landed };
+    const view = render(<DiamondWheel {...props} awaitingResult />);
+    const rotor = view.container.querySelector('[data-wheel-rotor]')!;
+    advance(16);
+    expect(degrees(rotor)).toBeGreaterThan(1);
+    expect(landed).not.toHaveBeenCalled();
+    view.rerender(<DiamondWheel {...props} />);
+    advance(16);
+    expect(view.container.querySelector('[data-phase]')).toHaveAttribute('data-phase', 'idle');
+    expect(sounds.playSpinResult).not.toHaveBeenCalled();
+  });
+
   it('holds the landed prize through the reveal, then drifts on from that angle once the receipt clears', () => {
     const { advance, scheduled } = clock();
     const landed = vi.fn();
