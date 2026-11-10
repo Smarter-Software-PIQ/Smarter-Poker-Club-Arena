@@ -141,7 +141,7 @@ afterEach(() => {
  */
 describe('useTournamentEntries - failure and emptiness are different sentences', () => {
   it('does NOT hand back an empty field when the entry query fails', async () => {
-    setResult('tournament_players', DB_DOWN);
+    setResult('tournament_players_public', DB_DOWN);
     const { result } = renderHook(() => useTournamentEntries('t1', true));
 
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -154,7 +154,7 @@ describe('useTournamentEntries - failure and emptiness are different sentences',
   });
 
   it('DOES report an empty field when the query genuinely returns no rows', async () => {
-    setResult('tournament_players', NO_ROWS);
+    setResult('tournament_players_public', NO_ROWS);
     const { result } = renderHook(() => useTournamentEntries('t1', true));
 
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -164,7 +164,7 @@ describe('useTournamentEntries - failure and emptiness are different sentences',
   });
 
   it('keeps the last good field when a REFRESH fails, and says it stopped', async () => {
-    setResult('tournament_players', {
+    setResult('tournament_players_public', {
       data: [{ id: 'e1', user_id: 'u1', username: 'Kingfish', chips: 10000, status: 'playing' }],
       error: null,
     });
@@ -172,7 +172,7 @@ describe('useTournamentEntries - failure and emptiness are different sentences',
 
     await waitFor(() => expect(result.current.entries.length).toBe(1));
 
-    setResult('tournament_players', DB_DOWN);
+    setResult('tournament_players_public', DB_DOWN);
     act(() => result.current.refresh());
 
     await waitFor(() => expect(result.current.loadFailed).toBe(true));
@@ -183,7 +183,7 @@ describe('useTournamentEntries - failure and emptiness are different sentences',
   });
 
   it('asks for nothing at all while the tournament is not live', async () => {
-    setResult('tournament_players', DB_DOWN);
+    setResult('tournament_players_public', DB_DOWN);
     const { result } = renderHook(() => useTournamentEntries('t1', false));
 
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -194,7 +194,7 @@ describe('useTournamentEntries - failure and emptiness are different sentences',
   });
 
   it('carries the chip count and the table id onto every entry', async () => {
-    setResult('tournament_players', {
+    setResult('tournament_players_public', {
       data: [
         {
           id: 'e1',
@@ -221,7 +221,7 @@ describe('useTournamentEntries - failure and emptiness are different sentences',
 describe('TournamentInfoPanel — the stat masthead must not invent zeros', () => {
   it('reports the failure and withholds the "No Players Seated Yet" claim', async () => {
     setResult('tournaments', DB_DOWN);
-    setResult('tournament_players', DB_DOWN);
+    setResult('tournament_players_public', DB_DOWN);
     render(<TournamentInfoPanel tournamentId="t1" heroUserId="hero-1" onClose={() => {}} />);
 
     await waitFor(() =>
@@ -236,7 +236,7 @@ describe('TournamentInfoPanel — the stat masthead must not invent zeros', () =
       data: { id: 't1', name: 'Sunday Major', status: 'REGISTERING', current_level: 0 },
       error: null,
     });
-    setResult('tournament_players', NO_ROWS);
+    setResult('tournament_players_public', NO_ROWS);
     render(<TournamentInfoPanel tournamentId="t1" heroUserId="hero-1" onClose={() => {}} />);
 
     await waitFor(() => expect(screen.getByText(/No Players Seated Yet/i)).toBeTruthy());
