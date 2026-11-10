@@ -17,7 +17,6 @@
  * nothing that reads it, changes which table is shown without that tap.
  */
 import { serverNow } from '../utils/serverClock';
-import { noteLightningPoolWaiting } from './lightningPoolArrivals';
 
 export type LightningDecisionUrgency = 'normal' | 'high' | 'critical';
 
@@ -205,4 +204,54 @@ export function clearLightningClusterStatus(clusterId: string | null | undefined
 export function resetLightningClusterStatusForTests(): void {
   clusterStatuses.clear();
   for (const l of statusListeners) l();
+}
+
+// ─── REAL ARRIVALS WHILE WAITING (2026-11-10) ───────────────────────────────
+
+/**
+ * USER_EVENT 'lightning_pool_waiting': how many legal players the matcher's
+ * last forming pass left waiting for the next table, per waiting room. A count,
+ * never a name. The seat rule that draws it is lightningPoolArrivals.ts.
+ */
+export interface LightningPoolWaitingEntry {
+  /** Legal players the matcher's last pass left waiting (the hero among them). */
+  waiting: number;
+  /** Browser clock when the frame arrived. */
+  receivedAtMs: number;
+}
+
+const poolWaitingByRoom = new Map<string, LightningPoolWaitingEntry>();
+const poolWaitingListeners = new Set<() => void>();
+
+/** Feed one private frame. True when it was a pool-waiting frame (consumed). */
+export function noteLightningPoolWaiting(
+  payload: Record<string, unknown> | null | undefined,
+  nowMs: number = Date.now()
+): boolean {
+  if (payload?.type !== 'lightning_pool_waiting') return false;
+  const room = typeof payload.pool_session_id === 'string' ? payload.pool_session_id : '';
+  const raw = payload.waiting;
+  if (!room || typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0) return true;
+  poolWaitingByRoom.set(room, { waiting: Math.floor(raw), receivedAtMs: nowMs });
+  for (const l of poolWaitingListeners) l();
+  return true;
+}
+
+export function lightningPoolWaitingFor(
+  roomId: string | null | undefined
+): LightningPoolWaitingEntry | null {
+  return roomId ? (poolWaitingByRoom.get(roomId) ?? null) : null;
+}
+
+export function subscribeLightningPoolWaiting(listener: () => void): () => void {
+  poolWaitingListeners.add(listener);
+  return () => {
+    poolWaitingListeners.delete(listener);
+  };
+}
+
+/** Tests only. */
+export function resetLightningPoolWaitingForTests(): void {
+  poolWaitingByRoom.clear();
+  for (const l of poolWaitingListeners) l();
 }

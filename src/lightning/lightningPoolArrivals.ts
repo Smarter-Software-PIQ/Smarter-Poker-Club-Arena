@@ -23,48 +23,16 @@
  * Inert until the engine sends the frame: no frame, no arriving chair.
  */
 
-export interface LightningPoolWaitingEntry {
-  /** Legal players the matcher's last pass left waiting (the hero among them). */
-  waiting: number;
-  /** Browser clock when the frame arrived. */
-  receivedAtMs: number;
-}
-
-const byRoom = new Map<string, LightningPoolWaitingEntry>();
-const listeners = new Set<() => void>();
-
-/** Feed one private frame. True when it was a pool-waiting frame (consumed). */
-export function noteLightningPoolWaiting(
-  payload: Record<string, unknown> | null | undefined,
-  nowMs: number = Date.now()
-): boolean {
-  if (payload?.type !== 'lightning_pool_waiting') return false;
-  const room = typeof payload.pool_session_id === 'string' ? payload.pool_session_id : '';
-  const raw = payload.waiting;
-  if (!room || typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0) return true;
-  byRoom.set(room, { waiting: Math.floor(raw), receivedAtMs: nowMs });
-  for (const l of listeners) l();
-  return true;
-}
-
-export function lightningPoolWaitingFor(
-  roomId: string | null | undefined
-): LightningPoolWaitingEntry | null {
-  return roomId ? (byRoom.get(roomId) ?? null) : null;
-}
-
-export function subscribeLightningPoolWaiting(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
-/** Tests only. */
-export function resetLightningPoolWaitingForTests(): void {
-  byRoom.clear();
-  for (const l of listeners) l();
-}
+// The store lives beside the decision queue (the socket client feeds both);
+// this module, read only by the table page, keeps the seat rule.
+import type { LightningPoolWaitingEntry } from './lightningDecisionQueue';
+export {
+  lightningPoolWaitingFor,
+  noteLightningPoolWaiting,
+  resetLightningPoolWaitingForTests,
+  subscribeLightningPoolWaiting,
+  type LightningPoolWaitingEntry,
+} from './lightningDecisionQueue';
 
 /**
  * Which open chairs draw an arriving player. Empty unless the hero is waiting
