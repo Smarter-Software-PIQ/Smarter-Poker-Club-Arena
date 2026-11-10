@@ -105,6 +105,9 @@ export const FinalTableOverlay: React.FC<FinalTableOverlayProps> = ({
         <header className="ft-stage">
           <div className="ft-stage__lights" aria-hidden="true" />
           <div className="ft-stage__burst" aria-hidden="true" />
+          <button type="button" className="ft-overlay__dismiss" onClick={handleDismiss}>
+            Return to table
+          </button>
           <p>{tournamentName}</p>
           <h2 aria-live="polite">Final Table</h2>
           {seatsLeft > 0 && <span>{seatsLeft} finalists</span>}
@@ -157,9 +160,6 @@ export const FinalTableOverlay: React.FC<FinalTableOverlayProps> = ({
               );
             })}
           </ol>
-          <button type="button" className="ft-overlay__dismiss" onClick={handleDismiss}>
-            Return to table
-          </button>
         </div>
       </div>
     </section>

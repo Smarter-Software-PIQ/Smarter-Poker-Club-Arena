@@ -140,13 +140,14 @@
   background: #3989b0;
 }
 .ft-overlay__dismiss {
-  display: block;
-  margin: 8px 0 0 auto;
+  position: absolute;
+  top: 0;
+  right: 0;
   min-height: 44px;
   padding: 0 13px;
   color: #def2ff;
-  background: #14344a;
-  border: 1px solid #6996b0;
+  background: #071324d9;
+  border: 0;
   cursor: pointer;
 }
 .ft-overlay--exit {
