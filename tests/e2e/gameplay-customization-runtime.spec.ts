@@ -1,3 +1,4 @@
+import { verifyHeroCelebrations } from './support/heroCelebrationProof';
 import {
   devices,
   expect,
@@ -203,10 +204,19 @@ async function installEngineProjection(
         onerror: ((event: Event) => void) | null = null;
         onclose: ((event: CloseEvent) => void) | null = null;
         private heartbeat: number | null = null;
+        private celebrationProof = (event: Event) => {
+          this.push({
+            type: 'EVENT',
+            tableId: selectedTableId,
+            ts: Date.now(),
+            payload: (event as CustomEvent).detail,
+          });
+        };
 
         constructor(url: string | URL, protocols?: string | string[]) {
           super();
           this.url = String(url);
+          window.addEventListener('ca-test-celebration', this.celebrationProof);
           this.protocol = Array.isArray(protocols) ? protocols[0] || '' : protocols || '';
           window.setTimeout(() => {
             if (this.readyState !== EngineWebSocket.CONNECTING) return;
@@ -255,6 +265,7 @@ async function installEngineProjection(
         close(code = 1000, reason = '') {
           if (this.readyState === EngineWebSocket.CLOSED) return;
           this.readyState = EngineWebSocket.CLOSED;
+          window.removeEventListener('ca-test-celebration', this.celebrationProof);
           if (this.heartbeat != null) window.clearInterval(this.heartbeat);
           this.emit(new CloseEvent('close', { code, reason, wasClean: code === 1000 }));
         }
@@ -1222,6 +1233,8 @@ test.describe('production routed gameplay customization', () => {
         reloadedRoot.locator('.seat-wrapper--hero .sp-cosmetic--aura.aura-mist')
       ).toBeVisible({ timeout: RESPONSE_TIMEOUT });
       await expect(writer.locator('.studio-game-preview')).toHaveCount(0);
+
+      await verifyHeroCelebrations(writer, tableId, account.id, VILLAIN_ID);
 
       console.log('[gameplay-customization] White D was the fresh-account default');
       console.log('[gameplay-customization] routed mobile gameplay repainted before persistence');
