@@ -39,3 +39,15 @@ a slot the same way, for good.
 No new rows, no cancellation, no refund path and no repair job. The held-empty
 roll at creation is unchanged; a board it leaves empty is reopened on the next
 tick. Pinned by `server/src/services/anEmptyBoardIsNotOneOfTheEleven.law.test.ts`.
+
+## Addendum 2026-11-10: a board nobody can open spends no budget
+
+Measured on `840429a3` (live from the 04:00 Chicago release): the house opened
+6 heads-up boards at 12:00Z, but only 5 Spins by 14:37Z, and none of the 48
+old empty boards was reopened. All 48 belong to four certification fixture
+clubs with zero horse members, and a club board seats only its own members.
+Each failed reopen still spent one unit of the shared budget and rewrote the
+board's window, so a fixture club drawn ahead of the house took the whole
+tick. A reopen now asks the owner's pool (`pickFreeHorses`) first; with no
+free horse it writes nothing, spends nothing and passes the turn. That owner
+still creates nothing while it has an empty board.
