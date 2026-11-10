@@ -193,7 +193,7 @@ DO $backfill_rebuy_cutoff$
 BEGIN
   UPDATE public.tournament_schedules
      SET config = jsonb_set(config, '{rebuyLevels}', to_jsonb((config->>'lateRegistrationLevels')::integer))
-   WHERE is_active = true
+   WHERE active = true
      AND coalesce(config->>'lateRegistrationLevels', '') = '11'
      AND coalesce(config->>'rebuyLevels', '') = '12';
 
