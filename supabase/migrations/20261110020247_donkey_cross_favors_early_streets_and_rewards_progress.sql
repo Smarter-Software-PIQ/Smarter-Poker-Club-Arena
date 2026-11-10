@@ -45,7 +45,6 @@ BEGIN
   ('fn_wheel_bonus_state','prizes:=public.fn_choice_prizes_v7(p_game,',
    $s$IF p_game='crossing' AND v_award->>'wheel_minimum_payout_chips' IS NOT NULL THEN
     v_floor:=greatest(v_floor,(v_award->>'wheel_minimum_payout_chips')::numeric);
-    v_state:=v_state||jsonb_build_object('minimum_payout_chips',v_floor);
    END IF;
    prizes:=public.fn_choice_prizes_v8(p_game,$s$),
   ('fn_choice_result',$s$'minimum_payout_chips',r.minimum_payout_chips,$s$,

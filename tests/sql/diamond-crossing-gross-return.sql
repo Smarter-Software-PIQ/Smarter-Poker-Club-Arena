@@ -90,7 +90,7 @@ BEGIN
     SET LOCAL ROLE authenticated;
     quote:=public.fn_wheel_bonus_state(club,'crossing',false,'road',a.id);
     r:=public.fn_wheel_bonus_start(a.id,ticket,'earned-road',false,'road',NULL,NULL,NULL,1);
-    IF (quote#>>'{game_state,minimum_payout_chips}')::numeric IS DISTINCT FROM expected_floor OR
+    IF (quote#>>'{game_state,wheel_minimum_payout_chips}')::numeric IS DISTINCT FROM expected_floor OR
      (r->>'minimum_payout_chips')::numeric IS DISTINCT FROM expected_floor OR
      (r#>>'{prizes,0}')::numeric<=expected_floor THEN RAISE EXCEPTION 'Earned %x floor/ladder: % / %',boost,quote,r; END IF;
     r:=public.fn_choice_act((r->>'id')::uuid,'pick',0,0); again:=public.fn_choice_act((r->>'id')::uuid,'pick',0,0);
