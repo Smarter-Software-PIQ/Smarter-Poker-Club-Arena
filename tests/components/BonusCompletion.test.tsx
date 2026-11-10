@@ -90,7 +90,7 @@ describe('bonus completion presentation', () => {
     const popup = screen.getByRole('dialog', { name: '12,345.67 Chips' });
     expect(popup).toHaveTextContent('Your Prize Is Booked.');
     expect(popup).toHaveTextContent('All Drops Completed.');
-    expect(within(popup).getByRole('button', { name: 'Back To The Wheel' })).toBeDisabled();
+    expect(within(popup).getByRole('button', { name: 'Back To The Wheel' })).toBeEnabled();
     reveal(popup);
     expect(within(popup).getByRole('button', { name: 'Back To The Wheel' })).toBeEnabled();
     // Two minutes of nothing: still here, still nowhere else.
@@ -99,12 +99,12 @@ describe('bonus completion presentation', () => {
     expect(screen.getByRole('dialog', { name: '12,345.67 Chips' })).toBeInTheDocument();
     expect(popup.querySelector('[data-bonus-step="completed"]')).not.toBeNull();
   });
-  it('returns to the wheel on Back To The Wheel, once, and only after the reveal', () => {
+  it('returns to the wheel on Back To The Wheel, immediately and once', () => {
     render(<BonusCompletion clubId="shark-club" chips={5} detail="Round Complete." />);
     const popup = screen.getByRole('dialog', { name: '5.00 Chips' });
     const back = within(popup).getByRole('button', { name: 'Back To The Wheel' });
     fireEvent.click(back);
-    expect(navigate).not.toHaveBeenCalled();
+    expect(navigate).toHaveBeenCalledTimes(1);
     reveal(popup);
     fireEvent.click(back);
     fireEvent.click(back);
