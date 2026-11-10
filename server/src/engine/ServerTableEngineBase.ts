@@ -1141,6 +1141,19 @@ export abstract class ServerTableEngineBase {
   // the add-on is reduced or canceled. Map<userId, requestedAmount>.
   protected pendingAddOns: Map<string, number> = new Map();
   /**
+   * Between-hands direct top-ups that write table_seats.stack (2026-11-09).
+   * Settlement reads the committed stacks beside the post-commit envelope and
+   * uses that read only when no such top-up overlapped it (one in flight when
+   * it was sent, or one started after); otherwise it reads again after the
+   * envelope, as before. Process-local; no money or row depends on it.
+   */
+  protected directSeatCreditsInFlight = 0;
+  protected directSeatCreditEpoch = 0;
+  /** This engine applied the table's last post-commit envelope itself. */
+  protected envelopeChainApplied = false;
+  /** A cash hand's recount, still running after the next deal (Settlement step 15). */
+  protected tableUnlockTail: Promise<void> | null = null;
+  /**
    * ═══════════════════════════════════════════════════════════════════════
    *  MID-HAND DIAMOND TOP-UPS ARE AN INTENT, NOT A DEBIT
    * ═══════════════════════════════════════════════════════════════════════

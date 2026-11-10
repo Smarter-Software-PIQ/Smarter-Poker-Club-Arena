@@ -464,125 +464,139 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
      */
     let lastError: { message?: string } | null = null;
     let debited = false;
-    for (let attempt = 1; attempt <= 2 && !debited; attempt++) {
-      if (isMaintenanceFrozen()) break;
-      let error: { message?: string } | null;
-      try {
-        const result = await supabase.rpc('atomic_table_addon', {
-          p_user_id: userId,
-          p_table_id: this.tableId,
-          p_amount: applied,
-          p_apply_to_seat: !midHand,
-          p_idempotency_key: addOnKey,
-        });
-        error = result.error;
-      } catch (thrown) {
-        error = { message: thrown instanceof Error ? thrown.message : String(thrown) };
-      }
-      if (!error) {
-        debited = true;
-        break;
-      }
-      lastError = error;
-      /* LIGHTNING (2026-09-25): the player's chips are in a live Lightning
+    // A between-hands top-up writes table_seats.stack; settlement's committed
+    // stack read beside the envelope must not miss it (directSeatCreditsInFlight).
+    const seatCredit = !midHand;
+    if (seatCredit) {
+      this.directSeatCreditsInFlight = (this.directSeatCreditsInFlight ?? 0) + 1;
+      this.directSeatCreditEpoch = (this.directSeatCreditEpoch ?? 0) + 1;
+    }
+    try {
+      for (let attempt = 1; attempt <= 2 && !debited; attempt++) {
+        if (isMaintenanceFrozen()) break;
+        let error: { message?: string } | null;
+        try {
+          const result = await supabase.rpc('atomic_table_addon', {
+            p_user_id: userId,
+            p_table_id: this.tableId,
+            p_amount: applied,
+            p_apply_to_seat: !midHand,
+            p_idempotency_key: addOnKey,
+          });
+          error = result.error;
+        } catch (thrown) {
+          error = { message: thrown instanceof Error ? thrown.message : String(thrown) };
+        }
+        if (!error) {
+          debited = true;
+          break;
+        }
+        lastError = error;
+        /* LIGHTNING (2026-09-25): the player's chips are in a live Lightning
          hand, and the database refuses any stack change until it is over.
          The refusal rolled the debit back with the seat write, so nothing
          was taken; it is a "not now", told to the player as one - not an
          error report, and not asked twice. */
-      if (isLightningHandInProgress(error)) {
-        return { success: false, error: LIGHTNING_ADD_ON_REFUSED_MESSAGE };
+        if (isLightningHandInProgress(error)) {
+          return { success: false, error: LIGHTNING_ADD_ON_REFUSED_MESSAGE };
+        }
+        // "Insufficient balance" is a verdict, not a transport failure — retrying
+        // it just asks the same question twice.
+        if (/insufficient/i.test(String(error.message || ''))) break;
+        if (attempt === 1) await new Promise((r) => setTimeout(r, 250));
       }
-      // "Insufficient balance" is a verdict, not a transport failure — retrying
-      // it just asks the same question twice.
-      if (/insufficient/i.test(String(error.message || ''))) break;
-      if (attempt === 1) await new Promise((r) => setTimeout(r, 250));
-    }
-    if (!debited) {
-      // A lost acknowledgement is recovered from the original durable operation,
-      // while this direct call still owns the hand-preparation boundary.
-      try {
-        const committed = await recover(false);
-        if (committed) return committed;
-      } catch (error) {
-        reportError(error, `ServerTableEngine.${this.tableId}.addon_outcome_unknown`);
-        if (!midHand) this.killForRestart('addon_direct_outcome_unknown');
-        else this.requestPendingAddOnSweep();
-        return {
-          success: false,
-          error: 'The Top Up Outcome Is Unknown. Check Your Stack Before Trying Again.',
-          code: 'TRANSPORT',
-        };
+      if (!debited) {
+        // A lost acknowledgement is recovered from the original durable operation,
+        // while this direct call still owns the hand-preparation boundary.
+        try {
+          const committed = await recover(false);
+          if (committed) return committed;
+        } catch (error) {
+          reportError(error, `ServerTableEngine.${this.tableId}.addon_outcome_unknown`);
+          if (!midHand) this.killForRestart('addon_direct_outcome_unknown');
+          else this.requestPendingAddOnSweep();
+          return {
+            success: false,
+            error: 'The Top Up Outcome Is Unknown. Check Your Stack Before Trying Again.',
+            code: 'TRANSPORT',
+          };
+        }
+        const msg = String(lastError?.message || '');
+        if (!/insufficient/i.test(msg)) {
+          if (!midHand) this.killForRestart('addon_direct_outcome_unknown');
+          else this.requestPendingAddOnSweep();
+          return {
+            success: false,
+            error: 'The Top Up Outcome Is Unknown. Check Your Stack Before Trying Again.',
+            code: 'TRANSPORT',
+          };
+        }
+        const clean = /insufficient/i.test(msg) ? 'Insufficient wallet balance' : 'Add-on failed';
+        reportError(lastError, `ServerTableEngine.${this.tableId}.addChips_debit_failed`, {
+          userId,
+          amount: applied,
+          idempotencyKey: addOnKey,
+        });
+        return { success: false, error: clean };
       }
-      const msg = String(lastError?.message || '');
-      if (!/insufficient/i.test(msg)) {
-        if (!midHand) this.killForRestart('addon_direct_outcome_unknown');
-        else this.requestPendingAddOnSweep();
-        return {
-          success: false,
-          error: 'The Top Up Outcome Is Unknown. Check Your Stack Before Trying Again.',
-          code: 'TRANSPORT',
-        };
-      }
-      const clean = /insufficient/i.test(msg) ? 'Insufficient wallet balance' : 'Add-on failed';
-      reportError(lastError, `ServerTableEngine.${this.tableId}.addChips_debit_failed`, {
-        userId,
-        amount: applied,
-        idempotencyKey: addOnKey,
-      });
-      return { success: false, error: clean };
-    }
 
-    if (isMaintenanceFrozen()) {
-      if (!midHand) this.killForRestart('addon_direct_frozen_after_commit');
-      else this.requestPendingAddOnSweep();
-      return {
-        success: false,
-        error: 'The Top Up Outcome Is Unknown. Check Your Stack Before Trying Again.',
-        code: 'TRANSPORT',
-      };
-    }
-    if (!this.lifecycleCanMutate())
-      return {
-        success: false,
-        error: 'The Top Up Outcome Is Unknown. Check Your Stack Before Trying Again.',
-        code: 'TRANSPORT',
-      };
-    if (midHand) {
-      // AUDIT M5: `pending` was captured before the `await atomic_table_addon`
-      // above. On the single-threaded event loop another addChips for this same
-      // user can interleave at that await and update pendingAddOns in between;
-      // accumulating onto the stale snapshot would drop the concurrent add-on
-      // from the buy-in-cap arithmetic (the durable table_pending_addons ledger
-      // is unaffected and still delivers every debited chip — this map is only
-      // the cap cache). Re-read the live value and accumulate onto that.
-      const livePending = this.pendingAddOns.get(userId) || 0;
-      this.pendingAddOns.set(userId, Math.round((livePending + applied) * 100) / 100);
-      // A2: a durable ledger row now exists (written by the RPC in the same
-      // transaction as the debit). Make sure the next sweep looks for it.
-      this.requestPendingAddOnSweep();
-      console.log(
-        `[ServerTableEngine:${this.tableId}] Add-on debited + queued for ${userId}: +${applied} (pending ${livePending + applied}) - hand in progress`
-      );
+      if (isMaintenanceFrozen()) {
+        if (!midHand) this.killForRestart('addon_direct_frozen_after_commit');
+        else this.requestPendingAddOnSweep();
+        return {
+          success: false,
+          error: 'The Top Up Outcome Is Unknown. Check Your Stack Before Trying Again.',
+          code: 'TRANSPORT',
+        };
+      }
+      if (!this.lifecycleCanMutate())
+        return {
+          success: false,
+          error: 'The Top Up Outcome Is Unknown. Check Your Stack Before Trying Again.',
+          code: 'TRANSPORT',
+        };
+      if (midHand) {
+        // AUDIT M5: `pending` was captured before the `await atomic_table_addon`
+        // above. On the single-threaded event loop another addChips for this same
+        // user can interleave at that await and update pendingAddOns in between;
+        // accumulating onto the stale snapshot would drop the concurrent add-on
+        // from the buy-in-cap arithmetic (the durable table_pending_addons ledger
+        // is unaffected and still delivers every debited chip — this map is only
+        // the cap cache). Re-read the live value and accumulate onto that.
+        const livePending = this.pendingAddOns.get(userId) || 0;
+        this.pendingAddOns.set(userId, Math.round((livePending + applied) * 100) / 100);
+        // A2: a durable ledger row now exists (written by the RPC in the same
+        // transaction as the debit). Make sure the next sweep looks for it.
+        this.requestPendingAddOnSweep();
+        console.log(
+          `[ServerTableEngine:${this.tableId}] Add-on debited + queued for ${userId}: +${applied} (pending ${livePending + applied}) - hand in progress`
+        );
+        this.broadcastCurrentState();
+        return { success: true, queued: true, applied };
+      }
+
+      // Between hands — wallet debited AND table_seats bumped by the RPC.
+      // Snap to cents (#3358): the queued branch above already rounds its
+      // accumulation, and the resume path at the bottom of the file rounds the
+      // same sum; this was the one add-on branch that did not, so a repeated
+      // top-up drifted the in-memory stack away from the row the RPC wrote.
+      player.stack = Math.round((player.stack + applied) * 100) / 100;
+      // CHIP CONTINUITY (I3): the database raised the baseline with the chips;
+      // refresh the mirror so the countdown and the leave lock agree with it.
+      void this.chipContinuity
+        .evaluate([
+          { user_id: userId, stack: player.stack, active: this.isContinuityActive(userId) },
+        ])
+        .then(() => this.broadcastCurrentState())
+        .catch((err) =>
+          reportError(err, `ServerTableEngine.${this.tableId}.continuity_addon_failed`)
+        );
       this.broadcastCurrentState();
-      return { success: true, queued: true, applied };
+      return { success: true, applied };
+    } finally {
+      if (seatCredit)
+        this.directSeatCreditsInFlight = Math.max(0, (this.directSeatCreditsInFlight ?? 1) - 1);
     }
-
-    // Between hands — wallet debited AND table_seats bumped by the RPC.
-    // Snap to cents (#3358): the queued branch above already rounds its
-    // accumulation, and the resume path at the bottom of the file rounds the
-    // same sum; this was the one add-on branch that did not, so a repeated
-    // top-up drifted the in-memory stack away from the row the RPC wrote.
-    player.stack = Math.round((player.stack + applied) * 100) / 100;
-    // CHIP CONTINUITY (I3): the database raised the baseline with the chips;
-    // refresh the mirror so the countdown and the leave lock agree with it.
-    void this.chipContinuity
-      .evaluate([{ user_id: userId, stack: player.stack, active: this.isContinuityActive(userId) }])
-      .then(() => this.broadcastCurrentState())
-      .catch((err) =>
-        reportError(err, `ServerTableEngine.${this.tableId}.continuity_addon_failed`)
-      );
-    this.broadcastCurrentState();
-    return { success: true, applied };
   }
 
   /**
@@ -972,6 +986,18 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
    * next engine start) picks it up. Nothing is dropped on the floor.
    */
   protected async processPendingAddOns(players: SeatedPlayer[]): Promise<void> {
+    // Every path below can write table_seats.stack (resolve_pending_addon,
+    // the unbound resolver, a Diamond top-up); see directSeatCreditsInFlight.
+    this.directSeatCreditsInFlight = (this.directSeatCreditsInFlight ?? 0) + 1;
+    this.directSeatCreditEpoch = (this.directSeatCreditEpoch ?? 0) + 1;
+    try {
+      await this.processPendingAddOnsCounted(players);
+    } finally {
+      this.directSeatCreditsInFlight = Math.max(0, (this.directSeatCreditsInFlight ?? 1) - 1);
+    }
+  }
+
+  private async processPendingAddOnsCounted(players: SeatedPlayer[]): Promise<void> {
     if (this.tableInfo?.arena?.asset === 'diamonds' && !this.isTournamentTable()) {
       /* This used to return here and nothing else, because a Diamond seat had
          no mid-hand lane at all. It has one now, and it is an INTENT lane: no
