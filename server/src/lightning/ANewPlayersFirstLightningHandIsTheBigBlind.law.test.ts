@@ -41,6 +41,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  LIGHTNING_FOUR_HANDED_POOL_MAX,
   LIGHTNING_MATCHER_PARAM_DEFAULTS,
   isLightningNewcomer,
   lightningMatcherModel,
@@ -154,7 +155,10 @@ function expectEntryPlanSound(p: LightningMatchPlan, pool: LightningPoolPlayer[]
   const isNew = isNewcomerIn(pool);
   expect(newcomersWhoPostNoBigBlind(p, pool), label).toEqual([]);
   for (const g of p.groups) {
-    expect([5, 6], label).toContain(g.players.length);
+    // Five or six; four only in a thin pool of at most 24 (20261110214134).
+    expect(pool.length <= LIGHTNING_FOUR_HANDED_POOL_MAX ? [4, 5, 6] : [5, 6], label).toContain(
+      g.players.length
+    );
     expect(g.entryBb, label).not.toContain(g.bb);
     // Only newcomers post an entry big blind, in seat order.
     expect(g.entryBb.every(isNew), label).toBe(true);
@@ -223,8 +227,10 @@ describe("a new player's first Lightning hand is the big blind", () => {
         }));
         const p = plan(pool, v);
         expect(newcomersOffTheBigBlind(p, pool), `trial ${trial}`).toEqual([]);
-        // Every hand still has five or six players and nobody is seated twice.
-        for (const g of p.groups) expect([5, 6]).toContain(g.players.length);
+        // Every hand still has five or six players - four only in a thin
+        // pool of at most 24 (20261110214134) - and nobody is seated twice.
+        const sizes = pool.length <= LIGHTNING_FOUR_HANDED_POOL_MAX ? [4, 5, 6] : [5, 6];
+        for (const g of p.groups) expect(sizes).toContain(g.players.length);
         expect(seated(p).size).toBe(p.groups.reduce((s, g) => s + g.players.length, 0));
         // A pass with enough players who have been the big blind deals.
         expect(p.groups.length).toBeGreaterThan(0);

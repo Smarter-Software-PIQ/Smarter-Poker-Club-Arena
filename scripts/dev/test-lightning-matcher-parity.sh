@@ -548,10 +548,12 @@ proof=$(sed -n 's/^-- @live-proof: //p' "$M/20261015214203_lightning_calibration
   -f "$M/20261025050534_lightning_hand_player_admits_the_entry_big_blind_role.sql" \
   -f "$M/20261026131624_lightning_five_ready_players_wait_one_second_for_a_sixth.sql" \
   -f "$M/20261110173033_lightning_blinds_and_button_go_to_the_longest_waiting_player.sql" \
+  -f "$M/20261110214134_lightning_a_thin_pool_deals_four_handed.sql" \
   -c "SET request.headers = '{\"x-smarter-lightning-entry-bb\":\"1\"}'" \
   -f "$F/lightning-current-policy-parity.sql" \
   -f "$F/lightning-entry-big-blind-parity.sql" \
-  -f "$F/lightning-position-fairness-parity.sql" > "$fixture/current-policy.out" 2>&1 || {
+  -f "$F/lightning-position-fairness-parity.sql" \
+  -f "$F/lightning-thin-pool-parity.sql" > "$fixture/current-policy.out" 2>&1 || {
   cat "$fixture/current-policy.out"; exit 1;
 }
 grep '^  ok  12' "$fixture/current-policy.out"
@@ -561,6 +563,9 @@ grep '^  ok  13' "$fixture/current-policy.out"
 grep -q '^  ok  14 POSITION FAIRNESS' "$fixture/current-policy.out" \
   || { cat "$fixture/current-policy.out"; echo 'FAIL: section 14 (position fairness) did not report'; exit 1; }
 grep '^  ok  14' "$fixture/current-policy.out"
+grep -q '^  ok  15 THIN POOL' "$fixture/current-policy.out" \
+  || { cat "$fixture/current-policy.out"; echo 'FAIL: section 15 (thin pool) did not report'; exit 1; }
+grep '^  ok  15' "$fixture/current-policy.out"
 n=$(Q "SELECT count(*) FROM pp.out")
 Q "SELECT jsonb_build_object('fixtures', jsonb_agg(doc || jsonb_build_object('discriminates', discriminates) ORDER BY n)) FROM pp.out" > "$fixture/fixtures.json"
 groups=$(Q "SELECT sum(jsonb_array_length(doc -> 'plan' -> 'groups')) FROM pp.out")

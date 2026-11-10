@@ -94,7 +94,10 @@ import {
   type LightningConfig,
 } from './LightningConfig.js';
 import { randomUUID } from 'node:crypto';
-import { LIGHTNING_FORMATION_MAX_WAIT_MS } from './LightningMatcherModel.js';
+import {
+  LIGHTNING_FORMATION_MAX_WAIT_MS,
+  LIGHTNING_FOUR_HANDED_WAIT_MS,
+} from './LightningMatcherModel.js';
 import {
   isUuid,
   lightningMatch,
@@ -539,8 +542,12 @@ export class LightningClusterWorker {
         this.idleSince.delete(id);
         continue;
       }
-      const due = at + LIGHTNING_FORMATION_MAX_WAIT_MS + LIGHTNING_IDLE_DEADLINE_MARGIN_MS;
-      if (due > nowMs && due < next) next = due;
+      // Both waits the matcher serves: a fifth player's one second and, in a
+      // thin pool, a fourth player's 1.5 s (20261110). Whichever is still ahead.
+      for (const wait of [LIGHTNING_FORMATION_MAX_WAIT_MS, LIGHTNING_FOUR_HANDED_WAIT_MS]) {
+        const due = at + wait + LIGHTNING_IDLE_DEADLINE_MARGIN_MS;
+        if (due > nowMs && due < next) next = due;
+      }
     }
     return Number.isFinite(next) ? Math.min(interval, next - nowMs) : interval;
   }

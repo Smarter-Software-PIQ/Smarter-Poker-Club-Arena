@@ -306,6 +306,21 @@ export function lightningGroupSizes(
  * 20261026131624_lightning_five_ready_players_wait_one_second_for_a_sixth). */
 export const LIGHTNING_FORMATION_MAX_WAIT_MS = 1_000;
 
+/**
+ * THIN POOL, FOUR-HANDED (Dan 2026-11-10: "form tables sooner when the pool is
+ * thin"; 20261110214134_lightning_a_thin_pool_deals_four_handed). Four ready
+ * players who have waited this long from the fourth (latest) arrival, with no
+ * fifth, are dealt four-handed - only while the Cluster's whole pool (every
+ * open-pool player, playing or free) is at most LIGHTNING_FOUR_HANDED_POOL_MAX.
+ * A healthy pool keeps six as the target and five after one second; never
+ * fewer than four. Measured on production 2026-11-10 (player time in a hand
+ * p50 3.4 s, p90 28.8 s) and simulated: with 12 to 20 in the pool it cuts the
+ * wait's p90 by 0.1 to 0.9 s and p99 by 0.5 to 2.2 s; with 40 it all but never
+ * fires.
+ */
+export const LIGHTNING_FOUR_HANDED_WAIT_MS = 1_500;
+export const LIGHTNING_FOUR_HANDED_POOL_MAX = 24;
+
 export function lightningFormationSizes(
   players: readonly LightningPoolPlayer[],
   nowMs: number,
@@ -317,7 +332,31 @@ export function lightningFormationSizes(
   const fifthReadyAt = players.reduce((t, p) => Math.max(t, p.idleSinceMs), -Infinity);
   if (players.length % 6 === 5 && nowMs - fifthReadyAt >= LIGHTNING_FORMATION_MAX_WAIT_MS)
     sizes.push(5);
+  // THIN POOL (20261110): four who waited 1.5 s from the fourth arrival. The
+  // pool-size condition is the plan's (lightningPassSizes), as in the SQL.
+  else if (players.length % 6 === 4 && nowMs - fifthReadyAt >= LIGHTNING_FOUR_HANDED_WAIT_MS)
+    sizes.push(4);
   return sizes;
+}
+
+/**
+ * A pass's potential sizes, exactly as fn_lightning_match_plan asks for them:
+ * every wait assumed served (the selected group's own members are tested
+ * after), and the four-handed size dropped unless the whole pool is thin.
+ */
+export function lightningPassSizes(
+  seatable: readonly LightningPoolPlayer[],
+  snapshot: { nowMs: number; players: readonly unknown[] },
+  params: LightningMatcherParams
+): number[] {
+  const sizes = lightningFormationSizes(
+    seatable,
+    snapshot.nowMs + LIGHTNING_FOUR_HANDED_WAIT_MS,
+    params
+  );
+  return snapshot.players.length > LIGHTNING_FOUR_HANDED_POOL_MAX
+    ? sizes.filter((s) => s !== 4)
+    : sizes;
 }
 
 // ─── ORDERS ───────────────────────────────────────────────────────────────
@@ -510,11 +549,7 @@ function planWith(
   const cap = Math.max(0, Math.floor(params.maxGroups));
 
   let seatable = legal;
-  let sizes = lightningFormationSizes(
-    seatable,
-    snapshot.nowMs + LIGHTNING_FORMATION_MAX_WAIT_MS,
-    params
-  );
+  let sizes = lightningPassSizes(seatable, snapshot, params);
   let g = Math.min(sizes.length, cap);
 
   // NEW PLAYERS ARE ALWAYS THE BIG BLIND FIRST (20261024195059, the SQL's
@@ -530,11 +565,10 @@ function planWith(
       const firstBbs = new Set(seatable.slice(0, g).map((p) => p.playerId));
       const next = seatable.filter((p) => !isLightningNewcomer(p) || firstBbs.has(p.playerId));
       if (next.length === seatable.length) break;
-      const sizes2 = lightningFormationSizes(
-        next,
-        snapshot.nowMs + LIGHTNING_FORMATION_MAX_WAIT_MS,
-        params
-      );
+      // THIN POOL (20261110): the hold is decided without the four-handed
+      // size, so it never holds a newcomer out of a five or six, and a pass
+      // that holds a newcomer deals no four-handed table.
+      const sizes2 = lightningPassSizes(next, snapshot, params).filter((s) => s !== 4);
       const g2 = Math.min(sizes2.length, cap);
       if (g2 === 0) break;
       seatable = next;
@@ -614,6 +648,15 @@ function planWith(
       size === 5 &&
       members.some(
         (id) => snapshot.nowMs - byId.get(id)!.idleSinceMs < LIGHTNING_FORMATION_MAX_WAIT_MS
+      )
+    )
+      continue;
+    // THIN POOL (20261110): a four-handed group deals only once its latest
+    // arrival has waited 1.5 s for a fifth.
+    if (
+      size === 4 &&
+      members.some(
+        (id) => snapshot.nowMs - byId.get(id)!.idleSinceMs < LIGHTNING_FOUR_HANDED_WAIT_MS
       )
     )
       continue;

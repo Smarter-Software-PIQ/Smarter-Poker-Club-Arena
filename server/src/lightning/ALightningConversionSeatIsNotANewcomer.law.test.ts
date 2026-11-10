@@ -33,6 +33,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  LIGHTNING_FOUR_HANDED_POOL_MAX,
   compareBlindOrder,
   isLightningNewcomer,
   lightningMatcherModel,
@@ -155,7 +156,9 @@ describe('a seat the conversion made is not a newcomer', () => {
         }));
         const p = plan(pool, v);
         expect(offTheBigBlind(p, pool), `trial ${trial}`).toEqual([]);
-        for (const g of p.groups) expect([5, 6]).toContain(g.players.length);
+        // Five or six; four only in a thin pool of at most 24 (20261110214134).
+        const sizes = pool.length <= LIGHTNING_FOUR_HANDED_POOL_MAX ? [4, 5, 6] : [5, 6];
+        for (const g of p.groups) expect(sizes).toContain(g.players.length);
         expect(seated(p).size).toBe(p.groups.reduce((s, g) => s + g.players.length, 0));
         // Conversion seats and regulars together make a hand whenever five can sit.
         if (pool.filter((x) => !isLightningNewcomer(x)).length >= 6)
