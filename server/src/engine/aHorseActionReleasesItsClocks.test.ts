@@ -144,7 +144,8 @@ describe('the horse commit path is wired to it', () => {
     // forced sit-out handler all feed them.
     expect(src.match(/noteHorseTurnTimeout\(userId, 'timer'\)/g)?.length).toBe(1);
     expect(src.match(/noteHorseTurnTimeout\(userId, 'timebank'\)/g)?.length).toBe(1);
-    expect(src).toContain('EngineMetrics.horseDecisionFallbacksTotal.inc(1)');
+    expect(src).toContain('EngineMetrics.horseDecisionFallbacksTotal.inc(1, {');
+    expect(src).toContain('reason: horseDecisionFallbackReason(error),');
     expect(src).toContain('EngineMetrics.horseSeatUnactableTotal.inc(1)');
     const base = readFileSync(
       fileURLToPath(new URL('./ServerTableEngineBase.ts', import.meta.url)),
