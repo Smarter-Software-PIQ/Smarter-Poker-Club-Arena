@@ -18135,7 +18135,6 @@ function LiveTablePage({
 
     return () => {
       unsubscribe();
-      roomService.leaveRoom(tableId);
       // Time bank cleanup handled server-side — no client engine to dispose
       // P1-4 FIX: tournament break/bounty channel teardown moved to the
       // loadTableInfo effect (which creates them); this effect no longer
