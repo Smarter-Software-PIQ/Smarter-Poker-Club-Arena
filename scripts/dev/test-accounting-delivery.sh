@@ -393,3 +393,8 @@ if [ "$(grep -Fc 'NOTICE:  PASS Diamond statement history:' "$fixture/statement-
   echo 'Historical statement display correction did not reach its success witness' >&2
   exit 1
 fi
+
+"${diamond_psql[@]}" -f "$root/tests/fixtures/accounting-delivery/diamond-games/trivia-journal-index.sql" \
+  -f "$root/supabase/migrations/20261110023124_prepare_wide_diamond_journal_and_audit_columns.sql" \
+  -f "$root/supabase/migrations/20261110023502_build_the_wide_diamond_journal_trivia_index_concurrently.sql" \
+  -f "$root/tests/sql/diamond-wallet-wide-copy.sql"
