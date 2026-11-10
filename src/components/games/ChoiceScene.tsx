@@ -1099,7 +1099,7 @@ const SIGN_INK = {
   start: '#e6edf3',
   led: '#45adff',
   bust: '#ff5b6e',
-  gold: '#ffd700',
+  gold: '#5FAAFF',
   spentEdge: '#9aa5b3',
   spentInk: '#ffffff',
   edge: ['#91a8b9', '#aec6dc', '#679dcc', '#348eee'],
@@ -2618,7 +2618,7 @@ function CrossingScene(props: Props) {
                 : roadEnd <= shownStep
                   ? `First Hit On Street ${roadEnd + 1}`
                   : `Safe Through Street ${roadEnd} At ${mult(roadEnd - 1)} · First Hit On Street ${roadEnd + 1}`,
-          note: `You Booked Street ${shownStep} At ${mult(shownStep - 1)}`,
+          note: `${gameChips(booked ?? 0)} Chips Booked · Street ${shownStep}`,
           outcome: roadEnd >= lastStreet ? 'all' : roadEnd <= shownStep ? 'crash' : 'further',
         }
       : null;
@@ -2652,7 +2652,7 @@ function CrossingScene(props: Props) {
       </div>
       {/* Not a live region. The page has the one polite region for both games,
           and it speaks each street once, when the scene reaches it. */}
-      <div className={styles.readout} data-tone={lost ? 'bust' : undefined}>
+      <div className={styles.readout} hidden={Boolean(route)} data-tone={lost ? 'bust' : undefined}>
         <span className={styles.readoutLabel}>{readout.label}</span>
         <strong className={styles.readoutValue}>{readout.value}</strong>
         <span className={styles.readoutNote}>{readout.note}</span>
@@ -2666,7 +2666,6 @@ function CrossingScene(props: Props) {
       )}
       {route && (
         <div className={styles.route} data-outcome={route.outcome}>
-          <span className={styles.routeLabel}>How Far You Could Have Gone</span>
           <strong className={styles.routeValue}>{route.title}</strong>
           <span className={styles.routeNote}>{route.note}</span>
         </div>

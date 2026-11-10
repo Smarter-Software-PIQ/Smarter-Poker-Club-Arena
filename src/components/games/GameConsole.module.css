@@ -631,14 +631,15 @@
   background: linear-gradient(105deg, #10283e, #08121e 55%, #101b29);
   border-bottom: 1px solid #47637a;
 }
-[data-flight-cabinet] .header h1 {
+[data-flight-cabinet] .header h1,
+[data-choice-game='crossing'] .header h1 {
   margin: 0;
-  padding: 0;
-  background: transparent;
-  border: 0;
-  border-image: none;
-  box-shadow: none;
-  color: #e5f5ff;
+  padding: 8px 20px;
+  color: white;
+  border: 7px solid transparent;
+  border-image: url('/assets/club-buttons/lobby/shark-panel-v1/button-secondary.png') 26 fill / 7px
+    stretch;
+  background: #061329;
   font:
     700 clamp(20px, 3vw, 30px)/1.05 Rajdhani,
     'Arial Narrow',
@@ -716,33 +717,24 @@
 }
 
 [data-flight-cabinet] .actions .primary,
-[data-flight-cabinet] .actions .secondary {
-  padding: 8px 16px;
-  border: 1px solid #6887a0;
-  border-image: none;
-  border-radius: 4px;
+[data-flight-cabinet] .actions .primary[data-ink],
+[data-flight-cabinet] .actions .secondary,
+[data-choice-game='crossing'] .actions .primary,
+[data-choice-game='crossing'] .actions .secondary {
+  color: white;
+  padding: 7px 12px;
+  border: 9px solid transparent;
+  border-image: url('/assets/club-buttons/lobby/shark-panel-v1/button-secondary.png') 26 fill / 9px
+    stretch;
+  background: #07172b;
+  border-radius: 0;
+  box-shadow: none;
+  text-shadow: 0 1px 2px black;
 }
-[data-flight-cabinet] .actions .primary {
-  color: #effbff;
-  border-color: #61caff;
-  background: linear-gradient(175deg, #176b97, #104268 48%, #0b2f4e 53%, #123f62);
-  box-shadow:
-    inset 0 1px #b3e9ff,
-    inset 0 -3px #07192f,
-    0 2px 6px #0008;
-}
-[data-flight-cabinet] .actions .primary[data-ink='gold'] {
-  color: #fff5dd;
-  border-color: #ffc776;
-  background: linear-gradient(175deg, #755120, #4a3016 48%, #41270f 53%, #5a3919);
-  box-shadow:
-    inset 0 1px #ffe2a8,
-    inset 0 -3px #24170c;
-}
-[data-flight-cabinet] .actions .secondary {
-  color: #c5d7e5;
-  background: linear-gradient(175deg, #233749, #111e2b);
-  box-shadow: inset 0 1px #496077;
+[data-flight-cabinet] .actions .primary,
+[data-flight-cabinet] .actions .primary[data-ink],
+[data-choice-game='crossing'] .actions .primary {
+  border-image-source: url('/assets/club-buttons/lobby/shark-panel-v1/button-primary.png');
 }
 [data-flight-cabinet] .actions button:focus-visible {
   outline: 2px solid white;

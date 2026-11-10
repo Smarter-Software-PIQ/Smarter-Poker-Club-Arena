@@ -157,6 +157,11 @@ const REGISTER = {
       `Both decideLightningHorse calls (two filters): ${PRESUME_ROSTER}`,
     ].join('\n'),
   },
+  'server/src/engine/ServerTableEngineHandEvents.ts': {
+    allowed: 1,
+    kind: 'IDENTIFICATION',
+    why: 'Only a Horse seat has a private Horse decision receipt. Human and Horse seats continue through the same turn clock and action handling.',
+  },
   'server/src/engine/ServerTableEngineTurns.ts': {
     allowed: 4,
     kind: 'IDENTIFICATION',

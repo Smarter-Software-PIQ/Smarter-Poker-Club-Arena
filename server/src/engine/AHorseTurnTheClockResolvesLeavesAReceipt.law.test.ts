@@ -77,7 +77,7 @@ describe('a horse turn the clock resolves leaves a receipt', () => {
       turns.indexOf('protected noteHorseTurnResolvedWithoutDecision(')
     );
     expect(body).toMatch(
-      /performAction\(seat, a as any, undefined, 'forced'\)\) \{\s*this\.noteHorseTurnResolvedWithoutDecision\(seat, a, reason, brainDecisionPending\);\s*return true;/
+      /performAction\(\s*seat,\s*a as any,\s*undefined,\s*'forced',\s*this\.horseClockObserver\(\s*seat,\s*reason\.endsWith\('_expired'\) \? 'timeout' : 'forced',\s*reason\s*\)\s*\)\s*\) \{\s*this\.noteHorseTurnResolvedWithoutDecision\(seat, a, reason, brainDecisionPending\);\s*return true;/
     );
     expect(body).toMatch(
       /const brainDecisionPending = this\.horseDecisionAbortController !== null;/

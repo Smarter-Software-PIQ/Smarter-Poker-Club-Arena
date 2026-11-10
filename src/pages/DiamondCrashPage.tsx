@@ -1500,7 +1500,7 @@ function DiamondCrashGame() {
             steps={[
               {
                 title: 'Your Numbers',
-                body: 'Your Entry, The Guaranteed Minimum And The Prize So Far, Updated As You Play.',
+                body: `Your Entry And The Prize So Far Update As You Play.${guaranteed ? ` Every Earned Flight Pays At Least ${gameChips(guaranteed.chips)} Chips.` : ''}`,
                 target: '[data-game-console] dl',
               },
               {
