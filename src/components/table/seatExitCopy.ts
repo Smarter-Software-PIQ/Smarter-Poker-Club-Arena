@@ -47,6 +47,7 @@ export function bootExplanation(reason: string | undefined, asset: SeatAsset): s
     sit_out_timeout: `You Sat Out Too Long And Were Cashed Out. Your ${units} Are Back In Your Wallet.`,
     abandoned_seat: `You Were Disconnected For Five Minutes, So Your Seat Was Cashed Out. Your ${units} Are Back In Your Wallet.`,
     busted_no_rebuy: `You Ran Out Of ${units} And Did Not Rebuy, So Your Seat Was Released.`,
+    busted_insufficient_chips: `You Ran Out Of ${units} And Your Wallet Cannot Cover A Rebuy, So Your Seat Was Released.`,
     nit_game_vpip: `This Table Has A Minimum VPIP And You Were Below It, So You Were Cashed Out. Your ${units} Are Back In Your Wallet.`,
   };
   return explanations[reason];
@@ -58,6 +59,7 @@ export const BOOT_REASONS = [
   'sit_out_timeout',
   'abandoned_seat',
   'busted_no_rebuy',
+  'busted_insufficient_chips',
   'nit_game_vpip',
 ] as const;
 
