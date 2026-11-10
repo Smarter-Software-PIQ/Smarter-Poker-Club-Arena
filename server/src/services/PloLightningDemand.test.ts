@@ -1,3 +1,4 @@
+import { sliceCall } from '../testHelpers/sourceWindow.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   PLO_LIGHTNING_GAME,
@@ -91,6 +92,6 @@ it('the fleet widens only the already qualified pool before selection', async ()
   const verdict = source.indexOf('const v = sitVerdictFor(h.id, table, sitCtx);');
   const activity = source.indexOf('pool = ploActivityPool(');
   expect(activity).toBeGreaterThan(verdict);
-  expect(source.slice(activity, activity + 220)).toMatch(/pool,\s+sittable,\s+emptySeats\.length/);
+  expect(sliceCall(source, 'ploActivityPool(')).toMatch(/pool,\s+sittable,\s+emptySeats\.length/);
   expect(activity).toBeLessThan(source.indexOf('const weighted = orderMadnessCandidates('));
 });
