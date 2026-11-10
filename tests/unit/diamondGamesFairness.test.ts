@@ -221,13 +221,13 @@ describe('crash odds: the guaranteed minimum is paid for out of them', () => {
     // the same half (or paid) floor contract 4 keeps, at the round's own return
     // (chosen for a 2.9x average): 1.022420 at the 13/25 the smallest odd entry
     // keeps, 1.006430 at half, 1.137983 at a Super add-on's two thirds.
-    const now = awardInstantCrashChances(1, 100);
-    expect(now).toEqual(awardInstantCrashChances(1, 100, 5));
+    const now = awardInstantCrashChances(1, 100, 5);
+    expect(awardInstantCrashChances(1, 100)).toEqual({ most: 0, least: 0 });
     // 1 - (1.022420 - 0.52)/(1.26 - 0.52), and 1 - (1.006430 - 0.5)/(1.26 - 0.5).
     expect(1 / now.least).toBeCloseTo(1 / (1 - 0.50242 / 0.74), 9);
     expect(1 / now.most).toBeCloseTo(1 / (1 - 0.50643 / 0.76), 9);
     expect(oneInRangeLabel(now)).toBe('1 In 3 To 3.1');
-    expect(oneInRangeLabel(awardInstantCrashChances(2, 100))).toBe('1 In 3 To 4.9');
+    expect(oneInRangeLabel(awardInstantCrashChances(2, 100, 5))).toBe('1 In 3 To 4.9');
     // CONTRACT 4, which every round sealed from 2026-09-21 to 2026-10-12 carries:
     // the floor is half the stake, or for a Super award what the player PAID,
     // and the round has to reach 1.11x before a cash-out can bind.
