@@ -1994,7 +1994,18 @@ export class LightningHandHost {
       const userId = me.user_id;
       if (me.is_folded || me.is_all_in || me.seat === st.currentPlayerSeat) continue;
       if (!(st.currentBet - me.bet > 0.005)) continue;
-      if (!this.watching.has(userId) || this.pendingFolds.has(userId)) continue;
+      if (!this.watching.has(userId)) continue;
+      // A FOLD ALREADY ASKED FOR ON A FREE SEAT IS PRICED NOW (2026-11-10, Dan
+      // in the big blind: "it didn't move me ... it made me hit fold again").
+      // A fast fold requested while the seat owed nothing was kept reserved
+      // until its turn, so a later raise left the player sitting in a hand
+      // they had already left. Its exposure is fixed the moment it owes chips:
+      // release it now, exactly as a priced request is released, and the
+      // controller still publishes the fold in turn order.
+      if (this.pendingFolds.has(userId)) {
+        if (!this.releasedOrRecorded.has(userId)) this.afterFold(userId, 'fast');
+        continue;
+      }
       if (this.preActions.getPreAction(this.timerKey, userId)?.action !== 'auto_check_fold')
         continue;
       const had = this.foldRequestedAt.has(userId);

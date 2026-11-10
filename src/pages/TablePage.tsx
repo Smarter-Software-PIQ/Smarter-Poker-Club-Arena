@@ -481,6 +481,7 @@ import {
   lightningCheckFoldRestoreDue,
   lightningCheckFoldSurvives,
   lightningEngineFoldedArm,
+  lightningHeroToCall,
   rememberLightningCheckFoldArm,
   rememberedLightningCheckFoldArm,
 } from '../lightning/lightningCheckFold';
@@ -31351,9 +31352,13 @@ function LiveTablePage({
                 <PreActionBar
                   canCheck={
                     // Bible V8: Check is available when there's no outstanding bet to call
-                    // Compare server's currentBet to hero's current bet
-                    (tableState.currentBet || 0) <=
-                    (tableState.lastBetAmounts?.[tableState.heroSeat - 1] || 0)
+                    // Compare server's currentBet to hero's current bet. A
+                    // Lightning room reads the engine's own pair (2026-11-10):
+                    // the bet display can trail the big blind's posted chips.
+                    lightningRoom && lightningHeroToCall(engineSnapshot, userId) !== null
+                      ? lightningHeroToCall(engineSnapshot, userId)! <= 0
+                      : (tableState.currentBet || 0) <=
+                        (tableState.lastBetAmounts?.[tableState.heroSeat - 1] || 0)
                   }
                   isMyTurn={false}
                   preAction={preAction}
@@ -31364,9 +31369,19 @@ function LiveTablePage({
                     // the hero owes nothing the button is Check/Fold, and it
                     // arms the ordinary auto check/fold; if that ends in a
                     // fold the host releases the player at once anyway.
+                    // One source in a Lightning room (2026-11-10): the
+                    // engine's current bet and the hero's bet, read now. The
+                    // per-seat bet display can trail the hero's posted big
+                    // blind, which turned a free Check/Fold into a fold
+                    // request the engine held until the turn.
+                    const lightningOwes = lightningRoom
+                      ? lightningHeroToCall(engineSnapshotRef.current, userId)
+                      : null;
                     const heroOwesNothing =
-                      (tableState.currentBet || 0) <=
-                      (tableState.lastBetAmounts?.[tableState.heroSeat - 1] || 0);
+                      lightningOwes !== null
+                        ? lightningOwes <= 0
+                        : (tableState.currentBet || 0) <=
+                          (tableState.lastBetAmounts?.[tableState.heroSeat - 1] || 0);
                     if (lightningRoom && next === 'fold' && !heroOwesNothing) {
                       void handleLightningFold('fast_fold');
                       return;
@@ -31387,21 +31402,27 @@ function LiveTablePage({
                     // Snapshot whether checking was free at arm time so the
                     // effect above can send auto_check_fold vs auto_fold.
                     preActionCanCheckRef.current =
-                      (tableStateRef.current.currentBet || 0) <=
-                      (tableStateRef.current.lastBetAmounts?.[tableStateRef.current.heroSeat - 1] ||
-                        0);
+                      lightningOwes !== null
+                        ? lightningOwes <= 0
+                        : (tableStateRef.current.currentBet || 0) <=
+                          (tableStateRef.current.lastBetAmounts?.[
+                            tableStateRef.current.heroSeat - 1
+                          ] || 0);
                     /* Dan 2026-08-28 (CRITICAL): snapshot the PRICE at arm
                        time too. This is the number printed on the "Call N"
                        button the player pressed, and it rides to the engine
                        as auto_call's cap — a raise past it invalidates
                        instead of calling. */
-                    preActionCallAmountRef.current = Math.max(
-                      0,
-                      (tableStateRef.current.currentBet || 0) -
-                        (tableStateRef.current.lastBetAmounts?.[
-                          tableStateRef.current.heroSeat - 1
-                        ] || 0)
-                    );
+                    preActionCallAmountRef.current =
+                      lightningOwes !== null
+                        ? lightningOwes
+                        : Math.max(
+                            0,
+                            (tableStateRef.current.currentBet || 0) -
+                              (tableStateRef.current.lastBetAmounts?.[
+                                tableStateRef.current.heroSeat - 1
+                              ] || 0)
+                          );
                     setPreAction(next);
                   }}
                   currentBet={Math.max(
