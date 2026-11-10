@@ -79,8 +79,7 @@ export function parseBonusReplay(value: unknown): BonusReplay {
     r.version !== 1 ||
     !game(r.game) ||
     !integer(r.diamonds) ||
-    r.diamonds < 25 ||
-    r.diamonds > 7500 ||
+    r.diamonds < 1 ||
     ![1, 2].includes(r.boost) ||
     !amount(r.payout_chips) ||
     !date(r.completed_at) ||
@@ -219,8 +218,7 @@ export const DiamondReplayService = {
           !game(r.game) ||
           !amount(r.payout_chips) ||
           !integer(r.diamonds) ||
-          r.diamonds < 25 ||
-          r.diamonds > 7500 ||
+          r.diamonds < 1 ||
           ![1, 2].includes(r.boost) ||
           !date(r.created_at)
       )

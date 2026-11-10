@@ -2,7 +2,7 @@
 set -euo pipefail
 root=$(git rev-parse --show-toplevel)
 pgbin=${PG_BIN:-/opt/homebrew/opt/postgresql@17/bin}
-fixture=$(mktemp -d "${TMPDIR:-/tmp}/accounting-delivery-test.XXXXXX")
+fixture=$(mktemp -d "${TMPDIR:-/tmp}/acct.XXXXXX")
 started=0
 cleanup() {
   status=$?
@@ -393,6 +393,16 @@ if [ "$(grep -Fc 'NOTICE:  PASS Diamond statement history:' "$fixture/statement-
   echo 'Historical statement display correction did not reach its success witness' >&2
   exit 1
 fi
+
+# Qualify wallet-balance admission and the prize guarantee together.
+"${diamond_psql[@]}" -f "$root/supabase/migrations/20261015093545_donkey_cross_street_one_is_always_safe.sql"
+"${diamond_psql[@]}" -f "$root/supabase/migrations/20261017040017_double_diamonds_is_retired_from_the_wheel_bonus_games.sql"
+"${diamond_psql[@]}" -f "$root/supabase/migrations/20261019023857_horses_spin_diamond_spins_through_the_engine_door.sql"
+"${diamond_psql[@]}" -f "$root/supabase/migrations/20261110013729_diamond_wheel_balance_entry_and_prize_funding.sql"
+"${diamond_psql[@]}" -f "$root/tests/sql/diamond-wheel-balance-entry.sql"
+"${diamond_psql[@]}" -f "$root/tests/sql/diamond-wheel-prize-funding.sql"
+"${diamond_psql[@]}" -f "$root/tests/sql/diamond-wheel-owner-credit.sql"
+bash "$root/scripts/dev/test-diamond-wheel-single-spin-race.sh" "$fixture"
 
 # Diamond game contracts follow the wallet-balance wheel migration in this fixture.
 "${diamond_psql[@]}" -f "$diamond/plinko-entry-readers.sql" \

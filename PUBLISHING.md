@@ -122,6 +122,8 @@ The run IDs above are historical. Live health always describes the currently ser
 
 Once the gameplay evidence workflow is published, `post-deploy-e2e.yml` records `post-thaw-gameplay-<release-run>-<attempt>/gameplay.json`. For an operator readback, use `scripts/operations/release-gameplay-readback.sh SEALED_RESULT` through the configured read-only psql service. Match the result to the sealed attempt.
 
+The receiver also opens a single reserved zero-balance spectator after preflight. Its browser waits on one occupied cash table through the actual replacement. Download `sealed-spectator-<release-run>-<attempt>` from the original receiver for the matched old/new instances, table, freeze, thaw and committed hand. This evidence covers an authenticated spectator. The isolated Backup rehearsal owns seated-player stack proof. A missing witness leaves spectator continuity unverified and never initiates or delays a release.
+
 On November 7 the original receiver reported failure after the recovery invocation sealed. Reattach the protected observer to the original run using `observe-engine-release.sh --sha "$candidate" --run-id 42389189340-1` on the release host through the scoped observer procedure. Match its `ENGINE_RELEASE_SHA` and `ENGINE_RELEASE_RESULT=sealed` to the receipt and public health. A failed observer alone does not authorize another cutover. [Observer correction](https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9892)
 
 For an already recovered sealed operation whose Actions receiver remains failed,

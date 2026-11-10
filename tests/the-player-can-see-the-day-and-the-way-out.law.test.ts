@@ -116,7 +116,7 @@ describe('the day is one figure, from one definition', () => {
   });
 });
 
-describe('one line, three pages', () => {
+describe('the daily counter stays out of the wheel and bonus cabinets', () => {
   it.each(PAGES.filter((page) => !page.includes('Wheel')))(
     '%s keeps the daily counter out of the cabinet',
     (page) => {
@@ -125,6 +125,8 @@ describe('one line, three pages', () => {
   );
 
   it('keeps an empty daily line off screen', () => {
+    expect(src('src/pages/DiamondWheelPage.tsx')).not.toContain('TodayLine');
+    expect(src('src/components/wheel/WheelCabinet.tsx')).not.toContain('Today');
     expect(src('src/components/games/TodayLine.tsx')).toContain(
       'if (parts.length === 0) return null;'
     );

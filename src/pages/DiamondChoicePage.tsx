@@ -411,7 +411,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
     state.frozen ||
     !state.is_member ||
     state.max_steps < 1 ||
-    state.rounds_today >= state.daily_limit ||
+    (!earned.award && state.rounds_today >= state.daily_limit) ||
     waitSeconds > 0 ||
     state.diamonds < bonusWalletDebit(budget);
   const blocked = stateBlocked || quotedEntry !== `${uuid}:${game}:${mode}:${bet}`;
@@ -706,15 +706,22 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
   const viewOpen = view?.status === 'open';
   const picks = view?.picked.length ?? 0;
   const prizes = viewOpen ? view.prizes : (state?.prizes ?? []);
+  const wheelFloor = view
+    ? view.wheel_minimum_payout_chips
+    : earned.quote?.gameMinimumPayoutChips === undefined
+      ? undefined
+      : earned.quote.minimumPayoutChips;
+  const payablePrizes =
+    wheelFloor === undefined ? prizes : prizes.map((value) => Math.max(value, wheelFloor));
   const prize =
     view?.status === 'lost'
       ? view.payout_chips
       : view?.status === 'cashed'
         ? view.payout_chips
         : viewOpen && picks > 0
-          ? prizes[picks - 1]
+          ? payablePrizes[picks - 1]
           : 0;
-  const nextPrize = viewOpen ? prizes[picks] : view ? undefined : prizes[0];
+  const nextPrize = viewOpen ? payablePrizes[picks] : view ? undefined : payablePrizes[0];
   // THE LADDER THE PAGE PAINTS IS THE LADDER THE SERVER PAYS (2026-09-23). A
   // round carries the contract it was sealed under, and the ladder is that
   // contract's: contract 4's road starts at 0.80x, the one before it at 1.10x.
@@ -922,7 +929,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
   // landing the scene is showing; a finished one keeps its floor and its chips
   // on screen until its receipt has taken the player back to the wheel.
   const boardRound = viewOpen ? view : sceneRound;
-  const guaranteedChips = boardRound
+  const gameFloor = boardRound
     ? boardRound.payout_version === 5 || isRoadCoinVersion(boardRound.payout_version)
       ? choiceLossGuarantee(
           boardRound.prizes,
@@ -935,6 +942,11 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
       : earned.ready && !earned.award
         ? standardFloor
         : null;
+  const sealedWheelFloor =
+    boardRound && 'wheel_minimum_payout_chips' in boardRound
+      ? Number(boardRound.wheel_minimum_payout_chips)
+      : 0;
+  const guaranteedChips = gameFloor === null ? null : Math.max(gameFloor, sealedWheelFloor);
   const nextOdds =
     (!view || viewOpen) && prizes.length
       ? choiceNextOdds(
@@ -942,6 +954,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
           picks,
           prizes,
           boardRound?.minimum_payout_chips ??
+            earned.quote?.gameMinimumPayoutChips ??
             earned.quote?.minimumPayoutChips ??
             standardFloor ??
             0,
@@ -1030,16 +1043,16 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
                 : 'Guide The Donkey Across The Road. Each Safe Crossing Raises Your Prize, And You Can Book The Win After Any Street.'
             }
             steps={[
-          {
-            title: 'Your Numbers',
-            body: 'Your Entry, The Guaranteed Minimum And The Prize So Far, Updated As You Play.',
-            target: '[data-game-console] dl',
-          },
-          {
-            title: 'Play',
-            body: 'The Plates At The Foot Of The Game Start A Round And Book Your Win.',
-            target: '[data-game-actions]',
-          },
+              {
+                title: 'Your Numbers',
+                body: 'Your Entry, The Guaranteed Minimum And The Prize So Far, Updated As You Play.',
+                target: '[data-game-console] dl',
+              },
+              {
+                title: 'Play',
+                body: 'The Plates At The Foot Of The Game Start A Round And Book Your Win.',
+                target: '[data-game-actions]',
+              },
             ]}
           />
         }
@@ -1167,7 +1180,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
                 : quoteLadder
               : undefined
           }
-          prizes={sceneRound ? sceneRound.prizes : prizes}
+          prizes={game === 'mines' ? payablePrizes : sceneRound ? sceneRound.prizes : prizes}
           betChips={stakeChips}
           floorChips={guaranteedChips}
           superFloor={guaranteedSuper}
@@ -1255,11 +1268,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
         </div>
       </GameConsole>
       <GameLifetimeAverages clubId={uuid} revision={round ? `${round.id}:${round.status}` : null} />
-      <GamePanel
-        title="Your Game"
-        pill="Rules"
-        foot="foot"
-      >
+      <GamePanel title="Your Game" pill="Rules" foot="foot">
         <p className="sc-copy">
           {game === 'mines'
             ? `${ONE_SETTING.mines} Pick Hidden Gems On The Board; Every Safe Pick Raises Your Prize. Book The Win After Any Safe Pick, And The Remaining Mines Are Then Revealed. A Mine Ends The Round And Pays The Guaranteed Minimum.`
