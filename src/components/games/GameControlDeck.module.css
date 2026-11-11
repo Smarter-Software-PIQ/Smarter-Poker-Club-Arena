@@ -1,7 +1,7 @@
 .deck {
   position: relative;
   width: 100%;
-  min-height: 0;
+  min-height: 177px;
   aspect-ratio: 3 / 1;
   background-position: center;
   background-size: 100% 100%;
@@ -12,6 +12,7 @@
   font-variant-numeric: tabular-nums;
 }
 .crash {
+  min-height: 0;
   background-image: url('/assets/diamond-spins/crash-cockpit-deck-v1.webp');
   mask: url('/assets/diamond-spins/crash-cockpit-deck-v1-mask.svg') center / 100% 100% no-repeat;
 }
@@ -19,6 +20,7 @@
   background-image: url('/assets/diamond-spins/plinko-launch-deck-v1.webp');
 }
 .mines {
+  min-height: 0;
   background-image: url('/assets/diamond-spins/mines-vault-deck-v1.webp');
   mask: url('/assets/diamond-spins/mines-vault-deck-v1-mask.svg') center / 100% 100% no-repeat;
 }
@@ -70,6 +72,11 @@
   font-size: clamp(13px, 2.8cqw, 23px);
   font-weight: 800;
   line-height: 1.05;
+}
+/* Native-ratio decks fit their value ink without forcing a second line. */
+.crash .metrics dd,
+.mines .metrics dd {
+  font-size: clamp(10px, 2.8cqw, 23px);
 }
 .metrics button {
   border: 0;
@@ -135,6 +142,10 @@
 .secondary[aria-disabled='true'] {
   color: #a9b5c4;
   cursor: default;
+}
+/* Crash's upper plate is a read-only amount with full display contrast. */
+.crash .secondary:disabled {
+  color: white;
 }
 .primary:not(:disabled):active,
 .secondary:not(:disabled):active {

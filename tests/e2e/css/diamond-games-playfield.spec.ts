@@ -1083,7 +1083,7 @@ const START_VIEWPORTS = [
   { width: 1280, height: 800 },
 ] as const;
 const START_LABEL = {
-  crash: /^Start /,
+  crash: 'Spin The Wheel',
   plinko: /^Drop One$/,
   crossing: /^Start Round$/,
   mines: /^Start Round$/,
@@ -1503,7 +1503,7 @@ for (const viewport of [...START_VIEWPORTS, { width: 862, height: 1236 }])
     await openGamePage(page, 'crash');
     await noOfferStands(page);
     const plate = page.locator(PRIMARY_PLATE);
-    await expect(plate).toHaveText(/^Start /);
+    await expect(plate).toHaveText('Spin The Wheel');
     await expect(plate).toBeEnabled({ timeout: 30_000 });
     const start = await onTheGlass(page, `Crash Start at ${viewport.width}px`);
     // The idle plate does not pulse: the light is owed to the cash-out alone.

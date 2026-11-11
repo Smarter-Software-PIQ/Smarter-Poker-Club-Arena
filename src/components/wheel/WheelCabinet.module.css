@@ -195,22 +195,27 @@
   padding: 5px 12px;
 }
 .balancePicker {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  translate: 0 -50%;
+  height: max(32px, 100%);
   border: 0;
   background: transparent;
   font: inherit;
-  min-height: 0;
   width: 100%;
   padding: 0;
 }
-.balancePicker span {
+.balanceChevron {
   position: absolute;
   margin-inline-start: 0.25em;
 }
 .balancePicker::after {
   content: '';
   position: absolute;
-  inset: 0;
-  min-height: 44px;
+  inset: 50% 0 auto;
+  height: max(44px, 100%);
+  translate: 0 -50%;
 }
 .amountDialog {
   width: min(288px, 85vw);
