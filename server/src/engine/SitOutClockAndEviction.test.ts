@@ -279,7 +279,11 @@ describe('a busted cash seat is released', () => {
     /* Dan: "CHECK IF THEY HAVE ENOUGH CHIPS TO REBUY, (40 BB MINIMUM). IF THEY
        DO, YOU GIVE THEM THE 5 SECOND PERIOD TO REBUY OR DECLINE." */
     expect(dealing).toMatch(/protected async anyBustedPlayerCanAffordARebuy\(/);
-    expect(dealing).toMatch(/await this\.anyBustedPlayerCanAffordARebuy\(justBustedPlayers\)/);
+    // 2026-11-11: the pause is decided from the wallet read the bust offer
+    // already made (offerCashBustWindows), passed in rather than read twice.
+    expect(dealing).toMatch(
+      /await this\.anyBustedPlayerCanAffordARebuy\(\s*justBustedPlayers,\s*bustWallets\s*\)/
+    );
     // The old unconditional pause is gone.
     expect(dealing).not.toMatch(/needsRebuyPause = true; \/\/ Cash games always have rebuy/);
   });

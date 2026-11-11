@@ -13168,7 +13168,11 @@ function LiveTablePage({
     if (ev.kind === 'bust_rebuy_window' && ev.table_id === tableId && ev.user_id === userId) {
       const remainingMs = Number(ev.remaining_ms);
       if (Number.isFinite(remainingMs) && remainingMs > 0) {
-        setBustRebuyDeadlineAt(Date.now() + remainingMs);
+        /* One deadline per bust: a resend (reopened sheet, reconnect) or a
+           frame that arrives late may bring it forward, never push it back.
+           It is cleared when chips arrive or the seat goes. */
+        const told = Date.now() + remainingMs;
+        setBustRebuyDeadlineAt((prev) => (prev === null ? told : Math.min(prev, told)));
       }
       return;
     }
