@@ -168,7 +168,7 @@ export function GameConsole({
         data-flash={lit ? 'live' : undefined}
         data-motion={lit ? 'keep' : undefined}
       >
-        {label}
+        <span className={deck.actionLabel}>{label}</span>
         <TapHaptic disabled={Boolean(rest.disabled) || pending} radius="4px" />
       </button>
     );

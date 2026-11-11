@@ -74,12 +74,18 @@
   background: transparent;
   color: inherit;
   font: inherit;
+  position: static;
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  cursor: pointer;
+}
+/* The value participates in the label/value stack; its hit area fills the bay. */
+.metrics button::after {
+  content: '';
   position: absolute;
   inset: 0;
-  width: 100%;
   min-height: 44px;
-  padding: 12px 0 0;
-  cursor: pointer;
 }
 .actions {
   display: contents;
@@ -310,4 +316,24 @@
 }
 .plinko .metrics > div:nth-child(4) {
   inset: 82% 7% 12% 67%;
+}
+
+.actionLabel {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  text-align: center;
+}
+/* Center the 44px touch box on the painted face; never grow it downward. */
+.crossing .secondary {
+  top: 34%;
+  translate: 0 -50%;
+}
+.crash .secondary {
+  top: 24%;
+  translate: 0 -50%;
+}
+.plinko .secondary {
+  top: 75%;
+  translate: 0 -50%;
 }
