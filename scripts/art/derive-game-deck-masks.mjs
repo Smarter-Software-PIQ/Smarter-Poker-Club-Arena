@@ -2,7 +2,8 @@
 import { loadSharp } from '../lib/sharp-loader.mjs';
 const sharp = await loadSharp();
 import { writeFileSync } from 'node:fs';
-const root = new URL('../../public/assets/diamond-spins/', import.meta.url).pathname;
+import { fileURLToPath } from 'node:url';
+const root = fileURLToPath(new URL('../../public/assets/diamond-spins/', import.meta.url));
 for (const name of ['crash-cockpit-deck-v1', 'mines-vault-deck-v1']) {
   const {
     data,
