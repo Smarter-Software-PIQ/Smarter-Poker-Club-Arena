@@ -2849,6 +2849,7 @@ export class HorseMind {
       if (
         (read.stats.vpip.engaged === 'high' &&
           (read.stats.pfr.engaged === 'high' ||
+            read.stats.threeBet.engaged === 'high' ||
             read.stats.betCheckedTo.engaged === 'high' ||
             maniacRaiseWidth(read) !== null)) ||
         isPostflopManiac(read)
@@ -2862,7 +2863,8 @@ export class HorseMind {
       const pfrRate = s.pfr / s.hands;
       const postActs = s.postAggr + s.postPassive;
       const postAf = postActs >= 10 ? s.postAggr / Math.max(1, s.postPassive) : 0;
-      if (vpipRate >= 0.52 && (pfrRate >= 0.28 || postAf >= 2.2)) return true;
+      const vpipFloor = this.decisionScope?.startsWith('holdem:') ? 0.48 : 0.52;
+      if (vpipRate >= vpipFloor && (pfrRate >= 0.28 || postAf >= 2.2)) return true;
     }
     return false;
   }
@@ -2887,6 +2889,7 @@ export class HorseMind {
     stabRate: number;
     turnGiveUp: boolean;
     checkedTurnAfterFlopStab: boolean;
+    foldToRaiseRate?: number;
   } {
     const flopRow = this.decisionScope
       ? this.flopStabCounters.get(`${this.decisionScope}|${userId}`)
@@ -2905,9 +2908,24 @@ export class HorseMind {
       };
     }
     const evidenced = read && read.presumed !== true ? read : null;
-    const bct = flopRow !== undefined ? flopBct : (evidenced?.stats.betCheckedTo ?? null);
+    let bct = flopRow !== undefined ? flopBct : (evidenced?.stats.betCheckedTo ?? null);
+    if (!bct && flopRow === undefined && this.decisionScope && read) {
+      const counters = this.decisionExploitCounters(userId);
+      const env = counters
+        ? exploitEnvelopeFor(this.decisionScope, this.decisionVariant)
+        : undefined;
+      if (counters && env && counters.betCheckedToOpp > 0) {
+        const pooled = this.stats.get(userId);
+        const adjusted = probeAdjustedCounters(counters, pooled?.ctBets, pooled?.ctProbes);
+        bct = statRead(adjusted.betCheckedTo, adjusted.betCheckedToOpp, env.betCheckedTo, ['high']);
+      }
+    }
     const stabRate = bct ? bct.mean : 0;
-    const highFlopStab = !!(bct && (bct.engaged === 'high' || (bct.n >= 8 && bct.mean >= 0.52)));
+    const stabFloor = this.decisionScope?.startsWith('holdem:') ? 0.46 : 0.52;
+    const highFlopStab = !!(
+      bct &&
+      (bct.engaged === 'high' || (bct.n >= 8 && bct.mean >= stabFloor))
+    );
 
     let flopBetCheckedTo = false;
     let checkedTurnAfterFlopStab = false;
@@ -2929,6 +2947,7 @@ export class HorseMind {
 
     const riverLast = this.riverLastToActRead(userId);
     const foldRead = evidenced?.stats.foldToBet ?? null;
+    const foldToRaiseRate = foldRead !== null && foldRead.n >= 6 ? foldRead.mean : undefined;
     const canFlagSingleHandGiveUp = this.isLagBully(userId) || highFlopStab || stabRate >= 0.4;
     const turnGiveUp =
       (checkedTurnAfterFlopStab && canFlagSingleHandGiveUp) ||
@@ -2941,6 +2960,7 @@ export class HorseMind {
       stabRate,
       turnGiveUp,
       checkedTurnAfterFlopStab,
+      ...(foldToRaiseRate !== undefined ? { foldToRaiseRate } : {}),
     };
   }
 
@@ -2951,7 +2971,7 @@ export class HorseMind {
   ): ExploitProfile {
     // A PROVEN WINNER IS RESPECTED (2026-10-24, HorseWinnerRead): fewer
     // bluffs and no thin value against a disciplined winner; against a high-VPIP
-    // LAG bully (e.g. 80/46/66% stab), keep bluff playback and expand thin value.
+    // LAG bully (e.g. 65/38/68% stab), keep bluff playback and expand thin value.
     return respectWinner(
       this.readExploit(userId, recencyBlend, options),
       userId,

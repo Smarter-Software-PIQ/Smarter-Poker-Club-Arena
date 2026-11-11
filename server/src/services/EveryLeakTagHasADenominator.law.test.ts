@@ -69,10 +69,19 @@ const MIRRORED = [
   'plo_passive_rundown_oop',
   'plo_toppair_no_redraw_stackoff',
   'set_on_wet_board_stackoff',
+  'nlh_deep_onepair_stackoff',
+  'nlh_ep_limp_passivity',
+  'nlh_bubble_covered_calloff',
 ];
 
 /** Requires a fold, so it can never have a win side. */
-const FOLD_ONLY = ['big_bet_fold', 'big_fold_river', 'big_fold_early', 'bet_fold_line'];
+const FOLD_ONLY = [
+  'big_bet_fold',
+  'big_fold_river',
+  'big_fold_early',
+  'bet_fold_line',
+  'nlh_passive_oop_coldcall_bleed',
+];
 
 /** The exact strings HorseSelfTuner matches on. Renaming one blinds it. */
 const TUNER_READS = [
@@ -84,6 +93,10 @@ const TUNER_READS = [
   'plo_passive_rundown_oop',
   'big_bet_fold',
   'preflop_stackoff',
+  'nlh_deep_onepair_stackoff',
+  'nlh_passive_oop_coldcall_bleed',
+  'nlh_ep_limp_passivity',
+  'nlh_bubble_covered_calloff',
 ];
 
 describe('every leak tag carries a denominator', () => {

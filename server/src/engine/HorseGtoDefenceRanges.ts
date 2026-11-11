@@ -62,6 +62,7 @@ import {
   holdemClass,
   parseChart,
   scoreAtShare,
+  shareAtScore,
   v85DepthWeight,
 } from './HorseGtoOpeningRanges.js';
 import { holdemPreflopScore } from './HorseEval.js';
@@ -618,4 +619,116 @@ export function gtoDefence(c1: Card, c2: Card, spot: DefenceSpot): GtoDefence | 
   const strength = continueStrengthMap(spot.defender, spot.openerBehind)[cls];
   if (strength === undefined) return null;
   return { continueStrength: strength, continueBar, valueBar, bluffProb };
+}
+
+/**
+ * V87 MULTIWAY LOW-STAKES DEFENCE (owner direction, 2026-11-10 22:48
+ * Chicago). Dan: "I HAVEN'T SEEN ANY OR MANY 3 HANDED OR EVEN 4 HANDED
+ * FLOPS, AND THAT TYPICALLY HAPPENS OFTEN IN LOWER STAKES GAMES... HORSES ARE
+ * NOT CALLING OR 3 BETTING ENOUGH.... PREFLOP RANGES APPEAR TO BE WAY TO
+ * TIGHT."
+ *
+ * Facing one open, every defender's continue width grows by a stated number
+ * of hand-share points, more again for each player who already called (the
+ * price improves and the implied odds of set-mining, suited connectors and
+ * suited aces grow with every live stack), and the 3-bet width grows by a
+ * multiplier with the bluff share scaled alongside it so the mix stays
+ * linear-plus-blockers. The width is still the top of each spot's own
+ * (defender, opener seat) continue order: the added hands are the solver's
+ * next continues (pocket pairs, suited connectors and gappers, suited Ax/Kx,
+ * broadways), never offsuit trash. The 3-bets added from the calling range
+ * are added back to the continue width so the flats grow by the full amount.
+ *
+ * Lower stakes play looser (the owner's own observation): the extra widening
+ * is full at a cash big blind of 2 or less, tapers linearly to none at 10,
+ * and the base V87 widening applies at every stake. Tournaments take the
+ * base widening at a reduced weight (chips are not money there and the
+ * survival premium stays in the bars). Cash depth tapers with
+ * v85DepthWeight, so 50bb or less is the prior width exactly.
+ */
+export const V87_MULTIWAY_DEFENCE: Readonly<{
+  contBase: Readonly<Record<DefenderGroup, number>>;
+  contLowStakes: Readonly<Record<DefenderGroup, number>>;
+  perCaller: Readonly<Record<DefenderGroup, number>>;
+  perCallerLowStakes: number;
+  threeBetMult: number;
+  threeBetMultLowStakes: number;
+  fullRingLinearShift: number;
+  tournamentWeight: number;
+  maxCallers: number;
+  maxCont: number;
+}> = {
+  contBase: { bb: 1.5, sb: 1, ip: 2.5 },
+  contLowStakes: { bb: 1.5, sb: 1, ip: 2.5 },
+  perCaller: { bb: 2, sb: 1.5, ip: 3 },
+  perCallerLowStakes: 1,
+  threeBetMult: 1.18,
+  threeBetMultLowStakes: 0.06,
+  fullRingLinearShift: 0.15,
+  tournamentWeight: 0.6,
+  maxCallers: 3,
+  maxCont: 88,
+};
+
+/** Cash big blind at or under which the low-stakes widening is full. */
+export const V87_LOW_STAKES_FULL_BB = 2;
+/** Cash big blind at or over which the low-stakes widening is gone. */
+export const V87_LOW_STAKES_NONE_BB = 10;
+
+/** 1 at a big blind of 2 or less, 0 at 10 or more, linear between. */
+export function v87LowStakesWeight(bigBlind: number | undefined): number {
+  if (bigBlind === undefined || !Number.isFinite(bigBlind) || bigBlind <= 0) return 0;
+  return Math.max(
+    0,
+    Math.min(
+      1,
+      (V87_LOW_STAKES_NONE_BB - bigBlind) / (V87_LOW_STAKES_NONE_BB - V87_LOW_STAKES_FULL_BB)
+    )
+  );
+}
+
+export interface V87DefenceWidenSpot {
+  defender: DefenderGroup;
+  /** Players who called the open before hero. */
+  callers: number;
+  /** v87LowStakesWeight of the cash big blind (0 in tournaments). */
+  lowStakes: number;
+  /** Overall weight, 0..1 (cash depth taper, or the tournament weight). */
+  weight: number;
+  /** Original dealt census; eight or more moves the strongest flats into 3-bets. */
+  dealt?: number;
+}
+
+/**
+ * The V87 widened bars of a V72/V85 defence. Pure: the same bars and spot
+ * always return the same widened bars, and a weight of 0 returns them
+ * unchanged.
+ */
+export function v87WidenDefence(
+  bars: { continueBar: number; valueBar: number; bluffProb: number },
+  spot: V87DefenceWidenSpot
+): { continueBar: number; valueBar: number; bluffProb: number } {
+  const w = Math.max(0, Math.min(1, spot.weight));
+  if (w <= 0) return bars;
+  const ls = Math.max(0, Math.min(1, spot.lowStakes));
+  const c = V87_MULTIWAY_DEFENCE;
+  const callers = Math.max(0, Math.min(c.maxCallers, Math.floor(spot.callers)));
+  const cont = shareAtScore(bars.continueBar) * 100;
+  const value = shareAtScore(bars.valueBar) * 100;
+  const m3 = 1 + (c.threeBetMult - 1 + c.threeBetMultLowStakes * ls) * w;
+  const newValue = Math.min(cont, value * m3);
+  const contAdd =
+    (c.contBase[spot.defender] +
+      c.contLowStakes[spot.defender] * ls +
+      callers * (c.perCaller[spot.defender] + c.perCallerLowStakes * ls)) *
+    w;
+  const newCont = Math.min(c.maxCont, Math.max(cont, cont + contAdd + (newValue - value)));
+  // Full ring (eight or more dealt in) 3-bets least of all: the strongest
+  // flats become linear 3-bets there without widening the continue range.
+  const ring = (spot.dealt ?? 6) >= 8 ? 1 + c.fullRingLinearShift * w : 1;
+  return {
+    continueBar: Math.min(bars.continueBar, scoreAtShare(newCont / 100)),
+    valueBar: Math.min(bars.valueBar, scoreAtShare(Math.min(newCont, newValue * ring) / 100)),
+    bluffProb: Math.min(1, bars.bluffProb * m3 * ring),
+  };
 }
