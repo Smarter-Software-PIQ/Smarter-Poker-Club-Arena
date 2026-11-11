@@ -5137,6 +5137,16 @@ jobs:
           LIVE_TURN_DIST: dist
         run: npx playwright test -c playwright.live-turn.config.ts tests/live-turn/tournament-rebuy-hero-cards.pw.ts --project=chromium
 
+      # Dan 2026-11-11: the phone table's doubled action row reaches up to just
+      # under the bottom-center seat, Previous Hand rises with it, the hero's
+      # avatar is never the smaller one, the action pill shows cards only and
+      # the notch is cleared in device px. Real phone viewports, the built app.
+      - name: Phone table bottom row, hero seat and notch gate
+        if: matrix.partition == 'general' && matrix.shard == 3
+        env:
+          LIVE_TURN_DIST: dist
+        run: npx playwright test -c playwright.live-turn.config.ts tests/live-turn/phone-table-layout.pw.ts --project=chromium
+
       # if: always() because the preview is now started outside the step that
       # uses it, so nothing else will reap it - and an orphaned --strictPort
       # server would fail every later job on this runner. The port-reserve step

@@ -102,3 +102,24 @@ Findings:
 
 - **New class `reliability_drill`** (source `reliability-drill`, critical, escalates at once, is an incident): the on-demand escalation drill `public.fn_reliability_drill`, run by hand from `.github/workflows/reliability-escalation-drill.yml`. Its alert name carries the drill id so a drill never attaches to an earlier drill's digest.
 - No class was suppressed, no `is_incident` changed, and no horse signal was excluded or downgraded.
+
+## 7. Hold-Down (2026-11-11, migration `20261111222330`)
+
+Section 6 flagged two flapping names that the class model could not tune. A class row now carries a hold-down, and both names have one.
+
+| Column                 | Meaning                                                                                           |
+| ---------------------- | ------------------------------------------------------------------------------------------------- |
+| `hold_down_seconds`    | The incident escalates only after staying firing this long. Every resolve resets the clock.       |
+| `hold_down_flaps`      | Or after this many firing episodes inside `hold_down_flap_window_seconds`.                        |
+| `quiet_window_seconds` | A resolved incident must stay quiet this long before it is recovered. Default 1800 for every row. |
+
+Where it runs: intake (`reliability_apply_signal` reads the class row the delivery matched, stamps `class_rule_id` and `firing_since` on the incident, then escalates or records a `hold_down` event) and the transition (`reliability_transition` clears `firing_since` on leaving the firing statuses). The existing `reliability_tick` steps 1 and 3 read the same row, so a held incident that keeps firing with no further delivery still escalates. No job was added. A row without `hold_down_seconds` keeps the Stage B rule exactly (native test).
+
+Numbers, from `smarter_private.reliability_incident_events` for every incident of each name, 2026-11-10 07:26Z to 2026-11-11 15:33Z:
+
+| Name                               | Episodes | Firing to resolve (s)       | Most in 1 h / 24 h | Longest refire gap while verifying (s) | Hold-down set                                 |
+| ---------------------------------- | -------- | --------------------------- | ------------------ | -------------------------------------- | --------------------------------------------- |
+| `%post_commit_obligations_pending` | 19       | p50 729, p90 1121, max 1154 | 4 / 18             | 1631                                   | 1200 s, or 5 episodes in 3600 s; quiet 1800 s |
+| `DatabaseRepliesLost` (warning)    | 14       | p50 720, p90 720, max 3718  | 5 / 13             | 1052                                   | 900 s, or 6 episodes in 3600 s; quiet 1800 s  |
+
+Every measured post-commit episode converged by itself, so none would have paged; one stuck past 20 minutes, or flapping faster than ever measured, still does. The `DatabaseRepliesLost` episodes of 1320 s and 3718 s would still escalate (as a warning they also need 30 minutes since opening, and send nothing in `critical_only`). Severity, `is_incident` and every other row are unchanged.

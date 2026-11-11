@@ -1,3 +1,4 @@
+import { hitRunHandsRemaining } from './ChipContinuity.js';
 import {
   isBigPot,
   orbitHandsOwed,
@@ -4322,18 +4323,29 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
         const nextBbPlayer = players.find((p) => p.seat_number === nextBbSeat);
 
         /* BANK THE WIN (owner 2026-11-10, HorseBankTheWin). The line is 4-6x
-           the horse's OWN starting stack (its cash session baseline), not a
-           multiple of the table maximum. A big pot (net half a starting
-           stack or more) holds the horse for one more orbit; the exit is
-           taken at the boundary right before its next big blind. */
+           the horse's own starting stack. A big pot (net half a starting
+           stack or more) holds it one more orbit; the exit is taken at the
+           boundary right before its next big blind, and only once every hand
+           it owes under the Charles Rule (the countdown and the +250 BB ten)
+           has been played: satisfying one obligation never clears another.
+
+           DURABLE (20261111174148): the start basis and the hands since the
+           big pot are the session row's, advanced by the chip-continuity
+           evaluation just above with the same once-per-hand key, so a seat
+           move, a reconnect or an engine replacement cannot reset them. The
+           in-memory count below stands in only while the database does not
+           yet report them (before the migration installs). */
         const seatedIds = new Set(players.map((p) => p.user_id));
         for (const id of [...this.horseHandsSinceBigPot.keys()])
           if (!seatedIds.has(id)) this.horseHandsSinceBigPot.delete(id);
+        const bankStart = (userId: string): number => {
+          const row = this.chipContinuity?.row(userId);
+          return row?.start_basis ?? startingStackFor(row?.baseline, maxBuyIn);
+        };
         for (const p of players) {
           // Identification only: the big pot hold is a horse's own exit rule.
           const before = p.is_horse ? snap.dealtStacks.get(p.user_id) : undefined;
-          const start = startingStackFor(this.chipContinuity?.row(p.user_id)?.baseline, maxBuyIn);
-          if (before !== undefined && isBigPot(before, p.stack, start)) {
+          if (before !== undefined && isBigPot(before, p.stack, bankStart(p.user_id))) {
             this.horseHandsSinceBigPot.set(p.user_id, 0);
           } else {
             const since = this.horseHandsSinceBigPot.get(p.user_id);
@@ -4347,14 +4359,16 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
 
         const cashedOutHorses = players.filter((p) => {
           if (!p.is_horse) return false;
+          const row = this.chipContinuity?.row(p.user_id);
+          if (row && hitRunHandsRemaining(row, p.stack) > 0) return false;
           return shouldBankTheWin({
             horseId: p.user_id,
             stack: p.stack,
-            startingStack: startingStackFor(
-              this.chipContinuity?.row(p.user_id)?.baseline,
-              maxBuyIn
-            ),
-            handsSinceBigPot: this.horseHandsSinceBigPot.get(p.user_id),
+            startingStack: bankStart(p.user_id),
+            handsSinceBigPot:
+              row && row.hands_since_big_pot !== undefined
+                ? (row.hands_since_big_pot ?? undefined)
+                : this.horseHandsSinceBigPot.get(p.user_id),
             playersAtTable: players.length,
             nextHandIsBigBlind: p.user_id === nextBbPlayer?.user_id,
           });

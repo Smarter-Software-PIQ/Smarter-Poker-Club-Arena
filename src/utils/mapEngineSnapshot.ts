@@ -74,6 +74,8 @@ export interface EnginePublicPlayer {
   hit_run_hands_remaining?: number | null;
   hit_run_hands_required?: number | null;
   hit_run_blind_off?: boolean;
+  hit_run_reason?: 'hit_run' | 'big_win' | 'both' | null;
+  hit_run_big_win_bb?: number | null;
 }
 
 export interface EngineActionRecord {
@@ -346,6 +348,9 @@ export interface MappedTableStatePatch {
   heroHandsOwed: number | null | undefined;
   /** HIT AND RUN: this countdown's total (10 plus 10 per double), when owed. */
   heroHandsRequired: number | null | undefined;
+  /** Why the hero's hands are owed (owner 2026-11-11); undefined from an older engine. */
+  heroHandsReason?: 'hit_run' | 'big_win' | 'both' | null;
+  heroBigWinBb?: number | null;
 }
 
 // ─── Mapping ──────────────────────────────────────────────────────────────────
@@ -652,6 +657,18 @@ export function mapEngineSnapshot(
           ? Math.floor(heroRaw.hit_run_hands_required)
           : null
         : undefined,
+    heroHandsReason:
+      heroRaw && 'hit_run_reason' in heroRaw
+        ? heroRaw.hit_run_reason === 'hit_run' ||
+          heroRaw.hit_run_reason === 'big_win' ||
+          heroRaw.hit_run_reason === 'both'
+          ? heroRaw.hit_run_reason
+          : null
+        : undefined,
+    heroBigWinBb:
+      heroRaw && typeof heroRaw.hit_run_big_win_bb === 'number' && heroRaw.hit_run_big_win_bb > 0
+        ? heroRaw.hit_run_big_win_bb
+        : null,
     sidePots,
     disconnectStates: s.disconnect_states ?? {},
     // Phase 2 T1-01: winners with net amount. Server emits winners[] with

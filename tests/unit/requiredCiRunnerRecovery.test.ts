@@ -270,6 +270,25 @@ const normalizeTournamentRebuyHeroCardsAddition = (job: {
   job.steps.splice(start, 1);
 };
 
+const phoneTableLayoutGate = {
+  name: 'Phone table bottom row, hero seat and notch gate',
+  if: "matrix.partition == 'general' && matrix.shard == 3",
+  env: { LIVE_TURN_DIST: 'dist' },
+  run: 'npx playwright test -c playwright.live-turn.config.ts tests/live-turn/phone-table-layout.pw.ts --project=chromium',
+};
+
+const normalizePhoneTableLayoutAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const start = job.steps.findIndex((step) => step.name === phoneTableLayoutGate.name);
+  expect(job.steps.filter((step) => step.name === phoneTableLayoutGate.name)).toHaveLength(1);
+  expect(job.steps[start - 1]?.name).toBe(tournamentRebuyHeroCardsGate.name);
+  expect(job.steps[start]).toStrictEqual(phoneTableLayoutGate);
+  expect(job.steps[start + 1]?.name).toBe('Stop the shared preview');
+  // Enforce the exact added browser gate (2026-11-11, the phone table's
+  // bottom row, hero seat, action pill and notch), retaining every
+  // historical job hash.
+  job.steps.splice(start, 1);
+};
+
 const normalizeCashDecisionAddition = (job: { steps: Array<Record<string, unknown>> }) => {
   const start = job.steps.findIndex((step) => step.name === cashDecisionGate.name);
   expect(job.steps.filter((step) => step.name === cashDecisionGate.name)).toHaveLength(1);
@@ -977,6 +996,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     // original build command, browser assertion, timeout and step ordering.
     const browserBuild = normalized.jobs['css-beats-build'];
     const browserJob = normalized.jobs['css-beats-e2e'];
+    normalizePhoneTableLayoutAddition(browserJob);
     normalizeTournamentRebuyHeroCardsAddition(browserJob);
     normalizeLightningHeroCardsAddition(browserJob);
     normalizeCashDecisionAddition(browserJob);

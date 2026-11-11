@@ -40,8 +40,12 @@ on:
       - 'scripts/ci/check-alert-rules-match.mjs'
       - 'scripts/ci/rule-metric-producers.mjs'
       - '.github/workflows/deploy-monitoring.yml'
+  # read-club-arena-monitoring is READ-ONLY: it runs only the
+  # read-controller-heartbeat job below, never deploys, never reloads and
+  # records no verdict. Like the recovery event it runs the default-branch
+  # definition only.
   repository_dispatch:
-    types: [deploy-club-arena-monitoring]
+    types: [deploy-club-arena-monitoring, read-club-arena-monitoring]
 
 # One at a time. Two deploys racing would leave the symlinks half-swapped.
 concurrency:
@@ -50,7 +54,7 @@ concurrency:
 
 jobs:
   deploy:
-    if: ${{ !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}
+    if: ${{ (github.event_name == 'push' || github.event.action == 'deploy-club-arena-monitoring') && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 15
@@ -373,7 +377,7 @@ jobs:
   # failed, cancelled or skipped deploy admits its own verdict.
   monitoring-deploy-verdict:
     needs: deploy
-    if: ${{ always() && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}
+    if: ${{ always() && (github.event_name == 'push' || github.event.action == 'deploy-club-arena-monitoring') && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}
     name: This monitoring deploy admits its own verdict to the operational inbox
     runs-on: ubuntu-latest
     environment: ci-main
@@ -408,3 +412,70 @@ jobs:
           LANES: |
             ${{ needs.deploy.result }}|deploy
         run: node scripts/ci/record-post-deploy-verdict.mjs
+
+  # WHAT PROMETHEUS ITSELF SAYS ABOUT THE RELIABILITY CONTROLLER (2026-11-11).
+  # ReliabilityControllerStale was proven by promtool fixtures and by the
+  # series being present, but no supported route read the live series value
+  # or the rule's health inside Prometheus (CHECKLIST.md section 13). This
+  # job is that route: started by the read-club-arena-monitoring repository
+  # event (default branch only; the ci-main environment admits main alone),
+  # it runs fixed GET queries against
+  # Prometheus on the box over the same pinned deploy key and prints the
+  # answers. It changes nothing: no file, no reload, no deploy, no inbox row.
+  read-controller-heartbeat:
+    if: ${{ github.event_name == 'repository_dispatch' && github.event.action == 'read-club-arena-monitoring' && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}
+    name: Read the Reliability Controller heartbeat and its rules from Prometheus (read-only)
+    runs-on: ubuntu-latest
+    environment: ci-main
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      SSH_USER: root
+      HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+    steps:
+      - name: Setup SSH key
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+          SSH_HOST_KEY: ${{ secrets.HETZNER_HOST_KEY }}
+        run: |
+          set -euo pipefail
+          [[ "$HETZNER_HOST" =~ ^[A-Za-z0-9.-]+$ ]] \
+            || { echo "::error::HETZNER_HOST is empty or malformed."; exit 1; }
+          [ -n "$SSH_KEY" ] && [ -n "$SSH_HOST_KEY" ] \
+            || { echo "::error::Hetzner SSH credentials are incomplete."; exit 1; }
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
+          ssh-keygen -y -f ~/.ssh/id_deploy > /dev/null \
+            || { echo "::error::The Hetzner deploy key is not a valid private key."; exit 1; }
+          printf '%s\n' "$SSH_HOST_KEY" > ~/.ssh/hetzner_known_hosts
+          ssh-keygen -l -f ~/.ssh/hetzner_known_hosts > /dev/null \
+            || { echo "::error::HETZNER_HOST_KEY is not a valid pinned host key."; exit 1; }
+          printf '#!/bin/bash\nexec ssh -i "$HOME/.ssh/id_deploy" -o "UserKnownHostsFile=$HOME/.ssh/hetzner_known_hosts" -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 "%s@%s" "$@"\n' \
+            "$SSH_USER" "$HETZNER_HOST" > ~/hssh
+          chmod 700 ~/hssh
+
+      - name: Read the heartbeat series and the reliability-controller rules
+        run: |
+          set -euo pipefail
+          # Fixed expressions only; nothing from the event reaches the box.
+          query() {
+            ~/hssh "curl -sfG --max-time 20 http://localhost:9090/api/v1/query --data-urlencode 'query=$1'" \
+              | jq -c --arg q "$1" '{query: $q, status, result: [.data.result[] | {metric, value}]}'
+          }
+          query 'max(reliability_controller_heartbeat_age_seconds)'
+          query 'time() - max(reliability_controller_heartbeat_timestamp_seconds)'
+          query 'time() - max(poker_health_collected_timestamp_seconds)'
+          query 'max(reliability_controller_heartbeat_timestamp_seconds)'
+          query 'ALERTS{component="reliability-controller"}'
+          ~/hssh "curl -sf --max-time 20 http://localhost:9090/api/v1/rules" \
+            | jq -c '.data.groups[] | select(.name == "reliability-controller") | .rules[]
+                     | {name, health, state, lastError, lastEvaluation, evaluationTime, alerts: (.alerts | length)}'
+          ~/hssh "date -u +%Y-%m-%dT%H:%M:%SZ"
+
+      - name: Remove Hetzner SSH credentials
+        if: always()
+        run: |
+          set -euo pipefail
+          rm -f -- "$HOME/.ssh/id_deploy" "$HOME/.ssh/hetzner_known_hosts" "$HOME/hssh"

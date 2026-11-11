@@ -687,9 +687,14 @@ import HitRunLeaveConfirm from '../components/table/HitRunLeaveConfirm';
 import { useHeroHandCount } from '../hooks/useHeroHandCount';
 import { useActorGapBridge } from '../hooks/useActorGapBridge';
 import HitRunCountPill from '../components/table/HitRunCountPill';
-import { useCountdownStarted, useHandsAddedByDouble } from '../hooks/useHeroHandCount';
+import {
+  useBigWinRestarted,
+  useCountdownStarted,
+  useHandsAddedByDouble,
+} from '../hooks/useHeroHandCount';
 import {
   blindOffLeaveText,
+  bigWinStartedText,
   charlesRuleText,
   countdownStartedText,
   fetchMyHandsOwed,
@@ -2619,7 +2624,13 @@ function LiveTablePage({
      the engine's seat payload reports them (undefined: not reported), and the
      full-screen confirmation's count while it is open. */
   const [heroHandsOwedEngine, setHeroHandsOwedEngine] = useState<
-    { owed: number | null; required: number | null } | undefined
+    | {
+        owed: number | null;
+        required: number | null;
+        reason?: 'hit_run' | 'big_win' | 'both' | null;
+        bigWinBb?: number | null;
+      }
+    | undefined
   >(undefined);
   /* The hands owed as last read, for leave doors declared before the count's
      own hook (the menu, the header back arrow, the felt's leave item). */
@@ -3005,7 +3016,12 @@ function LiveTablePage({
     setHeroHandsOwedEngine(
       mapped.heroHandsOwed === undefined
         ? undefined
-        : { owed: mapped.heroHandsOwed, required: mapped.heroHandsRequired ?? null }
+        : {
+            owed: mapped.heroHandsOwed,
+            required: mapped.heroHandsRequired ?? null,
+            reason: mapped.heroHandsReason ?? null,
+            bigWinBb: mapped.heroBigWinBb ?? null,
+          }
     );
 
     // Dan 2026-08-24: Total Buy In restoration on refresh/seat-first.
@@ -7580,13 +7596,6 @@ function LiveTablePage({
   /* One verdict for everything a seat draws about the hand that is over. */
   const feltShowsNoHand = tableHandIsOver || breakHidesCards;
 
-  // Hero's last action this street, for the transient badge under the tab.
-  // Same memo-to-primitive pattern as heroTabCards, same reason.
-  const heroTabLastAction = useMemo(() => {
-    const a = tableState.lastActions?.[tableState.heroSeat - 1];
-    return typeof a === 'string' ? a : '';
-  }, [tableState.lastActions, tableState.heroSeat]);
-
   // Roadmap batch 1 (Dan 2026-08-20): folded state for tab dimming.
   const heroTabFolded = useMemo(() => {
     const hero = tableState.players[tableState.heroSeat - 1];
@@ -8095,7 +8104,6 @@ function LiveTablePage({
       pot: tableState.pot,
       handNumber: tableState.handNumber,
       holeCards: heroTabCards,
-      lastAction: heroTabLastAction,
       folded: heroTabFolded,
       handResult: heroTabResult,
       toCall: isHeroTurn ? heroTabToCall : undefined,
@@ -8141,7 +8149,6 @@ function LiveTablePage({
     heroTabDecision,
     heroTabTimeBank,
     heroTabCards,
-    heroTabLastAction,
     heroTabFolded,
     heroTabResult,
     /* BOTH HALVES OF THE SIT-OUT REPORT. `heroTabSittingOut` alone covers the
@@ -12150,8 +12157,17 @@ function LiveTablePage({
   // hands. Said when it happens, so the count going up is never a surprise.
   useHandsAddedByDouble(heroHandCount, (added) => toast.info(charlesRuleText(added)));
   /* HIT AND RUN: the hand the countdown starts, the player is told at once. */
-  useCountdownStarted(heroHandCount, tableState.handNumber ?? 0, (hands) =>
-    toast.info(countdownStartedText(hands))
+  useCountdownStarted(heroHandCount, tableState.handNumber ?? 0, (hands, reason, bigWinBb) =>
+    toast.info(
+      reason === 'big_win' || reason === 'both'
+        ? bigWinStartedText(hands, bigWinBb)
+        : countdownStartedText(hands)
+    )
+  );
+  /* THE CHARLES RULE AFTER A LARGE WIN (owner 2026-11-11): another +250 BB
+     win while hands are owed resets the count to ten; said when it happens. */
+  useBigWinRestarted(heroHandCount, (hands, bigWinBb) =>
+    toast.info(bigWinStartedText(hands, bigWinBb))
   );
   /**
    * HIT AND RUN (owner 2026-11-06): every leave door asks first. Hands still
@@ -30474,7 +30490,7 @@ function LiveTablePage({
           {/* HIT AND RUN: between Lightning hands the hero has no seat on this
               felt for the tracker to stand beside; the count still shows. */}
           {!tableState.isTournament && tableState.heroSeat <= 0 && !!lightningRoom && (
-            <HitRunCountPill hands={heroHandsOwed} />
+            <HitRunCountPill hands={heroHandsOwed} reason={heroHandCount.reason ?? null} />
           )}
           {/* THE HERO'S VPIP TRACKER (Dan 2026-09-04): to the left of the
               hero, hero only, the judged figure. A sibling of the seats at
@@ -30485,6 +30501,7 @@ function LiveTablePage({
             heroSeated={tableState.heroSeat > 0}
             isTournament={tableState.isTournament}
             handsOwed={heroHandsOwed}
+            handsReason={heroHandCount.reason ?? null}
             handNumber={tableState.handNumber ?? 0}
             heroPos={
               tableState.heroSeat > 0 ? (seatPositions[tableState.heroSeat - 1] ?? null) : null
