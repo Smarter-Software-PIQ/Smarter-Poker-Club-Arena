@@ -14,8 +14,8 @@
  *
  * The 2026-08-26 lesson still binds: a queue behind open seats is a visible
  * lie ("Waiting 54" beside an OPEN seat map). So a game carries a horse queue
- * ONLY while every live table in it is full, and only on the FULL shape of
- * occupancyTargetFor. The queue is short (1-4), grows one arrival per game per
+ * ONLY while every live table in it is full, independent of its desired
+ * occupancy shape. The queue is short (up to five), grows one arrival per game per
  * cycle the way people walk up to a list, and each horse gives up after a
  * while, so the names rotate.
  *
@@ -242,7 +242,9 @@ export function planHorseQueues(input: {
     }
     // Not full: the list is being called into the open chair. Keep, add none.
     if (allFull.get(gameId) !== true) continue;
-    const want = desired.get(gameId) ?? 0;
+    // A timed-out/withheld fleet walk is no evidence that existing demand
+    // disappeared. Preserve the actual line until an explicit ask or expiry.
+    const want = desired.get(gameId) ?? Math.max(1, list.length);
     if (list.length > want) {
       for (const r of list.slice(want)) dropLine(r);
       continue;

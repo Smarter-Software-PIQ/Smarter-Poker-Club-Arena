@@ -1,9 +1,9 @@
 import { ploContinuationFor, type PloLightningDemand } from './PloLightningDemand.js';
-import { secondTablePicked } from './HorseBehavior.js';
+import { secondTablePicked, thirdTablePicked } from './HorseBehavior.js';
 import plan from './horseUnionCashPlan.json' with { type: 'json' };
 import { horseCashGameAllowed } from './HorseCashSchedule.js';
 
-/** Maintained cash floor, November 4 owner direction. One Main 1 per game.
+/** Maintained cash floor. One primary per game; selected games grow to two or three tables.
  * No fee, wallet, human admission, tournament or Diamond policy changes.
  * A target is a forecast, not a hard ceiling on human-generated rake.
  */
@@ -121,7 +121,7 @@ export function horseUnionCashTableAllowed(
   if (table.tournament_id != null || table.is_spins === true) return true;
   /* A GAME'S SECOND TABLE (Dan 2026-11-06: "THERE SHOULD BE SOME GAMES WITH
      TWO TABLES RUNNING"). The cluster tick opens it only when every seat of a
-     game is taken and allows at most two tables per game; it inherits its
+     game is taken and allows up to three tables per Classic game; it inherits its
      Main 1's answer, computed by horseCashPlanSecondTables. Forbidden variants
      and the stake ceiling still apply. */
   if (
@@ -174,36 +174,33 @@ export function horseUnionCashTableAllowed(
   );
 }
 
-/**
- * The second table of each game whose Main 1 horses may sit at (Dan
- * 2026-11-06). At most ONE per game - a feeder or a Main 2, live or opening,
- * lowest id - so the fleet can never multiply a slot past the two tables the
- * cluster tick allows. `primaryAllowed` is the caller's own answer for the
- * game's Main 1, so the second table follows it exactly, and only while the
- * game is picked for a second table (secondTablePicked).
- */
+/** Secondary tables inherit their primary's admission policy. The existing
+ * second-table pick admits one; its third-table subset admits two. Stable
+ * main/feeder ordering prevents duplicate rows multiplying the allowance. */
 export function horseCashPlanSecondTables(
   tables: ReadonlyArray<CashPlanTable>,
   primaryTables: ReadonlySet<string>,
   primaryAllowed: (primary: CashPlanTable) => boolean,
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
+  lightningGames: ReadonlySet<string> | null = new Set()
 ): ReadonlySet<string> {
   const primaryByGame = new Map<string, CashPlanTable>();
   for (const t of tables) {
     if (typeof t.id === 'string' && primaryTables.has(t.id) && typeof t.cluster_id === 'string')
       primaryByGame.set(t.cluster_id, t);
   }
-  const chosen = new Map<string, string>();
+  const chosen = new Map<string, CashPlanTable[]>();
   for (const t of tables) {
     if (typeof t.id !== 'string' || typeof t.cluster_id !== 'string') continue;
     if (primaryTables.has(t.id)) continue;
     if (t.lifecycle !== 'live' && t.lifecycle !== 'opening') continue;
-    if (!(t.role === 'feeder' || (t.role === 'main' && Number(t.main_index) === 2))) continue;
-    const current = chosen.get(t.cluster_id);
-    if (current === undefined || t.id < current) chosen.set(t.cluster_id, t.id);
+    if (!(t.role === 'feeder' || (t.role === 'main' && Number(t.main_index) >= 2))) continue;
+    const current = chosen.get(t.cluster_id) ?? [];
+    current.push(t);
+    chosen.set(t.cluster_id, current);
   }
   const out = new Set<string>();
-  for (const [gameId, tableId] of chosen) {
+  for (const [gameId, candidates] of chosen) {
     const primary = primaryByGame.get(gameId);
     // Only while the game is picked for two tables (the tick's own rule,
     // HorseBehavior.secondTablePicked); once it is not, the second table's
@@ -217,8 +214,27 @@ export function horseCashPlanSecondTables(
         typeof primary.game_variant === 'string' ? primary.game_variant : null
       ) &&
       primaryAllowed(primary)
-    )
-      out.add(tableId);
+    ) {
+      const count =
+        lightningGames !== null &&
+        !lightningGames.has(gameId) &&
+        thirdTablePicked(
+          gameId,
+          nowMs,
+          Number(primary.big_blind) || null,
+          typeof primary.game_variant === 'string' ? primary.game_variant : null
+        )
+          ? 2
+          : 1;
+      // Keep established mains ahead of their feeder, with stable tie breaking.
+      candidates.sort(
+        (a, b) =>
+          Number(a.role !== 'main') - Number(b.role !== 'main') ||
+          Number(a.main_index ?? 0) - Number(b.main_index ?? 0) ||
+          String(a.id).localeCompare(String(b.id))
+      );
+      for (const table of candidates.slice(0, count)) out.add(String(table.id));
+    }
   }
   return out;
 }

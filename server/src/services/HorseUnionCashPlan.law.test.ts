@@ -9,7 +9,7 @@ import {
   playingHumansAtCashTable,
   scheduledHorseCashGames,
 } from './HorseUnionCashPlan.js';
-import { secondTablePicked } from './HorseBehavior.js';
+import { secondTablePicked, thirdTablePicked } from './HorseBehavior.js';
 
 const at = (s: string) => Date.parse(s);
 const allowed = (table: CashPlanTable, humans: number, now: number) =>
@@ -185,9 +185,9 @@ describe('the union cash schedule follows the November 4 owner scope', () => {
     expect(fleet).toContain('club_id, union_id, is_spins, arena:clubs');
     expect(rotator).toContain('game_variant, tournament_id, is_spins, status');
     expect(fleet).toContain('!horseUnionCashTableAllowed(');
-    expect(fleet.indexOf('!horseUnionCashTableAllowed(')).toBeLessThan(
-      fleet.indexOf('const tableWithheld = withheldReason')
-    );
+    const tablePolicy = fleet.indexOf('const tableWithheld =');
+    expect(tablePolicy).toBeGreaterThan(0);
+    expect(fleet.indexOf('!horseUnionCashTableAllowed(')).toBeLessThan(tablePolicy);
     expect(rotator).toContain('playingHumansAtCashTable(tableSeats, horseIds)');
     expect(rotator).toContain('!restrictedCashGame && !outsideCashPlan) continue;');
     expect(rotator).toContain('await engine.leaveTable(uid)');
@@ -202,14 +202,35 @@ describe('a game may run a second table (Dan 2026-11-06)', () => {
   // A time the game is picked for two tables, and one it is not (2026-11-07).
   const game = String(low.cluster_id);
   const hours = Array.from({ length: 96 }, (_, i) => now + i * 3_600_000);
-  const picked = hours.find((t) => secondTablePicked(game, t)) as number;
-  const unpicked = hours.find((t) => !secondTablePicked(game, t)) as number;
-  it('one second table per game follows its Main 1, never more', () => {
+  const picked = hours.find(
+    (t) =>
+      secondTablePicked(game, t, Number(low.big_blind), String(low.game_variant)) &&
+      !thirdTablePicked(game, t, Number(low.big_blind), String(low.game_variant))
+  ) as number;
+  const unpicked = hours.find(
+    (t) => !secondTablePicked(game, t, Number(low.big_blind), String(low.game_variant))
+  ) as number;
+  it('a two-table selection admits only one secondary table', () => {
     const primary = horseCashPlanPrimaryTables([main1, feeder, feeder2]);
     const second = horseCashPlanSecondTables([main1, feeder, feeder2], primary, () => true, picked);
     expect([...second]).toEqual(['f1']);
     expect(horseUnionCashTableAllowed(feeder, 0, now, primary, null, null, second)).toBe(true);
     expect(horseUnionCashTableAllowed(feeder2, 0, now, primary, null, null, second)).toBe(false);
+  });
+  it('a three-table selection admits Main 2 and its feeder, never a fourth table', () => {
+    const third = hours.find((t) =>
+      thirdTablePicked(game, t, Number(low.big_blind), String(low.game_variant))
+    )!;
+    expect(third).toBeTypeOf('number');
+    const main2 = { ...main1, id: 'm2', main_index: 2 };
+    const all = [feeder2, main2, main1, feeder];
+    const primary = horseCashPlanPrimaryTables(all);
+    expect([...horseCashPlanSecondTables(all, primary, () => true, third)]).toEqual(['m2', 'f1']);
+    expect([
+      ...horseCashPlanSecondTables(all, primary, () => true, third, new Set([game])),
+    ]).toEqual(['m2']);
+    expect([...horseCashPlanSecondTables(all, primary, () => true, third, null)]).toEqual(['m2']);
+    expect(horseCashPlanSecondTables(all, primary, () => false, third).size).toBe(0);
   });
   it('a game no longer picked for two tables lets its second table drain', () => {
     const primary = horseCashPlanPrimaryTables([main1, feeder]);
