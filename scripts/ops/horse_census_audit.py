@@ -165,7 +165,17 @@ def conservation_inference(human_net, excluded_net, fee, pot, awarded):
 
 
 ACTOR_CLASSES = ('eligible_human', 'excluded_human', 'horse')
+REFUND_EVIDENCE_SCHEMA = 'horse-census-refund-evidence-v2'
 UNREGISTRATION_REFUND_SOURCE = 'fn_unregister_from_tournament'
+FUNDING_OPERATIONS = ('entry', 'rebuy', 'addon')
+FUNDING_ASSETS = ('chips', 'diamonds')
+UNRECORDED_ASSET = 'unrecorded'
+REFUND_BINDINGS = (
+    'entitlement_tournament_match', 'entitlement_user_match', 'funding_receipt_found',
+    'funding_tournament_match', 'funding_user_match', 'funding_registration_match',
+    'funding_ledger_match', 'credit_user_match', 'unregistration_receipt_found',
+    'unregistration_identity_match',
+)
 REFUND_TOLERANCE = 0.005
 
 
@@ -175,60 +185,114 @@ def _refund_number(value) -> float:
     return float(value)
 
 
-def read_refund_evidence(path, tournament_ids: Set[str]) -> Optional[Dict[str, Any]]:
-    """Validate a private pre-cutoff refund acquisition for the frozen tournaments.
+def tournament_funding_asset(funding_rows: Sequence[dict]) -> str:
+    """Currency of a tournament, from its recorded funding receipts only.
 
-    Returns per-(tournament, actor class) unregistration refunds whose own funding
-    receipts are recorded, cross-checked against the separate refund tranches.
-    A refund is never inferred: absent evidence leaves refund coverage unverified.
+    `is_xmtt` marks a union event, not a currency, and never selects an asset.
+    Without receipts the currency is unrecorded rather than assumed.
+    """
+    assets = set()
+    for row in funding_rows:
+        amount = row.get('amount_sum')
+        if (row.get('operation') not in FUNDING_OPERATIONS or isinstance(amount, bool)
+                or not isinstance(amount, (int, float)) or amount < 0):
+            raise ValueError('recorded_funding_is_not_gross_charges')
+        if row.get('asset') not in FUNDING_ASSETS:
+            raise ValueError('recorded_funding_asset_unsupported')
+        assets.add(row['asset'])
+    if len(assets) > 1:
+        raise ValueError('mixed_asset_tournament_funding')
+    return assets.pop() if assets else UNRECORDED_ASSET
+
+
+def read_refund_evidence(path, tournament_ids: Set[str]) -> Optional[Dict[str, Any]]:
+    """Validate a private pre-cutoff, row-level refund acquisition for the frozen tournaments.
+
+    Every netted refund is one tranche bound through its own entitlement to the single
+    funding receipt it reverses: same ledger entry, registration, participant, tournament
+    and currency, credited to that participant, and reconciled to the registration's
+    unregistration receipt. A refund is never inferred, and one entitlement or one
+    registration can never be counted twice.
     """
     if path is None:
         return None
     value = json.loads(Path(path).read_text())
+    if value.get('schema') != REFUND_EVIDENCE_SCHEMA:
+        raise ValueError('refund_evidence_schema_unsupported')
     if value.get('cutoffUtc') != CUTOFF_UTC:
         raise ValueError('refund_evidence_cutoff_mismatch')
     if value.get('tournamentCount') != len(tournament_ids):
         raise ValueError('refund_evidence_tournament_scope_mismatch')
-    unregistrations, tranches = value.get('unregistrations'), value.get('refundTranches')
-    if not isinstance(unregistrations, list) or not isinstance(tranches, list):
+    unregistrations, rows = value.get('unregistrations'), value.get('refunds')
+    if not isinstance(unregistrations, list) or not isinstance(rows, list):
         raise ValueError('refund_evidence_sections_required')
-    refunds: Counter = Counter()
+
+    receipts: Dict[str, dict] = {}
     registrations: Counter = Counter()
     for row in unregistrations:
-        key = (row.get('tournament_id'), row.get('actor_class'))
-        if key[0] not in tournament_ids or key[1] not in ACTOR_CLASSES:
+        registration, key = row.get('registration_id'), (row.get('tournament_id'), row.get('actor_class'))
+        if not isinstance(registration, str) or key[0] not in tournament_ids or key[1] not in ACTOR_CLASSES:
             raise ValueError('refund_evidence_row_out_of_scope')
-        count = row.get('n')
-        if isinstance(count, bool) or not isinstance(count, int) or count <= 0:
+        if registration in receipts:
+            raise ValueError('duplicate_unregistration_receipt')
+        count = row.get('entitlement_count')
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
             raise ValueError('refund_evidence_amount_invalid')
-        amount = _refund_number(row.get('refunded_chips'))
         if _refund_number(row.get('returned_ticket_value')):
             raise ValueError('ticket_return_accounting_unsupported')
-        funded = _refund_number(row.get('funding_amount_for_unregistered'))
-        if row.get('with_funding_receipt') != count or amount > funded + REFUND_TOLERANCE:
-            raise ValueError('refund_not_bound_to_recorded_funding')
-        refunds[key] += amount
-        registrations[key] += count
-    tranche_paid: Counter = Counter()
+        receipts[registration] = {'key': key, 'refunded': _refund_number(row.get('refunded_chips')),
+                                  'entitlements': count, 'bound': 0.0, 'rows': 0}
+        registrations[key] += 1
+
+    refunds: Counter = Counter()
+    assets: Dict[str, Set[str]] = defaultdict(set)
+    operations: Counter = Counter()
     other_sources: Dict[str, Set[str]] = defaultdict(set)
-    for row in tranches:
-        key = (row.get('tournament_id'), row.get('actor_class'))
-        if key[0] not in tournament_ids or key[1] not in ACTOR_CLASSES:
+    seen: Set[str] = set()
+    partial = 0
+    for row in rows:
+        entitlement, key = row.get('entitlement_id'), (row.get('tournament_id'), row.get('actor_class'))
+        if not isinstance(entitlement, str) or key[0] not in tournament_ids or key[1] not in ACTOR_CLASSES:
             raise ValueError('refund_evidence_row_out_of_scope')
-        paid = _refund_number(row.get('paid'))
-        if row.get('source') == UNREGISTRATION_REFUND_SOURCE:
-            tranche_paid[key] += paid
-        else:
+        if entitlement in seen:
+            raise ValueError('duplicate_refund_evidence')
+        seen.add(entitlement)
+        amount = _refund_number(row.get('refund_amount'))
+        if row.get('source') != UNREGISTRATION_REFUND_SOURCE:
             other_sources[key[0]].add(str(row.get('source')))
-    for key in set(refunds) | set(tranche_paid):
-        if abs(refunds[key] - tranche_paid[key]) > REFUND_TOLERANCE:
-            raise ValueError('refund_tranche_cross_check_failed')
+            continue
+        if (any(row.get(name) is not True for name in REFUND_BINDINGS)
+                or row.get('funding_operation') not in FUNDING_OPERATIONS
+                or row.get('funding_asset') not in FUNDING_ASSETS):
+            raise ValueError('refund_not_bound_to_recorded_funding')
+        receipt = receipts.get(row.get('registration_id'))
+        if receipt is None or receipt['key'] != key:
+            raise ValueError('refund_registration_mismatch')
+        funded = _refund_number(row.get('funding_amount'))
+        if amount > funded + REFUND_TOLERANCE:
+            raise ValueError('refund_exceeds_recorded_funding')
+        if abs(_refund_number(row.get('credit_amount')) - amount) > REFUND_TOLERANCE:
+            raise ValueError('refund_credit_mismatch')
+        partial += amount < funded - REFUND_TOLERANCE
+        receipt['bound'] += amount
+        receipt['rows'] += 1
+        refunds[key] += amount
+        assets[key[0]].add(row['funding_asset'])
+        operations[row['funding_operation'] + '/' + row['funding_asset']] += amount
+    for receipt in receipts.values():
+        if (abs(receipt['bound'] - receipt['refunded']) > REFUND_TOLERANCE
+                or receipt['rows'] != receipt['entitlements']):
+            raise ValueError('refund_receipt_cross_check_failed')
     return {
         'refunds': dict(refunds),
         'registrations': dict(registrations),
+        'assets': {tid: sorted(names) for tid, names in assets.items()},
         'otherSources': {tid: sorted(names) for tid, names in other_sources.items()},
+        'refundsByFundingOperationAndAsset': {k: round(v, 2) for k, v in sorted(operations.items())},
+        'boundRefundRows': sum(r['rows'] for r in receipts.values()),
+        'partialRefundRows': int(partial),
         'acquiredAtUtc': value.get('acquiredAtUtc'),
-        'refundsAfterCutoff': value.get('laterRefundsAfterCutoff'),
+        'refundsAfterCutoff': value.get('refundsAfterCutoff'),
         'sha256': sha256_file(Path(path)),
     }
 
@@ -975,8 +1039,7 @@ def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None
 
             # Separate by currency asset ('chips' vs 'diamonds')
             by_asset: Dict[str, Dict[str, Counter]] = {
-                'chips': defaultdict(Counter),
-                'diamonds': defaultdict(Counter),
+                name: defaultdict(Counter) for name in (*FUNDING_ASSETS, UNRECORDED_ASSET)
             }
             asset_tourn_cnt = Counter()
 
@@ -985,12 +1048,10 @@ def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None
                 if refunds and refunds['otherSources'].get(tid):
                     raise ValueError('unsupported_refund_source_for_completed_tournament')
                 f_rows = tf_by_tourn.get(tid, [])
-                # Determine tournament currency asset from funding receipts or is_xmtt
-                assets_seen = {r['asset'] for r in f_rows if r.get('asset')}
-                if 'diamonds' in assets_seen or t.get('is_xmtt'):
-                    asset = 'diamonds'
-                else:
-                    asset = 'chips'
+                # Currency comes from recorded funding receipts only; is_xmtt is a union event flag.
+                asset = tournament_funding_asset(f_rows)
+                if refunds and refunds['assets'].get(tid, [asset]) != [asset]:
+                    raise ValueError('refund_currency_mismatch')
                 asset_tourn_cnt[asset] += 1
 
                 # Sum funding by actor_class if funding receipts exist for this tournament
@@ -1044,7 +1105,7 @@ def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None
                     acc['total_return'] += (reg_prize + bounty_win)
 
             formatted_assets = {}
-            for asset in ('chips', 'diamonds'):
+            for asset in (*FUNDING_ASSETS, UNRECORDED_ASSET):
                 if asset_tourn_cnt[asset] == 0:
                     continue
                 actor_out = {}
@@ -1583,16 +1644,22 @@ def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None
                 'survival value and zero cash redemption value). Below is cached entry+rebuy+addon accounting versus '
                 'regular prize + bounty payout ROI from public.tournaments, public.tournament_players, '
                 'public.tournament_participant_funding_receipts, and public.tournament_payouts (< cutoff), '
-                'separated strictly by currency asset (chips vs diamonds).'
+                'separated strictly by the currency asset of the recorded funding receipts (chips, diamonds, or '
+                'unrecorded when a tournament has no receipt). is_xmtt marks a union event and never selects a currency.'
             ),
             'refundCoverage': ({
                 'status': 'unregistration_refunds_netted_from_recorded_funding',
+                'evidenceSchema': REFUND_EVIDENCE_SCHEMA,
                 'evidenceSha256': refunds['sha256'],
+                'boundRefundRows': refunds['boundRefundRows'],
+                'partialRefundRows': refunds['partialRefundRows'],
+                'refundsByFundingOperationAndAsset': refunds['refundsByFundingOperationAndAsset'],
                 'acquiredAtUtc': refunds['acquiredAtUtc'],
                 'appliedRefundsByScopeAndAsset': {k: round(v, 2) for k, v in sorted(refund_applied.items())},
                 'refundsRecordedAfterCutoff': refunds['refundsAfterCutoff'],
                 'limitations': [
                     'Covers settled unregistration receipts and refund tranches before the cutoff for the cached tournaments only.',
+                    'Each netted refund is bound to one funding receipt by entitlement, ledger entry, registration, participant, tournament and currency.',
                     'Cancellation and abort refunds belong to tournaments that never completed; those stay outside ROI.',
                     'Entry counts come from tournament_players and are not adjusted for unregistered registrations.',
                     'Tariff-estimated costs carry no receipts, so a refund against them refuses instead of being netted.',
