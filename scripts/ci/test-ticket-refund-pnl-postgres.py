@@ -125,3 +125,5 @@ finally:
 
 # Keep direct satellite-seat refund ownership covered by this same required route.
 print(run(['python3',str(ROOT / 'scripts/ci/test-satellite-refund-admitted-club-postgres.py')]))
+# The funding club bears a departed player's seat refund (owner ruling 2026-11-11).
+print(run(['python3',str(ROOT / 'scripts/ci/test-satellite-refund-funding-club-postgres.py')]))
