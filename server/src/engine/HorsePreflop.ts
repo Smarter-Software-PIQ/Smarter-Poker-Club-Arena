@@ -898,11 +898,15 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
   const unopenedForGuard = ctx.raises === 0 && ctx.currentBet <= bb * 1.05;
   const callIsAllIn = effCall >= stack * 0.99;
   if (unopenedForGuard && !callIsAllIn) return out;
+  const effectiveStackBBForGuard = ctx.effectiveStackBB ?? stackBB;
   if (
     ctx.v87HoldemOverhaul !== false &&
     !ctx.isOmaha &&
     ctx.isFixedLimit !== true &&
     ctx.isShortDeck !== true &&
+    ctx.anteInPlay === true &&
+    toCall >= bb &&
+    effectiveStackBBForGuard >= 14 &&
     ctx.raises >= 1 &&
     !callIsAllIn &&
     ctx.strength < 0.26
@@ -1617,6 +1621,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     isTourney &&
     noLimitHoldem &&
     !ctx.isPotLimit &&
+    (ctx.tableSize ?? 6) > 2 &&
     raises === 1 &&
     callers === 0 &&
     toCall > 0 &&
@@ -2658,12 +2663,26 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       };
     }
 
-    // ═══ V87 <35BB 4-BET ALL-IN RESHOVES (2026-11-10) ═══════════════════
-    // At <=35bb effective in No-Limit Hold'em, a sized 4-bet commits the stack
-    // anyway (and is capped by Rule 4a); shoving all-in directly with 77+,
-    // ATs+, KQs, AKo, and wheel-Ace blockers A5s-A2s realizes full fold equity
-    // and avoids awkward postflop SPR < 1 spots while staying under
-    // TOURNAMENT_FOUR_BET_SHOVE_MAX_BB (40bb).
+    // ═══ V87 26-35BB 4-BET ALL-IN RESHOVES (2026-11-10) ══════════════════
+    // At 25 < effBB <= 35 in No-Limit Hold'em (<= 25bb belongs to vs3BetShortStack),
+    // a sized 4-bet over a non-all-in 3-bet commits the stack anyway (and is capped
+    // by Rule 4a); shoving all-in directly with 77+, ATs+, KQs, AKo, and wheel-Ace
+    // blockers A5s-A2s realizes full fold equity while never overriding all-in or
+    // closed-all-in call-offs.
+    const unitBB4Bet = bb > 0 ? bb : 1;
+    const heroInvested4Bet = Math.max(0, currentBet - toCall);
+    const effectiveStack4Bet =
+      ctx.effectiveStackBB !== undefined
+        ? Math.min(
+            stack + heroInvested4Bet,
+            ctx.effectiveStackBB * (straddleActiveCash ? unitBB4Bet * 2 : unitBB4Bet)
+          )
+        : stack + heroInvested4Bet;
+    const effRemaining4Bet = Math.min(stack, Math.max(0, effectiveStack4Bet - heroInvested4Bet));
+    const callIsAllIn4Bet =
+      effCall >= stack * 0.99 ||
+      (effRemaining4Bet > 0 && effCall >= effRemaining4Bet * 0.99) ||
+      ctx.facingClosedAllIn === true;
     if (
       v87 &&
       noLimitHoldem &&
@@ -2671,8 +2690,11 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       raises === 2 &&
       callers === 0 &&
       toCall > 0 &&
-      straddleEffectiveBB > 12 &&
+      ctx.vs3BetShortJam !== false &&
+      straddleEffectiveBB > 25 &&
       straddleEffectiveBB <= 35 &&
+      !callIsAllIn4Bet &&
+      toCall < effectiveStack4Bet * 0.65 &&
       ctx.satellite?.locked !== true
     ) {
       if (v87HoleClass !== null) {

@@ -10641,13 +10641,18 @@ export class HorseLogic {
           if (tele15) noteFire('v87_bubble_covered_pot_control');
           return { action: 'check', thinkTime: 0 };
         }
-        // (2) Low SPR (3-bet / 4-bet pots): commit TPTK, overpairs, two pair+
-        // and 12+ out flop combo draws instead of checking.
+        // (2) Low SPR (3-bet / 4-bet flop/turn pots): commit TPTK, overpairs,
+        // real two pair+ and 12+ out flop combo draws instead of checking when
+        // hero is not OOP facing a prior-street aggressor.
         if (
+          !isRiver &&
+          initiative !== 'opp' &&
           spr <= 3.5 &&
           oppLive87 &&
           !dominated21 &&
-          (tptk87 || cat >= 3 || (street === 'flop' && draw87.outs >= 12))
+          (tptk87 ||
+            (cat >= 3 && !(cat === 3 && pairedBoard)) ||
+            (street === 'flop' && draw87.outs >= 12))
         ) {
           if (tele15) noteFire('v87_low_spr_commit');
           if (spr <= 1.3) return this.legalize({ action: 'all_in', thinkTime: 0 }, player, gs, vi);
@@ -10728,31 +10733,75 @@ export class HorseLogic {
           if (tele15) noteFire('v87_multiway_wet_air_check');
           return { action: 'check', thinkTime: 0 };
         }
-        // (7) Heads-up IP dry-flop range c-bet, 30-36% pot (~82%).
+        // (7) Heads-up IP dry-flop range c-bet, 30-36% pot (<= 58% mix on air),
+        // respecting V10 c-bet off-controls, station / low fold-to-cbet reads,
+        // and HorseFlopTurnBluffRange ownership.
         if (
           street === 'flop' &&
+          useCbet10 &&
           initiative === 'hero' &&
           ip &&
           oppCount === 1 &&
           oppLive87 &&
           wetness < 0.42 &&
           cat <= 2 &&
+          draw87.outs < 8 &&
           !premiumLocked87 &&
           equity < 0.62 &&
-          unit87('rangecbet') < 0.82
+          exploit.bluffMod >= 0.9 &&
+          unit87('rangecbet') < (cat <= 1 ? 0.52 : 0.58)
         ) {
-          if (tele15) noteFire('v87_range_cbet');
-          planBarrel(equity);
-          return this.betSize(
-            planHandKey,
-            pot,
-            0.3 + unit87('rangecbet_size') * 0.06,
-            player,
-            gs,
-            vi,
-            { ...params, sizingMultiplier: 1 },
-            false
-          );
+          let rangeCbetBlocked87 = stationValue;
+          if (useMind && singleOpp87) {
+            try {
+              const oppRead87 = HorseMind.opponentRead(singleOpp87);
+              const ftc87 = opts.v16Reads === false ? null : HorseMind.foldToCbetOf(singleOpp87);
+              if (isStation(oppRead87) || (ftc87 !== null && ftc87 < 0.35)) {
+                rangeCbetBlocked87 = true;
+              }
+            } catch {
+              /* reads are best-effort */
+            }
+          }
+          if (!rangeCbetBlocked87 && (opts.flopTurnBluffBaseline ?? true) !== false) {
+            const eligRangeFt87 = flopTurnBluffEligibility({
+              omaha: false,
+              potLimit: vi.isPotLimit,
+              hiLo: false,
+              fixedLimit: false,
+              shortDeck: false,
+              multiBoard: false,
+              bombPot: gs.bombPot === true,
+              satelliteLocked: false,
+              holeCount: 2,
+              hole: player.cards,
+              board,
+              history: gs.actionHistory ?? [],
+              heroId: player.user_id,
+              opponentIds: opponents.map((o) => o.user_id),
+              opponentsCanRespond: oppLive87,
+              equity,
+              category: cat,
+              inPosition: ip,
+              initiative,
+              omahaDraw: null,
+            });
+            if (eligRangeFt87.eligible) rangeCbetBlocked87 = true;
+          }
+          if (!rangeCbetBlocked87) {
+            if (tele15) noteFire('v87_range_cbet');
+            planBarrel(equity);
+            return this.betSize(
+              planHandKey,
+              pot,
+              0.3 + unit87('rangecbet_size') * 0.06,
+              player,
+              gs,
+              vi,
+              { ...params, sizingMultiplier: 1 },
+              false
+            );
+          }
         }
         // (8) Ecosystem #1: the OOP river 28-33% block size carries value,
         // nut traps (~22%) and nut-blocker bluffs (~11%), and never a fragile
@@ -10764,6 +10813,7 @@ export class HorseLogic {
           }
           if (
             cat >= 4 &&
+            !(cat === 4 && pairedBoard) &&
             !dominated21 &&
             equity >= 0.85 &&
             unit87('rivertrap') < 0.16 + (persona87?.trapFrequency ?? 0.33) * 0.18
@@ -12315,46 +12365,6 @@ export class HorseLogic {
           return { action: 'fold', thinkTime: 0 };
         }
       }
-      // V87 Ecosystem #1: hero's small (<= 36% pot) river block bet was
-      // raised big. Nut traps bet-3-bet; bare one pair does not pay it off.
-      if (
-        isRiver &&
-        raisedAfterAggr &&
-        !multiBoard36 &&
-        v87HeroRiverBlockBetFrac(gs.actionHistory, player.user_id, gs.pot, toCall) !== null
-      ) {
-        if (!dominated21 && (cat >= 6 || (cat >= 5 && equity >= 0.84))) {
-          if (tele15) noteFire('v87_river_block_trap_reraise');
-          if (stack <= (pot + toCall) * 1.5)
-            return this.legalize({ action: 'all_in', thinkTime: 0 }, player, gs, vi);
-          return this.raiseTo(planHandKey, currentBet + (pot + toCall) * 0.9, player, gs, vi);
-        }
-        if ((cat <= 2 || (cat === 3 && pairedBoard)) && toCall < stack && potFrac87 >= 0.3) {
-          if (tele15) noteFire('v87_river_block_raised_one_pair_fold');
-          return { action: 'fold', thinkTime: 0 };
-        }
-      }
-      // V87 DEEP CASH: 150bb+ effective, bare one pair (AA-JJ and TPTK
-      // included) facing multi-street big barrels on the river does not
-      // stack off unless the bettor is a verified multi-street maniac.
-      if (
-        !isTournamentMode(gs) &&
-        cat === 2 &&
-        isRiver &&
-        potFrac87 >= 0.65 &&
-        effBB87 >= 150 &&
-        barrels40 >= 2 &&
-        !(
-          lag87 &&
-          bully87?.turnGiveUp !== true &&
-          useMind &&
-          bettor87 !== null &&
-          isPostflopManiac(HorseMind.opponentRead(bettor87))
-        )
-      ) {
-        if (tele15) noteFire('v87_deep_cash_onepair_pot_control');
-        return { action: 'fold', thinkTime: 0 };
-      }
     }
     // ═══ V36 FREEROLL RAISE ═══ hero cannot lose a board, so hero cannot
     // lose money by continuing: with one of N boards locked, calling B into
@@ -12867,6 +12877,57 @@ export class HorseLogic {
       if (plan23 === 'callOnce') {
         planCallOnly23 = true;
         if (tele15) noteFire('v23_plan_callonce');
+      }
+    }
+
+    if (isV87Nlh && !planCallOnly23) {
+      const potFracAfterPlan87 = toCall > 0 ? toCall / Math.max(1e-9, pot - toCall) : 0;
+      // V87 Ecosystem #1: hero's small (<= 36% pot) river block bet was
+      // raised big. Nut traps bet-3-bet; bare one pair does not pay it off
+      // when raised-river-bet one-pair discipline is enabled.
+      if (
+        isRiver &&
+        raisedAfterAggr &&
+        !multiBoard36 &&
+        v87HeroRiverBlockBetFrac(gs.actionHistory, player.user_id, gs.pot, toCall) !== null
+      ) {
+        if (!dominated21 && (cat >= 6 || (cat >= 5 && equity >= 0.84))) {
+          if (tele15) noteFire('v87_river_block_trap_reraise');
+          if (stack <= (pot + toCall) * 1.5)
+            return this.legalize({ action: 'all_in', thinkTime: 0 }, player, gs, vi);
+          return this.raiseTo(planHandKey, currentBet + (pot + toCall) * 0.9, player, gs, vi);
+        }
+        if (
+          (opts.v67RiverBetRaisedOnePair ?? true) !== false &&
+          (opts.v61RiverOnePairShade ?? true) !== false &&
+          (cat <= 2 || (cat === 3 && pairedBoard)) &&
+          toCall < stack &&
+          potFracAfterPlan87 >= 0.3
+        ) {
+          if (tele15) noteFire('v87_river_block_raised_one_pair_fold');
+          return { action: 'fold', thinkTime: 0 };
+        }
+      }
+      // V87 DEEP CASH: 150bb+ effective, bare one pair (AA-JJ and TPTK
+      // included) facing multi-street big barrels on the river does not
+      // stack off unless the bettor is a verified multi-street maniac.
+      if (
+        !isTournamentMode(gs) &&
+        cat === 2 &&
+        isRiver &&
+        potFracAfterPlan87 >= 0.65 &&
+        effBB87 >= 150 &&
+        barrels40 >= 2 &&
+        !(
+          lag87 &&
+          bully87?.turnGiveUp !== true &&
+          useMind &&
+          bettor87 !== null &&
+          isPostflopManiac(HorseMind.opponentRead(bettor87))
+        )
+      ) {
+        if (tele15) noteFire('v87_deep_cash_onepair_pot_control');
+        return { action: 'fold', thinkTime: 0 };
       }
     }
 
@@ -13410,7 +13471,7 @@ export class HorseLogic {
       return { action: 'call', amount: toCall, thinkTime: 0 };
     }
 
-    // ═══ V87 FLOP COMBO-DRAW PUMP + CHECK-RAISE VS A FLOP STABBER ═══
+    // ═══ V87 CHECK-RAISE VS A FLOP STABBER ═══
     // Deterministic mixes (v87SpotUnit), zero fastRandom(). A raise that would
     // commit 40%+ of the stack without jamming (V78) jams only with the
     // equity to stand it, otherwise the hand keeps its normal line.
@@ -13422,34 +13483,26 @@ export class HorseLogic {
       !v66Class &&
       !multiBoard36 &&
       oppCount <= 2 &&
-      potFrac <= 1.0 &&
-      opponents.some((o) => !o.is_all_in && o.stack > 0)
+      potFrac <= 0.8 &&
+      !ip &&
+      bully87?.highFlopStab === true &&
+      (tptk87 || cat >= 3) &&
+      !dominated21 &&
+      opponents.some((o) => !o.is_all_in && o.stack > 0) &&
+      unit87('stabxr') < 0.42
     ) {
-      const stabXr87 =
-        !ip &&
-        bully87?.highFlopStab === true &&
-        potFrac <= 0.8 &&
-        (tptk87 || cat >= 3) &&
-        !dominated21 &&
-        unit87('stabxr') < 0.42;
-      const combo87 =
-        spr <= 7 &&
-        draw87.outs >= 12 &&
-        unit87('combopump') < (persona87?.comboDrawAggro ?? 0.55) * (ip ? 0.55 : 0.68);
-      if (stabXr87 || combo87) {
-        const raiseTo87 = currentBet + (pot + toCall) * (0.8 + unit87('pumpsize') * 0.2);
-        const commits87 =
-          spr <= 3.5 ||
-          this.v78CommitsWithoutJam(raiseTo87 * params.sizingMultiplier, player, gs, vi, opts);
-        if (!commits87) {
-          if (tele15) noteFire(stabXr87 ? 'v87_flop_stab_check_raise' : 'v87_combo_draw_raise');
-          planBarrel(equity);
-          return this.raiseTo(planHandKey, raiseTo87 * params.sizingMultiplier, player, gs, vi);
-        }
-        if (equity >= 0.44) {
-          if (tele15) noteFire(stabXr87 ? 'v87_flop_stab_jam' : 'v87_combo_draw_jam');
-          return this.legalize({ action: 'all_in', thinkTime: 0 }, player, gs, vi);
-        }
+      const raiseTo87 = currentBet + (pot + toCall) * (0.8 + unit87('pumpsize') * 0.2);
+      const commits87 =
+        spr <= 3.5 ||
+        this.v78CommitsWithoutJam(raiseTo87 * params.sizingMultiplier, player, gs, vi, opts);
+      if (!commits87) {
+        if (tele15) noteFire('v87_flop_stab_check_raise');
+        planBarrel(equity);
+        return this.raiseTo(planHandKey, raiseTo87 * params.sizingMultiplier, player, gs, vi);
+      }
+      if (equity >= 0.44) {
+        if (tele15) noteFire('v87_flop_stab_jam');
+        return this.legalize({ action: 'all_in', thinkTime: 0 }, player, gs, vi);
       }
     }
 
@@ -13559,6 +13612,57 @@ export class HorseLogic {
         eligFr.reason !== 'unqualified'
       ) {
         noteFire(`ft_semibluff_raise_skip_${eligFr.reason}`);
+      }
+    }
+
+    // ═══ V87 FLOP COMBO-DRAW PUMP (outside baseline HU semi-bluff & combo_draw_pressure) ═══
+    if (
+      isV87Nlh &&
+      street === 'flop' &&
+      !ftRaiseOwned &&
+      !planCallOnly23 &&
+      !raisedAfterAggr &&
+      !v66Class &&
+      !multiBoard36 &&
+      oppCount <= 2 &&
+      potFrac <= 1.0 &&
+      spr <= 7 &&
+      draw87.outs >= 12 &&
+      opponents.some((o) => !o.is_all_in && o.stack > 0) &&
+      !(
+        opts.comboDrawPressure === true &&
+        (opts.v38Ev ?? true) !== false &&
+        useMind &&
+        pressure53 !== null &&
+        !isTournamentMode(gs) &&
+        !gs.bombPot &&
+        opponents.length === 1 &&
+        HorseMind.opponentRead(opponents[0].user_id)?.presumed !== true &&
+        !opponents[0].is_all_in &&
+        opponents[0].stack > 0 &&
+        gs.legalActions?.includes('raise') === true &&
+        typeof gs.minRaiseTo === 'number' &&
+        Number.isFinite(gs.minRaiseTo) &&
+        typeof gs.maxRaiseTo === 'number' &&
+        Number.isFinite(gs.maxRaiseTo) &&
+        gs.maxRaiseTo >= gs.minRaiseTo &&
+        gs.minRaiseTo > currentBet &&
+        hasStrongPressureDraw(player.cards, board, gs.gameVariant, null)
+      ) &&
+      unit87('combopump') < (persona87?.comboDrawAggro ?? 0.55) * (ip ? 0.55 : 0.68)
+    ) {
+      const raiseTo87 = currentBet + (pot + toCall) * (0.8 + unit87('pumpsize') * 0.2);
+      const commits87 =
+        spr <= 3.5 ||
+        this.v78CommitsWithoutJam(raiseTo87 * params.sizingMultiplier, player, gs, vi, opts);
+      if (!commits87) {
+        if (tele15) noteFire('v87_combo_draw_raise');
+        planBarrel(equity);
+        return this.raiseTo(planHandKey, raiseTo87 * params.sizingMultiplier, player, gs, vi);
+      }
+      if (equity >= 0.44) {
+        if (tele15) noteFire('v87_combo_draw_jam');
+        return this.legalize({ action: 'all_in', thinkTime: 0 }, player, gs, vi);
       }
     }
 
