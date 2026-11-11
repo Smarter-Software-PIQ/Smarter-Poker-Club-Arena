@@ -3240,8 +3240,15 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     const seated = this.seatedPlayers.find(
       (p) => p.user_id === actor.user_id && p.seat_number === actor.seat
     );
-    if (seated?.is_horse && !this.isOwnClientControlling(actor.user_id))
+    if (
+      seated?.is_horse &&
+      !this.isOwnClientControlling(actor.user_id) &&
+      !this.horseActionTimer &&
+      (this.horseDecisionAbortController === null ||
+        this.horseDecisionAbortController.signal.aborted)
+    ) {
       this.scheduleHorseAction(seated, actor.seat, actor, state);
+    }
   }
 
   protected async handleTurnChange(event: HandEvent, players: SeatedPlayer[]): Promise<void> {

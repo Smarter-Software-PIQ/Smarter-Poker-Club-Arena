@@ -483,6 +483,30 @@ export const TAG_CONSUMERS: LedgerEntry[] = [
     'Omaha set or trips with no redraw committed 100bb+ on the turn or river on a board showing three to a flush or a straight (at the commit street or on the river); added from the 2026-11-06 biggest-losses review (3370600); no validated causal adjustment reader',
     'V40'
   ),
+  tag(
+    'nlh_deep_onepair_stackoff',
+    'HorseSelfTuner.diagnoseAndNudge',
+    'Hold em 120bb+ postflop stack-off holding bare one pair or worse (cat <= 2)',
+    'V87'
+  ),
+  tag(
+    'nlh_passive_oop_coldcall_bleed',
+    'HorseSelfTuner.diagnoseAndNudge',
+    'Hold em OOP cold-call of a preflop raise followed by an uncontested flop check-fold (net <= -2.5bb)',
+    'V87'
+  ),
+  tag(
+    'nlh_ep_limp_passivity',
+    'HorseSelfTuner.diagnoseAndNudge',
+    'Hold em open-limp with a weak non-trap hand (outside QQ+ and 54s-T9s) or EP open-limp folding to a <= 5bb iso-raise',
+    'V87'
+  ),
+  tag(
+    'nlh_bubble_covered_calloff',
+    'HorseSelfTuner.diagnoseAndNudge',
+    'Hold em tournament near-bubble or final-table pay-jump covered call-off with bare one-pair postflop or non-premium preflop',
+    'V87'
+  ),
 
   // ── V49 FREQUENCY LEAKS. Emitted by SQL over horse_daily_play, read by the
   // nightly audit (fn_audit_frequency_leaks) and by the panel card. The same
@@ -728,6 +752,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'ploSuitedAcesFourBet',
     'High-only PLO suited aces 4-bet one 3-bet and continue when re-raised (Dan 2026-11-06); false only to ablate or as a complaint-law control',
     'PLO suited aces 4-bet'
+  ),
+  flag(
+    'v87HoldemOverhaul',
+    'Hold em cash 25-30% VPIP, EP limp-reraise traps and suited-connector limp mix, SPR postflop gameplan, anti-LAG bully-breaker, river block-bet balance, Hollywood tank mix, and tournament bubble/PKO discipline; false only to ablate',
+    'V87'
   ),
   flag(
     'deepEquity',
@@ -4548,4 +4577,16 @@ export function ledgerRows(): LedgerRow[] {
     freshness_days: e.freshnessDays ?? null,
     since: e.since,
   }));
+}
+
+export interface HorseDecisionOptionSnapshot {
+  v87HoldemOverhaul?: boolean;
+}
+
+export function snapshotOptionFlags(
+  opts?: { v87HoldemOverhaul?: boolean } | null
+): HorseDecisionOptionSnapshot {
+  return {
+    v87HoldemOverhaul: opts?.v87HoldemOverhaul !== false,
+  };
 }

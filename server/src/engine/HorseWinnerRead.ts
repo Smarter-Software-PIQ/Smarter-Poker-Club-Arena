@@ -44,6 +44,10 @@ export const WINNER_Z = 2.326;
 export const WINNER_BLUFF_MOD = 0.6;
 /** Thin value against a proven winner (capped at neutral). */
 export const WINNER_VALUE_THIN_MOD = 0.85;
+/** Thin-value floor against a high-VPIP / high-stab LAG winner ("Bully-Breaker"):
+ *  LAG winners accumulate chips by stealing uncontested pots and stabbing wide,
+ *  never by playing tight ranges - throttling bluffs or thin value hands them free equity. */
+export const WINNER_LAG_VALUE_THIN_FLOOR = 1.12;
 /** Net per hand is clipped to this many big blinds, so one cooler cannot make a winner. */
 export const WINNER_CLIP_BB = 100;
 
@@ -150,9 +154,22 @@ export function isProvenWinner(userId: string): boolean {
   return winnerReadout(userId)?.proven === true;
 }
 
-/** The counter-strategy: fewer bluffs, no thin value; every other lever untouched. */
-export function respectWinner(profile: ExploitProfile, userId: string): ExploitProfile {
+/** The counter-strategy: fewer bluffs, no thin value against disciplined TAG winners;
+ *  against high-VPIP / high-stab LAG winners (`isLagBully`), keep full bluff playback
+ *  and expand thin value so wide stabs and loose calldowns are punished. */
+export function respectWinner(
+  profile: ExploitProfile,
+  userId: string,
+  isLagBully = false
+): ExploitProfile {
   if (!isProvenWinner(userId)) return profile;
+  if (isLagBully) {
+    return {
+      bluffMod: profile.bluffMod,
+      callDownMod: profile.callDownMod,
+      valueThinMod: Math.max(profile.valueThinMod, WINNER_LAG_VALUE_THIN_FLOOR),
+    };
+  }
   return {
     bluffMod: profile.bluffMod * WINNER_BLUFF_MOD,
     callDownMod: profile.callDownMod,
