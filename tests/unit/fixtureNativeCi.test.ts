@@ -1282,6 +1282,46 @@ describe('required CI owns native fixture verification', () => {
     );
   });
 
+  it('admits the ordinary mode for a same-repository PR and for a main merge group only', () => {
+    const head = 'c'.repeat(40);
+    const admit = new Function('inputs', 'github', `return (${native.jobs['native-smoke'].if});`);
+    const inputs = { connected_ui_observations: false, source_sha: head };
+    const group = {
+      event_name: 'merge_group',
+      repository: 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena',
+      event: { merge_group: { base_ref: 'refs/heads/main', head_sha: head } },
+    };
+    expect(admit(inputs, group)).toBe(true);
+    for (const changed of [
+      { event: { merge_group: { base_ref: 'refs/heads/release', head_sha: head } } },
+      { event: { merge_group: { base_ref: 'refs/heads/main', head_sha: 'd'.repeat(40) } } },
+      { repository: 'another/repo' },
+      { event_name: 'push' },
+      { event_name: 'workflow_run' },
+    ])
+      expect(admit(inputs, { ...group, ...changed })).toBe(false);
+    expect(admit({ ...inputs, connected_ui_observations: true }, group)).toBe(false);
+    const pr = {
+      event_name: 'pull_request',
+      repository: 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena',
+      event: {
+        pull_request: {
+          head: { repo: { full_name: 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena' } },
+        },
+      },
+    };
+    expect(admit(inputs, pr)).toBe(true);
+    expect(
+      admit(inputs, {
+        ...pr,
+        event: { pull_request: { head: { repo: { full_name: 'fork/repo' } } } },
+      })
+    ).toBe(false);
+    // The caller passes no secrets to this mode, so admitting a merge group
+    // exposes nothing a same-repository PR does not already run with.
+    expect(ci.jobs.fixture_native.secrets).toBeUndefined();
+  });
+
   it('admits the connected mode only for its exact protected manual caller and keeps credentials capture-step-only', () => {
     const source = 'a'.repeat(40);
     const github = {

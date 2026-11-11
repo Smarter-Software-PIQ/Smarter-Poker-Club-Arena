@@ -42,6 +42,10 @@ jobs:
     if: >-
       (!inputs.connected_ui_observations && github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository) ||
+      (!inputs.connected_ui_observations && github.event_name == 'merge_group' &&
+      github.event.merge_group.base_ref == 'refs/heads/main' &&
+      github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena' &&
+      inputs.source_sha == github.event.merge_group.head_sha) ||
       (inputs.connected_ui_observations && github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main' && github.repository_id == '1132369872' &&
       github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena' &&

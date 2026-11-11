@@ -5,6 +5,7 @@ import {supabaseServerHeaders} from './supabase-auth-headers.mjs';
 import {inflateSync} from 'node:zlib';
 import {verifyRecovery,sha256} from './money-trigger-recovery.mjs';
 import {offenders} from './check-money-trigger-declared.mjs';
+import {fixedBaseMigrationFiles} from './money-trigger-merge-group-files.mjs';
 const repo=process.env.GITHUB_REPOSITORY, number=process.env.PR_NUMBER;
 assertClubArenaRepository(repo,process.env.GITHUB_REPOSITORY_ID);
 const headers={Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,Accept:'application/vnd.github+json'};
@@ -22,8 +23,11 @@ if(process.env.GITHUB_EVENT_NAME==='workflow_run'){
  const cmp=await gh(`compare/main...${headSha}`);
  if(cmp.status!=='ahead'||cmp.behind_by!==0)throw Error('merge group is not built on current main');
  if(!Array.isArray(cmp.files)||cmp.files.length>=300)throw Error('diff truncated');
- for(const f of cmp.files.filter(f=>['added','modified','renamed'].includes(f.status)&&/^supabase\/migrations\/[^/]+\.sql$/.test(f.filename)))inputs.push({path:f.filename,sql:await readMigrationContent(gh,f.filename,headSha)});
- group={branch,baseSha:cmp.merge_base_commit?.sha};
+ // One classification shared with the finishing reporter; copied/changed
+ // migrations are verified too, removals are bound by path, others refused.
+ const changed=fixedBaseMigrationFiles(cmp);
+ for(const p of changed.content)inputs.push({path:p,sql:await readMigrationContent(gh,p,headSha)});
+ group={branch,baseSha:cmp.merge_base_commit?.sha,removed:changed.removed};
  if(!/^[a-f0-9]{40}$/.test(group.baseSha||''))throw Error('invalid merge group base');
 }else if(process.env.GITHUB_EVENT_NAME==='workflow_dispatch'){
  if(process.env.GITHUB_REF!=='refs/heads/main')throw Error('dispatch must run approved main');

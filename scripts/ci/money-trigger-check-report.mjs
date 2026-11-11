@@ -44,7 +44,8 @@ export function completion({capturedHead,currentHead,outcome,proof,protection,ru
 // unreadable, stale or different is a failure: fail closed.
 export function groupCompletion({state,proof,live,finalSet,outcome,protection,runId,appId,now=Date.now()}){
  const branchOk=typeof state?.group==='string'&&proof?.mergeGroup?.branch===state.group&&proof?.pr===null;
- const proofSet=Array.isArray(proof?.results)?proof.results.map(r=>`${r.path}:${r.sha256}`).sort():null;
+ const removed=proof?.mergeGroup?.removed;
+ const proofSet=Array.isArray(proof?.results)&&Array.isArray(removed)?[...proof.results.map(r=>`${r.path}:${r.sha256}`),...removed.map(p=>`${p}:removed`)].sort():null;
  const setOk=Array.isArray(finalSet)&&proofSet!==null&&finalSet.length===proofSet.length&&[...finalSet].sort().every((x,i)=>x===proofSet[i]);
  const currentHead=live===true&&branchOk&&setOk?state.head:null;
  return completion({capturedHead:state?.head,currentHead,outcome,proof,protection,runId,appId,now});
@@ -100,14 +101,18 @@ async function main(){
   let live=false,finalSet=null;
   try{
    live=await mergeGroupIsLive({repository:repo,head:state.head,token:process.env.GITHUB_TOKEN});
-   const cmp=await api(`compare/main...${state.head}`);
-   if(cmp.status==='ahead'&&cmp.behind_by===0&&Array.isArray(cmp.files)&&cmp.files.length<300){
-    finalSet=[];
-    for(const f of cmp.files.filter(f=>['added','modified','renamed'].includes(f.status)&&/^supabase\/migrations\/[^/]+\.sql$/.test(f.filename))){
-     const {readMigrationContent}=await import('./read-migration-content.mjs');
-     const {sha256}=await import('./money-trigger-recovery.mjs');
-     finalSet.push(`${f.filename}:${sha256(await readMigrationContent((p,a)=>api(p,'GET',undefined,a),f.filename,state.head))}`);
-    }
+   // Re-read against the FIXED base the trusted proof recorded, not a moving
+   // main: a group ahead of this one merging mid-run must not change the set.
+   const base=proof?.mergeGroup?.baseSha;
+   if(/^[a-f0-9]{40}$/.test(base||'')&&base!==state.head){
+    const {fixedBaseMigrationFiles}=await import('./money-trigger-merge-group-files.mjs');
+    const changed=fixedBaseMigrationFiles(await api(`compare/${base}...${state.head}`));
+    const {readMigrationContent}=await import('./read-migration-content.mjs');
+    const {sha256}=await import('./money-trigger-recovery.mjs');
+    const read=[];
+    for(const p of changed.content)read.push(`${p}:${sha256(await readMigrationContent((q,a)=>api(q,'GET',undefined,a),p,state.head))}`);
+    for(const p of changed.removed)read.push(`${p}:removed`);
+    finalSet=read;
    }
   }catch{console.error('Merge group liveness or migration set could not be re-read; no success can be reported.');}
   const capturedIdentity=state.runId===process.env.GITHUB_RUN_ID&&state.appId===appId;

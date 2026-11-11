@@ -542,6 +542,28 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
 
   it('preserves all other CI commands, gates, budgets, permissions and client partitions', () => {
     const normalized = structuredClone(ci);
+    {
+      // Moved 2026-11-11 (merge queue, review finding 3): typecheck_compile passes
+      // a merge group's own base to its diff gates. Normalize those additions
+      // back to the reviewed pull-request form before the pinned hashes below.
+      const job = normalized.jobs.typecheck_compile;
+      expect(job.env).toEqual({ CA_GATE_BASE: '${{ github.event.merge_group.base_sha }}' });
+      delete job.env;
+      const bindIndex = job.steps.findIndex(
+        (step: { name?: string }) => step.name === 'Bind the merge group base for the diff gates'
+      );
+      expect(bindIndex).toBeGreaterThan(0);
+      expect(job.steps[bindIndex].if).toBe("github.event_name == 'merge_group'");
+      job.steps.splice(bindIndex, 1);
+      const gateArg = ' ${CA_GATE_BASE:+"$CA_GATE_BASE"}';
+      let gateArgs = 0;
+      for (const step of job.steps as { run?: string }[]) {
+        if (!step.run?.includes(gateArg)) continue;
+        gateArgs += step.run.split(gateArg).length - 1;
+        step.run = step.run.split(gateArg).join('');
+      }
+      expect(gateArgs).toBe(8);
+    }
     const hostingSteps = normalized.jobs.accounting_postgres.steps.filter(
       (step: { name?: string }) => step.name === 'Data console native PostgreSQL contracts'
     );
@@ -1402,6 +1424,18 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
 
   it('preserves every native qualification stage and cleanup requirement', () => {
     const normalized = structuredClone(native);
+    {
+      // Moved 2026-11-11 (merge queue, review finding 2): the ordinary mode also
+      // admits a main merge group. Normalize that clause back to the reviewed form.
+      const groupClause =
+        "(!inputs.connected_ui_observations && github.event_name == 'merge_group' && " +
+        "github.event.merge_group.base_ref == 'refs/heads/main' && " +
+        "github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena' && " +
+        'inputs.source_sha == github.event.merge_group.head_sha) || ';
+      const job = normalized.jobs['native-smoke'];
+      expect(job.if.split(groupClause)).toHaveLength(2);
+      job.if = job.if.replace(groupClause, '');
+    }
     expect(normalized.jobs['native-smoke']['runs-on']).toBe('ubuntu-24.04');
     expect(normalized.on.workflow_call.inputs.connected_ui_observations.default).toBe(false);
     expect(ci.jobs.fixture_native.permissions).toEqual({ contents: 'read', actions: 'read' });

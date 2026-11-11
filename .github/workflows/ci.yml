@@ -390,6 +390,12 @@ jobs:
     # Run40726879893 passed every guard but exceeded15m during cleanup;
     # comparable successful run40714001791 took13m45. Preserve execution headroom.
     timeout-minutes: 40
+    env:
+      # MERGE QUEUE (2026-11-11): a merge group has no GITHUB_BASE_REF, so the
+      # diff gates below would fall back to HEAD~1. They take the group's own
+      # base explicitly instead. Empty on pull_request, where the gates keep
+      # deriving their base from GITHUB_BASE_REF exactly as before.
+      CA_GATE_BASE: ${{ github.event.merge_group.base_sha }}
 
     steps:
       - name: Checkout
@@ -399,6 +405,13 @@ jobs:
           # needs more than the single commit a default checkout brings.
           fetch-depth: 0
           filter: blob:none
+
+      - name: Bind the merge group base for the diff gates
+        if: github.event_name == 'merge_group'
+        run: |
+          [[ "$CA_GATE_BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::merge group base is not a commit SHA"; exit 1; }
+          [ "$CA_GATE_BASE" != "$(git rev-parse HEAD)" ] || { echo "::error::merge group base equals its head"; exit 1; }
+          git merge-base --is-ancestor "$CA_GATE_BASE" HEAD || { echo "::error::merge group base is not an ancestor of the checkout"; exit 1; }
 
       - name: Setup Node 20
         uses: actions/setup-node@v4
@@ -951,7 +964,7 @@ jobs:
           set -o pipefail
           echo "## New-Migration Check" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if node scripts/ci/check-migrations-applied.mjs 2>&1 | tee /tmp/migapplied.log; then
+          if node scripts/ci/check-migrations-applied.mjs ${CA_GATE_BASE:+"$CA_GATE_BASE"} 2>&1 | tee /tmp/migapplied.log; then
             echo "OK — every object this branch's migrations declare exists in production." >> $GITHUB_STEP_SUMMARY
           else
             echo "A migration here was never applied (or the manifest is stale). Apply it via" >> $GITHUB_STEP_SUMMARY
@@ -982,7 +995,7 @@ jobs:
           set -o pipefail
           echo "## Diamond Spins Contract Parity" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if node scripts/ci/check-diamond-contract-parity.mjs --source 2>&1 | tee /tmp/diamondcontract.log; then
+          if node scripts/ci/check-diamond-contract-parity.mjs --source ${CA_GATE_BASE:+"$CA_GATE_BASE"} 2>&1 | tee /tmp/diamondcontract.log; then
             echo "OK — nothing here moves a Diamond Spins contract past the client that reads it." >> $GITHUB_STEP_SUMMARY
           else
             echo "A migration in this branch moves the wheel contract, the prize vocabulary, the" >> $GITHUB_STEP_SUMMARY
@@ -1007,7 +1020,7 @@ jobs:
           set -o pipefail
           echo "## SECURITY DEFINER Authorization Check" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if node scripts/ci/check-definer-authorization.mjs 2>&1 | tee /tmp/definerauth.log; then
+          if node scripts/ci/check-definer-authorization.mjs ${CA_GATE_BASE:+"$CA_GATE_BASE"} 2>&1 | tee /tmp/definerauth.log; then
             echo "OK — every DEFINER writer a browser can reach consults the request." >> $GITHUB_STEP_SUMMARY
           else
             echo "A SECURITY DEFINER function that writes is callable from a browser and never" >> $GITHUB_STEP_SUMMARY
@@ -1034,7 +1047,7 @@ jobs:
           set -o pipefail
           echo "## Unqualified UPDATE/DELETE Check" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if node scripts/ci/check-unqualified-writes.mjs 2>&1 | tee /tmp/unqualifiedwrites.log; then
+          if node scripts/ci/check-unqualified-writes.mjs ${CA_GATE_BASE:+"$CA_GATE_BASE"} 2>&1 | tee /tmp/unqualifiedwrites.log; then
             echo "OK — every UPDATE and DELETE carries a WHERE clause." >> $GITHUB_STEP_SUMMARY
           else
             echo "A migration declares an UPDATE or DELETE with no WHERE clause. It will work" >> $GITHUB_STEP_SUMMARY
@@ -1066,7 +1079,7 @@ jobs:
           set -o pipefail
           echo "## Lease Lock Strength" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if node scripts/ci/check-lease-lock-strength.mjs 2>&1 | tee /tmp/leaselock.log; then
+          if node scripts/ci/check-lease-lock-strength.mjs ${CA_GATE_BASE:+"$CA_GATE_BASE"} 2>&1 | tee /tmp/leaselock.log; then
             echo "OK - no new holder takes FOR SHARE on an engine lease row." >> $GITHUB_STEP_SUMMARY
           else
             code=$?
@@ -1105,7 +1118,7 @@ jobs:
           set -o pipefail
           echo "## Weekly Accounting Lock Mode" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if node scripts/ci/check-accounting-week-lock-mode.mjs 2>&1 | tee /tmp/weeklane.log; then
+          if node scripts/ci/check-accounting-week-lock-mode.mjs ${CA_GATE_BASE:+"$CA_GATE_BASE"} 2>&1 | tee /tmp/weeklane.log; then
             echo "OK - no accrual takes the weekly accounting lane exclusively." >> $GITHUB_STEP_SUMMARY
           else
             code=$?
@@ -1133,7 +1146,7 @@ jobs:
           set -o pipefail
           echo "## Money Trigger Declarations" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if node scripts/ci/check-money-trigger-declared.mjs 2>&1 | tee /tmp/trigdecl.log; then
+          if node scripts/ci/check-money-trigger-declared.mjs ${CA_GATE_BASE:+"$CA_GATE_BASE"} 2>&1 | tee /tmp/trigdecl.log; then
             echo "OK - every trigger created on a money table declares itself." >> $GITHUB_STEP_SUMMARY
           else
             pipeline_status=("${PIPESTATUS[@]}")
@@ -1170,7 +1183,7 @@ jobs:
           set -o pipefail
           echo "## No New Band-Aids (10.12)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if node scripts/ci/check-no-new-band-aids.mjs 2>&1 | tee /tmp/bandaids.log; then
+          if node scripts/ci/check-no-new-band-aids.mjs ${CA_GATE_BASE:+"$CA_GATE_BASE"} 2>&1 | tee /tmp/bandaids.log; then
             echo "OK - no migration declares a repair, back-pay, re-drive, catch-up, backfill or heal path." >> $GITHUB_STEP_SUMMARY
           else
             code=$?
