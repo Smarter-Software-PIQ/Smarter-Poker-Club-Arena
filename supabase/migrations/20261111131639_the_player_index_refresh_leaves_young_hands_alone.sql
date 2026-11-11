@@ -1,4 +1,4 @@
--- 20261111131639_the_player_index_refresh_leaves_young_hands_to_the_live_projection
+-- 20261111131639_the_player_index_refresh_leaves_young_hands_alone
 --
 -- Reserved by scripts/reserve-migration-version.sh on 2026-11-11.
 --

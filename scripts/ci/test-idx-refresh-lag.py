@@ -14,7 +14,7 @@ import json, os, pathlib, re, select, shutil, subprocess, tempfile, time
 root = pathlib.Path(__file__).resolve().parents[2]
 PRE = (root / 'scripts/ci/probes/idx-refresh-lag/live-predecessor.sql').read_text()
 PRE_MD5 = '8a0a2d56f0bb0c89b0b71005d753671e'
-MIG = (root / 'supabase/migrations/20261111131639_the_player_index_refresh_leaves_young_hands_to_the_live_projection.sql').read_text()
+MIG = (root / 'supabase/migrations/20261111131639_the_player_index_refresh_leaves_young_hands_alone.sql').read_text()
 pg = pathlib.Path(os.environ.get('PG_BIN', '/opt/homebrew/opt/postgresql@17/bin'))
 env = {k: v for k, v in os.environ.items() if not k.startswith('PG')}
 env['LC_ALL'] = 'C'
