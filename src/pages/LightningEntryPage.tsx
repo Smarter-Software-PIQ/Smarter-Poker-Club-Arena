@@ -81,6 +81,7 @@ import {
 import {
   abandonUnseatedLightningJoin,
   bindLightningJoinRoom,
+  confirmLightningJoin,
   endLightningJoin,
   lightningJoinReasonCode,
   markLightningJoin,
@@ -282,7 +283,8 @@ export default function LightningEntryPage() {
   const confirmLightningBuyIn = useCallback(
     async (amount: number): Promise<BuyInConfirmation> => {
       if (!clusterId || !buyIn) return false;
-      markLightningJoin('confirm');
+      // A Confirm after a refusal times a new attempt; the refused one keeps its report.
+      confirmLightningJoin(clusterId);
       const result = await buyIntoLightning({
         clusterId,
         userId: buyIn.userId,
