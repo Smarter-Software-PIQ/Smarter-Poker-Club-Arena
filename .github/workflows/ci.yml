@@ -5106,6 +5106,16 @@ jobs:
           LIVE_TURN_DIST: dist
         run: npx playwright test -c playwright.live-turn.config.ts tests/live-turn/lightning-hero-cards.pw.ts
 
+      # The same build at a tournament table: bust, paid rebuy, the seat
+      # restored, then the next hand's cards in order, reordered, lost and
+      # recovered, and a stale frame from the busted hand; plus a bust that
+      # is not rebought (2026-11-10, MichaelJordan). Answered in the browser.
+      - name: Tournament rebuy hero cards gate
+        if: matrix.partition == 'general' && matrix.shard == 1
+        env:
+          LIVE_TURN_DIST: dist
+        run: npx playwright test -c playwright.live-turn.config.ts tests/live-turn/tournament-rebuy-hero-cards.pw.ts --project=chromium
+
       # if: always() because the preview is now started outside the step that
       # uses it, so nothing else will reap it - and an orphaned --strictPort
       # server would fail every later job on this runner. The port-reserve step
