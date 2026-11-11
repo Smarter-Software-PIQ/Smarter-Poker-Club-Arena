@@ -3226,6 +3226,7 @@ jobs:
       - tournament-only-verdict
       - private-record-client-proof
       - stats-pagination-proof
+      - hero-celebration-proof
       - plo-lightning-lifecycle-proof
       - publication-gate
       - post-deploy-verdict
