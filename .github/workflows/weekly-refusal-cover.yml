@@ -27,7 +27,11 @@ concurrency:
 jobs:
   weekly-refusal-cover:
     name: Weekly refusal receipt cover
-    runs-on: ubuntu-latest
+    # Pinned 2026-11-11: on the floating ubuntu-latest (26.04 "resolute") image the
+    # Ubuntu archive stopped answering apt from about 10:00Z, so install-postgres-17
+    # hung on `apt-get update` until the 10-minute limit on every run. Same reason and
+    # same pin as the browser jobs (tests/ci-tells-the-truth-faster.law.test.ts).
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
