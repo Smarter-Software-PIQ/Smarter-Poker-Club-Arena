@@ -1,9 +1,9 @@
 {
   "schema": "engine-release-activation-floor/v2-owner-window",
-  "preparationAt": "2026-11-11T19:30:00Z",
-  "activationAt": "2026-11-11T19:30:00Z",
-  "expiresAt": "2026-11-11T22:30:00Z",
+  "preparationAt": "2026-11-12T00:30:00Z",
+  "activationAt": "2026-11-12T00:30:00Z",
+  "expiresAt": "2026-11-12T05:30:00Z",
   "timeZone": "America/Chicago",
-  "ownerWindowId": "2026-11-11-horse-realtime-10454-engine-1930z",
-  "clientPublicationAt": "2026-11-11T19:30:00Z"
+  "ownerWindowId": "2026-11-12-horse-corrections-10525-engine-0030z",
+  "clientPublicationAt": "2026-11-12T00:30:00Z"
 }

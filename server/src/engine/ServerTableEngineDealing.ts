@@ -2930,8 +2930,10 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         return;
       }
       if (!this.isTournamentTable()) this.retireHandNumberWithForeignManifest(players);
+      this.cashBreachSpan?.enter('deal_allocate');
       this.handCount = this.takePreparedHandNumber() ?? (await this.allocateGlobalHandNumber());
       await this.reserveF06Hand(this.handCount);
+      this.cashBreachSpan?.enter('dealing');
       if (this.discardPreparedHandForPause()) return;
       this.handsDealtThisSession++;
       const handNumber = this.handCount;
@@ -3511,6 +3513,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
              * first and then discovering the table is short would consume the
              * host's request and fire nothing.
              */
+            this.cashBreachSpan?.enter('deal_bomb_claim');
             const { data: claimed, error: claimErr } = await supabase
               .from('tables')
               .update({ bomb_pot_manual_pending: false })
@@ -3518,6 +3521,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
               .eq('bomb_pot_manual_pending', true)
               .select('id')
               .maybeSingle();
+            this.cashBreachSpan?.enter('dealing');
             if (claimErr) {
               // Fail closed and KEEP the armed flag, so the next hand tries
               // again rather than dropping the host's request on one blip.
@@ -3956,11 +3960,13 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
               is_horse: original.is_horse === true,
             };
           });
+          this.cashBreachSpan?.enter('deal_manifest');
           const manifestId = await this.takePreparedCashHandManifest(
             handNumber,
             originalParticipants,
             fundingLease.generation
           );
+          this.cashBreachSpan?.enter('dealing');
           this.currentHandSeatGenerations = bindCashHandManifest(
             this.currentHandSeatGenerations,
             manifestId,
@@ -4122,6 +4128,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       const preferenceIds = hcPlayers
         .filter((p) => !this.timeBankEngine.hasAutoActivatePreference(this.tableId, p.user_id))
         .map((p) => p.user_id);
+      this.cashBreachSpan?.enter('deal_time_bank_reads');
       const [tbExtras, autoPreferences] = await Promise.all([
         this.fetchTimeBankExtras(tbNewPlayers.map((p) => p.user_id)),
         readAutoTimeBankPreferences(preferenceIds).catch((error) => {
@@ -4131,6 +4138,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           return new Map(preferenceIds.map((id) => [id, false]));
         }),
       ]);
+      this.cashBreachSpan?.enter('dealing');
       /**
        * THE ENGINE MAY HAVE BEEN TORN DOWN DURING THAT AWAIT (2026-09-06).
        *

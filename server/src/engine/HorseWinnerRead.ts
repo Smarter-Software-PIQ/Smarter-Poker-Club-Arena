@@ -156,6 +156,18 @@ export function snapshotWinnerReads(
   return snapshot;
 }
 
+/** Detached copy of boot-hydrated winner rows for pooled worker floor bootstrap. */
+export function exportWinnerReadSnapshot(): HorseWinnerReadState {
+  const snapshot = createWinnerReadState();
+  for (const [k, row] of state.rows) {
+    snapshot.rows.set(k, { ...row });
+  }
+  for (const k of state.seen) {
+    snapshot.seen.add(k);
+  }
+  return snapshot;
+}
+
 export interface WinnerResult {
   user_id: string;
   /** chips: what this player took out of the pot less what they put in */

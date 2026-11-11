@@ -1248,6 +1248,21 @@
         "path": "server/release/activation-floor.json",
         "sha256": "d94ebce03e481c7af3c8cce08eac33f43724099626794ab770a07624d9b38e5c"
       }
+    },
+    {
+      "id": "2026-11-12-horse-corrections-10525-engine-0030z",
+      "ownerOrder": "Dan directly authorized on 2026-11-11 in Claude session session_01BNteGZTxx5Us7e16gLZecW. At 15:39 America/Chicago, asked whether this session should take sole release custody (merge #10525, qualify, cut over) and the post-seal export, he answered: \"YES\". Asked next, between 15:42 and 15:46 America/Chicago, when the corrected Horse engine should cut over once certified, because the 1930z booking expiring 16:30 Chicago could not be met while #10525 was still in CI and the corrected build needs a fresh 30-minute Backup soak, he answered: \"ASAP tonight (Recommended)\", the option described to him as: \"I book one new single-use owner window through a protected PR; cutover runs once Backup certifies and the 20-minute player notice has shown.\" The outgoing Codex root 01a1cbbb-645b-75d2-99c2-367693b053be had recorded that it ceased provider mutations and that Claude assumes sole continuation custody after reconciliation. Read-only reconciliation at 21:36 through 21:42 UTC found no Stage, receiver or release transaction dispatched under 1930z, serving instance 1-54cc0104 with maintenance inactive, and the 4d965c8f Backup provider run failed. The unconsumed 2026-11-11-horse-realtime-10454-engine-1930z order keeps its fixed 22:30 UTC expiry and is not extended, renewed or replayed. Fresh SINGLE-USE order admits ONE actual activation replacing exact serving f7735cca6862b9add06841b8a41c305b3f3ebe01 with a protected qualified candidate containing the #10525 merge d58e1c206a521dbb33583fbb94ac7a64eceda647 (public multi-board pacing correction and bounded live Hybrid choice wiring, on top of #10454, #10455 and the #10519 receipt producer), with final source and configuration verified against later edits. Declared public notice 00:10 UTC November 12; nominal admission 00:30 through fixed 05:30 UTC November 12 (18:30 through 23:30 Chicago November 11), chosen to permit protected checks, publication and full compatible Backup qualification. Independently observe the actual primary public notice for twenty minutes after publication; later visibility delays admission within the fixed expiry. Require exact protected target/control, immutable images, all four qualification shards, current-production schema/function equality, original compatible Backup certificate with full 1800-second soak, both-direction rehearsal against the actual serving predecessor, fresh announcement between :05:30 and :49:00, normal 120s last-hand lead, hand-boundary drain, durable database freeze, 300s break, full 285s cutover/proof/rollback reserve, one-use claim, exact SEALED identity, full healthy thaw and fresh post-seal Backup. Then prove individual worker manifests, live metrics ingestion and denominators, natural execution through validated committed actions, and effective configuration for all 1000 active Horses separately from observed feature use. Rejected/unselected capabilities and Pillar 2 stay disabled; zero opportunities are explicit gaps. No feature work, migrations, new tournament-start hold, direct restart, financial replay, competing operation, automatic renewal, timer, watcher, repair loop, reduced reserve or extended freeze. All historical orders, consumed claims and immutable generations remain unchanged. Authority ends after this one activation or fixed expiry; the routine daily schedule is unchanged.",
+      "contains": "d58e1c206a521dbb33583fbb94ac7a64eceda647",
+      "playerNoticeAt": "2026-11-12T00:10:00Z",
+      "notBefore": "2026-11-12T00:30:00Z",
+      "notAfter": "2026-11-12T05:30:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "9f2b6fba58ca37c6aaf77c8aa429e34e781655d49a65d15f1dafaf0386671aaa"
+      }
     }
   ],
   "databaseWindows": [

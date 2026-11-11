@@ -422,6 +422,7 @@ import PreActionBar from '../components/table/PreActionBar';
 import LightningNextHand from '../components/table/LightningNextHand';
 import LightningEndingNotice from '../components/table/LightningEndingNotice';
 import LightningStartingNotice from '../components/table/LightningStartingNotice';
+import LightningStartTicker from '../components/table/LightningStartTicker';
 import LightningJoining from '../components/table/LightningJoining';
 import LightningEndedNotice from '../components/table/LightningEndedNotice';
 import { lightningReturnPath, useLightningReversion } from '../lightning/lightningReversion';
@@ -29089,6 +29090,7 @@ function LiveTablePage({
                         <span className="table-brand__bomb">{bombPotBadge.text}</span>
                       </span>
                     )}
+                    {!lightningRoom && <LightningStartTicker state={tableGameLightningState} />}
                     {/* THE CLOSED MAINTENANCE BREAK (Dan 2026-10-14): "THIS
                         NEEDS TO APPEAR BELOW 'BOMB POT IN 2:47' NOT UNDER THE
                         HERO." Shown once the player closes the break card,
