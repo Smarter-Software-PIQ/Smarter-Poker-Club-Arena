@@ -287,7 +287,7 @@ tests:
       - expr: 'ALERTS{alertname="ReliabilityControllerOutboxStuck",alertstate="firing"}'
         eval_time: 46m
         exp_samples:
-          - labels: 'ALERTS{alertname="ReliabilityControllerOutboxStuck",alertstate="firing",severity="warning",component="reliability-controller"}'
+          - labels: 'ALERTS{alertname="ReliabilityControllerOutboxStuck",alertstate="firing",severity="critical",component="reliability-controller"}'
             value: 1
 
   - name: one failed notification warns without a queue, and both halves true is still one alert
@@ -301,7 +301,7 @@ tests:
       - expr: 'ALERTS{alertname="ReliabilityControllerOutboxStuck",alertstate="firing"}'
         eval_time: 6m
         exp_samples:
-          - labels: 'ALERTS{alertname="ReliabilityControllerOutboxStuck",alertstate="firing",severity="warning",component="reliability-controller"}'
+          - labels: 'ALERTS{alertname="ReliabilityControllerOutboxStuck",alertstate="firing",severity="critical",component="reliability-controller"}'
             value: 1
       - expr: 'count(ALERTS{alertname="ReliabilityControllerOutboxStuck",alertstate="firing"})'
         eval_time: 60m
