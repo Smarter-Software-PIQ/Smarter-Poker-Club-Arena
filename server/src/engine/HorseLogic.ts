@@ -236,6 +236,11 @@ import {
 import { potLimitRaiseTo } from './BettingStructure.js';
 import { omahaTournamentPressure } from './HorseOmahaTournamentPressure.js';
 import { reportError } from '../services/errorReporter.js';
+import {
+  HorseDeepDiveCapture,
+  noteHorseDeepDiveRule,
+  withHorseDeepDiveCapture,
+} from './HorseDeepDiveReceipt.js';
 // V16 ICM: real Malmuth-Harville pressure from the live stack distribution.
 import {
   asymmetricCoverPressure,
@@ -5148,6 +5153,8 @@ function omahaBigBetCallFold(
               heroHasStreetChips: heroBet > 0.005,
             })
           : null;
+      if (isCall && v87On)
+        noteHorseDeepDiveRule('plo6_big_bet', v87Plo6 !== null, v87Plo6 !== null);
       if (v87Plo6 === null) return decision;
     }
     if (telemetryOn(opts)) {
@@ -5822,6 +5829,21 @@ export class HorseLogic {
     }
   }
   static decide(
+    player: SeatPlayer,
+    gameState: HorseGameStateV2,
+    style: HorseStyle = 'balanced',
+    mods: HorseProfileMods = {},
+    opts: HorseDecideOpts = {},
+    rangeCapture?: HorseRangeConsumptionCapture,
+    planReadCapture?: HorsePlanReadCapture,
+    deepDiveCapture?: HorseDeepDiveCapture
+  ): HorseDecision {
+    return withHorseDeepDiveCapture(deepDiveCapture, opts.v87DeepDiveDiscipline !== false, () =>
+      HorseLogic.decideCaptured(player, gameState, style, mods, opts, rangeCapture, planReadCapture)
+    );
+  }
+
+  private static decideCaptured(
     player: SeatPlayer,
     gameState: HorseGameStateV2,
     style: HorseStyle = 'balanced',
@@ -8287,6 +8309,16 @@ export class HorseLogic {
                     callers
                   )
                 : rawOpener;
+            if (opts.v87DeepDiveDiscipline !== false)
+              noteHorseDeepDiveRule(
+                'presumed_opener',
+                !!rawOpener &&
+                  read.presumed === true &&
+                  vi.isOmaha &&
+                  !vi.isHiLo &&
+                  (vi.holeCount >= 6 || callers > 0),
+                exploitOpener !== rawOpener
+              );
             if (exploitOpener !== rawOpener && telemetryOn(opts))
               noteFire('v87_deep_dive_discipline');
             if ((opts.v53Pressure ?? true) !== false)
@@ -8992,6 +9024,15 @@ export class HorseLogic {
           (!eliteActive86 || (baseRead46.cls === 'trips' && !omahaElite.canThreeBet))
             ? v87AdjustFiveSixCardHandClass(player.cards, baseRead46)
             : { read: baseRead46, changed: false };
+        if (opts.v87DeepDiveDiscipline !== false)
+          noteHorseDeepDiveRule(
+            'hand_class',
+            vi.isOmaha &&
+              !vi.isHiLo &&
+              player.cards.length >= 5 &&
+              (!eliteActive86 || (baseRead46.cls === 'trips' && !omahaElite.canThreeBet)),
+            adj87.changed
+          );
         const read46 = adj87.read;
         if (adj87.changed && telemetryOn(opts)) noteFire('v87_deep_dive_discipline');
         if (eliteActive86 && !(baseRead46.cls === 'trips' && adj87.changed && !read46.foldAlways)) {
@@ -14171,6 +14212,14 @@ export class HorseLogic {
           if (!isRiver && drawInfo40()?.nutty === true) cap40 += 0.12;
           const before40 = eq15;
           eq15 = Math.min(eq15, Math.max(0.08, cap40));
+          if (opts.v87DeepDiveDiscipline !== false)
+            noteHorseDeepDiveRule(
+              'flop_cap',
+              withholdFlopLift87,
+              withholdFlopLift87 &&
+                before40 > Math.max(0.08, cap40) &&
+                eq15 < Math.max(0.08, cap40 + 0.08)
+            );
           if (tele15 && eq15 < before40) {
             noteFire('v40_omaha_pressure_cap');
             if (
@@ -14659,6 +14708,12 @@ export class HorseLogic {
         postCallSpr86 < 1 ||
         (investedBefore86 > 0 && investedBefore86 / (commitmentStack + investedNow) >= 0.3);
     }
+    if (opts.v87DeepDiveDiscipline !== false)
+      noteHorseDeepDiveRule(
+        'raised_commitment',
+        v87OmahaBetRaised,
+        v87OmahaBetRaised && (shade87Omaha > 0 || committed !== committedLegacy)
+      );
     const shadeDeep86 =
       v86 &&
       !committed &&
@@ -14812,6 +14867,8 @@ export class HorseLogic {
         )
           ? v87NlhTurnMultiwayOrColdRaiseShade(pressure20, oppCount, potFrac)
           : 0;
+      if (opts.v87DeepDiveDiscipline !== false)
+        noteHorseDeepDiveRule('nlh_turn_shade', shade87NlhTurnCommit > 0, shade87NlhTurnCommit > 0);
       if (shade87NlhTurnCommit > 0 && tele15) noteFire('v87_deep_dive_discipline');
       const required =
         potOdds +
@@ -15945,6 +16002,8 @@ export class HorseLogic {
         opts.v87DeepDiveDiscipline !== false && !bettorManiacOrStation87
           ? v87NlhTurnMultiwayOrColdRaiseShade(pressure20, oppCount, potFrac)
           : 0;
+      if (opts.v87DeepDiveDiscipline !== false)
+        noteHorseDeepDiveRule('nlh_turn_shade', extra87Turn > 0, extra87Turn > 0);
       if (extra87Turn > 0) {
         shade65 += extra87Turn;
         if (tele15) noteFire('v87_deep_dive_discipline');

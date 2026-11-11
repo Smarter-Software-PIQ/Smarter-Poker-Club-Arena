@@ -1,3 +1,4 @@
+import { HorseDeepDiveCapture } from '../HorseDeepDiveReceipt.js';
 import { HORSE_REQUEST_MAX_PLANS } from './requestRetentionBudget.js';
 import { horseHybridDecisionMatches } from '../HorseHybridProfile.js';
 import { HorsePlanReadCapture } from '../HorsePlanReadReceipt.js';
@@ -2771,10 +2772,12 @@ export class HorseDecisionWorkerRuntime {
   private executeFast(request: FastHorseDecisionRequest): HorseLifecycleOutcome {
     let rangeCapture: HorseRangeConsumptionCapture | undefined;
     let planReadCapture: HorsePlanReadCapture | undefined;
+    let deepDiveCapture: HorseDeepDiveCapture | undefined;
     try {
       if (this.deps.journalDecision && (this.deps.journalEnabled?.() ?? true)) {
         rangeCapture = new HorseRangeConsumptionCapture(request);
         planReadCapture = new HorsePlanReadCapture(request);
+        deepDiveCapture = new HorseDeepDiveCapture(request);
       }
     } catch {
       /* diagnostic capture cannot change admission or selection */
@@ -2907,7 +2910,8 @@ export class HorseDecisionWorkerRuntime {
               mindPlanContext: planContext,
             },
             rangeCapture,
-            planReadCapture
+            planReadCapture,
+            deepDiveCapture
           )
         )
       );
@@ -3026,6 +3030,7 @@ export class HorseDecisionWorkerRuntime {
           readFrame,
           rangeConsumption: rangeCapture?.finish(readFrame?.sha256 ?? null),
           planReads: planReadCapture?.finish(readFrame?.sha256 ?? null),
+          deepDive: deepDiveCapture?.finish(captured.value, readFrame?.sha256 ?? null),
           planContext,
           planBinding,
           decision: captured.value,
@@ -3100,10 +3105,12 @@ export class HorseDecisionWorkerRuntime {
   private executeDeep(request: DeepHorseDecisionRequest): HorseLifecycleOutcome {
     let rangeCapture: HorseRangeConsumptionCapture | undefined;
     let planReadCapture: HorsePlanReadCapture | undefined;
+    let deepDiveCapture: HorseDeepDiveCapture | undefined;
     try {
       if (this.deps.journalDecision && (this.deps.journalEnabled?.() ?? true)) {
         rangeCapture = new HorseRangeConsumptionCapture(request);
         planReadCapture = new HorsePlanReadCapture(request);
+        deepDiveCapture = new HorseDeepDiveCapture(request);
       }
     } catch {
       /* diagnostic capture cannot change admission or selection */
@@ -3220,7 +3227,8 @@ export class HorseDecisionWorkerRuntime {
                   mindPlanContext: planContext,
                 },
                 rangeCapture,
-                planReadCapture
+                planReadCapture,
+                deepDiveCapture
               )
             ).value
         )
@@ -3264,6 +3272,7 @@ export class HorseDecisionWorkerRuntime {
           readFrame: retained.frame,
           rangeConsumption: rangeCapture?.finish(retained.frame.sha256),
           planReads: planReadCapture?.finish(retained.frame.sha256),
+          deepDive: deepDiveCapture?.finish(decision, retained.frame.sha256),
           observerReads: retained.observerReads ?? null,
           planContext,
           decision,

@@ -1,3 +1,4 @@
+import { noteHorseDeepDiveRule } from './HorseDeepDiveReceipt.js';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  * HORSE PREFLOP V7 — Position-Pair Preflop Mastery (2026-07-24)
@@ -1002,6 +1003,7 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
       guardOdds,
       evidencedManiacRaiser: ctx.evidencedWideRaiser === true,
     });
+    noteHorseDeepDiveRule('priced_in_floor', minStr87 > 0, minStr87 > 0 && ctx.strength < minStr87);
     if (minStr87 > 0 && ctx.strength < minStr87) {
       ctx.noteLayer?.('v87_deep_dive_discipline');
       return out;
@@ -2198,6 +2200,8 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       ? (ctx.omahaHoleCount === 6 ? 0.07 : ctx.omahaHoleCount === 5 ? 0.04 : 0) +
         Math.min(2, Math.max(0, limpers - 1)) * 0.02
       : 0;
+    if (ctx.v87DeepDiveDiscipline === true)
+      noteHorseDeepDiveRule('limp_bar', omahaLimpDiscipline87, omahaLimpDiscipline87);
     const canLimpBehind =
       limpers >= 1 &&
       strength >= phase6CapBar(LIMP_BEHIND_MIN + omahaLimpTighten87 + phase6Shift('call'));
@@ -2369,6 +2373,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       ctx.evidencedWideRaiser !== true
     ) {
       const bump87 = v87OmahaColdCallTighten(ctx.omahaHoleCount, position, callers, stackBB);
+      noteHorseDeepDiveRule('cold_call_bar', bump87 > 0, bump87 > 0);
       if (bump87 > 0) {
         callThresh += bump87;
         ctx.noteLayer?.('v87_deep_dive_discipline');
@@ -2846,6 +2851,12 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       const odds = preflopCallOdds(ctx, pricePot, Math.min(toCall, stack));
       const rawRelief = Math.max(0, 0.5 - odds); // BB ~0.17, cold call ~0.09
       const priceRelief = bounds87 ? Math.min(bounds87.maxPriceRelief, rawRelief) : rawRelief;
+      if (ctx.v87DeepDiveDiscipline === true)
+        noteHorseDeepDiveRule(
+          'price_relief',
+          bounds87 !== null,
+          bounds87 !== null && priceRelief < rawRelief
+        );
       if (bounds87 && priceRelief < rawRelief) ctx.noteLayer?.('v87_deep_dive_discipline');
       callBar -= priceRelief;
     }
@@ -2882,6 +2893,12 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       if (bounds87 && callBar < bounds87.callFloor && callBar >= baseFloor) {
         ctx.noteLayer?.('v87_deep_dive_discipline');
       }
+      if (ctx.v87DeepDiveDiscipline === true)
+        noteHorseDeepDiveRule(
+          'call_floor',
+          bounds87 !== null,
+          bounds87 !== null && Math.max(floor87, callBar) > Math.max(baseFloor, callBar)
+        );
       callBar = Math.max(floor87, callBar);
     }
     callBar = phase6CapBar(callBar);
@@ -2950,6 +2967,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       );
       if (bounds87) {
         const omahaBbFloor = phase6CapBar(bounds87.callFloor + vs35.bbDefend + phase6Shift('call'));
+        noteHorseDeepDiveRule('blind_floor', true, omahaBbFloor > bbFloor);
         if (omahaBbFloor > bbFloor) {
           bbFloor = omahaBbFloor;
           ctx.noteLayer?.('v87_deep_dive_discipline');
