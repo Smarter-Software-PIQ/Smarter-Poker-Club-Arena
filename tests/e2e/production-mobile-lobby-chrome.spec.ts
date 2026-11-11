@@ -467,10 +467,11 @@ test.describe('the mobile lobby chrome on production', () => {
       await expect(lobby).toBeVisible();
       await openLobbyGameSection(lobby, 'ALL');
       await lobby.getByRole('tab', { name: 'ALL', exact: true }).click();
-      await lobby
-        .locator(`[data-testid="lobby-game-row"][data-id="${ids[i]}"]:visible`)
-        .getByRole('button', { name: /^Details:/ })
-        .click();
+      // The painted heading is the card's visible Details door. It invokes
+      // the same onSelect(entry) as the row's accessible Details button.
+      const heading = lobby.locator(`tr[data-game-heading="${ids[i]}"]:visible`);
+      await heading.evaluate((element) => element.scrollIntoView({ block: 'center' }));
+      await heading.click();
       const panel = page.getByRole('dialog').filter({ has: page.locator('.arena-game-card') });
       await panel.getByRole('button', { name: CASH_SPECTATOR_ACTION }).click();
       await expect(actionBar.locator(`[data-tabid="${ids[i]}"]`)).toHaveAttribute(

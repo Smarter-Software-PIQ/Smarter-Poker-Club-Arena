@@ -197,5 +197,32 @@ it('shows the earlier-starting database retry notice until it expires, then the 
   expect(cutover?.noticeAtMs).toBe(Date.parse('2026-11-10T23:30:00Z'));
   expect(cutover?.notBeforeMs).toBe(Date.parse('2026-11-10T23:50:00Z'));
   expect(cutover?.notAfterMs).toBe(Date.parse('2026-11-11T05:00:00Z'));
-  expect(bookedMaintenanceNotice(Date.parse('2026-11-11T05:00:00Z'))).toBeNull();
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-11T04:59:59.999Z'))?.id).toBe(
+    '2026-11-10-owner-asap-engine-2350z'
+  );
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-11T05:00:00Z'))?.id).toBe(
+    '2026-11-11-horse-clock-receipts-engine-0050z'
+  );
+});
+
+it('retains earlier notice priority before the amended receipt promise is visible', () => {
+  const own = BOOKED_MAINTENANCE_NOTICES.find(
+    (n) => n.id === '2026-11-11-horse-clock-receipts-engine-0050z'
+  );
+  expect(own?.noticeAtMs).toBe(Date.parse('2026-11-11T03:20:00Z'));
+  expect(own?.notBeforeMs).toBe(Date.parse('2026-11-11T03:40:00Z'));
+  expect(own?.notAfterMs).toBe(Date.parse('2026-11-11T06:30:00Z'));
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-11T03:40:00Z'))?.id).toBe(
+    '2026-11-10-closed-person-name-policy-db-retry'
+  );
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-11T04:59:59.999Z'))?.id).toBe(
+    '2026-11-10-owner-asap-engine-2350z'
+  );
+  const at = Date.parse('2026-11-11T05:00:00Z');
+  const primary = bookedMaintenanceNotice(at);
+  expect(primary?.id).toBe(own?.id);
+  expect(bookedMaintenanceNoticeText(primary!, at)).toBe(
+    'A Short Maintenance Break Can Start Any Time Before Tomorrow 12:30 AM Chicago Time. Play Pauses For About Five Minutes.'
+  );
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-11T06:30:00Z'))).toBeNull();
 });

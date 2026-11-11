@@ -214,18 +214,26 @@ describe('a whole table shares bounded reads and exact seat choices', () => {
     expect(batch?.size).toBe(10);
     expect(requests).toHaveLength(1);
   });
-  it('1/2 selects every current cash horse without discretionary session-history admission', async () => {
-    wholeGame();
+  it('1/2 selects 75% across the cash game and retains choices on later boundaries', async () => {
+    wholeGame(20);
     seats.forEach((s) => {
-      s.auto_rebuy = false;
+      s.auto_rebuy = true;
       Object.assign(s.table, { small_blind: 1, big_blind: 2, game_variant: 'plo8' });
     });
     failure = 'cash_player_session';
-    const batch = await wallets.readHorseTopUpBatch('table-0', () => true, 1000, 'game', true);
-    expect(batch?.size).toBe(6);
-    expect([...batch!.values()].every((s) => s.autoTopUp && s.wallet === 10000)).toBe(true);
-    expect(seats.filter((s) => s.table_id === 'table-0').every((s) => s.auto_rebuy)).toBe(true);
-    expect(seats.filter((s) => s.table_id !== 'table-0').every((s) => !s.auto_rebuy)).toBe(true);
+    for (const table of ['table-0', 'table-1', 'table-2', 'table-3']) {
+      const batch = await wallets.readHorseTopUpBatch(table, () => true, 1000, 'game', true);
+      expect(batch).not.toBeNull();
+      for (const [id, context] of batch!) {
+        expect(context.autoTopUp).toBe(seats.find((s) => s.user_id === id).auto_rebuy);
+        if (context.autoTopUp) expect(context.wallet).toBe(10000);
+      }
+    }
+    expect(seats.filter((s) => s.auto_rebuy)).toHaveLength(15);
+    const selected = seats.filter((s) => s.auto_rebuy).map((s) => s.id);
+    for (const table of ['table-3', 'table-2', 'table-1', 'table-0'])
+      await wallets.readHorseTopUpBatch(table, () => true, 1000, 'game', true);
+    expect(seats.filter((s) => s.auto_rebuy).map((s) => s.id)).toEqual(selected);
     expect(requests.some((r) => r.url.pathname.endsWith('cash_player_session'))).toBe(false);
   });
   it('refuses a wrong-stake maximum request before changing any seat preference', async () => {
@@ -245,7 +253,7 @@ describe('a whole table shares bounded reads and exact seat choices', () => {
     });
     const batch = await wallets.readHorseTopUpBatch('table-0', () => true, 400, 'game', true);
     expect(batch?.size).toBe(6);
-    expect([...batch!.values()].every((s) => s.autoTopUp)).toBe(true);
+    expect([...batch!.values()].filter((s) => s.autoTopUp)).toHaveLength(5);
     expect(seats.filter((s) => s.table_id !== 'table-0').every((s) => !s.auto_rebuy)).toBe(true);
   });
 });

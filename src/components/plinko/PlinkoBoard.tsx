@@ -134,18 +134,18 @@ function dropDiamondGeometry() {
     }
   };
   for (let i = 0; i < 8; i++) {
-    const table = ring(0.13, 0.16, i),
-      tableNext = ring(0.13, 0.16, i + 1),
-      rim = ring(0.27, 0.035, i),
-      rimNext = ring(0.27, 0.035, i + 1),
-      base = ring(0.255, -0.005, i),
-      baseNext = ring(0.255, -0.005, i + 1);
-    facet(new THREE.Vector3(0, 0.16, 0), tableNext, table, palette[1]);
+    const table = ring(0.18, 0.21, i),
+      tableNext = ring(0.18, 0.21, i + 1),
+      rim = ring(0.35, 0.045, i),
+      rimNext = ring(0.35, 0.045, i + 1),
+      base = ring(0.33, -0.012, i),
+      baseNext = ring(0.33, -0.012, i + 1);
+    facet(new THREE.Vector3(0, 0.21, 0), tableNext, table, palette[1]);
     facet(table, tableNext, rim, palette[i % 4]);
     facet(tableNext, rimNext, rim, palette[(i + 1) % 4]);
     facet(rim, rimNext, base, palette[0]);
     facet(rimNext, baseNext, base, palette[0]);
-    facet(base, baseNext, new THREE.Vector3(0, -0.29, 0), palette[(i + 2) % 4]);
+    facet(base, baseNext, new THREE.Vector3(0, -0.39, 0), palette[(i + 2) % 4]);
   }
   const geometry = new THREE.BufferGeometry();
   geometry.name = 'Brilliant Cut Diamond';
@@ -353,8 +353,10 @@ export default function PlinkoBoard(props: PlinkoBoardProps) {
       dropDiamondGeometry(),
       new THREE.MeshPhysicalMaterial({
         vertexColors: true,
-        metalness: 0.35,
-        roughness: 0.08,
+        metalness: 0.18,
+        roughness: 0.035,
+        iridescence: 0.55,
+        iridescenceIOR: 1.4,
         clearcoat: 1,
         envMapIntensity: 1.8,
         flatShading: true,
@@ -675,7 +677,7 @@ export default function PlinkoBoard(props: PlinkoBoardProps) {
         winRing.scale.set(grow, grow, 1);
         (winRing.material as THREE.MeshBasicMaterial).opacity = reduced ? 0.85 : Math.max(0, 1 - t);
       }
-      ball.rotation.set(0.22, reduced ? 0.32 : now / 850, -0.12);
+      ball.rotation.set(0.42, reduced ? 0.32 : now / 720, -0.12);
       // The machine around the board: the LEDs, the peg chase and flares, the
       // bucket pools, the diamond glows and the sparkle trail.
       const flying = falling.length;

@@ -3,35 +3,50 @@
  *
  * Dan's first Lightning hand took 18.4 s from his pool session opening to the
  * hand being dealt, and the browser's half of that join was never recorded, so
- * it could not be split into legs. One join is now timed end to end, on the
+ * it could not be split into legs. One join is timed end to end, on the
  * browser's own monotonic clock, and reported once through
  * `fn_report_lightning_join_timing`:
  *
- *   click              the Join press (or the entry page sending a seated
- *                      player straight to their room: a rejoin)
+ *   click              the Join press
  *   rejoin_checked     the rejoin door answered
  *   dialog_shown       the buy-in question is on screen (price + wallet read)
  *   confirm            the player confirmed an amount
  *   hold_answered      fn_cash_game_join held a chair
  *   purchase_answered  the buy-in purchase answered
- *   seated             the pool session was read back
+ *   seated             the pool session was read back (or a rejoin found one)
  *   room_open          the room page mounted
  *   socket_connected   the room's table socket is connected
  *   first_snapshot     the room's first snapshot arrived (in the pool)
  *   first_hand         the first snapshot carrying a hand
  *   cards_painted      that hand was painted (the RENDER_ACK moment)
  *
- * One join at a time per tab: a new Join replaces an unsent one. A join is
- * reported when its cards paint, or, if the player confirmed a buy-in and no
- * hand ever painted, once after JOIN_TIMEOUT_MS as a 'timeout'. A join the
- * player abandoned before confirming, or that was refused, is never sent.
- * A tab that was hidden at any point is flagged (`hidden`): its paint waited
- * for the player, not for us.
+ * EVERY JOIN THAT STARTS ENDS IN EXACTLY ONE REPORT (Dan, 2026-11-10: "measure
+ * the complete Join-to-visible-cards path, including failed attempts and tail
+ * latency"). The outcome and a reason code say how it ended; the database
+ * derives the leg it ended in from the last mark reached:
+ *
+ *   painted    the cards reached the screen (no reason)
+ *   refused    a door said no (signed out, frozen, game closed, seat taken...)
+ *   failed     a door could not be read or did not confirm
+ *   abandoned  the player closed the question, left the page, or pressed Join
+ *              again before this join bought a seat
+ *   timeout    JOIN_TIMEOUT_MS passed after a confirmed buy-in with no paint
+ *              (abandoned/QUESTION_IDLE when the player never confirmed)
+ *
+ * A Confirm pressed again after a refusal is a new attempt with its own single
+ * report, timed from that press (confirmLightningJoin); the refused attempt's
+ * report is never sent twice or changed.
+ *
+ * A reason code is an upper-case token ([A-Z0-9_]) chosen here or taken from
+ * a door's own error code. Never a card, an amount, a seat, a name or a
+ * message: lightningJoinReasonCode() keeps only the token, and the database
+ * refuses anything else. A tab that was hidden at any point is flagged
+ * (`hidden`): its paint waited for the player, not for us.
  *
  * Telemetry only: nothing here changes what the player sees or can do, and a
- * failure to send is silent. NO CARD, no amount, no seat: marks and ids only.
+ * failure to send is silent.
  */
-import { supabase } from '../lib/supabase';
+import { signedInAccessToken } from '../utils/clientErrorSink';
 
 export const LIGHTNING_JOIN_MARKS = [
   'click',
@@ -55,12 +70,17 @@ export type LightningRoomMark = Extract<
   'room_open' | 'socket_connected' | 'first_snapshot' | 'first_hand' | 'cards_painted'
 >;
 
-/** A join with a confirmed buy-in that never paints is reported after this. */
+export type LightningJoinOutcome = 'painted' | 'timeout' | 'refused' | 'failed' | 'abandoned';
+/** The ways a join ends other than painted cards or the timer. */
+export type LightningJoinEnding = Extract<LightningJoinOutcome, 'refused' | 'failed' | 'abandoned'>;
+
+/** A join is reported after this with no paint: timeout, or abandoned if never confirmed. */
 export const JOIN_TIMEOUT_MS = 180_000;
 
 export interface LightningJoinTimingPayload {
   kind: 'buy_in' | 'rejoin';
-  outcome: 'painted' | 'timeout';
+  outcome: LightningJoinOutcome;
+  reason: string | null;
   cluster_id: string | null;
   hidden: boolean;
   app_version: string | null;
@@ -77,7 +97,7 @@ interface ActiveJoin {
   timer: ReturnType<typeof setTimeout> | null;
 }
 
-export type LightningJoinSender = (payload: LightningJoinTimingPayload) => void;
+export type LightningJoinSender = (payload: LightningJoinTimingPayload, keepalive: boolean) => void;
 
 const now = (): number =>
   typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -96,11 +116,29 @@ function appVersion(): string | null {
   }
 }
 
-const defaultSender: LightningJoinSender = (payload) => {
+/**
+ * One fire-and-forget POST to fn_report_lightning_join_timing, the way the
+ * client error sink reaches its own RPC: a plain fetch, so it can go with
+ * `keepalive` when the page is closing (the Supabase client cannot). Signed-in
+ * players only (the RPC is not executable by anon); never reports itself.
+ */
+const defaultSender: LightningJoinSender = (payload, keepalive) => {
   try {
-    void Promise.resolve(
-      supabase.rpc('fn_report_lightning_join_timing', { p_timing: payload })
-    ).catch(() => undefined);
+    const base = import.meta.env.VITE_SUPABASE_URL;
+    const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    const token = signedInAccessToken();
+    if (typeof base !== 'string' || !base || typeof key !== 'string' || !key || !token) return;
+    void fetch(`${base.replace(/\/+$/, '')}/rest/v1/rpc/fn_report_lightning_join_timing`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: key,
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ p_timing: payload }),
+      keepalive,
+      credentials: 'omit',
+    }).catch(() => undefined);
   } catch {
     /* telemetry: a failure to send is no sample */
   }
@@ -108,13 +146,41 @@ const defaultSender: LightningJoinSender = (payload) => {
 
 let sender: LightningJoinSender = defaultSender;
 let active: ActiveJoin | null = null;
-let visibilityBound = false;
+let pageBound = false;
 
-function bindVisibility(): void {
-  if (visibilityBound || typeof document === 'undefined') return;
-  visibilityBound = true;
+/**
+ * A door's error as a reason code: its own upper-case code (PLATFORM_FROZEN,
+ * SEAT_RESERVED, GAME_BARRED, a Postgres SQLSTATE as PG_xxxxx) and nothing
+ * else. Free text, ids and numbers are never kept; no code found -> fallback.
+ */
+export function lightningJoinReasonCode(error: unknown, fallback: string): string {
+  const message =
+    typeof error === 'string'
+      ? error
+      : typeof error === 'object' && error !== null && 'message' in error
+        ? String((error as { message?: unknown }).message ?? '')
+        : '';
+  const token = /(?:^|[^A-Za-z0-9_])([A-Z][A-Z0-9]*_[A-Z0-9_]*[A-Z0-9])(?![A-Za-z0-9_])/.exec(
+    message
+  );
+  if (token) return token[1].slice(0, 64);
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code?: unknown }).code ?? '')
+      : '';
+  if (/^[0-9A-Z]{5}$/.test(code)) return `PG_${code}`;
+  return fallback;
+}
+
+function bindPage(): void {
+  if (pageBound || typeof window === 'undefined' || typeof document === 'undefined') return;
+  pageBound = true;
   document.addEventListener('visibilitychange', () => {
     if (active && pageHidden()) active.hidden = true;
+  });
+  // The tab is closing or navigating away: the join ends here, sent with keepalive.
+  window.addEventListener('pagehide', () => {
+    if (active) send('abandoned', 'PAGE_CLOSED', true);
   });
 }
 
@@ -123,36 +189,79 @@ function clear(): void {
   active = null;
 }
 
-function send(outcome: 'painted' | 'timeout'): void {
+function send(outcome: LightningJoinOutcome, reason: string | null, keepalive = false): void {
   const join = active;
   if (!join) return;
   clear();
-  sender({
-    kind: join.kind,
-    outcome,
-    cluster_id: join.clusterId,
-    hidden: join.hidden,
-    app_version: appVersion(),
-    marks: { ...join.marks },
-  });
+  try {
+    sender(
+      {
+        kind: join.kind,
+        outcome,
+        reason: outcome === 'painted' ? null : reason,
+        cluster_id: join.clusterId,
+        hidden: join.hidden,
+        app_version: appVersion(),
+        marks: { ...join.marks },
+      },
+      keepalive
+    );
+  } catch {
+    /* telemetry: a failure to send is no sample */
+  }
 }
 
-/** The Join press (or a direct rejoin). Replaces any unsent join in this tab. */
-export function startLightningJoin(
+function begin(
   clusterId: string | null,
-  kind: 'buy_in' | 'rejoin' = 'buy_in'
+  kind: 'buy_in' | 'rejoin',
+  zero: 'click' | 'confirm'
 ): void {
-  clear();
-  bindVisibility();
-  active = {
+  bindPage();
+  const join: ActiveJoin = {
     kind,
     clusterId,
     t0: now(),
-    marks: { click: 0 },
+    marks: { [zero]: 0 },
     room: null,
     hidden: pageHidden(),
     timer: null,
   };
+  join.timer = setTimeout(() => {
+    if (active !== join) return;
+    if (join.marks.confirm === undefined && join.marks.seated === undefined)
+      send('abandoned', 'QUESTION_IDLE');
+    else send('timeout', 'NO_PAINT');
+  }, JOIN_TIMEOUT_MS);
+  active = join;
+}
+
+/** The Join press. An unsent earlier join in this tab ends as abandoned/REPLACED. */
+export function startLightningJoin(
+  clusterId: string | null,
+  kind: 'buy_in' | 'rejoin' = 'buy_in'
+): void {
+  if (active) send('abandoned', 'REPLACED');
+  begin(clusterId, kind, 'click');
+}
+
+/**
+ * A Confirm press in the buy-in question.
+ *
+ * THE RETRY IS ITS OWN ATTEMPT (Dan, 2026-11-10: "a retry after refusal is
+ * measured correctly without duplicating the first report"). A refused or
+ * failed purchase leaves the question open, and the player may confirm again.
+ * The first attempt already ended in its one report, so its marks are never
+ * touched again; the retry starts a new attempt whose zero is the retry press
+ * (`confirm` = 0, no `click`), so it adds to the post-confirm stages and never
+ * to the click-based ones. A Confirm while the first attempt is still running
+ * is simply that attempt's confirm mark.
+ */
+export function confirmLightningJoin(clusterId: string | null): void {
+  if (active) {
+    markLightningJoin('confirm');
+    return;
+  }
+  begin(clusterId, 'buy_in', 'confirm');
 }
 
 /** A join-page mark (first one wins). No join in flight: nothing happens. */
@@ -161,12 +270,23 @@ export function markLightningJoin(mark: LightningJoinMark): void {
   if (!join || join.marks[mark] !== undefined) return;
   join.marks[mark] = Math.max(0, Math.round(now() - join.t0));
   if (pageHidden()) join.hidden = true;
-  if (mark === 'confirm' && !join.timer) {
-    join.timer = setTimeout(() => {
-      if (active === join) send('timeout');
-    }, JOIN_TIMEOUT_MS);
-  }
-  if (mark === 'cards_painted') send('painted');
+  if (mark === 'cards_painted') send('painted', null);
+}
+
+/** The join ended without cards: a door refused, a read failed, or the player left. */
+export function endLightningJoin(outcome: LightningJoinEnding, reason: string): void {
+  send(outcome, reason);
+}
+
+/**
+ * The player walked away before this join bought a seat (closed the question,
+ * left the entry page). A join already confirmed or seated is left running: it
+ * is the buy-in or the room that decides how it ends.
+ */
+export function abandonUnseatedLightningJoin(reason: string): void {
+  const join = active;
+  if (!join || join.marks.confirm !== undefined || join.marks.seated !== undefined) return;
+  send('abandoned', reason);
 }
 
 /** The entry door found the player already seated: this join is a rejoin into that room. */
@@ -175,11 +295,6 @@ export function markLightningJoinRejoined(roomId: string | null | undefined): vo
   active.kind = 'rejoin';
   markLightningJoin('seated');
   bindLightningJoinRoom(roomId);
-}
-
-/** The join was refused or abandoned: nothing is sent. */
-export function cancelLightningJoin(): void {
-  clear();
 }
 
 /** The join now belongs to this room (its pool session id). */

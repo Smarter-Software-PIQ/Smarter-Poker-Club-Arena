@@ -35,6 +35,7 @@ import {
   useRef,
   useState,
   type Context,
+  type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
 import * as RouterDom from 'react-router-dom';
@@ -54,6 +55,7 @@ export interface PageHelpProps {
   steps?: TutorialStep[];
   /** Extra class for positioning when the help sits outside a PageBar. */
   className?: string;
+  children?: ReactNode;
 }
 
 const FOCUS_ATTR = 'data-tutorial-focus';
@@ -160,7 +162,7 @@ function usePathname(): string {
   return typeof window === 'undefined' ? '/' : window.location.pathname;
 }
 
-export default function PageHelp({ title, summary, steps, className }: PageHelpProps) {
+export default function PageHelp({ title, summary, steps, className, children }: PageHelpProps) {
   const pathname = usePathname();
   const panelId = useId();
   const titleId = useId();
@@ -257,7 +259,7 @@ export default function PageHelp({ title, summary, steps, className }: PageHelpP
   }, [pathname, clearFocus]);
   useEffect(() => clearFocus, [clearFocus]);
 
-  const step = tour[index];
+  const step = tour[index] ?? intro;
   const last = index >= tour.length - 1;
 
   return (
@@ -281,13 +283,14 @@ export default function PageHelp({ title, summary, steps, className }: PageHelpP
           draggable={false}
         />
       </button>
-      {open &&
+      {(open || children) &&
         step &&
         createPortal(
           <div
             id={panelId}
             ref={panelRef}
             className="ca-tutorial-popup"
+            hidden={!open}
             role="dialog"
             aria-modal="false"
             aria-labelledby={titleId}
@@ -311,6 +314,9 @@ export default function PageHelp({ title, summary, steps, className }: PageHelpP
               {step.title}
             </h2>
             <p className="ca-tutorial-popup__body">{step.body}</p>
+            {index === 0 && children ? (
+              <div className="ca-tutorial-popup__details">{children}</div>
+            ) : null}
             <div className="ca-tutorial-popup__dots" aria-hidden="true">
               {tour.map((s, i) => (
                 <span

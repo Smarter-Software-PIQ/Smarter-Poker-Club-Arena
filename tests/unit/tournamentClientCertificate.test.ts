@@ -151,7 +151,9 @@ describe('closed tournament acceptance selection', () => {
   it('preserves auth, fixture cleanup, provenance and default coverage in the existing lanes', () => {
     const client = workflow.jobs['production-e2e'];
     const live = workflow.jobs['live-table-e2e'];
-    expect(client.concurrency.group).toBe('post-deploy-e2e-production');
+    expect(client.concurrency.group).toBe(
+      "${{ needs.publication-gate.outputs.cash_observation == 'true' && 'post-deploy-e2e-cash-observation' || 'post-deploy-e2e-production' }}"
+    );
     for (const lane of [client, live]) {
       const preserve = lane.steps.find(
         (s: any) => s.name === 'Preserve the closed tournament report validator'

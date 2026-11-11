@@ -22,8 +22,8 @@
  *   sign off     a word some horses tag on now and then: bro, man, sir...
  *   emoji        none at all for about half the fleet; the rest use their own
  *                two to four favourites, some rarely and some on most lines
- *   chattiness   some horses never talk; the others speak only occasionally
- *   throwiness   independently, some never gesture; the others do so sparingly
+ *   chattiness   every horse can speak, with its own occasional frequency
+ *   throwiness   every horse can gesture, independently and sparingly
  *
  * Emoji are built from code points (CLAUDE.md 5.3, no emoji in source), drawn
  * only from EMOJI_BY_MOOD, single code points with no joiners, and appended by
@@ -85,9 +85,9 @@ export interface VoiceStyle {
   emojiMode: EmojiMode;
   /** this horse's favourite emoji per mood (empty when emojiMode is never) */
   emoji: Readonly<Record<Mood, readonly string[]>>;
-  /** Independent talking habit: zero means this horse never chats; otherwise 0.15..0.95. */
+  /** Independent talking frequency, from 0.15 to 0.95. */
   chattiness: number;
-  /** Independent gesture habit: zero means no throws/reactions; otherwise 0.15..1.0. */
+  /** Independent gesture frequency, from 0.15 to 1.0. */
   throwiness: number;
   /** percent of lines with a slip of the thumb: 0 for most horses */
   typoPct: number;
@@ -178,8 +178,8 @@ export function voiceStyleFor(horseId: string): VoiceStyle {
       luck: favourites('luck'),
       greet: favourites('greet'),
     },
-    chattiness: pct(k('talks')) < 25 ? 0 : (15 + (personaHash(k('chatty')) % 81)) / 100,
-    throwiness: pct(k('gestures')) < 45 ? 0 : (15 + (personaHash(k('throwy')) % 86)) / 100,
+    chattiness: pct(k('talks')) < 25 ? 0.15 : (15 + (personaHash(k('chatty')) % 81)) / 100,
+    throwiness: pct(k('gestures')) < 45 ? 0.15 : (15 + (personaHash(k('throwy')) % 86)) / 100,
     typoPct: weighted<number>(k('typo'), [
       [0, 60],
       [6, 25],

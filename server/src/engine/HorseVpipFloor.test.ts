@@ -148,7 +148,7 @@ describe('the wiring', () => {
 
   it('the judged figures are read beside the eviction, from the same rows', () => {
     expect(BASE).toMatch(
-      /this\.nitStatus = await collectNitStatus\(this\.tableId\);\s*const nits = await collectNitEvictions\(this\.tableId\);/
+      /this\.nitStatus = await collectNitStatus\(this\.tableId\);\s*const nits = await collectNitEnforce\(this\.tableId\);/
     );
     expect(NIT).toMatch(/supabase\.rpc\('fn_nit_status', \{ p_table_id: tableId \}\)/);
     expect(SQL).toMatch(/CREATE OR REPLACE FUNCTION public\.fn_nit_status\(p_table_id uuid\)/);

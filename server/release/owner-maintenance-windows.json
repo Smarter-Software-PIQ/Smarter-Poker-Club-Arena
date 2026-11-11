@@ -1203,6 +1203,21 @@
         "path": "server/release/activation-floor.json",
         "sha256": "72bbb5fe8f245ad98d7b78f883009a16a2289816bd50cf4edd3258a121dffa48"
       }
+    },
+    {
+      "id": "2026-11-11-horse-clock-receipts-engine-0050z",
+      "ownerOrder": "Dan directly in Codex release chat 01a1bbdd-33d6-7680-b41e-fff1cf188f3f on November 10 at 15:34 America/Chicago explicitly ordered: I explicitly authorize a new ASAP engine cutover outside the routine 04:00-04:05 Chicago window, specifically to deploy the exact-clock Horse decision receipt enhancement in #10346. This is my direct authorization for that replacement. You may choose the earliest safe, bounded window through the maintained protected owner-order route. Create a fresh order; preserve the consumed 0650 order unchanged. Root Codex agent retains sole Stage, receiver, Backup and release custody. This is ONE actual activation replacing exact serving 840429a332ecb536d19b3b719fa6809e7bc63ca7 with a protected candidate containing the exact protected #10346 enhancement, not an extension or replay of any previous order. The owner authorized choosing the earliest safe bounded window, rather than a human-fixed expiry. Before any Stage selection or single-use claim, the release owner deliberately amended this same unconsumed booking after protected #10419 installed migration 20261110233909 after the in-progress Backup export, requiring a fresh compatible copy and full certification. Fixed admission now 03:40 UTC through 06:30 UTC November 11; updated notice declared from 03:20 UTC November 11. Earlier database and cash notices retain their priority; the changed receipt promise becomes primary at 05:00 UTC, so actual twenty-minute visibility cannot qualify before 05:20 UTC. This is a reviewed manual amendment under the original direct instruction, not an automatic renewal or another activation. Independently observe the actual public notice for at least twenty minutes after publication before dispatch; later visibility delays admission inside the fixed expiry. Require exact-head protected checks, immutable target and control, all four qualification shards and immutable images, compatible Backup certificate with full 1800-second soak, current production installed migration and function equality, actual serving-predecessor rehearsal in both directions, a fresh announcement between :05:30 and :49:00, normal 120s last-hand lead, hand-boundary drain, durable database freeze, 300s break, full 285s cutover/proof/rollback reserve, one-use claim, exact sealed identity, completed healthy thaw and fresh post-seal Backup. Source owner retains protected #10346 merge and natural tournament receipt acceptance for exact actionable turn start, applicable deadline, acceptance time and action origin. Existing source changes already on protected main can be carried only after exact containing qualification; no additional features. No migrations or new tournament-start hold. No direct restart, financial replay, competing operation, timer, watcher, repair loop, reduced reserve or extended freeze. Prior orders, claims and outcomes remain unchanged. Authority ends after this one activation or fixed expiry without automatic renewal; the standing daily schedule stays unchanged. Preserve the separately protected #10393 cash order and its unused claim unchanged. Reconcile its named custodian and verify no competing active operation before the single containing dispatch; retain any already-reserved original operation. The containing protected source also carries already-merged cash action 63c9285865a395ff3d333938e2af518b67a45288; cash acceptance stays with its source owner. This is no second activation or additional strategy assignment.",
+      "contains": "d86753a866822c0d038b1c64bfd2fcca8f6be107",
+      "playerNoticeAt": "2026-11-11T03:20:00Z",
+      "notBefore": "2026-11-11T03:40:00Z",
+      "notAfter": "2026-11-11T06:30:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "a14a5f26ebc79a55708f7f6d78f82832e20b10483ea6b96b7cca058a7e1b4d10"
+      }
     }
   ],
   "databaseWindows": [

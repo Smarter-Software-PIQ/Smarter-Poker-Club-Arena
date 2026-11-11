@@ -148,7 +148,7 @@ import {
   processLeavePending,
 } from '../services/supabase.js';
 import {
-  collectNitEvictions,
+  collectNitEnforce,
   collectNitStatus,
   type NitSeatStatus,
 } from '../services/supabase/nitGame.js';
@@ -10914,6 +10914,23 @@ export abstract class ServerTableEngineBase {
           this.dealsInWhileSittingOut(p.user_id))
     );
     if (roster.length < 2) return -1;
+    if (!this.isTournamentTable() && this.waitingForBB.size > 0) {
+      const playing = roster.filter((p) => !this.waitingForBB.has(p.user_id));
+      if (playing.length >= 2) {
+        // A waiter cannot occupy the small blind. Counting every waiter in
+        // that position can skip alternating waiting seats forever, or admit
+        // an entrant who actually posts the SB once the other waiters are
+        // removed. Predict the real hand with only the first seat after the
+        // playing small blind eligible to enter at BB.
+        const button = this.predictButtonSeat(roster);
+        const smallBlind = this.getNextSeat(button, playing);
+        const nextBigBlind = this.getNextSeat(smallBlind, roster);
+        const entering = roster.find(
+          (p) => p.seat_number === nextBigBlind && this.waitingForBB.has(p.user_id)
+        );
+        return this.predictBlindSeats(entering ? [...playing, entering] : playing)?.bigBlind ?? -1;
+      }
+    }
     return this.predictBlindSeats(roster)?.bigBlind ?? -1;
   }
 
@@ -12159,7 +12176,7 @@ export abstract class ServerTableEngineBase {
         // 2026-09-04). Read beside the eviction, at the same boundary, from the
         // same rows, so what a horse steers by is what it is stood up on.
         this.nitStatus = await collectNitStatus(this.tableId);
-        const nits = await collectNitEvictions(this.tableId);
+        const nits = await collectNitEnforce(this.tableId);
         for (const n of nits) {
           console.log(
             `[ServerTableEngine:${this.tableId}] nit game: ${n.userId} is at ` +

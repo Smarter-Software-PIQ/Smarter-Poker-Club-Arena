@@ -88,6 +88,7 @@
 
 /* The cash-out value: the one number a player weighs before the next street. */
 .readout {
+  text-align: center;
   position: absolute;
   z-index: 1;
   top: 56px;

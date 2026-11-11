@@ -44,7 +44,13 @@ on:
     workflows: ['Publish Club Arena']
     types: [completed]
   repository_dispatch:
-    types: [run-post-deploy-e2e, run-stats-pagination-proof, run-private-record-client-proof, run-plo-lightning-lifecycle-proof]
+    types:
+      [
+        run-post-deploy-e2e,
+        run-stats-pagination-proof,
+        run-private-record-client-proof,
+        run-plo-lightning-lifecycle-proof,
+      ]
 
 jobs:
   release-gameplay-readback:
@@ -423,13 +429,14 @@ jobs:
       client_navigation: ${{ steps.origin.outputs.client_navigation }}
       tournament_only: ${{ steps.origin.outputs.tournament_only }}
       keep_game_pages: ${{ steps.origin.outputs.keep_game_pages }}
+      cash_observation: ${{ steps.origin.outputs.cash_observation }}
       natural_addon: ${{ steps.origin.outputs.natural_addon }}
       natural_board_reveal: ${{ steps.origin.outputs.natural_board_reveal }}
       client_target_sha: ${{ steps.board-client.outputs.sha || steps.client-target.outputs.sha }}
       verification_sha: ${{ steps.client-target.outputs.verification_sha }}
     steps:
       - name: Checkout trusted publication verification
-        if: github.event_name == 'workflow_run' || (github.event_name == 'repository_dispatch' && (toJSON(github.event.client_payload.client_navigation) != 'null' || toJSON(github.event.client_payload.tournament_only) != 'null' || toJSON(github.event.client_payload.keep_game_pages) != 'null' || toJSON(github.event.client_payload.natural_board_reveal) != 'null'))
+        if: github.event_name == 'workflow_run' || (github.event_name == 'repository_dispatch' && (toJSON(github.event.client_payload.client_navigation) != 'null' || toJSON(github.event.client_payload.tournament_only) != 'null' || toJSON(github.event.client_payload.keep_game_pages) != 'null' || toJSON(github.event.client_payload.cash_observation) != 'null' || toJSON(github.event.client_payload.natural_board_reveal) != 'null'))
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -485,14 +492,15 @@ jobs:
                   throw new Error("Natural add-on observation requires one tournament UUID, exact engine SHA and no other mode.");'
               echo 'natural_addon=true' >> "$GITHUB_OUTPUT"
             fi
-            if node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD || "null"); process.exit(p && (Object.hasOwn(p,"client_navigation") || Object.hasOwn(p,"keep_game_pages")) ? 0 : 1)'; then
-              if node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD); process.exit(Object.hasOwn(p,"keep_game_pages") ? 0 : 1)'; then
+            if node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD || "null"); process.exit(p && (Object.hasOwn(p,"client_navigation") || Object.hasOwn(p,"keep_game_pages") || Object.hasOwn(p,"cash_observation")) ? 0 : 1)'; then
+              if node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD); process.exit((Object.hasOwn(p,"keep_game_pages") || Object.hasOwn(p,"cash_observation")) ? 0 : 1)'; then
                 [ "${EVENT_ACTION:-}" = run-post-deploy-e2e ] \
                   || { echo '::error::keep_game_pages requires the existing post-deploy event.'; exit 1; }
               fi
               node scripts/ci/client-navigation-certificate.mjs admit
               echo 'client_navigation=true' >> "$GITHUB_OUTPUT"
               node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD); console.log("keep_game_pages=" + (p.keep_game_pages === true));' >> "$GITHUB_OUTPUT"
+              node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD); console.log("cash_observation=" + (p.cash_observation === true));' >> "$GITHUB_OUTPUT"
               echo 'engine_trigger_sha=' >> "$GITHUB_OUTPUT"
               echo 'should_run=true' >> "$GITHUB_OUTPUT"
               exit 0
@@ -863,7 +871,10 @@ jobs:
     # cancel-in-progress true would instead kill the running certificate on
     # every merge; see tests/unit/postDeployE2EConcurrency.test.ts.
     concurrency:
-      group: post-deploy-e2e-production
+      # This fixed read-only journey owns a unique zero-balance fixture, so it
+      # does not contend with the broad suite's separate account. Repeated
+      # explicit requests still serialize; the broad suite keeps its group.
+      group: ${{ needs.publication-gate.outputs.cash_observation == 'true' && 'post-deploy-e2e-cash-observation' || 'post-deploy-e2e-production' }}
       cancel-in-progress: false
     # Cashier, the isolated stateful groups, and the responsive route sweep
     # normally finish well below this ceiling. Runs 37397055463 and
@@ -1654,7 +1665,7 @@ jobs:
           node "$RUNNER_TEMP/tournament-client-certificate.mjs" browser e2e-report/tournament-browser.json
 
       - name: Verify only the two client navigation repairs
-        if: needs.publication-gate.outputs.client_navigation == 'true' && needs.publication-gate.outputs.keep_game_pages != 'true' && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && steps.template_access.outcome == 'success'
+        if: needs.publication-gate.outputs.client_navigation == 'true' && needs.publication-gate.outputs.keep_game_pages != 'true' && needs.publication-gate.outputs.cash_observation != 'true' && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && steps.template_access.outcome == 'success'
         env:
           BASE_URL: https://smarter.poker/hub/club-arena/
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -1699,6 +1710,27 @@ jobs:
             --trace=retain-on-failure --output=test-results/keep-game-pages
           browser_rc=$?
           node "$RUNNER_TEMP/client-navigation-certificate.mjs" keep-game-pages-reports e2e-report/keep-game-pages.json
+          proof_rc=$?
+          [ "$browser_rc" -eq 0 ] && [ "$proof_rc" -eq 0 ]
+
+      - name: Verify the four-game cash observation journey
+        id: cash_observation
+        if: needs.publication-gate.outputs.cash_observation == 'true' && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && steps.template_access.outcome == 'success'
+        env:
+          BASE_URL: https://smarter.poker/hub/club-arena/
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
+          E2E_REQUIRE_AUTH: '1'
+        run: |
+          set +e
+          mkdir -p e2e-report
+          PLAYWRIGHT_JSON_OUTPUT_NAME=e2e-report/cash-observation.json npx playwright test \
+            tests/e2e/production-mobile-lobby-chrome.spec.ts \
+            --grep '^.*View Game opens four spectator games while preserving the lobby page$' \
+            --project=chromium --project=webkit-footer --reporter=line,json --workers=1 --retries=0 \
+            --trace=retain-on-failure --output=test-results/cash-observation
+          browser_rc=$?
+          node "$RUNNER_TEMP/client-navigation-certificate.mjs" cash-observation-reports e2e-report/cash-observation.json
           proof_rc=$?
           [ "$browser_rc" -eq 0 ] && [ "$proof_rc" -eq 0 ]
 
