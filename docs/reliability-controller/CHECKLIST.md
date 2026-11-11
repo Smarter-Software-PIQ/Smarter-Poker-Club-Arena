@@ -172,6 +172,11 @@ Email is NOT switched off by this project until Stage B is verified live.
 
 ## 4. Open Blockers
 
+**B2 (2026-11-11, open, external):** `download.osgeo.org` is unreachable, so the
+fixture image cannot build and `Native fixture prerequisites / native-smoke`
+fails, which by deliberate design fails the required `TypeScript Check`. This
+blocks #10419 only. See 9.6.
+
 - B1 Mac access. CLEARED 2026-11-10 22:30Z, without the folder grant. The
   Cowork folder request for `/Users/smarter.poker/Documents` is still refused
   by the app's permission layer and was not retried or worked around. The
@@ -535,3 +540,194 @@ merged as `a364cb39` during this batch. It is engine-side
 (`server/src/GameServer.ts`), so it is not serving until an engine release
 carries it, and its actual behaviour has not yet been read against this
 symptom. State: `audited`, not attributed as the fix.
+
+## 9. Delivery And Live Verification, 2026-11-11 (by incident UUID)
+
+Section 8 is the audit record and is left as written. This section records what
+was delivered, what is installed, what was read back from production, and the
+controller outcome. Nothing here is marked resolved because a patch exists.
+
+### 9.0 Two findings that changed the delivery, both mine to own
+
+**A merged migration that is REFUSED is not delivered.** `20261110224528`,
+`20261110224637`, `20261110235613` and `20261110235631` all merged and were all
+refused by the applier with nothing committed. A merge is not an install, and a
+PR that goes green says nothing about whether the applier accepted the file.
+Every one of the six incidents below is reported against
+`supabase_migrations.schema_migrations` and a live readback, never against a
+merge.
+
+**`-- SUPERSEDED BY` satisfies CI and does not satisfy production.**
+`scripts/ci/check-migrations-applied.mjs` honours the first-line marker (it only
+requires that the named version has a file in the tree).
+`public.fn_ca_merged_migration_install_watch` does not read the marker at all:
+section 2 of that function closes a row only when the version appears in
+`supabase_migrations.schema_migrations` or when `retired_at` is set, and
+`retired_at` is set only by a commit that shows the file `removed` or renamed
+away. A marker alone therefore leaves a never-installed file doing two wrong
+things forever - paging `MergedMigrationNotInstalled` every hour, and being
+re-dispatched to an applier that correctly refuses it every time, because
+`scripts/ci/apply-recorded-migration.mjs` will never run a file marked
+SUPERSEDED. Both happened at 00:42-00:43Z. The correct action for a
+never-installed superseded file is to retire it out of the active chain, as in
+#10217, #10179, #10158 and #5885.
+
+**The stale-pin guard is right.** `scripts/ci/migration-stale-pins.mjs` snapshots
+every function in `public` and `smarter_private` before the migration, finds the
+ones whose `md5(pg_get_functiondef(...))` changed, and refuses the transaction if
+any changed function's OLD md5 still appears in any `pg_proc.prosrc`. There is no
+`@stale-pin-ok` declaration anywhere in this tree and none was written here.
+
+### 9.1 `9f5b0304-8634-48b9-a8ec-ea9c2fc563e4` MergedMigrationNotInstalled
+
+- **Cause.** Two independent defects. (1) The watch read a renamed migration's
+  window header from the commit patch, which for a rename carries only the
+  changed hunk, so a `daily-maintenance` file was put on the ordinary route and
+  paged falsely; an empty-but-200 body read as "no window header" for the same
+  reason. (2) Four of this batch's own migrations merged and were refused, and a
+  `SUPERSEDED` marker does not retire them from the watch (9.0).
+- **Change.** `20261110194917` reads the whole file when the patch is not the
+  whole file and treats a blank body as unreadable and retryable
+  (`v_text !~ '[^[:space:]]'`, not `btrim(v_text) = ''`, which strips only
+  spaces and let `'   \n\t\n'` through - caught by the test added with it).
+  `20261110233941` withdrew the false page for `20261110173033`. #10430 retires
+  `20261110224528` and `20261110224637`.
+- **Tests.** `scripts/ci/test-a-merged-migration-left-uninstalled-is-paged.py`,
+  two new cases: an empty or blank raw body is unreadable and retried, never read
+  as an absent window header; an added file with an empty patch is read from its
+  raw text, not judged on nothing.
+- **PRs.** #10386, #10418, #10430.
+- **Installed.** `20261110194917` and `20261110233941` both in
+  `schema_migrations`.
+- **Live.** `window_install` for `20261110173033` is `true`; alert 376392 is
+  `resolved`; both in-body markers present.
+
+### 9.2 `61fc0986-d4dd-4b54-9c58-14b2605aecc0` fn_ca_cron_failure_watch, ca-collusion-daily
+
+- **Cause.** `fn_ca_collusion_scan(integer)` was cancelled at its own 120s
+  `statement_timeout` on every run from 2026-11-07 (`cron.job_run_details`:
+  2026-11-08, -09 and -10 all `failed` at exactly 2m00s,
+  `canceling statement due to statement timeout`, `line 6 at FOR over SELECT
+rows`). The driver ran one lateral aggregate per profile - 5,015 of them -
+  while only 1,056 had a transfer in the window, and its shape was pinned to
+  `idx_ca_hand_transfers_winner` so it could not use
+  `ca_hand_transfers_played_at_idx`.
+- **Change.** `20261110234905` groups the window once in a MATERIALIZED CTE and
+  keeps the profile restriction as an EXISTS. Equivalence was proved on a fixed
+  dataset in both `EXCEPT ALL` directions, on counts, sums and all three
+  thresholds. The retired-detector check is untouched.
+- **PRs.** #10418 (reissue of the refused `20261110224528`).
+- **Installed.** `20261110234905` in `schema_migrations`; marker
+  `READ THE WINDOW NOT EVERY PROFILE (20261110234905)` present; no
+  `CROSS JOIN LATERAL` remains in the function.
+- **Live, measured read-only 2026-11-11 00:50Z.** `EXPLAIN (ANALYZE)` of the
+  installed shape over the same 7-day window: **Execution Time 7,940 ms** against
+  the 120s timeout it was hitting, a ~15x margin, with
+  `Index Scan using ca_hand_transfers_played_at_idx` and a single hash join to
+  5,033 profiles (`Index Only Scan using profiles_pkey`). 449,508 directed pairs
+  to 249,256 undirected to 3,318 over threshold.
+- **Controller.** Still `escalated`. The job is `20 4 * * *`; the next real run
+  at 04:20Z is the confirmation. The defect is demonstrably gone; the incident is
+  NOT being closed ahead of that run.
+
+### 9.3 `38ae668f-352c-4ef3-80b8-d1f8931383fa` Tournament.atomic_finish_outcome_unknown
+
+- **Cause (controller).** `reliability_transition` latched `escalation_state` and
+  never cleared it, so an incident that recovered still read `escalated`. That
+  latch explains three of this batch's six handoffs.
+- **Change.** `20261110224707` clears `escalation_state` to `none` on any
+  transition to `recovered` or `closed`, and reconciles this incident to `closed`
+  gated on evidence (`235060db` resolved).
+- **Installed and live.** `closed / none`, reconcile event logged.
+
+### 9.4 `a974b740-b4d4-4c50-9b92-b4b89a1730da` LightningHandHost.post_commit_obligations_pending
+
+- **Cause.** A post-commit handoff with a durable successor was classified
+  `unclassified` rather than a warning.
+- **Change.** `20261110234927` matches source and error by exact equality and
+  additionally requires a durable successor
+  (`EXISTS (... hand_atomic_commits c WHERE c.hand_id = v_hand AND
+c.post_commit_payload IS NOT NULL)`), and refuses to install if
+  `post-commit-stranded-watchdog-5m` is not active. Plus the 9.3 latch fix.
+- **PRs.** #10418 (reissue of the refused `20261110224637`).
+- **Installed and live.** Marker `A DURABLE SUCCESSOR OWNS IT (20261110234927)`
+  present; incident `closed / none`, reconcile event logged.
+
+### 9.5 `a544b469-9226-4770-9f77-d5a77e085ea7` union_accounting_scheduler
+
+- **Cause.** Both causes in 8.5, unchanged: A, the uncached `touched` CTE
+  overruns the chunked tick's statement budget and keeps nothing; B, 8 chained
+  satellite seats are unresolvable because the owner is read only from a wallet
+  `entry` receipt on the immediate satellite.
+- **Live symptom.** A flap, not a steady alarm:
+  `escalated -> verifying` ("the alert resolved") then
+  `verifying -> escalated` ("no eligible recovery") about every 65 minutes -
+  19:49, 20:40, 20:54, 21:45, 21:59, 22:50, 23:04, 23:56, 00:09Z. The refire
+  follows each resolve by ~13 minutes, which is the post-install test: no refire
+  for one full cycle.
+- **Change.** `20261110235613` (one hop upstream, non-recursive, taken only when
+  `e.entries = 0`, accepted only when the upstream registration names no
+  satellite) and `20261110235631` (3-hour `generate_series` sub-ranges through
+  the existing range-keyed `inventory_basis_cache`, plus
+  `union_pnl_inventory_touches_frame_is_observed CHECK (frame_observed_at =
+observed_at) NOT VALID`). Certification is not weakened: the same certificate
+  is written, per sub-range.
+- **REFUSED, and why.** Merged in #10421 at 00:29:29Z; both refused at 00:30
+  with nothing committed, `migration_left_a_stale_pin`. Both changed bodies that
+  other installed functions pin by md5:
+  `fn_union_pnl_satellite_seat_owner` (`58b6c79c…`) by
+  `original_inventory_proof_sources_match()`, and
+  `fn_union_pnl_evidence_report` (`80f29ec1…`) by both that list and
+  `fn_accounting_union_earned_plan_advance` (`911c6c96…`). The pin graph was then
+  read read-only end to end: the list itself (`866cccb1…`) is pinned by nothing,
+  so the cascade terminates at four functions, and the catalog and
+  public-`search_path` md5s are identical for all four, so there is no second
+  spelling of any old md5 to clear.
+- **Reissue.** #10428 carries both patches byte-exact - same preimage pins, same
+  anchor-uniqueness checks, same 83-resolved/0-null/2-mismatch measurement, same
+  NOT VALID CHECK - and in the same transaction moves the advance's report pin
+  and the list's three entries, reading each new md5 back from the catalog after
+  the patch rather than hardcoding it, following `20261107234051`. Before COMMIT
+  it requires `original_inventory_proof_sources_match() IS TRUE` and that no old
+  md5 of any of the four remains in any `prosrc`, so the file refuses itself on
+  the same condition the applier would. #10428 also retires `20261110235613` and
+  `20261110235631` out of the chain.
+- **Open owner decision, deliberately not guessed.** The 2 departed-funding-club
+  flows stay `unsupported`. KINGS CLUB `a41434bb` funded the satellite entry and
+  The Felt Society `a0000000` received the 200.00 each. Which club's P&L bears it
+  is the owner's call.
+
+### 9.6 `78afb154-54ae-4661-bf7d-e5e3c18a6eb3` SpinFleetProducingNothing
+
+- **Cause.** Ownership first, as section 8.6 found: the fleet was producing, and
+  the alert could not tell a quiet room from a stalled one because it watched
+  `poker_spin_open_boards` without asking whether a person was in a waiting seat.
+  The threshold was not lowered.
+- **Change.** #10419: `20261110233909` gives `v_spin_unfilled_waits` a column
+  saying whether a human occupies the waiting seat; `infra/monitoring/spin-rules.yml`
+  and `SpinMetrics.ts` read the ladder the alert watches;
+  `aSpinAlertReadsTheLadderItWatches.law.test.ts` plus a `docs/laws.d/` entry bind
+  it.
+- **Controller.** `recovered / escalated`. It reached `recovered` at 20:42:00Z by
+  `quiet_window_passed` ("the alert stayed resolved for 30 minutes") after
+  `resolved_signal` at 20:11:27Z. The 9.3 latch fix clears `escalation_state` on a
+  _transition_, and this incident had already recovered before that fix installed,
+  so its latched `escalated` needs one honest forward transition to `closed` -
+  which is owed only once the monitoring correction is actually serving.
+  `20261110224707` deliberately asserts this incident was NOT cleared, and the
+  install would have failed if it had been.
+- **BLOCKED on an external outage, not on code.** #10419 cannot merge.
+  `download.osgeo.org` (140.211.15.30:443) is unreachable - from the GitHub
+  runners (`DeadlineExceeded ... dial tcp ... i/o timeout` building the fixture
+  image at the checksum-pinned `postgis-3.3.7.tar.gz`, `operations/release/fixture/Dockerfile:150`)
+  and independently from the owner's Mac (`curl` times out at 25s), from 00:05Z
+  onward. `Native fixture prerequisites / native-smoke` is not itself a required
+  check, but `.github/workflows/ci.yml` makes the required `TypeScript Check`
+  `needs: fixture_native` deliberately, so that "a skipped native prerequisite"
+  can never "masquerade as successful verification of affected source". That gate
+  is correct and was not touched, worked around, or declared ok. #10419 merges
+  when osgeo answers; a watcher reruns native-smoke automatically on the first
+  200/206. If the host stays down, the only other route is for the release owner
+  to cache or mirror that pinned tarball - a change to shared release
+  infrastructure and to a supply-chain input, which is not mine to make
+  unilaterally.
