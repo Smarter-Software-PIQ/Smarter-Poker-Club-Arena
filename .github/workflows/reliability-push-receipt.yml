@@ -1,0 +1,36 @@
+name: Reliability Push Device Receipt
+
+# Native proof for 20261111132958_reliability_push_device_receipts: the
+# per-push, per-device receipt (smarter_private.push_device_receipts,
+# public.fn_mint_push_receipt, public.fn_record_push_receipt and the
+# reliability_notification_device_receipts view). Runs
+# scripts/ci/test-push-receipt.py against a throwaway PostgreSQL 17 cluster,
+# never production. No timer: pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261111132958_reliability_push_device_receipts.sql
+      - scripts/ci/test-push-receipt.py
+      - .github/workflows/reliability-push-receipt.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reliability-push-receipt-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  reliability-push-receipt:
+    name: A push receipt is recorded once, only from the receiving device
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: A push receipt is recorded once, only from the receiving device
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-push-receipt.py
