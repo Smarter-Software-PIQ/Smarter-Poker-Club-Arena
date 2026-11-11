@@ -1,7 +1,7 @@
 .deck {
   position: relative;
   width: 100%;
-  min-height: 177px;
+  min-height: 0;
   aspect-ratio: 3 / 1;
   background-position: center;
   background-size: 100% 100%;
@@ -13,12 +13,14 @@
 }
 .crash {
   background-image: url('/assets/diamond-spins/crash-cockpit-deck-v1.webp');
+  mask: url('/assets/diamond-spins/crash-cockpit-deck-v1-mask.svg') center / 100% 100% no-repeat;
 }
 .plinko {
   background-image: url('/assets/diamond-spins/plinko-launch-deck-v1.webp');
 }
 .mines {
   background-image: url('/assets/diamond-spins/mines-vault-deck-v1.webp');
+  mask: url('/assets/diamond-spins/mines-vault-deck-v1-mask.svg') center / 100% 100% no-repeat;
 }
 .crossing {
   background-image: url('/assets/diamond-spins/crossing-dashboard-deck-v1.webp');

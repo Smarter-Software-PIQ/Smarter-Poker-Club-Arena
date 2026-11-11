@@ -62,7 +62,7 @@ import { useIsMounted } from '../hooks/useIsMounted';
 import PageSkeleton from '../components/common/PageSkeleton';
 import { LoadingState } from '../components/common/EmptyState';
 import CrashCurve, { type CrashPhase } from '../components/crash/CrashCurve';
-import { bonusPrizeBay, GameConsole, GamePanel } from '../components/games/GameConsole';
+import { GameConsole, GamePanel } from '../components/games/GameConsole';
 import { useMeasuredWidth } from '../hooks/useMeasuredWidth';
 import { useSceneBudget } from '../hooks/useSceneBudget';
 import BonusSetup, { guaranteeCopy } from '../components/games/BonusSetup';
@@ -1658,12 +1658,7 @@ function DiamondCrashGame() {
         pillInk={pillInk}
         aria-labelledby="diamond-crash-title"
         bays={[
-          bonusPrizeBay(
-            guaranteed?.chips ?? null,
-            showPaidReceipt ? (settledRound?.outcome?.payout_chips ?? null) : null,
-            guaranteed?.super ?? false,
-            earned.loading ? null : (budget.award?.entryDiamonds ?? budget.base)
-          ),
+          { label: 'Diamonds', value: formatWalletDiamonds(player?.diamonds ?? 0), ink: 'blue' },
           { label: 'Chips', value: formatWalletChips(player?.member_chips ?? 0), ink: 'silver' },
           {
             label: 'Auto',
@@ -1684,9 +1679,8 @@ function DiamondCrashGame() {
         secondary={
           earned.required || budget.award
             ? {
-                label: 'Spin The Wheel',
-                onClick: () => navigate(`/clubs/${routeClubId}/wheel`),
-                disabled: open || starting,
+                label: bet.toLocaleString(),
+                disabled: true,
               }
             : running
               ? { label: runLabel, ink: 'red', onClick: stopRun }
@@ -1721,18 +1715,25 @@ function DiamondCrashGame() {
                   // GameConsole lights it only while it is pressable.
                   flash: true,
                 }
-              : shortOfDiamonds
-                ? { label: 'Get Diamonds', ink: 'gold', onClick: () => navigate(BUY_DIAMONDS) }
-                : running
-                  ? { label: startLabel, ink: 'gold', disabled: true }
-                  : runSize
-                    ? { label: startLabel, ink: 'gold', onClick: startRun, disabled: !canStart }
-                    : {
-                        label: startLabel,
-                        ink: 'white',
-                        onClick: () => void handleStart(),
-                        disabled: !canStart,
-                      }
+              : earned.required && !budget.award
+                ? {
+                    label: 'Spin The Wheel',
+                    onClick: () => navigate(`/clubs/${routeClubId}/wheel`),
+                    disabled: starting || earned.loading,
+                  }
+                : shortOfDiamonds
+                  ? { label: 'Get Diamonds', ink: 'gold', onClick: () => navigate(BUY_DIAMONDS) }
+                  : running
+                    ? { label: startLabel, ink: 'gold', disabled: true }
+                    : runSize
+                      ? { label: startLabel, ink: 'gold', onClick: startRun, disabled: !canStart }
+                      : {
+                          label: starting || waitSeconds > 0 ? startLabel : 'Spin The Wheel',
+                          'aria-label': startLabel,
+                          ink: 'white',
+                          onClick: () => void handleStart(),
+                          disabled: !canStart,
+                        }
         }
       >
         <div className={`${styles.stage} ${styles.crashStage}`} ref={stageRef}>

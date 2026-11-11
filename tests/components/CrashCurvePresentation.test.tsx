@@ -16,7 +16,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-const frames = vi.hoisted(() => ({ render: vi.fn(() => true), cleanup: vi.fn(), fail: false }));
+const frames = vi.hoisted(() => ({
+  render: vi.fn(() => true),
+  cleanup: vi.fn(),
+  fail: false,
+  scene: null as import('three').Scene | null,
+}));
 const motion = vi.hoisted(() => ({ reduced: false, speed: 1 }));
 vi.mock('../../src/utils/animationSpeed', () => ({
   getAnimationSpeed: () => motion.speed,
@@ -30,8 +35,9 @@ vi.mock('../../src/components/games/sceneKit', async (original) => {
     ...actual,
     gameRenderer: (canvas: HTMLCanvasElement, width: number, height: number) => {
       if (frames.fail) throw new Error('No WebGL');
+      frames.scene = new THREE.Scene();
       return {
-        scene: new THREE.Scene(),
+        scene: frames.scene,
         camera: new THREE.PerspectiveCamera(38, width / height, 0.1, 150),
         renderer: { domElement: canvas },
         render: frames.render,
@@ -42,6 +48,7 @@ vi.mock('../../src/components/games/sceneKit', async (original) => {
 });
 import CrashCurve, {
   CRASH_FLASH_MS,
+  flightMultiplierCents,
   tickerHeat,
   tickerLabel,
   type CrashCurveProps,
@@ -796,4 +803,38 @@ describe('the frame is alive between rounds (phase 2)', () => {
     );
     expect(breathe).not.toContain('transform');
   });
+});
+
+it('moves smoothly between displayed hundredths without changing payout precision', () => {
+  const frames = Array.from({ length: 8 }, (_, i) =>
+    flightMultiplierCents(0.08, (i * 1000) / 60, 2000)
+  );
+  expect(new Set(frames).size).toBe(8);
+  expect(frames.every((value, i) => !i || value > frames[i - 1])).toBe(true);
+  expect(new Set(frames.map((n) => Math.floor(n))).size).toBeLessThan(8);
+  expect(flightMultiplierCents(0.08, 1e6, 2000)).toBe(2000);
+});
+
+it('advances the rendered fighter on every frame between displayed hundredths', () => {
+  const driver = clock();
+  let now = 0;
+  vi.spyOn(performance, 'now').mockImplementation(() => now);
+  render(
+    <CrashCurve
+      {...base}
+      phase="open"
+      growthK={0.08}
+      startedAtLocalMs={0}
+      replayElapsedMs={undefined}
+    />
+  );
+  const fighter = frames.scene!.getObjectByName('crash-fighter')!;
+  const positions: number[] = [];
+  for (let i = 0; i < 8; i++) {
+    now = (i * 1000) / 60;
+    driver.tick(now);
+    positions.push(fighter.position.x);
+  }
+  expect(new Set(positions).size).toBe(8);
+  expect(positions.every((position, i) => !i || position > positions[i - 1])).toBe(true);
 });

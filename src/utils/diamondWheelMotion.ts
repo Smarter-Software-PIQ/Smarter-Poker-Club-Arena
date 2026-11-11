@@ -23,7 +23,10 @@ const ACCEL = 0.12;
 const COAST_END = 0.37;
 const DISTANCE = ACCEL / 2 + (COAST_END - ACCEL) + (1 - COAST_END) / 3;
 
-export function wheelTravel(t: number): number {
+export function wheelTravel(t: number, initialSlope = 0): number {
+  const blend = Math.min(1, Math.max(0, initialSlope / 3));
+  if (blend > 0)
+    return (1 - blend) * wheelTravel(t) + blend * (1 - (1 - Math.min(1, Math.max(0, t))) ** 3);
   const x = Math.min(1, Math.max(0, t));
   if (x < ACCEL) return (x * x) / (2 * ACCEL * DISTANCE);
   if (x < COAST_END) return (ACCEL / 2 + x - ACCEL) / DISTANCE;
@@ -43,7 +46,8 @@ export function wheelPegTimes(
   from: number,
   target: number,
   count: number,
-  durationMs: number
+  durationMs: number,
+  initialSlope = 0
 ): number[] {
   const sector = 360 / count;
   const times: number[] = [];
@@ -53,7 +57,7 @@ export function wheelPegTimes(
     let hi = 1;
     for (let i = 0; i < 30; i += 1) {
       const mid = (lo + hi) / 2;
-      if (wheelTravel(mid) < fraction) lo = mid;
+      if (wheelTravel(mid, initialSlope) < fraction) lo = mid;
       else hi = mid;
     }
     times.push(((lo + hi) / 2) * durationMs);
