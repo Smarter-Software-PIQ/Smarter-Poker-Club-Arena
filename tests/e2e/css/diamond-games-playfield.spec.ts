@@ -1436,6 +1436,52 @@ for (const viewport of START_VIEWPORTS)
           }),
         };
       });
+      if (game === 'mines') {
+        await expect(page.getByText('Select A Diamond', { exact: true })).toHaveCount(0);
+        await expect(page.getByText('Select Any Diamond To Start')).toBeVisible();
+      }
+      if (game === 'plinko') {
+        const painted = await page.locator('[data-game-cabinet]').evaluate((cabinet) => {
+          const frame = cabinet.getBoundingClientRect();
+          const center = (element: Element) => {
+            const box = element.getBoundingClientRect();
+            return [
+              (box.x + box.width / 2 - frame.x) / frame.width,
+              (box.y + box.height / 2 - frame.y) / frame.height,
+            ];
+          };
+          const action = cabinet.querySelector('[data-plate="secondary"] span')!;
+          const prize = cabinet.querySelector('dl > div:nth-child(4)')!;
+          const a = action.getBoundingClientRect(),
+            b = prize.getBoundingClientRect();
+          return {
+            values: [
+              ...cabinet.querySelectorAll('[data-sculpted-selector] button[aria-pressed]'),
+            ].map(center),
+            action: center(action),
+            prize: center(prize),
+            captionY:
+              (Math.min(a.top, b.top) + Math.max(a.bottom, b.bottom)) / 2 / frame.height -
+              frame.y / frame.height,
+          };
+        });
+        // Independent measurements of the actual sapphire faces, not button-box centers.
+        const faces = [
+          [0.195, 0.315],
+          [0.345, 0.22],
+          [0.5, 0.17],
+          [0.655, 0.22],
+          [0.805, 0.315],
+        ];
+        for (let i = 0; i < painted.values.length; i++) {
+          expect(painted.values[i][0]).toBeCloseTo(faces[i][0], 2);
+          expect(painted.values[i][1]).toBeCloseTo(faces[i][1], 2);
+        }
+        expect(painted.action[0]).toBeCloseTo(0.7975, 2);
+        expect(painted.prize[0]).toBeCloseTo(0.7975, 2);
+        expect(painted.captionY).toBeGreaterThan(0.745);
+        expect(painted.captionY).toBeLessThan(0.79);
+      }
       expect(alignment.titleOffset).toBeLessThan(1);
       for (const label of alignment.labels) {
         expect(label.x).toBeLessThan(1);

@@ -232,13 +232,7 @@ export function GameConsole({
             ))}
           </dl>
           <div className={deck.actions}>
-            {primary ? (
-              action(primary, true)
-            ) : secondary ? (
-              action(secondary, true)
-            ) : (
-              <span className={deck.prompt}>Select A Diamond</span>
-            )}
+            {primary ? action(primary, true) : secondary ? action(secondary, true) : null}
             {primary && action(secondary)}
           </div>
         </div>

@@ -271,7 +271,15 @@ function rowDeadline(row: Tournament, nowMs: number): { key: string; atMs: numbe
   // Multi-day, between days: live (not terminal) but nothing on the row is
   // due; the resume arrives as a status change, not at a predictable instant.
   if (status === 'BAGGED') return null;
-  if (status !== 'RUNNING') {
+  // Tables can be opened with RUNNING already persisted before the first
+  // deal stamps both clock anchors. That row still owes the bounded start
+  // catch-up; otherwise its full-duration clock waits for the five-minute
+  // safety read because the opening level index has not changed.
+  if (
+    status !== 'RUNNING' ||
+    epochMs(row.started_at) === null ||
+    epochMs(row.level_started_at) === null
+  ) {
     const startsAt = epochMs(row.start_time);
     return startsAt === null ? null : { key: `start:${startsAt}`, atMs: startsAt };
   }
