@@ -5,9 +5,9 @@
  * A refused or failed leave re-arms the tracker for the next pool hand.
  * Leader-owned: started and stopped with the other horse services in index.ts.
  */
-import { supabase } from '../services/supabase/client.js';
-import { reportError } from '../services/errorReporter.js';
-import { onLightningBankTheWin } from './LightningBankTheWin.js';
+import { supabase } from './supabase/client.js';
+import { reportError } from './errorReporter.js';
+import { onLightningBankTheWin } from '../lightning/LightningBankTheWin.js';
 
 interface LeaveDoorEngine {
   leaveTable(userId: string): Promise<{ success?: boolean } | null | undefined>;

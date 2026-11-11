@@ -1,7 +1,7 @@
 import {
   startLightningBankTheWin,
   stopLightningBankTheWin,
-} from './lightning/LightningBankTheWinDoor.js';
+} from './services/LightningBankTheWinDoor.js';
 import { subscribePlayerSessionRevocations } from './services/PlayerSessionAccess.js';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
