@@ -2977,6 +2977,10 @@ export interface HorseDecideOpts {
    *  Hollywood tank timing balance. Default true; explicit false restores
    *  exact pre-V87 behavior for historical frozen-digest corpora. */
   v87HoldemOverhaul?: boolean;
+  /** Feature-only offline ablations. Live callers keep the default enabled. */
+  v87RiverBlockBetTrap?: boolean;
+  v87HollywoodTank?: boolean;
+  v87FlopStabCheckRaise?: boolean;
 }
 
 /**
@@ -6115,6 +6119,7 @@ export class HorseLogic {
             : this.decidePreflop(player, gs, vi, params);
         if (
           opts.v87HoldemOverhaul !== false &&
+          opts.v87HollywoodTank !== false &&
           !vi.isOmaha &&
           !vi.isShortDeck &&
           vi.holeCount === 2 &&
@@ -7106,6 +7111,7 @@ export class HorseLogic {
       // was recorded on the reference above. Pure reads, no RNG.
       if (
         opts.v87HoldemOverhaul !== false &&
+        opts.v87HollywoodTank !== false &&
         gs.stage !== 'preflop' &&
         !vi.isOmaha &&
         !vi.isShortDeck &&
@@ -8418,6 +8424,15 @@ export class HorseLogic {
             ? gs.currentBet
             : bb * 2
         : bb;
+    const nlhCashStraddle87 =
+      v87On &&
+      cashAction85 &&
+      gs.straddleActive === true &&
+      vi.holeCount === 2 &&
+      !vi.isOmaha &&
+      !vi.isShortDeck &&
+      !vi.isFixedLimit &&
+      !vi.isPotLimit;
     // V85 tapers with hero's effective stack (v85DepthWeight).
     const depth85 = (() => {
       let cover = 0;
@@ -8897,20 +8912,28 @@ export class HorseLogic {
         }
         const unit =
           gs.straddleActive === true && (v86 || (v87On && cashAction85))
-            ? v86
-              ? Math.max(
-                  bb * 2,
-                  raises === 0 && gs.currentBet > bb * 1.05 && gs.currentBet <= bb * 2.5
-                    ? gs.currentBet
-                    : bb * 2
-                )
-              : effBb87
+            ? nlhCashStraddle87
+              ? effBb87
+              : v86
+                ? Math.max(
+                    bb * 2,
+                    raises === 0 && gs.currentBet > bb * 1.05 && gs.currentBet <= bb * 2.5
+                      ? gs.currentBet
+                      : bb * 2
+                  )
+                : effBb87
             : bb;
         return Math.min(player.stack + player.bet, cover) / unit;
       })(),
       effectiveStackNormalized: gs.straddleActive === true && (v86 || (v87On && cashAction85)),
       ...(gs.straddleActive === true && (v86 || (v87On && cashAction85))
-        ? { straddleUnitCoins: v86 ? Math.max(bb * 2, Number(gs.straddleAmount ?? 0)) : effBb87 }
+        ? {
+            straddleUnitCoins: nlhCashStraddle87
+              ? effBb87
+              : v86
+                ? Math.max(bb * 2, Number(gs.straddleAmount ?? 0))
+                : effBb87,
+          }
         : {}),
       cashStakeBB: gs.asset === 'diamonds' ? bb / 100 : bb,
       raiserIsAllIn:
@@ -11847,6 +11870,7 @@ export class HorseLogic {
             return { action: 'check', thinkTime: 0 };
           }
           if (
+            opts.v87RiverBlockBetTrap !== false &&
             trueRiverNutTrap87 &&
             singleOppStack87 > pot * 0.45 &&
             unit87('rivertrap') < 0.16 + (persona87?.trapFrequency ?? 0.33) * 0.18
@@ -14456,7 +14480,7 @@ export class HorseLogic {
         !multiBoard36 &&
         v87HeroRiverBlockBetFrac(gs.actionHistory, player.user_id, gs.pot, toCall) !== null
       ) {
-        if (trueRiverNutTrap87) {
+        if (opts.v87RiverBlockBetTrap !== false && trueRiverNutTrap87) {
           if (tele15) noteFire('v87_river_block_trap_reraise');
           if (stack <= (pot + toCall) * 1.5)
             return this.legalize({ action: 'all_in', thinkTime: 0 }, player, gs, vi);
@@ -15162,6 +15186,7 @@ export class HorseLogic {
     // equity to stand it, otherwise the hand keeps its normal line.
     if (
       isV87Nlh &&
+      opts.v87FlopStabCheckRaise !== false &&
       street === 'flop' &&
       !planCallOnly23 &&
       !raisedAfterAggr &&

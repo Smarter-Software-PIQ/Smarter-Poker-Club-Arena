@@ -14,8 +14,10 @@
  * - Production `resolveHorseHybridProfile` (`grinder` cash / `tricky` tournament) and
  *   deterministic `holdemPersonaFor` Horse IDs.
  * - Eliminated (`stack <= 0`) and sitting-out (`is_sitting_out: true`) seat handling.
- * - Separate Arm A (`V87`) vs Arm B (`V86`) paired net extraction against the `80/48/32`
- *   70%-flop-stab LAG opponent, positional VPIP/PFR/3-bet breakdowns, and feature ablations.
+ * - Current-source V87-enabled vs V87-disabled paired net extraction, including a
+ *   synthetic conditional-aggression LAG opponent and positional VPIP/PFR/3-bet counts.
+ *   These toggles are not historical V86. Individual feature ablations require
+ *   separately specified cells; the standard matrix does not include them.
  */
 import { horseVariantRulesFor } from '../engine/VariantRules.js';
 import { HandController } from '../engine/HandController.js';

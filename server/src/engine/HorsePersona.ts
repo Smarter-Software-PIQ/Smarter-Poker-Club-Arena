@@ -425,8 +425,8 @@ export function holdemPersonaFor(horseId: string): HorseHoldemPersona {
   const h5 = (personaHash(`${id}|nlh_probe`) % 1000) / 1000;
   const h6 = (personaHash(`${id}|nlh_river`) % 1000) / 1000;
 
-  if (hArch < 28) {
-    // 28% LAG Shark: high 3-bet pressure, aggressive combo-draw raises, relentless probes
+  if (hArch < 25) {
+    // 25% LAG Shark: high 3-bet pressure, aggressive combo-draw raises, relentless probes
     return {
       archetype: 'lag_shark',
       nlh3BetMix: Math.round((0.46 + h1 * 0.18) * 100) / 100,
@@ -437,8 +437,8 @@ export function holdemPersonaFor(horseId: string): HorseHoldemPersona {
       riverBluffGear: Math.round((0.42 + h6 * 0.16) * 100) / 100,
     };
   }
-  if (hArch < 52) {
-    // 24% Tricky Trap: elevated EP limp-reraise traps, check-raises, and river block-bet traps
+  if (hArch < 45) {
+    // 20% Tricky Trap: elevated EP limp-reraise traps, check-raises, and river block-bet traps
     return {
       archetype: 'tricky_trap',
       nlh3BetMix: Math.round((0.3 + h1 * 0.14) * 100) / 100,
@@ -449,8 +449,8 @@ export function holdemPersonaFor(horseId: string): HorseHoldemPersona {
       riverBluffGear: Math.round((0.34 + h6 * 0.14) * 100) / 100,
     };
   }
-  if (hArch < 82) {
-    // 30% TAG Crusher: balanced preflop 3-bets, disciplined SPR control, clinical thin value
+  if (hArch < 85) {
+    // 40% TAG Crusher: balanced preflop 3-bets, disciplined SPR control, clinical thin value
     return {
       archetype: 'tag_crusher',
       nlh3BetMix: Math.round((0.34 + h1 * 0.16) * 100) / 100,
@@ -461,7 +461,7 @@ export function holdemPersonaFor(horseId: string): HorseHoldemPersona {
       riverBluffGear: Math.round((0.28 + h6 * 0.14) * 100) / 100,
     };
   }
-  // 18% Nit Hunter: punishes loose openers/limpers and stabs capped checked ranges
+  // 15% Nit Hunter: punishes loose openers/limpers and stabs capped checked ranges
   return {
     archetype: 'nit_hunter',
     nlh3BetMix: Math.round((0.22 + h1 * 0.12) * 100) / 100,

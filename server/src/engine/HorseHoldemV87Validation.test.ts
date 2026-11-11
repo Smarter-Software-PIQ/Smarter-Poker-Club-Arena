@@ -103,6 +103,7 @@ import { captureHorseHandJournalContext } from './HorseDecisionHandBinding.js';
 import { horsePlanBatchBindingFromRequest } from './HorsePlanHandIdentity.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { HorseLogic, type HorseGameStateV2 } from './HorseLogic.js';
+import * as preflopModule from './HorsePreflop.js';
 import { HorseMind, readScopeOf } from './HorseMind.js';
 import {
   createWinnerReadState,
@@ -183,6 +184,61 @@ describe('V87.1 Holdem Elite Strategy & Ecosystem Independent Validation', () =>
   });
 
   describe('1. Straddle snapshot, single stack normalization, 3xBB sizing & straddle action order', () => {
+    it('carries the actual NLH straddle unit across shallow and deep boundaries with V86 enabled', () => {
+      const preflop = vi.spyOn(preflopModule, 'decidePreflopV7');
+      try {
+        for (const straddleAmount of [4, 6]) {
+          for (const effectiveUnits of [25, 26, 35, 36, 60]) {
+            for (const v86PloOverhaul of [true, false]) {
+              preflop.mockClear();
+              const stack = effectiveUnits * straddleAmount;
+              const players = makeSeats(6, 6, cards('7d 7c'), stack);
+              for (const [index, bet] of [
+                [1, 1],
+                [2, 2],
+                [3, straddleAmount],
+              ]) {
+                players[index].bet = bet;
+                players[index].stack -= bet;
+              }
+              HorseLogic.decide(
+                players[5],
+                {
+                  stage: 'preflop',
+                  gameVariant: 'nlh',
+                  gameMode: 'cash',
+                  pot: 3 + straddleAmount,
+                  currentBet: straddleAmount,
+                  minRaise: straddleAmount * 2,
+                  smallBlind: 1,
+                  bigBlind: 2,
+                  dealerSeat: 1,
+                  straddleActive: true,
+                  straddleAmount,
+                  communityCards: [],
+                  players,
+                  dealtSeatIds: [1, 2, 3, 4, 5, 6],
+                  actionHistory: [],
+                  legalActions: ['fold', 'call', 'raise', 'all_in'],
+                },
+                'balanced',
+                {},
+                { v86PloOverhaul, decisionTimeMs: 1_700_000_000_000 }
+              );
+              expect(preflop).toHaveBeenCalled();
+              const input = preflop.mock.calls.at(-1)![0];
+              expect(input.effectiveStackNormalized).toBe(true);
+              expect(input.straddleUnitCoins).toBe(straddleAmount);
+              expect(input.effectiveStackBB).toBe(effectiveUnits);
+              expect(input.effectiveStackBB! * input.straddleUnitCoins!).toBe(stack);
+            }
+          }
+        }
+      } finally {
+        preflop.mockRestore();
+      }
+    });
+
     it('distinguishes unstraddled hands on straddle-enabled tables from live posted straddles', () => {
       const tableId = 'fa100000-0000-4000-8000-000000000101';
       const seatsUnstraddled = makeSeats(6, 4, cards('Ah 2h'), 240);
