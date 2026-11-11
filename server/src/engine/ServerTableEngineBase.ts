@@ -148,7 +148,7 @@ import {
   processLeavePending,
 } from '../services/supabase.js';
 import {
-  collectNitEvictions,
+  collectNitEnforce,
   collectNitStatus,
   type NitSeatStatus,
 } from '../services/supabase/nitGame.js';
@@ -12176,7 +12176,7 @@ export abstract class ServerTableEngineBase {
         // 2026-09-04). Read beside the eviction, at the same boundary, from the
         // same rows, so what a horse steers by is what it is stood up on.
         this.nitStatus = await collectNitStatus(this.tableId);
-        const nits = await collectNitEvictions(this.tableId);
+        const nits = await collectNitEnforce(this.tableId);
         for (const n of nits) {
           console.log(
             `[ServerTableEngine:${this.tableId}] nit game: ${n.userId} is at ` +
