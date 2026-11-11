@@ -3394,7 +3394,13 @@ export abstract class ServerTableEngineBase {
    * choosing who stands up, so no horse leaves the hand after a big pot.
    */
   public bigPotOrbitHandsOwed(userId: string): number {
-    return orbitHandsOwed(this.horseHandsSinceBigPot.get(userId), this.seatedPlayers.length);
+    // Durable first (the session row, 20261111174148); memory only before it exists.
+    const row = this.chipContinuity?.row(userId);
+    const since =
+      row && row.hands_since_big_pot !== undefined
+        ? (row.hands_since_big_pot ?? undefined)
+        : this.horseHandsSinceBigPot.get(userId);
+    return orbitHandsOwed(since, this.seatedPlayers.length);
   }
 
   /** This cash table is a Lightning anchor right now (hands are dealt in its pool). */
@@ -12263,6 +12269,14 @@ export abstract class ServerTableEngineBase {
         // would be the hit and run itself. It is blinded off for the hands it
         // owes, exactly as a confirmed early leave is. The VPIP boot (Dan
         // 2026-09-05) stays a system exit with its two-hour bar.
+        // ENGINE REPLACEMENT (2026-11-11): an empty mirror is not an answer.
+        // Ask the database for this seat's session before a clock cashes out
+        // a seat that may still owe hands; if it cannot answer, the system
+        // exit proceeds as before, so no seat is ever held on a guess.
+        if (!nitEvict && !this.chipContinuity.row(userId)) {
+          await this.chipContinuity.evaluate([{ user_id: userId, active: false }]);
+          if (!this.lifecycleCanMutate()) return;
+        }
         if (!nitEvict && this.chipContinuity.leaveLock(userId, seated.stack).locked) {
           const hands = this.chipContinuity.leaveLock(userId, seated.stack).handsRemaining;
           console.log(

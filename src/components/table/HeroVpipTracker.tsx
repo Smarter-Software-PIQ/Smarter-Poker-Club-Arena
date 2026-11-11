@@ -24,7 +24,11 @@
  * a slow backstop timer. One small RPC per hand per human.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { HIT_RUN_COUNT_LABEL } from '../../lib/hitAndRun';
+import {
+  HIT_RUN_COUNT_LABEL,
+  handsOwedReasonText,
+  type HandsOwedReason,
+} from '../../lib/hitAndRun';
 import { supabase } from '../../lib/supabase';
 import VpipRequirementBadge from './VpipRequirementBadge';
 import './HeroVpipTracker.css';
@@ -190,6 +194,8 @@ interface Props {
    * hero may leave, counted down after every completed hand. Null: none.
    */
   handsOwed?: number | null;
+  /** Why they are owed (owner 2026-11-11): the countdown in profit, a +250 BB win, or both. */
+  handsReason?: HandsOwedReason | null;
 }
 
 export default function HeroVpipTracker({
@@ -199,6 +205,7 @@ export default function HeroVpipTracker({
   handNumber,
   heroPos,
   handsOwed = null,
+  handsReason = null,
 }: Props) {
   const enabled = Boolean(tableId) && heroSeated && !isTournament;
   const { status, freshness } = useHeroVpipStatus(tableId, enabled, handNumber);
@@ -305,6 +312,9 @@ export default function HeroVpipTracker({
         <div className="hero-vpip__clock" data-testid="hero-hand-count">
           <span>{HIT_RUN_COUNT_LABEL}</span>
           <time aria-label={`${HIT_RUN_COUNT_LABEL} ${handsOwed}`}>{handsOwed}</time>
+          {handsOwedReasonText(handsReason) ? (
+            <small data-testid="hero-hand-count-reason">{handsOwedReasonText(handsReason)}</small>
+          ) : null}
         </div>
       )}
     </div>

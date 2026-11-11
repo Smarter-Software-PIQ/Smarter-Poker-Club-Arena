@@ -46,6 +46,24 @@ export interface CashSessionRow {
   hit_run_doubles: number;
   hit_run_completed: boolean;
   blind_off: boolean;
+  /**
+   * THE CHARLES RULE AFTER A LARGE WIN (owner 2026-11-11): a hand netting
+   * +250 BB or more owes ten subsequent hands, whatever the countdown above
+   * says. Absent fields (a database without the rule) read as none owed.
+   */
+  big_win_required?: number;
+  big_win_played?: number;
+  /** Why hands are owed: 'hit_run', 'big_win', 'both', or null. */
+  hands_reason?: 'hit_run' | 'big_win' | 'both' | null;
+  /** The +250 BB win, in big blinds, that started the big-win count. */
+  big_win_bb_won?: number | null;
+  /**
+   * BANK THE WIN (durable, 20261111174148): the session's opening buy-in
+   * capped at the table maximum, and eligible hands since a big pot (null =
+   * none). Absent before the migration installs.
+   */
+  start_basis?: number | null;
+  hands_since_big_pot?: number | null;
 }
 
 export interface CashSessionEntry {
@@ -81,7 +99,34 @@ function toRow(raw: unknown): CashSessionRow | null {
     hit_run_doubles: nonNegativeInt(o.hit_run_doubles),
     hit_run_completed: o.hit_run_completed === true,
     blind_off: o.blind_off === true,
+    big_win_required: nonNegativeInt(o.big_win_required),
+    big_win_played: nonNegativeInt(o.big_win_played),
+    hands_reason:
+      o.hands_reason === 'hit_run' || o.hands_reason === 'big_win' || o.hands_reason === 'both'
+        ? o.hands_reason
+        : null,
+    big_win_bb_won: (() => {
+      const net = Number(o.big_win_net);
+      const bb = Number(o.big_win_bb);
+      return Number.isFinite(net) && Number.isFinite(bb) && bb > 0
+        ? Math.round((net / bb) * 10) / 10
+        : null;
+    })(),
+    // Present-but-null (no big pot yet) differs from absent (no such column yet).
+    ...('start_basis' in o ? { start_basis: finiteOrNull(o.start_basis) } : {}),
+    ...('hands_since_big_pot' in o
+      ? {
+          hands_since_big_pot:
+            o.hands_since_big_pot === null ? null : nonNegativeInt(o.hands_since_big_pot),
+        }
+      : {}),
   };
+}
+
+function finiteOrNull(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 function nonNegativeInt(v: unknown): number {

@@ -23,7 +23,14 @@ export function useHeroHandCount(opts: {
   tableId: string | null | undefined;
   lightningClusterId: string | null | undefined;
   handNumber: number;
-  engine: { owed: number | null; required: number | null } | undefined;
+  engine:
+    | {
+        owed: number | null;
+        required: number | null;
+        reason?: HandCount['reason'];
+        bigWinBb?: number | null;
+      }
+    | undefined;
 }): HandCount {
   const { enabled, tableId, lightningClusterId, handNumber, engine } = opts;
   const [read, setRead] = useState<HandCount>(NONE);
@@ -66,7 +73,12 @@ export function useHeroHandCount(opts: {
   if (!enabled) return NONE;
   if (!useEngine) return read;
   const owed = owedHands(engine?.owed);
-  return { owed, required: owed === null ? null : owedHands(engine?.required) };
+  return {
+    owed,
+    required: owed === null ? null : owedHands(engine?.required),
+    reason: owed === null ? null : (engine?.reason ?? null),
+    bigWinBb: owed === null ? null : (engine?.bigWinBb ?? null),
+  };
 }
 
 /**
@@ -81,15 +93,21 @@ export function useHandsAddedByDouble(count: HandCount, onAdded: (added: number)
   useEffect(() => {
     const before = prev.current;
     prev.current = count;
+    // A Charles double raises the countdown's own total. When a +250 BB win
+    // is (or was) what the count shows, its total is not the countdown's, so
+    // a change in it is never announced as a double.
+    const bigWin = (c: HandCount) => c.reason === 'big_win' || c.reason === 'both';
     if (
       before.owed !== null &&
       before.required !== null &&
       count.owed !== null &&
       count.required !== null &&
-      count.required > before.required
+      count.required > before.required &&
+      !bigWin(before) &&
+      !bigWin(count)
     )
       notify.current(count.required - before.required);
-  }, [count.owed, count.required]);
+  }, [count.owed, count.required, count.reason]);
 }
 
 /**
@@ -102,7 +120,7 @@ export function useHandsAddedByDouble(count: HandCount, onAdded: (added: number)
 export function useCountdownStarted(
   count: HandCount,
   handNumber: number,
-  onStart: (hands: number) => void
+  onStart: (hands: number, reason?: HandCount['reason'], bigWinBb?: number | null) => void
 ): void {
   const prev = useRef<HandCount>(NONE);
   const firstHand = useRef<number | null>(null);
@@ -122,6 +140,32 @@ export function useCountdownStarted(
       firstHand.current !== null &&
       handNumber > firstHand.current
     )
-      notify.current(count.owed);
+      notify.current(count.owed, count.reason, count.bigWinBb);
   }, [count.owed, count.required, handNumber]);
+}
+
+/**
+ * THE CHARLES RULE AFTER A LARGE WIN (owner 2026-11-11): another win of 250
+ * big blinds or more while hands are already owed resets the count to ten.
+ * Said when it happens, so a count going back up is never a surprise.
+ */
+export function useBigWinRestarted(
+  count: HandCount,
+  onRestart: (hands: number, bigWinBb: number | null) => void
+): void {
+  const prev = useRef<HandCount>(NONE);
+  const notify = useRef(onRestart);
+  notify.current = onRestart;
+  useEffect(() => {
+    const before = prev.current;
+    prev.current = count;
+    if (
+      before.owed !== null &&
+      count.owed !== null &&
+      count.owed > before.owed &&
+      (count.reason === 'big_win' || count.reason === 'both') &&
+      count.required === count.owed
+    )
+      notify.current(count.owed, count.bigWinBb ?? null);
+  }, [count.owed, count.required, count.reason, count.bigWinBb]);
 }

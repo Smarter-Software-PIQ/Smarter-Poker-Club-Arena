@@ -147,7 +147,9 @@ describe('the count between Lightning hands', () => {
   });
   it('TablePage renders it only for a seatless Lightning hero at a cash table', () => {
     const page = flat('src/pages/TablePage.tsx');
-    expect(page).toMatch(/<HitRunCountPill hands=\{heroHandsOwed\} \/>/);
+    expect(page).toMatch(
+      /<HitRunCountPill hands=\{heroHandsOwed\} reason=\{heroHandCount\.reason \?\? null\} \/>/
+    );
     const css = read('src/components/table/HitRunCountPill.css')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .toLowerCase();
