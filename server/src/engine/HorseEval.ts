@@ -2666,8 +2666,9 @@ export function omahaElitePreflopStrength(cards: Card[], isHiLo: boolean): numbe
 /**
  * V86 Short Deck (6+) Preflop Shape Strength.
  * Boosts suited Aces and suited connectors/one-gappers (where straights & flushes
- * dominate in 36-card decks and flushes beat full houses) while shading small
- * pocket pairs (66-99) whose sets lose to flushes.
+ * dominate in 36-card decks and flushes beat full houses) while re-centering small
+ * pocket pairs (66-99), dominated offsuit Aces, and disconnected offsuit/rag hands
+ * onto the Hold'em preflop threshold scale (rank 6 is the bottom rank of the 36-card deck).
  */
 export function shortDeckElitePreflopStrength(cards: readonly Card[]): number {
   if (cards.length !== 2) return holdemPreflopScore(cards[0], cards[1], true);
@@ -2682,17 +2683,33 @@ export function shortDeckElitePreflopStrength(cards: readonly Card[]): number {
 
   let delta = 0;
   if (r1 === r2) {
-    if (hi <= 9)
-      delta -= 0.065; // 66-99 sets lose to flushes & face huge straight density
-    else if (hi === 10) delta -= 0.025;
-  } else {
-    if (suited && hi === 14)
+    if (hi <= 7)
+      delta -= 0.14; // 66-77: bottom pairs of 36-card deck; sets lose to flushes
+    else if (hi === 8) delta -= 0.11;
+    else if (hi === 9) delta -= 0.075;
+    else if (hi === 10) delta -= 0.03;
+  } else if (suited) {
+    if (hi === 14)
       delta += 0.065; // Nut flush draw is king in 6+
-    else if (suited && gap <= 1 && lo >= 7)
-      delta += 0.07; // JTs, T9s, 98s, 87s
-    else if (suited && gap === 2 && lo >= 7)
-      delta += 0.045; // QTs, J9s, T8s, 97s
-    else if (!suited && gap === 1 && lo >= 9) delta += 0.03; // KQo, QJo, JTo, T9o
+    else if (gap <= 1 && lo >= 7)
+      delta += 0.07; // KQs, QJs, JTs, T9s, 98s, 87s
+    else if (gap === 1 && lo === 6)
+      delta += 0.04; // 76s
+    else if (gap === 2 && lo >= 8)
+      delta += 0.045; // KJs, QTs, J9s, T8s
+    else if (gap >= 3 && lo <= 8) delta -= 0.1; // Disconnected low suited gappers
+  } else {
+    if (hi === 14 && lo <= 9)
+      delta -= 0.14; // A6o-A9o lack nut flush equity & face reverse implied odds
+    else if (lo >= 10) {
+      if (hi === 14 && lo === 13) delta += 0;
+      else if (gap === 1) delta -= 0.02;
+      else delta -= 0.06;
+    } else if (gap === 1 && lo >= 7) {
+      delta -= 0.09; // T9o, 98o, 87o
+    } else {
+      delta -= 0.15; // Disconnected offsuit rags (K6o-K9o, Q6o-Q9o, J6o-J9o, T6o-T8o, 76o, etc.)
+    }
   }
   return clamp01(base + delta);
 }

@@ -8248,7 +8248,7 @@ export class HorseLogic {
             ...(omahaElite ? { omahaElite } : {}),
             ...(ploPersona ? { ploPersona3BetMix: ploPersona.plo3BetMix } : {}),
             plo3BetRoll: v86Hash01(
-              `${player.user_id}:${Math.round(gs.pot * 100)}:${player.cards.map((c) => `${c.rank}${c.suit[0]}`).join('')}`,
+              `${player.user_id}:${Math.round((gs.pot / Math.max(1e-6, bb)) * 100)}:${player.cards.map((c) => `${c.rank}${c.suit[0]}`).join('')}`,
               8601
             ),
           }
@@ -8668,8 +8668,9 @@ export class HorseLogic {
     const useThin10 = (opts.v10ThinValue ?? opts.v10) !== false;
     const v86 = opts.v86PloOverhaul !== false;
     const ploPersona = v86 ? ploPersonaFor(player.user_id) : null;
+    const v86PostflopBb = Math.max(1e-6, gs.bigBlind || 2);
     const v86SeedKey = v86
-      ? `${player.user_id}:${gs.stage}:${Math.round(gs.pot * 100)}:${player.cards.map((c) => `${c.rank}${c.suit[0]}`).join('')}:${(gs.communityCards ?? []).map((c) => `${c.rank}${c.suit[0]}`).join('')}`
+      ? `${player.user_id}:${gs.stage}:${Math.round((gs.pot / v86PostflopBb) * 100)}:${player.cards.map((c) => `${c.rank}${c.suit[0]}`).join('')}:${(gs.communityCards ?? []).map((c) => `${c.rank}${c.suit[0]}`).join('')}`
       : '';
     const { currentBet } = gs;
     const trustedTournament = trustedTournamentContext(gs);
@@ -9102,18 +9103,7 @@ export class HorseLogic {
       // single pot bet as "two pair or better on THIS board" three times
       // over, so per-board pricing keeps only the legacy contact read.
       const oppReadsPerBoard = oppReads
-        ? oppReads.map((r) =>
-            r
-              ? {
-                  aggrW: r.aggrW,
-                  checked: r.checked,
-                  bigBet: r.bigBet,
-                  ...(v86 && ((r.streets ?? 0) >= 2 || r.raised === true)
-                    ? { streets: r.streets, raised: r.raised }
-                    : {}),
-                }
-              : null
-          )
+        ? oppReads.map((r) => (r ? { aggrW: r.aggrW, checked: r.checked, bigBet: r.bigBet } : null))
         : undefined;
       let sum = 0;
       const loAcc: HiLoSplit | undefined = hiLoSplit
@@ -11316,7 +11306,7 @@ export class HorseLogic {
       }
       const sprValShift86 =
         v86 && vi.isOmaha && !vi.isFixedLimit
-          ? spr <= 3
+          ? !isRiver && spr <= 3 && (!dangered || nutClass15)
             ? -0.04
             : spr >= 7 && !nutClass15
               ? 0.035
@@ -11562,15 +11552,19 @@ export class HorseLogic {
       ) {
         const dLead86 = drawInfo40();
         const nutComboLead86 =
+          !quartered &&
           !!dLead86 &&
           dLead86.nutFlushDraw &&
           (dLead86.nutStraightOuts >= 6 || dLead86.straightOuts >= 8);
         const plo8ScoopLead86 =
           vi.isHiLo &&
           !vi.isFixedLimit &&
+          !quartered &&
+          !isRiver &&
           !!hiLoSplit &&
           hiLoSplit.lo >= 0.42 &&
-          hiLoSplit.scoop >= 0.26;
+          hiLoSplit.hi >= 0.35 &&
+          hiLoSplit.scoop >= 0.32;
         if (
           (nutComboLead86 || plo8ScoopLead86) &&
           v86Hash01(v86SeedKey, 8627) < (ploPersona?.comboDrawAggro ?? 0.65)
@@ -11770,9 +11764,11 @@ export class HorseLogic {
           sizes: vi.isFixedLimit
             ? [1]
             : vi.isPotLimit
-              ? rangeAdvantage?.advantage
-                ? [0.25, 0.33, 0.5, 0.75, 1]
-                : [0.33, 0.5, 0.75, 1]
+              ? v86 && vi.isHiLo && hiLoSplit && hiLoSplit.lo >= 0.4 && hiLoSplit.hi < 0.18
+                ? [0.25, 0.33]
+                : rangeAdvantage?.advantage
+                  ? [0.25, 0.33, 0.5, 0.75, 1]
+                  : [0.33, 0.5, 0.75, 1]
               : undefined,
           rand: fastRandom,
         });
@@ -11795,6 +11791,8 @@ export class HorseLogic {
           barrelPlan !== true &&
           !vi.isFixedLimit &&
           !multiBoard36 &&
+          !quartered &&
+          !(vi.isHiLo && hiLoSplit && hiLoSplit.hi < 0.22) &&
           (rangeAdvantage?.disadvantage || runoutFavorsOpponent) !== true &&
           oppCount <= 2 &&
           wetness <= 0.42 &&
@@ -12657,14 +12655,14 @@ export class HorseLogic {
     }
     const shadeDeep86 =
       v86 &&
+      !committed &&
       !vi.isOmaha &&
       !vi.isShortDeck &&
       !isTournamentMode(gs) &&
       !multiBoard36 &&
-      commitmentStack / Math.max(1, gs.bigBlind || 2) >= 120 &&
-      cat >= 1 &&
-      cat <= 2 &&
-      (raisedAfterAggr || potFrac >= 0.85) &&
+      commitmentStack / Math.max(1, gs.bigBlind || 2) >= 160 &&
+      cat === 2 &&
+      (raisedAfterAggr || (isRiver && potFrac >= 0.85)) &&
       exploit.callDownMod <= 1 &&
       !holdemRealDraw(player.cards, board)
         ? 0.08
@@ -13098,38 +13096,6 @@ export class HorseLogic {
         return raised;
       }
       return { action: 'call', amount: toCall, thinkTime: 0 };
-    }
-    if (
-      v86 &&
-      !planCallOnly23 &&
-      vi.isOmaha &&
-      drawsLive &&
-      !raisedAfterAggr &&
-      oppCount <= 2 &&
-      potFrac <= 1.0 &&
-      !multiBoard36 &&
-      !sat37.active
-    ) {
-      const d86 = drawInfo40();
-      const nutComboPump86 = !!d86 && d86.nutFlushDraw && d86.nutStraightOuts >= 6;
-      const plo8ScoopPump86 =
-        vi.isHiLo &&
-        !vi.isFixedLimit &&
-        !!hiLoSplit &&
-        hiLoSplit.lo >= 0.45 &&
-        hiLoSplit.hi >= 0.28;
-      if (
-        (nutComboPump86 || plo8ScoopPump86) &&
-        v86Hash01(v86SeedKey, 8632) < (ploPersona?.comboDrawAggro ?? 0.65)
-      ) {
-        const raiseTo86 = currentBet + (pot + toCall) * (0.85 + v86Hash01(v86SeedKey, 8633) * 0.15);
-        if (!this.v78CommitsWithoutJam(raiseTo86 * params.sizingMultiplier, player, gs, vi, opts)) {
-          planBarrel(equity);
-          if (tele15)
-            noteFire(plo8ScoopPump86 ? 'v86_multiboard_or_plo8' : 'v86_plo_combo_draw_pump');
-          return this.raiseTo(planHandKey, raiseTo86 * params.sizingMultiplier, player, gs, vi);
-        }
-      }
     }
 
     // ═══ BASELINE SEMI-BLUFF RAISE (2026-11-07) ══════════════════════════
@@ -13966,6 +13932,48 @@ export class HorseLogic {
           return decision;
         }
       }
+      if (
+        v86 &&
+        !planCallOnly23 &&
+        vi.isOmaha &&
+        drawsLive &&
+        !raisedAfterAggr &&
+        oppCount <= 2 &&
+        potFrac <= 1.0 &&
+        !multiBoard36 &&
+        !sat37.active
+      ) {
+        const d86 = drawInfo40();
+        const nutComboPump86 =
+          street === 'flop' &&
+          !quartered &&
+          !!d86 &&
+          d86.nutFlushDraw &&
+          (d86.nutStraightOuts >= 8 || (oppCount === 2 && d86.nutStraightOuts >= 6));
+        const plo8ScoopPump86 =
+          vi.isHiLo &&
+          !vi.isFixedLimit &&
+          !quartered &&
+          !isRiver &&
+          !!hiLoSplit &&
+          hiLoSplit.lo >= 0.45 &&
+          hiLoSplit.hi >= 0.32;
+        if (
+          (nutComboPump86 || plo8ScoopPump86) &&
+          v86Hash01(v86SeedKey, 8632) < (ploPersona?.comboDrawAggro ?? 0.65)
+        ) {
+          const raiseTo86 =
+            currentBet + (pot + toCall) * (0.85 + v86Hash01(v86SeedKey, 8633) * 0.15);
+          if (
+            !this.v78CommitsWithoutJam(raiseTo86 * params.sizingMultiplier, player, gs, vi, opts)
+          ) {
+            planBarrel(equity);
+            if (tele15)
+              noteFire(plo8ScoopPump86 ? 'v86_multiboard_or_plo8' : 'v86_plo_combo_draw_pump');
+            return this.raiseTo(planHandKey, raiseTo86 * params.sizingMultiplier, player, gs, vi);
+          }
+        }
+      }
       if (continuation38 && tele15)
         noteFire(
           callEv && callEv.ev >= 0
@@ -14664,13 +14672,15 @@ export class HorseLogic {
     // A tournament shove merits a visible decision, even for an obvious fold.
     // Match the outstanding price: an old short-stack all-in in a side pot
     // should not slow unrelated action on a later street.
+    const hwBb = Math.max(1e-6, gs.bigBlind || 2);
     if (
+      useGravity &&
       v86Hollywood &&
       stage !== 'preflop' &&
       ((d.action === 'raise' && facingBet) ||
-        (stage === 'river' && d.action === 'bet' && pricePot >= 25 * Math.max(1, gs.bigBlind || 2)))
+        (stage === 'river' && d.action === 'bet' && pricePot >= 25 * hwBb))
     ) {
-      const hwKey = `${tempoSeed}:${Math.floor(think * 1000)}:${Math.round(pricePot)}`;
+      const hwKey = `${tempoSeed}:${Math.floor(think * 1000)}:${Math.round((pricePot / hwBb) * 10)}`;
       if (v86Hash01(hwKey, 8609) < 0.28) {
         think += 2400 + 2400 * v86Hash01(hwKey, 8617);
       }
