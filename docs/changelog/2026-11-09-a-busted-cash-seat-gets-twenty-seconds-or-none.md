@@ -136,3 +136,29 @@ reaches) and proves, each case rolled back:
 
 Duplicate keys and concurrent replay of the purchase itself are also covered by
 the existing `test_rebuy_receipts.py` cases.
+
+### Deployment (2026-11-11)
+
+- Merged: #10325 (squash `5b6e25a0`) and #10374 (squash `993c8ed3`).
+- Activated by the sealed engine release of `05ab41c30fc21a8a98001827e9921ffc314b81e7`,
+  which contains both (workflow run 42965360845, sealed with exact-SHA proof).
+- Freeze 05:27:52 UTC, thaw 05:31:32 UTC by `05ab41c3`; platform not frozen afterwards.
+
+### Live behaviour observed (natural play only; no player was busted and no chips spent to test)
+
+- **Insufficient wallet, observed.** PLO5 1/2 Madness
+  (`8aea2cc5-e05a-4aa2-9404-ffa34a9fb33e`, union table, ordinary chip dealing).
+  A human whose seat club wallet (`a41434bb...`) read 0.00 against a minimum of
+  100 busted in the hand ending 05:52:15.694. The engine released the seat at
+  05:52:38.159 (`system`, zero stack, nothing credited) and the next hand
+  started at 05:52:38.591 without them. No later hand dealt them in. The 22.5 s
+  is this table's ordinary end-of-hand cadence (gaps between the eight hands
+  from 05:41 to 05:53 ran 18.6 to 23.9 s); the release came at the first
+  boundary after the bust, with no rebuy pause and no further deal. The wallet
+  row was readable, so the verdict was "cannot rebuy", not the fail-open path.
+- **Sufficient wallet: 20 s offer, paid rebuy, expiry without rebuy, and
+  exactly-once charging:** OUTSTANDING as natural observations. No human cash
+  rebuy row (`table_pending_addons`) and no other human cash bust occurred
+  between the thaw and 06:10 UTC. These paths are covered by the 33 engine
+  cases in `aBustedCashSeatGetsTwentySecondsOrNone.law.test.ts` and the seven
+  rolled-back database cases above.
