@@ -1529,9 +1529,9 @@ export class HorseSessionRotator {
             amount = Math.min(desiredTopUp, amount);
             if (isDiamondTable) amount = Math.floor(amount);
           }
-          const partialHighPloAllowed =
-            isPloCash && bb >= 5 && activePloStyle && amount >= buyIn * 0.5;
-          if (!partialHighPloAllowed) {
+          const partialHighStakeAllowed =
+            (isNlhCash || isPloCash) && bb >= 5 && activeDeepStyle && amount >= buyIn * 0.5;
+          if (!partialHighStakeAllowed) {
             if (amount < desiredTopUp) amount = 0;
           }
           if (amount >= bb) {

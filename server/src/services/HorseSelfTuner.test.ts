@@ -281,7 +281,7 @@ describe('HorseSelfTuner V12 - diagnosis and bounded nudges', () => {
   it('isolates NLH Cash 25%-30% VPIP envelope from MTT BENCH.vpip and Omaha Cash ceilings', () => {
     expect(NLH_CASH_VPIP_LO).toBe(0.25);
     expect(NLH_CASH_VPIP_HI).toBe(0.305);
-    expect(OMAHA_CASH_VPIP_HI).toBe(0.42);
+    expect(OMAHA_CASH_VPIP_HI).toBe(0.44);
     expect(BENCH.vpip).toEqual({ lo: 0.19, hi: 0.32 });
 
     // NLH Cash at 27%-29.5% VPIP is right inside the 25%-30.5% target and never tightened.
@@ -307,7 +307,7 @@ describe('HorseSelfTuner V12 - diagnosis and bounded nudges', () => {
     });
     expect(mtt22.mods.tightness).toBe(1);
 
-    // NLH Cash above 30.5% (31.5%) gets tightened, whereas Omaha Cash at 38% stays inside OMAHA_CASH_VPIP_HI (42%).
+    // NLH Cash above 30.5% (31.5%) gets tightened, whereas Omaha Cash at 38% stays inside OMAHA_CASH_VPIP_HI (44%).
     const cash315 = diagnoseAndNudge(base({ vpip: 315 }), {}, null, 0, null, {
       nlhCashShare: 1,
       omahaShare: 0,
