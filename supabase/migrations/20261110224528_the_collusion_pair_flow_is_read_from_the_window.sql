@@ -1,3 +1,4 @@
+-- SUPERSEDED BY 20261110234905
 -- 20261110224528_the_collusion_pair_flow_is_read_from_the_window.sql
 --
 -- Version reserved by scripts/reserve-migration-version.sh against this tree,

@@ -1,3 +1,4 @@
+-- SUPERSEDED BY 20261110234927
 -- 20261110224637_the_lightning_post_commit_handoff_is_a_warning.sql
 --
 -- Version reserved by scripts/reserve-migration-version.sh against this tree,
