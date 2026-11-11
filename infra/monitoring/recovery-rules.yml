@@ -98,3 +98,104 @@ groups:
             false. Four minutes is past the point where a park write or a
             time-bank accounting write should have settled.
           runbook: docs/runbooks/maintenance-break-fire-drill.md
+
+  # ── THE RELIABILITY CONTROLLER CANNOT REPORT ITS OWN SILENCE (2026-11-09) ──
+  # The Reliability Controller is a set of Postgres objects ticked by pg_cron, and it
+  # speaks through the same database's inbox and Messenger. If its tick stops,
+  # its outbox jams or its intake refuses alerts, the controller is the one
+  # thing that cannot say so. These four rules read gauges that
+  # server/scripts/collect-monitoring-health.sh takes from
+  # public.fn_reliability_controller_health() once a minute, and they are
+  # delivered by Alertmanager's email routes (severity critical or warning, no
+  # tournament component, no page label), which do not pass through the
+  # controller. The codex-inbox route also receives them; the controller's
+  # intake opens no incident for these names (seeded monitoring_self, not an
+  # incident, in migration 20261110045731), so email is their channel.
+  #
+  # Every expression is aggregated to an empty label set so the two halves of
+  # an `or` can never produce two alerts with the same labels.
+  #
+  # They are not suppressed in the maintenance break: the controller is in the
+  # database and the collector runs outside the engine container, so an engine
+  # restart changes neither.
+  - name: reliability-controller
+    rules:
+      - alert: ReliabilityControllerStale
+        expr: >-
+          max(reliability_controller_heartbeat_age_seconds) > 300
+          or time() - max(reliability_controller_heartbeat_timestamp_seconds) > 300
+        for: 5m
+        labels:
+          severity: critical
+          component: reliability-controller
+        annotations:
+          summary: 'The Reliability Controller has not ticked for {{ $value | humanizeDuration }}'
+          description: >-
+            reliability_tick() writes reliability_heartbeat every minute from
+            pg_cron job reliability-controller-tick. The heartbeat is more than
+            five minutes old, so incidents are not being escalated, confirmed,
+            closed or delivered. The second half of the expression keeps
+            counting from the last heartbeat time when the collector can no
+            longer reach the database, so this also fires when the database or
+            its REST API is down. Read cron.job_run_details for the job and
+            reliability_heartbeat.last_result.
+          runbook: docs/reliability-controller/HEALTH-SIGNAL.md
+
+      - alert: ReliabilityControllerMetricsAbsent
+        expr: absent(reliability_controller_heartbeat_age_seconds)
+        for: 15m
+        labels:
+          severity: critical
+          component: reliability-controller
+        annotations:
+          summary: 'No Reliability Controller health has been published for 15 minutes'
+          description: >-
+            Missing telemetry is not health. The collector publishes no
+            reliability_controller_heartbeat_age_seconds series when
+            public.fn_reliability_controller_health() is missing or refuses,
+            when the heartbeat has never ticked, when the answer is incomplete,
+            or when the textfile or node_exporter on the engine host is gone.
+            reliability_controller_collect_ok says whether the read itself
+            failed; the collector's journal (club-arena-money-health.service)
+            says why.
+          runbook: docs/reliability-controller/HEALTH-SIGNAL.md
+
+      - alert: ReliabilityControllerOutboxStuck
+        expr: >-
+          (
+            max(min_over_time(reliability_controller_notifications_queued[30m])) > 0
+            and max(reliability_controller_notifications_queued)
+              >= max(reliability_controller_notifications_queued offset 30m)
+          )
+          or max(reliability_controller_notifications_failed_24h) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: reliability-controller
+        annotations:
+          summary: 'Reliability Controller notifications are not reaching the Messenger'
+          description: >-
+            Either notifications have sat queued for 30 minutes without the
+            queue shrinking, or at least one notification created in the last
+            24 hours ended failed after five attempts. Read
+            reliability_controller_notifications_queued and
+            reliability_controller_notifications_failed_24h to see which, then
+            last_error on reliability_notifications. The owner may not be
+            receiving escalations in the Messenger while this fires.
+          runbook: docs/reliability-controller/HEALTH-SIGNAL.md
+
+      - alert: ReliabilityControllerIntakeRejections
+        expr: max(reliability_controller_intake_rejections_24h) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: reliability-controller
+        annotations:
+          summary: 'The Reliability Controller rejected {{ $value }} alert event(s) in the last 24 hours'
+          description: >-
+            An alert reached the operational inbox and the controller's intake
+            could not turn it into an observation, so it belongs to no
+            incident. reliability_intake_rejections holds the reason and
+            sqlstate for each. The inbox row itself is intact. This clears 24
+            hours after the last rejection.
+          runbook: docs/reliability-controller/HEALTH-SIGNAL.md
