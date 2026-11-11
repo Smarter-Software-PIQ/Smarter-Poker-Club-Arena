@@ -40,7 +40,10 @@ const DISPATCH_ONLY = new Set([
 // Receivers of a job-token dispatch: the event that is admitted, the
 // dispatch-intent receiver its admitting jobs prove, and the jobs that can
 // never see the admitted dispatch (with the clause that excludes it).
-const ADMITTED: Record<string, { admitted: string; receiver?: string; unreachable?: Record<string, string> }> = {
+const ADMITTED: Record<
+  string,
+  { admitted: string; receiver?: string; unreachable?: Record<string, string> }
+> = {
   'apply-merged-migration.yml': {
     admitted:
       "github.event_name == 'repository_dispatch' && github.event.action == 'apply-merged-migration'",
@@ -130,15 +133,21 @@ describe('a job token cannot start trusted work', () => {
         it(`${f} ${name} ${excluded ? 'can never see the admitted dispatch' : 'proves the exact dispatch intent first'}`, () => {
           const condition = String(job.if ?? '').replace(/\s+/g, ' ');
           if (excluded) {
-            expect(condition.startsWith(`(${excluded}`) || condition.startsWith(`${excluded}`) ||
-              condition.includes(`(${excluded} `) || condition.includes(` && ${excluded} &&`)).toBe(true);
+            expect(
+              condition.startsWith(`(${excluded}`) ||
+                condition.startsWith(`${excluded}`) ||
+                condition.includes(`(${excluded} `) ||
+                condition.includes(` && ${excluded} &&`)
+            ).toBe(true);
             expect(job.steps!.some((st) => st.name === PROVE)).toBe(false);
             return;
           }
           const first = job.steps![0];
           expect(first.name).toBe(PROVE);
           expect(String(first.if)).toContain("github.triggering_actor == 'github-actions[bot]'");
-          expect(String(first.run)).toContain('contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA');
+          expect(String(first.run)).toContain(
+            'contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA'
+          );
           expect(String(first.run)).toContain(`prove --receiver ${receiver}`);
           expect(RECEIVERS[receiver].path).toBe(`.github/workflows/${f}`);
         });
@@ -154,7 +163,9 @@ describe('a job token cannot start trusted work', () => {
       expect(text, f).not.toMatch(/fromdateiso8601\) - \(\.updated_at/);
     }
     for (const [name, r] of Object.entries(RECEIVERS) as Array<[string, { path: string }]>) {
-      expect(read(r.path.replace('.github/workflows/', '')), name).toContain(`prove --receiver ${name}`);
+      expect(read(r.path.replace('.github/workflows/', '')), name).toContain(
+        `prove --receiver ${name}`
+      );
     }
   });
 
@@ -164,13 +175,23 @@ describe('a job token cannot start trusted work', () => {
     expect(migrations).toContain('client_payload[intent_nonce]=$NONCE');
     const deploy = read('auto-deploy-hetzner.yml');
     expect(deploy).toContain('write --operation engine-certification');
-    expect(deploy).toContain('gh api --method POST "repos/$REPO/dispatches" --input "$RUNNER_TEMP/certification-dispatch.json"');
-    expect(readFileSync('scripts/ci/gto-v31-recheck-dispatch.mjs', 'utf8')).toContain("operation: 'gto-recheck'");
-    for (const f of ['dispatch-merged-migrations.yml', 'auto-deploy-hetzner.yml', 'gto-v31-qualification.yml']) {
+    expect(deploy).toContain(
+      'gh api --method POST "repos/$REPO/dispatches" --input "$RUNNER_TEMP/certification-dispatch.json"'
+    );
+    expect(readFileSync('scripts/ci/gto-v31-recheck-dispatch.mjs', 'utf8')).toContain(
+      "operation: 'gto-recheck'"
+    );
+    for (const f of [
+      'dispatch-merged-migrations.yml',
+      'auto-deploy-hetzner.yml',
+      'gto-v31-qualification.yml',
+    ]) {
       expect(read(f), f).toContain('name: dispatch-intents-${{ github.run_attempt }}');
     }
     for (const [op, spec] of Object.entries(OPERATIONS) as Array<[string, { sender: string }]>) {
-      expect(read(spec.sender.replace('.github/workflows/', '')), op).toContain('dispatch-intents-${{ github.run_attempt }}');
+      expect(read(spec.sender.replace('.github/workflows/', '')), op).toContain(
+        'dispatch-intents-${{ github.run_attempt }}'
+      );
     }
   });
 

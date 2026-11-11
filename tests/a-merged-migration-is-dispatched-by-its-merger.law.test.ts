@@ -171,7 +171,9 @@ describe('the merge dispatches the migrations it added', () => {
     expect(scriptCode).toContain('-F "client_payload[dry_run]=false"');
     expect(scriptCode.match(/repos\/\$REPO\/dispatches/g)).toHaveLength(1);
     // Each file is sent with the intent its plan phase recorded (dispatch-intent.mjs).
-    expect(scriptCode).toMatch(/for f in "\$\{DISPATCH\[@\]\}"; do\n\s+NONCE=\$\(jq [^\n]+\n\s+if \[\[ "\$NONCE" =~ \^\[0-9a-f\]\{32\}\$ \]\] && gh api --method POST/);
+    expect(scriptCode).toMatch(
+      /for f in "\$\{DISPATCH\[@\]\}"; do\n\s+NONCE=\$\(jq [^\n]+\n\s+if \[\[ "\$NONCE" =~ \^\[0-9a-f\]\{32\}\$ \]\] && gh api --method POST/
+    );
     expect(scriptCode).toContain('-f "client_payload[intent_nonce]=$NONCE"');
     expect(scriptCode).toMatch(/DISPATCH REFUSED[^\n]*not retried/);
     expect(scriptCode).not.toMatch(/--dry-run|dry_run\]=true|workflow run|actions\/workflows/);
@@ -386,7 +388,8 @@ esac
             GITHUB_RUN_ID: '1',
             GITHUB_RUN_ATTEMPT: '1',
             GITHUB_REPOSITORY: 'o/r',
-            GITHUB_WORKFLOW_REF: 'o/r/.github/workflows/dispatch-merged-migrations.yml@refs/heads/main',
+            GITHUB_WORKFLOW_REF:
+              'o/r/.github/workflows/dispatch-merged-migrations.yml@refs/heads/main',
             GITHUB_SHA: 'a'.repeat(40),
             GITHUB_EVENT_NAME: 'pull_request_target',
             GITHUB_OUTPUT: join(box, 'output'),

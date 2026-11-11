@@ -125,19 +125,24 @@ jobs:
 
       - name: Name the verdict in the summary
         if: always()
+        # The verdict reaches the shell as data, never as script text, and only
+        # one of the fixed words is printed.
+        env:
+          DOORS_VERDICT: ${{ steps.doors.outputs.verdict || 'unchecked' }}
         run: |
           set -uo pipefail
+          case "$DOORS_VERDICT" in proved|allowed|warned|refused|unchecked) ;; *) DOORS_VERDICT=unchecked ;; esac
           {
             echo "## PR Engine Doors"
             echo ""
-            echo "Verdict: \`${{ steps.doors.outputs.verdict || 'unchecked' }}\`"
+            echo "Verdict: \`$DOORS_VERDICT\`"
             echo ""
             if [ -s /tmp/prdoors.log ]; then
               echo '```'
               grep -E '^(OK|ALLOWED|WARNED|REFUSED|UNCHECKED) ' /tmp/prdoors.log || tail -5 /tmp/prdoors.log
               echo '```'
             fi
-            case "${{ steps.doors.outputs.verdict || 'unchecked' }}" in
+            case "$DOORS_VERDICT" in
               refused)
                 echo "A database function this build calls exists nowhere: not in production, and in no"
                 echo "migration in this merge result. Add the migration that creates it. A file marked"
