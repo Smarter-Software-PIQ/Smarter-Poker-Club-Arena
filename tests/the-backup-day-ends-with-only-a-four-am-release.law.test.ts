@@ -870,8 +870,11 @@ ${Object.entries(states)
       parse(read('.github/workflows/post-deploy-e2e.yml')).on.repository_dispatch.types
     ).not.toContain('refresh-sealed-engine-backup');
     expect(backup.jobs.plan.if).toContain("github.event.client_payload.release_run_key != ''");
-    const sender = receiver.jobs['certify-production'].steps[0].run;
-    expect(sender).toContain('client_payload[release_run_key]=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT');
+    // The sender records the exact intent first (scripts/ci/dispatch-intent.mjs).
+    const sender = receiver.jobs['certify-production'].steps
+      .map((s: any) => String(s.run ?? ''))
+      .join('\n');
+    expect(sender).toContain('--input "release_run_key=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"');
     expect(sender).toContain('Backup after seal $GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT');
     const plan = backup.jobs.plan.steps.find((s: any) => s.id === 'plan').run;
     expect(plan).toContain('sha="$SEALED_SHA"');
