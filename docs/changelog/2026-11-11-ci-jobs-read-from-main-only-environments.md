@@ -33,3 +33,50 @@ A merge-group run executes the workflow files in the queued commit, which can co
 - `scripts/ci/spent-dss-recording.mjs` pins the bytes of `applied-migrations-recorded.yml`; its pin moves to the version whose only change is `environment: ci-main`.
 
 - The copy ran once (run 43035791787) and the mover was then deleted; the law now pins its absence.
+
+## Access table and narrowing (2026-11-11, after the copy workflow's removal)
+
+Names only. Read from the workflow text on main and the environment metadata; no value was read or printed.
+
+| Environment                      | Branch rule              | Jobs                                          | What the jobs run                                                                                                                                             |
+| -------------------------------- | ------------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ci-main`                        | `main` only              | 98 (83 before this change, plus the 15 below) | Default-branch code on push, schedule, `workflow_dispatch` (main) and `workflow_run` from main. A merge-group ref and a pull-request ref cannot deploy to it. |
+| `ci-pull-request`                | `refs/pull/*/merge` only | 2                                             | The pull request's own checked-out code (see below).                                                                                                          |
+| `HorseCorrectiveQualification`   | `main` only              | 2                                             | Default-branch code only.                                                                                                                                     |
+| `money-trigger-recovery-trusted` | `main` only              | 2                                             | Default-branch code only. The merge-group reporter reads the queued commit through the API as data (#10469).                                                  |
+
+**Narrowed in this PR.** These 15 jobs used `github.event_name == 'pull_request' && 'ci-pull-request' || 'ci-main'`, but each job's own `if:` never admits a `pull_request` event (`workflow_dispatch`, `workflow_run`, `schedule` or `push` on main only). They now name `ci-main` unconditionally:
+
+- `gto-v31-qualification.yml`: `recheck-after-release`, `qualify`, `promote`
+- `horse-human-scoreboard.yml`: `private-report`
+- `horse-patterned-replacements.yml`: `original-operation`
+- `horse-replacement-boarding.yml`: `original-boarding`
+- `inspect-horse-opponent-reads.yml`: `inspect`
+- `inspect-v31-worker-readiness.yml`: `inspect`
+- `operational-alert-addressing.yml`: `live-addressing`
+- `profile-engine-main-thread.yml`: `profile`, `native-observation`, `native-perf-install`
+- `public215-linux-preflight.yml`: `evidence`
+- `report-recovered-engine-seal.yml`: `report`
+- `v31-explicit-load.yml`: `control`
+
+**The two jobs that keep `ci-pull-request`, and why.**
+
+| Job                                     | Trigger                          | Secrets it reads                            | Code it runs                                                                 |
+| --------------------------------------- | -------------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------- |
+| `pr-engine-doors.yml:doors`             | `pull_request` to main           | `DATABASE_URL`                              | The pull request's checkout: `scripts/ci/check-pr-engine-doors.mjs`          |
+| `settlement-lane-doctrine.yml:doctrine` | `pull_request`, and push to main | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | The pull request's checkout: `scripts/ci/check-settlement-lane-doctrine.mjs` |
+
+- Both ask the live production catalog whether the functions the pull request depends on exist, so neither can run without a database credential.
+- Because each runs the pull request's own script, a same-repository pull-request author, someone with write access, could change that script and read those values. Fork pull requests receive no secrets, so this is not open to forks.
+- That exposure is unchanged from when these secrets were repository-scoped.
+- Closing it needs a redesign: a trusted `workflow_run` job that runs main's script and reads the pull request as data. That is recorded here and not done in this change.
+- The new law block refuses any other job that names `ci-pull-request`.
+
+**The environment's secret set.**
+
+- `ci-pull-request` held `DATABASE_URL`, `HETZNER_HOST`, `HETZNER_HOST_KEY`, `HETZNER_SSH_PRIVATE_KEY`, `SUPABASE_SERVICE_ROLE_KEY` and `SUPABASE_URL`.
+- No pull-request job reads the three `HETZNER_*` names, so they are removed from that environment.
+
+**Organization scope.** There are no organization-level Actions secrets. Organization and repository Actions variables were checked for sensitive names.
+
+**Reusable workflow note.** `schema-manifest-refresh.yml:isolated-connected-ui` (main-only `workflow_dispatch`) calls `component-fixture-native-smoke.yml`. The callee's connected-mode job names `ci-main`, and GitHub serves that environment's secrets to the callee. A secret passed from the caller would be empty now that repository scope is empty, so nothing is exposed.

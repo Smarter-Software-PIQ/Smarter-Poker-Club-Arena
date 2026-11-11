@@ -83,7 +83,7 @@ jobs:
     needs: qualification
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    environment: "${{ github.event_name == 'pull_request' && 'ci-pull-request' || 'ci-main' }}"
+    environment: ci-main
     timeout-minutes: 30
     concurrency:
       group: original-patterned-horse-replacement-20261006

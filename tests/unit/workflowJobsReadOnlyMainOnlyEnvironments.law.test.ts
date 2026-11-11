@@ -87,3 +87,25 @@ describe('nothing a merge group runs can read a secret', () => {
     });
   }
 });
+
+// Pull-request code runs with ci-pull-request's secrets, so that environment is
+// held to the jobs that read the live production catalog on a pull request and
+// cannot run without it (2026-11-11). Every other secret-reading job names a
+// main-only environment unconditionally.
+const PULL_REQUEST_ENVIRONMENT_JOBS = new Set([
+  'pr-engine-doors.yml:doors',
+  'settlement-lane-doctrine.yml:doctrine',
+]);
+
+describe('ci-pull-request is held to the jobs that need it', () => {
+  for (const file of files) {
+    const wf = parse(readFileSync(join(DIR, file), 'utf8')) as { jobs?: Record<string, Job> };
+    for (const [name, job] of Object.entries(wf?.jobs ?? {})) {
+      if (job.uses) continue;
+      if (!envNames(job.environment).includes('ci-pull-request')) continue;
+      it(`${file}:${name} is an approved pull-request job`, () => {
+        expect(PULL_REQUEST_ENVIRONMENT_JOBS.has(`${file}:${name}`)).toBe(true);
+      });
+    }
+  }
+});
