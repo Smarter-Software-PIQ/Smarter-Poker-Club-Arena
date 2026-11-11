@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Probe 2026-11-11: proves this check runs main's code under pull_request_target. Not for merge.
 /**
  * ═══════════════════════════════════════════════════════════════════════════
  *  A PULL REQUEST CANNOT MAKE MAIN UNSHIPPABLE (2026-11-07)
