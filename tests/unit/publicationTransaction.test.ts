@@ -133,6 +133,13 @@ describe('one publication transaction follows parallel preparation', () => {
       }
       delete body.if;
       delete body.needs;
+      // Moved 2026-11-11 (secrets leave repository scope ahead of the merge
+      // queue): every secret-reading publication job reads them from the
+      // main-only ci-main environment. Normalize back to the reviewed snapshot.
+      if (JSON.stringify(job).includes('secrets.')) {
+        expect(body.environment).toBe('ci-main');
+        delete body.environment;
+      } else expect(body.environment).toBeUndefined();
       // These independent gateway jobs retain their original snapshots too.
       if (
         [

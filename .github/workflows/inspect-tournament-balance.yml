@@ -21,6 +21,7 @@ jobs:
   inspect:
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 4
     env:
       EXPECTED_ENGINE_SHA: ${{ inputs.expected_engine_sha }}

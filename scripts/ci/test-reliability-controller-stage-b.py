@@ -31,7 +31,14 @@ recipient guard). It proves:
     and one message, and a backlog is worked 50 rows a tick;
   * reminders stop after 4 per incident;
   * the controller's own failures are one incident per kind and never loop;
-  * anon and authenticated can read, write and execute nothing.
+  * anon and authenticated can read, write and execute nothing;
+  * after every later controller migration (20261110045731, 20261110174051 and
+    the function patch of 20261110224707), 20261111133716 installs once: the
+    corrected producers land on their read classes, and the escalation drill
+    enters through fn_record_operational_alert, escalates once, sends one DM
+    and one push in critical_only, is idempotent per drill id, refuses a
+    second drill inside 10 minutes, resolves through a producer-style resolved
+    row, and cannot be called by anon or authenticated.
 """
 import json
 import os
@@ -46,6 +53,13 @@ ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / 'supabase/migrations/20261110000020_reliability_controller_stage_b.sql'
 FOLLOW_UP = ROOT / 'supabase/migrations/20261110144203_reliability_controller_drift_mirrors_are_incidents_and_push_.sql'
 FIXTURE = ROOT / 'scripts/ci/fixtures/reliability-controller-production-objects.sql'
+# Installed in production after the two above, in this order; the drill installs over all of them.
+INSTALLED_AFTER = [ROOT / 'supabase/migrations' / name for name in (
+    '20261110045731_reliability_controller_health_function_and_seed_corrections.sql',
+    '20261110174051_reliability_controller_sends_critical_escalations.sql')]
+# Its function patch only: its data section reconciles three production incident ids, which a native cluster does not hold.
+LATCH_FIX = ROOT / 'supabase/migrations/20261110224707_a_recovered_reliability_incident_is_no_longer_escalated.sql'
+DRILL = ROOT / 'supabase/migrations/20261111133716_reliability_escalation_drill_and_class_tuning.sql'
 OWNER = '47965354-0e56-43ef-931c-ddaab82af765'
 # md5 of the whitespace-normalized definition, read from production (PokerIQ,
 # PostgreSQL 17.6) on 2026-11-10 with the same expressions this file runs.
@@ -959,6 +973,112 @@ def main():
         r = psql(['-f', str(MIGRATION)])
         assert r.returncode != 0, 'a second install must be refused'
         ok('the health view reports the heartbeat and the queue, no fingerprint is open twice, no request id was sent twice, the job is scheduled once, and a second install is refused')
+
+        # ---- the escalation drill and the class corrections (20261111133716), over every installed controller migration.
+        for path in INSTALLED_AFTER:
+            r = psql(['-f', str(path)])
+            assert r.returncode == 0, (path.name, r.stderr)
+        latch = ' '.join(re.search(r'^DO \$%s\$.*?^\$%s\$;' % (b, b), LATCH_FIX.read_text(), re.M | re.S).group(0) for b in ('pre', 'latch'))
+        r = psql([], f'BEGIN; {latch} COMMIT;')
+        assert r.returncode == 0, r.stderr
+        assert "CLEARED ON A TERMINAL STATUS (20261110224707)" in sql("SELECT pg_get_functiondef('smarter_private.reliability_transition(uuid,text,text,jsonb)'::regprocedure)")
+        r = psql(['-f', str(DRILL)])
+        assert r.returncode == 0, r.stderr
+        proof = re.search(r'^-- @live-proof: (.+)$', DRILL.read_text(), re.M).group(1)
+        assert sql(f'SELECT {proof}') == 't', 'drill live proof must hold after install'
+        r = psql(['-f', str(DRILL)])
+        assert r.returncode != 0, 'a second install of the drill must be refused'
+        corrected = {('financial-alerts-backfill', 'LightningHandHost.post_commit_obligations_pending', 'critical'): 'money_integrity warning',
+                     ('financial-alerts-updates', 'ServerTableEngine.post_commit_obligations_pending', 'critical'): 'money_integrity warning',
+                     ('migration-install-watch', 'MergedMigrationNotInstalled', 'critical'): 'release critical',
+                     ('engine-alerts-backfill', 'OpenClawJobStale', 'warning'): 'monitoring_self warning',
+                     ('workers.deploy-error-poll', 'VercelDeploymentFailed', 'critical'): 'release critical',
+                     ('workers.deploy-error-poll', 'AutofixRebuildFailed', 'critical'): 'release critical',
+                     ('workers.deploy-error-poll', 'DeploymentMonitorUnavailable', 'critical'): 'monitoring_self critical',
+                     ('workers.deploy-error-poll', 'SomethingElse', 'critical'): 'unclassified warning',
+                     ('mac-studio-git-maintenance', 'Git Maintenance Not Keeping Up', 'warning'): 'unclassified warning',
+                     ('financial-alerts-backfill', 'union_promo_duplicate_2026_11_07', 'warning'): 'unclassified warning',
+                     ('midway-weekly-payout-followup', 'engine_release_stall_check_uuid_into_bigint', 'warning'): 'unclassified warning',
+                     ('reliability-drill', 'Drill No Action Needed d-anything', 'critical'): 'reliability_drill critical'}
+        for (source, name, severity), expected in corrected.items():
+            got = sql(f"SELECT c.incident_class || ' ' || c.default_severity || ' ' || c.is_incident FROM smarter_private.reliability_classify('{source}', $a${name}$a$, '{severity}', false) c")
+            assert got == expected + ' true', (source, name, got, expected)
+        ok('the corrected producers land on their read classes (post-commit envelopes money_integrity, a merged migration not installed and a failed '
+           'World Hub deployment release, a stale Open Claw job and a blind deploy monitor monitoring_self), the three unread families stay unclassified, '
+           'and every one is still an incident')
+
+        assert sql('SELECT notify_mode || mutation_paused::text FROM smarter_private.reliability_settings') == 'critical_onlytrue'
+        # Earlier sections sent many messages inside this hour; the hourly cap is not what the drill proves.
+        sql('UPDATE smarter_private.reliability_settings SET max_dm_per_hour = 1000 WHERE id')
+        drill = lambda action, drill_id: json.loads(sql(f"SET ROLE service_role; SELECT public.fn_reliability_drill('{action}', '{drill_id}')"))
+        for role in ('anon', 'authenticated'):
+            refused(f"SET ROLE {role}; SELECT public.fn_reliability_drill('start', 'drill-native-1')", 'permission denied for function fn_reliability_drill')
+        refused("SET request.jwt.claim.role = 'authenticated'; SELECT public.fn_reliability_drill('start', 'drill-native-1')", 'service-only')
+        refused("SET ROLE authenticated; SELECT 1 FROM smarter_private.reliability_drills", 'permission denied')
+        refused("SET ROLE service_role; SELECT public.fn_reliability_drill('start', 'BAD ID')", 'RELIABILITY_DRILL_INVALID')
+        assert num("SELECT count(*) FROM public.operational_alert_events WHERE source = 'reliability-drill'") == 0
+        sent, pushes = messages(), num('SELECT count(*) FROM public.push_outbox')
+        started = drill('start', 'drill-native-1')
+        did = started['incident_id']
+        assert started['idempotent'] is False and did, started
+        assert sql(f"SELECT investigation_status || ' ' || status || ' ' || severity FROM public.operational_alert_events WHERE id = {started['firing_inbox_event_id']}") == 'new firing critical'
+        assert sql(f"SELECT incident_class || ' ' || status || ' ' || severity || ' ' || escalation_state || ' ' || title FROM smarter_private.reliability_incidents WHERE id = '{did}'") \
+            == 'reliability_drill escalated critical escalated Drill No Action Needed drill-native-1 (reliability drill)'
+        assert sql(f"SELECT state || ' ' || kind FROM smarter_private.reliability_notifications WHERE incident_id = '{did}'") == 'queued escalation'
+        assert messages() == sent, 'the drill sends nothing itself; the tick delivers the outbox'
+        assert drill('verify', 'drill-native-1')['delivered'] is False
+        result = tick()
+        assert result['delivery']['sent'] == 1 and messages() == sent + 1 and num('SELECT count(*) FROM public.push_outbox') == pushes + 1, result
+        body = sql(f"SELECT m.content FROM public.social_messages m JOIN smarter_private.reliability_notifications n ON n.message_id = m.id WHERE n.incident_id = '{did}'")
+        for needle in ('Title: Drill No Action Needed drill-native-1 (reliability drill)', 'Severity: CRITICAL',
+                       'Rule summary: This is a Reliability Controller escalation drill (drill drill-native-1). No action is needed',
+                       'Affected scopes: 1 (run=drill-native-1)'):
+            assert needle in body, (needle, body)
+        push = sql(f"SELECT title || ' | ' || event || ' | ' || status FROM public.push_outbox WHERE related_entity_id = '{did}'")
+        assert push == 'AI Agent Needed: Drill No Action Needed drill-native-1 (reliability drill) | reliability_escalation | pending', push
+        pending = drill('verify', 'drill-native-1')
+        assert pending['delivered'] is False and pending['notification']['push_state'] == 'pending' and pending['message']['says_drill'] is True, pending
+        # The push dispatcher (outside the database) accepts the row; the next tick mirrors it.
+        sql(f"UPDATE public.push_outbox SET status = 'sent', attempts = 1, sent_at = clock_timestamp() WHERE related_entity_id = '{did}'")
+        tick()
+        seen = drill('verify', 'drill-native-1')
+        assert seen['delivered'] is True and seen['resolved'] is False and seen['pass'] is False, seen
+        assert seen['escalation_notifications'] == 1 and seen['messages_for_request'] == 1 and seen['push_rows'] == 1, seen
+        assert seen['notification']['state'] == 'persisted_in_messenger' and seen['notification']['push_state'] == 'provider_accepted', seen
+        assert seen['message']['to_owner_conversation'] is True and seen['message']['sender_id'] == SENDER, seen
+        ok('a drill enters through fn_record_operational_alert, opens one critical reliability_drill incident, escalates once, and the tick sends '
+           'exactly one Messenger DM (it says drill and no action needed) and one push in critical_only; verify reads back the DM and the push')
+
+        inbox = num("SELECT count(*) FROM public.operational_alert_events")
+        again = drill('start', 'drill-native-1')
+        assert again['idempotent'] is True and again['incident_id'] == did, again
+        assert num("SELECT count(*) FROM public.operational_alert_events") == inbox and tick()['delivery']['sent'] == 0 and messages() == sent + 1
+        refused("SET ROLE service_role; SELECT public.fn_reliability_drill('start', 'drill-native-2')", 'RELIABILITY_DRILL_REFUSED')
+        assert num("SELECT count(*) FROM public.operational_alert_events") == inbox and num('SELECT count(*) FROM smarter_private.reliability_drills') == 1
+        ok('a repeated drill id writes nothing and sends nothing; a new drill inside 10 minutes is refused before it reaches the inbox')
+
+        resolved = drill('resolve', 'drill-native-1')
+        assert resolved['idempotent'] is False, resolved
+        assert sql(f"SELECT status FROM smarter_private.reliability_incidents WHERE id = '{did}'") == 'verifying'
+        assert sql(f"SELECT escalation_state FROM smarter_private.reliability_incidents WHERE id = '{did}'") == 'escalated'
+        done = drill('verify', 'drill-native-1')
+        assert done['pass'] is True and done['resolved_disposition'] == 'applied', done
+        assert drill('resolve', 'drill-native-1')['idempotent'] is True
+        assert num(f"SELECT count(*) FROM public.operational_alert_events WHERE source = 'reliability-drill'") == 2
+        tick(now("+ interval '31 minutes'"))
+        assert sql(f"SELECT status || ' ' || escalation_state FROM smarter_private.reliability_incidents WHERE id = '{did}'") == 'recovered none'
+        assert messages() == sent + 1 and num(f"SELECT count(*) FROM smarter_private.reliability_notifications WHERE incident_id = '{did}'") == 1
+        ok('the drill resolves through a producer-style resolved row: the incident verifies, the tick confirms recovered and clears the escalation, '
+           'verify reports PASS, a repeated resolve writes nothing, and no further message is sent')
+
+        sql("UPDATE smarter_private.reliability_drills SET requested_at = requested_at - interval '11 minutes'")
+        second = drill('start', 'drill-native-2')
+        assert second['incident_id'] and second['incident_id'] != did, second
+        assert num(f"SELECT count(*) FROM smarter_private.reliability_notification_incidents WHERE incident_id = '{second['incident_id']}'") == 1
+        assert tick()['delivery']['sent'] == 1 and messages() == sent + 2
+        drill('resolve', 'drill-native-2')
+        assert drill('verify', 'drill-native-2')['resolved'] is True
+        ok('a second drill ten minutes later is its own incident and its own message, never attached to the first drill digest')
         print(f'{len(passed)}/{len(passed)} behaviours proven')
     finally:
         subprocess.run([pg_bin('pg_ctl'), '-D', str(data), '-m', 'immediate', 'stop'], capture_output=True)

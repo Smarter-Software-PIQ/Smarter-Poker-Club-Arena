@@ -33,6 +33,7 @@ jobs:
   drain:
     name: Drain horse adaptive retention
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4

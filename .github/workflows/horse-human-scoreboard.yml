@@ -62,6 +62,7 @@ jobs:
   private-report:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
+    environment: "${{ github.event_name == 'pull_request' && 'ci-pull-request' || 'ci-main' }}"
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683

@@ -51,6 +51,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 15
     permissions:
       contents: read
@@ -374,6 +375,7 @@ jobs:
     if: ${{ always() }}
     name: This monitoring deploy admits its own verdict to the operational inbox
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 6
     permissions:
       contents: read

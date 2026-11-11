@@ -123,10 +123,10 @@ const REGISTER = {
     why: 'humansSeated() drives the DEPLOY DRAIN gate: a server push restarts engines and voids the hand in flight. Chips are preserved either way, so nothing is taken from the horse; and because this platform is horse-heavy, counting horses here would mean no deploy could ever drain, which is an outage, not equal treatment. Raised for Dan in the 2026-08-27 audit.',
   },
   'server/src/engine/ServerTableEngineDealing.ts': {
-    allowed: 3,
+    allowed: 4,
     kind: 'IDENTIFICATION',
     why: [
-      "ALL THREE are the horse INPUT DEVICE, which is the law's second sanctioned exemption, and in each the horse ends up BETTER served than a human rather than worse.",
+      "ALL FOUR leave the horse on its own input device (the law's second sanctioned exemption) or on the recovery path that serves it at least as well, and in each the horse ends up BETTER served than a human rather than worse.",
       '',
       "(0) the V48 voluntary straddle round - `if (!seated?.is_horse) continue`. A human enrolls in the voluntary straddle by clicking the table setting, which reaches toggleAutoStraddle through the seating route. A horse has no browser, so the engine supplies the same click from its persona before the straddle round. The loop only ever calls toggleAutoStraddle FOR A HORSE; a human's own enrollment is never read, written or overridden by it. Removing the guard would have the engine overwriting every human's straddle setting every hand, which is the actual bug this line prevents.",
       '',
@@ -134,7 +134,9 @@ const REGISTER = {
       '',
       '(2) standUpBustedCashPlayers - `const seated = this.seatedPlayers.filter(p => p.user_id && !p.is_horse)`. Busted horses are removed by recoverBustedSeatedHorses(), which runs on the SAME tick a few lines above this and is strictly more generous: it retries a treasury rebuy every 30s and only stands the horse up at stop-loss or on an empty treasury. Including horses here would let this sweep remove a horse DURING that 30s throttle, before its next funding attempt - taking a rebuy away that a human in the same position would have kept. The exclusion is what makes the two equal; removing it would be the bug.',
       '',
-      'Neither branch withholds anything a human receives. Both were added 2026-08-28 with the busted-seat release (Dan: "make sure that the user gets removed from the table as soon as they have no chips"), which until then existed for horses and not for humans at all.',
+      "(3) offerCashBustWindows - `const humans = busted.filter(p => p.user_id && !p.is_horse)` (2026-11-11). It judges a human's member wallet at the bust and sends the rebuy sheet its 20 second deadline, arming that deadline's expiry. A horse has no member wallet and no sheet, and it answers at the bust through recoverBustedSeatedHorses exactly as branch (2) describes. Judging it here would arm a 20 second expiry that releases the horse through a path built for a human who never clicked, taking away the treasury rebuy that recovery would have made. The horse is still counted in the table pause, through branch (1), on the same answer as before.",
+      '',
+      'None of these branches withholds anything a human receives. (1) and (2) were added 2026-08-28 with the busted-seat release (Dan: "make sure that the user gets removed from the table as soon as they have no chips"), which until then existed for horses and not for humans at all.',
     ].join('\n'),
   },
   'server/src/lightning/LightningBankTheWin.ts': {

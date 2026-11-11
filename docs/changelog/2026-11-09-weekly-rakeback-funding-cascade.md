@@ -307,3 +307,80 @@ Each is named directly in its step, so a missing or failing harness turns that
 required check red. `tests/superseded-certificates-never-fund.law.test.ts`
 pins the two causes, the deleted-upline rule, the server exclusions and the
 install order in source, and keeps the four steps wired.
+
+## 2026-11-11: one transfer per edge, and the players' share is reserved until round 3
+
+Migration `20261111132447_weekly_rakeback_sends_one_gross_transfer_per_edge_and_reserv.sql`
+closes two items of "Known deviations" above, on the lead's decision under the
+owner's money grant (CLAUDE.md 10.9).
+
+**One transfer per edge.** Round 2 now plans the week's cascade itself (the same
+plan, moved into `smarter_private.rakeback_cascade_plan`: latest certificate per
+period, need never netted across players, deleted uplines routed around, the
+owner route, unassigned players unchanged) and sends one leg per (club, payer,
+payee). A leg that carries both is a `commission` leg under its round 2 key and
+records the split in its metadata (`commission_amount`, `rakeback_funding`,
+`rakeback_funding_key`, `rakeback_funding_version`). An edge with no
+commission (a zero-rate agent, an owner wallet) is one funding leg sent by
+round 2 under the cascade key. `agent_commission_settlements` and round 2's
+`amount` still report commission alone. The owner tier's own commission still
+stays in the club bank, so an owner edge carries funding only. The funding step
+before round 3 now finds every edge carried and refuses
+(`rakeback_cascade_round2_left_edge_unfunded`) if round 2 carried the week and
+an edge is missing; it still funds a week round 2 did not carry (a week paid by
+round 2 before this file, or a v3 fallback week). On the real-runner board the
+week moves bank -> SA 134.00 (84.00 + 50.00) and SA -> AG 80.00 (30.00 + 50.00)
+instead of four legs. The legacy callers `fn_process_weekly_accounting_scope`
+and `weekly_payout_execute`, which call round 2 then round 3 and never the
+funding step, now pay pass-through and owner-route players too.
+
+**The players' share is reserved.** Paying the pass-through in round 2 opens the
+window before round 3 (3 h 48 m on 2026-11-09), and nothing stopped an agent
+spending, or a club claiming back, chips its players are owed. That was already
+true of the commission an agent pays its players from. Round 2 now records in
+`smarter_private.weekly_payout_wallet_reserves`, per pending period and paying
+wallet, exactly what that wallet owes the player. One BEFORE trigger on
+`public.agents` (`zzzzz_agent_wallet_keeps_weekly_reserve`, last of the BEFORE
+triggers so it sees the final balance after the business_balance sync) refuses
+any update that leaves the wallet below its reserve, and any delete of a wallet
+that reserves anything:
+
+> agent_wallet_weekly_rakeback_reserved: agent ... in club ... holds 54.00 in
+> its agent wallet and 6.00 of it is owed to its players as weekly rakeback for
+> the week starting ...; at most 48.00 can leave this wallet until round 3 of
+> the weekly payout pays those players
+
+Every debit door (sends, self stake, cash-out, claim-back, deleted-wallet
+return, horse split, adjustments) reaches the wallet through that UPDATE, so
+each is refused for the reserved part and works for the rest. A frozen or
+suspended payer keeps the reserve; a credit is never refused. There is no bypass
+setting: round 3 lowers the reserve by exactly what it pays, before it debits,
+and closes a period's reserve when the period is paid or discharged by an
+existing transfer. Finalize refuses a run that left one
+(`weekly_payout_reserve_not_released`). No client role can read the table or
+call the functions that lower it.
+
+**Settled history is untouched.** Read on production 2026-11-11: 760 round 2
+legs over 7 weeks (8,633,023.02), none carrying any of the new keys; every
+patched expression reads them as funding 0, and the patched zero-standalone
+predicate agrees with today's on all 760. The reserve table starts empty, so the
+trigger refuses nothing until a round 2 runs under this file.
+
+**Proof.** `scripts/ci/test-rakeback-cascade-real-runner-postgres.py` (the real
+runner, tick by tick, 19 cases: one leg per edge with its split, a round 2
+killed at its last leg and a round 3 killed mid-payment each rolling back whole
+and paying once on the next tick, the reserve refusing the real agent send and
+self stake doors and the direct debit forms while the unreserved 48.00 moves,
+round 3 alone paying everyone as the legacy callers do, every reserve 0 at
+finalize, a round 2 rerun a duplicate), `test-rakeback-cascade-real-guards-postgres.py`
+(29), `test-rakeback-cascade-funding-postgres.py` (42) and
+`test-owner-routing-wallet-postgres.py` (58: the real claim-back refused for the
+reserved part of an owner wallet, before and after an ownership transfer, and
+returning the rest). `tests/weekly-rakeback-sends-one-leg-per-edge-and-reserves-the-players-share.law.test.ts`
+pins both causes in source.
+
+**What this costs.** A refusal in the cascade plan (hierarchy missing, club
+cannot afford the week, deleted upline after funding) now stops round 2 as well
+as round 3, so commission waits with the players. While a week's reserve is
+held, an agent cannot move its players' share; a stalled week keeps it held
+until that week is paid.

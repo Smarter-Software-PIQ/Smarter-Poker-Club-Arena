@@ -39,6 +39,7 @@ jobs:
   retire-reserved-account:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 15
     steps:
       - name: Checkout Trusted Default Branch Cleanup
@@ -99,6 +100,7 @@ jobs:
     # Playwright has no Chromium build for ubuntu26.04 (what ubuntu-latest
     # now resolves to); pinned like post-deploy-e2e and lobby-ui-proof.
     runs-on: ubuntu-24.04
+    environment: ci-main
     # Exact-live convergence may take ten minutes, and each guarded account
     # cleanup can wait through an active platform freeze. Keep a bounded hour
     # for install, provenance, residual recovery, both fixture families, UI

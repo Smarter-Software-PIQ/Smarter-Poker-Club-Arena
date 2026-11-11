@@ -23,6 +23,7 @@ jobs:
   drill:
     name: Crash the serving engine inside a certified break and prove recovery
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 110
     permissions:
       contents: read

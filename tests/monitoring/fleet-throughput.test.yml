@@ -108,7 +108,7 @@
       ]
     },
     {
-      "name": "Fewer than twenty live tables retains the separate fleet-collapse alert",
+      "name": "Fifteen live tables is a small owner-planned floor, not a fleet collapse (2026-11-11)",
       "interval": "1m",
       "input_series": [
         {
@@ -137,12 +137,7 @@
         {
           "expr": "count(ALERTS{alertname=\"HorseFleetCollapsed\",alertstate=\"firing\"})",
           "eval_time": "45m",
-          "exp_samples": [
-            {
-              "labels": "{}",
-              "value": 1
-            }
-          ]
+          "exp_samples": []
         }
       ]
     },
@@ -172,6 +167,16 @@
           "expr": "ALERTS{alertname=\"EngineFleetThroughputCollapsed\",alertstate=\"firing\"}",
           "eval_time": "45m",
           "exp_samples": []
+        },
+        {
+          "expr": "count(ALERTS{alertname=\"HorseFleetCollapsed\",alertstate=\"firing\"})",
+          "eval_time": "45m",
+          "exp_samples": [
+            {
+              "labels": "{}",
+              "value": 1
+            }
+          ]
         }
       ]
     },
@@ -337,6 +342,335 @@
         {
           "expr": "ALERTS{alertname=\"EngineFleetThroughputCollapsed\",alertstate=\"firing\"}",
           "eval_time": "45m",
+          "exp_samples": []
+        }
+      ]
+    },
+    {
+      "name": "The 2026-11-11 morning floor: Classic horses at 60/min, Lightning dealing, nothing has stopped",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x60"
+        },
+        {
+          "series": "poker_operator_floor_park_share{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x60"
+        },
+        {
+          "series": "poker_dealable_tables{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "5+0x60"
+        },
+        {
+          "series": "poker_actions_fleet_total{audience=\"horse\",format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+60x60"
+        },
+        {
+          "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+100x60"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "ALERTS{alertname=\"HorseCashActionsStopped\",alertstate=\"firing\"}",
+          "eval_time": "45m",
+          "exp_samples": []
+        },
+        {
+          "expr": "ALERTS{alertname=\"HorseFleetCollapsed\",alertstate=\"firing\"}",
+          "eval_time": "45m",
+          "exp_samples": []
+        }
+      ]
+    },
+    {
+      "name": "Classic horses at zero while Lightning carries the floor is not a stop",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x60"
+        },
+        {
+          "series": "poker_operator_floor_park_share{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x60"
+        },
+        {
+          "series": "poker_dealable_tables{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "5+0x60"
+        },
+        {
+          "series": "poker_actions_fleet_total{audience=\"horse\",format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x60"
+        },
+        {
+          "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+100x60"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "ALERTS{alertname=\"HorseCashActionsStopped\",alertstate=\"firing\"}",
+          "eval_time": "45m",
+          "exp_samples": []
+        }
+      ]
+    },
+    {
+      "name": "No Classic horse action and no Lightning hand for fifteen minutes is a stop",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x60"
+        },
+        {
+          "series": "poker_operator_floor_park_share{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x60"
+        },
+        {
+          "series": "poker_dealable_tables{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "5+0x60"
+        },
+        {
+          "series": "poker_actions_fleet_total{audience=\"horse\",format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+60x20 1200+0x40"
+        },
+        {
+          "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+100x20 2000+0x40"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "ALERTS{alertname=\"HorseCashActionsStopped\",alertstate=\"firing\"}",
+          "eval_time": "25m",
+          "exp_samples": []
+        },
+        {
+          "expr": "ALERTS{alertname=\"HorseCashActionsStopped\",alertstate=\"firing\"}",
+          "eval_time": "50m",
+          "exp_samples": [
+            {
+              "labels": "ALERTS{alertname=\"HorseCashActionsStopped\",alertstate=\"firing\",component=\"club-arena-engine\",page=\"sms\",severity=\"critical\"}",
+              "value": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "A cold engine with no Lightning series and no horse action still pages",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x60"
+        },
+        {
+          "series": "poker_operator_floor_park_share{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x60"
+        },
+        {
+          "series": "poker_dealable_tables{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "5+0x60"
+        },
+        {
+          "series": "poker_actions_fleet_total{audience=\"horse\",format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x60"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "ALERTS{alertname=\"HorseCashActionsStopped\",alertstate=\"firing\"}",
+          "eval_time": "45m",
+          "exp_samples": [
+            {
+              "labels": "ALERTS{alertname=\"HorseCashActionsStopped\",alertstate=\"firing\",component=\"club-arena-engine\",page=\"sms\",severity=\"critical\"}",
+              "value": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "A stop inside the maintenance break does not page",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "1+0x60"
+        },
+        {
+          "series": "poker_operator_floor_park_share{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x60"
+        },
+        {
+          "series": "poker_dealable_tables{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x60"
+        },
+        {
+          "series": "poker_actions_fleet_total{audience=\"horse\",format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x60"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "ALERTS{alertname=\"HorseCashActionsStopped\",alertstate=\"firing\"}",
+          "eval_time": "45m",
+          "exp_samples": []
+        },
+        {
+          "expr": "ALERTS{alertname=\"HorseFleetCollapsed\",alertstate=\"firing\"}",
+          "eval_time": "45m",
+          "exp_samples": []
+        }
+      ]
+    },
+    {
+      "name": "ClassicCashFloorDark: the Classic floor stops while Lightning keeps dealing",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x60"
+        },
+        {
+          "series": "poker_operator_floor_park_share{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x60"
+        },
+        {
+          "series": "poker_actions_fleet_total{audience=\"horse\",format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+40x20 800+0x40"
+        },
+        {
+          "series": "poker_actions_fleet_total{audience=\"human\",format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+5x20 100+0x40"
+        },
+        {
+          "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+100x60"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "ALERTS{alertname=\"ClassicCashFloorDark\",alertstate=\"firing\"}",
+          "eval_time": "25m",
+          "exp_samples": []
+        },
+        {
+          "expr": "ALERTS{alertname=\"ClassicCashFloorDark\",alertstate=\"firing\"}",
+          "eval_time": "50m",
+          "exp_samples": [
+            {
+              "labels": "ALERTS{alertname=\"ClassicCashFloorDark\",alertstate=\"firing\",component=\"club-arena-engine\",severity=\"critical\"}",
+              "value": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ClassicCashFloorDark: the quietest healthy hour (0.7 actions/s) is not dark",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x60"
+        },
+        {
+          "series": "poker_operator_floor_park_share{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x60"
+        },
+        {
+          "series": "poker_actions_fleet_total{audience=\"horse\",format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+42x60"
+        },
+        {
+          "series": "poker_actions_fleet_total{audience=\"human\",format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x60"
+        },
+        {
+          "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+100x60"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "ALERTS{alertname=\"ClassicCashFloorDark\",alertstate=\"firing\"}",
+          "eval_time": "50m",
+          "exp_samples": []
+        }
+      ]
+    },
+    {
+      "name": "ClassicCashFloorDark: a human alone at a Classic table keeps the floor lit",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x60"
+        },
+        {
+          "series": "poker_operator_floor_park_share{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x60"
+        },
+        {
+          "series": "poker_actions_fleet_total{audience=\"horse\",format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x60"
+        },
+        {
+          "series": "poker_actions_fleet_total{audience=\"human\",format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+6x60"
+        },
+        {
+          "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+100x60"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "ALERTS{alertname=\"ClassicCashFloorDark\",alertstate=\"firing\"}",
+          "eval_time": "50m",
+          "exp_samples": []
+        }
+      ]
+    },
+    {
+      "name": "ClassicCashFloorDark: inside the break or an owner park it does not page",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x30 1+0x30"
+        },
+        {
+          "series": "poker_operator_floor_park_share{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "1+0x30 0+0x30"
+        },
+        {
+          "series": "poker_actions_fleet_total{audience=\"horse\",format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x60"
+        },
+        {
+          "series": "poker_actions_fleet_total{audience=\"human\",format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x60"
+        },
+        {
+          "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+100x60"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "ALERTS{alertname=\"ClassicCashFloorDark\",alertstate=\"firing\"}",
+          "eval_time": "28m",
+          "exp_samples": []
+        },
+        {
+          "expr": "ALERTS{alertname=\"ClassicCashFloorDark\",alertstate=\"firing\"}",
+          "eval_time": "58m",
           "exp_samples": []
         }
       ]

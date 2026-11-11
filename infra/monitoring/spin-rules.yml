@@ -209,11 +209,24 @@ groups:
       #
       # Two arms, because "producing nothing" means two different things:
       #
-      #   1. Nothing has started for longer than the ladder's OWN full
-      #      envelope (every SPIN_LADDER rung at its maximum) while boards sit
-      #      open. No healthy board can be that quiet: this is the 2026-09-01
-      #      outage, where every INSERT into `tournaments` failed for four
-      #      hours and every other Spin alert stayed green.
+      #   1. A SEATED board - one the ladder is climbing - has waited longer
+      #      than the ladder's OWN full envelope (every SPIN_LADDER rung at its
+      #      maximum) without dealing: poker_spin_unfilled_oldest_wait_seconds,
+      #      the oldest live seat on any partly filled Spin. No healthy board
+      #      can wait that long, so this is the ladder or the fill path failing.
+      #
+      #      It used to read "nothing STARTED for that long while REGISTERING
+      #      boards exist" (2026-11-11, incident f1b14fca, fired 11:19Z at
+      #      8724s). Both halves were wrong for the seat-first ladder:
+      #      poker_spin_open_boards counts every REGISTERING Spin, including 33
+      #      EMPTY boards in five clubs left from 2026-11-09 that no horse will
+      #      ever sit at (live_seats 0, so not on the ladder at all), and the
+      #      last-start clock does not restart when the 03:00 Chicago park
+      #      cancels the night's boards and fresh ones open at 06:00 - the first
+      #      start after that is legitimately up to 3 h + 140 min away. At
+      #      11:19Z the oldest seated board had waited 0 s (none existed yet);
+      #      the ladder was healthy. Across 2026-11-08..11 the oldest seated
+      #      wait peaked at 7612 s, inside the 8400 s envelope, every hour.
       #   2. A PERSON has waited more than twice the 3-7 minute arrival
       #      promise AND the fleet has started nothing for longer than that
       #      promise. One board failing to fill is SpinHumanWaitingForOpponents
@@ -225,16 +238,16 @@ groups:
       # inside the scheduled freeze nothing starts and nothing fills, by
       # design. `for: 5m` is scrape hygiene, not extra statistics.
       - alert: SpinFleetProducingNothing
-        expr: ((poker_spin_seconds_since_last_start > poker_spin_ladder_full_envelope_seconds and poker_spin_open_boards > 0) or (poker_spin_human_oldest_wait_seconds > 2 * poker_spin_human_arrival_max_seconds and poker_spin_seconds_since_last_start > poker_spin_human_arrival_max_seconds)) unless on () max_over_time(poker_maintenance_break_active[6m]) == 1
+        expr: ((poker_spin_unfilled_oldest_wait_seconds > poker_spin_ladder_full_envelope_seconds) or (poker_spin_human_oldest_wait_seconds > 2 * poker_spin_human_arrival_max_seconds and poker_spin_seconds_since_last_start > poker_spin_human_arrival_max_seconds)) unless on () max_over_time(poker_maintenance_break_active[6m]) == 1
         for: 5m
         labels:
           severity: critical
           component: spin
         annotations:
-          summary: "Spin has produced nothing for {{ $value }}s past the ladder's own envelope"
+          summary: "A seated Spin board has waited {{ $value }}s without dealing, past the ladder's own envelope"
           description: |
-            Either nothing has started for longer than every SPIN_LADDER rung
-            at its maximum while boards sit open, or a person has waited more
+            Either a seated Spin board has waited longer than every SPIN_LADDER
+            rung at its maximum without dealing, or a person has waited more
             than twice the 3-7 minute arrival promise while the fleet started
             nothing. Both are faults; neither is the ladder.
             SPLIT THE WAITING SEATS BY WHO HOLDS THEM FIRST - it is the only
