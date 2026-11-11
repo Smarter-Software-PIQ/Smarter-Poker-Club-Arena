@@ -85,7 +85,7 @@ import {
   type AllInGestureInput,
 } from './HorseTableGestures.js';
 import { _resetTableTalkGateForTests } from './HorseTableTalkGate.js';
-import { _setAudienceForTests } from './HorseTableTalk.js';
+import { _resetTableTalkForTests, _setAudienceForTests } from './HorseTableTalk.js';
 import { _setHumanPacingForTests } from './horsePacing.js';
 import {
   _setSpeakChanceForTests,
@@ -158,6 +158,7 @@ function handThatDoesNot(moment: 'lost' | 'won' | 'all_in', from = 1): number {
 
 beforeEach(() => {
   _setSpeakChanceForTests(null);
+  _resetTableTalkForTests();
   _resetGesturesForTests();
   _resetTableTalkGateForTests();
   _setHumanPacingForTests(false);
@@ -206,17 +207,21 @@ describe('what a horse throws is what a person can throw', () => {
 });
 
 describe('sometimes, never every time', () => {
-  it('a non-gesturing horse never throws after a loss or sends an all-in reaction', async () => {
+  it('a previously non-gesturing horse can throw after a loss and gesture before an all-in', async () => {
     const quiet = '44444444-4444-4444-8444-444444444444';
     const horse = seat(quiet, 1, true);
-    for (let n = 1; n <= 100; n++) {
+    const afterHand = new Set<string>();
+    const beforeAllIn = new Set<string>();
+    for (let n = 1; n <= 500; n++) {
+      _resetGesturesForTests();
       const input = lostHand(n);
       input.seated = [horse, seat(HUMAN, 3, false)];
       input.showdownResults = input.showdownResults.map((r) =>
         r.userId === HORSE_A ? { ...r, userId: quiet } : r
       );
-      expect(await gestureAfterHand(input)).toBe('no_gesture');
-      expect(
+      afterHand.add(await gestureAfterHand(input));
+      _resetGesturesForTests();
+      beforeAllIn.add(
         await gestureBeforeAllIn({
           table: table(),
           handNumber: n,
@@ -224,30 +229,37 @@ describe('sometimes, never every time', () => {
           targetSeat: 3,
           seated: input.seated,
         })
-      ).toBe('no_gesture');
+      );
     }
-    expect(h.state.rpcCalls).toEqual([]);
-    expect(h.state.sends).toEqual([]);
-    expect(h.state.chatInserts).toBe(0);
+    expect(afterHand).toContain('no_gesture');
+    expect(afterHand).toContain('thrown');
+    expect(afterHand).toContain('reacted');
+    expect(beforeAllIn).toContain('no_gesture');
+    expect(beforeAllIn).toContain('thrown');
+    expect(beforeAllIn).toContain('reacted');
+    expect(h.state.rpcCalls.length).toBeGreaterThan(0);
   });
 
-  it('a chat-only horse can say something all-in without throwing anything', async () => {
+  it('a previously chat-only horse can both speak and throw before an all-in', async () => {
     const horse = seat('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 1, true);
-    let spoken = 0;
-    for (let n = 1; n <= 200; n++) {
-      const outcome = await gestureBeforeAllIn({
-        table: table(),
-        handNumber: n,
-        horse,
-        targetSeat: 3,
-        seated: [horse, seat(HUMAN, 3, false)],
-      });
-      if (outcome === 'spoken') spoken++;
+    const outcomes = new Set<string>();
+    for (let n = 1; n <= 500; n++) {
+      _resetGesturesForTests();
+      outcomes.add(
+        await gestureBeforeAllIn({
+          table: table(),
+          handNumber: n,
+          horse,
+          targetSeat: 3,
+          seated: [horse, seat(HUMAN, 3, false)],
+        })
+      );
     }
-    expect(spoken).toBeGreaterThan(0);
-    expect(spoken).toBeLessThan(30);
-    expect(h.state.rpcCalls).toEqual([]);
-    expect(h.state.sends).toEqual([]);
+    expect(outcomes).toContain('spoken');
+    expect(outcomes).toContain('thrown');
+    expect(outcomes).toContain('no_gesture');
+    expect(h.state.chatInserts).toBeGreaterThan(0);
+    expect(h.state.rpcCalls.length).toBeGreaterThan(0);
   });
   it.each(['lost', 'won', 'all_in'] as const)(
     '%s rolls the same way twice, near its rate across the fleet, and differently per horse',
