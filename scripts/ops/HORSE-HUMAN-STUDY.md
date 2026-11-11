@@ -159,6 +159,20 @@ one bound witness, not universal coverage of the Horse's decisions. Health
 remains a separately timestamped system observation. Pillar 2 exclusion and R7/R8
 qualification status are separate from observed runtime evidence.
 
+The original reconciliation review must bind its version, scope, record count
+and sorted-record manifest to the exact supplied records. A stale or missing
+binding refuses attribution. Pooled public-read credit also requires the owning
+reviewer's public-read provenance verdict; a reconciled action join alone does
+not qualify a public read. Original acceptance-time authority withdrawals and
+wager normalization remain governed by that reviewer.
+
+`capturedCoverage` separates the twelve expected variant/mode/speed cells:
+ordinary and Lightning NLH/PLO4/PLO5/PLO6 cash, and the four tournament variants.
+Original public-memory speed is retained on each witness; missing speed remains
+unknown. Counts describe captured hands, decisions, human participation, ability
+to respond and per-feature evidence. Zero captured decisions never proves zero
+natural opportunities or complete domain coverage.
+
 Repeat `--journal` for disjoint original JSON/JSONL captures. Duplicate events
 refuse. Captures outside the declared serving revision or half-open windows
 are retained as omissions. `--observation-epoch PRIVATE_JSON` supplies a new
