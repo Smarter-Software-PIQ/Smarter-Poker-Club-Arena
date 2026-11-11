@@ -31,3 +31,5 @@ A merge-group run executes the workflow files in the queued commit, which can co
 
 - Five repository secrets have no workflow consumer and are not copied anywhere: GH_PAT (a retired long-lived token the watchdog law forbids any workflow to name), PROBE_EMAIL, PROBE_PASSWORD, SP_EMAIL_2 and SP_PASS_2. They are deleted with the rest of the repository-level copies.
 - `scripts/ci/spent-dss-recording.mjs` pins the bytes of `applied-migrations-recorded.yml`; its pin moves to the version whose only change is `environment: ci-main`.
+
+- The copy ran once (run 43035791787) and the mover was then deleted; the law now pins its absence.

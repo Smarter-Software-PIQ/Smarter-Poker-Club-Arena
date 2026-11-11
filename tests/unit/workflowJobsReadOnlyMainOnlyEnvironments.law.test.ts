@@ -22,8 +22,8 @@ const ALLOWED = new Set([
   'HorseCorrectiveQualification',
   'money-trigger-recovery-trusted',
 ]);
-// The one-shot mover reads repository scope by design; it is deleted once the
-// repository-level copies are removed.
+// The one-shot mover that copied repository scope into these environments was
+// deleted with the repository-level copies (2026-11-11); none may come back.
 const MOVER = 'copy-repository-secrets-to-environments.yml';
 
 type Job = { environment?: unknown; uses?: string; secrets?: unknown };
@@ -45,8 +45,10 @@ function envNames(env: unknown): string[] {
 }
 
 describe('every secret-reading job names a main-only environment', () => {
+  it('the one-shot mover is gone', () => {
+    expect(files).not.toContain(MOVER);
+  });
   for (const file of files) {
-    if (file === MOVER) continue;
     const wf = parse(readFileSync(join(DIR, file), 'utf8')) as {
       on?: unknown;
       jobs?: Record<string, Job>;
