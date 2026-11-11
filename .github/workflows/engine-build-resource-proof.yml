@@ -36,6 +36,7 @@ on:
       - tests/operations/engine-image-archive.test.py
       - tests/operations/engine-build-resource-proof.py
       - tests/operations/engine-build-resource-proof.test.py
+      - tests/operations/engine-image-dependencies.mjs
       - .github/workflows/engine-build-resource-proof.yml
 permissions:
   contents: read
