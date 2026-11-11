@@ -1,9 +1,9 @@
 /**
  * How a horse refills its stack at a cash table.
  *
- * Owner October 31, 2026: every horse at 1/2 buys/reloads to the table maximum
- * at each legal hand boundary. This later stake-specific direction supersedes
- * the PLO5 30/70 habit and discretionary bankroll preferences at 1/2 only.
+ * Owner November 10, 2026: 75% of 1/2 horses always top up after hands.
+ * The remainder retain discretionary add-ons. This replaces the October 31
+ * universal refill preference, while buy-ins/rebuys still target the maximum.
  * Actual wallet funds, table limits and ordinary idempotent funding still apply.
  * The original behaviour below remains the default at every other stake.
  *
@@ -59,6 +59,9 @@ export type HorseTopUpStyle = 'auto_top_up' | 'add_on';
 /** Share of PLO5 horses on Auto Top Up. The rest add on. */
 export const PLO5_AUTO_TOP_UP_SHARE = 0.3;
 
+/** Owner 2026-11-10: consistent Auto Top Up habit at 1/2, not every horse. */
+export const MAXIMUM_CASH_AUTO_TOP_UP_SHARE = 0.75;
+
 /** True for the PLO5 game ('plo5', 'PLO5', 'plo-5', 'PLO 5' all qualify). */
 export function isPlo5Variant(variant: unknown): boolean {
   if (typeof variant !== 'string') return false;
@@ -86,7 +89,8 @@ export function horseSitsWithAutoTopUp(
   variant: unknown,
   stake?: { small_blind?: unknown; big_blind?: unknown }
 ): boolean {
-  if (userId && isMaximumHorseCashStake(stake)) return true;
+  if (userId && isMaximumHorseCashStake(stake))
+    return unitHash(userId, 'horse-topup-style') < MAXIMUM_CASH_AUTO_TOP_UP_SHARE;
   return horseCashTopUpStyle(userId, variant) === 'auto_top_up';
 }
 
@@ -111,7 +115,11 @@ export function horseAutoTopUpWanted(input: {
   });
   if ((!isPlo5Variant(input.variant) && !maximumCash) || !input.userId) return 0;
   const enabled =
-    maximumCash || (input.autoTopUp ?? horseSitsWithAutoTopUp(input.userId, input.variant));
+    input.autoTopUp ??
+    horseSitsWithAutoTopUp(input.userId, input.variant, {
+      small_blind: input.smallBlind,
+      big_blind: input.bigBlind,
+    });
   if (!enabled) return 0;
   const stack = Number(input.stack);
   const max = Number(input.maxBuyIn);
@@ -189,13 +197,14 @@ export function cappedAutoTopUp(args: {
 }
 
 /**
- * Nearest whole-horse 30% of a live Classic PLO5 cash-game roster. Keep current
+ * Nearest whole-horse share of a live Classic cash-game roster (PLO5 default 30%). Keep current
  * choices wherever possible; a departure never reshuffles every remaining
  * horse. Hash order only breaks ties when the quota actually needs a change.
  * Applied by the existing hand boundary, never by a timer or repair service.
  */
 export function balancedHorseAutoTopUps(
-  seats: ReadonlyArray<{ userId: string; autoTopUp: boolean }>
+  seats: ReadonlyArray<{ userId: string; autoTopUp: boolean }>,
+  share = PLO5_AUTO_TOP_UP_SHARE
 ): Set<string> {
   const unique = new Map<string, boolean>();
   for (const seat of seats) {
@@ -207,7 +216,5 @@ export function balancedHorseAutoTopUps(
       unitHash(a, 'horse-topup-style') - unitHash(b, 'horse-topup-style') ||
       a.localeCompare(b)
   );
-  return new Set(
-    ranked.slice(0, Math.round(ranked.length * PLO5_AUTO_TOP_UP_SHARE)).map(([id]) => id)
-  );
+  return new Set(ranked.slice(0, Math.round(ranked.length * share)).map(([id]) => id));
 }

@@ -266,18 +266,69 @@ describe('cent-exact PLO5 refills', () => {
   });
 });
 
+describe('owner 75% always-top-up choice at 1/2', () => {
+  const stake = { small_blind: 1, big_blind: 2 };
+  const ids = Array.from({ length: 10000 }, (_, i) => `stable-topup-${i}`);
+  it('selects a stable 75% admission cohort across cash variants', () => {
+    const chosen = ids.filter((id) => horseSitsWithAutoTopUp(id, 'nlh', stake));
+    expect(chosen.length / ids.length).toBeGreaterThan(0.73);
+    expect(chosen.length / ids.length).toBeLessThan(0.77);
+    for (const id of ids) {
+      expect(horseSitsWithAutoTopUp(id, 'plo5', stake)).toBe(
+        horseSitsWithAutoTopUp(id, 'nlh', stake)
+      );
+    }
+  });
+  it('keeps the nearest whole-horse 75%, changes the fewest flags and ignores input order', () => {
+    for (let n = 0; n <= 20; n++) {
+      const seats = ids.slice(0, n).map((userId) => ({ userId, autoTopUp: true }));
+      const selected = balancedHorseAutoTopUps(seats, 0.75);
+      expect(selected.size).toBe(Math.round(n * 0.75));
+      const persisted = seats.map((s) => ({ ...s, autoTopUp: selected.has(s.userId) }));
+      expect([...balancedHorseAutoTopUps(persisted.reverse(), 0.75)].sort()).toEqual(
+        [...selected].sort()
+      );
+    }
+  });
+  it('never overrides the remaining horses explicit off choice at 1/2', () => {
+    for (const variant of ['nlh', 'plo5', 'plo8']) {
+      expect(
+        horseAutoTopUpWanted({
+          userId: ids[0],
+          variant,
+          stack: 250,
+          maxBuyIn: 400,
+          autoTopUp: false,
+          smallBlind: 1,
+          bigBlind: 2,
+        })
+      ).toBe(0);
+    }
+    const off = ids.find((id) => !horseSitsWithAutoTopUp(id, 'plo5', stake))!;
+    expect(
+      horseAutoTopUpWanted({
+        userId: off,
+        variant: 'plo5',
+        stack: 250,
+        maxBuyIn: 400,
+        smallBlind: 1,
+        bigBlind: 2,
+      })
+    ).toBe(0);
+  });
+});
+
 describe('owner maximum 1/2 cash refill', () => {
   const stake = { small_blind: 1, big_blind: 2 };
   for (const variant of ['nlh', 'plo4', 'plo5', 'plo6', 'plo8']) {
-    it(`${variant} fills every positive cent gap independent of refill habit`, () => {
-      expect(horseSitsWithAutoTopUp('add-on-horse', variant, stake)).toBe(true);
+    it(`${variant} fills every positive cent gap only for the selected refill habit`, () => {
       for (const stack of [250, 399.99]) {
         const wanted = horseAutoTopUpWanted({
           userId: 'add-on-horse',
           variant,
           stack,
           maxBuyIn: 400,
-          autoTopUp: false,
+          autoTopUp: true,
           smallBlind: 1,
           bigBlind: 2,
         });
