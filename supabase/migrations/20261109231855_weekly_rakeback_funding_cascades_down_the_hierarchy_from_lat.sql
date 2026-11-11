@@ -1,4 +1,3 @@
--- @install-window: daily-maintenance
 -- 20261109231855_weekly_rakeback_funding_cascades_down_the_hierarchy_from_lat.sql
 --
 -- WEEKLY RAKEBACK FUNDING CASCADES DOWN THE RECORDED HIERARCHY (Dan, 2026-11-09)

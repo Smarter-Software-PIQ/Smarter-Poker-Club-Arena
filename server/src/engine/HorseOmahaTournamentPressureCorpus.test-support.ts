@@ -361,4 +361,8 @@ export const CORPUS_BASE_OPTS: HorseDecideOpts = {
   v86MultiStreetUnblocked: false,
   v86UnblockedPreflop: false,
   v86PloOverhaul: false,
+  // V87 (2026-11-10) tightens Omaha preflop/postflop and tournament pricedIn
+  // trash discipline independently of V53; the off arm keeps the pre-V53
+  // frozen digests intact while HorseDeepDiveDiscipline.test.ts pins V87.
+  v87DeepDiveDiscipline: false,
 };

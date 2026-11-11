@@ -253,6 +253,7 @@ export const HORSE_ACTION_CLAMPED_REASONS = [
   'plo_paired_board_fold',
   'v81_omaha_big_bet_call_fold',
   'v84_omaha_river_reraise_call_fold',
+  'v87_deep_dive_discipline',
   'holdem_dominated_3bet_fold',
   'holdem_premium_preflop_raise',
   'holdem_no_four_bet_bluff',
