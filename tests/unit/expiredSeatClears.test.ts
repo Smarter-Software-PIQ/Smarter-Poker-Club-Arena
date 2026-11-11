@@ -126,7 +126,10 @@ describe('authoritative seat read owns the final removal', () => {
       setSitOutStamps: vi.fn(),
       sameStamps: vi.fn(),
       applySeatRemoved: vi.fn(),
-      evictionReasonRef: { current: 'sit_out_timeout' },
+      evictionReasonRef: { current: 'sit_out_timeout' as string | undefined },
+      rebuyJustSucceededRef: { current: false },
+      knownTableIsTournament: vi.fn(() => undefined as boolean | undefined),
+      setTournamentBustExit: vi.fn(),
       paint: vi.fn(),
       reportError: vi.fn(),
     };
@@ -137,6 +140,27 @@ describe('authoritative seat read owns the final removal', () => {
     const t = readFixture([]);
     await t.run();
     expect(t.deps.applySeatRemoved).toHaveBeenCalledWith('sit_out_timeout', { announce: true });
+  });
+
+  it('a seat that vanished with no reason may be a lost tournament bust: the rebuy watcher is told', async () => {
+    const t = readFixture([]);
+    t.deps.evictionReasonRef.current = undefined;
+    await t.run();
+    expect(t.deps.setTournamentBustExit).toHaveBeenCalledWith({
+      tournamentId: null,
+      userId: 'hero',
+    });
+  });
+
+  it('a removal with another named reason, or at a known cash table, is not a bust', async () => {
+    const named = readFixture([]);
+    await named.run();
+    expect(named.deps.setTournamentBustExit).not.toHaveBeenCalled();
+    const cash = readFixture([]);
+    cash.deps.evictionReasonRef.current = undefined;
+    cash.deps.knownTableIsTournament.mockReturnValue(false);
+    await cash.run();
+    expect(cash.deps.setTournamentBustExit).not.toHaveBeenCalled();
   });
 
   it('does not turn a read failure into an eviction or silently hide it', async () => {

@@ -197,7 +197,7 @@ export function followsSolver(
 /**
  * Maximum EV indifference band (in big blinds) within which per-horse style
  * seeds may differentiate close sizings or tie-break indifferent frequencies.
- * Strictly zero -EV sacrifice: actions outside ±0.12 BB are never overridden.
+ * The selected action may trail the highest estimated EV by at most 0.12 BB.
  */
 export const HORSE_INDIFFERENCE_EV_BAND_BB = 0.12;
 
@@ -215,8 +215,8 @@ export interface HorseIndifferenceStyleSeeds {
 /**
  * Deterministic EV-bounded individuality seeds per (horseId, mode).
  * Every horse keeps gtoAdherence = 1 (100% solver floor, zero blocked actions)
- * while expressing stable human-like style differences strictly inside true
- * solver indifference bands (±0.12 BB).
+ * while expressing stable human-like style differences strictly inside estimated
+ * EV indifference bands (at most 0.12 BB below the best candidate).
  */
 export function indifferenceStyleSeedsFor(
   horseId: string,
@@ -246,7 +246,7 @@ export function indifferenceStyleSeedsFor(
 /**
  * Evaluates a close-EV tie-break strictly inside ±HORSE_INDIFFERENCE_EV_BAND_BB.
  * - If candidate out-EVs reference by > +0.12 BB, always returns true.
- * - If candidate trails reference by > 0.12 BB (`evGapBB < -0.12`), ALWAYS returns false (zero -EV sacrifice).
+ * - If candidate trails reference by > 0.12 BB (`evGapBB < -0.12`), always returns false.
  * - Inside [-0.12, +0.12] BB, applies the bounded per-horse style bias.
  */
 export interface IndifferenceSpotContext {

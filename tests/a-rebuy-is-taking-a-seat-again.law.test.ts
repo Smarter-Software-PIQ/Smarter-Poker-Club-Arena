@@ -171,6 +171,7 @@ function table(opts: { rebuyTable?: string } = {}) {
     d,
     state,
     bust: () => applySeatRemoved('busted_awaiting_rebuy_decision', { announce: true }),
+    leave: (reason: string) => applySeatRemoved(reason, { announce: true }),
     rebuy: () => confirmRebuy(),
     /** The engine seats the rebuy and deals the next hand. */
     dealt: (hand: number) => {
@@ -238,6 +239,26 @@ describe('a tournament rebuy is taking a seat again', () => {
     await t.rebuy();
     expect(t.d.leftSeatPendingRef.current).toBe(true);
     expect(t.dealt(21)).toEqual([]);
+  });
+
+  it("the engine's tournament bust exit does not close the rebuy offer it exists for", () => {
+    const t = table();
+    t.bust();
+    expect(t.d.setShowRebuyModal).not.toHaveBeenCalledWith(false);
+    /* Before the page's own table read has said "tournament": the engine sends
+       this reason only for a tournament seat, so it is honoured regardless. */
+    const early = table();
+    early.state.isTournament = false;
+    early.bust();
+    expect(early.d.setShowRebuyModal).not.toHaveBeenCalledWith(false);
+  });
+
+  it('every other exit still closes the rebuy offer', () => {
+    for (const reason of ['kicked_inactivity', 'moved', undefined]) {
+      const t = table();
+      t.leave(reason);
+      expect(t.d.setShowRebuyModal).toHaveBeenCalledWith(false);
+    }
   });
 
   it('every paid seat receipt on the page clears the latch, and the rebuy receipt is one of them', () => {
