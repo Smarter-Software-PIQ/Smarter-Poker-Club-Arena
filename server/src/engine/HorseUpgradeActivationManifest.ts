@@ -110,7 +110,7 @@ const UPGRADE_ENTRIES: readonly HorseUpgradeCapabilityEntry[] = Object.freeze([
   },
   {
     id: 'upgrade_01_range_posteriors',
-    title: 'Public-Action-Based Street-by-Street Opponent Range Posteriors',
+    title: 'Public-Action-Based Street-By-Street Opponent Range Posteriors',
     enabled: true,
     status: 'active',
     variants: ALL_VARIANTS,
@@ -137,7 +137,7 @@ const UPGRADE_ENTRIES: readonly HorseUpgradeCapabilityEntry[] = Object.freeze([
   },
   {
     id: 'upgrade_04_plo5_plo6_reservoir',
-    title: 'Compact Stratified Reservoir & Board-Triple Precomputation for PLO4/PLO5/PLO6/PLO8',
+    title: 'Compact Stratified Reservoir & Board-Triple Precomputation For PLO4/PLO5/PLO6/PLO8',
     enabled: true,
     status: 'active',
     variants: ['plo4', 'plo5', 'plo6', 'plo8', 'flo8'],
@@ -238,7 +238,7 @@ const UPGRADE_ENTRIES: readonly HorseUpgradeCapabilityEntry[] = Object.freeze([
   },
   {
     id: 'heldout_plo_v53_tournament_flag_cards',
-    title: 'Held-Out PLO v53 Tournament Flag Cards (Remains Fail-Closed Until Qualified)',
+    title: 'Held-Out PLO V53 Tournament Flag Cards (Remains Fail-Closed Until Qualified)',
     enabled: false,
     status: 'qualified_gate_unselected',
     variants: ['plo4', 'plo5', 'plo6'],
