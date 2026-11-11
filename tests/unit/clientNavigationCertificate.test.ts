@@ -347,6 +347,13 @@ describe('closed cash observation certificate', () => {
         specs: [
           spec('production-mobile-lobby-chrome.spec.ts', title, 'chromium'),
           spec('production-mobile-lobby-chrome.spec.ts', title, 'webkit-footer'),
+          ...['chromium', 'webkit-footer'].map((project) =>
+            spec(
+              'production-mobile-lobby-chrome.spec.ts',
+              'joining an ordinary waiting list opens observation and preserves the queue',
+              project
+            )
+          ),
         ],
       },
     ],
@@ -404,7 +411,10 @@ describe('closed cash observation certificate', () => {
   });
   it('keeps the real journey, normal clicks, provenance and owned-account cleanup', () => {
     const step = client.steps.find((s: any) => s.id === 'cash_observation');
-    expect(step.run).toContain(`--grep '^.*${title}$'`);
+    expect(step.run).toContain(title);
+    expect(step.run).toContain(
+      'joining an ordinary waiting list opens observation and preserves the queue'
+    );
     expect(step.run).toContain('--project=chromium --project=webkit-footer');
     expect(step.run).toContain('--workers=1 --retries=0');
     expect(step.run).toContain('cash-observation-reports');

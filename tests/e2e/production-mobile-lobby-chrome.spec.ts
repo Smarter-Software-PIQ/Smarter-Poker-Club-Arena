@@ -490,6 +490,111 @@ test.describe('the mobile lobby chrome on production', () => {
     });
   });
 
+  test('joining an ordinary waiting list opens observation and preserves the queue', async ({
+    page,
+  }, testInfo) => {
+    expect(/^ca-customization-cert-.*@example\.invalid$/.test(process.env.SP_EMAIL || '')).toBe(
+      true
+    );
+    const environment = requireCustomizationCertificationEnvironment();
+    const client = createClient(environment.supabaseUrl, environment.publishableKey, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    });
+    const { data: auth, error: authError } = await client.auth.signInWithPassword({
+      email: process.env.SP_EMAIL!,
+      password: process.env.SP_PASS!,
+    });
+    if (authError || !auth.user)
+      throw new Error('Reserved waitlist witness could not authenticate');
+    let tableId: string | undefined;
+    const forbidden: string[] = [];
+    await page.route(
+      /\/(?:action|leave|buyin|addchips|rebuy|cashout|rest\/v1\/(?:table_seats|wallet_transactions|rpc\/(?:fn_cash_game_join|atomic_table_buyin|fn_take_seat_and_buy_in|fn_lightning_join|fn_lightning_buy_in)))(?:[/?#]|$)/,
+      async (route) => {
+        if (['GET', 'HEAD', 'OPTIONS'].includes(route.request().method())) return route.continue();
+        forbidden.push(new URL(route.request().url()).pathname);
+        await route.abort('blockedbyclient');
+      }
+    );
+    try {
+      await openLobby(page);
+      await openLobbyGameSection(page, 'ALL');
+      await page.getByRole('tab', { name: 'ALL', exact: true }).click();
+      const candidates = await page
+        .locator(`${CASH_TABLE_CARD_SELECTOR}[data-target="table"]:visible`)
+        .evaluateAll((rows) =>
+          rows
+            .filter((row) => {
+              const capacity = Number(row.getAttribute('data-capacity'));
+              return capacity > 0 && Number(row.getAttribute('data-players')) >= capacity;
+            })
+            .map((row) => row.getAttribute('data-id'))
+            .filter((id): id is string => Boolean(id))
+        );
+      expect(
+        candidates.length,
+        'A naturally full ordinary table is required; this witness never funds or fills a table'
+      ).toBeGreaterThan(0);
+      const { data: ordinary, error } = await client
+        .from('tables')
+        .select('id')
+        .in('id', candidates)
+        .is('cluster_id', null)
+        .limit(1);
+      if (error) throw new Error('Ordinary waiting-list table eligibility was unreadable');
+      tableId = ordinary?.[0]?.id;
+      expect(
+        tableId,
+        'No full non-cluster table is available for the zero-balance waiting-list witness'
+      ).toBeTruthy();
+      const details = page.locator(`tr[data-game-heading="${tableId}"]:visible`);
+      await details.evaluate((element) => element.scrollIntoView({ block: 'center' }));
+      await details.click();
+      const panel = page.getByRole('dialog').filter({ has: page.locator('.arena-game-card') });
+      const joined = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          new URL(response.url()).pathname.endsWith('/rpc/fn_table_waitlist_join')
+      );
+      await panel.getByRole('button', { name: 'Join Waitlist', exact: true }).click();
+      const response = await joined;
+      expect(response.ok()).toBe(true);
+      expect((await response.json()).ok).toBe(true);
+      await expect(
+        page.locator(`.table-tab-bar:visible [data-tabid="${tableId}"]`)
+      ).toHaveAttribute('aria-current', 'true', { timeout: 20_000 });
+      const queue = await client
+        .from('table_waitlist')
+        .select('id,status')
+        .eq('table_id', tableId!)
+        .eq('user_id', auth.user.id)
+        .in('status', ['waiting', 'notified']);
+      expect(queue.error).toBeNull();
+      expect(queue.data).toHaveLength(1);
+      expect(forbidden).toEqual([]);
+      await testInfo.attach('waiting-list-observation', {
+        body: await page.screenshot(),
+        contentType: 'image/png',
+      });
+    } finally {
+      if (tableId) {
+        // Normal player exit, scoped to this authenticated witness, also handles a seat offer.
+        const left = await client.rpc('fn_table_waitlist_leave', { p_table_id: tableId });
+        expect(left.error).toBeNull();
+        expect(left.data?.ok).toBe(true);
+        const remaining = await client
+          .from('table_waitlist')
+          .select('id')
+          .eq('table_id', tableId)
+          .eq('user_id', auth.user.id)
+          .in('status', ['waiting', 'notified']);
+        expect(remaining.error).toBeNull();
+        expect(remaining.data).toEqual([]);
+      }
+      await client.auth.signOut({ scope: 'local' });
+    }
+  });
+
   test('tournament Details stays inside the spectator table lobby tab', async ({
     page,
   }, testInfo) => {

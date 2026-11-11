@@ -3528,11 +3528,11 @@ describe('P10.3 worker-owned PLO4 authority (the Phase 8 path, reused)', () => {
   // heads-up reference fold.
   const LIVE_STATES = [
     [
-      'cash AsKsQhJh preflop (the pack retains the call)',
+      'cash AsKsQhJh preflop (the pack retains the pot raise)',
       'cash',
       'As Ks Qh Jh',
       false,
-      { action: 'call', amount: 2 },
+      { action: 'raise', amount: 11 },
     ],
     [
       'cash QsQh4c4d preflop (the pack retains the call)',
@@ -3549,11 +3549,11 @@ describe('P10.3 worker-owned PLO4 authority (the Phase 8 path, reused)', () => {
       { action: 'fold', amount: null },
     ],
     [
-      'tournament AsKsQhJh preflop (the pack retains the call)',
+      'tournament AsKsQhJh preflop (the pack retains the pot raise)',
       'tournament',
       'As Ks Qh Jh',
       false,
-      { action: 'call', amount: 2 },
+      { action: 'raise', amount: 11 },
     ],
   ] as const;
 
@@ -3932,7 +3932,10 @@ describe('P11.3 worker-owned PLO5/PLO6/PLO8 authority (the Phase 8 path, reused 
     ['plo6', 'tournament', 'As Ad Ks Kd Qs Jd', false, { action: 'raise', amount: 11 }],
     ['plo8', 'cash', 'As 2s 3d Ac', false, { action: 'raise', amount: 11 }],
     ['plo8', 'cash', 'Ah 7c Ks 9d', true, { action: 'fold', amount: null }],
-    ['plo8', 'cash', 'Qs Qh 4c 4d', false, { action: 'call', amount: 2 }],
+    // V86: high-only middle two-pair with zero low cards in PLO8 folds on the
+    // reference path; the PLO8 pack (shadow, unselected) records a HU open
+    // deviation receipt (`changed: true`) while applying nothing.
+    ['plo8', 'cash', 'Qs Qh 4c 4d', true, { action: 'fold', amount: null }],
     ['plo8', 'tournament', 'As 2s 3d Ac', false, { action: 'raise', amount: 11 }],
   ] as const;
 

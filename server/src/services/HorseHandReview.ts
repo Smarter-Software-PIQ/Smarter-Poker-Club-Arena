@@ -35,11 +35,13 @@ import { accumulatePlayStats, freshPlay, type HandRow, type PlayStats } from './
 import {
   variantInfo,
   omahaNutStatus,
+  omahaBoatPosition,
   nlhNutStatus,
   scoreOmahaHiPartial,
   omahaDrawQuality,
   scoreOmahaLow,
 } from '../engine/HorseEval.js';
+import { omahaEliteClassRead } from '../engine/HorseHandClasses.js';
 import { RANK_VALUES, RANKS, SUITS } from '../engine/PokerEngine.js';
 import type { Card } from '../types.js';
 
@@ -752,6 +754,163 @@ function evaluateHoldemV87Detectors(
   };
 }
 
+type ReviewActionRef = {
+  seat?: number;
+  userId?: string;
+  action: string;
+  amount?: number;
+  stage: string;
+  isFullRaise?: boolean;
+  origin?: string;
+};
+
+function clockwisePostflopSeats(seats: number[], buttonSeat: number): number[] {
+  const uniq = [...new Set(seats.filter((s) => Number.isFinite(s)))].sort((a, b) => a - b);
+  return [...uniq.filter((s) => s > buttonSeat), ...uniq.filter((s) => s <= buttonSeat)];
+}
+
+/**
+ * Determine whether hero was genuinely out of position (SB/BB or acting before
+ * the preflop aggressor on the flop) when flatting a preflop raise with an
+ * elite double-suited rundown or connected broadway.
+ *
+ * When a unit test invokes `detectLeaks` directly with only `heroActions` and
+ * supplies no positional metadata (`heroOutOfPosition`, `position`,
+ * `allActions`, `buttonSeat`), falls back to `true` so direct unit assertions
+ * stay backward-compatible while full hand settlements enforce real OOP order.
+ */
+function isHeroOutOfPositionForRundown(row: {
+  heroUserId?: string | null;
+  heroSeat?: number | null;
+  buttonSeat?: number | null;
+  occupiedSeats?: number[] | null;
+  position?: string | null;
+  heroOutOfPosition?: boolean;
+  allActions?: ReviewActionRef[] | null;
+}): boolean {
+  if (typeof row.heroOutOfPosition === 'boolean') return row.heroOutOfPosition;
+
+  if (typeof row.position === 'string' && row.position.trim().length > 0) {
+    const pos = row.position.trim().toUpperCase();
+    if (
+      pos === 'BTN' ||
+      pos === 'BU' ||
+      pos === 'BUTTON' ||
+      pos === 'D' ||
+      pos === 'DEALER' ||
+      pos === 'CO' ||
+      pos === 'CUTOFF'
+    ) {
+      return false;
+    }
+    if (
+      pos === 'SB' ||
+      pos === 'BB' ||
+      pos === 'SMALL_BLIND' ||
+      pos === 'BIG_BLIND' ||
+      pos === 'STRADDLE'
+    ) {
+      return true;
+    }
+  }
+
+  const heroUid = typeof row.heroUserId === 'string' && row.heroUserId ? row.heroUserId : null;
+  const heroSeat = typeof row.heroSeat === 'number' ? row.heroSeat : null;
+  const buttonSeat = typeof row.buttonSeat === 'number' ? row.buttonSeat : null;
+
+  const isHeroRef = (a: ReviewActionRef): boolean => {
+    if (heroUid && a.userId) return a.userId === heroUid;
+    if (heroSeat !== null && typeof a.seat === 'number') return a.seat === heroSeat;
+    return false;
+  };
+
+  if (Array.isArray(row.allActions) && row.allActions.length > 0) {
+    let raiserUid: string | null = null;
+    let raiserSeat: number | null = null;
+    let heroPostedBlind = false;
+    const actionSeats: number[] = [];
+
+    for (const a of row.allActions) {
+      if (typeof a.seat === 'number') actionSeats.push(a.seat);
+      if (a.stage !== 'preflop') continue;
+      const isBlindPost =
+        a.origin === 'forced' ||
+        a.action === 'post_sb' ||
+        a.action === 'post_bb' ||
+        a.action === 'sb' ||
+        a.action === 'bb' ||
+        a.action === 'small_blind' ||
+        a.action === 'big_blind' ||
+        a.action === 'straddle';
+      if (isBlindPost && isHeroRef(a)) {
+        heroPostedBlind = true;
+      }
+      if (!isBlindPost && isAggressiveAction(a) && !isHeroRef(a)) {
+        raiserUid = a.userId ?? null;
+        raiserSeat = typeof a.seat === 'number' ? a.seat : null;
+      }
+    }
+
+    // Check actual flop acting order first: acting before the preflop raiser
+    // on the flop is the exact operational definition of being OOP against them.
+    const flopSeenKeys: string[] = [];
+    let heroFlopIdx = -1;
+    let raiserFlopIdx = -1;
+    for (const a of row.allActions) {
+      if (a.stage !== 'flop' || a.origin === 'forced') continue;
+      const key = a.userId ?? (typeof a.seat === 'number' ? `seat:${a.seat}` : '');
+      if (!key || flopSeenKeys.includes(key)) continue;
+      const idx = flopSeenKeys.length;
+      flopSeenKeys.push(key);
+      if (heroFlopIdx < 0 && isHeroRef(a)) heroFlopIdx = idx;
+      if (
+        raiserFlopIdx < 0 &&
+        ((raiserUid && a.userId === raiserUid) ||
+          (raiserSeat !== null && typeof a.seat === 'number' && a.seat === raiserSeat))
+      ) {
+        raiserFlopIdx = idx;
+      }
+    }
+    if (heroFlopIdx >= 0) {
+      if (raiserFlopIdx >= 0) return heroFlopIdx < raiserFlopIdx;
+      if (flopSeenKeys.length >= 2) return heroFlopIdx < flopSeenKeys.length - 1;
+    }
+
+    if (buttonSeat !== null && heroSeat !== null) {
+      if (heroSeat === buttonSeat) return false;
+      const seatsPool =
+        Array.isArray(row.occupiedSeats) && row.occupiedSeats.length > 0
+          ? row.occupiedSeats
+          : actionSeats;
+      const order = clockwisePostflopSeats(seatsPool, buttonSeat);
+      const heroOrderIdx = order.indexOf(heroSeat);
+      if (heroOrderIdx >= 0) {
+        if (raiserSeat !== null) {
+          const raiserOrderIdx = order.indexOf(raiserSeat);
+          if (raiserOrderIdx >= 0) return heroOrderIdx < raiserOrderIdx;
+        }
+        if (order.length >= 2) return heroOrderIdx < order.length - 1;
+      }
+    }
+
+    if (heroPostedBlind && !(buttonSeat !== null && heroSeat === buttonSeat)) {
+      return true;
+    }
+  }
+
+  if (buttonSeat !== null && heroSeat !== null) {
+    if (heroSeat === buttonSeat) return false;
+    if (Array.isArray(row.occupiedSeats) && row.occupiedSeats.length >= 2) {
+      const order = clockwisePostflopSeats(row.occupiedSeats, buttonSeat);
+      const heroOrderIdx = order.indexOf(heroSeat);
+      if (heroOrderIdx >= 0) return heroOrderIdx < order.length - 1;
+    }
+    return true;
+  }
+
+  return true;
+}
+
 /**
  * Leak detectors. Each looks at ONE flagged (usually losing) hand and answers
  * "is this one of the known bad shapes?". Tags are counted per horse per day
@@ -770,6 +929,8 @@ export function detectLeaks(row: {
   wentToShowdown: boolean;
   /** More than one board was dealt (double-board bomb pot, run it twice). */
   multiBoard?: boolean;
+  /** Parsed distinct boards when multiBoard is true. */
+  boards?: Card[][] | null;
   format?: string | null;
   tournamentId?: string | null;
   nearBubbleOrPayJump?: boolean;
@@ -778,11 +939,15 @@ export function detectLeaks(row: {
   allInCalloff?: boolean;
   position?: string | null;
   seat?: number | null;
+  heroSeat?: number | null;
   buttonSeat?: number | null;
   activeSeats?: number[] | null;
+  occupiedSeats?: number[] | null;
   isoRaiseBB?: number | null;
   actions?: HorseReviewInput['actions'] | null;
+  allActions?: ReviewActionRef[] | null;
   heroUserId?: string | null;
+  heroOutOfPosition?: boolean;
 }): string[] {
   const tags: string[] = [];
   const vi = variantInfo(row.variant);
@@ -1268,6 +1433,15 @@ export function detectLeaks(row: {
         if (!omahaBoatIsNut(row.holeCards, boardAt)) {
           flag('plo_underfull_stackoff');
         }
+        if (row.board.length === 5) {
+          const riverSt = boardAt.length === 5 ? st : omahaNutStatus(row.holeCards, row.board);
+          if (riverSt.category === CAT_FULL_HOUSE) {
+            const boatPos = omahaBoatPosition(row.holeCards, row.board);
+            if (boatPos && boatPos.lowerBoats === 0 && boatPos.boats >= 2) {
+              flag('plo_underboat_stackoff');
+            }
+          }
+        }
       } else if (st.category === CAT_ONE_PAIR && isOmahaTopPair(row.holeCards, boardAt)) {
         // TOP pair with a full stack in. On the river every redraw has
         // resolved, so a hand that still shows one pair is one that had no
@@ -1315,6 +1489,56 @@ export function detectLeaks(row: {
     }
   }
 
+  // V86 MULTI-BOARD DEAD-HALF CALLOFF & PASSIVE PLO RUNDOWN DETECTORS
+  if (
+    vi.isOmaha &&
+    row.multiBoard &&
+    row.wentToShowdown &&
+    row.holeCards &&
+    Array.isArray(row.boards) &&
+    row.boards.length >= 2 &&
+    investedBB >= 2 * FLAG_BB &&
+    !raisedOrBet('flop') &&
+    !raisedOrBet('turn') &&
+    !raisedOrBet('river')
+  ) {
+    try {
+      const fiveCardBoards = row.boards.filter((b) => Array.isArray(b) && b.length >= 5);
+      if (
+        fiveCardBoards.length >= 2 &&
+        fiveCardBoards.some((b) => omahaNutStatus(row.holeCards!, b).category <= CAT_ONE_PAIR)
+      ) {
+        flag('plo_multiboard_dead_half_call');
+      }
+    } catch {
+      /* detector is best-effort */
+    }
+  }
+
+  if (
+    vi.isOmaha &&
+    !row.multiBoard &&
+    row.holeCards &&
+    !heroPreRaised &&
+    heroPre.some((a) => isCallAction(a) && (a.amount ?? 0) >= bb * 2.5) &&
+    investedBB >= FLAG_BB &&
+    !raisedOrBet('flop') &&
+    !raisedOrBet('turn') &&
+    !raisedOrBet('river')
+  ) {
+    try {
+      const elite = omahaEliteClassRead(row.holeCards, vi.isHiLo);
+      const isPassiveEliteRundown =
+        elite.canThreeBet && (elite.cls === 'rundown_ds' || elite.cls === 'broadway_conn_ds');
+      const heroWasOop = isHeroOutOfPositionForRundown(row);
+      if (isPassiveEliteRundown && heroWasOop) {
+        flag('plo_passive_rundown_oop');
+      }
+    } catch {
+      /* detector is best-effort */
+    }
+  }
+
   // nonnut_flush_stackoff is reachable from both the Omaha block and the NLH
   // board-demotion block, so a hand can pick it up twice. It always could;
   // the mirror doubles the chance of noticing.
@@ -1340,12 +1564,21 @@ export function buildReviewRows(input: HorseReviewInput): HorseReviewRow[] {
     .filter((s): s is number => typeof s === 'number');
 
   // Distinct non-empty boards: board 1 is repeated inside some callers' lists.
-  const multiBoard =
-    new Set(
+  const distinctRawBoards = [
+    ...new Map(
       (input.boards ?? [])
         .filter((b) => Array.isArray(b) && b.length > 0)
-        .map((b) => JSON.stringify(b))
-    ).size > 1;
+        .map((b) => [JSON.stringify(b), b] as const)
+    ).values(),
+  ];
+  const multiBoard = distinctRawBoards.length > 1;
+  const parsedBoards = multiBoard
+    ? distinctRawBoards.map((b) => parseCards(b)).filter((b): b is Card[] => b !== null)
+    : null;
+
+  const occupiedSeats = [...input.holeCardsAll.values()]
+    .map((v) => v.seat)
+    .filter((s): s is number => typeof s === 'number' && Number.isFinite(s));
 
   const rows: HorseReviewRow[] = [];
   for (const uid of horses) {
@@ -1378,15 +1611,19 @@ export function buildReviewRows(input: HorseReviewInput): HorseReviewRow[] {
       heroActions,
       wentToShowdown: !folded,
       multiBoard,
+      boards: parsedBoards,
       format,
       tournamentId: input.tournamentId ?? null,
       nearBubbleOrPayJump: input.nearBubbleOrPayJump,
       tournamentStage: input.tournamentStage ?? null,
       coveredStack: input.coveredStack,
       seat: seatInfo?.seat ?? null,
+      heroSeat: seatInfo?.seat ?? null,
       buttonSeat: input.buttonSeat ?? null,
       activeSeats,
+      occupiedSeats,
       actions: input.actions ?? null,
+      allActions: input.actions ?? null,
       heroUserId: uid,
     });
 
