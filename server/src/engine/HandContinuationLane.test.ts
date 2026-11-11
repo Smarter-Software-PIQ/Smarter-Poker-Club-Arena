@@ -1,6 +1,15 @@
-import { describe, expect, it, vi } from 'vitest';
-import { HandContinuationLane, type HandContinuationBatch } from './HandContinuationLane.js';
-import type { HandEvent } from '../types.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  HandContinuationLane,
+  type HandContinuationBatch,
+  type ContinuationEvent,
+} from './HandContinuationLane.js';
+import { HandController } from './HandController.js';
+import { ServerTableEngine } from './ServerTableEngine.js';
+import { privateHorseTurnClocks, retainHorseTurnClock } from './HorseTurnClockReceipt.js';
+import type { HandEvent, SeatPlayer } from '../types.js';
+
+afterEach(() => vi.restoreAllMocks());
 
 const action: HandEvent = { type: 'TURN_CHANGE', seat: 1, availableActions: ['fold', 'call'] };
 function setup(persist: (b: Readonly<HandContinuationBatch>) => Promise<void> = async () => {}) {
@@ -31,6 +40,151 @@ function setup(persist: (b: Readonly<HandContinuationBatch>) => Promise<void> = 
 }
 
 describe('the hand continuation retains before publishing', () => {
+  it.each([
+    ['strategy', 'horse_policy', 'call', undefined],
+    ['strategy', 'horse_policy', 'fold', undefined],
+    ['quick_check_fold', 'pre_action', 'fold', undefined],
+    ['pre_action', 'pre_action', 'call', undefined],
+    ['timeout', 'forced', 'fold', 'timebank_expired'],
+    ['forced', 'forced', 'fold', 'watchdog_forced'],
+    ['fallback', 'horse_fallback', 'fold', 'route_gate'],
+  ] as const)(
+    'carries the live %s %s %s receipt through retention and dispatch without serializing it',
+    async (path, origin, chosenAction, reason) => {
+      const startedAtMs = 1_800_000_000_000;
+      const acceptedAtMs = startedAtMs + 2_500;
+      const deadlineMs = startedAtMs + 15_000;
+      const now = vi.spyOn(Date, 'now').mockReturnValue(acceptedAtMs);
+      const players: SeatPlayer[] = [1, 2, 3].map((seat) => ({
+        seat,
+        user_id: `u${seat}`,
+        username: 'offline',
+        stack: 200,
+        bet: 0,
+        totalInvested: 0,
+        cards: [],
+        is_folded: false,
+        is_all_in: false,
+        is_sitting_out: false,
+      }));
+      const controller = new HandController(
+        {
+          tableId: 'continuation-clock',
+          handNumber: 1,
+          gameVariant: 'nlh',
+          smallBlind: 1,
+          bigBlind: 2,
+          rakeConfig: { percent: 0, cap: 0, noFlopNoDrop: true },
+        },
+        players,
+        1
+      );
+      controller.start();
+      class HistoryEngine extends ServerTableEngine {
+        constructor() {
+          super('continuation-clock');
+          this.handController = controller;
+        }
+        record(event: HandEvent) {
+          return this.handleHandEvent(event, []);
+        }
+        get history() {
+          return this.currentHandActions;
+        }
+      }
+      const engine = new HistoryEngine();
+      vi.spyOn(engine as any, 'broadcastCurrentState').mockResolvedValue(undefined);
+      let release!: () => void;
+      const retained = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const serialized: string[] = [];
+      const dispatch = vi.fn(async (event: ContinuationEvent) => {
+        if (event.type === 'PLAYER_ACTION') await engine.record(event);
+      });
+      const lane = new HandContinuationLane(
+        0,
+        () => controller.serializeRecoveryState(),
+        () => ({}),
+        async (batch) => {
+          serialized.push(JSON.stringify(batch));
+          await retained;
+        },
+        dispatch,
+        () => true,
+        (error) => {
+          throw error;
+        }
+      );
+      controller.onEvent((event) => {
+        if (event.type === 'PLAYER_ACTION') lane.enqueue(event);
+      });
+      const capture = (record: { timestamp: number }) =>
+        retainHorseTurnClock(record, startedAtMs, deadlineMs, path, reason);
+      expect(controller.performAction(2, chosenAction, undefined, origin, capture)).toBe(false);
+      expect(controller.performAction(1, chosenAction, undefined, origin, capture)).toBe(true);
+      const joined = lane.join();
+      await Promise.resolve();
+      expect(serialized).toHaveLength(1);
+      expect(dispatch).not.toHaveBeenCalled();
+      expect(engine.history).toEqual([]);
+      now.mockReturnValue(acceptedAtMs + 750);
+      release();
+      await joined;
+      expect(dispatch).toHaveBeenCalledOnce();
+      expect(engine.history).toMatchObject([
+        {
+          userId: 'u1',
+          seat: 1,
+          stage: 'preflop',
+          action: chosenAction,
+          origin,
+          timestamp: acceptedAtMs,
+        },
+      ]);
+      expect(privateHorseTurnClocks(engine.history)).toEqual([
+        {
+          actionIndex: 0,
+          startedAtMs,
+          deadlineMs,
+          acceptedAtMs,
+          path,
+          ...(reason ? { reason } : {}),
+        },
+      ]);
+      // The actual durable continuation bytes and public history stay unchanged.
+      expect(serialized[0]).not.toMatch(/startedAtMs|deadlineMs|acceptedAtMs|horseTurnClock/);
+      expect(JSON.stringify(engine.history)).not.toMatch(
+        /startedAtMs|deadlineMs|acceptedAtMs|horseTurnClock/
+      );
+      const recovered = JSON.parse(serialized[0]) as HandContinuationBatch;
+      const replayEngine = new HistoryEngine();
+      vi.spyOn(replayEngine as any, 'broadcastCurrentState').mockResolvedValue(undefined);
+      const replayLane = new HandContinuationLane(
+        recovered.sequence,
+        () => recovered.controller,
+        () => ({}),
+        async () => {
+          throw Error('A replay must not persist a new batch');
+        },
+        async () => {
+          throw Error('A replay must use its original events');
+        },
+        () => true,
+        (error) => {
+          throw error;
+        },
+        async () => {
+          for (const event of recovered.events) {
+            if (event.type === 'PLAYER_ACTION') await replayEngine.record(event);
+          }
+        }
+      );
+      await replayLane.join();
+      expect(replayEngine.history).toEqual(engine.history);
+      expect(privateHorseTurnClocks(replayEngine.history)).toEqual([]);
+    }
+  );
   it('drains an idle terminal lane without authorizing live publication', async () => {
     const { lane, fence, dispatch } = setup();
     fence();
