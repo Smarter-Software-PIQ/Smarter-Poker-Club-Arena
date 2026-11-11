@@ -154,6 +154,8 @@ Follow `PUBLISHING.md`. The authorized agent finds or creates its PR, handles re
 
 **Database checks use the workflow's identity, never a copied key (2026-11-08).** Run a read-only check against production through its workflow, whose database identity is the repository secret (the V31 pre-screen: `Explicit V31 Offline Qualification`, `operation: prescreen`). Never reveal an API key through the Supabase CLI (`projects api-keys`) or the Management API (`?reveal=true`), never source a `.env` file, and never write a key to a new file. An agent did all three to run a local check (`.agent/audits/2026-11-08-SECURITY-INCIDENT-prescreen-credential-copy.md`).
 
+**Never print another process's command line or environment (2026-11-10).** Do not run `pgrep -fl`, `pgrep -a`, `ps e`, `ps eww`, `ps -o args` / `ps aux` without filtering, `env`, `printenv`, `set` or `cat /proc/*/environ` on the Mac, the engine hosts or a runner: other agents' and tools' processes carry tokens in their arguments, and the output lands in your transcript. To check whether a process runs, print only its pid and executable name (`pgrep -x <name>`, `ps -axo pid=,comm=`). A thin-pool agent's `pgrep -fl` put other processes' credentials into its session transcript (`.agent/audits/2026-11-10-SECURITY-INCIDENT-process-listing-credential-exposure.md`).
+
 ### 1.3 Never Do
 
 - Never run `vercel deploy` or `vercel --prod` in the Club Arena directory
