@@ -160,6 +160,40 @@ function refreshStableTableViewport() {
   document.documentElement.style.setProperty(STABLE_TABLE_VIEWPORT_HEIGHT, `${next}px`);
 }
 const STABLE_TABLE_VIEWPORT_HEIGHT = '--sp-table-stable-viewport-h';
+
+/**
+ * THE NOTCH IS PAID AT ITS REAL HEIGHT (Dan 2026-11-11, item 6).
+ *
+ * "There must always be enough top padding on mobile so nothing is cut off at
+ * the top." The browser reports env(safe-area-inset-*) in CSS px that do NOT
+ * follow the page scale this file sets: measured in Chromium with a 59px
+ * Dynamic Island inset, the value is 59 at scale 1 and still 59 at the
+ * table's 0.65, so the tab bar paid 59 x 0.65 = 38 device px of a 59px band
+ * and its controls sat under the island. The same held for the home
+ * indicator under the action bar.
+ *
+ * So the insets are read ONCE, beside the stable height above and for the
+ * same reason: before this file switches the phone to the desktop layout
+ * width, while one CSS px is one device px, and published in the desktop
+ * layout's own px. They are device constants for the life of the table
+ * (cleared with the last holder, re-read on the next portrait mount), so
+ * nothing about a hand can change them. The stylesheets take the larger of
+ * this and env(), so a browser that does scale env() pays it once, never
+ * twice. tests/live-turn/phone-table-layout.pw.ts measures the result in
+ * device px.
+ */
+const PHONE_SAFE_TOP = '--sp-phone-safe-top';
+const PHONE_SAFE_BOTTOM = '--sp-phone-safe-bottom';
+let phoneSafeTop: number | null = null;
+let phoneSafeBottom: number | null = null;
+function readSafeInset(side: 'top' | 'bottom'): number {
+  const probe = document.createElement('div');
+  probe.style.cssText = `position:fixed;visibility:hidden;pointer-events:none;width:0;height:env(safe-area-inset-${side},0px)`;
+  document.documentElement.appendChild(probe);
+  const height = probe.getBoundingClientRect().height;
+  probe.remove();
+  return height;
+}
 function writeTableViewport() {
   if (typeof document === 'undefined') return;
   const rootStyle = document.documentElement.style;
@@ -179,7 +213,11 @@ function writeTableViewport() {
     phoneStableViewportHeight = null;
     phoneSmallHeightBeforeScale = null;
     phoneStableUnitsFollowLayout = null;
+    phoneSafeTop = null;
+    phoneSafeBottom = null;
     document.documentElement.style.removeProperty(STABLE_TABLE_VIEWPORT_HEIGHT);
+    document.documentElement.style.removeProperty(PHONE_SAFE_TOP);
+    document.documentElement.style.removeProperty(PHONE_SAFE_BOTTOM);
     return;
   }
   const meta = document.querySelector('meta[name="viewport"]');
@@ -193,13 +231,34 @@ function writeTableViewport() {
         phoneStableViewportHeight =
           Math.round(((height * PHONE_TABLE_LAYOUT_WIDTH_PX) / width) * 1000) / 1000;
     }
+    if (phoneSafeTop === null) {
+      // Same moment, same reference width as the height above: one CSS px is
+      // one device px here, and the result is in desktop-layout px.
+      const width = document.documentElement.clientWidth;
+      if (width > 0) {
+        const toLayout = PHONE_TABLE_LAYOUT_WIDTH_PX / width;
+        // Installed iOS can report a zero or undersized inset under its
+        // status bar; TableTabBar.css floors it at 60px for <=480px layouts,
+        // which a 600px table never is, so the same floor is applied here.
+        const installed = window.matchMedia?.('(display-mode: standalone)').matches === true;
+        const top = Math.max(readSafeInset('top'), installed ? 60 : 0);
+        phoneSafeTop = Math.round(top * toLayout * 1000) / 1000;
+        phoneSafeBottom = Math.round(readSafeInset('bottom') * toLayout * 1000) / 1000;
+      }
+    }
     if (phoneStableViewportHeight !== null)
       document.documentElement.style.setProperty(
         STABLE_TABLE_VIEWPORT_HEIGHT,
         `${phoneStableViewportHeight}px`
       );
+    if (phoneSafeTop !== null && phoneSafeBottom !== null) {
+      document.documentElement.style.setProperty(PHONE_SAFE_TOP, `${phoneSafeTop}px`);
+      document.documentElement.style.setProperty(PHONE_SAFE_BOTTOM, `${phoneSafeBottom}px`);
+    }
   } else {
     document.documentElement.style.removeProperty(STABLE_TABLE_VIEWPORT_HEIGHT);
+    document.documentElement.style.removeProperty(PHONE_SAFE_TOP);
+    document.documentElement.style.removeProperty(PHONE_SAFE_BOTTOM);
   }
   const next = tableViewportContent(phoneWidth, desktopLayoutHolders > 0);
   if (meta.getAttribute('content') !== next) {

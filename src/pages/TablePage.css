@@ -5299,3 +5299,67 @@ button.post-bb-overlay-button {
     --sp-observer-clear: 38px;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE PHONE TABLE: THE HERO'S STRIP HOLDS THE HAND LABEL (Dan 2026-11-11)
+   ═══════════════════════════════════════════════════════════════════════════
+
+   "The action buttons ... growing upward so their top edge comes up to just
+   below the bottom of the bottom-center seat box", where that box ends at the
+   hand label under the name plate ("10 High").
+
+   Same query as the bottom row in ActionPanel.css: a portrait phone laid out at
+   the desktop width (useTableEnvironment), the only time a phone's layout
+   viewport is wider than 480px. The <=768px rule above sizes this strip for
+   the PLATE alone (a tenth of the felt plus 27px), and the hand label hung
+   below it: measured at that rule, the label's foot sat 109px under the
+   scaler at a 598px felt against a 90px strip, so at nine seats the action
+   row covered it.
+
+   Measured in Chromium at the phone table, 486 to 598px felts, 6 and 9 seats:
+   the hero's box (plate and hand label) ends 0.1075 x felt width + 44.7px
+   under the scaler, because the avatar is a fixed fraction of the felt and the
+   plate and label are fixed type. So the strip is that, solved the same way
+   the rule above solves the plate: on a width-bound felt the width is the
+   viewport's; on a height-bound one (the <=768px fill rule caps width at 0.7 of
+   the felt's height) W = 0.7 x (budget - C), which gives
+   C = (0.07525 x budget + 45px) / 1.07525. The smaller of the two wins, as
+   above. A static breakpoint value: no state, no measurement. */
+@media (max-device-width: 480px) and (min-width: 481px) and (orientation: portrait) {
+  .table-container {
+    --sp-hero-clear: min(
+      calc(0.1075 * 100vw + 45px),
+      calc(
+        (0.07525 * (var(--sp-page-h) - var(--sp-table-top) - var(--sp-action-reserve)) + 45px) /
+          1.07525
+      )
+    );
+  }
+
+  /* THE SHORT RING SITS ON ITS BUDGET'S FLOOR. A 2..6 seat canvas is 4% shorter
+     than the 9-max one (Dan 2026-09-05) and was dropped a flat 18px (Dan
+     2026-09-23: "too much space on the bottom and not enough on the top"), so
+     on a phone table the rest of that 4% stayed as dead felt UNDER the oval:
+     16px at 390x844, measured, which held the hero, and with it the bottom-
+     center label, that far above the action row. The drop is the whole 4%
+     here, never less than the 18px ruling, so the oval rests on the floor of
+     its budget exactly like a 9-max one and the spare length goes to the TOP
+     seat, which is what the 09-23 ruling asked for. The box itself does not
+     change: the fill rule's height is min(0.96 x budget, budget - drop), and
+     with this drop both terms are 0.96 x budget, so margin plus box is still
+     exactly the budget. Heads Up and Spins (short-match) keep their full canvas
+     and no drop. */
+  .table-page:not(.table-page--short-match)[data-seats='2'] .table-scaler,
+  .table-page:not(.table-page--short-match)[data-seats='3'] .table-scaler,
+  .table-page:not(.table-page--short-match)[data-seats='4'] .table-scaler,
+  .table-page:not(.table-page--short-match)[data-seats='5'] .table-scaler,
+  .table-page:not(.table-page--short-match)[data-seats='6'] .table-scaler {
+    --sp-short-table-drop: max(18px, calc(0.04 * var(--sp-table-h, 100svh)));
+  }
+
+  /* A table opened as a route (not inside the tab strip) pays the notch in its
+     own top reserve; same real-height floor as the tab bar below. */
+  .table-page:not(.table-page--embedded) .table-container {
+    --sp-page-inset-top: max(env(safe-area-inset-top, 0px), var(--sp-phone-safe-top, 0px));
+  }
+}

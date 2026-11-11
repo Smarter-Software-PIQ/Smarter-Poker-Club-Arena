@@ -967,8 +967,14 @@ describe('LAW: a Crazy Pineapple discard is seen and heard', () => {
     // 'discard' was unreachable there until the engine started recording it;
     // the moment it became reachable the tab would have flashed a lowercase
     // "discard", against CLAUDE.md 5.7 (Title Case Every Word).
+    //
+    // Dan 2026-11-11 retired that surface: the tab pill shows the hero's cards
+    // only and never names the hero's action, so it can no longer ship a raw
+    // token at all. The pin moves with it: the tab strip names no action, and
+    // the seat - where every action, the hero's included, is now printed -
+    // still names a discard in Title Case.
     const tabs = read('src/components/table/TableTabBar.tsx');
-    expect(tabs).toMatch(/discard: 'Discard'/);
+    expect(tabs).not.toMatch(/ACTION_LABEL|action-chip/);
     expect(SEAT_TSX).toMatch(/case 'discard':\s*\n[^\n]*\n\s*return 'Discard';/);
   });
 

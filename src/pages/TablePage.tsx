@@ -7550,13 +7550,6 @@ function LiveTablePage({
   /* One verdict for everything a seat draws about the hand that is over. */
   const feltShowsNoHand = tableHandIsOver || breakHidesCards;
 
-  // Hero's last action this street, for the transient badge under the tab.
-  // Same memo-to-primitive pattern as heroTabCards, same reason.
-  const heroTabLastAction = useMemo(() => {
-    const a = tableState.lastActions?.[tableState.heroSeat - 1];
-    return typeof a === 'string' ? a : '';
-  }, [tableState.lastActions, tableState.heroSeat]);
-
   // Roadmap batch 1 (Dan 2026-08-20): folded state for tab dimming.
   const heroTabFolded = useMemo(() => {
     const hero = tableState.players[tableState.heroSeat - 1];
@@ -8065,7 +8058,6 @@ function LiveTablePage({
       pot: tableState.pot,
       handNumber: tableState.handNumber,
       holeCards: heroTabCards,
-      lastAction: heroTabLastAction,
       folded: heroTabFolded,
       handResult: heroTabResult,
       toCall: isHeroTurn ? heroTabToCall : undefined,
@@ -8111,7 +8103,6 @@ function LiveTablePage({
     heroTabDecision,
     heroTabTimeBank,
     heroTabCards,
-    heroTabLastAction,
     heroTabFolded,
     heroTabResult,
     /* BOTH HALVES OF THE SIT-OUT REPORT. `heroTabSittingOut` alone covers the
