@@ -52,7 +52,7 @@ concurrency:
 
 jobs:
   league:
-    if: github.triggering_actor != 'github-actions[bot]'
+    if: (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: League ${{ matrix.objective }} ${{ matrix.seed }}
     runs-on: ubuntu-24.04
     environment: ci-main

@@ -61,7 +61,7 @@ jobs:
           python3 server/scripts/test_assemble_public215_model_index.py
   evidence:
     needs: contract
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository_id == '1132369872' && github.triggering_actor != 'github-actions[bot]'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository_id == '1132369872' && (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-24.04
     environment: ci-main
     timeout-minutes: 60

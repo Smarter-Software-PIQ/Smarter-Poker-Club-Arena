@@ -50,7 +50,7 @@ concurrency:
 
 jobs:
   deploy:
-    if: ${{ !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]') }}
+    if: ${{ !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 15
@@ -373,7 +373,7 @@ jobs:
   # failed, cancelled or skipped deploy admits its own verdict.
   monitoring-deploy-verdict:
     needs: deploy
-    if: ${{ always() && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]') }}
+    if: ${{ always() && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}
     name: This monitoring deploy admits its own verdict to the operational inbox
     runs-on: ubuntu-latest
     environment: ci-main

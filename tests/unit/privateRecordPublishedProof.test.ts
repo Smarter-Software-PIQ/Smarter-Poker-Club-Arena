@@ -437,7 +437,7 @@ describe('finite published record client proof admission and verdict', () => {
     const job = parse(workflow).jobs['private-record-client-proof'];
     expect(job.needs).toBe('certification-cleanup-safety');
     expect(job.if).toBe(
-      "always() && !cancelled() && needs.certification-cleanup-safety.result == 'success' && github.event_name == 'repository_dispatch' && github.event.action == 'run-private-record-client-proof' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]') || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e'))"
+      "always() && !cancelled() && needs.certification-cleanup-safety.result == 'success' && github.event_name == 'repository_dispatch' && github.event.action == 'run-private-record-client-proof' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
     );
     expect(workflow).toContain('private-record-client-proof:');
     expect(workflow).toContain(

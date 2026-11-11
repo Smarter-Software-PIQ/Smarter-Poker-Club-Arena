@@ -118,7 +118,7 @@ jobs:
       - run: node --test scripts/ci/gto-v31-qualification.test.mjs scripts/ci/gto-v31-prescreen.test.mjs scripts/ci/v31-decision-closure.test.mjs scripts/ci/v31-execution-fingerprint.test.mjs scripts/ci/v31-atomic-promotion.test.mjs scripts/ci/gto-v31-recheck-dispatch.test.mjs
   recheck-after-release:
     name: Dispatch the strict re-check a new serving engine needs
-    if: (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.event == 'repository_dispatch' && github.repository_id == '1132369872' && (github.repository == 'Smarter-Poker/Smarter-Poker-Club-Arena' || github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena')) && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]') || (github.event_name == 'workflow_dispatch' && inputs.operation == 'recheck'))
+    if: (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.path == '.github/workflows/auto-deploy-hetzner.yml' && github.event.workflow_run.event == 'repository_dispatch' && github.repository_id == '1132369872' && (github.repository == 'Smarter-Poker/Smarter-Poker-Club-Arena' || github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena')) && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'workflow_dispatch' && inputs.operation == 'recheck')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-24.04
     environment: ci-main
     timeout-minutes: 10
@@ -161,13 +161,13 @@ jobs:
         run: node scripts/ci/gto-v31-recheck-dispatch.mjs send
   qualify:
     needs: contract
-    if: (github.event_name == 'workflow_dispatch' && (inputs.operation == 'evaluate' || inputs.operation == 'recheck' || inputs.operation == 'prescreen') && github.ref == 'refs/heads/main' && github.repository_id == '1132369872' && (github.repository == 'Smarter-Poker/Smarter-Poker-Club-Arena' || github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena')) && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]') || (github.event_name == 'workflow_dispatch' && inputs.operation == 'recheck'))
+    if: (github.event_name == 'workflow_dispatch' && (inputs.operation == 'evaluate' || inputs.operation == 'recheck' || inputs.operation == 'prescreen') && github.ref == 'refs/heads/main' && github.repository_id == '1132369872' && (github.repository == 'Smarter-Poker/Smarter-Poker-Club-Arena' || github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena')) && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'workflow_dispatch' && inputs.operation == 'recheck')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-24.04
     environment: ci-main
     timeout-minutes: 350
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
-        if: github.triggering_actor == 'github-actions[bot]' && github.event_name == 'workflow_dispatch'
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -240,7 +240,7 @@ jobs:
           retention-days: 7
   promote:
     needs: contract
-    if: (github.event_name == 'workflow_dispatch' && inputs.operation == 'promote' && github.ref == 'refs/heads/main' && github.repository_id == '1132369872' && (github.repository == 'Smarter-Poker/Smarter-Poker-Club-Arena' || github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena')) && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]') || (github.event_name == 'workflow_dispatch' && inputs.operation == 'recheck'))
+    if: (github.event_name == 'workflow_dispatch' && inputs.operation == 'promote' && github.ref == 'refs/heads/main' && github.repository_id == '1132369872' && (github.repository == 'Smarter-Poker/Smarter-Poker-Club-Arena' || github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena')) && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'workflow_dispatch' && inputs.operation == 'recheck')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-24.04
     environment: ci-main
     timeout-minutes: 20

@@ -113,10 +113,11 @@ concurrency:
 permissions:
   contents: read
   actions: read
+  pull-requests: read
 
 jobs:
   apply:
-    if: (github.triggering_actor != 'github-actions[bot]' || (github.event_name == 'repository_dispatch' && github.event.action == 'apply-merged-migration'))
+    if: ((github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') || (github.event_name == 'repository_dispatch' && github.event.action == 'apply-merged-migration')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Apply ${{ inputs.migration || github.event.client_payload.migration }}
     runs-on: ubuntu-latest
     environment: ci-main
@@ -126,7 +127,7 @@ jobs:
     timeout-minutes: 35
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
-        if: github.triggering_actor == 'github-actions[bot]' && github.event_name == 'repository_dispatch'
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

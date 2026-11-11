@@ -34,10 +34,11 @@ concurrency:
 
 jobs:
   digest:
-    if: ${{ !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]') }}
+    if: ${{ !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}
     name: One page before the surprise
     runs-on: ubuntu-latest
-    environment: ci-main
+    # The GitHub App key lives only here (main-only), not in ci-main.
+    environment: github-app-main
     timeout-minutes: 8
     steps:
       - name: Checkout

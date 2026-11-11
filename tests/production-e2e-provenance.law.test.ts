@@ -44,6 +44,59 @@ const selectArtifact = (payload: unknown, args = [SOURCE_RUN, TRIGGER, REPOSITOR
     encoding: 'utf8',
   });
 
+const publisherRun = () => ({
+  id: Number(SOURCE_RUN),
+  path: '.github/workflows/publish-club-arena.yml',
+  event: 'push',
+  head_sha: TRIGGER,
+  head_branch: 'main',
+  repository: { id: Number(REPOSITORY_ID) },
+  head_repository: { id: Number(REPOSITORY_ID) },
+});
+const checkRun = (run: unknown) =>
+  spawnSync(process.execPath, [CLI, 'publisher-run', SOURCE_RUN, TRIGGER, REPOSITORY_ID], {
+    input: JSON.stringify(run),
+    encoding: 'utf8',
+  });
+
+describe('a name-matched source run is the exact publisher file and event', () => {
+  it('accepts the publisher started by push or repository_dispatch on main', () => {
+    expect(checkRun(publisherRun()).status).toBe(0);
+    expect(checkRun({ ...publisherRun(), event: 'repository_dispatch' }).status).toBe(0);
+  });
+
+  it('refuses another file carrying the name, a pull request or merge group, and a fork', () => {
+    for (const run of [
+      { ...publisherRun(), path: '.github/workflows/renamed-to-publish.yml' },
+      { ...publisherRun(), event: 'pull_request' },
+      { ...publisherRun(), event: 'merge_group' },
+      { ...publisherRun(), event: 'workflow_dispatch' },
+      { ...publisherRun(), head_branch: 'feature' },
+      { ...publisherRun(), head_repository: { id: 42 } },
+      { ...publisherRun(), id: 1 },
+    ]) {
+      const result = checkRun(run);
+      expect(result.status, JSON.stringify(run)).not.toBe(0);
+      expect(result.stderr).toMatch(/publish-club-arena\.yml/);
+    }
+  });
+
+  it('binds the artifact read to the same run when the caller holds it', async () => {
+    const { readPublisherArtifactSha } =
+      await import('../scripts/ci/production-e2e-provenance.mjs');
+    const raw = JSON.stringify(artifactPayload());
+    expect(readPublisherArtifactSha(raw, SOURCE_RUN, TRIGGER, REPOSITORY_ID, publisherRun())).toBe(
+      SELECTED
+    );
+    expect(() =>
+      readPublisherArtifactSha(raw, SOURCE_RUN, TRIGGER, REPOSITORY_ID, {
+        ...publisherRun(),
+        event: 'pull_request',
+      })
+    ).toThrow(/publish-club-arena/);
+  });
+});
+
 describe('the publisher hands its selected artifact to post-deploy verification', () => {
   it('returns the exact same-run selected SHA instead of the older trigger SHA', () => {
     const result = selectArtifact(artifactPayload());
@@ -142,7 +195,7 @@ describe('the publisher hands its selected artifact to post-deploy verification'
       workflow.indexOf('  seo-contract:')
     );
     expect(gate).toContain(
-      'client_target_sha: ${{ steps.board-client.outputs.sha || steps.client-target.outputs.sha }}'
+      "client_target_sha: ${{ steps.on-main.outputs.proved == 'true' && (steps.board-client.outputs.sha || steps.client-target.outputs.sha) || '' }}"
     );
     const scopedBoard = gate.slice(
       gate.indexOf('      - name: Bind the scoped board proof to the actual published source'),

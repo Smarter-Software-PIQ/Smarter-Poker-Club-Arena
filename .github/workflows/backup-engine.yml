@@ -314,13 +314,13 @@ jobs:
 
   refresh:
     needs: plan
-    if: needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]') || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e'))
+    if: needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 60
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
-        if: github.triggering_actor == 'github-actions[bot]' && github.event_name == 'repository_dispatch'
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -430,7 +430,7 @@ jobs:
     needs: [plan, refresh]
     # Publish a failure for this exact SHA if refresh failed, including when a
     # previous attempt left a success status. Never certify a partial copy.
-    if: always() && needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]') || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e'))
+    if: always() && needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 75
@@ -438,7 +438,7 @@ jobs:
       CONTROL_SHA: ${{ needs.plan.outputs.control_sha }}
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
-        if: github.triggering_actor == 'github-actions[bot]' && github.event_name == 'repository_dispatch'
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

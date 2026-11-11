@@ -47,7 +47,7 @@ jobs:
     name: What Would 04:00 Do
     # The schedule runs on the default branch; a dispatch from any other ref
     # reports nothing, so the plan always describes protected main.
-    if: github.ref == 'refs/heads/main' && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]')
+    if: github.ref == 'refs/heads/main' && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 15

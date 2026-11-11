@@ -34,7 +34,7 @@ jobs:
     # or enter the merge queue; fork-refused below says why. A workflow
     # dispatch sent by a job token (queued or pull request code) is refused.
     if: >-
-      ${{ !(((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]')) && ((github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.triggering_actor != 'github-actions[bot]')) }}
+      ${{ !(((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]'))) && ((github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]'))) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}
     # MUST be configured for main-only deployment branches before activation.
     # Reporter app key is environment-scoped, never a repository/PR secret.
     environment: money-trigger-recovery-trusted
@@ -125,7 +125,7 @@ jobs:
     # a merge_group run of this repository on main's queue. A same-named
     # workflow from a pull request carries event pull_request and is refused.
     if: >-
-      ${{ !(((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]')) && (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'merge_group' && github.event.workflow_run.head_repository.full_name == github.repository && startsWith(github.event.workflow_run.head_branch, 'gh-readonly-queue/main/')) }}
+      ${{ !(((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]'))) && (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'merge_group' && github.event.workflow_run.path == '.github/workflows/money-trigger-merge-group-request.yml' && github.event.workflow_run.head_repository.full_name == github.repository && startsWith(github.event.workflow_run.head_branch, 'gh-readonly-queue/main/')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}
     environment: money-trigger-recovery-trusted
     runs-on: ubuntu-latest
     timeout-minutes: 10

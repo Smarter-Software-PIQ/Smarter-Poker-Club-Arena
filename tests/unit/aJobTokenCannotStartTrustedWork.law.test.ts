@@ -28,9 +28,20 @@ const DIR = join(process.cwd(), '.github', 'workflows');
 const read = (f: string) => readFileSync(join(DIR, f), 'utf8');
 // A workflow only a dispatch (or a pull request) can start compares the actor;
 // one that other events also start refuses only the dispatch from the job token.
-const SHORT = "github.triggering_actor != 'github-actions[bot]'";
+// Both actors are compared: github.actor is the run's first actor and survives
+// a re-run, so a person re-running a forged dispatch never skips the refusal.
+const SHORT =
+  "(github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]')";
 const FULL =
-  "!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]')";
+  "!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]'))";
+// A re-run the job token starts is refused on every secret-holding job and on
+// every sender, whatever event started the run; a person's re-run still works.
+const RERUN = "!(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')";
+const SENDERS: Array<[string, string]> = [
+  ['auto-deploy-hetzner.yml', 'certify-production'],
+  ['dispatch-merged-migrations.yml', 'dispatch-merged-migrations'],
+  ['gto-v31-qualification.yml', 'recheck-after-release'],
+];
 const DISPATCH_ONLY = new Set([
   'workflow_dispatch',
   'repository_dispatch',
@@ -75,6 +86,8 @@ const ADMITTED: Record<
       "github.event_name == 'repository_dispatch' && github.event.action == 'deploy-club-arena-engine'",
   },
 };
+// GitHub's id for a workflow file, for a listener whose law forbids naming it.
+const WORKFLOW_IDS: Record<string, number> = { '.github/workflows/ci.yml': 247739539 };
 const PROVE = 'Prove a job-token dispatch is the exact intent its trusted sender recorded';
 // Owned by the pull-request environment lane, and the deleted one-shot mover.
 // The PR-environment lane's file, the deleted one-shot mover, and the Money
@@ -84,6 +97,24 @@ const OUT_OF_SCOPE = new Set([
   'copy-repository-secrets-to-environments.yml',
   'money-trigger-recovery.yml',
 ]);
+
+// The dispatch refusal is read with the re-run refusal (pinned separately
+// below) and the parentheses it added around the original condition removed.
+const withoutRerun = (raw: string) => {
+  let c = raw.replace(/^\$\{\{ ?(.*?) ?\}\}$/, '$1');
+  const tail = ` && ${RERUN}`;
+  if (!c.endsWith(tail)) return raw;
+  c = c.slice(0, -tail.length);
+  if (c.startsWith('(') && c.endsWith(')')) {
+    let depth = 0;
+    const whole = [...c].every((ch, i) => {
+      depth += ch === '(' ? 1 : ch === ')' ? -1 : 0;
+      return depth > 0 || i === c.length - 1;
+    });
+    if (whole) c = c.slice(1, -1);
+  }
+  return c;
+};
 
 type Job = Record<string, unknown> & { if?: unknown; steps?: Array<Record<string, unknown>> };
 const files = readdirSync(DIR).filter((f) => /\.ya?ml$/.test(f));
@@ -110,7 +141,7 @@ describe('a job token cannot start trusted work', () => {
     for (const [name, job] of Object.entries(doc.jobs)) {
       if (!holdsSecret(job)) continue;
       it(`${f} ${name} refuses a job-token dispatch`, () => {
-        const condition = String(job.if ?? '').replace(/\s+/g, ' ');
+        const condition = withoutRerun(String(job.if ?? '').replace(/\s+/g, ' '));
         // A job whose own condition already admits only a dispatch event
         // carries the short form: the event clause would be redundant.
         // So does a job pinned to an action other than the admitted one: the
@@ -125,7 +156,9 @@ describe('a job token cannot start trusted work', () => {
               condition
             ) &&
             !condition.includes('||'));
-        expect(condition).toContain(dispatchOnlyJob ? SHORT : guard);
+        const expected = dispatchOnlyJob ? SHORT : guard;
+        const whole = String(job.if ?? '').replace(/\s+/g, ' ');
+        expect(condition.includes(expected) || whole.includes(expected), `${condition}`).toBe(true);
       });
       const receiver = ADMITTED[f]?.receiver;
       if (receiver && Array.isArray(job.steps)) {
@@ -144,7 +177,11 @@ describe('a job token cannot start trusted work', () => {
           }
           const first = job.steps![0];
           expect(first.name).toBe(PROVE);
-          expect(String(first.if)).toContain("github.triggering_actor == 'github-actions[bot]'");
+          // Proved whenever any bot other than the Autopilot App started the
+          // run or re-ran it: github.actor survives a person's re-run.
+          expect(String(first.if)).toContain(
+            "((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]'))"
+          );
           expect(String(first.run)).toContain(
             'contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA'
           );
@@ -154,6 +191,20 @@ describe('a job token cannot start trusted work', () => {
       }
     }
   }
+
+  it('no secret-holding job and no sender honours a re-run the job token started', () => {
+    let guarded = 0;
+    for (const f of files) {
+      const jobs = (parse(read(f)) as { jobs?: Record<string, Job> }).jobs ?? {};
+      for (const [name, job] of Object.entries(jobs)) {
+        const sender = SENDERS.some(([sf, sj]) => sf === f && sj === name);
+        if (!holdsSecret(job) && !sender) continue;
+        expect(String(job.if ?? '').replace(/\s+/g, ' '), `${f} ${name}`).toContain(RERUN);
+        guarded++;
+      }
+    }
+    expect(guarded).toBeGreaterThan(100);
+  });
 
   it('no receiver trusts a cited run by age, and every intent receiver names its file', () => {
     for (const f of files) {
@@ -223,16 +274,62 @@ describe('a job token cannot start trusted work', () => {
     expect(JSON.stringify(jobs['fork-refused'])).not.toMatch(/secrets\.|environment/);
   });
 
-  it('two workflow_run readers accept only this repository and its own events', () => {
-    const gto = (parse(read('gto-v31-qualification.yml')) as { jobs: Record<string, Job> }).jobs;
-    expect(String(gto['recheck-after-release'].if)).toContain(
-      "github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.event == 'repository_dispatch'"
+  it('every workflow_run listener names its exact sender file, events and repository', () => {
+    // A listener matches its sender by NAME, and any workflow on any branch,
+    // in a pull request or a merge group, can carry that name.
+    const byName = new Map<string, string>();
+    for (const f of files) {
+      const name = (parse(read(f)) as { name?: string }).name;
+      if (name) byName.set(name, `.github/workflows/${f}`);
+    }
+    let listeners = 0;
+    for (const f of files) {
+      const doc = parse(read(f)) as {
+        on?: { workflow_run?: { workflows?: string[] } };
+        jobs: Record<string, Job>;
+      };
+      const senders = doc.on?.workflow_run?.workflows;
+      if (!Array.isArray(senders)) continue;
+      listeners++;
+      const text = read(f).replace(/\s+/g, ' ');
+      for (const sender of senders) {
+        const path = byName.get(sender);
+        expect(path, `${f} listens to ${sender}`).toBeTruthy();
+        // By path, or by the numeric id GitHub assigned that one file.
+        const byId = WORKFLOW_IDS[path ?? ''];
+        expect(
+          text.includes(`github.event.workflow_run.path == '${path}'`) ||
+            (!!byId && text.includes(`github.event.workflow_run.workflow_id == ${byId}`)),
+          `${f} binds ${sender} to ${path}`
+        ).toBe(true);
+      }
+      expect(text, f).toContain(
+        'github.event.workflow_run.head_repository.full_name == github.repository'
+      );
+      expect(text, f).toMatch(/github\.event\.workflow_run\.event(?: ==|\))/);
+    }
+    expect(listeners).toBeGreaterThanOrEqual(10);
+  });
+
+  it('a publisher listener proves the revision it selects is on protected main before using it', () => {
+    const script = readFileSync('scripts/ci/selected-revision-is-on-main.sh', 'utf8');
+    expect(script).toContain("'+refs/heads/main:refs/remotes/protected/main'");
+    expect(script).toContain('merge-base --is-ancestor "$sha" refs/remotes/protected/main');
+    const create = read('club-create-certification.yml');
+    expect(create.indexOf('bash scripts/ci/selected-revision-is-on-main.sh')).toBeGreaterThan(0);
+    expect(create.indexOf('bash scripts/ci/selected-revision-is-on-main.sh')).toBeLessThan(
+      create.indexOf('- name: Checkout The Exact Published Revision')
     );
-    const alerts = (
-      parse(read('operational-alert-addressing.yml')) as { jobs: Record<string, Job> }
-    ).jobs;
-    expect(String(alerts['live-addressing'].if)).toContain(
-      `github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && contains(fromJSON('["schedule","repository_dispatch"]'), github.event.workflow_run.event)`
+    expect(create).toContain(
+      'publisher-run "$SOURCE_RUN_ID" "$SOURCE_TRIGGER_SHA" "$REPOSITORY_ID"'
     );
+    const e2e = parse(read('post-deploy-e2e.yml')) as { jobs: Record<string, Job> };
+    const gate = e2e.jobs['publication-gate'];
+    const outputs = gate.outputs as Record<string, string>;
+    for (const key of ['should_run', 'client_target_sha', 'verification_sha'])
+      expect(outputs[key], key).toContain("steps.on-main.outputs.proved == 'true'");
+    expect(JSON.stringify(gate.steps)).toContain('publisher-run');
+    // IndexNow checks out the default branch only; its sender binding is pinned above.
+    expect(read('indexnow-public-routes.yml')).not.toMatch(/workflow_run\.head_sha/);
   });
 });

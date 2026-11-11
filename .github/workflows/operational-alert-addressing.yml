@@ -64,7 +64,7 @@ jobs:
     name: No unaddressed operational alert in the last two hours
     # Only this repository's own scheduled or dispatched audit may start the
     # live reader; a fork or a renamed workflow on another event cannot.
-    if: github.event_name == 'workflow_run' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && contains(fromJSON('["schedule","repository_dispatch"]'), github.event.workflow_run.event)
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.path == '.github/workflows/production-integrity-audit.yml' && contains(fromJSON('["schedule","repository_dispatch"]'), github.event.workflow_run.event) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     needs: decision-rules
     runs-on: ubuntu-latest
     environment: ci-main

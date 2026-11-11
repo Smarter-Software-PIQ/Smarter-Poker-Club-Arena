@@ -87,7 +87,7 @@ describe('the evening plan only reads', () => {
     expect(Object.keys(workflow.on).sort()).toEqual(['schedule', 'workflow_dispatch']);
     expect(workflow.on.schedule.map((s: any) => s.cron)).toEqual(['7 1 * * *', '7 2 * * *']);
     expect(workflow.jobs.plan.if).toBe(
-      "github.ref == 'refs/heads/main' && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]')"
+      "github.ref == 'refs/heads/main' && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
     );
     expect(workflow.concurrency).toEqual({
       group: 'evening-release-plan',

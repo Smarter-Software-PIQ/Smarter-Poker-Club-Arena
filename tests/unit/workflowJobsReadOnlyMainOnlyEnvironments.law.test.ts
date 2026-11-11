@@ -18,9 +18,15 @@ import { describe, expect, it } from 'vitest';
 const DIR = join(process.cwd(), '.github', 'workflows');
 const ALLOWED = new Set([
   'ci-main',
+  'github-app-main',
   'HorseCorrectiveQualification',
   'money-trigger-recovery-trusted',
 ]);
+// The GitHub App key is read only from github-app-main (or the Money trigger
+// signing environment), never from ci-main, whose ~100 jobs do not need it.
+// The one-shot mover's copy job is the single ci-main reader until it retires.
+const APP_KEY = 'AUTOPILOT_APP_PRIVATE_KEY';
+const APP_KEY_MOVER = 'move-github-app-key.yml';
 // The one-shot mover that copied repository scope into these environments was
 // deleted with the repository-level copies (2026-11-11); none may come back.
 const MOVER = 'copy-repository-secrets-to-environments.yml';
@@ -60,6 +66,31 @@ describe('every secret-reading job names a main-only environment', () => {
         const envs = envNames(job.environment);
         expect(envs.length, 'job reads a secret with no environment').toBeGreaterThan(0);
         for (const e of envs) expect(ALLOWED.has(e), `environment ${e}`).toBe(true);
+      });
+    }
+  }
+});
+
+describe('only the jobs that mint an App token can read the App key', () => {
+  for (const file of files) {
+    const wf = parse(readFileSync(join(DIR, file), 'utf8')) as { jobs?: Record<string, Job> };
+    for (const [name, job] of Object.entries(wf?.jobs ?? {})) {
+      const reads = secretNames(job).includes(APP_KEY);
+      const envs = envNames(job.environment);
+      if (envs.includes('github-app-main')) {
+        it(`${file}:${name} names github-app-main because it mints an App token`, () => {
+          expect(reads).toBe(true);
+          expect(JSON.stringify(job)).toContain('actions/create-github-app-token');
+        });
+      }
+      if (!reads) continue;
+      it(`${file}:${name} reads the App key outside ci-main`, () => {
+        if (file === APP_KEY_MOVER && name === 'copy') {
+          expect(envs).toEqual(['ci-main']);
+          return;
+        }
+        expect(envs.length).toBe(1);
+        expect(['github-app-main', 'money-trigger-recovery-trusted']).toContain(envs[0]);
       });
     }
   }
@@ -119,5 +150,17 @@ describe('the live-catalog pull-request checks run only trusted code', () => {
     expect(text).toContain('find pr -type l -delete');
     expect(text).toContain('node ../trusted/scripts/ci/check-pr-engine-doors.mjs');
     expect(text).not.toContain('cache: npm');
+  });
+  it('pr-engine-doors runs only for same-repository pull requests and installs the locked pg', () => {
+    const text = readFileSync(join(DIR, 'pr-engine-doors.yml'), 'utf8');
+    const wf = parse(text) as { jobs: Record<string, { if?: string }> };
+    expect(String(wf.jobs.doors.if)).toContain(
+      'github.event.pull_request.head.repo.full_name == github.repository'
+    );
+    const lock = JSON.parse(readFileSync('package-lock.json', 'utf8')) as {
+      packages: Record<string, { version: string }>;
+    };
+    expect(text).toContain(`npm i pg@${lock.packages['node_modules/pg'].version} `);
+    expect(text).not.toMatch(/npm i pg@8 /);
   });
 });

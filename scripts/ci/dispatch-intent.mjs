@@ -140,13 +140,43 @@ export function validateInputs(operation, inputs) {
   return spec;
 }
 
+/**
+ * The head SHA GitHub records for the sending run (`run.head_sha`), which is
+ * what the receiver compares. It is NOT always GITHUB_SHA:
+ *   pull_request_target: GITHUB_SHA is the base tip; run.head_sha is the pull
+ *     request's head. The sender records the pull request number and head, and
+ *     only for a merged same-repository pull request into the default branch.
+ *   any other event: the sender passes its own run record (`ownRun`, read from
+ *     the API) so the recorded SHA is the run's own head_sha by construction.
+ */
+function senderHead({ env, event, ownRun, senderEvent, repository }) {
+  if (senderEvent === 'pull_request_target') {
+    const pr = event?.pull_request;
+    if (!pr || !Number.isInteger(pr.number) || pr.number < 1 || !SHA.test(pr.head?.sha ?? ''))
+      fail('a pull_request_target sender must record its pull request number and head');
+    if (pr.merged !== true) fail('a pull_request_target sender may only record a merged pull request');
+    if (pr.base?.ref !== (event?.repository?.default_branch || 'main'))
+      fail('a pull_request_target sender may only record a pull request into the default branch');
+    if (pr.head?.repo?.full_name !== repository) fail('a pull_request_target sender may only record a same-repository pull request');
+    return { senderHeadSha: pr.head.sha, senderPrNumber: pr.number };
+  }
+  if (ownRun) {
+    if (String(ownRun.id) !== String(env.GITHUB_RUN_ID ?? '') || !SHA.test(ownRun.head_sha ?? ''))
+      fail('the sending run record does not describe this run');
+    return { senderHeadSha: ownRun.head_sha };
+  }
+  return { senderHeadSha: env.GITHUB_SHA };
+}
+
 /** Record one intent and return the exact request body to send. */
-export function writeIntent({ operation, inputs, dir, env = process.env, nonce = randomBytes(16).toString('hex') }) {
+export function writeIntent({ operation, inputs, dir, env = process.env, event, ownRun, nonce = randomBytes(16).toString('hex') }) {
   const spec = validateInputs(operation, inputs);
+  const repository = env.GITHUB_REPOSITORY;
+  const senderEvent = env.GITHUB_EVENT_NAME;
   const sender = {
-    repository: env.GITHUB_REPOSITORY, senderPath: workflowPath(env.GITHUB_WORKFLOW_REF),
+    repository, senderPath: workflowPath(env.GITHUB_WORKFLOW_REF),
     senderRunId: String(env.GITHUB_RUN_ID ?? ''), senderRunAttempt: String(env.GITHUB_RUN_ATTEMPT ?? ''),
-    senderHeadSha: env.GITHUB_SHA, senderEvent: env.GITHUB_EVENT_NAME,
+    ...senderHead({ env, event, ownRun, senderEvent, repository }), senderEvent,
   };
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(sender.repository ?? '')) fail('GITHUB_REPOSITORY is required');
   if (sender.senderPath !== spec.sender) fail(`${operation} may only be sent by ${spec.sender}`);
@@ -193,8 +223,14 @@ export async function proveIntent({ receiverName, env, event, api, readIntent })
   const own = await api(`actions/runs/${env.GITHUB_RUN_ID}`);
   if (String(own.id) !== String(env.GITHUB_RUN_ID) || own.path !== receiver.path || own.event !== receiver.event)
     fail('this run is not the named receiver');
-  if (String(own.run_attempt) !== '1' || String(env.GITHUB_RUN_ATTEMPT) !== '1')
-    fail('a job-token dispatch is honoured on its first attempt only; a person may re-run it');
+  // A person's re-run is proved again from the same intent; a re-run started by
+  // a bot is refused, so no workflow can replay a dispatch it never sent.
+  if (String(own.run_attempt) !== String(env.GITHUB_RUN_ATTEMPT ?? '')) fail('this run attempt does not match the job environment');
+  if (String(own.run_attempt) !== '1') {
+    const rerunBy = [String(env.GITHUB_TRIGGERING_ACTOR ?? ''), String(own.triggering_actor?.login ?? '')];
+    if (rerunBy.some((login) => !login || login.endsWith('[bot]')))
+      fail('a job-token dispatch is honoured on its first attempt, or on a re-run a person started');
+  }
 
   // 2. The sender run attempt.
   const run = await api(`actions/runs/${runId}/attempts/${attempt}`);
@@ -228,6 +264,19 @@ export async function proveIntent({ receiverName, env, event, api, readIntent })
     senderRunId: runId, senderRunAttempt: attempt, senderHeadSha: run.head_sha, senderEvent: run.event, nonce };
   for (const [key, value] of Object.entries(expected))
     if (intent?.[key] !== value) fail(`the intent does not bind ${key}`);
+  // A pull_request_target sender ran default-branch code for one pull request:
+  // that pull request must be merged, same-repository, into the default branch,
+  // and its head must be the head GitHub recorded for the sending run.
+  if (run.event === 'pull_request_target') {
+    const number = intent.senderPrNumber;
+    if (!Number.isInteger(number) || number < 1) fail('the intent does not bind its pull request');
+    const pr = await api(`pulls/${number}`);
+    if (pr?.number !== number || pr.merged !== true) fail('the cited pull request is not merged');
+    if (pr.base?.ref !== defaultBranch || pr.base?.repo?.full_name !== repo)
+      fail('the cited pull request did not merge into the default branch of this repository');
+    if (pr.head?.repo?.full_name !== repo) fail('the cited pull request is not from this repository');
+    if (pr.head?.sha !== run.head_sha) fail('the cited pull request head is not the sending run head');
+  } else if ('senderPrNumber' in (intent ?? {})) fail('only a pull_request_target sender binds a pull request');
   validateInputs(receiver.operation, intent.inputs);
 
   // 5. The payload carries exactly the intended inputs.
@@ -304,7 +353,11 @@ async function main() {
   const [command, ...rest] = process.argv.slice(2);
   const a = args(rest);
   if (command === 'write') {
-    const out = writeIntent({ operation: a.operation, inputs: a.inputs, dir: a.dir ?? fail('--dir is required') });
+    const env = process.env;
+    const event = env.GITHUB_EVENT_PATH ? JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, 'utf8')) : undefined;
+    const ownRun = env.GITHUB_EVENT_NAME === 'pull_request_target' ? undefined
+      : await githubApi(env).api(`actions/runs/${env.GITHUB_RUN_ID}`);
+    const out = writeIntent({ operation: a.operation, inputs: a.inputs, dir: a.dir ?? fail('--dir is required'), env, event, ownRun });
     process.stdout.write(`${JSON.stringify({ nonce: out.nonce, path: out.path, body: out.body })}\n`);
   } else if (command === 'prove') {
     const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));

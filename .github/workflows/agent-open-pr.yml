@@ -26,9 +26,10 @@ concurrency:
 jobs:
   open-pr:
     if: >-
-      github.event.workflow_run.conclusion == 'success'
+      (github.event.workflow_run.conclusion == 'success'
       && github.event.workflow_run.event == 'push'
       && github.event.workflow_run.head_repository.full_name == github.repository
+      && github.event.workflow_run.path == '.github/workflows/agent-branch-proposal.yml'
       && github.event.workflow_run.head_branch != github.event.repository.default_branch
       && !startsWith(github.event.workflow_run.head_branch, 'backup/')
       && !startsWith(github.event.workflow_run.head_branch, 'ci-marker/')
@@ -36,10 +37,11 @@ jobs:
       && !startsWith(github.event.workflow_run.head_branch, 'dependabot/')
       && !startsWith(github.event.workflow_run.head_branch, 'preview/')
       && !startsWith(github.event.workflow_run.head_branch, 'renovate/')
-      && !startsWith(github.event.workflow_run.head_branch, 'revert-')
+      && !startsWith(github.event.workflow_run.head_branch, 'revert-')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Open the missing PR for this branch
     runs-on: ubuntu-latest
-    environment: ci-main
+    # The GitHub App key lives only here (main-only), not in ci-main.
+    environment: github-app-main
     timeout-minutes: 5
     steps:
       - name: Checkout reviewed default-branch automation

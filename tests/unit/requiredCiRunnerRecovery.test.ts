@@ -1583,7 +1583,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       'sudo curl --fail --silent --show-error --location --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc'
     );
     expect(createHash('sha256').update(JSON.stringify(normalized)).digest('hex')).toBe(
-      '13a3a555958b2a8bd92ba5a7a45083c0af0993c9f02b10e885c1d858aefa8afc'
+      '246c3981caf1382bf9d4e77c637f448882105e154b5570a43601a9222a562965'
     );
   });
 });

@@ -371,6 +371,21 @@ esac
       );
       chmodSync(join(box, 'gh'), 0o755);
       const summary = join(box, 'summary');
+      // The real pull_request_target shape: GITHUB_SHA is the base tip, and the
+      // intent binds the merged pull request's own head.
+      const event = join(box, 'event.json');
+      writeFileSync(
+        event,
+        JSON.stringify({
+          repository: { default_branch: 'main' },
+          pull_request: {
+            number: 10029,
+            merged: true,
+            base: { ref: 'main', repo: { full_name: 'o/r' } },
+            head: { sha: 'b'.repeat(40), repo: { full_name: 'o/r' } },
+          },
+        })
+      );
       // Plan records one intent per file; send dispatches exactly those.
       const intents = join(box, 'intents');
       for (const phase of ['plan', 'send']) {
@@ -392,6 +407,7 @@ esac
               'o/r/.github/workflows/dispatch-merged-migrations.yml@refs/heads/main',
             GITHUB_SHA: 'a'.repeat(40),
             GITHUB_EVENT_NAME: 'pull_request_target',
+            GITHUB_EVENT_PATH: event,
             GITHUB_OUTPUT: join(box, 'output'),
             DISPATCH_PHASE: phase,
             INTENT_DIR: intents,
@@ -405,6 +421,11 @@ esac
       expect(readFileSync(join(box, 'output'), 'utf8')).toBe('send=true\n');
       expect(readdirSync(intents)).toHaveLength(3);
       expect(readFileSync(calls, 'utf8')).toMatch(/client_payload\[intent_nonce\]=[0-9a-f]{32}/);
+      for (const f of readdirSync(intents)) {
+        const intent = JSON.parse(readFileSync(join(intents, f), 'utf8'));
+        expect(intent.senderHeadSha).toBe('b'.repeat(40));
+        expect(intent.senderPrNumber).toBe(10029);
+      }
       const sent = readFileSync(calls, 'utf8')
         .split('\n')
         .filter((l) => l.includes('repos/o/r/dispatches'))

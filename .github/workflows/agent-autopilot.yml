@@ -42,15 +42,20 @@ jobs:
     # pull_request_target can read the App secret, so same-repository branch
     # ownership is the authorization boundary. A fork may run ordinary CI but
     # can never mint merge authority, even when every check passes.
+    # A workflow_run is matched by name; workflow_id 247739539 is the one CI
+    # workflow file itself, so another file carrying that name never qualifies.
     if: >-
-      (github.event_name == 'pull_request_target'
+      ((github.event_name == 'pull_request_target'
       && github.event.pull_request.draft == false
       && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_run'
       && github.event.workflow_run.conclusion == 'success'
-      && github.event.workflow_run.head_repository.full_name == github.repository)
+      && github.event.workflow_run.head_repository.full_name == github.repository
+      && github.event.workflow_run.workflow_id == 247739539
+      && github.event.workflow_run.event == 'pull_request')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
-    environment: ci-main
+    # The GitHub App key lives only here (main-only), not in ci-main.
+    environment: github-app-main
     timeout-minutes: 5
     steps:
       - name: Checkout reviewed default-branch automation

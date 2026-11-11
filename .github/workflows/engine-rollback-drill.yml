@@ -97,7 +97,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   engine-doors:
-    if: github.triggering_actor != 'github-actions[bot]'
+    if: (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Prove The Exact Drill Target Has Every Production Door
     needs: admit
     runs-on: ubuntu-latest
@@ -130,7 +130,7 @@ jobs:
           node scripts/ci/check-engine-doors-exist.mjs
 
   drill:
-    if: github.triggering_actor != 'github-actions[bot]'
+    if: (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Run The Drill Through The Hetzner Release Lane
     needs: [admit, engine-doors]
     runs-on: ubuntu-latest

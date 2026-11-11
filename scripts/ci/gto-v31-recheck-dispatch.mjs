@@ -112,10 +112,12 @@ export function busyDatasetsFromRuns(runs) {
 // The receiving job refuses a job-token dispatch unless it is the exact intent
 // this run recorded and uploaded (scripts/ci/dispatch-intent.mjs, 2026-11-11),
 // so every recheck is written as an intent first and its body comes from it.
-export function recheckIntent(dataset, dir, env = process.env, nonce) {
+export function recheckIntent(dataset, dir, env = process.env, nonce, ownRun) {
   if (!UUID.test(dataset ?? '')) throw new Error('A canonical dataset UUID is required');
+  // ownRun: this run's own API record, so the intent binds the head_sha GitHub
+  // recorded for this run (what the receiver compares), not a re-read of main.
   return writeIntent({ operation: 'gto-recheck', inputs: { dataset, operation: 'recheck', reason: '' }, dir, env,
-    ...(nonce ? { nonce } : {}) });
+    ...(ownRun ? { ownRun } : {}), ...(nonce ? { nonce } : {}) });
 }
 
 /**
@@ -195,8 +197,14 @@ async function main() {
   const lines = [`- Serving engine: \`${servingSha ?? 'unknown'}\``];
   for (const s of plan.skipped) lines.push(`- \`${s.dataset}\`: no re-check (${s.reason})`);
   const sends = [];
+  let ownRun = null;
+  if (plan.dispatch.length) {
+    const r = await github(`/actions/runs/${process.env.GITHUB_RUN_ID}`);
+    if (!r.ok) throw new Error(`Reading this run returned HTTP ${r.status}`);
+    ownRun = await r.json();
+  }
   for (const d of plan.dispatch) {
-    const intent = recheckIntent(d.dataset, process.env.INTENT_DIR);
+    const intent = recheckIntent(d.dataset, process.env.INTENT_DIR, process.env, undefined, ownRun);
     sends.push({ dataset: d.dataset, state: d.state, body: intent.body });
     lines.push(`- \`${d.dataset}\` (${d.state}): re-check intent recorded`);
   }

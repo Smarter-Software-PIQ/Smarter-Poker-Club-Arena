@@ -34,8 +34,9 @@
 # CREDENTIAL: secrets.DATABASE_URL, which this repository already holds and 23
 # workflows already use. No new secret. The job is read-only: it SELECTs from
 # pg_catalog.pg_proc and supabase_migrations.schema_migrations and writes
-# nothing. A pull request from a fork gets no secrets, so the script reports
-# verdict=unchecked and passes rather than pretending to have proof.
+# nothing. Under pull_request_target a fork WOULD reach the credential, so the
+# job runs only for pull requests from this repository; a fork's pull request
+# skips it (the release-time gate still checks every door before shipping).
 # ─────────────────────────────────────────────────────────────────────────────
 name: PR Engine Doors
 
@@ -63,6 +64,8 @@ concurrency:
 
 jobs:
   doors:
+    # Same-repository pull requests only: a fork never runs beside DATABASE_URL.
+    if: "github.event.pull_request.head.repo.full_name == github.repository && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
     name: Every Door This PR Calls Has A Migration
     runs-on: ubuntu-latest
     environment: ci-main
@@ -120,7 +123,7 @@ jobs:
           PR_DOORS_BASE_REF: HEAD
         run: |
           set -euo pipefail
-          ( cd ../trusted && { npm ls pg >/dev/null 2>&1 || npm i pg@8 --no-save --no-audit --no-fund --ignore-scripts >/dev/null 2>&1 || true; } )
+          ( cd ../trusted && { npm ls pg >/dev/null 2>&1 || npm i pg@8.20.0 --no-save --no-audit --no-fund --ignore-scripts >/dev/null 2>&1 || true; } )
           node ../trusted/scripts/ci/check-pr-engine-doors.mjs | tee /tmp/prdoors.log
 
       - name: Name the verdict in the summary
