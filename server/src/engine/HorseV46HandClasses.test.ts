@@ -492,9 +492,36 @@ describe('per-decision preflop authority evidence', () => {
     expect(decision.preflopAuthority).toMatchObject({
       version: 1,
       scope: 'reference_preflop',
-      context: { isOmaha: true, classNeverThreeBet: true },
+      context: { isOmaha: true, classNeverThreeBet: false },
     });
     expect(decision.preflopAuthority?.referenceAction).toBeDefined();
     expect(decision.preflopAuthority?.intent.a).toBeDefined();
+
+    const preV86 = HorseLogic.decide(
+      spot.hero,
+      spot.gs,
+      'balanced',
+      {},
+      { telemetry: true, v86PloOverhaul: false }
+    );
+    expect(preV86.preflopAuthority).toMatchObject({
+      version: 1,
+      scope: 'reference_preflop',
+      context: { isOmaha: true, classNeverThreeBet: true },
+    });
+
+    const rainbow = ploSpot(cc('Ks', 'Qh', 'Jd', 'Tc'));
+    const rainbowDecision = HorseLogic.decide(
+      rainbow.hero,
+      rainbow.gs,
+      'balanced',
+      {},
+      { telemetry: true }
+    );
+    expect(rainbowDecision.preflopAuthority).toMatchObject({
+      version: 1,
+      scope: 'reference_preflop',
+      context: { isOmaha: true, classNeverThreeBet: true },
+    });
   });
 });

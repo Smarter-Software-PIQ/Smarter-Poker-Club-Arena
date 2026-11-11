@@ -9270,7 +9270,8 @@ export class HorseLogic {
     const useV15 = opts.v15 !== false;
     const omahaMwStep =
       useV8 && vi.isOmaha
-        ? (v86 ? 0.026 : 0.045) + (useV15 ? Math.max(0, vi.holeCount - 4) * 0.005 : 0)
+        ? (v86 && !vi.isFixedLimit ? 0.026 : 0.045) +
+          (useV15 ? Math.max(0, vi.holeCount - 4) * 0.005 : 0)
         : 0.03;
     let mw = (oppCount - 1) * (useV8 && vi.isOmaha ? omahaMwStep : 0.03) + risk;
     // ═══ V16 HEADS-UP OVERLAY (2026-08-26) ═══
@@ -11314,7 +11315,13 @@ export class HorseLogic {
         }
       }
       const sprValShift86 =
-        v86 && vi.isOmaha ? (spr <= 3 ? -0.04 : spr >= 7 && !nutClass15 ? 0.035 : 0) : 0;
+        v86 && vi.isOmaha && !vi.isFixedLimit
+          ? spr <= 3
+            ? -0.04
+            : spr >= 7 && !nutClass15
+              ? 0.035
+              : 0
+          : 0;
       // Monster: usually bet big, sometimes trap (never trap on wet or
       // freshly-dangered boards). V4: size to get stacks in by the river.
       if (equity >= multiwayValueBar(0.8, oppCount) + mw) {
@@ -11330,6 +11337,7 @@ export class HorseLogic {
         }
         if (
           v86 &&
+          !vi.isFixedLimit &&
           useMind &&
           (opts.v12River ?? opts.v12) !== false &&
           isRiver &&
@@ -11558,7 +11566,11 @@ export class HorseLogic {
           dLead86.nutFlushDraw &&
           (dLead86.nutStraightOuts >= 6 || dLead86.straightOuts >= 8);
         const plo8ScoopLead86 =
-          vi.isHiLo && !!hiLoSplit && hiLoSplit.lo >= 0.42 && hiLoSplit.scoop >= 0.26;
+          vi.isHiLo &&
+          !vi.isFixedLimit &&
+          !!hiLoSplit &&
+          hiLoSplit.lo >= 0.42 &&
+          hiLoSplit.scoop >= 0.26;
         if (
           (nutComboLead86 || plo8ScoopLead86) &&
           v86Hash01(v86SeedKey, 8627) < (ploPersona?.comboDrawAggro ?? 0.65)
@@ -13101,7 +13113,11 @@ export class HorseLogic {
       const d86 = drawInfo40();
       const nutComboPump86 = !!d86 && d86.nutFlushDraw && d86.nutStraightOuts >= 6;
       const plo8ScoopPump86 =
-        vi.isHiLo && !!hiLoSplit && hiLoSplit.lo >= 0.45 && hiLoSplit.hi >= 0.28;
+        vi.isHiLo &&
+        !vi.isFixedLimit &&
+        !!hiLoSplit &&
+        hiLoSplit.lo >= 0.45 &&
+        hiLoSplit.hi >= 0.28;
       if (
         (nutComboPump86 || plo8ScoopPump86) &&
         v86Hash01(v86SeedKey, 8632) < (ploPersona?.comboDrawAggro ?? 0.65)
