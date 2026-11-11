@@ -31,3 +31,64 @@ A merge-group run executes the workflow files in the queued commit, which can co
 
 - Five repository secrets have no workflow consumer and are not copied anywhere: GH_PAT (a retired long-lived token the watchdog law forbids any workflow to name), PROBE_EMAIL, PROBE_PASSWORD, SP_EMAIL_2 and SP_PASS_2. They are deleted with the rest of the repository-level copies.
 - `scripts/ci/spent-dss-recording.mjs` pins the bytes of `applied-migrations-recorded.yml`; its pin moves to the version whose only change is `environment: ci-main`.
+
+- The copy ran once (run 43035791787) and the mover was then deleted; the law now pins its absence.
+
+## Access table and narrowing (2026-11-11, after the copy workflow's removal)
+
+Names only. Read from the workflow text on main and the environment metadata; no value was read or printed.
+
+| Environment                      | Branch rule              | Jobs                                          | What the jobs run                                                                                                                                             |
+| -------------------------------- | ------------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ci-main`                        | `main` only              | 98 (83 before this change, plus the 15 below) | Default-branch code on push, schedule, `workflow_dispatch` (main) and `workflow_run` from main. A merge-group ref and a pull-request ref cannot deploy to it. |
+| `ci-pull-request`                | `refs/pull/*/merge` only | 2                                             | The pull request's own checked-out code (see below).                                                                                                          |
+| `HorseCorrectiveQualification`   | `main` only              | 2                                             | Default-branch code only.                                                                                                                                     |
+| `money-trigger-recovery-trusted` | `main` only              | 2                                             | Default-branch code only. The merge-group reporter reads the queued commit through the API as data (#10469).                                                  |
+
+**Narrowed in this PR.** These 15 jobs used `github.event_name == 'pull_request' && 'ci-pull-request' || 'ci-main'`, but each job's own `if:` never admits a `pull_request` event (`workflow_dispatch`, `workflow_run`, `schedule` or `push` on main only). They now name `ci-main` unconditionally:
+
+- `gto-v31-qualification.yml`: `recheck-after-release`, `qualify`, `promote`
+- `horse-human-scoreboard.yml`: `private-report`
+- `horse-patterned-replacements.yml`: `original-operation`
+- `horse-replacement-boarding.yml`: `original-boarding`
+- `inspect-horse-opponent-reads.yml`: `inspect`
+- `inspect-v31-worker-readiness.yml`: `inspect`
+- `operational-alert-addressing.yml`: `live-addressing`
+- `profile-engine-main-thread.yml`: `profile`, `native-observation`, `native-perf-install`
+- `public215-linux-preflight.yml`: `evidence`
+- `report-recovered-engine-seal.yml`: `report`
+- `v31-explicit-load.yml`: `control`
+
+**The two live-catalog pull-request checks now run trusted code only (independent review, 2026-11-11).**
+
+The review found that a same-repository pull-request author could edit `check-pr-engine-doors.mjs` or `check-settlement-lane-doctrine.mjs`, or name `ci-pull-request` from any pull_request job, and so read production credentials. Both checks now:
+
+- trigger on `pull_request_target`, so GitHub runs main's workflow file;
+- check out the default branch with `persist-credentials: false`;
+- name `ci-main`, whose branch rule matches the base ref of a `pull_request_target` run.
+
+`settlement-lane-doctrine` reads nothing from the pull request: it asks the live catalog one question.
+
+`pr-engine-doors` reads the pull request as data only:
+
+- It fetches `refs/pull/<n>/merge` into main's checkout and extracts just `server/src`, `supabase/migrations` and the allowlist with `git archive`.
+- It deletes every symlink, then runs main's `check-pr-engine-doors.mjs` against that tree. It installs `pg` from main's manifest with `--ignore-scripts` and uses no npm cache.
+- The script gains `PR_DOORS_ROOT` and `PR_DOORS_BASE_ROOT`, so the judged tree and the base git checkout are separate.
+- If the merge ref cannot be fetched (conflict), the check reports UNCHECKED, as a fork pull request did before.
+
+Both stay advisory: neither was a required check, and neither is now. With them moved, no pull-request job reads a secret.
+
+**`ci-pull-request` is retired.**
+
+- The three `HETZNER_*` names, which no pull-request job read, are deleted from it.
+- `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and `SUPABASE_URL` are deleted once both checks have passed in a real same-repository pull-request run. The environment is deleted with them.
+- Four legacy jobs in `gto-v31-qualification.yml` and `operational-alert-addressing.yml`, owned by another change, still name it. Their own `if:` never admits a pull_request event; the law test lists them and refuses any other job.
+
+**The environment's secret set.**
+
+- `ci-pull-request` held `DATABASE_URL`, `HETZNER_HOST`, `HETZNER_HOST_KEY`, `HETZNER_SSH_PRIVATE_KEY`, `SUPABASE_SERVICE_ROLE_KEY` and `SUPABASE_URL`.
+- All six are removed, in the order set out above.
+
+**Organization scope.** There are no organization-level Actions secrets. Organization and repository Actions variables were checked for sensitive names.
+
+**Reusable workflow note.** `schema-manifest-refresh.yml:isolated-connected-ui` (main-only `workflow_dispatch`) calls `component-fixture-native-smoke.yml`. The callee's connected-mode job names `ci-main`, and GitHub serves that environment's secrets to the callee. A secret passed from the caller would be empty now that repository scope is empty, so nothing is exposed.

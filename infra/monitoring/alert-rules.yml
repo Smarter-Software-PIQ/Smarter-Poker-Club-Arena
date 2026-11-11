@@ -2227,6 +2227,47 @@ groups:
             other rules in this group tell the two apart.
           runbook: docs/changelog/2026-09-11-the-horse-audit.md
 
+      - alert: ClassicCashFloorDark
+        # THE ORDINARY CASH FLOOR HAS ITS OWN ALARM (2026-11-11).
+        # #10506 made HorseFleetThroughputRelativeDrop a Lightning measure,
+        # and HorseCashActionsStopped needs Classic AND Lightning to stop, so a
+        # Classic (ServerTableEngine) cash floor that went dark while Lightning
+        # kept dealing was measured nowhere. A relative Classic arm cannot be
+        # derived: the owner schedule moves the Classic floor day to day, and
+        # sum(rate(poker_actions_fleet_total{format="cash"}[30m])) against
+        # its own same-hour mean ran 9 sustained false 30-minute runs in the
+        # six days to 2026-11-11 17:50Z. An absolute one can: over the same
+        # six days, outside the break and owner parks, the Classic cash rate
+        # never reached 0 (or fell under 0.1 actions/s) for 15 minutes; the
+        # quietest healthy hour reads about 0.7 actions/s. Zero for 15 minutes
+        # is therefore a floor nobody is playing, not a quiet one. Every
+        # audience counts: a human at a Classic table is the floor working.
+        # The series is zero-seeded (anAlertCannotWaitForAFailureToExist), so a
+        # cold engine reads 0 rather than nothing.
+        expr: |
+          sum(rate(poker_actions_fleet_total{format="cash"}[10m])) == 0
+          unless on() max_over_time(poker_maintenance_break_active[6m]) == 1
+          # An owner floor park holding half the cash floor or more is a stop
+          # somebody scheduled (2026-10-15: park 3d9c1ba1, share 1.0, paged
+          # four of these rules). 0.5: this rule pages at half the healthy floor
+          # or below, so a smaller park cannot explain it. Derivation:
+          # server/src/services/FloorParkWatch.ts, migration 20261015181538.
+          unless on() max_over_time(poker_operator_floor_park_share[6m]) >= 0.5
+        for: 15m
+        labels:
+          severity: critical
+          component: club-arena-engine
+        annotations:
+          summary: 'No action at any Classic cash table for 15 minutes'
+          description: |
+            Nobody, horse or human, has acted at a Classic (non-Lightning) cash
+            table for 15 minutes outside a break or an owner park. Lightning
+            may still be dealing; this is the ordinary cash floor alone. Read
+            ca_horse_fleet_heartbeat `detail` (withheld_tables, gates) for
+            whether the floor is withheld or refused, and SLOTableHasStalled
+            for a wedged table.
+          runbook: docs/changelog/2026-11-11-the-classic-cash-floor-has-its-own-alarm.md
+
       - alert: HorseFleetNotSeated
         # poker_horses_seated counts horses holding chips at every live engine.
         # PROVISIONAL THRESHOLD, and it says so: the series is published for

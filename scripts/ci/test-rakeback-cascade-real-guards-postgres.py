@@ -85,6 +85,7 @@ A=P.parse_args()
 R=Path(__file__).resolve().parents[2]; F=R/'scripts/ci/fixtures/rakeback-cascade-real-guards'
 sys.path.insert(0,str(F)); import world
 MIG_A=next((R/'supabase/migrations').glob('20261109231325_*.sql')); MIG_B=A.cascade_migration or next((R/'supabase/migrations').glob('20261109231855_*.sql'))
+MIG_G=next((R/'supabase/migrations').glob('20261111132447_*.sql'))
 FUNCS=json.loads((F/'production-functions.json').read_text()); REL=json.loads((F/'production-relations.json').read_text()); CFG=json.loads((F/'production-config.json').read_text())
 E={k:v for k,v in os.environ.items() if not k.startswith('PG')};E.update(LC_ALL='C',LANG='C',PGTZ='UTC')
 A.scratch.mkdir(parents=True,exist_ok=True)
@@ -157,6 +158,7 @@ def tx(db,sql,refusal=None,name=''):
     else: assert r.returncode==0,(name,r.stdout[-1500:],'\n'.join(l for l in r.stderr.split('\n') if not l.startswith('WARNING'))[-6000:])
     return r
 INSTALL_B=MIG_B.read_text().replace('BEGIN;','SET check_function_bodies=off;',1).replace('COMMIT;','',1)  # run inside tx()'s own transaction
+INSTALL_G=MIG_G.read_text().replace('BEGIN;','SET check_function_bodies=off;',1).replace('COMMIT;','',1)
 def one(db,sql): return tx(db,sql).stdout.strip().split('\n')[-1]
 ncase=[0]; notes={}
 def case(name,steps,template='postgres'):
@@ -196,10 +198,22 @@ try:
     WALLET_FILE=['public.fn_enforce_agent_commission_bounds','public.fn_ca_agent_payables','public.get_club_agents','public.fn_club_opening_checklist_complete']
     q('SET check_function_bodies=off;\n'+MIG_A.read_text())
     assert changed()==sorted(STAND_INS+WALLET_FILE),changed()
+    # 20261111132447 also replaces round 2, finalize and the zero-standalone validator. This world never runs them (round 2 is
+    # the fixture's rg.round2), so their production definitions are loaded only so the file installs on exactly what it pins.
+    RUNNER_FUNCS=json.loads((R/'scripts/ci/fixtures/rakeback-cascade-real-runner/production-functions.json').read_text())
+    G_PRE={'public.fn_settle_accounting_commission_stage(':'ce1a9dd4344c7987918dcf8a82427ef5','smarter_private.weekly_payout_finalize(':'5b83618b59f043376c87361c986adca8',
+      'smarter_private.zero_standalone_foreign_commissions_proven(':'69099f3bac93cb29fad83cb82cb1fe4a'}
+    for pre_sig,pre_md5 in G_PRE.items():
+        k,v=next((k,v) for k,v in RUNNER_FUNCS.items() if k.startswith(pre_sig)); assert v['md5']==pre_md5,(k,v['md5'])
+        q('SET check_function_bodies=off;\n'+v['def'].rstrip()+';')
+        assert tx('postgres',f"SELECT md5(pg_get_functiondef('{k.split('(')[0]}'::regproc));").stdout.strip().split('\n')[-1]==pre_md5,k
     q("CREATE DATABASE pre TEMPLATE postgres;")  # the world before the cascade migration: production round 3 and validators, unpatched
     q('SET check_function_bodies=off;\n'+MIG_B.read_text())
     MIGRATED=WALLET_FILE+['public.fn_settle_accounting_rakeback_stage','smarter_private.rakeback_wallet_payout_complete','smarter_private.split_rakeback_payout_complete','smarter_private.weekly_payout_fund_agent_shortfalls']
     assert changed()==sorted(STAND_INS+MIGRATED),('only the two stand-ins and the eight functions the two migrations replace may differ from production',changed())
+    q('SET check_function_bodies=off;\n'+MIG_G.read_text())
+    assert changed()==sorted(STAND_INS+MIGRATED),('20261111132447 may change, among the functions this world loads, only the funding function and round 3',changed())
+    assert tx('postgres',"SELECT count(*) FROM pg_trigger WHERE tgrelid='public.agents'::regclass AND tgname='zzzzz_agent_wallet_keeps_weekly_reserve';").stdout.strip().split('\n')[-1]=='1'
     if A.stop_after=='install': raise SystemExit(0)
     if A.scale:
         exec((F/'cases.py').read_text().split('# (i) zero-percent')[0])

@@ -86,9 +86,7 @@ function expr(name: string): string {
 
 /** Emitted gauge value, by name, from a collector that has read nothing. */
 function emitted(name: string): number | undefined {
-  const line = new SpinMetrics()
-    .toPrometheus()
-    .find((l) => l.startsWith(`${name} `));
+  const line = new SpinMetrics().toPrometheus().find((l) => l.startsWith(`${name} `));
   return line === undefined ? undefined : Number(line.split(' ')[1]);
 }
 
@@ -140,12 +138,19 @@ describe('the ladder emits its own envelope', () => {
 describe('SpinFleetProducingNothing reads the ladder, never a literal', () => {
   const e = expr('SpinFleetProducingNothing');
 
-  it('compares the staleness against the emitted envelope', () => {
-    expect(e).toContain(`poker_spin_seconds_since_last_start > ${ENVELOPE_GAUGE}`);
+  it('compares the oldest SEATED board against the emitted envelope', () => {
+    expect(e).toContain(`poker_spin_unfilled_oldest_wait_seconds > ${ENVELOPE_GAUGE}`);
   });
 
-  it('still requires boards to be open on the total-stall arm', () => {
-    expect(e).toContain('poker_spin_open_boards > 0');
+  /**
+   * Incident f1b14fca (2026-11-11 11:19Z): the last-start clock does not
+   * restart when the 03:00 park cancels the night's boards, and
+   * poker_spin_open_boards counts EMPTY boards nobody is climbing. Neither may
+   * gate the stall arm again.
+   */
+  it('the stall arm is not the last-start clock gated by REGISTERING boards', () => {
+    expect(e).not.toContain(`poker_spin_seconds_since_last_start > ${ENVELOPE_GAUGE}`);
+    expect(e).not.toContain('poker_spin_open_boards');
   });
 
   it('pages when a person has waited well past the arrival promise', () => {
@@ -169,6 +174,7 @@ describe('SpinFleetProducingNothing reads the ladder, never a literal', () => {
     for (const metric of [
       'poker_spin_seconds_since_last_start',
       'poker_spin_human_oldest_wait_seconds',
+      'poker_spin_unfilled_oldest_wait_seconds',
     ]) {
       expect(e, `${metric} is compared against a gauge, not a number`).not.toMatch(
         new RegExp(`${metric}\\s*[<>]=?\\s*\\d+(?!\\s*\\*\\s*poker_)`)

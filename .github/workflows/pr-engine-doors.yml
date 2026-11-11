@@ -40,7 +40,11 @@
 name: PR Engine Doors
 
 on:
-  pull_request:
+  # pull_request_target runs MAIN's workflow and MAIN's script with the
+  # credential. The pull request's files are fetched and extracted as data
+  # (symlinks removed) and never executed, so no pull-request code runs beside
+  # DATABASE_URL (2026-11-11, merge-queue secrets boundary).
+  pull_request_target:
     branches: [main]
     paths:
       - 'server/**'
@@ -61,7 +65,7 @@ jobs:
   doors:
     name: Every Door This PR Calls Has A Migration
     runs-on: ubuntu-latest
-    environment: "${{ github.event_name == 'pull_request' && 'ci-pull-request' || 'ci-main' }}"
+    environment: ci-main
     timeout-minutes: 10
     permissions:
       contents: read
@@ -71,32 +75,53 @@ jobs:
       allowed: ${{ steps.doors.outputs.allowed || '' }}
       warned: ${{ steps.doors.outputs.warned || '' }}
     steps:
-      # The MERGE RESULT, not the head commit: what merges is what has to be
-      # releasable, and a migration main already carries has to count as
-      # already on main. This is the default ref for a pull_request event
-      # (refs/pull/N/merge), so it is deliberately not overridden here.
-      - name: Checkout the merge result this pull request would produce
+      # MAIN's code only. The merge result is read below as files, not run.
+      - name: Checkout the default branch (trusted code)
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: trusted
+          persist-credentials: false
 
       - name: Use the production Node major
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+
+      # The MERGE RESULT, not the head commit: what merges is what has to be
+      # releasable. It is fetched as data and extracted without symlinks; no
+      # file from it is executed, sourced or installed.
+      - name: Read the merge result this pull request would produce, as data
+        id: pr
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          mkdir -p pr
+          if git -C trusted fetch --no-tags --depth=1 origin "+refs/pull/${PR_NUMBER}/merge:refs/remotes/pr/merge"; then
+            git -C trusted archive refs/remotes/pr/merge -- server/src supabase/migrations scripts/ci/engine-doors.allowlist.json \
+              | tar -x -C pr
+            find pr -type l -delete
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo '::warning title=PR DOORS UNCHECKED::the merge result could not be fetched (merge conflict or not yet computed); nothing was checked'
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Every database function this pull request calls has a migration
         id: doors
+        if: steps.pr.outputs.ready == 'true'
+        working-directory: pr
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PR_DOORS_ROOT: ${{ github.workspace }}/pr
+          PR_DOORS_BASE_ROOT: ${{ github.workspace }}/trusted
+          PR_DOORS_BASE_REF: HEAD
         run: |
           set -euo pipefail
-          npm ls pg >/dev/null 2>&1 || npm i pg@8 --no-save --no-audit --no-fund >/dev/null 2>&1 || true
-          # The base tree tells "this PR adds it" (allowed) from "already on
-          # main and still queued" (warned). A failed fetch allows nothing: the
-          # script degrades those doors to a named warning, never to a pass.
-          git fetch --no-tags --depth=1 origin '+refs/heads/main:refs/remotes/origin/main' \
-            || echo '::warning::protected main could not be fetched; no door can be allowed as added by this pull request'
-          node scripts/ci/check-pr-engine-doors.mjs | tee /tmp/prdoors.log
+          ( cd ../trusted && { npm ls pg >/dev/null 2>&1 || npm i pg@8 --no-save --no-audit --no-fund --ignore-scripts >/dev/null 2>&1 || true; } )
+          node ../trusted/scripts/ci/check-pr-engine-doors.mjs | tee /tmp/prdoors.log
 
       - name: Name the verdict in the summary
         if: always()
