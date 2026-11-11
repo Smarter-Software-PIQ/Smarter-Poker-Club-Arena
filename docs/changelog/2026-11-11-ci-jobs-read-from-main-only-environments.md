@@ -59,23 +59,35 @@ Names only. Read from the workflow text on main and the environment metadata; no
 - `report-recovered-engine-seal.yml`: `report`
 - `v31-explicit-load.yml`: `control`
 
-**The two jobs that keep `ci-pull-request`, and why.**
+**The two live-catalog pull-request checks now run trusted code only (independent review, 2026-11-11).**
 
-| Job                                     | Trigger                          | Secrets it reads                            | Code it runs                                                                 |
-| --------------------------------------- | -------------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------- |
-| `pr-engine-doors.yml:doors`             | `pull_request` to main           | `DATABASE_URL`                              | The pull request's checkout: `scripts/ci/check-pr-engine-doors.mjs`          |
-| `settlement-lane-doctrine.yml:doctrine` | `pull_request`, and push to main | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | The pull request's checkout: `scripts/ci/check-settlement-lane-doctrine.mjs` |
+The review found that a same-repository pull-request author could edit `check-pr-engine-doors.mjs` or `check-settlement-lane-doctrine.mjs`, or name `ci-pull-request` from any pull_request job, and so read production credentials. Both checks now:
 
-- Both ask the live production catalog whether the functions the pull request depends on exist, so neither can run without a database credential.
-- Because each runs the pull request's own script, a same-repository pull-request author, someone with write access, could change that script and read those values. Fork pull requests receive no secrets, so this is not open to forks.
-- That exposure is unchanged from when these secrets were repository-scoped.
-- Closing it needs a redesign: a trusted `workflow_run` job that runs main's script and reads the pull request as data. That is recorded here and not done in this change.
-- The new law block refuses any other job that names `ci-pull-request`.
+- trigger on `pull_request_target`, so GitHub runs main's workflow file;
+- check out the default branch with `persist-credentials: false`;
+- name `ci-main`, whose branch rule matches the base ref of a `pull_request_target` run.
+
+`settlement-lane-doctrine` reads nothing from the pull request: it asks the live catalog one question.
+
+`pr-engine-doors` reads the pull request as data only:
+
+- It fetches `refs/pull/<n>/merge` into main's checkout and extracts just `server/src`, `supabase/migrations` and the allowlist with `git archive`.
+- It deletes every symlink, then runs main's `check-pr-engine-doors.mjs` against that tree. It installs `pg` from main's manifest with `--ignore-scripts` and uses no npm cache.
+- The script gains `PR_DOORS_ROOT` and `PR_DOORS_BASE_ROOT`, so the judged tree and the base git checkout are separate.
+- If the merge ref cannot be fetched (conflict), the check reports UNCHECKED, as a fork pull request did before.
+
+Both stay advisory: neither was a required check, and neither is now. With them moved, no pull-request job reads a secret.
+
+**`ci-pull-request` is retired.**
+
+- The three `HETZNER_*` names, which no pull-request job read, are deleted from it.
+- `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and `SUPABASE_URL` are deleted once both checks have passed in a real same-repository pull-request run. The environment is deleted with them.
+- Four legacy jobs in `gto-v31-qualification.yml` and `operational-alert-addressing.yml`, owned by another change, still name it. Their own `if:` never admits a pull_request event; the law test lists them and refuses any other job.
 
 **The environment's secret set.**
 
 - `ci-pull-request` held `DATABASE_URL`, `HETZNER_HOST`, `HETZNER_HOST_KEY`, `HETZNER_SSH_PRIVATE_KEY`, `SUPABASE_SERVICE_ROLE_KEY` and `SUPABASE_URL`.
-- No pull-request job reads the three `HETZNER_*` names, so they are removed from that environment.
+- All six are removed, in the order set out above.
 
 **Organization scope.** There are no organization-level Actions secrets. Organization and repository Actions variables were checked for sensitive names.
 

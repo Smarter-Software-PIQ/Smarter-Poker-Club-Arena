@@ -88,24 +88,49 @@ describe('nothing a merge group runs can read a secret', () => {
   }
 });
 
-// Pull-request code runs with ci-pull-request's secrets, so that environment is
-// held to the jobs that read the live production catalog on a pull request and
-// cannot run without it (2026-11-11). Every other secret-reading job names a
-// main-only environment unconditionally.
+// No pull-request code may run beside a credential (2026-11-11). The two jobs
+// that read the live catalog for a pull request run MAIN's workflow and script
+// under pull_request_target with ci-main, reading the pull request as data.
+// ci-pull-request is being retired: only these legacy jobs may still name it,
+// and each one's own if: never admits a pull_request event.
 const PULL_REQUEST_ENVIRONMENT_JOBS = new Set([
-  'pr-engine-doors.yml:doors',
-  'settlement-lane-doctrine.yml:doctrine',
+  'gto-v31-qualification.yml:recheck-after-release',
+  'gto-v31-qualification.yml:qualify',
+  'gto-v31-qualification.yml:promote',
+  'operational-alert-addressing.yml:live-addressing',
 ]);
 
-describe('ci-pull-request is held to the jobs that need it', () => {
+describe('ci-pull-request is held to legacy jobs that never run on a pull request', () => {
   for (const file of files) {
     const wf = parse(readFileSync(join(DIR, file), 'utf8')) as { jobs?: Record<string, Job> };
     for (const [name, job] of Object.entries(wf?.jobs ?? {})) {
       if (job.uses) continue;
       if (!envNames(job.environment).includes('ci-pull-request')) continue;
-      it(`${file}:${name} is an approved pull-request job`, () => {
+      it(`${file}:${name} is a listed legacy job`, () => {
         expect(PULL_REQUEST_ENVIRONMENT_JOBS.has(`${file}:${name}`)).toBe(true);
       });
     }
   }
+});
+
+describe('the live-catalog pull-request checks run only trusted code', () => {
+  for (const file of ['pr-engine-doors.yml', 'settlement-lane-doctrine.yml']) {
+    it(`${file} runs main's workflow and checkout under pull_request_target`, () => {
+      const text = readFileSync(join(DIR, file), 'utf8');
+      const wf = parse(text) as { on?: Record<string, unknown> };
+      expect(Object.keys(wf.on ?? {})).toContain('pull_request_target');
+      expect(Object.keys(wf.on ?? {})).not.toContain('pull_request');
+      expect(text).toContain('ref: ${{ github.event.repository.default_branch }}');
+      expect(text).toContain('persist-credentials: false');
+      expect(text).not.toMatch(/ref:\s*\$\{\{\s*github\.event\.pull_request/);
+      expect(text).not.toContain('ci-pull-request');
+    });
+  }
+  it("pr-engine-doors reads the merge result as data, without symlinks, and runs main's script", () => {
+    const text = readFileSync(join(DIR, 'pr-engine-doors.yml'), 'utf8');
+    expect(text).toContain('git -C trusted archive refs/remotes/pr/merge');
+    expect(text).toContain('find pr -type l -delete');
+    expect(text).toContain('node ../trusted/scripts/ci/check-pr-engine-doors.mjs');
+    expect(text).not.toContain('cache: npm');
+  });
 });

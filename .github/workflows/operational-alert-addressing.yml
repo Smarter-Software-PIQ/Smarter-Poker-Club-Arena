@@ -65,7 +65,7 @@ jobs:
     if: github.event_name == 'workflow_run'
     needs: decision-rules
     runs-on: ubuntu-latest
-    environment: ci-main
+    environment: "${{ github.event_name == 'pull_request' && 'ci-pull-request' || 'ci-main' }}"
     timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4
