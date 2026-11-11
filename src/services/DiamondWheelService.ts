@@ -9,14 +9,16 @@ import {
   assertWheelUpgradeTable,
 } from '../utils/wheelAward';
 
-export type WheelContractVersion = 2 | 3 | 4;
+export type WheelContractVersion = 2 | 3 | 4 | 5;
 export type WheelDrawDomain =
   | 'wheel-v2'
   | 'wheel-v2-upgrade'
   | 'wheel-v3'
   | 'wheel-v3-upgrade'
   | 'wheel-v4'
-  | 'wheel-v4-upgrade';
+  | 'wheel-v4-upgrade'
+  | 'wheel-v5'
+  | 'wheel-v5-upgrade';
 export const WHEEL_DRAW_DOMAINS: readonly WheelDrawDomain[] = [
   'wheel-v2',
   'wheel-v2-upgrade',
@@ -24,6 +26,8 @@ export const WHEEL_DRAW_DOMAINS: readonly WheelDrawDomain[] = [
   'wheel-v3-upgrade',
   'wheel-v4',
   'wheel-v4-upgrade',
+  'wheel-v5',
+  'wheel-v5-upgrade',
 ];
 
 /** Legacy receipts retain their original kind; new tables never include an empty prize. */
@@ -640,9 +644,9 @@ function normaliseAutoRun(raw: unknown): WheelAutoRun | null {
   return { run_id, spins, spins_done };
 }
 
-/** 2, 3 or 4, and nothing else: an unreadable contract is never guessed at. */
+/** Only explicitly supported contracts: an unreadable version is never guessed at. */
 function contractVersion(raw: unknown): WheelContractVersion | undefined {
-  return raw === 2 || raw === 3 || raw === 4 ? raw : undefined;
+  return raw === 2 || raw === 3 || raw === 4 || raw === 5 ? raw : undefined;
 }
 
 function normaliseState(raw: Record<string, unknown>): WheelState {
@@ -1065,6 +1069,7 @@ const DiamondWheelService = {
   },
 
   async spinV2(input: {
+    contractVersion?: WheelContractVersion;
     clubId: string;
     commitId: string;
     clientSeed: string;
@@ -1073,7 +1078,9 @@ const DiamondWheelService = {
     ticketId: string | null;
   }): Promise<WheelSpinResult> {
     const data = await sendSpin(
-      'fn_wheel_spin_v2',
+      input.mode === 'paid' && input.contractVersion === 5
+        ? 'fn_wheel_spin_v5'
+        : 'fn_wheel_spin_v2',
       {
         p_club_id: input.clubId,
         p_commit_id: input.commitId,

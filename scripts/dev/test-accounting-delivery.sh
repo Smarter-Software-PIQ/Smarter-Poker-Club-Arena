@@ -455,3 +455,10 @@ sed -n '/^CREATE OR REPLACE FUNCTION public.fn_ca_fund_club/,/^GRANT EXECUTE ON 
   -v midway_race_fixture=true -f "$root/tests/sql/diamond-midway-chip-backstop.sql" \
   -f "$root/tests/sql/diamond-midway-earned-claim.sql"
 bash "$root/scripts/dev/test-midway-chip-prize-race.sh" "$fixture"
+
+# Activate quarter-game odds only after validating legacy receipt continuity.
+"${diamond_psql[@]}" -f "$root/tests/sql/diamond-wheel-quarter-legacy-seed.sql" \
+  -f "$root/supabase/migrations/20261110222535_wheel_games_have_one_in_four_combined_probability.sql" \
+  -f "$root/tests/sql/diamond-wheel-quarter-games.sql" \
+  -f "$root/tests/sql/diamond-wheel-quarter-doors.sql"
+bash "$root/scripts/dev/test-diamond-wheel-single-spin-race.sh" "$fixture" diamond_games_probe fn_wheel_spin_v5

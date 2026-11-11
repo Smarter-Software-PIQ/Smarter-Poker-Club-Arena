@@ -237,10 +237,6 @@ export class LightningRegistry {
   private arrivalListener: ((clusterId: string) => void) | null = null;
   /** LIGHTNING PHASE 13: Cluster -> what its rooms are told about its hold. */
   private readonly clusterStatuses = new Map<string, 'ending' | 'paused'>();
-  /** REAL ARRIVALS WHILE WAITING (2026-11-10): Cluster -> players its last pass left waiting. */
-  private readonly poolWaiting = new Map<string, number>();
-  /** Room -> the waiting count it was last told (so a frame is sent only on change). */
-  private readonly poolWaitingTold = new Map<string, number>();
 
   constructor(deps: LightningRegistryDeps = {}) {
     this.viewAccess = deps.viewAccess ?? lightningHandViewAccess;
@@ -376,8 +372,6 @@ export class LightningRegistry {
       const room = host.roomOf(playerId);
       if (!room) continue;
       this.hostByRoom.set(room, host);
-      // Dealt in: the next wait is told afresh, whatever count it starts at.
-      this.poolWaitingTold.delete(room);
       const info = this.rooms.get(room);
       if (info) info.clusterId = info.clusterId ?? host.clusterId;
       else this.rooms.set(room, { userId: playerId, clusterId: host.clusterId, sockets: 0 });
@@ -645,7 +639,6 @@ export class LightningRegistry {
       this.rooms.delete(roomId);
       this.proxies.delete(roomId);
       this.renderPending.delete(roomId);
-      this.poolWaitingTold.delete(roomId);
     }
   }
 
@@ -754,56 +747,6 @@ export class LightningRegistry {
     this.hostByRoom.get(roomId)?.rePushHoleCards(userId);
     this.rePushDecisions(roomId, userId);
     this.rePushClusterStatus(roomId, userId);
-    this.rePushPoolWaiting(roomId, userId);
-  }
-
-  // ─── REAL ARRIVALS WHILE WAITING (Dan 2026-11-10) ───────────────────────
-
-  /**
-   * "THE TRANSITION TO THE NEXT GAME FEELS FAKE, YOU ARE JUST SITTING THERE,
-   * AND THEN ALL AT ONCE ALL THE PLAYERS APPEAR." The matcher forms a table in
-   * one step, so before formation nobody knows WHO will sit at the next table.
-   * What is known, by the database, is how many legal players each forming
-   * pass left waiting for it (LightningClusterWorker). Every room of the
-   * Cluster that is waiting (sockets, no hand) is told that count, privately,
-   * when it changes: a number, never a name, never another player's chips.
-   */
-  poolWaitingFrame(roomId: string, clusterId: string, waiting: number): Record<string, unknown> {
-    return {
-      type: 'lightning_pool_waiting',
-      pool_session_id: roomId,
-      cluster_id: clusterId,
-      waiting,
-      at: this.clock(),
-    };
-  }
-
-  setPoolWaiting(clusterId: string, waiting: number): void {
-    if (!isUuid(clusterId) || typeof waiting !== 'number' || !Number.isFinite(waiting)) return;
-    const n = Math.max(0, Math.floor(waiting));
-    this.poolWaiting.set(clusterId, n);
-    for (const [room, info] of this.rooms) {
-      if (info.clusterId !== clusterId) continue;
-      this.tellPoolWaiting(room, info, clusterId, n);
-    }
-  }
-
-  private tellPoolWaiting(room: string, info: RoomInfo, clusterId: string, n: number): void {
-    // Only a waiting room: a room in a hand is shown that hand's players.
-    if (info.sockets <= 0 || this.hostByRoom.has(room)) return;
-    if (this.poolWaitingTold.get(room) === n) return;
-    this.poolWaitingTold.set(room, n);
-    this.sendUserEvent(room, info.userId, this.poolWaitingFrame(room, clusterId, n));
-  }
-
-  /** On (re)connect / RESYNC of a waiting room: the Cluster's last count, again. */
-  private rePushPoolWaiting(roomId: string, userId: string): void {
-    const info = this.rooms.get(roomId);
-    if (!info || info.userId !== userId || !info.clusterId) return;
-    const n = this.poolWaiting.get(info.clusterId);
-    if (n === undefined) return;
-    this.poolWaitingTold.delete(roomId);
-    this.tellPoolWaiting(roomId, info, info.clusterId, n);
   }
 
   // ─── LIGHTNING PHASE 13: WHAT A HELD CLUSTER'S ROOMS ARE TOLD ──────────

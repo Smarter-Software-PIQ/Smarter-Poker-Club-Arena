@@ -1142,7 +1142,9 @@ export class HorseSessionRotator {
           cashPlanPrimaryTables,
           lightningGameIds,
           lightningHumanGames
-        )
+        ),
+      Date.now(),
+      lightningGameIds
     );
     /* A table the cluster tick breaks is not walked out of (owner
        2026-11-07): its horses are moved by the break, in order, like people.
