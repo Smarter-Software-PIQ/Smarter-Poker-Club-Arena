@@ -1926,8 +1926,18 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     }
 
     // V70: the open reads the hand on this seat's order (see gtoOpen).
+    // V87: maniacOpenBar is calibrated in raw holdemPreflopScore units; from
+    // early/middle OOP seats with a confirmed maniac yet to act, tighten out
+    // weak dominated Rag-Ace / suited-7 / low-connector opens that brick and fold.
     const openStrength = v70Open ? ctx.gtoOpen!.strength : strength;
-    if (openStrength >= openThresh) {
+    const nlhManiacFloor =
+      noLimitHoldem &&
+      ctx.maniacOpenBar !== undefined &&
+      (position === 'early' || position === 'middle')
+        ? ctx.maniacOpenBar + (position === 'early' ? 0.08 : 0.04)
+        : ctx.maniacOpenBar;
+    const maniacBarOk = !v87 || nlhManiacFloor === undefined || strength >= nlhManiacFloor;
+    if (openStrength >= openThresh && maniacBarOk) {
       // V20 ORANGE ZONE (M 6-10): there is no raise-fold — a standard open
       // is a third of the stack, and folding it to a reshove afterward is
       // the worst line short-stack poker offers. The opening range OPEN-JAMS
@@ -2072,7 +2082,17 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // blind of 2 or less; tournaments take a reduced share from 30bb up.
     // Pure arithmetic on the bars: no draw is added or removed here.
     const def87Weight = (() => {
-      if (!v87 || !noLimitHoldem || def72Base === null || headsUp) return 0;
+      if (
+        !v87 ||
+        !noLimitHoldem ||
+        def72Base === null ||
+        headsUp ||
+        ctx.maniacOpenBar !== undefined ||
+        ctx.maniacNoBluff === true ||
+        ctx.exploitOpener?.noBluffThreeBet === true
+      ) {
+        return 0;
+      }
       if (ctx.mode === 'cash') {
         return def72Base.cashAction === true ? v85DepthWeight(straddleEffectiveBB) : 0;
       }
