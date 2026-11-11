@@ -317,3 +317,23 @@
 .plinko .metrics > div:nth-child(4) {
   inset: 82% 7% 12% 67%;
 }
+
+.actionLabel {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  text-align: center;
+}
+/* Center the 44px touch box on the painted face; never grow it downward. */
+.crossing .secondary {
+  top: 34%;
+  translate: 0 -50%;
+}
+.crash .secondary {
+  top: 24%;
+  translate: 0 -50%;
+}
+.plinko .secondary {
+  top: 75%;
+  translate: 0 -50%;
+}

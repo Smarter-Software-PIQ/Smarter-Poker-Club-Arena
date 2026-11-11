@@ -1419,6 +1419,29 @@ for (const viewport of START_VIEWPORTS)
         timeout: 30_000,
       });
       await onTheGlass(page, `${TITLES[game]} Start at ${viewport.width}px`, selector);
+      const alignment = await page.locator('[data-game-console]').evaluate((console) => {
+        const header = console.querySelector('header')!.getBoundingClientRect();
+        const title = console.querySelector('h1')!.getBoundingClientRect();
+        const dock = console.querySelector('[data-game-cabinet]')!.getBoundingClientRect();
+        return {
+          titleOffset: Math.abs(title.x + title.width / 2 - header.x - header.width / 2),
+          labels: [...console.querySelectorAll('button[data-plate]')].map((button) => {
+            const b = button.getBoundingClientRect(),
+              label = button.querySelector('span')!.getBoundingClientRect();
+            return {
+              x: Math.abs(label.x + label.width / 2 - b.x - b.width / 2),
+              y: Math.abs(label.y + label.height / 2 - b.y - b.height / 2),
+              center: (b.y + b.height / 2 - dock.y) / dock.height,
+            };
+          }),
+        };
+      });
+      expect(alignment.titleOffset).toBeLessThan(1);
+      for (const label of alignment.labels) {
+        expect(label.x).toBeLessThan(1);
+        expect(label.y).toBeLessThan(1);
+      }
+      if (game === 'crossing') expect(alignment.labels[1].center).toBeCloseTo(0.34, 2);
       await page.screenshot({
         path: test.info().outputPath(`${game}-start-${viewport.width}x${viewport.height}.png`),
       });

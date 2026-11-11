@@ -806,3 +806,31 @@
     height: min(540px, max(240px, calc(100dvh - 450px)));
   }
 }
+
+/* The badge is centered on the game, independently of the right-hand help icon. */
+.console.console > .header {
+  position: relative;
+  justify-content: center;
+  padding-inline: 56px;
+  gap: 0;
+}
+.console.console > .header h1 {
+  margin-inline: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  text-align: center;
+  font-size: clamp(16px, 3.8vw, 26px);
+}
+.console.console > .header h1 img {
+  max-width: 100%;
+}
+.console.console > .header .status {
+  display: none;
+}
+.console.console > .header :global(.ca-page-help) {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  margin: 0;
+}
