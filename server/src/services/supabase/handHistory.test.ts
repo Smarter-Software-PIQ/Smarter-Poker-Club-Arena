@@ -1,3 +1,4 @@
+import { doorRosterCapsule } from '../horseAcceptedRoster/fixture.test-support.js';
 import { retainHorseTurnClock } from '../../engine/HorseTurnClockReceipt.js';
 /** The accepted-hand transaction is the sole hand-history persistence owner. */
 
@@ -16,6 +17,7 @@ const retentionCalls: Record<string, unknown>[] = [];
 /** Ordered replies for the accepted-hand transaction. */
 let atomicRpcResults: Array<{ data: unknown; error: unknown }> = [];
 /** The reply fn_ca_resume_hand_submission gives a restarted engine. */
+let terminalRead: { data: any; error: unknown } | undefined;
 let resumeReply: { data: unknown; error: unknown } = { data: null, error: null };
 /** Ordered replies for fn_ca_retain_hand_submission; empty means a fresh retention. */
 let retentionReplies: Array<{ data: unknown; error: unknown } | Error> = [];
@@ -24,6 +26,10 @@ vi.mock('./client.js', () => ({
   supabase: {
     from: (table: string) => {
       calls.push({ table });
+      if (table === 'hand_atomic_commits' && terminalRead) {
+        const read = { select: () => read, eq: () => read, maybeSingle: async () => terminalRead };
+        return read;
+      }
       throw new Error(`unexpected legacy table write: ${table}`);
     },
     rpc: async (fn: string, args: Record<string, unknown>) => {
@@ -83,10 +89,12 @@ vi.mock('../errorReporter.js', () => ({
 }));
 
 interface CompletedHandObservationPayload {
+  horseTurnClocks?: CompletedHandObservation['horseTurnClocks'];
   generation: number;
   fence: string;
   handKey: string;
   committedHandId?: string;
+  acceptedActorRoster?: CompletedHandObservation['acceptedActorRoster'];
   actions: CompletedHandObservation['actions'];
   bigBlind: number;
   showdown: unknown;
@@ -296,6 +304,7 @@ function deferred<T>() {
 }
 
 beforeEach(() => {
+  terminalRead = undefined;
   calls.length = 0;
   rpcCalls.length = 0;
   retentionCalls.length = 0;
@@ -416,18 +425,31 @@ describe('logHandHistory - worker-owned completed-hand observation', () => {
     }
   );
 
-  it('delivers the exact Horse clock only to the private accepted-hand observer', async () => {
-    const input = identityParams();
-    const index = 1;
-    const action = { ...input.actions[index]!, timestamp: 1000, origin: 'horse_policy' as const };
-    retainHorseTurnClock(action, 100, 2000, 'strategy');
-    acceptAtomicHand();
-    await logHandHistory({
-      ...input,
-      actions: input.actions.map((row, i) => (i === index ? action : row)),
-    });
-    expect(mockObserveCompletedHand.mock.calls[0][0]).toMatchObject({
-      horseTurnClocks: [
+  it('keeps the Horse clock in protected accepted facts and out of the public history fields', async () => {
+    vi.stubEnv('GIT_COMMIT_SHA', 'a'.repeat(40));
+    try {
+      const input = obligationsParams();
+      const index = 1;
+      const action = { ...input.actions[index]!, timestamp: 1000, origin: 'horse_policy' as const };
+      retainHorseTurnClock(action, 100, 2000, 'strategy');
+      atomicRpcResults = [
+        {
+          data: {
+            success: true,
+            atomic_hand_commit: true,
+            history_id: historyId,
+            post_commit_completed: true,
+            post_commit_obligations: true,
+            post_commit_payload_hash: 'c'.repeat(64),
+          },
+          error: null,
+        },
+      ];
+      await logHandHistory({
+        ...input,
+        actions: input.actions.map((row, i) => (i === index ? action : row)),
+      });
+      const clocks = [
         {
           actionIndex: index,
           startedAtMs: 100,
@@ -435,9 +457,19 @@ describe('logHandHistory - worker-owned completed-hand observation', () => {
           acceptedAtMs: action.timestamp,
           path: 'strategy',
         },
-      ],
-    });
-    expect(JSON.stringify(rpcCalls[0].args.p_hand_row)).not.toContain('startedAtMs');
+      ];
+      expect(mockObserveCompletedHand.mock.calls[0][0]).toMatchObject({ horseTurnClocks: clocks });
+      const retained = retentionCalls[0] as any;
+      const { _accepted_post_commit_facts: privateFacts, ...publicHistoryFields } =
+        retained.p_hand_row;
+      expect(privateFacts.horse_accepted_terminal.observation.horseTurnClocks).toEqual(clocks);
+      // The SQL history producer selects actual hand_history columns only;
+      // this reserved envelope is copied separately into hand_atomic_commits.
+      expect(JSON.stringify(publicHistoryFields)).not.toContain('startedAtMs');
+      expect(JSON.stringify(publicHistoryFields.actions)).not.toContain('horseTurnClocks');
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('preserves forced-post and return provenance in the accepted JSON and observation without changing money or order', async () => {
@@ -1960,6 +1992,121 @@ describe('a lapsed cash proof retains its finished hand before refusing', () => 
       expect(rpcCalls).toHaveLength(1);
     } finally {
       vi.useRealTimers();
+    }
+  });
+});
+
+describe('retained original accepted terminal transport', () => {
+  it('captures before settlement and recovery journals that exact original without a financial replay', async () => {
+    vi.stubEnv('GIT_COMMIT_SHA', 'a'.repeat(40));
+    try {
+      const input = obligationsParams();
+      const clockAction = {
+        ...input.actions[1]!,
+        timestamp: 1000,
+        origin: 'horse_policy' as const,
+      };
+      input.actions = input.actions.map((action, index) => (index === 1 ? clockAction : action));
+      retainHorseTurnClock(clockAction, 100, 2000, 'strategy');
+      const rawRoster = {
+        version: 1,
+        status: 'captured',
+        reasons: [],
+        payloadDigest: 'c'.repeat(64),
+        producerVersion: 'accepted_hand_roster_v1',
+        roster: doorRosterCapsule(input.tableId, input.handNumber, historyId),
+      };
+      atomicRpcResults = [
+        {
+          data: {
+            success: true,
+            atomic_hand_commit: true,
+            history_id: historyId,
+            post_commit_completed: true,
+            post_commit_obligations: true,
+            post_commit_payload_hash: 'c'.repeat(64),
+            accepted_roster: rawRoster,
+          },
+          error: null,
+        },
+      ];
+      await logHandHistory(input);
+      const ordinaryRoster = mockObserveCompletedHand.mock.calls[0]![0].acceptedActorRoster;
+      expect(ordinaryRoster).toBeDefined();
+      const retained = retentionCalls[0] as any;
+      const packet = retained.p_hand_row._accepted_post_commit_facts.horse_accepted_terminal;
+      expect(packet.sourceRelease).toBe('a'.repeat(40));
+      expect(packet.originalLease).toBe(leaseGeneration);
+      expect(packet.observation.horseTurnClocks).toEqual([
+        {
+          actionIndex: 1,
+          startedAtMs: 100,
+          deadlineMs: 2000,
+          acceptedAtMs: 1000,
+          path: 'strategy',
+        },
+      ]);
+      expect(packet.observation.horseTurnClocks).toEqual(
+        mockObserveCompletedHand.mock.calls[0]![0].horseTurnClocks
+      );
+      // Changing the live private sidecar after acceptance cannot rewrite recovery.
+      retainHorseTurnClock(clockAction, 200, 3000, 'strategy');
+
+      expect(packet.observation.actions).toEqual(
+        mockObserveCompletedHand.mock.calls[0]![0].actions
+      );
+      const receipt = {
+        found: true,
+        completed: true,
+        success: true,
+        atomic_hand_commit: true,
+        snapshot_completed: true,
+        post_commit_completed: true,
+        table_id: input.tableId,
+        history_id: historyId,
+        submission_id: historyId,
+        submission_hash: 'b'.repeat(64),
+        hand_number: String(input.handNumber),
+        post_commit_payload_hash: 'c'.repeat(64),
+        accepted_roster: rawRoster,
+      };
+      resumeReply = { data: receipt, error: null };
+      terminalRead = {
+        data: {
+          hand_id: historyId,
+          table_id: input.tableId,
+          hand_number: input.handNumber,
+          post_commit_completed_at: '2026-11-10T00:00:00Z',
+          post_commit_payload_hash: 'c'.repeat(64),
+          post_commit_payload: { accepted_hand_facts: { horse_accepted_terminal: packet } },
+        },
+        error: null,
+      };
+      const writes = rpcCalls.length;
+      mockObserveCompletedHand.mockClear();
+      await resumeRetainedHandSubmission(input.tableId, 'successor', 'successor-lease');
+      expect(rpcCalls).toHaveLength(writes);
+      expect(mockObserveCompletedHand).toHaveBeenCalledTimes(1);
+      expect(mockObserveCompletedHand.mock.calls[0]![0]).toMatchObject({
+        ...packet.observation,
+        acceptedActorRoster: ordinaryRoster,
+        terminalOnlySourceRelease: 'a'.repeat(40),
+      });
+      for (const unusable of [
+        undefined,
+        { ...rawRoster, payloadDigest: 'd'.repeat(64) },
+        { ...rawRoster, status: 'legacy_missing', roster: null },
+      ]) {
+        resumeReply = { data: { ...receipt, accepted_roster: unusable }, error: null };
+        await resumeRetainedHandSubmission(input.tableId, 'successor', 'successor-lease');
+        expect(mockObserveCompletedHand).toHaveBeenCalledTimes(1);
+      }
+      resumeReply = { data: receipt, error: null };
+      terminalRead.data.post_commit_payload_hash = 'd'.repeat(64);
+      await resumeRetainedHandSubmission(input.tableId, 'successor', 'successor-lease');
+      expect(mockObserveCompletedHand).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllEnvs();
     }
   });
 });

@@ -1225,14 +1225,26 @@ describe('private retained-hand journal consumer', () => {
       ).toMatchObject({ status: 'unavailable', gaps: ['accepted_hand_conflict'] });
     }
   );
-  it('treats identical retained accepted rosters as one acceptance', () => {
+  it('reconciles ordinary and repeated recovered terminals with the same accepted roster', () => {
     const f = fixture();
     f.a = { ...f.a, acceptedActorRoster: doorRosterTransport(table, 12, hand) } as typeof f.a;
     const rows = f.rows();
     const accepted = rows.find((r) => r.kind === 'accepted_hand')!;
     expect(
       reconcileHorseJournalHand(
-        [...rows, f.make('accepted_hand', 4, { ...JSON.parse(accepted.body), requestId: 99 })],
+        [
+          ...rows,
+          f.make('accepted_hand', 4, {
+            ...JSON.parse(accepted.body),
+            requestId: 99,
+            terminalOnlySourceRelease: 'a'.repeat(40),
+          }),
+          f.make('accepted_hand', 5, {
+            ...JSON.parse(accepted.body),
+            requestId: 100,
+            terminalOnlySourceRelease: 'a'.repeat(40),
+          }),
+        ],
         handKey
       )
     ).toMatchObject({ status: 'reconciled', matchedActions: 1 });

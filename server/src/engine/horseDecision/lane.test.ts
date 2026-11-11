@@ -479,6 +479,22 @@ describe('ONE FLOOR, ONE READ: every shard learns every completed hand (2026-10-
     await expect(ack).resolves.toMatchObject({ type: 'ACK' });
   });
 
+  it('routes recovered original terminals only to their journal owner without mirrors', async () => {
+    const { pool, workers } = poolOf(3);
+    for (const worker of workers) worker.emit(ready());
+    await pool.ready();
+    const hand = { ...observation(TABLE, 1_000_001), terminalOnlySourceRelease: 'a'.repeat(40) };
+    const ack = pool.observeCompletedHand(hand as any);
+    const owner = horseDecisionShard(hand.fence, 3);
+    for (const worker of workers) {
+      const jobs = worker.sent.filter((m) => m.type === 'OBSERVE_COMPLETED_HAND');
+      expect(jobs).toHaveLength(worker.index === owner ? 1 : 0);
+      if (worker.index === owner) expect(jobs[0]).not.toHaveProperty('observerParticipants');
+    }
+    workers[owner]!.ackAll();
+    await expect(ack).resolves.toMatchObject({ type: 'ACK' });
+  });
+
   it('a lost mirror never fails the hand', async () => {
     const { pool, workers } = poolOf(2);
     for (const worker of workers) worker.emit(ready());
