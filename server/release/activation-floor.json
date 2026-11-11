@@ -1,9 +1,9 @@
 {
   "schema": "engine-release-activation-floor/v2-owner-window",
-  "preparationAt": "2026-11-11T00:50:00Z",
-  "activationAt": "2026-11-11T00:50:00Z",
-  "expiresAt": "2026-11-11T04:00:00Z",
+  "preparationAt": "2026-11-11T03:40:00Z",
+  "activationAt": "2026-11-11T03:40:00Z",
+  "expiresAt": "2026-11-11T06:30:00Z",
   "timeZone": "America/Chicago",
   "ownerWindowId": "2026-11-11-horse-clock-receipts-engine-0050z",
-  "clientPublicationAt": "2026-11-11T00:50:00Z"
+  "clientPublicationAt": "2026-11-11T03:40:00Z"
 }

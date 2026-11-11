@@ -165,7 +165,7 @@ class ActivationFloor(unittest.TestCase):
         record = dict(schema=floor.OWNER_CAPABILITY, ownerWindowId=window['id'],
                       manifestSha256=__import__('hashlib').sha256(raw).hexdigest(), targetSha=target,
                       activationEpoch=start, expiresEpoch=end)
-        stamp = int(datetime.fromisoformat('2026-11-11T01:10:00+00:00').timestamp()) * 1000
+        stamp = int(datetime.fromisoformat('2026-11-11T05:25:00+00:00').timestamp()) * 1000
         state = {'pending': None, 'finalization': None, 'desired': {'sha': seal.NOV7_PREDECESSOR}, 'highWaterSha': seal.NOV7_PREDECESSOR}
         args = argparse.Namespace(sha=target, run_id='650-1', repo=str(self.repo), cause='urgent',
                  control_sha=target, deadline=end, nov7_owner=True, scheduled_cycle_start=None,
@@ -917,8 +917,8 @@ echo CHECKPOINT_MUST_NOT_RUN
         self.assertEqual(hashlib.sha256(raw).hexdigest(), floor.NOV7_MANIFEST_DIGEST)
         self.assertEqual(window['releaseWitness']['sha256'], floor.NOV7_MANIFEST_DIGEST)
         self.assertEqual(hashlib.sha256(json.dumps(window, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), floor.NOV7_ORDER_DIGEST)
-        self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-11T00:50:00Z', '2026-11-11T04:00:00Z'))
-        self.assertEqual(window['playerNoticeAt'], '2026-11-11T00:30:00Z')
+        self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-11T03:40:00Z', '2026-11-11T06:30:00Z'))
+        self.assertEqual(window['playerNoticeAt'], '2026-11-11T03:20:00Z')
         self.assertEqual(window['announcementPolicy'], 'earliest-certified')
         self.assertIs(window['supersedesPhase1Schedule'], True)
         self.assertEqual(window['migrations'], [])
@@ -927,7 +927,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
         self.assertEqual(windows['windows'][-1]['id'], floor.NOV7_OWNER_ID)
         current = self.owner_record(window_id=floor.NOV7_OWNER_ID)
-        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 11400)
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 10200)
 
     def test_cash_room_realism_window_binds_the_live_floor_and_keeps_the_provenance_entry(self):
         import hashlib

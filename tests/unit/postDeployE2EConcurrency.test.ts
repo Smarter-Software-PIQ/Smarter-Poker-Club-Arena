@@ -60,7 +60,9 @@ describe('post-deploy E2E concurrency', () => {
     const concurrency = productionJob.match(/concurrency:\n([\s\S]*?)\n\s+steps:/)?.[1] ?? '';
 
     expect(concurrency).toContain('cancel-in-progress: false');
-    expect(concurrency).toContain('group: post-deploy-e2e-production');
+    expect(concurrency).toContain(
+      "group: ${{ needs.publication-gate.outputs.cash_observation == 'true' && 'post-deploy-e2e-cash-observation' || 'post-deploy-e2e-production' }}"
+    );
     expect(concurrency).not.toContain('manual-');
   });
 

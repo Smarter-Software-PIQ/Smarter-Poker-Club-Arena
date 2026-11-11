@@ -10504,8 +10504,7 @@ function LiveTablePage({
     enabled: socialFeaturesAllowed && !isChatMuted,
     speakingPlayerIds,
   });
-  /* Dan 2026-09-04: "HAS ADDED ON FOR XX.XX" above the head of whoever added
-     on. NOT behind the social gate: it is a fact about the stack, not a line
+  /* Owner 2026-11-10: "+amount Added On" flies from the bank above the head. NOT behind the social gate: it is a fact about the stack, not a line
      from the player, so heads-up tables and muted chat still show it. Fed by
      the engine's `add_on_applied` event — the moment the sweep lands the chips. */
   const seatAddOnBubbles = useSeatAddOnBubbles(engineLastEvent, seatOwnerIds, {
@@ -30279,7 +30278,7 @@ function LiveTablePage({
                     maths and SeatSlot needs no knowledge of chat at all. */}
                 {(() => {
                   /* The add-on notice takes the slot over a chat line: it is
-                     the newer fact, it lives 4s, and two boxes over one plate
+                     the newer fact, it flies up briefly, and two notices over one plate
                      is how you cover the seat above. */
                   const bubble =
                     bubbleForSeat(seatAddOnBubbles, seatNumber) ??
@@ -30287,6 +30286,7 @@ function LiveTablePage({
                   if (!bubble) return null;
                   return (
                     <ChatBubble
+                      key={bubble.id}
                       text={bubble.content}
                       playerName={bubble.playerName}
                       isOwn={bubble.playerId === userId}

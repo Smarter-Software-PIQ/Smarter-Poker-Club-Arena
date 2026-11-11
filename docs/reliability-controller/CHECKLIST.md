@@ -172,10 +172,19 @@ Email is NOT switched off by this project until Stage B is verified live.
 
 ## 4. Open Blockers
 
-**B2 (2026-11-11, open, external):** `download.osgeo.org` is unreachable, so the
-fixture image cannot build and `Native fixture prerequisites / native-smoke`
-fails, which by deliberate design fails the required `TypeScript Check`. This
-blocks #10419 only. See 9.6.
+**B2 (2026-11-11, CLEARED 02:37Z):** `download.osgeo.org` was unreachable from
+00:05Z, failing the fixture build and so the required `TypeScript Check`. The
+CI/infrastructure owner had already repointed the pinned artifact to
+`ftp.osuosl.org` in #10422; #10419 only needed its branch updated. Verified
+byte-identical before relying on it. See 10.4.
+
+**B3 (2026-11-11, open, release custody):** the Spin alert rules cannot deploy
+until an engine release carries the metrics they read. `Deploy Monitoring`
+refuses correctly; activation is the certified table break inside the owning
+deploy workflow, and dispatch is the sole release custodian's. `3a63852a` is a
+candidate, not a selected release: prequalification in progress, Backup queued,
+`Dispatch The Exact Main SHA` skipped. Blocks `78afb154` closeout only.
+See 11.4.
 
 - B1 Mac access. CLEARED 2026-11-10 22:30Z, without the folder grant. The
   Cowork folder request for `/Users/smarter.poker/Documents` is still refused
@@ -731,3 +740,287 @@ observed_at) NOT VALID`). Certification is not weakened: the same certificate
   to cache or mirror that pinned tarball - a change to shared release
   infrastructure and to a supply-chain input, which is not mine to make
   unilaterally.
+
+## 10. Corrections And Closeout Evidence, 2026-11-11 02:00-03:00Z
+
+Section 9 overstated two things. Both are corrected here rather than edited
+away, because the reasoning error is the useful part.
+
+### 10.1 A resolution that precedes the install proves nothing
+
+Section 9.5 offered "resolved 01:05:23, no refire" as evidence that
+`20261111003802` fixed the union close. The install committed at **01:09:08Z**,
+_after_ that resolution, so the resolution cannot be attributed to it. Alert
+silence and a cleared escalation latch are controller state, not accounting
+evidence, and 9.5 should not have leaned on them.
+
+What does prove post-install behaviour, and is the standard this section holds
+itself to:
+
+1. **Generation stamping.** The install rolled
+   `smarter_private.original_inventory_basis_generation()` to
+   `original-inventory-245-v1:40a6ffb4b726a0de4a06b74637725012`. The
+   `pnl_flows_problem` certificate written at **01:45:09Z carries exactly that
+   generation**, a string that did not exist before 01:09:08, so that
+   certificate was necessarily computed after the install. A generation is a
+   better clock than a timestamp here because it is derived from the function
+   bodies themselves.
+2. **Durable sub-range progress.** 84 `pnl_flows_window` partials persisted
+   between 01:09 and 02:13, advancing monotonically. The pre-fix behaviour was
+   "attempts climb without progress" precisely because an overrunning statement
+   kept nothing. Persisted windows are the fix's signature.
+
+### 10.2 The two unsupported flows: the reader was wrong, not the data
+
+Section 9.5 left these "pending an owner decision on which club's P&L bears
+it". That framing was wrong. No decision was required, no chips moved, and no
+club was assigned the cost.
+
+The flows, read-only from production:
+
+|                                       | flow A                                 | flow B                                 |
+| ------------------------------------- | -------------------------------------- | -------------------------------------- |
+| entitlement                           | `17548750-4a28-42ae-b43c-c0d356d302e2` | `e23baaa9-7a11-4d33-8746-809e64e1af83` |
+| admission ledger (`source_ledger_id`) | `faa88ed0-8d7b-478c-9eb1-02ad1b92f9cc` | `22f9e706-0cc8-4f1b-bc1e-d4fee041f8a6` |
+| refund credit ledger                  | `b9216e23-3580-4480-9265-c146f7f0b5aa` | `ca27f46a-914e-4d4d-9221-408a86ee314b` |
+| registration                          | `064bbc60-b702-433e-af68-042cf38fed83` | `bd08af1c-f2b8-4289-8624-511d483a7c34` |
+| satellite                             | `2b654457-f2ef-42c8-b72a-1c8dbc8885d5` | `cb0ae6ee-d114-4a4a-aaa1-311bde3a4bf3` |
+| gross                                 | 200.00 = 180 prize + 0 bounty + 20 fee | same                                   |
+
+Funding: KINGS CLUB `a41434bb` wallet-funded both satellites - flow A entry
+30.00 (`5e425751`, 11-02 03:03:14Z) plus addon 30.00 (`b6df4eeb`, 11-02
+04:24:46Z); flow B entry 30.00 (`e023c0b3`, 11-02 19:13:05Z). Payout: both
+`prize_liability -> player_wallet`, 200.00, category `refund`, club The Felt
+Society `a0000000`, at 11-07 20:40Z.
+
+The governing rule was already in the reader and names this case directly:
+**"SATELLITE REFUNDS FOLLOW THE ADMITTED CLUB (01a1c81a). The upstream entry
+proves backing, not the club of an already won target seat... never infer
+ownership from live membership."** The admitted registration's first
+`union_pnl_inventory_events` row records `club_id` = The Felt Society, equal to
+`refund_wallet_club_id`. Every condition of that branch was verified
+independently: the award/settlement/payout/admission/registration chain counts
+exactly 1 for both, a single refund tranche each with `amount_paid_before = 0`,
+`amount_paid_now = 200.00` and 180/0/20 splits, and idempotency keys matching
+`tourney:<target>:refund-entitlement:<entitlement>`.
+
+So the apparent mismatch was the PNL reader demanding equality to the UPSTREAM
+entry club. `20261111010427_a_satellite_seat_refund_follows_its_admitted_club.sql`
+(not this lane's work; it states it "requires the earlier chained-seat/sub-range
+source fix from PR10428") corrected the reader and rolled the generation to
+`...b94061573b28c8c38005e86587e7f10e`, which is why the 01:45:09Z `bad = 2`
+certificate was superseded rather than deleted.
+
+**Outcome, certified 02:25:09Z under the live generation: `pnl_flows bad = 0`**,
+the clean kind rather than `pnl_flows_problem`. The progression is 10 unsupported
+-> 2 (chained satellite seats, PR10428) -> 0 (admitted-club reader). The stale
+`bad = 2` certificate remains as history.
+
+**The week is NOT terminally reconciled.** It now contains zero unsupported
+items, but `accounting_close_report_receipts` for
+`2026-11-02 08:00Z -> 2026-11-09 08:00Z` is still empty; the last week with a
+report receipt is 10-26 -> 11-02, computed 11-10 15:43:10Z. Operational recovery
+and financial reconciliation are not the same claim and are not reported as one.
+
+A third correction: section 8.5 said both players "left that club on
+2026-11-02, before the 2026-11-07 refund". Not supported. Both joined 04-09 and
+their KINGS CLUB membership rows read `suspended` with `updated_at` 11-09
+14:40Z, after the refund. The rule forbids reasoning from live membership in any
+case, so the claim was both wrong and irrelevant.
+
+### 10.3 The collusion schedule is UTC, established not assumed
+
+`20 4 * * *` is not self-evidently UTC. Confirmed two independent ways:
+`cron.timezone = GMT` and `TimeZone = UTC`, and the last five observed starts
+were exactly `04:20:00Z` on 2026-11-06 through -10. Next run 2026-11-11
+04:20:00Z. The retired-detector check in `fn_ca_collusion_scan` is untouched by
+`20261110234905`; only the window-reading driver changed.
+
+### 10.4 Spin: availability fixed upstream, and the deployment route is the gate
+
+`download.osgeo.org` (140.211.15.30, OSU OSL) was unreachable from 00:05Z. The
+existing CI/infrastructure owner had already repointed
+`operations/release/fixture/Dockerfile:150` and its line-229 source catalog to
+`https://ftp.osuosl.org/pub/osgeo/download/postgis/source/postgis-3.3.7.tar.gz`
+in #10422 (merged 01:15:30Z) - same version, same pin. Verified independently
+before relying on it: 17,782,849 bytes, sha256
+`50724a0dde49adc253e59e024d8b18fef6be4e85341943c6d5e1e1b974e43fce`, identical to
+the pin, from both `ftp.osuosl.org` and `ftp2.osuosl.org`. `postgis.net/stuff`
+was rejected: it answers 200 but serves 17,786,630 bytes with a different hash.
+No version changed, no different bytes accepted, no gate skipped, and nothing in
+this lane edited release infrastructure.
+
+#10419 was merely behind that commit; updating its branch was the whole fix.
+native-smoke and the required TypeScript Check both passed and it merged
+02:37:05Z all-green. `20261110233909` is installed and `v_spin_unfilled_waits`
+now carries `human_seats`, `horse_seats`, `unresolved_seats`,
+`oldest_human_seat_at`, `longest_human_wait`.
+
+**Green CI and an installed migration do not resolve this incident.**
+`Deploy Monitoring` refused at 02:39Z, correctly:
+
+> RULES AHEAD OF THE ENGINE THAT IS RUNNING (2) - they cannot fire:
+> `poker_spin_human_arrival_max_seconds`, `poker_spin_ladder_full_envelope_seconds`.
+> The engine is running `840429a3`... THAT BUILD DOES NOT [emit them], so no event
+> on the platform can produce a sample and the rule evaluates to an empty vector
+> for ever. Prometheus reports it as health=ok, state=inactive, which is the same
+> thing it reports for an alarm that is genuinely quiet.
+
+A rule with no producer is indistinguishable from a quiet alarm, which is
+`78afb154`'s exact failure mode, so shipping the rules first would have
+reproduced the incident in a new place. Order is engine, then rules.
+`auto-deploy-hetzner.yml` fires only on a `deploy-club-arena-engine`
+`repository_dispatch` carrying a `ref_sha`; `stage-engine-release.yml` dispatches
+it on Backup Engine completion, and `Tell The Release Owner An Owner Window Is
+Ready` fired at 02:40:24Z. This lane did not initiate a release and did not
+silence, delete or weaken a rule. `78afb154` stays `recovered / escalated` until
+the rules are serving and the latch can clear on one honest forward transition.
+
+## 11. Collusion Closeout And Two More Withdrawn Claims, 2026-11-11 04:20-05:10Z
+
+### 11.1 `61fc0986-d4dd-4b54-9c58-14b2605aecc0` fn_ca_cron_failure_watch: CLOSED
+
+The schedule was established before it was read, not inferred from the cron
+expression: `cron.timezone = GMT`, `TimeZone = UTC`, and the five observed
+starts 2026-11-06 through -10 were each exactly `04:20:00Z`. So `20 4 * * *`
+is 04:20 UTC, 22:20 America/Chicago.
+
+Observed through completion:
+
+| run                  | status        | duration                      |
+| -------------------- | ------------- | ----------------------------- |
+| 2026-11-11 04:20:00Z | **succeeded** | **00:00:13.17**               |
+| 2026-11-10 04:20:00Z | failed        | 00:02:00.05 statement timeout |
+| 2026-11-09 04:20:00Z | failed        | 00:02:00.02 statement timeout |
+| 2026-11-08 04:20:00Z | failed        | 00:02:00.45 statement timeout |
+
+Expected signal writes, verified: 3,500 rows into `public.ca_collusion_signals`
+with `window_days = 7`, `detail->>'since' = 2026-11-04T04:20:00` (exactly seven
+days), `both_cert = 0`; the table went 371,010 -> 374,510.
+
+The detector stayed retired and that is load-bearing, not incidental:
+`ca_detector_registry` still reads `retired` for `fn_ca_collusion_scan`, and
+**zero** incidents were opened in the run's wake despite 3,500 flagged pairs,
+because `v_retired` short-circuits the `fn_ca_raise_drift_incident` loop. The
+scan records and pages nothing. `20261110234905` changed only the
+window-reading driver; the retirement check is untouched.
+
+Controller recovery was supported and unforced: `resolved_signal -> verifying`
+at 04:23:00Z, three minutes after the run, then
+`quiet_window_passed -> recovered` at 04:54:00Z once `ca-cron-health-30m`
+(`7,37 * * * *`) re-evaluated. `escalation_state` cleared to `none` by the
+`20261110224707` latch fix on that forward transition.
+
+One distinction worth keeping: an out-of-band invocation at 00:58:36Z had
+already run the fixed function to completion (3,322 rows, `since`
+2026-11-04T00:58:36) with no cron entry at that time. That proved the function,
+not the schedule. `fn_ca_cron_failure_watch` keys on the JOB's run history, so
+only the 04:20Z scheduled run could clear the incident.
+
+### 11.2 Withdrawn: "zero human tournament seats in 24 hours"
+
+Stated while narrowing the Spin claim. Wrong. There were **14 human seats in
+24 hours** - 4 cash, bounty 4, freezeout 3, mystery_bounty 2,
+progressive_bounty 1, most recent 03:11Z - and `table_seats` retains rows back
+to 2026-07-24, so retention was not the cause. The query only counted seats on
+tables belonging to TOURNAMENTS CREATED inside the window, which excluded cash
+tables entirely and any tournament created earlier.
+
+What survives is the narrow claim, and only that: **zero human seats on Spin
+boards in 24 hours** (155 Spin boards, 268 horse seats, 0 human, 0 unresolved),
+with Spin absent from the breakdown above. Separately the view's own predicate
+identifies **5 live human seats** right now - cash 3, freezeout 1,
+mystery_bounty 1 - against 878 horse seats and 0 unresolved anywhere, so human
+identification is live-verified; just never on a Spin board.
+
+### 11.3 Withdrawn: "the union close stopped"
+
+Also wrong, and wrong twice over in how it was measured.
+
+`accounting_close_partials` holds the chunked `*_window` rows. All three
+post-fix stages had already COMPLETED - `pnl_flows_window`,
+`pnl_linked_window` and `pnl_hands_window` each 84/84 windows through
+11-09 08:00 - so the absence of new partials meant a finished stage, not a
+stalled one. The certifying stage writes certificates, not partials.
+
+And `smarter_private.inventory_basis_cache_write` certifies through
+`fn_accounting_close_certify(kind, union, start, end, ...)`, keyed by the range
+it certifies. A SUB-RANGE certificate therefore carries the sub-range's own
+bounds, so every query filtered to `period_start = week_start AND period_end =
+week_end` is blind to exactly the artifacts `20261110235631` was built to
+write. Read correctly at 05:11Z:
+
+    pnl_touched    17 certs   11-02 08:00 -> 11-04 11:00   4 written in 20 min
+    pnl_boundary    2 certs   full week
+    pnl_flows       1 cert    full week, bad = 0
+
+All 20 on the live generation `...87e7f10e`, one generation throughout, and
+`pnl_touched_problem = 0`. That is the sub-range certification working: 17 of
+roughly 56 three-hour slices, then `pnl_clubs`, then the receipt.
+
+Job 272 `union-weekly-rakeback-close` (`*/5 * * * *`) advances only at minutes
+40-44, or on a continuation condition. The current run holds
+`chunk_committed: true`, `stage: certifying`, `purpose: club_settlements`,
+`pnl_evidence.status: blocked` / `union_pnl_certification_in_progress`, which is
+what keeps it resuming every five minutes instead of waiting for the next slot.
+
+**Still NOT terminally reconciled.** `accounting_close_report_receipts` for
+2026-11-02 08:00Z -> 2026-11-09 08:00Z remains empty. Zero unsupported items is
+not a closed book, and the two are not reported as one claim. Historical
+certificates and balances are untouched; the superseded `pnl_flows_problem
+bad = 2` remains as history.
+
+### 11.4 Withdrawn: the 03:30-03:50 window as proof of activation
+
+Section 10.4 and a prior report treated the 03:30-03:50 America/Chicago daily
+preparation window as the engine activation. It is not.
+
+Read together, the owner order and the admission rules say: a reviewed server
+change "must enter the existing Hetzner release lane as soon as it reaches
+protected main", and "the owning deploy workflow still builds, tests, WAITS FOR
+THE CERTIFIED TABLE BREAK, cuts over, and proves the release." Activation is
+the certified table break, not a clock. `stage-engine-release.yml` is a signal
+with "no SSH, environment, source-write, or restart authority"; its
+`Dispatch The Exact Main SHA` job is gated on
+`release_required && admission_allowed`, and admission is true only inside the
+admitted daily preparation (reservable at most five elapsed hours early) or
+with an explicit `owner_window_id`. That job is currently **skipped**.
+
+A certified Backup run authorizes nothing by itself. `3a63852a` is a CANDIDATE
+containing both metric producers - it is the #10419 merge and the
+`DEPLOY_CONTROL_SHA` the monitoring run used - but no stage run has selected
+it, its prequalification is in progress and its Backup is queued. The final
+selected revision, qualification, Backup compatibility, seal and thaw all
+remain to be verified. Dispatch is the sole release custodian's; this lane
+issued none.
+
+### 11.5 The Spin rules are now exercised, not just linted
+
+`aSpinAlertReadsTheLadderItWatches.law.test.ts` proves the rules read gauges
+rather than literals - static. #10442 adds
+`infra/monitoring/spin-rules.test.yml` and
+`scripts/ci/test-spin-alert-rules-with-fixtures.sh`: ten promtool scenarios
+driving real series through the real rules, covering the `for: 1m` and
+`for: 5m` durations, the 8400s ladder boundary on both sides, the
+maintenance-break guard, horse-only and unresolved shapes, and production's own
+observed numbers (staleness 7302s, 11 open boards, no human-wait series).
+
+Two scenarios record silent-failure modes rather than passing over them: a
+MISSING envelope gauge cannot page at 99999s of staleness, and a MISSING
+arrival gauge silences the human rule with a human waiting 5000s. Prometheus
+reports an unfirable rule as health=ok/state=inactive - what it reports for a
+quiet one. `SpinMetricsStale` covers a STALE gauge; an ABSENT one is this case.
+
+The suite bites: restoring the 60s literal, restoring the 1800s literal, and
+dropping the human arm each fail it. promtool is pinned by version and sha256;
+it is deliberately NOT wired into CI, because that adds a release-asset fetch
+to a shared blocking job and belongs to the CI/infrastructure owner.
+
+**Explicitly unobserved, and not claimed:** no human has occupied a Spin board
+in 24 hours, so the delayed-human path has no production positive - it rests on
+these fixtures, a read-only constructive check against real profile rows, and
+live classification of humans on non-Spin tables. Real metric ingestion and
+rule evaluation stay unverified until the engine release that emits the
+producers. `78afb154` therefore remains `recovered / escalated`: the one
+forward transition that would clear its latch is owed only once the monitoring
+correction is actually serving.
