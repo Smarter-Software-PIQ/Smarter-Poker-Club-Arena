@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
@@ -21,6 +22,7 @@ const GUARDED: Record<string, string> = {
   'public.fn_cash_session_open(uuid,uuid,numeric)': 'bbc08d039928fa122d3cc1846ee1c2ec',
   'public.fn_lightning_blind_off_waive(uuid,uuid,uuid,text)': '5d412f34ad062c23771c1377ecbe6085',
   'public.ca_club_hit_run_status(uuid)': '83c39a575b94a62c8df3cf8bd1c3ad5f',
+  'public.fn_lightning_blind_off_players(uuid[])': 'c9b71cb81d9eff0af96fcb0aba464fe2',
 };
 
 const STUB = `
@@ -104,6 +106,8 @@ CREATE FUNCTION public.fn_lightning_blind_off_waive(p_player_id uuid, p_table_id
   p_cluster_id uuid, p_reason text) RETURNS boolean LANGUAGE sql AS $$ SELECT false $$;
 CREATE FUNCTION public.ca_club_hit_run_status(p_club_id uuid) RETURNS jsonb
   LANGUAGE sql AS $$ SELECT '{}'::jsonb $$;
+CREATE FUNCTION public.fn_lightning_blind_off_players(p_pool_session_ids uuid[]) RETURNS SETOF uuid
+  LANGUAGE sql AS $$ SELECT NULL::uuid WHERE false $$;
 `;
 
 const CLUB = '10000000-0000-4000-8000-000000000001';
@@ -129,9 +133,15 @@ beforeAll(() => {
     '/usr/bin',
   ].find((dir) => ['initdb', 'pg_ctl', 'psql'].every((name) => existsSync(`${dir}/${name}`)));
   if (!bin) throw new Error('PostgreSQL binaries are required for the Charles Rule regression');
-  const cache = resolve(root, 'node_modules/.cache');
+  // PostgreSQL refuses to run its server as root. A root shell (an agent
+  // container's pre-push) runs the server as an unprivileged system user in a
+  // world-writable scratch directory; every other shell runs it as itself.
+  const asRoot = typeof process.getuid === 'function' && process.getuid() === 0;
+  const serverUser = 'nobody';
+  const cache = asRoot ? tmpdir() : resolve(root, 'node_modules/.cache');
   mkdirSync(cache, { recursive: true });
   const scratch = mkdtempSync(resolve(cache, 'charles-big-win-'));
+  if (asRoot) chmodSync(scratch, 0o777);
   const port = 20000 + Math.floor(Math.random() * 30000);
   const data = resolve(scratch, 'data');
   const env: NodeJS.ProcessEnv = {
@@ -140,19 +150,28 @@ beforeAll(() => {
     PGHOST: '127.0.0.1',
     PGPORT: String(port),
     PGDATABASE: 'postgres',
-    PGUSER: process.env.USER || 'runner',
+    PGUSER: asRoot ? serverUser : process.env.USER || 'runner',
     PGSSLMODE: 'disable',
   };
   delete env.PGSERVICE;
   delete env.PGSERVICEFILE;
+  const server = (cmd: string) => cmd === 'initdb' || cmd === 'pg_ctl';
   const run = (cmd: string, args: string[], input?: string) =>
-    execFileSync(`${bin}/${cmd}`, args, {
-      cwd: root,
-      env,
-      input,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    asRoot && server(cmd)
+      ? execFileSync('runuser', ['-u', serverUser, '--', `${bin}/${cmd}`, ...args], {
+          cwd: scratch,
+          env,
+          input,
+          encoding: 'utf8',
+          stdio: ['pipe', 'pipe', 'pipe'],
+        })
+      : execFileSync(`${bin}/${cmd}`, args, {
+          cwd: root,
+          env,
+          input,
+          encoding: 'utf8',
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
   sql = (text) => run('psql', ['-X', '-v', 'ON_ERROR_STOP=1', '-q'], text);
   one = (text) => run('psql', ['-X', '-At', '-v', 'ON_ERROR_STOP=1', '-c', text]).trim();
   run('initdb', ['-D', data, '-A', 'trust']);
@@ -366,7 +385,7 @@ describe('leave request ordering', () => {
 });
 
 describe('persistence', () => {
-  it('survives a reconnect, a sit out, a seat move and a restart, and a re-entry inherits it', () => {
+  it('survives a reconnect, a sit out, a seat move and a restart', () => {
     seat(P(13), T, 100);
     classicHand(T, { [P(13)]: 300 });
     quietHands(T, P(13), 2);
@@ -382,13 +401,15 @@ describe('persistence', () => {
     expect(owed(P(13), T2).hands).toBe(8);
     quietHands(T2, P(13), 1);
     expect(owed(P(13), T2).hands).toBe(7);
-    // Re-entry inside the rejoin window (a forced exit, then a buy-in with the whole stack).
+    // A session that closed by a system exit (here a table closure) closed with
+    // its obligation: a later re-entry carries the start basis, never the count.
     sql(`UPDATE cash_player_session SET closed_at = clock_timestamp(), closed_reason = 'table_closed'
           WHERE player_id = '${P(13)}' AND closed_at IS NULL;
          UPDATE table_seats SET left_at = clock_timestamp() WHERE user_id = '${P(13)}';`);
     seat(P(13), T, 400);
-    expect(session(P(13))).toMatchObject({ hr_big_win_required: 10, hr_big_win_played: 3 });
-    expect(owed(P(13), T).hands).toBe(7);
+    expect(session(P(13))).toMatchObject({ hr_big_win_required: 0, hr_big_win_played: 0 });
+    expect(Number(session(P(13)).start_basis)).toBe(100);
+    expect(owed(P(13), T).hands).toBe(0);
   });
 
   it('keeps the start basis through re-entry and top-ups, capped at the table maximum', () => {
@@ -466,6 +487,25 @@ describe('safety and coexisting obligations', () => {
     expect(club.rows).toEqual([
       expect.objectContaining({ user_id: P(11), hands_remaining: 10, hands_reason: 'both' }),
     ]);
+    // A finished countdown of 20 (one double) and a +250 BB win: the club sees 10 of 10.
+    sql(`UPDATE cash_player_session SET hr_hands_required = 20, hr_hands_played = 20, hr_completed = true
+          WHERE player_id = '${P(11)}' AND closed_at IS NULL`);
+    const after = JSON.parse(one(`SELECT ca_club_hit_run_status('${CLUB}')`));
+    expect(after.rows[0]).toMatchObject({
+      hands_remaining: 10,
+      hands_required: 10,
+      hands_reason: 'big_win',
+    });
+  });
+
+  it('folds a blinded-off Lightning seat for either obligation, the same hands its door holds', () => {
+    sql(`UPDATE cash_player_session SET hr_blind_off = true WHERE player_id = '${P(9)}' AND closed_at IS NULL;
+         UPDATE cash_player_session SET hr_completed = true WHERE player_id = '${P(9)}' AND closed_at IS NULL;`);
+    const pool = one(`SELECT id FROM lightning_pool_session WHERE player_id = '${P(9)}'`);
+    // Countdown finished, big-win ten still owed: the host still folds the seat.
+    expect(one(`SELECT fn_lightning_blind_off_players(ARRAY['${pool}']::uuid[])`)).toBe(P(9));
+    sql(`UPDATE cash_player_session SET hr_blind_off = false, hr_completed = false
+          WHERE player_id = '${P(9)}' AND closed_at IS NULL;`);
   });
 
   it('gives a Lightning Horse door the pool facts: blind order, orbit counter and every hand owed', () => {

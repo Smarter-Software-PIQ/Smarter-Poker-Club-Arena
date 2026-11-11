@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  ASK_STALE_MS,
   MAX_LEAVE_ATTEMPTS,
   decideLightningBankTheWin,
   noteLightningHandForBankTheWin,
@@ -28,39 +29,77 @@ function hand(stackBefore: number, after: number, session = 'ps-1', isHorse = tr
 afterEach(() => resetLightningBankTheWin());
 
 describe('the Lightning pre-filter', () => {
-  it('asks only at the line, measured from at most the maximum buy-in', () => {
+  it('learns the durable basis from the first answer, then asks only at its line', () => {
     const asked: string[] = [];
     onLightningBankTheWin((r) => {
       asked.push(r.playerId);
-      r.settle('not_ready');
+      r.settle('not_ready', 100);
     });
+    expect(hand(100, 100)).toEqual([HORSE]); // basis unknown: asked once to learn it
     expect(hand(100, LINE - 1)).toEqual([]);
     expect(hand(LINE - 1, LINE)).toEqual([HORSE]);
-    // A pool session first seen with a carried 1,391.85 stack still measures from 100.
-    expect(hand(1391.85, 1391.85, 'ps-carried')).toEqual([HORSE]);
     expect(asked).toHaveLength(2);
   });
 
-  it('never asks about a human, and keeps one ask in flight per pool session', () => {
-    const pending: Array<(o: LightningBankOutcome) => void> = [];
+  it('a restart or a re-entry seen first with a carried stack cannot raise the line', () => {
+    const asked: string[] = [];
+    onLightningBankTheWin((r) => {
+      asked.push(r.playerId);
+      r.settle('not_ready', 100); // the session's durable basis, not the carried stack
+    });
+    expect(hand(1391.85, 1391.85, 'ps-carried')).toEqual([HORSE]);
+    expect(hand(1391.85, 1391.85, 'ps-carried')).toEqual([HORSE]); // above the 4-6x of 100
+  });
+
+  it('never asks about a human, keeps one ask in flight, and ignores a second answer', () => {
+    const pending: Array<(o: LightningBankOutcome, b?: number) => void> = [];
     onLightningBankTheWin((r) => pending.push(r.settle));
     expect(hand(700, 700, 'ps-h', false)).toEqual([]);
     expect(hand(700, 700)).toEqual([HORSE]);
     expect(hand(700, 700)).toEqual([]); // still in flight
-    pending[0]('not_ready');
+    pending[0]('not_ready', 100);
     pending[0]('done'); // a second answer to the same ask is ignored
     expect(hand(700, 700)).toEqual([HORSE]); // not ready: asked again on a later hand
   });
 
+  it('abandons an ask that is never answered, and ignores its late answer', () => {
+    const pending: Array<(o: LightningBankOutcome, b?: number) => void> = [];
+    onLightningBankTheWin((r) => pending.push(r.settle));
+    const at = (now: number) =>
+      noteLightningHandForBankTheWin(
+        {
+          clusterId: 'c1',
+          maxBuyIn: 100,
+          participants: [
+            {
+              playerId: HORSE,
+              poolSessionId: 'ps-stale',
+              isHorse: true,
+              blindRole: 'none',
+              stackBefore: 700,
+            },
+          ],
+          stacksAfter: new Map([[HORSE, 700]]),
+        },
+        now
+      );
+    expect(at(1_000)).toEqual([HORSE]);
+    expect(at(1_000 + ASK_STALE_MS - 1)).toEqual([]);
+    expect(at(1_000 + ASK_STALE_MS)).toEqual([HORSE]);
+    pending[0]('done'); // the abandoned ask's late answer changes nothing
+    pending[1]('not_ready', 100);
+    expect(at(1_000 + ASK_STALE_MS + 1)).toEqual([HORSE]);
+  });
+
   it('stops after a leave, and after the bounded number of failed attempts', () => {
-    let settle: ((o: LightningBankOutcome) => void) | null = null;
+    let settle: ((o: LightningBankOutcome, b?: number) => void) | null = null;
     onLightningBankTheWin((r) => (settle = r.settle));
     hand(700, 700, 'ps-done');
-    settle!('done');
+    settle!('done', 100);
     expect(hand(700, 700, 'ps-done')).toEqual([]);
     for (let i = 0; i < MAX_LEAVE_ATTEMPTS; i++) {
       expect(hand(700, 700, 'ps-fail')).toEqual([HORSE]);
-      settle!('attempt_failed');
+      settle!('attempt_failed', 100);
     }
     expect(hand(700, 700, 'ps-fail')).toEqual([]);
   });
@@ -93,8 +132,8 @@ describe('the door decides from the pool facts alone', () => {
     expect(decideLightningBankTheWin(HORSE, { ...ready, blind_rank: null })).toBe('not_ready');
     expect(decideLightningBankTheWin(HORSE, { ...ready, stack: LINE - 1 })).toBe('not_ready');
   });
-  it('is done when the horse is already leaving or out of the pool', () => {
+  it('is done when the horse is already leaving; not found is only transient', () => {
     expect(decideLightningBankTheWin(HORSE, { ...ready, leave_pending: true })).toBe('done');
-    expect(decideLightningBankTheWin(HORSE, { found: false })).toBe('done');
+    expect(decideLightningBankTheWin(HORSE, { found: false })).toBe('not_ready');
   });
 });

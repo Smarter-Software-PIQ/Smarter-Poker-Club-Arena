@@ -16,14 +16,19 @@
  * settlement that counts the Charles Rule), every hand it owes, and its place
  * in fn_lightning_blind_order, the pool's real big blind order.
  *
+ * The pre-filter's line is the session's DURABLE start basis, which the door
+ * reports with its first answer: until then the pool session is asked once,
+ * so a restart or a re-entry can never raise the line above the database's.
+ *
  * The door answers each ask with one outcome, and the tracker keeps the
- * bounds: at most one ask in flight per pool session, re-asked on a later
- * hand while not ready, and at most MAX_LEAVE_ATTEMPTS leave attempts that
- * were refused or uncertain, after which this pool session stops asking.
- * No IO here, no clock: directly testable.
+ * bounds: at most one ask in flight per pool session (an ask unanswered for
+ * ASK_STALE_MS is abandoned, and a late answer to it is ignored), re-asked on
+ * a later hand while not ready, and at most MAX_LEAVE_ATTEMPTS leave attempts
+ * that were refused or uncertain, after which this pool session stops asking.
+ * No IO here; the clock is a parameter, so it is directly testable.
  */
 
-import { bankTheWinMultiple, startingStackFor } from '../services/HorseBankTheWin.js';
+import { bankTheWinMultiple } from '../services/HorseBankTheWin.js';
 
 export interface LightningBankParticipant {
   playerId: string;
@@ -35,6 +40,8 @@ export interface LightningBankParticipant {
 
 /** Leave attempts (refused, or uncertain and verified not left) per pool session. */
 export const MAX_LEAVE_ATTEMPTS = 3;
+/** An ask still unanswered after this long is abandoned; its late answer is ignored. */
+export const ASK_STALE_MS = 30_000;
 
 export type LightningBankOutcome =
   /** Not ready (an obligation, the orbit, the blind order, the line): ask again later. */
@@ -49,15 +56,21 @@ export type LightningBankHandler = (req: {
   playerId: string;
   poolSessionId: string;
   maxBuyIn: number;
-  settle: (outcome: LightningBankOutcome) => void;
+  /** One outcome per ask; `startBasis` is the durable basis the door read. */
+  settle: (outcome: LightningBankOutcome, startBasis?: number | null) => void;
 }) => void;
 
 interface PoolSessionState {
-  start: number;
-  inFlight: boolean;
+  /** The durable start basis, once the door has read it; null until then. */
+  start: number | null;
+  /** The ask in flight (its token) and when it was made. */
+  askToken: number;
+  askedAtMs: number | null;
   finished: boolean;
   attempts: number;
 }
+
+let nextToken = 0;
 
 const MAX_TRACKED = 20_000;
 const sessions = new Map<string, PoolSessionState>();
@@ -74,12 +87,15 @@ export function onLightningBankTheWin(fn: LightningBankHandler | null): void {
  * never above the maximum buy-in, and never raised afterwards; the door
  * re-checks against the session's durable basis.
  */
-export function noteLightningHandForBankTheWin(hand: {
-  clusterId: string;
-  maxBuyIn: number;
-  participants: ReadonlyArray<LightningBankParticipant>;
-  stacksAfter: ReadonlyMap<string, number>;
-}): string[] {
+export function noteLightningHandForBankTheWin(
+  hand: {
+    clusterId: string;
+    maxBuyIn: number;
+    participants: ReadonlyArray<LightningBankParticipant>;
+    stacksAfter: ReadonlyMap<string, number>;
+  },
+  nowMs: number = Date.now()
+): string[] {
   const out: string[] = [];
   for (const p of hand.participants) {
     if (!p.isHorse || !p.poolSessionId) continue;
@@ -88,24 +104,23 @@ export function noteLightningHandForBankTheWin(hand: {
     let s = sessions.get(p.poolSessionId);
     if (!s) {
       if (sessions.size >= MAX_TRACKED) sessions.delete(sessions.keys().next().value as string);
-      s = {
-        start: startingStackFor(p.stackBefore, hand.maxBuyIn),
-        inFlight: false,
-        finished: false,
-        attempts: 0,
-      };
+      s = { start: null, askToken: 0, askedAtMs: null, finished: false, attempts: 0 };
       sessions.set(p.poolSessionId, s);
     }
-    if (s.finished || s.inFlight || !handler) continue;
-    if (!(s.start > 0) || after < bankTheWinMultiple(p.playerId) * s.start) continue;
-    s.inFlight = true;
+    if (s.finished || !handler) continue;
+    if (s.askedAtMs !== null && nowMs - s.askedAtMs < ASK_STALE_MS) continue; // in flight
+    // Unknown basis: ask once to learn it. Known: ask only at the line.
+    if (s.start !== null && !(after >= bankTheWinMultiple(p.playerId) * s.start)) continue;
+    const token = ++nextToken;
+    s.askToken = token;
+    s.askedAtMs = nowMs;
     out.push(p.playerId);
     const state = s;
-    let settled = false;
-    const settle = (outcome: LightningBankOutcome): void => {
-      if (settled) return; // idempotent: one outcome per ask
-      settled = true;
-      state.inFlight = false;
+    const settle = (outcome: LightningBankOutcome, startBasis?: number | null): void => {
+      if (state.askToken !== token || state.askedAtMs === null) return; // one outcome per ask
+      state.askedAtMs = null;
+      const basis = Number(startBasis);
+      if (Number.isFinite(basis) && basis > 0) state.start = basis;
       if (outcome === 'done') state.finished = true;
       else if (outcome === 'attempt_failed') {
         state.attempts += 1;
@@ -151,7 +166,10 @@ export function decideLightningBankTheWin(
   horseId: string,
   r: LightningBankReading
 ): 'leave' | 'done' | 'not_ready' {
-  if (!r.found || r.leave_pending) return 'done';
+  // Not found is transient (a seat moving between sister tables, a session
+  // row mid-replacement): asked again later. Already leaving is final.
+  if (!r.found) return 'not_ready';
+  if (r.leave_pending) return 'done';
   const start = Number(r.start_basis);
   const stack = Number(r.stack);
   if (!(start > 0) || !(stack >= bankTheWinMultiple(horseId) * start)) return 'not_ready';

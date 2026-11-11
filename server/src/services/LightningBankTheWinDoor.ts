@@ -51,20 +51,21 @@ export function startLightningBankTheWin(
         reportError(err, 'LightningBankTheWin.read');
       }
       if (!facts) return settle('not_ready'); // could not tell: ask again on a later hand
+      const basis = facts.start_basis ?? null;
       const verdict = decideLightningBankTheWin(playerId, facts);
-      if (verdict !== 'leave') return settle(verdict);
+      if (verdict !== 'leave') return settle(verdict, basis);
       const tableId = facts.table_id;
       const engine = tableId ? getEngine(tableId) : undefined;
-      if (!tableId || !engine) return settle('not_ready');
+      if (!tableId || !engine) return settle('not_ready', basis);
       try {
         const res = await engine.leaveTable(playerId);
         if (res?.success) {
           console.log(
             `[BankTheWin] Lightning horse ${playerId.slice(0, 8)} booked its win and left ${tableId.slice(0, 8)}`
           );
-          return settle('done');
+          return settle('done', basis);
         }
-        return settle('attempt_failed'); // a definite refusal
+        return settle('attempt_failed', basis); // a definite refusal
       } catch (err) {
         // UNCERTAIN: the leave may have committed. Verify before counting it.
         reportError(err, 'LightningBankTheWin.leave');
@@ -74,8 +75,9 @@ export function startLightningBankTheWin(
         } catch {
           after = null;
         }
-        if (after && (!after.found || after.leave_pending)) return settle('done');
-        return settle('attempt_failed');
+        // Gone from the seat or already leaving: it committed. Never resend.
+        if (after && (!after.found || after.leave_pending)) return settle('done', basis);
+        return settle('attempt_failed', basis);
       }
     })();
   });

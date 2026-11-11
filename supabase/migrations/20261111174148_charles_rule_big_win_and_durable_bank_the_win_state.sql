@@ -39,9 +39,8 @@
 --   THE OBLIGATION LIVES ON THE SESSION ROW, so it survives reconnects, seat
 --   moves (the move executors re-point this same row: scope_id/table_id), sit
 --   outs (an undealt hand is simply not counted) and engine replacement. A
---   re-entry inside the game's rejoin window opens a new row; it inherits any
---   unfinished obligation from the player's last closed session in the same
---   game (club, variant, blinds).
+--   player cannot leave voluntarily while it is owed; a session that closes
+--   by a system exit (bust, closure, forced removal) closes with it.
 --
 --   ENFORCEMENT is the existing one predicate: owed = greatest(hit-and-run
 --   hands left, big-win hands left), read by fn_cash_leave_check (every
@@ -89,6 +88,7 @@
 -- @live-proof: (position('fn_cash_session_hands_owed' in pg_get_functiondef('public.fn_cash_leave_check(uuid,uuid)'::regprocedure)) > 0)
 -- @live-proof: (position('start_basis' in pg_get_functiondef('public.fn_cash_session_open(uuid,uuid,numeric)'::regprocedure)) > 0)
 -- @live-proof: (to_regprocedure('public.fn_lightning_bank_the_win_reading(uuid,uuid)') IS NOT NULL)
+-- @live-proof: (position('fn_cash_session_hands_owed' in pg_get_functiondef('public.fn_lightning_blind_off_players(uuid[])'::regprocedure)) > 0)
 
 BEGIN;
 SET LOCAL lock_timeout = '1s';
@@ -106,7 +106,9 @@ BEGIN
   OR md5(pg_get_functiondef('public.fn_lightning_blind_off_waive(uuid,uuid,uuid,text)'::regprocedure))
        IS DISTINCT FROM '5d412f34ad062c23771c1377ecbe6085'
   OR md5(pg_get_functiondef('public.ca_club_hit_run_status(uuid)'::regprocedure))
-       IS DISTINCT FROM '83c39a575b94a62c8df3cf8bd1c3ad5f' THEN
+       IS DISTINCT FROM '83c39a575b94a62c8df3cf8bd1c3ad5f'
+  OR md5(pg_get_functiondef('public.fn_lightning_blind_off_players(uuid[])'::regprocedure))
+       IS DISTINCT FROM 'c9b71cb81d9eff0af96fcb0aba464fe2' THEN
     RAISE EXCEPTION 'CHARLES_RULE_BIG_WIN_SOURCE_CHANGED';
   END IF;
 END $guard$;
@@ -505,8 +507,10 @@ BEGIN
 
   -- START BASIS (20261111174148): the opening buy-in, never above the table
   -- maximum. A re-entry inside the rejoin window (the rathole rule brings the
-  -- whole stack back) keeps the basis of the session it re-enters from, and
-  -- inherits any unfinished +250 BB obligation and the big-pot counter.
+  -- whole stack back) keeps the basis of the session it re-enters from. Only
+  -- the basis is carried: an obligation lives on the session row, which a
+  -- seat move keeps, and a session that closed (a bust, a closure, a forced
+  -- removal, an honoured departure) closed with it.
   SELECT s.* INTO v_prev FROM public.cash_player_session s
    WHERE s.player_id = p_user_id AND s.club_id IS NOT DISTINCT FROM v_t.club_id
      AND s.variant IS NOT DISTINCT FROM v_t.game_variant
@@ -521,20 +525,12 @@ BEGIN
   INSERT INTO public.cash_player_session
     (player_id, club_id, scope_type, scope_id, table_id, cluster_id, variant, sb, bb, baseline,
      stay_clock_ms, rejoin_window_ms, stay_remaining_ms, stay_running, stay_last_tick_at, opened_at,
-     start_basis, hr_big_win_hand_ref, hr_big_win_at, hr_big_win_required, hr_big_win_played,
-     hr_big_win_net, hr_big_win_bb, big_pot_hand_ref, hands_since_big_pot)
+     start_basis)
   VALUES
     (p_user_id, v_t.club_id, 'table', p_table_id, p_table_id, v_t.cluster_id, v_t.game_variant,
      v_t.small_blind, v_t.big_blind, GREATEST(COALESCE(p_buy_in, 0), 0),
      v_stay, v_rejoin, v_stay, false, clock_timestamp(), clock_timestamp(),
-     v_basis,
-     CASE WHEN v_prev.hr_big_win_required > v_prev.hr_big_win_played THEN v_prev.hr_big_win_hand_ref END,
-     CASE WHEN v_prev.hr_big_win_required > v_prev.hr_big_win_played THEN v_prev.hr_big_win_at END,
-     CASE WHEN v_prev.hr_big_win_required > v_prev.hr_big_win_played THEN v_prev.hr_big_win_required ELSE 0 END,
-     CASE WHEN v_prev.hr_big_win_required > v_prev.hr_big_win_played THEN v_prev.hr_big_win_played ELSE 0 END,
-     CASE WHEN v_prev.hr_big_win_required > v_prev.hr_big_win_played THEN v_prev.hr_big_win_net END,
-     CASE WHEN v_prev.hr_big_win_required > v_prev.hr_big_win_played THEN v_prev.hr_big_win_bb END,
-     v_prev.big_pot_hand_ref, v_prev.hands_since_big_pot)
+     v_basis)
   ON CONFLICT (player_id, scope_type, scope_id) WHERE closed_at IS NULL DO NOTHING
   RETURNING id INTO v_id;
 
@@ -618,7 +614,14 @@ BEGIN
                'table_name', coalesce(t.name, ''),
                'stakes', coalesce(t.stakes, ''),
                'hands_remaining', h.left_hands,
-               'hands_required', s.hr_hands_required,
+               -- The binding obligation's own total, as the player sees it.
+               'hands_required',
+                 CASE WHEN public.fn_cash_big_win_hands_remaining(s.hr_big_win_required,
+                             s.hr_big_win_played, s.hr_engine_ack, ts.stack)
+                           >= public.fn_cash_hit_run_hands_remaining(s.hr_hands_required,
+                             s.hr_hands_played, s.hr_completed, s.hr_engine_ack, ts.stack, s.baseline)
+                           AND s.hr_big_win_required > s.hr_big_win_played
+                      THEN s.hr_big_win_required ELSE s.hr_hands_required END,
                'hands_reason', public.fn_cash_session_owed_reason(s, ts.stack),
                'blind_off', s.hr_blind_off) AS r,
              s.hr_blind_off AS blind_off, h.left_hands,
@@ -644,6 +647,29 @@ BEGIN
     'rows', v_rows);
 END;
 $function$;
+
+-- Which of a Lightning hand's pool sessions are being blinded off and still
+-- owe hands (either obligation). The hand host folds those seats on their
+-- turn, so this must agree with fn_lightning_hands_owed, which holds them.
+CREATE OR REPLACE FUNCTION public.fn_lightning_blind_off_players(p_pool_session_ids uuid[])
+ RETURNS SETOF uuid
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+  SELECT ps.player_id
+    FROM public.lightning_pool_session ps
+    JOIN public.cash_player_session cs ON cs.id = ps.cash_player_session_id
+     AND cs.player_id = ps.player_id AND cs.closed_at IS NULL
+    JOIN public.table_seats ts ON ts.table_id = cs.table_id AND ts.user_id = cs.player_id
+     AND ts.left_at IS NULL
+   WHERE ps.id = ANY (coalesce(p_pool_session_ids, ARRAY[]::uuid[]))
+     AND ps.exited_at IS NULL
+     AND cs.hr_blind_off
+     AND public.fn_cash_session_hands_owed(cs, ts.stack) > 0;
+$function$;
+REVOKE ALL ON FUNCTION public.fn_lightning_blind_off_players(uuid[]) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_lightning_blind_off_players(uuid[]) TO service_role;
 
 -- A Lightning Horse's bank-the-win door reads the pool's own facts here.
 CREATE FUNCTION public.fn_lightning_bank_the_win_reading(p_cluster_id uuid, p_player_id uuid)
