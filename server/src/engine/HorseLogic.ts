@@ -10103,6 +10103,9 @@ export class HorseLogic {
     const lockShare36 = multiBoard36 ? lockedBoards36 / nBoards36 : 0;
     /** mean equity on the boards hero has NOT locked (1 when all are locked) */
     const unlockedEq36 = unlockedN36 > 0 ? unlockedSum36 / unlockedN36 : 1;
+    // Pacing keeps the public primary-board texture. The strategic style
+    // board below is chosen by private equity and must not select its input.
+    const publicTimingWetness = wetness;
     /** the board every style read below is taken from */
     const board = allBoards36[styleIdx36] ?? gs.communityCards;
     if (useMind && multiBoard36 && styleIdx36 !== 0) {
@@ -10179,7 +10182,7 @@ export class HorseLogic {
         const streetDepth = isRiver ? 0.35 : street === 'turn' ? 0.2 : 0.08;
         const priceStress = facingBet ? Math.min(0.45, toCall / Math.max(1, pot)) : 0;
         const publicComplexity = clamp01(
-          wetness * 0.4 + streetDepth + priceStress + (multiBoard36 ? 0.2 : 0)
+          publicTimingWetness * 0.4 + streetDepth + priceStress + (multiBoard36 ? 0.2 : 0)
         );
         difficultyHint = publicComplexity;
       } else {
