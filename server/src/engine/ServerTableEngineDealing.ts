@@ -80,7 +80,7 @@ import {
 } from './BombPotScheduler.js';
 
 import { ServerTableEngineRunout } from './ServerTableEngineRunout.js';
-import { ServerTableEngineBase } from './ServerTableEngineBase.js';
+import { ServerTableEngineBase, type EngineRecoveryEventClass } from './ServerTableEngineBase.js';
 import { secureRandomInt } from './CryptoRandom.js';
 import { drawFirstButtonSeat, headsUpButtonSeat } from './headsUpButton.js';
 import type { BlindSeats } from './deadButton.js';
@@ -101,7 +101,12 @@ import {
 } from '../services/supabase/lightningAnchor.js';
 import { reportLightningEngineInputDeviceLive } from '../lightning/LightningEngineInputDevice.js';
 import { nextHandGap } from './nextHandGapRecorder.js';
-import { cashDealGap, CASH_NEXT_HAND_LIMIT_MS, reportCashNextHandBreach } from './CashDealGap.js';
+import {
+  cashDealGap,
+  CASH_NEXT_HAND_LIMIT_MS,
+  CashNextHandSpan,
+  reportCashNextHandBreach,
+} from './CashDealGap.js';
 import { PostHandStageTiming, type CompletionHoldStamp } from './PostHandStageTiming.js';
 import { jitteredBackoffMs } from '../services/horseEntryRefusalBackoff.js';
 import { currentTournamentDataAuthority } from '../services/supabase/dataActorContext.js';
@@ -193,10 +198,31 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
   // ═══════════════════════════════════════════════════════════════════════════════
 
   protected async dealingLoop(): Promise<void> {
+    let threw = false;
+    try {
+      await this.dealingLoopPasses();
+    } catch (err) {
+      threw = true;
+      throw err;
+    } finally {
+      // No silent disappearance (2026-11-10): a cash wait still open when the
+      // loop ends (stop, lease lost, engine replaced, loop threw) never dealt.
+      this.settleCashBreachSpan(
+        'aborted',
+        threw ? 'dealing_loop_threw' : this.cashBreachExitReason()
+      );
+    }
+  }
+
+  private async dealingLoopPasses(): Promise<void> {
     // A roster read can retire mirrors before its arrival proof is available.
     // Keep the prior occupancies until that observation can be announced.
     let deferredRosterBeforeArrival: Map<string, SeatedPlayer['occupancy_id']> | null = null;
     while (this.running) {
+      // A pass that comes round after the rest ended, with the wait still
+      // open, abandoned that attempt without dealing (a pause, a changed seat
+      // boundary, a stale lease, dealHand returning before the start).
+      this.abandonCashBreachAttempt();
       try {
         if (this.handContinuation) {
           await this.handContinuation.join();
@@ -1787,13 +1813,26 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     this.lastCompletionAtMs = now;
     // Observation only. A failed clock leaves the exact-hand anchor unknown.
     try {
+      const monotonicMs = performance.now();
       this.postHandCompletionStamp = {
         handNumber: this.handCount,
         atMs: now,
-        monotonicMs: performance.now(),
+        monotonicMs,
       };
+      // The breach span starts at this same completion stamp, on the
+      // monotonic clock (cash only, like the metric).
+      // dealHand can return without starting a hand and the loop re-arms
+      // here; that wait ends now, like the metric's anchor.
+      this.settleCashBreachSpan(
+        'aborted',
+        this.cashBreachSpan?.restEnded ? 'deal_not_started' : 'superseded'
+      );
+      this.cashBreachSpan = this.isTournamentTable()
+        ? null
+        : new CashNextHandSpan(this.tableId, this.handCount, this.loopPhase, monotonicMs);
     } catch {
       this.postHandCompletionStamp = null;
+      this.cashBreachSpan = null;
     }
     this.gapPhaseMs = {};
     this.gapPhaseName = this.loopPhase;
@@ -1852,9 +1891,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       this.setLoopPhase('refresh_blinds');
       await blindRead;
     }
-    const restEndMs = Date.now();
     if (this.lastCompletionAtMs !== null && !this.gapSawIdle) {
-      const now = restEndMs;
+      const now = Date.now();
       this.accrueGapPhase(now);
       nextHandGap.record({
         tableId: this.tableId,
@@ -1874,16 +1912,11 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       !this.isTournamentTable()
         ? this.lastCompletionAtMs
         : null;
-    // Breach evidence (2026-11-10): the phases already accrued above, the
-    // completed hand and the end of the rest, held only until the start.
-    this.cashDealGapEvidence =
-      this.cashDealGapAnchorMs === null
-        ? null
-        : {
-            handNumber: this.postHandCompletionStamp?.handNumber ?? null,
-            restEndMs,
-            phases: { ...this.gapPhaseMs },
-          };
+    // The breach span: from here to the controller start is the deal itself.
+    if (this.cashBreachSpan) {
+      this.cashBreachSpan.restEnded = true;
+      this.cashBreachSpan.enter('deal');
+    }
     // A table that idled between the two hands (short-handed, parked, held
     // for a spin reveal) is not a sample of the rest; it waited on people.
     this.lastCompletionAtMs = null;
@@ -1942,11 +1975,99 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
   protected override setLoopPhase(phase: string): void {
     super.setLoopPhase(phase);
     this.accrueGapPhase(Date.now());
+    // `?.` on purpose: the base constructor runs this before field initialisers.
+    this.cashBreachSpan?.enter(phase, ServerTableEngineDealing.cashBreachExclusion(phase));
   }
 
   // One bounded current/last hand, released with this engine; no fleet history.
   protected postHandStageTiming: PostHandStageTiming | null = null;
   private postHandCompletionStamp: CompletionHoldStamp | null = null;
+
+  /**
+   * Ends the open breach span without a deal: one line if it is over the limit.
+   * A wait the metric contract excludes says so in `excluded`.
+   */
+  private settleCashBreachSpan(outcome: 'aborted', reason: string): void {
+    const span = this.cashBreachSpan;
+    if (!span) return;
+    this.cashBreachSpan = null;
+    try {
+      const { gapMs, stages } = span.close();
+      reportCashNextHandBreach({
+        tableId: span.tableId,
+        handNumber: span.handNumber,
+        nextHandNumber: null,
+        outcome,
+        reason,
+        counted: false,
+        excluded: span.excluded,
+        gapMs,
+        at: Date.now(),
+        stages,
+        settlement: this.cashBreachSettlement(span.handNumber),
+      });
+    } catch {
+      /* Observation only. */
+    }
+  }
+
+  /**
+   * At the top of a pass: an attempt that passed the rest and came round
+   * without dealing is abandoned. Over the limit it is reported now and the
+   * span ends; under it the wait carries on, labelled, to the next check.
+   */
+  private abandonCashBreachAttempt(): void {
+    const span = this.cashBreachSpan;
+    if (!span?.restEnded) return;
+    const reason = 'next_hand_not_started:' + String(this.loopPhase || 'unknown');
+    if (span.elapsedMs() > CASH_NEXT_HAND_LIMIT_MS) this.settleCashBreachSpan('aborted', reason);
+    else span.retried ??= reason;
+  }
+
+  /**
+   * A table stopped or killed mid-wait reports it at once, even while the
+   * loop is still parked on an await that may never return.
+   */
+  override stop(): Promise<void> {
+    this.settleCashBreachSpan('aborted', 'table_stopped');
+    return super.stop();
+  }
+
+  protected override killForRestart(
+    reason: string,
+    notifyOwner = true,
+    recoveryEventClass?: EngineRecoveryEventClass,
+    recoveryDetail = reason
+  ): void {
+    this.settleCashBreachSpan(
+      'aborted',
+      'engine_killed:' +
+        String(reason)
+          .toLowerCase()
+          .replace(/[^a-z0-9_:]/g, '_')
+          .slice(0, 80)
+    );
+    super.killForRestart(reason, notifyOwner, recoveryEventClass, recoveryDetail);
+  }
+
+  /** Why the dealing loop ended, from raw state only (no lease re-evaluation). */
+  private cashBreachExitReason(): string {
+    const st = this.leavePendingLifecycleSnapshot();
+    if (!st) return 'loop_exited';
+    if (st.lease_expired) return 'lease_lost';
+    if (st.terminal) return 'engine_terminal';
+    if (!st.running) return 'table_stopped';
+    if (!st.current_engine) return 'engine_replaced';
+    return 'loop_exited';
+  }
+
+  /** The metric contract's excluded waits, named the way the breach line reports them. */
+  private static cashBreachExclusion(phase: string): string | null {
+    if (phase === 'idle_not_enough_players' || phase === 'start_wait_for_players')
+      return 'waiting_for_players';
+    if (phase === 'rebuy_pause') return 'rebuy_pause';
+    return ServerTableEngineDealing.IDLE_LOOP_PHASES.has(phase) ? phase : null;
+  }
 
   /** The completed hand's settlement spans for a breach line; in memory only. */
   private cashBreachSettlement(handNumber: number | null) {
@@ -1976,11 +2097,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
   private gapPhaseSinceMs = 0;
   private gapHadRebuyPause = false;
   private cashDealGapAnchorMs: number | null = null;
-  private cashDealGapEvidence: {
-    handNumber: number | null;
-    restEndMs: number;
-    phases: Record<string, number>;
-  } | null = null;
+  /** The open hand-end to next-deal wait on the monotonic clock (cash only). */
+  private cashBreachSpan: CashNextHandSpan | null = null;
   private gapSawIdle = false;
 
   /**
@@ -4077,27 +4195,36 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       const attempt = { started: false, cause: null as string | null };
       const preparedPermit = this.f06CurrentPermit;
       const cashDealGapAnchor = this.cashDealGapAnchorMs;
-      const cashDealGapEvidence = this.cashDealGapEvidence;
+      const breachSpan = this.cashBreachSpan;
       this.cashDealGapAnchorMs = null;
-      this.cashDealGapEvidence = null;
+      this.cashBreachSpan = null;
+      // Both clocks stop here, at the same instant: the metric on Date.now()
+      // (its definition), the breach line on performance.now().
+      const breachEnd = breachSpan?.close();
+      const startAtMs = Date.now();
       if (cashDealGapAnchor !== null) {
-        const startAtMs = Date.now();
-        const gapMs = startAtMs - cashDealGapAnchor;
-        cashDealGap.record({ tableId: this.tableId, gapMs, at: startAtMs });
-        if (gapMs > CASH_NEXT_HAND_LIMIT_MS) {
-          reportCashNextHandBreach({
-            tableId: this.tableId,
-            handNumber: cashDealGapEvidence?.handNumber ?? null,
-            nextHandNumber: handNumber,
-            gapMs,
-            at: startAtMs,
-            stages: {
-              ...(cashDealGapEvidence?.phases ?? {}),
-              ...(cashDealGapEvidence ? { deal: startAtMs - cashDealGapEvidence.restEndMs } : {}),
-            },
-            settlement: this.cashBreachSettlement(cashDealGapEvidence?.handNumber ?? null),
-          });
-        }
+        cashDealGap.record({
+          tableId: this.tableId,
+          gapMs: startAtMs - cashDealGapAnchor,
+          at: startAtMs,
+        });
+      }
+      if (breachSpan && breachEnd && breachEnd.gapMs > CASH_NEXT_HAND_LIMIT_MS) {
+        reportCashNextHandBreach({
+          tableId: this.tableId,
+          handNumber: breachSpan.handNumber,
+          nextHandNumber: handNumber,
+          outcome: 'dealt',
+          // The metric counted exactly this interval (same two stamps) unless
+          // it excluded the wait or an earlier attempt went round.
+          counted: cashDealGapAnchor !== null,
+          reason: breachSpan.retried,
+          excluded: breachSpan.excluded,
+          gapMs: breachEnd.gapMs,
+          at: startAtMs,
+          stages: breachEnd.stages,
+          settlement: this.cashBreachSettlement(breachSpan.handNumber),
+        });
       }
       try {
         await this.runOriginalController(
