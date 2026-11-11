@@ -2021,10 +2021,10 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       // opening the pot by calling does not.
       if (
         limpers >= 1 &&
-        !(unblocked86 && ctx.isOmaha) &&
-        (!unblocked86 || position === 'late' || ctx.isButton === true) &&
         strength > 0.93 &&
         rand() < ctx.slowplayFreq * 0.4 &&
+        !(unblocked86 && ctx.isOmaha) &&
+        (!unblocked86 || position === 'late' || ctx.isButton === true) &&
         toCall <= openUnit
       ) {
         if (toCall === 0) return { a: 'check' };
@@ -2550,10 +2550,10 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       }
       if (
         strength > 0.95 &&
-        !(unblocked86 && ctx.isOmaha) &&
-        (!unblocked86 || position === 'late' || ctx.isButton === true) &&
         rand() < ctx.slowplayFreq * 0.5 &&
-        callers === 0
+        callers === 0 &&
+        !(unblocked86 && ctx.isOmaha) &&
+        (!unblocked86 || position === 'late' || ctx.isButton === true)
       ) {
         noteAuthority('value_trap');
         return { a: 'call' }; // trap (IP hold'em / non-Omaha only)
