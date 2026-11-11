@@ -27,10 +27,14 @@
 #   B  production's observed shape on 2026-11-11 - staleness 7302s, 11 open
 #      boards, and NO human-wait series at all because every waiting seat was
 #      a horse - raises nothing. The retired 1800s literal would have paged.
-#   C  staleness 8399s with boards open is silent: just inside the ladder's
-#      own 8400s envelope.
-#   D  staleness 8401s is silent at 4m and fires at 6m: the boundary and the
-#      `for: 5m` duration in one scenario.
+#   C  a seated board that has waited 8399s is silent: just inside the
+#      ladder's own 8400s envelope.
+#   D  a seated board at 8401s is silent at 4m and fires at 6m: the boundary
+#      and the `for: 5m` duration in one scenario.
+#   J  production's shape at 2026-11-11 11:19Z (incident f1b14fca) - 8724s
+#      since the last start, 44 REGISTERING boards (33 of them empty), and the
+#      oldest seated board at 0s because the 03:00 park had cancelled the
+#      night's boards - raises nothing. The retired last-start arm paged.
 #   E  a MISSING poker_spin_ladder_full_envelope_seconds cannot page even at
 #      99999s of staleness. This is a real silent-failure mode: Prometheus
 #      reports an unfirable rule as health=ok/state=inactive, exactly what it
@@ -123,6 +127,8 @@ tests:
     values: 420x20
   - series: poker_spin_seconds_since_last_start
     values: 8399x20
+  - series: poker_spin_unfilled_oldest_wait_seconds
+    values: 8399x20
   - series: poker_spin_open_boards
     values: 4x20
   - series: poker_spin_ladder_full_envelope_seconds
@@ -137,6 +143,8 @@ tests:
   - series: poker_spin_human_arrival_max_seconds
     values: 420x20
   - series: poker_spin_seconds_since_last_start
+    values: 8401x20
+  - series: poker_spin_unfilled_oldest_wait_seconds
     values: 8401x20
   - series: poker_spin_open_boards
     values: 4x20
@@ -154,10 +162,10 @@ tests:
         severity: critical
         component: spin
       exp_annotations:
-        summary: Spin has produced nothing for 8401s past the ladder's own envelope
-        description: 'Either nothing has started for longer than every SPIN_LADDER rung
+        summary: A seated Spin board has waited 8401s without dealing, past the ladder's own envelope
+        description: 'Either a seated Spin board has waited longer than every SPIN_LADDER
 
-          at its maximum while boards sit open, or a person has waited more
+          rung at its maximum without dealing, or a person has waited more
 
           than twice the 3-7 minute arrival promise while the fleet started
 
@@ -319,10 +327,10 @@ tests:
         severity: critical
         component: spin
       exp_annotations:
-        summary: Spin has produced nothing for 900s past the ladder's own envelope
-        description: 'Either nothing has started for longer than every SPIN_LADDER rung
+        summary: A seated Spin board has waited 900s without dealing, past the ladder's own envelope
+        description: 'Either a seated Spin board has waited longer than every SPIN_LADDER
 
-          at its maximum while boards sit open, or a person has waited more
+          rung at its maximum without dealing, or a person has waited more
 
           than twice the 3-7 minute arrival promise while the fleet started
 
@@ -358,3 +366,20 @@ tests:
 
           '
         runbook: docs/runbooks/spin-fleet-stalled.md
+- name: J the 2026-11-11 11:19Z shape - stale last start, empty boards, nobody seated - is silent
+  interval: 1m
+  input_series:
+  - series: poker_spin_human_arrival_max_seconds
+    values: 420x20
+  - series: poker_spin_seconds_since_last_start
+    values: 8724x20
+  - series: poker_spin_open_boards
+    values: 44x20
+  - series: poker_spin_unfilled_oldest_wait_seconds
+    values: 0x20
+  - series: poker_spin_ladder_full_envelope_seconds
+    values: 8400x20
+  alert_rule_test:
+  - eval_time: 19m
+    alertname: SpinFleetProducingNothing
+    exp_alerts: []
