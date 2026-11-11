@@ -14,6 +14,7 @@
  * moment) or once Lightning is running, and nothing when a figure is unknown.
  */
 import type { LightningLobbyState } from '../../lightning/lightningLobby';
+import './LightningStartTicker.css';
 
 export function lightningStartTickerText(
   state: LightningLobbyState | null | undefined
@@ -44,7 +45,7 @@ export default function LightningStartTicker({
       role="status"
       aria-live="polite"
     >
-      <span className="table-brand__bomb">{text}</span>
+      <span className="lightning-start-ticker__text">{text}</span>
     </span>
   );
 }
