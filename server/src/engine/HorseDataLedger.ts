@@ -1493,6 +1493,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   state('bigBlindAnte', 'BB-ante structure'),
   state('allInOrFold', 'all-in-or-fold table'),
   state('straddleActive', 'a straddle is posted (V18)'),
+  state(
+    'straddleAmount',
+    'exact last live straddle amount posted on this hand when straddleActive is true (V87.1)',
+    'HorseLogic.decidePreflopV7Glue -> HorsePreflop.decidePreflop'
+  ),
   state('bombPot', 'this hand is a bomb pot (V36)'),
   state('boardCount', 'boards dealt (V36)'),
   state(

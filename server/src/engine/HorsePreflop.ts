@@ -371,6 +371,9 @@ export interface PreflopCtx {
    *  price-aware strength bar decides alone. Supplied by HorseLogic from the
    *  public seat flags; never from who anybody is. Absent = legacy caps. */
   facingClosedAllIn?: boolean;
+  /** True unless authoritative legalActions explicitly exclude raise and all_in
+   *  (e.g. a short all-in raise that did not reopen betting after hero acted). */
+  reopenAllowed?: boolean;
   /** Dan 2026-10-25 NLH tournament aggression; undefined = on. */
   tournamentAggression?: boolean;
   /** V74 no-limit open sizes (HorseNlhOpenSize, Dan 2026-10-31); undefined =
@@ -521,6 +524,14 @@ export interface PreflopCtx {
   heroWasInitialRaiser?: boolean;
   /** True when a straddle is posted on this hand (even after raises). */
   straddleActive?: boolean;
+  /** True when `effectiveStackBB` was already normalized into straddle units by the caller. */
+  effectiveStackNormalized?: boolean;
+  /** Exact posted straddle size in table chips/Diamonds when `straddleActive` is true. */
+  straddleUnitCoins?: number;
+  /** Cash big blind normalized to dollar-equivalent chip units (`bb / 100` on Diamond cash tables). */
+  cashStakeBB?: number;
+  /** True when the last preflop raiser is already all-in (no further fold equity against them). */
+  raiserIsAllIn?: boolean;
 }
 
 const V87_PAIR_SUIT_PAIRS = ['cd', 'ch', 'cs', 'dh', 'ds', 'hs'] as const;
@@ -1009,8 +1020,18 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       : null;
   const straddleActiveCash =
     v87 && ctx.mode === 'cash' && (ctx.straddleActive === true || ctx.straddled === true);
+  const straddleUnitCoins = straddleActiveCash
+    ? ctx.straddleUnitCoins && ctx.straddleUnitCoins > bb * 1.05
+      ? ctx.straddleUnitCoins
+      : raises === 0 && currentBet > bb * 1.05
+        ? currentBet
+        : bb * 2
+    : bb;
+  const straddleRatio = bb > 0 ? straddleUnitCoins / bb : 1;
   const straddleEffectiveBB = straddleActiveCash
-    ? (ctx.effectiveStackBB ?? stackBB) / 2
+    ? ctx.effectiveStackNormalized === true && ctx.effectiveStackBB !== undefined
+      ? ctx.effectiveStackBB
+      : (ctx.effectiveStackBB ?? stackBB) / straddleRatio
     : (ctx.effectiveStackBB ?? stackBB);
   const closedAllInCall =
     ctx.facingClosedAllIn === true &&
@@ -1625,15 +1646,41 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
 
     if (v87EpCand === 'big_pair_trap') {
       recordLimpIsoAuthority('v87_ep_limp_reraise_value', true);
+      if (ctx.facingClosedAllIn === true || ctx.reopenAllowed === false) {
+        return toCall >= stack ? { a: 'jam' } : { a: 'call' };
+      }
       if (straddleEffectiveBB <= 28) return { a: 'jam' };
       return raiseIsoTo();
     }
-    const effCoins = Math.min(stack, straddleEffectiveBB * bb);
-    if (toCall <= effCoins * 0.24) {
+    const effCoins = Math.min(stack, straddleEffectiveBB * straddleUnitCoins);
+    const maxFlatIsoCoins = Math.min(
+      effCoins * 0.1,
+      straddleUnitCoins * (4.25 + Math.min(callers, 2) * 1.0)
+    );
+    if (
+      ctx.raiserIsAllIn !== true &&
+      ctx.facingClosedAllIn !== true &&
+      straddleEffectiveBB >= 28 &&
+      ctx.riskAdd < 0.08 &&
+      toCall <= maxFlatIsoCoins
+    ) {
       const uIso = v87EpCandidateMixU(ctx, 'suited_connector', 0x87150b);
-      if (straddleEffectiveBB >= 45 && ctx.maniacNoBluff !== true && uIso < 0.22) {
-        recordLimpIsoAuthority('v87_ep_limp_reraise_bluff', false);
-        return raiseIsoTo();
+      if (
+        ctx.reopenAllowed !== false &&
+        straddleEffectiveBB >= 45 &&
+        ctx.maniacNoBluff !== true &&
+        callers <= 1 &&
+        ctx.riskAdd < 0.05 &&
+        toCall <= straddleUnitCoins * 4.5 &&
+        uIso < 0.22
+      ) {
+        const bluffTarget = raiseIsoTo();
+        const bluffTargetCoins =
+          bluffTarget.a === 'raiseTo' ? (bluffTarget.to ?? Infinity) : Infinity;
+        if (bluffTargetCoins <= effCoins * 0.34) {
+          recordLimpIsoAuthority('v87_ep_limp_reraise_bluff', false);
+          return bluffTarget;
+        }
       }
       recordLimpIsoAuthority('v87_ep_limp_call_iso', false);
       return { a: 'call' };
@@ -2003,7 +2050,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         to: nlhOpenRaiseTo({
           seat: nlhOpenSeat({ position, isButton: ctx.isButton, trueHeadsUp: trueHu }),
           depthBB: straddleActiveCash
-            ? Math.min(stackBB / 2, straddleEffectiveBB)
+            ? Math.min(stackBB / straddleRatio, straddleEffectiveBB)
             : Math.min(stackBB, ctx.effectiveStackBB ?? stackBB),
           tournament: isTourney,
           anteInPlay: ctx.anteInPlay === true,
@@ -2109,7 +2156,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
             ...v87WidenDefence(def72Base, {
               defender: def72Base.defender,
               callers,
-              lowStakes: ctx.mode === 'cash' ? v87LowStakesWeight(bb) : 0,
+              lowStakes: ctx.mode === 'cash' ? v87LowStakesWeight(ctx.cashStakeBB ?? bb) : 0,
               weight: def87Weight,
               dealt: ctx.tableSize ?? 6,
             }),
@@ -2840,7 +2887,12 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       ctx.effectiveStackBB !== undefined
         ? Math.min(
             stack + heroInvested4Bet,
-            ctx.effectiveStackBB * (straddleActiveCash ? unitBB4Bet * 2 : unitBB4Bet)
+            ctx.effectiveStackBB *
+              (ctx.effectiveStackNormalized === true
+                ? straddleUnitCoins
+                : straddleActiveCash
+                  ? straddleUnitCoins
+                  : unitBB4Bet)
           )
         : stack + heroInvested4Bet;
     const effRemaining4Bet = Math.min(stack, Math.max(0, effectiveStack4Bet - heroInvested4Bet));

@@ -503,6 +503,8 @@ export async function logHandHistory(params: {
   /** The table's VPIP floor in percent (0 = none). See recordHorseHandReviews. */
   vpipFloor?: number;
   tournamentId?: string;
+  nearBubbleOrPayJump?: boolean;
+  tournamentStage?: string | null;
   handNumber: number;
   gameVariant: string;
   smallBlind: number;
@@ -948,6 +950,9 @@ export async function logHandHistory(params: {
         // 2026-09-06: a floored table's play is measured separately - the
         // horse is required to be loose there.
         vpipFloor: params.vpipFloor ?? 0,
+        nearBubbleOrPayJump: params.nearBubbleOrPayJump,
+        tournamentStage: params.tournamentStage ?? null,
+        dealtStacksAtDeal: factsInput.dealtStacksAtDeal,
       }
     : null;
 

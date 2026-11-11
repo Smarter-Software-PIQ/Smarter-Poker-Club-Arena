@@ -129,6 +129,8 @@ export interface HorseReviewInput {
   tournamentStage?: string | null;
   /** Optional tournament stack coverage flag (true when hero is covered by villain). */
   coveredStack?: boolean;
+  /** Dealt pre-hand stacks by userId, used to derive `coveredStack` when not explicitly passed. */
+  dealtStacksAtDeal?: ReadonlyMap<string, number> | null;
 }
 
 /** The Lightning results bucket for one stake, e.g. `lightning_2bb` or `lightning_0.5bb`. */
@@ -1600,6 +1602,20 @@ export function buildReviewRows(input: HorseReviewInput): HorseReviewRow[] {
     const folded = heroActions.some((a) => a.action === 'fold');
     const holeCards = seatInfo ? parseCards(seatInfo.cards) : null;
     const board = input.board ? parseCards(input.board) : null;
+    const derivedCoveredStack = (() => {
+      if (input.coveredStack !== undefined) return input.coveredStack;
+      const stacks = input.dealtStacksAtDeal;
+      if (!stacks || stacks.size < 2) return undefined;
+      const heroDealStack = stacks.get(uid);
+      if (typeof heroDealStack !== 'number' || !(heroDealStack > 0)) return undefined;
+      for (const [oppId, oppStack] of stacks.entries()) {
+        if (oppId === uid || typeof oppStack !== 'number' || !(oppStack >= heroDealStack)) continue;
+        if ((input.contributions.get(oppId) ?? 0) >= Math.max(bb * 2, invested * 0.5)) {
+          return true;
+        }
+      }
+      return false;
+    })();
 
     const tags = detectLeaks({
       netBB,
@@ -1616,7 +1632,7 @@ export function buildReviewRows(input: HorseReviewInput): HorseReviewRow[] {
       tournamentId: input.tournamentId ?? null,
       nearBubbleOrPayJump: input.nearBubbleOrPayJump,
       tournamentStage: input.tournamentStage ?? null,
-      coveredStack: input.coveredStack,
+      coveredStack: derivedCoveredStack,
       seat: seatInfo?.seat ?? null,
       heroSeat: seatInfo?.seat ?? null,
       buttonSeat: input.buttonSeat ?? null,

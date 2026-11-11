@@ -206,7 +206,10 @@ import { gtoChartCount, gtoChartStoreIdentity } from '../GtoCharts.js';
 import { gtoPostflopCount, gtoPostflopStoreIdentity } from '../GtoPostflop.js';
 import { gtoPostflopV31Count, gtoPostflopV31Dataset } from '../GtoPostflopV31.js';
 import { hydrateHorseMind } from '../../services/HorseMindHydrator.js';
-import { hydrateHorseExploitReads } from '../../services/HorseExploitHydrator.js';
+import {
+  hydrateHorseExploitReads,
+  type ExploitHydrationResult,
+} from '../../services/HorseExploitHydrator.js';
 import {
   hydrateHorseMindFromDb,
   startHorseMindPersistence,
@@ -293,6 +296,7 @@ export interface HorseDecisionWorkerDependencies {
   sourceRelease?: () => string | null;
   startServices(): Promise<HorseDecisionWorkerReadiness>;
   publicProfileBootstrap?(): HorsePooledPublicBootstrap | null;
+  exploitFloorBootstrap?(): ExploitHydrationResult | null;
   stopServices(): Promise<void>;
   decide: typeof HorseLogic.decide;
   prepareOriginalReads?: typeof HorseLogic.prepareOriginalReads;
@@ -385,6 +389,7 @@ export interface HorseDecisionWorkerDependencies {
 }
 
 let publicProfileBootstrap: HorsePooledPublicBootstrap | null = null;
+let exploitFloorBootstrap: ExploitHydrationResult | null = null;
 let ownedServicesStarted = false;
 
 /** The exact chart and open-node stores this worker decides with (Phase 6C G4). */
@@ -498,7 +503,10 @@ export async function startOwnedServices(shard?: {
       ),
       // 2026-10-22: the maniac read survives the daily reset - replay the
       // recent human hands into the decayed exploit counters before READY.
-      step('exploit_reads', () => hydrateHorseExploitReads()),
+      step('exploit_reads', async () => {
+        exploitFloorBootstrap = await hydrateHorseExploitReads();
+        return exploitFloorBootstrap;
+      }),
       step('gto_charts', () => loadGtoCharts()),
       step('gto_postflop', () => loadGtoPostflop()),
       step('gto_postflop_v31', () => {
@@ -627,6 +635,11 @@ export const defaultHorseDecisionWorkerDependencies: HorseDecisionWorkerDependen
   publicProfileBootstrap: () => {
     const saved = publicProfileBootstrap;
     publicProfileBootstrap = null;
+    return saved;
+  },
+  exploitFloorBootstrap: () => {
+    const saved = exploitFloorBootstrap;
+    exploitFloorBootstrap = null;
     return saved;
   },
   stopServices: stopOwnedServices,
@@ -1032,6 +1045,8 @@ export class HorseDecisionWorkerRuntime {
       const saved = this.deps.publicProfileBootstrap?.();
       if (saved && !this.observerReads.bootstrapPublicProfiles(saved))
         this.deps.noteFeature('horse_pooled_public_bootstrap_refused');
+      const floorBoot = this.deps.exploitFloorBootstrap?.();
+      if (floorBoot) this.observerReads.bootstrapFloorExploitReads(floorBoot);
       this.noteAuthorityAdmissions();
       return { ...readiness, phase8GuardAuthority: this.phase8GuardAuthority.receipt() };
     });

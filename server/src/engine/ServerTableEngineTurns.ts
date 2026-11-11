@@ -4302,11 +4302,20 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
         const row = this.nitStatus.get(authoritativePlayer.user_id);
         return row ? { hands: row.hands, vpip: row.vpip } : undefined;
       })(),
-      // V18 STRADDLE (2026-08-26): straddle posts are not ActionRecords, so
-      // a straddled pot's preflop currentBet (2xBB) with an empty history
-      // read as an OPEN RAISE and the fleet folded to dead money. Tell the
-      // brain straddles are possible here.
-      straddleActive: this.tableInfo?.straddle_enabled === true,
+      // V18 / V87.1 STRADDLE (2026-08-26, hardened 2026-11-11): straddle posts
+      // are not ActionRecords, so report whether a straddle was actually posted
+      // on THIS hand (plus its exact posted amount) rather than merely whether
+      // voluntary straddles are enabled on the table.
+      ...(() => {
+        const postedStraddle = handControllerRef.getPostedStraddleSnapshot?.() ?? null;
+        if (postedStraddle !== null) {
+          return {
+            straddleActive: postedStraddle.amount > 0,
+            ...(postedStraddle.amount > 0 ? { straddleAmount: postedStraddle.amount } : {}),
+          };
+        }
+        return { straddleActive: this.tableInfo?.straddle_enabled === true };
+      })(),
       // Phase 6: complete cached tournament metadata plus exact local blinds,
       // seats, stacks, hand-for-hand state and the hero's M snapshot.
       ...this.horseTournamentContext(

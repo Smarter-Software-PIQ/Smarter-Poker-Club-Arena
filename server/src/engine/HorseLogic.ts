@@ -1024,6 +1024,39 @@ function preflopPlayersBehind(heroSeat: number, gs: HorseGameStateV2, v13 = true
   return n - 1 - idx + 2;
 }
 
+/**
+ * V87.1: preflop players still to act behind hero when a live UTG straddle is
+ * posted (`order = [SB(0), BB(1), UTG(2), ..., BTN(n-1)]`). Action starts at
+ * UTG+1 (`idx === 3`, `n - 1` behind) and wraps through BTN (`3` behind), SB
+ * (`2` behind), BB (`1` behind) to the UTG straddler (`0` behind).
+ */
+function preflopStraddleOpenBehind(
+  heroSeat: number,
+  gs: HorseGameStateV2,
+  v13 = true
+): number | null {
+  const hasCensus = gs.dealtSeatIds !== undefined;
+  const players = hasCensus
+    ? horsePolicyDealtPlayers(gs.players, heroSeat, gs.dealtSeatIds)
+    : gs.players;
+  const order = dealtSeatOrder(
+    heroSeat,
+    gs.dealerSeat,
+    players,
+    v13,
+    hasCensus || gs.tournament?.schemaVersion === 1
+  );
+  if (!order) return null;
+  const n = order.length;
+  const idx = order.indexOf(heroSeat);
+  if (idx === -1) return null;
+  if (n === 2) return heroSeat === gs.dealerSeat ? 1 : 0;
+  if (idx === 2) return 0;
+  if (idx === 1) return 1;
+  if (idx === 0) return 2;
+  return Math.min(8, n - idx + 2);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // V4 STREET IQ (2026-07-23) — initiative, position, made-hand class, scare cards
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1426,10 +1459,12 @@ export interface HorseGameStateV2 extends HorseGameState {
    *  table, rather than every player posting it every hand. Changes what an
    *  orbit COSTS, which is what Harrington M divides by — see AnteMath.ts. */
   bigBlindAnte?: boolean;
-  /** V18: the table allows a UTG straddle (2xBB). Straddle posts are not
+  /** V18: a straddle is posted on THIS hand. Straddle posts are not
    *  ActionRecords, so the brain needs this to read a straddled pot as
    *  UNOPENED dead money rather than an open raise. */
   straddleActive?: boolean;
+  /** V87.1: exact last live straddle amount posted on THIS hand when `straddleActive` is true. */
+  straddleAmount?: number;
   /** V36 (2026-09-02): this hand is a BOMB POT — every player anted, there
    *  was no preflop street, every range is random, and with boardCount >= 2
    *  every pot layer splits equally across the boards. See the bomb-pot
@@ -8120,8 +8155,14 @@ export class HorseLogic {
     const v87On = opts.v87HoldemOverhaul !== false;
     const cashAction85 = gs.gameMode === 'cash' && opts.v85CashAction !== false;
     const cashProfile85 = cashAction85 ? ('action' as const) : gs.gameMode === 'cash';
-    const straddleScale87 = v87On && cashAction85 && gs.straddleActive === true ? 2 : 1;
-    const effBb87 = bb * straddleScale87;
+    const effBb87 =
+      v87On && cashAction85 && gs.straddleActive === true
+        ? Number(gs.straddleAmount ?? 0) > bb * 1.05
+          ? Number(gs.straddleAmount)
+          : raises === 0 && gs.currentBet > bb * 1.05
+            ? gs.currentBet
+            : bb * 2
+        : bb;
     // V85 tapers with hero's effective stack (v85DepthWeight).
     const depth85 = (() => {
       let cover = 0;
@@ -8147,7 +8188,14 @@ export class HorseLogic {
         return undefined;
       const dealt70 = dealtHorseTableSize(gs, player.seat);
       if (dealt70 < 2) return undefined;
-      const behind = preflopPlayersBehind(player.seat, gs, opts.v13 !== false);
+      const rawBehind =
+        v87On && cashAction85 && gs.straddleActive === true
+          ? preflopStraddleOpenBehind(player.seat, gs, opts.v13 !== false)
+          : preflopPlayersBehind(player.seat, gs, opts.v13 !== false);
+      const behind =
+        rawBehind === 0 && v87On && cashAction85 && gs.straddleActive === true && limpers >= 1
+          ? 1
+          : rawBehind;
       if (behind === null || behind < 1) return undefined;
       const mapped =
         v87On && cashAction85 && depth85 > V85_DEPTH_NONE_BB
@@ -8600,6 +8648,15 @@ export class HorseLogic {
             : bb;
         return Math.min(player.stack + player.bet, cover) / unit;
       })(),
+      effectiveStackNormalized: gs.straddleActive === true && (v86 || (v87On && cashAction85)),
+      ...(gs.straddleActive === true && (v86 || (v87On && cashAction85))
+        ? { straddleUnitCoins: v86 ? Math.max(bb * 2, Number(gs.straddleAmount ?? 0)) : effBb87 }
+        : {}),
+      cashStakeBB: gs.asset === 'diamonds' ? bb / 100 : bb,
+      raiserIsAllIn:
+        lastRaiserSeat >= 0
+          ? gs.players.find((p) => p.seat === lastRaiserSeat)?.is_all_in === true
+          : false,
       v87HoldemOverhaul: v87On,
       holeCards: player.cards,
       heroSeat: player.seat,
@@ -8615,6 +8672,10 @@ export class HorseLogic {
         opts.facingClosedAllIn === false
           ? undefined
           : facingClosedAllInRaise(gs.players, player.seat, lastRaiserSeat, raises, toCall),
+      reopenAllowed:
+        !Array.isArray(gs.legalActions) ||
+        gs.legalActions.includes('raise') ||
+        gs.legalActions.includes('all_in'),
       v13: opts.v13 !== false,
       // V34: the button is not a second cutoff. classifyPosition merges the
       // two into 'late'; the dealer seat tells them apart exactly.
@@ -9990,6 +10051,26 @@ export class HorseLogic {
     const set21 =
       cat === 4 && player.cards.length === 2 && player.cards[0].rank === player.cards[1].rank;
     const dryTop21 = ns21 != null && !ns21.flushPossible && ns21.maxStraightTop === 0;
+    const pairedBoard87 = board.some((c, idx) =>
+      board.some((o, j) => j < idx && c.rank === o.rank)
+    );
+    const trueRiverNutTrap87 =
+      !vi.isOmaha &&
+      !vi.isShortDeck &&
+      equity >= 0.88 &&
+      (cat >= 8 ||
+        (cat === 7 && !ns21?.underfull) ||
+        (!pairedBoard87 &&
+          cat === 6 &&
+          ns21 != null &&
+          (ns21.fourFlushBoard ? ns21.higherFlushRanks === 0 : ns21.higherFlushRanks <= 1)) ||
+        (!pairedBoard87 &&
+          cat === 5 &&
+          ns21 != null &&
+          !ns21.flushPossible &&
+          ns21.maxStraightTop > 0 &&
+          ns21.heroStraightTop >= ns21.maxStraightTop) ||
+        (!pairedBoard87 && set21 && dryTop21 && equity >= 0.9));
     const raisedWeakMade21 =
       useV21 && !vi.isOmaha && raisedAfterAggr && (cat <= 3 || (cat === 4 && !(set21 && dryTop21)));
     const committedRaisedWeakMade21 = raisedWeakMade21 && opts.committedRaiseDiscipline !== false;
@@ -11083,15 +11164,17 @@ export class HorseLogic {
         // nut traps (~22%) and nut-blocker bluffs (~11%), and never a fragile
         // one pair into a LAG bully.
         if (isRiver && !ip && oppCount === 1 && oppLive87 && initiative !== 'opp') {
+          const singleOppStack87 =
+            singleOpp87 != null
+              ? (opponents.find((o) => o.user_id === singleOpp87)?.stack ?? 0)
+              : (opponents[0]?.stack ?? 0);
           if (lag87 && cat === 2 && equity < 0.62 + mw) {
             if (tele15) noteFire('v87_river_block_lag_check');
             return { action: 'check', thinkTime: 0 };
           }
           if (
-            cat >= 4 &&
-            !(cat === 4 && pairedBoard) &&
-            !dominated21 &&
-            equity >= 0.85 &&
+            trueRiverNutTrap87 &&
+            singleOppStack87 > pot * 0.45 &&
             unit87('rivertrap') < 0.16 + (persona87?.trapFrequency ?? 0.33) * 0.18
           ) {
             if (tele15) noteFire('v87_river_block_nut_trap');
@@ -11112,6 +11195,7 @@ export class HorseLogic {
             equity < 0.35 &&
             blocker87 >= 0.5 &&
             !station87 &&
+            singleOppStack87 > pot * 0.6 &&
             unit87('riverblockbluff') < 0.08 + (persona87?.riverBluffGear ?? 0.3) * 0.08
           ) {
             if (tele15) noteFire('v87_river_block_blocker_bluff');
@@ -13597,7 +13681,7 @@ export class HorseLogic {
         !multiBoard36 &&
         v87HeroRiverBlockBetFrac(gs.actionHistory, player.user_id, gs.pot, toCall) !== null
       ) {
-        if (!dominated21 && (cat >= 6 || (cat >= 5 && equity >= 0.84))) {
+        if (trueRiverNutTrap87) {
           if (tele15) noteFire('v87_river_block_trap_reraise');
           if (stack <= (pot + toCall) * 1.5)
             return this.legalize({ action: 'all_in', thinkTime: 0 }, player, gs, vi);
