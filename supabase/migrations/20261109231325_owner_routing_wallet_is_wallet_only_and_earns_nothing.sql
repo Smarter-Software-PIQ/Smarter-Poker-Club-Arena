@@ -1,4 +1,3 @@
--- @install-window: daily-maintenance
 -- @live-proof: (SELECT pg_get_constraintdef(c.oid) LIKE '%wallet_only%' FROM pg_constraint c WHERE c.conrelid='public.agents'::regclass AND c.conname='agents_status_check')
 -- @live-proof: (SELECT to_regprocedure('smarter_private.ensure_owner_routing_wallet(uuid)') IS NOT NULL AND NOT has_function_privilege('anon','smarter_private.ensure_owner_routing_wallet(uuid)','EXECUTE') AND NOT has_function_privilege('authenticated','smarter_private.ensure_owner_routing_wallet(uuid)','EXECUTE') AND NOT has_function_privilege('service_role','smarter_private.ensure_owner_routing_wallet(uuid)','EXECUTE'))
 -- @live-proof: (SELECT count(*)=1 FROM pg_trigger WHERE tgrelid='public.agents'::regclass AND tgname='zz_owner_routing_wallet_guard' AND NOT tgisinternal)
@@ -98,32 +97,21 @@
 -- NO ROW IS WRITTEN HERE. A wallet is created by the funding step, the first
 -- time a club needs one.
 --
--- WHY THE DAILY WINDOW. ALTER TABLE public.agents takes ACCESS EXCLUSIVE.
--- agents is not one of the three named hot tables, but live cash-out, cashier
--- and rakeback transactions read and write it (5 locks were held on it in one
--- production sample on 2026-11-09), and a queued ACCESS EXCLUSIVE request
--- stalls every one of them for as long as it waits. So it is installed inside
--- the 04:00 freeze, one attempt, under the installer's 1 s lock_timeout. The
--- functions are created first and the table is altered last, so the lock is
--- held only for the constraint swap (184 rows to validate) and one CREATE
--- TRIGGER. The function replacements take no table lock.
---
--- WHY THERE IS NO "@locks" HEADER LINE. The window installer sends files that
--- declare no locks before files that declare some
--- (scripts/ci/maintenance-window-migrations.mjs, orderWindowQueue), and
--- 20261109231855 (the funding cascade, which declares none because it locks
--- no table) refuses to install until this file's
--- smarter_private.ensure_owner_routing_wallet exists. A locks line here
--- would therefore send the cascade first, to a certain refusal and a red run.
--- With neither file declaring, the queue is version order: this file, then
--- the cascade. Declaring public.agents on the cascade instead would be
--- false, and would let the installer end idle sessions on agents for a file
--- that needs no lock. What is given up: for this file the installer does not
--- end a session left idle in transaction on agents before the one attempt,
--- and a lock_timeout refusal does not name the relation. The installer still
--- reads the ALTER TABLE from the SQL and waits for a quiet moment on
--- public.agents before sending. A refusal leaves this file queued for the
--- next night and the cascade refusing behind it; nothing is half installed.
+-- HOW IT INSTALLS (changed 2026-11-11). This file first declared the daily
+-- maintenance window. It was never installed: from 2026-11-04 to 2026-11-11
+-- the daily preparation that runs the window installer ran it once (refused
+-- on 2026-11-10), and on 2026-11-11 the reserved preparation stopped with
+-- "Release controls changed during reservation". public.agents is not one of
+-- the three hot tables the window rule names (clubs, tables, hand_history),
+-- so it installs at merge through Apply Merged Migration like any ordinary
+-- file: one transaction, one attempt, lock_timeout 1 s below, under the
+-- applier's 12 s transaction bound. ALTER TABLE public.agents takes ACCESS
+-- EXCLUSIVE; the functions are created first and the table is altered last,
+-- so the lock is held only for the constraint swap (184 rows to validate) and
+-- one CREATE TRIGGER. If the lock is not granted within 1 s the whole file
+-- rolls back and nothing is half installed. 20261109231855 (the funding
+-- cascade) refuses to install until this file's
+-- smarter_private.ensure_owner_routing_wallet exists.
 --
 -- Wrap ALL DDL for one change in ONE transaction: every DDL statement fires
 -- Supabase's schema-cache reload, which takes ~28s on this database, and ten
