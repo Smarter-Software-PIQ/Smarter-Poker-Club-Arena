@@ -558,6 +558,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V50',
     'HorseLogic.moodOf'
   ),
+  flag(
+    'turnDeadlineMs',
+    'optional turn-clock deadline (epoch ms or remaining budget ms) clamping V86 Hollywood tanks inside deadlineRemainingMs - 1500',
+    'V86',
+    'HorseLogic.computeThinkTime'
+  ),
   flag('telemetry', 'live decisions only; arms noteFire for this decision', 'V15'),
   flag(
     'observeMind',

@@ -337,6 +337,10 @@ export interface PreflopCtx {
   ploPersona3BetMix?: number;
   /** V86 deterministic spot hash roll [0, 1) (consumes zero RNG draws). */
   plo3BetRoll?: number;
+  /** V86: confirmed IP LAG bully / observed maniac yet to act behind hero's unopened pot. */
+  lagBullyIpBehind?: boolean;
+  /** V86: observed extreme maniac (re-raising >=25% or opening >=75%) raised or sits behind. */
+  observedExtremeManiac?: boolean;
   /** Exact Hold’em AA/KK, so score jitter cannot demote a value squeeze. */
   holdemPremiumPair?: boolean;
   /** Effective stack in big blinds against the deepest live opponent
@@ -1519,6 +1523,34 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // re-raise. Not tightness-shifted: the bar is the continuing share
     // against the maniac's measured width, already a price.
     if (ctx.maniacOpenBar !== undefined) openThresh = Math.max(openThresh, ctx.maniacOpenBar);
+    // V86 EP/MP MANIAC-BEHIND TIGHTENING: opening marginal single-suited / dangler
+    // Omaha hands from UTG/MP/HJ with a confirmed IP maniac or LAG bully yet to act
+    // invites bloated OOP pots with dominated suits. Enter with double-suited or
+    // nut-suit connected playability instead.
+    const confirmedIpManiacBehind =
+      ctx.lagBullyIpBehind === true ||
+      (ctx.lagBullyIpBehind === undefined && ctx.maniacOpenBar !== undefined);
+    if (
+      v86 &&
+      ctx.isOmaha &&
+      (position === 'early' || position === 'middle') &&
+      confirmedIpManiacBehind
+    ) {
+      const eliteOpen = ctx.omahaElite;
+      const linearOpenPlayable =
+        eliteOpen !== undefined &&
+        (eliteOpen.cls === 'aa_ds' ||
+          eliteOpen.cls === 'kk_ds' ||
+          eliteOpen.cls === 'plo8_scoop' ||
+          eliteOpen.cls === 'broadway_conn_ds' ||
+          eliteOpen.cls === 'rundown_ds' ||
+          eliteOpen.cls === 'ax_nut_suited' ||
+          eliteOpen.cleanSuits >= 2 ||
+          (eliteOpen.hasNutAceSuit && eliteOpen.connectedWindowSpan <= 4));
+      if (!linearOpenPlayable && (eliteOpen === undefined || eliteOpen.cleanSuits < 2)) {
+        openThresh = Math.max(openThresh + 0.08, position === 'early' ? 0.66 : 0.6);
+      }
+    }
 
     // V70: the open reads the hand on this seat's order (see gtoOpen).
     const openStrength = v70Open ? ctx.gtoOpen!.strength : strength;
@@ -1877,17 +1909,36 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     if (ctx.isOmaha && ctx.omahaAA === true) effThreeBetThresh = threeBetThresh - 0.04;
     const ipVsOpen = position === 'late' || (vs === 'sb' && position === 'bb');
     const elite = v86 && ctx.isOmaha ? ctx.omahaElite : undefined;
+    const linearElite3Bet =
+      elite !== undefined &&
+      (elite.cls === 'aa_ds' ||
+        elite.cls === 'kk_ds' ||
+        elite.cls === 'plo8_scoop' ||
+        elite.cls === 'broadway_conn_ds' ||
+        elite.cls === 'rundown_ds' ||
+        elite.cls === 'ax_nut_suited');
+    const ultraPremiumElite =
+      elite !== undefined &&
+      (elite.cls === 'aa_ds' || elite.cls === 'kk_ds' || elite.cls === 'plo8_scoop');
+    // Sticky wide openers with low fold-to-3-bet (`noBluff3 === true`) and presumed/wide
+    // PLO openers (`maniacNoBluff` from pfr >= 35%) still get 3-bet and squeezed for
+    // linear equity by high-playability double-suited / nut-suit hands; thinner
+    // single-suited rundowns and pair+support stay gated behind `!noBluff3`.
+    const allowEliteVsRaiser =
+      ultraPremiumElite ||
+      (linearElite3Bet && ctx.observedExtremeManiac !== true) ||
+      (ctx.maniacNoBluff !== true && !noBluff3);
     const basePloMix = ctx.ploPersona3BetMix ?? 0.55;
-    const effPloMix = pressure
+    const rawPloMix = pressure
       ? Math.min(0.96, basePloMix + 0.35)
       : ipVsOpen
         ? Math.min(0.92, basePloMix + 0.18)
         : basePloMix;
+    const effPloMix = noBluff3 && linearElite3Bet ? Math.min(0.96, rawPloMix + 0.15) : rawPloMix;
     const ploElite3BetActive =
       elite !== undefined &&
       elite.canThreeBet &&
-      ctx.maniacNoBluff !== true &&
-      !noBluff3 &&
+      allowEliteVsRaiser &&
       (elite.cls === 'aa_ds' || elite.cls === 'plo8_scoop' || (ctx.plo3BetRoll ?? 0.4) < effPloMix);
     if (ploElite3BetActive && elite) {
       const bonus =
@@ -1993,9 +2044,9 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       ctx.isPotLimit &&
       elite?.canSqueeze === true &&
       strength >= t53(0.54, 'threeBet') &&
-      !noBluff3 &&
-      ctx.maniacNoBluff !== true &&
+      allowEliteVsRaiser &&
       (pressure !== undefined ||
+        (noBluff3 && linearElite3Bet) ||
         (ctx.plo3BetRoll ?? 0.4) < Math.min(0.9, basePloMix + (ipVsOpen ? 0.2 : 0.1)))
     ) {
       noteAuthority('squeeze_bluff');

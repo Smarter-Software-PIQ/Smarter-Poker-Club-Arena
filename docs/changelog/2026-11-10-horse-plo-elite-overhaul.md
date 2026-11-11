@@ -17,7 +17,8 @@ All V86 behavior is controlled by `v86PloOverhaul` (default `true` in live play 
 - **De-Saturated Multi-Card Strength (`HorseEval.omahaElitePreflopStrength`)**:
   - Preserves `omahaPreflopStrength` and `omahaReservoirs` unchanged for range construction while lifting clean double-suited rundowns and nut+King suit combinations, penalizing 3-suit and 4-suit self-blockers in PLO5/PLO6, penalizing disconnected 5/6-card danglers, and boosting two-way `A2` PLO8 scoop hands.
 - **Active 3-Betting, Pot-Squeezing, Shallow 4-Betting, & Limp Isolation (`HorsePreflop`, `HorseLogic`)**:
-  - **Elite PLO 3-Bets (`v86_plo_elite_three_bet`)**: Horses 3-bet pot with double-suited rundowns, connected broadways, nut-suited `Ax`, `KKds`, and `plo8_scoop` hands (boosted IP and against wide openers via `aggressiveOpenerPressure`).
+  - **Elite PLO 3-Bets (`v86_plo_elite_three_bet`)**: Horses 3-bet pot with double-suited rundowns (including 5/6-card 3+2 suit structures), connected broadways, nut-suited `Ax`, `KKds`, and `plo8_scoop` hands, including for linear equity against sticky low-fold-to-3-bet wide openers (`noBluffThreeBet === true` / `maniacNoBluff === true`), while gating thinner single-suited rundowns behind `!noBluff3`.
+  - **EP/MP Tightening vs IP LAG Bullies**: Tightens marginal single-suited EP/MP Omaha opens when a confirmed LAG bully sits in position behind hero while preserving double-suited and premium opens.
   - **Pot-Sized PLO Squeezes (`v86_plo_squeeze`)**: Attacks open + cold-call dead money in pot-limit Omaha with squeeze-eligible multi-way nut hands.
   - **Non-`AA` Shallow/Mid-SPR 4-Betting (`v86_plo_shallow_four_bet`)**: At `<= 130bb` effective stacks (`SPR <= 4` in 4-bet pots), `canFourBetShallow` hands pot-4-bet so the Horse 4-bet range is no longer `AAxx`-only.
   - **3-Bettor / 4-Bettor Continuation (`v86_plo_three_bettor_continues`)**: Prevents raise-folding `40%+` equity rundowns and nut-suit hands when facing a 4-bet at `<= 0.45` pot odds.
@@ -28,7 +29,7 @@ All V86 behavior is controlled by `v86PloOverhaul` (default `true` in live play 
 ## 2. Postflop Commitment, River Discipline, & Deceptive Sizing
 
 - **Underboat, PLO6, & Multiway River Call Discipline (`HorseOmahaBigBetCalls.v86OmahaUnderboatOrDominatedFold`)**:
-  - **Underboat Fold (`v86_plo_underboat_fold`)**: Folds the lowest full house when beaten by two or more higher full-house combinations (`lowerBoats === 0 && boats >= 2`) facing `>= 0.78` pot river bets or `>= 0.65` pot river raises.
+  - **Underboat Fold (`v86_plo_underboat_fold`)**: Folds the lowest full house when beaten by two or more higher full-house combinations (`lowerBoats === 0 && boats >= 2`) facing `>= 0.72` pot river bets (covering standard `3/4`-pot river sizing) or `>= 0.65` pot river raises, and suppresses value-raising bottom underboats in `HorseLogic`.
   - **PLO6 Big-Bet Parity (`v86_plo6_big_bet_fold`)**: Extends `>= 0.90` pot river fold protection to `plo6` for non-nut straights, bare two pair, and dominated or second-nut flushes.
   - **Multiway Medium-Big River Folds (`v86_plo_multiway_dominated_fold`)**: Folds bare two pair and dominated flushes facing `0.65-0.89` pot bets in `3+`-way cash rivers at `35bb+` effective depth.
   - Retains calls against verified postflop over-bluffers (`bettorOverBluffs`).
@@ -36,8 +37,11 @@ All V86 behavior is controlled by `v86PloOverhaul` (default `true` in live play 
   - Excludes hero's current-street wager (`investedBefore86`) when evaluating `committed` on bet-then-raised Omaha streets so deep-stack bet-folding remains intact.
   - Applies `v68NoRoomToBePaid` on Omaha turns (`v86_omaha_no_room_implied`) to zero phantom implied-odds credit on non-nutty draws when remaining stacks cannot pay off on the river.
   - Scales postflop Omaha value thresholds by SPR (`spr <= 3`: `-0.04` commitment shift; `spr >= 7` non-nut: `+0.035` pot-control shift) and refines `omahaMwStep` from `0.045` to `0.026` to eliminate multiway value paralysis.
-- **Nut-Combo-Draw Pump & Jam, Traps, & Block-Bet Balance (`HorseLogic`)**:
-  - **Combo-Draw Pump & Jam (`v86_plo_combo_draw_pump`)**: Leads and pot-raises `nutFlushDraw` + `6+` nut-straight-out wraps in heads-up and 3-way (`oppCount <= 2`) pots.
+- **Nut-Combo-Draw Pump & Jam, Blocker Probes/Bluffs, Small-Pot Value, Traps, & Block-Bet Balance (`HorseLogic`)**:
+  - **Combo-Draw Pump & Jam (`v86_plo_combo_draw_pump`)**: Leads and pot-raises `nutFlushDraw` + `7+` (`11+` in PLO6) nut-straight-out wraps in heads-up and 3-way (`oppCount <= 2`) pots.
+  - **Turn Scare-Card Nut-Blocker Probe (`v86_scare_blocker_probe`)**: Fires deterministic `58%-72%` pot probes when a flush/straight scare card arrives on a checked turn and hero holds the relevant nut blocker (`hasVariantBlocker`).
+  - **Native Omaha Nut-Blocker River Bluff (`v86_river_nut_blocker_bluff`)**: Covers heads-up missed-draw / low-equity Omaha spots holding `hasVariantBlocker` with zero `fastRandom()` consumption while strictly suppressing bluffs against calling stations.
+  - **Small-Pot Near-Nut River Value (`v86_small_pot_near_nut_raise`)**: Leads and raises `>= 88%` near-nut Omaha hands in small river pots (`pot <= 10bb`) instead of checking back or flatting tiny bets.
   - **PLO8 Scoop Freeroll (`v86_multiboard_or_plo8`)**: Leads and raises nut-low + high-equity redraw freerolls (`lo >= 0.42-0.45` with scoop/high backup).
   - **OOP River Block-Bet Balance (`v86_river_block_trap`)**: Mixes `22%` nut-class hands into the `28%-32%` OOP river block-bet sizing while suppressing unprotected medium river block-bets against LAG bullies.
   - **IP Flop Nut Check-Back Trap (`v86_ip_nut_checkback_trap`)**: Checks back `25%` of nutted sets/boats IP on dry static Omaha flops to protect checking ranges and induce turn stabs.
@@ -51,12 +55,13 @@ All V86 behavior is controlled by `v86PloOverhaul` (default `true` in live play 
   - Disciplined TAG winners continue to receive `WINNER_BLUFF_MOD = 0.6` and `WINNER_VALUE_THIN_MOD = 0.85`.
   - High-VPIP / high-stab LAG winners (`isLagBully = true`) keep `1.0x` bluff playback and expand thin value to at least `WINNER_LAG_VALUE_THIN_FLOOR = 1.12` so wide stabs and loose calldowns are punished rather than rewarded with passivity.
 - **Street-Specific Bully Detection (`HorseMind.isLagBully` & `HorseMind.streetBullyRead`)**:
-  - Identifies high-VPIP / high-aggression bullies and tracks high flop stabbers (`betCheckedTo >= 52%`) who check-give-up on turns (`turnGiveUp` / `checkedTurnAfterFlopStab`).
+  - Identifies high-VPIP / high-aggression bullies and tracks dedicated flop stabbers (`flopBetCheckedTo >= 52%`, un-diluted and un-inflated by turn/river actions) who check-give-up on turns (`turnGiveUp` / `checkedTurnAfterFlopStab`).
   - Powers OOP check-to-trap check-raises with sets/nutted hands (`v86_lag_bully_counter`) and `68%+` turn takeaway probes when a flop stabber checks back the turn.
 - **Multi-Street Maniac Barrel Narrowing (`HorseLogic.maniacCallDown`)**:
   - Adds street-by-street `priorBarrelNarrow86` (`0.065` per earlier postflop barrel street in Omaha, `0.05` in Hold'em; receipt `v86_lag_bully_barrel_narrow`) so triple-barrels from preflop-wide LAGs are priced against progressively narrowed ranges rather than raw preflop air.
-- **Durable Boot Hydration (`HorseExploitHydrator`)**:
-  - Replays historical `hand_history` net outcomes (`net`, `stackEnd - stackStart`, or `winners - invested`) into `HorseWinnerRead.observeHandResults` on startup so proven-winner and LAG-bully memory survives every engine restart.
+- **Idempotent Scoped Boot Hydration & Worker Observer Persistence (`HorseExploitHydrator`, `observerReads`)**:
+  - Replays historical `hand_history` rows idempotently (deduplicated per hand ID across both `HorseMind` and variant/mode-scoped `HorseWinnerRead` banks, separating cash and tournament records) so proven-winner and LAG-bully memory survives engine restarts without double-counting.
+  - Shares `winnerReads` per `(observerId, variant, mode)` across `dealtCount` changes inside `HorseObserverReads` so cash seat churn never fragments 300-hand winner qualification while preserving strict per-observer isolation.
 
 ---
 
@@ -70,13 +75,13 @@ All V86 behavior is controlled by `v86PloOverhaul` (default `true` in live play 
   - Applies `shadeDeep86` (`0.08`, `v86_nlh_deep_pot_control`) pot control with bare one-pair/two-pair hands facing raises or `>= 0.85` pot bets at `120bb+` commitment depth (`160bb+` starting stacks).
   - Widens IP Ace-blocker (`A5s-A2s`) polarized 3-bet bluffs (`bluffFloor - 0.04`).
 - **Short Deck (`6+`) & Pineapple**:
-  - Adds `shortDeckElitePreflopStrength` (boosting suited Aces and suited connectors while shading `66-99`) while keeping `v46ShortDeck` opt-in, and extends `V61/V65` turn/river one-pair bluff-catch shades to Short Deck and post-discard Pineapple.
-- **Zero-PRNG Hollywood Timing (`HorseLogic.computeThinkTime`)**:
-  - Adds a deterministic `28%` Hollywood tank (`+2.4s..4.8s` via `v86Hash01`) on postflop raises facing a bet and river bets in `25bb+` pots with zero extra `fastRandom()` draws.
+  - Enables `shortDeckElitePreflopStrength` (`v46ShortDeck` active by default under `v86PloOverhaul` unless explicitly disabled), and extends `V61/V65` turn/river one-pair bluff-catch shades to Short Deck and post-discard Pineapple.
+- **Zero-PRNG Hollywood Timing & Turn-Clock Safety (`HorseLogic.computeThinkTime`)**:
+  - Adds a deterministic `28%` Hollywood tank (`+2.4s..4.8s` via `v86Hash01`) on postflop raises facing a bet and river bets in `25bb+` pots with zero extra `fastRandom()` draws, clamped inside `deadlineRemainingMs - 1500` via `opts.turnDeadlineMs` (`HorseDataLedger`) so Hollywood tanks never approach a turn timeout.
 - **Tuner-Immune PLO Personas, `$2/$5+` Top-Ups, & Leak Review**:
   - `HorsePersona.ploPersonaFor` assigns deterministic, tuner-immune PLO archetypes (`lag_shark`, `tricky_trap`, `tag_crusher`, `nit_hunter`) without touching `profiles.horse_profile.persona`.
-  - `HorseSessionRotator` reloads active PLO personas (`lag_shark`, `tag_crusher`, `tricky_trap`) below `80%` buy-in (`0.80` vs `0.45`) at `$2/$5+` (`bb >= 5`) PLO cash tables within `topUpAllowance`.
-  - `HorseHandReview` emits `plo_underboat_stackoff`, `plo_multiboard_dead_half_call`, and `plo_passive_rundown_oop` (registered in `HorseDataLedger`), and `HorseSelfTuner` scales the ring-cash VPIP ceiling up to `OMAHA_CASH_VPIP_HI = 0.44` by `omahaShare` so winning 6-max PLO Horses are never over-tightened to NLH VPIP ceilings.
+  - `HorseSessionRotator` reloads active PLO personas (`lag_shark`, `tag_crusher`, `tricky_trap`) below `80%` reference buy-in (`0.80` vs `0.45`) at `$2/$5+` (`bb >= 5`) PLO cash tables, executing partial permitted reloads (`>= 0.5 * buyIn`) on 200bb-max tables while failing closed when `chip_ledger` pagination is incomplete and clamping `topUpAllowance` inside session stop-loss ceilings.
+  - `HorseHandReview` emits position-verified `plo_passive_rundown_oop`, flop/turn/river-aware `plo_underboat_stackoff`, and `plo_multiboard_dead_half_call` (all registered in `HorseDataLedger`), and `HorseSelfTuner` deducts tournament leaks and scales the ring-cash VPIP ceiling up to `OMAHA_CASH_VPIP_HI = 0.44` strictly by cash `omahaShare`.
 
 ---
 

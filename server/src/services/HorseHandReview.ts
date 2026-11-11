@@ -455,6 +455,163 @@ export function omahaBoardThreats(board: Card[]): {
   return { fullHouseLive, flushLive, straightLive };
 }
 
+type ReviewActionRef = {
+  seat?: number;
+  userId?: string;
+  action: string;
+  amount?: number;
+  stage: string;
+  isFullRaise?: boolean;
+  origin?: string;
+};
+
+function clockwisePostflopSeats(seats: number[], buttonSeat: number): number[] {
+  const uniq = [...new Set(seats.filter((s) => Number.isFinite(s)))].sort((a, b) => a - b);
+  return [...uniq.filter((s) => s > buttonSeat), ...uniq.filter((s) => s <= buttonSeat)];
+}
+
+/**
+ * Determine whether hero was genuinely out of position (SB/BB or acting before
+ * the preflop aggressor on the flop) when flatting a preflop raise with an
+ * elite double-suited rundown or connected broadway.
+ *
+ * When a unit test invokes `detectLeaks` directly with only `heroActions` and
+ * supplies no positional metadata (`heroOutOfPosition`, `position`,
+ * `allActions`, `buttonSeat`), falls back to `true` so direct unit assertions
+ * stay backward-compatible while full hand settlements enforce real OOP order.
+ */
+function isHeroOutOfPositionForRundown(row: {
+  heroUserId?: string | null;
+  heroSeat?: number | null;
+  buttonSeat?: number | null;
+  occupiedSeats?: number[] | null;
+  position?: string | null;
+  heroOutOfPosition?: boolean;
+  allActions?: ReviewActionRef[] | null;
+}): boolean {
+  if (typeof row.heroOutOfPosition === 'boolean') return row.heroOutOfPosition;
+
+  if (typeof row.position === 'string' && row.position.trim().length > 0) {
+    const pos = row.position.trim().toUpperCase();
+    if (
+      pos === 'BTN' ||
+      pos === 'BU' ||
+      pos === 'BUTTON' ||
+      pos === 'D' ||
+      pos === 'DEALER' ||
+      pos === 'CO' ||
+      pos === 'CUTOFF'
+    ) {
+      return false;
+    }
+    if (
+      pos === 'SB' ||
+      pos === 'BB' ||
+      pos === 'SMALL_BLIND' ||
+      pos === 'BIG_BLIND' ||
+      pos === 'STRADDLE'
+    ) {
+      return true;
+    }
+  }
+
+  const heroUid = typeof row.heroUserId === 'string' && row.heroUserId ? row.heroUserId : null;
+  const heroSeat = typeof row.heroSeat === 'number' ? row.heroSeat : null;
+  const buttonSeat = typeof row.buttonSeat === 'number' ? row.buttonSeat : null;
+
+  const isHeroRef = (a: ReviewActionRef): boolean => {
+    if (heroUid && a.userId) return a.userId === heroUid;
+    if (heroSeat !== null && typeof a.seat === 'number') return a.seat === heroSeat;
+    return false;
+  };
+
+  if (Array.isArray(row.allActions) && row.allActions.length > 0) {
+    let raiserUid: string | null = null;
+    let raiserSeat: number | null = null;
+    let heroPostedBlind = false;
+    const actionSeats: number[] = [];
+
+    for (const a of row.allActions) {
+      if (typeof a.seat === 'number') actionSeats.push(a.seat);
+      if (a.stage !== 'preflop') continue;
+      const isBlindPost =
+        a.origin === 'forced' ||
+        a.action === 'post_sb' ||
+        a.action === 'post_bb' ||
+        a.action === 'sb' ||
+        a.action === 'bb' ||
+        a.action === 'small_blind' ||
+        a.action === 'big_blind' ||
+        a.action === 'straddle';
+      if (isBlindPost && isHeroRef(a)) {
+        heroPostedBlind = true;
+      }
+      if (!isBlindPost && isAggressiveAction(a) && !isHeroRef(a)) {
+        raiserUid = a.userId ?? null;
+        raiserSeat = typeof a.seat === 'number' ? a.seat : null;
+      }
+    }
+
+    // Check actual flop acting order first: acting before the preflop raiser
+    // on the flop is the exact operational definition of being OOP against them.
+    const flopSeenKeys: string[] = [];
+    let heroFlopIdx = -1;
+    let raiserFlopIdx = -1;
+    for (const a of row.allActions) {
+      if (a.stage !== 'flop' || a.origin === 'forced') continue;
+      const key = a.userId ?? (typeof a.seat === 'number' ? `seat:${a.seat}` : '');
+      if (!key || flopSeenKeys.includes(key)) continue;
+      const idx = flopSeenKeys.length;
+      flopSeenKeys.push(key);
+      if (heroFlopIdx < 0 && isHeroRef(a)) heroFlopIdx = idx;
+      if (
+        raiserFlopIdx < 0 &&
+        ((raiserUid && a.userId === raiserUid) ||
+          (raiserSeat !== null && typeof a.seat === 'number' && a.seat === raiserSeat))
+      ) {
+        raiserFlopIdx = idx;
+      }
+    }
+    if (heroFlopIdx >= 0) {
+      if (raiserFlopIdx >= 0) return heroFlopIdx < raiserFlopIdx;
+      if (flopSeenKeys.length >= 2) return heroFlopIdx < flopSeenKeys.length - 1;
+    }
+
+    if (buttonSeat !== null && heroSeat !== null) {
+      if (heroSeat === buttonSeat) return false;
+      const seatsPool =
+        Array.isArray(row.occupiedSeats) && row.occupiedSeats.length > 0
+          ? row.occupiedSeats
+          : actionSeats;
+      const order = clockwisePostflopSeats(seatsPool, buttonSeat);
+      const heroOrderIdx = order.indexOf(heroSeat);
+      if (heroOrderIdx >= 0) {
+        if (raiserSeat !== null) {
+          const raiserOrderIdx = order.indexOf(raiserSeat);
+          if (raiserOrderIdx >= 0) return heroOrderIdx < raiserOrderIdx;
+        }
+        if (order.length >= 2) return heroOrderIdx < order.length - 1;
+      }
+    }
+
+    if (heroPostedBlind && !(buttonSeat !== null && heroSeat === buttonSeat)) {
+      return true;
+    }
+  }
+
+  if (buttonSeat !== null && heroSeat !== null) {
+    if (heroSeat === buttonSeat) return false;
+    if (Array.isArray(row.occupiedSeats) && row.occupiedSeats.length >= 2) {
+      const order = clockwisePostflopSeats(row.occupiedSeats, buttonSeat);
+      const heroOrderIdx = order.indexOf(heroSeat);
+      if (heroOrderIdx >= 0) return heroOrderIdx < order.length - 1;
+    }
+    return true;
+  }
+
+  return true;
+}
+
 /**
  * Leak detectors. Each looks at ONE flagged (usually losing) hand and answers
  * "is this one of the known bad shapes?". Tags are counted per horse per day
@@ -475,6 +632,13 @@ export function detectLeaks(row: {
   multiBoard?: boolean;
   /** Parsed distinct boards when multiBoard is true. */
   boards?: Card[][] | null;
+  heroUserId?: string | null;
+  heroSeat?: number | null;
+  buttonSeat?: number | null;
+  occupiedSeats?: number[] | null;
+  position?: string | null;
+  heroOutOfPosition?: boolean;
+  allActions?: ReviewActionRef[] | null;
 }): string[] {
   const tags: string[] = [];
   const vi = variantInfo(row.variant);
@@ -960,10 +1124,13 @@ export function detectLeaks(row: {
         if (!omahaBoatIsNut(row.holeCards, boardAt)) {
           flag('plo_underfull_stackoff');
         }
-        if (boardAt.length === 5) {
-          const boatPos = omahaBoatPosition(row.holeCards, boardAt);
-          if (boatPos && boatPos.lowerBoats === 0 && boatPos.boats >= 2) {
-            flag('plo_underboat_stackoff');
+        if (row.board.length === 5) {
+          const riverSt = boardAt.length === 5 ? st : omahaNutStatus(row.holeCards, row.board);
+          if (riverSt.category === CAT_FULL_HOUSE) {
+            const boatPos = omahaBoatPosition(row.holeCards, row.board);
+            if (boatPos && boatPos.lowerBoats === 0 && boatPos.boats >= 2) {
+              flag('plo_underboat_stackoff');
+            }
           }
         }
       } else if (st.category === CAT_ONE_PAIR && isOmahaTopPair(row.holeCards, boardAt)) {
@@ -1033,7 +1200,8 @@ export function detectLeaks(row: {
       const elite = omahaEliteClassRead(row.holeCards, vi.isHiLo);
       const isPassiveEliteRundown =
         elite.canThreeBet && (elite.cls === 'rundown_ds' || elite.cls === 'broadway_conn_ds');
-      if (isPassiveEliteRundown) {
+      const heroWasOop = isHeroOutOfPositionForRundown(row);
+      if (isPassiveEliteRundown && heroWasOop) {
         flag('plo_passive_rundown_oop');
       }
     } catch {
@@ -1075,6 +1243,10 @@ export function buildReviewRows(input: HorseReviewInput): HorseReviewRow[] {
     ? distinctRawBoards.map((b) => parseCards(b)).filter((b): b is Card[] => b !== null)
     : null;
 
+  const occupiedSeats = [...input.holeCardsAll.values()]
+    .map((v) => v.seat)
+    .filter((s): s is number => typeof s === 'number' && Number.isFinite(s));
+
   const rows: HorseReviewRow[] = [];
   for (const uid of horses) {
     const invested = input.contributions.get(uid) ?? 0;
@@ -1107,6 +1279,11 @@ export function buildReviewRows(input: HorseReviewInput): HorseReviewRow[] {
       wentToShowdown: !folded,
       multiBoard,
       boards: parsedBoards,
+      heroUserId: uid,
+      heroSeat: seatInfo?.seat ?? null,
+      buttonSeat: input.buttonSeat ?? null,
+      occupiedSeats,
+      allActions: input.actions ?? null,
     });
 
     rows.push({

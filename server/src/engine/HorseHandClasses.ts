@@ -588,7 +588,9 @@ export function omahaEliteClassRead(
   }
 
   // 4. Double-Suited Rundowns (JT98ds, T987ds, 9876ds, 8765ds, QT98ds, J987ds)
-  if (oneGapTop >= 8 && doubleSuited && selfBlockedSuits === 0) {
+  // In 4-card PLO `doubleSuited` already guarantees `selfBlockedSuits === 0`;
+  // in 5/6-card PLO it permits one 3-card suit alongside a clean 2-card suit (`3+2`).
+  if (oneGapTop >= 8 && doubleSuited) {
     const zeroGap = tightTop >= 8;
     return {
       cls: 'rundown_ds',

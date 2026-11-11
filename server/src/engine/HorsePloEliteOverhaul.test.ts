@@ -46,6 +46,8 @@ import {
   observeHandResults,
   resetWinnerReads,
   respectWinner,
+  winnerReadScopeOf,
+  winnerReadout,
 } from './HorseWinnerRead.js';
 import { HorseMind, readScopeOf } from './HorseMind.js';
 import { aggressiveBettorPressure, aggressiveOpenerPressure } from './HorseOpponentExploit.js';
@@ -56,11 +58,22 @@ import {
   defaultHorseDecisionWorkerDependencies,
   HorseDecisionWorkerRuntime,
 } from './horseDecision/workerRuntime.js';
+import { HorseObserverReads } from './horseDecision/observerReads.js';
+import { horseDecisionReceiptRefusal } from './horseDecision/responseValidation.js';
 import {
   buildHorseDecisionKey,
   type FastHorseDecisionRequest,
   type HorseDecisionWorkerResponse,
+  type ObserveCompletedHandRequest,
 } from './horseDecision/protocol.js';
+import { liveHorsePhase8Authority } from './HorseQualifiedAuthority.js';
+import { liveHorsePhase8GuardAuthority } from './HorseTournamentCatastropheGuardAuthority.js';
+import { liveHorsePhase10Authority } from './HorsePhase10Authority.js';
+import { liveHorsePhase11Authorities } from './HorsePhase11Authority.js';
+import { liveHorsePhase12Authorities } from './HorsePhase12Authority.js';
+import { liveHorsePhase13Authorities } from './HorsePhase13Authority.js';
+import { liveHorsePhase14Authorities } from './HorsePhase14Authority.js';
+import { liveHorseFeatureAuthority } from './HorseFeatureAuthority.js';
 import { horseVariantRulesFor } from './VariantRules.js';
 import { HandController } from './HandController.js';
 import { controllerDecisionState } from './remainingVariants/RemainingVariantControllerSpots.test-support.js';
@@ -69,7 +82,13 @@ import { captureHorseHandJournalContext } from './HorseDecisionHandBinding.js';
 import { hydrateHorseExploitReads } from '../services/HorseExploitHydrator.js';
 import { buildReviewRows, detectLeaks } from '../services/HorseHandReview.js';
 import { freshPlay, type PlayStats } from '../services/HorsePlayStats.js';
-import { OMAHA_CASH_VPIP_HI, diagnoseAndNudge } from '../services/HorseSelfTuner.js';
+import {
+  OMAHA_CASH_VPIP_HI,
+  computeCashOmahaShare,
+  diagnoseAndNudge,
+  subtractTournamentLeaks,
+} from '../services/HorseSelfTuner.js';
+import { bankrollPolicyFor, referenceBuyIn, topUpAllowance } from '../services/HorseBankroll.js';
 import { HorseSessionRotator, type RotatorEngine } from '../services/HorseSessionRotator.js';
 import { supabase } from '../services/supabase.js';
 import { mulberry32 } from './HandFuzzer.js';
@@ -2675,5 +2694,1190 @@ describe('V86 5. Multi-hand Horses vs WooWoo-archetype LAG (80/46/66%/48%) simul
 
     // Ensure legacy handClassRead stays intact for direct callers
     expect(handClassRead(cards('JcTc9h8h'), true, false).cls).toBe('rundown');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 6. ROUND-2 AUDIT REGRESSIONS: STICKY-LAG 3-BETS, POSTFLOP COMPLETENESS,
+//    MEMORY/HYDRATION/TOP-UP BOUNDARIES, & LIVE WORKER -> HANDCONTROLLER PROOF
+// ═══════════════════════════════════════════════════════════════════════════
+describe('V86 6. Round-2 Hardening, Boundary Safety, & End-to-End Live Worker -> HandController Regressions', () => {
+  it('3-bets and pot-squeezes sticky low-fold-to-3-bet openers (noBluff3 === true) with linear double-suited rundowns and suited-Ace nut hands while gating single-suit rundowns', () => {
+    // 5-card 3+2 suit rundown classifies as rundown_ds (Audit E4)
+    const plo5ThreePlusTwo = omahaEliteClassRead(cards('JhTh9s8s7h'), false);
+    expect(plo5ThreePlusTwo.cls).toBe('rundown_ds');
+    expect(plo5ThreePlusTwo.canThreeBet).toBe(true);
+
+    // Sticky opener: foldToThreeBet = 0.003 -> exploitOpener.noBluffThreeBet === true, plus maniacNoBluff = true
+    const stickyBase = {
+      position: 'late' as const,
+      raiserPosition: 'middle' as const,
+      raises: 1,
+      limpers: 0,
+      callers: 0,
+      oppsLeft: 2,
+      toCall: 6,
+      pot: 9,
+      currentBet: 6,
+      bigBlind: 2,
+      stack: 200,
+      stackBB: 100,
+      effectiveStackBB: 100,
+      mode: 'cash' as const,
+      isOmaha: true,
+      isPotLimit: true,
+      isFixedLimit: false,
+      isHiLo: false,
+      tightness: 1,
+      aggression: 1,
+      bluffFreq: 1,
+      slowplayFreq: 0.1,
+      sizingMultiplier: 1,
+      riskAdd: 0,
+      rand: () => 0.35,
+      classNeverThreeBet: false,
+      classFoldAlways: false,
+      v86PloOverhaul: true,
+      ploPersona3BetMix: 0.6,
+      plo3BetRoll: 0.25,
+      exploitOpener: {
+        threeBetBar: 0.62,
+        flatBar: 0.38,
+        bbFlatBar: 0.32,
+        wide: true,
+        noBluffThreeBet: true,
+      },
+      maniacNoBluff: true,
+    };
+
+    for (const spec of ['JcTc9h8h', 'KsQsJdTd', 'As8sTd9c']) {
+      const hole = cards(spec);
+      const elite = omahaEliteClassRead(hole, false);
+      const threeBetDec = decidePreflopV7({
+        ...stickyBase,
+        strength: omahaElitePreflopStrength(hole, false),
+        omahaElite: elite,
+        classShift: elite.shift,
+      } as PreflopCtx);
+      expect(threeBetDec.a).toBe('raiseTo');
+      expect(threeBetDec.receipt).toBe('v86_plo_elite_three_bet');
+
+      const squeezeDec = decidePreflopV7({
+        ...stickyBase,
+        position: 'sb',
+        raiserPosition: 'early',
+        callers: 2,
+        pot: 21,
+        toCall: 5,
+        strength: 0.57,
+        omahaElite: elite,
+        classShift: { open: 0, threeBet: 0.01, fourBet: 0.02, coldCall: 0, bbDefend: 0 },
+        plo3BetRoll: 0.98,
+      } as PreflopCtx);
+      expect(squeezeDec.a).toBe('raiseTo');
+      expect(squeezeDec.receipt).toBe('v86_plo_squeeze');
+    }
+
+    // Thinner single-suited rundown (rundown_ss) stays gated behind !noBluff3
+    const singleSuit = cards('JcTc9d8s');
+    const ssElite = omahaEliteClassRead(singleSuit, false);
+    expect(ssElite.cls).toBe('rundown_ss');
+    const ssVsSticky = decidePreflopV7({
+      ...stickyBase,
+      strength: 0.56,
+      omahaElite: ssElite,
+      classShift: ssElite.shift,
+    } as PreflopCtx);
+    expect(ssVsSticky.a).toBe('call');
+    expect(ssVsSticky.receipt).not.toBe('v86_plo_elite_three_bet');
+  });
+
+  it('tightens marginal single-suited EP/MP Omaha opens when a confirmed IP LAG bully sits behind while preserving double-suited opens', () => {
+    trainWooWooProfile(WOOWOO_ID, 'plo4', 6, 60);
+    expect(HorseMind.isLagBully(WOOWOO_ID)).toBe(true);
+
+    // 6-max table: dealerSeat = 6 (BTN = WOOWOO_ID), SB = 1, BB = 2, UTG = 3 (Hero)
+    const marginalSingleSuit = 'JdTd8c5h';
+    const doubleSuitedRundown = 'JcTc9h8h';
+    const buildEpOpenGs = (heroHole: string, btnUserId: string): HorseGameStateV2 =>
+      ({
+        players: [
+          makeSeat(1, 'sb-seat', '', { bet: 1, totalInvested: 1, stack: 199 }),
+          makeSeat(2, 'bb-seat', '', { bet: 2, totalInvested: 2, stack: 198 }),
+          makeSeat(3, TAG_CRUSHER_HORSE, heroHole, { bet: 0, totalInvested: 0, stack: 200 }),
+          makeSeat(4, 'mp-seat', '', { bet: 0, totalInvested: 0, stack: 200 }),
+          makeSeat(5, 'co-seat', '', { bet: 0, totalInvested: 0, stack: 200 }),
+          makeSeat(6, btnUserId, '', { bet: 0, totalInvested: 0, stack: 200, is_horse: false }),
+        ],
+        communityCards: [],
+        pot: 3,
+        currentBet: 2,
+        toCall: 2,
+        minRaise: 2,
+        minRaiseTo: 4,
+        maxRaiseTo: 7,
+        legalActions: ['fold', 'call', 'raise'],
+        stage: 'preflop',
+        gameVariant: 'plo4',
+        bettingStructure: 'pot_limit',
+        bigBlind: 2,
+        dealerSeat: 6,
+        gameMode: 'cash',
+        actionHistory: [],
+      }) as unknown as HorseGameStateV2;
+
+    // Direct PreflopCtx proof: lagBullyIpBehind raises EP single-suit open bar to >= 0.66
+    const ssCards = cards(marginalSingleSuit);
+    const ssRead = omahaEliteClassRead(ssCards, false);
+    const openWithoutBully = decidePreflopV7({
+      strength: 0.56,
+      position: 'early',
+      raiserPosition: null,
+      raises: 0,
+      limpers: 0,
+      callers: 0,
+      oppsLeft: 5,
+      toCall: 2,
+      pot: 3,
+      currentBet: 2,
+      bigBlind: 2,
+      stack: 200,
+      stackBB: 100,
+      effectiveStackBB: 100,
+      mode: 'cash',
+      isOmaha: true,
+      isPotLimit: true,
+      isFixedLimit: false,
+      tightness: 1,
+      aggression: 1,
+      bluffFreq: 1,
+      slowplayFreq: 0.1,
+      sizingMultiplier: 1,
+      riskAdd: 0,
+      rand: () => 0.4,
+      v86PloOverhaul: true,
+      omahaElite: ssRead,
+      lagBullyIpBehind: false,
+    });
+    const foldWithBully = decidePreflopV7({
+      strength: 0.56,
+      position: 'early',
+      raiserPosition: null,
+      raises: 0,
+      limpers: 0,
+      callers: 0,
+      oppsLeft: 5,
+      toCall: 2,
+      pot: 3,
+      currentBet: 2,
+      bigBlind: 2,
+      stack: 200,
+      stackBB: 100,
+      effectiveStackBB: 100,
+      mode: 'cash',
+      isOmaha: true,
+      isPotLimit: true,
+      isFixedLimit: false,
+      tightness: 1,
+      aggression: 1,
+      bluffFreq: 1,
+      slowplayFreq: 0.1,
+      sizingMultiplier: 1,
+      riskAdd: 0,
+      rand: () => 0.4,
+      v86PloOverhaul: true,
+      omahaElite: ssRead,
+      lagBullyIpBehind: true,
+    });
+    expect(openWithoutBully.a).toBe('raiseTo');
+    expect(foldWithBully.a).toBe('fold');
+
+    // End-to-end HorseLogic.decide: marginal single-suit folds with IP LAG bully behind, JT98ds still opens
+    seedFastRandom(311);
+    const epMarginalVsBully = buildEpOpenGs(marginalSingleSuit, WOOWOO_ID);
+    expect(
+      HorseLogic.decide(epMarginalVsBully.players[2], epMarginalVsBully, 'tag', {}).action
+    ).toBe('fold');
+    seedFastRandom(311);
+    const epDsVsBully = buildEpOpenGs(doubleSuitedRundown, WOOWOO_ID);
+    expect(HorseLogic.decide(epDsVsBully.players[2], epDsVsBully, 'tag', {}).action).toBe('raise');
+  });
+
+  it('fires turn scare-card nut-blocker probes, native V86 nut-blocker river bluffs (zero PRNG drift, suppressed vs stations), small-pot near-nut river value, v46ShortDeck default, & turnDeadlineMs Hollywood clamp', () => {
+    // 1. Turn scare-card nut-blocker probe in 3-way checked turn pot (flush-completing 3rd spade on turn, hero holds As nut spade blocker)
+    let sawScareProbe = false;
+    for (let s = 400; s < 430; s++) {
+      drainFires();
+      seedFastRandom(s);
+      const villain1 = makeSeat(1, '51000000-0000-4000-8000-000000000001', '', { stack: 200 });
+      const villain2 = makeSeat(2, '51000000-0000-4000-8000-000000000002', '', { stack: 200 });
+      const hero = makeSeat(3, LAG_SHARK_HORSE, 'AsKd8h3c', { stack: 200 });
+      const turnScareGs: HorseGameStateV2 = {
+        players: [villain1, villain2, hero],
+        communityCards: cards('Qs9s4d2s'), // 3rd spade arrives on turn -> scare.flush
+        pot: 24,
+        currentBet: 0,
+        toCall: 0,
+        minRaise: 2,
+        minRaiseTo: 2,
+        maxRaiseTo: 24,
+        legalActions: ['check', 'bet'],
+        stage: 'turn',
+        gameVariant: 'plo4',
+        bettingStructure: 'pot_limit',
+        bigBlind: 2,
+        dealerSeat: 3,
+        gameMode: 'cash',
+        actionHistory: [
+          {
+            stage: 'flop',
+            seat: 1,
+            userId: villain1.user_id,
+            action: 'check',
+            amount: 0,
+            timestamp: 1,
+          },
+          {
+            stage: 'flop',
+            seat: 2,
+            userId: villain2.user_id,
+            action: 'check',
+            amount: 0,
+            timestamp: 2,
+          },
+          {
+            stage: 'flop',
+            seat: 3,
+            userId: hero.user_id,
+            action: 'check',
+            amount: 0,
+            timestamp: 3,
+          },
+          {
+            stage: 'turn',
+            seat: 1,
+            userId: villain1.user_id,
+            action: 'check',
+            amount: 0,
+            timestamp: 4,
+          },
+          {
+            stage: 'turn',
+            seat: 2,
+            userId: villain2.user_id,
+            action: 'check',
+            amount: 0,
+            timestamp: 5,
+          },
+        ],
+      } as unknown as HorseGameStateV2;
+      const dec = HorseLogic.decide(hero, turnScareGs, 'lag', {}, { telemetry: true });
+      const fires = drainFires().map((f) => f.feature);
+      if (fires.includes('v86_scare_blocker_probe')) {
+        sawScareProbe = true;
+        expect(dec.action).toBe('bet');
+        break;
+      }
+    }
+    expect(sawScareProbe).toBe(true);
+
+    // 2. Native V86 Omaha nut-blocker river bluff (v86_river_nut_blocker_bluff) + zero PRNG drift + station suppression
+    const STATION_ID = '52000000-0000-4000-8000-000000000002';
+    const stationScope = readScopeOf('plo4', 2);
+    for (let h = 0; h < 40; h++) {
+      HorseMind.observeHandComplete(
+        `station-train:${h}`,
+        [
+          {
+            stage: 'preflop',
+            userId: LAG_SHARK_HORSE,
+            action: 'raise',
+            amount: 6,
+            isFullRaise: true,
+            timestamp: 1,
+          },
+          { stage: 'preflop', userId: STATION_ID, action: 'call', amount: 4, timestamp: 2 },
+          { stage: 'flop', userId: LAG_SHARK_HORSE, action: 'bet', amount: 8, timestamp: 3 },
+          { stage: 'flop', userId: STATION_ID, action: 'call', amount: 8, timestamp: 4 },
+          { stage: 'turn', userId: LAG_SHARK_HORSE, action: 'bet', amount: 16, timestamp: 5 },
+          { stage: 'turn', userId: STATION_ID, action: 'call', amount: 16, timestamp: 6 },
+          { stage: 'river', userId: LAG_SHARK_HORSE, action: 'bet', amount: 30, timestamp: 7 },
+          { stage: 'river', userId: STATION_ID, action: 'call', amount: 30, timestamp: 8 },
+        ],
+        2,
+        null,
+        stationScope
+      );
+    }
+
+    let sawNativeRiverBluff = false;
+    for (let pot = 20; pot <= 120; pot += 4) {
+      HorseMind.setDecisionScope(stationScope);
+      drainFires();
+      const oppUnknown = makeSeat(1, '52000000-0000-4000-8000-000000000099', '', { stack: 200 });
+      const hero = makeSeat(2, LAG_SHARK_HORSE, 'As4d3h7c', { stack: 200 }); // bare As nut-spade blocker, zero pair (< 0.28 eq)
+      const rivBluffGs: HorseGameStateV2 = {
+        players: [oppUnknown, hero],
+        communityCards: cards('KsJs8s6d2c'), // monotone-flop 3-spade board + blank river -> riverBluffLine === 'none' ('no_story')
+        pot,
+        currentBet: 0,
+        toCall: 0,
+        minRaise: 2,
+        minRaiseTo: 2,
+        maxRaiseTo: pot,
+        legalActions: ['check', 'bet'],
+        stage: 'river',
+        gameVariant: 'plo4',
+        bettingStructure: 'pot_limit',
+        bigBlind: 2,
+        dealerSeat: 2,
+        gameMode: 'cash',
+        actionHistory: [
+          {
+            stage: 'preflop',
+            seat: 1,
+            userId: oppUnknown.user_id,
+            action: 'call',
+            amount: 2,
+            timestamp: 1,
+          },
+          {
+            stage: 'preflop',
+            seat: 2,
+            userId: hero.user_id,
+            action: 'check',
+            amount: 0,
+            timestamp: 2,
+          },
+        ],
+      } as unknown as HorseGameStateV2;
+
+      seedFastRandom(777);
+      const decBluff = HorseLogic.decide(hero, rivBluffGs, 'lag', {}, { telemetry: true });
+      const fires = drainFires().map((f) => f.feature);
+      if (fires.includes('v86_river_nut_blocker_bluff')) {
+        sawNativeRiverBluff = true;
+        expect(decBluff.action).toBe('bet');
+
+        // Against calling station (foldToBet.engaged === 'low'), native V86 river bluff is strictly suppressed!
+        drainFires();
+        seedFastRandom(777);
+        const vsStationGs: HorseGameStateV2 = {
+          ...rivBluffGs,
+          players: [makeSeat(1, STATION_ID, '', { stack: 200 }), hero],
+          actionHistory: rivBluffGs.actionHistory!.map((a) =>
+            a.seat === 1 ? { ...a, userId: STATION_ID } : a
+          ),
+        };
+        HorseLogic.decide(hero, vsStationGs, 'lag', {}, { telemetry: true });
+        expect(drainFires().some((f) => f.feature === 'v86_river_nut_blocker_bluff')).toBe(false);
+        break;
+      }
+    }
+    expect(sawNativeRiverBluff).toBe(true);
+
+    // 3. Small-pot (pot <= 10bb) near-nut river value lead (bypasses V11 donk-lead check) & facing-bet raise (v86_small_pot_near_nut_raise)
+    const spHero = makeSeat(1, TAG_CRUSHER_HORSE, 'Ks9s4d3c', { stack: 200 }); // K-high second-nut flush on unpaired board
+    const spVillain = makeSeat(2, '53000000-0000-4000-8000-000000000003', '', { stack: 200 });
+    const smallPotRiverGs: HorseGameStateV2 = {
+      players: [spHero, spVillain],
+      communityCards: cards('QsJs2s8d5c'),
+      pot: 12, // 6bb <= 10bb
+      currentBet: 0,
+      toCall: 0,
+      minRaise: 2,
+      minRaiseTo: 2,
+      maxRaiseTo: 12,
+      legalActions: ['check', 'bet'],
+      stage: 'river',
+      gameVariant: 'plo4',
+      bettingStructure: 'pot_limit',
+      bigBlind: 2,
+      dealerSeat: 2,
+      gameMode: 'cash',
+      actionHistory: [
+        {
+          stage: 'preflop',
+          seat: 2,
+          userId: spVillain.user_id,
+          action: 'raise',
+          amount: 4,
+          timestamp: 1,
+        },
+        {
+          stage: 'preflop',
+          seat: 1,
+          userId: spHero.user_id,
+          action: 'call',
+          amount: 4,
+          timestamp: 2,
+        },
+      ],
+    } as unknown as HorseGameStateV2;
+    seedFastRandom(612);
+    const spDec = HorseLogic.decide(spHero, smallPotRiverGs, 'tag', {}, { telemetry: true });
+    expect(spDec.action).toBe('bet');
+
+    // Facing a tiny 2bb bet in a small pot (pot = 16 <= 20 = 10bb): v86_small_pot_near_nut_raise converts passive calls into value raises
+    let sawSmallPotNearNutRaise = false;
+    for (let s = 600; s < 640; s++) {
+      drainFires();
+      seedFastRandom(s);
+      const spFacingBetGs: HorseGameStateV2 = {
+        ...smallPotRiverGs,
+        players: [
+          spHero,
+          makeSeat(2, spVillain.user_id, '', { stack: 196, bet: 4, totalInvested: 8 }),
+        ],
+        pot: 16,
+        currentBet: 4,
+        toCall: 4,
+        minRaise: 4,
+        minRaiseTo: 8,
+        maxRaiseTo: 24,
+        legalActions: ['fold', 'call', 'raise'],
+        actionHistory: [
+          ...smallPotRiverGs.actionHistory!,
+          {
+            stage: 'river',
+            seat: 1,
+            userId: spHero.user_id,
+            action: 'check',
+            amount: 0,
+            timestamp: 3,
+          },
+          {
+            stage: 'river',
+            seat: 2,
+            userId: spVillain.user_id,
+            action: 'bet',
+            amount: 4,
+            timestamp: 4,
+          },
+        ],
+      };
+      const spRaiseDec = HorseLogic.decide(
+        spHero,
+        spFacingBetGs,
+        'balanced',
+        { aggression: 0.4 },
+        { telemetry: true }
+      );
+      if (drainFires().some((f) => f.feature === 'v86_small_pot_near_nut_raise')) {
+        sawSmallPotNearNutRaise = true;
+        expect(spRaiseDec.action).toBe('raise');
+        break;
+      }
+    }
+    expect(sawSmallPotNearNutRaise).toBe(true);
+
+    // 4. Short Deck chart active by default under v86PloOverhaul (unless v46ShortDeck: false)
+    const sdHero = makeSeat(2, LAG_SHARK_HORSE, 'JsTs', { stack: 200 });
+    const sdPreGs: HorseGameStateV2 = {
+      players: [makeSeat(1, 'sd-opp', '', { bet: 2, totalInvested: 2, stack: 198 }), sdHero],
+      communityCards: [],
+      pot: 4,
+      currentBet: 2,
+      toCall: 2,
+      minRaise: 2,
+      minRaiseTo: 4,
+      maxRaiseTo: 200,
+      legalActions: ['fold', 'call', 'raise'],
+      stage: 'preflop',
+      gameVariant: 'short_deck',
+      bettingStructure: 'no_limit',
+      variantRules: horseVariantRulesFor('short_deck'),
+      bigBlind: 2,
+      dealerSeat: 2,
+      gameMode: 'cash',
+      actionHistory: [],
+    } as unknown as HorseGameStateV2;
+    drainFires();
+    seedFastRandom(55);
+    HorseLogic.decide(sdHero, sdPreGs, 'lag', {}, { telemetry: true });
+    expect(drainFires().some((f) => f.feature === 'v86_short_deck_class')).toBe(true);
+
+    drainFires();
+    seedFastRandom(55);
+    HorseLogic.decide(sdHero, sdPreGs, 'lag', {}, { telemetry: true, v46ShortDeck: false });
+    expect(drainFires().some((f) => f.feature === 'v86_short_deck_class')).toBe(false);
+
+    // 5. turnDeadlineMs Hollywood ceiling clamp (never exceeds Math.max(floor, deadlineRemainingMs - 1500), zero PRNG draws)
+    const deadlineGs: HorseGameStateV2 = {
+      ...smallPotRiverGs,
+      pot: 80, // 40bb >= 25bb triggers Hollywood tank eligibility
+    };
+    let clampedCount = 0;
+    for (let i = 0; i < 60; i++) {
+      const hSeat = makeSeat(1, `deadline-horse-${i}`, 'AsKs9s4d', { stack: 200 });
+      const gsRun: HorseGameStateV2 = { ...deadlineGs, players: [hSeat, spVillain] };
+      seedFastRandom(8200 + i);
+      const decUnclamped = HorseLogic.decide(hSeat, gsRun, 'lag', {}, { decisionTimeMs: 100_000 });
+      const rngUnclamped = saveFastRandom();
+
+      seedFastRandom(8200 + i);
+      const decClamped = HorseLogic.decide(
+        hSeat,
+        gsRun,
+        'lag',
+        {},
+        { decisionTimeMs: 100_000, turnDeadlineMs: 103_800 } // 3800ms remaining -> ceiling = max(350, 2300) = 2300ms
+      );
+      const rngClamped = saveFastRandom();
+      expect(rngClamped).toBe(rngUnclamped);
+      expect(decClamped.thinkTime).toBeLessThanOrEqual(2300);
+      if (decUnclamped.thinkTime > 2300) clampedCount++;
+    }
+    expect(clampedCount).toBeGreaterThan(5);
+  });
+
+  it('guarantees hydrateHorseExploitReads idempotency, observerReads winnerReads persistence across dealtCount churn, & flop-only highFlopStab', async () => {
+    // 1. hydrateHorseExploitReads 100% idempotency + cash vs tournament separation
+    const now = Date.UTC(2026, 10, 10, 23, 0, 0);
+    const tableUuid = '11111111-2222-4333-8444-555555555555';
+    const TOURNEY_WINNER = '99000000-0000-4000-8000-000000000091';
+    const rows = [
+      ...Array.from({ length: 340 }, (_, i) => ({
+        id: `bbbbbbbb-bbbb-4bbb-8bbb-${String(i + 1).padStart(12, '0')}`,
+        table_id: tableUuid,
+        hand_number: i + 1,
+        tournament_id: null,
+        created_at: new Date(now - (800 - i) * 10_000).toISOString(),
+        game_variant: 'plo4',
+        big_blind: 2,
+        players: [
+          { userId: TAG_WINNER_ID, seat: 1, net: 8 },
+          { userId: LAG_SHARK_HORSE, seat: 2, net: -8 },
+        ],
+        actions: [
+          {
+            userId: TAG_WINNER_ID,
+            action: 'raise',
+            amount: 6,
+            isFullRaise: true,
+            stage: 'preflop',
+            origin: 'player',
+          },
+          {
+            userId: LAG_SHARK_HORSE,
+            action: 'fold',
+            amount: 0,
+            stage: 'preflop',
+            origin: 'horse_policy',
+          },
+        ],
+      })),
+      ...Array.from({ length: 340 }, (_, i) => ({
+        id: `cccccccc-cccc-4ccc-8ccc-${String(i + 1).padStart(12, '0')}`,
+        table_id: tableUuid,
+        hand_number: 5000 + i,
+        tournament_id: 'dddddddd-dddd-4ddd-8ddd-000000000001',
+        created_at: new Date(now - (400 - i) * 10_000).toISOString(),
+        game_variant: 'plo4',
+        big_blind: 100,
+        players: [
+          { userId: TOURNEY_WINNER, seat: 1, net: 400 },
+          { userId: LAG_SHARK_HORSE, seat: 2, net: -400 },
+        ],
+        actions: [
+          {
+            userId: TOURNEY_WINNER,
+            action: 'raise',
+            amount: 250,
+            isFullRaise: true,
+            stage: 'preflop',
+            origin: 'player',
+          },
+          {
+            userId: LAG_SHARK_HORSE,
+            action: 'fold',
+            amount: 0,
+            stage: 'preflop',
+            origin: 'horse_policy',
+          },
+        ],
+      })),
+    ].sort((a, b) => b.created_at.localeCompare(a.created_at));
+
+    vi.spyOn(supabase, 'from').mockImplementation(((table: string) => {
+      expect(table).toBe('hand_history');
+      let cursorAt: string | null = null;
+      let lim = 1000;
+      const b: Record<string, unknown> = {
+        select: () => b,
+        eq: () => b,
+        gt: () => b,
+        lte: () => b,
+        order: () => b,
+        limit: (n: number) => ((lim = n), b),
+        or: (expr: string) => {
+          const m = /created_at\.lt\.([^,]+),/.exec(expr);
+          cursorAt = m ? m[1] : null;
+          return b;
+        },
+        then: (ok: (v: unknown) => unknown, bad?: (e: unknown) => unknown) => {
+          const start = cursorAt ? rows.findIndex((r) => r.created_at < cursorAt!) : 0;
+          const slice = start < 0 ? [] : rows.slice(start, start + lim);
+          return Promise.resolve({ data: slice, error: null }).then(ok, bad);
+        },
+      };
+      return b;
+    }) as never);
+
+    resetWinnerReads();
+    HorseMind.reset();
+    const firstHydrate = await hydrateHorseExploitReads(now);
+    expect(firstHydrate.hands).toBe(340); // cash hands merged into exploitCounters; tournament hands excluded
+    const countersAfterFirst = structuredClone(
+      HorseMind.getExploitCounters(TAG_WINNER_ID, readScopeOf('plo4', 2))
+    );
+    const readoutAfterFirst = winnerReadout(TAG_WINNER_ID, winnerReadScopeOf('plo4', 'cash'));
+    expect(isProvenWinner(TAG_WINNER_ID, winnerReadScopeOf('plo4', 'cash'))).toBe(true);
+    // Tournament hands must NOT pollute cash or unscoped winner reads
+    expect(isProvenWinner(TOURNEY_WINNER, winnerReadScopeOf('plo4', 'cash'))).toBe(false);
+    expect(isProvenWinner(TOURNEY_WINNER)).toBe(false);
+    expect(isProvenWinner(TOURNEY_WINNER, winnerReadScopeOf('plo4', 'tournament'))).toBe(true);
+
+    // Calling hydrateHorseExploitReads a second time is a 100% idempotent no-op
+    const secondHydrate = await hydrateHorseExploitReads(now);
+    expect(secondHydrate.hands).toBe(0);
+    expect(HorseMind.getExploitCounters(TAG_WINNER_ID, readScopeOf('plo4', 2))).toEqual(
+      countersAfterFirst
+    );
+    expect(winnerReadout(TAG_WINNER_ID, winnerReadScopeOf('plo4', 'cash'))).toEqual(
+      readoutAfterFirst
+    );
+    vi.restoreAllMocks();
+
+    // 2. observerReads shares winnerReads across dealtCount changes (2 -> 4 -> 6) while isolating other observers
+    const clock = { t: 1_000 };
+    const obsBank = new HorseObserverReads(32, 1024, () => clock.t);
+    const OBS_HORSE_A = LAG_SHARK_HORSE;
+    const OBS_HORSE_B = TRICKY_TRAP_HORSE;
+    const CRUSHER_OPP = '61000000-0000-4000-8000-000000000001';
+    const leaseId = '50000000-0000-4000-8000-000000000086';
+
+    const makeObsReq = (
+      observerId: string,
+      dealtCount: number,
+      handNum: number
+    ): FastHorseDecisionRequest => {
+      const dealtSeatIds = Array.from({ length: dealtCount }, (_, idx) => idx + 1);
+      const seatPlayers = dealtSeatIds.map((s) => ({
+        seat: s,
+        user_id: s === 1 ? observerId : s === 2 ? CRUSHER_OPP : `seat-filler-${s}`,
+      }));
+      return {
+        type: 'DECIDE_FAST',
+        requestId: handNum,
+        generation: 1,
+        fence: `${tableUuid}:${handNum}:1:${leaseId}:1`,
+        decisionKey: '',
+        decisionTimeMs: clock.t + 10,
+        handJournalContext: captureHorseHandJournalContext([]),
+        player: seatPlayers[0],
+        gameState: {
+          gameVariant: 'plo4',
+          format: 'cash',
+          gameMode: 'cash',
+          dealtSeatIds,
+          players: seatPlayers,
+        },
+      } as never;
+    };
+
+    // Touch dealtCount = 2, then stream 310 winning hands across dealtCount = 2, 4, and 6
+    obsBank.run(makeObsReq(OBS_HORSE_A, 2, 1), () => undefined);
+    for (let h = 1; h <= 310; h++) {
+      const dc = h <= 110 ? 2 : h <= 210 ? 4 : 6;
+      clock.t += 50;
+      obsBank.run(makeObsReq(OBS_HORSE_A, dc, h), () => undefined);
+      const done: ObserveCompletedHandRequest = {
+        type: 'OBSERVE_COMPLETED_HAND',
+        requestId: 10_000 + h,
+        generation: h,
+        fence: `${tableUuid}:${h}:${leaseId}:observe`,
+        handKey: `${tableUuid}:${h}`,
+        committedHandId: `eeeeeeee-eeee-4eee-8eee-${String(h).padStart(12, '0')}`,
+        actions: [],
+        bigBlind: 2,
+        results: [
+          { user_id: CRUSHER_OPP, net: 10 },
+          { user_id: OBS_HORSE_A, net: -10 },
+        ],
+      };
+      obsBank.complete(done, () => undefined);
+    }
+
+    clock.t += 50;
+    // Despite seat-count churn (2 -> 4 -> 6 -> 3), OBS_HORSE_A retains all 310 hands in sharedWinnerBanks!
+    obsBank.run(makeObsReq(OBS_HORSE_A, 3, 999), () => {
+      expect(isProvenWinner(CRUSHER_OPP, winnerReadScopeOf('plo4', 'cash'))).toBe(true);
+    });
+    // OBS_HORSE_B never observed those hands -> isolated sandbox remains empty!
+    obsBank.run(makeObsReq(OBS_HORSE_B, 3, 999), () => {
+      expect(isProvenWinner(CRUSHER_OPP, winnerReadScopeOf('plo4', 'cash'))).toBe(false);
+    });
+
+    // 3. Flop-only highFlopStab (not inflated by turn/river delayed stabs, not diluted by turn/river check-backs) & guarded turnGiveUp
+    HorseMind.reset();
+    const DELAYED_STABBER = '62000000-0000-4000-8000-000000000001';
+    const FLOP_STABBER = '62000000-0000-4000-8000-000000000002';
+    const scope6 = readScopeOf('plo4', 6);
+
+    for (let h = 0; h < 20; h++) {
+      // DELAYED_STABBER: checks back 100% of flops (0/20 flop stabs), then bets 100% of turns & rivers when checked to
+      HorseMind.observeHandComplete(
+        `delayed:${h}`,
+        [
+          { stage: 'preflop', userId: DELAYED_STABBER, action: 'call', amount: 2, timestamp: 1 },
+          { stage: 'preflop', userId: 'bb-p', action: 'check', amount: 0, timestamp: 2 },
+          { stage: 'flop', userId: 'bb-p', action: 'check', amount: 0, timestamp: 3 },
+          { stage: 'flop', userId: DELAYED_STABBER, action: 'check', amount: 0, timestamp: 4 },
+          { stage: 'turn', userId: 'bb-p', action: 'check', amount: 0, timestamp: 5 },
+          { stage: 'turn', userId: DELAYED_STABBER, action: 'bet', amount: 4, timestamp: 6 },
+          { stage: 'turn', userId: 'bb-p', action: 'call', amount: 4, timestamp: 7 },
+          { stage: 'river', userId: 'bb-p', action: 'check', amount: 0, timestamp: 8 },
+          { stage: 'river', userId: DELAYED_STABBER, action: 'bet', amount: 10, timestamp: 9 },
+        ],
+        2,
+        null,
+        scope6
+      );
+
+      // FLOP_STABBER: stabs 75% of flops (15/20), then checks back 100% of turns & rivers (which previously diluted pooled betCheckedTo below 0.30!)
+      const stabs = h % 4 !== 0;
+      HorseMind.observeHandComplete(
+        `flop-only:${h}`,
+        [
+          { stage: 'preflop', userId: FLOP_STABBER, action: 'call', amount: 2, timestamp: 1 },
+          { stage: 'preflop', userId: 'bb-p', action: 'check', amount: 0, timestamp: 2 },
+          { stage: 'flop', userId: 'bb-p', action: 'check', amount: 0, timestamp: 3 },
+          {
+            stage: 'flop',
+            userId: FLOP_STABBER,
+            action: stabs ? 'bet' : 'check',
+            amount: stabs ? 4 : 0,
+            timestamp: 4,
+          },
+          ...(stabs
+            ? [
+                { stage: 'flop', userId: 'bb-p', action: 'call', amount: 4, timestamp: 5 },
+                { stage: 'turn', userId: 'bb-p', action: 'check', amount: 0, timestamp: 6 },
+                { stage: 'turn', userId: FLOP_STABBER, action: 'check', amount: 0, timestamp: 7 },
+                { stage: 'river', userId: 'bb-p', action: 'check', amount: 0, timestamp: 8 },
+                { stage: 'river', userId: FLOP_STABBER, action: 'check', amount: 0, timestamp: 9 },
+              ]
+            : []),
+        ],
+        2,
+        null,
+        scope6
+      );
+    }
+    HorseMind.setDecisionScope(scope6);
+
+    const singleStabThenCheck: ActionRecord[] = [
+      { stage: 'flop', seat: 1, userId: 'bb-p', action: 'check', amount: 0, timestamp: 1 },
+      { stage: 'flop', seat: 2, userId: DELAYED_STABBER, action: 'bet', amount: 4, timestamp: 2 },
+      { stage: 'flop', seat: 1, userId: 'bb-p', action: 'call', amount: 4, timestamp: 3 },
+      { stage: 'turn', seat: 1, userId: 'bb-p', action: 'check', amount: 0, timestamp: 4 },
+      { stage: 'turn', seat: 2, userId: DELAYED_STABBER, action: 'check', amount: 0, timestamp: 5 },
+    ];
+    const delayedRead = HorseMind.streetBullyRead(DELAYED_STABBER, singleStabThenCheck);
+    expect(delayedRead.highFlopStab).toBe(false);
+    // Guarded turnGiveUp: 0% historical flop stabber is NOT flagged turnGiveUp on a single hand!
+    expect(delayedRead.checkedTurnAfterFlopStab).toBe(true);
+    expect(delayedRead.turnGiveUp).toBe(false);
+
+    const flopStabberRead = HorseMind.streetBullyRead(FLOP_STABBER, []);
+    expect(flopStabberRead.highFlopStab).toBe(true);
+    expect(flopStabberRead.stabRate).toBeGreaterThan(0.55);
+  });
+
+  it('enforces position-checked plo_passive_rundown_oop, flop/turn-committed plo_underboat_stackoff, tournament-deducted omahaShare, fail-closed !ledgerComplete top-ups, stop-loss clamp, & 200bb $2/$5 PLO partial reloads', async () => {
+    // 1. Position-checked plo_passive_rundown_oop: OOP cold-call fires, IP BTN cold-call does NOT fire
+    const oopRundownLeaks = detectLeaks({
+      variant: 'plo4',
+      bigBlind: 2,
+      netBB: -30,
+      invested: 60,
+      holeCards: cards('JcTc9h8h'),
+      board: cards('KsQd4c2s7d'),
+      heroSeat: 2,
+      buttonSeat: 6,
+      occupiedSeats: [1, 2, 4, 6],
+      heroActions: [
+        { stage: 'preflop', action: 'call', amount: 6 },
+        { stage: 'flop', action: 'call', amount: 18 },
+        { stage: 'turn', action: 'call', amount: 36 },
+      ],
+      wentToShowdown: true,
+    });
+    expect(oopRundownLeaks).toContain('plo_passive_rundown_oop');
+
+    const ipButtonRundownLeaks = detectLeaks({
+      variant: 'plo4',
+      bigBlind: 2,
+      netBB: -30,
+      invested: 60,
+      holeCards: cards('JcTc9h8h'),
+      board: cards('KsQd4c2s7d'),
+      heroSeat: 6,
+      buttonSeat: 6,
+      occupiedSeats: [1, 2, 4, 6],
+      heroActions: [
+        { stage: 'preflop', action: 'call', amount: 6 },
+        { stage: 'flop', action: 'call', amount: 18 },
+        { stage: 'turn', action: 'call', amount: 36 },
+      ],
+      wentToShowdown: true,
+    });
+    expect(ipButtonRundownLeaks).not.toContain('plo_passive_rundown_oop');
+
+    // 2. Flop/turn-committed plo_underboat_stackoff (all-in on paired flop Ks Kd 2d with 22, river Ks Kd 2d Qh 7c)
+    const flopCommittedUnderboat = detectLeaks({
+      variant: 'plo4',
+      bigBlind: 2,
+      netBB: -105,
+      invested: 210,
+      holeCards: cards('2s2cAhTd'),
+      board: cards('KsKd2dQh7c'),
+      heroActions: [
+        { stage: 'preflop', action: 'call', amount: 6 },
+        { stage: 'flop', action: 'all_in', amount: 204, isFullRaise: true },
+      ],
+      wentToShowdown: true,
+    });
+    expect(flopCommittedUnderboat).toContain('plo_underboat_stackoff');
+
+    // 3. Tournament leak subtraction & cash omahaShare isolation in HorseSelfTuner
+    expect(
+      subtractTournamentLeaks(
+        { plo_underboat_stackoff: 7, plo_passive_rundown_oop: 5 },
+        { reviewed: 40, counts: { plo_underboat_stackoff: 5, plo_passive_rundown_oop: 5 } }
+      )
+    ).toEqual({ plo_underboat_stackoff: 2 });
+    // Pure NLH cash Horse (100 NLH cash hands, 0 PLO cash hands) that played 30 PLO MTT reviewed pots keeps omahaShare = 0
+    expect(
+      computeCashOmahaShare(
+        { holdem: 100, omaha: 0 },
+        { holdem: 10, omaha: 30 },
+        { reviewed: 30, counts: { plo_underboat_stackoff: 4 } }
+      )
+    ).toBe(0);
+
+    // 4. HorseBankroll.topUpAllowance stop-loss clamp (investedThisTable + allowed <= stopLossCeiling)
+    const stdPolicy = {
+      ...bankrollPolicyFor(LAG_SHARK_HORSE),
+      buyInsToSit: 25,
+      stopLossBuyIns: 3,
+      maxBankrollFraction: 0.1,
+    };
+    const clampedByStopLoss = topUpAllowance({
+      bankroll: 100_000,
+      investedThisTable: 1300, // refBuyIn = 500, maxBuyIn = 500 -> stopLossCeiling = 1500 -> stopLossHeadroom = 200
+      desired: 500,
+      refBuyIn: 500,
+      minBuyIn: 200,
+      maxBuyIn: 500,
+      policy: stdPolicy,
+    });
+    expect(clampedByStopLoss).toBe(200);
+
+    // 5. HorseSessionRotator: (a) fails closed when chip_ledger pagination is incomplete (!ledgerComplete),
+    //    and (b) executes partial permitted reload (>= 0.5 * buyIn) on 200bb-max $2/$5 PLO tables!
+    const now = Date.parse('2026-11-10T21:00:00Z');
+    vi.useFakeTimers({ now, toFake: ['Date'] });
+    for (const m of ['log', 'warn', 'error'] as const)
+      vi.spyOn(console, m).mockImplementation(() => {});
+    vi.spyOn(Math, 'random').mockReturnValue(0.1);
+
+    // Find a Horse UUID with active PLO persona AND 'standard' bankroll policy (maxBankrollFraction = 0.05, stopLossBuyIns = 3)
+    let standardActivePloHorse = LAG_SHARK_HORSE;
+    for (let i = 1; i <= 500; i++) {
+      const candidate = `86110000-0000-4000-8000-${String(i).padStart(12, '0')}`;
+      const arch = ploPersonaFor(candidate).archetype;
+      const pol = bankrollPolicyFor(candidate);
+      if (arch !== 'nit_hunter' && pol.maxBankrollFraction === 0.05 && pol.stopLossBuyIns === 3) {
+        standardActivePloHorse = candidate;
+        break;
+      }
+    }
+
+    const clubId = '00000000-0000-0000-0000-000000000000';
+    // 200bb-max $2/$5 PLO table: min_buy_in = 200, max_buy_in = 1000, referenceBuyIn = 500
+    // Initial buy-in = 1000; current stack = 300 (< 400 = 0.80 * 500), desiredTopUp = 700.
+    // With bankroll = 28,000 and standard policy (0.05 -> exposureCap = 1400):
+    // headroom = 1400 - 1000 = 400 (< desiredTopUp 700, >= 250 = 0.5 * buyIn) -> partial reload of 400!
+    const table200bbPlo = {
+      id: 'table-plo-25-200bb',
+      game_variant: 'plo4',
+      big_blind: 5,
+      small_blind: 2.5,
+      min_buy_in: 200,
+      max_buy_in: 1000,
+      tournament_id: null,
+      status: 'running',
+      settings: {},
+      cluster_id: null,
+      lifecycle: 'live',
+      created_at: new Date(now - 3600_000).toISOString(),
+      max_players: 6,
+      is_deleted: false,
+    };
+    expect(referenceBuyIn(5, 200, 1000)).toBe(500);
+
+    const seatRow = {
+      id: 'seat-200bb-plo',
+      table_id: table200bbPlo.id,
+      user_id: standardActivePloHorse,
+      seat_number: 1,
+      stack: 300,
+      joined_at: new Date(now - 40 * 60_000).toISOString(),
+      club_id: clubId,
+      leave_pending: false,
+      is_sitting_out: false,
+      left_at: null,
+      auto_rebuy: false,
+      tables: table200bbPlo,
+    };
+
+    let failChipLedger = true;
+    const dbTables: Record<string, Record<string, unknown>[]> = {
+      table_seats: [seatRow],
+      profiles: [{ id: standardActivePloHorse, is_horse: true, diamonds: 28_000 }],
+      club_members: [{ club_id: clubId, user_id: standardActivePloHorse, chip_balance: 28_000 }],
+      chip_ledger: [
+        {
+          id: 'ledger-buyin-1',
+          from_entity_id: standardActivePloHorse,
+          table_id: table200bbPlo.id,
+          amount: 1000,
+          to_type: 'table_stack',
+          created_at: new Date(now - 40 * 60_000).toISOString(),
+        },
+      ],
+      cash_player_session: [],
+      table_waitlist: [],
+      cash_game_waitlist: [],
+      cash_games: [],
+      cash_seat_moves: [],
+      hand_history: [],
+      tournament_players: [],
+      tables: [table200bbPlo],
+    };
+
+    vi.spyOn(supabase, 'from').mockImplementation(((name: string) => {
+      let rows = [...(dbTables[name] ?? [])];
+      let lim = Infinity;
+      const b: Record<string, unknown> = {
+        select: () => b,
+        eq: (c: string, v: unknown) => ((rows = rows.filter((r) => r[c] === v)), b),
+        in: (c: string, v: unknown[]) => ((rows = rows.filter((r) => v.includes(r[c]))), b),
+        is: (c: string, v: unknown) => ((rows = rows.filter((r) => (r[c] ?? null) === v)), b),
+        gt: () => b,
+        gte: () => b,
+        lte: () => b,
+        not: () => b,
+        order: () => b,
+        limit: (n: number) => ((lim = n), b),
+        range: () => b,
+        then: (ok: (v: unknown) => unknown, bad?: (e: unknown) => unknown) => {
+          if (name === 'chip_ledger' && failChipLedger) {
+            return Promise.resolve({ data: null, error: { message: 'ledger timeout' } }).then(
+              ok,
+              bad
+            );
+          }
+          return Promise.resolve({ data: rows.slice(0, lim), error: null }).then(ok, bad);
+        },
+      };
+      return b;
+    }) as never);
+    vi.spyOn(supabase, 'rpc').mockImplementation((() =>
+      Promise.resolve({ data: null, error: { message: 'none' } })) as never);
+
+    const addChips200 = vi.fn(async () => ({ success: true }));
+    const engines: Record<string, RotatorEngine> = {
+      [table200bbPlo.id]: {
+        leaveTable: vi.fn(() => ({ success: true })),
+        sitOut: vi.fn(() => ({ success: true })),
+        addChips: addChips200,
+        hitRunHandsOwed: () => 5,
+        isClientSitOut: () => false,
+      },
+    };
+    const rotator = new HorseSessionRotator((tid) => engines[tid]) as unknown as {
+      isRunning: boolean;
+      lifecycleGeneration: number;
+      rotate(gen: number): Promise<void>;
+    };
+    rotator.isRunning = true;
+    rotator.lifecycleGeneration = 1;
+
+    // (a) Incomplete chip_ledger -> fail closed (zero addChips calls!)
+    await rotator.rotate(1);
+    expect(addChips200).not.toHaveBeenCalled();
+
+    // (b) Healthy chip_ledger -> 200bb $2/$5 PLO partial permitted reload of 400 executes cleanly!
+    failChipLedger = false;
+    await rotator.rotate(1);
+    vi.useRealTimers();
+    expect(addChips200).toHaveBeenCalledWith(standardActivePloHorse, 400);
+  });
+
+  it('proves end-to-end live HorseDecisionWorkerRuntime (DECIDE_FAST) -> receipt validation -> HandController.performAction commit across PLO4/5/6 preflop & river underboat 75% pot folds', async () => {
+    liveHorsePhase8Authority.refresh();
+    liveHorsePhase8GuardAuthority.refresh();
+    liveHorsePhase10Authority.refresh();
+    for (const auth of Object.values(liveHorsePhase11Authorities)) auth.refresh();
+    for (const auth of Object.values(liveHorsePhase12Authorities)) auth.refresh();
+    for (const auth of Object.values(liveHorsePhase13Authorities)) auth.refresh();
+    for (const auth of Object.values(liveHorsePhase14Authorities)) auth.refresh();
+    liveHorseFeatureAuthority.refresh();
+
+    const messages: HorseDecisionWorkerResponse[] = [];
+    const worker = new HorseDecisionWorkerRuntime((m) => messages.push(m), {
+      ...defaultHorseDecisionWorkerDependencies,
+      startServices: async () => defaultHorseDecisionWorkerDependencies.workerReadiness(),
+      stopServices: async () => {},
+      journalEnabled: () => false,
+      journalAcceptedHand: () => {},
+      journalLifecycle: () => {},
+      noteDecision: () => {},
+      noteFeature: () => {},
+    });
+    await worker.start();
+
+    const tableId = '22222222-3333-4444-8555-666666666666';
+
+    const executeAndCommitSpot = async (
+      handNumber: number,
+      variant: 'plo4' | 'plo5' | 'plo6',
+      setup: (hc: HandController) => void
+    ) => {
+      const config: HandConfig = {
+        tableId,
+        handNumber,
+        gameVariant: variant,
+        smallBlind: 1,
+        bigBlind: 2,
+        isTournament: false,
+        rakeConfig: { percent: 0, cap: 0, noFlopNoDrop: true },
+      } as HandConfig;
+      const players: SeatPlayer[] = [
+        makeSeat(1, WOOWOO_ID, '', { stack: 200, is_horse: false }),
+        makeSeat(2, LAG_SHARK_HORSE, '', { stack: 200, is_horse: true }),
+        makeSeat(3, '71000000-0000-4000-8000-000000000003', '', { stack: 200, is_horse: false }),
+      ];
+      const hc = new HandController(config, players, 3);
+      hc.start();
+      setup(hc);
+
+      const spot = controllerDecisionState(hc, variant as never, 'cash', config)!;
+      expect(spot.hero.user_id).toBe(LAG_SHARK_HORSE);
+      spot.state.commitmentCapRemaining = applyTableCommitmentCap(
+        hc.getAuthoritativeActionState(LAG_SHARK_HORSE)!,
+        spot.hero,
+        false,
+        0,
+        2
+      ).commitmentCapRemaining;
+
+      const reqId = 9000 + handNumber;
+      const req: FastHorseDecisionRequest = {
+        type: 'DECIDE_FAST',
+        requestId: reqId,
+        generation: 1,
+        fence: `${tableId}:${handNumber}:2:11:1`,
+        decisionTimeMs: Date.now() + 5000,
+        decisionKey: '',
+        player: spot.hero,
+        gameState: spot.state,
+        style: 'grinder',
+        mods: { tightness: 0.98, aggression: 1.18, bluffFreq: 0.91, sizingMultiplier: 0.94 },
+        handJournalContext: captureHorseHandJournalContext(spot.state.actionHistory!),
+      };
+      req.decisionKey = buildHorseDecisionKey(req);
+      seedFastRandom(42 + handNumber);
+      worker.receive(req);
+      await worker.drain();
+
+      const resp = messages.find((m) => m.type === 'FAST_RESULT' && m.requestId === reqId);
+      expect(resp?.type).toBe('FAST_RESULT');
+      if (resp?.type !== 'FAST_RESULT') throw new Error('Expected FAST_RESULT');
+      expect(horseDecisionReceiptRefusal(resp.decision, variant)).toBeNull();
+
+      // Normalize worker action to HandController legal action just like ServerTableEngineTurns.commitDecision
+      const rawAct = resp.decision.action;
+      const toCall = spot.state.toCall ?? 0;
+      const curBet = spot.state.currentBet ?? 0;
+      const normAct =
+        (rawAct as string) === 'allin'
+          ? 'all_in'
+          : rawAct === 'raise' && curBet === 0
+            ? 'bet'
+            : rawAct === 'bet' && curBet > 0
+              ? 'raise'
+              : rawAct === 'call' && toCall === 0
+                ? 'check'
+                : rawAct === 'fold' && toCall === 0
+                  ? 'check'
+                  : rawAct;
+      const committed = hc.performAction(
+        spot.hero.seat,
+        normAct as never,
+        resp.decision.amount ?? undefined,
+        'horse_policy'
+      );
+      expect(committed).toBe(true);
+      return { decision: resp.decision, stateAfter: hc.getState() };
+    };
+
+    // (a) PLO5 cash preflop 3+2 double-suited rundown JT987ds 3-bets CO open and commits cleanly into HandController
+    const plo5Pre = await executeAndCommitSpot(1, 'plo5', (hc) => {
+      // dealer=3 (BTN), seat 1=SB, seat 2=BB (Hero), seat 3=BTN opens to 6, seat 1 folds -> Hero acts in BB
+      expect(hc.performAction(3, 'raise', 6)).toBe(true);
+      expect(hc.performAction(1, 'fold')).toBe(true);
+      const internal = (hc as unknown as { state: { players: SeatPlayer[] } }).state;
+      internal.players.find((p) => p.seat === 2)!.cards = cards('JhTh9s8s7h');
+    });
+    expect(plo5Pre.decision.action).toBe('raise');
+    expect(plo5Pre.decision.omahaVariantPolicy?.mode).toBe('candidate');
+    expect(plo5Pre.stateAfter.actionHistory.at(-1)?.action).toBe('raise');
+
+    // (b) PLO4, PLO5, and PLO6 river bottom underboat facing exact 75% pot bet (30 into 40) folds (never value-raises!) and commits into HandController
+    const holeByVariant: Record<'plo4' | 'plo5' | 'plo6', string> = {
+      plo4: '2s2dAh7c',
+      plo5: '2s2dAh7c6d',
+      plo6: '2s2dAh7c6d5s',
+    };
+    let hNum = 10;
+    for (const v of ['plo4', 'plo5', 'plo6'] as const) {
+      const res = await executeAndCommitSpot(hNum++, v, (hc) => {
+        // Pot-limit legal path to an exact 40-chip river pot:
+        // Preflop: Seat 3 limps (2), Seat 1 (SB) pot-raises to 8, Seat 2 (BB Hero) calls 8, Seat 3 folds -> pot = 18
+        expect(hc.performAction(3, 'call')).toBe(true);
+        expect(hc.performAction(1, 'raise', 8)).toBe(true);
+        expect(hc.performAction(2, 'call')).toBe(true);
+        expect(hc.performAction(3, 'fold')).toBe(true);
+        // Flop: Seat 1 bets 11 into 18, Seat 2 calls -> pot = 40
+        expect(hc.performAction(1, 'bet', 11)).toBe(true);
+        expect(hc.performAction(2, 'call')).toBe(true);
+        // Turn: check / check -> pot = 40
+        expect(hc.performAction(1, 'check')).toBe(true);
+        expect(hc.performAction(2, 'check')).toBe(true);
+        // River: Force board Ks Qs Jc Jd 2h and hero bottom underboat 22 before Seat 1 bets 30 into 40 (75% pot)
+        const internal = (
+          hc as unknown as { state: { communityCards: Card[]; players: SeatPlayer[] } }
+        ).state;
+        internal.communityCards = cards('KsQsJcJd2h');
+        internal.players.find((p) => p.seat === 2)!.cards = cards(holeByVariant[v]);
+        expect(hc.performAction(1, 'bet', 30)).toBe(true);
+      });
+      expect(res.decision.action).toBe('fold');
+      expect(res.stateAfter.actionHistory.at(-1)?.action).toBe('fold');
+    }
   });
 });

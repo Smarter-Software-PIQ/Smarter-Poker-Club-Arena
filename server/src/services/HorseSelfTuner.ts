@@ -382,6 +382,86 @@ export function leakFamilyOf(
   return v.startsWith('plo') || v === 'flo8' || v.includes('omaha') ? 'omaha' : 'holdem';
 }
 
+const NLH_ONLY_TOURNEY_TAGS = new Set([
+  'underfull_stackoff',
+  'weak_kicker_trips_stackoff',
+  'top_pair_weak_kicker_stackoff',
+  'one_pair_turn_stackoff',
+]);
+
+/**
+ * Subtract tournament-format leak counts (`fn_horse_tournament_leaks`) from
+ * pooled `horse_review_rollup` counts so tournament leaks never nudge cash
+ * diagnostic dials.
+ */
+export function subtractTournamentLeaks(
+  pooledLeaks: Record<string, number> | null | undefined,
+  tourneyLeaks?: { reviewed: number; counts: Record<string, number> } | null
+): Record<string, number> | null {
+  if (!pooledLeaks) return null;
+  if (!tourneyLeaks || !tourneyLeaks.counts || Object.keys(tourneyLeaks.counts).length === 0) {
+    return pooledLeaks;
+  }
+  const out: Record<string, number> = {};
+  for (const [tag, rawCount] of Object.entries(pooledLeaks)) {
+    const n = (Number(rawCount) || 0) - (Number(tourneyLeaks.counts[tag]) || 0);
+    if (n > 0) out[tag] = n;
+  }
+  return out;
+}
+
+/**
+ * Compute ring-cash `omahaShare` (`[0, 1]` or `null` under 20 cash hands).
+ *
+ * Uses dealt ring-cash hands (`format === 'cash'`) from `horse_daily_nets`
+ * when available (>= 20 hands), keeping tournament PLO, heads-up cash, and
+ * PLO's higher 20bb+ review-pot rate out of the cash VPIP ceiling. Falls back
+ * to `horse_review_rollup` family hands with tournament reviewed hands removed
+ * when `horse_daily_nets` is absent.
+ */
+export function computeCashOmahaShare(
+  cashNetsHands: { omaha: number; holdem: number } | null | undefined,
+  reviewFamHands?: { omaha: number; holdem: number } | null,
+  tourneyLeaks?: { reviewed: number; counts: Record<string, number> } | null
+): number | null {
+  if (cashNetsHands) {
+    const dealtTotal = cashNetsHands.omaha + cashNetsHands.holdem;
+    if (dealtTotal >= 20) {
+      return cashNetsHands.omaha / dealtTotal;
+    }
+  }
+  if (!reviewFamHands) return null;
+  let omahaRev = Math.max(0, reviewFamHands.omaha);
+  let holdemRev = Math.max(0, reviewFamHands.holdem);
+  const tRev = Math.max(0, tourneyLeaks?.reviewed ?? 0);
+  if (tRev > 0 && omahaRev + holdemRev > 0) {
+    let ploSignals = 0;
+    let nlhSignals = 0;
+    for (const [k, v] of Object.entries(tourneyLeaks?.counts ?? {})) {
+      const n = Number(v) || 0;
+      if (n <= 0) continue;
+      if (k.startsWith('plo_')) ploSignals += n;
+      else if (NLH_ONLY_TOURNEY_TAGS.has(k)) nlhSignals += n;
+    }
+    if (ploSignals > 0 && nlhSignals === 0) {
+      const deductOmaha = Math.min(omahaRev, tRev);
+      omahaRev -= deductOmaha;
+      holdemRev = Math.max(0, holdemRev - (tRev - deductOmaha));
+    } else if (nlhSignals > 0 && ploSignals === 0) {
+      const deductHoldem = Math.min(holdemRev, tRev);
+      holdemRev -= deductHoldem;
+      omahaRev = Math.max(0, omahaRev - (tRev - deductHoldem));
+    } else {
+      const tot = omahaRev + holdemRev;
+      const deductOmaha = Math.min(omahaRev, Math.round((tRev * omahaRev) / tot));
+      omahaRev -= deductOmaha;
+      holdemRev = Math.max(0, holdemRev - Math.min(holdemRev, tRev - deductOmaha));
+    }
+  }
+  const cashTotal = omahaRev + holdemRev;
+  return cashTotal >= 20 ? omahaRev / cashTotal : null;
+}
+
 /** Public stat snapshot stored in the log (rates, not raw counters). */
 export function statSnapshot(s: PlayStats): Record<string, number> {
   return {
@@ -804,15 +884,17 @@ export async function runSelfTune(
       string,
       { hands: number; netBB: number; rakeBB: number; bbjBB: number }
     >();
+    const ringCashHandsByFamily = new Map<string, Record<VariantFamily, number>>();
     try {
       const sinceDay = new Date(Date.now() - STUDY_WINDOW_DAYS * 86400_000)
         .toISOString()
         .slice(0, 10);
       for (let offset = 0; ; offset += 1000) {
         if (!shouldContinue()) return { studied: 0, tuned: 0 };
+        const DAILY_NETS_BASE_SELECT = 'horse_user_id, hands, net_bb, rake_bb, bbj_bb, format';
         const { data, error } = await supabase
           .from('horse_daily_nets')
-          .select('horse_user_id, hands, net_bb, rake_bb, bbj_bb, format')
+          .select(`${DAILY_NETS_BASE_SELECT}, game_variant`)
           .gte('day', sinceDay)
           .in('format', ['cash', 'hu_cash'])
           /*
@@ -850,22 +932,31 @@ export async function runSelfTune(
         if (!data || data.length === 0) break;
         for (const row of data as Array<{
           horse_user_id: string;
+          game_variant?: string | null;
+          format?: string | null;
           hands: number;
           net_bb: number;
           rake_bb: number | null;
           bbj_bb: number | null;
         }>) {
+          const handsCount = row.hands ?? 0;
           const acc = realNets.get(row.horse_user_id) ?? {
             hands: 0,
             netBB: 0,
             rakeBB: 0,
             bbjBB: 0,
           };
-          acc.hands += row.hands ?? 0;
+          acc.hands += handsCount;
           acc.netBB += Number(row.net_bb ?? 0);
           acc.rakeBB += Number(row.rake_bb ?? 0);
           acc.bbjBB += Number(row.bbj_bb ?? 0);
           realNets.set(row.horse_user_id, acc);
+          if ((!row.format || row.format === 'cash') && typeof row.game_variant === 'string') {
+            const fam = leakFamilyOf(row.game_variant);
+            const fh = ringCashHandsByFamily.get(row.horse_user_id) ?? { omaha: 0, holdem: 0 };
+            fh[fam] += handsCount;
+            ringCashHandsByFamily.set(row.horse_user_id, fh);
+          }
         }
         if (data.length < 1000) break;
       }
@@ -874,6 +965,7 @@ export async function runSelfTune(
       // and the night tunes on frequencies exactly as before.
       reportError(err, 'HorseSelfTuner.realNets');
       realNets.clear();
+      ringCashHandsByFamily.clear();
     }
     // 2026-09-05: the fleet's own distribution is the yardstick. Rake-adjusted
     // bb/100 across every horse with a qualifying sample; the regression rule
@@ -1124,19 +1216,31 @@ export async function runSelfTune(
           ? (rn.rakeBB / rn.hands) * 100
           : null;
       const famHands = leakHandsByFamily.get(horseId) ?? { omaha: 0, holdem: 0 };
-      const totalFamHands = famHands.omaha + famHands.holdem;
-      const omahaShare = totalFamHands >= 20 ? famHands.omaha / totalFamHands : null;
+      const tl = tourneyLeaks.get(horseId);
+      const omahaShare = computeCashOmahaShare(
+        ringCashHandsByFamily.get(horseId) ?? null,
+        famHands,
+        tl ?? null
+      );
+      const cashLeaksForHorse = subtractTournamentLeaks(
+        leaksByHorse.get(horseId) ?? null,
+        tl ?? null
+      );
+      const cashLeaksHands = Math.max(
+        0,
+        (leakHandsByHorse.get(horseId) ?? 0) - (tl?.reviewed ?? 0)
+      );
       const { mods, reasons } = diagnoseAndNudge(
         s,
         prevMods,
         realBB100,
         rn?.hands ?? 0,
-        leaksByHorse.get(horseId) ?? null,
+        cashLeaksForHorse,
         {
           rakeBB100,
           bbjBB100,
           fleetP25,
-          leaksHands: leakHandsByHorse.get(horseId) ?? 0,
+          leaksHands: cashLeaksHands,
           omahaShare,
         }
       );
@@ -1159,7 +1263,6 @@ export async function runSelfTune(
         for (const [k, v] of Object.entries(m)) if ((Number(v) || 0) > 0) out[k] = Number(v);
         return out;
       };
-      const tl = tourneyLeaks.get(horseId);
       const familyProfile = {
         leaksOmaha: positive(fams.omaha),
         leaksHandsOmaha: famHands.omaha,
