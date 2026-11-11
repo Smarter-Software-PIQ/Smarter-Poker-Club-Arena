@@ -1,0 +1,5 @@
+{
+  "_owner": "fix/the-classic-floor-judges-thirty-dealt-hands - migration 20261111003710. Dan 2026-11-10: a 20% VPIP floor on Classic cash games at 0.50/1.00 and above, per variant, judged on a rolling thirty dealt hands at a thirty-hand minimum, warn first and boot after ten more dealt hands. The migration installs inert; activation is the separate migration 20261111022301. fn_nit_evictions is recreated rather than retired, so the serving engine keeps its existing contract and no tombstone is declared.",
+  "tables": ["ca_classic_vpip_floors", "ca_nit_warnings"],
+  "functions": ["fn_nit_enforce", "fn_nit_hands_since", "fn_nit_policy", "fn_nit_sample"]
+}
