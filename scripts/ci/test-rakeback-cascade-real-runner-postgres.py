@@ -80,6 +80,18 @@ SINKS: realtime.send (lane C's platform.sql). Notification, reporting and
 P&L-observation triggers are not wired (manifest.json lists every trigger
 that is and is not).
 
+CLUB ISOLATION (20261111174403, fixtures/.../club-isolation.py): after the week above, two more union weeks on
+the same board: a club that cannot fund its week is held while the others are paid and is paid once when funded
+(round 1 still fails the whole union closed); a cross-club upline holds both clubs; an upline deleted after round 2
+holds its club alone in round 3; a second runner tick and an agent's stake race round 3. Stand-ins there (each
+marked in that file): one owner deposit minted to a club bank, one agreement-history row inserted after
+preparation, one profile status set to deleted.
+
+DEBIT DOORS (fixtures/.../between-rounds.py and before-round2.py, lanes I, J and K): every production function that
+writes agents.agent_wallet_balance outside the weekly rounds, byte-exact (debit-paths.json), executed against the
+reserves round 2 sets: debits refused for the reserved part and moving for the rest, credit-only doors landing, the
+v3 commission fallback, and the two ON DELETE CASCADE foreign keys into agents. Stand-ins there are marked.
+
 NOT RUN: job 272 union-weekly-rakeback-close (the post-money books: P&L,
 documents, invoices; the runner owns the money), tournaments, standalone
 clubs, row level security, grants, foreign keys.
@@ -102,7 +114,7 @@ A=P.parse_args()
 R=Path(__file__).resolve().parents[2]; F=R/'scripts/ci/fixtures/rakeback-cascade-real-runner'; G=R/'scripts/ci/fixtures/rakeback-cascade-real-guards'
 sys.path.insert(0,str(G)); import world  # lane C's catalog-to-DDL builder, reused unchanged
 MIG_A=next((R/'supabase/migrations').glob('20261109231325_*.sql')); MIG_B=next((R/'supabase/migrations').glob('20261109231855_*.sql')); MIG_P=next((R/'supabase/migrations').glob('20261110053814_*.sql'))
-MIG_G=next((R/'supabase/migrations').glob('20261111132447_*.sql'))
+MIG_G=next((R/'supabase/migrations').glob('20261111132447_*.sql')); MIG_J=next((R/'supabase/migrations').glob('20261111174403_*.sql'))
 S=A.store or F
 FUNCS=json.loads((S/'production-functions.json').read_text()); REL=json.loads((S/'production-relations.json').read_text()); CFG=json.loads((F/'production-config.json').read_text())
 CRON={j['jobname']:j['command'] for j in CFG['cron']}
@@ -258,10 +270,32 @@ try:
     q('SET check_function_bodies=on;\n'+''.join(f"SELECT plpgsql_validator('{f}'::regprocedure);\n" for f in NEW_FUNCS))
     acl=one("SELECT bool_and(NOT has_function_privilege(r,p,'EXECUTE')) FROM unnest(ARRAY['anon','authenticated','service_role']) r,unnest(ARRAY["+','.join(f"'{f}'" for f in NEW_FUNCS[:6])+"]::regprocedure[]) p")
     assert acl=='t' and one("SELECT NOT has_table_privilege('authenticated','smarter_private.weekly_payout_wallet_reserves','SELECT') AND NOT has_table_privilege('service_role','smarter_private.weekly_payout_wallet_reserves','UPDATE')")=='t'
-    MIGRATED=after_g
+    # CLUB ISOLATION (20261111174403), whole from disk, on exactly 20261111132447's postimages.
+    mig_j=MIG_J.read_text()
+    q('SET check_function_bodies=off;\n'+mig_j); after_j=changed()
+    # Of production's functions it replaces only the runner beyond what 20261111132447 already replaced (rounds 2 and 3, the
+    # funding step and finalize are re-patched in place; the planner overload and the new helpers are not production functions).
+    assert set(after_j)==set(after_g)|{'smarter_private.weekly_payout_next_round'},('the club isolation file replaced a production function outside its change',sorted(set(after_j)^set(after_g)))
+    assert all(sigs()[k]!=v for k,v in INSTALLED.items() if k.split('(')[0] in('public.fn_settle_accounting_commission_stage','public.fn_settle_accounting_rakeback_stage','smarter_private.weekly_payout_fund_agent_shortfalls','smarter_private.weekly_payout_finalize','smarter_private.weekly_payout_next_round'))
+    proofs_j=[l.split(': ',1)[1] for l in mig_j.splitlines() if l.startswith('-- @live-proof: ')]
+    assert len(proofs_j)==8 and all(one('SELECT '+p+';')=='t' for p in proofs_j),'a live proof of 20261111174403 is false after install'
+    again_j=q('SET check_function_bodies=off;\n'+mig_j,check=False)
+    assert again_j.returncode and 'club_isolation_' in again_j.stderr and '_preimage_changed' in again_j.stderr,again_j.stderr[-600:]
+    J_FUNCS=['smarter_private.rakeback_cascade_plan(text,uuid,timestamptz,timestamptz,uuid)','smarter_private.weekly_payout_club_refuse(text,uuid,timestamptz,timestamptz,int,uuid,text,text,jsonb)',
+      'smarter_private.weekly_payout_club_plan(text,uuid,timestamptz,timestamptz,int)','smarter_private.weekly_payout_round2_clubs(text,uuid,timestamptz,timestamptz,text)',
+      'smarter_private.weekly_payout_round2_planned()','smarter_private.weekly_payout_round3_clubs(text,uuid,timestamptz,timestamptz)',
+      'smarter_private.weekly_payout_round3_funding_holds(text,uuid,timestamptz,timestamptz)','smarter_private.weekly_payout_fund_club_holds(text,uuid,timestamptz,timestamptz)',
+      'smarter_private.weekly_payout_club_round_close(text,uuid,timestamptz,timestamptz,int,text)','smarter_private.weekly_payout_unit_waits(uuid,text,uuid,timestamptz,timestamptz,int)',
+      'smarter_private.rakeback_cascade_round2_plan(text,uuid,timestamptz,timestamptz)','smarter_private.weekly_payout_next_round()']
+    q('SET check_function_bodies=on;\n'+''.join(f"SELECT plpgsql_validator('{f}'::regprocedure);\n" for f in J_FUNCS+NEW_FUNCS))
+    acl_j=one("SELECT bool_and(NOT has_function_privilege(r,p,'EXECUTE')) FROM unnest(ARRAY['anon','authenticated','service_role']) r,unnest(ARRAY["+','.join(f"'{f}'" for f in J_FUNCS[:10]+['smarter_private.weekly_payout_club_isolated(text,uuid,timestamptz,timestamptz,int)'])+"]::regprocedure[]) p")
+    assert acl_j=='t' and one("SELECT NOT has_table_privilege('authenticated','smarter_private.weekly_payout_club_rounds','SELECT') AND NOT has_table_privilege('service_role','smarter_private.weekly_payout_club_rounds','UPDATE')")=='t'
+    MIGRATED=after_j
+    case('20261111174403 (club isolation) installs whole on exactly 20261111132447\'s postimages, replaces only rounds 2 and 3, the funding step, finalize and the runner, compiles against the real relations, its eight live proofs are true, a second install refuses, and no client role may call its functions or read its club rows')
     case('the three migrations install whole from disk on production definitions (after the first two the fixture equals what production runs today, md5 read 2026-11-11); they replace only: '+', '.join(x.split('.')[1] for x in MIGRATED)+'; 20261111132447 compiles against the real relations, its six live proofs are true, a second install refuses, and no client role may call its functions or read its reserves')
     if A.stop_after=='install': raise SystemExit(0)
     exec((F/'cases.py').read_text())
+    exec((F/'club-isolation.py').read_text())
     if A.usage_out: A.usage_out.write_text(json.dumps(usage(),indent=0))
     unshifted={k.split('(')[0] for k,v in FUNCS.items() if re.search(r'\b(CURRENT_DATE|CURRENT_TIMESTAMP|CURRENT_TIME|LOCALTIMESTAMP|LOCALTIME)\b',v['def'],re.I)}&set(usage()['functions'])
     assert not unshifted,('a function that reads a clock form the fixture clock does not shift was executed',sorted(unshifted))
