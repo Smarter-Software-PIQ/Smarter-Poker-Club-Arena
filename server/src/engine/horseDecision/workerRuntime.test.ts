@@ -3602,7 +3602,12 @@ describe('P10.3 worker-owned PLO4 authority (the Phase 8 path, reused)', () => {
   it.each(LIVE_STATES)(
     'live behaviour under the committed selection: %s',
     async (_name, format, cards, changed, mainAction) => {
-      const request = format === 'cash' ? plo4Cash(601, cards) : plo4Tournament(601, cards);
+      // V87 (2026-11-10) caps non-BB V24 price relief in PLO4 independently of
+      // Phase 10 authority, folding rainbow QsQh4c4d in the reference brain;
+      // isolate this frozen 2026-10-08 P10.1 pin table with v87DeepDiveDiscipline: false
+      // (HorseDeepDiveDiscipline.test.ts pins the real policy).
+      const base = format === 'cash' ? plo4Cash(601, cards) : plo4Tournament(601, cards);
+      const request = rekey({ ...base, opts: { ...base.opts, v87DeepDiveDiscipline: false } });
       const live = await decideThrough(request, () => admitHorsePhase10ReleaseAuthority());
       const reference = await decideThrough(request, undefined, true);
       expect(act(reference.decision)).toEqual(mainAction);
@@ -3634,7 +3639,8 @@ describe('P10.3 worker-owned PLO4 authority (the Phase 8 path, reused)', () => {
   it.each(LIVE_STATES)(
     'a genuinely qualified fixture retains the cash candidate and tournament reference boundary: %s',
     async (_name, format, cards, changed, mainAction) => {
-      const request = format === 'cash' ? plo4Cash(602, cards) : plo4Tournament(602, cards);
+      const base = format === 'cash' ? plo4Cash(602, cards) : plo4Tournament(602, cards);
+      const request = rekey({ ...base, opts: { ...base.opts, v87DeepDiveDiscipline: false } });
       const qualified = await decideThrough(request, () => qualifiedPhase10TestAdmission(2));
       const reference = await decideThrough(request, undefined, true);
       expect(act(reference.decision)).toEqual(mainAction);
@@ -4016,15 +4022,24 @@ describe('P11.3 worker-owned PLO5/PLO6/PLO8 authority (the Phase 8 path, reused 
   );
 
   it('the PLO6 Qs Qh 4c 4d 8s 9c call was the V24 price defense, now default off in PLO6 cash', async () => {
+    // V87 (2026-11-10) independently tightens 6-card non-BB calls and V24
+    // relief caps; isolate this 2026-10-31 V24 price-defense measurement from
+    // V87 (HorseDeepDiveDiscipline.test.ts pins the real policy).
     const base = omahaCash(611, 'plo6', 'Qs Qh 4c 4d 8s 9c');
     const on = await decideThrough(
-      rekey({ ...base, opts: { ...base.opts, v24PloDefense: true } }),
+      rekey({
+        ...base,
+        opts: { ...base.opts, v24PloDefense: true, v87DeepDiveDiscipline: false },
+      }),
       undefined,
       true
     );
     expect(act(on.decision)).toEqual({ action: 'call', amount: 2 });
     const off = await decideThrough(
-      rekey({ ...base, opts: { ...base.opts, v24PloDefense: false } }),
+      rekey({
+        ...base,
+        opts: { ...base.opts, v24PloDefense: false, v87DeepDiveDiscipline: false },
+      }),
       undefined,
       true
     );

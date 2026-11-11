@@ -284,3 +284,16 @@ describe('Poker Arena has its own share card (discoverability phase 6, 2026-09-1
     expect(html).toContain('<meta property="og:image:height" content="630" />');
   });
 });
+
+describe('Diamond Arena public availability matches the published launch policy', () => {
+  it('does not advertise funded games in landing copy or structured feature data', () => {
+    const page = readFileSync(join(__dirname, '../src/pages/PokerArenaLandingPage.tsx'), 'utf8');
+    expect(page).toContain('Funded Diamond Games Are Not Open For Play Yet');
+    expect(page).not.toContain('Play Diamond Denominated Games');
+    const schema = resolveSeo('/').jsonLd;
+    expect(JSON.stringify(schema)).toContain(
+      'Diamond Arena Membership (Funded Games Not Yet Open)'
+    );
+    expect(JSON.stringify(schema)).not.toContain('"Diamond Arena Games"');
+  });
+});

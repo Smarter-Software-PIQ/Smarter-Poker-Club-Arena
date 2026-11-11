@@ -78,6 +78,13 @@ RUN node dist/engine/horsePolicySourcesShippedMain.js
 
 # Remove dev dependencies
 RUN npm prune --omit=dev --no-audit --no-fund
+# Ship the committed lockfile byte for byte (2026-11-11). `npm prune` rewrites
+# package-lock.json (it adds dev flags the committed file lacks) while leaving
+# the installed production tree exactly the locked set; held-out feature
+# admission hashes /app/package-lock.json against the qualified plan, so the
+# image carries the committed bytes. The pruned tree itself is unchanged.
+# tests/operations/engine-build-resource-proof.py checks both in the built image.
+COPY package-lock.json ./
 
 # Run
 ENV NODE_ENV=production

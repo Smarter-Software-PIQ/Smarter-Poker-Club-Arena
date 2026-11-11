@@ -261,51 +261,34 @@ round 1, round 2, funding with round 3, finalize, then proves that further ticks
 
 ## Install route
 
-Both files declare `-- @install-window: daily-maintenance`, so merging them
-installs nothing. Apply Merged Migration answers QUEUED for each, and the
-03:30 America/Chicago run of `stage-engine-release.yml` (job
-`window-migrations`) sends each queued file once inside the 04:00 freeze.
-Never apply either by hand or through the Supabase MCP.
+**Changed 2026-11-11: both files install at merge, not in the daily window.**
+They first declared `-- @install-window: daily-maintenance` and were never
+installed. From 2026-11-04 to 2026-11-11 the daily preparation that runs the
+window installer reached it once (refused, 2026-11-10 17:03Z); on 2026-11-11
+the reserved preparation (run 42959839523) stopped at 09:30Z with "Release
+controls changed during reservation; keep serving", and the owner-window
+release dispatched at 09:20Z skips the window job by design. Relying on four
+more nights of that before the 2026-11-16 payout was not a delivery route.
+
+`public.agents` is not one of the three hot tables the window rule names
+(clubs, tables, hand_history), and the cascade locks no table, so both are
+ordinary files: Apply Merged Migration sends each once, in version order, in
+one transaction under `lock_timeout` 1 s and the applier's 12 s bound. Never
+apply either by hand or through the Supabase MCP.
 
 **The wallet migration must install first**: the cascade refuses with
 `rakeback_cascade_requires_owner_routing_wallet` until
-`smarter_private.ensure_owner_routing_wallet` exists.
-
-The installer does not send strictly by version: it sends files with no
-`-- @locks:` line first, then files that declare one
-(`orderWindowQueue` in `scripts/ci/maintenance-window-migrations.mjs`). The
-cascade locks no table and declares none. The wallet file therefore declares
-none either, and with neither declaring the queue is version order: **wallet,
-then cascade, in the same window**. Declaring `public.agents` on the cascade
-instead would have been false, and would let the installer end idle sessions
-on `agents` for a file that needs no lock.
-
-What that costs the wallet file, which does take ACCESS EXCLUSIVE on
-`public.agents` for its constraint swap and trigger: the installer does not
-end a session left idle in transaction on `agents` before the one attempt, and
-a `lock_timeout` refusal will not name the relation. It still reads the
-`ALTER TABLE` from the SQL and waits for a quiet moment on `public.agents`
-before sending. If the wallet file loses its lock it stays queued, the cascade
-refuses behind it on its precondition, the run is red naming both, and both
-are sent again the next night. Nothing is half installed.
-
-The order is pinned by `tests/superseded-certificates-never-fund.law.test.ts`
-and can be read with:
-
-```bash
-node --input-type=module -e "
-import {readFileSync, readdirSync} from 'node:fs';
-const m = await import('./scripts/ci/maintenance-window-migrations.mjs');
-const q = readdirSync('supabase/migrations').filter(f => /^202611092318|^202611092313/.test(f))
-  .map(f => ({file: f, locks: m.windowLocks(readFileSync('supabase/migrations/' + f, 'utf8'))}));
-console.log(m.orderWindowQueue(q).map(e => e.file.slice(0, 14)).join(' then '));"
-```
+`smarter_private.ensure_owner_routing_wallet` exists. If the cascade's applier
+run reaches the database before the wallet's has committed, it refuses whole
+and installs nothing; it is then dispatched once more after the wallet file is
+recorded. The wallet file takes ACCESS EXCLUSIVE on `public.agents` only for
+its constraint swap and one trigger; if the lock is not granted within 1 s the
+file rolls back whole.
 
 The wallet file now also replaces three functions, each guarded by its
 installed md5. If any of the three, or `fn_enforce_agent_commission_bounds`,
-is changed on production before the window, the wallet file refuses whole and
-the cascade refuses behind it; re-read the changed function and update the
-file before the next night.
+is changed on production before it installs, the wallet file refuses whole and
+the cascade refuses behind it; re-read the changed function and update the file.
 
 The next weekly payout is Monday 2026-11-16.
 
