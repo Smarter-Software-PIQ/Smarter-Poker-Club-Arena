@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   HORSE_UNION_CASH_PLAN as plan,
@@ -8,6 +8,8 @@ import {
   type CashPlanTable,
   playingHumansAtCashTable,
   scheduledHorseCashGames,
+  humanDepartureDwellMinutes,
+  resetHumanPresenceMemoryForTest,
 } from './HorseUnionCashPlan.js';
 import { secondTablePicked, thirdTablePicked } from './HorseBehavior.js';
 
@@ -31,43 +33,15 @@ const high = {
   big_blind: 2,
 };
 
-describe('the union cash schedule follows the November 4 owner scope', () => {
-  it('runs three lower-stakes Classic tables without humans throughout 4-8am, every day (Lightning is separate and always on)', () => {
-    for (let day = 9; day <= 15; day++)
-      for (let hour = 4; hour < 8; hour++) {
-        const now = Date.UTC(2026, 10, day, hour + 6, 30);
-        expect(scheduledHorseCashGames(now).size).toBe(3);
-        expect(allowed(low, 0, now)).toBe(true);
-        expect(allowed(high, 0, now)).toBe(false);
-        expect(allowed(high, 1, now)).toBe(true);
-      }
-  });
-  it.each([
-    ['2026-11-04T07:59:59-06:00', 3],
-    ['2026-11-04T08:00:00-06:00', 9],
-    ['2026-11-04T12:00:00-06:00', 13],
-    ['2026-11-04T17:59:59-06:00', 13],
-    ['2026-11-04T18:00:00-06:00', 16],
-    ['2026-11-04T22:59:59-06:00', 16],
-    ['2026-11-04T23:00:00-06:00', 13],
-    ['2026-11-05T00:00:00-06:00', 5],
-    ['2026-11-05T03:59:59-06:00', 5],
-    ['2026-11-05T04:00:00-06:00', 3],
-    ['2026-11-05T08:59:59-06:00', 9],
-    ['2026-11-05T09:00:00-06:00', 11],
-    ['2026-11-06T17:00:00-06:00', 16],
-    ['2026-11-06T19:00:00-06:00', 16],
-    ['2026-11-06T21:00:00-06:00', 16],
-    ['2026-11-06T23:59:59-06:00', 16],
-    ['2026-11-07T00:00:00-06:00', 5],
-  ])('has %s bounded to %i scheduled games', (date, count) => {
-    expect(scheduledHorseCashGames(at(date)).size).toBe(count);
-  });
-  it('budgets 1727 scheduled Classic and Madness table-hours in an ordinary week, with no hour above 16', () => {
-    let tableHours = 0;
+describe('the union cash floor follows the November 11 relaunch (zero game-count restrictions)', () => {
+  it('schedules every plan game at every hour of every day, with the target tripled', () => {
+    expect(plan.games).toHaveLength(22);
+    expect(plan.games.every((game) => game.window === 'always')).toBe(true);
+    expect(plan.weeklyRakeTarget).toBe(600000);
     for (let hour = 0; hour < 168; hour++) {
-      const scheduled = scheduledHorseCashGames(at('2026-11-09T00:00:00-06:00') + hour * 3600000);
-      const count = scheduled.size;
+      const now = at('2026-11-09T00:00:00-06:00') + hour * 3600000 + 30 * 60000;
+      const scheduled = scheduledHorseCashGames(now);
+      expect(scheduled.size).toBe(22);
       const variants = plan.games
         .filter((game) => scheduled.has(game.id))
         .map((game) => game.variant);
@@ -76,42 +50,33 @@ describe('the union cash schedule follows the November 4 owner scope', () => {
       // Lightning is never on this clock (Dan 2026-11-05: "LIGHTNING MUST
       // ALWAYS BE ON"); see LightningGamesAlwaysRun.law.test.ts.
       expect(plan.games.some((game) => game.name.startsWith('Lightning'))).toBe(false);
-      expect(count).toBeLessThanOrEqual(16);
-      tableHours += count;
     }
-    expect(tableHours).toBe(1727);
+  });
+  it('runs all seven 1/2 games full time, Horse-only play included (Dan 2026-11-11)', () => {
+    const oneTwo = plan.games.filter((game) => game.smallBlind === 1 && game.bigBlind === 2);
+    expect(oneTwo.map((game) => game.variant).sort()).toEqual([
+      'flh',
+      'flo8',
+      'nlh',
+      'plo4',
+      'plo5',
+      'plo5',
+      'plo6',
+    ]);
+    for (const hour of ['2026-11-12T05:00:00-06:00', '2026-11-12T12:00:00-06:00', '2026-11-13T02:30:00-06:00'])
+      for (const game of oneTwo)
+        expect(
+          allowed({ ...high, cluster_id: game.id, game_variant: game.variant }, 0, at(hour))
+        ).toBe(true);
   });
   it('uses Chicago DST rules rather than a fixed UTC offset', () => {
-    expect(scheduledHorseCashGames(at('2027-03-15T13:00:00Z')).size).toBe(9);
-    expect(scheduledHorseCashGames(at('2026-11-09T13:00:00Z')).size).toBe(3);
-    for (const date of ['2027-11-07T01:30:00-05:00', '2027-11-07T01:30:00-06:00'])
-      expect(scheduledHorseCashGames(at(date)).size).toBe(5);
-  });
-  it('allows Classic NLH 1/2 Horse-only play 9 AM to 4 AM and human-supported play 4-9 AM', () => {
-    expect(allowed(high, 0, at('2026-11-04T18:00:00-06:00'))).toBe(true);
-    expect(allowed(high, 0, at('2026-11-04T23:00:00-06:00'))).toBe(true);
-    expect(allowed(high, 0, at('2026-11-05T03:30:00-06:00'))).toBe(true);
-    expect(allowed(high, 0, at('2026-11-05T04:00:00-06:00'))).toBe(false);
-    expect(allowed(high, 0, at('2026-11-04T05:00:00-06:00'))).toBe(false);
-    expect(allowed(high, 1, at('2026-11-04T05:00:00-06:00'))).toBe(true);
-  });
-  it('keeps a Classic 1/2 No Limit and a Classic 1/2 PLO game running every hour except 4-9 AM (Dan 2026-11-05)', () => {
-    const classicOneTwo = (now: number, pick: (v: string) => boolean) =>
-      plan.games.some(
-        (game) =>
-          game.name.startsWith('Classic') &&
-          game.smallBlind === 1 &&
-          game.bigBlind === 2 &&
-          pick(game.variant) &&
-          scheduledHorseCashGames(now).has(game.id)
-      );
-    for (let hour = 0; hour < 168; hour++) {
-      const now = at('2026-11-09T00:00:00-06:00') + hour * 3600000 + 30 * 60000;
-      const local = hour % 24;
-      const offPeak = local >= 4 && local < 9;
-      expect(classicOneTwo(now, (v) => v === 'nlh')).toBe(!offPeak);
-      expect(classicOneTwo(now, (v) => v.startsWith('plo'))).toBe(!offPeak);
-    }
+    for (const date of [
+      '2027-03-15T13:00:00Z',
+      '2026-11-09T13:00:00Z',
+      '2027-11-07T01:30:00-05:00',
+      '2027-11-07T01:30:00-06:00',
+    ])
+      expect(scheduledHorseCashGames(at(date)).size).toBe(22);
   });
   it('does not turn lower-stakes games into human-only games', () => {
     const now = at('2026-11-04T05:00:00-06:00');
@@ -247,5 +212,36 @@ describe('a game may run a second table (Dan 2026-11-06)', () => {
     const primary = horseCashPlanPrimaryTables([main1, bad]);
     const second = horseCashPlanSecondTables([main1, bad], primary, () => true);
     expect(horseUnionCashTableAllowed(bad, 0, now, primary, null, null, second)).toBe(false);
+  });
+});
+
+describe('a game does not break right away after a human leaves (Dan 2026-11-11)', () => {
+  beforeEach(() => resetHumanPresenceMemoryForTest());
+  // A higher-stakes union table outside the plan: only the human exception
+  // admits horses, so its dwell is observable.
+  const offPlan = {
+    ...high,
+    id: 'dwell-table',
+    cluster_id: 'unlisted-two-five',
+    game_variant: 'flh',
+    small_blind: 2,
+    big_blind: 5,
+  };
+  it('keeps the human exception for the table own 20-30 minute dwell after the last human leaves', () => {
+    const dwell = humanDepartureDwellMinutes(String(offPlan.id));
+    const t0 = at('2026-11-12T20:00:00-06:00');
+    expect(allowed(offPlan, 0, t0)).toBe(false); // no human was ever seen
+    expect(allowed(offPlan, 1, t0)).toBe(true); // a person is playing
+    expect(allowed(offPlan, 0, t0 + 60000)).toBe(true); // one minute after they left
+    expect(allowed(offPlan, 0, t0 + dwell * 60000 - 1000)).toBe(true); // inside the dwell
+    expect(allowed(offPlan, 0, t0 + dwell * 60000)).toBe(false); // the dwell has run out
+  });
+  it('every table dwell lands inside the owner 20-30 minute window, deterministically', () => {
+    for (let i = 0; i < 64; i++) {
+      const minutes = humanDepartureDwellMinutes(`table-${i}`);
+      expect(minutes).toBeGreaterThanOrEqual(20);
+      expect(minutes).toBeLessThanOrEqual(30);
+      expect(humanDepartureDwellMinutes(`table-${i}`)).toBe(minutes);
+    }
   });
 });
