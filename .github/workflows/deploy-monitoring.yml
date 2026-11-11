@@ -42,6 +42,22 @@ on:
       - '.github/workflows/deploy-monitoring.yml'
   repository_dispatch:
     types: [deploy-club-arena-monitoring]
+  # AN ENGINE RELEASE RE-ASKS THE QUESTION (2026-11-10, Production Alerts
+  # incident MonitoringDeployFailed episode a09be630). The verifier refuses a
+  # rule whose metric only a NEWER engine emits ("RULES AHEAD OF THE ENGINE
+  # THAT IS RUNNING"). Since engines release once a day at 04:00 Chicago, any
+  # merge that adds a metric and its rule together is guaranteed to hit that
+  # refusal, and the episode then stayed firing until some unrelated push
+  # happened to touch infra/monitoring: 11-09 02:52Z to 11-10 04:54Z, about
+  # nine and a half hours after engine bff6eed3 had already caught up. The
+  # engine release that ends the condition now re-runs this same deploy and
+  # verification, converging on current main as a push run does, so the
+  # verdict job closes the episode from evidence instead of from chance.
+  # This is the engine publisher's `name:`, not its filename
+  # (tests/workflow-run-names-a-live-workflow.law.test.ts).
+  workflow_run:
+    workflows: ['Auto-Deploy Hetzner Engine (on server/ changes)']
+    types: [completed]
 
 # One at a time. Two deploys racing would leave the symlinks half-swapped.
 concurrency:
@@ -50,6 +66,11 @@ concurrency:
 
 jobs:
   deploy:
+    # Only a successful Engine Release or Engine Withdrawal re-runs this: each
+    # changes the build the verifier asks about. A failed release and the
+    # receiver's Private Horse Fleet Observation runs change nothing it reads, so the whole run is skipped (both jobs carry
+    # the same condition, so a skip records no verdict).
+    if: ${{ (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && (startsWith(github.event.workflow_run.display_title, 'Engine Release ') || startsWith(github.event.workflow_run.display_title, 'Engine Withdrawal ')))) }}
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 15
@@ -372,7 +393,7 @@ jobs:
   # failed, cancelled or skipped deploy admits its own verdict.
   monitoring-deploy-verdict:
     needs: deploy
-    if: ${{ always() }}
+    if: ${{ always() && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && (startsWith(github.event.workflow_run.display_title, 'Engine Release ') || startsWith(github.event.workflow_run.display_title, 'Engine Withdrawal ')))) }}
     name: This monitoring deploy admits its own verdict to the operational inbox
     runs-on: ubuntu-latest
     environment: ci-main
