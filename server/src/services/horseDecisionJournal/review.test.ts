@@ -569,6 +569,77 @@ describe('private retained-hand journal consumer', () => {
     });
   });
 
+  it.each(['stack', 'toCall', 'isOmaha'] as const)(
+    'rejects matching decision/witness preflop %s that contradicts the original request',
+    (field) => {
+      const f = fixture('plo4');
+      const snapshot = f.d.snapshot;
+      const receipt: NonNullable<HorseDecision['preflopAuthority']> = {
+        version: 1,
+        scope: 'reference_preflop',
+        events: [],
+        context: {
+          raises: 1,
+          callers: 0,
+          toCall: Math.max(0, snapshot.gameState.currentBet - snapshot.player.bet),
+          stack: snapshot.player.stack,
+          position: 'bb',
+          isOmaha: true,
+          classNeverThreeBet: false,
+        },
+        intent: { a: 'call' },
+        referenceAction: 'call',
+      };
+      f.d.decision.preflopAuthority = receipt;
+      f.w = { ...f.w, preflopAuthority: JSON.parse(JSON.stringify(receipt)) };
+      expect(reconcileHorseJournalHand(f.rows(), handKey).status).toBe('reconciled');
+      if (field === 'isOmaha') receipt.context.isOmaha = false;
+      else receipt.context[field] += 1;
+      f.w = { ...f.w, preflopAuthority: JSON.parse(JSON.stringify(receipt)) };
+      const report = reconcileHorseJournalHand(f.rows(), handKey);
+      expect(report.status).toBe('incomplete');
+      expect(report.matchedActions).toBe(0);
+      expect(report.gaps).toContain('input_mismatch');
+    }
+  );
+
+  it('rejects substituted preflop branch evidence even when the action still matches', () => {
+    const f = fixture('plo4');
+    f.w = {
+      ...f.w,
+      preflopAuthority: {
+        version: 1,
+        scope: 'reference_preflop',
+        context: {
+          raises: 1,
+          callers: 0,
+          toCall: 6,
+          stack: 200,
+          position: 'bb',
+          isOmaha: true,
+          classNeverThreeBet: true,
+        },
+        events: [
+          {
+            branch: 'v46_class_flat',
+            strength: 0.97,
+            threeBetThreshold: 0.9,
+            effectiveThreeBetThreshold: 0.9,
+            premiumValue: false,
+            pressure: false,
+          },
+        ],
+        intent: { a: 'call' },
+        referenceAction: 'call',
+        referenceAmount: 6,
+      },
+    };
+    const report = reconcileHorseJournalHand(f.rows(), handKey);
+    expect(report.status).toBe('incomplete');
+    expect(report.matchedActions).toBe(0);
+    expect(report.gaps).toContain('input_mismatch');
+  });
+
   it('rejects a changed Phase 10 input commitment even when the accepted action still matches', () => {
     const f = fixture('plo4', [], false, true);
     f.w = { ...f.w, phase10Inputs: { ...f.w.phase10Inputs!, inputSha256: 'f'.repeat(64) } };
@@ -1058,6 +1129,31 @@ describe('private retained-hand journal consumer', () => {
         expect(publicJson).not.toContain(secret);
     }
   );
+  it('reads exact private clock evidence and refuses a clock attributed to another action', () => {
+    const f = fixture();
+    const actionIndex = f.a.actions.length - 1;
+    const clock = {
+      actionIndex,
+      startedAtMs: 100,
+      deadlineMs: 1100,
+      acceptedAtMs: 1001,
+      path: 'strategy',
+    };
+    const review = (clocks: unknown[]) =>
+      reconcileHorseJournalHand(
+        [...f.rows().slice(0, 2), f.make('accepted_hand', 3, { ...f.a, horseTurnClocks: clocks })],
+        handKey
+      );
+    expect(review([clock])).toMatchObject({
+      status: 'reconciled',
+      horseTurnClocks: [{ ...clock, elapsedMs: 901, remainingMs: 99 }],
+    });
+    expect(review([{ ...clock, path: 'timeout' }]).gaps).toContain('invalid_records');
+    expect(review([{ ...clock, acceptedAtMs: 999 }]).gaps).toContain('invalid_records');
+    expect(review([clock, clock]).gaps).toContain('invalid_records');
+    expect(reconcileHorseJournalHand(f.rows(), handKey).horseTurnClocks).toBeUndefined();
+  });
+
   it('recovers from a fresh read-only connection without altering the spool', () => {
     const dir = directory(),
       f = fixture(),
@@ -1129,14 +1225,26 @@ describe('private retained-hand journal consumer', () => {
       ).toMatchObject({ status: 'unavailable', gaps: ['accepted_hand_conflict'] });
     }
   );
-  it('treats identical retained accepted rosters as one acceptance', () => {
+  it('reconciles ordinary and repeated recovered terminals with the same accepted roster', () => {
     const f = fixture();
     f.a = { ...f.a, acceptedActorRoster: doorRosterTransport(table, 12, hand) } as typeof f.a;
     const rows = f.rows();
     const accepted = rows.find((r) => r.kind === 'accepted_hand')!;
     expect(
       reconcileHorseJournalHand(
-        [...rows, f.make('accepted_hand', 4, { ...JSON.parse(accepted.body), requestId: 99 })],
+        [
+          ...rows,
+          f.make('accepted_hand', 4, {
+            ...JSON.parse(accepted.body),
+            requestId: 99,
+            terminalOnlySourceRelease: 'a'.repeat(40),
+          }),
+          f.make('accepted_hand', 5, {
+            ...JSON.parse(accepted.body),
+            requestId: 100,
+            terminalOnlySourceRelease: 'a'.repeat(40),
+          }),
+        ],
         handKey
       )
     ).toMatchObject({ status: 'reconciled', matchedActions: 1 });

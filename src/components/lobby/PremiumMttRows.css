@@ -951,7 +951,10 @@
 
 /* The separate start-time toggle occupies the first glass bay. Give Details
    the row hit area, so its own centre is not hidden beneath that toggle. */
-.compact-lobby.has-premium-chassis tbody tr[data-id][data-kind='mtt'] .compact-lobby__open {
+.compact-lobby.has-premium-chassis
+  tbody
+  tr[data-id]:is([data-kind='mtt'], [data-kind='cash'])
+  .compact-lobby__open {
   position: absolute;
   inset: 0;
   width: 100%;

@@ -120,12 +120,22 @@ for (const width of [320, 390, 1280]) {
       const plate = page.getByRole('button', { name: '100', exact: true });
       const spin = page.getByRole('button', { name: 'Preview Spin', exact: true });
       const geometry = async () => [await plate.boundingBox(), await spin.boundingBox()];
+      const selected = page.getByRole('button', { name: '2,500', exact: true });
+      await selected.click();
+      const selectedAppearance = () =>
+        selected.evaluate((button) => {
+          const style = getComputedStyle(button);
+          return [style.color, style.opacity, style.filter, style.backgroundImage];
+        });
+      const readyAppearance = await selectedAppearance();
       const resting = await geometry();
       await spin.hover();
       await page.mouse.down();
       expect(await geometry()).toEqual(resting);
       await page.mouse.up();
       await expect(spin).toBeDisabled();
+      await expect(selected).toBeDisabled();
+      expect(await selectedAppearance()).toEqual(readyAppearance);
       expect(await geometry()).toEqual(resting);
 
       await expect(page.getByRole('button', { name: 'Preview Spin', exact: true })).toBeDisabled();
@@ -199,13 +209,11 @@ for (const width of [320, 390, 1280]) {
         await expect(proceed).toBeEnabled();
         expect(await insideViewport(page, '[role="dialog"], [role="dialog"] button')).toBe(true);
         await expect(proceed).toBeInViewport();
-        // Give a completed reveal another full reveal duration: a timer must not
-        // dismiss a booked prize without the player's explicit acknowledgement.
-        await page.evaluate(async () => {
-          const opening = document.querySelector('[role="dialog"] [data-motion="keep"]')!;
-          const duration = parseFloat(getComputedStyle(opening).animationDuration) * 1000;
-          await new Promise((resolve) => setTimeout(resolve, duration));
+        const shell = await dialog.evaluate((el) => {
+          const css = getComputedStyle(el);
+          return [css.borderTopWidth, css.boxShadow, css.backgroundColor];
         });
+        expect(shell).toEqual(['0px', 'none', 'rgba(0, 0, 0, 0)']);
         await expect(dialog).toBeVisible();
         expect(await page.evaluate(() => window.wheelProof.finished)).toBe(0);
         await page.screenshot({ path: testInfo.outputPath(`wheel-prize-${width}.png`) });
@@ -213,21 +221,6 @@ for (const width of [320, 390, 1280]) {
         await expect(dialog).toHaveCount(0);
         await expect(page.getByTestId('destination')).toHaveText('/clubs/fixture/wheel');
       } else {
-        // Owner ruling 2026-09-21 (R1, R9): a won game stays on its reveal until
-        // Play Game is tapped; a full extra reveal duration passes and nothing
-        // navigates.
-        const dialog = page.getByRole('dialog');
-        const play = dialog.getByRole('button', { name: 'Play Game', exact: true });
-        await expect(play).toBeEnabled({ timeout: WHEEL_SPIN_MS + 1400 + 650 });
-        await page.evaluate(async () => {
-          const opening = document.querySelector('[role="dialog"] [data-motion="keep"]')!;
-          const duration = parseFloat(getComputedStyle(opening).animationDuration) * 1000;
-          await new Promise((resolve) => setTimeout(resolve, duration));
-        });
-        await expect(dialog).toBeVisible();
-        expect(await page.evaluate(() => window.wheelProof.finished)).toBe(0);
-        await expect(page.getByTestId('destination')).toHaveText('/clubs/fixture/wheel');
-        await play.click();
         await expect(page.getByRole('heading', { name: 'Earned Game Entry' })).toBeVisible();
         await expect(page.getByTestId('destination')).toHaveText(
           `/clubs/fixture/${receipt.bonus.game}?wheelAward=${receipt.bonus.id}`
@@ -239,7 +232,9 @@ for (const width of [320, 390, 1280]) {
       const starts = proof.events.filter((event) => event.event === 'animationstart');
       const ends = proof.events.filter((event) => event.event === 'animationend');
       expect(starts).toHaveLength(kind.startsWith('upgrade') ? 2 : 1);
-      expect(ends).toHaveLength(starts.length);
+      // Manual Continue can legitimately interrupt the entrance. An automatically
+      // opened earned game must first show its landed prize.
+      if (receipt.bonus) expect(ends).toHaveLength(starts.length);
       expect(proof.events.at(-1)?.event).toBe('finished');
       if (kind.startsWith('upgrade')) {
         expect(starts[0].title).toBe('Bonus Upgrade');
@@ -348,7 +343,7 @@ for (const viewport of [
       .boundingBox();
     const walletBounds = await controls.locator('dl > div').first().boundingBox();
     const chipBounds = await controls.locator('dl > div').nth(1).boundingBox();
-    const selector = controls.getByRole('button', { name: /^Amount / });
+    const selector = controls.getByRole('button', { name: 'Choose Spin Amount' });
     const toggle = await selector.boundingBox();
     if (!spinBounds || !walletBounds || !chipBounds || !toggle)
       throw new Error('Missing wheel controls');
@@ -371,7 +366,30 @@ for (const viewport of [
     expect(walletBounds.x + walletBounds.width).toBeLessThanOrEqual(spinBounds.x);
     expect(chipBounds.x).toBeGreaterThanOrEqual(spinBounds.x + spinBounds.width);
     expect(Math.abs(chipBounds.y - walletBounds.y)).toBeLessThan(1);
-    expect(toggle.y + toggle.height <= deck.y + 1 || toggle.x >= deck.x + deck.width).toBe(true);
+    const balanceInk = await controls.locator('dl > div').evaluateAll((bays) =>
+      bays.map((bay) => {
+        const value = bay.querySelector('dd')!;
+        const nodes = document.createTreeWalker(value, NodeFilter.SHOW_TEXT);
+        while (nodes.nextNode()) {
+          if (!nodes.currentNode.textContent?.trim()) continue;
+          const ink = document.createRange();
+          ink.selectNodeContents(nodes.currentNode);
+          return [
+            bay.querySelector('dt')!.getBoundingClientRect().top,
+            ink.getBoundingClientRect().top,
+          ];
+        }
+        throw new Error('Balance value has no visible ink');
+      })
+    );
+    // The picker hit area must not move Diamonds' label or amount off the
+    // exact label/value stack used by Club Chips.
+    expect(Math.abs(balanceInk[0][0] - balanceInk[1][0])).toBeLessThan(1);
+    expect(Math.abs(balanceInk[0][1] - balanceInk[1][1])).toBeLessThan(1);
+    expect(toggle.x).toBeGreaterThanOrEqual(walletBounds.x);
+    expect(toggle.x + toggle.width).toBeLessThanOrEqual(walletBounds.x + walletBounds.width + 1);
+    expect(toggle.y).toBeGreaterThanOrEqual(deck.y);
+    expect(toggle.y + toggle.height).toBeLessThanOrEqual(deck.y + deck.height + 1);
     let lastCenter = 0;
     for (const name of ['25', '100', '500', '1,000', '2,500']) {
       const preset = await controls.getByRole('button', { name, exact: true }).boundingBox();

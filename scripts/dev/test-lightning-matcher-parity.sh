@@ -231,6 +231,11 @@ BEGIN
         'bb_unresolved', coalesce(bl.missed_bb_debt, 0) > 0 OR coalesce(bl.bb_owed, 0) > 0,
         'debt_since_us', pp.us(coalesce(bl.debt_since, sl.opened_at)),
         'hands_since_bb', sl.hands_since_bb, 'newcomer', bl.player_id IS NULL,
+        -- The recency keys (20261110), only once the chain has the counter:
+        -- before it, the plan is the old rule and so is the port.
+        'hands_since_sb', CASE WHEN to_jsonb(sl) ? 'hands_since_button' THEN sl.hands_since_sb END,
+        'hands_since_button', (to_jsonb(sl) ->> 'hands_since_button')::integer,
+        'last_button_at_us', CASE WHEN to_jsonb(sl) ? 'hands_since_button' THEN pp.us(sl.last_button_at) END,
         'btn', coalesce(bl.btn_count, 0), 'co', coalesce(bl.co_count, 0),
         'hj', coalesce(bl.hj_count, 0), 'utg', coalesce(bl.utg_count, 0)) ORDER BY l.player_id), '[]'::jsonb)
         FROM public.fn_lightning_player_legality(p_game, v_now, NULL, NULL) l
@@ -532,6 +537,17 @@ proof=$(sed -n 's/^-- @live-proof: //p' "$M/20261015214203_lightning_calibration
 # The owner's one-second five-ready wait (20261026131624, Dan 2026-10-26) is
 # installed last, so the port's LIGHTNING_FORMATION_MAX_WAIT_MS (1,000) is
 # compared with the same SQL rule.
+# THE THIN-POOL FILE REFUSES WITHOUT POSITION FAIRNESS (20261110214134): on
+# this image (no 20261110173033 yet) it must raise before changing anything.
+thin_before=$(Q "SELECT md5(pg_get_functiondef('public.fn_lightning_match_plan(uuid,timestamp with time zone,uuid[],text,integer,jsonb)'::regprocedure)) || md5(pg_get_functiondef('public.fn_lightning_config(uuid)'::regprocedure))")
+if "${PSQL[@]}" -f "$M/20261110214134_lightning_a_thin_pool_deals_four_handed.sql" > "$fixture/thin-refusal.out" 2>&1; then
+  cat "$fixture/thin-refusal.out"; echo 'FAIL: the thin-pool file installed without position fairness'; exit 1
+fi
+grep -q 'requires 20261110173033 (position fairness) installed first' "$fixture/thin-refusal.out" \
+  || { cat "$fixture/thin-refusal.out"; echo 'FAIL: the thin-pool file failed for another reason'; exit 1; }
+[ "$(Q "SELECT md5(pg_get_functiondef('public.fn_lightning_match_plan(uuid,timestamp with time zone,uuid[],text,integer,jsonb)'::regprocedure)) || md5(pg_get_functiondef('public.fn_lightning_config(uuid)'::regprocedure))")" = "$thin_before" ] \
+  || { echo 'FAIL: the refused thin-pool file changed a function'; exit 1; }
+echo '  ok  the thin-pool file is refused, changing nothing, while position fairness is absent'
 "${PSQL[@]}" -f "$F/lightning-five-ready-preimages.sql" \
   -f "$M/20261023230001_classic_and_lightning_five_ready_waits_three_seconds_for_six.sql" \
   -f "$M/20261024195059_lightning_new_players_are_always_the_big_blind_first.sql" \
@@ -542,15 +558,81 @@ proof=$(sed -n 's/^-- @live-proof: //p' "$M/20261015214203_lightning_calibration
   -f "$M/20261025050528_lightning_newcomer_posts_a_live_entry_big_blind.sql" \
   -f "$M/20261025050534_lightning_hand_player_admits_the_entry_big_blind_role.sql" \
   -f "$M/20261026131624_lightning_five_ready_players_wait_one_second_for_a_sixth.sql" \
+  -f "$M/20261110173033_lightning_blinds_and_button_go_to_the_longest_waiting_player.sql" \
+  -f "$M/20261110214134_lightning_a_thin_pool_deals_four_handed.sql" \
   -c "SET request.headers = '{\"x-smarter-lightning-entry-bb\":\"1\"}'" \
   -f "$F/lightning-current-policy-parity.sql" \
-  -f "$F/lightning-entry-big-blind-parity.sql" > "$fixture/current-policy.out" 2>&1 || {
+  -f "$F/lightning-entry-big-blind-parity.sql" \
+  -f "$F/lightning-position-fairness-parity.sql" \
+  -f "$F/lightning-thin-pool-parity.sql" > "$fixture/current-policy.out" 2>&1 || {
   cat "$fixture/current-policy.out"; exit 1;
 }
 grep '^  ok  12' "$fixture/current-policy.out"
 [ "$(grep -c '^  ok  13[ABCDE] ENTRY BIG BLIND' "$fixture/current-policy.out")" = 5 ] \
   || { cat "$fixture/current-policy.out"; echo 'FAIL: section 13 (entry big blind) did not report five scenarios'; exit 1; }
 grep '^  ok  13' "$fixture/current-policy.out"
+grep -q '^  ok  14 POSITION FAIRNESS' "$fixture/current-policy.out" \
+  || { cat "$fixture/current-policy.out"; echo 'FAIL: section 14 (position fairness) did not report'; exit 1; }
+grep '^  ok  14' "$fixture/current-policy.out"
+grep -q '^  ok  15 THIN POOL' "$fixture/current-policy.out" \
+  || { cat "$fixture/current-policy.out"; echo 'FAIL: section 15 (thin pool) did not report'; exit 1; }
+grep '^  ok  15' "$fixture/current-policy.out"
+# 15R RACES (20261110214134). Real concurrent backends on PostgreSQL 17, not
+# one session: (a) four passes of the real matcher at once on a thin pool of
+# ten aged players; (b) three direct barrier calls at once for the same four
+# players; (c) a direct call for three. Nobody is seated twice, no hand has
+# fewer than four or more than six players, the four forms once.
+race_ten=$(Q "SELECT pp.entry_pool('RACE TEN', 10, 0)")
+race_four=$(Q "SELECT pp.entry_pool('RACE FOUR', 4, 0)")
+race_three=$(Q "SELECT pp.entry_pool('RACE THREE', 3, 0)")
+Q "SELECT public.fxr_lease(public.fn_cash_cluster_front_table('$race_ten'), true); SELECT public.fxr_lease(public.fn_cash_cluster_front_table('$race_four'), true); SELECT public.fxr_lease(public.fn_cash_cluster_front_table('$race_three'), true)" > /dev/null
+four_players=$(Q "SELECT array_agg(player_id ORDER BY player_id)::text FROM public.lightning_pool_slot WHERE cluster_id = '$race_four' AND closed_at IS NULL")
+three_players=$(Q "SELECT array_agg(player_id ORDER BY player_id)::text FROM public.lightning_pool_slot WHERE cluster_id = '$race_three' AND closed_at IS NULL")
+for i in 1 2 3 4; do
+  "${PSQL[@]}" -At -c "SELECT public.fn_lightning_match_and_form('$race_ten', clock_timestamp(), NULL, NULL, gen_random_uuid())" > "$fixture/race-pass-$i.out" 2>&1 &
+done
+for i in 1 2 3; do
+  "${PSQL[@]}" -At -c "SELECT public.fn_lightning_form_hand('$race_four', '$four_players'::uuid[], p_target_size => 4::smallint, p_max_size => 4::smallint, p_now => clock_timestamp(), p_matcher_version => 'm1', p_request_id => gen_random_uuid())" > "$fixture/race-direct-$i.out" 2>&1 &
+done
+wait
+"${PSQL[@]}" -At -c "SELECT public.fn_lightning_form_hand('$race_three', '$three_players'::uuid[], p_target_size => 3::smallint, p_max_size => 3::smallint, p_now => clock_timestamp(), p_matcher_version => 'm1', p_request_id => gen_random_uuid())" > "$fixture/race-three.out" 2>&1 || true
+"${PSQL[@]}" <<RACE > "$fixture/race.out" 2>&1 || { cat "$fixture"/race-*.out "$fixture/race.out"; echo 'FAIL: section 15R (races)'; exit 1; }
+DO \$\$
+DECLARE bad jsonb;
+BEGIN
+  -- Every hand of the three Clusters: four to six players.
+  SELECT jsonb_agg(jsonb_build_object('hand', h.hand_id, 'n', (SELECT count(*) FROM public.lightning_hand_player hp WHERE hp.hand_id = h.hand_id)))
+    INTO bad FROM public.lightning_hand h
+   WHERE h.cluster_id IN ('$race_ten', '$race_four', '$race_three')
+     AND (SELECT count(*) FROM public.lightning_hand_player hp WHERE hp.hand_id = h.hand_id) NOT BETWEEN 4 AND 6;
+  IF bad IS NOT NULL THEN RAISE EXCEPTION 'FAIL 15R: a hand outside four to six: %', bad; END IF;
+  -- Nobody seated in two hands that are still forming or dealing.
+  SELECT jsonb_agg(x) INTO bad FROM (
+    SELECT hp.player_id, count(*) AS n FROM public.lightning_hand_player hp
+      JOIN public.lightning_hand h ON h.hand_id = hp.hand_id
+      JOIN public.lightning_instance li ON li.hand_id = h.hand_id
+     WHERE h.cluster_id IN ('$race_ten', '$race_four') AND h.settled_at IS NULL
+     GROUP BY hp.player_id HAVING count(*) > 1) x;
+  IF bad IS NOT NULL THEN RAISE EXCEPTION 'FAIL 15R: a player seated twice: %', bad; END IF;
+  -- The ten: a six and a four, formed once between four racing passes.
+  IF (SELECT array_agg(h.player_count ORDER BY h.player_count DESC) FROM public.lightning_hand h WHERE h.cluster_id = '$race_ten')
+       IS DISTINCT FROM ARRAY[6, 4]::smallint[] THEN
+    RAISE EXCEPTION 'FAIL 15R: four racing passes on ten did not form exactly 6+4: %',
+      (SELECT array_agg(h.player_count) FROM public.lightning_hand h WHERE h.cluster_id = '$race_ten');
+  END IF;
+  -- The same four, three racing barrier calls: one hand.
+  IF (SELECT count(*) FROM public.lightning_hand h WHERE h.cluster_id = '$race_four' AND h.player_count IS NOT NULL) <> 1 THEN
+    RAISE EXCEPTION 'FAIL 15R: three racing barrier calls for one four formed % hands',
+      (SELECT count(*) FROM public.lightning_hand h WHERE h.cluster_id = '$race_four' AND h.player_count IS NOT NULL);
+  END IF;
+  -- Three never deal, even asked directly.
+  IF EXISTS (SELECT 1 FROM public.lightning_hand h WHERE h.cluster_id = '$race_three' AND h.player_count IS NOT NULL) THEN
+    RAISE EXCEPTION 'FAIL 15R: a direct call formed a three-handed hand';
+  END IF;
+END \$\$;
+RACE
+grep -q '"formed"' "$fixture/race-three.out" && grep -q '"formed": true' "$fixture/race-three.out" && { echo 'FAIL: 15R three formed'; exit 1; }
+echo '  ok  15R RACES  four concurrent matcher passes on ten formed exactly 6+4, three concurrent barrier calls for one four formed one hand, a direct call for three formed nothing; nobody seated twice, every hand four to six'
 n=$(Q "SELECT count(*) FROM pp.out")
 Q "SELECT jsonb_build_object('fixtures', jsonb_agg(doc || jsonb_build_object('discriminates', discriminates) ORDER BY n)) FROM pp.out" > "$fixture/fixtures.json"
 groups=$(Q "SELECT sum(jsonb_array_length(doc -> 'plan' -> 'groups')) FROM pp.out")

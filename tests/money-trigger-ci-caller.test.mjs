@@ -131,7 +131,8 @@ test('actual caller binds only the standard token and configured public App iden
 test('caller regression is enforced by the existing pull-request repository check job', () => {
   const job = workflow.split('\n  typecheck_compile:\n')[1]?.split(/\n  [a-z_]+:\n/)[0];
   assert.ok(job, 'the existing repository-check job must exist');
-  assert.match(job, /if: github\.event_name == 'pull_request'/);
+  // Merge queue (2026-11-11): the same job also runs on the queued merge group.
+  assert.match(job, /if: \(github\.event_name == 'pull_request' \|\| github\.event_name == 'merge_group'\)/);
   assert.match(job, /run: node --test tests\/money-trigger-ci-caller\.test\.mjs/);
 });
 
@@ -176,7 +177,16 @@ test('privileged reader stays in trusted default-main finish and retains cancell
   assert.deepEqual([...mint.matchAll(/permission-([\w-]+): (\w+)/g)].map(m => [m[1],m[2]]), [['administration','write']]);
   assert.match(mint, /skip-token-revoke: false/);
   assert.match(trustedStep('Finish explicit captured-head check'), /PROTECTION_READER_TOKEN: \$\{\{ steps\.protection-reader\.outputs\.token \}\}/);
-  assert.equal((trustedWorkflow.match(/PROTECTION_READER_TOKEN:/g)||[]).length, 1);
+  // One reader hand-off per job: the pull-request verifier and (merge queue,
+  // 2026-11-11) the merge-group verifier, each in its own finish step only.
+  const [prJob, groupJob] = trustedWorkflow.split('\n  verify_merge_group:\n');
+  assert.equal((prJob.match(/PROTECTION_READER_TOKEN:/g)||[]).length, 1);
+  assert.equal((groupJob.match(/PROTECTION_READER_TOKEN:/g)||[]).length, 1);
+  const groupFinish = groupJob.split('      - name: Finish explicit merge-group check\n')[1].split(/\n      - (?:name:|uses:)/)[0];
+  assert.match(groupFinish, /PROTECTION_READER_TOKEN: \$\{\{ steps\.protection-reader\.outputs\.token \}\}/);
+  const groupVerify = groupJob.split('      - name: Verify the merge group\'s migrations with trusted code\n')[1].split(/\n      - (?:name:|uses:)/)[0];
+  assert.doesNotMatch(groupVerify, /protection-reader|PROTECTION_READER_TOKEN|AUTOPILOT/);
+  assert.ok(groupJob.indexOf('Mint short-lived protection reader') > groupJob.indexOf('run: node scripts/ci/produce-money-trigger-recovery.mjs'));
   assert.doesNotMatch(trustedStep('Verify exact live recovery with trusted code'), /protection-reader|PROTECTION_READER_TOKEN|AUTOPILOT/);
   assert.match(trustedStep('Mint check-only reporter'), /app-id: \$\{\{ vars\.MONEY_TRIGGER_REPORTER_APP_ID \}\}/);
   assert.match(trustedStep('Mint check-only reporter'), /permission-checks: write/);

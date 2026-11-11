@@ -57,7 +57,14 @@
  */
 
 import type { Card } from '../types.js';
-import { HAND_CLASSES, holdemClass, parseChart, scoreAtShare } from './HorseGtoOpeningRanges.js';
+import {
+  HAND_CLASSES,
+  holdemClass,
+  parseChart,
+  scoreAtShare,
+  shareAtScore,
+  v85DepthWeight,
+} from './HorseGtoOpeningRanges.js';
 import { holdemPreflopScore } from './HorseEval.js';
 
 export type DefenderGroup = 'bb' | 'sb' | 'ip';
@@ -235,6 +242,104 @@ export const DEFEND_TARGET_IP: Readonly<Record<'cash' | 'ante', Readonly<Record<
     },
   };
 
+/**
+ * ═══ V85 CASH ACTION, EVERY TABLE SIZE (owner direction, 2026-11-09) ═══
+ *
+ * Production, nine-handed no-limit cash, the first action of a horse facing
+ * one open (6 hours, 2026-11-10 UTC): the seats between the opener and the
+ * blinds folded 94.0%, called 2.7% and 3-bet 3.3% (3,953 decisions); the
+ * small blind 90.3 / 4.3 / 5.4; the big blind 61.8 / 33.0 / 5.2 against a
+ * 3.4bb average open. That, not the opening ranges, is why a full table of
+ * horses ran 15.9% VPIP. Two causes, both in this file:
+ *
+ *  1. THE PER-PLAYER PENALTY. DEFEND_TARGET_IP took 2 points of continue and
+ *     0.4 of 3-bet away for every player behind the defender. Nine-handed,
+ *     UTG+1 facing UTG has five such players: its continue width collapsed
+ *     onto the floor (3-bet 2%, continue 3.5%), and no middle seat ever
+ *     reached 8%. The cost of each player behind is real but far smaller.
+ *  2. THE REFERENCE OPEN. Every width was written against a 2.5bb open and
+ *     scaled down for a bigger one, while cash opens have been 2.5-3.5bb
+ *     since 2026-11-01 (and are 2.5-4.5bb from this change), so every seat
+ *     defended narrower than its own table says.
+ *
+ * The owner: nine-handed 25-30% VPIP with more 3-betting "WHILE MAINTAINING
+ * GTO DISCIPLINE", adjusted for six-handed and short-handed play too. The
+ * discipline kept: every width is still the top of the (defender, opener
+ * seat) reference ORDER, a bigger open is still defended narrower, an early
+ * open narrower than a late one, and the extra 3-bets are the strongest
+ * calls first (the linear part), with the bluff share still trimmed. These
+ * are conditional widths for a balanced horse, never a VPIP quota. Cash
+ * tables only; tournaments keep every table above.
+ */
+export const V85_DEFEND_TARGET: Readonly<Record<'bb' | 'sb', Readonly<Record<number, Width>>>> = {
+  bb: {
+    1: { cont: 76, threeBet: 17.5 },
+    2: { cont: 75, threeBet: 16 },
+    3: { cont: 68, threeBet: 13.5 },
+    4: { cont: 62, threeBet: 11.5 },
+    5: { cont: 58, threeBet: 10 },
+    6: { cont: 56, threeBet: 9.5 },
+    7: { cont: 54, threeBet: 9 },
+    8: { cont: 52, threeBet: 8.5 },
+  },
+  sb: {
+    2: { cont: 28, threeBet: 16 },
+    3: { cont: 25, threeBet: 14 },
+    4: { cont: 23, threeBet: 12.5 },
+    5: { cont: 21.5, threeBet: 11.5 },
+    6: { cont: 21, threeBet: 10.5 },
+    7: { cont: 20, threeBet: 9.5 },
+    8: { cont: 19.5, threeBet: 9 },
+  },
+};
+/** V85 in-position defender with two players behind (the button), by opener index. */
+export const V85_DEFEND_TARGET_IP: Readonly<Record<number, Width>> = {
+  3: { cont: 35, threeBet: 13 },
+  4: { cont: 32, threeBet: 11.5 },
+  5: { cont: 30, threeBet: 10.5 },
+  6: { cont: 29, threeBet: 9.5 },
+  7: { cont: 28, threeBet: 9 },
+  8: { cont: 27, threeBet: 8.5 },
+};
+/** V85: what each player behind an in-position defender costs (continue, 3-bet). */
+export const V85_IP_PER_PLAYER_BEHIND: Readonly<Width> = { cont: 0.4, threeBet: 0.2 };
+/** V85 floors of the in-position widths, so no seat's defence collapses. */
+export const V85_IP_FLOOR: Readonly<Width> = { cont: 18, threeBet: 5 };
+/** V85 heads-up big blind against the button's open. */
+export const V85_DEFEND_TARGET_HU: Readonly<Width> = { cont: 72, threeBet: 18 };
+/** V85 reference cash open (big blinds) the V85 widths are written against. */
+export const V85_REFERENCE_OPEN_BB = 3;
+export const V85_REFERENCE_SB_OPEN_BB = 3.25;
+/**
+ * V85 share of the solver's bluff 3-bet width. V72_BLUFF_TRIM (0.5) was
+ * measured against a field that calls 3-bets; a little is given back, the
+ * rest of the added 3-bets are value (V85_VALUE_SHIFT).
+ */
+export const V85_BLUFF_TRIM = 0.6;
+/** V85: share of the 3-bet width moved from calls into value 3-bets (late, plus a base). */
+export const V85_VALUE_SHIFT: Readonly<{ late: number; base: number }> = { late: 0.2, base: 0.1 };
+/**
+ * V85 MULTIWAY (one open and one or more callers). The big blind is laid a
+ * better price by every caller and defended NARROWER before (production:
+ * folded 71.1% to an open and a caller against 61.8% to the open alone); it
+ * now widens with the price. A squeeze is a narrower, more linear 3-bet than
+ * a cold one (the caller's range is capped but there are two ranges to get
+ * through); an overcall keeps nearly the cold-call width.
+ */
+export const V85_MULTIWAY: Readonly<{
+  bbContPerCaller: number;
+  otherContPerCaller: number;
+  squeezeWidth: readonly [number, number];
+  squeezeValueShift: number;
+  maxCallers: number;
+}> = {
+  bbContPerCaller: 0.12,
+  otherContPerCaller: 0.05,
+  squeezeWidth: [0.85, 0.75],
+  squeezeValueShift: 0.1,
+  maxCallers: 3,
+};
+
 /** Share of the 3-bet width that is value, by the blend weight toward early. */
 const VALUE_FRACTION: Readonly<Record<DefenderGroup, { late: number; early: number }>> = {
   bb: { late: 0.5, early: 0.65 },
@@ -286,10 +391,32 @@ export interface DefenceSpot {
   ante: boolean;
   /** The open, raised-to, in big blinds. */
   openToBB: number;
+  /** V85: a cash table on the cash action profile (every table size). */
+  cashAction?: boolean;
+  /** V85: players who called the open before the defender (0 = nobody in). */
+  callers?: number;
+  /** V85: hero's effective stack in big blinds (the widths taper below 85bb). */
+  depthBB?: number;
 }
 
 /** Target widths (percent) for a spot, after the open-size scaling. */
 export function defenceTargets(spot: DefenceSpot): { cont: number; value: number; bluff: number } {
+  if (spot.cashAction !== true) return baseDefenceTargets(spot);
+  // V85 tapers with the stack (v85DepthWeight): the prior widths at 50bb or
+  // less, all of V85 from 85bb.
+  const w = v85DepthWeight(spot.depthBB);
+  const full = v85DefenceTargets(spot);
+  if (w >= 1) return full;
+  const prior = baseDefenceTargets(spot);
+  const mix = (a: number, b: number) => a + (b - a) * w;
+  return {
+    cont: mix(prior.cont, full.cont),
+    value: mix(prior.value, full.value),
+    bluff: mix(prior.bluff, full.bluff),
+  };
+}
+
+function baseDefenceTargets(spot: DefenceSpot): { cont: number; value: number; bluff: number } {
   const key = spot.ante ? 'ante' : 'cash';
   const k = clampIndex(spot.openerBehind);
   let w: Width;
@@ -329,6 +456,68 @@ export function defenceTargets(spot: DefenceSpot): { cont: number; value: number
   const trimmed = spot.defender === 'bb' ? 0 : solverBluff - bluff;
   const cont = Math.max(value + bluff + 1, w.cont * contF - trimmed);
   return { cont, value, bluff };
+}
+
+/** V85 cash widths (see V85_DEFEND_TARGET). Same shape as the base above. */
+function v85DefenceTargets(spot: DefenceSpot): { cont: number; value: number; bluff: number } {
+  const k = clampIndex(spot.openerBehind);
+  const key = spot.ante ? 'ante' : 'cash';
+  const headsUp = (spot.dealt ?? 6) <= 2 && spot.defender === 'bb';
+  let w: Width;
+  if (headsUp) {
+    w = V85_DEFEND_TARGET_HU;
+  } else if (spot.defender === 'ip') {
+    const base = (spot.ante ? DEFEND_TARGET_IP[key] : V85_DEFEND_TARGET_IP)[Math.max(3, k)];
+    const extra = Math.max(0, spot.defenderBehind - 2);
+    const threeBet = Math.max(
+      V85_IP_FLOOR.threeBet,
+      base.threeBet - V85_IP_PER_PLAYER_BEHIND.threeBet * extra
+    );
+    w = {
+      cont: Math.max(
+        V85_IP_FLOOR.cont,
+        threeBet + 1.5,
+        base.cont - V85_IP_PER_PLAYER_BEHIND.cont * extra
+      ),
+      threeBet,
+    };
+  } else {
+    const table = (spot.ante ? DEFEND_TARGET[key] : V85_DEFEND_TARGET)[spot.defender];
+    w = table[spot.defender === 'sb' ? Math.max(2, k) : k];
+  }
+  // The price still narrows the defence, around the size cash opens are.
+  const ref = spot.ante
+    ? referenceOpenBB(k, true)
+    : k <= 1
+      ? V85_REFERENCE_SB_OPEN_BB
+      : V85_REFERENCE_OPEN_BB;
+  const ratio = ref / Math.max(1.5, spot.openToBB);
+  const contExp = spot.defender === 'bb' ? 0.35 : 0.3;
+  const contF = Math.max(0.8, Math.min(1.2, Math.pow(ratio, contExp)));
+  const tbF = Math.max(0.85, Math.min(1.1, Math.pow(ratio, 0.15)));
+  const callers = Math.max(0, Math.min(V85_MULTIWAY.maxCallers, Math.floor(spot.callers ?? 0)));
+  const squeezeF = callers === 0 ? 1 : V85_MULTIWAY.squeezeWidth[Math.min(callers, 2) - 1];
+  const threeBet = w.threeBet * tbF * squeezeF;
+  const vw = earlyWeight(k);
+  const vf = VALUE_FRACTION[spot.defender];
+  const valueFrac = vf.late + (vf.early - vf.late) * vw;
+  const shifted = Math.min(
+    0.9,
+    valueFrac +
+      V85_VALUE_SHIFT.base +
+      V85_VALUE_SHIFT.late * (1 - vw) +
+      (callers > 0 ? V85_MULTIWAY.squeezeValueShift : 0)
+  );
+  const value = threeBet * shifted;
+  const solverBluff = threeBet * (1 - valueFrac);
+  const bluff = Math.min(threeBet - value, solverBluff * V85_BLUFF_TRIM);
+  const trimmed = spot.defender === 'bb' ? 0 : Math.max(0, solverBluff - bluff) * 0.5;
+  const multiF =
+    1 +
+    callers *
+      (spot.defender === 'bb' ? V85_MULTIWAY.bbContPerCaller : V85_MULTIWAY.otherContPerCaller);
+  const cont = Math.max(value + bluff + 1, Math.min(85, w.cont * contF * multiF) - trimmed);
+  return { cont, value, bluff: Math.max(0, bluff) };
 }
 
 function legacyScore(cls: string): number {
@@ -430,4 +619,116 @@ export function gtoDefence(c1: Card, c2: Card, spot: DefenceSpot): GtoDefence | 
   const strength = continueStrengthMap(spot.defender, spot.openerBehind)[cls];
   if (strength === undefined) return null;
   return { continueStrength: strength, continueBar, valueBar, bluffProb };
+}
+
+/**
+ * V87 MULTIWAY LOW-STAKES DEFENCE (owner direction, 2026-11-10 22:48
+ * Chicago). Dan: "I HAVEN'T SEEN ANY OR MANY 3 HANDED OR EVEN 4 HANDED
+ * FLOPS, AND THAT TYPICALLY HAPPENS OFTEN IN LOWER STAKES GAMES... HORSES ARE
+ * NOT CALLING OR 3 BETTING ENOUGH.... PREFLOP RANGES APPEAR TO BE WAY TO
+ * TIGHT."
+ *
+ * Facing one open, every defender's continue width grows by a stated number
+ * of hand-share points, more again for each player who already called (the
+ * price improves and the implied odds of set-mining, suited connectors and
+ * suited aces grow with every live stack), and the 3-bet width grows by a
+ * multiplier with the bluff share scaled alongside it so the mix stays
+ * linear-plus-blockers. The width is still the top of each spot's own
+ * (defender, opener seat) continue order: the added hands are the solver's
+ * next continues (pocket pairs, suited connectors and gappers, suited Ax/Kx,
+ * broadways), never offsuit trash. The 3-bets added from the calling range
+ * are added back to the continue width so the flats grow by the full amount.
+ *
+ * Lower stakes play looser (the owner's own observation): the extra widening
+ * is full at a cash big blind of 2 or less, tapers linearly to none at 10,
+ * and the base V87 widening applies at every stake. Tournaments take the
+ * base widening at a reduced weight (chips are not money there and the
+ * survival premium stays in the bars). Cash depth tapers with
+ * v85DepthWeight, so 50bb or less is the prior width exactly.
+ */
+export const V87_MULTIWAY_DEFENCE: Readonly<{
+  contBase: Readonly<Record<DefenderGroup, number>>;
+  contLowStakes: Readonly<Record<DefenderGroup, number>>;
+  perCaller: Readonly<Record<DefenderGroup, number>>;
+  perCallerLowStakes: number;
+  threeBetMult: number;
+  threeBetMultLowStakes: number;
+  fullRingLinearShift: number;
+  tournamentWeight: number;
+  maxCallers: number;
+  maxCont: number;
+}> = {
+  contBase: { bb: 1.5, sb: 1, ip: 2.5 },
+  contLowStakes: { bb: 1.5, sb: 1, ip: 2.5 },
+  perCaller: { bb: 2, sb: 1.5, ip: 3 },
+  perCallerLowStakes: 1,
+  threeBetMult: 1.18,
+  threeBetMultLowStakes: 0.06,
+  fullRingLinearShift: 0.15,
+  tournamentWeight: 0.6,
+  maxCallers: 3,
+  maxCont: 88,
+};
+
+/** Cash big blind at or under which the low-stakes widening is full. */
+export const V87_LOW_STAKES_FULL_BB = 2;
+/** Cash big blind at or over which the low-stakes widening is gone. */
+export const V87_LOW_STAKES_NONE_BB = 10;
+
+/** 1 at a big blind of 2 or less, 0 at 10 or more, linear between. */
+export function v87LowStakesWeight(bigBlind: number | undefined): number {
+  if (bigBlind === undefined || !Number.isFinite(bigBlind) || bigBlind <= 0) return 0;
+  return Math.max(
+    0,
+    Math.min(
+      1,
+      (V87_LOW_STAKES_NONE_BB - bigBlind) / (V87_LOW_STAKES_NONE_BB - V87_LOW_STAKES_FULL_BB)
+    )
+  );
+}
+
+export interface V87DefenceWidenSpot {
+  defender: DefenderGroup;
+  /** Players who called the open before hero. */
+  callers: number;
+  /** v87LowStakesWeight of the cash big blind (0 in tournaments). */
+  lowStakes: number;
+  /** Overall weight, 0..1 (cash depth taper, or the tournament weight). */
+  weight: number;
+  /** Original dealt census; eight or more moves the strongest flats into 3-bets. */
+  dealt?: number;
+}
+
+/**
+ * The V87 widened bars of a V72/V85 defence. Pure: the same bars and spot
+ * always return the same widened bars, and a weight of 0 returns them
+ * unchanged.
+ */
+export function v87WidenDefence(
+  bars: { continueBar: number; valueBar: number; bluffProb: number },
+  spot: V87DefenceWidenSpot
+): { continueBar: number; valueBar: number; bluffProb: number } {
+  const w = Math.max(0, Math.min(1, spot.weight));
+  if (w <= 0) return bars;
+  const ls = Math.max(0, Math.min(1, spot.lowStakes));
+  const c = V87_MULTIWAY_DEFENCE;
+  const callers = Math.max(0, Math.min(c.maxCallers, Math.floor(spot.callers)));
+  const cont = shareAtScore(bars.continueBar) * 100;
+  const value = shareAtScore(bars.valueBar) * 100;
+  const m3 = 1 + (c.threeBetMult - 1 + c.threeBetMultLowStakes * ls) * w;
+  const newValue = Math.min(cont, value * m3);
+  const contAdd =
+    (c.contBase[spot.defender] +
+      c.contLowStakes[spot.defender] * ls +
+      callers * (c.perCaller[spot.defender] + c.perCallerLowStakes * ls)) *
+    w;
+  const newCont = Math.min(c.maxCont, Math.max(cont, cont + contAdd + (newValue - value)));
+  // Full ring (eight or more dealt in) 3-bets least of all: the strongest
+  // flats become linear 3-bets there without widening the continue range.
+  const ring = (spot.dealt ?? 6) >= 8 ? 1 + c.fullRingLinearShift * w : 1;
+  return {
+    continueBar: Math.min(bars.continueBar, scoreAtShare(newCont / 100)),
+    valueBar: Math.min(bars.valueBar, scoreAtShare(Math.min(newCont, newValue * ring) / 100)),
+    bluffProb: Math.min(1, bars.bluffProb * m3 * ring),
+  };
 }

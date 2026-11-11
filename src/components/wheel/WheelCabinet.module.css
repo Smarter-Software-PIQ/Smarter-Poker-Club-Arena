@@ -58,10 +58,10 @@
 .dashboard {
   position: relative;
   width: 100%;
-  margin-top: 40px;
-  aspect-ratio: 3 / 1;
-  min-height: 177px;
+  margin-top: 0;
   background: url('/assets/diamond-spins/sapphire-spin-deck.webp') center / 100% 100% no-repeat;
+  aspect-ratio: 3 / 1;
+  min-height: 0;
 }
 .entry,
 .presets,
@@ -133,7 +133,12 @@
     0 0 10px #219cff;
   background: radial-gradient(ellipse, #177af786, transparent 70%);
 }
-.presets button:disabled {
+.presets button[aria-pressed='true']:disabled {
+  opacity: 1;
+  filter: none;
+  -webkit-text-fill-color: currentColor;
+}
+.presets button:disabled:not([aria-pressed='true']) {
   color: #97a3b5;
 }
 .actions .primary {
@@ -183,20 +188,34 @@
   font-weight: 800;
   line-height: 1;
 }
-.amountToggle,
 .done {
   border: 1px solid #829cb8;
   border-radius: 6px;
   background: linear-gradient(#203a52, #09131e 65%);
   padding: 5px 12px;
 }
-.amountToggle {
+.balancePicker {
   position: absolute;
-  bottom: 100%;
-  left: 50%;
-  translate: -50% 0;
-  height: 38px;
-  white-space: nowrap;
+  top: 50%;
+  left: 0;
+  translate: 0 -50%;
+  height: max(32px, 100%);
+  border: 0;
+  background: transparent;
+  font: inherit;
+  width: 100%;
+  padding: 0;
+}
+.balanceChevron {
+  position: absolute;
+  margin-inline-start: 0.25em;
+}
+.balancePicker::after {
+  content: '';
+  position: absolute;
+  inset: 50% 0 auto;
+  height: max(44px, 100%);
+  translate: 0 -50%;
 }
 .amountDialog {
   width: min(288px, 85vw);
@@ -351,11 +370,6 @@
     min-height: 137px;
     margin-top: 0;
   }
-  .amountToggle {
-    left: calc(100% + 8px);
-    bottom: 50%;
-    translate: 0;
-  }
 }
 
 @container (max-width: 360px) {
@@ -473,4 +487,9 @@
 }
 .details :global(.sc-copy) {
   font-size: 14px;
+}
+.spinAmount {
+  display: block;
+  font-size: 0.48em;
+  margin-top: 4px;
 }

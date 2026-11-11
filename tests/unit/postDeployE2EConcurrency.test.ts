@@ -60,7 +60,9 @@ describe('post-deploy E2E concurrency', () => {
     const concurrency = productionJob.match(/concurrency:\n([\s\S]*?)\n\s+steps:/)?.[1] ?? '';
 
     expect(concurrency).toContain('cancel-in-progress: false');
-    expect(concurrency).toContain('group: post-deploy-e2e-production');
+    expect(concurrency).toContain(
+      "group: ${{ needs.publication-gate.outputs.cash_observation == 'true' && 'post-deploy-e2e-cash-observation' || 'post-deploy-e2e-production' }}"
+    );
     expect(concurrency).not.toContain('manual-');
   });
 
@@ -643,4 +645,46 @@ describe('explicit passive observation queue ownership', () => {
       expect(group('workflow_run', flag)).toBe('post-deploy-live-table-production');
     }
   );
+});
+
+describe('focused published hero celebration proof', () => {
+  it('runs one owned case with protected provenance and required cleanup qualification', () => {
+    const job = workflow.slice(
+      workflow.indexOf('  hero-celebration-proof:'),
+      workflow.indexOf('  private-record-client-proof:')
+    );
+    expect(job).toContain("needs.certification-cleanup-safety.result == 'success'");
+    expect(job).toContain('[[ "$REQUESTED_CLIENT_SHA" =~ ^[0-9a-f]{40}$ ]]');
+    expect(job).toContain('git merge-base --is-ancestor "$REQUESTED_CLIENT_SHA" origin/main');
+    expect(job).toContain('--config=playwright.hero-celebration.config.ts');
+    expect(job).toContain('--workers=1 --retries=0');
+    expect(job).toContain('assert-e2e-actually-ran.mjs e2e-report/hero-celebration.json');
+    const config = readFileSync(
+      resolve(__dirname, '../../playwright.hero-celebration.config.ts'),
+      'utf8'
+    );
+    expect(config).toContain('globalSetup: undefined');
+    expect(config).toContain('storageState: undefined');
+    expect(config).toContain(
+      'only an awarded hero celebrates a published showdown, including chops'
+    );
+  });
+
+  it('keeps served celebration proof independent from cosmetics and closes with write isolation intact', () => {
+    const start = gameplayCertification.indexOf(
+      "test.describe('published hero showdown celebrations'"
+    );
+    const end = gameplayCertification.indexOf(
+      "test.describe('production routed gameplay customization'"
+    );
+    const scoped = gameplayCertification.slice(start, end);
+    expect(scoped).toContain("verifyPublication('before')");
+    expect(scoped).toContain("verifyPublication('after')");
+    expect(scoped).toContain('await verifyHeroCelebrations(');
+    expect(scoped).toContain('cleanupTemporaryCustomizationAccount(environment, account)');
+    expect(scoped).toContain("serviceWorkers: 'block'");
+    expect(scoped.indexOf("page.route('**/*'")).toBeLessThan(scoped.indexOf('page.goto(`table/'));
+    expect(scoped).not.toContain('unrouteAll');
+    expect(gameplayCertification.slice(end)).not.toContain('verifyHeroCelebrations(');
+  });
 });

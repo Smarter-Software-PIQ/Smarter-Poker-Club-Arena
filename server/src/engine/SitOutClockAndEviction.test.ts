@@ -192,11 +192,11 @@ describe('sit-out wiring', () => {
     const hits = eng.match(/is_sitting_out: this\.disconnectEngine\.isSittingOut\(/g) || [];
     // Live and resync retain the disconnect engine's authoritative state.
     expect(hits.length).toBeGreaterThanOrEqual(2);
-    // Idle additionally marks an entrant waiting for the blind, without
+    // Idle also marks an entrant waiting for the button or the blind, without
     // replacing the authoritative sit-out state for everybody else.
     const idle = sliceMethod(eng, 'protected publishIdleState()');
     expect(idle).toMatch(
-      /is_sitting_out:\s*this\.waitingForBB\.has\(p\.user_id\) \|\|\s*this\.disconnectEngine\.isSittingOut\(this\.tableId, p\.user_id\)/
+      /is_sitting_out:\s*this\.waitingForButton\.get\(p\.seat_number\) === p\.user_id \|\|\s*this\.waitingForBB\.has\(p\.user_id\) \|\|\s*this\.disconnectEngine\.isSittingOut\(this\.tableId, p\.user_id\)/
     );
   });
 });
@@ -285,8 +285,12 @@ describe('a busted cash seat is released', () => {
   });
 
   it('the 40BB floor is the shared definition, not a fifth local answer', () => {
-    expect(dealing).toMatch(/cashMinBuyIn/);
+    // 2026-11-10: a bust is judged against the REBUY minimum the purchase
+    // enforces, which lives beside cashMinBuyIn on the same CASH_MIN_BB.
+    expect(dealing).toMatch(/import \{ cashRebuyMinimum \} from '\.\.\/config\/cashBuyIn\.js'/);
+    expect(dealing).toMatch(/cashRebuyMinimum\(this\.tableInfo\)/);
     const cfg = readFileSync(join(process.cwd(), 'src', 'config', 'cashBuyIn.ts'), 'utf8');
     expect(cfg).toMatch(/CASH_MIN_BB = 40/);
+    expect(cfg).toMatch(/positive\(row\.big_blind\) \* CASH_MIN_BB/);
   });
 });

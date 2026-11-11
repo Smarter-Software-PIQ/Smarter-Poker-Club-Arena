@@ -80,9 +80,9 @@ describe('closed tournament seats deliver their reports before prune', () => {
       expect(Number.isFinite(published?.handStatsTarget?.asOf)).toBe(true);
       const card = await screen.findByRole('dialog', { name: /tournament ranking/i });
       expect(card.textContent).toContain('353');
-      expect(card.textContent).toContain('Buy-In: 35');
-      expect(card.textContent).toContain('1 Rebuy');
-      expect(card.textContent).toContain('1 Add-On');
+      expect(card.textContent).toContain('Buy-In35');
+      expect(card.textContent).toContain('Rebuys1');
+      expect(card.textContent).toContain('Add Ons1');
       // /tables was an intermediate route. Landing must not acknowledge the card.
       fireEvent.click(screen.getByText('Land In Lobby'));
       expect(screen.getByRole('dialog', { name: /tournament ranking/i })).toBeTruthy();
@@ -160,7 +160,7 @@ describe('closed tournament seats deliver their reports before prune', () => {
     });
     const card = await screen.findByRole('dialog', { name: /tournament ranking/i });
     expect(card.textContent).toContain('3rd');
-    expect(screen.getByRole('button', { name: /play again/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /game lobby/i })).toBeTruthy();
   });
   it('retains an omitted table rather than treating an unreadable row as a cash exit', async () => {
     mocks.rows = [];

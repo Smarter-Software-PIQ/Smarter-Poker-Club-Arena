@@ -372,6 +372,24 @@ export const TAG_CONSUMERS: LedgerEntry[] = [
     'Omaha non-nut straight at showdown',
     'V13'
   ),
+  tag(
+    'plo_underboat_stackoff',
+    'HorseSelfTuner.diagnoseAndNudge',
+    'Omaha bottom full house beaten by two or more distinct higher full-house combinations, 100bb+',
+    'V86'
+  ),
+  tag(
+    'plo_multiboard_dead_half_call',
+    'HorseSelfTuner.diagnoseAndNudge',
+    'Omaha double-board showdown with one pair or worse on a board after calling down passively, 40bb+',
+    'V86'
+  ),
+  tag(
+    'plo_passive_rundown_oop',
+    'HorseSelfTuner.diagnoseAndNudge',
+    'Omaha double-suited rundown or connected broadway cold-called preflop with zero postflop raises, 20bb+',
+    'V86'
+  ),
   tag('coldcall_stackoff', 'measurement', 'cold-called a raise, lost 40bb+', 'V23'),
   tag(
     'plo_naked_trips_stackoff',
@@ -483,6 +501,30 @@ export const TAG_CONSUMERS: LedgerEntry[] = [
     'Omaha set or trips with no redraw committed 100bb+ on the turn or river on a board showing three to a flush or a straight (at the commit street or on the river); added from the 2026-11-06 biggest-losses review (3370600); no validated causal adjustment reader',
     'V40'
   ),
+  tag(
+    'nlh_deep_onepair_stackoff',
+    'HorseSelfTuner.diagnoseAndNudge',
+    'Hold em 120bb+ postflop stack-off holding bare one pair or worse (cat <= 2)',
+    'V87'
+  ),
+  tag(
+    'nlh_passive_oop_coldcall_bleed',
+    'HorseSelfTuner.diagnoseAndNudge',
+    'Hold em OOP cold-call of a preflop raise followed by an uncontested flop check-fold (net <= -2.5bb)',
+    'V87'
+  ),
+  tag(
+    'nlh_ep_limp_passivity',
+    'HorseSelfTuner.diagnoseAndNudge',
+    'Hold em open-limp with a weak non-trap hand (outside QQ+ and 54s-T9s) or EP open-limp folding to a <= 5bb iso-raise',
+    'V87'
+  ),
+  tag(
+    'nlh_bubble_covered_calloff',
+    'HorseSelfTuner.diagnoseAndNudge',
+    'Hold em tournament near-bubble or final-table pay-jump covered call-off with bare one-pair postflop or non-premium preflop',
+    'V87'
+  ),
 
   // ── V49 FREQUENCY LEAKS. Emitted by SQL over horse_daily_play, read by the
   // nightly audit (fn_audit_frequency_leaks) and by the panel card. The same
@@ -539,6 +581,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'turn-request epoch captured before worker FIFO wait; pins the hourly mood boundary',
     'V50',
     'HorseLogic.moodOf'
+  ),
+  flag(
+    'turnDeadlineMs',
+    'optional turn-clock deadline (epoch ms or remaining budget ms) clamping V86 Hollywood tanks inside deadlineRemainingMs - 1500',
+    'V86',
+    'HorseLogic.computeThinkTime'
   ),
   flag('telemetry', 'live decisions only; arms noteFire for this decision', 'V15'),
   flag(
@@ -730,6 +778,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'PLO suited aces 4-bet'
   ),
   flag(
+    'v86PloOverhaul',
+    'V86 PLO4/5/6/8 preflop 3-bet/4-bet/squeeze rundowns & suited Ax, postflop combo-draw pump & SPR discipline, Bully-Breaker LAG counter, Bomb Pot/Multi-Board dead-half guard, Short Deck/Pineapple defense, and Hollywood timing mix (default ON, false ablates)',
+    'V86'
+  ),
+  flag(
+    'v87HoldemOverhaul',
+    'Hold em cash 25-30% VPIP, EP limp-reraise traps and suited-connector limp mix, SPR postflop gameplan, anti-LAG bully-breaker, river block-bet balance, Hollywood tank mix, and tournament bubble/PKO discipline; false only to ablate',
+    'V87'
+  ),
+  flag(
     'deepEquity',
     'V44 second look: every Monte Carlo read at this multiple of its sample; set only by the engine replay inside the think time',
     'V44'
@@ -888,6 +946,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'v15RiverNoNearLock',
     "2026-11-07 (completed 2026-11-06 audit, hand 3374459) the V15 raise gate's near-lock escape (eq15 - dominationPenalty >= 0.85) no longer applies on the river to ONE measured cell: the Omaha SECOND-nut flush (exactly one live higher flush rank) on an unpaired board, facing a river wager of 0.8 pot or more, outside tournaments, high-only and single-board, calls instead of raising; the equity read there is the Monte Carlo against the bettor's estimated range (0.91-1.00 for the K-high flush with the As live; it raised 43 of 60 seeds before); that cell's own river raises measured negative (raise vs fold, 2026-11-05 -107.2 [-211.4, -2.9] n 12, 11-06 -65.9 n 9), while its tournament raises (+16.2 n 16, +18.0 n 9), third-nut-or-worse flushes (+12.8 n 18, +7.4 n 12), smaller wagers, paired-board flushes, straights, hi-lo and multi-board keep the near-lock reading exactly as before; flop and turn unchanged; the gate only turns a raise into a call (an all-in when the call exceeds the stack), never a fold, though later measured call rules (V81) apply to that call as to any call; receipt v15_raise_gate; docs/horse-measure/2026-11-07/v15-river-raise-scope.md; explicit off arm restores the river near-lock escape",
     'V15'
+  ),
+  flag(
+    'v85CashAction',
+    '2026-11-09 (owner direction after a real player reported, for the fourth time, that the cash horses play far too tight: "FOR A 9 HANDED GAME, THESE NUMBERS NEED TO BE INCREASED TO 25-30% VPIP, AND INCREASE THE 3 BETTING ... WHILE MAINTAINING GTO DISCIPLINE ... REAL CASH GAME OPENS ARE 2.5-4.5 BB OR LARGER IF THERE ARE LIMPERS", then "FULLY ADJUSTED FOR 6 HANDED GAMES AND SHORT HANDED PLAY AS WELL") no-limit hold\'em cash at every table size: per-seat raise-first-in widths V85_CASH_OPEN_TARGET (SB 50 / BTN 52 / CO 35 / HJ 27 / LJ 22.5 / 20.5 / 18.5 / nine-handed UTG 17, three-handed 50 / 55, heads-up 80) on the unchanged per-seat reference order; the facing-open base without the per-player collapse (V85_DEFEND_TARGET, V85_DEFEND_TARGET_IP, 0.4 points of continue per player behind instead of 2, an 18% floor) re-based on a 3bb open, the same base answering an open that was called (squeeze, overcall, the multiway big blind) and the heads-up big blind; more linear 3-bets (V85_VALUE_SHIFT) with the bluff trim at 0.6; cash opens 2.5-4.5bb (NLH_OPEN_BANDS_CASH_ACTION); all of it tapered by effective stack (none at 50bb or less, full from 85bb); production before (2026-11-10 UTC, engine 391f7bc0): nine-handed 15.9% VPIP / 11.8% PFR / 4.0% 3-bet, seats behind an open folded 94.0%; offline all-horse probe at 250bb (HoldemCashActionProbe, 8,000 hands a table): nine-handed 15.5 -> 24.8% VPIP, 3-bet 3.6 -> 6.6%, six-handed 22.8 -> 32.0% and 5.5 -> 8.7%; widths are past the solver bands by owner direction and are conditional ranges, never a VPIP quota; tournaments, ante-free short stacks, pot limit, fixed limit, short deck and pineapple unchanged; explicit off arm keeps the prior ranges and sizes',
+    'V85'
   ),
   flag(
     'v84OmahaRiverReraiseCalls',
@@ -4495,6 +4558,139 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'the fresh commit-time menu turned a passive river-nuts action into a legal raise, or a 90-100% pot wager into full pot',
     'RiverNuts'
   ),
+  receipt(
+    'v86_*',
+    'HorseLogic / HorsePreflop / HorseOmahaBigBetCalls (V86)',
+    'V86 PLO4/5/6/8 preflop 3-bet/4-bet/squeeze rundowns & suited Ax, postflop combo-draw pump & SPR discipline, Bully-Breaker LAG counter, multi-board/PLO8 freeroll, and underboat/PLO6 river folds',
+    'V86'
+  ),
+  // No floor: V87 Hold'em overhaul postflop receipts depend on NLH table mix, stack-to-pot geometry, bubble state and observed bully reads.
+  receipt(
+    'v87_bubble_cover_pressure',
+    'HorseLogic not-facing-a-bet turn/river (v87HoldemOverhaul)',
+    'a tournament cover stack applied extra turn or river barrel pressure into covered 15-45bb stacks near the bubble or in the money',
+    'V87'
+  ),
+  receipt(
+    'v87_bubble_covered_pot_control',
+    'HorseLogic not-facing-a-bet turn/river (v87HoldemOverhaul)',
+    'a covered 15-45bb medium stack near the bubble or in the money checked back bare one pair on a wet turn or river for pot control',
+    'V87'
+  ),
+  receipt(
+    'v87_combo_draw_jam',
+    'HorseLogic facing-a-bet flop (v87HoldemOverhaul)',
+    'a 12+ clean-out NLH flop combo draw jammed when a standard raise would commit the stack',
+    'V87'
+  ),
+  receipt(
+    'v87_combo_draw_raise',
+    'HorseLogic facing-a-bet flop (v87HoldemOverhaul)',
+    'a 12+ clean-out NLH flop combo draw raised for deterministic semi-bluff pressure outside the baseline HU range owner',
+    'V87'
+  ),
+  receipt(
+    'v87_deep_cash_onepair_pot_control',
+    'HorseLogic facing-a-bet river (v87HoldemOverhaul)',
+    'a 150bb+ deep cash NLH bare one-pair hand folded to multi-street big river barrels without a verified maniac read',
+    'V87'
+  ),
+  receipt(
+    'v87_double_board_dead_half_fold',
+    'HorseLogic facing-a-bet turn/river (v87HoldemOverhaul)',
+    'an NLH double-board hand with one pair or worse on one board and no locked or nutted other board folded to 60%+ pot pressure',
+    'V87'
+  ),
+  receipt(
+    'v87_flop_stab_check_raise',
+    'HorseLogic facing-a-bet flop (v87HoldemOverhaul)',
+    'an OOP strong top-pair or better NLH hand check-raised a measured high-frequency flop stabber',
+    'V87'
+  ),
+  receipt(
+    'v87_flop_stab_jam',
+    'HorseLogic facing-a-bet flop (v87HoldemOverhaul)',
+    'an OOP strong top-pair or better NLH hand check-shoved against a measured high-frequency flop stabber at committing depth',
+    'V87'
+  ),
+  receipt(
+    'v87_ip_checkback_trap',
+    'HorseLogic not-facing-a-bet flop (v87HoldemOverhaul)',
+    'an IP heads-up dry-flop NLH strong made hand mixed a check-back trap',
+    'V87'
+  ),
+  receipt(
+    'v87_ip_flop_float',
+    'HorseLogic facing-a-bet flop (v87HoldemOverhaul)',
+    'an IP NLH gutshot or overcards-plus-backdoor hand floated a small flop stab from a high-stab or turn-give-up opponent',
+    'V87'
+  ),
+  receipt(
+    'v87_low_spr_commit',
+    'HorseLogic not-facing-a-bet flop/turn (v87HoldemOverhaul)',
+    'a low-SPR NLH top-pair, overpair, two-pair-plus or 12+ out flop combo draw bet or jammed to commit',
+    'V87'
+  ),
+  receipt(
+    'v87_multiway_wet_air_check',
+    'HorseLogic not-facing-a-bet flop (v87HoldemOverhaul)',
+    'an NLH preflop aggressor checked multiway on a wet flop with air and fewer than 8 clean outs',
+    'V87'
+  ),
+  receipt(
+    'v87_oop_stab_trap',
+    'HorseLogic not-facing-a-bet flop (v87HoldemOverhaul)',
+    'an OOP strong top-pair-plus or 12+ out combo draw checked into a high-frequency flop stabber to induce a stab',
+    'V87'
+  ),
+  receipt(
+    'v87_range_cbet',
+    'HorseLogic not-facing-a-bet flop (v87HoldemOverhaul)',
+    'a heads-up IP dry-flop NLH preflop aggressor fired a small range continuation bet against a non-station',
+    'V87'
+  ),
+  receipt(
+    'v87_river_block_blocker_bluff',
+    'HorseLogic not-facing-a-bet river (v87HoldemOverhaul)',
+    'an OOP heads-up NLH air hand with nut blockers mixed a small river block-bet bluff against a non-station',
+    'V87'
+  ),
+  receipt(
+    'v87_river_block_lag_check',
+    'HorseLogic not-facing-a-bet river (v87HoldemOverhaul)',
+    'an OOP heads-up fragile one-pair NLH hand checked the river instead of block-betting into an identified LAG bully',
+    'V87'
+  ),
+  receipt(
+    'v87_river_block_nut_trap',
+    'HorseLogic not-facing-a-bet river (v87HoldemOverhaul)',
+    'an OOP heads-up nutted NLH hand (set or better) mixed a small river block bet to induce a raise',
+    'V87'
+  ),
+  receipt(
+    'v87_river_block_raised_one_pair_fold',
+    'HorseLogic facing-a-bet river (v87HoldemOverhaul)',
+    'an NLH bare one-pair hand whose small river block bet was raised folded instead of paying off',
+    'V87'
+  ),
+  receipt(
+    'v87_river_block_trap_reraise',
+    'HorseLogic facing-a-bet river (v87HoldemOverhaul)',
+    'an NLH nutted hand whose small river block bet was raised 3-bet or jammed for value',
+    'V87'
+  ),
+  receipt(
+    'v87_river_blocker_bluff_raise',
+    'HorseLogic facing-a-bet river (v87HoldemOverhaul)',
+    'a heads-up NLH air hand with strong nut blockers bluff-raised a river bettor with an observed non-station fold read',
+    'V87'
+  ),
+  receipt(
+    'v87_turn_takeaway',
+    'HorseLogic not-facing-a-bet turn (v87HoldemOverhaul)',
+    'an IP heads-up NLH caller bet the turn after a flop stabber checked and gave up initiative',
+    'V87'
+  ),
 
   // TAGS. Every leak tag the review system emits, with its reader.
   ...RETIRED_RECEIPTS,
@@ -4543,4 +4739,16 @@ export function ledgerRows(): LedgerRow[] {
     freshness_days: e.freshnessDays ?? null,
     since: e.since,
   }));
+}
+
+export interface HorseDecisionOptionSnapshot {
+  v87HoldemOverhaul?: boolean;
+}
+
+export function snapshotOptionFlags(
+  opts?: { v87HoldemOverhaul?: boolean } | null
+): HorseDecisionOptionSnapshot {
+  return {
+    v87HoldemOverhaul: opts?.v87HoldemOverhaul !== false,
+  };
 }

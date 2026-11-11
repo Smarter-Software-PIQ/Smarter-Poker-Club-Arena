@@ -94,6 +94,43 @@ export const NLH_OPEN_BANDS_CASH_ANTE: Readonly<Record<NlhOpenSeat, NlhOpenBandB
   blind: [2.8, 3.3],
   heads_up: [2.5, 2.8],
 };
+/**
+ * V85 CASH ACTION SIZES (owner direction, 2026-11-09, binding): "REAL CASH
+ * GAME OPENS ARE 2.5-4.5 BB OR LARGER IF THERE ARE LIMPERS". Production cash
+ * opens under the bands above ran 2.5-4.0bb (nine-handed mean 3.37bb,
+ * six-handed 3.09bb), with the button and cutoff confined to 2.5-3.0bb,
+ * which is what a player at the table reads as "always small". Every seat's
+ * band is a full blind wide and reaches 3.5bb or more, the early seats and
+ * the small blind reach 4bb (4.25bb at a full ring), and a deep stack reaches
+ * NLH_CASH_ACTION_OPEN_MAX_BB. The floor stays NLH_CASH_OPEN_FLOOR_BB and
+ * each limper still adds one open unit. Still drawn from the spot alone.
+ */
+export const NLH_OPEN_BANDS_CASH_ACTION: Readonly<Record<NlhOpenSeat, NlhOpenBandBB>> = {
+  early: [3.0, 4.0],
+  middle: [2.8, 3.8],
+  cutoff: [2.5, 3.5],
+  button: [2.5, 3.5],
+  blind: [3.0, 4.0],
+  heads_up: [2.5, 3.5],
+};
+/** V85, cash with an ante in play: a quarter blind smaller, same floor. */
+export const NLH_OPEN_BANDS_CASH_ACTION_ANTE: Readonly<Record<NlhOpenSeat, NlhOpenBandBB>> = {
+  early: [2.75, 3.75],
+  middle: [2.6, 3.5],
+  cutoff: [2.5, 3.25],
+  button: [2.5, 3.25],
+  blind: [2.8, 3.75],
+  heads_up: [2.5, 3.25],
+};
+/**
+ * V85 sizes are for stacks deeper than this. At 40bb the larger opens alone
+ * ran -1.64 +/- 0.95 bb/100 against the prior bands (human-calibrated field,
+ * 30,000 pairs), so a stack at or under it keeps the 2026-11-01 cash bands.
+ * Cash buy-ins start at 50bb; under 1% of production cash stacks sit here.
+ */
+export const NLH_CASH_ACTION_MIN_DEPTH_BB = 50;
+/** V85: no cash open is drawn past this (before limpers). */
+export const NLH_CASH_ACTION_OPEN_MAX_BB = 4.5;
 /** Cash, 25bb or less effective: still above the floor, never committing. */
 export const NLH_OPEN_BAND_CASH_SHORT: NlhOpenBandBB = [2.5, 2.8];
 
@@ -145,7 +182,7 @@ export const NLH_OPEN_DEEP_CASH_SHIFT: readonly [number, number] = [0.25, 0.5];
 /** Full ring (this many dealt or more): the early band moves up by NLH_OPEN_FULL_RING_EARLY_SHIFT. */
 export const NLH_OPEN_FULL_RING_MIN_SEATS = 8;
 export const NLH_OPEN_FULL_RING_EARLY_SHIFT = 0.25;
-/** No band reaches past Dan's 4x (before limpers). */
+/** No tournament band reaches past Dan's 4x (before limpers); cash: NLH_CASH_ACTION_OPEN_MAX_BB. */
 export const NLH_OPEN_MAX_BB = 4.0;
 /** A min-raise open is exactly two open units; nothing is ever drawn below it. */
 export const NLH_MIN_RAISE_OPEN_BB = 2;
@@ -168,6 +205,8 @@ export interface NlhOpenSpot {
   anteInPlay: boolean;
   /** Players dealt in (the table size the ranges use). */
   tableSize: number;
+  /** V85: a cash table on the 2.5-4.5bb cash action bands. */
+  cashAction?: boolean;
 }
 
 export interface NlhOpenBand {
@@ -207,7 +246,16 @@ export function nlhOpenBand(spot: NlhOpenSpot): NlhOpenBand {
       const [lo, hi] = NLH_OPEN_BAND_CASH_SHORT;
       return { lo, hi, strict: true, minRaiseShare: 0 };
     }
-    let [lo, hi] = (spot.anteInPlay ? NLH_OPEN_BANDS_CASH_ANTE : NLH_OPEN_BANDS_CASH)[spot.seat];
+    const action = spot.cashAction === true && depth > NLH_CASH_ACTION_MIN_DEPTH_BB;
+    let [lo, hi] = (
+      action
+        ? spot.anteInPlay
+          ? NLH_OPEN_BANDS_CASH_ACTION_ANTE
+          : NLH_OPEN_BANDS_CASH_ACTION
+        : spot.anteInPlay
+          ? NLH_OPEN_BANDS_CASH_ANTE
+          : NLH_OPEN_BANDS_CASH
+    )[spot.seat];
     if (spot.seat === 'early' && spot.tableSize >= NLH_OPEN_FULL_RING_MIN_SEATS) {
       lo += NLH_OPEN_FULL_RING_EARLY_SHIFT;
       hi += NLH_OPEN_FULL_RING_EARLY_SHIFT;
@@ -216,7 +264,7 @@ export function nlhOpenBand(spot: NlhOpenSpot): NlhOpenBand {
       lo += NLH_OPEN_DEEP_CASH_SHIFT[0];
       hi += NLH_OPEN_DEEP_CASH_SHIFT[1];
     }
-    hi = Math.min(NLH_OPEN_MAX_BB, hi);
+    hi = Math.min(action ? NLH_CASH_ACTION_OPEN_MAX_BB : NLH_OPEN_MAX_BB, hi);
     lo = Math.max(NLH_CASH_OPEN_FLOOR_BB, Math.min(lo, hi));
     return { lo, hi, strict: false, minRaiseShare: 0 };
   }

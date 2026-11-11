@@ -1,3 +1,4 @@
+import { verifyHeroCelebrations } from './support/heroCelebrationProof';
 import {
   devices,
   expect,
@@ -203,10 +204,19 @@ async function installEngineProjection(
         onerror: ((event: Event) => void) | null = null;
         onclose: ((event: CloseEvent) => void) | null = null;
         private heartbeat: number | null = null;
+        private celebrationProof = (event: Event) => {
+          this.push({
+            type: 'EVENT',
+            tableId: selectedTableId,
+            ts: Date.now(),
+            payload: (event as CustomEvent).detail,
+          });
+        };
 
         constructor(url: string | URL, protocols?: string | string[]) {
           super();
           this.url = String(url);
+          window.addEventListener('ca-test-celebration', this.celebrationProof);
           this.protocol = Array.isArray(protocols) ? protocols[0] || '' : protocols || '';
           window.setTimeout(() => {
             if (this.readyState !== EngineWebSocket.CONNECTING) return;
@@ -255,6 +265,7 @@ async function installEngineProjection(
         close(code = 1000, reason = '') {
           if (this.readyState === EngineWebSocket.CLOSED) return;
           this.readyState = EngineWebSocket.CLOSED;
+          window.removeEventListener('ca-test-celebration', this.celebrationProof);
           if (this.heartbeat != null) window.clearInterval(this.heartbeat);
           this.emit(new CloseEvent('close', { code, reason, wasClean: code === 1000 }));
         }
@@ -612,6 +623,201 @@ async function readCosmetics(
   return rows[0] ?? null;
 }
 
+async function projectedGameplayTable(environment: CustomizationCertificationEnvironment) {
+  // Private `table-appearance:<id>` authorization requires an existing,
+  // readable tables row. Use one retained row from the joined club only as
+  // that authorization anchor, then project deterministic cash metadata,
+  // seats and hand state in-browser. No production game is woken, seated,
+  // mutated or required to be live for this certificate.
+  const anchors = await readServiceRows<TableAuthorizationAnchor>(
+    environment,
+    'tables',
+    new URLSearchParams({
+      select: 'id,club_id,union_id,arena:clubs!fk_tables_club_id(id,asset,is_platform,union_id)',
+      club_id: `eq.${CLUB_ID}`,
+      is_deleted: 'eq.false',
+      deleted_at: 'is.null',
+      // Prefer the oldest retained row: short-lived Spin rows are recycled
+      // aggressively, while this id must survive until the private channel
+      // has joined and received its signal.
+      order: 'created_at.asc,id.asc',
+      limit: '1',
+    })
+  );
+  const anchor = anchors[0];
+  if (!anchor || !/^[0-9a-f-]{36}$/i.test(anchor.id)) {
+    throw new Error('The certification club has no readable table authorization anchor.');
+  }
+  const tableId = anchor.id;
+  const arena = Array.isArray(anchor.arena) ? anchor.arena[0] : anchor.arena;
+  if (!arena || arena.id !== anchor.club_id) {
+    throw new Error('The table authorization anchor has no valid arena identity.');
+  }
+  const tableRow: Record<string, unknown> = {
+    id: tableId,
+    club_id: anchor.club_id,
+    union_id: anchor.union_id,
+    arena,
+    name: 'Customization Certification Table',
+    game_variant: 'nlh',
+    game_type: 'cash',
+    tournament_id: null,
+    stakes: '1/2',
+    small_blind: 1,
+    big_blind: 2,
+    min_buy_in: 40,
+    max_buy_in: 400,
+    max_players: 6,
+    current_players: 2,
+    status: 'running',
+    settings: {},
+    is_deleted: false,
+    is_private: true,
+    straddle_enabled: false,
+    bomb_pot_enabled: false,
+    bomb_pot_frequency: null,
+    bomb_pot_ante_multiplier: null,
+    bomb_pot_double_board: false,
+    bomb_pot_board_count: null,
+    bomb_pot_trigger_mode: null,
+    bomb_pot_interval_seconds: null,
+    bomb_pot_variant: null,
+    bomb_pot_announce_seconds: null,
+    bomb_pot_ante_fixed: null,
+    bomb_pot_min_players: null,
+    bomb_pot_button_policy: null,
+    cluster_id: null,
+    nit_game: false,
+    maintain_percent_min: null,
+    maintain_hands: null,
+    created_at: '2026-10-05T00:00:00.000Z',
+  };
+  return { tableId, tableRow };
+}
+
+test.describe('published hero showdown celebrations', () => {
+  test.skip(
+    !CERTIFICATION_ENABLED,
+    'Set GAMEPLAY_CUSTOMIZATION_CERTIFICATION=1 in the trusted post-deploy job.'
+  );
+
+  test('only an awarded hero celebrates a published showdown, including chops', async ({
+    browser,
+    baseURL,
+    request,
+  }) => {
+    test.setTimeout(180_000 + CLEANUP_FREEZE_ALLOWANCE_MS);
+    if (!baseURL) throw new Error('A deployed BASE_URL is required.');
+    const expectedSha = process.env.LIVE_SHA || '';
+    if (!/^[0-9a-f]{40}$/.test(expectedSha))
+      throw new Error('The exact published LIVE_SHA is required for celebration proof.');
+    const environment = requireCustomizationCertificationEnvironment();
+    let account: TemporaryCustomizationAccount | undefined;
+    let context: BrowserContext | undefined;
+    let journeyFailure: unknown;
+    const cleanupFailures: unknown[] = [];
+    const verifyPublication = async (point: string) => {
+      for (const origin of [
+        'https://ca-static.smarter.poker/build-info.json',
+        'https://smarter.poker/hub/club-arena/build-info.json',
+      ]) {
+        const response = await request.get(`${origin}?hero-celebration=${Date.now()}`, {
+          timeout: 15_000,
+          headers: { 'Cache-Control': 'no-cache' },
+        });
+        expect(response.ok(), `${point}: public build provenance is readable`).toBe(true);
+        expect((await response.json()).ca_sha, `${point}: ${origin}`).toBe(expectedSha);
+      }
+    };
+
+    try {
+      await test.step(
+        'verify the served hero celebration with local hand events',
+        async () => {
+          await verifyPublication('before');
+          account = await createTemporaryCustomizationAccount(environment, 'hero-celebration', 0);
+          const joined = await account.client.rpc('fn_join_club', { p_club_id: CLUB_ID });
+          if (joined.error) throw joined.error;
+          if (joined.data && typeof joined.data === 'object' && 'error' in joined.data)
+            throw new Error(String(joined.data.error));
+          const { tableId, tableRow } = await projectedGameplayTable(environment);
+          const runtime: RuntimeProfile = { avatar: HERO_AVATAR, frame: null, aura: null };
+          // This opponent exists only in the projected browser hand.
+          VILLAIN_ID = '66666666-7777-4888-8999-aaaaaaaaaaaa';
+          context = await browser.newContext({
+            ...devices['iPhone 13'],
+            baseURL,
+            serviceWorkers: 'block',
+            storageState: { cookies: [], origins: [] },
+          });
+          context.setDefaultTimeout(15_000);
+          context.setDefaultNavigationTimeout(30_000);
+          await installEngineProjection(context, tableId, account.id, runtime);
+          await installRuntimeDataProjection(
+            context,
+            tableRow,
+            account.id,
+            runtime,
+            new OneShotRequestGate(),
+            new OneShotRequestGate()
+          );
+          const page = await context.newPage();
+          await signIn(page, baseURL, account);
+          // Block writes before the synthetic seat first renders: TablePage
+          // starts an HTTP heartbeat independently of its projected socket.
+          // These three reads are fulfilled locally by the projection above.
+          await page.route('**/*', async (route) => {
+            const path = new URL(route.request().url()).pathname;
+            const projectedRead = [
+              '/rest/v1/rpc/fn_cash_effective_buyin',
+              '/rest/v1/rpc/fn_time_bank_allowance',
+              '/rest/v1/rpc/fn_maintenance_break_state',
+            ].includes(path);
+            if (!projectedRead && !['GET', 'HEAD', 'OPTIONS'].includes(route.request().method())) {
+              await route.abort('blockedbyclient');
+              return;
+            }
+            await route.fallback();
+          });
+          await page.goto(`table/${tableId}`, {
+            waitUntil: 'domcontentloaded',
+            timeout: 30_000,
+          });
+          const root = page.locator('.multi-table-page__table-slot--active .table-page');
+          await expect(root).toBeVisible({ timeout: 30_000 });
+          await expect(root.locator('.seat-wrapper--hero .seat__avatar')).toBeVisible();
+          await expect(root.locator('.community-cards .card-image').first()).toBeVisible();
+          await verifyHeroCelebrations(page, tableId, account.id, VILLAIN_ID);
+          await verifyPublication('after');
+          console.log(`[hero-celebration] exact served client verified: ${expectedSha}`);
+        },
+        { timeout: 180_000 }
+      );
+    } catch (error) {
+      journeyFailure = error;
+    } finally {
+      // Keep the helper's page-specific write blocker installed until close.
+      // Its native WebSocket patch belongs only to this disposable browser.
+      await context?.close().catch((error) => cleanupFailures.push(error));
+      if (account) {
+        await cleanupTemporaryCustomizationAccount(environment, account).catch((error) =>
+          cleanupFailures.push(error)
+        );
+        if (cleanupFailures.length === 0)
+          console.log('[hero-celebration] owned zero-balance fixture cleanup passed');
+      }
+    }
+    if (journeyFailure || cleanupFailures.length)
+      throw new AggregateError(
+        [...(journeyFailure ? [journeyFailure] : []), ...cleanupFailures],
+        withCauses('Hero celebration proof or cleanup failed:', [
+          ...(journeyFailure ? [journeyFailure] : []),
+          ...cleanupFailures,
+        ])
+      );
+  });
+});
+
 test.describe('production routed gameplay customization', () => {
   const JOURNEY_TIMEOUT_MS = 600_000;
   const CASE_TIMEOUT_MS = JOURNEY_TIMEOUT_MS + CLEANUP_FREEZE_ALLOWANCE_MS;
@@ -664,75 +870,7 @@ test.describe('production routed gameplay customization', () => {
         .eq('id', account.id);
       if (baselineProfile.error) throw baselineProfile.error;
 
-      // Private `table-appearance:<id>` authorization requires an existing,
-      // readable tables row. Use one retained row from the joined club only as
-      // that authorization anchor, then project deterministic cash metadata,
-      // seats and hand state in-browser. No production game is woken, seated,
-      // mutated or required to be live for this certificate.
-      const anchors = await readServiceRows<TableAuthorizationAnchor>(
-        environment,
-        'tables',
-        new URLSearchParams({
-          select:
-            'id,club_id,union_id,arena:clubs!fk_tables_club_id(id,asset,is_platform,union_id)',
-          club_id: `eq.${CLUB_ID}`,
-          is_deleted: 'eq.false',
-          deleted_at: 'is.null',
-          // Prefer the oldest retained row: short-lived Spin rows are recycled
-          // aggressively, while this id must survive until the private channel
-          // has joined and received its signal.
-          order: 'created_at.asc,id.asc',
-          limit: '1',
-        })
-      );
-      const anchor = anchors[0];
-      if (!anchor || !/^[0-9a-f-]{36}$/i.test(anchor.id)) {
-        throw new Error('The certification club has no readable table authorization anchor.');
-      }
-      const tableId = anchor.id;
-      const arena = Array.isArray(anchor.arena) ? anchor.arena[0] : anchor.arena;
-      if (!arena || arena.id !== anchor.club_id) {
-        throw new Error('The table authorization anchor has no valid arena identity.');
-      }
-      const tableRow: Record<string, unknown> = {
-        id: tableId,
-        club_id: anchor.club_id,
-        union_id: anchor.union_id,
-        arena,
-        name: 'Customization Certification Table',
-        game_variant: 'nlh',
-        game_type: 'cash',
-        tournament_id: null,
-        stakes: '1/2',
-        small_blind: 1,
-        big_blind: 2,
-        min_buy_in: 40,
-        max_buy_in: 400,
-        max_players: 6,
-        current_players: 2,
-        status: 'running',
-        settings: {},
-        is_deleted: false,
-        is_private: true,
-        straddle_enabled: false,
-        bomb_pot_enabled: false,
-        bomb_pot_frequency: null,
-        bomb_pot_ante_multiplier: null,
-        bomb_pot_double_board: false,
-        bomb_pot_board_count: null,
-        bomb_pot_trigger_mode: null,
-        bomb_pot_interval_seconds: null,
-        bomb_pot_variant: null,
-        bomb_pot_announce_seconds: null,
-        bomb_pot_ante_fixed: null,
-        bomb_pot_min_players: null,
-        bomb_pot_button_policy: null,
-        cluster_id: null,
-        nit_game: false,
-        maintain_percent_min: null,
-        maintain_hands: null,
-        created_at: '2026-10-05T00:00:00.000Z',
-      };
+      const { tableId, tableRow } = await projectedGameplayTable(environment);
 
       const runtime: RuntimeProfile = { avatar: HERO_AVATAR, frame: null, aura: null };
       const writerThemeGate = new OneShotRequestGate();

@@ -15,8 +15,11 @@ import {
   GTO_OPEN_CHARTS,
   HAND_CLASSES,
   chartWidth,
+  classifyHoldemEpLimpCandidate,
+  gtoCashActionOpenStrength,
   gtoOpenBar,
   gtoOpenOrder,
+  gtoOpenStrength,
   parseChart,
   scoreAtShare,
 } from './HorseGtoOpeningRanges.js';
@@ -145,6 +148,11 @@ function decideOpen(
   const d = HorseLogic.decide(players[heroSeat - 1], gs, style, mods, {
     mind: false,
     telemetry: false,
+    // This file pins the V70 reference base. V85 (owner direction 2026-11-09)
+    // and V87 (2026-11-10) widen cash/MTT from it and are pinned by
+    // HorseCashAction.law.test.ts and HorseHoldemEliteOverhaul.test.ts.
+    v85CashAction: false,
+    v87HoldemOverhaul: false,
     ...opts,
   } as never);
   const raise = d.action === 'raise' || d.action === 'bet' || d.action === 'all_in';
@@ -425,5 +433,59 @@ describe('short-handed tournaments', () => {
     expect(share(on, 'jam')).toBeLessThan(3);
     const off = seatCells(SPIN18, 0, 'balanced', OFF);
     expect(share(off, 'jam')).toBeGreaterThan(20);
+  });
+});
+
+describe('V87 cash action open strength and EP limp candidate classification', () => {
+  it('equals exact gtoOpenStrength at <= 50bb and lifts implied-odds hands above dominated offsuit broadways at 100bb+', () => {
+    const implied = [
+      '22',
+      '55',
+      '66',
+      '54s',
+      '76s',
+      'T9s',
+      '86s',
+      'J9s',
+      'A2s',
+      'A5s',
+      'A9s',
+      'K7s',
+      'K9s',
+      'Q9s',
+    ];
+    const dominated = ['ATo', 'KJo', 'QJo'];
+    for (const behind of [8, 7, 6, 5, 4]) {
+      for (const cls of implied.concat(dominated)) {
+        const [a, b] = holeFor(cls, 1);
+        expect(gtoCashActionOpenStrength(a, b, behind, 45)).toBe(gtoOpenStrength(a, b, behind));
+        expect(gtoCashActionOpenStrength(a, b, behind, 50)).toBe(gtoOpenStrength(a, b, behind));
+      }
+      for (const p of implied) {
+        const [pa, pb] = holeFor(p, 1);
+        const pScore = gtoCashActionOpenStrength(pa, pb, behind, 100);
+        for (const d of dominated) {
+          const [da, db] = holeFor(d, 1);
+          expect(pScore, `${p} vs ${d} at behind=${behind}`).toBeGreaterThan(
+            gtoCashActionOpenStrength(da, db, behind, 100)
+          );
+        }
+      }
+    }
+  });
+
+  it('classifies QQ/KK/AA as big_pair_trap and 54s-T9s as suited_connector', () => {
+    for (const cls of ['QQ', 'KK', 'AA']) {
+      const [a, b] = holeFor(cls, 1);
+      expect(classifyHoldemEpLimpCandidate(a, b)).toBe('big_pair_trap');
+    }
+    for (const cls of ['54s', '65s', '76s', '87s', '98s', 'T9s']) {
+      const [a, b] = holeFor(cls, 1);
+      expect(classifyHoldemEpLimpCandidate(a, b)).toBe('suited_connector');
+    }
+    for (const cls of ['JJ', 'AKs', '43s', 'JTs', '98o', 'K9o', '72o']) {
+      const [a, b] = holeFor(cls, 1);
+      expect(classifyHoldemEpLimpCandidate(a, b)).toBeNull();
+    }
   });
 });

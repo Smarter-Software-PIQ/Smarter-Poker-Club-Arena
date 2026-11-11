@@ -12,6 +12,8 @@ vi.mock('../services/supabase.js', async () => ({
 }));
 vi.mock('../services/supabase/nitGame.js', () => ({
   collectNitStatus: (...args: unknown[]) => mocks.nitStatus(...args),
+  // The dealing loop calls the enforcement (warn, then boot) since 2026-11-10.
+  collectNitEnforce: (...args: unknown[]) => mocks.nitEvictions(...args),
   collectNitEvictions: (...args: unknown[]) => mocks.nitEvictions(...args),
 }));
 const { ServerTableEngine } = await import('./ServerTableEngine.js');
@@ -184,6 +186,8 @@ function bustedEngine() {
   const e = engine();
   e.seatedPlayers[0].stack = 0;
   e.bustedSince = new Map([['player', Date.now() - 3600000]]);
+  // Judged when it busted (wallet covered a rebuy); the window has long expired.
+  e.bustRebuyVerdictMap = new Map([['player', 'can_rebuy']]);
   e.rebuyPromptOpenAt = new Map();
   e.pendingAddOns = new Map();
   e.usersWithPendingLedgerChips = vi.fn().mockResolvedValue(new Set());

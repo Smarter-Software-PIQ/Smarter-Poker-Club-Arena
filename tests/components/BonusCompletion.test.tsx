@@ -90,7 +90,7 @@ describe('bonus completion presentation', () => {
     const popup = screen.getByRole('dialog', { name: '12,345.67 Chips' });
     expect(popup).toHaveTextContent('Your Prize Is Booked.');
     expect(popup).toHaveTextContent('All Drops Completed.');
-    expect(within(popup).getByRole('button', { name: 'Back To The Wheel' })).toBeDisabled();
+    expect(within(popup).getByRole('button', { name: 'Back To The Wheel' })).toBeEnabled();
     reveal(popup);
     expect(within(popup).getByRole('button', { name: 'Back To The Wheel' })).toBeEnabled();
     // Two minutes of nothing: still here, still nowhere else.
@@ -99,12 +99,26 @@ describe('bonus completion presentation', () => {
     expect(screen.getByRole('dialog', { name: '12,345.67 Chips' })).toBeInTheDocument();
     expect(popup.querySelector('[data-bonus-step="completed"]')).not.toBeNull();
   });
-  it('returns to the wheel on Back To The Wheel, once, and only after the reveal', () => {
+  it('returns an earned result after five visible seconds and pauses for the player to read', () => {
+    vi.useFakeTimers();
+    render(<BonusCompletion clubId="shark-club" awardId="earned" chips={15} detail="Settled." />);
+    const details = screen.getByText('Round Details').closest('details')!;
+    act(() => vi.advanceTimersByTime(2000));
+    details.open = true;
+    fireEvent(details, new Event('toggle'));
+    act(() => vi.advanceTimersByTime(20000));
+    expect(navigate).not.toHaveBeenCalled();
+    details.open = false;
+    fireEvent(details, new Event('toggle'));
+    act(() => vi.advanceTimersByTime(5000));
+    expect(navigate).toHaveBeenCalledExactlyOnceWith('/clubs/shark-club/wheel', { replace: true });
+  });
+  it('returns to the wheel on Back To The Wheel, immediately and once', () => {
     render(<BonusCompletion clubId="shark-club" chips={5} detail="Round Complete." />);
     const popup = screen.getByRole('dialog', { name: '5.00 Chips' });
     const back = within(popup).getByRole('button', { name: 'Back To The Wheel' });
     fireEvent.click(back);
-    expect(navigate).not.toHaveBeenCalled();
+    expect(navigate).toHaveBeenCalledTimes(1);
     reveal(popup);
     fireEvent.click(back);
     fireEvent.click(back);
@@ -205,7 +219,7 @@ describe('bonus completion presentation', () => {
     );
     expect(screen.getAllByRole('button', { name: /, Mine$/ })).toHaveLength(5);
     fireEvent.animationEnd(
-      screen.getByRole('button', { name: 'Tile 1, Gem' }).querySelector('img[data-daily-diamond]')!
+      screen.getByRole('button', { name: 'Tile 1, Gem' }).querySelector('img[data-cut-diamond]')!
     );
     expect(onSettled).not.toHaveBeenCalled();
     fireEvent.animationEnd(screen.getByLabelText('Diamond Mines Board'));

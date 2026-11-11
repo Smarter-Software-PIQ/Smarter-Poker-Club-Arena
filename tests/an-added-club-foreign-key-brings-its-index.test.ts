@@ -150,7 +150,9 @@ describe('the gate runs before merge', () => {
       ci.indexOf('\n  typecheck_compile:'),
       ci.indexOf('- name: Invariant guards (parallel)')
     );
-    expect(job).toContain("if: github.event_name == 'pull_request'");
+    expect(job).toContain(
+      "if: (github.event_name == 'pull_request' || github.event_name == 'merge_group')"
+    );
     expect(job).toContain('fetch-depth: 0');
   });
 });

@@ -2,13 +2,13 @@
  * THE DIAMOND PLINKO CABINET IN THE HOUSE STYLE (mobile spins, phase 4).
  *
  * Crash and Donkey Cross were rebuilt as black glass, chrome hairlines, blue
- * LEDs and gold for money; this is the same language for the Plinko machine:
+ * LEDs and polished chrome; this is the same language for the Plinko machine:
  *
  *   - a black-glass back panel in a chrome bevel frame, on an obsidian casing;
  *   - a blue LED strip down each side and an LED in each corner, breathing
  *     while the board is idle;
  *   - a lit sign plate across the top that reads DIAMOND PLINKO in chrome;
- *   - a glass sill under the buckets with a blue LED line and a warm gold pool
+ *   - a glass sill under the buckets with a blue LED line and a sapphire pool
  *     under every bucket that pays five times the drop or more;
  *   - a soft blue underglow under the whole machine;
  *   - a glow behind every peg, which runs down the rows as a light chase while
@@ -121,6 +121,20 @@ function sparkTexture() {
  */
 function paintTitle(ctx: CanvasRenderingContext2D, width: number, height: number, text: string) {
   ctx.clearRect(0, 0, width, height);
+  if (!text) {
+    ctx.fillStyle = '#86caff';
+    for (let index = 0; index < 5; index++) {
+      const x = width / 2 + (index - 2) * 78;
+      ctx.beginPath();
+      ctx.moveTo(x - 26, 46);
+      ctx.lineTo(x, 65);
+      ctx.lineTo(x + 26, 46);
+      ctx.lineTo(x, 94);
+      ctx.closePath();
+      ctx.fill();
+    }
+    return;
+  }
   const mid = height / 2 + 4;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -183,7 +197,7 @@ export interface CabinetFrame {
   balls: readonly THREE.Object3D[];
   /** How many of `balls`, from the start, are falling and leave a trail. */
   flying: number;
-  /** The big-win pulse is up: the glows go gold. */
+  /** The big-win pulse is up: the glows brighten. */
   pulsing: boolean;
 }
 
@@ -210,6 +224,53 @@ export function plinkoCabinet(scene: THREE.Scene, slots: readonly THREE.Mesh[]) 
   solid(scene, glass, [11.5, 12.6, 0.14], [0, 0, -0.1], 0.05);
   for (const x of [-5.88, 5.88]) solid(scene, chrome, [0.34, 13.18, 0.44], [x, 0, 0.02], 0.12);
   for (const y of [-6.42, 6.42]) solid(scene, chrome, [12.1, 0.34, 0.44], [0, y, 0.02], 0.12);
+
+  // The sapphire field is stationary beneath the actual sealed-path studs.
+  const surface = new THREE.TextureLoader().load(
+    `${import.meta.env.BASE_URL}assets/diamond-spins/plinko-backplate.webp`
+  );
+  surface.colorSpace = THREE.SRGBColorSpace;
+  const backplate = new THREE.Mesh(
+    new THREE.PlaneGeometry(11.5, 12.55),
+    new THREE.MeshBasicMaterial({ map: surface, toneMapped: false })
+  );
+  backplate.position.z = -0.025;
+  scene.add(backplate);
+
+  // A physical recessed playing bed, framed by raised polished rails. These
+  // follow the extreme legal paths without changing any peg/contact position.
+  const bed = new THREE.Shape();
+  bed.moveTo(-0.52, 5.13);
+  bed.lineTo(0.52, 5.13);
+  bed.lineTo(5.53, -3.94);
+  bed.lineTo(-5.53, -3.94);
+  bed.closePath();
+  const bedMaterial = new THREE.MeshPhysicalMaterial({
+    color: 0x062248,
+    metalness: 0.68,
+    roughness: 0.28,
+    clearcoat: 1,
+    clearcoatRoughness: 0.12,
+    envMapIntensity: 0.9,
+  });
+  const playingBed = new THREE.Mesh(new THREE.ShapeGeometry(bed), bedMaterial);
+  playingBed.name = 'Recessed Sapphire Peg Bed';
+  playingBed.position.z = 0.005;
+  playingBed.receiveShadow = true;
+  scene.add(playingBed);
+  for (const side of [-1, 1]) {
+    const dx = side * 5.01,
+      dy = -9.07;
+    const rail = solid(
+      scene,
+      chrome,
+      [0.105, Math.hypot(dx, dy), 0.22],
+      [side * 3.025, 0.595, 0.13],
+      0.035
+    );
+    rail.rotation.z = -Math.atan2(dx, dy);
+    rail.name = 'Polished Plinko Path Rail';
+  }
 
   // THE SIDE LED STRIPS: an emissive tube each; the bloom is the glow field's.
   const led = new THREE.MeshStandardMaterial({
@@ -372,6 +433,8 @@ export function plinkoCabinet(scene: THREE.Scene, slots: readonly THREE.Mesh[]) 
     sparkBorn = new Float32Array(SPARKS).fill(-1e9),
     sparkSize = new Float32Array(SPARKS),
     sparkSpin = new Float32Array(SPARKS),
+    sparkDX = new Float32Array(SPARKS),
+    sparkDY = new Float32Array(SPARKS),
     /** When each diamond last left a sparkle, on the cabinet clock. */
     ballSparkAt = new Float32Array(BALLS).fill(-1e9);
   for (let i = 0; i < SPARKS; i++) {
@@ -392,8 +455,8 @@ export function plinkoCabinet(scene: THREE.Scene, slots: readonly THREE.Mesh[]) 
 
   const LIGHT_BLUE = new THREE.Color(0x45adff);
   const ICE = new THREE.Color(0xbfe6ff);
-  const GOLD = new THREE.Color(0xffd700);
-  const WARM = new THREE.Color(0xffb300);
+  const BRIGHT_ICE = new THREE.Color(0xc7eeff);
+  const SAPPHIRE = new THREE.Color(0x237ded);
 
   let last = -1,
     clock = 0,
@@ -438,7 +501,29 @@ export function plinkoCabinet(scene: THREE.Scene, slots: readonly THREE.Mesh[]) 
 
       // THE PEG CHASE: a band of light runs down the rows, one row every 90 ms,
       // then rests; a struck peg flares and fades over 320 ms.
-      for (const index of f.struck) if (index >= 0 && index < PEG_COUNT) pegStruck[index] = clock;
+      for (const index of f.struck) {
+        if (index < 0 || index >= PEG_COUNT) continue;
+        if (!still && clock - pegStruck[index] > 160 * f.speed) {
+          const row = pegRow[index];
+          const col = index - (row * (row + 1)) / 2;
+          // Two tiny shards at the real contact, sharing the existing fixed
+          // particle pool. Their motion never changes the sealed ball path.
+          for (const direction of [-1, 1]) {
+            const k = sparkCursor;
+            sparkCursor = (sparkCursor + 1) % SPARKS;
+            sparkX[k] = (col - row / 2) * 0.65;
+            sparkY[k] = 4.7 - row * 0.55;
+            sparkZ[k] = 0.5;
+            sparkBorn[k] = clock;
+            sparkSize[k] = 0.33;
+            sparkSpin[k] = direction;
+            sparkDX[k] = direction * 0.6;
+            sparkDY[k] = 0.45;
+            sparksAlive = true;
+          }
+        }
+        pegStruck[index] = clock;
+      }
       const period = 2700;
       const head = (attract % period) / 90 - 2;
       const flareSpan = 320 * f.speed;
@@ -455,19 +540,19 @@ export function plinkoCabinet(scene: THREE.Scene, slots: readonly THREE.Mesh[]) 
         tint.copy(level > 0.9 ? ICE : LIGHT_BLUE).multiplyScalar(Math.min(1.6, level));
         glows.setColorAt(PEG_GLOW + i, tint);
       }
-      // THE BUCKET POOLS: every 5x-or-better bucket keeps a warm gold pool on
+      // THE BUCKET POOLS: every 5x-or-better bucket keeps a sapphire pool on
       // the sill; a landing throws its own colour into the pool for the flash.
       for (let i = 0; i < SLOTS; i++) {
         const flash = bucketFlash[i];
         if (bucketBig[i])
           tint
-            .copy(WARM)
-            .lerp(GOLD, 0.5)
+            .copy(SAPPHIRE)
+            .lerp(BRIGHT_ICE, 0.5)
             .multiplyScalar(0.36 + 0.1 * breath);
         else tint.setRGB(0, 0, 0);
         if (flash > 0)
           tint.add(
-            flashTint.copy(bucketBig[i] ? GOLD : bucketTints[i]).multiplyScalar(1.2 * flash)
+            flashTint.copy(bucketBig[i] ? BRIGHT_ICE : bucketTints[i]).multiplyScalar(1.2 * flash)
           );
         glows.setColorAt(BUCKET_GLOW + i, tint);
       }
@@ -483,7 +568,7 @@ export function plinkoCabinet(scene: THREE.Scene, slots: readonly THREE.Mesh[]) 
             ball.position.z - 0.12,
             1.5
           );
-          tint.copy(f.pulsing ? GOLD : LIGHT_BLUE).multiplyScalar(f.pulsing ? 0.85 : 0.55);
+          tint.copy(f.pulsing ? BRIGHT_ICE : LIGHT_BLUE).multiplyScalar(f.pulsing ? 0.85 : 0.55);
         } else {
           place(glows, BALL_GLOW + i, 0, 0, 0, 0);
           tint.setRGB(0, 0, 0);
@@ -531,6 +616,8 @@ export function plinkoCabinet(scene: THREE.Scene, slots: readonly THREE.Mesh[]) 
           sparkY[k] = ball.position.y + (sparkleScatter(n + 0.5) - 0.3) * 0.3;
           sparkZ[k] = ball.position.z + 0.08;
           sparkBorn[k] = clock;
+          sparkDX[k] = 0;
+          sparkDY[k] = -0.18;
           sparkSize[k] = 0.2 + sparkleScatter(n + 0.25) * 0.22;
           sparkSpin[k] = sparkleScatter(n + 0.75) * Math.PI;
           sparksAlive = true;
@@ -550,7 +637,11 @@ export function plinkoCabinet(scene: THREE.Scene, slots: readonly THREE.Mesh[]) 
           const fade = (1 - age) * (1 - age);
           const twinkle = 0.7 + 0.3 * Math.sin(age * 18 + sparkSpin[k] * 4);
           const w = sparkSize[k] * (0.55 + 0.45 * (1 - age)) * twinkle;
-          at.set(sparkX[k], sparkY[k] - age * 0.18, sparkZ[k]);
+          at.set(
+            sparkX[k] + age * sparkDX[k],
+            sparkY[k] + age * sparkDY[k] - age * age * 0.35,
+            sparkZ[k]
+          );
           size.set(w, w, 1);
           turn.setFromAxisAngle(FACING, sparkSpin[k] + age);
           sparks.setMatrixAt(k, scratch.compose(at, turn, size));

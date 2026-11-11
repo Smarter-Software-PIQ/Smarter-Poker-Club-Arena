@@ -17,7 +17,17 @@ BEGIN
   UPDATE pp.out SET doc = jsonb_set(doc, '{players}', (
     SELECT coalesce(jsonb_agg(p || jsonb_build_object('newcomer', (
              SELECT (s ->> 'newcomer')::boolean FROM jsonb_array_elements(snap) s
-              WHERE s ->> 'playerId' = p ->> 'player_id')) ORDER BY o), '[]'::jsonb)
+              WHERE s ->> 'playerId' = p ->> 'player_id'))
+             -- 20261110: the recency keys are the snapshot's too, so the port
+             -- plans each re-evaluated fixture by the rule the SQL now uses.
+             || coalesce((SELECT jsonb_build_object(
+                    'hands_since_sb', s -> 'handsSinceSb',
+                    'hands_since_button', s -> 'handsSinceButton',
+                    'last_button_at_us', CASE WHEN s ->> 'lastButtonAtMs' IS NULL THEN NULL
+                                              ELSE to_jsonb(((s ->> 'lastButtonAtMs')::numeric * 1000)::bigint) END)
+                    FROM jsonb_array_elements(snap) s
+                   WHERE s ->> 'playerId' = p ->> 'player_id' AND s ? 'handsSinceButton'), '{}'::jsonb)
+             ORDER BY o), '[]'::jsonb)
       FROM jsonb_array_elements(doc -> 'players') WITH ORDINALITY t(p, o)))
    WHERE n = p_n;
   IF EXISTS (SELECT 1 FROM pp.out, jsonb_array_elements(doc -> 'players') p
@@ -38,13 +48,17 @@ BEGIN
   END IF;
   IF jsonb_array_length(result->'groups')=0 THEN RAISE EXCEPTION 'Current policy parity became vacuous: %',f.name; END IF;
   FOR members IN SELECT x FROM jsonb_array_elements(result->'groups') x LOOP
-   IF jsonb_array_length(members->'players') NOT BETWEEN 5 AND 6 THEN RAISE EXCEPTION 'Current policy group outside5/6: % %',f.name,members; END IF;
+   -- 20261110214134: a thin pool (at most 24 open-pool players) may also deal four.
+   IF jsonb_array_length(members->'players') NOT BETWEEN
+        (CASE WHEN jsonb_array_length(f.doc->'players') <= 24 THEN 4 ELSE 5 END) AND 6 THEN
+     RAISE EXCEPTION 'Current policy group outside its sizes: % % (pool %)',f.name,members,jsonb_array_length(f.doc->'players');
+   END IF;
   END LOOP;
   UPDATE pp.out SET doc=jsonb_set(jsonb_set(doc,'{config}',public.fn_lightning_config(g)),'{plan}',result) WHERE n=f.n;
   PERFORM pp.refresh_newcomer(f.n);
  END LOOP;
 END $current$;
-\echo '  ok  12 CURRENT POLICY  exact source-admitted 20261023230001; independent fairness snapshots re-evaluated with unchanged legality and only five/six-player groups'
+\echo '  ok  12 CURRENT POLICY  exact source-admitted 20261023230001; independent fairness snapshots re-evaluated with unchanged legality and only five/six-player groups (four only in a pool of at most 24)'
 
 -- 13 A FRESH CONVERSION (20261024213844): twenty-four players seated BEFORE
 -- the real drive converts the game (lc.build without its conversion, then the

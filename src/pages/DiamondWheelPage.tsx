@@ -113,7 +113,7 @@ const MAX_CLIENT_SEED = 64;
 function hasVariableEntry(
   version: WheelState['contract_version']
 ): version is WheelContractVersion {
-  return version === 2 || version === 3 || version === 4;
+  return version === 2 || version === 3 || version === 4 || version === 5;
 }
 
 /**
@@ -233,6 +233,7 @@ export default function DiamondWheelPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [commit, setCommit] = useState<{ id: string; hash: string } | null>(null);
   const [clientSeed, setClientSeed] = useState<string>(() => randomClientSeed());
+  const [requestingSpin, setRequestingSpin] = useState(false);
   const [spinning, setSpinning] = useState(false);
   const paidBatch = useRef<PaidWheelBatch | null>(null);
   const paidRequest = useRef<PendingWheelBatch | null>(null);
@@ -381,9 +382,13 @@ export default function DiamondWheelPage() {
       setPreparationError(null);
       setCommit(null);
       try {
-        const next = await loadState(uuid);
+        // The unpriced fairness ticket and the stake-specific quote are independent.
+        // Both must settle before preparation releases the single-spin action.
+        const [quote, ticket] = await Promise.allSettled([loadState(uuid), freshCommit()]);
         if (!live() || scopeRef.current !== scope) return;
-        if (next.available) await freshCommit();
+        if (quote.status === 'rejected') throw quote.reason;
+        if (!quote.value.available) setCommit(null);
+        else if (ticket.status === 'rejected') throw ticket.reason;
         if (live() && scopeRef.current === scope) setPrepareFailures(0);
       } catch (err) {
         reportError(err, 'DiamondWheelPage.prepare');
@@ -407,6 +412,7 @@ export default function DiamondWheelPage() {
       if (!routeClubId || !user?.id) return;
       setLoading(true);
       busyRef.current = false;
+      setRequestingSpin(false);
       runBusyRef.current = false;
       setRunBusy(false);
       setRunSummary(null);
@@ -440,7 +446,15 @@ export default function DiamondWheelPage() {
         setPriorSpin(Boolean(saved));
         setReceiptFailures(0);
         setSettleAttempts(0);
-        setEntryDiamonds(saved?.entryDiamonds ?? 100);
+        let preferredEntry = 100;
+        try {
+          const remembered = Number(sessionStorage.getItem(`wheel-entry:${user.id}:${uuid}`));
+          if (validSpinAmount(remembered)) preferredEntry = remembered;
+        } catch (error) {
+          reportError(error, 'DiamondWheelPage.readEntry');
+        }
+        entryRef.current = saved?.entryDiamonds ?? preferredEntry;
+        setEntryDiamonds(entryRef.current);
         setAutoRun(null);
         setPending(null);
         setSpinning(false);
@@ -453,7 +467,10 @@ export default function DiamondWheelPage() {
         setCardFailures(0);
         cardBusyRef.current = false;
         const [next, onTheHouse, bonus] = await Promise.all([
-          loadState(uuid),
+          loadState(uuid).then(async (quote) => {
+            if (quote.available && !saved && !cancelled && live()) await freshCommit();
+            return quote;
+          }),
           loadWelcome(uuid),
           loadDailyBonus(uuid),
         ]);
@@ -472,7 +489,7 @@ export default function DiamondWheelPage() {
         if (saved) {
           setCommit({ id: saved.commitId, hash: saved.commitHash });
           setClientSeed(saved.clientSeed);
-        } else if (next.available) await freshCommit();
+        }
         /* A pick this browser sent and never heard the answer to. Its award is
            the one the server still lists, so the SAME pick goes again on the
            page's own schedule; a saved pick whose award is no longer pending
@@ -894,6 +911,7 @@ export default function DiamondWheelPage() {
     clubUuid &&
     commit &&
     !spinning &&
+    !requestingSpin &&
     !preparing &&
     !runBusy &&
     !blocker &&
@@ -928,10 +946,15 @@ export default function DiamondWheelPage() {
         clientSeed: clientSeed.trim().slice(0, MAX_CLIENT_SEED) || randomClientSeed(),
         ticketId: dailyBonusMode ? (dailyBonus?.ticket_id ?? null) : null,
         ...(hasVariableEntry(state?.contract_version)
-          ? { contractVersion: state.contract_version, entryDiamonds: price }
+          ? {
+              contractVersion:
+                state.contract_version === 5 && mode !== 'paid' ? 4 : state.contract_version,
+              entryDiamonds: price,
+            }
           : {}),
       };
       saveWheelPending(attempt);
+      setRequestingSpin(true);
       setRecovery(attempt);
       sent = true;
       const result = hasVariableEntry(attempt.contractVersion)
@@ -952,6 +975,7 @@ export default function DiamondWheelPage() {
             : await DiamondWheelService.spin(attempt.clubId, attempt.commitId, attempt.clientSeed);
       if (!live() || scopeRef.current !== scope) return;
       if (!result.ok) {
+        setRequestingSpin(false);
         clearWheelPending(attempt);
         setRecovery(null);
         setPriorSpin(false);
@@ -1028,7 +1052,10 @@ export default function DiamondWheelPage() {
         }
       }
     } finally {
-      if (scopeRef.current === scope) busyRef.current = false;
+      if (scopeRef.current === scope) {
+        busyRef.current = false;
+        if (live()) setRequestingSpin(false);
+      }
     }
   }, [
     clubUuid,
@@ -1186,7 +1213,8 @@ export default function DiamondWheelPage() {
     if (result.welcome || result.daily_bonus) {
       setMode('paid');
     }
-    if (clubUuid && !paidBatch.current) {
+    const leavingForBonus = result.bonus && !autoRunRef.current;
+    if (clubUuid && !paidBatch.current && !leavingForBonus) {
       void prepareNextSpin(clubUuid);
       void loadWelcome(clubUuid);
       void loadDailyBonus(clubUuid);
@@ -1196,7 +1224,7 @@ export default function DiamondWheelPage() {
     /* A game won by hand opens now: the player just tapped Play Game on its
        reveal. A game won inside a run waits on the run's tally and in the
        server's queue until the summary offers it (R9, R18). */
-    if (result.bonus && !autoRunRef.current) {
+    if (leavingForBonus && result.bonus) {
       releaseNavigation();
       openBonus(result.bonus);
     }
@@ -1581,8 +1609,8 @@ export default function DiamondWheelPage() {
                   if (!clubUuid) return;
                   setClaimingPrize(claim.key);
                   try {
-                    await DiamondWheelService.claimChipPrize(clubUuid, claim.key);
-                    toast.success(`${claim.chips} Chips Credited To Your Club Balance`);
+                    const paid = await DiamondWheelService.claimChipPrize(clubUuid, claim.key);
+                    toast.success(`${paid} Chips Credited To Your Club Balance`);
                     await loadState(clubUuid).catch(() =>
                       toast.error('Reload Diamond Spins To Refresh Your Balance')
                     );
@@ -1596,7 +1624,7 @@ export default function DiamondWheelPage() {
                 }}
               >
                 {claimingPrize === claim.key ? 'Claiming Prize' : 'Claim Prize'} · {claim.chips}{' '}
-                Chips
+                Chips Reserved
               </button>
             ))}
             {state.auto_run && !running && !recovery && !runBusy && (
@@ -1682,6 +1710,13 @@ export default function DiamondWheelPage() {
               disabled={freeMode || spinning || running || Boolean(recovery)}
               onChange={(amount) => {
                 setEntryDiamonds(amount);
+                if (user && clubUuid && validSpinAmount(amount)) {
+                  try {
+                    sessionStorage.setItem(`wheel-entry:${user.id}:${clubUuid}`, String(amount));
+                  } catch (error) {
+                    reportError(error, 'DiamondWheelPage.saveEntry');
+                  }
+                }
               }}
             />
           )
@@ -1714,6 +1749,7 @@ export default function DiamondWheelPage() {
             upgradeSegments={state.upgrade_segments ?? []}
             spinKey={spinKey}
             spinning={spinning}
+            awaitingResult={requestingSpin && !priorSpin}
             runMode={running}
             prepaidRun={running && Boolean(paidBatch.current)}
             onFinished={handleLanded}
@@ -1818,6 +1854,12 @@ export default function DiamondWheelPage() {
                     : welcomeMode
                       ? `Your Welcome Spin, On The Club. A ${price.toLocaleString()} Diamond Spin On The Same Wheel, At No Cost To You, Once.`
                       : `Spin ${price.toLocaleString()} Diamonds.${hasVariableEntry(state.contract_version) ? ' Every Spin Wins A Prize.' : ' Explore The Prizes Below.'}${welcomeNote}`}
+          </p>
+        )}
+        {state.contract_version === 5 && !freeMode && (
+          <p className="sc-copy">
+            Each Paid Spin Has A 25% Chance Of A Bonus Game, Including Super Games. Games Can Arrive
+            Back To Back Or After Longer Gaps. There Is No Every-Fourth-Spin Guarantee.
           </p>
         )}
         <div>

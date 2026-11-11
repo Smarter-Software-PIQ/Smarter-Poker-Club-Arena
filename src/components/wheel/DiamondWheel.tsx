@@ -28,6 +28,7 @@ export interface DiamondWheelProps {
   landingOrd: number | null;
   spinKey: number;
   spinning: boolean;
+  awaitingResult?: boolean;
   onLanded: () => void;
   size?: number;
   fitViewport?: boolean;
@@ -188,6 +189,7 @@ export default function DiamondWheel({
   landingOrd,
   spinKey,
   spinning,
+  awaitingResult = false,
   onLanded,
   size = 760,
   fitViewport = false,
@@ -232,12 +234,15 @@ export default function DiamondWheel({
     pegs: number[];
     nextPeg: number;
     sounded: boolean;
+    initialSlope: number;
   } | null>(null);
+  const requestVelocity = useRef(0);
   const startedKey = useRef<number | null>(null);
   const callback = useRef(onLanded);
   callback.current = onLanded;
   const hold = holdResult ?? landingOrd !== null;
   const live = useRef({
+    awaitingResult,
     spinning,
     count: arranged.length,
     idleDirection,
@@ -246,7 +251,15 @@ export default function DiamondWheel({
     reducedMotion: false,
     onScreen: true,
   });
-  live.current = { ...live.current, spinning, count: arranged.length, idleDirection, hold, paused };
+  live.current = {
+    ...live.current,
+    awaitingResult,
+    spinning,
+    count: arranged.length,
+    idleDirection,
+    hold,
+    paused,
+  };
   const [settledOrd, setSettledOrd] = useState<number | null>(null);
   const [settledAngle, setSettledAngle] = useState(0);
   const settledRef = useRef<number | null>(null);
@@ -301,12 +314,15 @@ export default function DiamondWheel({
     position.current = from;
     const to = wheelLandingRotation(from, index, arranged.length);
     const duration = WHEEL_SPIN_MS * getAnimationSpeed();
+    const initialSlope = (requestVelocity.current * duration) / (1000 * (to - from));
+    requestVelocity.current = 0;
     animation.current = {
+      initialSlope,
       from,
       to,
       duration,
       elapsed: 0,
-      pegs: wheelPegTimes(from, to, arranged.length, duration),
+      pegs: wheelPegTimes(from, to, arranged.length, duration, initialSlope),
       nextPeg: 0,
       sounded: false,
     };
@@ -360,7 +376,7 @@ export default function DiamondWheel({
           soundService.playSpinPeg(0.5 + (0.5 * run.nextPeg) / Math.max(1, run.pegs.length - 1));
           run.nextPeg += 1;
         }
-        position.current = run.from + (run.to - run.from) * wheelTravel(progress);
+        position.current = run.from + (run.to - run.from) * wheelTravel(progress, run.initialSlope);
         moving = true;
         if (progress === 1) {
           animation.current = null;
@@ -371,7 +387,15 @@ export default function DiamondWheel({
           soundService.playSpinResult();
           callback.current();
         }
+      } else if (state.awaitingResult) {
+        settleDrift();
+        if (!state.reducedMotion) {
+          requestVelocity.current = 300;
+          position.current += (elapsed / 1000) * requestVelocity.current;
+          moving = true;
+        }
       } else if (!state.spinning) {
+        requestVelocity.current = 0;
         animation.current = null;
         // The reveal has been acknowledged: let go of the landed prize and
         // drift on from this very angle. Nothing snaps back to zero.
@@ -405,7 +429,7 @@ export default function DiamondWheel({
           moving = true;
         } else settleDrift();
       }
-      const direction = state.spinning ? 1 : state.idleDirection;
+      const direction = state.spinning || state.awaitingResult ? 1 : state.idleDirection;
       write(
         position.current,
         moving ? wheelPointerDeflection(position.current, state.count, direction) : 0
@@ -467,7 +491,7 @@ export default function DiamondWheel({
   // A released hold or an unpaused wheel needs a frame to notice.
   useEffect(() => {
     wake.current();
-  }, [hold, paused, spinning]);
+  }, [awaitingResult, hold, paused, spinning]);
 
   const assembled = presentation === 'assembly';
   const outerRing = assembled && upgraded;
@@ -515,7 +539,15 @@ export default function DiamondWheel({
       aria-label={upgraded ? 'Upgrade Wheel' : 'Diamond Wheel'}
       data-fit-viewport={fitViewport || undefined}
       data-motion="keep"
-      data-phase={spinning ? 'spinning' : settledOrd === null ? 'idle' : 'landed'}
+      data-phase={
+        awaitingResult
+          ? 'requesting'
+          : spinning
+            ? 'spinning'
+            : settledOrd === null
+              ? 'idle'
+              : 'landed'
+      }
       data-upgraded={upgraded || undefined}
       data-idle-direction={idleDirection}
       data-presentation={presentation}

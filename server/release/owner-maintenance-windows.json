@@ -1188,6 +1188,51 @@
         "path": "server/release/activation-floor.json",
         "sha256": "a171baede07efd880c67e623e896fb4cee13a0fd0bb1be10310911127dd560cb"
       }
+    },
+    {
+      "id": "2026-11-10-owner-asap-engine-2350z",
+      "ownerOrder": "Dan, the owner, directly in Claude chat session_01BNteGXa3Wmbom5UJdN3PhE on November 10, 2026 at about 17:05Z (11:05 America/Chicago), answered the question \"Do you want the cutover as soon as Backup certifies today, or at 04:00 tomorrow (Nov 11)?\" for the merged cash Horse action change #10350 (63c9285865a395ff3d333938e2af518b67a45288, v85CashAction) by choosing verbatim \"ASAP today (Recommended)\", whose stated meaning was \"Book one single-use owner window opening once Backup certifies; I take release custody for it.\" This follows his standing direction of November 9 (\"NO CUT OVER HAPPENS AS SOON AS ITS AVALILABLE, NOT 4AM\") and his November 9 to 10 instructions in this chat that the change be fully built, activated and used by every Horse. The Claude agent in this chat is the sole cutover custodian for this operation and alone owns its Stage, receiver and Backup operations. This NEW single-use window admits one earliest-certified replacement of serving 840429a332ecb536d19b3b719fa6809e7bc63ca7 from 23:50 UTC November 10 through 05:00 UTC November 11. The protected target must contain 63c9285865a395ff3d333938e2af518b67a45288 and all engine work merged since 840429a3 through this booking. The separately booked database-only retry window 2026-11-10-closed-person-name-policy-db-retry (23:35 UTC November 10 through 04:00 UTC November 11) overlaps this window; it keeps its own notice, custody and operation, and the two operations never run at the same time: this cutover is dispatched only while no database break or other release operation is active. Until 04:00 UTC players see that earlier-starting notice, which already announces a possible break through 04:00 UTC; after 04:00 UTC this window's own notice shows, and admission then waits until it has been visible for twenty minutes (not before 04:20 UTC). It neither renews nor replays any earlier booking; preserve their exact entries, expiry, notices, witnesses and operation state. No database migration and no new tournament-start hold. Publish the player notice from 23:30 UTC, after this authorization has actually merged, and observe its actual public visibility for at least twenty minutes before admission; a later publication or observation moves earliest admission later within the 05:00 UTC expiry. Require exact-head protected checks, immutable target/control and image qualification, a fresh exact Backup certificate with the full 1800-second soak and installed migration/schema equality to production, both-direction serving-predecessor reconnect rehearsal, a fresh announcement between :05:30 and :49:00, normal hand-boundary drain, durable sealed freeze and full 285-second proof/rollback reserve, single-use custody, exact production identity, healthy completed thaw and post-seal fresh Backup. Use only the existing Stage/receiver and original bounded release transaction. No direct restart, financial or migration replay, competing operation, timer, watcher, repair loop, reserve reduction or freeze extension. No automatic extension or replay is authorized; the standing daily schedule remains unchanged.",
+      "contains": "63c9285865a395ff3d333938e2af518b67a45288",
+      "playerNoticeAt": "2026-11-10T23:30:00Z",
+      "notBefore": "2026-11-10T23:50:00Z",
+      "notAfter": "2026-11-11T05:00:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "72bbb5fe8f245ad98d7b78f883009a16a2289816bd50cf4edd3258a121dffa48"
+      }
+    },
+    {
+      "id": "2026-11-11-horse-clock-receipts-engine-0050z",
+      "ownerOrder": "Dan directly in Codex release chat 01a1bbdd-33d6-7680-b41e-fff1cf188f3f on November 10 at 15:34 America/Chicago explicitly ordered: I explicitly authorize a new ASAP engine cutover outside the routine 04:00-04:05 Chicago window, specifically to deploy the exact-clock Horse decision receipt enhancement in #10346. This is my direct authorization for that replacement. You may choose the earliest safe, bounded window through the maintained protected owner-order route. Create a fresh order; preserve the consumed 0650 order unchanged. Root Codex agent retains sole Stage, receiver, Backup and release custody. This is ONE actual activation replacing exact serving 840429a332ecb536d19b3b719fa6809e7bc63ca7 with a protected candidate containing the exact protected #10346 enhancement, not an extension or replay of any previous order. The owner authorized choosing the earliest safe bounded window, rather than a human-fixed expiry. Before any Stage selection or single-use claim, the release owner deliberately amended this same unconsumed booking after protected #10419 installed migration 20261110233909 after the in-progress Backup export, requiring a fresh compatible copy and full certification. Fixed admission now 03:40 UTC through 06:30 UTC November 11; updated notice declared from 03:20 UTC November 11. Earlier database and cash notices retain their priority; the changed receipt promise becomes primary at 05:00 UTC, so actual twenty-minute visibility cannot qualify before 05:20 UTC. This is a reviewed manual amendment under the original direct instruction, not an automatic renewal or another activation. Independently observe the actual public notice for at least twenty minutes after publication before dispatch; later visibility delays admission inside the fixed expiry. Require exact-head protected checks, immutable target and control, all four qualification shards and immutable images, compatible Backup certificate with full 1800-second soak, current production installed migration and function equality, actual serving-predecessor rehearsal in both directions, a fresh announcement between :05:30 and :49:00, normal 120s last-hand lead, hand-boundary drain, durable database freeze, 300s break, full 285s cutover/proof/rollback reserve, one-use claim, exact sealed identity, completed healthy thaw and fresh post-seal Backup. Source owner retains protected #10346 merge and natural tournament receipt acceptance for exact actionable turn start, applicable deadline, acceptance time and action origin. Existing source changes already on protected main can be carried only after exact containing qualification; no additional features. No migrations or new tournament-start hold. No direct restart, financial replay, competing operation, timer, watcher, repair loop, reduced reserve or extended freeze. Prior orders, claims and outcomes remain unchanged. Authority ends after this one activation or fixed expiry without automatic renewal; the standing daily schedule stays unchanged. Preserve the separately protected #10393 cash order and its unused claim unchanged. Reconcile its named custodian and verify no competing active operation before the single containing dispatch; retain any already-reserved original operation. The containing protected source also carries already-merged cash action 63c9285865a395ff3d333938e2af518b67a45288; cash acceptance stays with its source owner. This is no second activation or additional strategy assignment.",
+      "contains": "d86753a866822c0d038b1c64bfd2fcca8f6be107",
+      "playerNoticeAt": "2026-11-11T03:20:00Z",
+      "notBefore": "2026-11-11T03:40:00Z",
+      "notAfter": "2026-11-11T06:30:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "a14a5f26ebc79a55708f7f6d78f82832e20b10483ea6b96b7cca058a7e1b4d10"
+      }
+    },
+    {
+      "id": "2026-11-11-horse-clock-clone-engine-0650z",
+      "ownerOrder": "Dan directly in Codex release chat 01a1bbdd-33d6-7680-b41e-fff1cf188f3f on November 10 at 15:34 America/Chicago explicitly ordered: I explicitly authorize a new ASAP engine cutover outside the routine 04:00-04:05 Chicago window, specifically to deploy the exact-clock Horse decision receipt enhancement in #10346. He further directed verbatim: Continue through verified delivery. If a technical gate blocks you, identify its exact failed condition and resolve it within scope. The first original Stage 42965274517 and receiver 42965360845-1 sealed 05ab41c30fc21a8a98001827e9921ffc314b81e7 at 05:30:05 UTC November 11 and completed full thaw at 05:32:55.327 UTC, but fresh natural tournament verification found clock metadata absent: HandContinuationLane structuredClone boundaries discarded the WeakMap association keyed to the accepted action record before HandEvents.carryHorseTurnClock. Protected corrective #10457/57d56c0d6417b08fbb847fb842c03c968a25f698 carries the private clock through both actual lane clone boundaries and pins the real controller/lane/history path. The release owner interprets the ongoing direct instruction to finish verified delivery and resolve the technical gate as authority for this necessary corrective delivery of the original enhancement; the human did not separately name this second window. This fresh SINGLE-USE order admits ONE corrective activation replacing exact serving 05ab41c30fc21a8a98001827e9921ffc314b81e7, only with a protected qualified candidate containing that exact corrective fix. It never amends or replays consumed 0050 or older 0650 orders, claims or outcomes. Root Codex retains sole Stage, receiver, Backup and release custody. Fresh notice declared 07:40 UTC November 11; nominal admission 08:00 UTC through fixed 10:30 UTC November 11. The first unmerged draft declared 06:10/06:30, and required premerge validation correctly refused those past times at 06:40:14.851 UTC; this same unmerged order corrects that technical gate without changing its fixed expiry. Prior 0050 notice remains unchanged and expires at 06:30 UTC; the new corrective promise becomes visible no earlier than 07:40 UTC, so actual twenty-minute public visibility cannot qualify before 08:00 UTC, and later publication delays admission within fixed expiry. Independently prove the updated public promise and actual lead before dispatch. Require protected exact-head checks, immutable target/control/images, all four qualification shards, a compatible original Backup certificate with full 1800-second soak, current installed migration and function equality, both-direction rehearsal against actual serving 05ab, a fresh announcement between :05:30 and :49:00, normal 120s last-hand lead, hand-boundary drain, durable database freeze, 300s break, full 285s cutover/proof/rollback reserve, fresh one-use claim, exact sealed identity, completed healthy thaw and fresh post-seal Backup. The implementation owner retains natural fresh tournament receipt acceptance for exact turn start, applicable deadline, acceptance time and action origin through the deployed completed-hand reviewer. No additional feature, strategy assignment, migration, new tournament-start hold, direct restart, financial replay, competing operation, automatic renewal, timer, watcher, repair loop, reduced reserve or extended freeze. All previous orders and immutable release generations remain unchanged. Authority ends with this one corrective activation or fixed expiry; the routine daily schedule remains unchanged.",
+      "contains": "57d56c0d6417b08fbb847fb842c03c968a25f698",
+      "playerNoticeAt": "2026-11-11T07:40:00Z",
+      "notBefore": "2026-11-11T08:00:00Z",
+      "notAfter": "2026-11-11T10:30:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "aeecae49960eb9659ab5bc86710d330bb6a58a47a7c732f94fe74c894002b602"
+      }
     }
   ],
   "databaseWindows": [
@@ -1304,6 +1349,28 @@
       "notBefore": "2026-11-07T18:00:00Z",
       "notAfter": "2026-11-08T00:00:00Z",
       "migrations": ["20261107160549_horse_memory_excludes_forced_folds.sql"]
+    },
+    {
+      "id": "2026-11-10-closed-person-name-policy-db",
+      "ownerOrder": "Dan, the owner, in Claude chat session_01BNteGbJLpMVVDd7K7WpuSL at about 2026-11-10 15:10Z (09:10 America/Chicago), answered the question to authorize one database-only Deployment Recovery break of up to five minutes between 16:00 and 22:00 UTC today for 20261110003726 only, verbatim: \"Authorize break today\". Earlier in the same chat he ordered verbatim: \"Do not wait until November 11 by default\". The daily window skipped this file on November 10. One break, one attempt, no engine replacement.",
+      "contains": "0d5f450060d2cc1bee04afdab53648acd06a00b2",
+      "playerNoticeAt": "2026-11-10T16:40:00Z",
+      "notBefore": "2026-11-10T17:00:00Z",
+      "notAfter": "2026-11-10T22:00:00Z",
+      "migrations": [
+        "20261110003726_a_closed_persons_tournament_rows_are_read_through_the_public.sql"
+      ]
+    },
+    {
+      "id": "2026-11-10-closed-person-name-policy-db-retry",
+      "ownerOrder": "Dan, the owner, in Claude chat session_01BNteGbJLpMVVDd7K7WpuSL at about 2026-11-10 17:20Z (11:20 America/Chicago), after the first break (run 42861001229) ended unproven because a table was still finishing a hand when the 285-second drained reserve was due, answered the question to authorize one more database-only break for the same file, verbatim: \"Authorize one more break\". At about 21:05Z (15:05 America/Chicago), told that the booking could not land before 22:00 UTC, he answered verbatim: \"Retry tonight after 22:00\" (one break between 22:00 UTC today and 04:00 UTC tomorrow). One more break, one attempt, no engine replacement.",
+      "contains": "d10ccd6cdff643607d19615fe28d863bffccb8a1",
+      "playerNoticeAt": "2026-11-10T23:15:00Z",
+      "notBefore": "2026-11-10T23:35:00Z",
+      "notAfter": "2026-11-11T04:00:00Z",
+      "migrations": [
+        "20261110003726_a_closed_persons_tournament_rows_are_read_through_the_public.sql"
+      ]
     }
   ]
 }

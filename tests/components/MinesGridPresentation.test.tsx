@@ -103,14 +103,15 @@ describe('tiles turn over', () => {
     const gem = screen.getByRole('button', { name: 'Tile 7, Gem' });
     expect(gem).toHaveAttribute('data-flip', 'true');
     expect(gem).toHaveAttribute('data-cascade', 'false');
-    expect(gem.querySelector('img[data-daily-diamond="true"]')).toHaveAttribute(
+    expect(gem.querySelector('img[data-cut-diamond="true"]')).toHaveAttribute(
       'src',
-      expect.stringContaining('images/daily-bonus/blue-diamond-v1.webp')
+      expect.stringContaining('mines-cut-sapphire-v2.webp')
     );
     const sealed = screen.getByRole('button', { name: 'Tile 8' });
     expect(sealed).toHaveAttribute('data-flip', 'false');
     expect(sealed).toHaveAttribute('data-revealed', 'false');
     expect(sealed).toBeEnabled();
+    expect(sealed.querySelector('[data-cut-diamond]')).toBeNull();
   });
   it('cascades the whole board from the mine that ended it, blasting that mine', () => {
     const onSettled = vi.fn();
@@ -129,6 +130,7 @@ describe('tiles turn over', () => {
     expect(tiles.every((tile) => tile.getAttribute('data-revealed') === 'true')).toBe(true);
     expect(screen.getAllByRole('button', { name: /, Mine$/ })).toHaveLength(2);
     expect(screen.getAllByRole('button', { name: /, Gem$/ })).toHaveLength(23);
+    expect(document.querySelector('[data-mine-impact]')?.parentElement).toBe(document.body);
     const hit = screen.getByRole('button', { name: 'Tile 13, Mine' });
     expect(hit).toHaveAttribute('data-hit', 'true');
     expect(hit).toHaveAttribute('data-cascade', 'false');

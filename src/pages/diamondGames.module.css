@@ -495,6 +495,10 @@
   padding: 12px;
   box-sizing: border-box;
 }
+.fullscreenPage .crashStage .readoutSub {
+  min-height: 1.5em;
+  line-height: 1.5;
+}
 .fullscreenPage .crashStage .readoutValue {
   text-shadow: 0 0 28px #5bbaf55c;
   font-size: clamp(52px, 7vw, 90px);
@@ -521,4 +525,23 @@
     max-width: calc((var(--scene-budget, 100dvh) - var(--scene-reserve, 0px)) / 1.13);
     margin-inline: auto;
   }
+}
+
+/* The latest results sit inside the approved machined steel face. */
+.crashHistory {
+  width: 100%;
+  box-sizing: border-box;
+  border: 10px solid transparent;
+  border-image: url('/assets/club-buttons/lobby/shark-panel-v1/button-secondary.png') 26 fill / 10px
+    stretch;
+  padding: 6px 8px;
+  min-width: 0;
+}
+.crashHistory .strip {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  gap: clamp(8px, 1.1vw, 16px);
+  align-items: center;
+  min-height: 24px;
 }

@@ -446,7 +446,7 @@
 }
 [data-choice-game='crossing'] .header {
   background: linear-gradient(175deg, #303a40, #131d23 48%, #10171b);
-  border-bottom: 2px solid #dba651;
+  border-bottom: 2px solid #437eb9;
 }
 [data-choice-game='crossing'] .metrics {
   gap: 1px;
@@ -461,13 +461,13 @@
   border-radius: 0;
 }
 [data-choice-game='crossing'] .bar {
-  background: linear-gradient(#425057, #20292e 8%, #101619 84%, #38434a);
+  background: linear-gradient(#acc4d9, #233e5c 5%, #081523 14%, #061021 82%, #375272);
 }
 @media (min-width: 761px) and (min-height: 501px) {
   [data-choice-game='crossing'] .console {
-    grid-template-columns: minmax(0, 3fr) minmax(240px, 2fr);
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto auto;
-    grid-template-areas: 'header header' 'play play' 'controls bar';
+    grid-template-areas: 'header' 'play' 'controls' 'bar';
   }
   [data-choice-game='crossing'] .metrics {
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -492,28 +492,47 @@
   border-image-source: url('/assets/club-buttons/lobby/shark-panel-v1/button-primary.png');
 }
 
+[data-choice-game='crossing'] .header h1 {
+  color: white;
+  background: linear-gradient(155deg, #2d4c6c, #0b1b30 60%, #204463);
+  border: 1px solid #91afc9;
+  border-radius: 4px;
+  padding: 3px 12px;
+}
+[data-choice-game='crossing'] .metrics dt,
+[data-choice-game='crossing'] .metrics dd {
+  color: white;
+}
+
 [data-choice-game='mines'] .console {
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto 1fr auto auto;
-  grid-template-areas: 'header' 'play' 'controls' 'bar';
+  --plate-gold: #f2f8ff;
+  min-height: 0;
+}
+@media (orientation: portrait), (min-height: 501px) {
+  [data-choice-game='mines'] .console {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 1fr auto auto;
+    grid-template-areas: 'header' 'play' 'controls' 'bar';
+  }
+}
+@media (orientation: landscape) and (max-height: 500px) {
+  [data-choice-game='mines'] .controls .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 [data-choice-game='mines'] .header {
   background: linear-gradient(165deg, #1b2b40, #060c16 65%);
 }
 [data-choice-game='mines'] .header h1 {
-  margin-inline: auto;
-  padding: 0.4em 1.5em;
+  margin: 0 auto;
+  padding: 2px clamp(12px, 4vw, 28px);
   font-size: clamp(16px, 4vw, 23px);
-  letter-spacing: 0.05em;
+  color: #fff;
   text-transform: uppercase;
-  color: #e4f7ff;
-  border: 1px solid #beccd7;
-  border-radius: 0.35em;
-  background: linear-gradient(#364d65, #0c1b2f 46%, #060e1b 52%, #1d3954);
-  box-shadow:
-    inset 0 1px white,
-    inset 0 -2px #49779a,
-    0 2px 5px #000;
+  letter-spacing: 0.06em;
+  border: 8px solid transparent;
+  border-image: url('/assets/club-buttons/lobby/shark-panel-v1/button-primary.png') 26 fill / 8px
+    stretch;
 }
 [data-choice-game='mines'] .metrics {
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -526,7 +545,10 @@
 }
 [data-choice-game='mines'] .metrics > div {
   padding: 0.25em;
-  border: none;
+  border: 5px solid transparent;
+  border-image: url('/assets/club-buttons/lobby/shark-panel-v1/button-secondary.png') 26 fill / 5px
+    stretch;
+  color: white;
   text-align: center;
 }
 [data-choice-game='mines'] .actions {
@@ -575,6 +597,9 @@
 }
 @media (min-width: 761px) and (min-height: 501px) {
   [data-flight-cabinet] .console {
+    min-height: 0;
+    height: auto;
+    align-content: start;
     grid-template-columns: minmax(0, 3fr) minmax(252px, 2fr);
     grid-template-rows: auto auto auto;
     grid-template-areas: 'header header' 'play play' 'controls bar';
@@ -588,4 +613,224 @@
   [data-flight-cabinet] .actions {
     grid-template-columns: 1fr 1.3fr;
   }
+}
+
+/* One flight deck at phone and tablet widths. Keep the action dock in the
+   same column as the graph so the booking control stays aligned at launch. */
+[data-flight-cabinet] .console {
+  min-height: 0;
+  height: auto;
+  align-content: start;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto 1fr auto auto;
+  grid-template-areas: 'header' 'play' 'controls' 'bar';
+}
+[data-flight-cabinet] .header {
+  min-height: 46px;
+  padding: 6px clamp(12px, 3vw, 28px);
+  background: linear-gradient(105deg, #10283e, #08121e 55%, #101b29);
+  border-bottom: 1px solid #47637a;
+}
+[data-flight-cabinet] .header h1,
+[data-choice-game='crossing'] .header h1 {
+  margin: 0;
+  padding: 8px 20px;
+  color: white;
+  border: 7px solid transparent;
+  border-image: url('/assets/club-buttons/lobby/shark-panel-v1/button-secondary.png') 26 fill / 7px
+    stretch;
+  background: #061329;
+  font:
+    700 clamp(20px, 3vw, 30px)/1.05 Rajdhani,
+    'Arial Narrow',
+    sans-serif;
+  letter-spacing: 0.065em;
+  text-transform: uppercase;
+}
+[data-flight-cabinet] .header .status:empty {
+  display: none;
+}
+[data-flight-cabinet] .header :global(.ca-page-help) {
+  margin-inline-start: auto;
+}
+[data-flight-cabinet] .playfield {
+  justify-content: flex-start;
+  padding: 5px clamp(5px, 1.3vw, 16px);
+}
+[data-flight-cabinet] .controls,
+[data-flight-cabinet] .bar {
+  background: linear-gradient(100deg, #101f2d, #09131f 55%, #172737);
+  border: 0;
+  box-shadow: none;
+}
+[data-flight-cabinet] .controls {
+  padding: 5px clamp(8px, 2vw, 20px);
+  gap: 5px;
+  border-block-start: 1px solid #405368;
+}
+[data-flight-cabinet] .entryDetails {
+  font-family: Rajdhani, 'Arial Narrow', sans-serif;
+}
+[data-flight-cabinet] .entryDetails summary {
+  padding: 3px 2px;
+}
+[data-flight-cabinet] .metrics {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0;
+}
+[data-flight-cabinet] .metrics > div {
+  padding: 3px 4px;
+  min-width: 0;
+  border: 0;
+  text-align: center;
+}
+[data-flight-cabinet] .metrics > div + div {
+  border-inline-start: 1px solid #34485c;
+}
+[data-flight-cabinet] .metrics dt {
+  font:
+    600 clamp(10px, 1.5vw, 13px)/1.2 Rajdhani,
+    'Arial Narrow',
+    sans-serif;
+  letter-spacing: 0.055em;
+}
+[data-flight-cabinet] .metrics dd {
+  font:
+    700 clamp(14px, 2.6vw, 22px)/1.15 Rajdhani,
+    'Arial Narrow',
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+[data-flight-cabinet] .bar {
+  padding: 6px clamp(8px, 2vw, 20px) max(7px, env(safe-area-inset-bottom));
+}
+[data-flight-cabinet] .actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
+  gap: clamp(8px, 2vw, 18px);
+}
+[data-flight-cabinet] .actions button {
+  min-height: 46px;
+  font-family: Rajdhani, 'Arial Narrow', sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.035em;
+}
+
+[data-flight-cabinet] .actions .primary,
+[data-flight-cabinet] .actions .primary[data-ink],
+[data-flight-cabinet] .actions .secondary,
+[data-choice-game='crossing'] .actions .primary,
+[data-choice-game='crossing'] .actions .secondary {
+  color: white;
+  padding: 7px 12px;
+  border: 9px solid transparent;
+  border-image: url('/assets/club-buttons/lobby/shark-panel-v1/button-secondary.png') 26 fill / 9px
+    stretch;
+  background: #07172b;
+  border-radius: 0;
+  box-shadow: none;
+  text-shadow: 0 1px 2px black;
+}
+[data-flight-cabinet] .actions .primary,
+[data-flight-cabinet] .actions .primary[data-ink],
+[data-choice-game='crossing'] .actions .primary {
+  border-image-source: url('/assets/club-buttons/lobby/shark-panel-v1/button-primary.png');
+}
+[data-flight-cabinet] .actions button:focus-visible {
+  outline: 2px solid white;
+  outline-offset: 2px;
+}
+
+/* Distinct sculpted cabinets share the same responsive control mechanics. */
+.console.console {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: 'header' 'play' 'controls' 'bar';
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+}
+.console > .bar {
+  width: min(100%, 820px);
+  justify-self: center;
+  padding: 0 0 env(safe-area-inset-bottom, 0px);
+  gap: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.console > .controls {
+  padding: 0 8px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  gap: 0;
+}
+.console > .controls:empty {
+  display: none;
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .console.console {
+    height: auto;
+    min-height: 100dvh;
+    --scene-budget: max(140px, calc(100dvh - 240px));
+  }
+  .console > .bar {
+    width: min(100%, 620px);
+    position: static;
+  }
+}
+.console.console > .bar {
+  display: block;
+}
+@media (max-width: 760px) and (orientation: portrait) {
+  .console.console .playfield [aria-label='Diamond Mines Board'] {
+    width: min(100%, 500px, max(180px, calc(100dvh - 400px)));
+  }
+}
+
+/* Reserve the real dashboard depth so its sticky edge never covers the road. */
+@media (min-width: 761px) and (min-height: 501px) {
+  /* Size the flight from available height before its canvas measures width. */
+  [data-flight-cabinet] .console .playfield > div {
+    width: min(100%, max(400px, calc((100dvh - 480px) / 0.64)));
+    align-self: center;
+  }
+  /* Keep the vault at 620px (207px tall) so the full board and its
+     readouts fit above the sticky controls on shorter desktop screens. */
+  [data-choice-game='mines'] .console > .bar {
+    width: min(100%, 620px);
+  }
+  [data-choice-game='mines'] .console .playfield [aria-label='Diamond Mines Board'] {
+    width: min(100%, 660px, max(180px, calc(100dvh - 460px)));
+  }
+  [data-choice-game='crossing'] .console .playfield [data-phase] {
+    height: min(540px, max(240px, calc(100dvh - 450px)));
+  }
+}
+
+/* The badge is centered on the game, independently of the right-hand help icon. */
+.console.console > .header {
+  position: relative;
+  justify-content: center;
+  padding-inline: 56px;
+  gap: 0;
+}
+.console.console > .header h1 {
+  margin-inline: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  text-align: center;
+  font-size: clamp(16px, 3.8vw, 26px);
+}
+.console.console > .header h1 img {
+  max-width: 100%;
+}
+.console.console > .header .status {
+  display: none;
+}
+.console.console > .header :global(.ca-page-help) {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  margin: 0;
 }

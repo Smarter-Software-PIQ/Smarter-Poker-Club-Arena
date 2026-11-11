@@ -5,6 +5,7 @@
  * together, through the same path, instead of one horse after another.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { horseSitsWithAutoTopUp } from '../services/HorseTopUpStyle.js';
 
 const f = vi.hoisted(() => ({
   seatReads: [] as Array<{ playerId: string; answer: (v: unknown) => void }>,
@@ -101,10 +102,15 @@ describe('a boundary tops its horses up together', () => {
   });
 });
 
-describe('mandatory one/two horse intents remain independent', () => {
-  it('requests all five variants together without a legacy opt-in', async () => {
+describe('selected one/two horse intents remain independent', () => {
+  it('requests selected horses in all five variants together without a legacy opt-in', async () => {
     const variants = ['nlh', 'plo4', 'plo5', 'plo6', 'plo8'];
-    const ids = variants.map((v) => `mandatory-${v}`);
+    const ids = variants.map(
+      (v) =>
+        Array.from({ length: 100 }, (_, i) => `selected-${v}-${i}`).find((id) =>
+          horseSitsWithAutoTopUp(id, v, { small_blind: 1, big_blind: 2 })
+        )!
+    );
     const done = requestLightningHorseTopUps({
       handId: 'mandatory-hand',
       clusterId: 'cluster',

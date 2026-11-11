@@ -1,30 +1,79 @@
 .guaranteeRow {
-  color: #ffd98a;
+  color: #fff;
   font-weight: 700;
 }
 
+.cabinet [data-game-console] {
+  --plate-gold: #fff;
+  --realism-gold: #fff;
+  width: min(100%, 760px);
+  min-height: auto;
+  margin-inline: auto;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto auto auto;
+  grid-template-areas: 'header' 'play' 'controls' 'bar';
+  overflow: visible;
+}
 .cabinet [data-game-console] header {
-  background: linear-gradient(170deg, #26333d, #121c26 48%, #080e15);
-  border-bottom: 1px solid #6a8093;
+  position: relative;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 5px 50px;
+  background: linear-gradient(180deg, #202a39, #070c14 46%, #0c1727);
 }
 .cabinet [data-game-console] header h1 {
-  padding: 6px 14px;
-  border: 1px solid #91a3b6;
-  border-radius: 5px;
-  color: #ecf5ff;
-  background: linear-gradient(#394d68, #0a294d 48%, #0c3d67 65%, #111a25);
-  box-shadow:
-    inset 0 1px #d0deec,
-    inset 0 -2px #394753;
-  text-shadow: 0 2px 2px #04090e;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: none;
 }
-.cabinet [data-game-actions] [data-plate] {
-  border: 8px solid transparent;
-  border-image: url('/assets/club-buttons/lobby/shark-panel-v1/button-secondary.png') 26 fill / 8px
-    stretch;
-  background: #0b1015;
-  padding: 4px 8px;
+.cabinet [data-game-console] header h1 img {
+  display: block;
+  width: clamp(180px, 45vw, 280px);
+  height: auto;
 }
-.cabinet [data-game-actions] [data-plate='primary'] {
-  border-image-source: url('/assets/club-buttons/lobby/shark-panel-v1/button-primary.png');
+.cabinet [data-game-console] header :global(.ca-page-help) {
+  position: absolute;
+  right: 6px;
+  margin: 0;
+}
+.cabinet [data-game-console] header > span {
+  position: absolute;
+  left: 6px;
+  color: white;
+}
+.cabinet [data-scene='plinko'] {
+  width: min(100%, 46dvh, 540px);
+  align-self: center;
+  margin-inline: auto;
+}
+.cabinet [data-game-console] aside {
+  gap: 4px;
+  padding: 5px 12px;
+  background: linear-gradient(#151d28, #070c15);
+}
+.cabinet [data-game-console] dl {
+  grid-template-columns: repeat(auto-fit, minmax(48px, 1fr));
+  gap: 5px;
+}
+.cabinet [data-game-console] dl > div {
+  padding-bottom: 3px;
+  border: none;
+  text-align: center;
+}
+.cabinet [data-game-console] dt,
+.cabinet [data-game-console] dd,
+.cabinet [data-game-actions] button,
+.cabinet [data-game-actions] legend,
+.cabinet [data-game-actions] small,
+.guaranteeRow {
+  color: #fff;
+}
+.cabinet [role='status']:empty {
+  display: none;
+}
+
+.cabinet [data-game-actions] [aria-pressed='true'] small {
+  color: white;
 }

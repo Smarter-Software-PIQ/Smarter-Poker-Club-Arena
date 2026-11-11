@@ -154,6 +154,8 @@ Follow `PUBLISHING.md`. The authorized agent finds or creates its PR, handles re
 
 **Database checks use the workflow's identity, never a copied key (2026-11-08).** Run a read-only check against production through its workflow, whose database identity is the repository secret (the V31 pre-screen: `Explicit V31 Offline Qualification`, `operation: prescreen`). Never reveal an API key through the Supabase CLI (`projects api-keys`) or the Management API (`?reveal=true`), never source a `.env` file, and never write a key to a new file. An agent did all three to run a local check (`.agent/audits/2026-11-08-SECURITY-INCIDENT-prescreen-credential-copy.md`).
 
+**Never print another process's command line or environment (2026-11-10).** Do not run `pgrep -fl`, `pgrep -a`, `ps e`, `ps eww`, `ps -o args` / `ps aux` without filtering, `env`, `printenv`, `set` or `cat /proc/*/environ` on the Mac, the engine hosts or a runner: other agents' and tools' processes carry tokens in their arguments, and the output lands in your transcript. To check whether a process runs, print only its pid and executable name (`pgrep -x <name>`, `ps -axo pid=,comm=`). A thin-pool agent's `pgrep -fl` put other processes' credentials into its session transcript (`.agent/audits/2026-11-10-SECURITY-INCIDENT-process-listing-credential-exposure.md`).
+
 ### 1.3 Never Do
 
 - Never run `vercel deploy` or `vercel --prod` in the Club Arena directory
@@ -1754,6 +1756,7 @@ measured ~70k fixed per-agent overhead) and fewer tool calls, but the search arm
 complete where the answer runs through SQL or client code outside the graph's scope.
 
 **Troubleshooting:**
+
 - `graphify: command not found`: run the bootstrap, or `export PATH="$HOME/.local/bin:$PATH"`.
 - `--check` reports stale: run `--refresh`.
 - `warning: ... tree_sitter_sql not installed`: expected; SQL is out of scope.
@@ -1764,3 +1767,63 @@ complete where the answer runs through SQL or client code outside the graph's sc
 `uv tool uninstall graphifyy` (or `pipx uninstall graphifyy`). To remove it from the
 repository, revert this section, `.claude/settings.json`, `.graphifyignore`,
 `scripts/dev/graphify-bootstrap.sh` and the `graphify-out` line in `.gitignore`.
+
+### 14.1 Owner's Mac: user-level Claude Code plugins (installed and verified November 10, 2026)
+
+These are machine-level aids on the Mac Studio only. They are not part of this repository, and
+cloud sessions do not inherit them. The owner policy, operating law, hardening standard and this
+file override any plugin, hook or skill text; the Mac's `~/.claude/CLAUDE.md` states the same.
+
+| Item            | Version                                        | Where                                                                                                        |
+| --------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Claude Code CLI | 2.1.322 (2.1.15 kept on disk, auto-update off) | `~/.local/bin/claude`, a link to `~/.local/share/claude/versions/2.1.322`                                    |
+| Ponytail        | 5.3.3 (`96608e07`)                             | `~/.claude/plugins/cache/ponytail/ponytail/5.3.3`, marketplace `DietrichGebert/ponytail`                     |
+| Agent Skills    | 0.6.15 (`301b02b1`)                            | `~/.claude/plugins/cache/addy-agent-skills/agent-skills/0.6.15`, marketplace `addyosmani/agent-skills`       |
+| Graphify CLI    | 0.9.105                                        | `~/.local/bin/graphify` (uv tool). No user-level skill or hook: `/graphify` is this repository's skill above |
+
+**Invocation.** Ponytail is always on at level `full` through its SessionStart, SubagentStart and
+UserPromptSubmit hooks. `/ponytail:ponytail lite|full|ultra|off` changes the level;
+`/ponytail:ponytail-review`, `-audit`, `-debt`, `-gain` and `-help` are one-shot. Agent Skills
+registers no hooks: its 25 skills load by description, with the commands `/agent-skills:spec`,
+`:plan`, `:build`, `:test`, `:review`, `:code-simplify`, `:constraints`, `:webperf` and `:ship`,
+and four reviewer agents.
+
+**Coverage.** The Mac has one macOS user and one Claude Code configuration directory
+(`~/.claude`), so the install serves whichever account is signed in to Claude Code on the Mac. It
+is not installed per account. A cloud session of any of the six accounts runs in its own
+environment and gets none of it; it gets only what this repository carries (the `/graphify`
+skill, its advisory hooks and the bootstrap script).
+
+**Verified November 10, 2026** in fresh `claude` 2.1.322 sessions on an isolated SSD2 fixture: all
+nine enabled plugins loaded, 31 plugin hooks registered, the SessionStart hooks of Superpowers,
+everything-claude-code and Ponytail exited 0, one command from each plugin resolved to its own
+file, `/graphify` resolved to the repository skill, and the bootstrap built and queried a
+code-only graph of the fixture. **Not verified:** any model turn or tool call, because the Mac
+CLI sign-in had already expired (`claude auth login` restores it), and the desktop app's bundled
+Claude Code (2.1.321).
+
+**Limits.**
+
+- No approval or permission behavior changed. Ponytail's hooks add context and observe tool
+  results, Agent Skills adds no hook, and the user-level LocalDependencyGuard hook is untouched.
+- Ponytail, Superpowers and Agent Skills overlap and sometimes pull in opposite directions
+  (smallest change, test-first workflows, stop-and-ask). Policy decides. None of them adds an
+  approval step or removes a required check, test or safeguard.
+- Ponytail's default task board writes one row per turn to `~/.config/ponytail/band/<project>.csv`
+  on the internal disk. Its webhook is unset, so nothing leaves the Mac.
+- The Mac lists 466 skills against a 30,000-character listing budget, so skill descriptions are
+  truncated. Invoke a skill by name when it matters.
+- A user-level `graphify install` shadows this repository's `/graphify` skill with the upstream
+  one (measured November 10, 2026, then removed). Do not run it.
+- The CLI update renamed the `ralph-wiggum` plugin to `ralph-loop`.
+
+**Disable, remove, roll back** (rollback to 2.1.15 is untested with the plugin state 2.1.322 wrote):
+
+```bash
+claude plugin disable ponytail@ponytail        # enable reverses it; same form for agent-skills@addy-agent-skills
+claude plugin uninstall ponytail@ponytail && claude plugin marketplace remove ponytail
+claude plugin uninstall agent-skills@addy-agent-skills && claude plugin marketplace remove addy-agent-skills
+rm -r ~/.config/ponytail                       # Ponytail's local task board
+# Previous CLI. Uninstall both plugins first: 2.1.15 rejects their manifests.
+ln -sfn ~/.local/share/claude/versions/2.1.15 ~/.local/bin/claude
+```

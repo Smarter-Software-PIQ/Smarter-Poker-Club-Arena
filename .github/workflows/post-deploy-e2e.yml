@@ -44,7 +44,14 @@ on:
     workflows: ['Publish Club Arena']
     types: [completed]
   repository_dispatch:
-    types: [run-post-deploy-e2e, run-stats-pagination-proof, run-private-record-client-proof, run-plo-lightning-lifecycle-proof]
+    types:
+      [
+        run-post-deploy-e2e,
+        run-stats-pagination-proof,
+        run-private-record-client-proof,
+        run-plo-lightning-lifecycle-proof,
+        run-hero-celebration-proof,
+      ]
 
 jobs:
   release-gameplay-readback:
@@ -106,7 +113,8 @@ jobs:
        (github.event_name == 'repository_dispatch' &&
         (github.event.action == 'run-stats-pagination-proof' ||
          github.event.action == 'run-private-record-client-proof' ||
-         github.event.action == 'run-plo-lightning-lifecycle-proof')))
+         github.event.action == 'run-plo-lightning-lifecycle-proof' ||
+         github.event.action == 'run-hero-celebration-proof')))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -123,6 +131,72 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: node scripts/ci/await-certification-cleanup-safety.mjs
+
+  # Explicit bounded proof of the served celebration, with no gameplay writes.
+  hero-celebration-proof:
+    needs: certification-cleanup-safety
+    if: always() && !cancelled() && needs.certification-cleanup-safety.result == 'success' && github.event_name == 'repository_dispatch' && github.event.action == 'run-hero-celebration-proof' && github.ref == 'refs/heads/main'
+    name: Exact published hero celebration proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    concurrency:
+      group: hero-celebration-proof-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Require exact protected client ancestry
+        env:
+          REQUESTED_CLIENT_SHA: ${{ github.event.client_payload.client_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$REQUESTED_CLIENT_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$GITHUB_REF" = refs/heads/main
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git fetch --no-tags --filter=blob:none origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          git merge-base --is-ancestor "$REQUESTED_CLIENT_SHA" origin/main
+          echo "LIVE_SHA=$REQUESTED_CLIENT_SHA" >> "$GITHUB_ENV"
+      - name: Install locked verifier dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install Chromium only
+        timeout-minutes: 5
+        run: |
+          sudo python3 scripts/ci/ubuntu-apt-mirror.py
+          npx playwright install --with-deps chromium
+      - name: Verify loss, small chop and sole win on the published client
+        env:
+          BASE_URL: https://smarter.poker/hub/club-arena/
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
+          GAMEPLAY_CUSTOMIZATION_CERTIFICATION: '1'
+          E2E_CLUB_ID: a41434bb-8d0c-400a-8f0d-e8b3d65afed4
+          PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/hero-celebration.json
+        run: >-
+          npx playwright test --config=playwright.hero-celebration.config.ts
+          --workers=1 --retries=0 --reporter=line,json
+          --output=test-results/hero-celebration
+      - name: Require an executed passing celebration case
+        run: node scripts/ci/assert-e2e-actually-ran.mjs e2e-report/hero-celebration.json
+      - name: Retain scoped celebration evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hero-celebration-proof-${{ github.run_id }}
+          path: |
+            e2e-report/hero-celebration.json
+            test-results/hero-celebration/
+          if-no-files-found: warn
+          retention-days: 14
 
   # Explicit one-client transport proof. This never publishes or changes source flags.
   private-record-client-proof:
@@ -410,7 +484,7 @@ jobs:
           retention-days: 30
 
   publication-gate:
-    if: github.event_name != 'repository_dispatch' || (github.event.action != 'run-stats-pagination-proof' && github.event.action != 'run-private-record-client-proof' && github.event.action != 'run-plo-lightning-lifecycle-proof')
+    if: github.event_name != 'repository_dispatch' || (github.event.action != 'run-stats-pagination-proof' && github.event.action != 'run-private-record-client-proof' && github.event.action != 'run-plo-lightning-lifecycle-proof' && github.event.action != 'run-hero-celebration-proof')
     name: Confirm The Hetzner Web Publish Reached Production
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -423,13 +497,14 @@ jobs:
       client_navigation: ${{ steps.origin.outputs.client_navigation }}
       tournament_only: ${{ steps.origin.outputs.tournament_only }}
       keep_game_pages: ${{ steps.origin.outputs.keep_game_pages }}
+      cash_observation: ${{ steps.origin.outputs.cash_observation }}
       natural_addon: ${{ steps.origin.outputs.natural_addon }}
       natural_board_reveal: ${{ steps.origin.outputs.natural_board_reveal }}
       client_target_sha: ${{ steps.board-client.outputs.sha || steps.client-target.outputs.sha }}
       verification_sha: ${{ steps.client-target.outputs.verification_sha }}
     steps:
       - name: Checkout trusted publication verification
-        if: github.event_name == 'workflow_run' || (github.event_name == 'repository_dispatch' && (toJSON(github.event.client_payload.client_navigation) != 'null' || toJSON(github.event.client_payload.tournament_only) != 'null' || toJSON(github.event.client_payload.keep_game_pages) != 'null' || toJSON(github.event.client_payload.natural_board_reveal) != 'null'))
+        if: github.event_name == 'workflow_run' || (github.event_name == 'repository_dispatch' && (toJSON(github.event.client_payload.client_navigation) != 'null' || toJSON(github.event.client_payload.tournament_only) != 'null' || toJSON(github.event.client_payload.keep_game_pages) != 'null' || toJSON(github.event.client_payload.cash_observation) != 'null' || toJSON(github.event.client_payload.natural_board_reveal) != 'null'))
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -485,14 +560,15 @@ jobs:
                   throw new Error("Natural add-on observation requires one tournament UUID, exact engine SHA and no other mode.");'
               echo 'natural_addon=true' >> "$GITHUB_OUTPUT"
             fi
-            if node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD || "null"); process.exit(p && (Object.hasOwn(p,"client_navigation") || Object.hasOwn(p,"keep_game_pages")) ? 0 : 1)'; then
-              if node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD); process.exit(Object.hasOwn(p,"keep_game_pages") ? 0 : 1)'; then
+            if node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD || "null"); process.exit(p && (Object.hasOwn(p,"client_navigation") || Object.hasOwn(p,"keep_game_pages") || Object.hasOwn(p,"cash_observation")) ? 0 : 1)'; then
+              if node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD); process.exit((Object.hasOwn(p,"keep_game_pages") || Object.hasOwn(p,"cash_observation")) ? 0 : 1)'; then
                 [ "${EVENT_ACTION:-}" = run-post-deploy-e2e ] \
                   || { echo '::error::keep_game_pages requires the existing post-deploy event.'; exit 1; }
               fi
               node scripts/ci/client-navigation-certificate.mjs admit
               echo 'client_navigation=true' >> "$GITHUB_OUTPUT"
               node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD); console.log("keep_game_pages=" + (p.keep_game_pages === true));' >> "$GITHUB_OUTPUT"
+              node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD); console.log("cash_observation=" + (p.cash_observation === true));' >> "$GITHUB_OUTPUT"
               echo 'engine_trigger_sha=' >> "$GITHUB_OUTPUT"
               echo 'should_run=true' >> "$GITHUB_OUTPUT"
               exit 0
@@ -863,7 +939,10 @@ jobs:
     # cancel-in-progress true would instead kill the running certificate on
     # every merge; see tests/unit/postDeployE2EConcurrency.test.ts.
     concurrency:
-      group: post-deploy-e2e-production
+      # This fixed read-only journey owns a unique zero-balance fixture, so it
+      # does not contend with the broad suite's separate account. Repeated
+      # explicit requests still serialize; the broad suite keeps its group.
+      group: ${{ needs.publication-gate.outputs.cash_observation == 'true' && 'post-deploy-e2e-cash-observation' || 'post-deploy-e2e-production' }}
       cancel-in-progress: false
     # Cashier, the isolated stateful groups, and the responsive route sweep
     # normally finish well below this ceiling. Runs 37397055463 and
@@ -1016,6 +1095,8 @@ jobs:
       - name: Take the specs from the commit production is actually serving
         if: steps.live.outputs.ready == 'true'
         id: align
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           LIVE='${{ steps.live.outputs.sha }}'
@@ -1062,6 +1143,16 @@ jobs:
               exit 1
             fi
             echo "Retained runtime \`$RETAINED\` was superseded by \`$LIVE\` before the browsers started; certifying the release production actually serves." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ '${{ needs.publication-gate.outputs.cash_observation }}' = true ] && [ "$LIVE" != "$HERE" ] && git merge-base --is-ancestor "$LIVE" "$HERE"; then
+            # Reuse the existing exact publisher receipt. It proves the complete
+            # protected verification source has identical qualified runtime inputs
+            # and still matches both actual origins. No caller-selected source.
+            git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+            node scripts/ci/client-runtime-retention.mjs focused-harness "$LIVE" "$HERE"
+            echo "specs=$HERE" >> "$GITHUB_OUTPUT"
+            echo "Cash observation uses qualified verification source \`$HERE\` for retained live runtime \`$LIVE\`." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
           RELATION=$(node scripts/ci/production-e2e-provenance.mjs lineage "$LIVE" "$HERE")
           if [ "$RELATION" = same ]; then
@@ -1654,7 +1745,7 @@ jobs:
           node "$RUNNER_TEMP/tournament-client-certificate.mjs" browser e2e-report/tournament-browser.json
 
       - name: Verify only the two client navigation repairs
-        if: needs.publication-gate.outputs.client_navigation == 'true' && needs.publication-gate.outputs.keep_game_pages != 'true' && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && steps.template_access.outcome == 'success'
+        if: needs.publication-gate.outputs.client_navigation == 'true' && needs.publication-gate.outputs.keep_game_pages != 'true' && needs.publication-gate.outputs.cash_observation != 'true' && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && steps.template_access.outcome == 'success'
         env:
           BASE_URL: https://smarter.poker/hub/club-arena/
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -1699,6 +1790,27 @@ jobs:
             --trace=retain-on-failure --output=test-results/keep-game-pages
           browser_rc=$?
           node "$RUNNER_TEMP/client-navigation-certificate.mjs" keep-game-pages-reports e2e-report/keep-game-pages.json
+          proof_rc=$?
+          [ "$browser_rc" -eq 0 ] && [ "$proof_rc" -eq 0 ]
+
+      - name: Verify the four-game cash observation journey
+        id: cash_observation
+        if: needs.publication-gate.outputs.cash_observation == 'true' && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && steps.template_access.outcome == 'success'
+        env:
+          BASE_URL: https://smarter.poker/hub/club-arena/
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
+          E2E_REQUIRE_AUTH: '1'
+        run: |
+          set +e
+          mkdir -p e2e-report
+          PLAYWRIGHT_JSON_OUTPUT_NAME=e2e-report/cash-observation.json npx playwright test \
+            tests/e2e/production-mobile-lobby-chrome.spec.ts \
+            --grep '^.*(View Game opens four spectator games while preserving the lobby page|joining an ordinary waiting list opens observation and preserves the queue)$' \
+            --project=chromium --project=webkit-footer --reporter=line,json --workers=1 --retries=0 \
+            --trace=retain-on-failure --output=test-results/cash-observation
+          browser_rc=$?
+          node "$RUNNER_TEMP/client-navigation-certificate.mjs" cash-observation-reports e2e-report/cash-observation.json
           proof_rc=$?
           [ "$browser_rc" -eq 0 ] && [ "$proof_rc" -eq 0 ]
 
@@ -3152,6 +3264,7 @@ jobs:
       - tournament-only-verdict
       - private-record-client-proof
       - stats-pagination-proof
+      - hero-celebration-proof
       - plo-lightning-lifecycle-proof
       - publication-gate
       - post-deploy-verdict

@@ -56,7 +56,7 @@ import {
   lightningReturnPath,
 } from '../lightning/lightningReversion';
 import { joinCashGame, joinGameRefusalText, waitlistedText } from '../services/cashGameLobby';
-import { warmTable } from '../services/tableWarmup';
+import { warmLightningRoom, warmTable } from '../services/tableWarmup';
 import { isUUID } from '../utils/clubIdResolver';
 import { reportError } from '../utils/errorReporter';
 import { lightningMultiTableLimit } from '../lightning/lightningCapabilities';
@@ -78,6 +78,16 @@ import {
   rememberedLightningBuyIn,
   type LightningBuyInContext,
 } from '../lightning/lightningJoinBuyIn';
+import {
+  abandonUnseatedLightningJoin,
+  bindLightningJoinRoom,
+  confirmLightningJoin,
+  endLightningJoin,
+  lightningJoinReasonCode,
+  markLightningJoin,
+  markLightningJoinRejoined,
+  startLightningJoin,
+} from '../lightning/lightningJoinTiming';
 import './LightningEntryPage.css';
 
 /** What the device allows, in the page's words. */
@@ -127,6 +137,8 @@ export default function LightningEntryPage() {
     mounted.current = true;
     return () => {
       mounted.current = false;
+      // Left the Join page before buying a seat: that timed join was abandoned.
+      abandonUnseatedLightningJoin('LEFT_PAGE');
     };
   }, []);
 
@@ -207,19 +219,26 @@ export default function LightningEntryPage() {
       operation.generation === routeGeneration.current &&
       activeJoin.current === operation;
     setJoining(true);
+    // Join timing (telemetry only): this press is the join's zero.
+    startLightningJoin(clusterId, 'buy_in');
+    // The room's page chunk downloads while the player answers the question.
+    warmLightningRoom();
     try {
       const userId = await currentLightningUserId();
       if (!ownsPage()) return;
       if (!userId) {
+        endLightningJoin('refused', 'SIGN_IN_REQUIRED');
         toast.warning('Sign In To Join A Game.');
         return;
       }
       // A funded disconnected anchor already paid. Rejoin before asking its
       // empty wallet for a second buy-in; a busted anchor is released here.
       const existing = await rejoinLightningSeat(clusterId);
+      markLightningJoin('rejoin_checked');
       if (!ownsPage()) return;
       if (existing) {
         const meta = phase.kind === 'entry' ? phase.meta : null;
+        markLightningJoinRejoined(existing.poolSessionId);
         registerLightningPoolSession({ poolSessionId: existing.poolSessionId, clusterId, meta });
         navigate(lightningRoomPath(existing.poolSessionId, meta));
         return;
@@ -227,11 +246,15 @@ export default function LightningEntryPage() {
       const context = await readLightningBuyInContext(clusterId, userId);
       if (!ownsPage()) return;
       if (!context) {
+        endLightningJoin('refused', 'NOT_TAKING_PLAYERS');
         toast.warning('This Game Is Not Taking Players.');
         return;
       }
       setBuyIn({ ...context, userId });
+      markLightningJoin('dialog_shown');
     } catch (err) {
+      const code = lightningJoinReasonCode(err, 'BUYIN_CONTEXT_FAILED');
+      endLightningJoin(code === 'PLATFORM_FROZEN' ? 'refused' : 'failed', code);
       if (!ownsPage()) return;
       /* THE FREEZE IS NOT A FAILURE (Dan 2026-11-07). The rejoin door raises
          PLATFORM_FROZEN during maintenance; this used to file it as an error
@@ -260,6 +283,8 @@ export default function LightningEntryPage() {
   const confirmLightningBuyIn = useCallback(
     async (amount: number): Promise<BuyInConfirmation> => {
       if (!clusterId || !buyIn) return false;
+      // A Confirm after a refusal times a new attempt; the refused one keeps its report.
+      confirmLightningJoin(clusterId);
       const result = await buyIntoLightning({
         clusterId,
         userId: buyIn.userId,
@@ -267,7 +292,12 @@ export default function LightningEntryPage() {
         /* The wallet shown is the one the table's own door reads; the buy-in
            lets that same door choose it, so the two can never differ. */
         clubId: null,
+        mark: markLightningJoin,
       });
+      if (result.kind === 'seated') {
+        markLightningJoin('seated');
+        bindLightningJoinRoom(result.poolSessionId);
+      } else endLightningJoin(result.kind === 'rejected' ? 'refused' : 'failed', result.code);
       if (!mounted.current) return result.kind === 'seated';
       if (result.kind === 'rejected')
         return { status: 'rejected', message: await withFreezeTime(result.message) };
@@ -523,7 +553,11 @@ export default function LightningEntryPage() {
       {buyIn ? (
         <BuyInModal
           isOpen
-          onClose={() => setBuyIn(null)}
+          onClose={() => {
+            // Closing the question before confirming ends the timed join.
+            abandonUnseatedLightningJoin('DIALOG_CLOSED');
+            setBuyIn(null);
+          }}
           onConfirm={(amount) => confirmLightningBuyIn(amount)}
           tableName={meta?.name ?? 'Lightning'}
           gameType={meta?.variant ?? null}

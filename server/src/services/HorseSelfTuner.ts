@@ -140,10 +140,19 @@ export interface RegressionContext {
   fleetP25?: number | null;
   /** reviewed hands behind `leaks` (the V40 denominator); 0 = unknown */
   leaksHands?: number;
+  /** V87: Hold'em share of reviewed ring-cash volume [0, 1] for 25-30% cash VPIP isolation. */
+  nlhCashShare?: number | null;
+  /** V86/V87: Omaha share of reviewed ring-cash volume [0, 1], preventing 6-max PLO VPIP from being tightened to the NLH ceiling. */
+  omahaShare?: number | null;
 }
 
 /** Rake-adjusted regression threshold, bb/100. */
 export const REGRESS_BB100 = -15;
+/** V87 NLH ring-cash target VPIP envelope [25%, 30.5%], isolated from MTT and Omaha ceilings. */
+export const NLH_CASH_VPIP_LO = 0.25;
+export const NLH_CASH_VPIP_HI = 0.305;
+/** Winning 6-max PLO4/PLO5/PLO6 ring-cash VPIP ceiling before tightening. */
+export const OMAHA_CASH_VPIP_HI = 0.44;
 /** Minimum reviewed hands before a leak RATE means anything. */
 export const MIN_LEAK_HANDS_FOR_RATE = 40;
 /**
@@ -157,6 +166,10 @@ export const LEAK_RATE_GATES = {
   stackoff: 0.03,
   bigBetFold: 0.05,
   preflopStackoff: 0.04,
+  nlhDeepOnePairStackoff: 0.025,
+  nlhPassiveOopColdcall: 0.03,
+  nlhEpLimpPassivity: 0.025,
+  nlhBubbleCoveredCalloff: 0.02,
 } as const;
 
 export function diagnoseAndNudge(
@@ -198,10 +211,28 @@ export function diagnoseAndNudge(
   const af = postActs >= 60 && s.postPassive >= 15 ? s.postAggr / s.postPassive : null;
   const bb100 = (s.netBB / s.hands) * 100;
 
-  if (vpip > BENCH.vpip.hi) {
+  const rawNlhCash =
+    typeof ctx.nlhCashShare === 'number' && isFinite(ctx.nlhCashShare)
+      ? Math.max(0, Math.min(1, ctx.nlhCashShare))
+      : 0;
+  const rawOmaha =
+    typeof ctx.omahaShare === 'number' && isFinite(ctx.omahaShare)
+      ? Math.max(0, Math.min(1, ctx.omahaShare))
+      : 0;
+  const shareSum = rawNlhCash + rawOmaha;
+  const nlhCashShare = shareSum > 1 ? rawNlhCash / shareSum : rawNlhCash;
+  const omahaShare = shareSum > 1 ? rawOmaha / shareSum : rawOmaha;
+  const residualShare = Math.max(0, 1 - nlhCashShare - omahaShare);
+  const vpipLo = nlhCashShare >= 0.6 ? NLH_CASH_VPIP_LO : BENCH.vpip.lo;
+  const vpipHi =
+    nlhCashShare * NLH_CASH_VPIP_HI +
+    omahaShare * OMAHA_CASH_VPIP_HI +
+    residualShare * BENCH.vpip.hi;
+
+  if (vpip > vpipHi) {
     tightness += STEP;
     reasons.push(`vpip ${(vpip * 100).toFixed(1)} too loose - tighten`);
-  } else if (vpip < BENCH.vpip.lo) {
+  } else if (vpip < vpipLo) {
     tightness -= STEP;
     reasons.push(`vpip ${(vpip * 100).toFixed(1)} too tight - loosen`);
   }
@@ -271,7 +302,9 @@ export function diagnoseAndNudge(
     const stackoffs =
       n('nonnut_flush_stackoff') +
       n('second_nut_flush_stackoff') +
-      n('dominated_straight_stackoff');
+      n('dominated_straight_stackoff') +
+      n('plo_underboat_stackoff') +
+      n('plo_multiboard_dead_half_call');
     // RATES, NOT COUNTS (2026-09-05). With a denominator the gate is a rate
     // per reviewed hand; without one (older callers) the count gates stand,
     // which at the ~200-hand window they were set against is the same bar.
@@ -288,6 +321,12 @@ export function diagnoseAndNudge(
         `leak: ${per100(stackoffs)} dominated-hand stackoffs in 20bb pots - tighten and calm down`
       );
     }
+    if (over(n('plo_passive_rundown_oop'), 6, LEAK_RATE_GATES.stackoff)) {
+      aggression += STEP / 2;
+      reasons.push(
+        `leak: ${per100(n('plo_passive_rundown_oop'))} passive PLO rundowns/broadways - 3-bet and take pot initiative`
+      );
+    }
     if (over(n('big_bet_fold'), 10, LEAK_RATE_GATES.bigBetFold)) {
       bluffFreq -= STEP / 2;
       reasons.push(
@@ -298,6 +337,32 @@ export function diagnoseAndNudge(
       tightness += STEP / 2;
       reasons.push(
         `leak: ${per100(n('preflop_stackoff'))} preflop stackoffs of 40bb+ - stop shipping marginal`
+      );
+    }
+    if (over(n('nlh_deep_onepair_stackoff'), 5, LEAK_RATE_GATES.nlhDeepOnePairStackoff)) {
+      tightness += STEP / 2;
+      aggression -= STEP / 2;
+      reasons.push(
+        `leak: ${per100(n('nlh_deep_onepair_stackoff'))} deep 120bb+ Hold'em bare-one-pair stackoffs - tighten and pot-control`
+      );
+    }
+    if (over(n('nlh_passive_oop_coldcall_bleed'), 6, LEAK_RATE_GATES.nlhPassiveOopColdcall)) {
+      tightness += STEP / 2;
+      aggression += STEP / 2;
+      reasons.push(
+        `leak: ${per100(n('nlh_passive_oop_coldcall_bleed'))} passive OOP cold-call flop check-folds - 3-bet or fold preflop`
+      );
+    }
+    if (over(n('nlh_ep_limp_passivity'), 5, LEAK_RATE_GATES.nlhEpLimpPassivity)) {
+      aggression += STEP / 2;
+      reasons.push(
+        `leak: ${per100(n('nlh_ep_limp_passivity'))} passive Hold'em open-limps - raise or trap-reraise instead of weak limping`
+      );
+    }
+    if (over(n('nlh_bubble_covered_calloff'), 4, LEAK_RATE_GATES.nlhBubbleCoveredCalloff)) {
+      tightness += STEP / 2;
+      reasons.push(
+        `leak: ${per100(n('nlh_bubble_covered_calloff'))} covered bubble/pay-jump bluff-catcher call-offs - tighten tournament survival edges`
       );
     }
   }
@@ -362,6 +427,86 @@ export function leakFamilyOf(
 ): Exclude<LeakFamily, 'tournament'> {
   const v = (variant || 'nlh').toLowerCase();
   return v.startsWith('plo') || v === 'flo8' || v.includes('omaha') ? 'omaha' : 'holdem';
+}
+
+const NLH_ONLY_TOURNEY_TAGS = new Set([
+  'underfull_stackoff',
+  'weak_kicker_trips_stackoff',
+  'top_pair_weak_kicker_stackoff',
+  'one_pair_turn_stackoff',
+]);
+
+/**
+ * Subtract tournament-format leak counts (`fn_horse_tournament_leaks`) from
+ * pooled `horse_review_rollup` counts so tournament leaks never nudge cash
+ * diagnostic dials.
+ */
+export function subtractTournamentLeaks(
+  pooledLeaks: Record<string, number> | null | undefined,
+  tourneyLeaks?: { reviewed: number; counts: Record<string, number> } | null
+): Record<string, number> | null {
+  if (!pooledLeaks) return null;
+  if (!tourneyLeaks || !tourneyLeaks.counts || Object.keys(tourneyLeaks.counts).length === 0) {
+    return pooledLeaks;
+  }
+  const out: Record<string, number> = {};
+  for (const [tag, rawCount] of Object.entries(pooledLeaks)) {
+    const n = (Number(rawCount) || 0) - (Number(tourneyLeaks.counts[tag]) || 0);
+    if (n > 0) out[tag] = n;
+  }
+  return out;
+}
+
+/**
+ * Compute ring-cash `omahaShare` (`[0, 1]` or `null` under 20 cash hands).
+ *
+ * Uses dealt ring-cash hands (`format === 'cash'`) from `horse_daily_nets`
+ * when available (>= 20 hands), keeping tournament PLO, heads-up cash, and
+ * PLO's higher 20bb+ review-pot rate out of the cash VPIP ceiling. Falls back
+ * to `horse_review_rollup` family hands with tournament reviewed hands removed
+ * when `horse_daily_nets` is absent.
+ */
+export function computeCashOmahaShare(
+  cashNetsHands: { omaha: number; holdem: number } | null | undefined,
+  reviewFamHands?: { omaha: number; holdem: number } | null,
+  tourneyLeaks?: { reviewed: number; counts: Record<string, number> } | null
+): number | null {
+  if (cashNetsHands) {
+    const dealtTotal = cashNetsHands.omaha + cashNetsHands.holdem;
+    if (dealtTotal >= 20) {
+      return cashNetsHands.omaha / dealtTotal;
+    }
+  }
+  if (!reviewFamHands) return null;
+  let omahaRev = Math.max(0, reviewFamHands.omaha);
+  let holdemRev = Math.max(0, reviewFamHands.holdem);
+  const tRev = Math.max(0, tourneyLeaks?.reviewed ?? 0);
+  if (tRev > 0 && omahaRev + holdemRev > 0) {
+    let ploSignals = 0;
+    let nlhSignals = 0;
+    for (const [k, v] of Object.entries(tourneyLeaks?.counts ?? {})) {
+      const n = Number(v) || 0;
+      if (n <= 0) continue;
+      if (k.startsWith('plo_')) ploSignals += n;
+      else if (NLH_ONLY_TOURNEY_TAGS.has(k)) nlhSignals += n;
+    }
+    if (ploSignals > 0 && nlhSignals === 0) {
+      const deductOmaha = Math.min(omahaRev, tRev);
+      omahaRev -= deductOmaha;
+      holdemRev = Math.max(0, holdemRev - (tRev - deductOmaha));
+    } else if (nlhSignals > 0 && ploSignals === 0) {
+      const deductHoldem = Math.min(holdemRev, tRev);
+      holdemRev -= deductHoldem;
+      omahaRev = Math.max(0, omahaRev - (tRev - deductHoldem));
+    } else {
+      const tot = omahaRev + holdemRev;
+      const deductOmaha = Math.min(omahaRev, Math.round((tRev * omahaRev) / tot));
+      omahaRev -= deductOmaha;
+      holdemRev = Math.max(0, holdemRev - Math.min(holdemRev, tRev - deductOmaha));
+    }
+  }
+  const cashTotal = omahaRev + holdemRev;
+  return cashTotal >= 20 ? omahaRev / cashTotal : null;
 }
 
 /** Public stat snapshot stored in the log (rates, not raw counters). */
@@ -786,15 +931,17 @@ export async function runSelfTune(
       string,
       { hands: number; netBB: number; rakeBB: number; bbjBB: number }
     >();
+    const ringCashHandsByFamily = new Map<string, Record<VariantFamily, number>>();
     try {
       const sinceDay = new Date(Date.now() - STUDY_WINDOW_DAYS * 86400_000)
         .toISOString()
         .slice(0, 10);
       for (let offset = 0; ; offset += 1000) {
         if (!shouldContinue()) return { studied: 0, tuned: 0 };
+        const DAILY_NETS_BASE_SELECT = 'horse_user_id, hands, net_bb, rake_bb, bbj_bb, format';
         const { data, error } = await supabase
           .from('horse_daily_nets')
-          .select('horse_user_id, hands, net_bb, rake_bb, bbj_bb, format')
+          .select(`${DAILY_NETS_BASE_SELECT}, game_variant`)
           .gte('day', sinceDay)
           .in('format', ['cash', 'hu_cash'])
           /*
@@ -832,22 +979,31 @@ export async function runSelfTune(
         if (!data || data.length === 0) break;
         for (const row of data as Array<{
           horse_user_id: string;
+          game_variant?: string | null;
+          format?: string | null;
           hands: number;
           net_bb: number;
           rake_bb: number | null;
           bbj_bb: number | null;
         }>) {
+          const handsCount = row.hands ?? 0;
           const acc = realNets.get(row.horse_user_id) ?? {
             hands: 0,
             netBB: 0,
             rakeBB: 0,
             bbjBB: 0,
           };
-          acc.hands += row.hands ?? 0;
+          acc.hands += handsCount;
           acc.netBB += Number(row.net_bb ?? 0);
           acc.rakeBB += Number(row.rake_bb ?? 0);
           acc.bbjBB += Number(row.bbj_bb ?? 0);
           realNets.set(row.horse_user_id, acc);
+          if ((!row.format || row.format === 'cash') && typeof row.game_variant === 'string') {
+            const fam = leakFamilyOf(row.game_variant);
+            const fh = ringCashHandsByFamily.get(row.horse_user_id) ?? { omaha: 0, holdem: 0 };
+            fh[fam] += handsCount;
+            ringCashHandsByFamily.set(row.horse_user_id, fh);
+          }
         }
         if (data.length < 1000) break;
       }
@@ -856,6 +1012,7 @@ export async function runSelfTune(
       // and the night tunes on frequencies exactly as before.
       reportError(err, 'HorseSelfTuner.realNets');
       realNets.clear();
+      ringCashHandsByFamily.clear();
     }
     // 2026-09-05: the fleet's own distribution is the yardstick. Rake-adjusted
     // bb/100 across every horse with a qualifying sample; the regression rule
@@ -1105,17 +1262,35 @@ export async function runSelfTune(
         rn && rn.hands >= MIN_REAL_HANDS_FOR_BB100 && rn.rakeBB > 0
           ? (rn.rakeBB / rn.hands) * 100
           : null;
+      const famHands = leakHandsByFamily.get(horseId) ?? { omaha: 0, holdem: 0 };
+      const tl = tourneyLeaks.get(horseId);
+      const omahaShare = computeCashOmahaShare(
+        ringCashHandsByFamily.get(horseId) ?? null,
+        famHands,
+        tl ?? null
+      );
+      const nlhCashShare = omahaShare !== null ? Math.max(0, 1 - omahaShare) : null;
+      const cashLeaksForHorse = subtractTournamentLeaks(
+        leaksByHorse.get(horseId) ?? null,
+        tl ?? null
+      );
+      const cashLeaksHands = Math.max(
+        0,
+        (leakHandsByHorse.get(horseId) ?? 0) - (tl?.reviewed ?? 0)
+      );
       const { mods, reasons } = diagnoseAndNudge(
         s,
         prevMods,
         realBB100,
         rn?.hands ?? 0,
-        leaksByHorse.get(horseId) ?? null,
+        cashLeaksForHorse,
         {
           rakeBB100,
           bbjBB100,
           fleetP25,
-          leaksHands: leakHandsByHorse.get(horseId) ?? 0,
+          leaksHands: cashLeaksHands,
+          nlhCashShare,
+          omahaShare,
         }
       );
       // Retain the legacy candidate's leak counts and denominators as review
@@ -1132,13 +1307,11 @@ export async function runSelfTune(
       const leaksHands = leakHandsByHorse.get(horseId) ?? 0;
       // V41: the family split travels with it.
       const fams = leaksByFamily.get(horseId) ?? { omaha: {}, holdem: {} };
-      const famHands = leakHandsByFamily.get(horseId) ?? { omaha: 0, holdem: 0 };
       const positive = (m: Record<string, number>): Record<string, number> => {
         const out: Record<string, number> = {};
         for (const [k, v] of Object.entries(m)) if ((Number(v) || 0) > 0) out[k] = Number(v);
         return out;
       };
-      const tl = tourneyLeaks.get(horseId);
       const familyProfile = {
         leaksOmaha: positive(fams.omaha),
         leaksHandsOmaha: famHands.omaha,

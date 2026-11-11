@@ -23,11 +23,11 @@ CERTIFIED_PREDECESSOR = 'eed06fe51dea622069c661a6213d5b031ff3a9e3'
 CERTIFIED_START = 1793833200
 CERTIFIED_END = 1793854800
 
-# The owner-directed November 10 successor rebinds the existing single-use exception.
+# The directly authorized receipt successor binds its own fresh single-use claim.
 # Prior immutable controls and entries keep their original authority and expiry.
-NOV7_OWNER_ID = '2026-11-10-owner-asap-engine-0650z'
-NOV7_MANIFEST_DIGEST = 'a171baede07efd880c67e623e896fb4cee13a0fd0bb1be10310911127dd560cb'
-NOV7_ORDER_DIGEST = 'e36fddfe1a9504881a218b416efb65902699efed4deb476a099eaf56e21d58fa'
+NOV7_OWNER_ID = '2026-11-11-horse-clock-clone-engine-0650z'
+NOV7_MANIFEST_DIGEST = 'aeecae49960eb9659ab5bc86710d330bb6a58a47a7c732f94fe74c894002b602'
+NOV7_ORDER_DIGEST = '33667f78814157db34d96578c6c8d4362ce1582781a9f9d32775145ba8b61d4f'
 
 
 

@@ -25,6 +25,33 @@ export function admitKeepGamePages(payload) {
   return true;
 }
 
+export function admitCashObservation(payload) {
+  if (
+    !payload ||
+    payload.cash_observation !== true ||
+    Object.keys(payload).some((key) => key !== 'cash_observation')
+  ) {
+    throw new Error('cash_observation requires literal true and no other dispatch inputs');
+  }
+  return true;
+}
+
+export function assertCashObservationReport(report) {
+  const title = 'View Game opens four spectator games while preserving the lobby page';
+  return assertExactReports(
+    [report],
+    [
+      ['production-mobile-lobby-chrome.spec.ts', title, 'chromium'],
+      ['production-mobile-lobby-chrome.spec.ts', title, 'webkit-footer'],
+      ...['chromium', 'webkit-footer'].map((project) => [
+        'production-mobile-lobby-chrome.spec.ts',
+        'joining an ordinary waiting list opens observation and preserves the queue',
+        project,
+      ]),
+    ]
+  );
+}
+
 const keepGamePages = 'tournament Details stays inside the spectator table lobby tab';
 export function assertKeepGamePagesReport(report) {
   return assertExactReports(
@@ -82,8 +109,12 @@ function assertExactReports(reports, expected) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   if (process.argv[2] === 'admit') {
     const payload = JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD || 'null');
-    if (payload && Object.hasOwn(payload, 'keep_game_pages')) admitKeepGamePages(payload);
+    if (payload && Object.hasOwn(payload, 'cash_observation')) admitCashObservation(payload);
+    else if (payload && Object.hasOwn(payload, 'keep_game_pages')) admitKeepGamePages(payload);
     else admitClientNavigation(payload);
+  } else if (process.argv[2] === 'cash-observation-reports' && process.argv.length === 4) {
+    assertCashObservationReport(JSON.parse(readFileSync(process.argv[3], 'utf8')));
+    console.log('Both cash observation browser cases passed once without skips or retries.');
   } else if (process.argv[2] === 'keep-game-pages-reports' && process.argv.length === 4) {
     assertKeepGamePagesReport(JSON.parse(readFileSync(process.argv[3], 'utf8')));
     console.log('Exactly two keep-game-pages browser cases passed once without skips or retries.');

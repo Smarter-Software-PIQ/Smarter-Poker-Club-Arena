@@ -172,7 +172,8 @@ const advance = async (ms: number) => {
   await settle();
 };
 const text = () => document.body.textContent ?? '';
-const bay = (label: string) => screen.getByText(label).nextElementSibling as HTMLElement;
+const bay = (label: string) =>
+  screen.getByText(label, { selector: 'dt' }).nextElementSibling as HTMLElement;
 /** Presses Start: the one tap a won game takes (R1). No Double Your Diamonds
  *  offer stands in front of it (retired, Dan 2026-10-16). */
 const keepAndStart = async () => {
@@ -252,7 +253,10 @@ describe.each(['mines', 'crossing'] as const)('%s: the round that just finished'
       await keepAndStart();
       expect(setupOnScreen()).toEqual([]);
     } else {
-      expect(screen.getByText('Entry Details').closest('details')).not.toHaveAttribute('open');
+      expect(screen.getByRole('button', { name: 'Page Help' })).toHaveAttribute(
+        'aria-expanded',
+        'false'
+      );
     }
     backend.state.mockResolvedValue(state(game, { history: [lost(game)] }));
     await loseTheRound(game);
@@ -267,7 +271,9 @@ describe.each(['mines', 'crossing'] as const)('%s: the round that just finished'
     expect(text()).toMatch(/0\.10 Chips (Are )?Booked/);
     expect(text()).not.toContain('Win This Game On Diamond Spins To Play.');
     expect(setupOnScreen()).toEqual([]);
-    expect(bay('Guaranteed').textContent).toBe('0.10 Chips');
+    expect(bay(screen.queryByRole('dialog') ? 'Paid' : 'Entry').textContent).toBe(
+      screen.queryByRole('dialog') ? '0.10 Chips' : '100 Diamonds'
+    );
   });
 
   it("never opens a next award's setup, or any offer, over the reveal", async () => {
@@ -275,7 +281,7 @@ describe.each(['mines', 'crossing'] as const)('%s: the round that just finished'
     await advance(10_000);
     expect(screen.queryByRole('dialog', { name: 'Double Your Diamonds' })).toBeNull();
     expect(setupOnScreen()).toEqual([]);
-    expect(bay('Guaranteed').textContent).toBe('0.10 Chips');
+    expect(bay('Entry').textContent).toBe('100 Diamonds');
     // Nothing starts over the finished round either.
     expect(backend.start).toHaveBeenCalledTimes(1);
   });
@@ -305,7 +311,7 @@ describe('a finished round reopened from its wheel link', () => {
     expect(text()).toContain('A Mine Ended This Round. All Mines Are Revealed. 0.10 Chips Booked.');
     expect(text()).not.toContain('Win This Game On Diamond Spins To Play.');
     expect(setupOnScreen()).toEqual([]);
-    expect(bay('Guaranteed').textContent).toBe('0.10 Chips');
+    expect(bay('Entry').textContent).toBe('100 Diamonds');
     // The board finishes turning over; the receipt follows and takes the player back.
     fireEvent.animationEnd(screen.getByLabelText('Diamond Mines Board'));
     await settle();
@@ -369,9 +375,11 @@ describe('a booked Donkey Cross round under the fair coin', () => {
     await revealEnds();
     const headline = 'You Would Have Got To Street 5 At 5.57x, Then Been Hit On Street 6';
     expect(text()).toContain(headline);
-    expect(text()).toContain('Sealed Coins: 1 Safe · 2 Safe · 3 Safe · 4 Safe · 5 Safe · 6 Hit');
+    expect(text()).not.toContain('Sealed Coins:');
     const receipt = screen.getByRole('dialog', { name: '41.25 Chips' });
-    expect(receipt.querySelector('[data-receipt-headline]')?.textContent).toBe(headline);
+    expect(receipt.querySelector('[data-receipt-headline]')?.textContent).toBe(
+      `Booked On Street 2 At 1.65x. ${headline}.`
+    );
     // The odds a coin road prints are a fair coin, never the old ladder's.
     expect(text()).not.toMatch(/31\.\d% Safe Crossing/);
   });

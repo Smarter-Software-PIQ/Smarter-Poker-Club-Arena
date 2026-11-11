@@ -233,6 +233,75 @@ export const CASH_ACTION_OPEN_TARGET: Readonly<Record<number, number>> = {
 };
 
 /**
+ * V85 CASH ACTION, EVERY TABLE SIZE (owner direction, 2026-11-09). A real
+ * player reported, for the fourth time, that the cash horses play far too
+ * tight, and production agreed: nine-handed no-limit cash horses ran 15.9%
+ * VPIP, 11.8% PFR and a 4.0% 3-bet over 7,806 horse-hands (six-handed 26.5 /
+ * 17.7 / 5.1). The owner: "FOR A 9 HANDED GAME, THESE NUMBERS NEED TO BE
+ * INCREASED TO 25-30% VPIP, AND INCREASE THE 3 BETTING ... WHILE MAINTAINING
+ * GTO DISCIPLINE", then "THIS NEEDS TO BE FULLY ADJUSTED FOR 6 HANDED GAMES
+ * AND SHORT HANDED PLAY AS WELL".
+ *
+ * The discipline is that nothing here is a quota: each seat still opens the
+ * top of ITS OWN reference order (GTO_OPEN_CHARTS), and only the width moves,
+ * to the top of each solver band and a little past it late. These replace
+ * CASH_ACTION_OPEN_TARGET (which applied at exactly six or nine dealt in, so
+ * a nine-seat table with an empty chair fell back to the tighter base) at
+ * every cash table of four or more. Conditional raise-first-in shares for a
+ * balanced horse, before style; no-ante cash only.
+ */
+export const V85_CASH_OPEN_TARGET: Readonly<Record<number, number>> = {
+  1: 52,
+  2: 55,
+  3: 39.5,
+  4: 31,
+  5: 29.5,
+  6: 28.5,
+  7: 27.5,
+  8: 26.5,
+};
+/** V85 three-handed and heads-up cash opens (button / small blind). */
+export const V85_CASH_OPEN_TARGET_THREE: Readonly<Record<number, number>> = { 1: 50, 2: 55 };
+export const V85_CASH_OPEN_TARGET_HU = 80;
+
+/**
+ * V85 IS A DEEP-STACK PROFILE. Measured against the human-calibrated field
+ * (30,000 pairs, one hero, six-handed), the full V85 widths at a 40bb stack
+ * ran -7.64 +/- 3.55 bb/100 against the prior ranges: a short stack cannot
+ * realise the implied odds wide calls and wide opens are made for. The
+ * widths therefore taper with the effective stack: none of V85 at
+ * V85_DEPTH_NONE_BB or less (the prior ranges, exactly), all of it from
+ * V85_DEPTH_FULL_BB, linear between. Cash buy-ins start at 50bb.
+ */
+export const V85_DEPTH_NONE_BB = 50;
+export const V85_DEPTH_FULL_BB = 85;
+export function v85DepthWeight(depthBB: number | undefined): number {
+  if (depthBB === undefined || !Number.isFinite(depthBB)) return 1;
+  return Math.max(
+    0,
+    Math.min(1, (depthBB - V85_DEPTH_NONE_BB) / (V85_DEPTH_FULL_BB - V85_DEPTH_NONE_BB))
+  );
+}
+/** The V85 cash open share at this depth: the prior cash share blended toward V85. */
+export function v85OpenTargetShare(
+  playersBehind: number,
+  ante: boolean,
+  dealt: number,
+  depthBB: number | undefined
+): number {
+  const prior = openTargetShare(playersBehind, ante, dealt, true);
+  const full = openTargetShare(playersBehind, ante, dealt, 'action');
+  return prior + (full - prior) * v85DepthWeight(depthBB);
+}
+
+/**
+ * Which cash opening profile a table plays: false = not a cash table (or an
+ * ablation without the cash profile), true = the 2026-11-03 six/nine-handed
+ * profile, 'action' = V85 at every table size.
+ */
+export type CashOpenProfile = boolean | 'action';
+
+/**
  * Short-handed targets. Three-handed the button and small blind play wider
  * than the same seats at a full table (two players to get through and, in a
  * spin, blinds that eat the stack: standard 3-max charts BTN ~50-60%, SB
@@ -299,6 +368,26 @@ export function scoreAtShare(q: number): number {
   return last.score;
 }
 
+/**
+ * V87 (2026-11-10): the inverse of scoreAtShare, the top share (0..1) a
+ * legacy-ladder score sits at. Used to widen a bar by a stated number of
+ * hand-share points without leaving the ladder it was written on.
+ */
+export function shareAtScore(score: number): number {
+  if (score >= LEVELS[0].score) return LEVELS[0].share;
+  const last = LEVELS[LEVELS.length - 1];
+  if (score <= last.score) return last.share;
+  for (let i = 1; i < LEVELS.length; i++) {
+    const hi = LEVELS[i - 1];
+    const lo = LEVELS[i];
+    if (score >= lo.score) {
+      const w = (hi.score - score) / (hi.score - lo.score);
+      return hi.share + (lo.share - hi.share) * w;
+    }
+  }
+  return last.share;
+}
+
 function legacyScore(cls: string): number {
   const [a, b] = repCards(cls);
   return holdemPreflopScore(a, b, false);
@@ -348,6 +437,113 @@ export function holdemClass(c1: Card, c2: Card): string | null {
   return hi.rank + lo.rank + (c1.suit === c2.suit ? 's' : 'o');
 }
 
+export type HoldemEpLimpKind = 'big_pair_trap' | 'suited_connector';
+
+const EP_LIMP_BIG_PAIRS = new Set<string>(['AA', 'KK', 'QQ']);
+const EP_LIMP_SUITED_CONNECTORS = new Set<string>(['54s', '65s', '76s', '87s', '98s', 'T9s']);
+
+const CASH_CORE_TOP_CLASSES = new Set<string>([
+  'AA',
+  'KK',
+  'QQ',
+  'JJ',
+  'TT',
+  '99',
+  '88',
+  '77',
+  'AKs',
+  'AQs',
+  'AJs',
+  'ATs',
+  'AKo',
+  'AQo',
+  'KQs',
+  'KJs',
+  'KTs',
+  'QJs',
+  'QTs',
+  'JTs',
+]);
+
+const CASH_IMPLIED_ODDS_CLASSES = new Set<string>([
+  '66',
+  '55',
+  '44',
+  '33',
+  '22',
+  'A9s',
+  'A8s',
+  'A7s',
+  'A6s',
+  'A5s',
+  'A4s',
+  'A3s',
+  'A2s',
+  'K9s',
+  'K8s',
+  'K7s',
+  'Q9s',
+  'T9s',
+  '98s',
+  '87s',
+  '76s',
+  '65s',
+  '54s',
+  'J9s',
+  'T8s',
+  '97s',
+  '86s',
+]);
+
+const CASH_SECONDARY_OFFSUIT = new Set<string>(['AJo', 'KQo']);
+const CASH_DOMINATED_OFFSUIT = new Set<string>(['ATo', 'KJo', 'QJo']);
+
+function cashActionPriorityTier(cls: string): number {
+  if (CASH_CORE_TOP_CLASSES.has(cls)) return 4;
+  if (CASH_IMPLIED_ODDS_CLASSES.has(cls)) return 3;
+  if (CASH_SECONDARY_OFFSUIT.has(cls)) return 2;
+  if (CASH_DOMINATED_OFFSUIT.has(cls)) return 1;
+  return 0;
+}
+
+const CASH_ACTION_STRENGTH: Record<number, Record<string, number>> = {};
+for (let k = 1; k <= MAX_BEHIND; k++) {
+  if (k < 4) {
+    CASH_ACTION_STRENGTH[k] = OPEN_STRENGTH[k];
+    continue;
+  }
+  const baseOrder = ORDER[k];
+  const baseIdx: Record<string, number> = {};
+  for (let i = 0; i < baseOrder.length; i++) baseIdx[baseOrder[i]] = i;
+  const cashOrder = [...baseOrder].sort((x, y) => {
+    const tx = cashActionPriorityTier(x);
+    const ty = cashActionPriorityTier(y);
+    if (tx !== ty && (tx > 0 || ty > 0)) return ty - tx;
+    return baseIdx[x] - baseIdx[y];
+  });
+  const map: Record<string, number> = {};
+  let cum = 0;
+  for (const cls of cashOrder) {
+    const c = COMBOS[cls];
+    map[cls] = scoreAtShare((cum + c / 2) / 1326);
+    cum += c;
+  }
+  CASH_ACTION_STRENGTH[k] = map;
+}
+
+/**
+ * Classify early-position Hold'em open-limp trap / suited-connector mix
+ * candidates (owner ruling 2026-11-10: QQ/KK/AA trap-limps and 54s-T9s
+ * suited-connector open-limps in both cash games and tournaments).
+ */
+export function classifyHoldemEpLimpCandidate(c1: Card, c2: Card): HoldemEpLimpKind | null {
+  const cls = holdemClass(c1, c2);
+  if (!cls) return null;
+  if (EP_LIMP_BIG_PAIRS.has(cls)) return 'big_pair_trap';
+  if (EP_LIMP_SUITED_CONNECTORS.has(cls)) return 'suited_connector';
+  return null;
+}
+
 /**
  * The open strength of these cards from a seat with `playersBehind` dealt-in
  * players still to act, on the holdemPreflopScore scale. Null when the cards
@@ -360,6 +556,29 @@ export function gtoOpenStrength(c1: Card, c2: Card, playersBehind: number): numb
 }
 
 /**
+ * Deep-stack NLH cash open strength (`v87HoldemOverhaul`): exact
+ * `gtoOpenStrength` at `depthBB <= 50` (`v85DepthWeight === 0`), blending
+ * upward above `50bb` so playable implied-odds hands (`22-66`, `54s-T9s`,
+ * `86s-J9s`, `A2s-A9s`, `K7s-K9s`, `Q9s`) open ahead of easily dominated
+ * offsuit broadways (`ATo`, `KJo`, `QJo`) in early and middle position.
+ */
+export function gtoCashActionOpenStrength(
+  c1: Card,
+  c2: Card,
+  playersBehind: number,
+  depthBB: number
+): number {
+  const cls = holdemClass(c1, c2);
+  if (!cls) return 0;
+  const k = chartSeat(playersBehind);
+  const base = OPEN_STRENGTH[k][cls] ?? 0;
+  const w = v85DepthWeight(depthBB);
+  if (w <= 0 || k < 4) return base;
+  const target = CASH_ACTION_STRENGTH[k][cls] ?? base;
+  return base + (target - base) * w;
+}
+
+/**
  * The base opening share in percent (pre-tightness, pre-premium).
  * `dealt` is the number of players dealt in (2 = heads-up).
  */
@@ -367,17 +586,27 @@ export function openTargetShare(
   playersBehind: number,
   ante: boolean,
   dealt = 6,
-  cash = false
+  cash: CashOpenProfile = false
 ): number {
   const key = ante ? 'ante' : 'cash';
   const k = chartSeat(playersBehind);
+  if (cash === 'action' && !ante) {
+    if (dealt <= 2) return V85_CASH_OPEN_TARGET_HU;
+    if (dealt === 3 && k <= 2) return V85_CASH_OPEN_TARGET_THREE[k];
+    return V85_CASH_OPEN_TARGET[k];
+  }
   if (dealt <= 2) return OPEN_TARGET_HU[key];
   if (dealt === 3 && k <= 2) return OPEN_TARGET_THREE[key][k];
   if (cash && !ante && (dealt === 6 || dealt === 9)) return CASH_ACTION_OPEN_TARGET[k];
   return OPEN_TARGET[key][k];
 }
 
-export function gtoOpenBar(playersBehind: number, ante: boolean, dealt = 6, cash = false): number {
+export function gtoOpenBar(
+  playersBehind: number,
+  ante: boolean,
+  dealt = 6,
+  cash: CashOpenProfile = false
+): number {
   return scoreAtShare(openTargetShare(playersBehind, ante, dealt, cash) / 100);
 }
 

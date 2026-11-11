@@ -16,7 +16,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-const frames = vi.hoisted(() => ({ render: vi.fn(() => true), cleanup: vi.fn(), fail: false }));
+const frames = vi.hoisted(() => ({
+  render: vi.fn(() => true),
+  cleanup: vi.fn(),
+  fail: false,
+  scene: null as import('three').Scene | null,
+}));
 const motion = vi.hoisted(() => ({ reduced: false, speed: 1 }));
 vi.mock('../../src/utils/animationSpeed', () => ({
   getAnimationSpeed: () => motion.speed,
@@ -30,8 +35,9 @@ vi.mock('../../src/components/games/sceneKit', async (original) => {
     ...actual,
     gameRenderer: (canvas: HTMLCanvasElement, width: number, height: number) => {
       if (frames.fail) throw new Error('No WebGL');
+      frames.scene = new THREE.Scene();
       return {
-        scene: new THREE.Scene(),
+        scene: frames.scene,
         camera: new THREE.PerspectiveCamera(38, width / height, 0.1, 150),
         renderer: { domElement: canvas },
         render: frames.render,
@@ -42,7 +48,7 @@ vi.mock('../../src/components/games/sceneKit', async (original) => {
 });
 import CrashCurve, {
   CRASH_FLASH_MS,
-  floorCents,
+  flightMultiplierCents,
   tickerHeat,
   tickerLabel,
   type CrashCurveProps,
@@ -108,16 +114,27 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('the flight diamond', () => {
+describe('the flight deck fighter', () => {
+  it('uses the approved fighter artwork for a flight when WebGL is unavailable', () => {
+    frames.fail = true;
+    clock();
+    const page = render(<CrashCurve {...base} onLaunch={() => undefined} />);
+    const art = page.container.querySelector('img[src$="result-crash.webp"]');
+    expect(art).toBeInTheDocument();
+    expect(page.container.querySelector('img[src$="diamond-icon.webp"]')).toBeNull();
+    page.rerender(<CrashCurve {...base} phase="open" />);
+    expect(art).toBeInTheDocument();
+    expect(page.container.querySelector('[data-reveal="would-have-gone"]')).toBeNull();
+  });
   it('launches only when pressed and shows one full-screen diamond burst on a confirmed crash', () => {
     clock();
     const launch = vi.fn();
     const page = render(<CrashCurve {...base} onLaunch={launch} />);
     expect(launch).not.toHaveBeenCalled();
-    fireEvent.click(page.getByRole('button', { name: 'Launch Diamond' }));
+    fireEvent.click(page.getByRole('button', { name: 'Launch Fighter Jet' }));
     expect(launch).toHaveBeenCalledTimes(1);
     page.rerender(<CrashCurve {...base} phase="open" onLaunch={launch} />);
-    expect(page.queryByRole('button', { name: 'Launch Diamond' })).toBeNull();
+    expect(page.queryByRole('button', { name: 'Launch Fighter Jet' })).toBeNull();
     expect(document.querySelector('[data-crash-impact]')).toBeNull();
     page.rerender(<CrashCurve {...base} phase="crashed" finalCents={251} />);
     const burst = document.querySelector('[data-crash-impact]')!;
@@ -405,56 +422,16 @@ describe('what the player set is drawn where it happens', () => {
     expect(auto.getAttribute('visibility')).toBe('hidden');
   });
 
-  it('draws the guaranteed floor below the launch line at its payout equivalent, only when that maps onto the axis', () => {
-    expect(floorCents(1, 2)).toBe(50);
-    expect(floorCents(0.1, 1)).toBe(10);
-    expect(floorCents(0, 1)).toBeNull();
-    expect(floorCents(1, null)).toBeNull();
+  it('keeps the guarantee off the flight glass', () => {
     const { tick: frame } = clock();
-    const { container, rerender } = render(
-      <CrashCurve
-        {...base}
-        phase="open"
-        replayElapsedMs={0}
-        tickerCents={100}
-        minimumPayoutChips={1}
-        betChips={2}
-      />
+    const { container } = render(
+      <CrashCurve {...base} phase="open" minimumPayoutChips={1} betChips={2} />
     );
     frame(100);
-    const floor = container.querySelector('[data-line="floor"]')!;
-    expect(floor.getAttribute('visibility')).not.toBe('hidden');
-    expect(labels(container, '[data-line-label="floor"]')).toEqual(['Guaranteed 1.00 Chips']);
-    // A Super floor is half the stake: below 1.00x, so beneath the launch line, inside the frame.
-    expect(at(floor, 'y1')).toBeGreaterThan(at(tick(container, 100), 'y1'));
-    expect(at(floor, 'y1')).toBeLessThan(310 - 20);
-    // A tenth floor sits too far below a fresh axis to be drawn.
-    rerender(
-      <CrashCurve
-        {...base}
-        phase="open"
-        replayElapsedMs={0}
-        tickerCents={100}
-        minimumPayoutChips={0.1}
-        betChips={1}
-      />
+    expect(container.querySelector('[data-line="floor"]')?.getAttribute('visibility')).toBe(
+      'hidden'
     );
-    frame(140);
-    expect(floor.getAttribute('visibility')).toBe('hidden');
-    // A floor equal to the stake is the launch line itself.
-    rerender(
-      <CrashCurve
-        {...base}
-        phase="open"
-        replayElapsedMs={0}
-        tickerCents={100}
-        minimumPayoutChips={2}
-        betChips={2}
-      />
-    );
-    frame(180);
-    expect(floor.getAttribute('visibility')).not.toBe('hidden');
-    expect(at(floor, 'y1')).toBe(at(tick(container, 100), 'y1'));
+    expect(labels(container, '[data-line-label="floor"]')).toEqual([]);
   });
 });
 
@@ -633,6 +610,7 @@ describe('the cap and the would-have-gone plate', () => {
     );
     const plate = container.querySelector('[data-reveal="would-have-gone"]') as HTMLElement;
     expect(plate).toHaveTextContent('It Would Have Crashed At 9.50x');
+    expect(document.querySelector('[data-booked-flight]')).toHaveTextContent('Booked At 2.57x');
     expect(plate).toHaveTextContent('You Booked 2.57x');
     frame(100);
     frame(2000);
@@ -825,4 +803,38 @@ describe('the frame is alive between rounds (phase 2)', () => {
     );
     expect(breathe).not.toContain('transform');
   });
+});
+
+it('moves smoothly between displayed hundredths without changing payout precision', () => {
+  const frames = Array.from({ length: 8 }, (_, i) =>
+    flightMultiplierCents(0.08, (i * 1000) / 60, 2000)
+  );
+  expect(new Set(frames).size).toBe(8);
+  expect(frames.every((value, i) => !i || value > frames[i - 1])).toBe(true);
+  expect(new Set(frames.map((n) => Math.floor(n))).size).toBeLessThan(8);
+  expect(flightMultiplierCents(0.08, 1e6, 2000)).toBe(2000);
+});
+
+it('advances the rendered fighter on every frame between displayed hundredths', () => {
+  const driver = clock();
+  let now = 0;
+  vi.spyOn(performance, 'now').mockImplementation(() => now);
+  render(
+    <CrashCurve
+      {...base}
+      phase="open"
+      growthK={0.08}
+      startedAtLocalMs={0}
+      replayElapsedMs={undefined}
+    />
+  );
+  const fighter = frames.scene!.getObjectByName('crash-fighter')!;
+  const positions: number[] = [];
+  for (let i = 0; i < 8; i++) {
+    now = (i * 1000) / 60;
+    driver.tick(now);
+    positions.push(fighter.position.x);
+  }
+  expect(new Set(positions).size).toBe(8);
+  expect(positions.every((position, i) => !i || position > positions[i - 1])).toBe(true);
 });

@@ -648,6 +648,20 @@ const donkeyX = () =>
   ).getObjectByName('walking-leg-0').parent.position.x;
 
 describe('every street gets a beat', () => {
+  it.each([false, true])(
+    'keeps tail motion within the reduced-motion preference (%s)',
+    (reduced) => {
+      motion(reduced);
+      mountScene({ phase: 'open', picked: [0] });
+      tick(16);
+      const tail = (frames.scene as import('three').Scene).getObjectByName('donkey-tail')!;
+      const first = tail.rotation.x;
+      tick(900);
+      if (reduced) expect(tail.rotation.x).toBe(0);
+      else expect(Math.abs(tail.rotation.x - first)).toBeGreaterThan(0.01);
+    }
+  );
+
   it('walks with opposing diagonal legs and folds only the airborne knees', () => {
     motion(false);
     const road = mountScene({ phase: 'open', picked: [0] });
@@ -792,33 +806,16 @@ describe('the road wears the Smarter.Poker palette', () => {
   });
 });
 
-/**
- * THE GUARANTEE SITS BESIDE THE NEXT PRIZE (review 2026-09-22). Ordinary rounds
- * are hit on street 1 about 30% of the time and Super rounds about 50%, so the
- * amount a hit still pays is half of the decision the player is making. It
- * lived in a bay above the road and never appeared on the scene at all.
- */
-describe('the guarantee sits beside the street being risked', () => {
-  it('names what a hit still pays beside the next street', () => {
-    mountScene({ phase: 'open', picked: [0, 1], floorChips: 0.2 });
-    expect(screen.getByText('Next Street 15.20 At 1.85x · A Hit Pays 0.20')).toBeInTheDocument();
-  });
-  it('calls a Super award floor by its own name', () => {
-    mountScene({ phase: 'open', picked: [0, 1], floorChips: 0.2, superFloor: true });
-    expect(
-      screen.getByText('Next Street 15.20 At 1.85x · Super Guarantee 0.20')
-    ).toBeInTheDocument();
-  });
-  it('states it before the first street, where the decision starts', () => {
-    mountScene({ floorChips: 0.2 });
-    expect(
-      screen.getByText('A Hit Still Pays 0.20 Chips · 12 Streets Up To 20.00x')
-    ).toBeInTheDocument();
-  });
-  it('says nothing about a floor it was not given', () => {
-    mountScene({ phase: 'open', picked: [0, 1] });
+describe('the road keeps odds and loss rules in help', () => {
+  it.each([false, true])('shows just the next prize with a Super floor of %s', (superFloor) => {
+    mountScene({ phase: 'open', picked: [0, 1], floorChips: 0.2, superFloor });
     expect(screen.getByText('Next Street 15.20 At 1.85x')).toBeInTheDocument();
-    expect(screen.queryByText(/A Hit Pays/)).toBeNull();
+    expect(screen.queryByText(/A Hit Pays|Super Guarantee/)).toBeNull();
+  });
+  it('shows the road ahead without a ticket hash', () => {
+    mountScene({ floorChips: 0.2, sealed: 'abcd1234' });
+    expect(screen.getByText('12 Streets Up To 20.00x')).toBeInTheDocument();
+    expect(screen.queryByText(/Round Sealed|abcd1234/)).toBeNull();
   });
 });
 

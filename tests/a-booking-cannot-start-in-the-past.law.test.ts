@@ -81,12 +81,16 @@ describe('a booking cannot give notice before it lands', () => {
     const rest = ci.slice(start + 1);
     const next = rest.slice(1).search(/\n {2}[a-z0-9_-]+:\n/);
     const job = next === -1 ? rest : rest.slice(0, next + 1);
-    expect(job).toContain("if: github.event_name == 'pull_request'");
+    expect(job).toContain(
+      "if: (github.event_name == 'pull_request' || github.event_name == 'merge_group')"
+    );
     expect(job).toContain('fetch-depth: 0');
     const step = job.slice(
       job.indexOf('- name: Owner maintenance bookings give notice after they merge')
     );
-    expect(step).toContain('CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}');
+    expect(step).toContain(
+      'CI_BASE_SHA: ${{ (github.event.pull_request.base.sha || github.event.merge_group.base_sha) }}'
+    );
     expect(step).toContain('run: node scripts/ci/check-owner-window-notice-after-merge.mjs');
   });
 });

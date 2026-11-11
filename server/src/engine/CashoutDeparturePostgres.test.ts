@@ -2581,6 +2581,8 @@ describe.skipIf(!host)('engine/service/PostgreSQL departure recovery', () => {
         };
         e.hub = { emitEvent: vi.fn() };
         e.bustedSince = new Map([[USER, Date.now() - 3600000]]);
+        // Judged when it busted (wallet covered a rebuy); the window has long expired.
+        e.bustRebuyVerdictMap = new Map([[USER, 'can_rebuy']]);
         e.rebuyPromptOpenAt = new Map();
         e.pendingAddOns = new Map();
         e.usersWithPendingLedgerChips = vi.fn().mockResolvedValue(new Set());

@@ -1,3 +1,4 @@
+import { ploActivityPool } from './PloLightningDemand.js';
 import { readPloLightningDemand } from './PloLightningDemandRead.js';
 import { horseCashGameAllowed } from './HorseCashSchedule.js';
 import {
@@ -138,6 +139,7 @@ import {
   isNightParkedTable,
   isRetiringTable,
   occupancyTargetFor,
+  fullGameWaitTarget,
   secondTablePicked,
   stakeBandAllows,
   stakeBandFor,
@@ -153,6 +155,7 @@ import {
   withheldReason,
   type FleetPolicy,
 } from './HorseFleetPolicy.js';
+import { isFullClassicQueueTable, queuePolicyWithheldReason } from './HorseQueueAdmission.js';
 import { liveHorseDecisionWorkerStatus } from '../engine/horseDecision/lane.js';
 import {
   DEALABLE_MINIMUM,
@@ -2554,7 +2557,9 @@ export class HorseFleetManager {
             null,
             false,
             ploDemand
-          )
+          ),
+        Date.now(),
+        cashPlanLightningGames
       );
       // V8: tables with a short-handed HUMAN seed first (never leave a human
       // stranded); everything else keeps its natural order. Precomputed rather
@@ -2860,9 +2865,24 @@ export class HorseFleetManager {
         console.log(`[HorseFleet] ${claimed} horse(s) answered a seat call`);
       }
 
-      /* An empty list, not an early return: the loop is the only thing
-         withheld, and everything after it still runs. */
-      const tablesToSeed = cycleWithheld ? [] : orderedTables;
+      /* A seating ceiling still permits full Classic tables to build a line.
+         Genuine policy holds keep the list empty; the rest of the cycle runs. */
+      const queueCycleWithheld = queuePolicyWithheldReason(globalPolicy, {
+        nowUTCHour: hourUTC,
+        decisionLaneWaitMs: lane.oldestQueuedAgeMs,
+        decisionLanePhase: lane.phase,
+      });
+      const tablesToSeed = cycleWithheld
+        ? queueCycleWithheld
+          ? []
+          : orderedTables.filter((table) =>
+              isFullClassicQueueTable(
+                table,
+                new Set((seatsByTable.get(table.id) ?? []).map((seat) => seat.seat_number)).size,
+                cashPlanLightningGames
+              )
+            )
+        : orderedTables;
       let tablesSeeded = 0;
       let disabledGameTables = 0;
       let firstTableWithheld: string | null = null;
@@ -3127,7 +3147,12 @@ export class HorseFleetManager {
           /* A cluster table with nothing to fill still answers the
              controller's question (how many horses COULD sit in this game);
              it runs the candidate filter and seats nobody. */
-          let countOnly = false;
+          const queueOnly = isFullClassicQueueTable(
+            table,
+            occupiedNumbers.size,
+            cashPlanLightningGames
+          );
+          let countOnly = queueOnly;
 
           // ── V14 OCCUPANCY (Dan 2026-08-23) ────────────────────────────────
           // Every table used to carry ONE fixed target from DEFAULT_TABLES, so
@@ -3182,7 +3207,7 @@ export class HorseFleetManager {
             continue;
           }
           const policy = policyFor(table.club_id);
-          const tableWithheld = withheldReason(policy, {
+          const tableWithheld = (queueOnly ? queuePolicyWithheldReason : withheldReason)(policy, {
             nowUTCHour: hourUTC,
             seatedHorses: seatedHorseCount,
             seatedAtTable: currentCount,
@@ -3196,7 +3221,7 @@ export class HorseFleetManager {
             if (diag) diag.withheld = tableWithheld;
             continue;
           }
-          if (seatBudget <= 0) {
+          if (!queueOnly && seatBudget <= 0) {
             beat.withheldTables++;
             if (firstTableWithheld === null) firstTableWithheld = 'max_horses_reached';
             if (diag) diag.withheld = 'max_horses_reached';
@@ -3221,6 +3246,7 @@ export class HorseFleetManager {
              is this budget plus one abandoned call plus the state write, which
              lands inside the tick. */
           if (
+            !queueOnly &&
             tablesConsidered > 0 &&
             Date.now() - seatingStartedAt >= SEED_CYCLE_SEATING_BUDGET_MS
           ) {
@@ -3387,7 +3413,7 @@ export class HorseFleetManager {
           });
           /* The fleet-wide cap, spent down as the floor fills. Last, so it
              cannot be undone by anything above it. */
-          seatsNeeded = Math.min(seatsNeeded, seatBudget);
+          seatsNeeded = queueOnly ? 0 : Math.min(seatsNeeded, seatBudget);
           if (diag) diag.wanted = seatsNeeded;
           if (seatsNeeded <= 0) {
             if (!table.cluster_id) continue;
@@ -3694,8 +3720,10 @@ export class HorseFleetManager {
                rather than about this horse: a body already seated on this host
                is already counted and may open another table, a new body may
                not once the host is at its curve. Bypassed entirely when a
-               human at this table needs the game rescued. */
+               human at this table needs the game rescued, or when only joining
+               a full Classic game's line (no body is seated). */
             if (
+              !queueOnly &&
               !hostAllowsNewBody({
                 hostId: String((table as any).club_id ?? ''),
                 horseId: h.id,
@@ -3813,6 +3841,14 @@ export class HorseFleetManager {
              `asleep` and `hour_widened` counters below. */
           const awake = pool.length;
           if (pool.length < emptySeats.length && humanNeedsRescue) pool = sittable;
+          pool = ploActivityPool(
+            table.cluster_id,
+            cashPlanLightningHumanGames,
+            ploDemand,
+            pool,
+            sittable,
+            emptySeats.length
+          );
           /* ── AN OPENING FEEDER WIDENS THE HOUR TOO (2026-09-06, measured) ──
              The activity window is texture: it decides WHICH of the horses
              that could sit do sit, so the floor rotates through the stable.
@@ -3913,19 +3949,21 @@ export class HorseFleetManager {
                   : Math.max(0, Math.min(seatsNeeded, Number(table.max_players) - currentCount)),
             };
             if (diag) diag.reserved = feederClaim;
-            /* A FULL GAME GROWS A LINE (Dan 2026-11-06). Only a table with no
-               empty seat asks; syncHorseGameQueues checks the whole game is
+            /* A FULL GAME GROWS A LINE (Dan 2026-11-06). Only a physically full
+               Classic table asks; syncHorseGameQueues checks the whole game is
                full before anyone joins it. See HorseGameQueue. */
-            if (emptySeats.length === 0 && target.waitTarget > 0) {
+            if (queueOnly) {
               horseQueueAsks.push({
                 gameId: String(table.cluster_id),
-                waitTarget: target.waitTarget,
+                waitTarget: fullGameWaitTarget(table.id, table.max_players, Date.now()),
                 pool: pool.map((h) => h.id),
                 variant: table.game_variant,
                 bigBlind: Number(table.big_blind),
               });
             }
-            clusterPools.push(clusterPool);
+            // Full Classic games grow through real waiting rows, not a forecast
+            // that could count horses held by seating or host occupancy caps.
+            if (!queueOnly) clusterPools.push(clusterPool);
           } else {
             nextEligible.set(table.id, pool.length);
           }
@@ -5144,7 +5182,9 @@ export class HorseFleetManager {
             null,
             false,
             ploDemand
-          )
+          ),
+        Date.now(),
+        cashPlanLightningGames
       );
 
       /* PAGED (2026-09-09), like every other read of this queue in the file.

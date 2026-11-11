@@ -4,6 +4,8 @@ set -euo pipefail
 pgbin=${PG_BIN:-/opt/homebrew/opt/postgresql@17/bin}
 fixture=${1:?private accounting fixture directory required}
 template=${2:-diamond_games_probe}
+door=${3:-fn_wheel_spin_v2}
+case "$door" in fn_wheel_spin_v2|fn_wheel_spin_v5) ;; *) echo 'Unknown wheel test endpoint' >&2; exit 1 ;; esac
 socket="$fixture/socket"
 psql_base=("$pgbin/psql" -Xq -v ON_ERROR_STOP=1 -h "$socket" -p 55487 -U postgres)
 fixture_identity=$("${psql_base[@]}" -At -d "$template" -c "SELECT count(*) FROM public.ca_financial_epochs WHERE name='Isolated Diamond financial probe' AND is_current")
@@ -12,7 +14,7 @@ race_db="diamond_wheel_single_race_$$"
 "$pgbin/createdb" -h "$socket" -p 55487 -U postgres -T "$template" "$race_db"
 trap '"$pgbin/dropdb" -h "$socket" -p 55487 -U postgres "$race_db"' EXIT
 db=("${psql_base[@]}" -d "$race_db")
-"${db[@]}" <<'SQL'
+sed "s/public.fn_wheel_spin_v2/public.$door/g" <<'SQL' | "${db[@]}"
 DO $$
 DECLARE
  player constant uuid:='d1000000-0000-4000-8000-000000000005'; club constant uuid:='d1000000-0000-4000-8000-000000000003';
@@ -51,7 +53,7 @@ SQL
 amount=$("${db[@]}" -Atc "SELECT diamonds FROM public.profiles WHERE id='d1000000-0000-4000-8000-000000000005'")
 run_spin() {
   local app=$1 ticket=$2 hold=$3
-  "${db[@]}" -At -v amount="$amount" -v app="$app" -v ticket="$ticket" -v hold="$hold" <<'SQL'
+  sed "s/public.fn_wheel_spin_v2/public.$door/g" <<'SQL' | "${db[@]}" -At -v amount="$amount" -v app="$app" -v ticket="$ticket" -v hold="$hold"
 BEGIN;
 SET LOCAL statement_timeout='10s';
 SET LOCAL application_name=:'app';

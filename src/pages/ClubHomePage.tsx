@@ -4107,11 +4107,11 @@ function ClubHomePageContent({
   }, [currentUserId]);
 
   const handleWaitlistToggle = useCallback(
-    async (tableId: string, joining: boolean) => {
-      if (waitlistActionBusyRef.current) return;
+    async (tableId: string, joining: boolean): Promise<boolean> => {
+      if (waitlistActionBusyRef.current) return false;
       if (!currentUserId) {
         toast.error('Sign In To Join A Waitlist');
-        return;
+        return false;
       }
       waitlistActionBusyRef.current = true;
       setWaitlistActionBusy(true);
@@ -4142,6 +4142,7 @@ function ClubHomePageContent({
           if (!left) throw new Error('Could not leave the waitlist');
           toast.success('Removed From The Waitlist.');
         }
+        return true;
       } catch (e) {
         // Put the button back where it was; the queue did not change.
         setWaitlistedTableIds((prev) => {
@@ -4152,6 +4153,7 @@ function ClubHomePageContent({
         });
         reportError(e, 'ClubHomePage.handleWaitlistToggle', { tableId, joining });
         toast.error(joining ? 'Could Not Join The Waitlist' : 'Could Not Leave The Waitlist');
+        return false;
       } finally {
         waitlistActionBusyRef.current = false;
         setWaitlistActionBusy(false);
@@ -4656,9 +4658,13 @@ function ClubHomePageContent({
         return;
       }
       // The installed table exit cancels the parent game queue when needed.
-      void handleWaitlistToggle(tableId, joining);
+      void handleWaitlistToggle(tableId, joining).then((succeeded) => {
+        // Observe only a confirmed join, never a leave or a refused request.
+        // A later view failure must not undo the place already held in the queue.
+        if (succeeded && joining && gameEntryScope.active) void handleViewCashTable(tableId);
+      });
     },
-    [handleJoinTable, handleWaitlistToggle]
+    [handleJoinTable, handleWaitlistToggle, handleViewCashTable, gameEntryScope]
   );
 
   const handleRegister = useCallback(

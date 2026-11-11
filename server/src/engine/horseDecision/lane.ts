@@ -243,6 +243,8 @@ export { horseDecisionShard };
 
 export interface LiveHorseDecisionWorkerShardStatus {
   index: number;
+  solverStores: LiveHorseDecisionWorkerStatus['solverStores'];
+  solverPolicyArtifact: LiveHorseDecisionWorkerStatus['solverPolicyArtifact'];
   isolateMemory?: LiveHorseDecisionWorkerStatus['isolateMemory'];
   isolateMemoryAgeMs?: number | null;
   mainHistoryCache?: LiveHorseDecisionWorkerStatus['mainHistoryCache'];
@@ -665,6 +667,8 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
       shardReplacements: this.replacementCount,
       workers: all.map((s, index) => ({
         index,
+        solverStores: s.phase === 'ready' ? s.solverStores : null,
+        solverPolicyArtifact: s.phase === 'ready' ? s.solverPolicyArtifact : null,
         isolateMemory: s.isolateMemory ?? null,
         isolateMemoryAgeMs: s.isolateMemoryAgeMs ?? null,
         mainHistoryCache: s.mainHistoryCache ?? null,
@@ -722,6 +726,10 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
     observation: CompletedHandObservation,
     signal?: AbortSignal
   ): Promise<HorseDecisionWorkerAck> {
+    if (observation.terminalOnlySourceRelease !== undefined) {
+      const owner = horseDecisionShard(observation.fence, this.clients.length);
+      return this.clients[owner]!.observeCompletedHand(observation, signal);
+    }
     // The owner journals the hand. Other shards receive public completion
     // only for the same original observer's already-existing private view;
     // the pool supplies admission from validated original FASTs.

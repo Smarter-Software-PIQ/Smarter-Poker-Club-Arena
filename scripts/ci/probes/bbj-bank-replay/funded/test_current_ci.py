@@ -276,6 +276,20 @@ class CurrentAccountingIdentityTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.identity(environment)
 
+    def test_merge_group_is_its_own_checkout(self):
+        # Merge queue (2026-11-11): the queued main group commit is the checkout.
+        ref = 'refs/heads/gh-readonly-queue/main/pr-7-' + 'e'*40
+        environment = {**self.env, 'GITHUB_EVENT_NAME':'merge_group', 'GITHUB_REF':ref,
+                       'GITHUB_WORKFLOW_REF':ci.WORKFLOW+ref}
+        event = {'merge_group': {'head_sha': self.commit, 'head_ref': ref, 'base_ref': 'refs/heads/main', 'base_sha': 'f'*40}}
+        self.assertEqual(self.identity(environment, event=event)['source_commit'], self.commit)
+        for bad in ({'head_sha': 'd'*40}, {'base_ref': 'refs/heads/other'}, {'head_ref': 'refs/heads/other'}):
+            with self.assertRaises(RuntimeError):
+                self.identity(environment, event={'merge_group': {**event['merge_group'], **bad}})
+        with self.assertRaises(RuntimeError):
+            self.identity({**environment, 'GITHUB_REF':'refs/heads/feature', 'GITHUB_WORKFLOW_REF':ci.WORKFLOW+'refs/heads/feature'},
+                          event={'merge_group': {**event['merge_group'], 'head_ref':'refs/heads/feature'}})
+
     def test_exclusive_attempt_preserves_uncertain_original(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)/'ATTEMPT.json'

@@ -36,11 +36,34 @@ export function completion({capturedHead,currentHead,outcome,proof,protection,ru
  }
  return 'success';
 }
+// MERGE QUEUE (2026-11-11). A merge-group verdict is bound to the exact queued
+// head SHA, its queue branch and the exact migration set (path and bytes) that
+// commit adds over main. It is a success only when the group is still live in
+// the queue with that head, the trusted proof names the same head, branch and
+// run, and the migration set read again at finish equals the proof's. Anything
+// unreadable, stale or different is a failure: fail closed.
+export function groupCompletion({state,proof,live,finalSet,outcome,protection,runId,appId,now=Date.now()}){
+ const branchOk=typeof state?.group==='string'&&proof?.mergeGroup?.branch===state.group&&proof?.pr===null;
+ const removed=proof?.mergeGroup?.removed;
+ const proofSet=Array.isArray(proof?.results)&&Array.isArray(removed)?[...proof.results.map(r=>`${r.path}:${r.sha256}`),...removed.map(p=>`${p}:removed`)].sort():null;
+ const setOk=Array.isArray(finalSet)&&proofSet!==null&&finalSet.length===proofSet.length&&[...finalSet].sort().every((x,i)=>x===proofSet[i]);
+ const currentHead=live===true&&branchOk&&setOk?state.head:null;
+ return completion({capturedHead:state?.head,currentHead,outcome,proof,protection,runId,appId,now});
+}
+export async function mergeGroupIsLive({repository,head,token,fetchImpl=fetch}){
+ const [owner,name]=String(repository).split('/');
+ const r=await fetchImpl('https://api.github.com/graphql',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},redirect:'error',signal:AbortSignal.timeout(15000),body:JSON.stringify({query:'query($o:String!,$n:String!){repository(owner:$o,name:$n){mergeQueue(branch:"main"){entries(first:100){nodes{state headCommit{oid}}}}}}',variables:{o:owner,n:name}})});
+ if(!r.ok)return false;
+ const nodes=(await r.json())?.data?.repository?.mergeQueue?.entries?.nodes;
+ if(!Array.isArray(nodes))return false;
+ return nodes.some(n=>n?.headCommit?.oid===head&&n.state!=='UNMERGEABLE');
+}
 async function main(){
  const repo=process.env.GITHUB_REPOSITORY,number=process.env.PR_NUMBER,appId=process.env.REPORTER_APP_ID;
- if(!isClubArenaRepository(repo,process.env.GITHUB_REPOSITORY_ID)||!/^\d+$/.test(number||'')||!/^\d+$/.test(appId||''))throw Error('invalid reporting identity');
+ const groupMode=['begin-group','finish-group'].includes(process.argv[2]);
+ if(!isClubArenaRepository(repo,process.env.GITHUB_REPOSITORY_ID)||(!groupMode&&!/^\d+$/.test(number||''))||!/^\d+$/.test(appId||''))throw Error('invalid reporting identity');
  const token=process.env.REPORTER_TOKEN;if(!token)throw Error('missing restricted reporter token');
- async function api(p,method='GET',body){const r=await fetch(`https://api.github.com/repos/${repo}/${p}`,{method,headers:{Authorization:`Bearer ${method==='GET'?process.env.GITHUB_TOKEN:token}`,Accept:'application/vnd.github+json','Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});if(!r.ok)throw Error(`reporting failed ${r.status}`);return r.json()}
+ async function api(p,method='GET',body,accept='application/vnd.github+json'){const r=await fetch(`https://api.github.com/repos/${repo}/${p}`,{method,headers:{Authorization:`Bearer ${method==='GET'?process.env.GITHUB_TOKEN:token}`,Accept:accept,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});if(!r.ok)throw Error(`reporting failed ${r.status}`);return r.json()}
  if(process.argv[2]==='begin'){
   const pr=await api(`pulls/${number}`);if(pr.state!=='open'||pr.base.ref!=='main')throw Error('invalid PR state');
   const result=await api('check-runs','POST',{name:CHECK_NAME,head_sha:pr.head.sha,status:'in_progress',external_id:`money-trigger-${process.env.GITHUB_RUN_ID}`,details_url:`https://github.com/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}`});
@@ -61,6 +84,43 @@ async function main(){
   if(result.head_sha!==state.head||String(result.app?.id)!==appId||result.conclusion!==conclusion)throw Error('report acknowledgement differs');
   fs.writeFileSync('money-trigger-check-result.json',JSON.stringify({head:state.head,checkId:result.id,appId:result.app.id,conclusion,name:CHECK_NAME}));
   if(conclusion!=='success')process.exitCode=1;
- }else throw Error('expected begin/finish');
+ }else if(process.argv[2]==='begin-group'){
+  const head=process.env.GROUP_HEAD_SHA,branch=process.env.GROUP_BRANCH||'';
+  if(process.env.GITHUB_EVENT_NAME!=='workflow_run'||process.env.GITHUB_REF!=='refs/heads/main'||!/^[a-f0-9]{40}$/.test(head||'')||!/^gh-readonly-queue\/main\/[A-Za-z0-9._\/-]+$/.test(branch))throw Error('invalid merge group identity');
+  const result=await api('check-runs','POST',{name:CHECK_NAME,head_sha:head,status:'in_progress',external_id:`money-trigger-group-${process.env.GITHUB_RUN_ID}`,details_url:`https://github.com/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}`});
+  if(result.head_sha!==head||String(result.app?.id)!==appId)throw Error('wrong check source/head');
+  fs.writeFileSync('money-trigger-check-state.json',JSON.stringify({id:result.id,head,appId,group:branch,runId:process.env.GITHUB_RUN_ID}));
+ }else if(process.argv[2]==='finish-group'){
+  if(!fs.existsSync('money-trigger-check-state.json'))throw Error('no started check; no success can be reported');
+  const state=JSON.parse(fs.readFileSync('money-trigger-check-state.json'));
+  const proof=fs.existsSync('money-trigger-recovery.json')?JSON.parse(fs.readFileSync('money-trigger-recovery.json')):null;
+  let protection;
+  try{protection=await readProtectionAndRevoke({token:process.env.PROTECTION_READER_TOKEN,repository:repo,repositoryId:process.env.GITHUB_REPOSITORY_ID,appId,head:state.head,runId:state.runId});}
+  catch{console.error('Full protection read or reader revocation failed; no success can be reported.');}
+  finally{delete process.env.PROTECTION_READER_TOKEN;}
+  let live=false,finalSet=null;
+  try{
+   live=await mergeGroupIsLive({repository:repo,head:state.head,token:process.env.GITHUB_TOKEN});
+   // Re-read against the FIXED base the trusted proof recorded, not a moving
+   // main: a group ahead of this one merging mid-run must not change the set.
+   const base=proof?.mergeGroup?.baseSha;
+   if(/^[a-f0-9]{40}$/.test(base||'')&&base!==state.head){
+    const {fixedBaseMigrationFiles}=await import('./money-trigger-merge-group-files.mjs');
+    const changed=fixedBaseMigrationFiles(await api(`compare/${base}...${state.head}`));
+    const {readMigrationContent}=await import('./read-migration-content.mjs');
+    const {sha256}=await import('./money-trigger-recovery.mjs');
+    const read=[];
+    for(const p of changed.content)read.push(`${p}:${sha256(await readMigrationContent((q,a)=>api(q,'GET',undefined,a),p,state.head))}`);
+    for(const p of changed.removed)read.push(`${p}:removed`);
+    finalSet=read;
+   }
+  }catch{console.error('Merge group liveness or migration set could not be re-read; no success can be reported.');}
+  const capturedIdentity=state.runId===process.env.GITHUB_RUN_ID&&state.appId===appId;
+  const conclusion=groupCompletion({state,proof,live,finalSet,outcome:capturedIdentity?process.env.VERIFY_OUTCOME:'failure',protection,runId:process.env.GITHUB_RUN_ID,appId});
+  const result=await api(`check-runs/${state.id}`,'PATCH',{status:'completed',conclusion,output:{title:CHECK_NAME,summary:conclusion==='success'?'Exact queued merge-group head and migration set verified by trusted default-branch code against current App-bound no-bypass main protection; protection reader revoked before completion.':'Verification failed, was canceled, became stale, the group left the queue, or its migration set changed. No success for this merge group.'}});
+  if(result.head_sha!==state.head||String(result.app?.id)!==appId||result.conclusion!==conclusion)throw Error('report acknowledgement differs');
+  fs.writeFileSync('money-trigger-check-result.json',JSON.stringify({head:state.head,checkId:result.id,appId:result.app.id,conclusion,name:CHECK_NAME,group:state.group}));
+  if(conclusion!=='success')process.exitCode=1;
+ }else throw Error('expected begin/finish/begin-group/finish-group');
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href)await main();

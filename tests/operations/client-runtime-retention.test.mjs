@@ -18,6 +18,7 @@ import {
   receiptArtifactId,
   assertReceiptOrigins,
   publicationDecision,
+  focusedRetentionPublisher,
 } from '../../scripts/ci/client-runtime-retention.mjs';
 import { fileURLToPath } from 'node:url';
 
@@ -70,12 +71,22 @@ const commit = (cwd) => {
 };
 
 const backendToolPaths = [
-  '.husky/pre-push', 'scripts/agent-push.sh', 'scripts/ci/agent-execution.mjs',
-  'scripts/ci/agent-execution-cli.mjs', 'scripts/ci/execution-preview.mjs',
-  'scripts/ci/vendor/agentExecution.mjs', 'scripts/ci/vendor/agentExecution.source.json',
-  'scripts/ci/source-contract-inventory.mjs', 'scripts/ci/source-contract-inputs.json',
-  'README.md', 'AGENTS.md', 'CLAUDE.md', 'AGENT-PLAYBOOK.md', 'PUBLISHING.md',
-  'docs/agent-policy/OWNER-POLICY.md', 'docs/agent-policy/policy-manifest.json',
+  '.husky/pre-push',
+  'scripts/agent-push.sh',
+  'scripts/ci/agent-execution.mjs',
+  'scripts/ci/agent-execution-cli.mjs',
+  'scripts/ci/execution-preview.mjs',
+  'scripts/ci/vendor/agentExecution.mjs',
+  'scripts/ci/vendor/agentExecution.source.json',
+  'scripts/ci/source-contract-inventory.mjs',
+  'scripts/ci/source-contract-inputs.json',
+  'README.md',
+  'AGENTS.md',
+  'CLAUDE.md',
+  'AGENT-PLAYBOOK.md',
+  'PUBLISHING.md',
+  'docs/agent-policy/OWNER-POLICY.md',
+  'docs/agent-policy/policy-manifest.json',
   'scripts/ci/fixtures/new-native-proof/source-pins.json',
   'scripts/ci/migration-live-proofs.json',
   'scripts/ci/recorded-migrations.manifest.json',
@@ -99,24 +110,54 @@ test('actual build observation overrides an exact agent-tool exclusion', async (
   try {
     initFixture(cwd);
     put(cwd, '.gitignore', 'dist/\n.client-runtime-*.json\n');
-    const lock = JSON.parse(readFileSync(new URL('../../package-lock.json', import.meta.url), 'utf8'));
+    const lock = JSON.parse(
+      readFileSync(new URL('../../package-lock.json', import.meta.url), 'utf8')
+    );
     put(cwd, 'package.json', '{"name":"observed-tool-fixture"}');
-    put(cwd, 'package-lock.json', JSON.stringify({packages:{'node_modules/vite':lock.packages['node_modules/vite']}}));
+    put(
+      cwd,
+      'package-lock.json',
+      JSON.stringify({ packages: { 'node_modules/vite': lock.packages['node_modules/vite'] } })
+    );
     put(cwd, 'index.html', '<script type="module" src="/src/main.js"></script>');
-    put(cwd, 'src/main.js', 'import {value} from "../scripts/ci/agent-execution.mjs"; window.observed=value;');
+    put(
+      cwd,
+      'src/main.js',
+      'import {value} from "../scripts/ci/agent-execution.mjs"; window.observed=value;'
+    );
     put(cwd, 'scripts/ci/agent-execution.mjs', 'export const value=1;');
-    const baseline=commit(cwd), observations=[];
-    for (const label of ['app','diamond','prerender']) {
-      await build({root:cwd,configFile:false,logLevel:'silent',plugins:[runtimeInputPlugin(label,cwd)],build:{outDir:resolve(cwd,'dist'),emptyOutDir:true}});
-      observations.push(JSON.parse(readFileSync(resolve(cwd,`.client-runtime-${label}.json`),'utf8')));
+    const baseline = commit(cwd),
+      observations = [];
+    for (const label of ['app', 'diamond', 'prerender']) {
+      await build({
+        root: cwd,
+        configFile: false,
+        logLevel: 'silent',
+        plugins: [runtimeInputPlugin(label, cwd)],
+        build: { outDir: resolve(cwd, 'dist'), emptyOutDir: true },
+      });
+      observations.push(
+        JSON.parse(readFileSync(resolve(cwd, `.client-runtime-${label}.json`), 'utf8'))
+      );
     }
-    const inputs=makeRuntimeInputs(baseline,observations,cwd);
-    assert.equal(inputs.complete,true);
-    assert.ok(inputs.files.some(input=>input.path==='scripts/ci/agent-execution.mjs'));
-    put(cwd,'scripts/ci/agent-execution.mjs','export const value=2;');
-    const target=commit(cwd);
-    assert.equal(qualifiesRuntimeInputs(inputs,baseline,target,compareClientBacklog(baseline,target,cwd).paths,cwd),false);
-  } finally {rmSync(cwd,{recursive:true,force:true});}
+    const inputs = makeRuntimeInputs(baseline, observations, cwd);
+    assert.equal(inputs.complete, true);
+    assert.ok(inputs.files.some((input) => input.path === 'scripts/ci/agent-execution.mjs'));
+    put(cwd, 'scripts/ci/agent-execution.mjs', 'export const value=2;');
+    const target = commit(cwd);
+    assert.equal(
+      qualifiesRuntimeInputs(
+        inputs,
+        baseline,
+        target,
+        compareClientBacklog(baseline, target, cwd).paths,
+        cwd
+      ),
+      false
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
 });
 
 test('actual lazy shared-server module/watch graph excludes engine-only churn and includes all shared inputs', async () => {
@@ -693,4 +734,66 @@ test('locked Vite SSR aggregate CSS records real source inputs without inventing
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
+});
+
+test('focused cash verification requires the newest exact successful protected publisher', () => {
+  const target = 'a'.repeat(40);
+  const run = {
+    id: 123,
+    head_sha: target,
+    path: '.github/workflows/publish-club-arena.yml',
+    head_branch: 'main',
+    event: 'push',
+    status: 'completed',
+    conclusion: 'success',
+    repository: { id: 456 },
+  };
+  assert.equal(focusedRetentionPublisher({ workflow_runs: [run] }, target, '456'), '123');
+  for (const changes of [
+    { head_branch: 'branch' },
+    { head_sha: 'b'.repeat(40) },
+    { path: 'other.yml' },
+    { status: 'in_progress' },
+    { conclusion: 'failure' },
+    { event: 'pull_request' },
+    { repository: { id: 999 } },
+  ]) {
+    assert.throws(() =>
+      focusedRetentionPublisher({ workflow_runs: [{ ...run, ...changes }] }, target, '456')
+    );
+  }
+  assert.throws(() =>
+    focusedRetentionPublisher(
+      { workflow_runs: [run, { ...run, id: 124, conclusion: 'failure' }] },
+      target,
+      '456'
+    )
+  );
+  assert.throws(() => focusedRetentionPublisher({}, target, '456'));
+});
+
+test('focused cash verification reuses exact retention proof before generic source alignment', () => {
+  const workflow = readFileSync(resolve(' .github/workflows/post-deploy-e2e.yml'.trim()), 'utf8');
+  const start = workflow.indexOf(
+    "if [ '${{ needs.publication-gate.outputs.cash_observation }}' = true ]"
+  );
+  assert.ok(start > 0);
+  const proof = workflow.indexOf(
+    'node scripts/ci/client-runtime-retention.mjs focused-harness "$LIVE" "$HERE"',
+    start
+  );
+  const generic = workflow.indexOf(
+    'RELATION=$(node scripts/ci/production-e2e-provenance.mjs lineage',
+    start
+  );
+  assert.ok(proof > start && generic > proof);
+  const script = readFileSync(resolve('scripts/ci/client-runtime-retention.mjs'), 'utf8');
+  const body = script.slice(
+    script.indexOf('async function focusedHarness'),
+    script.indexOf('async function main')
+  );
+  assert.match(body, /receiptArtifactId\(metadata, runId, target, repositoryId\)/);
+  assert.match(body, /receipt.runtimeSha !== live \|\| receipt.verificationSha !== target/);
+  assert.match(body, /await requireCurrentReceipt\(receipt\)/);
+  assert.match(body, /finally/);
 });

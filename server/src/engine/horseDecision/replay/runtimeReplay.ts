@@ -150,6 +150,7 @@ export async function replayThroughWorkerRuntime(
       v56WitnessCaptured = opts?.telemetry === true;
       corrective = horseCorrectiveReplayState(gameState, opts?.phase14, opts?.phase14Corrective);
       return HorseLogic.decide(player, gameState, style, mods, {
+        ...(input.v87HoldemOverhaul === false ? { v87HoldemOverhaul: false } : {}),
         ...opts,
         observeMind: false,
         ...(bindings.v56PressureCounterfactual === 'off' ? { v56OmahaPressureRange: false } : {}),

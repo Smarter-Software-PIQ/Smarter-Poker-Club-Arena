@@ -75,7 +75,14 @@ describe('the setup exits open whenever nothing is in flight', () => {
       // ticket's wager is being sent again.
       expect(setup).toMatch(/disabled=\{[^}]*\buncertain\b[^}]*\brestartOwed\b[^}]*\}/);
       // Rendered on a condition: never while a round is on the board.
-      expect(src).toMatch(/setup=\{\s*![\w.]+ &&[\s\S]{0,120}<BonusSetup/);
+      if (page.endsWith('/DiamondPlinkoPage.tsx')) {
+        expect(src).toMatch(/const setup = !animating && \(\s*<BonusSetup/);
+        expect(src).toContain('setup={setup}');
+        expect(src).toContain('collapseSetup');
+        expect(src).not.toContain('{budget.award && setup}');
+      } else {
+        expect(src).toMatch(/setup=\{\s*![\w.]+ &&[\s\S]{0,120}<BonusSetup/);
+      }
     }
   );
 });

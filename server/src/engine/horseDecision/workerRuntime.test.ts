@@ -2258,6 +2258,43 @@ describe('HorseDecisionWorkerRuntime', () => {
     expect(h.messages.at(-1)).not.toHaveProperty('recoverable');
   });
 
+  it('journals duplicate recovered terminals without learning and rejects a changed source', async () => {
+    const h = harness();
+    const journaled: CompletedHandObservation[] = [];
+    let persisted = 0;
+    h.deps.sourceRelease = () => 'a'.repeat(40);
+    h.deps.journalAcceptedHand = (hand) => {
+      journaled.push(hand);
+    };
+    h.deps.learnPersistedMemory = () => {
+      persisted++;
+    };
+    const original: ObserveCompletedHandRequest = {
+      type: 'OBSERVE_COMPLETED_HAND',
+      requestId: 2,
+      generation: 4,
+      fence: 'table:4:original-lease:observe',
+      handKey: 'table:4',
+      actions: [],
+      bigBlind: 2,
+      terminalOnlySourceRelease: 'a'.repeat(40),
+    };
+    h.runtime.receive(original);
+    h.runtime.receive({ ...original, requestId: 3 });
+    await h.runtime.drain();
+    expect(journaled).toHaveLength(2);
+    expect(h.observations).toEqual([]);
+    expect(persisted).toBe(0);
+    expect(h.features).not.toContain('horse_observer_completion_learned');
+    h.runtime.receive({ ...original, requestId: 4, terminalOnlySourceRelease: 'b'.repeat(40) });
+    await h.runtime.drain();
+    expect(journaled).toHaveLength(2);
+    expect(h.messages.at(-1)).toMatchObject({
+      type: 'ERROR',
+      message: 'accepted_terminal_source_mismatch',
+    });
+  });
+
   it('serializes completed-hand learning with decisions and drains services on shutdown', async () => {
     const h = harness();
     h.runtime.receive(fastRequest(1));
@@ -3528,11 +3565,11 @@ describe('P10.3 worker-owned PLO4 authority (the Phase 8 path, reused)', () => {
   // heads-up reference fold.
   const LIVE_STATES = [
     [
-      'cash AsKsQhJh preflop (the pack retains the call)',
+      'cash AsKsQhJh preflop (the pack retains the pot raise)',
       'cash',
       'As Ks Qh Jh',
       false,
-      { action: 'call', amount: 2 },
+      { action: 'raise', amount: 11 },
     ],
     [
       'cash QsQh4c4d preflop (the pack retains the call)',
@@ -3549,11 +3586,11 @@ describe('P10.3 worker-owned PLO4 authority (the Phase 8 path, reused)', () => {
       { action: 'fold', amount: null },
     ],
     [
-      'tournament AsKsQhJh preflop (the pack retains the call)',
+      'tournament AsKsQhJh preflop (the pack retains the pot raise)',
       'tournament',
       'As Ks Qh Jh',
       false,
-      { action: 'call', amount: 2 },
+      { action: 'raise', amount: 11 },
     ],
   ] as const;
 
@@ -3932,7 +3969,10 @@ describe('P11.3 worker-owned PLO5/PLO6/PLO8 authority (the Phase 8 path, reused 
     ['plo6', 'tournament', 'As Ad Ks Kd Qs Jd', false, { action: 'raise', amount: 11 }],
     ['plo8', 'cash', 'As 2s 3d Ac', false, { action: 'raise', amount: 11 }],
     ['plo8', 'cash', 'Ah 7c Ks 9d', true, { action: 'fold', amount: null }],
-    ['plo8', 'cash', 'Qs Qh 4c 4d', false, { action: 'call', amount: 2 }],
+    // V86: high-only middle two-pair with zero low cards in PLO8 folds on the
+    // reference path; the PLO8 pack (shadow, unselected) records a HU open
+    // deviation receipt (`changed: true`) while applying nothing.
+    ['plo8', 'cash', 'Qs Qh 4c 4d', true, { action: 'fold', amount: null }],
     ['plo8', 'tournament', 'As 2s 3d Ac', false, { action: 'raise', amount: 11 }],
   ] as const;
 

@@ -45,7 +45,10 @@ vi.mock('../../src/lib/supabase', () => ({
   },
 }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
-vi.mock('../../src/services/tableWarmup', () => ({ warmTable: vi.fn() }));
+vi.mock('../../src/services/tableWarmup', () => ({
+  warmTable: vi.fn(),
+  warmLightningRoom: vi.fn(),
+}));
 const toast = { info: vi.fn(), warning: vi.fn(), error: vi.fn(), success: vi.fn() };
 vi.mock('../../src/components/common/Toast', () => ({ useToast: () => toast }));
 vi.mock('../../src/components/replay/HandReplay', () => ({
@@ -611,7 +614,7 @@ describe('the session summary', () => {
       expect(shell).toContain(declaration);
   });
 
-  it('opens over the lobby, VIEW SESSION shows its hands, PLAY AGAIN only goes to the entry', async () => {
+  it('opens over the lobby, VIEW SESSION shows its hands, Share is available and Game Lobby returns to the lobby', async () => {
     render(
       <MemoryRouter initialEntries={['/']}>
         <LightningSessionSummaryHost />
@@ -629,24 +632,22 @@ describe('the session summary', () => {
         template_name: 'action',
       })
     );
-    await screen.findByTestId('lightning-stats-summary');
+    await screen.findByText('Ending Stack');
     expect(callsTo('fn_lightning_session_summary')[0][1]).toEqual({ p_pool_session_id: POOL });
     expect(screen.getByText('Ending Stack')).toBeTruthy();
     expect(screen.getByText('Session Profit')).toBeTruthy();
-    expect(screen.getByRole('dialog').querySelectorAll('.sc')).toHaveLength(1);
-    const result = screen.getByRole('dialog').querySelector('.lightning-result');
-    expect(result?.getAttribute('data-result')).toBe('win');
+    const result = screen.getByRole('dialog').querySelector('.chip-report__amount');
+    expect(result?.className).not.toContain('--loss');
     expect(result?.textContent).toContain('+');
-    fireEvent.click(screen.getByRole('button', { name: 'VIEW SESSION' }));
+    fireEvent.click(screen.getByRole('button', { name: 'View Session' }));
     await screen.findAllByTestId('lightning-recent-row');
     expect(callsTo('fn_lightning_recent_hands')[0][1]).toEqual({
       p_limit: 50,
       p_pool_session_id: POOL,
     });
-    fireEvent.click(screen.getByRole('button', { name: 'PLAY AGAIN' }));
-    await waitFor(() =>
-      expect(screen.getByTestId('where').textContent).toBe(`/lightning/${CLUSTER}`)
-    );
+    expect(screen.getByRole('button', { name: 'Share' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Game Lobby' }));
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/'));
     expect(screen.queryByTestId('lightning-summary-host')).toBeNull();
     expect(moneyRpcs()).toEqual([]);
     expect(readLightningPrefs().lastClusterId).toBe(CLUSTER);
@@ -654,13 +655,15 @@ describe('the session summary', () => {
 
   it('the reversion notice carries the summary, with VIEW SESSION and no PLAY AGAIN', async () => {
     render(
-      <LightningEndedNotice
-        onViewGame={vi.fn()}
-        session={{ poolSessionId: POOL, clusterId: CLUSTER, name: 'NLH 1/2 Action' }}
-      />
+      <MemoryRouter>
+        <LightningEndedNotice
+          onViewGame={vi.fn()}
+          session={{ poolSessionId: POOL, clusterId: CLUSTER, name: 'NLH 1/2 Action' }}
+        />
+      </MemoryRouter>
     );
-    await screen.findByTestId('lightning-stats-summary');
-    expect(screen.getByTestId('lightning-summary-view-session')).toBeTruthy();
+    await screen.findByText('Ending Stack');
+    expect(screen.getByRole('button', { name: 'View Session' })).toBeTruthy();
     expect(screen.queryByTestId('lightning-summary-play-again')).toBeNull();
   });
 

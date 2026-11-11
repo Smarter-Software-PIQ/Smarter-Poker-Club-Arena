@@ -94,6 +94,16 @@ def identity(environment, event, head, parents, workspace):
                 (source == head or source in parents), 'PR source is not in the actual checkout identity')
         require(environment.get('GITHUB_REF') == 'refs/pull/' + str(event.get('number')) + '/merge',
                 'Current PR merge reference required')
+    elif event_name == 'merge_group':
+        # Merge queue (2026-11-11): the queued group commit for main is the
+        # checkout itself; GitHub names it in the event and in GITHUB_REF.
+        group = event.get('merge_group', {})
+        ref = environment.get('GITHUB_REF', '')
+        require(group.get('base_ref') == 'refs/heads/main' and group.get('head_ref') == ref and
+                re.fullmatch('refs/heads/gh-readonly-queue/main/[A-Za-z0-9._/-]+', ref) is not None,
+                'Main merge-queue group required')
+        source = group.get('head_sha')
+        require(source == head, 'Merge group head is not the actual checkout')
     elif event_name == 'schedule':
         require(environment.get('GITHUB_REF') == 'refs/heads/main', 'Scheduled existing main verification only')
         source = head

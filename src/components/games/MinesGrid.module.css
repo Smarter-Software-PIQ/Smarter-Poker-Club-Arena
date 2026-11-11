@@ -176,10 +176,10 @@
     800 18px/1.1 'Roboto Condensed',
     Inter,
     sans-serif;
-  color: #ffd700;
+  color: #f4f9ff;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
-  text-shadow: 0 0 10px rgb(255 215 0 / 22%);
+  text-shadow: 0 0 10px rgb(100 205 255 / 22%);
 }
 .readouts dd[data-sign='loss'] {
   color: #ff5b6e;
@@ -472,7 +472,7 @@
 .caption {
   margin: 15px 0 0;
   font:
-    400 12px/1.5 Inter,
+    600 clamp(14px, 2.4vw, 19px)/1.4 Inter,
     sans-serif;
   color: #9aa5b3;
   text-align: center;
@@ -596,8 +596,8 @@
 .seal {
   display: grid;
   place-items: center;
-  width: 80%;
-  height: 80%;
+  width: 100%;
+  height: 100%;
   transform: none;
 }
 
@@ -671,5 +671,89 @@
   [data-choice-game='mines'] .board {
     width: min(100%, 500px);
     padding: 2px;
+  }
+}
+
+.stage::before,
+.seal,
+.number {
+  pointer-events: none;
+}
+.tile[data-pending='true'] {
+  outline: 2px solid white;
+  outline-offset: -3px;
+  background: radial-gradient(ellipse at center, #337adb, #102d57 68%);
+}
+.caption {
+  color: #fff;
+  font-weight: 700;
+}
+.caption[data-attract-prompt] {
+  animation: mine-instruction 2.2s ease-in-out infinite;
+}
+@keyframes mine-instruction {
+  0%,
+  100% {
+    text-shadow: 0 1px 2px #000;
+  }
+  50% {
+    text-shadow:
+      0 0 9px #9bdaff,
+      0 0 20px #277cc7;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .caption[data-attract-prompt] {
+    animation: none;
+  }
+}
+
+/* Cut stone above a recessed socket. The unopened steel engraving is deliberately
+   distinct from an earned gem; only an authoritative reveal illuminates a stone. */
+.sealedEmblem {
+  width: 82%;
+  height: 82%;
+  transform: rotate(-45deg);
+  fill: #071524;
+  stroke: #9ac8e8;
+  stroke-width: 1.4;
+  filter: drop-shadow(1px 1px 0 #e1f4ff55) drop-shadow(0 3px 1px #000);
+}
+.tile[data-revealed='true'] {
+  background: radial-gradient(ellipse at 40% 32%, #2372bb 0%, #092d53 32%, #020813 72%);
+  box-shadow:
+    inset 2px 2px 5px #000,
+    inset -1px -1px #bce9ff66,
+    3px 3px 0 #02060e;
+}
+.gem[data-cut-diamond='true'] {
+  width: 110%;
+  height: 110%;
+  max-width: none;
+  filter: drop-shadow(3px 5px 2px #000b) drop-shadow(0 0 4px #2186ef66);
+}
+.gem[data-cut-diamond='true'] {
+  object-fit: contain;
+  animation: cut-stone-reveal calc(680ms * var(--animation-speed, 1)) cubic-bezier(0.2, 0.8, 0.2, 1)
+    both;
+}
+@keyframes cut-stone-reveal {
+  0% {
+    opacity: 0;
+    transform: rotate(-65deg) translateY(8px) scale(0.35);
+  }
+  65% {
+    opacity: 1;
+    transform: rotate(-39deg) translateY(-3px) scale(1.12);
+  }
+  100% {
+    opacity: 1;
+    transform: rotate(-45deg) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gem[data-cut-diamond='true'] {
+    animation: none;
+    transform: rotate(-45deg);
   }
 }

@@ -197,6 +197,7 @@ export function validBonusMinimum(value: Record<string, unknown>): boolean {
     version !== BONUS_PAYOUT_VERSION &&
     !(version === 5 && ['mines', 'crossing', 'crash'].includes(String(value.game))) &&
     !(version === 6 && value.game === 'crash') &&
+    !(version === 9 && value.game === 'mines') &&
     !((version === 6 || version === 7 || version === 8) && value.game === 'crossing')
   )
     return false;

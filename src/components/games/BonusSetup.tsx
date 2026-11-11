@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import {
   plinkoAllocations,
   plinkoDrops,
@@ -55,24 +55,41 @@ export function PlinkoDropSelector({
   onChange,
   disabled,
   docked = false,
+  sculpted = false,
 }: {
   budget: BonusBudget;
   onChange: (value: BonusBudget) => void;
   disabled: boolean;
   docked?: boolean;
+  sculpted?: boolean;
 }) {
   const rail = useRef<HTMLDivElement>(null);
+  const [page, setPage] = useState(0);
   const scroll = (direction: number) => {
+    if (sculpted) {
+      setPage((current) =>
+        Math.max(
+          0,
+          Math.min(
+            Math.ceil(plinkoAllocations(bonusTotal(budget)).length / 5) - 1,
+            current + direction
+          )
+        )
+      );
+      return;
+    }
     const row = rail.current;
     if (row) row.scrollBy({ left: direction * Math.max(44, row.clientWidth * 0.8) });
   };
   if (!validBonusBudget(budget)) return null;
   const choices = plinkoAllocations(bonusTotal(budget));
+  const first = Math.min(page * 5, Math.max(0, choices.length - 5));
   return (
     <fieldset
       className={docked ? `${styles.drops} ${styles.docked}` : styles.drops}
       disabled={disabled}
       data-plinko-selector
+      data-sculpted-selector={sculpted || undefined}
     >
       <legend>Diamonds Per Drop</legend>
       <div className={styles.selectorRail}>
@@ -81,13 +98,14 @@ export function PlinkoDropSelector({
             className={styles.arrow}
             type="button"
             aria-label="Previous Denominations"
+            disabled={disabled || (sculpted && page === 0)}
             onClick={() => scroll(-1)}
           >
             ‹
           </button>
         )}
         <div ref={rail} className={styles.choices}>
-          {choices.map((choice) => (
+          {(sculpted ? choices.slice(first, first + 5) : choices).map((choice) => (
             <button
               type="button"
               key={choice.diamondsPerDrop}
@@ -102,12 +120,22 @@ export function PlinkoDropSelector({
               </small>
             </button>
           ))}
+          {sculpted &&
+            Array.from({ length: Math.max(0, 5 - choices.length) }, (_, index) => (
+              <i
+                key={index}
+                aria-hidden="true"
+                data-slot={choices.length + index}
+                className={styles.inactiveDenomination}
+              />
+            ))}
         </div>
         {docked && (
           <button
             className={styles.arrow}
             type="button"
             aria-label="Next Denominations"
+            disabled={disabled || (sculpted && (page + 1) * 5 >= choices.length)}
             onClick={() => scroll(1)}
           >
             ›
@@ -190,6 +218,21 @@ export default function BonusSetup({
         </div>
       </section>
     );
+  const walletLinks = (
+    <div className={styles.links}>
+      <button type="button" disabled={disabled} onClick={() => exit('/marketplace?tab=diamonds')}>
+        Buy More
+      </button>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => exit(`/clubs/${clubId}/earn-diamonds`)}
+      >
+        Earn Diamonds
+      </button>
+    </div>
+  );
+  if (dropsDocked && budget.award) return walletLinks;
   return (
     <section className={styles.setup} aria-label="Your Bonus Setup" data-bonus-step="setup">
       {budget.award ? (
@@ -235,18 +278,7 @@ export default function BonusSetup({
           You Need {(debit - diamonds).toLocaleString()} More Diamonds.
         </p>
       )}
-      <div className={styles.links}>
-        <button type="button" disabled={disabled} onClick={() => exit('/marketplace?tab=diamonds')}>
-          Buy More
-        </button>
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => exit(`/clubs/${clubId}/earn-diamonds`)}
-        >
-          Earn Diamonds
-        </button>
-      </div>
+      {walletLinks}
     </section>
   );
 }

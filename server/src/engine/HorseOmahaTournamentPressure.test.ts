@@ -460,17 +460,19 @@ describe(
       nlh: 'd1fe639c0aabb62d33cfc4df8f3585730d0c64ba60c87462ea90ca082268b47d',
     };
 
+    const PRE_V53_CORPUS_OPTS = { ...CORPUS_BASE_OPTS, v87HoldemOverhaul: false };
+
     it.each(CORPUS_VARIANTS)(
       '%s: flag absent replays the pre-candidate decisions exactly',
       (variant) => {
-        const off = playCorpus(variant, CORPUS_HANDS, CORPUS_SEED, CORPUS_BASE_OPTS);
+        const off = playCorpus(variant, CORPUS_HANDS, CORPUS_SEED, PRE_V53_CORPUS_OPTS);
         expect(off.length).toBeGreaterThan(100);
         expect(corpusDigest(off)).toBe(PRE_V53_DIGESTS[variant]);
       }
     );
 
     it('flag on changes PLO4 tournament decisions and leaves NLH untouched', () => {
-      const on = { ...CORPUS_BASE_OPTS, v53PloTourneyIcm: true };
+      const on = { ...PRE_V53_CORPUS_OPTS, v53PloTourneyIcm: true };
       const plo4 = playCorpus('plo4', CORPUS_HANDS, CORPUS_SEED, on);
       expect(corpusDigest(plo4)).not.toBe(PRE_V53_DIGESTS.plo4);
       const nlh = playCorpus('nlh', CORPUS_HANDS, CORPUS_SEED, on);

@@ -479,6 +479,22 @@ describe('ONE FLOOR, ONE READ: every shard learns every completed hand (2026-10-
     await expect(ack).resolves.toMatchObject({ type: 'ACK' });
   });
 
+  it('routes recovered original terminals only to their journal owner without mirrors', async () => {
+    const { pool, workers } = poolOf(3);
+    for (const worker of workers) worker.emit(ready());
+    await pool.ready();
+    const hand = { ...observation(TABLE, 1_000_001), terminalOnlySourceRelease: 'a'.repeat(40) };
+    const ack = pool.observeCompletedHand(hand as any);
+    const owner = horseDecisionShard(hand.fence, 3);
+    for (const worker of workers) {
+      const jobs = worker.sent.filter((m) => m.type === 'OBSERVE_COMPLETED_HAND');
+      expect(jobs).toHaveLength(worker.index === owner ? 1 : 0);
+      if (worker.index === owner) expect(jobs[0]).not.toHaveProperty('observerParticipants');
+    }
+    workers[owner]!.ackAll();
+    await expect(ack).resolves.toMatchObject({ type: 'ACK' });
+  });
+
   it('a lost mirror never fails the hand', async () => {
     const { pool, workers } = poolOf(2);
     for (const worker of workers) worker.emit(ready());
@@ -526,7 +542,10 @@ it('keeps distinct isolate ownership and main-cache totals in the existing pool 
       'STATUS_RESULT'
     );
     workers[i]!.emit({
-      ...ready(),
+      ...ready({
+        solverStores: { ...ready().solverStores, charts: i + 1 },
+        solverPolicyArtifact: { ...ready().solverPolicyArtifact, totalPolicies: 10 + i },
+      }),
       type: 'STATUS_RESULT',
       requestId: 1,
       generation: 0,
@@ -556,6 +575,9 @@ it('keeps distinct isolate ownership and main-cache totals in the existing pool 
     };
   }
   const status = pool.status();
+  expect(status.workers.map((s) => s.solverStores?.charts)).toEqual([1, 2]);
+  expect(status.workers.map((s) => s.solverPolicyArtifact?.totalPolicies)).toEqual([10, 11]);
+  expect(status.solverPolicyArtifact?.totalPolicies).toBe(10);
   expect(status.isolateMemory).toBeNull();
   expect(status.mainHistoryCacheClientCount).toBe(2);
   expect(

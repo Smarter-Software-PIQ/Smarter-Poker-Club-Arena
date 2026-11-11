@@ -1,0 +1,360 @@
+# ════════════════════════════════════════════════════════════════════
+#  SPIN ALERT RULES: SYNTHETIC TIME-SERIES FIXTURES (2026-11-11)
+# ════════════════════════════════════════════════════════════════════
+#
+# Run with:  scripts/ci/test-spin-alert-rules-with-fixtures.sh
+# (promtool test rules; promtool is pinned and checksummed by that script.)
+#
+# WHY THIS FILE EXISTS. 78afb154-54ae-4661-bf7d-e5e3c18a6eb3
+# (SpinFleetProducingNothing) was a page nobody could act on, because the
+# alert could not tell a quiet room from a stalled one: it watched
+# poker_spin_open_boards against a hardcoded 1800s and never asked whether a
+# PERSON was in a waiting seat. The fix moved both thresholds onto gauges the
+# engine emits from the ladder itself, and gave v_spin_unfilled_waits a
+# human/horse/unresolved split.
+#
+# aSpinAlertReadsTheLadderItWatches.law.test.ts proves the rules read gauges
+# and never a literal. That is a STATIC property of the YAML. It does not
+# exercise the rules. These fixtures do: they drive real series through
+# promtool and assert which alerts fire, which stay silent, and after how
+# long, including the `for:` durations that no static check can see.
+#
+# WHAT EACH SCENARIO ESTABLISHES
+#   A  a human waiting 500s against a 420s promise fires
+#      SpinHumanWaitingForOpponents - and is NOT firing at eval 0m, which is
+#      the `for: 1m` duration itself. Labels and annotations are asserted in
+#      full, templated from the rule, so a reworded summary fails here.
+#   B  production's observed shape on 2026-11-11 - staleness 7302s, 11 open
+#      boards, and NO human-wait series at all because every waiting seat was
+#      a horse - raises nothing. The retired 1800s literal would have paged.
+#   C  staleness 8399s with boards open is silent: just inside the ladder's
+#      own 8400s envelope.
+#   D  staleness 8401s is silent at 4m and fires at 6m: the boundary and the
+#      `for: 5m` duration in one scenario.
+#   E  a MISSING poker_spin_ladder_full_envelope_seconds cannot page even at
+#      99999s of staleness. This is a real silent-failure mode: Prometheus
+#      reports an unfirable rule as health=ok/state=inactive, exactly what it
+#      reports for a quiet one. SpinMetricsStale covers a STALE gauge; an
+#      ABSENT one is this case. Recorded here so it is known, not assumed.
+#   F  a MISSING poker_spin_human_arrival_max_seconds silences the human rule
+#      even with a human waiting 5000s. Same silent-failure class as E.
+#   G  an unresolved seat is absent from the human gauge, so it cannot page -
+#      and G2 proves the identical shape DOES page once that seat is counted
+#      as human. The human/horse/unresolved classification is therefore
+#      load-bearing, which is why the view keeps `unresolved_seats` as its own
+#      bucket instead of defaulting an unknown seat to horse.
+#   H  the maintenance break suppresses a real human wait (CLAUDE.md 13 r6).
+#   I  a person past twice the promise with the fleet stalled fires the second
+#      arm of SpinFleetProducingNothing at 6m, silent at 4m.
+#
+# NOT PROVEN HERE, and not claimed anywhere: that the deployed rules receive
+# real samples. These are synthetic series. Ingestion and live evaluation are
+# verified against the box after the engine release that emits the producers.
+#
+rule_files:
+- spin-rules.yml
+evaluation_interval: 1m
+tests:
+- name: A delayed human arrival fires, and not before for:1m
+  interval: 1m
+  input_series:
+  - series: poker_spin_human_oldest_wait_seconds
+    values: 500x10
+  - series: poker_spin_human_arrival_max_seconds
+    values: 420x10
+  - series: poker_spin_seconds_since_last_start
+    values: 100x10
+  - series: poker_spin_open_boards
+    values: 3x10
+  - series: poker_spin_ladder_full_envelope_seconds
+    values: 8400x10
+  alert_rule_test:
+  - eval_time: 0m
+    alertname: SpinHumanWaitingForOpponents
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: SpinHumanWaitingForOpponents
+    exp_alerts:
+    - exp_labels:
+        alertname: SpinHumanWaitingForOpponents
+        severity: critical
+        component: spin
+      exp_annotations:
+        summary: A player has waited 500s at a partly filled Spin
+        description: 'At least one partly filled Spin holds a live human seat
+
+          (poker_spin_human_unfilled_waits), and the oldest such seat has
+
+          waited over a minute for horses to fill the board. Read the
+
+          engine log for GameServer.seat_first_human_waiting (it names the
+
+          board and how many seats the top-up could not fill) and for
+
+          "seat-first fill added nobody" from TournamentRecurring.
+
+          '
+        runbook: docs/runbooks/spin-unfilled-backlog.md
+  - eval_time: 9m
+    alertname: SpinFleetProducingNothing
+    exp_alerts: []
+- name: B horse-only idle boards never raise a human-stall alert
+  interval: 1m
+  input_series:
+  - series: poker_spin_human_arrival_max_seconds
+    values: 420x20
+  - series: poker_spin_seconds_since_last_start
+    values: 7302x20
+  - series: poker_spin_open_boards
+    values: 11x20
+  - series: poker_spin_ladder_full_envelope_seconds
+    values: 8400x20
+  alert_rule_test:
+  - eval_time: 19m
+    alertname: SpinHumanWaitingForOpponents
+    exp_alerts: []
+  - eval_time: 19m
+    alertname: SpinFleetProducingNothing
+    exp_alerts: []
+- name: C just inside the ladder envelope is silent
+  interval: 1m
+  input_series:
+  - series: poker_spin_human_arrival_max_seconds
+    values: 420x20
+  - series: poker_spin_seconds_since_last_start
+    values: 8399x20
+  - series: poker_spin_open_boards
+    values: 4x20
+  - series: poker_spin_ladder_full_envelope_seconds
+    values: 8400x20
+  alert_rule_test:
+  - eval_time: 19m
+    alertname: SpinFleetProducingNothing
+    exp_alerts: []
+- name: D one second past the envelope pages after for:5m
+  interval: 1m
+  input_series:
+  - series: poker_spin_human_arrival_max_seconds
+    values: 420x20
+  - series: poker_spin_seconds_since_last_start
+    values: 8401x20
+  - series: poker_spin_open_boards
+    values: 4x20
+  - series: poker_spin_ladder_full_envelope_seconds
+    values: 8400x20
+  alert_rule_test:
+  - eval_time: 4m
+    alertname: SpinFleetProducingNothing
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: SpinFleetProducingNothing
+    exp_alerts:
+    - exp_labels:
+        alertname: SpinFleetProducingNothing
+        severity: critical
+        component: spin
+      exp_annotations:
+        summary: Spin has produced nothing for 8401s past the ladder's own envelope
+        description: 'Either nothing has started for longer than every SPIN_LADDER rung
+
+          at its maximum while boards sit open, or a person has waited more
+
+          than twice the 3-7 minute arrival promise while the fleet started
+
+          nothing. Both are faults; neither is the ladder.
+
+          SPLIT THE WAITING SEATS BY WHO HOLDS THEM FIRST - it is the only
+
+          question that separates the two, and the runbook opens with it:
+
+          `SELECT tournament_id, live_seats, human_seats, horse_seats,
+
+          unresolved_seats, longest_wait FROM v_spin_unfilled_waits ORDER BY
+
+          oldest_seat_at;`. All horses on a 1-2 of 3 board is the designed
+
+          state (poker_spin_human_unfilled_waits is 0), and this alert then
+
+          means production, not seating: look FIRST at whether the platform
+
+          can create a tournament at all - on 2026-09-01 the cause was every
+
+          INSERT into `tournaments` failing in an AFTER INSERT trigger, which
+
+          no other alert here could see. Reproduce it by cloning a live row
+
+          inside a transaction you roll back; the error and its call site
+
+          come back together. Check `[ScheduledTournaments.insert_failed]` in
+
+          the engine log and `fn_tournament_management_readiness` for a
+
+          text/jsonb mismatch.
+
+          '
+        runbook: docs/runbooks/spin-fleet-stalled.md
+- name: E a missing envelope gauge cannot page on staleness alone
+  interval: 1m
+  input_series:
+  - series: poker_spin_human_arrival_max_seconds
+    values: 420x20
+  - series: poker_spin_seconds_since_last_start
+    values: 99999x20
+  - series: poker_spin_open_boards
+    values: 4x20
+  alert_rule_test:
+  - eval_time: 19m
+    alertname: SpinFleetProducingNothing
+    exp_alerts: []
+- name: F a missing arrival gauge silences the human rule
+  interval: 1m
+  input_series:
+  - series: poker_spin_human_oldest_wait_seconds
+    values: 5000x20
+  - series: poker_spin_seconds_since_last_start
+    values: 100x20
+  - series: poker_spin_open_boards
+    values: 3x20
+  - series: poker_spin_ladder_full_envelope_seconds
+    values: 8400x20
+  alert_rule_test:
+  - eval_time: 19m
+    alertname: SpinHumanWaitingForOpponents
+    exp_alerts: []
+- name: G an unresolved seat is not a human wait
+  interval: 1m
+  input_series:
+  - series: poker_spin_human_arrival_max_seconds
+    values: 420x20
+  - series: poker_spin_seconds_since_last_start
+    values: 300x20
+  - series: poker_spin_open_boards
+    values: 3x20
+  - series: poker_spin_ladder_full_envelope_seconds
+    values: 8400x20
+  - series: poker_spin_unfilled_past_window
+    values: 3x20
+  alert_rule_test:
+  - eval_time: 19m
+    alertname: SpinHumanWaitingForOpponents
+    exp_alerts: []
+- name: G2 the same shape with the seat counted as human does page
+  interval: 1m
+  input_series:
+  - series: poker_spin_human_arrival_max_seconds
+    values: 420x20
+  - series: poker_spin_seconds_since_last_start
+    values: 300x20
+  - series: poker_spin_open_boards
+    values: 3x20
+  - series: poker_spin_ladder_full_envelope_seconds
+    values: 8400x20
+  - series: poker_spin_human_oldest_wait_seconds
+    values: 600x20
+  alert_rule_test:
+  - eval_time: 19m
+    alertname: SpinHumanWaitingForOpponents
+    exp_alerts:
+    - exp_labels:
+        alertname: SpinHumanWaitingForOpponents
+        severity: critical
+        component: spin
+      exp_annotations:
+        summary: A player has waited 600s at a partly filled Spin
+        description: 'At least one partly filled Spin holds a live human seat
+
+          (poker_spin_human_unfilled_waits), and the oldest such seat has
+
+          waited over a minute for horses to fill the board. Read the
+
+          engine log for GameServer.seat_first_human_waiting (it names the
+
+          board and how many seats the top-up could not fill) and for
+
+          "seat-first fill added nobody" from TournamentRecurring.
+
+          '
+        runbook: docs/runbooks/spin-unfilled-backlog.md
+- name: H the maintenance break suppresses a real human wait
+  interval: 1m
+  input_series:
+  - series: poker_spin_human_oldest_wait_seconds
+    values: 500x20
+  - series: poker_spin_human_arrival_max_seconds
+    values: 420x20
+  - series: poker_spin_seconds_since_last_start
+    values: 100x20
+  - series: poker_spin_open_boards
+    values: 3x20
+  - series: poker_spin_ladder_full_envelope_seconds
+    values: 8400x20
+  - series: poker_maintenance_break_active
+    values: 1x20
+  alert_rule_test:
+  - eval_time: 19m
+    alertname: SpinHumanWaitingForOpponents
+    exp_alerts: []
+- name: I a person past twice the promise with the fleet stalled pages the fleet rule
+  interval: 1m
+  input_series:
+  - series: poker_spin_human_oldest_wait_seconds
+    values: 900x20
+  - series: poker_spin_human_arrival_max_seconds
+    values: 420x20
+  - series: poker_spin_seconds_since_last_start
+    values: 500x20
+  - series: poker_spin_open_boards
+    values: 2x20
+  - series: poker_spin_ladder_full_envelope_seconds
+    values: 8400x20
+  alert_rule_test:
+  - eval_time: 4m
+    alertname: SpinFleetProducingNothing
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: SpinFleetProducingNothing
+    exp_alerts:
+    - exp_labels:
+        alertname: SpinFleetProducingNothing
+        severity: critical
+        component: spin
+      exp_annotations:
+        summary: Spin has produced nothing for 900s past the ladder's own envelope
+        description: 'Either nothing has started for longer than every SPIN_LADDER rung
+
+          at its maximum while boards sit open, or a person has waited more
+
+          than twice the 3-7 minute arrival promise while the fleet started
+
+          nothing. Both are faults; neither is the ladder.
+
+          SPLIT THE WAITING SEATS BY WHO HOLDS THEM FIRST - it is the only
+
+          question that separates the two, and the runbook opens with it:
+
+          `SELECT tournament_id, live_seats, human_seats, horse_seats,
+
+          unresolved_seats, longest_wait FROM v_spin_unfilled_waits ORDER BY
+
+          oldest_seat_at;`. All horses on a 1-2 of 3 board is the designed
+
+          state (poker_spin_human_unfilled_waits is 0), and this alert then
+
+          means production, not seating: look FIRST at whether the platform
+
+          can create a tournament at all - on 2026-09-01 the cause was every
+
+          INSERT into `tournaments` failing in an AFTER INSERT trigger, which
+
+          no other alert here could see. Reproduce it by cloning a live row
+
+          inside a transaction you roll back; the error and its call site
+
+          come back together. Check `[ScheduledTournaments.insert_failed]` in
+
+          the engine log and `fn_tournament_management_readiness` for a
+
+          text/jsonb mismatch.
+
+          '
+        runbook: docs/runbooks/spin-fleet-stalled.md

@@ -125,6 +125,8 @@ describe('Join Lightning is one buy-in: the amount, then an assigned seat', () =
       kind: 'rejected',
       message:
         'Not Enough Chips In Your Active Club Wallet. You Need At Least 40 Chips To Join This Game. Chips In Other Clubs Are Separate.',
+      // The join timing's reason: the door's own code, never the amount.
+      code: 'INSUFFICIENT_CHIPS',
     });
     expect(d.reserve).not.toHaveBeenCalled();
   });
@@ -147,7 +149,7 @@ describe('Join Lightning is one tap from everywhere, and nobody picks a Lightnin
     expect(read('src/pages/ClubHomePage.tsx')).toContain(
       'navigate(lightningJoinRoute(row.cluster_id));'
     );
-    expect(read('src/components/lightning/LightningSessionSummary.tsx')).toContain(
+    expect(read('src/components/lightning/LightningSessionSummary.tsx')).not.toContain(
       'navigate(lightningJoinRoute(req.clusterId));'
     );
   });
