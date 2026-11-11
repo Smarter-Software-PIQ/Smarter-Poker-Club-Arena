@@ -201,6 +201,11 @@ BEGIN
 END;
 $function$;
 
+-- Restated, unchanged: CREATE OR REPLACE keeps the existing grants, and the
+-- postflight below proves the ACL is exactly what it was.
+REVOKE ALL ON FUNCTION public.ca_roll_hand_stats_forward() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.ca_roll_hand_stats_forward() TO service_role;
+
 DO $m$
 DECLARE
   v_oid oid := to_regprocedure('public.ca_roll_hand_stats_forward()');
