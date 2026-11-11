@@ -411,6 +411,7 @@ import {
   evaluateSpot,
   riverCallVerdict,
   type EvOpponentModel,
+  type HorseEvIndifferenceContext,
   type BarrelContinuation,
 } from './HorseEvEngine.js';
 import {
@@ -520,6 +521,8 @@ const snapBetSize = (amount: number, min: number, max: number, step: number): nu
 // ═══════════════════════════════════════════════════════════════════════════════
 
 interface StyleParams {
+  /** Live Hybrid identity is used only where candidate EVs are actually priced. */
+  evIndifference?: HorseEvIndifferenceContext;
   /** <1 = looser preflop, >1 = tighter preflop */
   tightness: number;
   /** Opening-only multiplier transported to the preflop decision owner. */
@@ -5955,6 +5958,13 @@ export class HorseLogic {
     // V48 + V86 Hybrid v1: unified solver adherence across the Hybrid v1 fleet
     // (referenceNlhOpenings === true -> 1.0), preserving explicit persona override in standalone tests.
     params.gtoAdherence = resolveHorseHybridSolverAdherence(mods);
+    if (mods.referenceNlhOpenings === true) {
+      params.evIndifference = {
+        horseId: player.user_id,
+        mode: isTournamentMode(gs) ? 'tournament' : 'cash',
+        bigBlind: gs.bigBlind,
+      };
+    }
     const toCall = Math.max(0, gs.currentBet - player.bet);
 
     // V8: per-variant style overlays. The five styles were tuned on NLH;
@@ -9531,6 +9541,15 @@ export class HorseLogic {
     planReadCapture?: HorsePlanReadCapture
   ): HorseDecision {
     const planHandKey = horsePlanHandKey(gs.actionHistory, opts.mindPlanContext);
+    const evIndifference = (): HorseEvIndifferenceContext | undefined =>
+      params.evIndifference && {
+        ...params.evIndifference,
+        handKey: planHandKey ?? undefined,
+        bubbleFactor:
+          params.evIndifference.mode === 'tournament'
+            ? (heroBubbleFactor(gs, player.stack / gs.bigBlind, player.user_id) ?? undefined)
+            : undefined,
+      };
     const useSizeReads = opts.v7SizeReads ?? useV7;
     // V12.3: barrel plans live in HorseMind.plans, so they must obey
     // `mind:false` like every other mind read/write. They did not, which meant
@@ -13433,7 +13452,28 @@ export class HorseLogic {
           models38.push({ foldMul, canRespond });
         }
         const drawy38 = cat <= 1 && drawsLive && equity >= (street === 'flop' ? 0.3 : 0.2);
+        const indifference38 = evIndifference();
         const verdict38 = evaluateSpot({
+          indifference: indifference38,
+          // Price the same snapped, scaled and legalized wager betSize would send.
+          normalizeWager: indifference38
+            ? (amount) => {
+                const fraction = useSizing
+                  ? snapFraction(amount / pot, params.familyBias ?? 0.5)
+                  : amount / pot;
+                const legal = this.legalize(
+                  { action: 'bet', amount: pot * fraction * params.sizingMultiplier, thinkTime: 0 },
+                  player,
+                  gs,
+                  vi
+                );
+                return legal.action === 'all_in'
+                  ? stack
+                  : legal.action === 'bet'
+                    ? (legal.amount ?? null)
+                    : null;
+              }
+            : undefined,
           equity,
           pot,
           toCall: 0,
@@ -13492,8 +13532,8 @@ export class HorseLogic {
             player,
             gs,
             vi,
-            params,
-            useSizing
+            indifference38 ? { ...params, sizingMultiplier: 1 } : params,
+            indifference38 ? false : useSizing
           );
         }
         if (
@@ -16032,6 +16072,7 @@ export class HorseLogic {
         // V67: over hero's own raised river bet the raise shade replaces it.
         if (v67Class) shade61 = shade67;
         const v = riverCallVerdict({
+          indifference: evIndifference(),
           equity: clamp01(eqRead38 - shade61 - shade87Omaha),
           pot,
           toCall,
@@ -16071,7 +16112,9 @@ export class HorseLogic {
         }
         if (tele15) noteFire('combo_draw_pressure_evaluated');
       }
+      const indifference38 = evIndifference();
       const verdict38 = evaluateSpot({
+        indifference: indifference38,
         // V65 (turn call facing a wager hero did not make) and V66 (hero bet
         // this street and was raised) are exclusive by their gates; each
         // shade is subtracted from the equity handed to the flop/turn
@@ -16096,6 +16139,24 @@ export class HorseLogic {
         minBet: comboRaise38 ? gs.minRaiseTo! - currentBet : Math.max(gs.minRaise || 0, 0.01),
         maxBet: comboRaise38 ? gs.maxRaiseTo! - currentBet : 0,
         sizes: comboRaise38 ? [0.75, 1] : [],
+        normalizeWager:
+          indifference38 && comboRaise38
+            ? (amount) => {
+                const pricedTo = currentBet + amount;
+                const legal = this.legalize(
+                  { action: 'raise', amount: pricedTo, thinkTime: 0 },
+                  player,
+                  gs,
+                  vi
+                );
+                const executedTo = legal.action === 'all_in' ? player.bet + stack : legal.amount;
+                return (legal.action === 'raise' || legal.action === 'all_in') &&
+                  typeof executedTo === 'number' &&
+                  Math.abs(executedTo - pricedTo) <= 0.005
+                  ? amount
+                  : null;
+              }
+            : undefined,
         ...(useV86Postflop
           ? {
               cardRemovalFoldDelta: cardRemoval86?.netFoldEquityDelta,
@@ -16109,7 +16170,7 @@ export class HorseLogic {
       if (
         comboRaise38 &&
         verdict38.pick.kind === 'raise' &&
-        verdict38.pick.ev > Math.max(0, callEv?.ev ?? 0) + 1e-9
+        (indifference38 !== undefined || verdict38.pick.ev > Math.max(0, callEv?.ev ?? 0) + 1e-9)
       ) {
         const pricedTo = currentBet + verdict38.pick.amount;
         const legal = this.legalize(
@@ -16199,13 +16260,12 @@ export class HorseLogic {
           }
         }
       }
+      const takeCall38 = indifference38
+        ? verdict38.pick.kind === 'call'
+        : !!callEv && callEv.ev >= 0;
       if (continuation38 && tele15)
-        noteFire(
-          callEv && callEv.ev >= 0
-            ? 'horse_continuation_budget_call'
-            : 'horse_continuation_budget_fold'
-        );
-      if (callEv && callEv.ev >= 0) {
+        noteFire(takeCall38 ? 'horse_continuation_budget_call' : 'horse_continuation_budget_fold');
+      if (takeCall38) {
         if (tele15) noteFire('v38_ev_call');
         return { action: 'call', amount: toCall, thinkTime: 0 };
       }
