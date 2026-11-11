@@ -166,6 +166,18 @@ owning source. It does not infer V87 pillars from generic BrainTelemetry counter
         if review.get('status') != 'reconciled' or review.get('gaps') != []:
             omissions.append({'handKey': capture.get('key'), 'reason': 'original_reconciliation_incomplete'})
             continue
+        # The owning reader checks action selection, normalization and permitted
+        # acceptance-time authority withdrawals. Its verdict applies only to this
+        # exact unordered record set, not a later edited or partial capture.
+        pairs = sorted([r['eventId'], r['sha256']] for r in records)
+        manifest = digest(json.dumps(pairs, separators=(',', ':')).encode())
+        if (type(review.get('version')) is not int or review['version'] != 1 or review.get('scope') != 'single_retained_hand'
+                or type(review.get('retainedRecords')) is not int
+                or review['retainedRecords'] != len(records) or review.get('manifest') != manifest):
+            raise ValueError('review_manifest_mismatch')
+        hand_keys = {r['handKey'] for r in records}
+        if len(hand_keys) != 1 or (capture.get('key') is not None and capture['key'] not in hand_keys):
+            raise ValueError('review_hand_mismatch')
         terminals = [r for r in records if r['kind'] == 'accepted_hand']
         if len(terminals) != 1:
             raise ValueError('unique_accepted_hand_required')
@@ -228,7 +240,8 @@ owning source. It does not infer V87 pillars from generic BrainTelemetry counter
                                      and p['stack'] > 0]
             reads = decision.get('observerReads', {})
             pooled = reads.get('pooledPublicProfiles', {})
-            if pooled.get('version') == 2 and reads.get('cutoffMs') == at and pooled.get('profiles', 0) > 0:
+            if (review.get('publicReadProvenanceVerified') is True and pooled.get('version') == 2
+                    and reads.get('cutoffMs') == at and pooled.get('profiles', 0) > 0):
                 clocks = [reads.get('learnedThroughMs'), pooled.get('availableAtMs')]
                 if any(type(v) not in (int, float) or not math.isfinite(v) or v > at for v in clocks):
                     raise ValueError('donor_available_after_decision')
@@ -238,14 +251,42 @@ owning source. It does not infer V87 pillars from generic BrainTelemetry counter
                 if authority != execution.get('preflopAuthority'):
                     raise ValueError('preflop_authority_mismatch')
                 features['#10398_plo_preflop_provenance'] = {'eligible': True, 'invoked': True, 'changed_action': False}
-            witnesses.append({'horse_id': hero, 'decisionEventId': record['eventId'],
+            domain = snapshot.get('gameState', {}).get('publicMemoryDomain', {})
+            speed = domain.get('speed') if isinstance(domain, dict) and domain.get('version') == 1 else None
+            speed = speed if speed in ('table', 'lightning') else 'unknown'
+            witnesses.append({'horse_id': hero, 'handKey': record['handKey'], 'decisionEventId': record['eventId'],
                               'executionEventId': execution_record['eventId'], 'acceptedEventId': terminal_record['eventId'],
                               'sourceRelease': serving, 'decisionTimeMs': at, 'features': features,
                               'eligibleHumanPresent': bool(human_ids), 'mode': identity['gameMode'],
                               'eligibleHumanAbleToRespond': bool(responding_humans) if responding_humans is not None else None,
-                              'variant': identity['variant'], 'street': identity['stage'],
+                              'variant': identity['variant'], 'street': identity['stage'], 'speed': speed,
                               'validated': True, 'committed': True})
     return witnesses, omissions
+
+
+def coverage_summary(witnesses, features):
+    """Captured decision coverage, never a census of natural opportunities."""
+    groups = {(mode, variant, speed): []
+              for variant in ('nlh', 'plo4', 'plo5', 'plo6')
+              for mode, speed in (('cash', 'table'), ('cash', 'lightning'), ('tournament', 'table'))}
+    for witness in witnesses:
+        groups.setdefault((witness['mode'], witness['variant'], witness.get('speed', 'unknown')), []).append(witness)
+    out = []
+    for (mode, variant, speed), rows in sorted(groups.items()):
+        counts = {field: {label: sum(row.get(field) is value for row in rows)
+                          for label, value in (('true', True), ('false', False), ('unknown', None))}
+                  for field in ('eligibleHumanPresent', 'eligibleHumanAbleToRespond')}
+        out.append({'mode': mode, 'variant': variant, 'speed': speed,
+                    'status': 'captured_originals' if rows else 'not_observed_in_capture',
+                    'uniqueHands': len({r['handKey'] for r in rows}),
+                    'uniqueHorses': len({r['horse_id'] for r in rows}), 'decisions': len(rows),
+                    **counts,
+                    'features': {feature: {field: {label: sum(r['features'].get(feature, {}).get(field) is value for r in rows)
+                                                   for label, value in (('true', True), ('false', False), ('unknown', None))}
+                                          for field in ('evaluated', 'eligible', 'invoked', 'locally_applied')}
+                                 for feature in sorted(features)}})
+    return {'scope': 'exact_source_window_bound_captured_decisions', 'cells': out,
+            'limitation': 'Zero captured decisions is not zero natural opportunities. Missing original speed stays unknown. Feature counts are observed evidence, not full eligibility denominators.'}
 
 
 def reconcile_matrix(legacy, inclusions, witnesses=()):
@@ -317,6 +358,7 @@ def reconcile_matrix(legacy, inclusions, witnesses=()):
             'observationEpoch': epoch, 'uniqueHorseCount': len(horses), 'featureCount': len(features),
             'rowCount': len(out), 'featureList': sorted(features), 'featureSummaries': summaries, 'rows': out,
             'boundDecisionWitnesses': list(witnesses),
+            'capturedCoverage': coverage_summary(witnesses, features),
             'limitations': ['True means at least one bound witness, not universal coverage.',
                             'Health/schema readiness does not prove effective per-Horse feature configuration.',
                             'Ordinary atomic/history parity does not prove whether crash recovery executed.',

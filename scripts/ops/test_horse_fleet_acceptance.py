@@ -3,7 +3,7 @@ import json
 import unittest
 from unittest.mock import patch
 from horse_fleet_acceptance import (ancestor, digest, journal_witnesses, reconcile_matrix,
-    worker_health, timestamp, journal_snapshot_hashes, P1A, P1B, P2, P3, P4)
+    worker_health, timestamp, journal_snapshot_hashes, coverage_summary, P1A, P1B, P2, P3, P4)
 
 SERVING = 'a' * 40
 FEATURE = '#10398_plo_preflop_provenance'
@@ -36,8 +36,16 @@ def capture():
     execution['identity'].update(variant='plo4', gameMode='cash', stage='preflop')
     terminal = {'actions': [action], 'acceptedActorRoster': {'roster': {'actors': [
         {'userId': 'horse', 'classification': 'horse'}, {'userId': 'human', 'classification': 'human'}]}}}
-    return {'review': {'status': 'reconciled', 'gaps': []}, 'records': [
-        record(1, 'decision', decision), record(2, 'execution', execution), record(3, 'accepted_hand', terminal)]}
+    return reviewed({'records': [record(1, 'decision', decision), record(2, 'execution', execution),
+                                  record(3, 'accepted_hand', terminal)]})
+
+
+def reviewed(value):
+    pairs = sorted([r['eventId'], r['sha256']] for r in value['records'])
+    value['review'] = {'version': 1, 'scope': 'single_retained_hand', 'status': 'reconciled', 'gaps': [],
+                       'retainedRecords': len(pairs),
+                       'manifest': digest(json.dumps(pairs, separators=(',', ':')).encode())}
+    return value
 
 
 def matrix():
@@ -61,7 +69,71 @@ class FleetAcceptanceTests(unittest.TestCase):
             'rules': rules if rules is not None else [{'rule': 'hand_class', 'evaluated': 1, 'eligible': 1, 'changed': 1}],
             'result': {'action': 'call', 'amount': 2}}
         value['records'][0] = record(1, 'decision', decision)
-        return value
+        return reviewed(value)
+
+    def test_reconciled_review_must_describe_the_exact_original_records(self):
+        value = capture()
+        body = json.loads(value['records'][0]['body'])
+        body['decision'].update(action='raise', amount=999)
+        value['records'][0] = record(1, 'decision', body)
+        with self.assertRaisesRegex(ValueError, 'review_manifest_mismatch'):
+            journal_witnesses([value], SERVING, WINDOWS)
+        for field, replacement in [('version', 2), ('version', True), ('scope', 'different_hand'),
+                                   ('retainedRecords', 2), ('retainedRecords', True),
+                                   ('manifest', None)]:
+            value = capture(); value['review'][field] = replacement
+            with self.subTest(field=field, replacement=replacement):
+                with self.assertRaisesRegex(ValueError, 'review_manifest_mismatch'):
+                    journal_witnesses([value], SERVING, WINDOWS)
+
+    def test_review_binding_is_order_independent_and_accepts_missing_capture_key(self):
+        value = capture(); value['records'].reverse()
+        self.assertEqual(len(journal_witnesses([value], SERVING, WINDOWS)[0]), 1)
+        value['key'] = 'd' * 64
+        with self.assertRaisesRegex(ValueError, 'review_hand_mismatch'):
+            journal_witnesses([value], SERVING, WINDOWS)
+
+    def test_pooled_read_credit_requires_the_owning_review_provenance_verdict(self):
+        for flag in (None, False, True):
+            value = capture(); body = json.loads(value['records'][0]['body'])
+            at = body['snapshot']['decisionTimeMs']
+            body['observerReads'] = {'cutoffMs': at, 'learnedThroughMs': at - 1,
+                                     'pooledPublicProfiles': {'version': 2, 'profiles': 1, 'availableAtMs': at - 1}}
+            value['records'][0] = record(1, 'decision', body)
+            reviewed(value)
+            if flag is not None:
+                value['review']['publicReadProvenanceVerified'] = flag
+            proof = journal_witnesses([value], SERVING, WINDOWS)[0][0]['features']
+            self.assertEqual('#10332_pooled_memory_cutoff' in proof, flag is True)
+
+    def test_original_speed_is_preserved_and_missing_speed_stays_unknown(self):
+        for domain, speed in [({'version': 1, 'speed': 'table'}, 'table'),
+                              ({'version': 1, 'speed': 'lightning'}, 'lightning'),
+                              ({'version': 2, 'speed': 'table'}, 'unknown'), (None, 'unknown')]:
+            value = capture(); body = json.loads(value['records'][0]['body'])
+            body['snapshot']['gameState'] = {'publicMemoryDomain': domain}
+            value['records'][0] = record(1, 'decision', body); reviewed(value)
+            witness = journal_witnesses([value], SERVING, WINDOWS)[0][0]
+            self.assertEqual(witness['speed'], speed)
+            self.assertEqual(witness['handKey'], value['records'][0]['handKey'])
+
+    def test_coverage_separates_speed_human_response_and_absent_samples(self):
+        base = {'mode': 'cash', 'variant': 'plo4', 'speed': 'table', 'horse_id': 'horse',
+                'handKey': 'one', 'eligibleHumanPresent': True, 'eligibleHumanAbleToRespond': False,
+                'features': {P1B: {'evaluated': True, 'eligible': True, 'invoked': True}}}
+        rows = [base, {**base, 'eligibleHumanAbleToRespond': True},
+                {**base, 'handKey': 'two', 'speed': 'lightning', 'eligibleHumanPresent': False,
+                 'eligibleHumanAbleToRespond': False, 'features': {}},
+                {**base, 'handKey': 'three', 'speed': 'unknown', 'eligibleHumanAbleToRespond': None, 'features': {}}]
+        result = coverage_summary(rows, [P1B])
+        cells = {(r['mode'], r['variant'], r['speed']): r for r in result['cells']}
+        self.assertEqual(len(cells), 13)  # Twelve expected cells plus explicit unknown speed.
+        table = cells['cash', 'plo4', 'table']
+        self.assertEqual((table['uniqueHands'], table['decisions']), (1, 2))
+        self.assertEqual(table['eligibleHumanAbleToRespond'], {'true': 1, 'false': 1, 'unknown': 0})
+        self.assertEqual(table['features'][P1B]['invoked']['true'], 2)
+        self.assertEqual(cells['cash', 'plo4', 'lightning']['features'][P1B]['invoked']['unknown'], 1)
+        self.assertEqual(cells['tournament', 'plo6', 'table']['status'], 'not_observed_in_capture')
 
     def test_actual_rule_application_is_not_final_causal_action_change(self):
         witnesses, _ = journal_witnesses([self.deep_capture()], SERVING, WINDOWS)
@@ -87,6 +159,7 @@ class FleetAcceptanceTests(unittest.TestCase):
             value = self.deep_capture(); body = json.loads(value['records'][0]['body'])
             body['deepDive'][field] = replacement
             value['records'][0] = record(1, 'decision', body)
+            reviewed(value)
             with self.assertRaisesRegex(ValueError, 'deep_dive_'):
                 journal_witnesses([value], SERVING, WINDOWS)
 
@@ -109,6 +182,7 @@ class FleetAcceptanceTests(unittest.TestCase):
             terminal['actions'][0].update(action=action, amount=0)
             value['records'][1] = record(2, 'execution', execution)
             value['records'][2] = record(3, 'accepted_hand', terminal)
+            reviewed(value)
             if expected_count:
                 self.assertEqual(len(journal_witnesses([value], SERVING, WINDOWS)[0]), expected_count)
             else:
@@ -140,6 +214,7 @@ class FleetAcceptanceTests(unittest.TestCase):
             journal_witnesses([bad], SERVING, WINDOWS)
         bad = capture(); body = json.loads(bad['records'][2]['body']); body['actions'][0]['amount'] = 200
         bad['records'][2] = record(3, 'accepted_hand', body)
+        reviewed(bad)
         with self.assertRaisesRegex(ValueError, 'accepted_action_mismatch'):
             journal_witnesses([bad], SERVING, WINDOWS)
 
@@ -149,6 +224,7 @@ class FleetAcceptanceTests(unittest.TestCase):
             self.assertEqual(witnesses, []); self.assertEqual(len(omissions), 1)
         bad = capture(); body = json.loads(bad['records'][1]['body']); body['executionStatus'] = 'not_executed'
         bad['records'][1] = record(2, 'execution', body)
+        reviewed(bad)
         self.assertEqual(journal_witnesses([bad], SERVING, WINDOWS)[0], [])
 
     def test_missing_git_evidence_is_unknown_not_not_deployed(self):
