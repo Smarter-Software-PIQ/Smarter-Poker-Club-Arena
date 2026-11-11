@@ -48,7 +48,16 @@ describe('Club Arena owns every Club Arena release path', () => {
     );
     expect(engineDeploy).toContain("if: github.event.action == 'deploy-club-arena-engine'");
     expect(engineDeploy).toContain("if: github.event.action == 'withdraw-club-arena-engine'");
-    expect(monitoringDeploy).toContain('types: [deploy-club-arena-monitoring]');
+    expect(monitoringDeploy).toContain(
+      'types: [deploy-club-arena-monitoring, read-club-arena-monitoring]'
+    );
+    // The read-only event runs the read job alone: it never deploys or records a verdict.
+    expect(monitoringDeploy).toContain(
+      "if: ${{ github.event_name == 'push' || github.event.action == 'deploy-club-arena-monitoring' }}"
+    );
+    expect(monitoringDeploy).toContain(
+      "if: ${{ github.event_name == 'repository_dispatch' && github.event.action == 'read-club-arena-monitoring' }}"
+    );
     for (const workflow of [publisher, engineDeploy, monitoringDeploy]) {
       expect(workflow).not.toMatch(/^\s*workflow_dispatch:/m);
     }
