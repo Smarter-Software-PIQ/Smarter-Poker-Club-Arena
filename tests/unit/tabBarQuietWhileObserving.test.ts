@@ -77,9 +77,14 @@ describe('an observed tab shows the game and the stakes, and nothing that moves'
     );
   });
 
-  it('does not flash an action chip or a win/loss pulse', () => {
-    expect(TAB).toMatch(/const flash = observing \? undefined : actionFlash\[tab\.id\]/);
+  it('does not flash a win/loss pulse', () => {
     expect(TAB).toMatch(/const result = observing \? undefined : resultFlash\[tab\.id\]/);
+  });
+
+  it("never prints the hero's own action in the pill, observing or seated (Dan 2026-11-11)", () => {
+    // The pill shows the hero's cards only; the action is on the hero's seat.
+    expect(SRC).not.toMatch(/action-chip|actionFlash|lastAction/);
+    expect(CSS_TAB_BAR).not.toMatch(/\.table-tab-bar__action-chip|actionChipIn/);
   });
 
   it('does not run the five-second flash or the timer bar', () => {
