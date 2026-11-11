@@ -3030,7 +3030,7 @@ for (const [paneWidth, paneHeight] of [
           <div style={{position:'absolute',left:0,top:'50%',width:58,height:48}}>
           <ChatBubble text={${JSON.stringify(message)}} playerName={${JSON.stringify(playerName)}} />
           </div><div style={{position:'absolute',right:0,top:10,width:58,height:48}}>
-          <ChatBubble text={${JSON.stringify(message)}} playerName={${JSON.stringify(playerName)}} placement="below" variant="notice" />
+          <ChatBubble text={${JSON.stringify(message)}} playerName={${JSON.stringify(playerName)}} placement="below" isOwn />
           </div></div>);`,
         resolveDir: ROOT,
         loader: 'tsx',
