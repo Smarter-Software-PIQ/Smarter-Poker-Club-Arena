@@ -51,8 +51,9 @@
  * MIXING. The best action by EV is taken most of the time, but never always:
  * actions within a small margin of the best are mixed by their EV gap, so at
  * a true indifference the engine plays the solver's mixed frequency instead
- * of a deterministic tell. The margin is a fraction of the pot, never a flat
- * number, which is what Dan asked to remove from the river line.
+ * of a deterministic tell. Legacy callers retain their pot-relative margin.
+ * Live Hybrid callers additionally cap the estimated loss at 0.12 big blinds
+ * relative to the highest priced EV, with stable per-horse preferences.
  *
  * SCOPE. Used as the ARBITER for the games with no solver export — Omaha
  * (4/5/6), PLO8, short deck, pineapple, fixed limit — and for every river
@@ -82,6 +83,11 @@ import {
   continuationMixWindow,
   type BarrelContinuation,
 } from './HorseContinuation.js';
+import {
+  HORSE_INDIFFERENCE_EV_BAND_BB,
+  indifferenceStyleSeedsFor,
+  resolveIndifferenceTieBreak,
+} from './HorsePersona.js';
 export { barrelContinuationValue } from './HorseContinuation.js';
 export type { BarrelContinuation } from './HorseContinuation.js';
 
@@ -96,6 +102,16 @@ export interface EvRunoutLookahead {
   scareEquityDrop?: number;
   /** Whether hero holds the nut blocker to leverage scare runouts in position / with lead. */
   scareBlockerLeverage?: boolean;
+}
+
+/** Supplied only by the live Hybrid profile. EV remains in chips; this is its BB conversion. */
+export interface HorseEvIndifferenceContext {
+  horseId: string;
+  mode: 'cash' | 'tournament';
+  bigBlind: number;
+  /** Trusted ICM bubble factor, when available; never widens the band. */
+  bubbleFactor?: number;
+  handKey?: string | number;
 }
 
 export interface EvSpot {
@@ -144,6 +160,10 @@ export interface EvSpot {
    * assumption is corrected by this factor (0.85 on the check side).
    */
   initiative?: boolean;
+  /** Optional Hybrid individuality, bounded against the highest estimated candidate EV. */
+  indifference?: HorseEvIndifferenceContext;
+  /** Map a nominal wager to the exact executable increment before pricing it. */
+  normalizeWager?: (amount: number) => number | null;
   /** PRNG for the mixed strategy */
   rand: () => number;
 }
@@ -189,6 +209,48 @@ export function continuingEquity(equity: number, foldFrac: number): number {
   if (foldFrac >= 0.999) return equity;
   const eq = (equity - FOLDED_HANDS_HERO_BEAT * foldFrac) / (1 - foldFrac);
   return clamp(eq, 0.03, 0.99);
+}
+
+function indifferenceBand(context: HorseEvIndifferenceContext): number {
+  if (
+    typeof context.horseId !== 'string' ||
+    !context.horseId.trim() ||
+    (context.mode !== 'cash' && context.mode !== 'tournament') ||
+    !Number.isFinite(context.bigBlind) ||
+    context.bigBlind <= 0
+  )
+    return 0;
+  const bf =
+    context.mode === 'tournament' && Number.isFinite(context.bubbleFactor)
+      ? Math.max(1, context.bubbleFactor!)
+      : 1;
+  return HORSE_INDIFFERENCE_EV_BAND_BB / Math.min(2, Math.sqrt(bf));
+}
+
+const actionPressure = (action: EvAction): number =>
+  action.kind === 'bet' || action.kind === 'raise' ? 1 : action.kind === 'call' ? 0.5 : 0;
+
+function personallyIndifferent(
+  candidate: EvAction,
+  best: EvAction,
+  context: HorseEvIndifferenceContext,
+  street: string,
+  maxWager: number
+): boolean {
+  if (candidate === best) return true;
+  const band = indifferenceBand(context);
+  const gapBB = (candidate.ev - best.ev) / context.bigBlind;
+  if (!(band > 0) || !Number.isFinite(gapBB) || gapBB < -band) return false;
+  const seeds = indifferenceStyleSeedsFor(context.horseId, context.mode);
+  const size = (a: EvAction) => ('amount' in a ? a.amount / Math.max(0.01, maxWager) : 0);
+  const bias =
+    (actionPressure(candidate) - actionPressure(best)) * seeds.indifferenceAggressionBias +
+    (size(candidate) - size(best)) * seeds.sizingMixBias;
+  return resolveIndifferenceTieBreak(gapBB, bias, {
+    bubbleFactor: context.mode === 'tournament' ? context.bubbleFactor : undefined,
+    handKey: context.handKey,
+    street,
+  });
 }
 
 export function evaluateSpot(spot: EvSpot): EvVerdict {
@@ -285,8 +347,20 @@ export function evaluateSpot(spot: EvSpot): EvVerdict {
   }
   if (jam >= spot.minBet && jam <= spot.maxBet + 1e-9) amounts.add(Math.round(jam * 100) / 100);
 
-  for (const s of amounts) {
-    if (!(s > 0)) continue;
+  const pricedAmounts = new Set<number>();
+  for (const nominal of amounts) {
+    const s = spot.normalizeWager ? spot.normalizeWager(nominal) : nominal;
+    if (
+      s === null ||
+      !Number.isFinite(s) ||
+      !(s > 0) ||
+      s < spot.minBet ||
+      s > spot.maxBet + 1e-9 ||
+      s > jam + 1e-9 ||
+      pricedAmounts.has(s)
+    )
+      continue;
+    pricedAmounts.add(s);
     // Each opponent decides against the pot THEY see: the pot plus hero's
     // whole wager (c + s). Everyone must fold for the pot to be taken.
     let foldAll = 1;
@@ -335,12 +409,19 @@ export function evaluateSpot(spot: EvSpot): EvVerdict {
   // largest share; a candidate at exactly the same EV shares evenly.
   // A near-indifference mix cannot cost a large part of the chips behind.
   const window = continuationMixWindow(P, eff, MIX_WINDOW_POT);
-  const pool = candidates.filter((a) => best.ev - a.ev <= window);
+  const legacyPool = candidates.filter((a) => best.ev - a.ev <= window);
   let pick = best;
-  if (pool.length > 1) {
+  if (legacyPool.length > 1) {
+    // Consume exactly the existing draw even if the BB cap removes every alternative.
+    const draw = spot.rand();
+    const pool = spot.indifference
+      ? legacyPool.filter((a) =>
+          personallyIndifferent(a, best, spot.indifference!, spot.street, jam)
+        )
+      : legacyPool;
     const weights = pool.map((a) => 1 - (best.ev - a.ev) / (window + 1e-9));
     const total = weights.reduce((s, w) => s + w, 0);
-    let roll = spot.rand() * total;
+    let roll = draw * total;
     for (let i = 0; i < pool.length; i++) {
       roll -= weights[i];
       if (roll <= 0) {
@@ -368,6 +449,7 @@ export function riverCallVerdict(args: {
   rakeMarg?: number;
   callDeductionFraction?: number;
   riskPremium?: number;
+  indifference?: HorseEvIndifferenceContext;
   rand: () => number;
 }): { call: boolean; required: number; evCall: number } {
   const c = Math.max(0, Math.min(args.toCall, args.stack));
@@ -391,6 +473,17 @@ export function riverCallVerdict(args: {
   // Indifference band: within 1.5 equity points of the required number the
   // solver mixes; so does this.
   const gap = args.equity - required;
-  if (Math.abs(gap) <= 0.015) return { call: args.rand() < 0.5 + gap / 0.03, required, evCall };
-  return { call: gap > 0, required, evCall };
+  if (Math.abs(gap) <= 0.015) {
+    const draw = args.rand();
+    if (args.indifference) {
+      const call: EvAction = { kind: 'call', ev: evCall };
+      const fold: EvAction = { kind: 'fold', ev: 0 };
+      const best = evCall >= 0 ? call : fold;
+      const other = best === call ? fold : call;
+      if (!personallyIndifferent(other, best, args.indifference, 'river', c))
+        return { call: best === call, required, evCall };
+    }
+    return { call: draw < 0.5 + gap / 0.03, required, evCall };
+  }
+  return { call: args.indifference ? evCall >= 0 : gap > 0, required, evCall };
 }

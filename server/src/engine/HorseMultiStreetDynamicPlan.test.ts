@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildExplicitContinuationPlanV2,
   reevaluateDynamicContinuationNode,
@@ -73,6 +73,68 @@ describe('Phase 2 Postflop Multi-Street Lookahead & Dynamic Re-Evaluation', () =
     drainFires();
     resetBrainWatchcountersForTest();
     seedFastRandom(20261110);
+  });
+
+  it('keeps public multi-board pacing independent of which board the hero privately wins', () => {
+    const timing = HorseLogic as unknown as {
+      computeThinkTime: (...args: unknown[]) => number;
+    };
+    const computeThinkTime = timing.computeThinkTime;
+    // Isolate the timing draw from the preceding Monte Carlo draws while
+    // retaining the real decision producer, difficulty handoff and timing
+    // consumer. Both private holdings must reach the same public call.
+    const timingSpy = vi.spyOn(timing, 'computeThinkTime').mockImplementation((...args) => {
+      seedFastRandom(1);
+      return Reflect.apply(computeThinkTime, HorseLogic, args);
+    });
+    try {
+      const decisions = [cards(['Js', 'Ts']), cards(['7c', '7h'])].map((hole) => {
+        HorseMind.reset();
+        seedFastRandom(20261110);
+        const hero = makeSeat(1, 'hero', 1000, hole);
+        const opponent = makeSeat(2, 'opponent', 1000, [], 20);
+        const state: HorseGameStateV2 = {
+          stateSchemaVersion: 1,
+          players: [hero, opponent],
+          communityCards: cards(['As', 'Ks', 'Qs']),
+          communityCards2: cards(['2c', '7d', 'Jh']),
+          boardCount: 2,
+          bombPot: true,
+          pot: 100,
+          currentBet: 20,
+          bigBlind: 2,
+          smallBlind: 1,
+          dealerSeat: 2,
+          stage: 'flop',
+          gameVariant: 'nlh',
+          gameMode: 'cash',
+          actionHistory: [],
+          minRaise: 20,
+          toCall: 20,
+        };
+        return HorseLogic.decide(
+          hero,
+          state,
+          'hybrid',
+          {},
+          {
+            v86MultiStreetUnblocked: true,
+            v9Timing: true,
+            decisionGravityTiming: true,
+            observeMind: false,
+          }
+        );
+      });
+      expect(timingSpy).toHaveBeenCalledTimes(2);
+      for (const decision of decisions) {
+        expect(decision.action).toBe('call');
+        expect(decision.amount).toBe(20);
+        expect(decision.policyFallback).toBeUndefined();
+      }
+      expect(decisions[0].thinkTime).toBe(decisions[1].thinkTime);
+    } finally {
+      timingSpy.mockRestore();
+    }
   });
 
   describe('1. Exact Geometric Street Sizing Solver (NL & PL)', () => {
