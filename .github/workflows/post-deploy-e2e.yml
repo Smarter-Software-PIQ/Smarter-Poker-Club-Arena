@@ -1095,6 +1095,8 @@ jobs:
       - name: Take the specs from the commit production is actually serving
         if: steps.live.outputs.ready == 'true'
         id: align
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           LIVE='${{ steps.live.outputs.sha }}'
@@ -1141,6 +1143,16 @@ jobs:
               exit 1
             fi
             echo "Retained runtime \`$RETAINED\` was superseded by \`$LIVE\` before the browsers started; certifying the release production actually serves." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ '${{ needs.publication-gate.outputs.cash_observation }}' = true ] && [ "$LIVE" != "$HERE" ]; then
+            # Reuse the existing exact publisher receipt. It proves the complete
+            # protected verification source has identical qualified runtime inputs
+            # and still matches both actual origins. No caller-selected source.
+            git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+            node scripts/ci/client-runtime-retention.mjs focused-harness "$LIVE" "$HERE"
+            echo "specs=$HERE" >> "$GITHUB_OUTPUT"
+            echo "Cash observation uses qualified verification source \`$HERE\` for retained live runtime \`$LIVE\`." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
           RELATION=$(node scripts/ci/production-e2e-provenance.mjs lineage "$LIVE" "$HERE")
           if [ "$RELATION" = same ]; then
