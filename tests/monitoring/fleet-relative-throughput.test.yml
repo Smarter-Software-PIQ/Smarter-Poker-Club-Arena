@@ -215,6 +215,259 @@
           "exp_samples": []
         }
       ]
+    },
+    {
+      "name": "A Classic-only cash stop fires once the Classic counter has three days (Lightning flat)",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+36x5940"
+        },
+        {
+          "series": "poker_hands_fleet_total{format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+60x5760 345600+0x179"
+        },
+        {
+          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x5940"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
+          "eval_time": "5755m",
+          "exp_samples": []
+        },
+        {
+          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
+          "eval_time": "5930m",
+          "exp_samples": [
+            {
+              "labels": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\",component=\"club-arena-engine\",page=\"sms\",severity=\"critical\"}",
+              "value": 1
+            }
+          ]
+        },
+        {
+          "expr": "round(sp:cash_hands:same_hour_mean_6d * 100)",
+          "eval_time": "5755m",
+          "exp_samples": [
+            {
+              "labels": "{}",
+              "value": 160
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "The same Classic stop, before the Classic counter has three days, is not invented from missing days",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+36x5940"
+        },
+        {
+          "series": "poker_hands_fleet_total{format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "_x3500 0+60x2260 135600+0x179"
+        },
+        {
+          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x5940"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
+          "eval_time": "5755m",
+          "exp_samples": []
+        },
+        {
+          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
+          "eval_time": "5930m",
+          "exp_samples": []
+        },
+        {
+          "expr": "sp:cash_hands:same_hour_mean_6d",
+          "eval_time": "5930m",
+          "exp_samples": []
+        }
+      ]
+    },
+    {
+      "name": "A Lightning collapse still fires through the fallback while the Classic counter is young",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+600x5760 3456060+60x179"
+        },
+        {
+          "series": "poker_hands_fleet_total{format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "_x3500 0+6x2440"
+        },
+        {
+          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x5940"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
+          "eval_time": "5755m",
+          "exp_samples": []
+        },
+        {
+          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
+          "eval_time": "5930m",
+          "exp_samples": [
+            {
+              "labels": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\",component=\"club-arena-engine\",page=\"sms\",severity=\"critical\"}",
+              "value": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "A Lightning collapse fires through the all-cash baseline too, exactly once",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+600x5760 3456060+60x179"
+        },
+        {
+          "series": "poker_hands_fleet_total{format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+6x5940"
+        },
+        {
+          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x5940"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
+          "eval_time": "5755m",
+          "exp_samples": []
+        },
+        {
+          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
+          "eval_time": "5930m",
+          "exp_samples": [
+            {
+              "labels": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\",component=\"club-arena-engine\",page=\"sms\",severity=\"critical\"}",
+              "value": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Healthy Classic and Lightning cash with a full Classic history stays quiet",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+36x5940"
+        },
+        {
+          "series": "poker_hands_fleet_total{format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+60x5940"
+        },
+        {
+          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x5940"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
+          "eval_time": "5755m",
+          "exp_samples": []
+        },
+        {
+          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
+          "eval_time": "5930m",
+          "exp_samples": []
+        }
+      ]
+    },
+    {
+      "name": "Tournament hands never count: an MTT surge cannot hide a cash stop",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+36x5940"
+        },
+        {
+          "series": "poker_hands_fleet_total{format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+60x5760 345600+0x179"
+        },
+        {
+          "series": "poker_hands_fleet_total{format=\"mtt\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x5760 0+6000x179"
+        },
+        {
+          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x5940"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
+          "eval_time": "5755m",
+          "exp_samples": []
+        },
+        {
+          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
+          "eval_time": "5930m",
+          "exp_samples": [
+            {
+              "labels": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\",component=\"club-arena-engine\",page=\"sms\",severity=\"critical\"}",
+              "value": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "A Classic stop inside the break is silent",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+36x5940"
+        },
+        {
+          "series": "poker_hands_fleet_total{format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+60x5760 345600+0x179"
+        },
+        {
+          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\",x=\"b\"}",
+          "values": "0+0x5760 1+0x179"
+        },
+        {
+          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
+          "values": "0+0x5940"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
+          "eval_time": "5755m",
+          "exp_samples": []
+        },
+        {
+          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
+          "eval_time": "5930m",
+          "exp_samples": []
+        }
+      ]
     }
   ]
 }
