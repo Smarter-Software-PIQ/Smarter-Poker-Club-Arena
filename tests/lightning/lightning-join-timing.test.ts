@@ -10,6 +10,7 @@ import {
   __lightningJoinTimingForTests as t,
   abandonUnseatedLightningJoin,
   bindLightningJoinRoom,
+  confirmLightningJoin,
   endLightningJoin,
   lightningJoinReasonCode,
   markLightningJoin,
@@ -244,13 +245,115 @@ describe('a timed Lightning join', () => {
   });
 });
 
+describe('a Confirm after a refusal is its own attempt', () => {
+  const firstAttempt = () => {
+    startLightningJoin(CLUSTER, 'buy_in');
+    at(200);
+    markLightningJoin('rejoin_checked');
+    at(600);
+    markLightningJoin('dialog_shown');
+    at(3600);
+    confirmLightningJoin(CLUSTER);
+    at(3900);
+    markLightningJoin('hold_answered');
+    at(4400);
+    markLightningJoin('purchase_answered');
+    endLightningJoin('refused', 'INSUFFICIENT_CHIPS');
+  };
+
+  it("a first Confirm is the running join's confirm mark, not a new attempt", () => {
+    startLightningJoin(CLUSTER, 'buy_in');
+    at(3600);
+    confirmLightningJoin(CLUSTER);
+    expect(sent).toHaveLength(0);
+    expect(t.active()?.marks).toEqual({ click: 0, confirm: 3600 });
+  });
+
+  it('refuse, then retry and succeed: two reports, the retry timed from its own press', () => {
+    firstAttempt();
+    expect(sent).toHaveLength(1);
+    const first = JSON.parse(JSON.stringify(sent[0]));
+    at(9000);
+    confirmLightningJoin(CLUSTER);
+    at(9250);
+    markLightningJoin('hold_answered');
+    at(9700);
+    markLightningJoin('purchase_answered');
+    at(9900);
+    markLightningJoin('seated');
+    bindLightningJoinRoom(ROOM);
+    at(10000);
+    markLightningJoinRoom(ROOM, 'room_open');
+    at(12500);
+    markLightningJoinRoom(ROOM, 'cards_painted');
+    expect(sent).toHaveLength(2);
+    // The refused attempt's report is exactly as it was sent, once.
+    expect(sent[0]).toEqual(first);
+    expect(sent[0]).toMatchObject({ outcome: 'refused', reason: 'INSUFFICIENT_CHIPS' });
+    expect(sent[0].marks).toEqual({
+      click: 0,
+      rejoin_checked: 200,
+      dialog_shown: 600,
+      confirm: 3600,
+      hold_answered: 3900,
+      purchase_answered: 4400,
+    });
+    // The retry: its zero is the retry press, and it has no click.
+    expect(sent[1]).toMatchObject({ kind: 'buy_in', outcome: 'painted', reason: null });
+    expect(sent[1].marks).toEqual({
+      confirm: 0,
+      hold_answered: 250,
+      purchase_answered: 700,
+      seated: 900,
+      room_open: 1000,
+      cards_painted: 3500,
+    });
+  });
+
+  it('refuse, then retry and be refused again: one report per attempt', () => {
+    firstAttempt();
+    at(9000);
+    confirmLightningJoin(CLUSTER);
+    at(9300);
+    markLightningJoin('hold_answered');
+    endLightningJoin('refused', 'SEAT_TAKEN');
+    expect(sent.map((p) => [p.outcome, p.reason])).toEqual([
+      ['refused', 'INSUFFICIENT_CHIPS'],
+      ['refused', 'SEAT_TAKEN'],
+    ]);
+    expect(sent[1].marks).toEqual({ confirm: 0, hold_answered: 300 });
+    expect(t.active()).toBeNull();
+  });
+
+  it('refuse, then close the question: the refusal stays the only report', () => {
+    firstAttempt();
+    at(9000);
+    abandonUnseatedLightningJoin('DIALOG_CLOSED');
+    abandonUnseatedLightningJoin('LEFT_PAGE');
+    vi.advanceTimersByTime(JOIN_TIMEOUT_MS + 1);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ outcome: 'refused', reason: 'INSUFFICIENT_CHIPS' });
+  });
+
+  it('a retry that never paints ends once, as a timeout after its own press', () => {
+    firstAttempt();
+    at(9000);
+    confirmLightningJoin(CLUSTER);
+    vi.advanceTimersByTime(JOIN_TIMEOUT_MS + 1);
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toMatchObject({ outcome: 'timeout', reason: 'NO_PAINT' });
+    vi.advanceTimersByTime(JOIN_TIMEOUT_MS + 1);
+    expect(sent).toHaveLength(2);
+  });
+});
+
 describe('the join paths are wired', () => {
   const src = (p: string) => readFileSync(resolve(__dirname, '../..', p), 'utf8');
   it('marks the entry door, the buy-in doors and the room', () => {
     const entry = src('src/pages/LightningEntryPage.tsx');
     expect(entry).toContain("startLightningJoin(clusterId, 'buy_in')");
     expect(entry).toContain("markLightningJoin('dialog_shown')");
-    expect(entry).toContain("markLightningJoin('confirm')");
+    expect(entry).toContain('confirmLightningJoin(clusterId)');
     expect(entry).toContain('mark: markLightningJoin');
     expect(entry).toContain('warmLightningRoom()');
     expect(entry).toContain("endLightningJoin('refused', 'SIGN_IN_REQUIRED')");
