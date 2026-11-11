@@ -248,3 +248,22 @@ it('preserves the consumed receipt notice until the corrective promise becomes p
   );
   expect(bookedMaintenanceNotice(Date.parse('2026-11-11T10:30:00Z'))).toBeNull();
 });
+
+it('publishes the fresh Horse upgrade promise with its full lead and finite expiry', () => {
+  const own = BOOKED_MAINTENANCE_NOTICES.find(
+    (n) => n.id === '2026-11-11-horse-realtime-10454-engine-1930z'
+  );
+  expect(own?.noticeAtMs).toBe(Date.parse('2026-11-11T19:10:00Z'));
+  expect(own?.notBeforeMs).toBe(Date.parse('2026-11-11T19:30:00Z'));
+  expect(own?.notAfterMs).toBe(Date.parse('2026-11-11T22:30:00Z'));
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-11T19:09:59.999Z'))).toBeNull();
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-11T19:10:00Z'))?.id).toBe(own?.id);
+  const at = Date.parse('2026-11-11T19:30:00Z');
+  const primary = bookedMaintenanceNotice(at);
+  expect(primary?.id).toBe(own?.id);
+  expect(bookedMaintenanceNoticeText(primary!, at)).toBe(
+    'A Short Maintenance Break Can Start Any Time Before 4:30 PM Chicago Time. Play Pauses For About Five Minutes.'
+  );
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-11T22:29:59.999Z'))?.id).toBe(own?.id);
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-11T22:30:00Z'))).toBeNull();
+});
