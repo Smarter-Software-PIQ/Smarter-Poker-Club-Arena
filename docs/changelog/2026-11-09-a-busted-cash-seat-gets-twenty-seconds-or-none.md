@@ -223,8 +223,9 @@ the table's ordinary inter-hand gap, not a wait for the player.
 
 ### Natural observations still outstanding
 
-No human cash rebuy row and no human cash seat exit occurred from the thaw
-(05:31 UTC) through the check at 09:30 UTC. Nobody was busted and no chips
+From the thaw (05:31 UTC) through the checks at 09:30 and 13:15 UTC there was
+no human cash rebuy row, and the only human zero-stack cash exit was the
+05:52 empty-wallet release above. Nobody was busted and no chips
 were spent to manufacture one. What closes them, once this change is live:
 a human with at least the table minimum in the wallet their seat was bought
 from busts at a regular chip cash table (not Lightning, not Diamond). The
@@ -256,5 +257,16 @@ history:
 
 They were snapshots of main taken into that worktree while it was synced, not
 edits. The worktree's own two commits shipped as #10374 (squash `993c8ed3`).
-The session-local patch and backup branch were redundant, so nothing needed
-moving to other storage. No owner lost anything, so no owner needs notifying.
+Verified 2026-11-11 13:12 UTC: the saved patch holds all nine files, and each
+of its nine blobs resolves to a commit in `origin/main` history (the table
+above), so nothing in it exists only in a session.
+
+Durable copies: the backup branch `backup/wt-bust-rebuy-2026-11-11`
+(`1d3e79ae`, the worktree's two commits, shipped as #10374) is pushed to
+origin, because its source branch was deleted after the squash merge. The
+patch in session storage is not relied on; origin holds every blob.
+
+Owners notified on their pull requests, because their versions differ from
+the file now on main: #10357 (collusion scan, blob `b681ba46`) and #10373
+(Lightning blinds, blob `4c9521f9`). The other seven files are byte-identical
+to main and belong to merged work.
