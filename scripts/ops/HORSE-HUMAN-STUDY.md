@@ -150,16 +150,27 @@ payments, historical strategic EV or complete retained history.
 Tournament cost is gross recorded funding, or a tariff estimate where receipts
 are absent, unless `--refund-evidence PRIVATE_JSON` is supplied. An unregistered
 registration keeps its entry receipt and is refunded separately, so gross cost
-overstates what was paid. The evidence is a private read-only acquisition for
-the cached tournaments before the cutoff: `unregistrations` rows from
-`tournament_unregistration_receipts` and `refundTranches` rows from
-`tournament_refund_tranches`, each grouped by tournament and actor class, with
-the funding receipts of the unregistered registrations. A refund is netted only
-against recorded funding and only when both tables agree. Ticket returns, a
-refund against a tariff estimate, a refund above recorded funding and any other
-refund source on a completed tournament refuse. `tournamentPayoutRoi.refundCoverage`
-names the evidence digest or states `UNVERIFIED_no_refund_evidence`. Entry
-counts are not adjusted, and cancelled tournaments stay outside ROI.
+overstates what was paid. The evidence (`horse-census-refund-evidence-v2`) is a
+private read-only, row-level acquisition for the cached tournaments before the
+cutoff. `refunds` has one row per `tournament_refund_tranches` row, joined
+through its unique entitlement to the funding receipt it reverses, the wallet
+credit and the unregistration receipt; `unregistrations` has one row per
+`tournament_unregistration_receipts` row. A refund is netted only when ledger
+entry, registration, participant, tournament and currency all match, the credit
+equals the refund, and each registration's bound refunds equal its receipt. A
+repeated entitlement or registration, an unbound row, a ticket return, a refund
+above its receipt, a refund against a tariff estimate and any other refund
+source on a completed tournament refuse. Partial refunds and refunded rebuys
+and add-ons net against their own receipts. Gross cost, refunds and net cost
+stay separate, and `tournamentPayoutRoi.refundCoverage` names the evidence
+digest or states `UNVERIFIED_no_refund_evidence`. Entry counts are not
+adjusted, cancelled tournaments stay outside ROI, and none of this certifies a
+wallet payment.
+
+Tournament currency comes from recorded funding receipts only. `is_xmtt` marks
+a union event and never selects a currency; a tournament without receipts is
+`unrecorded`, mixed currencies refuse, and recorded funding that is not gross
+entry, rebuy and add-on charges refuses.
 
 Fleet JSON and TSV retain one row per roster Horse and feature. `null`/`unknown`
 never means zero, disabled or failed. Source inclusion, worker health, effective
