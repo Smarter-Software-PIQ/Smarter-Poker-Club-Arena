@@ -74,12 +74,18 @@
   background: transparent;
   color: inherit;
   font: inherit;
+  position: static;
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  cursor: pointer;
+}
+/* The value participates in the label/value stack; its hit area fills the bay. */
+.metrics button::after {
+  content: '';
   position: absolute;
   inset: 0;
-  width: 100%;
   min-height: 44px;
-  padding: 12px 0 0;
-  cursor: pointer;
 }
 .actions {
   display: contents;

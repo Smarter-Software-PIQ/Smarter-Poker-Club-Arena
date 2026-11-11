@@ -789,6 +789,11 @@
 
 /* Reserve the real dashboard depth so its sticky edge never covers the road. */
 @media (min-width: 761px) and (min-height: 501px) {
+  /* Size the flight from available height before its canvas measures width. */
+  [data-flight-cabinet] .console .playfield > div {
+    width: min(100%, max(400px, calc((100dvh - 480px) / 0.64)));
+    align-self: center;
+  }
   /* Keep the vault at 620px (207px tall) so the full board and its
      readouts fit above the sticky controls on shorter desktop screens. */
   [data-choice-game='mines'] .console > .bar {

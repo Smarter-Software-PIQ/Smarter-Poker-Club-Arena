@@ -1222,6 +1222,22 @@ test('a single tap on the fighter launches Crash and opens cashout in the same c
   await page.screenshot({ path: test.info().outputPath('crash-cockpit-862.png') });
   await page.setViewportSize({ width: 1280, height: 800 });
   await onTheGlass(page, 'Crash desktop');
+  await expect
+    .poll(() =>
+      page.locator('[data-game-console]').evaluate((console) => {
+        const canvas = console.querySelector('canvas')!.getBoundingClientRect();
+        const dock = console.querySelector('[data-game-cabinet]')!.getBoundingClientRect();
+        const button = console.querySelector('[aria-label="Change Auto Cash Out"]')!;
+        const label = button.closest('div')!.querySelector('dt')!.getBoundingClientRect();
+        const text = document.createRange();
+        text.selectNodeContents(button);
+        return {
+          clear: canvas.bottom <= dock.top + 1,
+          labelClear: label.bottom <= text.getBoundingClientRect().top + 1,
+        };
+      })
+    )
+    .toEqual({ clear: true, labelClear: true });
   await page.screenshot({ path: test.info().outputPath('crash-desktop.png') });
   await fighter.click();
   await expect(fighter).toHaveCount(0);
