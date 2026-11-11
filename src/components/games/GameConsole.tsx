@@ -168,7 +168,7 @@ export function GameConsole({
         data-flash={lit ? 'live' : undefined}
         data-motion={lit ? 'keep' : undefined}
       >
-        {label}
+        <span className={deck.actionLabel}>{label}</span>
         <TapHaptic disabled={Boolean(rest.disabled) || pending} radius="4px" />
       </button>
     );
@@ -232,13 +232,7 @@ export function GameConsole({
             ))}
           </dl>
           <div className={deck.actions}>
-            {primary ? (
-              action(primary, true)
-            ) : secondary ? (
-              action(secondary, true)
-            ) : (
-              <span className={deck.prompt}>Select A Diamond</span>
-            )}
+            {primary ? action(primary, true) : secondary ? action(secondary, true) : null}
             {primary && action(secondary)}
           </div>
         </div>

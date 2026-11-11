@@ -74,19 +74,24 @@
   background: transparent;
   color: inherit;
   font: inherit;
+  position: static;
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  cursor: pointer;
+}
+/* The value participates in the label/value stack; its hit area fills the bay. */
+.metrics button::after {
+  content: '';
   position: absolute;
   inset: 0;
-  width: 100%;
   min-height: 44px;
-  padding: 12px 0 0;
-  cursor: pointer;
 }
 .actions {
   display: contents;
 }
 .primary,
-.secondary,
-.prompt {
+.secondary {
   position: absolute;
   display: grid;
   place-items: center;
@@ -101,8 +106,7 @@
   text-align: center;
   text-shadow: 0 2px 4px black;
 }
-.primary,
-.prompt {
+.primary {
   left: 40%;
   top: 34%;
   width: 20%;
@@ -264,8 +268,7 @@
 .crossing .metrics > div:nth-child(2) {
   inset: 62% 8% 20% 66%;
 }
-.mines .primary,
-.mines .prompt {
+.mines .primary {
   left: 40%;
   top: 27%;
   width: 20%;
@@ -285,10 +288,10 @@
   rotate: -10deg;
 }
 .mines .metrics > div:first-child {
-  inset: 58% 65% 20% 8%;
+  inset: 57% 64% 23% 8%;
 }
 .mines .metrics > div:nth-child(2) {
-  inset: 58% 8% 20% 65%;
+  inset: 57% 8% 23% 64%;
 }
 .plinko .primary {
   left: 38%;
@@ -296,18 +299,41 @@
   width: 24%;
   height: 45%;
 }
-.plinko .secondary {
-  left: 67%;
-  top: 65%;
-  width: 25%;
+/* Action and posted prize share the center of the right sapphire face. */
+.plinko.withRail .secondary {
+  left: 65.5%;
+  top: 72%;
+  width: 28.5%;
   height: 20%;
+  translate: 0 -50%;
 }
-.plinko .metrics > div:first-child {
-  inset: 65% 72% 16% 7%;
+.plinko.withRail .metrics > div:first-child {
+  inset: 66% 78% 17% 4%;
 }
-.plinko .metrics > div:nth-child(3) {
-  inset: 65% 64% 16% 25%;
+.plinko.withRail .metrics > div:nth-child(3) {
+  inset: 66% 68% 17% 22%;
 }
-.plinko .metrics > div:nth-child(4) {
-  inset: 82% 7% 12% 67%;
+.plinko.withRail .metrics > div:nth-child(4) {
+  inset: auto;
+  left: 65.5%;
+  top: 81.5%;
+  width: 28.5%;
+  height: auto;
+  translate: 0 -50%;
+}
+
+.actionLabel {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  text-align: center;
+}
+/* Center the 44px touch box on the painted face; never grow it downward. */
+.crossing .secondary {
+  top: 34%;
+  translate: 0 -50%;
+}
+.crash .secondary {
+  top: 24%;
+  translate: 0 -50%;
 }

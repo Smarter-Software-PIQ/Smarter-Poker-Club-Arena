@@ -33,6 +33,10 @@
  *   timeout    JOIN_TIMEOUT_MS passed after a confirmed buy-in with no paint
  *              (abandoned/QUESTION_IDLE when the player never confirmed)
  *
+ * A Confirm pressed again after a refusal is a new attempt with its own single
+ * report, timed from that press (confirmLightningJoin); the refused attempt's
+ * report is never sent twice or changed.
+ *
  * A reason code is an upper-case token ([A-Z0-9_]) chosen here or taken from
  * a door's own error code. Never a card, an amount, a seat, a name or a
  * message: lightningJoinReasonCode() keeps only the token, and the database
@@ -207,18 +211,17 @@ function send(outcome: LightningJoinOutcome, reason: string | null, keepalive = 
   }
 }
 
-/** The Join press. An unsent earlier join in this tab ends as abandoned/REPLACED. */
-export function startLightningJoin(
+function begin(
   clusterId: string | null,
-  kind: 'buy_in' | 'rejoin' = 'buy_in'
+  kind: 'buy_in' | 'rejoin',
+  zero: 'click' | 'confirm'
 ): void {
-  if (active) send('abandoned', 'REPLACED');
   bindPage();
   const join: ActiveJoin = {
     kind,
     clusterId,
     t0: now(),
-    marks: { click: 0 },
+    marks: { [zero]: 0 },
     room: null,
     hidden: pageHidden(),
     timer: null,
@@ -230,6 +233,35 @@ export function startLightningJoin(
     else send('timeout', 'NO_PAINT');
   }, JOIN_TIMEOUT_MS);
   active = join;
+}
+
+/** The Join press. An unsent earlier join in this tab ends as abandoned/REPLACED. */
+export function startLightningJoin(
+  clusterId: string | null,
+  kind: 'buy_in' | 'rejoin' = 'buy_in'
+): void {
+  if (active) send('abandoned', 'REPLACED');
+  begin(clusterId, kind, 'click');
+}
+
+/**
+ * A Confirm press in the buy-in question.
+ *
+ * THE RETRY IS ITS OWN ATTEMPT (Dan, 2026-11-10: "a retry after refusal is
+ * measured correctly without duplicating the first report"). A refused or
+ * failed purchase leaves the question open, and the player may confirm again.
+ * The first attempt already ended in its one report, so its marks are never
+ * touched again; the retry starts a new attempt whose zero is the retry press
+ * (`confirm` = 0, no `click`), so it adds to the post-confirm stages and never
+ * to the click-based ones. A Confirm while the first attempt is still running
+ * is simply that attempt's confirm mark.
+ */
+export function confirmLightningJoin(clusterId: string | null): void {
+  if (active) {
+    markLightningJoin('confirm');
+    return;
+  }
+  begin(clusterId, 'buy_in', 'confirm');
 }
 
 /** A join-page mark (first one wins). No join in flight: nothing happens. */

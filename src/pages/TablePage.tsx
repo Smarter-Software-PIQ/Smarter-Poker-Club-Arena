@@ -6947,7 +6947,7 @@ function LiveTablePage({
   const [ritAcceptedIds, setRitAcceptedIds] = useState<string[]>([]);
   const [ritChooserId, setRitChooserId] = useState<string | null>(null);
   const [ritPotAmount, setRitPotAmount] = useState<number | null>(null);
-  const [ritTotalSeconds, setRitTotalSeconds] = useState(25);
+  const [ritTotalSeconds, setRitTotalSeconds] = useState(10);
   const [ritHeroAccepted, setRitHeroAccepted] = useState(false);
   const [ritChooserHasDecided, setRitChooserHasDecided] = useState(false);
   const ritDeadlineRef = useRef(0);
@@ -13901,7 +13901,7 @@ function LiveTablePage({
         const chooserId = handState.chooserPlayerId as string;
         const allPlayerIds = (handState.allPlayerIds as string[]) || [];
         const maxRuns = (handState.maxRuns as number) || 2;
-        const timeoutSeconds = Number(handState.timeoutSeconds) || 25;
+        const timeoutSeconds = Number(handState.timeoutSeconds) || 10;
         const deadlineTs = Number(handState.deadline_ts) || Date.now() + timeoutSeconds * 1000;
 
         // The waiting strip rides the felt for EVERYONE — spectators and
@@ -13935,13 +13935,10 @@ function LiveTablePage({
         );
         setRitTimer(Math.max(0, Math.ceil((deadlineTs - Date.now()) / 1000)));
         setDecisionDeadline({ kind: 'rit', at: deadlineTs });
-        // Reference cadence: the table settles into "waiting" for a beat,
-        // THEN the panel slides in. rit_single_run cancels a pending open.
+        // The decision clock is already running: show its controls immediately.
         if (ritPanelOpenTimerRef.current) clearTimeout(ritPanelOpenTimerRef.current);
-        ritPanelOpenTimerRef.current = setTimeout(() => {
-          ritPanelOpenTimerRef.current = null;
-          if (!leaveAttentionSuppressedRef.current) setShowRIT(true);
-        }, 1500 * getAnimationSpeed());
+        ritPanelOpenTimerRef.current = null;
+        if (!leaveAttentionSuppressedRef.current) setShowRIT(true);
         return;
       }
 

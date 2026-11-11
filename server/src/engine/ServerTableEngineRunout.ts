@@ -379,6 +379,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
    * while the first board starts dealing).
    */
   protected emitRitAllAccepted(allPlayerIds: string[], runs: number): void {
+    if (this.runItTwiceEngine.isDecisionPending(this.tableId)) return;
     try {
       const st = this.runItTwiceEngine.getState(this.tableId);
       this.hub?.emitEvent(this.tableId, {
@@ -1457,12 +1458,10 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
         );
 
         // Broadcast RIT offer to ALL clients.
-        // POKERBROS PARITY 2026-08-26: timeoutSeconds comes from the engine
-        // config (25s reference countdown) instead of a hardcoded 10 that
-        // disagreed with the engine's own expiry, and deadline_ts pins the
-        // exact wall-clock moment so every client's countdown matches.
+        // The wire uses the exact ten-second deadline already scheduled by
+        // the RIT owner, not a second deadline created after the offer.
         const ritTimeoutSeconds = this.runItTwiceEngine.offerTimeoutSeconds(this.tableId);
-        this.ritOfferDeadlineTs = Date.now() + ritTimeoutSeconds * 1000;
+        this.ritOfferDeadlineTs = this.runItTwiceEngine.offerDeadlineTs(this.tableId);
         this.hub?.emitEvent(this.tableId, {
           type: 'rit_offer',
           table_id: this.tableId,
@@ -1894,20 +1893,17 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
         finish();
         return;
       }
-      const state = this.runItTwiceEngine.getState(this.tableId);
-      // Complete when status is no longer 'offered' (accepted, declined, or resolved)
-      if (!state || state.status !== 'offered') {
+      // Unanimous consent records the answer, but does not end the clock.
+      if (!this.runItTwiceEngine.isDecisionPending(this.tableId)) {
         finish();
       }
     }, 250);
 
-    // FIX 98 → POKERBROS PARITY 2026-08-26: the offer window is one shared
-    // 25-second countdown (engine autoDeclineTimeout). Safety = window + 5s
-    // buffer; the DeadlineScheduler's auto-decline resolves the poll well
-    // before this fires in any healthy process.
+    // The scheduler owns the decision deadline, including weekly pauses.
+    // A fallback must never truncate that authoritative pending window.
     const safetyTimeout = this.setHandTimeout(
       () => {
-        finish();
+        if (!this.runItTwiceEngine.isDecisionPending(this.tableId)) finish();
       },
       this.runItTwiceEngine.offerTimeoutSeconds(this.tableId) * 1000 + 5_000
     );
@@ -1934,17 +1930,18 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
    *
    *   RIT_OFFERED   already on the wire as `rit_offer` (richer: chooser,
    *                 deadline_ts, pot, allPlayerIds)
-   *   RIT_ACCEPTED  already on the wire as `rit_all_accepted` / `rit_mandatory`
+   *   RIT_ACCEPTED  forwards `rit_all_accepted` when the decision clock ends;
+   *                 mandatory runs are announced separately as `rit_mandatory`.
    *   RIT_RESOLVED  already on the wire as `rit_result` (with the boards)
    *   RIT_DECLINED  forwarded ONLY when reason === 'timeout'
    *
-   * Forwarding the first three would double-emit, and each engine event
+   * Forwarding the other outcomes would double-emit, and each engine event
    * carries strictly less than the broadcast it duplicates. A PLAYER decline
    * is likewise already announced, by respondToRIT, with the correct
    * `player_declined` reason and the correct player — forwarding that too
-   * would race it and win with a worse reason. So this maps exactly one
-   * unannounced engine event onto the EXISTING `rit_single_run` name, through
-   * emitRitSingleRun, whose per-hand guard then makes the redundant
+   * would race it and win with a worse reason. The timeout maps onto the
+   * existing `rit_single_run` name through emitRitSingleRun; its per-hand
+   * guard makes the redundant
    * `no_agreement` that waitForRITResponse emits ~250ms later a no-op. One
    * notice per hand, no new client vocabulary.
    *
@@ -1955,6 +1952,11 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
     if (this.ritEventsWired) return;
     this.ritEventsWired = true;
     this.runItTwiceEngine.addEventListener((event) => {
+      if (event.type === 'RIT_ACCEPTED' && !event.mandatory) {
+        const state = this.runItTwiceEngine.getState(this.tableId);
+        if (state) this.emitRitAllAccepted(state.allPlayerIds, state.chosenRuns);
+        return;
+      }
       if (event.type !== 'RIT_DECLINED') return;
       if ((event as Record<string, unknown>).reason !== 'timeout') return;
       this.emitRitSingleRun('no_agreement');
