@@ -4016,6 +4016,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           table_id: this.tableId,
           variant: String(this.tableInfo?.game_variant ?? ''),
         });
+        EngineMetrics.handsFleetTotal.inc(1, { format: this.tableFormat() });
       } catch {
         /* metrics must never affect gameplay */
       }
