@@ -375,7 +375,7 @@ describe('seven-seat PLO5 Horse refusal after actual accepted betting', () => {
         hand_number: scenario.handNumber,
         pot: 700,
         maxRuns: 3,
-        timeoutSeconds: 25,
+        timeoutSeconds: 10,
         chooserPlayerId: ids[0],
       });
       expect(sortedIds(offer.allPlayerIds)).toEqual(sortedIds(ids));
@@ -397,7 +397,7 @@ describe('seven-seat PLO5 Horse refusal after actual accepted betting', () => {
       expect(pollIndices).toHaveLength(1);
       const pollHandle = startPoll.mock.results[pollIndices[0]].value;
       const safetyIndices = startTimer.mock.calls.flatMap((args, index) =>
-        args[1] === 30_000 ? [index] : []
+        args[1] === 15_000 ? [index] : []
       );
       expect(safetyIndices).toHaveLength(1);
       const safetyHandle = startTimer.mock.results[safetyIndices[0]].value;
