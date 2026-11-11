@@ -366,3 +366,367 @@ export function handClassRead(
 /** Every class the chart knows, for the tests that pin them all. */
 export const OMAHA_CLASSES = Object.keys(OMAHA_CHART) as OmahaHandClass[];
 export const SHORT_DECK_CLASSES = Object.keys(SHORT_DECK_CHART) as ShortDeckHandClass[];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// V86 ELITE PLO4 / PLO5 / PLO6 / PLO8 HAND-CLASS ENGINE
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type OmahaEliteClass =
+  | 'aa_ds'
+  | 'aa_dry'
+  | 'plo8_scoop'
+  | 'broadway_conn_ds'
+  | 'rundown_ds'
+  | 'ax_nut_suited'
+  | 'kk_ds'
+  | 'rundown_ss'
+  | 'pair_support'
+  | 'dangler'
+  | 'trips'
+  | 'trash'
+  | 'other';
+
+export interface OmahaEliteClassRead {
+  cls: OmahaEliteClass;
+  /** Clean 2-card suits without 3+-of-a-suit self-blocking (0, 1, 2, or 3 in PLO6) */
+  cleanSuits: number;
+  /** Number of suits where hero holds 3+ cards (eats hero's own flush outs) */
+  selfBlockedSuits: number;
+  hasNutAceSuit: boolean;
+  hasKingSuit: boolean;
+  connectedWindowSpan: number;
+  /** Eligible to 3-bet for value/playability (mixes IP & polarized OOP instead of AA-only) */
+  canThreeBet: boolean;
+  /** Eligible to 4-bet / commit preflop at shallow-to-mid SPR (effectiveStackBB <= 130) */
+  canFourBetShallow: boolean;
+  /** Eligible to pot-squeeze over an open + cold-caller(s) */
+  canSqueeze: boolean;
+  foldAlways: boolean;
+  /** Bar deltas (negative = wider/more aggressive) */
+  shift: HandClassShift;
+}
+
+const ELITE_NO_READ: OmahaEliteClassRead = {
+  cls: 'other',
+  cleanSuits: 0,
+  selfBlockedSuits: 0,
+  hasNutAceSuit: false,
+  hasKingSuit: false,
+  connectedWindowSpan: UNCONNECTED,
+  canThreeBet: false,
+  canFourBetShallow: false,
+  canSqueeze: false,
+  foldAlways: false,
+  shift: ZERO,
+};
+
+/**
+ * Best 4-card connected window high rank when a 4-card window with span <= maxSpan exists.
+ * Returns 0 if fewer than 4 distinct ranks fall inside `maxSpan`.
+ */
+function bestConnectedWindowTop(cards: Card[], maxSpan: number): number {
+  const uniq = [...new Set(cards.map(rv))].sort((a, b) => a - b);
+  const ranks = uniq.includes(14) ? [...new Set([1, ...uniq])].sort((a, b) => a - b) : uniq;
+  if (ranks.length < 4) return 0;
+  let top = 0;
+  for (let i = 0; i + 3 < ranks.length; i++) {
+    if (ranks[i + 3] - ranks[i] <= maxSpan) {
+      top = Math.max(top, ranks[i + 3]);
+    }
+  }
+  return top;
+}
+
+/**
+ * Variant-aware 4-, 5-, and 6-card Omaha (and PLO8 Hi-Lo) elite hand read.
+ * Distinguishes clean double-suited rundowns (`JT98ds`, `T987ds`), double-suited
+ * connected broadways (`AQJTds`, `KQJTds`), nut-suited `Ax` rundown bridges,
+ * double-suited `KK`/`QQ` with side support, and two-way `PLO8` scoop hands
+ * (`AA2x`, `AA3x`, `A23x` suited, `A2KQds`), while penalizing 3+-of-a-suit
+ * self-blockers in PLO5 and PLO6.
+ */
+export function omahaEliteClassRead(
+  cards: Card[] | undefined | null,
+  isHiLo = false
+): OmahaEliteClassRead {
+  if (!Array.isArray(cards) || cards.length < 4) return ELITE_NO_READ;
+  const counts = rankCounts(cards);
+  const sc = suitCounts(cards);
+  const maxOfARank = Math.max(...counts.values());
+  const n = cards.length;
+
+  let cleanSuits = 0;
+  let anyTwoPlusSuits = 0;
+  let selfBlockedSuits = 0;
+  for (const cnt of sc.values()) {
+    if (cnt >= 2) anyTwoPlusSuits++;
+    if (cnt === 2) cleanSuits++;
+    else if (cnt >= 3) selfBlockedSuits++;
+  }
+  // In PLO5/PLO6, 3 cards of a suit still makes a flush (using 2), though with 1 fewer out;
+  // 4+ of a suit severely self-blocks. Count effective working suits accordingly.
+  const workingSuits =
+    cleanSuits + [...sc.values()].filter((cnt) => cnt === 3).length * (n >= 5 ? 0.5 : 0);
+  const doubleSuited = cleanSuits >= 2 || (n >= 5 && anyTwoPlusSuits >= 2 && selfBlockedSuits <= 1);
+
+  const hasNutAceSuit = cards.some(
+    (c) => c.rank === 'A' && (sc.get(c.suit) ?? 0) >= 2 && (sc.get(c.suit) ?? 0) <= 3
+  );
+  const hasKingSuit = cards.some(
+    (c) =>
+      c.rank === 'K' &&
+      (sc.get(c.suit) ?? 0) >= 2 &&
+      (sc.get(c.suit) ?? 0) <= 3 &&
+      !cards.some((a) => a.rank === 'A' && a.suit === c.suit)
+  );
+
+  // Trips/quads in hand: dead card + zero redraws (unless PLO8 AA2/AAA? Even AAA2 is crippled).
+  if (maxOfARank >= 3) {
+    return {
+      cls: 'trips',
+      cleanSuits,
+      selfBlockedSuits,
+      hasNutAceSuit,
+      hasKingSuit,
+      connectedWindowSpan: UNCONNECTED,
+      canThreeBet: false,
+      canFourBetShallow: false,
+      canSqueeze: false,
+      foldAlways: true,
+      shift: OMAHA_CHART.trips,
+    };
+  }
+
+  const aces = counts.get(14) ?? 0;
+  const span = connectedSpan(cards);
+  const tightTop = bestConnectedWindowTop(cards, 3); // 0-gap 4-card rundown top rank
+  const oneGapTop = bestConnectedWindowTop(cards, 4); // <=1-gap 4-card rundown top rank
+  const wheelCards = [...counts.keys()].filter((r) => r === 14 || r <= 5);
+  const lowCardsEightOrUnder = [...counts.keys()].filter((r) => r === 14 || r <= 8);
+  const hasDeuce = counts.has(2);
+  const hasTrey = counts.has(3);
+
+  // 1. PLO8 Two-Way Scoop Monsters (AA2x, AA3x, A23x suited, A2+broadway ds)
+  if (isHiLo) {
+    if (aces === 2 && (hasDeuce || hasTrey || lowCardsEightOrUnder.length >= 2)) {
+      return {
+        cls: doubleSuited || hasNutAceSuit ? 'aa_ds' : 'plo8_scoop',
+        cleanSuits,
+        selfBlockedSuits,
+        hasNutAceSuit,
+        hasKingSuit,
+        connectedWindowSpan: span,
+        canThreeBet: true,
+        canFourBetShallow: true,
+        canSqueeze: true,
+        foldAlways: false,
+        shift: { open: -0.14, threeBet: -0.16, fourBet: -0.12, coldCall: -0.08, bbDefend: -0.1 },
+      };
+    }
+    const nutLowEngine = aces >= 1 && (hasDeuce || (hasTrey && wheelCards.length >= 3));
+    const highPotential =
+      hasNutAceSuit ||
+      doubleSuited ||
+      [...counts.keys()].filter((r) => r >= 10).length >= 2 ||
+      wheelCards.length >= 3;
+    if (nutLowEngine && highPotential && (anyTwoPlusSuits >= 1 || wheelCards.length >= 3)) {
+      return {
+        cls: 'plo8_scoop',
+        cleanSuits,
+        selfBlockedSuits,
+        hasNutAceSuit,
+        hasKingSuit,
+        connectedWindowSpan: span,
+        canThreeBet: hasNutAceSuit || doubleSuited || (hasDeuce && hasTrey),
+        canFourBetShallow: doubleSuited && hasDeuce && hasNutAceSuit,
+        canSqueeze: hasNutAceSuit || doubleSuited,
+        foldAlways: false,
+        shift: { open: -0.1, threeBet: -0.09, fourBet: -0.05, coldCall: -0.08, bbDefend: -0.09 },
+      };
+    }
+  }
+
+  // 2. AAxx
+  if (aces === 2) {
+    const eliteAA = doubleSuited || (hasNutAceSuit && (workingSuits >= 1.5 || span <= 5));
+    return {
+      cls: eliteAA ? 'aa_ds' : 'aa_dry',
+      cleanSuits,
+      selfBlockedSuits,
+      hasNutAceSuit,
+      hasKingSuit,
+      connectedWindowSpan: span,
+      canThreeBet: true,
+      canFourBetShallow: true,
+      canSqueeze: true,
+      foldAlways: false,
+      shift: eliteAA
+        ? { open: -0.12, threeBet: -0.16, fourBet: -0.12, coldCall: -0.07, bbDefend: -0.09 }
+        : OMAHA_CHART.aa_dry,
+    };
+  }
+
+  // 3. Connected Broadway Double-Suited (AQJTds, KQJTds, AJT9ds, KJT9ds, QJT9ds)
+  const broadwayCount = [...counts.keys()].filter((r) => r >= 10).length;
+  if (
+    (broadwayCount >= 4 || (oneGapTop >= 12 && broadwayCount >= 3)) &&
+    (doubleSuited || (hasNutAceSuit && workingSuits >= 1.5))
+  ) {
+    return {
+      cls: 'broadway_conn_ds',
+      cleanSuits,
+      selfBlockedSuits,
+      hasNutAceSuit,
+      hasKingSuit,
+      connectedWindowSpan: span,
+      canThreeBet: true,
+      canFourBetShallow: doubleSuited && (tightTop >= 13 || hasNutAceSuit),
+      canSqueeze: true,
+      foldAlways: false,
+      shift: { open: -0.1, threeBet: -0.09, fourBet: -0.05, coldCall: -0.08, bbDefend: -0.08 },
+    };
+  }
+
+  // 4. Double-Suited Rundowns (JT98ds, T987ds, 9876ds, 8765ds, QT98ds, J987ds)
+  if (oneGapTop >= 8 && doubleSuited && selfBlockedSuits === 0) {
+    const zeroGap = tightTop >= 8;
+    return {
+      cls: 'rundown_ds',
+      cleanSuits,
+      selfBlockedSuits,
+      hasNutAceSuit,
+      hasKingSuit,
+      connectedWindowSpan: span,
+      canThreeBet: true,
+      canFourBetShallow: zeroGap || oneGapTop >= 10 || hasNutAceSuit,
+      canSqueeze: true,
+      foldAlways: false,
+      shift: {
+        open: zeroGap ? -0.1 : -0.08,
+        threeBet: zeroGap ? -0.08 : -0.06,
+        fourBet: zeroGap ? -0.05 : -0.03,
+        coldCall: -0.08,
+        bbDefend: -0.08,
+      },
+    };
+  }
+
+  // 5. Suited Ace Nut-Flush + Connected / Broadway Support (Axxsrundown, AKQxs, AJTxs, AT98s)
+  const nonAceConnected =
+    oneGapTop >= 9 ||
+    broadwayCount >= 3 ||
+    (() => {
+      const others = [...counts.keys()].filter((r) => r !== 14).sort((a, b) => a - b);
+      return (
+        others.length >= 3 &&
+        others[others.length - 1] - others[0] <= 4 &&
+        others[others.length - 1] >= 8
+      );
+    })();
+  if (hasNutAceSuit && nonAceConnected && selfBlockedSuits <= (n >= 6 ? 1 : 0)) {
+    return {
+      cls: 'ax_nut_suited',
+      cleanSuits,
+      selfBlockedSuits,
+      hasNutAceSuit,
+      hasKingSuit,
+      connectedWindowSpan: span,
+      canThreeBet: true,
+      canFourBetShallow: doubleSuited && (broadwayCount >= 3 || tightTop >= 9),
+      canSqueeze: true,
+      foldAlways: false,
+      shift: {
+        open: -0.08,
+        threeBet: doubleSuited ? -0.07 : -0.05,
+        fourBet: doubleSuited ? -0.03 : 0.01,
+        coldCall: -0.07,
+        bbDefend: -0.08,
+      },
+    };
+  }
+
+  // 6. KK / QQ Double-Suited or Double-Paired Connected (KKQQds, KKJTds, QQJTds)
+  const hasKK = (counts.get(13) ?? 0) === 2;
+  const hasQQ = (counts.get(12) ?? 0) === 2;
+  const pairRanks = [...counts.entries()].filter(([, cnt]) => cnt === 2).map(([r]) => r);
+  if (
+    (hasKK || hasQQ) &&
+    doubleSuited &&
+    (pairRanks.length >= 2 || broadwayCount >= 3 || span <= 5 || hasNutAceSuit)
+  ) {
+    return {
+      cls: 'kk_ds',
+      cleanSuits,
+      selfBlockedSuits,
+      hasNutAceSuit,
+      hasKingSuit,
+      connectedWindowSpan: span,
+      canThreeBet: true,
+      canFourBetShallow: hasKK && (hasNutAceSuit || pairRanks.length >= 2 || broadwayCount >= 3),
+      canSqueeze: true,
+      foldAlways: false,
+      shift: { open: -0.07, threeBet: -0.06, fourBet: -0.03, coldCall: -0.05, bbDefend: -0.06 },
+    };
+  }
+
+  // 7. Single-Suited Rundowns & Connected Broadways (KQJTs, JT98s, T987s, 9876s)
+  if (oneGapTop >= 9 && anyTwoPlusSuits >= 1 && selfBlockedSuits <= (n >= 5 ? 1 : 0)) {
+    const strongSS = tightTop >= 10 || hasKingSuit || broadwayCount >= 4;
+    return {
+      cls: 'rundown_ss',
+      cleanSuits,
+      selfBlockedSuits,
+      hasNutAceSuit,
+      hasKingSuit,
+      connectedWindowSpan: span,
+      canThreeBet: strongSS,
+      canFourBetShallow: false,
+      canSqueeze: strongSS,
+      foldAlways: false,
+      shift: {
+        open: -0.06,
+        threeBet: strongSS ? -0.03 : 0.02,
+        fourBet: 0.03,
+        coldCall: -0.06,
+        bbDefend: -0.06,
+      },
+    };
+  }
+
+  // Fall back to legacy Omaha class semantics for remaining pair_support, dangler, trash, other
+  const legacy = omahaHandClass(cards);
+  const mapped: OmahaEliteClass =
+    legacy === 'pair_support' || legacy === 'kk_plus'
+      ? 'pair_support'
+      : legacy === 'dangler'
+        ? 'dangler'
+        : legacy === 'trash'
+          ? 'trash'
+          : 'other';
+  // Penalize 4-of-a-suit / severe self-blocked hands in PLO5/PLO6
+  const selfBlockPenalty =
+    selfBlockedSuits >= 2 || [...sc.values()].some((cnt) => cnt >= 4) ? 0.05 : 0;
+  const baseShift = OMAHA_CHART[legacy];
+  return {
+    cls: mapped,
+    cleanSuits,
+    selfBlockedSuits,
+    hasNutAceSuit,
+    hasKingSuit,
+    connectedWindowSpan: span,
+    canThreeBet: false,
+    canFourBetShallow: false,
+    canSqueeze: false,
+    foldAlways: FOLD_ALWAYS.has(legacy),
+    shift:
+      selfBlockPenalty > 0
+        ? {
+            open: baseShift.open + selfBlockPenalty,
+            threeBet: baseShift.threeBet + selfBlockPenalty,
+            fourBet: baseShift.fourBet + selfBlockPenalty,
+            coldCall: baseShift.coldCall + selfBlockPenalty,
+            bbDefend: baseShift.bbDefend + selfBlockPenalty * 0.5,
+          }
+        : baseShift,
+  };
+}

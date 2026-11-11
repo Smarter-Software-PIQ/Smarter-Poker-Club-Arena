@@ -372,6 +372,24 @@ export const TAG_CONSUMERS: LedgerEntry[] = [
     'Omaha non-nut straight at showdown',
     'V13'
   ),
+  tag(
+    'plo_underboat_stackoff',
+    'HorseSelfTuner.diagnoseAndNudge',
+    'Omaha bottom full house beaten by two or more distinct higher full-house combinations, 100bb+',
+    'V86'
+  ),
+  tag(
+    'plo_multiboard_dead_half_call',
+    'HorseSelfTuner.diagnoseAndNudge',
+    'Omaha double-board showdown with one pair or worse on a board after calling down passively, 40bb+',
+    'V86'
+  ),
+  tag(
+    'plo_passive_rundown_oop',
+    'HorseSelfTuner.diagnoseAndNudge',
+    'Omaha double-suited rundown or connected broadway cold-called preflop with zero postflop raises, 20bb+',
+    'V86'
+  ),
   tag('coldcall_stackoff', 'measurement', 'cold-called a raise, lost 40bb+', 'V23'),
   tag(
     'plo_naked_trips_stackoff',
@@ -728,6 +746,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'ploSuitedAcesFourBet',
     'High-only PLO suited aces 4-bet one 3-bet and continue when re-raised (Dan 2026-11-06); false only to ablate or as a complaint-law control',
     'PLO suited aces 4-bet'
+  ),
+  flag(
+    'v86PloOverhaul',
+    'V86 PLO4/5/6/8 preflop 3-bet/4-bet/squeeze rundowns & suited Ax, postflop combo-draw pump & SPR discipline, Bully-Breaker LAG counter, Bomb Pot/Multi-Board dead-half guard, Short Deck/Pineapple defense, and Hollywood timing mix (default ON, false ablates)',
+    'V86'
   ),
   flag(
     'deepEquity',
@@ -4499,6 +4522,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'ServerTableEngineTurns (final wager rules at commit)',
     'the fresh commit-time menu turned a passive river-nuts action into a legal raise, or a 90-100% pot wager into full pot',
     'RiverNuts'
+  ),
+  receipt(
+    'v86_*',
+    'HorseLogic / HorsePreflop / HorseOmahaBigBetCalls (V86)',
+    'V86 PLO4/5/6/8 preflop 3-bet/4-bet/squeeze rundowns & suited Ax, postflop combo-draw pump & SPR discipline, Bully-Breaker LAG counter, multi-board/PLO8 freeroll, and underboat/PLO6 river folds',
+    'V86'
   ),
 
   // TAGS. Every leak tag the review system emits, with its reader.

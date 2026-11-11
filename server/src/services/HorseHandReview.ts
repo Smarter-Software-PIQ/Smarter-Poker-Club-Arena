@@ -35,11 +35,13 @@ import { accumulatePlayStats, freshPlay, type HandRow, type PlayStats } from './
 import {
   variantInfo,
   omahaNutStatus,
+  omahaBoatPosition,
   nlhNutStatus,
   scoreOmahaHiPartial,
   omahaDrawQuality,
   scoreOmahaLow,
 } from '../engine/HorseEval.js';
+import { omahaEliteClassRead } from '../engine/HorseHandClasses.js';
 import { RANK_VALUES, RANKS, SUITS } from '../engine/PokerEngine.js';
 import type { Card } from '../types.js';
 
@@ -471,6 +473,8 @@ export function detectLeaks(row: {
   wentToShowdown: boolean;
   /** More than one board was dealt (double-board bomb pot, run it twice). */
   multiBoard?: boolean;
+  /** Parsed distinct boards when multiBoard is true. */
+  boards?: Card[][] | null;
 }): string[] {
   const tags: string[] = [];
   const vi = variantInfo(row.variant);
@@ -956,6 +960,12 @@ export function detectLeaks(row: {
         if (!omahaBoatIsNut(row.holeCards, boardAt)) {
           flag('plo_underfull_stackoff');
         }
+        if (boardAt.length === 5) {
+          const boatPos = omahaBoatPosition(row.holeCards, boardAt);
+          if (boatPos && boatPos.lowerBoats === 0 && boatPos.boats >= 2) {
+            flag('plo_underboat_stackoff');
+          }
+        }
       } else if (st.category === CAT_ONE_PAIR && isOmahaTopPair(row.holeCards, boardAt)) {
         // TOP pair with a full stack in. On the river every redraw has
         // resolved, so a hand that still shows one pair is one that had no
@@ -976,6 +986,55 @@ export function detectLeaks(row: {
         }
         if (vi.isHiLo && omahaLowLive(row.holeCards, boardAt)) redrawLive = true;
         if (!redrawLive) flag('plo_toppair_no_redraw_stackoff');
+      }
+    } catch {
+      /* detector is best-effort */
+    }
+  }
+
+  // V86 MULTI-BOARD DEAD-HALF CALLOFF & PASSIVE PLO RUNDOWN DETECTORS
+  if (
+    vi.isOmaha &&
+    row.multiBoard &&
+    row.wentToShowdown &&
+    row.holeCards &&
+    Array.isArray(row.boards) &&
+    row.boards.length >= 2 &&
+    investedBB >= 2 * FLAG_BB &&
+    !raisedOrBet('flop') &&
+    !raisedOrBet('turn') &&
+    !raisedOrBet('river')
+  ) {
+    try {
+      const fiveCardBoards = row.boards.filter((b) => Array.isArray(b) && b.length >= 5);
+      if (
+        fiveCardBoards.length >= 2 &&
+        fiveCardBoards.some((b) => omahaNutStatus(row.holeCards!, b).category <= CAT_ONE_PAIR)
+      ) {
+        flag('plo_multiboard_dead_half_call');
+      }
+    } catch {
+      /* detector is best-effort */
+    }
+  }
+
+  if (
+    vi.isOmaha &&
+    !row.multiBoard &&
+    row.holeCards &&
+    !heroPreRaised &&
+    heroPre.some((a) => isCallAction(a) && (a.amount ?? 0) >= bb * 2.5) &&
+    investedBB >= FLAG_BB &&
+    !raisedOrBet('flop') &&
+    !raisedOrBet('turn') &&
+    !raisedOrBet('river')
+  ) {
+    try {
+      const elite = omahaEliteClassRead(row.holeCards, vi.isHiLo);
+      const isPassiveEliteRundown =
+        elite.canThreeBet && (elite.cls === 'rundown_ds' || elite.cls === 'broadway_conn_ds');
+      if (isPassiveEliteRundown) {
+        flag('plo_passive_rundown_oop');
       }
     } catch {
       /* detector is best-effort */
@@ -1004,12 +1063,17 @@ export function buildReviewRows(input: HorseReviewInput): HorseReviewRow[] {
   const format = reviewFormat(input, dealtCount);
 
   // Distinct non-empty boards: board 1 is repeated inside some callers' lists.
-  const multiBoard =
-    new Set(
+  const distinctRawBoards = [
+    ...new Map(
       (input.boards ?? [])
         .filter((b) => Array.isArray(b) && b.length > 0)
-        .map((b) => JSON.stringify(b))
-    ).size > 1;
+        .map((b) => [JSON.stringify(b), b] as const)
+    ).values(),
+  ];
+  const multiBoard = distinctRawBoards.length > 1;
+  const parsedBoards = multiBoard
+    ? distinctRawBoards.map((b) => parseCards(b)).filter((b): b is Card[] => b !== null)
+    : null;
 
   const rows: HorseReviewRow[] = [];
   for (const uid of horses) {
@@ -1042,6 +1106,7 @@ export function buildReviewRows(input: HorseReviewInput): HorseReviewRow[] {
       heroActions,
       wentToShowdown: !folded,
       multiBoard,
+      boards: parsedBoards,
     });
 
     rows.push({

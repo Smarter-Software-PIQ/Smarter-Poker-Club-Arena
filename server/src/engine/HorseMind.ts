@@ -101,6 +101,7 @@ import {
   probeAdjustedCounters,
   probeBetIndexes,
   freshExploitCounters,
+  isPostflopManiac,
   looseCallerWidth,
   maniacRaiseWidth,
   mergeExploitRows,
@@ -2796,14 +2797,107 @@ export class HorseMind {
   // EXPLOIT PROFILE — how to deviate vs this specific player
   // ───────────────────────────────────────────────────────────────────────
 
+  static isLagBully(userId: string): boolean {
+    const read = this.opponentRead(userId);
+    if (this.decisionScope && !read) return false;
+    if (read && read.presumed !== true) {
+      if (
+        (read.stats.vpip.engaged === 'high' &&
+          (read.stats.pfr.engaged === 'high' ||
+            read.stats.betCheckedTo.engaged === 'high' ||
+            maniacRaiseWidth(read) !== null)) ||
+        isPostflopManiac(read)
+      ) {
+        return true;
+      }
+    }
+    const s = this.readStats(userId);
+    if (s && s.hands >= 20) {
+      const vpipRate = s.vpip / s.hands;
+      const pfrRate = s.pfr / s.hands;
+      const postActs = s.postAggr + s.postPassive;
+      const postAf = postActs >= 10 ? s.postAggr / Math.max(1, s.postPassive) : 0;
+      if (vpipRate >= 0.52 && (pfrRate >= 0.28 || postAf >= 2.2)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Street-specific bully detector ("Bully-Breaker"): identifies high-frequency
+   * flop stabbers (`WooWoo` 66% flop stab -> 48% turn barrel) whose aggression
+   * drops off on later streets or who check back the turn after stabbing the flop.
+   * Uses only replay-bound `HorseDecisionReadFrame` stats and public `history`.
+   */
+  static streetBullyRead(
+    userId: string,
+    history?: ActionRecord[]
+  ): {
+    highFlopStab: boolean;
+    stabRate: number;
+    turnGiveUp: boolean;
+    checkedTurnAfterFlopStab: boolean;
+  } {
+    const read = this.opponentRead(userId);
+    if (this.decisionScope && !read) {
+      return {
+        highFlopStab: false,
+        stabRate: 0,
+        turnGiveUp: false,
+        checkedTurnAfterFlopStab: false,
+      };
+    }
+    const evidenced = read && read.presumed !== true ? read : null;
+    const bct = evidenced?.stats.betCheckedTo ?? null;
+    const stabRate = bct ? bct.mean : 0;
+    const highFlopStab = !!(bct && (bct.engaged === 'high' || (bct.n >= 8 && bct.mean >= 0.52)));
+
+    let flopBetCheckedTo = false;
+    let checkedTurnAfterFlopStab = false;
+    if (history && history.length > 0) {
+      let flopWagerSeen = false;
+      for (const a of history) {
+        if (a.stage === 'flop') {
+          const aggr = isMindAggression(a);
+          if (!flopWagerSeen && a.userId === userId && aggr) {
+            flopBetCheckedTo = true;
+          }
+          if (aggr) flopWagerSeen = true;
+        } else if (a.stage === 'turn' && flopBetCheckedTo && a.userId === userId) {
+          if (a.action === 'check') checkedTurnAfterFlopStab = true;
+          else if (isMindAggression(a)) checkedTurnAfterFlopStab = false;
+        }
+      }
+    }
+
+    const riverLast = this.riverLastToActRead(userId);
+    const foldRead = evidenced?.stats.foldToBet ?? null;
+    const turnGiveUp =
+      checkedTurnAfterFlopStab ||
+      (highFlopStab &&
+        ((riverLast !== null && stabRate - riverLast.rate >= 0.14) ||
+          (foldRead !== null && foldRead.n >= 8 && foldRead.mean >= 0.44)));
+
+    return {
+      highFlopStab,
+      stabRate,
+      turnGiveUp,
+      checkedTurnAfterFlopStab,
+    };
+  }
+
   static exploit(
     userId: string,
     recencyBlend: boolean = true,
     options: ExploitReadOptions = {}
   ): ExploitProfile {
     // A PROVEN WINNER IS RESPECTED (2026-10-24, HorseWinnerRead): fewer
-    // bluffs and no thin value against a credible winner; reads unchanged.
-    return respectWinner(this.readExploit(userId, recencyBlend, options), userId);
+    // bluffs and no thin value against a disciplined winner; against a high-VPIP
+    // LAG bully (e.g. 80/46/66% stab), keep bluff playback and expand thin value.
+    return respectWinner(
+      this.readExploit(userId, recencyBlend, options),
+      userId,
+      this.isLagBully(userId)
+    );
   }
 
   private static readExploit(
@@ -3291,7 +3385,7 @@ export class HorseMind {
     if (foldShift === null) return null;
     let mod = breakEvenBluffMod(foldShift, family, BREAK_EVEN_REFERENCE_SIZE);
     if (read.stats.riverCall.engaged === 'high') mod = Math.min(mod, layer);
-    if (isProvenWinner(userId)) mod *= WINNER_BLUFF_MOD;
+    if (isProvenWinner(userId) && !this.isLagBully(userId)) mod *= WINNER_BLUFF_MOD;
     return { mod, foldShift };
   }
 
@@ -3350,7 +3444,7 @@ export class HorseMind {
         ? (k + m * cell.population) / (n + m)
         : cell.population;
     let mul = (cell.foldOverMdf * fold) / cell.population;
-    if (isProvenWinner(userId)) mul *= WINNER_BLUFF_MOD;
+    if (isProvenWinner(userId) && !this.isLagBully(userId)) mul *= WINNER_BLUFF_MOD;
     // Receipt: live proof the model priced an opponent (one count per
     // opponent pricing, not per decision). Counting never decides.
     noteFire('omaha_ev_fold_model_priced');

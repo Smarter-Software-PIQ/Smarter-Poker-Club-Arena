@@ -140,10 +140,14 @@ export interface RegressionContext {
   fleetP25?: number | null;
   /** reviewed hands behind `leaks` (the V40 denominator); 0 = unknown */
   leaksHands?: number;
+  /** V86: Omaha share of reviewed ring-cash volume [0, 1], preventing 6-max PLO VPIP from being tightened to the NLH 32% ceiling. */
+  omahaShare?: number | null;
 }
 
 /** Rake-adjusted regression threshold, bb/100. */
 export const REGRESS_BB100 = -15;
+/** Winning 6-max PLO4/PLO5/PLO6 ring-cash VPIP ceiling before tightening. */
+export const OMAHA_CASH_VPIP_HI = 0.44;
 /** Minimum reviewed hands before a leak RATE means anything. */
 export const MIN_LEAK_HANDS_FOR_RATE = 40;
 /**
@@ -198,7 +202,13 @@ export function diagnoseAndNudge(
   const af = postActs >= 60 && s.postPassive >= 15 ? s.postAggr / s.postPassive : null;
   const bb100 = (s.netBB / s.hands) * 100;
 
-  if (vpip > BENCH.vpip.hi) {
+  const omahaShare =
+    typeof ctx.omahaShare === 'number' && isFinite(ctx.omahaShare)
+      ? Math.max(0, Math.min(1, ctx.omahaShare))
+      : 0;
+  const vpipHi = BENCH.vpip.hi + (OMAHA_CASH_VPIP_HI - BENCH.vpip.hi) * omahaShare;
+
+  if (vpip > vpipHi) {
     tightness += STEP;
     reasons.push(`vpip ${(vpip * 100).toFixed(1)} too loose - tighten`);
   } else if (vpip < BENCH.vpip.lo) {
@@ -271,7 +281,9 @@ export function diagnoseAndNudge(
     const stackoffs =
       n('nonnut_flush_stackoff') +
       n('second_nut_flush_stackoff') +
-      n('dominated_straight_stackoff');
+      n('dominated_straight_stackoff') +
+      n('plo_underboat_stackoff') +
+      n('plo_multiboard_dead_half_call');
     // RATES, NOT COUNTS (2026-09-05). With a denominator the gate is a rate
     // per reviewed hand; without one (older callers) the count gates stand,
     // which at the ~200-hand window they were set against is the same bar.
@@ -286,6 +298,12 @@ export function diagnoseAndNudge(
       aggression -= STEP / 2;
       reasons.push(
         `leak: ${per100(stackoffs)} dominated-hand stackoffs in 20bb pots - tighten and calm down`
+      );
+    }
+    if (over(n('plo_passive_rundown_oop'), 6, LEAK_RATE_GATES.stackoff)) {
+      aggression += STEP / 2;
+      reasons.push(
+        `leak: ${per100(n('plo_passive_rundown_oop'))} passive PLO rundowns/broadways - 3-bet and take pot initiative`
       );
     }
     if (over(n('big_bet_fold'), 10, LEAK_RATE_GATES.bigBetFold)) {
@@ -1105,6 +1123,9 @@ export async function runSelfTune(
         rn && rn.hands >= MIN_REAL_HANDS_FOR_BB100 && rn.rakeBB > 0
           ? (rn.rakeBB / rn.hands) * 100
           : null;
+      const famHands = leakHandsByFamily.get(horseId) ?? { omaha: 0, holdem: 0 };
+      const totalFamHands = famHands.omaha + famHands.holdem;
+      const omahaShare = totalFamHands >= 20 ? famHands.omaha / totalFamHands : null;
       const { mods, reasons } = diagnoseAndNudge(
         s,
         prevMods,
@@ -1116,6 +1137,7 @@ export async function runSelfTune(
           bbjBB100,
           fleetP25,
           leaksHands: leakHandsByHorse.get(horseId) ?? 0,
+          omahaShare,
         }
       );
       // Retain the legacy candidate's leak counts and denominators as review
@@ -1132,7 +1154,6 @@ export async function runSelfTune(
       const leaksHands = leakHandsByHorse.get(horseId) ?? 0;
       // V41: the family split travels with it.
       const fams = leaksByFamily.get(horseId) ?? { omaha: {}, holdem: {} };
-      const famHands = leakHandsByFamily.get(horseId) ?? { omaha: 0, holdem: 0 };
       const positive = (m: Record<string, number>): Record<string, number> => {
         const out: Record<string, number> = {};
         for (const [k, v] of Object.entries(m)) if ((Number(v) || 0) > 0) out[k] = Number(v);

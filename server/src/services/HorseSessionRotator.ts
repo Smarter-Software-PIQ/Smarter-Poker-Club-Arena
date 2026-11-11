@@ -78,6 +78,7 @@ import {
 } from './HorseBankroll.js';
 import { bankrollEvent } from './HorseBankrollTelemetry.js';
 import { LONE_TABLE_MINUTES, loneStandVerdict } from './HorseLoneTable.js';
+import { ploPersonaFor } from '../engine/HorsePersona.js';
 import { buildDisabledGameIds, horsesLeaveSwitchedOffGame } from './HorseDisabledGames.js';
 import {
   LEAVE_FOR_TOURNAMENT_FROM_MS,
@@ -1328,10 +1329,20 @@ export class HorseSessionRotator {
         if ((seat as { auto_rebuy?: boolean }).auto_rebuy === true) continue;
         const minutes = (Date.now() - new Date(seat.joined_at).getTime()) / 60000;
         const stackNow = Number(seat.stack) || 0;
+        const variantStr = String(t?.game_variant ?? '').toLowerCase();
+        const isPloCash =
+          variantStr === 'plo4' ||
+          variantStr === 'plo5' ||
+          variantStr === 'plo6' ||
+          variantStr === 'plo8';
+        const ploStyle = isPloCash ? ploPersonaFor(seat.user_id).archetype : null;
+        const activePloStyle =
+          ploStyle === 'lag_shark' || ploStyle === 'tag_crusher' || ploStyle === 'tricky_trap';
+        const effectiveTopUpFrac = isPloCash && bb >= 5 && activePloStyle ? 0.8 : TOPUP_STACK_FRAC;
         if (
           minutes >= TOPUP_MIN_MINUTES &&
           stackNow > 0 &&
-          stackNow < buyIn * TOPUP_STACK_FRAC &&
+          stackNow < buyIn * effectiveTopUpFrac &&
           Math.random() < TOPUP_PROB
         ) {
           // Owner October 26: Add Chips targets the table maximum.
