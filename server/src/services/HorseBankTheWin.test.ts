@@ -34,11 +34,19 @@ describe('BANK THE WIN (owner 2026-11-10)', () => {
     const base = { horseId: ids[0], stack: 700, startingStack: 100, playersAtTable: 6 };
     expect(isBigPot(300, 700, 100)).toBe(true);
     expect(isBigPot(300, 340, 100)).toBe(false);
-    expect(shouldBankTheWin({ ...base, handsSinceBigPot: 0, nextHandIsBigBlind: true })).toBe(false);
-    expect(shouldBankTheWin({ ...base, handsSinceBigPot: 5, nextHandIsBigBlind: true })).toBe(false);
-    expect(shouldBankTheWin({ ...base, handsSinceBigPot: 6, nextHandIsBigBlind: false })).toBe(false);
+    expect(shouldBankTheWin({ ...base, handsSinceBigPot: 0, nextHandIsBigBlind: true })).toBe(
+      false
+    );
+    expect(shouldBankTheWin({ ...base, handsSinceBigPot: 5, nextHandIsBigBlind: true })).toBe(
+      false
+    );
+    expect(shouldBankTheWin({ ...base, handsSinceBigPot: 6, nextHandIsBigBlind: false })).toBe(
+      false
+    );
     expect(shouldBankTheWin({ ...base, handsSinceBigPot: 6, nextHandIsBigBlind: true })).toBe(true);
-    expect(shouldBankTheWin({ ...base, handsSinceBigPot: undefined, nextHandIsBigBlind: true })).toBe(true);
+    expect(
+      shouldBankTheWin({ ...base, handsSinceBigPot: undefined, nextHandIsBigBlind: true })
+    ).toBe(true);
     expect(orbitHandsOwed(2, 6)).toBe(4);
   });
 });

@@ -16,7 +16,15 @@ from horse_census_statistics import (
     evaluate_cell_denominators,
     t_crit_975,
 )
-from horse_census_audit import checked_seat_totals, conservation_inference, run_audit
+import tempfile
+
+from horse_census_audit import (
+    checked_seat_totals,
+    conservation_inference,
+    read_refund_evidence,
+    refund_adjusted_cost,
+    run_audit,
+)
 from horse_study_subjects import read_subjects, validate_frozen_cohort
 
 class TestStatEstimators(unittest.TestCase):
@@ -74,6 +82,50 @@ class TestStatEstimators(unittest.TestCase):
         rows[0]['horse_net_bb'] += 1
         with self.assertRaisesRegex(ValueError, 'seat_returns_disagree'):
             evaluate_cell_denominators(rows, bootstrap_reps=0)
+
+    def refund_file(self, **changes):
+        unregistration = dict(tournament_id='t1', actor_class='horse', start_authority='scheduled_clock', n=3,
+                              refunded_chips=30, returned_ticket_value=0, with_funding_receipt=3,
+                              funding_amount_for_unregistered=30)
+        unregistration.update(changes.pop('unregistration', {}))
+        value = dict(cutoffUtc='2026-11-10T21:30:00+00:00', tournamentCount=2, acquiredAtUtc='2026-11-11T00:00:00+00:00',
+                     laterRefundsAfterCutoff=[{'n': 0, 'paid': 0}], unregistrations=[unregistration],
+                     refundTranches=[dict(tournament_id='t1', actor_class='horse', source='fn_unregister_from_tournament', paid=30),
+                                     dict(tournament_id='t2', actor_class='horse', source='atomic_cancel_tournament', paid=99)])
+        value.update(changes)
+        path = Path(self.enterContext(tempfile.TemporaryDirectory())) / 'refunds.json'
+        path.write_text(json.dumps(value))
+        return path
+
+    def test_recorded_unregistration_refunds_are_netted_and_never_inferred(self):
+        self.assertIsNone(read_refund_evidence(None, {'t1', 't2'}))
+        evidence = read_refund_evidence(self.refund_file(), {'t1', 't2'})
+        self.assertEqual(evidence['refunds'], {('t1', 'horse'): 30.0})
+        self.assertEqual(evidence['registrations'], {('t1', 'horse'): 3})
+        self.assertEqual(evidence['otherSources'], {'t2': ['atomic_cancel_tournament']})
+        self.assertRegex(evidence['sha256'], '^[0-9a-f]{64}$')
+        self.assertEqual(refund_adjusted_cost(100.0, 30.0, True), 70.0)
+        self.assertEqual(refund_adjusted_cost(100.0, 0.0, False), 100.0)
+        with self.assertRaisesRegex(ValueError, 'refund_without_recorded_funding'):
+            refund_adjusted_cost(100.0, 30.0, False)
+        with self.assertRaisesRegex(ValueError, 'refund_exceeds_recorded_funding'):
+            refund_adjusted_cost(20.0, 30.0, True)
+
+    def test_unbound_or_out_of_scope_refund_evidence_is_refused(self):
+        cases = [
+            ('refund_evidence_cutoff_mismatch', dict(cutoffUtc='2026-11-12T00:00:00+00:00')),
+            ('refund_evidence_tournament_scope_mismatch', dict(tournamentCount=3)),
+            ('refund_evidence_sections_required', dict(refundTranches=None)),
+            ('refund_evidence_row_out_of_scope', dict(unregistration=dict(tournament_id='other'))),
+            ('refund_evidence_amount_invalid', dict(unregistration=dict(refunded_chips=-1))),
+            ('ticket_return_accounting_unsupported', dict(unregistration=dict(returned_ticket_value=5))),
+            ('refund_not_bound_to_recorded_funding', dict(unregistration=dict(with_funding_receipt=2))),
+            ('refund_not_bound_to_recorded_funding', dict(unregistration=dict(funding_amount_for_unregistered=20))),
+            ('refund_tranche_cross_check_failed', dict(refundTranches=[])),
+        ]
+        for message, changes in cases:
+            with self.subTest(message=message, changes=changes), self.assertRaisesRegex(ValueError, message):
+                read_refund_evidence(self.refund_file(**changes), {'t1', 't2'})
 
     def test_frozen_evidence_cannot_be_output(self):
         with self.assertRaisesRegex(ValueError, 'output_must_not_modify'):

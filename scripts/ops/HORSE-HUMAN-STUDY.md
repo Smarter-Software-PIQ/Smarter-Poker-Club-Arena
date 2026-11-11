@@ -147,6 +147,20 @@ is a sensitivity calculation; tournament accounting can include tariff estimates
 EV fields with realized-return substitution are mixed estimates. None certifies
 payments, historical strategic EV or complete retained history.
 
+Tournament cost is gross recorded funding, or a tariff estimate where receipts
+are absent, unless `--refund-evidence PRIVATE_JSON` is supplied. An unregistered
+registration keeps its entry receipt and is refunded separately, so gross cost
+overstates what was paid. The evidence is a private read-only acquisition for
+the cached tournaments before the cutoff: `unregistrations` rows from
+`tournament_unregistration_receipts` and `refundTranches` rows from
+`tournament_refund_tranches`, each grouped by tournament and actor class, with
+the funding receipts of the unregistered registrations. A refund is netted only
+against recorded funding and only when both tables agree. Ticket returns, a
+refund against a tariff estimate, a refund above recorded funding and any other
+refund source on a completed tournament refuse. `tournamentPayoutRoi.refundCoverage`
+names the evidence digest or states `UNVERIFIED_no_refund_evidence`. Entry
+counts are not adjusted, and cancelled tournaments stay outside ROI.
+
 Fleet JSON and TSV retain one row per roster Horse and feature. `null`/`unknown`
 never means zero, disabled or failed. Source inclusion, worker health, effective
 configuration, exact eligibility, evaluation, eligible invocation, local rule
@@ -158,6 +172,20 @@ change is not proof of a final causal action change. A true cell means at least
 one bound witness, not universal coverage of the Horse's decisions. Health
 remains a separately timestamped system observation. Pillar 2 exclusion and R7/R8
 qualification status are separate from observed runtime evidence.
+
+The original reconciliation review must bind its version, scope, record count
+and sorted-record manifest to the exact supplied records. A stale or missing
+binding refuses attribution. Pooled public-read credit also requires the owning
+reviewer's public-read provenance verdict; a reconciled action join alone does
+not qualify a public read. Original acceptance-time authority withdrawals and
+wager normalization remain governed by that reviewer.
+
+`capturedCoverage` separates the twelve expected variant/mode/speed cells:
+ordinary and Lightning NLH/PLO4/PLO5/PLO6 cash, and the four tournament variants.
+Original public-memory speed is retained on each witness; missing speed remains
+unknown. Counts describe captured hands, decisions, human participation, ability
+to respond and per-feature evidence. Zero captured decisions never proves zero
+natural opportunities or complete domain coverage.
 
 Repeat `--journal` for disjoint original JSON/JSONL captures. Duplicate events
 refuse. Captures outside the declared serving revision or half-open windows

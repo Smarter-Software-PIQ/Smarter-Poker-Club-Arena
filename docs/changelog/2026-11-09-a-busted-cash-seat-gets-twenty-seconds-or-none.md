@@ -301,3 +301,28 @@ frame, an engine that names no bust, and the page wiring). The law file gains
 carry the new fields (43 pass). `SitOutClockAndEviction` 20 pass. Server and
 client typecheck clean. No browser fixture exists for this sheet, and none was
 built: the rendered countdown is not browser-verified.
+
+### Delivery status, 2026-11-11 22:10 UTC
+
+- **Client:** live. `ca-static.smarter.poker` and `smarter.poker/hub/club-arena`
+  both report `ca_sha` `88441c3d6e27f847f086e6b7fda307ea26ebb187` (run 43076646205),
+  which carries #10481 and #10510.
+- **Engine:** NOT live. Serving `f7735cca6862b9add06841b8a41c305b3f3ebe01`
+  (process started 09:55:38 UTC; break log 10:00-10:05 UTC `thaw_ok` true),
+  which contains neither #10481 (`aabef33a`) nor #10510 (`88441c3d`).
+  `3e5ef38473` (contains both) holds `backup-engine/certified` success at
+  19:32:34 UTC. The owner-authorized booking
+  `2026-11-11-horse-realtime-10454-engine-1930z` (#10514, custodian Codex
+  `01a1cbbb`, admission 19:30-22:30 UTC) was never dispatched: the receiver's
+  last run is 42994475679 (09:21 UTC) and a GitHub Actions outage from 20:48 UTC
+  queued every run. This lane notified the custodian in `COORDINATION-INBOX.md`
+  (18:21 UTC) and on #10514 (21:38 UTC); no acknowledgement was received. This
+  lane took no custody and dispatched nothing.
+- **Next route:** the routine 04:00 America/Chicago release on 2026-11-12
+  (Stage 03:30-03:50), which selects the newest certified main commit; every
+  certified candidate at or after `3e5ef38473` carries both changes. After it:
+  confirm `/health` `releaseSha` descends from `88441c3d`, the receiver run's
+  sealed receipt, and the break log row's `thaw_ok` and `engine_version`.
+- **Natural observations:** none yet of an affordable bust (offer, timely paid
+  rebuy, or unpaid expiry). They can only be judged against this fix once the
+  engine above is live.

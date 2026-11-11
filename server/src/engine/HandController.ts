@@ -199,6 +199,7 @@ export class HandController {
     flopKey: string;
     decisions: Map<number, number>;
   } | null = null;
+  private postedStraddles: Array<{ seat: number; amount: number }> = [];
   /**
    * DOUBLE-BOARD BOMB POT 2026-08-20 / TRIPLE-BOARD 2026-08-27: how many
    * boards THIS hand actually deals — 1, 2 or 3 — set in postBombPotAntes()
@@ -819,11 +820,13 @@ export class HandController {
     const afterAntes = investedSnapshot();
 
     // Bible V8 §4.4: Post straddles after blinds/antes
+    this.postedStraddles = [];
     if (this.config.straddles && this.config.straddles.length > 0) {
       for (const straddle of this.config.straddles) {
         const straddler = this.state.players.find((p) => p.seat === straddle.seat);
         if (straddler && !straddler.is_sitting_out && straddler.stack >= straddle.amount) {
           const straddleAmount = Math.min(straddle.amount, straddler.stack);
+          this.postedStraddles.push({ seat: straddler.seat, amount: straddleAmount });
           straddler.bet = straddleAmount;
           straddler.totalInvested += straddleAmount;
           straddler.stack -= straddleAmount;
@@ -3589,8 +3592,8 @@ export class HandController {
       } else {
         const { bbSeat } = this.blindSeatsForHand();
         // Bible V8 §4.4: If straddles are posted, first to act is left of last straddler
-        if (this.config.straddles && this.config.straddles.length > 0) {
-          const lastStraddleSeat = this.config.straddles[this.config.straddles.length - 1].seat;
+        if (this.postedStraddles.length > 0) {
+          const lastStraddleSeat = this.postedStraddles[this.postedStraddles.length - 1].seat;
           candidate = this.getNextActiveSeat(lastStraddleSeat);
         } else {
           candidate = this.getNextActiveSeat(bbSeat);
@@ -3769,8 +3772,7 @@ export class HandController {
 
   /** Seat number of the active last posted straddle for this hand, or null when unstraddled. */
   public getLastStraddleSeat(): number | null {
-    const s = this.config.straddles;
-    return s && s.length > 0 ? s[s.length - 1].seat : null;
+    return this.getPostedStraddleSnapshot().seat;
   }
 
   /**
@@ -4419,6 +4421,18 @@ export class HandController {
       ante: this.config.ante ?? 0,
       bigBlindAnte: this.config.bigBlindAnte === true,
     };
+  }
+
+  /** Actual live straddle posted at the deal of THIS hand (0 when unstraddled). */
+  public getPostedStraddleSnapshot(): {
+    amount: number;
+    seat: number | null;
+  } {
+    if (this.postedStraddles.length === 0) {
+      return { amount: 0, seat: null };
+    }
+    const last = this.postedStraddles[this.postedStraddles.length - 1]!;
+    return { amount: last.amount, seat: last.seat };
   }
 
   public getChipRulesSnapshot(): {

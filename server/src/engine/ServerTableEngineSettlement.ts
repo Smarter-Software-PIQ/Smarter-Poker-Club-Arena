@@ -18,6 +18,7 @@ import { assertDiamondAcceptedHand } from '../domain/DiamondCashBoundary.js';
 import { diamondCashJackpotVerdict } from './diamondCashJackpot.js';
 import { diamondCashRakeFactsFor } from './diamondCashRakeFacts.js';
 import { pendingSeatMoves, type PendingSeatMove } from '../services/supabase/seatMoves.js';
+import { getTournamentBrainContextSnapshot } from '../services/TournamentBrainContext.js';
 /**
  * ServerTableEngine, layer 6/8 — the HAND_COMPLETE settlement pipeline and post-hand tasks.
  *
@@ -2719,6 +2720,28 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
                   : null,
             }
           : undefined;
+        const reviewTourneyCtx = tableInfo.tournament_id
+          ? getTournamentBrainContextSnapshot(String(tableInfo.tournament_id)).context
+          : null;
+        const reviewFinalTable =
+          reviewTourneyCtx !== null &&
+          reviewTourneyCtx.playersLeft > 0 &&
+          reviewTourneyCtx.playersLeft <= Math.max(2, reviewTourneyCtx.seatsPerTable || 9) &&
+          reviewTourneyCtx.spotsPaid >= 2;
+        const reviewNearBubbleOrPayJump =
+          reviewTourneyCtx !== null
+            ? Boolean(reviewTourneyCtx.nearBubble || reviewFinalTable)
+            : undefined;
+        const reviewTournamentStage =
+          reviewTourneyCtx !== null
+            ? reviewTourneyCtx.nearBubble
+              ? 'near_bubble'
+              : reviewFinalTable
+                ? 'final_table'
+                : reviewTourneyCtx.inMoney
+                  ? 'itm'
+                  : 'early'
+            : undefined;
         const commitAuthoritativeHand = () =>
           logHandHistory({
             tableId: this.tableId,
@@ -2733,6 +2756,8 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
             // band - see HorsePlayStats and fn_horse_frequency_leaks.
             vpipFloor: this.vpipFloor(),
             tournamentId: tableInfo.tournament_id || undefined,
+            nearBubbleOrPayJump: reviewNearBubbleOrPayJump,
+            tournamentStage: reviewTournamentStage,
             handNumber: snap.handNumber,
             // VARIANT OVERRIDE 2026-08-28 (spec §10.1/§20): the variant this
             // hand was DEALT as - plo4 on a PLO4 bomb hand at an NLH table.

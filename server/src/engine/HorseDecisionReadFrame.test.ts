@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
-import { HorseMind } from './HorseMind.js';
+import { HorseMind, readScopeOf } from './HorseMind.js';
 import {
   encodeHorseDecisionReads,
   decodeHorseDecisionReads,
@@ -32,6 +32,84 @@ function populated(winnerEvidence = true) {
   return view;
 }
 describe('portable private Horse read frames', () => {
+  it.each([
+    [26, 22, 10, 9],
+    [26, 2, 10, 1],
+    [0, 0, 0, 0],
+    [8.5, 5.25, 3.5, 2.25],
+  ])(
+    'preserves flop-stab evidence including weak and empty reads (%s/%s)',
+    (opps, bets, fastOpps, fastBets) => {
+      const view = populated(false);
+      const scope = readScopeOf('nlh', 6);
+      view.flopStab = new Map([
+        [
+          `${scope}|villain`,
+          {
+            flopCheckedToOpps: opps,
+            flopBetCheckedTo: bets,
+            fFlopCheckedToOpps: fastOpps,
+            fFlopBetCheckedTo: fastBets,
+          },
+        ],
+      ]);
+      const before = HorseMind.runInSandbox(view, () => {
+        HorseMind.setDecisionScope(scope, 'nlh', 'cash');
+        return HorseMind.streetBullyRead('villain');
+      });
+      const frame = encodeHorseDecisionReads(view, players, 'hand');
+      expect(frame.version).toBe('horse-decision-reads-v13');
+      const restored = decodeHorseDecisionReads(frame, players, 'hand');
+      expect(restored.flopStab).toEqual(view.flopStab);
+      const after = HorseMind.runInSandbox(restored, () => {
+        HorseMind.setDecisionScope(scope, 'nlh', 'cash');
+        return HorseMind.streetBullyRead('villain');
+      });
+      expect(after).toEqual(before);
+      expect(HorseMind.exportFlopStabSnapshot().size).toBe(0);
+    }
+  );
+
+  it.each(['negative', 'overcount', 'fast_overcount', 'unknown_actor', 'duplicate', 'missing'])(
+    'refuses malformed flop-stab evidence: %s',
+    (fault) => {
+      const view = populated(false);
+      const scope = readScopeOf('nlh', 6);
+      view.flopStab = new Map([
+        [
+          `${scope}|villain`,
+          {
+            flopCheckedToOpps: 26,
+            flopBetCheckedTo: 22,
+            fFlopCheckedToOpps: 10,
+            fFlopBetCheckedTo: 9,
+          },
+        ],
+      ]);
+      const frame = encodeHorseDecisionReads(view, players, 'hand');
+      const body = JSON.parse(frame.json);
+      if (fault === 'negative') body.scopedFlopStab[0][1][0] = -1;
+      if (fault === 'overcount') body.scopedFlopStab[0][1][1] = 27;
+      if (fault === 'fast_overcount') body.scopedFlopStab[0][1][3] = 11;
+      if (fault === 'unknown_actor') body.scopedFlopStab[0][0] = `${scope}|unrelated`;
+      if (fault === 'duplicate') body.scopedFlopStab.push(body.scopedFlopStab[0]);
+      if (fault === 'missing') delete body.scopedFlopStab;
+      const json = JSON.stringify(body);
+      expect(() =>
+        decodeHorseDecisionReads(
+          {
+            ...frame,
+            json,
+            bytes: Buffer.byteLength(json),
+            sha256: createHash('sha256').update(json).digest('hex'),
+          },
+          players,
+          'hand'
+        )
+      ).toThrow('invalid');
+    }
+  );
+
   it('retains signed winner moments only for the captured actors', () => {
     const view = populated();
     view.winnerReads!.rows.set('villain', { w: 3, w2: 3, s: -5, q: 12 });

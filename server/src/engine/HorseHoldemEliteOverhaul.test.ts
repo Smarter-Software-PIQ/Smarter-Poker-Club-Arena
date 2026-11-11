@@ -1758,6 +1758,21 @@ describe('6. Ecosystem #3, #4 & #5: Bully-Breaker Reads, WinnerRead LAG Fix, Per
     expect(takeawaysOn).toBeGreaterThanOrEqual(15);
   });
 
+  it.each([
+    ['000000000097', 'lag_shark'], // hash bucket 0
+    ['000000000387', 'lag_shark'], // 24: last LAG bucket
+    ['000000000036', 'tricky_trap'], // 25: first trap bucket
+    ['000000000001', 'tricky_trap'], // 44: last trap bucket
+    ['000000000020', 'tag_crusher'], // 45: first TAG bucket
+    ['000000000206', 'tag_crusher'], // 84: last TAG bucket
+    ['000000000295', 'nit_hunter'], // 85: first hunter bucket
+    ['000000000046', 'nit_hunter'], // 99
+  ])('honors the approved Holdem persona bucket boundary for %s', (suffix, archetype) => {
+    // Frozen identities pin the approved 25/20/40/15 partition independently
+    // of the implementation thresholds, including every transition.
+    expect(holdemPersonaFor(`00000000-0000-4000-8000-${suffix}`).archetype).toBe(archetype);
+  });
+
   it('verifies holdemPersonaFor 1,000-Horse distribution, NLH Cash SelfTuner 25%-30% isolation, and 4 Holdem leak tags', () => {
     expect(BENCH.vpip).toEqual({ lo: 0.19, hi: 0.32 });
     const counts: Record<string, number> = {
@@ -1775,10 +1790,16 @@ describe('6. Ecosystem #3, #4 & #5: Bully-Breaker Reads, WinnerRead LAG Fix, Per
       // The authored persona v2 is untouched and independent of the Hold'em archetype.
       expect(defaultPersonaFor(id).gtoAdherence).toBeGreaterThanOrEqual(0);
     }
-    expect(counts.lag_shark).toBeGreaterThan(200);
-    expect(counts.tricky_trap).toBeGreaterThan(160);
-    expect(counts.tag_crusher).toBeGreaterThan(220);
-    expect(counts.nit_hunter).toBeGreaterThan(120);
+    for (const [archetype, target] of Object.entries({
+      lag_shark: 0.25,
+      tricky_trap: 0.2,
+      tag_crusher: 0.4,
+      nit_hunter: 0.15,
+    })) {
+      // Hash allocation gives a target population mix, not an exact quota
+      // for every arbitrary cohort of 1,000 identities.
+      expect(Math.abs(counts[archetype] / 1000 - target)).toBeLessThan(0.03);
+    }
 
     // SelfTuner NLH Cash 25%-30% VPIP isolation:
     // 1) A Cash Horse at 28.5% VPIP is right inside [25%, 30%] -> NOT tightened
