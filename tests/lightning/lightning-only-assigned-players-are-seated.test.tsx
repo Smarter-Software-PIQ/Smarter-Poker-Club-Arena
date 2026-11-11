@@ -44,3 +44,47 @@ describe('a pool waiting count is not a seat', () => {
     expect(container.textContent).toBe('');
   });
 });
+
+/*
+ * The seats come only from the formed hand's own snapshot roster
+ * (useSeatArrivals over the engine's players). These pin what that ledger
+ * does across a void, a different table and a RESYNC.
+ */
+import { nextSeatArrivals } from '../../src/components/table/seatArrival';
+
+const HERO = { id: 'hero', isHero: true };
+const p = (id: string) => ({ id });
+const empty = { scope: 'room', signature: '', known: [], serial: 0, arrivals: {} };
+const spacing = { stepMs: 120, maxDelayMs: 420 };
+
+describe('the seats follow the authoritative table only', () => {
+  it('a hand voided during its arrivals leaves no player arriving', () => {
+    const dealt = nextSeatArrivals(empty, 'room', [HERO, p('a'), p('b'), null], 41, spacing);
+    expect(Object.values(dealt.arrivals).map((a) => a.playerId)).toEqual(['a', 'b']);
+    // The engine's idle shape: players [].
+    const voided = nextSeatArrivals(dealt, 'room', [], 41, spacing);
+    expect(voided.arrivals).toEqual({});
+  });
+
+  it('the next table brings only its own players, never one from the voided table', () => {
+    const first = nextSeatArrivals(empty, 'room', [HERO, p('a'), p('b'), null], 41, spacing);
+    const idle = nextSeatArrivals(first, 'room', [], 41, spacing);
+    const next = nextSeatArrivals(idle, 'room', [p('c'), HERO, null, p('d')], 42, spacing);
+    const arriving = Object.values(next.arrivals).map((a) => a.playerId);
+    expect(arriving.sort()).toEqual(['c', 'd']);
+    expect(arriving).not.toContain('a');
+    expect(arriving).not.toContain('b');
+  });
+
+  it('a RESYNC of the same table replays nothing and keeps the arrivals in flight', () => {
+    const dealt = nextSeatArrivals(empty, 'room', [HERO, p('a'), p('b')], 41, spacing);
+    const resync = nextSeatArrivals(dealt, 'room', [HERO, p('a'), p('b')], 41, spacing);
+    expect(resync).toBe(dealt);
+  });
+
+  it('a different room never inherits another room’s players', () => {
+    const dealt = nextSeatArrivals(empty, 'room', [HERO, p('a')], 41, spacing);
+    const other = nextSeatArrivals(dealt, 'other-room', [HERO, p('z')], 7, spacing);
+    expect(Object.values(other.arrivals).map((a) => a.playerId)).toEqual(['z']);
+  });
+});

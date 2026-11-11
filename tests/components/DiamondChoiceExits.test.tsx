@@ -138,6 +138,7 @@ const mount = async (game: Game) => {
     </MemoryRouter>
   );
   await settle();
+  fireEvent.click(screen.getByRole('button', { name: 'Page Help' }));
 };
 /** Double Diamonds is retired (Dan 2026-10-16): no offer ever stands in front of the setup. */
 const noOffer = () => {
@@ -178,7 +179,7 @@ describe.each(['mines', 'crossing'] as const)(
       won(game, 40);
       await mount(game);
       noOffer();
-      if (game === 'mines') fireEvent.click(screen.getByText('Entry Details'));
+
       // The award is funded, so a short wallet changes nothing about starting it.
       expect(screen.queryByText(/More Diamonds/)).toBeNull();
       expect(
@@ -198,7 +199,7 @@ describe.each(['mines', 'crossing'] as const)(
       won(game, 10000);
       await mount(game);
       noOffer();
-      if (game === 'mines') fireEvent.click(screen.getByText('Entry Details'));
+
       await advance(1000);
       // The hold is armed and Start is the player's.
       expect(
@@ -219,13 +220,14 @@ describe('money in flight keeps the exits shut', () => {
     won('mines', 10000);
     await mount('mines');
     noOffer();
-    fireEvent.click(screen.getByText('Entry Details'));
+
     fireEvent.click(screen.getByRole('button', { name: 'Pick Tile' }));
     await settle();
     expect(backend.start).toHaveBeenCalledTimes(1);
     for (const exit of ['Buy More', 'Earn Diamonds'])
       expect(screen.getByRole('button', { name: exit })).toBeDisabled();
-    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    expect(screen.getByRole('dialog')).toHaveAttribute('data-page-help');
     fireEvent.click(screen.getByRole('button', { name: /Diamond Spins/ }));
     await settle();
     expect(screen.getByText(BLOCKED)).toBeInTheDocument();
@@ -257,7 +259,8 @@ describe('money in flight keeps the exits shut', () => {
     expect(screen.getByText('Settling')).toBeInTheDocument();
     for (const exit of ['Buy More', 'Earn Diamonds'])
       expect(screen.getByRole('button', { name: exit })).toBeDisabled();
-    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    expect(screen.getByRole('dialog')).toHaveAttribute('data-page-help');
     fireEvent.click(screen.getByRole('button', { name: /Diamond Spins/ }));
     await settle();
     expect(screen.getByText(BLOCKED)).toBeInTheDocument();

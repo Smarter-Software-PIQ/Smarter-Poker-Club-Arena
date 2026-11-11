@@ -10,7 +10,11 @@ a fake extensions.http answering from a table, so every outcome is data:
   * a file merged 59 minutes ago is quiet; at 60 minutes ONE critical alert
     pages the owner as 'Merged Migration Not Installed', and only once;
   * installing it resolves the alert; removing it from main resolves it too;
-  * a daily-maintenance window file is remembered but never paged;
+  * a daily-maintenance window file is remembered but never paged, including
+    one that was RENAMED (its patch holds only the changed hunk, so the header
+    is read from the raw file; 20261110194917);
+  * a renamed file whose raw text cannot be read is retried, never guessed;
+  * an empty or blank body is unreadable, never an absent header;
   * an unreadable GitHub raises nothing new and keeps the cursor;
   * a release page and a migration page do not hold each other back;
   * it never writes schema_migrations and never calls anything but GET.
@@ -27,6 +31,8 @@ ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS = ROOT / 'supabase/migrations'
 CUTOVER = MIGRATIONS / '20261109024836_a_missed_engine_cutover_and_a_failing_lobby_close_page_the_o.sql'
 MIGRATION = next(MIGRATIONS.glob('*_a_merged_migration_still_uninstalled_after_an_hour_pages_t*.sql'))
+# 20261110194917: a renamed file's window header is read from the raw file.
+RENAME_FIX = next(MIGRATIONS.glob('*_the_install_watch_reads_a_renamed_migration_s_header_from_it.sql'))
 PREIMAGES = json.loads((ROOT / 'scripts/ci/fixtures/engine-cutover-preimages.json').read_text())
 REPO = 'https://api.github.com/repos/Smarter-Software-PIQ/Smarter-Poker-Club-Arena'
 RAW = 'https://raw.githubusercontent.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena'
@@ -93,6 +99,11 @@ def main():
         proof = re.search(r'^-- @live-proof: (.+)$', MIGRATION.read_text(), re.M).group(1)
         assert sql(f'SELECT {proof}') == 't', 'live proof must hold after install'
         ok('the exact migration installs over the installed owner page route and its live proof holds')
+        r = psql(['-f', str(RENAME_FIX)])
+        assert r.returncode == 0, r.stderr
+        proof = re.search(r'^-- @live-proof: (.+)$', RENAME_FIX.read_text(), re.M).group(1)
+        assert sql(f'SELECT {proof}') == 't', 'rename-fix live proof must hold after install'
+        ok('the rename fix installs over the exact installed watch (md5 preimage) and its live proof holds')
 
         def mock(pattern, body, status=200):
             sql("INSERT INTO mock_http VALUES ($m$%s$m$, %d, $m$%s$m$) ON CONFLICT (pattern) DO UPDATE SET status = EXCLUDED.status, body = EXCLUDED.body"
@@ -185,6 +196,81 @@ def main():
         r = watch('2026-11-10 15:40:00Z')
         assert r['state'] == 'read' and r['new_commits'] == 2, r
         ok('an unreadable commit is read on the next run, with every commit after it')
+
+        # A RENAMED window file (20261110160345 -> 20261110173033, 2026-11-10,
+        # alert 376392): GitHub's patch for a rename carries only the changed
+        # hunk, so the header on line 1 is not in it. The watch must read the
+        # raw file, not take the partial patch for the whole file.
+        OLDW = 'supabase/migrations/20261110160000_renamed_window.sql'
+        NEWW = 'supabase/migrations/20261110170000_renamed_window.sql'
+        merge(8, '2026-11-10T16:00:00Z', [{'filename': OLDW, 'status': 'added',
+                                           'patch': '@@ -0,0 +1,3 @@\n+-- @install-window: daily-maintenance\n+-- @locks: public.t\n+-- 20261110160000_renamed_window.sql'}])
+        merge(9, '2026-11-10T16:10:00Z', [{'filename': NEWW, 'previous_filename': OLDW, 'status': 'renamed',
+                                           'patch': '@@ -3,1 +3,1 @@\n--- 20261110160000_renamed_window.sql\n+-- 20261110170000_renamed_window.sql'}])
+        mock(f'{RAW}/{sha(9)}/{NEWW}', '-- @install-window: daily-maintenance\n-- @locks: public.t\n-- 20261110170000_renamed_window.sql\n')
+        r = watch('2026-11-10 16:20:00Z')
+        assert r['state'] == 'read', r
+        assert sql("SELECT window_install FROM smarter_private.ca_merged_migration_watch WHERE version = '20261110170000'") == 't'
+        r = watch('2026-11-10 18:30:00Z')
+        assert sql("SELECT count(*) FROM operational_alert_events WHERE event_key = 'uninstalled:20261110170000'") == '0', r
+        ok('a renamed daily-maintenance window file is read from its raw text and never paged')
+
+        # A renamed file whose raw text cannot be read is not guessed ordinary:
+        # its commit is left unread and read again on the next run.
+        OLDX = 'supabase/migrations/20261110161000_renamed_again.sql'
+        NEWX = 'supabase/migrations/20261110171000_renamed_again.sql'
+        merge(10, '2026-11-10T16:30:00Z', [{'filename': OLDX, 'status': 'added',
+                                            'patch': '@@ -0,0 +1,1 @@\n+-- @install-window: daily-maintenance'}])
+        merge(11, '2026-11-10T16:40:00Z', [{'filename': NEWX, 'previous_filename': OLDX, 'status': 'renamed', 'patch': '@@ -2,1 +2,1 @@\n-x\n+y'}])
+        mock(f'{RAW}/{sha(11)}/{NEWX}', 'not found', status=404)
+        r = watch('2026-11-10 18:40:00Z')
+        assert r['state'] == 'unknown', r
+        assert sql(f"SELECT count(*) FROM smarter_private.ca_merged_migration_watch_commits WHERE sha = '{sha(11)}'") == '0'
+        assert sql("SELECT count(*) FROM smarter_private.ca_merged_migration_watch WHERE version = '20261110171000'") == '0'
+        mock(f'{RAW}/{sha(11)}/{NEWX}', '-- @install-window: daily-maintenance\ny\n')
+        r = watch('2026-11-10 18:50:00Z')
+        assert r['state'] == 'read', r
+        assert sql("SELECT window_install FROM smarter_private.ca_merged_migration_watch WHERE version = '20261110171000'") == 't'
+        assert sql("SELECT count(*) FROM operational_alert_events WHERE event_key = 'uninstalled:20261110171000'") == '0'
+        ok('a renamed file whose raw text cannot be read is retried, never guessed ordinary')
+
+        # An EMPTY body is unreadable, not an absent header (20261110194917).
+        # GitHub can answer 200 with nothing, and ca_migration_watch_raw hands
+        # back that '' rather than NULL, so reading it as "no window header"
+        # would put a window file on the ordinary route and page it - the same
+        # false page this file exists to stop.
+        OLDE = 'supabase/migrations/20261110162000_renamed_empty.sql'
+        NEWE = 'supabase/migrations/20261110172000_renamed_empty.sql'
+        merge(12, '2026-11-10T16:50:00Z', [{'filename': OLDE, 'status': 'added',
+                                            'patch': '@@ -0,0 +1,1 @@\n+-- @install-window: daily-maintenance'}])
+        merge(13, '2026-11-10T17:00:00Z', [{'filename': NEWE, 'previous_filename': OLDE, 'status': 'renamed',
+                                            'patch': '@@ -2,1 +2,1 @@\n-x\n+y'}])
+        mock(f'{RAW}/{sha(13)}/{NEWE}', '')
+        r = watch('2026-11-10 19:00:00Z')
+        assert r['state'] == 'unknown', r
+        assert sql(f"SELECT count(*) FROM smarter_private.ca_merged_migration_watch_commits WHERE sha = '{sha(13)}'") == '0'
+        assert sql("SELECT count(*) FROM smarter_private.ca_merged_migration_watch WHERE version = '20261110172000'") == '0'
+        mock(f'{RAW}/{sha(13)}/{NEWE}', '   \n\t\n')
+        r = watch('2026-11-10 19:10:00Z')
+        assert r['state'] == 'unknown', r
+        assert sql("SELECT count(*) FROM smarter_private.ca_merged_migration_watch WHERE version = '20261110172000'") == '0'
+        mock(f'{RAW}/{sha(13)}/{NEWE}', '-- @install-window: daily-maintenance\ny\n')
+        r = watch('2026-11-10 19:20:00Z')
+        assert r['state'] == 'read', r
+        assert sql("SELECT window_install FROM smarter_private.ca_merged_migration_watch WHERE version = '20261110172000'") == 't'
+        assert sql("SELECT count(*) FROM operational_alert_events WHERE event_key = 'uninstalled:20261110172000'") == '0'
+        ok('an empty or blank raw body is unreadable and retried, never read as an absent window header')
+
+        # An ADDED file whose patch GitHub returned empty is read from the raw
+        # file rather than judged on nothing.
+        ADDE = 'supabase/migrations/20261110163000_added_empty_patch.sql'
+        merge(14, '2026-11-10T17:10:00Z', [{'filename': ADDE, 'status': 'added', 'patch': ''}])
+        mock(f'{RAW}/{sha(14)}/{ADDE}', '-- @install-window: daily-maintenance\nBEGIN; COMMIT;\n')
+        r = watch('2026-11-10 19:30:00Z')
+        assert r['state'] == 'read', r
+        assert sql("SELECT window_install FROM smarter_private.ca_merged_migration_watch WHERE version = '20261110163000'") == 't'
+        assert sql("SELECT count(*) FROM operational_alert_events WHERE event_key = 'uninstalled:20261110163000'") == '0'
+        ok('an added file with an empty patch is read from its raw text, not judged on nothing')
 
         # Release and migration pages keep their own episode clocks.
         sql("SELECT public.fn_record_operational_alert('engine-cutover-watch', 'missed:2026-11-10', 'EngineCutoverMissed', 'firing', 'critical', "

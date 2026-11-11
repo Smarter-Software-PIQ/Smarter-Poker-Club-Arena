@@ -199,3 +199,17 @@ it('shows the earlier-starting database retry notice until it expires, then the 
   expect(cutover?.notAfterMs).toBe(Date.parse('2026-11-11T05:00:00Z'));
   expect(bookedMaintenanceNotice(Date.parse('2026-11-11T05:00:00Z'))).toBeNull();
 });
+
+it('retains both overlapping notices and the same public promise during receipt admission', () => {
+  const own = BOOKED_MAINTENANCE_NOTICES.find(
+    (n) => n.id === '2026-11-11-horse-clock-receipts-engine-0050z'
+  );
+  expect(own?.noticeAtMs).toBe(Date.parse('2026-11-11T00:30:00Z'));
+  expect(own?.notBeforeMs).toBe(Date.parse('2026-11-11T00:50:00Z'));
+  expect(own?.notAfterMs).toBe(Date.parse('2026-11-11T04:00:00Z'));
+  const at = Date.parse('2026-11-11T00:50:00Z');
+  const primary = bookedMaintenanceNotice(at);
+  expect(primary?.id).toBe('2026-11-10-closed-person-name-policy-db-retry');
+  expect(bookedMaintenanceNoticeText(primary!, at)).toBe(bookedMaintenanceNoticeText(own!, at));
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-11T04:00:00Z'), [own!])).toBeNull();
+});

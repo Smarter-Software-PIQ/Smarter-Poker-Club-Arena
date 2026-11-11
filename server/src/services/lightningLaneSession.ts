@@ -20,21 +20,42 @@
  * (BEGIN, the fixed private wrapper, COMMIT), and only a COMMIT command tag
  * proves the answer is durable.
  *
- * THE FALLBACK CONTRACT. `call` answers:
- *   - null           -> nothing reached the database, or the database refused
- *                       the whole transaction and rolled it back (a definite
- *                       error reply followed by ROLLBACK). Either way no
- *                       effect exists, so the caller makes the SAME call
- *                       through PostgREST exactly as before this lane.
- *   - { data, null } -> committed; data is the function's own jsonb answer.
- *   - { null, error } -> dispatched and the outcome cannot be known (lost
- *                       socket, request boundary). The caller treats it as the
- *                       transport failure it treats a PostgREST error as
- *                       today; every one of these functions is keyed by its
- *                       own request or instance id, so no money is replayed.
+ * THE FALLBACK CONTRACT (tightened 2026-11-10, Dan: "the shared path must
+ * never be tried after the lane may have executed"). `call` answers:
+ *   - null            -> DEFINITELY NOT SENT: no socket was acquired and no
+ *                        byte of BEGIN, the wrapper or COMMIT was written (lane
+ *                        not ready, credential absent, pool full, acquisition
+ *                        over 100 ms or failed). Only this answer lets the
+ *                        caller make the same call through PostgREST.
+ *   - { data, null }  -> committed; data is the function's own jsonb answer.
+ *   - { null, error } -> SENT. Either the database refused it and the COMMIT
+ *                        answered ROLLBACK (LIGHTNING_LANE_ROLLED_BACK:
+ *                        definitely not committed), or the outcome cannot be
+ *                        known (LIGHTNING_LANE_UNKNOWN: lost socket before the
+ *                        answer, after COMMIT was sent, or the request
+ *                        boundary). Neither is re-sent here. The caller treats
+ *                        both exactly as it treats a PostgREST error today and
+ *                        resolves them from the operation's own durable record:
+ *                          settle_hand       retried with the SAME request id
+ *                                            and request hash; the function
+ *                                            returns the stored settle_receipt
+ *                                            (replay) if the first committed;
+ *                          match_and_form    re-asked with the SAME request id;
+ *                                            cash_cluster_matcher_pass replays
+ *                                            the stored result;
+ *                          begin_dealing,    never re-sent: the host abandons the
+ *                          bind_hand_number  instance, keyed by its instance id
+ *                                            (bind also replays on the same
+ *                                            instance and hand number).
  * A refusal raised by the wrapper itself (wrong session, missing function,
- * privilege) turns the lane off for the life of this process: every later
- * call goes straight to PostgREST and the gauge says so.
+ * privilege) also turns the lane off for the life of this process: every later
+ * call is refused before sending and goes to PostgREST, and the gauge says so.
+ *
+ * TIMEOUTS. Each lane transaction runs at most LIGHTNING_LANE_STATEMENT_TIMEOUT_MS
+ * (8 s, the shared path's service_role statement_timeout) under the role's
+ * 4 s lock_timeout (the shared path allows 8 s). The client request boundary
+ * stays at the engine's Supabase timeout and only decides when an answer is
+ * declared unknown.
  */
 import pg from 'pg';
 import { supabase } from './supabase/client.js';
@@ -48,6 +69,8 @@ import {
 
 export const LIGHTNING_LANE_POOL_MAX = 6;
 export const LIGHTNING_LANE_ACQUIRE_MS = 100;
+/** Never above the shared path's service_role statement_timeout (8 s). */
+export const LIGHTNING_LANE_STATEMENT_TIMEOUT_MS = 8_000;
 export const LIGHTNING_LANE_ROLE = 'engine_lightning_lane';
 export const LIGHTNING_LANE_SQL =
   'SELECT smarter_private.fn_engine_lightning_lane($1::text,$2::jsonb,$3::jsonb) AS result';
@@ -67,12 +90,12 @@ export function isLightningLaneFunction(fn: string): fn is LightningLaneFunction
   return Object.prototype.hasOwnProperty.call(LIGHTNING_LANE_OPERATIONS, fn);
 }
 
+export type LightningLaneError =
+  | { message: 'lightning_lane_outcome_unknown'; code: 'LIGHTNING_LANE_UNKNOWN' }
+  | { message: 'lightning_lane_rolled_back'; code: 'LIGHTNING_LANE_ROLLED_BACK'; sqlState: string };
 export type LightningLaneResult =
   | { data: unknown; error: null }
-  | {
-      data: null;
-      error: { message: 'lightning_lane_outcome_unknown'; code: 'LIGHTNING_LANE_UNKNOWN' };
-    };
+  | { data: null; error: LightningLaneError };
 
 export interface LightningLaneClient {
   query(
@@ -136,7 +159,8 @@ export function createLightningLaneSession(deps: {
   timeoutMs?: number;
 }) {
   const timeoutMs = deps.timeoutMs ?? DB_TIMEOUT_MS;
-  const BEGIN_SQL = `BEGIN; SET LOCAL synchronous_commit = on; SET LOCAL statement_timeout = '${timeoutMs}ms'; SET LOCAL idle_in_transaction_session_timeout = '${timeoutMs}ms'`;
+  const statementMs = Math.min(timeoutMs, LIGHTNING_LANE_STATEMENT_TIMEOUT_MS);
+  const BEGIN_SQL = `BEGIN; SET LOCAL synchronous_commit = on; SET LOCAL statement_timeout = '${statementMs}ms'; SET LOCAL idle_in_transaction_session_timeout = '${statementMs}ms'`;
   const actorHeaders =
     deps.actorHeaders ?? (() => Object.fromEntries(dataActorHeaders().entries()));
   let pool: LightningLanePool | null = null;
@@ -300,21 +324,30 @@ export function createLightningLaneSession(deps: {
       ]);
       const commit = connection.query('COMMIT');
       for (const reply of [begun, statement, commit]) reply.catch(() => undefined);
-      const transaction = (async (): Promise<LightningLaneResult | null> => {
+      const transaction = (async (): Promise<LightningLaneResult> => {
         await begun;
         let result: { rows: Array<Record<string, unknown>> };
         try {
           result = await statement;
         } catch (refused) {
           // A database error reply aborts the transaction; the queued COMMIT
-          // then answers ROLLBACK. Only that pair proves nothing happened.
+          // then answers ROLLBACK. Only that pair proves nothing committed. It
+          // is still NEVER re-sent through PostgREST from here: the call reached
+          // the database, so the caller resolves it from the operation's own
+          // record exactly as it resolves a PostgREST error.
           const done = await commit;
-          if (hasSqlState(refused) && done.command === 'ROLLBACK') {
-            if (expired) throw new Error('lane_request_boundary');
+          if (hasSqlState(refused) && done.command === 'ROLLBACK' && !expired) {
             rolledBack++;
             if (isTournamentManagerFencedError(refused)) notifyTournamentManagerFenced(authority);
             if (laneDefinitionRefusal(refused)) disable('the lane wrapper refused the call');
-            return null;
+            return {
+              data: null,
+              error: {
+                message: 'lightning_lane_rolled_back',
+                code: 'LIGHTNING_LANE_ROLLED_BACK',
+                sqlState: String((refused as { code?: unknown }).code),
+              },
+            };
           }
           throw refused;
         }

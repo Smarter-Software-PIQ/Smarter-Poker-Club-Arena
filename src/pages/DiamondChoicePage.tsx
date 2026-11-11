@@ -1097,6 +1097,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
       </button>
       <DiamondSpinsTabs clubId={clubId ?? ''} />
       <GameConsole
+        game={game}
         collapseSetup
         setup={
           // The setup describes the next entry. A round on the board, open or
@@ -1160,7 +1161,117 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
                 target: '[data-game-actions]',
               },
             ]}
-          />
+          >
+            {promise && <p className="sc-copy">{promise}</p>}
+            <GameLifetimeAverages
+              clubId={uuid}
+              revision={round ? `${round.id}:${round.status}` : null}
+            />
+            <GamePanel title="Your Game" pill="Rules" foot="foot">
+              <p className="sc-copy">
+                {game === 'mines'
+                  ? `${ONE_SETTING.mines} Pick Hidden Gems On The Board; Every Safe Pick Raises Your Prize. Book The Win After Any Safe Pick, And The Remaining Mines Are Then Revealed. A Mine Ends The Round And Pays The Guaranteed Minimum.`
+                  : `Guide The Donkey Across The Road. ${ONE_SETTING.crossing(ladder ?? quoteLadder)} Each Safe Crossing Raises Your Prize. Book The Win After Any Street. A Hit Ends The Round And Pays The Guaranteed Minimum. Traffic Animation Does Not Change The Outcome.`}
+              </p>
+              {game === 'crossing' ? (
+                <p className="sc-copy">
+                  {coinRoad
+                    ? (round?.payout_version ?? state?.payout_version) === 6
+                      ? 'Every Street Is A Fair Coin Flip: Exactly A 50% Chance To Cross Safely, Street One Included. Each Coin Is Sealed Before You Start, And When You Book The Win You See How Far You Would Have Got.'
+                      : (round?.payout_version ?? state?.payout_version) === 8
+                        ? 'Street One Is Always Safe. Streets Two Through Four Each Have An 87.5% Chance Of A Safe Crossing. From Street Five, Each Crossing Has A 50% Chance. After You Book Your Win, The Sealed Coins Show How Far You Would Have Gone.'
+                        : 'Street One Is Always Safe. Every Street After It Is A Fair Coin Flip: Exactly A 50% Chance To Cross Safely. Each Coin Is Sealed Before You Start, And When You Book The Win You See How Far You Would Have Got.'
+                    : 'Where The Donkey Would Be Hit Is Sealed Before You Start; Your Only Choice Is When To Book.'}
+                </p>
+              ) : null}
+              <p className="sc-copy">
+                One Setting For Every Round. Nobody Picks A Difficulty; It Is Built Into The Payout.
+                Any Loss, And Any Round You Do Not Cash Out, Pays At Least The Guaranteed Minimum
+                Shown Before You Start. New Rounds Keep At Least Half The Last Safe Prize.
+              </p>
+              <p className="sc-copy">
+                Your Round Is Saved If You Leave. Reaching The Round Limit Books Your Win
+                Automatically.
+              </p>
+              <p className="sc-copy">
+                Chip Prizes Are Estimates Until Booked. A Fraction Of A Cent Is Rounded Up Or Down
+                When The Win Is Booked.
+              </p>
+            </GamePanel>
+            <GamePanel title={proofTitle} pill="Sealed" foot="foot">
+              <p className={`sc-copy ${styles.proofHash}`}>
+                {finished ? 'Next Ticket: ' : 'Sealed Before Play: '}
+                {open ? round.server_seed_hash : (ticket?.hash ?? 'Preparing Your Ticket')}
+              </p>
+              <label className={styles.seedField}>
+                Your Seed
+                <input
+                  className={styles.seedInput}
+                  // An open round shows the seed it was sealed with, even one read back
+                  // from the server; before a round, the seed the next one will use.
+                  value={open ? round.client_seed : seed}
+                  maxLength={64}
+                  disabled={busy || open || uncertain}
+                  onChange={(e) => setSeed(e.target.value)}
+                  onBlur={(e) => {
+                    if (!e.target.value.trim()) setSeed(randomClientSeed());
+                  }}
+                  aria-label="Your Seed"
+                />
+              </label>
+              {round?.proof ? (
+                <p className={`sc-copy ${styles.proofHash}`}>
+                  This Round Was Sealed As: {round.server_seed_hash}
+                </p>
+              ) : null}
+              {round?.proof ? (
+                <button
+                  type="button"
+                  className={styles.back}
+                  onClick={async () => {
+                    try {
+                      const result = await verifyChoiceRoundDetailed(round);
+                      if (
+                        mounted.current &&
+                        !busyRef.current &&
+                        currentRound.current?.id === round.id
+                      )
+                        setVerified(result);
+                    } catch (e) {
+                      reportError(e, 'DiamondChoicePage.verify');
+                      if (
+                        mounted.current &&
+                        !busyRef.current &&
+                        currentRound.current?.id === round.id
+                      )
+                        setVerified({ seal: false, draw: false, prizes: false, payout: false });
+                    }
+                  }}
+                >
+                  Verify Revealed Outcome
+                </button>
+              ) : null}
+              {verified !== null ? (
+                <p className="sc-copy">
+                  {choiceRoundVerified(verified)
+                    ? 'The Revealed Outcome And Chip Prize Match The Sealed Round.'
+                    : `The Outcome Could Not Be Verified. ${checkNames(verified)}.`}
+                </p>
+              ) : null}
+            </GamePanel>
+            <GamePanel title="Recent Rounds" pill="Saved" foot="foot">
+              {(state?.history ?? []).length === 0 ? (
+                <p className="sc-copy">Your Completed Rounds Will Appear Here.</p>
+              ) : (
+                state?.history.map((item) => (
+                  <div className={styles.row} key={item.id}>
+                    <span className="sc-label">{historyRow(item)}</span>
+                    <span className="sc-ink--gold">{gameChips(item.payout_chips)} Chips</span>
+                  </div>
+                ))
+              )}
+            </GamePanel>
+          </PageHelp>
         }
         pill={status === 'Ready' ? '' : status}
         pillInk={round?.status === 'cashed' ? 'green' : 'blue'}
@@ -1168,7 +1279,8 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
           bonusPrizeBay(
             guaranteedChips,
             receiptShowing && round ? round.payout_chips : null,
-            guaranteedSuper
+            guaranteedSuper,
+            earned.loading ? null : (budget.award?.entryDiamonds ?? budget.base)
           ),
           {
             label: game === 'mines' ? 'Revealed' : 'Street',
@@ -1363,109 +1475,13 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
                             : !state.available
                               ? 'This Game Is Not Open Here Yet'
                               : 'This Bet Is Not Available Right Now'
-                      : game === 'mines'
+                      : game === 'mines' || budget.award
                         ? null
                         : `${promise ?? `${compactChips(bet)} Diamonds To Play.`} ${state.max_steps} Streets In This Round.`}
             </p>
           )}
         </div>
       </GameConsole>
-      <GameLifetimeAverages clubId={uuid} revision={round ? `${round.id}:${round.status}` : null} />
-      <GamePanel title="Your Game" pill="Rules" foot="foot">
-        <p className="sc-copy">
-          {game === 'mines'
-            ? `${ONE_SETTING.mines} Pick Hidden Gems On The Board; Every Safe Pick Raises Your Prize. Book The Win After Any Safe Pick, And The Remaining Mines Are Then Revealed. A Mine Ends The Round And Pays The Guaranteed Minimum.`
-            : `Guide The Donkey Across The Road. ${ONE_SETTING.crossing(ladder ?? quoteLadder)} Each Safe Crossing Raises Your Prize. Book The Win After Any Street. A Hit Ends The Round And Pays The Guaranteed Minimum. Traffic Animation Does Not Change The Outcome.`}
-        </p>
-        {game === 'crossing' ? (
-          <p className="sc-copy">
-            {coinRoad
-              ? (round?.payout_version ?? state?.payout_version) === 6
-                ? 'Every Street Is A Fair Coin Flip: Exactly A 50% Chance To Cross Safely, Street One Included. Each Coin Is Sealed Before You Start, And When You Book The Win You See How Far You Would Have Got.'
-                : (round?.payout_version ?? state?.payout_version) === 8
-                  ? 'Street One Is Always Safe. Streets Two Through Four Each Have An 87.5% Chance Of A Safe Crossing. From Street Five, Each Crossing Has A 50% Chance. After You Book Your Win, The Sealed Coins Show How Far You Would Have Gone.'
-                  : 'Street One Is Always Safe. Every Street After It Is A Fair Coin Flip: Exactly A 50% Chance To Cross Safely. Each Coin Is Sealed Before You Start, And When You Book The Win You See How Far You Would Have Got.'
-              : 'Where The Donkey Would Be Hit Is Sealed Before You Start; Your Only Choice Is When To Book.'}
-          </p>
-        ) : null}
-        <p className="sc-copy">
-          One Setting For Every Round. Nobody Picks A Difficulty; It Is Built Into The Payout. Any
-          Loss, And Any Round You Do Not Cash Out, Pays At Least The Guaranteed Minimum Shown Before
-          You Start. New Rounds Keep At Least Half The Last Safe Prize.
-        </p>
-        <p className="sc-copy">
-          Your Round Is Saved If You Leave. Reaching The Round Limit Books Your Win Automatically.
-        </p>
-        <p className="sc-copy">
-          Chip Prizes Are Estimates Until Booked. A Fraction Of A Cent Is Rounded Up Or Down When
-          The Win Is Booked.
-        </p>
-      </GamePanel>
-      <GamePanel title={proofTitle} pill="Sealed" foot="foot">
-        <p className={`sc-copy ${styles.proofHash}`}>
-          {finished ? 'Next Ticket: ' : 'Sealed Before Play: '}
-          {open ? round.server_seed_hash : (ticket?.hash ?? 'Preparing Your Ticket')}
-        </p>
-        <label className={styles.seedField}>
-          Your Seed
-          <input
-            className={styles.seedInput}
-            // An open round shows the seed it was sealed with, even one read back
-            // from the server; before a round, the seed the next one will use.
-            value={open ? round.client_seed : seed}
-            maxLength={64}
-            disabled={busy || open || uncertain}
-            onChange={(e) => setSeed(e.target.value)}
-            onBlur={(e) => {
-              if (!e.target.value.trim()) setSeed(randomClientSeed());
-            }}
-            aria-label="Your Seed"
-          />
-        </label>
-        {round?.proof ? (
-          <p className={`sc-copy ${styles.proofHash}`}>
-            This Round Was Sealed As: {round.server_seed_hash}
-          </p>
-        ) : null}
-        {round?.proof ? (
-          <button
-            type="button"
-            className={styles.back}
-            onClick={async () => {
-              try {
-                const result = await verifyChoiceRoundDetailed(round);
-                if (mounted.current && !busyRef.current && currentRound.current?.id === round.id)
-                  setVerified(result);
-              } catch (e) {
-                reportError(e, 'DiamondChoicePage.verify');
-                if (mounted.current && !busyRef.current && currentRound.current?.id === round.id)
-                  setVerified({ seal: false, draw: false, prizes: false, payout: false });
-              }
-            }}
-          >
-            Verify Revealed Outcome
-          </button>
-        ) : null}
-        {verified !== null ? (
-          <p className="sc-copy">
-            {choiceRoundVerified(verified)
-              ? 'The Revealed Outcome And Chip Prize Match The Sealed Round.'
-              : `The Outcome Could Not Be Verified. ${checkNames(verified)}.`}
-          </p>
-        ) : null}
-      </GamePanel>
-      <GamePanel title="Recent Rounds" pill="Saved" foot="foot">
-        {(state?.history ?? []).length === 0 ? (
-          <p className="sc-copy">Your Completed Rounds Will Appear Here.</p>
-        ) : (
-          state?.history.map((item) => (
-            <div className={styles.row} key={item.id}>
-              <span className="sc-label">{historyRow(item)}</span>
-              <span className="sc-ink--gold">{gameChips(item.payout_chips)} Chips</span>
-            </div>
-          ))
-        )}
-      </GamePanel>
       {receiptShowing && round && (
         <BonusCompletion
           key={round.id}

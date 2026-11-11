@@ -79,8 +79,11 @@ import {
   type LightningBuyInContext,
 } from '../lightning/lightningJoinBuyIn';
 import {
+  abandonUnseatedLightningJoin,
   bindLightningJoinRoom,
-  cancelLightningJoin,
+  confirmLightningJoin,
+  endLightningJoin,
+  lightningJoinReasonCode,
   markLightningJoin,
   markLightningJoinRejoined,
   startLightningJoin,
@@ -134,6 +137,8 @@ export default function LightningEntryPage() {
     mounted.current = true;
     return () => {
       mounted.current = false;
+      // Left the Join page before buying a seat: that timed join was abandoned.
+      abandonUnseatedLightningJoin('LEFT_PAGE');
     };
   }, []);
 
@@ -222,7 +227,7 @@ export default function LightningEntryPage() {
       const userId = await currentLightningUserId();
       if (!ownsPage()) return;
       if (!userId) {
-        cancelLightningJoin();
+        endLightningJoin('refused', 'SIGN_IN_REQUIRED');
         toast.warning('Sign In To Join A Game.');
         return;
       }
@@ -241,14 +246,15 @@ export default function LightningEntryPage() {
       const context = await readLightningBuyInContext(clusterId, userId);
       if (!ownsPage()) return;
       if (!context) {
-        cancelLightningJoin();
+        endLightningJoin('refused', 'NOT_TAKING_PLAYERS');
         toast.warning('This Game Is Not Taking Players.');
         return;
       }
       setBuyIn({ ...context, userId });
       markLightningJoin('dialog_shown');
     } catch (err) {
-      cancelLightningJoin();
+      const code = lightningJoinReasonCode(err, 'BUYIN_CONTEXT_FAILED');
+      endLightningJoin(code === 'PLATFORM_FROZEN' ? 'refused' : 'failed', code);
       if (!ownsPage()) return;
       /* THE FREEZE IS NOT A FAILURE (Dan 2026-11-07). The rejoin door raises
          PLATFORM_FROZEN during maintenance; this used to file it as an error
@@ -277,7 +283,8 @@ export default function LightningEntryPage() {
   const confirmLightningBuyIn = useCallback(
     async (amount: number): Promise<BuyInConfirmation> => {
       if (!clusterId || !buyIn) return false;
-      markLightningJoin('confirm');
+      // A Confirm after a refusal times a new attempt; the refused one keeps its report.
+      confirmLightningJoin(clusterId);
       const result = await buyIntoLightning({
         clusterId,
         userId: buyIn.userId,
@@ -290,7 +297,7 @@ export default function LightningEntryPage() {
       if (result.kind === 'seated') {
         markLightningJoin('seated');
         bindLightningJoinRoom(result.poolSessionId);
-      } else cancelLightningJoin();
+      } else endLightningJoin(result.kind === 'rejected' ? 'refused' : 'failed', result.code);
       if (!mounted.current) return result.kind === 'seated';
       if (result.kind === 'rejected')
         return { status: 'rejected', message: await withFreezeTime(result.message) };
@@ -546,7 +553,11 @@ export default function LightningEntryPage() {
       {buyIn ? (
         <BuyInModal
           isOpen
-          onClose={() => setBuyIn(null)}
+          onClose={() => {
+            // Closing the question before confirming ends the timed join.
+            abandonUnseatedLightningJoin('DIALOG_CLOSED');
+            setBuyIn(null);
+          }}
           onConfirm={(amount) => confirmLightningBuyIn(amount)}
           tableName={meta?.name ?? 'Lightning'}
           gameType={meta?.variant ?? null}
