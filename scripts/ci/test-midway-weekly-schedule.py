@@ -368,6 +368,32 @@ with tempfile.TemporaryDirectory(prefix='midway-weekly-',dir=parent) as folder:
             assert actual['late_reg_levels']==10 and actual['late_reg_mins']==0
             assert json.loads(actual['blind_structure'])==document['profiles'][event['blindProfile']]
         print('PASS: four revised schedules spawn 15,000 at 25/50 with every subsequent level preserved')
+        # Dan 2026-11-11: the 7 PM Nightly 10K guarantees 20K. Before the
+        # migration: one open instance nobody entered, one with an entrant.
+        nightly=target['id']
+        open_id,held_id='92000000-0000-4000-8000-000000000001','92000000-0000-4000-8000-000000000002'
+        for event_id in (open_id,held_id):
+            insert_event(event_id,nightly)
+        sql("UPDATE tournaments SET start_time=now()+interval '1 day' WHERE id IN ('"+open_id+"','"+held_id+"')")
+        sql("INSERT INTO tournament_players(id,tournament_id) VALUES(gen_random_uuid(),'"+held_id+"')")
+        assert sql("SELECT string_agg(trim_scale(guaranteed_prize)::text,',' ORDER BY id) FROM tournaments WHERE id IN ('"+open_id+"','"+held_id+"')")=='10000,10000'
+        sql("DROP TABLE IF EXISTS before_nightly; CREATE TABLE before_nightly AS SELECT id,config FROM tournament_schedules")
+        nightly_sql=next((root/'supabase/migrations').glob('*nightly_10k_guarantees_20k.sql')).read_text()
+        sql(installer(nightly_sql))
+        changed=sql("SELECT string_agg(s.id::text,',') FROM tournament_schedules s JOIN before_nightly b USING(id) WHERE s.config IS DISTINCT FROM b.config")
+        assert changed==nightly,changed
+        assert sql("SELECT (config->>'guaranteedPrize')||','||(config#>>'{midwayWeeklyTerms,guaranteed_prize}')||','||name||','||start_times_utc[1] FROM tournament_schedules WHERE id='"+nightly+"'")=='20000,20000,Nightly 10K (NLH),19:00'
+        assert sql("SELECT (b.config::jsonb-'guaranteedPrize'-'midwayWeeklyTerms')=(s.config::jsonb-'guaranteedPrize'-'midwayWeeklyTerms') AND ((b.config::jsonb->'midwayWeeklyTerms')-'guaranteed_prize')=((s.config::jsonb->'midwayWeeklyTerms')-'guaranteed_prize') FROM tournament_schedules s JOIN before_nightly b USING(id) WHERE s.id='"+nightly+"'")=='t'
+        assert sql("SELECT string_agg(trim_scale(guaranteed_prize)::text,',' ORDER BY id) FROM tournaments WHERE id IN ('"+open_id+"','"+held_id+"')")=='20000,10000'
+        spawned=sql("SELECT gen_random_uuid()")
+        insert_event(spawned,nightly)
+        assert sql("SELECT trim_scale(guaranteed_prize)::text||','||(fn_ca_midway_weekly_terms(t.schedule_id)->>'guaranteed_prize') FROM tournaments t WHERE id='"+spawned+"'")=='20000,20000'
+        # The catalog document carries the same guarantee as the installed catalog.
+        assert target['config']['guaranteedPrize']==20000 and target['terms']['guaranteed_prize']==20000
+        try: sql(installer(nightly_sql))
+        except RuntimeError as error: assert 'changed since qualification' in str(error),str(error)
+        else: raise AssertionError('a second install of the Nightly 20K migration was not refused')
+        print('PASS: Nightly 10K guarantees 20,000 on its schedule, new spawns and unentered instances; an entered instance keeps its contract')
         # Execute the maintained snapshot against this production-shaped schema.
         # Empty read inputs do not emulate cancellation or certify a refund.
         sql("""ALTER TABLE tournament_players ADD COLUMN IF NOT EXISTS user_id uuid;
