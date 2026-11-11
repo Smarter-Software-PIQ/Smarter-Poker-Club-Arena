@@ -42,7 +42,7 @@
 --
 -- Native PG17: scripts/ci/test-financial-alerts-proven-over-postgres.py.
 --
--- @live-proof: position('smarter_private.financial_alerts_proven_over(p_apply, p_limit)' in pg_get_functiondef('public.fn_resolve_settled_financial_alerts(boolean,integer)'::regprocedure))>0 AND to_regprocedure('smarter_private.financial_alerts_proven_over(boolean,integer)') IS NOT NULL
+-- @live-proof: position('smarter_private.financial_alerts_proven_over(p_apply, p_limit)' in (SELECT p.prosrc FROM pg_proc p WHERE p.oid=to_regprocedure('public.fn_resolve_settled_financial_alerts(boolean,integer)')))>0 AND to_regprocedure('smarter_private.financial_alerts_proven_over(boolean,integer)') IS NOT NULL
 BEGIN;
 SET LOCAL lock_timeout='1s';
 SET LOCAL statement_timeout='15s';
