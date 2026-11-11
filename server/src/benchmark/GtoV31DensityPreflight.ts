@@ -21,6 +21,7 @@
  * occur, not a certification.
  */
 
+import { createHash } from 'node:crypto';
 import type { V31DemandSpot } from '../engine/HorseV31CertifiedPolicy.js';
 import { gtoV31DemandCell } from '../engine/GtoPostflopV31.js';
 import { runMatchup, type LeagueMatchup } from './HorseLeague.js';
@@ -306,4 +307,76 @@ export function proposeGtoV31CellPlan(
     if (!taken.has(c.k)) keys.push(c.k);
   }
   return { keys, score: scoreGtoV31CellPlan(demand, keys, minReach) };
+}
+
+/**
+ * The registration block of a proposed plan (2026-11-10, after R8 was solved
+ * with a composition nobody approved: 70 flop / 23 turn / 7 river approved,
+ * 0 / 67 / 33 built). A round is registered in gto_v31_round_registrations
+ * before its dataset exists; dataset insert, training and seal are each
+ * refused unless their cells hash to `cellSetChecksum`.
+ *
+ * `cells` are the 13 context keys in the database's snake_case form;
+ * `cellSetChecksum` is SHA-256 of their canonical JSON (sorted keys, compact,
+ * ASCII) in canonical byte order: the same bytes as SQL
+ * fn_gto_v31_cell_set_checksum and Python public_hist215.digest.
+ */
+export interface GtoV31PlanRegistrationBlock {
+  composition: { flop: number; turn: number; river: number };
+  cells: Record<string, string | number>[];
+  cellSetChecksum: string;
+}
+
+function gtoV31CanonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return '[' + value.map(gtoV31CanonicalJson).join(',') + ']';
+  if (value && typeof value === 'object') {
+    const keys = Object.keys(value).sort();
+    return (
+      '{' +
+      keys
+        .map((k) => JSON.stringify(k) + ':' + gtoV31CanonicalJson((value as Record<string, unknown>)[k]))
+        .join(',') +
+      '}'
+    );
+  }
+  if (typeof value === 'number' && !Number.isSafeInteger(value))
+    throw new Error('GTO_V31_REGISTRATION_NON_INTEGER');
+  const text = JSON.stringify(value);
+  if (!/^[ -~]*$/.test(text)) throw new Error('GTO_V31_REGISTRATION_NON_ASCII');
+  return text;
+}
+
+export function gtoV31PlanRegistrationBlock(
+  cells: readonly GtoV31DemandCellContext[]
+): GtoV31PlanRegistrationBlock {
+  const rows = cells.map((c) => ({
+    street: c.street,
+    game_family: c.family,
+    objective: c.objective,
+    utility_context: c.utilityContext,
+    table_size: c.tableSize,
+    pot_type: c.potType,
+    hero_position: c.heroPosition,
+    opponent_position: c.opponentPosition,
+    depth_bucket: c.depth,
+    texture_class: c.texture,
+    node_role: c.nodeRole,
+    facing_kind: c.facingKind,
+    facing_size_bucket: c.facingSizeBucket,
+  }));
+  const ordered = rows
+    .map((r) => ({ r, bytes: gtoV31CanonicalJson(r) }))
+    .sort((a, b) => (a.bytes < b.bytes ? -1 : a.bytes > b.bytes ? 1 : 0));
+  for (let i = 1; i < ordered.length; i++)
+    if (ordered[i].bytes === ordered[i - 1].bytes) throw new Error('GTO_V31_REGISTRATION_DUPLICATE_CELL');
+  const composition = { flop: 0, turn: 0, river: 0 };
+  for (const r of rows) {
+    if (r.street !== 'flop' && r.street !== 'turn' && r.street !== 'river')
+      throw new Error('GTO_V31_REGISTRATION_STREET');
+    composition[r.street] += 1;
+  }
+  const cellSetChecksum = createHash('sha256')
+    .update('[' + ordered.map((o) => o.bytes).join(',') + ']', 'ascii')
+    .digest('hex');
+  return { composition, cells: ordered.map((o) => o.r), cellSetChecksum };
 }

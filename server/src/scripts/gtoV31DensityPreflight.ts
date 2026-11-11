@@ -17,12 +17,20 @@
  *
  * --eligible=<file> with --eligible-sha256=<hex> (both or neither) restricts
  * the proposal to the cells that file lists as eligible (gtoV31EligibleCellFilter);
- * scoring, demand and the ceiling are unchanged. Without it nothing changes.
+ * scoring, demand and the ceiling are unchanged.
+ *
+ * The report carries the plan's registration block (street composition, the
+ * 13-key cells and their cell-set checksum) for gto_v31_round_registrations.
+ * Without --eligible the plan is marked NOT registrable: R8's approved
+ * 70 flop / 23 turn / 7 river came from a run with no board-capacity census
+ * and could not be built under the board recipe; a round registers only a
+ * plan selected under the census it will be solved with.
  */
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import {
   gtoV31EligibleCellFilter,
+  gtoV31PlanRegistrationBlock,
   proposeGtoV31CellPlan,
   recordGtoV31Demand,
   scoreGtoV31CellPlan,
@@ -90,11 +98,22 @@ async function main(): Promise<void> {
       cells: proposal.keys.map((k) => ({ key: k, ...demand.cells[k] })),
       score: proposal.score,
     },
+    registration: {
+      registrable: Boolean(eligiblePath) && proposal.score.passes,
+      ...(eligiblePath ? {} : { notRegistrableBecause: 'no board-capacity eligibility census (--eligible)' }),
+      ...gtoV31PlanRegistrationBlock(proposal.keys.map((k) => demand.cells[k])),
+    },
     ceilingIfEveryInScopeCellWereSolved: everything,
     demand,
   };
   if (out) writeFileSync(out, JSON.stringify(report, null, 1));
   const s = proposal.score;
+  const reg = report.registration;
+  console.log(
+    `[r8-density] composition ${reg.composition.flop} flop / ${reg.composition.turn} turn / ${reg.composition.river} river; ` +
+      `cell set ${reg.cellSetChecksum}; registrable=${reg.registrable}` +
+      (reg.registrable ? '' : ` (${'notRegistrableBecause' in reg ? reg.notRegistrableBecause : 'score does not pass'})`)
+  );
   console.log(
     `[r8-density] ${proposal.keys.length} cells proposed; contract ${s.contractPairsPerTable} pairs/table; ` +
       `weakest run ${s.minRunDecisions.toFixed(0)} decisions (floor 300); ${s.runsUnderFloor} runs under floor; ` +
