@@ -1144,7 +1144,7 @@ jobs:
             fi
             echo "Retained runtime \`$RETAINED\` was superseded by \`$LIVE\` before the browsers started; certifying the release production actually serves." >> "$GITHUB_STEP_SUMMARY"
           fi
-          if [ '${{ needs.publication-gate.outputs.cash_observation }}' = true ] && [ "$LIVE" != "$HERE" ]; then
+          if [ '${{ needs.publication-gate.outputs.cash_observation }}' = true ] && [ "$LIVE" != "$HERE" ] && git merge-base --is-ancestor "$LIVE" "$HERE"; then
             # Reuse the existing exact publisher receipt. It proves the complete
             # protected verification source has identical qualified runtime inputs
             # and still matches both actual origins. No caller-selected source.
