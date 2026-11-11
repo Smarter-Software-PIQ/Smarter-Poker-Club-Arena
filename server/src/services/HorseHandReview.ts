@@ -1432,14 +1432,10 @@ export function detectLeaks(row: {
         // that makes a bigger full house or quads on this exact board.
         if (!omahaBoatIsNut(row.holeCards, boardAt)) {
           flag('plo_underfull_stackoff');
-        }
-        if (row.board.length === 5) {
-          const riverSt = boardAt.length === 5 ? st : omahaNutStatus(row.holeCards, row.board);
-          if (riverSt.category === CAT_FULL_HOUSE) {
-            const boatPos = omahaBoatPosition(row.holeCards, row.board);
-            if (boatPos && boatPos.lowerBoats === 0 && boatPos.boats >= 2) {
-              flag('plo_underboat_stackoff');
-            }
+          const boatPosAt = omahaBoatPosition(row.holeCards, boardAt);
+          const minHigherBoats = boardAt.length === 3 ? 1 : 2;
+          if (boatPosAt && boatPosAt.lowerBoats === 0 && boatPosAt.boats >= minHigherBoats) {
+            flag('plo_underboat_stackoff');
           }
         }
       } else if (st.category === CAT_ONE_PAIR && isOmahaTopPair(row.holeCards, boardAt)) {
