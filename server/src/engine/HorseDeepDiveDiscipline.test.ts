@@ -36,6 +36,8 @@ import {
 import { handClassRead } from './HorseHandClasses.js';
 import { decidePreflopV7, type PreflopCtx } from './HorsePreflop.js';
 import { HorseLogic } from './HorseLogic.js';
+import { HorseDeepDiveCapture, withHorseDeepDiveCapture } from './HorseDeepDiveReceipt.js';
+import { decisionRequest } from '../testing/horseRegression/plan/fixture.js';
 import { HorseMind } from './HorseMind.js';
 import { seedFastRandom } from './HorseEval.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
@@ -483,6 +485,8 @@ describe('V87 All-Hands Deep-Dive Discipline', () => {
         })
       ).toBe('plo6_turn_non_nut_or_paired_flush');
 
+      let riverWitnesses = 0;
+      let turnWitnesses = 0;
       let riverIsolatedOffCalls = 0;
       let turnLiveOffCalls = 0;
       for (let seed = 1; seed <= 15; seed++) {
@@ -497,12 +501,25 @@ describe('V87 All-Hands Deep-Dive Discipline', () => {
         ).toBe(true);
 
         seedFastRandom(seed * 997);
-        const isolatedRiverOn = HorseLogic.decide(hero, gs as never, 'balanced', {}, {
-          mind: false,
-          telemetry: true,
-          v86PloOverhaul: false,
-          v87DeepDiveDiscipline: true,
-        } as never);
+        const riverCapture = new HorseDeepDiveCapture(decisionRequest());
+        const isolatedRiverOn = HorseLogic.decide(
+          hero,
+          gs as never,
+          'balanced',
+          {},
+          {
+            mind: false,
+            telemetry: true,
+            v86PloOverhaul: false,
+            v87DeepDiveDiscipline: true,
+          } as never,
+          undefined,
+          undefined,
+          riverCapture
+        );
+        const riverReceipt = riverCapture.finish(isolatedRiverOn, null);
+        expect(riverReceipt.status).toBe('observed');
+        riverWitnesses += riverReceipt.rules.find((r) => r.rule === 'plo6_big_bet')?.changed ?? 0;
         expect(isolatedRiverOn.action).toBe('fold');
         expect(
           horseDecisionReceiptIsValid(isolatedRiverOn, 'plo6', {
@@ -520,11 +537,24 @@ describe('V87 All-Hands Deep-Dive Discipline', () => {
         if (isolatedRiverOff.action === 'call') riverIsolatedOffCalls++;
 
         seedFastRandom(seed * 997);
-        const liveTurnOn = HorseLogic.decide(turnBareFlushHero, turnGs as never, 'balanced', {}, {
-          mind: false,
-          telemetry: true,
-          v87DeepDiveDiscipline: true,
-        } as never);
+        const turnCapture = new HorseDeepDiveCapture(decisionRequest());
+        const liveTurnOn = HorseLogic.decide(
+          turnBareFlushHero,
+          turnGs as never,
+          'balanced',
+          {},
+          {
+            mind: false,
+            telemetry: true,
+            v87DeepDiveDiscipline: true,
+          } as never,
+          undefined,
+          undefined,
+          turnCapture
+        );
+        const turnReceipt = turnCapture.finish(liveTurnOn, null);
+        expect(turnReceipt.status).toBe('observed');
+        turnWitnesses += turnReceipt.rules.find((r) => r.rule === 'plo6_big_bet')?.changed ?? 0;
         expect(liveTurnOn.action).toBe('fold');
         expect(
           horseDecisionReceiptIsValid(liveTurnOn, 'plo6', {
@@ -540,6 +570,8 @@ describe('V87 All-Hands Deep-Dive Discipline', () => {
         } as never);
         if (liveTurnOff.action === 'call') turnLiveOffCalls++;
       }
+      expect(riverWitnesses).toBeGreaterThan(0);
+      expect(turnWitnesses).toBeGreaterThan(0);
       expect(riverIsolatedOffCalls).toBeGreaterThan(0);
       expect(turnLiveOffCalls).toBeGreaterThan(0);
     });
@@ -602,7 +634,17 @@ describe('V87 All-Hands Deep-Dive Discipline', () => {
         rand: () => 0.5,
       };
       expect(decidePreflopV7({ ...tourneyTrashCtx, v87DeepDiveDiscipline: false }).a).toBe('call');
-      expect(decidePreflopV7({ ...tourneyTrashCtx, v87DeepDiveDiscipline: true }).a).toBe('fold');
+      const pricedInCapture = new HorseDeepDiveCapture(decisionRequest());
+      const pricedIn = withHorseDeepDiveCapture(pricedInCapture, true, () =>
+        decidePreflopV7({ ...tourneyTrashCtx, v87DeepDiveDiscipline: true })
+      );
+      expect(pricedIn.a).toBe('fold');
+      expect(pricedInCapture.finish({ action: 'fold', thinkTime: 0 }, null).rules).toContainEqual({
+        rule: 'priced_in_floor',
+        evaluated: 1,
+        eligible: 1,
+        changed: 1,
+      });
 
       // All-in <= 2bb call with same trash stays a call even with V87 ON.
       const desperateAllIn: PreflopCtx = {

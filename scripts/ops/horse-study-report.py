@@ -190,12 +190,38 @@ if __name__=='__main__':
                         help='Generate the private conditional PLO river appendix after this study batch')
     parser.add_argument('--exact-variant-report',action='store_true',
                         help='Read a frozen four-domain evidence directory and write per-horse.json')
+    parser.add_argument('--census-audit',action='store_true',
+                        help='Reproduce the frozen November 10 census with explicit missing-return evidence')
+    parser.add_argument('--subject-config', help='Private explicit excludedSubjectIds and comparisonSubjectId JSON')
+    parser.add_argument('--observation-epoch', help='Explicit private source/window JSON for a new fleet observation')
+    parser.add_argument('--predecessor', help='Original study directory required by --census-audit')
+    parser.add_argument('--fleet-acceptance', action='store_true',
+                        help='Reconcile the retained 1,000-by-13 fleet matrix with original journal witnesses')
+    parser.add_argument('--journal', action='append', default=[], help='Original private journal capture JSON/JSONL')
+    parser.add_argument('--health-evidence', help='Separate private health JSON; never per-Horse execution evidence')
     args=parser.parse_args();os.umask(0o077)
+    if sum((args.river_opportunities, args.exact_variant_report, args.census_audit, args.fleet_acceptance)) > 1:
+        parser.error('select one report mode')
+    if (args.census_audit or args.fleet_acceptance) and not args.subject_config:
+        parser.error('census and fleet reports require --subject-config')
+    if args.census_audit and not args.predecessor:
+        parser.error('--census-audit requires --predecessor')
     spec=importlib.util.spec_from_file_location('acquisition',Path(__file__).with_name('horse-human-study.py'))
     acquisition=importlib.util.module_from_spec(spec);spec.loader.exec_module(acquisition)
     source=acquisition.private_directory(args.source);destination=Path(args.output)
     if destination.exists():raise ValueError('new_output_directory_required')
     output=acquisition.private_directory(destination)
+    if args.fleet_acceptance:
+        from horse_fleet_acceptance import write_fleet_report
+        write_fleet_report(source/'audit/inherited_and_fleet/fleet_1000_x_13_features_authoritative.json',
+                           output, Path(__file__).resolve().parents[2], args.journal, args.health_evidence,
+                           subject_config=args.subject_config, epoch_path=args.observation_epoch)
+        print(output/'fleet-acceptance.json')
+        raise SystemExit(0)
+    if args.census_audit:
+        from horse_census_audit import run_audit
+        run_audit(source, Path(args.predecessor), output, args.subject_config)
+        raise SystemExit(0)
     if args.exact_variant_report:
         if args.river_opportunities:
             parser.error('select one report mode')
