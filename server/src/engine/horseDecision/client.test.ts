@@ -2004,17 +2004,19 @@ describe('LiveHorseDecisionWorkerClient', () => {
       const client = journalClient(worker);
       worker.emitMessage(ready);
       const owned = await transportOnlyCommitFixture(client, worker);
-      const active = client.decideFast(snapshot('order-active')); // 2, posted
-      const older = client.decideFast(snapshot('order-older')); // 3, queued
+      const active = client.decideFast(snapshot('order-active')).catch(() => undefined); // 2, posted
+      const older = client.decideFast(snapshot('order-older')).catch(() => undefined); // 3, queued
       const enqueue = (request: object) =>
-        (client as any).enqueue(request, 'ACK', undefined, true) as Promise<unknown>;
+        ((client as any).enqueue(request, 'ACK', undefined, true) as Promise<unknown>).catch(
+          () => undefined
+        );
       void enqueue({ type: 'OBSERVE_EXECUTION', requestId: 100, generation: 7, fence: 'x' });
-      let successor!: ReturnType<typeof client.decideFast>;
-      let committed!: ReturnType<typeof client.commitDecisionEffects>;
+      let successor!: Promise<unknown>;
+      let committed!: Promise<unknown>;
       client.runWithDispatchBarrier(() => {
-        successor = client.decideFast(snapshot('order-successor')); // 4
+        successor = client.decideFast(snapshot('order-successor')).catch(() => undefined); // 4
         void enqueue({ type: 'OBSERVE_EXECUTION', requestId: 101, generation: 7, fence: 'x' });
-        committed = client.commitDecisionEffects(owned, acceptanceOf(owned)); // 5
+        committed = client.commitDecisionEffects(owned, acceptanceOf(owned)).catch(() => undefined); // 5
       });
       const queued = ((client as any).queue as Array<{ request: { requestId: number } }>).map(
         (job) => job.request.requestId
@@ -2023,18 +2025,16 @@ describe('LiveHorseDecisionWorkerClient', () => {
       // effect commit (5); then the work queued before the barrier (3) and the
       // commit's successor (4).
       expect(queued).toEqual([100, 101, 5, 3, 4]);
-      void active;
-      void older;
-      void successor;
-      void committed;
+      worker.emitError(new Error('fixture teardown'));
+      await Promise.all([active, older, successor, committed, client.stop()]);
     });
 
     it('holds the lane to its bound and queues the job past it at the tail', async () => {
       const worker = new FakeWorker();
       const client = journalClient(worker);
       worker.emitMessage(ready);
-      void client.decideFast(snapshot('bound-active')); // 1, posted
-      void client.decideFast(snapshot('bound-waiting')); // 2, queued
+      const boundActive = client.decideFast(snapshot('bound-active')).catch(() => undefined); // 1, posted
+      const boundWaiting = client.decideFast(snapshot('bound-waiting')).catch(() => undefined); // 2, queued
       const enqueue = (requestId: number) =>
         (client as any).enqueue(
           { type: 'OBSERVE_EXECUTION', requestId: requestId + 1000, generation: 7, fence: 'x' },
@@ -2054,6 +2054,8 @@ describe('LiveHorseDecisionWorkerClient', () => {
       );
       expect(queued[HORSE_CAPTURE_LANE_MAX_QUEUED]).toBe(2);
       expect(queued[HORSE_CAPTURE_LANE_MAX_QUEUED + 1]).toBe(1000 + HORSE_CAPTURE_LANE_MAX_QUEUED);
+      worker.emitError(new Error('fixture teardown'));
+      await Promise.all([boundActive, boundWaiting, client.stop()]);
     });
 
     it('does not expire a finalized execution on the decision deadline while decisions are ahead of the worker', async () => {

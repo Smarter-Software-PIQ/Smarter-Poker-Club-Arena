@@ -570,3 +570,150 @@ export function bubbleFactor(
 export function premiumFromBubbleFactor(factor: number): number {
   return Math.max(0, Math.min(0.14, (factor - 1) * 0.04));
 }
+
+/**
+ * Pairwise Malmuth-Harville / Plackett-Luce bubble factor for `actorIdx` in a
+ * direct pot collision against `counterpartyIdx` risking `riskChips`.
+ * Pure & deterministic; consumes zero global PRNG draws.
+ */
+export function pairwiseBubbleFactor(
+  stacks: number[],
+  payouts: number[],
+  actorIdx: number,
+  counterpartyIdx: number,
+  riskChips: number
+): number {
+  if (
+    riskChips <= 0 ||
+    actorIdx < 0 ||
+    counterpartyIdx < 0 ||
+    actorIdx === counterpartyIdx ||
+    actorIdx >= stacks.length ||
+    counterpartyIdx >= stacks.length
+  ) {
+    return 1;
+  }
+  const actorStack = stacks[actorIdx] ?? 0;
+  const counterStack = stacks[counterpartyIdx] ?? 0;
+  if (actorStack <= 0 || counterStack <= 0 || payoutMass(payouts) <= 0) return 1;
+  const risk = Math.min(riskChips, actorStack, counterStack);
+  if (risk <= 0) return 1;
+
+  const now = icmEquity(stacks, payouts, actorIdx);
+  const up = stacks.slice();
+  up[actorIdx] = actorStack + risk;
+  up[counterpartyIdx] = counterStack - risk;
+  const down = stacks.slice();
+  down[actorIdx] = actorStack - risk;
+  down[counterpartyIdx] = counterStack + risk;
+  const gain = icmEquity(up, payouts, actorIdx) - now;
+  const loss = now - icmEquity(down, payouts, actorIdx);
+  if (gain <= 1e-12) return 5;
+  return Math.max(1, Math.min(5, loss / gain));
+}
+
+export interface AsymmetricCoverPressure {
+  heroBubbleFactor: number;
+  villainBubbleFactor: number;
+  /**
+   * Bounded [-1, +1] asymmetric ICM leverage:
+   *  > 0 when hero covers a medium/bubble/satellite-cliff villain (villain hurts more than hero);
+   *  < 0 when villain covers hero on a pay-jump or satellite survival cliff.
+   */
+  coverLeverage: number;
+}
+
+/**
+ * Computes asymmetric cover-stack vs covered-stack ICM / satellite pressure
+ * across all variants (NLH, PLO4, PLO5, PLO6).
+ */
+export function asymmetricCoverPressure(input: {
+  stacks: number[];
+  payouts: number[];
+  heroIdx: number;
+  villainIdx: number;
+  riskChips: number;
+  satellite?: boolean;
+  satelliteSeats?: number;
+}): AsymmetricCoverPressure {
+  const effectivePayouts =
+    input.satellite && (input.satelliteSeats ?? 0) > 0
+      ? Array.from({ length: Math.max(1, Math.floor(input.satelliteSeats!)) }, () => 1)
+      : input.payouts;
+  const heroBF = pairwiseBubbleFactor(
+    input.stacks,
+    effectivePayouts,
+    input.heroIdx,
+    input.villainIdx,
+    input.riskChips
+  );
+  const villainBF = pairwiseBubbleFactor(
+    input.stacks,
+    effectivePayouts,
+    input.villainIdx,
+    input.heroIdx,
+    input.riskChips
+  );
+  const rawDiff = villainBF - heroBF;
+  const coverLeverage = Math.max(-1, Math.min(1, rawDiff / 1.5));
+  return {
+    heroBubbleFactor: heroBF,
+    villainBubbleFactor: villainBF,
+    coverLeverage,
+  };
+}
+
+export interface BountyChipEquivalence {
+  collectibleCents: number;
+  bountyOverlayChips: number;
+  bountyOverlayBB: number;
+}
+
+/**
+ * Converts a target player's PKO / KO / active Mystery Bounty head into exact
+ * chip-equivalent pot overlay (`bountyOverlayChips` / `bountyOverlayBB`).
+ * At tournament start a standard 50% PKO head equals ~0.25-0.33 starting stacks;
+ * as the regular prize pool concentrates per remaining chip, chip value rises
+ * and bounty chip-equivalence scales proportionally.
+ */
+export function bountyChipEquivalence(input: {
+  headBountyCents: number;
+  isPko: boolean;
+  isMysteryBounty?: boolean;
+  mysteryBountyActive?: boolean;
+  mysteryMeanCents?: number;
+  buyInCents: number;
+  prizePoolCents?: number;
+  totalChipsInPlay?: number;
+  startingStackChips: number;
+  bigBlind: number;
+  heroCoversTarget: boolean;
+}): BountyChipEquivalence {
+  if (!input.heroCoversTarget) {
+    return { collectibleCents: 0, bountyOverlayChips: 0, bountyOverlayBB: 0 };
+  }
+  const collectibleCents = input.isMysteryBounty
+    ? input.mysteryBountyActive
+      ? Math.max(0, input.mysteryMeanCents ?? 0)
+      : 0
+    : input.isPko
+      ? Math.max(0, input.headBountyCents) * 0.5
+      : Math.max(0, input.headBountyCents);
+  if (collectibleCents <= 0 || input.startingStackChips <= 0) {
+    return { collectibleCents: 0, bountyOverlayChips: 0, bountyOverlayBB: 0 };
+  }
+  // Cents of regular prize pool backing each chip currently in play; falls back
+  // to starting-stack buy-in density when live pool totals are absent.
+  const regularBuyInCents = Math.max(1, input.buyInCents * (input.isPko ? 0.5 : 1));
+  const centsPerChip =
+    (input.prizePoolCents ?? 0) > 0 && (input.totalChipsInPlay ?? 0) > 0
+      ? input.prizePoolCents! / input.totalChipsInPlay!
+      : regularBuyInCents / input.startingStackChips;
+  const bountyOverlayChips = centsPerChip > 0 ? collectibleCents / centsPerChip : 0;
+  const bb = input.bigBlind > 0 ? input.bigBlind : 1;
+  return {
+    collectibleCents,
+    bountyOverlayChips,
+    bountyOverlayBB: bountyOverlayChips / bb,
+  };
+}

@@ -119,7 +119,7 @@ export function readShoveSpot(hero: SeatPlayer, gs: HorseGameStateV2): ShoveDisc
     gs.straddleActive === true &&
     raises === 0 &&
     gs.currentBet > bb * 1.05 &&
-    gs.currentBet <= bb * 2.2;
+    gs.currentBet <= bb * 8.5;
   if (!straddled && history.length === 0 && gs.currentBet > bb * 1.05) {
     raises = gs.currentBet > bb * 4.5 ? 2 : 1;
   }

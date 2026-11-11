@@ -352,9 +352,17 @@ export const CORPUS_BASE_OPTS: HorseDecideOpts = {
   // corpus intact. The real policy is pinned in
   // HorseV15RiverRaiseGate.test.ts.
   v15RiverNoNearLock: false,
-  // V86 (2026-11-10) overhauls PLO4/5/6/8 preflop 3-bet/4-bet/squeeze and
-  // postflop combo-draw/SPR/underboat decisions independently of any read;
-  // the off arm keeps the pre-V53 frozen digests intact while
-  // HorsePloEliteOverhaul.test.ts pins the live V86 behavior.
+  // V86 (2026-11-10) re-prices multi-street postflop sizing, dynamic
+  // continuation plans, and PLO4/5/6/8 preflop/postflop decisions
+  // independently of any opponent read; the off arms keep the recorded
+  // corpus intact (HorseMultiStreetDynamicPlan.test.ts,
+  // HorsePreflopUnblockedMatrix.test.ts, and HorsePloEliteOverhaul.test.ts
+  // pin the real policies).
+  v86MultiStreetUnblocked: false,
+  v86UnblockedPreflop: false,
   v86PloOverhaul: false,
+  // V87 (2026-11-10) tightens Omaha preflop/postflop and tournament pricedIn
+  // trash discipline independently of V53; the off arm keeps the pre-V53
+  // frozen digests intact while HorseDeepDiveDiscipline.test.ts pins V87.
+  v87DeepDiveDiscipline: false,
 };

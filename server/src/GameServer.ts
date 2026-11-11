@@ -26,6 +26,10 @@ import { nearbyMaintenanceWindows } from './maintenance/maintenanceSchedule.js';
 import { spinSngBoardsOpen } from './maintenance/dailyWindow.js';
 import { BulkClosureRefusedError, bulkClosureRefusal } from './maintenance/bulkClosureGuard.js';
 import { horseRiverValueAlarmSnapshot } from './engine/HorseRiverValueAudit.js';
+import {
+  peekBrainWatchcounters,
+  renderBrainWatchcountersPrometheus,
+} from './engine/BrainTelemetry.js';
 import { readPendingOperatorCashClose } from './services/operatorCashClose.js';
 import { type OperatorCommand, acknowledgeMaintenance } from './maintenance/OperatorCommands.js';
 import {
@@ -102,6 +106,7 @@ import {
   startLiveHorseDecisionWorker,
   stopLiveHorseDecisionWorker,
 } from './engine/horseDecision/lane.js';
+import { computeHorseUpgradeActivationManifest } from './engine/HorseUpgradeActivationManifest.js';
 import {
   EquityWorkerPoolAbortedError,
   equityWorkerPoolPreservesDealerLiveness,
@@ -6400,6 +6405,9 @@ export class GameServer {
       // Horse river value alarm (2026-10-23): proof the per-hand audit is
       // running (handsAudited, riverActionsAudited) and whether it is firing.
       horseRiverValueAlarm: horseRiverValueAlarmSnapshot(),
+      horseWatchcounters: peekBrainWatchcounters(),
+      horseUpgradeManifest: computeHorseUpgradeActivationManifest(),
+      engineStartedAt: new Date(this.startTime).toISOString(),
       adaptiveJournalWorker: horseAdaptiveJournalWorker.status(),
       // HTTP and WebSocket handlers are reachable before the leader boot has
       // finished. This is the exact admission gate they await before any table
@@ -7135,6 +7143,19 @@ export class GameServer {
         return [];
       })(),
       ...alwaysOnPrometheusLines(),
+      ...(() => {
+        const manifest = computeHorseUpgradeActivationManifest();
+        const sha = (manifest.sourceRevision ?? 'unknown').replace(/[^a-zA-Z0-9._-]/g, '_');
+        return [
+          '# HELP process_start_time_seconds Start time of the engine process since unix epoch in seconds.',
+          '# TYPE process_start_time_seconds gauge',
+          `process_start_time_seconds ${Math.floor(this.startTime / 1000)}`,
+          '# HELP poker_horse_upgrade_manifest_info Horse realtime decision upgrade activation manifest identity.',
+          '# TYPE poker_horse_upgrade_manifest_info gauge',
+          `poker_horse_upgrade_manifest_info{version="${manifest.version}",manifest_digest="${manifest.manifestDigest}",release_sha="${sha}"} 1`,
+        ];
+      })(),
+      ...renderBrainWatchcountersPrometheus(),
       // ── WHAT THE PLAYER'S BROWSER SAW (Phase 2, 2026-09-05) ──────────
       // The client-side twin of poker_ws_auth_refused_total: that counts
       // sockets the server refused, these count sockets the client lost.

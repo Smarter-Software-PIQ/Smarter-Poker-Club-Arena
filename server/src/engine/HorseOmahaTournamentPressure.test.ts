@@ -459,8 +459,16 @@ describe(
       plo6: 'c1e890133d0d50c3929119bed2a9a997f0180e89d2e79faad13ce270a7f9c8d6',
       nlh: 'd1fe639c0aabb62d33cfc4df8f3585730d0c64ba60c87462ea90ca082268b47d',
     };
-
-    const PRE_V53_CORPUS_OPTS = { ...CORPUS_BASE_OPTS, v87HoldemOverhaul: false };
+    // V87 Hold'em overhaul (2026-11-10) and V87 all-hands deep-dive discipline
+    // (2026-11-10) tighten preflop/postflop play independently of V53; their
+    // explicit off arms keep this historical pre-V53 baseline corpus
+    // byte-identical (HorseHoldemEliteOverhaul.test.ts and
+    // HorseDeepDiveDiscipline.test.ts pin the real policies).
+    const PRE_V53_CORPUS_OPTS = {
+      ...CORPUS_BASE_OPTS,
+      v87HoldemOverhaul: false,
+      v87DeepDiveDiscipline: false,
+    };
 
     it.each(CORPUS_VARIANTS)(
       '%s: flag absent replays the pre-candidate decisions exactly',

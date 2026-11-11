@@ -953,6 +953,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V85'
   ),
   flag(
+    'v87DeepDiveDiscipline',
+    '2026-11-10 all-database human-vs-Horse deep dive building on V86 (49,310 physical hands, 41,151 included hands, 349,970 Horse decisions across the 8 Cash & MTT NLH/PLO4/PLO5/PLO6 domains): (1) Omaha preflop multiway and 5/6-card selectivity (presumed-opener flatBar/bbFlatBar cleared in 5/6-card and multiway non-HiLo Omaha while preserving threeBetBar and observed reads; hole-count/seat/caller-capped V24 priceRelief and floors; multiway/deep-stack cold-call tightening; 5/6-card V46 trips rescue for AA-ds/broadway-ds 4-card cores and non-elite self-blocked 4-suit / non-Ace-suited tightening); (2) HU Omaha position-stab suppression explicitly excluded after failing paired seat-swap qualification (turn -8.96 +/- 3.34 bb/100, river -15.03 +/- 3.79 bb/100); (3) PLO6 >=0.90-pot non-HU turn/river call-fold cells, drawless flop V40 pair/air cap-lift withholding, and V66/V67-style non-HiLo Omaha bet-raised commitment exclusion + raise shade for vulnerable non-nut hands without nutty redraws; (4) V13 pricedIn trash floor vs raises in tournaments and non-HiLo Omaha (Cash NLH, <=2bb all-in calls, and <=0.065 min-clicks untouched) plus single-board NLH turn cold-raise / multiway big-bet bluff-catch shade; PLO8/Hi-Lo untouched; explicit off arm keeps prior behavior',
+    'V87'
+  ),
+  flag(
     'v84OmahaRiverReraiseCalls',
     "2026-11-07 (hand 3359656: PLO6 tournament, Kd-high flush with no Ad on 9d 7d 2d 4s 6s bet 2,858 into 4,090, raised to 12,664, called 9,806, lost 587bb) PLO4/PLO5/PLO6 river CALLS of a raise of 0.9 pot or more after the horse's OWN river bet or raise (the spot V81 leaves out with chips already in this street) fold only in the measured cell (HorseOmahaBigBetCalls.v84Cell, same classification and wager measure as V81): an unpaired-board second-nut flush. Decision EV of the horses' own calls (net + chips already in, bb; hand_history + ca_hand_facts, every PLO hand, CIs clustered by hand) day A 2026-11-05/06 -100.8 [-159.5, -42.0] n 12, day B 2026-11-06/07 -93.0 [-130.3, -55.6] n 15, all 27 calls lost, no variant or format slice positive on either day; admission is V81's rule plus a floor of 10 hands per day; not admitted: paired-board second-nut flush (n 2 and 4), two pair, flush-board / non-nut / paired-board straights (each straddles one day), nut straights and full houses (win); excluded as V81: heads-up tables, bounty events, 20bb or less, hi-lo, multi-board, bomb pots, a bettor measured as a postflop over-bluffer, unreconcilable street history; outputs in docs/horse-measure/2026-11-07/v84-river-reraise-cells.txt; limits: only the horses' calls are observed, ICM not modelled; denominator re-measured before activation (omaha-river-reraise-opportunities.sql): the horses met the spot with an unpaired second-nut flush 49 times and called all 49 (no fold, no re-raise), 22 fell to the V81 exclusions, the 27 eligible calls matched hand for hand, no chop, no run-it-twice, no all-in-or-fold table, every showdown a nut flush or straight flush; prices 0.028 to 0.333 (median 0.333), 0 wins in 27 bounds the win rate at 0.105, so V84 folds only a call priced at V84_MIN_CALL_PRICE 0.13 or more (23 calls: day A -106.5 [-169.6, -43.3] n 11, day B -101.8 [-145.2, -58.3] n 12, all lost) and all-in-or-fold tables keep today (docs/horse-measure/2026-11-07/v84-river-reraise-denominator.txt); explicit off arm keeps today",
     'V84'
@@ -1259,6 +1264,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'diagnostic telemetry for ignored historical review fields; never authorizes policy or sampling changes',
     'V41'
   ),
+  flag(
+    'v86UnblockedPreflop',
+    '2026-11-10 unblocked preflop matrix across NLH and PLO4/5/6 cash and tournaments: dynamic preflop orbit raise normalization, incomplete short-stack shove handling, straddle/kill blind unopened routing, PLO5/6 suit/core Pigeonhole and sub-core trips rules, V38 uncapped-behind population guard, Seven-Deuce and Kill Pot overlays, asymmetric cover/satellite ICM, PKO chip equivalence, and Phase 7 non-terminal preflop utility; default ON, explicit false preserves historical replay corpora',
+    'V86'
+  ),
+  flag(
+    'v86MultiStreetUnblocked',
+    '2026-11-10 explicit Flop->Turn->River continuation planning (ExplicitContinuationPlanV2), exact geometric street sizing solver, instant dynamic node re-evaluation, combinatorial card-removal fold-equity scoring, public action-line Bayesian range posterior, correlated multi-board scoop/quarter pricing, and public-complexity tank weighting; default ON, explicit false preserves historical replay corpora',
+    'V86'
+  ),
 
   // ─────────────────────────────────────────────────────────────────────────
   // STYLE PARAMS. base style x profile dials x variant overlay x persona.
@@ -1487,12 +1502,22 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'actionHistory',
     'this hand, every action with stage and amount (range reads, barrels, plans)'
   ),
+  state('killPot', 'canonical KillHandState when a Full or Half Kill pot is active on this deal'),
+  state('isKillPot', 'optional flat boolean indicating an active Kill or Half-Kill pot'),
+  state('killMultiplier', 'optional flat Kill blind multiplier when active (e.g. 2 or 1.5)'),
+  state('killPosterSeat', 'optional flat seat number of the player who posted the Kill blind'),
+  state('killBlind', 'optional flat chip amount of the posted Kill blind'),
+  state('sevenDeuceEnabled', 'whether the Seven-Deuce (7-2) cash bounty side game is active'),
+  state('sevenDeuceBounty', 'Seven-Deuce bounty configuration object or per-player chip amount'),
+  state('sevenDeuceBountyBB', 'Seven-Deuce bounty per opponent denominated in big blinds'),
+  state('sevenDeuceBountyPerPlayer', 'Seven-Deuce bounty per opponent denominated in chips'),
   state('gameMode', 'cash / tournament'),
   state('format', 'cash / mtt / sng / spin / hu_sng'),
   state('ante', 'ante per hand'),
   state('bigBlindAnte', 'BB-ante structure'),
   state('allInOrFold', 'all-in-or-fold table'),
   state('straddleActive', 'a straddle is posted (V18)'),
+  state('straddleSeat', 'seat number of the active posted straddle when present'),
   state('bombPot', 'this hand is a bomb pot (V36)'),
   state('boardCount', 'boards dealt (V36)'),
   state(
@@ -2857,6 +2882,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "PLO4/PLO5/PLO6 river call of a 0.9-pot+ raise after the horse's own river bet or raise, in a measured losing cell: folded",
     'V84',
     'decide_omaha'
+  ),
+  receipt(
+    'v87_deep_dive_discipline',
+    'HorseLogic (V87)',
+    'All-hands deep-dive discipline fired: 5/6-card hand-class calibration, HU Omaha river position-stab suppression, PLO6 >=0.9-pot big-bet fold, Omaha bet-raised commitment/shade, or NLH turn cold-raise/multiway shade',
+    'V87',
+    'decide'
   ),
   receipt(
     'v80_top_pair_strong_kicker',

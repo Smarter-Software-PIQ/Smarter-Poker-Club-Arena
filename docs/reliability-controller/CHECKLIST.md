@@ -1032,17 +1032,17 @@ Sections 8 to 11 belong to the incident-handling lane and are not edited here.
 
 ### 12.1 Installed, enabled and verified live
 
-| Component | Identifier | State |
-| --- | --- | --- |
-| Stage B controller | PR #10312, merge `f741b472`; migration `20261110000020` | installed, enabled, verified live |
-| Health read and seed corrections | PR #10364, merge `2a8d7f90`; migration `20261110045731` (applier run 42861285942, 661 ms) | installed, verified live |
-| Missed-critical fix, push mirror, reconciliation | PR #10343, merge `6db7d319`; migration `20261110144203` | installed, verified live |
-| Critical escalation activated | migration `20261110174051` | installed; `notify_mode = critical_only`, `mutation_paused = true` |
-| Recovered incident leaves escalation | migration `20261110224707` (incident lane) | installed |
-| Fallback reason label | PR #10260, merge `70fee8f2` | serving: engine `05ab41c3` contains it |
-| Controller health collector | PR #10378, merge `bdf56877` (pushed from the Mac on SSD2, bytes sha256 `e558a733...` / `f0f9d741...` equal to the tested ones) | merged; NOT serving until an engine containing `bdf56877` is activated |
-| Controller health alert rules | PR #10458, draft | held: merge only after `reliability_controller_heartbeat_timestamp_seconds` is present in Prometheus |
-| World Hub controls | World Hub PR #2776, merge `ff67b531`, Vercel `dpl_869HCsQeRqy8F9EbGB2r7yTSmvEE` READY, `/api/health` at `ff67b531` | published |
+| Component                                        | Identifier                                                                                                                     | State                                                                                                |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| Stage B controller                               | PR #10312, merge `f741b472`; migration `20261110000020`                                                                        | installed, enabled, verified live                                                                    |
+| Health read and seed corrections                 | PR #10364, merge `2a8d7f90`; migration `20261110045731` (applier run 42861285942, 661 ms)                                      | installed, verified live                                                                             |
+| Missed-critical fix, push mirror, reconciliation | PR #10343, merge `6db7d319`; migration `20261110144203`                                                                        | installed, verified live                                                                             |
+| Critical escalation activated                    | migration `20261110174051`                                                                                                     | installed; `notify_mode = critical_only`, `mutation_paused = true`                                   |
+| Recovered incident leaves escalation             | migration `20261110224707` (incident lane)                                                                                     | installed                                                                                            |
+| Fallback reason label                            | PR #10260, merge `70fee8f2`                                                                                                    | serving: engine `05ab41c3` contains it                                                               |
+| Controller health collector                      | PR #10378, merge `bdf56877` (pushed from the Mac on SSD2, bytes sha256 `e558a733...` / `f0f9d741...` equal to the tested ones) | merged; NOT serving until an engine containing `bdf56877` is activated                               |
+| Controller health alert rules                    | PR #10458, draft                                                                                                               | held: merge only after `reliability_controller_heartbeat_timestamp_seconds` is present in Prometheus |
+| World Hub controls                               | World Hub PR #2776, merge `ff67b531`, Vercel `dpl_869HCsQeRqy8F9EbGB2r7yTSmvEE` READY, `/api/health` at `ff67b531`             | published                                                                                            |
 
 Read back at 2026-11-11 06:03Z: 1,358 ticks in 24 hours, 0 failed; heartbeat 35 s;
 0 queued, 0 failed notifications, 0 intake rejections in 24 hours; incidents
@@ -1056,7 +1056,7 @@ closed 2.
   message `7a2f580e`, sender `2d1cd6c3-...` (platform identity), conversation
   `5dde8c6a`, first line `AI AGENT NEEDED`, 1,451 characters including the
   agent handoff, `media_metadata` `{kind: reliability_incident, incident_id,
-  notification_kind: escalation, handoff_version: 1}` as the World Hub
+notification_kind: escalation, handoff_version: 1}` as the World Hub
   controls require.
 - Every one of the 11 escalations and reminders sent after activation has
   exactly one `social_messages` row for its request id and exactly one
@@ -1117,3 +1117,33 @@ closed 2.
   both change only through a guarded migration. Unscheduling
   `reliability-controller-tick` and dropping the two `zzz_reliability_intake_*`
   triggers removes the controller without touching the inbox.
+
+## 13. Acceptance Evidence, 2026-11-11 10:45Z
+
+This section closes the gates listed in 12.4 where evidence exists. It does
+not edit sections 8-11, which belong to the other lane.
+
+| Gate                                | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | State                              |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| Collector in the release candidate  | The engine serves `f7735cca6862b9add06841b8a41c305b3f3ebe01`, which contains #10378 (`bdf56877`), activated by the release owner's run 42994475679. This lane started, booked and advanced no release. That run's two spectator-evidence jobs failed and are the release owner's matter.                                                                                                                                                                                                    | serving                            |
+| Collector output reaches Prometheus | Deploy Monitoring run 43005312778 (merge `4982c667`) read `/api/v1/label/__name__/values` on the box. Every rule metric has a series except `poker_cron_job_failing_of_last_20`, which is unrelated, so all five `reliability_controller_*` series the rules read are present. The rules are unlabelled gauges and each expression aggregates to `{}`.                                                                                                                                      | present                            |
+| Freshness                           | At 10:41:43Z the heartbeat age at source was 43 s (`smarter_private.reliability_heartbeat`). No `ReliabilityController*` row exists in `operational_alert_events`, so neither critical rule has fired since deploy. This lane holds no Prometheus credential, so the live per-series age was not read inside Prometheus.                                                                                                                                                                    | fresh at source                    |
+| Rules (#10458)                      | Independent review approved head `4e5d51f9` with no blocking findings (PR comment 6792905869). Head `5d49da92` added the missing `docs/laws.d` registry entry. Required checks passed on `5d49da92`. Squash-merged as `4982c667` at 10:38Z, outside the break window. Deploy Monitoring succeeded: Prometheus and Alertmanager reloaded, the repo declares 168 rules and the box runs 168, the rules-ahead-of-the-engine guard passed against `f7735cca`, and the delivery canary is alive. | deployed                           |
+| Stale and missing-series behaviour  | Proven with the maintained promtool fixtures (`tests/monitoring/reliability-controller-health.test.yml`): a frozen heartbeat fires Stale, and a missing series fires Absent only. The production controller was not stopped.                                                                                                                                                                                                                                                                | proven by fixture                  |
+| Non-owner boundary                  | World Hub #2793 run 42997135440 used the existing CI test identity, which is not the owner. The RPC returned 403/42501 with no incident fields. The page showed "Not Authorized" with no `HorseFleetCollapsed` text, at 375 px width.                                                                                                                                                                                                                                                       | proven, application/API level      |
+| Owner phone checks                  | The checklist was given to Dan for the existing HorseFleetCollapsed message (incident `17b7b46a`).                                                                                                                                                                                                                                                                                                                                                                                          | awaiting Dan's result; not claimed |
+
+Not verified here: per-rule `health` and `lastError` for the four new rules.
+The deploy verifier asserts rule health only for the Spin rules, and this
+lane has no supported Prometheus query route. The rules load, and their
+series exist.
+
+Review notes accepted, not fixed:
+
+- Stale's "has not ticked" wording is wrong when the textfile freezes for
+  another reason. The co-firing `*_stale` alerts identify that case.
+- The missing-series fixture starts from no series.
+
+Unchanged: `notify_mode = critical_only`, `mutation_paused = true`, 0
+runbooks enabled, suppressed-history behaviour, and the five unknown
+producers in `unclassified` triage.
