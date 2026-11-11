@@ -1269,7 +1269,8 @@ export function evaluatePlo4LivePolicy(
   receipt.fired = true;
   receipt.confidence = 'explicit_heuristic';
   // Pot-limit geometry the proposal enforces, computed once and recorded.
-  const chipUnit: 0.01 | 1 = s.gameMode === 'tournament' ? 1 : 0.01;
+  const chipUnit: 0.01 | 1 =
+    s.chipUnit === 1 || s.gameMode === 'tournament' || s.asset === 'diamonds' ? 1 : 0.01;
   const potLimitRaiseTo = s.currentBet + s.pot + callCost;
   const stackRaiseTo = hero.bet + hero.stack;
   const wagerCap =
@@ -1403,14 +1404,22 @@ export function evaluatePlo4LivePolicy(
         return { action: 'all_in', thinkTime: baseline.thinkTime };
       return call();
     }
-    if (wagerCap < s.minRaiseTo) return call();
-    const amount =
+    if (wagerCap < s.minRaiseTo) {
+      if (s.legalActions!.includes('all_in') && stackRaiseTo <= potLimitRaiseTo + 0.001)
+        return { action: 'all_in', thinkTime: baseline.thinkTime };
+      return call();
+    }
+    let amount =
       Math.floor(
         Math.max(s.minRaiseTo, Math.min(wagerCap, s.currentBet + (s.pot + callCost) * fraction)) /
           chipUnit +
           1e-7
       ) * chipUnit;
-    if (amount < s.minRaiseTo) return call();
+    if (amount < s.minRaiseTo) {
+      const minLegalStep = Math.ceil(s.minRaiseTo / chipUnit - 1e-7) * chipUnit;
+      if (minLegalStep <= wagerCap + 1e-7) amount = minLegalStep;
+      else return call();
+    }
     return { action, amount: Math.round(amount * 100) / 100, thinkTime: baseline.thinkTime };
   };
   /** Round 3: a deviation is a wager or nothing; a wager the legal menu

@@ -201,3 +201,487 @@ export function peekDecisionLatency(): LatencyRow[] {
   }
   return out;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LIVE REAL-TIME WATCHCOUNTERS (/metrics + /health, Wave 2 #13B)
+// ═══════════════════════════════════════════════════════════════════════════
+// Pure in-memory counters with zero external runtime imports so BrainTelemetry
+// remains pure inside HORSE_REFERENCE_DECISION_SOURCE_FILES closure checks.
+// Worker isolates relay deltas to the main thread via drainBrainWatchcounterDeltas()
+// -> mergeBrainWatchcounterDeltas(), and GameServer renders them once per scrape.
+
+export type HorseWatchcounterMetric =
+  | 'poker_horse_action_clamped_total'
+  | 'poker_horse_plan_reevaluated_total'
+  | 'poker_horse_legalizer_degraded_total'
+  | 'poker_horse_street_prewarm_total'
+  | 'poker_horse_telemetry_opportunities_total';
+
+export const HORSE_WATCHCOUNTER_VARIANTS = [
+  'nlh',
+  'plo4',
+  'plo5',
+  'plo6',
+  'plo8',
+  'flo8',
+  'flh',
+  'short_deck',
+  'pineapple',
+  'other',
+] as const;
+
+export type HorseWatchcounterVariant = (typeof HORSE_WATCHCOUNTER_VARIANTS)[number];
+
+export const HORSE_WATCHCOUNTER_MODES = ['cash', 'tournament'] as const;
+export type HorseWatchcounterMode = (typeof HORSE_WATCHCOUNTER_MODES)[number];
+
+export const HORSE_ACTION_CLAMPED_REASONS = [
+  'above_max_bet',
+  'below_min_bet',
+  'above_max_raise',
+  'below_min_raise',
+  'all_in_to_max_raise',
+  'all_in_to_max_bet',
+  'pot_limit_cap',
+  'chip_unit_snap',
+  'commit_wager_rules',
+  'fixed_limit_capped_street',
+  'v58_plo6_river_fold',
+  'v58_plo6_river_raise_to_call',
+  'v59_plo6_river_unpaired_fold',
+  'v59_plo6_river_unpaired_raise_to_call',
+  'plo_paired_board_fold',
+  'v81_omaha_big_bet_call_fold',
+  'v84_omaha_river_reraise_call_fold',
+  'v87_deep_dive_discipline',
+  'holdem_dominated_3bet_fold',
+  'holdem_premium_preflop_raise',
+  'holdem_no_four_bet_bluff',
+  'holdem_four_bettor_continues',
+  'holdem_premium_flat_deep_three_bet',
+  'holdem_premium_postflop_bet',
+  'default',
+  'other',
+] as const;
+
+export const HORSE_PLAN_REEVALUATED_REASONS = [
+  'flop_carry_forward',
+  'turn_carry_forward',
+  'river_carry_forward',
+  'flop_float_takeaway',
+  'turn_float_takeaway',
+  'river_float_takeaway',
+  'flop_scare_card_pivot',
+  'turn_scare_card_pivot',
+  'river_scare_card_pivot',
+  'flop_multiway_shift',
+  'turn_multiway_shift',
+  'river_multiway_shift',
+  'flop_unexpected_donk',
+  'turn_unexpected_donk',
+  'river_unexpected_donk',
+  'flop_unexpected_raise',
+  'turn_unexpected_raise',
+  'river_unexpected_raise',
+  'flop_raise_plan_overridden_by_equity',
+  'turn_raise_plan_overridden_by_equity',
+  'river_raise_plan_overridden_by_equity',
+  'unexpected_donk_bet',
+  'sizing_diverged',
+  'invalidation_replan',
+  'default',
+  'other',
+] as const;
+
+export const HORSE_LEGALIZER_DEGRADED_REASONS = [
+  'pot_or_cap_max_bet',
+  'pot_or_cap_max_raise',
+  'all_in_to_max_raise',
+  'all_in_to_max_bet',
+  'fixed_limit_capped_street',
+  'promoted_shove_illegal',
+  'controller_rejected',
+  'feature_authority_refused',
+  'brain_exception',
+  'lightning_timeout',
+  'min_raise_step',
+  'default',
+  'other',
+] as const;
+
+export const HORSE_STREET_PREWARM_REASONS = [
+  'flop',
+  'turn',
+  'river',
+  'flop_deal',
+  'hit_flop',
+  'hit_turn',
+  'hit_river',
+  'default',
+  'other',
+] as const;
+
+export const HORSE_TELEMETRY_OPPORTUNITY_REASONS = [
+  'decision_started',
+  'decision_evaluated',
+  'commit_evaluated',
+  'commit_legalizer_entered',
+  'continuation_plan_checked',
+  'street_dealt',
+  'default',
+  'other',
+] as const;
+
+export interface HorseWatchcounterLabels {
+  variant?: string;
+  mode?: string;
+  reason?: string;
+}
+
+export interface HorseWatchcounterEntry {
+  metric: HorseWatchcounterMetric;
+  variant: HorseWatchcounterVariant;
+  mode: HorseWatchcounterMode;
+  reason: string;
+  value: number;
+}
+
+const WATCHCOUNTER_SPECS: ReadonlyArray<{
+  metric: HorseWatchcounterMetric;
+  help: string;
+  seedReason: string;
+  allowedReasons: ReadonlySet<string>;
+}> = [
+  {
+    metric: 'poker_horse_action_clamped_total',
+    help: 'Horse brain or commit-stage wager normalizations and rule clamps (closed lowercase labels: variant, mode, reason)',
+    seedReason: 'above_max_raise',
+    allowedReasons: new Set<string>(HORSE_ACTION_CLAMPED_REASONS),
+  },
+  {
+    metric: 'poker_horse_plan_reevaluated_total',
+    help: 'Horse multi-street continuation plans re-evaluated when live turn geometry or runout diverged (closed lowercase labels: variant, mode, reason)',
+    seedReason: 'turn_scare_card_pivot',
+    allowedReasons: new Set<string>(HORSE_PLAN_REEVALUATED_REASONS),
+  },
+  {
+    metric: 'poker_horse_legalizer_degraded_total',
+    help: 'Horse out-of-bounds wagers, capped streets, or rejected intents degraded to legal actions (closed lowercase labels: variant, mode, reason)',
+    seedReason: 'pot_or_cap_max_raise',
+    allowedReasons: new Set<string>(HORSE_LEGALIZER_DEGRADED_REASONS),
+  },
+  {
+    metric: 'poker_horse_street_prewarm_total',
+    help: 'Horse idle-time street board/texture/solver prewarm executions and cache hits (closed lowercase labels: variant, mode, reason)',
+    seedReason: 'flop',
+    allowedReasons: new Set<string>(HORSE_STREET_PREWARM_REASONS),
+  },
+  {
+    metric: 'poker_horse_telemetry_opportunities_total',
+    help: 'Horse decision, continuation-plan, commit-legalizer, and street-deal opportunity denominators (closed lowercase labels: variant, mode, reason)',
+    seedReason: 'decision_evaluated',
+    allowedReasons: new Set<string>(HORSE_TELEMETRY_OPPORTUNITY_REASONS),
+  },
+];
+
+const METRIC_BY_NAME = new Map(WATCHCOUNTER_SPECS.map((s) => [s.metric, s]));
+const VARIANT_SET = new Set<string>(HORSE_WATCHCOUNTER_VARIANTS);
+
+const watchcounters = new Map<string, HorseWatchcounterEntry>();
+const watchcounterDeltas = new Map<string, HorseWatchcounterEntry>();
+/**
+ * Main-thread vs worker-isolate delta guard:
+ * On the main thread, increments land directly in `watchcounters` and nothing drains
+ * `watchcounterDeltas`. Only worker isolates (or explicit relay tests) arm delta buffering,
+ * bounding delta memory strictly to drained worker cycles.
+ */
+let workerWatchcounterRelayArmed = false;
+const MAX_WATCHCOUNTER_DELTA_SERIES = 512;
+
+export function armWorkerWatchcounterRelay(armed = true): void {
+  workerWatchcounterRelayArmed = armed;
+  if (!armed) watchcounterDeltas.clear();
+}
+
+export function normalizeWatchcounterVariant(raw: string | undefined): HorseWatchcounterVariant {
+  const v = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+  if (!v) return 'nlh';
+  if (VARIANT_SET.has(v)) return v as HorseWatchcounterVariant;
+  if (v === 'holdem' || v === 'nlhe' || v === 'texas_holdem') return 'nlh';
+  if (v === 'omaha' || v === 'plo') return 'plo4';
+  if (v === 'plo_5' || v === 'omaha5') return 'plo5';
+  if (v === 'plo_6' || v === 'omaha6') return 'plo6';
+  if (v === 'plo_8' || v === 'omaha_hi_lo' || v === 'omaha8') return 'plo8';
+  if (v === 'flo_8' || v === 'limit_omaha_hi_lo') return 'flo8';
+  if (v === 'shortdeck' || v === '6+' || v === 'six_plus') return 'short_deck';
+  if (v === 'crazy_pineapple') return 'pineapple';
+  if (v === 'limit_holdem') return 'flh';
+  return 'other';
+}
+
+export function normalizeWatchcounterMode(raw: string | undefined): HorseWatchcounterMode {
+  const m = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+  if (m === 'tournament' || m === 'mtt' || m === 'sng' || m === 'spin' || m === 'hu_sng') {
+    return 'tournament';
+  }
+  return 'cash';
+}
+
+export function normalizeWatchcounterReason(
+  metric: HorseWatchcounterMetric,
+  raw: string | undefined
+): string {
+  const spec = METRIC_BY_NAME.get(metric);
+  if (!spec) return 'other';
+  const r =
+    typeof raw === 'string'
+      ? raw
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9_]/g, '_')
+      : '';
+  if (!r) return 'default';
+  if (spec.allowedReasons.has(r)) return r;
+  // Map dynamic street-prefixed continuation reasons into closed canonical buckets
+  if (metric === 'poker_horse_plan_reevaluated_total') {
+    const prefix = r.startsWith('flop_')
+      ? 'flop_'
+      : r.startsWith('turn_')
+        ? 'turn_'
+        : r.startsWith('river_')
+          ? 'river_'
+          : '';
+    if (prefix) {
+      if (r.includes('scare')) return `${prefix}scare_card_pivot`;
+      if (r.includes('multiway')) return `${prefix}multiway_shift`;
+      if (r.includes('donk')) return `${prefix}unexpected_donk`;
+      if (r.includes('raise_plan_overridden')) return `${prefix}raise_plan_overridden_by_equity`;
+      if (r.includes('raise')) return `${prefix}unexpected_raise`;
+      if (r.includes('float')) return `${prefix}float_takeaway`;
+      if (r.includes('carry') || r.includes('retained')) return `${prefix}carry_forward`;
+    }
+    return 'invalidation_replan';
+  }
+  return 'other';
+}
+
+export function seedBrainWatchcounters(): void {
+  const seedVariants: readonly HorseWatchcounterVariant[] = [
+    'nlh',
+    'plo4',
+    'plo5',
+    'plo6',
+    'plo8',
+    'flo8',
+    'short_deck',
+    'pineapple',
+  ];
+  for (const spec of WATCHCOUNTER_SPECS) {
+    for (const variant of seedVariants) {
+      for (const mode of HORSE_WATCHCOUNTER_MODES) {
+        const key = `${spec.metric}|${variant}|${mode}|${spec.seedReason}`;
+        if (!watchcounters.has(key)) {
+          watchcounters.set(key, {
+            metric: spec.metric,
+            variant,
+            mode,
+            reason: spec.seedReason,
+            value: 0,
+          });
+        }
+      }
+    }
+  }
+}
+
+function recordWatchcounter(
+  metric: HorseWatchcounterMetric,
+  variantOrLabels: string | HorseWatchcounterLabels,
+  modeArg?: string | number,
+  reasonArg?: string,
+  countArg?: number,
+  recordDelta = workerWatchcounterRelayArmed
+): void {
+  let variant: HorseWatchcounterVariant;
+  let mode: HorseWatchcounterMode;
+  let reason: string;
+  let count: number;
+  if (typeof variantOrLabels === 'object' && variantOrLabels !== null) {
+    variant = normalizeWatchcounterVariant(variantOrLabels.variant);
+    mode = normalizeWatchcounterMode(variantOrLabels.mode);
+    reason = normalizeWatchcounterReason(metric, variantOrLabels.reason);
+    count = typeof modeArg === 'number' ? modeArg : 1;
+  } else {
+    variant = normalizeWatchcounterVariant(variantOrLabels);
+    mode = typeof modeArg === 'string' ? normalizeWatchcounterMode(modeArg) : 'cash';
+    reason = normalizeWatchcounterReason(metric, reasonArg);
+    count = typeof modeArg === 'number' ? modeArg : (countArg ?? 1);
+  }
+  if (!Number.isFinite(count) || count <= 0) return;
+  const key = `${metric}|${variant}|${mode}|${reason}`;
+  const cur = watchcounters.get(key);
+  if (cur) {
+    cur.value += count;
+  } else {
+    watchcounters.set(key, { metric, variant, mode, reason, value: count });
+  }
+  if (recordDelta) {
+    const delta = watchcounterDeltas.get(key);
+    if (delta) {
+      delta.value += count;
+    } else if (watchcounterDeltas.size < MAX_WATCHCOUNTER_DELTA_SERIES) {
+      watchcounterDeltas.set(key, { metric, variant, mode, reason, value: count });
+    }
+  }
+}
+
+export function noteHorseActionClamped(
+  variantOrLabels: string | HorseWatchcounterLabels,
+  mode?: string | number,
+  reason?: string,
+  count?: number
+): void {
+  recordWatchcounter('poker_horse_action_clamped_total', variantOrLabels, mode, reason, count);
+}
+
+export function noteHorsePlanReevaluated(
+  variantOrLabels: string | HorseWatchcounterLabels,
+  mode?: string | number,
+  reason?: string,
+  count?: number
+): void {
+  recordWatchcounter('poker_horse_plan_reevaluated_total', variantOrLabels, mode, reason, count);
+}
+
+export function noteHorseLegalizerDegraded(
+  variantOrLabels: string | HorseWatchcounterLabels,
+  mode?: string | number,
+  reason?: string,
+  count?: number
+): void {
+  recordWatchcounter('poker_horse_legalizer_degraded_total', variantOrLabels, mode, reason, count);
+}
+
+export function noteHorseStreetPrewarm(
+  variantOrLabels: string | HorseWatchcounterLabels,
+  mode?: string | number,
+  reason?: string,
+  count?: number
+): void {
+  recordWatchcounter('poker_horse_street_prewarm_total', variantOrLabels, mode, reason, count);
+}
+
+export function noteHorseTelemetryOpportunity(
+  variantOrLabels: string | HorseWatchcounterLabels,
+  mode?: string | number,
+  stage?: string,
+  count?: number
+): void {
+  recordWatchcounter(
+    'poker_horse_telemetry_opportunities_total',
+    variantOrLabels,
+    mode,
+    stage,
+    count
+  );
+}
+
+/** Drain worker-side increments since the previous relay message. */
+export function drainBrainWatchcounterDeltas(): HorseWatchcounterEntry[] {
+  if (watchcounterDeltas.size === 0) return [];
+  const out: HorseWatchcounterEntry[] = [];
+  for (const entry of watchcounterDeltas.values()) {
+    out.push({ ...entry });
+  }
+  watchcounterDeltas.clear();
+  return out;
+}
+
+/** Merge worker-relayed increments into the main-thread process counters. */
+export function mergeBrainWatchcounterDeltas(
+  entries: ReadonlyArray<HorseWatchcounterEntry> | undefined | null
+): void {
+  if (!Array.isArray(entries) || entries.length === 0) return;
+  for (const raw of entries) {
+    if (!raw || typeof raw.metric !== 'string' || typeof raw.value !== 'number') continue;
+    if (!METRIC_BY_NAME.has(raw.metric as HorseWatchcounterMetric)) continue;
+    if (!Number.isFinite(raw.value) || raw.value <= 0) continue;
+    const metric = raw.metric as HorseWatchcounterMetric;
+    const variant = normalizeWatchcounterVariant(raw.variant);
+    const mode = normalizeWatchcounterMode(raw.mode);
+    const reason = normalizeWatchcounterReason(metric, raw.reason);
+    const key = `${metric}|${variant}|${mode}|${reason}`;
+    const cur = watchcounters.get(key);
+    if (cur) {
+      cur.value += raw.value;
+    } else {
+      watchcounters.set(key, {
+        metric,
+        variant,
+        mode,
+        reason,
+        value: raw.value,
+      });
+    }
+  }
+}
+
+/** Non-destructive snapshot for /health and tests. */
+export function peekBrainWatchcounters(): Record<
+  HorseWatchcounterMetric,
+  { total: number; series: Array<{ variant: string; mode: string; reason: string; value: number }> }
+> {
+  const snapshot: Record<
+    HorseWatchcounterMetric,
+    {
+      total: number;
+      series: Array<{ variant: string; mode: string; reason: string; value: number }>;
+    }
+  > = {
+    poker_horse_action_clamped_total: { total: 0, series: [] },
+    poker_horse_plan_reevaluated_total: { total: 0, series: [] },
+    poker_horse_legalizer_degraded_total: { total: 0, series: [] },
+    poker_horse_street_prewarm_total: { total: 0, series: [] },
+    poker_horse_telemetry_opportunities_total: { total: 0, series: [] },
+  };
+  for (const entry of watchcounters.values()) {
+    const bucket = snapshot[entry.metric];
+    bucket.total += entry.value;
+    bucket.series.push({
+      variant: entry.variant,
+      mode: entry.mode,
+      reason: entry.reason,
+      value: entry.value,
+    });
+  }
+  return snapshot;
+}
+
+/** Render Prometheus text-exposition blocks once per /metrics scrape. */
+export function renderBrainWatchcountersPrometheus(): string[] {
+  if (watchcounters.size === 0) {
+    seedBrainWatchcounters();
+  }
+  const lines: string[] = [];
+  for (const spec of WATCHCOUNTER_SPECS) {
+    lines.push(`# HELP ${spec.metric} ${spec.help}`);
+    lines.push(`# TYPE ${spec.metric} counter`);
+    for (const entry of watchcounters.values()) {
+      if (entry.metric !== spec.metric) continue;
+      lines.push(
+        `${spec.metric}{variant="${entry.variant}",mode="${entry.mode}",reason="${entry.reason}"} ${entry.value}`
+      );
+    }
+  }
+  return lines;
+}
+
+/** Reset live watchcounters in unit tests (arms relay for single-process delta tests and re-seeds zero series). */
+export function resetBrainWatchcountersForTest(options?: { armRelay?: boolean }): void {
+  watchcounters.clear();
+  watchcounterDeltas.clear();
+  workerWatchcounterRelayArmed = options?.armRelay ?? true;
+  seedBrainWatchcounters();
+}
+
+seedBrainWatchcounters();

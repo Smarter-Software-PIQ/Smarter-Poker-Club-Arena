@@ -335,3 +335,22 @@ test('the preflight flag requires plan mode and writes nothing', () => {
   assert.notEqual(output.status, 0);
   assert.match(output.stderr, /Preflight writes no output/);
 }, 240_000);
+
+test('the preflight workflow fails on a crash or refusal instead of passing an empty verdict', () => {
+  // 2026-11-11 run 42995843618: the CLI threw, `| tee` exited 0 without
+  // pipefail, and the step passed with a 0-byte verdict. The step must run
+  // under bash -eo pipefail and require a written, passing verdict line.
+  const workflow = readFileSync(
+    fileURLToPath(
+      new URL('../../../.github/workflows/horse-feature-ablation-preflight.yml', import.meta.url)
+    ),
+    'utf8'
+  );
+  const step = workflow.slice(
+    workflow.indexOf("- name: Run the plan job's operations tests and the read-only preflight"),
+    workflow.indexOf('- name: Retain the verdict')
+  );
+  assert.match(step, /\n\s+shell: bash\n/);
+  assert.match(step, /\| tee "\$RUNNER_TEMP\/preflight-verdict\.json"/);
+  assert.match(step, /v\.mode !== "preflight" \|\| v\.ok !== true/);
+});

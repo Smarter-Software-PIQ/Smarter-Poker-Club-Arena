@@ -59,20 +59,31 @@ describe('V46 Omaha classifier', () => {
     expect(read.foldAlways).toBe(true);
   });
 
-  it('a rundown is a rundown, and it flats', () => {
+  it('a rundown is a rundown, unblocked for contextual IP/squeeze 3-bets while dangler keeps neverThreeBet', () => {
     expect(omahaHandClass(cc('Js', 'Th', '9s', '8h'))).toBe('rundown');
     expect(omahaHandClass(cc('Qs', 'Jh', 'Td', '8c'))).toBe('rundown');
     const read = handClassRead(cc('Js', 'Th', '9s', '8h'), true, false);
-    expect(read.neverThreeBet).toBe(true);
+    expect(read.neverThreeBet).toBe(false);
     expect(read.foldAlways).toBe(false);
     // and it opens wider than the zero read
     expect(read.shift.open).toBeLessThan(0);
-    // ... while its 3-bet bar RISES (published PLO: 3-bets are AA-anchored)
+    // ... while its base 3-bet bar RISES (context decides IP/squeeze vs OOP flat)
     expect(read.shift.threeBet).toBeGreaterThan(0);
+    // dangler still carries the structural neverThreeBet guard
+    expect(handClassRead(cc('As', 'Ks', 'Qh', '3c'), true, false).neverThreeBet).toBe(true);
   });
 
-  it('four broadway double-suited is its own class', () => {
+  it('four broadway double-suited is its own class and is unblocked to 3-bet', () => {
     expect(omahaHandClass(cc('Ks', 'Qh', 'Js', 'Th'))).toBe('broadway_ds');
+    expect(handClassRead(cc('Ks', 'Qh', 'Js', 'Th'), true, false).neverThreeBet).toBe(false);
+    // PLO5/6 AAAKKds has a playable aa_ds 4-card sub-core, so it does NOT auto-fold
+    const aaakk = handClassRead(cc('As', 'Ah', 'Ad', 'Ks', 'Kh'), true, false);
+    expect(aaakk.cls).toBe('trips');
+    expect(aaakk.foldAlways).toBe(false);
+    // Ragged rainbow trips still auto-folds
+    expect(handClassRead(cc('As', 'Ah', 'Ad', '7c', '2d', '3h'), true, false).foldAlways).toBe(
+      true
+    );
   });
 
   it('trash and danglers are told apart', () => {
@@ -215,20 +226,35 @@ function ctx(over: Partial<PreflopCtx> = {}): PreflopCtx {
 }
 
 describe('V46 reaches the preflop bars', () => {
-  it('a rundown that would 3-bet flats instead', () => {
-    const read = handClassRead(cc('Js', 'Th', '9s', '8h'), true, false);
+  it('a dangler that would 3-bet on raw strength flats instead, while double-suited broadway can 3-bet IP', () => {
+    const dangler = handClassRead(cc('As', 'Ks', 'Qh', '3c'), true, false);
     const without = decidePreflopV7(ctx({ strength: 0.97 }));
-    const with46 = decidePreflopV7(
+    const withDangler = decidePreflopV7(
       ctx({
         strength: 0.97,
-        classShift: read.shift,
-        classNeverThreeBet: read.neverThreeBet,
-        classFoldAlways: read.foldAlways,
+        classShift: dangler.shift,
+        classNeverThreeBet: dangler.neverThreeBet,
+        classFoldAlways: dangler.foldAlways,
       })
     );
     // the plain read raises (either shape the intent uses)
     expect(['raise', 'raiseTo']).toContain(without.a);
-    expect(with46.a).toBe('call');
+    expect(withDangler.a).toBe('call');
+
+    const kqjtDs = handClassRead(cc('Ks', 'Qh', 'Js', 'Th'), true, false);
+    const withKqjtDs = decidePreflopV7(
+      ctx({
+        strength: 0.92,
+        position: 'late',
+        isButton: true,
+        raiserPosition: 'late',
+        omahaAA: false,
+        classShift: kqjtDs.shift,
+        classNeverThreeBet: kqjtDs.neverThreeBet,
+        classFoldAlways: kqjtDs.foldAlways,
+      })
+    );
+    expect(['raise', 'raiseTo']).toContain(withKqjtDs.a);
   });
 
   it('trips folds to a raise however strong the percentile says it is', () => {
@@ -327,9 +353,9 @@ function ploSpot(cards: Card[], variant = 'plo4'): { hero: SeatPlayer; gs: Horse
 }
 
 describe('V46 wiring: the receipts fire from a live decision', () => {
-  it('an Omaha hand fires the class receipt; a hold em hand does not', () => {
+  it('an Omaha hand fires the class receipt (and dangler fires never_3bet); a hold em hand does not', () => {
     enableBrainTelemetry();
-    const plo = ploSpot(cc('Js', 'Th', '9s', '8h'));
+    const plo = ploSpot(cc('As', 'Ks', 'Qh', '3c'));
     HorseLogic.decide(plo.hero, plo.gs, 'balanced', {}, { telemetry: true });
     const f = Object.fromEntries(drainFires().map((r) => [r.feature, r.fires]));
     expect(f.v46_class_read ?? 0).toBeGreaterThan(0);
@@ -471,16 +497,24 @@ describe('per-decision preflop authority evidence', () => {
 
   it('distinguishes the non-AA margin and random trap from the class veto', () => {
     const marginal: PreflopAuthorityEvent[] = [];
-    // Find the existing marginal threshold without inventing a new strategy bar.
-    for (let strength = 0.8; strength <= 0.98 && !marginal.length; strength += 0.001) {
+    // Find the existing OOP non-AA marginal threshold without inventing a new strategy bar.
+    for (let strength = 0.8; strength <= 0.99 && !marginal.length; strength += 0.001) {
       const events: PreflopAuthorityEvent[] = [];
-      decidePreflopV7(ctx({ strength, omahaAA: false, noteAuthority: (e) => events.push(e) }));
+      decidePreflopV7(
+        ctx({
+          strength,
+          omahaAA: false,
+          position: 'bb',
+          raiserPosition: 'early',
+          noteAuthority: (e) => events.push(e),
+        })
+      );
       if (events[0]?.branch === 'v16_non_aa_flat') marginal.push(events[0]);
     }
     expect(marginal).toHaveLength(1);
     const trap: PreflopAuthorityEvent[] = [];
     const out = decidePreflopV7(
-      ctx({ strength: 0.99, rand: () => 0, noteAuthority: (e) => trap.push(e) })
+      ctx({ strength: 0.99, isOmaha: false, rand: () => 0, noteAuthority: (e) => trap.push(e) })
     );
     expect(out.a).toBe('call');
     expect(trap[0].branch).toBe('value_trap');
@@ -505,6 +539,20 @@ describe('per-decision preflop authority evidence', () => {
       { telemetry: true, v86PloOverhaul: false }
     );
     expect(preV86.preflopAuthority).toMatchObject({
+      version: 1,
+      scope: 'reference_preflop',
+      context: { isOmaha: true, classNeverThreeBet: true },
+    });
+
+    const danglerSpot = ploSpot(cc('As', 'Kd', 'Qh', '3c'));
+    const danglerDecision = HorseLogic.decide(
+      danglerSpot.hero,
+      danglerSpot.gs,
+      'balanced',
+      {},
+      { telemetry: true }
+    );
+    expect(danglerDecision.preflopAuthority).toMatchObject({
       version: 1,
       scope: 'reference_preflop',
       context: { isOmaha: true, classNeverThreeBet: true },

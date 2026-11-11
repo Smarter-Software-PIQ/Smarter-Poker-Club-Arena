@@ -3601,6 +3601,59 @@ describe('V86 6. Round-2 Hardening, Boundary Safety, & End-to-End Live Worker ->
     });
     expect(flopCommittedUnderboat).toContain('plo_underboat_stackoff');
 
+    // 2b. Counterfeited flop nut-boat commit (Td5d5sAc = TTT55 nut boat on TsTc5h flop, counterfeited by KsQd)
+    // must evaluate decision-time boardAt and NEVER false-fire plo_underboat_stackoff or plo_underfull_stackoff.
+    const counterfeitedFlopNutBoat = detectLeaks({
+      variant: 'plo4',
+      bigBlind: 2,
+      netBB: -110,
+      invested: 220,
+      holeCards: cards('Td5d5sAc'),
+      board: cards('TsTc5hKsQd'),
+      heroActions: [
+        { stage: 'preflop', action: 'call', amount: 6 },
+        { stage: 'flop', action: 'all_in', amount: 214, isFullRaise: true },
+      ],
+      wentToShowdown: true,
+    });
+    expect(counterfeitedFlopNutBoat).not.toContain('plo_underboat_stackoff');
+    expect(counterfeitedFlopNutBoat).not.toContain('plo_underfull_stackoff');
+
+    // 2c. Nut full house KKK22 on low-paired flop 2s2dKs (beaten only by 22 quads, beats K2 boat) must NOT flag underboat or underfull.
+    const flopOverfullVsQuads = detectLeaks({
+      variant: 'plo4',
+      bigBlind: 2,
+      netBB: -105,
+      invested: 210,
+      holeCards: cards('KhKcAhTd'),
+      board: cards('2s2dKsQhJc'),
+      heroActions: [
+        { stage: 'preflop', action: 'call', amount: 6 },
+        { stage: 'flop', action: 'all_in', amount: 204, isFullRaise: true },
+      ],
+      wentToShowdown: true,
+    });
+    expect(flopOverfullVsQuads).not.toContain('plo_underboat_stackoff');
+    expect(flopOverfullVsQuads).not.toContain('plo_underfull_stackoff');
+
+    // 2d. Turn middle boat QQQKK on KsKdQh2c (beaten by KQ/K2 boats, beats 22 boat -> lowerBoats === 1) flags underfull but NOT underboat.
+    const turnMiddleBoat = detectLeaks({
+      variant: 'plo4',
+      bigBlind: 2,
+      netBB: -105,
+      invested: 210,
+      holeCards: cards('QsQcAhTd'),
+      board: cards('KsKdQh2c7s'),
+      heroActions: [
+        { stage: 'preflop', action: 'call', amount: 6 },
+        { stage: 'flop', action: 'call', amount: 18 },
+        { stage: 'turn', action: 'all_in', amount: 186, isFullRaise: true },
+      ],
+      wentToShowdown: true,
+    });
+    expect(turnMiddleBoat).toContain('plo_underfull_stackoff');
+    expect(turnMiddleBoat).not.toContain('plo_underboat_stackoff');
+
     // 3. Tournament leak subtraction & cash omahaShare isolation in HorseSelfTuner
     expect(
       subtractTournamentLeaks(

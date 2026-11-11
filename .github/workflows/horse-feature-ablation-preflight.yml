@@ -77,6 +77,9 @@ jobs:
       - run: npm ci
         working-directory: server
       - name: Run the plan job's operations tests and the read-only preflight
+        # bash -eo pipefail: a crashed or refusing preflight must fail this step,
+        # not hide behind tee's exit status (2026-11-11: a crash passed green).
+        shell: bash
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
           TARGET: ${{ inputs.target }}
@@ -85,6 +88,7 @@ jobs:
           node --test tests/operations/feature-ablation-assemble.test.mjs tests/operations/feature-ablation-artifact-custody.test.mjs
           cd server
           npx tsx src/scripts/featureAblationQualify.ts --plan --preflight --target="$TARGET" --source-sha="$SOURCE_SHA" | tee "$RUNNER_TEMP/preflight-verdict.json"
+          node -e 'const v = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8").trim().split("\n").at(-1)); if (v.mode !== "preflight" || v.ok !== true) process.exit(1)' "$RUNNER_TEMP/preflight-verdict.json"
       - name: Retain the verdict
         if: always()
         uses: actions/upload-artifact@v4

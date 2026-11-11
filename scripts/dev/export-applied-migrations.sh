@@ -31,6 +31,9 @@ MIN="${1:-20260831}"
 cd "$(git rev-parse --show-toplevel)"
 : "${DATABASE_URL:?set DATABASE_URL (read-only use; direct host, not the pooler)}"
 export PGOPTIONS="${PGOPTIONS:-} -c default_transaction_read_only=on"
+# The URL stays in the environment: psql never receives it as an argument.
+source scripts/lib/pg-env-from-url.sh
+pg_env_from_url DATABASE_URL
 
 # The exporter body is held in a variable so node can read the rows on stdin.
 read -r -d '' EXPORTER <<'NODE' || true
@@ -71,7 +74,7 @@ if (empty.length) {
 console.log('Next: add a row per file to scripts/ci/recorded-migrations.manifest.json (md5 above), then commit.');
 NODE
 
-psql "$DATABASE_URL" -X -At -F $'\t' -v ON_ERROR_STOP=1 -c "
+psql -X -At -F $'\t' -v ON_ERROR_STOP=1 -c "
   select version, coalesce(name, ''), coalesce(array_length(statements, 1), 0),
          translate(encode(convert_to(coalesce(array_to_string(statements, E';\n'), ''), 'UTF8'), 'base64'), E'\n', '')
     from supabase_migrations.schema_migrations

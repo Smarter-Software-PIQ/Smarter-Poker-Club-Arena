@@ -219,10 +219,22 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the proven-winner read that tempers the opponent exploit against a player who beats the game',
     'src/engine/HorseOpponentExploit.ts':
       'the opponent-exploit read, its measured envelope and every effect it has on the reference and the packs',
+    'src/engine/HorseDeepDiveDiscipline.ts':
+      'V87 all-hands deep-dive Omaha preflop selectivity, HU position-stab suppression, PLO6 big-bet fold, Omaha bet-raised sizing, pricedIn trash floor, and NLH turn cold-raise shade',
     'src/engine/BettingStructure.ts':
       'the legal menu and bounds the reference is legalized into (hashed by Phases 11-13; now by Phase 10 too)',
     'src/engine/VariantRules.ts':
       'the card rules the reference reads (hashed by Phases 11-13; now by Phase 10 too)',
+    'src/engine/HorseHybridProfile.ts':
+      'the unified Hybrid v1 fleet solver adherence and EV-bounded indifference tie-break authority consumed by reference decisions',
+    'src/engine/HorsePreflopOrbitState.ts':
+      'the preflop orbit raise normalization, hero prior action, straddle/kill option and V38 committed-population guard consumed by reference preflop',
+    'src/engine/HorseSideGameOverlay.ts':
+      'the Seven-Deuce bounty pot overlay and Kill/Half-Kill blind normalization consumed by reference preflop and postflop EV pricing',
+    'src/engine/HorseActionLinePosterior.ts':
+      'the public action-line Bayesian range narrowing, polar vs capped read and turn/river raise sizing recognition consumed by reference postflop',
+    'src/engine/HorseCardRemovalScorer.ts':
+      'the combinatorial nut-blocker fold-equity bonus and missed-draw fold-blocker penalty consumed by reference postflop EV pricing',
   });
 
 export const HORSE_REFERENCE_DECISION_SOURCE_FILES: readonly string[] = Object.freeze(
@@ -249,6 +261,8 @@ export const HORSE_REFERENCE_DECISION_BOUNDARY: readonly string[] = Object.freez
  * every phase already hashes needs no entry.)
  */
 export const HORSE_REFERENCE_DECISION_EXCLUDED: Readonly<Record<string, string>> = Object.freeze({
+  'src/types.ts':
+    'shared TypeScript type and interface declarations; contains zero decision constants or policy logic',
   'src/services/errorReporter.ts': 'reports a thrown decision; the safety net, not a decision',
   'src/engine/BrainTelemetry.ts': 'fire counters and latency telemetry; no value a decision reads',
   'src/engine/horseDecisionGravity.ts':
