@@ -9549,10 +9549,11 @@ export class HorseLogic {
             delete r.raised;
           }
         } else if (opts.v86MultiStreetUnblocked !== false && oppReads) {
-          // Verified postflop maniacs pot indiscriminately with wide preflop
-          // bands rather than selective 75% two-pair+ value ranges: strip V40
-          // selective-aggressor tier conditioning so decidePostflop prices
-          // their shoves against their actual wide band on the primary pass.
+          // Verified extreme postflop maniacs who never fold to bets pot
+          // indiscriminately with wide preflop bands rather than selective 75%
+          // two-pair+ value ranges: strip V40 selective-aggressor tier
+          // conditioning only against non-folding extreme maniacs so normal
+          // wide bettors (e.g. foldToBet ~55%) retain V40 + V53 check-raise bands.
           for (let i = 0; i < opponents.length; i++) {
             const r = oppReads[i];
             if (!r) continue;
@@ -9561,7 +9562,8 @@ export class HorseLogic {
               mRead &&
               !mRead.presumed &&
               isPostflopManiac(mRead) &&
-              (maniacRaiseWidth(mRead) !== null || mRead.stats.betCheckedTo.mean >= 0.72)
+              (maniacRaiseWidth(mRead) ?? 0) >= 0.75 &&
+              mRead.stats.foldToBet.mean <= 0.25
             ) {
               delete r.streets;
               delete r.lastFrac;

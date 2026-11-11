@@ -2461,7 +2461,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       ultraPremiumElite ||
       (linearElite3Bet &&
         ctx.observedExtremeManiac !== true &&
-        (noBluff3 || ctx.maniacNoBluff !== true || strength >= 0.62)) ||
+        (ctx.maniacNoBluff !== true || strength >= 0.62)) ||
       (ctx.maniacNoBluff !== true && !noBluff3);
     const basePloMix = ctx.ploPersona3BetMix ?? 0.55;
     const rawPloMix = pressure
@@ -2541,7 +2541,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         ctx.omahaAA === false &&
         !premiumValue &&
         ctx.observedExtremeManiac === true &&
-        strength < Math.max(0.64, effThreeBetThresh + 0.12) &&
+        strength < effThreeBetThresh + 0.08 &&
         toCall <= ctx.stack * 0.15
       ) {
         noteAuthority('v16_non_aa_flat');
