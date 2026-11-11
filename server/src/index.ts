@@ -1,5 +1,7 @@
-import { onLightningBankTheWin } from './lightning/LightningBankTheWin.js';
-import { supabase } from './services/supabase/client.js';
+import {
+  startLightningBankTheWin,
+  stopLightningBankTheWin,
+} from './lightning/LightningBankTheWinDoor.js';
 import { subscribePlayerSessionRevocations } from './services/PlayerSessionAccess.js';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -305,34 +307,8 @@ async function startLeaderOwnedServices(): Promise<void> {
   horseSessionRotator = new HorseSessionRotator((tableId) => gameServer.getTableEngine(tableId));
   horseSessionRotator.start();
   /* BANK THE WIN ON LIGHTNING (owner 2026-11-10): a horse that books its win
-     between pool hands stands up from its anchor seat through the ordinary
-     Leave door (the one a person uses: hit-and-run and receipt included). A
-     refused or failed leave re-arms the tracker for the next pool hand. */
-  onLightningBankTheWin(({ clusterId, playerId, release }) => {
-    void (async () => {
-      try {
-        const { data, error } = await supabase
-          .from('table_seats')
-          .select('table_id, tables!table_seats_table_id_fkey!inner(cluster_id)')
-          .eq('user_id', playerId)
-          .is('left_at', null)
-          .eq('tables.cluster_id', clusterId)
-          .limit(1)
-          .maybeSingle();
-        const tableId = !error ? (data as { table_id?: string } | null)?.table_id : undefined;
-        const engine = tableId ? gameServer.getTableEngine(tableId) : undefined;
-        if (!tableId || !engine) return release();
-        const res = await engine.leaveTable(playerId);
-        if (!res?.success) return release();
-        console.log(
-          `[BankTheWin] Lightning horse ${playerId.slice(0, 8)} booked its win and left ${tableId.slice(0, 8)}`
-        );
-      } catch (err) {
-        release();
-        reportError(err, 'LightningBankTheWin.leave');
-      }
-    })();
-  });
+     between pool hands stands up through its anchor seat's ordinary Leave door. */
+  startLightningBankTheWin((tableId) => gameServer.getTableEngine(tableId));
   /* OPERATION STABLE HAND (Dan 2026-09-04): the floor planner's FIRST live
      order, and for now its only one. It stands a horse up when a human is on
      that table's waitlist, through the same hand-boundary-safe leaveTable()
@@ -362,7 +338,7 @@ function stopLeaderOwnedServices(): Promise<void> {
   const stopCalls: Array<[service: string, stop: () => Promise<unknown> | unknown]> = [
     ['HorseOverlayGuard', () => horseOverlayGuard?.stop()],
     ['HorseSessionRotator', () => horseSessionRotator?.stop()],
-    ['LightningBankTheWin', () => onLightningBankTheWin(null)],
+    ['LightningBankTheWin', stopLightningBankTheWin],
     ['StableHandExecutor', () => stableHandExecutor?.stop()],
     ['HorseDiamondSpins', stopHorseDiamondSpins],
     ['HorseSelfTuner', stopHorseSelfTuner],
