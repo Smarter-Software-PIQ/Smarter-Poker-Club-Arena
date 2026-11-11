@@ -13951,7 +13951,7 @@ function LiveTablePage({
         // The decision clock is already running: show its controls immediately.
         if (ritPanelOpenTimerRef.current) clearTimeout(ritPanelOpenTimerRef.current);
         ritPanelOpenTimerRef.current = null;
-        setShowRIT(true);
+        if (!leaveAttentionSuppressedRef.current) setShowRIT(true);
         return;
       }
 
