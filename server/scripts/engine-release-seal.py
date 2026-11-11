@@ -691,14 +691,14 @@ def cmd_bind_routine_window(args: argparse.Namespace) -> None:
 # Written under SealLock before the per-run reservation. An interrupted write
 # consumes the exception conservatively. Existing release recovery reads keep
 # their original run identity and never request a second announcement.
-NOV7_OWNER_CLAIM = 'engine-release-owner-2026-11-11-horse-clock-clone-engine-0650z.json'
-NOV7_PREDECESSOR = '05ab41c30fc21a8a98001827e9921ffc314b81e7'
+NOV7_OWNER_CLAIM = 'engine-release-owner-2026-11-11-horse-realtime-10454-engine-1930z.json'
+NOV7_PREDECESSOR = 'f7735cca6862b9add06841b8a41c305b3f3ebe01'
 
 
 def require_nov7_reservation_authority(args, target, stamp):
     # The installed seal and its policy reader belong to the same pinned control generation.
     deadline = getattr(args, 'deadline', None)
-    expiry = int(datetime.fromisoformat('2026-11-11T10:30:00+00:00').timestamp())
+    expiry = int(datetime.fromisoformat('2026-11-11T22:30:00+00:00').timestamp())
     if (type(deadline) is not int or stamp + 420000 > min(deadline, expiry) * 1000
             or not 330 <= (stamp // 1000) % 3600 <= 2940):
         die('Nov 7 announcement cannot fit the authorized window')

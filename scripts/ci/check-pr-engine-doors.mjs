@@ -62,7 +62,11 @@ import { MIGRATION_DIR, createdFunctions, isRecorded } from './window-migration-
 import { declaresMaintenanceWindow } from './maintenance-window-migrations.mjs';
 import { supersededBy } from './check-migrations-are-live.mjs';
 
-const ROOT = process.cwd();
+// The tree to judge. A trusted pull_request_target run points this at the
+// pull request's merge-result files, extracted as data (never executed), and
+// keeps the base git checkout separate in PR_DOORS_BASE_ROOT.
+const ROOT = process.env.PR_DOORS_ROOT || process.cwd();
+const BASE_ROOT = process.env.PR_DOORS_BASE_ROOT || ROOT;
 const ALLOWLIST = join(ROOT, 'scripts', 'ci', 'engine-doors.allowlist.json');
 const MIGRATION_FILE = /^\d{14}_[a-z0-9_]+\.sql$/;
 const BASE_REF = process.env.PR_DOORS_BASE_REF || 'refs/remotes/origin/main';
@@ -255,7 +259,7 @@ async function main() {
     return 0;
   }
 
-  const baseFiles = baseMigrationFiles(ROOT, BASE_REF);
+  const baseFiles = baseMigrationFiles(BASE_ROOT, BASE_REF);
   if (baseFiles === null) {
     console.log(
       `::warning title=PR DOORS BASE UNREADABLE::${BASE_REF} could not be read, so a migration this pull request ADDS cannot be told apart from one already on main. No door is allowed on that basis.`

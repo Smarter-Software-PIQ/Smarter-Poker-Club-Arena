@@ -25,9 +25,9 @@ CERTIFIED_END = 1793854800
 
 # The directly authorized receipt successor binds its own fresh single-use claim.
 # Prior immutable controls and entries keep their original authority and expiry.
-NOV7_OWNER_ID = '2026-11-11-horse-clock-clone-engine-0650z'
-NOV7_MANIFEST_DIGEST = 'aeecae49960eb9659ab5bc86710d330bb6a58a47a7c732f94fe74c894002b602'
-NOV7_ORDER_DIGEST = '33667f78814157db34d96578c6c8d4362ce1582781a9f9d32775145ba8b61d4f'
+NOV7_OWNER_ID = '2026-11-11-horse-realtime-10454-engine-1930z'
+NOV7_MANIFEST_DIGEST = 'd94ebce03e481c7af3c8cce08eac33f43724099626794ab770a07624d9b38e5c'
+NOV7_ORDER_DIGEST = 'e16b0ff230da53a50145768f1dbb5ee9944eaa74f3e5616698759c68942c8950'
 
 
 

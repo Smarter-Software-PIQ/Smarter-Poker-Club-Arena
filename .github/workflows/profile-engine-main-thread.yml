@@ -143,7 +143,7 @@ jobs:
     needs: verify
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'inspector' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
-    environment: "${{ github.event_name == 'pull_request' && 'ci-pull-request' || 'ci-main' }}"
+    environment: ci-main
     timeout-minutes: 3
     env:
       EXPECTED_ENGINE_SHA: ${{ inputs.expected_engine_sha }}
@@ -189,7 +189,7 @@ jobs:
     needs: verify
     if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'native_fault' || inputs.mode == 'native_receipt' || inputs.mode == 'native_prerequisites') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
-    environment: "${{ github.event_name == 'pull_request' && 'ci-pull-request' || 'ci-main' }}"
+    environment: ci-main
     timeout-minutes: 5
     env:
       EXPECTED_ENGINE_SHA: ${{ inputs.expected_engine_sha }}
@@ -357,7 +357,7 @@ jobs:
     needs: verify
     if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'native_perf_install' || inputs.mode == 'native_perf_receipt') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-24.04
-    environment: "${{ github.event_name == 'pull_request' && 'ci-pull-request' || 'ci-main' }}"
+    environment: ci-main
     timeout-minutes: 9
     env:
       EXPECTED_ENGINE_SHA: ${{ inputs.expected_engine_sha }}

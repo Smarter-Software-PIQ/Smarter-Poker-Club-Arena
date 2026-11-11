@@ -1,4 +1,5 @@
 import { isRetiredTournamentTable } from '../lib/retiredTournamentVisibility';
+import { nextBustRebuyClock } from '../utils/bustRebuyDeadline';
 import { earlyHeroCardsReady, type EarlyHeroCards } from '../utils/earlyHeroCards';
 import { tournamentAddOnEntryBoundaryPassed } from '../utils/tournamentAddOnBoundary';
 import { useTopUpAccounting } from '../hooks/useTopUpAccounting';
@@ -5059,6 +5060,10 @@ function LiveTablePage({
      is only the clock the rebuy sheet shows. Kept as "time left when told"
      plus this device's own clock, so a wrong device clock cannot skew it. */
   const [bustRebuyDeadlineAt, setBustRebuyDeadlineAt] = useState<number | null>(null);
+  /* The engine's deadline of the bust the clock above belongs to
+     (utils/bustRebuyDeadline). Kept when the window closes, so a frame of
+     that bust arriving late is still recognised as old. */
+  const bustRebuyServerDeadlineRef = useRef<number | null>(null);
   const [bustRebuySecondsLeft, setBustRebuySecondsLeft] = useState<number | null>(null);
   useEffect(() => {
     if (bustRebuyDeadlineAt === null) {
@@ -13214,11 +13219,22 @@ function LiveTablePage({
     if (ev.kind === 'bust_rebuy_window' && ev.table_id === tableId && ev.user_id === userId) {
       const remainingMs = Number(ev.remaining_ms);
       if (Number.isFinite(remainingMs) && remainingMs > 0) {
-        /* One deadline per bust: a resend (reopened sheet, reconnect) or a
-           frame that arrives late may bring it forward, never push it back.
-           It is cleared when chips arrive or the seat goes. */
-        const told = Date.now() + remainingMs;
-        setBustRebuyDeadlineAt((prev) => (prev === null ? told : Math.min(prev, told)));
+        /* One deadline per bust (utils/bustRebuyDeadline): a resend may bring
+           it forward, never push it back; a frame of an earlier bust, or one
+           that reaches a funded seat, changes nothing. */
+        const heroIdx = tableStateRef.current.heroSeat - 1;
+        const hero = heroIdx >= 0 ? tableStateRef.current.players[heroIdx] : null;
+        setBustRebuyDeadlineAt((prev) => {
+          const next = nextBustRebuyClock(
+            { localDeadlineAt: prev, serverDeadlineAt: bustRebuyServerDeadlineRef.current },
+            ev,
+            Date.now(),
+            hero ? hero.stack : null
+          );
+          if (!next) return prev;
+          bustRebuyServerDeadlineRef.current = next.serverDeadlineAt;
+          return next.localDeadlineAt;
+        });
       }
       return;
     }

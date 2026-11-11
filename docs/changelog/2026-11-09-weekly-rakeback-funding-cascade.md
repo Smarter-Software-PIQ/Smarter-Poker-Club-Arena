@@ -307,3 +307,107 @@ Each is named directly in its step, so a missing or failing harness turns that
 required check red. `tests/superseded-certificates-never-fund.law.test.ts`
 pins the two causes, the deleted-upline rule, the server exclusions and the
 install order in source, and keeps the four steps wired.
+
+## 2026-11-11: one transfer per edge, and the players' share is reserved until round 3
+
+Migration `20261111132447_weekly_rakeback_sends_one_gross_transfer_per_edge_and_reserv.sql`
+closes two items of "Known deviations" above, on the lead's decision under the
+owner's money grant (CLAUDE.md 10.9).
+
+**One transfer per edge.** Round 2 now plans the week's cascade itself (the same
+plan, moved into `smarter_private.rakeback_cascade_plan`: latest certificate per
+period, need never netted across players, deleted uplines routed around, the
+owner route, unassigned players unchanged) and sends one leg per (club, payer,
+payee). A leg that carries both is a `commission` leg under its round 2 key and
+records the split in its metadata (`commission_amount`, `rakeback_funding`,
+`rakeback_funding_key`, `rakeback_funding_version`). An edge with no
+commission (a zero-rate agent, an owner wallet) is one funding leg sent by
+round 2 under the cascade key. `agent_commission_settlements` and round 2's
+`amount` still report commission alone. The owner tier's own commission still
+stays in the club bank, so an owner edge carries funding only. The funding step
+before round 3 now finds every edge carried and refuses
+(`rakeback_cascade_round2_left_edge_unfunded`) if round 2 carried the week and
+an edge is missing; it still funds a week round 2 did not carry (a week paid by
+round 2 before this file, or a v3 fallback week). On the real-runner board the
+week moves bank -> SA 134.00 (84.00 + 50.00) and SA -> AG 80.00 (30.00 + 50.00)
+instead of four legs. The legacy callers `fn_process_weekly_accounting_scope`
+and `weekly_payout_execute`, which call round 2 then round 3 and never the
+funding step, now pay pass-through and owner-route players too.
+
+**The players' share is reserved.** Paying the pass-through in round 2 opens the
+window before round 3 (3 h 48 m on 2026-11-09), and nothing stopped an agent
+spending, or a club claiming back, chips its players are owed. That was already
+true of the commission an agent pays its players from. Round 2 now records in
+`smarter_private.weekly_payout_wallet_reserves`, per pending period and paying
+wallet, exactly what that wallet owes the player. One BEFORE trigger on
+`public.agents` (`zzzzz_agent_wallet_keeps_weekly_reserve`, last of the BEFORE
+triggers so it sees the final balance after the business_balance sync) refuses
+any update that leaves the wallet below its reserve, and any delete of a wallet
+that reserves anything:
+
+> agent_wallet_weekly_rakeback_reserved: agent ... in club ... holds 54.00 in
+> its agent wallet and 6.00 of it is owed to its players as weekly rakeback for
+> the week starting ...; at most 48.00 can leave this wallet until round 3 of
+> the weekly payout pays those players
+
+Every debit door (sends, self stake, cash-out, claim-back, deleted-wallet
+return, horse split, adjustments) reaches the wallet through that UPDATE, so
+each is refused for the reserved part and works for the rest. A frozen or
+suspended payer keeps the reserve; a credit is never refused. There is no bypass
+setting: round 3 lowers the reserve by exactly what it pays, before it debits,
+and closes a period's reserve when the period is paid or discharged by an
+existing transfer. Finalize refuses a run that left one
+(`weekly_payout_reserve_not_released`). No client role can read the table or
+call the functions that lower it.
+
+**Settled history is untouched.** Read on production 2026-11-11: 760 round 2
+legs over 7 weeks (8,633,023.02), none carrying any of the new keys; every
+patched expression reads them as funding 0, and the patched zero-standalone
+predicate agrees with today's on all 760. The reserve table starts empty, so the
+trigger refuses nothing until a round 2 runs under this file.
+
+**Proof.** `scripts/ci/test-rakeback-cascade-real-runner-postgres.py` (the real
+runner, tick by tick, 19 cases: one leg per edge with its split, a round 2
+killed at its last leg and a round 3 killed mid-payment each rolling back whole
+and paying once on the next tick, the reserve refusing the real agent send and
+self stake doors and the direct debit forms while the unreserved 48.00 moves,
+round 3 alone paying everyone as the legacy callers do, every reserve 0 at
+finalize, a round 2 rerun a duplicate), `test-rakeback-cascade-real-guards-postgres.py`
+(29), `test-rakeback-cascade-funding-postgres.py` (42) and
+`test-owner-routing-wallet-postgres.py` (58: the real claim-back refused for the
+reserved part of an owner wallet, before and after an ownership transfer, and
+returning the rest). `tests/weekly-rakeback-sends-one-leg-per-edge-and-reserves-the-players-share.law.test.ts`
+pins both causes in source.
+
+**What this costs.** A refusal in the cascade plan (hierarchy missing, club
+cannot afford the week, deleted upline after funding) now stops round 2 as well
+as round 3, so commission waits with the players. While a week's reserve is
+held, an agent cannot move its players' share; a stalled week keeps it held
+until that week is paid.
+
+## 2026-11-11: a refusing club no longer stops the rest of the union
+
+Owner decision (Dan, 2026-11-11): pay independently valid, fully funded clubs when another club refuses, where their allocations can be established independently; fail closed only for the affected scope; never invent allocations, borrow another club's funds or mark the union complete early.
+
+**Cause.** The weekly runner (`smarter_private.weekly_payout_next_round`) paid a union as one unit per round. Round 2, the funding step and round 3 planned every club together and raised on the first club that refused (`rakeback_cascade_club_cannot_afford_week`, `_club_bank_short`, `_hierarchy_missing`, `_upline_deleted_after_funding`, the round 3 agent and bank shortfalls). The runner had no handler, so one club's refusal rolled back every club's payment, every minute for 24 hours, recorded only in `cron.job_run_details`.
+
+**What is shared, and what is not.**
+
+| Input                                                                                                        | Shared across clubs?                                    | Failure unit      |
+| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------- | ----------------- |
+| Round 1: the union's rake pool, its retained share, the split to club banks                                  | Yes                                                     | Union (unchanged) |
+| Round 2 source proofs: the prepared week's earning sources, one fingerprint, hierarchy and entitlement tests | Yes (one prepared week)                                 | Union (unchanged) |
+| A club's certificates, its recorded hierarchy, what round 1 credited its bank, its bank, its agent wallets   | No (an agent of two clubs is two wallets, one per club) | Club              |
+| An upline recorded in another club                                                                           | Couples the two clubs                                   | Both clubs        |
+
+**Fix** (migration `20261111174403`, on exactly the postimages of `20261111132447`). Only in the runner's owned union unit; every other caller keeps the whole-scope refusal.
+
+- The cascade plan runs one club at a time (`rakeback_cascade_plan(...,p_club)`, a new overload; the whole-scope plan is unchanged). A club whose plan refuses is held; a refusal naming an upline in another club holds both.
+- Round 2 checks each remaining club on its own before anything moves (what it received for the week covers its outflow, its bank holds what round 2 sends now, every wallet round 2 credits exists), then runs unchanged on the rest. A club an earlier pass paid is not paid again: it is left out by its paid row, whose source fingerprint must still match.
+- The funding step (now run inside the owned unit) and round 3 leave out a club round 2 has not paid, and hold a club whose own agent wallets or bank cannot pay its players.
+- `smarter_private.weekly_payout_club_rounds` records each club per round as paid (with its summary) or refused (code, message, amounts, attempts, the time of the first and last refusal). The first refusal of a club in a round raises one critical `financial_alerts` row (source `weekly_payout_club_refused`), which is resolved, with the number of attempts, when the club is paid.
+- A pass that holds a club returns a partial receipt (`stage: round_clubs_held`) and writes no union settlement run row and no round receipt, so the union round stays open. The runner leaves that unit waiting while any other unit can move, then retries one held unit per tick, the one tried longest ago. The union receipt is written when every club is paid, with the whole round's totals. Finalize refuses (`weekly_payout_club_still_held`) while any club is held.
+
+Exactly-once keys are unchanged (every leg key names its club). Nothing is borrowed between clubs, invented, replayed or taken back, and no schedule, watcher or repair path is added: the runner's existing minute cadence retries the held club.
+
+**Proof** (`scripts/ci/test-rakeback-cascade-real-runner-postgres.py`, fixtures `club-isolation.py`, PostgreSQL 17, 32 cases): week 1 unchanged (one pass, identical receipts); week 2: round 1 killed once rolls the whole union back; W's owner empties W's bank through the real club bank send door, so O and T are paid in rounds 2 and 3 and W is held untouched (no leg, no reserve, no settlement), retried every minute with nothing moving and finalize refused; once W is funded it is paid exactly once and the union week completes with union-wide conservation. Week 3: a cross-club upline holds V and O together; T's middle agent deleted after round 2 holds T alone in round 3; W is paid in full; the week is never finalized. Concurrency: a second runner tick during round 3 answers `rounds_busy`, and an agent's stake of its unreserved balance waits for round 3's lock and then moves; reserved equals paid for every period and wallet across interruptions and passes. Law: `tests/weekly-rakeback-pays-each-independent-club-when-another-refuses.law.test.ts`.
