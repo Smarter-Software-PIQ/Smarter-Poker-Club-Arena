@@ -153,6 +153,14 @@ import {
 } from './HorseMind.js';
 import { omahaFlushBlocker } from './OmahaFlushBlocker.js';
 import {
+  v86AdjustFiveSixCardHandClass,
+  v86NlhTurnMultiwayOrColdRaiseShade,
+  v86OmahaBetRaisedShade,
+  v86Plo6BigBetCell,
+  v86SanitizeOmahaOpenerExploit,
+  v86ShouldSuppressOmahaPositionStab,
+} from './HorseDeepDiveDiscipline.js';
+import {
   isStation,
   EXPLOIT_FAST_ENGAGE_MIN_N,
   isolationWiden,
@@ -2427,6 +2435,13 @@ export interface HorseDecideOpts {
    *  HorseGtoDefenceRanges, HorseNlhOpenSize). Default on; false = the prior
    *  ranges and sizes, kept for the paired league. No-limit hold'em cash only. */
   v85CashAction?: boolean;
+  /** V86 (2026-11-10): all-hands human-vs-Horse deep-dive discipline across
+   *  PLO4/PLO5/PLO6 multiway preflop & 5/6-card hand classes, HU Omaha
+   *  turn/river position-stab selectivity, PLO6 big-bet call discipline,
+   *  Omaha bet-raised commitment/shade, ante/Omaha pricedIn trash floor, and
+   *  NLH turn cold-raise / multiway barrel shade. Default on; explicit false
+   *  restores exact pre-V86 behavior. */
+  v86DeepDiveDiscipline?: boolean;
   /** V73 (2026-11-01): Hold'em opener facing one 3-bet with nobody else in
    *  (three or more dealt in, 25bb+ effective, 3-bet 1.8x-7x the open) - the
    *  call-or-4-bet width is a share of the opener seat's own open width
@@ -4553,7 +4568,8 @@ function omahaBigBetCallFold(
   try {
     const v81On = opts.v81OmahaBigBetCalls !== false;
     const v84On = opts.v84OmahaRiverReraiseCalls !== false;
-    if (!v81On && !v84On) return decision;
+    const v86On = opts.v86DeepDiveDiscipline !== false;
+    if (!v81On && !v84On && !v86On) return decision;
     const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
     const heroBet = Number.isFinite(player.bet) ? Math.max(0, player.bet ?? 0) : 0;
     const toCall = Number.isFinite(gs.toCall)
@@ -4614,9 +4630,19 @@ function omahaBigBetCallFold(
             allInOrFold: gs.allInOrFold === true,
           })
         : null;
-    if (v81 === null && v84 === null) return decision;
+    const v86Plo6 =
+      v81 === null && v84 === null && v86On
+        ? v86Plo6BigBetCell({ ...shared, heroHasStreetChips: heroBet > 0.005 })
+        : null;
+    if (v81 === null && v84 === null && v86Plo6 === null) return decision;
     if (telemetryOn(opts))
-      noteFire(v81 !== null ? 'v81_omaha_big_bet_call_fold' : 'v84_omaha_river_reraise_call_fold');
+      noteFire(
+        v81 !== null
+          ? 'v81_omaha_big_bet_call_fold'
+          : v84 !== null
+            ? 'v84_omaha_river_reraise_call_fold'
+            : 'v86_deep_dive_discipline'
+      );
     const folded: HorseDecision = { ...decision, action: 'fold' };
     delete folded.amount;
     return folded;
@@ -5645,6 +5671,13 @@ export class HorseLogic {
       }
     }
     const variants = graph.run('variant_policy', decision, () => {
+      const suppressOmahaStab86 =
+        opts.v86DeepDiveDiscipline !== false &&
+        vi.isOmaha &&
+        !vi.isHiLo &&
+        !readStation &&
+        v86ShouldSuppressOmahaPositionStab(player, gs, decision);
+      const effectiveStation86 = readStation || suppressOmahaStab86;
       const phase10 =
         registration.owner === 'phase10' && opts.phase10Plo4 !== 'off'
           ? evaluatePlo4LivePolicy(
@@ -5655,7 +5688,7 @@ export class HorseLogic {
               opts.phase10Plo4 ?? 'shadow',
               opts.phase10EvidenceMode && !tele ? () => 0 : undefined,
               (d) => this.legalize(d, player, gs, vi),
-              readStation
+              effectiveStation86
             )
           : null;
       if (phase10) {
@@ -5683,7 +5716,7 @@ export class HorseLogic {
               phase11DecisionEquityCeiling ?? 1,
               true,
               (d) => this.legalize(d, player, gs, vi),
-              readStation
+              effectiveStation86
             )
           : null;
       if (phase11) {
@@ -5699,6 +5732,14 @@ export class HorseLogic {
           phase11.receipt.applied = false;
           phase11.receipt.selectionRefusal = 'illegal_candidate';
         } else decision = legal;
+      }
+      if (
+        suppressOmahaStab86 &&
+        telemetryOn(opts) &&
+        ((phase10 !== null && (opts.phase10Plo4 ?? 'shadow') === 'candidate') ||
+          (phase11 !== null && (opts.phase11Omaha ?? 'shadow') === 'candidate'))
+      ) {
+        noteFire('v86_deep_dive_discipline');
       }
       const phase12 =
         registration.owner === 'phase12' && opts.phase12Remaining !== 'off'
@@ -7529,7 +7570,18 @@ export class HorseLogic {
         if (raiser && raiser.user_id !== player.user_id) {
           const read = HorseMind.opponentRead(raiser.user_id);
           if (read && raises === 1) {
-            exploitOpener = preflopVsOpener(read, vi.isOmaha) ?? undefined;
+            const rawOpener = preflopVsOpener(read, vi.isOmaha) ?? undefined;
+            exploitOpener =
+              opts.v86DeepDiveDiscipline !== false
+                ? v86SanitizeOmahaOpenerExploit(
+                    rawOpener,
+                    read.presumed === true,
+                    vi.isOmaha,
+                    vi.isHiLo
+                  )
+                : rawOpener;
+            if (exploitOpener !== rawOpener && telemetryOn(opts))
+              noteFire('v86_deep_dive_discipline');
             if ((opts.v53Pressure ?? true) !== false)
               exploitPressure = aggressiveOpenerPressure(read, vi.isOmaha) ?? undefined;
           } else if (read && raises >= 2)
@@ -8063,9 +8115,13 @@ export class HorseLogic {
               noteFire('v60_cash_pressure_facing_open_superseded');
             else if (layer === 'v60_cash_pressure_opener_vs_three_bet')
               noteFire('v60_cash_pressure_opener_vs_three_bet');
+            else if (layer === 'v86_deep_dive_discipline') noteFire('v86_deep_dive_discipline');
           }
         : undefined,
       isShortDeck: vi.isShortDeck === true,
+      v86DeepDiveDiscipline: opts.v86DeepDiveDiscipline !== false,
+      omahaHoleCount: vi.isOmaha ? vi.holeCount : undefined,
+      omahaHiLo: vi.isHiLo,
       ...(typeof opts.tournamentFlatBump === 'number'
         ? { tournamentFlatBump: opts.tournamentFlatBump }
         : {}),
@@ -8099,11 +8155,20 @@ export class HorseLogic {
       // read, so this is byte-identical outside Omaha and short deck.
       ...(() => {
         if ((opts.v46Charts ?? true) === false) return {};
-        const read46 = handClassRead(
+        const baseRead46 = handClassRead(
           player.cards,
           vi.isOmaha,
           vi.isShortDeck && opts.v46ShortDeck === true
         );
+        const adj86 =
+          opts.v86DeepDiveDiscipline !== false &&
+          vi.isOmaha &&
+          !vi.isHiLo &&
+          player.cards.length >= 5
+            ? v86AdjustFiveSixCardHandClass(player.cards, baseRead46)
+            : { read: baseRead46, changed: false };
+        const read46 = adj86.read;
+        if (adj86.changed && telemetryOn(opts)) noteFire('v86_deep_dive_discipline');
         if (read46.cls === 'other' || read46.cls === 'sd_other') return {};
         if (telemetryOn(opts)) {
           noteFire('v46_class_read');
@@ -11922,13 +11987,29 @@ export class HorseLogic {
         }
         if (cap40 !== Infinity) {
           cap40 -= 0.05 * Math.max(0, Math.min(4, heat40) - 1);
-          if (!isRiver) cap40 += street === 'flop' ? 0.1 : 0.04;
+          const withholdFlopLift86 =
+            opts.v86DeepDiveDiscipline !== false &&
+            !vi.isHiLo &&
+            street === 'flop' &&
+            (made40.cls === 'air' || made40.cls === 'pair') &&
+            drawInfo40()?.nutty !== true &&
+            drawInfo40()?.nutFlushDraw !== true &&
+            (drawInfo40()?.straightOuts ?? 0) < 6;
+          if (!isRiver) cap40 += street === 'flop' ? (withholdFlopLift86 ? 0.02 : 0.1) : 0.04;
           // A nut draw alongside the made hand is real equity the cap
           // must not erase (top two with the nut flush draw stacks off).
           if (!isRiver && drawInfo40()?.nutty === true) cap40 += 0.12;
           const before40 = eq15;
           eq15 = Math.min(eq15, Math.max(0.08, cap40));
-          if (tele15 && eq15 < before40) noteFire('v40_omaha_pressure_cap');
+          if (tele15 && eq15 < before40) {
+            noteFire('v40_omaha_pressure_cap');
+            if (
+              withholdFlopLift86 &&
+              before40 > Math.max(0.08, cap40) &&
+              eq15 < Math.max(0.08, cap40 + 0.08)
+            )
+              noteFire('v86_deep_dive_discipline');
+          }
         }
       }
     }
@@ -12248,8 +12329,25 @@ export class HorseLogic {
         )
       : 0;
     if (v67Class && tele15) noteFire('v67_river_bet_raised_one_pair');
+    const v86OmahaBetRaised =
+      opts.v86DeepDiveDiscipline !== false &&
+      vi.isOmaha &&
+      !vi.isHiLo &&
+      raisedAfterAggr &&
+      !multiBoard36 &&
+      !gs.bombPot &&
+      exploit.callDownMod <= 1 &&
+      toCall > 0 &&
+      pot > 0 &&
+      cat > 0 &&
+      (cat <= 4 ||
+        (cat === 5 &&
+          (pairedBoard || (nuts15?.flushPossible ?? false) || !(nuts15?.straightIsNut ?? true))) ||
+        (cat === 6 && (pairedBoard || (nuts15?.higherFlushRanks ?? 0) >= 2))) &&
+      (!drawsLive || drawInfo40()?.nutty !== true);
+    const shade86Omaha = v86OmahaBetRaised ? v86OmahaBetRaisedShade(toCall, pot, isRiver) : 0;
     let committed = committedLegacy;
-    if (v66Class) {
+    if (v66Class || v86OmahaBetRaised) {
       const heroWager66 = Math.max(0, isFinite(player.bet) ? player.bet : 0);
       const investedBefore66 = Math.max(0, investedNow - heroWager66);
       const callable66 = Math.min(toCall, commitmentStack);
@@ -12258,8 +12356,10 @@ export class HorseLogic {
         toCall >= stack ||
         postCallSpr66 < 1 ||
         (investedBefore66 > 0 && investedBefore66 / (commitmentStack + investedNow) >= 0.3);
-      if (tele15 && (shade66 > 0 || committed !== committedLegacy))
+      if (v66Class && tele15 && (shade66 > 0 || committed !== committedLegacy))
         noteFire('v66_bet_raised_one_pair');
+      if (v86OmahaBetRaised && tele15 && (shade86Omaha > 0 || committed !== committedLegacy))
+        noteFire('v86_deep_dive_discipline');
     }
     if (committed) {
       // V20: the flat-call bar here was potOdds + 0.02 regardless of how many
@@ -12377,6 +12477,28 @@ export class HorseLogic {
         if (shade61c > v61RiverOnePairShade(toCall, pot) && tele15)
           noteFire('v63_large_river_bet_shade');
       }
+      const shade86NlhTurnCommit =
+        opts.v86DeepDiveDiscipline !== false &&
+        (opts.v65TurnOnePairShade ?? true) !== false &&
+        street === 'turn' &&
+        !vi.isOmaha &&
+        !vi.isShortDeck &&
+        vi.holeCount === 2 &&
+        !multiBoard36 &&
+        !gs.bombPot &&
+        !raisedAfterAggr &&
+        exploit.callDownMod <= 1 &&
+        cat > 0 &&
+        (cat <= 2 || (cat === 3 && pairedBoard)) &&
+        toCall > 0 &&
+        pot > 0 &&
+        !((opts.v69TurnCallGaps ?? true) !== false ? holdemHoleDrawPresent : holdemDrawPresent)(
+          player.cards,
+          board
+        )
+          ? v86NlhTurnMultiwayOrColdRaiseShade(pressure20, oppCount, potFrac)
+          : 0;
+      if (shade86NlhTurnCommit > 0 && tele15) noteFire('v86_deep_dive_discipline');
       const required =
         potOdds +
         0.02 +
@@ -12385,12 +12507,15 @@ export class HorseLogic {
         scare21 -
         bounty23 +
         (v67Class ? shade67 : shade61c) +
-        shade66;
+        shade66 +
+        shade86Omaha +
+        shade86NlhTurnCommit;
       // V66: the bet-raised one-pair class calls or folds at the shaded
       // price; it never jams over the raise and the 0.42 floor (which read
       // a 40bb call as cheap) does not apply to it. V67 does the same for
-      // the river twin.
-      if (v66Class || v67Class) {
+      // the river twin, and V86 extends the same call-or-fold discipline to
+      // vulnerable non-nut Omaha bet-then-raised hands.
+      if (v66Class || v67Class || v86OmahaBetRaised) {
         if (eq15 >= required || solverCall32)
           return { action: 'call', amount: toCall, thinkTime: 0 };
         return {
@@ -13271,6 +13396,14 @@ export class HorseLogic {
         noteFire('v65_turn_one_pair_shade');
         if (v69Gaps && holdemDrawPresent(player.cards, board)) noteFire('v69_turn_call_gaps');
       }
+      const extra86Turn =
+        opts.v86DeepDiveDiscipline !== false
+          ? v86NlhTurnMultiwayOrColdRaiseShade(pressure20, oppCount, potFrac)
+          : 0;
+      if (extra86Turn > 0) {
+        shade65 += extra86Turn;
+        if (tele15) noteFire('v86_deep_dive_discipline');
+      }
     }
     // ═══ V68 NO-PAIR TURN CALLS (2026-10-31) ═══ Hold'em, one board: a
     // high-card hand (cat 1; cat 0 is "unknown") calling a turn wager it did
@@ -13407,7 +13540,7 @@ export class HorseLogic {
         // V67: over hero's own raised river bet the raise shade replaces it.
         if (v67Class) shade61 = shade67;
         const v = riverCallVerdict({
-          equity: clamp01(eqRead38 - shade61),
+          equity: clamp01(eqRead38 - shade61 - shade86Omaha),
           pot,
           toCall,
           stack,
@@ -13451,7 +13584,7 @@ export class HorseLogic {
         // shade is subtracted from the equity handed to the flop/turn
         // verdict, as V61 subtracts shade61 on the river. A draw carries
         // neither, so comboRaise38 is not affected.
-        equity: clamp01(eqRead38 - shade65 - shade66 - shade68),
+        equity: clamp01(eqRead38 - shade65 - shade66 - shade68 - shade86Omaha),
         pot,
         toCall,
         stack,
@@ -13522,7 +13655,7 @@ export class HorseLogic {
       // V65 / V66 / V68: each shade comes off the equity, not onto the bar,
       // so the same line that always decided this call still decides it;
       // the three are exclusive by their gates.
-      eq15 + impliedBonus68 - shade65 - shade66 - shade68 >=
+      eq15 + impliedBonus68 - shade65 - shade66 - shade68 - shade86Omaha >=
       potOdds + 0.03 * respect + sizingPenalty + posEdge + dominationPenalty
     ) {
       return { action: 'call', amount: toCall, thinkTime: 0 };

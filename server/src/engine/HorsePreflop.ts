@@ -37,6 +37,11 @@ import { cashNlhThreeBetRaiseTo } from './HorseCashThreeBetSize.js';
 import { huBbRequiredEquity } from './HorseHuBbDefence.js';
 import { limpReraiseIsoBar } from './HorseLimpReraiseRead.js';
 import {
+  v86OmahaCallBarBounds,
+  v86OmahaColdCallTighten,
+  v86PricedInMinStrength,
+} from './HorseDeepDiveDiscipline.js';
+import {
   tournamentMZone,
   tournamentNextLevelProjectionApplies,
   type TournamentMState,
@@ -103,7 +108,8 @@ export interface PreflopIntent {
 export type PreflopLayerReceipt =
   | 'v60_cash_pressure_facing_open'
   | 'v60_cash_pressure_facing_open_superseded'
-  | 'v60_cash_pressure_opener_vs_three_bet';
+  | 'v60_cash_pressure_opener_vs_three_bet'
+  | 'v86_deep_dive_discipline';
 
 /**
  * Dan 2026-11-06 (PLO5 1/2 Madness, hand 55704472): "I JUST WATCHED NOODLE NOT
@@ -474,6 +480,12 @@ export interface PreflopCtx {
    * and take this shift instead. Undefined = every bar is exactly what it was.
    */
   ploIcm?: OmahaPressureShifts;
+  /** V86 (2026-11-10): all-hands deep-dive Omaha selectivity and pricedIn trash floor. */
+  v86DeepDiveDiscipline?: boolean;
+  /** V86: Omaha hole-card count (4, 5, or 6) when `isOmaha === true`. */
+  omahaHoleCount?: number;
+  /** V86: true on Hi-Lo split variants (PLO8/FLO8), excluded from V86 Omaha rules. */
+  omahaHiLo?: boolean;
 }
 
 const clamp01 = (n: number): number => Math.max(0, Math.min(1, n));
@@ -744,6 +756,19 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
   const unopenedForGuard = ctx.raises === 0 && ctx.currentBet <= bb * 1.05;
   const callIsAllIn = effCall >= stack * 0.99;
   if (unopenedForGuard && !callIsAllIn) return out;
+  if (ctx.v86DeepDiveDiscipline === true && !callIsAllIn) {
+    const minStr86 = v86PricedInMinStrength({
+      isTourney,
+      isOmaha: ctx.isOmaha === true,
+      isHiLo: ctx.omahaHiLo === true,
+      omahaHoleCount: ctx.omahaHoleCount,
+      callers: ctx.callers,
+    });
+    if (minStr86 > 0 && ctx.strength < minStr86) {
+      ctx.noteLayer?.('v86_deep_dive_discipline');
+      return out;
+    }
+  }
   // The receipt says which band decided; the priced-in call still came from it.
   return out.receipt ? { a: 'call', receipt: out.receipt } : { a: 'call' };
 }
@@ -1602,9 +1627,16 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // is [LIMP_BEHIND_MIN, openThresh) - empty in late position until several
     // limpers widen it. Late position isolating limpers instead of joining
     // them is correct, and the V10 isolation layer above already does it.
+    const omahaLimpDiscipline86 =
+      ctx.v86DeepDiveDiscipline === true && ctx.isOmaha === true && !ctx.omahaHiLo;
+    const omahaLimpTighten86 = omahaLimpDiscipline86
+      ? (ctx.omahaHoleCount === 6 ? 0.07 : ctx.omahaHoleCount === 5 ? 0.04 : 0) +
+        Math.min(2, Math.max(0, limpers - 1)) * 0.02
+      : 0;
     const canLimpBehind =
-      limpers >= 1 && strength >= phase6CapBar(LIMP_BEHIND_MIN + phase6Shift('call'));
-    const limpable = strength >= openThresh - 0.12;
+      limpers >= 1 &&
+      strength >= phase6CapBar(LIMP_BEHIND_MIN + omahaLimpTighten86 + phase6Shift('call'));
+    const limpable = strength >= openThresh - (omahaLimpDiscipline86 ? 0.06 : 0.12);
     // V28 AUDIT FIX: `|| position === 'sb'` short-circuited the strength test
     // entirely — the SB completed with ANY two cards 70% of the time and was
     // play-visible as "the small blind never folds". The SB still completes
@@ -1612,9 +1644,19 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // to the limpers-first rule: with the pot unopened, the small blind has
     // the big blind still to act behind it, so completing is an open-limp
     // like any other.
-    const sbCompletable = position === 'sb' && strength >= openThresh - 0.22;
+    const sbCompletable =
+      position === 'sb' && strength >= openThresh - (omahaLimpDiscipline86 ? 0.14 : 0.22);
     if (canLimpBehind && toCall <= bb && (limpable || sbCompletable) && rand() < 0.7) {
       return { a: 'call' };
+    }
+    if (
+      omahaLimpDiscipline86 &&
+      limpers >= 1 &&
+      toCall <= bb &&
+      strength >= phase6CapBar(LIMP_BEHIND_MIN + phase6Shift('call')) &&
+      (strength >= openThresh - 0.12 || (position === 'sb' && strength >= openThresh - 0.22))
+    ) {
+      ctx.noteLayer?.('v86_deep_dive_discipline');
     }
     return { a: 'fold' };
   }
@@ -1713,6 +1755,13 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       }
       const flat = position === 'bb' ? vsOpener.bbFlatBar : vsOpener.flatBar;
       if (flat !== null) callThresh = Math.min(callThresh, tCall53(flat));
+    }
+    if (ctx.v86DeepDiveDiscipline === true && ctx.isOmaha === true && !ctx.omahaHiLo) {
+      const bump86 = v86OmahaColdCallTighten(ctx.omahaHoleCount, position, callers, stackBB);
+      if (bump86 > 0) {
+        callThresh += bump86;
+        ctx.noteLayer?.('v86_deep_dive_discipline');
+      }
     }
     const noBluff3 = vsOpener?.noBluffThreeBet === true;
     // 2026-10-24 V53 PRESSURE: heads-up against a credibly wide opener, the
@@ -2010,9 +2059,15 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // percentile means what it says.
     // V74: the continue bar is already the big blind's own width.
     let callBar = callThresh - (def72 ? 0 : bbDiscount);
+    const bounds86 =
+      ctx.v86DeepDiveDiscipline === true && ctx.isOmaha === true && !ctx.omahaHiLo
+        ? v86OmahaCallBarBounds(ctx.omahaHoleCount, position, callers)
+        : null;
     if (ctx.isOmaha && ctx.ploPriceDefense === true) {
       const odds = preflopCallOdds(ctx, pricePot, Math.min(toCall, stack));
-      const priceRelief = Math.max(0, 0.5 - odds); // BB ~0.17, cold call ~0.09
+      const rawRelief = Math.max(0, 0.5 - odds); // BB ~0.17, cold call ~0.09
+      const priceRelief = bounds86 ? Math.min(bounds86.maxPriceRelief, rawRelief) : rawRelief;
+      if (bounds86 && priceRelief < rawRelief) ctx.noteLayer?.('v86_deep_dive_discipline');
       callBar -= priceRelief;
     }
 
@@ -2032,7 +2087,13 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
 
     // A floor, applied after every discount: hands that flop nothing are a
     // fold at any price, and a bounty is not a licence to play four napkins.
-    if (ctx.isOmaha && ctx.ploPriceDefense === true) callBar = Math.max(0.28, callBar);
+    if (ctx.isOmaha && ctx.ploPriceDefense === true) {
+      const floor86 = bounds86 ? bounds86.callFloor : 0.28;
+      if (bounds86 && callBar < floor86 && callBar >= 0.28) {
+        ctx.noteLayer?.('v86_deep_dive_discipline');
+      }
+      callBar = Math.max(floor86, callBar);
+    }
     callBar = phase6CapBar(callBar);
 
     if ((def72 ? def72.strength : strength) >= callBar && priceOK) return { a: 'call' };
@@ -2088,7 +2149,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
      */
     if (position === 'bb' && toCall <= bb * 2.5) {
       const steal = vs === 'late';
-      const bbFloor = phase6CapBar(
+      let bbFloor = phase6CapBar(
         (steal ? 0.22 : 0.3) -
           (ctx.anteInPlay ? 0.03 : 0) -
           // TOURNAMENT AGGRESSION: the big blind is getting its best price
@@ -2097,6 +2158,13 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
           vs35.bbDefend +
           phase6Shift('call')
       );
+      if (bounds86) {
+        const omahaBbFloor = phase6CapBar(bounds86.callFloor + vs35.bbDefend + phase6Shift('call'));
+        if (omahaBbFloor > bbFloor) {
+          bbFloor = omahaBbFloor;
+          ctx.noteLayer?.('v86_deep_dive_discipline');
+        }
+      }
       if (strength >= bbFloor) return { a: 'call' };
     }
     return { a: 'fold' };
