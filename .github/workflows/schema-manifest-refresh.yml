@@ -144,6 +144,7 @@ jobs:
     # needs a person to look at.
     if: github.event.schedule != '40 * * * *' && !(github.event_name == 'workflow_dispatch' && inputs.connected_ui_observations)
     runs-on: ubuntu-latest
+    environment: ci-main
     steps:
       - uses: actions/checkout@v4
 
@@ -228,6 +229,7 @@ jobs:
     if: "!(github.event_name == 'workflow_dispatch' && inputs.connected_ui_observations)"
     name: The ledger attestation is anchored outside the database
     runs-on: ubuntu-latest
+    environment: ci-main
     # WHY THIS RUNS HERE AND NOT ON A SCHEDULE OF ITS OWN
     #
     # ca_ledger_day_manifests hashes each day of chip_ledger and stores the sha
@@ -448,6 +450,7 @@ jobs:
     if: "!(github.event_name == 'workflow_dispatch' && inputs.connected_ui_observations)"
     name: The second writer agrees with the register
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 8
     # PHASE 7 OF THE CHIP-ACCOUNTING PROGRAMME, roadmap 9.6 (2026-09-07).
     #
@@ -557,6 +560,7 @@ jobs:
     if: "!(github.event_name == 'workflow_dispatch' && inputs.connected_ui_observations)"
     name: No unaccounted DEFINER writer is reachable from a browser
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4

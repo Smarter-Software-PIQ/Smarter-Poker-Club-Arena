@@ -38,6 +38,7 @@ jobs:
   doctrine:
     name: The lane doctrine holds on the live catalog
     runs-on: ubuntu-latest
+    environment: "${{ github.event_name == 'pull_request' && 'ci-pull-request' || 'ci-main' }}"
     timeout-minutes: 5
     steps:
       - name: Checkout

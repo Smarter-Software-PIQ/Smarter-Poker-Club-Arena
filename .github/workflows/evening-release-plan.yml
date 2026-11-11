@@ -49,6 +49,7 @@ jobs:
     # reports nothing, so the plan always describes protected main.
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 15
     steps:
       - name: Checkout protected main

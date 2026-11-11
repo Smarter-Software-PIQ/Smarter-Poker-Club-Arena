@@ -50,6 +50,7 @@ jobs:
   ledger:
     name: Installed and merged migrations agree
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 10
     steps:
       - name: Checkout the default branch (never the pull request head)

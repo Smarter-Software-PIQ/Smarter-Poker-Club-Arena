@@ -54,6 +54,7 @@ jobs:
   league:
     name: League ${{ matrix.objective }} ${{ matrix.seed }}
     runs-on: ubuntu-24.04
+    environment: ci-main
     timeout-minutes: 355
     strategy:
       fail-fast: false

@@ -45,6 +45,7 @@ jobs:
   check:
     name: No scheduled job is failing silently
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 10
     steps:
       - name: Checkout

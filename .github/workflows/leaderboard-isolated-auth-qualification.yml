@@ -19,6 +19,7 @@ jobs:
   qualify-auth:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4

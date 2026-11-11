@@ -22,6 +22,7 @@ jobs:
     # Playwright has no Chromium build for ubuntu26.04 (what ubuntu-latest
     # now resolves to); pinned like post-deploy-e2e and lobby-ui-proof.
     runs-on: ubuntu-24.04
+    environment: ci-main
     timeout-minutes: 20
     env:
       PROOF_RUN_ID: ${{ github.run_id }}
@@ -159,6 +160,7 @@ jobs:
     name: Read Authorized ECO Statements And Available Owner Controls
     if: github.event.client_payload.eco_components == true
     runs-on: ubuntu-24.04
+    environment: ci-main
     timeout-minutes: 12
     env:
       PROOF_RUN_ID: ${{ github.run_id }}

@@ -49,6 +49,7 @@ jobs:
     name: Authenticate protected plan and canonical runtime
     if: github.ref == 'refs/heads/main' && inputs.operation == 'qualification'
     runs-on: ubuntu-24.04
+    environment: ci-main
     timeout-minutes: 15
     outputs:
       source_sha: ${{ steps.context.outputs.source_sha }}
@@ -119,6 +120,7 @@ jobs:
     needs: context
     if: github.ref == 'refs/heads/main' && inputs.operation == 'qualification'
     runs-on: ubuntu-24.04
+    environment: ci-main
     timeout-minutes: 360
     outputs:
       requests_digest: ${{ steps.produce.outputs.requests_digest }}
@@ -275,6 +277,7 @@ jobs:
     name: Authenticate private V56 replay source and runtime
     if: github.ref == 'refs/heads/main' && inputs.operation == 'v56-private-replay'
     runs-on: ubuntu-24.04
+    environment: ci-main
     timeout-minutes: 15
     outputs:
       source_sha: ${{ steps.probe.outputs.source_sha }}
@@ -344,6 +347,7 @@ jobs:
     needs: v56-context
     if: github.ref == 'refs/heads/main' && inputs.operation == 'v56-private-replay'
     runs-on: ubuntu-24.04
+    environment: ci-main
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4

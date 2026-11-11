@@ -453,6 +453,7 @@ jobs:
        (needs.detect.result == 'success' && needs.detect.outputs.admission_allowed == 'true' &&
         needs.detect.outputs.daily_preparation == 'true'))
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 75
     concurrency:
       group: daily-maintenance-window-migrations
@@ -511,6 +512,7 @@ jobs:
     needs: detect
     if: needs.detect.outputs.admission_allowed == 'true' && (needs.detect.outputs.release_required == 'true' || needs.detect.outputs.daily_preparation == 'true')
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 4
     permissions:
       actions: read

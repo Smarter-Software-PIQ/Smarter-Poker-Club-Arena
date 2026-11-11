@@ -37,6 +37,7 @@ jobs:
   check:
     name: Every applied migration has a file
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 10
     steps:
       - name: Checkout

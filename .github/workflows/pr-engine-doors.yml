@@ -61,6 +61,7 @@ jobs:
   doors:
     name: Every Door This PR Calls Has A Migration
     runs-on: ubuntu-latest
+    environment: "${{ github.event_name == 'pull_request' && 'ci-pull-request' || 'ci-main' }}"
     timeout-minutes: 10
     permissions:
       contents: read

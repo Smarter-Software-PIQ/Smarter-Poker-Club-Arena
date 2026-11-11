@@ -63,6 +63,7 @@ jobs:
     needs: contract
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository_id == '1132369872'
     runs-on: ubuntu-24.04
+    environment: "${{ github.event_name == 'pull_request' && 'ci-pull-request' || 'ci-main' }}"
     timeout-minutes: 60
     env:
       GH_TOKEN: ${{ github.token }}

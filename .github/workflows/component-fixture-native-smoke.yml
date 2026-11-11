@@ -52,6 +52,7 @@ jobs:
       github.workflow_ref == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena/.github/workflows/schema-manifest-refresh.yml@refs/heads/main' &&
       inputs.source_sha == github.sha)
     runs-on: ubuntu-24.04
+    environment: "${{ inputs.connected_ui_observations && 'ci-main' || '' }}"
     timeout-minutes: ${{ inputs.connected_ui_observations && 120 || 55 }}
     outputs:
       native_verified: ${{ steps.smoke.outputs.native_verified }}
