@@ -1,0 +1,47 @@
+name: An empty Spin board is not open
+
+# fn_spin_metrics.open_boards (migration 20261111134959). Runs
+# scripts/ci/test-spin-open-boards.py against a throwaway PostgreSQL 17
+# cluster, never production: the exact production definition captured
+# 2026-11-11 (pg_get_functiondef md5 equal to the live function) must count an
+# empty REGISTERING board as open, and the migration must count only a board
+# holding a live seat, keep the floor-park hold, every other gauge, owner,
+# security, settings and grants, and refuse a second run. No timer
+# (CLAUDE.md 10.85): pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261111134959_an_empty_spin_board_is_not_open.sql
+      - scripts/ci/fixtures/spin-open-boards/**
+      - scripts/ci/test-spin-open-boards.py
+      - .github/workflows/spin-open-boards.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spin-open-boards-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  spin-open-boards:
+    name: An empty Spin board is not open
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: An empty Spin board is not open
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-spin-open-boards.py --output artifacts/spin-open-boards
+      - name: Retain the regression evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spin-open-boards-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/spin-open-boards/RESULTS.json
+          retention-days: 7
+          if-no-files-found: warn
