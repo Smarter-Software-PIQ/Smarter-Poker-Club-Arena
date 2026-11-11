@@ -248,6 +248,28 @@ const normalizeLightningHeroCardsAddition = (job: { steps: Array<Record<string, 
   job.steps.splice(start, 1);
 };
 
+const tournamentRebuyHeroCardsGate = {
+  name: 'Tournament rebuy hero cards gate',
+  if: "matrix.partition == 'general' && matrix.shard == 1",
+  env: { LIVE_TURN_DIST: 'dist' },
+  run: 'npx playwright test -c playwright.live-turn.config.ts tests/live-turn/tournament-rebuy-hero-cards.pw.ts --project=chromium',
+};
+
+const normalizeTournamentRebuyHeroCardsAddition = (job: {
+  steps: Array<Record<string, unknown>>;
+}) => {
+  const start = job.steps.findIndex((step) => step.name === tournamentRebuyHeroCardsGate.name);
+  expect(job.steps.filter((step) => step.name === tournamentRebuyHeroCardsGate.name)).toHaveLength(
+    1
+  );
+  expect(job.steps[start - 1]?.name).toBe(lightningHeroCardsGate.name);
+  expect(job.steps[start]).toStrictEqual(tournamentRebuyHeroCardsGate);
+  expect(job.steps[start + 1]?.name).toBe('Stop the shared preview');
+  // Enforce the exact added browser gate (2026-11-10, a tournament rebuy is
+  // taking a seat again), retaining every historical job hash.
+  job.steps.splice(start, 1);
+};
+
 const normalizeCashDecisionAddition = (job: { steps: Array<Record<string, unknown>> }) => {
   const start = job.steps.findIndex((step) => step.name === cashDecisionGate.name);
   expect(job.steps.filter((step) => step.name === cashDecisionGate.name)).toHaveLength(1);
@@ -955,6 +977,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     // original build command, browser assertion, timeout and step ordering.
     const browserBuild = normalized.jobs['css-beats-build'];
     const browserJob = normalized.jobs['css-beats-e2e'];
+    normalizeTournamentRebuyHeroCardsAddition(browserJob);
     normalizeLightningHeroCardsAddition(browserJob);
     normalizeCashDecisionAddition(browserJob);
     // Verify the producer-owned identity delta, then compare every retained
@@ -1435,6 +1458,11 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       const job = normalized.jobs['native-smoke'];
       expect(job.if.split(groupClause)).toHaveLength(2);
       job.if = job.if.replace(groupClause, '');
+      // Moved 2026-11-11 (secrets leave repository scope): only the connected
+      // mode reads DATABASE_URL, from the main-only ci-main environment; the
+      // ordinary and merge-group modes name no environment.
+      expect(job.environment).toBe("${{ inputs.connected_ui_observations && 'ci-main' || '' }}");
+      delete job.environment;
     }
     expect(normalized.jobs['native-smoke']['runs-on']).toBe('ubuntu-24.04');
     expect(normalized.on.workflow_call.inputs.connected_ui_observations.default).toBe(false);

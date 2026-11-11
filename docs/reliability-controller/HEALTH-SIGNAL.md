@@ -4,8 +4,8 @@ The Reliability Controller is a set of Postgres objects
 (`smarter_private.reliability_*`) ticked every minute by pg_cron job `reliability-controller-tick`. It reports through the
 inbox and the Messenger in the same database, so it cannot be the thing that
 says it has stopped. This document describes the path that says so for it:
-Prometheus and Alertmanager on the Hetzner engine host, whose email route to
-admin@smarter.poker does not pass through the controller.
+Prometheus and Alertmanager on the Hetzner engine host, whose critical email
+route to admin@smarter.poker does not pass through the controller.
 
 ## Path
 
@@ -17,7 +17,7 @@ smarter_private.reliability_heartbeat / _notifications / _intake_rejections / _s
   -> /var/lib/node-exporter-textfile/club_arena_money_health.prom
   -> node_exporter (scrape job node_engine01, 15 s)
   -> Prometheus rules, group reliability-controller in infra/monitoring/recovery-rules.yml
-  -> Alertmanager: codex-inbox AND email-critical / email-warning
+  -> Alertmanager: codex-inbox, plus email-critical for the critical ones
 ```
 
 `infra/monitoring/cron-health-server.js` is not part of this path. It reads
@@ -72,29 +72,37 @@ publishes a zero it did not read.
 
 ## Alerts
 
-| Alert                                   | Condition                                                                                       | Severity |
-| --------------------------------------- | ----------------------------------------------------------------------------------------------- | -------- |
-| `ReliabilityControllerStale`            | heartbeat age over 300 s, by the database's reading or counted from the heartbeat time, for 5 m | critical |
-| `ReliabilityControllerMetricsAbsent`    | `absent(reliability_controller_heartbeat_age_seconds)` for 15 m                                 | critical |
-| `ReliabilityControllerOutboxStuck`      | queued never zero for 30 m and not lower than 30 m ago, or `failed_24h > 0`, for 5 m            | warning  |
-| `ReliabilityControllerIntakeRejections` | `intake_rejections_24h > 0` for 5 m                                                             | warning  |
+| Alert                                   | Condition                                                                                                                                                                                                            | Severity |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| `ReliabilityControllerStale`            | heartbeat age over 300 s, for 5 m; label `cause` says `controller_not_ticking` (textfile current, database reports the old age) or `health_textfile_frozen` (textfile over 180 s old, last heartbeat over 300 s old) | critical |
+| `ReliabilityControllerMetricsAbsent`    | `absent(reliability_controller_heartbeat_age_seconds)` for 15 m                                                                                                                                                      | critical |
+| `ReliabilityControllerOutboxStuck`      | queued never zero for 30 m and not lower than 30 m ago, or `failed_24h > 0`, for 5 m                                                                                                                                 | warning  |
+| `ReliabilityControllerIntakeRejections` | `intake_rejections_24h > 0` for 5 m                                                                                                                                                                                  | warning  |
 
 All four carry `component: reliability-controller`.
 
 ### Routing
 
-`alertmanager.yml` is unchanged. The first two routes stop only tournament
-alerts (component `tournament`, or a name containing tournament, mtt or spin).
-The third route sends every non-canary alert to `codex-inbox` and continues.
-The email routes then match on severity alone, so the critical alerts reach
-`email-critical` (repeats hourly) and the warnings reach `email-warning`
-(repeats every 12 hours). No inhibit rule targets this component.
-`scripts/ci/test-fleet-throughput.sh` asserts these receivers with `amtool`.
+The first two routes stop only tournament alerts (component `tournament`, or
+a name containing tournament, mtt or spin). Since 2026-11-11 (owner decision)
+routine warnings send no email: the next route sends every warning without
+`page="sms"` to `codex-inbox` and stops, so a warning can never fall through
+to the top-level `email-critical` receiver. The route after it sends every
+other non-canary alert to `codex-inbox` and continues, and the critical email
+route matches on severity alone, so the two critical alerts reach
+`codex-inbox` and `email-critical` (repeats hourly) and the two warnings reach
+`codex-inbox` only. The `email-warning` receiver remains in the file with no
+email configuration and no route, because the monitoring deploy refuses to
+remove a receiver name that is live on the box. No inhibit rule targets this
+component. `scripts/ci/test-fleet-throughput.sh` and
+`infra/monitoring/test-tournament-routes.sh` (run by `deploy.sh` on the box)
+assert these receivers with `amtool`.
 
 The `codex-inbox` copy lands in `public.operational_alert_events` and stays
 there. The controller's intake opens no incident and queues no notification
 for these four names: they are seeded `monitoring_self` with `is_incident`
-false. Email is the channel for them. Were they incidents, a stopped tick
+false. Critical email is the channel outside the controller for the two
+critical ones; the two warnings are read in the inbox. Were they incidents, a stopped tick
 would queue an escalation it cannot deliver, the growing queue would raise
 `ReliabilityControllerOutboxStuck`, and that would queue another. Stage B
 already refuses the same loop for its own `ReliabilityDeliveryFailing`
@@ -111,8 +119,13 @@ and `notify_mode = observe` are the shipped Stage B settings.
   collector fails closed and leaves the previous textfile in place, so the
   gauges do not disappear: they freeze at their last values. The stale rule
   covers this because it also counts from the heartbeat time, so about ten
-  minutes after the last tick `ReliabilityControllerStale` fires and is
-  emailed. The absent rule does not fire in this case.
+  minutes after the last tick `ReliabilityControllerStale` fires with
+  `cause="health_textfile_frozen"` and is emailed. That cause also covers a
+  stopped collector timer: in both, whether the controller is still ticking
+  is unknown, and the summary says so instead of claiming it has stopped. The
+  textfile's age is `poker_health_collected_timestamp_seconds`, which the
+  collector writes into the same atomic file on every successful run. The
+  absent rule does not fire in this case.
 - **When the absent rule fires.** The first collector read succeeds but the
   controller read does not (function missing or refusing, heartbeat never
   ticked, incomplete answer), or the textfile or node_exporter is gone.
@@ -226,11 +239,12 @@ Rules branch:
 
 - `tests/monitoring/reliability-controller-health.test.yml` (promtool, run by
   `scripts/ci/test-fleet-throughput.sh` in CI, which also asserts the
-  receivers with `amtool`) evaluates the four rules, including the
-  frozen-textfile case.
+  receivers with `amtool`) evaluates the four rules, including both Stale
+  causes and series that existed and then disappear (one MetricsAbsent page,
+  Stale neither pending nor firing).
 - `tests/reliability-controller-health-rules.law.test.ts` pins the labels the
-  email routes need and that every metric the rules name is one the collector
-  writes.
+  inbox and critical email routes need, the two Stale causes, and that every
+  metric the rules name is one the collector writes.
 - `scripts/ci/check-monitoring-drift.mjs` check 8 requires a producer for each
   metric name; the collector is that producer, so
   `metrics-without-a-producer.txt` needs no entry.

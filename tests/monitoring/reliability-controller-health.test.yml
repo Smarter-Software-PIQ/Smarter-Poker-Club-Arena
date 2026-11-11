@@ -9,6 +9,8 @@ tests:
         values: '20x60'
       - series: 'reliability_controller_heartbeat_timestamp_seconds'
         values: '-20+60x60'
+      - series: 'poker_health_collected_timestamp_seconds'
+        values: '-5+60x60'
       - series: 'reliability_controller_notifications_queued'
         values: '0x60'
       - series: 'reliability_controller_notifications_failed_24h'
@@ -22,6 +24,8 @@ tests:
           - labels: '{}'
             value: 0
 
+  # The collector is current (it rewrote the textfile within the last
+  # minute), and the database itself says the heartbeat is old.
   - name: a heartbeat the database reports as old is critical after five minutes
     interval: 1m
     input_series:
@@ -29,6 +33,8 @@ tests:
         values: '20 20 400+60x20'
       - series: 'reliability_controller_heartbeat_timestamp_seconds'
         values: '-20 40 -280x20'
+      - series: 'poker_health_collected_timestamp_seconds'
+        values: '-5+60x22'
     alert_rule_test:
       - eval_time: 6m
         alertname: ReliabilityControllerStale
@@ -39,29 +45,40 @@ tests:
           - exp_labels:
               severity: critical
               component: reliability-controller
+              cause: controller_not_ticking
             exp_annotations:
               summary: 'The Reliability Controller has not ticked for 12m 40s'
               description: >-
                 reliability_tick() writes reliability_heartbeat every minute from
-                pg_cron job reliability-controller-tick. The heartbeat is more than
-                five minutes old, so incidents are not being escalated, confirmed,
-                closed or delivered. The second half of the expression keeps
-                counting from the last heartbeat time when the collector can no
-                longer reach the database, so this also fires when the database or
-                its REST API is down. Read cron.job_run_details for the job and
-                reliability_heartbeat.last_result.
+                pg_cron job reliability-controller-tick, and
+                collect-monitoring-health.sh publishes it once a minute. The label
+                cause says which failure this is. controller_not_ticking: the
+                collector is current and the database reports the heartbeat more
+                than five minutes old, so incidents are not being escalated,
+                confirmed, closed or delivered; read cron.job_run_details for the
+                job and reliability_heartbeat.last_result. health_textfile_frozen:
+                the collector's textfile has not been rewritten for over three
+                minutes, so the last heartbeat it carries keeps ageing whether or
+                not the controller is ticking; the collector timer is stopped, or
+                its database read fails closed (database or REST API down). Read
+                the journal of club-arena-money-health.service and its timer
+                first.
               runbook: docs/reliability-controller/HEALTH-SIGNAL.md
 
-  # The database is unreachable: the collector fails closed and leaves the old
-  # textfile, so every gauge repeats its last healthy value. Only the heartbeat
-  # time keeps ageing.
-  - name: a frozen textfile cannot hold the heartbeat young
+  # The collector stops rewriting the textfile at minute 2 (timer dead, or the
+  # database unreachable and the snapshot failing closed), so every gauge
+  # repeats its last value. The heartbeat time and the collection time keep
+  # ageing against time(); the alert names the frozen textfile, not the
+  # controller, as the cause.
+  - name: a frozen textfile cannot hold the heartbeat young, and says it is the textfile
     interval: 1m
     input_series:
       - series: 'reliability_controller_heartbeat_age_seconds'
         values: '20x30'
       - series: 'reliability_controller_heartbeat_timestamp_seconds'
         values: '-20 40 100x28'
+      - series: 'poker_health_collected_timestamp_seconds'
+        values: '-5 55 115x28'
     promql_expr_test:
       - expr: 'count(ALERTS{alertname="ReliabilityControllerStale",alertstate="firing"}) or vector(0)'
         eval_time: 11m
@@ -71,7 +88,57 @@ tests:
       - expr: 'ALERTS{alertname="ReliabilityControllerStale",alertstate="firing"}'
         eval_time: 13m
         exp_samples:
-          - labels: 'ALERTS{alertname="ReliabilityControllerStale",alertstate="firing",severity="critical",component="reliability-controller"}'
+          - labels: 'ALERTS{alertname="ReliabilityControllerStale",alertstate="firing",severity="critical",component="reliability-controller",cause="health_textfile_frozen"}'
+            value: 1
+    alert_rule_test:
+      - eval_time: 13m
+        alertname: ReliabilityControllerStale
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: reliability-controller
+              cause: health_textfile_frozen
+            exp_annotations:
+              summary: 'Reliability Controller health has not been refreshed for 11m 5s, so whether it is ticking is unknown'
+              description: >-
+                reliability_tick() writes reliability_heartbeat every minute from
+                pg_cron job reliability-controller-tick, and
+                collect-monitoring-health.sh publishes it once a minute. The label
+                cause says which failure this is. controller_not_ticking: the
+                collector is current and the database reports the heartbeat more
+                than five minutes old, so incidents are not being escalated,
+                confirmed, closed or delivered; read cron.job_run_details for the
+                job and reliability_heartbeat.last_result. health_textfile_frozen:
+                the collector's textfile has not been rewritten for over three
+                minutes, so the last heartbeat it carries keeps ageing whether or
+                not the controller is ticking; the collector timer is stopped, or
+                its database read fails closed (database or REST API down). Read
+                the journal of club-arena-money-health.service and its timer
+                first.
+              runbook: docs/reliability-controller/HEALTH-SIGNAL.md
+
+  # The textfile froze while the database already reported an old heartbeat.
+  # Both halves of the old expression were true; the textfile is the one
+  # cause this can be attributed to, and it is one alert.
+  - name: a frozen textfile holding an old age is one alert, attributed to the textfile
+    interval: 1m
+    input_series:
+      - series: 'reliability_controller_heartbeat_age_seconds'
+        values: '400x30'
+      - series: 'reliability_controller_heartbeat_timestamp_seconds'
+        values: '-400x30'
+      - series: 'poker_health_collected_timestamp_seconds'
+        values: '-5 55 115x28'
+    promql_expr_test:
+      - expr: 'count(ALERTS{alertname="ReliabilityControllerStale",alertstate="firing"})'
+        eval_time: 20m
+        exp_samples:
+          - labels: '{}'
+            value: 1
+      - expr: 'ALERTS{alertname="ReliabilityControllerStale",alertstate="firing"}'
+        eval_time: 20m
+        exp_samples:
+          - labels: 'ALERTS{alertname="ReliabilityControllerStale",alertstate="firing",severity="critical",component="reliability-controller",cause="health_textfile_frozen"}'
             value: 1
 
   - name: missing telemetry is critical after fifteen minutes
@@ -104,6 +171,97 @@ tests:
       - eval_time: 16m
         alertname: ReliabilityControllerStale
         exp_alerts: []
+
+  # The controller was reporting and then its series disappear at minute 11:
+  # fn_reliability_controller_health() starts refusing, so the collector keeps
+  # rewriting the textfile with reliability_controller_collect_ok 0 and no
+  # reliability_controller_* gauges. node_exporter stops exposing them, which
+  # Prometheus records as stale markers. Missing telemetry is the one alert;
+  # Stale, which reads the vanished series, neither pends nor fires.
+  - name: series that existed and then disappear page once, as missing telemetry
+    interval: 1m
+    input_series:
+      - series: 'reliability_controller_heartbeat_age_seconds'
+        values: '20x10 stale'
+      - series: 'reliability_controller_heartbeat_timestamp_seconds'
+        values: '-20+60x10 stale'
+      - series: 'reliability_controller_collect_ok'
+        values: '1x10 0x30'
+      - series: 'poker_health_collected_timestamp_seconds'
+        values: '-5+60x40'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ReliabilityControllerMetricsAbsent
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: ReliabilityControllerMetricsAbsent
+        exp_alerts: []
+      - eval_time: 27m
+        alertname: ReliabilityControllerMetricsAbsent
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: reliability-controller
+            exp_annotations:
+              summary: 'No Reliability Controller health has been published for 15 minutes'
+              description: >-
+                Missing telemetry is not health. The collector publishes no
+                reliability_controller_heartbeat_age_seconds series when
+                public.fn_reliability_controller_health() is missing or refuses,
+                when the heartbeat has never ticked, when the answer is incomplete,
+                or when the textfile or node_exporter on the engine host is gone.
+                reliability_controller_collect_ok says whether the read itself
+                failed; the collector's journal (club-arena-money-health.service)
+                says why.
+              runbook: docs/reliability-controller/HEALTH-SIGNAL.md
+      - eval_time: 27m
+        alertname: ReliabilityControllerStale
+        exp_alerts: []
+    promql_expr_test:
+      # ALERTS includes pending: Stale never even started its for-duration.
+      - expr: 'count(ALERTS{alertname="ReliabilityControllerStale"}) or vector(0)'
+        eval_time: 16m
+        exp_samples:
+          - labels: '{}'
+            value: 0
+      - expr: 'count(ALERTS{alertname="ReliabilityControllerStale"}) or vector(0)'
+        eval_time: 40m
+        exp_samples:
+          - labels: '{}'
+            value: 0
+      - expr: 'count(ALERTS{component="reliability-controller",alertstate="firing"})'
+        eval_time: 40m
+        exp_samples:
+          - labels: '{}'
+            value: 1
+
+  # The whole textfile disappears after minute 10 (node_exporter no longer
+  # finds it), taking the collection time with it. Still one alert.
+  - name: a textfile that disappears entirely pages once, as missing telemetry
+    interval: 1m
+    input_series:
+      - series: 'reliability_controller_heartbeat_age_seconds'
+        values: '20x10 stale'
+      - series: 'reliability_controller_heartbeat_timestamp_seconds'
+        values: '-20+60x10 stale'
+      - series: 'poker_health_collected_timestamp_seconds'
+        values: '-5+60x10 stale'
+    promql_expr_test:
+      - expr: 'count(ALERTS{component="reliability-controller",alertstate="firing"}) or vector(0)'
+        eval_time: 25m
+        exp_samples:
+          - labels: '{}'
+            value: 0
+      - expr: 'ALERTS{component="reliability-controller",alertstate="firing"}'
+        eval_time: 27m
+        exp_samples:
+          - labels: 'ALERTS{alertname="ReliabilityControllerMetricsAbsent",alertstate="firing",severity="critical",component="reliability-controller"}'
+            value: 1
+      - expr: 'count(ALERTS{alertname="ReliabilityControllerStale"}) or vector(0)'
+        eval_time: 27m
+        exp_samples:
+          - labels: '{}'
+            value: 0
 
   - name: a queue that drains is quiet, a queue that does not shrink for 30 minutes warns
     interval: 1m

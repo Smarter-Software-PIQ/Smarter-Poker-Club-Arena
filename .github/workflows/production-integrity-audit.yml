@@ -43,6 +43,7 @@ jobs:
     # Opt-in only. The existing scheduled audit never opens this transport.
     if: github.event_name == 'repository_dispatch' && github.event.action == 'audit-production-integrity' && github.event.client_payload.billing_endpoint_observation != null
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 2
     permissions:
       contents: read
@@ -72,6 +73,7 @@ jobs:
     # One fixed read of an exact completed release; never selected by schedule.
     if: github.event_name == 'repository_dispatch' && github.event.action == 'audit-production-integrity' && github.event.client_payload.release_recovery_observation != null
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 4
     permissions:
       contents: read
@@ -105,6 +107,7 @@ jobs:
     # Never selected by the existing scheduled read-only audit.
     if: github.event_name == 'repository_dispatch' && github.event.action == 'audit-production-integrity' && github.event.repository.private == true && github.event.client_payload.operator_hold_image != null
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 8
     permissions:
       contents: read
@@ -134,6 +137,7 @@ jobs:
     # Deliberate read only; scheduled observations cannot open host transport.
     if: github.event_name == 'repository_dispatch' && github.event.action == 'audit-production-integrity' && github.event.client_payload.operator_hold_provenance != null
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 3
     permissions:
       contents: read
@@ -161,6 +165,7 @@ jobs:
     # Separate finite read. Scheduled observations cannot open host transport.
     if: github.event_name == 'repository_dispatch' && github.event.action == 'audit-production-integrity' && github.event.client_payload.tournament_log_observation != null
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 2
     permissions:
       contents: read
@@ -194,6 +199,7 @@ jobs:
     # invokes this job, and the request cannot choose a host or command.
     if: github.event_name == 'repository_dispatch' && github.event.action == 'audit-production-integrity' && github.event.client_payload.tournament_diagnostic != null
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 2
     permissions:
       contents: read
@@ -364,6 +370,7 @@ jobs:
     if: github.event.client_payload.tournament_log_observation == null && github.event.client_payload.release_recovery_observation == null
     name: Live drift and BBJ rebuild coverage remain clean
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -485,6 +492,7 @@ jobs:
     if: github.event.client_payload.tournament_log_observation == null && github.event.client_payload.release_recovery_observation == null
     name: The engine pipeline is not starving
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 6
     permissions:
       contents: read
@@ -513,6 +521,7 @@ jobs:
     if: github.event.client_payload.tournament_log_observation == null && github.event.client_payload.release_recovery_observation == null
     name: Live chip and diamond supply still conserves
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 12
     permissions:
       contents: read
@@ -713,6 +722,7 @@ jobs:
     if: github.event.client_payload.tournament_log_observation == null && github.event.client_payload.release_recovery_observation == null
     name: No schema-reload storm is stalling the fleet
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 6
     steps:
       - name: Checkout
@@ -834,6 +844,7 @@ jobs:
     if: github.event.client_payload.tournament_log_observation == null && github.event.client_payload.release_recovery_observation == null
     name: Every merged migration is live
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 10
     steps:
       - name: Checkout

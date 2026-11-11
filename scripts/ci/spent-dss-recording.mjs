@@ -6,9 +6,11 @@ import { classifyMigration, loadManifest } from './recording-only.mjs';
 
 export const DSS_READER_SHA256 = 'cfd72fac9f76598ddebe0b4d4e765455970677ee58fda759655cf55f64fec3ee';
 // Current reader workflow changes only the verified World Hub token owner after
-// Club Arena transferred; retirement proof, historical bytes and grants are unchanged.
+// Club Arena transferred, then (2026-11-11) adds `environment: ci-main` to its one
+// job so its secrets move out of repository scope ahead of the merge queue;
+// retirement proof, historical bytes and grants are unchanged.
 export const DSS_WORKFLOW_SHA256 =
-  'dab96d5780e8d80cf26f34512becb8caa941f54dc59fcd0990e771bd4c98682f';
+  '99daa2061c2aa8aeaf042b2536c4feb4df2875e5e2f38dfbeb9910df76ea66c6';
 export const DSS_HISTORY_VERSION = '20261012040553';
 export const DSS_HISTORY_FILE =
   'supabase/migrations/20261012040553_ops_dss_joins_midway_union_at_noon_20261012.sql';

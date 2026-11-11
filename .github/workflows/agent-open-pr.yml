@@ -39,6 +39,7 @@ jobs:
       && !startsWith(github.event.workflow_run.head_branch, 'revert-')
     name: Open the missing PR for this branch
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 5
     steps:
       - name: Checkout reviewed default-branch automation
