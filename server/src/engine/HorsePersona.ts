@@ -193,3 +193,83 @@ export function followsSolver(
   const h = personaHash(`${horseId}|gto|${Math.max(0, Math.floor(handNumber))}|${spot}`);
   return (h % 1000) / 1000 < Math.max(0, Math.min(1, adherence));
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// V86 PLO & BIG-BET PERSONA ARCHETYPES - Deterministic, Tuner-Immune
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type HorsePloArchetype = 'lag_shark' | 'tricky_trap' | 'tag_crusher' | 'nit_hunter';
+
+/**
+ * Deterministic PLO & multi-street style axes derived purely from `horseId`.
+ * Kept separate from `HorsePersonaV2` (`profiles.horse_profile.persona`) so
+ * `ThePersonaSurvivesTheTuner.law.test.ts` and existing JSON shapes remain
+ * unchanged while giving every Horse a distinct, persistent, tuner-immune
+ * identity across PLO4, PLO5, PLO6, PLO8, and Bomb Pots.
+ */
+export interface HorsePloPersona {
+  archetype: HorsePloArchetype;
+  /** Frequency of non-AA 3-bets, squeezes, and shallow 4-bets with elite rundowns / ds broadways / nut-Ax (0.18..0.68) */
+  plo3BetMix: number;
+  /** Aggression with 16+ out / nut-wrap + nut-flush-draw combo draws postflop (0.35..0.88) */
+  comboDrawAggro: number;
+  /** OOP check-raise trap & IP dry-flop nutted check-back trap frequency (0.20..0.56) */
+  trapFrequency: number;
+  /** Turn probe & nut-changing scare-card takeaway frequency (0.28..0.66) */
+  probeRate: number;
+  /** River nut-blocker bluff & block-bet nut-trap mix (0.22..0.64) */
+  riverBluffGear: number;
+}
+
+export function ploPersonaFor(horseId: string): HorsePloPersona {
+  const id = horseId || 'default-horse';
+  const hArch = personaHash(`${id}|plo_arch`) % 100;
+  const h1 = (personaHash(`${id}|plo_3bet`) % 1000) / 1000;
+  const h2 = (personaHash(`${id}|plo_combo`) % 1000) / 1000;
+  const h3 = (personaHash(`${id}|plo_trap`) % 1000) / 1000;
+  const h4 = (personaHash(`${id}|plo_probe`) % 1000) / 1000;
+  const h5 = (personaHash(`${id}|plo_river`) % 1000) / 1000;
+
+  if (hArch < 28) {
+    // LAG Shark: relentless 3-bettor, combo-draw pumper, high turn probe pressure
+    return {
+      archetype: 'lag_shark',
+      plo3BetMix: Math.round((0.46 + h1 * 0.22) * 100) / 100,
+      comboDrawAggro: Math.round((0.68 + h2 * 0.2) * 100) / 100,
+      trapFrequency: Math.round((0.24 + h3 * 0.14) * 100) / 100,
+      probeRate: Math.round((0.48 + h4 * 0.18) * 100) / 100,
+      riverBluffGear: Math.round((0.42 + h5 * 0.22) * 100) / 100,
+    };
+  }
+  if (hArch < 52) {
+    // Tricky Trap: deceptive check-raiser, slowplays dry sets IP, mixes nut river block-bets
+    return {
+      archetype: 'tricky_trap',
+      plo3BetMix: Math.round((0.3 + h1 * 0.16) * 100) / 100,
+      comboDrawAggro: Math.round((0.52 + h2 * 0.18) * 100) / 100,
+      trapFrequency: Math.round((0.42 + h3 * 0.14) * 100) / 100,
+      probeRate: Math.round((0.36 + h4 * 0.14) * 100) / 100,
+      riverBluffGear: Math.round((0.36 + h5 * 0.18) * 100) / 100,
+    };
+  }
+  if (hArch < 82) {
+    // TAG Crusher: balanced nut-suit 3-bets, disciplined SPR commitment, clinical thin value
+    return {
+      archetype: 'tag_crusher',
+      plo3BetMix: Math.round((0.34 + h1 * 0.16) * 100) / 100,
+      comboDrawAggro: Math.round((0.58 + h2 * 0.18) * 100) / 100,
+      trapFrequency: Math.round((0.28 + h3 * 0.14) * 100) / 100,
+      probeRate: Math.round((0.38 + h4 * 0.14) * 100) / 100,
+      riverBluffGear: Math.round((0.3 + h5 * 0.16) * 100) / 100,
+    };
+  }
+  // Nit Hunter: punishes loose limpers/openers and over-stabs capped ranges while staying nutted
+  return {
+    archetype: 'nit_hunter',
+    plo3BetMix: Math.round((0.2 + h1 * 0.14) * 100) / 100,
+    comboDrawAggro: Math.round((0.42 + h2 * 0.16) * 100) / 100,
+    trapFrequency: Math.round((0.32 + h3 * 0.14) * 100) / 100,
+    probeRate: Math.round((0.42 + h4 * 0.16) * 100) / 100,
+    riverBluffGear: Math.round((0.24 + h5 * 0.14) * 100) / 100,
+  };
+}
