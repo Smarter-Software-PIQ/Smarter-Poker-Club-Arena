@@ -273,7 +273,7 @@ describe('owner 75% always-top-up choice at 1/2', () => {
     const chosen = ids.filter((id) => horseSitsWithAutoTopUp(id, 'nlh', stake));
     expect(chosen.length / ids.length).toBeGreaterThan(0.73);
     expect(chosen.length / ids.length).toBeLessThan(0.77);
-    for (const id of ids.slice(0, 100)) {
+    for (const id of ids) {
       expect(horseSitsWithAutoTopUp(id, 'plo5', stake)).toBe(
         horseSitsWithAutoTopUp(id, 'nlh', stake)
       );
