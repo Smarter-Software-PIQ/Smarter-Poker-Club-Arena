@@ -127,3 +127,5 @@ finally:
 print(run(['python3',str(ROOT / 'scripts/ci/test-satellite-refund-admitted-club-postgres.py')]))
 # The funding club bears a departed player's seat refund (owner ruling 2026-11-11).
 print(run(['python3',str(ROOT / 'scripts/ci/test-satellite-refund-funding-club-postgres.py')]))
+# Settled accounting and Lightning alerts close on evidence (2026-11-11).
+print(run(['python3',str(ROOT / 'scripts/ci/test-financial-alerts-proven-over-postgres.py')]))
