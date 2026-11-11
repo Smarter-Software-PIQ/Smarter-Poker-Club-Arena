@@ -640,7 +640,7 @@ for (const game of ['crossing', 'mines'] as const)
         });
       }
       const cabinetArt = url.pathname.match(
-        /\/assets\/diamond-spins\/((?:mines-vault|crossing-dashboard)-deck-v1\.webp|donkey-coat\.webp)$/
+        /\/assets\/diamond-spins\/((?:mines-vault|crossing-dashboard)-deck-v1\.webp|donkey-coat\.webp|mines-(?:cut-sapphire|chrome-hazard)-v2\.webp)$/
       );
       if (cabinetArt)
         return route.fulfill({
@@ -768,6 +768,41 @@ for (const game of ['crossing', 'mines'] as const)
         )
         .toBe(true);
       await frame.screenshot({ path: test.info().outputPath('crossing-desktop.png') });
+    } else {
+      for (const height of [800, 844, 900]) {
+        await page.setViewportSize({ width: 1280, height });
+        await expect
+          .poll(
+            () =>
+              frame.evaluate((console) => {
+                const board = console.querySelector('[aria-label="Diamond Mines Board"]');
+                const dock = console.querySelector('[data-game-cabinet]');
+                if (!board || !dock) return ['missing board or dock'];
+                const failures: string[] = [];
+                const b = board.getBoundingClientRect(),
+                  d = dock.getBoundingClientRect();
+                if (b.bottom > d.top + 1)
+                  failures.push(
+                    `board ${b.top}..${b.bottom}, dock ${d.top}..${d.bottom}, width ${b.width}`
+                  );
+                [...board.querySelectorAll('button')].forEach((tile, i) => {
+                  const r = tile.getBoundingClientRect();
+                  if (
+                    !tile.disabled &&
+                    tile.getAttribute('aria-disabled') !== 'true' &&
+                    document
+                      .elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)
+                      ?.closest('button') !== tile
+                  )
+                    failures.push(`tile ${i + 1} covered at ${r.x},${r.y}`);
+                });
+                return failures;
+              }),
+            { message: 'all 25 Mines tiles remain above the desktop cabinet', timeout: 5000 }
+          )
+          .toEqual([]);
+      }
+      await frame.screenshot({ path: test.info().outputPath('mines-desktop.png') });
     }
     expect(network).toEqual([]);
   });
