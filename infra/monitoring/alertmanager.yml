@@ -21,13 +21,22 @@
 # account: its DKIM record would collide with the one the Supabase auth
 # emails depend on.
 #
+# 2026-11-11: routine warnings stop emailing admin@smarter.poker (owner
+# decision). Critical email stays as the emergency path that does not depend
+# on the Codex inbox or the Reliability Controller.
+#
 # Routing:
 #   all operational severities → durable Codex inbox, including recovery
-#   critical → email immediately, repeat hourly until resolved ("players
-#              cannot play" conditions)
-#   warning  → email grouped, repeat every 12h so infra noise (CPU, memory)
-#              can never bury a critical
+#   critical → Codex inbox AND email immediately, repeat hourly until
+#              resolved ("players cannot play" conditions)
+#   warning  → Codex inbox only. A terminal route stops it there, so a
+#              warning can never reach the top-level email-critical
+#              fallthrough. The email-warning receiver is kept, with no
+#              email configuration, only because the deploy's routing guard
+#              refuses to remove a receiver name that is live on the box.
 #   info     → Codex inbox, with no secondary email
+#   canary   → null-receiver only
+#   page=sms → pager-sms (the same Codex inbox webhook; no SMS is sent)
 
 global:
   resolve_timeout: 5m
@@ -65,9 +74,22 @@ route:
       repeat_interval: 4h
       continue: false
 
-    # Every non-canary fault reaches the durable incident inbox. Legacy
+    # Warnings reach the durable inbox and stop there: no email, and no
+    # sibling route below (including the top-level email-critical
+    # fallthrough) can see them. A page=sms warning keeps the legacy priority
+    # route below, which is the same inbox webhook.
+    - matchers:
+        - severity="warning"
+        - page!="sms"
+      receiver: codex-inbox
+      group_wait: 10s
+      group_interval: 1m
+      repeat_interval: 4h
+      continue: false
+
+    # Every other non-canary fault reaches the durable incident inbox. Legacy
     # page=sms labels retain their priority route; that endpoint now records
-    # to Codex instead of texting a handset. Email routing remains secondary.
+    # to Codex instead of texting a handset. Critical email remains secondary.
     - matchers:
         - severity!="canary"
         - page!="sms"
@@ -96,13 +118,6 @@ route:
       receiver: email-critical
       group_wait: 10s
       repeat_interval: 1h
-
-    - matchers:
-        - severity="warning"
-      receiver: email-warning
-      group_wait: 2m
-      group_interval: 30m
-      repeat_interval: 12h
 
     # ── THE CANARY (2026-09-06, Realtime phase 7) ─────────────────────
     # MonitoringCanary fires unconditionally and for ever - that is the whole
@@ -169,16 +184,10 @@ receivers:
             </p>
           </div>
 
+  # Retired 2026-11-11: no route reaches this receiver and it sends nothing.
+  # The name stays only because deploy-monitoring.yml refuses a deploy that
+  # removes a receiver name present in the live file.
   - name: email-warning
-    email_configs:
-      - to: 'admin@smarter.poker'
-        send_resolved: true
-        headers:
-          Subject: '[warning] {{ .CommonLabels.alertname }} — smarter.poker'
-        html: |
-          <div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif">
-            {{ range .Alerts }}<p>{{ .Annotations.summary }}</p>{{ end }}
-          </div>
 
 inhibit_rules:
   # If the engine is unreachable entirely, do not also spam per-table freeze

@@ -62,7 +62,7 @@ describe('the lost-database-reply alarm', () => {
       'quay.io/prometheus/alertmanager@sha256:e13b6ed5cb929eeaee733479dce55e10eb3bc2e9c4586c705a4e8da41e5eacf5'
     );
     expect(script).toMatch(
-      /--verify\.receivers=codex-inbox,email-warning \\\n\s+alertname=DatabaseRepliesLost severity=warning/
+      /--verify\.receivers=codex-inbox \\\n\s+alertname=DatabaseRepliesLost severity=warning/
     );
     expect(script).toMatch(
       /--verify\.receivers=codex-inbox,email-critical \\\n\s+alertname=DatabaseWriteRetriesExhausted severity=critical/
