@@ -1024,3 +1024,96 @@ rule evaluation stay unverified until the engine release that emits the
 producers. `78afb154` therefore remains `recovered / escalated`: the one
 forward transition that would clear its latch is owed only once the monitoring
 correction is actually serving.
+
+## 12. Controller Activation And Remaining Gates, 2026-11-11 06:10Z
+
+Owner of this section: the controller build session (session_01BNteGZSWtNHEdf2djVeBTT).
+Sections 8 to 11 belong to the incident-handling lane and are not edited here.
+
+### 12.1 Installed, enabled and verified live
+
+| Component | Identifier | State |
+| --- | --- | --- |
+| Stage B controller | PR #10312, merge `f741b472`; migration `20261110000020` | installed, enabled, verified live |
+| Health read and seed corrections | PR #10364, merge `2a8d7f90`; migration `20261110045731` (applier run 42861285942, 661 ms) | installed, verified live |
+| Missed-critical fix, push mirror, reconciliation | PR #10343, merge `6db7d319`; migration `20261110144203` | installed, verified live |
+| Critical escalation activated | migration `20261110174051` | installed; `notify_mode = critical_only`, `mutation_paused = true` |
+| Recovered incident leaves escalation | migration `20261110224707` (incident lane) | installed |
+| Fallback reason label | PR #10260, merge `70fee8f2` | serving: engine `05ab41c3` contains it |
+| Controller health collector | PR #10378, merge `bdf56877` (pushed from the Mac on SSD2, bytes sha256 `e558a733...` / `f0f9d741...` equal to the tested ones) | merged; NOT serving until an engine containing `bdf56877` is activated |
+| Controller health alert rules | PR #10458, draft | held: merge only after `reliability_controller_heartbeat_timestamp_seconds` is present in Prometheus |
+| World Hub controls | World Hub PR #2776, merge `ff67b531`, Vercel `dpl_869HCsQeRqy8F9EbGB2r7yTSmvEE` READY, `/api/health` at `ff67b531` | published |
+
+Read back at 2026-11-11 06:03Z: 1,358 ticks in 24 hours, 0 failed; heartbeat 35 s;
+0 queued, 0 failed notifications, 0 intake rejections in 24 hours; incidents
+recovered 198, escalated 10, stale_unverified 5, verifying 2, investigating 2,
+closed 2.
+
+### 12.2 Escalation reaches the owner exactly once
+
+- The first post-activation escalation is notification 47, 2026-11-10 18:30Z,
+  incident `a974b740` (LightningHandHost.post_commit_obligations_pending):
+  message `7a2f580e`, sender `2d1cd6c3-...` (platform identity), conversation
+  `5dde8c6a`, first line `AI AGENT NEEDED`, 1,451 characters including the
+  agent handoff, `media_metadata` `{kind: reliability_incident, incident_id,
+  notification_kind: escalation, handoff_version: 1}` as the World Hub
+  controls require.
+- Every one of the 11 escalations and reminders sent after activation has
+  exactly one `social_messages` row for its request id and exactly one
+  `push_outbox` row, status `sent` (provider accepted). None of the 47
+  escalations or 3 reminders suppressed in observation mode was resent.
+- 10 of those 11 messages carry an owner read receipt. Phone delivery is
+  confirmed by the owner for the validation push (2026-11-10 01:28 CT);
+  provider acceptance alone is not claimed as phone delivery for the rest.
+
+### 12.3 Corrections recorded
+
+- The 2026-11-10 report that `.agent/workflows/browser-testing.md` in World Hub
+  held the owner's password in plain text was wrong. The current file and the
+  Playwright skill hold a placeholder, and no change to either file from
+  2026-08-20 (the oldest commit available to the inspection) carries a real
+  value. Older history was not inspected. No change was made.
+
+### 12.4 Remaining gates and owners
+
+1. Collector serving: the sole release custodian activates an engine
+   containing `bdf56877`. This lane starts, books or advances no release.
+2. Then merge #10458 after the heartbeat series is present, deploy through
+   `deploy-monitoring.yml`, and prove detection by reading
+   `ReliabilityControllerStale` for (a) a heartbeat older than five minutes
+   in the promtool fixture, already proven, and (b) the live series' age.
+   Taking the real controller down to prove it is not authorized.
+3. Owner-session checks on the published World Hub controls: Open Incident on
+   any `AI AGENT NEEDED` message (owner incident view), Copy Agent Handoff on
+   a real iPhone. Not observed by this lane; not claimed. A signed-in
+   non-owner view is proven only at the database level (42501) because no
+   non-owner test identity is configured for agents.
+4. Recovery runbooks: none enabled; `mutation_paused` stays true. No narrow
+   engine recovery endpoint exists (see `RECOVERY-OWNERSHIP-MAP.md`), so
+   every class is detect and escalate.
+5. Five producer families remain unknown and stay in `unclassified` triage
+   (`EXTERNAL-PRODUCERS.md`).
+
+### 12.5 Verified working routes
+
+- Cloud workspace: repository attached for push; the repo hooks run with
+  `AGENT_CLONE_OK=1`, locked `npm ci` at root and `npm ci --ignore-scripts` in
+  `server/`, `TMPDIR` and `RUNNER_TEMP` set. Its git (2.43) cannot run the
+  pre-push release-withdrawal test that needs `GIT_NO_LAZY_FETCH`, so any
+  change touching `server/scripts/collect-monitoring-health.sh` pushes from
+  the Mac.
+- Mac: `counselors__host_terminal` (git 2.50, GitHub CLI authenticated), work
+  under `python3 /Users/smarter.poker/Documents/ssd-tools/ssd-paths.py work`
+  (SSD2, verified by `SSD-IDENTITY.txt`), long steps under `nohup` with log
+  polling.
+- Database: install only through merge, `dispatch-merged-migrations.yml` and
+  `apply-merged-migration.yml`; read back `supabase_migrations.schema_migrations`.
+- Controller queries: `public.fn_reliability_controller_health()` (service
+  role), `smarter_private.reliability_v_controller_health`,
+  `smarter_private.reliability_notifications` (state, `push_state`,
+  `message_id`), `public.fn_reliability_incident_for_owner(uuid)` (owner).
+- Pause and removal: setting `mutation_paused = true` leaves observation and
+  escalation running; `notify_mode = 'observe'` suppresses ordinary messages;
+  both change only through a guarded migration. Unscheduling
+  `reliability-controller-tick` and dropping the two `zzz_reliability_intake_*`
+  triggers removes the controller without touching the inbox.

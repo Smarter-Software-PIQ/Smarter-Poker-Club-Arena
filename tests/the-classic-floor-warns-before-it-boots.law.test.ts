@@ -18,7 +18,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { sliceSqlStatement } from './helpers/sourceWindow';
+import { sliceDollarQuoted, sliceSqlStatement } from './helpers/sourceWindow';
 
 const ROOT = resolve(__dirname, '..');
 const read = (p: string) => readFileSync(resolve(ROOT, p), 'utf8');
@@ -26,6 +26,10 @@ const read = (p: string) => readFileSync(resolve(ROOT, p), 'utf8');
 const MIG = read(
   'supabase/migrations/20261111003710_the_classic_floor_judges_thirty_dealt_hands_and_warns_before.sql'
 );
+const ACT = read(
+  'supabase/migrations/20261111022301_a_classic_rejoin_continues_the_vpip_sitting_and_the_approved.sql'
+);
+const TRACKER = read('src/components/table/HeroVpipTracker.tsx');
 const NIT = read('server/src/services/supabase/nitGame.ts');
 const BASE = read('server/src/engine/ServerTableEngineBase.ts');
 
@@ -166,5 +170,116 @@ describe('the Classic VPIP floor', () => {
     expect(NIT).toMatch(/rolling: row\.rolling === true/);
     expect(NIT).toMatch(/warned: row\.warned === true/);
     expect(MIG).toMatch(/FUNCTION public\.fn_nit_status\(p_table_id uuid\)/);
+  });
+});
+
+describe('the approved floors, activated', () => {
+  it('carries the nine values the owner approved, and no others', () => {
+    for (const [variant, floor] of [
+      ['nlh', 20],
+      ['plo4', 30],
+      ['plo5', 50],
+      ['plo6', 50],
+      ['plo8', 30],
+      ['flo8', 25],
+      ['flh', 15],
+      ['short_deck', 20],
+      ['pineapple', 25],
+    ] as const) {
+      expect(MIG, `${variant} is not at its approved floor`).toMatch(
+        new RegExp(`\\('${variant}',\\s*1,\\s*${floor},\\s*30,\\s*10,`)
+      );
+    }
+  });
+
+  it('records the three variants with no sample as judgment, not evidence', () => {
+    // One floor per line, so the line IS the structure here. (A SQL statement
+    // window is wrong for this one: two of the notes contain a semicolon, and
+    // sliceSqlStatement ends a statement at the first one outside a
+    // dollar-quote.)
+    const lines = MIG.split('\n');
+    const rowFor = (v: string) => lines.find((l) => l.includes(`('${v}',`));
+    for (const v of ['plo8', 'short_deck', 'pineapple']) {
+      const line = rowFor(v);
+      expect(line, `${v} has no floor row`).toBeTruthy();
+      expect(line!, `${v} does not record that its floor is judgment`).toMatch(
+        /no player reached 30 hands|no 30-hand sample|judgment, not evidence|Same PLO family/
+      );
+    }
+    // The two with genuinely no sample at all say so in those words.
+    for (const v of ['short_deck', 'pineapple']) {
+      expect(rowFor(v)!).toMatch(/judgment, not evidence/);
+    }
+  });
+
+  it('activates through the maintained ruleset path, never by hand', () => {
+    // The two steps any other ruleset change takes. If this ever writes
+    // nit_game or maintain_* directly, a fresh table and a reconciled one can
+    // disagree - which is the exact trap fn_cash_apply_ruleset exists to close.
+    expect(ACT).toMatch(
+      /UPDATE public\.cash_games SET ruleset_snapshot = ruleset_snapshot WHERE id = r\.id;/
+    );
+    expect(ACT).toMatch(/public\.fn_cash_apply_ruleset\(r\.id\)/);
+    const activate = sliceDollarQuoted(ACT, '$activate$');
+    expect(activate).not.toMatch(/UPDATE public\.tables/);
+    expect(activate).not.toMatch(/maintain_percent_min\s*=/);
+    expect(activate).not.toMatch(/nit_game\s*=/);
+  });
+
+  it('aborts rather than half-activating, and refuses to overreach', () => {
+    expect(ACT).toMatch(/ACTIVATION_INCOMPLETE/);
+    expect(ACT).toMatch(/ACTIVATION_TABLES_INCOMPLETE/);
+    expect(ACT).toMatch(/ACTIVATION_OVERREACH/);
+    expect(ACT).toMatch(/ACTIVATION_TOUCHED_OTHER_TEMPLATES/);
+  });
+
+  it('leaves a retired club alone', () => {
+    expect(ACT).toMatch(/COALESCE\(c\.lifecycle_status, ''\) <> 'retired'/);
+  });
+
+  it('does not wait on an unrelated future write to each game', () => {
+    // The whole point of this migration: activation happens here, in a
+    // committed transaction, not whenever something else next touches a row.
+    expect(ACT).toMatch(/\$activate\$/);
+    expect(ACT).toMatch(/CREATE TABLE IF NOT EXISTS public\.ca_classic_vpip_activations/);
+  });
+});
+
+describe('a rejoin is not an escape hatch', () => {
+  it("reuses the platform's own re-entry window rather than inventing a penalty", () => {
+    const w = sliceSqlStatement(ACT, 'FUNCTION public.fn_nit_sitting_since(');
+    // cash_player_session.rejoin_window_ms, floored at the two hours its own
+    // CHECK enforces - the same window that stops a stack-basis reset.
+    expect(w).toMatch(/GREATEST\(7200000,/);
+    expect(w).toMatch(/rejoin_window_min/);
+    // A return inside it continues the sitting: the sample reaches back to the
+    // earliest join of the current chain, not the newest roster row.
+    expect(w).toMatch(/min\(a\.joined_at\)/);
+    expect(w).toMatch(/max\(b\.sitting\)/);
+    // And never earlier than the instant the floor came on.
+    expect(w).toMatch(/vpip_floor_since/);
+    expect(w).not.toMatch(/is_horse/);
+  });
+
+  it('still counts grace in dealt hands, so sitting out spends none', () => {
+    expect(MIG).toMatch(/FUNCTION public\.fn_nit_hands_since\(/);
+    expect(MIG).toMatch(/f\.played_at > p_since/);
+  });
+});
+
+describe('the player can see the warning', () => {
+  it('reads the warning and the remaining grace from the judged figure', () => {
+    expect(TRACKER).toMatch(/warned\?: boolean/);
+    expect(TRACKER).toMatch(/grace_remaining\?: number \| null/);
+    expect(TRACKER).toMatch(/VPIP_GRACE_COUNT_LABEL/);
+  });
+
+  it('shows it on the felt without recolouring the approved badge', () => {
+    expect(TRACKER).toMatch(/data-testid="hero-vpip-grace"/);
+    // The badge is forbidden from colouring itself by whether the player is
+    // passing (badge spec section 25); this is the separate indicator that
+    // section calls for, in the column the tracker already owns.
+    expect(TRACKER).toMatch(/hero-vpip__clock/);
+    expect(TRACKER).not.toMatch(/hero-vpip--(safe|edge|under)/);
   });
 });
