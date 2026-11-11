@@ -8,6 +8,8 @@ import { parse } from 'yaml';
 import { describe, expect, it } from 'vitest';
 import {
   admitClientNavigation,
+  admitCashObservation,
+  assertCashObservationReport,
   admitKeepGamePages,
   assertKeepGamePagesReport,
   assertClientNavigationReports,
@@ -135,7 +137,9 @@ describe('closed client navigation recovery certificate', () => {
     expect(() => assertClientNavigationReports(undefined, lobby)).toThrow();
   });
   it('reuses the client fixture, provenance, serialization and unconditional cleanup', () => {
-    expect(client.concurrency.group).toBe('post-deploy-e2e-production');
+    expect(client.concurrency.group).toBe(
+      "${{ needs.publication-gate.outputs.cash_observation == 'true' && 'post-deploy-e2e-cash-observation' || 'post-deploy-e2e-production' }}"
+    );
     expect(selected.if).toContain("steps.template_access.outcome == 'success'");
     expect(selected.env.E2E_REQUIRE_AUTH).toBe('1');
     for (const command of ['create', 'prepare-staff', 'prepare-template-staff', 'cleanup']) {
@@ -331,5 +335,88 @@ describe('closed keep-game-pages acceptance mode', () => {
     );
     expect(final.env.RELEASE_CERTIFIED).toBe('${{ steps.release_window.outputs.certified }}');
     expect(final.env.CLEANUP_OUTCOME).toBe('${{ steps.account_cleanup.outcome }}');
+  });
+});
+
+describe('closed cash observation certificate', () => {
+  const title = 'View Game opens four spectator games while preserving the lobby page';
+  const report = () => ({
+    errors: [],
+    suites: [
+      {
+        specs: [
+          spec('production-mobile-lobby-chrome.spec.ts', title, 'chromium'),
+          spec('production-mobile-lobby-chrome.spec.ts', title, 'webkit-footer'),
+        ],
+      },
+    ],
+  });
+  it('admits only its literal fixed mode through the actual dispatch gate', () => {
+    expect(admitCashObservation({ cash_observation: true })).toBe(true);
+    const gate = workflow.jobs['publication-gate'].steps.find((s: any) => s.id === 'origin');
+    const dir = mkdtempSync(join(tmpdir(), 'cash-observation-'));
+    try {
+      for (const [payload, action, code] of [
+        [{ cash_observation: true }, 'run-post-deploy-e2e', 0],
+        [{ cash_observation: true }, 'wrong', 1],
+        [{ cash_observation: 'true' }, 'run-post-deploy-e2e', 1],
+        [{ cash_observation: true, engine_sha: 'a'.repeat(40) }, 'run-post-deploy-e2e', 1],
+        [{ cash_observation: true, client_navigation: true }, 'run-post-deploy-e2e', 1],
+        [{ cash_observation: true, grep: '.*' }, 'run-post-deploy-e2e', 1],
+      ] as const) {
+        const result = spawnSync('bash', ['-c', gate.run], {
+          cwd: resolve(__dirname, '../..'),
+          encoding: 'utf8',
+          timeout: 10000,
+          env: {
+            ...process.env,
+            EVENT_NAME: 'repository_dispatch',
+            EVENT_ACTION: action,
+            CLIENT_NAVIGATION_PAYLOAD: JSON.stringify(payload),
+            CLIENT_NAVIGATION_JSON: 'null',
+            ENGINE_TRIGGER_JSON: 'null',
+            GITHUB_OUTPUT: join(dir, 'output'),
+          },
+        });
+        expect(result.status, result.stderr).toBe(code);
+      }
+      expect(readFileSync(join(dir, 'output'), 'utf8')).toContain('cash_observation=true');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  it('requires both first-attempt browser results and refuses missing, skipped or failed proof', () => {
+    expect(assertCashObservationReport(report())).toBe(true);
+    for (const change of [
+      (r: any) => r.suites[0].specs.pop(),
+      (r: any) => r.suites[0].specs.push(r.suites[0].specs[0]),
+      (r: any) => (r.suites[0].specs[0].tests[0].results[0].status = 'skipped'),
+      (r: any) => (r.suites[0].specs[0].tests[0].results[0].retry = 1),
+      (r: any) => (r.suites[0].specs[0].ok = false),
+      (r: any) => (r.suites[0].specs[0].title = 'other'),
+      (r: any) => r.errors.push({ message: 'setup failure' }),
+    ]) {
+      const r = report();
+      change(r);
+      expect(() => assertCashObservationReport(r)).toThrow();
+    }
+    expect(() => assertCashObservationReport(undefined)).toThrow();
+  });
+  it('keeps the real journey, normal clicks, provenance and owned-account cleanup', () => {
+    const step = client.steps.find((s: any) => s.id === 'cash_observation');
+    expect(step.run).toContain(`--grep '^.*${title}$'`);
+    expect(step.run).toContain('--project=chromium --project=webkit-footer');
+    expect(step.run).toContain('--workers=1 --retries=0');
+    expect(step.run).toContain('cash-observation-reports');
+    expect(step.run).not.toContain('--timeout');
+    expect(step.if).toContain("steps.account.outcome == 'success'");
+    expect(selected.if).toContain("outputs.cash_observation != 'true'");
+    expect(client.concurrency['cancel-in-progress']).toBe(false);
+    expect(client.steps.find((s: any) => s.id === 'account_cleanup').if).toContain('always()');
+    expect(
+      client.steps.find(
+        (s: any) => s.name === 'Require exact client navigation release and fixture cleanup'
+      )
+    ).toBeDefined();
   });
 });

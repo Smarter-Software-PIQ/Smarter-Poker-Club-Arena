@@ -172,10 +172,16 @@ Email is NOT switched off by this project until Stage B is verified live.
 
 ## 4. Open Blockers
 
-**B2 (2026-11-11, open, external):** `download.osgeo.org` is unreachable, so the
-fixture image cannot build and `Native fixture prerequisites / native-smoke`
-fails, which by deliberate design fails the required `TypeScript Check`. This
-blocks #10419 only. See 9.6.
+**B2 (2026-11-11, CLEARED 02:37Z):** `download.osgeo.org` was unreachable from
+00:05Z, failing the fixture build and so the required `TypeScript Check`. The
+CI/infrastructure owner had already repointed the pinned artifact to
+`ftp.osuosl.org` in #10422; #10419 only needed its branch updated. Verified
+byte-identical before relying on it. See 10.4.
+
+**B3 (2026-11-11, open, release custody):** the Spin alert rules cannot deploy
+until an engine release carries the metrics they read. `Deploy Monitoring`
+refuses correctly; the engine deploy is a release-owner dispatch, not this
+lane's to initiate. Blocks `78afb154` closeout only. See 10.4.
 
 - B1 Mac access. CLEARED 2026-11-10 22:30Z, without the folder grant. The
   Cowork folder request for `/Users/smarter.poker/Documents` is still refused
@@ -731,3 +737,138 @@ observed_at) NOT VALID`). Certification is not weakened: the same certificate
   to cache or mirror that pinned tarball - a change to shared release
   infrastructure and to a supply-chain input, which is not mine to make
   unilaterally.
+
+## 10. Corrections And Closeout Evidence, 2026-11-11 02:00-03:00Z
+
+Section 9 overstated two things. Both are corrected here rather than edited
+away, because the reasoning error is the useful part.
+
+### 10.1 A resolution that precedes the install proves nothing
+
+Section 9.5 offered "resolved 01:05:23, no refire" as evidence that
+`20261111003802` fixed the union close. The install committed at **01:09:08Z**,
+_after_ that resolution, so the resolution cannot be attributed to it. Alert
+silence and a cleared escalation latch are controller state, not accounting
+evidence, and 9.5 should not have leaned on them.
+
+What does prove post-install behaviour, and is the standard this section holds
+itself to:
+
+1. **Generation stamping.** The install rolled
+   `smarter_private.original_inventory_basis_generation()` to
+   `original-inventory-245-v1:40a6ffb4b726a0de4a06b74637725012`. The
+   `pnl_flows_problem` certificate written at **01:45:09Z carries exactly that
+   generation**, a string that did not exist before 01:09:08, so that
+   certificate was necessarily computed after the install. A generation is a
+   better clock than a timestamp here because it is derived from the function
+   bodies themselves.
+2. **Durable sub-range progress.** 84 `pnl_flows_window` partials persisted
+   between 01:09 and 02:13, advancing monotonically. The pre-fix behaviour was
+   "attempts climb without progress" precisely because an overrunning statement
+   kept nothing. Persisted windows are the fix's signature.
+
+### 10.2 The two unsupported flows: the reader was wrong, not the data
+
+Section 9.5 left these "pending an owner decision on which club's P&L bears
+it". That framing was wrong. No decision was required, no chips moved, and no
+club was assigned the cost.
+
+The flows, read-only from production:
+
+|                                       | flow A                                 | flow B                                 |
+| ------------------------------------- | -------------------------------------- | -------------------------------------- |
+| entitlement                           | `17548750-4a28-42ae-b43c-c0d356d302e2` | `e23baaa9-7a11-4d33-8746-809e64e1af83` |
+| admission ledger (`source_ledger_id`) | `faa88ed0-8d7b-478c-9eb1-02ad1b92f9cc` | `22f9e706-0cc8-4f1b-bc1e-d4fee041f8a6` |
+| refund credit ledger                  | `b9216e23-3580-4480-9265-c146f7f0b5aa` | `ca27f46a-914e-4d4d-9221-408a86ee314b` |
+| registration                          | `064bbc60-b702-433e-af68-042cf38fed83` | `bd08af1c-f2b8-4289-8624-511d483a7c34` |
+| satellite                             | `2b654457-f2ef-42c8-b72a-1c8dbc8885d5` | `cb0ae6ee-d114-4a4a-aaa1-311bde3a4bf3` |
+| gross                                 | 200.00 = 180 prize + 0 bounty + 20 fee | same                                   |
+
+Funding: KINGS CLUB `a41434bb` wallet-funded both satellites - flow A entry
+30.00 (`5e425751`, 11-02 03:03:14Z) plus addon 30.00 (`b6df4eeb`, 11-02
+04:24:46Z); flow B entry 30.00 (`e023c0b3`, 11-02 19:13:05Z). Payout: both
+`prize_liability -> player_wallet`, 200.00, category `refund`, club The Felt
+Society `a0000000`, at 11-07 20:40Z.
+
+The governing rule was already in the reader and names this case directly:
+**"SATELLITE REFUNDS FOLLOW THE ADMITTED CLUB (01a1c81a). The upstream entry
+proves backing, not the club of an already won target seat... never infer
+ownership from live membership."** The admitted registration's first
+`union_pnl_inventory_events` row records `club_id` = The Felt Society, equal to
+`refund_wallet_club_id`. Every condition of that branch was verified
+independently: the award/settlement/payout/admission/registration chain counts
+exactly 1 for both, a single refund tranche each with `amount_paid_before = 0`,
+`amount_paid_now = 200.00` and 180/0/20 splits, and idempotency keys matching
+`tourney:<target>:refund-entitlement:<entitlement>`.
+
+So the apparent mismatch was the PNL reader demanding equality to the UPSTREAM
+entry club. `20261111010427_a_satellite_seat_refund_follows_its_admitted_club.sql`
+(not this lane's work; it states it "requires the earlier chained-seat/sub-range
+source fix from PR10428") corrected the reader and rolled the generation to
+`...b94061573b28c8c38005e86587e7f10e`, which is why the 01:45:09Z `bad = 2`
+certificate was superseded rather than deleted.
+
+**Outcome, certified 02:25:09Z under the live generation: `pnl_flows bad = 0`**,
+the clean kind rather than `pnl_flows_problem`. The progression is 10 unsupported
+-> 2 (chained satellite seats, PR10428) -> 0 (admitted-club reader). The stale
+`bad = 2` certificate remains as history.
+
+**The week is NOT terminally reconciled.** It now contains zero unsupported
+items, but `accounting_close_report_receipts` for
+`2026-11-02 08:00Z -> 2026-11-09 08:00Z` is still empty; the last week with a
+report receipt is 10-26 -> 11-02, computed 11-10 15:43:10Z. Operational recovery
+and financial reconciliation are not the same claim and are not reported as one.
+
+A third correction: section 8.5 said both players "left that club on
+2026-11-02, before the 2026-11-07 refund". Not supported. Both joined 04-09 and
+their KINGS CLUB membership rows read `suspended` with `updated_at` 11-09
+14:40Z, after the refund. The rule forbids reasoning from live membership in any
+case, so the claim was both wrong and irrelevant.
+
+### 10.3 The collusion schedule is UTC, established not assumed
+
+`20 4 * * *` is not self-evidently UTC. Confirmed two independent ways:
+`cron.timezone = GMT` and `TimeZone = UTC`, and the last five observed starts
+were exactly `04:20:00Z` on 2026-11-06 through -10. Next run 2026-11-11
+04:20:00Z. The retired-detector check in `fn_ca_collusion_scan` is untouched by
+`20261110234905`; only the window-reading driver changed.
+
+### 10.4 Spin: availability fixed upstream, and the deployment route is the gate
+
+`download.osgeo.org` (140.211.15.30, OSU OSL) was unreachable from 00:05Z. The
+existing CI/infrastructure owner had already repointed
+`operations/release/fixture/Dockerfile:150` and its line-229 source catalog to
+`https://ftp.osuosl.org/pub/osgeo/download/postgis/source/postgis-3.3.7.tar.gz`
+in #10422 (merged 01:15:30Z) - same version, same pin. Verified independently
+before relying on it: 17,782,849 bytes, sha256
+`50724a0dde49adc253e59e024d8b18fef6be4e85341943c6d5e1e1b974e43fce`, identical to
+the pin, from both `ftp.osuosl.org` and `ftp2.osuosl.org`. `postgis.net/stuff`
+was rejected: it answers 200 but serves 17,786,630 bytes with a different hash.
+No version changed, no different bytes accepted, no gate skipped, and nothing in
+this lane edited release infrastructure.
+
+#10419 was merely behind that commit; updating its branch was the whole fix.
+native-smoke and the required TypeScript Check both passed and it merged
+02:37:05Z all-green. `20261110233909` is installed and `v_spin_unfilled_waits`
+now carries `human_seats`, `horse_seats`, `unresolved_seats`,
+`oldest_human_seat_at`, `longest_human_wait`.
+
+**Green CI and an installed migration do not resolve this incident.**
+`Deploy Monitoring` refused at 02:39Z, correctly:
+
+> RULES AHEAD OF THE ENGINE THAT IS RUNNING (2) - they cannot fire:
+> `poker_spin_human_arrival_max_seconds`, `poker_spin_ladder_full_envelope_seconds`.
+> The engine is running `840429a3`... THAT BUILD DOES NOT [emit them], so no event
+> on the platform can produce a sample and the rule evaluates to an empty vector
+> for ever. Prometheus reports it as health=ok, state=inactive, which is the same
+> thing it reports for an alarm that is genuinely quiet.
+
+A rule with no producer is indistinguishable from a quiet alarm, which is
+`78afb154`'s exact failure mode, so shipping the rules first would have
+reproduced the incident in a new place. Order is engine, then rules.
+`auto-deploy-hetzner.yml` fires only on a `deploy-club-arena-engine`
+`repository_dispatch` carrying a `ref_sha`; `stage-engine-release.yml` dispatches
+it on Backup Engine completion, and `Tell The Release Owner An Owner Window Is
+Ready` fired at 02:40:24Z. This lane did not initiate a release and did not
+silence, delete or weaken a rule. `78afb154` stays `recovered / escalated` until
+the rules are serving and the latch can clear on one honest forward transition.
