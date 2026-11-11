@@ -35,7 +35,9 @@ const ANY_PARK_GUARD = /poker_operator_floor_park_share/;
 type Rule = { alert?: string; expr?: string };
 
 function rules(file: string): Rule[] {
-  const doc = YAML.parse(readFileSync(join(DIR, file), 'utf8')) as { groups?: { rules?: Rule[] }[] };
+  const doc = YAML.parse(readFileSync(join(DIR, file), 'utf8')) as {
+    groups?: { rules?: Rule[] }[];
+  };
   return (doc.groups ?? []).flatMap((g) => g.rules ?? []).filter((r) => r.alert);
 }
 
@@ -55,6 +57,7 @@ const GUARDED = [
   'HorseFleetCollapsed',
   'HorseFleetThroughputRelativeDrop',
   'HorseCashActionsStopped',
+  'ClassicCashFloorDark',
   'HorseFleetNotSeated',
   'SLOHandsAreNotBeingDealt',
 ];
