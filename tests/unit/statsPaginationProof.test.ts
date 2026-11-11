@@ -292,7 +292,8 @@ describe('closed exact published Stats pagination proof', () => {
       "github.event_name != 'repository_dispatch' || (github.event.action != 'run-stats-pagination-proof' && github.event.action != 'run-private-record-client-proof' && github.event.action != 'run-plo-lightning-lifecycle-proof')"
     );
     expect(workflow.jobs['production-e2e'].concurrency).toEqual({
-      group: 'post-deploy-e2e-production',
+      group:
+        "${{ needs.publication-gate.outputs.cash_observation == 'true' && 'post-deploy-e2e-cash-observation' || 'post-deploy-e2e-production' }}",
       'cancel-in-progress': false,
     });
     expect(job.concurrency).toEqual({

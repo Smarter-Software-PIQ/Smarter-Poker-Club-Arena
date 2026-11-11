@@ -467,10 +467,14 @@ test.describe('the mobile lobby chrome on production', () => {
       await expect(lobby).toBeVisible();
       await openLobbyGameSection(lobby, 'ALL');
       await lobby.getByRole('tab', { name: 'ALL', exact: true }).click();
-      await lobby
+      const details = lobby
         .locator(`[data-testid="lobby-game-row"][data-id="${ids[i]}"]:visible`)
-        .getByRole('button', { name: /^Details:/ })
-        .click();
+        .getByRole('button', { name: /^Details:/ });
+      // Nearest scrolling can place a returning row below the pinned header.
+      // Center it like the other production lobby journeys, then require a
+      // normal hit-tested click. Never force through an overlapping control.
+      await details.evaluate((element) => element.scrollIntoView({ block: 'center' }));
+      await details.click();
       const panel = page.getByRole('dialog').filter({ has: page.locator('.arena-game-card') });
       await panel.getByRole('button', { name: CASH_SPECTATOR_ACTION }).click();
       await expect(actionBar.locator(`[data-tabid="${ids[i]}"]`)).toHaveAttribute(
