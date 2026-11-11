@@ -12269,9 +12269,14 @@ export abstract class ServerTableEngineBase {
         // would be the hit and run itself. It is blinded off for the hands it
         // owes, exactly as a confirmed early leave is. The VPIP boot (Dan
         // 2026-09-05) stays a system exit with its two-hour bar.
-        // ENGINE REPLACEMENT: an empty mirror is not an answer. Wait (bounded)
-        // for the database before a clock cashes out a seat that may owe hands.
-        if (!nitEvict && this.chipContinuity.awaitingFirstAnswer(userId)) continue;
+        // ENGINE REPLACEMENT (2026-11-11): an empty mirror is not an answer.
+        // Ask the database for this seat's session before a clock cashes out
+        // a seat that may still owe hands; if it cannot answer, the system
+        // exit proceeds as before, so no seat is ever held on a guess.
+        if (!nitEvict && !this.chipContinuity.row(userId)) {
+          await this.chipContinuity.evaluate([{ user_id: userId, active: false }]);
+          if (!this.lifecycleCanMutate()) return;
+        }
         if (!nitEvict && this.chipContinuity.leaveLock(userId, seated.stack).locked) {
           const hands = this.chipContinuity.leaveLock(userId, seated.stack).handsRemaining;
           console.log(

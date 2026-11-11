@@ -98,9 +98,6 @@ export function leaveLabel(remainingMs: number, handsRemaining?: number): string
   return `Leave Available In ${m}:${s < 10 ? '0' : ''}${s}`;
 }
 
-/** How long a fresh engine waits for its first database answer before a system exit. */
-export const FIRST_ANSWER_GRACE_MS = 60_000;
-
 export interface ContinuitySeatFields {
   session_baseline: number;
   stay_remaining_ms: number;
@@ -149,8 +146,6 @@ export class ChipContinuityTracker {
   /** Players this engine is blinding off (their confirmed early leave). */
   private readonly blindOff = new Set<string>();
 
-  private readonly startedAtMs = Date.now();
-
   constructor(private readonly deps: ChipContinuityDeps) {}
 
   /** HIT AND RUN: this engine holds the player's confirmed leave and blinds them off. */
@@ -167,19 +162,6 @@ export class ChipContinuityTracker {
   /** The mirror row, if the database has ever answered for this player. */
   row(userId: string): CashSessionRow | undefined {
     return this.rows.get(userId);
-  }
-
-  /**
-   * ENGINE REPLACEMENT (2026-11-11): right after a restart the mirror is
-   * empty until the first presence sweep (about ten seconds), and an empty
-   * mirror reads "nothing owed". A system exit that must not cash out a seat
-   * still owing hands asks this first: it waits for the database's answer,
-   * but never longer than the first minute, so no seat is held indefinitely
-   * when the database cannot answer. Tournament tables owe nothing.
-   */
-  awaitingFirstAnswer(userId: string, nowMs = Date.now()): boolean {
-    if (!this.deps.isCash() || this.rows.has(userId)) return false;
-    return nowMs - this.startedAtMs < FIRST_ANSWER_GRACE_MS;
   }
 
   /**

@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   ChipContinuityTracker,
-  FIRST_ANSWER_GRACE_MS,
   bigWinHandsRemaining,
   countdownHandsRemaining,
   handsOwedReason,
@@ -106,11 +105,14 @@ describe('the tracker', () => {
     });
   });
 
-  it('after an engine replacement waits for the database before a system exit, but not forever', async () => {
-    const t = make(vi.fn(async () => [row({ user_id: 'p' })]));
-    expect(t.awaitingFirstAnswer('p')).toBe(true);
-    expect(t.awaitingFirstAnswer('p', Date.now() + FIRST_ANSWER_GRACE_MS + 1)).toBe(false);
-    await t.evaluate([{ user_id: 'p', stack: 100, active: true }]);
-    expect(t.awaitingFirstAnswer('p')).toBe(false);
+  it('after an engine replacement, one evaluation of a seat fills the mirror the exit reads', async (..._args: unknown[]) => {
+    const evaluate = vi.fn(async (..._args: unknown[]) => [
+      row({ user_id: 'p', big_win_required: 10, big_win_played: 0 }),
+    ]);
+    const t = make(evaluate);
+    expect(t.row('p')).toBeUndefined(); // empty mirror: not an answer
+    await t.evaluate([{ user_id: 'p', active: false }]);
+    expect(evaluate.mock.calls[0][1]).toEqual([{ user_id: 'p', active: false }]); // no hand counted
+    expect(t.leaveLock('p', 400)).toMatchObject({ locked: true, handsRemaining: 10 });
   });
 });
