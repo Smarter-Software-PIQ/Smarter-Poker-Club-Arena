@@ -5965,7 +5965,8 @@ function LiveTablePage({
       /* The seat is gone as far as this device is concerned. Latch it, or the
          very next engine snapshot - which still carries this player until
          settlement - walks it back in through the players[]/heroSeat
-         invariant. Cleared only by taking a seat again. */
+         invariant. Cleared only by taking a seat again: a first buy-in, a
+         cash buy-in, or a tournament rebuy receipt. */
       leftSeatPendingRef.current = true;
       const heroId = String(userId ?? '');
       heroSeatRef.current = 0;
@@ -13167,7 +13168,11 @@ function LiveTablePage({
     if (ev.kind === 'bust_rebuy_window' && ev.table_id === tableId && ev.user_id === userId) {
       const remainingMs = Number(ev.remaining_ms);
       if (Number.isFinite(remainingMs) && remainingMs > 0) {
-        setBustRebuyDeadlineAt(Date.now() + remainingMs);
+        /* One deadline per bust: a resend (reopened sheet, reconnect) or a
+           frame that arrives late may bring it forward, never push it back.
+           It is cleared when chips arrive or the seat goes. */
+        const told = Date.now() + remainingMs;
+        setBustRebuyDeadlineAt((prev) => (prev === null ? told : Math.min(prev, told)));
       }
       return;
     }
@@ -32577,6 +32582,22 @@ function LiveTablePage({
               userId,
               tableName: tableState.tableName,
             });
+            /* A REBUY IS TAKING A SEAT AGAIN (2026-11-10, MichaelJordan, Monday
+               Night Turbo). The bust vacates the physical seat, and both the
+               engine's `seat_left` (busted_awaiting_rebuy_decision) and the
+               ten-second seat read answer that through applySeatRemoved, which
+               latches leftSeatPendingRef. This receipt restored heroSeat and
+               left the latch set, so the page went on treating a paid, seated
+               player as one who had left: their row was stripped from every
+               snapshot and, since 2026-11-09, their hole cards were dropped at
+               the delivery door. He was dealt three hands he could not see
+               and was folded by the clock on each. The receipt clears the
+               latch like every other paid seat, and stamps the seat time so a
+               seat read already in flight from before the purchase cannot
+               latch it again. */
+            leftSeatPendingRef.current = false;
+            seatAcquiredAtRef.current = Date.now();
+            bootNoticeShownRef.current = false;
             if (purchase.tableId !== tableId) {
               navigate(`/table/${purchase.tableId}`);
             } else {

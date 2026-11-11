@@ -200,6 +200,7 @@ describe('V87.1 Holdem Elite Strategy & Ecosystem Independent Validation', () =>
       );
       hcNoStraddle.start();
       expect(hcNoStraddle.getPostedStraddleSnapshot()).toEqual({ amount: 0, seat: null });
+      expect(hcNoStraddle.getLastStraddleSeat()).toBeNull();
 
       const seatsStraddled = makeSeats(6, 5, cards('Ah 2h'), 240);
       const hcStraddle2x = new HandController(
@@ -235,6 +236,25 @@ describe('V87.1 Holdem Elite Strategy & Ecosystem Independent Validation', () =>
       );
       hcStraddle3x.start();
       expect(hcStraddle3x.getPostedStraddleSnapshot()).toEqual({ amount: 6, seat: 4 });
+      expect(hcStraddle3x.getLastStraddleSeat()).toBe(4);
+      const shortSeats = makeSeats(6, 5, cards('Ah 2h'), 240);
+      shortSeats[3]!.stack = 3;
+      const refused = new HandController(
+        {
+          tableId,
+          handNumber: 4,
+          gameVariant: 'nlh',
+          smallBlind: 1,
+          bigBlind: 2,
+          straddles: [{ seat: 4, amount: 6 }],
+          rakeConfig: { percent: 0, cap: 0, noFlopNoDrop: true },
+        },
+        shortSeats,
+        1
+      );
+      refused.start();
+      expect(refused.getPostedStraddleSnapshot()).toEqual({ amount: 0, seat: null });
+      expect(refused.getLastStraddleSeat()).toBeNull();
     });
 
     it('never double-divides a 120bb (60-straddle) stack into a <=35bb jam with A2s or 77, including 3xBB straddles', () => {

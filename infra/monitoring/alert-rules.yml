@@ -1989,11 +1989,28 @@ groups:
         # Measured per hour from hand_history, 2026-09-10 13:00 -> 2026-09-11
         # 15:00 UTC: healthy daytime 652-928 tables, the 04:00 UTC night
         # trough 65, and the collapse 47 (21:00), 17 (22:00), 10 (23:00).
-        # 20 sits under every healthy hour including the night trough and
+        # 20 sat under every healthy hour including the night trough and
         # over the collapse. Boot ramp is 0 tables at 62 s and 59 at 139 s
         # (measured 2026-08-30), inside the 15 m window.
+        #
+        # ── THE SEPTEMBER FLOOR IS GONE (2026-11-11) ─────────────────────────
+        # Dan's owner cash plan withholds the Classic cash floor by schedule
+        # (HorseFleetManager `owner_union_cash_schedule`: 81 tables withheld
+        # on a healthy 09:06Z beat) and Lightning now carries most horse cash
+        # play on two host tables, so a healthy floor is small. Measured from
+        # Prometheus, max_over_time(poker_dealable_tables[15m]) outside the
+        # break, 2026-11-05 13:00Z -> 2026-11-11 13:00Z: every day 09:00-13:00Z
+        # reads 3-7 tables while hand_history shows the cash floor dealing
+        # normally (2026-11-11 12:00Z: 3,386 Classic and 3,700 Lightning
+        # hands, more than either prior day). `< 20` paged critical every
+        # morning on the plan working (2026-11-11 10:25Z "Only 5 tables are
+        # dealing"). A smaller floor is not a collapse; a floor with NO table
+        # able to deal is. Slow or half-empty floors stay covered by
+        # HorseFleetThroughputRelativeDrop, a floor with capacity that deals
+        # nothing by SLOHandsAreNotBeingDealt, and a wedged table by
+        # SLOTableHasStalled.
         expr: |
-          poker_dealable_tables < 20
+          poker_dealable_tables < 1
           unless on() max_over_time(poker_maintenance_break_active[6m]) == 1
           # An owner floor park holding half the cash floor or more is a stop
           # somebody scheduled (2026-10-15: park 3d9c1ba1, share 1.0, paged
@@ -2007,48 +2024,49 @@ groups:
           page: sms
           component: club-arena-engine
         annotations:
-          summary: 'Only {{ $value }} tables are dealing - the horse fleet has collapsed'
+          summary: 'No table can deal - the horse fleet has collapsed'
           description: |
-            Fewer than 20 tables have two dealable seats for 15 minutes outside a
-            break. On 2026-09-10 21:00-00:00 UTC this read 47/17/10 while the
-            floor drained. Read ca_horse_fleet_heartbeat (the `detail.gates`
+            No table has two dealable seats for 15 minutes outside a break.
+            The healthy floor under the owner cash plan is small (3-7 tables
+            09:00-13:00 UTC), so this asks only whether ANY table can deal. Read ca_horse_fleet_heartbeat (the `detail.gates`
             object names every gate that refused a seat this cycle), the Stable
             Hand per-host caps, and whether tournaments are stuck REGISTERING
             and holding horses at the four-game limit.
           runbook: docs/changelog/2026-09-11-the-horse-audit.md
 
-      # The same 30 minutes on each of the previous 1..6 days, averaged over
-      # the days Prometheus still holds, absent unless at least three are
-      # there (see HorseFleetThroughputRelativeDrop below for why).
-      - record: sp:hands_dealt:same_hour_mean_6d
+      # Settled CASH hands (Lightning) in the same 30 minutes on each of the
+      # previous 1..6 days, averaged over the days Prometheus still holds,
+      # absent unless at least three are there (see
+      # HorseFleetThroughputRelativeDrop below for why).
+      - record: sp:lightning_hands:same_hour_mean_6d
         expr: |
           (
             (
-                (sum(rate(poker_hands_dealt_total[30m] offset 1d)) or on() vector(0))
-              + (sum(rate(poker_hands_dealt_total[30m] offset 2d)) or on() vector(0))
-              + (sum(rate(poker_hands_dealt_total[30m] offset 3d)) or on() vector(0))
-              + (sum(rate(poker_hands_dealt_total[30m] offset 4d)) or on() vector(0))
-              + (sum(rate(poker_hands_dealt_total[30m] offset 5d)) or on() vector(0))
-              + (sum(rate(poker_hands_dealt_total[30m] offset 6d)) or on() vector(0))
+                (sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 1d)) or on() vector(0))
+              + (sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 2d)) or on() vector(0))
+              + (sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 3d)) or on() vector(0))
+              + (sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 4d)) or on() vector(0))
+              + (sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 5d)) or on() vector(0))
+              + (sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 6d)) or on() vector(0))
             )
             /
             clamp_min(
-                (count(sum(rate(poker_hands_dealt_total[30m] offset 1d))) or on() vector(0))
-              + (count(sum(rate(poker_hands_dealt_total[30m] offset 2d))) or on() vector(0))
-              + (count(sum(rate(poker_hands_dealt_total[30m] offset 3d))) or on() vector(0))
-              + (count(sum(rate(poker_hands_dealt_total[30m] offset 4d))) or on() vector(0))
-              + (count(sum(rate(poker_hands_dealt_total[30m] offset 5d))) or on() vector(0))
-              + (count(sum(rate(poker_hands_dealt_total[30m] offset 6d))) or on() vector(0))
+                (count(sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 1d))) or on() vector(0))
+              + (count(sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 2d))) or on() vector(0))
+              + (count(sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 3d))) or on() vector(0))
+              + (count(sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 4d))) or on() vector(0))
+              + (count(sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 5d))) or on() vector(0))
+              + (count(sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 6d))) or on() vector(0))
             , 1)
           )
           and on()
           (
-              (count(sum(rate(poker_hands_dealt_total[30m] offset 1d))) or on() vector(0))
-            + (count(sum(rate(poker_hands_dealt_total[30m] offset 2d))) or on() vector(0))
-            + (count(sum(rate(poker_hands_dealt_total[30m] offset 3d))) or on() vector(0))
-            + (count(sum(rate(poker_hands_dealt_total[30m] offset 4d))) or on() vector(0))
-            + (count(sum(rate(poker_hands_dealt_total[30m] offset 5d))) or on() vector(0))
-            + (count(sum(rate(poker_hands_dealt_total[30m] offset 6d))) or on() vector(0))
+              (count(sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 1d))) or on() vector(0))
+            + (count(sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 2d))) or on() vector(0))
+            + (count(sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 3d))) or on() vector(0))
+            + (count(sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 4d))) or on() vector(0))
+            + (count(sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 5d))) or on() vector(0))
+            + (count(sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 6d))) or on() vector(0))
           ) >= 3
 
       - alert: HorseFleetThroughputRelativeDrop
@@ -2090,7 +2108,7 @@ groups:
         # lowers the mean by at most a sixth of itself, so the day after an
         # outage is still compared against something close to normal.
         #
-        # sp:hands_dealt:same_hour_mean_6d (just above, evaluated first in
+        # sp:lightning_hands:same_hour_mean_6d (just above, evaluated first in
         # this group) applies `offset` to the raw COUNTER, never to a recorded
         # series: an offset over a new recording rule would have no history
         # for a week, the counter has it today. `for: 30m` is inside the 40-minute ceiling for guarded alarms
@@ -2098,10 +2116,41 @@ groups:
         # because the break falls at the same minute every hour, the 30m rate
         # window and its baseline contain the same share of break minutes.
         # The stall would have fired by about 14:15 UTC instead of ~21:00.
+        #
+        # LIGHTNING HANDS ARE FLEET HANDS (2026-11-11). poker_hands_dealt_total
+        # counts ServerTableEngine hands only (EngineTelemetry.recordHandTiming);
+        # a Lightning hand is settled by LightningHandHost and counted in
+        # poker_lightning_hands_total{outcome="settled"}. Read on engine-01
+        # 2026-11-11 13:40Z over 60 s: 9 table-engine hands against 96+103 on
+        # the two Lightning hosts (hand_atomic_commits). The rule compared a
+        # fraction of the floor with its own history, so play moving onto
+        # Lightning read as the floor draining. Both counters go on both sides.
+        #
+        # IT COUNTS CASH, NOT TOURNAMENTS (2026-11-11 15:00Z, incident
+        # 71fdf977, still firing after #10500). poker_hands_dealt_total is
+        # every table-engine hand, tournament and cash alike, with no format
+        # label. The seat-first ladder (Dan 2026-11-08) cut Spin and Sit & Go
+        # starts from ~11,000 a day to ~110, so the baseline days before
+        # 2026-11-10 carry tournament volume the room no longer plays: at
+        # 14:55Z the table-engine + Lightning side read 2.22/s against offsets
+        # 1.15, 2.92, 14.53, 3.54, 4.03, 7.98 (half the mean 2.84) and paged
+        # while the cash floor was flat (hand_history, tournament_id is null:
+        # 134,852 / 141,985 / 143,913 / 132,573 hands 2026-11-07..10).
+        # Settled Lightning hands are the cash floor: 1.1-1.9/s all week
+        # against the table engines' ~0.1 cash hands/s, and the counter has
+        # history on every day Prometheus holds. A Classic-only stop is
+        # HorseCashActionsStopped's job.
+        #
+        # THE BASELINE FLOOR is 0.5 hands/s (1,800 an hour); 2/s was set for
+        # a counter dominated by tournaments and would switch this off.
+        # Replayed over 2026-11-08 15:00Z -> 2026-11-11 15:00Z this rule is
+        # true only 2026-11-10 06:38-09:48Z, the real cash dip (2,877 cash
+        # hands in the 06:00 hour against ~7,000), and the ratio at 15:00Z
+        # on 2026-11-11 is 1.85.
         expr: |
-          sum(rate(poker_hands_dealt_total[30m]))
-            < 0.5 * sp:hands_dealt:same_hour_mean_6d
-          and on() sp:hands_dealt:same_hour_mean_6d > 2
+          (sum(rate(poker_lightning_hands_total{outcome="settled"}[30m])) or on() vector(0))
+            < 0.5 * sp:lightning_hands:same_hour_mean_6d
+          and on() sp:lightning_hands:same_hour_mean_6d > 0.5
           unless on() max_over_time(poker_maintenance_break_active[6m]) == 1
           # An owner floor park holding half the cash floor or more is a stop
           # somebody scheduled (2026-10-15: park 3d9c1ba1, share 1.0, paged
@@ -2133,10 +2182,29 @@ groups:
         # fleet-wide, derived from hand_history (horse-only hands, no
         # tournament) actions per hour / 60: healthy floor 313/min (12:00 UTC
         # 2026-09-11, the quietest healthy daytime hour), 426/min at 04:00
-        # UTC; the collapse 215 (21:00), 95 (22:00), 54 (23:00). 150 sits
+        # UTC; the collapse 215 (21:00), 95 (22:00), 54 (23:00). 150 sat
         # under every healthy hour and over every collapse hour past the first.
+        #
+        # ── HALF THE CASH FLOOR WAS INVISIBLE (2026-11-11) ───────────────────
+        # poker_actions_fleet_total counts actions at ServerTableEngine tables
+        # only. Lightning hands are played on LightningHandHost and never reach
+        # it, and under the owner cash plan Lightning carries most horse cash
+        # play while the Classic floor is withheld by schedule. Measured from
+        # Prometheus 2026-11-05 -> 2026-11-11: every day 09:00-13:00Z the
+        # Classic horse rate reads 28-111/min while Lightning settles 60-114
+        # hands/min, and this rule paged critical on the plan every morning
+        # (2026-11-11 06:00Z-10:25Z). A horse action and a Lightning hand are
+        # different units, so no single floor can be measured across both.
+        # The rule now answers its name - horse cash play has STOPPED: no horse
+        # action at a Classic table AND no settled Lightning hand. A declining
+        # floor stays with HorseFleetThroughputRelativeDrop, which now counts
+        # Lightning hands too. The zero-seeded series keeps a cold engine at 0
+        # (anAlertCannotWaitForAFailureToExist); an engine with no Lightning
+        # series yet reads Lightning as 0 through `or on() vector(0)`.
         expr: |
-          sum(rate(poker_actions_fleet_total{audience="horse",format="cash"}[10m])) * 60 < 150
+          sum(rate(poker_actions_fleet_total{audience="horse",format="cash"}[10m])) == 0
+          and on()
+            (sum(rate(poker_lightning_hands_total{outcome="settled"}[10m])) or on() vector(0)) == 0
           unless on() max_over_time(poker_maintenance_break_active[6m]) == 1
           # An owner floor park holding half the cash floor or more is a stop
           # somebody scheduled (2026-10-15: park 3d9c1ba1, share 1.0, paged
@@ -2150,14 +2218,55 @@ groups:
           page: sms
           component: club-arena-engine
         annotations:
-          summary: 'Horse cash actions fell to {{ $value | printf "%.0f" }}/min'
+          summary: 'Horse cash play has stopped: no Classic horse action and no Lightning hand'
           description: |
-            Horses at cash tables are acting under 150 times a minute for 15
-            minutes outside a break (healthy floor 313/min). Either they are not
+            No horse has acted at a Classic cash table and no Lightning hand has
+            settled for 15 minutes outside a break. Either horses are not
             SEATED (fleet manager, Stable Hand caps, the four-game limit) or
             seated horses are not ACTING (decision worker, turn timeouts) - the
             other rules in this group tell the two apart.
           runbook: docs/changelog/2026-09-11-the-horse-audit.md
+
+      - alert: ClassicCashFloorDark
+        # THE ORDINARY CASH FLOOR HAS ITS OWN ALARM (2026-11-11).
+        # #10506 made HorseFleetThroughputRelativeDrop a Lightning measure,
+        # and HorseCashActionsStopped needs Classic AND Lightning to stop, so a
+        # Classic (ServerTableEngine) cash floor that went dark while Lightning
+        # kept dealing was measured nowhere. A relative Classic arm cannot be
+        # derived: the owner schedule moves the Classic floor day to day, and
+        # sum(rate(poker_actions_fleet_total{format="cash"}[30m])) against
+        # its own same-hour mean ran 9 sustained false 30-minute runs in the
+        # six days to 2026-11-11 17:50Z. An absolute one can: over the same
+        # six days, outside the break and owner parks, the Classic cash rate
+        # never reached 0 (or fell under 0.1 actions/s) for 15 minutes; the
+        # quietest healthy hour reads about 0.7 actions/s. Zero for 15 minutes
+        # is therefore a floor nobody is playing, not a quiet one. Every
+        # audience counts: a human at a Classic table is the floor working.
+        # The series is zero-seeded (anAlertCannotWaitForAFailureToExist), so a
+        # cold engine reads 0 rather than nothing.
+        expr: |
+          sum(rate(poker_actions_fleet_total{format="cash"}[10m])) == 0
+          unless on() max_over_time(poker_maintenance_break_active[6m]) == 1
+          # An owner floor park holding half the cash floor or more is a stop
+          # somebody scheduled (2026-10-15: park 3d9c1ba1, share 1.0, paged
+          # four of these rules). 0.5: this rule pages at half the healthy floor
+          # or below, so a smaller park cannot explain it. Derivation:
+          # server/src/services/FloorParkWatch.ts, migration 20261015181538.
+          unless on() max_over_time(poker_operator_floor_park_share[6m]) >= 0.5
+        for: 15m
+        labels:
+          severity: critical
+          component: club-arena-engine
+        annotations:
+          summary: 'No action at any Classic cash table for 15 minutes'
+          description: |
+            Nobody, horse or human, has acted at a Classic (non-Lightning) cash
+            table for 15 minutes outside a break or an owner park. Lightning
+            may still be dealing; this is the ordinary cash floor alone. Read
+            ca_horse_fleet_heartbeat `detail` (withheld_tables, gates) for
+            whether the floor is withheld or refused, and SLOTableHasStalled
+            for a wedged table.
+          runbook: docs/changelog/2026-11-11-the-classic-cash-floor-has-its-own-alarm.md
 
       - alert: HorseFleetNotSeated
         # poker_horses_seated counts horses holding chips at every live engine.

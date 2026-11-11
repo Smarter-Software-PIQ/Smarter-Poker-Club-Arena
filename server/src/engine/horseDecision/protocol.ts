@@ -357,13 +357,26 @@ export type HorseDecisionJobRequest =
   | HorseDecisionStatusRequest
   | DecidePineappleDiscardRequest;
 
+export interface PrewarmStreetWorkerRequest {
+  type: 'PREWARM_STREET';
+  fence: string;
+  street: 'flop' | 'turn' | 'river';
+  board: ReadonlyArray<{ rank: string; suit: string }>;
+  variant?: string;
+  mode?: 'cash' | 'tournament';
+  effectiveStackBB?: number;
+}
+
 export type HorseDecisionWorkerRequest =
   | HorseDecisionJobRequest
+  | PrewarmStreetWorkerRequest
   | { type: 'CANCEL'; requestId: number; reason?: 'cancelled' | 'expired' }
   | { type: 'SHUTDOWN' };
 
 export interface HorseDecisionWorkerReady {
   phase8GuardAuthority?: import('../HorseQualifiedAuthority.js').HorseAuthorityReceipt;
+  upgradeManifest?: import('../HorseUpgradeActivationManifest.js').HorseUpgradeActivationManifest;
+  watchcounterDeltas?: import('../BrainTelemetry.js').HorseWatchcounterEntry[];
   type: 'READY';
   solverStores: {
     charts: number;
@@ -570,6 +583,11 @@ export interface HorseDecisionWorkerError {
   planRefusal?: HorsePlanRefusal;
 }
 
+export interface WatchcounterDeltaWorkerMessage {
+  type: 'WATCHCOUNTER_DELTA';
+  watchcounterDeltas: import('../BrainTelemetry.js').HorseWatchcounterEntry[];
+}
+
 export type HorseDecisionWorkerResponse =
   | HorseDecisionWorkerReady
   | FastHorseDecisionResult
@@ -579,6 +597,7 @@ export type HorseDecisionWorkerResponse =
   | PineappleDiscardResult
   | HorseDecisionWorkerCancelled
   | HorseDecisionWorkerError
+  | WatchcounterDeltaWorkerMessage
   | { type: 'STOPPED' };
 
 /** Administrative control is separate from fenced action/FIFO request types. */

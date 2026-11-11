@@ -230,7 +230,10 @@ export function aceSuited(cards: Card[]): boolean {
  * shape, which is exactly why PLO5 and PLO6 open wider, and V35 already
  * carries that part.
  */
-export function omahaHandClass(cards: Card[] | undefined | null): OmahaHandClass {
+export function omahaHandClass(
+  cards: Card[] | undefined | null,
+  legacyClamps = false
+): OmahaHandClass {
   if (!Array.isArray(cards) || cards.length < 4) return 'other';
   const counts = rankCounts(cards);
   const maxOfARank = Math.max(...counts.values());
@@ -289,11 +292,139 @@ export function omahaHandClass(cards: Card[] | undefined | null): OmahaHandClass
   // was 42.9% of the deck when a paired hand's sentinel span counted as
   // "disconnected", and a class that broad silently tightened the fleet's
   // opening range in every Omaha game.
-  if (distinct === 4 && span !== UNCONNECTED && span >= 6 && (highCards >= 2 || aces >= 1)) {
+  if (
+    legacyClamps || cards.length === 4
+      ? distinct === 4 && span !== UNCONNECTED && span >= 6 && (highCards >= 2 || aces >= 1)
+      : maxOfARank === 1 &&
+        suits === 0 &&
+        span !== UNCONNECTED &&
+        span >= 7 &&
+        (highCards >= 2 || aces >= 1)
+  ) {
     return 'dangler';
   }
 
   return 'other';
+}
+
+export interface OmahaSuitAndCoreQuality {
+  /** Number of suits containing exactly 2 cards (clean unblocked flush draws). */
+  cleanTwoCardSuits: number;
+  /** Number of suits containing 3+ cards (self-blocked flush outs). */
+  overloadedSuits: number;
+  /** Total redundant suit cards past 2 in any suit (sum of max(0, count - 2)). */
+  wastedSuitCards: number;
+  /** Number of Ace-high suited draws (suit count >= 2 containing the Ace of that suit). */
+  nutSuits: number;
+  /** Number of King-high suited draws (suit count >= 2 containing K and not A of that suit). */
+  kingSuits: number;
+  /** True in 6-card Omaha when hero holds three distinct 2-card suits (2-2-2 triple-suited). */
+  tripleSuited: boolean;
+  /**
+   * True in 5/6-card Omaha when hero holds bare AA with no second suit, no
+   * broadway side card (all side ranks <= 9), and disconnected side ranks:
+   * strong short/medium-stack equity, but heavily reverse-implied >150bb deep.
+   */
+  bareDisconnectedAces: boolean;
+}
+
+/**
+ * Multi-card (PLO4 / PLO5 / PLO6) suit efficiency, nut-suit domination,
+ * Pigeonhole self-blocking, and bare-AA structural quality read.
+ */
+export function omahaSuitAndCoreQuality(cards: Card[] | undefined | null): OmahaSuitAndCoreQuality {
+  if (!Array.isArray(cards) || cards.length < 4) {
+    return {
+      cleanTwoCardSuits: 0,
+      overloadedSuits: 0,
+      wastedSuitCards: 0,
+      nutSuits: 0,
+      kingSuits: 0,
+      tripleSuited: false,
+      bareDisconnectedAces: false,
+    };
+  }
+  const sc = suitCounts(cards);
+  const rc = rankCounts(cards);
+  let cleanTwoCardSuits = 0;
+  let overloadedSuits = 0;
+  let wastedSuitCards = 0;
+  let nutSuits = 0;
+  let kingSuits = 0;
+  for (const [suit, n] of sc.entries()) {
+    if (n === 2) cleanTwoCardSuits++;
+    else if (n >= 3) {
+      overloadedSuits++;
+      wastedSuitCards += n - 2;
+    }
+    if (n >= 2) {
+      const hasAce = cards.some((c) => c.suit === suit && c.rank === 'A');
+      const hasKing = cards.some((c) => c.suit === suit && c.rank === 'K');
+      if (hasAce) nutSuits++;
+      else if (hasKing) kingSuits++;
+    }
+  }
+  const tripleSuited = cards.length >= 6 && [...sc.values()].filter((n) => n >= 2).length >= 3;
+  const aces = rc.get(14) ?? 0;
+  const sideCards = cards.filter((c) => c.rank !== 'A');
+  const maxSideRank = sideCards.length > 0 ? Math.max(...sideCards.map(rv)) : 0;
+  const sideSpan = sideCards.length >= 4 ? connectedSpan(sideCards) : UNCONNECTED;
+  const suits = suitedness(cards);
+  const bareDisconnectedAces =
+    cards.length >= 5 &&
+    aces === 2 &&
+    suits <= 1 &&
+    maxSideRank <= 9 &&
+    (sideSpan === UNCONNECTED || sideSpan >= 6);
+
+  return {
+    cleanTwoCardSuits,
+    overloadedSuits,
+    wastedSuitCards,
+    nutSuits,
+    kingSuits,
+    tripleSuited,
+    bareDisconnectedAces,
+  };
+}
+
+/**
+ * In 5-card and 6-card Omaha, holding three of one rank alongside a strong
+ * double-suited / connected 4-card sub-core (e.g. AAAKKds, AAAKQJds, KKKQJTds)
+ * burns one blocker card rather than rendering the entire hand unplayable.
+ * Evaluates all 4-card subsets with maxOfARank <= 2 to find a playable sub-core.
+ */
+function bestPlayableFiveOrSixCardTripsSubcore(cards: Card[]): OmahaHandClass | null {
+  if (cards.length < 5) return null;
+  const priority: readonly OmahaHandClass[] = ['aa_ds', 'broadway_ds', 'rundown', 'kk_plus'];
+  let bestIdx = Infinity;
+  const n = cards.length;
+  for (let a = 0; a < n - 3; a++) {
+    for (let b = a + 1; b < n - 2; b++) {
+      for (let c = b + 1; c < n - 1; c++) {
+        for (let d = c + 1; d < n; d++) {
+          const sub = [cards[a], cards[b], cards[c], cards[d]];
+          const subCounts = rankCounts(sub);
+          if (Math.max(...subCounts.values()) >= 3) continue;
+          const subCls = omahaHandClass(sub);
+          if (subCls === 'kk_plus' && suitedness(sub) < 2) continue;
+          if (subCls === 'aa_ds') {
+            const side = sub.filter((x) => x.rank !== 'A');
+            const strongSide =
+              side.length === 2 &&
+              (side.every((x) => rv(x) >= 10) || (rv(side[0]) === rv(side[1]) && rv(side[0]) >= 8));
+            if (!strongSide || suitedness(sub) < 2) continue;
+          }
+          if (subCls === 'rundown' && (suitedness(sub) < 2 || Math.min(...sub.map(rv)) < 6)) {
+            continue;
+          }
+          const idx = priority.indexOf(subCls);
+          if (idx !== -1 && idx < bestIdx) bestIdx = idx;
+        }
+      }
+    }
+  }
+  return bestIdx < priority.length ? priority[bestIdx] : null;
 }
 
 /** Classify a short-deck (36-card) hold em hand. */
@@ -313,9 +444,15 @@ export function shortDeckHandClass(cards: Card[] | undefined | null): ShortDeckH
 // THE READ
 // ─────────────────────────────────────────────────────────────────────────────
 
-const NEVER_THREE_BET = new Set<HandClass>([
-  // The multiway hands: they want a cheap flop with company, and a 3-bet
-  // gets them a pot-sized pot heads-up out of position instead.
+/**
+ * Only structurally defective shapes (danglers and small pairs in 6+ where
+ * flushes beat full houses) carry a hard 3-bet block; double-suited broadways
+ * (KQJTds, QQJTs-ds) and rundowns evaluate 3-bets/squeezes contextually by
+ * position, dead money, nut-suitedness, and SPR in HorsePreflop.
+ */
+const NEVER_THREE_BET = new Set<HandClass>(['dangler', 'sd_small_pair']);
+
+const LEGACY_NEVER_THREE_BET = new Set<HandClass>([
   'rundown',
   'broadway_ds',
   'dangler',
@@ -335,19 +472,84 @@ const NO_READ: HandClassRead = {
  * The class of the hand hero was dealt, and what it does to the bars.
  * `isOmaha` and `isShortDeck` come from HorseEval.variantInfo, so a hold em
  * hand returns the zero read and the caller is byte-identical to V35.
+ * `legacyClamps` preserves the historical Oct 16 corpus clamps when true.
  */
 export function handClassRead(
   cards: Card[] | undefined | null,
   isOmaha: boolean,
-  isShortDeck: boolean
+  isShortDeck: boolean,
+  legacyClamps = false
 ): HandClassRead {
   if (!Array.isArray(cards) || cards.length === 0) return NO_READ;
   if (isOmaha) {
-    const cls = omahaHandClass(cards);
+    const cls = omahaHandClass(cards, legacyClamps);
+    if (legacyClamps) {
+      return {
+        cls,
+        shift: OMAHA_CHART[cls],
+        neverThreeBet: LEGACY_NEVER_THREE_BET.has(cls),
+        foldAlways: FOLD_ALWAYS.has(cls),
+      };
+    }
+
+    const counts = rankCounts(cards);
+    const maxOfARank = Math.max(...counts.values());
+
+    // 5/6-card Omaha trips with a strong 4-card sub-core (e.g. AAAKKds,
+    // AAAKQJds, KKKQJTds) discount the dead blocker instead of auto-folding.
+    if (cls === 'trips' && cards.length >= 5 && maxOfARank === 3) {
+      const subCls = bestPlayableFiveOrSixCardTripsSubcore(cards);
+      if (subCls !== null) {
+        const s = OMAHA_CHART[subCls];
+        return {
+          cls,
+          shift: {
+            open: s.open + 0.03,
+            threeBet: s.threeBet + 0.04,
+            fourBet: s.fourBet + 0.04,
+            coldCall: s.coldCall + 0.03,
+            bbDefend: s.bbDefend + 0.02,
+          },
+          neverThreeBet: false,
+          foldAlways: false,
+        };
+      }
+    }
+
+    let shift = OMAHA_CHART[cls];
+    if (cls === 'broadway_ds') {
+      const hasKQPair = (counts.get(13) ?? 0) === 2 || (counts.get(12) ?? 0) === 2;
+      const nutAceSuit = aceSuited(cards);
+      if (hasKQPair) {
+        // KKQJTds / QQKJTds in PLO5/PLO6 combines high pair equity with
+        // double-suited broadway wraps — stronger than either class alone.
+        shift = { open: -0.08, threeBet: -0.05, fourBet: -0.02, coldCall: -0.06, bbDefend: -0.06 };
+      } else if (nutAceSuit) {
+        shift = { open: -0.07, threeBet: -0.02, fourBet: 0.01, coldCall: -0.06, bbDefend: -0.06 };
+      } else {
+        shift = { open: -0.06, threeBet: 0, fourBet: 0.02, coldCall: -0.06, bbDefend: -0.06 };
+      }
+    } else if (!FOLD_ALWAYS.has(cls) && cards.length >= 5) {
+      const q = omahaSuitAndCoreQuality(cards);
+      const wastePenalty = Math.min(0.04, q.wastedSuitCards * 0.015);
+      const tripleBonus = q.tripleSuited ? 0.02 : 0;
+      const nutBonus = q.nutSuits >= 2 ? 0.02 : q.nutSuits === 1 ? 0.01 : 0;
+      const delta = wastePenalty - tripleBonus - nutBonus;
+      if (delta !== 0) {
+        shift = {
+          open: shift.open + delta,
+          threeBet: shift.threeBet + delta,
+          fourBet: shift.fourBet + delta,
+          coldCall: shift.coldCall + delta * 0.75,
+          bbDefend: shift.bbDefend + delta * 0.5,
+        };
+      }
+    }
+
     return {
       cls,
-      shift: OMAHA_CHART[cls],
-      neverThreeBet: NEVER_THREE_BET.has(cls),
+      shift,
+      neverThreeBet: NEVER_THREE_BET.has(cls) || (cls === 'rundown' && suitedness(cards) === 0),
       foldAlways: FOLD_ALWAYS.has(cls),
     };
   }
@@ -356,7 +558,7 @@ export function handClassRead(
     return {
       cls,
       shift: SHORT_DECK_CHART[cls],
-      neverThreeBet: NEVER_THREE_BET.has(cls),
+      neverThreeBet: (legacyClamps ? LEGACY_NEVER_THREE_BET : NEVER_THREE_BET).has(cls),
       foldAlways: false,
     };
   }
@@ -480,8 +682,36 @@ export function omahaEliteClassRead(
       !cards.some((a) => a.rank === 'A' && a.suit === c.suit)
   );
 
-  // Trips/quads in hand: dead card + zero redraws (unless PLO8 AA2/AAA? Even AAA2 is crippled).
+  const aces = counts.get(14) ?? 0;
+  const span = connectedSpan(cards);
+
+  // Trips/quads in hand: dead card + zero redraws in 4-card PLO (and 5/6-card without a strong 4-card sub-core).
   if (maxOfARank >= 3) {
+    if (n >= 5 && maxOfARank === 3) {
+      const subCls = bestPlayableFiveOrSixCardTripsSubcore(cards);
+      if (subCls !== null) {
+        const s = OMAHA_CHART[subCls];
+        return {
+          cls: 'trips',
+          cleanSuits,
+          selfBlockedSuits,
+          hasNutAceSuit,
+          hasKingSuit,
+          connectedWindowSpan: span,
+          canThreeBet: subCls === 'aa_ds' || subCls === 'broadway_ds' || subCls === 'kk_plus',
+          canFourBetShallow: subCls === 'aa_ds',
+          canSqueeze: subCls === 'aa_ds' || subCls === 'broadway_ds',
+          foldAlways: false,
+          shift: {
+            open: s.open + 0.03,
+            threeBet: s.threeBet + 0.04,
+            fourBet: s.fourBet + 0.04,
+            coldCall: s.coldCall + 0.03,
+            bbDefend: s.bbDefend + 0.02,
+          },
+        };
+      }
+    }
     return {
       cls: 'trips',
       cleanSuits,
@@ -496,9 +726,6 @@ export function omahaEliteClassRead(
       shift: OMAHA_CHART.trips,
     };
   }
-
-  const aces = counts.get(14) ?? 0;
-  const span = connectedSpan(cards);
   const tightTop = bestConnectedWindowTop(cards, 3); // 0-gap 4-card rundown top rank
   const oneGapTop = bestConnectedWindowTop(cards, 4); // <=1-gap 4-card rundown top rank
   const wheelCards = [...counts.keys()].filter((r) => r === 14 || r <= 5);

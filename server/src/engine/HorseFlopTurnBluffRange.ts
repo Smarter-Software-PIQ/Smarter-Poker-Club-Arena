@@ -353,14 +353,25 @@ export function flopTurnSelection(spot: FlopTurnBluffSpot): {
     const pr = heroPair(spot.hole, board);
     // Omaha: one pair is not showdown value unless it is top pair or an
     // overpair; two pair or better is (the value ladder owns it).
+    // In 5/6-card Omaha, non-nut wraps without nut outs are frequently dominated
+    // ("sucker wraps"), so strongDraw requires nut flush draw, nut straight outs,
+    // or a massive 13+ wrap rather than any bare 8-out non-nut draw.
+    const minNutWrapOuts = spot.holeCount >= 6 ? 8 : spot.holeCount === 5 ? 6 : 0;
     const strong =
       !!d &&
       (d.nutFlushDraw ||
-        d.straightOuts >= 8 ||
-        (d.dominatedFlushDraw && d.straightOuts >= 4) ||
+        (spot.holeCount <= 4
+          ? d.straightOuts >= 8 || (d.dominatedFlushDraw && d.straightOuts >= 4)
+          : d.nutStraightOuts >= minNutWrapOuts ||
+            d.straightOuts >= 13 ||
+            (d.dominatedFlushDraw && d.nutStraightOuts >= 4)) ||
         d.nutty);
-    // Four straight outs are nearly every Omaha hand; a weak draw needs six.
-    const weak = !!d && (d.dominatedFlushDraw || d.straightOuts >= 6);
+    // Four straight outs are nearly every Omaha hand; a weak draw needs six (eight in PLO6).
+    const weak =
+      !!d &&
+      (spot.holeCount >= 6
+        ? (d.dominatedFlushDraw && d.straightOuts >= 4) || d.straightOuts >= 8
+        : d.dominatedFlushDraw || d.straightOuts >= 6);
     if (spot.category >= 3) return { selection: 'junk', showdownValue: true };
     if (pr.top && !strong) return { selection: 'junk', showdownValue: true };
     if (strong)

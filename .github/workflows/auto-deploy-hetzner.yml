@@ -24,6 +24,7 @@ jobs:
     name: Observe One Private Natural Horse Cohort
     if: github.event.action == 'observe-club-arena-horse-fleet'
     runs-on: ubuntu-latest
+    environment: ci-main
     # At most sixteen 115-second read-only partitions plus setup and cleanup.
     timeout-minutes: 35
     permissions:
@@ -121,6 +122,7 @@ jobs:
     name: Withdraw One Exact Waiting Original Transaction
     if: github.event.action == 'withdraw-club-arena-engine'
     runs-on: ubuntu-latest
+    environment: ci-main
     concurrency:
       group: club-arena-engine-withdrawal-${{ github.event.client_payload.withdrawal.runKey }}
       cancel-in-progress: false
@@ -291,6 +293,7 @@ jobs:
     needs: preflight
     continue-on-error: true
     runs-on: ubuntu-24.04
+    environment: ci-main
     timeout-minutes: 70
     permissions:
       contents: read
@@ -378,6 +381,7 @@ jobs:
     name: Prove The Exact Engine Has Every Production Door
     needs: preflight
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 10
     permissions:
       contents: read
@@ -424,6 +428,7 @@ jobs:
     name: Publish Through Hetzner Club Arena
     needs: [preflight, engine-doors]
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 210
     permissions:
       contents: read
@@ -1116,6 +1121,7 @@ jobs:
     needs: [preflight, engine-doors, deploy]
     if: always() && needs.preflight.result == 'success'
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 4
     permissions:
       contents: read

@@ -245,6 +245,7 @@ export interface LiveHorseDecisionWorkerShardStatus {
   index: number;
   solverStores: LiveHorseDecisionWorkerStatus['solverStores'];
   solverPolicyArtifact: LiveHorseDecisionWorkerStatus['solverPolicyArtifact'];
+  upgradeManifest?: LiveHorseDecisionWorkerStatus['upgradeManifest'];
   isolateMemory?: LiveHorseDecisionWorkerStatus['isolateMemory'];
   isolateMemoryAgeMs?: number | null;
   mainHistoryCache?: LiveHorseDecisionWorkerStatus['mainHistoryCache'];
@@ -257,6 +258,7 @@ export interface LiveHorseDecisionWorkerShardStatus {
   inFlightJobs: number;
   completedJobs: number;
   expiredJobs: number;
+  recoverableRequestErrors?: number;
   oldestQueuedAgeMs: number | null;
   oldestQueuedDecisionAgeMs: number | null;
   lastComputeMs: number | null;
@@ -377,6 +379,7 @@ function readinessIdentity(r: HorseDecisionWorkerReadiness): string {
     r.solverPolicyArtifact.policyVersion,
     r.solverPolicyArtifact.schemaSha256,
     r.solverPolicyArtifact.totalPolicies,
+    r.upgradeManifest?.manifestDigest ?? null,
   ]);
 }
 
@@ -654,6 +657,7 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
       lastError: all.find((s) => s.lastError !== null)?.lastError ?? null,
       solverStores: first.solverStores,
       solverPolicyArtifact: first.solverPolicyArtifact,
+      upgradeManifest: first.upgradeManifest ?? null,
       governor: governor ? { ...governor } : null,
       statusSampledAt: minOf(all.map((s) => s.statusSampledAt)),
       isolateMemory: null,
@@ -669,6 +673,7 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
         index,
         solverStores: s.phase === 'ready' ? s.solverStores : null,
         solverPolicyArtifact: s.phase === 'ready' ? s.solverPolicyArtifact : null,
+        upgradeManifest: s.phase === 'ready' ? (s.upgradeManifest ?? null) : null,
         isolateMemory: s.isolateMemory ?? null,
         isolateMemoryAgeMs: s.isolateMemoryAgeMs ?? null,
         mainHistoryCache: s.mainHistoryCache ?? null,
@@ -681,6 +686,7 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
         inFlightJobs: s.inFlightJobs,
         completedJobs: s.completedJobs,
         expiredJobs: s.expiredJobs,
+        recoverableRequestErrors: s.recoverableRequestErrors,
         oldestQueuedAgeMs: s.oldestQueuedAgeMs,
         oldestQueuedDecisionAgeMs: s.oldestQueuedDecisionAgeMs,
         lastComputeMs: s.lastComputeMs,
@@ -843,6 +849,7 @@ const stoppedLaneStatus = (): LiveHorseDecisionLaneStatus => ({
   lastError: null,
   solverStores: null,
   solverPolicyArtifact: null,
+  upgradeManifest: null,
   governor: null,
   statusSampledAt: null,
   workerCount: 0,

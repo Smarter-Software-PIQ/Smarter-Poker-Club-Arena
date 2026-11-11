@@ -102,6 +102,7 @@ A=P.parse_args()
 R=Path(__file__).resolve().parents[2]; F=R/'scripts/ci/fixtures/rakeback-cascade-real-runner'; G=R/'scripts/ci/fixtures/rakeback-cascade-real-guards'
 sys.path.insert(0,str(G)); import world  # lane C's catalog-to-DDL builder, reused unchanged
 MIG_A=next((R/'supabase/migrations').glob('20261109231325_*.sql')); MIG_B=next((R/'supabase/migrations').glob('20261109231855_*.sql')); MIG_P=next((R/'supabase/migrations').glob('20261110053814_*.sql'))
+MIG_G=next((R/'supabase/migrations').glob('20261111132447_*.sql'))
 S=A.store or F
 FUNCS=json.loads((S/'production-functions.json').read_text()); REL=json.loads((S/'production-relations.json').read_text()); CFG=json.loads((F/'production-config.json').read_text())
 CRON={j['jobname']:j['command'] for j in CFG['cron']}
@@ -227,8 +228,38 @@ try:
       'public.fn_settle_accounting_rakeback_stage','smarter_private.rakeback_wallet_payout_complete','smarter_private.split_rakeback_payout_complete','smarter_private.weekly_payout_fund_agent_shortfalls'}
     assert set(after_a)<=MAY_REPLACE and set(after_b)<=MAY_REPLACE,('a migration replaced a production function outside the cascade change',sorted(set(after_a+after_b)-MAY_REPLACE))
     assert 'smarter_private.weekly_payout_fund_agent_shortfalls' in after_b,'the cascade migration did not replace the funding function'
-    MIGRATED=after_b
-    case('both migrations install whole from disk on production definitions; they replace only: '+', '.join(x.split('.')[1] for x in MIGRATED))
+    # What production runs today (read 2026-11-11, after both cascade files installed there at 10:40Z): the cascade's
+    # postimages are byte-equal to what this fixture holds after the two files.
+    INSTALLED={'smarter_private.weekly_payout_fund_agent_shortfalls(p_run uuid, p_kind text, p_id uuid, p_from timestamp with time zone, p_to timestamp with time zone)':'dddb67b5024a01bb4f2dadc0ba1009f2',
+      'public.fn_settle_accounting_rakeback_stage(p_scope_kind text, p_scope_id uuid, p_period_start timestamp with time zone, p_period_end timestamp with time zone)':'db6ba33eed8762b2534d349024e4219f',
+      'smarter_private.rakeback_wallet_payout_complete(p_payout uuid, p_calculation bigint)':'c2b4cfdbc811adfae751d47fd5b298e6',
+      'smarter_private.split_rakeback_payout_complete(p_payout uuid, p_calculation bigint)':'47519877eefe45ac6ab39f6519bfb0e8',
+      'public.fn_settle_accounting_commission_stage(p_scope_kind text, p_scope_id uuid, p_period_start timestamp with time zone, p_period_end timestamp with time zone)':'ce1a9dd4344c7987918dcf8a82427ef5',
+      'smarter_private.weekly_payout_finalize(p_run uuid)':'5b83618b59f043376c87361c986adca8',
+      'smarter_private.zero_standalone_foreign_commissions_proven(p_club uuid, p_start timestamp with time zone, p_end timestamp with time zone)':'69099f3bac93cb29fad83cb82cb1fe4a',
+      'smarter_private.weekly_payout_next_round()':'332b762a004a779e32dc3fd2d1aef60d'}
+    got=sigs(); assert all(got.get(k)==v for k,v in INSTALLED.items()),('after the two cascade files the fixture must equal what production runs today',{k:got.get(k) for k in INSTALLED})
+    # ONE TRANSFER PER EDGE AND THE RESERVE (20261111132447), whole from disk, on exactly those definitions.
+    mig_g=MIG_G.read_text()
+    q('SET check_function_bodies=off;\n'+mig_g); after_g=changed()
+    G_MAY={'public.fn_settle_accounting_commission_stage','public.fn_settle_accounting_rakeback_stage','smarter_private.weekly_payout_fund_agent_shortfalls',
+      'smarter_private.weekly_payout_finalize','smarter_private.zero_standalone_foreign_commissions_proven'}
+    assert set(after_g)-set(after_b)<=G_MAY and G_MAY<=set(after_g),('the gross-transfer file replaced a production function outside its change',sorted(set(after_g)-set(after_b)-G_MAY))
+    proofs=[l.split(': ',1)[1] for l in mig_g.splitlines() if l.startswith('-- @live-proof: ')]
+    assert len(proofs)==6 and all(one('SELECT '+p+';')=='t' for p in proofs),'a live proof of 20261111132447 is false after install'
+    again_g=q('SET check_function_bodies=off;\n'+mig_g,check=False)
+    assert again_g.returncode and 'rakeback_gross_fund_preimage_changed' in again_g.stderr,again_g.stderr[-600:]
+    # Every function the file creates or replaces compiles against the real relations (check_function_bodies on).
+    NEW_FUNCS=['smarter_private.rakeback_cascade_plan(text,uuid,timestamptz,timestamptz)','smarter_private.rakeback_cascade_round2_plan(text,uuid,timestamptz,timestamptz)',
+      'smarter_private.rakeback_cascade_round2_open()','smarter_private.rakeback_cascade_round2_settle(text,uuid,timestamptz,timestamptz)',
+      'smarter_private.weekly_payout_reserve_players_share(text,uuid,timestamptz,timestamptz,text)','smarter_private.agent_wallet_keeps_weekly_reserve()',
+      'smarter_private.weekly_payout_fund_agent_shortfalls(uuid,text,uuid,timestamptz,timestamptz)','public.fn_settle_accounting_commission_stage(text,uuid,timestamptz,timestamptz)',
+      'public.fn_settle_accounting_rakeback_stage(text,uuid,timestamptz,timestamptz)','smarter_private.weekly_payout_finalize(uuid)','smarter_private.zero_standalone_foreign_commissions_proven(uuid,timestamptz,timestamptz)']
+    q('SET check_function_bodies=on;\n'+''.join(f"SELECT plpgsql_validator('{f}'::regprocedure);\n" for f in NEW_FUNCS))
+    acl=one("SELECT bool_and(NOT has_function_privilege(r,p,'EXECUTE')) FROM unnest(ARRAY['anon','authenticated','service_role']) r,unnest(ARRAY["+','.join(f"'{f}'" for f in NEW_FUNCS[:6])+"]::regprocedure[]) p")
+    assert acl=='t' and one("SELECT NOT has_table_privilege('authenticated','smarter_private.weekly_payout_wallet_reserves','SELECT') AND NOT has_table_privilege('service_role','smarter_private.weekly_payout_wallet_reserves','UPDATE')")=='t'
+    MIGRATED=after_g
+    case('the three migrations install whole from disk on production definitions (after the first two the fixture equals what production runs today, md5 read 2026-11-11); they replace only: '+', '.join(x.split('.')[1] for x in MIGRATED)+'; 20261111132447 compiles against the real relations, its six live proofs are true, a second install refuses, and no client role may call its functions or read its reserves')
     if A.stop_after=='install': raise SystemExit(0)
     exec((F/'cases.py').read_text())
     if A.usage_out: A.usage_out.write_text(json.dumps(usage(),indent=0))
@@ -240,7 +271,7 @@ try:
             except Exception: j={'stage':'?'}
             print('TICK',r['at'],f"{r['ms']:8.1f} ms",'NULL' if j is None else j.get('stage')+(f" round {j['round']}" if 'round' in j else ''),flush=True)
     out={'status':'passed','cases':len(results)}
-    if A.output: A.output.write_text(json.dumps({**out,'migrations':{MIG_A.name:hashlib.md5(MIG_A.read_bytes()).hexdigest(),MIG_B.name:hashlib.md5(MIG_B.read_bytes()).hexdigest(),MIG_P.name:hashlib.md5(MIG_P.read_bytes()).hexdigest()},'replaced_by_migrations':MIGRATED,'results':results,'ticks':record},indent=1))
+    if A.output: A.output.write_text(json.dumps({**out,'migrations':{MIG_A.name:hashlib.md5(MIG_A.read_bytes()).hexdigest(),MIG_B.name:hashlib.md5(MIG_B.read_bytes()).hexdigest(),MIG_P.name:hashlib.md5(MIG_P.read_bytes()).hexdigest(),MIG_G.name:hashlib.md5(MIG_G.read_bytes()).hexdigest()},'replaced_by_migrations':MIGRATED,'results':results,'ticks':record},indent=1))
     print(json.dumps(out))
 finally:
     if A.usage_out and started and not A.usage_out.exists():

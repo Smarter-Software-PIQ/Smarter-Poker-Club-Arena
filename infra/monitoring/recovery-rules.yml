@@ -105,12 +105,13 @@ groups:
   # its outbox jams or its intake refuses alerts, the controller is the one
   # thing that cannot say so. These four rules read gauges that
   # server/scripts/collect-monitoring-health.sh takes from
-  # public.fn_reliability_controller_health() once a minute, and they are
-  # delivered by Alertmanager's email routes (severity critical or warning, no
-  # tournament component, no page label), which do not pass through the
-  # controller. The codex-inbox route also receives them; the controller's
-  # intake opens no incident for these names (seeded monitoring_self, not an
-  # incident, in migration 20261110045731), so email is their channel.
+  # public.fn_reliability_controller_health() once a minute. Every one reaches
+  # the codex-inbox route; the controller's intake opens no incident for these
+  # names (seeded monitoring_self, not an incident, in migration
+  # 20261110045731). The two critical ones also reach email-critical, which
+  # does not pass through the controller (no tournament component, no page
+  # label). Since 2026-11-11 warnings send no email (owner decision): the two
+  # warnings below reach codex-inbox only.
   #
   # Every expression is aggregated to an empty label set so the two halves of
   # an `or` can never produce two alerts with the same labels.
@@ -120,25 +121,61 @@ groups:
   # restart changes neither.
   - name: reliability-controller
     rules:
+      # Two causes look identical from the heartbeat alone, so the alert
+      # names which one it has (label cause):
+      #   controller_not_ticking  the collector refreshed its textfile in the
+      #                           last three minutes and the database itself
+      #                           says the heartbeat is over five minutes old.
+      #   health_textfile_frozen  the textfile has not been refreshed for over
+      #                           three minutes (collector timer dead, or its
+      #                           fail-closed snapshot read failing) and the
+      #                           last heartbeat it carries is over five
+      #                           minutes old. Whether the controller is
+      #                           ticking is unknown, not established.
+      # poker_health_collected_timestamp_seconds is written into the same
+      # atomic textfile on every successful collection and on no other, so its
+      # age is the textfile's age. The two halves are exclusive on that age.
+      # When the controller's series vanish (reliability_controller_collect_ok
+      # 0, or the textfile gone) both halves are empty and
+      # ReliabilityControllerMetricsAbsent is the one alert.
       - alert: ReliabilityControllerStale
         expr: >-
-          max(reliability_controller_heartbeat_age_seconds) > 300
-          or time() - max(reliability_controller_heartbeat_timestamp_seconds) > 300
+          label_replace(
+            max(reliability_controller_heartbeat_age_seconds) > 300
+            unless on() (time() - max(poker_health_collected_timestamp_seconds) > 180),
+            "cause", "controller_not_ticking", "", ""
+          )
+          or
+          label_replace(
+            (time() - max(poker_health_collected_timestamp_seconds) > 180)
+            and on() (time() - max(reliability_controller_heartbeat_timestamp_seconds) > 300),
+            "cause", "health_textfile_frozen", "", ""
+          )
         for: 5m
         labels:
           severity: critical
           component: reliability-controller
         annotations:
-          summary: 'The Reliability Controller has not ticked for {{ $value | humanizeDuration }}'
+          summary: >-
+            {{ if eq $labels.cause "health_textfile_frozen" }}Reliability Controller
+            health has not been refreshed for {{ $value | humanizeDuration }}, so
+            whether it is ticking is unknown{{ else }}The Reliability Controller
+            has not ticked for {{ $value | humanizeDuration }}{{ end }}
           description: >-
             reliability_tick() writes reliability_heartbeat every minute from
-            pg_cron job reliability-controller-tick. The heartbeat is more than
-            five minutes old, so incidents are not being escalated, confirmed,
-            closed or delivered. The second half of the expression keeps
-            counting from the last heartbeat time when the collector can no
-            longer reach the database, so this also fires when the database or
-            its REST API is down. Read cron.job_run_details for the job and
-            reliability_heartbeat.last_result.
+            pg_cron job reliability-controller-tick, and
+            collect-monitoring-health.sh publishes it once a minute. The label
+            cause says which failure this is. controller_not_ticking: the
+            collector is current and the database reports the heartbeat more
+            than five minutes old, so incidents are not being escalated,
+            confirmed, closed or delivered; read cron.job_run_details for the
+            job and reliability_heartbeat.last_result. health_textfile_frozen:
+            the collector's textfile has not been rewritten for over three
+            minutes, so the last heartbeat it carries keeps ageing whether or
+            not the controller is ticking; the collector timer is stopped, or
+            its database read fails closed (database or REST API down). Read
+            the journal of club-arena-money-health.service and its timer
+            first.
           runbook: docs/reliability-controller/HEALTH-SIGNAL.md
 
       - alert: ReliabilityControllerMetricsAbsent
@@ -170,7 +207,7 @@ groups:
           or max(reliability_controller_notifications_failed_24h) > 0
         for: 5m
         labels:
-          severity: warning
+          severity: critical
           component: reliability-controller
         annotations:
           summary: 'Reliability Controller notifications are not reaching the Messenger'
@@ -181,7 +218,8 @@ groups:
             reliability_controller_notifications_queued and
             reliability_controller_notifications_failed_24h to see which, then
             last_error on reliability_notifications. The owner may not be
-            receiving escalations in the Messenger while this fires.
+            receiving escalations in the Messenger while this fires, which is
+            why this is critical: email is then the only path left to the owner.
           runbook: docs/reliability-controller/HEALTH-SIGNAL.md
 
       - alert: ReliabilityControllerIntakeRejections

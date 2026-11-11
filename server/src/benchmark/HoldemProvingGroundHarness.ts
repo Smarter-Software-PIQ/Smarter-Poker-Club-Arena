@@ -737,7 +737,7 @@ function runIsolatedArmHand(
           currentPlayerSeat: seat,
           straddleActive: postedStraddle !== null && postedStraddle.amount > 0,
           ...(postedStraddle && postedStraddle.amount > 0
-            ? { straddleAmount: postedStraddle.amount }
+            ? { straddleAmount: postedStraddle.amount, straddleSeat: postedStraddle.seat }
             : {}),
           ...(cell.mode === 'tournament'
             ? { tournament: buildTournamentContext(cell, actor, dealtPlayersNow) }

@@ -272,7 +272,7 @@ export function v87AdjustFiveSixCardHandClass(
             coldCall: Math.max(0, bestRescue.shift.coldCall + 0.03),
             bbDefend: Math.max(0, bestRescue.shift.bbDefend + 0.03),
           },
-          neverThreeBet: bestRescue.cls !== 'aa_ds',
+          neverThreeBet: bestRescue.neverThreeBet,
           foldAlways: false,
         },
       };

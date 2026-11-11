@@ -2722,20 +2722,44 @@ export class HorseMind {
       }
 
     // Adjust by observed tendencies (confidence-weighted).
+    // In Omaha with scopedShrink enabled, separate PLO4 / PLO5 / PLO6 / PLO8
+    // baseline VPIP and RFI envelopes via decisionExploitCounters + exploitEnvelopeFor
+    // so PLO6's natural ~60% VPIP never misclassifies normal regulars as loose callers.
+    const omahaEnv =
+      this.decisionReadOptions.scopedShrink && this.decisionScope?.startsWith('omaha:')
+        ? exploitEnvelopeFor(this.decisionScope, this.decisionVariant)
+        : null;
+    const omahaExact = omahaEnv ? this.decisionExploitCounters(userId) : undefined;
     const s = this.readStats(userId);
-    if (s && s.hands >= 8) {
+    if (omahaEnv && omahaExact && omahaExact.hands >= 8) {
+      const conf = Math.min(1, omahaExact.hands / 25);
+      const rfiOpp = Math.max(1, Number(omahaExact.rfiOpp ?? omahaExact.hands));
+      const pfrRate = Number(omahaExact.rfi ?? 0) / rfiOpp;
+      if (line === 'open' || line === 'threebet' || line === 'fourbet') {
+        if (pfrRate < Math.max(0.08, omahaEnv.rfi.mean - 0.12)) lo += 0.12 * conf;
+        else if (pfrRate > Math.min(0.65, omahaEnv.rfi.mean + 0.14)) lo -= 0.1 * conf;
+      }
+      const vpipRate = Number(omahaExact.vpip ?? 0) / omahaExact.hands;
+      if (line === 'limp' || line === 'call') {
+        if (vpipRate > Math.min(0.82, omahaEnv.vpip.mean + 0.15)) lo -= 0.08 * conf;
+        else if (vpipRate < Math.max(0.18, omahaEnv.vpip.mean - 0.15)) lo += 0.08 * conf;
+      }
+    } else if (s && s.hands >= 8) {
       const conf = Math.min(1, s.hands / 25);
       const pfrRate = s.pfr / s.hands;
+      const looseVpipFloor = omahaEnv ? Math.min(0.82, omahaEnv.vpip.mean + 0.15) : 0.5;
+      const tightVpipCeil = omahaEnv ? Math.max(0.18, omahaEnv.vpip.mean - 0.15) : 0.18;
       if (line === 'open' || line === 'threebet' || line === 'fourbet') {
         if (pfrRate < 0.1)
           lo += 0.12 * conf; // a nit raised: tighten the read
-        else if (pfrRate > 0.3) lo -= 0.1 * conf; // a maniac raised: widen it
+        else if (pfrRate > (omahaEnv ? Math.min(0.6, omahaEnv.rfi.mean + 0.14) : 0.3))
+          lo -= 0.1 * conf; // a maniac raised: widen it
       }
       const vpipRate = s.vpip / s.hands;
       if (line === 'limp' || line === 'call') {
-        if (vpipRate > 0.5)
+        if (vpipRate > looseVpipFloor)
           lo -= 0.08 * conf; // loose caller: more junk in range
-        else if (vpipRate < 0.18) lo += 0.08 * conf; // tight caller: real hand
+        else if (vpipRate < tightVpipCeil) lo += 0.08 * conf; // tight caller: real hand
       }
     }
 

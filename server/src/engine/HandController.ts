@@ -3770,6 +3770,11 @@ export class HandController {
     return this.config.killPot ?? null;
   }
 
+  /** Seat number of the active last posted straddle for this hand, or null when unstraddled. */
+  public getLastStraddleSeat(): number | null {
+    return this.getPostedStraddleSnapshot().seat;
+  }
+
   /**
    * The legal betting bounds for a player about to act, under whichever
    * structure this table's variant uses.
@@ -3855,10 +3860,14 @@ export class HandController {
 
     if (allInTo <= capTo + 0.005) return { action, amount };
 
+    const wholeChip = this.config.isTournament === true || this.config.asset === 'diamonds';
+    const snapCap = (v: number): number =>
+      wholeChip ? Math.floor(v + 1e-6) : Math.round(v * 100) / 100;
+
     if (!isFixed) {
       return {
         action: this.state.currentBet > 0 ? 'raise' : 'bet',
-        amount: Math.round(capTo * 100) / 100,
+        amount: snapCap(capTo),
       };
     }
 
@@ -3881,7 +3890,7 @@ export class HandController {
     if (wager === 'raise' && !this.canReopenBetting(player)) {
       return { action: 'call', amount: undefined };
     }
-    return { action: wager, amount: Math.round(capTo * 100) / 100 };
+    return { action: wager, amount: snapCap(capTo) };
   }
 
   private canReopenBetting(player: SeatPlayer): boolean {
@@ -4321,12 +4330,17 @@ export class HandController {
     const hasBet = legalActions.includes('bet');
     const hasRaise = legalActions.includes('raise');
     const hasSizedWager = hasBet || hasRaise;
+    const wholeChip = this.config.isTournament === true || this.config.asset === 'diamonds';
     const cents = (value: number): number => Math.round(value * 100) / 100;
+    const snapMin = (value: number): number => (wholeChip ? Math.ceil(value - 1e-6) : cents(value));
+    const snapMax = (value: number): number =>
+      wholeChip ? Math.floor(value + 1e-6) : cents(value);
+    const snapCall = (value: number): number => (wholeChip ? Math.round(value) : cents(value));
 
     let minRaiseTo: number | null = null;
     let maxRaiseTo: number | null = null;
     if (hasSizedWager) {
-      minRaiseTo = cents(
+      minRaiseTo = snapMin(
         hasRaise ? this.state.currentBet + bettingState.minRaise : bettingState.minRaise
       );
       const stackBound = hasRaise ? player.bet + player.stack : player.stack;
@@ -4336,7 +4350,7 @@ export class HandController {
           : hasRaise
             ? this.state.currentBet + bettingState.maxRaise
             : bettingState.maxRaise;
-      maxRaiseTo = cents(Math.min(stackBound, structureBound));
+      maxRaiseTo = snapMax(Math.min(stackBound, structureBound));
       // A stack below the ordinary minimum can still act through the explicit
       // all_in action, but there is no legal sized bet/raise interval. Do not
       // advertise an impossible range with min > max.
@@ -4353,7 +4367,7 @@ export class HandController {
       currentPlayerSeat: asIfToAct ? player.seat : this.state.currentPlayerSeat,
       canAct,
       legalActions,
-      toCall: cents(Math.max(0, bettingState.toCall)),
+      toCall: snapCall(Math.max(0, bettingState.toCall)),
       minRaiseTo,
       maxRaiseTo,
       structure: bettingState.structure ?? 'no_limit',
