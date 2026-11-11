@@ -30,14 +30,37 @@
 -- relation ca_hand_player_stat occur ONLY at minutes 0/15/30/45, in nearly
 -- every hour, up to 7.7 s, most never granted.
 --
--- WHAT THIS CHANGES. One line: the roll-up's upper bound is
--- now() - interval '5 minutes' instead of now(). Every other byte of the
+-- WHAT THIS CHANGES. One line: the roll-up's upper bound is the earlier of
+-- now() - interval '5 minutes' and the start of the oldest other open client
+-- transaction in this database, instead of now(). Every other byte of the
 -- function is the live body (md5 07f9ad834d98b1944eecbab0439f63fb, read
 -- 2026-11-11): the same advisory try-lock, FOR UPDATE on the state row,
 -- chunking, ORDER BY, ON CONFLICT DO NOTHING, retention prune, proconfig,
 -- owner, grants and SECURITY DEFINER. The preflight refuses any other body
 -- or authority; the postflight proves the reverse substitution reproduces the
 -- live md5 and that the authority is unchanged.
+--
+-- WHY NO HAND IS SKIPPED (a guarantee, not an observation). hand_history
+-- rows take created_at from the column default now(), which is the inserting
+-- transaction's start, the same instant pg_stat_activity reports as
+-- xact_start (no writer names created_at: fn_ca_insert_hand_with_awards
+-- inserts only the caller's columns and the engine row carries none). A row
+-- the roll-up cannot yet see belongs to a transaction still open, whose
+-- xact_start is >= the oldest open xact_start >= the bound, so its created_at
+-- is never inside a window the roll-up closes; rolled_ceil only ever advances
+-- to that bound. The old body (bound = now()) could skip such a row. The
+-- 5 minutes only keeps the roll-up off keys the live projection is still
+-- writing (a performance margin: projection lag p99.99 39.8 s, max 135 s);
+-- correctness does not depend on it.
+-- EXACTLY ONCE. ca_hand_player_stat_pkey is UNIQUE (user_id, hand_id) and all
+-- three writers (live projection, hand trigger, roll-up) are INSERT ... ON
+-- CONFLICT DO NOTHING, so whichever lands first is the only row. Diamond day
+-- totals (projection 4b) are added once, by the projection, from whichever
+-- row exists; the roll-up never touches them, before or after this change.
+-- LATE UPDATES. ca_append_hand_fact_revision needs the ca_hand_facts row,
+-- which only the live projection writes, in the same transaction as its stat
+-- rows, so a revision always finds its stat row (0 revisions exist to date);
+-- ca_repair_hand_player_stat_money finished on 2026-09-04 and is unscheduled.
 --
 -- WHY THE INVARIANTS HOLD. rolled_ceil only advances to the end of what the
 -- run covered, which is now never past now() - 5 minutes, so a hand younger
@@ -77,7 +100,7 @@ DECLARE
   v_def text;
   v_old text := $f$  v_now timestamptz := now();
 $f$;
-  v_new text := $f$  v_now timestamptz := now() - interval '5 minutes';
+  v_new text := $f$  v_now timestamptz := least(now() - interval '5 minutes', coalesce((SELECT min(a.xact_start) FROM pg_catalog.pg_stat_activity a WHERE a.datname = current_database() AND a.backend_type = 'client backend' AND a.pid <> pg_backend_pid() AND a.xact_start IS NOT NULL), now()));
 $f$;
 BEGIN
   IF v_oid IS NULL THEN RAISE EXCEPTION 'ca_roll_hand_stats_forward() is missing'; END IF;
@@ -104,7 +127,7 @@ AS $function$
 DECLARE
   v_ceil timestamptz;
   v_start timestamptz;
-  v_now timestamptz := now() - interval '5 minutes';
+  v_now timestamptz := least(now() - interval '5 minutes', coalesce((SELECT min(a.xact_start) FROM pg_catalog.pg_stat_activity a WHERE a.datname = current_database() AND a.backend_type = 'client backend' AND a.pid <> pg_backend_pid() AND a.xact_start IS NOT NULL), now()));
   v_deadline timestamptz := clock_timestamp() + interval '100 seconds';
   v_last_hand_at timestamptz;
   v_end timestamptz;
@@ -212,7 +235,7 @@ DECLARE
   v_def text := pg_get_functiondef(to_regprocedure('public.ca_roll_hand_stats_forward()'));
   v_old text := $f$  v_now timestamptz := now();
 $f$;
-  v_new text := $f$  v_now timestamptz := now() - interval '5 minutes';
+  v_new text := $f$  v_now timestamptz := least(now() - interval '5 minutes', coalesce((SELECT min(a.xact_start) FROM pg_catalog.pg_stat_activity a WHERE a.datname = current_database() AND a.backend_type = 'client backend' AND a.pid <> pg_backend_pid() AND a.xact_start IS NOT NULL), now()));
 $f$;
 BEGIN
   IF (length(v_def) - length(replace(v_def, v_new, ''))) / length(v_new) <> 1

@@ -8,7 +8,9 @@ applies the migration and proves:
       concurrent live insert of the same (user_id, hand_id) does not wait;
   (b) a hand older than the margin is still rolled, and a young hand whose
       live row never landed is rolled once it ages past the margin;
-  (c) rolled_ceil never advances past now() - 5 minutes and never moves back.
+  (c) rolled_ceil never advances past now() - 5 minutes and never moves back;
+  (d) rolled_ceil never passes the start of an open writer, so no hand is
+      skipped (the predecessor is shown to skip it), and it lands exactly once.
 """
 import argparse
 import json
@@ -27,6 +29,7 @@ parser.add_argument('--output', type=pathlib.Path, default=None)
 args = parser.parse_args()
 PRE = (root / 'scripts/ci/probes/stats-rollup-lag/live-predecessor.sql').read_text()
 PRE_MD5 = '07f9ad834d98b1944eecbab0439f63fb'
+NEWL = "v_now timestamptz := least(now() - interval '5 minutes', coalesce((SELECT min(a.xact_start) FROM pg_catalog.pg_stat_activity a WHERE a.datname = current_database() AND a.backend_type = 'client backend' AND a.pid <> pg_backend_pid() AND a.xact_start IS NOT NULL), now()));"
 MIGRATION = args.migration.read_text()
 pg = pathlib.Path(os.environ.get('PG_BIN', '/opt/homebrew/opt/postgresql@17/bin'))
 env = {k: v for k, v in os.environ.items() if not k.startswith('PG')}
@@ -151,6 +154,30 @@ def body_md5():
     return sql("SELECT md5(pg_get_functiondef('public.ca_roll_hand_stats_forward()'::regprocedure));")
 
 
+LATE = '00000000-0000-0000-0000-000000000003'
+
+
+def late_writer(label, wait="5 minutes 2 seconds"):
+    """A hand whose writer is still open when the roll-up's window passes its
+    created_at (= the writer's transaction start). Waits `wait` of real time."""
+    sql("TRUNCATE hand_history, ca_hand_player_stat, fixture_facts;"
+        "UPDATE ca_hand_player_stat_state SET rolled_ceil = now() - interval '1 hour', updated_at = NULL;")
+    w = Session(label + '-late-writer')
+    w.execute(f"BEGIN; INSERT INTO hand_history(id,created_at) VALUES ('{LATE}', now());"
+              f"INSERT INTO fixture_facts(user_id,hand_id,created_at,profit) SELECT u,'{LATE}',now(),7 "
+              f"FROM (VALUES ('{A}'::uuid),('{B}'::uuid)) v(u);")
+    start = w.execute('SELECT now();').strip()
+    while sql(f"SELECT now() > '{start}'::timestamptz + interval '{wait}';") != 't':
+        time.sleep(2)
+    sql(FORWARD)
+    ceil_held = sql(f"SELECT rolled_ceil <= '{start}'::timestamptz FROM ca_hand_player_stat_state;") == 't'
+    unseen = f'{LATE}:' not in rows()
+    w.execute('COMMIT;'); w.close()
+    sql(FORWARD); sql(FORWARD)
+    late_rows = sql(f"SELECT concat_ws(':', count(*), count(DISTINCT user_id), min(profit), max(profit)) FROM ca_hand_player_stat WHERE hand_id='{LATE}';")
+    return ceil_held, unseen, late_rows
+
+
 def race(label):
     """Roll-up holds its transaction open; a live insert of the young hand races it."""
     roll, live = Session(label + '-rollup'), Session(label + '-live')
@@ -200,14 +227,18 @@ try:
     check('live body: the live insert finds the roll-up row once it commits', outcome and outcome['ok'] and
           f'{YOUNG}:{A}:7' in rows())
 
+    held, unseen, late_rows = late_writer('before', '2 seconds')
+    check('live body: the roll-up closes its window past a hand whose writer is still open', not held and unseen)
+    check('live body: that hand is then skipped for good', late_rows.startswith('0:'))
+
     # Install.
     sql(MIGRATION)
     post = sql("SELECT pg_get_functiondef('public.ca_roll_hand_stats_forward()'::regprocedure);")
     check('migration changes exactly the upper bound line',
-          post.count("v_now timestamptz := now() - interval '5 minutes';") == 1 and 'v_now timestamptz := now();' not in post)
+          post.count(NEWL) == 1 and 'v_now timestamptz := now();' not in post)
     check('reverse substitution reproduces the live body byte for byte', sql(
         "SELECT md5(replace(pg_get_functiondef('public.ca_roll_hand_stats_forward()'::regprocedure), "
-        "$f$now() - interval '5 minutes';$f$, 'now();'));") == PRE_MD5)
+        "$f$"+NEWL[len('v_now timestamptz := '):]+"$f$, 'now();'));") == PRE_MD5)
     check('owner, grants, proconfig and SECURITY DEFINER retained', authority() == initial_authority)
     post_md5 = body_md5()
     sql(MIGRATION)
@@ -250,6 +281,11 @@ try:
     ahead = sql('SELECT rolled_ceil FROM ca_hand_player_stat_state;')
     check('(c) a ceiling ahead of the bound returns 0 and writes nothing', sql(FORWARD) == '0' and rows() == '')
     check('(c) that ceiling is not moved backwards', sql('SELECT rolled_ceil FROM ca_hand_player_stat_state;') == ahead)
+
+    # (d) no skip: the bound never passes the start of an open writer.
+    held, unseen, late_rows = late_writer('after')
+    check('(d) rolled_ceil stops at the start of a writer still open', held and unseen)
+    check('(d) once that writer commits, its hand is rolled exactly once for every player', late_rows == '2:2:7:7')
 
     # Existing behaviour kept: the bulk try-lock still defers.
     seed()

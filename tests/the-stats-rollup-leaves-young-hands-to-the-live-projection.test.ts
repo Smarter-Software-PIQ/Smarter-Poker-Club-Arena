@@ -23,7 +23,8 @@ const PRE = readFileSync(
   resolve(process.cwd(), 'scripts/ci/probes/stats-rollup-lag/live-predecessor.sql'),
   'utf8'
 );
-const BOUND = "  v_now timestamptz := now() - interval '5 minutes';\n";
+const BOUND =
+  "  v_now timestamptz := least(now() - interval '5 minutes', coalesce((SELECT min(a.xact_start) FROM pg_catalog.pg_stat_activity a WHERE a.datname = current_database() AND a.backend_type = 'client backend' AND a.pid <> pg_backend_pid() AND a.xact_start IS NOT NULL), now()));\n";
 const DEFINES = /create\s+(or\s+replace\s+)?function\s+public\.ca_roll_hand_stats_forward\s*\(/i;
 
 describe('the stats roll-up leaves young hands to the live projection', () => {
