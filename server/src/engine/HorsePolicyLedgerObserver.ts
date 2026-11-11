@@ -75,16 +75,59 @@ export interface HorsePolicyLedgerContext {
   ownershipDroppedWithShadowReceipt?: boolean;
 }
 
+/**
+ * The ledger's closed variant label for a raw game variant: a registered
+ * variant is itself, anything else is `other`. The decision counter and the
+ * per-variant table gauge below both read it, so a silence rule can join them
+ * `on(variant)` and never compare two spellings of one game.
+ */
+export function horseLedgerVariant(rawVariant: unknown): LedgerVariant {
+  return (
+    typeof rawVariant === 'string' && VARIANTS.has(rawVariant) ? rawVariant : 'other'
+  ) as LedgerVariant;
+}
+
+/**
+ * Live tables holding at least one horse with chips, per ledger variant
+ * (`poker_tables_with_horses_by_variant{variant}`, GameServer metrics).
+ *
+ * WHY (production alert 376529, 2026-11-11): HorseBrainVariantSilent fired at
+ * 04:32 UTC for plo8 because the PLO8 Hi-Lo Turbo (f2c99684) COMPLETED at
+ * 04:02:18 and closed its last table. Nothing was failing: the variant simply
+ * had no table left, and the rule could not tell "no table" from "decisions
+ * failing before the ledger", so every finished single-variant event paged
+ * (29 firings in the source inventory). This gauge is the missing half: the
+ * rule fires only while horses of that variant are still seated.
+ *
+ * Every ledger variant is present, seeded at zero, so `== 0` is a sample and
+ * not an absent series. Identification only (CLAUDE.md 10.5): it counts and
+ * decides nothing. Pure and total: a table that throws is skipped, never
+ * allowed to break the metrics scrape.
+ */
+export function countHorseTablesByVariant(
+  engines: Iterable<{ horsesSeated(): number; horseLedgerVariant(): string }>
+): Record<LedgerVariant, number> {
+  const out = Object.fromEntries(HORSE_POLICY_LEDGER_VARIANTS.map((v) => [v, 0])) as Record<
+    LedgerVariant,
+    number
+  >;
+  for (const engine of engines) {
+    try {
+      if (engine.horsesSeated() > 0) out[horseLedgerVariant(engine.horseLedgerVariant())] += 1;
+    } catch {
+      /* one table's bad state never hides the rest of the fleet */
+    }
+  }
+  return out;
+}
+
 /** Pure: classify one validated FAST decision. Never throws. */
 export function classifyHorsePolicyDecision(
   gameState: { gameVariant?: unknown; gameMode?: unknown } | null | undefined,
   decision: HorseDecision | null | undefined,
   context: HorsePolicyLedgerContext = {}
 ): HorsePolicyLedgerObservation {
-  const rawVariant = gameState?.gameVariant ?? 'nlh';
-  const variant = (
-    typeof rawVariant === 'string' && VARIANTS.has(rawVariant) ? rawVariant : 'other'
-  ) as LedgerVariant;
+  const variant = horseLedgerVariant(gameState?.gameVariant ?? 'nlh');
   const format: LedgerFormat = gameState?.gameMode === 'cash' ? 'cash' : 'tournament';
   const ownership = decision?.policyOwnership as { outcome?: unknown } | undefined;
   const outcome = (
