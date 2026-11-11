@@ -101,7 +101,7 @@ import {
 } from '../services/supabase/lightningAnchor.js';
 import { reportLightningEngineInputDeviceLive } from '../lightning/LightningEngineInputDevice.js';
 import { nextHandGap } from './nextHandGapRecorder.js';
-import { cashDealGap } from './CashDealGap.js';
+import { cashDealGap, CASH_NEXT_HAND_LIMIT_MS, reportCashNextHandBreach } from './CashDealGap.js';
 import { PostHandStageTiming, type CompletionHoldStamp } from './PostHandStageTiming.js';
 import { jitteredBackoffMs } from '../services/horseEntryRefusalBackoff.js';
 import { currentTournamentDataAuthority } from '../services/supabase/dataActorContext.js';
@@ -1852,8 +1852,9 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       this.setLoopPhase('refresh_blinds');
       await blindRead;
     }
+    const restEndMs = Date.now();
     if (this.lastCompletionAtMs !== null && !this.gapSawIdle) {
-      const now = Date.now();
+      const now = restEndMs;
       this.accrueGapPhase(now);
       nextHandGap.record({
         tableId: this.tableId,
@@ -1873,6 +1874,16 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       !this.isTournamentTable()
         ? this.lastCompletionAtMs
         : null;
+    // Breach evidence (2026-11-10): the phases already accrued above, the
+    // completed hand and the end of the rest, held only until the start.
+    this.cashDealGapEvidence =
+      this.cashDealGapAnchorMs === null
+        ? null
+        : {
+            handNumber: this.postHandCompletionStamp?.handNumber ?? null,
+            restEndMs,
+            phases: { ...this.gapPhaseMs },
+          };
     // A table that idled between the two hands (short-handed, parked, held
     // for a spin reveal) is not a sample of the rest; it waited on people.
     this.lastCompletionAtMs = null;
@@ -1937,6 +1948,23 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
   protected postHandStageTiming: PostHandStageTiming | null = null;
   private postHandCompletionStamp: CompletionHoldStamp | null = null;
 
+  /** The completed hand's settlement spans for a breach line; in memory only. */
+  private cashBreachSettlement(handNumber: number | null) {
+    try {
+      const snap = this.postHandTimingSnapshot();
+      if (!snap || handNumber === null || snap.handNumber !== handNumber) return null;
+      const spansMs: Record<string, number> = {};
+      for (const st of snap.stages) if (st.elapsedMs !== null) spansMs[st.name] = st.elapsedMs;
+      return {
+        complete: snap.pipelineComplete,
+        spansMs,
+        threw: snap.stages.filter((st) => st.outcome === 'threw').map((st) => st.name),
+      };
+    } catch {
+      return null;
+    }
+  }
+
   public postHandTimingSnapshot() {
     return this.postHandStageTiming?.snapshot(this.postHandCompletionStamp) ?? null;
   }
@@ -1948,6 +1976,11 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
   private gapPhaseSinceMs = 0;
   private gapHadRebuyPause = false;
   private cashDealGapAnchorMs: number | null = null;
+  private cashDealGapEvidence: {
+    handNumber: number | null;
+    restEndMs: number;
+    phases: Record<string, number>;
+  } | null = null;
   private gapSawIdle = false;
 
   /**
@@ -4044,14 +4077,27 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       const attempt = { started: false, cause: null as string | null };
       const preparedPermit = this.f06CurrentPermit;
       const cashDealGapAnchor = this.cashDealGapAnchorMs;
+      const cashDealGapEvidence = this.cashDealGapEvidence;
       this.cashDealGapAnchorMs = null;
+      this.cashDealGapEvidence = null;
       if (cashDealGapAnchor !== null) {
         const startAtMs = Date.now();
-        cashDealGap.record({
-          tableId: this.tableId,
-          gapMs: startAtMs - cashDealGapAnchor,
-          at: startAtMs,
-        });
+        const gapMs = startAtMs - cashDealGapAnchor;
+        cashDealGap.record({ tableId: this.tableId, gapMs, at: startAtMs });
+        if (gapMs > CASH_NEXT_HAND_LIMIT_MS) {
+          reportCashNextHandBreach({
+            tableId: this.tableId,
+            handNumber: cashDealGapEvidence?.handNumber ?? null,
+            nextHandNumber: handNumber,
+            gapMs,
+            at: startAtMs,
+            stages: {
+              ...(cashDealGapEvidence?.phases ?? {}),
+              ...(cashDealGapEvidence ? { deal: startAtMs - cashDealGapEvidence.restEndMs } : {}),
+            },
+            settlement: this.cashBreachSettlement(cashDealGapEvidence?.handNumber ?? null),
+          });
+        }
       }
       try {
         await this.runOriginalController(

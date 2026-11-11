@@ -105,3 +105,94 @@ export class CashDealGapRecorder {
 
 /** The process-wide recorder every cash table engine reports into; read by /health. */
 export const cashDealGap = new CashDealGapRecorder();
+
+/**
+ * A DURABLE LINE FOR EVERY BREACH (2026-11-10). The recorder above keeps one
+ * rolling hour in memory and /health names only the ten slowest, so the
+ * eleventh breach in an hour, and every breach before a restart, was lost.
+ * Each sample over the limit now also writes exactly one JSON line to the
+ * engine log. It carries the same identity and the same gap the recorder
+ * counts, plus the timings the engine already holds: never cards, players,
+ * tokens or credentials, and no database call.
+ */
+export const CASH_NEXT_HAND_BREACH_TAG = '[CashNextHandStart.breach]';
+
+export interface CashNextHandBreach {
+  readonly tableId: string;
+  /** The completed hand the gap starts from. */
+  readonly handNumber: number | null;
+  /** The hand the controller is about to start. */
+  readonly nextHandNumber: number | null;
+  readonly gapMs: number;
+  readonly at: number;
+  /**
+   * Loop phases from the completion stamp to the end of the rest
+   * (await_post_hand_tasks, load_next_hand_inputs, next_hand_rest, ...) plus
+   * `deal`: the end of the rest to the controller start. They add up to gapMs.
+   */
+  readonly stages: Readonly<Record<string, number>>;
+  /**
+   * The completed hand's settlement spans (PostHandStageTiming), by stage.
+   * These overlap and must never be added to the gap.
+   */
+  readonly settlement?: {
+    readonly complete: boolean;
+    readonly spansMs: Readonly<Record<string, number>>;
+    readonly threw: readonly string[];
+  } | null;
+}
+
+const NAME = /^[a-z][a-z0-9_]{0,63}$/;
+const ms = (n: unknown): number | null =>
+  typeof n === 'number' && Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
+const int = (n: unknown): number | null =>
+  typeof n === 'number' && Number.isSafeInteger(n) && n >= 0 ? n : null;
+
+function durations(src: Readonly<Record<string, number>> | undefined): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(src ?? {})) {
+    const d = ms(v);
+    if (NAME.test(k) && d !== null) out[k] = d;
+  }
+  return out;
+}
+
+/** The breach line, or null when the gap is at or under the limit. Fixed fields only. */
+export function cashNextHandBreachLine(b: CashNextHandBreach): string | null {
+  const gapMs = ms(b.gapMs);
+  if (gapMs === null || !(b.gapMs > CASH_NEXT_HAND_LIMIT_MS)) return null;
+  const s = b.settlement;
+  const record = {
+    v: 1,
+    tableId: String(b.tableId),
+    handNumber: int(b.handNumber),
+    nextHandNumber: int(b.nextHandNumber),
+    gapMs,
+    limitMs: CASH_NEXT_HAND_LIMIT_MS,
+    at: ms(b.at),
+    stages: durations(b.stages),
+    ...(s
+      ? {
+          settlement: {
+            complete: s.complete === true,
+            spansMs: durations(s.spansMs),
+            threw: s.threw.filter((n) => NAME.test(n)),
+          },
+        }
+      : {}),
+  };
+  return `${CASH_NEXT_HAND_BREACH_TAG} ${JSON.stringify(record)}`;
+}
+
+/** Writes the breach line when the gap is over the limit; one line, nothing else. */
+export function reportCashNextHandBreach(
+  b: CashNextHandBreach,
+  log: (line: string) => void = console.warn
+): void {
+  try {
+    const line = cashNextHandBreachLine(b);
+    if (line !== null) log(line);
+  } catch {
+    /* Observation only: a failed log line must never hold a deal. */
+  }
+}
