@@ -185,9 +185,9 @@ describe('the union cash schedule follows the November 4 owner scope', () => {
     expect(fleet).toContain('club_id, union_id, is_spins, arena:clubs');
     expect(rotator).toContain('game_variant, tournament_id, is_spins, status');
     expect(fleet).toContain('!horseUnionCashTableAllowed(');
-    expect(fleet.indexOf('!horseUnionCashTableAllowed(')).toBeLessThan(
-      fleet.indexOf('const tableWithheld = withheldReason')
-    );
+    const tablePolicy = fleet.indexOf('const tableWithheld =');
+    expect(tablePolicy).toBeGreaterThan(0);
+    expect(fleet.indexOf('!horseUnionCashTableAllowed(')).toBeLessThan(tablePolicy);
     expect(rotator).toContain('playingHumansAtCashTable(tableSeats, horseIds)');
     expect(rotator).toContain('!restrictedCashGame && !outsideCashPlan) continue;');
     expect(rotator).toContain('await engine.leaveTable(uid)');
