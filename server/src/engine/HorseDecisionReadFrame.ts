@@ -14,7 +14,11 @@ import {
   type RaiseResponsePlan,
 } from './HorseMind.js';
 import type { SeatPlayer } from '../types.js';
-import { EXPLOIT_COUNTER_FIELDS, type ExploitCounters } from './HorseOpponentExploit.js';
+import {
+  EXPLOIT_COUNTER_FIELDS,
+  type ExploitCounters,
+  type FlopStabCounters,
+} from './HorseOpponentExploit.js';
 import {
   normalizeHorseObservationWindow,
   type HorseObservationWindow,
@@ -36,7 +40,8 @@ export interface HorseDecisionReadFrame {
     | 'horse-decision-reads-v9'
     | 'horse-decision-reads-v10'
     | 'horse-decision-reads-v11'
-    | 'horse-decision-reads-v12';
+    | 'horse-decision-reads-v12'
+    | 'horse-decision-reads-v13';
   readonly bytes: number;
   readonly sha256: string;
   readonly json: string;
@@ -82,7 +87,16 @@ const PROBE_VERSION = 'horse-decision-reads-v11';
  * keeps its exact bytes. A v12 body always carries the v11 lists (the probe
  * list may be empty). */
 const LIMP_RERAISE_VERSION = 'horse-decision-reads-v12';
-const probed = (version: unknown) => version === PROBE_VERSION || version === LIMP_RERAISE_VERSION;
+/** 2026-11-11: v12 plus flop checked-to stab counters (`view.flopStab`,
+ * V87 Bully-Breaker `FlopStabCounters`), including low and empty rows: the
+ * presence of a flop-specific row suppresses fallback to pooled street reads.
+ * so a `DECIDE_DEEP` second look reads the exact same street-specific Bully-Breaker
+ * read as `DECIDE_FAST`. Written only when a flop-stab row is present,
+ * preserving exact v1-v12 bytes for snapshots without flop-specific evidence. */
+const FLOP_STAB_VERSION = 'horse-decision-reads-v13';
+const flopStabbed = (version: unknown) => version === FLOP_STAB_VERSION;
+const limpReraised = (version: unknown) => version === LIMP_RERAISE_VERSION || flopStabbed(version);
+const probed = (version: unknown) => version === PROBE_VERSION || limpReraised(version);
 const recencied = (version: unknown) => version === FAST_CALLDOWN_VERSION || probed(version);
 const multiwayed = (version: unknown) => version === MULTIWAY_RIVER_VERSION || recencied(version);
 const raised = (version: unknown) => version === RIVER_RAISE_VERSION || multiwayed(version);
@@ -149,6 +163,12 @@ const LIMP_RERAISE_FIELDS = [
   'lrOpps',
   'lrRaises',
 ] as const satisfies readonly (keyof OpponentStats)[];
+const FLOP_STAB_FIELDS = [
+  'flopCheckedToOpps',
+  'flopBetCheckedTo',
+  'fFlopCheckedToOpps',
+  'fFlopBetCheckedTo',
+] as const satisfies readonly (keyof FlopStabCounters)[];
 const riverFields = (version: unknown) =>
   raised(version)
     ? [...RIVER_CALL_FIELDS, ...RIVER_POSITION_FIELDS, ...RIVER_RAISE_FIELDS]
@@ -185,7 +205,9 @@ type Body = {
     | typeof MULTIWAY_RIVER_VERSION
     | typeof FAST_CALLDOWN_VERSION
     | typeof PROBE_VERSION
-    | typeof LIMP_RERAISE_VERSION;
+    | typeof LIMP_RERAISE_VERSION
+    | typeof FLOP_STAB_VERSION;
+  scopedFlopStab?: Rows<number[]>;
   limpReraiseTallies?: Rows<number[]>;
   probeTallies?: Rows<number[]>;
   riverRecency?: Rows<number[]>;
@@ -300,7 +322,8 @@ function validateBody(
       ...(multiwayed(value.version) ? ['riverHu', 'scopedRiverHu'] : []),
       ...(recencied(value.version) ? ['riverRecency', 'scopedRiverRecency'] : []),
       ...(probed(value.version) ? ['probeTallies'] : []),
-      ...(value.version === LIMP_RERAISE_VERSION ? ['limpReraiseTallies'] : []),
+      ...(limpReraised(value.version) ? ['limpReraiseTallies'] : []),
+      ...(flopStabbed(value.version) ? ['scopedFlopStab'] : []),
       ...(planContext === undefined ? [] : ['planContext']),
       'actors',
       'handKey',
@@ -397,11 +420,30 @@ function validateBody(
     )
       return fail();
   }
-  if (value.version === LIMP_RERAISE_VERSION) {
-    // At least one row, or the body would have been v11 or older.
+  if (limpReraised(value.version)) {
+    // A v12 body carries at least one limp-reraise row; a v13 body may carry an empty list when flopStab evidence is present.
     if (
       !validRows(value.limpReraiseTallies, b.stats, tally) ||
-      (value.limpReraiseTallies as Rows<number[]>).length === 0
+      (value.version === LIMP_RERAISE_VERSION &&
+        (value.limpReraiseTallies as Rows<number[]>).length === 0)
+    )
+      return fail();
+  }
+  if (flopStabbed(value.version)) {
+    const flopStabValid = (v: unknown) => {
+      if (
+        !numbers(v, FLOP_STAB_FIELDS.length) ||
+        !((v as number[])[1] <= (v as number[])[0]) ||
+        !((v as number[])[3] <= (v as number[])[2])
+      )
+        return false;
+      return true;
+    };
+    if (
+      !Array.isArray(value.scopedFlopStab) ||
+      value.scopedFlopStab.length === 0 ||
+      value.scopedFlopStab.length > b.scoped.size ||
+      !validRows(value.scopedFlopStab, b.scoped, flopStabValid)
     )
       return fail();
   }
@@ -492,11 +534,19 @@ export function encodeHorseDecisionReads(
       return [id, EXPLOIT_COUNTER_FIELDS.map((f) => row[f])];
     }
   );
+  const flopStabRows: Rows<number[]> = bounded(view.flopStab ?? new Map(), b.scoped.size).map(
+    ([id, row]: [string, FlopStabCounters]): [string, number[]] => {
+      if (!object(row) || !exact(row, FLOP_STAB_FIELDS)) return fail();
+      return [id, FLOP_STAB_FIELDS.map((f) => row[f])];
+    }
+  );
+  const hasFlopStab = flopStabRows.length > 0;
   const hasExploit = exploitRows.length > 0;
   const hasWinner = view.winnerReads !== undefined;
   if (hasWinner && (!(view.winnerReads!.seen instanceof Set) || view.winnerReads!.seen.size !== 0))
     return fail();
-  const hasLimpReraise = boundedStats.some(([, row]) => object(row) && row.lrOpps !== undefined);
+  const hasLimpReraise =
+    hasFlopStab || boundedStats.some(([, row]) => object(row) && row.lrOpps !== undefined);
   const hasProbes =
     hasLimpReraise || boundedStats.some(([, row]) => object(row) && row.ctBets !== undefined);
   // Scoped rows never carry the tallies (applyScopedDelta mirrors only the
@@ -563,6 +613,7 @@ export function encodeHorseDecisionReads(
       .filter(([, row]) => row.lrOpps !== undefined)
       .map(([id, row]) => [id, LIMP_RERAISE_FIELDS.map((f) => row[f] ?? 0)]);
   const body: Body = {
+    ...(hasFlopStab ? { scopedFlopStab: flopStabRows } : {}),
     ...(hasLimpReraise ? { limpReraiseTallies: limpReraiseRows(view.stats) } : {}),
     ...(hasProbes ? { probeTallies: probeRows(view.stats) } : {}),
     ...(hasFastCalldown
@@ -571,29 +622,31 @@ export function encodeHorseDecisionReads(
     ...(hasFastCalldown || hasMultiwayRiver
       ? { riverHu: huRows(view.stats), scopedRiverHu: huRows(view.scoped) }
       : {}),
-    version: hasLimpReraise
-      ? LIMP_RERAISE_VERSION
-      : hasProbes
-        ? PROBE_VERSION
-        : hasFastCalldown
-          ? FAST_CALLDOWN_VERSION
-          : hasMultiwayRiver
-            ? MULTIWAY_RIVER_VERSION
-            : hasRiverRaise
-              ? RIVER_RAISE_VERSION
-              : hasRiverPosition
-                ? RIVER_POSITION_VERSION
-                : hasRiverCalls
-                  ? RIVER_CALL_VERSION
-                  : hasWinner
-                    ? WINNER_VERSION
-                    : hasExploit
-                      ? EXPLOIT_VERSION
-                      : hasWindows
-                        ? WINDOW_VERSION
-                        : planContext === undefined
-                          ? VERSION
-                          : ALLOCATED_VERSION,
+    version: hasFlopStab
+      ? FLOP_STAB_VERSION
+      : hasLimpReraise
+        ? LIMP_RERAISE_VERSION
+        : hasProbes
+          ? PROBE_VERSION
+          : hasFastCalldown
+            ? FAST_CALLDOWN_VERSION
+            : hasMultiwayRiver
+              ? MULTIWAY_RIVER_VERSION
+              : hasRiverRaise
+                ? RIVER_RAISE_VERSION
+                : hasRiverPosition
+                  ? RIVER_POSITION_VERSION
+                  : hasRiverCalls
+                    ? RIVER_CALL_VERSION
+                    : hasWinner
+                      ? WINNER_VERSION
+                      : hasExploit
+                        ? EXPLOIT_VERSION
+                        : hasWindows
+                          ? WINDOW_VERSION
+                          : planContext === undefined
+                            ? VERSION
+                            : ALLOCATED_VERSION,
     ...(hasWindows
       ? { statsWindows: windows(view.stats), scopedWindows: windows(view.scoped) }
       : {}),
@@ -709,13 +762,23 @@ export function decodeHorseDecisionReads(
       stat.ctProbes = ctProbes;
     }
   }
-  if (body.version === LIMP_RERAISE_VERSION) {
+  if (limpReraised(body.version)) {
     for (const [id, [lrOpps, lrRaises]] of body.limpReraiseTallies!) {
       const stat = view.stats.get(id);
       if (!stat) return fail();
       stat.lrOpps = lrOpps;
       stat.lrRaises = lrRaises;
     }
+  }
+  if (flopStabbed(body.version)) {
+    view.flopStab = new Map(
+      body.scopedFlopStab!.map(([id, v]) => [
+        id,
+        Object.fromEntries(
+          FLOP_STAB_FIELDS.map((f, i) => [f, v[i]])
+        ) as unknown as FlopStabCounters,
+      ])
+    );
   }
   if (recencied(body.version)) {
     for (const [map, rows] of [

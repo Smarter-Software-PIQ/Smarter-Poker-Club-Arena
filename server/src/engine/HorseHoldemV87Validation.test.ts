@@ -91,6 +91,9 @@ import {
 } from './horseDecision/workerRuntime.js';
 import { HorseObserverReads } from './horseDecision/observerReads.js';
 import { HandController } from './HandController.js';
+import { horseVariantRulesFor } from './VariantRules.js';
+import { equityGovernor } from './EquityLoadGovernor.js';
+import { solverPolicyArtifactStatus } from '../gto/SolverPolicyArtifactLoader.js';
 import { ServerTableEngine } from './ServerTableEngine.js';
 import {
   createHorseExecutionWitness,
@@ -111,6 +114,13 @@ import { restoreFastRandom, saveFastRandom, seedFastRandom } from './HorseEval.j
 import { buildReviewRows, type HorseReviewInput } from '../services/HorseHandReview.js';
 import { diagnoseAndNudge, type PlayStats } from '../services/HorseSelfTuner.js';
 import { qualifiedTestAdmission } from './HorseQualifiedAuthority.test-support.js';
+import {
+  dealShuffledDeck,
+  mulberry32,
+  runPairedArmHand,
+  runProvingGroundCells,
+  type ProvingGroundCellSpec,
+} from '../benchmark/HoldemProvingGroundHarness.js';
 
 const SUIT_MAP: Record<string, CardSuit> = {
   c: 'clubs',
@@ -1220,6 +1230,386 @@ describe('V87.1 Holdem Elite Strategy & Ecosystem Independent Validation', () =>
       const mttWitness = lastWitness as HorseExecutionWitness | undefined;
       expect(mttWitness?.acceptedActions).toHaveLength(1);
       expect(mttWitness?.acceptedActions[0].record.action).toBe('call');
+      vi.useRealTimers();
+    });
+
+    it('preserves hydrated winnerReads and flopStab across BOTH DECIDE_FAST and DECIDE_DEEP (horse-decision-reads-v13) on Hand #1 and measurably changes HorseLogic.decide output', async () => {
+      const tableId = 'fa900000-0000-4000-8000-000000000909';
+      const heroId = 'fa900000-0000-4000-8000-000000000002';
+      const bullyId = 'fa900000-0000-4000-8000-000000000006';
+      const scope = readScopeOf('nlh', 6);
+      const wScope = winnerReadScopeOf('nlh', 'cash');
+
+      const bootWinner = createWinnerReadState();
+      const winnerRow = { w: 450, w2: 450, s: 675, q: 5100 };
+      bootWinner.rows.set(`${wScope}|${bullyId}`, { ...winnerRow });
+      bootWinner.rows.set(bullyId, { ...winnerRow });
+
+      const bootFlop = new Map([
+        [
+          `${scope}|${bullyId}`,
+          {
+            flopCheckedToOpps: 26,
+            flopBetCheckedTo: 22,
+            fFlopCheckedToOpps: 10,
+            fFlopBetCheckedTo: 9,
+          },
+        ],
+      ]);
+
+      const bootProfiles = [
+        {
+          user_id: bullyId,
+          variant: 'nlh' as const,
+          mode: 'cash' as const,
+          size: 'full' as const,
+          observed_hands: 200,
+          initialized: true,
+          counters: {
+            hands: 150,
+            vpip: 82,
+            pfr: 52,
+            rfiOpp: 45,
+            rfi: 28,
+            threeBetOpp: 30,
+            threeBet: 10,
+            foldTo3BetOpp: 20,
+            foldTo3Bet: 10,
+            betCheckedToOpp: 60,
+            betCheckedTo: 14, // Low overall betCheckedTo so ONLY `flopStab` triggers `highFlopStab`!
+            foldToBetOpp: 40,
+            foldToBet: 26,
+            riverCallOpp: 12,
+            riverCall: 4,
+            fHands: 8,
+            fPfr: 5,
+            fRfiOpp: 4,
+            fRfi: 3,
+            fThreeBetOpp: 3,
+            fThreeBet: 1,
+            fBetCheckedToOpp: 8,
+            fBetCheckedTo: 2,
+            fFoldToBetOpp: 6,
+            fFoldToBet: 4,
+            fRiverCallOpp: 2,
+            fRiverCall: 0,
+          },
+        },
+      ];
+
+      // A fixed wet overpair spot reaches the flop-stab response below the
+      // generic value-raise threshold. The mix hashes cards/pot/seat, not handNumber.
+      const chosenHandNumber = 1;
+
+      const buildWorker = (hydrated: boolean) => {
+        const out: HorseDecisionWorkerResponse[] = [];
+        const observedFastAndDeep: Array<{
+          highFlopStab: boolean;
+          provenWinner: boolean;
+        }> = [];
+        const rt = new HorseDecisionWorkerRuntime((m) => out.push(m), {
+          ...defaultHorseDecisionWorkerDependencies,
+          startServices: async () => ({
+            solverStores: { charts: 0, postflop: 0, postflopV31: 0, postflopV31Dataset: null },
+            solverPolicyArtifact: solverPolicyArtifactStatus(),
+            governor: equityGovernor.snapshot(),
+          }),
+          admitFeatureAuthority: () => qualifiedTestAdmission(),
+          publicProfileBootstrap: hydrated
+            ? () => ({ availableAtMs: 5_000, profiles: bootProfiles })
+            : undefined,
+          exploitFloorBootstrap: hydrated
+            ? () => ({
+                hands: 200,
+                rows: 1,
+                availableAtMs: 5_000,
+                winnerReads: bootWinner,
+                flopStab: bootFlop,
+              })
+            : undefined,
+          decide: (...args) => {
+            const dec = HorseLogic.decide(...args);
+            HorseMind.setDecisionScope(scope, 'nlh', 'cash');
+            const sRead = HorseMind.streetBullyRead(bullyId);
+            const pWin = isProvenWinner(bullyId, wScope);
+            HorseMind.setDecisionScope(null);
+            observedFastAndDeep.push({
+              highFlopStab: sRead.highFlopStab,
+              provenWinner: pWin,
+            });
+            return dec;
+          },
+        });
+        return { rt, out, observedFastAndDeep };
+      };
+
+      const hydratedWorker = buildWorker(true);
+      const unhydratedWorker = buildWorker(false);
+      await hydratedWorker.rt.start();
+      await unhydratedWorker.rt.start();
+
+      const players: SeatPlayer[] = [1, 2, 3, 4, 5, 6].map((seat) => ({
+        seat,
+        user_id:
+          seat === 2 ? heroId : seat === 6 ? bullyId : `fa900000-0000-4000-8000-00000000000${seat}`,
+        username: `P${seat}`,
+        stack: seat === 2 ? 190 : seat === 6 ? 184 : 200,
+        bet: seat === 2 ? 0 : seat === 6 ? 6 : 0,
+        totalInvested: seat === 2 ? 6 : seat === 6 ? 12 : seat === 3 ? 1 : 0,
+        cards: seat === 2 ? cards('8h 8s') : [],
+        is_folded: seat !== 2 && seat !== 6,
+        is_all_in: false,
+        is_sitting_out: false,
+      }));
+      const history: ActionRecord[] = [
+        {
+          seat: 6,
+          userId: bullyId,
+          stage: 'preflop',
+          action: 'raise',
+          amount: 6,
+          isFullRaise: true,
+          timestamp: 1,
+        },
+        { seat: 2, userId: heroId, stage: 'preflop', action: 'call', amount: 6, timestamp: 2 },
+        { seat: 2, userId: heroId, stage: 'flop', action: 'check', amount: 0, timestamp: 3 },
+        { seat: 6, userId: bullyId, stage: 'flop', action: 'bet', amount: 6, timestamp: 4 },
+      ];
+      const gs: HorseGameStateV2 = {
+        stateSchemaVersion: 1,
+        stage: 'flop',
+        gameVariant: 'nlh',
+        variantRules: horseVariantRulesFor('nlh'),
+        bettingStructure: 'no_limit',
+        fixedBetSize: null,
+        wagersCapped: false,
+        commitmentCapRemaining: null,
+        pots: [{ amount: 19, eligiblePlayers: [heroId, bullyId] }],
+        rakeConfig: { percent: 5, cap: 6, noFlopNoDrop: true },
+        gameMode: 'cash',
+        format: 'cash',
+        pot: 19,
+        contestablePot: 19,
+        currentBet: 6,
+        minRaise: 6,
+        lastRaise: 6,
+        smallBlind: 1,
+        bigBlind: 2,
+        dealerSeat: 1,
+        heroSeat: 2,
+        currentPlayerSeat: 2,
+        communityCards: cards('7c 6d 5s'),
+        players: players.map((p) => ({ ...p, cards: [] })),
+        dealtSeatIds: [1, 2, 3, 4, 5, 6],
+        actionHistory: history,
+        legalActions: ['fold', 'call', 'raise', 'all_in'],
+        toCall: 6,
+        minRaiseTo: 12,
+        maxRaiseTo: 190,
+        handNumber: chosenHandNumber,
+      } as HorseGameStateV2;
+
+      const makeFastReq = (): FastHorseDecisionRequest => {
+        const draft: FastHorseDecisionRequest = {
+          type: 'DECIDE_FAST',
+          requestId: 101,
+          generation: 1,
+          fence: `${tableId}:${chosenHandNumber}:2:50000000-0000-4000-8000-000000000001:1`,
+          decisionKey: '',
+          decisionTimeMs: 20_000,
+          handJournalContext: captureHorseHandJournalContext(history),
+          player: players[1]!,
+          gameState: gs,
+          style: 'grinder',
+          mods: {
+            tightness: 0.98,
+            aggression: 1.18,
+            bluffFreq: 0.91,
+            sizingMultiplier: 0.94,
+            referenceNlhOpenings: true,
+          },
+          opts: { v87HoldemOverhaul: true },
+        };
+        return { ...draft, decisionKey: buildHorseDecisionKey(draft) };
+      };
+
+      const fastReq = makeFastReq();
+      hydratedWorker.rt.receive(fastReq);
+      await hydratedWorker.rt.drain();
+      const fastRes = hydratedWorker.out.find(
+        (m) => m.type === 'FAST_RESULT'
+      ) as FastHorseDecisionResult;
+      expect(fastRes, JSON.stringify(hydratedWorker.out)).toBeDefined();
+      expect(
+        fastRes.decision.action,
+        JSON.stringify({
+          decision: fastRes.decision.action,
+          observed: hydratedWorker.observedFastAndDeep,
+        })
+      ).toBe('raise');
+
+      // Verify secondLookReads encoded `horse-decision-reads-v13` carrying `scopedFlopStab`!
+      const secondLookEntry = [...(hydratedWorker.rt as any).secondLookReads.values()][0] as any;
+      expect(secondLookEntry.frame.version).toBe('horse-decision-reads-v13');
+      expect(secondLookEntry.frame.json).toContain('scopedFlopStab');
+
+      // Run DECIDE_DEEP on the hydrated worker and prove flopStab + winnerReads survive second look!
+      const deepDraft = {
+        ...fastReq,
+        type: 'DECIDE_DEEP' as const,
+        requestId: 102,
+        rngBefore: fastRes.rngBefore,
+        deepEquity: 2,
+      };
+      hydratedWorker.rt.receive({
+        ...deepDraft,
+        decisionKey: buildHorseDecisionKey(deepDraft),
+      });
+      await hydratedWorker.rt.drain();
+      const deepRes = hydratedWorker.out.find((m) => m.type === 'DEEP_RESULT') as any;
+      expect(deepRes).toBeDefined();
+      expect(deepRes.decision.action).toBe('raise');
+      expect(hydratedWorker.observedFastAndDeep).toEqual([
+        { highFlopStab: true, provenWinner: true },
+        { highFlopStab: true, provenWinner: true },
+      ]);
+
+      // Unhydrated worker on the identical Hand #1 request does NOT see highFlopStab or provenWinner and calls instead of check-raising!
+      const dryReq = makeFastReq();
+      unhydratedWorker.rt.receive(dryReq);
+      await unhydratedWorker.rt.drain();
+      const dryFast = unhydratedWorker.out.find(
+        (m) => m.type === 'FAST_RESULT'
+      ) as FastHorseDecisionResult;
+      expect(dryFast.decision.action).toBe('call');
+      expect(unhydratedWorker.observedFastAndDeep[0]).toEqual({
+        highFlopStab: false,
+        provenWinner: false,
+      });
+      const dryDeep = {
+        ...dryReq,
+        type: 'DECIDE_DEEP' as const,
+        requestId: 103,
+        rngBefore: dryFast.rngBefore,
+        deepEquity: 2,
+      };
+      unhydratedWorker.rt.receive({ ...dryDeep, decisionKey: buildHorseDecisionKey(dryDeep) });
+      await unhydratedWorker.rt.drain();
+      const dryDeepResult = unhydratedWorker.out.find((m) => m.type === 'DEEP_RESULT');
+      expect(dryDeepResult?.type).toBe('DEEP_RESULT');
+      if (dryDeepResult?.type !== 'DEEP_RESULT') throw new Error('Missing dry second look');
+      expect(dryDeepResult.decision.action).toBe('call');
+      expect(unhydratedWorker.observedFastAndDeep).toEqual([
+        { highFlopStab: false, provenWinner: false },
+        { highFlopStab: false, provenWinner: false },
+      ]);
+    });
+  });
+
+  describe('7. Proving Ground Benchmark Harness Defect Regressions', () => {
+    it('settles pre-river ALL_IN_RUNOUT hands with exact zero chip drift, symmetric deck runouts, short all-in side pots, sit-out/eliminated exclusions, Diamond whole units, and paired Arm A vs Arm B LAG80 accounting', () => {
+      // 1. Null-effect symmetric check (`v87_vs_v87_null`) across 20bb tournament shove-heavy play:
+      //    Every ALL_IN_RUNOUT settles (`completed === true`, `driftChips === 0`), hole cards & 5-card runout match identically across Arm A and Arm B, and Arm A + Arm B paired delta is identically 0.00!
+      const mttShoveCell: ProvingGroundCellSpec = {
+        id: 'test_mtt_20bb_allin_runout',
+        seats: 6,
+        stackBB: 14,
+        sb: 100,
+        bb: 200,
+        anteBB: 1,
+        mode: 'tournament',
+        tournamentStage: 'bubble',
+        bountyFactor: 0.35,
+        matchup: 'v87_vs_v87_null',
+        pairedDeals: 24,
+        seed: 910001,
+      };
+      const nullSummary = runProvingGroundCells([mttShoveCell], { collectTelemetry: false });
+      expect(nullSummary.totalCompletedHands).toBe(48);
+      expect(nullSummary.totalIllegalActions).toBe(0);
+      expect(nullSummary.chipConservationVerified).toBe(true);
+      expect(nullSummary.maxChipConservationDrift).toBe(0);
+      expect(nullSummary.cells[0]!.allInRunouts).toBeGreaterThan(0);
+      // Exact symmetry: V87 vs V87 on identical swapped seats nets 0.00 bb/100!
+      expect(nullSummary.cells[0]!.bbPer100).toBe(0);
+
+      // Verify identical dealt hole cards + identical community board on pre-river runout:
+      const rng = mulberry32(424242);
+      const deck = dealShuffledDeck(rng);
+      const armA = runPairedArmHand(mttShoveCell, deck, 1, false, 7777);
+      const armB = runPairedArmHand(mttShoveCell, deck, 1, true, 7777);
+      expect(armA.completed).toBe(true);
+      expect(armB.completed).toBe(true);
+      expect(armA.dealtHoleCardsBySeat).toEqual(armB.dealtHoleCardsBySeat);
+      expect(armA.communityCards).toEqual(armB.communityCards);
+      // Verify zero duplicate cards between dealt hole cards and community runout!
+      const seenCards = [
+        ...Object.values(armA.dealtHoleCardsBySeat).flat(),
+        ...armA.communityCards,
+      ];
+      expect(new Set(seenCards).size).toBe(seenCards.length);
+
+      // 2. Uneven stacks (short all-in + side pots) + eliminated seat (0bb) + sitting-out seat:
+      const unevenCell: ProvingGroundCellSpec = {
+        id: 'test_sidepot_sitout_eliminated',
+        seats: 6,
+        stackBB: 50,
+        stackBySeatBB: [8, 22, 0, 65, 65, 40], // Seat 3 eliminated (0bb), Seat 1 short stack (8bb)
+        sittingOutSeats: [6], // Seat 6 sitting out
+        sb: 1,
+        bb: 2,
+        mode: 'cash',
+        matchup: 'v87_on_vs_off',
+        pairedDeals: 20,
+        seed: 910002,
+      };
+      const unevenRes = runProvingGroundCells([unevenCell], { collectTelemetry: false });
+      expect(unevenRes.totalCompletedHands).toBe(40);
+      expect(unevenRes.totalIllegalActions).toBe(0);
+      expect(unevenRes.chipConservationVerified).toBe(true);
+      const sampleUneven = runPairedArmHand(unevenCell, deck, 1, false, 8888);
+      expect(sampleUneven.dealtHoleCardsBySeat[3]).toBeUndefined(); // Eliminated seat never dealt
+      expect(sampleUneven.dealtHoleCardsBySeat[6]).toBeUndefined(); // Sitting-out seat never dealt
+
+      // 3. Diamond cash (`50/100` whole units, `asset: 'diamonds'`, 0% rake deduction) & `v87_on_off_vs_lag80` Arm A + Arm B extraction:
+      const diamondAndLagCells: ProvingGroundCellSpec[] = [
+        {
+          id: 'test_diamond_50_100',
+          seats: 6,
+          stackBB: 100,
+          sb: 50,
+          bb: 100,
+          isDiamondCash: true,
+          mode: 'cash',
+          matchup: 'v87_on_vs_off',
+          pairedDeals: 12,
+          seed: 910003,
+        },
+        {
+          id: 'test_vs_lag80_paired',
+          seats: 6,
+          stackBB: 200,
+          sb: 2,
+          bb: 5,
+          mode: 'cash',
+          matchup: 'v87_on_off_vs_lag80',
+          pairedDeals: 12,
+          seed: 910004,
+        },
+      ];
+      const dlRes = runProvingGroundCells(diamondAndLagCells, { collectTelemetry: true });
+      expect(dlRes.chipConservationVerified).toBe(true);
+      expect(dlRes.totalIllegalActions).toBe(0);
+      expect(dlRes.cells[0]!.rakeCollectedBB).toBe(0); // Diamond cash uses 0% rakeConfig
+      const lagCell = dlRes.cells[1]!;
+      expect(lagCell.lagMatchupRates).toBeDefined();
+      expect(
+        Math.abs(
+          lagCell.lagMatchupRates!.v87PostRakeBBPer100 -
+            lagCell.lagMatchupRates!.flagOffPostRakeBBPer100 -
+            lagCell.bbPer100
+        )
+      ).toBeLessThanOrEqual(0.02);
     });
   });
 });
