@@ -234,3 +234,4 @@ work/release-journal-pg-*/
 
 # Graphify local code graph (built per checkout, see CLAUDE.md section 14)
 graphify-out
+.cache/
