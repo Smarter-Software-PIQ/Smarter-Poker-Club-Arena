@@ -10,8 +10,22 @@ assertClubArenaRepository(repo,process.env.GITHUB_REPOSITORY_ID);
 const headers={Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,Accept:'application/vnd.github+json'};
 async function gh(p,accept=headers.Accept){const r=await fetch(`https://api.github.com/repos/${repo}/${p}`,{headers:{...headers,Accept:accept}});if(!r.ok)throw Error(`GitHub read failed ${r.status}`);return r.json()}
 const policy=JSON.parse(fs.readFileSync(new URL('./money-trigger-recovery-policy.json',import.meta.url),'utf8'));
-let headSha,inputs=[],pr=null,records={};
-if(process.env.GITHUB_EVENT_NAME==='workflow_dispatch'){
+let headSha,inputs=[],pr=null,records={},group=null;
+// MERGE QUEUE (2026-11-11): a queued merge-group commit is verified by this same
+// trusted default-branch code, started by workflow_run. The group commit is read
+// only as data through the API; nothing from it is executed.
+const GROUP_BRANCH=/^gh-readonly-queue\/main\/[A-Za-z0-9._\/-]+$/;
+if(process.env.GITHUB_EVENT_NAME==='workflow_run'){
+ if(process.env.GITHUB_REF!=='refs/heads/main')throw Error('merge-group verification must run approved main');
+ headSha=process.env.GROUP_HEAD_SHA;const branch=process.env.GROUP_BRANCH||'';
+ if(!/^[a-f0-9]{40}$/.test(headSha||'')||!GROUP_BRANCH.test(branch))throw Error('invalid merge group identity');
+ const cmp=await gh(`compare/main...${headSha}`);
+ if(cmp.status!=='ahead'||cmp.behind_by!==0)throw Error('merge group is not built on current main');
+ if(!Array.isArray(cmp.files)||cmp.files.length>=300)throw Error('diff truncated');
+ for(const f of cmp.files.filter(f=>['added','modified','renamed'].includes(f.status)&&/^supabase\/migrations\/[^/]+\.sql$/.test(f.filename)))inputs.push({path:f.filename,sql:await readMigrationContent(gh,f.filename,headSha)});
+ group={branch,baseSha:cmp.merge_base_commit?.sha};
+ if(!/^[a-f0-9]{40}$/.test(group.baseSha||''))throw Error('invalid merge group base');
+}else if(process.env.GITHUB_EVENT_NAME==='workflow_dispatch'){
  if(process.env.GITHUB_REF!=='refs/heads/main')throw Error('dispatch must run approved main');
  const encoded=process.env.CANDIDATE_BUNDLE||'';if(encoded.length>48000)throw Error('bundle too large');
  const bundle=JSON.parse(inflateSync(Buffer.from(encoded,'base64'),{maxOutputLength:5000000}));
@@ -27,7 +41,7 @@ if(process.env.GITHUB_EVENT_NAME==='workflow_dispatch'){
  for(const f of files.filter(f=>['added','modified','renamed'].includes(f.status)&&/^supabase\/migrations\/[^/]+\.sql$/.test(f.filename))){inputs.push({path:f.filename,sql:await readMigrationContent(gh,f.filename,headSha)})}
 }
 records={...records,...Object.fromEntries(inputs.map(f=>[f.path,f.sql]))};
-if(pr)for(const p of policy){const file=`supabase/migrations/${p.declarationVersion}_${p.declarationName}.sql`;if(!(file in records))records[file]=await readMigrationContent(gh,file,headSha)}
+if(pr||group)for(const p of policy){const file=`supabase/migrations/${p.declarationVersion}_${p.declarationName}.sql`;if(!(file in records))records[file]=await readMigrationContent(gh,file,headSha)}
 if(!/^[a-f0-9]{40}$/.test(headSha))throw Error('invalid SHA');
 let live=null;if(inputs.some(x=>offenders(x.sql).length)){
  const url=process.env.SUPABASE_URL;if(url!=='https://kuklfnapbkmacvwxktbh.supabase.co')throw Error('wrong database');
@@ -38,7 +52,7 @@ let live=null;if(inputs.some(x=>offenders(x.sql).length)){
  const r=await fetch(url+'/rest/v1/rpc/fn_ci_money_trigger_recovery',{method:'POST',headers:supabaseServerHeaders(key,{'Content-Type':'application/json'}),body:JSON.stringify({p_versions:versions})});if(!r.ok)throw Error(`catalog unavailable ${r.status}`);live=await r.json();
 }
 const results=inputs.map(x=>verifyRecovery({...x,policy,live,headSha,files:records}));if(pr){const end=await gh(`pulls/${number}`);if(end.head.sha!==headSha)throw Error('PR advanced');}
-fs.writeFileSync('money-trigger-recovery.json',JSON.stringify({version:1,repository:repo,pr:pr?Number(number):null,headSha,runId:process.env.GITHUB_RUN_ID,producedAt:new Date().toISOString(),catalogObservedAt:live?.observed_at??null,expiresAt:live?new Date(Date.parse(live.observed_at)+300000).toISOString():null,results,recordHashes:Object.fromEntries(Object.entries(records).map(([p,s])=>[p,sha256(s)]))},null,2));
+fs.writeFileSync('money-trigger-recovery.json',JSON.stringify({version:1,repository:repo,pr:pr?Number(number):null,mergeGroup:group,headSha,runId:process.env.GITHUB_RUN_ID,producedAt:new Date().toISOString(),catalogObservedAt:live?.observed_at??null,expiresAt:live?new Date(Date.parse(live.observed_at)+300000).toISOString():null,results,recordHashes:Object.fromEntries(Object.entries(records).map(([p,s])=>[p,sha256(s)]))},null,2));
 console.log(`Verified ${results.length} migration files against trusted policy/live evidence.`);
 
 fs.appendFileSync(process.env.GITHUB_OUTPUT,`head=${headSha}\n`);

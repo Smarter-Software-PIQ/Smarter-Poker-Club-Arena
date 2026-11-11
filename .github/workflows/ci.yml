@@ -3,6 +3,12 @@ name: CI — Build & Type Safety
 on:
   pull_request:
     branches: [main]
+  # MERGE QUEUE (2026-11-11): every required job below also runs on the
+  # queued merge-group commit, so a required check is evaluated against the
+  # exact tree that will land on main. merge_group carries base_sha and
+  # head_sha in place of the pull request pair.
+  merge_group:
+    types: [checks_requested]
   # NO push TRIGGER. Removed 2026-09-01 (cost audit).
   #
   # The ruleset is squash-only with required checks, so the merge commit's
@@ -138,7 +144,7 @@ jobs:
     name: What changed
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event_name == 'pull_request'
+    if: (github.event_name == 'pull_request' || github.event_name == 'merge_group')
     permissions:
       contents: read
       pull-requests: read
@@ -155,7 +161,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ (github.event.pull_request.head.sha || github.event.merge_group.head_sha) }}
           fetch-depth: 0
           # blob:none keeps every one of the 7,223 commits and drops the blobs of old
           # revisions. Measured 2026-09-13, three runs each: 33-35s / 531MB against
@@ -172,8 +178,8 @@ jobs:
           persist-credentials: false
       - id: f
         env:
-          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CI_BASE_SHA: ${{ (github.event.pull_request.base.sha || github.event.merge_group.base_sha) }}
+          CI_HEAD_SHA: ${{ (github.event.pull_request.head.sha || github.event.merge_group.head_sha) }}
         run: node scripts/ci/classify-ci-changes.mjs
       # ── IS THIS RUN STILL THE ONE THAT WILL BE MERGED? (2026-09-18) ──────
       #
@@ -302,7 +308,7 @@ jobs:
         run: npx vitest run tests/an-asset-never-ships-a-white-matte.law.test.ts
 
   stub_gate:
-    if: github.event_name == 'pull_request'
+    if: (github.event_name == 'pull_request' || github.event_name == 'merge_group')
     name: Stub Gate
     runs-on: ubuntu-latest
     steps:
@@ -327,7 +333,7 @@ jobs:
     name: Native fixture prerequisites
     needs: changes
     if: >-
-      !cancelled() && github.event_name == 'pull_request' &&
+      !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') &&
       needs.changes.outputs.head_current != 'false' &&
       (needs.changes.result != 'success' || needs.changes.outputs.fixture != 'false')
     permissions:
@@ -335,14 +341,14 @@ jobs:
       actions: read
     uses: ./.github/workflows/component-fixture-native-smoke.yml
     with:
-      source_sha: ${{ github.event.pull_request.head.sha }}
+      source_sha: ${{ (github.event.pull_request.head.sha || github.event.merge_group.head_sha) }}
 
   # Keep the existing required check name, but never allow a skipped native
   # prerequisite to masquerade as successful verification of affected source.
   typecheck:
     name: TypeScript Check
     needs: [typecheck_compile, changes, fixture_native]
-    if: always() && github.event_name == 'pull_request'
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group')
     runs-on: ubuntu-latest
     timeout-minutes: 4
     permissions:
@@ -350,7 +356,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ (github.event.pull_request.head.sha || github.event.merge_group.head_sha) }}
           persist-credentials: false
           filter: blob:none
           sparse-checkout-cone-mode: false
@@ -365,7 +371,7 @@ jobs:
           NATIVE_RESULT: ${{ needs.fixture_native.result }}
           NATIVE_VERIFIED: ${{ needs.fixture_native.outputs.native_verified }}
           NATIVE_SOURCE_SHA: ${{ needs.fixture_native.outputs.source_sha }}
-          SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+          SOURCE_SHA: ${{ (github.event.pull_request.head.sha || github.event.merge_group.head_sha) }}
         run: node scripts/ci/fixture-native-gate.mjs
 
   typecheck_compile:
@@ -374,7 +380,7 @@ jobs:
     # commit tests an identical tree. 34 of every 100 CI runs were that
     # duplicate, and CI is six jobs, each billed as a whole minute even
     # when it takes twenty seconds.
-    if: github.event_name == 'pull_request'
+    if: (github.event_name == 'pull_request' || github.event_name == 'merge_group')
     name: TypeScript compilation and repository checks
     runs-on: ubuntu-latest
     # 8443 job122933361176 completed every functional step at14:59, then
@@ -416,7 +422,7 @@ jobs:
       # history. The after-merge check stays as the backstop.
       - name: Owner maintenance bookings are valid before they merge
         env:
-          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_BASE_SHA: ${{ (github.event.pull_request.base.sha || github.event.merge_group.base_sha) }}
         run: |
           node --test tests/operations/owner-window-booking-gate.test.mjs
           node scripts/ci/check-owner-window-booking.mjs
@@ -425,7 +431,7 @@ jobs:
       # no earlier than the moment the window merges (#9903, #9969).
       - name: Owner maintenance bookings give notice after they merge
         env:
-          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_BASE_SHA: ${{ (github.event.pull_request.base.sha || github.event.merge_group.base_sha) }}
         run: node scripts/ci/check-owner-window-notice-after-merge.mjs
 
       - name: Local dependency preflight refuses incomplete or stale installs
@@ -436,7 +442,7 @@ jobs:
 
       - name: Phase14 publication preserves generation floors and withdrawal tombstones
         env:
-          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_BASE_SHA: ${{ (github.event.pull_request.base.sha || github.event.merge_group.base_sha) }}
         run: |
           node --test tests/operations/phase14-generation-publication.test.mjs
           node scripts/ci/check-phase14-generation-ledger.mjs
@@ -459,7 +465,7 @@ jobs:
       - name: Classify the actual checked compiler tree
         id: compile_scope
         env:
-          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_BASE_SHA: ${{ (github.event.pull_request.base.sha || github.event.merge_group.base_sha) }}
           CI_HEAD_SHA: ${{ github.sha }}
         run: |
           node scripts/ci/classify-ci-changes.mjs
@@ -1290,7 +1296,7 @@ jobs:
     if: >-
       !cancelled() &&
       (github.event_name == 'schedule' ||
-       (github.event_name == 'pull_request' &&
+       ((github.event_name == 'pull_request' || github.event_name == 'merge_group') &&
         needs.changes.outputs.head_current != 'false' &&
         (needs.changes.result != 'success' || needs.changes.outputs.src == 'true' || needs.changes.outputs.tests == 'true')))
     name: Client Unit Tests shard ${{ matrix.shard }}
@@ -1347,8 +1353,8 @@ jobs:
 
       - name: Run Test Suite
         env:
-          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CI_BASE_SHA: ${{ (github.event.pull_request.base.sha || github.event.merge_group.base_sha) }}
+          CI_HEAD_SHA: ${{ (github.event.pull_request.head.sha || github.event.merge_group.head_sha) }}
         run: node scripts/ci/ui-test-selection.mjs unit --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
       - name: Report
@@ -1393,7 +1399,7 @@ jobs:
             success)
               echo "Every selected shard passed." >> $GITHUB_STEP_SUMMARY ;;
             skipped)
-              if [ "${{ github.event_name }}" = pull_request ]; then
+              if { [ "${{ github.event_name }}" = pull_request ] || [ "${{ github.event_name }}" = merge_group ]; }; then
                 if [ "${{ needs.changes.result }}" != success ] ||
                    [ "${{ needs.changes.outputs.src }}" != false ] ||
                    [ "${{ needs.changes.outputs.tests }}" != false ]; then
@@ -1418,7 +1424,7 @@ jobs:
     if: >-
       !cancelled() &&
       (github.event_name == 'schedule' ||
-       (github.event_name == 'pull_request' &&
+       ((github.event_name == 'pull_request' || github.event_name == 'merge_group') &&
         needs.changes.outputs.head_current != 'false' &&
         (needs.changes.result != 'success' ||
          needs.changes.outputs.server == 'true')))
@@ -3814,7 +3820,7 @@ jobs:
     if: >-
       !cancelled() &&
       (github.event_name == 'schedule' ||
-       (github.event_name == 'pull_request' &&
+       ((github.event_name == 'pull_request' || github.event_name == 'merge_group') &&
         needs.changes.outputs.head_current != 'false' &&
         (needs.changes.result != 'success' ||
          needs.changes.outputs.server == 'true')))
@@ -3931,9 +3937,9 @@ jobs:
             case "$result" in
               success) echo "Required $suite checks passed." ;;
               skipped)
-                if [ "$CI_EVENT_NAME" = pull_request ] && [ "$DIFF_RESULT" = success ] && [ "$SERVER_CHANGED" = false ]; then
+                if { [ "$CI_EVENT_NAME" = pull_request ] || [ "$CI_EVENT_NAME" = merge_group ]; } && [ "$DIFF_RESULT" = success ] && [ "$SERVER_CHANGED" = false ]; then
                   echo "$suite checks skipped: the checked diff does not change the server."
-                elif [ "$CI_EVENT_NAME" = pull_request ] && [ "$HEAD_CURRENT" = false ]; then
+                elif { [ "$CI_EVENT_NAME" = pull_request ] || [ "$CI_EVENT_NAME" = merge_group ]; } && [ "$HEAD_CURRENT" = false ]; then
                   # A superseded sha. This run verifies a commit nobody will
                   # merge; the run for the head that replaced it carries the
                   # required check. Said out loud rather than passed in silence,
@@ -3980,7 +3986,7 @@ jobs:
       - name: Exact revision evidence summary
         env:
           POLICY_CI_NEEDS: ${{ toJSON(needs) }}
-          POLICY_CI_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+          POLICY_CI_REVISION: ${{ (github.event.pull_request.head.sha || github.event.merge_group.head_sha) || github.sha }}
         run: node docs/agent-policy/agent-policy.mjs ci-report >> "$GITHUB_STEP_SUMMARY"
       - name: Say what ran, and what did not
         run: |
@@ -4062,7 +4068,7 @@ jobs:
     # `needs.changes.result != 'success'` then RUNS it. An undetermined diff is
     # treated as "could break anything", never as "nothing to do".
     if: >-
-      always() && github.event_name == 'pull_request' &&
+      always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') &&
       needs.changes.outputs.head_current != 'false' &&
       (needs.changes.result != 'success' || needs.changes.outputs.src == 'true')
     name: Production Build
@@ -4149,7 +4155,7 @@ jobs:
       - name: Build
         run: npm run build:ci
         env:
-          CA_BUILD_PURPOSE: ${{ github.event_name == 'pull_request' && 'ci-validation' || 'release-build' }}
+          CA_BUILD_PURPOSE: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && 'ci-validation' || 'release-build' }}
           NODE_ENV: production
           # Public browser configuration. The previous PR build omitted these,
           # so it produced an artifact that threw before React mounted and no
@@ -4499,7 +4505,7 @@ jobs:
   css-beats-build:
     needs: changes
     if: >-
-      !cancelled() && github.event_name == 'pull_request' &&
+      !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') &&
       needs.changes.outputs.head_current != 'false' &&
       (needs.changes.result != 'success' || needs.changes.outputs.src == 'true') &&
       needs.changes.outputs.server == 'true'
@@ -4588,7 +4594,7 @@ jobs:
       # added to every push-to-live.
       - name: Build this commit
         env:
-          CA_BUILD_PURPOSE: ${{ github.event_name == 'pull_request' && 'ci-validation' || 'release-build' }}
+          CA_BUILD_PURPOSE: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && 'ci-validation' || 'release-build' }}
           # The app fails closed before React mounts when these Vite values are
           # absent. Footer route probes do not call Supabase, so deterministic
           # non-secret placeholders are the correct isolated CI configuration.
@@ -4673,7 +4679,7 @@ jobs:
     # reports red, never skipped-as-green. See ci-supersede.yml and
     # tests/superseded-ci-stops-at-the-push.law.test.ts.
     if: >-
-      !cancelled() && github.event_name == 'pull_request' &&
+      !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') &&
       needs.changes.outputs.head_current != 'false' &&
       (needs.changes.result != 'success' || needs.changes.outputs.src == 'true')
     # TWO HALVES, ONE GATE (2026-10-01). The required check named
@@ -4810,7 +4816,7 @@ jobs:
       - name: Build this commit
         if: needs.changes.outputs.server != 'true'
         env:
-          CA_BUILD_PURPOSE: ${{ github.event_name == 'pull_request' && 'ci-validation' || 'release-build' }}
+          CA_BUILD_PURPOSE: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && 'ci-validation' || 'release-build' }}
           # The app fails closed before React mounts when these Vite values are
           # absent. Footer route probes do not call Supabase, so deterministic
           # non-secret placeholders are the correct isolated CI configuration.
@@ -4926,8 +4932,8 @@ jobs:
         id: css-beats
         env:
           CSS_BEAT_GREP: ${{ matrix.partition == 'portrait' && 'occupied portrait rings keep the board clear, bets on the rail and controls at their approved sizes at' || '^(?!.*occupied portrait rings keep the board clear, bets on the rail and controls at their approved sizes at)' }}
-          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CI_BASE_SHA: ${{ (github.event.pull_request.base.sha || github.event.merge_group.base_sha) }}
+          CI_HEAD_SHA: ${{ (github.event.pull_request.head.sha || github.event.merge_group.head_sha) }}
           ARENA_BASE_URL: http://127.0.0.1:${{ steps.preview-port.outputs.port }}/hub/club-arena
           BASE_URL: http://127.0.0.1:${{ steps.preview-port.outputs.port }}/hub/club-arena/
         # hero-card-row.spec.ts was written to gate bug list item 11 and then
@@ -5111,7 +5117,7 @@ jobs:
   diamond-playfield-e2e:
     needs: changes
     if: >-
-      !cancelled() && github.event_name == 'pull_request' &&
+      !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') &&
       needs.changes.outputs.head_current != 'false' &&
       (needs.changes.result != 'success' || needs.changes.outputs.src == 'true')
     name: Diamond playfield shard ${{ matrix.shard }}/3 (software WebGL)
@@ -5208,7 +5214,7 @@ jobs:
   css-beats-gate:
     needs: [changes, css-beats-e2e, diamond-playfield-e2e]
     if: >-
-      always() && github.event_name == 'pull_request' &&
+      always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') &&
       needs.changes.outputs.head_current != 'false' &&
       (needs.changes.result != 'success' || needs.changes.outputs.src == 'true')
     name: CSS Beat E2E (multi-table + animations)

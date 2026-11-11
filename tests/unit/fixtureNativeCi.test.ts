@@ -1242,14 +1242,16 @@ describe('required CI owns native fixture verification', () => {
   });
 
   it('checkout and classification use the event base/head, with no mutable PR listing', () => {
-    expect(ci.jobs.changes.steps[0].with.ref).toBe('${{ github.event.pull_request.head.sha }}');
+    expect(ci.jobs.changes.steps[0].with.ref).toBe(
+      '${{ (github.event.pull_request.head.sha || github.event.merge_group.head_sha) }}'
+    );
     expect(ci.jobs.changes.steps[0].with['fetch-depth']).toBe(0);
     expect(ci.jobs.changes.steps[0].with['persist-credentials']).toBe(false);
     expect(ci.jobs.changes.steps[1].env.CI_BASE_SHA).toBe(
-      '${{ github.event.pull_request.base.sha }}'
+      '${{ (github.event.pull_request.base.sha || github.event.merge_group.base_sha) }}'
     );
     expect(ci.jobs.changes.steps[1].env.CI_HEAD_SHA).toBe(
-      '${{ github.event.pull_request.head.sha }}'
+      '${{ (github.event.pull_request.head.sha || github.event.merge_group.head_sha) }}'
     );
     expect(ci.jobs.changes.steps[1].run).toBe('node scripts/ci/classify-ci-changes.mjs');
   });
@@ -1257,10 +1259,16 @@ describe('required CI owns native fixture verification', () => {
   it('binds the required result to compilation and the native dependency without serializing compilation', () => {
     expect(ci.jobs.typecheck.name).toBe('TypeScript Check');
     expect(ci.jobs.typecheck.needs).toEqual(['typecheck_compile', 'changes', 'fixture_native']);
-    expect(ci.jobs.typecheck.if).toBe("always() && github.event_name == 'pull_request'");
+    expect(ci.jobs.typecheck.if).toBe(
+      "always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group')"
+    );
     expect(ci.jobs.typecheck_compile.needs).toBeUndefined();
-    expect(ci.jobs.typecheck_compile.if).toBe("github.event_name == 'pull_request'");
-    expect(ci.jobs.typecheck.steps[0].with.ref).toBe('${{ github.event.pull_request.head.sha }}');
+    expect(ci.jobs.typecheck_compile.if).toBe(
+      "(github.event_name == 'pull_request' || github.event_name == 'merge_group')"
+    );
+    expect(ci.jobs.typecheck.steps[0].with.ref).toBe(
+      '${{ (github.event.pull_request.head.sha || github.event.merge_group.head_sha) }}'
+    );
     expect(ci.jobs.typecheck.steps[0].with['persist-credentials']).toBe(false);
     expect(ci.jobs.typecheck['timeout-minutes']).toBe(4);
     expect(ci.jobs.typecheck.steps[0].with.filter).toBe('blob:none');
@@ -1369,7 +1377,7 @@ describe('required CI owns native fixture verification', () => {
       './.github/workflows/component-fixture-native-smoke.yml'
     );
     expect(ci.jobs.fixture_native.with.source_sha).toBe(
-      '${{ github.event.pull_request.head.sha }}'
+      '${{ (github.event.pull_request.head.sha || github.event.merge_group.head_sha) }}'
     );
     expect(ci.jobs.fixture_native.if).toContain("needs.changes.outputs.fixture != 'false'");
     // `!cancelled()`, not `always()`: still evaluated when the classifier did
@@ -1407,7 +1415,7 @@ describe('required CI owns native fixture verification', () => {
       '${{ needs.fixture_native.outputs.source_sha }}'
     );
     expect(ci.jobs.typecheck.steps.at(-1).env.SOURCE_SHA).toBe(
-      '${{ github.event.pull_request.head.sha }}'
+      '${{ (github.event.pull_request.head.sha || github.event.merge_group.head_sha) }}'
     );
   });
 });
@@ -2450,7 +2458,9 @@ it('the actual replay condition executes for missing output and non-instruction 
   expect(classifier.env.CI_HEAD_SHA).toBe('${{ github.sha }}');
   expect(classifier['continue-on-error']).toBeUndefined();
   expect(ci.jobs.typecheck_compile.needs).toBeUndefined();
-  expect(ci.jobs.typecheck_compile.if).toBe("github.event_name == 'pull_request'");
+  expect(ci.jobs.typecheck_compile.if).toBe(
+    "(github.event_name == 'pull_request' || github.event_name == 'merge_group')"
+  );
 });
 
 it('paid terminal qualification uses the actual engine rule manifest', async () => {
