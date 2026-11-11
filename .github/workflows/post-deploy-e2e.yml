@@ -50,6 +50,7 @@ on:
         run-stats-pagination-proof,
         run-private-record-client-proof,
         run-plo-lightning-lifecycle-proof,
+        run-hero-celebration-proof,
       ]
 
 jobs:
@@ -112,7 +113,8 @@ jobs:
        (github.event_name == 'repository_dispatch' &&
         (github.event.action == 'run-stats-pagination-proof' ||
          github.event.action == 'run-private-record-client-proof' ||
-         github.event.action == 'run-plo-lightning-lifecycle-proof')))
+         github.event.action == 'run-plo-lightning-lifecycle-proof' ||
+         github.event.action == 'run-hero-celebration-proof')))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -129,6 +131,72 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: node scripts/ci/await-certification-cleanup-safety.mjs
+
+  # Explicit bounded proof of the served celebration, with no gameplay writes.
+  hero-celebration-proof:
+    needs: certification-cleanup-safety
+    if: always() && !cancelled() && needs.certification-cleanup-safety.result == 'success' && github.event_name == 'repository_dispatch' && github.event.action == 'run-hero-celebration-proof' && github.ref == 'refs/heads/main'
+    name: Exact published hero celebration proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    concurrency:
+      group: hero-celebration-proof-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Require exact protected client ancestry
+        env:
+          REQUESTED_CLIENT_SHA: ${{ github.event.client_payload.client_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$REQUESTED_CLIENT_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$GITHUB_REF" = refs/heads/main
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git fetch --no-tags --filter=blob:none origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          git merge-base --is-ancestor "$REQUESTED_CLIENT_SHA" origin/main
+          echo "LIVE_SHA=$REQUESTED_CLIENT_SHA" >> "$GITHUB_ENV"
+      - name: Install locked verifier dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install Chromium only
+        timeout-minutes: 5
+        run: |
+          sudo python3 scripts/ci/ubuntu-apt-mirror.py
+          npx playwright install --with-deps chromium
+      - name: Verify loss, small chop and sole win on the published client
+        env:
+          BASE_URL: https://smarter.poker/hub/club-arena/
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
+          GAMEPLAY_CUSTOMIZATION_CERTIFICATION: '1'
+          E2E_CLUB_ID: a41434bb-8d0c-400a-8f0d-e8b3d65afed4
+          PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/hero-celebration.json
+        run: >-
+          npx playwright test --config=playwright.hero-celebration.config.ts
+          --workers=1 --retries=0 --reporter=line,json
+          --output=test-results/hero-celebration
+      - name: Require an executed passing celebration case
+        run: node scripts/ci/assert-e2e-actually-ran.mjs e2e-report/hero-celebration.json
+      - name: Retain scoped celebration evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hero-celebration-proof-${{ github.run_id }}
+          path: |
+            e2e-report/hero-celebration.json
+            test-results/hero-celebration/
+          if-no-files-found: warn
+          retention-days: 14
 
   # Explicit one-client transport proof. This never publishes or changes source flags.
   private-record-client-proof:
@@ -416,7 +484,7 @@ jobs:
           retention-days: 30
 
   publication-gate:
-    if: github.event_name != 'repository_dispatch' || (github.event.action != 'run-stats-pagination-proof' && github.event.action != 'run-private-record-client-proof' && github.event.action != 'run-plo-lightning-lifecycle-proof')
+    if: github.event_name != 'repository_dispatch' || (github.event.action != 'run-stats-pagination-proof' && github.event.action != 'run-private-record-client-proof' && github.event.action != 'run-plo-lightning-lifecycle-proof' && github.event.action != 'run-hero-celebration-proof')
     name: Confirm The Hetzner Web Publish Reached Production
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -3184,6 +3252,7 @@ jobs:
       - tournament-only-verdict
       - private-record-client-proof
       - stats-pagination-proof
+      - hero-celebration-proof
       - plo-lightning-lifecycle-proof
       - publication-gate
       - post-deploy-verdict
