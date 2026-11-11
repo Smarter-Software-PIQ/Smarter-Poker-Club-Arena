@@ -514,6 +514,101 @@ describe('nothing renews the window', () => {
   });
 });
 
+describe('the offer leaves with the bust (2026-11-11)', () => {
+  /* The sheet opened at the bust, but its deadline was sent by the next
+     boundary sweep, after the table pause and the next hand's bookkeeping.
+     On a slow table that came after the twenty seconds and the clock never
+     appeared. The offer is now judged and sent at the bust itself. */
+  function bustAt() {
+    startClock();
+    const engine = cashEngine();
+    engine.noteCashBust(engine.seatedPlayers);
+    return engine;
+  }
+  const offer = (remaining: number) => ({
+    kind: 'bust_rebuy_window',
+    table_id: TABLE,
+    user_id: 'hero',
+    remaining_ms: remaining,
+    window_ms: 20_000,
+  });
+
+  it('tells an affordable bust its full twenty seconds at once and arms the deadline', async () => {
+    const engine = bustAt();
+    wallets.read.mockResolvedValue(new Map([['hero', 500]]));
+    const read = await engine.offerCashBustWindows(engine.seatedPlayers);
+    expect(read.get('hero')).toBe(500);
+    expect(engine.hub.sendToUser).toHaveBeenCalledWith(TABLE, 'hero', offer(20_000));
+    expect(engine.armBustRebuyExpiry).toHaveBeenCalledWith('occ-hero', 20_000);
+  });
+
+  it('a boundary sweep that runs past twenty seconds releases without a second offer or read', async () => {
+    const engine = bustAt();
+    wallets.read.mockResolvedValue(new Map([['hero', 500]]));
+    await engine.offerCashBustWindows(engine.seatedPlayers);
+    vi.setSystemTime(Date.now() + 22_500); // this table's ordinary hand gap
+    await engine.standUpBustedCashPlayers();
+    expect(engine.releaseBustedSeat).toHaveBeenCalledTimes(1);
+    expect(engine.releaseBustedSeat.mock.calls[0][1]).toBe('busted_no_rebuy');
+    expect(wallets.read).toHaveBeenCalledTimes(1);
+    expect(engine.hub.sendToUser).toHaveBeenCalledTimes(1);
+  });
+
+  it('a player who paid inside the window stays seated through the sweep and the expiry', async () => {
+    const engine = bustAt();
+    wallets.read.mockResolvedValue(new Map([['hero', 500]]));
+    await engine.offerCashBustWindows(engine.seatedPlayers);
+    const paidAt = new Date(Date.now() + 9_000).toISOString();
+    vi.setSystemTime(Date.now() + 21_000);
+    db.rows.table_pending_addons = [{ user_id: 'hero', created_at: paidAt }];
+    await engine.releaseExpiredBustWindows();
+    engine.usersWithPendingLedgerChips = vi.fn(async () => new Set(['hero']));
+    await engine.standUpBustedCashPlayers();
+    expect(engine.releaseBustedSeat).not.toHaveBeenCalled();
+    expect(engine.seatedPlayers.map((p: { user_id: string }) => p.user_id)).toEqual(['hero']);
+    expect(engine.requestPendingAddOnSweep).toHaveBeenCalled();
+  });
+
+  it('an empty wallet gets no offer and is released on the first sweep', async () => {
+    const engine = bustAt();
+    wallets.read.mockResolvedValue(new Map([['hero', 0]]));
+    await engine.offerCashBustWindows(engine.seatedPlayers);
+    expect(engine.hub.sendToUser).not.toHaveBeenCalled();
+    expect(engine.armBustRebuyExpiry).not.toHaveBeenCalled();
+    await engine.standUpBustedCashPlayers();
+    expect(engine.releaseBustedSeat.mock.calls[0][1]).toBe('busted_insufficient_chips');
+    expect(wallets.read).toHaveBeenCalledTimes(1);
+  });
+
+  it('an unreadable wallet is offered the twenty seconds, never refused', async () => {
+    const engine = bustAt();
+    wallets.read.mockResolvedValue(new Map()); // read failed: nothing known
+    await engine.offerCashBustWindows(engine.seatedPlayers);
+    expect(engine.hub.sendToUser).toHaveBeenCalledWith(TABLE, 'hero', offer(20_000));
+    vi.setSystemTime(Date.now() + 10_000);
+    await engine.standUpBustedCashPlayers();
+    expect(engine.releaseBustedSeat).not.toHaveBeenCalled();
+  });
+
+  it('decides the table pause from the same read, with no second query', async () => {
+    const engine = bustAt();
+    const read = new Map([['hero', 500]]);
+    expect(await engine.anyBustedPlayerCanAffordARebuy(engine.seatedPlayers, read)).toBe(true);
+    expect(
+      await engine.anyBustedPlayerCanAffordARebuy(engine.seatedPlayers, new Map([['hero', 1]]))
+    ).toBe(false);
+    expect(wallets.read).not.toHaveBeenCalled();
+  });
+
+  it('a horse is not judged here: it answers at the bust through its own recovery', async () => {
+    startClock();
+    const engine = cashEngine([{ ...hero(), is_horse: true }]);
+    engine.noteCashBust(engine.seatedPlayers);
+    expect(await engine.offerCashBustWindows(engine.seatedPlayers)).toBeUndefined();
+    expect(wallets.read).not.toHaveBeenCalled();
+  });
+});
+
 describe('the wiring', () => {
   const dir = join(process.cwd(), 'src');
   const dealing = readFileSync(join(dir, 'engine', 'ServerTableEngineDealing.ts'), 'utf8');
@@ -530,6 +625,24 @@ describe('the wiring', () => {
     const paused = dealing.indexOf('await this.waitForRebuyDecisions(');
     expect(noted).toBeGreaterThan(-1);
     expect(paused).toBeGreaterThan(noted);
+  });
+
+  it('sends the offer at the bust, before the table pause, from the read the pause uses', () => {
+    const noted = dealing.indexOf('this.noteCashBust(justBustedPlayers);');
+    const offered = dealing.indexOf('await this.offerCashBustWindows(justBustedPlayers);');
+    const paused = dealing.indexOf('await this.waitForRebuyDecisions(');
+    expect(offered).toBeGreaterThan(noted);
+    expect(paused).toBeGreaterThan(offered);
+    expect(dealing).toMatch(
+      /anyBustedPlayerCanAffordARebuy\(\s*justBustedPlayers,\s*bustWallets\s*\)/
+    );
+  });
+
+  it('the sheet never lets a later frame push its deadline back', () => {
+    const page = readFileSync(join(process.cwd(), '..', 'src', 'pages', 'TablePage.tsx'), 'utf8');
+    expect(page).toContain(
+      'setBustRebuyDeadlineAt((prev) => (prev === null ? told : Math.min(prev, told)));'
+    );
   });
 
   it('decides the table pause from the same seat wallet', () => {

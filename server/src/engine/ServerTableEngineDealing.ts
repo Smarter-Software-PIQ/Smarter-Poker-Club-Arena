@@ -1413,6 +1413,12 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
                  the first sweep that notices the empty stack: that sweep runs
                  after the pause below, which would hand out twenty-five. */
               this.noteCashBust(justBustedPlayers);
+              /* THE OFFER LEAVES WITH THE BUST (2026-11-11). The wallet is
+                 judged and the rebuy sheet told its deadline here, not at the
+                 next boundary sweep: that sweep runs after the pause below and
+                 the next hand's bookkeeping, which on a slow table outlasted
+                 the twenty seconds, so the sheet opened without its clock. */
+              const bustWallets = await this.offerCashBustWindows(justBustedPlayers);
               /* CAN THEY ACTUALLY COME BACK? (Dan 2026-08-28)
                *
                * "IN A CASH GAME, CHECK IF THEY HAVE ENOUGH CHIPS TO REBUY, (40
@@ -1431,7 +1437,10 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
                * window off somebody who had the money, and then
                * standUpBustedCashPlayers below removes them for it. Same
                * fail-open reasoning as the tournament branch underneath. */
-              needsRebuyPause = await this.anyBustedPlayerCanAffordARebuy(justBustedPlayers);
+              needsRebuyPause = await this.anyBustedPlayerCanAffordARebuy(
+                justBustedPlayers,
+                bustWallets
+              );
               if (!needsRebuyPause) {
                 console.log(
                   `[ServerTableEngine:${this.tableId}] No rebuy pause - none of ` +
@@ -5211,7 +5220,10 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
    * return true, because the cost of a wrong `true` is five seconds and the
    * cost of a wrong `false` is taking a rebuy away from someone who could pay.
    */
-  protected async anyBustedPlayerCanAffordARebuy(busted: SeatedPlayer[]): Promise<boolean> {
+  protected async anyBustedPlayerCanAffordARebuy(
+    busted: SeatedPlayer[],
+    alreadyRead?: Map<string, number>
+  ): Promise<boolean> {
     if (this.tableInfo?.arena?.asset === 'diamonds') return false;
     if (busted.length === 0) return false;
 
@@ -5244,10 +5256,9 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     /* The wallet each SEAT was bought from, not the table's club: a union
        table's club row holds no member wallet, so every player there read as
        unknown and the felt paused for a player with nothing (2026-11-09). */
-    const balances = await readSeatWalletBalances(
-      this.tableId,
-      humans.map((p) => p.user_id).filter(Boolean)
-    );
+    const balances =
+      alreadyRead ??
+      (await readSeatWalletBalances(this.tableId, humans.map((p) => p.user_id).filter(Boolean)));
 
     for (const human of humans) {
       if (!balances.has(human.user_id)) return true; // Unread -> fail open.
@@ -5610,6 +5621,40 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       this.bustedSince.set(player.user_id, now);
       this.witnessedCashBusts.add(player.user_id);
     }
+  }
+
+  /**
+   * Judge each human who has just busted against the wallet their seat was
+   * bought from, once, at the bust, and tell a player who can rebuy how long
+   * they have. The deadline is the one noteCashBust just started; this only
+   * arms its timer and delivers it. Returns the read so the table pause is
+   * decided from the same answer, or undefined where the window does not
+   * apply. An unread wallet is "can rebuy" (bustRebuyVerdict), never a reason
+   * to stand a player up.
+   */
+  protected async offerCashBustWindows(
+    busted: SeatedPlayer[]
+  ): Promise<Map<string, number> | undefined> {
+    if (!this.bustRebuyWindowApplies()) return undefined;
+    const humans = busted.filter((p) => p.user_id && !p.is_horse);
+    if (humans.length === 0) return undefined;
+    const balances = await readSeatWalletBalances(
+      this.tableId,
+      humans.map((p) => p.user_id)
+    );
+    const minimum = cashRebuyMinimum(this.tableInfo);
+    const activeNow = maintenanceActiveNow();
+    for (const player of humans) {
+      const bustedAt = this.bustedSince.get(player.user_id);
+      if (bustedAt === undefined || this.bustRebuyVerdicts.has(player.user_id)) continue;
+      const verdict = bustRebuyVerdict(balances.get(player.user_id), minimum);
+      this.bustRebuyVerdicts.set(player.user_id, verdict);
+      if (verdict !== 'can_rebuy') continue;
+      const remaining = bustRebuyRemainingMs(bustedAt, activeNow);
+      this.announceBustRebuyWindow(player.user_id, remaining);
+      if (player.occupancy_id) this.armBustRebuyExpiry(player.occupancy_id, remaining);
+    }
+    return balances;
   }
 
   protected override async passWhileDealingHalted(): Promise<void> {
