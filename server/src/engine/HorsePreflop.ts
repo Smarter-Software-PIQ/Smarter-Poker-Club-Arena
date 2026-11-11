@@ -486,6 +486,8 @@ export interface PreflopCtx {
   omahaHoleCount?: number;
   /** V86: true on Hi-Lo split variants (PLO8/FLO8), excluded from V86 Omaha rules. */
   omahaHiLo?: boolean;
+  /** V86: true when the preflop raiser has a non-presumed wide/maniac read. */
+  evidencedWideRaiser?: boolean;
 }
 
 const clamp01 = (n: number): number => Math.max(0, Math.min(1, n));
@@ -763,6 +765,8 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
       isHiLo: ctx.omahaHiLo === true,
       omahaHoleCount: ctx.omahaHoleCount,
       callers: ctx.callers,
+      guardOdds,
+      evidencedManiacRaiser: ctx.evidencedWideRaiser === true,
     });
     if (minStr86 > 0 && ctx.strength < minStr86) {
       ctx.noteLayer?.('v86_deep_dive_discipline');
@@ -1628,7 +1632,10 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // limpers widen it. Late position isolating limpers instead of joining
     // them is correct, and the V10 isolation layer above already does it.
     const omahaLimpDiscipline86 =
-      ctx.v86DeepDiveDiscipline === true && ctx.isOmaha === true && !ctx.omahaHiLo;
+      ctx.v86DeepDiveDiscipline === true &&
+      ctx.isOmaha === true &&
+      !ctx.omahaHiLo &&
+      ((ctx.omahaHoleCount ?? 4) >= 5 || limpers >= 2);
     const omahaLimpTighten86 = omahaLimpDiscipline86
       ? (ctx.omahaHoleCount === 6 ? 0.07 : ctx.omahaHoleCount === 5 ? 0.04 : 0) +
         Math.min(2, Math.max(0, limpers - 1)) * 0.02
@@ -1756,7 +1763,12 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       const flat = position === 'bb' ? vsOpener.bbFlatBar : vsOpener.flatBar;
       if (flat !== null) callThresh = Math.min(callThresh, tCall53(flat));
     }
-    if (ctx.v86DeepDiveDiscipline === true && ctx.isOmaha === true && !ctx.omahaHiLo) {
+    if (
+      ctx.v86DeepDiveDiscipline === true &&
+      ctx.isOmaha === true &&
+      !ctx.omahaHiLo &&
+      ctx.evidencedWideRaiser !== true
+    ) {
       const bump86 = v86OmahaColdCallTighten(ctx.omahaHoleCount, position, callers, stackBB);
       if (bump86 > 0) {
         callThresh += bump86;
@@ -2060,7 +2072,11 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // V74: the continue bar is already the big blind's own width.
     let callBar = callThresh - (def72 ? 0 : bbDiscount);
     const bounds86 =
-      ctx.v86DeepDiveDiscipline === true && ctx.isOmaha === true && !ctx.omahaHiLo
+      ctx.v86DeepDiveDiscipline === true &&
+      ctx.isOmaha === true &&
+      !ctx.omahaHiLo &&
+      ctx.evidencedWideRaiser !== true &&
+      ((ctx.omahaHoleCount ?? 4) >= 5 || callers >= 1)
         ? v86OmahaCallBarBounds(ctx.omahaHoleCount, position, callers)
         : null;
     if (ctx.isOmaha && ctx.ploPriceDefense === true) {

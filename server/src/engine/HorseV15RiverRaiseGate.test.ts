@@ -193,8 +193,14 @@ describe('V15 river raise gate: the river has no near-lock', () => {
       expect(raises(acts), variant).toBe(0);
       // The gate never answers with a fold of its own; a fold here is a
       // later measured call rule (V81 folds a PLO5 second-nut flush call of
-      // a pot-sized river wager), applied exactly as it applies to any call.
-      if (variant === 'plo6') expect(acts.every((x) => x === 'call')).toBe(true);
+      // a pot-sized river wager, and V86 extends that fold to PLO6), applied
+      // exactly as it applies to any call.
+      expect(
+        decideMany(s, 40, { v81OmahaBigBetCalls: false, v86DeepDiveDiscipline: false }).acts.every(
+          (x) => x === 'call'
+        ),
+        variant
+      ).toBe(true);
     }
   });
 

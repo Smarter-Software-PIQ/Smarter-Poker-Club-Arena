@@ -4630,9 +4630,21 @@ function omahaBigBetCallFold(
             allInOrFold: gs.allInOrFold === true,
           })
         : null;
+    const v86BettorRead =
+      v81 === null && v84 === null && v86On && opts.mind !== false
+        ? HorseMind.opponentRead(bettor.user_id)
+        : null;
     const v86Plo6 =
       v81 === null && v84 === null && v86On
-        ? v86Plo6BigBetCell({ ...shared, heroHasStreetChips: heroBet > 0.005 })
+        ? v86Plo6BigBetCell({
+            ...shared,
+            bettorOverBluffs:
+              shared.bettorOverBluffs ||
+              (v86BettorRead !== null &&
+                v86BettorRead.presumed !== true &&
+                maniacRaiseWidth(v86BettorRead) !== null),
+            heroHasStreetChips: heroBet > 0.005,
+          })
         : null;
     if (v81 === null && v84 === null && v86Plo6 === null) return decision;
     if (telemetryOn(opts))
@@ -7559,6 +7571,7 @@ export class HorseLogic {
     let exploitOpener: PreflopOpenerExploit | undefined;
     let exploitPressure: AggressiveOpenerPressure | undefined;
     let exploitReRaiser: { fourBetBar: number; callBar: number } | undefined;
+    let evidencedWideRaiser86 = false;
     let exploitIso = 0;
     // LIMP-RERAISE READ (flag limpReraiseIsoRead, HorseLimpReraiseRead): the
     // strongest shrunk limp-reraise rate among the limpers in front.
@@ -7571,21 +7584,30 @@ export class HorseLogic {
           const read = HorseMind.opponentRead(raiser.user_id);
           if (read && raises === 1) {
             const rawOpener = preflopVsOpener(read, vi.isOmaha) ?? undefined;
+            evidencedWideRaiser86 =
+              read.presumed !== true &&
+              (rawOpener?.wide === true || maniacRaiseWidth(read) !== null);
             exploitOpener =
               opts.v86DeepDiveDiscipline !== false
                 ? v86SanitizeOmahaOpenerExploit(
                     rawOpener,
                     read.presumed === true,
                     vi.isOmaha,
-                    vi.isHiLo
+                    vi.isHiLo,
+                    vi.holeCount,
+                    callers
                   )
                 : rawOpener;
             if (exploitOpener !== rawOpener && telemetryOn(opts))
               noteFire('v86_deep_dive_discipline');
             if ((opts.v53Pressure ?? true) !== false)
               exploitPressure = aggressiveOpenerPressure(read, vi.isOmaha) ?? undefined;
-          } else if (read && raises >= 2)
+          } else if (read && raises >= 2) {
             exploitReRaiser = preflopVsReRaiser(read, raises) ?? undefined;
+            evidencedWideRaiser86 =
+              read.presumed !== true &&
+              (exploitReRaiser !== undefined || maniacRaiseWidth(read) !== null);
+          }
         }
         if (raises === 0 && limpers > 0 && !vi.isOmaha) {
           for (const a of gs.actionHistory ?? []) {
@@ -8122,6 +8144,7 @@ export class HorseLogic {
       v86DeepDiveDiscipline: opts.v86DeepDiveDiscipline !== false,
       omahaHoleCount: vi.isOmaha ? vi.holeCount : undefined,
       omahaHiLo: vi.isHiLo,
+      evidencedWideRaiser: evidencedWideRaiser86,
       ...(typeof opts.tournamentFlatBump === 'number'
         ? { tournamentFlatBump: opts.tournamentFlatBump }
         : {}),
@@ -11950,6 +11973,25 @@ export class HorseLogic {
     // little before the river for the redraws. Sets on dry boards and top
     // two on a brick are not capped: folding range-tops to pressure is the
     // worse leak.
+    const bettorManiacOrStation86 = (() => {
+      if (exploit.callDownMod > 1) return true;
+      if (!useMind || !(toCall > 0)) return false;
+      try {
+        const bettor86 = gs.players
+          .filter((p) => p.seat !== player.seat && !p.is_folded)
+          .reduce<SeatPlayer | null>((m, p) => (!m || (p.bet ?? 0) > (m.bet ?? 0) ? p : m), null);
+        if (!bettor86 || !((bettor86.bet ?? 0) > (player.bet ?? 0))) return false;
+        const bRead86 = HorseMind.opponentRead(bettor86.user_id);
+        if (!bRead86) return false;
+        return (
+          isPostflopManiac(bRead86) ||
+          (bRead86.presumed !== true && maniacRaiseWidth(bRead86) !== null) ||
+          isStation(bRead86)
+        );
+      } catch {
+        return false;
+      }
+    })();
     if (useV40 && vi.isOmaha && made40 != null && made40.weak) {
       const heat40 =
         barrels40 +
@@ -11990,7 +12032,9 @@ export class HorseLogic {
           const withholdFlopLift86 =
             opts.v86DeepDiveDiscipline !== false &&
             !vi.isHiLo &&
+            !bettorManiacOrStation86 &&
             street === 'flop' &&
+            (oppCount >= 2 || vi.holeCount >= 5) &&
             (made40.cls === 'air' || made40.cls === 'pair') &&
             drawInfo40()?.nutty !== true &&
             drawInfo40()?.nutFlushDraw !== true &&
@@ -12334,9 +12378,10 @@ export class HorseLogic {
       vi.isOmaha &&
       !vi.isHiLo &&
       raisedAfterAggr &&
+      (street !== 'flop' || vi.holeCount >= 5) &&
       !multiBoard36 &&
       !gs.bombPot &&
-      exploit.callDownMod <= 1 &&
+      !bettorManiacOrStation86 &&
       toCall > 0 &&
       pot > 0 &&
       cat > 0 &&
@@ -12487,6 +12532,7 @@ export class HorseLogic {
         !multiBoard36 &&
         !gs.bombPot &&
         !raisedAfterAggr &&
+        !bettorManiacOrStation86 &&
         exploit.callDownMod <= 1 &&
         cat > 0 &&
         (cat <= 2 || (cat === 3 && pairedBoard)) &&
@@ -13397,7 +13443,7 @@ export class HorseLogic {
         if (v69Gaps && holdemDrawPresent(player.cards, board)) noteFire('v69_turn_call_gaps');
       }
       const extra86Turn =
-        opts.v86DeepDiveDiscipline !== false
+        opts.v86DeepDiveDiscipline !== false && !bettorManiacOrStation86
           ? v86NlhTurnMultiwayOrColdRaiseShade(pressure20, oppCount, potFrac)
           : 0;
       if (extra86Turn > 0) {

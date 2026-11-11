@@ -71,13 +71,25 @@ describe('V86 All-Hands Deep-Dive Discipline', () => {
         wide: true,
         noBluffThreeBet: false,
       };
-      // Presumed Omaha high-only: flat overrides stripped, value 3-bet bar preserved.
+      // Presumed Omaha high-only in 5/6-card or multiway: flat overrides stripped, value 3-bet bar preserved.
       const sanitized = v86SanitizeOmahaOpenerExploit(opener, true, true, false);
       expect(sanitized).toEqual({
         ...opener,
         flatBar: null,
         bbFlatBar: null,
       });
+      expect(v86SanitizeOmahaOpenerExploit(opener, true, true, false, 4, 1)).toEqual({
+        ...opener,
+        flatBar: null,
+        bbFlatBar: null,
+      });
+      expect(v86SanitizeOmahaOpenerExploit(opener, true, true, false, 5, 0)).toEqual({
+        ...opener,
+        flatBar: null,
+        bbFlatBar: null,
+      });
+      // 4-card PLO4 single-open (`omahaHoleCount = 4, callers = 0`): untouched.
+      expect(v86SanitizeOmahaOpenerExploit(opener, true, true, false, 4, 0)).toBe(opener);
       // Observed human read (`presumed = false`): untouched.
       expect(v86SanitizeOmahaOpenerExploit(opener, false, true, false)).toBe(opener);
       // Hold'em (`isOmaha = false`): untouched.
@@ -574,6 +586,33 @@ describe('V86 All-Hands Deep-Dive Discipline', () => {
       expect(decidePreflopV7({ ...cashNlhCtx, v86DeepDiveDiscipline: true }).a).toBe(
         decidePreflopV7({ ...cashNlhCtx, v86DeepDiveDiscipline: false }).a
       );
+
+      // Extreme pot odds (~21:1 / 22:1 min-click, guardOdds <= 0.065) or an
+      // evidenced maniac raiser still call via V13 pricedIn with any holding.
+      const hugePricePlo6Ctx: PreflopCtx = {
+        ...tourneyTrashCtx,
+        mode: 'cash',
+        isOmaha: true,
+        isPotLimit: true,
+        omahaHoleCount: 6,
+        omahaHiLo: false,
+        raises: 2,
+        callers: 0,
+        toCall: 2,
+        currentBet: 22,
+        pot: 42,
+        bigBlind: 2,
+        stack: 400,
+        stackBB: 200,
+      };
+      expect(decidePreflopV7({ ...hugePricePlo6Ctx, v86DeepDiveDiscipline: true }).a).toBe('call');
+      expect(
+        decidePreflopV7({
+          ...tourneyTrashCtx,
+          v86DeepDiveDiscipline: true,
+          evidencedWideRaiser: true,
+        }).a
+      ).toBe('call');
     });
 
     it('adds NLH turn shade only on cold raises (pressure >= 2) or multiway >= 0.75-pot barrels', () => {

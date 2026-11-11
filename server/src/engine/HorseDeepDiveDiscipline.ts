@@ -155,9 +155,12 @@ export function v86SanitizeOmahaOpenerExploit(
   opener: PreflopOpenerExploit | undefined,
   openerPresumed: boolean,
   isOmaha: boolean,
-  isHiLo: boolean
+  isHiLo: boolean,
+  omahaHoleCount?: number,
+  callers?: number
 ): PreflopOpenerExploit | undefined {
   if (!opener || !openerPresumed || !isOmaha || isHiLo) return opener;
+  if (omahaHoleCount === 4 && (callers ?? 0) === 0) return opener;
   if (opener.flatBar === null && opener.bbFlatBar === null) return opener;
   return {
     ...opener,
@@ -177,32 +180,22 @@ export function v86OmahaCallBarBounds(
 ): { maxPriceRelief: number; callFloor: number } {
   const hc = holeCount === 6 ? 6 : holeCount === 5 ? 5 : 4;
   const c = Math.max(0, callers);
+  if (hc === 4 && c === 0) {
+    return { maxPriceRelief: 0.5, callFloor: 0.28 };
+  }
   if (position === 'bb') {
     const maxPriceRelief =
-      c === 0 ? (hc === 6 ? 0.1 : hc === 5 ? 0.12 : 0.15) : hc === 6 ? 0.06 : hc === 5 ? 0.08 : 0.1;
-    const callFloor =
-      c === 0
-        ? hc === 6
-          ? 0.36
-          : hc === 5
-            ? 0.33
-            : 0.28
-        : hc === 6
-          ? 0.42
-          : hc === 5
-            ? 0.39
-            : 0.34;
+      c === 0 ? (hc === 6 ? 0.1 : 0.12) : hc === 6 ? 0.06 : hc === 5 ? 0.08 : 0.1;
+    const callFloor = c === 0 ? (hc === 6 ? 0.36 : 0.33) : hc === 6 ? 0.42 : hc === 5 ? 0.39 : 0.34;
     return { maxPriceRelief, callFloor };
   }
-  const maxPriceRelief = c >= 1 ? 0.02 : hc === 6 ? 0.04 : hc === 5 ? 0.05 : 0.07;
+  const maxPriceRelief = c >= 1 ? 0.02 : hc === 6 ? 0.04 : 0.05;
   const callFloor =
     hc === 6
       ? 0.46 + Math.min(2, c) * 0.04
       : hc === 5
         ? 0.42 + Math.min(2, c) * 0.035
-        : c === 0
-          ? 0.34
-          : 0.38 + Math.min(2, c - 1) * 0.03;
+        : 0.38 + Math.min(2, c - 1) * 0.03;
   return { maxPriceRelief, callFloor };
 }
 
@@ -217,6 +210,7 @@ export function v86OmahaColdCallTighten(
   stackBB: number
 ): number {
   const hc = holeCount === 6 ? 6 : holeCount === 5 ? 5 : 4;
+  if (hc === 4 && callers <= 0) return 0;
   let bump = 0;
   if (callers >= 1) {
     bump += (position === 'bb' ? 0.025 : 0.04) * Math.min(3, callers);
@@ -523,7 +517,13 @@ export function v86PricedInMinStrength(opts: {
   isHiLo: boolean;
   omahaHoleCount: number | undefined;
   callers: number;
+  guardOdds?: number;
+  evidencedManiacRaiser?: boolean;
 }): number {
+  if (opts.evidencedManiacRaiser) return 0;
+  // At extreme pot odds (guardOdds <= 0.065, roughly 14.4:1 or better such as a
+  // 22:1 min-click), V13's pricedIn guard deliberately calls with any holding.
+  if (opts.guardOdds !== undefined && opts.guardOdds <= 0.065) return 0;
   if (opts.isOmaha) {
     if (opts.isHiLo) return 0;
     const hc = opts.omahaHoleCount === 6 ? 6 : opts.omahaHoleCount === 5 ? 5 : 4;
