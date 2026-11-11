@@ -164,7 +164,9 @@ owning source. It does not infer V87 pillars from generic BrainTelemetry counter
         seen_events.update(bodies)
         review = capture.get('review', {})
         if review.get('status') != 'reconciled' or review.get('gaps') != []:
-            omissions.append({'handKey': capture.get('key'), 'reason': 'original_reconciliation_incomplete'})
+            # An empty read is unknown (wrong key, pruned or unreadable journal), never evidence of no Horse activity.
+            omissions.append({'handKey': capture.get('key'),
+                              'reason': 'original_reconciliation_incomplete' if records else 'no_journal_records_for_key'})
             continue
         # The owning reader checks action selection, normalization and permitted
         # acceptance-time authority withdrawals. Its verdict applies only to this
@@ -183,8 +185,11 @@ owning source. It does not infer V87 pillars from generic BrainTelemetry counter
             raise ValueError('unique_accepted_hand_required')
         terminal_record = terminals[0]
         terminal = bodies[terminal_record['eventId']]
-        actors = terminal['acceptedActorRoster']['roster']['actors']
+        actors, roster_source, roster_complete = accepted_roster(terminal, [bodies[r['eventId']] for r in records if r['kind'] == 'decision'])
         human_ids = [a['userId'] for a in actors if a['classification'] == 'human' and a['userId'] not in excluded_ids]
+        # A positively identified eligible human is presence. Absence is only claimed from a complete roster.
+        human_present = True if human_ids else (False if roster_complete else None)
+        bound_actions = set()
         for record in records:
             if record['kind'] != 'decision':
                 continue
@@ -213,14 +218,26 @@ owning source. It does not infer V87 pillars from generic BrainTelemetry counter
             hero = snapshot['player']['user_id']
             ordinal = anchor['actionOrdinal']
             if (record['handKey'] != terminal_record['handKey'] or execution_record['handKey'] != record['handKey']
-                    or type(ordinal) is not int or not 0 <= ordinal < len(terminal['actions'])):
+                    or type(ordinal) is not int or ordinal < 0):
                 raise ValueError('hand_or_action_ordinal_mismatch')
             if anchor['status'] != 'anchored' or anchor['actorId'] != hero or anchor['seat'] != snapshot['player']['seat']:
                 raise ValueError('actor_anchor_mismatch')
-            action = terminal['actions'][ordinal]
             accepted = [a['record'] for a in execution['acceptedActions'] if a.get('intended') is True]
-            if len(accepted) != 1 or any(action.get(k) != accepted[0].get(k) for k in ('userId', 'seat', 'stage', 'action', 'amount', 'timestamp')):
+            same = lambda a: len(accepted) == 1 and all(a.get(k) == accepted[0].get(k) for k in ('userId', 'seat', 'stage', 'action', 'amount', 'timestamp'))
+            if roster_source == 'lightning_decision_snapshots':
+                # Lightning accepts simultaneous fast-fold decisions made on the same public state, so several
+                # decisions share one prior-action count. Bind by the exact accepted action instead of its position.
+                positions = [i for i, a in enumerate(terminal['actions']) if same(a)]
+            else:
+                if ordinal >= len(terminal['actions']):
+                    raise ValueError('hand_or_action_ordinal_mismatch')
+                positions = [ordinal] if same(terminal['actions'][ordinal]) else []
+            if len(positions) != 1:
                 raise ValueError('accepted_action_mismatch')
+            if positions[0] in bound_actions:
+                raise ValueError('accepted_action_bound_twice')
+            bound_actions.add(positions[0])
+            action = terminal['actions'][positions[0]]
             if action.get('origin') != 'horse_policy' or action.get('userId') != hero or not any(a['userId'] == hero and a['classification'] == 'horse' for a in actors):
                 raise ValueError('accepted_actor_or_origin_mismatch')
             executed_amount = execution['executedAmount']
@@ -257,11 +274,37 @@ owning source. It does not infer V87 pillars from generic BrainTelemetry counter
             witnesses.append({'horse_id': hero, 'handKey': record['handKey'], 'decisionEventId': record['eventId'],
                               'executionEventId': execution_record['eventId'], 'acceptedEventId': terminal_record['eventId'],
                               'sourceRelease': serving, 'decisionTimeMs': at, 'features': features,
-                              'eligibleHumanPresent': bool(human_ids), 'mode': identity['gameMode'],
+                              'eligibleHumanPresent': human_present, 'rosterSource': roster_source, 'mode': identity['gameMode'],
                               'eligibleHumanAbleToRespond': bool(responding_humans) if responding_humans is not None else None,
                               'variant': identity['variant'], 'street': identity['stage'], 'speed': speed,
                               'validated': True, 'committed': True})
     return witnesses, omissions
+
+
+def accepted_roster(terminal, decisions):
+    """Actor classifications for one hand: (actors, source, complete).
+
+    Ordinary terminals carry the accepted actor roster. A Lightning terminal does not, so its
+    roster comes from the original decision-time player lists of the same hand; it is complete
+    only when every settled participant was classified. Any other terminal without a roster refuses.
+    """
+    block = terminal.get('acceptedActorRoster')
+    if block is not None:
+        return block['roster']['actors'], 'accepted_actor_roster', True
+    domain = terminal.get('publicMemoryDomain')
+    if not isinstance(domain, dict) or domain.get('version') != 1 or domain.get('speed') != 'lightning':
+        raise ValueError('accepted_actor_roster_required')
+    classes = {}
+    for decision in decisions:
+        players = decision['snapshot'].get('gameState', {}).get('players')
+        for player in players if isinstance(players, list) else []:
+            user, horse = player.get('user_id'), player.get('is_horse')
+            if not isinstance(user, str) or type(horse) is not bool or classes.setdefault(user, horse) is not horse:
+                raise ValueError('decision_roster_conflict')
+    results = terminal.get('results')
+    settled = {r.get('user_id') for r in results} if isinstance(results, list) and results else None
+    actors = [{'userId': user, 'classification': 'horse' if horse else 'human'} for user, horse in sorted(classes.items())]
+    return actors, 'lightning_decision_snapshots', settled is not None and settled <= set(classes)
 
 
 def coverage_summary(witnesses, features):
