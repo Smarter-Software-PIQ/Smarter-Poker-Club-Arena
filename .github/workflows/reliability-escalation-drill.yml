@@ -1,0 +1,48 @@
+name: Reliability Escalation Drill
+
+# Run by hand only (no schedule, CLAUDE.md 10.85 and 10.12). One run injects
+# one synthetic critical event through the operational inbox, waits for the
+# Reliability Controller to send exactly one Messenger DM and one push to the
+# owner, resolves the drill through the normal resolution path and prints PASS
+# or FAIL with every identifier. public.fn_reliability_drill
+# (migration 20261111133716) refuses a second drill inside 10 minutes.
+# The database identity is the repository's existing service secret, as in the
+# other production probes; nothing is printed from it.
+on:
+  workflow_dispatch:
+    inputs:
+      drill_id:
+        description: Drill id (6 to 48 lowercase letters, digits or hyphens). Empty uses gh-<run id>.
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reliability-escalation-drill
+  cancel-in-progress: false
+
+jobs:
+  drill:
+    name: One drill DM and push reach the owner and the incident resolves
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    # Secrets live in the main-only environment
+    # (tests/unit/workflowJobsReadOnlyMainOnlyEnvironments.law.test.ts).
+    environment: ci-main
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run the drill and read it back
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DRILL_ID: ${{ inputs.drill_id || format('gh-{0}', github.run_id) }}
+        run: node scripts/reliability/run-escalation-drill.mjs "$DRILL_ID"

@@ -13,6 +13,10 @@ on:
     paths:
       - supabase/migrations/20261110000020_reliability_controller_stage_b.sql
       - supabase/migrations/20261110144203_reliability_controller_drift_mirrors_are_incidents_and_push_.sql
+      - supabase/migrations/20261110045731_reliability_controller_health_function_and_seed_corrections.sql
+      - supabase/migrations/20261110174051_reliability_controller_sends_critical_escalations.sql
+      - supabase/migrations/20261110224707_a_recovered_reliability_incident_is_no_longer_escalated.sql
+      - supabase/migrations/20261111133716_reliability_escalation_drill_and_class_tuning.sql
       - scripts/ci/test-reliability-controller-stage-b.py
       - scripts/ci/fixtures/reliability-controller-production-objects.sql
       - .github/workflows/reliability-controller-stage-b.yml

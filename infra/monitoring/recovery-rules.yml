@@ -207,7 +207,7 @@ groups:
           or max(reliability_controller_notifications_failed_24h) > 0
         for: 5m
         labels:
-          severity: warning
+          severity: critical
           component: reliability-controller
         annotations:
           summary: 'Reliability Controller notifications are not reaching the Messenger'
@@ -218,7 +218,8 @@ groups:
             reliability_controller_notifications_queued and
             reliability_controller_notifications_failed_24h to see which, then
             last_error on reliability_notifications. The owner may not be
-            receiving escalations in the Messenger while this fires.
+            receiving escalations in the Messenger while this fires, which is
+            why this is critical: email is then the only path left to the owner.
           runbook: docs/reliability-controller/HEALTH-SIGNAL.md
 
       - alert: ReliabilityControllerIntakeRejections

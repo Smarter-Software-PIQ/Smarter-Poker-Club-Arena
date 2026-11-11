@@ -76,7 +76,7 @@ publishes a zero it did not read.
 | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
 | `ReliabilityControllerStale`            | heartbeat age over 300 s, for 5 m; label `cause` says `controller_not_ticking` (textfile current, database reports the old age) or `health_textfile_frozen` (textfile over 180 s old, last heartbeat over 300 s old) | critical |
 | `ReliabilityControllerMetricsAbsent`    | `absent(reliability_controller_heartbeat_age_seconds)` for 15 m                                                                                                                                                      | critical |
-| `ReliabilityControllerOutboxStuck`      | queued never zero for 30 m and not lower than 30 m ago, or `failed_24h > 0`, for 5 m                                                                                                                                 | warning  |
+| `ReliabilityControllerOutboxStuck`      | queued never zero for 30 m and not lower than 30 m ago, or `failed_24h > 0`, for 5 m                                                                                                                                 | critical |
 | `ReliabilityControllerIntakeRejections` | `intake_rejections_24h > 0` for 5 m                                                                                                                                                                                  | warning  |
 
 All four carry `component: reliability-controller`.
