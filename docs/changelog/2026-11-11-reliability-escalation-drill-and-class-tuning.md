@@ -1,0 +1,9 @@
+# Reliability Controller: An On-Demand Escalation Drill, And Class Corrections From Production Data
+
+2026-11-11. Migration `20261111133716_reliability_escalation_drill_and_class_tuning.sql`.
+
+**Drill.** `public.fn_reliability_drill(start | resolve | verify, drill_id)` (service_role only) injects one synthetic critical event through `public.fn_record_operational_alert`, the intake every producer uses. The controller opens a `reliability_drill` incident, escalates it once, and the per-minute tick sends one Messenger DM and one push to the owner, in `critical_only` mode like any critical incident. The DM title and rule summary say it is a drill and that no action is needed. `resolve` sends a producer-style resolved row, so the incident verifies, recovers and closes through the normal path. Idempotent per drill id; a new drill inside 10 minutes is refused. Run by hand only: `.github/workflows/reliability-escalation-drill.yml` (`workflow_dispatch`, no schedule) runs `scripts/reliability/run-escalation-drill.mjs`, which prints PASS or FAIL with the incident, notification, message and push identifiers.
+
+**Classes.** From 235 production incidents and 19 DMs since install: `%post_commit_obligations_pending` becomes money_integrity, `MergedMigrationNotInstalled` release, `OpenClawJobStale` monitoring_self, and the `workers.deploy-error-poll` names release or monitoring_self (producers read in the smarter-poker-workers repository). Severities stay the producers'; nothing is suppressed. The flapping `LightningHandHost.post_commit_obligations_pending` and `DatabaseRepliesLost` are flagged, not tuned: the class model has no hold-down. Full numbers: `docs/reliability-controller/CLASS-CATALOG.md` section 6 and `EXTERNAL-PRODUCERS.md` section 6.
+
+Native proof: `scripts/ci/test-reliability-controller-stage-b.py` (56 behaviours).
