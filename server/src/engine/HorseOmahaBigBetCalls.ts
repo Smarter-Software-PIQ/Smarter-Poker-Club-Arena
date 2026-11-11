@@ -497,3 +497,131 @@ export function callLargeRiverBoatWager(
     ? { ...decision, action: 'all_in', amount: undefined }
     : { ...decision, action: 'call', amount: paid };
 }
+
+const V86_MEDIUM_MULTIWAY_RIVER_CELLS = new Set([
+  'two_pair',
+  'flush_dominated',
+  'flush_dominated_paired',
+  'straight_flushboard_paired',
+]);
+
+/**
+ * V86 OMAHA UNDERBOAT & PLO6 / MEDIUM-BIG DOMINATED RIVER CALL DISCIPLINE.
+ * Preserves V81, V84, and callLargeRiverBoatWager contracts unchanged while
+ * closing three remaining single-board PLO4/PLO5/PLO6 river leaks:
+ *   1. Underboats (`lowerBoats === 0 && boats >= 2`, i.e., bottom full house
+ *      beaten by two or more distinct higher full-house combinations) calling
+ *      large river bets (>= 0.75 pot) or river raises (>= 0.65 pot).
+ *   2. PLO6 non-nut straights, two pair, and dominated/second-nut flushes
+ *      calling >= 0.90 pot wagers (extending V81's PLO4/PLO5 boundary to PLO6).
+ *   3. Multiway (3+ live players) 0.65-0.89 pot river bets called with bare two
+ *      pair or 3rd-nut-or-worse flushes at 35bb+ effective stacks.
+ * Never folds against a verified postflop over-bluffer (`bettorOverBluffs`).
+ */
+export function v86OmahaUnderboatOrDominatedFold(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  v86Enabled: boolean,
+  bettorOverBluffs: boolean
+): { decision: HorseDecision; reason: string | null } {
+  const toCall = Number.isFinite(gs.toCall)
+    ? (gs.toCall as number)
+    : Math.max(0, (gs.currentBet || 0) - (player.bet || 0));
+  const stack = Number.isFinite(player.stack) ? player.stack : 0;
+  const isCall =
+    decision.action === 'call' || (decision.action === 'all_in' && stack <= toCall + 0.005);
+  const isRaise =
+    decision.action === 'raise' || (decision.action === 'all_in' && stack > toCall + 0.005);
+  if (
+    !v86Enabled ||
+    bettorOverBluffs ||
+    (!isCall && !isRaise) ||
+    gs.stage !== 'river' ||
+    !['plo4', 'plo5', 'plo6'].includes(gs.gameVariant ?? '') ||
+    Boolean(gs.variantRules?.splitLow8OrBetter) ||
+    (gs.bettingStructure !== undefined && gs.bettingStructure !== 'pot_limit') ||
+    (gs.boardCount ?? 1) !== 1 ||
+    Boolean(gs.communityCards2?.length) ||
+    Boolean(gs.communityCards3?.length) ||
+    Boolean(gs.bombPot) ||
+    Boolean(gs.allInOrFold) ||
+    !(toCall > 0) ||
+    !(stack > 0.005) ||
+    Boolean(gs.legalActions && !gs.legalActions.includes('fold'))
+  ) {
+    return { decision, reason: null };
+  }
+  const board = gs.communityCards ?? [];
+  const expectedCards = Number(gs.gameVariant?.slice(3));
+  if (board.length !== 5 || !Array.isArray(player.cards) || player.cards.length !== expectedCards) {
+    return { decision, reason: null };
+  }
+  const bets = new Map(gs.players.map((p) => [p.seat, p.bet]));
+  const faced = v81StreetWager(gs.actionHistory, 'river', bets, gs.pot);
+  if (!faced || !(faced.potBefore > 0)) return { decision, reason: null };
+  const potFrac = faced.wager / faced.potBefore;
+  const bb = Math.max(0.01, gs.bigBlind || 1);
+  const bettor = gs.players.find((p) => p.seat === faced.bettorSeat);
+  const heroTotal = stack + (player.bet || 0);
+  const bettorTotal = bettor ? (bettor.stack || 0) + (bettor.bet || 0) : heroTotal;
+  const effectiveBB = Math.min(heroTotal, bettorTotal) / bb;
+  const paid = Math.min(toCall, stack);
+  const callPrice = paid / (gs.pot + paid);
+  if (!(effectiveBB > 25) || !(callPrice >= 0.16)) return { decision, reason: null };
+
+  const makeFold = (reason: string): { decision: HorseDecision; reason: string } => {
+    const folded: HorseDecision = { ...decision, action: 'fold' };
+    delete folded.amount;
+    return { decision: folded, reason };
+  };
+
+  // 1. Underboat discipline: bottom full house with >= 2 higher boat combos live
+  //    facing >= 0.65 pot river bets (including 75% pot) or >= 0.58 pot river raises.
+  if (Math.floor(scoreOmahaHi(player.cards, board) / 0x100000) === 7) {
+    const pos = omahaBoatPosition(player.cards, board);
+    const heroWagered = v84HeroWageredStreet(gs.actionHistory, 'river', player.seat);
+    if (
+      pos &&
+      pos.lowerBoats === 0 &&
+      pos.boats >= 2 &&
+      (!isRaise || !heroWagered) &&
+      ((heroWagered && potFrac >= 0.58) || potFrac >= 0.65)
+    ) {
+      return makeFold('v86_plo_underboat_fold');
+    }
+    return { decision, reason: null };
+  }
+
+  if (!isCall) return { decision, reason: null };
+
+  const seatedActive = gs.players.filter((p) => !p.is_sitting_out);
+  const liveInHand = gs.players.filter((p) => !p.is_folded && !p.is_sitting_out);
+  if (seatedActive.length < 3 || (player.bet ?? 0) > 0) return { decision, reason: null };
+
+  const cls = omahaCallClass(player.cards, board);
+  // 2. PLO6 >= 0.90 pot dominated river call parity with V81 PLO5.
+  if (
+    gs.gameVariant === 'plo6' &&
+    potFrac >= V81_MIN_POT_FRAC &&
+    (RIVER_CELLS.has(cls) || cls === 'flush_second')
+  ) {
+    return makeFold('v86_plo6_big_bet_fold');
+  }
+  // 3. Multiway (3+ live contenders) 0.58-0.89 pot dominated river bluff-catchers in cash,
+  //    plus heads-up 0.78-0.89 pot bare two-pair / paired-board dominated flush calls.
+  if (
+    gs.gameMode === 'cash' &&
+    effectiveBB >= 35 &&
+    potFrac < V81_MIN_POT_FRAC &&
+    ((liveInHand.length >= 3 && potFrac >= 0.58 && V86_MEDIUM_MULTIWAY_RIVER_CELLS.has(cls)) ||
+      (liveInHand.length === 2 &&
+        effectiveBB >= 40 &&
+        potFrac >= 0.78 &&
+        (cls === 'two_pair' || cls === 'flush_dominated_paired')))
+  ) {
+    return makeFold('v86_plo_multiway_dominated_fold');
+  }
+
+  return { decision, reason: null };
+}

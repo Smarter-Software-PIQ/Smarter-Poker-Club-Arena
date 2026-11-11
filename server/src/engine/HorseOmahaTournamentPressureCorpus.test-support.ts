@@ -353,10 +353,12 @@ export const CORPUS_BASE_OPTS: HorseDecideOpts = {
   // HorseV15RiverRaiseGate.test.ts.
   v15RiverNoNearLock: false,
   // V86 (2026-11-10) re-prices multi-street postflop sizing, dynamic
-  // continuation plans, and preflop orbit/suit scoring independently of any
-  // opponent read; the off arm keeps the recorded corpus intact
-  // (HorseMultiStreetDynamicPlan.test.ts and HorsePreflopUnblockedMatrix.test.ts
+  // continuation plans, and PLO4/5/6/8 preflop/postflop decisions
+  // independently of any opponent read; the off arms keep the recorded
+  // corpus intact (HorseMultiStreetDynamicPlan.test.ts,
+  // HorsePreflopUnblockedMatrix.test.ts, and HorsePloEliteOverhaul.test.ts
   // pin the real policies).
   v86MultiStreetUnblocked: false,
   v86UnblockedPreflop: false,
+  v86PloOverhaul: false,
 };
