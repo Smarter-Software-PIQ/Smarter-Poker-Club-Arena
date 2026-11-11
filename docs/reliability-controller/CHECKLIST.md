@@ -180,8 +180,11 @@ byte-identical before relying on it. See 10.4.
 
 **B3 (2026-11-11, open, release custody):** the Spin alert rules cannot deploy
 until an engine release carries the metrics they read. `Deploy Monitoring`
-refuses correctly; the engine deploy is a release-owner dispatch, not this
-lane's to initiate. Blocks `78afb154` closeout only. See 10.4.
+refuses correctly; activation is the certified table break inside the owning
+deploy workflow, and dispatch is the sole release custodian's. `3a63852a` is a
+candidate, not a selected release: prequalification in progress, Backup queued,
+`Dispatch The Exact Main SHA` skipped. Blocks `78afb154` closeout only.
+See 11.4.
 
 - B1 Mac access. CLEARED 2026-11-10 22:30Z, without the folder grant. The
   Cowork folder request for `/Users/smarter.poker/Documents` is still refused
@@ -872,3 +875,152 @@ it on Backup Engine completion, and `Tell The Release Owner An Owner Window Is
 Ready` fired at 02:40:24Z. This lane did not initiate a release and did not
 silence, delete or weaken a rule. `78afb154` stays `recovered / escalated` until
 the rules are serving and the latch can clear on one honest forward transition.
+
+## 11. Collusion Closeout And Two More Withdrawn Claims, 2026-11-11 04:20-05:10Z
+
+### 11.1 `61fc0986-d4dd-4b54-9c58-14b2605aecc0` fn_ca_cron_failure_watch: CLOSED
+
+The schedule was established before it was read, not inferred from the cron
+expression: `cron.timezone = GMT`, `TimeZone = UTC`, and the five observed
+starts 2026-11-06 through -10 were each exactly `04:20:00Z`. So `20 4 * * *`
+is 04:20 UTC, 22:20 America/Chicago.
+
+Observed through completion:
+
+| run                  | status        | duration                      |
+| -------------------- | ------------- | ----------------------------- |
+| 2026-11-11 04:20:00Z | **succeeded** | **00:00:13.17**               |
+| 2026-11-10 04:20:00Z | failed        | 00:02:00.05 statement timeout |
+| 2026-11-09 04:20:00Z | failed        | 00:02:00.02 statement timeout |
+| 2026-11-08 04:20:00Z | failed        | 00:02:00.45 statement timeout |
+
+Expected signal writes, verified: 3,500 rows into `public.ca_collusion_signals`
+with `window_days = 7`, `detail->>'since' = 2026-11-04T04:20:00` (exactly seven
+days), `both_cert = 0`; the table went 371,010 -> 374,510.
+
+The detector stayed retired and that is load-bearing, not incidental:
+`ca_detector_registry` still reads `retired` for `fn_ca_collusion_scan`, and
+**zero** incidents were opened in the run's wake despite 3,500 flagged pairs,
+because `v_retired` short-circuits the `fn_ca_raise_drift_incident` loop. The
+scan records and pages nothing. `20261110234905` changed only the
+window-reading driver; the retirement check is untouched.
+
+Controller recovery was supported and unforced: `resolved_signal -> verifying`
+at 04:23:00Z, three minutes after the run, then
+`quiet_window_passed -> recovered` at 04:54:00Z once `ca-cron-health-30m`
+(`7,37 * * * *`) re-evaluated. `escalation_state` cleared to `none` by the
+`20261110224707` latch fix on that forward transition.
+
+One distinction worth keeping: an out-of-band invocation at 00:58:36Z had
+already run the fixed function to completion (3,322 rows, `since`
+2026-11-04T00:58:36) with no cron entry at that time. That proved the function,
+not the schedule. `fn_ca_cron_failure_watch` keys on the JOB's run history, so
+only the 04:20Z scheduled run could clear the incident.
+
+### 11.2 Withdrawn: "zero human tournament seats in 24 hours"
+
+Stated while narrowing the Spin claim. Wrong. There were **14 human seats in
+24 hours** - 4 cash, bounty 4, freezeout 3, mystery_bounty 2,
+progressive_bounty 1, most recent 03:11Z - and `table_seats` retains rows back
+to 2026-07-24, so retention was not the cause. The query only counted seats on
+tables belonging to TOURNAMENTS CREATED inside the window, which excluded cash
+tables entirely and any tournament created earlier.
+
+What survives is the narrow claim, and only that: **zero human seats on Spin
+boards in 24 hours** (155 Spin boards, 268 horse seats, 0 human, 0 unresolved),
+with Spin absent from the breakdown above. Separately the view's own predicate
+identifies **5 live human seats** right now - cash 3, freezeout 1,
+mystery_bounty 1 - against 878 horse seats and 0 unresolved anywhere, so human
+identification is live-verified; just never on a Spin board.
+
+### 11.3 Withdrawn: "the union close stopped"
+
+Also wrong, and wrong twice over in how it was measured.
+
+`accounting_close_partials` holds the chunked `*_window` rows. All three
+post-fix stages had already COMPLETED - `pnl_flows_window`,
+`pnl_linked_window` and `pnl_hands_window` each 84/84 windows through
+11-09 08:00 - so the absence of new partials meant a finished stage, not a
+stalled one. The certifying stage writes certificates, not partials.
+
+And `smarter_private.inventory_basis_cache_write` certifies through
+`fn_accounting_close_certify(kind, union, start, end, ...)`, keyed by the range
+it certifies. A SUB-RANGE certificate therefore carries the sub-range's own
+bounds, so every query filtered to `period_start = week_start AND period_end =
+week_end` is blind to exactly the artifacts `20261110235631` was built to
+write. Read correctly at 05:11Z:
+
+    pnl_touched    17 certs   11-02 08:00 -> 11-04 11:00   4 written in 20 min
+    pnl_boundary    2 certs   full week
+    pnl_flows       1 cert    full week, bad = 0
+
+All 20 on the live generation `...87e7f10e`, one generation throughout, and
+`pnl_touched_problem = 0`. That is the sub-range certification working: 17 of
+roughly 56 three-hour slices, then `pnl_clubs`, then the receipt.
+
+Job 272 `union-weekly-rakeback-close` (`*/5 * * * *`) advances only at minutes
+40-44, or on a continuation condition. The current run holds
+`chunk_committed: true`, `stage: certifying`, `purpose: club_settlements`,
+`pnl_evidence.status: blocked` / `union_pnl_certification_in_progress`, which is
+what keeps it resuming every five minutes instead of waiting for the next slot.
+
+**Still NOT terminally reconciled.** `accounting_close_report_receipts` for
+2026-11-02 08:00Z -> 2026-11-09 08:00Z remains empty. Zero unsupported items is
+not a closed book, and the two are not reported as one claim. Historical
+certificates and balances are untouched; the superseded `pnl_flows_problem
+bad = 2` remains as history.
+
+### 11.4 Withdrawn: the 03:30-03:50 window as proof of activation
+
+Section 10.4 and a prior report treated the 03:30-03:50 America/Chicago daily
+preparation window as the engine activation. It is not.
+
+Read together, the owner order and the admission rules say: a reviewed server
+change "must enter the existing Hetzner release lane as soon as it reaches
+protected main", and "the owning deploy workflow still builds, tests, WAITS FOR
+THE CERTIFIED TABLE BREAK, cuts over, and proves the release." Activation is
+the certified table break, not a clock. `stage-engine-release.yml` is a signal
+with "no SSH, environment, source-write, or restart authority"; its
+`Dispatch The Exact Main SHA` job is gated on
+`release_required && admission_allowed`, and admission is true only inside the
+admitted daily preparation (reservable at most five elapsed hours early) or
+with an explicit `owner_window_id`. That job is currently **skipped**.
+
+A certified Backup run authorizes nothing by itself. `3a63852a` is a CANDIDATE
+containing both metric producers - it is the #10419 merge and the
+`DEPLOY_CONTROL_SHA` the monitoring run used - but no stage run has selected
+it, its prequalification is in progress and its Backup is queued. The final
+selected revision, qualification, Backup compatibility, seal and thaw all
+remain to be verified. Dispatch is the sole release custodian's; this lane
+issued none.
+
+### 11.5 The Spin rules are now exercised, not just linted
+
+`aSpinAlertReadsTheLadderItWatches.law.test.ts` proves the rules read gauges
+rather than literals - static. #10442 adds
+`infra/monitoring/spin-rules.test.yml` and
+`scripts/ci/test-spin-alert-rules-with-fixtures.sh`: ten promtool scenarios
+driving real series through the real rules, covering the `for: 1m` and
+`for: 5m` durations, the 8400s ladder boundary on both sides, the
+maintenance-break guard, horse-only and unresolved shapes, and production's own
+observed numbers (staleness 7302s, 11 open boards, no human-wait series).
+
+Two scenarios record silent-failure modes rather than passing over them: a
+MISSING envelope gauge cannot page at 99999s of staleness, and a MISSING
+arrival gauge silences the human rule with a human waiting 5000s. Prometheus
+reports an unfirable rule as health=ok/state=inactive - what it reports for a
+quiet one. `SpinMetricsStale` covers a STALE gauge; an ABSENT one is this case.
+
+The suite bites: restoring the 60s literal, restoring the 1800s literal, and
+dropping the human arm each fail it. promtool is pinned by version and sha256;
+it is deliberately NOT wired into CI, because that adds a release-asset fetch
+to a shared blocking job and belongs to the CI/infrastructure owner.
+
+**Explicitly unobserved, and not claimed:** no human has occupied a Spin board
+in 24 hours, so the delayed-human path has no production positive - it rests on
+these fixtures, a read-only constructive check against real profile rows, and
+live classification of humans on non-Spin tables. Real metric ingestion and
+rule evaluation stay unverified until the engine release that emits the
+producers. `78afb154` therefore remains `recovered / escalated`: the one
+forward transition that would clear its latch is owed only once the monitoring
+correction is actually serving.
