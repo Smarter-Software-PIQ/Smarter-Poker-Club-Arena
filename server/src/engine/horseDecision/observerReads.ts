@@ -22,6 +22,7 @@ import {
   winnerReadScopeOf,
   type HorseWinnerReadState,
 } from '../HorseWinnerRead.js';
+import type { FlopStabCounters } from '../HorseOpponentExploit.js';
 import type { FastHorseDecisionRequest, ObserveCompletedHandRequest } from './protocol.js';
 
 export interface HorseObserverReadReceipt {
@@ -64,6 +65,11 @@ type Entry = {
  * original participation coordinate is an empty read, never another observer. */
 export class HorseObserverReads {
   private readonly publicProfiles: PooledPublicProfiles;
+  private floorBootstrap: {
+    availableAtMs: number;
+    winnerReads: HorseWinnerReadState;
+    flopStab: Map<string, FlopStabCounters>;
+  } | null = null;
   private readonly entries = new Map<string, Entry>();
   private readonly sharedWinnerBanks = new Map<
     string,
@@ -245,6 +251,39 @@ export class HorseObserverReads {
     profiles: import('../HorseOpponentMemory.js').DurableOpponentProfile[];
   }): boolean {
     return this.publicProfiles.bootstrap(snapshot);
+  }
+  bootstrapFloorExploitReads(snapshot: {
+    availableAtMs?: number;
+    winnerReads?: HorseWinnerReadState;
+    flopStab?: Map<string, FlopStabCounters>;
+  }): boolean {
+    if (
+      !snapshot ||
+      typeof snapshot.availableAtMs !== 'number' ||
+      !Number.isFinite(snapshot.availableAtMs) ||
+      snapshot.availableAtMs < 0
+    ) {
+      return false;
+    }
+    const wr = createWinnerReadState();
+    if (snapshot.winnerReads?.rows) {
+      for (const [k, row] of snapshot.winnerReads.rows) {
+        if (row && Number.isFinite(row.w) && row.w > 0) wr.rows.set(k, { ...row });
+      }
+    }
+    const fs = new Map<string, FlopStabCounters>();
+    if (snapshot.flopStab) {
+      for (const [k, row] of snapshot.flopStab) {
+        if (row && Number.isFinite(row.flopCheckedToOpps) && row.flopCheckedToOpps > 0)
+          fs.set(k, { ...row });
+      }
+    }
+    this.floorBootstrap = {
+      availableAtMs: snapshot.availableAtMs,
+      winnerReads: wr,
+      flopStab: fs,
+    };
+    return true;
   }
   private scope(context: HorseObserverReadContext): import('../HorseMind.js').ReadScope {
     const size = context.dealtCount <= 2 ? 'hu' : context.dealtCount <= 5 ? 'short' : 'full';
@@ -572,6 +611,11 @@ export class HorseObserverReads {
     const history = historyEntry?.history;
     const pooled = entry.context ? this.publicProfiles.read(request) : null;
     const winnerAfterCutoff = !!winnerBank && winnerBank.observedAt > request.decisionTimeMs;
+    const floorBootEligible =
+      pooled !== null &&
+      this.floorBootstrap !== null &&
+      this.floorBootstrap.availableAtMs <= request.decisionTimeMs &&
+      (this.floorBootstrap.winnerReads.rows.size > 0 || this.floorBootstrap.flopStab.size > 0);
     // Public counters use a detached map. Individual observations, dedupe
     // and private plans retain this horse's original ownership.
     const executionState =
@@ -582,9 +626,20 @@ export class HorseObserverReads {
               ? {
                   exploit: new Map(entry.state.exploit),
                   ...(pooled.donors.length ? { donorStaleness: new Map<string, number>() } : {}),
+                  ...(floorBootEligible ? { flopStab: new Map(entry.state.flopStab ?? []) } : {}),
                 }
               : {}),
-            ...(winnerAfterCutoff ? { winnerReads: createWinnerReadState() } : {}),
+            ...(winnerAfterCutoff || floorBootEligible
+              ? {
+                  winnerReads: (() => {
+                    const wr = createWinnerReadState();
+                    if (!winnerAfterCutoff && entry.state.winnerReads?.rows) {
+                      for (const [k, v] of entry.state.winnerReads.rows) wr.rows.set(k, { ...v });
+                    }
+                    return wr;
+                  })(),
+                }
+              : {}),
           }
         : entry.state;
     if (pooled) {
@@ -599,6 +654,44 @@ export class HorseObserverReads {
         const key = opponentMemoryKey(row.user_id, row.variant, row.mode, row.size);
         executionState.exploit!.set(key, { ...row.counters });
         executionState.donorStaleness!.set(key, staleness);
+      }
+      if (floorBootEligible && entry.context && this.floorBootstrap) {
+        const authorizedIds = new Set<string>();
+        for (const r of pooled.rows) authorizedIds.add(r.user_id);
+        for (const d of pooled.donors) authorizedIds.add(d.profile.user_id);
+        const scope = this.scope(entry.context);
+        const mode = entry.context.format === 'cash' ? 'cash' : 'tournament';
+        const wScope = winnerReadScopeOf(entry.context.variant, mode);
+        for (const uid of authorizedIds) {
+          const fKey = `${scope}|${uid}`;
+          const bootFlop = this.floorBootstrap.flopStab.get(fKey);
+          if (bootFlop) {
+            const curFlop = executionState.flopStab?.get(fKey);
+            if (
+              !curFlop ||
+              (curFlop.flopCheckedToOpps < 8 &&
+                bootFlop.flopCheckedToOpps > curFlop.flopCheckedToOpps)
+            ) {
+              executionState.flopStab!.set(fKey, { ...bootFlop });
+            }
+          }
+          const bootWinner =
+            (wScope ? this.floorBootstrap.winnerReads.rows.get(`${wScope}|${uid}`) : undefined) ??
+            (mode === 'cash' ? this.floorBootstrap.winnerReads.rows.get(uid) : undefined);
+          if (bootWinner && executionState.winnerReads) {
+            const wKey = wScope ? `${wScope}|${uid}` : uid;
+            const curWinner = executionState.winnerReads.rows.get(wKey);
+            if (!curWinner || (curWinner.w < 50 && bootWinner.w > curWinner.w)) {
+              executionState.winnerReads.rows.set(wKey, { ...bootWinner });
+              if (mode === 'cash') {
+                const bareCur = executionState.winnerReads.rows.get(uid);
+                if (!bareCur || (bareCur.w < 50 && bootWinner.w > bareCur.w)) {
+                  executionState.winnerReads.rows.set(uid, { ...bootWinner });
+                }
+              }
+            }
+          }
+        }
       }
     }
     this.requests.set(request, {
@@ -808,6 +901,7 @@ export class HorseObserverReads {
   }
   clear(): void {
     this.publicProfiles.clear();
+    this.floorBootstrap = null;
     this.entries.clear();
     this.sharedWinnerBanks.clear();
     this.hands.clear();

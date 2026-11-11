@@ -1465,8 +1465,14 @@ export class HorseSessionRotator {
           personaArch === 'lag_shark' ||
           personaArch === 'tag_crusher' ||
           personaArch === 'tricky_trap';
+        const seatKey = `${tableId}:${seat.user_id}`;
+        const isDiamondTable =
+          t?.arena?.asset === 'diamonds' || t?.is_diamond === true || diamondSeatKeys.has(seatKey);
+        const stakeDollarBb = isDiamondTable ? bb / 100 : bb;
         const effectiveTopUpFrac =
-          (isNlhCash || isPloCash) && bb >= 5 && activeDeepStyle ? 0.8 : TOPUP_STACK_FRAC;
+          (isNlhCash || isPloCash) && stakeDollarBb >= 5 && activeDeepStyle
+            ? 0.8
+            : TOPUP_STACK_FRAC;
         if (
           minutes >= TOPUP_MIN_MINUTES &&
           stackNow > 0 &&
@@ -1492,11 +1498,6 @@ export class HorseSessionRotator {
            * not reload at all — it leaves, through the hazard below.
            */
           const roll = rolls.get(`${(seat as { club_id?: string }).club_id ?? ''}:${seat.user_id}`);
-          const seatKey = `${tableId}:${seat.user_id}`;
-          const isDiamondTable =
-            t?.arena?.asset === 'diamonds' ||
-            t?.is_diamond === true ||
-            diamondSeatKeys.has(seatKey);
           const seatInvested = bankrollLedgerKnown
             ? isDiamondTable
               ? investedBySeat.get(seatKey)
@@ -1530,7 +1531,10 @@ export class HorseSessionRotator {
             if (isDiamondTable) amount = Math.floor(amount);
           }
           const partialHighStakeAllowed =
-            (isNlhCash || isPloCash) && bb >= 5 && activeDeepStyle && amount >= buyIn * 0.5;
+            (isNlhCash || isPloCash) &&
+            stakeDollarBb >= 5 &&
+            activeDeepStyle &&
+            amount >= buyIn * 0.5;
           if (!partialHighStakeAllowed) {
             if (amount < desiredTopUp) amount = 0;
           }

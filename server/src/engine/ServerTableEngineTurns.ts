@@ -4376,19 +4376,31 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       // coercion below stays as the legality guarantee.
       allInOrFold: this.tableInfo?.all_in_or_fold === true,
       // THE VPIP FLOOR (Dan 2026-09-04). A floored table stands a seat up
-      // after ten hands under the floor, horses included (10.5). The brain
-      // gets the floor and ITS OWN judged figure - the same numbers the
+      // under its window/grace policy, horses included (10.5). The brain
+      // gets the floor, window and ITS OWN judged figure - the same numbers the
       // eviction reads - and widens toward the floor like a regular would.
       vpipFloor: this.vpipFloor(),
+      vpipWindowHands:
+        this.nitStatus.get(authoritativePlayer.user_id)?.window ??
+        Number(this.tableInfo?.maintain_hands ?? 10),
       ownVpip: (() => {
         const row = this.nitStatus.get(authoritativePlayer.user_id);
         return row ? { hands: row.hands, vpip: row.vpip } : undefined;
       })(),
-      // V18 STRADDLE (2026-08-26): straddle posts are not ActionRecords, so
-      // a straddled pot's preflop currentBet (2xBB) with an empty history
-      // read as an OPEN RAISE and the fleet folded to dead money. Tell the
-      // brain straddles are possible here.
-      straddleActive: this.tableInfo?.straddle_enabled === true,
+      // V18 / V87.1 STRADDLE (2026-08-26, hardened 2026-11-11): straddle posts
+      // are not ActionRecords, so report whether a straddle was actually posted
+      // on THIS hand (plus its exact posted amount) rather than merely whether
+      // voluntary straddles are enabled on the table.
+      ...(() => {
+        const postedStraddle = handControllerRef.getPostedStraddleSnapshot?.() ?? null;
+        if (postedStraddle !== null) {
+          return {
+            straddleActive: postedStraddle.amount > 0,
+            ...(postedStraddle.amount > 0 ? { straddleAmount: postedStraddle.amount } : {}),
+          };
+        }
+        return { straddleActive: this.tableInfo?.straddle_enabled === true };
+      })(),
       ...(() => {
         const rawState = state as unknown as Record<string, unknown>;
         const liveKillPot =

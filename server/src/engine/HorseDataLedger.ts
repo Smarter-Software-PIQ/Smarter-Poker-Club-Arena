@@ -788,6 +788,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V87'
   ),
   flag(
+    'v87RiverBlockBetTrap',
+    'V87 river nut-trap lead and re-raise policy; default enabled, false only for isolated offline ablation',
+    'V87'
+  ),
+  flag(
+    'v87HollywoodTank',
+    'V87 deterministic Hollywood timing eligibility; default enabled, false only for isolated offline ablation',
+    'V87'
+  ),
+  flag(
+    'v87FlopStabCheckRaise',
+    'V87 flop-stab check-raise policy with public reads retained; default enabled, false only for isolated offline ablation',
+    'V87'
+  ),
+  flag(
     'deepEquity',
     'V44 second look: every Monte Carlo read at this multiple of its sample; set only by the engine replay inside the think time',
     'V44'
@@ -1517,16 +1532,26 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   state('bigBlindAnte', 'BB-ante structure'),
   state('allInOrFold', 'all-in-or-fold table'),
   state('straddleActive', 'a straddle is posted (V18)'),
+  state(
+    'straddleAmount',
+    'exact last live straddle amount posted on this hand when straddleActive is true (V87.1)',
+    'HorseLogic.decidePreflopV7Glue -> HorsePreflop.decidePreflop'
+  ),
   state('straddleSeat', 'seat number of the active posted straddle when present'),
   state('bombPot', 'this hand is a bomb pot (V36)'),
   state('boardCount', 'boards dealt (V36)'),
   state(
     'vpipFloor',
-    'the table VPIP floor a seat is stood up under after ten hands (Dan 2026-09-04)',
+    'the table VPIP floor, enforced with its judged window and grace policy',
     // Two consumers, and the second one is the point (2026-09-06): the floor
     // does not only widen the brain, it travels to settlement and keys the
     // horse_daily_play row apart, so no band ever judges required-loose play.
     'HorseLogic.vpipFloorMul; ServerTableEngineSettlement -> HorseHandReview (horse_daily_play.floored)'
+  ),
+  state(
+    'vpipWindowHands',
+    'actual judged sample window; NLH variance margin uses this policy input',
+    'HorseLogic.vpipFloorMul / vpipFloorCallDown'
   ),
   state(
     'ownVpip',
