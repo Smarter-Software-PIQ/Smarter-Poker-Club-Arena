@@ -403,5 +403,5 @@ it('runs browser installation on the supported Ubuntu image', () => {
       }
     }
   }
-  expect(browserJobs).toBe(10);
+  expect(browserJobs).toBe(11);
 });

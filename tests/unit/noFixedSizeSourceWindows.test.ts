@@ -114,7 +114,9 @@ describe('this guard cannot be hidden behind the changed-files gate', () => {
     // PRs share the compiler install; schedules keep their independent job.
     const job = sliceYamlBlock(ci, 'typecheck_compile:');
     expect(job).toContain('noFixedSizeSourceWindows.test.ts');
-    expect(job).toContain("if: github.event_name == 'pull_request'");
+    expect(job).toContain(
+      "if: (github.event_name == 'pull_request' || github.event_name == 'merge_group')"
+    );
     const scheduled = sliceYamlBlock(ci, 'source_windows:');
     expect(scheduled).toContain("if: github.event_name == 'schedule'");
     expect(scheduled).toContain('noFixedSizeSourceWindows.test.ts');

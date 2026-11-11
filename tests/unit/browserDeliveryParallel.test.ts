@@ -39,6 +39,7 @@ describe('browser qualification parallel delivery', () => {
           (file === 'post-deploy-e2e.yml' &&
             [
               'private-record-client-proof',
+              'hero-celebration-proof',
               'stats-pagination-proof',
               'plo-lightning-lifecycle-proof',
               'production-e2e',

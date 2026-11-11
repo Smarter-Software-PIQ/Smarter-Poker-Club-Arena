@@ -3273,8 +3273,9 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     if (
       seated?.is_horse &&
       !this.isOwnClientControlling(actor.user_id) &&
-      this.horseActionTimer === null &&
-      this.horseDecisionAbortController === null
+      !this.horseActionTimer &&
+      (this.horseDecisionAbortController === null ||
+        this.horseDecisionAbortController.signal.aborted)
     ) {
       this.scheduleHorseAction(seated, actor.seat, actor, state);
     }

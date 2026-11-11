@@ -61,7 +61,7 @@
   margin-top: 0;
   background: url('/assets/diamond-spins/sapphire-spin-deck.webp') center / 100% 100% no-repeat;
   aspect-ratio: 3 / 1;
-  min-height: 177px;
+  min-height: 0;
 }
 .entry,
 .presets,
@@ -195,12 +195,27 @@
   padding: 5px 12px;
 }
 .balancePicker {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  translate: 0 -50%;
+  height: max(32px, 100%);
   border: 0;
   background: transparent;
   font: inherit;
-  min-height: 44px;
   width: 100%;
   padding: 0;
+}
+.balanceChevron {
+  position: absolute;
+  margin-inline-start: 0.25em;
+}
+.balancePicker::after {
+  content: '';
+  position: absolute;
+  inset: 50% 0 auto;
+  height: max(44px, 100%);
+  translate: 0 -50%;
 }
 .amountDialog {
   width: min(288px, 85vw);

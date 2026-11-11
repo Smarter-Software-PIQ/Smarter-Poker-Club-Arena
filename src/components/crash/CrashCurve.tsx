@@ -110,7 +110,15 @@ export interface CrashCurveProps {
   onTick?: (cents: number) => void;
   onSettled?: () => void;
 }
-/** The hero always prints two decimals (2.50x, never 2.5x) so its digits do not jitter. */
+/** Geometry keeps sub-cent precision; the money readout alone is quantized. */
+export function flightMultiplierCents(
+  growthK: number,
+  elapsedMs: number,
+  capCents: number
+): number {
+  return Math.min(capCents, 100 * Math.exp((growthK * Math.max(0, elapsedMs)) / 1000));
+}
+/** The hero always prints two decimals so its digits do not jitter. */
 export function tickerLabel(cents: number): string {
   return `${(Math.max(0, cents) / 100).toFixed(2)}x`;
 }
@@ -325,10 +333,19 @@ function starfield(
 /** The jet: a sculpted titanium fuselage, a canopy that catches the room, swept wings, canted fins, twin afterburners. */
 function jet(disc: THREE.Texture) {
   const group = new THREE.Group();
-  const chrome = metal(0xaab9cd, 0.28),
-    blue = metal(0x145cb5, 0.24),
-    livery = metal(0x1a5fd0, 0.24),
+  group.name = 'crash-fighter';
+  const chrome = metal(0xf4f7fb, 0.28),
+    blue = metal(0xffd700, 0.24),
+    livery = metal(0xffd700, 0.24),
     dark = metal(0x141d2b, 0.22);
+  chrome.metalness = 0.35;
+  chrome.emissive.setHex(0xe4e7ec);
+  chrome.emissiveIntensity = 0.12;
+  blue.metalness = livery.metalness = 0.45;
+  blue.emissive.setHex(0xffd700);
+  blue.emissiveIntensity = 0.16;
+  livery.emissive.copy(blue.emissive);
+  livery.emissiveIntensity = 0.16;
   const canopyGlass = new THREE.MeshPhysicalMaterial({
     color: 0x0b1c3a,
     metalness: 0.6,
@@ -1250,7 +1267,9 @@ export default function CrashCurve(props: CrashCurveProps) {
                 replay
               )
             )
-          : current;
+          : p.phase === 'open'
+            ? flightMultiplierCents(p.growthK, elapsed, p.capCents)
+            : current;
       // The axis follows the flight instead of jumping to it: a short glide
       // whenever the scale has to grow, immediate under reduced motion and
       // between rounds.

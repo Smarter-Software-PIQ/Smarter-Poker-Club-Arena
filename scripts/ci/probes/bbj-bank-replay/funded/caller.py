@@ -23,6 +23,7 @@ IDENTITY_TESTS = {
     'test_wrong_route_and_missing_current_identity_are_refused',
     'test_fork_and_unrelated_parent_cannot_authorize_checkout',
     'test_existing_scheduled_main_path_remains_exact',
+    'test_merge_group_is_its_own_checkout',
     'test_exclusive_attempt_preserves_uncertain_original',
     'test_case_identity_is_fresh_and_cannot_be_reused_or_mutated',
     'test_seed_is_claimed_before_callback_and_never_repeated',

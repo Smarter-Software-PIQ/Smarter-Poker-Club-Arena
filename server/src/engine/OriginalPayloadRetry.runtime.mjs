@@ -12,7 +12,13 @@ import { KillPotSchedule } from './KillPot.ts';
 import { handRecordsDailyMissionEvents } from './dailyMissionEvents.ts';
 import { publicHandStatsFrame } from './presentation/publicHandStats.ts';
 import { PostHandStageTiming } from './PostHandStageTiming.ts';
-import { publicMemoryDomainIsValid, publicMemoryDomainFromRules } from './HorsePublicMemoryDomain.ts';
+import { privateHorseTurnClocks } from './HorseTurnClockReceipt.ts';
+import { captureAcceptedTerminal } from '../services/horseDecisionJournal/acceptedTerminal.ts';
+import { resolveReleaseIdentity } from '../releaseIdentity.ts';
+import {
+  publicMemoryDomainIsValid,
+  publicMemoryDomainFromRules,
+} from './HorsePublicMemoryDomain.ts';
 const readCurrent = (file) => fs.readFileSync(resolve(process.cwd(), 'src', file), 'utf8');
 const base = readCurrent('engine/ServerTableEngineBase.ts'),
   settlement = readCurrent('engine/ServerTableEngineSettlement.ts');
@@ -98,6 +104,9 @@ function harness(sequence, { rootB = false, onSleep, onRpc, retainSequence } = {
     handRecordsDailyMissionEvents,
     publicHandStatsFrame,
     PostHandStageTiming,
+    privateHorseTurnClocks,
+    captureAcceptedTerminal,
+    resolveReleaseIdentity,
     publicMemoryDomainIsValid,
     publicMemoryDomainFromRules,
     handStackBefore,
@@ -481,19 +490,24 @@ test('4453 diagnostic guard and final unproved-hand fence remain in current cand
   );
 });
 
-
 test('original public rule domain is retained before a retry and never recaptured', async () => {
   const blinds = { smallBlind: 1, bigBlind: 2, ante: 2, bigBlindAnte: true };
   const h = harness([rollback(), accepted()], {
     rootB: true,
-    onSleep: () => { blinds.ante = 0; blinds.bigBlindAnte = false; },
+    onSleep: () => {
+      blinds.ante = 0;
+      blinds.bigBlindAnte = false;
+    },
   });
   h.p.handController = { getBlindSnapshot: () => ({ ...blinds }) };
   await h.run();
   assert.equal(h.retainedRequests.length, 1);
   assert.equal(h.calls.length, 2);
-  assert.deepEqual(h.retainedRequests[0].p_hand_row.public_memory_domain,
-    { version: 1, speed: 'table', ante: 'big_blind' });
+  assert.deepEqual(h.retainedRequests[0].p_hand_row.public_memory_domain, {
+    version: 1,
+    speed: 'table',
+    ante: 'big_blind',
+  });
   assert.deepEqual(h.calls[0], h.calls[1]);
 });
 

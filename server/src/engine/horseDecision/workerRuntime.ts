@@ -3306,6 +3306,19 @@ export class HorseDecisionWorkerRuntime {
         this.deps.noteFeature('phase14_accepted_roster_refused');
       }
     }
+    if (request.terminalOnlySourceRelease !== undefined) {
+      if (request.terminalOnlySourceRelease !== this.deps.sourceRelease?.())
+        throw new Error('accepted_terminal_source_mismatch');
+      this.deps.journalAcceptedHand?.(request);
+      this.send({
+        type: 'ACK',
+        requestId: request.requestId,
+        generation: request.generation,
+        fence: request.fence,
+        operation: 'OBSERVE_COMPLETED_HAND',
+      });
+      return;
+    }
     const learned = this.observerReads.complete(request, (hand) =>
       this.deps.observeCompletedHand(hand)
     );

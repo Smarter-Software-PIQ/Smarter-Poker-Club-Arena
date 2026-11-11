@@ -78,7 +78,6 @@ import {
 } from './HorseBankroll.js';
 import { bankrollEvent } from './HorseBankrollTelemetry.js';
 import { LONE_TABLE_MINUTES, loneStandVerdict } from './HorseLoneTable.js';
-import { ploPersonaFor } from '../engine/HorsePersona.js';
 import { buildDisabledGameIds, horsesLeaveSwitchedOffGame } from './HorseDisabledGames.js';
 import {
   LEAVE_FOR_TOURNAMENT_FROM_MS,
@@ -93,6 +92,7 @@ import {
   rosterExemptClub,
 } from './HorsePloRoster.js';
 import { horseSitOutPlan } from './HorseSitOutChoice.js';
+import { holdemPersonaFor, ploPersonaFor } from '../engine/HorsePersona.js';
 
 const CYCLE_MS = 90_000; // examine the floor every 90s
 const GLOBAL_DEPARTURES_PER_CYCLE = 4;
@@ -1450,15 +1450,23 @@ export class HorseSessionRotator {
         const minutes = (Date.now() - new Date(seat.joined_at).getTime()) / 60000;
         const stackNow = Number(seat.stack) || 0;
         const variantStr = String(t?.game_variant ?? '').toLowerCase();
+        const isNlhCash = variantStr === 'nlh' || variantStr === 'holdem' || variantStr === '';
         const isPloCash =
           variantStr === 'plo4' ||
           variantStr === 'plo5' ||
           variantStr === 'plo6' ||
           variantStr === 'plo8';
-        const ploStyle = isPloCash ? ploPersonaFor(seat.user_id).archetype : null;
-        const activePloStyle =
-          ploStyle === 'lag_shark' || ploStyle === 'tag_crusher' || ploStyle === 'tricky_trap';
-        const effectiveTopUpFrac = isPloCash && bb >= 5 && activePloStyle ? 0.8 : TOPUP_STACK_FRAC;
+        const personaArch = isNlhCash
+          ? holdemPersonaFor(seat.user_id).archetype
+          : isPloCash
+            ? ploPersonaFor(seat.user_id).archetype
+            : null;
+        const activeDeepStyle =
+          personaArch === 'lag_shark' ||
+          personaArch === 'tag_crusher' ||
+          personaArch === 'tricky_trap';
+        const effectiveTopUpFrac =
+          (isNlhCash || isPloCash) && bb >= 5 && activeDeepStyle ? 0.8 : TOPUP_STACK_FRAC;
         if (
           minutes >= TOPUP_MIN_MINUTES &&
           stackNow > 0 &&
@@ -1521,9 +1529,9 @@ export class HorseSessionRotator {
             amount = Math.min(desiredTopUp, amount);
             if (isDiamondTable) amount = Math.floor(amount);
           }
-          const partialHighPloAllowed =
-            isPloCash && bb >= 5 && activePloStyle && amount >= buyIn * 0.5;
-          if (!partialHighPloAllowed) {
+          const partialHighStakeAllowed =
+            (isNlhCash || isPloCash) && bb >= 5 && activeDeepStyle && amount >= buyIn * 0.5;
+          if (!partialHighStakeAllowed) {
             if (amount < desiredTopUp) amount = 0;
           }
           if (amount >= bb) {

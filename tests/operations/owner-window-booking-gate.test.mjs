@@ -221,7 +221,8 @@ test('the gate actually runs, with this test, in the required compilation job', 
   const step = job.slice(
     job.indexOf('- name: Owner maintenance bookings are valid before they merge')
   );
-  assert.ok(step.includes('CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}'));
+  // Merge queue (2026-11-11): the step also reads a merge group's base.
+  assert.ok(step.includes('CI_BASE_SHA: ${{ (github.event.pull_request.base.sha || github.event.merge_group.base_sha) }}'));
   assert.ok(step.includes('node --test tests/operations/owner-window-booking-gate.test.mjs'));
   assert.ok(step.includes('node scripts/ci/check-owner-window-booking.mjs'));
 });

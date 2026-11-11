@@ -226,3 +226,25 @@ it('retains earlier notice priority before the amended receipt promise is visibl
   );
   expect(bookedMaintenanceNotice(Date.parse('2026-11-11T06:30:00Z'))).toBeNull();
 });
+
+it('preserves the consumed receipt notice until the corrective promise becomes primary', () => {
+  const own = BOOKED_MAINTENANCE_NOTICES.find(
+    (n) => n.id === '2026-11-11-horse-clock-clone-engine-0650z'
+  );
+  expect(own?.noticeAtMs).toBe(Date.parse('2026-11-11T07:40:00Z'));
+  expect(own?.notBeforeMs).toBe(Date.parse('2026-11-11T08:00:00Z'));
+  expect(own?.notAfterMs).toBe(Date.parse('2026-11-11T10:30:00Z'));
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-11T06:29:59.999Z'))?.id).toBe(
+    '2026-11-11-horse-clock-receipts-engine-0050z'
+  );
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-11T06:30:00Z'))).toBeNull();
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-11T07:39:59.999Z'))).toBeNull();
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-11T07:40:00Z'))?.id).toBe(own?.id);
+  const at = Date.parse('2026-11-11T08:00:00Z');
+  const primary = bookedMaintenanceNotice(at);
+  expect(primary?.id).toBe(own?.id);
+  expect(bookedMaintenanceNoticeText(primary!, at)).toBe(
+    'A Short Maintenance Break Can Start Any Time Before 4:30 AM Chicago Time. Play Pauses For About Five Minutes.'
+  );
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-11T10:30:00Z'))).toBeNull();
+});

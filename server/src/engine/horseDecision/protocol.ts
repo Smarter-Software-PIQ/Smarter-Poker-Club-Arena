@@ -215,6 +215,8 @@ export interface DeepHorseDecisionRequest extends LiveHorseDecisionSnapshot {
 }
 
 export interface CompletedHandObservation extends HorseDecisionFence {
+  /** Accepted durable original terminal only: never learn, mirror, or replay effects. */
+  terminalOnlySourceRelease?: string;
   horseTurnClocks?: Array<
     import('../HorseTurnClockReceipt.js').HorseTurnClockReceipt & { actionIndex: number }
   >;
