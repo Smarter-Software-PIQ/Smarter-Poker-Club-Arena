@@ -28,7 +28,6 @@ import type { Card, SeatPlayer, HandEvent, SeatedPlayer } from '../types.js';
 import { reportError } from '../services/errorReporter.js';
 import { HAND_COMPLETION } from '../config/handCompletionSpec.js';
 import { ServerTableEngineTurns } from './ServerTableEngineTurns.js';
-import { prefersRunItTwice } from './HorsePersona.js';
 import type { EngineRecoveryEventClass } from './ServerTableEngineBase.js';
 import { getLiveHorseDecisionWorker, HorseDecisionAbortedError } from './horseDecision/index.js';
 import { captureHorseHandJournalContext } from './HorseDecisionHandBinding.js';
@@ -1805,22 +1804,18 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
 
     const ritState = this.runItTwiceEngine.getState(this.tableId);
     const maxRuns = Math.max(1, Math.min(3, Number(ritState?.maxRuns ?? 2))) as 1 | 2 | 3;
-    const bb = Math.max(0.01, Number(this.tableInfo?.big_blind) || 2);
-    const livePot = Number(this.handController?.getState().pot ?? 0);
-    const potBB = livePot > 0 ? livePot / bb : 60;
 
     if (horseIds.has(chooserPlayerId)) {
       // A chooser who never picks 1 is a chooser who never runs it once.
       const multiTarget = Math.min(maxRuns, this.handCount % 3 === 0 ? 3 : 2) as 1 | 2 | 3;
-      const runs =
-        this.horseRitVerdict(chooserPlayerId, potBB) === 'once' ? (1 as const) : multiTarget;
+      const runs = this.horseRitVerdict(chooserPlayerId) === 'once' ? (1 as const) : multiTarget;
       respond(600 + (this.handCount % 5) * 80, () => {
         this.respondToRIT(chooserPlayerId, undefined, runs);
       });
     }
     for (const pid of allPlayerIds) {
       if (pid === chooserPlayerId || !horseIds.has(pid)) continue;
-      const answer = this.horseRitVerdict(pid, potBB) === 'once' ? 'decline' : 'accept';
+      const answer = this.horseRitVerdict(pid) === 'once' ? 'decline' : 'accept';
       respond(1000 + ((pid.charCodeAt(0) + this.handCount) % 4) * 200, () => {
         this.respondToRIT(pid, answer);
       });
@@ -1868,16 +1863,12 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
    * anything a human gets. It is the horse's input device choosing between
    * two answers a human chooses between, instead of being wired to one.
    */
-  protected horseRitVerdict(playerId: string, potBB = 60): 'once' | 'multi' {
+  protected horseRitVerdict(playerId: string): 'once' | 'multi' {
     let h = 0;
     for (let i = 0; i < playerId.length; i++) {
       h = (h * 31 + playerId.charCodeAt(i)) % 100000;
     }
-    if ((h + this.handCount * 7) % 10 < 3) return 'once';
-    return prefersRunItTwice(playerId, Math.max(45, potBB), 0.5, 0) ||
-      (h + this.handCount * 11) % 5 >= 1
-      ? 'multi'
-      : 'once';
+    return (h + this.handCount * 7) % 10 < 3 ? 'once' : 'multi';
   }
 
   protected waitForRITResponse(onComplete: () => void): void {

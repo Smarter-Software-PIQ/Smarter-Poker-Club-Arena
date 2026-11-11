@@ -245,6 +245,7 @@ export const HORSE_ACTION_CLAMPED_REASONS = [
   'pot_limit_cap',
   'chip_unit_snap',
   'commit_wager_rules',
+  'fixed_limit_capped_street',
   'v58_plo6_river_fold',
   'v58_plo6_river_raise_to_call',
   'v59_plo6_river_unpaired_fold',
@@ -320,7 +321,9 @@ export const HORSE_STREET_PREWARM_REASONS = [
 ] as const;
 
 export const HORSE_TELEMETRY_OPPORTUNITY_REASONS = [
+  'decision_started',
   'decision_evaluated',
+  'commit_evaluated',
   'commit_legalizer_entered',
   'continuation_plan_checked',
   'street_dealt',

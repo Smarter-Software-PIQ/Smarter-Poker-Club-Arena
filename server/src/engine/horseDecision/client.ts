@@ -727,9 +727,11 @@ export class LiveHorseDecisionWorkerClient {
   private isolateMemory: IsolateMemorySample | null = null;
   private readonly shardIndex: number | undefined;
   private readonly registeredInPool: boolean;
+  private readonly requiresUpgradeManifest: boolean;
   constructor(options: LiveHorseDecisionWorkerClientOptions = {}) {
     this.shardIndex = options.shard?.index ?? 0;
     this.registeredInPool = options.shard !== undefined;
+    this.requiresUpgradeManifest = options.workerFactory === undefined;
     if (options.shard) {
       activeShardRegistry.count = Math.max(activeShardRegistry.count, options.shard.count ?? 1);
       activeShardRegistry.clients.set(options.shard.index, this);
@@ -1734,7 +1736,7 @@ export class LiveHorseDecisionWorkerClient {
         this.fail(new Error('live horse decision worker returned invalid governor'));
         return;
       }
-      if (message.upgradeManifest !== undefined) {
+      if (this.requiresUpgradeManifest || message.upgradeManifest !== undefined) {
         const compat = verifyWorkerUpgradeManifestCompatibility(
           computeHorseUpgradeActivationManifest(),
           message.upgradeManifest
