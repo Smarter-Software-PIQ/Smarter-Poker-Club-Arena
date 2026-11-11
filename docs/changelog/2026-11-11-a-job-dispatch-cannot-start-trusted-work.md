@@ -33,14 +33,11 @@ check at the receiving end, a change that never merged could start production wo
    | `gto-v31-qualification.yml` recheck job | `operation=recheck`        | `gto-v31-qualification.yml`                |
    | `stage-engine-release.yml`              | `deploy-club-arena-engine` | `auto-deploy-hetzner.yml`                  |
 
-   For the first three senders, the payload now carries `dispatcher_run_id`. The receiver's
-   first step reads that run and requires all of the following:
-   - the expected workflow path and event;
-   - this repository as the head repository;
-   - `main` as the head branch;
-   - the sender either still running, or finished less than 30 minutes before the receiver
-     run was created. Measuring from the receiver's creation, not the current time, keeps
-     long receivers working: Backup certify waits up to an hour behind its refresh.
+   For the first three senders, the receiver now proves that the dispatch is the exact intent
+   the sender recorded on its own run, and that no earlier run has consumed it. An earlier
+   draft accepted any run of the sender that finished within 30 minutes; the owner rejected
+   that before merge. See
+   [the exact-intent binding](2026-11-11-a-job-dispatch-is-bound-to-its-exact-intent.md).
 
    The engine receiver keeps its existing selection-run proof through
    `read-engine-prequalification.py`.
@@ -60,8 +57,9 @@ check at the receiving end, a change that never merged could start production wo
 
 4. **Fork pull requests (item 6).** `money-trigger-recovery.yml` mints its App token only
    for same-repository pull requests. A fork gets a failing check from
-   `fork-refused`, which holds no permissions and no secrets. The merge-group path from
-   #10469 is unchanged.
+   `fork-refused`, which holds no permissions and no secrets. The pull-request reporter also
+   refuses a cross-repository head before it creates any check, and a merge group that
+   carries any fork entry, or whose origin cannot be read, is never treated as live.
 
 ## Pre-merge guard against forks: no ruleset change needed
 
@@ -75,6 +73,4 @@ proposed.
 
 ## Residual risk
 
-A queued change could cite a genuine trusted-sender run while that run is still live, or
-within 30 minutes of its end. Such a dispatch reaches only the one event that sender
-legitimately sends, and every receiver still runs its normal gates.
+See the exact-intent binding record. A cited run alone no longer admits anything.
