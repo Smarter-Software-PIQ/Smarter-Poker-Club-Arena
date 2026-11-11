@@ -3,12 +3,13 @@ import * as THREE from 'three';
 import { plinkoPegField } from '../../src/components/plinko/plinkoPegField';
 
 describe('the physical Plinko peg field', () => {
-  it('retains all 136 positions with two shadow draws and lights the server path', () => {
+  it('retains all 136 positions with instanced chrome sockets and two shadow draws and lights the server path', () => {
     const field = plinkoPegField(new THREE.MeshPhysicalMaterial());
-    const [unlit, lit] = field.group.children as THREE.InstancedMesh[];
-    expect(field.group.children).toHaveLength(2);
+    const [unlit, lit, sockets] = field.group.children as THREE.InstancedMesh[];
+    expect(field.group.children).toHaveLength(3);
     expect(unlit.count).toBe(136);
     expect(lit.count).toBe(0);
+    expect(sockets.count).toBe(136);
     expect(unlit.castShadow && lit.castShadow).toBe(true);
     const matrix = new THREE.Matrix4();
     unlit.getMatrixAt(135, matrix);

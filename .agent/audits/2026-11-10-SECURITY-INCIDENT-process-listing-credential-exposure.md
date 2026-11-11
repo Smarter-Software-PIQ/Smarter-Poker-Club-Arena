@@ -1,0 +1,40 @@
+# 2026-11-10 SECURITY INCIDENT: a process listing printed other processes' credentials into an agent transcript
+
+**Severity: medium until rotation is decided. Values reached an agent session transcript (Anthropic session storage for this account). No value reached the repository, a pull request, a comment, a log file or any other destination this record could find. The exact credential types cannot be recovered and are recorded as unknown.**
+
+No secret appears in this record: names, counts and pattern classes only.
+
+## What happened
+
+| UTC (2026-11-10) | Action | Exposure |
+| --- | --- | --- |
+| about 23:00 to 23:50 | A worker agent (Lightning thin-pool lane, PR #10399) ran `pgrep -fl` on the owner's Mac through the host terminal while checking whether a process was running. | `pgrep -fl` prints each matching process's full command line. Some processes running at that moment carried credentials in their arguments, and those values were printed into the worker's tool output, which is part of its session transcript. |
+| same session | The worker noticed, did not copy or use the values, and switched to commands that do not print arguments. It reported the exposure in its final report without listing which credentials. | None further. |
+
+This broke CLAUDE.md 10.84 ("never print secrets") in effect, though the command was a process check, not a credential read.
+
+## Scope
+
+- **Where the values went:** the worker's own session transcript only (Anthropic session storage for the owner's account). The coordinating session never saw the values: it received only the worker's final report, which named no credential.
+- **Credential types: unknown.** The worker's session can no longer be resumed from the coordinating session (its saved settings are gone), so the exact process lines cannot be re-read, and re-running the listing would expose them again. The possible classes are the credentials agent tooling and long-running tools on that Mac pass as arguments at that time: GitHub tokens, Supabase keys, Vercel tokens, database URLs with passwords, model API keys.
+- **Processes now:** at 2026-11-11 00:47Z a redacted scan of every process's arguments (prints pid, executable name and pattern class only; patterns for GitHub PAT/OAuth, Supabase secret and management keys, JWT, Vercel, Anthropic, database URLs with passwords, and NAME=value pairs for *TOKEN/KEY/SECRET/PASSWORD/PAT/URL) found no process carrying a credential in its arguments. The only matches were the scan itself, whose source contains the pattern text. So the exposed lines came from processes that have since ended.
+- **What the worker wrote:** zero pattern matches in its squash commit `1c06524d`, PR #10399 body and comments, its #10063 comment 6782588985 and its changelog `docs/changelog/2026-11-10-lightning-a-thin-pool-deals-four-handed.md`.
+
+## Rotation assessment
+
+Because the values reached a transcript and the types cannot be determined, every credential that agent tooling on the owner's Mac passed as a process argument between 23:00Z and 23:50Z must be treated as exposed. This record cannot name them, so the owner decides between:
+
+1. **Rotate the agent credentials on the Mac** (conservative). Each rotation and its impact:
+   - GitHub fine-grained PAT in `~/.env` and `~/Documents/club-arena/.env` (`GITHUB_TOKEN`, `GITHUB_PAT_FINE_GRAINED`): agents' pushes and API reads through the token fail until the new token is written to both files. The separate `gh` login is unaffected unless it was the exposed one.
+   - Supabase agent secret key `agent_credentials_20261001` in `~/.config/smarter-poker/agent-credentials.env`: agent tooling that reads it fails until replaced (steps in the 2026-11-08 record, "Rotation assessment").
+   - Vercel token used by agent tooling: Vercel MCP/CLI calls fail until replaced.
+   - Model API keys used by local agent tools, if any: those tools stop until replaced.
+   Production services (engine on Hetzner, publisher, database lane) use their own stored credentials (Vault, GitHub repository secrets, engine host) and are not affected by rotating the Mac's agent credentials.
+2. **Accept the risk** with the reasoning that the transcript is private to the owner's account; this record then stays open as accepted, not closed.
+
+Rotation requires writing to secret stores, which agent sessions here are not permitted to do; it is the owner's action.
+
+## Prevention
+
+- CLAUDE.md (before "### 1.3 Never Do") gains a standing rule: never print another process's command line or environment; check a process with `pgrep -x <name>` or `ps -axo pid=,comm=` only.
+- Every worker launched by the Lightning lane after 2026-11-11 00:20Z carries the same instruction in its brief.

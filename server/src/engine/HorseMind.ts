@@ -96,15 +96,20 @@ import {
   barrelNarrowingScale,
   callDownRespectShift,
   exploitEnvelopeFor,
+  exploitFlopStabIncrements,
+  flopStabStatRead,
   statRead,
   exploitHandIncrements,
   probeAdjustedCounters,
   probeBetIndexes,
   freshExploitCounters,
+  isPostflopManiac,
   looseCallerWidth,
   maniacRaiseWidth,
   mergeExploitRows,
+  mergeFlopStabRows,
   observeExploitRow,
+  observeFlopStabRow,
   openerRangeWidth,
   opponentExploitRead,
   presumedAggressorRead,
@@ -115,6 +120,7 @@ import {
   strengthBarForTopShare,
   valueThinMod as readValueThinMod,
   type ExploitCounters,
+  type FlopStabCounters,
   type OpponentExploitRead,
 } from './HorseOpponentExploit.js';
 import {
@@ -682,6 +688,8 @@ export interface HorseMindSandbox {
   /** 2026-10-16 opponent exploit: decayed per-(scope, player) counters,
    *  keyed `${scope}|${userId}`. Memory only, never flushed to the DB. */
   exploit: Map<string, ExploitCounters>;
+  /** V86 flop-only checked-to stab counters, keyed `${scope}|${userId}`. */
+  flopStab?: Map<string, FlopStabCounters>;
   /** Items 21 and 23 (2026-11-05): the contender and stack-exposure
    *  fingerprint a planned barrel expects to meet on the next street, keyed
    *  like outlooks. Absent only on predecessor snapshots. */
@@ -1029,6 +1037,23 @@ export class HorseMind {
   private static decisionScope: ReadScope | null = null;
   /** 2026-10-16: decayed opponent-exploit counters, `${scope}|${userId}`. */
   private static exploitCounters = new Map<string, ExploitCounters>();
+  /** V86: decayed flop-only checked-to stab counters, `${scope}|${userId}`. */
+  private static flopStabCounters = new Map<string, FlopStabCounters>();
+  /** Boot-hydrated hand keys so repeated hydration calls are 100% idempotent. */
+  private static hydratedHandKeys = new Set<string>();
+  private static readonly MAX_HYDRATED_HAND_KEYS = 50_000;
+
+  static hasHydratedHand(key: string): boolean {
+    return !!key && this.hydratedHandKeys.has(key);
+  }
+
+  static markHydratedHand(key: string): void {
+    if (!key) return;
+    this.hydratedHandKeys.add(key);
+    while (this.hydratedHandKeys.size > this.MAX_HYDRATED_HAND_KEYS) {
+      this.hydratedHandKeys.delete(this.hydratedHandKeys.values().next().value!);
+    }
+  }
   /** 2026-10-16: the game variant of the decision in flight; it picks the
    *  population envelope the exploit read is judged against. */
   private static decisionMode: MemoryMode = 'cash';
@@ -1474,11 +1499,18 @@ export class HorseMind {
         EXPLOIT_ROW_CAP,
         true
       );
+    for (const [userId, fInc] of exploitFlopStabIncrements(actions, true))
+      observeFlopStabRow(this.flopStabCounters, `${scope}|${userId}`, fInc, EXPLOIT_ROW_CAP);
   }
 
   /** The decayed exploit counters for (scope, player), for tests and the read frame. */
   static getExploitCounters(userId: string, scope: ReadScope): ExploitCounters | undefined {
     return this.exploitCounters.get(`${scope}|${userId}`);
+  }
+
+  /** The decayed flop-only checked-to stab counters for (scope, player). */
+  static getFlopStabCounters(userId: string, scope: ReadScope): FlopStabCounters | undefined {
+    return this.flopStabCounters.get(`${scope}|${userId}`);
   }
 
   /**
@@ -1503,6 +1535,9 @@ export class HorseMind {
     if (this.decisionEffectSink)
       throw new Error('HorseMind.mergeSandboxExploit: inside an effect capture');
     mergeExploitRows(this.exploitCounters, this.sandboxExploitRows(sandbox), EXPLOIT_ROW_CAP, true);
+    if (sandbox.flopStab && sandbox.flopStab.size > 0) {
+      mergeFlopStabRows(this.flopStabCounters, sandbox.flopStab, EXPLOIT_ROW_CAP);
+    }
   }
 
   /**
@@ -1936,6 +1971,8 @@ export class HorseMind {
     this.scoped.clear();
     this.dirtyScoped.clear();
     this.exploitCounters.clear();
+    this.flopStabCounters.clear();
+    this.hydratedHandKeys.clear();
     this.durableOpponentVersions.clear();
     this.durableOpponentImportClock.clear();
     this.planFingerprints.clear();
@@ -2242,6 +2279,7 @@ export class HorseMind {
       scoped: new Map(),
       dirtyScoped: new Set(),
       exploit: new Map(),
+      flopStab: new Map(),
       planFingerprints: new Map(),
     };
   }
@@ -2268,7 +2306,10 @@ export class HorseMind {
     )
       throw new Error('HorseMind.snapshotDecisionReads: invalid boundary');
     const view = this.createSandbox();
-    view.winnerReads = snapshotWinnerReads(ids);
+    const snapshotScope = memoryContext
+      ? `${readScopeOf(memoryContext.variant, 6).split(':')[0]}:${memoryContext.mode}`
+      : this.activeWinnerScope();
+    view.winnerReads = snapshotWinnerReads(ids, snapshotScope);
     for (const id of ids) {
       const stats = this.stats.get(id);
       if (stats) view.stats.set(id, { ...stats });
@@ -2279,6 +2320,8 @@ export class HorseMind {
           if (scoped) view.scoped.set(key, { ...scoped });
           const exploit = this.exploitCounters.get(key);
           if (exploit) view.exploit.set(key, { ...exploit });
+          const flop = this.flopStabCounters.get(key);
+          if (flop) (view.flopStab ??= new Map()).set(key, { ...flop });
         }
       }
       const game = memoryContext ? memoryVariant(memoryContext.variant) : null;
@@ -2364,6 +2407,7 @@ export class HorseMind {
       scoped: this.scoped,
       dirtyScoped: this.dirtyScoped,
       exploit: this.exploitCounters,
+      flopStab: this.flopStabCounters,
       planFingerprints: this.planFingerprints,
       donorStaleness: this.donorStaleness,
     };
@@ -2372,6 +2416,7 @@ export class HorseMind {
     // A sandbox built before the exploit layer (or by a caller that only
     // knows the older fields) reads as "no exploit memory", never as live.
     this.exploitCounters = sandbox.exploit ?? new Map();
+    this.flopStabCounters = sandbox.flopStab ?? new Map();
     this.scoped = sandbox.scoped;
     this.dirtyScoped = sandbox.dirtyScoped;
     this.seenActions = sandbox.seenActions;
@@ -2405,6 +2450,7 @@ export class HorseMind {
       this.scoped = live.scoped;
       this.dirtyScoped = live.dirtyScoped;
       this.exploitCounters = live.exploit;
+      this.flopStabCounters = live.flopStab;
       this.sandboxDepth = 0;
       this.decisionScope = liveScope;
       this.decisionVariant = liveVariant;
@@ -2796,14 +2842,122 @@ export class HorseMind {
   // EXPLOIT PROFILE — how to deviate vs this specific player
   // ───────────────────────────────────────────────────────────────────────
 
+  static isLagBully(userId: string): boolean {
+    const read = this.opponentRead(userId);
+    if (this.decisionScope && !read) return false;
+    if (read && read.presumed !== true) {
+      if (
+        (read.stats.vpip.engaged === 'high' &&
+          (read.stats.pfr.engaged === 'high' ||
+            read.stats.betCheckedTo.engaged === 'high' ||
+            maniacRaiseWidth(read) !== null)) ||
+        isPostflopManiac(read)
+      ) {
+        return true;
+      }
+    }
+    const s = this.readStats(userId);
+    if (s && s.hands >= 20) {
+      const vpipRate = s.vpip / s.hands;
+      const pfrRate = s.pfr / s.hands;
+      const postActs = s.postAggr + s.postPassive;
+      const postAf = postActs >= 10 ? s.postAggr / Math.max(1, s.postPassive) : 0;
+      if (vpipRate >= 0.52 && (pfrRate >= 0.28 || postAf >= 2.2)) return true;
+    }
+    return false;
+  }
+
+  /** Active winner-read scope (`${family}:${mode}`) for the decision in flight, or null. */
+  static activeWinnerScope(): string | null {
+    return this.decisionScope ? `${this.decisionScope.split(':')[0]}:${this.decisionMode}` : null;
+  }
+
+  /**
+   * Street-specific bully detector ("Bully-Breaker"): identifies high-frequency
+   * flop stabbers (e.g. 66% flop stab -> 48% turn barrel) whose aggression
+   * drops off on later streets or who check back the turn after stabbing the flop.
+   * Uses flop-only checked-to stab counters (`flopStabCounters`) when present
+   * and public `history`.
+   */
+  static streetBullyRead(
+    userId: string,
+    history?: ActionRecord[]
+  ): {
+    highFlopStab: boolean;
+    stabRate: number;
+    turnGiveUp: boolean;
+    checkedTurnAfterFlopStab: boolean;
+  } {
+    const flopRow = this.decisionScope
+      ? this.flopStabCounters.get(`${this.decisionScope}|${userId}`)
+      : undefined;
+    const flopBct =
+      flopRow && this.decisionScope
+        ? flopStabStatRead(flopRow, this.decisionScope, this.decisionVariant)
+        : null;
+    const read = this.opponentRead(userId);
+    if (this.decisionScope && !read && !flopBct) {
+      return {
+        highFlopStab: false,
+        stabRate: 0,
+        turnGiveUp: false,
+        checkedTurnAfterFlopStab: false,
+      };
+    }
+    const evidenced = read && read.presumed !== true ? read : null;
+    const bct = flopRow !== undefined ? flopBct : (evidenced?.stats.betCheckedTo ?? null);
+    const stabRate = bct ? bct.mean : 0;
+    const highFlopStab = !!(bct && (bct.engaged === 'high' || (bct.n >= 8 && bct.mean >= 0.52)));
+
+    let flopBetCheckedTo = false;
+    let checkedTurnAfterFlopStab = false;
+    if (history && history.length > 0) {
+      let flopWagerSeen = false;
+      for (const a of history) {
+        if (a.stage === 'flop') {
+          const aggr = isMindAggression(a);
+          if (!flopWagerSeen && a.userId === userId && aggr) {
+            flopBetCheckedTo = true;
+          }
+          if (aggr) flopWagerSeen = true;
+        } else if (a.stage === 'turn' && flopBetCheckedTo && a.userId === userId) {
+          if (a.action === 'check') checkedTurnAfterFlopStab = true;
+          else if (isMindAggression(a)) checkedTurnAfterFlopStab = false;
+        }
+      }
+    }
+
+    const riverLast = this.riverLastToActRead(userId);
+    const foldRead = evidenced?.stats.foldToBet ?? null;
+    const canFlagSingleHandGiveUp = this.isLagBully(userId) || highFlopStab || stabRate >= 0.4;
+    const turnGiveUp =
+      (checkedTurnAfterFlopStab && canFlagSingleHandGiveUp) ||
+      (highFlopStab &&
+        ((riverLast !== null && stabRate - riverLast.rate >= 0.14) ||
+          (foldRead !== null && foldRead.n >= 8 && foldRead.mean >= 0.44)));
+
+    return {
+      highFlopStab,
+      stabRate,
+      turnGiveUp,
+      checkedTurnAfterFlopStab,
+    };
+  }
+
   static exploit(
     userId: string,
     recencyBlend: boolean = true,
     options: ExploitReadOptions = {}
   ): ExploitProfile {
     // A PROVEN WINNER IS RESPECTED (2026-10-24, HorseWinnerRead): fewer
-    // bluffs and no thin value against a credible winner; reads unchanged.
-    return respectWinner(this.readExploit(userId, recencyBlend, options), userId);
+    // bluffs and no thin value against a disciplined winner; against a high-VPIP
+    // LAG bully (e.g. 80/46/66% stab), keep bluff playback and expand thin value.
+    return respectWinner(
+      this.readExploit(userId, recencyBlend, options),
+      userId,
+      this.isLagBully(userId),
+      this.activeWinnerScope()
+    );
   }
 
   private static readExploit(
@@ -3291,7 +3445,8 @@ export class HorseMind {
     if (foldShift === null) return null;
     let mod = breakEvenBluffMod(foldShift, family, BREAK_EVEN_REFERENCE_SIZE);
     if (read.stats.riverCall.engaged === 'high') mod = Math.min(mod, layer);
-    if (isProvenWinner(userId)) mod *= WINNER_BLUFF_MOD;
+    if (isProvenWinner(userId, this.activeWinnerScope()) && !this.isLagBully(userId))
+      mod *= WINNER_BLUFF_MOD;
     return { mod, foldShift };
   }
 
@@ -3350,7 +3505,8 @@ export class HorseMind {
         ? (k + m * cell.population) / (n + m)
         : cell.population;
     let mul = (cell.foldOverMdf * fold) / cell.population;
-    if (isProvenWinner(userId)) mul *= WINNER_BLUFF_MOD;
+    if (isProvenWinner(userId, this.activeWinnerScope()) && !this.isLagBully(userId))
+      mul *= WINNER_BLUFF_MOD;
     // Receipt: live proof the model priced an opponent (one count per
     // opponent pricing, not per decision). Counting never decides.
     noteFire('omaha_ev_fold_model_priced');

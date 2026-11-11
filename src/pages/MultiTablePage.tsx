@@ -4826,8 +4826,9 @@ export default function MultiTablePage() {
       pot: 0,
       kind: 'table',
     };
-    // Opening a game adds its tab; the page stays open until manually closed.
-    if (prev.length < MAX_TABLES) {
+    // Lobby/Hub pages stay open, but do not consume a game subscription.
+    // Three games plus the lobby must still admit the fourth game.
+    if (prev.filter(isTableTab).length < MAX_TABLES) {
       setTables([...prev, fromUrl]);
       setActiveIndex(prev.length); // Switch to new table
     } else {

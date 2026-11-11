@@ -312,6 +312,8 @@ export function buildHost(
       scoreboard.push(input);
     },
     jackpot: jackpot as never,
+    // The pre-action record is asserted where a test asks for it.
+    recordPreAction: () => {},
     ...(opts.deps ?? {}),
   });
   return { host, hub, released, metrics, horseLane, jackpot, scoreboard, ...fb };

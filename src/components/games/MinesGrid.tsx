@@ -1,11 +1,10 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { getAnimationSpeed } from '../../utils/animationSpeed';
 import { gameChips } from '../../utils/bonusGameBudget';
 import { soundService } from '../../services/SoundService';
 import { triggerHaptic } from '../../services/HapticService';
 import { TapHaptic } from '../haptics/TapHaptic';
-import { mediaUrl } from '../../utils/mediaBase';
 import styles from './MinesGrid.module.css';
 /**
  * The gem and the mine a tile turns over. The geometry is the original art; the
@@ -14,38 +13,15 @@ import styles from './MinesGrid.module.css';
  * body on chrome spikes whose only colour is its bust-red fuse tip.
  */
 export function GemArt({ mine = false }: { mine?: boolean }) {
-  const id = useId().replace(/:/g, '');
-  if (!mine)
-    return (
-      <img
-        src={mediaUrl('images/daily-bonus/blue-diamond-v1.webp')}
-        alt=""
-        className={styles.gem}
-        data-daily-diamond="true"
-        draggable={false}
-      />
-    );
   return (
-    <svg viewBox="0 0 100 100" aria-hidden="true" className={styles.gem}>
-      <defs>
-        <radialGradient id={`${id}b`} cx=".35" cy=".25">
-          <stop stopColor="#b8c3cd" />
-          <stop offset=".38" stopColor="#3a4756" />
-          <stop offset="1" stopColor="#0b1017" />
-        </radialGradient>
-      </defs>
-      <g>
-        <g stroke="#7f8c9b" strokeWidth="5" strokeLinecap="round">
-          {[0, 45, 90, 135].map((a) => (
-            <path key={a} d="M50 13V87" transform={`rotate(${a} 50 50)`} />
-          ))}
-        </g>
-        <circle cx="50" cy="50" r="29" fill={`url(#${id}b)`} stroke="#9aa5b3" />
-        <path d="M31 38Q37 25 51 26" fill="none" stroke="#e4e7ec" strokeWidth="3" opacity=".7" />
-        <circle cx="54" cy="40" r="8" fill="#ff5b6e" />
-        <circle cx="52" cy="38" r="3" fill="#ffd2d8" />
-      </g>
-    </svg>
+    <img
+      src={`${import.meta.env.BASE_URL}assets/diamond-spins/${mine ? 'mines-chrome-hazard-v2.webp' : 'mines-cut-sapphire-v2.webp'}`}
+      alt=""
+      className={styles.gem}
+      data-cut-diamond={!mine || undefined}
+      data-chrome-mine={mine || undefined}
+      draggable={false}
+    />
   );
 }
 /** A signed chip amount: "+4.33 Chips", "-0.90 Chips", "0.00 Chips". */
@@ -276,7 +252,14 @@ export default function MinesGrid({
                   ) : (
                     <>
                       <span className={styles.seal} aria-hidden="true">
-                        <GemArt />
+                        <svg
+                          viewBox="0 0 100 100"
+                          className={styles.sealedEmblem}
+                          aria-hidden="true"
+                        >
+                          <path d="M18 39 34 21H66L82 39 50 81Z" />
+                          <path d="M18 39H82M34 21 38 39 50 81 62 39 66 21M38 39 50 21 62 39" />
+                        </svg>
                       </span>
                       <span className={styles.number}>{String(cell + 1).padStart(2, '0')}</span>
                     </>

@@ -78,6 +78,7 @@ import {
 } from './HorseBankroll.js';
 import { bankrollEvent } from './HorseBankrollTelemetry.js';
 import { LONE_TABLE_MINUTES, loneStandVerdict } from './HorseLoneTable.js';
+import { ploPersonaFor } from '../engine/HorsePersona.js';
 import { buildDisabledGameIds, horsesLeaveSwitchedOffGame } from './HorseDisabledGames.js';
 import {
   LEAVE_FOR_TOURNAMENT_FROM_MS,
@@ -662,6 +663,8 @@ export class HorseSessionRotator {
      * "this horse is stuck" would empty the floor.
      */
     const rolls = new Map<string, number>();
+    let bankrollLedgerKnown = false;
+    const diamondSeatKeys = new Set<string>();
     const investedBySeat = new Map<string, number>();
     try {
       /* Horse seats at CASH tables: the only seats either rule below reads.
@@ -734,6 +737,7 @@ export class HorseSessionRotator {
                 if (Number.isFinite(d)) diamondsOf.set(r.id, Math.floor(d));
               }
               for (const s of unpaidBy) {
+                diamondSeatKeys.add(`${s.table_id}:${s.user_id}`);
                 const d = diamondsOf.get(s.user_id);
                 if (d !== undefined) {
                   rolls.set(`${(s as { club_id?: string }).club_id ?? ''}:${s.user_id}`, d);
@@ -850,9 +854,124 @@ export class HorseSessionRotator {
             if (!Number.isFinite(at) || at < joined - 60_000) continue;
             investedBySeat.set(k, (investedBySeat.get(k) ?? 0) + amt);
           }
+          bankrollLedgerKnown = true;
+
+          // Cluster must-moves carry the buy-in under the feeder's table_id in
+          // chip_ledger, while cash_player_session moves table_id to dst.id and
+          // maintains the session's cumulative applied baseline.
+          const isDiamondCashSeat = (s: (typeof horseCashSeats)[number]): boolean => {
+            const st = (s as any)?.tables;
+            return (
+              st?.arena?.asset === 'diamonds' ||
+              st?.is_diamond === true ||
+              diamondSeatKeys.has(`${s.table_id}:${s.user_id}`)
+            );
+          };
+          const chipSessionLookupSeats = horseCashSeats.filter(
+            (s) =>
+              !isDiamondCashSeat(s) &&
+              (!investedBySeat.has(`${s.table_id}:${s.user_id}`) ||
+                !!(s as any)?.tables?.cluster_id)
+          );
+          if (chipSessionLookupSeats.length > 0) {
+            const sessRead = await selectInChunks<{
+              player_id: string;
+              table_id: string;
+              baseline: unknown;
+            }>(
+              [...new Set(chipSessionLookupSeats.map((s) => s.user_id))],
+              (batch) =>
+                supabase
+                  .from('cash_player_session')
+                  .select('player_id, table_id, baseline')
+                  .in('player_id', batch)
+                  .is('closed_at', null),
+              'HorseSessionRotator.sessionBaselines'
+            );
+            if (!this.lifecycleIsCurrent(generation)) return;
+            if (!sessRead.complete) {
+              bankrollLedgerKnown = false;
+            } else {
+              for (const row of sessRead.rows) {
+                if (!row.player_id || !row.table_id) continue;
+                const base = Number(row.baseline);
+                if (!Number.isFinite(base) || base <= 0) continue;
+                const seatKey = `${row.table_id}:${row.player_id}`;
+                if (!seatJoinedAt.has(seatKey)) continue;
+                const prev = investedBySeat.get(seatKey) ?? 0;
+                if (base > prev) investedBySeat.set(seatKey, base);
+              }
+            }
+          }
+
+          // Diamond Arena cash seats never write to chip_ledger; their buy-ins
+          // and top-ups are recorded as `reserve` movements on the open
+          // `poker_diamond_custody` row (`purpose = 'cash_seat'`).
+          const diamondCashSeats = horseCashSeats.filter((s) => isDiamondCashSeat(s));
+          if (diamondCashSeats.length > 0) {
+            const custRead = await selectInChunks<{
+              id: string;
+              user_id: string;
+              target_id: string;
+            }>(
+              [...new Set(diamondCashSeats.map((s) => s.user_id))],
+              (batch) =>
+                supabase
+                  .from('poker_diamond_custody')
+                  .select('id, user_id, target_id')
+                  .in('user_id', batch)
+                  .eq('purpose', 'cash_seat')
+                  .in('state', ['reserved', 'active']),
+              'HorseSessionRotator.diamondCustody'
+            );
+            if (!this.lifecycleIsCurrent(generation)) return;
+            if (!custRead.complete) {
+              bankrollLedgerKnown = false;
+            } else if (custRead.rows.length > 0) {
+              const relevantCustody = custRead.rows.filter((c) =>
+                seatJoinedAt.has(`${c.target_id}:${c.user_id}`)
+              );
+              if (relevantCustody.length > 0) {
+                const movRead = await selectInChunks<{
+                  custody_id: string;
+                  amount: unknown;
+                }>(
+                  relevantCustody.map((c) => c.id),
+                  (batch) =>
+                    supabase
+                      .from('poker_diamond_movements')
+                      .select('custody_id, amount')
+                      .in('custody_id', batch)
+                      .eq('action', 'reserve'),
+                  'HorseSessionRotator.diamondMovements'
+                );
+                if (!this.lifecycleIsCurrent(generation)) return;
+                if (!movRead.complete) {
+                  bankrollLedgerKnown = false;
+                } else {
+                  const reservedByCustody = new Map<string, number>();
+                  for (const m of movRead.rows) {
+                    const amt = Number(m.amount);
+                    if (!Number.isFinite(amt) || amt <= 0) continue;
+                    reservedByCustody.set(
+                      m.custody_id,
+                      (reservedByCustody.get(m.custody_id) ?? 0) + amt
+                    );
+                  }
+                  for (const c of relevantCustody) {
+                    const totalReserved = reservedByCustody.get(c.id);
+                    if (totalReserved !== undefined && totalReserved > 0) {
+                      investedBySeat.set(`${c.target_id}:${c.user_id}`, totalReserved);
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     } catch (err) {
+      bankrollLedgerKnown = false;
       reportError(err, 'HorseSessionRotator.bankroll_context');
     }
 
@@ -1141,7 +1260,9 @@ export class HorseSessionRotator {
           cashPlanPrimaryTables,
           lightningGameIds,
           lightningHumanGames
-        )
+        ),
+      Date.now(),
+      lightningGameIds
     );
     /* A table the cluster tick breaks is not walked out of (owner
        2026-11-07): its horses are moved by the break, in order, like people.
@@ -1328,10 +1449,20 @@ export class HorseSessionRotator {
         if ((seat as { auto_rebuy?: boolean }).auto_rebuy === true) continue;
         const minutes = (Date.now() - new Date(seat.joined_at).getTime()) / 60000;
         const stackNow = Number(seat.stack) || 0;
+        const variantStr = String(t?.game_variant ?? '').toLowerCase();
+        const isPloCash =
+          variantStr === 'plo4' ||
+          variantStr === 'plo5' ||
+          variantStr === 'plo6' ||
+          variantStr === 'plo8';
+        const ploStyle = isPloCash ? ploPersonaFor(seat.user_id).archetype : null;
+        const activePloStyle =
+          ploStyle === 'lag_shark' || ploStyle === 'tag_crusher' || ploStyle === 'tricky_trap';
+        const effectiveTopUpFrac = isPloCash && bb >= 5 && activePloStyle ? 0.8 : TOPUP_STACK_FRAC;
         if (
           minutes >= TOPUP_MIN_MINUTES &&
           stackNow > 0 &&
-          stackNow < buyIn * TOPUP_STACK_FRAC &&
+          stackNow < buyIn * effectiveTopUpFrac &&
           Math.random() < TOPUP_PROB
         ) {
           // Owner October 26: Add Chips targets the table maximum.
@@ -1353,27 +1484,48 @@ export class HorseSessionRotator {
            * not reload at all — it leaves, through the hazard below.
            */
           const roll = rolls.get(`${(seat as { club_id?: string }).club_id ?? ''}:${seat.user_id}`);
+          const seatKey = `${tableId}:${seat.user_id}`;
+          const isDiamondTable =
+            t?.arena?.asset === 'diamonds' ||
+            t?.is_diamond === true ||
+            diamondSeatKeys.has(seatKey);
+          const seatInvested = bankrollLedgerKnown
+            ? isDiamondTable
+              ? investedBySeat.get(seatKey)
+              : (investedBySeat.get(seatKey) ?? Math.max(stackNow, tableMin))
+            : undefined;
           const desiredTopUp = amount;
-          /* AN UNREAD ROLL REFUSES THE RELOAD, AS THIS FILE ALWAYS SAID IT DID
-             (2026-10-06). The note on the roll read promises that an
-             unreadable roll "refuses the top-up rather than uncapping it", and
-             the code skipped the cap instead: a horse whose roll could not be
-             read reloaded the full amount, uncapped. A reload is never urgent -
-             the seat is still funded - so with no roll there is no reload this
-             pass, and the next pass reads again. */
+          /* AN UNREAD ROLL OR UNREAD SESSION LEDGER REFUSES THE RELOAD
+             (2026-10-06, hardened 2026-11-10). Both `roll` and `investedThisTable`
+             fail closed: an incomplete `chip_ledger` page, an unread must-move
+             session baseline, or an unread Diamond custody movement never defaults
+             `investedThisTable` to 0 (which would bypass `stopLossBuyIns` and
+             cumulative exposure caps). */
           if (roll === undefined) amount = 0;
-          if (roll !== undefined) {
+          if (!bankrollLedgerKnown || seatInvested === undefined || seatInvested <= 0) amount = 0;
+          if (
+            roll !== undefined &&
+            bankrollLedgerKnown &&
+            seatInvested !== undefined &&
+            seatInvested > 0
+          ) {
             amount = topUpAllowance({
               bankroll: roll,
-              investedThisTable: investedBySeat.get(`${tableId}:${seat.user_id}`) ?? 0,
+              investedThisTable: seatInvested,
               desired: amount,
               refBuyIn: buyIn,
               minBuyIn: tableMin,
               maxBuyIn: tableMax,
               policy: bankrollPolicyFor(seat.user_id),
             });
+            amount = Math.min(desiredTopUp, amount);
+            if (isDiamondTable) amount = Math.floor(amount);
           }
-          if (amount < desiredTopUp) amount = 0;
+          const partialHighPloAllowed =
+            isPloCash && bb >= 5 && activePloStyle && amount >= buyIn * 0.5;
+          if (!partialHighPloAllowed) {
+            if (amount < desiredTopUp) amount = 0;
+          }
           if (amount >= bb) {
             try {
               await engine.addChips(seat.user_id, amount);

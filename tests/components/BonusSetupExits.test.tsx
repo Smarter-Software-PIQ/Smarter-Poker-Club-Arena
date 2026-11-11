@@ -164,6 +164,7 @@ const mount = async (page: Page) => {
     </MemoryRouter>
   );
   await settle();
+  fireEvent.click(screen.getByRole('button', { name: 'Page Help' }));
 };
 /** Double Diamonds is retired (Dan 2026-10-16): a won game never asks first. */
 const noOffer = () =>

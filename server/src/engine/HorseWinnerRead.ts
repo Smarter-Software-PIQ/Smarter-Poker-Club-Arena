@@ -44,12 +44,44 @@ export const WINNER_Z = 2.326;
 export const WINNER_BLUFF_MOD = 0.6;
 /** Thin value against a proven winner (capped at neutral). */
 export const WINNER_VALUE_THIN_MOD = 0.85;
+/** Thin-value floor against a high-VPIP / high-stab LAG winner ("Bully-Breaker"):
+ *  LAG winners accumulate chips by stealing uncontested pots and stabbing wide,
+ *  never by playing tight ranges - throttling bluffs or thin value hands them free equity. */
+export const WINNER_LAG_VALUE_THIN_FLOOR = 1.12;
 /** Net per hand is clipped to this many big blinds, so one cooler cannot make a winner. */
 export const WINNER_CLIP_BB = 100;
 
 const DECAY = Math.pow(0.5, 1 / WINNER_HALF_LIFE_HANDS);
 const MAX_PLAYERS = 50_000;
 const MAX_HANDS_SEEN = 40_000;
+
+export const WINNER_READ_SCOPES = [
+  'holdem:cash',
+  'holdem:tournament',
+  'omaha:cash',
+  'omaha:tournament',
+  'sixplus:cash',
+  'sixplus:tournament',
+] as const;
+
+export type WinnerReadScope = (typeof WINNER_READ_SCOPES)[number];
+
+export function winnerReadScopeOf(
+  variant?: string | null,
+  format: string = 'cash'
+): WinnerReadScope {
+  const v = (variant || 'nlh').toLowerCase();
+  const family =
+    v.includes('short') || v === '6+' || v.includes('sixplus')
+      ? 'sixplus'
+      : v.startsWith('plo') || v === 'flo8' || v.includes('omaha')
+        ? 'omaha'
+        : 'holdem';
+  const f = (format || 'cash').toLowerCase();
+  const mode =
+    f === 'tournament' || f === 'mtt' || f === 'sng' || f === 'spins' ? 'tournament' : 'cash';
+  return `${family}:${mode}`;
+}
 
 export interface HorseWinnerReadRow {
   /** sum of weights */
@@ -73,6 +105,31 @@ export const createWinnerReadState = (): HorseWinnerReadState => ({
 });
 let state = createWinnerReadState();
 
+function resolveWinnerRow(userId: string, scope?: string | null): HorseWinnerReadRow | undefined {
+  if (!scope) return state.rows.get(userId);
+  const exact = state.rows.get(`${scope}|${userId}`);
+  if (exact) return exact;
+  for (const candidate of WINNER_READ_SCOPES) {
+    if (state.rows.has(`${candidate}|${userId}`)) return undefined;
+  }
+  return state.rows.get(userId);
+}
+
+function upsertWinnerRow(key: string, x: number): void {
+  const row = state.rows.get(key) ?? { w: 0, w2: 0, s: 0, q: 0 };
+  state.rows.delete(key);
+  row.w = row.w * DECAY + 1;
+  row.w2 = row.w2 * DECAY * DECAY + 1;
+  row.s = row.s * DECAY + x;
+  row.q = row.q * DECAY + x * x;
+  state.rows.set(key, row);
+}
+
+function rememberSeenHandKey(key: string): void {
+  state.seen.add(key);
+  while (state.seen.size > MAX_HANDS_SEEN) state.seen.delete(state.seen.values().next().value!);
+}
+
 /** Synchronous private boundary, restored even when a decision throws. */
 export function runWithWinnerReadState<T>(isolated: HorseWinnerReadState, fn: () => T): T {
   const live = state;
@@ -85,12 +142,15 @@ export function runWithWinnerReadState<T>(isolated: HorseWinnerReadState, fn: ()
 }
 
 /** Read evidence only: dedupe and unrelated players never enter a frame. */
-export function snapshotWinnerReads(ids: readonly string[]): HorseWinnerReadState {
+export function snapshotWinnerReads(
+  ids: readonly string[],
+  scope?: string | null
+): HorseWinnerReadState {
   if (ids.length > 10 || new Set(ids).size !== ids.length)
     throw Error('Invalid Horse winner read boundary');
   const snapshot = createWinnerReadState();
   for (const id of ids) {
-    const row = state.rows.get(id);
+    const row = resolveWinnerRow(id, scope);
     if (row) snapshot.rows.set(id, { ...row });
   }
   return snapshot;
@@ -102,25 +162,39 @@ export interface WinnerResult {
   net: number;
 }
 
-/** Learn one completed hand. Idempotent per hand key. */
+/** Learn one completed hand. Idempotent per hand key (and any canonical/UUID aliases). */
 export function observeHandResults(
   handKey: string,
   results: ReadonlyArray<WinnerResult> | null | undefined,
-  bigBlind: number
+  bigBlind: number,
+  scope?: string | null,
+  aliasHandKeys?: readonly string[]
 ): boolean {
   if (!handKey || !results?.length || !(bigBlind > 0) || state.seen.has(handKey)) return false;
-  state.seen.add(handKey);
-  if (state.seen.size > MAX_HANDS_SEEN) state.seen.delete(state.seen.values().next().value!);
+  if (
+    aliasHandKeys?.some(
+      (alias) => typeof alias === 'string' && alias.length > 0 && state.seen.has(alias)
+    )
+  ) {
+    return false;
+  }
+  rememberSeenHandKey(handKey);
+  if (aliasHandKeys) {
+    for (const alias of aliasHandKeys) {
+      if (typeof alias === 'string' && alias.length > 0) rememberSeenHandKey(alias);
+    }
+  }
   for (const r of results) {
     if (!r || typeof r.user_id !== 'string' || !Number.isFinite(r.net)) continue;
     const x = Math.max(-WINNER_CLIP_BB, Math.min(WINNER_CLIP_BB, r.net / bigBlind));
-    const row = state.rows.get(r.user_id) ?? { w: 0, w2: 0, s: 0, q: 0 };
-    state.rows.delete(r.user_id);
-    row.w = row.w * DECAY + 1;
-    row.w2 = row.w2 * DECAY * DECAY + 1;
-    row.s = row.s * DECAY + x;
-    row.q = row.q * DECAY + x * x;
-    state.rows.set(r.user_id, row);
+    if (scope) {
+      upsertWinnerRow(`${scope}|${r.user_id}`, x);
+      if (!scope.endsWith(':tournament')) {
+        upsertWinnerRow(r.user_id, x);
+      }
+    } else {
+      upsertWinnerRow(r.user_id, x);
+    }
   }
   while (state.rows.size > MAX_PLAYERS) state.rows.delete(state.rows.keys().next().value!);
   return true;
@@ -135,8 +209,8 @@ export interface WinnerReadout {
   proven: boolean;
 }
 
-export function winnerReadout(userId: string): WinnerReadout | null {
-  const row = state.rows.get(userId);
+export function winnerReadout(userId: string, scope?: string | null): WinnerReadout | null {
+  const row = resolveWinnerRow(userId, scope);
   if (!row || row.w <= 0) return null;
   const mean = row.s / row.w;
   const variance = Math.max(0, row.q / row.w - mean * mean);
@@ -146,13 +220,27 @@ export function winnerReadout(userId: string): WinnerReadout | null {
   return { effectiveHands, meanBB: mean, seBB: se, proven };
 }
 
-export function isProvenWinner(userId: string): boolean {
-  return winnerReadout(userId)?.proven === true;
+export function isProvenWinner(userId: string, scope?: string | null): boolean {
+  return winnerReadout(userId, scope)?.proven === true;
 }
 
-/** The counter-strategy: fewer bluffs, no thin value; every other lever untouched. */
-export function respectWinner(profile: ExploitProfile, userId: string): ExploitProfile {
-  if (!isProvenWinner(userId)) return profile;
+/** The counter-strategy: fewer bluffs, no thin value against disciplined TAG winners;
+ *  against high-VPIP / high-stab LAG winners (`isLagBully`), keep full bluff playback
+ *  and expand thin value so wide stabs and loose calldowns are punished. */
+export function respectWinner(
+  profile: ExploitProfile,
+  userId: string,
+  isLagBully = false,
+  scope?: string | null
+): ExploitProfile {
+  if (!isProvenWinner(userId, scope)) return profile;
+  if (isLagBully) {
+    return {
+      bluffMod: profile.bluffMod,
+      callDownMod: profile.callDownMod,
+      valueThinMod: Math.max(profile.valueThinMod, WINNER_LAG_VALUE_THIN_FLOOR),
+    };
+  }
   return {
     bluffMod: profile.bluffMod * WINNER_BLUFF_MOD,
     callDownMod: profile.callDownMod,

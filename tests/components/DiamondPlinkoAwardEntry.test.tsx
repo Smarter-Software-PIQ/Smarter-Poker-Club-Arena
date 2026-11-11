@@ -132,10 +132,21 @@ const quoteFor = (boost: 1 | 2, minimumPayoutChips: number, plinkoTable = 4) => 
 /** A deck bay reads `<dt>label</dt><dd>value</dd>`, so the value is the next element. */
 const bay = (label: string) => screen.getByText(label).nextElementSibling;
 const selector = () => screen.getByRole('group', { name: 'Diamonds Per Drop' });
-const choiceLabels = () =>
-  within(selector())
-    .getAllByRole('button', { name: /Per Drop/ })
-    .map((b) => b.getAttribute('aria-label'));
+const choiceLabels = () => {
+  const values = new Set<string>();
+  const next = screen.getByRole('button', { name: 'Next Denominations' });
+  const previous = screen.getByRole('button', { name: 'Previous Denominations' });
+  for (let page = 0; page < 20; page++) {
+    const choices = within(selector()).getAllByRole('button', { name: /Per Drop/ });
+    expect(choices.length).toBeLessThanOrEqual(5);
+    choices.forEach((button) => values.add(button.getAttribute('aria-label')!));
+    if ((next as HTMLButtonElement).disabled) break;
+    fireEvent.click(next);
+  }
+  for (let page = 0; page < 20 && !(previous as HTMLButtonElement).disabled; page++)
+    fireEvent.click(previous);
+  return [...values];
+};
 const pressed = () =>
   within(selector())
     .getAllByRole('button')
@@ -631,6 +642,7 @@ describe('Plinko starts only its earned funding, on the player choice', () => {
     });
     render(<DiamondPlinkoPage />);
     await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: 'Page Help' }));
     fireEvent.click(screen.getByRole('button', { name: 'Spin The Wheel' }));
     expect(backend.navigate).toHaveBeenCalledWith(
       '/clubs/00000000-0000-0000-0000-000000000003/wheel'

@@ -1045,6 +1045,8 @@ export interface HorseTournamentUtilityLedger {
 }
 
 export interface HorseDecision {
+  /** Reference-only authority; later policy graph nodes may replace this choice. */
+  preflopAuthority?: import('./engine/HorsePreflop.js').PreflopAuthorityReceipt;
   featureAuthority?: import('./engine/HorseFeatureAuthority.js').HorseFeatureDecisionReceipt;
   correctivePolicy?: import('./services/horseCorrectiveReview/liveKernel.js').CorrectiveLiveKernelReceipt;
   /** Private reference lookup/route evidence; not final causal or GTO proof. */
