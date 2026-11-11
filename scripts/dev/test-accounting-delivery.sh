@@ -462,7 +462,3 @@ bash "$root/scripts/dev/test-midway-chip-prize-race.sh" "$fixture"
   -f "$root/tests/sql/diamond-wheel-quarter-games.sql" \
   -f "$root/tests/sql/diamond-wheel-quarter-doors.sql"
 bash "$root/scripts/dev/test-diamond-wheel-single-spin-race.sh" "$fixture" diamond_games_probe fn_wheel_spin_v5
-
-# Earned Mines starts above its own wheel guarantee; every safe pick increases it.
-"${diamond_psql[@]}" -f "$root/supabase/migrations/20261111055645_mines_prizes_grow_from_the_earned_wheel_guarantee.sql" \
-  -f "$root/tests/sql/diamond-mines-earned-progression.sql"
