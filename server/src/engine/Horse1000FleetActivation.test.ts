@@ -17,23 +17,19 @@ import {
 } from './HorsePersona.js';
 import {
   HORSE_FEATURE_FLAGS,
-  admitHorseFeatureLiveAuthority,
   admitHorseFeatureReleaseAuthority,
   featureDomainMatches,
-  horseFeatureAcceptanceUsable,
   horseFeatureDomainVerdict,
   liveHorseFeatureAuthority,
   type HorseFeatureDomain,
 } from './HorseFeatureAuthority.js';
 import {
   HORSE_TOURNAMENT_FLAG_CARD_NAMES,
-  admitHorseTournamentFlagLiveAuthority,
   admitHorseTournamentFlagReleaseAuthority,
   admittedTournamentFlag,
   tournamentFlagCardFor,
 } from './HorseTournamentFlagAuthority.js';
 import { HorsePhase8Safety, liveHorsePhase8Safety } from './HorsePhase8Safety.js';
-import { HorseQualifiedAuthorityHolder } from './HorseQualifiedAuthority.js';
 import { evaluatePlo4LivePolicy, plo4InputBindingIsValid } from './plo4/Plo4LivePolicy.js';
 import {
   evaluateOmahaVariantPolicy,
@@ -65,7 +61,6 @@ import {
 } from '../services/HorseBehavior.js';
 import { publishedCashPricing } from '../config/leagueCashPricing.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
-import type { HorseDecision } from '../types.js';
 
 function horseUuid(index: number): string {
   const hex = (index + 1).toString(16).padStart(12, '0');
@@ -180,109 +175,36 @@ describe('1,000-Horse Fleet Activation, Authority Gates, Omaha Geometry & Gear-S
     });
   });
 
-  describe('2. Owner-Forced Cash Feature Authority & Hand-#2+ Stack Drift Admission', () => {
-    it('keeps release selection unselected while admitting all 7 live cash features across NLH/PLO4/PLO5/PLO6 and Hand-#2+ uneven stacks', () => {
-      expect(admitHorseFeatureReleaseAuthority()).toEqual({
+  describe('2. Strict Release Feature Qualification & Hand-#2+ Stack Drift Domain Matching', () => {
+    it('enforces held-out release qualification for unselected cash feature flags while supporting Hand-#2+ drifted stacks on declared qualified domains', () => {
+      const release = admitHorseFeatureReleaseAuthority();
+      expect(release).toEqual({
         status: 'refused',
         reason: 'unselected',
         transient: false,
       });
 
-      const liveAdmission = admitHorseFeatureLiveAuthority();
-      expect(liveAdmission.status).toBe('admitted');
-      if (liveAdmission.status !== 'admitted')
-        throw new Error('Expected admitted live feature authority');
+      liveHorseFeatureAuthority.refresh();
+      expect(liveHorseFeatureAuthority.mainState()).toBe('unselected');
 
-      for (const flag of HORSE_FEATURE_FLAGS) {
-        expect(liveAdmission.authority.featureFlags?.[flag]).toBe(true);
-      }
-
-      liveHorseFeatureAuthority.ensureAdmitted();
-      expect(liveHorseFeatureAuthority.mainState()).toBe('usable');
-
-      const holder = new HorseQualifiedAuthorityHolder(
-        '11111111-1111-4111-8111-111111111111',
-        'horse-feature-promotion-v1'
+      const verdict = horseFeatureDomainVerdict(
+        liveHorseFeatureAuthority.mainAuthority(),
+        false,
+        {
+          gameVariant: 'nlh',
+          gameMode: 'cash',
+          players: [],
+          bigBlind: 2,
+          smallBlind: 1,
+        } as unknown as HorseGameStateV2,
+        {}
       );
-      holder.apply(liveAdmission);
-      liveHorseFeatureAuthority.observeWorker(holder.receipt());
-
-      // Hand #2+ cash state where Seat 0 won a 35 BB pot on Hand #1 (stacks 270 and 130, NOT 200/200!).
-      for (const variant of ['nlh', 'plo4', 'plo5', 'plo6'] as const) {
-        for (const asset of ['chips', 'diamonds'] as const) {
-          const gs = {
-            gameVariant: variant,
-            gameMode: 'cash',
-            asset,
-            boardCount: 1,
-            dealtSeatIds: [0, 1, 2],
-            players: [
-              {
-                seat: 0,
-                user_id: 'h0',
-                stack: 250,
-                bet: 10,
-                totalInvested: 20,
-                is_folded: false,
-                is_all_in: false,
-              },
-              {
-                seat: 1,
-                user_id: 'h1',
-                stack: 110,
-                bet: 10,
-                totalInvested: 20,
-                is_folded: false,
-                is_all_in: false,
-              },
-              {
-                seat: 2,
-                user_id: 'h2',
-                stack: 195,
-                bet: 0,
-                totalInvested: 5,
-                is_folded: true,
-                is_all_in: false,
-              },
-            ],
-            smallBlind: 1,
-            bigBlind: 2,
-            ante: 0,
-            bigBlindAnte: false,
-            bettingStructure: variant === 'nlh' ? 'no_limit' : 'pot_limit',
-            chipUnit: asset === 'diamonds' ? 1 : 0.01,
-            rakeConfig: { percent: 5, cap: 6, noFlopNoDrop: true },
-            bbjConfig: null,
-            pots: [{ amount: 45, eligiblePlayers: ['h0', 'h1'] }],
-            straddleActive: true,
-            bombPot: false,
-            allInOrFold: false,
-          } as unknown as HorseGameStateV2;
-
-          const verdict = horseFeatureDomainVerdict(liveAdmission.authority, true, gs, {});
-          expect(verdict.status, `${variant}/${asset}`).toBe('admitted');
-          expect(verdict.domain?.variant).toBe(variant);
-          for (const flag of HORSE_FEATURE_FLAGS) {
-            expect(verdict.flags[flag]).toBe(true);
-          }
-
-          const stampedDecision: HorseDecision = {
-            action: 'bet',
-            amount: 24,
-            thinkTime: 100,
-            featureAuthority: {
-              version: 'horse-feature-decision-v1',
-              authority: liveHorseFeatureAuthority.stamp(holder.receipt()),
-              compositionDigest: liveAdmission.authority.featureCompositionDigest!,
-              flags: verdict.flags,
-              domain: verdict.domain!,
-            },
-          };
-          expect(horseFeatureAcceptanceUsable(stampedDecision)).toBe(true);
-        }
+      expect(verdict.status).toBe('refused');
+      for (const flag of HORSE_FEATURE_FLAGS) {
+        expect(verdict.flags[flag]).toBe(false);
       }
 
-      // Declared single-domain featureDomainMatches also admits Hand #2+ drifted stacks inside effectiveStackBB.
+      // Declared single-domain featureDomainMatches admits Hand #2+ drifted stacks inside effectiveStackBB.
       const pricing = publishedCashPricing({
         tournament: false,
         variant: 'plo4',
@@ -334,41 +256,38 @@ describe('1,000-Horse Fleet Activation, Authority Gates, Omaha Geometry & Gear-S
     });
   });
 
-  describe('3. Owner-Forced PLO Tournament Flag Authority & Phase 8 Silent-Eligible Disarm', () => {
-    it('admits v53PloTourneyIcm across PLO4/PLO5/PLO6 tournament formats while keeping release selection unselected', () => {
-      expect(admitHorseTournamentFlagReleaseAuthority()).toEqual({
+  describe('3. Strict PLO Tournament Flag Qualification & Phase 8 Safety Sentinel', () => {
+    it('keeps unselected v53PloTourneyIcm cards fail-closed while mapping only measured mtt and sng objectives', () => {
+      const release = admitHorseTournamentFlagReleaseAuthority();
+      expect(release).toEqual({
         status: 'refused',
         reason: 'unselected',
       });
-
-      const live = admitHorseTournamentFlagLiveAuthority();
-      expect(live.status).toBe('admitted');
-      if (live.status !== 'admitted')
-        throw new Error('Expected admitted tournament flag authority');
-      expect([...live.cards]).toEqual([...HORSE_TOURNAMENT_FLAG_CARD_NAMES]);
+      expect(HORSE_TOURNAMENT_FLAG_CARD_NAMES.length).toBe(6);
 
       for (const variant of ['plo4', 'plo5', 'plo6'] as const) {
-        for (const format of ['mtt', 'sng', 'spin', 'hu_sng'] as const) {
+        for (const format of ['mtt', 'sng'] as const) {
           const gs = {
             gameVariant: variant,
             gameMode: 'tournament',
             format,
           } as unknown as HorseGameStateV2;
-          expect(tournamentFlagCardFor(gs)).not.toBeNull();
-          expect(admittedTournamentFlag(live, gs)).toBe(true);
+          expect(tournamentFlagCardFor(gs)).toBe(`${variant}_v53_icm_${format}`);
+          expect(admittedTournamentFlag(release, gs)).toBe(false);
         }
-        expect(
-          admittedTournamentFlag(live, {
+        for (const unmeasuredFormat of ['spin', 'hu_sng', ''] as const) {
+          const gs = {
             gameVariant: variant,
-            gameMode: 'cash',
-            format: 'mtt',
-          } as unknown as HorseGameStateV2)
-        ).toBe(false);
+            gameMode: 'tournament',
+            format: unmeasuredFormat,
+          } as unknown as HorseGameStateV2;
+          expect(tournamentFlagCardFor(gs)).toBeNull();
+          expect(admittedTournamentFlag(release, gs)).toBe(false);
+        }
       }
     });
 
-    it('disarms the 32-spot silent-eligible tripwire on liveHorsePhase8Safety while preserving standalone sentinel safety checks', () => {
-      // Standalone unit-test constructor keeps silentEligibleLimit enabled by default.
+    it('preserves Phase 8 silentEligibleLimit and illegal_candidate safety sentinels on liveHorsePhase8Safety', () => {
       const standalone = new HorsePhase8Safety();
       for (let i = 0; i < 32; i++) {
         standalone.observe({
@@ -381,24 +300,10 @@ describe('1,000-Horse Fleet Activation, Authority Gates, Omaha Geometry & Gear-S
         } as never);
       }
       expect(standalone.disabledReason).toBe('eligible_but_silent');
-
-      // Live worker sentinel never disables Phase 8 after 100+ agreeing spots.
-      const liveLike = new HorsePhase8Safety({ enforceSilentEligibleLimit: false });
-      for (let i = 0; i < 120; i++) {
-        liveLike.observe({
-          eligible: true,
-          fired: false,
-          changed: false,
-          reason: 'unchanged',
-          candidateCriticalCommitment: false,
-          baselineCriticalCommitment: false,
-        } as never);
-      }
-      expect(liveLike.disabledReason).toBeNull();
       expect(liveHorsePhase8Safety.disabledReason).toBeNull();
 
-      // Genuine safety faults still trip immediately.
-      liveLike.observe({
+      const faulted = new HorsePhase8Safety();
+      faulted.observe({
         eligible: true,
         fired: true,
         changed: true,
@@ -406,7 +311,7 @@ describe('1,000-Horse Fleet Activation, Authority Gates, Omaha Geometry & Gear-S
         candidateCriticalCommitment: false,
         baselineCriticalCommitment: false,
       } as never);
-      expect(liveLike.disabledReason).toBe('illegal_candidate');
+      expect(faulted.disabledReason).toBe('illegal_candidate');
     });
   });
 

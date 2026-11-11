@@ -296,7 +296,12 @@ export function evaluateSpot(spot: EvSpot): EvVerdict {
         break;
       }
       const m = models[i]?.foldMul ?? 1;
-      const singleFold = clamp(mdfFold(P + c, s, m) + foldCardRemovalDelta, 0.02, 0.94);
+      const baseMdf = mdfFold(P + c, s, m);
+      const singleFold = clamp(
+        baseMdf + foldCardRemovalDelta * (0.35 + 0.65 * baseMdf),
+        0.02,
+        0.94
+      );
       foldAll *= singleFold;
     }
     // The range that continues folded its weakest foldAll share.
@@ -359,6 +364,7 @@ export function riverCallVerdict(args: {
   pot: number;
   toCall: number;
   stack: number;
+  sideGamePotOverlay?: number;
   rakeMarg?: number;
   callDeductionFraction?: number;
   riskPremium?: number;
@@ -369,7 +375,8 @@ export function riverCallVerdict(args: {
   const rake = exact ? clamp(args.callDeductionFraction!, 0, 1) : clamp(args.rakeMarg ?? 0, 0, 0.5);
   const risk = clamp(args.riskPremium ?? 0, 0, 0.15);
   const riskShare = risk * Math.sqrt(clamp(c / Math.max(1, args.stack), 0, 1));
-  const award = (args.pot + c) * (1 - rake);
+  const sideBonus = Math.max(0, args.sideGamePotOverlay ?? 0);
+  const award = (args.pot + c) * (1 - rake) + sideBonus;
   // Report the same stack-share risk used by the unchanged action threshold.
   // Charging the full premium here could report a negative EV for a call
   // whose policy-adjusted equity is clearly above its price.
@@ -379,7 +386,7 @@ export function riverCallVerdict(args: {
   // call. Do not turn that price into a 99% threshold or mix into it.
   if (exact && c > 0 && award < c)
     return { call: false, required: award > 0 ? c / award : 1, evCall };
-  const rawRequired = c / ((args.pot + c) * (1 - rake)) + riskShare,
+  const rawRequired = c / award + riskShare,
     required = exact ? Math.max(0, rawRequired) : clamp(rawRequired, 0, 0.99);
   // Indifference band: within 1.5 equity points of the required number the
   // solver mixes; so does this.

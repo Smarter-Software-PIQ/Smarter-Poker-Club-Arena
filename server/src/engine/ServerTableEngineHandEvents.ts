@@ -33,6 +33,7 @@ import type { HandEvent, SeatedPlayer } from '../types.js';
 import { reportError } from '../services/errorReporter.js';
 import { raiseFinancialAlert } from '../services/financialAlerts.js';
 import { ServerTableEngineSettlement } from './ServerTableEngineSettlement.js';
+import { noteHorseTelemetryOpportunity } from './BrainTelemetry.js';
 import { prewarmHorseDecisionStreet } from './horseDecision/client.js';
 
 import { carryHorseTurnClock } from './HorseTurnClockReceipt.js';
@@ -883,12 +884,15 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
                   .players.filter((p) => !p.is_folded && p.stack > 0)
                   .map((p) => p.stack / bb) ?? [];
               const effBB = liveStacks.length > 0 ? Math.min(...liveStacks) : 100;
+              const prewarmVariant = (this.activeHandVariant() || 'nlh') as string;
+              const prewarmMode = this.isTournamentTable() ? 'tournament' : 'cash';
+              noteHorseTelemetryOpportunity(prewarmVariant, prewarmMode, 'street_dealt');
               prewarmHorseDecisionStreet({
                 fence: this.tableId,
                 street: event.stage,
                 board: liveBoardForPrewarm,
-                variant: (this.activeHandVariant() || 'nlh') as string,
-                mode: this.isTournamentTable() ? 'tournament' : 'cash',
+                variant: prewarmVariant,
+                mode: prewarmMode,
                 effectiveStackBB: effBB,
               });
             } catch {

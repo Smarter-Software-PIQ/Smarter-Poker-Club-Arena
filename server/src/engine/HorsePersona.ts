@@ -249,14 +249,36 @@ export function indifferenceStyleSeedsFor(
  * - If candidate trails reference by > 0.12 BB (`evGapBB < -0.12`), ALWAYS returns false (zero -EV sacrifice).
  * - Inside [-0.12, +0.12] BB, applies the bounded per-horse style bias.
  */
-export function resolveIndifferenceTieBreak(evGapBB: number, biasBB: number): boolean {
+export interface IndifferenceSpotContext {
+  potBB?: number;
+  bubbleFactor?: number;
+  handKey?: string | number;
+  street?: string;
+}
+
+export function resolveIndifferenceTieBreak(
+  evGapBB: number,
+  biasBB: number,
+  spot?: IndifferenceSpotContext
+): boolean {
   if (!Number.isFinite(evGapBB)) return false;
-  if (evGapBB > HORSE_INDIFFERENCE_EV_BAND_BB) return true;
-  if (evGapBB < -HORSE_INDIFFERENCE_EV_BAND_BB) return false;
+  const bf =
+    spot?.bubbleFactor !== undefined && Number.isFinite(spot.bubbleFactor) && spot.bubbleFactor > 1
+      ? spot.bubbleFactor
+      : 1;
+  const effectiveBand = HORSE_INDIFFERENCE_EV_BAND_BB / Math.min(2, Math.sqrt(bf));
+  if (evGapBB > effectiveBand) return true;
+  if (evGapBB < -effectiveBand) return false;
+  let jitter = 0;
+  if (spot && (spot.handKey !== undefined || spot.street !== undefined)) {
+    const h = personaHash(`${String(spot.handKey ?? 0)}|${spot.street ?? ''}|indiff`);
+    jitter =
+      (((h % 401) - 200) / 10000) * Math.min(1, effectiveBand / HORSE_INDIFFERENCE_EV_BAND_BB);
+  }
   const boundedBias = clamp(
-    Number.isFinite(biasBB) ? biasBB : 0,
-    -HORSE_INDIFFERENCE_EV_BAND_BB,
-    HORSE_INDIFFERENCE_EV_BAND_BB
+    (Number.isFinite(biasBB) ? biasBB : 0) + jitter,
+    -effectiveBand,
+    effectiveBand
   );
   return evGapBB + boundedBias >= 0;
 }

@@ -26,7 +26,13 @@ import { publicMemoryDomainFromRules } from '../engine/HorsePublicMemoryDomain.j
  */
 import { HorseLogic, type HorseGameStateV2 } from '../engine/HorseLogic.js';
 import { riverNutsRaise } from '../engine/HorseRiverNuts.js';
-import { noteFire } from '../engine/BrainTelemetry.js';
+import {
+  noteFire,
+  noteHorseLegalizerDegraded,
+  noteHorseTelemetryOpportunity,
+} from '../engine/BrainTelemetry.js';
+import * as EngineMetrics from '../observability/engineInstruments.js';
+import { horseDecisionFallbackReason } from '../engine/horseDecision/fallbackReason.js';
 import { resolveHorseHybridProfile } from '../engine/HorseHybridProfile.js';
 import { horseVariantRulesFor } from '../engine/VariantRules.js';
 import {
@@ -80,6 +86,8 @@ export interface LightningHorseTurn {
   earlyLook?: boolean;
   /** PLO PRESUMPTION (2026-10-25): the participants a person plays. */
   humanUserIds?: readonly string[];
+  sevenDeuceEnabled?: boolean;
+  sevenDeuceBountyBB?: number;
 }
 
 export interface LightningHorseDecision {
@@ -170,6 +178,12 @@ export function buildLightningHorseSnapshot(turn: LightningHorseTurn): LiveHorse
     bigBlindAnte: turn.bigBlindAnte,
     allInOrFold: turn.allInOrFold,
     straddleActive: false,
+    ...(turn.sevenDeuceEnabled === true
+      ? {
+          sevenDeuceEnabled: true,
+          sevenDeuceBountyBB: Number(turn.sevenDeuceBountyBB ?? 2) || 2,
+        }
+      : {}),
     format: 'cash' as const,
   } as unknown as HorseGameStateV2;
   // Receipt (#8065): this Lightning decision carries its original hand and lease.
@@ -206,6 +220,9 @@ export async function decideLightningHorse(
     turn.hc.getAuthoritativeActionState(turn.userId, { asIfToAct: turn.earlyLook === true })
       ?.toCall ?? 0;
   try {
+    if (!turn.earlyLook) {
+      noteHorseTelemetryOpportunity(turn.variant, 'cash', 'decision_started');
+    }
     const snapshot = buildLightningHorseSnapshot(turn);
     const fast = await lane().decideFast(snapshot, signal, {
       deadlineMs: horseDecisionDeadlineMs({
@@ -222,6 +239,16 @@ export async function decideLightningHorse(
     };
   } catch (err) {
     if (signal.aborted) throw err;
+    try {
+      EngineMetrics.horseDecisionFallbacksTotal.inc(1, {
+        reason: horseDecisionFallbackReason(err),
+      });
+      if (!turn.earlyLook) {
+        noteHorseLegalizerDegraded(turn.variant, 'cash', 'lightning_timeout');
+      }
+    } catch {
+      /* metrics must never affect gameplay */
+    }
     onWorkerFailure?.(err);
     return {
       action: toCall > 0 ? 'fold' : 'check',

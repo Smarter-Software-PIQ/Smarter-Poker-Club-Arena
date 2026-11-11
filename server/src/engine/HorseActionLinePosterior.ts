@@ -196,18 +196,22 @@ export function computeActionLinePosterior(input: ActionLinePosteriorInput): Act
   let wFloat = 0.22;
   let wAir = isOmaha ? (holeCount >= 5 ? 0.09 : 0.15) : 0.2;
 
-  // Adjust prior weakly from public VPIP/PFR/AF if known:
+  // Adjust prior weakly from public VPIP/PFR/AF if known, shrunk by sample credibility:
   if (tendency) {
+    const cred = Math.min(
+      1,
+      Math.max(0, (tendency as { sampleSize?: number }).sampleSize ?? 20) / 25
+    );
     if (tendency.vpip !== undefined && tendency.vpip > 0.42) {
-      wFloat += 0.05;
-      wAir += 0.05;
+      wFloat += 0.05 * cred;
+      wAir += 0.05 * cred;
     } else if (tendency.vpip !== undefined && tendency.vpip < 0.2) {
-      wTop += 0.05;
-      wAir = Math.max(0.05, wAir - 0.06);
+      wTop += 0.05 * cred;
+      wAir = Math.max(0.05, wAir - 0.06 * cred);
     }
     if (tendency.aggFactor !== undefined && tendency.aggFactor > 2.8) {
-      wAir += 0.04;
-      wDraw += 0.03;
+      wAir += 0.04 * cred;
+      wDraw += 0.03 * cred;
     }
   }
 
@@ -225,6 +229,8 @@ export function computeActionLinePosterior(input: ActionLinePosteriorInput): Act
   let runningPot = Math.max(bb * 1.5, bb * Math.max(2, multiwayCount));
   let flopAggressor = false;
   let turnCheckedThrough = false;
+  let currentTrackStreet = 'preflop';
+  const seatStreetCommitted = new Map<string, number>();
 
   if (actionHistory && actionHistory.length > 0) {
     for (let i = 0; i < actionHistory.length; i++) {
@@ -232,6 +238,25 @@ export function computeActionLinePosterior(input: ActionLinePosteriorInput): Act
       const act = e.action;
       const amt = Math.max(0, e.amount ?? 0);
       const st = e.stage ?? 'preflop';
+      if (st !== currentTrackStreet) {
+        currentTrackStreet = st;
+        seatStreetCommitted.clear();
+      }
+      const actorKey =
+        e.seat !== undefined ? `s:${e.seat}` : e.userId ? `u:${e.userId}` : `idx:${i}`;
+      const prevCommitted = seatStreetCommitted.get(actorKey) ?? 0;
+      const deltaAdded =
+        act === 'raise' || act === 'all_in'
+          ? amt > prevCommitted
+            ? amt - prevCommitted
+            : amt
+          : amt;
+      if (amt > 0) {
+        seatStreetCommitted.set(
+          actorKey,
+          act === 'raise' || act === 'all_in' ? Math.max(prevCommitted, amt) : prevCommitted + amt
+        );
+      }
       const isVillain = matchesVillain(e, villainUserId, villainSeat);
 
       if (st === 'preflop') {
@@ -244,18 +269,18 @@ export function computeActionLinePosterior(input: ActionLinePosteriorInput): Act
             preflopAggressor = false;
           }
         }
-        if (amt > 0) runningPot += amt;
+        if (deltaAdded > 0) runningPot += deltaAdded;
         continue;
       }
 
       if (!isVillain) {
-        if (amt > 0) runningPot += amt;
+        if (deltaAdded > 0) runningPot += deltaAdded;
         continue;
       }
 
       streetActionsSeen++;
       const potBefore = Math.max(bb * 2, runningPot);
-      const potFrac = amt > 0 ? amt / potBefore : 0;
+      const potFrac = deltaAdded > 0 ? deltaAdded / potBefore : 0;
       const tex =
         st === 'flop'
           ? flopFacts
@@ -293,6 +318,7 @@ export function computeActionLinePosterior(input: ActionLinePosteriorInput): Act
           }
         } else if (st === 'river') {
           wNut *= 0.35;
+          wDraw *= 0.02;
           wAir *= 0.8;
           wFloat *= 1.3;
           rangeCapped = true;
@@ -313,7 +339,7 @@ export function computeActionLinePosterior(input: ActionLinePosteriorInput): Act
           wFloat *= potFrac <= 0.45 ? 0.95 : 0.55;
           wAir *= 0.25;
         } else if (st === 'river') {
-          wDraw *= 0.05;
+          wDraw *= 0.02;
           wAir *= 0.05;
           wTop *= 1.25;
         }
@@ -392,7 +418,7 @@ export function computeActionLinePosterior(input: ActionLinePosteriorInput): Act
         }
       }
 
-      if (amt > 0) runningPot += amt;
+      if (deltaAdded > 0) runningPot += deltaAdded;
     }
   }
 
@@ -439,23 +465,30 @@ export function computeActionLinePosterior(input: ActionLinePosteriorInput): Act
       : airBlocker + floatWeakDraw * 0.25 + nutDrawWrap * 0.35;
   const bluffShareEstimate = Math.max(0.04, Math.min(0.6, rawBluffShare));
 
-  // Derive narrowed [lo, hi] percentile range for MonteCarloEquity:
-  // Top of deck is 0.0; wider = larger hi. Capped lines push `lo` slightly above 0.0 (removing pure top-of-range nuts).
-  let lo = 0.0;
-  let hi = isOmaha ? 0.55 : 0.45;
-  if (rangeCapped && nutted < 0.11) {
-    lo = Math.min(0.1, (0.11 - nutted) * 0.75);
-  }
+  // Derive narrowed [lo, hi] percentile range matching HorseEval's ascending [0..1]
+  // CDF convention (0.0 = weakest hand, 1.0 = pure nuts):
+  // - Capped lines clamp `hi` below 1.0 (trimming pure top-of-range nuts).
+  // - Uncapped / polarized aggressive lines raise `lo` toward the upper slice while keeping `hi = 1.0`.
   const valueConcentration = nutted + overpairTopPair;
-  hi = Math.max(
-    lo + 0.12,
-    Math.min(0.85, 0.72 - valueConcentration * 0.62 + (airBlocker + floatWeakDraw) * 0.28)
-  );
-
-  // Use pot size lightly to tighten deep big-pot ranges:
-  const potBB = pot / bb;
-  if (potBB >= 45 && polarized && !rangeCapped) {
-    hi = Math.max(lo + 0.12, hi * 0.88);
+  let lo: number;
+  let hi: number;
+  if (rangeCapped) {
+    hi = Math.max(0.35, Math.min(0.95, 0.72 + (valueConcentration + nutDrawWrap * 0.35) * 0.26));
+    lo = Math.max(
+      0.08,
+      Math.min(hi - 0.14, 0.22 + valueConcentration * 0.38 - (airBlocker + floatWeakDraw) * 0.16)
+    );
+  } else {
+    hi = 1.0;
+    const baseLo = isOmaha ? 0.42 : 0.5;
+    lo = Math.max(
+      0.12,
+      Math.min(0.86, baseLo + valueConcentration * 0.34 - (airBlocker + floatWeakDraw) * 0.22)
+    );
+    const potBB = pot / bb;
+    if (potBB >= 45 && polarized) {
+      lo = Math.min(0.88, lo + 0.06);
+    }
   }
 
   return {

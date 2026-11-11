@@ -595,7 +595,7 @@ describe('Mid-Orbit Re-Entry, Incomplete All-Ins, V38 Isolation Guard & Side Gam
     });
     expect(pre72.heroHoldsSevenDeuce).toBe(true);
     expect(pre72.collectibleBountyChips).toBe(30);
-    expect(pre72.preflopStrengthBonus).toBeGreaterThan(0.15);
+    expect(pre72.preflopStrengthBonus).toBe(0.15);
     expect(pre72.effectivePotOverlayChips).toBeLessThan(30);
 
     const flop72 = computeSevenDeuceOverlay({

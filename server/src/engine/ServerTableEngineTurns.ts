@@ -73,7 +73,12 @@ import { reportError } from '../services/errorReporter.js';
 import { ServerTableEngineSeating } from './ServerTableEngineSeating.js';
 // Static watchdog thresholds live on the Base class (single source of truth).
 import { ServerTableEngineBase } from './ServerTableEngineBase.js';
-import { noteFire, noteHorseActionClamped, noteHorseLegalizerDegraded } from './BrainTelemetry.js';
+import {
+  noteFire,
+  noteHorseActionClamped,
+  noteHorseLegalizerDegraded,
+  noteHorseTelemetryOpportunity,
+} from './BrainTelemetry.js';
 import { DECISION_QUEUE_AGE_DISTRESS_MS } from '../decisionPipelinePressure.js';
 import { isHorseDecisionShardBusy } from './horseDecision/client.js';
 import {
@@ -4447,6 +4452,11 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     let workerRefusalReason: string | undefined;
     let fastDecision: Promise<FastHorseDecisionResult>;
     try {
+      noteHorseTelemetryOpportunity(
+        activeVariant,
+        tournamentHand ? 'tournament' : 'cash',
+        'decision_started'
+      );
       // THE DECISION DEADLINE IS THE TURN CLOCK (2026-09-17). The job may
       // live for what is left of this seat's action clock, less the margin
       // the engine needs to act on the answer - not a fixed 8 s that gave up
@@ -5081,9 +5091,21 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                 Number(this.tableInfo?.cap_bb) || 0,
                 Number(this.tableInfo?.big_blind) || 0
               );
+              const commitPublicPlayers: SeatPlayer[] = currentState.players.map((candidate) => {
+                const { knownDeadCards: _privateDeadCards, ...publicCandidate } = candidate;
+                return {
+                  ...publicCandidate,
+                  // HIDDEN-INFORMATION FIREWALL: never attach opponent hole cards on commitState.
+                  cards: [],
+                  is_sitting_out:
+                    candidate.is_sitting_out === true ||
+                    (!candidate.is_all_in &&
+                      this.disconnectEngine.isSittingOut(this.tableId, candidate.user_id)),
+                };
+              });
               const commitState = {
                 ...gameState,
-                players: currentState.players,
+                players: commitPublicPlayers,
                 communityCards: currentState.communityCards,
                 communityCards2: currentState.communityCards2,
                 communityCards3: currentState.communityCards3,
@@ -5176,6 +5198,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
             }
 
             const horseWatchMode = tournamentHand ? 'tournament' : 'cash';
+            noteHorseTelemetryOpportunity(activeVariant, horseWatchMode, 'commit_evaluated');
             const wholeChipWager =
               tournamentHand ||
               this.tableInfo?.arena?.asset === 'diamonds' ||
@@ -5235,7 +5258,10 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                     horseWatchMode,
                     rawAmount > legalMax ? 'above_max_bet' : 'below_min_bet'
                   );
-                  if (rawAmount > legalMax && !commitActions.legalActions.includes('all_in')) {
+                  if (
+                    rawAmount > legalMax * 1.02 + (wholeChipWager ? 1 : 0.05) &&
+                    !commitActions.legalActions.includes('all_in')
+                  ) {
                     noteHorseLegalizerDegraded(activeVariant, horseWatchMode, 'pot_or_cap_max_bet');
                   }
                 }
@@ -5279,7 +5305,10 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                     horseWatchMode,
                     rawAmount > legalMax ? 'above_max_raise' : 'below_min_raise'
                   );
-                  if (rawAmount > legalMax && !commitActions.legalActions.includes('all_in')) {
+                  if (
+                    rawAmount > legalMax * 1.02 + (wholeChipWager ? 1 : 0.05) &&
+                    !commitActions.legalActions.includes('all_in')
+                  ) {
                     noteHorseLegalizerDegraded(
                       activeVariant,
                       horseWatchMode,
@@ -5352,6 +5381,12 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
               if (substituted !== action) {
                 action = substituted as typeof action;
                 amount = substituted === 'call' ? toCall : undefined;
+                noteHorseActionClamped(activeVariant, horseWatchMode, 'fixed_limit_capped_street');
+                noteHorseLegalizerDegraded(
+                  activeVariant,
+                  horseWatchMode,
+                  'fixed_limit_capped_street'
+                );
               }
             }
 
@@ -5367,6 +5402,9 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
               promotedToAllIn &&
               action === 'all_in' &&
               !commitActions.legalActions.includes('all_in');
+            if (promotedShoveIsIllegal) {
+              noteHorseLegalizerDegraded(activeVariant, horseWatchMode, 'promoted_shove_illegal');
+            }
 
             const normalizedAmount =
               typeof amount === 'number' && Number.isFinite(amount) ? amount : null;
@@ -5428,6 +5466,11 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
             ): boolean => {
               if (origin === 'horse_policy' && !horseFeatureAcceptanceUsable(decision)) {
                 noteFire('horse_feature_authority_withdrawn_before_acceptance');
+                noteHorseLegalizerDegraded(
+                  activeVariant,
+                  horseWatchMode,
+                  'feature_authority_refused'
+                );
                 return false;
               }
               const receiptsBefore = acceptedActions.length;
@@ -5459,6 +5502,9 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
               return returned || acceptedActions.length > receiptsBefore;
             };
             worker.runWithDispatchBarrier(() => {
+              if (decision.policyFallback === 'brain_exception') {
+                noteHorseLegalizerDegraded(activeVariant, horseWatchMode, 'brain_exception');
+              }
               if (!promotedShoveIsIllegal) {
                 applied = attemptAction(
                   action as ActionType,
@@ -5518,6 +5564,9 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                     });
               }
               if (!applied) {
+                if (!promotedShoveIsIllegal) {
+                  noteHorseLegalizerDegraded(activeVariant, horseWatchMode, 'controller_rejected');
+                }
                 attemptingFallback = true;
                 console.warn(
                   '[ServerTableEngine:' +

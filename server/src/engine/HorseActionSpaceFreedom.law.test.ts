@@ -59,10 +59,17 @@ import {
   noteHorseLegalizerDegraded,
   noteHorsePlanReevaluated,
   noteHorseStreetPrewarm,
+  noteHorseTelemetryOpportunity,
   peekBrainWatchcounters,
   renderBrainWatchcountersPrometheus,
   resetBrainWatchcountersForTest,
+  seedBrainWatchcounters,
 } from './BrainTelemetry.js';
+import {
+  alwaysOnPrometheusLines,
+  horseDecisionFallbacksTotal,
+} from '../observability/engineInstruments.js';
+import { HORSE_DECISION_FALLBACK_REASONS } from './horseDecision/fallbackReason.js';
 import {
   horseDecisionReceiptIsValid,
   horsePhase10SelectionIsValid,
@@ -82,18 +89,22 @@ import {
   controllerSpotRandom,
 } from './remainingVariants/RemainingVariantControllerSpots.test-support.js';
 import { captureHorseHandJournalContext } from './HorseDecisionHandBinding.js';
-import { seedFastRandom, simulateCorrelatedMultiBoardEquity, variantInfo } from './HorseEval.js';
+import {
+  fastRandom,
+  seedFastRandom,
+  simulateCorrelatedMultiBoardEquity,
+  variantInfo,
+} from './HorseEval.js';
+import { _clearGtoPostflop } from './GtoPostflop.js';
 import { buildTournamentMState } from './HorseTournamentPreflop.js';
 import {
-  admitHorseFeatureLiveAuthority,
   admitHorseFeatureReleaseAuthority,
   HORSE_FEATURE_FLAGS,
-  horseFeatureAcceptanceUsable,
   horseFeatureDomainVerdict,
   liveHorseFeatureAuthority,
+  type HorseFeatureDomain,
 } from './HorseFeatureAuthority.js';
 import {
-  admitHorseTournamentFlagLiveAuthority,
   admitHorseTournamentFlagReleaseAuthority,
   admittedTournamentFlag,
   HORSE_TOURNAMENT_FLAG_CARD_NAMES,
@@ -101,9 +112,21 @@ import {
 } from './HorseTournamentFlagAuthority.js';
 import { HorsePhase8Safety, liveHorsePhase8Safety } from './HorsePhase8Safety.js';
 import {
+  HORSE_OWNER_FORCED_ACTIVATION,
+  HORSE_OWNER_FORCED_ACTIVATION_ENABLED,
+} from './HorseOwnerForcedActivation.js';
+import {
+  computeHorseUpgradeActivationManifest,
+  HORSE_UPGRADE_MANIFEST_SCHEMA,
+  HORSE_UPGRADE_MANIFEST_VERSION,
+  verifyWorkerUpgradeManifestCompatibility,
+  type HorseUpgradeCapabilityEntry,
+} from './HorseUpgradeActivationManifest.js';
+import {
   HorseQualifiedAuthorityHolder,
   liveHorsePhase8Authority,
   type HorsePhase8AuthorityGate,
+  type HorseQualifiedAuthority,
 } from './HorseQualifiedAuthority.js';
 import {
   admitHorsePhase10LiveAuthority,
@@ -318,7 +341,25 @@ async function runCellThroughWorkerAndController(opts: PlayCellOptions) {
       const live = controller.getState();
       if (live.stage === 'pineapple_discard') {
         for (const p of live.players.filter((x) => !x.is_folded && x.cards.length === 3)) {
-          expect(controller.performDiscard(p.seat, 0)).toBe(true);
+          const beforeDiscard = messages.length;
+          worker.receive({
+            type: 'DECIDE_DISCARD',
+            requestId: requestId++,
+            generation: 1,
+            fence: `${tableId}:${config.handNumber}:discard:${p.seat}:1`,
+            cards: [...p.cards],
+            communityCards: [...live.communityCards],
+            gameVariant: 'pineapple',
+          });
+          await worker.drain();
+          const discardRes = messages
+            .slice(beforeDiscard)
+            .find((m) => m.type === 'DISCARD_RESULT') as
+            | (HorseDecisionWorkerResponse & { cardIndex: number })
+            | undefined;
+          expect(discardRes).toBeDefined();
+          expect([0, 1, 2]).toContain(discardRes!.cardIndex);
+          expect(controller.performDiscard(p.seat, discardRes!.cardIndex)).toBe(true);
         }
         controller.flushPineappleSettle();
         continue;
@@ -495,26 +536,9 @@ async function runCellThroughWorkerAndController(opts: PlayCellOptions) {
       if (response.featureAuthority) {
         liveHorseFeatureAuthority.observeWorker(response.featureAuthority);
       }
-      if (
-        mode === 'cash' &&
-        !bombPotBoards &&
-        (variant === 'nlh' || variant === 'plo4' || variant === 'plo5' || variant === 'plo6') &&
-        decision.featureAuthority
-      ) {
-        expect(decision.featureAuthority.domain.variant).toBe(variant);
-        const stampedDecision: HorseDecision = {
-          ...decision,
-          featureAuthority: {
-            ...decision.featureAuthority,
-            authority: liveHorseFeatureAuthority.stamp(decision.featureAuthority.authority),
-          },
-        };
-        expect(horseFeatureAcceptanceUsable(stampedDecision)).toBe(true);
-        for (const flagName of HORSE_FEATURE_FLAGS) {
-          expect(decision.featureAuthority.flags[flagName]).toBe(true);
-        }
-        stats.featureAuthorityVerified++;
-      }
+      // Production-default release governance: unselected feature flags remain refused
+      // and never force-inject unqualified featureAuthority receipts.
+      expect(decision.featureAuthority).toBeUndefined();
 
       if (response.phase8Authority)
         liveHorsePhase8Authority.observeWorker(response.phase8Authority);
@@ -676,81 +700,137 @@ describe('LAW: 1,000-Horse Full Action-Space Freedom & Fleet Activation', () => 
     expect(ritAcceptCount).toBeLessThan(900);
   });
 
-  it('admits live owner-forced feature, tournament ICM, and Phase 8 authorities without Hand-1 stack gating or 32-spot silent withdrawal', () => {
-    const featLive = admitHorseFeatureLiveAuthority();
-    expect(featLive.status).toBe('admitted');
-    expect(admitHorseFeatureReleaseAuthority().status).toBe('refused');
-    liveHorseFeatureAuthority.ensureAdmitted();
-    expect(liveHorseFeatureAuthority.mainState()).toBe('usable');
+  it('enforces strict release qualification on unselected feature & tournament flags while admitting Phases 8-14 and Hand-#2+ feature domains', () => {
+    // 1. Unselected / unqualified feature & tournament-flag authorities remain strictly refused
+    expect(admitHorseFeatureReleaseAuthority()).toEqual({
+      status: 'refused',
+      reason: 'unselected',
+      transient: false,
+    });
+    expect(admitHorseTournamentFlagReleaseAuthority()).toEqual({
+      status: 'refused',
+      reason: 'unselected',
+    });
+    liveHorseFeatureAuthority.refresh();
+    expect(liveHorseFeatureAuthority.mainState()).toBe('unselected');
 
-    if (featLive.status !== 'admitted') throw new Error('Expected admitted live feature authority');
+    // Owner-forced activation covers ONLY Phases 8, 10, 11, 12, 13, 14 — never unqualified feature or tournament flags
+    expect(HORSE_OWNER_FORCED_ACTIVATION_ENABLED).toBe(true);
+    expect([...HORSE_OWNER_FORCED_ACTIVATION.phases]).toEqual([
+      'phase8',
+      'phase10',
+      'phase11',
+      'phase12',
+      'phase13',
+      'phase14',
+    ]);
+
+    // 2. Hand-#2+ uneven stacks (140.5 BB, 63 BB vs startingStackBB=100) pass featureDomainMatches
+    //    when a qualified feature authority exists, while null authority refuses cleanly.
+    const allTrueFlags = Object.fromEntries(HORSE_FEATURE_FLAGS.map((k) => [k, true])) as Record<
+      (typeof HORSE_FEATURE_FLAGS)[number],
+      boolean
+    >;
+
     for (const variant of ['nlh', 'plo4', 'plo5', 'plo6'] as const) {
-      const verdict = horseFeatureDomainVerdict(
-        featLive.authority,
-        true,
-        {
-          gameVariant: variant,
-          gameMode: 'cash',
-          asset: 'chips',
-          boardCount: 1,
-          dealtSeatIds: [1, 2, 3],
-          smallBlind: 2.5,
-          bigBlind: 5,
-          ante: 0,
-          bigBlindAnte: false,
-          bettingStructure: variant === 'nlh' ? 'no_limit' : 'pot_limit',
-          chipUnit: 0.01,
-          bombPot: false,
-          straddleActive: false,
-          allInOrFold: false,
-          bbjConfig: null,
-          pots: [{ amount: 20, eligiblePlayers: ['u1', 'u2'] }],
-          rakeConfig: { percent: 5, cap: 15, noFlopNoDrop: true },
-          players: [
-            {
-              seat: 1,
-              user_id: 'u1',
-              stack: 687.5,
-              bet: 0,
-              totalInvested: 15,
-              is_folded: false,
-              is_all_in: false,
-              is_sitting_out: false,
-            }, // 140.5 BB (Hand #2+)
-            {
-              seat: 2,
-              user_id: 'u2',
-              stack: 310,
-              bet: 0,
-              totalInvested: 5,
-              is_folded: false,
-              is_all_in: false,
-              is_sitting_out: false,
-            }, // 63 BB (Hand #2+)
-            {
-              seat: 3,
-              user_id: 'u3',
-              stack: 520,
-              bet: 0,
-              totalInvested: 0,
-              is_folded: true,
-              is_all_in: false,
-              is_sitting_out: false,
-            },
-          ],
-        } as unknown as HorseGameStateV2,
-        {}
-      );
+      const domain: HorseFeatureDomain = {
+        variant,
+        mode: 'cash',
+        asset: 'chips',
+        boardCount: 1,
+        dealtSeats: [1, 2, 3],
+        remainingPlayers: [2, 3, 4, 5, 6],
+        effectiveStackBB: [40, 250],
+        startingStackBB: 100,
+        smallBlind: 2.5,
+        bigBlind: 5,
+        ante: 0,
+        bigBlindAnte: false,
+        bettingStructure: variant === 'nlh' ? 'no_limit' : 'pot_limit',
+        chipUnit: 0.01,
+        rakeConfig: { percent: 5, cap: 15, noFlopNoDrop: true },
+        bbjConfig: null,
+        sidePots: false,
+      };
+      const syntheticQualifiedAuthority = {
+        schema: 'horse-qualified-authority-v1',
+        phase: 'features',
+        sourceSha: 'a'.repeat(40),
+        continuationVersion: 'horse-feature-promotion-v1',
+        policyDigest: 'b'.repeat(64),
+        packId: 'horse-feature-promotion-v1',
+        domain: `cash-${variant}`,
+        evidencePath: 'docs/evidence/feature-activation/test.json',
+        evidenceSha256: 'c'.repeat(64),
+        approvalGeneration: 1,
+        issuedAt: '2026-11-10T00:00:00.000Z',
+        expiresAt: null,
+        authorityKey: 'd'.repeat(64),
+        featureFlags: allTrueFlags,
+        featureDomain: domain,
+      } as unknown as HorseQualifiedAuthority;
+
+      const gs = {
+        gameVariant: variant,
+        gameMode: 'cash',
+        asset: 'chips',
+        boardCount: 1,
+        dealtSeatIds: [1, 2, 3],
+        smallBlind: 2.5,
+        bigBlind: 5,
+        ante: 0,
+        bigBlindAnte: false,
+        bettingStructure: variant === 'nlh' ? 'no_limit' : 'pot_limit',
+        chipUnit: 0.01,
+        bombPot: false,
+        straddleActive: false,
+        allInOrFold: false,
+        bbjConfig: null,
+        pots: [{ amount: 20, eligiblePlayers: ['u1', 'u2'] }],
+        rakeConfig: { percent: 5, cap: 15, noFlopNoDrop: true },
+        players: [
+          {
+            seat: 1,
+            user_id: 'u1',
+            stack: 687.5,
+            bet: 0,
+            totalInvested: 15,
+            is_folded: false,
+            is_all_in: false,
+            is_sitting_out: false,
+          }, // 140.5 BB (Hand #2+ uneven stack)
+          {
+            seat: 2,
+            user_id: 'u2',
+            stack: 310,
+            bet: 0,
+            totalInvested: 5,
+            is_folded: false,
+            is_all_in: false,
+            is_sitting_out: false,
+          }, // 63 BB (Hand #2+ uneven stack)
+          {
+            seat: 3,
+            user_id: 'u3',
+            stack: 520,
+            bet: 0,
+            totalInvested: 0,
+            is_folded: true,
+            is_all_in: false,
+            is_sitting_out: false,
+          },
+        ],
+      } as unknown as HorseGameStateV2;
+
+      expect(horseFeatureDomainVerdict(null, false, gs, {}).status).toBe('refused');
+      const verdict = horseFeatureDomainVerdict(syntheticQualifiedAuthority, true, gs, {});
       expect(verdict.status).toBe('admitted');
-      expect(verdict.domain?.variant).toBe(variant);
+      expect(verdict.flags.barrelContinuationOutlook).toBe(true);
     }
 
-    const tourneyLive = admitHorseTournamentFlagLiveAuthority();
-    expect(tourneyLive.status).toBe('admitted');
-    expect(admitHorseTournamentFlagReleaseAuthority().status).toBe('refused');
-    expect(tourneyLive.status === 'admitted' ? [...tourneyLive.cards] : []).toEqual([
-      ...HORSE_TOURNAMENT_FLAG_CARD_NAMES,
-    ]);
+    // 3. Unselected tournament flag returns false in production default; card mapping stays intact
+    const tourneyRefused = admitHorseTournamentFlagReleaseAuthority();
+    expect(HORSE_TOURNAMENT_FLAG_CARD_NAMES.length).toBe(6);
     for (const v of ['plo4', 'plo5', 'plo6'] as const) {
       for (const fmt of ['mtt', 'sng', 'spin', 'hu_sng'] as const) {
         const gs = {
@@ -758,27 +838,17 @@ describe('LAW: 1,000-Horse Full Action-Space Freedom & Fleet Activation', () => 
           gameMode: 'tournament',
           format: fmt,
         } as unknown as HorseGameStateV2;
-        expect(tournamentFlagCardFor(gs)).not.toBeNull();
-        expect(admittedTournamentFlag(tourneyLive, gs)).toBe(true);
+        if (fmt === 'mtt' || fmt === 'sng') {
+          expect(tournamentFlagCardFor(gs)).not.toBeNull();
+        } else {
+          expect(tournamentFlagCardFor(gs)).toBeNull();
+        }
+        expect(admittedTournamentFlag(tourneyRefused, gs)).toBe(false);
       }
     }
 
-    // Live Phase 8 safety never disables after >32 silent-eligible tournament postflop spots
-    const liveLike = new HorsePhase8Safety({ enforceSilentEligibleLimit: false });
-    for (let i = 0; i < 60; i++) {
-      liveLike.observe({
-        eligible: true,
-        fired: false,
-        changed: false,
-        reason: 'unchanged',
-        candidateCriticalCommitment: false,
-        baselineCriticalCommitment: false,
-      } as never);
-    }
-    expect(liveLike.disabledReason).toBeNull();
+    // 4. Phase 8 safety preserves strict 32-spot silent-eligible tripwire
     expect(liveHorsePhase8Safety.disabledReason).toBeNull();
-
-    // Standalone unit-test safety instance preserves strict 32-spot limit
     const unitSafety = new HorsePhase8Safety();
     for (let i = 0; i < 32; i++) {
       unitSafety.observe({
@@ -807,7 +877,6 @@ describe('LAW: 1,000-Horse Full Action-Space Freedom & Fleet Activation', () => 
           expect(stats.invalidReceipts).toBe(0);
           expect(stats.refusedAtMainGate).toBe(0);
           if (mode === 'cash') {
-            expect(stats.featureAuthorityVerified).toBeGreaterThan(0);
             for (const [k, count] of stats.modes.entries()) {
               if (k.endsWith(':shadow')) {
                 expect(count, `Unexpected shadow mode in ${variant} cash: ${k}`).toBe(0);
@@ -830,8 +899,7 @@ describe('LAW: 1,000-Horse Full Action-Space Freedom & Fleet Activation', () => 
             expect(diamondStats.decisions).toBeGreaterThan(2);
             expect(diamondStats.invalidReceipts).toBe(0);
             expect(diamondStats.refusedAtMainGate).toBe(0);
-            expect(diamondStats.featureAuthorityVerified).toBeGreaterThan(0);
-            const omahaOwner = variant === 'plo4' ? 'plo4Policy' : 'omahaPolicy';
+            const omahaOwner = variant === 'plo4' ? 'plo4Policy' : 'omahaVariantPolicy';
             expect(diamondStats.modes.get(`${omahaOwner}:shadow`) ?? 0).toBe(0);
           }
         }, 60_000);
@@ -1355,16 +1423,32 @@ describe('LAW: 1,000-Horse Full Action-Space Freedom & Fleet Activation', () => 
     insEngine.decline(insTableId, 'leader-1');
   });
 
-  it('exposes and relays all 4 BrainTelemetry watchcounters in Prometheus text format', () => {
+  it('exposes, boot-seeds, cardinality-guards, and relays all 5 + 1 Prometheus watchcounters', () => {
     resetBrainWatchcountersForTest();
+    seedBrainWatchcounters();
+
+    // Boot zero-seeding exposes every counter family with 0-valued series immediately
+    const bootProm = renderBrainWatchcountersPrometheus().join('\n');
+    expect(bootProm).toContain('poker_horse_action_clamped_total{');
+    expect(bootProm).toContain('poker_horse_plan_reevaluated_total{');
+    expect(bootProm).toContain('poker_horse_legalizer_degraded_total{');
+    expect(bootProm).toContain('poker_horse_street_prewarm_total{');
+    expect(bootProm).toContain('poker_horse_telemetry_opportunities_total{');
+    // Drain boot zero-seed markers
+    drainBrainWatchcounterDeltas();
 
     noteHorseActionClamped('plo4', 'cash', 'pot_limit_cap', 2);
     noteHorsePlanReevaluated('nlh', 'tournament', 'unexpected_donk_bet');
     noteHorseLegalizerDegraded('plo5', 'cash', 'min_raise_step');
     noteHorseStreetPrewarm('plo6', 'cash', 'flop_deal', 3);
+    noteHorseTelemetryOpportunity('plo4', 'cash', 'decision_evaluated', 5);
+
+    // High-cardinality / mixed-case labels are sanitized to closed lowercase 'other' — zero UUID leakage
+    const leakedUuid = '00000000-0000-4000-8000-000000000999';
+    noteHorseActionClamped(`PLO4_${leakedUuid}`, 'CASH', `horse_${leakedUuid}`, 1);
 
     const deltas = drainBrainWatchcounterDeltas();
-    expect(deltas).toHaveLength(4);
+    expect(deltas).toHaveLength(6);
     expect(drainBrainWatchcounterDeltas()).toHaveLength(0);
 
     // Simulate relaying worker deltas onto a clean main-thread process registry
@@ -1372,14 +1456,18 @@ describe('LAW: 1,000-Horse Full Action-Space Freedom & Fleet Activation', () => 
     mergeBrainWatchcounterDeltas(deltas);
 
     const snap = peekBrainWatchcounters();
-    expect(snap.poker_horse_action_clamped_total.total).toBe(2);
+    expect(snap.poker_horse_action_clamped_total.total).toBe(3);
     expect(snap.poker_horse_plan_reevaluated_total.total).toBe(1);
     expect(snap.poker_horse_legalizer_degraded_total.total).toBe(1);
     expect(snap.poker_horse_street_prewarm_total.total).toBe(3);
+    expect(snap.poker_horse_telemetry_opportunities_total.total).toBe(5);
 
     const prom = renderBrainWatchcountersPrometheus().join('\n');
     expect(prom).toContain(
       'poker_horse_action_clamped_total{variant="plo4",mode="cash",reason="pot_limit_cap"} 2'
+    );
+    expect(prom).toContain(
+      'poker_horse_action_clamped_total{variant="other",mode="cash",reason="other"} 1'
     );
     expect(prom).toContain(
       'poker_horse_plan_reevaluated_total{variant="nlh",mode="tournament",reason="unexpected_donk_bet"} 1'
@@ -1390,6 +1478,17 @@ describe('LAW: 1,000-Horse Full Action-Space Freedom & Fleet Activation', () => 
     expect(prom).toContain(
       'poker_horse_street_prewarm_total{variant="plo6",mode="cash",reason="flop_deal"} 3'
     );
+    expect(prom).toContain(
+      'poker_horse_telemetry_opportunities_total{variant="plo4",mode="cash",reason="decision_evaluated"} 5'
+    );
+    expect(prom).not.toContain(leakedUuid);
+
+    // 5th required counter: poker_horse_decision_fallbacks_total in alwaysOnPrometheusLines with closed reason enum
+    expect(HORSE_DECISION_FALLBACK_REASONS).toContain('result_refused');
+    expect(HORSE_DECISION_FALLBACK_REASONS).toContain('expired');
+    horseDecisionFallbacksTotal.inc(0, { reason: 'result_refused' });
+    const engineProm = alwaysOnPrometheusLines().join('\n');
+    expect(engineProm).toContain('poker_horse_decision_fallbacks_total{reason="result_refused"}');
   });
 
   it('enforces multi-street dynamic re-evaluation, action-line range-cap posterior, nut-flush vs missed-suit card removal, and correlated multi-board conservation', () => {
@@ -1889,46 +1988,59 @@ describe('LAW: 1,000-Horse Full Action-Space Freedom & Fleet Activation', () => 
       rawHc.players[1].bet = 100;
       rawHc.players[1].totalInvested = 300;
       const liveState = hc.getState();
+      const authBefore = hc.getAuthoritativeActionState(horseId)!;
+      expect(authBefore.canAct).toBe(true);
+      expect(authBefore.legalActions).toEqual(['fold', 'call', 'raise', 'all_in']);
+      expect(authBefore.toCall).toBe(100);
+      expect(authBefore.minRaiseTo).toBe(200);
+      expect(authBefore.maxRaiseTo).toBeGreaterThanOrEqual(500);
+      const expectedMaxRaise = authBefore.maxRaiseTo!;
 
-      vi.spyOn(hc, 'getAuthoritativeActionState').mockReturnValue({
-        schemaVersion: 1,
-        heroSeat: 1,
-        currentPlayerSeat: 1,
-        canAct: true,
-        legalActions: ['fold', 'call', 'raise'],
-        toCall: 100,
-        minRaiseTo: 200,
-        maxRaiseTo: 600,
-        structure: 'pot_limit',
-        fixedBetSize: null,
-        wagersCapped: false,
-      });
-
-      const accepted: Array<{ seat: number; action: string; amount: number | undefined }> = [];
-      vi.spyOn(hc, 'performAction').mockImplementation(
-        (
-          seat: number,
-          action: string,
-          amount?: number,
-          _origin?: string,
-          onAccepted?: (rec: any) => void
-        ) => {
-          if (action === 'all_in') return false;
-          if (action === 'raise' && (amount === undefined || amount < 200 || amount > 600)) {
-            return false;
-          }
-          accepted.push({ seat, action, amount });
-          onAccepted?.({
-            seat,
+      // Negative proof (e): unmocked HandController rejects an un-clamped over-pot raise on a deep pot-limit flop
+      expect(hc.performAction(1, 'raise', 9800)).toBe(false);
+      // Negative proof (d): unmocked HandController rejects fractional wager when chipUnit === 1
+      const intHc = new HandController(
+        {
+          tableId,
+          handNumber: 3,
+          gameVariant: 'plo4',
+          smallBlind: 50,
+          bigBlind: 100,
+          isTournament: true,
+          chipUnit: 1,
+          rakeConfig: { percent: 0, cap: 0, noFlopNoDrop: true },
+        } as HandConfig,
+        [
+          {
+            seat: 1,
             user_id: horseId,
-            action,
-            amount: amount ?? 100,
-            stage: 'flop',
-            timestamp: Date.now(),
-          });
-          return true;
-        }
+            username: 'PotLimitHorse',
+            stack: 10_000,
+            bet: 0,
+            totalInvested: 0,
+            cards: [],
+            is_folded: false,
+            is_all_in: false,
+            is_sitting_out: false,
+          },
+          {
+            seat: 2,
+            user_id: oppId,
+            username: 'OppHuman',
+            stack: 10_000,
+            bet: 0,
+            totalInvested: 0,
+            cards: [],
+            is_folded: false,
+            is_all_in: false,
+            is_sitting_out: false,
+          },
+        ] as SeatPlayer[],
+        2
       );
+      intHc.start();
+      const intActorSeat = intHc.getState().currentPlayerSeat!;
+      expect(intHc.performAction(intActorSeat, 'raise', 250.5)).toBe(false);
 
       engine.handController = hc;
       engine.disconnectEngine = { isSittingOut: () => false, recordPlayerActed: vi.fn() };
@@ -1971,13 +2083,98 @@ describe('LAW: 1,000-Horse Full Action-Space Freedom & Fleet Activation', () => 
       engine.scheduleHorseAction(horseSeat, 1, liveState.players[0], liveState);
       await vi.advanceTimersByTimeAsync(1_500);
 
-      expect(accepted).toEqual([{ seat: 1, action: 'raise', amount: 600 }]);
+      // Unmocked HandController accepted the clamped pot-limit raise!
+      const committedFlopActions = hc
+        .getState()
+        .actionHistory.filter((a) => a.stage === 'flop' && a.seat === 1);
+      expect(committedFlopActions).toHaveLength(1);
+      expect(committedFlopActions[0]).toMatchObject({
+        seat: 1,
+        action: 'raise',
+        amount: expectedMaxRaise,
+      });
+      // Semantic separation: normal pot-limit clamp increments action_clamped ONLY, not legalizer_degraded
       expect(
         peekBrainWatchcounters().poker_horse_action_clamped_total.total
+      ).toBeGreaterThanOrEqual(1);
+      expect(peekBrainWatchcounters().poker_horse_legalizer_degraded_total.total).toBe(0);
+      expect(
+        peekBrainWatchcounters().poker_horse_telemetry_opportunities_total.total
       ).toBeGreaterThanOrEqual(1);
     } finally {
       vi.restoreAllMocks();
       vi.useRealTimers();
     }
+  });
+
+  it('verifies HorseUpgradeActivationManifest contract, worker manifest handshake, Short Deck card-removal, and PREWARM_STREET RNG invariance', async () => {
+    // 1. Production Activation Release Contract (HorseUpgradeActivationManifest)
+    const manifest = computeHorseUpgradeActivationManifest();
+    expect(manifest.schema).toBe(HORSE_UPGRADE_MANIFEST_SCHEMA);
+    expect(manifest.version).toBe(HORSE_UPGRADE_MANIFEST_VERSION);
+    expect(manifest.upgrades.length).toBe(16);
+    expect(manifest.authorities.features.status).toBe('refused');
+    expect(manifest.authorities.tournamentFlags.status).toBe('refused');
+    expect(manifest.authorities.phase8.status).toBe('admitted');
+    expect(manifest.authorities.phase10.status).toBe('admitted');
+    expect(
+      manifest.upgrades.find(
+        (u: HorseUpgradeCapabilityEntry) => u.id.includes('upgrade_07') || u.id.includes('cover')
+      )?.enabled
+    ).toBe(true);
+
+    // Worker READY handshake includes matching upgradeManifest; stale/missing worker manifest is rejected
+    const workerOut: HorseDecisionWorkerResponse[] = [];
+    const w = new HorseDecisionWorkerRuntime((m) => workerOut.push(m), {
+      ...defaults,
+      startServices: async () => defaults.workerReadiness(),
+      stopServices: async () => {},
+    });
+    await w.start();
+    const ready = workerOut.find((m) => m.type === 'READY') as
+      | (HorseDecisionWorkerResponse & { upgradeManifest?: typeof manifest })
+      | undefined;
+    expect(ready?.upgradeManifest).toBeDefined();
+    expect(
+      verifyWorkerUpgradeManifestCompatibility(manifest, ready?.upgradeManifest).compatible
+    ).toBe(true);
+    expect(verifyWorkerUpgradeManifestCompatibility(manifest, null)).toEqual({
+      compatible: false,
+      reason: 'worker_manifest_missing',
+    });
+    expect(
+      verifyWorkerUpgradeManifestCompatibility(manifest, {
+        ...manifest,
+        manifestDigest: 'f'.repeat(64),
+      }).compatible
+    ).toBe(false);
+
+    // 2. PREWARM_STREET preserves fastRandom PRNG sequence identically (zero RNG mutation)
+    _clearGtoPostflop();
+    seedFastRandom(987654321);
+    const expectedR1 = fastRandom();
+    const expectedR2 = fastRandom();
+
+    seedFastRandom(987654321);
+    w.receive({
+      type: 'PREWARM_STREET',
+      fence: 'prewarm-rng-law',
+      street: 'flop',
+      board: [c('A', 's'), c('K', 's'), c('7', 'd')],
+      variant: 'nlh',
+      mode: 'cash',
+      effectiveStackBB: 100,
+    } as any);
+    await w.drain();
+    expect(fastRandom()).toBe(expectedR1);
+    expect(fastRandom()).toBe(expectedR2);
+
+    // 3. Short Deck card removal recognizes 6-through-A deck & A-6-7-8-9 wheel nut straight
+    const sdWheel = scoreCardRemoval(
+      [c('9', 'd'), c('Q', 'c')],
+      [c('A', 's'), c('6', 'h'), c('7', 'd'), c('K', 'c')],
+      variantInfo('short_deck')
+    );
+    expect(sdWheel.blocksNutStraight).toBe(true);
   });
 });

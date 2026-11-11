@@ -84,6 +84,9 @@ export function scoreCardRemoval(
   if (board.length < 3 || hole.length === 0) return NEUTRAL_SCORE;
 
   const isOmaha = vi.isOmaha;
+  const isShortDeck = vi.isShortDeck === true;
+  const minDeckRank = isShortDeck ? 6 : 2;
+  const wheelAceRank = isShortDeck ? 5 : 1;
   const holeCount = hole.length;
   // In 5/6-card Omaha, random blockers are more diluted than in 2-card NLH / 4-card PLO4,
   // EXCEPT a bare Ace of the flush suit (which still removes 100% of nut flushes!).
@@ -97,6 +100,7 @@ export function scoreCardRemoval(
   let boardPairMask = 0;
   let topBoardRank = 0;
   let topPairBoardRank = 0;
+  const boardRankCounts = new Uint8Array(15);
 
   // Track flop/turn 2-suit front-door draw suits for river unblocker math:
   let ftSuit0 = 0;
@@ -107,6 +111,7 @@ export function scoreCardRemoval(
   for (let i = 0; i < board.length; i++) {
     const c = board[i];
     const r = rankVal(c.rank);
+    boardRankCounts[r]++;
     if (r > topBoardRank) topBoardRank = r;
     const bit = 1 << r;
     if ((boardRankMask & bit) !== 0) {
@@ -114,7 +119,7 @@ export function scoreCardRemoval(
       if (r > topPairBoardRank) topPairBoardRank = r;
     }
     boardRankMask |= bit;
-    if (r === 14) boardRankMask |= 1 << 1;
+    if (r === 14) boardRankMask |= 1 << wheelAceRank;
 
     const s = suitIdx(c.suit);
     if (s === 0) bSuit0++;
@@ -153,9 +158,17 @@ export function scoreCardRemoval(
         valueBlockerScore += ofb.nutRank === 'A' ? 0.62 : 0.48;
       }
     } else {
-      // Hold'em / Short Deck: check highest missing card of `flushSuit` on board
-      const aceOnBoard = board.some((c) => suitIdx(c.suit) === flushSuit && rankVal(c.rank) === 14);
-      const targetRank = aceOnBoard ? 13 : 14;
+      // Hold'em / Short Deck: find highest missing card of `flushSuit` not already on board
+      let boardFlushRankMask = 0;
+      for (let i = 0; i < board.length; i++) {
+        if (suitIdx(board[i].suit) === flushSuit) {
+          boardFlushRankMask |= 1 << rankVal(board[i].rank);
+        }
+      }
+      let targetRank = 14;
+      while (targetRank > minDeckRank && (boardFlushRankMask & (1 << targetRank)) !== 0) {
+        targetRank--;
+      }
       let heroSuitCount = 0;
       let holdsTarget = false;
       for (let i = 0; i < hole.length; i++) {
@@ -173,41 +186,54 @@ export function scoreCardRemoval(
     }
   }
 
-  // 2. Top-boat / Quads blocker check on paired boards:
+  // 2. Top-boat / Quads blocker check on paired boards (excluding hero already making trips/boat/quads):
   let blocksTopBoatOrQuads = false;
   if (pairedBoard) {
     let topRankBlockers = 0;
     let pairedRankBlockers = 0;
+    const holeRankCounts = new Uint8Array(15);
     for (let i = 0; i < hole.length; i++) {
       const r = rankVal(hole[i].rank);
+      holeRankCounts[r]++;
       if (r === topBoardRank) topRankBlockers++;
       if (r === topPairBoardRank) pairedRankBlockers++;
     }
-    // In Omaha, holding two of `topBoardRank` (when `topBoardRank !== topPairBoardRank`) removes almost all top boats!
-    if (topBoardRank !== topPairBoardRank && topRankBlockers >= (isOmaha ? 2 : 1)) {
-      blocksTopBoatOrQuads = true;
-      valueBlockerScore += (topRankBlockers >= 2 ? 0.46 : 0.3) * cardDilution;
-    } else if (pairedRankBlockers >= 1 && topRankBlockers >= 1) {
-      blocksTopBoatOrQuads = true;
-      valueBlockerScore += 0.38 * cardDilution;
+    let heroMakesTripsOrBetter = false;
+    for (let r = minDeckRank; r <= 14; r++) {
+      const usableHole = isOmaha ? Math.min(2, holeRankCounts[r]) : holeRankCounts[r];
+      if (usableHole > 0 && usableHole + boardRankCounts[r] >= 3) {
+        heroMakesTripsOrBetter = true;
+        break;
+      }
+    }
+    if (!heroMakesTripsOrBetter) {
+      // In Omaha, holding two of `topBoardRank` (when `topBoardRank !== topPairBoardRank`) removes almost all top boats!
+      if (topBoardRank !== topPairBoardRank && topRankBlockers >= (isOmaha ? 2 : 1)) {
+        blocksTopBoatOrQuads = true;
+        valueBlockerScore += (topRankBlockers >= 2 ? 0.46 : 0.3) * cardDilution;
+      } else if (pairedRankBlockers >= 1 && topRankBlockers >= 1) {
+        blocksTopBoatOrQuads = true;
+        valueBlockerScore += 0.38 * cardDilution;
+      }
     }
   }
 
   // 3. Nut-straight key rank blocker on unpaired, non-flush boards:
   let blocksNutStraight = false;
   if (!pairedBoard && flushSuit < 0) {
-    // Find highest 5-rank straight window with >= 3 board ranks present:
+    // Find highest 5-rank straight window with >= 3 board ranks present (min high = 9 in 6+, 5 in 52-card):
     let bestHigh = 0;
     let missingMask = 0;
-    for (let high = 14; high >= 5; high--) {
+    const minStraightHigh = isShortDeck ? 9 : 5;
+    for (let high = 14; high >= minStraightHigh; high--) {
       const low = high - 4;
       let bCnt = 0;
       let mMask = 0;
       for (let k = 0; k < 5; k++) {
         const rk = low + k;
-        const bit = 1 << rk;
+        const bit = 1 << (rk === wheelAceRank ? 14 : rk);
         if ((boardRankMask & bit) !== 0) bCnt++;
-        else mMask |= rk === 1 ? 1 << 14 : bit;
+        else mMask |= bit;
       }
       if (bCnt >= 3) {
         bestHigh = high;
@@ -227,24 +253,19 @@ export function scoreCardRemoval(
         }
       }
       // If hero holds ALL missing ranks (and <= 2 missing ranks), hero actually HAS the nut straight (not a bluff blocker).
-      const missingDistinctCount =
-        ((missingMask >>> 2) & 1) +
-        ((missingMask >>> 3) & 1) +
-        ((missingMask >>> 4) & 1) +
-        ((missingMask >>> 5) & 1) +
-        ((missingMask >>> 6) & 1) +
-        ((missingMask >>> 7) & 1) +
-        ((missingMask >>> 8) & 1) +
-        ((missingMask >>> 9) & 1) +
-        ((missingMask >>> 10) & 1) +
-        ((missingMask >>> 11) & 1) +
-        ((missingMask >>> 12) & 1) +
-        ((missingMask >>> 13) & 1) +
-        ((missingMask >>> 14) & 1);
+      let missingDistinctCount = 0;
+      for (let r = minDeckRank; r <= 14; r++) {
+        if ((missingMask & (1 << r)) !== 0) missingDistinctCount++;
+      }
       const heroMakesNutStraight = missingDistinctCount <= 2 && heroDistinctMask === missingMask;
       if (!heroMakesNutStraight && heroBlockerHits >= (isOmaha ? 2 : 1)) {
         blocksNutStraight = true;
-        valueBlockerScore += Math.min(0.42, (0.22 + 0.1 * heroBlockerHits) * cardDilution);
+        const baseStraightBlocker =
+          !isOmaha && missingDistinctCount === 2 && heroBlockerHits === 1 ? 0.18 : 0.22;
+        valueBlockerScore += Math.min(
+          0.42,
+          (baseStraightBlocker + 0.1 * heroBlockerHits) * cardDilution
+        );
       }
     }
   }
@@ -276,8 +297,8 @@ export function scoreCardRemoval(
           0.48,
           (0.24 + 0.08 * (heroMissedFlushCards - 2)) * cardDilution
         );
-      } else if (heroMissedFlushCards === 1 && !isOmaha) {
-        foldBlockerPenalty += 0.14;
+      } else if (heroMissedFlushCards === 1) {
+        foldBlockerPenalty += isOmaha ? 0.07 * cardDilution : 0.14;
       } else if (heroMissedFlushCards === 0) {
         // Zero cards in the missed front-door flush suit = clean unblocker of villain's auto-folds!
         unblockerBonus += 0.22;

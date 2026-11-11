@@ -1015,9 +1015,11 @@ export function omahaDrawQuality(
 
     const bigWrap = straightOuts >= 9;
 
-    // V16 plo8: a NUT-LOW draw (A-2 in hand, two distinct low board cards,
-    // one more low card needed) is half the pot with the best possible low —
-    // real semi-bluff equity the high-only grader scored as nothing.
+    // V16 plo8: a NUT-LOW draw (the two lowest un-boarded low ranks in hand,
+    // two distinct low board cards, one more low card needed) is half the pot
+    // with the best possible low — including A-3 when 2 is on board or 2-3
+    // when A is on board! On a flop, bare A-2 without 3/4 counterfeit protection
+    // requires at least nut-flush or straight backup before counting as nutty.
     let nutLowDraw = false;
     if (isHiLo) {
       const lowRank = (r: number): number => (r === 14 ? 1 : r);
@@ -1028,16 +1030,31 @@ export function omahaDrawQuality(
       }
       const holeRanks = new Set<number>();
       for (const c of hole) holeRanks.add(lowRank(RANK_VALUES[c.rank]));
-      // A + 2 live (not counterfeit by the board) with exactly 2 distinct
-      // board lows = one card from the nut low.
-      if (
-        boardLows.size === 2 &&
-        holeRanks.has(1) &&
-        holeRanks.has(2) &&
-        !boardLows.has(1) &&
-        !boardLows.has(2)
-      ) {
-        nutLowDraw = true;
+      if (boardLows.size === 2) {
+        let lowestUnboarded1 = 0;
+        let lowestUnboarded2 = 0;
+        for (let lr = 1; lr <= 8; lr++) {
+          if (boardLows.has(lr)) continue;
+          if (lowestUnboarded1 === 0) lowestUnboarded1 = lr;
+          else if (lowestUnboarded2 === 0) {
+            lowestUnboarded2 = lr;
+            break;
+          }
+        }
+        if (
+          lowestUnboarded1 > 0 &&
+          lowestUnboarded2 > 0 &&
+          holeRanks.has(lowestUnboarded1) &&
+          holeRanks.has(lowestUnboarded2)
+        ) {
+          const hasCounterfeitBackup =
+            board.length >= 4 ||
+            holeRanks.has(3) ||
+            holeRanks.has(4) ||
+            nutFlushDraw ||
+            straightOuts >= 6;
+          nutLowDraw = hasCounterfeitBackup;
+        }
       }
     }
 
@@ -2355,8 +2372,7 @@ function placeBandCombo(
 
 type OmahaReservoir = {
   scores: Float64Array;
-  combos: Card[][];
-  /** Packed flat `[i * holeCount + k] -> cardId(0..51)` array for zero-allocation availability checks. */
+  /** Packed flat `[i * holeCount + k] -> cardId(0..51)` array (zero boxed Card[][] arrays). */
   cardIds: Uint8Array;
   holeCount: number;
 };
@@ -2373,7 +2389,7 @@ function buildOmahaReservoir(holeCount: number, isHiLo: boolean): OmahaReservoir
     return s / 0x100000000;
   };
   const deck = FULL_DECK.slice();
-  const entries: Array<{ score: number; cards: Card[] }> = [];
+  const entries: Array<{ score: number; ids: number[] }> = [];
   for (let i = 0; i < OMAHA_RESERVOIR_SIZE; i++) {
     for (let j = 0; j < holeCount; j++) {
       const k = j + Math.floor(rnd() * (deck.length - j));
@@ -2381,25 +2397,23 @@ function buildOmahaReservoir(holeCount: number, isHiLo: boolean): OmahaReservoir
       deck[j] = deck[k];
       deck[k] = t;
     }
-    // References into FULL_DECK, deliberately: simulateEquity's deck is a
-    // filter of FULL_DECK, so identity comparison works for the swap-in.
     const cards = deck.slice(0, holeCount);
-    entries.push({ score: omahaPreflopScore(cards, isHiLo), cards });
+    const ids = new Array<number>(holeCount);
+    for (let k = 0; k < holeCount; k++) ids[k] = cardId(cards[k]);
+    entries.push({ score: omahaPreflopScore(cards, isHiLo), ids });
   }
   entries.sort((x, y) => x.score - y.score);
   const scores = new Float64Array(entries.length);
-  const combos: Card[][] = new Array(entries.length);
   const cardIds = new Uint8Array(entries.length * holeCount);
   for (let i = 0; i < entries.length; i++) {
     scores[i] = entries[i].score;
-    const cArr = entries[i].cards;
-    combos[i] = cArr;
+    const ids = entries[i].ids;
     const base = i * holeCount;
     for (let k = 0; k < holeCount; k++) {
-      cardIds[base + k] = cardId(cArr[k]);
+      cardIds[base + k] = ids[k];
     }
   }
-  return { scores, combos, cardIds, holeCount };
+  return { scores, cardIds, holeCount };
 }
 
 /**
@@ -2955,7 +2969,7 @@ export function placeOmahaBandCombo(
     rv = buildOmahaReservoir(holeCount, isHiLo);
     omahaReservoirs.set(key, rv);
   }
-  const size = rv.combos.length;
+  const size = rv.scores.length;
   // Percentile (CDF-index) mapping, clamped to a legal slice.
   const lo = Math.max(0, Math.min(size - 1, Math.floor(clamp01(band[0]) * size)));
   const hi = Math.max(lo + 1, Math.min(size, Math.ceil(clamp01(band[1]) * size)));
@@ -2976,12 +2990,11 @@ export function placeOmahaBandCombo(
       }
     }
     if (!ok) continue;
-    const combo = rv.combos[idx];
     // Swap by CARD ID, not object identity — the deck's card objects are not
     // guaranteed to be the reservoir's references, and an identity mismatch
     // here would silently leave the uniform window in place while reporting
     // success (the exact shape of silent failure this codebase hunts).
-    for (let k = 0; k < combo.length; k++) {
+    for (let k = 0; k < rv.holeCount; k++) {
       const wantId = rv.cardIds[idBase + k];
       const slot = windowStart + k;
       if (cardId(deck[slot]) === wantId) continue;
@@ -3030,7 +3043,7 @@ export function placeOmahaPressureCombo(
     reservoir = buildOmahaReservoir(holeCount, false);
     omahaReservoirs.set(key, reservoir);
   }
-  const size = reservoir.combos.length;
+  const size = reservoir.scores.length;
   const range = band ?? [0, 1];
   if (!range.every(Number.isFinite) || range[1] <= range[0] || range[0] >= 1 || range[1] <= 0)
     return false;
@@ -3042,11 +3055,22 @@ export function placeOmahaPressureCombo(
   if (!pool) {
     const publicCards = new Set(board.map(cardId));
     const indices: number[] = [];
+    const scratch = new Array<Card>(holeCount);
+    const cIds = reservoir.cardIds;
     for (let i = lo; i < hi; i++) {
-      const combo = reservoir.combos[i];
-      if (combo.some((c) => publicCards.has(cardId(c)))) continue;
-      const category = omahaQuickCategory(combo, board);
-      if (category >= minCat || (category >= drawMinCat && omahaStrongDrawShape(combo, board)))
+      const base = i * holeCount;
+      let collided = false;
+      for (let k = 0; k < holeCount; k++) {
+        const cid = cIds[base + k];
+        if (publicCards.has(cid)) {
+          collided = true;
+          break;
+        }
+        scratch[k] = FULL_DECK[cid];
+      }
+      if (collided) continue;
+      const category = omahaQuickCategory(scratch, board);
+      if (category >= minCat || (category >= drawMinCat && omahaStrongDrawShape(scratch, board)))
         indices.push(i);
     }
     pool = { reservoir, indices };
@@ -4582,7 +4606,7 @@ export interface CorrelatedMultiBoardEquity {
   pScoop: number;
   /** Probability hero wins >= 48% of the total pot (at least splitting a 2-board pot or 1.5/3). */
   pHalfOrBetter: number;
-  /** Probability hero wins > 0% but <= 28% (quartered on 2-board or 1/3 share or worse). */
+  /** Probability hero wins > 0% but <= 28% (2-board) or <= 35% (3-board: 1/3 share or worse). */
   pQuarteredOrWorse: number;
   /** Probability hero is completely scooped (`0%` pot share). */
   pZero: number;
@@ -4597,7 +4621,8 @@ export function simulateCorrelatedMultiBoardEquity(
   vi: VariantInfo,
   iterations: number,
   oppBands?: Array<[number, number] | null>,
-  knownDeadCards: readonly Card[] = []
+  knownDeadCards: readonly Card[] = [],
+  oppReads?: Array<OppPostflopRead | null>
 ): CorrelatedMultiBoardEquity {
   const validBoards = boards.filter((b) => Array.isArray(b) && b.length > 0);
   const kBoards = validBoards.length;
@@ -4723,6 +4748,22 @@ export function simulateCorrelatedMultiBoardEquity(
           for (let c = 0; c < oppHole; c++) hand[c] = deck[windowStart + c];
         }
       }
+      const read = oppReads ? oppReads[o] : null;
+      if (read && vi.isOmaha && validBoards[0].length >= 3 && (read.aggrW > 0 || read.raised)) {
+        for (let t = 0; t < 2; t++) {
+          let anyStrong = false;
+          for (let b = 0; b < kBoards; b++) {
+            if (omahaQuickCategory(hand, validBoards[b]) >= 3) {
+              anyStrong = true;
+              break;
+            }
+          }
+          if (anyStrong || fastRandom() >= 0.72) break;
+          if (band != null && placeOmahaBandCombo(deck, windowStart, n, band, oppHole, vi.isHiLo)) {
+            for (let c = 0; c < oppHole; c++) hand[c] = deck[windowStart + c];
+          }
+        }
+      }
     }
 
     // 3. Score every board on the exact same opponent holdings:
@@ -4791,7 +4832,8 @@ export function simulateCorrelatedMultiBoardEquity(
     totalShareSum += iterPotShare;
     if (iterPotShare >= 0.85) scoops++;
     if (iterPotShare >= 0.48) halfPlus++;
-    if (iterPotShare > 0.001 && iterPotShare <= 0.28) quartered++;
+    const quarterCeil = kBoards >= 3 ? 0.35 : 0.28;
+    if (iterPotShare > 0.001 && iterPotShare <= quarterCeil) quartered++;
     if (iterPotShare <= 0.001) zeros++;
   }
 

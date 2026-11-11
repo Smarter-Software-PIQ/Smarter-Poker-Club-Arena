@@ -1,6 +1,4 @@
-import { admitHorseFeatureLiveAuthority } from '../../HorseFeatureAuthority.js';
-import { admitHorseTournamentFlagLiveAuthority } from '../../HorseTournamentFlagAuthority.js';
-import { isHorseOwnerForcedAuthority } from '../../HorseOwnerForcedActivation.js';
+import { admitHorseFeatureReleaseAuthority } from '../../HorseFeatureAuthority.js';
 import { admitHorsePhase8GuardAuthority } from '../../HorseTournamentCatastropheGuardAuthority.js';
 /** Offline replay admission uses the same protected selections and exact
  * qualification files as production. A record cannot turn a pack on. */
@@ -32,23 +30,10 @@ export class HorseReplayAuthorityRefusal extends Error {
   }
 }
 
-export interface QualifiedReplayAdmissions {
-  admitFeatureAuthority: () => HorseAuthorityAdmission;
-  admitTournamentFlagAuthority?: () => ReturnType<typeof admitHorseTournamentFlagLiveAuthority>;
-  admitPhase8GuardAuthority: () => ReturnType<typeof admitHorsePhase8GuardAuthority>;
-  admitPhase8Authority: () => HorseAuthorityAdmission;
-  admitPhase10Authority: () => HorseAuthorityAdmission;
-  admitPhase11Authority: (variant: OmahaPolicyVariant) => HorseAuthorityAdmission;
-  admitPhase12Authority: (variant: RemainingPolicyVariant) => HorseAuthorityAdmission;
-  admitPhase13Authority: (variant: JointVariant) => HorseAuthorityAdmission;
-  admitPhase14Attachment: (domain: string) => ReturnType<typeof admitHorsePhase14LiveAttachment>;
-}
-
 /** No mode override: the production runtime still derives each mode from
  * its own holder, original request/domain and ordinary qualified verdict. */
-export const qualifiedReplayAdmissions: QualifiedReplayAdmissions = {
-  admitFeatureAuthority: () => admitHorseFeatureLiveAuthority(),
-  admitTournamentFlagAuthority: () => admitHorseTournamentFlagLiveAuthority(),
+export const qualifiedReplayAdmissions = {
+  admitFeatureAuthority: () => admitHorseFeatureReleaseAuthority(),
   admitPhase8GuardAuthority: () => admitHorsePhase8GuardAuthority(),
   admitPhase8Authority: () => admitHorsePhase8LiveAuthority(),
   admitPhase10Authority: () => admitHorsePhase10LiveAuthority(),
@@ -57,7 +42,17 @@ export const qualifiedReplayAdmissions: QualifiedReplayAdmissions = {
     admitHorsePhase12LiveAuthority(variant),
   admitPhase13Authority: (variant: JointVariant) => admitHorsePhase13LiveAuthority(variant),
   admitPhase14Attachment: (domain: string) => admitHorsePhase14LiveAttachment(domain),
-};
+} satisfies Pick<
+  HorseDecisionWorkerDependencies,
+  | 'admitFeatureAuthority'
+  | 'admitPhase8GuardAuthority'
+  | 'admitPhase8Authority'
+  | 'admitPhase10Authority'
+  | 'admitPhase11Authority'
+  | 'admitPhase12Authority'
+  | 'admitPhase13Authority'
+  | 'admitPhase14Attachment'
+>;
 
 const object = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === 'object' && !Array.isArray(value);
@@ -136,20 +131,13 @@ export function qualifiedReplayAuthorityHolders(
       if (owner === 'features' && admission.status === 'admitted') {
         const feature = original.featureAuthority,
           authority = admission.authority;
-        const domainMatches = isHorseOwnerForcedAuthority(authority)
-          ? Boolean(
-              feature?.domain &&
-              ['nlh', 'plo4', 'plo5', 'plo6'].includes(feature.domain.variant) &&
-              feature.domain.mode === 'cash'
-            )
-          : JSON.stringify(canonical(feature?.domain)) ===
-            JSON.stringify(canonical(authority.featureDomain));
         if (
           !feature ||
           feature.compositionDigest !== authority.featureCompositionDigest ||
           JSON.stringify(canonical(feature.flags)) !==
             JSON.stringify(canonical(authority.featureFlags)) ||
-          !domainMatches
+          JSON.stringify(canonical(feature.domain)) !==
+            JSON.stringify(canonical(authority.featureDomain))
         )
           throw new Error('feature_composition_mismatch');
       }

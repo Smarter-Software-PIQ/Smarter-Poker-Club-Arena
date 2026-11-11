@@ -28,6 +28,7 @@ import type { Card, SeatPlayer, HandEvent, SeatedPlayer } from '../types.js';
 import { reportError } from '../services/errorReporter.js';
 import { HAND_COMPLETION } from '../config/handCompletionSpec.js';
 import { ServerTableEngineTurns } from './ServerTableEngineTurns.js';
+import { prefersRunItTwice } from './HorsePersona.js';
 import type { EngineRecoveryEventClass } from './ServerTableEngineBase.js';
 import { getLiveHorseDecisionWorker, HorseDecisionAbortedError } from './horseDecision/index.js';
 import { captureHorseHandJournalContext } from './HorseDecisionHandBinding.js';
@@ -653,7 +654,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
       const pending = this.insuranceEngine
         .getOffers(this.tableId)
         .find((o) => o.playerId === userId && o.status === 'offered');
-      const forHand = (pending?.boardLength ?? 3) >= 3;
+      const forHand = _declineForHand === true || (pending?.boardLength ?? 3) >= 3;
       this.insuranceEngine.decline(this.tableId, userId, forHand);
       return { success: true, status: forHand ? 'declined_for_hand' : 'declined_street' };
     }
@@ -1802,19 +1803,24 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
       }, delayMs);
     };
 
+    const ritState = this.runItTwiceEngine.getState(this.tableId);
+    const maxRuns = Math.max(1, Math.min(3, Number(ritState?.maxRuns ?? 2))) as 1 | 2 | 3;
+    const bb = Math.max(0.01, Number(this.tableInfo?.big_blind) || 2);
+    const livePot = Number(this.handController?.getState().pot ?? 0);
+    const potBB = livePot > 0 ? livePot / bb : 60;
+
     if (horseIds.has(chooserPlayerId)) {
       // A chooser who never picks 1 is a chooser who never runs it once.
+      const multiTarget = Math.min(maxRuns, this.handCount % 3 === 0 ? 3 : 2) as 1 | 2 | 3;
       const runs =
-        this.horseRitVerdict(chooserPlayerId) === 'once'
-          ? (1 as const)
-          : ((this.handCount % 3 === 0 ? 3 : 2) as 2 | 3);
+        this.horseRitVerdict(chooserPlayerId, potBB) === 'once' ? (1 as const) : multiTarget;
       respond(600 + (this.handCount % 5) * 80, () => {
         this.respondToRIT(chooserPlayerId, undefined, runs);
       });
     }
     for (const pid of allPlayerIds) {
       if (pid === chooserPlayerId || !horseIds.has(pid)) continue;
-      const answer = this.horseRitVerdict(pid) === 'once' ? 'decline' : 'accept';
+      const answer = this.horseRitVerdict(pid, potBB) === 'once' ? 'decline' : 'accept';
       respond(1000 + ((pid.charCodeAt(0) + this.handCount) % 4) * 200, () => {
         this.respondToRIT(pid, answer);
       });
@@ -1862,12 +1868,16 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
    * anything a human gets. It is the horse's input device choosing between
    * two answers a human chooses between, instead of being wired to one.
    */
-  protected horseRitVerdict(playerId: string): 'once' | 'multi' {
+  protected horseRitVerdict(playerId: string, potBB = 60): 'once' | 'multi' {
     let h = 0;
     for (let i = 0; i < playerId.length; i++) {
       h = (h * 31 + playerId.charCodeAt(i)) % 100000;
     }
-    return (h + this.handCount * 7) % 10 < 3 ? 'once' : 'multi';
+    if ((h + this.handCount * 7) % 10 < 3) return 'once';
+    return prefersRunItTwice(playerId, Math.max(45, potBB), 0.5, 0) ||
+      (h + this.handCount * 11) % 5 >= 1
+      ? 'multi'
+      : 'once';
   }
 
   protected waitForRITResponse(onComplete: () => void): void {
@@ -3791,7 +3801,8 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
     const seated = this.seatedPlayers.find((p) => p.user_id === leaderId);
     if (!seated?.is_horse || this.isOwnClientControlling(leaderId)) return;
     const handAtOffer = this.handCount;
-    const declineDelayMs = 650 + (((leaderId.charCodeAt(0) || 17) + this.handCount * 37) % 500);
+    const responseDelayMs =
+      650 + (((leaderId.charCodeAt(0) || 17) * 13 + this.handCount * 37) % 500);
     this.setHandTimeout(() => {
       if (!this.running || !this.lifecycleCanMutate() || this.handCount !== handAtOffer) return;
       const offer = this.insuranceEngine
@@ -3799,11 +3810,35 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
         .find((o) => o.playerId === leaderId && o.status === 'offered');
       if (!offer) return;
       try {
-        this.respondToInsurance(leaderId, 'decline', 100, true);
+        const eqFrac = Math.max(0, Math.min(1, Number(offer.equity) / 100));
+        const pLoss = Math.max(0, 1 - eqFrac);
+        const fairPremium =
+          offer.fullInsuredAmount > 0
+            ? offer.fullInsuredAmount * (pLoss / Math.max(1e-6, eqFrac))
+            : 0;
+        const fairCashoutEv = offer.fullInsuredAmount * eqFrac;
+        if (
+          typeof offer.evCashoutAmount === 'number' &&
+          Number.isFinite(offer.evCashoutAmount) &&
+          offer.evCashoutAmount > fairCashoutEv + 0.01
+        ) {
+          this.respondToInsurance(leaderId, 'cashout', 100, false);
+        } else if (
+          offer.fullInsuredAmount > 0 &&
+          Number.isFinite(offer.fullPremium) &&
+          offer.fullPremium >= 0 &&
+          offer.fullPremium < fairPremium * 0.995
+        ) {
+          this.respondToInsurance(leaderId, 'accept', 100, false);
+        } else {
+          // Standard house-margin offers are -EV: decline on the current street
+          // (final for the hand from the flop onward, street-only preflop).
+          this.respondToInsurance(leaderId, 'decline', 100, (offer.boardLength ?? 3) >= 3);
+        }
       } catch (err) {
         reportError(err, 'ServerTableEngine.' + this.tableId + '.horse_insurance_response');
       }
-    }, declineDelayMs);
+    }, responseDelayMs);
   }
 
   protected waitForInsuranceResponses(onComplete: () => void): void {
@@ -3858,6 +3893,6 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
         }
       }
       finish();
-    }, 20_000);
+    }, 22_000);
   }
 }

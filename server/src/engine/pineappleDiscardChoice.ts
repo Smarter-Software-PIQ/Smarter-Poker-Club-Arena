@@ -41,32 +41,49 @@ export function bestPineappleDiscard(
   cards: Card[],
   communityCards: Card[],
   gameVariant: string,
-  iterations = 400
+  iterations = 400,
+  numOpponents = 1,
+  extraBoards?: Card[][]
 ): number {
   if (!cards || cards.length !== 3) return 2;
   // After the discard the hand plays exactly like holdem, whatever the table
   // calls itself, so it is priced as holdem.
   const vi = variantInfo('nlh');
+  const opps = Math.max(1, Math.min(5, Math.floor(numOpponents || 1)));
+  const boards =
+    communityCards.length >= 3
+      ? [
+          communityCards,
+          ...(Array.isArray(extraBoards) ? extraBoards.filter((b) => b.length >= 3) : []),
+        ]
+      : [];
   let bestIdx = 2;
   let bestEq = -1;
   for (let discard = 0; discard < 3; discard++) {
     const keep = cards.filter((_, i) => i !== discard);
-    const eq =
-      communityCards.length >= 3
-        ? simulateEquity(
-            keep,
-            communityCards,
-            1,
-            vi,
-            iterations,
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-            [cards[discard]]
-          )
-        : holdemPreflopScore(keep[0], keep[1], gameVariant === 'short_deck');
+    let eq: number;
+    if (boards.length >= 1) {
+      const perBoardIters = Math.max(120, Math.floor(iterations / boards.length));
+      let sumEq = 0;
+      for (const b of boards) {
+        sumEq += simulateEquity(
+          keep,
+          b,
+          opps,
+          vi,
+          perBoardIters,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          [cards[discard]]
+        );
+      }
+      eq = sumEq / boards.length;
+    } else {
+      eq = holdemPreflopScore(keep[0], keep[1], gameVariant === 'short_deck');
+    }
     if (eq > bestEq) {
       bestEq = eq;
       bestIdx = discard;

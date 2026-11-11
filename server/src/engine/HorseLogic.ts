@@ -243,6 +243,7 @@ import {
   noteFire,
   noteHorseActionClamped,
   noteHorsePlanReevaluated,
+  noteHorseTelemetryOpportunity,
   telemetryOn,
 } from './BrainTelemetry.js';
 // V27 (Dan 2026-08-29): the PioSolver push/fold charts, preloaded in memory
@@ -7650,7 +7651,11 @@ export class HorseLogic {
           // domination (four napkins keep 44% against the sampled "3-bet
           // range" in PLO6; against the real one it is nearer 35%). The price
           // carries a margin for that, growing with the hole count.
-          const dominationMargin38 = vi.isOmaha ? 0.04 + 0.02 * Math.max(0, vi.holeCount - 4) : 0;
+          const maniacDomScale38 =
+            maniacRaiserWidth !== null ? Math.max(0, 1 - maniacRaiserWidth) : 1;
+          const dominationMargin38 = vi.isOmaha
+            ? (0.04 + 0.02 * Math.max(0, vi.holeCount - 4)) * maniacDomScale38
+            : 0;
           // MANIAC PRESSURE: a call that is not all-in still has streets to
           // play, out of the maniac's way only when hero is all-in or the
           // maniac is; the equity is realised a little short of the sample.
@@ -8512,7 +8517,7 @@ export class HorseLogic {
                 const liveSeats = gs.players.filter(
                   (p) => !p.is_folded && (!p.is_sitting_out || p.is_all_in)
                 );
-                const stacksVec = liveSeats.map((p) =>
+                const tableStacksVec = liveSeats.map((p) =>
                   Math.max(
                     0,
                     (p.stack ?? 0) +
@@ -8524,6 +8529,42 @@ export class HorseLogic {
                 );
                 const heroIdx = liveSeats.findIndex((p) => p.user_id === player.user_id);
                 const villainIdx = liveSeats.findIndex((p) => p.user_id === targetSeatObj.user_id);
+                const fieldRaw = Array.isArray(gs.tournament.stacks) ? gs.tournament.stacks : [];
+                let stacksVec = tableStacksVec;
+                if (fieldRaw.length > tableStacksVec.length && tableStacksVec.length < 9) {
+                  const extraSlots = Math.max(0, 9 - tableStacksVec.length);
+                  const remaining = fieldRaw
+                    .map((v) => Math.max(0, Number(v) || 0))
+                    .filter((v) => v > 0)
+                    .sort((a, b) => b - a);
+                  // Subtract approximate on-table stacks by matching closest values once:
+                  const pool = remaining.slice();
+                  for (const ts of tableStacksVec) {
+                    let bestI = -1;
+                    let bestDiff = Infinity;
+                    for (let i = 0; i < pool.length; i++) {
+                      const d = Math.abs(pool[i] - ts);
+                      if (d < bestDiff) {
+                        bestDiff = d;
+                        bestI = i;
+                      }
+                    }
+                    if (bestI >= 0 && bestDiff <= Math.max(bb * 4, ts * 0.2)) pool.splice(bestI, 1);
+                  }
+                  if (pool.length > 0 && extraSlots > 0) {
+                    const topOff = pool.slice(0, Math.max(1, extraSlots - 1));
+                    const tailOff = pool.slice(topOff.length);
+                    const tailMean =
+                      tailOff.length > 0 ? tailOff.reduce((a, b) => a + b, 0) / tailOff.length : 0;
+                    stacksVec = [
+                      ...tableStacksVec,
+                      ...topOff,
+                      ...(tailMean > 0 && tableStacksVec.length + topOff.length < 9
+                        ? [tailMean]
+                        : []),
+                    ];
+                  }
+                }
                 const payoutsVec = gs.tournament.payoutPct ?? [];
                 const heroStart = stacksVec[heroIdx] ?? 0;
                 const villainStart = stacksVec[villainIdx] ?? 0;
@@ -9176,6 +9217,50 @@ export class HorseLogic {
         /* intelligence layer is best-effort — fall back to V2 behavior */
       }
     }
+    const actionPosterior86 =
+      opts.v86MultiStreetUnblocked !== false && opponents.length >= 1
+        ? (() => {
+            let targetIdx = 0;
+            if (oppReads) {
+              for (let i = 0; i < opponents.length; i++) {
+                if (oppReads[i]?.raised || (oppReads[i]?.aggrW ?? 0) > 0) {
+                  targetIdx = i;
+                  break;
+                }
+              }
+            }
+            const targetOpp = opponents[targetIdx] ?? opponents[0];
+            const post = computeActionLinePosterior({
+              actionHistory: gs.actionHistory ?? [],
+              villainUserId: targetOpp.user_id,
+              villainSeat: targetOpp.seat,
+              heroSeat: player.seat,
+              stage: isRiver ? 'river' : street === 'turn' ? 'turn' : 'flop',
+              board: gs.communityCards,
+              pot,
+              bigBlind: gs.bigBlind || 2,
+              isOmaha: vi.isOmaha,
+              holeCount: player.cards.length,
+              multiwayCount: oppCount,
+            });
+            if (
+              useMind &&
+              bands &&
+              bands[targetIdx] &&
+              isRiver &&
+              !facingBet &&
+              post.rangeCapped &&
+              post.nutted <= 0.1
+            ) {
+              const curLo = bands[targetIdx]![0];
+              const cappedHi = Math.min(bands[targetIdx]![1], post.narrowedRange[1]);
+              if (cappedHi - curLo >= 0.14) {
+                bands[targetIdx] = [curLo, cappedHi];
+              }
+            }
+            return post;
+          })()
+        : null;
     // 2026-10-16 OPPONENT EXPLOIT: against a credible over-aggressor, strong
     // hands trap more (slowplay / check-raise); into a credible station,
     // value bets size up. Both stay exactly 1x unless a live opponent's read
@@ -9605,7 +9690,8 @@ export class HorseLogic {
                 vi,
                 96,
                 bands,
-                player.knownDeadCards ?? []
+                player.knownDeadCards ?? [],
+                oppReads
               );
             } catch {
               return null;
@@ -9650,15 +9736,14 @@ export class HorseLogic {
       }
       const privateClose = Math.max(0, Math.min(1, 1 - dNear / 0.1));
       if (useV86Postflop && opts.decisionGravityTiming !== false) {
-        // Blend public board/pot complexity into tank weighting so timing reflects
-        // public texture, street depth, and price pressure rather than leaking
-        // exact private equity distance to fixed internal bars.
+        // Couple tank pacing strictly to public board/pot/street/action complexity
+        // with zero weight on private hand strength (`privateClose`), eliminating timing tells.
         const streetDepth = isRiver ? 0.35 : street === 'turn' ? 0.2 : 0.08;
         const priceStress = facingBet ? Math.min(0.45, toCall / Math.max(1, pot)) : 0;
         const publicComplexity = clamp01(
           wetness * 0.4 + streetDepth + priceStress + (multiBoard36 ? 0.2 : 0)
         );
-        difficultyHint = clamp01(publicComplexity * 0.65 + privateClose * 0.35);
+        difficultyHint = publicComplexity;
       } else {
         difficultyHint = privateClose;
       }
@@ -10481,6 +10566,13 @@ export class HorseLogic {
     ) {
       const planned21 = HorseMind.planFingerprintOf(handKey, player.user_id, prevStreet39);
       if (planned21) {
+        if (tele15) {
+          noteHorseTelemetryOpportunity(
+            String(gs.gameVariant ?? 'nlh'),
+            isTournamentMode(gs) ? 'tournament' : 'cash',
+            'continuation_plan_checked'
+          );
+        }
         const outlookCards21 = HorseMind.outlookCards(handKey, player.user_id, prevStreet39);
         const verdict21 = evaluateMultiStreetBarrelContinuation({
           plannedFingerprint: planned21,
@@ -10569,22 +10661,6 @@ export class HorseLogic {
           : 'foldToRaise';
 
     const cardRemoval86 = useV86Postflop ? scoreCardRemoval(player.cards, board, vi) : null;
-    const actionPosterior86 =
-      useV86Postflop && opponents.length === 1
-        ? computeActionLinePosterior({
-            actionHistory: gs.actionHistory ?? [],
-            villainUserId: opponents[0].user_id,
-            villainSeat: opponents[0].seat,
-            heroSeat: player.seat,
-            stage: isRiver ? 'river' : street === 'turn' ? 'turn' : 'flop',
-            board,
-            pot,
-            bigBlind: gs.bigBlind || 2,
-            isOmaha: vi.isOmaha,
-            holeCount: player.cards.length,
-            multiwayCount: oppCount,
-          })
-        : null;
     const isNutted86 = vi.isOmaha ? nutClass15 : cat >= 5 && !dominated21;
     const archetype86 =
       !ip && isNutted86 && initiative !== 'hero'
@@ -10641,6 +10717,13 @@ export class HorseLogic {
             cardClass: outlook39 ?? 'blank',
           })
         : null;
+    if (tele15 && dynamicPlan86 && (street === 'turn' || street === 'river' || raisedAfterAggr)) {
+      noteHorseTelemetryOpportunity(
+        String(gs.gameVariant ?? 'nlh'),
+        isTournamentMode(gs) ? 'tournament' : 'cash',
+        'continuation_plan_checked'
+      );
+    }
     if (tele15 && dynamicPlan86?.reevaluated) {
       noteHorsePlanReevaluated(
         String(gs.gameVariant ?? 'nlh'),
@@ -12338,7 +12421,6 @@ export class HorseLogic {
             dLead86.straightOuts >= minLeadTotalOuts86);
         const plo8ScoopLead86 =
           vi.isHiLo &&
-          !vi.isFixedLimit &&
           !quartered &&
           !isRiver &&
           !!hiLoSplit &&
@@ -12449,16 +12531,14 @@ export class HorseLogic {
             if (opts.barrelContinuationOutlook === true && street === 'turn') {
               recordBarrelOutlook();
             }
-            return this.betSize(
-              planHandKey,
-              pot,
-              sizeBase + 0.15 + fastRandom() * 0.1,
-              player,
-              gs,
-              vi,
-              params,
-              useSizing
-            );
+            const baseBarrelFrac = sizeBase + 0.15 + fastRandom() * 0.1;
+            const dynFrac86 =
+              dynamicPlan86?.reevaluated &&
+              typeof dynamicPlan86.recommendedSizingFraction === 'number' &&
+              dynamicPlan86.recommendedSizingFraction > 0
+                ? 0.5 * baseBarrelFrac + 0.5 * dynamicPlan86.recommendedSizingFraction
+                : baseBarrelFrac;
+            return this.betSize(planHandKey, pot, dynFrac86, player, gs, vi, params, useSizing);
           }
         } else if (!barrelPlan && equity < 0.52 && fastRandom() < (tourneyAggro ? 0.65 : 0.8)) {
           return { action: 'check', thinkTime: 0 }; // one-and-done — give up
@@ -13322,16 +13402,16 @@ export class HorseLogic {
       };
     }
 
-    // Correlated 3-board bomb-pot defense: do not call off pot-sized wagers
-    // across 3 boards when hero has zero locked boards, near-zero scoop equity,
+    // Correlated 2/3-board bomb-pot defense: do not call off pot-sized wagers
+    // across 2 or 3 boards when hero has zero locked boards, near-zero scoop equity,
     // and high probability of getting quartered / one-thirded.
     if (
       useV86Postflop &&
       corrMulti36 &&
-      nBoards36 >= 3 &&
+      nBoards36 >= 2 &&
       lockedBoards36 === 0 &&
-      corrMulti36.pScoop < 0.06 &&
-      corrMulti36.pQuarteredOrWorse >= 0.45 &&
+      corrMulti36.pScoop < (nBoards36 >= 3 ? 0.06 : 0.08) &&
+      corrMulti36.pQuarteredOrWorse >= (nBoards36 >= 3 ? 0.45 : 0.52) &&
       potFrac >= 0.75 &&
       eq15 < potOdds + 0.08
     ) {
@@ -14791,6 +14871,7 @@ export class HorseLogic {
           pot,
           toCall,
           stack,
+          sideGamePotOverlay: sidePost86?.postflopPotOverlayChips,
           rakeMarg,
           callDeductionFraction,
           riskPremium: risk38,

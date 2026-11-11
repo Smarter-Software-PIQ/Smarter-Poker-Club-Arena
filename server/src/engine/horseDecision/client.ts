@@ -58,6 +58,12 @@ import { horseDecisionRefusalError } from './refusalContext.js';
 import { Worker } from 'node:worker_threads';
 import { HorseCommittedDecisionTracker } from '../HorseCommittedDecisionTracker.js';
 import {
+  computeHorseUpgradeActivationManifest,
+  isValidHorseUpgradeActivationManifest,
+  verifyWorkerUpgradeManifestCompatibility,
+  type HorseUpgradeActivationManifest,
+} from '../HorseUpgradeActivationManifest.js';
+import {
   mergeBrainWatchcounterDeltas,
   noteFire,
   type HorseWatchcounterEntry,
@@ -235,6 +241,7 @@ export interface LiveHorseDecisionWorkerStatus {
   solverStores: HorseDecisionWorkerReady['solverStores'] | null;
   solverPolicyArtifact: HorseDecisionWorkerReady['solverPolicyArtifact'] | null;
   governor: HorseDecisionWorkerReady['governor'] | null;
+  upgradeManifest?: HorseUpgradeActivationManifest | null;
   statusSampledAt: number | null;
   isolateMemory?: IsolateMemorySample | null;
   isolateMemoryAgeMs?: number | null;
@@ -647,6 +654,7 @@ export class LiveHorseDecisionWorkerClient {
   private solverStores: HorseDecisionWorkerReady['solverStores'] | null = null;
   private solverPolicyArtifact: HorseDecisionWorkerReady['solverPolicyArtifact'] | null = null;
   private governor: HorseDecisionWorkerReady['governor'] | null = null;
+  private upgradeManifest: HorseUpgradeActivationManifest | null = null;
   private statusSampledAt: number | null = null;
   private lastError: string | null = null;
   private lastCompletedAt: number | null = null;
@@ -841,6 +849,7 @@ export class LiveHorseDecisionWorkerClient {
         ? structuredClone(this.solverPolicyArtifact)
         : null,
       governor: this.governor ? { ...this.governor } : null,
+      upgradeManifest: this.upgradeManifest ? structuredClone(this.upgradeManifest) : null,
       statusSampledAt: this.statusSampledAt,
       isolateMemory: this.isolateMemory ? { ...this.isolateMemory } : null,
       isolateMemoryAgeMs: this.isolateMemory
@@ -1340,7 +1349,7 @@ export class LiveHorseDecisionWorkerClient {
       variant: input.variant,
       mode: input.mode,
       effectiveStackBB: input.effectiveStackBB,
-    } as unknown as HorseDecisionWorkerRequest);
+    });
   }
 
   private enqueue<T extends JobResult>(
@@ -1692,10 +1701,8 @@ export class LiveHorseDecisionWorkerClient {
       this.v31Control?.receive(message);
       return;
     }
-    if ((message as { type?: string })?.type === 'WATCHCOUNTER_DELTA') {
-      mergeBrainWatchcounterDeltas(
-        (message as { watchcounterDeltas?: HorseWatchcounterEntry[] }).watchcounterDeltas
-      );
+    if (message?.type === 'WATCHCOUNTER_DELTA') {
+      mergeBrainWatchcounterDeltas(message.watchcounterDeltas);
       return;
     }
     const piggybackedDeltas = (message as { watchcounterDeltas?: HorseWatchcounterEntry[] })
@@ -1726,6 +1733,20 @@ export class LiveHorseDecisionWorkerClient {
         this.fail(new Error('live horse decision worker returned invalid governor'));
         return;
       }
+      if (message.upgradeManifest !== undefined) {
+        const compat = verifyWorkerUpgradeManifestCompatibility(
+          computeHorseUpgradeActivationManifest(),
+          message.upgradeManifest
+        );
+        if (!compat.compatible) {
+          this.fail(
+            new Error(
+              `live horse decision worker returned incompatible upgrade activation manifest (${compat.reason})`
+            )
+          );
+          return;
+        }
+      }
       if (message.phase8GuardAuthority) {
         this.phase8GuardWorkerEpoch = message.phase8GuardAuthority.epoch;
         liveHorsePhase8GuardAuthority.observeWorker(message.phase8GuardAuthority);
@@ -1735,11 +1756,15 @@ export class LiveHorseDecisionWorkerClient {
       this.solverStores = structuredClone(message.solverStores);
       this.solverPolicyArtifact = structuredClone(message.solverPolicyArtifact);
       this.governor = { ...message.governor };
+      this.upgradeManifest = message.upgradeManifest
+        ? structuredClone(message.upgradeManifest)
+        : null;
       this.statusSampledAt = Date.now();
       this.resolveReady({
         ...(message.solverStoreIdentity === undefined
           ? {}
           : { solverStoreIdentity: structuredClone(message.solverStoreIdentity) }),
+        ...(this.upgradeManifest ? { upgradeManifest: structuredClone(this.upgradeManifest) } : {}),
         solverStores: this.solverStores,
         solverPolicyArtifact: this.solverPolicyArtifact,
         governor: this.governor,

@@ -596,7 +596,7 @@ export function buildGearShiftAwareScopedOpponentModel(
   ) {
     shifted = false;
     direction = 'snapped_back';
-    recencyWeight = 0.65;
+    recencyWeight = 0;
   }
 
   const blended = empty();

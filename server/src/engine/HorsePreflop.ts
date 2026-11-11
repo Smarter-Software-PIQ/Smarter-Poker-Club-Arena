@@ -1594,7 +1594,9 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     if (
       v86 &&
       ctx.isOmaha &&
-      (position === 'early' || position === 'middle') &&
+      (position === 'early' ||
+        position === 'middle' ||
+        (position === 'late' && ctx.maniacOpenBar !== undefined)) &&
       confirmedIpManiacBehind
     ) {
       const eliteOpen = ctx.omahaElite;
@@ -1850,6 +1852,9 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         threeBetThresh,
         t(pressureIp ? pressure.ipThreeBetBar : pressure.oopThreeBetBar)
       );
+      if (unblocked86 && !pressureIp && ctx.isOmaha) {
+        callThresh += 0.03;
+      }
     }
     // TOURNAMENT AGGRESSION: re-raise ranges stated as hand shares (the
     // holdemPreflopScore scale: 0.5 = top 19.8%, 0.62 ~ 11.5%, 0.65 = 10.9%),
@@ -2016,7 +2021,9 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // single-suited rundowns and pair+support stay gated behind `!noBluff3`.
     const allowEliteVsRaiser =
       ultraPremiumElite ||
-      (linearElite3Bet && ctx.observedExtremeManiac !== true) ||
+      (linearElite3Bet &&
+        ctx.observedExtremeManiac !== true &&
+        (ctx.maniacNoBluff !== true || strength >= 0.62)) ||
       (ctx.maniacNoBluff !== true && !noBluff3);
     const basePloMix = ctx.ploPersona3BetMix ?? 0.55;
     const rawPloMix = pressure
@@ -2279,25 +2286,27 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // than their chips - the exact reason PKO play is looser than a
     // freezeout - and the brain had NO preflop bounty adjustment at all.
     const bf = Math.max(0, Math.min(1, ctx.bountyFactor ?? 0));
+    let v24BountyDisc = 0;
     if (bf > 0 && ctx.coversRaiser === true) {
       // Covering means hero's own bounty is never at risk in this pot.
-      callBar -= Math.min(0.06, bf * 0.14);
+      v24BountyDisc += Math.min(0.06, bf * 0.14);
       // If the raiser can actually be eliminated here, the bounty is live
       // this hand rather than theoretical.
-      if (ctx.raiserBustable === true) callBar -= Math.min(0.05, bf * 0.12);
+      if (ctx.raiserBustable === true) v24BountyDisc += Math.min(0.05, bf * 0.12);
     }
-    if (
+    const v86BountyDisc =
       unblocked86 &&
       ctx.coversRaiser === true &&
       typeof ctx.bountyOverlayBB === 'number' &&
       ctx.bountyOverlayBB > 0
-    ) {
-      callBar -= Math.min(0.08, ctx.bountyOverlayBB * 0.015);
-    }
+        ? Math.min(0.08, ctx.bountyOverlayBB * 0.015)
+        : 0;
+    callBar -= Math.max(v24BountyDisc, v86BountyDisc);
 
     // A floor, applied after every discount: hands that flop nothing are a
     // fold at any price, and a bounty is not a licence to play four napkins.
-    if (ctx.isOmaha && ctx.ploPriceDefense === true) callBar = Math.max(0.28, callBar);
+    if (ctx.isOmaha && ctx.ploPriceDefense === true)
+      callBar = Math.max(unblocked86 && pressure && !pressureIp ? 0.34 : 0.28, callBar);
     callBar = phase6CapBar(callBar);
 
     if ((def72 ? def72.strength : strength) >= callBar && priceOK) return { a: 'call' };

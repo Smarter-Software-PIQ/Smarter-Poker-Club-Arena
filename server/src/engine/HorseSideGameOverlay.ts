@@ -29,6 +29,8 @@ export interface SideGameStateInput {
   dealtSeatIds?: readonly number[];
   /** Canonical KillHandState from KillPot.ts when active on this deal. */
   killPot?: KillHandState | null;
+  /** Effective fixed-limit small bet from HandController when on a kill hand. */
+  fixedLimitSmallBet?: number | null;
   /** Optional flat kill-pot overrides for callers/tests without a full KillHandState. */
   isKillPot?: boolean;
   killMultiplier?: number;
@@ -210,8 +212,8 @@ export function computeSevenDeuceOverlay(input: SideGameStateInput): SevenDeuceO
 
     const bountyInBB = collectible / Math.max(0.01, input.bigBlind);
     // Bounded preflop bonus so 72s/72o can profitably defend BB, over-limp, or steal late
-    // when the table bounty is rich (>= 6-16 BB across a full table), without punting 4-bet stacks.
-    const preflopStrengthBonus = Math.min(0.24, bountyInBB * 0.018 * (0.4 + 0.6 * maneuverScale));
+    // when the table bounty is rich (>= 6-16 BB across a full table), without reaching 3-bet/4-bet tiers.
+    const preflopStrengthBonus = Math.min(0.15, bountyInBB * 0.015 * (0.4 + 0.6 * maneuverScale));
 
     return {
       enabled: true,
@@ -296,6 +298,25 @@ export function normalizeKillPotState(
       killerBlindSlot: 'none',
       killerHasLiveOption: killerSeat !== null,
       isHeroKillerOption: isHeroOption,
+    };
+  }
+
+  if (
+    typeof input.fixedLimitSmallBet === 'number' &&
+    Number.isFinite(input.fixedLimitSmallBet) &&
+    input.fixedLimitSmallBet > baseBB * 1.05
+  ) {
+    const smallBet = input.fixedLimitSmallBet;
+    return {
+      active: true,
+      multiplier: Math.round((smallBet / baseBB) * 100) / 100,
+      baseBigBlind: baseBB,
+      effectiveBigBlind: smallBet,
+      killBlind: smallBet,
+      killerSeat: null,
+      killerBlindSlot: 'none',
+      killerHasLiveOption: false,
+      isHeroKillerOption: false,
     };
   }
 

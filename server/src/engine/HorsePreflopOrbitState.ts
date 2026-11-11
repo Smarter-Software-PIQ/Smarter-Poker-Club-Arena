@@ -366,10 +366,11 @@ export function analyzePreflopOrbit(input: PreflopOrbitInput): PreflopOrbitState
     toCallApprox <= 0.005 &&
     ((straddleSeat !== null && straddleSeat === input.heroSeat) || killState.isHeroKillerOption);
 
-  // Compute straddle/kill adjusted players behind when unopened:
+  // Compute straddle adjusted players behind when unopened.
+  // HandController.setNextPlayer starts preflop left of bbSeat on Kill Pots (not left of killerSeat),
+  // so only a live straddle shifts the closing seat away from bbSeat.
   let straddleAdjustedBehind: number | undefined;
-  const optionPosterSeat =
-    killState.active && killState.killerHasLiveOption ? killState.killerSeat : straddleSeat;
+  const optionPosterSeat = straddleSeat;
   if (optionPosterSeat !== null && effectiveRaises === 0) {
     if (input.heroSeat === optionPosterSeat) {
       straddleAdjustedBehind = 0;

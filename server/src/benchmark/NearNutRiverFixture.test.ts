@@ -54,7 +54,7 @@ const MIN_REACH = 0.95;
 
 describe('near-nut river fixture reaches the gate through the original worker', () => {
   it.each(NEAR_NUT_FIXTURE_VARIANTS)(
-    '%s heads-up 100bb cash: gate reached and active in live owner-forced production',
+    '%s heads-up 100bb cash: gate reached, flag-off equals production',
     async (variant) => {
       const { row, on } = await measureNearNutReach(variant, N);
       console.log(
@@ -71,9 +71,9 @@ describe('near-nut river fixture reaches the gate through the original worker', 
       // The qualification evaluation counter is produced from accepted actions.
       expect(row.accepted).toBeGreaterThan(0);
       expect(row.accepted).toBe(row.skillRaised);
-      // Owner-forced live feature authority activates smallPotNearNutRiverValue in production.
-      expect(row.productionReceipts).toBeGreaterThanOrEqual(row.gateReached);
-      expect(N - row.offEqualsProduction).toBeGreaterThan(0);
+      // Flag absent: the harness decision IS the production decision.
+      expect(row.offEqualsProduction).toBe(N);
+      expect(row.productionReceipts).toBe(0);
       // Paired on the production seed, the flag changes a decision only
       // through its own raise or the PLO6 flat exception.
       expect(row.changed).toBeLessThanOrEqual(row.skillRaised + row.flatException);

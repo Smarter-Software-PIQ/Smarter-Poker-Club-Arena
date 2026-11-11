@@ -84,9 +84,6 @@ export interface HorseOwnerForcedAuthorityFields {
   readonly correctivePolicyDigest?: string;
   readonly baselineSelectionsDigest?: string;
   readonly holdoutDigest?: string;
-  readonly featureFlags?: HorseQualifiedAuthority['featureFlags'];
-  readonly featureDomain?: HorseQualifiedAuthority['featureDomain'];
-  readonly featureCompositionDigest?: string;
   /** Extra values bound into the authority key only (completion definitions). */
   readonly keyExtras?: Readonly<Record<string, unknown>>;
 }
@@ -109,9 +106,7 @@ const digestUnavailableLogged = new Set<string>();
  */
 export function noteHorseOwnerForcedDigestUnavailable(phase: string, variant?: string): void {
   noteFire(HORSE_OWNER_FORCED_DIGEST_UNAVAILABLE_FIRE);
-  if ((HORSE_OWNER_FORCED_ACTIVATION.phases as readonly string[]).includes(phase)) {
-    noteFire(`${HORSE_OWNER_FORCED_DIGEST_UNAVAILABLE_FIRE}_${phase}`);
-  }
+  noteFire(`${HORSE_OWNER_FORCED_DIGEST_UNAVAILABLE_FIRE}_${phase}`);
   const key = variant === undefined ? phase : `${phase}/${variant}`;
   if (digestUnavailableLogged.has(key)) return;
   digestUnavailableLogged.add(key);
@@ -154,11 +149,8 @@ export function horseOwnerForcedAuthority(
     'correctivePolicyDigest',
     'baselineSelectionsDigest',
     'holdoutDigest',
-    'featureCompositionDigest',
   ] as const)
     if (typeof f[key] === 'string') identity[key] = f[key];
-  if (f.featureFlags) identity.featureFlags = Object.freeze({ ...f.featureFlags });
-  if (f.featureDomain) identity.featureDomain = Object.freeze({ ...f.featureDomain });
   return Object.freeze({
     ...identity,
     authorityKey: sha256(

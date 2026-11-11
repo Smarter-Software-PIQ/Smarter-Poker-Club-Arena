@@ -106,6 +106,7 @@ import {
   startLiveHorseDecisionWorker,
   stopLiveHorseDecisionWorker,
 } from './engine/horseDecision/lane.js';
+import { computeHorseUpgradeActivationManifest } from './engine/HorseUpgradeActivationManifest.js';
 import {
   EquityWorkerPoolAbortedError,
   equityWorkerPoolPreservesDealerLiveness,
@@ -6405,6 +6406,8 @@ export class GameServer {
       // running (handsAudited, riverActionsAudited) and whether it is firing.
       horseRiverValueAlarm: horseRiverValueAlarmSnapshot(),
       horseWatchcounters: peekBrainWatchcounters(),
+      horseUpgradeManifest: computeHorseUpgradeActivationManifest(),
+      engineStartedAt: new Date(this.startTime).toISOString(),
       adaptiveJournalWorker: horseAdaptiveJournalWorker.status(),
       // HTTP and WebSocket handlers are reachable before the leader boot has
       // finished. This is the exact admission gate they await before any table
@@ -7140,6 +7143,18 @@ export class GameServer {
         return [];
       })(),
       ...alwaysOnPrometheusLines(),
+      ...(() => {
+        const manifest = computeHorseUpgradeActivationManifest();
+        const sha = (manifest.sourceRevision ?? 'unknown').replace(/[^a-zA-Z0-9._-]/g, '_');
+        return [
+          '# HELP process_start_time_seconds Start time of the engine process since unix epoch in seconds.',
+          '# TYPE process_start_time_seconds gauge',
+          `process_start_time_seconds ${Math.floor(this.startTime / 1000)}`,
+          '# HELP poker_horse_upgrade_manifest_info Horse realtime decision upgrade activation manifest identity.',
+          '# TYPE poker_horse_upgrade_manifest_info gauge',
+          `poker_horse_upgrade_manifest_info{version="${manifest.version}",manifest_digest="${manifest.manifestDigest}",release_sha="${sha}"} 1`,
+        ];
+      })(),
       ...renderBrainWatchcountersPrometheus(),
       // ── WHAT THE PLAYER'S BROWSER SAW (Phase 2, 2026-09-05) ──────────
       // The client-side twin of poker_ws_auth_refused_total: that counts

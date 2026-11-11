@@ -10,17 +10,16 @@ import {
 import {
   HORSE_FEATURE_AUTHORITY_VERSION,
   HORSE_FEATURE_FLAGS,
-  admitHorseFeatureLiveAuthority,
   admitHorseFeatureReleaseAuthority,
   horseFeatureDomainVerdict,
   type HorseFeatureFlags,
 } from '../HorseFeatureAuthority.js';
 import {
-  admitHorseTournamentFlagLiveAuthority,
   admitHorseTournamentFlagReleaseAuthority,
   admittedTournamentFlag,
   type HorseTournamentFlagAdmission,
 } from '../HorseTournamentFlagAuthority.js';
+import { computeHorseUpgradeActivationManifest } from '../HorseUpgradeActivationManifest.js';
 import {
   readHorsePooledPublicBootstrap,
   type HorsePooledPublicBootstrap,
@@ -153,8 +152,8 @@ import {
   TOURNAMENT_CONTEXT_STATUSES,
 } from '../HorseTournamentPreflop.js';
 import {
+  armWorkerWatchcounterRelay,
   drainBrainWatchcounterDeltas,
-  mergeBrainWatchcounterDeltas,
   noteDecisionMs,
   noteFire,
   noteHorseStreetPrewarm,
@@ -454,11 +453,13 @@ export async function startOwnedServices(shard?: {
       solverStoreIdentity: horseSolverStoreIdentity(),
       solverPolicyArtifact: solverPolicyArtifactStatus(),
       governor: equityGovernor.snapshot(),
+      upgradeManifest: computeHorseUpgradeActivationManifest(),
     };
   }
   ownedServicesStarted = true;
 
   try {
+    armWorkerWatchcounterRelay(true);
     // A decision worker whose Monte Carlo can be cut by its own loop delay
     // is not the brain the packs qualified with (client.ts,
     // horseDecisionWorkerEnv). Refuse readiness rather than decide with it.
@@ -543,6 +544,7 @@ export async function startOwnedServices(shard?: {
       solverStoreIdentity: horseSolverStoreIdentity(),
       solverPolicyArtifact: solverPolicyArtifactStatus(),
       governor: equityGovernor.snapshot(),
+      upgradeManifest: computeHorseUpgradeActivationManifest(),
     };
   } catch (error) {
     await stopOwnedServices();
@@ -642,8 +644,8 @@ export const defaultHorseDecisionWorkerDependencies: HorseDecisionWorkerDependen
   admitPhase8GuardAuthority: () => admitHorsePhase8GuardAuthority(),
   phase8SafetyDisabledReason: () => liveHorsePhase8Safety.disabledReason,
   admitPhase10Authority: () => admitHorsePhase10LiveAuthority(),
-  admitFeatureAuthority: () => admitHorseFeatureLiveAuthority(),
-  admitTournamentFlagAuthority: () => admitHorseTournamentFlagLiveAuthority(),
+  admitFeatureAuthority: () => admitHorseFeatureReleaseAuthority(),
+  admitTournamentFlagAuthority: () => admitHorseTournamentFlagReleaseAuthority(),
   admitPhase11Authority: (variant) => admitHorsePhase11LiveAuthority(variant),
   admitPhase12Authority: (variant) => admitHorsePhase12LiveAuthority(variant),
   admitPhase13Authority: (variant) => admitHorsePhase13LiveAuthority(variant),
@@ -674,6 +676,7 @@ export const defaultHorseDecisionWorkerDependencies: HorseDecisionWorkerDependen
     solverStoreIdentity: horseSolverStoreIdentity(),
     solverPolicyArtifact: solverPolicyArtifactStatus(),
     governor: equityGovernor.snapshot(),
+    upgradeManifest: computeHorseUpgradeActivationManifest(),
   }),
   observeCompletedHand: observeCompletedHandInMind,
   learnPersistedMemory: learnCompletedHandInPersistedMemory,
@@ -905,7 +908,7 @@ export class HorseDecisionWorkerRuntime {
     else if (verdict.reason !== 'no_authority')
       this.deps.noteFeature(`horse_feature_authority_refused_${verdict.reason}`);
     const flags = verdict.flags;
-    const domain = verdict.domain ?? a?.featureDomain;
+    const domain = a?.featureDomain;
     return {
       flags,
       receipt:
@@ -953,6 +956,7 @@ export class HorseDecisionWorkerRuntime {
       epoch
     ) => new HorseQualifiedAuthorityHolder(epoch, version)
   ) {
+    armWorkerWatchcounterRelay(true);
     this.featureAuthority = authorityHolder(
       'features',
       null,
@@ -1065,7 +1069,10 @@ export class HorseDecisionWorkerRuntime {
       return;
     }
     if (deltas.length > 0) {
-      mergeBrainWatchcounterDeltas(deltas);
+      this.emitResponse({
+        type: 'WATCHCOUNTER_DELTA',
+        watchcounterDeltas: deltas,
+      });
     }
     this.emitResponse(message);
   }
@@ -1133,12 +1140,12 @@ export class HorseDecisionWorkerRuntime {
       this.emitResponse({
         type: 'WATCHCOUNTER_DELTA',
         watchcounterDeltas: deltas,
-      } as unknown as HorseDecisionWorkerResponse);
+      });
     }
   }
 
   receive(message: HorseDecisionWorkerRequest): void {
-    if ((message as { type?: string })?.type === 'PREWARM_STREET') {
+    if (message.type === 'PREWARM_STREET') {
       if (!this.accepting || this.stopped || this.pendingRequestIds.size > 0) return;
       this.operation = this.operation
         .then(async () => {
@@ -2780,6 +2787,24 @@ export class HorseDecisionWorkerRuntime {
     );
     this.deps.restoreRng(rngBefore);
     const startedAt = this.deps.now();
+    const fastStage = request.gameState.stage;
+    if (
+      (fastStage === 'flop' || fastStage === 'turn' || fastStage === 'river') &&
+      Array.isArray(request.gameState.communityCards) &&
+      request.gameState.communityCards.length >= 3
+    ) {
+      const prewarmKey = `${request.fence}|${fastStage}|${request.gameState.communityCards
+        .slice(0, 5)
+        .map((c) => `${c.rank}${c.suit}`)
+        .join('')}`;
+      if (this.prewarmedStreets.has(prewarmKey)) {
+        noteHorseStreetPrewarm(
+          request.gameState.gameVariant,
+          request.gameState.gameMode === 'tournament' ? 'tournament' : 'cash',
+          `hit_${fastStage}`
+        );
+      }
+    }
     const phase8 = this.phase8Admission(request);
     const phase8Guard = this.phase8GuardAdmission(request);
     const phase10 = this.phase10Admission(request);

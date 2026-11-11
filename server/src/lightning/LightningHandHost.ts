@@ -1695,12 +1695,21 @@ export class LightningHandHost {
       if (this.isTerminal() || this.hc !== hc || playerActionContext(hc) !== contextAtTurn) return;
       if (this.actBlindOff(userId)) return;
     }
+    const serverOwnedHorse =
+      this.participants.get(userId)?.isHorse === true && !this.clientControls(userId);
     if (this.preActions.hasPreAction(this.timerKey, userId)) {
-      // The seat lights up for a readable beat (the engine's 250 ms), then the
-      // pre-action lands - armed for THIS hand only.
-      await this.sleep(250);
-      if (this.isTerminal() || this.hc !== hc || playerActionContext(hc) !== contextAtTurn) return;
-      if (this.runPreAction(userId)) return;
+      if (serverOwnedHorse) {
+        const stale = this.preActions.getPreAction(this.timerKey, userId)?.action;
+        this.preActions.clearPreAction(this.timerKey, userId);
+        if (stale) this.notePreAction(userId, 'cleared', stale, 'horse_live_turn');
+      } else {
+        // The seat lights up for a readable beat (the engine's 250 ms), then the
+        // pre-action lands - armed for THIS hand only.
+        await this.sleep(250);
+        if (this.isTerminal() || this.hc !== hc || playerActionContext(hc) !== contextAtTurn)
+          return;
+        if (this.runPreAction(userId)) return;
+      }
     }
     const baseSec = Number(this.rules?.action_time_seconds) || 15;
     const grace = this.disconnect.isInReconnectGrace(this.timerKey, userId) ? 5 : 0;
@@ -2078,6 +2087,7 @@ export class LightningHandHost {
     for (const me of st.players) {
       const userId = me.user_id;
       if (me.is_folded || me.is_all_in || me.seat === st.currentPlayerSeat) continue;
+      if (this.participants.get(userId)?.isHorse === true && !this.clientControls(userId)) continue;
       if (!(st.currentBet - me.bet > 0.005)) continue;
       if (!this.watching.has(userId)) continue;
       // A FOLD ALREADY ASKED FOR ON A FREE SEAT IS PRICED NOW (2026-11-10, Dan
