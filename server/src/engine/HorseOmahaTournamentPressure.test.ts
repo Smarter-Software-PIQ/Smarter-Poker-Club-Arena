@@ -459,10 +459,10 @@ describe(
       plo6: 'c1e890133d0d50c3929119bed2a9a997f0180e89d2e79faad13ce270a7f9c8d6',
       nlh: 'd1fe639c0aabb62d33cfc4df8f3585730d0c64ba60c87462ea90ca082268b47d',
     };
-    // V86 (2026-11-10) tightens Omaha preflop/postflop play independently of
+    // V87 (2026-11-10) tightens Omaha preflop/postflop play independently of
     // V53; its explicit off arm keeps this historical pre-V53 baseline corpus
     // byte-identical (HorseDeepDiveDiscipline.test.ts pins the real policy).
-    const baseOpts = { ...CORPUS_BASE_OPTS, v86DeepDiveDiscipline: false };
+    const baseOpts = { ...CORPUS_BASE_OPTS, v87DeepDiveDiscipline: false };
 
     it.each(CORPUS_VARIANTS)(
       '%s: flag absent replays the pre-candidate decisions exactly',

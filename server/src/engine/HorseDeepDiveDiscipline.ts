@@ -1,10 +1,11 @@
 /**
- * V86 ALL-HANDS HUMAN-VS-HORSE DEEP-DIVE DISCIPLINE (2026-11-10)
+ * V87 ALL-HANDS HUMAN-VS-HORSE DEEP-DIVE DISCIPLINE (2026-11-10)
  *
- * Calibrated from the complete PokerIQ-Production human-vs-Horse dataset
- * (49,310 physical hands, 41,151 eligible included hands, 349,970 Horse
- * decisions across the 8 target Cash & MTT NLH/PLO4/PLO5/PLO6 domains) and
- * replayed against current HorseLogic before and after implementation:
+ * Builds on top of V86 (`v86PloOverhaul`). Calibrated from the complete
+ * PokerIQ-Production human-vs-Horse dataset (49,310 physical hands, 41,151
+ * eligible included hands, 349,970 Horse decisions across the 8 target Cash &
+ * MTT NLH/PLO4/PLO5/PLO6 domains) and replayed against current HorseLogic
+ * before and after implementation:
  *
  *   1. Omaha preflop multiway & 5/6-card selectivity (PLO4 / PLO5 / PLO6):
  *      - Presumed unknown-opener reads keep their value 3-bet adaptation in
@@ -24,9 +25,10 @@
  *        nutty semi-bluffs, and river nut-flush-blocker bluffs.
  *
  *   3. Postflop PLO6 big-bet call discipline & Omaha bet-then-raised sizing:
- *      - Extends V81's >= 0.90-pot non-HU turn/river call-fold guard to 6-card
- *        PLO6 (two pair, vulnerable straights, non-nut / paired-board flushes,
- *        and dead-bottom underboats with >= 3 higher boats and 0 lower boats).
+ *      - Extends V81/V86 >= 0.90-pot non-HU turn/river call-fold protection to
+ *        6-card PLO6 turn and river cells (two pair, vulnerable trips,
+ *        vulnerable straights, non-nut / paired-board flushes, and dead-bottom
+ *        underboats with >= 3 higher boats and 0 lower boats).
  *      - Withholds the unconditional +0.10 flop V40 cap lift on drawless bare
  *        pair / air in Omaha.
  *      - Excludes current-street hero bets from commitment and shades the call
@@ -55,7 +57,7 @@ import { handClassRead, type HandClassRead } from './HorseHandClasses.js';
 import type { PreflopOpenerExploit } from './HorseOpponentExploit.js';
 import { RANKS, RANK_VALUES, SUITS } from './PokerEngine.js';
 
-export interface V86PositionStabState {
+export interface V87PositionStabState {
   stage: string;
   bombPot?: boolean;
   communityCards: Card[];
@@ -67,7 +69,7 @@ export interface V86PositionStabState {
   actionHistory?: ReadonlyArray<{ stage?: string; action?: string }>;
 }
 
-const V86_OMAHA_BIG_BET_MIN_WAGER_FRACTION = 0.9;
+const V87_OMAHA_BIG_BET_MIN_WAGER_FRACTION = 0.9;
 
 function boardIsPaired(board: readonly Card[]): boolean {
   const seen = new Set<string>();
@@ -151,7 +153,7 @@ function isAirOrLowPairWithoutShowdown(
  * BB-flat bars (`flatBar` / `bbFlatBar`) into loose multiway flats. Observed
  * reads (`presumed !== true`) remain completely unchanged.
  */
-export function v86SanitizeOmahaOpenerExploit(
+export function v87SanitizeOmahaOpenerExploit(
   opener: PreflopOpenerExploit | undefined,
   openerPresumed: boolean,
   isOmaha: boolean,
@@ -173,7 +175,7 @@ export function v86SanitizeOmahaOpenerExploit(
  * Pillar 1B: Hole-count, seat, and multiway-aware bounds for V24 Omaha preflop
  * price-defense relief and continue floor.
  */
-export function v86OmahaCallBarBounds(
+export function v87OmahaCallBarBounds(
   holeCount: number | undefined,
   position: string,
   callers: number
@@ -203,7 +205,7 @@ export function v86OmahaCallBarBounds(
  * Pillar 1C: Post-exploit multiway overcall & deep-stack OOP cold-call bar
  * tightening in non-HiLo Omaha.
  */
-export function v86OmahaColdCallTighten(
+export function v87OmahaColdCallTighten(
   holeCount: number | undefined,
   position: string,
   callers: number,
@@ -233,7 +235,7 @@ export function v86OmahaColdCallTighten(
  * - Penalizes 4+-of-one-suit self-blocked hands and non-Ace-suited 5/6-card
  *   rundowns / pair-support classes whose dominated flushes over-realize poorly.
  */
-export function v86AdjustFiveSixCardHandClass(
+export function v87AdjustFiveSixCardHandClass(
   cards: readonly Card[],
   baseRead: HandClassRead
 ): { read: HandClassRead; changed: boolean } {
@@ -354,9 +356,9 @@ export function v86AdjustFiveSixCardHandClass(
  * -8.96 +/- 3.34 bb/100 against the reference turn stab, so the turn stab is
  * retained unchanged (fold equity plus live redraws outweigh check-back).
  */
-export function v86ShouldSuppressOmahaPositionStab(
+export function v87ShouldSuppressOmahaPositionStab(
   player: SeatPlayer,
-  gs: V86PositionStabState,
+  gs: V87PositionStabState,
   referenceDecision: HorseDecision
 ): boolean {
   if (gs.stage !== 'river') return false;
@@ -415,7 +417,7 @@ export function v86ShouldSuppressOmahaPositionStab(
  * street). Mirrors V81's exact shared gate and returns the matched losing cell
  * name, or null when no fold applies.
  */
-export interface V86Plo6BigBetInput {
+export interface V87Plo6BigBetInput {
   variant: string;
   street: string;
   hole: Card[];
@@ -432,7 +434,7 @@ export interface V86Plo6BigBetInput {
   heroHasStreetChips: boolean;
 }
 
-export function v86Plo6BigBetCell(input: V86Plo6BigBetInput): string | null {
+export function v87Plo6BigBetCell(input: V87Plo6BigBetInput): string | null {
   if (input.variant.toLowerCase() !== 'plo6') return null;
   if (input.street !== 'turn' && input.street !== 'river') return null;
   if (
@@ -447,7 +449,7 @@ export function v86Plo6BigBetCell(input: V86Plo6BigBetInput): string | null {
     return null;
   }
   if (!(input.effectiveBB > 20)) return null;
-  if (!(input.potFrac >= V86_OMAHA_BIG_BET_MIN_WAGER_FRACTION)) return null;
+  if (!(input.potFrac >= V87_OMAHA_BIG_BET_MIN_WAGER_FRACTION)) return null;
 
   const { hole, board } = input;
   if (!hole || hole.length !== 6) return null;
@@ -455,7 +457,7 @@ export function v86Plo6BigBetCell(input: V86Plo6BigBetInput): string | null {
 
   if (input.street === 'river' && hasOmahaSingleBoardRiverNuts(hole, board)) return null;
 
-  const score = scoreOmahaHi(hole, board);
+  const score = board.length === 5 ? scoreOmahaHi(hole, board) : scoreOmahaHiPartial(hole, board);
   const cat = Math.floor(score / 0x100000);
   const nuts = omahaNutStatus(hole, board);
   const paired = boardIsPaired(board);
@@ -497,7 +499,7 @@ export function v86Plo6BigBetCell(input: V86Plo6BigBetInput): string | null {
  * street and faces a raise with a vulnerable non-nut made hand and no nutty
  * redraw. Mirrors V66/V67's linear scaling with raise-to-pot size.
  */
-export function v86OmahaBetRaisedShade(toCall: number, pot: number, isRiver: boolean): number {
+export function v87OmahaBetRaisedShade(toCall: number, pot: number, isRiver: boolean): number {
   if (!(toCall > 0) || !(pot > 0)) return 0;
   const ratio = toCall / pot;
   const cap = isRiver ? 0.14 : 0.11;
@@ -511,7 +513,7 @@ export function v86OmahaBetRaisedShade(toCall: number, pot: number, isRiver: boo
  * `pricedIn` pot-odds guard can turn a `fold` into a `call` against a raise
  * (when the call is NOT an all-in). Cash NLH is intentionally exempt (returns 0).
  */
-export function v86PricedInMinStrength(opts: {
+export function v87PricedInMinStrength(opts: {
   isTourney: boolean;
   isOmaha: boolean;
   isHiLo: boolean;
@@ -541,7 +543,7 @@ export function v86PricedInMinStrength(opts: {
  * cold raise (`pressure20 >= 2`) or a multiway >= 0.75-pot barrel (`oppCount >= 2`)
  * with bare one pair / board-paired two pair and no hole-card draw.
  */
-export function v86NlhTurnMultiwayOrColdRaiseShade(
+export function v87NlhTurnMultiwayOrColdRaiseShade(
   pressure20: number,
   oppCount: number,
   potFrac: number

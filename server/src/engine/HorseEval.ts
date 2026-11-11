@@ -2564,6 +2564,156 @@ export function omahaPreflopStrength(cards: Card[], isHiLo: boolean): number {
   return cdf[idx];
 }
 
+/**
+ * V86 Elite Omaha Preflop Strength (PLO4 / PLO5 / PLO6 / PLO8).
+ * Preserves `omahaPreflopStrength` / `omahaReservoirs` bit-for-bit for range
+ * construction while breaking 5/6-card score-cap saturation, rewarding clean
+ * double-suited 4-card rundowns (`JT98ds`, `KQJTds`, `AQJTds`) and nut+king
+ * suit combinations, and penalizing 3+-of-a-suit self-blockers and 5/6-card
+ * disconnected danglers.
+ */
+export function omahaElitePreflopStrength(cards: Card[], isHiLo: boolean): number {
+  const base = omahaPreflopStrength(cards, isHiLo);
+  if (cards.length < 4) return base;
+
+  const sc = new Map<string, number>();
+  const rc = new Map<number, number>();
+  for (const c of cards) {
+    sc.set(c.suit, (sc.get(c.suit) || 0) + 1);
+    const r = RANK_VALUES[c.rank];
+    rc.set(r, (rc.get(r) || 0) + 1);
+  }
+
+  // Trips/quads in hand remain near-unplayable
+  for (const cnt of rc.values()) {
+    if (cnt >= 3) return Math.min(base, 0.18);
+  }
+
+  let cleanTwoCardSuits = 0;
+  let threeOfSuitCount = 0;
+  let fourPlusSuitCount = 0;
+  let nutAceCleanSuit = false;
+  let kingSecondarySuit = false;
+
+  for (const [suit, cnt] of sc) {
+    if (cnt === 2) cleanTwoCardSuits++;
+    else if (cnt === 3) threeOfSuitCount++;
+    else if (cnt >= 4) fourPlusSuitCount++;
+
+    if (cnt >= 2 && cnt <= 3) {
+      const hasA = cards.some((c) => c.suit === suit && c.rank === 'A');
+      const hasK = cards.some((c) => c.suit === suit && c.rank === 'K');
+      if (hasA && cnt === 2) nutAceCleanSuit = true;
+      else if (hasK && !hasA && cnt === 2) kingSecondarySuit = true;
+    }
+  }
+
+  // Tightest 4-card distinct-rank window (Ace also plays low for wheel rundowns)
+  const uniq = [...rc.keys()].sort((a, b) => a - b);
+  const wheelAware = uniq.includes(14) ? [1, ...uniq] : uniq;
+  let bestSpan = 99;
+  let bestWindowTop = 0;
+  for (let i = 0; i + 3 < wheelAware.length; i++) {
+    const span = wheelAware[i + 3] - wheelAware[i];
+    if (span < bestSpan || (span === bestSpan && wheelAware[i + 3] > bestWindowTop)) {
+      bestSpan = span;
+      bestWindowTop = wheelAware[i + 3];
+    }
+  }
+
+  let delta = 0;
+
+  // Reward clean rundowns & connected broadways that Hutchison/percentile ladders underrate
+  if (!isHiLo && bestSpan === 3 && bestWindowTop >= 8) {
+    delta += cleanTwoCardSuits >= 2 ? 0.085 : cleanTwoCardSuits === 1 ? 0.055 : 0.03;
+  } else if (!isHiLo && bestSpan === 4 && bestWindowTop >= 9) {
+    delta += cleanTwoCardSuits >= 2 ? 0.06 : cleanTwoCardSuits === 1 ? 0.035 : 0.015;
+  }
+
+  // Nut-flush + secondary King-flush exclusivity bonus
+  if (nutAceCleanSuit) delta += 0.028;
+  if (kingSecondarySuit && cleanTwoCardSuits >= 2) delta += 0.018;
+
+  // Self-blocked suit penalties (3+ cards of same suit eat hero's own flush outs)
+  if (threeOfSuitCount > 0) delta -= threeOfSuitCount * (cards.length >= 6 ? 0.028 : 0.035);
+  if (fourPlusSuitCount > 0) delta -= fourPlusSuitCount * 0.085;
+
+  // PLO5 / PLO6 saturation de-clustering: punish loose multi-card hands that lack
+  // both a tight 4-card core and clean nut/double-suited coordination
+  if (cards.length >= 5) {
+    const hasAA = (rc.get(14) || 0) === 2;
+    if (!hasAA && bestSpan >= 6 && !nutAceCleanSuit && cleanTwoCardSuits < 2) {
+      delta -= cards.length >= 6 ? 0.065 : 0.045;
+    }
+  }
+
+  // PLO8 two-way scoop boost (A2 + nut suit / wheel backup + high connectivity)
+  if (isHiLo) {
+    const hasA = rc.has(14);
+    const has2 = rc.has(2);
+    const has3 = rc.has(3);
+    if (hasA && has2 && (nutAceCleanSuit || cleanTwoCardSuits >= 2 || has3)) {
+      delta += 0.055;
+    } else if (!hasA && !has2 && bestSpan >= 5) {
+      // Middle one-way hands in PLO8 get quartered or scooped
+      delta -= 0.05;
+    }
+  }
+
+  return clamp01(base + delta);
+}
+
+/**
+ * V86 Short Deck (6+) Preflop Shape Strength.
+ * Boosts suited Aces and suited connectors/one-gappers (where straights & flushes
+ * dominate in 36-card decks and flushes beat full houses) while re-centering small
+ * pocket pairs (66-99), dominated offsuit Aces, and disconnected offsuit/rag hands
+ * onto the Hold'em preflop threshold scale (rank 6 is the bottom rank of the 36-card deck).
+ */
+export function shortDeckElitePreflopStrength(cards: readonly Card[]): number {
+  if (cards.length !== 2) return holdemPreflopScore(cards[0], cards[1], true);
+  const base = holdemPreflopScore(cards[0], cards[1], true);
+  const r1 = RANK_VALUES[cards[0].rank];
+  const r2 = RANK_VALUES[cards[1].rank];
+  const hi = Math.max(r1, r2);
+  const lo = Math.min(r1, r2);
+  const suited = cards[0].suit === cards[1].suit;
+  // In 6+, Ace plays as 5 next to 6 (A-6-7-8-9 straight)
+  const gap = hi === 14 && lo <= 9 ? Math.min(hi - lo, lo - 5) : hi - lo;
+
+  let delta = 0;
+  if (r1 === r2) {
+    if (hi <= 7)
+      delta -= 0.14; // 66-77: bottom pairs of 36-card deck; sets lose to flushes
+    else if (hi === 8) delta -= 0.11;
+    else if (hi === 9) delta -= 0.075;
+    else if (hi === 10) delta -= 0.03;
+  } else if (suited) {
+    if (hi === 14)
+      delta += 0.065; // Nut flush draw is king in 6+
+    else if (gap <= 1 && lo >= 7)
+      delta += 0.07; // KQs, QJs, JTs, T9s, 98s, 87s
+    else if (gap === 1 && lo === 6)
+      delta += 0.04; // 76s
+    else if (gap === 2 && lo >= 8)
+      delta += 0.045; // KJs, QTs, J9s, T8s
+    else if (gap >= 3 && lo <= 8) delta -= 0.1; // Disconnected low suited gappers
+  } else {
+    if (hi === 14 && lo <= 9)
+      delta -= 0.14; // A6o-A9o lack nut flush equity & face reverse implied odds
+    else if (lo >= 10) {
+      if (hi === 14 && lo === 13) delta += 0;
+      else if (gap === 1) delta -= 0.02;
+      else delta -= 0.06;
+    } else if (gap === 1 && lo >= 7) {
+      delta -= 0.09; // T9o, 98o, 87o
+    } else {
+      delta -= 0.15; // Disconnected offsuit rags (K6o-K9o, Q6o-Q9o, J6o-J9o, T6o-T8o, 76o, etc.)
+    }
+  }
+  return clamp01(base + delta);
+}
+
 export function omahaPreflopPercentile(cards: Card[], isHiLo: boolean): number {
   const raw = omahaPreflopScore(cards, isHiLo);
   const holeCount = cards.length;

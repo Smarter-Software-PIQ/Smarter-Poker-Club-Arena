@@ -64,16 +64,16 @@ describe('V54 station intent survives the actual worker policy graph', () => {
         // (HorseRiverBluffRange.law.test.ts pins it). The 2026-11-07 flop/turn
         // baseline changes which hands reach those rivers, so it is ablated
         // for the same reason (HorseFlopTurnBluffRange.law.test.ts pins it).
-        // V86 (2026-11-10) suppresses HU Omaha river position stabs with thin
+        // V87 (2026-11-10) suppresses HU Omaha river position stabs with thin
         // showdown value or unblocked air independently of V54; its off arm
-        // keeps the pre-V86 baseline river stab this test measures V54 against
+        // keeps the pre-V87 baseline river stab this test measures V54 against
         // (HorseDeepDiveDiscipline.test.ts pins the real policy).
         args[3] = {
           ...args[3],
           ploPairedBoardRiverCheck: false,
           riverBluffBaseline: false,
           flopTurnBluffBaseline: false,
-          v86DeepDiveDiscipline: false,
+          v87DeepDiveDiscipline: false,
         };
         const d = await original(...args);
         if (args[1].stage === 'river' && args[3].v54RiverBluff === false)

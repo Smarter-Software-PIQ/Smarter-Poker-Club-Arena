@@ -220,7 +220,7 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
     'src/engine/HorseOpponentExploit.ts':
       'the opponent-exploit read, its measured envelope and every effect it has on the reference and the packs',
     'src/engine/HorseDeepDiveDiscipline.ts':
-      'V86 all-hands deep-dive Omaha preflop selectivity, HU position-stab suppression, PLO6 big-bet fold, Omaha bet-raised sizing, pricedIn trash floor, and NLH turn cold-raise shade',
+      'V87 all-hands deep-dive Omaha preflop selectivity, HU position-stab suppression, PLO6 big-bet fold, Omaha bet-raised sizing, pricedIn trash floor, and NLH turn cold-raise shade',
     'src/engine/BettingStructure.ts':
       'the legal menu and bounds the reference is legalized into (hashed by Phases 11-13; now by Phase 10 too)',
     'src/engine/VariantRules.ts':

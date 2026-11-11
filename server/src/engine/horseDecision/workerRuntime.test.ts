@@ -3528,11 +3528,11 @@ describe('P10.3 worker-owned PLO4 authority (the Phase 8 path, reused)', () => {
   // heads-up reference fold.
   const LIVE_STATES = [
     [
-      'cash AsKsQhJh preflop (the pack retains the call)',
+      'cash AsKsQhJh preflop (the pack retains the pot raise)',
       'cash',
       'As Ks Qh Jh',
       false,
-      { action: 'call', amount: 2 },
+      { action: 'raise', amount: 11 },
     ],
     [
       'cash QsQh4c4d preflop (the pack retains the call)',
@@ -3549,11 +3549,11 @@ describe('P10.3 worker-owned PLO4 authority (the Phase 8 path, reused)', () => {
       { action: 'fold', amount: null },
     ],
     [
-      'tournament AsKsQhJh preflop (the pack retains the call)',
+      'tournament AsKsQhJh preflop (the pack retains the pot raise)',
       'tournament',
       'As Ks Qh Jh',
       false,
-      { action: 'call', amount: 2 },
+      { action: 'raise', amount: 11 },
     ],
   ] as const;
 
@@ -3565,12 +3565,12 @@ describe('P10.3 worker-owned PLO4 authority (the Phase 8 path, reused)', () => {
   it.each(LIVE_STATES)(
     'live behaviour under the committed selection: %s',
     async (_name, format, cards, changed, mainAction) => {
-      // V86 (2026-11-10) caps non-BB V24 price relief in PLO4 independently of
+      // V87 (2026-11-10) caps non-BB V24 price relief in PLO4 independently of
       // Phase 10 authority, folding rainbow QsQh4c4d in the reference brain;
-      // isolate this frozen 2026-10-08 P10.1 pin table with v86DeepDiveDiscipline: false
+      // isolate this frozen 2026-10-08 P10.1 pin table with v87DeepDiveDiscipline: false
       // (HorseDeepDiveDiscipline.test.ts pins the real policy).
       const base = format === 'cash' ? plo4Cash(601, cards) : plo4Tournament(601, cards);
-      const request = rekey({ ...base, opts: { ...base.opts, v86DeepDiveDiscipline: false } });
+      const request = rekey({ ...base, opts: { ...base.opts, v87DeepDiveDiscipline: false } });
       const live = await decideThrough(request, () => admitHorsePhase10ReleaseAuthority());
       const reference = await decideThrough(request, undefined, true);
       expect(act(reference.decision)).toEqual(mainAction);
@@ -3603,7 +3603,7 @@ describe('P10.3 worker-owned PLO4 authority (the Phase 8 path, reused)', () => {
     'a genuinely qualified fixture retains the cash candidate and tournament reference boundary: %s',
     async (_name, format, cards, changed, mainAction) => {
       const base = format === 'cash' ? plo4Cash(602, cards) : plo4Tournament(602, cards);
-      const request = rekey({ ...base, opts: { ...base.opts, v86DeepDiveDiscipline: false } });
+      const request = rekey({ ...base, opts: { ...base.opts, v87DeepDiveDiscipline: false } });
       const qualified = await decideThrough(request, () => qualifiedPhase10TestAdmission(2));
       const reference = await decideThrough(request, undefined, true);
       expect(act(reference.decision)).toEqual(mainAction);
@@ -3938,7 +3938,10 @@ describe('P11.3 worker-owned PLO5/PLO6/PLO8 authority (the Phase 8 path, reused 
     ['plo6', 'tournament', 'As Ad Ks Kd Qs Jd', false, { action: 'raise', amount: 11 }],
     ['plo8', 'cash', 'As 2s 3d Ac', false, { action: 'raise', amount: 11 }],
     ['plo8', 'cash', 'Ah 7c Ks 9d', true, { action: 'fold', amount: null }],
-    ['plo8', 'cash', 'Qs Qh 4c 4d', false, { action: 'call', amount: 2 }],
+    // V86: high-only middle two-pair with zero low cards in PLO8 folds on the
+    // reference path; the PLO8 pack (shadow, unselected) records a HU open
+    // deviation receipt (`changed: true`) while applying nothing.
+    ['plo8', 'cash', 'Qs Qh 4c 4d', true, { action: 'fold', amount: null }],
     ['plo8', 'tournament', 'As 2s 3d Ac', false, { action: 'raise', amount: 11 }],
   ] as const;
 
@@ -3982,14 +3985,14 @@ describe('P11.3 worker-owned PLO5/PLO6/PLO8 authority (the Phase 8 path, reused 
   );
 
   it('the PLO6 Qs Qh 4c 4d 8s 9c call was the V24 price defense, now default off in PLO6 cash', async () => {
-    // V86 (2026-11-10) independently tightens 6-card non-BB calls and V24
+    // V87 (2026-11-10) independently tightens 6-card non-BB calls and V24
     // relief caps; isolate this 2026-10-31 V24 price-defense measurement from
-    // V86 (HorseDeepDiveDiscipline.test.ts pins the real policy).
+    // V87 (HorseDeepDiveDiscipline.test.ts pins the real policy).
     const base = omahaCash(611, 'plo6', 'Qs Qh 4c 4d 8s 9c');
     const on = await decideThrough(
       rekey({
         ...base,
-        opts: { ...base.opts, v24PloDefense: true, v86DeepDiveDiscipline: false },
+        opts: { ...base.opts, v24PloDefense: true, v87DeepDiveDiscipline: false },
       }),
       undefined,
       true
@@ -3998,7 +4001,7 @@ describe('P11.3 worker-owned PLO5/PLO6/PLO8 authority (the Phase 8 path, reused 
     const off = await decideThrough(
       rekey({
         ...base,
-        opts: { ...base.opts, v24PloDefense: false, v86DeepDiveDiscipline: false },
+        opts: { ...base.opts, v24PloDefense: false, v87DeepDiveDiscipline: false },
       }),
       undefined,
       true

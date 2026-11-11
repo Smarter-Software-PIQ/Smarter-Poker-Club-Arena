@@ -333,7 +333,26 @@ describe('V46 wiring: the receipts fire from a live decision', () => {
     HorseLogic.decide(plo.hero, plo.gs, 'balanced', {}, { telemetry: true });
     const f = Object.fromEntries(drainFires().map((r) => [r.feature, r.fires]));
     expect(f.v46_class_read ?? 0).toBeGreaterThan(0);
-    expect(f.v46_class_never_3bet ?? 0).toBeGreaterThan(0);
+    // V86 lifts neverThreeBet on double-suited rundowns; pre-V86 and rainbow rundowns keep it.
+    expect(f.v46_class_never_3bet ?? 0).toBe(0);
+
+    const ploLegacy = ploSpot(cc('Js', 'Th', '9s', '8h'));
+    HorseLogic.decide(
+      ploLegacy.hero,
+      ploLegacy.gs,
+      'balanced',
+      {},
+      { telemetry: true, v86PloOverhaul: false }
+    );
+    const fLegacy = Object.fromEntries(drainFires().map((r) => [r.feature, r.fires]));
+    expect(fLegacy.v46_class_read ?? 0).toBeGreaterThan(0);
+    expect(fLegacy.v46_class_never_3bet ?? 0).toBeGreaterThan(0);
+
+    const ploRainbow = ploSpot(cc('Js', 'Th', '9d', '8c'));
+    HorseLogic.decide(ploRainbow.hero, ploRainbow.gs, 'balanced', {}, { telemetry: true });
+    const fRainbow = Object.fromEntries(drainFires().map((r) => [r.feature, r.fires]));
+    expect(fRainbow.v46_class_read ?? 0).toBeGreaterThan(0);
+    expect(fRainbow.v46_class_never_3bet ?? 0).toBeGreaterThan(0);
 
     const nlh = ploSpot(cc('As', 'Ks'), 'nlh');
     HorseLogic.decide(nlh.hero, nlh.gs, 'balanced', {}, { telemetry: true });
@@ -473,9 +492,36 @@ describe('per-decision preflop authority evidence', () => {
     expect(decision.preflopAuthority).toMatchObject({
       version: 1,
       scope: 'reference_preflop',
-      context: { isOmaha: true, classNeverThreeBet: true },
+      context: { isOmaha: true, classNeverThreeBet: false },
     });
     expect(decision.preflopAuthority?.referenceAction).toBeDefined();
     expect(decision.preflopAuthority?.intent.a).toBeDefined();
+
+    const preV86 = HorseLogic.decide(
+      spot.hero,
+      spot.gs,
+      'balanced',
+      {},
+      { telemetry: true, v86PloOverhaul: false }
+    );
+    expect(preV86.preflopAuthority).toMatchObject({
+      version: 1,
+      scope: 'reference_preflop',
+      context: { isOmaha: true, classNeverThreeBet: true },
+    });
+
+    const rainbow = ploSpot(cc('Ks', 'Qh', 'Jd', 'Tc'));
+    const rainbowDecision = HorseLogic.decide(
+      rainbow.hero,
+      rainbow.gs,
+      'balanced',
+      {},
+      { telemetry: true }
+    );
+    expect(rainbowDecision.preflopAuthority).toMatchObject({
+      version: 1,
+      scope: 'reference_preflop',
+      context: { isOmaha: true, classNeverThreeBet: true },
+    });
   });
 });
