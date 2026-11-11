@@ -24,12 +24,7 @@
 import { parse } from 'yaml';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import {
-  lockTargets,
-  orderWindowQueue,
-  validateWindowMigration,
-  windowLocks,
-} from '../scripts/ci/maintenance-window-migrations.mjs';
+import { lockTargets, windowLocks } from '../scripts/ci/maintenance-window-migrations.mjs';
 
 const MIGRATIONS = 'supabase/migrations';
 const migrationFile = (version: string): string => {
@@ -99,7 +94,7 @@ describe('a superseded certificate never funds', () => {
   });
 
   it('replaces only the installed body it was written against and needs the wallet first', () => {
-    expect(sql).toMatch(/^-- @install-window: daily-maintenance$/m);
+    expect(sql).not.toMatch(/^-- @install-window:/m);
     expect(code(sql)).toMatch(
       /md5\(pg_get_functiondef\('smarter_private\.weekly_payout_fund_agent_shortfalls\([^']+'::regprocedure\)\)\s+IS DISTINCT FROM\s+'018a0fcbad1fabcf1b5427b9fa454028'/
     );
@@ -150,18 +145,17 @@ describe('the wallet is installed before the cascade that needs it', () => {
   const files = [migrationFile(CASCADE), migrationFile(WALLET)];
   const sqlOf = (file: string): string => readFileSync(`${MIGRATIONS}/${file}`, 'utf8');
 
-  it('is sent first by the window installer', () => {
-    // The installer sends files that declare no locks before files that
-    // declare some, whatever their versions. The cascade locks no table and
-    // declares none, so the wallet file must not declare any either.
-    const queue = orderWindowQueue(
-      files.map((file) => ({ file, locks: windowLocks(sqlOf(file)) }))
-    ).map((entry: { file: string }) => entry.file.slice(0, 14));
-    expect(queue).toEqual([WALLET, CASCADE]);
+  it('installs at merge, before the cascade, under a one second lock timeout', () => {
+    // Neither file waits for the daily window: public.agents is not a named
+    // hot table, and the cascade locks no table. The merge dispatcher sends
+    // files in version order, and the cascade refuses until this file's
+    // routing-wallet door exists.
+    expect(WALLET < CASCADE).toBe(true);
     for (const file of files) {
-      expect(validateWindowMigration(file, sqlOf(file))).toBe(true);
+      expect(sqlOf(file)).not.toMatch(/^-- @install-window:/m);
       expect(windowLocks(sqlOf(file))).toEqual([]);
     }
+    expect(sqlOf(migrationFile(WALLET))).toMatch(/SET LOCAL lock_timeout = '1s';/);
   });
 
   it('still has its table lock read from the SQL, and the cascade takes none', () => {
