@@ -3801,13 +3801,25 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
         .find((o) => o.playerId === leaderId && o.status === 'offered');
       if (!offer) return;
       try {
-        const eqFrac = Math.max(0, Math.min(1, Number(offer.equity) / 100));
+        const pricing = offer.pricing;
+        const eqFrac = Math.max(
+          0,
+          Math.min(1, Number(pricing ? pricing.equityPct : offer.equity) / 100)
+        );
         const pLoss = Math.max(0, 1 - eqFrac);
         const fairPremium =
           offer.fullInsuredAmount > 0
-            ? offer.fullInsuredAmount * (pLoss / Math.max(1e-6, eqFrac))
+            ? pricing &&
+              Number.isFinite(pricing.lossGivenNoPush) &&
+              Number.isFinite(pricing.winGivenNoPush)
+              ? offer.fullInsuredAmount *
+                (pricing.lossGivenNoPush / Math.max(1e-6, pricing.winGivenNoPush))
+              : offer.fullInsuredAmount * (pLoss / Math.max(1e-6, eqFrac))
             : 0;
-        const fairCashoutEv = offer.fullInsuredAmount * eqFrac;
+        const fairCashoutEv =
+          pricing && Number.isFinite(pricing.insurablePot)
+            ? pricing.insurablePot * eqFrac
+            : offer.fullInsuredAmount * eqFrac;
         if (
           typeof offer.evCashoutAmount === 'number' &&
           Number.isFinite(offer.evCashoutAmount) &&

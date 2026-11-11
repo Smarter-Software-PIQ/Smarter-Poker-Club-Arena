@@ -12,11 +12,8 @@ import { admitHorsePhase10LiveAuthority } from './HorsePhase10Authority.js';
 import { HORSE_PHASE11_VARIANTS, admitHorsePhase11LiveAuthority } from './HorsePhase11Authority.js';
 import { HORSE_PHASE12_VARIANTS, admitHorsePhase12LiveAuthority } from './HorsePhase12Authority.js';
 import { HORSE_PHASE13_VARIANTS, admitHorsePhase13LiveAuthority } from './HorsePhase13Authority.js';
-import {
-  HORSE_PHASE14_DOMAINS,
-  admitHorsePhase14LiveAttachment,
-  horsePhase14CorrectiveMode,
-} from './HorsePhase14Authority.js';
+import { CORRECTIVE_DOMAIN_KEYS } from '../services/horseCorrectiveReview/domain.js';
+import { qualifiedReplayAdmissions } from './horseDecision/replay/qualifiedAuthority.js';
 import { isHorseOwnerForcedAuthority } from './HorseOwnerForcedActivation.js';
 
 export const HORSE_UPGRADE_MANIFEST_SCHEMA = 'horse-upgrade-activation-manifest-v1' as const;
@@ -272,23 +269,20 @@ export function computeHorseUpgradeActivationManifest(): HorseUpgradeActivationM
       HORSE_PHASE13_VARIANTS.map((v) => [v, summarizeAdmission(admitHorsePhase13LiveAuthority(v))])
     ),
     phase14: Object.fromEntries(
-      HORSE_PHASE14_DOMAINS.map((domain) => {
-        const attachment = admitHorsePhase14LiveAttachment(domain);
+      CORRECTIVE_DOMAIN_KEYS.map((domain) => {
+        const attachment = qualifiedReplayAdmissions.admitPhase14Attachment(domain);
         const packDomain = attachment.catalog
           ? `${attachment.catalog.domain.variant}-${attachment.catalog.domain.mode}`
           : null;
-        const modeInfo = horsePhase14CorrectiveMode({
-          callerMode: 'candidate',
-          domain,
-          packDomain,
-          verdict: attachment.admission.status === 'admitted' ? 'usable' : 'mismatched',
-          catalog: attachment.catalog,
-        });
+        const activeCandidate =
+          attachment.admission.status === 'admitted' &&
+          attachment.catalog !== null &&
+          packDomain === domain;
         return [
           domain,
           {
             status: attachment.admission.status,
-            mode: modeInfo.mode,
+            mode: activeCandidate ? 'candidate' : 'off',
           },
         ];
       })
@@ -320,7 +314,8 @@ export function isValidHorseUpgradeActivationManifest(
   const candidate = value as Record<string, unknown>;
   return (
     candidate.schema === HORSE_UPGRADE_MANIFEST_SCHEMA &&
-    candidate.version === HORSE_UPGRADE_MANIFEST_VERSION &&
+    typeof candidate.version === 'string' &&
+    candidate.version.length > 0 &&
     (candidate.sourceRevision === null || typeof candidate.sourceRevision === 'string') &&
     typeof candidate.engineVersion === 'string' &&
     typeof candidate.manifestDigest === 'string' &&

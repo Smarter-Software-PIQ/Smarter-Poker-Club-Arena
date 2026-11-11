@@ -2087,7 +2087,6 @@ export class LightningHandHost {
     for (const me of st.players) {
       const userId = me.user_id;
       if (me.is_folded || me.is_all_in || me.seat === st.currentPlayerSeat) continue;
-      if (this.participants.get(userId)?.isHorse === true && !this.clientControls(userId)) continue;
       if (!(st.currentBet - me.bet > 0.005)) continue;
       if (!this.watching.has(userId)) continue;
       // A FOLD ALREADY ASKED FOR ON A FREE SEAT IS PRICED NOW (2026-11-10, Dan
@@ -2160,6 +2159,9 @@ export class LightningHandHost {
       this.preActions.clearPreAction(this.timerKey, userId);
       if (armed) this.notePreAction(userId, 'cleared', armed, 'by_player');
       return { success: true };
+    }
+    if (this.participants.get(userId)?.isHorse === true && !this.clientControls(userId)) {
+      return refuse('horse_live_turn', { success: false, error: 'Pre-action unavailable' });
     }
     if (handId !== this.handId) {
       return refuse('stale_hand', {

@@ -2461,7 +2461,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       ultraPremiumElite ||
       (linearElite3Bet &&
         ctx.observedExtremeManiac !== true &&
-        (ctx.maniacNoBluff !== true || strength >= 0.62)) ||
+        (noBluff3 || ctx.maniacNoBluff !== true || strength >= 0.62)) ||
       (ctx.maniacNoBluff !== true && !noBluff3);
     const basePloMix = ctx.ploPersona3BetMix ?? 0.55;
     const rawPloMix = pressure
@@ -2530,11 +2530,23 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       const ip = position === 'late' || ctx.isButton === true || (vs === 'sb' && position === 'bb');
       const omahaContextual3Bet =
         unblocked86 &&
+        ctx.observedExtremeManiac !== true &&
         ((ip && vs !== 'early') ||
           callers >= 1 ||
           (ctx.omahaNutSuits ?? 0) >= 1 ||
           ctx.omahaTripleSuited === true ||
           stackBB <= 55);
+      if (
+        ctx.isOmaha &&
+        ctx.omahaAA === false &&
+        !premiumValue &&
+        ctx.observedExtremeManiac === true &&
+        strength < Math.max(0.64, effThreeBetThresh + 0.12) &&
+        toCall <= ctx.stack * 0.15
+      ) {
+        noteAuthority('v16_non_aa_flat');
+        return { a: 'call' };
+      }
       if (
         ctx.isOmaha &&
         ctx.omahaAA === false &&
@@ -3128,7 +3140,8 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         toCall > 0 &&
         investedShare >= 0.09 &&
         guardOdds <= OMAHA_SUITED_ACES_CONTINUE_ODDS &&
-        (ctx.omahaElite?.canThreeBet === true || strength >= t53(0.56, 'call'))
+        (ctx.omahaElite?.canThreeBet === true ||
+          strength >= (vsReRaiser ? Math.min(t53(0.56, 'call'), callThresh) : t53(0.56, 'call')))
       ) {
         return { a: 'call', receipt: 'v86_plo_three_bettor_continues' };
       }

@@ -1047,13 +1047,7 @@ export function omahaDrawQuality(
           holeRanks.has(lowestUnboarded1) &&
           holeRanks.has(lowestUnboarded2)
         ) {
-          const hasCounterfeitBackup =
-            board.length >= 4 ||
-            holeRanks.has(3) ||
-            holeRanks.has(4) ||
-            nutFlushDraw ||
-            straightOuts >= 6;
-          nutLowDraw = hasCounterfeitBackup;
+          nutLowDraw = true;
         }
       }
     }
@@ -2304,6 +2298,8 @@ function lowerBound(a: Float64Array, v: number): number {
 /** Availability scratch, indexed by card id — reused, never allocated. */
 const cardAvail = new Uint8Array(64);
 const cardId = (c: Card): number => ((RANK_VALUES[c.rank] - 2) << 2) | (SUIT_INDEX[c.suit] ?? 0);
+const CARD_BY_ID: Card[] = new Array(52);
+for (const c of FULL_DECK) CARD_BY_ID[cardId(c)] = c;
 
 /**
  * Place an in-band two-card hand into deck[windowStart..windowStart+1] by
@@ -3066,7 +3062,7 @@ export function placeOmahaPressureCombo(
           collided = true;
           break;
         }
-        scratch[k] = FULL_DECK[cid];
+        scratch[k] = CARD_BY_ID[cid];
       }
       if (collided) continue;
       const category = omahaQuickCategory(scratch, board);

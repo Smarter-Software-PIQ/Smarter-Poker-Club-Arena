@@ -7964,11 +7964,7 @@ export class HorseLogic {
           // domination (four napkins keep 44% against the sampled "3-bet
           // range" in PLO6; against the real one it is nearer 35%). The price
           // carries a margin for that, growing with the hole count.
-          const maniacDomScale38 =
-            maniacRaiserWidth !== null ? Math.max(0, 1 - maniacRaiserWidth) : 1;
-          const dominationMargin38 = vi.isOmaha
-            ? (0.04 + 0.02 * Math.max(0, vi.holeCount - 4)) * maniacDomScale38
-            : 0;
+          const dominationMargin38 = vi.isOmaha ? 0.04 + 0.02 * Math.max(0, vi.holeCount - 4) : 0;
           // MANIAC PRESSURE: a call that is not all-in still has streets to
           // play, out of the maniac's way only when hero is all-in or the
           // maniac is; the equity is realised a little short of the sample.
@@ -9552,6 +9548,28 @@ export class HorseLogic {
             delete r.lastFrac;
             delete r.raised;
           }
+        } else if (opts.v86MultiStreetUnblocked !== false && oppReads) {
+          // Verified postflop maniacs pot indiscriminately with wide preflop
+          // bands rather than selective 75% two-pair+ value ranges: strip V40
+          // selective-aggressor tier conditioning so decidePostflop prices
+          // their shoves against their actual wide band on the primary pass.
+          for (let i = 0; i < opponents.length; i++) {
+            const r = oppReads[i];
+            if (!r) continue;
+            const mRead = HorseMind.opponentRead(opponents[i].user_id);
+            if (
+              mRead &&
+              !mRead.presumed &&
+              isPostflopManiac(mRead) &&
+              (maniacRaiseWidth(mRead) !== null || mRead.stats.betCheckedTo.mean >= 0.72)
+            ) {
+              delete r.streets;
+              delete r.lastFrac;
+              delete r.raised;
+              r.bigBet = false;
+              r.aggrW = Math.min(r.aggrW ?? 0, 0.08);
+            }
+          }
         }
         if (tele15) {
           if (bands && bands.some((b) => b !== null)) {
@@ -9598,21 +9616,6 @@ export class HorseLogic {
               holeCount: player.cards.length,
               multiwayCount: oppCount,
             });
-            if (
-              useMind &&
-              bands &&
-              bands[targetIdx] &&
-              isRiver &&
-              !facingBet &&
-              post.rangeCapped &&
-              post.nutted <= 0.1
-            ) {
-              const curLo = bands[targetIdx]![0];
-              const cappedHi = Math.min(bands[targetIdx]![1], post.narrowedRange[1]);
-              if (cappedHi - curLo >= 0.14) {
-                bands[targetIdx] = [curLo, cappedHi];
-              }
-            }
             return post;
           })()
         : null;
@@ -10232,14 +10235,14 @@ export class HorseLogic {
           if (os > effOpp) effOpp = os;
         }
         const eff = Math.min(stack + player.bet, effOpp);
-        if (useV86Postflop) {
+        if (useV86Postflop && (opts.riverBluffBaseline ?? true) !== false) {
           geomFrac = solveGeometricStreetSizing({
             pot,
-            effectiveStack: Math.max(0, eff - player.bet),
+            effectiveStack: eff,
             streetsRemaining: streetsLeft as 1 | 2 | 3,
             isPotLimit: vi.isPotLimit,
           }).fractionOfPot;
-          geomFrac = Math.max(0.35, Math.min(vi.isPotLimit ? 1.0 : 1.25, geomFrac));
+          geomFrac = Math.max(0.35, Math.min(vi.isPotLimit ? 1.0 : 1.1, geomFrac));
         } else {
           const sprEff = pot > 0 ? Math.max(0, eff / pot) : 0;
           // Solve pot*(1+2g)^streets = pot + 2*eff  ->  even pot-growth per street.
@@ -13231,6 +13234,7 @@ export class HorseLogic {
             const baseBarrelFrac = sizeBase + 0.15 + fastRandom() * 0.1;
             const dynFrac86 =
               dynamicPlan86?.reevaluated &&
+              raisedAfterAggr &&
               typeof dynamicPlan86.recommendedSizingFraction === 'number' &&
               dynamicPlan86.recommendedSizingFraction > 0
                 ? 0.5 * baseBarrelFrac + 0.5 * dynamicPlan86.recommendedSizingFraction

@@ -1443,12 +1443,13 @@ describe('LAW: 1,000-Horse Full Action-Space Freedom & Fleet Activation', () => 
     noteHorseStreetPrewarm('plo6', 'cash', 'flop_deal', 3);
     noteHorseTelemetryOpportunity('plo4', 'cash', 'decision_evaluated', 5);
 
-    // High-cardinality / mixed-case labels are sanitized to closed lowercase 'other' — zero UUID leakage
+    // High-cardinality / mixed-case labels are sanitized to closed lowercase 'other' / 'invalidation_replan' — never dropped, zero UUID leakage
     const leakedUuid = '00000000-0000-4000-8000-000000000999';
     noteHorseActionClamped(`PLO4_${leakedUuid}`, 'CASH', `horse_${leakedUuid}`, 1);
+    noteHorsePlanReevaluated('nlh', 'cash', `unmatched_custom_reason_${leakedUuid}`, 1);
 
     const deltas = drainBrainWatchcounterDeltas();
-    expect(deltas).toHaveLength(6);
+    expect(deltas).toHaveLength(7);
     expect(drainBrainWatchcounterDeltas()).toHaveLength(0);
 
     // Simulate relaying worker deltas onto a clean main-thread process registry
@@ -1457,7 +1458,7 @@ describe('LAW: 1,000-Horse Full Action-Space Freedom & Fleet Activation', () => 
 
     const snap = peekBrainWatchcounters();
     expect(snap.poker_horse_action_clamped_total.total).toBe(3);
-    expect(snap.poker_horse_plan_reevaluated_total.total).toBe(1);
+    expect(snap.poker_horse_plan_reevaluated_total.total).toBe(2);
     expect(snap.poker_horse_legalizer_degraded_total.total).toBe(1);
     expect(snap.poker_horse_street_prewarm_total.total).toBe(3);
     expect(snap.poker_horse_telemetry_opportunities_total.total).toBe(5);
@@ -1471,6 +1472,9 @@ describe('LAW: 1,000-Horse Full Action-Space Freedom & Fleet Activation', () => 
     );
     expect(prom).toContain(
       'poker_horse_plan_reevaluated_total{variant="nlh",mode="tournament",reason="unexpected_donk_bet"} 1'
+    );
+    expect(prom).toContain(
+      'poker_horse_plan_reevaluated_total{variant="nlh",mode="cash",reason="invalidation_replan"} 1'
     );
     expect(prom).toContain(
       'poker_horse_legalizer_degraded_total{variant="plo5",mode="cash",reason="min_raise_step"} 1'
@@ -2142,12 +2146,125 @@ describe('LAW: 1,000-Horse Full Action-Space Freedom & Fleet Activation', () => 
       compatible: false,
       reason: 'worker_manifest_missing',
     });
+    expect(verifyWorkerUpgradeManifestCompatibility(manifest, { schema: 'malformed' })).toEqual({
+      compatible: false,
+      reason: 'worker_manifest_invalid',
+    });
+    expect(
+      verifyWorkerUpgradeManifestCompatibility(manifest, {
+        ...manifest,
+        version: '2025-01-01.v0',
+      })
+    ).toEqual({
+      compatible: false,
+      reason: 'worker_manifest_version_mismatch',
+    });
     expect(
       verifyWorkerUpgradeManifestCompatibility(manifest, {
         ...manifest,
         manifestDigest: 'f'.repeat(64),
-      }).compatible
-    ).toBe(false);
+      })
+    ).toEqual({
+      compatible: false,
+      reason: 'worker_manifest_digest_mismatch',
+    });
+    // 8/8 worker shard pool verification + replacement recovery
+    const eightWorkerRuntimes: HorseDecisionWorkerRuntime[] = [];
+    for (let shard = 0; shard < 8; shard++) {
+      const shardOut: HorseDecisionWorkerResponse[] = [];
+      const shardRuntime = new HorseDecisionWorkerRuntime((m) => shardOut.push(m), {
+        ...defaults,
+        startServices: async () => defaults.workerReadiness(),
+        stopServices: async () => {},
+      });
+      await shardRuntime.start();
+      const shardReady = shardOut.find((m) => m.type === 'READY') as
+        | (HorseDecisionWorkerResponse & { upgradeManifest?: typeof manifest })
+        | undefined;
+      expect(
+        verifyWorkerUpgradeManifestCompatibility(manifest, shardReady?.upgradeManifest)
+      ).toEqual({ compatible: true });
+      eightWorkerRuntimes.push(shardRuntime);
+    }
+    expect(eightWorkerRuntimes).toHaveLength(8);
+
+    // Push-adjusted scheduleHorseInsuranceResponse handler: house-vig decline, split-pot pricing accuracy, < fairPremium accept, > fairCashoutEv cashout, preflop vs flop+ decline scope
+    vi.useFakeTimers();
+    try {
+      const runInsScenario = async (offerOverride: Record<string, unknown>) => {
+        const calls: Array<{ decision: string; coverage: number; declineForHand: boolean }> = [];
+        const insCtx = {
+          tableId: 'law-ins-handler-table',
+          running: true,
+          handCount: 4,
+          seatedPlayers: [{ user_id: 'horse-leader', is_horse: true }],
+          isOwnClientControlling: () => false,
+          lifecycleCanMutate: () => true,
+          setHandTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
+          insuranceEngine: {
+            getOffers: () => [
+              {
+                playerId: 'horse-leader',
+                status: 'offered',
+                equity: 40,
+                fullInsuredAmount: 100,
+                fullPremium: 315,
+                boardLength: 3,
+                pricing: {
+                  equityPct: 40,
+                  strictLossPct: 30,
+                  pushPct: 60,
+                  strictWinPct: 10,
+                  lossGivenNoPush: 0.75,
+                  winGivenNoPush: 0.25,
+                  exact: true,
+                  runouts: 40,
+                  houseMargin: 1.05,
+                  maxInsurablePercent: 100,
+                  insurablePot: 100,
+                  fullInsuredAmount: 100,
+                  fullPremium: 315,
+                },
+                ...offerOverride,
+              },
+            ],
+          },
+          respondToInsurance: (
+            _pid: string,
+            decision: string,
+            coverage: number,
+            declineForHand: boolean
+          ) => {
+            calls.push({ decision, coverage, declineForHand });
+          },
+        };
+        (ServerTableEngine.prototype as any).scheduleHorseInsuranceResponse.call(
+          insCtx,
+          'horse-leader'
+        );
+        await vi.advanceTimersByTimeAsync(1_500);
+        return calls;
+      };
+
+      // (a) Standard house-vig offer on flop (boardLength=3): declined for the entire hand
+      expect(await runInsScenario({})).toEqual([
+        { decision: 'decline', coverage: 100, declineForHand: true },
+      ]);
+      // (b) Standard house-vig offer preflop (boardLength=0): declined for the current street only
+      expect(await runInsScenario({ boardLength: 0 })).toEqual([
+        { decision: 'decline', coverage: 100, declineForHand: false },
+      ]);
+      // (c) High-push split-board favorable premium (200 < push-adjusted fairPremium 300, even though naive (1-0.4)/0.4*100 = 150!): accepted!
+      expect(await runInsScenario({ fullPremium: 200 })).toEqual([
+        { decision: 'accept', coverage: 100, declineForHand: false },
+      ]);
+      // (d) Favorable EV cashout (> insurablePot * 0.40 = 40): cashed out!
+      expect(await runInsScenario({ evCashoutAmount: 42 })).toEqual([
+        { decision: 'cashout', coverage: 100, declineForHand: false },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
 
     // 2. PREWARM_STREET preserves fastRandom PRNG sequence identically (zero RNG mutation)
     _clearGtoPostflop();
