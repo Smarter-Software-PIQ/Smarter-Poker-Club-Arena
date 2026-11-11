@@ -103,12 +103,18 @@ describe('a job token cannot start trusted work', () => {
         const condition = String(job.if ?? '').replace(/\s+/g, ' ');
         // A job whose own condition already admits only a dispatch event
         // carries the short form: the event clause would be redundant.
+        // So does a job pinned to an action other than the admitted one: the
+        // admitted event can never reach it.
+        const admittedAction = admitted?.match(/github\.event\.action == '([^']+)'/)?.[1];
+        const ownAction = condition.match(/^github\.event\.action == '([^']+)' && /)?.[1];
+        const otherActionJob = !!admittedAction && !!ownAction && ownAction !== admittedAction;
         const dispatchOnlyJob =
-          !admitted &&
-          /^(?:\$\{\{ )?github\.event_name == '(?:repository|workflow)_dispatch' && /.test(
-            condition
-          ) &&
-          !condition.includes('||');
+          otherActionJob ||
+          (!admitted &&
+            /^(?:\$\{\{ )?github\.event_name == '(?:repository|workflow)_dispatch' && /.test(
+              condition
+            ) &&
+            !condition.includes('||'));
         expect(condition).toContain(dispatchOnlyJob ? SHORT : guard);
       });
       const sender = ADMITTED[f]?.sender;

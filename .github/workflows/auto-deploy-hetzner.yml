@@ -22,7 +22,7 @@ concurrency:
 jobs:
   observe-private-horse-fleet:
     name: Observe One Private Natural Horse Cohort
-    if: github.event.action == 'observe-club-arena-horse-fleet' && (github.triggering_actor != 'github-actions[bot]' || (github.event_name == 'repository_dispatch' && github.event.action == 'deploy-club-arena-engine'))
+    if: github.event.action == 'observe-club-arena-horse-fleet' && github.triggering_actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     environment: ci-main
     # At most sixteen 115-second read-only partitions plus setup and cleanup.
@@ -120,7 +120,7 @@ jobs:
 
   withdraw-waiting-release:
     name: Withdraw One Exact Waiting Original Transaction
-    if: github.event.action == 'withdraw-club-arena-engine' && (github.triggering_actor != 'github-actions[bot]' || (github.event_name == 'repository_dispatch' && github.event.action == 'deploy-club-arena-engine'))
+    if: github.event.action == 'withdraw-club-arena-engine' && github.triggering_actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     environment: ci-main
     concurrency:
