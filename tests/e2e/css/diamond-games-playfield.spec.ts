@@ -640,7 +640,7 @@ for (const game of ['crossing', 'mines'] as const)
         });
       }
       const cabinetArt = url.pathname.match(
-        /\/assets\/diamond-spins\/((?:mines-vault|crossing-dashboard)-deck-v1\.webp|donkey-coat\.webp|mines-(?:cut-sapphire|chrome-hazard)-v2\.webp)$/
+        /\/assets\/diamond-spins\/((?:mines-vault|crossing-dashboard)-deck-v1\.webp|donkey-(?:coat|mascot-v1)\.webp|mines-(?:cut-sapphire|chrome-hazard)-v2\.webp)$/
       );
       if (cabinetArt)
         return route.fulfill({
@@ -1143,7 +1143,7 @@ async function openGamePage(page: Page, game: keyof typeof START_LABEL, live = f
     if (url.pathname.endsWith('/images/header-help-v4.png'))
       return route.fulfill({ path: 'public/images/header-help-v4.png', contentType: 'image/png' });
     const receiptArt = url.pathname.match(
-      /\/assets\/diamond-spins\/((?:flight-horizon-hd|donkey-coat)\.webp|result-(?:crash|plinko|crossing|mines)\.webp|(?:super-)?plinko-cabinet-badge\.webp|plinko-(?:backplate|control-deck)\.webp|(?:crash-cockpit|plinko-launch|mines-vault|crossing-dashboard)-deck-v1\.webp)$/
+      /\/assets\/diamond-spins\/((?:flight-horizon-hd|donkey-coat|donkey-mascot-v1)\.webp|result-(?:crash|plinko|crossing|mines)\.webp|(?:super-)?plinko-cabinet-badge\.webp|plinko-(?:backplate|control-deck)\.webp|(?:crash-cockpit|plinko-launch|mines-vault|crossing-dashboard)-deck-v1\.webp)$/
     );
     if (receiptArt)
       return route.fulfill({
