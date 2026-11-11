@@ -1233,6 +1233,21 @@
         "path": "server/release/activation-floor.json",
         "sha256": "aeecae49960eb9659ab5bc86710d330bb6a58a47a7c732f94fe74c894002b602"
       }
+    },
+    {
+      "id": "2026-11-11-horse-realtime-10454-engine-1930z",
+      "ownerOrder": "Dan directly authorized at 2026-11-11T11:36:59-06:00 in Horse decision-engine chat 5634b740-8576-46c1-a084-c7bd69555cad, supplied verbatim in Codex chat 01a1cbbb-645b-75d2-99c2-367693b053be: \"I explicitly authorize one fresh ASAP engine cutover outside the routine 04:00 Chicago window to deploy the approved #10454 improvements. Coordinate with the current sole release custodian; do not create competing dispatchers.\" He also ordered: \"Choose the earliest safe bounded window through the maintained protected owner-order route. Preserve all actual notice, drain, certification, rollback and thaw requirements. Your proposed two-minute notice does not override any applicable longer public-notice requirement.\" In the current Codex chat he explicitly directed implementation through publication and completion rather than preparing a handoff. Read-only reconciliation at 17:55:54 UTC November 11 found the prior custodian's task completed, no active Stage or receiver, and host pending/finalization null with no active release units. This Codex root executes the single operation directly; no old chat is activated. Fresh SINGLE-USE order admits ONE actual activation replacing exact serving f7735cca6862b9add06841b8a41c305b3f3ebe01 with a protected qualified candidate containing the reviewed #10454 merge 1094cd8ca7a6e99abc29bdfe89aa26c2964bd4df, with final source and configuration verified against later edits. Declared public notice 19:10 UTC November 11; nominal admission 19:30 through fixed 22:30 UTC November 11, chosen to permit protected checks, publication and full compatible Backup qualification. Independently observe the actual primary public notice for twenty minutes after publication; later visibility delays admission within the fixed expiry. Require exact protected target/control, immutable images, all four qualification shards, current-production schema/function equality, original compatible Backup certificate with full 1800-second soak, both-direction rehearsal against the actual serving predecessor, fresh announcement between :05:30 and :49:00, normal 120s last-hand lead, hand-boundary drain, durable database freeze, 300s break, full 285s cutover/proof/rollback reserve, one-use claim, exact SEALED identity, full healthy thaw and fresh post-seal Backup. Then prove individual worker manifests, live metrics ingestion and denominators, fresh feature-specific natural execution through validated committed actions, and effective configuration for all 1000 active Horses separately from observed feature use. Rejected/unselected capabilities stay disabled; zero opportunities are explicit gaps. No additional swarm, feature work, migrations, new tournament-start hold, direct restart, financial replay, competing operation, automatic renewal, timer, watcher, repair loop, reduced reserve or extended freeze. All historical orders, consumed claims and immutable generations remain unchanged. Authority ends after this one activation or fixed expiry; the routine daily schedule is unchanged.",
+      "contains": "1094cd8ca7a6e99abc29bdfe89aa26c2964bd4df",
+      "playerNoticeAt": "2026-11-11T19:10:00Z",
+      "notBefore": "2026-11-11T19:30:00Z",
+      "notAfter": "2026-11-11T22:30:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "d94ebce03e481c7af3c8cce08eac33f43724099626794ab770a07624d9b38e5c"
+      }
     }
   ],
   "databaseWindows": [

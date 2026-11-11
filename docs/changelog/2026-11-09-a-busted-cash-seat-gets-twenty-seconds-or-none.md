@@ -270,3 +270,34 @@ Owners notified on their pull requests, because their versions differ from
 the file now on main: #10357 (collusion scan, blob `b681ba46`) and #10373
 (Lightning blinds, blob `4c9521f9`). The other seven files are byte-identical
 to main and belong to merged work.
+
+### Each frame names its bust (2026-11-11, follow-up to #10481)
+
+**Gap.** #10481 kept the earliest deadline a sheet had been told, cleared on
+chips or seat exit. Two holes remained. A frame reaching a seat that already
+had chips again set a deadline nothing cleared, and the earliest-deadline rule
+then held that stale, already-past deadline over the next bust: no clock. And
+a frame carried no occupancy or bust identity, so a late frame of an earlier
+bust could not be told from the current one.
+
+**Fix.**
+- Engine: `bust_rebuy_window` now carries `occupancy_id` and `deadline_at_ms`,
+  the bust's deadline on the engine's wall clock (bust + 20 s, sent as
+  `Date.now() + remaining_ms`). Every resend of one bust names the same
+  instant; a later bust is at least a hand later.
+- Client: `src/utils/bustRebuyDeadline.ts` (`nextBustRebuyClock`) decides each
+  frame. It ignores a frame that reaches a seat with chips, ignores one whose
+  deadline is more than 5 s before the current bust's (an earlier bust), starts
+  over for one more than 5 s after (a new bust), and otherwise only lets the
+  clock come forward. Server deadlines are compared only with each other,
+  never with the device clock; the sheet counts on "time left when told" plus
+  the device clock, as before.
+
+**Tests (automated, not production evidence).** `tests/unit/bustRebuyDeadline.test.ts`
+(9 cases: delayed wallet read, resend and reload, late frame of an earlier
+bust in both directions, stale deadline replaced, funded seat, malformed
+frame, an engine that names no bust, and the page wiring). The law file gains
+"every resend of one bust names it by the same deadline" and its frame pins
+carry the new fields (43 pass). `SitOutClockAndEviction` 20 pass. Server and
+client typecheck clean. No browser fixture exists for this sheet, and none was
+built: the rendered countdown is not browser-verified.

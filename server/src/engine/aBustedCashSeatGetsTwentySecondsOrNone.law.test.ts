@@ -180,7 +180,10 @@ describe('a player who has just lost their last chip', () => {
       kind: 'bust_rebuy_window',
       table_id: TABLE,
       user_id: 'hero',
+      occupancy_id: 'occ-hero',
       remaining_ms: 15_000,
+      // The bust's deadline on the engine's clock: bust + 20 s.
+      deadline_at_ms: Date.now() + 15_000,
       window_ms: 20_000,
     });
 
@@ -529,7 +532,9 @@ describe('the offer leaves with the bust (2026-11-11)', () => {
     kind: 'bust_rebuy_window',
     table_id: TABLE,
     user_id: 'hero',
+    occupancy_id: 'occ-hero',
     remaining_ms: remaining,
+    deadline_at_ms: Date.now() + remaining,
     window_ms: 20_000,
   });
 
@@ -639,10 +644,26 @@ describe('the wiring', () => {
   });
 
   it('the sheet never lets a later frame push its deadline back', () => {
+    // 2026-11-11: one decision per frame, keyed by the bust's own deadline
+    // (tests/unit/bustRebuyDeadline.test.ts covers its cases).
     const page = readFileSync(join(process.cwd(), '..', 'src', 'pages', 'TablePage.tsx'), 'utf8');
-    expect(page).toContain(
-      'setBustRebuyDeadlineAt((prev) => (prev === null ? told : Math.min(prev, told)));'
-    );
+    expect(page).toContain('nextBustRebuyClock(');
+    expect(page).toContain('bustRebuyServerDeadlineRef.current = next.serverDeadlineAt;');
+  });
+
+  it('every resend of one bust names it by the same deadline', async () => {
+    startClock();
+    const engine = cashEngine();
+    engine.noteCashBust(engine.seatedPlayers);
+    wallets.read.mockResolvedValue(new Map([['hero', 500]]));
+    await engine.offerCashBustWindows(engine.seatedPlayers);
+    const first = engine.hub.sendToUser.mock.calls[0][2];
+    vi.setSystemTime(Date.now() + 6_000);
+    engine.noteRebuyPromptOpen('hero');
+    const resent = engine.hub.sendToUser.mock.calls[1][2];
+    expect(resent.remaining_ms).toBe(first.remaining_ms - 6_000);
+    expect(resent.deadline_at_ms).toBe(first.deadline_at_ms);
+    expect(resent.occupancy_id).toBe('occ-hero');
   });
 
   it('decides the table pause from the same seat wallet', () => {

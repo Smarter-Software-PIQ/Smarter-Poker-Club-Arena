@@ -78,6 +78,13 @@
       "noticeAt": "2026-11-11T07:40:00Z",
       "notBefore": "2026-11-11T08:00:00Z",
       "notAfter": "2026-11-11T10:30:00Z"
+    },
+    {
+      "id": "2026-11-11-horse-realtime-10454-engine-1930z",
+      "kind": "engine",
+      "noticeAt": "2026-11-11T19:10:00Z",
+      "notBefore": "2026-11-11T19:30:00Z",
+      "notAfter": "2026-11-11T22:30:00Z"
     }
   ]
 }
