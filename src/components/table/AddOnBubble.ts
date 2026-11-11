@@ -1,33 +1,15 @@
 /**
- * ═══════════════════════════════════════════════════════════════════════════════
- *  ADD-ON BUBBLE — "Has Added On For 50.00", shown above the seat that did it
- * ═══════════════════════════════════════════════════════════════════════════════
- *
- * Dan 2026-09-04: "IF A PLAYER ADDS ON AFTER A HAND, THEY SHOULD GET A LITTLE
- * POP UP ABOVE THEIR HEAD. 'HAS ADDED ON FOR XX.XX'."
- *
- * WHERE THE FACT COMES FROM. Add-on chips (and, since Chip Standard C3, the
- * bust rebuy too) are debited at once but only reach the stack when the
- * engine's sweep resolves the `table_pending_addons` row — at the end of the
- * hand, or on an idle tick. That sweep now emits `add_on_applied` on the
- * table's event hub with the amount that ACTUALLY landed (capped at the max
- * buy-in; the remainder was refunded). The bubble says that number, not what
- * the player asked for.
- *
- * WHY IT REUSES THE CHAT BUBBLE. The chat bubble already solves the hard
- * part: an absolutely-positioned box over `.seat-wrapper` that flips below
- * the plate on the top arc, pops in, and never intercepts a tap. This hook
- * just produces `SeatChatBubble` entries for it, tagged `variant: 'notice'`
- * so the CSS can tint them gold instead of chat white.
+ * Applied add-ons become a brief stack-to-crown text flight (owner 2026-11-10).
+ * Keep the authoritative applied amount, seat ownership and receipt deduplication.
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { formatChips } from '../../lib/utils';
+import { formatTableChips } from '../../utils/format';
+import { getAnimationSpeed } from '../../utils/animationSpeed';
 import type { SeatChatBubble } from './ChatBubble';
 
-/** Long enough to read six words across a table; short enough to be gone
-    before the next hand's first action needs the plate. */
-export const ADD_ON_BUBBLE_LIFETIME_MS = 4000;
+/** Normal-speed flight, including its brief fade above the crown. */
+export const ADD_ON_BUBBLE_LIFETIME_MS = 800;
 
 /** The wire shape the engine emits from `processPendingAddOns`. */
 export interface AddOnAppliedEvent {
@@ -57,7 +39,7 @@ export function isAddOnAppliedEvent(evt: unknown): evt is AddOnAppliedEvent {
 /** The exact words. One phrase for add-on and rebuy alike — Dan asked for
     one, and to the table both are a stack getting bigger between hands. */
 export function addOnBubbleText(amount: number): string {
-  return `Has Added On For ${formatChips(amount)}`;
+  return `+${formatTableChips(amount)} Added On`;
 }
 
 /**
@@ -146,7 +128,7 @@ export function useSeatAddOnBubbles(
     const timer = setTimeout(() => {
       timersRef.current.delete(timer);
       setBubbles((prev) => prev.filter((b) => b.id !== id));
-    }, lifetimeMs);
+    }, lifetimeMs * getAnimationSpeed());
     timersRef.current.add(timer);
   }, [engineLastEvent, lifetimeMs]);
 
