@@ -3,6 +3,37 @@ import { build as buildFixture } from 'esbuild';
 import { readFileSync } from 'node:fs';
 
 export function registerCompactLobbyRowsCases() {
+  test('premium cash Details is contained by its own row and favorites remain separate', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 393, height: 812 });
+    await page.setContent(
+      `<main class="club-home"><div class="lobby-table-wrap"><table class="compact-lobby has-premium-chassis"><tbody>${['first', 'second', 'third'].map((id) => `<tr data-game-heading="${id}" data-kind="cash"><td><span class="lt-tournament-heading"><span class="lt-tournament-icon">Cash Game</span></span></td></tr><tr data-id="${id}" data-kind="cash"><td><button class="lt-fav" aria-label="Favorite ${id}" onclick="document.body.dataset.favorite='${id}'">Star</button><button class="compact-lobby__open" aria-label="Details: ${id}" onclick="document.body.dataset.details='${id}'"><span class="premium-cash-style">Classic</span></button></td><td data-label="Stakes">1/2</td><td>6</td><td>Running</td></tr>`).join('')}</tbody></table></div></main>`
+    );
+    await page.addStyleTag({
+      content: ['LobbyTable.css', 'CompactLobbyRows.css', 'PremiumMttRows.css']
+        .map((name) => readFileSync('src/components/lobby/' + name, 'utf8'))
+        .join('\n'),
+    });
+    const details = page.getByRole('button', { name: 'Details: third', exact: true });
+    const geometry = await details.evaluate((button) => {
+      const row = button.closest('tr')!.getBoundingClientRect();
+      const hit = button.getBoundingClientRect();
+      return {
+        width: hit.width,
+        rowWidth: row.width,
+        top: hit.top - row.top,
+        bottom: hit.bottom - row.bottom,
+      };
+    });
+    expect(geometry.width).toBeCloseTo(geometry.rowWidth, 0);
+    expect(Math.abs(geometry.top)).toBeLessThanOrEqual(1);
+    expect(Math.abs(geometry.bottom)).toBeLessThanOrEqual(1);
+    await details.click();
+    await expect(page.locator('body')).toHaveAttribute('data-details', 'third');
+    await page.getByRole('button', { name: 'Favorite third', exact: true }).click();
+    await expect(page.locator('body')).toHaveAttribute('data-favorite', 'third');
+  });
   test('premium MTT Details and its separate countdown both receive clicks', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
     await page.setContent(
