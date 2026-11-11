@@ -319,23 +319,15 @@ jobs:
     environment: ci-main
     timeout-minutes: 60
     steps:
-      - name: Prove a job-token dispatch came from its trusted sender
+      - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
         if: github.triggering_actor == 'github-actions[bot]' && github.event_name == 'repository_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
-          DISPATCHER_RUN_ID: ${{ github.event.client_payload.dispatcher_run_id || '' }}
-          EXPECTED_PATH: .github/workflows/auto-deploy-hetzner.yml
-          EXPECTED_EVENT: repository_dispatch
         run: |
           set -euo pipefail
-          [[ "$DISPATCHER_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]] || { echo '::error::A job-token dispatch must name the run that sent it.'; exit 1; }
-          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$DISPATCHER_RUN_ID")"
-          created="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .created_at)"
-          jq -e --arg created "$created" --arg path "$EXPECTED_PATH" --arg event "$EXPECTED_EVENT" --arg repo "$GITHUB_REPOSITORY" '
-            .path == $path and .event == $event and .head_repository.full_name == $repo and
-            (.event == "pull_request" or .head_branch == "main") and
-            (.status != "completed" or (($created | fromdateiso8601) - (.updated_at | fromdateiso8601)) < 1800)' <<<"$run" >/dev/null \
-            || { echo '::error::The named sender run is not a current run of the trusted sender workflow.'; exit 1; }
+          # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver backup-after-seal
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -445,23 +437,15 @@ jobs:
     env:
       CONTROL_SHA: ${{ needs.plan.outputs.control_sha }}
     steps:
-      - name: Prove a job-token dispatch came from its trusted sender
+      - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
         if: github.triggering_actor == 'github-actions[bot]' && github.event_name == 'repository_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
-          DISPATCHER_RUN_ID: ${{ github.event.client_payload.dispatcher_run_id || '' }}
-          EXPECTED_PATH: .github/workflows/auto-deploy-hetzner.yml
-          EXPECTED_EVENT: repository_dispatch
         run: |
           set -euo pipefail
-          [[ "$DISPATCHER_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]] || { echo '::error::A job-token dispatch must name the run that sent it.'; exit 1; }
-          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$DISPATCHER_RUN_ID")"
-          created="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .created_at)"
-          jq -e --arg created "$created" --arg path "$EXPECTED_PATH" --arg event "$EXPECTED_EVENT" --arg repo "$GITHUB_REPOSITORY" '
-            .path == $path and .event == $event and .head_repository.full_name == $repo and
-            (.event == "pull_request" or .head_branch == "main") and
-            (.status != "completed" or (($created | fromdateiso8601) - (.updated_at | fromdateiso8601)) < 1800)' <<<"$run" >/dev/null \
-            || { echo '::error::The named sender run is not a current run of the trusted sender workflow.'; exit 1; }
+          # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver backup-after-seal
       - name: Mark the certification pending
         env: { GH_TOKEN: '${{ github.token }}', SHA: '${{ needs.plan.outputs.sha }}' }
         run: |

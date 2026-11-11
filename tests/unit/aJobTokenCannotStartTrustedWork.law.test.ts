@@ -7,9 +7,11 @@
  * workflows with the queued code's inputs. Every job that reads a secret in a
  * workflow such an event can start therefore refuses a dispatch whose
  * triggering actor is the job token (github-actions[bot]). The three trusted
- * senders that legitimately dispatch with the job token pass their own run id,
- * and the receiver proves that run is a current run of the expected sender
- * workflow before it reads anything.
+ * senders that legitimately dispatch with the job token first record the exact
+ * intent (operation, inputs, sender run, attempt, head SHA, nonce) as an
+ * artifact of their own run, and every receiver job that admits the job token
+ * proves its dispatch is that exact intent, once, before it reads anything
+ * (scripts/ci/dispatch-intent.mjs). Citing a recent sender run is not enough.
  *
  * The same review capped the queue-reachable token in ci.yml, refused fork
  * pull requests at the Money trigger reporter without minting its App token,
@@ -19,6 +21,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse } from 'yaml';
 import { describe, expect, it } from 'vitest';
+// @ts-expect-error untyped CI module
+import { OPERATIONS, RECEIVERS } from '../../scripts/ci/dispatch-intent.mjs';
 
 const DIR = join(process.cwd(), '.github', 'workflows');
 const read = (f: string) => readFileSync(join(DIR, f), 'utf8');
@@ -33,39 +37,42 @@ const DISPATCH_ONLY = new Set([
   'pull_request',
   'pull_request_target',
 ]);
-// Receivers of a job-token dispatch: the event that is admitted, and the
-// workflow and event of the only run allowed to send it.
-const ADMITTED: Record<string, { admitted: string; sender?: string; event?: string }> = {
+// Receivers of a job-token dispatch: the event that is admitted, the
+// dispatch-intent receiver its admitting jobs prove, and the jobs that can
+// never see the admitted dispatch (with the clause that excludes it).
+const ADMITTED: Record<string, { admitted: string; receiver?: string; unreachable?: Record<string, string> }> = {
   'apply-merged-migration.yml': {
     admitted:
       "github.event_name == 'repository_dispatch' && github.event.action == 'apply-merged-migration'",
-    sender: '.github/workflows/dispatch-merged-migrations.yml',
-    event: 'pull_request',
+    receiver: 'apply-merged-migration',
   },
   'post-deploy-e2e.yml': {
     admitted:
       "github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e'",
-    sender: '.github/workflows/auto-deploy-hetzner.yml',
-    event: 'repository_dispatch',
+    receiver: 'post-deploy-e2e',
   },
   // The seal's run-post-deploy-e2e dispatch also refreshes Backup.
   'backup-engine.yml': {
     admitted:
       "github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e'",
-    sender: '.github/workflows/auto-deploy-hetzner.yml',
-    event: 'repository_dispatch',
+    receiver: 'backup-after-seal',
   },
   'gto-v31-qualification.yml': {
     admitted: "github.event_name == 'workflow_dispatch' && inputs.operation == 'recheck'",
-    sender: '.github/workflows/gto-v31-qualification.yml',
-    event: 'workflow_run',
+    receiver: 'gto-recheck',
+    unreachable: {
+      'recheck-after-release': "github.event_name == 'workflow_run'",
+      promote: "inputs.operation == 'promote'",
+    },
   },
-  // The engine receiver proves its selection run against prequalification.
+  // The engine receiver proves its selection run against prequalification
+  // (read-engine-prequalification.py verify_selection).
   'auto-deploy-hetzner.yml': {
     admitted:
       "github.event_name == 'repository_dispatch' && github.event.action == 'deploy-club-arena-engine'",
   },
 };
+const PROVE = 'Prove a job-token dispatch is the exact intent its trusted sender recorded';
 // Owned by the pull-request environment lane, and the deleted one-shot mover.
 // The PR-environment lane's file, the deleted one-shot mover, and the Money
 // trigger reporter (its own guard is pinned below).
@@ -117,31 +124,54 @@ describe('a job token cannot start trusted work', () => {
             !condition.includes('||'));
         expect(condition).toContain(dispatchOnlyJob ? SHORT : guard);
       });
-      const sender = ADMITTED[f]?.sender;
-      if (sender && Array.isArray(job.steps)) {
-        it(`${f} ${name} proves the sender run first`, () => {
+      const receiver = ADMITTED[f]?.receiver;
+      if (receiver && Array.isArray(job.steps)) {
+        const excluded = ADMITTED[f].unreachable?.[name];
+        it(`${f} ${name} ${excluded ? 'can never see the admitted dispatch' : 'proves the exact dispatch intent first'}`, () => {
+          const condition = String(job.if ?? '').replace(/\s+/g, ' ');
+          if (excluded) {
+            expect(condition.startsWith(`(${excluded}`) || condition.startsWith(`${excluded}`) ||
+              condition.includes(`(${excluded} `) || condition.includes(` && ${excluded} &&`)).toBe(true);
+            expect(job.steps!.some((st) => st.name === PROVE)).toBe(false);
+            return;
+          }
           const first = job.steps![0];
-          expect(first.name).toBe('Prove a job-token dispatch came from its trusted sender');
-          const env = first.env as Record<string, string>;
-          expect(env.EXPECTED_PATH).toBe(sender);
-          expect(env.EXPECTED_EVENT).toBe(ADMITTED[f].event);
-          expect(String(first.run)).toContain('.head_repository.full_name == $repo');
+          expect(first.name).toBe(PROVE);
+          expect(String(first.if)).toContain("github.triggering_actor == 'github-actions[bot]'");
+          expect(String(first.run)).toContain('contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA');
+          expect(String(first.run)).toContain(`prove --receiver ${receiver}`);
+          expect(RECEIVERS[receiver].path).toBe(`.github/workflows/${f}`);
         });
       }
     }
   }
 
-  it('the three job-token senders name their own run', () => {
-    expect(readFileSync('.github/scripts/dispatch-merged-migrations.sh', 'utf8')).toContain(
-      'client_payload[dispatcher_run_id]=$GITHUB_RUN_ID'
-    );
+  it('no receiver trusts a cited run by age, and every intent receiver names its file', () => {
+    for (const f of files) {
+      const text = read(f);
+      expect(text, f).not.toContain('dispatcher_run_id');
+      expect(text, f).not.toContain('DISPATCHER_RUN_ID');
+      expect(text, f).not.toMatch(/fromdateiso8601\) - \(\.updated_at/);
+    }
+    for (const [name, r] of Object.entries(RECEIVERS) as Array<[string, { path: string }]>) {
+      expect(read(r.path.replace('.github/workflows/', '')), name).toContain(`prove --receiver ${name}`);
+    }
+  });
+
+  it('the three job-token senders record the exact intent on their own run before sending it', () => {
+    const migrations = readFileSync('.github/scripts/dispatch-merged-migrations.sh', 'utf8');
+    expect(migrations).toContain('dispatch-intent.mjs write --operation apply-merged-migration');
+    expect(migrations).toContain('client_payload[intent_nonce]=$NONCE');
     const deploy = read('auto-deploy-hetzner.yml');
-    expect(deploy).toMatch(
-      /event_type=run-post-deploy-e2e \\\n\s+-f "client_payload\[dispatcher_run_id\]=\$GITHUB_RUN_ID"/
-    );
-    expect(readFileSync('scripts/ci/gto-v31-recheck-dispatch.mjs', 'utf8')).toContain(
-      'recheckDispatchBody(d.dataset, process.env.GITHUB_RUN_ID)'
-    );
+    expect(deploy).toContain('write --operation engine-certification');
+    expect(deploy).toContain('gh api --method POST "repos/$REPO/dispatches" --input "$RUNNER_TEMP/certification-dispatch.json"');
+    expect(readFileSync('scripts/ci/gto-v31-recheck-dispatch.mjs', 'utf8')).toContain("operation: 'gto-recheck'");
+    for (const f of ['dispatch-merged-migrations.yml', 'auto-deploy-hetzner.yml', 'gto-v31-qualification.yml']) {
+      expect(read(f), f).toContain('name: dispatch-intents-${{ github.run_attempt }}');
+    }
+    for (const [op, spec] of Object.entries(OPERATIONS) as Array<[string, { sender: string }]>) {
+      expect(read(spec.sender.replace('.github/workflows/', '')), op).toContain('dispatch-intents-${{ github.run_attempt }}');
+    }
   });
 
   it('no ci.yml job that runs queued or pull request code holds a write token', () => {

@@ -161,8 +161,10 @@ describe('the repository_dispatch door carries only a file name and dry_run', ()
       new Set([
         'client_payload.migration',
         'client_payload.dry_run',
-        // The sender's run id, read only to prove a job-token dispatch.
-        'client_payload.dispatcher_run_id',
+        // The intent key, read only for the run-name that makes a job-token
+        // dispatch one-time (scripts/ci/dispatch-intent.mjs reads the rest
+        // from the event file itself).
+        'client_payload.intent_nonce',
       ])
     );
   });
