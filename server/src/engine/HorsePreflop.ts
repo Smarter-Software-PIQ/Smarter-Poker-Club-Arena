@@ -2076,7 +2076,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       ctx.v87DeepDiveDiscipline === true &&
       ctx.isOmaha === true &&
       !ctx.omahaHiLo &&
-      ((ctx.omahaHoleCount ?? 4) >= 5 || limpers >= 2);
+      ((ctx.omahaHoleCount ?? 4) >= 6 || limpers >= 2);
     const omahaLimpTighten87 = omahaLimpDiscipline87
       ? (ctx.omahaHoleCount === 6 ? 0.07 : ctx.omahaHoleCount === 5 ? 0.04 : 0) +
         Math.min(2, Math.max(0, limpers - 1)) * 0.02
@@ -2659,7 +2659,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       ctx.isOmaha === true &&
       !ctx.omahaHiLo &&
       ctx.evidencedWideRaiser !== true &&
-      ((ctx.omahaHoleCount ?? 4) >= 5 || callers >= 1)
+      ((ctx.omahaHoleCount ?? 4) >= 6 || callers >= 1)
         ? v87OmahaCallBarBounds(ctx.omahaHoleCount, position, callers)
         : null;
     if (ctx.isOmaha && ctx.ploPriceDefense === true) {

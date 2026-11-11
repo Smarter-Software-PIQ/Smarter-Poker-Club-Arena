@@ -73,7 +73,7 @@ describe('V87 All-Hands Deep-Dive Discipline', () => {
         wide: true,
         noBluffThreeBet: false,
       };
-      // Presumed Omaha high-only in 5/6-card or multiway: flat overrides stripped, value 3-bet bar preserved.
+      // Presumed Omaha high-only in 6-card or multiway: flat overrides stripped, value 3-bet bar preserved.
       const sanitized = v87SanitizeOmahaOpenerExploit(opener, true, true, false);
       expect(sanitized).toEqual({
         ...opener,
@@ -85,13 +85,19 @@ describe('V87 All-Hands Deep-Dive Discipline', () => {
         flatBar: null,
         bbFlatBar: null,
       });
-      expect(v87SanitizeOmahaOpenerExploit(opener, true, true, false, 5, 0)).toEqual({
+      expect(v87SanitizeOmahaOpenerExploit(opener, true, true, false, 5, 1)).toEqual({
         ...opener,
         flatBar: null,
         bbFlatBar: null,
       });
-      // 4-card PLO4 single-open (`omahaHoleCount = 4, callers = 0`): untouched.
+      expect(v87SanitizeOmahaOpenerExploit(opener, true, true, false, 6, 0)).toEqual({
+        ...opener,
+        flatBar: null,
+        bbFlatBar: null,
+      });
+      // 4-card PLO4 and 5-card PLO5 single-open (`callers = 0`): untouched so V86 single-open defense holds.
       expect(v87SanitizeOmahaOpenerExploit(opener, true, true, false, 4, 0)).toBe(opener);
+      expect(v87SanitizeOmahaOpenerExploit(opener, true, true, false, 5, 0)).toBe(opener);
       // Observed human read (`presumed = false`): untouched.
       expect(v87SanitizeOmahaOpenerExploit(opener, false, true, false)).toBe(opener);
       // Hold'em (`isOmaha = false`): untouched.
@@ -101,17 +107,20 @@ describe('V87 All-Hands Deep-Dive Discipline', () => {
     });
 
     it('scales V24 Omaha continue floors and cold-call bumps strictly with hole-card count and callers', () => {
-      const plo4Co = v87OmahaCallBarBounds(4, 'late', 0);
-      const plo5Co = v87OmahaCallBarBounds(5, 'late', 0);
+      const plo4Multi = v87OmahaCallBarBounds(4, 'late', 1);
+      const plo5Multi = v87OmahaCallBarBounds(5, 'late', 1);
       const plo6Co = v87OmahaCallBarBounds(6, 'late', 0);
       const plo6Multi = v87OmahaCallBarBounds(6, 'late', 2);
-      expect(plo6Co.callFloor).toBeGreaterThan(plo5Co.callFloor);
-      expect(plo5Co.callFloor).toBeGreaterThan(plo4Co.callFloor);
+      expect(plo5Multi.callFloor).toBeGreaterThan(plo4Multi.callFloor);
+      expect(plo6Multi.callFloor).toBeGreaterThan(plo5Multi.callFloor);
       expect(plo6Multi.callFloor).toBeGreaterThan(plo6Co.callFloor);
       expect(plo6Multi.maxPriceRelief).toBeLessThan(plo6Co.maxPriceRelief);
 
       expect(v87OmahaColdCallTighten(6, 'middle', 2, 100)).toBeGreaterThan(
-        v87OmahaColdCallTighten(4, 'late', 0, 100)
+        v87OmahaColdCallTighten(5, 'middle', 2, 100)
+      );
+      expect(v87OmahaColdCallTighten(5, 'middle', 1, 100)).toBeGreaterThan(
+        v87OmahaColdCallTighten(5, 'late', 0, 100)
       );
     });
 

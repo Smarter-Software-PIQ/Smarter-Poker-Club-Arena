@@ -138,7 +138,7 @@ export function v87SanitizeOmahaOpenerExploit(
   callers?: number
 ): PreflopOpenerExploit | undefined {
   if (!opener || !openerPresumed || !isOmaha || isHiLo) return opener;
-  if (omahaHoleCount === 4 && (callers ?? 0) === 0) return opener;
+  if ((omahaHoleCount === 4 || omahaHoleCount === 5) && (callers ?? 0) === 0) return opener;
   if (opener.flatBar === null && opener.bbFlatBar === null) return opener;
   return {
     ...opener,
@@ -158,7 +158,7 @@ export function v87OmahaCallBarBounds(
 ): { maxPriceRelief: number; callFloor: number } {
   const hc = holeCount === 6 ? 6 : holeCount === 5 ? 5 : 4;
   const c = Math.max(0, callers);
-  if (hc === 4 && c === 0) {
+  if (hc <= 5 && c === 0) {
     return { maxPriceRelief: 0.5, callFloor: 0.28 };
   }
   if (position === 'bb') {
@@ -188,7 +188,7 @@ export function v87OmahaColdCallTighten(
   stackBB: number
 ): number {
   const hc = holeCount === 6 ? 6 : holeCount === 5 ? 5 : 4;
-  if (hc === 4 && callers <= 0) return 0;
+  if (hc <= 5 && callers <= 0) return 0;
   let bump = 0;
   if (callers >= 1) {
     bump += (position === 'bb' ? 0.025 : 0.04) * Math.min(3, callers);

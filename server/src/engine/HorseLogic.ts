@@ -8696,30 +8696,20 @@ export class HorseLogic {
           vi.isShortDeck && (opts.v46ShortDeck === true || v86ShortDeckDefault)
         );
         const eliteActive86 = v86 && omahaElite && omahaElite.cls !== 'other';
+        // When V86 `omahaElite` already classified the 5/6-card hand, `omahaElite.shift`
+        // already prices 4-suit self-blockers and non-Ace-suited shapes; only run V87's
+        // 5/6-card adjustment to rescue coordinated `trips` (or when `!eliteActive86`).
         const adj87 =
           opts.v87DeepDiveDiscipline !== false &&
           vi.isOmaha &&
           !vi.isHiLo &&
           player.cards.length >= 5 &&
-          !(eliteActive86 && omahaElite.canThreeBet)
+          (!eliteActive86 || (baseRead46.cls === 'trips' && !omahaElite.canThreeBet))
             ? v87AdjustFiveSixCardHandClass(player.cards, baseRead46)
             : { read: baseRead46, changed: false };
         const read46 = adj87.read;
         if (adj87.changed && telemetryOn(opts)) noteFire('v87_deep_dive_discipline');
         if (eliteActive86 && !(baseRead46.cls === 'trips' && adj87.changed && !read46.foldAlways)) {
-          const mergedShift = adj87.changed
-            ? {
-                open: omahaElite.shift.open + (read46.shift.open - baseRead46.shift.open),
-                threeBet:
-                  omahaElite.shift.threeBet + (read46.shift.threeBet - baseRead46.shift.threeBet),
-                fourBet:
-                  omahaElite.shift.fourBet + (read46.shift.fourBet - baseRead46.shift.fourBet),
-                coldCall:
-                  omahaElite.shift.coldCall + (read46.shift.coldCall - baseRead46.shift.coldCall),
-                bbDefend:
-                  omahaElite.shift.bbDefend + (read46.shift.bbDefend - baseRead46.shift.bbDefend),
-              }
-            : omahaElite.shift;
           const mergedNever3 = omahaElite.canThreeBet
             ? false
             : read46.cls !== 'other' && read46.cls !== 'sd_other'
@@ -8734,7 +8724,7 @@ export class HorseLogic {
             else if (mergedNever3) noteFire('v46_class_never_3bet');
           }
           return {
-            classShift: mergedShift,
+            classShift: omahaElite.shift,
             classNeverThreeBet: mergedNever3,
             classFoldAlways: mergedFold,
           };
@@ -13452,7 +13442,7 @@ export class HorseLogic {
             !vi.isHiLo &&
             !bettorManiacOrStation87 &&
             street === 'flop' &&
-            (oppCount >= 2 || vi.holeCount >= 5) &&
+            (oppCount >= 2 || vi.holeCount >= 6) &&
             (made40.cls === 'air' || made40.cls === 'pair') &&
             drawInfo40()?.nutty !== true &&
             drawInfo40()?.nutFlushDraw !== true &&
@@ -13860,7 +13850,7 @@ export class HorseLogic {
       vi.isOmaha &&
       !vi.isHiLo &&
       raisedAfterAggr &&
-      (street !== 'flop' || vi.holeCount >= 5) &&
+      (street !== 'flop' || oppCount >= 2 || vi.holeCount >= 6) &&
       !multiBoard36 &&
       !gs.bombPot &&
       !bettorManiacOrStation87 &&
