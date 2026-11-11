@@ -28,6 +28,9 @@ jobs:
     name: One drill DM and push reach the owner and the incident resolves
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
+    # Secrets live in the main-only environment
+    # (tests/unit/workflowJobsReadOnlyMainOnlyEnvironments.law.test.ts).
+    environment: ci-main
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
