@@ -130,7 +130,7 @@ esac
     for (const [alert, receivers] of [
       ['ReliabilityControllerStale', 'codex-inbox,email-critical'],
       ['ReliabilityControllerMetricsAbsent', 'codex-inbox,email-critical'],
-      ['ReliabilityControllerOutboxStuck', 'codex-inbox'],
+      ['ReliabilityControllerOutboxStuck', 'codex-inbox,email-critical'],
       ['ReliabilityControllerIntakeRejections', 'codex-inbox'],
     ]) {
       expect(script).toContain(

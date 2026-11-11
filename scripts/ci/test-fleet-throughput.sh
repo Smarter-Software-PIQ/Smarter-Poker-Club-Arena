@@ -54,8 +54,8 @@ route --verify.receivers=codex-inbox,email-critical \
   alertname=ReliabilityControllerStale severity=critical component=reliability-controller
 route --verify.receivers=codex-inbox,email-critical \
   alertname=ReliabilityControllerMetricsAbsent severity=critical component=reliability-controller
-route --verify.receivers=codex-inbox \
-  alertname=ReliabilityControllerOutboxStuck severity=warning component=reliability-controller
+route --verify.receivers=codex-inbox,email-critical \
+  alertname=ReliabilityControllerOutboxStuck severity=critical component=reliability-controller
 route --verify.receivers=codex-inbox \
   alertname=ReliabilityControllerIntakeRejections severity=warning component=reliability-controller
 
