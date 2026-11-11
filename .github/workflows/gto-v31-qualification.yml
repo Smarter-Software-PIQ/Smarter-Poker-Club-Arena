@@ -77,9 +77,16 @@ on:
         required: false
         default: ''
         type: string
+      dispatcher_run_id:
+        description: recheck only - the run that sent a job-token recheck (set by recheck-after-release; empty for a person)
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
+  # Read-only: the dispatch-origin proof reads the sending run.
+  actions: read
 concurrency:
   group: gto-v31-qualification-${{ github.event.pull_request.number || inputs.dataset || format('after-release-{0}', github.event.workflow_run.id) }}
   # Admission checks retire per PR; explicit data operations keep their owner.
@@ -101,7 +108,7 @@ jobs:
       - run: node --test scripts/ci/gto-v31-qualification.test.mjs scripts/ci/gto-v31-prescreen.test.mjs scripts/ci/v31-decision-closure.test.mjs scripts/ci/v31-execution-fingerprint.test.mjs scripts/ci/v31-atomic-promotion.test.mjs scripts/ci/gto-v31-recheck-dispatch.test.mjs
   recheck-after-release:
     name: Dispatch the strict re-check a new serving engine needs
-    if: github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main' && github.repository_id == '1132369872' && (github.repository == 'Smarter-Poker/Smarter-Poker-Club-Arena' || github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena')
+    if: (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.event == 'repository_dispatch' && github.repository_id == '1132369872' && (github.repository == 'Smarter-Poker/Smarter-Poker-Club-Arena' || github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena')) && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]') || (github.event_name == 'workflow_dispatch' && inputs.operation == 'recheck'))
     runs-on: ubuntu-24.04
     environment: "${{ github.event_name == 'pull_request' && 'ci-pull-request' || 'ci-main' }}"
     timeout-minutes: 10
@@ -109,6 +116,23 @@ jobs:
       contents: read
       actions: write
     steps:
+      - name: Prove a job-token dispatch came from its trusted sender
+        if: github.triggering_actor == 'github-actions[bot]' && github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DISPATCHER_RUN_ID: ${{ inputs.dispatcher_run_id || '' }}
+          EXPECTED_PATH: .github/workflows/gto-v31-qualification.yml
+          EXPECTED_EVENT: workflow_run
+        run: |
+          set -euo pipefail
+          [[ "$DISPATCHER_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]] || { echo '::error::A job-token dispatch must name the run that sent it.'; exit 1; }
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$DISPATCHER_RUN_ID")"
+          created="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .created_at)"
+          jq -e --arg created "$created" --arg path "$EXPECTED_PATH" --arg event "$EXPECTED_EVENT" --arg repo "$GITHUB_REPOSITORY" '
+            .path == $path and .event == $event and .head_repository.full_name == $repo and
+            (.event == "pull_request" or .head_branch == "main") and
+            (.status != "completed" or (($created | fromdateiso8601) - (.updated_at | fromdateiso8601)) < 1800)' <<<"$run" >/dev/null \
+            || { echo '::error::The named sender run is not a current run of the trusted sender workflow.'; exit 1; }
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
@@ -125,11 +149,28 @@ jobs:
         run: node scripts/ci/gto-v31-recheck-dispatch.mjs
   qualify:
     needs: contract
-    if: github.event_name == 'workflow_dispatch' && (inputs.operation == 'evaluate' || inputs.operation == 'recheck' || inputs.operation == 'prescreen') && github.ref == 'refs/heads/main' && github.repository_id == '1132369872' && (github.repository == 'Smarter-Poker/Smarter-Poker-Club-Arena' || github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena')
+    if: (github.event_name == 'workflow_dispatch' && (inputs.operation == 'evaluate' || inputs.operation == 'recheck' || inputs.operation == 'prescreen') && github.ref == 'refs/heads/main' && github.repository_id == '1132369872' && (github.repository == 'Smarter-Poker/Smarter-Poker-Club-Arena' || github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena')) && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]') || (github.event_name == 'workflow_dispatch' && inputs.operation == 'recheck'))
     runs-on: ubuntu-24.04
     environment: "${{ github.event_name == 'pull_request' && 'ci-pull-request' || 'ci-main' }}"
     timeout-minutes: 350
     steps:
+      - name: Prove a job-token dispatch came from its trusted sender
+        if: github.triggering_actor == 'github-actions[bot]' && github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DISPATCHER_RUN_ID: ${{ inputs.dispatcher_run_id || '' }}
+          EXPECTED_PATH: .github/workflows/gto-v31-qualification.yml
+          EXPECTED_EVENT: workflow_run
+        run: |
+          set -euo pipefail
+          [[ "$DISPATCHER_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]] || { echo '::error::A job-token dispatch must name the run that sent it.'; exit 1; }
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$DISPATCHER_RUN_ID")"
+          created="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .created_at)"
+          jq -e --arg created "$created" --arg path "$EXPECTED_PATH" --arg event "$EXPECTED_EVENT" --arg repo "$GITHUB_REPOSITORY" '
+            .path == $path and .event == $event and .head_repository.full_name == $repo and
+            (.event == "pull_request" or .head_branch == "main") and
+            (.status != "completed" or (($created | fromdateiso8601) - (.updated_at | fromdateiso8601)) < 1800)' <<<"$run" >/dev/null \
+            || { echo '::error::The named sender run is not a current run of the trusted sender workflow.'; exit 1; }
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
@@ -195,13 +236,30 @@ jobs:
           retention-days: 7
   promote:
     needs: contract
-    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'promote' && github.ref == 'refs/heads/main' && github.repository_id == '1132369872' && (github.repository == 'Smarter-Poker/Smarter-Poker-Club-Arena' || github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena')
+    if: (github.event_name == 'workflow_dispatch' && inputs.operation == 'promote' && github.ref == 'refs/heads/main' && github.repository_id == '1132369872' && (github.repository == 'Smarter-Poker/Smarter-Poker-Club-Arena' || github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena')) && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]') || (github.event_name == 'workflow_dispatch' && inputs.operation == 'recheck'))
     runs-on: ubuntu-24.04
     environment: "${{ github.event_name == 'pull_request' && 'ci-pull-request' || 'ci-main' }}"
     timeout-minutes: 20
     env:
       HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
     steps:
+      - name: Prove a job-token dispatch came from its trusted sender
+        if: github.triggering_actor == 'github-actions[bot]' && github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DISPATCHER_RUN_ID: ${{ inputs.dispatcher_run_id || '' }}
+          EXPECTED_PATH: .github/workflows/gto-v31-qualification.yml
+          EXPECTED_EVENT: workflow_run
+        run: |
+          set -euo pipefail
+          [[ "$DISPATCHER_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]] || { echo '::error::A job-token dispatch must name the run that sent it.'; exit 1; }
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$DISPATCHER_RUN_ID")"
+          created="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .created_at)"
+          jq -e --arg created "$created" --arg path "$EXPECTED_PATH" --arg event "$EXPECTED_EVENT" --arg repo "$GITHUB_REPOSITORY" '
+            .path == $path and .event == $event and .head_repository.full_name == $repo and
+            (.event == "pull_request" or .head_branch == "main") and
+            (.status != "completed" or (($created | fromdateiso8601) - (.updated_at | fromdateiso8601)) < 1800)' <<<"$run" >/dev/null \
+            || { echo '::error::The named sender run is not a current run of the trusted sender workflow.'; exit 1; }
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}

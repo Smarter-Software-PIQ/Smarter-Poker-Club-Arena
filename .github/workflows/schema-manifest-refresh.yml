@@ -123,7 +123,7 @@ jobs:
 
   isolated-connected-ui:
     needs: retain-original-web
-    if: github.event_name == 'workflow_dispatch' && inputs.connected_ui_observations && github.ref == 'refs/heads/main' && github.repository_id == '1132369872'
+    if: github.event_name == 'workflow_dispatch' && inputs.connected_ui_observations && github.ref == 'refs/heads/main' && github.repository_id == '1132369872' && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]')
     permissions:
       contents: read
       actions: read
@@ -142,7 +142,7 @@ jobs:
     # The hourly cron exists for the security audit alone. Regenerating the
     # manifest comparison every hour would bury the one thing this workflow
     # needs a person to look at.
-    if: github.event.schedule != '40 * * * *' && !(github.event_name == 'workflow_dispatch' && inputs.connected_ui_observations)
+    if: github.event.schedule != '40 * * * *' && !(github.event_name == 'workflow_dispatch' && inputs.connected_ui_observations) && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     steps:
@@ -226,7 +226,7 @@ jobs:
           echo "::error title=Stale manifest fragment::See the Absorb step - a fragment has declared something production does not have for over a day."
           exit 1
   anchor-ledger-days:
-    if: "!(github.event_name == 'workflow_dispatch' && inputs.connected_ui_observations)"
+    if: "!(github.event_name == 'workflow_dispatch' && inputs.connected_ui_observations) && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]')"
     name: The ledger attestation is anchored outside the database
     runs-on: ubuntu-latest
     environment: ci-main
@@ -447,7 +447,7 @@ jobs:
           gh issue close "$N" --repo "$REPO" || true
 
   second-writer:
-    if: "!(github.event_name == 'workflow_dispatch' && inputs.connected_ui_observations)"
+    if: "!(github.event_name == 'workflow_dispatch' && inputs.connected_ui_observations) && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]')"
     name: The second writer agrees with the register
     runs-on: ubuntu-latest
     environment: ci-main
@@ -557,7 +557,7 @@ jobs:
           gh issue close "$N" --repo "$REPO" || true
 
   definer-exposure:
-    if: "!(github.event_name == 'workflow_dispatch' && inputs.connected_ui_observations)"
+    if: "!(github.event_name == 'workflow_dispatch' && inputs.connected_ui_observations) && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]')"
     name: No unaccounted DEFINER writer is reachable from a browser
     runs-on: ubuntu-latest
     environment: ci-main

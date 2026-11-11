@@ -215,7 +215,7 @@ describe('post-publication verification belongs to its delivered component', () 
   it('gives the client its own result without an engine or live-table prerequisite', () => {
     expect(client.needs).toEqual(['publication-gate', 'certification-cleanup-safety']);
     expect(client.if).toBe(
-      "needs.publication-gate.outputs.should_run == 'true' && needs.publication-gate.outputs.natural_addon != 'true' && needs.publication-gate.outputs.natural_board_reveal != 'true'"
+      "needs.publication-gate.outputs.should_run == 'true' && needs.publication-gate.outputs.natural_addon != 'true' && needs.publication-gate.outputs.natural_board_reveal != 'true' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]') || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e'))"
     );
     expect(JSON.stringify(client)).not.toMatch(
       /EXPECTED_ENGINE_SHA|engine-ready|ENGINE_TRIGGER_SHA|live-table-realtime/

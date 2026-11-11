@@ -1150,7 +1150,11 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     // event now also names merge_group and the merge group's base/head SHA;
     // no command, budget, permission or partition changed.
     const expectedJobs = {
-      changes: '483a9c473c06b8cd3c92235f64c8eea738b22ee831b864eb10a40d8b5a5139fd',
+      // Moved 2026-11-11 (job-token boundary): `changes` no longer holds
+      // actions: write; the cancel moved to retire_superseded, which runs only
+      // default-branch code on same-repository pull requests.
+      changes: 'b9a459646b7051a1c001fba30bec0ff866ad563fe460961052a13e369b2d56cf',
+      retire_superseded: 'fa5219bebe82fd707e0a7f21dac8b96902727de56d63f864986b252a0720425b',
       source_windows: 'a9830648dfc81b5558d0e9a45d75307210fa1535926da65e087f6647e1fa4189',
       stub_gate: '118f1b051bd24a3616cea41a6892985553c577d67f9cb39b2120f3d5a74391ca',
       fixture_native: '5ad4eff1fd198db8bd3f8a95e763496520ddff7c63c0b380afd7a49d4b6a82a6',

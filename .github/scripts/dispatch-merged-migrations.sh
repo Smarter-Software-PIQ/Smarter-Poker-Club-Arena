@@ -146,6 +146,7 @@ for f in "${DISPATCH[@]}"; do
   if gh api --method POST "repos/$REPO/dispatches" \
       -f event_type=apply-merged-migration \
       -f "client_payload[migration]=$f" \
+      -f "client_payload[dispatcher_run_id]=$GITHUB_RUN_ID" \
       -F "client_payload[dry_run]=false" >/dev/null; then
     say "- dispatched \`$f\` (apply-merged-migration, dry_run false)."
     SENT=$((SENT + 1))

@@ -81,7 +81,7 @@ jobs:
           retention-days: 90
   original-operation:
     needs: qualification
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.triggering_actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 30

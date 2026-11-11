@@ -278,8 +278,12 @@ curl() { echo '${JSON.stringify({ running: true, releaseSha: sha, instanceId: sc
       expect(backup.jobs.plan.steps.find((s: any) => s.id === 'plan').env.GH_TOKEN).toBe(
         '${{ github.token }}'
       );
-      expect(backup.jobs.refresh.if).toBe("needs.plan.outputs.sha != ''");
-      expect(backup.jobs.certify.if).toBe("always() && needs.plan.outputs.sha != ''");
+      expect(backup.jobs.refresh.if).toBe(
+        "needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]') || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e'))"
+      );
+      expect(backup.jobs.certify.if).toBe(
+        "always() && needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]') || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e'))"
+      );
     });
     it('skips when a newer push run exists: empty sha, no status, exit 0', () => {
       const result = planShell(
@@ -872,7 +876,9 @@ ${Object.entries(states)
     const plan = backup.jobs.plan.steps.find((s: any) => s.id === 'plan').run;
     expect(plan).toContain('sha="$SEALED_SHA"');
     expect(plan).toContain('refresh=force');
-    expect(backup.jobs.certify.if).toBe("always() && needs.plan.outputs.sha != ''");
+    expect(backup.jobs.certify.if).toBe(
+      "always() && needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]') || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e'))"
+    );
     const certify = backup.jobs.certify.steps.find((s: any) => s.id === 'certify');
     expect(certify.env.REFRESH_RESULT).toBe('${{ needs.refresh.result }}');
     expect(certify.run.indexOf('if [ "$REFRESH_RESULT" != success ]; then')).toBeLessThan(

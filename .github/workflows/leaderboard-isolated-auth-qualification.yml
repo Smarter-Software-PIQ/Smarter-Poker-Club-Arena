@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   qualify-auth:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.triggering_actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 20

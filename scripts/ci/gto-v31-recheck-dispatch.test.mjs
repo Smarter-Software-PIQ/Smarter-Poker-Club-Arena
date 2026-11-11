@@ -61,9 +61,15 @@ test('idempotent: a queued or running qualification run for the dataset owns it'
 });
 
 test('the dispatch is exactly the recheck operation the qualification workflow admits', () => {
-  assert.deepEqual(recheckDispatchBody(A), { ref: 'main', inputs: { dataset: A, operation: 'recheck', reason: '' } });
-  assert.throws(() => recheckDispatchBody('x'));
-  assert.throws(() => recheckDispatchBody(`${A};echo`));
+  assert.deepEqual(recheckDispatchBody(A, '42'), {
+    ref: 'main',
+    inputs: { dataset: A, operation: 'recheck', reason: '', dispatcher_run_id: '42' },
+  });
+  assert.throws(() => recheckDispatchBody('x', '42'));
+  assert.throws(() => recheckDispatchBody(`${A};echo`, '42'));
+  assert.throws(() => recheckDispatchBody(A));
+  assert.throws(() => recheckDispatchBody(A, '0'));
+  assert.throws(() => recheckDispatchBody(A, '42;x'));
 });
 
 test('every completed protected-main engine release of this repository starts a decision, whatever its verdict', () => {

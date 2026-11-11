@@ -62,7 +62,9 @@ jobs:
 
   live-addressing:
     name: No unaddressed operational alert in the last two hours
-    if: github.event_name == 'workflow_run'
+    # Only this repository's own scheduled or dispatched audit may start the
+    # live reader; a fork or a renamed workflow on another event cannot.
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && contains(fromJSON('["schedule","repository_dispatch"]'), github.event.workflow_run.event)
     needs: decision-rules
     runs-on: ubuntu-latest
     environment: "${{ github.event_name == 'pull_request' && 'ci-pull-request' || 'ci-main' }}"

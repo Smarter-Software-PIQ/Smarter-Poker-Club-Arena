@@ -115,6 +115,7 @@ permissions:
 
 jobs:
   apply:
+    if: (github.triggering_actor != 'github-actions[bot]' || (github.event_name == 'repository_dispatch' && github.event.action == 'apply-merged-migration'))
     name: Apply ${{ inputs.migration || github.event.client_payload.migration }}
     runs-on: ubuntu-latest
     environment: ci-main
@@ -123,6 +124,23 @@ jobs:
     # tests/unit/aMergedMigrationIsInstallable.test.ts.
     timeout-minutes: 35
     steps:
+      - name: Prove a job-token dispatch came from its trusted sender
+        if: github.triggering_actor == 'github-actions[bot]' && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DISPATCHER_RUN_ID: ${{ github.event.client_payload.dispatcher_run_id || '' }}
+          EXPECTED_PATH: .github/workflows/dispatch-merged-migrations.yml
+          EXPECTED_EVENT: pull_request
+        run: |
+          set -euo pipefail
+          [[ "$DISPATCHER_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]] || { echo '::error::A job-token dispatch must name the run that sent it.'; exit 1; }
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$DISPATCHER_RUN_ID")"
+          created="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .created_at)"
+          jq -e --arg created "$created" --arg path "$EXPECTED_PATH" --arg event "$EXPECTED_EVENT" --arg repo "$GITHUB_REPOSITORY" '
+            .path == $path and .event == $event and .head_repository.full_name == $repo and
+            (.event == "pull_request" or .head_branch == "main") and
+            (.status != "completed" or (($created | fromdateiso8601) - (.updated_at | fromdateiso8601)) < 1800)' <<<"$run" >/dev/null \
+            || { echo '::error::The named sender run is not a current run of the trusted sender workflow.'; exit 1; }
       - uses: actions/checkout@v4
 
       - name: Use the production Node major

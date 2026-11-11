@@ -14,7 +14,9 @@ const qualification = parse(
 describe('one explicit read-only fleet observation in the original provider', () => {
   it('has no release, receipt, scheduler or public-artifact path', () => {
     expect(workflow.on.repository_dispatch.types).toContain('observe-club-arena-horse-fleet');
-    expect(job.if).toBe("github.event.action == 'observe-club-arena-horse-fleet'");
+    expect(job.if).toBe(
+      "github.event.action == 'observe-club-arena-horse-fleet' && (github.triggering_actor != 'github-actions[bot]' || (github.event_name == 'repository_dispatch' && github.event.action == 'deploy-club-arena-engine'))"
+    );
     expect(job.needs).toBeUndefined();
     expect(job['timeout-minutes']).toBe(35);
     expect(job.permissions).toEqual({ contents: 'read' });
@@ -28,7 +30,7 @@ describe('one explicit read-only fleet observation in the original provider', ()
     );
     expect(workflow.jobs.preflight.if).toBe("github.event.action == 'deploy-club-arena-engine'");
     expect(workflow.jobs['withdraw-waiting-release'].if).toBe(
-      "github.event.action == 'withdraw-club-arena-engine'"
+      "github.event.action == 'withdraw-club-arena-engine' && (github.triggering_actor != 'github-actions[bot]' || (github.event_name == 'repository_dispatch' && github.event.action == 'deploy-club-arena-engine'))"
     );
     expect(workflow.concurrency['cancel-in-progress']).toBe(false);
     expect(workflow.concurrency.group).toContain(

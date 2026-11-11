@@ -7,7 +7,7 @@ permissions:
   contents: read
 jobs:
   session-hand-stats-proof:
-    if: github.event_name == 'repository_dispatch' && github.event.action == 'run-session-hand-stats-proof'
+    if: github.event_name == 'repository_dispatch' && github.event.action == 'run-session-hand-stats-proof' && github.triggering_actor != 'github-actions[bot]'
     name: Exact published session hand statistics proof
     # Playwright 1.58 supports Ubuntu 24.04; ubuntu-latest can select unsupported 26.04.
     runs-on: ubuntu-24.04

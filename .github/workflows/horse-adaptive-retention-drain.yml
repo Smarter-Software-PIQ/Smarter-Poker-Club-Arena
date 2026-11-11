@@ -31,6 +31,7 @@ permissions:
 
 jobs:
   drain:
+    if: github.triggering_actor != 'github-actions[bot]'
     name: Drain horse adaptive retention
     runs-on: ubuntu-latest
     environment: ci-main

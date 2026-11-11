@@ -29,7 +29,7 @@ jobs:
       - run: node --test scripts/ci/v31-explicit-load.test.mjs
   control:
     needs: contract
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository_id == '1132369872'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository_id == '1132369872' && github.triggering_actor != 'github-actions[bot]'
     runs-on: ubuntu-24.04
     environment: ci-main
     timeout-minutes: 5

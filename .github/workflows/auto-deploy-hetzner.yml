@@ -22,7 +22,7 @@ concurrency:
 jobs:
   observe-private-horse-fleet:
     name: Observe One Private Natural Horse Cohort
-    if: github.event.action == 'observe-club-arena-horse-fleet'
+    if: github.event.action == 'observe-club-arena-horse-fleet' && (github.triggering_actor != 'github-actions[bot]' || (github.event_name == 'repository_dispatch' && github.event.action == 'deploy-club-arena-engine'))
     runs-on: ubuntu-latest
     environment: ci-main
     # At most sixteen 115-second read-only partitions plus setup and cleanup.
@@ -120,7 +120,7 @@ jobs:
 
   withdraw-waiting-release:
     name: Withdraw One Exact Waiting Original Transaction
-    if: github.event.action == 'withdraw-club-arena-engine'
+    if: github.event.action == 'withdraw-club-arena-engine' && (github.triggering_actor != 'github-actions[bot]' || (github.event_name == 'repository_dispatch' && github.event.action == 'deploy-club-arena-engine'))
     runs-on: ubuntu-latest
     environment: ci-main
     concurrency:
@@ -289,6 +289,7 @@ jobs:
           echo "rollback_image_id=$(jq -er .rollbackImageId <<< "$receipt")" >> "$GITHUB_OUTPUT"
 
   cutover-spectator:
+    if: (github.triggering_actor != 'github-actions[bot]' || (github.event_name == 'repository_dispatch' && github.event.action == 'deploy-club-arena-engine'))
     name: Observe one authenticated spectator across replacement
     needs: preflight
     continue-on-error: true
@@ -378,6 +379,7 @@ jobs:
           if-no-files-found: error
 
   engine-doors:
+    if: (github.triggering_actor != 'github-actions[bot]' || (github.event_name == 'repository_dispatch' && github.event.action == 'deploy-club-arena-engine'))
     name: Prove The Exact Engine Has Every Production Door
     needs: preflight
     runs-on: ubuntu-latest
@@ -425,6 +427,7 @@ jobs:
           node scripts/ci/check-engine-doors-exist.mjs
 
   deploy:
+    if: (github.triggering_actor != 'github-actions[bot]' || (github.event_name == 'repository_dispatch' && github.event.action == 'deploy-club-arena-engine'))
     name: Publish Through Hetzner Club Arena
     needs: [preflight, engine-doors]
     runs-on: ubuntu-latest
@@ -1119,7 +1122,7 @@ jobs:
   record-receipt:
     name: Record The Append-Only Engine Release Receipt
     needs: [preflight, engine-doors, deploy]
-    if: always() && needs.preflight.result == 'success'
+    if: always() && needs.preflight.result == 'success' && (github.triggering_actor != 'github-actions[bot]' || (github.event_name == 'repository_dispatch' && github.event.action == 'deploy-club-arena-engine'))
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 4
@@ -1275,6 +1278,7 @@ jobs:
           fi
           gh api --method POST "repos/$REPO/dispatches" \
             -f event_type=run-post-deploy-e2e \
+            -f "client_payload[dispatcher_run_id]=$GITHUB_RUN_ID" \
             -F "client_payload[engine_sha]=$ENGINE_SHA" "${GAMEPLAY_ARGS[@]}"
           echo "Production E2E dispatch accepted for exact engine component $ENGINE_SHA."
 

@@ -47,7 +47,7 @@ env:
 jobs:
   context:
     name: Authenticate protected plan and canonical runtime
-    if: github.ref == 'refs/heads/main' && inputs.operation == 'qualification'
+    if: github.ref == 'refs/heads/main' && inputs.operation == 'qualification' && github.triggering_actor != 'github-actions[bot]'
     runs-on: ubuntu-24.04
     environment: ci-main
     timeout-minutes: 15
@@ -118,7 +118,7 @@ jobs:
   producer:
     name: Acquire complete unsigned source population
     needs: context
-    if: github.ref == 'refs/heads/main' && inputs.operation == 'qualification'
+    if: github.ref == 'refs/heads/main' && inputs.operation == 'qualification' && github.triggering_actor != 'github-actions[bot]'
     runs-on: ubuntu-24.04
     environment: ci-main
     timeout-minutes: 360
@@ -201,7 +201,7 @@ jobs:
   issuer:
     name: Independently verify and issue qualification
     needs: [context, producer]
-    if: github.ref == 'refs/heads/main' && inputs.operation == 'qualification'
+    if: github.ref == 'refs/heads/main' && inputs.operation == 'qualification' && github.triggering_actor != 'github-actions[bot]'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     environment: HorseCorrectiveQualification
@@ -275,7 +275,7 @@ jobs:
 
   v56-context:
     name: Authenticate private V56 replay source and runtime
-    if: github.ref == 'refs/heads/main' && inputs.operation == 'v56-private-replay'
+    if: github.ref == 'refs/heads/main' && inputs.operation == 'v56-private-replay' && github.triggering_actor != 'github-actions[bot]'
     runs-on: ubuntu-24.04
     environment: ci-main
     timeout-minutes: 15
@@ -345,7 +345,7 @@ jobs:
   v56-replay:
     name: Privately replay original V56 accepted cases offline
     needs: v56-context
-    if: github.ref == 'refs/heads/main' && inputs.operation == 'v56-private-replay'
+    if: github.ref == 'refs/heads/main' && inputs.operation == 'v56-private-replay' && github.triggering_actor != 'github-actions[bot]'
     runs-on: ubuntu-24.04
     environment: ci-main
     timeout-minutes: 15
@@ -431,7 +431,7 @@ jobs:
 
   signer-identity:
     name: Verify purpose-only canonical signing identity
-    if: github.ref == 'refs/heads/main' && inputs.operation == 'signer-identity'
+    if: github.ref == 'refs/heads/main' && inputs.operation == 'signer-identity' && github.triggering_actor != 'github-actions[bot]'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: HorseCorrectiveQualification

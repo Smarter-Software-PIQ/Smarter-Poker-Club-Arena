@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   verify:
-    if: github.event.client_payload.eco_components != true
+    if: github.event.client_payload.eco_components != true && github.triggering_actor != 'github-actions[bot]'
     name: Verify Player History And Existing Credit Display
     # Playwright has no Chromium build for ubuntu26.04 (what ubuntu-latest
     # now resolves to); pinned like post-deploy-e2e and lobby-ui-proof.
@@ -158,7 +158,7 @@ jobs:
 
   union-eco:
     name: Read Authorized ECO Statements And Available Owner Controls
-    if: github.event.client_payload.eco_components == true
+    if: github.event.client_payload.eco_components == true && github.triggering_actor != 'github-actions[bot]'
     runs-on: ubuntu-24.04
     environment: ci-main
     timeout-minutes: 12

@@ -108,9 +108,16 @@ export function busyDatasetsFromRuns(runs) {
 }
 
 /** The dispatch body for one re-check. */
-export function recheckDispatchBody(dataset) {
+// The receiving workflow refuses a job-token dispatch unless it names a live
+// run of this workflow (2026-11-11), so the sender passes its own run id.
+export function recheckDispatchBody(dataset, dispatcherRunId) {
   if (!UUID.test(dataset ?? '')) throw new Error('A canonical dataset UUID is required');
-  return { ref: 'main', inputs: { dataset, operation: 'recheck', reason: '' } };
+  if (!/^[1-9][0-9]{0,19}$/.test(String(dispatcherRunId ?? '')))
+    throw new Error('The sending run id is required');
+  return {
+    ref: 'main',
+    inputs: { dataset, operation: 'recheck', reason: '', dispatcher_run_id: String(dispatcherRunId) },
+  };
 }
 
 /**
@@ -191,7 +198,7 @@ async function main() {
   for (const s of plan.skipped) lines.push(`- \`${s.dataset}\`: no re-check (${s.reason})`);
   for (const d of plan.dispatch) {
     const r = await github(`/actions/workflows/${RECHECK_WORKFLOW}/dispatches`, { method: 'POST',
-      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(recheckDispatchBody(d.dataset)) });
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(recheckDispatchBody(d.dataset, process.env.GITHUB_RUN_ID)) });
     if (r.status !== 204) throw new Error(`Dispatching the re-check of ${d.dataset} returned HTTP ${r.status}`);
     lines.push(`- \`${d.dataset}\` (${d.state}): **re-check dispatched**`);
   }

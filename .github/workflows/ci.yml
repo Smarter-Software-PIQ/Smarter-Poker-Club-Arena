@@ -145,10 +145,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: (github.event_name == 'pull_request' || github.event_name == 'merge_group')
+    # MERGE QUEUE TOKEN CAP (2026-11-11): this job checks out and runs the
+    # queued or pull request head's own classifier, so its token is read-only.
+    # The one write it used to hold (retiring superseded attempts) lives in
+    # retire_superseded below, which runs only main's script.
     permissions:
       contents: read
       pull-requests: read
-      actions: write
     outputs:
       src: ${{ steps.f.outputs.src }}
       server: ${{ steps.f.outputs.server }}
@@ -232,11 +235,29 @@ jobs:
             echo "superseded: this run is $CI_HEAD_SHA, the pull request head is now $current"
             echo "head_current=false" >> "$GITHUB_OUTPUT"
           fi
-      # Keep always() failure-reporting gates intact. Normal cancellation can
-      # leave their old jobs queued; this one event retires only proven older
-      # heads of this same PR, never current checks or a production workflow.
+
+  # Keep always() failure-reporting gates intact. Normal cancellation can
+  # leave their old jobs queued; this one event retires only proven older
+  # heads of this same PR, never current checks or a production workflow.
+  # It holds the only actions:write token in this workflow, so it runs the
+  # default branch's script, never code from the pull request or a queue.
+  retire_superseded:
+    name: Retire superseded CI attempts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: |
+            scripts/ci
+          persist-credentials: false
       - name: Retire this PR's superseded CI attempts
-        if: github.event.pull_request.head.repo.full_name == github.repository
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/ci/retire-superseded-pr-ci.mjs

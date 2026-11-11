@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "scope": "Fixed-width Boolean proof gate Btree and exact two-index recovery; native63 includes actual original non-inlined SQL-function cold95/100percent×1/20percent weeks, complete bags/metadata and COST1 counters; source65/generation/table contracts unchanged; no production capacity claim",
+  "scope": "Fixed-width Boolean proof gate Btree and exact two-index recovery; native63 includes actual original non-inlined SQL-function cold95/100percent\u00d71/20percent weeks, complete bags/metadata and COST1 counters; source65/generation/table contracts unchanged; no production capacity claim",
   "sourceFiles": {
     "scripts/ci/fixtures/cash-link-union-proof-index/qualification-evidence.json": "6211a82f7b772faae51d7192b7a4a25e4867365a43de75bb5eef67b44cf2dd14",
     "scripts/ci/fixtures/cash-link-union-proof-index/README.md": "489cf40fe24148bf995b8a36d601dd6c06d73f10519a58d1f4b99fb5e9409a1c",
@@ -16,7 +16,7 @@
     "scripts/ci/contract-index-recovery.mjs": "f348be2a919456e08ec9293bfc0f36b6af0be254588d379bfd3cca297e55bd7c",
     "scripts/ci/contract-index-recovery.test.mjs": "8727c21046ea29fe1a01fb3433ee0d94f975c4e91805a52e0e0673b6671c6e98",
     "scripts/ci/apply-recorded-migration.mjs": "a0fe1c2fca5a26ba3c2e7deff8b59d86ef6c9bcdabababce85a5f47b4b17faaa",
-    ".github/workflows/apply-merged-migration.yml": "dda79711ceb652664723e33e5f72fe95c84936f80955714a72a9791ce564d8c4",
+    ".github/workflows/apply-merged-migration.yml": "f19ee8b77573398177bae3033587ecad87c592b3bbf78d5c85ce44e40e218e66",
     "docs/changelog/2026-10-28-cash-selector-bounded-build-recovery.md": "30ec99aca57f738f841167aefca2c47c8c68cda088f7b6189b3e46e532137f1e",
     "scripts/ci/fixtures/cash-link-union-proof-index/actual-function-cold-plans.py": "31974fb62fbb677047a80686903e6c96f8f11db1a64c8bc0daccb5242c17ac7d"
   },
@@ -134,5 +134,11 @@
     "before": "9049e437ac500dbda7da0db90c33101205d8af9cb559541ca62c670a11ca07d1",
     "after": "dda79711ceb652664723e33e5f72fe95c84936f80955714a72a9791ce564d8c4",
     "review": "The only change is one line, `environment: ci-main`, after the apply job's runs-on. The job's steps, commands, timeouts and secret names are unchanged; DATABASE_URL is now read from the main-only ci-main environment instead of repository scope, so a merge-group run (refs/heads/gh-readonly-queue/main/...) can never read it. The applier still runs only on repository_dispatch/workflow_dispatch from main."
+  },
+  "aJobTokenCannotStartTrustedWork20261111": {
+    "path": ".github/workflows/apply-merged-migration.yml",
+    "before": "dda79711ceb652664723e33e5f72fe95c84936f80955714a72a9791ce564d8c4",
+    "after": "f19ee8b77573398177bae3033587ecad87c592b3bbf78d5c85ce44e40e218e66",
+    "review": "Reviewed exact diff. Two additions only: the apply job's new if refuses a github-actions[bot] dispatch except the repository_dispatch apply-merged-migration event, and a new first step (run only for that job-token dispatch) proves the payload's dispatcher_run_id names a current same-repository run of dispatch-merged-migrations.yml before anything else runs. The migration selection, queue, applier command, timeouts, environment and secret names are unchanged; no qualification result or financial proof changed."
   }
 }

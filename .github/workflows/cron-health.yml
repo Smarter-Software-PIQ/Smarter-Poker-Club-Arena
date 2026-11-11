@@ -43,6 +43,7 @@ concurrency:
 
 jobs:
   check:
+    if: ${{ !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]') }}
     name: No scheduled job is failing silently
     runs-on: ubuntu-latest
     environment: ci-main

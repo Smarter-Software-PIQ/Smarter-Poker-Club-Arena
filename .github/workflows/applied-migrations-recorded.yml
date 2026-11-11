@@ -35,6 +35,7 @@ concurrency:
 
 jobs:
   check:
+    if: ${{ !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && github.triggering_actor == 'github-actions[bot]') }}
     name: Every applied migration has a file
     runs-on: ubuntu-latest
     environment: ci-main

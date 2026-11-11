@@ -149,6 +149,7 @@ describe('the merge dispatches the migrations it added', () => {
           PR: '9957',
           MERGED_BY: 'Smarter-Poker',
           GITHUB_STEP_SUMMARY: summary,
+          GITHUB_RUN_ID: '1',
         },
       });
       expect(r.status, r.stderr).toBe(0);
@@ -377,6 +378,7 @@ esac
           PR: '10029',
           MERGED_BY: 'Smarter-Poker',
           GITHUB_STEP_SUMMARY: summary,
+          GITHUB_RUN_ID: '1',
           // An admitted minute, so nothing waits.
           DISPATCH_NOW_MS: String(at('2026-10-25T02:10:00Z')),
         },
