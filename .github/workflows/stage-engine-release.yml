@@ -65,6 +65,7 @@ jobs:
       actions: read
     outputs:
       protected_sha: ${{ steps.cutoff.outputs.sha }}
+      window_sha: ${{ steps.window_source.outputs.sha }}
       release_required: ${{ steps.change.outputs.release_required }}
       target_sha: ${{ steps.change.outputs.target_sha }}
       observed_live_sha: ${{ steps.change.outputs.observed_live_sha }}
@@ -435,6 +436,46 @@ jobs:
           echo "Exact engine component SHA: $LATEST_REQUIRED"
           echo "Offered server tree SHA: $TARGET_SHA"
 
+      # A WINDOW MIGRATION DOES NOT WAIT ON THE ENGINE'S RELEASE CONTROLS
+      # (2026-11-12). The cutoff step above refuses to bind source when the
+      # release controls changed during the five-hour reservation, and that
+      # failure (correctly) stops every engine job. On 2026-11-10 (run
+      # 42756607383) and 2026-11-11 (run 42959839523) it also skipped the
+      # database-only window-migrations job, so five merged window files
+      # missed two daily breaks. This step changes nothing above it and no
+      # engine job reads its output: it only names the protected-main commit
+      # at the reserved cutoff for the window installer, and only once the
+      # cutoff was actually reached inside the preparation window. Its own
+      # failure never changes this job's result (continue-on-error).
+      - name: Name the window-migration source at the reserved cutoff
+        id: window_source
+        if: >-
+          always() && steps.admission.outputs.allowed == 'true' &&
+          steps.admission.outputs.daily_preparation == 'true' &&
+          (steps.cutoff.outcome == 'success' || steps.cutoff.outcome == 'failure')
+        continue-on-error: true
+        env:
+          CUTOFF_EPOCH: ${{ steps.admission.outputs.cutoff_epoch }}
+          BOUND_SHA: ${{ steps.cutoff.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "${BOUND_SHA:-}" ]; then
+            [[ "$BOUND_SHA" =~ ^[0-9a-f]{40}$ ]]
+            echo "sha=$BOUND_SHA" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [[ "$CUTOFF_EPOCH" =~ ^[1-9][0-9]*$ ]]
+          now=$(date +%s)
+          if [ "$now" -lt "$CUTOFF_EPOCH" ] || [ "$now" -ge "$((CUTOFF_EPOCH + 1200))" ]; then
+            echo 'The reserved cutoff was not reached inside the preparation window; no window-migration source.'
+            exit 0
+          fi
+          git fetch --no-tags origin main
+          control=$(git rev-list --first-parent -1 --before="@$CUTOFF_EPOCH" refs/remotes/origin/main)
+          [[ "$control" =~ ^[0-9a-f]{40}$ ]]
+          echo "::warning title=ENGINE KEEPS SERVING, WINDOW MIGRATIONS STILL INSTALL::The engine release did not bind source at the cutoff; queued window migrations install from protected main $control."
+          echo "sha=$control" >> "$GITHUB_OUTPUT"
+
   # A MIGRATION THAT NEEDS THE LIVE TABLES WAITS FOR THE DAILY BREAK
   # (2026-10-22). Migrations that need ACCESS EXCLUSIVE on clubs, tables or
   # hand_history cannot install during play (20261022030326). Such a file
@@ -450,8 +491,9 @@ jobs:
     if: >-
       ((always() &&
       ((github.event_name == 'workflow_dispatch' && !inputs.request_engine_release && github.ref == 'refs/heads/main') ||
-       (needs.detect.result == 'success' && needs.detect.outputs.admission_allowed == 'true' &&
-        needs.detect.outputs.daily_preparation == 'true')))
+       (needs.detect.outputs.admission_allowed == 'true' &&
+        needs.detect.outputs.daily_preparation == 'true' &&
+        needs.detect.outputs.window_sha != '')))
       && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]'))) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
@@ -465,7 +507,7 @@ jobs:
       - name: Checkout protected main
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.detect.outputs.protected_sha || github.sha }}
+          ref: ${{ needs.detect.outputs.window_sha || github.sha }}
           fetch-depth: 0
 
       - name: Use the production Node major
