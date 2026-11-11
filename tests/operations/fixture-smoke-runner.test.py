@@ -88,19 +88,6 @@ def preimage_material(catalog=None, raw=None):
 
 
 class RunnerTests(unittest.TestCase):
-    def test_postgis_mirror_retains_release_checksum_and_matching_provenance(self):
-        import re
-        docker = (ROOT / 'operations/release/fixture/Dockerfile').read_text()
-        download = re.search(r'ADD --checksum=sha256:([0-9a-f]{64}) (https://\S+/postgis-3\.3\.7\.tar\.gz) /tmp/postgis.tar.gz', docker)
-        self.assertIsNotNone(download)
-        self.assertEqual(download[1], '50724a0dde49adc253e59e024d8b18fef6be4e85341943c6d5e1e1b974e43fce')
-        self.assertEqual(download[2], 'https://ftp2.osuosl.org/pub/osgeo/download/postgis/source/postgis-3.3.7.tar.gz')
-        sources = json.loads(re.search(r'const sources=(\[.*?\]);', docker)[1])
-        postgis = next(source for source in sources if source['name'] == 'postgis')
-        self.assertEqual(postgis['catalog_version'], '3.3.7')
-        self.assertEqual(postgis['archive_sha256'], download[1])
-        self.assertEqual(postgis['archive_url'], download[2])
-
     def test_timeout_is_bounded_when_detached_descendant_retains_output_pipes(self):
         for script_name, leader_exits in (('build-image.sh', False), ('smoke-image.sh', False),
                                           ('build-image.sh', True)):

@@ -297,6 +297,7 @@ describe('choice-game entry quotes belong to the selected settings', () => {
     await act(async () => {});
     fireEvent.click(screen.getByRole('button', { name: 'Pick Tile' }));
     await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: 'Page Help' }));
     fireEvent.click(screen.getByRole('button', { name: 'Verify Revealed Outcome' }));
     // Twice: the page checks a finished round by itself, and the player can
     // still press to run the same check again.
@@ -353,27 +354,24 @@ describe('choice-game entry quotes belong to the selected settings', () => {
     }
   );
   it.each(['mines', 'crossing'] as const)(
-    'shows the standard half floor as the %s guarantee for ordinary play before Start',
+    'shows the actual %s entry on its cabinet before Start',
     async (game) => {
       render(<DiamondChoicePage game={game} />);
       await act(async () => {});
       // 100 diamonds at 100 per chip is a 1.00 chip stake, and ordinary play
       // pays for all of it, so contract 4 keeps HALF. It kept a tenth before.
-      expect(screen.getByText('Guaranteed').nextElementSibling).toHaveTextContent('0.50 Chips');
-      expect(screen.getByText('Guaranteed').nextElementSibling).not.toHaveAttribute(
-        'data-ink',
-        'gold'
-      );
+      expect(screen.getByText('Entry').nextElementSibling).toHaveTextContent('100 Diamonds');
+      expect(screen.getByText('Entry').nextElementSibling).not.toHaveAttribute('data-ink', 'gold');
     }
   );
-  it('reads Pending for the guarantee while the award is still being checked', async () => {
+  it('reads Pending for the entry while the award is still being checked', async () => {
     backend.awardState.mockReturnValue(new Promise(() => {}));
     render(<DiamondChoicePage game="mines" />);
     await act(async () => {});
-    expect(screen.getByText('Guaranteed').nextElementSibling).toHaveTextContent('Pending');
+    expect(screen.getByText('Entry').nextElementSibling).toHaveTextContent('Pending');
     expect(entryControl()).toBeDisabled();
   });
-  it('shows an open round its own sealed floor as the guarantee', async () => {
+  it('preserves an open round while showing its entry', async () => {
     backend.state.mockResolvedValue({
       ...state,
       open_round: {
@@ -388,7 +386,7 @@ describe('choice-game entry quotes belong to the selected settings', () => {
     });
     render(<DiamondChoicePage game="mines" />);
     await act(async () => {});
-    expect(screen.getByText('Guaranteed').nextElementSibling).toHaveTextContent('0.10 Chips');
+    expect(screen.getByText('Entry').nextElementSibling).toHaveTextContent('100 Diamonds');
     expect(backend.start).not.toHaveBeenCalled();
   });
   it('does not start a new amount using an earlier entry quote', async () => {
@@ -398,7 +396,7 @@ describe('choice-game entry quotes belong to the selected settings', () => {
     );
     render(<DiamondChoicePage game="mines" />);
     await act(async () => {});
-    fireEvent.click(screen.getByText('Entry Details'));
+    fireEvent.click(screen.getByRole('button', { name: 'Page Help' }));
     fireEvent.change(screen.getByLabelText('Entry Diamonds'), { target: { value: '200' } });
     await act(async () => {});
     expect(entryControl()).toBeDisabled();
@@ -467,18 +465,18 @@ describe('choice games consume wheel-funded entry', () => {
       ).toBeInTheDocument();
       expect(document.body.textContent).not.toContain('Donkey Crossing');
       expect(document.body.textContent).not.toContain('Upgraded');
-      // The guarantee is on the console before Start: the bay, in gold, and the sentence.
-      const guaranteed = screen.getByText('Guaranteed').nextElementSibling!;
-      expect(guaranteed).toHaveTextContent('1.00 Chips');
+      // The original funded entry stays on the cabinet; the guarantee is in help.
+      const guaranteed = screen.getByText('Entry').nextElementSibling!;
+      expect(guaranteed).toHaveTextContent('100 Diamonds');
       expect(guaranteed).toHaveAttribute('data-ink', 'gold');
       const sentence =
         game === 'mines'
           ? 'Super Diamond Mines Pays At Least 1.00 Chips, Even If You Hit A Mine.'
           : 'Super Donkey Cross Pays At Least 1.00 Chips, Even If You Do Not Make It Across.';
-      // The page says it in its one live region, not in a nested status.
+      // The same authoritative promise remains available through help.
       expect(
-        Array.from(document.querySelectorAll(game === 'mines' ? 'details' : '[aria-live] p')).some(
-          (line) => line.textContent?.includes(sentence)
+        Array.from(document.querySelectorAll('.ca-tutorial-popup__details')).some((line) =>
+          line.textContent?.includes(sentence)
         )
       ).toBe(true);
       // No offer screen stands in front of Start Round (Double Diamonds retired).
@@ -529,12 +527,12 @@ describe('choice games consume wheel-funded entry', () => {
       expect(
         screen.getByRole('heading', { name: game === 'mines' ? 'Diamond Mines' : 'Donkey Cross' })
       ).toBeInTheDocument();
-      const guaranteed = screen.getByText('Guaranteed').nextElementSibling!;
-      expect(guaranteed).toHaveTextContent('0.10 Chips');
+      const guaranteed = screen.getByText('Entry').nextElementSibling!;
+      expect(guaranteed).toHaveTextContent('100 Diamonds');
       expect(guaranteed).not.toHaveAttribute('data-ink', 'gold');
       expect(
-        Array.from(document.querySelectorAll(game === 'mines' ? 'details' : '[aria-live] p')).some(
-          (line) => line.textContent?.includes('Pays At Least 0.10 Chips On Any Loss.')
+        Array.from(document.querySelectorAll('.ca-tutorial-popup__details')).some((line) =>
+          line.textContent?.includes('Pays At Least 0.10 Chips On Any Loss.')
         )
       ).toBe(true);
     }
@@ -583,7 +581,7 @@ describe('choice games consume wheel-funded entry', () => {
       render(<DiamondChoicePage game={game} />);
       await act(async () => {});
       expect(entryControl()).toBeDisabled();
-      if (game === 'mines') fireEvent.click(screen.getByText('Entry Details'));
+      fireEvent.click(screen.getByRole('button', { name: 'Page Help' }));
       expect(screen.getByRole('button', { name: 'Spin The Wheel' })).toBeEnabled();
       expect(screen.getByRole('button', { name: 'Buy More' })).toBeEnabled();
       expect(backend.start).not.toHaveBeenCalled();

@@ -505,6 +505,8 @@ import {
   lightningDecisions as pendingLightningDecisions,
 } from '../lightning/lightningDecisionQueue';
 import { scheduleLightningRenderAck } from '../lightning/lightningRenderAck';
+import { markLightningJoinRoom } from '../lightning/lightningJoinTiming';
+import { useLightningJoinTiming } from '../lightning/useLightningJoinTiming';
 // The ShareHand COMPONENT is rendered by TableModalsLayer, not here — the
 // default import this line used to carry was unused. TablePage builds the
 // payload, so it needs the types.
@@ -6945,7 +6947,7 @@ function LiveTablePage({
   const [ritAcceptedIds, setRitAcceptedIds] = useState<string[]>([]);
   const [ritChooserId, setRitChooserId] = useState<string | null>(null);
   const [ritPotAmount, setRitPotAmount] = useState<number | null>(null);
-  const [ritTotalSeconds, setRitTotalSeconds] = useState(25);
+  const [ritTotalSeconds, setRitTotalSeconds] = useState(10);
   const [ritHeroAccepted, setRitHeroAccepted] = useState(false);
   const [ritChooserHasDecided, setRitChooserHasDecided] = useState(false);
   const ritDeadlineRef = useRef(0);
@@ -10992,12 +10994,6 @@ function LiveTablePage({
      the hand history actually publishes come from the engine snapshot, not
      from a client-side accumulator. */
 
-  /** SOUND AUDIT 2026-08-27: when the rank-aware showdown cue (spec 43) fires
-   *  playBigWin at REVEAL time, the pot-time escalation below must not fire it
-   *  AGAIN seconds later — that was a double fanfare on every quads-or-better
-   *  hand that also won a 50BB+ pot. Stamp reveal-time fanfares here. */
-  const bigWinFanfareAtRef = useRef(0);
-
   // Play win sound — escalates based on pot size
   const playWinSound = (potAmount?: number) => {
     // NEW-BUG-2 FIX: use dynamic isEnabled() not stale isSoundEnabled closure
@@ -11009,9 +11005,8 @@ function LiveTablePage({
     const bb = safeBB(currentBlinds);
     const bbWon = (potAmount || tableStateRef.current.pot) / bb;
 
-    if (bbWon >= 50 && Date.now() - bigWinFanfareAtRef.current > 8000) {
+    if (bbWon >= 50) {
       soundService.playBigWin();
-      // Confetti disabled — annoying on repeated wins
     } else {
       soundService.playWin();
     }
@@ -13906,7 +13901,7 @@ function LiveTablePage({
         const chooserId = handState.chooserPlayerId as string;
         const allPlayerIds = (handState.allPlayerIds as string[]) || [];
         const maxRuns = (handState.maxRuns as number) || 2;
-        const timeoutSeconds = Number(handState.timeoutSeconds) || 25;
+        const timeoutSeconds = Number(handState.timeoutSeconds) || 10;
         const deadlineTs = Number(handState.deadline_ts) || Date.now() + timeoutSeconds * 1000;
 
         // The waiting strip rides the felt for EVERYONE — spectators and
@@ -13940,13 +13935,10 @@ function LiveTablePage({
         );
         setRitTimer(Math.max(0, Math.ceil((deadlineTs - Date.now()) / 1000)));
         setDecisionDeadline({ kind: 'rit', at: deadlineTs });
-        // Reference cadence: the table settles into "waiting" for a beat,
-        // THEN the panel slides in. rit_single_run cancels a pending open.
+        // The decision clock is already running: show its controls immediately.
         if (ritPanelOpenTimerRef.current) clearTimeout(ritPanelOpenTimerRef.current);
-        ritPanelOpenTimerRef.current = setTimeout(() => {
-          ritPanelOpenTimerRef.current = null;
-          if (!leaveAttentionSuppressedRef.current) setShowRIT(true);
-        }, 1500 * getAnimationSpeed());
+        ritPanelOpenTimerRef.current = null;
+        if (!leaveAttentionSuppressedRef.current) setShowRIT(true);
         return;
       }
 
@@ -21047,28 +21039,8 @@ function LiveTablePage({
             }
           }
         }
-        // Bible V8 §4.6: Showdown — play showdown sound, trigger card reveal animations
-        // #175 gated for multi-table: only play on the active tab
-        if (soundService.isEnabled() && ambientSoundsAllowed) {
-          soundService.playShowdown();
-          // SHOWDOWN POLISH 2026-08-25 (spec 43, rank-aware cue): a revealed
-          // hand of four of a kind or better is the moment of the session —
-          // give it the big-win fanfare ON TOP of the reveal cue, at reveal
-          // time rather than pot time, so the table gasps when the monster
-          // turns over, not when the chips move. Mucked hands carry
-          // hand_ranking 0 on the wire, so a hidden monster cannot leak
-          // through its own fanfare.
-          try {
-            const sdRanks = ((evt.data as any).results as Array<{ hand_ranking?: number }>) || [];
-            if (sdRanks.some((r) => (r.hand_ranking ?? 0) >= 8)) {
-              soundService.playBigWin();
-              // Suppress the pot-time repeat (see bigWinFanfareAtRef).
-              bigWinFanfareAtRef.current = Date.now();
-            }
-          } catch {
-            /* sound is decoration */
-          }
-        }
+        // Revealed cards do not establish a winner. The confirmed POT_WIN
+        // owns the hero's celebration, including chops (owner 2026-11-10).
         /**
          * DEALER NARRATION, second half — WIRED 2026-08-28 (see HAND_COMPLETE
          * for the full note). `useTableChat`'s `SHOWDOWN_START` subscriber
@@ -21185,6 +21157,10 @@ function LiveTablePage({
         const potAmount = ((evt.data as any).pot as number) || 0;
         const payoutCelebrations: Array<() => void> = [];
         const presentPayoutVisual = (cue: () => void) => {
+          // Personal celebrations belong only to this viewer's awarded hand.
+          // Membership includes chops, side pots and high/low shares, without
+          // requiring a positive net profit after rake.
+          if (!userId || !winnerIds.includes(userId)) return;
           if (ritExpectedRunsRef.current > 1 || (ritResultRef.current?.boards.length ?? 0) > 1)
             payoutCelebrations.push(cue);
           else cue();
@@ -21403,7 +21379,11 @@ function LiveTablePage({
                    already finished by the time it appears. Reuse the big-win
                    cue, gated for a muted player and for background
                    multi-table tabs (#175). */
-                  if (soundService.isEnabled() && ambientSoundsAllowedRef.current) {
+                  if (
+                    scoopUserId === userId &&
+                    soundService.isEnabled() &&
+                    ambientSoundsAllowedRef.current
+                  ) {
                     soundService.playBigWin();
                   }
                   // Self-clears with the celebration - on its OWN ref, so a
@@ -21534,9 +21514,8 @@ function LiveTablePage({
           // re-rendered yet and the render-time mirror assignment would still
           // hold the previous hand's winners when Share Hand reads it.
           winnerInfoRef.current = merged;
-          // Bible V8 §5.1: Tiered celebration per docs/_archive/POKERBROS_UPGRADE_PLAN.md §3.7
-          // < 10 BB = gold glow only (default), 10-50 BB = confetti,
-          // 50+ BB = confetti + screen shake + bigWin sound
+          // Every hero win, including a small chop, gets confetti. Massive
+          // wins retain the existing screen shake and big-win sound tier.
           if (winnerIds.includes(userId)) {
             // Accumulate the hero's win for the achievement/challenge fire at
             // HAND_COMPLETE (POT_WIN can fire once per pot on split/side pots).
@@ -21565,16 +21544,14 @@ function LiveTablePage({
             presentPayoutVisual(() => {
               const bb = safeBB(tableStateRef.current.blinds, 1);
               const winBB = (amounts[userId] || potAmount) / bb;
-              if (winBB >= 10) {
-                // ANIMATION AUDIT 2026-08-27: setShowConfetti(true) was a no-op
-                // when the previous burst was still airborne (ConfettiCanvas
-                // only fires on the false→true edge) — back-to-back qualifying
-                // wins produced ONE burst. Clear-then-set on the next macrotask
-                // so every win gets its own burst (same pattern as
-                // useAnimationQueue.complete()).
-                setShowConfetti(false);
-                setTimeout(() => setShowConfetti(true), 0);
-              }
+              // ANIMATION AUDIT 2026-08-27: setShowConfetti(true) was a no-op
+              // when the previous burst was still airborne (ConfettiCanvas
+              // only fires on the false→true edge) — back-to-back qualifying
+              // wins produced ONE burst. Clear-then-set on the next macrotask
+              // so every win gets its own burst (same pattern as
+              // useAnimationQueue.complete()).
+              setShowConfetti(false);
+              setTimeout(() => setShowConfetti(true), 0);
               if (winBB >= 50) {
                 // Screen shake for massive win.
                 // ANIMATION AUDIT 2026-08-27: three fixes. (1) In multi-table
@@ -21603,10 +21580,10 @@ function LiveTablePage({
               }
             });
           }
-          // Bible V8 §5.1: Particle burst from first winner's seat position
+          // Hero-only particle burst from the viewing winner's seat position
           presentPayoutVisual(() => {
             const firstWinnerIdx = tableStateRef.current.players.findIndex(
-              (p) => p && winnerIds.includes(p.id)
+              (p) => p && p.id === userId
             );
             if (firstWinnerIdx >= 0) {
               // AUDIT FIX 2026-07-19: seatPositions is physical-seat-indexed
@@ -27189,8 +27166,18 @@ function LiveTablePage({
     return scheduleLightningRenderAck(lightningRenderHandId, (handId, deltaMs, resumed) => {
       lightningRenderAckedRef.current = handId;
       sendEngineRenderAck(handId, deltaMs, resumed);
+      // A timed join (lightningJoinTiming.ts) ends when its first hand paints.
+      markLightningJoinRoom(tableId, 'cards_painted');
     });
-  }, [lightningRenderHandId, sendEngineRenderAck]);
+  }, [lightningRenderHandId, sendEngineRenderAck, tableId]);
+  /* JOIN TIMING (2026-11-10): the room's half of a timed Lightning join - the
+     room mounted, its socket connected, its first snapshot and first hand. */
+  useLightningJoinTiming({
+    roomId: tableId,
+    lightningRoom: !!lightningRoom,
+    connected: engineWsStatus === 'connected',
+    snapshot: lightningRoom ? (engineSnapshot as LightningSnapshotFields | null) : null,
+  });
 
   /* JOIN LIGHTNING: the buy-in landed at the anchor table the player joined
      through, so this tab follows their chair into the pool-session room. */

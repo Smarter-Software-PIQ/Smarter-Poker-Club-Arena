@@ -61,6 +61,7 @@ vi.mock('../../src/utils/errorReporter', () => ({
 const warmTable = vi.fn();
 vi.mock('../../src/services/tableWarmup', () => ({
   warmTable: (...a: unknown[]) => warmTable(...a),
+  warmLightningRoom: vi.fn(),
 }));
 const toast = { info: vi.fn(), warning: vi.fn(), error: vi.fn(), success: vi.fn() };
 vi.mock('../../src/components/common/Toast', () => ({ useToast: () => toast }));

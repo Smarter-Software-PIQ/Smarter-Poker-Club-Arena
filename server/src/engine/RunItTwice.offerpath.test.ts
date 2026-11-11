@@ -143,7 +143,9 @@ describe('RIT offer path (the part production actually runs)', () => {
     e.handleAllInRunout(runoutEvent, e.seatedPlayers);
     expect(e.runItTwiceEngine.hasPendingOffer(TABLE)).toBe(true);
 
-    await vi.advanceTimersByTimeAsync(6000);
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(seen).not.toContain('RIT_ACCEPTED');
+    await vi.advanceTimersByTimeAsync(251);
 
     expect(seen, 'the offer must reach RIT_ACCEPTED, never RIT_DECLINED').toContain('RIT_ACCEPTED');
     expect(seen).not.toContain('RIT_DECLINED');

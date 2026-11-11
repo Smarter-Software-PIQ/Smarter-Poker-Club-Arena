@@ -1771,6 +1771,7 @@ describe('every finished round verifies itself', () => {
   it('names the check that failed when the player runs it again', async () => {
     await plays({ payout_chips: 99 });
     await toTheReceipt();
+    fireEvent.click(screen.getByRole('button', { name: 'Page Help' }));
     fireEvent.click(screen.getByRole('button', { name: 'Verify Revealed Outcome' }));
     expect(
       await said('The Outcome Could Not Be Verified. Seal Ok, Draw Ok, Ladder Ok, Chips Differs.')

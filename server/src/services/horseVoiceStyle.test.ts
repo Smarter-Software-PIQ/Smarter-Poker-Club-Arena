@@ -51,30 +51,58 @@ describe('the pool', () => {
 });
 
 describe('every horse is its own person', () => {
-  it('has independent silent, chat-only, gesture-only and expressive horses', () => {
+  it('every horse can participate occasionally with independent talking and gesture rates', () => {
     const styles = HORSES.map(voiceStyleFor);
-    const silent = styles.filter((s) => s.chattiness === 0).length;
-    const still = styles.filter((s) => s.throwiness === 0).length;
-    expect(silent).toBeGreaterThan(150);
-    expect(silent).toBeLessThan(350);
-    expect(still).toBeGreaterThan(350);
-    expect(still).toBeLessThan(550);
-    for (const talks of [false, true])
-      for (const gestures of [false, true]) {
+    for (const style of styles) {
+      expect(style.chattiness).toBeGreaterThanOrEqual(0.15);
+      expect(style.throwiness).toBeGreaterThanOrEqual(0.15);
+    }
+    for (const talksMore of [false, true])
+      for (const gesturesMore of [false, true]) {
         expect(
-          styles.some((s) => s.chattiness > 0 === talks && s.throwiness > 0 === gestures)
+          styles.some(
+            (style) =>
+              style.chattiness > 0.5 === talksMore && style.throwiness > 0.5 === gesturesMore
+          )
         ).toBe(true);
       }
-    for (const h of HORSES) {
-      const s = voiceStyleFor(h);
-      for (const base of [0, 6, 14, 30, 100]) {
-        expect(personalChance(h, base)).toBeLessThanOrEqual(35);
-        expect(personalThrowChance(h, base)).toBeLessThanOrEqual(25);
-        if (s.chattiness === 0) expect(personalChance(h, base)).toBe(0);
-        if (s.throwiness === 0) expect(personalThrowChance(h, base)).toBe(0);
+    for (const horse of HORSES) {
+      expect(personalChance(horse, 0)).toBe(0);
+      expect(personalThrowChance(horse, 0)).toBe(0);
+      for (const base of [6, 14, 30, 100]) {
+        expect(personalChance(horse, base)).toBeGreaterThan(0);
+        expect(personalChance(horse, base)).toBeLessThanOrEqual(35);
+        expect(personalThrowChance(horse, base)).toBeGreaterThan(0);
+        expect(personalThrowChance(horse, base)).toBeLessThanOrEqual(25);
       }
     }
   });
+
+  it.each([
+    ['AuntieKurt', '71efcdb3-a39e-4e4d-9039-337de85f3eea'],
+    ['MicahPoker', '44f1ff92-b5de-44c5-9f7b-319318ff2a74'],
+    ['jester_86', 'aef849b8-2906-4dc0-b108-251710e76d3c'],
+    ['Burls', '7e616640-58dd-4d8d-a18e-2f37f057bcd9'],
+    ['Mr Drew', 'd1187172-6cd3-477a-b035-bbb677d0a62f'],
+    ['pam.chen', '1b049140-90bf-4b45-82db-a6dc259ce0c3'],
+    ['Luis71', 'fd1b5e7e-3dfc-40d2-890f-23b936ac24ab'],
+    ['NatSr', 'ad0c8518-f9e3-4341-a1db-dccf83145838'],
+    ['rosanguyen', '01bd8786-371e-4ba2-85d6-baab469bba07'],
+    ['zoeokafor', '778f8033-c9e2-45fa-98ca-935f38e2b8ca'],
+  ])('%s from the reported Hold’em tables has both social capabilities', (_name, horse) => {
+    expect(personalChance(horse, 14)).toBeGreaterThan(0);
+    expect(personalThrowChance(horse, 18)).toBeGreaterThan(0);
+  });
+
+  it('preserves the existing frequencies of horses that already participated', () => {
+    const uncleJules = voiceStyleFor('32a4fc92-d1d4-472b-a585-ac19a7e10616');
+    expect(uncleJules.chattiness).toBe(0.88);
+    expect(uncleJules.throwiness).toBe(0.95);
+    const pitTony = voiceStyleFor('b5fa9dcb-bc18-4806-b308-3085f42fbff2');
+    expect(pitTony.chattiness).toBe(0.33);
+    expect(pitTony.throwiness).toBe(0.88);
+  });
+
   it('no two of a thousand horses share a style fingerprint', () => {
     const prints = new Set(HORSES.map((h) => styleFingerprint(h, ALL_LINES)));
     expect(prints.size).toBe(HORSES.length);
@@ -98,7 +126,7 @@ describe('every horse is its own person', () => {
       expect(new Set(styles.map((s) => s[key])).size, key).toBeGreaterThan(2);
     }
     const chatty = styles.map((s) => s.chattiness);
-    expect(Math.min(...chatty)).toBe(0);
+    expect(Math.min(...chatty)).toBe(0.15);
     expect(Math.max(...chatty)).toBeLessThanOrEqual(0.95);
   });
 

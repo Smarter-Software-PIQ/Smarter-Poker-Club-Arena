@@ -113,7 +113,7 @@ const MAX_CLIENT_SEED = 64;
 function hasVariableEntry(
   version: WheelState['contract_version']
 ): version is WheelContractVersion {
-  return version === 2 || version === 3 || version === 4;
+  return version === 2 || version === 3 || version === 4 || version === 5;
 }
 
 /**
@@ -946,7 +946,11 @@ export default function DiamondWheelPage() {
         clientSeed: clientSeed.trim().slice(0, MAX_CLIENT_SEED) || randomClientSeed(),
         ticketId: dailyBonusMode ? (dailyBonus?.ticket_id ?? null) : null,
         ...(hasVariableEntry(state?.contract_version)
-          ? { contractVersion: state.contract_version, entryDiamonds: price }
+          ? {
+              contractVersion:
+                state.contract_version === 5 && mode !== 'paid' ? 4 : state.contract_version,
+              entryDiamonds: price,
+            }
           : {}),
       };
       saveWheelPending(attempt);
@@ -1850,6 +1854,12 @@ export default function DiamondWheelPage() {
                     : welcomeMode
                       ? `Your Welcome Spin, On The Club. A ${price.toLocaleString()} Diamond Spin On The Same Wheel, At No Cost To You, Once.`
                       : `Spin ${price.toLocaleString()} Diamonds.${hasVariableEntry(state.contract_version) ? ' Every Spin Wins A Prize.' : ' Explore The Prizes Below.'}${welcomeNote}`}
+          </p>
+        )}
+        {state.contract_version === 5 && !freeMode && (
+          <p className="sc-copy">
+            Each Paid Spin Has A 25% Chance Of A Bonus Game, Including Super Games. Games Can Arrive
+            Back To Back Or After Longer Gaps. There Is No Every-Fourth-Spin Guarantee.
           </p>
         )}
         <div>

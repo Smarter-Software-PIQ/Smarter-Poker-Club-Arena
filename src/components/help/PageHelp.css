@@ -314,3 +314,14 @@
   outline-offset: 4px;
   scroll-margin: 96px 0 240px;
 }
+
+.ca-tutorial-popup__details {
+  max-height: 48dvh;
+  overflow: auto;
+  overscroll-behavior: contain;
+  text-transform: none;
+}
+
+.ca-tutorial-popup[hidden] {
+  display: none !important;
+}
