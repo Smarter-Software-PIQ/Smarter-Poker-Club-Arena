@@ -30,9 +30,10 @@
 -- relation ca_hand_player_stat occur ONLY at minutes 0/15/30/45, in nearly
 -- every hour, up to 7.7 s, most never granted.
 --
--- WHAT THIS CHANGES. One line: the roll-up's upper bound is the earlier of
+-- WHAT THIS CHANGES. Two lines. (1) The roll-up's upper bound is the earlier of
 -- now() - interval '5 minutes' and the start of the oldest other open client
--- transaction in this database, instead of now(). Every other byte of the
+-- transaction in this database, instead of now(). (2) It skips a
+-- player-hand that has a fact revision (see CORRECTIONS AND VOIDS). Every other byte of the
 -- function is the live body (md5 07f9ad834d98b1944eecbab0439f63fb, read
 -- 2026-11-11): the same advisory try-lock, FOR UPDATE on the state row,
 -- chunking, ORDER BY, ON CONFLICT DO NOTHING, retention prune, proconfig,
@@ -57,10 +58,31 @@
 -- CONFLICT DO NOTHING, so whichever lands first is the only row. Diamond day
 -- totals (projection 4b) are added once, by the projection, from whichever
 -- row exists; the roll-up never touches them, before or after this change.
--- LATE UPDATES. ca_append_hand_fact_revision needs the ca_hand_facts row,
--- which only the live projection writes, in the same transaction as its stat
--- rows, so a revision always finds its stat row (0 revisions exist to date);
--- ca_repair_hand_player_stat_money finished on 2026-09-04 and is unscheduled.
+-- CORRECTIONS AND VOIDS (by control flow, not by their absence). A revision
+-- (ca_append_hand_fact_revision: correction, refund, void) locks the
+-- player-hand's ca_hand_facts row, which only ca_project_hand_stats_facts
+-- writes, inside the live projection, in the same transaction as that
+-- projection's stat rows; so the stat row it corrects already exists. A void
+-- deletes that stat row. The roll-up recomputes from hand_history, which a
+-- revision does not change, so the predecessor could re-insert a voided
+-- player-hand (or, if a stat row were missing, an uncorrected one) whenever
+-- it reached that hand after the void. This body skips every player-hand
+-- that has a revision (index ca_hand_fact_revisions_hand_user_idx): the
+-- revision path alone owns those rows. Second changed line; nothing else.
+-- BACKFILLS. No writer names created_at (fn_ca_insert_hand_with_awards
+-- inserts only the caller's columns; the engine row carries none). Every
+-- hand_history insert is projected per hand, not per time: the AFTER INSERT
+-- trigger trg_ca_stats_live_from_hand, or in the atomic commit an
+-- unconditional hand_projection_outbox row in the same transaction. So a
+-- hand with any created_at gets its stat rows from its own projection; the
+-- roll-up is only the reconciler and never removes or overwrites a row.
+-- The money repair (ca_repair_hand_player_stat_money) finished 2026-09-04.
+-- TWO-PHASE COMMIT is off (max_prepared_transactions = 0), so every open
+-- writer is visible in pg_stat_activity. A writer's xact_start is published
+-- within StartTransaction, microseconds after its timestamp is taken; the
+-- 5-minute term covers that interval. Retries open a new transaction with a
+-- new start; rolled_ceil only moves forward (greatest()) under the single-
+-- runner try-lock.
 --
 -- WHY THE INVARIANTS HOLD. rolled_ceil only advances to the end of what the
 -- run covered, which is now never past now() - 5 minutes, so a hand younger
@@ -102,11 +124,18 @@ DECLARE
 $f$;
   v_new text := $f$  v_now timestamptz := least(now() - interval '5 minutes', coalesce((SELECT min(a.xact_start) FROM pg_catalog.pg_stat_activity a WHERE a.datname = current_database() AND a.backend_type = 'client backend' AND a.pid <> pg_backend_pid() AND a.xact_start IS NOT NULL), now()));
 $f$;
+  v_old2 text := $f$    FROM public.ca_hand_player_facts(v_ceil, v_end) f
+    ORDER BY f.user_id, f.hand_id
+$f$;
+  v_new2 text := $f$    FROM public.ca_hand_player_facts(v_ceil, v_end) f
+    WHERE NOT EXISTS (SELECT 1 FROM public.ca_hand_fact_revisions r WHERE r.hand_id = f.hand_id AND r.user_id = f.user_id)
+    ORDER BY f.user_id, f.hand_id
+$f$;
 BEGIN
   IF v_oid IS NULL THEN RAISE EXCEPTION 'ca_roll_hand_stats_forward() is missing'; END IF;
   v_def := pg_get_functiondef(v_oid);
   IF md5(v_def) <> '07f9ad834d98b1944eecbab0439f63fb'
-     AND md5(replace(v_def, v_new, v_old)) <> '07f9ad834d98b1944eecbab0439f63fb' THEN
+     AND md5(replace(replace(v_def, v_new, v_old), v_new2, v_old2)) <> '07f9ad834d98b1944eecbab0439f63fb' THEN
     RAISE EXCEPTION 'ca_roll_hand_stats_forward is not the pinned text (md5 %)', md5(v_def);
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_proc p WHERE p.oid = v_oid
@@ -186,6 +215,7 @@ BEGIN
       f.three_bet_opp, f.faced_three_bet, f.folded_to_three_bet, f.cbet_opp, f.cbet_made,
       f.showdown, f.hand_secs, f.profit
     FROM public.ca_hand_player_facts(v_ceil, v_end) f
+    WHERE NOT EXISTS (SELECT 1 FROM public.ca_hand_fact_revisions r WHERE r.hand_id = f.hand_id AND r.user_id = f.user_id)
     ORDER BY f.user_id, f.hand_id
     ON CONFLICT (user_id, hand_id) DO NOTHING;
 
@@ -237,12 +267,21 @@ DECLARE
 $f$;
   v_new text := $f$  v_now timestamptz := least(now() - interval '5 minutes', coalesce((SELECT min(a.xact_start) FROM pg_catalog.pg_stat_activity a WHERE a.datname = current_database() AND a.backend_type = 'client backend' AND a.pid <> pg_backend_pid() AND a.xact_start IS NOT NULL), now()));
 $f$;
+  v_old2 text := $f$    FROM public.ca_hand_player_facts(v_ceil, v_end) f
+    ORDER BY f.user_id, f.hand_id
+$f$;
+  v_new2 text := $f$    FROM public.ca_hand_player_facts(v_ceil, v_end) f
+    WHERE NOT EXISTS (SELECT 1 FROM public.ca_hand_fact_revisions r WHERE r.hand_id = f.hand_id AND r.user_id = f.user_id)
+    ORDER BY f.user_id, f.hand_id
+$f$;
 BEGIN
   IF (length(v_def) - length(replace(v_def, v_new, ''))) / length(v_new) <> 1
-     OR position(v_old IN v_def) <> 0 THEN
-    RAISE EXCEPTION 'ca_roll_hand_stats_forward: the bound is not exactly the new line';
+     OR position(v_old IN v_def) <> 0
+     OR (length(v_def) - length(replace(v_def, v_new2, ''))) / length(v_new2) <> 1
+     OR position(v_old2 IN v_def) <> 0 THEN
+    RAISE EXCEPTION 'ca_roll_hand_stats_forward: the change is not exactly the two new lines';
   END IF;
-  IF md5(replace(v_def, v_new, v_old)) <> '07f9ad834d98b1944eecbab0439f63fb' THEN
+  IF md5(replace(replace(v_def, v_new, v_old), v_new2, v_old2)) <> '07f9ad834d98b1944eecbab0439f63fb' THEN
     RAISE EXCEPTION 'ca_roll_hand_stats_forward: the reverse substitution does not reproduce the pinned text';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_proc p WHERE p.oid = v_oid

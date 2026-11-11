@@ -10,7 +10,9 @@ applies the migration and proves:
       live row never landed is rolled once it ages past the margin;
   (c) rolled_ceil never advances past now() - 5 minutes and never moves back;
   (d) rolled_ceil never passes the start of an open writer, so no hand is
-      skipped (the predecessor is shown to skip it), and it lands exactly once.
+      skipped (the predecessor is shown to skip it), and it lands exactly once;
+  (e) a revised (voided or corrected) player-hand is never re-inserted
+      (the predecessor is shown to resurrect a voided one).
 """
 import argparse
 import json
@@ -29,6 +31,8 @@ parser.add_argument('--output', type=pathlib.Path, default=None)
 args = parser.parse_args()
 PRE = (root / 'scripts/ci/probes/stats-rollup-lag/live-predecessor.sql').read_text()
 PRE_MD5 = '07f9ad834d98b1944eecbab0439f63fb'
+OLD2 = '    FROM public.ca_hand_player_facts(v_ceil, v_end) f\n    ORDER BY f.user_id, f.hand_id\n'
+NEW2 = '    FROM public.ca_hand_player_facts(v_ceil, v_end) f\n    WHERE NOT EXISTS (SELECT 1 FROM public.ca_hand_fact_revisions r WHERE r.hand_id = f.hand_id AND r.user_id = f.user_id)\n    ORDER BY f.user_id, f.hand_id\n'
 NEWL = "v_now timestamptz := least(now() - interval '5 minutes', coalesce((SELECT min(a.xact_start) FROM pg_catalog.pg_stat_activity a WHERE a.datname = current_database() AND a.backend_type = 'client backend' AND a.pid <> pg_backend_pid() AND a.xact_start IS NOT NULL), now()));"
 MIGRATION = args.migration.read_text()
 pg = pathlib.Path(os.environ.get('PG_BIN', '/opt/homebrew/opt/postgresql@17/bin'))
@@ -178,6 +182,17 @@ def late_writer(label, wait="5 minutes 2 seconds"):
     return ceil_held, unseen, late_rows
 
 
+def revised(label):
+    """A's OLD hand was voided after its live row landed; B's OLD hand was corrected to 99."""
+    seed()
+    sql(f"TRUNCATE ca_hand_fact_revisions; INSERT INTO ca_hand_fact_revisions(hand_id,user_id) VALUES ('{OLD}','{A}'),('{OLD}','{B}');"
+        f"INSERT INTO ca_hand_player_stat(user_id,hand_id,created_at,profit) SELECT '{B}',id,created_at,99 FROM hand_history WHERE id='{OLD}';")
+    sql(FORWARD)
+    got = rows()
+    sql('TRUNCATE ca_hand_fact_revisions;')
+    return got
+
+
 def race(label):
     """Roll-up holds its transaction open; a live insert of the young hand races it."""
     roll, live = Session(label + '-rollup'), Session(label + '-live')
@@ -210,6 +225,7 @@ try:
         rolled_floor timestamptz, complete boolean, updated_at timestamptz);
       INSERT INTO ca_hand_player_stat_state(id) VALUES (true);
       CREATE TABLE fixture_facts(LIKE ca_hand_player_stat INCLUDING ALL);
+      CREATE TABLE ca_hand_fact_revisions(hand_id uuid, user_id uuid, created_at timestamptz DEFAULT now());
       CREATE FUNCTION ca_hand_player_facts(timestamptz, timestamptz) RETURNS SETOF ca_hand_player_stat LANGUAGE sql
         AS $$SELECT * FROM fixture_facts WHERE created_at >= $1 AND created_at < $2$$;""")
     sql(PRE)
@@ -231,14 +247,17 @@ try:
     check('live body: the roll-up closes its window past a hand whose writer is still open', not held and unseen)
     check('live body: that hand is then skipped for good', late_rows.startswith('0:'))
 
+    got = revised('before')
+    check('live body: a voided player-hand is re-inserted by the roll-up', f'{OLD}:{A}:7' in got)
+
     # Install.
     sql(MIGRATION)
     post = sql("SELECT pg_get_functiondef('public.ca_roll_hand_stats_forward()'::regprocedure);")
-    check('migration changes exactly the upper bound line',
-          post.count(NEWL) == 1 and 'v_now timestamptz := now();' not in post)
+    check('migration changes exactly the two lines',
+          post.count(NEWL) == 1 and 'v_now timestamptz := now();' not in post and post.count(NEW2) == 1 and OLD2 not in post)
     check('reverse substitution reproduces the live body byte for byte', sql(
-        "SELECT md5(replace(pg_get_functiondef('public.ca_roll_hand_stats_forward()'::regprocedure), "
-        "$f$"+NEWL[len('v_now timestamptz := '):]+"$f$, 'now();'));") == PRE_MD5)
+        "SELECT md5(replace(replace(pg_get_functiondef('public.ca_roll_hand_stats_forward()'::regprocedure), "
+        "$f$"+NEWL[len('v_now timestamptz := '):]+"$f$, 'now();'), $f$"+NEW2+"$f$, $f$"+OLD2+"$f$));") == PRE_MD5)
     check('owner, grants, proconfig and SECURITY DEFINER retained', authority() == initial_authority)
     post_md5 = body_md5()
     sql(MIGRATION)
@@ -281,6 +300,11 @@ try:
     ahead = sql('SELECT rolled_ceil FROM ca_hand_player_stat_state;')
     check('(c) a ceiling ahead of the bound returns 0 and writes nothing', sql(FORWARD) == '0' and rows() == '')
     check('(c) that ceiling is not moved backwards', sql('SELECT rolled_ceil FROM ca_hand_player_stat_state;') == ahead)
+
+    # (e) revisions own their rows.
+    got = revised('after')
+    check('(e) a voided player-hand is not re-inserted', f'{OLD}:{A}:' not in got)
+    check('(e) a corrected player-hand keeps its corrected row', f'{OLD}:{B}:99' in got and f'{OLD}:{B}:7' not in got)
 
     # (d) no skip: the bound never passes the start of an open writer.
     held, unseen, late_rows = late_writer('after')

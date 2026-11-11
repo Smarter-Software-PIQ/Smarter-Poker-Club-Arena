@@ -4,8 +4,9 @@
  * ca_roll_hand_stats_forward() inserted ca_hand_player_stat rows for hands up
  * to now(), inside a transaction of up to 100 s, so the live post-commit
  * projection inserting the same (user_id, hand_id) waited on it and timed out
- * at :00/:15/:30/:45 (cash hands dealt late). The upper bound is now
- * now() - 5 minutes; everything else is the live body.
+ * at :00/:15/:30/:45 (cash hands dealt late). The upper bound is now the
+ * earlier of now() - 5 minutes and the oldest open writer's start, and a
+ * player-hand with a fact revision is skipped; everything else is the live body.
  *
  * This pins the bound in the newest migration that defines the function, and
  * that the migration keeps the rest exactly (reverse-substitution md5 pin,
@@ -25,6 +26,12 @@ const PRE = readFileSync(
 );
 const BOUND =
   "  v_now timestamptz := least(now() - interval '5 minutes', coalesce((SELECT min(a.xact_start) FROM pg_catalog.pg_stat_activity a WHERE a.datname = current_database() AND a.backend_type = 'client backend' AND a.pid <> pg_backend_pid() AND a.xact_start IS NOT NULL), now()));\n";
+const OLD2 =
+  '    FROM public.ca_hand_player_facts(v_ceil, v_end) f\n    ORDER BY f.user_id, f.hand_id\n';
+const NEW2 =
+  '    FROM public.ca_hand_player_facts(v_ceil, v_end) f\n' +
+  '    WHERE NOT EXISTS (SELECT 1 FROM public.ca_hand_fact_revisions r WHERE r.hand_id = f.hand_id AND r.user_id = f.user_id)\n' +
+  '    ORDER BY f.user_id, f.hand_id\n';
 const DEFINES = /create\s+(or\s+replace\s+)?function\s+public\.ca_roll_hand_stats_forward\s*\(/i;
 
 describe('the stats roll-up leaves young hands to the live projection', () => {
@@ -35,13 +42,14 @@ describe('the stats roll-up leaves young hands to the live projection', () => {
     expect(definers[definers.length - 1]).toBe(SELF);
   });
 
-  it('changes only the upper bound of the live body', () => {
+  it('changes only the upper bound and the revision skip of the live body', () => {
     const start = MIG.search(DEFINES);
     const end =
       MIG.indexOf('$function$', MIG.indexOf('$function$', start) + 1) + '$function$'.length;
     const body = MIG.slice(start, end) + '\n';
     expect(body.split(BOUND)).toHaveLength(2);
-    expect(body.replace(BOUND, '  v_now timestamptz := now();\n')).toBe(PRE);
+    expect(body.split(NEW2)).toHaveLength(2);
+    expect(body.replace(BOUND, '  v_now timestamptz := now();\n').replace(NEW2, OLD2)).toBe(PRE);
   });
 
   it('refuses any other body or authority, before and after', () => {
