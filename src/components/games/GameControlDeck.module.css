@@ -1,0 +1,339 @@
+.deck {
+  position: relative;
+  width: 100%;
+  min-height: 177px;
+  aspect-ratio: 3 / 1;
+  background-position: center;
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  container-type: inline-size;
+  color: white;
+  font-family: 'Roboto Condensed', 'Arial Narrow', sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.crash {
+  background-image: url('/assets/diamond-spins/crash-cockpit-deck-v1.webp');
+}
+.plinko {
+  background-image: url('/assets/diamond-spins/plinko-launch-deck-v1.webp');
+}
+.mines {
+  background-image: url('/assets/diamond-spins/mines-vault-deck-v1.webp');
+}
+.crossing {
+  background-image: url('/assets/diamond-spins/crossing-dashboard-deck-v1.webp');
+}
+.metrics {
+  margin: 0;
+  display: contents;
+}
+.metrics > div {
+  position: absolute;
+  margin: 0;
+  min-width: 0;
+  text-align: center;
+  display: grid;
+  align-content: center;
+  inset: 66% 64% 9% 3.5%;
+}
+.metrics > div:nth-child(2) {
+  inset: 66% 3.5% 9% 64%;
+}
+.metrics > div:nth-child(n + 3) {
+  inset: auto;
+  left: 21.5%;
+  top: 33%;
+  width: 13.2%;
+  height: 23%;
+  translate: -50% -50%;
+  rotate: -17deg;
+}
+.metrics > div:nth-child(4) {
+  left: 78.5%;
+  rotate: 17deg;
+}
+.metrics > div:nth-child(5) {
+  left: 65%;
+  top: 22%;
+  rotate: 10deg;
+}
+.metrics dt {
+  color: #d6eafa;
+  font-size: clamp(9px, 1.8cqw, 15px);
+  line-height: 1.1;
+}
+.metrics dd {
+  margin: 2px 0 0;
+  color: white;
+  font-size: clamp(13px, 2.8cqw, 23px);
+  font-weight: 800;
+  line-height: 1.05;
+}
+.metrics button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  position: static;
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  cursor: pointer;
+}
+/* The value participates in the label/value stack; its hit area fills the bay. */
+.metrics button::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  min-height: 44px;
+}
+.actions {
+  display: contents;
+}
+.primary,
+.secondary {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  border: 0;
+  margin: 0;
+  padding: 3px;
+  background: transparent;
+  color: white;
+  font-family: inherit;
+  font-weight: 800;
+  line-height: 1.08;
+  text-align: center;
+  text-shadow: 0 2px 4px black;
+}
+.primary {
+  left: 40%;
+  top: 34%;
+  width: 20%;
+  height: 55%;
+  border-radius: 50%;
+  font-size: clamp(13px, 3.1cqw, 24px);
+}
+.secondary {
+  left: 42.5%;
+  top: 5%;
+  width: 15%;
+  height: max(44px, 24%);
+  font-size: clamp(10px, 2.1cqw, 17px);
+}
+.primary,
+.secondary {
+  cursor: pointer;
+  min-height: 44px;
+  isolation: isolate;
+}
+.primary:disabled,
+.secondary:disabled,
+.primary[aria-disabled='true'],
+.secondary[aria-disabled='true'] {
+  color: #a9b5c4;
+  cursor: default;
+}
+.primary:not(:disabled):active,
+.secondary:not(:disabled):active {
+  background: #1369a648;
+}
+.primary:focus-visible,
+.secondary:focus-visible,
+.metrics button:focus-visible {
+  outline: 2px solid white;
+  outline-offset: 2px;
+}
+
+.primary[data-flash='live'] {
+  animation: plate-book-pulse calc(1.1s * var(--animation-speed, 1)) ease-in-out infinite;
+}
+@keyframes plate-book-pulse {
+  0%,
+  100% {
+    box-shadow: inset 0 0 3px #8ddcff44;
+  }
+  50% {
+    box-shadow: inset 0 0 22px #8ddcffbb;
+  }
+}
+.rail:empty {
+  display: none;
+}
+.rail {
+  position: absolute;
+  bottom: 100%;
+  width: 100%;
+}
+.withRail .rail {
+  display: contents;
+}
+.withRail .metrics > div {
+  display: none;
+}
+.withRail .metrics > div:first-child {
+  display: grid;
+  inset: 64% 67% 9% 4%;
+}
+.withRail .metrics > div:nth-child(3) {
+  display: grid;
+  inset: 64% 56% 9% 24%;
+  width: auto;
+  height: auto;
+  translate: none;
+  rotate: none;
+}
+.withRail .metrics > div:nth-child(4) {
+  display: grid;
+  inset: 79% 4% 7% 64%;
+  width: auto;
+  height: auto;
+  translate: none;
+  rotate: none;
+}
+.withRail .metrics > div:nth-child(4) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.withRail .secondary {
+  left: 64%;
+  top: 60%;
+  width: 32%;
+  height: 27%;
+  font-size: clamp(14px, 3cqw, 24px);
+}
+
+/* Labels and touch targets follow each game's distinct physical faces. */
+.crash .primary {
+  left: 39%;
+  top: 40%;
+  width: 22%;
+  height: 46%;
+  border-radius: 16%;
+}
+.crash .secondary {
+  left: 43%;
+  top: 14%;
+  width: 14%;
+  height: 20%;
+}
+.crash .metrics > div:nth-child(3) {
+  left: 27.5%;
+  top: 25%;
+  width: 14%;
+  rotate: 0deg;
+}
+.crash .metrics > div:nth-child(4) {
+  left: 72.5%;
+  top: 25%;
+  width: 14%;
+  rotate: 0deg;
+}
+.crash .metrics > div:first-child {
+  inset: 63% 66% 15% 5%;
+}
+.crash .metrics > div:nth-child(2) {
+  inset: 63% 5% 15% 66%;
+}
+.crossing .primary {
+  left: 38%;
+  top: 50%;
+  width: 24%;
+  height: 31%;
+  border-radius: 8%;
+}
+.crossing .secondary {
+  left: 42%;
+  top: 26%;
+  width: 16%;
+  height: 16%;
+}
+.crossing .metrics > div:nth-child(3) {
+  left: 26%;
+  top: 33%;
+  width: 16%;
+  rotate: 0deg;
+}
+.crossing .metrics > div:nth-child(4) {
+  left: 74%;
+  top: 33%;
+  width: 16%;
+  rotate: 0deg;
+}
+.crossing .metrics > div:first-child {
+  inset: 62% 66% 20% 8%;
+}
+.crossing .metrics > div:nth-child(2) {
+  inset: 62% 8% 20% 66%;
+}
+.mines .primary {
+  left: 40%;
+  top: 27%;
+  width: 20%;
+  height: 46%;
+  border-radius: 8%;
+}
+.mines .metrics > div:nth-child(3) {
+  left: 23%;
+  top: 28%;
+  width: 14%;
+  rotate: 10deg;
+}
+.mines .metrics > div:nth-child(4) {
+  left: 77%;
+  top: 28%;
+  width: 14%;
+  rotate: -10deg;
+}
+.mines .metrics > div:first-child {
+  inset: 57% 64% 23% 8%;
+}
+.mines .metrics > div:nth-child(2) {
+  inset: 57% 8% 23% 64%;
+}
+.plinko .primary {
+  left: 38%;
+  top: 40%;
+  width: 24%;
+  height: 45%;
+}
+/* Action and posted prize share the center of the right sapphire face. */
+.plinko.withRail .secondary {
+  left: 65.5%;
+  top: 72%;
+  width: 28.5%;
+  height: 20%;
+  translate: 0 -50%;
+}
+.plinko.withRail .metrics > div:first-child {
+  inset: 66% 78% 17% 4%;
+}
+.plinko.withRail .metrics > div:nth-child(3) {
+  inset: 66% 68% 17% 22%;
+}
+.plinko.withRail .metrics > div:nth-child(4) {
+  inset: auto;
+  left: 65.5%;
+  top: 81.5%;
+  width: 28.5%;
+  height: auto;
+  translate: 0 -50%;
+}
+
+.actionLabel {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  text-align: center;
+}
+/* Center the 44px touch box on the painted face; never grow it downward. */
+.crossing .secondary {
+  top: 34%;
+  translate: 0 -50%;
+}
+.crash .secondary {
+  top: 24%;
+  translate: 0 -50%;
+}

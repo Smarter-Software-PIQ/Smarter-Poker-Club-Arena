@@ -825,29 +825,31 @@ describe('greetArrival', () => {
     return { table: table(), handNumber, arrivedUserId, arrivedSeat: 3, seated };
   }
 
-  it('a silent greeter stays silent even when the arriving player would talk', async () => {
+  it('a previously silent greeter can greet an arrival after enough hands', async () => {
     _setSpeakChanceForTests(null);
-    const silent = '44444444-4444-4444-8444-444444444444';
-    const seated = [seat(silent, 1, true)];
+    const quiet = '44444444-4444-4444-8444-444444444444';
+    const seated = [seat(quiet, 1, true)];
     for (let n = 1; n <= GREETER_MIN_HANDS_SEATED; n++)
       await speakAtTheFelt(quietHand(n, { seated }));
     h.state.calls = [];
-    for (let n = 10; n < 110; n++) {
-      expect(await greetArrival(arrival(n, [...seated, seat(HUMAN, 3, false)]))).toBe('no_event');
+    const outcomes = new Set<string>();
+    for (let n = 10; n < 210; n++) {
+      outcomes.add(await greetArrival(arrival(n, [...seated, seat(HUMAN, 3, false)])));
     }
-    expect(h.state.calls).toEqual([]);
+    expect(outcomes).toContain('spoken');
+    expect(outcomes).toContain('no_event');
+    expect(inserts('table_chat').length).toBeGreaterThan(0);
+    expect(inserts('table_chat').length).toBeLessThanOrEqual(HORSE_LINES_PER_HOUR);
   });
 
-  it('a silent horse never writes a shove line through the alternate entry point', async () => {
+  it('a previously silent horse can write a shove line through the alternate entry point', async () => {
     _setSpeakChanceForTests(null);
     const horse = seat('44444444-4444-4444-8444-444444444444', 1, true);
-    for (let n = 1; n <= 50; n++) {
-      expect(
-        await speakAsTheyShove({ table: table(), handNumber: n, horse, seated: [horse] })
-      ).toBe('no_event');
-    }
-    expect(inserts('table_chat')).toEqual([]);
-    expect(inserts('horse_table_talk_ledger')).toEqual([]);
+    expect(await speakAsTheyShove({ table: table(), handNumber: 1, horse, seated: [horse] })).toBe(
+      'spoken'
+    );
+    expect(inserts('table_chat')).toHaveLength(1);
+    expect(inserts('horse_table_talk_ledger')).toHaveLength(1);
   });
 
   it('a horse seated fewer than 10 hands does not greet, and nothing is read', async () => {

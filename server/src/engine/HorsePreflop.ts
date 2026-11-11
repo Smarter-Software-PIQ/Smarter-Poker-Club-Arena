@@ -47,6 +47,42 @@ import type { OmahaPressureShifts } from './HorseOmahaTournamentPressure.js';
 
 export type PreflopPosition = 'early' | 'middle' | 'late' | 'sb' | 'bb';
 
+/** The actual facing-open branch; classification alone is not application. */
+export interface PreflopAuthorityEvent {
+  branch:
+    | 'v46_class_flat'
+    | 'v16_non_aa_flat'
+    | 'value_trap'
+    | 'premium_value'
+    | 'strength_value'
+    | 'squeeze_bluff'
+    | 'three_bet_bluff';
+  strength: number;
+  threeBetThreshold: number;
+  effectiveThreeBetThreshold: number;
+  premiumValue: boolean;
+  pressure: boolean;
+}
+
+export interface PreflopAuthorityReceipt {
+  version: 1;
+  scope: 'reference_preflop';
+  events: readonly PreflopAuthorityEvent[];
+  context: {
+    raises: number;
+    callers: number;
+    toCall: number;
+    stack: number;
+    position: PreflopPosition;
+    isOmaha: boolean;
+    classNeverThreeBet: boolean;
+  };
+  intent: PreflopIntent;
+  /** Direct V7 glue return, before later reference wrappers or policy owners. */
+  referenceAction: string;
+  referenceAmount?: number;
+}
+
 export interface PreflopIntent {
   a: 'fold' | 'check' | 'call' | 'jam' | 'raiseTo';
   /** raise-TO target for a === 'raiseTo' (pre-legalization) */
@@ -315,6 +351,7 @@ export interface PreflopCtx {
   /** Receipt callback (#8694): the caller fires the V60 cash pressure receipt
    *  named here when that layer moves a bar. This module has no telemetry. */
   noteLayer?: (layer: PreflopLayerReceipt) => void;
+  noteAuthority?: (event: PreflopAuthorityEvent) => void;
   /** Short deck keeps its own calibration; the cash pressure layer skips it. */
   isShortDeck?: boolean;
   /** League calibration arm (2026-10-30): added to the tournament call bar
@@ -1907,6 +1944,15 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         (ctx.isOmaha &&
           (ctx.omahaSuitedPremium === 'aces' ||
             (ctx.omahaSuitedPremium === 'kings' && vsOpener?.wide !== false))));
+    const noteAuthority = (branch: PreflopAuthorityEvent['branch']) =>
+      ctx.noteAuthority?.({
+        branch,
+        strength,
+        threeBetThreshold: threeBetThresh,
+        effectiveThreeBetThreshold: effThreeBetThresh,
+        premiumValue,
+        pressure: Boolean(pressure),
+      });
     if (premiumValue || strength >= effThreeBetThresh) {
       // ═══ V46 (2026-09-05) ═══ a rundown, a broadway hand and a dangler
       // FLAT. This is the thing a bar cannot say: those hands want a cheap
@@ -1919,6 +1965,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         ctx.classNeverThreeBet === true &&
         toCall <= ctx.stack * 0.12
       ) {
+        noteAuthority('v46_class_flat');
         return { a: 'call' };
       }
       const ip = position === 'late' || ctx.isButton === true || (vs === 'sb' && position === 'bb');
@@ -1938,6 +1985,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         strength < threeBetThresh + (unblocked86 ? 0.03 : 0.05) &&
         toCall <= ctx.stack * 0.08
       ) {
+        noteAuthority('v16_non_aa_flat');
         return { a: 'call' }; // OOP deep non-nut-suited margin: take the flop instead
       }
       if (
@@ -1947,8 +1995,10 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         rand() < ctx.slowplayFreq * 0.5 &&
         callers === 0
       ) {
+        noteAuthority('value_trap');
         return { a: 'call' }; // trap (IP hold'em / non-Omaha only)
       }
+      noteAuthority(premiumValue ? 'premium_value' : 'strength_value');
       // V35: a tournament 3-bet at 40bb or less is smaller (2.5x in position,
       // ~3.2x out) — the stack behind it is what makes the size, and a cash
       // 3.8x from a 30bb stack is a third of it. Solver MTT 3-bets sit at
@@ -1983,9 +2033,15 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       ctx.maniacNoBluff !== true &&
       rand() < bluffBudget * (ctx.isOmaha ? 0.22 : 0.3) * blockerMult
     ) {
+      noteAuthority('squeeze_bluff');
       if (ctx.isPotLimit) {
         return { a: 'raiseTo', to: ploRaiseTo(ctx.sizingMultiplier, potRaiseTo, rand) };
       }
+      // V28 AUDIT FIX: the bluff squeeze was sized 4.0-5.5x with no IP/OOP
+      // split while the VALUE squeeze was 3.0-4.2x — the bluff was strictly
+      // BIGGER than the value raise at every caller count, a directly
+      // observable sizing tell (fold to the big one, call the small one).
+      // Bluffs now mirror the value sizing shape, a shade under it.
       const ipSq = position === 'late';
       const cashSize = cashThreeBet();
       if (cashSize) return cashSize;
@@ -2036,6 +2092,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       ctx.maniacNoBluff !== true &&
       rand() < (def72 ? bluff72 : bluffFreqHere)
     ) {
+      noteAuthority('three_bet_bluff');
       if (ctx.isPotLimit) {
         return { a: 'raiseTo', to: ploRaiseTo(ctx.sizingMultiplier, potRaiseTo, rand) };
       }

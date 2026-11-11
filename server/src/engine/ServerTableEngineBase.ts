@@ -1,3 +1,4 @@
+import { orbitHandsOwed } from '../services/HorseBankTheWin.js';
 import { broadcastTimeBankActivation } from '../services/timeBankBroadcast.js';
 import { cashRakeScope } from '../config/cashRakePolicy.js';
 import { noteFire } from './BrainTelemetry.js';
@@ -147,7 +148,7 @@ import {
   processLeavePending,
 } from '../services/supabase.js';
 import {
-  collectNitEvictions,
+  collectNitEnforce,
   collectNitStatus,
   type NitSeatStatus,
 } from '../services/supabase/nitGame.js';
@@ -820,6 +821,11 @@ export abstract class ServerTableEngineBase {
   // Bankroll Management: Track how many times a horse has re-bought at this table.
   // Max is 2 rebuys (meaning 3 total buy-ins). If they bust a 3rd time, they leave.
   protected horseRebuys: Map<string, number> = new Map();
+  /**
+   * BANK THE WIN (owner 2026-11-10): hands this table has completed since a
+   * horse's last big pot. Absent means no big pot is being held for.
+   */
+  protected horseHandsSinceBigPot: Map<string, number> = new Map();
 
   // Bible V8 §4.2: Track players returning from sit-out who must post dead blind
   protected returningFromSitout: Set<string> = new Set();
@@ -3380,6 +3386,15 @@ export abstract class ServerTableEngineBase {
     const seat = this.seatedPlayers.find((p) => p.user_id === userId);
     if (!seat) return 0;
     return this.chipContinuity?.leaveLock(userId, seat.stack)?.handsRemaining ?? 0;
+  }
+
+  /**
+   * BANK THE WIN (owner 2026-11-10): hands a horse still plays after a big
+   * pot before it may leave (one full orbit). The horse rotator asks before
+   * choosing who stands up, so no horse leaves the hand after a big pot.
+   */
+  public bigPotOrbitHandsOwed(userId: string): number {
+    return orbitHandsOwed(this.horseHandsSinceBigPot.get(userId), this.seatedPlayers.length);
   }
 
   /** This cash table is a Lightning anchor right now (hands are dealt in its pool). */
@@ -10899,6 +10914,23 @@ export abstract class ServerTableEngineBase {
           this.dealsInWhileSittingOut(p.user_id))
     );
     if (roster.length < 2) return -1;
+    if (!this.isTournamentTable() && this.waitingForBB.size > 0) {
+      const playing = roster.filter((p) => !this.waitingForBB.has(p.user_id));
+      if (playing.length >= 2) {
+        // A waiter cannot occupy the small blind. Counting every waiter in
+        // that position can skip alternating waiting seats forever, or admit
+        // an entrant who actually posts the SB once the other waiters are
+        // removed. Predict the real hand with only the first seat after the
+        // playing small blind eligible to enter at BB.
+        const button = this.predictButtonSeat(roster);
+        const smallBlind = this.getNextSeat(button, playing);
+        const nextBigBlind = this.getNextSeat(smallBlind, roster);
+        const entering = roster.find(
+          (p) => p.seat_number === nextBigBlind && this.waitingForBB.has(p.user_id)
+        );
+        return this.predictBlindSeats(entering ? [...playing, entering] : playing)?.bigBlind ?? -1;
+      }
+    }
     return this.predictBlindSeats(roster)?.bigBlind ?? -1;
   }
 
@@ -12144,7 +12176,7 @@ export abstract class ServerTableEngineBase {
         // 2026-09-04). Read beside the eviction, at the same boundary, from the
         // same rows, so what a horse steers by is what it is stood up on.
         this.nitStatus = await collectNitStatus(this.tableId);
-        const nits = await collectNitEvictions(this.tableId);
+        const nits = await collectNitEnforce(this.tableId);
         for (const n of nits) {
           console.log(
             `[ServerTableEngine:${this.tableId}] nit game: ${n.userId} is at ` +

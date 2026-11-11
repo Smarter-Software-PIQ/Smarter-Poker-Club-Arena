@@ -442,16 +442,18 @@ describe('the database refuses migrations across the whole break window', () => 
 describe('the break scorecard grades only what the break controls', () => {
   const MIGRATIONS_DIR = resolve(__dirname, '..', 'supabase/migrations');
 
+  // This suite never edits the migration corpus. Read its defining-file list
+  // once, preserving newest-definition selection and every historical check.
+  const recorderFiles = readdirSync(MIGRATIONS_DIR)
+    .filter((f) => f.endsWith('.sql'))
+    .sort()
+    .filter((f) =>
+      readFileSync(resolve(MIGRATIONS_DIR, f), 'utf8').includes(
+        'CREATE OR REPLACE FUNCTION public.fn_ca_record_break_scorecard'
+      )
+    );
   /** Every migration defining the recorder, oldest first. */
-  const recorderMigrations = (): string[] =>
-    readdirSync(MIGRATIONS_DIR)
-      .filter((f) => f.endsWith('.sql'))
-      .sort()
-      .filter((f) =>
-        readFileSync(resolve(MIGRATIONS_DIR, f), 'utf8').includes(
-          'CREATE OR REPLACE FUNCTION public.fn_ca_record_break_scorecard'
-        )
-      );
+  const recorderMigrations = (): string[] => recorderFiles;
 
   /** The one Postgres ends up with: the newest definition wins. */
   const governingRecorder = (): string => {

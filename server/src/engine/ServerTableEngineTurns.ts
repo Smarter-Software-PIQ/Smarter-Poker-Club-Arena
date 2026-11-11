@@ -18,6 +18,8 @@ import {
 } from './HorsePhase14Acceptance.js';
 import { buildAllInGestureInput, gestureBeforeAllIn } from '../services/HorseTableGestures.js';
 import { HandController } from './HandController.js';
+import { horseDecisionRefusalContextOf } from './horseDecision/refusalContext.js';
+import { retainHorseTurnClock, type HorseTurnPath } from './HorseTurnClockReceipt.js';
 import { playerActionContext } from './PlayerActionContext.js';
 import { captureHorseHandJournalContext } from './HorseDecisionHandBinding.js';
 import {
@@ -916,6 +918,27 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     this.killForRestart('turn_unrecoverable');
   }
 
+  protected horseActionableClock: {
+    context: string;
+    seat: number;
+    startedAtMs: number;
+    armed: boolean;
+  } | null = null;
+
+  private horseClockObserver(seat: number, path: HorseTurnPath, reason?: string) {
+    const clock = this.horseActionableClock;
+    if (
+      !clock ||
+      !this.handController ||
+      clock.seat !== seat ||
+      playerActionContext(this.handController) !== clock.context
+    )
+      return undefined;
+    const deadline = this.playerTurnStartTime + this.playerTurnDuration * 1000;
+    return (record: Readonly<ActionRecord>) =>
+      retainHorseTurnClock(record, clock.startedAtMs, deadline, path, reason);
+  }
+
   /**
    * Resolve a seat that MUST stop being on the clock, preferring check over
    * fold (Bible V8 §1.7.4). Returns false only when the engine refuses both.
@@ -942,7 +965,19 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     const order: Array<'check' | 'fold'> = preferCheck ? ['check', 'fold'] : ['fold'];
     for (const a of order) {
       try {
-        if (this.handController.performAction(seat, a as any, undefined, 'forced')) {
+        if (
+          this.handController.performAction(
+            seat,
+            a as any,
+            undefined,
+            'forced',
+            this.horseClockObserver(
+              seat,
+              reason.endsWith('_expired') ? 'timeout' : 'forced',
+              reason
+            )
+          )
+        ) {
           this.noteHorseTurnResolvedWithoutDecision(seat, a, reason, brainDecisionPending);
           return true;
         }
@@ -1152,6 +1187,19 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     const armedIdentity = this.turnClockIdentity;
     this.playerTurnStartTime = Date.now();
     this.playerTurnDuration = Math.max(0, durationSeconds);
+    // A pre-action uses the published turn-change stamp. A regular turn uses
+    // its first actual arm; a bank or reconnect re-arm only changes the deadline.
+    const clock = this.horseActionableClock;
+    if (
+      clock &&
+      !clock.armed &&
+      clock.seat === seat &&
+      this.handController &&
+      playerActionContext(this.handController) === clock.context
+    ) {
+      clock.startedAtMs = this.playerTurnStartTime;
+      clock.armed = true;
+    }
     const retainedClock = this.bankArmRetentionHold;
     if (
       retainedClock &&
@@ -2271,7 +2319,8 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
           preResult.action,
           preResult.amount,
           undefined,
-          'pre_action'
+          'pre_action',
+          action === 'auto_check_fold' ? 'quick_check_fold' : 'pre_action'
         );
         if (acted.success) {
           console.log(
@@ -2303,7 +2352,8 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     action: string,
     amount?: number,
     actionContext?: string | null,
-    trustedOrigin?: 'pre_action'
+    trustedOrigin?: 'pre_action',
+    preActionPath?: 'quick_check_fold' | 'pre_action'
   ): { success: boolean; error?: string; code?: string; hint?: Record<string, unknown> } {
     if (this.hasCommittedLeaveFold(userId) && action !== 'fold') {
       return { success: false, error: 'You Have Left This Hand', code: 'NOT_IN_HAND' };
@@ -2369,7 +2419,8 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
           ? 'player'
           : trustedOrigin === 'pre_action'
             ? 'pre_action'
-            : 'unknown'
+            : 'unknown',
+        preActionPath
       );
     } finally {
       this.actionLock = false;
@@ -2380,7 +2431,8 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     userId: string,
     action: string,
     amount?: number,
-    origin: AcceptedActionOrigin = 'unknown'
+    origin: AcceptedActionOrigin = 'unknown',
+    preActionPath?: 'quick_check_fold' | 'pre_action'
   ): { success: boolean; error?: string; code?: string; hint?: Record<string, unknown> } {
     if (this.isOriginalInputPending())
       return {
@@ -2695,6 +2747,10 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
 
       // The published deadline of the clock this action is answering, read
       // before that clock is cancelled. A refusal gives back exactly this.
+      const preClock =
+        origin === 'pre_action'
+          ? this.horseClockObserver(seat, preActionPath ?? 'pre_action')
+          : undefined;
       const displayDeadlineBeforeAction = this.playerTurnStartTime + this.playerTurnDuration * 1000;
       this.clearTurnTimer();
       this.preciseTimer.cancelTimer(this.tableId, userId); // Step 4: Cancel precise deadline
@@ -2747,6 +2803,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
         origin,
         (record) => {
           accepted.record = record;
+          preClock?.(record);
         }
       );
       if (!actionApplied) {
@@ -3311,6 +3368,9 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       // A shove can arrive after arming. Return the seat to its ordinary turn.
       this.preActionEngine.clearPreAction(this.tableId, player.user_id);
     }
+    const armedPreAction = player.is_horse
+      ? this.preActionEngine.getPreAction(this.tableId, player.user_id)?.action
+      : undefined;
     const preResult = this.preActionEngine.executePreAction(
       this.tableId,
       player.user_id,
@@ -3345,6 +3405,17 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       // race (#2318): a delayed continuation acting on whatever controller
       // the table holds when it wakes.
       const controllerAtBeat = this.handController;
+      const preActionClock = this.horseActionableClock;
+      if (
+        preActionClock &&
+        controllerAtBeat &&
+        preActionClock.seat === seat &&
+        preActionClock.context === playerActionContext(controllerAtBeat)
+      ) {
+        // This visible pre-action already owns an actionable turn. A refusal
+        // may arm its first timer below, but must retain this earlier start.
+        preActionClock.armed = true;
+      }
       await this.weeklyPayoutContinuation(this.sleepHand(this.preActionVisibleMs));
       // The hand can be replaced while we hold that beat.
       if (
@@ -3363,7 +3434,13 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
           seat,
           (this.hasCommittedLeaveFold(player.user_id) ? 'fold' : preResult.action) as any,
           this.hasCommittedLeaveFold(player.user_id) ? undefined : preResult.amount,
-          'pre_action'
+          'pre_action',
+          this.horseClockObserver(
+            seat,
+            armedPreAction === 'auto_check_fold' && !this.hasCommittedLeaveFold(player.user_id)
+              ? 'quick_check_fold'
+              : 'pre_action'
+          )
         );
       } catch (err) {
         reportError(err, 'ServerTableEngine.' + this.tableId + '.preaction_threw');
@@ -4367,6 +4444,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       planBinding: null;
       effects: [];
     };
+    let workerRefusalReason: string | undefined;
     let fastDecision: Promise<FastHorseDecisionResult>;
     try {
       // THE DECISION DEADLINE IS THE TURN CLOCK (2026-09-17). The job may
@@ -4392,6 +4470,8 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
         }
         reportError(error, 'ServerTableEngine.' + this.tableId + '.horse_decision_worker_failed');
         if (!fenceIsCurrent('fallback')) throw new HorseDecisionAbortedError();
+        workerRefusalReason =
+          horseDecisionRefusalContextOf(error)?.reason ?? horseDecisionFallbackReason(error);
         try {
           EngineMetrics.horseDecisionFallbacksTotal.inc(1, {
             reason: horseDecisionFallbackReason(error),
@@ -5353,12 +5433,22 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
               const receiptsBefore = acceptedActions.length;
               let returned = false;
               try {
+                const capture = this.horseClockObserver(
+                  seat,
+                  origin === 'horse_policy' ? 'strategy' : 'fallback',
+                  origin === 'horse_fallback'
+                    ? (workerRefusalReason ?? decision.policyFallback ?? 'action_refused')
+                    : undefined
+                );
                 returned = handControllerRef.performAction(
                   seat,
                   attemptedAction,
                   attemptedAmount,
                   origin,
-                  acceptanceObserver
+                  (record) => {
+                    acceptanceObserver(record);
+                    capture?.(record);
+                  }
                 );
               } catch (err) {
                 reportError(err, 'ServerTableEngine.' + this.tableId + '.horse_action_threw');

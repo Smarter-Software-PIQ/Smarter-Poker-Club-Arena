@@ -1441,7 +1441,7 @@ describe('every choice names its chips, and every outcome has one name', () => {
       proof: { ...fixtures.receipts.crossing.proof, road_roll: ROLL[2] },
     });
     expect(status).toBe('Win Booked');
-    expect(said).toBe('Booked At Street 2 At 1.45x. Street 3 Was The Crash.');
+    expect(said).toBe('');
     expect(eyebrow).toBe('You Won');
     expect(detail).toBe('Your Prize Is Booked. Street 2 At 1.45x; Street 3 Was The Crash.');
     // HOW FAR YOU WOULD HAVE GOT: its own line on the receipt, every booked crossing.
@@ -1457,9 +1457,7 @@ describe('every choice names its chips, and every outcome has one name', () => {
       payout_chips: 1.45,
       proof: { ...fixtures.receipts.crossing.proof, road_roll: ROLL[5] },
     });
-    expect(said).toBe(
-      'Booked At Street 2 At 1.45x. The Donkey Would Have Made It To Street 5 At 3.15x.'
-    );
+    expect(said).toBe('');
     expect(detail).toBe(
       'Your Prize Is Booked. Street 2 At 1.45x; The Donkey Would Have Made It To Street 5 At 3.15x.'
     );
@@ -1476,9 +1474,7 @@ describe('every choice names its chips, and every outcome has one name', () => {
       max_steps: 12,
       proof: { ...fixtures.receipts.crossing.proof, road_roll: ROLL[12] },
     });
-    expect(said).toBe(
-      'Booked At Street 12 At 20.00x. The Donkey Would Have Crossed Every Street, To 20.00x.'
-    );
+    expect(said).toBe('');
     // Twenty times the stake: the shared receipt calls it a Big Win (src/utils/bigWin.ts).
     expect(detail).toBe(
       'Big Win. Your Prize Is Booked. Street 12 At 20.00x; The Donkey Would Have Crossed Every Street, To 20.00x.'
@@ -1775,6 +1771,7 @@ describe('every finished round verifies itself', () => {
   it('names the check that failed when the player runs it again', async () => {
     await plays({ payout_chips: 99 });
     await toTheReceipt();
+    fireEvent.click(screen.getByRole('button', { name: 'Page Help' }));
     fireEvent.click(screen.getByRole('button', { name: 'Verify Revealed Outcome' }));
     expect(
       await said('The Outcome Could Not Be Verified. Seal Ok, Draw Ok, Ladder Ok, Chips Differs.')

@@ -343,7 +343,7 @@ for (const viewport of [
       .boundingBox();
     const walletBounds = await controls.locator('dl > div').first().boundingBox();
     const chipBounds = await controls.locator('dl > div').nth(1).boundingBox();
-    const selector = controls.getByRole('button', { name: /^Amount / });
+    const selector = controls.getByRole('button', { name: 'Choose Spin Amount' });
     const toggle = await selector.boundingBox();
     if (!spinBounds || !walletBounds || !chipBounds || !toggle)
       throw new Error('Missing wheel controls');
@@ -366,7 +366,10 @@ for (const viewport of [
     expect(walletBounds.x + walletBounds.width).toBeLessThanOrEqual(spinBounds.x);
     expect(chipBounds.x).toBeGreaterThanOrEqual(spinBounds.x + spinBounds.width);
     expect(Math.abs(chipBounds.y - walletBounds.y)).toBeLessThan(1);
-    expect(toggle.y + toggle.height <= deck.y + 1 || toggle.x >= deck.x + deck.width).toBe(true);
+    expect(toggle.x).toBeGreaterThanOrEqual(walletBounds.x);
+    expect(toggle.x + toggle.width).toBeLessThanOrEqual(walletBounds.x + walletBounds.width + 1);
+    expect(toggle.y).toBeGreaterThanOrEqual(deck.y);
+    expect(toggle.y + toggle.height).toBeLessThanOrEqual(deck.y + deck.height + 1);
     let lastCenter = 0;
     for (const name of ['25', '100', '500', '1,000', '2,500']) {
       const preset = await controls.getByRole('button', { name, exact: true }).boundingBox();

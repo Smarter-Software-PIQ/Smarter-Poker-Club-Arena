@@ -255,7 +255,13 @@ it('a late clear/call cannot stop the real turn handler folding the leaver', asy
   e.setPreAction(HUMAN, 'auto_call');
   e.handController.getState().currentPlayerSeat = 1;
   await e.handleTurnChange({ type: 'TURN_CHANGE', seat: 1 }, e.seatedPlayers);
-  expect(e.handController.performAction).toHaveBeenCalledWith(1, 'fold', undefined, 'pre_action');
+  expect(e.handController.performAction).toHaveBeenCalledWith(
+    1,
+    'fold',
+    undefined,
+    'pre_action',
+    undefined
+  );
   expect(live[0].is_folded).toBe(true);
 });
 

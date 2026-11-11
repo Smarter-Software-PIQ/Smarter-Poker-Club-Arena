@@ -631,14 +631,15 @@
   background: linear-gradient(105deg, #10283e, #08121e 55%, #101b29);
   border-bottom: 1px solid #47637a;
 }
-[data-flight-cabinet] .header h1 {
+[data-flight-cabinet] .header h1,
+[data-choice-game='crossing'] .header h1 {
   margin: 0;
-  padding: 0;
-  background: transparent;
-  border: 0;
-  border-image: none;
-  box-shadow: none;
-  color: #e5f5ff;
+  padding: 8px 20px;
+  color: white;
+  border: 7px solid transparent;
+  border-image: url('/assets/club-buttons/lobby/shark-panel-v1/button-secondary.png') 26 fill / 7px
+    stretch;
+  background: #061329;
   font:
     700 clamp(20px, 3vw, 30px)/1.05 Rajdhani,
     'Arial Narrow',
@@ -716,35 +717,120 @@
 }
 
 [data-flight-cabinet] .actions .primary,
-[data-flight-cabinet] .actions .secondary {
-  padding: 8px 16px;
-  border: 1px solid #6887a0;
-  border-image: none;
-  border-radius: 4px;
+[data-flight-cabinet] .actions .primary[data-ink],
+[data-flight-cabinet] .actions .secondary,
+[data-choice-game='crossing'] .actions .primary,
+[data-choice-game='crossing'] .actions .secondary {
+  color: white;
+  padding: 7px 12px;
+  border: 9px solid transparent;
+  border-image: url('/assets/club-buttons/lobby/shark-panel-v1/button-secondary.png') 26 fill / 9px
+    stretch;
+  background: #07172b;
+  border-radius: 0;
+  box-shadow: none;
+  text-shadow: 0 1px 2px black;
 }
-[data-flight-cabinet] .actions .primary {
-  color: #effbff;
-  border-color: #61caff;
-  background: linear-gradient(175deg, #176b97, #104268 48%, #0b2f4e 53%, #123f62);
-  box-shadow:
-    inset 0 1px #b3e9ff,
-    inset 0 -3px #07192f,
-    0 2px 6px #0008;
-}
-[data-flight-cabinet] .actions .primary[data-ink='gold'] {
-  color: #fff5dd;
-  border-color: #ffc776;
-  background: linear-gradient(175deg, #755120, #4a3016 48%, #41270f 53%, #5a3919);
-  box-shadow:
-    inset 0 1px #ffe2a8,
-    inset 0 -3px #24170c;
-}
-[data-flight-cabinet] .actions .secondary {
-  color: #c5d7e5;
-  background: linear-gradient(175deg, #233749, #111e2b);
-  box-shadow: inset 0 1px #496077;
+[data-flight-cabinet] .actions .primary,
+[data-flight-cabinet] .actions .primary[data-ink],
+[data-choice-game='crossing'] .actions .primary {
+  border-image-source: url('/assets/club-buttons/lobby/shark-panel-v1/button-primary.png');
 }
 [data-flight-cabinet] .actions button:focus-visible {
   outline: 2px solid white;
   outline-offset: 2px;
+}
+
+/* Distinct sculpted cabinets share the same responsive control mechanics. */
+.console.console {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: 'header' 'play' 'controls' 'bar';
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+}
+.console > .bar {
+  width: min(100%, 820px);
+  justify-self: center;
+  padding: 0 0 env(safe-area-inset-bottom, 0px);
+  gap: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.console > .controls {
+  padding: 0 8px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  gap: 0;
+}
+.console > .controls:empty {
+  display: none;
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .console.console {
+    height: auto;
+    min-height: 100dvh;
+    --scene-budget: max(140px, calc(100dvh - 240px));
+  }
+  .console > .bar {
+    width: min(100%, 620px);
+    position: static;
+  }
+}
+.console.console > .bar {
+  display: block;
+}
+@media (max-width: 760px) and (orientation: portrait) {
+  .console.console .playfield [aria-label='Diamond Mines Board'] {
+    width: min(100%, 500px, max(180px, calc(100dvh - 400px)));
+  }
+}
+
+/* Reserve the real dashboard depth so its sticky edge never covers the road. */
+@media (min-width: 761px) and (min-height: 501px) {
+  /* Size the flight from available height before its canvas measures width. */
+  [data-flight-cabinet] .console .playfield > div {
+    width: min(100%, max(400px, calc((100dvh - 480px) / 0.64)));
+    align-self: center;
+  }
+  /* Keep the vault at 620px (207px tall) so the full board and its
+     readouts fit above the sticky controls on shorter desktop screens. */
+  [data-choice-game='mines'] .console > .bar {
+    width: min(100%, 620px);
+  }
+  [data-choice-game='mines'] .console .playfield [aria-label='Diamond Mines Board'] {
+    width: min(100%, 660px, max(180px, calc(100dvh - 460px)));
+  }
+  [data-choice-game='crossing'] .console .playfield [data-phase] {
+    height: min(540px, max(240px, calc(100dvh - 450px)));
+  }
+}
+
+/* The badge is centered on the game, independently of the right-hand help icon. */
+.console.console > .header {
+  position: relative;
+  justify-content: center;
+  padding-inline: 56px;
+  gap: 0;
+}
+.console.console > .header h1 {
+  margin-inline: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  text-align: center;
+  font-size: clamp(16px, 3.8vw, 26px);
+}
+.console.console > .header h1 img {
+  max-width: 100%;
+}
+.console.console > .header .status {
+  display: none;
+}
+.console.console > .header :global(.ca-page-help) {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  margin: 0;
 }

@@ -71,12 +71,23 @@ export function plinkoPegField(steel: THREE.MeshPhysicalMaterial) {
   unlit.castShadow = lit.castShadow = true;
   lit.count = 0;
   group.add(unlit, lit);
+  // Deep countersunk sockets separate the polished contact from the glass.
+  // All 136 sockets share one draw; the ring catches light even at phone scale.
+  const socketGeometry = new THREE.TorusGeometry(0.147, 0.026, 6, 18);
+  const socketMaterial = steel.clone();
+  socketMaterial.color.setHex(0x397db5);
+  socketMaterial.roughness = 0.24;
+  const sockets = new THREE.InstancedMesh(socketGeometry, socketMaterial, PEG_COUNT);
+  sockets.name = 'Recessed Chrome Peg Sockets';
+  group.add(sockets);
+
   const positions: THREE.Matrix4[] = [];
   for (let row = 0; row < PEG_ROWS; row++) {
     for (let col = 0; col <= row; col++) {
       const [x, y] = pegCentre(row, col);
       const matrix = new THREE.Matrix4().makeTranslation(x, y, PEG_Z);
       unlit.setMatrixAt(positions.length, matrix);
+      sockets.setMatrixAt(positions.length, new THREE.Matrix4().makeTranslation(x, y, 0.035));
       positions.push(matrix);
     }
   }
@@ -124,6 +135,10 @@ export function plinkoPegField(steel: THREE.MeshPhysicalMaterial) {
       unlit.dispose();
       lit.dispose();
       geometry.dispose();
+      sockets.dispose();
+      socketGeometry.dispose();
+      socketMaterial.dispose();
+      bright.dispose();
     },
   };
 }

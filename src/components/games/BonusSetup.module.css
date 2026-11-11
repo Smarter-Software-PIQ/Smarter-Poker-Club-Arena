@@ -170,3 +170,129 @@
   font-size: 24px;
   cursor: pointer;
 }
+
+.drops[data-sculpted-selector] {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+  pointer-events: none;
+}
+.drops[data-sculpted-selector] legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.drops[data-sculpted-selector] > div,
+.drops[data-sculpted-selector] > div > div {
+  display: contents;
+}
+.drops[data-sculpted-selector] button {
+  position: absolute;
+  width: 13.2%;
+  height: max(44px, 23%);
+  padding: 0;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: white;
+  font: inherit;
+  pointer-events: auto;
+  place-content: center;
+}
+.drops[data-sculpted-selector] .choices > button {
+  translate: -50% -50%;
+  left: 19.5%;
+  top: 31.5%;
+  rotate: -9deg;
+}
+.drops[data-sculpted-selector] .choices > button:nth-child(2) {
+  left: 34.5%;
+  top: 22%;
+  rotate: -10deg;
+}
+.drops[data-sculpted-selector] .choices > button:nth-child(3) {
+  left: 50%;
+  top: 17%;
+  rotate: 0deg;
+}
+.drops[data-sculpted-selector] .choices > button:nth-child(4) {
+  left: 65.5%;
+  top: 22%;
+  rotate: 10deg;
+}
+.drops[data-sculpted-selector] .choices > button:nth-child(5) {
+  left: 80.5%;
+  top: 31.5%;
+  rotate: 9deg;
+}
+.drops[data-sculpted-selector] strong {
+  font-size: clamp(14px, 3.4cqw, 28px);
+}
+.drops[data-sculpted-selector] small {
+  display: none;
+}
+.drops[data-sculpted-selector] button[aria-pressed='true'] {
+  text-shadow:
+    0 0 5px white,
+    0 0 12px #168aff;
+  background: radial-gradient(ellipse, #197ad46b, transparent 70%);
+}
+.drops[data-sculpted-selector] .arrow {
+  top: 34%;
+  left: 1%;
+  width: 10%;
+  font-size: 25px;
+}
+.drops[data-sculpted-selector] .arrow:last-child {
+  left: auto;
+  right: 1%;
+}
+.drops[data-sculpted-selector] button:disabled {
+  opacity: 0.45;
+}
+.drops[data-sculpted-selector] .inactiveDenomination {
+  position: absolute;
+  width: 11.5%;
+  height: 17%;
+  left: 19.5%;
+  top: 31.5%;
+  translate: -50% -50%;
+  rotate: -9deg;
+  border-radius: 3px;
+  background: linear-gradient(160deg, #9ca7b1, #303e49 34%, #6d7a87 55%, #1b2731);
+  box-shadow:
+    inset 0 1px #c6d3dd,
+    inset 0 -1px #061019;
+}
+.drops[data-sculpted-selector] .inactiveDenomination[data-slot='1'] {
+  left: 34.5%;
+  top: 22%;
+  rotate: -10deg;
+}
+.drops[data-sculpted-selector] .inactiveDenomination[data-slot='2'] {
+  left: 50%;
+  top: 17%;
+  rotate: 0deg;
+}
+.drops[data-sculpted-selector] .inactiveDenomination[data-slot='3'] {
+  left: 65.5%;
+  top: 22%;
+  rotate: 10deg;
+}
+.drops[data-sculpted-selector] .inactiveDenomination[data-slot='4'] {
+  left: 80.5%;
+  top: 31.5%;
+  rotate: 9deg;
+}
+.drops[data-sculpted-selector] .choices > button[aria-pressed='false'] {
+  color: #c9d6e2;
+  background: #01091677;
+  text-shadow: 0 1px 3px black;
+}

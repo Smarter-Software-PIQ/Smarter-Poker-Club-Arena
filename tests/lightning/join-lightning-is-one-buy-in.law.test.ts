@@ -125,6 +125,8 @@ describe('Join Lightning is one buy-in: the amount, then an assigned seat', () =
       kind: 'rejected',
       message:
         'Not Enough Chips In Your Active Club Wallet. You Need At Least 40 Chips To Join This Game. Chips In Other Clubs Are Separate.',
+      // The join timing's reason: the door's own code, never the amount.
+      code: 'INSUFFICIENT_CHIPS',
     });
     expect(d.reserve).not.toHaveBeenCalled();
   });

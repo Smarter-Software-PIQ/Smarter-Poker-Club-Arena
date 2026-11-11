@@ -12,6 +12,8 @@ vi.mock('../services/supabase.js', async () => ({
 }));
 vi.mock('../services/supabase/nitGame.js', () => ({
   collectNitStatus: (...args: unknown[]) => mocks.nitStatus(...args),
+  // The dealing loop calls the enforcement (warn, then boot) since 2026-11-10.
+  collectNitEnforce: (...args: unknown[]) => mocks.nitEvictions(...args),
   collectNitEvictions: (...args: unknown[]) => mocks.nitEvictions(...args),
 }));
 const { ServerTableEngine } = await import('./ServerTableEngine.js');

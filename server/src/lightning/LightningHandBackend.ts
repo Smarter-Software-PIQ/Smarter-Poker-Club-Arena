@@ -33,6 +33,7 @@
  * name and picture a physical seat already shows.
  */
 import { supabase } from '../services/supabase/client.js';
+import { isLightningLaneFunction, lightningLaneCall } from '../services/lightningLaneSession.js';
 import { lightningFoldSessionCall } from '../services/lightningFoldSession.js';
 import { SEATED_PROFILE_SELECT } from '../services/supabase/tableAvatar.js';
 import { arenaPlayerName, type ArenaNameProfile } from '../services/supabase/arenaPlayerName.js';
@@ -180,6 +181,13 @@ async function call(
   args: Record<string, unknown>
 ): Promise<{ data: unknown; error: unknown } | { thrown: unknown }> {
   try {
+    // LIGHTNING'S OWN DATABASE LANE (2026-11-10): begin dealing, the hand
+    // number and settlement go on the dedicated login first; null means
+    // nothing reached the database, so the same call goes through PostgREST.
+    if (isLightningLaneFunction(fn)) {
+      const direct = await lightningLaneCall(fn, args);
+      if (direct !== null) return direct;
+    }
     const { data, error } = await supabase.rpc(fn, args);
     return { data, error };
   } catch (thrown) {

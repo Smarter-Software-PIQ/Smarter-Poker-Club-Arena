@@ -761,6 +761,38 @@ describe('a finished event retires every listener', () => {
     expect(screen.getByText('Next')).toBeTruthy();
     expect(screen.queryByText('--:--')).toBeNull();
   });
+
+  it.each([
+    { started_at: null, level_started_at: null },
+    { level_started_at: null },
+    { started_at: null },
+  ])('acquires the opening clock after an early RUNNING row: %j', async (missing) => {
+    const startsAt = Date.now() + 20_000;
+    const structure = JSON.stringify([
+      { level: 1, smallBlind: 25, bigBlind: 50, ante: 0, durationMinutes: 5 },
+      { level: 2, smallBlind: 50, bigBlind: 100, ante: 0, durationMinutes: 5 },
+    ]);
+    const opening = running({
+      buy_in_amount: 27,
+      start_time: iso(startsAt),
+      started_at: iso(startsAt),
+      level_started_at: iso(startsAt),
+      blind_structure: structure,
+    });
+    fx.tournamentAnswer = () => ok({ ...opening, ...missing });
+    await mount();
+    expect(screen.getByText('7:00')).toBeTruthy();
+    await advance(19_000);
+    expect(fx.tournamentReads).toHaveLength(1);
+    // The first deal stamps the anchors without changing the opening level.
+    fx.tournamentAnswer = () => ok(opening);
+    await advance(6_000);
+    expect(fx.tournamentReads).toHaveLength(2);
+    expect(screen.getByText('6:55')).toBeTruthy();
+    await advance(10_000);
+    expect(screen.getByText('6:45')).toBeTruthy();
+    expect(fx.tournamentReads).toHaveLength(2);
+  });
 });
 
 describe('unmount leaves nothing that can still read', () => {

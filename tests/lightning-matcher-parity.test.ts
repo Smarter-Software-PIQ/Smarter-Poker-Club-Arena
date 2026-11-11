@@ -157,7 +157,11 @@ describe('the parity harness', () => {
       "result->>'legal_count' IS DISTINCT FROM f.doc#>>'{plan,legal_count}'"
     );
     expect(fixture).toContain('public.fn_lightning_match(g,to_timestamp');
-    expect(fixture).toContain("jsonb_array_length(members->'players') NOT BETWEEN 5 AND 6");
+    // Five or six; four only in a thin pool of at most 24 (20261110214134).
+    expect(fixture).toContain("jsonb_array_length(members->'players') NOT BETWEEN");
+    expect(fixture).toContain(
+      "(CASE WHEN jsonb_array_length(f.doc->'players') <= 24 THEN 4 ELSE 5 END) AND 6"
+    );
     expect(fixture).not.toMatch(/UPDATE\s+(?:public\.)?lightning_matcher_shadow_comparison/i);
     // The port reads the database's `newcomer`, so every fixture's flag is the
     // real snapshot's, and a fresh conversion is captured as its own fixture.
@@ -166,6 +170,32 @@ describe('the parity harness', () => {
     expect(fixture).toContain(
       "lc.build('parity', 'CONVERSION', 6, 24, 1, 'nlh', '{}'::jsonb, false)"
     );
+  });
+
+  it('compares the thin pool four-handed rule after position fairness, on real formations (20261110214134)', () => {
+    const fairness = HCODE.indexOf(
+      '-f "$M/20261110173033_lightning_blinds_and_button_go_to_the_longest_waiting_player.sql"'
+    );
+    const thin = HCODE.lastIndexOf(
+      '-f "$M/20261110214134_lightning_a_thin_pool_deals_four_handed.sql"'
+    );
+    // Before fairness is installed the file must be refused, changing nothing.
+    const refused = HCODE.indexOf(
+      '"${PSQL[@]}" -f "$M/20261110214134_lightning_a_thin_pool_deals_four_handed.sql" > "$fixture/thin-refusal.out"'
+    );
+    expect(refused).toBeGreaterThan(0);
+    expect(refused).toBeLessThan(fairness);
+    expect(HCODE).toContain('requires 20261110173033 (position fairness) installed first');
+    expect(HCODE).toContain("echo '  ok  15R RACES");
+    const section = HCODE.indexOf('-f "$F/lightning-thin-pool-parity.sql"');
+    expect(fairness).toBeGreaterThan(0);
+    expect(thin).toBeGreaterThan(fairness);
+    expect(section).toBeGreaterThan(thin);
+    expect(HCODE).toContain('grep -q \'^  ok  15 THIN POOL\' "$fixture/current-policy.out"');
+    const fixture = read('scripts', 'dev', 'fixtures', 'lightning-thin-pool-parity.sql');
+    for (const name of ['THIN FOUR', 'THIN TEN', 'HEALTHY 28', 'THIN 22', 'FIVE UNCHANGED'])
+      expect(fixture, name).toContain(`pp.capture_entry('${name}'`);
+    expect(fixture).toContain("'WAITING_FOR_FIFTH_PLAYER'");
   });
 
   it('compares the entry big blind with the gate open, after its migrations, on real formations (20261025050528)', () => {

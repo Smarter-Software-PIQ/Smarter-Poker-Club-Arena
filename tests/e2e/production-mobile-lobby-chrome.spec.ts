@@ -424,6 +424,72 @@ test.describe('the mobile lobby chrome on production', () => {
     await expect(gameTypes.getByRole('tab')).toHaveText(['ALL', 'NLH', 'PLO', 'LIMIT']);
   });
 
+  test('View Game opens four spectator games while preserving the lobby page', async ({
+    page,
+  }, testInfo) => {
+    expect(/^ca-customization-cert-.*@example\.invalid$/.test(process.env.SP_EMAIL || '')).toBe(
+      true
+    );
+    const participation: string[] = [];
+    await page.route(
+      /\/(?:action|leave|rest\/v1\/(?:table_seats|tournament_players|wallet_transactions|rpc\/(?:fn_cash_game_join|fn_table_waitlist_join|atomic_table_buyin|fn_lightning_join|fn_lightning_buy_in|fn_take_seat_and_buy_in)))(?:[/?#]|$)/,
+      async (route) => {
+        const request = route.request();
+        if (['GET', 'HEAD', 'OPTIONS'].includes(request.method())) return route.continue();
+        participation.push(new URL(request.url()).pathname);
+        await route.abort('blockedbyclient');
+      }
+    );
+    await openLobby(page);
+    await openLobbyGameSection(page, 'ALL');
+    await page.getByRole('tab', { name: 'ALL', exact: true }).click();
+    const cards = page.locator(`${CASH_TABLE_CARD_SELECTOR}:visible`);
+    await expect.poll(() => cards.count()).toBeGreaterThanOrEqual(4);
+    const ids = await cards.evaluateAll((rows) =>
+      rows.slice(0, 4).map((row) => row.getAttribute('data-id'))
+    );
+    expect(new Set(ids).size).toBe(4);
+    const actionBar = page.locator('.table-tab-bar:visible').first();
+    for (let i = 0; i < ids.length; i++) {
+      if (i === 1) {
+        await actionBar.getByRole('button', { name: 'Open Another Table', exact: true }).click();
+        await page
+          .getByRole('dialog', { name: 'Quick Join', exact: true })
+          .getByRole('button', { name: 'Browse Full Lobby', exact: true })
+          .click();
+      } else if (i > 1) {
+        await actionBar.locator('[data-tabid^="lobby:"]').click();
+      }
+      const lobby =
+        i === 0
+          ? page.locator('.club-home:visible')
+          : page.locator('.multi-table-page__lobby-tab .club-home:visible');
+      await expect(lobby).toBeVisible();
+      await openLobbyGameSection(lobby, 'ALL');
+      await lobby.getByRole('tab', { name: 'ALL', exact: true }).click();
+      // The painted heading is the card's visible Details door. It invokes
+      // the same onSelect(entry) as the row's accessible Details button.
+      const heading = lobby.locator(`tr[data-game-heading="${ids[i]}"]:visible`);
+      await heading.evaluate((element) => element.scrollIntoView({ block: 'center' }));
+      await heading.click();
+      const panel = page.getByRole('dialog').filter({ has: page.locator('.arena-game-card') });
+      await panel.getByRole('button', { name: CASH_SPECTATOR_ACTION }).click();
+      await expect(actionBar.locator(`[data-tabid="${ids[i]}"]`)).toHaveAttribute(
+        'aria-current',
+        'true',
+        { timeout: 20_000 }
+      );
+      await expect(panel).toHaveCount(0);
+    }
+    await expect(actionBar.locator('[data-tabid]')).toHaveCount(5);
+    await expect(actionBar.locator('[data-tabid^="lobby:"]')).toHaveCount(1);
+    expect(participation).toEqual([]);
+    await testInfo.attach('four-spectator-games-and-lobby', {
+      body: await page.screenshot(),
+      contentType: 'image/png',
+    });
+  });
+
   test('tournament Details stays inside the spectator table lobby tab', async ({
     page,
   }, testInfo) => {

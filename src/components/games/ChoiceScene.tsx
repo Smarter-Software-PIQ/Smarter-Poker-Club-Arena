@@ -8,6 +8,8 @@ import { gpuFrameRenderer } from './gpuFrameRenderer';
 import { isSoftwareRenderer } from './rendererTier';
 import { createQualityGovernor, FLOOR_TIER } from './qualityGovernor';
 import { applyQualityTier } from './sceneKit';
+import { sculptedGeometry, type BodySection } from './sculptedGeometry';
+import { createDonkeyCharacter } from './DonkeyCharacter';
 import { createFramePacer } from './framePacer';
 import { createSceneTelemetry, reportSceneFailure } from './sceneTelemetry';
 import MinesGrid from './MinesGrid';
@@ -30,6 +32,7 @@ import {
 import { CHOICE_MODE, ROAD_LADDERS_V4, type ChoiceGame } from '../../utils/diamondChoiceMath';
 import { gameChips } from '../../utils/bonusGameBudget';
 import { prefersReducedMotion, getAnimationSpeed } from '../../utils/animationSpeed';
+import { mediaUrl } from '../../utils/mediaBase';
 import { reportError } from '../../utils/errorReporter';
 import { soundService } from '../../services/SoundService';
 import styles from './ChoiceScene.module.css';
@@ -849,23 +852,6 @@ function carGlowGeometry(kit: SceneParts) {
 function carBeamGeometry(kit: SceneParts) {
   return mergedFlat(kit, [glowQuad(0, 4.6, 3.6, 6.6, 0xdff2ff)]);
 }
-/**
- * A group baked flat into one geometry in its own space: the ghost of the
- * donkey is one translucent mesh where the donkey itself is twelve.
- */
-function bakeGroup(kit: SceneParts, root: THREE.Object3D) {
-  root.updateMatrixWorld(true);
-  const inverse = root.matrixWorld.clone().invert();
-  const list: THREE.BufferGeometry[] = [];
-  root.traverse((obj) => {
-    if (!(obj instanceof THREE.Mesh)) return;
-    const geometry = obj.geometry as THREE.BufferGeometry;
-    const baked = geometry.index ? geometry.toNonIndexed() : geometry.clone();
-    baked.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inverse, obj.matrixWorld));
-    list.push(baked);
-  });
-  return mergedFlat(kit, list);
-}
 type SceneParts = ReturnType<typeof sceneParts>;
 function box(
   kit: SceneParts,
@@ -938,132 +924,20 @@ function mergeParts(kit: SceneParts, parent: THREE.Object3D) {
 /**
  * A continuous equine silhouette, lofted through measured sections. Each
  * section gives the position, ventral line, dorsal line and half-width.
- * Preserve the sphere's UVs and seam topology for the merged shadow mesh.
+ * Preserve UVs and outward normals for textured skin and merged shadow meshes.
  */
-function donkeyContour(
+function sculptedBody(
   kit: SceneParts,
   parent: THREE.Object3D,
   material: THREE.Material,
-  sections: ReadonlyArray<readonly [number, number, number, number]>
+  sections: readonly BodySection[],
+  axis: 'x' | 'z' = 'x'
 ) {
-  const geometry = kit.own(kit.ball.clone());
-  const positions = geometry.getAttribute('position');
-  for (let i = 0; i < positions.count; i++) {
-    const longitudinal = (1 - positions.getY(i)) * 0.5 * (sections.length - 1);
-    const index = Math.min(Math.floor(longitudinal), sections.length - 2);
-    const left = sections[index],
-      right = sections[index + 1],
-      t = longitudinal - index;
-    const x = THREE.MathUtils.lerp(left[0], right[0], t);
-    const bottom = THREE.MathUtils.lerp(left[1], right[1], t);
-    const top = THREE.MathUtils.lerp(left[2], right[2], t);
-    const width = THREE.MathUtils.lerp(left[3], right[3], t);
-    const theta = Math.atan2(positions.getZ(i), positions.getX(i));
-    positions.setXYZ(
-      i,
-      x,
-      (bottom + top + (top - bottom) * Math.cos(theta)) / 2,
-      width * Math.sin(theta)
-    );
-  }
-  geometry.computeVertexNormals();
-  parent.add(new THREE.Mesh(geometry, material));
-}
-/** Original sculpted donkey, with separate ears, muzzle, mane, tail and walking legs. */
-function donkey(kit: SceneParts) {
-  const animal = new THREE.Group();
-  // A matte coat with a sheen, the way short fur takes a rim light: the blue
-  // rim from behind the road and the warm lamp pool both catch on it without
-  // ever reading as lacquer. The hooves and the muzzle are the only gloss.
-  const coat = kit.material(0xa38b71, 0, 0.92),
-    pale = kit.material(0xe9d6b8, 0, 0.88);
-  const dark = kit.material(0x1c2127, 0.1, 0.42),
-    eye = kit.material(0x080b0d, 0.1, 0.05);
-  for (const fur of [coat, pale]) {
-    fur.clearcoat = 0;
-    fur.sheen = 0.6;
-    fur.sheenRoughness = 0.7;
-    fur.sheenColor.setHex(0x9ab8d8);
-    fur.envMapIntensity = 0.5;
-  }
-  donkeyContour(kit, animal, coat, [
-    [-0.76, 1.03, 1.03, 0],
-    [-0.67, 0.78, 1.26, 0.22],
-    [-0.48, 0.72, 1.36, 0.31],
-    [-0.24, 0.65, 1.32, 0.32],
-    [0.02, 0.64, 1.3, 0.34],
-    [0.25, 0.72, 1.36, 0.3],
-    [0.41, 0.83, 1.49, 0.23],
-    [0.52, 1.0, 1.58, 0.19],
-    [0.61, 1.26, 1.65, 0.155],
-    [0.65, 1.53, 1.53, 0],
-  ]);
-  // Dark shoulder cross and dorsal stripe run through a donkey’s summer coat.
-  sphere(kit, animal, dark, -0.05, 1.345, 0, 0.5, 0.035, 0.038);
-  for (const side of [-1, 1])
-    sphere(kit, animal, dark, 0.26, 1.235, side * 0.215, 0.047, 0.16, 0.065).rotation.x =
-      side * -0.48;
-  const legs: THREE.Group[] = [];
-  const knees: THREE.Group[] = [];
-  for (const x of [-0.38, 0.4])
-    for (const z of [-0.23, 0.23]) {
-      const leg = new THREE.Group();
-      leg.position.set(x, 0.82, z);
-      leg.name = `walking-leg-${legs.length}`;
-      sphere(kit, leg, coat, 0, -0.16, 0, 0.12, 0.24, 0.115);
-      const knee = new THREE.Group();
-      knee.position.y = -0.34;
-      sphere(kit, knee, pale, 0, -0.12, 0, 0.08, 0.19, 0.08);
-      box(kit, knee, dark, 0.035, -0.29, 0, 0.2, 0.15, 0.18, 0.05);
-      mergeParts(kit, knee);
-      leg.add(knee);
-      knees.push(knee);
-      animal.add(leg);
-      legs.push(leg);
-    }
-  donkeyContour(kit, animal, coat, [
-    [0.49, 1.6, 1.6, 0],
-    [0.56, 1.42, 1.77, 0.16],
-    [0.67, 1.41, 1.82, 0.21],
-    [0.81, 1.45, 1.78, 0.18],
-    [0.95, 1.41, 1.68, 0.14],
-    [1.09, 1.44, 1.53, 0.08],
-  ]);
-  donkeyContour(kit, animal, pale, [
-    [0.95, 1.48, 1.58, 0.1],
-    [1.01, 1.38, 1.61, 0.14],
-    [1.13, 1.36, 1.54, 0.13],
-    [1.19, 1.38, 1.49, 0.1],
-    [1.2, 1.43, 1.43, 0],
-  ]);
-  // The ears are groups like the legs, pivoted at their base, so the idle
-  // attract can flick one; the parts inside each are merged as the body's are.
-  const ears: THREE.Group[] = [];
-  for (const z of [-0.215, 0.215]) {
-    sphere(kit, animal, eye, 0.75, 1.69, z * 0.85, 0.043, 0.032, 0.019);
-    sphere(kit, animal, pale, 0.76, 1.7, z * 0.92, 0.009, 0.009, 0.006);
-    sphere(kit, animal, dark, 1.14, 1.47, z * 0.57, 0.036, 0.02, 0.012);
-    const ear = new THREE.Group();
-    ear.position.set(0.53, 1.68, z * 0.65);
-    ear.name = `ear-${ears.length}`;
-    sphere(kit, ear, coat, 0, 0.37, 0, 0.095, 0.4, 0.105).rotation.z = 0.13;
-    sphere(kit, ear, pale, 0.03, 0.41, 0, 0.045, 0.26, 0.108).rotation.z = 0.13;
-    mergeParts(kit, ear);
-    animal.add(ear);
-    ears.push(ear);
-  }
-  for (let i = 0; i < 7; i++)
-    sphere(kit, animal, dark, 0.3 + i * 0.045, 1.33 + i * 0.078, 0, 0.07, 0.095, 0.14);
-  const tail = sphere(kit, animal, coat, -0.72, 0.9, 0, 0.055, 0.38, 0.055);
-  tail.rotation.z = -0.7;
-  sphere(kit, animal, dark, -0.94, 0.66, 0, 0.11, 0.17, 0.11);
-  // The donkey is the shadow of this scene: it and the cars beside it are the
-  // only things that cast one, and its sculpt draws as four meshes, not thirty.
-  mergeParts(kit, animal);
-  animal.traverse((obj) => {
-    if (obj instanceof THREE.Mesh) obj.castShadow = true;
-  });
-  return { animal, legs, knees, ears };
+  const geometry = kit.own(sculptedGeometry(sections));
+  if (axis === 'z') geometry.rotateY(-Math.PI / 2);
+  const mesh = new THREE.Mesh(geometry, material);
+  parent.add(mesh);
+  return mesh;
 }
 
 export default function ChoiceScene(props: Props) {
@@ -1099,7 +973,7 @@ const SIGN_INK = {
   start: '#e6edf3',
   led: '#45adff',
   bust: '#ff5b6e',
-  gold: '#ffd700',
+  gold: '#5FAAFF',
   spentEdge: '#9aa5b3',
   spentInk: '#ffffff',
   edge: ['#91a8b9', '#aec6dc', '#679dcc', '#348eee'],
@@ -1548,7 +1422,7 @@ function CrossingScene(props: Props) {
         })
       );
     rubber.clearcoat = 0.1;
-    const wheel = kit.own(new THREE.CylinderGeometry(0.27, 0.27, 0.22, 24));
+    const wheel = kit.own(new THREE.TorusGeometry(0.205, 0.075, 12, 32));
     /**
      * THE CAR, BUILT ONCE. Every car on this road is the same body: a lower
      * hull and a raised bonnet and boot with a chrome belt line between them,
@@ -1562,13 +1436,50 @@ function CrossingScene(props: Props) {
     const template = (() => {
       const car = new THREE.Group(),
         body = kit.paint(CAR_PAINTS[0]);
-      box(kit, car, body, 0, 0.44, 0, 1.42, 0.38, 2.82, 0.16);
-      box(kit, car, body, 0, 0.64, 0, 1.3, 0.18, 2.52, 0.11);
-      box(kit, car, glass, 0, 0.9, -0.12, 1.12, 0.5, 1.42, 0.2);
-      box(kit, car, body, 0, 1.17, -0.15, 1.0, 0.08, 0.98, 0.06);
+      sculptedBody(
+        kit,
+        car,
+        body,
+        [
+          [-1.48, 0.38, 0.38, 0],
+          [-1.35, 0.3, 0.59, 0.61],
+          [-1.02, 0.29, 0.69, 0.72],
+          [-0.56, 0.3, 0.7, 0.7],
+          [0.0, 0.29, 0.65, 0.69],
+          [0.62, 0.28, 0.64, 0.71],
+          [1.12, 0.3, 0.58, 0.63],
+          [1.46, 0.35, 0.45, 0.48],
+          [1.49, 0.4, 0.4, 0],
+        ],
+        'z'
+      );
+      sculptedBody(
+        kit,
+        car,
+        glass,
+        [
+          [-0.97, 0.64, 0.64, 0],
+          [-0.72, 0.65, 1.06, 0.49],
+          [-0.4, 0.66, 1.2, 0.51],
+          [0.11, 0.65, 1.18, 0.51],
+          [0.45, 0.64, 1.02, 0.49],
+          [0.69, 0.64, 0.64, 0],
+        ],
+        'z'
+      );
+      sculptedBody(
+        kit,
+        car,
+        body,
+        [
+          [-0.56, 1.14, 1.14, 0],
+          [-0.43, 1.15, 1.23, 0.46],
+          [0.08, 1.13, 1.21, 0.47],
+          [0.23, 1.12, 1.12, 0],
+        ],
+        'z'
+      );
       // Raked windscreens and the rear quarter lights slope into the bonnet and boot.
-      box(kit, car, glass, 0, 0.91, 0.59, 1.09, 0.43, 0.12, 0.05).rotation.x = -0.52;
-      box(kit, car, glass, 0, 0.91, -0.8, 1.06, 0.39, 0.12, 0.05).rotation.x = 0.53;
       // A split bonnet stripe, ducktail spoiler and blade lights give the
       // approaching rally coupe a distinct silhouette from either direction.
       box(kit, car, body, 0, 0.86, -1.17, 1.48, 0.075, 0.23, 0.03);
@@ -1581,10 +1492,26 @@ function CrossingScene(props: Props) {
         for (const end of [-1, 1]) {
           box(kit, car, rubber, side * 0.64, 0.38, end * 0.86, 0.18, 0.4, 0.7, 0.14);
           const tyre = new THREE.Mesh(wheel, rubber);
-          tyre.rotation.z = Math.PI / 2;
+          tyre.rotation.y = Math.PI / 2;
           tyre.position.set(side * 0.66, 0.3, end * 0.86);
           car.add(tyre);
           sphere(kit, car, chrome, side * 0.775, 0.3, end * 0.86, 0.026, 0.16, 0.16);
+          for (let spoke = 0; spoke < 5; spoke++) {
+            const angle = (spoke * Math.PI * 2) / 5;
+            const blade = box(
+              kit,
+              car,
+              chrome,
+              side * 0.744,
+              0.3 + Math.cos(angle) * 0.085,
+              end * 0.86 + Math.sin(angle) * 0.085,
+              0.025,
+              0.17,
+              0.026,
+              0.008
+            );
+            blade.rotation.x = angle;
+          }
         }
       }
       box(kit, car, chrome, 0, 0.34, 1.41, 1.2, 0.1, 0.08, 0.03);
@@ -1803,23 +1730,8 @@ function CrossingScene(props: Props) {
       ctx.fillText(multiplier, ox + SIGN_W / 2, oy + 103);
       ctx.shadowBlur = 0;
     };
-    const animal = donkey(kit);
-    // The ghost is the donkey baked to one translucent blue mesh: light, not flesh.
-    const ghost = new THREE.Mesh(
-      bakeGroup(kit, animal.animal),
-      kit.keep(
-        new THREE.MeshPhysicalMaterial({
-          color: 0x45adff,
-          emissive: 0x1877f2,
-          emissiveIntensity: 0.9,
-          roughness: 0.4,
-          metalness: 0,
-          transparent: true,
-          opacity: 0.38,
-          depthWrite: false,
-        })
-      )
-    );
+    const animal = createDonkeyCharacter(kit);
+    const ghost = animal.ghost;
     ghost.scale.setScalar(DONKEY_SCALE);
     ghost.visible = false;
     scene.add(ghost);
@@ -2183,7 +2095,7 @@ function CrossingScene(props: Props) {
       lean = stepping
         ? anticipationFrame(leanClock, speed, reduced)
         : Math.max(0, leanFrom * (1 - leanClock / (200 * speed)));
-      const hop = walk < 1 ? Math.sin(walk * Math.PI) * 0.28 : 0;
+      const hop = walk < 1 ? Math.abs(Math.sin(walk * Math.PI * 4)) * 0.055 : 0;
       animal.animal.position.set(
         actual - 0.12 + lean + (walk < 1 ? carried * (1 - walk) : 0),
         0.05 + hop,
@@ -2227,6 +2139,12 @@ function CrossingScene(props: Props) {
             ? Math.sin(flick * Math.PI) * 0.6 * (i ? 1 : -1)
             : 0;
       });
+      // The tail follows the gait and makes one slow fly-swat while waiting.
+      animal.tail.rotation.x = reduced
+        ? 0
+        : Math.sin(now / (670 * speed)) * (walk < 1 ? 0.32 : 0.13);
+      animal.tail.rotation.z = reduced ? 0 : Math.sin(now / (1100 * speed)) * 0.06;
+      animal.pose(now / speed, reduced);
       const shift = ((beat + 1900) % IDLE.shiftEvery) / IDLE.shiftMs;
       if (attract && shift < 1) {
         const settle = Math.sin(shift * Math.PI);
@@ -2261,6 +2179,7 @@ function CrossingScene(props: Props) {
           0
         );
       }
+      animal.poseGhost(ghostProgress, reduced);
       const reached = ghost.visible
         ? Math.max(
             step,
@@ -2618,7 +2537,7 @@ function CrossingScene(props: Props) {
                 : roadEnd <= shownStep
                   ? `First Hit On Street ${roadEnd + 1}`
                   : `Safe Through Street ${roadEnd} At ${mult(roadEnd - 1)} · First Hit On Street ${roadEnd + 1}`,
-          note: `You Booked Street ${shownStep} At ${mult(shownStep - 1)}`,
+          note: `${gameChips(booked ?? 0)} Chips Booked · Street ${shownStep}`,
           outcome: roadEnd >= lastStreet ? 'all' : roadEnd <= shownStep ? 'crash' : 'further',
         }
       : null;
@@ -2652,7 +2571,7 @@ function CrossingScene(props: Props) {
       </div>
       {/* Not a live region. The page has the one polite region for both games,
           and it speaks each street once, when the scene reaches it. */}
-      <div className={styles.readout} data-tone={lost ? 'bust' : undefined}>
+      <div className={styles.readout} hidden={Boolean(route)} data-tone={lost ? 'bust' : undefined}>
         <span className={styles.readoutLabel}>{readout.label}</span>
         <strong className={styles.readoutValue}>{readout.value}</strong>
         <span className={styles.readoutNote}>{readout.note}</span>
@@ -2666,7 +2585,6 @@ function CrossingScene(props: Props) {
       )}
       {route && (
         <div className={styles.route} data-outcome={route.outcome}>
-          <span className={styles.routeLabel}>How Far You Could Have Gone</span>
           <strong className={styles.routeValue}>{route.title}</strong>
           <span className={styles.routeNote}>{route.note}</span>
         </div>
