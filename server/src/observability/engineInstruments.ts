@@ -655,6 +655,33 @@ for (const half of ['cash', 'tournament']) {
   leaseRenewalOutstandingTotal.inc(0, { half });
 }
 
+/**
+ * HANDS DEALT, BY FORMAT (2026-11-11). `poker_hands_dealt_total` is one
+ * unlabelled series that counts every ServerTableEngine hand, tournament and
+ * cash alike, and NO Lightning hand at all (LightningHandHost deals outside
+ * the table engines; its hands are `poker_lightning_hands_total`).
+ *
+ * HorseFleetThroughputRelativeDrop compared that series with the same hour on
+ * previous days and paged critical (incident 71fdf977) on the owner's own
+ * change: the seat-first ladder (Dan 2026-11-08) cut Spin and Sit & Go volume
+ * from ~11,000 games a day to ~110, so a counter that was mostly tournament
+ * hands fell ~90% while the cash floor was flat. #10506 then compared settled
+ * Lightning hands only, which left an ordinary (Classic) cash-table decline
+ * outside the relative rule. This series lets the rule count ALL cash hands -
+ * format="cash" here plus poker_lightning_hands_total{outcome="settled"} -
+ * and never a tournament hand.
+ *
+ * Zero-seeded across the format domain for the reason actionsFleetTotal is
+ * (anAlertCannotWaitForAFailureToExist): a cold engine must read 0, not empty.
+ */
+export const handsFleetTotal: Counter = alwaysOnRegistry.counter(
+  'poker_hands_fleet_total',
+  'Hands dealt by the table engines (labels: format=cash|spin|hu_sng|sng|mtt). Lightning hands are poker_lightning_hands_total.'
+);
+for (const format of ['cash', 'spin', 'hu_sng', 'sng', 'mtt']) {
+  handsFleetTotal.inc(0, { format });
+}
+
 /** Actions processed, bounded by audience x tournament format. */
 export const actionsFleetTotal: Counter = alwaysOnRegistry.counter(
   'poker_actions_fleet_total',

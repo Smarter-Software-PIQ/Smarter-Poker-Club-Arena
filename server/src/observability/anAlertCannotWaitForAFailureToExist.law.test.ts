@@ -100,6 +100,18 @@ describe('an alert cannot wait for a failure to exist', () => {
     );
   });
 
+  it('the cash hand series exists on a cold engine, for every format', () => {
+    // HorseFleetThroughputRelativeDrop counts ALL cash hands: this table-engine
+    // series with format="cash" plus settled Lightning hands. A cold engine must
+    // publish 0, or the rule reads an empty vector as health (incident 71fdf977).
+    const rendered = alwaysOnRegistry.renderPrometheus();
+    for (const format of ['cash', 'spin', 'hu_sng', 'sng', 'mtt']) {
+      expect(rendered).toMatch(
+        new RegExp(`poker_hands_fleet_total\\{[^}]*format="${format}"[^}]*\\} 0`)
+      );
+    }
+  });
+
   it('every COUNTER this module owns that a rule reads is published before it is needed', () => {
     const named = metricsNamedByRules();
     expect(named.size).toBeGreaterThan(20);

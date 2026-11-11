@@ -4016,6 +4016,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           table_id: this.tableId,
           variant: String(this.tableInfo?.game_variant ?? ''),
         });
+        EngineMetrics.handsFleetTotal.inc(1, { format: this.tableFormat() });
       } catch {
         /* metrics must never affect gameplay */
       }
@@ -5349,11 +5350,18 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
    */
   private announceBustRebuyWindow(userId: string, remainingMs: number): void {
     try {
+      /* The bust is named by its deadline on this engine's wall clock: every
+         resend of one bust carries the same instant, a later bust a later
+         one, so the sheet can tell a resend from a new bust and ignore a
+         frame of an earlier one (src/utils/bustRebuyDeadline.ts). */
+      const seat = this.seatedPlayers.find((p) => p.user_id === userId);
       this.hub?.sendToUser(this.tableId, userId, {
         kind: 'bust_rebuy_window',
         table_id: this.tableId,
         user_id: userId,
+        occupancy_id: seat?.occupancy_id ?? null,
         remaining_ms: remainingMs,
+        deadline_at_ms: Date.now() + remainingMs,
         window_ms: BUST_REBUY_WINDOW_MS,
       });
     } catch (err) {
