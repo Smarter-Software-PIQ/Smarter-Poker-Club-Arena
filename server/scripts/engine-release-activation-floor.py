@@ -23,11 +23,11 @@ CERTIFIED_PREDECESSOR = 'eed06fe51dea622069c661a6213d5b031ff3a9e3'
 CERTIFIED_START = 1793833200
 CERTIFIED_END = 1793854800
 
-# The owner-directed November 10 cash Horse action cutover rebinds the existing single-use exception.
+# The directly authorized receipt successor binds its own fresh single-use claim.
 # Prior immutable controls and entries keep their original authority and expiry.
-NOV7_OWNER_ID = '2026-11-10-owner-asap-engine-2350z'
-NOV7_MANIFEST_DIGEST = '72bbb5fe8f245ad98d7b78f883009a16a2289816bd50cf4edd3258a121dffa48'
-NOV7_ORDER_DIGEST = '18b1ca2d8b8ab54ec36380c623687bbd5ba6f249e4fbdf04095e1a02a0cd2c23'
+NOV7_OWNER_ID = '2026-11-11-horse-clock-receipts-engine-0050z'
+NOV7_MANIFEST_DIGEST = '4f7d5370d9b605002c09c5408052e2e67252dd103b2246d06f51b6402f165450'
+NOV7_ORDER_DIGEST = '2a663e54cd67207dec445cbbc8b984012e1872dc81055afc15eb4b83a47eea46'
 
 
 
