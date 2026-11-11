@@ -315,6 +315,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.sha != ''
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -421,6 +422,7 @@ jobs:
     # previous attempt left a success status. Never certify a partial copy.
     if: always() && needs.plan.outputs.sha != ''
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 75
     env:
       CONTROL_SHA: ${{ needs.plan.outputs.control_sha }}

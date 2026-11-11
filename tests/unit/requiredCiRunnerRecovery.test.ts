@@ -1458,6 +1458,11 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       const job = normalized.jobs['native-smoke'];
       expect(job.if.split(groupClause)).toHaveLength(2);
       job.if = job.if.replace(groupClause, '');
+      // Moved 2026-11-11 (secrets leave repository scope): only the connected
+      // mode reads DATABASE_URL, from the main-only ci-main environment; the
+      // ordinary and merge-group modes name no environment.
+      expect(job.environment).toBe("${{ inputs.connected_ui_observations && 'ci-main' || '' }}");
+      delete job.environment;
     }
     expect(normalized.jobs['native-smoke']['runs-on']).toBe('ubuntu-24.04');
     expect(normalized.on.workflow_call.inputs.connected_ui_observations.default).toBe(false);

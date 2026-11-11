@@ -117,6 +117,7 @@ jobs:
   apply:
     name: Apply ${{ inputs.migration || github.event.client_payload.migration }}
     runs-on: ubuntu-latest
+    environment: ci-main
     # Queue wait (900 s) + the applier's bounded DDL admission wait (12 min,
     # apply-recorded-migration.mjs) + the apply itself. Pinned by
     # tests/unit/aMergedMigrationIsInstallable.test.ts.

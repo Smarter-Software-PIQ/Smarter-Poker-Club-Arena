@@ -100,6 +100,7 @@ jobs:
     name: Prove The Exact Drill Target Has Every Production Door
     needs: admit
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 10
     permissions:
       contents: read
@@ -131,6 +132,7 @@ jobs:
     name: Run The Drill Through The Hetzner Release Lane
     needs: [admit, engine-doors]
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 120
     permissions:
       contents: read

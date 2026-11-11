@@ -28,6 +28,7 @@ jobs:
   verify:
     name: ${{ github.event.action == 'verify-tournament-favorites' && 'Verify Tournament Favorite Priority' || github.event.action == 'verify-spectator-notifications' && 'Verify Spectator And Notification Recovery' || 'Verify Saved Lobby, Plus Page And Row Owners' }}
     runs-on: ubuntu-24.04
+    environment: ci-main
     timeout-minutes: 20
     env:
       PROOF_RUN_ID: ${{ github.run_id }}
