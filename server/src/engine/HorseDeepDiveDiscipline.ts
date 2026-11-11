@@ -18,11 +18,12 @@
  *        carrying a coordinated 4-card AA-ds / broadway-ds core while
  *        penalizing self-blocked 4-to-a-suit hands and non-Ace-suited shapes.
  *
- *   2. Heads-up Omaha river position-stab discipline:
- *      - Suppresses unconditional 100%-pot button stabs with medium one-pair /
- *        thin two-pair showdown value or unblocked zero-equity air so the
- *        reference check-back is retained, while preserving nut/strong value,
- *        nutty semi-bluffs, and river nut-flush-blocker bluffs.
+ *   2. Heads-up Omaha position-stab qualification holdback:
+ *      - Both turn (-8.96 +/- 3.34 bb/100, 3,000 HU hands) and river
+ *        (-15.03 +/- 3.79 bb/100 across 15,000 paired seat-swapped HU self-play
+ *        deals = 30,000 hands, p = 0.00007; +0.66 +/- 1.97 bb/100 vs human HU)
+ *        suppression of `heads_up_position_stab` failed qualification and are
+ *        retained OFF (`v87ShouldSuppressOmahaPositionStab` returns `false`).
  *
  *   3. Postflop PLO6 big-bet call discipline & Omaha bet-then-raised sizing:
  *      - Extends V81/V86 >= 0.90-pot non-HU turn/river call-fold protection to
@@ -102,7 +103,7 @@ function hasOmahaSingleBoardRiverNuts(hole: readonly Card[], board: readonly Car
   return true;
 }
 
-function holdsDryNutFlushBlocker(hole: readonly Card[], board: readonly Card[]): boolean {
+export function v87HoldsDryNutFlushBlocker(hole: readonly Card[], board: readonly Card[]): boolean {
   const boardSuitCounts = new Map<string, number>();
   for (const c of board) {
     boardSuitCounts.set(c.suit, (boardSuitCounts.get(c.suit) ?? 0) + 1);
@@ -120,31 +121,6 @@ function holdsDryNutFlushBlocker(hole: readonly Card[], board: readonly Card[]):
     if (targetRank && heroSuit.some((c) => c.rank === targetRank)) return true;
   }
   return false;
-}
-
-/**
- * True when hero's best Omaha high hand has negligible HU showdown value:
- * pure high-card air (`category <= 1` in HorseEval's 1-based category scale)
- * or, on an unpaired board, a tiny low pair (`category === 2` at or below the
- * bottom two board ranks, i.e. 4th/5th pair on the river or 3rd/4th pair on
- * the turn, or an underpair). Top pair, second pair, 3rd river pair, and
- * pocket pairs above the bottom two board ranks retain HU showdown value and
- * check back rather than turning showdown value into a 100%-pot bluff.
- */
-function isAirOrLowPairWithoutShowdown(
-  hole: readonly Card[],
-  board: readonly Card[],
-  category: number,
-  paired: boolean
-): boolean {
-  if (category <= 1) return true;
-  if (category !== 2 || paired) return false;
-  const score = scoreOmahaHiPartial(hole as Card[], board as Card[]);
-  if (Math.floor(score / 0x100000) !== 2) return false;
-  const pairRank = Math.floor((score % 0x100000) / 4096);
-  const boardRanks = [...new Set(board.map((c) => RANK_VALUES[c.rank]))].sort((a, b) => b - a);
-  if (boardRanks.length < 4) return false;
-  return pairRank <= boardRanks[boardRanks.length - 2];
 }
 
 /**
@@ -343,72 +319,21 @@ export function v87AdjustFiveSixCardHandClass(
 }
 
 /**
- * Pillar 2: Card- and board-aware suppression of the unconditional heads-up
- * Omaha river button stab (`heads_up_position_stab`).
- *
- * Returns true when hero is at the exact HU river checked-to button node and
- * holds medium showdown value (one pair / thin two pair / board-vulnerable
- * non-nut made hand) or zero-blocker pure air that profits from checking back
- * rather than potting into check-raises.
- *
- * River only: the 2026-11-10 paired duplicate-deal HandController ablation
- * (3,000 HU hands per street, development seeds) measured the turn arm at
- * -8.96 +/- 3.34 bb/100 against the reference turn stab, so the turn stab is
- * retained unchanged (fold equity plus live redraws outweigh check-back).
+ * Pillar 2: Heads-up Omaha position-stab suppression (`heads_up_position_stab`)
+ * is EXCLUDED from production activation following qualification:
+ * - Turn suppression measured `-8.96 +/- 3.34` bb/100 (`3,000` HU hands).
+ * - River suppression measured `-15.03 +/- 3.79` bb/100 across `15,000` paired
+ *   seat-swapped HU self-play deals (`30,000` hands, `p = 0.00007`) and
+ *   `+0.66 +/- 1.97` bb/100 vs human-calibrated HU (`p = 0.74`).
+ * Always returns `false` so both turn and river Phase 10/11 `heads_up_position_stab`
+ * remain intact.
  */
 export function v87ShouldSuppressOmahaPositionStab(
-  player: SeatPlayer,
-  gs: V87PositionStabState,
-  referenceDecision: HorseDecision
+  _player: SeatPlayer,
+  _gs: V87PositionStabState,
+  _referenceDecision: HorseDecision
 ): boolean {
-  if (gs.stage !== 'river') return false;
-  if (referenceDecision.action !== 'check') return false;
-  if (gs.bombPot) return false;
-  if (gs.communityCards2?.length || gs.communityCards3?.length) return false;
-  const hole = player.cards;
-  const board = gs.communityCards;
-  if (!hole || hole.length < 4 || !board || board.length < 4) return false;
-  if (gs.players.length !== 2) return false;
-  if (gs.dealerSeat === undefined || player.seat !== gs.dealerSeat) return false;
-  const liveOpp = gs.players.filter(
-    (p) => p.seat !== player.seat && !p.is_folded && (!p.is_sitting_out || p.is_all_in)
-  );
-  if (liveOpp.length !== 1) return false;
-  const toCall = Math.max(0, (gs.currentBet ?? 0) - (player.bet ?? 0));
-  if (toCall > 0) return false;
-  const streetActions = (gs.actionHistory ?? []).filter((a) => a.stage === gs.stage);
-  const anyWagerThisStreet = streetActions.some(
-    (a) => a.action === 'bet' || a.action === 'raise' || a.action === 'all_in'
-  );
-  if (anyWagerThisStreet) return false;
-
-  const nuts = omahaNutStatus(hole, board);
-  const paired = boardIsPaired(board);
-  const nutBlocker = holdsDryNutFlushBlocker(hole, board);
-  const airOrLowPair = isAirOrLowPairWithoutShowdown(hole, board, nuts.category, paired);
-
-  // River: bet credible value (strong boats+, nut/2nd-nut flush on unpaired
-  // board, nut straight on unpaired rainbow board, nut set on safe board) and
-  // dry nut-flush-blocker bluffs with missed air or a tiny bottom pair without
-  // showdown value; check back thin showdown value and unblocked air.
-  if (nuts.category >= 8) return false;
-  if (nuts.category === 7) {
-    const boatPos = omahaBoatPosition(hole, board);
-    if (!boatPos || boatPos.boats <= 2 || boatPos.lowerBoats >= 1) return false;
-    return true;
-  }
-  if (nuts.category === 6 && !paired && nuts.higherFlushRanks <= 1) return false;
-  if (nuts.category === 5 && !paired && !nuts.flushPossible && nuts.straightIsNut) return false;
-  if (
-    nuts.category === 4 &&
-    !paired &&
-    !nuts.flushPossible &&
-    hasOmahaSingleBoardRiverNuts(hole, board)
-  ) {
-    return false;
-  }
-  if (airOrLowPair && nutBlocker && !paired) return false;
-  return true;
+  return false;
 }
 
 /**

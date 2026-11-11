@@ -158,7 +158,6 @@ import {
   v87OmahaBetRaisedShade,
   v87Plo6BigBetCell,
   v87SanitizeOmahaOpenerExploit,
-  v87ShouldSuppressOmahaPositionStab,
 } from './HorseDeepDiveDiscipline.js';
 import {
   isStation,
@@ -5780,13 +5779,6 @@ export class HorseLogic {
       }
     }
     const variants = graph.run('variant_policy', decision, () => {
-      const suppressOmahaStab87 =
-        opts.v87DeepDiveDiscipline !== false &&
-        vi.isOmaha &&
-        !vi.isHiLo &&
-        !readStation &&
-        v87ShouldSuppressOmahaPositionStab(player, gs, decision);
-      const effectiveStation87 = readStation || suppressOmahaStab87;
       const phase10 =
         registration.owner === 'phase10' && opts.phase10Plo4 !== 'off'
           ? evaluatePlo4LivePolicy(
@@ -5797,7 +5789,7 @@ export class HorseLogic {
               opts.phase10Plo4 ?? 'shadow',
               opts.phase10EvidenceMode && !tele ? () => 0 : undefined,
               (d) => this.legalize(d, player, gs, vi),
-              effectiveStation87
+              readStation
             )
           : null;
       if (phase10) {
@@ -5825,7 +5817,7 @@ export class HorseLogic {
               phase11DecisionEquityCeiling ?? 1,
               true,
               (d) => this.legalize(d, player, gs, vi),
-              effectiveStation87
+              readStation
             )
           : null;
       if (phase11) {
@@ -5841,14 +5833,6 @@ export class HorseLogic {
           phase11.receipt.applied = false;
           phase11.receipt.selectionRefusal = 'illegal_candidate';
         } else decision = legal;
-      }
-      if (
-        suppressOmahaStab87 &&
-        telemetryOn(opts) &&
-        ((phase10 !== null && (opts.phase10Plo4 ?? 'shadow') === 'candidate') ||
-          (phase11 !== null && (opts.phase11Omaha ?? 'shadow') === 'candidate'))
-      ) {
-        noteFire('v87_deep_dive_discipline');
       }
       const phase12 =
         registration.owner === 'phase12' && opts.phase12Remaining !== 'off'

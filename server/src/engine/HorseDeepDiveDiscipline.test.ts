@@ -21,6 +21,7 @@ import { omahaVariantSpot } from '../benchmark/OmahaVariantPolicyEvidence.js';
 import { calculateContestablePot, calculatePots } from './PokerEngine.js';
 import {
   v87AdjustFiveSixCardHandClass,
+  v87HoldsDryNutFlushBlocker,
   v87NlhTurnMultiwayOrColdRaiseShade,
   v87OmahaBetRaisedShade,
   v87OmahaCallBarBounds,
@@ -220,19 +221,18 @@ describe('V87 All-Hands Deep-Dive Discipline', () => {
       return { hero: input.hero, gs: input.state };
     }
 
-    it('suppresses unconditional HU river pot-stab with medium one pair while keeping nut value and dry nut-flush-blocker bluffs', () => {
-      // Medium one pair on paired/flush board: checks back instead of 100%-pot stab.
+    it('retains both turn and river HU position stabs after paired seat-swap qualification holdback', () => {
+      // Both turn (-8.96 +/- 3.34 bb/100) and river (-15.03 +/- 3.79 bb/100
+      // across 30,000 paired seat-swapped HU hands, p = 0.00007) suppression
+      // failed qualification, so neither turn nor river stabs are suppressed.
       const mediumPair = huRiverSpot('Kd9c5s4d2c', 'Kh9h4h7c7s', 'river');
       expect(
         v87ShouldSuppressOmahaPositionStab(mediumPair.hero, mediumPair.gs, {
           action: 'check',
           thinkTime: 0,
         })
-      ).toBe(true);
+      ).toBe(false);
 
-      // The turn stab is retained: the HU street ablation measured turn
-      // suppression at -8.96 +/- 3.34 bb/100, so the same medium pair on the
-      // turn is never suppressed.
       const mediumPairTurn = huRiverSpot('Kd9c5s4d2c', 'Kh9h4h7c', 'turn');
       expect(
         v87ShouldSuppressOmahaPositionStab(mediumPairTurn.hero, mediumPairTurn.gs, {
@@ -263,10 +263,11 @@ describe('V87 All-Hands Deep-Dive Discipline', () => {
         phase11EvidenceMode: true,
         v87DeepDiveDiscipline: true,
       } as never);
-      expect(dOn.action).toBe('check');
+      expect(dOn.action).toBe('bet');
+      expect(dOn.amount).toBe(dOff.amount);
       expect(dOn.omahaVariantPolicy).toMatchObject({
-        applied: false,
-        selection: 'none',
+        applied: true,
+        selection: 'selected',
       });
       const workerBacked = {
         ...dOn,
@@ -305,61 +306,6 @@ describe('V87 All-Hands Deep-Dive Discipline', () => {
         horseDecisionReceiptIsValid(dShadow, 'plo5', {
           player: mediumPair.hero,
           gameState: mediumPair.gs as never,
-        })
-      ).toBe(true);
-
-      // Nut flush on unpaired river: NOT suppressed (value bet allowed).
-      const nutFlush = huRiverSpot('AhQh8s7d2c', 'Kh9h4h7c2s', 'river');
-      expect(
-        v87ShouldSuppressOmahaPositionStab(nutFlush.hero, nutFlush.gs, {
-          action: 'check',
-          thinkTime: 0,
-        })
-      ).toBe(false);
-
-      // Tiny bottom pair (2c pairing 2d) holding dry Ace of the 3-flush suit on unpaired river:
-      // negligible HU Omaha showdown value -> NOT suppressed (blocker bluff allowed).
-      const nutBlockerBluff = huRiverSpot('Ah6c5d3s2c', 'Kh9h4h8c2d', 'river');
-      expect(
-        v87ShouldSuppressOmahaPositionStab(nutBlockerBluff.hero, nutBlockerBluff.gs, {
-          action: 'check',
-          thinkTime: 0,
-        })
-      ).toBe(false);
-
-      // Pure high-card air (cat === 1) holding dry Ace of the 3-flush suit on unpaired river:
-      // NOT suppressed (blocker bluff allowed).
-      const nutBlockerPureAir = huRiverSpot('AhJcTd7s3c', 'Kh9h4h8c2d', 'river');
-      expect(
-        v87ShouldSuppressOmahaPositionStab(nutBlockerPureAir.hero, nutBlockerPureAir.gs, {
-          action: 'check',
-          thinkTime: 0,
-        })
-      ).toBe(false);
-
-      // Top pair or second pair on unpaired river EVEN WITH dry Ace flush blocker:
-      // suppressed so real HU showdown value checks back instead of 100%-pot over-bluffing.
-      const topPairWithBlocker = huRiverSpot('AhKd6c5d3s', 'Kh9h4h8c2d', 'river');
-      expect(
-        v87ShouldSuppressOmahaPositionStab(topPairWithBlocker.hero, topPairWithBlocker.gs, {
-          action: 'check',
-          thinkTime: 0,
-        })
-      ).toBe(true);
-      const secondPairWithBlocker = huRiverSpot('Ah9d6c5d3s', 'Kh9h4h8c2d', 'river');
-      expect(
-        v87ShouldSuppressOmahaPositionStab(secondPairWithBlocker.hero, secondPairWithBlocker.gs, {
-          action: 'check',
-          thinkTime: 0,
-        })
-      ).toBe(true);
-
-      // Pure high-card air WITHOUT nut-flush blocker on unpaired river: suppressed (checks back).
-      const unblockedAir = huRiverSpot('AcJcTd7s3c', 'Kh9h4h8c2d', 'river');
-      expect(
-        v87ShouldSuppressOmahaPositionStab(unblockedAir.hero, unblockedAir.gs, {
-          action: 'check',
-          thinkTime: 0,
         })
       ).toBe(true);
     });
@@ -704,20 +650,14 @@ describe('V87 All-Hands Deep-Dive Discipline', () => {
     it('recognizes dry Qh as nut-flush blocker when Ah and Kh of the 3-flush suit are on board', () => {
       const input = omahaVariantSpot('plo5', 'river', 2, 'cash');
       input.hero.cards = cards('QhJc9d7s2c');
-      input.state.players[0].cards = [];
-      input.state.players[1].bet = 0;
       input.state.communityCards = cards('AhKh6h8c2d');
-      input.state.currentBet = 0;
-      input.state.toCall = 0;
-      input.state.actionHistory = [
-        { stage: 'river', seat: 2, userId: 'v2', action: 'check', amount: 0, timestamp: 1 },
-      ];
-      expect(
-        v87ShouldSuppressOmahaPositionStab(input.hero, input.state, {
-          action: 'check',
-          thinkTime: 0,
-        })
-      ).toBe(false);
+      expect(v87HoldsDryNutFlushBlocker(input.hero.cards, input.state.communityCards)).toBe(true);
+      expect(v87HoldsDryNutFlushBlocker(cards('JhJc9d7s2c'), input.state.communityCards)).toBe(
+        false
+      );
+      expect(v87HoldsDryNutFlushBlocker(cards('QhJh9d7s2c'), input.state.communityCards)).toBe(
+        false
+      );
     });
 
     it('preserves strict human-vs-Horse label-flip neutrality and postflop PLO8 parity with v87DeepDiveDiscipline enabled', () => {
