@@ -104,10 +104,15 @@ export interface LightningLaneClient {
   ): Promise<{ rows: Array<Record<string, unknown>>; command?: string | null }>;
   release(destroy?: boolean): void;
 }
+/** A pg socket as the pool first connects it, before anybody checks it out. */
+export interface LightningLaneClientSocket {
+  on(event: 'error', callback: () => void): unknown;
+}
 export interface LightningLanePool {
   connect(): Promise<LightningLaneClient>;
   end(): Promise<void>;
   on(event: 'error', callback: () => void): unknown;
+  on(event: 'connect', callback: (socket: LightningLaneClientSocket) => void): unknown;
 }
 
 export function verifiedLaneConnectionString(value: unknown): string | null {
@@ -198,6 +203,22 @@ export function createLightningLaneSession(deps: {
         pool = candidate;
         candidate.on('error', () =>
           safeLog('[LightningLaneSession] idle socket lost; the next call reacquires a socket')
+        );
+        /* A SOCKET IN USE CAN BE LOST TOO (2026-11-11). The pool's 'error'
+           listener above only covers IDLE sockets: pg-pool removes it while a
+           socket is checked out, and pg then emits the loss on the client
+           itself. With no listener there that is an uncaught exception, and
+           at 09:55:38Z on 2026-11-11 one lost lane socket drained and restarted
+           the whole engine outside the break (EngineRestartedOutsideTheBreak).
+           Every socket the pool creates gets its own listener for its whole
+           life. The call holding it still sees its queries rejected, resolves
+           the outcome as unknown and destroys the socket on release. */
+        candidate.on('connect', (socket) =>
+          socket.on('error', () =>
+            safeLog(
+              '[LightningLaneSession] a socket in use was lost; its call resolves as unknown and the socket is destroyed'
+            )
+          )
         );
         for (let index = 0; index < LIGHTNING_LANE_POOL_MAX; index++) {
           const client = await candidate.connect();

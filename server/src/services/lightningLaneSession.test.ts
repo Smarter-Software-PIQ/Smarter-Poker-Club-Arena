@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('./supabase/client.js', () => ({ supabase: { rpc: vi.fn() } }));
 import {
@@ -421,5 +422,47 @@ describe('every failure point of a lane call', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+/* A SOCKET IN USE CAN BE LOST TOO (2026-11-11). pg-pool removes its idle
+   'error' listener while a socket is checked out, and pg emits a lost
+   backend on the client itself; an EventEmitter 'error' with no listener
+   throws, which is what drained and restarted production at 09:55:38Z.
+   A real EventEmitter stands in for the pg client so the throw is real. */
+describe('The Lightning lane survives losing a socket that is in use', () => {
+  it('gives every socket the pool connects its own error listener', async () => {
+    const f = fixture();
+    expect(await f.session.start()).toBe(true);
+    const onConnect = f.pool.on.mock.calls.find(([event]) => event === 'connect')?.[1] as
+      | ((socket: EventEmitter) => void)
+      | undefined;
+    expect(onConnect).toBeTypeOf('function');
+    const socket = new EventEmitter();
+    onConnect!(socket);
+    expect(socket.listenerCount('error')).toBe(1);
+    expect(() =>
+      socket.emit('error', new Error('Connection terminated unexpectedly'))
+    ).not.toThrow();
+    expect(f.logs.join('\n')).toContain('a socket in use was lost');
+    await f.session.stop();
+  });
+
+  it('registers the listener before the first socket is connected', async () => {
+    const f = fixture();
+    const order: string[] = [];
+    f.pool.on.mockImplementation((event: string) => {
+      order.push(`on:${event}`);
+      return f.pool;
+    });
+    const connect = f.pool.connect.getMockImplementation()!;
+    f.pool.connect.mockImplementation(async () => {
+      order.push('connect');
+      return connect();
+    });
+    expect(await f.session.start()).toBe(true);
+    expect(order.indexOf('on:connect')).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf('on:connect')).toBeLessThan(order.indexOf('connect'));
+    await f.session.stop();
   });
 });
