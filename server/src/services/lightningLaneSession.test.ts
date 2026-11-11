@@ -440,11 +440,14 @@ describe('The Lightning lane survives losing a socket that is in use', () => {
     expect(onConnect).toBeTypeOf('function');
     const socket = new EventEmitter();
     onConnect!(socket);
+    const logsBefore = [...f.logs];
     expect(socket.listenerCount('error')).toBe(1);
     expect(() =>
       socket.emit('error', new Error('Connection terminated unexpectedly'))
     ).not.toThrow();
-    expect(f.logs.join('\n')).toContain('a socket in use was lost');
+    // It absorbs the event and reports nothing: an idle loss is the pool
+    // listener's to report, an in-use loss is the holding call's unknown outcome.
+    expect(f.logs).toEqual(logsBefore);
     await f.session.stop();
   });
 

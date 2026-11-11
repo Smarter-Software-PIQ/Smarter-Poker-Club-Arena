@@ -211,15 +211,14 @@ export function createLightningLaneSession(deps: {
            at 09:55:38Z on 2026-11-11 one lost lane socket drained and restarted
            the whole engine outside the break (EngineRestartedOutsideTheBreak).
            Every socket the pool creates gets its own listener for its whole
-           life. The call holding it still sees its queries rejected, resolves
-           the outcome as unknown and destroys the socket on release. */
-        candidate.on('connect', (socket) =>
-          socket.on('error', () =>
-            safeLog(
-              '[LightningLaneSession] a socket in use was lost; its call resolves as unknown and the socket is destroyed'
-            )
-          )
-        );
+           life, and the listener only absorbs the event: it decides nothing
+           and reports nothing. The two cases stay separate and keep their
+           own reporters. An IDLE socket's loss is the pool listener above. An
+           IN-USE socket's loss reaches the call holding it as rejected
+           queries, which resolves the outcome as unknown (never re-sent, so
+           the caller reconciles by its own request id) and destroys the
+           socket on release. */
+        candidate.on('connect', (socket) => socket.on('error', () => undefined));
         for (let index = 0; index < LIGHTNING_LANE_POOL_MAX; index++) {
           const client = await candidate.connect();
           if (closed || stopped) {
