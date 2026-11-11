@@ -366,6 +366,26 @@ for (const viewport of [
     expect(walletBounds.x + walletBounds.width).toBeLessThanOrEqual(spinBounds.x);
     expect(chipBounds.x).toBeGreaterThanOrEqual(spinBounds.x + spinBounds.width);
     expect(Math.abs(chipBounds.y - walletBounds.y)).toBeLessThan(1);
+    const balanceInk = await controls.locator('dl > div').evaluateAll((bays) =>
+      bays.map((bay) => {
+        const value = bay.querySelector('dd')!;
+        const nodes = document.createTreeWalker(value, NodeFilter.SHOW_TEXT);
+        while (nodes.nextNode()) {
+          if (!nodes.currentNode.textContent?.trim()) continue;
+          const ink = document.createRange();
+          ink.selectNodeContents(nodes.currentNode);
+          return [
+            bay.querySelector('dt')!.getBoundingClientRect().top,
+            ink.getBoundingClientRect().top,
+          ];
+        }
+        throw new Error('Balance value has no visible ink');
+      })
+    );
+    // The picker hit area must not move Diamonds' label or amount off the
+    // exact label/value stack used by Club Chips.
+    expect(Math.abs(balanceInk[0][0] - balanceInk[1][0])).toBeLessThan(1);
+    expect(Math.abs(balanceInk[0][1] - balanceInk[1][1])).toBeLessThan(1);
     expect(toggle.x).toBeGreaterThanOrEqual(walletBounds.x);
     expect(toggle.x + toggle.width).toBeLessThanOrEqual(walletBounds.x + walletBounds.width + 1);
     expect(toggle.y).toBeGreaterThanOrEqual(deck.y);

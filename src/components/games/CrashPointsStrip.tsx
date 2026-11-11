@@ -30,21 +30,23 @@ const INK: Record<CrashBand, string> = {
 export default function CrashPointsStrip({ points }: { points: FloorCrashPoint[] }) {
   if (points.length === 0) return null;
   return (
-    <div className={styles.strip} role="list" aria-label="Recent Crash Points">
-      <span className={`sc-label sc-ink--blue ${styles.stripLabel}`}>Last {points.length}</span>
-      {points.map((p, i) => {
-        const band = crashBand(p.crash_cents);
-        return (
-          <span
-            key={`${p.at}-${i}`}
-            role="listitem"
-            data-band={band}
-            className={`${styles.stripItem} ${INK[band]}`}
-          >
-            {multiplierLabel(p.crash_cents)}
-          </span>
-        );
-      })}
+    <div className={styles.crashHistory}>
+      <div className={styles.strip} role="list" aria-label="Recent Crash Points">
+        <span className={`sc-label sc-ink--blue ${styles.stripLabel}`}>Last {points.length}</span>
+        {points.map((p, i) => {
+          const band = crashBand(p.crash_cents);
+          return (
+            <span
+              key={`${p.at}-${i}`}
+              role="listitem"
+              data-band={band}
+              className={`${styles.stripItem} ${INK[band]}`}
+            >
+              {multiplierLabel(p.crash_cents)}
+            </span>
+          );
+        })}
+      </div>
     </div>
   );
 }

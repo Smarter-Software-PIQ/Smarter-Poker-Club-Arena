@@ -17,7 +17,8 @@ export function minePrizeV5(
   betChips: number,
   mines: number,
   picks: number,
-  minimum: number
+  minimum: number,
+  wheelMinimum = 0
 ): Fraction {
   if (
     !Number.isInteger(mines) ||
@@ -32,8 +33,13 @@ export function minePrizeV5(
     minimum < 0
   )
     throw new Error('Invalid Mines Prize');
-  const baseline = BigInt(Math.round(minimum * 100));
-  let prize = fraction(BigInt(Math.round(betChips * 100)) * 4n, 5n);
+  if (!Number.isFinite(wheelMinimum) || wheelMinimum < 0) throw new Error('Invalid Mines Prize');
+  const baseline = BigInt(Math.round(Math.max(minimum, wheelMinimum) * 100));
+  const stake = BigInt(Math.round(betChips * 100));
+  let prize =
+    wheelMinimum > 0
+      ? fraction(BigInt(Math.round(wheelMinimum * 100)) * 20n + stake, 20n)
+      : fraction(stake * 4n, 5n);
   for (let n = 1; n < picks; n++) {
     const lastHalf = ceil(prize.numerator, prize.denominator * 2n);
     const loss = baseline > lastHalf ? baseline : lastHalf;

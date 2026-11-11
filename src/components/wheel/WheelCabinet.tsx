@@ -58,17 +58,21 @@ export function WheelCabinet({
                 <dt>{bay.label}</dt>
                 <dd data-ink={bay.ink}>
                   {index === 0 && entry ? (
-                    <button
-                      type="button"
-                      className={styles.balancePicker}
-                      aria-label="Choose Spin Amount"
-                      aria-describedby="diamond-spin-range"
-                      aria-haspopup="dialog"
-                      onClick={() => controls.current?.querySelector('dialog')?.showModal()}
-                    >
+                    <>
                       {bay.value}
-                      <span aria-hidden="true"> ▾</span>
-                    </button>
+                      <span className={styles.balanceChevron} aria-hidden="true">
+                        {' '}
+                        ▾
+                      </span>
+                      <button
+                        type="button"
+                        className={styles.balancePicker}
+                        aria-label="Choose Spin Amount"
+                        aria-describedby="diamond-spin-range"
+                        aria-haspopup="dialog"
+                        onClick={() => controls.current?.querySelector('dialog')?.showModal()}
+                      />
+                    </>
                   ) : (
                     bay.value
                   )}

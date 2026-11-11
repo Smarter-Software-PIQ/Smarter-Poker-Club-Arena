@@ -210,7 +210,17 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
       setQuotedEntry(`${id}:${game}:${mode}:${bet}`);
       setWaitSeconds(next.seconds_until_next);
       if (next.open_round) {
-        setRound(next.open_round);
+        setRound((current) => {
+          const incoming = next.open_round!;
+          // A quote/history read can finish after a confirmed tile. Round
+          // progress is monotonic, even when consuming an award changes entry.
+          if (
+            current?.id === incoming.id &&
+            (current.status !== 'open' || current.picked.length > incoming.picked.length)
+          )
+            return current;
+          return incoming;
+        });
         setCompletionId(next.open_round.id);
         setBudget((current) =>
           bonusTotal(current) === next.open_round!.bet_diamonds
@@ -513,8 +523,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
       setTicket(null);
       uncertainTicket.current = null;
       setUncertain(false);
-      if (game === 'mines') refreshAfterOpen(uuid);
-      else await load(uuid);
+      refreshAfterOpen(uuid);
       return next;
     } catch (e) {
       reportError(e, 'DiamondChoicePage.start');
@@ -1013,7 +1022,9 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
   // on screen until its receipt has taken the player back to the wheel.
   const boardRound = viewOpen ? view : sceneRound;
   const gameFloor = boardRound
-    ? boardRound.payout_version === 5 || isRoadCoinVersion(boardRound.payout_version)
+    ? boardRound.payout_version === 5 ||
+      boardRound.payout_version === 9 ||
+      isRoadCoinVersion(boardRound.payout_version)
       ? choiceLossGuarantee(
           boardRound.prizes,
           boardRound.picked.length - (boardRound.status === 'lost' ? 1 : 0),
@@ -1280,7 +1291,12 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
             guaranteedChips,
             receiptShowing && round ? round.payout_chips : null,
             guaranteedSuper,
-            earned.loading ? null : (budget.award?.entryDiamonds ?? budget.base)
+            view
+              ? (earnedReceiptBudget(view as unknown as Record<string, unknown>)?.award
+                  ?.entryDiamonds ?? view.bet_diamonds)
+              : earned.loading
+                ? null
+                : (budget.award?.entryDiamonds ?? budget.base)
           ),
           {
             label: game === 'mines' ? 'Revealed' : 'Street',
@@ -1343,7 +1359,10 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
                     // Inside the tap: a phone only allows a buzz here, not when the
                     // server answers.
                     triggerHaptic('medium');
-                    void start();
+                    void start().then((opened) => {
+                      if (opened?.status === 'open' && opened.picked.length === 0)
+                        void act('pick', 0, opened);
+                    });
                     return;
                   }
                   triggerHaptic('selection');
@@ -1391,7 +1410,9 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
               if (!ticket || blocked || busyRef.current || uncertain) return;
               setPendingMine(cell);
               sessionStorage.setItem(mineIntentKey, `${ticket.id}:${cell}`);
-              await start();
+              const opened = await start();
+              if (opened?.status === 'open' && opened.picked.length === 0)
+                await act('pick', cell, opened);
             } else {
               if (game === 'mines') setPendingMine(cell);
               await act('pick', cell);
