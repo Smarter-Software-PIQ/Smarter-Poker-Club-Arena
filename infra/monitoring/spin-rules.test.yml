@@ -35,6 +35,18 @@
 #      since the last start, 44 REGISTERING boards (33 of them empty), and the
 #      oldest seated board at 0s because the 03:00 park had cancelled the
 #      night's boards - raises nothing. The retired last-start arm paged.
+#   K  a seated board at EXACTLY 8400s is silent: the arm is strictly
+#      greater than every rung at its maximum.
+#   L  a seated board past the envelope fires, and the alert RESOLVES once
+#      that board deals and the oldest seated wait falls back (recovery).
+#   M  12:00-13:30Z on a post-park morning: freshly seated boards waiting
+#      1800-5400s while the last start is 11,000s+ stale is silent (the
+#      #10502 shape, which still paged).
+#   N  the maintenance break suppresses the stall arm too.
+#   O  a MISSING poker_spin_unfilled_oldest_wait_seconds cannot page the stall
+#      arm (same silent-failure class as E); the gauge is emitted
+#      unconditionally by SpinMetrics, and a collector that stops refreshing
+#      is SpinMetricsStale's job (poker_spin_metrics_stale_seconds > 600).
 #   E  a MISSING poker_spin_ladder_full_envelope_seconds cannot page even at
 #      99999s of staleness. This is a real silent-failure mode: Prometheus
 #      reports an unfirable rule as health=ok/state=inactive, exactly what it
@@ -379,6 +391,131 @@ tests:
     values: 0x20
   - series: poker_spin_ladder_full_envelope_seconds
     values: 8400x20
+  alert_rule_test:
+  - eval_time: 19m
+    alertname: SpinFleetProducingNothing
+    exp_alerts: []
+- name: K a seated board at exactly the envelope is silent
+  interval: 1m
+  input_series:
+  - series: poker_spin_human_arrival_max_seconds
+    values: 420x20
+  - series: poker_spin_seconds_since_last_start
+    values: 20000x20
+  - series: poker_spin_unfilled_oldest_wait_seconds
+    values: 8400x20
+  - series: poker_spin_ladder_full_envelope_seconds
+    values: 8400x20
+  alert_rule_test:
+  - eval_time: 19m
+    alertname: SpinFleetProducingNothing
+    exp_alerts: []
+- name: L past the envelope fires, then resolves when the board deals
+  interval: 1m
+  input_series:
+  - series: poker_spin_human_arrival_max_seconds
+    values: 420x40
+  - series: poker_spin_unfilled_oldest_wait_seconds
+    values: 8500+60x14 0x25
+  - series: poker_spin_ladder_full_envelope_seconds
+    values: 8400x40
+  alert_rule_test:
+  - eval_time: 4m
+    alertname: SpinFleetProducingNothing
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: SpinFleetProducingNothing
+    exp_alerts:
+    - exp_labels:
+        alertname: SpinFleetProducingNothing
+        severity: critical
+        component: spin
+      exp_annotations:
+        summary: A seated Spin board has waited 9100s without dealing, past the ladder's own envelope
+        description: 'Either a seated Spin board has waited longer than every SPIN_LADDER
+
+          rung at its maximum without dealing, or a person has waited more
+
+          than twice the 3-7 minute arrival promise while the fleet started
+
+          nothing. Both are faults; neither is the ladder.
+
+          SPLIT THE WAITING SEATS BY WHO HOLDS THEM FIRST - it is the only
+
+          question that separates the two, and the runbook opens with it:
+
+          `SELECT tournament_id, live_seats, human_seats, horse_seats,
+
+          unresolved_seats, longest_wait FROM v_spin_unfilled_waits ORDER BY
+
+          oldest_seat_at;`. All horses on a 1-2 of 3 board is the designed
+
+          state (poker_spin_human_unfilled_waits is 0), and this alert then
+
+          means production, not seating: look FIRST at whether the platform
+
+          can create a tournament at all - on 2026-09-01 the cause was every
+
+          INSERT into `tournaments` failing in an AFTER INSERT trigger, which
+
+          no other alert here could see. Reproduce it by cloning a live row
+
+          inside a transaction you roll back; the error and its call site
+
+          come back together. Check `[ScheduledTournaments.insert_failed]` in
+
+          the engine log and `fn_tournament_management_readiness` for a
+
+          text/jsonb mismatch.
+
+          '
+        runbook: docs/runbooks/spin-fleet-stalled.md
+  - eval_time: 20m
+    alertname: SpinFleetProducingNothing
+    exp_alerts: []
+- name: M a post-park morning with freshly seated boards and a stale last start is silent
+  interval: 1m
+  input_series:
+  - series: poker_spin_human_arrival_max_seconds
+    values: 420x90
+  - series: poker_spin_seconds_since_last_start
+    values: 11000+60x90
+  - series: poker_spin_open_boards
+    values: 11x90
+  - series: poker_spin_unfilled_waits
+    values: 11x90
+  - series: poker_spin_unfilled_oldest_wait_seconds
+    values: 1800+60x90
+  - series: poker_spin_ladder_full_envelope_seconds
+    values: 8400x90
+  alert_rule_test:
+  - eval_time: 89m
+    alertname: SpinFleetProducingNothing
+    exp_alerts: []
+- name: N the maintenance break suppresses the stall arm
+  interval: 1m
+  input_series:
+  - series: poker_spin_unfilled_oldest_wait_seconds
+    values: 9000x20
+  - series: poker_spin_ladder_full_envelope_seconds
+    values: 8400x20
+  - series: poker_maintenance_break_active
+    values: 1x20
+  alert_rule_test:
+  - eval_time: 19m
+    alertname: SpinFleetProducingNothing
+    exp_alerts: []
+- name: O a missing oldest-wait gauge cannot page the stall arm
+  interval: 1m
+  input_series:
+  - series: poker_spin_seconds_since_last_start
+    values: 99999x20
+  - series: poker_spin_open_boards
+    values: 11x20
+  - series: poker_spin_ladder_full_envelope_seconds
+    values: 8400x20
+  - series: poker_spin_metrics_stale_seconds
+    values: 900+60x20
   alert_rule_test:
   - eval_time: 19m
     alertname: SpinFleetProducingNothing

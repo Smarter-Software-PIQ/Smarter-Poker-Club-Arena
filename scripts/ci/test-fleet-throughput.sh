@@ -27,6 +27,18 @@ docker run --rm --network none --read-only \
     mtt-started-late.test.yml engine-release-owner.test.yml database-replies-lost.test.yml \
     reliability-controller-health.test.yml
 
+# The Spin stall and human-wait rules against synthetic series (2026-11-11,
+# incident f1b14fca): below, at and above the ladder envelope, recovery, the
+# post-park morning, empty boards, the break and missing gauges. The fixtures
+# sit beside the rules they test; scripts/ci/test-spin-alert-rules-with-fixtures.sh
+# runs the same file with a checksummed local promtool.
+docker run --rm --network none --read-only \
+  --tmpfs /tmp:rw,noexec,nosuid,size=32m --memory 256m --cpus 1 \
+  -v "$repo_root:/work:ro" --workdir /work/infra/monitoring \
+  --entrypoint /bin/promtool \
+  quay.io/prometheus/prometheus@sha256:2659f4c2ebb718e7695cb9b25ffa7d6be64db013daba13e05c875451cf51b0d3 \
+  test rules spin-rules.test.yml
+
 # The lost-reply alarms reach the operational inbox (2026-11-05): the shipped
 # Alertmanager routes a DatabaseRepliesLost warning to codex-inbox only (no
 # warning email since 2026-11-11, owner decision), and a
