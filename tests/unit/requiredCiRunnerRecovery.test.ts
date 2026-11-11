@@ -542,6 +542,28 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
 
   it('preserves all other CI commands, gates, budgets, permissions and client partitions', () => {
     const normalized = structuredClone(ci);
+    {
+      // Moved 2026-11-11 (merge queue, review finding 3): typecheck_compile passes
+      // a merge group's own base to its diff gates. Normalize those additions
+      // back to the reviewed pull-request form before the pinned hashes below.
+      const job = normalized.jobs.typecheck_compile;
+      expect(job.env).toEqual({ CA_GATE_BASE: '${{ github.event.merge_group.base_sha }}' });
+      delete job.env;
+      const bindIndex = job.steps.findIndex(
+        (step: { name?: string }) => step.name === 'Bind the merge group base for the diff gates'
+      );
+      expect(bindIndex).toBeGreaterThan(0);
+      expect(job.steps[bindIndex].if).toBe("github.event_name == 'merge_group'");
+      job.steps.splice(bindIndex, 1);
+      const gateArg = ' ${CA_GATE_BASE:+"$CA_GATE_BASE"}';
+      let gateArgs = 0;
+      for (const step of job.steps as { run?: string }[]) {
+        if (!step.run?.includes(gateArg)) continue;
+        gateArgs += step.run.split(gateArg).length - 1;
+        step.run = step.run.split(gateArg).join('');
+      }
+      expect(gateArgs).toBe(8);
+    }
     const hostingSteps = normalized.jobs.accounting_postgres.steps.filter(
       (step: { name?: string }) => step.name === 'Data console native PostgreSQL contracts'
     );
@@ -894,7 +916,10 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     {
       const validStep = {
         name: 'Owner maintenance bookings are valid before they merge',
-        env: { CI_BASE_SHA: '${{ github.event.pull_request.base.sha }}' },
+        env: {
+          CI_BASE_SHA:
+            '${{ (github.event.pull_request.base.sha || github.event.merge_group.base_sha) }}',
+        },
         run:
           'node --test tests/operations/owner-window-booking-gate.test.mjs\n' +
           'node scripts/ci/check-owner-window-booking.mjs\n',
@@ -912,7 +937,10 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     {
       const bookingStep = {
         name: 'Owner maintenance bookings give notice after they merge',
-        env: { CI_BASE_SHA: '${{ github.event.pull_request.base.sha }}' },
+        env: {
+          CI_BASE_SHA:
+            '${{ (github.event.pull_request.base.sha || github.event.merge_group.base_sha) }}',
+        },
         run: 'node scripts/ci/check-owner-window-notice-after-merge.mjs',
       };
       const steps = normalized.jobs.typecheck_compile.steps;
@@ -979,8 +1007,10 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     browserJob.steps.splice(guardIndex, 1);
     const exactHash = (value: unknown) =>
       createHash('sha256').update(JSON.stringify(value)).digest('hex');
+    // Moved 2026-11-11 (merge queue): the build job also runs for merge_group,
+    // its if/CA_BUILD_PURPOSE name that event; nothing else in the job changed.
     expect(exactHash(browserBuild)).toBe(
-      '1d75a0c1c211190a532d247c4f6009f2c876ffe0f0775465ab0732f4005462bc'
+      'e5524e6e97074ff751fe1a1da7a0a7f4d1797d9a92fdc5e28e3a368655db8644'
     );
     expect(browserJob.needs).toEqual(['changes', 'css-beats-build']);
     browserJob.needs = 'changes';
@@ -1091,28 +1121,32 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     expect(Object.keys(normalized)).toEqual(['name', 'on', 'concurrency', 'jobs']);
     expect(
       fingerprint(Object.fromEntries(Object.entries(normalized).filter(([key]) => key !== 'jobs')))
-    ).toBe('bf371889e58c11a6f6178fd7405b0cb3a484ed6016b88629bc790f4b4ed83d0e');
+      // Moved 2026-11-11 (merge queue): `on` gains merge_group checks_requested.
+    ).toBe('c8518da7c0e1bb0e366b4c6c8868a9fd2bd080edbeffadd2d3789c611602f18c');
+    // Moved 2026-11-11 (merge queue): every job gated on the pull request
+    // event now also names merge_group and the merge group's base/head SHA;
+    // no command, budget, permission or partition changed.
     const expectedJobs = {
-      changes: 'fe673573c5f5db526c93c086e911b58b9c956ac1f5070d10f29aa78158b86d5f',
+      changes: '483a9c473c06b8cd3c92235f64c8eea738b22ee831b864eb10a40d8b5a5139fd',
       source_windows: 'a9830648dfc81b5558d0e9a45d75307210fa1535926da65e087f6647e1fa4189',
-      stub_gate: '166528cc83e7d0c075c59b6facb1a6782f3e2eda6c334f9608b933319aca9c80',
-      fixture_native: '8949ac7f86b74f267efb996eecddb67f8c59f93d3e40a8bc407530ec3b1644ec',
-      typecheck: '07758ff6fff680beb77a9e38725eecc5776b94db14cdc3499783c049ce771750',
-      typecheck_compile: '88a03bf85dc749608900101f598720ad93c957e5b5bf75791c589c9e25228168',
-      unit_shards: 'dee27f1ca77441b7044d7044f7fc5d5eb428376fe6a175bf0310a9d1f4d413ef',
-      unit: '1a7b2d6c8f6c6fb045124997bf1780d296cd4a7c9d3241bdb4cc52ba82cddd08',
+      stub_gate: '118f1b051bd24a3616cea41a6892985553c577d67f9cb39b2120f3d5a74391ca',
+      fixture_native: '5ad4eff1fd198db8bd3f8a95e763496520ddff7c63c0b380afd7a49d4b6a82a6',
+      typecheck: '9befab7487852fbbf2c6991d1e7e781c4c5a4391d070ef617dd4dfe193895e61',
+      typecheck_compile: '6039cd213a4591c076a1454d4d1ef598d3e8bc0833d63e5c3f1ee7c67d684aaa',
+      unit_shards: '2f4cffd8880df0e5826ecc79361500b4dae7da7d23698d7a211772f351863649',
+      unit: '7b3caf98ff41bbe5f1e52ff0cb65323b1ec587ed45a768e81de2051bb1906de5',
       // Retain both original top-up receipt and funded satellite qualifications.
       // Every other normalized job and prior accounting command is unchanged.
-      accounting_postgres: '8fe0309bc5f9c00d2987d02020e9ef6aa0a13eb2dcbcd16ae69e21274d5735a3',
-      server_shards: '9b89b7ee75080d4d8b5aafd55d35adf888bd49c30720aa96ad2225bad240ee41',
-      server: '086cab96ac6e24b0ced5ab9407a2c406eddfa451de33d6b614953b1f9f94bd1d',
-      verdict: 'cbcc5b069cdc625a6fb5a5c23b6a5c6a4ed2c3669f37bf74163c3eea6c5fbd0f',
-      build: '1b0ed1fea04c1e6ef74fcde68387787cf36b0fe589539caf71cdfe7e314fa76b',
+      accounting_postgres: '82a9796a80bb93a237e323bd3fa46d6f7530212a12d36c1ded09f19dcbf5e486',
+      server_shards: '0d259b20866a7d0b2eb6a3245894908e52e210c9852c4b63519086461724ac0f',
+      server: '2f21fe942c1e2397520fe372a5b46b95e252bc6276e017f95013a2a24a62d9c1',
+      verdict: '51ff5df41add022dc51ea5bcacb648971c4db7b63fd03990b47a99ece3a5c529',
+      build: '5d384174da91ace2f98e73648c13fe44208e7cf8d02d79b7e875e5eef458b4b3',
       'live-e2e': 'fae9db0fd7b5ad3a502a34981574aa5ac43c01d763d2a0c518a7d98572ae796d',
       'post-deploy-check': '86936192ff526aab46d57a6e263e27475c3e60da754b0f04f4948ec40b8b4fcd',
-      'css-beats-e2e': 'b225827a172512b9fdd48b87a912767d27abc02cfe24428c735d47c9eb4d4d22',
-      'diamond-playfield-e2e': '2802fb1377e89b20cfd5dfd89155194bd41921da2b014220040728d27e4d690d',
-      'css-beats-gate': '71e08443dc0eee58fbb9055054e02643edbe532aeae3c3073fcf04ae8e35a944',
+      'css-beats-e2e': '3e68cd87692edbdbd19e4700fadd4841af06bc04b59ed970d72420c0e50e802f',
+      'diamond-playfield-e2e': '42e350a9ed24cccd9539ca47631848f9022b027839632712c71070531802957e',
+      'css-beats-gate': '79747df21d67d09db6eaee0451c2e2cb8befbfdac82fc45c497760bb4d8521f2',
     };
     expect(Object.keys(normalized.jobs)).toEqual(Object.keys(expectedJobs));
     expect(
@@ -1390,6 +1424,18 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
 
   it('preserves every native qualification stage and cleanup requirement', () => {
     const normalized = structuredClone(native);
+    {
+      // Moved 2026-11-11 (merge queue, review finding 2): the ordinary mode also
+      // admits a main merge group. Normalize that clause back to the reviewed form.
+      const groupClause =
+        "(!inputs.connected_ui_observations && github.event_name == 'merge_group' && " +
+        "github.event.merge_group.base_ref == 'refs/heads/main' && " +
+        "github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena' && " +
+        'inputs.source_sha == github.event.merge_group.head_sha) || ';
+      const job = normalized.jobs['native-smoke'];
+      expect(job.if.split(groupClause)).toHaveLength(2);
+      job.if = job.if.replace(groupClause, '');
+    }
     expect(normalized.jobs['native-smoke']['runs-on']).toBe('ubuntu-24.04');
     expect(normalized.on.workflow_call.inputs.connected_ui_observations.default).toBe(false);
     expect(ci.jobs.fixture_native.permissions).toEqual({ contents: 'read', actions: 'read' });

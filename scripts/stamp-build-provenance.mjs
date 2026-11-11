@@ -84,9 +84,52 @@ const behindMain = hasOriginMain && historyComplete ? gitCount('HEAD..origin/mai
 const aheadMain = hasOriginMain && historyComplete ? gitCount('origin/main..HEAD') : null;
 
 let pullRequest = null;
+let mergeGroup = null;
 let pullRequestIdentityError = null;
+// MERGE QUEUE (2026-11-11): a queued main merge group validates the exact
+// squash commit GitHub built on the group's base. Its identity is the
+// merge_group event, the gh-readonly-queue/main/ ref, ci.yml at that ref and a
+// head equal to the checkout. The result stays validation-only: it is never
+// publishable, and no other event gains this path.
+function isMergeGroupValidation() {
+  const repository = assertClubArenaRepository(process.env.GITHUB_REPOSITORY, process.env.GITHUB_REPOSITORY_ID);
+  const ref = process.env.GITHUB_REF || '';
+  const eventPath = process.env.GITHUB_EVENT_PATH || '';
+  const fail = () => {
+    throw new Error('Invalid merge group build validation identity');
+  };
+  if (
+    !/^refs\/heads\/gh-readonly-queue\/main\/[A-Za-z0-9._\/-]+$/.test(ref) ||
+    process.env.GITHUB_REPOSITORY !== repository ||
+    process.env.GITHUB_WORKFLOW_REF !== `${repository}/.github/workflows/ci.yml@${ref}` ||
+    !/^[0-9a-f]{40}$/.test(commit) ||
+    process.env.GITHUB_SHA !== commit ||
+    !path.isAbsolute(eventPath) ||
+    historyComplete !== true
+  )
+    fail();
+  const stat = lstatSync(eventPath);
+  if (!stat.isFile() || stat.size <= 0 || stat.size > 4 * 1024 * 1024) fail();
+  const event = JSON.parse(readFileSync(eventPath, 'utf8'));
+  const group = event.merge_group;
+  if (
+    !group ||
+    event.repository?.full_name !== repository ||
+    group.base_ref !== 'refs/heads/main' ||
+    group.head_ref !== ref ||
+    group.head_sha !== commit ||
+    !/^[0-9a-f]{40}$/.test(group.base_sha || '') ||
+    group.base_sha === commit ||
+    git(`merge-base --is-ancestor ${group.base_sha} HEAD`, null) !== ''
+  )
+    fail();
+  mergeGroup = { ref, base: group.base_sha, head: commit };
+  return true;
+}
 function isPullRequestValidation() {
   if (process.env.CA_BUILD_PURPOSE !== 'ci-validation') return false;
+  if (process.env.GITHUB_ACTIONS === 'true' && process.env.GITHUB_EVENT_NAME === 'merge_group')
+    return isMergeGroupValidation();
   if (process.env.GITHUB_ACTIONS !== 'true' || process.env.GITHUB_EVENT_NAME !== 'pull_request')
     throw new Error('Invalid PR build validation identity');
   const repository = assertClubArenaRepository(process.env.GITHUB_REPOSITORY, process.env.GITHUB_REPOSITORY_ID);
@@ -218,6 +261,7 @@ const info = {
   repositoryId: process.env.GITHUB_REPOSITORY_ID || null,
   validationOnly,
   pullRequest,
+  mergeGroup,
   publication,
   commit,
   commitTime,
