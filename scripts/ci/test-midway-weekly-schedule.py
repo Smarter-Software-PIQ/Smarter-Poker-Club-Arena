@@ -79,7 +79,7 @@ with tempfile.TemporaryDirectory(prefix='midway-weekly-',dir=parent) as folder:
          CREATE TRIGGER tournaments_lock_level_clock BEFORE INSERT OR UPDATE OF blind_structure ON tournaments FOR EACH ROW EXECUTE FUNCTION fn_ca_tournament_lock_level_clock();
          CREATE TRIGGER zzzzzzzzzz_tournament_level_clock_floor BEFORE INSERT OR UPDATE ON tournaments FOR EACH ROW EXECUTE FUNCTION fn_ca_tournament_level_clock_floor();
          CREATE TRIGGER table_inherits BEFORE INSERT ON tables FOR EACH ROW EXECUTE FUNCTION fn_tournament_table_inherits_committed_blinds();''')
-        target=next(e for e in document['events'] if e['sourceName']=='Nightly 10K (NLH)')
+        target=next(e for e in document['events'] if e['id']=='099ac5a4-c866-4acb-917c-31337bf468b1')
         scope='fade0000-0000-0000-0000-000000000001'
         def insert_event(event_id,schedule_id=target['id'],club=scope,status='REGISTERING',started='NULL',buy_in=31.5,fee=3.5):
             sql(f"""INSERT INTO tournaments(id,schedule_id,club_id,union_id,name,status,started_at,current_level,tournament_type,variant,buy_in_amount,buy_in_fee,starting_chips,blind_structure,late_reg_levels,late_reg_mins,blind_speed,ban_chat,start_time)
@@ -368,32 +368,57 @@ with tempfile.TemporaryDirectory(prefix='midway-weekly-',dir=parent) as folder:
             assert actual['late_reg_levels']==10 and actual['late_reg_mins']==0
             assert json.loads(actual['blind_structure'])==document['profiles'][event['blindProfile']]
         print('PASS: four revised schedules spawn 15,000 at 25/50 with every subsequent level preserved')
-        # Dan 2026-11-11: the 7 PM Nightly 10K guarantees 20K. Before the
-        # migration: one open instance nobody entered, one with an entrant.
+        # Dan 2026-11-11: the 7 PM Nightly becomes the Nightly 20K with a 20K
+        # guarantee. Before the migration: one open instance nobody entered,
+        # one with an entrant.
         nightly=target['id']
+        feeder_ids=sorted(e['id'] for e in document['events'] if e['config'].get('satelliteTargetName')=='Nightly 20K (NLH)')
+        assert len(feeder_ids)==2,feeder_ids
         open_id,held_id='92000000-0000-4000-8000-000000000001','92000000-0000-4000-8000-000000000002'
         for event_id in (open_id,held_id):
             insert_event(event_id,nightly)
         sql("UPDATE tournaments SET start_time=now()+interval '1 day' WHERE id IN ('"+open_id+"','"+held_id+"')")
         sql("INSERT INTO tournament_players(id,tournament_id) VALUES(gen_random_uuid(),'"+held_id+"')")
-        assert sql("SELECT string_agg(trim_scale(guaranteed_prize)::text,',' ORDER BY id) FROM tournaments WHERE id IN ('"+open_id+"','"+held_id+"')")=='10000,10000'
-        sql("DROP TABLE IF EXISTS before_nightly; CREATE TABLE before_nightly AS SELECT id,config FROM tournament_schedules")
+        assert sql("SELECT string_agg(name||'/'||trim_scale(guaranteed_prize)::text,',' ORDER BY id) FROM tournaments WHERE id IN ('"+open_id+"','"+held_id+"')")=='Nightly 10K (NLH)/10000,Nightly 10K (NLH)/10000'
+        # The two registered-contract guards the migration amends, reduced to
+        # the exact production anchors it edits.
+        sql("""CREATE OR REPLACE FUNCTION fn_guard_managed_game_lifecycle() RETURNS trigger LANGUAGE plpgsql AS $g$
+BEGIN
+  IF TG_TABLE_NAME='tournaments' THEN
+    IF session_user='postgres' THEN NULL; END IF;
+  END IF;
+  RETURN NEW;
+END $g$;
+CREATE OR REPLACE FUNCTION trg_freeze_registered_tournament_settlement_contract() RETURNS trigger LANGUAGE plpgsql AS $g$
+BEGIN
+  IF TG_TABLE_NAME='tournaments' AND public.fn_ca_midway_free_buy_conversion_transition(to_jsonb(OLD),to_jsonb(NEW)) THEN RETURN NEW; END IF;
+  RETURN NEW;
+END $g$;
+DO $d$BEGIN IF to_regprocedure('public.fn_ca_midway_free_buy_conversion_transition(jsonb,jsonb)') IS NULL THEN
+  CREATE FUNCTION public.fn_ca_midway_free_buy_conversion_transition(jsonb,jsonb) RETURNS boolean LANGUAGE sql AS $f$SELECT false$f$; END IF; END$d$;""")
+        sql("DROP TABLE IF EXISTS before_nightly; CREATE TABLE before_nightly AS SELECT id,name,config FROM tournament_schedules")
         nightly_sql=next((root/'supabase/migrations').glob('*nightly_10k_guarantees_20k.sql')).read_text()
         sql(installer(nightly_sql))
-        changed=sql("SELECT string_agg(s.id::text,',') FROM tournament_schedules s JOIN before_nightly b USING(id) WHERE s.config IS DISTINCT FROM b.config")
-        assert changed==nightly,changed
-        assert sql("SELECT (config->>'guaranteedPrize')||','||(config#>>'{midwayWeeklyTerms,guaranteed_prize}')||','||name||','||start_times_utc[1] FROM tournament_schedules WHERE id='"+nightly+"'")=='20000,20000,Nightly 10K (NLH),19:00'
-        assert sql("SELECT (b.config::jsonb-'guaranteedPrize'-'midwayWeeklyTerms')=(s.config::jsonb-'guaranteedPrize'-'midwayWeeklyTerms') AND ((b.config::jsonb->'midwayWeeklyTerms')-'guaranteed_prize')=((s.config::jsonb->'midwayWeeklyTerms')-'guaranteed_prize') FROM tournament_schedules s JOIN before_nightly b USING(id) WHERE s.id='"+nightly+"'")=='t'
-        assert sql("SELECT string_agg(trim_scale(guaranteed_prize)::text,',' ORDER BY id) FROM tournaments WHERE id IN ('"+open_id+"','"+held_id+"')")=='20000,10000'
+        changed=sql("SELECT string_agg(s.id::text,',' ORDER BY s.id) FROM tournament_schedules s JOIN before_nightly b USING(id) WHERE s.config IS DISTINCT FROM b.config OR s.name IS DISTINCT FROM b.name")
+        assert changed==','.join(sorted([nightly]+feeder_ids)),changed
+        assert sql("SELECT name||','||(config->>'guaranteedPrize')||','||(config#>>'{midwayWeeklyTerms,guaranteed_prize}')||','||start_times_utc[1] FROM tournament_schedules WHERE id='"+nightly+"'")=='Nightly 20K (NLH),20000,20000,19:00'
+        # On the Nightly only the name and guarantee moved; the feeders now name it.
+        assert sql("SELECT (replace(b.config::text,'Nightly 10K','Nightly 20K')::jsonb-'guaranteedPrize'-'midwayWeeklyTerms')=(s.config::jsonb-'guaranteedPrize'-'midwayWeeklyTerms') AND ((replace(b.config::text,'Nightly 10K','Nightly 20K')::jsonb->'midwayWeeklyTerms')-'guaranteed_prize')=((s.config::jsonb->'midwayWeeklyTerms')-'guaranteed_prize') FROM tournament_schedules s JOIN before_nightly b USING(id) WHERE s.id='"+nightly+"'")=='t'
+        assert sql("SELECT count(*) FROM tournament_schedules WHERE id IN ('"+"','".join(feeder_ids)+"') AND name='Nightly 20K Satellite 5' AND config->>'satelliteTargetName'='Nightly 20K (NLH)'")=='2'
+        missing_targets=sql("SELECT feeder.name FROM tournament_schedules feeder WHERE feeder.active AND feeder.config ? 'satelliteTargetName' AND NOT EXISTS (SELECT 1 FROM tournament_schedules target WHERE target.active AND target.name=feeder.config->>'satelliteTargetName' AND target.union_id=feeder.union_id)")
+        assert not missing_targets,missing_targets
+        assert sql("SELECT string_agg(name||'/'||trim_scale(guaranteed_prize)::text,',' ORDER BY id) FROM tournaments WHERE id IN ('"+open_id+"','"+held_id+"')")=='Nightly 20K (NLH)/20000,Nightly 10K (NLH)/10000'
         spawned=sql("SELECT gen_random_uuid()")
         insert_event(spawned,nightly)
-        assert sql("SELECT trim_scale(guaranteed_prize)::text||','||(fn_ca_midway_weekly_terms(t.schedule_id)->>'guaranteed_prize') FROM tournaments t WHERE id='"+spawned+"'")=='20000,20000'
-        # The catalog document carries the same guarantee as the installed catalog.
-        assert target['config']['guaranteedPrize']==20000 and target['terms']['guaranteed_prize']==20000
+        assert sql("SELECT name||','||trim_scale(guaranteed_prize)::text||','||(fn_ca_midway_weekly_terms(t.schedule_id)->>'guaranteed_prize') FROM tournaments t WHERE id='"+spawned+"'")=='Nightly 20K (NLH),20000,20000'
+        assert sql("SELECT count(*) FROM pg_proc WHERE proname IN ('fn_guard_managed_game_lifecycle','trg_freeze_registered_tournament_settlement_contract') AND prosrc LIKE '%fn_ca_owner_nightly_20k_admitted(OLD, NEW)%'")=='2'
+        # The owner admission is exact: wrong setting, wrong values or another id are not admitted.
+        assert sql("SELECT public.fn_ca_owner_nightly_20k_admitted(o,n) FROM (SELECT t AS o, (jsonb_populate_record(t, jsonb_build_object('name','Nightly 20K (NLH)','guaranteed_prize',20000))) AS n FROM tournaments t WHERE id='"+held_id+"') x")=='f'
+        assert target['config']['guaranteedPrize']==20000 and target['terms']['guaranteed_prize']==20000 and target['name']=='Nightly 20K (NLH)'
         try: sql(installer(nightly_sql))
         except RuntimeError as error: assert 'changed since qualification' in str(error),str(error)
         else: raise AssertionError('a second install of the Nightly 20K migration was not refused')
-        print('PASS: Nightly 10K guarantees 20,000 on its schedule, new spawns and unentered instances; an entered instance keeps its contract')
+        print('PASS: the Nightly is renamed Nightly 20K and guarantees 20,000 on its schedule, feeders, new spawns and unentered instances; an entered instance keeps its contract unless exactly admitted')
         # Execute the maintained snapshot against this production-shaped schema.
         # Empty read inputs do not emulate cancellation or certify a refund.
         sql("""ALTER TABLE tournament_players ADD COLUMN IF NOT EXISTS user_id uuid;
