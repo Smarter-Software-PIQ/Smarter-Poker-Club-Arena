@@ -578,26 +578,27 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
         this.markProgress();
         const recoverHorseTurnOnError = (): void => {
           const horsePlayer = players.find((p) => p.seat_number === event.seat);
-          if (!horsePlayer?.is_horse || this.isOwnClientControlling(horsePlayer.user_id)) return;
-          this.setHandTimeout(() => {
-            if (
-              !this.running ||
-              !this.isCurrentEngine() ||
-              !this.lifecycleCanMutate() ||
-              !this.handController ||
-              this.horseActionTimer !== null ||
-              this.horseDecisionAbortController !== null ||
-              this.isOwnClientControlling(horsePlayer.user_id)
-            ) {
-              return;
-            }
-            const st = this.handController.getState();
-            const ep = st.players.find((p) => p.seat === event.seat);
-            if (!ep || st.currentPlayerSeat !== event.seat || st.stage === 'pineapple_discard') {
-              return;
-            }
-            this.scheduleHorseAction(horsePlayer, event.seat, ep, st);
-          }, 250);
+          if (horsePlayer?.is_horse && !this.isOwnClientControlling(horsePlayer.user_id)) {
+            this.setHandTimeout(() => {
+              if (
+                !this.running ||
+                !this.isCurrentEngine() ||
+                !this.lifecycleCanMutate() ||
+                !this.handController ||
+                this.horseActionTimer !== null ||
+                this.horseDecisionAbortController !== null ||
+                this.isOwnClientControlling(horsePlayer.user_id)
+              ) {
+                return;
+              }
+              const st = this.handController.getState();
+              const ep = st.players.find((p) => p.seat === event.seat);
+              if (!ep || st.currentPlayerSeat !== event.seat || st.stage === 'pineapple_discard') {
+                return;
+              }
+              this.scheduleHorseAction(horsePlayer, event.seat, ep, st);
+            }, 250);
+          }
         };
         try {
           // Dan 2026-08-20: handleTurnChange is async now — a queued
