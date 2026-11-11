@@ -55,7 +55,10 @@
 --    (.github/workflows/reliability-escalation-drill.yml); nothing schedules it.
 --    The drill page is sent in critical_only mode like any critical incident.
 --    Not paged elsewhere: fn_ca_owner_page_kind returns NULL for this source,
---    so zz_a_real_alert_reaches_the_owner sends nothing.
+--    so zz_a_real_alert_reaches_the_owner sends nothing. Like every SQL
+--    sender, both rows carry payload.target_task_id, the Production Alerts
+--    fleet id (tests/an-operational-alert-sender-addresses-the-fleet.law.test.ts);
+--    the fleet sees a labelled drill that resolves itself.
 --
 -- 2. CLASS CORRECTIONS, from production 2026-11-10 07:24Z to 2026-11-11 13:30Z
 --    (235 incidents, 2,355 observations, 19 DMs and 0 intake rejections; full
@@ -237,6 +240,7 @@ BEGIN
     -- The real intake, exactly as a producer calls it.
     v_inbox := public.fn_record_operational_alert(c_source, v_key, v_name, 'firing', 'critical',
       jsonb_build_object(
+        'target_task_id', '01a09b86-5ba8-7290-8657-1041f13dd3ca',
         'drill_id', p_drill_id,
         'drill', true,
         'summary', v_summary,
@@ -262,6 +266,7 @@ BEGIN
     END IF;
     v_inbox := public.fn_record_operational_alert(c_source, v_key || ':resolved', d.alertname, 'resolved', 'info',
       jsonb_build_object(
+        'target_task_id', '01a09b86-5ba8-7290-8657-1041f13dd3ca',
         'drill_id', p_drill_id,
         'drill', true,
         'resolves', v_key,
