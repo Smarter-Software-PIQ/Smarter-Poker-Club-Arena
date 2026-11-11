@@ -11,7 +11,11 @@ import { isMaximumHorseCashStake } from '../HorseBehavior.js';
  */
 
 import { v5 as uuidv5 } from 'uuid';
-import { balancedHorseAutoTopUps, isPlo5Variant } from '../HorseTopUpStyle.js';
+import {
+  MAXIMUM_CASH_AUTO_TOP_UP_SHARE,
+  balancedHorseAutoTopUps,
+  isPlo5Variant,
+} from '../HorseTopUpStyle.js';
 import { supabase } from './client.js';
 import { reportError } from '../errorReporter.js';
 import { isMaintenanceFrozen } from '../../maintenance/freezeState.js';
@@ -374,11 +378,10 @@ export async function readHorseTopUpBatch(
     const seats = cohort.filter((seat) => seat.table_id === tableId);
     const out = new Map<string, HorseTopUpContext>();
     if (!seats.length) return out;
-    const chosen = maximumCash
-      ? new Set(cohort.map((seat) => seat.user_id))
-      : balancedHorseAutoTopUps(
-          cohort.map((seat) => ({ userId: seat.user_id, autoTopUp: seat.auto_rebuy === true }))
-        );
+    const chosen = balancedHorseAutoTopUps(
+      cohort.map((seat) => ({ userId: seat.user_id, autoTopUp: seat.auto_rebuy === true })),
+      maximumCash ? MAXIMUM_CASH_AUTO_TOP_UP_SHARE : undefined
+    );
     for (const enabled of [false, true]) {
       const ids = seats
         .filter((s) => chosen.has(s.user_id) === enabled && (s.auto_rebuy === true) !== enabled)
