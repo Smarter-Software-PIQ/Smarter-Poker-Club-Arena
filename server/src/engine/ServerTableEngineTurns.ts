@@ -4376,10 +4376,13 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       // coercion below stays as the legality guarantee.
       allInOrFold: this.tableInfo?.all_in_or_fold === true,
       // THE VPIP FLOOR (Dan 2026-09-04). A floored table stands a seat up
-      // after ten hands under the floor, horses included (10.5). The brain
-      // gets the floor and ITS OWN judged figure - the same numbers the
+      // under its window/grace policy, horses included (10.5). The brain
+      // gets the floor, window and ITS OWN judged figure - the same numbers the
       // eviction reads - and widens toward the floor like a regular would.
       vpipFloor: this.vpipFloor(),
+      vpipWindowHands:
+        this.nitStatus.get(authoritativePlayer.user_id)?.window ??
+        Number(this.tableInfo?.maintain_hands ?? 10),
       ownVpip: (() => {
         const row = this.nitStatus.get(authoritativePlayer.user_id);
         return row ? { hands: row.hands, vpip: row.vpip } : undefined;

@@ -1123,8 +1123,23 @@ describe('V87.1 Holdem Elite Strategy & Ecosystem Independent Validation', () =>
         big_blind: 2,
         small_blind: 1,
         game_variant: 'nlh',
+        nit_game: true,
+        maintain_percent_min: 20,
+        maintain_hands: 10, // The authoritative judged row below overrides this fallback.
         straddle_enabled: true, // Voluntary straddle enabled, NOT posted -> must pass straddleActive: false!
       };
+      engine.nitStatus.set(utgEnginePlayer.user_id, {
+        userId: utgEnginePlayer.user_id,
+        hands: 30,
+        vpip: 30,
+        required: 20,
+        window: 30,
+        rolling: true,
+        warned: false,
+        graceHands: 10,
+        graceRemaining: null,
+        evict: false,
+      });
       engine.seatedPlayers = [horseSeatRow];
       engine.handController = hc;
       engine.disconnectEngine = { isSittingOut: () => false, recordPlayerActed: vi.fn() };
@@ -1146,6 +1161,9 @@ describe('V87.1 Holdem Elite Strategy & Ecosystem Independent Validation', () =>
       expect(spyFast).toHaveBeenCalledTimes(1);
       const passedSnap = spyFast.mock.calls[0][0] as LiveHorseDecisionSnapshot;
       expect(passedSnap.gameState.straddleActive).toBe(false);
+      expect(passedSnap.gameState.vpipFloor).toBe(20);
+      expect(passedSnap.gameState.vpipWindowHands).toBe(30);
+      expect(passedSnap.gameState.ownVpip).toEqual({ hands: 30, vpip: 30 });
       expect(lastWitness?.acceptedActions).toHaveLength(1);
       expect(lastWitness?.acceptedActions[0].record.action).toBe('raise');
       expect(hc.getState().currentPlayerSeat).toBe(5);

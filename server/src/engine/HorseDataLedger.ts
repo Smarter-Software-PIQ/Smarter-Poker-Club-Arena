@@ -1527,11 +1527,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   state('boardCount', 'boards dealt (V36)'),
   state(
     'vpipFloor',
-    'the table VPIP floor a seat is stood up under after ten hands (Dan 2026-09-04)',
+    'the table VPIP floor, enforced with its judged window and grace policy',
     // Two consumers, and the second one is the point (2026-09-06): the floor
     // does not only widen the brain, it travels to settlement and keys the
     // horse_daily_play row apart, so no band ever judges required-loose play.
     'HorseLogic.vpipFloorMul; ServerTableEngineSettlement -> HorseHandReview (horse_daily_play.floored)'
+  ),
+  state(
+    'vpipWindowHands',
+    'actual judged sample window; NLH variance margin uses this policy input',
+    'HorseLogic.vpipFloorMul / vpipFloorCallDown'
   ),
   state(
     'ownVpip',

@@ -14,3 +14,26 @@ The retained worker fixture now supplies canonical public cards, variant/action/
 The offline proving ground settles controller runouts, isolates each arm's public memory, rejects illegal proposals, records accepted-action statistics and freezes a 21-cell, 26,000-pair matrix. Run from `server/` with `HOLD_EM_PROVING_OUTPUT=/absolute/new/archive/path npx vitest run src/benchmark/HoldemProvingGround.test.ts`. Ordinary CI runs a bounded smoke of the same matrix. Its JSON inputs contain per-source hashes; paired raw results and the summary are retained. This compares current V87 enabled/disabled, with empty solver stores and static tournament contexts. It does not establish historical V86 strength, tournament ROI, statistical superiority, or fleet activation. The predecessor 52,000-hand manifest failed chip conservation and is retained as invalid qualification evidence.
 
 Delivery requires exact-candidate gates, protected merge, certified Backup and production activation through the current maintenance route, followed by sealed receipt and actual runtime decision evidence. Local checks alone do not complete delivery.
+
+## Classic NLH judged-window correction
+
+The 20% Classic floor is judged over thirty hands, but HorseLogic still computed
+its safety margin over ten. That set a 36.44% target instead of 29.49% using
+the same 1.3 standard-error formula. The live turn snapshot now carries the
+judged window from fn_nit_status, falling back to table maintain_hands when the
+read is unavailable. NLH uses this input in range widening and the bounded
+cheap-call decision. Missing or immature Classic samples no longer mean zero
+VPIP for that call override; the existing range prior still applies.
+
+No 35% action clamp is introduced. Above-target play returns to the normal
+strategy; strong hands are not folded to hit a percentage. Floors, warning and
+grace rules, rejoin persistence, legal-action and price limits, and cashout
+transactions are unchanged. Ten-hand Action/Madness and non-NLH strategy retain
+their existing behavior. The 37.3% historical cohort is not a causal estimate: it
+has no equivalent live control or retained per-decision input receipts.
+
+Seven regression assertions failed before the correction. The focused VPIP and
+V87 integration suites now pass 48 tests, including policy window transport
+through the live engine snapshot and real worker/validator/HandController path.
+Final required qualification, protected publication and natural live acceptance
+remain separate delivery requirements.

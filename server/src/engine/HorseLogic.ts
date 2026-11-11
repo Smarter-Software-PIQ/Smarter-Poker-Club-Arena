@@ -1471,10 +1471,12 @@ export interface HorseGameStateV2 extends HorseGameState {
   ante?: number;
   /**
    * THE VPIP FLOOR (Dan 2026-09-04). The table's maintain_percent_min when
-   * it runs the rule, else 0. A seat under it after ten hands is stood up,
-   * horses included (10.5), so the brain plays to it - see vpipFloorMul.
+   * it runs the rule, else 0. The judged window and any grace belong to the
+   * table policy, horses included (10.5) - see vpipFloorMul.
    */
   vpipFloor?: number;
+  /** Actual judged window from fn_nit_status, or table maintain_hands on read failure. */
+  vpipWindowHands?: number;
   /**
    * This horse's OWN judged figure at this table, this sitting - the same
    * query the eviction reads (fn_nit_status). `vpip` is null until the
@@ -3032,9 +3034,9 @@ function moodOf(userId: string, decisionTimeMs = moodClockMs()): number {
  * VPIP is voluntary money in preflop by any route.
  */
 /**
- * THE WINDOW THE FLOOR IS JUDGED OVER. `tables.maintain_hands`, pinned at 10
- * on every surface by migration 20260904231353 (`v_vpip_window := 10`,
- * `SET maintain_hands = 10`, `'{vpip_window}'` in the ruleset snapshot).
+ * Legacy judged-window default. Classic now uses thirty dealt hands; NLH
+ * receives the actual policy window instead of assuming ten. Action/Madness
+ * and the separately owned non-NLH strategy retain their existing behavior.
  */
 export const VPIP_JUDGED_OVER_HANDS = 10;
 
@@ -3090,29 +3092,44 @@ const VPIP_FLOOR_MUL = 0.35;
 
 /**
  * The frequency a horse aims at on a table whose floor is `floorPct`: the
- * floor plus enough margin that an ordinary ten-hand sample does not fall
- * under it. Exported so the law that judges reachability asks the SAME
+ * floor plus the existing variance margin for its actual judged window. Exported so the law that judges reachability asks the SAME
  * function the brain uses, rather than restating the arithmetic and drifting
  * from it.
  */
-export function vpipTargetFor(floorPct: number): number {
+function validVpipWindow(windowHands: number | undefined): number {
+  return Number.isInteger(windowHands) && Number(windowHands) > 0
+    ? Number(windowHands)
+    : VPIP_JUDGED_OVER_HANDS;
+}
+
+// This correction owns Classic NLH. Other variant strategy keeps its existing
+// target until independently qualified; the enforcement policy never changes.
+function vpipStrategyWindow(gs: { gameVariant?: string; vpipWindowHands?: number }): number {
+  return gs.gameVariant && gs.gameVariant !== 'nlh'
+    ? VPIP_JUDGED_OVER_HANDS
+    : validVpipWindow(gs.vpipWindowHands);
+}
+
+export function vpipTargetFor(floorPct: number, windowHands?: number): number {
   const floor = Number(floorPct) / 100;
   if (!(floor > 0)) return 0;
   /* The standard error of a proportion over the judged window, taken AT THE
      FLOOR - the horse is steering from below, so the floor is the relevant
      variance, and it is the figure that does not move as the horse's own
      rate does. */
-  const se = Math.sqrt((floor * (1 - floor)) / VPIP_JUDGED_OVER_HANDS);
+  const se = Math.sqrt((floor * (1 - floor)) / validVpipWindow(windowHands));
   return Math.min(0.95, floor + VPIP_FLOOR_MARGIN_SIGMAS * se);
 }
 
 export function vpipFloorMul(gs: {
   vpipFloor?: number;
+  vpipWindowHands?: number;
+  gameVariant?: string;
   ownVpip?: { hands: number; vpip: number | null };
 }): number {
   const floor = Number(gs.vpipFloor ?? 0);
   if (!(floor > 0)) return 1;
-  const target = vpipTargetFor(floor);
+  const target = vpipTargetFor(floor, vpipStrategyWindow(gs));
   const own = gs.ownVpip;
   if (!own || own.hands < 3 || own.vpip === null || !Number.isFinite(own.vpip)) {
     return Math.max(VPIP_FLOOR_MUL, Math.min(1, BASE_VPIP / target));
@@ -3162,6 +3179,8 @@ export function vpipFloorCallDown(
     currentBet: number;
     bigBlind: number;
     vpipFloor?: number;
+    vpipWindowHands?: number;
+    gameVariant?: string;
     ownVpip?: { hands: number; vpip: number | null };
     allInOrFold?: boolean;
   },
@@ -3183,9 +3202,21 @@ export function vpipFloorCallDown(
   if (toCall > VPIP_CALLDOWN_MAX_BB * bb || toCall > VPIP_CALLDOWN_MAX_STACK_SHARE * stack)
     return decision;
   const own = gs.ownVpip;
+  const windowHands = vpipStrategyWindow(gs);
+  // A missing/immature Classic sample is unknown, not 0% VPIP. The range
+  // prior still applies, but cannot justify buying every otherwise-folded hand.
+  if (
+    windowHands > VPIP_JUDGED_OVER_HANDS &&
+    (!own ||
+      own.hands < 3 ||
+      !Number.isFinite(own.hands) ||
+      own.vpip === null ||
+      !Number.isFinite(own.vpip))
+  )
+    return decision;
   const rate =
     own && own.hands > 0 && own.vpip !== null && Number.isFinite(own.vpip) ? own.vpip / 100 : 0;
-  const gap = vpipTargetFor(floor) - rate;
+  const gap = vpipTargetFor(floor, windowHands) - rate;
   if (!(gap > 0)) return decision;
   const q = Math.min(1, VPIP_CALLDOWN_GAIN * gap);
   if (!(rand() < q)) return decision;
