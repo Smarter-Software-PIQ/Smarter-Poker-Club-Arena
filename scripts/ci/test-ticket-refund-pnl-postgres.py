@@ -122,3 +122,6 @@ try:
 finally:
     if started: subprocess.run([str(PG/'pg_ctl'),'-D',str(work/'data'),'-m','immediate','stop'],capture_output=True,env=env)
     shutil.rmtree(work)
+
+# Keep direct satellite-seat refund ownership covered by this same required route.
+print(run(['python3',str(ROOT / 'scripts/ci/test-satellite-refund-admitted-club-postgres.py')]))
