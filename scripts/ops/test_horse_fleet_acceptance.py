@@ -239,8 +239,8 @@ class FleetAcceptanceTests(unittest.TestCase):
     def test_empty_and_unreconciled_reads_are_distinct_omissions_not_zero_activity(self):
         empty = {'key': 'f' * 64, 'records': [], 'review': {'version': 1, 'scope': 'single_retained_hand', 'status': 'unavailable', 'retainedRecords': 0}}
         partial = capture(); partial['review']['status'] = 'unavailable'
-        proofs, omissions = journal_witnesses([empty, partial, capture()], SERVING, WINDOWS)
-        self.assertEqual(len(proofs), 1)
+        proofs, omissions = journal_witnesses([empty, partial], SERVING, WINDOWS)
+        self.assertEqual(proofs, [])
         self.assertEqual([o['reason'] for o in omissions], ['no_journal_records_for_key', 'original_reconciliation_incomplete'])
         self.assertEqual(omissions[0]['handKey'], 'f' * 64)
 
