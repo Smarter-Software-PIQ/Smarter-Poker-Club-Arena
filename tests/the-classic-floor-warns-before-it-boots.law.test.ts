@@ -18,6 +18,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { sliceSqlStatement } from './helpers/sourceWindow';
 
 const ROOT = resolve(__dirname, '..');
 const read = (p: string) => readFileSync(resolve(ROOT, p), 'utf8');
@@ -72,10 +73,11 @@ describe('the Classic VPIP floor', () => {
     const callers = MIG.match(/public\.fn_nit_sample\(/g) ?? [];
     expect(callers.length).toBeGreaterThanOrEqual(4);
     for (const fn of ['fn_nit_check', 'fn_nit_status', 'fn_cash_vpip_status']) {
-      const body = MIG.slice(MIG.indexOf(`FUNCTION public.${fn}(`));
-      expect(body.slice(0, 4000), `${fn} does not use the shared sample`).toMatch(
-        /public\.fn_nit_sample\(/
-      );
+      // Bound the window by the statement it is about, never by a byte count:
+      // a comment added inside one of these bodies must not push the thing
+      // being asserted out the far end of the window.
+      const body = sliceSqlStatement(MIG, `FUNCTION public.${fn}(`);
+      expect(body, `${fn} does not use the shared sample`).toMatch(/public\.fn_nit_sample\(/);
     }
   });
 
@@ -104,7 +106,10 @@ describe('the Classic VPIP floor', () => {
   it('leaves Action and Madness exactly as they are', () => {
     // vpip_rolling and vpip_grace_hands are written ONLY inside the Classic
     // branch, so a Madness snapshot has neither and reads false / zero.
-    const classicBranch = MIG.slice(MIG.indexOf("IF NEW.template_name = 'classic' THEN"));
+    const classicBranch = sliceSqlStatement(
+      MIG,
+      'FUNCTION public.fn_cash_game_floor_from_template()'
+    );
     expect(classicBranch).toMatch(/'vpip_rolling',\s*true/);
     expect(classicBranch).toMatch(/'vpip_grace_hands',\s*v_grace/);
     expect(MIG).toMatch(/COALESCE\(\(g\.ruleset_snapshot->>'vpip_rolling'\)::boolean, false\)/);
