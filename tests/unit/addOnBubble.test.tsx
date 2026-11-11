@@ -152,9 +152,12 @@ describe('the wiring is the real one', () => {
     expect(sweep).toMatch(/amount: applied,/);
   });
 
-  it('the notice uses green ink, no speech panel, and an upward flight', () => {
+  it('the notice matches the countdown ring ink, no speech panel, and an upward flight', () => {
     const css = read('src/components/table/AddOnFlight.css');
-    expect(css).toContain('color: #4dc660');
+    expect(css).toContain('color: #00e5ff');
+    expect(read('src/components/table/SeatSlot.css')).toMatch(
+      /\.seat__timer-ink\s*\{[^}]*border:\s*3px solid #00e5ff/
+    );
     expect(css).toContain('addOnBankToCrown');
     expect(css).not.toMatch(/background:|border:|box-shadow:/);
     expect(read('src/components/table/AddOnFlight.tsx')).toContain('restingAvatarTop(art, scale)');
