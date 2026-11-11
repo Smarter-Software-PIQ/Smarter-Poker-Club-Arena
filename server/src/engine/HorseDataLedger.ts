@@ -788,6 +788,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V87'
   ),
   flag(
+    'v87RiverBlockBetTrap',
+    'V87 river nut-trap lead and re-raise policy; default enabled, false only for isolated offline ablation',
+    'V87'
+  ),
+  flag(
+    'v87HollywoodTank',
+    'V87 deterministic Hollywood timing eligibility; default enabled, false only for isolated offline ablation',
+    'V87'
+  ),
+  flag(
+    'v87FlopStabCheckRaise',
+    'V87 flop-stab check-raise policy with public reads retained; default enabled, false only for isolated offline ablation',
+    'V87'
+  ),
+  flag(
     'deepEquity',
     'V44 second look: every Monte Carlo read at this multiple of its sample; set only by the engine replay inside the think time',
     'V44'
