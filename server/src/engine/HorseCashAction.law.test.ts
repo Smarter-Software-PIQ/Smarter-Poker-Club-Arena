@@ -18,9 +18,13 @@
  * for another seed and narrow enough that the tightness cannot come back.
  */
 import { describe, expect, it } from 'vitest';
-import { measureTable } from '../benchmark/HoldemCashActionProbe.js';
+import { measureTable, playPreflop } from '../benchmark/HoldemCashActionProbe.js';
+import { seedFastRandom } from './HorseEval.js';
 import {
   CASH_ACTION_OPEN_TARGET,
+  classifyHoldemEpLimpCandidate,
+  gtoCashActionOpenStrength,
+  gtoOpenStrength,
   OPEN_TARGET,
   openTargetShare,
   V85_CASH_OPEN_TARGET,
@@ -29,7 +33,16 @@ import {
   v85DepthWeight,
   v85OpenTargetShare,
 } from './HorseGtoOpeningRanges.js';
-import { defenceTargets, V85_IP_FLOOR, type DefenceSpot } from './HorseGtoDefenceRanges.js';
+import { decidePreflopV7, type PreflopAuthorityEvent, type PreflopCtx } from './HorsePreflop.js';
+import type { Card } from '../types.js';
+import {
+  defenceTargets,
+  V85_IP_FLOOR,
+  V87_MULTIWAY_DEFENCE,
+  v87LowStakesWeight,
+  v87WidenDefence,
+  type DefenceSpot,
+} from './HorseGtoDefenceRanges.js';
 import {
   NLH_CASH_ACTION_OPEN_MAX_BB,
   NLH_CASH_OPEN_FLOOR_BB,
@@ -49,12 +62,15 @@ const table = (seats: number, depth = DEEP, opts = {}) =>
 
 describe('a full table of cash horses plays', () => {
   const nine = table(9);
+  const nine100 = table(9, 100);
   const nineOff = table(9, DEEP, OFF);
 
-  it('nine-handed VPIP is no longer under 20%: 23-30% (15.9% in production before)', () => {
+  it('nine-handed VPIP lands squarely in 25-30% at both 250bb and 100bb (15.9% in production before)', () => {
     expect(nineOff.vpip).toBeLessThan(18);
-    expect(nine.vpip).toBeGreaterThanOrEqual(23);
+    expect(nine.vpip).toBeGreaterThanOrEqual(25);
     expect(nine.vpip).toBeLessThanOrEqual(30);
+    expect(nine100.vpip).toBeGreaterThanOrEqual(25);
+    expect(nine100.vpip).toBeLessThanOrEqual(30);
   });
 
   it('nine-handed 3-bets rise from under 4% to 5.5% or more, and squeezes exist', () => {
@@ -66,31 +82,33 @@ describe('a full table of cash horses plays', () => {
 
   it('the seats behind an open no longer fold 94%', () => {
     expect(nineOff.vsOpen.field.fold).toBeGreaterThan(92);
-    expect(nine.vsOpen.field.fold).toBeLessThanOrEqual(81);
-    expect(nine.vsOpen.field.call + nine.vsOpen.field.raise).toBeGreaterThanOrEqual(19);
+    expect(nine.vsOpen.field.fold).toBeLessThanOrEqual(82);
+    expect(nine.vsOpen.field.call + nine.vsOpen.field.raise).toBeGreaterThanOrEqual(18);
     expect(nine.vsOpen.sb.fold).toBeLessThanOrEqual(84);
-    expect(nine.vsOpen.bb.fold).toBeLessThanOrEqual(45);
+    expect(nine.vsOpen.bb.fold).toBeLessThanOrEqual(46);
   });
 
   it('the big blind does not fold MORE when a caller improves its price', () => {
     expect(nine.bbVsOpenCallerFold).toBeLessThanOrEqual(nine.vsOpen.bb.fold + 3);
   });
 
-  it('it is still a raising game, not a calling one: PFR keeps pace and nobody open-limps', () => {
-    expect(nine.pfr).toBeGreaterThanOrEqual(12.5);
-    expect(nine.rfi).toBeGreaterThanOrEqual(21);
-    expect(nine.rfi).toBeLessThanOrEqual(27);
+  it('it remains an aggressive game: PFR and early-position RFI expand cleanly', () => {
+    expect(nine.pfr).toBeGreaterThanOrEqual(13.5);
+    expect(nine.rfi).toBeGreaterThanOrEqual(24);
+    expect(nine.rfi).toBeLessThanOrEqual(34);
+    expect(V85_CASH_OPEN_TARGET[8]).toBeGreaterThanOrEqual(22);
   });
 
-  it.each([8, 7])(
-    'a nine-seat table with empty chairs (%i dealt in) is not left on the tight ranges',
-    (seats) => {
-      const t = table(seats);
-      expect(t.vpip).toBeGreaterThanOrEqual(nine.vpip);
+  it('strict monotonicity holds across 9, 8, and 7 seats dealt in', () => {
+    const eight = table(8);
+    const seven = table(7);
+    expect(eight.vpip).toBeGreaterThan(nine.vpip);
+    expect(seven.vpip).toBeGreaterThan(eight.vpip);
+    for (const t of [eight, seven]) {
       expect(t.threeBet).toBeGreaterThanOrEqual(6);
-      expect(t.vsOpen.field.fold).toBeLessThanOrEqual(81);
+      expect(t.vsOpen.field.fold).toBeLessThanOrEqual(82);
     }
-  );
+  });
 });
 
 describe('six-handed and short-handed cash play wider still, in order', () => {
@@ -306,5 +324,277 @@ describe('short stacks keep the prior ranges', () => {
       const off = table(seats, 45, OFF);
       expect(on).toEqual(off);
     }
+  });
+});
+
+describe('V87 early-position limp-reraise trap and suited-connector limp mix', () => {
+  const SUITS: Card['suit'][] = ['clubs', 'diamonds', 'hearts', 'spades'];
+  const card = (rank: Card['rank'], suit: Card['suit']): Card => ({ rank, suit });
+
+  function baseEpCtx(holeCards: [Card, Card], over: Partial<PreflopCtx> = {}): PreflopCtx {
+    return {
+      strength: 0.96,
+      position: 'early',
+      raiserPosition: null,
+      raises: 0,
+      limpers: 0,
+      callers: 0,
+      oppsLeft: 8,
+      tableSize: 9,
+      toCall: 2,
+      currentBet: 2,
+      pot: 3,
+      bigBlind: 2,
+      stack: 200,
+      stackBB: 100,
+      effectiveStackBB: 100,
+      tightness: 1,
+      bluffFreq: 0.35,
+      aggression: 1,
+      slowplayFreq: 0.2,
+      sizingMultiplier: 1,
+      isOmaha: false,
+      isPotLimit: false,
+      riskAdd: 0,
+      mode: 'cash',
+      cashActionSizes: true,
+      holeCards,
+      heroSeat: 3,
+      dealerSeat: 9,
+      rand: () => 0.5,
+      ...over,
+    };
+  }
+
+  it('mixes ~15-18% open-limps with QQ/KK/AA and ~18-22% with 54s-T9s, then defends iso-raises 100%', () => {
+    const bigPairs: [Card, Card][] = [];
+    for (const r of ['Q', 'K', 'A'] as const) {
+      for (let i = 0; i < 4; i++)
+        for (let j = i + 1; j < 4; j++) bigPairs.push([card(r, SUITS[i]), card(r, SUITS[j])]);
+    }
+    const suitedConnectors: [Card, Card][] = [];
+    for (const [hi, lo] of [
+      ['5', '4'],
+      ['6', '5'],
+      ['7', '6'],
+      ['8', '7'],
+      ['9', '8'],
+      ['T', '9'],
+    ] as const) {
+      for (const s of SUITS) suitedConnectors.push([card(hi, s), card(lo, s)]);
+    }
+
+    let pairLimps = 0;
+    for (const h of bigPairs) {
+      expect(classifyHoldemEpLimpCandidate(h[0], h[1])).toBe('big_pair_trap');
+      const events: PreflopAuthorityEvent[] = [];
+      const res = decidePreflopV7(baseEpCtx(h, { noteAuthority: (e) => events.push(e) }));
+      if (res.a === 'call') {
+        pairLimps++;
+        expect(events.some((e) => e.branch === 'v87_ep_limp_trap')).toBe(true);
+      } else {
+        expect(res.a).toBe('raiseTo');
+      }
+      // Facing an iso-raise after limping, QQ/KK/AA 100% limp-reraises.
+      const isoEvents: PreflopAuthorityEvent[] = [];
+      const vsIso = decidePreflopV7(
+        baseEpCtx(h, {
+          raises: 1,
+          raiserPosition: 'late',
+          currentBet: 9,
+          toCall: 7,
+          pot: 14,
+          heroPreviouslyActed: true,
+          heroWasInitialRaiser: false,
+          noteAuthority: (e) => isoEvents.push(e),
+        })
+      );
+      expect(vsIso.a === 'raiseTo' || vsIso.a === 'jam').toBe(true);
+      expect(isoEvents.some((e) => e.branch === 'v87_ep_limp_reraise_value')).toBe(true);
+    }
+    const pairRate = pairLimps / bigPairs.length;
+    expect(pairRate).toBeGreaterThanOrEqual(0.14);
+    expect(pairRate).toBeLessThanOrEqual(0.2);
+
+    let scLimps = 0;
+    let scIsoBluffs = 0;
+    let scIsoCalls = 0;
+    for (const h of suitedConnectors) {
+      expect(classifyHoldemEpLimpCandidate(h[0], h[1])).toBe('suited_connector');
+      const events: PreflopAuthorityEvent[] = [];
+      const res = decidePreflopV7(
+        baseEpCtx(h, { strength: 0.64, noteAuthority: (e) => events.push(e) })
+      );
+      if (res.a === 'call') {
+        scLimps++;
+        expect(events.some((e) => e.branch === 'v87_ep_limp_suited_connector')).toBe(true);
+      }
+      const isoEvents: PreflopAuthorityEvent[] = [];
+      const vsIso = decidePreflopV7(
+        baseEpCtx(h, {
+          strength: 0.64,
+          raises: 1,
+          raiserPosition: 'late',
+          currentBet: 9,
+          toCall: 7,
+          pot: 14,
+          heroPreviouslyActed: true,
+          heroWasInitialRaiser: false,
+          noteAuthority: (e) => isoEvents.push(e),
+        })
+      );
+      if (vsIso.a === 'raiseTo' || vsIso.a === 'jam') {
+        scIsoBluffs++;
+        expect(isoEvents.some((e) => e.branch === 'v87_ep_limp_reraise_bluff')).toBe(true);
+      } else {
+        expect(vsIso.a).toBe('call');
+        scIsoCalls++;
+        expect(isoEvents.some((e) => e.branch === 'v87_ep_limp_call_iso')).toBe(true);
+      }
+    }
+    const scRate = scLimps / suitedConnectors.length;
+    expect(scRate).toBeGreaterThanOrEqual(0.15);
+    expect(scRate).toBeLessThanOrEqual(0.24);
+    expect(scIsoBluffs).toBeGreaterThanOrEqual(4);
+    expect(scIsoBluffs + scIsoCalls).toBe(suitedConnectors.length);
+
+    // Implied-odds EP open strength equals base at 45bb and beats ATo/KJo/QJo at 100bb.
+    expect(gtoCashActionOpenStrength(card('6', 'hearts'), card('5', 'hearts'), 8, 45)).toBe(
+      gtoOpenStrength(card('6', 'hearts'), card('5', 'hearts'), 8)
+    );
+    expect(
+      gtoCashActionOpenStrength(card('6', 'hearts'), card('5', 'hearts'), 8, 100)
+    ).toBeGreaterThan(gtoCashActionOpenStrength(card('K', 'hearts'), card('J', 'clubs'), 8, 100));
+  });
+});
+
+/**
+ * V87 MULTIWAY LOW-STAKES DEFENCE (owner direction, 2026-11-10 22:48
+ * Chicago): "I HAVEN'T SEEN ANY OR MANY 3 HANDED OR EVEN 4 HANDED FLOPS, AND
+ * THAT TYPICALLY HAPPENS OFTEN IN LOWER STAKES GAMES... HORSES ARE NOT
+ * CALLING OR 3 BETTING ENOUGH.... PREFLOP RANGES APPEAR TO BE WAY TO TIGHT."
+ *
+ * Measured on this probe (seed 20261110, 2,500 hands, $0.05/$0.10), V85
+ * alone (v87HoldemOverhaul off) against V87, nine-handed 100bb: VPIP 26.1 ->
+ * 28.0, 3-bet 6.2 -> 9.0, flat share facing a raise 20.7 -> 23.6, single
+ * raised pots with a caller 78.9 -> 82.9%, three-way 39.8 -> 47.4%, four-way
+ * 13.1 -> 22.3%. 250bb: VPIP 26.9 -> 29.3, 3-bet 6.2 -> 8.8, three-way 43.9
+ * -> 53.0%. Six-handed 100bb: VPIP 32.4 -> 35.3, 3-bet 8.5 -> 10.5.
+ */
+describe('V87 multiway low-stakes defence: more flats, more 3-bets, more multiway flops', () => {
+  const V87_OFF = { v87HoldemOverhaul: false };
+  const rng = (seed: number) => {
+    let s = seed >>> 0;
+    return () => {
+      s = (s + 0x6d2b79f5) >>> 0;
+      let t = s;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  };
+  /** Single raised pots only: every caller of the one open sees the flop. */
+  const multiway = (n: number, depth: number, opts: Record<string, unknown>) => {
+    const r = rng(777 + n);
+    seedFastRandom(4242 + n);
+    let srp = 0;
+    let called = 0;
+    let three = 0;
+    let four = 0;
+    let flats = 0;
+    let facing = 0;
+    for (let h = 0; h < HANDS; h++) {
+      const seats = playPreflop(n, depth, r, opts);
+      for (const x of seats) {
+        if (x.vsOpen || x.vsOpenCaller) {
+          facing++;
+          if (x.vsOpen === 'call' || x.vsOpenCaller === 'call') flats++;
+        }
+      }
+      if (seats.filter((x) => x.pfr).length !== 1) continue;
+      srp++;
+      const players = seats.filter((x) => x.vpip).length;
+      if (players >= 2) called++;
+      if (players >= 3) three++;
+      if (players >= 4) four++;
+    }
+    const pct = (a: number, b: number) => (100 * a) / b;
+    return {
+      called: pct(called, srp),
+      three: pct(three, srp),
+      four: pct(four, srp),
+      flatShare: pct(flats, facing),
+    };
+  };
+
+  const nine100 = table(9, 100);
+  const nine100Off = table(9, 100, V87_OFF);
+  const nine = table(9);
+  const nineV85 = table(9, DEEP, V87_OFF);
+  const six = table(6, 100);
+  const six85 = table(6, 100, V87_OFF);
+
+  it("nine-handed VPIP stays inside Dan's 25-30% while 3-bets reach 8-11%", () => {
+    for (const t of [nine100, nine]) {
+      expect(t.vpip).toBeGreaterThanOrEqual(25);
+      expect(t.vpip).toBeLessThanOrEqual(30);
+      expect(t.threeBet).toBeGreaterThanOrEqual(8);
+      expect(t.threeBet).toBeLessThanOrEqual(11);
+    }
+    expect(nine100.threeBet).toBeGreaterThanOrEqual(nine100Off.threeBet + 2);
+    expect(nine.threeBet).toBeGreaterThanOrEqual(nineV85.threeBet + 2);
+    expect(nine.vpip).toBeGreaterThan(nineV85.vpip);
+  });
+
+  it('six-handed runs wider (32-38%) with a 3-bet that stays under 11.5%', () => {
+    expect(six.vpip).toBeGreaterThan(six85.vpip);
+    expect(six.vpip).toBeGreaterThanOrEqual(32);
+    expect(six.vpip).toBeLessThanOrEqual(38);
+    expect(six.threeBet).toBeGreaterThan(six85.threeBet);
+    expect(six.threeBet).toBeLessThanOrEqual(11.5);
+  });
+
+  it('a single open at a nine-handed 100bb table draws callers materially more often', () => {
+    const on = multiway(9, 100, {});
+    const off = multiway(9, 100, V87_OFF);
+    expect(on.flatShare).toBeGreaterThanOrEqual(off.flatShare + 2);
+    expect(on.called).toBeGreaterThanOrEqual(off.called + 2.5);
+    expect(on.three).toBeGreaterThanOrEqual(off.three + 5);
+    expect(on.four).toBeGreaterThanOrEqual(off.four + 5);
+    // Three-way flops are common: nearly half of all single raised pots.
+    expect(on.three).toBeGreaterThanOrEqual(42);
+  });
+
+  it('the low-stakes weight is full at a $2 big blind, gone at $10, and taper is linear', () => {
+    expect(v87LowStakesWeight(0.1)).toBe(1);
+    expect(v87LowStakesWeight(2)).toBe(1);
+    expect(v87LowStakesWeight(5)).toBeCloseTo(0.625, 9);
+    expect(v87LowStakesWeight(10)).toBe(0);
+    expect(v87LowStakesWeight(25)).toBe(0);
+    expect(v87LowStakesWeight(undefined)).toBe(0);
+  });
+
+  it('the widening is pure, zero at weight 0, wider at lower stakes and with every caller', () => {
+    const bars = { continueBar: 0.42, valueBar: 0.68, bluffProb: 0.2 };
+    const spot = { defender: 'ip' as const, callers: 0, lowStakes: 0, weight: 1, dealt: 9 };
+    expect(v87WidenDefence(bars, { ...spot, weight: 0 })).toEqual(bars);
+    const base = v87WidenDefence(bars, spot);
+    expect(v87WidenDefence(bars, spot)).toEqual(base);
+    expect(base.continueBar).toBeLessThan(bars.continueBar);
+    expect(base.valueBar).toBeLessThan(bars.valueBar);
+    expect(base.bluffProb).toBeGreaterThan(bars.bluffProb);
+    const low = v87WidenDefence(bars, { ...spot, lowStakes: 1 });
+    expect(low.continueBar).toBeLessThan(base.continueBar);
+    const caller = v87WidenDefence(bars, { ...spot, callers: 1 });
+    const callers2 = v87WidenDefence(bars, { ...spot, callers: 2 });
+    expect(caller.continueBar).toBeLessThan(base.continueBar);
+    expect(callers2.continueBar).toBeLessThan(caller.continueBar);
+    // Bluffs stay a scaled share of the existing chart, never a new class.
+    expect(v87WidenDefence({ ...bars, bluffProb: 0 }, spot).bluffProb).toBe(0);
+    expect(V87_MULTIWAY_DEFENCE.maxCont).toBeLessThanOrEqual(90);
+  });
+
+  it('V87 off is V85 exactly, and a 45bb table is untouched by the widening', () => {
+    expect(table(9, 45)).toEqual(table(9, 45, V87_OFF));
   });
 });

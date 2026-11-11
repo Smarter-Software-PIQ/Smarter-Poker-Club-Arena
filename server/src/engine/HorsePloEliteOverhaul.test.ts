@@ -2075,6 +2075,14 @@ describe('V86 4. Bully-Breaker Anti-LAG counter-system, Hydrator, Personas, Top-
       id: 'table-nlh-25',
       game_variant: 'nlh',
     };
+    const tablePlo12 = {
+      ...tablePlo25,
+      id: 'table-plo-12',
+      big_blind: 2,
+      small_blind: 1,
+      min_buy_in: 80,
+      max_buy_in: 200, // 70% stack = 140 (< 0.80 * 200, > 0.45 * 200), bb < 5 -> does NOT reload!
+    };
 
     const clubId = '00000000-0000-0000-0000-000000000000';
     const seatRows = [
@@ -2093,11 +2101,25 @@ describe('V86 4. Bully-Breaker Anti-LAG counter-system, Hydrator, Personas, Top-
         tables: tablePlo25,
       },
       {
+        id: 'seat-plo-nit',
+        table_id: tablePlo25.id,
+        user_id: NIT_HUNTER_HORSE,
+        seat_number: 2,
+        stack: 350, // 70bb with nit_hunter archetype -> stays on 0.45 threshold, does NOT reload!
+        joined_at: new Date(now - 45 * 60_000).toISOString(),
+        club_id: clubId,
+        leave_pending: false,
+        is_sitting_out: false,
+        left_at: null,
+        auto_rebuy: false,
+        tables: tablePlo25,
+      },
+      {
         id: 'seat-nlh-lag',
         table_id: tableNlh25.id,
         user_id: TAG_CRUSHER_HORSE,
         seat_number: 1,
-        stack: 350, // 70bb at NLH $2/$5: above 0.45 threshold -> does NOT reload!
+        stack: 350, // 70bb at NLH $2/$5 (V87): active deep style also reloads to 100bb!
         joined_at: new Date(now - 45 * 60_000).toISOString(),
         club_id: clubId,
         leave_pending: false,
@@ -2106,16 +2128,34 @@ describe('V86 4. Bully-Breaker Anti-LAG counter-system, Hydrator, Personas, Top-
         auto_rebuy: false,
         tables: tableNlh25,
       },
+      {
+        id: 'seat-plo-12-lag',
+        table_id: tablePlo12.id,
+        user_id: TRICKY_TRAP_HORSE,
+        seat_number: 1,
+        stack: 140, // 70bb at $1/$2 (bb < 5): above 0.45 threshold -> does NOT reload!
+        joined_at: new Date(now - 45 * 60_000).toISOString(),
+        club_id: clubId,
+        leave_pending: false,
+        is_sitting_out: false,
+        left_at: null,
+        auto_rebuy: false,
+        tables: tablePlo12,
+      },
     ];
     const dbTables: Record<string, Record<string, unknown>[]> = {
       table_seats: seatRows,
       profiles: [
         { id: LAG_SHARK_HORSE, is_horse: true, diamonds: 200_000 },
+        { id: NIT_HUNTER_HORSE, is_horse: true, diamonds: 200_000 },
         { id: TAG_CRUSHER_HORSE, is_horse: true, diamonds: 200_000 },
+        { id: TRICKY_TRAP_HORSE, is_horse: true, diamonds: 200_000 },
       ],
       club_members: [
         { club_id: clubId, user_id: LAG_SHARK_HORSE, chip_balance: 200_000 },
+        { club_id: clubId, user_id: NIT_HUNTER_HORSE, chip_balance: 200_000 },
         { club_id: clubId, user_id: TAG_CRUSHER_HORSE, chip_balance: 200_000 },
+        { club_id: clubId, user_id: TRICKY_TRAP_HORSE, chip_balance: 200_000 },
       ],
       chip_ledger: [],
       table_waitlist: [],
@@ -2124,7 +2164,7 @@ describe('V86 4. Bully-Breaker Anti-LAG counter-system, Hydrator, Personas, Top-
       cash_seat_moves: [],
       hand_history: [],
       tournament_players: [],
-      tables: [tablePlo25, tableNlh25],
+      tables: [tablePlo25, tableNlh25, tablePlo12],
     };
 
     vi.spyOn(supabase, 'from').mockImplementation(((name: string) => {
@@ -2152,6 +2192,7 @@ describe('V86 4. Bully-Breaker Anti-LAG counter-system, Hydrator, Personas, Top-
 
     const addChipsPlo = vi.fn(async () => ({ success: true }));
     const addChipsNlh = vi.fn(async () => ({ success: true }));
+    const addChipsPlo12 = vi.fn(async () => ({ success: true }));
     const engines: Record<string, RotatorEngine> = {
       [tablePlo25.id]: {
         leaveTable: vi.fn(() => ({ success: true })),
@@ -2167,6 +2208,13 @@ describe('V86 4. Bully-Breaker Anti-LAG counter-system, Hydrator, Personas, Top-
         hitRunHandsOwed: () => 5,
         isClientSitOut: () => false,
       },
+      [tablePlo12.id]: {
+        leaveTable: vi.fn(() => ({ success: true })),
+        sitOut: vi.fn(() => ({ success: true })),
+        addChips: addChipsPlo12,
+        hitRunHandsOwed: () => 5,
+        isClientSitOut: () => false,
+      },
     };
 
     const rotator = new HorseSessionRotator((tid) => engines[tid]) as unknown as {
@@ -2179,8 +2227,10 @@ describe('V86 4. Bully-Breaker Anti-LAG counter-system, Hydrator, Personas, Top-
     await rotator.rotate(1);
     vi.useRealTimers();
 
+    expect(addChipsPlo).toHaveBeenCalledTimes(1);
     expect(addChipsPlo).toHaveBeenCalledWith(LAG_SHARK_HORSE, 150);
-    expect(addChipsNlh).not.toHaveBeenCalled();
+    expect(addChipsNlh).toHaveBeenCalledWith(TAG_CRUSHER_HORSE, 150);
+    expect(addChipsPlo12).not.toHaveBeenCalled();
   });
 
   it('emits & registers all 3 V86 PLO leak tags in HorseHandReview / HorseDataLedger and isolates OMAHA_CASH_VPIP_HI = 0.44 in HorseSelfTuner', () => {

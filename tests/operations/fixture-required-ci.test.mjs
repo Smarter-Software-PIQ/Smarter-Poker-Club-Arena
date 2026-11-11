@@ -109,6 +109,10 @@ test('a scheduled or missing event cannot satisfy the pull-request required gate
   }
 });
 
+test('a queued merge group is gated exactly like its pull request', () => {
+  assert.doesNotThrow(() => requireFixtureNativeResult({ ...verified, eventName: 'merge_group' }));
+});
+
 test('a green wrapper without executed proof or with another source is refused', () => {
   for (const nativeVerified of [undefined, '', 'false', true]) {
     assert.throws(

@@ -726,6 +726,10 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
     observation: CompletedHandObservation,
     signal?: AbortSignal
   ): Promise<HorseDecisionWorkerAck> {
+    if (observation.terminalOnlySourceRelease !== undefined) {
+      const owner = horseDecisionShard(observation.fence, this.clients.length);
+      return this.clients[owner]!.observeCompletedHand(observation, signal);
+    }
     // The owner journals the hand. Other shards receive public completion
     // only for the same original observer's already-existing private view;
     // the pool supplies admission from validated original FASTs.

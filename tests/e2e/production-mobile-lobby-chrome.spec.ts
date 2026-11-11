@@ -467,9 +467,11 @@ test.describe('the mobile lobby chrome on production', () => {
       await expect(lobby).toBeVisible();
       await openLobbyGameSection(lobby, 'ALL');
       await lobby.getByRole('tab', { name: 'ALL', exact: true }).click();
-      // The painted heading is the card's visible Details door. It invokes
-      // the same onSelect(entry) as the row's accessible Details button.
-      const heading = lobby.locator(`tr[data-game-heading="${ids[i]}"]:visible`);
+      // Chromium's native scrolling of a grid-styled table row repeatedly
+      // moved this nested lobby and its auto-hiding footer in the live trace.
+      // Click the visible painted style text; its normal event reaches the
+      // same row onSelect(entry), without table-fragment scroll geometry.
+      const heading = lobby.locator(`tr[data-id="${ids[i]}"]:visible .premium-cash-style`);
       await heading.evaluate((element) => element.scrollIntoView({ block: 'center' }));
       await heading.click();
       const panel = page.getByRole('dialog').filter({ has: page.locator('.arena-game-card') });
@@ -496,8 +498,12 @@ test.describe('the mobile lobby chrome on production', () => {
     expect(/^ca-customization-cert-.*@example\.invalid$/.test(process.env.SP_EMAIL || '')).toBe(
       true
     );
-    const environment = requireCustomizationCertificationEnvironment();
-    const client = createClient(environment.supabaseUrl, environment.publishableKey, {
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const publishableKey =
+      process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY;
+    if (!supabaseUrl || !publishableKey)
+      throw new Error('Public waiting-list client configuration is missing');
+    const client = createClient(supabaseUrl, publishableKey, {
       auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
     });
     const { data: auth, error: authError } = await client.auth.signInWithPassword({
@@ -547,7 +553,7 @@ test.describe('the mobile lobby chrome on production', () => {
         tableId,
         'No full non-cluster table is available for the zero-balance waiting-list witness'
       ).toBeTruthy();
-      const details = page.locator(`tr[data-game-heading="${tableId}"]:visible`);
+      const details = page.locator(`tr[data-id="${tableId}"]:visible .premium-cash-style`);
       await details.evaluate((element) => element.scrollIntoView({ block: 'center' }));
       await details.click();
       const panel = page.getByRole('dialog').filter({ has: page.locator('.arena-game-card') });

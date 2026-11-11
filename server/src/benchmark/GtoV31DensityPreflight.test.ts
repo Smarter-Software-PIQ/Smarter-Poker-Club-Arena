@@ -11,10 +11,12 @@ import {
 import type { V31DemandSpot } from '../engine/HorseV31CertifiedPolicy.js';
 import {
   gtoV31EligibleCellFilter,
+  gtoV31PlanRegistrationBlock,
   proposeGtoV31CellPlan,
   recordGtoV31Demand,
   scoreGtoV31CellPlan,
   type GtoV31Demand,
+  type GtoV31DemandCellContext,
 } from './GtoV31DensityPreflight.js';
 
 const SUITS: Record<string, CardSuit> = { c: 'clubs', d: 'diamonds', h: 'hearts', s: 'spades' };
@@ -471,4 +473,81 @@ describe('R8 density pre-flight: a real probe', () => {
       expect(c).toMatchObject({ family: 'cash', tableSize: 2, depth: 80 });
     }
   }, 120_000);
+});
+
+describe('V31 plan registration block: the cells a round registers', () => {
+  const cell = (
+    street: string,
+    tableSize: number,
+    hero: string,
+    opp: string,
+    texture: string,
+    role: string,
+    facing: string
+  ): GtoV31DemandCellContext => ({
+    street,
+    family: 'cash',
+    objective: 'cash_ev',
+    utilityContext: 'cash_ev',
+    tableSize,
+    potType: 'srp',
+    heroPosition: hero,
+    opponentPosition: opp,
+    depth: 80,
+    texture,
+    nodeRole: role,
+    facingKind: facing,
+    facingSizeBucket: facing,
+  });
+  const three = [
+    cell('turn', 6, 'BTN', 'BB', 'Arpd', 'all_in', 'all_in'),
+    cell('flop', 2, 'SB', 'BB', 'Brud', 'cbet', 'none'),
+    cell('river', 2, 'BB', 'SB', 'Bruc', 'probe', 'none'),
+  ];
+
+  it('hashes to the same cell-set checksum as SQL fn_gto_v31_cell_set_checksum and Python digest', () => {
+    // 70a3e422... was computed independently by the live database's
+    // fn_gto_v31_public215_digest over the canonically ordered array and by
+    // public_hist215.digest(sorted(cells, key=canonical_bytes)).
+    const block = gtoV31PlanRegistrationBlock(three);
+    expect(block.cellSetChecksum).toBe('70a3e422d2e912ebc5a64d34605dc1048e0b6869b187510507dc81a9987aac78');
+    expect(block.composition).toEqual({ flop: 1, turn: 1, river: 1 });
+    // canonical byte order: depth_bucket ties, then facing_kind "all_in" < "none"
+    expect(block.cells[0].street).toBe('turn');
+    expect(Object.keys(block.cells[0]).sort()).toEqual([
+      'depth_bucket',
+      'facing_kind',
+      'facing_size_bucket',
+      'game_family',
+      'hero_position',
+      'node_role',
+      'objective',
+      'opponent_position',
+      'pot_type',
+      'street',
+      'table_size',
+      'texture_class',
+      'utility_context',
+    ]);
+  });
+
+  it('does not depend on the order the plan lists its cells', () => {
+    expect(gtoV31PlanRegistrationBlock([...three].reverse()).cellSetChecksum).toBe(
+      gtoV31PlanRegistrationBlock(three).cellSetChecksum
+    );
+  });
+
+  it('changes when one cell is substituted for another of the same street', () => {
+    const swapped = [three[0], three[1], cell('river', 2, 'BB', 'SB', 'Brpd', 'probe', 'none')];
+    const a = gtoV31PlanRegistrationBlock(three);
+    const b = gtoV31PlanRegistrationBlock(swapped);
+    expect(b.composition).toEqual(a.composition);
+    expect(b.cellSetChecksum).not.toBe(a.cellSetChecksum);
+  });
+
+  it('refuses a duplicated cell', () => {
+    expect(() => gtoV31PlanRegistrationBlock([three[0], three[0]])).toThrow(
+      'GTO_V31_REGISTRATION_DUPLICATE_CELL'
+    );
+  });
 });

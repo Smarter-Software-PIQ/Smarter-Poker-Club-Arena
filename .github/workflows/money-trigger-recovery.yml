@@ -1,5 +1,5 @@
 name: Trusted Money Trigger Recovery
-run-name: Money trigger proof ${{ inputs.request_id || github.event.pull_request.head.sha }}
+run-name: Money trigger proof ${{ inputs.request_id || github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
 on:
   workflow_dispatch:
     inputs:
@@ -13,11 +13,18 @@ on:
         type: string
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
+  # MERGE QUEUE (2026-11-11): a queued merge group is verified by the same
+  # trusted default-branch code. workflow_run always runs main's copy of this
+  # file, so the environment's main-only deployment policy holds and no code
+  # from the queued commit ever runs with the reporter key.
+  workflow_run:
+    workflows: [Money Trigger Merge Group Request]
+    types: [requested]
 permissions:
   contents: read
   pull-requests: read
 concurrency:
-  group: money-trigger-recovery-${{ github.event.pull_request.head.sha || github.run_id }}
+  group: money-trigger-recovery-${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha || github.run_id }}
   cancel-in-progress: false
 jobs:
   verify:
@@ -94,3 +101,69 @@ jobs:
           path: money-trigger-recovery.json
           if-no-files-found: error
           retention-days: 1
+
+  verify_merge_group:
+    name: Trusted merge-group verifier execution
+    # Only GitHub's own workflow_run fields are trusted: the source run must be
+    # a merge_group run of this repository on main's queue. A same-named
+    # workflow from a pull request carries event pull_request and is refused.
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'merge_group' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      startsWith(github.event.workflow_run.head_branch, 'gh-readonly-queue/main/')
+    environment: money-trigger-recovery-trusted
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Mint check-only reporter
+        id: reporter
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.MONEY_TRIGGER_REPORTER_APP_ID }}
+          private-key: ${{ secrets.MONEY_TRIGGER_REPORTER_PRIVATE_KEY }}
+          permission-checks: write
+      - name: Start explicit merge-group check
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPORTER_APP_ID: ${{ vars.MONEY_TRIGGER_REPORTER_APP_ID }}
+          REPORTER_TOKEN: ${{ steps.reporter.outputs.token }}
+          GROUP_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          GROUP_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: node scripts/ci/money-trigger-check-report.mjs begin-group
+      - name: Verify the merge group's migrations with trusted code
+        id: proof
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GROUP_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          GROUP_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/ci/produce-money-trigger-recovery.mjs
+      - name: Mint short-lived protection reader
+        if: success()
+        id: protection-reader
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: '4680372'
+          private-key: ${{ secrets.AUTOPILOT_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: Smarter-Poker-Club-Arena
+          permission-administration: write
+          skip-token-revoke: false
+      - name: Finish explicit merge-group check
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPORTER_APP_ID: ${{ vars.MONEY_TRIGGER_REPORTER_APP_ID }}
+          REPORTER_TOKEN: ${{ steps.reporter.outputs.token }}
+          VERIFY_OUTCOME: ${{ steps.proof.outcome }}
+          PROTECTION_READER_TOKEN: ${{ steps.protection-reader.outputs.token }}
+        run: node scripts/ci/money-trigger-check-report.mjs finish-group

@@ -234,7 +234,9 @@ export default function DiamondWheel({
     pegs: number[];
     nextPeg: number;
     sounded: boolean;
+    initialSlope: number;
   } | null>(null);
+  const requestVelocity = useRef(0);
   const startedKey = useRef<number | null>(null);
   const callback = useRef(onLanded);
   callback.current = onLanded;
@@ -312,12 +314,15 @@ export default function DiamondWheel({
     position.current = from;
     const to = wheelLandingRotation(from, index, arranged.length);
     const duration = WHEEL_SPIN_MS * getAnimationSpeed();
+    const initialSlope = (requestVelocity.current * duration) / (1000 * (to - from));
+    requestVelocity.current = 0;
     animation.current = {
+      initialSlope,
       from,
       to,
       duration,
       elapsed: 0,
-      pegs: wheelPegTimes(from, to, arranged.length, duration),
+      pegs: wheelPegTimes(from, to, arranged.length, duration, initialSlope),
       nextPeg: 0,
       sounded: false,
     };
@@ -371,7 +376,7 @@ export default function DiamondWheel({
           soundService.playSpinPeg(0.5 + (0.5 * run.nextPeg) / Math.max(1, run.pegs.length - 1));
           run.nextPeg += 1;
         }
-        position.current = run.from + (run.to - run.from) * wheelTravel(progress);
+        position.current = run.from + (run.to - run.from) * wheelTravel(progress, run.initialSlope);
         moving = true;
         if (progress === 1) {
           animation.current = null;
@@ -385,10 +390,12 @@ export default function DiamondWheel({
       } else if (state.awaitingResult) {
         settleDrift();
         if (!state.reducedMotion) {
-          position.current += (Math.min(elapsed, 100) / 1000) * 300;
+          requestVelocity.current = 300;
+          position.current += (elapsed / 1000) * requestVelocity.current;
           moving = true;
         }
       } else if (!state.spinning) {
+        requestVelocity.current = 0;
         animation.current = null;
         // The reveal has been acknowledged: let go of the landed prize and
         // drift on from this very angle. Nothing snaps back to zero.

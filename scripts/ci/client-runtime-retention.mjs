@@ -40,7 +40,10 @@ export function compareClientBacklog(base, target, cwd = process.cwd()) {
   if (!SHA.test(base) || !SHA.test(target))
     throw new Error('Client comparison requires full SHAs.');
   const run = (...args) =>
-    execFileSync('git', ['-C', cwd, ...args], { env: gitEnvironmentForCwd(), maxBuffer: 32 * 1024 * 1024 });
+    execFileSync('git', ['-C', cwd, ...args], {
+      env: gitEnvironmentForCwd(),
+      maxBuffer: 32 * 1024 * 1024,
+    });
   run('cat-file', '-e', `${base}^{commit}`);
   run('cat-file', '-e', `${target}^{commit}`);
   run('merge-base', '--is-ancestor', base, target);
@@ -348,6 +351,71 @@ export async function publicationDecision(admission) {
   }
 }
 
+export function focusedRetentionPublisher(payload, target, repositoryId) {
+  if (!SHA.test(target) || !ID.test(String(repositoryId)) || !Array.isArray(payload?.workflow_runs))
+    throw new Error('Focused retention publisher metadata is unreadable.');
+  const runs = payload.workflow_runs
+    .filter(
+      (run) => run.head_sha === target && run.path === '.github/workflows/publish-club-arena.yml'
+    )
+    .sort((a, b) => b.id - a.id);
+  const run = runs[0];
+  if (
+    !run ||
+    !ID.test(String(run.id)) ||
+    run.head_branch !== 'main' ||
+    !['push', 'repository_dispatch'].includes(run.event) ||
+    run.status !== 'completed' ||
+    run.conclusion !== 'success' ||
+    String(run.repository?.id) !== String(repositoryId)
+  )
+    throw new Error('No successful exact protected publisher for focused verification.');
+  return String(run.id);
+}
+
+async function focusedHarness(live, target) {
+  if (!SHA.test(live) || !SHA.test(target) || git('rev-parse', 'HEAD').toString().trim() !== target)
+    throw new Error('Focused verification checkout or runtime is malformed.');
+  const repo = process.env.GITHUB_REPOSITORY;
+  const repositoryId = process.env.GITHUB_REPOSITORY_ID;
+  const runs = json(
+    gh(
+      'api',
+      `repos/${repo}/actions/workflows/publish-club-arena.yml/runs?head_sha=${target}&per_page=20`
+    )
+  );
+  const runId = focusedRetentionPublisher(runs, target, repositoryId);
+  const metadata = json(gh('api', `repos/${repo}/actions/runs/${runId}/artifacts?per_page=100`));
+  receiptArtifactId(metadata, runId, target, repositoryId);
+  const directory = mkdtempSync(
+    resolve(process.env.RUNNER_TEMP || process.env.TMPDIR || '.', 'cash-observation-retention-')
+  );
+  try {
+    gh(
+      'run',
+      'download',
+      runId,
+      '--repo',
+      repo,
+      '--name',
+      'club-arena-retained-runtime',
+      '--dir',
+      directory
+    );
+    const receipt = readRetentionReceipt(
+      readFileSync(resolve(directory, 'retained-runtime.json'), 'utf8'),
+      runId,
+      target,
+      repositoryId
+    );
+    if (receipt.runtimeSha !== live || receipt.verificationSha !== target)
+      throw new Error('Focused verification does not match the retained published runtime.');
+    await requireCurrentReceipt(receipt);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
 async function main() {
   const [command, ...args] = process.argv.slice(2);
   if (command === 'admit') {
@@ -383,6 +451,8 @@ async function main() {
     );
   } else if (command === 'receipt-artifact') {
     console.log(receiptArtifactId(json(readFileSync(0, 'utf8')), ...args));
+  } else if (command === 'focused-harness') {
+    await focusedHarness(args[0], args[1]);
   } else if (command === 'harness') {
     if (git('rev-parse', 'HEAD').toString().trim() !== args[1])
       throw new Error('Retained verification source mismatch.');

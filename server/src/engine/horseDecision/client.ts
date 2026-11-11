@@ -894,7 +894,8 @@ export class LiveHorseDecisionWorkerClient {
     // The accepted producer calls here only after its authoritative commit.
     // This local reconciliation does not await I/O or delay worker dispatch.
     try {
-      this.committedDecisions.observe(observation);
+      if (observation.terminalOnlySourceRelease === undefined)
+        this.committedDecisions.observe(observation);
     } catch {
       // Incomplete audit evidence cannot suppress the committed-hand learner.
       noteFire('phase15_hand_binding_internal_error');

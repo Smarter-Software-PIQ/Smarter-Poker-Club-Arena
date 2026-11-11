@@ -6,9 +6,10 @@
  *     sanitization, V24 price-relief caps & floors, multiway cold-call
  *     tightening, V34 BB multiway/5-6c floor, and 5/6-card V46 hand-class
  *     trips rescue + 4-suit / unsuited-ace adjustments).
- *  2. Heads-up Omaha turn/river position-stab suppression for medium showdown
- *     value and unblocked air, while preserving nutted value, nutty draws,
- *     and dry nut-flush-blocker bluffs with valid signed worker receipts.
+ *  2. Heads-up Omaha turn/river position-stab suppression explicitly excluded
+ *     after failing paired seat-swap qualification (`v87ShouldSuppressOmahaPositionStab`
+ *     always returns `false`, preserving Phase 10/11 `heads_up_position_stab`),
+ *     plus unit coverage of `v87HoldsDryNutFlushBlocker`.
  *  3. Postflop PLO6 >= 0.90-pot call-fold cells, V40 drawless bare-pair flop
  *     cap tightening, and Omaha bet-then-raised commitment exclusion + shade.
  *  4. Tournament / non-HiLo Omaha `pricedIn` trash floor (with Cash NLH and
