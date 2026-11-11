@@ -561,3 +561,71 @@ describe('the retired stay clock never prints; the hand count does', () => {
     });
   });
 });
+
+/* WARN, THEN BOOT: THE GRACE READOUT (Dan 2026-11-10).
+   A warned seat is told on the felt how many dealt hands it has left to get
+   back to the floor. The rule worth pinning is WHICH FIELD DECIDES: `warned`,
+   not `grace_remaining`. A seat that recovered can still carry a number in the
+   payload, and reading the number would keep counting down at a player who is
+   no longer in any trouble. The readout reuses the hit-and-run clock's own
+   column, so no approved artwork changes and the badge is never recoloured by
+   whether the player is passing (badge spec section 25). */
+describe('the grace readout', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    rpc.mockReset();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const classic = (over: Record<string, unknown> = {}) => ({
+    data: {
+      ok: true,
+      seated: true,
+      nit_game: true,
+      required: 20,
+      window: 30,
+      rolling: true,
+      hands: 30,
+      vpip: 17.1,
+      ...over,
+    },
+    error: null,
+  });
+
+  const mount = async () => {
+    render(
+      <HeroVpipTracker
+        tableId="t-grace"
+        heroSeated
+        isTournament={false}
+        handNumber={31}
+        heroPos={{ x: 10, y: 20 }}
+      />
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+  };
+
+  it('counts the dealt hands left while a warning is open', async () => {
+    rpc.mockResolvedValue(classic({ warned: true, grace_hands: 10, grace_remaining: 4 }));
+    await mount();
+    const el = screen.getByTestId('hero-vpip-grace');
+    expect(el.textContent).toContain('Hands To Correct Your VPIP');
+    expect(el.textContent).toContain('4');
+  });
+
+  it('says nothing once the warning is cleared, even with a number still in the payload', async () => {
+    rpc.mockResolvedValue(classic({ warned: false, grace_hands: 10, grace_remaining: 4 }));
+    await mount();
+    expect(screen.queryByTestId('hero-vpip-grace')).toBeNull();
+  });
+
+  it('keeps the label exactly as approved', () => {
+    expect(read('src/components/table/HeroVpipTracker.tsx')).toContain(
+      "export const VPIP_GRACE_COUNT_LABEL = 'Hands To Correct Your VPIP';"
+    );
+  });
+});

@@ -41,8 +41,27 @@ export interface HeroVpipStatus {
   hands?: number;
   /** VPIP over those hands, percent; null until the first hand is on file. */
   vpip?: number | null;
+  /** True on a Classic floored game: the window is the last `window` hands. */
+  rolling?: boolean;
+  /** A warning is open on this sitting (Dan 2026-11-10: warn, then boot). */
+  warned?: boolean;
+  /** Dealt hands a warned seat gets to recover in. */
+  grace_hands?: number;
+  /** Dealt hands left in that grace; null when no warning is open. */
+  grace_remaining?: number | null;
   reason?: string;
 }
+
+/**
+ * WARN, THEN BOOT (Dan 2026-11-10). A warned seat is told, on the felt, how
+ * many dealt hands it has left to get back to the floor. Same shape as the hit
+ * and run clock beside it: a label and a count, in the column the tracker
+ * already owns, so no approved artwork changes and the badge is not recoloured
+ * by whether the player is passing (badge spec section 25 forbids that, and
+ * says an eligibility indicator is built separately - this is that, built
+ * separately).
+ */
+export const VPIP_GRACE_COUNT_LABEL = 'Hands To Correct Your VPIP';
 
 /** Fact rows land at settlement; the hand number moves at the next deal. */
 export const VPIP_REFRESH_DELAY_MS = 1500;
@@ -188,6 +207,13 @@ export default function HeroVpipTracker({
   const floor = Number(status?.required ?? 0);
   const showVpip = Boolean(status?.ok && status.seated && floor > 0);
   const showHands = typeof handsOwed === 'number' && handsOwed > 0;
+  // The grace only means anything while a warning is actually open, so it is
+  // read from `warned` rather than from a number that could linger.
+  const graceLeft =
+    status?.warned === true && status?.grace_remaining != null
+      ? Number(status.grace_remaining)
+      : null;
+  const showGrace = showVpip && graceLeft !== null && Number.isFinite(graceLeft);
 
   useLayoutEffect(() => {
     const node = anchor.current;
@@ -244,9 +270,9 @@ export default function HeroVpipTracker({
       observer?.disconnect();
       mounts?.disconnect();
     };
-  }, [tableId, enabled, heroPos?.x, heroPos?.y, showVpip, showHands]);
+  }, [tableId, enabled, heroPos?.x, heroPos?.y, showVpip, showHands, showGrace]);
 
-  if (!enabled || !heroPos || (!showVpip && !showHands)) return null;
+  if (!enabled || !heroPos || (!showVpip && !showHands && !showGrace)) return null;
 
   return (
     <div
@@ -268,6 +294,12 @@ export default function HeroVpipTracker({
           around looking wired. */}
       {showVpip && (
         <VpipRequirementBadge minimumVpip={floor} currentVpip={vpip} status={freshness} />
+      )}
+      {showGrace && (
+        <div className="hero-vpip__clock" data-testid="hero-vpip-grace">
+          <span>{VPIP_GRACE_COUNT_LABEL}</span>
+          <time aria-label={`${VPIP_GRACE_COUNT_LABEL} ${graceLeft}`}>{graceLeft}</time>
+        </div>
       )}
       {showHands && (
         <div className="hero-vpip__clock" data-testid="hero-hand-count">
