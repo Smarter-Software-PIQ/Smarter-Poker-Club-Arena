@@ -1264,6 +1264,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'diagnostic telemetry for ignored historical review fields; never authorizes policy or sampling changes',
     'V41'
   ),
+  flag(
+    'v86UnblockedPreflop',
+    '2026-11-10 unblocked preflop matrix across NLH and PLO4/5/6 cash and tournaments: dynamic preflop orbit raise normalization, incomplete short-stack shove handling, straddle/kill blind unopened routing, PLO5/6 suit/core Pigeonhole and sub-core trips rules, V38 uncapped-behind population guard, Seven-Deuce and Kill Pot overlays, asymmetric cover/satellite ICM, PKO chip equivalence, and Phase 7 non-terminal preflop utility; default ON, explicit false preserves historical replay corpora',
+    'V86'
+  ),
+  flag(
+    'v86MultiStreetUnblocked',
+    '2026-11-10 explicit Flop->Turn->River continuation planning (ExplicitContinuationPlanV2), exact geometric street sizing solver, instant dynamic node re-evaluation, combinatorial card-removal fold-equity scoring, public action-line Bayesian range posterior, correlated multi-board scoop/quarter pricing, and public-complexity tank weighting; default ON, explicit false preserves historical replay corpora',
+    'V86'
+  ),
 
   // ─────────────────────────────────────────────────────────────────────────
   // STYLE PARAMS. base style x profile dials x variant overlay x persona.
@@ -1492,12 +1502,22 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'actionHistory',
     'this hand, every action with stage and amount (range reads, barrels, plans)'
   ),
+  state('killPot', 'canonical KillHandState when a Full or Half Kill pot is active on this deal'),
+  state('isKillPot', 'optional flat boolean indicating an active Kill or Half-Kill pot'),
+  state('killMultiplier', 'optional flat Kill blind multiplier when active (e.g. 2 or 1.5)'),
+  state('killPosterSeat', 'optional flat seat number of the player who posted the Kill blind'),
+  state('killBlind', 'optional flat chip amount of the posted Kill blind'),
+  state('sevenDeuceEnabled', 'whether the Seven-Deuce (7-2) cash bounty side game is active'),
+  state('sevenDeuceBounty', 'Seven-Deuce bounty configuration object or per-player chip amount'),
+  state('sevenDeuceBountyBB', 'Seven-Deuce bounty per opponent denominated in big blinds'),
+  state('sevenDeuceBountyPerPlayer', 'Seven-Deuce bounty per opponent denominated in chips'),
   state('gameMode', 'cash / tournament'),
   state('format', 'cash / mtt / sng / spin / hu_sng'),
   state('ante', 'ante per hand'),
   state('bigBlindAnte', 'BB-ante structure'),
   state('allInOrFold', 'all-in-or-fold table'),
   state('straddleActive', 'a straddle is posted (V18)'),
+  state('straddleSeat', 'seat number of the active posted straddle when present'),
   state('bombPot', 'this hand is a bomb pot (V36)'),
   state('boardCount', 'boards dealt (V36)'),
   state(

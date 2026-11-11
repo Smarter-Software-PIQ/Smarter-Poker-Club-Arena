@@ -21,6 +21,7 @@ export interface TournamentContinuationConfig {
   opponentIds: string[];
   sampleIndex: number;
   streets: TournamentContinuationStreet[];
+  bettingStructure?: 'no_limit' | 'pot_limit' | 'fixed_limit';
 }
 export const CONTINUATION_POLICY = {
   version: 'one-wager-per-street-v2',
@@ -142,10 +143,13 @@ export function simulateTournamentContinuation(
     const bettor = live[bettorIndex];
     let pot = 0;
     for (const p of players) pot += p.totalInvested;
-    const wager = Math.min(
-      bettor.stack,
-      Math.max(config.bigBlind, Math.round(pot * CONTINUATION_POLICY.wagerPotFraction))
+    const rawWager = Math.max(
+      config.bigBlind,
+      Math.round(pot * CONTINUATION_POLICY.wagerPotFraction)
     );
+    const structureCap =
+      config.bettingStructure === 'pot_limit' ? Math.max(config.bigBlind, pot) : Infinity;
+    const wager = Math.min(bettor.stack, structureCap, rawWager);
     commit(bettor, wager);
     const target = bettor.bet;
     // Responders follow the bettor clockwise: live[bettor + 1 ...], live[... bettor - 1].

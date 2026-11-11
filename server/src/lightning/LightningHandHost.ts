@@ -1695,12 +1695,21 @@ export class LightningHandHost {
       if (this.isTerminal() || this.hc !== hc || playerActionContext(hc) !== contextAtTurn) return;
       if (this.actBlindOff(userId)) return;
     }
+    const serverOwnedHorse =
+      this.participants.get(userId)?.isHorse === true && !this.clientControls(userId);
     if (this.preActions.hasPreAction(this.timerKey, userId)) {
-      // The seat lights up for a readable beat (the engine's 250 ms), then the
-      // pre-action lands - armed for THIS hand only.
-      await this.sleep(250);
-      if (this.isTerminal() || this.hc !== hc || playerActionContext(hc) !== contextAtTurn) return;
-      if (this.runPreAction(userId)) return;
+      if (serverOwnedHorse) {
+        const stale = this.preActions.getPreAction(this.timerKey, userId)?.action;
+        this.preActions.clearPreAction(this.timerKey, userId);
+        if (stale) this.notePreAction(userId, 'cleared', stale, 'horse_live_turn');
+      } else {
+        // The seat lights up for a readable beat (the engine's 250 ms), then the
+        // pre-action lands - armed for THIS hand only.
+        await this.sleep(250);
+        if (this.isTerminal() || this.hc !== hc || playerActionContext(hc) !== contextAtTurn)
+          return;
+        if (this.runPreAction(userId)) return;
+      }
     }
     const baseSec = Number(this.rules?.action_time_seconds) || 15;
     const grace = this.disconnect.isInReconnectGrace(this.timerKey, userId) ? 5 : 0;
@@ -2150,6 +2159,9 @@ export class LightningHandHost {
       this.preActions.clearPreAction(this.timerKey, userId);
       if (armed) this.notePreAction(userId, 'cleared', armed, 'by_player');
       return { success: true };
+    }
+    if (this.participants.get(userId)?.isHorse === true && !this.clientControls(userId)) {
+      return refuse('horse_live_turn', { success: false, error: 'Pre-action unavailable' });
     }
     if (handId !== this.handId) {
       return refuse('stale_hand', {

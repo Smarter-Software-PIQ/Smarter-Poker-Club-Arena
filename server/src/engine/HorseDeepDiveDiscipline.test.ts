@@ -126,7 +126,8 @@ describe('V87 All-Hands Deep-Dive Discipline', () => {
 
     it('rescues coordinated 5/6-card trips (AAAKsQs) from force-fold while keeping uncoordinated trips (AAA723) force-folded', () => {
       const rescueHand = cards('AsAhAdKsQh'); // drops Ad -> AsAhKsQh = aa_ds
-      const baseRescue = handClassRead(rescueHand, true, false);
+      expect(handClassRead(rescueHand, true, false).foldAlways).toBe(false);
+      const baseRescue = handClassRead(rescueHand, true, false, true);
       expect(baseRescue.cls).toBe('trips');
       expect(baseRescue.foldAlways).toBe(true);
       const adjustedRescue = v87AdjustFiveSixCardHandClass(rescueHand, baseRescue);

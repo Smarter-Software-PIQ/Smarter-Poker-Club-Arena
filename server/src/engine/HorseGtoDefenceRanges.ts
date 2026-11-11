@@ -439,6 +439,29 @@ function baseDefenceTargets(spot: DefenceSpot): { cont: number; value: number; b
   const contExp = spot.defender === 'bb' ? 0.35 : 0.3;
   const contF = Math.max(0.8, Math.min(1.2, Math.pow(ratio, contExp)));
   const tbF = Math.max(0.85, Math.min(1.1, Math.pow(ratio, 0.15)));
+  const callers = Math.max(0, Math.min(V85_MULTIWAY.maxCallers, Math.floor(spot.callers ?? 0)));
+  if (callers > 0) {
+    const squeezeF = V85_MULTIWAY.squeezeWidth[Math.min(callers, 2) - 1];
+    const threeBet = w.threeBet * tbF * squeezeF;
+    const vw = earlyWeight(k);
+    const vf = VALUE_FRACTION[spot.defender];
+    const actionProfile = spot.dealt === 6 || spot.dealt === 9;
+    const valueFrac = vf.late + (vf.early - vf.late) * vw;
+    const shifted = Math.min(
+      0.9,
+      valueFrac + (actionProfile ? 0.15 * (1 - vw) : 0) + V85_MULTIWAY.squeezeValueShift
+    );
+    const value = threeBet * shifted;
+    const solverBluff = threeBet * (1 - valueFrac);
+    const bluff = Math.min(threeBet - value, solverBluff * V72_BLUFF_TRIM);
+    const trimmed = spot.defender === 'bb' ? 0 : Math.max(0, solverBluff - bluff);
+    const multiF =
+      1 +
+      callers *
+        (spot.defender === 'bb' ? V85_MULTIWAY.bbContPerCaller : V85_MULTIWAY.otherContPerCaller);
+    const cont = Math.max(value + bluff + 1, Math.min(85, w.cont * contF * multiF) - trimmed);
+    return { cont, value, bluff: Math.max(0, bluff) };
+  }
   const threeBet = w.threeBet * tbF;
   const vw = earlyWeight(k);
   const vf = VALUE_FRACTION[spot.defender];

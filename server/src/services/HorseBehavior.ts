@@ -411,6 +411,24 @@ export function gameLaneFor(horseId: string): HorseGameLane {
   return 'both';
 }
 
+/**
+ * 100% 1,000-Horse Real-Time Decision Engine Activation Invariant:
+ * Seating lanes (`gameLaneFor`) and stake bands (`stakeBandFor`) govern table
+ * occupancy routing ONLY and NEVER disable, downgrade, or gate the upgraded
+ * real-time decision engine once ANY horse in the 1,000-horse fleet is dealt a hand.
+ */
+export function isHorseDecisionEngineActiveFor(horseId: string): boolean {
+  return typeof horseId === 'string' && horseId.trim().length > 0;
+}
+
+/**
+ * Every seated horse has full decision-engine eligibility across both cash and
+ * tournament modes, regardless of its lobby seating lane.
+ */
+export function decisionEligibleModesFor(horseId: string): readonly ('cash' | 'tournament')[] {
+  return isHorseDecisionEngineActiveFor(horseId) ? (['cash', 'tournament'] as const) : [];
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // STAKE BANDS (Dan 2026-08-29, binding)
 // ═══════════════════════════════════════════════════════════════════════════════

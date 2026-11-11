@@ -85,6 +85,19 @@ import {
 export { barrelContinuationValue } from './HorseContinuation.js';
 export type { BarrelContinuation } from './HorseContinuation.js';
 
+export interface EvRunoutLookahead {
+  /** Share of unseen next-street cards that improve hero (`0..1`). */
+  goodShare: number;
+  /** Share of unseen next-street cards that bring scare / counterfeit runouts (`0..1`). */
+  scareShare: number;
+  /** Hero's estimated equity lift on good runouts (`0..0.35`). */
+  goodEquityLift?: number;
+  /** Hero's estimated equity drop on scare runouts (`0..0.35`). */
+  scareEquityDrop?: number;
+  /** Whether hero holds the nut blocker to leverage scare runouts in position / with lead. */
+  scareBlockerLeverage?: boolean;
+}
+
 export interface EvSpot {
   /** hero's equity vs the range in the pot (0..1), caps already applied */
   equity: number;
@@ -105,6 +118,12 @@ export interface EvSpot {
   /** equity realization factor (0..1]; 1 on the river */
   realization: number;
   continuation?: BarrelContinuation;
+  /** Optional bounded 2-street (`good / neutral / scare`) stratified lookahead on flop/turn. */
+  runout?: EvRunoutLookahead;
+  /** Optional combinatorial card-removal fold-equity delta (`-0.08 .. +0.12`). */
+  cardRemovalFoldDelta?: number;
+  /** Optional side-game pot overlay in chips (`7-2` bounty / active `Kill Pot` incentive). */
+  sideGamePotOverlay?: number;
   /** marginal rake on the pot in cash (0..0.5) */
   rakeMarg?: number;
   /** Total fraction deducted from the projected call award (0..1).
@@ -177,6 +196,8 @@ export function evaluateSpot(spot: EvSpot): EvVerdict {
   const rake = clamp(spot.rakeMarg ?? 0, 0, 0.5);
   const risk = clamp(spot.riskPremium ?? 0, 0, 0.15);
   const P = Math.max(0.01, spot.pot);
+  const sideBonus = Math.max(0, spot.sideGamePotOverlay ?? 0);
+  const effectivePotWin = P + sideBonus;
   const c = Math.max(0, Math.min(spot.toCall, spot.stack));
   const facing = c > 0;
   const stack = Math.max(0, spot.stack);
@@ -189,34 +210,64 @@ export function evaluateSpot(spot: EvSpot): EvVerdict {
     if (models[i]?.canRespond !== false) hasResponder = true;
   }
 
+  // Bounded 2-street stratified runout lookahead (`good / neutral / scare`):
+  // When `spot.runout` is supplied on flop/turn, computes expected next-street
+  // realization & implied value shift across good, blank, and scare cards.
+  let runoutEqDelta = 0;
+  let runoutCheckBonus = 0;
+  if (spot.runout && (spot.street === 'flop' || spot.street === 'turn')) {
+    const gShare = clamp(spot.runout.goodShare, 0, 1);
+    const sShare = clamp(spot.runout.scareShare, 0, Math.max(0, 1 - gShare));
+    const gLift = clamp(spot.runout.goodEquityLift ?? 0.16, 0, 0.35);
+    const sDrop = clamp(spot.runout.scareEquityDrop ?? 0.14, 0, 0.35);
+    runoutEqDelta = gShare * gLift - sShare * sDrop * (spot.inPosition ? 0.65 : 0.9);
+    if (spot.runout.scareBlockerLeverage && spot.inPosition) {
+      runoutEqDelta += sShare * 0.06;
+    }
+    // Pot-controlling medium equity when scare share is heavy preserves EV on check:
+    if (sShare > gShare + 0.12 && eq >= 0.38 && eq <= 0.62) {
+      runoutCheckBonus = (sShare - gShare) * 0.04 * P;
+    }
+  }
+  const effectiveEq = clamp(eq + runoutEqDelta * 0.35, 0, 1);
+  const foldCardRemovalDelta = clamp(spot.cardRemovalFoldDelta ?? 0, -0.08, 0.12);
+
   // Realized equity, net of rake and the survival premium. The premium is
   // charged in proportion to the share of the stack a line puts at risk, so
   // a cheap call pays almost none of it and a stack-off pays all of it.
   const realized = (share: number): number =>
-    clamp(eq * r * (1 - rake) - risk * Math.sqrt(clamp(share, 0, 1)), 0, 1);
+    clamp(effectiveEq * r * (1 - rake) - risk * Math.sqrt(clamp(share, 0, 1)), 0, 1);
 
   const candidates: EvAction[] = [];
 
   if (facing) {
     candidates.push({ kind: 'fold', ev: 0 });
     // Calling: the pot already holds the wager; hero puts in c to see it.
-    const evCall = callContinuationValue({
-      equity: eq,
-      realization: r,
-      pot: P,
-      call: c,
-      stack,
-      rake,
-      callDeductionFraction: spot.callDeductionFraction,
-      risk,
-      continuation: spot.continuation,
-    });
+    // When `spot.continuation` is already provided, next-street continuation is
+    // explicitly modeled inside `callContinuationValue`; avoid double-counting `runoutEqDelta`.
+    const callEq = spot.continuation ? eq : effectiveEq;
+    const evCall =
+      callContinuationValue({
+        equity: callEq,
+        realization: r,
+        pot: P,
+        call: c,
+        stack,
+        rake,
+        callDeductionFraction: spot.callDeductionFraction,
+        risk,
+        continuation: spot.continuation,
+      }) +
+      callEq * sideBonus;
     candidates.push({ kind: 'call', ev: evCall });
   } else {
     // A check with the lead is not a free card: the opponent gets to bet
     // the pot hero declined to, and part of the equity never gets realized.
     const checkMul = spot.initiative && hasResponder ? 0.85 : 1;
-    candidates.push({ kind: 'check', ev: realized(0) * checkMul * P });
+    candidates.push({
+      kind: 'check',
+      ev: realized(0) * checkMul * P + realized(0) * sideBonus * 0.5 + runoutCheckBonus,
+    });
   }
 
   // Bets / raises. `s` is the extra hero puts in beyond the call; for a
@@ -245,10 +296,16 @@ export function evaluateSpot(spot: EvSpot): EvVerdict {
         break;
       }
       const m = models[i]?.foldMul ?? 1;
-      foldAll *= mdfFold(P + c, s, m);
+      const baseMdf = mdfFold(P + c, s, m);
+      const singleFold = clamp(
+        baseMdf + foldCardRemovalDelta * (0.35 + 0.65 * baseMdf),
+        0.02,
+        0.94
+      );
+      foldAll *= singleFold;
     }
     // The range that continues folded its weakest foldAll share.
-    const eqCont = continuingEquity(eq, foldAll);
+    const eqCont = continuingEquity(effectiveEq, foldAll);
     const share = (c + s) / Math.max(1, stack);
     const realizedCont = clamp(
       // Putting the effective stack in ends future betting. Discounting
@@ -259,8 +316,8 @@ export function evaluateSpot(spot: EvSpot): EvVerdict {
     );
     // When called: final pot = P + c + s (hero) + s (caller); hero's cost c + s.
     // Multiway callers are folded into the equity number already.
-    const evCalled = realizedCont * (P + c + 2 * s) - (c + s);
-    const ev = foldAll * P + (1 - foldAll) * evCalled;
+    const evCalled = realizedCont * (effectivePotWin + c + 2 * s) - (c + s);
+    const ev = foldAll * effectivePotWin + (1 - foldAll) * evCalled;
     candidates.push({
       kind: facing ? 'raise' : 'bet',
       ev,
@@ -307,6 +364,7 @@ export function riverCallVerdict(args: {
   pot: number;
   toCall: number;
   stack: number;
+  sideGamePotOverlay?: number;
   rakeMarg?: number;
   callDeductionFraction?: number;
   riskPremium?: number;
@@ -317,7 +375,8 @@ export function riverCallVerdict(args: {
   const rake = exact ? clamp(args.callDeductionFraction!, 0, 1) : clamp(args.rakeMarg ?? 0, 0, 0.5);
   const risk = clamp(args.riskPremium ?? 0, 0, 0.15);
   const riskShare = risk * Math.sqrt(clamp(c / Math.max(1, args.stack), 0, 1));
-  const award = (args.pot + c) * (1 - rake);
+  const sideBonus = Math.max(0, args.sideGamePotOverlay ?? 0);
+  const award = (args.pot + c) * (1 - rake) + sideBonus;
   // Report the same stack-share risk used by the unchanged action threshold.
   // Charging the full premium here could report a negative EV for a call
   // whose policy-adjusted equity is clearly above its price.
@@ -327,7 +386,7 @@ export function riverCallVerdict(args: {
   // call. Do not turn that price into a 99% threshold or mix into it.
   if (exact && c > 0 && award < c)
     return { call: false, required: award > 0 ? c / award : 1, evCall };
-  const rawRequired = c / ((args.pot + c) * (1 - rake)) + riskShare,
+  const rawRequired = c / award + riskShare,
     required = exact ? Math.max(0, rawRequired) : clamp(rawRequired, 0, 0.99);
   // Indifference band: within 1.5 equity points of the required number the
   // solver mixes; so does this.
