@@ -1218,6 +1218,21 @@
         "path": "server/release/activation-floor.json",
         "sha256": "a14a5f26ebc79a55708f7f6d78f82832e20b10483ea6b96b7cca058a7e1b4d10"
       }
+    },
+    {
+      "id": "2026-11-11-horse-clock-clone-engine-0650z",
+      "ownerOrder": "Dan directly in Codex release chat 01a1bbdd-33d6-7680-b41e-fff1cf188f3f on November 10 at 15:34 America/Chicago explicitly ordered: I explicitly authorize a new ASAP engine cutover outside the routine 04:00-04:05 Chicago window, specifically to deploy the exact-clock Horse decision receipt enhancement in #10346. He further directed verbatim: Continue through verified delivery. If a technical gate blocks you, identify its exact failed condition and resolve it within scope. The first original Stage 42965274517 and receiver 42965360845-1 sealed 05ab41c30fc21a8a98001827e9921ffc314b81e7 at 05:30:05 UTC November 11 and completed full thaw at 05:32:55.327 UTC, but fresh natural tournament verification found clock metadata absent: HandContinuationLane structuredClone boundaries discarded the WeakMap association keyed to the accepted action record before HandEvents.carryHorseTurnClock. Protected corrective #10457/57d56c0d6417b08fbb847fb842c03c968a25f698 carries the private clock through both actual lane clone boundaries and pins the real controller/lane/history path. The release owner interprets the ongoing direct instruction to finish verified delivery and resolve the technical gate as authority for this necessary corrective delivery of the original enhancement; the human did not separately name this second window. This fresh SINGLE-USE order admits ONE corrective activation replacing exact serving 05ab41c30fc21a8a98001827e9921ffc314b81e7, only with a protected qualified candidate containing that exact corrective fix. It never amends or replays consumed 0050 or older 0650 orders, claims or outcomes. Root Codex retains sole Stage, receiver, Backup and release custody. Fresh notice declared 07:40 UTC November 11; nominal admission 08:00 UTC through fixed 10:30 UTC November 11. The first unmerged draft declared 06:10/06:30, and required premerge validation correctly refused those past times at 06:40:14.851 UTC; this same unmerged order corrects that technical gate without changing its fixed expiry. Prior 0050 notice remains unchanged and expires at 06:30 UTC; the new corrective promise becomes visible no earlier than 07:40 UTC, so actual twenty-minute public visibility cannot qualify before 08:00 UTC, and later publication delays admission within fixed expiry. Independently prove the updated public promise and actual lead before dispatch. Require protected exact-head checks, immutable target/control/images, all four qualification shards, a compatible original Backup certificate with full 1800-second soak, current installed migration and function equality, both-direction rehearsal against actual serving 05ab, a fresh announcement between :05:30 and :49:00, normal 120s last-hand lead, hand-boundary drain, durable database freeze, 300s break, full 285s cutover/proof/rollback reserve, fresh one-use claim, exact sealed identity, completed healthy thaw and fresh post-seal Backup. The implementation owner retains natural fresh tournament receipt acceptance for exact turn start, applicable deadline, acceptance time and action origin through the deployed completed-hand reviewer. No additional feature, strategy assignment, migration, new tournament-start hold, direct restart, financial replay, competing operation, automatic renewal, timer, watcher, repair loop, reduced reserve or extended freeze. All previous orders and immutable release generations remain unchanged. Authority ends with this one corrective activation or fixed expiry; the routine daily schedule remains unchanged.",
+      "contains": "57d56c0d6417b08fbb847fb842c03c968a25f698",
+      "playerNoticeAt": "2026-11-11T07:40:00Z",
+      "notBefore": "2026-11-11T08:00:00Z",
+      "notAfter": "2026-11-11T10:30:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "aeecae49960eb9659ab5bc86710d330bb6a58a47a7c732f94fe74c894002b602"
+      }
     }
   ],
   "databaseWindows": [
