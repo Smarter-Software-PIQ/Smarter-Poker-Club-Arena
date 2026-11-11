@@ -2522,7 +2522,9 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       ultraPremiumElite ||
       (linearElite3Bet &&
         ctx.observedExtremeManiac !== true &&
-        (ctx.maniacNoBluff !== true || strength >= 0.62)) ||
+        (ctx.maniacNoBluff !== true ||
+          (noBluff3 && ((ctx.omahaHoleCount ?? 4) <= 4 || callers >= 1)) ||
+          strength >= 0.62)) ||
       (ctx.maniacNoBluff !== true && !noBluff3);
     const basePloMix = ctx.ploPersona3BetMix ?? 0.55;
     const rawPloMix = pressure

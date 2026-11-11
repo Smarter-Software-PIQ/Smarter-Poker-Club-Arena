@@ -3582,12 +3582,7 @@ export function simulateEquity(
         }
         if (tier40 >= 1 && omahaTierShape != null) {
           if (rangeUse) rangeUse.conditionedMask |= 1 << o;
-          const req = omahaTierRequirement(
-            tier40,
-            boardCards.length,
-            omahaTierShape,
-            boardCards.length >= 5 ? oppHole : 4
-          );
+          const req = omahaTierRequirement(tier40, boardCards.length, omahaTierShape);
           if (read.strictPressureRange === true && !vi.isHiLo) {
             if (
               fastRandom() < req.pStrong &&
