@@ -698,7 +698,7 @@ NOV7_PREDECESSOR = '840429a332ecb536d19b3b719fa6809e7bc63ca7'
 def require_nov7_reservation_authority(args, target, stamp):
     # The installed seal and its policy reader belong to the same pinned control generation.
     deadline = getattr(args, 'deadline', None)
-    expiry = int(datetime.fromisoformat('2026-11-11T04:00:00+00:00').timestamp())
+    expiry = int(datetime.fromisoformat('2026-11-11T06:30:00+00:00').timestamp())
     if (type(deadline) is not int or stamp + 420000 > min(deadline, expiry) * 1000
             or not 330 <= (stamp // 1000) % 3600 <= 2940):
         die('Nov 7 announcement cannot fit the authorized window')
