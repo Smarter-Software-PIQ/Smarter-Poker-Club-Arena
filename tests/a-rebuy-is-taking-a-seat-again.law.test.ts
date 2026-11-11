@@ -105,6 +105,8 @@ function table(opts: { rebuyTable?: string } = {}) {
     setHeroRowStack: vi.fn(),
     setShowBuyInModal: vi.fn(),
     setShowRebuyModal: vi.fn(),
+    setBustRebuyOpen: vi.fn(),
+    setBustRebuyDeadlineAt: vi.fn(),
     setHeroSitsOutPerRow: vi.fn(),
     setShowSitOut: vi.fn(),
     setSitOutSince: vi.fn(),
