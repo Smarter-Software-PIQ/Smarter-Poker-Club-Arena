@@ -201,3 +201,239 @@ export function peekDecisionLatency(): LatencyRow[] {
   }
   return out;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LIVE REAL-TIME WATCHCOUNTERS (/metrics + /health, Wave 2 #13B)
+// ═══════════════════════════════════════════════════════════════════════════
+// Pure in-memory counters with zero external runtime imports so BrainTelemetry
+// remains pure inside HORSE_REFERENCE_DECISION_SOURCE_FILES closure checks.
+// Worker isolates relay deltas to the main thread via drainBrainWatchcounterDeltas()
+// -> mergeBrainWatchcounterDeltas(), and GameServer renders them once per scrape.
+
+export type HorseWatchcounterMetric =
+  | 'poker_horse_action_clamped_total'
+  | 'poker_horse_plan_reevaluated_total'
+  | 'poker_horse_legalizer_degraded_total'
+  | 'poker_horse_street_prewarm_total';
+
+export interface HorseWatchcounterLabels {
+  variant?: string;
+  mode?: string;
+  reason?: string;
+}
+
+export interface HorseWatchcounterEntry {
+  metric: HorseWatchcounterMetric;
+  variant: string;
+  mode: string;
+  reason: string;
+  value: number;
+}
+
+const WATCHCOUNTER_SPECS: ReadonlyArray<{
+  metric: HorseWatchcounterMetric;
+  help: string;
+}> = [
+  {
+    metric: 'poker_horse_action_clamped_total',
+    help: 'Horse brain wager actions clamped or guarded before engine commit',
+  },
+  {
+    metric: 'poker_horse_plan_reevaluated_total',
+    help: 'Horse multi-street plans re-evaluated when live turn geometry diverged',
+  },
+  {
+    metric: 'poker_horse_legalizer_degraded_total',
+    help: 'Horse pre-commit legalizer wagers degraded to bounded legal actions',
+  },
+  {
+    metric: 'poker_horse_street_prewarm_total',
+    help: 'Horse idle-time street board/equity cache prewarm executions',
+  },
+];
+
+const watchcounters = new Map<string, HorseWatchcounterEntry>();
+const watchcounterDeltas = new Map<string, HorseWatchcounterEntry>();
+
+function sanitizeLabel(raw: string | undefined, fallback: string): string {
+  const trimmed = typeof raw === 'string' ? raw.trim() : '';
+  if (!trimmed) return fallback;
+  return trimmed.replace(/[^a-zA-Z0-9_:.-]/g, '_').slice(0, 64) || fallback;
+}
+
+function recordWatchcounter(
+  metric: HorseWatchcounterMetric,
+  variantOrLabels: string | HorseWatchcounterLabels,
+  modeArg?: string | number,
+  reasonArg?: string,
+  countArg?: number
+): void {
+  let variant: string;
+  let mode: string;
+  let reason: string;
+  let count: number;
+  if (typeof variantOrLabels === 'object' && variantOrLabels !== null) {
+    variant = sanitizeLabel(variantOrLabels.variant, 'nlh');
+    mode = sanitizeLabel(variantOrLabels.mode, 'cash');
+    reason = sanitizeLabel(variantOrLabels.reason, 'default');
+    count = typeof modeArg === 'number' ? modeArg : 1;
+  } else {
+    variant = sanitizeLabel(variantOrLabels, 'nlh');
+    mode = typeof modeArg === 'string' ? sanitizeLabel(modeArg, 'cash') : 'cash';
+    reason = sanitizeLabel(reasonArg, 'default');
+    count = typeof modeArg === 'number' ? modeArg : (countArg ?? 1);
+  }
+  if (!Number.isFinite(count) || count <= 0) return;
+  const key = `${metric}|${variant}|${mode}|${reason}`;
+  const cur = watchcounters.get(key);
+  if (cur) {
+    cur.value += count;
+  } else {
+    watchcounters.set(key, { metric, variant, mode, reason, value: count });
+  }
+  const delta = watchcounterDeltas.get(key);
+  if (delta) {
+    delta.value += count;
+  } else {
+    watchcounterDeltas.set(key, { metric, variant, mode, reason, value: count });
+  }
+}
+
+export function noteHorseActionClamped(
+  variantOrLabels: string | HorseWatchcounterLabels,
+  mode?: string | number,
+  reason?: string,
+  count?: number
+): void {
+  recordWatchcounter('poker_horse_action_clamped_total', variantOrLabels, mode, reason, count);
+}
+
+export function noteHorsePlanReevaluated(
+  variantOrLabels: string | HorseWatchcounterLabels,
+  mode?: string | number,
+  reason?: string,
+  count?: number
+): void {
+  recordWatchcounter('poker_horse_plan_reevaluated_total', variantOrLabels, mode, reason, count);
+}
+
+export function noteHorseLegalizerDegraded(
+  variantOrLabels: string | HorseWatchcounterLabels,
+  mode?: string | number,
+  reason?: string,
+  count?: number
+): void {
+  recordWatchcounter('poker_horse_legalizer_degraded_total', variantOrLabels, mode, reason, count);
+}
+
+export function noteHorseStreetPrewarm(
+  variantOrLabels: string | HorseWatchcounterLabels,
+  mode?: string | number,
+  reason?: string,
+  count?: number
+): void {
+  recordWatchcounter('poker_horse_street_prewarm_total', variantOrLabels, mode, reason, count);
+}
+
+/** Drain worker-side increments since the previous relay message. */
+export function drainBrainWatchcounterDeltas(): HorseWatchcounterEntry[] {
+  if (watchcounterDeltas.size === 0) return [];
+  const out: HorseWatchcounterEntry[] = [];
+  for (const entry of watchcounterDeltas.values()) {
+    out.push({ ...entry });
+  }
+  watchcounterDeltas.clear();
+  return out;
+}
+
+/** Merge worker-relayed increments into the main-thread process counters. */
+export function mergeBrainWatchcounterDeltas(
+  entries: ReadonlyArray<HorseWatchcounterEntry> | undefined | null
+): void {
+  if (!Array.isArray(entries) || entries.length === 0) return;
+  for (const raw of entries) {
+    if (!raw || typeof raw.metric !== 'string' || typeof raw.value !== 'number') continue;
+    if (
+      raw.metric !== 'poker_horse_action_clamped_total' &&
+      raw.metric !== 'poker_horse_plan_reevaluated_total' &&
+      raw.metric !== 'poker_horse_legalizer_degraded_total' &&
+      raw.metric !== 'poker_horse_street_prewarm_total'
+    ) {
+      continue;
+    }
+    if (!Number.isFinite(raw.value) || raw.value <= 0) continue;
+    const variant = sanitizeLabel(raw.variant, 'nlh');
+    const mode = sanitizeLabel(raw.mode, 'cash');
+    const reason = sanitizeLabel(raw.reason, 'default');
+    const key = `${raw.metric}|${variant}|${mode}|${reason}`;
+    const cur = watchcounters.get(key);
+    if (cur) {
+      cur.value += raw.value;
+    } else {
+      watchcounters.set(key, {
+        metric: raw.metric,
+        variant,
+        mode,
+        reason,
+        value: raw.value,
+      });
+    }
+  }
+}
+
+/** Non-destructive snapshot for /health and tests. */
+export function peekBrainWatchcounters(): Record<
+  HorseWatchcounterMetric,
+  { total: number; series: Array<{ variant: string; mode: string; reason: string; value: number }> }
+> {
+  const snapshot: Record<
+    HorseWatchcounterMetric,
+    {
+      total: number;
+      series: Array<{ variant: string; mode: string; reason: string; value: number }>;
+    }
+  > = {
+    poker_horse_action_clamped_total: { total: 0, series: [] },
+    poker_horse_plan_reevaluated_total: { total: 0, series: [] },
+    poker_horse_legalizer_degraded_total: { total: 0, series: [] },
+    poker_horse_street_prewarm_total: { total: 0, series: [] },
+  };
+  for (const entry of watchcounters.values()) {
+    const bucket = snapshot[entry.metric];
+    bucket.total += entry.value;
+    bucket.series.push({
+      variant: entry.variant,
+      mode: entry.mode,
+      reason: entry.reason,
+      value: entry.value,
+    });
+  }
+  return snapshot;
+}
+
+/** Render Prometheus text-exposition blocks once per /metrics scrape. */
+export function renderBrainWatchcountersPrometheus(): string[] {
+  const lines: string[] = [];
+  for (const spec of WATCHCOUNTER_SPECS) {
+    lines.push(`# HELP ${spec.metric} ${spec.help}`);
+    lines.push(`# TYPE ${spec.metric} counter`);
+    let emitted = 0;
+    for (const entry of watchcounters.values()) {
+      if (entry.metric !== spec.metric) continue;
+      lines.push(
+        `${spec.metric}{variant="${entry.variant}",mode="${entry.mode}",reason="${entry.reason}"} ${entry.value}`
+      );
+      emitted++;
+    }
+    if (emitted === 0) {
+      lines.push(`${spec.metric}{variant="none",mode="none",reason="none"} 0`);
+    }
+  }
+  return lines;
+}
+
+/** Reset live watchcounters in unit tests. */
+export function resetBrainWatchcountersForTest(): void {
+  watchcounters.clear();
+  watchcounterDeltas.clear();
+}

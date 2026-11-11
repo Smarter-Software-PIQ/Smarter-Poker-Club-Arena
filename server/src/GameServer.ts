@@ -26,6 +26,10 @@ import { nearbyMaintenanceWindows } from './maintenance/maintenanceSchedule.js';
 import { spinSngBoardsOpen } from './maintenance/dailyWindow.js';
 import { BulkClosureRefusedError, bulkClosureRefusal } from './maintenance/bulkClosureGuard.js';
 import { horseRiverValueAlarmSnapshot } from './engine/HorseRiverValueAudit.js';
+import {
+  peekBrainWatchcounters,
+  renderBrainWatchcountersPrometheus,
+} from './engine/BrainTelemetry.js';
 import { readPendingOperatorCashClose } from './services/operatorCashClose.js';
 import { type OperatorCommand, acknowledgeMaintenance } from './maintenance/OperatorCommands.js';
 import {
@@ -6391,6 +6395,7 @@ export class GameServer {
       // Horse river value alarm (2026-10-23): proof the per-hand audit is
       // running (handsAudited, riverActionsAudited) and whether it is firing.
       horseRiverValueAlarm: horseRiverValueAlarmSnapshot(),
+      horseWatchcounters: peekBrainWatchcounters(),
       adaptiveJournalWorker: horseAdaptiveJournalWorker.status(),
       // HTTP and WebSocket handlers are reachable before the leader boot has
       // finished. This is the exact admission gate they await before any table
@@ -7125,6 +7130,7 @@ export class GameServer {
         return [];
       })(),
       ...alwaysOnPrometheusLines(),
+      ...renderBrainWatchcountersPrometheus(),
       // ── WHAT THE PLAYER'S BROWSER SAW (Phase 2, 2026-09-05) ──────────
       // The client-side twin of poker_ws_auth_refused_total: that counts
       // sockets the server refused, these count sockets the client lost.

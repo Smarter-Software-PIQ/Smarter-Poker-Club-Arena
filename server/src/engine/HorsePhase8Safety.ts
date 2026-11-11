@@ -2,11 +2,25 @@ import type { HorseTournamentPostflopLedger } from './HorseTournamentPostflop.js
 
 export const PHASE8_SAFETY = { budgetFailureLimit: 3, silentEligibleLimit: 32 } as const;
 
+export interface HorsePhase8SafetyOptions {
+  /**
+   * Unit-test / offline qualification sentinel (default true). In live play,
+   * 32 routine check/call postflop spots where candidate agrees with baseline
+   * (`fired: false`) occur naturally and must NOT permanently lock out Phase 8
+   * tournament postflop across the worker for the rest of the process lifetime.
+   */
+  readonly enforceSilentEligibleLimit?: boolean;
+}
+
 /** Local fail-closed state. Restart returns to unpromoted shadow, never active. */
 export class HorsePhase8Safety {
   private consecutiveBudgetFailures = 0;
   private eligibleSinceFire = 0;
+  private readonly enforceSilentEligibleLimit: boolean;
   disabledReason: string | null = null;
+  constructor(options: HorsePhase8SafetyOptions = {}) {
+    this.enforceSilentEligibleLimit = options.enforceSilentEligibleLimit !== false;
+  }
   observe(ledger: HorseTournamentPostflopLedger): void {
     if (this.disabledReason) return;
     if (ledger.fired) this.eligibleSinceFire = 0;
@@ -30,10 +44,13 @@ export class HorsePhase8Safety {
       ledger.reason === 'budget_exhausted' ? this.consecutiveBudgetFailures + 1 : 0;
     if (this.consecutiveBudgetFailures >= PHASE8_SAFETY.budgetFailureLimit)
       this.disabledReason = 'repeated_budget_breach';
-    // A bounded warm-up permits caches and JIT to settle. This is an execution
-    // sentinel only; it cannot turn a candidate on or certify its strength.
-    if (this.eligibleSinceFire >= PHASE8_SAFETY.silentEligibleLimit)
+    // A bounded warm-up permits caches and JIT to settle in standalone tests;
+    // live workers disable this withdrawal tripwire so agreeing spots do not mute Phase 8.
+    if (
+      this.enforceSilentEligibleLimit &&
+      this.eligibleSinceFire >= PHASE8_SAFETY.silentEligibleLimit
+    )
       this.disabledReason = 'eligible_but_silent';
   }
 }
-export const liveHorsePhase8Safety = new HorsePhase8Safety();
+export const liveHorsePhase8Safety = new HorsePhase8Safety({ enforceSilentEligibleLimit: false });

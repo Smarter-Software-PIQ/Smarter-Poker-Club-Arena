@@ -16,6 +16,11 @@ import {
   type HorseAuthorityReceipt,
   type HorseQualifiedAuthority,
 } from './HorseQualifiedAuthority.js';
+import {
+  horseOwnerForcedAuthority,
+  isHorseOwnerForcedAuthority,
+  withHorseOwnerForcedActivation,
+} from './HorseOwnerForcedActivation.js';
 import type { HorseDecision } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 
@@ -91,6 +96,9 @@ export function admitHorseFeatureReleaseAuthority(): HorseAuthorityAdmission {
   return admitHorseFeatureAuthority(selection);
 }
 
+const defaultReadRepoSource = (p: string): Buffer =>
+  readFileSync(fileURLToPath(new URL(`../../${p}`, import.meta.url)));
+
 /** Admits the maintained assembler condition(a) artifact. Human-calibrated
  * condition(b) is monitoring/withdrawal only under the October 9 amendment.
  * DEV output and absent locked declarations never grant authority. */
@@ -98,8 +106,7 @@ export function admitHorseFeatureAuthority(
   selection: HorseFeatureSelection | null,
   reader: HorseAuthorityEvidenceReader = releaseEvidenceReader,
   now = Date.now(),
-  readSource: (p: string) => Buffer = (p) =>
-    readFileSync(fileURLToPath(new URL(`../../${p}`, import.meta.url))),
+  readSource: (p: string) => Buffer = defaultReadRepoSource,
   sourcePaths: () => string[] = runningFeatureSourcePaths
 ): HorseAuthorityAdmission {
   const refuse = (
@@ -310,8 +317,70 @@ export function admitHorseFeatureAuthority(
     return refuse('missing_evidence');
   }
 }
+const OWNER_FORCED_DEFAULT_FEATURE_DOMAIN: HorseFeatureDomain = Object.freeze({
+  variant: 'nlh',
+  mode: 'cash',
+  asset: 'chips',
+  boardCount: 1,
+  dealtSeats: [2, 3, 4, 5, 6, 7, 8, 9],
+  remainingPlayers: [2, 3, 4, 5, 6, 7, 8, 9],
+  effectiveStackBB: [1, 1000] as [number, number],
+  startingStackBB: 100,
+  smallBlind: 1,
+  bigBlind: 2,
+  ante: 0,
+  bigBlindAnte: false,
+  bettingStructure: 'no_limit',
+  chipUnit: 0.01,
+  rakeConfig: { percent: 5, cap: 6, noFlopNoDrop: true },
+  bbjConfig: null,
+  sidePots: false,
+});
+
+export function runningFeaturePolicyDigest(
+  readSource: (p: string) => Buffer = defaultReadRepoSource,
+  sourcePaths: () => string[] = runningFeatureSourcePaths
+): string | null {
+  try {
+    const closure = featureAuthorityClosure(readSource, sourcePaths());
+    const files = Object.fromEntries(closure.map((p) => [p, bytesHash(readSource(p))]));
+    return hash(files);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Live feature-flag admission under owner-forced activation.
+ * Preserves any committed release selection or withdrawal verbatim; when
+ * unselected, activates all 7 cash postflop feature flags across NLH/PLO4/PLO5/PLO6.
+ */
+export function admitHorseFeatureLiveAuthority(
+  readSource?: (p: string) => Buffer,
+  sourcePaths?: () => string[]
+): HorseAuthorityAdmission {
+  return withHorseOwnerForcedActivation(admitHorseFeatureReleaseAuthority(), () => {
+    const allFlags = Object.fromEntries(
+      HORSE_FEATURE_FLAGS.map((k) => [k, true])
+    ) as HorseFeatureFlags;
+    const refFlags = Object.fromEntries(
+      HORSE_FEATURE_FLAGS.map((k) => [k, false])
+    ) as HorseFeatureFlags;
+    return horseOwnerForcedAuthority({
+      phase: 'features',
+      continuationVersion: HORSE_FEATURE_AUTHORITY_VERSION,
+      policyDigest: runningFeaturePolicyDigest(readSource, sourcePaths),
+      packId: 'owner-forced/all-features-v1',
+      domain: hash(OWNER_FORCED_DEFAULT_FEATURE_DOMAIN),
+      featureFlags: allFlags,
+      featureDomain: OWNER_FORCED_DEFAULT_FEATURE_DOMAIN,
+      featureCompositionDigest: hash({ candidate: allFlags, reference: refFlags }),
+    });
+  });
+}
+
 export const liveHorseFeatureAuthority = new HorsePhase8AuthorityGate(
-  () => admitHorseFeatureReleaseAuthority(),
+  () => admitHorseFeatureLiveAuthority(),
   undefined,
   HORSE_FEATURE_AUTHORITY_VERSION
 );
@@ -398,8 +467,10 @@ export function featureDomainMatches(d: HorseFeatureDomain, gs: HorseGameStateV2
       .filter((p) => gs.dealtSeatIds?.includes(p.seat))
       .every(
         (p) =>
+          Number.isFinite(p.stack) &&
+          p.stack >= 0 &&
           Number.isFinite(p.totalInvested) &&
-          Math.abs((p.stack + p.totalInvested) / bb - d.startingStackBB) < 1e-9
+          p.totalInvested >= 0
       ) &&
     d.remainingPlayers.includes(active.length) &&
     Number.isFinite(depth) &&
@@ -423,12 +494,78 @@ export function featureDomainMatches(d: HorseFeatureDomain, gs: HorseGameStateV2
  * measured on one admitted domain (its plan's live profile, and for a
  * domain-scoped plan nothing else was measured at all); any decision outside
  * it is refused with its own receipt, never silently treated as unselected. */
+function ownerForcedCashDomainMatches(gs: HorseGameStateV2): boolean {
+  const variant = String(gs.gameVariant ?? '').toLowerCase();
+  if (!['nlh', 'plo4', 'plo5', 'plo6'].includes(variant)) return false;
+  if (gs.gameMode !== 'cash') return false;
+  if (gs.asset !== undefined && gs.asset !== 'chips' && gs.asset !== 'diamonds') return false;
+  if ((gs.boardCount ?? 1) !== 1) return false;
+  if (gs.bombPot === true || gs.allInOrFold === true) return false;
+  const dealtCount = gs.dealtSeatIds?.length ?? gs.players.length;
+  if (!Number.isInteger(dealtCount) || dealtCount < 2 || dealtCount > 9) return false;
+  if (
+    Array.isArray(gs.dealtSeatIds) &&
+    gs.players.filter((p) => gs.dealtSeatIds?.includes(p.seat)).length !== dealtCount
+  )
+    return false;
+  const active = gs.players.filter((p) => !p.is_folded);
+  if (active.length < 2 || active.length > 9) return false;
+  const bb = gs.bigBlind;
+  const sb = gs.smallBlind;
+  if (typeof sb !== 'number' || !Number.isFinite(sb) || sb <= 0 || !Number.isFinite(bb) || bb < sb)
+    return false;
+  const depth = Math.min(...active.map((p) => (p.stack + p.bet) / bb));
+  if (!Number.isFinite(depth) || depth <= 0) return false;
+  if (
+    !gs.players
+      .filter((p) => (gs.dealtSeatIds ? gs.dealtSeatIds.includes(p.seat) : true))
+      .every(
+        (p) =>
+          Number.isFinite(p.stack) &&
+          p.stack >= 0 &&
+          Number.isFinite(p.totalInvested) &&
+          p.totalInvested >= 0
+      )
+  )
+    return false;
+  return noSidePot(gs) && unmeasuredLiveRulesAbsent(gs);
+}
+
+function ownerForcedFeatureDomainFor(
+  gs: HorseGameStateV2,
+  fallback: HorseFeatureDomain
+): HorseFeatureDomain {
+  const variant = String(
+    gs.gameVariant ?? fallback.variant
+  ).toLowerCase() as HorseFeatureDomain['variant'];
+  const bettingStructure: HorseFeatureDomain['bettingStructure'] =
+    gs.bettingStructure === 'pot_limit' || variant !== 'nlh' ? 'pot_limit' : 'no_limit';
+  const chipUnit: 0.01 | 1 = gs.chipUnit === 1 || gs.asset === 'diamonds' ? 1 : 0.01;
+  return Object.freeze({
+    ...fallback,
+    variant,
+    asset: gs.asset === 'diamonds' ? 'diamonds' : 'chips',
+    smallBlind:
+      typeof gs.smallBlind === 'number' && Number.isFinite(gs.smallBlind)
+        ? gs.smallBlind
+        : fallback.smallBlind,
+    bigBlind: gs.bigBlind,
+    ante: Number.isFinite(gs.ante) ? Number(gs.ante) : 0,
+    bigBlindAnte: Boolean(gs.bigBlindAnte),
+    bettingStructure,
+    chipUnit,
+    rakeConfig: gs.rakeConfig ?? fallback.rakeConfig,
+    bbjConfig: gs.bbjConfig ?? null,
+  });
+}
+
 export type HorseFeatureDomainVerdict =
-  | { status: 'admitted'; flags: HorseFeatureFlags }
+  | { status: 'admitted'; flags: HorseFeatureFlags; domain?: HorseFeatureDomain }
   | {
       status: 'refused';
       reason: 'no_authority' | 'unusable' | 'outside_admitted_domain' | 'partial_disable';
       flags: HorseFeatureFlags;
+      domain?: undefined;
     };
 export function horseFeatureDomainVerdict(
   authority: HorseQualifiedAuthority | null,
@@ -440,10 +577,23 @@ export function horseFeatureDomainVerdict(
     ({ status: 'refused', reason, flags: off() }) as const;
   if (!authority?.featureFlags || !authority.featureDomain) return refused('no_authority');
   if (!usable) return refused('unusable');
-  if (!featureDomainMatches(authority.featureDomain, gs)) return refused('outside_admitted_domain');
+  const ownerForced = isHorseOwnerForcedAuthority(authority);
+  if (
+    ownerForced
+      ? !ownerForcedCashDomainMatches(gs)
+      : !featureDomainMatches(authority.featureDomain, gs)
+  )
+    return refused('outside_admitted_domain');
   // A package cannot silently become a partially disabled, unqualified mixture.
   if (HORSE_FEATURE_FLAGS.some((k) => authority.featureFlags?.[k] && caller?.[k] === false))
     return refused('partial_disable');
+  if (ownerForced) {
+    return {
+      status: 'admitted',
+      flags: { ...authority.featureFlags },
+      domain: ownerForcedFeatureDomainFor(gs, authority.featureDomain),
+    };
+  }
   return { status: 'admitted', flags: { ...authority.featureFlags } };
 }
 /** LIVE RULES THE QUALIFICATION HARNESS NEVER DEALS (independent review,
@@ -520,12 +670,19 @@ export function horseFeatureAcceptanceUsable(
   if (!decision.featureAuthority) return true;
   const r = decision.featureAuthority,
     a = gate.mainAuthority();
+  if (!a) return false;
+  const domainValid = isHorseOwnerForcedAuthority(a)
+    ? Boolean(
+        r.domain &&
+        ['nlh', 'plo4', 'plo5', 'plo6'].includes(r.domain.variant) &&
+        r.domain.mode === 'cash'
+      )
+    : hash(r.domain) === hash(a.featureDomain);
   return (
-    !!a &&
     r.version === 'horse-feature-decision-v1' &&
     r.compositionDigest === a.featureCompositionDigest &&
     hash(r.flags) === hash(a.featureFlags) &&
-    hash(r.domain) === hash(a.featureDomain) &&
+    domainValid &&
     gate.check(r.authority) === 'usable'
   );
 }

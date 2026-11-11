@@ -26,7 +26,7 @@
  * pot or one board of three is a different question.
  */
 import type { Card, SeatPlayer } from '../types.js';
-import { scoreOmahaHiPartial } from './HorseEval.js';
+import { omahaDrawQuality, scoreOmahaHiPartial } from './HorseEval.js';
 
 export const PLO_PAIRED_BOARD_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5', 'plo6']);
 const FULL_HOUSE = 7;
@@ -43,6 +43,7 @@ export interface PairedBoardFoldInput {
   currentBet: number;
   toCall?: number;
   pot: number;
+  v86MultiStreetUnblocked?: boolean;
 }
 
 export function boardIsPaired(board: Card[]): boolean {
@@ -84,6 +85,19 @@ export function ploPairedBoardMustFold(i: PairedBoardFoldInput): boolean {
       p.is_all_in &&
       (p.bet || 0) > (i.hero.bet || 0)
   );
+  const unblocked86 = i.v86MultiStreetUnblocked !== false;
+  // Short-stack all-in exception: a tiny fractional jam (`< 12%` of hero's stack
+  // needing `< 20%` equity) is a pure pot-odds call, not a stack commitment.
+  if (unblocked86 && bettorAllIn && toCall < stack * 0.12 && requiredEquity < 0.2) return false;
+  // Non-all-in flop/turn trips + live Nut Flush Draw redraw (`category === 4`):
+  // hero has both full-house/quads redraws AND nut-flush redraws when not facing a shove.
+  if (unblocked86 && !bettorAllIn && i.board.length < 5 && category === 4 && toCall < stack * 0.4) {
+    try {
+      if (omahaDrawQuality(hole, i.board, false).nutFlushDraw) return false;
+    } catch {
+      // fall through to standard commitment check
+    }
+  }
   return bettorAllIn || toCall >= stack * COMMIT_STACK_SHARE || toCall >= stack - 0.005;
 }
 

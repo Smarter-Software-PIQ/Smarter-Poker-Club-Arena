@@ -193,3 +193,95 @@ export function followsSolver(
   const h = personaHash(`${horseId}|gto|${Math.max(0, Math.floor(handNumber))}|${spot}`);
   return (h % 1000) / 1000 < Math.max(0, Math.min(1, adherence));
 }
+
+/**
+ * Maximum EV indifference band (in big blinds) within which per-horse style
+ * seeds may differentiate close sizings or tie-break indifferent frequencies.
+ * Strictly zero -EV sacrifice: actions outside ±0.12 BB are never overridden.
+ */
+export const HORSE_INDIFFERENCE_EV_BAND_BB = 0.12;
+
+export interface HorseIndifferenceStyleSeeds {
+  /** Deterministic sizing-mix bias within [-0.12, +0.12] BB (negative favors geometric smaller size, positive favors polarized larger size when EVs are within ±0.12 BB). */
+  readonly sizingMixBias: number;
+  /** Deterministic aggression tie-breaker within [-0.12, +0.12] BB when aggressive vs passive EV gap is inside ±0.12 BB. */
+  readonly indifferenceAggressionBias: number;
+  /** Deterministic Run-It-Twice variance preference in [0, 1] (0 = always run once, 1 = prefers RIT in large close-equity all-in pots). */
+  readonly runItTwicePreference: number;
+  /** Hard EV floor cap in BB (0.12 BB). */
+  readonly maxEvBandBB: number;
+}
+
+/**
+ * Deterministic EV-bounded individuality seeds per (horseId, mode).
+ * Every horse keeps gtoAdherence = 1 (100% solver/+EV floor, zero blocked actions)
+ * while expressing stable human-like style differences strictly inside true
+ * solver indifference bands (±0.12 BB).
+ */
+export function indifferenceStyleSeedsFor(
+  horseId: string,
+  mode: 'cash' | 'tournament' = 'cash'
+): HorseIndifferenceStyleSeeds {
+  const id = String(horseId || 'default-horse');
+  const hSize = personaHash(`${id}|indiff-sizing|${mode}`);
+  const hAgg = personaHash(`${id}|indiff-aggression|${mode}`);
+  const hRit = personaHash(`${id}|indiff-rit`);
+  const centered = (u32: number): number => {
+    const unit = ((u32 % 2401) - 1200) / 10000; // [-0.1200, +0.1200]
+    return (
+      Math.round(
+        clamp(unit, -HORSE_INDIFFERENCE_EV_BAND_BB, HORSE_INDIFFERENCE_EV_BAND_BB) * 10000
+      ) / 10000
+    );
+  };
+  const ritBucket = (hRit % 1000) / 1000;
+  return Object.freeze({
+    sizingMixBias: centered(hSize),
+    indifferenceAggressionBias: centered(hAgg),
+    runItTwicePreference: Math.round(ritBucket * 1000) / 1000,
+    maxEvBandBB: HORSE_INDIFFERENCE_EV_BAND_BB,
+  });
+}
+
+/**
+ * Evaluates a close-EV tie-break strictly inside ±HORSE_INDIFFERENCE_EV_BAND_BB.
+ * - If candidate out-EVs reference by > +0.12 BB, always returns true.
+ * - If candidate trails reference by > 0.12 BB (`evGapBB < -0.12`), ALWAYS returns false (zero -EV sacrifice).
+ * - Inside [-0.12, +0.12] BB, applies the bounded per-horse style bias.
+ */
+export function resolveIndifferenceTieBreak(evGapBB: number, biasBB: number): boolean {
+  if (!Number.isFinite(evGapBB)) return false;
+  if (evGapBB > HORSE_INDIFFERENCE_EV_BAND_BB) return true;
+  if (evGapBB < -HORSE_INDIFFERENCE_EV_BAND_BB) return false;
+  const boundedBias = clamp(
+    Number.isFinite(biasBB) ? biasBB : 0,
+    -HORSE_INDIFFERENCE_EV_BAND_BB,
+    HORSE_INDIFFERENCE_EV_BAND_BB
+  );
+  return evGapBB + boundedBias >= 0;
+}
+
+/**
+ * Deterministic variance-reduction Run-It-Twice preference when offered at zero rake penalty.
+ * Never accepts negative-EV surcharges; in zero-fee close-equity large pots, decides
+ * deterministically from the horse's RIT persona preference, pot size (in BB), and equity closeness.
+ */
+export function prefersRunItTwice(
+  horseId: string,
+  potBB: number,
+  equity = 0.5,
+  extraRakeFeeBB = 0
+): boolean {
+  if (extraRakeFeeBB > 0) return false;
+  if (!Number.isFinite(potBB) || potBB < 40) return false;
+  const seeds = indifferenceStyleSeedsFor(horseId, 'cash');
+  // Horses with low RIT preference (< 0.35) always run once ("gamble / max pressure").
+  if (seeds.runItTwicePreference < 0.35) return false;
+  const eq = clamp(Number.isFinite(equity) ? equity : 0.5, 0, 1);
+  // Variance peaks near 50% equity (4 * eq * (1 - eq) in [0, 1]).
+  const varianceFactor = 4 * eq * (1 - eq);
+  if (varianceFactor < 0.45) return false;
+  const potFactor = clamp((potBB - 40) / 160, 0, 1);
+  const score = seeds.runItTwicePreference * 0.65 + varianceFactor * 0.2 + potFactor * 0.15;
+  return score >= 0.58;
+}

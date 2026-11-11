@@ -33,6 +33,7 @@ import type { HandEvent, SeatedPlayer } from '../types.js';
 import { reportError } from '../services/errorReporter.js';
 import { raiseFinancialAlert } from '../services/financialAlerts.js';
 import { ServerTableEngineSettlement } from './ServerTableEngineSettlement.js';
+import { prewarmHorseDecisionStreet } from './horseDecision/client.js';
 
 export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettlement {
   /**
@@ -565,6 +566,29 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
         // fields were stamped moments ago, so the snapshot that follows still
         // carries the correct turn_deadline_ms — no drift versus the old order.
         this.markProgress();
+        const recoverHorseTurnOnError = (): void => {
+          const horsePlayer = players.find((p) => p.seat_number === event.seat);
+          if (!horsePlayer?.is_horse || this.isOwnClientControlling(horsePlayer.user_id)) return;
+          this.setHandTimeout(() => {
+            if (
+              !this.running ||
+              !this.isCurrentEngine() ||
+              !this.lifecycleCanMutate() ||
+              !this.handController ||
+              this.horseActionTimer !== null ||
+              this.horseDecisionAbortController !== null ||
+              this.isOwnClientControlling(horsePlayer.user_id)
+            ) {
+              return;
+            }
+            const st = this.handController.getState();
+            const ep = st.players.find((p) => p.seat === event.seat);
+            if (!ep || st.currentPlayerSeat !== event.seat || st.stage === 'pineapple_discard') {
+              return;
+            }
+            this.scheduleHorseAction(horsePlayer, event.seat, ep, st);
+          }, 250);
+        };
         try {
           // Dan 2026-08-20: handleTurnChange is async now — a queued
           // pre-action holds a visible beat before it lands. Deliberately NOT
@@ -577,10 +601,12 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
           void this.handleTurnChange(event, players).catch((err) => {
             reportError(err, 'ServerTableEngine.' + this.tableId + '.handleTurnChange_rejected');
             this.forceArmTurnTimer(event.seat, effectiveActionSec);
+            recoverHorseTurnOnError();
           });
         } catch (err) {
           reportError(err, 'ServerTableEngine.' + this.tableId + '.handleTurnChange_threw');
           this.forceArmTurnTimer(event.seat, effectiveActionSec);
+          recoverHorseTurnOnError();
         }
 
         try {
@@ -827,6 +853,32 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
           // than applied to the live stack, so nothing legitimately moves chips
           // in or out between the deal and settlement.
           this.verifyStreetIntegrity(event.integrityVerification);
+          const liveBoardForPrewarm = this.handController?.getCommunityCards() ?? [];
+          if (
+            (event.stage === 'flop' || event.stage === 'turn' || event.stage === 'river') &&
+            liveBoardForPrewarm.length >= 3 &&
+            this.seatedPlayers.some((p) => p.is_horse && !this.isOwnClientControlling(p.user_id))
+          ) {
+            try {
+              const bb = Number(this.tableInfo?.big_blind) || 2;
+              const liveStacks =
+                this.handController
+                  ?.getState()
+                  .players.filter((p) => !p.is_folded && p.stack > 0)
+                  .map((p) => p.stack / bb) ?? [];
+              const effBB = liveStacks.length > 0 ? Math.min(...liveStacks) : 100;
+              prewarmHorseDecisionStreet({
+                fence: this.tableId,
+                street: event.stage,
+                board: liveBoardForPrewarm,
+                variant: (this.activeHandVariant() || 'nlh') as string,
+                mode: this.isTournamentTable() ? 'tournament' : 'cash',
+                effectiveStackBB: effBB,
+              });
+            } catch {
+              /* idle street prewarm is advisory only */
+            }
+          }
           this.broadcastCurrentState();
           break;
         }

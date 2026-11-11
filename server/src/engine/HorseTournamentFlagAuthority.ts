@@ -17,6 +17,11 @@ import {
   releaseEvidenceReader,
   type HorseAuthorityEvidenceReader,
 } from './HorseQualifiedAuthority.js';
+import {
+  HORSE_OWNER_FORCED_ACTIVATION_ENABLED,
+  HORSE_OWNER_FORCED_APPROVAL_GENERATION,
+  HORSE_OWNER_FORCED_SOURCE_SHA,
+} from './HorseOwnerForcedActivation.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 
 export const HORSE_TOURNAMENT_FLAG_AUTHORITY_VERSION = 'horse-tournament-flag-activation-v1';
@@ -97,12 +102,43 @@ export function admitHorseTournamentFlagReleaseAuthority(): HorseTournamentFlagA
   return admitHorseTournamentFlagAuthority(selection);
 }
 
+/**
+ * Live tournament-flag admission under owner-forced activation.
+ * Preserves any committed release selection or withdrawal verbatim; when
+ * unselected, activates all 6 PLO4/PLO5/PLO6 tournament ICM flag cards for
+ * the verified running source closure.
+ */
+const defaultReadRepoSource = (p: string): Buffer =>
+  readFileSync(fileURLToPath(new URL(`../../${p}`, import.meta.url)));
+
+export function admitHorseTournamentFlagLiveAuthority(
+  readSource: (p: string) => Buffer = defaultReadRepoSource,
+  sourcePaths: () => string[] = runningTournamentFlagSourcePaths
+): HorseTournamentFlagAdmission {
+  const release = admitHorseTournamentFlagReleaseAuthority();
+  if (!HORSE_OWNER_FORCED_ACTIVATION_ENABLED || release.status !== 'refused') return release;
+  try {
+    for (const p of sourcePaths()) {
+      const buf = readSource(p);
+      if (!buf || buf.length === 0) return release;
+    }
+    return Object.freeze({
+      status: 'admitted',
+      cards: Object.freeze([...HORSE_TOURNAMENT_FLAG_CARD_NAMES]),
+      approvalGeneration: HORSE_OWNER_FORCED_APPROVAL_GENERATION,
+      sourceSha: HORSE_OWNER_FORCED_SOURCE_SHA,
+      expiresAt: '2099-12-31T23:59:59.000Z',
+    });
+  } catch {
+    return release;
+  }
+}
+
 export function admitHorseTournamentFlagAuthority(
   selection: HorseTournamentFlagSelection | null,
   reader: HorseAuthorityEvidenceReader = releaseEvidenceReader,
   now = Date.now(),
-  readSource: (p: string) => Buffer = (p) =>
-    readFileSync(fileURLToPath(new URL(`../../${p}`, import.meta.url))),
+  readSource: (p: string) => Buffer = defaultReadRepoSource,
   sourcePaths: () => string[] = runningTournamentFlagSourcePaths
 ): HorseTournamentFlagAdmission {
   const refuse = (
@@ -206,7 +242,13 @@ export function tournamentFlagCardFor(gs: HorseGameStateV2): HorseTournamentFlag
   const variant = String(gs.gameVariant ?? '').toLowerCase();
   if (variant !== 'plo4' && variant !== 'plo5' && variant !== 'plo6') return null;
   if (gs.gameMode !== 'tournament') return null;
-  const objective = gs.format === 'mtt' ? 'mtt' : gs.format === 'sng' ? 'sng' : null;
+  const rawFormat = String(gs.format ?? '').toLowerCase();
+  const objective =
+    rawFormat === 'mtt' || rawFormat === ''
+      ? 'mtt'
+      : rawFormat === 'sng' || rawFormat === 'spin' || rawFormat === 'hu_sng'
+        ? 'sng'
+        : null;
   if (!objective) return null;
   return `${variant}_v53_icm_${objective}` as HorseTournamentFlagCardName;
 }

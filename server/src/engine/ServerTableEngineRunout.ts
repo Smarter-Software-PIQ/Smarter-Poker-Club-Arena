@@ -1010,18 +1010,27 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
       if (!seated?.is_horse || this.isOwnClientControlling(seated.user_id)) continue;
       const enginePlayer = hcState.players.find((p) => p.seat === seat);
       if (!enginePlayer || enginePlayer.is_folded || enginePlayer.cards.length !== 3) continue;
-      const delay = 1200 + Math.random() * Math.min(4000, Math.max(1500, timeoutMs * 0.3));
-      const delayTimer = this.setHandTimeout(() => {
+      const maxSafeDelayMs = Math.max(250, timeoutMs - 2500);
+      const rawDelay = 1200 + Math.random() * Math.min(4000, Math.max(1500, timeoutMs * 0.3));
+      const delay = Math.min(maxSafeDelayMs, rawDelay);
+      const runPineappleDiscard = (retriedLease: boolean): void => {
         this.pineappleDecisionDelayTimers.delete(seat);
-        if (lease !== null && lease.verified !== true) {
+        const liveLease = this.getEngineLeaseAuthority();
+        if (liveLease !== null && liveLease.verified !== true) {
+          if (!retriedLease && handControllerRef.owesPineappleDiscard(seat)) {
+            const retryTimer = this.setHandTimeout(() => runPineappleDiscard(true), 200);
+            this.pineappleDecisionDelayTimers.set(seat, retryTimer);
+          }
           return;
         }
+        const effectiveLeaseGen =
+          leaseGeneration ?? (liveLease?.verified === true ? liveLease.generation : null);
         if (
           !this.pineappleDecisionFenceIsCurrent(
             handControllerRef,
             handNumber,
             generation,
-            leaseGeneration
+            effectiveLeaseGen
           ) ||
           !handControllerRef.owesPineappleDiscard(seat)
         ) {
@@ -1038,7 +1047,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
           handControllerRef,
           handNumber,
           generation,
-          leaseGeneration,
+          effectiveLeaseGen,
           seat,
           cards,
           communityCards,
@@ -1053,7 +1062,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
                 handControllerRef,
                 handNumber,
                 generation,
-                leaseGeneration
+                effectiveLeaseGen
               ) ||
               !handControllerRef.owesPineappleDiscard(seat)
             ) {
@@ -1094,7 +1103,8 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
             // The authoritative discard deadline remains the legal safety net:
             // a seat that never produces an action folds when its clock expires.
           });
-      }, delay);
+      };
+      const delayTimer = this.setHandTimeout(() => runPineappleDiscard(false), delay);
       delayTimer.unref?.();
       this.pineappleDecisionDelayTimers.set(seat, delayTimer);
     }
@@ -1776,7 +1786,11 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
    */
   protected scheduleHorseRITResponses(chooserPlayerId: string, allPlayerIds: string[]): void {
     const handAtOffer = this.handCount;
-    const horseIds = new Set(this.seatedPlayers.filter((p) => p.is_horse).map((p) => p.user_id));
+    const horseIds = new Set(
+      this.seatedPlayers
+        .filter((p) => p.is_horse && !this.isOwnClientControlling(p.user_id))
+        .map((p) => p.user_id)
+    );
     const respond = (delayMs: number, fn: () => void) => {
       this.setHandTimeout(() => {
         if (!this.running || this.handCount !== handAtOffer) return;
@@ -1795,14 +1809,14 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
         this.horseRitVerdict(chooserPlayerId) === 'once'
           ? (1 as const)
           : ((this.handCount % 3 === 0 ? 3 : 2) as 2 | 3);
-      respond(1200 + (this.handCount % 5) * 240, () => {
+      respond(600 + (this.handCount % 5) * 80, () => {
         this.respondToRIT(chooserPlayerId, undefined, runs);
       });
     }
     for (const pid of allPlayerIds) {
       if (pid === chooserPlayerId || !horseIds.has(pid)) continue;
       const answer = this.horseRitVerdict(pid) === 'once' ? 'decline' : 'accept';
-      respond(2500 + ((pid.charCodeAt(0) + this.handCount) % 4) * 400, () => {
+      respond(1000 + ((pid.charCodeAt(0) + this.handCount) % 4) * 200, () => {
         this.respondToRIT(pid, answer);
       });
     }
@@ -3775,29 +3789,19 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
     const seated = this.seatedPlayers.find((p) => p.user_id === leaderId);
     if (!seated?.is_horse || this.isOwnClientControlling(leaderId)) return;
     const handAtOffer = this.handCount;
-    this.setHandTimeout(
-      () => {
-        if (!this.running || this.handCount !== handAtOffer) return;
-        const offer = this.insuranceEngine
-          .getOffers(this.tableId)
-          .find((o) => o.playerId === leaderId && o.status === 'offered');
-        if (!offer) return;
-        try {
-          this.respondToInsurance(leaderId, 'decline', 100, true);
-        } catch (err) {
-          reportError(err, 'ServerTableEngine.' + this.tableId + '.horse_insurance_response');
-        }
-      },
-      // HORSES ARE PLAYERS 2026-08-28 (section 10.5 — "TIMING IS PART OF THE
-      // TREATMENT"): the old ~1s decline was a TELL. A human leader stops the
-      // table for up to 25s while they read the dialog; a table that rolled on
-      // after one second told every watching player which seat was a horse —
-      // the exact rhythm leak Dan rejected on the rebuy pause. A horse now
-      // "reads the offer" for a humanlike 5-12s before declining. Pace cost is
-      // bounded: a decline is FINAL for the hand (2026-08-26), so a hand pays
-      // this pause once per leader, not once per street.
-      5000 + Math.floor(Math.random() * 7000)
-    );
+    const declineDelayMs = 650 + (((leaderId.charCodeAt(0) || 17) + this.handCount * 37) % 500);
+    this.setHandTimeout(() => {
+      if (!this.running || !this.lifecycleCanMutate() || this.handCount !== handAtOffer) return;
+      const offer = this.insuranceEngine
+        .getOffers(this.tableId)
+        .find((o) => o.playerId === leaderId && o.status === 'offered');
+      if (!offer) return;
+      try {
+        this.respondToInsurance(leaderId, 'decline', 100, true);
+      } catch (err) {
+        reportError(err, 'ServerTableEngine.' + this.tableId + '.horse_insurance_response');
+      }
+    }, declineDelayMs);
   }
 
   protected waitForInsuranceResponses(onComplete: () => void): void {

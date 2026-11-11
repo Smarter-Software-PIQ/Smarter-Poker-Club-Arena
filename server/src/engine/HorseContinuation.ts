@@ -81,7 +81,9 @@ export function premiumPreflopAnchors(
   const suitedPremium: 'aces' | 'kings' | undefined = rules.isOmaha
     ? counts.get('A') === 2 && cards.some((c) => c.rank === 'A' && (suits.get(c.suit) ?? 0) >= 2)
       ? 'aces'
-      : counts.get('K') === 2 && [...suits.values()].filter((n) => n >= 2).length >= 2
+      : counts.get('K') === 2 &&
+          cards.some((c) => c.rank === 'K' && (suits.get(c.suit) ?? 0) >= 2) &&
+          [...suits.values()].filter((n) => n >= 2).length >= 2
         ? 'kings'
         : undefined
     : undefined;

@@ -639,34 +639,34 @@ export function horsePhase10SelectionIsValid(
     ((value.selection === 'selected' &&
       decision.action === value.finalAction &&
       (!wager(decision.action) || (decision.amount ?? null) === value.finalAmount)) ||
-      wagerReplacedVariantSelection(value, verifiedGraph))
+      variantSelectionWasSuperseded(value, verifiedGraph))
   );
 }
 
-function wagerReplacedVariantSelection(
+function variantSelectionWasSuperseded(
   value: RecordValue,
   verifiedGraph: HorsePolicyGraphReceipt | undefined
 ): boolean {
-  const variant = verifiedGraph?.transitions.find((t) => t.node === 'variant_policy');
-  const wager = verifiedGraph?.transitions.find((t) => t.node === 'wager_rules');
-  // Only the verified final wager rule can witness this replacement. Bind
-  // both stage actions and their exact graph amounts, including raise-to.
-  return (
-    record(value) &&
-    value.selection === 'shadow_change' &&
-    variant?.changed === true &&
-    variant.before?.action === value.baselineAction &&
-    variant.before?.amount === value.baselineAmount &&
-    variant.after.action === value.proposalAction &&
-    variant.after.amount === value.proposalAmount &&
-    wager?.changed === true &&
-    wager.before?.action === value.proposalAction &&
-    wager.before?.amount === value.proposalAmount &&
-    wager.after.action === value.finalAction &&
-    wager.after.amount === value.finalAmount &&
-    verifiedGraph !== undefined &&
-    verifiedGraph.finalAction.action === value.finalAction &&
-    verifiedGraph.finalAction.amount === value.finalAmount
+  if (!record(value) || value.selection !== 'shadow_change' || !verifiedGraph) return false;
+  const variant = verifiedGraph.transitions.find((t) => t.node === 'variant_policy');
+  if (
+    !variant?.before ||
+    variant.changed !== true ||
+    variant.before.action !== value.baselineAction ||
+    variant.before.amount !== value.baselineAmount ||
+    variant.after.action !== value.proposalAction ||
+    variant.after.amount !== value.proposalAmount ||
+    verifiedGraph.finalAction.action !== value.finalAction ||
+    verifiedGraph.finalAction.amount !== value.finalAmount
+  ) {
+    return false;
+  }
+  return verifiedGraph.transitions.some(
+    ({ node, changed, before, after }) =>
+      (node === 'corrective_policy' || node === 'wager_rules') &&
+      changed === true &&
+      before !== null &&
+      (before.action !== after.action || before.amount !== after.amount)
   );
 }
 
@@ -692,8 +692,8 @@ export function horsePhase11SelectionIsValid(
     {
       superseded:
         record(value) &&
-        (value.variant === 'plo5' || value.variant === 'plo6') &&
-        wagerReplacedVariantSelection(value, verifiedGraph),
+        isOmahaPolicyVariant(value.variant) &&
+        variantSelectionWasSuperseded(value, verifiedGraph),
     }
   );
 }
@@ -707,9 +707,22 @@ export function horsePhase11SelectionIsValid(
  * final action equal to the proposal; acceptance-time fields unset; a
  * retained receipt claims nothing.
  */
-export function horsePhase12SelectionIsValid(value: unknown, decision: RecordValue): boolean {
-  return packSelectionIsValid(value, decision, (variant) =>
-    isRemainingPolicyVariant(variant) ? REMAINING_VARIANT_PACKS[variant].version : null
+export function horsePhase12SelectionIsValid(
+  value: unknown,
+  decision: RecordValue,
+  verifiedGraph?: HorsePolicyGraphReceipt
+): boolean {
+  return packSelectionIsValid(
+    value,
+    decision,
+    (variant) =>
+      isRemainingPolicyVariant(variant) ? REMAINING_VARIANT_PACKS[variant].version : null,
+    {
+      superseded:
+        record(value) &&
+        isRemainingPolicyVariant(value.variant) &&
+        variantSelectionWasSuperseded(value, verifiedGraph),
+    }
   );
 }
 
@@ -1196,7 +1209,7 @@ export function horseDecisionReceiptRefusal(
     !remainingVariantReceiptBindingIsValid(value.remainingVariantPolicy)
   )
     return 'phase12_binding';
-  if (!horsePhase12SelectionIsValid(value.remainingVariantPolicy, selected))
+  if (!horsePhase12SelectionIsValid(value.remainingVariantPolicy, selected, graph))
     return 'phase12_selection';
   // P13.1: a Phase 13 receipt's input binding, pack versions and selection
   // refusal are re-checked at the boundary.

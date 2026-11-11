@@ -770,3 +770,80 @@ export function tournamentPreflopPolicy(
     shifts,
   };
 }
+
+export interface OmahaTournamentCoordinateInput {
+  variant: 'plo4' | 'plo5' | 'plo6';
+  tableSize: number;
+  heroPosition: TournamentPosition;
+  raiserPosition: TournamentPosition | null;
+  anteType: TournamentAnteType;
+  branch: TournamentPreflopBranch;
+  stackBB: number;
+  potRaiseCostBB?: number;
+  m?: TournamentMState;
+}
+
+/**
+ * Variant-calibrated Omaha tournament coordinate shifts (PLO4 / PLO5 / PLO6).
+ * Kept orthogonal to the pinned Phase 6B NLH atlas domain digest so NLH Phase 6
+ * receipts remain byte-identical while Omaha tournaments get full table-size,
+ * position-pair, ante, blind-velocity, and pot-limit-commitment adjustments.
+ */
+export function omahaTournamentCoordinateShifts(input: OmahaTournamentCoordinateInput): {
+  open: number;
+  jam: number;
+  call: number;
+  threeBet: number;
+  fourBet: number;
+} {
+  if (!Number.isFinite(input.tableSize) || !Number.isFinite(input.stackBB)) {
+    return { ...ZERO_SHIFTS };
+  }
+  const tableSize = clamp(Math.floor(input.tableSize), 2, 10);
+  // Equity compression increases with card count (PLO4 -> PLO5 -> PLO6):
+  // fold equity shrinks on pot-raises while multi-nut realization widens opens/defends.
+  const compression = input.variant === 'plo6' ? 0.55 : input.variant === 'plo5' ? 0.72 : 0.85;
+  const tableWiden = clamp((9 - tableSize) * 0.0035, -0.004, 0.024) * compression;
+  const anteWiden = input.anteType === 'none' ? 0 : input.anteType === 'big_blind' ? 0.014 : 0.018;
+  const urgency = velocityUrgency(input.m);
+  const commitRatio =
+    input.stackBB > 0 ? (input.potRaiseCostBB ?? 3.5) / Math.max(1, input.stackBB) : 1;
+  // In pot-limit Omaha, commitment begins around 14bb (one 3.5bb pot open = 25% of stack)
+  // rather than NLH's 20-25bb shove zone.
+  const potCommitRamp = clamp((commitRatio - 0.18) / 0.32, 0, 1);
+
+  let open = -(tableWiden + anteWiden + urgency * 0.008);
+  let jam = -(anteWiden * 0.8 + urgency * 0.014 + potCommitRamp * 0.02);
+  let call = 0;
+  let threeBet = 0;
+  let fourBet = 0;
+
+  const lateHero = ['CO', 'BTN', 'SB'].includes(input.heroPosition);
+  const earlyRaiser = ['UTG', 'UTG1', 'UTG2', 'LJ'].includes(input.raiserPosition ?? '');
+  const lateRaiser = ['CO', 'BTN', 'SB'].includes(input.raiserPosition ?? '');
+
+  if (input.branch === 'unopened' && lateHero) {
+    open -= 0.015 * compression;
+  } else if (input.branch === 'bb_defense') {
+    call -= (lateRaiser ? 0.028 : 0.014) + anteWiden * 0.5;
+  } else if (input.branch === 'squeeze') {
+    threeBet -= 0.012 * compression;
+    call += 0.018;
+  } else if (input.branch === 'cold_call') {
+    call += earlyRaiser ? 0.028 : lateRaiser ? -0.008 : 0.01;
+    threeBet += earlyRaiser ? 0.022 : -0.006;
+  } else if (input.branch === 'three_bet_facing') {
+    call += potCommitRamp > 0.4 ? -0.02 : 0.012;
+    fourBet += earlyRaiser ? 0.018 : 0;
+  }
+
+  const roundShift = (v: number): number => Math.round(v * SHIFT_ROUNDING) / SHIFT_ROUNDING || 0;
+
+  return {
+    open: roundShift(open),
+    jam: roundShift(jam),
+    call: roundShift(call),
+    threeBet: roundShift(threeBet),
+    fourBet: roundShift(fourBet),
+  };
+}

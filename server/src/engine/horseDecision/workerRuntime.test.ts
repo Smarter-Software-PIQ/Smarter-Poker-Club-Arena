@@ -3528,11 +3528,11 @@ describe('P10.3 worker-owned PLO4 authority (the Phase 8 path, reused)', () => {
   // heads-up reference fold.
   const LIVE_STATES = [
     [
-      'cash AsKsQhJh preflop (the pack retains the call)',
+      'cash AsKsQhJh preflop (the pack retains the 3-bet raise)',
       'cash',
       'As Ks Qh Jh',
       false,
-      { action: 'call', amount: 2 },
+      { action: 'raise', amount: 11 },
     ],
     [
       'cash QsQh4c4d preflop (the pack retains the call)',
@@ -3549,11 +3549,11 @@ describe('P10.3 worker-owned PLO4 authority (the Phase 8 path, reused)', () => {
       { action: 'fold', amount: null },
     ],
     [
-      'tournament AsKsQhJh preflop (the pack retains the call)',
+      'tournament AsKsQhJh preflop (the pack retains the 3-bet raise)',
       'tournament',
       'As Ks Qh Jh',
       false,
-      { action: 'call', amount: 2 },
+      { action: 'raise', amount: 11 },
     ],
   ] as const;
 

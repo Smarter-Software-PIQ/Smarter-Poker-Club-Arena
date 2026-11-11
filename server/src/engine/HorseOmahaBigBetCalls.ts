@@ -419,7 +419,8 @@ function facesLargeClosingCheckRaise(
 export function callLargeRiverBoatWager(
   decision: HorseDecision,
   player: SeatPlayer,
-  gs: HorseGameStateV2
+  gs: HorseGameStateV2,
+  v86MultiStreetUnblocked = true
 ): HorseDecision {
   if (
     gs.stage !== 'river' ||
@@ -485,6 +486,10 @@ export function callLargeRiverBoatWager(
   if (
     !position ||
     position.lowerBoats === 0 ||
+    (v86MultiStreetUnblocked &&
+      decision.action !== 'fold' &&
+      position.boats === 0 &&
+      position.quads <= 1) ||
     (position.boats === 0 && position.quads === 0 && hasRiverNuts(player, gs))
   )
     return decision;

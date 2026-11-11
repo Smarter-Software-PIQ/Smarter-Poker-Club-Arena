@@ -26,7 +26,7 @@ import type {
   SeatPlayer,
 } from '../types.js';
 import { mdfFold } from './HorseEvEngine.js';
-import { createIcmEquityEstimator, type IcmMethod } from './IcmModel.js';
+import { createIcmEquityEstimator, pairwiseBubbleFactor, type IcmMethod } from './IcmModel.js';
 import { calculateContestablePot, calculatePots } from './PokerEngine.js';
 import { prepareJointPots, settleJointScores } from './multiway/JointPotDistribution.js';
 import {
@@ -134,6 +134,8 @@ export interface TournamentUtilityInput {
   settlement?: { chipUnit: 1; dealerSeat: number; splitLow: boolean };
   /** Internal deadline for an optional shadow evaluation. Never from live worker input. */
   withinBudget?: () => boolean;
+  /** Asymmetric cover-ICM response elasticity & preflop realization confidence (default true). */
+  v86AsymmetricIcmAndPreflop?: boolean;
   /** Explicit Phase 8 counterfactual. Absent preserves Phase 7 exactly. */
   continuation?: {
     dealerSeat: number;
@@ -825,6 +827,7 @@ function ownBountyCents(input: TournamentUtilityInput): number {
 
 function responseFoldProbability(
   input: TournamentUtilityInput,
+  field: FieldState,
   candidate: ActionCandidate,
   opponent: SeatPlayer,
   evidence: TournamentUtilityOpponentEvidence | undefined,
@@ -845,7 +848,52 @@ function responseFoldProbability(
   // committed. A short stack cannot defend side pots it can never win, and
   // its own not-yet-paid call must not appear twice in the price denominator.
   const potFacing = calculateContestablePot(seats, opponent.user_id, facing);
-  const base = mdfFold(Math.max(1, potFacing), facing, evidence?.foldMul ?? 1);
+  let foldMul = evidence?.foldMul ?? 1;
+  if (input.v86AsymmetricIcmAndPreflop !== false) {
+    const heroTotal = Math.max(0, input.hero.stack) + Math.max(0, input.hero.bet);
+    const oppTotal = Math.max(0, opponent.stack) + Math.max(0, opponent.bet);
+    const oppFieldIdx = field.localIndex.get(opponent.user_id);
+    // Asymmetric cover pressure: when hero covers a medium stack on a pay-jump
+    // or satellite bubble, the covered opponent's survival bubble factor raises
+    // their required continuing equity (higher fold frequency).
+    if (
+      oppFieldIdx !== undefined &&
+      field.heroIndex >= 0 &&
+      heroTotal > oppTotal * 1.05 &&
+      field.stacks.length <= 10 &&
+      (input.context.payoutPct.length >= 2 ||
+        (input.context.satellite && input.context.satelliteSeats >= 1))
+    ) {
+      const effectivePayouts =
+        input.context.satellite && input.context.satelliteSeats >= 1
+          ? Array.from({ length: Math.max(1, input.context.satelliteSeats) }, () => 1)
+          : input.context.payoutPct;
+      const oppBF = pairwiseBubbleFactor(
+        field.stacks,
+        effectivePayouts,
+        oppFieldIdx,
+        field.heroIndex,
+        facing
+      );
+      if (oppBF > 1.08) {
+        foldMul *= 1 + Math.min(0.28, (oppBF - 1.08) * 0.22);
+      }
+    } else if (
+      oppTotal > heroTotal * 1.05 &&
+      candidate.investment >= input.hero.stack - EPS &&
+      (input.context.isBounty ||
+        input.context.isPko ||
+        (input.context.isMysteryBounty && input.context.mysteryBountyStage === 'active'))
+    ) {
+      // Covering bounty hunter calls wider when hero is all-in with a live head.
+      const ownHead = ownBountyCents(input);
+      if (ownHead > 0) {
+        const bountyPull = clamp(input.context.bountyFactor * 0.28, 0.04, 0.22);
+        foldMul *= 1 - bountyPull;
+      }
+    }
+  }
+  const base = mdfFold(Math.max(1, potFacing), facing, foldMul);
   // The opening/action-history range remains the prior, but the hand sampled
   // from that range now drives the actual response. This makes a continuing
   // range strictly stronger as price rises instead of letting premium and air
@@ -1001,7 +1049,7 @@ function settleSample(args: {
       sample.boards.length;
     const folds =
       responseDraw(args.sampleIndex, opponent.user_id) <
-      responseFoldProbability(input, candidate, opponent, evidence, sampledStrength, seats);
+      responseFoldProbability(input, field, candidate, opponent, evidence, sampledStrength, seats);
     if (folds) {
       opponent.is_folded = true;
       continue;
@@ -1666,8 +1714,20 @@ function evaluateCandidate(args: {
     args.candidate.kind === 'fold'
       ? 0
       : Math.max(0, args.input.equityStandardError) * 100 * args.payoutWeight;
+  const isTerminal = terminalForHero(args.input, args.candidate);
+  const preflopNonTerminalSlack =
+    args.input.v86AsymmetricIcmAndPreflop !== false &&
+    args.input.street === 'preflop' &&
+    !isTerminal &&
+    !args.input.continuation
+      ? Math.max(0, 1 - args.candidate.investment / Math.max(1, args.input.hero.stack)) *
+        0.22 *
+        Math.max(standardError, equityUncertainty, icmError)
+      : 0;
   const confidenceHalfWidth =
-    icmError + CONFIDENCE_Z_999 * Math.max(standardError, equityUncertainty);
+    icmError +
+    preflopNonTerminalSlack +
+    CONFIDENCE_Z_999 * Math.max(standardError, equityUncertainty);
   const ledger: HorseTournamentUtilityCandidateLedger = {
     id: args.candidate.id,
     action: args.candidate.action,
@@ -1932,7 +1992,12 @@ function evaluateWithWorkspace(
   }
   let baselineRetainedForUncertainty = false;
   let baselineRetainedForContinuation = false;
-  if (!sameDecision(selected, input.baseline) && !selected.terminalForHero && !input.continuation) {
+  if (
+    !sameDecision(selected, input.baseline) &&
+    !selected.terminalForHero &&
+    !input.continuation &&
+    !(input.v86AsymmetricIcmAndPreflop !== false && input.street === 'preflop')
+  ) {
     selected = baselineCandidate;
     baselineRetainedForContinuation = true;
   } else if (!sameDecision(selected, input.baseline)) {

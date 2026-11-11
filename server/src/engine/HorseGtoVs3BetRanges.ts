@@ -221,6 +221,11 @@ export const V73_SHORT_MIN_EFFECTIVE_BB = 12;
  */
 export const V75_LIVE_CALLER_FACTOR = 0.8;
 export const V75_MAX_LIVE_CALLERS = 2;
+/**
+ * Realisation factor when the 3-bet itself was cold-called by another player
+ * before action returned to the opener (cold-called 3-bet multiway domination).
+ */
+export const COLD_CALLER_OF_THREEBET_FACTOR = 0.72;
 
 function clampIndex(k: number): number {
   return Math.max(1, Math.min(8, Math.round(k)));
@@ -266,6 +271,11 @@ export interface Vs3BetSpot {
    * V73 heads-up 3-bet node, unchanged.
    */
   liveCallersBehind?: number;
+  /**
+   * Players who cold-called the 3-bet itself before action returned to the
+   * opener (capped/strong cold-call range creates severe multiway domination).
+   */
+  coldCallersOfThreeBet?: number;
 }
 
 /** The share (0..1) whose scoreAtShare is `score`: the inverse, by bisection. */
@@ -339,6 +349,8 @@ export function continueShare(spot: Vs3BetSpot): number {
   // widened the MDF above). See V75_LIVE_CALLER_FACTOR.
   const live = Math.max(0, Math.min(V75_MAX_LIVE_CALLERS, spot.liveCallersBehind ?? 0));
   if (live > 0) share *= Math.pow(V75_LIVE_CALLER_FACTOR, live);
+  const coldOf3Bet = Math.max(0, Math.min(2, spot.coldCallersOfThreeBet ?? 0));
+  if (coldOf3Bet > 0) share *= Math.pow(COLD_CALLER_OF_THREEBET_FACTOR, coldOf3Bet);
   return Math.max(10, Math.min(85, share));
 }
 

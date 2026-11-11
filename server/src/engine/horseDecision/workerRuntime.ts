@@ -10,11 +10,13 @@ import {
 import {
   HORSE_FEATURE_AUTHORITY_VERSION,
   HORSE_FEATURE_FLAGS,
+  admitHorseFeatureLiveAuthority,
   admitHorseFeatureReleaseAuthority,
   horseFeatureDomainVerdict,
   type HorseFeatureFlags,
 } from '../HorseFeatureAuthority.js';
 import {
+  admitHorseTournamentFlagLiveAuthority,
   admitHorseTournamentFlagReleaseAuthority,
   admittedTournamentFlag,
   type HorseTournamentFlagAdmission,
@@ -150,7 +152,13 @@ import {
   TOURNAMENT_CONTEXT_INCOMPLETE,
   TOURNAMENT_CONTEXT_STATUSES,
 } from '../HorseTournamentPreflop.js';
-import { noteDecisionMs, noteFire } from '../BrainTelemetry.js';
+import {
+  drainBrainWatchcounterDeltas,
+  mergeBrainWatchcounterDeltas,
+  noteDecisionMs,
+  noteFire,
+  noteHorseStreetPrewarm,
+} from '../BrainTelemetry.js';
 import type { HorseDecision } from '../../types.js';
 import {
   admitHorsePhase8ReleaseAuthority,
@@ -203,8 +211,8 @@ import {
 import { isJointVariant, type JointVariant } from '../multiway/JointInputBinding.js';
 import type { JointPolicyMode } from '../multiway/JointLivePolicy.js';
 import { gtoChartCount, gtoChartStoreIdentity } from '../GtoCharts.js';
-import { gtoPostflopCount, gtoPostflopStoreIdentity } from '../GtoPostflop.js';
-import { gtoPostflopV31Count, gtoPostflopV31Dataset } from '../GtoPostflopV31.js';
+import { gtoPostflopCount, gtoPostflopStoreIdentity, textureClass } from '../GtoPostflop.js';
+import { gtoPostflopV31Count, gtoPostflopV31Dataset, gtoV31CellMatrix } from '../GtoPostflopV31.js';
 import { hydrateHorseMind } from '../../services/HorseMindHydrator.js';
 import { hydrateHorseExploitReads } from '../../services/HorseExploitHydrator.js';
 import {
@@ -634,8 +642,8 @@ export const defaultHorseDecisionWorkerDependencies: HorseDecisionWorkerDependen
   admitPhase8GuardAuthority: () => admitHorsePhase8GuardAuthority(),
   phase8SafetyDisabledReason: () => liveHorsePhase8Safety.disabledReason,
   admitPhase10Authority: () => admitHorsePhase10LiveAuthority(),
-  admitFeatureAuthority: () => admitHorseFeatureReleaseAuthority(),
-  admitTournamentFlagAuthority: () => admitHorseTournamentFlagReleaseAuthority(),
+  admitFeatureAuthority: () => admitHorseFeatureLiveAuthority(),
+  admitTournamentFlagAuthority: () => admitHorseTournamentFlagLiveAuthority(),
   admitPhase11Authority: (variant) => admitHorsePhase11LiveAuthority(variant),
   admitPhase12Authority: (variant) => admitHorsePhase12LiveAuthority(variant),
   admitPhase13Authority: (variant) => admitHorsePhase13LiveAuthority(variant),
@@ -897,15 +905,16 @@ export class HorseDecisionWorkerRuntime {
     else if (verdict.reason !== 'no_authority')
       this.deps.noteFeature(`horse_feature_authority_refused_${verdict.reason}`);
     const flags = verdict.flags;
+    const domain = verdict.domain ?? a?.featureDomain;
     return {
       flags,
       receipt:
-        Object.values(flags).some(Boolean) && a?.featureDomain && a.featureCompositionDigest
+        Object.values(flags).some(Boolean) && domain && a?.featureCompositionDigest
           ? {
               version: 'horse-feature-decision-v1',
               authority: receipt,
               flags,
-              domain: a.featureDomain,
+              domain,
               compositionDigest: a.featureCompositionDigest,
             }
           : undefined,
@@ -926,10 +935,12 @@ export class HorseDecisionWorkerRuntime {
   private readonly phase14Authority: Readonly<Record<string, HorseQualifiedAuthorityHolder>>;
   private readonly phase14Catalogs = new Map<string, Readonly<CorrectiveKernelCatalog>>();
   private phase14AuthorityAdmitted = false;
+  /** Bounded idle-time prewarm cache (board texture + solver cell matrix). */
+  private readonly prewarmedStreets = new Map<string, string | null>();
   /** Each observer's own public history; no floor-wide read inheritance. */
   private readonly observerReads = new HorseObserverReads();
   constructor(
-    private readonly send: (message: HorseDecisionWorkerResponse) => void,
+    private readonly emitResponse: (message: HorseDecisionWorkerResponse) => void,
     private readonly deps: HorseDecisionWorkerDependencies = defaultHorseDecisionWorkerDependencies,
     /** Test seam; production always yields to a real event-loop turn. */
     private readonly turnEventLoop: () => Promise<void> = nextEventLoopTurn,
@@ -1044,7 +1055,104 @@ export class HorseDecisionWorkerRuntime {
     return this.readyPromise;
   }
 
+  private send(message: HorseDecisionWorkerResponse): void {
+    const deltas = drainBrainWatchcounterDeltas();
+    if (deltas.length > 0 && message.type !== 'STOPPED' && message.type !== 'ERROR') {
+      this.emitResponse({
+        ...message,
+        watchcounterDeltas: deltas,
+      } as unknown as HorseDecisionWorkerResponse);
+      return;
+    }
+    if (deltas.length > 0) {
+      mergeBrainWatchcounterDeltas(deltas);
+    }
+    this.emitResponse(message);
+  }
+
+  private executeStreetPrewarm(raw: {
+    fence?: unknown;
+    street?: unknown;
+    board?: unknown;
+    variant?: unknown;
+    mode?: unknown;
+    effectiveStackBB?: unknown;
+  }): void {
+    if (!this.accepting || this.stopped || this.pendingRequestIds.size > 0) return;
+    if (!Array.isArray(raw.board) || raw.board.length < 3 || raw.board.length > 5) return;
+    const street =
+      raw.street === 'flop' || raw.street === 'turn' || raw.street === 'river'
+        ? raw.street
+        : raw.board.length === 3
+          ? 'flop'
+          : raw.board.length === 4
+            ? 'turn'
+            : 'river';
+    const fence = typeof raw.fence === 'string' ? raw.fence : 'table';
+    const variant =
+      typeof raw.variant === 'string' && raw.variant.trim() ? raw.variant.toLowerCase() : 'nlh';
+    const mode = raw.mode === 'tournament' ? 'tournament' : 'cash';
+    const boardCards = raw.board as Array<{ rank: string; suit: string }>;
+    const boardKey = `${fence}|${street}|${boardCards
+      .map((c) => `${String(c?.rank ?? '')}${String(c?.suit ?? '')}`)
+      .join('')}`;
+    if (this.prewarmedStreets.has(boardKey)) return;
+    const savedRng = this.deps.saveRng();
+    try {
+      const tex = textureClass(boardCards as never);
+      if (this.prewarmedStreets.size >= 256) {
+        const oldest = this.prewarmedStreets.keys().next().value;
+        if (oldest !== undefined) this.prewarmedStreets.delete(oldest);
+      }
+      this.prewarmedStreets.set(boardKey, tex);
+      const stackBB =
+        typeof raw.effectiveStackBB === 'number' && Number.isFinite(raw.effectiveStackBB)
+          ? Math.max(5, Math.min(250, raw.effectiveStackBB))
+          : 100;
+      if (tex && (street === 'flop' || street === 'turn' || street === 'river')) {
+        try {
+          gtoV31CellMatrix({
+            street,
+            board: boardCards as never,
+            stackBB,
+            potType: 'SRP',
+            position: 'IP',
+          } as never);
+        } catch {
+          /* prewarm lookup is purely advisory */
+        }
+      }
+      noteHorseStreetPrewarm(variant, mode, street);
+    } catch {
+      /* idle prewarm never fails the worker */
+    } finally {
+      this.deps.restoreRng(savedRng);
+    }
+    const deltas = drainBrainWatchcounterDeltas();
+    if (deltas.length > 0) {
+      this.emitResponse({
+        type: 'WATCHCOUNTER_DELTA',
+        watchcounterDeltas: deltas,
+      } as unknown as HorseDecisionWorkerResponse);
+    }
+  }
+
   receive(message: HorseDecisionWorkerRequest): void {
+    if ((message as { type?: string })?.type === 'PREWARM_STREET') {
+      if (!this.accepting || this.stopped || this.pendingRequestIds.size > 0) return;
+      this.operation = this.operation
+        .then(async () => {
+          try {
+            await this.turnEventLoop();
+          } catch {
+            /* yield guard */
+          }
+          this.executeStreetPrewarm(message as unknown as Record<string, unknown>);
+        })
+        .catch(() => undefined);
+      return;
+    }
+
     if (message.type === 'CANCEL') {
       // A cancellation delivered after synchronous work returned is a normal
       // race. Retain it only while that exact request is known pending. This
@@ -2619,7 +2727,8 @@ export class HorseDecisionWorkerRuntime {
   ): Readonly<Record<string, HorseAuthorityReceipt>> {
     const d = correctiveDecisionDomain(request.gameState),
       domain = d ? correctiveDomainKey(d) : null;
-    return Object.freeze(domain ? { [domain]: this.phase14Authority[domain].receipt() } : {});
+    const holder = domain ? this.phase14Authority[domain] : undefined;
+    return Object.freeze(domain && holder ? { [domain]: holder.receipt() } : {});
   }
 
   /** Bind the admission receipt to the returned Phase 8 ledger. */
