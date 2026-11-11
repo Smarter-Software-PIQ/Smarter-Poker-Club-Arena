@@ -147,6 +147,20 @@ is a sensitivity calculation; tournament accounting can include tariff estimates
 EV fields with realized-return substitution are mixed estimates. None certifies
 payments, historical strategic EV or complete retained history.
 
+Tournament cost is gross recorded funding, or a tariff estimate where receipts
+are absent, unless `--refund-evidence PRIVATE_JSON` is supplied. An unregistered
+registration keeps its entry receipt and is refunded separately, so gross cost
+overstates what was paid. The evidence is a private read-only acquisition for
+the cached tournaments before the cutoff: `unregistrations` rows from
+`tournament_unregistration_receipts` and `refundTranches` rows from
+`tournament_refund_tranches`, each grouped by tournament and actor class, with
+the funding receipts of the unregistered registrations. A refund is netted only
+against recorded funding and only when both tables agree. Ticket returns, a
+refund against a tariff estimate, a refund above recorded funding and any other
+refund source on a completed tournament refuse. `tournamentPayoutRoi.refundCoverage`
+names the evidence digest or states `UNVERIFIED_no_refund_evidence`. Entry
+counts are not adjusted, and cancelled tournaments stay outside ROI.
+
 Fleet JSON and TSV retain one row per roster Horse and feature. `null`/`unknown`
 never means zero, disabled or failed. Source inclusion, worker health, effective
 configuration, exact eligibility, evaluation, eligible invocation, local rule
