@@ -37,12 +37,23 @@ export function bankTheWinMultiple(horseId: string): number {
   return BANK_THE_WIN_MIN_MULTIPLE + frac * (BANK_THE_WIN_MAX_MULTIPLE - BANK_THE_WIN_MIN_MULTIPLE);
 }
 
-/** The horse's starting stack: its session baseline, else the max buy-in. */
+/**
+ * The horse's starting stack: its session baseline, never more than the
+ * table's maximum buy-in, else the maximum buy-in.
+ *
+ * THE CAP (2026-11-11, measured live): a horse that re-enters the same game
+ * inside the rejoin window must bring its whole stack back, and a top-up adds
+ * to the baseline, so 543 of 856 horse sessions read a baseline above the
+ * table maximum (61e113cb: 1,391.85 in a 100 game). Its 4-6x line then ran to
+ * thousands and the horse never booked. Nobody starts a session with more
+ * than the table lets them buy, so the line never measures from more.
+ */
 export function startingStackFor(baseline: number | undefined, maxBuyIn: number): number {
   const b = Number(baseline);
-  if (Number.isFinite(b) && b > 0) return b;
   const m = Number(maxBuyIn);
-  return Number.isFinite(m) && m > 0 ? m : 0;
+  const hasMax = Number.isFinite(m) && m > 0;
+  if (Number.isFinite(b) && b > 0) return hasMax ? Math.min(b, m) : b;
+  return hasMax ? m : 0;
 }
 
 /** Rule 1: has this stack reached the horse's bank-the-win line? */

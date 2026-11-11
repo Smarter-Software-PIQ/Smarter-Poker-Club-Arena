@@ -137,6 +137,11 @@ const REGISTER = {
       'Neither branch withholds anything a human receives. Both were added 2026-08-28 with the busted-seat release (Dan: "make sure that the user gets removed from the table as soon as they have no chips"), which until then existed for horses and not for humans at all.',
     ].join('\n'),
   },
+  'server/src/lightning/LightningBankTheWin.ts': {
+    allowed: 1,
+    kind: 'IDENTIFICATION',
+    why: "Bank the win on Lightning (owner 2026-11-10): picks the horses whose committed pool hand put them at their 4-6x line, one orbit after a big pot and due for the big blind, and stands them up through the ordinary Leave door a person uses (hit-and-run included). The same fleet steering the Classic settlement step does; it denies a horse nothing.",
+  },
   'server/src/engine/ServerTableEngineSettlement.ts': {
     allowed: 2,
     kind: 'IDENTIFICATION',
