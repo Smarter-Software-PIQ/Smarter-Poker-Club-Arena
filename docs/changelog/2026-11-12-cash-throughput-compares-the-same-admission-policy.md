@@ -23,8 +23,9 @@ Do not publish this consumer until producer PR #10589 is merged, its migration
 is installed, and the maintained monitoring-health collector installation emits
 `poker_lightning_admission_policy_fingerprint` and
 `poker_lightning_admission_policy_collect_ok` with fresh collection time.
-The collector's installation belongs to the existing certified engine-control
-route. Merging the database function alone does not install that collector.
+The existing Deploy Monitoring route publishes the independent collector,
+including the delivery correction in PR #10592. Merging the database function
+alone does not install that collector.
 The first policy recording series has no historical days: warming is expected
 until three complete same-hour days exist. Do not synthesize past samples.
 
