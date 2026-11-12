@@ -120,6 +120,10 @@ export interface LightningSessionStats {
   handsPerHour: number | null;
   durationS: number | null;
   startingStack: number | null;
+  /** Chips Auto Top Up applied during the session (null on an older answer). */
+  topUps: number | null;
+  /** Starting stack plus applied top ups: everything put on the table. */
+  totalBuyIn: number | null;
   currentStack: number | null;
   net: number | null;
   bbPer100: number | null;
@@ -153,6 +157,8 @@ export function parseLightningSessionStats(raw: unknown): LightningSessionStats 
     handsPerHour: num(row.hands_per_hour),
     durationS: num(row.duration_s),
     startingStack: num(row.starting_stack),
+    topUps: num(row.top_ups),
+    totalBuyIn: num(row.total_buy_in) ?? num(row.starting_stack),
     currentStack: num(row.current_stack),
     net: num(row.net),
     bbPer100: num(row.bb_per_100),

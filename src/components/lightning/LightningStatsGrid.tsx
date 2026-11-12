@@ -27,7 +27,15 @@ export function lightningStatRows(
     { key: 'hands', label: 'Hands', value: s.hands.toLocaleString() },
     { key: 'duration', label: 'Duration', value: lightningDurationText(s.durationS) },
     { key: 'hands_per_hour', label: 'Hands / Hour', value: lightningRateText(s.handsPerHour, 0) },
-    { key: 'starting_stack', label: 'Starting Stack', value: lightningChipsText(s.startingStack) },
+    /* Dan 2026-11-12: STARTING 400, ENDING 401, NET -14 "doesn't seem
+       accurate". Auto Top Up had added 15 between hands, so the card now shows
+       the TOTAL BUY-IN (starting stack plus applied top ups), and
+       TOTAL BUY-IN + NET = ENDING STACK on every card. */
+    {
+      key: 'total_buy_in',
+      label: 'Total Buy-In',
+      value: lightningChipsText(s.totalBuyIn ?? s.startingStack),
+    },
     {
       key: 'current_stack',
       label: mode === 'summary' ? 'Ending Stack' : 'Current Stack',
