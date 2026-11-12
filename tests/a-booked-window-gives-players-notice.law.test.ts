@@ -308,12 +308,12 @@ it('publishes the rebooked corrected Horse engine promise with its full lead and
 
 it('shows each missed-engine prerequisite before the successor and ends every promise', () => {
   const at = (stamp: string) => bookedMaintenanceNotice(Date.parse(stamp))?.id;
-  expect(at('2026-11-12T14:39:59Z')).toBeUndefined();
-  expect(at('2026-11-12T14:40:00Z')).toBe('2026-11-12-missed-engine-db-bank-win');
-  expect(at('2026-11-12T15:44:59Z')).toBe('2026-11-12-missed-engine-db-bank-win');
-  expect(at('2026-11-12T15:45:00Z')).toBe('2026-11-12-missed-engine-db-rebuy');
-  expect(at('2026-11-12T16:44:59Z')).toBe('2026-11-12-missed-engine-db-rebuy');
-  expect(at('2026-11-12T16:45:00Z')).toBe('2026-11-12-complete-missed-engine-1700z');
+  expect(at('2026-11-12T15:14:59Z')).toBeUndefined();
+  expect(at('2026-11-12T15:15:00Z')).toBe('2026-11-12-missed-engine-db-bank-win');
+  expect(at('2026-11-12T16:19:59Z')).toBe('2026-11-12-missed-engine-db-bank-win');
+  expect(at('2026-11-12T16:20:00Z')).toBe('2026-11-12-missed-engine-db-rebuy');
+  expect(at('2026-11-12T17:19:59Z')).toBe('2026-11-12-missed-engine-db-rebuy');
+  expect(at('2026-11-12T17:20:00Z')).toBe('2026-11-12-complete-missed-engine-1700z');
   expect(at('2026-11-12T21:59:59Z')).toBe('2026-11-12-complete-missed-engine-1700z');
   expect(at('2026-11-12T22:00:00Z')).toBeUndefined();
 });
