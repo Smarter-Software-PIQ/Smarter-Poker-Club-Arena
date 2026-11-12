@@ -2747,9 +2747,9 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
           await expect(banner).toBeHidden();
           await expectNoOpponentHud(page);
           // Layout proof follows continuity; its UI reads do not extend any hand deadline.
-          testInfo.setTimeout(testInfo.timeout + 45_000);
+          testInfo.setTimeout(testInfo.timeout + 90_000);
           await certifyMobileAwardJournal(page, testInfo);
-          await certifyMobileLiveTableLayout(page, testInfo);
+          await certifyMobileLiveTableLayout(page, testInfo, { requireAvatarGrowth: true });
           // The two existing natural hand cycles are the source of these events.
           // Never synthesize a frame, buy in, seat, or render an opponent HUD.
           const baselineReceipts = new Set<string>(statsBefore.cache?.receipts ?? []);
