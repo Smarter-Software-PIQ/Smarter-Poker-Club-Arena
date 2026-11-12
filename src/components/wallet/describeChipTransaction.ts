@@ -358,6 +358,9 @@ export function describeChipTransaction(
             : 'Promo Wallet';
       const source =
         type === 'club_promo_send' ? 'The Club Promo Wallet' : `${possessive(from)} Promo Wallet`;
+      // A promo funded cashier ticket (fn_cashier_promo_ticket_send).
+      if (meta.destination === 'tournament_ticket')
+        return `${actor} Sent ${amount} From ${source} To ${possessive(to)} Tournament Ticket`;
       return `${actor} Sent ${amount} From ${source} To ${possessive(to)} ${dest}`;
     }
     case 'peer_transfer':
@@ -434,6 +437,7 @@ export function walletRoute(row: ChipTransactionLike): string | null {
           : meta.destination === 'player_wallet'
             ? 'Player Wallet'
             : 'Promo Wallet';
+      if (meta.destination === 'tournament_ticket') return 'Promo Wallet To Tournament Ticket';
       return `${type === 'club_promo_send' ? 'Club Promo Wallet' : 'Promo Wallet'} To ${dest}`;
     }
     case 'peer_transfer':

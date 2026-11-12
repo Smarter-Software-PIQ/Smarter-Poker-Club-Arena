@@ -810,3 +810,8 @@ subprocess.run([
 subprocess.run([
     sys.executable, str(ROOT / "scripts/ci/test-promo-downline-limit-postgres.py"),
 ], env={**os.environ, "PG_BIN": str(pg)}, check=True)
+
+# The same lane qualifies promo funded cashier tickets against that shared limit.
+subprocess.run([
+    sys.executable, str(ROOT / "scripts/ci/test-promo-ticket-postgres.py"),
+], env={**os.environ, "PG_BIN": str(pg)}, check=True)
