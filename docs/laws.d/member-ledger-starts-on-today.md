@@ -1,4 +1,4 @@
-# The Member Ledger Starts On Today
+# tests/member-ledger-starts-on-today.law.test.ts
 
 Owner direction November 11, 2026: every visit to the member Ledger Window defaults both From and To to the current day in America/Chicago. Leaving the page discards its range selection. Previously saved ranges must not restore.
 
