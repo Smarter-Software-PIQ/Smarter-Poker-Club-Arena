@@ -1510,7 +1510,6 @@ body:has([data-players-mode='simple']) nav[aria-label='Club Operations Sections'
   cursor: pointer;
   text-align: left;
 }
-.members-live-now__chip:hover,
 .members-live-now__chip:focus-visible {
   border-color: var(--members-cyan);
   outline: 0;
@@ -1569,7 +1568,6 @@ body:has([data-players-mode='simple']) nav[aria-label='Club Operations Sections'
   font-weight: 600;
   white-space: nowrap;
 }
-.member-seated--table:hover,
 .member-seated--table:focus-visible {
   border-color: var(--members-cyan);
   outline: 0;
