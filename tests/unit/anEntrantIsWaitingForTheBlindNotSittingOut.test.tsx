@@ -46,20 +46,54 @@ const seat = (entryWait: 'waiting_for_button' | 'waiting_for_bb' | 'posting_bb' 
   ).container;
 
 describe('what a sat-out seat says', () => {
-  it('a tournament arrival held for the button simply says Sitting Out', () => {
-    const c = seat('waiting_for_button');
-    expect(c.querySelector('[data-testid="seat-waiting-button-badge"]')?.textContent?.trim()).toBe(
-      'Sitting Out'
+  it('a tournament arrival uses the ordinary Sitting Out badge; a cash move retains its button hold', () => {
+    const page = readFileSync(resolve(__dirname, '../../src/pages/TablePage.tsx'), 'utf8');
+    const source = ts.createSourceFile(
+      'TablePage.tsx',
+      page,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX
     );
-    expect(c.querySelector('[data-testid="seat-waiting-bb-badge"]')).toBeNull();
+    let expression = '';
+    const visit = (node: ts.Node) => {
+      if (
+        ts.isJsxAttribute(node) &&
+        node.name.getText(source) === 'entryWait' &&
+        node.initializer &&
+        ts.isJsxExpression(node.initializer)
+      ) {
+        expression = node.initializer.expression?.getText(source) ?? '';
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    expect(expression).not.toBe('');
+    const choose = new Function(
+      'displayPlayer',
+      'tableState',
+      'bbPostAgreed',
+      `return (${expression});`
+    );
+    const player = entrant({ waitingForButton: true });
+    const tournamentWait = choose(player, { isTournament: true }, false);
+    expect(tournamentWait).toBeNull();
+    const c = seat(tournamentWait);
+    expect(c.querySelector('[data-testid="seat-sitout-badge"]')?.textContent).toBe('Sitting Out');
     expect(c.textContent).not.toContain('Waiting For');
+    const cashWait = choose(player, { isTournament: false }, false);
+    expect(cashWait).toBe('waiting_for_button');
+    expect(
+      seat(cashWait).querySelector('[data-testid="seat-waiting-button-badge"]')?.textContent?.trim()
+    ).toBe('Waiting For The Button To Pass');
   });
 
-  it('the held-arrival footer says Sitting Out without offering a return action', () => {
+  it('the held-arrival footer scopes Sitting Out to tournaments and offers no return action', () => {
     const page = readFileSync(resolve(__dirname, '../../src/pages/TablePage.tsx'), 'utf8');
     const bar = sliceBetween(page, '{heroWaitingForButton ? (', ') : lightningRoom');
-    expect(bar).toContain('Sitting Out');
-    expect(bar).not.toContain('Waiting For The Button');
+    expect(bar).toContain(
+      "tableState.isTournament ? 'Sitting Out' : 'Waiting For The Button To Pass'"
+    );
     expect(bar).not.toContain("I'm Back");
   });
 
@@ -225,6 +259,18 @@ function seatPollPaint(update: (fn: (state: any) => any) => void) {
 }
 
 describe('DB seat refresh cannot release an engine entry hold', () => {
+  it('keeps a tournament button hold sitting out between frames and releases it on admission', () => {
+    let state: any = { players: [entrant({ waitingForButton: true })] };
+    const paint = seatPollPaint((update) => {
+      state = update(state);
+    });
+    paint(new Set());
+    expect(state.players[0].status).toBe('sitting_out');
+    state.players[0].waitingForButton = false;
+    paint(new Set());
+    expect(state.players[0].status).toBe('active');
+  });
+
   it('keeps the avatar and waiting badge between frames, then clears on admission and departure', () => {
     let state: any = {
       players: [entrant({ avatar: '/waiting.png' })],
