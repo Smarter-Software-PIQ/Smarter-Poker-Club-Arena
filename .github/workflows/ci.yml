@@ -472,7 +472,7 @@ jobs:
         run: node --test tests/operations/local-dependency-policy.test.mjs
 
       - name: Money-trigger CI caller preserves independent authority
-        run: node --test tests/money-trigger-ci-caller.test.mjs
+        run: node --test tests/money-trigger-ci-caller.test.mjs tests/money-trigger-closed-pr.test.mjs
 
       - name: Phase14 publication preserves generation floors and withdrawal tombstones
         env:
