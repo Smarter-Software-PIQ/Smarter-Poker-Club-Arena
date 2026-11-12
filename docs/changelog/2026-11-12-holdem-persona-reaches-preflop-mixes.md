@@ -21,7 +21,7 @@ before. Not delivered by this change:
 | 1   | Per-archetype cash VPIP bands (plan line 152)      | Still missing. Needs per-archetype range width, a strategy change. Owner decision 2026-11-11: Hybrid's calibrated ranges are preserved in production for now; the requirement is NOT withdrawn; offline research only. |
 | 2   | 3-bets seeded per hand plus persona (plan line 85) | Unresolved. Identity now seeds two V87 limp mixes only (premium trap, limp-reraise bluff). Ordinary 3-bet and squeeze bluffs remain PRNG rolls shared with Omaha.                                                      |
 | 3   | `nlh3BetMix`                                       | Partially consumed: the suited-connector limp-reraise bluff only.                                                                                                                                                      |
-| 4   | `epLimpTrapMix`                                    | Delivered for the premium trap only. The suited-connector open-limp scaling is withheld (measured 19.27%, interval 18.79 to 19.75, against the approved 20%).                                                          |
+| 4   | `epLimpTrapMix`                                    | Delivered for the premium trap only. The suited-connector open-limp scaling is withheld (historical, unverified measurement 19.27%, interval 18.79 to 19.75, against the approved 20%).                                |
 | 5   | Tricky limp-reraise behaviour                      | Delivered in part: the premium trap rate and the limp-reraise bluff rate follow the persona. The suited-connector limp that feeds the bluff does not.                                                                  |
 | 6   | Squeeze by persona                                 | Still missing.                                                                                                                                                                                                         |
 | 7   | Reshove by persona                                 | Still missing.                                                                                                                                                                                                         |
@@ -131,19 +131,31 @@ nine-seat tables, every table played in all nine seat rotations, 700 hands
 per rotation: 630,000 hands, preflop only, 100 big blinds, Horses against
 Horses. "Eligible" means the decision reached the mix comparison. Intervals
 are 95% Wilson intervals and treat opportunities as independent, which they
-are not quite. Rule applied: a mix whose interval excludes its approved value
-does not ship scaled.
+are not quite. Reading rule: a mix is COMPATIBLE with its approved value when
+that value lies inside the pooled 95% interval, and does not ship scaled
+otherwise. Compatible means the measurement cannot tell the rate apart from
+the approved value; it is not proof that the rate is preserved or equivalent.
+The plan states no tolerance and none is introduced. This rule was written
+down after the first measurement below had been read, and before the shipped
+measurement was rerun.
 
-First measurement, all three mixes scaled:
+Provenance. The first two runs below (historical) were made with an earlier
+version of the measuring tool that was not kept, so they cannot be
+reproduced exactly and are HISTORICAL, UNVERIFIED measurements. The shipped
+configuration was then rerun once per source with the final, retained tool,
+under a declaration written before the rerun; that rerun is the evidence for
+what ships (see "Rerun with the retained tool" below).
 
-| Mix (approved)           | Source | Eligible | Taken | Rate    | 95% interval     | Approved inside? |
-| ------------------------ | ------ | -------- | ----- | ------- | ---------------- | ---------------- |
-| Premium trap (16.667%)   | Base   | 19,864   | 3,293 | 16.578% | 16.067 to 17.101 | yes              |
-| Premium trap (16.667%)   | Branch | 19,847   | 3,295 | 16.602% | 16.091 to 17.126 | yes              |
-| Connector limp (20%)     | Base   | 25,561   | 5,076 | 19.858% | 19.374 to 20.352 | yes              |
-| Connector limp (20%)     | Branch | 25,565   | 4,925 | 19.265% | 18.786 to 19.753 | NO: withheld     |
-| Limp-reraise bluff (22%) | Base   | 3,511    | 860   | 24.494% | 23.100 to 25.944 | NO (base)        |
-| Limp-reraise bluff (22%) | Branch | 3,432    | 783   | 22.815% | 21.442 to 24.249 | yes              |
+First measurement (historical, unverified), all three mixes scaled:
+
+| Mix (approved)           | Source | Eligible | Taken | Rate    | 95% interval     | Compatible?  |
+| ------------------------ | ------ | -------- | ----- | ------- | ---------------- | ------------ |
+| Premium trap (16.667%)   | Base   | 19,864   | 3,293 | 16.578% | 16.067 to 17.101 | yes          |
+| Premium trap (16.667%)   | Branch | 19,847   | 3,295 | 16.602% | 16.091 to 17.126 | yes          |
+| Connector limp (20%)     | Base   | 25,561   | 5,076 | 19.858% | 19.374 to 20.352 | yes          |
+| Connector limp (20%)     | Branch | 25,565   | 4,925 | 19.265% | 18.786 to 19.753 | NO: withheld |
+| Limp-reraise bluff (22%) | Base   | 3,511    | 860   | 24.494% | 23.100 to 25.944 | NO (base)    |
+| Limp-reraise bluff (22%) | Branch | 3,432    | 783   | 22.815% | 21.442 to 24.249 | yes          |
 
 "Base" is the same source with the persona kept out of preflop; a run of the
 untouched base source gave identical decision and taken counts. Note the base
@@ -151,12 +163,12 @@ limp-reraise bluff already sits outside its approved 22%; that is not caused
 by this change and nothing was done about it.
 
 The connector limp was then reverted to its base behaviour and the branch
-measured again. This is what ships:
+measured again (historical, unverified):
 
-| Mix (approved)           | Eligible | Taken | Rate    | 95% interval     | Approved inside? |
-| ------------------------ | -------- | ----- | ------- | ---------------- | ---------------- |
-| Premium trap (16.667%)   | 19,838   | 3,301 | 16.640% | 16.128 to 17.164 | yes              |
-| Limp-reraise bluff (22%) | 3,518    | 787   | 22.371% | 21.024 to 23.777 | yes              |
+| Mix (approved)           | Eligible | Taken | Rate    | 95% interval     | Compatible? |
+| ------------------------ | -------- | ----- | ------- | ---------------- | ----------- |
+| Premium trap (16.667%)   | 19,838   | 3,301 | 16.640% | 16.128 to 17.164 | yes         |
+| Limp-reraise bluff (22%) | 3,518    | 787   | 22.371% | 21.024 to 23.777 | yes         |
 
 Per archetype, as shipped (taken of eligible, rate, 95% Wilson interval):
 
@@ -188,6 +200,41 @@ Harness version: the measurement harness was edited after both 630,000-hand
 runs, and the version that produced them was not kept, so the binding between
 those two logs and a harness version is not verifiable. The counts above are
 as logged.
+
+### Rerun with the retained tool
+
+The final measuring tool (sha256 088f6857...) was run once in each mode on
+2026-11-12 under a declaration written before the runs: persona and anon
+mode on this commit (350c15f7), and main mode (taken counts only) on the
+untouched base 4850f853. Same ids, seed 20261112, 630,000 hands per run. The
+tool, the declaration, the source file hashes and the raw outputs are bound
+in one manifest in the evidence folder (`rerun-final-tool/MANIFEST.json`).
+
+| Mix (approved)           | Run                      | Eligible | Taken | Rate    | 95% interval     | Compatible? |
+| ------------------------ | ------------------------ | -------- | ----- | ------- | ---------------- | ----------- |
+| Premium trap (16.667%)   | This commit, persona     | 19,838   | 3,301 | 16.640% | 16.128 to 17.164 | yes         |
+| Premium trap (16.667%)   | This commit, persona out | 19,864   | 3,293 | 16.578% | 16.067 to 17.101 | yes         |
+| Limp-reraise bluff (22%) | This commit, persona     | 3,518    | 787   | 22.371% | 21.024 to 23.777 | yes         |
+| Limp-reraise bluff (22%) | This commit, persona out | 3,511    | 860   | 24.494% | 23.100 to 25.944 | no (base)   |
+
+Every eligible and taken count above is identical to the historical shipped
+and base figures, so the rerun reproduces them. The untouched base source
+gives the same taken counts as "persona out" for all three mixes (premium
+trap 3,293, connector limp 5,076, limp-reraise bluff 860), which confirms
+that "persona out" is the base behaviour. Bluff share of all limp-reraises,
+pooled: 23.36% (21.96 to 24.82) with the persona, 25.01% (23.59 to 26.48) on
+the base. Per archetype with the persona: LAG Shark 26.79% (23.99 to 29.78),
+Tricky Trap 16.99% (14.59 to 19.69), TAG Crusher 25.79% (23.48 to 28.24),
+Nit Hunter 20.64% (16.70 to 25.23).
+
+What the rerun cannot reproduce: the suited-connector open-limp. Its
+eligibility probe works by forcing the persona scales high, and the
+withheld mix no longer reads a scale, so the retained tool reports it at
+100% on every source (an artefact, not read). The decision to withhold it
+rests on the historical all-three-scaled measurement (19.27%, 18.79 to
+19.75), which is unverified. It stays withheld; withholding keeps main's
+behaviour and needs no further evidence. The per-original-opportunity
+denominator (about 25,560) likewise comes only from the historical runs.
 
 What this measurement cannot show: it has no top-up rotator, no postflop
 play, no real Horse ids and no humans. Early-limp opportunities were balanced
@@ -259,6 +306,16 @@ establish that the lift exceeds 8 points, on main or here. Whether "more
 than 8 points" is a supported product claim is an open owner question.
 
 Two separate statements, kept apart:
+
+How the figures reconcile: the pooled lifts are computed from pot counts
+summed over all 40 seeds, 8.330302 on main (V87 10,041 of 22,169 =
+45.292977%, pre-V87 9,794 of 26,497 = 36.962675%) and 8.416729 here (10,047 of
+22,140 = 45.379404%, same pre-V87 arm), a pooled difference of 0.086427. The
+paired difference is the plain mean over the 40 seeds of (this change's lift
+minus main's lift) for each seed: 8.399105 minus 8.329032 = 0.070073. The two
+differ because pooling weights each seed by its number of single-raised pots
+while the paired mean weights every seed equally; per-seed lifts in the logs
+are rounded to four decimals, which changes nothing at this precision.
 
 - Preservation of the baseline lift: on the same 40 seeds, this change
   moves the lift by +0.07 points against the base source (95% interval -0.42
