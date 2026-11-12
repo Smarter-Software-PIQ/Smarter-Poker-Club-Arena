@@ -96,9 +96,11 @@ describe('moved seat at the dead small blind in hand 58265757', () => {
       seats.slice(0, 7).map((p: any) => [p.seat_number, p.user_id])
     );
     engine.lastButtonSeat = 6;
+    engine.lastSmallBlindSeat = 8;
     engine.lastBigBlindSeat = 1;
     expect(engine.admitMovedSeats(seats)).toEqual(seats.slice(0, 7));
     engine.lastButtonSeat = tournament ? 8 : 1;
+    engine.lastSmallBlindSeat = 1;
     engine.lastBigBlindSeat = 2;
     expect(engine.admitMovedSeats(seats)).toEqual(seats);
   });
@@ -197,6 +199,57 @@ describe('button wait at tournament entry boundaries', () => {
         .map((p: { seat_number: number }) => p.seat_number)
     ).toEqual([1, 2, 4, 5, 6]);
     expect([...engine.waitingForButton]).toEqual([[3, 'u3']]);
+  });
+
+  it('deals a free hand to an arrival the button has already passed (Dan 2026-11-11)', () => {
+    // Nightly 20K regression, hand #58703578: the late registrant's seat sat
+    // between the last button and the seat the button was about to land on.
+    // The button JUMPS past them — so their free hand starts on this deal,
+    // not the next one. The stale-anchor zone held them a hand too long.
+    const engine = tournamentEngine({ tournament: true });
+    engine.lastButtonSeat = 2;
+    engine.lastSmallBlindSeat = 4;
+    engine.lastBigBlindSeat = 5;
+    engine.previousHandOccupants = new Map([
+      [1, 'u1'],
+      [2, 'u2'],
+      [4, 'u4'],
+      [5, 'u5'],
+      [6, 'u6'],
+    ]);
+    const admitted = engine.admitMovedSeats(engine.seatedPlayers);
+    expect(admitted.map((p: { seat_number: number }) => p.seat_number)).toEqual([
+      1, 2, 3, 4, 5, 6,
+    ]);
+    expect(engine.waitingForButton.size).toBe(0);
+  });
+
+  it('deals an arrival on the small blind seat — it posts through the rotation', () => {
+    // The previous big blind busted and a late registrant took the seat. TDA
+    // and noteTournamentArrival: a legal small-blind arrival posts through the
+    // normal rotation and PLAYS; only the button's own path is waited out.
+    const engine = tournamentEngine({ tournament: true });
+    engine.lastButtonSeat = 2;
+    engine.lastSmallBlindSeat = 3;
+    engine.lastBigBlindSeat = 4;
+    engine.previousHandOccupants = new Map([
+      [1, 'u1'],
+      [2, 'u2'],
+      [3, 'u3'],
+      [5, 'u5'],
+      [6, 'u6'],
+    ]);
+    const admitted = engine.admitMovedSeats(engine.seatedPlayers);
+    expect(admitted.map((p: { seat_number: number }) => p.seat_number)).toEqual([
+      1, 2, 3, 4, 5, 6,
+    ]);
+    expect(engine.waitingForButton.size).toBe(0);
+    expect(engine.predictBlindSeats(admitted)).toMatchObject({
+      button: 3,
+      smallBlindSeat: 4,
+      smallBlind: 4,
+      bigBlind: 5,
+    });
   });
 
   it.each([
