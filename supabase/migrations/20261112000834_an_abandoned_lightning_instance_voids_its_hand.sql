@@ -1,3 +1,5 @@
+-- 20261112000834_an_abandoned_lightning_instance_voids_its_hand
+--
 -- AN ABANDONED LIGHTNING INSTANCE VOIDS ITS HAND (2026-11-12).
 --
 -- Since 2026-10-18 every lightning_hand whose instance was abandoned (reaped
@@ -18,9 +20,12 @@
 --      mutually exclusive and the void write-once, so the gap cannot regress.
 --   4. The historical rows are reconciled from their instances' own verdicts.
 --
--- Installed on production as version 20261112000834; the two VALIDATE
--- statements at the end ran immediately after, in their own statements, so
--- the hot table was never exclusively locked for a full scan.
+-- Installed on production through the Supabase MCP as version 20261112000834
+-- (readback, rollback-protected negative tests and both constraint
+-- validations passed there), so the applier answers ALREADY-APPLIED by name;
+-- this file is the repository's canonical copy for a fresh database.
+
+BEGIN;
 
 -- 1. The terminal marker.
 ALTER TABLE public.lightning_hand
@@ -178,12 +183,14 @@ BEGIN
 END
 $function$;
 
+DROP TRIGGER IF EXISTS lightning_abandoned_instance_voids_its_hand ON public.lightning_instance;
 CREATE TRIGGER lightning_abandoned_instance_voids_its_hand
   AFTER UPDATE OF state ON public.lightning_instance
   FOR EACH ROW
   WHEN (NEW.state = 'abandoned' AND OLD.state IS DISTINCT FROM 'abandoned')
   EXECUTE FUNCTION public.fn_lightning_abandoned_instance_voids_its_hand();
 
+DROP TRIGGER IF EXISTS lightning_abandoned_instance_voids_its_hand_on_insert ON public.lightning_instance;
 CREATE TRIGGER lightning_abandoned_instance_voids_its_hand_on_insert
   AFTER INSERT ON public.lightning_instance
   FOR EACH ROW
@@ -204,16 +211,17 @@ UPDATE public.lightning_hand h
    AND h.voided_at IS NULL;
 
 -- 5. Settled and voided are mutually exclusive, and a void carries its
---    reason. NOT VALID so the hot table is not exclusively locked for a full
---    scan; both are enforced for every write from this migration on. A
---    settled-and-voided row is also impossible by construction: the backfill
---    above and the trigger both require settled_at IS NULL.
+--    reason. Added NOT VALID so the hot table is never exclusively locked for
+--    a full scan, then validated (SHARE UPDATE EXCLUSIVE only); on production
+--    both validations passed over all rows.
 ALTER TABLE public.lightning_hand
   ADD CONSTRAINT lightning_hand_settled_or_voided_never_both
     CHECK (settled_at IS NULL OR voided_at IS NULL) NOT VALID;
 ALTER TABLE public.lightning_hand
   ADD CONSTRAINT lightning_hand_void_carries_its_reason
     CHECK ((voided_at IS NULL) = (void_reason IS NULL)) NOT VALID;
+ALTER TABLE public.lightning_hand VALIDATE CONSTRAINT lightning_hand_settled_or_voided_never_both;
+ALTER TABLE public.lightning_hand VALIDATE CONSTRAINT lightning_hand_void_carries_its_reason;
 
 -- 6. The migration proves itself on the open-hand side (bounded read): no
 --    abandoned instance's hand remains open.
@@ -229,8 +237,4 @@ BEGIN
   END IF;
 END $$;
 
--- 7. Validation, in its own statements so each takes only SHARE UPDATE
---    EXCLUSIVE and the hot table is never blocked (ran on production
---    2026-11-12 straight after the apply; both passed over all rows).
-ALTER TABLE public.lightning_hand VALIDATE CONSTRAINT lightning_hand_settled_or_voided_never_both;
-ALTER TABLE public.lightning_hand VALIDATE CONSTRAINT lightning_hand_void_carries_its_reason;
+COMMIT;
