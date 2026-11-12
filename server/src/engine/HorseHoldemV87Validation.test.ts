@@ -95,6 +95,7 @@ import { horseVariantRulesFor } from './VariantRules.js';
 import { equityGovernor } from './EquityLoadGovernor.js';
 import { solverPolicyArtifactStatus } from '../gto/SolverPolicyArtifactLoader.js';
 import { ServerTableEngine } from './ServerTableEngine.js';
+import * as EngineMetrics from '../observability/engineInstruments.js';
 import {
   createHorseExecutionWitness,
   type HorseExecutionWitness,
@@ -1241,9 +1242,11 @@ describe('V87.1 Holdem Elite Strategy & Ecosystem Independent Validation', () =>
 
       // 2. Changed-circumstances / stale turn refusal: seat 5 acts BEFORE a stale scheduled horse callback fires!
       lastWitness = undefined;
+      // Cards go on the hand itself, as in steps 1 and 3: getState() is a copy.
+      (hc as any).state.players.find((p: SeatPlayer) => p.seat === 5)!.cards = cards('Qh Qd');
       const st2 = hc.getState();
       const mpEnginePlayer = st2.players.find((p) => p.seat === 5)!;
-      mpEnginePlayer.cards = cards('Qh Qd');
+      expect(mpEnginePlayer.cards).toEqual(cards('Qh Qd'));
       const mpSeatRow = {
         seat_number: 5,
         user_id: mpEnginePlayer.user_id,
@@ -1253,16 +1256,32 @@ describe('V87.1 Holdem Elite Strategy & Ecosystem Independent Validation', () =>
         horse_profile: {},
       };
       engine.seatedPlayers = [horseSeatRow, mpSeatRow];
+      const abandonedTurns = vi.spyOn(EngineMetrics.horseTurnsAbandonedTotal, 'inc');
       engine.scheduleHorseAction(mpSeatRow, 5, mpEnginePlayer, st2);
       expect(hc.performAction(5, 'fold')).toBe(true);
       expect(hc.getState().currentPlayerSeat).toBe(6);
       await vi.advanceTimersByTimeAsync(15_000);
       expect(hc.getState().currentPlayerSeat).toBe(6);
+      // The stale seat-5 request was answered, and its answer was refused at
+      // the fast_result fence because seat 5 is no longer on the clock
+      // (seat_moved). That refusal retires the witness as turn_abandoned.
       const staleWitness = lastWitness as HorseExecutionWitness | undefined;
-      if (staleWitness) {
-        expect(staleWitness.acceptedActions).toHaveLength(0);
-        expect(staleWitness.retirementReason).toBeDefined();
-      }
+      expect(staleWitness).toBeDefined();
+      expect(staleWitness!.identity.heroSeat).toBe(5);
+      expect(staleWitness!.executionStatus).toBe('not_executed');
+      expect(staleWitness!.acceptedActions).toHaveLength(0);
+      expect(staleWitness!.retirementReason).toBe('turn_abandoned');
+      expect(abandonedTurns).toHaveBeenCalledWith(1, {
+        reason: 'seat_moved',
+        stage: 'fast_result',
+      });
+      expect(
+        hc
+          .getState()
+          .actionHistory.filter((a) => a.seat === 5)
+          .map((a) => a.action)
+      ).toEqual(['fold']);
+      abandonedTurns.mockRestore();
 
       // 3. Tournament F06 time-bank continuation, through the maintained path:
       // TURN_CHANGE arms the 8 s primary clock and schedules the horse, the

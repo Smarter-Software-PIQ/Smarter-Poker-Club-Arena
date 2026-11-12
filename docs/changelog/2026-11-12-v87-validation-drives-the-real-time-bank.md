@@ -27,4 +27,17 @@ seat's request, so a stray request elsewhere can no longer use it up.
 If the engine ever cancels the pending decision when the bank takes over (the
 bug fixed earlier as F06), this test now fails.
 
+The stale-turn step now puts its cards on the hand itself and always checks
+that the late seat 5 answer is refused at the response fence (seat moved),
+retired as turn abandoned, and that seat 5's only recorded action is its fold.
+
+A new test, ALateFastAnswerAfterItsSecondLookIsRetired, drives one real Horse
+turn through a second look and proves only one answer acts: a deep answer that
+flips the call retires the fast answer as second look replaced, and a deep
+answer with a stale fence, or one that arrives after the turn already acted, is
+retired without acting.
+
+This reproduces the observed qualification failure as a fixture defect; it does
+not show that every production timing race is impossible.
+
 Test-only change. No engine code changed.
