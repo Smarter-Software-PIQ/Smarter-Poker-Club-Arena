@@ -2503,6 +2503,10 @@ export interface HorseDecideOpts {
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
   tokenCallPrice?: boolean;
+  /** An Omaha preflop call of 40% of the stack with chips behind and an
+   * opponent still to act is not priced as a final all-in call
+   * (PLO6-AUDIT-005). Default on; false only for the regression's control. */
+  omahaPreflopCallWithActionBehind?: boolean;
   /** V56: direct public pressure sampling for vulnerable river sets/trips
    * facing tier-three pressure on one Omaha-high cash board. Default on
    * after fixed-clock/full-precision400bb cash qualification; explicit false
@@ -8062,9 +8066,33 @@ export class HorseLogic {
       const effCall38 = Math.min(toCall, player.stack);
       const maniacPrice38 =
         observedManiacRaiser && (raiserAllIn38 || raises >= 2 || effCall38 >= player.stack * 0.25);
+      // PLO6-AUDIT-005 (2026-11-12): the arithmetic below prices a FINAL
+      // call against the players already in at this price. An Omaha call of
+      // 40% of the stack that leaves chips behind while an opponent still
+      // owes a decision to this price is not final: that opponent can raise
+      // again and its range was never sampled (hand 58751512: an opener
+      // called a four-bet for half its stack with the three-bettor and a
+      // cold caller still to act). That call goes to the calibrated range
+      // play below, like every smaller raise. A jam, a call that is itself
+      // all in, and a call that closes the action keep the arithmetic.
+      const actionBehind38 =
+        opts.omahaPreflopCallWithActionBehind !== false &&
+        vi.isOmaha &&
+        !raiserAllIn38 &&
+        player.stack > effCall38 + 0.005 &&
+        gs.players.some(
+          (p) =>
+            p.seat !== player.seat &&
+            !p.is_folded &&
+            !p.is_all_in &&
+            !p.is_sitting_out &&
+            p.stack > 0 &&
+            Number.isFinite(p.bet) &&
+            p.bet < gs.currentBet - 0.005
+        );
       const variantPrice38 =
         (vi.isOmaha || vi.isShortDeck || vi.holeCount !== 2 || vi.isFixedLimit) &&
-        (raiserAllIn38 || effCall38 >= player.stack * 0.4);
+        (raiserAllIn38 || (effCall38 >= player.stack * 0.4 && !actionBehind38));
       if (raiser38 && (variantPrice38 || maniacPrice38)) {
         try {
           // Match each sampled range to a player already committed to this

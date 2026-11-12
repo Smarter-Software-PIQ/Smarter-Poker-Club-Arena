@@ -468,6 +468,10 @@ describe(
       ...CORPUS_BASE_OPTS,
       v87HoldemOverhaul: false,
       v87DeepDiveDiscipline: false,
+      // PLO6-AUDIT-005 (2026-11-12) changes one Omaha preflop call class
+      // independently of V53; its explicit off arm keeps this pre-V53
+      // baseline byte-identical (the horseComplaints laws pin the real rule).
+      omahaPreflopCallWithActionBehind: false,
     };
 
     it.each(CORPUS_VARIANTS)(
