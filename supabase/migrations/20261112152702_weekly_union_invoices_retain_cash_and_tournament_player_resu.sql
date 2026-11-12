@@ -524,4 +524,11 @@ END;
 $function$
 ;
 
+-- Restate the existing access boundary explicitly for source qualification.
+-- CREATE OR REPLACE retains installed ACLs; these grants do not broaden them.
+REVOKE ALL ON FUNCTION smarter_private.union_eco_invoice_components(uuid,uuid,timestamptz,timestamptz) FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.ca_union_statement_board(uuid,date,integer) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.ca_union_statement_board(uuid,date,integer) TO authenticated,service_role;
+REVOKE ALL ON FUNCTION public.fn_union_issue_weekly_invoices(uuid,timestamptz,timestamptz,boolean) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.fn_union_issue_weekly_invoices(uuid,timestamptz,timestamptz,boolean) TO authenticated,service_role;
 COMMIT;
