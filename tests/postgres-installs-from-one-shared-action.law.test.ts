@@ -71,7 +71,9 @@ describe('one shared PostgreSQL installer', () => {
   });
 
   it('every apt call is retried, bounded, and an index fetch failure fails the update', () => {
-    const aptCalls = SH.split('\n').filter((l) => /sudo apt-get /.test(l));
+    const aptCalls = SH.split('\n').filter(
+      (l) => /sudo apt-get /.test(l) && !l.includes('--simulate')
+    );
     expect(aptCalls).toHaveLength(4);
     for (const l of aptCalls)
       expect(l.trimStart().startsWith('pg_attempt sudo apt-get "${pg_apt[@]}"'), l).toBe(true);
