@@ -758,6 +758,13 @@ function CashierTradeWorkspace() {
   transferRecoveryRef.current = transferRecovery;
   const [amount, setAmount] = useState('');
   const [sendSource, setSendSource] = useState<SendSource>('agent_wallet');
+  /* Dan 2026-11-12: AGENTS SHOULD BE ABLE TO SEND TICKETS TO THEIR DOWNLINES
+     USING PROMO CHIPS (50 MAX). A ticket is funded by the sender's player
+     wallet or by their own promo wallet; the server caps agent promo at the
+     shared 50 chips per downline in any 7 days. */
+  const [ticketSource, setTicketSource] = useState<'player_wallet' | 'promo_wallet'>(
+    'player_wallet'
+  );
   const [promoBalances, setPromoBalances] = useState<{ own: number | null; club: number | null }>({
     own: null,
     club: null,
@@ -841,6 +848,7 @@ function CashierTradeWorkspace() {
     clubUuid,
     amount,
     sendSource,
+    ticketSource,
     Object.entries(recipientWallets).sort(([left], [right]) => left.localeCompare(right)),
     Object.entries(recipientAmounts).sort(([left], [right]) => left.localeCompare(right)),
     [...selected].sort(),
@@ -2134,12 +2142,14 @@ function CashierTradeWorkspace() {
         { p_ticket_id: row.id }
       );
       if (error) throw error;
-      const res = data as { success?: boolean; error?: string } | null;
+      const res = data as { success?: boolean; error?: string; refund_wallet?: string } | null;
       if (!res?.success) throw new Error(res?.error || 'The Ticket Could Not Be Updated');
       toast?.success?.(
         action === 'redeem'
           ? `Redeemed A Ticket Worth ${fmt(row.value)} Chips`
-          : `Cancelled The Ticket. ${fmt(row.value)} Chips Are Back In Your Balance`
+          : res.refund_wallet === 'promo_wallet'
+            ? `Cancelled The Ticket. ${fmt(row.value)} Chips Are Back In Your Promo Wallet`
+            : `Cancelled The Ticket. ${fmt(row.value)} Chips Are Back In Your Balance`
       );
       masterBus.emit('BALANCE_UPDATED', { source: 'tournament_ticket', userId: user?.id || '' });
       void loadTickets();
@@ -2824,7 +2834,18 @@ function CashierTradeWorkspace() {
       );
       return;
     }
-    if (kind === 'ticket' && total > myBalance) {
+    if (kind === 'ticket' && ticketSource === 'promo_wallet') {
+      if (promoBalances.own === null) {
+        toast?.error?.('Selected Wallet Could Not Be Verified');
+        return;
+      }
+      if (total > promoBalances.own) {
+        toast?.error?.(
+          `Insufficient Chips: Sending ${exactChipFigure(total)} Needs More Than ${SEND_SOURCE_LABELS.promo_wallet} Holds, ${exactChipFigure(promoBalances.own)}`
+        );
+        return;
+      }
+    } else if (kind === 'ticket' && total > myBalance) {
       toast?.error?.(
         `Insufficient Chips: Sending ${exactChipFigure(total)} Needs More Than ${exactChipFigure(myBalance)}`
       );
@@ -2913,7 +2934,11 @@ function CashierTradeWorkspace() {
           }
         : {}),
       source:
-        transferRecovery?.submissionId === submissionId ? transferRecovery.source : sendSource,
+        transferRecovery?.submissionId === submissionId
+          ? transferRecovery.source
+          : kind === 'ticket'
+            ? ticketSource
+            : sendSource,
       destinations:
         transferRecovery?.submissionId === submissionId
           ? transferRecovery.destinations
@@ -3046,13 +3071,44 @@ function CashierTradeWorkspace() {
                       }),
                 }
           );
-          const { data, error } = await supabase.rpc('fn_cashier_batch_transfer', {
-            p_club_id: clubUuid,
-            p_kind: kind,
-            p_items: items,
-            p_batch_id: submissionId,
-          });
-          if (error) throw error;
+          /* A promo funded value ticket has its own door: the promo wallet is
+             debited into the ticket escrow and the receipt counts toward the
+             downline's shared promo allowance. One call per recipient, each
+             with the same retry key the batch would have carried. */
+          const promoTicket =
+            kind === 'ticket' && !boundTournamentId && uncertainRecovery.source === 'promo_wallet';
+          let data: unknown;
+          if (promoTicket) {
+            const results: Array<Record<string, unknown>> = [];
+            for (const target of chunk) {
+              const { data: one, error: oneError } = await supabase.rpc(
+                'fn_cashier_promo_ticket_send',
+                {
+                  p_club_id: clubUuid,
+                  p_holder_id: target.userId,
+                  p_value: parsedAmount.amounts[target.userId],
+                  p_idempotency_key: `ticket:${clubUuid}:${submissionId}:${target.userId}:${parsedAmount.amounts[target.userId]}`,
+                }
+              );
+              // An unanswered call is an unknown outcome for this recipient
+              // and every later one in the chunk: retry replays by key.
+              if (oneError) throw oneError;
+              results.push({
+                ...((one as Record<string, unknown> | null) ?? {}),
+                user_id: target.userId,
+              });
+            }
+            data = { success: true, batch_id: submissionId, results };
+          } else {
+            const { data: batch, error } = await supabase.rpc('fn_cashier_batch_transfer', {
+              p_club_id: clubUuid,
+              p_kind: kind,
+              p_items: items,
+              p_batch_id: submissionId,
+            });
+            if (error) throw error;
+            data = batch;
+          }
           const envelope = data as {
             success?: boolean;
             batch_id?: string;
@@ -3862,6 +3918,11 @@ function CashierTradeWorkspace() {
       clubUuid,
       String(saved.amount),
       saved.source ?? 'agent_wallet',
+      saved.kind === 'ticket'
+        ? saved.source === 'promo_wallet'
+          ? 'promo_wallet'
+          : 'player_wallet'
+        : ticketSource,
       Object.entries(saved.destinations ?? {}).sort(([left], [right]) => left.localeCompare(right)),
       Object.entries(saved.targetAmounts ?? {})
         .map(([id, value]) => [id, String(value)] as [string, string])
@@ -3891,6 +3952,8 @@ function CashierTradeWorkspace() {
     );
     setSelected(new Set(pendingTargets));
     if (saved.tournamentId) setTicketTournamentId(saved.tournamentId);
+    if (saved.kind === 'ticket')
+      setTicketSource(saved.source === 'promo_wallet' ? 'promo_wallet' : 'player_wallet');
     setTransferRecovery(saved);
     // Persisted recovery deliberately omits names and raw server messages.
     // Restore names only from the freshly authorized roster for this club.
@@ -6003,12 +6066,18 @@ function CashierTradeWorkspace() {
                 {(() => {
                   const sourceLabel =
                     amountModal === 'ticket'
-                      ? 'From Your Player Wallet'
+                      ? ticketSource === 'promo_wallet'
+                        ? `From ${SEND_SOURCE_LABELS.promo_wallet}`
+                        : 'From Your Player Wallet'
                       : amountModal === 'send'
                         ? `From ${SEND_SOURCE_LABELS[sendSource]}`
                         : null;
                   const sourceBalance =
-                    amountModal === 'ticket' ? myBalance : selectedSourceBalance;
+                    amountModal === 'ticket'
+                      ? ticketSource === 'promo_wallet'
+                        ? promoBalances.own
+                        : myBalance
+                      : selectedSourceBalance;
                   return (
                     <>
                       {picked.length === 1 && (
@@ -6054,17 +6123,45 @@ function CashierTradeWorkspace() {
                               ))}
                             </select>
                           )}
+                          {amountModal === 'ticket' && (
+                            <select
+                              className={styles.walletSelect}
+                              aria-label="Send Ticket From"
+                              value={ticketSource}
+                              disabled={busy || Boolean(transferRecovery)}
+                              onChange={(event) => {
+                                setTicketSource(
+                                  event.target.value === 'promo_wallet'
+                                    ? 'promo_wallet'
+                                    : 'player_wallet'
+                                );
+                                setTransferFailures([]);
+                              }}
+                            >
+                              <option value="player_wallet">
+                                From Your Player Wallet: {formatWalletChips(myBalance)}
+                              </option>
+                              <option value="promo_wallet">
+                                From {SEND_SOURCE_LABELS.promo_wallet}:{' '}
+                                {promoBalances.own === null
+                                  ? 'Unavailable'
+                                  : formatWalletChips(promoBalances.own)}
+                              </option>
+                            </select>
+                          )}
                         </CashierWalletRow>
                       )}
                     </>
                   );
                 })()}
-                {amountModal === 'send' && sendSource === 'promo_wallet' && isAgentRole(myRole) && (
-                  <p>
-                    Each Downline Can Receive 50 Promo Chips Total From All Agents In Any 7 Days.
-                    All Destination Wallets Share This Limit.
-                  </p>
-                )}
+                {((amountModal === 'send' && sendSource === 'promo_wallet') ||
+                  (amountModal === 'ticket' && ticketSource === 'promo_wallet')) &&
+                  isAgentRole(myRole) && (
+                    <p>
+                      Each Downline Can Receive 50 Promo Chips Total From All Agents In Any 7 Days.
+                      All Destination Wallets Share This Limit.
+                    </p>
+                  )}
                 {amountModal === 'diamonds' && user?.id && picked.length === 1 ? (
                   <DiamondWalletTransfer
                     key={`${user?.id}:${picked[0].userId}`}

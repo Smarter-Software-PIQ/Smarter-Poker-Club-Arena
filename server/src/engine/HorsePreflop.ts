@@ -576,6 +576,11 @@ export interface PreflopCtx {
   cashStakeBB?: number;
   /** True when the last preflop raiser is already all-in (no further fold equity against them). */
   raiserIsAllIn?: boolean;
+  /** True when every opponent still in the hand is all in: no raise can make
+   *  anyone fold. False or absent when any live opponent still has chips, so
+   *  an isolation raise over a short all-in keeps its fold equity against the
+   *  players behind. Supplied by HorseLogic from the public seat flags. */
+  everyOpponentAllIn?: boolean;
   /** V87 (2026-11-10): all-hands deep-dive Omaha selectivity and pricedIn trash floor. */
   v87DeepDiveDiscipline?: boolean;
   /** V87: Omaha hole-card count (4, 5, or 6) when `isOmaha === true`. */
@@ -716,6 +721,25 @@ const clamp01 = (n: number): number => Math.max(0, Math.min(1, n));
 /** No stack deeper than this plays jam-or-fold, however burnt its M is.
  *  Matches the cap the V20 reshove branches already use. */
 /** AoF shove bar tightens above the depth where push/fold is already tuned. */
+/**
+ * A BLUFF RAISE NEEDS SOMEONE WHO CAN FOLD (2026-11-12, HVH2D-TRN-001 row 8).
+ * A bluff 3-bet or squeeze is chosen for its fold equity. It has none when
+ * the price to call is already the hero's whole stack (the "raise" is only a
+ * call), or when every opponent still in the hand is all in (the hand is
+ * shown down against all of them whatever the hero does). It keeps it when
+ * any opponent still has chips: raising over a short all-in to fold the
+ * players behind, or to build a side pot against a caller, is unchanged.
+ * KJo called off 59 big blinds through the bluff branch against a player who
+ * was all in for more than its stack.
+ */
+export function bluffRaiseCanFoldSomeone(
+  toCall: number,
+  stack: number,
+  everyOpponentAllIn: boolean | undefined
+): boolean {
+  return toCall < stack && everyOpponentAllIn !== true;
+}
+
 const AOF_TIGHTEN_PER_BB = 0.006;
 const AOF_MAX_TIGHTEN = 0.3;
 
@@ -2755,7 +2779,9 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       (!ctx.isOmaha || omahaSqueezeAllowed) &&
       !noBluff3 &&
       ctx.maniacNoBluff !== true &&
-      rand() < bluffBudget * (ctx.isOmaha ? 0.22 : 0.3) * blockerMult
+      rand() < bluffBudget * (ctx.isOmaha ? 0.22 : 0.3) * blockerMult &&
+      // The same test as the 3-bet bluff below, after the draw.
+      bluffRaiseCanFoldSomeone(toCall, stack, ctx.everyOpponentAllIn)
     ) {
       noteAuthority('squeeze_bluff');
       if (ctx.isPotLimit) {
@@ -2816,7 +2842,9 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         : strength >= t53(bluffFloor, 'threeBet') && strength < threeBetThresh) &&
       !noBluff3 &&
       ctx.maniacNoBluff !== true &&
-      rand() < (def72 ? bluff72 : bluffFreqHere)
+      rand() < (def72 ? bluff72 : bluffFreqHere) &&
+      // Tested after the draw so the random stream is unchanged.
+      bluffRaiseCanFoldSomeone(toCall, stack, ctx.everyOpponentAllIn)
     ) {
       noteAuthority('three_bet_bluff');
       if (ctx.isPotLimit) {

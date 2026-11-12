@@ -11,7 +11,7 @@ import {
   humanDepartureDwellMinutes,
   resetHumanPresenceMemoryForTest,
 } from './HorseUnionCashPlan.js';
-import { secondTablePicked, thirdTablePicked } from './HorseBehavior.js';
+import { secondTablePicked } from './HorseBehavior.js';
 
 const at = (s: string) => Date.parse(s);
 const allowed = (table: CashPlanTable, humans: number, now: number) =>
@@ -35,13 +35,13 @@ const high = {
 
 describe('the union cash floor follows the November 11 relaunch (zero game-count restrictions)', () => {
   it('schedules every plan game at every hour of every day, with the target tripled', () => {
-    expect(plan.games).toHaveLength(21);
+    expect(plan.games).toHaveLength(28);
     expect(plan.games.every((game) => game.window === 'always')).toBe(true);
     expect(plan.weeklyRakeTarget).toBe(600000);
     for (let hour = 0; hour < 168; hour++) {
       const now = at('2026-11-09T00:00:00-06:00') + hour * 3600000 + 30 * 60000;
       const scheduled = scheduledHorseCashGames(now);
-      expect(scheduled.size).toBe(21);
+      expect(scheduled.size).toBe(28);
       const variants = plan.games
         .filter((game) => scheduled.has(game.id))
         .map((game) => game.variant);
@@ -53,7 +53,20 @@ describe('the union cash floor follows the November 11 relaunch (zero game-count
     }
   });
   it('runs all six 1/2 games full time, Horse-only play included (Dan 2026-11-11; PLO5 1/2 is the one Madness game, one game per stake)', () => {
-    const oneTwo = plan.games.filter((game) => game.smallBlind === 1 && game.bigBlind === 2);
+    // The lobby's six "1/2" games, by id: NLH/PLO 1/2 are 1/2 blinds; FLH and
+    // FLO8 1/2 are 1/2 LIMITS on .50/1 blinds (the 1/2-blind fixed-limit
+    // games are FLH/FLO8 2/4, also full time).
+    const sixIds = [
+      '3a02580d-92b4-4404-9d2d-d0b5f8b8031c', // FLH 1/2 Classic
+      '4757f674-2492-4fb8-91a7-b1aa428d969d', // FLO8 1/2 Classic
+    ];
+    const oneTwo = [
+      ...plan.games.filter(
+        (game) =>
+          game.smallBlind === 1 && game.bigBlind === 2 && !['flh', 'flo8'].includes(game.variant)
+      ),
+      ...plan.games.filter((game) => sixIds.includes(game.id)),
+    ];
     expect(oneTwo.map((game) => game.variant).sort()).toEqual([
       'flh',
       'flo8',
@@ -62,11 +75,36 @@ describe('the union cash floor follows the November 11 relaunch (zero game-count
       'plo5',
       'plo6',
     ]);
-    for (const hour of ['2026-11-12T05:00:00-06:00', '2026-11-12T12:00:00-06:00', '2026-11-13T02:30:00-06:00'])
+    for (const game of oneTwo) expect(game.window).toBe('always');
+    for (const hour of [
+      '2026-11-12T05:00:00-06:00',
+      '2026-11-12T12:00:00-06:00',
+      '2026-11-13T02:30:00-06:00',
+    ])
       for (const game of oneTwo)
         expect(
-          allowed({ ...high, cluster_id: game.id, game_variant: game.variant }, 0, at(hour))
+          allowed(
+            {
+              ...high,
+              cluster_id: game.id,
+              game_variant: game.variant,
+              small_blind: game.smallBlind,
+              big_blind: game.bigBlind,
+            },
+            0,
+            at(hour)
+          )
         ).toBe(true);
+  });
+  it('every enabled Midway game inside the stake ceiling is in the plan (zero restrictions, 2026-11-12)', () => {
+    for (const id of [
+      '009016ed-24cb-4eb7-a9e3-04590c67fcce',
+      '20f1b6af-7046-4c48-a3cc-a05e7cbe34a0',
+      '37ac7634-69dd-434c-b947-bfcf8941ecf4',
+      'e2952da8-26c5-4878-b066-65fbebd80381',
+      '0914a283-1834-405a-9a2e-d20620e70333',
+    ])
+      expect(plan.games.find((game) => game.id === id)?.window).toBe('always');
   });
   it('uses Chicago DST rules rather than a fixed UTC offset', () => {
     for (const date of [
@@ -75,7 +113,7 @@ describe('the union cash floor follows the November 11 relaunch (zero game-count
       '2027-11-07T01:30:00-05:00',
       '2027-11-07T01:30:00-06:00',
     ])
-      expect(scheduledHorseCashGames(at(date)).size).toBe(21);
+      expect(scheduledHorseCashGames(at(date)).size).toBe(28);
   });
   it('does not turn lower-stakes games into human-only games', () => {
     const now = at('2026-11-04T05:00:00-06:00');
@@ -153,7 +191,7 @@ describe('the union cash floor follows the November 11 relaunch (zero game-count
     expect(tablePolicy).toBeGreaterThan(0);
     expect(fleet.indexOf('!horseUnionCashTableAllowed(')).toBeLessThan(tablePolicy);
     expect(rotator).toContain('playingHumansAtCashTable(tableSeats, horseIds)');
-    expect(rotator).toContain('!restrictedCashGame && !outsideCashPlan) continue;');
+    expect(rotator).toContain('!restrictedCashGame && !outsideCashPlan && !offDuty)');
     expect(rotator).toContain('await engine.leaveTable(uid)');
   });
 });
@@ -166,39 +204,64 @@ describe('a game may run a second table (Dan 2026-11-06)', () => {
   // A time the game is picked for two tables, and one it is not (2026-11-07).
   const game = String(low.cluster_id);
   const hours = Array.from({ length: 96 }, (_, i) => now + i * 3_600_000);
-  const picked = hours.find(
-    (t) =>
-      secondTablePicked(game, t, Number(low.big_blind), String(low.game_variant)) &&
-      !thirdTablePicked(game, t, Number(low.big_blind), String(low.game_variant))
+  const picked = hours.find((t) =>
+    secondTablePicked(game, t, Number(low.big_blind), String(low.game_variant))
   ) as number;
   const unpicked = hours.find(
     (t) => !secondTablePicked(game, t, Number(low.big_blind), String(low.game_variant))
   ) as number;
-  it('a two-table selection admits only one secondary table', () => {
-    const primary = horseCashPlanPrimaryTables([main1, feeder, feeder2]);
-    const second = horseCashPlanSecondTables([main1, feeder, feeder2], primary, () => true, picked);
-    expect([...second]).toEqual(['f1']);
-    expect(horseUnionCashTableAllowed(feeder, 0, now, primary, null, null, second)).toBe(true);
-    expect(horseUnionCashTableAllowed(feeder2, 0, now, primary, null, null, second)).toBe(false);
+  // ZERO RESTRICTIONS ON THE GAMES THAT CAN BE OPEN (Dan 2026-11-11): the
+  // second/third-table picks were the retired rake throttle. A Classic game's
+  // every live/opening secondary table follows its Main 1, picked or not.
+  it('a Classic game admits every secondary table, picked or not', () => {
+    const main2 = { ...main1, id: 'm2', main_index: 2 };
+    const main3 = { ...main1, id: 'm3', main_index: 3 };
+    const all = [feeder2, main3, main2, main1, feeder];
+    const primary = horseCashPlanPrimaryTables(all);
+    for (const t of [picked, unpicked]) {
+      const second = horseCashPlanSecondTables(all, primary, () => true, t);
+      expect([...second]).toEqual(['m2', 'm3', 'f1', 'f2']);
+      for (const table of [main2, main3, feeder, feeder2])
+        expect(horseUnionCashTableAllowed(table, 0, now, primary, null, null, second)).toBe(true);
+    }
   });
-  it('a three-table selection admits Main 2 and its feeder, never a fourth table', () => {
-    const third = hours.find((t) =>
-      thirdTablePicked(game, t, Number(low.big_blind), String(low.game_variant))
-    )!;
-    expect(third).toBeTypeOf('number');
+  it('nine tables of one Classic game are all seatable: no artificial table count', () => {
+    const mains = Array.from({ length: 8 }, (_, i) => ({
+      ...main1,
+      id: `m${i + 1}`,
+      main_index: i + 1,
+    }));
+    const all = [...mains, feeder];
+    const primary = horseCashPlanPrimaryTables(all);
+    expect(horseCashPlanSecondTables(all, primary, () => true, unpicked).size).toBe(8);
+  });
+  it('a Lightning game admits every secondary too; only an unread Lightning set stays pick-gated', () => {
     const main2 = { ...main1, id: 'm2', main_index: 2 };
     const all = [feeder2, main2, main1, feeder];
     const primary = horseCashPlanPrimaryTables(all);
-    expect([...horseCashPlanSecondTables(all, primary, () => true, third)]).toEqual(['m2', 'f1']);
-    expect([
-      ...horseCashPlanSecondTables(all, primary, () => true, third, new Set([game])),
-    ]).toEqual(['m2']);
-    expect([...horseCashPlanSecondTables(all, primary, () => true, third, null)]).toEqual(['m2']);
-    expect(horseCashPlanSecondTables(all, primary, () => false, third).size).toBe(0);
+    for (const t of [picked, unpicked])
+      expect([...horseCashPlanSecondTables(all, primary, () => true, t, new Set([game]))]).toEqual([
+        'm2',
+        'f1',
+        'f2',
+      ]);
+    expect([...horseCashPlanSecondTables(all, primary, () => true, picked, null)]).toEqual(['m2']);
+    expect(horseCashPlanSecondTables(all, primary, () => true, unpicked, null).size).toBe(0);
   });
-  it('a game no longer picked for two tables lets its second table drain', () => {
-    const primary = horseCashPlanPrimaryTables([main1, feeder]);
-    expect(horseCashPlanSecondTables([main1, feeder], primary, () => true, unpicked).size).toBe(0);
+  it('twenty tables of one game are all seatable: no count, not cap_mains either', () => {
+    const mains = Array.from({ length: 19 }, (_, i) => ({
+      ...main1,
+      id: `m${i + 1}`,
+      main_index: i + 1,
+    }));
+    const all = [...mains, feeder];
+    const primary = horseCashPlanPrimaryTables(all);
+    expect(horseCashPlanSecondTables(all, primary, () => true, unpicked).size).toBe(19);
+  });
+  it('a closing table is never admitted, so the tick can still break it', () => {
+    const closing = { ...feeder, lifecycle: 'breaking' };
+    const primary = horseCashPlanPrimaryTables([main1, closing]);
+    expect(horseCashPlanSecondTables([main1, closing], primary, () => true, unpicked).size).toBe(0);
   });
   it('a Main 1 horses may not sit at gives its second table nothing', () => {
     const primary = horseCashPlanPrimaryTables([main1, feeder]);

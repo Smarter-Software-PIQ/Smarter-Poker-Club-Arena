@@ -343,6 +343,7 @@ const completionRefusalReasons = new Set([
   'continuation_recovery_option',
   'continuation_operation_budget',
   'continuation_baseline_not_modeled',
+  'continuation_chip_value_not_modeled',
   'illegal_candidate',
   'conservation_error',
   'blocker_jam_unproven',

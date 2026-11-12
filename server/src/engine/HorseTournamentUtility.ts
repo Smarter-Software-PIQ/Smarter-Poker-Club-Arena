@@ -192,7 +192,8 @@ export type TournamentUtilityUnavailableReason =
   | 'candidate_settlement'
   | 'recovery_option'
   | 'operation_budget'
-  | 'baseline_not_modeled';
+  | 'baseline_not_modeled'
+  | 'chip_value_not_modeled';
 
 export interface TournamentUtilityEvaluation {
   result: {
@@ -1853,6 +1854,19 @@ function evaluateWithWorkspace(
   }
 
   const payoutWeight = payoutPoolWeight(input);
+  // A bounty event with no payout pool leaves chips without a modeled worth:
+  // payout is weighted by zero and only the head won or lost in this hand is
+  // counted. A stack that covers the table then scores every all-in as a free
+  // shot at a head and every fold as nothing, so the arbiter turned folds of
+  // 34o at 115 big blinds into all-ins (HVH2D-TRN-001, direction 2). Until
+  // chips are valued as future head equity, the reference action stands.
+  // The test is the weight itself, not the event type: whatever the event
+  // awards (cash places, satellite tickets, which are paid out of the prize
+  // pool), a payout weight of zero means this model would value all of it at
+  // nothing, so it has no justified valuation to offer.
+  if (payoutWeight <= 0) {
+    return { result: null, unavailableReason: 'chip_value_not_modeled' };
+  }
   const boundedFuture = Boolean(input.continuation?.futureHands);
   const localIndices = [...field.localIndex.values()].sort((a, b) => a - b);
   const localSet = new Set(localIndices);
