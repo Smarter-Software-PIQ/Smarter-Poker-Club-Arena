@@ -220,8 +220,7 @@ in one manifest in the evidence folder (`rerun-final-tool/MANIFEST.json`).
 Every eligible and taken count above is identical to the historical shipped
 and base figures, so the rerun reproduces them. The untouched base source
 gives the same taken counts as "persona out" for all three mixes (premium
-trap 3,293, connector limp 5,076, limp-reraise bluff 860), which confirms
-that "persona out" is the base behaviour. Bluff share of all limp-reraises,
+trap 3,293, connector limp 5,076, limp-reraise bluff 860), which is consistent with "persona out" being the base behaviour on these three mixes; it is not a proof of equivalence. Bluff share of all limp-reraises,
 pooled: 23.36% (21.96 to 24.82) with the persona, 25.01% (23.59 to 26.48) on
 the base. Per archetype with the persona: LAG Shark 26.79% (23.99 to 29.78),
 Tricky Trap 16.99% (14.59 to 19.69), TAG Crusher 25.79% (23.48 to 28.24),
@@ -307,21 +306,20 @@ than 8 points" is a supported product claim is an open owner question.
 
 Two separate statements, kept apart:
 
+- Compatibility with the baseline lift: on the same 40 seeds, this change
+  moves the lift by +0.07 points against the base source (95% interval -0.42
+  to +0.56, paired by seed). It is not distinguishable from main on this table.
+- An absolute lift above 8 points: not established on either source (both
+  intervals above include 8).
+
 How the figures reconcile: the pooled lifts are computed from pot counts
 summed over all 40 seeds, 8.330302 on main (V87 10,041 of 22,169 =
 45.292977%, pre-V87 9,794 of 26,497 = 36.962675%) and 8.416729 here (10,047 of
 22,140 = 45.379404%, same pre-V87 arm), a pooled difference of 0.086427. The
 paired difference is the plain mean over the 40 seeds of (this change's lift
-minus main's lift) for each seed: 8.399105 minus 8.329032 = 0.070073. The two
+minus main's lift) for each seed: 8.398658 minus 8.329007 = 0.069650. The two
 differ because pooling weights each seed by its number of single-raised pots
-while the paired mean weights every seed equally; per-seed lifts in the logs
-are rounded to four decimals, which changes nothing at this precision.
-
-- Preservation of the baseline lift: on the same 40 seeds, this change
-  moves the lift by +0.07 points against the base source (95% interval -0.42
-  to +0.56, paired by seed). It is not distinguishable from main on this table.
-- An absolute lift above 8 points: not established on either source (both
-  intervals above include 8).
+while the paired mean weights every seed equally; these means are computed from the per-seed lifts as logged, which are rounded to four decimals, so each mean is within 0.00005 of its unrounded value.
 
 ## Limits
 
