@@ -112,57 +112,6 @@ describe('one shared PostgreSQL installer', () => {
     }
   });
 
-  it.each([
-    ['1.6.8-1.pgdg26.04+2', 0, 2],
-    ['1.6.8-1.pgdg26.04+3', 0, 1],
-    ['unavailable', 1, 2],
-  ])('requires an installable complete signed package set (%s)', (compatible, status, calls) => {
-    const box = mkdtempSync(join(tmpdir(), 'pg-compatible-'));
-    try {
-      const fn = SH.slice(
-        SH.indexOf('pg_resolve_cron() {'),
-        SH.indexOf('\n}\n', SH.indexOf('pg_resolve_cron() {')) + 3
-      );
-      const scripts = {
-        'apt-cache':
-          "#!/bin/bash\nprintf '%s\\n' 'postgresql-17-cron | 1.6.8-1.pgdg26.04+3 | signed-pgdg' 'postgresql-17-cron | 1.6.8-1.pgdg26.04+2 | signed-pgdg'\n",
-        sudo: '#!/bin/bash\nexec "$@"\n',
-        'apt-get':
-          '#!/bin/bash\necho "$*" >> "$RUNNER_TEMP/calls"\n[[ " $* " == *" --simulate "* && " $* " == *" postgresql-17 "* && " $* " == *" postgresql-17-cron=$MOCK_COMPATIBLE "* ]]\n',
-      };
-      for (const [name, body] of Object.entries(scripts)) {
-        writeFileSync(join(box, name), body.replaceAll('\\n', '\n'));
-        chmodSync(join(box, name), 0o755);
-      }
-      const result = spawnSync(
-        'bash',
-        [
-          '-c',
-          `${fn}\npg_packages=(postgresql-17 postgresql-17-cron); pg_apt=(-o Dir::Etc::sourcelist=/dev/null); pg_resolve_cron || exit $?; printf '%s\\n' "${'${pg_packages[@]}'}"`,
-        ],
-        {
-          encoding: 'utf8',
-          env: {
-            ...process.env,
-            PATH: `${box}:${process.env.PATH}`,
-            RUNNER_TEMP: box,
-            MOCK_COMPATIBLE: String(compatible),
-          },
-        }
-      );
-      expect(result.status, result.stderr).toBe(status);
-      const attempts = readFileSync(join(box, 'calls'), 'utf8').trim().split('\n');
-      expect(attempts).toHaveLength(calls as number);
-      expect(
-        attempts.every((line) => line.includes('--simulate') && line.includes('postgresql-17 '))
-      ).toBe(true);
-      if (status === 0) expect(result.stdout).toContain(`postgresql-17-cron=${compatible}`);
-      else expect(result.stderr).toContain('No available pg_cron version');
-    } finally {
-      rmSync(box, { recursive: true, force: true });
-    }
-  });
-
   it('refuses to run without the checkout key', () => {
     const box = mkdtempSync(join(tmpdir(), 'pg-nokey-'));
     try {
@@ -178,6 +127,45 @@ describe('one shared PostgreSQL installer', () => {
       });
       expect(r.status).toBe(1);
       expect(r.stderr).toContain('.github/pgdg/apt.postgresql.org.asc is missing');
+    } finally {
+      rmSync(box, { recursive: true, force: true });
+    }
+  });
+  it('selects the newest installable signed cron version and refuses an unsolvable set', () => {
+    const box = mkdtempSync(join(tmpdir(), 'pg-compatible-'));
+    try {
+      const start = SH.indexOf(
+        'if printf \'%s\\n\' "${pg_packages[@]}" | grep -qx postgresql-17-cron;'
+      );
+      expect(start).toBeGreaterThan(0);
+      const block = SH.slice(start, SH.indexOf('\npg_attempt sudo apt-get', start));
+      const script = `
+pg_packages=(postgresql-17 postgresql-17-cron postgresql-server-dev-17)
+pg_apt=()
+apt-cache() {
+  if [ "$1" = policy ]; then echo 'Candidate: 17.11'; else
+    printf 'postgresql-17-cron | 1.6.8+3 | signed\\npostgresql-17-cron | 1.6.8+2 | signed\\n'
+  fi
+}
+sudo() {
+  printf '%s\\n' "$*" >> '${box}/calls'
+  case "$*" in *postgresql-17-cron=1.6.8+2*) [ "$SOLVABLE" = yes ];; *) return 1;; esac
+}
+${block}
+printf '%s\\n' "\${pg_packages[@]}"
+`;
+      for (const solvable of ['yes', 'no']) {
+        const r = spawnSync('bash', ['-c', script], {
+          encoding: 'utf8',
+          env: { ...process.env, SOLVABLE: solvable },
+        });
+        expect(r.status).toBe(solvable === 'yes' ? 0 : 1);
+        if (solvable === 'yes') expect(r.stdout).toContain('postgresql-17-cron=1.6.8+2');
+        else expect(r.stderr).toContain('No signed pg_cron package solves');
+      }
+      const calls = readFileSync(join(box, 'calls'), 'utf8');
+      expect(calls).toContain('--simulate install');
+      expect(calls).toContain('postgresql-server-dev-17');
     } finally {
       rmSync(box, { recursive: true, force: true });
     }
