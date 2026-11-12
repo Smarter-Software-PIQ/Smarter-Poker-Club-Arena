@@ -14,4 +14,4 @@ Not changed: the workflow file, the merge-group path, the completion rules (a he
 
 ## Proof
 
-`tests/money-trigger-closed-pr.test.mjs`, 13 cases, run in CI beside the caller test. The process cases run the real scripts with only `fetch` replaced. With the two scripts at their previous content the two stand-down cases fail; with the change all pass, and the existing money-trigger tests still pass unchanged.
+`tests/money-trigger-closed-pr.test.mjs`, 13 cases, run in the required CI step of the caller test (imported by it, so the pinned CI commands are unchanged). The process cases run the real scripts with only `fetch` replaced. With the two scripts at their previous content the two stand-down cases fail; with the change all pass, and the existing money-trigger tests still pass unchanged.
