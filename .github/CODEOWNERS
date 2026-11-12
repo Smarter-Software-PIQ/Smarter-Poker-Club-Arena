@@ -1,9 +1,8 @@
 # Club Arena CODEOWNERS
 #
-# Intentionally empty. Owner direction (2026-11-11): pull requests must not
-# automatically request a human review. The main ruleset requires no code
-# owner review and no approvals, so automatic requests only produced review
-# and merge notification emails to the owner's inbox. Operational failures go
-# to Production Alerts and, when they cannot be resolved automatically, to the
-# owner's Smarter.Poker Messenger. Do not add owners back here.
-# Guarded by tests/unit/noCodeownerReviewRequests.test.ts.
+# Currently empty (2026-11-11). The automatic review requests to @SmarterPoker
+# were emailing the owner on every pull request and merge, and the main ruleset
+# requires no code owner review and no approvals, so they protected nothing.
+# An owner may be added here when a real review requirement exists; each entry
+# requests that account's review and sends GitHub review and merge emails, so
+# pair it with an owner notification setting that routes them deliberately.
