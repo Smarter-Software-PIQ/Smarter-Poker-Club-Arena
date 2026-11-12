@@ -793,3 +793,61 @@ describe('break wait progress (Dan 2026-11-07)', () => {
     expect(src.slice(at, next)).toMatch(/tm\.publishBreakWaitProgress\?\.\(\)/);
   });
 });
+
+/**
+ * A TOURNAMENT THAT STARTS AT ITS ADVERTISED TIME STARTS ON THE DOT
+ * (Dan, 2026-11-11: "THE 7PM TOURNAMENT THAT STARTS AT 7PM, SHOULD NOT START
+ * ON A BREAK... IT SHOULD START AT 7 ON THE DOT"). Each running tournament
+ * takes its own five minutes from when its own last hand parks, so the fleet
+ * break spills past the top of the hour - and the Nightly 20K opened at 7:00
+ * PM on a paused break screen. A FRESH field has had no play to rest from:
+ * only a maintenance-anchored break may hold a starting tournament.
+ */
+describe('Scheduled Start During The Break', () => {
+  it('does not hold a freshly starting tournament for the ordinary break', async () => {
+    const entrant = manager('fresh-20k');
+    entrant.onBreak = false;
+    const owner = server([entrant]);
+    owner.breakEndsAt = Date.now() + 61_000; // the 18:55 break's tail, past 19:00
+    owner.breakCountdownStarted = true;
+    const writes = persistence();
+    await owner.holdIfBreakIsRunning(entrant, true);
+    expect(entrant.pauseForBreak).not.toHaveBeenCalled();
+    expect(writes).toEqual([]);
+    expect(owner.openTournamentBreaks().has(entrant)).toBe(false);
+  });
+
+  it('still holds a freshly starting tournament for a maintenance-anchored break', async () => {
+    const entrant = manager('fresh-maint');
+    entrant.onBreak = false;
+    const owner = server([entrant]);
+    owner.breakEndsAt = Date.now() + 61_000;
+    owner.breakCountdownStarted = true;
+    owner.breakEndsWithMaintenance = true;
+    persistence();
+    await owner.holdIfBreakIsRunning(entrant, true);
+    expect(entrant.pauseForBreak).toHaveBeenCalledOnce();
+  });
+
+  it('still holds a resumed or adopted tournament exactly as before', async () => {
+    const adopted = manager('adopted-mid');
+    adopted.onBreak = false;
+    const owner = server([adopted]);
+    owner.breakEndsAt = Date.now() + 61_000;
+    owner.breakCountdownStarted = true;
+    persistence();
+    await owner.holdIfBreakIsRunning(adopted, false);
+    expect(adopted.pauseForBreak).toHaveBeenCalledOnce();
+  });
+
+  it("admission wires mode === 'start' through to the break hold", async () => {
+    const src = readFileSync(join(__dirname, 'GameServer.ts'), 'utf8');
+    // The fresh-start exemption must come from the admission mode itself, so
+    // a resumed or adopted manager can never claim it.
+    expect(src).toMatch(
+      /finishTournamentManagerAdmission\(\s*tournamentId,\s*manager,\s*generation,\s*mode === 'start'\s*\)/
+    );
+    expect(src).toMatch(/holdIfBreakIsRunning\(manager, freshStart\)/);
+    expect(src).toMatch(/if \(freshStart && !this\.breakEndsWithMaintenance\) return;/);
+  });
+});
