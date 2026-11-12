@@ -298,8 +298,8 @@
       "sha256": "0d963d68abc79558029bd3a44069f851c03ccfa882b041dc785e280261027b54"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 143430,
-      "sha256": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c"
+      "bytes": 143603,
+      "sha256": "22e56648754e22e21cced25e5e3eb72efcc5bb940d45a2d67439bdd19f497e18"
     },
     "scripts/ci/qualification-input-projections.py": {
       "bytes": 9270,
@@ -705,7 +705,7 @@
       "bytes": 239646,
       "sha256": "32d7bebc69d6147ffc71c5183f09d4939da7437ddd842beee0bf1ac9ad1e1469"
     },
-    "review": "Only accounting job40→50minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
+    "review": "Only accounting job40\u219250minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
     "composition": "Preserves all current protected-main CI steps plus the measured50minute job budget; only this workflow pin conflicted."
   },
   "riverPersistenceBudgetIntegration20261027": {
@@ -2843,5 +2843,11 @@
     ],
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
+  },
+  "qualifiedPostgresToolchain20261112": {
+    "reason": "Reviewed execution-only change: exact-minor BBJ and isolation qualification shards 1, 3 and 4 opt into signed server/client/header packages matching the existing native builder VERSION; these shards cannot take a presence-only readiness shortcut. Classifier, financial source/fixtures/assertions, timeouts, concurrency, job ownership and artifact contracts are unchanged. Source identity only; no historical qualification or production receipt restamped.",
+    "path": "scripts/qualification/ci-accounting-inputs.json",
+    "previousSHA256": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c",
+    "currentSHA256": "22e56648754e22e21cced25e5e3eb72efcc5bb940d45a2d67439bdd19f497e18"
   }
 }

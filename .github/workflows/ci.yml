@@ -1566,7 +1566,7 @@ jobs:
       - name: Install PostgreSQL 17 tools without a default database service
         env:
           PG_CI_SHARD: ${{ matrix.shard }}
-          PG_ISOLATION_TOOLCHAIN: ${{ matrix.shard == 3 && 'true' || 'false' }}
+          PG_QUALIFIED_TOOLCHAIN: ${{ (matrix.shard == 1 || matrix.shard == 3 || matrix.shard == 4) && 'true' || 'false' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1612,7 +1612,7 @@ jobs:
               ;;
             *) echo 'Unknown accounting shard' >&2; exit 1 ;;
           esac
-          if [[ "${PG_ISOLATION_TOOLCHAIN:-false}" != true && "$pg_ci_build_tools_ready" == true &&
+          if [[ "${PG_QUALIFIED_TOOLCHAIN:-false}" != true && "$pg_ci_build_tools_ready" == true &&
                 -x /usr/lib/postgresql/17/bin/postgres &&
                 -x /usr/lib/postgresql/17/bin/initdb &&
                 -x /usr/lib/postgresql/17/bin/pg_ctl &&

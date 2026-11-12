@@ -23,7 +23,7 @@
 # on every attempt, and the step fails.
 #
 # Inputs (environment):
-#   PG_ISOLATION_TOOLCHAIN  true binds server/client/headers to the native tool VERSION
+#   PG_QUALIFIED_TOOLCHAIN  true binds server/client/headers to the native tool VERSION
 #   PG_PACKAGES       packages to install from PGDG (default: postgresql-17)
 #   PG_UBUNTU_MIRROR  "true" runs scripts/ci/ubuntu-apt-mirror.py first
 #   PG_APT_ATTEMPTS   whole-command attempts (default 4)
@@ -56,9 +56,9 @@ pg_attempt() {
 }
 
 # The native isolation tool is source/digest-pinned to one PostgreSQL minor.
-# Only its explicit CI caller opts in; default PG17 installs stay unchanged.
-pg_pin_isolation_toolchain() {
-  [ "${PG_ISOLATION_TOOLCHAIN:-false}" = true ] || return 0
+# Only exact-minor native qualification callers opt in; default PG17 installs stay unchanged.
+pg_pin_qualified_toolchain() {
+  [ "${PG_QUALIFIED_TOOLCHAIN:-false}" = true ] || return 0
   local minor package version i found
   minor=$(python3 - "$GITHUB_WORKSPACE/scripts/ci/build_pg17_isolationtester.py" <<'PY_VERSION'
 import ast, pathlib, re, sys
@@ -113,7 +113,7 @@ printf 'Types: deb\nURIs: https://apt.postgresql.org/pub/repos/apt\nSuites: %s-p
   "$codename" "$PG_KEY_DST" > "$pg_sources/pgdg.sources"
 pg_attempt sudo apt-get "${pg_apt[@]}" "${pg_update[@]}" update
 printf 'create_main_cluster = false\n' | sudo tee /etc/postgresql-common/createcluster.conf >/dev/null
-pg_pin_isolation_toolchain
+pg_pin_qualified_toolchain
 # PGDG can publish an extension rebuild before its required server release.
 # Ask apt to solve the whole requested set, including an older extension
 # version when the newest cannot coexist with the current server candidate.

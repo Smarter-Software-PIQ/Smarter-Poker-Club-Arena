@@ -901,11 +901,11 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     expect(installers).toHaveLength(1);
     // Normalize only the reviewed opt-in for the existing source-pinned native
     // isolation builder; every original installer command and budget stays pinned.
-    expect(installers[0].env.PG_ISOLATION_TOOLCHAIN).toBe(
-      "${{ matrix.shard == 3 && 'true' || 'false' }}"
+    expect(installers[0].env.PG_QUALIFIED_TOOLCHAIN).toBe(
+      "${{ (matrix.shard == 1 || matrix.shard == 3 || matrix.shard == 4) && 'true' || 'false' }}"
     );
-    delete installers[0].env.PG_ISOLATION_TOOLCHAIN;
-    const isolationReadiness = '"${PG_ISOLATION_TOOLCHAIN:-false}" != true && ';
+    delete installers[0].env.PG_QUALIFIED_TOOLCHAIN;
+    const isolationReadiness = '"${PG_QUALIFIED_TOOLCHAIN:-false}" != true && ';
     expect(installers[0].run.split(isolationReadiness)).toHaveLength(2);
     installers[0].run = installers[0].run.replace(isolationReadiness, '');
     expect(createHash('sha256').update(JSON.stringify(installers[0])).digest('hex')).toBe(

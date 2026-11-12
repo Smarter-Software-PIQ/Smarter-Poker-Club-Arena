@@ -121,8 +121,8 @@ describe('one shared PostgreSQL installer', () => {
     'binds only explicit isolation toolchains to their source version (%s, %s, %s)',
     (enabled, missing, server, status) => {
       const fn = SH.slice(
-        SH.indexOf('pg_pin_isolation_toolchain() {'),
-        SH.indexOf('\n}\n', SH.indexOf('pg_pin_isolation_toolchain() {')) + 3
+        SH.indexOf('pg_pin_qualified_toolchain() {'),
+        SH.indexOf('\n}\n', SH.indexOf('pg_pin_qualified_toolchain() {')) + 3
       );
       const script = `${fn}
 pg_packages=(${server} postgresql-17-cron postgresql-server-dev-17 build-essential)
@@ -131,7 +131,7 @@ apt-cache() {
   printf 'pkg | 17.12-1.pgdg26.04+1 | signed\\n'
   if [ "$MISSING" != true ]; then printf 'pkg | 17.11-1.pgdg26.04+2 | signed\\n'; fi
 }
-pg_pin_isolation_toolchain || exit $?
+pg_pin_qualified_toolchain || exit $?
 printf '%s\\n' "\${pg_packages[@]}"
 `;
       const result = spawnSync('bash', ['-c', script], {
@@ -139,7 +139,7 @@ printf '%s\\n' "\${pg_packages[@]}"
         env: {
           ...process.env,
           GITHUB_WORKSPACE: ROOT,
-          PG_ISOLATION_TOOLCHAIN: String(enabled),
+          PG_QUALIFIED_TOOLCHAIN: String(enabled),
           MISSING: String(missing),
         },
       });
@@ -153,10 +153,12 @@ printf '%s\\n' "\${pg_packages[@]}"
       else expect(result.stderr).toMatch(/No signed|conflicts with qualified/);
     }
   );
-  it('opts only the native isolation source-build shard into exact toolchain matching', () => {
+  it('opts only exact-minor native qualification shards into toolchain matching', () => {
     const ci = readFileSync(join(WF, 'ci.yml'), 'utf8');
-    expect(ci).toContain("PG_ISOLATION_TOOLCHAIN: ${{ matrix.shard == 3 && 'true' || 'false' }}");
-    expect(SH.indexOf('pg_pin_isolation_toolchain\n')).toBeLessThan(
+    expect(ci).toContain(
+      "PG_QUALIFIED_TOOLCHAIN: ${{ (matrix.shard == 1 || matrix.shard == 3 || matrix.shard == 4) && 'true' || 'false' }}"
+    );
+    expect(SH.indexOf('pg_pin_qualified_toolchain\n')).toBeLessThan(
       SH.indexOf('# PGDG can publish an extension rebuild')
     );
     expect(readFileSync(join(ROOT, 'scripts/ci/build_pg17_isolationtester.py'), 'utf8')).toContain(

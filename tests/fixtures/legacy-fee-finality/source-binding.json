@@ -42,7 +42,7 @@
     "tests/fixtures/legacy-fee-finality/verify-native-receipts.mjs": "9556746822f0045ecadc35704929f53810676fe0ab07e49146b14495667870c8",
     "scripts/qualification/ci-admission-inputs.json": "8275cc6a48e74b21dc56c8d4ed5a143cb9dae6ffabba8dca65366d4920007887",
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c"
+    "scripts/qualification/ci-accounting-inputs.json": "22e56648754e22e21cced25e5e3eb72efcc5bb940d45a2d67439bdd19f497e18"
   },
   "chainedBrowserAdmissionSourceAudit20261030": {
     "scope": "Current classifier source binding only. Chained browser scripts and supported config/fixture inputs now admit their existing browser checks; every financial/server/native classification flag is unchanged.",
@@ -1631,5 +1631,11 @@
     ],
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
+  },
+  "qualifiedPostgresToolchain20261112": {
+    "reason": "Reviewed execution-only change: exact-minor BBJ and isolation qualification shards 1, 3 and 4 opt into signed server/client/header packages matching the existing native builder VERSION; these shards cannot take a presence-only readiness shortcut. Classifier, financial source/fixtures/assertions, timeouts, concurrency, job ownership and artifact contracts are unchanged. Source identity only; no historical qualification or production receipt restamped.",
+    "path": "scripts/qualification/ci-accounting-inputs.json",
+    "previousSHA256": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c",
+    "currentSHA256": "22e56648754e22e21cced25e5e3eb72efcc5bb940d45a2d67439bdd19f497e18"
   }
 }
