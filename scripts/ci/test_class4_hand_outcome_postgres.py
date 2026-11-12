@@ -1,5 +1,6 @@
 """Direct wrapper/oracle regression checks; these do not qualify PostgreSQL."""
 import importlib.util
+import re
 from pathlib import Path
 import sys
 import unittest
@@ -30,6 +31,12 @@ def transcript():
 
 
 class Class4TranscriptContract(unittest.TestCase):
+    def test_owned_sql_endpoints_require_the_same_native_minor(self):
+        for name in ('readback.sql', 'resource-prepare.sql'):
+            source = (HERE / 'probes/class4-hand-outcome' / name).read_text()
+            guards = re.findall(r"server_version_num'\)::integer<>([0-9]+)", source)
+            self.assertEqual(guards, [str(DRIVER.VERSION_NUM)], name)
+
     def test_exact_multiline_two_waits_are_recognized(self):
         self.assertTrue(DRIVER.validate_isolation(transcript(), ''))
 
