@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import './LiveNowStrip.css';
 import type { LiveSeat } from '../../lib/clubLiveSeats';
 import { generateAvatarSvg, sizedStorageUrl } from '../../utils/avatarGenerator';
 import { withStakes } from '../../utils/tableEyebrow';
