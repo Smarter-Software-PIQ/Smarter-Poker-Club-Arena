@@ -50,3 +50,27 @@ export function tokenCallRequiredEquity(potOdds: number, required: number): numb
   if (premiums <= 0) return required;
   return potOdds + premiums * (potOdds / TOKEN_CALL_PRICE);
 }
+
+/**
+ * Where the rule applies: Omaha high cash on one ordinary board. Hi-lo splits
+ * the pot, a tournament call carries payout utility, and several boards or a
+ * bomb pot price a call differently; none of them is in the evidence, so none
+ * is in scope (the V88 commitment rule beside it draws the same line).
+ */
+export function tokenCallPriceApplies(scope: {
+  enabled: boolean;
+  isOmaha: boolean;
+  isHiLo: boolean;
+  tournament: boolean;
+  multiBoard: boolean;
+  bombPot: boolean;
+}): boolean {
+  return (
+    scope.enabled &&
+    scope.isOmaha &&
+    !scope.isHiLo &&
+    !scope.tournament &&
+    !scope.multiBoard &&
+    !scope.bombPot
+  );
+}

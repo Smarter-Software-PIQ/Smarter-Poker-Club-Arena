@@ -39,7 +39,11 @@ import { HorsePolicyGraph } from './HorsePolicyGraph.js';
 import { decisionGravity } from './horseDecisionGravity.js';
 import { riverNutsRaise, fullPotNearPotWager, hasRiverNuts } from './HorseRiverNuts.js';
 import { omahaCurrentNutsRaise } from './HorseOmahaCurrentNuts.js';
-import { tokenCallIsCertain, tokenCallRequiredEquity } from './HorseTokenCallPrice.js';
+import {
+  tokenCallIsCertain,
+  tokenCallPriceApplies,
+  tokenCallRequiredEquity,
+} from './HorseTokenCallPrice.js';
 import { horsePolicyRegistration, horsePolicyOwnership } from './HorsePolicyRegistry.js';
 import { hasHorseReviewSignals } from './HorseReviewSignals.js';
 import { evaluateJointLivePolicy } from './multiway/JointLivePolicy.js';
@@ -14998,9 +15002,16 @@ export class HorseLogic {
         shade87NlhTurnCommit;
       // PLO6-AUDIT-010: the premiums above are sized for stack-off calls. On
       // a token price they shrink with the price (HorseTokenCallPrice.ts);
-      // Omaha high cash only, and unchanged at a price of 0.15 or more.
-      const tokenPriced =
-        opts.tokenCallPrice !== false && vi.isOmaha && !vi.isHiLo && !isTournamentMode(gs);
+      // Omaha high cash on one ordinary board only (no bomb pot, as V88
+      // above), and unchanged at a price of 0.15 or more.
+      const tokenPriced = tokenCallPriceApplies({
+        enabled: opts.tokenCallPrice !== false,
+        isOmaha: vi.isOmaha,
+        isHiLo: vi.isHiLo,
+        tournament: isTournamentMode(gs),
+        multiBoard: multiBoard36,
+        bombPot: gs.bombPot === true,
+      });
       const required = tokenPriced
         ? tokenCallRequiredEquity(potOdds, requiredAtFullPremium)
         : requiredAtFullPremium;

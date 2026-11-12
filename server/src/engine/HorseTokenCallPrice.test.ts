@@ -3,6 +3,7 @@ import {
   TOKEN_CALL_CERTAIN_PRICE,
   TOKEN_CALL_PRICE,
   tokenCallIsCertain,
+  tokenCallPriceApplies,
   tokenCallRequiredEquity,
 } from './HorseTokenCallPrice.js';
 
@@ -60,5 +61,26 @@ describe('a token-priced call is not barred by stack-off premiums (PLO6-AUDIT-01
     expect(tokenCallIsCertain(TOKEN_CALL_CERTAIN_PRICE, 3)).toBe(false);
     expect(tokenCallIsCertain(131 / 2708, 3)).toBe(false);
     expect(tokenCallIsCertain(Number.NaN, 3)).toBe(false);
+  });
+
+  it('applies to Omaha high cash on one ordinary board and to nothing else', () => {
+    const cash = {
+      enabled: true,
+      isOmaha: true,
+      isHiLo: false,
+      tournament: false,
+      multiBoard: false,
+      bombPot: false,
+    };
+    expect(tokenCallPriceApplies(cash)).toBe(true);
+    for (const off of [
+      { enabled: false },
+      { isOmaha: false },
+      { isHiLo: true },
+      { tournament: true },
+      { multiBoard: true },
+      { bombPot: true },
+    ])
+      expect(tokenCallPriceApplies({ ...cash, ...off })).toBe(false);
   });
 });
