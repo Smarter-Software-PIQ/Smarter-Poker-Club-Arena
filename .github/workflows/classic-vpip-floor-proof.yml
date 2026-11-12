@@ -1,0 +1,53 @@
+name: Classic VPIP floor proof
+# The Classic VPIP floor's window, warning, grace, expiry, eviction, rejoin,
+# activation and inheritance rules are SQL. scripts/ci/test-classic-vpip-floor.sh
+# proves them by execution on a throwaway PostgreSQL 17, but until 2026-11-12
+# nothing in CI ran it: the only automatic check was a source-string law, and
+# the script's own header says a string match cannot execute a rule. This runs
+# the proof on every pull request that touches the rule, its fixtures or the
+# migrations that define the installed functions.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/ci/test-classic-vpip-floor.sh'
+      - 'scripts/ci/sql/classic-vpip-floor/**'
+      - 'supabase/migrations/20261111003710_the_classic_floor_judges_thirty_dealt_hands_and_warns_before.sql'
+      - 'supabase/migrations/20261111022301_a_classic_rejoin_continues_the_vpip_sitting_and_the_approved.sql'
+      - 'supabase/migrations/20261111093132_the_vpip_sample_reads_only_the_sitting.sql'
+      - '.github/actions/install-postgres-17/**'
+      - '.github/workflows/classic-vpip-floor-proof.yml'
+# A newer push to the same pull request fully supersedes this pure check, and
+# the job mutates nothing outside its runner.
+concurrency:
+  group: classic-vpip-floor-proof-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: Prove the Classic floor by execution
+        run: |
+          set -euo pipefail
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
+          mkdir -p artifacts/classic-vpip-floor
+          bash scripts/ci/test-classic-vpip-floor.sh | tee artifacts/classic-vpip-floor/proof.log
+          # The script exits 0 with SKIPPED when it finds no postgres. Here
+          # that is a failure: a proof that did not run is not a pass.
+          if grep -q '^SKIPPED' artifacts/classic-vpip-floor/proof.log; then
+            echo '::error::The Classic floor proof did not run.'; exit 1
+          fi
+          grep -q '^PASS  every Classic VPIP floor assertion held$' artifacts/classic-vpip-floor/proof.log
+      - name: Retain the proof log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: classic-vpip-floor-proof
+          path: artifacts/classic-vpip-floor/
+          if-no-files-found: error

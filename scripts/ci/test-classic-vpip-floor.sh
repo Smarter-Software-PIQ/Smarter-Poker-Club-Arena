@@ -49,6 +49,7 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 SQLDIR="$HERE/sql/classic-vpip-floor"
 MIG="$ROOT/supabase/migrations/20261111003710_the_classic_floor_judges_thirty_dealt_hands_and_warns_before.sql"
 MIG2="$ROOT/supabase/migrations/20261111022301_a_classic_rejoin_continues_the_vpip_sitting_and_the_approved.sql"
+MIG3="$ROOT/supabase/migrations/20261111093132_the_vpip_sample_reads_only_the_sitting.sql"
 
 for bin in initdb pg_ctl psql; do
   if ! command -v "$bin" >/dev/null 2>&1; then
@@ -58,6 +59,7 @@ for bin in initdb pg_ctl psql; do
 done
 [ -f "$MIG" ]  || { echo "FAIL: migration not found at $MIG"; exit 1; }
 [ -f "$MIG2" ] || { echo "FAIL: migration not found at $MIG2"; exit 1; }
+[ -f "$MIG3" ] || { echo "FAIL: migration not found at $MIG3"; exit 1; }
 
 # A C locale, or macOS postgres dies with "postmaster became multithreaded".
 export LC_ALL=C LANG=C
@@ -105,6 +107,12 @@ if ! ACT="$("${PSQL[@]}" -f "$MIG2" 2>&1)"; then
 fi
 echo "PASS  the activation migration applies, and its post-conditions hold"
 echo "$ACT" | sed -n 's/.*NOTICE:  \(Classic VPIP floor activated.*\)/      \1/p'
+
+# THE SAMPLE PRODUCTION ACTUALLY RUNS. A third migration replaced fn_nit_sample
+# and fn_nit_hands_since with a bounded read of the sitting. Every assertion
+# below must hold against those installed definitions, not their predecessors.
+"${PSQL[@]}" -f "$MIG3" >/dev/null || { echo "FAIL  the bounded-sample migration did not apply"; exit 1; }
+echo "PASS  the bounded-sample migration applies over the activated floor"
 
 RC=0
 for f in "$SQLDIR/04-proof-window.sql" "$SQLDIR/05-proof-warning.sql" \
