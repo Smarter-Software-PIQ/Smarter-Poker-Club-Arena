@@ -71,7 +71,9 @@ describe('one shared PostgreSQL installer', () => {
   });
 
   it('every apt call is retried, bounded, and an index fetch failure fails the update', () => {
-    const aptCalls = SH.split('\n').filter((l) => /sudo apt-get /.test(l));
+    const aptCalls = SH.split('\n').filter(
+      (l) => /sudo apt-get /.test(l) && !l.includes('--simulate')
+    );
     expect(aptCalls).toHaveLength(4);
     for (const l of aptCalls)
       expect(l.trimStart().startsWith('pg_attempt sudo apt-get "${pg_apt[@]}"'), l).toBe(true);
@@ -125,6 +127,45 @@ describe('one shared PostgreSQL installer', () => {
       });
       expect(r.status).toBe(1);
       expect(r.stderr).toContain('.github/pgdg/apt.postgresql.org.asc is missing');
+    } finally {
+      rmSync(box, { recursive: true, force: true });
+    }
+  });
+  it('selects the newest installable signed cron version and refuses an unsolvable set', () => {
+    const box = mkdtempSync(join(tmpdir(), 'pg-compatible-'));
+    try {
+      const start = SH.indexOf(
+        'if printf \'%s\\n\' "${pg_packages[@]}" | grep -qx postgresql-17-cron;'
+      );
+      expect(start).toBeGreaterThan(0);
+      const block = SH.slice(start, SH.indexOf('\npg_attempt sudo apt-get', start));
+      const script = `
+pg_packages=(postgresql-17 postgresql-17-cron postgresql-server-dev-17)
+pg_apt=()
+apt-cache() {
+  if [ "$1" = policy ]; then echo 'Candidate: 17.11'; else
+    printf 'postgresql-17-cron | 1.6.8+3 | signed\\npostgresql-17-cron | 1.6.8+2 | signed\\n'
+  fi
+}
+sudo() {
+  printf '%s\\n' "$*" >> '${box}/calls'
+  case "$*" in *postgresql-17-cron=1.6.8+2*) [ "$SOLVABLE" = yes ];; *) return 1;; esac
+}
+${block}
+printf '%s\\n' "\${pg_packages[@]}"
+`;
+      for (const solvable of ['yes', 'no']) {
+        const r = spawnSync('bash', ['-c', script], {
+          encoding: 'utf8',
+          env: { ...process.env, SOLVABLE: solvable },
+        });
+        expect(r.status).toBe(solvable === 'yes' ? 0 : 1);
+        if (solvable === 'yes') expect(r.stdout).toContain('postgresql-17-cron=1.6.8+2');
+        else expect(r.stderr).toContain('No signed pg_cron package solves');
+      }
+      const calls = readFileSync(join(box, 'calls'), 'utf8');
+      expect(calls).toContain('--simulate install');
+      expect(calls).toContain('postgresql-server-dev-17');
     } finally {
       rmSync(box, { recursive: true, force: true });
     }

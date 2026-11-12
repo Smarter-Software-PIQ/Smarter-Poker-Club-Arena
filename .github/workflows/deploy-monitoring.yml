@@ -37,6 +37,7 @@ on:
     paths:
       - 'infra/monitoring/**'
       - 'server/scripts/install-caddy-websocket-log-redaction.sh'
+      - 'server/scripts/collect-monitoring-health.sh'
       - 'scripts/ci/check-alert-rules-match.mjs'
       - 'scripts/ci/rule-metric-producers.mjs'
       - '.github/workflows/deploy-monitoring.yml'
@@ -110,7 +111,7 @@ jobs:
             || { echo '::error::Monitoring request is not contained in protected main.'; exit 1; }
           if [ "$DEPLOY_CONTROL_SHA" != "$MAIN_SHA" ]; then
             git diff --quiet "$DEPLOY_CONTROL_SHA" "$MAIN_SHA" -- \
-              infra/monitoring server/scripts/install-caddy-websocket-log-redaction.sh \
+              infra/monitoring server/scripts/install-caddy-websocket-log-redaction.sh server/scripts/collect-monitoring-health.sh \
               || { echo "::error::A newer protected-main commit changed the monitoring payload; its owning run must deploy it."; exit 1; }
             echo "Protected main advanced to $MAIN_SHA without changing the monitoring payload; this run remains authoritative."
           fi
@@ -301,22 +302,39 @@ jobs:
               || { echo "::error::The live monitoring release is not an ancestor of this request."; exit 1; }
           fi
 
+          # The stable emitter also has an engine-control bootstrap writer.
+          # Authorize its actual bytes from protected ancestry, then compare
+          # them again under their shared source lock before replacement.
+          COLLECTOR_PREVIOUS="$(~/hssh 'sha256sum /usr/local/lib/club-arena/collect-monitoring-health.sh' | cut -d' ' -f1)"
+          [[ "$COLLECTOR_PREVIOUS" =~ ^[0-9a-f]{64}$ ]]
+          COLLECTOR_PREVIOUS="$COLLECTOR_PREVIOUS" python3 - <<'PYCOLLECTOR'
+          import hashlib, os, subprocess
+          path = 'server/scripts/collect-monitoring-health.sh'
+          for revision in subprocess.check_output(['git', 'rev-list', 'HEAD', '--', path], text=True).splitlines():
+              result = subprocess.run(['git', 'show', revision + ':' + path], capture_output=True)
+              if result.returncode == 0 and hashlib.sha256(result.stdout).hexdigest() == os.environ['COLLECTOR_PREVIOUS']:
+                  print('Installed collector is contained in protected ancestry:', revision)
+                  break
+          else:
+              raise SystemExit('Unknown installed collector; refusing to overwrite it.')
+          PYCOLLECTOR
+
           MANIFEST=infra/monitoring/.club-arena-monitoring-payload.sha256
           git ls-tree -r --name-only "$DEPLOY_CONTROL_SHA" -- \
-            infra/monitoring server/scripts/install-caddy-websocket-log-redaction.sh \
+            infra/monitoring server/scripts/install-caddy-websocket-log-redaction.sh server/scripts/collect-monitoring-health.sh \
             | LC_ALL=C sort \
             | while IFS= read -r path; do sha256sum "$path"; done > "$MANIFEST"
           test -s "$MANIFEST"
           PAYLOAD_SHA="$(sha256sum "$MANIFEST" | cut -d' ' -f1)"
-          printf 'schema=club-arena-monitoring-release-v1\nsha=%s\nprevious=%s\npayload=%s\n' \
-            "$DEPLOY_CONTROL_SHA" "$LIVE_SHA" "$PAYLOAD_SHA" > infra/monitoring/.deployed-from
+          printf 'schema=club-arena-monitoring-release-v1\nsha=%s\nprevious=%s\npayload=%s\ncollector_previous=%s\n' \
+            "$DEPLOY_CONTROL_SHA" "$LIVE_SHA" "$PAYLOAD_SHA" "$COLLECTOR_PREVIOUS" > infra/monitoring/.deployed-from
           # Staged, then copied IN PLACE. docker-compose.yml bind-mounts the
           # rule files one by one, and a bind mount of a file follows the
           # inode: a file that is unlinked and recreated (tar's default) is a
           # file the running container never sees again until it restarts.
           # `cp` opens the existing file and truncates it, so the inode - and
           # the mount - survive, and the reload in deploy.sh reads new bytes.
-          tar -C . -cf - infra/monitoring server/scripts/install-caddy-websocket-log-redaction.sh \
+          tar -C . -cf - infra/monitoring server/scripts/install-caddy-websocket-log-redaction.sh server/scripts/collect-monitoring-health.sh \
             | ~/hssh "rm -rf /opt/smarter-poker-monitoring-src.incoming && mkdir -p /opt/smarter-poker-monitoring-src.incoming && tar -C /opt/smarter-poker-monitoring-src.incoming -xf -"
           ~/hssh "mkdir -p /opt/smarter-poker-monitoring-src/infra/monitoring \
             /opt/smarter-poker-monitoring-src/server/scripts \
@@ -324,6 +342,7 @@ jobs:
             && rm -f -- /opt/smarter-poker-monitoring-src/infra/monitoring/supervisor-rules.yml \
             && cp /opt/smarter-poker-monitoring-src.incoming/server/scripts/install-caddy-websocket-log-redaction.sh /opt/smarter-poker-monitoring-src/server/scripts/ \
             && chmod +x /opt/smarter-poker-monitoring-src/server/scripts/install-caddy-websocket-log-redaction.sh \
+            && cp /opt/smarter-poker-monitoring-src.incoming/server/scripts/collect-monitoring-health.sh /opt/smarter-poker-monitoring-src/server/scripts/ \
             && rm -rf /opt/smarter-poker-monitoring-src.incoming \
             && test -f /opt/smarter-poker-monitoring-src/infra/monitoring/prometheus.yml \
             && test -x /opt/smarter-poker-monitoring-src/server/scripts/install-caddy-websocket-log-redaction.sh \

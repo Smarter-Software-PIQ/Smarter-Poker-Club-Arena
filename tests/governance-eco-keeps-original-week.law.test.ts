@@ -29,4 +29,19 @@ describe('governance ECO incidents keep their original week', () => {
     expect(native).toContain('partial_club_books_refused');
     expect(native).toContain('refreshed_metadata_retains_original');
   });
+
+  it('qualifies the actual activity-record detector and sweep through required accounting CI', () => {
+    const driver = readFileSync('scripts/dev/test-dual-eco.sh', 'utf8');
+    expect(driver).toContain('tests/fixtures/dual-eco/governance-before.json');
+    expect(driver).toContain('tests/fixtures/dual-eco/governance-bootstrap.sql');
+    expect(readFileSync('tests/fixtures/dual-eco/regression.sql', 'utf8')).toContain(
+      '\\ir governance-regression.sql'
+    );
+    const native = readFileSync('tests/fixtures/dual-eco/governance-regression.sql', 'utf8');
+    expect(native).toContain('baseline reproduces false missing ECO');
+    expect(native).toContain('mixed sweep captures only genuinely missing original union');
+    expect(native).toContain('wrong immutable component identity remains visible');
+    expect(native).toContain('wrong exact DST period remains visible');
+    expect(native).toContain('refresh never deletes an existing original obligation');
+  });
 });
