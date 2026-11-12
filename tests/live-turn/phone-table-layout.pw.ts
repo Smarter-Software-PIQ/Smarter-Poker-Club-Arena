@@ -74,6 +74,9 @@ interface Scenario {
   seats: 6 | 9;
   bombPot?: boolean;
   lightning?: boolean;
+  /** A Lightning game still in its feeder (MUST MOVE) game: its own table, the
+   *  game's live players and Lightning start count as the database reports them. */
+  feeder?: { live: number; on: number };
   /** Portraits: the hero's and the opponents'. Absent: initials everywhere. */
   art?: { hero: Portrait; opponents: Portrait[] };
 }
@@ -353,6 +356,20 @@ function backendFor(s: Scenario, heroSeat: number) {
   return newBackend({
     engineHttp: 'answered',
     rpc: {
+      ...(s.feeder
+        ? {
+            fn_cash_game_lobby: () => ({
+              body: {
+                lightning: {
+                  lightning_enabled: true,
+                  cluster_mode: 'must_move',
+                  verdict: { live_eligible: s.feeder!.live },
+                  thresholds: { on: s.feeder!.on, off: s.feeder!.on - 1 },
+                },
+              },
+            }),
+          }
+        : {}),
       fn_poker_arena_context: () => ({
         body: {
           arena,
@@ -374,6 +391,7 @@ function backendFor(s: Scenario, heroSeat: number) {
               union_id: null,
               tournament_id: null,
               name: 'NLH 2/5',
+              ...(s.feeder ? { cluster_id: CLUSTER } : {}),
               game_variant: 'nlh',
               game_type: 'cash',
               status: 'running',
@@ -795,6 +813,36 @@ test.describe('the action pill', () => {
         await page.waitForTimeout(150);
       }
       await expect(pill.locator('.table-tab-bar__mini-cards')).toBeVisible();
+    } finally {
+      engine.dispose();
+    }
+  });
+});
+
+/* Dan, 2026-11-11: below the Lightning start count the table says how many
+   more players are needed, and never that Lightning cannot start. */
+test.describe('the Lightning start ticker', () => {
+  test.use({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+    deviceScaleFactor: 3,
+  });
+
+  test('a feeder game below its start count counts down and shows no start error', async ({
+    page,
+  }) => {
+    const s: Scenario = { ...SCENARIOS[2], feeder: { live: 2, on: 5 } };
+    const engine = await openTable(page, s);
+    try {
+      await expect(page.getByTestId('lightning-start-ticker')).toHaveText(
+        '3 More Players Until Lightning Games Start',
+        { timeout: 15_000 }
+      );
+      const body = await page.locator('body').innerText();
+      expect(body, 'no Lightning start error is shown').not.toMatch(
+        /(can.?t|cannot|unable to|could not|won.?t)\s+start|not enough players/i
+      );
     } finally {
       engine.dispose();
     }

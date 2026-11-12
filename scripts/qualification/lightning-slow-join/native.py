@@ -7,6 +7,11 @@ plo-lightning-lifecycle harness, installs 20261109141301 (the original
 one-game route) and then this migration, and drives the REAL roster seat
 trigger with ordinary seat inserts. Fails if any Lightning game other than
 c79d8ec2 admits Horses faster than the slow-join schedule.
+
+20261112005012 (owner, Dan, 2026-11-11): the approved 70 to 90 second Horse
+arrival pace holds in EVERY game at any pool size. The busy-pool law below
+seeds 80 committed players and fails on the 20261111214248 body, which
+divided the spacing by whole Lightning starts (4.4 s in an 80-player pool).
 """
 from pathlib import Path
 import concurrent.futures
@@ -19,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[3]
 PLO = ROOT / 'scripts/qualification/plo-lightning-lifecycle'
 PREDECESSOR = ROOT / 'supabase/migrations/20261109141301_plo_lightning_gradual_admission_and_feeder_lifecycle.sql'
 MIGRATION = ROOT / 'supabase/migrations/20261111214248_every_lightning_game_joins_horses_one_at_a_time.sql'
+FIX = ROOT / 'supabase/migrations/20261112005012_lightning_horse_arrivals_keep_the_70_to_90_second_pace_in_ev.sql'
 PG = Path(os.environ.get('PG_BIN', '/opt/homebrew/opt/postgresql@17/bin'))
 SCRATCH = Path(os.environ.get('TMPDIR', ROOT / 'work'))
 SCRATCH.mkdir(parents=True, exist_ok=True)
@@ -31,7 +37,12 @@ HUMAN = '00000000-0000-0000-0000-000000000001'
 TABLE = '00000000-0000-0000-0000-000000000200'
 OTHER = '00000000-0000-0000-0000-000000000201'
 PLO_TABLE = '00000000-0000-0000-0000-000000000100'
+BUSY = '00000000-0000-0000-0000-0000000b0510'
+BUSY_TABLE = '00000000-0000-0000-0000-0000000b0511'
 MIN_GAP, MAX_GAP = 70, 90
+# Installed production body of fn_lightning_horse_admit_paced after
+# 20261111214248 (read-only check, 2026-11-12); 20261112005012 refuses any other.
+ACCELERATED_MD5 = '55fb815245ccef227f084ac8d0c6a47d'
 
 
 def run(args, ok=True):
@@ -69,6 +80,29 @@ def at(seconds):
 def buy(n, seconds, table=TABLE):
     return (f"SELECT set_config('harness.now','{at(seconds)}',false);"
             f"SELECT harness.buy('{horse(n)}','{table}',100);")
+
+
+def horse_pace_law(gaps):
+    """Every consecutive Horse admission is 70 to 90 s apart, at any pool size
+    (+5 s for the attempt grid: a due arrival waits for the next attempt)."""
+    assert gaps, 'no consecutive Horse admissions to measure'
+    fast = [g for g in gaps if g < MIN_GAP]
+    assert not fast, f'Horse admissions under {MIN_GAP} s apart: {fast} in {gaps}'
+    late = [g for g in gaps if g > MAX_GAP + 5]
+    assert not late, f'a due Horse admission was skipped: {late} in {gaps}'
+
+
+def busy_run(start, seconds, step, first_horse):
+    """A Horse-only pool of 80 committed players asked every `step` seconds."""
+    admitted, n = [], first_horse
+    for second in range(start, start + seconds + 1, step):
+        result = sql(buy(n, second, BUSY_TABLE), ok=False)
+        if result.returncode == 0:
+            admitted.append(second)
+            n += 1
+        else:
+            assert 'LIGHTNING_ADMISSION_PACED' in result.stderr, result.stderr
+    return [b - a for a, b in zip(admitted, admitted[1:])], n
 
 
 def admissions():
@@ -123,13 +157,16 @@ INSERT INTO cash_games(id,club_id,name,variant,sb,bb,handedness,template_name,en
 VALUES('{PLO_GAME}',gen_random_uuid(),'PLO4 1.00/2.00 Lightning Games','plo4',1,2,6,'madness',true,true,true,'must_move',0,
  '{{"lightning":{{"always_on":true,"on_threshold":5,"off_threshold":4}}}}'),
  ('{GAME}',gen_random_uuid(),'PLO5 1.00/2.00 Lightning Games','plo5',1,2,6,'madness',true,true,true,'must_move',0,
+ '{{"lightning":{{"always_on":true,"on_threshold":5,"off_threshold":4,"worker_mode":"form"}}}}'),
+ ('{BUSY}',gen_random_uuid(),'NLH 0.25/0.50 Lightning Games','nlh',0.25,0.5,6,'madness',true,true,true,'must_move',0,
  '{{"lightning":{{"always_on":true,"on_threshold":5,"off_threshold":4,"worker_mode":"form"}}}}');
 INSERT INTO tables(id,cluster_id,game_variant,small_blind,big_blind,max_players,lifecycle,is_deleted,auto_start_players) VALUES
  ('{PLO_TABLE}','{PLO_GAME}','plo4',1,2,6,'live',false,6),
  ('{TABLE}','{GAME}','plo5',1,2,6,'live',false,6),
- ('{OTHER}','{GAME}','plo5',1,2,6,'live',false,6);
+ ('{OTHER}','{GAME}','plo5',1,2,6,'live',false,6),
+ ('{BUSY_TABLE}','{BUSY}','nlh',0.25,0.5,6,'live',false,6);
 INSERT INTO profiles VALUES('{HUMAN}',false,'active',NULL);
-INSERT INTO profiles SELECT ('00000000-0000-0000-0000-'||lpad(i::text,12,'0'))::uuid,true,'active','available' FROM generate_series(2,120)i;
+INSERT INTO profiles SELECT ('00000000-0000-0000-0000-'||lpad(i::text,12,'0'))::uuid,true,'active','available' FROM generate_series(2,400)i;
 INSERT INTO ca_horse_active_roster SELECT id FROM profiles WHERE is_horse;
 INSERT INTO harness.wallet SELECT id,100000 FROM profiles;
 ''')
@@ -160,6 +197,26 @@ DO $$ DECLARE s text:=pg_get_functiondef('fn_ca_horse_roster_seat_guard()'::regp
  IF (length(s)-length(replace(s,'clock_timestamp()','')))/length('clock_timestamp()')<>2 THEN RAISE EXCEPTION 'clock adapter changed'; END IF;
  EXECUTE replace(s,'clock_timestamp()','harness.now()'); END $$;''')
 
+    # THE BUSY-POOL LAW, non-vacuous: the installed 20261111214248 body (equal
+    # to production) seats Horses seconds apart in a Horse-only pool of 80.
+    check(f"SELECT md5(pg_get_functiondef('fn_lightning_horse_admit_paced(uuid,uuid,timestamptz)'::regprocedure))='{ACCELERATED_MD5}';")
+    sql(f"""INSERT INTO lightning_pool_session SELECT '{BUSY}',0,('00000000-0000-0000-0000-'||lpad(i::text,12,'0'))::uuid,NULL,'active',NULL FROM generate_series(1001,1080)i;""")
+    old_gaps, next_horse = busy_run(1000, 180, 2, 200)
+    try:
+        horse_pace_law(old_gaps)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError(f'the busy-pool law did not catch the accelerated body: {old_gaps}')
+    print(f'PASS: before 20261112005012 an 80-player Horse-only pool admits Horses {min(old_gaps)}-{max(old_gaps)} s apart (acceleration reproduced; the law fails it)')
+
+    sql(FIX.read_text())
+    check("SELECT position('v_streams' in pg_get_functiondef('fn_lightning_horse_admit_paced(uuid,uuid,timestamptz)'::regprocedure))=0;")
+    busy_gaps, next_horse = busy_run(1300, 900, 5, next_horse)
+    horse_pace_law(busy_gaps)
+    assert len(busy_gaps) >= 8, busy_gaps
+    print(f'PASS: after 20261112005012 the same 80-player pool admits {len(busy_gaps) + 1} Horses, every gap {min(busy_gaps)}-{max(busy_gaps)} s')
+
     # The first opponent goes to the lone person's table, at once.
     wrong = sql(buy(2, 0, OTHER), ok=False)
     assert wrong.returncode and 'heads-up opponent' in wrong.stderr, wrong.stderr
@@ -182,16 +239,9 @@ DO $$ DECLARE s text:=pg_get_functiondef('fn_ca_horse_roster_seat_guard()'::regp
             assert 'LIGHTNING_ADMISSION_PACED' in result.stderr, result.stderr
             assert admissions() == count_before
     gaps = [b - a for a, b in zip(admitted, admitted[1:])]
-    # The gap after the k-th Horse: the population it was admitted into is the
-    # person plus k-1 Horses; whole Lightning starts (ON 5) divide the spacing.
-    floors = [MIN_GAP / max(1, (1 + k) // 5) for k in range(len(gaps))]
-    ceilings = [MAX_GAP / max(1, (1 + k) // 5) + 5 for k in range(len(gaps))]
-    slow = [(gap, floor) for gap, floor in zip(gaps, floors) if gap < floor - 0.01]
-    assert gaps and not slow, f'Lightning admitted Horses faster than the slow-join schedule: {slow} in {gaps}'
-    assert all(gap <= ceiling for gap, ceiling in zip(gaps, ceilings)), f'a due admission was skipped: {gaps}'
-    # Ramp to the first Lightning start and its first full second start: never
-    # faster than one Horse per 70 seconds.
-    assert all(gap >= MIN_GAP for gap in gaps[:8]), gaps
+    # Through the first Lightning start and beyond: never faster than one
+    # Horse per 70 seconds, never a skipped due arrival.
+    horse_pace_law(gaps)
     first_start = admitted[4] - admitted[0]
     assert 4 * MIN_GAP <= first_start <= 4 * MAX_GAP + 20, first_start
     after_money = sql('SELECT sum(balance) FROM harness.wallet;').stdout
@@ -210,19 +260,18 @@ DO $$ DECLARE s text:=pg_get_functiondef('fn_ca_horse_roster_seat_guard()'::regp
     sql(f"SELECT set_config('harness.now','{at(due + 1)}',false); UPDATE profiles SET is_horse=false WHERE id='{horse(70)}'; SELECT harness.buy('{horse(70)}','{OTHER}',100);")
     print('PASS: a person buys in inside the spacing without consuming Horse progress')
 
-    # An established pool keeps its replacement rate: two whole starts of
-    # players halve the spacing, still one at a time.
+    # An established pool is paced exactly like an empty one (owner,
+    # 2026-11-11): its size never shortens the 70 to 90 second spacing.
     sql(f"""INSERT INTO lightning_pool_session SELECT '{GAME}',0,('00000000-0000-0000-0000-'||lpad(i::text,12,'0'))::uuid,NULL,'active',NULL FROM generate_series(80,95)i;""")
     population = int(sql(f"SELECT count(DISTINCT user_id) FROM table_seats s JOIN tables t ON t.id=s.table_id WHERE t.cluster_id='{GAME}' AND s.left_at IS NULL;").stdout) + 16
     nxt = int(sql(f"SELECT extract(epoch FROM next_admission_at - '2026-11-11T15:00:00Z'::timestamptz)::int FROM lightning_horse_admission WHERE game_id='{GAME}';").stdout) + 1
     # The second person sat alone at the other table, so its opponent goes there.
     sql(buy(64, nxt, OTHER))
     gap = float(sql(f"SELECT extract(epoch FROM next_admission_at-last_admitted_at) FROM lightning_horse_admission WHERE game_id='{GAME}';").stdout)
-    streams = max(1, (population) // 5)
-    assert MIN_GAP / streams - 0.01 <= gap <= MAX_GAP / streams + 0.01, (gap, population, streams)
+    assert MIN_GAP <= gap <= MAX_GAP and gap == int(gap), (gap, population)
     refused = sql(buy(65, nxt, OTHER), ok=False)
     assert refused.returncode and 'LIGHTNING_ADMISSION_PACED' in refused.stderr
-    print(f'PASS: an established pool of {population} spaces arrivals {gap:.1f} s apart, still one at a time')
+    print(f'PASS: an established pool of {population} still spaces arrivals {gap:.0f} s apart, one at a time')
 
     # The owner-specific c79d8ec2 route is untouched and separately paced.
     check(f"SELECT NOT EXISTS(SELECT 1 FROM lightning_horse_admission WHERE game_id='{PLO_GAME}');")
@@ -243,6 +292,8 @@ INSERT INTO tables(id,cluster_id,game_variant,small_blind,big_blind,max_players,
     check("SELECT NOT has_function_privilege('authenticated','fn_lightning_horse_admit_paced(uuid,uuid,timestamptz)','EXECUTE') AND NOT has_function_privilege('service_role','fn_lightning_horse_admit_paced(uuid,uuid,timestamptz)','EXECUTE');")
     retry = sql(MIGRATION.read_text(), ok=False)
     assert retry.returncode and 'already exists' in retry.stderr
+    retry = sql(FIX.read_text(), ok=False)
+    assert retry.returncode and 'predecessor changed' in retry.stderr, retry.stderr
     print('PASS: private helper and migration replay refusal')
 finally:
     if (work/'data/postmaster.pid').exists():
