@@ -1,8 +1,10 @@
 import copy
 import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
-from horse_fleet_acceptance import (ancestor, digest, journal_witnesses, reconcile_matrix,
+from horse_fleet_acceptance import (ancestor, read_journal_captures, digest, journal_witnesses, reconcile_matrix,
     worker_health, timestamp, journal_snapshot_hashes, coverage_summary, P1A, P1B, P2, P3, P4)
 
 SERVING = 'a' * 40
@@ -325,6 +327,18 @@ class FleetAcceptanceTests(unittest.TestCase):
             reconcile_matrix(bad, {FEATURE: True})
         with self.assertRaisesRegex(ValueError, 'duplicate_capture'):
             journal_witnesses([capture(), capture()], SERVING, WINDOWS)
+
+    def test_an_empty_capture_file_is_a_failed_capture_not_an_empty_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            good, lines, empty, blank, bare = (Path(tmp) / n for n in ('good.json', 'lines.jsonl', 'empty.jsonl', 'blank.jsonl', 'bare.json'))
+            good.write_text(json.dumps([capture()])); lines.write_text(json.dumps(capture()) + '\n\n')
+            empty.write_bytes(b''); blank.write_text('\n  \n'); bare.write_text('[]')
+            sources = {}
+            self.assertEqual(len(read_journal_captures([good, lines], sources)), 2)
+            self.assertEqual(set(sources), {str(good), str(lines)})
+            for path in (empty, blank, bare):
+                with self.subTest(path=path.name), self.assertRaisesRegex(ValueError, 'journal_capture_empty'):
+                    read_journal_captures([good, path], {})
 
 
 if __name__ == '__main__':

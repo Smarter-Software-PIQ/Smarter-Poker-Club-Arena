@@ -23,6 +23,7 @@ from horse_census_audit import (
     conservation_inference,
     read_refund_evidence,
     cohort_roi_pct,
+    reconstruction_sensitivity,
     entry_cohort,
     refund_adjusted_cost,
     run_audit,
@@ -193,6 +194,14 @@ class TestStatEstimators(unittest.TestCase):
         self.assertIsNone(cohort_roi_pct('free_buy', 21745.0, 35546.13))
         self.assertIsNone(cohort_roi_pct('pooled', 200.0, 150.0))
 
+    def test_reconstruction_tiers_show_what_excluding_weaker_evidence_does(self):
+        out = reconstruction_sensitivity({'recorded': [100, -50.0, -40.0], 'reconstructed': [10, 20.0, 5.0], 'inferred': [2, 30.0, 12.0]})
+        self.assertEqual(out['directly_recorded'], {'hands': 100, 'horse_net_chips': -50.0, 'horse_net_bb': -40.0, 'table_hand_bb_per_100': -40.0})
+        self.assertEqual(out['recorded_plus_reconstructed']['horse_net_chips'], -30.0)
+        self.assertEqual(out['all_tiers_published_total'], {'hands': 112, 'horse_net_chips': 0.0, 'horse_net_bb': -23.0, 'table_hand_bb_per_100': round(-23.0 / 112 * 100, 4)})
+        self.assertNotIn('table_hand_bb_per_100', out['inferred_by_conservation_only'])
+        self.assertIsNone(reconstruction_sensitivity({'recorded': [0, 0.0, 0.0], 'reconstructed': [0, 0.0, 0.0], 'inferred': [0, 0.0, 0.0]})['directly_recorded']['table_hand_bb_per_100'])
+
     def test_frozen_evidence_cannot_be_output(self):
         with self.assertRaisesRegex(ValueError, 'output_must_not_modify'):
             run_audit(Path('/frozen'), Path('/previous'), Path('/frozen/new'))
@@ -275,3 +284,9 @@ class TestStatEstimators(unittest.TestCase):
         self.assertIsNone(single['deff'])
         self.assertIsNone(single['n_eff'])
         self.assertEqual(single['note'], 'single_cluster_variance_undefined')
+        self.assertEqual(single['cluster_precision'], 'undefined_single_cluster')
+        two = compute_ratio_cluster_stats({'a': [10.0, -20.0], 'b': [40.0, 5.0]}, 100.0)
+        self.assertEqual(two['n_clusters'], 2)
+        self.assertEqual(two['cluster_precision'], 'descriptive_only_two_clusters')
+        three = compute_ratio_cluster_stats({'a': [10.0], 'b': [40.0], 'c': [-5.0]}, 100.0)
+        self.assertEqual(three['cluster_precision'], 'estimated')

@@ -412,6 +412,24 @@ def reconcile_matrix(legacy, inclusions, witnesses=()):
                             'Legacy P1b/P4 broad domain counters are not exact eligibility denominators.']}
 
 
+def read_journal_captures(journal_paths, sources):
+    """Every named capture file must contribute at least one capture: an empty file is a failed capture, not an empty window."""
+    captures = []
+    for path in journal_paths:
+        path = Path(path)
+        data = path.read_bytes()
+        sources[str(path)] = digest(data)
+        try:
+            item = json.loads(data)
+            found = item if isinstance(item, list) else [item]
+        except json.JSONDecodeError:
+            found = [json.loads(line) for line in data.splitlines() if line.strip()]
+        if not found:
+            raise ValueError('journal_capture_empty')
+        captures.extend(found)
+    return captures
+
+
 def write_fleet_report(source, output, repo, journal_paths=(), health_path=None, *, subject_config=None, epoch_path=None):
     source, output = Path(source), Path(output)
     raw = source.read_bytes()
@@ -435,16 +453,7 @@ def write_fleet_report(source, output, repo, journal_paths=(), health_path=None,
         legacy['observationEpoch'] = epoch
     inclusions = {fid: ancestor(repo, value.get('required_commit_sha'), legacy['observationEpoch']['servingReleaseSha'])
                   for fid, value in legacy['featureSummaries'].items()}
-    captures = []
-    for path in journal_paths:
-        path = Path(path)
-        data = path.read_bytes()
-        sources[str(path)] = digest(data)
-        try:
-            item = json.loads(data)
-            captures.extend(item if isinstance(item, list) else [item])
-        except json.JSONDecodeError:
-            captures.extend(json.loads(line) for line in data.splitlines() if line.strip())
+    captures = read_journal_captures(journal_paths, sources)
     witnesses, omissions = journal_witnesses(captures, legacy['observationEpoch']['servingReleaseSha'], legacy['observationEpoch']['windows'], subjects['excludedSubjectIds'])
     report = reconcile_matrix(legacy, inclusions, witnesses)
     if health_path is not None:
