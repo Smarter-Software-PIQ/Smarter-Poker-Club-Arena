@@ -571,7 +571,7 @@ async function measure(page: Page) {
       const d = disc.getBoundingClientRect();
       const src = img.currentSrc || img.src;
       const a = img.naturalWidth > 0 && src ? await alphaOf(src) : null;
-      if (!a) return { width: d.width, height: d.height };
+      if (!a) return { width: d.width, height: d.height, bottom: d.bottom };
       const cs = getComputedStyle(img);
       const fit =
         cs.objectFit === 'contain'
@@ -585,13 +585,25 @@ async function measure(page: Page) {
         t = y + a.t * h,
         r = x + a.r * w,
         b = y + a.b * h;
+      // A fixed portrait zoom crops its hidden torso at the name plate.
+      // getBoundingClientRect includes that hidden canvas; measure the actual
+      // CSS inset before comparing paint with the action row or other seats.
+      const inset = /^inset\(([^)]+)\)$/.exec(cs.clipPath);
+      if (inset) {
+        const values = inset[1].trim().split(/\s+/);
+        const raw = values[2] || values[0];
+        const cut = raw.endsWith('%')
+          ? (parseFloat(raw) / 100) * rect.height
+          : parseFloat(raw) * (rect.height / parseFloat(cs.height));
+        if (Number.isFinite(cut)) b = Math.min(b, rect.bottom - cut);
+      }
       if (getComputedStyle(disc).overflow !== 'visible') {
         l = Math.max(l, d.left);
         t = Math.max(t, d.top);
         r = Math.min(r, d.right);
         b = Math.min(b, d.bottom);
       }
-      return { width: Math.max(0, r - l), height: Math.max(0, b - t) };
+      return { width: Math.max(0, r - l), height: Math.max(0, b - t), bottom: b };
     };
     const box = (e: Element): Box => {
       const r = e.getBoundingClientRect();
@@ -635,7 +647,13 @@ async function measure(page: Page) {
       for (const el of bottomCenter.querySelectorAll(
         '.seat__avatar-img, .seat__info, .seat__name, .seat__stack, .seat__strength, .seat__hand-name'
       )) {
-        if (shown(el)) seatBottom = Math.max(seatBottom, el.getBoundingClientRect().bottom);
+        if (!shown(el)) continue;
+        const disc = el.closest('.seat__avatar');
+        const bottom =
+          el instanceof HTMLImageElement && disc
+            ? (await painted(el, disc)).bottom
+            : el.getBoundingClientRect().bottom;
+        seatBottom = Math.max(seatBottom, bottom);
       }
     }
     const avatars: Array<Box & { hero: boolean; paint: { width: number; height: number } }> = [];
