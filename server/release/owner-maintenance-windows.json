@@ -1278,6 +1278,21 @@
         "path": "server/release/activation-floor.json",
         "sha256": "5d710e3fb907d61da071f7f31f91105afdd155bb1e5a40983bb2d119c11eaa48"
       }
+    },
+    {
+      "id": "2026-11-12-complete-missed-engine-1700z",
+      "ownerOrder": "Dan directly in Codex chat 01a1d015-07d5-7151-b522-1f8e0574318d on November 12, 2026 ordered: \"THE ENGINE UPDATE AT 4AM MISSED. I WANT YOU TO TAKE OWNERSHIP OF THIS NOW, AND MAKE SURE THAT IT GETS CHANGED OVER COMPLETELY NOW.\" Root 01a1d015 takes custody from the completed prior handoff after verifying no active release, pending seal, finalization or awaiting-certificate owner. One fresh SINGLE-USE engine activation of exact serving f7735cca6862b9add06841b8a41c305b3f3ebe01, containing protected main 7608c4721d136aa7f3a8b1e5f3457ea68de64b39 including #10525, #10551, #10574, #10576, #10586 and #10589. Earlier orders and claims are not extended, renewed or replayed. Install and verify the two separately booked queued database prerequisites first, then obtain compatible current-schema Backup with full 1800-second soak and both-direction rehearsal against the actual predecessor. Independently observe twenty minutes of the actual primary public notice; later publication delays admission within fixed expiry. Preserve exact protected target/control, all four qualification shards, immutable candidate and rollback images, 120s last-hand notice, hand-boundary drain, durable freeze, 300s break, full 285s proof/rollback reserve, one-use custody, SEALED identity, v3 thaw, gameplay verification and fresh post-seal Backup. Preserve Pillar 2 and rejected features disabled; distinguish configuration from natural use and report zero opportunities honestly. No new features, tournament-start hold, financial replay, direct restart, competing dispatcher, timer, watcher, reduced reserves or extended freeze. Root retains ownership until verified delivery. Fixed admission 17:00-22:00 UTC November12 (11:00-16:00 Chicago), notice declaration16:40UTC; standing daily schedule unchanged.",
+      "contains": "7608c4721d136aa7f3a8b1e5f3457ea68de64b39",
+      "playerNoticeAt": "2026-11-12T16:40:00Z",
+      "notBefore": "2026-11-12T17:00:00Z",
+      "notAfter": "2026-11-12T22:00:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "47a95571773260c616b214320ef988f2f12b6def63c387a40a03cf96a9cc6b12"
+      }
     }
   ],
   "databaseWindows": [
@@ -1416,6 +1431,24 @@
       "migrations": [
         "20261110003726_a_closed_persons_tournament_rows_are_read_through_the_public.sql"
       ]
+    },
+    {
+      "id": "2026-11-12-missed-engine-db-bank-win",
+      "ownerOrder": "Dan directly in Codex chat 01a1d015-07d5-7151-b522-1f8e0574318d on November 12, 2026 ordered: \"THE ENGINE UPDATE AT 4AM MISSED. I WANT YOU TO TAKE OWNERSHIP OF THIS NOW, AND MAKE SURE THAT IT GETS CHANGED OVER COMPLETELY NOW.\" Root 01a1d015 takes custody from the completed prior handoff after verifying no active release, pending seal, finalization or awaiting-certificate owner. Necessary prerequisite for the missed engine update: one database-only maintained Deployment Recovery operation for exactly the named protected queued file. One attempt through stage-engine-release.yml request_database_break=true and the existing installer. Preserve original sealed SHA/image/instance, no active release or pending owner, rolling-hour spacing, actual twenty-minute primary player notice, 120s last-hand lead, hand-boundary drain, durable freeze, full 285-second admission, 150-second installer opening and100-second commit reserve,1s lock/5s statement/8s transaction budgets and original v3 thaw. Read installed history and original receipt before any action; never replay installed or unknown SQL. No engine replacement, balance edit, tournament-start hold, watcher or automatic extension. After this operation verify installation and healthy thaw before the next separately booked prerequisite or engine cutover.",
+      "contains": "7608c4721d136aa7f3a8b1e5f3457ea68de64b39",
+      "playerNoticeAt": "2026-11-12T14:40:00Z",
+      "notBefore": "2026-11-12T15:00:00Z",
+      "notAfter": "2026-11-12T15:45:00Z",
+      "migrations": ["20261111174148_charles_rule_big_win_and_durable_bank_the_win_state.sql"]
+    },
+    {
+      "id": "2026-11-12-missed-engine-db-rebuy",
+      "ownerOrder": "Dan directly in Codex chat 01a1d015-07d5-7151-b522-1f8e0574318d on November 12, 2026 ordered: \"THE ENGINE UPDATE AT 4AM MISSED. I WANT YOU TO TAKE OWNERSHIP OF THIS NOW, AND MAKE SURE THAT IT GETS CHANGED OVER COMPLETELY NOW.\" Root 01a1d015 takes custody from the completed prior handoff after verifying no active release, pending seal, finalization or awaiting-certificate owner. Necessary prerequisite for the missed engine update: one database-only maintained Deployment Recovery operation for exactly the named protected queued file. One attempt through stage-engine-release.yml request_database_break=true and the existing installer. Preserve original sealed SHA/image/instance, no active release or pending owner, rolling-hour spacing, actual twenty-minute primary player notice, 120s last-hand lead, hand-boundary drain, durable freeze, full 285-second admission, 150-second installer opening and100-second commit reserve,1s lock/5s statement/8s transaction budgets and original v3 thaw. Read installed history and original receipt before any action; never replay installed or unknown SQL. No engine replacement, balance edit, tournament-start hold, watcher or automatic extension. After this operation verify installation and healthy thaw before the next separately booked prerequisite or engine cutover.",
+      "contains": "7608c4721d136aa7f3a8b1e5f3457ea68de64b39",
+      "playerNoticeAt": "2026-11-12T15:40:00Z",
+      "notBefore": "2026-11-12T16:00:00Z",
+      "notAfter": "2026-11-12T16:45:00Z",
+      "migrations": ["20261112013925_a_rebuy_pays_the_starting_stack.sql"]
     }
   ]
 }

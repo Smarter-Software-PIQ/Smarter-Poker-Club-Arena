@@ -99,6 +99,27 @@
       "noticeAt": "2026-11-12T06:40:00Z",
       "notBefore": "2026-11-12T07:00:00Z",
       "notAfter": "2026-11-12T09:15:00Z"
+    },
+    {
+      "id": "2026-11-12-missed-engine-db-bank-win",
+      "kind": "database",
+      "noticeAt": "2026-11-12T14:40:00Z",
+      "notBefore": "2026-11-12T15:00:00Z",
+      "notAfter": "2026-11-12T15:45:00Z"
+    },
+    {
+      "id": "2026-11-12-missed-engine-db-rebuy",
+      "kind": "database",
+      "noticeAt": "2026-11-12T15:40:00Z",
+      "notBefore": "2026-11-12T16:00:00Z",
+      "notAfter": "2026-11-12T16:45:00Z"
+    },
+    {
+      "id": "2026-11-12-complete-missed-engine-1700z",
+      "kind": "engine",
+      "noticeAt": "2026-11-12T16:40:00Z",
+      "notBefore": "2026-11-12T17:00:00Z",
+      "notAfter": "2026-11-12T22:00:00Z"
     }
   ]
 }
