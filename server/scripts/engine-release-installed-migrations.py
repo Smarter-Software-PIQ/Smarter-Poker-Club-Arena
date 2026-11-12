@@ -131,20 +131,44 @@ def window_versions(repo, sha):
     return versions
 
 
+SUPERSEDED = re.compile(r'^--\s*SUPERSEDED BY\s+(\d{14})\b', re.M)
+
+
+def superseded_by(sql, versions):
+    """The superseding version when a file is explicitly marked
+    "-- SUPERSEDED BY <version>" in its first 400 characters AND a file with
+    that version exists in the same tree; otherwise None. The exact rule of
+    check-migrations-are-live.mjs supersededBy, which the protected applier,
+    the window installer and the migration ledger already use: such a file is
+    refused by the applier and must never run, so no copy can ever hold it.
+    An unverifiable claim is ignored and the file stays required."""
+    match = SUPERSEDED.search(sql[:400])
+    return match[1] if match and match[1] in versions else None
+
+
 def required_by(repo, serving, target, skip=frozenset()):
     """{version: name} of the migration files the exact candidate adds or
     changes relative to serving, less `skip` (window files, installed inside
-    the break). The protected applier records a file's version and its name
-    (the filename slug)."""
+    the break) and less files the candidate tree marks superseded (2026-11-12:
+    20261112013714, SUPERSEDED BY 20261112022726, deferred every candidate
+    because the applier refuses it by design). The protected applier records
+    a file's version and its name (the filename slug)."""
     for sha in (serving, target):
         if not re.fullmatch(r'[0-9a-f]{40}', sha):
             raise ValueError('expected exact commit SHAs')
+    versions = None
     required = {}
     for path in git(repo, 'diff', '--no-renames', '--name-only', '--diff-filter=AM', serving, target,
                     '--', MIGRATIONS).splitlines():
         match = FILE.fullmatch(path.rsplit('/', 1)[-1])
-        if match and match[1] not in skip:
-            required[match[1]] = match[2]
+        if not match or match[1] in skip:
+            continue
+        if versions is None:
+            versions = {m[1] for m in (FILE.fullmatch(name.rsplit('/', 1)[-1]) for name in
+                        git(repo, 'ls-tree', '--name-only', target, MIGRATIONS).splitlines()) if m}
+        if superseded_by(git(repo, 'show', f'{target}:{path}'), versions):
+            continue
+        required[match[1]] = match[2]
     return required
 
 
@@ -256,10 +280,14 @@ def recently_added(repo, control, hours=26):
                 '--format=', control, '--', MIGRATIONS).split()
     windows = window_versions(repo, control)
     present = set(git(repo, 'ls-tree', '--name-only', control, '--', MIGRATIONS).split())
+    tree = {m[1] for m in (FILE.fullmatch(p.rsplit('/', 1)[-1]) for p in present) if m}
     versions = set()
     for path in names:
         match = FILE.fullmatch(path.rsplit('/', 1)[-1])
         if path in present and match and match[1] not in windows:
+            # A superseded file never installs; waiting for it only stalls the refresh.
+            if superseded_by(git(repo, 'show', f'{control}:{path}'), tree):
+                continue
             versions.add(match[1])
     return versions
 

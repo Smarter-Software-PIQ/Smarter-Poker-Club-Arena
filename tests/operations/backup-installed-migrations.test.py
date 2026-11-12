@@ -339,5 +339,54 @@ class Cutover(unittest.TestCase):
             os.unlink(handle.name)
 
 
+
+class SupersededFilesAreNeverRequired(unittest.TestCase):
+    """2026-11-12: 20261112013714 (SUPERSEDED BY 20261112022726) deferred
+    every candidate as 'Backup copy lacks the exact candidate migration(s)'
+    although the applier refuses it by design and no copy can hold it."""
+
+    def repo(self, files):
+        root = tempfile.mkdtemp()
+        run = lambda *a: subprocess.check_output(['git', '-C', root, *a])
+        run('init', '-q')
+        run('config', 'user.email', 't@t'); run('config', 'user.name', 't')
+        (Path(root) / 'supabase/migrations').mkdir(parents=True)
+        (Path(root) / 'supabase/migrations/20260101000000_base.sql').write_text('select 1;\n')
+        run('add', '-A'); run('commit', '-qm', 'base')
+        serving = run('rev-parse', 'HEAD').decode().strip()
+        for name, body in files.items():
+            (Path(root) / 'supabase/migrations' / name).write_text(body)
+        run('add', '-A'); run('commit', '-qm', 'target')
+        return root, serving, run('rev-parse', 'HEAD').decode().strip()
+
+    def test_a_marked_file_with_its_successor_in_the_tree_is_not_required(self):
+        root, serving, target = self.repo({
+            '20261112013714_old.sql': '-- SUPERSEDED BY 20261112022726\nselect 1;\n',
+            '20261112022726_new.sql': 'select 2;\n',
+        })
+        self.assertEqual(_real_required_by(root, serving, target), {'20261112022726': 'new'})
+
+    def test_an_unverifiable_claim_stays_required(self):
+        root, serving, target = self.repo({
+            '20261112013714_old.sql': '-- SUPERSEDED BY 20991231000000\nselect 1;\n',
+        })
+        self.assertEqual(_real_required_by(root, serving, target), {'20261112013714': 'old'})
+
+    def test_a_refresh_does_not_wait_for_a_superseded_file(self):
+        root, _, target = self.repo({
+            '20261112013714_old.sql': '-- SUPERSEDED BY 20261112022726\nselect 1;\n',
+            '20261112022726_new.sql': 'select 2;\n',
+        })
+        waited = im.recently_added(root, target)
+        self.assertNotIn('20261112013714', waited)
+        self.assertIn('20261112022726', waited)
+
+    def test_a_marker_past_the_header_is_ignored(self):
+        root, serving, target = self.repo({
+            '20261112013714_old.sql': ('-- x\n' * 120) + '-- SUPERSEDED BY 20261112022726\n',
+            '20261112022726_new.sql': 'select 2;\n',
+        })
+        self.assertIn('20261112013714', _real_required_by(root, serving, target))
+
 if __name__ == '__main__':
     unittest.main()
