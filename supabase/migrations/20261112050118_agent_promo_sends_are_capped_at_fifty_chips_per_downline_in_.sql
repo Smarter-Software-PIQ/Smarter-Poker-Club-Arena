@@ -3,6 +3,7 @@
 -- Agent promo grants share a recipient allowance across all agent ranks and
 -- destination wallets in this club. Gross sends count even after a claim-back.
 -- Existing history is counted immediately; no balances or history are rewritten.
+-- @live-proof: (SELECT md5(pg_get_functiondef('public.fn_promo_wallet_send_core_20261004(uuid,uuid,numeric,text,text,uuid)'::regprocedure)) = '667d740fae94896fb96c35bad67b2bbc')
 BEGIN;
 SET LOCAL lock_timeout = '3s';
 SET LOCAL statement_timeout = '30s';
@@ -65,5 +66,3 @@ END
 $patch$;
 
 COMMIT;
-
--- @live-proof: (SELECT md5(pg_get_functiondef('public.fn_promo_wallet_send_core_20261004(uuid,uuid,numeric,text,text,uuid)'::regprocedure)) = '667d740fae94896fb96c35bad67b2bbc')
