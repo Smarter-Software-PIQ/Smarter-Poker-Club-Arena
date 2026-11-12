@@ -112,6 +112,58 @@ describe('one shared PostgreSQL installer', () => {
     }
   });
 
+  it.each([
+    ['true', false, 'postgresql-17', 0],
+    ['false', false, 'postgresql-17', 0],
+    ['true', true, 'postgresql-17', 1],
+    ['true', false, 'postgresql-17=17.12-1.pgdg26.04+1', 1],
+  ])(
+    'binds only explicit isolation toolchains to their source version (%s, %s, %s)',
+    (enabled, missing, server, status) => {
+      const fn = SH.slice(
+        SH.indexOf('pg_pin_isolation_toolchain() {'),
+        SH.indexOf('\n}\n', SH.indexOf('pg_pin_isolation_toolchain() {')) + 3
+      );
+      const script = `${fn}
+pg_packages=(${server} postgresql-17-cron postgresql-server-dev-17 build-essential)
+pg_apt=()
+apt-cache() {
+  printf 'pkg | 17.12-1.pgdg26.04+1 | signed\\n'
+  if [ "$MISSING" != true ]; then printf 'pkg | 17.11-1.pgdg26.04+2 | signed\\n'; fi
+}
+pg_pin_isolation_toolchain || exit $?
+printf '%s\\n' "\${pg_packages[@]}"
+`;
+      const result = spawnSync('bash', ['-c', script], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          GITHUB_WORKSPACE: ROOT,
+          PG_ISOLATION_TOOLCHAIN: String(enabled),
+          MISSING: String(missing),
+        },
+      });
+      expect(result.status, result.stderr).toBe(status);
+      if (status === 0 && enabled === 'true') {
+        for (const name of ['postgresql-17', 'postgresql-client-17', 'postgresql-server-dev-17'])
+          expect(result.stdout).toContain(`${name}=17.11-1.pgdg26.04+2`);
+        expect(result.stdout).toContain('build-essential');
+        expect(result.stdout).toContain('postgresql-17-cron');
+      } else if (status === 0) expect(result.stdout).not.toContain('postgresql-17=');
+      else expect(result.stderr).toMatch(/No signed|conflicts with qualified/);
+    }
+  );
+  it('opts only the native isolation source-build shard into exact toolchain matching', () => {
+    const ci = readFileSync(join(WF, 'ci.yml'), 'utf8');
+    expect(ci).toContain("PG_ISOLATION_TOOLCHAIN: ${{ matrix.shard == 3 && 'true' || 'false' }}");
+    expect(SH.indexOf('pg_pin_isolation_toolchain\n')).toBeLessThan(
+      SH.indexOf('# PGDG can publish an extension rebuild')
+    );
+    expect(readFileSync(join(ROOT, 'scripts/ci/build_pg17_isolationtester.py'), 'utf8')).toContain(
+      "VERSION = '17.11'"
+    );
+  });
+
   it('refuses to run without the checkout key', () => {
     const box = mkdtempSync(join(tmpdir(), 'pg-nokey-'));
     try {

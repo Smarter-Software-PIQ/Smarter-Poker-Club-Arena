@@ -23,6 +23,7 @@
 # on every attempt, and the step fails.
 #
 # Inputs (environment):
+#   PG_ISOLATION_TOOLCHAIN  true binds server/client/headers to the native tool VERSION
 #   PG_PACKAGES       packages to install from PGDG (default: postgresql-17)
 #   PG_UBUNTU_MIRROR  "true" runs scripts/ci/ubuntu-apt-mirror.py first
 #   PG_APT_ATTEMPTS   whole-command attempts (default 4)
@@ -54,6 +55,38 @@ pg_attempt() {
   done
 }
 
+# The native isolation tool is source/digest-pinned to one PostgreSQL minor.
+# Only its explicit CI caller opts in; default PG17 installs stay unchanged.
+pg_pin_isolation_toolchain() {
+  [ "${PG_ISOLATION_TOOLCHAIN:-false}" = true ] || return 0
+  local minor package version i found
+  minor=$(python3 - "$GITHUB_WORKSPACE/scripts/ci/build_pg17_isolationtester.py" <<'PY_VERSION'
+import ast, pathlib, re, sys
+module = ast.parse(pathlib.Path(sys.argv[1]).read_text())
+versions = [ast.literal_eval(n.value) for n in module.body if isinstance(n, ast.Assign)
+            and any(isinstance(t, ast.Name) and t.id == 'VERSION' for t in n.targets)]
+if len(versions) != 1 or not isinstance(versions[0], str) or not re.fullmatch(r'17\.[0-9]+', versions[0]):
+    raise SystemExit('One explicit PostgreSQL17 isolation-tool VERSION is required')
+print(versions[0])
+PY_VERSION
+  ) || return 1
+  for package in postgresql-17 postgresql-client-17 postgresql-server-dev-17; do
+    version=$(apt-cache "${pg_apt[@]}" madison "$package" | awk -v prefix="$minor-" 'index($3,prefix)==1 {print $3;exit}')
+    [ -n "$version" ] || { echo "::error::No signed $package build matches qualified isolation tool $minor." >&2; return 1; }
+    found=false
+    for i in "${!pg_packages[@]}"; do
+      if [ "${pg_packages[$i]%%=*}" = "$package" ]; then
+        if [[ "${pg_packages[$i]}" == *=* && "${pg_packages[$i]}" != "$package=$version" ]]; then
+          echo "::error::Requested package conflicts with qualified isolation tool: ${pg_packages[$i]}" >&2; return 1
+        fi
+        pg_packages[$i]="$package=$version"; found=true
+      fi
+    done
+    if [ "$found" = false ]; then pg_packages+=("$package=$version"); fi
+  done
+  echo "Selected signed PostgreSQL $minor toolchain required by the pinned isolation source."
+}
+
 if [ "${PG_UBUNTU_MIRROR:-false}" = true ]; then
   sudo python3 "$GITHUB_WORKSPACE/scripts/ci/ubuntu-apt-mirror.py"
 fi
@@ -80,6 +113,7 @@ printf 'Types: deb\nURIs: https://apt.postgresql.org/pub/repos/apt\nSuites: %s-p
   "$codename" "$PG_KEY_DST" > "$pg_sources/pgdg.sources"
 pg_attempt sudo apt-get "${pg_apt[@]}" "${pg_update[@]}" update
 printf 'create_main_cluster = false\n' | sudo tee /etc/postgresql-common/createcluster.conf >/dev/null
+pg_pin_isolation_toolchain
 # PGDG can publish an extension rebuild before its required server release.
 # Ask apt to solve the whole requested set, including an older extension
 # version when the newest cannot coexist with the current server candidate.
@@ -96,6 +130,6 @@ if printf '%s\n' "${pg_packages[@]}" | grep -qx postgresql-17-cron; then
   done < <(apt-cache "${pg_apt[@]}" madison postgresql-17-cron | awk '{print $3}')
   [ -n "$pg_cron_version" ] || { echo "::error::No signed pg_cron package solves the requested PostgreSQL set ($pg_server_version)." >&2; exit 1; }
   pg_packages=("${pg_packages[@]/postgresql-17-cron/postgresql-17-cron=$pg_cron_version}")
-  echo "PostgreSQL $pg_server_version; compatible pg_cron $pg_cron_version"
+  echo "PostgreSQL candidate $pg_server_version; compatible pg_cron $pg_cron_version"
 fi
 pg_attempt sudo apt-get "${pg_apt[@]}" install -y --no-install-recommends "${pg_packages[@]}"
