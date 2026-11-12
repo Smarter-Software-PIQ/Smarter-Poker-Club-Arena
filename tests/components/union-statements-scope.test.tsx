@@ -209,6 +209,39 @@ beforeEach(() => {
 });
 
 describe('Union Statements request identity', () => {
+  it('shows original cash and tournament losses separately from the unpaid balance', async () => {
+    const value: any = statementBoard('union-a', 'Midway Union', 'Result Club');
+    value.clubs[0].players_won = -300;
+    value.clubs[0].weekly_player_results = {
+      version: 1,
+      cash_net_loss: 350,
+      tournament_net_loss: -50,
+      total_net_loss: 300,
+      rakeback_credit: 180,
+      eco_charge: 0,
+      weekly_net_due_to_union: 120,
+      sign_convention: 'positive_club_owes_union',
+    };
+    testState.rpc.mockImplementation((name: string) =>
+      Promise.resolve(
+        name === 'ca_union_insurance_pnl' ? insurance() : { data: value, error: null }
+      )
+    );
+    render(<UnionStatementsPage />);
+    await screen.findByText('Result Club');
+    fireEvent.click(screen.getByRole('button', { name: 'Result Club Statement Details' }));
+    for (const label of [
+      'Cash Player Net Loss',
+      'Tournament Player Net Loss',
+      'Total Player Net Loss',
+      'Less Club Rakeback Credit',
+      'Full Weekly Net (Positive Club Owes)',
+      'Remaining Unpaid Balance',
+    ])
+      expect(screen.getByText(label)).toBeVisible();
+    expect(screen.getByText(/Summary, Not An Additional Payment Request/)).toBeVisible();
+  });
+
   it('renders explicit legacy payment uncertainty without hiding valid invoices or inventing zero', async () => {
     const value: any = statementBoard('union-a', 'Midway Union', 'Legacy Club');
     Object.assign(value.clubs[0], {

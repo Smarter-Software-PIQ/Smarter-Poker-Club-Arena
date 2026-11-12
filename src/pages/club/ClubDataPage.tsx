@@ -1,3 +1,4 @@
+import { parseWeeklyPlayerResults } from '../../utils/unionStatementBoard';
 import { unionEcoRows, unionEcoComponents } from '../../utils/unionEco';
 import { usePlayerPreference } from '../../hooks/usePlayerPreference';
 /**
@@ -580,6 +581,11 @@ function isInvoiceRow(value: unknown): value is InvoiceRow {
     !(value.breakdown === null || isRecord(value.breakdown)) ||
     typeof value.message_sent !== 'boolean'
   ) {
+    return false;
+  }
+  try {
+    if (value.breakdown) parseWeeklyPlayerResults(value.breakdown as Record<string, unknown>);
+  } catch {
     return false;
   }
   const amountCents = Math.abs(Math.round(value.amount * 100));
@@ -2842,6 +2848,14 @@ export default function ClubDataPage() {
 
   const summary = snapshot?.summary;
   const filtersActive = game !== 'ALL' || stakes !== 'ALL' || search.trim() !== '';
+  const weeklyPlayerResults = useMemo(() => {
+    if (!latestInvoice?.breakdown) return null;
+    try {
+      return parseWeeklyPlayerResults(latestInvoice.breakdown);
+    } catch {
+      return null;
+    }
+  }, [latestInvoice]);
   const unionOwesClub = latestInvoice?.direction === 'union owes club';
   const delta = snapshot?.delta;
   const prevRange = snapshot?.previous_range;
@@ -3554,6 +3568,11 @@ export default function ClubDataPage() {
                     <span className={`sc-label sc-ink--blue ${styles.blockLabel}`}>
                       Statement Detail
                     </span>
+                    <p className="sc-copy">
+                      Negative Player Net Loss Means Players Won. Full Weekly Net Is A Summary, Not
+                      An Additional Payment Request. The Unpaid Balance Follows The Statement
+                      Direction.
+                    </p>
                     {[
                       // The figures come from the invoice; the percentages used to be
                       // literals, so any club on a non-standard deal got a label that
@@ -3568,6 +3587,19 @@ export default function ClubDataPage() {
                         latestInvoice.breakdown.union_fee_kept,
                       ],
                       ['Player Win/Loss', latestInvoice.breakdown.players_won],
+                      ['Cash Player Net Loss', weeklyPlayerResults?.cash_net_loss ?? null],
+                      [
+                        'Tournament Player Net Loss',
+                        weeklyPlayerResults?.tournament_net_loss ?? null,
+                      ],
+                      ['Total Player Net Loss', weeklyPlayerResults?.total_net_loss ?? null],
+                      ['Less Club Rakeback Credit', weeklyPlayerResults?.rakeback_credit ?? null],
+                      ['ECO Charge Or Credit', weeklyPlayerResults?.eco_charge ?? null],
+                      [
+                        'Full Weekly Net (Positive Club Owes)',
+                        weeklyPlayerResults?.weekly_net_due_to_union ?? null,
+                      ],
+                      ['Remaining Unpaid Balance', latestInvoice.outstanding],
                       ['Settled In Chips', latestInvoice.breakdown.settled_in_chips],
                       ['Combined ECO Adjustment', latestInvoice.breakdown.eco_amount],
                       ...unionEcoRows(latestInvoice.breakdown),
