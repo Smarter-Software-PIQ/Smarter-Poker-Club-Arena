@@ -924,42 +924,45 @@ export abstract class ServerTableEngineBase {
 
   /**
    * THE FREE HAND (Dan 2026-11-11, binding): "IN TOURNAMENTS A PLAYER DOESN'T
-   * 'WAIT FOR THE BB' — THEY ARE DEALT IN AS SOON AS THE BUTTON PASSES WITHOUT
-   * POSTING. IT'S A FREE HAND." TDA Rule 30/33: a new or moved tournament
-   * player is dealt in immediately, free, everywhere except the stretch the
-   * button is about to cover — the seat the button lands on this hand and any
-   * dead seats between it and the small blind seat. The big blind and a legal
-   * small blind arrival post through the normal rotation and PLAY.
+   * 'WAIT FOR THE BB' - THEY ARE DEALT IN AS SOON AS THE BUTTON PASSES WITHOUT
+   * POSTING. IT'S A FREE HAND."
    *
-   * The defect this replaces (Nightly 20K, table 5, hand #58703578): the zone
-   * was measured from the PREVIOUS hand's button and big blind, one seat
-   * behind the deal. A player whose seat the button had already jumped was
-   * still shown "Waiting For The Button To Pass", and an arrival landing on
-   * the big blind seat was held instead of posting its natural blind. The
-   * gate now reads predictBlindSeats — the ONE definition the deal itself
-   * uses (see that method's note) — so the gate and the deal can never again
-   * disagree about where the button is about to be.
+   * TOURNAMENT: the hold is read from the upcoming hand's own prediction
+   * (predictBlindSeats, the ONE definition the deal uses). Exactly one seat
+   * can be held: the seat the button is about to land on. The predicted
+   * button is the nearest occupied seat (or last hand's small blind seat)
+   * counter-clockwise of the small blind seat, so no other occupied seat lies
+   * between it and the small blind, and an empty seat holds nobody. Every
+   * other arrival is dealt in on this hand with no entry post and no
+   * missed-blind charge (noteTournamentArrival drops any legacy debt). An
+   * arrival on a naturally due blind seat posts that blind and plays.
+   * Defect replaced (Nightly 20K, table 5, hand #58703578): the hold used the
+   * previous hand's anchors and held a seat the button had already passed.
    *
-   * Cash keeps its own house rules ("no free hands") for moved seats: the
-   * hold-out arc there runs through the small blind up to (not including)
-   * the big blind seat, because entering ON the big blind is always legal.
+   * CASH is unchanged (owner, 2026-11-11: "Cash entry rules remain
+   * unchanged"): a moved cash seat is held from just after the previous
+   * button through the previous big blind, exactly as before. A cash new
+   * arrival is never button-eligible, so the cash button can skip such a seat;
+   * the previous-anchor arc keeps holding it, which the prediction would not.
    */
   protected admitMovedSeats(candidates: SeatedPlayer[]): SeatedPlayer[] {
     this.waitingForButton.clear();
     if (candidates.length <= 2) return candidates;
-    const predicted = this.predictBlindSeats(candidates);
-    if (!predicted) return candidates;
-    const from = predicted.button;
-    const to = this.isTournamentTable() ? predicted.smallBlindSeat : predicted.bigBlind;
-    if (from <= 0 || to <= 0 || from === to) return candidates;
-    // Clockwise arc [from, to): the button seat itself, and every seat the
-    // button has yet to cross before the blinds. Nothing behind the button
-    // is in it — that player's free hand starts now.
-    const inArc = (seat: number) =>
-      from < to ? seat >= from && seat < to : seat >= from || seat < to;
+    let inHold: (seat: number) => boolean;
+    if (this.isTournamentTable()) {
+      const predicted = this.predictBlindSeats(candidates);
+      const button = predicted?.button ?? 0;
+      if (button <= 0 || button === predicted?.smallBlindSeat) return candidates;
+      inHold = (seat) => seat === button;
+    } else {
+      const button = this.lastButtonSeat;
+      const bb = this.lastBigBlindSeat;
+      if (button <= 0 || bb <= 0 || button === bb) return candidates;
+      inHold = (seat) => (button < bb ? seat > button && seat <= bb : seat > button || seat <= bb);
+    }
     return candidates.filter((p) => {
       const seat = p.seat_number;
-      if (!inArc(seat)) return true;
+      if (!inHold(seat)) return true;
       const held = this.isTournamentTable()
         ? this.previousHandOccupants.size > 0 && this.previousHandOccupants.get(seat) !== p.user_id
         : p.entry_hold === 'moved';
