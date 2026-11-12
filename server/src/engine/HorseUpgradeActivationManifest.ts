@@ -84,8 +84,9 @@ const BOTH_MODES = ['cash', 'tournament'] as const;
  * An entry below says "enabled"; this says where the running engine counts it.
  * Each needle is the source text of a counter emitted on the upgrade's own
  * path (a brain fire, flushed to horse_brain_flush_receipts with the release
- * that produced it, or a /metrics watchcounter). A needle ending in `${` is a
- * templated counter name. HorseUpgradeLiveEvidence.law.test.ts fails the build
+ * that produced it, or a /metrics watchcounter). A needle that opens with a
+ * backtick is the fixed prefix of a templated counter name.
+ * HorseUpgradeLiveEvidence.law.test.ts fails the build
  * when an enabled upgrade has no needle, or a needle no longer appears in any
  * non-test engine source, so "declared but unprovable" cannot return.
  *
@@ -99,7 +100,7 @@ export const HORSE_UPGRADE_LIVE_EVIDENCE: Readonly<Record<string, readonly strin
     upgrade_01_range_posteriors: ["'upgrade01_action_line_posterior'"],
     upgrade_02_card_removal_blockers: ["'upgrade02_card_removal_scored'"],
     upgrade_03_shared_deck_multiboard: ["'v36_bomb_multiboard'"],
-    upgrade_04_plo5_plo6_reservoir: ['`upgrade04_omaha_reservoir_built_${'],
+    upgrade_04_plo5_plo6_reservoir: ['`upgrade04_omaha_reservoir_built_'],
     upgrade_05_street_prewarming: ["'poker_horse_street_prewarm_total'"],
     upgrade_06_public_timing_pacing: ["'upgrade06_public_timing_hint'"],
     upgrade_07_tournament_cover_and_bounty: [
@@ -107,8 +108,8 @@ export const HORSE_UPGRADE_LIVE_EVIDENCE: Readonly<Record<string, readonly strin
       "'phase7_bounty_utility'",
     ],
     upgrade_08_side_games_integration: [
-      '`upgrade08_rit_chooser_${',
-      '`upgrade08_rit_answer_${',
+      '`upgrade08_rit_chooser_',
+      '`upgrade08_rit_answer_',
       "'upgrade08_insurance_decline'",
       "'upgrade08_insurance_accept'",
       "'upgrade08_insurance_cashout'",
@@ -128,7 +129,7 @@ export const HORSE_UPGRADE_LIVE_EVIDENCE: Readonly<Record<string, readonly strin
       "'upgrade11_indifference_mixed_pick'",
       "'upgrade11_indifference_call_band'",
     ],
-    upgrade_12_specialty_variants: ['`phase12_${', "'plo8_low_outlook_read'"],
+    upgrade_12_specialty_variants: ['`phase12_', "'plo8_low_outlook_read'"],
     upgrade_13_law_gate_and_watchcounters: ["'poker_horse_telemetry_opportunities_total'"],
   });
 
