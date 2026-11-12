@@ -88,6 +88,10 @@ try:
     if not args.baseline:
         query(MIGRATION.read_text())
     print('CORE_HASH', query("SELECT md5(pg_get_functiondef('fn_promo_wallet_send_core_20261004(uuid,uuid,numeric,text,text,uuid)'::regprocedure));"), flush=True)
+    if not args.baseline:
+        body_hash = query("SELECT md5(prosrc) FROM pg_proc WHERE oid='fn_promo_wallet_send_core_20261004(uuid,uuid,numeric,text,text,uuid)'::regprocedure;")
+        contract = (ROOT/'scripts/verification-harness/cashier-release-contract.sql').read_text()
+        check('live browser contract pins the qualified cap body', f"'hash', '{body_hash}'" in contract)
     first_op = str(uuid.uuid4())
     check('first split send', send(30, op=first_op)['success'])
     result = refused(20.01)
