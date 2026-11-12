@@ -83,6 +83,7 @@ import {
   continuationMixWindow,
   type BarrelContinuation,
 } from './HorseContinuation.js';
+import { noteFire } from './BrainTelemetry.js';
 import {
   HORSE_INDIFFERENCE_EV_BAND_BB,
   indifferenceStyleSeedsFor,
@@ -112,6 +113,8 @@ export interface HorseEvIndifferenceContext {
   /** Trusted ICM bubble factor, when available; never widens the band. */
   bubbleFactor?: number;
   handKey?: string | number;
+  /** Count this decision's indifference evidence (live telemetry-on decisions only). */
+  telemetry?: boolean;
 }
 
 export interface EvSpot {
@@ -429,6 +432,12 @@ export function evaluateSpot(spot: EvSpot): EvVerdict {
         break;
       }
     }
+    if (spot.indifference?.telemetry) {
+      // Evidence only, after the draw and the pick: the persona band was
+      // asked about a real choice, and whether it moved the action.
+      noteFire('upgrade11_indifference_pool');
+      if (pick !== best) noteFire('upgrade11_indifference_mixed_pick');
+    }
   }
   return { pick, best, candidates };
 }
@@ -476,6 +485,7 @@ export function riverCallVerdict(args: {
   if (Math.abs(gap) <= 0.015) {
     const draw = args.rand();
     if (args.indifference) {
+      if (args.indifference.telemetry) noteFire('upgrade11_indifference_call_band');
       const call: EvAction = { kind: 'call', ev: evCall };
       const fold: EvAction = { kind: 'fold', ev: 0 };
       const best = evCall >= 0 ? call : fold;
