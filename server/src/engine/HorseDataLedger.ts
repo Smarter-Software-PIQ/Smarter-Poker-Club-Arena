@@ -873,6 +873,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V90'
   ),
   flag(
+    'vpipFloorDeepStackOff',
+    '2026-11-12 Omaha preflop, over 120bb, facing a re-raise at a stack-off node with no observed wide re-raiser: the jam bar is read without the VPIP floor multiplier, as on an unfloored table; the call bars keep the floor so the hand still plays (PLO6-AUDIT-004, production hand 58751512: a 390bb button with strength 0.587 shoved into a four-bet because the 50% floor cut its jam bar from 0.93 to 0.40)',
+    'V91'
+  ),
+  flag(
     'v67RiverRaiseShadeOverride',
     'league calibration arm (2026-10-31): overrides the V67 extra river raise shade for a league card; inert unless set; production never sets it',
     'V67-league'
