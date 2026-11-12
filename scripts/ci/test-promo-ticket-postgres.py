@@ -23,6 +23,7 @@ MIGRATIONS = ROOT / 'supabase/migrations'
 CAP_MIGRATION = MIGRATIONS / '20261112050118_agent_promo_sends_are_capped_at_fifty_chips_per_downline_in_.sql'
 TICKET_MIGRATION = MIGRATIONS / '20261112184216_promo_chips_fund_cashier_tickets_and_cancel_returns_escrow.sql'
 BATCH_MIGRATION = MIGRATIONS / '20261112204754_promo_tickets_batch_allowance_receipts_and_redeem_names_its_.sql'
+REPLAY_MIGRATION = MIGRATIONS / '20261112235138_a_replayed_promo_ticket_cancel_names_its_promo_wallet.sql'
 OWNERS = ROOT / 'tests/fixtures/satellite-value-awards/current-owners.json'
 CANCEL_PREIMAGE = 'e52d94e64fe64cc1508885a541450c71'
 REDEEM_PREIMAGE = '0bb17681b38164a7a2746e17d07597b3'
@@ -214,6 +215,11 @@ END $$;
             check('migration replay refuses changed preimage ' + migration.name[:14], message in str(error))
         else:
             raise AssertionError('Migration replay was accepted')
+    # The cancel replay follow-up patches the body the ticket migration installed.
+    replay_text = REPLAY_MIGRATION.read_text()
+    query(replay_text)
+    for proof in re.findall(r'^-- @live-proof: (.+)$', replay_text, re.M):
+        check('exact installed postimage ' + REPLAY_MIGRATION.name[:14], query('SELECT ' + proof + ';') == 't')
     query(f"INSERT INTO club_members(club_id,user_id,role,status,agent_id) VALUES('{club}','{second_agent}','sub_agent','active','{agent}'); INSERT INTO agents(club_id,user_id,promo_wallet_balance) VALUES('{club}','{second_agent}',1000);")
 
     # One promo ticket: promo float out, an issued ticket, a promo receipt.
@@ -307,7 +313,7 @@ END $$;
     check('cancelling a promo ticket credits no player wallet', chips(agent) == chips_before and chips(cancel_holder) == 0 and query(f"SELECT status FROM tournament_tickets WHERE id='{promo_ticket['ticket_id']}';") == 'cancelled')
     check('promo cancel is declared as a refund from the ticket escrow', query(f"SELECT count(*) FROM journal WHERE category='refund' AND from_type='escrow' AND from_id='{promo_ticket['ticket_id']}' AND to_type='promo_wallet' AND to_id='{agent}' AND amount=50;") == '1')
     recancel = unchanged(lambda: cancel(promo_ticket['ticket_id']))
-    check('repeated cancel replays with no second refund', recancel['success'] and recancel['replayed'] is True and promo(agent) == promo_before)
+    check('repeated cancel replays with no second refund', recancel['success'] and recancel['replayed'] is True and recancel['refund_wallet'] == 'promo_wallet' and promo(agent) == promo_before)
     check('cancelled promo ticket cannot be redeemed', refused(lambda: redeem(promo_ticket['ticket_id'], cancel_holder))['error'] == 'Ticket Already Cancelled')
     check('cancelling a promo ticket does not reopen the ticket allowance', refused(lambda: ticket(.01, target=cancel_holder))['remaining_chips'] == 0)
     check('cancelling a promo ticket does not reopen the send allowance', refused(lambda: send(.01, target=cancel_holder))['error_code'] == LIMIT_CODE)

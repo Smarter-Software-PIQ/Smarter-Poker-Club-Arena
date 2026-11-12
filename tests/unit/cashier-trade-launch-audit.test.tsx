@@ -2485,7 +2485,7 @@ describe('Send Ticket from the Promo Wallet', () => {
     );
     expect(namesCalled('fn_cashier_promo_allowance')).toHaveLength(0);
     choosePromoWallet(dialog);
-    const allowance = await within(dialog).findByLabelText('Promo Allowance Remaining');
+    const allowance = await within(dialog).findByTitle('Promo Allowance Remaining');
     expect(allowance).toHaveTextContent('Player 1 Can Still Receive 15 Of 50 Promo Chips.');
     const reads = namesCalled('fn_cashier_promo_allowance');
     expect(reads.length).toBeGreaterThan(0);
@@ -2509,7 +2509,7 @@ describe('Send Ticket from the Promo Wallet', () => {
     state.promoRemaining = 15;
     const dialog = await openTicket('agent');
     choosePromoWallet(dialog);
-    await within(dialog).findByLabelText('Promo Allowance Remaining');
+    await within(dialog).findByTitle('Promo Allowance Remaining');
     await chooseTournament(dialog);
     fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }));
     await waitFor(() => expect(namesCalled('fn_cashier_promo_ticket_batch')).toHaveLength(1));
@@ -2559,7 +2559,7 @@ describe('Send Ticket from the Promo Wallet', () => {
     state.promoFloat = 5;
     const dialog = await openTicket('agent');
     choosePromoWallet(dialog);
-    await within(dialog).findByLabelText('Promo Allowance Remaining');
+    await within(dialog).findByTitle('Promo Allowance Remaining');
     await chooseTournament(dialog);
     // The inline hint judges the wallet that was chosen, not the player wallet.
     expect(dialog).toHaveTextContent('Insufficient Chips In The Funding Wallet');

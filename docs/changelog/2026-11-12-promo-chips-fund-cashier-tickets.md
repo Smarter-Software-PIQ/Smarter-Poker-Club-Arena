@@ -56,3 +56,22 @@ Migration `20261112204754_promo_tickets_batch_allowance_receipts_and_redeem_name
   redeem leg names the ticket.
 - History reads "Promo Wallet To Tournament Ticket".
 - `scripts/ci/test-promo-ticket-postgres.py`: the doors run on real PostgreSQL.
+
+## Review Fixes, Same Day
+
+Found by a line by line review of the shipped feature:
+
+- Send Ticket never loaded the promo balance itself (it read "Unavailable" unless
+  Send Out had been opened first) and did not read it again after a send or a
+  cancel. It now loads on open and after every ticket batch and cancel.
+- The chosen source carried over into later dialogs and other clubs. It resets
+  with the dialog, the club and a completed transfer.
+- Promo Wallet is not offered when the sender is among the recipients.
+- The allowance preview is read again after every attempt, a value above it is
+  cleared instead of staying selected, and a failed read says so.
+- The success toast names the Promo Wallet.
+- Migration `20261112235138`: a replayed cancel returns `refund_wallet` from its
+  receipt, and an issuer without a promo wallet row is told that.
+
+Left as is: a cancelled promo ticket still counts toward the downline's 50 for
+the window, the same gross rule the owner set for promo sends on November 11.
