@@ -535,6 +535,11 @@ shortens a safeguard.
    `IDLE_HOLDER_MIN_IDLE_MS`) holding a conflicting lock on a declared relation,
    recording each in `ca_window_install_terminations`; never an active query,
    a superuser, a Supabase role or pg_cron, and still one attempt.
+   The job does not need the engine detector to succeed: when the release
+   controls changed during the reservation the engine keeps serving, and the
+   `window_source` step still names protected main at the cutoff for the
+   installer (missed on 2026-11-10 and 2026-11-11; pinned by
+   `tests/a-window-migration-does-not-wait-on-engine-release-controls.law.test.ts`).
 4. **Read the verdict.** The run summary names each file: installed, SKIPPED
    (refused, rolled back, still queued) or UNKNOWN. Exit 0 all installed or
    nothing queued; 1 at least one refused; 3 UNKNOWN. Native proof:

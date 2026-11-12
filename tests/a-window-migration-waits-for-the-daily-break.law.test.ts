@@ -377,7 +377,10 @@ describe('the route runs on the daily schedule that already exists', () => {
 
   it('runs on daily preparation or an explicit expiring owner migration window', () => {
     expect(job.needs).toBe('detect');
-    expect(job.if).toContain("needs.detect.result == 'success'");
+    // The install never waits on the engine's release-control check
+    // (tests/a-window-migration-does-not-wait-on-engine-release-controls.law.test.ts).
+    expect(job.if).not.toContain('needs.detect.result');
+    expect(job.if).toContain("needs.detect.outputs.window_sha != ''");
     expect(job.if).toContain("needs.detect.outputs.admission_allowed == 'true'");
     expect(job.if).toContain("needs.detect.outputs.daily_preparation == 'true'");
     expect(stage.on.schedule).toEqual([
