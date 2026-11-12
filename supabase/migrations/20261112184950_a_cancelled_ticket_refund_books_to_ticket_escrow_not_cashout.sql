@@ -102,4 +102,57 @@ BEGIN
 END
 $fix$;
 
+
+-- THE INCIDENT CLOSES THROUGH ITS OWN LIFECYCLE, ON EVIDENCE, NEVER BY FORCE.
+-- Drift incident 16ef8334 (its reliability incidents 9aaed91e and 496bda61
+-- and inbox rows 377197..377201 follow it through
+-- zz_ca_incident_resolution_reaches_the_alerts) is resolved with
+-- fn_ca_incident_action only when, in this transaction: both doors above carry
+-- no escrow_release, the incident is still open, and every refusal filed on it
+-- is a transaction PostgreSQL reports aborted. Otherwise it is left open with a
+-- NOTICE and this file still installs. Absent in a fixture: skipped.
+DO $close$
+DECLARE
+  c_incident constant uuid := '16ef8334-8673-475e-b375-45b0589b36f6';
+  v_open boolean;
+  v_refusals integer;
+  v_aborted integer;
+  v_result jsonb;
+BEGIN
+  IF to_regclass('public.ca_ledger_invariant_refusals') IS NULL
+     OR to_regclass('public.ca_drift_incidents') IS NULL
+     OR to_regprocedure('public.fn_ca_incident_action(uuid,text,text,uuid,text,text)') IS NULL THEN
+    RAISE NOTICE 'TICKET_ESCROW_INCIDENT: no incident lifecycle here; skipped';
+    RETURN;
+  END IF;
+  SELECT resolved_at IS NULL INTO v_open FROM public.ca_drift_incidents WHERE id = c_incident;
+  IF v_open IS NOT TRUE THEN
+    RAISE NOTICE 'TICKET_ESCROW_INCIDENT: % absent or already resolved; left as it is', c_incident;
+    RETURN;
+  END IF;
+  IF strpos(pg_get_functiondef('public.fn_cancel_tournament_ticket(uuid)'::regprocedure), '''escrow_release''') > 0
+     OR strpos(pg_get_functiondef('public.fn_ca_settle_closed_cashier_entry_tickets(uuid,text)'::regprocedure), '''escrow_release''') > 0 THEN
+    RAISE NOTICE 'TICKET_ESCROW_INCIDENT: a door still declares escrow_release; % left open', c_incident;
+    RETURN;
+  END IF;
+  SELECT count(*), count(*) FILTER (WHERE txid_status(r.txid::bigint) = 'aborted')
+    INTO v_refusals, v_aborted
+    FROM public.ca_ledger_invariant_refusals r
+   WHERE r.incident_id = c_incident;
+  IF v_refusals = 0 OR v_aborted <> v_refusals THEN
+    RAISE NOTICE 'TICKET_ESCROW_INCIDENT: % of % refusals on % read aborted; left open', v_aborted, v_refusals, c_incident;
+    RETURN;
+  END IF;
+  v_result := public.fn_ca_incident_action(
+    c_incident, 'resolve',
+    format('Verified at install: both issuer-refund doors now declare category refund (resolves to ticket_escrow); every one of the %s refusals filed on this incident (counters 69 and 70: management-API probes, 18:40:12 and 18:41:46 UTC 2026-11-12) is a transaction PostgreSQL reports aborted, so no balance or journal row persisted. Executed proof: scripts/dev/test-ledger-invariant.sh, stage ticket-refund-*.', v_refusals),
+    NULL,
+    'fn_cancel_tournament_ticket and the issuer-return branch of fn_ca_settle_closed_cashier_entry_tickets declared ledger category escrow_release, which fn_ca_tally_ledger_leg (since 20261006140948) books to cashout_escrow:<ticket>, so the ticket float moved with no ticket_escrow leg and the commit check refused every issuer refund. The two refusals were probes that exposed it.',
+    'PR #10621, migration 20261112184950');
+  IF (v_result->>'ok')::boolean IS NOT TRUE THEN
+    RAISE EXCEPTION 'TICKET_ESCROW_INCIDENT: the lifecycle refused the resolution: %', v_result;
+  END IF;
+END
+$close$;
+
 COMMIT;
