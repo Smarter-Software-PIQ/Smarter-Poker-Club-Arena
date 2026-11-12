@@ -324,7 +324,7 @@
     "wrapper_tests": "scripts/ci/test_class4_hand_outcome_postgres.py",
     "input_manifest": "scripts/ci/probes/class4-hand-outcome/manifest.json",
     "isolation_builder": "scripts/ci/build_pg17_isolationtester.py",
-    "postgres_exact_version": "17.11",
+    "postgres_exact_version": "17.12",
     "native_capture_gaps_closed": {
       "lease_generation_core": "7d47c01ec2c1b38f3cf9faeeb686514b",
       "outer_atomic_wrapper": "8c0acda3b19e958ecd5bbbc07c845afe"

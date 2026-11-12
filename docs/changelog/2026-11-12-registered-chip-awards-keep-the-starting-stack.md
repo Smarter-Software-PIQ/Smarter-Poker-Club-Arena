@@ -28,7 +28,7 @@ evidence live in the owning external checkpoint, not this public changelog.
 
 Required accounting qualification exposed two signed PGDG feed changes:
 cron initially required an unavailable server minor, then the server advanced
-beyond the existing checksum-pinned native tool. Protected #10523 and #10609
+beyond the existing checksum-pinned native tool. Protected #10523, #10609 and #10611
 now supply the maintained shared-installer repairs. This candidate integrates
 and reuses those exact sources; it contains no duplicate installer, workflow,
 builder or financial source-binding change. Required accounting remains enforced.
