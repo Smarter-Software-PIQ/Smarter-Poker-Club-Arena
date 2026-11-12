@@ -151,6 +151,12 @@ function boardToCsv(rows: BoardClub[]): string {
     'rakeback_due',
     'union_fee_kept',
     'players_won',
+    'cash_player_net_loss',
+    'tournament_player_net_loss',
+    'total_player_net_loss',
+    'club_rakeback_credit',
+    'eco_charge',
+    'full_weekly_net_due_to_union',
     'eco_amount',
     'cash_eco_amount',
     'tournament_eco_amount',
@@ -180,6 +186,12 @@ function boardToCsv(rows: BoardClub[]): string {
       r.rakeback_due,
       r.union_fee_kept,
       r.players_won,
+      r.weekly_player_results?.cash_net_loss ?? null,
+      r.weekly_player_results?.tournament_net_loss ?? null,
+      r.weekly_player_results?.total_net_loss ?? null,
+      r.weekly_player_results?.rakeback_credit ?? null,
+      r.weekly_player_results?.eco_charge ?? null,
+      r.weekly_player_results?.weekly_net_due_to_union ?? null,
       r.eco_amount,
       ...unionEcoRows(r).map(([, value]) => (value === null ? 'Unavailable' : value)),
       ...(['cash', 'tournament'] as const).flatMap((activity) => {
@@ -985,6 +997,28 @@ export default function UnionStatementsPage() {
                             ['Club Rakeback', c.rakeback_due],
                             ['Union Fee Kept', c.union_fee_kept],
                             ['Player Win/Loss', c.players_won],
+                            [
+                              'Cash Player Net Loss',
+                              c.weekly_player_results?.cash_net_loss ?? null,
+                            ],
+                            [
+                              'Tournament Player Net Loss',
+                              c.weekly_player_results?.tournament_net_loss ?? null,
+                            ],
+                            [
+                              'Total Player Net Loss',
+                              c.weekly_player_results?.total_net_loss ?? null,
+                            ],
+                            [
+                              'Less Club Rakeback Credit',
+                              c.weekly_player_results?.rakeback_credit ?? null,
+                            ],
+                            ['ECO Charge Or Credit', c.weekly_player_results?.eco_charge ?? null],
+                            [
+                              'Full Weekly Net (Positive Club Owes)',
+                              c.weekly_player_results?.weekly_net_due_to_union ?? null,
+                            ],
+                            ['Remaining Unpaid Balance', c.outstanding],
                             ['Combined ECO Adjustment', c.eco_amount],
                             ...unionEcoRows(c),
                             ...(c.eco_components || []).map((eco) => [
@@ -998,6 +1032,14 @@ export default function UnionStatementsPage() {
                               <span>{value === null ? 'Unavailable' : money(Number(value))}</span>
                             </div>
                           ))
+                        )}
+                        {c.status !== 'missing' && (
+                          <div className={styles.state}>
+                            Player Net Loss Is Signed: Negative Means Players Won. Full Weekly Net
+                            Deducts The Club Rakeback Credit And Includes Recorded ECO. It Is A
+                            Summary, Not An Additional Payment Request. The Unpaid Balance Follows
+                            The Statement Direction Above.
+                          </div>
                         )}
                         {c.payment_details_available === false && (
                           <div className={styles.state}>

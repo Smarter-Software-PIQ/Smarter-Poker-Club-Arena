@@ -1,5 +1,17 @@
 import { unionEcoComponents, unionEcoSummary, type UnionEcoComponent } from './unionEco';
+export interface WeeklyPlayerResults {
+  version: 1;
+  cash_net_loss: number;
+  tournament_net_loss: number;
+  total_net_loss: number;
+  rakeback_credit: number;
+  eco_charge: number;
+  weekly_net_due_to_union: number;
+  sign_convention: 'positive_club_owes_union';
+}
+
 export interface UnionStatementClub {
+  weekly_player_results?: WeeklyPlayerResults | null;
   eco_version?: number | null;
   eco_components?: UnionEcoComponent[] | null;
   club_id: string;
@@ -150,6 +162,38 @@ function nullableTimestamp(value: unknown, label: string): string | null {
 const cents = (value: number): number => Math.round(value * 100);
 const sumCents = (values: number[]): number => values.reduce((sum, value) => sum + cents(value), 0);
 
+export function parseWeeklyPlayerResults(row: Record<string, unknown>): WeeklyPlayerResults | null {
+  // Old immutable invoices have no original activity split. Missing stays unknown.
+  if (row.weekly_player_results !== undefined && row.weekly_player_results !== null) {
+    const facts = objectValue(row.weekly_player_results, 'Weekly player results');
+    if (facts.version !== 1 || facts.sign_convention !== 'positive_club_owes_union')
+      throw new Error('Weekly player result contract is invalid');
+    const result: WeeklyPlayerResults = {
+      version: 1,
+      cash_net_loss: moneyValue(facts.cash_net_loss, 'Cash player net loss'),
+      tournament_net_loss: moneyValue(facts.tournament_net_loss, 'Tournament player net loss'),
+      total_net_loss: moneyValue(facts.total_net_loss, 'Total player net loss'),
+      rakeback_credit: moneyValue(facts.rakeback_credit, 'Club rakeback credit', true),
+      eco_charge: moneyValue(facts.eco_charge, 'ECO charge'),
+      weekly_net_due_to_union: moneyValue(facts.weekly_net_due_to_union, 'Full weekly net'),
+      sign_convention: 'positive_club_owes_union',
+    };
+    if (
+      cents(result.total_net_loss) !==
+        cents(result.cash_net_loss) + cents(result.tournament_net_loss) ||
+      cents(result.total_net_loss) !==
+        -cents(moneyValue(row.players_won, 'Statement player result')) ||
+      cents(result.rakeback_credit) !==
+        cents(moneyValue(row.rakeback_due, 'Statement rakeback', true)) ||
+      cents(result.eco_charge) !== -cents(moneyValue(row.eco_amount, 'Statement ECO amount')) ||
+      cents(result.weekly_net_due_to_union) !==
+        cents(result.total_net_loss) - cents(result.rakeback_credit) + cents(result.eco_charge)
+    )
+      throw new Error('Weekly player results do not reconcile');
+    return result;
+  } else return null;
+}
+
 interface ParsedClub {
   club: UnionStatementClub;
   rawAmount: number;
@@ -201,6 +245,8 @@ function parseClub(value: unknown): ParsedClub {
     eco_components: unionEcoComponents(row),
     presettled: moneyValue(row.presettled, 'Statement presettled amount'),
   };
+
+  parsed.weekly_player_results = parseWeeklyPlayerResults(row);
 
   if (row.eco_version === 2 && !parsed.eco_components)
     throw new Error('Statement ECO components are invalid');
