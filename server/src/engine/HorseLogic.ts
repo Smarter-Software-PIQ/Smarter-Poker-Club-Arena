@@ -5113,15 +5113,18 @@ function omahaBigBetCallFold(
       // and a presumption is not evidence about who over-bets the river.
       bettorOverBluffs: isPostflopManiac(HorseMind.opponentRead(bettor.user_id)),
     };
+    const callPrice = Math.min(toCall, stack) / (pot + Math.min(toCall, stack));
     const v81 =
-      isCall && v81On ? v81Cell({ ...shared, heroHasStreetChips: heroBet > 0.005 }) : null;
+      isCall && v81On
+        ? v81Cell({ ...shared, heroHasStreetChips: heroBet > 0.005, callPrice })
+        : null;
     const v84 =
       isCall && v81 === null && v84On && faced.bettorSeat !== player.seat
         ? v84Cell({
             ...shared,
             heroWageredStreet:
               heroBet > 0.005 && v84HeroWageredStreet(gs.actionHistory, street, player.seat),
-            callPrice: Math.min(toCall, stack) / (pot + Math.min(toCall, stack)),
+            callPrice,
             allInOrFold: gs.allInOrFold === true,
           })
         : null;

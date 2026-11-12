@@ -60,6 +60,15 @@ import { omahaBoatPosition, omahaNutStatus, scoreOmahaHi } from './HorseEval.js'
 export const V81_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 export const V81_MIN_POT_FRAC = 0.9;
 export const V81_MIN_EFFECTIVE_BB = 20;
+/** V81 folds only a call priced at this share of the final pot or more
+ * (2026-11-12, HVH2D-PLO-005). The cells were measured on calls of a wager of
+ * 0.9 pot or more by a stack that could pay it, a price of about a third. A
+ * stack far shorter than the wager pays much less: hand 58724590, PLO5 river,
+ * a ten-high straight with 46bb behind a 335bb pot-sized bet was folded at a
+ * price of 0.065 with one two-card holding ahead of it. The evidence says
+ * nothing about a call that cheap, so the reference call stands there. The
+ * price and the floor are the ones V84 documents for the same reason. */
+export const V81_MIN_CALL_PRICE = 0.13;
 
 const RV: Record<string, number> = {
   '2': 2,
@@ -200,6 +209,9 @@ export interface V81Input {
   heroHasStreetChips: boolean;
   /** The bettor is MEASURED as a postflop over-bluffer (isPostflopManiac). */
   bettorOverBluffs: boolean;
+  /** What the horse can actually pay, as a share of the pot after paying it:
+   *  min(toCall, stack) / (pot + min(toCall, stack)). */
+  callPrice: number;
 }
 
 /** The measured cell this call falls in, or null when V81 does not apply. */
@@ -209,6 +221,7 @@ export function v81Cell(i: V81Input): string | null {
   if (i.hiLo || i.multiBoard || i.bombPot || i.headsUpTable || i.bountyEvent) return null;
   if (i.heroHasStreetChips || i.bettorOverBluffs) return null;
   if (!(i.potFrac >= V81_MIN_POT_FRAC) || !(i.effectiveBB > V81_MIN_EFFECTIVE_BB)) return null;
+  if (!(i.callPrice >= V81_MIN_CALL_PRICE)) return null;
   if (!Array.isArray(i.hole) || i.hole.length !== (variant === 'plo4' ? 4 : 5)) return null;
   if (i.street === 'river' && i.board.length === 5) {
     const cls = omahaCallClass(i.hole, i.board);

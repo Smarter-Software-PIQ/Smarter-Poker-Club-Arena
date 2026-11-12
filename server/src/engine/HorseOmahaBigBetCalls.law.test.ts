@@ -18,6 +18,7 @@ import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import {
   callLargeRiverBoatWager,
   omahaCallClass,
+  V81_MIN_CALL_PRICE,
   v81Cell,
   v81StreetWager,
   type V81Input,
@@ -46,6 +47,8 @@ function river(
     mode?: 'cash' | 'tournament';
     heroStack?: number;
     bigBlind?: number;
+    /** Chips the folded third seat left in the pot before the river. */
+    dead?: number;
   } = {}
 ) {
   const heroStack = o.heroStack ?? 300;
@@ -67,7 +70,7 @@ function river(
       seat: 2,
       user_id: VILLAIN,
       username: 'v',
-      stack: 300 - bet,
+      stack: Math.max(0, 300 - bet),
       bet,
       totalInvested: 18 + bet,
       cards: [],
@@ -84,7 +87,7 @@ function river(
       username: 'f',
       stack: 300,
       bet: 0,
-      totalInvested: 0,
+      totalInvested: o.dead ?? 0,
       cards: [],
       is_folded: true,
       is_all_in: false,
@@ -110,7 +113,7 @@ function river(
     gs: {
       players,
       communityCards: cards(board),
-      pot: 36 + bet,
+      pot: 36 + (o.dead ?? 0) + bet,
       currentBet: bet,
       toCall: bet,
       minRaiseTo: 2 * bet,
@@ -188,6 +191,7 @@ describe('V81 Omaha big-bet call discipline', () => {
       bombPot: false,
       heroHasStreetChips: false,
       bettorOverBluffs: false,
+      callPrice: 1 / 3,
     };
     const at = (hole: string, board: string, o: Partial<V81Input> = {}) =>
       v81Cell({ ...base, hole: cards(hole), board: cards(board), ...o });
@@ -227,6 +231,11 @@ describe('V81 Omaha big-bet call discipline', () => {
     expect(at(NONNUT_STRAIGHT, DRY, { hiLo: true })).toBeNull();
     expect(at(NONNUT_STRAIGHT, DRY, { multiBoard: true })).toBeNull();
     expect(at(NONNUT_STRAIGHT, DRY, { bombPot: true })).toBeNull();
+    // The price floor: the cells were measured on calls a stack could pay in full.
+    expect(V81_MIN_CALL_PRICE).toBe(0.13);
+    expect(at(NONNUT_STRAIGHT, DRY, { callPrice: V81_MIN_CALL_PRICE })).toBe('straight_nonnut');
+    expect(at(NONNUT_STRAIGHT, DRY, { callPrice: 0.129 })).toBeNull();
+    expect(at(NONNUT_STRAIGHT, DRY, { callPrice: NaN })).toBeNull();
     expect(at('6s5hKdKc2h3d', DRY, { variant: 'plo6' })).toBeNull();
   });
 
@@ -297,6 +306,29 @@ describe('V81 Omaha big-bet call discipline', () => {
     }
     // The fixture is not vacuous: today's brain calls these spots.
     expect(offCalls).toBeGreaterThan(0);
+  });
+
+  it('a stack too short to pay the wager keeps its priced-in call (HVH2D-PLO-005)', () => {
+    // Hand 58724590 in shape: a third seat left 120 in the pot, the villain pots the river
+    // for 156 and the horse has 44 (22bb) behind: it pays 44 into 356, a price of 0.11.
+    const short = river('plo4', NONNUT_STRAIGHT, DRY, 156, { heroStack: 44, dead: 120 });
+    const on = decideMany(short);
+    const off = decideMany(short, OFF);
+    expect(on.fires).toBe(0);
+    expect(on.acts).toEqual(off.acts);
+    expect(on.acts.filter((a) => a.startsWith('fold')).length).toBe(0);
+    // The same pot and wager with a stack that pays 0.2 of the final pot is still the
+    // measured cell: the floor moves nothing above it.
+    const deeper = river('plo4', NONNUT_STRAIGHT, DRY, 156, { heroStack: 80, dead: 120 });
+    const folded = decideMany(deeper);
+    expect(folded.fires).toBeGreaterThan(0);
+    expect(folded.acts.filter((a) => a.startsWith('call') || a.startsWith('all_in')).length).toBe(
+      0
+    );
+    expect(
+      calls(decideMany(deeper, OFF).acts) +
+        decideMany(deeper, OFF).acts.filter((a) => a.startsWith('all_in')).length
+    ).toBeGreaterThan(0);
   });
 
   it('the fold is a valid signed policy receipt', () => {
