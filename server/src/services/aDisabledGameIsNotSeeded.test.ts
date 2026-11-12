@@ -213,7 +213,7 @@ describe('a seat call on a disabled game is not answered', () => {
     expect(skipAt).toBeLessThan(CLAIM.indexOf('await this.seatHorse('));
     // and the cycle passes what it read
     expect(SEED).toMatch(
-      /surplusTableIds,\s*seatBudget,\s*rejoin,\s*disabledGameIds,\s*readIsCurrent\s*\)/
+      /surplusTableIds,\s*seatBudget,\s*rejoin,\s*disabledGameIds,\s*readIsCurrent,\s*book\s*\)/
     );
   });
 

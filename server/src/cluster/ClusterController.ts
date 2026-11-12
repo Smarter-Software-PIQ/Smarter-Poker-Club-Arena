@@ -780,24 +780,29 @@ export class ClusterController {
  * ZERO RESTRICTIONS ON THE GAMES THAT CAN BE OPEN (Dan 2026-11-11).
  *
  * This engine seats horses at every secondary table of an allowed game
- * (HorseUnionCashPlan.horseCashPlanSecondTables), so it asks the tick for the
- * uncapped overload (migration 20261112154904: no table count, the OPEN rule
- * alone decides). An engine that does not pass `p_uncapped` resolves to the
- * untouched capped tick, which is the compatibility contract. Should this
- * engine ever run against a database without the overload (PostgREST
- * PGRST202, no function matches the arguments), it falls back to the capped
- * tick for that call rather than skip the tick.
+ * (HorseUnionCashPlan.horseCashPlanSecondTables), so it calls the uncapped
+ * tick (migration 20261112154904: `<name>_uncapped`, no table count, the OPEN
+ * rule alone decides). The originals are untouched and every older engine
+ * calls only them: that is the compatibility contract. Should this engine
+ * ever run against a database without the uncapped functions (PostgREST
+ * PGRST202), it falls back to the capped tick for that call rather than skip
+ * the tick.
  */
-/** The two doors uncappedTick opens, named for the release gate's door check
- *  (scripts/ci/check-engine-doors-exist.mjs reads `...rpcName...` literals). */
-export const uncappedTickRpcNames = ['fn_cash_cluster_tick', 'fn_cash_clusters_tick_all'] as const;
+/** The two doors uncappedTick opens, one per line so the release gate's door
+ *  check (scripts/ci/check-engine-doors-exist.mjs, `...RpcName = '<name>'`)
+ *  requires both before this engine can ship. */
+export const uncappedTickRpcName = 'fn_cash_cluster_tick_uncapped';
+export const uncappedTickAllRpcName = 'fn_cash_clusters_tick_all_uncapped';
 
 export async function uncappedTick(
   rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: any; error: any }>,
-  fn: (typeof uncappedTickRpcNames)[number],
+  fn: 'fn_cash_cluster_tick' | 'fn_cash_clusters_tick_all',
   args: Record<string, unknown>
 ): Promise<{ data: any; error: any }> {
-  const res = await rpc(fn, { ...args, p_uncapped: true });
+  const res = await rpc(
+    fn === 'fn_cash_cluster_tick' ? uncappedTickRpcName : uncappedTickAllRpcName,
+    args
+  );
   if (res?.error && (res.error as { code?: unknown }).code === 'PGRST202') return rpc(fn, args);
   return res;
 }

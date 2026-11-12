@@ -20,20 +20,24 @@ one or two secondaries per game in the cash plan.
 
 Now (migration `20261112154904`, ordinary: installs on merge):
 
-- The migration ADDS `fn_cash_cluster_tick(uuid, integer, p_uncapped boolean)`
-  and `fn_cash_clusters_tick_all(jsonb, p_uncapped boolean)`, built from
-  production's own definitions by checked replacement; the existing two are not
-  touched. With `p_uncapped` true the tick has no table count of any kind.
-  Tables open only through the unchanged OPEN rule (every table full, enough
-  buyers, one opening at a time, two minutes after an abandoned feeder) and
-  close through the consolidation rule.
-- COMPATIBILITY CONTRACT: only this engine passes `p_uncapped`
-  (`ClusterController.uncappedTick`); every older engine resolves to the
-  untouched capped tick, so install order and engine rollback are both safe.
-  The release gate's door check finds the overloads in production before this
-  engine ships; should it ever run without them (PGRST202) it falls back to the
-  capped tick. Dry run on PostgreSQL 17 against production's exact definitions
-  (md5-matched): compiles, originals unchanged, live-proof true.
+- The migration ADDS two functions under their own names,
+  `fn_cash_cluster_tick_uncapped(uuid, integer)` and
+  `fn_cash_clusters_tick_all_uncapped(jsonb)`, built from production's own
+  definitions by checked replacement (same SECURITY DEFINER, search_path and
+  grants: service_role only). The originals are not touched and no overload is
+  created (`tests/a-door-the-engine-calls-by-name-has-one-overload`). The
+  uncapped tick has no table count of any kind. Tables open only through the
+  unchanged OPEN rule (every table full, enough buyers, one opening at a time,
+  two minutes after an abandoned feeder) and close through the consolidation rule.
+- COMPATIBILITY CONTRACT: only this engine calls the uncapped functions
+  (`ClusterController.uncappedTick`); every older engine calls only the
+  untouched originals, so install order and engine rollback are both safe. The
+  release gate's door check requires both new functions in production before
+  this engine ships (`uncappedTickRpcName`, `uncappedTickAllRpcName`); should it
+  ever run without them (PGRST202) it falls back to the capped tick. A law makes
+  any later tick migration redefine the uncapped twin too. Dry run on
+  PostgreSQL 17 against production's md5-identical definitions: compiles,
+  originals unchanged, live-proof true, re-run refused.
 - The ceiling trigger is a runaway guard measured in demand: a game already
   holding two live or opening, not-closed tables with nobody seated and no seat
   held cannot get a third (`table_refused_unused_tables`). No game with players

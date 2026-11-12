@@ -55,7 +55,7 @@ const controllerWith = (rpc: Rpc, frozen = () => false) =>
    fed by the pass and the games it let rest are in it too. */
 const okRpc = (actions: unknown[] = []) =>
   vi.fn(async (fn: string) => {
-    if (fn === 'fn_cash_clusters_tick_all')
+    if (fn === 'fn_cash_clusters_tick_all_uncapped')
       return {
         data: {
           ok: true,
@@ -145,7 +145,7 @@ describe('LAW 3 - the released latch is counted', () => {
     const stalled = clusterMetrics.passStalledTotal.get();
     let first = true;
     const rpc = vi.fn(async (fn: string) => {
-      if (fn === 'fn_cash_clusters_tick_all') {
+      if (fn === 'fn_cash_clusters_tick_all_uncapped') {
         if (first) {
           first = false;
           return new Promise(() => {}); // the wedged pass
