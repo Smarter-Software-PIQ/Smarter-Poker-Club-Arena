@@ -5,8 +5,9 @@
  * public timing hint (06), the fast recency window (10) and persona
  * indifference mixing (11) each ran with nothing the serving engine emitted
  * to show it. Each now counts on its own path. These cases drive the real
- * producers and assert the counter moves exactly when the path does, and
- * that counting changes no result. Side games (08) and the pre-action purge
+ * producers and assert the counter moves when the path does; the
+ * telemetry-gated ones are also shown silent with telemetry off, with the
+ * same action, amount and think time either way. Side games (08) and the pre-action purge
  * (09) are asserted where their fixtures already live
  * (HorseActionSpaceFreedom.law.test.ts, HorseRealtimeTurnReliability.test.ts).
  */
@@ -134,8 +135,8 @@ describe('upgrade 04: building an Omaha reservoir is counted once per process', 
     const first = Object.fromEntries(telemetry.drainFires().map((r) => [r.feature, r.fires]));
     evalModule.omahaPreflopPercentile(hand, false);
     const second = Object.fromEntries(telemetry.drainFires().map((r) => [r.feature, r.fires]));
-    expect(first.upgrade04_omaha_reservoir_built_5).toBe(1);
-    expect(second.upgrade04_omaha_reservoir_built_5).toBeUndefined();
+    expect(first.upgrade04_omaha_reservoir_5_seen).toBe(1);
+    expect(second.upgrade04_omaha_reservoir_5_seen).toBeUndefined();
   });
 });
 
@@ -212,9 +213,16 @@ describe('upgrades 01, 02 and 06: a live postflop decision counts what it used',
       'upgrade06_public_timing_hint',
     ])
       expect(off.counted[key]).toBeUndefined();
-    expect({ action: off.decision.action, amount: off.decision.amount }).toEqual({
+    // Think time is compared too: upgrade 06 is the think-time hint.
+    expect({
+      action: off.decision.action,
+      amount: off.decision.amount,
+      thinkTime: off.decision.thinkTime,
+    }).toEqual({
       action: on.decision.action,
       amount: on.decision.amount,
+      thinkTime: on.decision.thinkTime,
     });
+    expect(on.decision.thinkTime).toBeGreaterThan(0);
   });
 });

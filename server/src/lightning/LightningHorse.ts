@@ -222,7 +222,7 @@ export async function decideLightningHorse(
   try {
     if (!turn.earlyLook) {
       noteHorseTelemetryOpportunity(turn.variant, 'cash', 'decision_started');
-      if (turn.sevenDeuceEnabled === true) noteFire('upgrade08_seven_deuce_decision');
+      if (turn.sevenDeuceEnabled === true) noteFire('upgrade08_seven_deuce_seen');
     }
     const snapshot = buildLightningHorseSnapshot(turn);
     const fast = await lane().decideFast(snapshot, signal, {

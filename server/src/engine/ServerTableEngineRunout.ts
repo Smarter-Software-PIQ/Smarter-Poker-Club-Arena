@@ -1810,7 +1810,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
       // A chooser who never picks 1 is a chooser who never runs it once.
       const multiTarget = Math.min(maxRuns, this.handCount % 3 === 0 ? 3 : 2) as 1 | 2 | 3;
       const runs = this.horseRitVerdict(chooserPlayerId) === 'once' ? (1 as const) : multiTarget;
-      noteFire(`upgrade08_rit_chooser_${runs === 1 ? 'once' : 'multi'}`);
+      noteFire(`upgrade08_rit_chooser_${runs === 1 ? 'once' : 'multi'}_seen`);
       respond(600 + (this.handCount % 5) * 80, () => {
         this.respondToRIT(chooserPlayerId, undefined, runs);
       });
@@ -1818,7 +1818,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
     for (const pid of allPlayerIds) {
       if (pid === chooserPlayerId || !horseIds.has(pid)) continue;
       const answer = this.horseRitVerdict(pid) === 'once' ? 'decline' : 'accept';
-      noteFire(`upgrade08_rit_answer_${answer}`);
+      noteFire(`upgrade08_rit_answer_${answer}_seen`);
       respond(1000 + ((pid.charCodeAt(0) + this.handCount) % 4) * 200, () => {
         this.respondToRIT(pid, answer);
       });
@@ -3828,7 +3828,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
           Number.isFinite(offer.evCashoutAmount) &&
           offer.evCashoutAmount > fairCashoutEv + 0.01
         ) {
-          noteFire('upgrade08_insurance_cashout');
+          noteFire('upgrade08_insurance_cashout_seen');
           this.respondToInsurance(leaderId, 'cashout', 100, false);
         } else if (
           offer.fullInsuredAmount > 0 &&
@@ -3836,12 +3836,12 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
           offer.fullPremium >= 0 &&
           offer.fullPremium < fairPremium * 0.995
         ) {
-          noteFire('upgrade08_insurance_accept');
+          noteFire('upgrade08_insurance_accept_seen');
           this.respondToInsurance(leaderId, 'accept', 100, false);
         } else {
           // Standard house-margin offers are -EV: decline on the current street
           // (final for the hand from the flop onward, street-only preflop).
-          noteFire('upgrade08_insurance_decline');
+          noteFire('upgrade08_insurance_decline_seen');
           this.respondToInsurance(leaderId, 'decline', 100, (offer.boardLength ?? 3) >= 3);
         }
       } catch (err) {

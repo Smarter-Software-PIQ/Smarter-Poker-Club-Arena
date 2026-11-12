@@ -2664,7 +2664,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'upgrade04_*',
     'HorseEval buildOmahaReservoir',
-    'an Omaha preflop reservoir was built; once per process and reservoir, so a handful per release',
+    'an Omaha preflop reservoir was built; once per process and reservoir, so a handful per release; named *_seen (occurrence, not a layer)',
     '2026-11-12'
   ),
   receipt(
@@ -2676,13 +2676,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'upgrade08_*',
     'ServerTableEngineRunout; ServerTableEngineTurns; LightningHorse',
-    'a run-it-twice or insurance answer was sent, or kill-pot or seven-deuce context reached a decision request; silent where no table offers the side game',
+    'a run-it-twice answer was scheduled or an insurance answer was sent, or kill-pot or seven-deuce context reached a decision request; named *_seen (occurrence, not a layer); silent where no table offers the side game',
     '2026-11-12'
   ),
   receipt(
     'upgrade09_*',
     'ServerTableEngineTurns; LightningHandHost',
-    'a stale pre-action on a Horse seat was cleared at its live turn; rare by design',
+    'a stale pre-action on a Horse seat was cleared at its live turn; named *_seen (occurrence, not a layer); rare by design',
     '2026-11-12'
   ),
   receipt(

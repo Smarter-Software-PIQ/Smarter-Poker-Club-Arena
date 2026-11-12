@@ -45,6 +45,47 @@ function emittingSources(): Array<{ file: string; text: string }> {
   return out;
 }
 
+const EMITTERS = ['noteFire', 'noteFeature', 'recordWatchcounter', 'noteHorseTelemetryOpportunity'];
+
+/** Whether the text before `at` on its own line puts `at` inside a comment. */
+function inComment(text: string, at: number): boolean {
+  const line = text.slice(text.lastIndexOf('\n', at - 1) + 1, at);
+  if (/^\s*(\/\/|\*|\/\*)/.test(line) || line.includes('//')) return true;
+  return line.lastIndexOf('/*') > line.lastIndexOf('*/');
+}
+
+/**
+ * True when `needle` sits inside the argument list of a call that emits a
+ * counter: walk back from the needle to the call that encloses it and read
+ * the callee's name. A registry row, an object literal, a list or a comment
+ * that merely names the counter does not count.
+ */
+function emittedIn(text: string, needle: string): boolean {
+  for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + 1)) {
+    if (inComment(text, at)) continue;
+    let depth = 0;
+    for (let i = at - 1; i >= 0 && at - i < 600; i--) {
+      const ch = text[i];
+      if (ch === ')') depth++;
+      else if (ch === '(') {
+        if (depth > 0) {
+          depth--;
+          continue;
+        }
+        const callee = /([A-Za-z_]\w*)\s*$/.exec(text.slice(Math.max(0, i - 60), i))?.[1];
+        // A bare grouping parenthesis has no callee: keep walking outward.
+        if (!callee) continue;
+        if (EMITTERS.includes(callee)) return true;
+        break;
+      } else if (ch === '[' || ch === '{') {
+        // Inside a list or an object literal, whatever encloses that.
+        if (depth === 0) break;
+      }
+    }
+  }
+  return false;
+}
+
 describe('LAW: an enabled Horse upgrade is provable from a live counter', () => {
   const sources = emittingSources();
   const enabled = enabledHorseUpgradeIds();
@@ -67,30 +108,26 @@ describe('LAW: an enabled Horse upgrade is provable from a live counter', () => 
       needles.map((needle) => [id, needle] as const)
     )
   )('%s: %s is emitted by non-test engine source', (_id, needle) => {
-    const emitters = sources.filter(
-      (s) =>
-        s.text.includes(needle) &&
-        // The line that names the counter must be on an emitting call, not a
-        // list or a comment: a brain fire, a feature note or a watchcounter.
-        s.text
-          .split('\n')
-          .some(
-            (line) =>
-              line.includes(needle) &&
-              !/^\s*(\/\/|\*|\/\*)/.test(line) &&
-              /noteFire\(|noteFeature\(|recordWatchcounter\(|noteHorseTelemetryOpportunity|metric:|\? '|: '/.test(
-                line
-              )
-          )
-    );
+    const emitters = sources.filter((s) => emittedIn(s.text, needle));
     expect(
       emitters.map((s) => s.file),
       `no emitting line found for ${needle}`
     ).not.toEqual([]);
   });
 
-  it('rejects a needle nothing emits (the check is not vacuous)', () => {
-    const ghost = "'upgrade99_never_emitted_anywhere'";
-    expect(sources.some((s) => s.text.includes(ghost))).toBe(false);
+  it('accepts only a needle inside the arguments of an emitting call', () => {
+    const n = "'upgrade99_probe'";
+    expect(emittedIn(`if (on) noteFire(${n});`, n)).toBe(true);
+    expect(emittedIn(`this.deps.noteFeature(a ? ${n} : 'other');`, n)).toBe(true);
+    expect(emittedIn(`recordWatchcounter(\n    ${n},\n    labels\n  );`, n)).toBe(true);
+    expect(emittedIn(`noteHorseTelemetryOpportunity(variant, 'cash', ${n});`, n)).toBe(true);
+    // A registry row, an object literal, a list, a comment and a call that
+    // does not emit are not evidence.
+    expect(emittedIn(`  metric: ${n},`, n)).toBe(false);
+    expect(emittedIn(`const x = { label: ${n} };`, n)).toBe(false);
+    expect(emittedIn(`const keys = [${n}];`, n)).toBe(false);
+    expect(emittedIn(`// noteFire(${n});`, n)).toBe(false);
+    expect(emittedIn(`run(); /* noteFire(${n}); */`, n)).toBe(false);
+    expect(emittedIn(`describeCounter(${n});`, n)).toBe(false);
   });
 });

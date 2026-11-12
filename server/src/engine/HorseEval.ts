@@ -2379,7 +2379,7 @@ const OMAHA_RESERVOIR_SIZE = 16384;
 function buildOmahaReservoir(holeCount: number, isHiLo: boolean): OmahaReservoir {
   // Evidence, once per process and reservoir: which reservoirs this process
   // built and therefore ranks Omaha hands against.
-  noteFire(`upgrade04_omaha_reservoir_built_${holeCount}${isHiLo ? '_hilo' : ''}`);
+  noteFire(`upgrade04_omaha_reservoir_${holeCount}${isHiLo ? '_hilo' : ''}_seen`);
   let s = (0x9e3779b9 ^ (holeCount * 2654435761) ^ (isHiLo ? 0x85ebca6b : 0)) >>> 0 || 1;
   const rnd = (): number => {
     s ^= s << 13;

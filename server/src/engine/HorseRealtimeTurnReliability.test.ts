@@ -722,9 +722,9 @@ describe('W1.3 + W1.4 + W2 #8A/#9 Turn timer preservation, auto-sit-back, pre-ac
 
     expect(clearPreAction).toHaveBeenCalledWith(TABLE_ID, HORSE_A);
     // Upgrade 09 evidence: the purge of a pre-action that existed is counted once.
-    expect(drainFires().filter((f) => f.feature === 'upgrade09_preaction_purged_table')).toEqual([
-      { feature: 'upgrade09_preaction_purged_table', fires: 1 },
-    ]);
+    expect(
+      drainFires().filter((f) => f.feature === 'upgrade09_preaction_purge_table_seen')
+    ).toEqual([{ feature: 'upgrade09_preaction_purge_table_seen', fires: 1 }]);
     expect(sitBack).toHaveBeenCalledWith(TABLE_ID, HORSE_A);
     expect(state.players[0].is_sitting_out).toBe(false);
     expect(engine.scheduleHorseAction).toHaveBeenCalledTimes(1);

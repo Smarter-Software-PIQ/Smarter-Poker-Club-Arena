@@ -2273,9 +2273,9 @@ describe('LAW: 1,000-Horse Full Action-Space Freedom & Fleet Activation', () => 
           .map((f) => [f.feature, f.fires])
       );
       expect(insuranceFires).toEqual({
-        upgrade08_insurance_decline: 2,
-        upgrade08_insurance_accept: 1,
-        upgrade08_insurance_cashout: 1,
+        upgrade08_insurance_decline_seen: 2,
+        upgrade08_insurance_accept_seen: 1,
+        upgrade08_insurance_cashout_seen: 1,
       });
     } finally {
       vi.useRealTimers();
