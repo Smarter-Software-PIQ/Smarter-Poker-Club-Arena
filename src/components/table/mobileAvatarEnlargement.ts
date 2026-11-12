@@ -13,11 +13,25 @@ export type MobileAvatarProfile = { scale: number; px: number; py: number };
 // asset/layout; turns, folds and reveals never rerun that selection.
 // Unqualified layouts retain their existing artwork.
 const fixed = (scale: number, px = 0): MobileAvatarProfile => ({ scale, px, py: 1 });
+/** Dan, 2026-11-12: "make them as large as possible, without breaking
+ * functionality or overlapping existing features or displays". The ceiling is
+ * the largest zoom the fitter may try; every real feature (cards, bet chips and
+ * amount tags, plates, badges, dealer button, pot, board, controls, neighbours)
+ * stays a hard obstacle, so a seat gets the largest zoom those leave room for. */
+export const MOBILE_AVATAR_MAX_SCALE = 2.5;
 const MOBILE_PROFILES: Record<string, Record<number, MobileAvatarProfile>> = {
-  'cash|6|seated': Object.fromEntries(Array.from({ length: 6 }, (_, i) => [i, fixed(2)])),
-  'cash|6|spectator': Object.fromEntries(Array.from({ length: 6 }, (_, i) => [i, fixed(2)])),
-  'cash|9|seated': Object.fromEntries(Array.from({ length: 9 }, (_, i) => [i, fixed(2)])),
-  'cash|9|spectator': Object.fromEntries(Array.from({ length: 9 }, (_, i) => [i, fixed(2)])),
+  'cash|6|seated': Object.fromEntries(
+    Array.from({ length: 6 }, (_, i) => [i, fixed(MOBILE_AVATAR_MAX_SCALE)])
+  ),
+  'cash|6|spectator': Object.fromEntries(
+    Array.from({ length: 6 }, (_, i) => [i, fixed(MOBILE_AVATAR_MAX_SCALE)])
+  ),
+  'cash|9|seated': Object.fromEntries(
+    Array.from({ length: 9 }, (_, i) => [i, fixed(MOBILE_AVATAR_MAX_SCALE)])
+  ),
+  'cash|9|spectator': Object.fromEntries(
+    Array.from({ length: 9 }, (_, i) => [i, fixed(MOBILE_AVATAR_MAX_SCALE)])
+  ),
 };
 
 export type PaintBox = { left: number; top: number; width: number; height: number };
@@ -67,57 +81,18 @@ export function chooseMobileAvatarPaint(
     0
   );
   const existing = obstacles.map((o) => area(parts, o.box));
-  // The actual CSS felt window is a stadium. Using its enclosing rendered
-  // stadium is conservative on a tapered phone: it can refuse room, not add it.
-  const radius = Math.min(felt.width, felt.height) / 2;
-  const feltInterval = (y: number): [number, number] | null => {
-    if (y <= felt.top || y >= bottom(felt)) return null;
-    const dy = Math.max(felt.top + radius - y, y - (bottom(felt) - radius), 0);
-    const half = Math.sqrt(Math.max(0, radius * radius - dy * dy));
-    return [felt.left + felt.width / 2 - half, felt.left + felt.width / 2 + half];
-  };
-  const rows = new Map<number, number[][]>();
-  const rowCover = (row: number) => {
-    let cover = rows.get(row);
-    if (!cover) {
-      const y = row / 10;
-      cover = parts
-        .filter((q) => q.top <= y && bottom(q) >= y + 0.1)
-        .map((q) => [q.left, right(q)])
-        .sort((a, b) => a[0] - b[0]);
-      rows.set(row, cover);
-    }
-    return cover;
-  };
-  const addsFelt = (next: PaintBox[]) =>
-    next.some((p) => {
-      const from = Math.max(p.top, felt.top),
-        to = Math.min(bottom(p), bottom(felt));
-      if (to <= from) return false;
-      // The stadium is widest at the point nearest its middle. A run wholly
-      // outside that interval cannot cover felt anywhere in its vertical span.
-      const widest = feltInterval(Math.min(to, Math.max(from, felt.top + felt.height / 2)));
-      if (!widest || right(p) <= widest[0] || p.left >= widest[1]) return false;
-      for (let row = Math.floor(from * 10); row < Math.ceil(to * 10); row++) {
-        const y = row / 10;
-        const band = feltInterval(Math.min(Math.max(y + 0.05, from), to));
-        if (!band) continue;
-        let start = Math.max(p.left, band[0]);
-        const end = Math.min(right(p), band[1]);
-        if (end <= start) continue;
-        for (const [l, r] of rowCover(row)) {
-          if (l > start + 0.01) break;
-          start = Math.max(start, r);
-        }
-        if (start < end - 0.01) return true;
-      }
-      return false;
-    });
+  // November 12 (Dan): the felt is a surface, not a feature. Growing over the
+  // felt rim is what every poker app's rail portraits do; what may never be
+  // covered is a real display: cards, bet chips and amount tags, plates,
+  // badges, the dealer button, the pot, the board, controls and neighbours.
+  // Those are the obstacles below. A former "adds no felt pixel" gate refused
+  // nearly every seat on a phone, which is why production looked unchanged.
+  void felt;
   for (const scale of profile
     ? [profile.scale]
     : [
-        2, 1.95, 1.9, 1.85, 1.8, 1.75, 1.7, 1.65, 1.6, 1.55, 1.5, 1.45, 1.4, 1.35, 1.3, 1.25, 1.2,
-        1.15, 1.1, 1.05, 1.02,
+        2.5, 2.45, 2.4, 2.35, 2.3, 2.25, 2.2, 2.15, 2.1, 2.05, 2, 1.95, 1.9, 1.85, 1.8, 1.75, 1.7,
+        1.65, 1.6, 1.55, 1.5, 1.45, 1.4, 1.35, 1.3, 1.25, 1.2, 1.15, 1.1, 1.05, 1.02,
       ]) {
     if (scale <= 1 || scale > ceiling + 0.0001) continue;
     // Crown-first (Option A), then growth toward free rail. No image stretch.
@@ -206,7 +181,6 @@ export function chooseMobileAvatarPaint(
           })
         )
           continue;
-        if (addsFelt(next)) continue;
         return {
           scale,
           x: (1 - scale) * (pivot[0] - origin[0]),
@@ -431,10 +405,20 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
       : cap
         ? rect.bottom + 2 * ratio
         : rect.top - 26 * ratio;
-    // Amount labels have no fixed maximum width. Reserve the entire band,
-    // including the 1.1x pop and its 2px upward / 8px downward travel.
+    // Amount labels are centred on their seat and never wider than the seat
+    // plus a margin on each side (a nine-seat ring cannot stack two pods that
+    // close). A former full-width band here made every seat's tag lane a wall
+    // across the whole screen, which refused its neighbours' growth. Reserve the
+    // seat's own lane, including the 1.1x pop and its 2px upward / 8px downward
+    // travel.
+    const lanePad = 48 * ratio;
     boxes.push({
-      box: { left: 0, top: tagTop - 3 * ratio, width: innerWidth, height: tagH + 12 * ratio },
+      box: {
+        left: rect.left - lanePad,
+        top: tagTop - 3 * ratio,
+        width: rect.width + 2 * lanePad,
+        height: tagH + 12 * ratio,
+      },
       owner: seat,
       layer: true,
       minimum: {
@@ -444,6 +428,31 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
         height: tagH,
       },
     });
+    // Bet chips and their amount stand on the felt in front of the seat, at the
+    // seat-wrapper's --bet-offset (undoing any opponent pod shift). Reserve a
+    // generous stack envelope: chip pile, amount pill and the all-in puck.
+    const wrapper = seat.closest<HTMLElement>('.seat-wrapper');
+    const wrapperStyle = wrapper ? getComputedStyle(wrapper) : null;
+    const betX = parseFloat(wrapperStyle?.getPropertyValue('--bet-offset-x') || '') || 0;
+    const betY = parseFloat(wrapperStyle?.getPropertyValue('--bet-offset-y') || '') || 0;
+    const podX = hero ? 0 : parseFloat(style.getPropertyValue('--sp-opponent-x')) || 0;
+    const podY = hero ? 0 : parseFloat(style.getPropertyValue('--sp-opponent-y')) || 0;
+    const betCx = rect.left + rect.width / 2 + (betX - podX) * ratio;
+    const betCy = rect.top + rect.height / 2 + (betY - podY) * ratio;
+    boxes.push({
+      box: {
+        left: betCx - 60 * ratio,
+        top: betCy - 30 * ratio,
+        width: 120 * ratio,
+        height: 60 * ratio,
+      },
+      owner: seat,
+      layer: false,
+    });
+    for (const chips of seat.querySelectorAll<HTMLElement>('.seat__bet-chips,.seat__wager-group')) {
+      const box = chips.getBoundingClientRect();
+      if (box.width && box.height) boxes.push({ box, owner: seat, layer: false });
+    }
     // The position chip can rotate through every label while the art stays put.
     // Kill-enabled tables retain their original size from the stable game setting.
     boxes.push({

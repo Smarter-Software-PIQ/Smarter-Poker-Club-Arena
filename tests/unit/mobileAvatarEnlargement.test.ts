@@ -32,8 +32,29 @@ describe('mobile avatar paint fitting', () => {
     const result = choose([{ box: obstacle, ownLayer: true }]);
     expect(result.parts.every((p) => p.left + p.width <= obstacle.left)).toBe(true);
   });
-  it('refuses growth when the original art is surrounded by felt', () => {
-    expect(choose([], { left: 0, top: 0, width: 120, height: 300 }).scale).toBe(1);
+  it('grows over the felt rim: the felt is a surface, not a feature (Dan 2026-11-12)', () => {
+    expect(choose([], { left: 0, top: 0, width: 120, height: 300 }).scale).toBe(1.15);
+  });
+  it('still refuses to cover a bet stack reserved on the felt', () => {
+    const betStack = { left: 40, top: 20, width: 40, height: 20 };
+    const result = choose([{ box: betStack, ownLayer: false }], {
+      left: 0,
+      top: 0,
+      width: 120,
+      height: 300,
+    });
+    expect(
+      result.parts.every(
+        (p) =>
+          p.left + p.width <= betStack.left ||
+          p.left >= betStack.left + betStack.width ||
+          p.top + p.height <= betStack.top ||
+          p.top >= betStack.top + betStack.height
+      )
+    ).toBe(true);
+  });
+  it('can reach the 2.5x ceiling when nothing is in the way', () => {
+    expect(choose([], awayFelt, 2.5).scale).toBe(2.5);
   });
   it('honors the hero size ceiling and missing paint', () => {
     expect(choose([], awayFelt, 1.05).scale).toBe(1.05);
