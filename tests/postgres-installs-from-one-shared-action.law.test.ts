@@ -209,43 +209,142 @@ printf '%s\\n' "\${pg_packages[@]}"
     expect(moved.stdout).toContain(`postgresql-17=${next}-1.pgdg26.04+1`);
   });
 
-  it('selects the newest installable signed cron version and refuses an unsolvable set', () => {
-    const box = mkdtempSync(join(tmpdir(), 'pg-compatible-'));
-    try {
-      const start = SH.indexOf(
-        'if printf \'%s\\n\' "${pg_packages[@]}" | grep -qx postgresql-17-cron;'
-      );
-      expect(start).toBeGreaterThan(0);
-      const block = SH.slice(start, SH.indexOf('\npg_attempt sudo apt-get', start));
-      const script = `
-pg_packages=(postgresql-17 postgresql-17-cron postgresql-server-dev-17)
-pg_apt=()
-apt-cache() {
-  if [ "$1" = policy ]; then echo 'Candidate: 17.11'; else
-    printf 'postgresql-17-cron | 1.6.8+3 | signed\\npostgresql-17-cron | 1.6.8+2 | signed\\n'
-  fi
-}
-sudo() {
-  printf '%s\\n' "$*" >> '${box}/calls'
-  case "$*" in *postgresql-17-cron=1.6.8+2*) [ "$SOLVABLE" = yes ];; *) return 1;; esac
-}
-${block}
-printf '%s\\n' "\${pg_packages[@]}"
-`;
-      for (const solvable of ['yes', 'no']) {
-        const r = spawnSync('bash', ['-c', script], {
-          encoding: 'utf8',
-          env: { ...process.env, SOLVABLE: solvable },
-        });
-        expect(r.status).toBe(solvable === 'yes' ? 0 : 1);
-        if (solvable === 'yes') expect(r.stdout).toContain('postgresql-17-cron=1.6.8+2');
-        else expect(r.stderr).toContain('No signed pg_cron package solves');
+  it.each([
+    ['latest', 0, 'postgresql-17-cron', 1],
+    ['compatible', 0, 'postgresql-17-cron=1.6.8-1.pgdg26.04+2', 2],
+    ['unavailable', 1, 'postgresql-17-cron', 3],
+    ['different-upstream', 1, 'postgresql-17-cron', 1],
+    ['bounded', 1, 'postgresql-17-cron', 6],
+    ['explicit', 0, 'postgresql-17-cron=1.6.8-1.pgdg26.04+2', 0],
+  ] as const)(
+    'resolves the complete signed package tuple safely: %s',
+    (mode, status, selected, attempts) => {
+      const box = mkdtempSync(join(tmpdir(), 'pg-compatible-'));
+      try {
+        const fn = SH.slice(
+          SH.indexOf('pg_resolve_cron_build() {'),
+          SH.indexOf('\n}\n', SH.indexOf('pg_resolve_cron_build() {')) + 3
+        );
+        const calls = join(box, 'calls');
+        const chosen = join(box, 'chosen');
+        writeFileSync(
+          join(box, 'apt-get'),
+          `#!/bin/bash
+printf '%s\\n' "$*" >> "$CALLS"
+[ "$MODE" = latest ] && exit 0
+[ "$MODE" = compatible ] && [[ "$*" = *postgresql-17-cron=1.6.8-1.pgdg26.04+2* ]] && exit 0
+exit 1
+`
+        );
+        writeFileSync(
+          join(box, 'apt-cache'),
+          `#!/bin/bash
+case "$*" in
+  *policy*) echo '  Candidate: 1.6.8-1.pgdg26.04+3' ;;
+  *madison*)
+    if [ "$MODE" = different-upstream ]; then
+      echo 'postgresql-17-cron | 1.6.7-1.pgdg26.04+2 | signed'
+    elif [ "$MODE" = bounded ]; then
+      for n in 2 1 0 9 8 7 6 5; do echo "postgresql-17-cron | 1.6.8-1.pgdg26.04+$n | signed"; done
+    else
+      echo 'postgresql-17-cron | 1.6.8-1.pgdg26.04+3 | signed'
+      echo 'postgresql-17-cron | 1.6.8-1.pgdg26.04+2 | signed'
+      echo 'postgresql-17-cron | 1.6.8-1.pgdg26.04+1 | signed'
+      echo 'postgresql-17-cron | 1.6.7-1.pgdg26.04+2 | signed'
+    fi ;;
+esac
+`
+        );
+        chmodSync(join(box, 'apt-get'), 0o755);
+        chmodSync(join(box, 'apt-cache'), 0o755);
+        const input = mode === 'explicit' ? selected : 'postgresql-17-cron';
+        const r = spawnSync(
+          'bash',
+          [
+            '-c',
+            `${fn}
+pg_packages=(postgresql-17 '${input}' postgresql-server-dev-17 build-essential)
+pg_apt=(-o Dir::Etc::sourceparts=signed-only)
+pg_resolve_cron_build
+result=$?
+printf '%s\\n' "\${pg_packages[@]}" > "$CHOSEN"
+exit $result
+`,
+          ],
+          {
+            encoding: 'utf8',
+            env: {
+              ...process.env,
+              PATH: `${box}:/usr/bin:/bin`,
+              MODE: mode,
+              CALLS: calls,
+              CHOSEN: chosen,
+            },
+          }
+        );
+        expect(r.status, r.stderr).toBe(status);
+        expect(readFileSync(chosen, 'utf8').trim().split('\n')).toEqual([
+          'postgresql-17',
+          selected,
+          'postgresql-server-dev-17',
+          'build-essential',
+        ]);
+        const commands = attempts ? readFileSync(calls, 'utf8').trim().split('\n') : [];
+        expect(commands).toHaveLength(attempts);
+        for (const command of commands) {
+          expect(command).toContain(
+            '-o Dir::Etc::sourceparts=signed-only --simulate install --no-install-recommends'
+          );
+          expect(command).toContain('postgresql-server-dev-17 build-essential');
+          expect(command).not.toMatch(/1\.6\.7|--allow-unauthenticated|--allow-downgrades/);
+        }
+      } finally {
+        rmSync(box, { recursive: true, force: true });
       }
-      const calls = readFileSync(join(box, 'calls'), 'utf8');
-      expect(calls).toContain('--simulate install');
-      expect(calls).toContain('postgresql-server-dev-17');
-    } finally {
-      rmSync(box, { recursive: true, force: true });
     }
-  });
+  );
+  it.each([
+    [
+      '17.11',
+      ['postgresql-17=17.11-*', 'postgresql-client-17=17.11-*', 'postgresql-server-dev-17=17.11-*'],
+      0,
+      true,
+    ],
+    ['', ['postgresql-17'], 0, false],
+    ['17.11', ['postgresql-17=17.11-*', 'postgresql-server-dev-17=17.11-*'], 1, false],
+    [
+      '17.11',
+      ['postgresql-17=17.12-*', 'postgresql-client-17=17.11-*', 'postgresql-server-dev-17=17.11-*'],
+      1,
+      false,
+    ],
+    [
+      '18.1',
+      ['postgresql-17=18.1-*', 'postgresql-client-17=18.1-*', 'postgresql-server-dev-17=18.1-*'],
+      1,
+      false,
+    ],
+  ] as const)(
+    'limits fixture replacement to its explicit complete pinned tuple: %s %j',
+    (version, packages, status, allowed) => {
+      const fn = SH.slice(
+        SH.indexOf('pg_fixture_install_policy() {'),
+        SH.indexOf('\n}\n', SH.indexOf('pg_fixture_install_policy() {')) + 3
+      );
+      const args = packages.map((value) => `'${value}'`).join(' ');
+      const r = spawnSync(
+        'bash',
+        [
+          '-c',
+          `${fn}\npg_packages=(${args})\npg_fixture_install_policy\nresult=$?\nprintf '%s' "\${pg_fixture_install_options[*]-}"\nexit $result`,
+        ],
+        {
+          encoding: 'utf8',
+          env: { ...process.env, PG_FIXTURE_VERSION: version },
+        }
+      );
+      expect(r.status, r.stderr).toBe(status);
+      expect(r.stdout).toBe(allowed ? '--allow-downgrades' : '');
+    }
+  );
 });

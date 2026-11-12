@@ -42,7 +42,7 @@
     "tests/fixtures/legacy-fee-finality/verify-native-receipts.mjs": "9556746822f0045ecadc35704929f53810676fe0ab07e49146b14495667870c8",
     "scripts/qualification/ci-admission-inputs.json": "8275cc6a48e74b21dc56c8d4ed5a143cb9dae6ffabba8dca65366d4920007887",
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "8ebbe29e85c02fed9080b5ce23b0035b9c5701c1463b34ddb7d5f917dcdd28dc"
+    "scripts/qualification/ci-accounting-inputs.json": "ddf0e982f660cfe8be74899b9439422a7e38899b982d05aec67abe1706c79a75"
   },
   "chainedBrowserAdmissionSourceAudit20261030": {
     "scope": "Current classifier source binding only. Chained browser scripts and supported config/fixture inputs now admit their existing browser checks; every financial/server/native classification flag is unchanged.",
@@ -1643,5 +1643,42 @@
     ],
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
-  }
+  },
+"f06ExactFixturePackages20261112": {
+    "scope": "Current qualification input identity only; not a financial, native or production pass.",
+    "reason": "Preserve exact PostgreSQL17.11 source/checksum/manifest contract while CI requests and checks its matching server/client/dev tuple. Same-upstream signed cron build resolution and explicit complete-fixture replacement retain all native gates. Financial SQL, fixture assertions, historical audits and qualification states unchanged.",
+    "changes": [
+      {
+        "path": "repository_files/scripts/qualification/ci-accounting-inputs.json",
+        "previous": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c",
+        "current": "04e3bb238a89db2d31bd3c7989b620dd2d96fea6169cc29d6712939856fd3638"
+      }
+    ]
+  },
+"f06BbjExactFixturePackages20261112": {
+  "reason": "Shard 1 funded BBJ also requires unchanged PostgreSQL 17.11. Extend exact complete package tuple/readiness to this existing consumer. Source identity only; financial assertions, native guards, prior audit and qualification states unchanged.",
+  "changes": [
+    {
+      "path": "scripts/qualification/ci-accounting-inputs.json",
+      "kind": "sha256",
+      "previous": "04e3bb238a89db2d31bd3c7989b620dd2d96fea6169cc29d6712939856fd3638",
+      "current": "c5f0f95fdd6fc75aa5d0f0b5ed5b6319a58a96acbfe637a8769d6ca6e28b74d3"
+    }
+  ],
+  "financialRecertification": false,
+  "executionPerformed": false
+},
+"f06ProtectedNativeIntegration20261112": {
+  "reason": "Retain protected main #10600 PostgreSQL17.12 native source, checksum and actual comparisons, plus reviewed F06 side-effect-free version query and exact package readiness. Current input identity only; historical evidence and financial assertions preserved.",
+  "changes": [
+    {
+      "path": "scripts/qualification/ci-accounting-inputs.json",
+      "kind": "sha256",
+      "previous": "8ebbe29e85c02fed9080b5ce23b0035b9c5701c1463b34ddb7d5f917dcdd28dc",
+      "current": "ddf0e982f660cfe8be74899b9439422a7e38899b982d05aec67abe1706c79a75"
+    }
+  ],
+  "financialRecertification": false,
+  "executionPerformed": false
+}
 }

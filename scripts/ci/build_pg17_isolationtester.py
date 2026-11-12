@@ -46,7 +46,11 @@ def digest(path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, default=OUTPUT)
+    parser.add_argument('--print-version', action='store_true')
     args = parser.parse_args()
+    if args.print_version:
+        print(VERSION)
+        return
     output = args.output.resolve()
     # Upstream adds /postgresql to pkglibdir only when the prefix lacks either
     # "postgres" or "pgsql". Keep this reviewed prefix and therefore exact path.

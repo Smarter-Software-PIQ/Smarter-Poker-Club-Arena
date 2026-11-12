@@ -33,6 +33,12 @@ vi.mock('../services/supabase/client.js', () => ({
   maintenanceSupabase: {},
 }));
 vi.mock('../services/errorReporter.js', () => ({ reportError: vi.fn(), reportWarning: vi.fn() }));
+vi.mock('../services/engineAlerts.js', () => ({
+  raiseEngineAlert: vi.fn(async () => true),
+  resolveEngineAlert: vi.fn(async () => true),
+  firingFingerprints: vi.fn(() => []),
+}));
+import { raiseEngineAlert } from '../services/engineAlerts.js';
 import { ServerTableEngine } from './ServerTableEngine.js';
 
 const ids = {
@@ -63,6 +69,7 @@ afterEach(() => {
     engine.engineTelemetry.dispose();
   }
   vi.restoreAllMocks();
+  vi.clearAllMocks();
 });
 
 /** Build an engine with the allocator + the own-reserved reconciler installed,
@@ -310,8 +317,10 @@ describe('the in-place recovery is bounded so a re-orphaning table cannot spin s
     expect(e.noteOwnReservedResolveShouldFastRecover()).toBe(true);
     expect(e.noteOwnReservedResolveShouldFastRecover()).toBe(true);
     expect(e.noteOwnReservedResolveShouldFastRecover()).toBe(true);
+    expect(raiseEngineAlert).not.toHaveBeenCalled();
     expect(e.noteOwnReservedResolveShouldFastRecover()).toBe(false);
     expect(e.noteOwnReservedResolveShouldFastRecover()).toBe(false);
+    expect(raiseEngineAlert).toHaveBeenCalledTimes(1);
   });
 
   it('resets the moment a real hand deals, so normal one-shot recovery never trips the bound', () => {
