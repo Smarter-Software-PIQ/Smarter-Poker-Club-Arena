@@ -1,3 +1,4 @@
+import { checkFixedMobileArtwork } from './mobileAvatarSizingCases';
 import { test, expect } from '@playwright/test';
 import { buildSync } from 'esbuild';
 import { readFileSync, existsSync } from 'node:fs';
@@ -59,6 +60,7 @@ export function registerObserverAvatarSizingCases() {
           'src/pages/TablePage.css',
           'src/components/table/ActionPanel.css',
           ...Object.keys(built.metafile!.inputs).filter((file) => file.endsWith('.css')),
+          'src/components/table/TableChat.css',
           'src/components/table/TableVisualHotfix.css',
         ]),
       ];
@@ -264,6 +266,11 @@ export function registerObserverAvatarSizingCases() {
             ).toBeCloseTo(before[name][item][axis], 3);
       await expect(page.locator('.seat--hero')).toHaveCount(0);
       await expect(page.locator('.spectator-footer-bar')).toHaveText('Spectating');
+      if (width === 600 && !emptyBottom)
+        await checkFixedMobileArtwork(
+          page,
+          built.outputFiles.find((file) => file.path.endsWith('.js'))!.text
+        );
       await page.screenshot({
         path: testInfo.outputPath(`observer-${width}${emptyBottom ? '-empty-bottom' : ''}.png`),
       });

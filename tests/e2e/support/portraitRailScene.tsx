@@ -138,6 +138,10 @@ export function Review() {
                 : 'table-page table-page--embedded'
             }
             data-seats={n}
+            data-hole-card-count={heroCards}
+            data-kill-enabled={
+              document.documentElement.dataset.killEnabled === 'true' ? 'true' : 'false'
+            }
             data-hero={spectator ? 'false' : 'true'}
             data-hero-action={action === 'active' ? 'active' : 'waiting'}
             data-bbj-mini={jackpot === 'mini' ? '1' : '0'}
@@ -268,9 +272,11 @@ export function Review() {
                                    every chair keeps the character art the other
                                    scenes already use. */
                                 avatar:
-                                  i === 0 && document.documentElement.dataset.heroAvatar
-                                    ? document.documentElement.dataset.heroAvatar
-                                    : `https://smarter.poker/avatars/table/${document.documentElement.dataset.avatarMix === 'true' ? (i % 2 ? 'vip_aztec_warrior@2x.webp' : 'vip_wolf@2x.webp') : document.documentElement.dataset.avatar || 'vip_wolf@2x.webp'}`,
+                                  i > 0 && document.documentElement.dataset.villainAvatar
+                                    ? document.documentElement.dataset.villainAvatar
+                                    : i === 0 && document.documentElement.dataset.heroAvatar
+                                      ? document.documentElement.dataset.heroAvatar
+                                      : `https://smarter.poker/avatars/table/${document.documentElement.dataset.avatarMix === 'true' ? (i % 2 ? 'vip_aztec_warrior@2x.webp' : 'vip_wolf@2x.webp') : document.documentElement.dataset.avatar || 'vip_wolf@2x.webp'}`,
                                 stack:
                                   document.documentElement.dataset.allIn === 'true' && i % 3 === 0
                                     ? 0
@@ -300,11 +306,17 @@ export function Review() {
                         position={i === 1 ? 'SB' : null}
                         isActive={i === activeSeat}
                         lastAction={
-                          document.documentElement.dataset.actionPills === 'true'
-                            ? 'raise'
-                            : revealed && i % 3 === 0
-                              ? 'all_in'
-                              : 'call'
+                          (document.documentElement.dataset.folded || '')
+                            .split(',')
+                            .filter(Boolean)
+                            .map(Number)
+                            .includes(i)
+                            ? 'fold'
+                            : document.documentElement.dataset.actionPills === 'true'
+                              ? 'raise'
+                              : revealed && i % 3 === 0
+                                ? 'all_in'
+                                : 'call'
                         }
                         lastBetAmount={
                           /* data-bets="0,3,5" bets only those chairs; absent, every chair bets. */
