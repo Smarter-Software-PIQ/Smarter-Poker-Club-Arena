@@ -1086,7 +1086,15 @@
 .members-mode-toggle button,
 .members-simple-tabs button,
 .members-simple-tabs a {
+  /* The Applicants tab is a link beside two buttons. An inline anchor ignores
+     min-height and its text sat above the Agents baseline; every tab is the
+     same flex box so all three labels share one baseline (Dan, 2026-11-12). */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
   min-height: 44px;
+  margin: 0;
   padding: 8px 12px;
   border: 0;
   background: transparent;

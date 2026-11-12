@@ -94,7 +94,7 @@ for (const width of [375, 393]) {
             <label class="members-sort members-winloss-period"><span class="members-sort__label">Win / Loss</span>
               <select aria-label="Win And Loss Period"><option>Win / Loss This Week</option></select></label>
             <label class="members-sort"><span class="members-sort__label">Sort By</span>
-              <select aria-label="Sort Players"><option>Newest Players First</option></select></label>
+              <select aria-label="Sort Players"><option>Active Now</option></select></label>
           </div>
         </section>
       </section></main>`);

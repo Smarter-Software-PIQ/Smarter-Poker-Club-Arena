@@ -54,6 +54,7 @@ import ClubRosterService, {
 import { purgeRosterCache, readRosterCache, writeRosterCache } from '../lib/rosterCache';
 import { RosterSummaryCoordinator, settleRosterReadsIndependently } from '../lib/rosterLoadPolicy';
 import {
+  DEFAULT_ROSTER_SORT,
   ROSTER_ROW_HEIGHT,
   defaultRosterWorkspace,
   loadRosterWorkspace,
@@ -153,11 +154,14 @@ const WIN_LOSS_SHORT: Record<WinLossPeriod, string> = {
   today: 'Today W/L',
 };
 
+/* Active Now is the default roster order (Dan, 2026-11-12): players at a
+   live table first, then players online watching, then everyone else by last
+   active. The order is served by ca_club_members_page's activity sort. */
 const SORT_LABEL: Record<RosterSort, string> = {
+  activity: 'Active Now',
   newest: 'Newest Players First',
   oldest: 'Oldest Players First',
   hierarchy: 'Role Hierarchy',
-  activity: 'Recent Activity',
   name: 'Name (A To Z)',
   downlines: 'Downlines',
   wallet: 'Wallet Balance',
@@ -210,7 +214,7 @@ function readFilter(value: string | null): RosterFilter {
 function readSort(value: string | null): RosterSort {
   return value && Object.prototype.hasOwnProperty.call(SORT_LABEL, value)
     ? (value as RosterSort)
-    : 'newest';
+    : DEFAULT_ROSTER_SORT;
 }
 
 /* One formatter per kind of figure, shared with the record and Player
@@ -419,7 +423,7 @@ export default function ClubMembersPage() {
     next.delete('q');
     if (filter === 'all') next.delete('view');
     else next.set('view', filter);
-    if (sortKey === 'newest') next.delete('sort');
+    if (sortKey === DEFAULT_ROSTER_SORT) next.delete('sort');
     else next.set('sort', sortKey);
     return next.toString();
   }, [filter, searchParams, sortKey]);
@@ -546,7 +550,7 @@ export default function ClubMembersPage() {
           }
           if (
             workspace.filter === 'all' &&
-            (workspace.sort === 'newest' || workspace.sort === 'hierarchy') &&
+            (workspace.sort === DEFAULT_ROSTER_SORT || workspace.sort === 'hierarchy') &&
             !workspace.search
           ) {
             const cached = readRosterCache(user.id, id);
@@ -790,7 +794,7 @@ export default function ClubMembersPage() {
         user?.id &&
         !debouncedSearch &&
         filter === 'all' &&
-        (sortKey === 'newest' || sortKey === 'hierarchy')
+        (sortKey === DEFAULT_ROSTER_SORT || sortKey === 'hierarchy')
       ) {
         writeRosterCache(user.id, resolvedClubId, membersRef.current, summaryResult.value);
       }
@@ -1341,8 +1345,7 @@ export default function ClubMembersPage() {
   const sorts = useMemo(
     () =>
       (Object.keys(SORT_LABEL) as RosterSort[]).filter(
-        (value) =>
-          canUseFinancialViews || !['activity', 'downlines', 'wallet', 'fees'].includes(value)
+        (value) => canUseFinancialViews || !['downlines', 'wallet', 'fees'].includes(value)
       ),
     [canUseFinancialViews]
   );
@@ -1356,7 +1359,7 @@ export default function ClubMembersPage() {
   useEffect(() => {
     if (summaryFreshness !== 'fresh') return;
     if (!filters.includes(filter)) setFilter('all');
-    if (!sorts.includes(sortKey)) setSortKey('newest');
+    if (!sorts.includes(sortKey)) setSortKey(DEFAULT_ROSTER_SORT);
   }, [filter, filters, summaryFreshness, sortKey, sorts]);
 
   useEffect(() => {
