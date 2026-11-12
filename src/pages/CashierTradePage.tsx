@@ -765,6 +765,10 @@ function CashierTradeWorkspace() {
   const [ticketSource, setTicketSource] = useState<'player_wallet' | 'promo_wallet'>(
     'player_wallet'
   );
+  /* What the 50 chip promo allowance will answer for each selected downline,
+     read from the server before the send (fn_cashier_promo_allowance). null
+     means not read (or not capped: staff promo has no allowance). */
+  const [promoAllowance, setPromoAllowance] = useState<Record<string, number> | null>(null);
   const [promoBalances, setPromoBalances] = useState<{ own: number | null; club: number | null }>({
     own: null,
     club: null,
@@ -2641,6 +2645,57 @@ function CashierTradeWorkspace() {
     };
   }, [amountModal, clubUuid, user?.id, pickedWalletKey]);
 
+  const promoSourceSelected =
+    (amountModal === 'ticket' && ticketSource === 'promo_wallet') ||
+    (amountModal === 'send' && sendSource === 'promo_wallet');
+  useEffect(() => {
+    setPromoAllowance(null);
+    if (!promoSourceSelected || !clubUuid || !user?.id || !isAgentRole(myRole)) return;
+    const ids = (JSON.parse(pickedWalletKey) as string[]).filter((id) => id !== user.id);
+    if (ids.length === 0) return;
+    let live = true;
+    void (async () => {
+      try {
+        const remaining: Record<string, number> = {};
+        for (let offset = 0; offset < ids.length; offset += 100) {
+          const { data, error } = await supabase.rpc('fn_cashier_promo_allowance', {
+            p_club_id: clubUuid,
+            p_user_ids: ids.slice(offset, offset + 100),
+          });
+          if (error) throw error;
+          const res = data as {
+            success?: boolean;
+            capped?: boolean;
+            allowances?: Array<{ user_id?: string; remaining_chips?: number | string }>;
+          } | null;
+          if (!res || res.success !== true || !Array.isArray(res.allowances))
+            throw new Error('Promo Allowance Response Missing');
+          if (res.capped !== true) return;
+          for (const row of res.allowances) {
+            const left = Number(row.remaining_chips);
+            if (typeof row.user_id === 'string' && Number.isFinite(left))
+              remaining[row.user_id] = left;
+          }
+        }
+        if (live) setPromoAllowance(remaining);
+      } catch (error) {
+        // The server still enforces the limit; only the preview is missing.
+        reportError(error, 'CashierTradePage.promoAllowance');
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [promoSourceSelected, clubUuid, user?.id, pickedWalletKey, myRole]);
+  /** The smallest remaining allowance among the selected downlines, if read. */
+  const promoAllowanceFloor = (() => {
+    if (!promoAllowance) return null;
+    const known = picked
+      .map((target) => promoAllowance[target.userId])
+      .filter((left): left is number => typeof left === 'number');
+    return known.length > 0 ? Math.min(...known) : null;
+  })();
+
   const selfSelected = picked.some((target) => target.userId === user?.id);
   const availableSendSources: SendSource[] = [
     ...(canSeeClubBank(myRole)
@@ -2835,6 +2890,19 @@ function CashierTradeWorkspace() {
       return;
     }
     if (kind === 'ticket' && ticketSource === 'promo_wallet') {
+      const overLimit = promoAllowance
+        ? targets.find(
+            (target) =>
+              typeof promoAllowance[target.userId] === 'number' &&
+              parsedAmount.amounts[target.userId] > promoAllowance[target.userId]
+          )
+        : undefined;
+      if (overLimit) {
+        toast?.error?.(
+          `Promo Limit: ${overLimit.name} Can Receive Only ${exactChipFigure(promoAllowance![overLimit.userId])} More Promo Chips In This 7 Day Window`
+        );
+        return;
+      }
       if (promoBalances.own === null) {
         toast?.error?.('Selected Wallet Could Not Be Verified');
         return;
@@ -3073,32 +3141,27 @@ function CashierTradeWorkspace() {
           );
           /* A promo funded value ticket has its own door: the promo wallet is
              debited into the ticket escrow and the receipt counts toward the
-             downline's shared promo allowance. One call per recipient, each
-             with the same retry key the batch would have carried. */
+             downline's shared promo allowance. One round trip per chunk, each
+             recipient with the retry key the wallet batch would have carried. */
           const promoTicket =
             kind === 'ticket' && !boundTournamentId && uncertainRecovery.source === 'promo_wallet';
           let data: unknown;
           if (promoTicket) {
-            const results: Array<Record<string, unknown>> = [];
-            for (const target of chunk) {
-              const { data: one, error: oneError } = await supabase.rpc(
-                'fn_cashier_promo_ticket_send',
-                {
-                  p_club_id: clubUuid,
-                  p_holder_id: target.userId,
-                  p_value: parsedAmount.amounts[target.userId],
-                  p_idempotency_key: `ticket:${clubUuid}:${submissionId}:${target.userId}:${parsedAmount.amounts[target.userId]}`,
-                }
-              );
-              // An unanswered call is an unknown outcome for this recipient
-              // and every later one in the chunk: retry replays by key.
-              if (oneError) throw oneError;
-              results.push({
-                ...((one as Record<string, unknown> | null) ?? {}),
-                user_id: target.userId,
-              });
-            }
-            data = { success: true, batch_id: submissionId, results };
+            const { data: promoBatch, error: promoError } = await supabase.rpc(
+              'fn_cashier_promo_ticket_batch',
+              {
+                p_club_id: clubUuid,
+                p_items: chunk.map((target) => ({
+                  user_id: target.userId,
+                  amount: parsedAmount.amounts[target.userId],
+                  idempotency_key: `ticket:${clubUuid}:${submissionId}:${target.userId}:${parsedAmount.amounts[target.userId]}`,
+                })),
+                p_batch_id: submissionId,
+              }
+            );
+            // An unanswered call is an unknown outcome: retry replays by key.
+            if (promoError) throw promoError;
+            data = promoBatch;
           } else {
             const { data: batch, error } = await supabase.rpc('fn_cashier_batch_transfer', {
               p_club_id: clubUuid,
@@ -3854,6 +3917,22 @@ function CashierTradeWorkspace() {
         if (error) throw error;
         if (!data || !Array.isArray(data.operations) || !Array.isArray(data.tickets))
           throw new Error('Receipt Response Missing');
+        // A promo funded ticket's receipt is its promo send row, read by the
+        // same retry key through its own reader.
+        if (saved.kind === 'ticket' && saved.source === 'promo_wallet' && !saved.tournamentId) {
+          const { data: promoReceipts, error: promoReceiptsError } = await supabase.rpc(
+            'fn_cashier_promo_ticket_receipts',
+            {
+              p_club_id: saved.clubId,
+              p_ticket_keys: chunk.map((id) => savedTicketKey(saved, id)),
+            }
+          );
+          if (!isMounted.current || transferView.current !== recoveryView) return;
+          if (promoReceiptsError) throw promoReceiptsError;
+          if (!promoReceipts || !Array.isArray(promoReceipts.tickets))
+            throw new Error('Receipt Response Missing');
+          data.tickets = [...data.tickets, ...promoReceipts.tickets];
+        }
         chunk
           .filter((id) =>
             saved.kind === 'send'
@@ -6157,10 +6236,19 @@ function CashierTradeWorkspace() {
                 {((amountModal === 'send' && sendSource === 'promo_wallet') ||
                   (amountModal === 'ticket' && ticketSource === 'promo_wallet')) &&
                   isAgentRole(myRole) && (
-                    <p>
-                      Each Downline Can Receive 50 Promo Chips Total From All Agents In Any 7 Days.
-                      All Destination Wallets Share This Limit.
-                    </p>
+                    <>
+                      <p>
+                        Each Downline Can Receive 50 Promo Chips Total From All Agents In Any 7
+                        Days. All Destination Wallets Share This Limit.
+                      </p>
+                      {promoAllowanceFloor !== null && (
+                        <p aria-label="Promo Allowance Remaining">
+                          {picked.length === 1
+                            ? `${picked[0].name} Can Still Receive ${exactChipFigure(promoAllowanceFloor)} Of 50 Promo Chips.`
+                            : `Lowest Remaining Allowance Among The Selected Players: ${exactChipFigure(promoAllowanceFloor)} Of 50 Promo Chips.`}
+                        </p>
+                      )}
+                    </>
                   )}
                 {amountModal === 'diamonds' && user?.id && picked.length === 1 ? (
                   <DiamondWalletTransfer
@@ -6196,11 +6284,22 @@ function CashierTradeWorkspace() {
                                 {exactChipFigure(ticketTournament.price)} Ticket (Original Retry)
                               </option>
                             ) : (
-                              ticketValues.map((value) => (
-                                <option key={value} value={String(value)}>
-                                  {exactChipFigure(value)} Ticket
-                                </option>
-                              ))
+                              ticketValues.map((value) => {
+                                const overPromoLimit =
+                                  ticketSource === 'promo_wallet' &&
+                                  promoAllowanceFloor !== null &&
+                                  value > promoAllowanceFloor;
+                                return (
+                                  <option
+                                    key={value}
+                                    value={String(value)}
+                                    disabled={overPromoLimit}
+                                  >
+                                    {exactChipFigure(value)} Ticket
+                                    {overPromoLimit ? ' (Over The Promo Limit)' : ''}
+                                  </option>
+                                );
+                              })
                             )}
                           </select>
                         </span>

@@ -42,3 +42,17 @@ not match. The file now patches that installed body (md5
   leg `promo_wallet -> escrow` (`ticket_issue`), tally balanced for both stores.
 - The five cancel patch needles matched the live definition (read only dry run).
 - The migration applied on PostgreSQL 16 against the captured live preimage.
+
+## Follow-Up, Same Day
+
+Migration `20261112204754_promo_tickets_batch_allowance_receipts_and_redeem_names_its_`:
+
+- `fn_cashier_promo_allowance`: the dialog shows what each selected downline can
+  still receive of the 50, and Send Ticket disables values above it.
+- `fn_cashier_promo_ticket_batch`: up to 25 promo tickets in one round trip.
+- `fn_cashier_promo_ticket_receipts`: uncertain-outcome recovery finds a promo
+  ticket by its retry key.
+- `fn_redeem_tournament_ticket` finds a promo ticket's issue receipt, so the
+  redeem leg names the ticket.
+- History reads "Promo Wallet To Tournament Ticket".
+- `scripts/ci/test-promo-ticket-postgres.py`: the doors run on real PostgreSQL.

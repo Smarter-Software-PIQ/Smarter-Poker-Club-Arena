@@ -69,11 +69,60 @@ describe('Promo chips fund a cashier ticket, inside the shared 50 chip allowance
 
   it('offers the promo wallet in Send Ticket and sends through the promo door', () => {
     expect(page).toContain('aria-label="Send Ticket From"');
-    expect(page).toContain("supabase.rpc(\n                'fn_cashier_promo_ticket_send'");
+    expect(page).toContain("'fn_cashier_promo_ticket_batch'");
+    expect(page).not.toContain("'fn_cashier_promo_ticket_send'");
     expect(page).toContain(
       "kind === 'ticket' && !boundTournamentId && uncertainRecovery.source === 'promo_wallet'"
     );
     expect(page).toContain("(amountModal === 'ticket' && ticketSource === 'promo_wallet')");
     expect(page).toContain('Chips Are Back In Your Promo Wallet');
+  });
+});
+
+const followUp = read(
+  'supabase/migrations/20261112204754_promo_tickets_batch_allowance_receipts_and_redeem_names_its_.sql'
+);
+const section = (name: string) => {
+  const start = followUp.indexOf(`CREATE OR REPLACE FUNCTION public.${name}(`);
+  return followUp.slice(start, followUp.indexOf('$function$;', start));
+};
+
+describe('Promo tickets: one batch call, a readable allowance and recoverable receipts', () => {
+  it('batches through the single promo ticket door, one subtransaction per recipient', () => {
+    const batch = section('fn_cashier_promo_ticket_batch');
+    expect(batch).toContain('public.fn_cashier_promo_ticket_send(');
+    expect(batch).toContain('jsonb_array_length(p_items) > 25');
+    expect(batch).toContain("'A Recipient May Appear Only Once Per Batch'");
+    expect(batch).toContain('exception when others then');
+    expect(batch).not.toMatch(/update\s+public\./i);
+    expect(followUp).toContain("VALUES ('fn_cashier_promo_ticket_batch', 'approved'");
+  });
+
+  it('previews the allowance with the same sum both promo doors enforce', () => {
+    const allowance = section('fn_cashier_promo_allowance');
+    expect(allowance).toContain("t.transaction_type = 'promo_wallet_send'");
+    expect(allowance).toContain('t.to_user_id = u.user_id');
+    expect(allowance).toContain("interval '168 hours'");
+    expect(allowance).toContain('50::numeric - s.sent');
+    expect(allowance).toContain('public.fn_club_cashier_can_transact(p_club_id, v_me, u.user_id)');
+    expect(allowance).not.toMatch(/\b(insert|update|delete)\b\s+(into\s+)?public\./i);
+    expect(page).toContain("supabase.rpc('fn_cashier_promo_allowance'");
+    expect(page).toContain('aria-label="Promo Allowance Remaining"');
+    expect(page).toContain("' (Over The Promo Limit)'");
+  });
+
+  it('recovers a promo ticket receipt by its retry key, for its own sender only', () => {
+    const receipts = section('fn_cashier_promo_ticket_receipts');
+    expect(receipts).toContain('t.from_user_id = v_me');
+    expect(receipts).toContain("t.metadata ->> 'destination' = 'tournament_ticket'");
+    expect(page).toContain("'fn_cashier_promo_ticket_receipts'");
+  });
+
+  it('names the ticket on a promo ticket redeem and labels it in history', () => {
+    expect(followUp).toContain("IF md5(d) <> '0bb17681b38164a7a2746e17d07597b3'");
+    expect(followUp).toContain("AND metadata->>''destination''=''tournament_ticket''))");
+    const history = read('src/components/wallet/describeChipTransaction.ts');
+    expect(history).toContain("return 'Promo Wallet To Tournament Ticket';");
+    expect(history).toContain('Tournament Ticket`;');
   });
 });
