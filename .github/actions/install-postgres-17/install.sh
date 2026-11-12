@@ -80,4 +80,22 @@ printf 'Types: deb\nURIs: https://apt.postgresql.org/pub/repos/apt\nSuites: %s-p
   "$codename" "$PG_KEY_DST" > "$pg_sources/pgdg.sources"
 pg_attempt sudo apt-get "${pg_apt[@]}" "${pg_update[@]}" update
 printf 'create_main_cluster = false\n' | sudo tee /etc/postgresql-common/createcluster.conf >/dev/null
+# PGDG can publish an extension rebuild before its required server release.
+# Ask apt to solve the whole requested set, including an older extension
+# version when the newest cannot coexist with the current server candidate.
+# Never weaken package signatures or install a dependency-breaking binary.
+if printf '%s\n' "${pg_packages[@]}" | grep -qx postgresql-17-cron; then
+  pg_server_version=$(apt-cache "${pg_apt[@]}" policy postgresql-17 | awk '/Candidate:/ {print $2}')
+  pg_cron_version=''
+  while IFS= read -r pg_version; do
+    if sudo apt-get "${pg_apt[@]}" --simulate install -y --no-install-recommends \
+      "${pg_packages[@]/postgresql-17-cron/postgresql-17-cron=$pg_version}" >/dev/null 2>&1; then
+      pg_cron_version=$pg_version
+      break
+    fi
+  done < <(apt-cache "${pg_apt[@]}" madison postgresql-17-cron | awk '{print $3}')
+  [ -n "$pg_cron_version" ] || { echo "::error::No signed pg_cron package solves the requested PostgreSQL set ($pg_server_version)." >&2; exit 1; }
+  pg_packages=("${pg_packages[@]/postgresql-17-cron/postgresql-17-cron=$pg_cron_version}")
+  echo "PostgreSQL $pg_server_version; compatible pg_cron $pg_cron_version"
+fi
 pg_attempt sudo apt-get "${pg_apt[@]}" install -y --no-install-recommends "${pg_packages[@]}"
