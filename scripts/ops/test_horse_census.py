@@ -22,6 +22,8 @@ from horse_census_audit import (
     checked_seat_totals,
     conservation_inference,
     read_refund_evidence,
+    cohort_roi_pct,
+    entry_cohort,
     refund_adjusted_cost,
     run_audit,
     tournament_funding_asset,
@@ -178,6 +180,18 @@ class TestStatEstimators(unittest.TestCase):
         ]:
             with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
                 tournament_funding_asset(rows)
+
+    def test_return_on_cost_is_reported_only_for_paid_entry_events(self):
+        self.assertEqual(entry_cohort({'free_buy': False}), 'paid_entry')
+        self.assertEqual(entry_cohort({'free_buy': True}), 'free_buy')
+        for bad in ({}, {'free_buy': None}, {'free_buy': 0}):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, 'tournament_free_buy_flag_required'):
+                entry_cohort(bad)
+        self.assertEqual(cohort_roi_pct('paid_entry', 200.0, 150.0), -25.0)
+        self.assertIsNone(cohort_roi_pct('paid_entry', 0.0, 10.0))
+        # rebuys and add-ons inside a zero-entry event are not an entry-cost denominator
+        self.assertIsNone(cohort_roi_pct('free_buy', 21745.0, 35546.13))
+        self.assertIsNone(cohort_roi_pct('pooled', 200.0, 150.0))
 
     def test_frozen_evidence_cannot_be_output(self):
         with self.assertRaisesRegex(ValueError, 'output_must_not_modify'):
