@@ -54,7 +54,6 @@ import {
   mustColorUp,
   stayUpSatisfied,
   bookStaggerMs,
-  forceLeaveReason,
   // yield
   yieldDelayMs,
   yieldCount,
@@ -670,28 +669,6 @@ describe('T25/T26/T27/T28 - booking', () => {
       expect(ms).toBeGreaterThanOrEqual(5 * 60_000);
       expect(ms).toBeLessThanOrEqual(12 * 60_000);
     });
-  });
-  it('stop-loss outranks every other force-leave reason', () => {
-    const r = forceLeaveReason({
-      persona: 'grinder',
-      pnlBi: -2.5,
-      stack: 0,
-      sitInBuyIn: 100,
-      minutesInSeat: 500,
-      sessionPlanMinutes: 120,
-      minutesPlayedToday: 9999,
-      dailyCapMinutes: 600,
-      windingDown: true,
-      available: 0,
-      bb: 2,
-      isRestDayBoundary: true,
-      rebuysTaken: 3,
-      stackBb: 0,
-      tableClosing: true,
-      humanYieldDue: true,
-      shapeAdjust: true,
-    });
-    expect(r).toBe('stop_loss');
   });
   it('a planned seat session runs 90 to 240 minutes', () => {
     for (let i = 0; i < 200; i++) {

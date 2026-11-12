@@ -1107,51 +1107,11 @@ export function mustColorUp(opts: {
   return opts.stack >= COLOR_UP_MULTIPLE[opts.persona] * opts.sitInBuyIn;
 }
 
-/** Section 9.2 force-leave ladder, in the OPORD's priority order. Returns the
- *  first reason that fires, or null. */
-export function forceLeaveReason(s: {
-  persona: CashPersona;
-  pnlBi: number;
-  stack: number;
-  sitInBuyIn: number;
-  minutesInSeat: number;
-  /** Planned length of THIS seat session, 90-240 min (Section 9.2 item 3). */
-  sessionPlanMinutes: number;
-  minutesPlayedToday: number;
-  dailyCapMinutes: number;
-  windingDown: boolean;
-  available: number;
-  bb: number;
-  isRestDayBoundary: boolean;
-  rebuysTaken: number;
-  stackBb: number;
-  tableClosing: boolean;
-  humanYieldDue: boolean;
-  shapeAdjust: boolean;
-}): LeaveReason | null {
-  if (s.pnlBi <= STOP_LOSS_BI) return 'stop_loss';
-  if (mustColorUp({ persona: s.persona, stack: s.stack, sitInBuyIn: s.sitInBuyIn }))
-    return 'color_up';
-  if (s.minutesInSeat >= s.sessionPlanMinutes) return 'session_done';
-  if (s.minutesPlayedToday >= s.dailyCapMinutes) return 'daily_cap';
-  if (s.windingDown) return 'wind_down';
-  if (shouldStepDown(s.available, s.bb)) return 'step_down';
-  if (s.isRestDayBoundary) return 'rest_day';
-  if (s.rebuysTaken >= MAX_INSEAT_REBUYS && s.stackBb < 40) return 'rebuys_exhausted';
-  if (s.tableClosing) return 'table_closing';
-  if (s.humanYieldDue) return 'human_yield';
-  if (s.shapeAdjust) return 'shape_adjust';
-  return null;
-}
-
-/** Reasons under which booking a SMALL win is legitimate. Everything else
- *  must clear the persona line. */
-export const SMALL_WIN_OK: ReadonlySet<LeaveReason> = new Set<LeaveReason>([
-  'session_done',
-  'daily_cap',
-  'wind_down',
-  'rest_day',
-]);
+/* THE FORCE-LEAVE LADDER IS GONE (2026-11-12). StableHand.forceLeaveReason and
+   SMALL_WIN_OK were never called in production; the reasons a horse must go
+   home (rest day, daily cap, work hours) are enforced by HorseWorkSchedule
+   through the rotator's ordinary leave door, and stop-loss by the rotator's
+   own session verdict. */
 
 /** Section 9.3. One table at a time, biggest winner first, staggered 5-12 min
  *  from a stable hash so three winners never stand on the same tick. */

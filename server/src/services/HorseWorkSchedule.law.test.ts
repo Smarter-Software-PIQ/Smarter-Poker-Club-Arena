@@ -84,13 +84,18 @@ describe('every path obeys it: no waiver, no widening', () => {
     expect(fleet).not.toContain('ploActivityPool');
   });
   it('an off-duty horse does not answer a seat call', () => {
-    expect(fleet).toContain('if (!dutyOk(String(offer.user_id))) continue;');
+    expect(fleet).toMatch(
+      /if \(!dutyOk\(String\(offer\.user_id\)\)\) \{\s*recordSeatCallDeclined\(\);\s*continue;/
+    );
   });
   it('the rotator sends an off-duty cash horse home through the ordinary leave door', () => {
     expect(rotator).toContain(
       'offDutyReason(uid, dutyBook?.states.get(uid), dutyNowMs, dutyWeekday, dutyToday)'
     );
-    expect(rotator).toContain('t?.tournament_id == null &&');
+    // Cash seats only: a tournament seat is never sent home by the schedule.
+    expect(rotator).toMatch(
+      /const dutyReason =\s*t\?\.tournament_id == null\s*\?\s*offDutyReason\(/
+    );
     // HIT AND RUN and the big-pot orbit decide WHEN, never WHETHER.
     expect(rotator).toContain(
       '(this.owesHands(tableId, uid, engine) || this.owesBigPotOrbit(uid, engine))'
@@ -131,5 +136,81 @@ describe('an off-duty horse leaves every waiting list', () => {
     });
     expect(plan.cancel).toContain('r-off');
     expect(plan.cancel).not.toContain('r-on');
+  });
+});
+
+describe('the schedule is visible on /health (owner 2026-11-12)', () => {
+  it('counts leaves by reason, deferrals, declined calls, cancelled rows and the last census', async () => {
+    const m = await import('./HorseWorkSchedule.js');
+    m.resetHorseWorkScheduleEvidenceForTests();
+    m.recordOffDutyLeave('rest_day');
+    m.recordOffDutyLeave('off_shift');
+    m.recordOffDutyLeave('off_shift');
+    m.recordOffDutyDeferred();
+    m.recordSeatCallDeclined();
+    m.recordListRowCancelled();
+    m.recordListRowCancelled();
+    m.recordScheduleCycle(
+      { rest_day: 3, daily_cap: 1, asleep: 9 },
+      [{ hostId: 'host-a', eligible: 400, onDuty: 250, target: 96 }],
+      NOW
+    );
+    const e = m.horseWorkScheduleEvidence();
+    expect(e.offDutyLeaves).toEqual({ rest_day: 1, daily_cap: 0, off_shift: 2 });
+    expect(e.offDutyLeavesDeferred).toBe(1);
+    expect(e.seatCallsDeclined).toBe(1);
+    expect(e.listRowsCancelled).toBe(2);
+    expect(e.lastCycle).toEqual({
+      at: new Date(NOW).toISOString(),
+      seatingRefused: { rest_day: 3, daily_cap: 1, asleep: 9 },
+      supply: [{ hostId: 'host-a', eligible: 400, onDuty: 250, target: 96 }],
+    });
+    // An unknown reason is ignored, never a new key.
+    m.recordOffDutyLeave('nonsense' as never);
+    expect(Object.keys(m.horseWorkScheduleEvidence().offDutyLeaves)).toEqual([
+      'rest_day',
+      'daily_cap',
+      'off_shift',
+    ]);
+    m.resetHorseWorkScheduleEvidenceForTests();
+    expect(m.horseWorkScheduleEvidence().lastCycle).toBeNull();
+  });
+
+  it('every recording site is wired, and /health serves it', () => {
+    const fleet = readFileSync(new URL('./HorseFleetManager.ts', import.meta.url), 'utf8');
+    const rotator = readFileSync(new URL('./HorseSessionRotator.ts', import.meta.url), 'utf8');
+    const health = readFileSync(new URL('../handlers/health.ts', import.meta.url), 'utf8');
+    expect(rotator).toContain('recordOffDutyLeave(dutyReason);');
+    expect(rotator).toMatch(/recordOffDutyDeferred\(\);\s*continue;/);
+    expect(fleet).toMatch(
+      /if \(!dutyOk\(String\(offer\.user_id\)\)\) \{\s*recordSeatCallDeclined\(\);/
+    );
+    expect(fleet).toContain('if (!ok) recordListRowCancelled();');
+    expect(fleet).toMatch(
+      /recordScheduleCycle\(\s*\{ rest_day: restDayDropped, daily_cap: dailyCapDropped, asleep: asleepDropped \},\s*scheduleSupply\s*\);/
+    );
+    expect(fleet).toContain('target: stableHandCaps.get(hostId) ?? null,');
+    expect(health).toContain('horseWorkSchedule: horseWorkScheduleEvidence(),');
+  });
+});
+
+describe('a table in its post-human dwell is filled from the next stake too (owner 2026-11-12)', () => {
+  const fleet = readFileSync(new URL('./HorseFleetManager.ts', import.meta.url), 'utf8');
+  it('only a short table inside its dwell, with no human seated, qualifies', () => {
+    expect(fleet).toMatch(
+      /const dwellNeedsHorses =\s*!humanAtTable &&\s*currentCount < 4 &&\s*withinHumanDepartureDwellFor\(table, Date\.now\(\)\);/
+    );
+  });
+  it('it waives only the preferred-stake tag; work hours, days off, variant and band still apply', () => {
+    expect(fleet).toContain('if (stakeOk === false && !humanNeedsRescue && !dwellNeedsHorses) {');
+    expect(fleet).not.toMatch(/variantOk === false && [^\n]*dwellNeedsHorses/);
+    expect(fleet).toContain('if (isRestDayFor(st, chicagoWeekday)) {');
+    expect(fleet).toContain('if (dailyCapReached(st, todayKey)) {');
+    expect(fleet).toContain(
+      'const pool = sittable.filter((h) => availableNow(h.id, regularsNowMs));'
+    );
+    expect(fleet).toMatch(/stakeOk === undefined &&\s*!stakeBandAllows\(/);
+    // dwellNeedsHorses appears exactly where it is declared and where it waives.
+    expect(fleet.match(/dwellNeedsHorses/g)?.length).toBe(2);
   });
 });
