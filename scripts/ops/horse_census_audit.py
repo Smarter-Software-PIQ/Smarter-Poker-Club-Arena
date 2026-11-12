@@ -297,6 +297,24 @@ def read_refund_evidence(path, tournament_ids: Set[str]) -> Optional[Dict[str, A
     }
 
 
+ENTRY_COHORTS = ('paid_entry', 'free_buy')
+
+
+def entry_cohort(tournament: dict) -> str:
+    """A free-buy event charges no entry; only its rebuys and add-ons cost anything."""
+    if type(tournament.get('free_buy')) is not bool:
+        raise ValueError('tournament_free_buy_flag_required')
+    return 'free_buy' if tournament['free_buy'] else 'paid_entry'
+
+
+def cohort_roi_pct(cohort: str, net_cost: float, total_return: float) -> Optional[float]:
+    """Return on net cost for paid-entry events only. A free-buy event has no entry cost, so a
+    cost-denominated return is undefined there; pooled cohorts are never given one either."""
+    if cohort != 'paid_entry' or net_cost <= 0:
+        return None
+    return round(100.0 * (total_return - net_cost) / net_cost, 2)
+
+
 def refund_adjusted_cost(recorded_cost: float, refund: float, has_funding: bool) -> float:
     """Net a recorded unregistration refund against the recorded funding it reverses."""
     if refund and not has_funding:
@@ -1038,9 +1056,7 @@ def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None
                     excl_only_tourns += 1
 
             # Separate by currency asset ('chips' vs 'diamonds')
-            by_asset: Dict[str, Dict[str, Counter]] = {
-                name: defaultdict(Counter) for name in (*FUNDING_ASSETS, UNRECORDED_ASSET)
-            }
+            by_asset: Dict[Any, Dict[str, Counter]] = defaultdict(lambda: defaultdict(Counter))
             asset_tourn_cnt = Counter()
 
             for t in elig_tourns:
@@ -1052,13 +1068,18 @@ def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None
                 asset = tournament_funding_asset(f_rows)
                 if refunds and refunds['assets'].get(tid, [asset]) != [asset]:
                     raise ValueError('refund_currency_mismatch')
+                cohort = entry_cohort(t)
                 asset_tourn_cnt[asset] += 1
+                asset_tourn_cnt[(asset, cohort)] += 1
 
                 # Sum funding by actor_class if funding receipts exist for this tournament
                 has_funding = len(f_rows) > 0
                 fund_by_actor = Counter()
+                entry_fund_by_actor = Counter()
                 for fr in f_rows:
                     fund_by_actor[fr['actor_class']] += float(fr['amount_sum'] or 0.0)
+                    if fr['operation'] == 'entry':
+                        entry_fund_by_actor[fr['actor_class']] += float(fr['amount_sum'] or 0.0)
 
                 # Payout table sum by actor_class (cross-check against tournament_players.prize)
                 pay_tbl_by_actor = Counter()
@@ -1083,40 +1104,38 @@ def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None
                     # Note: in a few PKO/bounty payouts, check if tournament_payouts has structure/reconcile > tp_prize
                     pay_tbl = pay_tbl_by_actor[aclass]
 
-                    acc = by_asset[asset][aclass]
-                    acc['tournaments_participated'] += 1
-                    acc['entries'] += entries
-                    acc['rebuys'] += rebuys
-                    acc['addons'] += addons
-                    acc['itm_entries'] += int(pa['itm_entries'])
-                    acc['first_places'] += int(pa['first_places'])
-                    acc['bounties_collected'] += int(pa['tp_bounties_collected'])
                     refund = refunds['refunds'].get((tid, aclass), 0.0) if refunds else 0.0
-                    acc['gross_recorded_cost'] += cost
-                    acc['unregistration_refunds'] += refund
+                    net_cost = refund_adjusted_cost(cost, refund, has_funding)
                     if refunds:
-                        acc['unregistered_registrations'] += refunds['registrations'].get((tid, aclass), 0)
                         refund_applied[scope + '/' + asset] += refund
-                    cost = refund_adjusted_cost(cost, refund, has_funding)
-                    acc['total_cost'] += cost
-                    acc['regular_prizes_tp'] += reg_prize
-                    acc['payouts_table_sum'] += pay_tbl
-                    acc['bounty_winnings_tp'] += bounty_win
-                    acc['total_return'] += (reg_prize + bounty_win)
+                    for acc in (by_asset[asset][aclass], by_asset[(asset, cohort)][aclass]):
+                        acc['recorded_entry_funding'] += entry_fund_by_actor[aclass] if has_funding else 0.0
+                        acc['tournaments_participated'] += 1
+                        acc['entries'] += entries
+                        acc['rebuys'] += rebuys
+                        acc['addons'] += addons
+                        acc['itm_entries'] += int(pa['itm_entries'])
+                        acc['first_places'] += int(pa['first_places'])
+                        acc['bounties_collected'] += int(pa['tp_bounties_collected'])
+                        acc['gross_recorded_cost'] += cost
+                        acc['unregistration_refunds'] += refund
+                        if refunds:
+                            acc['unregistered_registrations'] += refunds['registrations'].get((tid, aclass), 0)
+                        acc['total_cost'] += net_cost
+                        acc['regular_prizes_tp'] += reg_prize
+                        acc['payouts_table_sum'] += pay_tbl
+                        acc['bounty_winnings_tp'] += bounty_win
+                        acc['total_return'] += (reg_prize + bounty_win)
 
-            formatted_assets = {}
-            for asset in (*FUNDING_ASSETS, UNRECORDED_ASSET):
-                if asset_tourn_cnt[asset] == 0:
-                    continue
+            def actors_of(bucket, cohort):
                 actor_out = {}
                 for aclass in ('eligible_human', 'excluded_human', 'horse'):
-                    acc = by_asset[asset].get(aclass)
+                    acc = by_asset[bucket].get(aclass)
                     if not acc or acc['entries'] == 0:
                         continue
                     cost = acc['total_cost']
                     ret = acc['total_return']
                     net = ret - cost
-                    roi = (100.0 * net / cost) if cost > 0 else None
                     actor_out[aclass] = {
                         'tournaments_participated': int(acc['tournaments_participated']),
                         'entries': int(acc['entries']),
@@ -1127,6 +1146,8 @@ def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None
                         'first_places': int(acc['first_places']),
                         'bounties_collected': int(acc['bounties_collected']),
                         'gross_recorded_cost': round(acc['gross_recorded_cost'], 2),
+                        'recorded_entry_funding': round(acc['recorded_entry_funding'], 2),
+                        'recorded_rebuy_addon_funding_or_tariff': round(acc['gross_recorded_cost'] - acc['recorded_entry_funding'], 2),
                         'unregistration_refunds': round(acc['unregistration_refunds'], 2) if refunds else None,
                         'unregistered_registrations': int(acc['unregistered_registrations']) if refunds else None,
                         'total_cost': round(cost, 2),
@@ -1135,11 +1156,22 @@ def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None
                         'bounty_winnings': round(acc['bounty_winnings_tp'], 2),
                         'total_return': round(ret, 2),
                         'net_profit': round(net, 2),
-                        'roi_pct': round(roi, 2) if roi is not None else None,
+                        'roi_pct': cohort_roi_pct(cohort, cost, ret),
+                        'roi_basis': {'paid_entry': 'return_on_net_cost', 'free_buy': 'not_defined_zero_entry_cost',
+                                      'pooled': 'not_reported_for_pooled_cohorts'}[cohort],
                     }
+                return actor_out
+
+            formatted_assets = {}
+            for asset in (*FUNDING_ASSETS, UNRECORDED_ASSET):
+                if asset_tourn_cnt[asset] == 0:
+                    continue
                 formatted_assets[asset] = {
                     'completed_tournaments': asset_tourn_cnt[asset],
-                    'by_actor_class': actor_out,
+                    'by_actor_class': actors_of(asset, 'pooled'),
+                    'by_entry_cohort': {cohort: {'completed_tournaments': asset_tourn_cnt[(asset, cohort)],
+                                                 'by_actor_class': actors_of((asset, cohort), cohort)}
+                                        for cohort in ENTRY_COHORTS if asset_tourn_cnt[(asset, cohort)]},
                 }
 
             out[gtype] = {
@@ -1645,7 +1677,11 @@ def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None
                 'regular prize + bounty payout ROI from public.tournaments, public.tournament_players, '
                 'public.tournament_participant_funding_receipts, and public.tournament_payouts (< cutoff), '
                 'separated strictly by the currency asset of the recorded funding receipts (chips, diamonds, or '
-                'unrecorded when a tournament has no receipt). is_xmtt marks a union event and never selects a currency.'
+                'unrecorded when a tournament has no receipt). is_xmtt marks a union event and never selects a currency. '
+                'Return on cost is reported only for paid-entry events: a free-buy event has no entry cost, so its winnings '
+                'are amounts, not a return on cost, and pooled cohorts carry no ROI. Horse entries outnumber eligible-human '
+                'entries by more than a hundred to one, so Horse tournament results are mostly Horses playing Horses less fees; '
+                'human-facing conclusions rest on the eligible-human rows and the hand-level cells.'
             ),
             'refundCoverage': ({
                 'status': 'unregistration_refunds_netted_from_recorded_funding',

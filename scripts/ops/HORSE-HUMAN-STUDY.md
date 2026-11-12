@@ -172,6 +172,18 @@ a union event and never selects a currency; a tournament without receipts is
 `unrecorded`, mixed currencies refuse, and recorded funding that is not gross
 entry, rebuy and add-on charges refuses.
 
+Return on cost is reported per entry cohort, never pooled. Each currency block
+keeps the pooled cost and return totals with `roi_pct` null, then
+`by_entry_cohort.paid_entry` and `by_entry_cohort.free_buy`. A free-buy event
+has no entry cost, so its rebuys and add-ons are not an ROI denominator and its
+`roi_pct` is null (`not_defined_zero_entry_cost`); its winnings are promotional
+prize money. A tournament without a boolean `free_buy` flag refuses. The fleet
+enters every one of these events against other Horses as well as people, so a
+Horse return on cost is mostly Horse-versus-Horse redistribution less fees and
+is not a result against human players. A cash cell with fewer than two
+clusters has no clustered error, and with two clusters only the t interval is
+shown as a description, not an estimate of precision.
+
 Fleet JSON and TSV retain one row per roster Horse and feature. `null`/`unknown`
 never means zero, disabled or failed. Source inclusion, worker health, effective
 configuration, exact eligibility, evaluation, eligible invocation, local rule
