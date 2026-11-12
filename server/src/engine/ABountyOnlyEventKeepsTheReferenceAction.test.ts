@@ -35,10 +35,14 @@ interface Decided {
   tournamentUtilityRefusal?: string;
 }
 
-function decide(feed: Record<string, number> = {}): Decided {
+function decide(
+  feed: Record<string, number | boolean> = {},
+  shape: (gs: HorseGameStateV2, player: SeatPlayer) => void = () => {}
+): Decided {
   const gs = structuredClone(FIXTURE.gameState) as unknown as HorseGameStateV2;
   const player = structuredClone(FIXTURE.player) as unknown as SeatPlayer;
   Object.assign(gs.tournament as object, feed);
+  shape(gs, player);
   seedFastRandom(1);
   HorseMind.reset();
   return HorseLogic.decide(
@@ -80,5 +84,53 @@ describe('a bounty-only event keeps the reference action (HVH2D-TRN-001 directio
     expect(decision.tournamentUtilityRefusal).toBeUndefined();
     expect(decision.tournamentUtility?.baselineAction).toBe('fold');
     expect(decision.action).toBe('fold');
+  });
+});
+
+describe('where the stand-down applies and where it does not', () => {
+  afterEach(() => HorseMind.reset());
+  const REFUSAL = 'chip_value_not_modeled';
+
+  it('returns a legal action from the reference when it stands down', () => {
+    const decision = decide();
+    expect(FIXTURE.gameState.legalActions).toContain(decision.action);
+    const graph = (decision as unknown as { policyGraph: { finalAction: { action: string } } })
+      .policyGraph;
+    expect(graph.finalAction.action).toBe(decision.action);
+  });
+
+  it('stands down for a covered stack too, not only for one that covers the table', () => {
+    // Move 4,000 chips from hero to one opponent: the table total is unchanged.
+    const decision = decide({}, (gs, player) => {
+      const hero = gs.players.find((p) => p.seat === player.seat)!;
+      const other = gs.players.find((p) => p.seat !== player.seat && !p.is_folded)!;
+      hero.stack -= 4_000;
+      player.stack -= 4_000;
+      other.stack += 4_000;
+      expect(other.stack).toBeGreaterThan(hero.stack);
+    });
+    expect(decision.tournamentUtilityRefusal).toBe(REFUSAL);
+    expect(FIXTURE.gameState.legalActions).toContain(decision.action);
+  });
+
+  it('does not apply to a knockout with any prize pool, however small', () => {
+    expect(decide({ prizePoolCents: 100 }).tournamentUtilityRefusal).not.toBe(REFUSAL);
+  });
+
+  it('does not apply to an event with no bounty pool', () => {
+    const decision = decide({
+      isPko: false,
+      isBounty: false,
+      bountyPoolCents: 0,
+      bountyFactor: 0,
+      meanBountyCents: 0,
+      rebuyBountyContributionCents: 0,
+    });
+    expect(decision.tournamentUtilityRefusal).not.toBe(REFUSAL);
+  });
+
+  it('does not apply to a satellite, whose seats are tickets recorded apart from the pool', () => {
+    const decision = decide({ satellite: true, satelliteSeats: 1 });
+    expect(decision.tournamentUtilityRefusal).not.toBe(REFUSAL);
   });
 });

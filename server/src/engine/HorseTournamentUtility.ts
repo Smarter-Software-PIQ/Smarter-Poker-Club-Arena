@@ -1860,7 +1860,9 @@ function evaluateWithWorkspace(
   // shot at a head and every fold as nothing, so the arbiter turned folds of
   // 34o at 115 big blinds into all-ins (HVH2D-TRN-001, direction 2). Until
   // chips are valued as future head equity, the reference action stands.
-  if (payoutWeight <= 0) {
+  // A satellite awards its seats as tickets recorded apart from the prize
+  // pool, so it is never read as an event without awards.
+  if (payoutWeight <= 0 && !input.context.satellite) {
     return { result: null, unavailableReason: 'chip_value_not_modeled' };
   }
   const boundedFuture = Boolean(input.continuation?.futureHands);

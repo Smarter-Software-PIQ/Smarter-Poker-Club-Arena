@@ -38,12 +38,16 @@ is evaluated exactly as before.
 
 ## Proof
 
-`server/src/engine/ABountyOnlyEventKeepsTheReferenceAction.test.ts`, 3 cases,
+`server/src/engine/ABountyOnlyEventKeepsTheReferenceAction.test.ts`, 8 cases. The first 3
 replaying the anonymised decision-time request of one of the 23 decisions
 (seats, stacks and heads only). On the old arbiter the decision case fails:
 the request returns a raise. On the new one it folds and carries the refusal
 reason. The third case gives the same event a prize pool and shows the arbiter
-still evaluates it.
+still evaluates it. The other 5 fix the boundaries: the action returned on a
+stand-down is legal and is the policy graph's final action; a covered stack
+stands down as a covering one does; a knockout with any prize pool, an event
+with no bounty pool, and a satellite (whose seats are tickets recorded apart
+from the prize pool) are not affected.
 
 ## Limits
 
