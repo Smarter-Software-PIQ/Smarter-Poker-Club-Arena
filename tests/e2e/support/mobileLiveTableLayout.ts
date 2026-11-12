@@ -748,6 +748,17 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
     occupied: plates.length,
     width: innerWidth,
     plateWidths: plates.map((plate) => box(plate).width),
+    // Record actual production enlargement, not containment alone.
+    avatarPaint: avatars.map((image) => {
+      const avatar = image.closest<HTMLElement>('.seat__avatar');
+      return {
+        seat: image.closest('.seat')?.getAttribute('data-seat-num'),
+        source: image instanceof HTMLImageElement ? image.currentSrc || image.src : null,
+        scale: Number(avatar?.style.getPropertyValue('--sp-mobile-art-scale') || 1),
+        clip: getComputedStyle(image).clipPath,
+        bounds: box(image).toJSON(),
+      };
+    }),
     revealedCards: cards.length,
     allInMarkers: markers.length,
     height: innerHeight,
