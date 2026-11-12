@@ -24,7 +24,9 @@ const ALLOWED = new Set([
 ]);
 // The GitHub App key is read only from github-app-main (or the Money trigger
 // signing environment), never from ci-main, whose ~100 jobs do not need it.
-// The one-shot mover's copy job is the single ci-main reader until it retires.
+// No job reads the App key from ci-main: it lives only in github-app-main and
+// money-trigger-recovery-trusted. The one-shot move-github-app-key.yml that
+// carried it across was deleted after the move (2026-11-11) and may not return.
 const APP_KEY = 'AUTOPILOT_APP_PRIVATE_KEY';
 const APP_KEY_MOVER = 'move-github-app-key.yml';
 // The one-shot mover that copied repository scope into these environments was
@@ -52,6 +54,7 @@ function envNames(env: unknown): string[] {
 describe('every secret-reading job names a main-only environment', () => {
   it('the one-shot mover is gone', () => {
     expect(files).not.toContain(MOVER);
+    expect(files).not.toContain(APP_KEY_MOVER);
   });
   for (const file of files) {
     const wf = parse(readFileSync(join(DIR, file), 'utf8')) as {
@@ -85,10 +88,6 @@ describe('only the jobs that mint an App token can read the App key', () => {
       }
       if (!reads) continue;
       it(`${file}:${name} reads the App key outside ci-main`, () => {
-        if (file === APP_KEY_MOVER && name === 'copy') {
-          expect(envs).toEqual(['ci-main']);
-          return;
-        }
         expect(envs.length).toBe(1);
         expect(['github-app-main', 'money-trigger-recovery-trusted']).toContain(envs[0]);
       });
