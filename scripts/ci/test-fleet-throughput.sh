@@ -81,3 +81,9 @@ route --verify.receivers=codex-inbox alertname=TournamentNeverStarted component=
 route --verify.receivers=pager-sms,email-critical \
   alertname=ClusterPassErrors component=cluster severity=critical page=sms
 route --verify.receivers=pager-sms alertname=ClusterPassSlow component=cluster severity=warning page=sms
+
+# Policy telemetry failure is critical; a baseline warming is visible in the inbox.
+route --verify.receivers=codex-inbox,email-critical \
+  alertname=HorseFleetThroughputPolicyUnknown severity=critical component=monitoring
+route --verify.receivers=codex-inbox \
+  alertname=HorseFleetThroughputBaselineWarming severity=warning component=club-arena-engine

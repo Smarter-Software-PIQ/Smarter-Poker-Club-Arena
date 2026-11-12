@@ -2040,6 +2040,9 @@ it('binds the two remaining Midway files only to the November 7 database window'
   );
   // Reconstruct the exact registry selected before the Horse provenance booking
   // and the later cash-room realism engine booking.
+  expect(doc.windows.pop().id).toBe('2026-11-12-complete-missed-engine-1700z');
+  expect(doc.databaseWindows.pop().id).toBe('2026-11-12-missed-engine-db-rebuy');
+  expect(doc.databaseWindows.pop().id).toBe('2026-11-12-missed-engine-db-bank-win');
   expect(doc.windows.pop().id).toBe('2026-11-12-horse-corrections-engine-0700z');
   expect(doc.windows.pop().id).toBe('2026-11-12-horse-corrections-10525-engine-0030z');
   expect(doc.windows.pop().id).toBe('2026-11-11-horse-realtime-10454-engine-1930z');
@@ -2100,7 +2103,9 @@ it('binds the November 10 closed-person read policy to one owner-ordered databas
 it('binds the one owner-ordered retry of the closed-person read policy break', () => {
   const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
   const doc = JSON.parse(raw);
-  const entry = doc.databaseWindows.at(-1);
+  const entry = doc.databaseWindows.find(
+    (w: { id: string }) => w.id === '2026-11-10-closed-person-name-policy-db-retry'
+  );
   expect(entry.id).toBe('2026-11-10-closed-person-name-policy-db-retry');
   expect(entry.ownerOrder).toContain('"Authorize one more break"');
   expect(entry.ownerOrder).toContain('run 42861001229');
