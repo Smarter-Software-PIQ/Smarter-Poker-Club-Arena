@@ -23,6 +23,8 @@ The table purge is counted only when a pre-action existed; the clear itself is u
 
 `HORSE_UPGRADE_LIVE_EVIDENCE` in `HorseUpgradeActivationManifest.ts` lists, for each enabled upgrade, the counters on its path. `HorseUpgradeLiveEvidence.law.test.ts` fails when an enabled upgrade has none, or when a listed counter no longer has an emitting line in non-test engine source. The list is not part of the manifest digest and gates nothing at runtime.
 
+The new counters are registered in `HorseDataLedger.ts` as one receipt family per upgrade (`upgrade01_*` through `upgrade11_*`), so the daily receipt audit knows each key and who fires it. None carries a health ratio: each depends on table mix.
+
 A counter is fleet evidence. It carries no Horse identity and is never proof that a particular Horse exercised an upgrade.
 
 ## Street Prewarm
