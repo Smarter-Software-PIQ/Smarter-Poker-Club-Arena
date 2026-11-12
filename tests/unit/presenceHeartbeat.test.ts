@@ -205,3 +205,66 @@ describe('Messenger Active Status', () => {
     expect(beats()).toEqual([['fn_update_presence', { p_user_id: 'u1', p_is_online: true }]]);
   });
 });
+
+describe('signalLeave: leaving is the last beat (2026-11-12)', () => {
+  const fetchMock = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
+  beforeEach(() => {
+    localStorage.clear();
+    fetchMock.mockClear();
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubEnv('VITE_SUPABASE_URL', 'https://db.example.test/');
+    vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon-key');
+    localStorage.setItem('smarter-poker-auth', JSON.stringify({ access_token: 'jwt-1' }));
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it('the last tab of the account beats offline with keepalive through the same door', async () => {
+    const { signalLeave, stampTabLease } = await import('../../src/lib/presenceHeartbeat');
+    stampTabLease('u1');
+    expect(signalLeave('u1')).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://db.example.test/rest/v1/rpc/fn_update_presence');
+    expect(init.keepalive).toBe(true);
+    expect(init.method).toBe('POST');
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer jwt-1');
+    expect(JSON.parse(String(init.body))).toEqual({ p_user_id: 'u1', p_is_online: false });
+    // Its own lease is gone.
+    expect(Object.keys(localStorage).filter((k) => k.startsWith('presence-tab:u1:'))).toEqual([]);
+  });
+
+  it('does not beat offline while another tab of the account is still beating', async () => {
+    const { signalLeave, stampTabLease } = await import('../../src/lib/presenceHeartbeat');
+    stampTabLease('u1');
+    localStorage.setItem('presence-tab:u1:other', String(Date.now() - 30_000));
+    expect(signalLeave('u1')).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+    // A stale sibling lease is not alive, and is cleaned up.
+    localStorage.setItem('presence-tab:u1:other', String(Date.now() - 10 * 60_000));
+    expect(signalLeave('u1')).toBe(true);
+    expect(localStorage.getItem('presence-tab:u1:other')).toBeNull();
+  });
+
+  it('a signed-out account and a missing session send nothing', async () => {
+    const { signalLeave } = await import('../../src/lib/presenceHeartbeat');
+    await signalOffline('u1');
+    expect(signalLeave('u1')).toBe(false);
+    resetPresenceHeartbeatForTests();
+    localStorage.removeItem('smarter-poker-auth');
+    expect(signalLeave('u1')).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('the hook sends the leave beat on pagehide and beats again on pageshow', async () => {
+    renderHook(() => usePresenceHeartbeat('u1'));
+    await flush();
+    expect(beats()).toHaveLength(1);
+    window.dispatchEvent(new Event('pagehide'));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    window.dispatchEvent(new Event('pageshow'));
+    expect(beats()).toHaveLength(2);
+  });
+});

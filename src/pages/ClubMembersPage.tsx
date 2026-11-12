@@ -12,7 +12,21 @@ import {
 import { sizedStorageUrl, generateAvatarSvg } from '../utils/avatarGenerator';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useDebounce } from '../hooks/useDebounce';
-import { useOnlineNow } from '../hooks/useProfilePresence';
+import {
+  liveStateOf,
+  orderByActivity,
+  useClubLiveSeats,
+  useLoadedPresence,
+  type LiveState,
+} from '../hooks/useRosterLiveOrder';
+import { recheckClubLiveSeats, type LiveSeat } from '../lib/clubLiveSeats';
+import LiveNowStrip from '../components/club/LiveNowStrip';
+import { withStakes } from '../utils/tableEyebrow';
+import {
+  WATCH_ERROR_MESSAGE,
+  WATCH_LEFT_MESSAGE,
+  watchMemberTable,
+} from '../components/club/watchMemberTable';
 import { useSharedMinuteTick } from '../hooks/useSharedMinuteTick';
 import { lastSeenIsWithinADay, memberLastSeenLabel } from '../utils/memberLastSeen';
 import { useMasterBusSubscriptions } from '../hooks/useMasterBusSubscription';
@@ -288,6 +302,19 @@ export default function ClubMembersPage() {
   const selectionQuery = JSON.stringify([routeClub, user?.id, searchQuery, filter, sortKey]);
   const selectionQueryRef = useRef(selectionQuery);
   const loadedMemberIds = useMemo(() => members.map((row) => row.user_id), [members]);
+  /* ACTIVE NOW MOVES AS IT HAPPENS (Dan, 2026-11-12). The seat answer and the
+     presence door are watched once a minute (never a roster re-read, which
+     keeps the 180-second floor above); under Active Now the loaded rows are
+     re-ranked from them in place. */
+  const liveSeats = useClubLiveSeats(resolvedClubId, members.length > 0);
+  const presence = useLoadedPresence(loadedMemberIds);
+  const orderedMembers = useMemo(
+    () =>
+      sortKey === DEFAULT_ROSTER_SORT && !searchQuery.trim()
+        ? orderByActivity(members, liveSeats, presence)
+        : members,
+    [members, liveSeats, presence, sortKey, searchQuery]
+  );
   const selectionQueryCurrent = selectionQueryRef.current === selectionQuery;
   const selected = useMemo(
     () =>
@@ -620,6 +647,7 @@ export default function ClubMembersPage() {
       forceNextSummaryRef.current = false;
       const epoch = ++requestEpochRef.current;
       lastRosterReadStartedAtRef.current = Date.now();
+      recheckClubLiveSeats(resolvedClubId);
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
@@ -1213,7 +1241,7 @@ export default function ClubMembersPage() {
     scheduleStructuralRefresh,
   ]);
 
-  const virtual = useVirtualScroll(members, {
+  const virtual = useVirtualScroll(orderedMembers, {
     itemHeight: ROW_HEIGHT,
     viewportHeight: 696,
     buffer: 5,
@@ -1396,6 +1424,25 @@ export default function ClubMembersPage() {
       return next;
     });
   }, []);
+
+  const watchBusyRef = useRef(false);
+  const watchTable = useCallback(
+    async (table: LiveSeat, member: { userId: string; name: string }) => {
+      if (watchBusyRef.current) return;
+      watchBusyRef.current = true;
+      try {
+        const outcome = await watchMemberTable(navigate, table, member);
+        if (outcome.status === 'left') {
+          toast.error(WATCH_LEFT_MESSAGE);
+          if (resolvedClubId) recheckClubLiveSeats(resolvedClubId);
+        } else if (outcome.status === 'refused') toast.error(outcome.message);
+        else if (outcome.status === 'error') toast.error(WATCH_ERROR_MESSAGE);
+      } finally {
+        watchBusyRef.current = false;
+      }
+    },
+    [navigate, resolvedClubId, toast]
+  );
 
   const openMember = useCallback(
     (userId: string) => {
@@ -1858,7 +1905,7 @@ export default function ClubMembersPage() {
         >
           {hasVerifiedDirectory && workspaceScope === exportScopeKey
             ? loadedQuery && sameRosterQuery(loadedQuery, currentWorkspace) && !searchIsSettling
-              ? `${members.length.toLocaleString()} Loaded Of ${filteredTotal.toLocaleString()} Matching Players.`
+              ? `${members.length.toLocaleString()} Loaded Of ${filteredTotal.toLocaleString()} Matching Players`
               : `Showing ${members.length.toLocaleString()} Previously Verified Players. Current Filter And Search Not Yet Verified.`
             : 'Directory Not Yet Verified.'}{' '}
           {!simpleMode && summary.capabilities.can_export
@@ -1922,6 +1969,9 @@ export default function ClubMembersPage() {
         </div>
       )}
 
+      {liveSeats.seats.length > 0 && !notFound && !accessDenied && (
+        <LiveNowStrip seats={liveSeats.seats} onWatch={watchTable} />
+      )}
       <div
         className="members-list"
         role="list"
@@ -1977,6 +2027,8 @@ export default function ClubMembersPage() {
                 winLossUnavailable={winLoss.unavailable.has(member.user_id)}
                 winLossLabel={WIN_LOSS_SHORT[winLossPeriod]}
                 feeLabel={PERIOD_FEE_LABEL[winLossPeriod]}
+                live={liveStateOf(member, liveSeats, presence)}
+                onWatch={watchTable}
               />
             ))}
             <div aria-hidden="true" style={{ height: virtual.paddingBottom }} />
@@ -2024,6 +2076,8 @@ export const MemberRow = memo(function MemberRow({
   winLossUnavailable = false,
   winLossLabel = 'Win / Loss',
   feeLabel = 'Fees This Week',
+  live = { seated: member.is_seated, online: member.is_online, tables: [] },
+  onWatch = () => {},
 }: {
   simpleMode?: boolean;
   /** The net for the chosen window; undefined while it loads. */
@@ -2041,6 +2095,8 @@ export const MemberRow = memo(function MemberRow({
   selected: boolean;
   onSelect: (id: string) => void;
   columns: Set<OptionalColumn>;
+  live?: LiveState;
+  onWatch?: (table: LiveSeat, member: { userId: string; name: string }) => void;
 }) {
   const winLossTone =
     !winLoss || winLoss.net === null || winLoss.net === 0
@@ -2051,19 +2107,21 @@ export const MemberRow = memo(function MemberRow({
   const initial = (member.alias || '?')[0]?.toUpperCase() ?? '?';
   /* The roster's is_online is "seated OR fresh presence"; off a seat it is the
      presence door's answer, re-asked every minute while the row is shown so
-     it goes dark when the heartbeat does (presence-has-one-definition law). */
-  const online = useOnlineNow(member.user_id, member.is_online);
-  const status = member.is_seated ? 'At A Table' : online ? 'Online' : 'Offline';
+     it goes dark when the heartbeat does (presence-has-one-definition law).
+     The seat answer is read on the same clock (src/lib/clubLiveSeats.ts). */
+  const seated = live.seated;
+  const online = live.online;
+  const table = live.tables[0];
+  const status = seated ? 'At A Table' : online ? 'Online' : 'Offline';
   /* Inside the last day the last-seen label counts minutes and hours, so the
      row re-reads it on the shared minute clock (Dan, 2026-10-31). */
-  const showsLastSeen =
-    !member.is_seated && !online && columns.has('activity') && !!member.last_login;
+  const showsLastSeen = !seated && !online && columns.has('activity') && !!member.last_login;
   const seenNow = useSharedMinuteTick(
     showsLastSeen && lastSeenIsWithinADay(member.last_login ?? '')
   );
   return (
     <div
-      className={`member-row${member.is_seated ? ' member-row--seated' : online ? ' member-row--online' : ''}`}
+      className={`member-row${seated ? ' member-row--seated' : online ? ' member-row--online' : ''}`}
       role="listitem"
       aria-posinset={position}
       aria-setsize={total}
@@ -2131,8 +2189,34 @@ export const MemberRow = memo(function MemberRow({
             {member.home_club_name && (
               <span className="member-club">{highlight(member.home_club_name, query)}</span>
             )}
-            {member.is_seated ? (
-              <span className="member-seated">At Table</span>
+            {seated ? (
+              table ? (
+                /* The row itself is a button (open the record), so the table
+                   chip is a nested control, not a nested <button>: a tap on
+                   it opens the observer view and does not open the record. */
+                <span
+                  role="button"
+                  tabIndex={0}
+                  className="member-seated member-seated--table"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onWatch(table, { userId: member.user_id, name: member.alias });
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onWatch(table, { userId: member.user_id, name: member.alias });
+                    }
+                  }}
+                  aria-label={`Watch At Table, ${titleCase(table.name)}`}
+                  title="Watch At Table"
+                >
+                  {withStakes(titleCase(table.name), titleCase(table.stakes))}
+                </span>
+              ) : (
+                <span className="member-seated">At A Table</span>
+              )
             ) : online ? (
               <span className="member-online">Online</span>
             ) : columns.has('activity') && member.last_login ? (
