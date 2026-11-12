@@ -1210,3 +1210,178 @@ git maintenance guard's limit of 400 (22:20Z).
 
 Unchanged: `notify_mode = critical_only`, `mutation_paused = true`, 0
 runbooks enabled (post-image check in `20261111222330`).
+
+## 16. Device Push Receipts And Open Incident: Final Acceptance, 2026-11-12 15:30-16:10Z
+
+Owner of this section: the device-receipt acceptance lane (handoff of
+2026-11-12). Sections 8 to 15 are not edited. The Device receipts rows in 14
+and 15 are superseded by this section, not rewritten. No feature, drill,
+runbook or schedule was added.
+
+### 16.1 Unsupported claims withdrawn
+
+- Rejecting malformed, unknown-token, unknown-stage and wrong-method requests
+  (400, 404, 400, 405) never proved that a VALID acknowledgement succeeds.
+- Device endpoint pings (`/api/push/receipt`) prove that path ran. They do not
+  identify the worker version or show that the per-push receipt code ran.
+- The 2026-11-11 20:25 and 20:29 local re-registrations were a chance to
+  update, not a confirmed activation.
+- `displayed` means `showNotification` resolved. It does not prove a visible
+  banner or that a person saw it.
+- Why drills `drill-20261111a` and `drill-20261111b` produced no receipts is
+  NOT confirmed. The worker-update defect fixed by World Hub #2808 is a
+  sufficient explanation, but it is not proven to be the cause.
+
+### 16.2 Prior notification outcomes reconciled before any send
+
+| Notification | Push outbox | When (UTC)       | Mac `3000eace` | iPhone `475956b0` |
+| ------------ | ----------- | ---------------- | -------------- | ----------------- |
+| 83 drill a   | `ade96d71`  | 2026-11-11 18:02 | no receipt     | no receipt        |
+| 85 drill b   | `cdc8c97b`  | 2026-11-11 21:07 | no receipt     | no receipt        |
+| 86           | `47e15d7a`  | 2026-11-11 21:27 | no receipt     | no receipt        |
+| 88           | `9b61dfa2`  | 2026-11-12 03:21 | displayed      | displayed         |
+| 90           | `03d48659`  | 2026-11-12 04:13 | displayed      | displayed         |
+| 93           | `bceba748`  | 2026-11-12 05:28 | displayed      | displayed         |
+| 94           | `b60164de`  | 2026-11-12 06:25 | displayed      | displayed         |
+| 99 reminder  | `0b5e8c4e`  | 2026-11-12 09:21 | displayed      | displayed         |
+| 100          | `91fc275d`  | 2026-11-12 10:31 | displayed      | displayed         |
+| 101          | `99c39a7f`  | 2026-11-12 10:41 | displayed      | displayed         |
+
+World Hub #2808 merged as `717f51c5` at 2026-11-11 21:29:56Z. Every push from
+21:27Z or earlier has no receipt; every push from 03:21Z onward has one from
+each device, `ack_count = 1`. Both drills are `recovered` by `resolved_signal`
+followed by `quiet_window_passed`, which is their designed lifecycle. Seven
+natural escalations supplied the live evidence, so **no further drill was
+sent**.
+
+### 16.3 One notification event, end to end (notification 101)
+
+- Incident `71fdf977` (HorseFleetThroughputRelativeDrop), escalation seq 6,
+  request id `1a90da19-...`.
+- Messenger: exactly 1 `social_messages` row, `600cf76b`, in owner
+  conversation `5dde8c6a` from the platform sender.
+- Push: exactly 1 `push_outbox` row, `99c39a7f`, event
+  `reliability_escalation`, status `sent`, provider accepted 10:41:00Z.
+- Targets: exactly 2 receipt tokens. These are the owner's only two active
+  subscriptions: Mac Chrome `3000eace` (label Mac, `device_id ec90f0f1`) and
+  iPhone home-screen app `475956b0` (label iPhone, `device_id 3ae07bc1`).
+  Neither subscription has rotated since this handoff named them.
+- Mac: receipt row 19, minted 10:41:00.46Z, received and displayed
+  10:41:01.11Z, `ack_count 1`.
+- iPhone: receipt row 20, minted 10:41:00.47Z, received and displayed
+  10:41:01.95Z, `ack_count 1`.
+- `reliability_notification_device_receipts`: `devices_minted 2`,
+  `devices_received 2`, `devices_displayed 2`, `delivery_state displayed`.
+  `push_state` stays `provider_accepted`, the provider-level fact.
+
+Chain recorded separately: Messenger creation, then provider acceptance, then
+the device acknowledgement stage `displayed` per device. No user-confirmed
+observation was supplied for this event, so none is claimed.
+
+### 16.4 Worker version evidence and its limit
+
+`POST /api/push/delivery-receipt` is called only by code that reads
+`data.receipt`. That code is in `public/push/sw.js` (`SP_PUSH_SW =
+'sp-push-dedicated-v4-device-receipt'`, blob `4837f2ef` on main) and, per
+section 14, in the root worker bundle. A persisted valid receipt therefore
+proves that a receipt-capable worker handled the push on each device. It does
+not identify the browser's internal worker version ID, which was 1374 on the
+Mac on 2026-11-11. No claim is made about which version ID now runs.
+
+### 16.5 Acknowledgement semantics, verified on production
+
+- Valid token: rows 9 to 20 above were all written by real device
+  acknowledgements through `public.fn_record_push_receipt`.
+- Idempotency, proven on production inside a transaction that was then
+  forcibly rolled back. A probe row was inserted against drill outbox
+  `cdc8c97b` with a non-active subscription. The calls were `displayed`,
+  `displayed` again, then `received`. The results were `recorded`,
+  `duplicate`, `duplicate`. There was 1 row, `received_at` and
+  `displayed_at` were unchanged by the repeats, and `ack_count` was 3. A
+  repeat only counts. It never moves a timestamp or adds a row, and a later
+  `received` never downgrades `displayed`. Afterwards, 0 probe rows remain.
+- Invalid or unknown tokens return the same 404 as an unknown id. The route
+  answers 400, 404, 405 or 503 and the worker never retries.
+- Acknowledgement failure cannot block the notification. In `public/push/sw.js`,
+  `showNotification` (with a bare-options fallback) runs first. The receipt
+  POST runs last inside `.catch(() => {})`. The receipt is sent once, with
+  `keepalive` and no retry.
+
+### 16.6 Open Incident and Copy Agent Handoff
+
+- Open Incident: owner-confirmed on 2026-11-11. The Messenger message opened
+  "Reliability Incident · Read Only", HorseFleetCollapsed (horse fleet
+  throughput), incident `17b7b46a-9a6f-424e-b0fa-6f99533e711c`, status
+  Recovered, America/Chicago times, under his session. The owner pasted the
+  page text into the chat.
+- Copy Agent Handoff: owner-confirmed 2026-11-11 13:22Z (section 14), and
+  the same pasted page carried the full handoff. Retained, not re-asked.
+
+### 16.7 Final PASS/FAIL/UNVERIFIED
+
+A PASS on a disclosure gate means the record states the fact accurately. It
+does not mean an underlying unknown was proven. The facts this lane could not
+establish are listed as UNVERIFIED in the second table and are not covered by
+any PASS above them.
+
+| Gate                                                     | Result | Evidence                                                      |
+| -------------------------------------------------------- | ------ | ------------------------------------------------------------- |
+| Unsupported claims corrected in the existing record      | PASS   | 16.1                                                          |
+| Current update fix served; activation described honestly | PASS   | #2808 `717f51c5`; 16.4 states the version limit               |
+| Owner's device readiness                                 | PASS   | Superseded by direct device evidence (16.3); not asked again  |
+| Prior drill outcomes reconciled before any send          | PASS   | 16.2; no new drill                                            |
+| Mac targeted, provider outcome, valid bound receipt      | PASS   | outbox `99c39a7f` accepted; row 19, sub `3000eace`, displayed |
+| iPhone targeted, provider outcome, valid bound receipt   | PASS   | same outbox; row 20, sub `475956b0`, displayed                |
+| Receipt stages accurately labelled                       | PASS   | `displayed` = API resolved, not human sight (16.1)            |
+| Duplicate acknowledgements idempotent                    | PASS   | 16.5 rolled-back production probe                             |
+| Acknowledgement failure cannot block notification        | PASS   | 16.5 worker order                                             |
+| Messenger and push identities reconcile                  | PASS   | 1 message `600cf76b`, 1 outbox, 2 receipts (16.3)             |
+| Open Incident acceptance                                 | PASS   | 16.6                                                          |
+| Copy Agent Handoff acceptance retained                   | PASS   | 16.6                                                          |
+| Drill closes normally                                    | PASS   | both drills `recovered` by their designed path; none sent now |
+| Checkpoint and owned cleanup                             | PASS   | this section; probe rolled back, 0 rows; nothing else created |
+
+| Fact                                                      | Result     | What is and is not shown                                                                  |
+| --------------------------------------------------------- | ---------- | ----------------------------------------------------------------------------------------- |
+| Provider acceptance                                       | PASS       | `push_outbox` `sent`; the push service accepted it. Not device delivery                   |
+| Device-reported `displayed` receipt, Mac and iPhone       | PASS       | The worker on each device reported `showNotification` resolved                            |
+| A banner was visible, or a person saw it                  | UNVERIFIED | No device or owner evidence for this event; a receipt cannot show it                      |
+| Exact executing worker version on each device             | UNVERIFIED | A receipt-capable worker ran; the browser version ID (1374 on 2026-11-11) was not re-read |
+| Cause of the missing receipts on notifications 83, 85, 86 | UNVERIFIED | #2808 is a sufficient explanation, not a proven cause                                     |
+
+Not promised: exactly-once physical push delivery, or that the owner saw any
+banner. Carried forward from the previous session: one step briefly displaced
+the owner's Gmail tab with a diagnostics page. The tab was returned to the
+inbox, not to the exact message.
+
+Unchanged: `notify_mode = critical_only`, `mutation_paused = true`, 0
+runbooks enabled. The three unidentified producers stay in triage. The
+documented finding that no narrow automatic recovery is justified stands.
+
+### 16.8 Closeout, 2026-11-12 16:02Z
+
+- Club Arena #10603 squash-merged as `a90d911dd10b4b0eb806738ead21b6dea1a2e2f5`
+  at 16:02:53Z by auto-merge after every required check passed. That includes
+  "TypeScript compilation and repository checks" (success at 15:59:08Z) and
+  the required "TypeScript Check" (success). No check failed and none was
+  rerun. Section 16 on main at that SHA is byte-identical to the reviewed head
+  `d72e86c8`. Documentation only: no engine release or client publication is
+  needed or was made.
+- This follow-up adds the second table in 16.7, so that no PASS reads as
+  proof of a banner, a worker version or the cause of the earlier gap, and
+  records this closeout. Its merge SHA is reported in the owning chat and
+  read from `git log` on this file.
+- Evidence locations: `smarter_private.push_device_receipts` rows 1 to 20.
+  `smarter_private.reliability_notification_device_receipts` notifications 83
+  to 101. `smarter_private.reliability_notifications` 101 (message `600cf76b`,
+  outbox `99c39a7f`). `smarter_private.reliability_drills`
+  `drill-20261111a` and `drill-20261111b`. `public.fn_record_push_receipt`.
+  World Hub `public/push/sw.js`, `src/lib/push/delivery-receipt-handler.js`
+  and #2808.
+- Owned temporary resources removed: the idempotency probe row (rolled back, 0
+  rows), and the scheduled check-in for this PR (deleted before it ran).
+  The head branch was deleted on merge. Nothing else was created.
+- Separate scope, not implemented and not implied by this section: automatic
+  recovery or self-repair of production or the codebase. The controller
+  detects, groups and escalates. `mutation_paused = true`, `notify_mode =
+critical_only`, 0 runbooks enabled, and triage ownership is unchanged.
