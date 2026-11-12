@@ -78,7 +78,11 @@ const TURN_CHECKED: ActionRecord[] = [
 const RIVER: ActionRecord[] = [act(1, 'river', 'check', 0)];
 
 type Spot = {
-  variant?: 'plo4' | 'plo5' | 'plo6';
+  variant?: 'plo4' | 'plo5' | 'plo6' | 'plo8';
+  /** The first caller is all in: still in the hand, no longer a live caller. */
+  firstCallerAllIn?: boolean;
+  heroStack?: number;
+  mode?: 'cash' | 'tournament';
   hole?: string;
   board?: string;
   /** The first caller has left the hand: one opponent remains. */
@@ -97,7 +101,7 @@ const SEATS: Array<[number, number, number, number, boolean]> = [
 ];
 
 function riverSpot(spot: Spot = {}) {
-  const input = omahaVariantSpot('plo8', 'river', 5, 'cash');
+  const input = omahaVariantSpot('plo8', 'river', 5, spot.mode ?? 'cash');
   const variant = spot.variant ?? 'plo4';
   input.state.gameVariant = variant;
   input.state.variantRules = horseVariantRulesFor(variant);
@@ -109,12 +113,19 @@ function riverSpot(spot: Spot = {}) {
       seat,
       user_id: seat === 2 ? 'hero' : `v${seat}`,
       username: seat === 2 ? 'Hero' : `V${seat}`,
-      stack: live && spot.turnChecked ? stack + 89 : stack,
+      stack:
+        seat === 1 && spot.firstCallerAllIn
+          ? 0
+          : seat === 2 && spot.heroStack !== undefined
+            ? spot.heroStack
+            : live && spot.turnChecked
+              ? stack + 89
+              : stack,
       bet: 0,
       totalInvested: live ? invested - 89 + turnCalls : invested,
       deadInvested: dead,
       is_folded: folded || (seat === 1 && !!spot.firstCallerFolded),
-      is_all_in: false,
+      is_all_in: seat === 1 && !!spot.firstCallerAllIn,
       cards: [],
     } as SeatPlayer;
   });
@@ -122,7 +133,8 @@ function riverSpot(spot: Spot = {}) {
     ...players[1],
     // The extra cards make no pair, straight or flush with any board used here.
     cards: cards(
-      (spot.hole ?? 'AsJcJs9s') + (variant === 'plo4' ? '' : variant === 'plo5' ? '2s' : '2s4c')
+      (spot.hole ?? 'AsJcJs9s') +
+        (variant === 'plo4' || variant === 'plo8' ? '' : variant === 'plo5' ? '2s' : '2s4c')
     ),
   };
   const state = input.state;
@@ -142,6 +154,12 @@ function riverSpot(spot: Spot = {}) {
   state.minRaiseTo = 2;
   state.maxRaiseTo = Math.min(hero.stack, state.pot);
   state.legalActions = ['check', 'bet'];
+  if (state.tournament) {
+    state.tournament.stacks = players.map((p) => p.stack + p.totalInvested);
+    state.tournament.stackByUser = Object.fromEntries(
+      players.map((p) => [p.user_id, p.stack + p.totalInvested])
+    );
+  }
   state.actionHistory = [
     ...PREFLOP,
     ...FLOP,
@@ -250,5 +268,35 @@ describe('Omaha river: a straight is not a third barrel when a flush or a full h
   it('does not apply when the callers called one barrel, not two', () => {
     expect(run({ turnChecked: true }).fired).toBe(0);
     expect(run({ turnChecked: true, firstCallerFolded: true }).fired).toBe(0);
+  });
+
+  // Eligibility cases asked for by the study's analysis owner (E9, 2026-11-12).
+  it('checks with a short stack behind as well', () => {
+    const out = run({ heroStack: 40 });
+    expect(out.wagers).toBe(0);
+    expect(out.fired).toBe(20);
+  });
+
+  it('checks in a tournament as in a cash game', () => {
+    const out = run({ mode: 'tournament' });
+    expect(out.wagers).toBe(0);
+    expect(out.fired).toBe(20);
+  });
+
+  it('does not apply in Hi-Lo when a low is possible', () => {
+    // 8-7-3 on the flush river: half the pot can go to a low, so this is a
+    // split-pot decision the rule leaves to the Hi-Lo logic.
+    expect(run({ variant: 'plo8' }).fired).toBe(0);
+  });
+
+  it('does not count a caller who is all in as a live two-barrel caller', () => {
+    // Two opponents remain but only one can still act: neither the two-caller
+    // nor the heads-up form holds, and the rule stays out of the side pot.
+    expect(run({ firstCallerAllIn: true }).fired).toBe(0);
+  });
+
+  it('never fires for a full house on the paired river', () => {
+    for (const firstCallerFolded of [false, true])
+      expect(run({ hole: 'TsTh2c4s', board: PAIRED_RIVER, firstCallerFolded }).fired).toBe(0);
   });
 });
