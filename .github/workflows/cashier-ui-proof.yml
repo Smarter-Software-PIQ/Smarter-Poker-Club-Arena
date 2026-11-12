@@ -18,7 +18,7 @@ concurrency:
 jobs:
   verify:
     if: github.event.client_payload.eco_components != true && (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
-    name: Verify Player History And Existing Credit Display
+    name: Verify Player History Credit And Promo Wallets
     # Playwright has no Chromium build for ubuntu26.04 (what ubuntu-latest
     # now resolves to); pinned like post-deploy-e2e and lobby-ui-proof.
     runs-on: ubuntu-24.04
@@ -75,7 +75,7 @@ jobs:
           VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
         run: node scripts/ci/production-e2e-account.mjs prepare-staff
 
-      - name: Pin the published client before the two cases
+      - name: Pin the published client before the scoped cases
         id: before
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -83,7 +83,13 @@ jobs:
           node scripts/verification-harness/cashier-ui-proof.mjs pin
           e2e-report/cashier-ui-proof/before.json
 
-      - name: Verify only player history and the existing credit agreement
+      - name: Verify the installed cashier contract including the shared promo cap
+        id: contract
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: node scripts/verification-harness/certify-cashier-contract.mjs
+
+      - name: Verify history credit and promo wallet routing
         id: browser
         timeout-minutes: 12
         env:
@@ -96,12 +102,12 @@ jobs:
         run: |
           set -euo pipefail
           npx playwright test tests/e2e/production-cashier.spec.ts \
-            --grep '(reads Transaction History through the installed feed and scopes, with real receipts|prints the existing agent credit agreement beneath member wallets without moving chips)$' \
+            --grep '(reads Transaction History through the installed feed and scopes, with real receipts|prints the existing agent credit agreement beneath member wallets without moving chips|offers reclaim return wallets and keeps promo in promo without moving chips)$' \
             --project=chromium --workers=1 --retries=0 --trace=off --reporter=line,json \
             --output=test-results/cashier-ui-proof \
             2>&1 | tee e2e-report/cashier-ui-proof/browser.log
 
-      - name: Pin the published client after the two cases
+      - name: Pin the published client after the scoped cases
         id: after
         if: always() && steps.before.outcome == 'success'
         env:
@@ -128,8 +134,8 @@ jobs:
           }));
           NODE
 
-      - name: Certify exactly the two completed scoped cases
-        if: always() && steps.before.outcome == 'success'
+      - name: Certify exactly the completed scoped cases
+        if: always() && steps.before.outcome == 'success' && steps.contract.outcome == 'success'
         run: >-
           node scripts/verification-harness/cashier-ui-proof.mjs assert
           e2e-report/cashier-ui-proof/before.json

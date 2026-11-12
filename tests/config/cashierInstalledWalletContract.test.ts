@@ -104,7 +104,14 @@ it.each([
       expect(contract).toContain("name = 'club_promo_send_names_its_journal_source_column'");
       return;
     }
-    const expected = name === 'fn_cashier_batch_transfer' ? definitionHash : bodyHash;
+    // Native PG and cashier-authority-exact-intent derive the capped successor
+    // from this unchanged baseline and the exact installed patch.
+    const expected =
+      name === 'fn_promo_wallet_send_core_20261004'
+        ? '7087a67e16f6d7990c28fbb549464bef'
+        : name === 'fn_cashier_batch_transfer'
+          ? definitionHash
+          : bodyHash;
     expect(contract).toContain(`'hash', '${expected}'`);
   }
 );
