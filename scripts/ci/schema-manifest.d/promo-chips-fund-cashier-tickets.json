@@ -1,0 +1,5 @@
+{
+  "_owner": "claude/promo-chips-fund-cashier-tickets - migration 20261112184216: a cashier value ticket funded by the sender's promo wallet, inside the shared 50 chips per downline seven day allowance",
+  "tables": [],
+  "functions": ["fn_cashier_promo_ticket_send"]
+}

@@ -863,6 +863,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V88'
   ),
   flag(
+    'tokenCallPrice',
+    '2026-11-12 cash Omaha high committed-call bar: below a price of 0.15 the additive premiums (margin, commitment bar, scare margin, shades) shrink in proportion to the price, and under 0.01 a made hand calls; unchanged at 0.15 or more (PLO6-AUDIT-010, production hand 58750626)',
+    'V89'
+  ),
+  flag(
     'omahaPreflopCallWithActionBehind',
     '2026-11-12 Omaha preflop: a call costing 40% of the stack that leaves chips behind while an opponent still owes a decision to the price is not priced by the final all-in arithmetic (V38); the calibrated range play decides it. A jam, an all-in call and a closing call are unchanged (PLO6-AUDIT-005, production hand 58751512)',
     'V90'

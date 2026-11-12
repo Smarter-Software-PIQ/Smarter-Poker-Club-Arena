@@ -1035,7 +1035,9 @@ echo CHECKPOINT_MUST_NOT_RUN
         self.assertEqual(window['migrations'], [])
         windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
         self.assertEqual(windows['windows'][-2]['id'], '2026-11-12-horse-corrections-engine-0700z')
-        for entry, version in zip(windows['databaseWindows'][-2:], ['20261111174148', '20261112013925']):
+        entries = [next(w for w in windows['databaseWindows'] if w['id'] == window_id)
+                   for window_id in ('2026-11-12-missed-engine-db-bank-win', '2026-11-12-missed-engine-db-rebuy')]
+        for entry, version in zip(entries, ['20261111174148', '20261112013925']):
             self.assertEqual(len(entry['migrations']), 1)
             self.assertTrue(entry['migrations'][0].startswith(version + '_'))
             self.assertIn('TAKE OWNERSHIP OF THIS NOW', entry['ownerOrder'])

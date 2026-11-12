@@ -39,6 +39,12 @@ import { HorsePolicyGraph } from './HorsePolicyGraph.js';
 import { decisionGravity } from './horseDecisionGravity.js';
 import { riverNutsRaise, fullPotNearPotWager, hasRiverNuts } from './HorseRiverNuts.js';
 import { omahaCurrentNutsRaise } from './HorseOmahaCurrentNuts.js';
+import {
+  TOKEN_CALL_COUNTED_PRICE,
+  tokenCallIsCovered,
+  tokenCallPriceApplies,
+  tokenCallRequiredEquity,
+} from './HorseTokenCallPrice.js';
 import { horsePolicyRegistration, horsePolicyOwnership } from './HorsePolicyRegistry.js';
 import { hasHorseReviewSignals } from './HorseReviewSignals.js';
 import { evaluateJointLivePolicy } from './multiway/JointLivePolicy.js';
@@ -2493,6 +2499,10 @@ export interface HorseDecideOpts {
    * (HorseOmahaCurrentNuts.ts). Default on; false only for the complaint
    * law's non-vacuity control. */
   omahaCurrentNutsRaise?: boolean;
+  /** A token-priced committed call is not barred by stack-off premiums
+   * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
+   * the regression's non-vacuity control. */
+  tokenCallPrice?: boolean;
   /** An Omaha preflop call of 40% of the stack with chips behind and an
    * opponent still to act is not priced as a final all-in call
    * (PLO6-AUDIT-005). Default on; false only for the regression's control. */
@@ -5117,15 +5127,18 @@ function omahaBigBetCallFold(
       // and a presumption is not evidence about who over-bets the river.
       bettorOverBluffs: isPostflopManiac(HorseMind.opponentRead(bettor.user_id)),
     };
+    const callPrice = Math.min(toCall, stack) / (pot + Math.min(toCall, stack));
     const v81 =
-      isCall && v81On ? v81Cell({ ...shared, heroHasStreetChips: heroBet > 0.005 }) : null;
+      isCall && v81On
+        ? v81Cell({ ...shared, heroHasStreetChips: heroBet > 0.005, callPrice })
+        : null;
     const v84 =
       isCall && v81 === null && v84On && faced.bettorSeat !== player.seat
         ? v84Cell({
             ...shared,
             heroWageredStreet:
               heroBet > 0.005 && v84HeroWageredStreet(gs.actionHistory, street, player.seat),
-            callPrice: Math.min(toCall, stack) / (pot + Math.min(toCall, stack)),
+            callPrice,
             allInOrFold: gs.allInOrFold === true,
           })
         : null;
@@ -5791,6 +5804,29 @@ export function facingClosedAllInRaise(
     (p) => p.seat !== heroSeat && !p.is_folded && !p.is_all_in && p.is_sitting_out !== true
   );
   return open ? undefined : true;
+}
+
+/**
+ * NOBODY IS LEFT TO FOLD (2026-11-12). True when every opponent still in the
+ * hand is all in, so no raise by the hero can make anyone fold: the hand goes
+ * to showdown against all of them whatever the hero does. A single opponent
+ * who still has chips (a caller, a blind yet to act, anyone behind) makes it
+ * false, because an isolation raise can still fold that player. Public seat
+ * flags only; never who anybody is.
+ */
+export function everyLiveOpponentIsAllIn(
+  players: ReadonlyArray<
+    Pick<SeatPlayer, 'seat' | 'is_folded' | 'is_all_in'> & { is_sitting_out?: boolean }
+  >,
+  heroSeat: number
+): boolean {
+  let live = 0;
+  for (const p of players) {
+    if (p.seat === heroSeat || p.is_folded || p.is_sitting_out === true) continue;
+    if (p.is_all_in !== true) return false;
+    live++;
+  }
+  return live > 0;
 }
 export class HorseLogic {
   /** Original post-observation boundary, shared with the admitted worker path.
@@ -9031,6 +9067,8 @@ export class HorseLogic {
         opts.facingClosedAllIn === false
           ? undefined
           : facingClosedAllInRaise(gs.players, player.seat, lastRaiserSeat, raises, toCall),
+      // A bluff raise needs someone who can fold (HorsePreflop.everyOpponentAllIn).
+      everyOpponentAllIn: everyLiveOpponentIsAllIn(gs.players, player.seat),
       reopenAllowed:
         !Array.isArray(gs.legalActions) ||
         gs.legalActions.includes('raise') ||
@@ -10985,7 +11023,7 @@ export class HorseLogic {
       vi.isHiLo &&
       new Set(board.map((c) => (c.rank === 'A' ? 1 : RANK_VALUES[c.rank])).filter((r) => r <= 8))
         .size >= 3;
-    const calledThroughFlush40 =
+    const calledThrough40 =
       useV40 &&
       useV15 &&
       vi.isOmaha &&
@@ -10994,9 +11032,14 @@ export class HorseLogic {
       isRiver &&
       oppCount >= 2 &&
       calledBarrels40 >= 2 &&
-      [...liveCalledBarrels40.values()].filter((stages) => stages.size >= 2).length >= 2 &&
-      cat === 6 &&
-      (nuts15?.higherFlushRanks ?? 0) >= 2;
+      [...liveCalledBarrels40.values()].filter((stages) => stages.size >= 2).length >= 2;
+    const calledThroughFlush40 =
+      calledThrough40 && cat === 6 && (nuts15?.higherFlushRanks ?? 0) >= 2;
+    // The same two callers, and a straight on a board where a flush is
+    // possible: every flush beats it, so it is a hand to show down, not a
+    // third barrel. Hand 58796916 (PLO4, 2026-11-12) moved all in with the
+    // flopped straight when the third diamond came and was called by a flush.
+    const calledThroughStraight40 = calledThrough40 && cat === 5 && nuts15?.flushPossible === true;
     // V37: the covering stack near the bubble bluffs a notch more — the
     // covered field is folding hands it would call with anywhere else.
     if (!sat37.active) {
@@ -12027,6 +12070,10 @@ export class HorseLogic {
       }
       if (calledThroughFlush40) {
         if (tele15) noteFire('horse_continuation_omaha_called_through_flush_check');
+        return { action: 'check', thinkTime: 0 };
+      }
+      if (calledThroughStraight40) {
+        if (tele15) noteFire('horse_continuation_omaha_called_through_straight_check');
         return { action: 'check', thinkTime: 0 };
       }
       // A preflop pot raise can legally leave a remainder in PLO. When the
@@ -15007,7 +15054,7 @@ export class HorseLogic {
       if (opts.v87DeepDiveDiscipline !== false)
         noteHorseDeepDiveRule('nlh_turn_shade', shade87NlhTurnCommit > 0, shade87NlhTurnCommit > 0);
       if (shade87NlhTurnCommit > 0 && tele15) noteFire('v87_deep_dive_discipline');
-      const required =
+      const requiredAtFullPremium =
         potOdds +
         0.02 +
         dominationPenalty * 0.5 +
@@ -15019,6 +15066,36 @@ export class HorseLogic {
         shadeDeep86 +
         shade87Omaha +
         shade87NlhTurnCommit;
+      // PLO6-AUDIT-010: the premiums above are sized for stack-off calls. On
+      // a token price they shrink with the price (HorseTokenCallPrice.ts);
+      // Omaha high cash on one ordinary board only (no bomb pot, as V88
+      // above), and unchanged at a price of 0.15 or more.
+      const tokenPriced = tokenCallPriceApplies({
+        enabled: opts.tokenCallPrice !== false,
+        isOmaha: vi.isOmaha,
+        isHiLo: vi.isHiLo,
+        tournament: isTournamentMode(gs),
+        multiBoard: multiBoard36,
+        bombPot: gs.bombPot === true,
+      });
+      const required = tokenPriced
+        ? tokenCallRequiredEquity(potOdds, requiredAtFullPremium)
+        : requiredAtFullPremium;
+      // Under one percent of the pot on the river the sampled estimate cannot
+      // decide: the exact share of random hands hero beats, cut twentyfold
+      // for the bettor's strength, is compared with the price instead. A
+      // hand that beats almost nothing is not covered and keeps the bar.
+      if (
+        tokenPriced &&
+        isRiver &&
+        toCall > 0 &&
+        potOdds < TOKEN_CALL_COUNTED_PRICE &&
+        tokenCallIsCovered(
+          potOdds,
+          omahaRiverBeatProbability(player.cards, board, player.cards.length)
+        )
+      )
+        return { action: 'call', amount: toCall, thinkTime: 0 };
       // V66: the bet-raised one-pair class calls or folds at the shaded
       // price; it never jams over the raise and the 0.42 floor (which read
       // a 40bb call as cheap) does not apply to it. V67 does the same for

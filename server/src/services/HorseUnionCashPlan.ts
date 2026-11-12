@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { ploContinuationFor, type PloLightningDemand } from './PloLightningDemand.js';
-import { secondTablePicked, thirdTablePicked } from './HorseBehavior.js';
+import { secondTablePicked } from './HorseBehavior.js';
 import plan from './horseUnionCashPlan.json' with { type: 'json' };
 import { horseCashGameAllowed } from './HorseCashSchedule.js';
 
@@ -251,8 +251,16 @@ export function horseUnionCashTableAllowed(
   );
 }
 
-/** Secondary tables inherit their primary's admission policy. The existing
- * second-table pick admits one; its third-table subset admits two. Stable
+/** Secondary tables inherit their primary's admission policy.
+ *
+ * ZERO RESTRICTIONS ON THE GAMES THAT CAN BE OPEN (Dan 2026-11-11): every live
+ * or opening secondary table (feeder, Main 2 and up) of a game is admitted
+ * whenever its Main 1 is, Classic and Lightning alike; the second/third-table
+ * picks were the retired rake throttle and migration 20261112154904 removes
+ * every count cap from the tick. How many tables exist is the tick's OPEN rule
+ * (demand) alone. Only while the Lightning set is unknown (null) is the
+ * previous single pick-gated secondary kept, so an unread pool is never fed
+ * blind. Stable
  * main/feeder ordering prevents duplicate rows multiplying the allowance. */
 export function horseCashPlanSecondTables(
   tables: ReadonlyArray<CashPlanTable>,
@@ -279,39 +287,30 @@ export function horseCashPlanSecondTables(
   const out = new Set<string>();
   for (const [gameId, candidates] of chosen) {
     const primary = primaryByGame.get(gameId);
-    // Only while the game is picked for two tables (the tick's own rule,
-    // HorseBehavior.secondTablePicked); once it is not, the second table's
-    // horses leave through the rotator and must-move empties the rest.
+    if (!primary || !primaryAllowed(primary)) continue;
+    const known = lightningGames !== null;
+    // Keep established mains ahead of their feeder, with stable tie breaking.
+    candidates.sort(
+      (a, b) =>
+        Number(a.role !== 'main') - Number(b.role !== 'main') ||
+        Number(a.main_index ?? 0) - Number(b.main_index ?? 0) ||
+        String(a.id).localeCompare(String(b.id))
+    );
+    if (known) {
+      for (const table of candidates) out.add(String(table.id));
+      continue;
+    }
+    // Lightning set unread: only while the game is picked for a second table
+    // (HorseBehavior.secondTablePicked), the conservative pre-relaunch rule.
     if (
-      primary &&
       secondTablePicked(
         gameId,
         nowMs,
         Number(primary.big_blind) || null,
         typeof primary.game_variant === 'string' ? primary.game_variant : null
-      ) &&
-      primaryAllowed(primary)
-    ) {
-      const count =
-        lightningGames !== null &&
-        !lightningGames.has(gameId) &&
-        thirdTablePicked(
-          gameId,
-          nowMs,
-          Number(primary.big_blind) || null,
-          typeof primary.game_variant === 'string' ? primary.game_variant : null
-        )
-          ? 2
-          : 1;
-      // Keep established mains ahead of their feeder, with stable tie breaking.
-      candidates.sort(
-        (a, b) =>
-          Number(a.role !== 'main') - Number(b.role !== 'main') ||
-          Number(a.main_index ?? 0) - Number(b.main_index ?? 0) ||
-          String(a.id).localeCompare(String(b.id))
-      );
-      for (const table of candidates.slice(0, count)) out.add(String(table.id));
-    }
+      )
+    )
+      out.add(String(candidates[0].id));
   }
   return out;
 }

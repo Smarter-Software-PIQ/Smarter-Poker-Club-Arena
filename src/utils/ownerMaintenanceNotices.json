@@ -120,6 +120,13 @@
       "noticeAt": "2026-11-12T16:40:00Z",
       "notBefore": "2026-11-12T17:00:00Z",
       "notAfter": "2026-11-12T22:00:00Z"
+    },
+    {
+      "id": "2026-11-12-rebuy-invariant-db-2220z",
+      "kind": "database",
+      "noticeAt": "2026-11-12T22:00:00Z",
+      "notBefore": "2026-11-12T22:20:00Z",
+      "notAfter": "2026-11-13T02:00:00Z"
     }
   ]
 }

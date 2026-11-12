@@ -251,6 +251,6 @@ describe('several lists at once (owner 2026-11-07)', () => {
       body.match(/\.from\('([a-z_]+)'\)/g)?.every((m) => m.includes('cash_game_waitlist'))
     ).toBe(true);
     // The seats this cycle just took count as seated (horseTables).
-    expect(src).toMatch(/readIsCurrent,\s*horseTables\s*\);/);
+    expect(src).toMatch(/readIsCurrent,\s*horseTables,\s*book\s*\);/);
   });
 });

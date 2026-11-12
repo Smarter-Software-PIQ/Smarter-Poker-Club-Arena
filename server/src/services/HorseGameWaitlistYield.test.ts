@@ -29,6 +29,12 @@ import { planFloor } from './StableHandController.js';
 import { setMaintenanceFrozen } from '../maintenance/freezeState.js';
 import { MIDWAY_UNION_ID, JAQK_CLUB_ID } from './StableHand.js';
 
+/* These tests drive the real rotation for OTHER rules; the work schedule and
+   days off (owner 2026-11-12) are pinned on duty here and proven on their own
+   in HorseWorkSchedule.law.test.ts, so a fixture horse's real-clock hours do
+   not decide what these assert. */
+vi.mock('./HorseWorkSchedule.js', () => ({ offDutyReason: () => null, onDuty: () => true }));
+
 const NOW = Date.parse('2026-10-22T09:15:00Z');
 const LIGHTNING = 'aaaaaaaa-0000-4000-8000-000000000001';
 const MUSTMOVE = 'aaaaaaaa-0000-4000-8000-000000000002';

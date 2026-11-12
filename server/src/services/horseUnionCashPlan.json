@@ -117,7 +117,7 @@
     },
     {
       "id": "b52239dc-a29a-4959-a27e-6972a6d05584",
-      "name": "Classic FLH 1/2 blinds",
+      "name": "Classic FLH 2/4 (1/2 blinds)",
       "window": "always",
       "variant": "flh",
       "smallBlind": 1.0,
@@ -125,7 +125,7 @@
     },
     {
       "id": "a24ff583-304a-442d-b8f1-639b7b5a0887",
-      "name": "Classic FLO8 1/2 blinds",
+      "name": "Classic FLO8 2/4 (1/2 blinds)",
       "window": "always",
       "variant": "flo8",
       "smallBlind": 1.0,
@@ -170,88 +170,96 @@
       "variant": "flo8",
       "smallBlind": 0.25,
       "bigBlind": 0.5
+    },
+    {
+      "id": "009016ed-24cb-4eb7-a9e3-04590c67fcce",
+      "name": "Classic FLH .10/.25 blinds",
+      "window": "always",
+      "variant": "flh",
+      "smallBlind": 0.1,
+      "bigBlind": 0.25
+    },
+    {
+      "id": "20f1b6af-7046-4c48-a3cc-a05e7cbe34a0",
+      "name": "Classic FLO8 .10/.25 blinds",
+      "window": "always",
+      "variant": "flo8",
+      "smallBlind": 0.1,
+      "bigBlind": 0.25
+    },
+    {
+      "id": "3a02580d-92b4-4404-9d2d-d0b5f8b8031c",
+      "name": "Classic FLH 1/2 (.50/1 blinds)",
+      "window": "always",
+      "variant": "flh",
+      "smallBlind": 0.5,
+      "bigBlind": 1.0
+    },
+    {
+      "id": "4757f674-2492-4fb8-91a7-b1aa428d969d",
+      "name": "Classic FLO8 1/2 (.50/1 blinds)",
+      "window": "always",
+      "variant": "flo8",
+      "smallBlind": 0.5,
+      "bigBlind": 1.0
+    },
+    {
+      "id": "37ac7634-69dd-434c-b947-bfcf8941ecf4",
+      "name": "Classic NLH .05/.10",
+      "window": "always",
+      "variant": "nlh",
+      "smallBlind": 0.05,
+      "bigBlind": 0.1
+    },
+    {
+      "id": "e2952da8-26c5-4878-b066-65fbebd80381",
+      "name": "Classic PLO5 .50/1",
+      "window": "always",
+      "variant": "plo5",
+      "smallBlind": 0.5,
+      "bigBlind": 1.0
+    },
+    {
+      "id": "0914a283-1834-405a-9a2e-d20620e70333",
+      "name": "Classic PLO6 .50/1",
+      "window": "always",
+      "variant": "plo6",
+      "smallBlind": 0.5,
+      "bigBlind": 1.0
     }
   ],
   "windows": {
     "always": {
-      "regular": [
-        0,
-        24
-      ],
-      "weekend": [
-        0,
-        24
-      ]
+      "regular": [0, 24],
+      "weekend": [0, 24]
     },
     "day": {
-      "regular": [
-        8,
-        24
-      ],
-      "weekend": [
-        8,
-        24
-      ]
+      "regular": [8, 24],
+      "weekend": [8, 24]
     },
     "afternoon": {
-      "regular": [
-        12,
-        24
-      ],
-      "weekend": [
-        12,
-        24
-      ]
+      "regular": [12, 24],
+      "weekend": [12, 24]
     },
     "prime": {
-      "regular": [
-        18,
-        23
-      ],
-      "weekend": [
-        17,
-        24
-      ]
+      "regular": [18, 23],
+      "weekend": [17, 24]
     },
     "limit_low": {
-      "regular": [
-        18,
-        23
-      ],
-      "weekend": [
-        17,
-        19
-      ]
+      "regular": [18, 23],
+      "weekend": [17, 19]
     },
     "limit_mid": {
-      "regular": [
-        0,
-        0
-      ],
-      "weekend": [
-        19,
-        21
-      ]
+      "regular": [0, 0],
+      "weekend": [19, 21]
     },
     "limit_high": {
-      "regular": [
-        0,
-        0
-      ],
-      "weekend": [
-        21,
-        24
-      ]
+      "regular": [0, 0],
+      "weekend": [21, 24]
     },
     "nine_to_four": {
-      "regular": [
-        9,
-        4
-      ],
-      "weekend": [
-        9,
-        4
-      ]
+      "regular": [9, 4],
+      "weekend": [9, 4]
     }
   },
   "lightningHorseSeeded": [
