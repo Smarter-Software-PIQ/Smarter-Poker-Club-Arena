@@ -23,6 +23,8 @@ for row in json.loads((root/'tests/fixtures/dual-eco/owners-before.json').read_t
  sig='public.'+row['oid'];out.append('REVOKE ALL ON FUNCTION '+sig+' FROM PUBLIC,anon,authenticated,service_role;')
  if row['oid'].startswith('fn_union_issue'):out.append('GRANT EXECUTE ON FUNCTION '+sig+' TO authenticated,service_role;')
  elif not row['oid'].startswith('fn_union_settlement'):out.append('GRANT EXECUTE ON FUNCTION '+sig+' TO service_role;')
+for row in json.loads((root/'tests/fixtures/dual-eco/governance-before.json').read_text()):
+ out.append(row['definition']+';')
 Path(sys.argv[2]).write_text('\n'.join(out)+'\n')
 PY
 "${psql[@]}" -d original_dual_eco_native \
@@ -31,7 +33,11 @@ PY
  -f "$fixture/dual-eco-owners.sql" \
  -f "$root/tests/fixtures/dual-eco/invoice-before.sql" \
  -f "$root/tests/fixtures/dual-eco/board-before.sql" \
+ -f "$root/tests/fixtures/dual-eco/governance-bootstrap.sql" \
  -c 'REVOKE ALL ON FUNCTION ca_union_statement_board(uuid,date,integer) FROM PUBLIC; GRANT EXECUTE ON FUNCTION ca_union_statement_board(uuid,date,integer) TO authenticated,service_role; SET check_function_bodies=on;'
+# Fix only the detector's default observation time; explicit canonical week
+# arithmetic and original immutable component/invoice functions remain actual.
+"${psql[@]}" -d original_dual_eco_native -c "DO \$clock\$DECLARE s text;BEGIN s:=pg_get_functiondef('fn_union_week_start(timestamptz)'::regprocedure);IF position('DEFAULT now()'in s)=0 THEN RAISE EXCEPTION 'fixture clock anchor changed';END IF;EXECUTE replace(s,'DEFAULT now()','DEFAULT ''2026-11-02 08:00Z''::timestamptz');END\$clock\$;"
 # An already-recorded original scalar must abort the entire installer, never
 # reinterpret financial history. These are private synthetic rows only.
 "${psql[@]}" -d original_dual_eco_native -c "INSERT INTO union_eco_ledger(union_id,club_id,period_start,period_end,eco_amount)VALUES('fade0000-0000-0000-0000-000000000001',md5('native club')::uuid,'2026-10-26 07:00Z','2026-11-02 08:00Z',17)"
