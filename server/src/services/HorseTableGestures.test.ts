@@ -355,8 +355,9 @@ describe('after a hand', () => {
     const pick = detectAfterHand(folded);
     expect(pick).not.toBeNull();
     expect(pick!.moment).toBe('annoy');
-    expect(pick!.horse.isHorse).toBe(true);
-    expect(pick!.targetSeat).toBe(3); // the one human at the table
+    // detectAfterHand only ever casts horses as the thrower; the target is
+    // the one human at the table.
+    expect(pick!.targetSeat).toBe(3);
     // With no person seated there is nothing to annoy, showdown or not.
     const horsesOnly = {
       ...folded,

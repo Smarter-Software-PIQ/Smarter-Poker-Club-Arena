@@ -192,6 +192,11 @@ const REGISTER = {
       'PineappleDiscardJournalContext.test.ts retains the actual-controller mixed Horse/human forced-runout case (both discard, only the Horse gets a private receipt) and the human-context preparation control.',
     ].join('\n'),
   },
+  'server/src/services/HorseTableGestures.ts': {
+    allowed: 1,
+    kind: 'IDENTIFICATION',
+    why: 'The annoy needle picks its TARGET from the people at the table, on the owner\u2019s own words (Dan 2026-11-11: "OR JUST TO ANNOY A PLAYER" - the point is a person\u2019s reaction, and a needle thrown horse-to-horse at a railed table spends the throw budget on nobody). It identifies the audience, not a beneficiary: no horse is denied anything by not being pelted, horses remain full targets of the won/lost/all-in throws exactly like any player, and every horse is equally eligible to BE the thrower.',
+  },
   'server/src/services/HorseHandReview.ts': {
     allowed: 2,
     kind: 'IDENTIFICATION',

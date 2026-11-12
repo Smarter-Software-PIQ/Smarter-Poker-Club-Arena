@@ -323,8 +323,7 @@ export function detectAfterHand(input: TableTalkInput): GestureCandidate | null 
   // and a needle at an empty-but-railed table spends the budget on nobody.
   const humans = input.seated.filter((s) => !s.isHorse);
   if (humans.length > 0) {
-    for (const h of input.seated) {
-      if (!h.isHorse) continue;
+    for (const h of input.seated.filter((s) => s.isHorse)) {
       if (!rollsGesture('annoy', h.userId, input.table.tableId, input.handNumber, chance('annoy')))
         continue;
       const target =
