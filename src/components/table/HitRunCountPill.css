@@ -32,3 +32,14 @@
   color: #ff6b62;
   font-variant-numeric: tabular-nums;
 }
+
+/* Why the count is owed (owner 2026-11-11), on its own line under the label. */
+.hit-run-pill__reason {
+  flex-basis: 100%;
+  font-size: 0.72em;
+  opacity: 0.85;
+  text-align: center;
+}
+.hit-run-pill:has(.hit-run-pill__reason) {
+  flex-wrap: wrap;
+}

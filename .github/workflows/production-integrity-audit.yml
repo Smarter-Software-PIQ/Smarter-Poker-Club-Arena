@@ -41,7 +41,7 @@ jobs:
   scoped_billing_endpoints:
     name: Explicit billing endpoint dependency observation
     # Opt-in only. The existing scheduled audit never opens this transport.
-    if: github.event_name == 'repository_dispatch' && github.event.action == 'audit-production-integrity' && github.event.client_payload.billing_endpoint_observation != null
+    if: github.event_name == 'repository_dispatch' && github.event.action == 'audit-production-integrity' && github.event.client_payload.billing_endpoint_observation != null && (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 2
@@ -71,7 +71,7 @@ jobs:
   scoped_release_recovery:
     name: Explicit existing release recovery evidence
     # One fixed read of an exact completed release; never selected by schedule.
-    if: github.event_name == 'repository_dispatch' && github.event.action == 'audit-production-integrity' && github.event.client_payload.release_recovery_observation != null
+    if: github.event_name == 'repository_dispatch' && github.event.action == 'audit-production-integrity' && github.event.client_payload.release_recovery_observation != null && (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 4
@@ -105,7 +105,7 @@ jobs:
   scoped_operator_hold_image:
     name: Explicit private immutable engine image read
     # Never selected by the existing scheduled read-only audit.
-    if: github.event_name == 'repository_dispatch' && github.event.action == 'audit-production-integrity' && github.event.repository.private == true && github.event.client_payload.operator_hold_image != null
+    if: github.event_name == 'repository_dispatch' && github.event.action == 'audit-production-integrity' && github.event.repository.private == true && github.event.client_payload.operator_hold_image != null && (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 8
@@ -135,7 +135,7 @@ jobs:
   scoped_operator_hold_provenance:
     name: Explicit operator-hold runtime provenance
     # Deliberate read only; scheduled observations cannot open host transport.
-    if: github.event_name == 'repository_dispatch' && github.event.action == 'audit-production-integrity' && github.event.client_payload.operator_hold_provenance != null
+    if: github.event_name == 'repository_dispatch' && github.event.action == 'audit-production-integrity' && github.event.client_payload.operator_hold_provenance != null && (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 3
@@ -163,7 +163,7 @@ jobs:
   scoped_runtime_errors:
     name: Explicit scoped engine error observation
     # Separate finite read. Scheduled observations cannot open host transport.
-    if: github.event_name == 'repository_dispatch' && github.event.action == 'audit-production-integrity' && github.event.client_payload.tournament_log_observation != null
+    if: github.event_name == 'repository_dispatch' && github.event.action == 'audit-production-integrity' && github.event.client_payload.tournament_log_observation != null && (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 2
@@ -197,7 +197,7 @@ jobs:
     name: Explicit tournament runtime observation
     # Only a deliberate bounded request. The existing hourly observer never
     # invokes this job, and the request cannot choose a host or command.
-    if: github.event_name == 'repository_dispatch' && github.event.action == 'audit-production-integrity' && github.event.client_payload.tournament_diagnostic != null
+    if: github.event_name == 'repository_dispatch' && github.event.action == 'audit-production-integrity' && github.event.client_payload.tournament_diagnostic != null && (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 2
@@ -367,7 +367,7 @@ jobs:
   # carries every failure or unknown into the native Actions conclusion; this
   # audit has no issue-writing or repair side channel.
   live_drift:
-    if: github.event.client_payload.tournament_log_observation == null && github.event.client_payload.release_recovery_observation == null
+    if: github.event.client_payload.tournament_log_observation == null && github.event.client_payload.release_recovery_observation == null && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Live drift and BBJ rebuild coverage remain clean
     runs-on: ubuntu-latest
     environment: ci-main
@@ -489,7 +489,7 @@ jobs:
   # DATABASE_URL job in this workflow already lives.
   # ─────────────────────────────────────────────────────────────────────────────
   engine_deploy_starvation:
-    if: github.event.client_payload.tournament_log_observation == null && github.event.client_payload.release_recovery_observation == null
+    if: github.event.client_payload.tournament_log_observation == null && github.event.client_payload.release_recovery_observation == null && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: The engine pipeline is not starving
     runs-on: ubuntu-latest
     environment: ci-main
@@ -518,7 +518,7 @@ jobs:
   # and fails closed when the database, credential, or pg runtime is missing;
   # an unavailable live answer must never become a green SKIP.
   chip_conservation:
-    if: github.event.client_payload.tournament_log_observation == null && github.event.client_payload.release_recovery_observation == null
+    if: github.event.client_payload.tournament_log_observation == null && github.event.client_payload.release_recovery_observation == null && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Live chip and diamond supply still conserves
     runs-on: ubuntu-latest
     environment: ci-main
@@ -719,7 +719,7 @@ jobs:
   # ubuntu-latest for the same reason as the jobs above - the alarm must not
   # share a failure domain with the boxes it watches.
   ddl_reload_storms:
-    if: github.event.client_payload.tournament_log_observation == null && github.event.client_payload.release_recovery_observation == null
+    if: github.event.client_payload.tournament_log_observation == null && github.event.client_payload.release_recovery_observation == null && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: No schema-reload storm is stalling the fleet
     runs-on: ubuntu-latest
     environment: ci-main
@@ -841,7 +841,7 @@ jobs:
   # "COULD NOT TELL" and is never folded into "everything is live" (10.86).
   # ───────────────────────────────────────────────────────────────────────────
   migrations_are_live:
-    if: github.event.client_payload.tournament_log_observation == null && github.event.client_payload.release_recovery_observation == null
+    if: github.event.client_payload.tournament_log_observation == null && github.event.client_payload.release_recovery_observation == null && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Every merged migration is live
     runs-on: ubuntu-latest
     environment: ci-main

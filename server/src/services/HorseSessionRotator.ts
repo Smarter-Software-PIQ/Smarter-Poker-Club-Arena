@@ -3,6 +3,8 @@ import { PLO_LIGHTNING_GAME, ploWindDownFor } from './PloLightningDemand.js';
 import { horseCashGameAllowed } from './HorseCashSchedule.js';
 import {
   horseCashPlanPrimaryTables,
+  humanDepartureDwellMinutes,
+  minutesSinceLastPlayingHumanFor,
   horseCashPlanSecondTables,
   horseCashPlanTablesAwaitingBreak,
   horseUnionCashTableAllowed,
@@ -548,7 +550,7 @@ export class HorseSessionRotator {
           // table's own limits, which price the reload, the swing and the
           // session P&L - `bb * 100` is not the buy-in at a 0.50 game whose
           // minimum is 200.
-          'table_id, user_id, seat_number, stack, joined_at, club_id, leave_pending, is_sitting_out, auto_rebuy, tables!table_seats_table_id_fkey!inner(id, small_blind, big_blind, game_variant, tournament_id, is_spins, status, settings, cluster_id, role, main_index, lifecycle, created_at, max_players, min_buy_in, max_buy_in, club_id, union_id, arena:clubs!fk_tables_club_id(id, asset, is_platform, union_id))'
+          'table_id, user_id, seat_number, stack, joined_at, club_id, leave_pending, is_sitting_out, auto_rebuy, tables!table_seats_table_id_fkey!inner(id, small_blind, big_blind, game_variant, tournament_id, is_spins, status, settings, cluster_id, role, main_index, lifecycle, last_human_seen_at, created_at, max_players, min_buy_in, max_buy_in, club_id, union_id, arena:clubs!fk_tables_club_id(id, asset, is_platform, union_id))'
         )
         .is('left_at', null)
         .order('table_id', { ascending: true })
@@ -1465,8 +1467,14 @@ export class HorseSessionRotator {
           personaArch === 'lag_shark' ||
           personaArch === 'tag_crusher' ||
           personaArch === 'tricky_trap';
+        const seatKey = `${tableId}:${seat.user_id}`;
+        const isDiamondTable =
+          t?.arena?.asset === 'diamonds' || t?.is_diamond === true || diamondSeatKeys.has(seatKey);
+        const stakeDollarBb = isDiamondTable ? bb / 100 : bb;
         const effectiveTopUpFrac =
-          (isNlhCash || isPloCash) && bb >= 5 && activeDeepStyle ? 0.8 : TOPUP_STACK_FRAC;
+          (isNlhCash || isPloCash) && stakeDollarBb >= 5 && activeDeepStyle
+            ? 0.8
+            : TOPUP_STACK_FRAC;
         if (
           minutes >= TOPUP_MIN_MINUTES &&
           stackNow > 0 &&
@@ -1492,11 +1500,6 @@ export class HorseSessionRotator {
            * not reload at all — it leaves, through the hazard below.
            */
           const roll = rolls.get(`${(seat as { club_id?: string }).club_id ?? ''}:${seat.user_id}`);
-          const seatKey = `${tableId}:${seat.user_id}`;
-          const isDiamondTable =
-            t?.arena?.asset === 'diamonds' ||
-            t?.is_diamond === true ||
-            diamondSeatKeys.has(seatKey);
           const seatInvested = bankrollLedgerKnown
             ? isDiamondTable
               ? investedBySeat.get(seatKey)
@@ -1530,7 +1533,10 @@ export class HorseSessionRotator {
             if (isDiamondTable) amount = Math.floor(amount);
           }
           const partialHighStakeAllowed =
-            (isNlhCash || isPloCash) && bb >= 5 && activeDeepStyle && amount >= buyIn * 0.5;
+            (isNlhCash || isPloCash) &&
+            stakeDollarBb >= 5 &&
+            activeDeepStyle &&
+            amount >= buyIn * 0.5;
           if (!partialHighStakeAllowed) {
             if (amount < desiredTopUp) amount = 0;
           }
@@ -1881,6 +1887,8 @@ export class HorseSessionRotator {
         tableAgeMinutes: (now - new Date(t.created_at ?? 0).getTime()) / 60000,
         minutesSeated,
         minutesSinceLastHand: null,
+        minutesSinceHumanLeft: minutesSinceLastPlayingHumanFor(t ?? {}, now),
+        humanLeftDwellMinutes: humanDepartureDwellMinutes(tableId),
       });
       if (pre !== 'stand') continue;
       candidates.push({ tableId, seat, t, minutesSeated });
@@ -1940,6 +1948,8 @@ export class HorseSessionRotator {
         tableAgeMinutes: (now - new Date(c.t.created_at ?? 0).getTime()) / 60000,
         minutesSeated: c.minutesSeated,
         minutesSinceLastHand: last === undefined ? null : (now - last) / 60000,
+        minutesSinceHumanLeft: minutesSinceLastPlayingHumanFor(c.t ?? {}, now),
+        humanLeftDwellMinutes: humanDepartureDwellMinutes(c.tableId),
       });
       if (verdict !== 'stand') continue;
       const engine = this.getEngine(c.tableId);

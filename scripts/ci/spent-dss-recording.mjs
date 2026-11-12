@@ -8,9 +8,13 @@ export const DSS_READER_SHA256 = 'cfd72fac9f76598ddebe0b4d4e765455970677ee58fda7
 // Current reader workflow changes only the verified World Hub token owner after
 // Club Arena transferred, then (2026-11-11) adds `environment: ci-main` to its one
 // job so its secrets move out of repository scope ahead of the merge queue;
-// retirement proof, historical bytes and grants are unchanged.
+// retirement proof, historical bytes and grants are unchanged. Later the same day
+// its job's only change is an if: refusing a github-actions[bot] dispatch
+// (tests/unit/aJobTokenCannotStartTrustedWork.law.test.ts). The review that
+// followed compares both actors, refuses a bot re-run, and moves the job to the
+// main-only github-app-main environment, the only one holding the App key.
 export const DSS_WORKFLOW_SHA256 =
-  '99daa2061c2aa8aeaf042b2536c4feb4df2875e5e2f38dfbeb9910df76ea66c6';
+  'c1af291b8305366b7abe87dc678216c8b372b7de8b8b9169822bb96bfdfe8741';
 export const DSS_HISTORY_VERSION = '20261012040553';
 export const DSS_HISTORY_FILE =
   'supabase/migrations/20261012040553_ops_dss_joins_midway_union_at_noon_20261012.sql';

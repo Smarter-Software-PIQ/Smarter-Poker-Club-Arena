@@ -1,3 +1,7 @@
+import {
+  startLightningBankTheWin,
+  stopLightningBankTheWin,
+} from './services/LightningBankTheWinDoor.js';
 import { subscribePlayerSessionRevocations } from './services/PlayerSessionAccess.js';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -302,6 +306,9 @@ async function startLeaderOwnedServices(): Promise<void> {
   // the fleet manager reseeds fresh horses within its 30s cycle.
   horseSessionRotator = new HorseSessionRotator((tableId) => gameServer.getTableEngine(tableId));
   horseSessionRotator.start();
+  /* BANK THE WIN ON LIGHTNING (owner 2026-11-10): a horse that books its win
+     between pool hands stands up through its anchor seat's ordinary Leave door. */
+  startLightningBankTheWin((tableId) => gameServer.getTableEngine(tableId));
   /* OPERATION STABLE HAND (Dan 2026-09-04): the floor planner's FIRST live
      order, and for now its only one. It stands a horse up when a human is on
      that table's waitlist, through the same hand-boundary-safe leaveTable()
@@ -331,6 +338,7 @@ function stopLeaderOwnedServices(): Promise<void> {
   const stopCalls: Array<[service: string, stop: () => Promise<unknown> | unknown]> = [
     ['HorseOverlayGuard', () => horseOverlayGuard?.stop()],
     ['HorseSessionRotator', () => horseSessionRotator?.stop()],
+    ['LightningBankTheWin', stopLightningBankTheWin],
     ['StableHandExecutor', () => stableHandExecutor?.stop()],
     ['HorseDiamondSpins', stopHorseDiamondSpins],
     ['HorseSelfTuner', stopHorseSelfTuner],

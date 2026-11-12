@@ -139,6 +139,11 @@ const REGISTER = {
       'None of these branches withholds anything a human receives. (1) and (2) were added 2026-08-28 with the busted-seat release (Dan: "make sure that the user gets removed from the table as soon as they have no chips"), which until then existed for horses and not for humans at all.',
     ].join('\n'),
   },
+  'server/src/lightning/LightningBankTheWin.ts': {
+    allowed: 1,
+    kind: 'IDENTIFICATION',
+    why: "Bank the win on Lightning (owner 2026-11-10): picks the horses whose committed pool hand put them at their 4-6x line, one orbit after a big pot and due for the big blind, and stands them up through the ordinary Leave door a person uses (hit-and-run included). The same fleet steering the Classic settlement step does; it denies a horse nothing.",
+  },
   'server/src/engine/ServerTableEngineSettlement.ts': {
     allowed: 2,
     kind: 'IDENTIFICATION',
@@ -186,6 +191,11 @@ const REGISTER = {
       'The third predicate, in pineappleDiscardJournalContext, identifies the matching seated Horse before attaching private Horse decision/execution evidence. A human forced-runout discard still uses the same request and controller commit with null Horse journal context; observePineappleDiscardAcceptance then skips only Horse attribution, not the discard. This prevents human actions from being mislabeled as Horse evidence and changes no player entitlement or outcome.',
       'PineappleDiscardJournalContext.test.ts retains the actual-controller mixed Horse/human forced-runout case (both discard, only the Horse gets a private receipt) and the human-context preparation control.',
     ].join('\n'),
+  },
+  'server/src/services/HorseTableGestures.ts': {
+    allowed: 1,
+    kind: 'IDENTIFICATION',
+    why: 'The annoy needle picks its TARGET from the people at the table, on the owner\u2019s own words (Dan 2026-11-11: "OR JUST TO ANNOY A PLAYER" - the point is a person\u2019s reaction, and a needle thrown horse-to-horse at a railed table spends the throw budget on nobody). It identifies the audience, not a beneficiary: no horse is denied anything by not being pelted, horses remain full targets of the won/lost/all-in throws exactly like any player, and every horse is equally eligible to BE the thrower.',
   },
   'server/src/services/HorseHandReview.ts': {
     allowed: 2,

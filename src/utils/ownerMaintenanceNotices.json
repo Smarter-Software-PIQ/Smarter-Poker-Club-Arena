@@ -85,6 +85,41 @@
       "noticeAt": "2026-11-11T19:10:00Z",
       "notBefore": "2026-11-11T19:30:00Z",
       "notAfter": "2026-11-11T22:30:00Z"
+    },
+    {
+      "id": "2026-11-12-horse-corrections-10525-engine-0030z",
+      "kind": "engine",
+      "noticeAt": "2026-11-12T00:10:00Z",
+      "notBefore": "2026-11-12T00:30:00Z",
+      "notAfter": "2026-11-12T05:30:00Z"
+    },
+    {
+      "id": "2026-11-12-horse-corrections-engine-0700z",
+      "kind": "engine",
+      "noticeAt": "2026-11-12T06:40:00Z",
+      "notBefore": "2026-11-12T07:00:00Z",
+      "notAfter": "2026-11-12T09:15:00Z"
+    },
+    {
+      "id": "2026-11-12-missed-engine-db-bank-win",
+      "kind": "database",
+      "noticeAt": "2026-11-12T15:15:00Z",
+      "notBefore": "2026-11-12T15:35:00Z",
+      "notAfter": "2026-11-12T16:20:00Z"
+    },
+    {
+      "id": "2026-11-12-missed-engine-db-rebuy",
+      "kind": "database",
+      "noticeAt": "2026-11-12T16:15:00Z",
+      "notBefore": "2026-11-12T16:35:00Z",
+      "notAfter": "2026-11-12T17:20:00Z"
+    },
+    {
+      "id": "2026-11-12-complete-missed-engine-1700z",
+      "kind": "engine",
+      "noticeAt": "2026-11-12T16:40:00Z",
+      "notBefore": "2026-11-12T17:00:00Z",
+      "notAfter": "2026-11-12T22:00:00Z"
     }
   ]
 }

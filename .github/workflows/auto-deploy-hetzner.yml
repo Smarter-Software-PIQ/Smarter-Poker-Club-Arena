@@ -22,7 +22,7 @@ concurrency:
 jobs:
   observe-private-horse-fleet:
     name: Observe One Private Natural Horse Cohort
-    if: github.event.action == 'observe-club-arena-horse-fleet'
+    if: github.event.action == 'observe-club-arena-horse-fleet' && (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     # At most sixteen 115-second read-only partitions plus setup and cleanup.
@@ -120,7 +120,7 @@ jobs:
 
   withdraw-waiting-release:
     name: Withdraw One Exact Waiting Original Transaction
-    if: github.event.action == 'withdraw-club-arena-engine'
+    if: github.event.action == 'withdraw-club-arena-engine' && (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     concurrency:
@@ -289,6 +289,7 @@ jobs:
           echo "rollback_image_id=$(jq -er .rollbackImageId <<< "$receipt")" >> "$GITHUB_OUTPUT"
 
   cutover-spectator:
+    if: ((github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') || (github.event_name == 'repository_dispatch' && github.event.action == 'deploy-club-arena-engine')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Observe one authenticated spectator across replacement
     needs: preflight
     continue-on-error: true
@@ -378,6 +379,7 @@ jobs:
           if-no-files-found: error
 
   engine-doors:
+    if: ((github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') || (github.event_name == 'repository_dispatch' && github.event.action == 'deploy-club-arena-engine')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Prove The Exact Engine Has Every Production Door
     needs: preflight
     runs-on: ubuntu-latest
@@ -425,6 +427,7 @@ jobs:
           node scripts/ci/check-engine-doors-exist.mjs
 
   deploy:
+    if: ((github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') || (github.event_name == 'repository_dispatch' && github.event.action == 'deploy-club-arena-engine')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Publish Through Hetzner Club Arena
     needs: [preflight, engine-doors]
     runs-on: ubuntu-latest
@@ -1119,7 +1122,7 @@ jobs:
   record-receipt:
     name: Record The Append-Only Engine Release Receipt
     needs: [preflight, engine-doors, deploy]
-    if: always() && needs.preflight.result == 'success'
+    if: always() && needs.preflight.result == 'success' && ((github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') || (github.event_name == 'repository_dispatch' && github.event.action == 'deploy-club-arena-engine')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 4
@@ -1249,14 +1252,44 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   certify-production:
+    if: "!(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
     name: Dispatch Exact Cross-Artifact Production Certification
     needs: [preflight, deploy, record-receipt]
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     permissions:
       actions: read
       contents: write
     steps:
+      # The receivers (post-deploy-e2e.yml, backup-engine.yml) honour this
+      # job-token dispatch only when it is the exact intent recorded here:
+      # scripts/ci/dispatch-intent.mjs, operation engine-certification.
+      - name: Record the exact certification intent before sending it
+        id: intent
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ENGINE_SHA: ${{ needs.preflight.outputs.target_sha }}
+          RELEASE_RESULT: ${{ needs.deploy.outputs.release_result }}
+          GAMEPLAY_RECEIPT: ${{ needs.deploy.outputs.gameplay_receipt }}
+        run: |
+          set -euo pipefail
+          [[ "$ENGINE_SHA" =~ ^[0-9a-f]{40}$ ]] \
+            || { echo '::error::The sealed engine release did not expose one full lowercase SHA.'; exit 1; }
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          ARGS=(--input "engine_sha=$ENGINE_SHA")
+          if [ "$RELEASE_RESULT" = sealed ]; then
+            ARGS+=(--input "release_run_key=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --input "gameplay_receipt=$GAMEPLAY_RECEIPT")
+          fi
+          node "$RUNNER_TEMP/dispatch-intent.mjs" write --operation engine-certification --dir "$RUNNER_TEMP/dispatch-intents" "${ARGS[@]}" > "$RUNNER_TEMP/certification-intent.json"
+          jq -c .body "$RUNNER_TEMP/certification-intent.json" > "$RUNNER_TEMP/certification-dispatch.json"
+          echo "nonce=$(jq -r .nonce "$RUNNER_TEMP/certification-intent.json")" >> "$GITHUB_OUTPUT"
+      - name: Publish the intent on this exact run attempt
+        uses: actions/upload-artifact@v4
+        with:
+          name: dispatch-intents-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/dispatch-intents
+          if-no-files-found: error
+          retention-days: 7
       - name: Dispatch and prove the exact post-deploy E2E receiver
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1264,25 +1297,23 @@ jobs:
           RELEASE_RESULT: ${{ needs.deploy.outputs.release_result }}
           GAMEPLAY_RECEIPT: ${{ needs.deploy.outputs.gameplay_receipt }}
           REPO: ${{ github.repository }}
+          INTENT_NONCE: ${{ steps.intent.outputs.nonce }}
         run: |
           set -euo pipefail
           [[ "$ENGINE_SHA" =~ ^[0-9a-f]{40}$ ]] \
             || { echo '::error::The sealed engine release did not expose one full lowercase SHA.'; exit 1; }
+          [[ "$INTENT_NONCE" =~ ^[0-9a-f]{32}$ ]] || { echo '::error::No recorded certification intent.'; exit 1; }
+          jq -e --arg sha "$ENGINE_SHA" '.event_type == "run-post-deploy-e2e" and .client_payload.engine_sha == $sha' \
+            "$RUNNER_TEMP/certification-dispatch.json" >/dev/null
           SENT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          GAMEPLAY_ARGS=()
-          if [ "$RELEASE_RESULT" = sealed ]; then
-            GAMEPLAY_ARGS=(-f "client_payload[release_run_key]=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" -f "client_payload[gameplay_receipt]=$GAMEPLAY_RECEIPT")
-          fi
-          gh api --method POST "repos/$REPO/dispatches" \
-            -f event_type=run-post-deploy-e2e \
-            -F "client_payload[engine_sha]=$ENGINE_SHA" "${GAMEPLAY_ARGS[@]}"
+          gh api --method POST "repos/$REPO/dispatches" --input "$RUNNER_TEMP/certification-dispatch.json"
           echo "Production E2E dispatch accepted for exact engine component $ENGINE_SHA."
 
           RECEIVER_ID=''
           for _ in $(seq 1 12); do
             RECEIVER_ID="$(gh api \
               "repos/$REPO/actions/workflows/post-deploy-e2e.yml/runs?event=repository_dispatch&per_page=30" \
-              --jq "[.workflow_runs[] | select(.display_title == \"Post-Deploy E2E $ENGINE_SHA\" and .created_at >= \"$SENT_AT\")][0].id // empty")"
+              --jq "[.workflow_runs[] | select(.display_title == \"Post-Deploy E2E $ENGINE_SHA $INTENT_NONCE\" and .created_at >= \"$SENT_AT\")][0].id // empty")"
             [ -n "$RECEIVER_ID" ] && break
             sleep 5
           done

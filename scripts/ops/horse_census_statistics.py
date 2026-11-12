@@ -192,6 +192,7 @@ def compute_ratio_cluster_stats(
             'icc_anova': None,
             'icc_kish_implied': None,
             'note': 'single_cluster_variance_undefined',
+            'cluster_precision': 'undefined_single_cluster',
         }
 
     sum_u2 = math.fsum((S_g - mu_hat * d_g) ** 2 for S_g, d_g in zip(S_list, d_list))
@@ -260,6 +261,8 @@ def compute_ratio_cluster_stats(
         'n_eff': round(n_eff, 2) if n_eff is not None else None,
         'icc_anova': round(icc_anova, 5) if icc_anova is not None else None,
         'icc_kish_implied': round(icc_kish, 5) if icc_kish is not None else None,
+        # Two clusters give one degree of freedom: the interval describes the two clusters, it does not estimate precision.
+        'cluster_precision': 'descriptive_only_two_clusters' if G == 2 else 'estimated',
         '_var_lz_raw': var_lz,
     }
 

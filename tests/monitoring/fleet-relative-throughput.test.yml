@@ -1,288 +1,730 @@
 {
-  "rule_files": [
-    "../../infra/monitoring/alert-rules.yml"
-  ],
-  "evaluation_interval": "5m",
-  "tests": [
-    {
-      "name": "A floor that falls to a tenth of its week fires, with only four days retained",
-      "interval": "1m",
-      "input_series": [
-        {
-          "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
-          "values": "0+600x5760 3456060+60x179"
-        },
-        {
-          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
-          "values": "0+0x5940"
-        }
-      ],
-      "promql_expr_test": [
-        {
-          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
-          "eval_time": "5755m",
-          "exp_samples": []
-        },
-        {
-          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
-          "eval_time": "5930m",
-          "exp_samples": [
+  'rule_files': ['../../infra/monitoring/alert-rules.yml'],
+  'evaluation_interval': '5m',
+  'tests':
+    [
+      {
+        'name': 'A floor that falls to a tenth of its week fires, with only four days retained',
+        'interval': '1m',
+        'input_series':
+          [
             {
-              "labels": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\",component=\"club-arena-engine\",page=\"sms\",severity=\"critical\"}",
-              "value": 1
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "name": "Exactly at the 2026-10-13 stall's first hour (0.33 of the week) it fires",
-      "interval": "1m",
-      "input_series": [
-        {
-          "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
-          "values": "0+600x5760 3456198+198x179"
-        },
-        {
-          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
-          "values": "0+0x5940"
-        }
-      ],
-      "promql_expr_test": [
-        {
-          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
-          "eval_time": "5755m",
-          "exp_samples": []
-        },
-        {
-          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
-          "eval_time": "5930m",
-          "exp_samples": [
+              'series': 'poker_lightning_hands_total{outcome="settled",job="engine_game_server",instance="engine"}',
+              'values': '0+600x5760 3456060+60x179',
+            },
             {
-              "labels": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\",component=\"club-arena-engine\",page=\"sms\",severity=\"critical\"}",
-              "value": 1
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "name": "Sixty per cent of the week is a quiet hour, not a stall (healthy min was 0.79)",
-      "interval": "1m",
-      "input_series": [
-        {
-          "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
-          "values": "0+600x5760 3456360+360x179"
-        },
-        {
-          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
-          "values": "0+0x5940"
-        }
-      ],
-      "promql_expr_test": [
-        {
-          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
-          "eval_time": "5755m",
-          "exp_samples": []
-        },
-        {
-          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
-          "eval_time": "5930m",
-          "exp_samples": []
-        }
-      ]
-    },
-    {
-      "name": "Fewer than three days of history is no baseline, and it stays silent",
-      "interval": "1m",
-      "input_series": [
-        {
-          "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
-          "values": "0+600x2880 1728060+60x179"
-        },
-        {
-          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
-          "values": "0+0x3060"
-        }
-      ],
-      "promql_expr_test": [
-        {
-          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
-          "eval_time": "2875m",
-          "exp_samples": []
-        },
-        {
-          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
-          "eval_time": "3050m",
-          "exp_samples": []
-        }
-      ]
-    },
-    {
-      "name": "A week under 0.5 Lightning hands/s is too small to compare against",
-      "interval": "1m",
-      "input_series": [
-        {
-          "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
-          "values": "0+18x5760 103682+2x179"
-        },
-        {
-          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
-          "values": "0+0x5940"
-        }
-      ],
-      "promql_expr_test": [
-        {
-          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
-          "eval_time": "5755m",
-          "exp_samples": []
-        },
-        {
-          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
-          "eval_time": "5930m",
-          "exp_samples": []
-        }
-      ]
-    },
-    {
-      "name": "Inside the break guard it is silent",
-      "interval": "1m",
-      "input_series": [
-        {
-          "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
-          "values": "0+600x5760 3456060+60x179"
-        },
-        {
-          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
-          "values": "1+0x5940"
-        }
-      ],
-      "promql_expr_test": [
-        {
-          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
-          "eval_time": "5755m",
-          "exp_samples": []
-        },
-        {
-          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
-          "eval_time": "5930m",
-          "exp_samples": []
-        }
-      ]
-    },
-    {
-      "name": "It waits its 30 minutes before firing",
-      "interval": "1m",
-      "input_series": [
-        {
-          "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
-          "values": "0+600x5760 3456060+60x179"
-        },
-        {
-          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
-          "values": "0+0x5940"
-        }
-      ],
-      "promql_expr_test": [
-        {
-          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
-          "eval_time": "5785m",
-          "exp_samples": []
-        }
-      ]
-    },
-    {
-      "name": "Production 2026-11-11 14:55Z: tournament hands fall 90% under the seat-first ladder while Lightning deals as usual, and it is silent",
-      "interval": "1m",
-      "input_series": [
-        {
-          "series": "poker_hands_dealt_total{job=\"engine_game_server\",instance=\"engine\"}",
-          "values": "0+600x5760 3456060+60x179"
-        },
-        {
-          "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
-          "values": "0+108x5940"
-        },
-        {
-          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
-          "values": "0+0x5940"
-        }
-      ],
-      "promql_expr_test": [
-        {
-          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
-          "eval_time": "5930m",
-          "exp_samples": []
-        }
-      ]
-    },
-    {
-      "name": "A Classic cash collapse that halves ALL cash fires even while Lightning holds",
-      "interval": "1m",
-      "input_series": [
-        {
-          "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
-          "values": "0+60x5940"
-        },
-        {
-          "series": "poker_hands_fleet_total{format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
-          "values": "0+540x5760 3110400+0x179"
-        },
-        {
-          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
-          "values": "0+0x5940"
-        }
-      ],
-      "promql_expr_test": [
-        {
-          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
-          "eval_time": "5755m",
-          "exp_samples": []
-        },
-        {
-          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
-          "eval_time": "5930m",
-          "exp_samples": [
+              'series': 'poker_maintenance_break_active{job="engine_game_server",instance="engine"}',
+              'values': '0+0x5940',
+            },
+            { 'series': 'poker_lightning_admission_policy_fingerprint', 'values': '1+0x12000' },
+            { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x12000' },
+            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x12000' },
+          ],
+        'promql_expr_test':
+          [
             {
-              "labels": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\",component=\"club-arena-engine\",page=\"sms\",severity=\"critical\"}",
-              "value": 1
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "name": "Tournament table hands are not cash: a tournament collapse with cash flat is silent",
-      "interval": "1m",
-      "input_series": [
-        {
-          "series": "poker_hands_dealt_total{job=\"engine_game_server\",instance=\"engine\"}",
-          "values": "0+600x5760 3456060+60x179"
-        },
-        {
-          "series": "poker_hands_fleet_total{format=\"mtt\",job=\"engine_game_server\",instance=\"engine\"}",
-          "values": "0+590x5760 3398400+50x179"
-        },
-        {
-          "series": "poker_hands_fleet_total{format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
-          "values": "0+10x5940"
-        },
-        {
-          "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
-          "values": "0+100x5940"
-        },
-        {
-          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
-          "values": "0+0x5940"
-        }
-      ],
-      "promql_expr_test": [
-        {
-          "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
-          "eval_time": "5930m",
-          "exp_samples": []
-        }
-      ]
-    }
-  ]
+              'expr': 'ALERTS{alertname="HorseFleetThroughputRelativeDrop",alertstate="firing"}',
+              'eval_time': '5755m',
+              'exp_samples': [],
+            },
+            {
+              'expr': 'ALERTS{alertname="HorseFleetThroughputRelativeDrop",alertstate="firing"}',
+              'eval_time': '5930m',
+              'exp_samples':
+                [
+                  {
+                    'labels': 'ALERTS{alertname="HorseFleetThroughputRelativeDrop",alertstate="firing",component="club-arena-engine",page="sms",severity="critical"}',
+                    'value': 1,
+                  },
+                ],
+            },
+          ],
+      },
+      {
+        'name': "Exactly at the 2026-10-13 stall's first hour (0.33 of the week) it fires",
+        'interval': '1m',
+        'input_series':
+          [
+            {
+              'series': 'poker_lightning_hands_total{outcome="settled",job="engine_game_server",instance="engine"}',
+              'values': '0+600x5760 3456198+198x179',
+            },
+            {
+              'series': 'poker_maintenance_break_active{job="engine_game_server",instance="engine"}',
+              'values': '0+0x5940',
+            },
+            { 'series': 'poker_lightning_admission_policy_fingerprint', 'values': '1+0x12000' },
+            { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x12000' },
+            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x12000' },
+          ],
+        'promql_expr_test':
+          [
+            {
+              'expr': 'ALERTS{alertname="HorseFleetThroughputRelativeDrop",alertstate="firing"}',
+              'eval_time': '5755m',
+              'exp_samples': [],
+            },
+            {
+              'expr': 'ALERTS{alertname="HorseFleetThroughputRelativeDrop",alertstate="firing"}',
+              'eval_time': '5930m',
+              'exp_samples':
+                [
+                  {
+                    'labels': 'ALERTS{alertname="HorseFleetThroughputRelativeDrop",alertstate="firing",component="club-arena-engine",page="sms",severity="critical"}',
+                    'value': 1,
+                  },
+                ],
+            },
+          ],
+      },
+      {
+        'name': 'Sixty per cent of the week is a quiet hour, not a stall (healthy min was 0.79)',
+        'interval': '1m',
+        'input_series':
+          [
+            {
+              'series': 'poker_lightning_hands_total{outcome="settled",job="engine_game_server",instance="engine"}',
+              'values': '0+600x5760 3456360+360x179',
+            },
+            {
+              'series': 'poker_maintenance_break_active{job="engine_game_server",instance="engine"}',
+              'values': '0+0x5940',
+            },
+            { 'series': 'poker_lightning_admission_policy_fingerprint', 'values': '1+0x12000' },
+            { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x12000' },
+            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x12000' },
+          ],
+        'promql_expr_test':
+          [
+            {
+              'expr': 'ALERTS{alertname="HorseFleetThroughputRelativeDrop",alertstate="firing"}',
+              'eval_time': '5755m',
+              'exp_samples': [],
+            },
+            {
+              'expr': 'ALERTS{alertname="HorseFleetThroughputRelativeDrop",alertstate="firing"}',
+              'eval_time': '5930m',
+              'exp_samples': [],
+            },
+          ],
+      },
+      {
+        'name': 'Fewer than three days of history is no baseline, and it stays silent',
+        'interval': '1m',
+        'input_series':
+          [
+            {
+              'series': 'poker_lightning_hands_total{outcome="settled",job="engine_game_server",instance="engine"}',
+              'values': '0+600x2880 1728060+60x179',
+            },
+            {
+              'series': 'poker_maintenance_break_active{job="engine_game_server",instance="engine"}',
+              'values': '0+0x3060',
+            },
+            { 'series': 'poker_lightning_admission_policy_fingerprint', 'values': '1+0x12000' },
+            { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x12000' },
+            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x12000' },
+          ],
+        'promql_expr_test':
+          [
+            {
+              'expr': 'ALERTS{alertname="HorseFleetThroughputRelativeDrop",alertstate="firing"}',
+              'eval_time': '2875m',
+              'exp_samples': [],
+            },
+            {
+              'expr': 'ALERTS{alertname="HorseFleetThroughputRelativeDrop",alertstate="firing"}',
+              'eval_time': '3050m',
+              'exp_samples': [],
+            },
+          ],
+      },
+      {
+        'name': 'A week under 0.5 Lightning hands/s is too small to compare against',
+        'interval': '1m',
+        'input_series':
+          [
+            {
+              'series': 'poker_lightning_hands_total{outcome="settled",job="engine_game_server",instance="engine"}',
+              'values': '0+18x5760 103682+2x179',
+            },
+            {
+              'series': 'poker_maintenance_break_active{job="engine_game_server",instance="engine"}',
+              'values': '0+0x5940',
+            },
+            { 'series': 'poker_lightning_admission_policy_fingerprint', 'values': '1+0x12000' },
+            { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x12000' },
+            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x12000' },
+          ],
+        'promql_expr_test':
+          [
+            {
+              'expr': 'ALERTS{alertname="HorseFleetThroughputRelativeDrop",alertstate="firing"}',
+              'eval_time': '5755m',
+              'exp_samples': [],
+            },
+            {
+              'expr': 'ALERTS{alertname="HorseFleetThroughputRelativeDrop",alertstate="firing"}',
+              'eval_time': '5930m',
+              'exp_samples': [],
+            },
+          ],
+      },
+      {
+        'name': 'Inside the break guard it is silent',
+        'interval': '1m',
+        'input_series':
+          [
+            {
+              'series': 'poker_lightning_hands_total{outcome="settled",job="engine_game_server",instance="engine"}',
+              'values': '0+600x5760 3456060+60x179',
+            },
+            {
+              'series': 'poker_maintenance_break_active{job="engine_game_server",instance="engine"}',
+              'values': '1+0x5940',
+            },
+            { 'series': 'poker_lightning_admission_policy_fingerprint', 'values': '1+0x12000' },
+            { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x12000' },
+            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x12000' },
+          ],
+        'promql_expr_test':
+          [
+            {
+              'expr': 'ALERTS{alertname="HorseFleetThroughputRelativeDrop",alertstate="firing"}',
+              'eval_time': '5755m',
+              'exp_samples': [],
+            },
+            {
+              'expr': 'ALERTS{alertname="HorseFleetThroughputRelativeDrop",alertstate="firing"}',
+              'eval_time': '5930m',
+              'exp_samples': [],
+            },
+          ],
+      },
+      {
+        'name': 'It waits its 30 minutes before firing',
+        'interval': '1m',
+        'input_series':
+          [
+            {
+              'series': 'poker_lightning_hands_total{outcome="settled",job="engine_game_server",instance="engine"}',
+              'values': '0+600x5760 3456060+60x179',
+            },
+            {
+              'series': 'poker_maintenance_break_active{job="engine_game_server",instance="engine"}',
+              'values': '0+0x5940',
+            },
+            { 'series': 'poker_lightning_admission_policy_fingerprint', 'values': '1+0x12000' },
+            { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x12000' },
+            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x12000' },
+          ],
+        'promql_expr_test':
+          [
+            {
+              'expr': 'ALERTS{alertname="HorseFleetThroughputRelativeDrop",alertstate="firing"}',
+              'eval_time': '5785m',
+              'exp_samples': [],
+            },
+          ],
+      },
+      {
+        'name': 'Production 2026-11-11 14:55Z: tournament hands fall 90% under the seat-first ladder while Lightning deals as usual, and it is silent',
+        'interval': '1m',
+        'input_series':
+          [
+            {
+              'series': 'poker_hands_dealt_total{job="engine_game_server",instance="engine"}',
+              'values': '0+600x5760 3456060+60x179',
+            },
+            {
+              'series': 'poker_lightning_hands_total{outcome="settled",job="engine_game_server",instance="engine"}',
+              'values': '0+108x5940',
+            },
+            {
+              'series': 'poker_maintenance_break_active{job="engine_game_server",instance="engine"}',
+              'values': '0+0x5940',
+            },
+            { 'series': 'poker_lightning_admission_policy_fingerprint', 'values': '1+0x12000' },
+            { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x12000' },
+            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x12000' },
+          ],
+        'promql_expr_test':
+          [
+            {
+              'expr': 'ALERTS{alertname="HorseFleetThroughputRelativeDrop",alertstate="firing"}',
+              'eval_time': '5930m',
+              'exp_samples': [],
+            },
+          ],
+      },
+      {
+        'name': 'A lower-rate same-policy cohort is not compared with the old accelerated admission policy',
+        'interval': '1m',
+        'input_series':
+          [
+            {
+              'series': 'poker_lightning_hands_total{outcome="settled"}',
+              'values': '0+600x4320 2592060+60x5759',
+            },
+            {
+              'series': 'poker_lightning_admission_policy_fingerprint',
+              'values': '1+0x4320 2+0x5759',
+            },
+            { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x12000' },
+            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x12000' },
+            { 'series': 'poker_maintenance_break_active', 'values': '0+0x12000' },
+          ],
+        'promql_expr_test':
+          [
+            {
+              'expr': 'ALERTS{alertname="HorseFleetThroughputRelativeDrop",alertstate="firing"}',
+              'eval_time': '10075m',
+              'exp_samples': [],
+            },
+            {
+              'expr': 'sp:lightning_hands:same_hour_mean_6d',
+              'eval_time': '10075m',
+              'exp_samples': [{ 'labels': 'sp:lightning_hands:same_hour_mean_6d', 'value': 1 }],
+            },
+          ],
+      },
+      {
+        'name': 'A newly installed policy is visibly warming instead of using obsolete days',
+        'interval': '1m',
+        'input_series':
+          [
+            {
+              'series': 'poker_lightning_hands_total{outcome="settled"}',
+              'values': '0+600x5760 3456060+60x179',
+            },
+            {
+              'series': 'poker_lightning_admission_policy_fingerprint',
+              'values': '1+0x5760 2+0x179',
+            },
+            { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x12000' },
+            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x12000' },
+            { 'series': 'poker_maintenance_break_active', 'values': '0+0x12000' },
+          ],
+        'promql_expr_test':
+          [
+            {
+              'expr': 'ALERTS{alertname="HorseFleetThroughputRelativeDrop",alertstate="firing"}',
+              'eval_time': '5930m',
+              'exp_samples': [],
+            },
+            {
+              'expr': 'ALERTS{alertname="HorseFleetThroughputBaselineWarming",alertstate="firing"}',
+              'eval_time': '5930m',
+              'exp_samples':
+                [
+                  {
+                    'labels': 'ALERTS{alertname="HorseFleetThroughputBaselineWarming",alertstate="firing",component="club-arena-engine",severity="warning"}',
+                    'value': 1,
+                  },
+                ],
+            },
+          ],
+      },
+      {
+        'name': 'A real collapse still pages once three same-policy days exist',
+        'interval': '1m',
+        'input_series':
+          [
+            {
+              'series': 'poker_lightning_hands_total{outcome="settled"}',
+              'values': '0+600x4320 2592060+60x5609 2928606+6x149',
+            },
+            {
+              'series': 'poker_lightning_admission_policy_fingerprint',
+              'values': '1+0x4320 2+0x5759',
+            },
+            { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x12000' },
+            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x12000' },
+            { 'series': 'poker_maintenance_break_active', 'values': '0+0x12000' },
+          ],
+        'promql_expr_test':
+          [
+            {
+              'expr': 'ALERTS{alertname="HorseFleetThroughputRelativeDrop",alertstate="firing"}',
+              'eval_time': '10075m',
+              'exp_samples':
+                [
+                  {
+                    'labels': 'ALERTS{alertname="HorseFleetThroughputRelativeDrop",alertstate="firing",component="club-arena-engine",page="sms",severity="critical"}',
+                    'value': 1,
+                  },
+                ],
+            },
+            {
+              'expr': 'ALERTS{alertname="HorseFleetThroughputBaselineWarming",alertstate="firing"}',
+              'eval_time': '10075m',
+              'exp_samples': [],
+            },
+          ],
+      },
+      {
+        'name': 'Absent fingerprint is unknown, never a trustworthy baseline',
+        'interval': '1m',
+        'input_series':
+          [
+            { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x80' },
+            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x80' },
+          ],
+        'promql_expr_test':
+          [
+            {
+              'expr': 'sp:lightning_admission_policy:readable',
+              'eval_time': '40m',
+              'exp_samples': [{ 'labels': 'sp:lightning_admission_policy:readable', 'value': 0 }],
+            },
+            {
+              'expr': 'sp:lightning_admission_policy:stable_30m',
+              'eval_time': '40m',
+              'exp_samples': [],
+            },
+            {
+              'expr': 'ALERTS{alertname="HorseFleetThroughputPolicyUnknown",alertstate="firing"}',
+              'eval_time': '40m',
+              'exp_samples':
+                [
+                  {
+                    'labels': 'ALERTS{alertname="HorseFleetThroughputPolicyUnknown",alertstate="firing",component="monitoring",severity="critical"}',
+                    'value': 1,
+                  },
+                ],
+            },
+          ],
+      },
+      {
+        'name': 'Failed catalog read is unknown, never a trustworthy baseline',
+        'interval': '1m',
+        'input_series':
+          [
+            { 'series': 'poker_lightning_admission_policy_fingerprint', 'values': '1+0x80' },
+            { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '0+0x80' },
+            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x80' },
+          ],
+        'promql_expr_test':
+          [
+            {
+              'expr': 'sp:lightning_admission_policy:readable',
+              'eval_time': '40m',
+              'exp_samples': [{ 'labels': 'sp:lightning_admission_policy:readable', 'value': 0 }],
+            },
+            {
+              'expr': 'sp:lightning_admission_policy:stable_30m',
+              'eval_time': '40m',
+              'exp_samples': [],
+            },
+            {
+              'expr': 'ALERTS{alertname="HorseFleetThroughputPolicyUnknown",alertstate="firing"}',
+              'eval_time': '40m',
+              'exp_samples':
+                [
+                  {
+                    'labels': 'ALERTS{alertname="HorseFleetThroughputPolicyUnknown",alertstate="firing",component="monitoring",severity="critical"}',
+                    'value': 1,
+                  },
+                ],
+            },
+          ],
+      },
+      {
+        'name': 'Stale collector is unknown, never a trustworthy baseline',
+        'interval': '1m',
+        'input_series':
+          [
+            { 'series': 'poker_lightning_admission_policy_fingerprint', 'values': '1+0x80' },
+            { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x80' },
+            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+0x80' },
+          ],
+        'promql_expr_test':
+          [
+            {
+              'expr': 'sp:lightning_admission_policy:readable',
+              'eval_time': '40m',
+              'exp_samples': [{ 'labels': 'sp:lightning_admission_policy:readable', 'value': 0 }],
+            },
+            {
+              'expr': 'sp:lightning_admission_policy:stable_30m',
+              'eval_time': '40m',
+              'exp_samples': [],
+            },
+            {
+              'expr': 'ALERTS{alertname="HorseFleetThroughputPolicyUnknown",alertstate="firing"}',
+              'eval_time': '40m',
+              'exp_samples':
+                [
+                  {
+                    'labels': 'ALERTS{alertname="HorseFleetThroughputPolicyUnknown",alertstate="firing",component="monitoring",severity="critical"}',
+                    'value': 1,
+                  },
+                ],
+            },
+          ],
+      },
+      {
+        'name': 'A policy change excludes the entire overlapping measurement window then becomes stable',
+        'interval': '1m',
+        'input_series':
+          [
+            { 'series': 'poker_lightning_admission_policy_fingerprint', 'values': '1+0x40 2+0x80' },
+            { 'series': 'poker_lightning_admission_policy_collect_ok', 'values': '1+0x120' },
+            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x120' },
+          ],
+        'promql_expr_test':
+          [
+            {
+              'expr': 'sp:lightning_admission_policy:stable_30m',
+              'eval_time': '60m',
+              'exp_samples': [],
+            },
+            {
+              'expr': 'sp:lightning_admission_policy:stable_30m',
+              'eval_time': '80m',
+              'exp_samples': [{ 'labels': 'sp:lightning_admission_policy:stable_30m', 'value': 2 }],
+            },
+          ],
+      },
+      {
+        'name': 'A failed read poisons the complete window even after the same policy is restored',
+        'interval': '1m',
+        'input_series':
+          [
+            { 'series': 'poker_lightning_admission_policy_fingerprint', 'values': '1+0x120' },
+            {
+              'series': 'poker_lightning_admission_policy_collect_ok',
+              'values': '1+0x40 0+0x9 1+0x70',
+            },
+            { 'series': 'poker_health_collected_timestamp_seconds', 'values': '0+60x120' },
+          ],
+        'promql_expr_test':
+          [
+            {
+              'expr': 'sp:lightning_admission_policy:stable_30m',
+              'eval_time': '60m',
+              'exp_samples': [],
+            },
+            {
+              'expr': 'sp:lightning_admission_policy:stable_30m',
+              'eval_time': '90m',
+              'exp_samples': [{ 'labels': 'sp:lightning_admission_policy:stable_30m', 'value': 1 }],
+            },
+          ],
+      },
+
+      {
+        "name": "A Classic cash collapse that halves ALL cash fires even while Lightning holds",
+        "interval": "1m",
+        "input_series": [
+          {
+            "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+60x5940"
+          },
+          {
+            "series": "poker_hands_fleet_total{format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+540x5760 3110400+0x179"
+          },
+          {
+            "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+0x5940"
+          },
+          {
+            "series": "poker_lightning_admission_policy_fingerprint",
+            "values": "11+0x5940"
+          },
+          {
+            "series": "poker_lightning_admission_policy_collect_ok",
+            "values": "1+0x5940"
+          },
+          {
+            "series": "poker_health_collected_timestamp_seconds",
+            "values": "0+60x5940"
+          }
+        ],
+        "promql_expr_test": [
+          {
+            "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
+            "eval_time": "5755m",
+            "exp_samples": []
+          },
+          {
+            "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
+            "eval_time": "5930m",
+            "exp_samples": [
+              {
+                "labels": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\",component=\"club-arena-engine\",page=\"sms\",severity=\"critical\"}",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+
+      {
+        "name": "Tournament table hands are not cash: a tournament collapse with cash flat is silent",
+        "interval": "1m",
+        "input_series": [
+          {
+            "series": "poker_hands_dealt_total{job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+600x5760 3456060+60x179"
+          },
+          {
+            "series": "poker_hands_fleet_total{format=\"mtt\",job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+590x5760 3398400+50x179"
+          },
+          {
+            "series": "poker_hands_fleet_total{format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+10x5940"
+          },
+          {
+            "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+100x5940"
+          },
+          {
+            "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+0x5940"
+          },
+          {
+            "series": "poker_lightning_admission_policy_fingerprint",
+            "values": "11+0x5940"
+          },
+          {
+            "series": "poker_lightning_admission_policy_collect_ok",
+            "values": "1+0x5940"
+          },
+          {
+            "series": "poker_health_collected_timestamp_seconds",
+            "values": "0+60x5940"
+          }
+        ],
+        "promql_expr_test": [
+          {
+            "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
+            "eval_time": "5930m",
+            "exp_samples": []
+          }
+        ]
+      },
+
+      {
+        "name": "Classic counter reset preserves a genuine cash collapse",
+        "interval": "1m",
+        "input_series": [
+          {
+            "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+60x5940"
+          },
+          {
+            "series": "poker_hands_fleet_total{format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+600x5759 0+6x180"
+          },
+          {
+            "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+0x5940"
+          },
+          {
+            "series": "poker_lightning_admission_policy_fingerprint",
+            "values": "11+0x5940"
+          },
+          {
+            "series": "poker_lightning_admission_policy_collect_ok",
+            "values": "1+0x5940"
+          },
+          {
+            "series": "poker_health_collected_timestamp_seconds",
+            "values": "0+60x5940"
+          }
+        ],
+        "promql_expr_test": [
+          {
+            "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
+            "eval_time": "5755m",
+            "exp_samples": []
+          },
+          {
+            "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
+            "eval_time": "5930m",
+            "exp_samples": [
+              {
+                "labels": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\",component=\"club-arena-engine\",page=\"sms\",severity=\"critical\"}",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+
+      {
+        "name": "Missing Classic series leaves the combined baseline absent",
+        "interval": "1m",
+        "input_series": [
+          {
+            "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+60x5940"
+          },
+          {
+            "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+0x5940"
+          },
+          {
+            "series": "poker_lightning_admission_policy_fingerprint",
+            "values": "11+0x5940"
+          },
+          {
+            "series": "poker_lightning_admission_policy_collect_ok",
+            "values": "1+0x5940"
+          },
+          {
+            "series": "poker_health_collected_timestamp_seconds",
+            "values": "0+60x5940"
+          }
+        ],
+        "promql_expr_test": [
+          {
+            "expr": "sp:cash_hands:same_hour_mean_6d",
+            "eval_time": "5930m",
+            "exp_samples": []
+          }
+        ]
+      },
+
+      {
+        "name": "Different admission policy cannot qualify combined cash history",
+        "interval": "1m",
+        "input_series": [
+          {
+            "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+60x5940"
+          },
+          {
+            "series": "poker_hands_fleet_total{format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+540x5760 3110400+0x179"
+          },
+          {
+            "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+0x5940"
+          },
+          {
+            "series": "poker_lightning_admission_policy_fingerprint",
+            "values": "11+0x5759 12+0x180"
+          },
+          {
+            "series": "poker_lightning_admission_policy_collect_ok",
+            "values": "1+0x5940"
+          },
+          {
+            "series": "poker_health_collected_timestamp_seconds",
+            "values": "0+60x5940"
+          }
+        ],
+        "promql_expr_test": [
+          {
+            "expr": "sp:cash_hands:same_hour_mean_6d",
+            "eval_time": "5930m",
+            "exp_samples": []
+          }
+        ]
+      },
+    ],
 }

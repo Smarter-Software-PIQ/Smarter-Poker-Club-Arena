@@ -159,6 +159,8 @@ describe('the tracker reports transitions and renders answers', () => {
       hit_run_hands_remaining: null,
       hit_run_hands_required: null,
       hit_run_blind_off: false,
+      hit_run_reason: null,
+      hit_run_big_win_bb: null,
     });
   });
 
@@ -201,6 +203,8 @@ describe('the tracker reports transitions and renders answers', () => {
       hit_run_hands_remaining: 14,
       hit_run_hands_required: 20,
       hit_run_blind_off: false,
+      hit_run_reason: 'hit_run',
+      hit_run_big_win_bb: null,
     });
     t.markBlindOff('a', true);
     expect(t.seatFields('a', 180).hit_run_blind_off).toBe(true);

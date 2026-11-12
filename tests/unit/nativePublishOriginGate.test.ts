@@ -37,6 +37,12 @@ function eligible(verifiedSha: string, overrides: Record<string, unknown> = {}) 
       'true'
     )
     .replace(/always\(\)/g, 'true')
+    // A first attempt or a person's re-run; the bot re-run refusal is pinned in
+    // tests/unit/aJobTokenCannotStartTrustedWork.law.test.ts.
+    .replace(
+      "!(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')",
+      'true'
+    )
     .replace(/(?:vars|needs|inputs)\.[a-zA-Z0-9_.-]+/g, (name: string) => {
       if (!(name in values)) throw new Error('Unreviewed workflow context: ' + name);
       return JSON.stringify(values[name]);

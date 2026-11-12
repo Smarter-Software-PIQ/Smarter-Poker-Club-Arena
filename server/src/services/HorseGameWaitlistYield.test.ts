@@ -274,9 +274,11 @@ describe('the rotator stands exactly one horse up for a game-list person', () =>
   };
 
   it.each([
-    ['off-peak high stakes, no human', '2026-11-04T05:00:00-06:00', true, false, false, 6],
-    ['off-peak high stakes, playing human', '2026-11-04T05:00:00-06:00', true, true, false, 0],
-    ['off-peak high stakes, sitting-out human', '2026-11-04T05:00:00-06:00', true, true, true, 5],
+    // Relaunch (Dan 2026-11-11): 1/2 runs full time, so the overnight hours
+    // stand nobody up any more than prime time does.
+    ['overnight 1/2, no human', '2026-11-04T05:00:00-06:00', true, false, false, 0],
+    ['overnight 1/2, playing human', '2026-11-04T05:00:00-06:00', true, true, false, 0],
+    ['overnight 1/2, sitting-out human', '2026-11-04T05:00:00-06:00', true, true, true, 0],
     ['prime-time high stakes, no human', '2026-11-04T18:00:00-06:00', true, false, false, 0],
     [
       'overnight scheduled low stakes, no human',

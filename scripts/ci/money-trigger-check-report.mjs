@@ -52,11 +52,17 @@ export function groupCompletion({state,proof,live,finalSet,outcome,protection,ru
 }
 export async function mergeGroupIsLive({repository,head,token,fetchImpl=fetch}){
  const [owner,name]=String(repository).split('/');
- const r=await fetchImpl('https://api.github.com/graphql',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},redirect:'error',signal:AbortSignal.timeout(15000),body:JSON.stringify({query:'query($o:String!,$n:String!){repository(owner:$o,name:$n){mergeQueue(branch:"main"){entries(first:100){nodes{state headCommit{oid}}}}}}',variables:{o:owner,n:name}})});
+ const r=await fetchImpl('https://api.github.com/graphql',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},redirect:'error',signal:AbortSignal.timeout(15000),body:JSON.stringify({query:'query($o:String!,$n:String!){repository(owner:$o,name:$n){mergeQueue(branch:"main"){entries(first:100){nodes{position state headCommit{oid} pullRequest{number isCrossRepository}}}}}}',variables:{o:owner,n:name}})});
  if(!r.ok)return false;
  const nodes=(await r.json())?.data?.repository?.mergeQueue?.entries?.nodes;
  if(!Array.isArray(nodes))return false;
- return nodes.some(n=>n?.headCommit?.oid===head&&n.state!=='UNMERGEABLE');
+ const entry=nodes.find(n=>n?.headCommit?.oid===head);
+ if(!entry||entry.state==='UNMERGEABLE'||!Number.isInteger(entry.position))return false;
+ // A merge group carries every entry ahead of it. A pull request from a fork
+ // is never vouched for: if any entry up to and including this one is
+ // cross-repository, or its origin cannot be read, the group is not live.
+ return nodes.filter(n=>Number.isInteger(n?.position)&&n.position<=entry.position)
+  .every(n=>n?.pullRequest?.isCrossRepository===false);
 }
 async function main(){
  const repo=process.env.GITHUB_REPOSITORY,number=process.env.PR_NUMBER,appId=process.env.REPORTER_APP_ID;
@@ -66,6 +72,9 @@ async function main(){
  async function api(p,method='GET',body,accept='application/vnd.github+json'){const r=await fetch(`https://api.github.com/repos/${repo}/${p}`,{method,headers:{Authorization:`Bearer ${method==='GET'?process.env.GITHUB_TOKEN:token}`,Accept:accept,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});if(!r.ok)throw Error(`reporting failed ${r.status}`);return r.json()}
  if(process.argv[2]==='begin'){
   const pr=await api(`pulls/${number}`);if(pr.state!=='open'||pr.base.ref!=='main')throw Error('invalid PR state');
+  // Defence in depth beside the workflow's own fork refusal: a fork's pull
+  // request never receives this check, so it can never satisfy it.
+  if(pr.head?.repo?.full_name!==repo||String(pr.head?.repo?.id)!==String(process.env.GITHUB_REPOSITORY_ID))throw Error('cross-repository pull request refused');
   const result=await api('check-runs','POST',{name:CHECK_NAME,head_sha:pr.head.sha,status:'in_progress',external_id:`money-trigger-${process.env.GITHUB_RUN_ID}`,details_url:`https://github.com/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}`});
   if(result.head_sha!==pr.head.sha||String(result.app?.id)!==appId)throw Error('wrong check source/head');
   fs.writeFileSync('money-trigger-check-state.json',JSON.stringify({id:result.id,head:pr.head.sha,appId,pr:Number(number),runId:process.env.GITHUB_RUN_ID}));

@@ -55,6 +55,25 @@ describe('durable pre-send acknowledgement', () => {
     expect(mocks.rpc.mock.calls[0][0]).toBe('fn_prepare_tournament_terminal_request');
   });
 
+  it.each(['places', 'legacy_deal', 'proposal_deal'] as const)(
+    '%s with two proven lock rollbacks is unsent contention, not unknown',
+    async (kind) => {
+      const request: any = { ...identity, kind };
+      if (kind !== 'places') request.observedWinnerId = null;
+      if (kind === 'proposal_deal')
+        Object.assign(request, { proposalId: winner, revision: 'a'.repeat(64) });
+      mocks.rpc.mockResolvedValue({ data: null, error: { code: '55P03' } });
+      await expect(
+        runWithTournamentDataAuthority(authority, () => prepareDurableTerminalRequest(request))
+      ).rejects.toBeInstanceOf(SatelliteTerminalPrepareBusyError);
+      expect(mocks.rpc.mock.calls).toHaveLength(2);
+      expect(mocks.rpc.mock.calls[0]).toEqual(mocks.rpc.mock.calls[1]);
+      expect(
+        mocks.rpc.mock.calls.every(([name]) => name === 'fn_prepare_tournament_terminal_request')
+      ).toBe(true);
+    }
+  );
+
   it('preserves an unknown prepare if a later satellite attempt meets contention', async () => {
     const satellite = { ...identity, kind: 'satellite' as const };
     mocks.rpc
@@ -64,6 +83,20 @@ describe('durable pre-send acknowledgement', () => {
       runWithTournamentDataAuthority(authority, () => prepareDurableTerminalRequest(satellite))
     ).rejects.toBeInstanceOf(TerminalIntentUnknownError);
   });
+
+  it.each(['places', 'satellite'] as const)(
+    '%s preserves mixed contention and lost acknowledgement as unknown',
+    async (kind) => {
+      mocks.rpc
+        .mockResolvedValueOnce({ data: null, error: { code: '55P03' } })
+        .mockRejectedValueOnce(new Error('lost reply'));
+      await expect(
+        runWithTournamentDataAuthority(authority, () =>
+          prepareDurableTerminalRequest({ ...identity, kind })
+        )
+      ).rejects.toBeInstanceOf(TerminalIntentUnknownError);
+    }
+  );
 
   it('unknown prepare stays unsent and retains its exact identity', async () => {
     mocks.rpc.mockRejectedValue(new Error('lost'));

@@ -222,6 +222,28 @@ whichever test the next agent notices first.
   applying #ClubArenaConsole. Diamond jackpots are whole by custody and
   unchanged. Pinned by `tests/the-jackpot-is-printed-to-the-cent.law.test.ts`.
 
+- **The Charles Rule after a +250 BB win (owner direction 2026-11-11):**
+  even after a player has finished every hand the hit-and-run countdown asked
+  of them, a hand that NETS them 250 big blinds or more owes ten subsequent
+  hands before they may leave. Humans and Horses alike, Classic and Lightning
+  chip cash games, wherever the club's hit-and-run switch is on (tournaments
+  and Diamond tables stay outside it, as before). The win is the settled
+  hand's own net (Classic `poker_delta`, Lightning `net_result`) against that
+  hand's recorded big blind, never the displayed pot or a wallet movement;
+  exactly +250 BB applies; the triggering hand is not counted; another
+  qualifying win resets what is left to ten, never adding ten. The leave door
+  holds the larger of this and the countdown, and finishing one never clears
+  the other. A voluntary leave requested at or before the win's settlement
+  stamp is honoured (the existing pre-existing-leave exemption); a request
+  after it is held. System exits (closure, admin and forced removal, VPIP
+  eviction, a bust) never wait on it, and the responsible-gaming waive
+  finishes it. Prospective only from the installation of
+  `20261111174148_charles_rule_big_win_and_durable_bank_the_win_state.sql`
+  (daily-maintenance window) and the engine release that reads it. Pinned by
+  `tests/unit/charlesRuleBigWin.pg.test.ts` (native PostgreSQL) and
+  `server/src/engine/ChipContinuityBigWin.test.ts`; record in
+  `docs/changelog/2026-11-11-charles-rule-after-a-big-win.md`.
+
 ## Registry
 
 **The registry is the directory `docs/laws.d/` - one file per law.** This

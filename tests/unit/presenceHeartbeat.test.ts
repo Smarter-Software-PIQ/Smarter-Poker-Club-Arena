@@ -189,3 +189,19 @@ describe('sign-out is the last beat (2026-10-05 audit)', () => {
     expect(thens).toBe(2);
   });
 });
+
+describe('Messenger Active Status', () => {
+  afterEach(() => window.localStorage.removeItem('messenger-active-status'));
+
+  it('beats offline while this device turned Active Status off', () => {
+    window.localStorage.setItem('messenger-active-status', 'false');
+    renderHook(() => usePresenceHeartbeat('u1'));
+    expect(beats()).toEqual([['fn_update_presence', { p_user_id: 'u1', p_is_online: false }]]);
+  });
+
+  it('beats online when Active Status is on or was never set', () => {
+    window.localStorage.setItem('messenger-active-status', 'true');
+    renderHook(() => usePresenceHeartbeat('u1'));
+    expect(beats()).toEqual([['fn_update_presence', { p_user_id: 'u1', p_is_online: true }]]);
+  });
+});

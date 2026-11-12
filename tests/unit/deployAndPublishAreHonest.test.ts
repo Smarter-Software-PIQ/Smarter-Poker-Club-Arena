@@ -292,12 +292,16 @@ describe('engine deployment reports what actually happened', () => {
     expect(certification).toMatch(/^\s+contents:\s*write\s*$/m);
     expect(certification).toMatch(/^\s+actions:\s*read\s*$/m);
     expect(certification).toContain('ENGINE_SHA: ${{ needs.preflight.outputs.target_sha }}');
-    expect(certification).toContain('-f event_type=run-post-deploy-e2e');
-    expect(certification).toContain('-F "client_payload[engine_sha]=$ENGINE_SHA"');
+    // The body is the exact intent recorded first (scripts/ci/dispatch-intent.mjs).
+    expect(certification).toContain('write --operation engine-certification');
+    expect(certification).toContain('--input "engine_sha=$ENGINE_SHA"');
+    expect(certification).toContain(
+      '.event_type == "run-post-deploy-e2e" and .client_payload.engine_sha == $sha'
+    );
     expect(certification).toContain(
       'actions/workflows/post-deploy-e2e.yml/runs?event=repository_dispatch'
     );
-    expect(certification).toContain('Post-Deploy E2E $ENGINE_SHA');
+    expect(certification).toContain('Post-Deploy E2E $ENGINE_SHA $INTENT_NONCE');
     expect(certification).not.toContain('if: always()');
   });
 

@@ -1,5 +1,7 @@
 # 2026-11-10 SECURITY INCIDENT: a process listing printed other processes' credentials into an agent transcript
 
+**Status (2026-11-11 reconciliation): OPEN. Neither confirmed nor disproved. See "Reconciliation" at the end; the next action is the account holder's.**
+
 **Severity: medium until rotation is decided. Values reached an agent session transcript (Anthropic session storage for this account). No value reached the repository, a pull request, a comment, a log file or any other destination this record could find. The exact credential types cannot be recovered and are recorded as unknown.**
 
 No secret appears in this record: names, counts and pattern classes only.
@@ -59,3 +61,21 @@ Goal: identify which credentials were actually exposed, from redacted metadata o
 **Conclusion.** No credential can be confirmed as exposed. What remains possible is a credential embedded in the arguments of a short-lived process started by a cloud agent session during the window (for example `psql` given a database URL, or curl given an expanded token), which ended before 00:47Z. Under the owner's instruction (rotate confirmed exposures only, never unrelated credentials), **nothing is rotated.** If the worker's transcript is ever recovered, it decides: any value it shows is rotated through its provider, consumers updated and the old value revoked.
 
 **Root fix (this change).** Two repository scripts meant to run on the Mac put a database URL with its password on `psql`'s command line: `scripts/dev/export-applied-migrations.sh` and `scripts/verification-harness/run-all.sh`. Both now call `scripts/lib/pg-env-from-url.sh`, which reads the URL from the environment, splits it into libpq's `PG*` environment variables (password included) and runs psql with no URL argument; the parser reads the URL from the environment, not argv. `tests/unit/aDatabaseUrlNeverRidesOnArgv.test.ts` pins both. CI-only scripts that pass a local, password-free test URL are unchanged.
+
+## Reconciliation, 2026-11-11 (the two accounts disagree; this record does not close the incident)
+
+The two earlier sections say different things, and neither settles the case.
+
+**What was observed.** The thin-pool worker reported, in its own final report, that output from its `pgrep -fl` on the owner's Mac showed other processes' environments, including credentials. It said it did not copy or use them and switched to commands that print no arguments. It named no credential and no type.
+
+**What #10479 established, and what it does not.** On macOS, `pgrep -fl` prints each process's argument list, not its environment. #10479 searched every record it could reach and found no argument-borne credential in retained evidence. That shows the worker's description of the output as "environments" was probably inaccurate. It does not show that the output held no credential: an argument list can carry one, and the output itself was not examined.
+
+**Affected credential types: unknown.** The most plausible type is a database connection credential (a Postgres URL with its password), because the only argument-borne credential paths this investigation found were two repository psql scripts that passed such a URL on the command line. Those are fixed in #10479. This is unconfirmed: no record shows such a script running in the window.
+
+**Where the output is retained.** It is in that worker's session transcript, in this Claude account's session storage, which the account holder and the provider can access. This record, the coordinating session, the repository, pull requests, comments and logs hold no copy, and none was made elsewhere.
+
+**What remains unknown.** It is unknown whether the output contained any credential, which processes it listed, which credential types appeared, and whether any value has been used since.
+
+**Moving secrets is not remediation.** Moving credentials from repository scope to environments, or from arguments to environment variables (#10479), reduces future exposure. It neither rotates nor revokes any value that may already have been exposed.
+
+**Next action (account holder).** Open the worker's transcript (the agent titled "Thin-pool table size policy" in this account's session history), find its `pgrep -fl` output, and report only the credential TYPES it shows (for example "a Postgres URL with password", "a GitHub token"), never the values. Each confirmed credential is then rotated, its consumers updated to the new value, and the old value revoked, with each step recorded here. If the transcript shows no credential, record that here and close the incident on that evidence. Absence of retained evidence elsewhere is not grounds to close it.

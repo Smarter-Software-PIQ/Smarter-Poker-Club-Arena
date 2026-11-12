@@ -76,10 +76,36 @@ describe('full deck paint readiness', () => {
       expect(deck.drawDecodedCardImage(url, canvas)).toBe(true);
       expect(canvas.dataset.cardArtworkReady).toBe('true');
       expect([canvas.width, canvas.height]).toEqual([360, 504]);
-      expect(drawImage).toHaveBeenLastCalledWith(instances[0], 0, 0);
+      expect(drawImage).toHaveBeenLastCalledWith(instances[0], 0, 0, 360, 504);
     }
     expect(vi.mocked(fetch).mock.calls).toHaveLength(requests);
     expect(instances).toHaveLength(52);
+  });
+  it('filters court artwork at display density instead of shrinking a native canvas', async () => {
+    const deck = await import('../../src/utils/deckWarmer');
+    const load = deck.prepareDeckImages('4color');
+    await drain();
+    await load;
+    const context = {
+      drawImage: vi.fn(),
+      imageSmoothingEnabled: false,
+      imageSmoothingQuality: 'low',
+    };
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      context as unknown as CanvasRenderingContext2D
+    );
+    const canvas = document.createElement('canvas');
+    Object.defineProperties(canvas, { clientWidth: { value: 65 }, clientHeight: { value: 91 } });
+    const density = vi.spyOn(window, 'devicePixelRatio', 'get').mockReturnValue(1);
+    const url = deck.deckImageUrls('4color')[0];
+    for (const dpr of [1, 2, 3]) {
+      density.mockReturnValue(dpr);
+      expect(deck.drawDecodedCardImage(url, canvas)).toBe(true);
+      expect([canvas.width, canvas.height]).toEqual([65 * dpr, 91 * dpr]);
+      expect(context.imageSmoothingEnabled).toBe(true);
+      expect(context.imageSmoothingQuality).toBe('high');
+      expect(context.drawImage).toHaveBeenLastCalledWith(instances[0], 0, 0, 65 * dpr, 91 * dpr);
+    }
   });
   it('clears stale pixels and readiness for unavailable sources and failed draws', async () => {
     const deck = await import('../../src/utils/deckWarmer');

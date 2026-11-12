@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   HORSE_CASH_POLICY_START_MS as start,
+  RELAUNCH_CASH_POLICY_START_MS as relaunch,
+  RELAUNCHED_CASH_ACTIVITY_SCALE,
+  REDUCED_CASH_ACTIVITY_SCALE,
   cashActivityScaleAt,
   horseCashGameAllowed,
 } from './HorseCashSchedule.js';
@@ -17,7 +20,13 @@ describe('November 2 owner cash schedule', () => {
     });
     expect(cashActivityScaleAt(start - 1)).toBe(0.5);
     expect(cashActivityScaleAt(start)).toBe(0.2);
-    expect(cashActivityScaleAt(start + 365 * 86400000)).toBe(0.2);
+    expect(cashActivityScaleAt(relaunch - 1)).toBe(0.2);
+  });
+  it('triples the reduced rate at the November 11 relaunch (owner: "TRIPLE THE CURRENT RATE")', () => {
+    expect(relaunch).toBe(Date.parse('2026-11-12T00:00:00Z'));
+    expect(RELAUNCHED_CASH_ACTIVITY_SCALE).toBeCloseTo(REDUCED_CASH_ACTIVITY_SCALE * 3, 12);
+    expect(cashActivityScaleAt(relaunch)).toBeCloseTo(0.6, 12);
+    expect(cashActivityScaleAt(relaunch + 365 * 86400000)).toBeCloseTo(0.6, 12);
   });
   it('retains exactly 40% of the current unrounded daily curve at every minute', () => {
     let before = 0,

@@ -195,6 +195,7 @@ if __name__=='__main__':
     parser.add_argument('--subject-config', help='Private explicit excludedSubjectIds and comparisonSubjectId JSON')
     parser.add_argument('--observation-epoch', help='Explicit private source/window JSON for a new fleet observation')
     parser.add_argument('--predecessor', help='Original study directory required by --census-audit')
+    parser.add_argument('--refund-evidence', help='Private pre-cutoff unregistration refund acquisition JSON for --census-audit')
     parser.add_argument('--fleet-acceptance', action='store_true',
                         help='Reconcile the retained 1,000-by-13 fleet matrix with original journal witnesses')
     parser.add_argument('--journal', action='append', default=[], help='Original private journal capture JSON/JSONL')
@@ -220,7 +221,8 @@ if __name__=='__main__':
         raise SystemExit(0)
     if args.census_audit:
         from horse_census_audit import run_audit
-        run_audit(source, Path(args.predecessor), output, args.subject_config)
+        run_audit(source, Path(args.predecessor), output, args.subject_config,
+                  refund_evidence=args.refund_evidence)
         raise SystemExit(0)
     if args.exact_variant_report:
         if args.river_opportunities:

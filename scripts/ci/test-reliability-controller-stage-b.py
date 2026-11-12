@@ -39,6 +39,13 @@ recipient guard). It proves:
     and one push in critical_only, is idempotent per drill id, refuses a
     second drill inside 10 minutes, resolves through a producer-style resolved
     row, and cannot be called by anon or authenticated.
+  * 20261111222330 installs once over those bodies (proven equal to
+    production by its own preimage check): a class row with a hold-down holds
+    a firing incident (nothing sent) until it has stayed firing
+    hold_down_seconds or started hold_down_flaps episodes in the window, at
+    intake or from the tick; a resolve resets it; the class quiet window
+    decides recovery; classes without a hold-down are unchanged; a close keeps
+    its named basis; the three producer families land on their found classes.
 """
 import json
 import os
@@ -60,6 +67,7 @@ INSTALLED_AFTER = [ROOT / 'supabase/migrations' / name for name in (
 # Its function patch only: its data section reconciles three production incident ids, which a native cluster does not hold.
 LATCH_FIX = ROOT / 'supabase/migrations/20261110224707_a_recovered_reliability_incident_is_no_longer_escalated.sql'
 DRILL = ROOT / 'supabase/migrations/20261111133716_reliability_escalation_drill_and_class_tuning.sql'
+HOLD_DOWN = ROOT / 'supabase/migrations/20261111222330_reliability_hold_down_and_found_producers.sql'
 OWNER = '47965354-0e56-43ef-931c-ddaab82af765'
 # md5 of the whitespace-normalized definition, read from production (PokerIQ,
 # PostgreSQL 17.6) on 2026-11-10 with the same expressions this file runs.
@@ -1079,6 +1087,147 @@ def main():
         drill('resolve', 'drill-native-2')
         assert drill('verify', 'drill-native-2')['resolved'] is True
         ok('a second drill ten minutes later is its own incident and its own message, never attached to the first drill digest')
+        # ---- the per-class hold-down and the found producers (20261111222330), over every installed controller migration.
+        record('mac-studio-git-maintenance', 'pack-backlog:/pre:1', 'Git Maintenance Not Keeping Up', 'firing', 'warning', {'host': 'm', 'repo': '/pre', 'pack_files': 1406, 'limit': 400})
+        assert sql("SELECT incident_class || ' ' || status FROM smarter_private.reliability_incidents WHERE source = 'mac-studio-git-maintenance' AND status <> 'closed'") == 'unclassified investigating'
+        r = psql(['-f', str(HOLD_DOWN)])
+        assert r.returncode == 0, r.stderr
+        proof = re.search(r'^-- @live-proof: (.+)$', HOLD_DOWN.read_text(), re.M).group(1)
+        assert sql(f'SELECT {proof}') == 't', 'hold-down live proof must hold after install'
+        r = psql(['-f', str(HOLD_DOWN)])
+        assert r.returncode != 0 and 'RELIABILITY_HOLD_DOWN_ALREADY_INSTALLED' in r.stderr, 'a second install must be refused'
+        refused("UPDATE smarter_private.reliability_alert_classes SET hold_down_flaps = 3 WHERE alertname_pattern = 'ClusterPassErrors'", 'reliability_alert_classes_hold_down_flaps')
+        refused("UPDATE smarter_private.reliability_alert_classes SET hold_down_seconds = 5 WHERE alertname_pattern = 'ClusterPassErrors'", 'reliability_alert_classes_hold_down_seconds_range')
+        refused("UPDATE smarter_private.reliability_alert_classes SET quiet_window_seconds = 0 WHERE alertname_pattern = 'ClusterPassErrors'", 'reliability_alert_classes_quiet_window_range')
+        for role in ('anon', 'authenticated', 'service_role'):
+            assert sql(f"SELECT has_function_privilege('{role}', 'smarter_private.reliability_episode_count(text,timestamptz)', 'EXECUTE')") == 'f', role
+        got = sql("SELECT string_agg(c.hold_down_seconds || '/' || c.hold_down_flaps || '/' || c.hold_down_flap_window_seconds || '/' || c.quiet_window_seconds, ' ') "
+                  "FROM (SELECT (smarter_private.reliability_classify('financial-alerts-backfill', 'LightningHandHost.post_commit_obligations_pending', 'critical', false)).* "
+                  "UNION ALL SELECT (smarter_private.reliability_classify('alertmanager', 'DatabaseRepliesLost', 'warning', false)).*) c")
+        assert got == '1200/5/3600/1800 900/6/3600/1800', got
+        assert sql("SELECT count(*) FROM smarter_private.reliability_alert_classes WHERE hold_down_seconds IS NOT NULL") == '2'
+        ok('the hold-down installs once over production-identical bodies, its bounds are constraints, its helper is reachable by no role, '
+           'and exactly the two flagged names carry the measured numbers')
+
+        PC = 'LightningHandHost.post_commit_obligations_pending'
+        def pc(key, status='firing', starts=None, ends=None, table='hd-1'):
+            return am(key, PC, status=status, severity='critical', fingerprint='fp-' + table, starts=starts, ends=ends, labels={'table_id': table})
+        def held(table, field="status || ' ' || escalation_state"):
+            return sql(f"SELECT {field} FROM smarter_private.reliability_incidents WHERE alertname = $a${PC}$a$ AND scope->>'table_id' = '{table}' AND status <> 'closed'")
+        def kinds(table, kind):
+            return num("SELECT count(*) FROM smarter_private.reliability_incident_events e JOIN smarter_private.reliability_incidents i ON i.id = e.incident_id "
+                       f"WHERE i.alertname = $a${PC}$a$ AND i.scope->>'table_id' = '{table}' AND e.kind = '{kind}'")
+        tick()
+        sent, base, base_sent = messages(), notes(PC), notes(PC, state='persisted_in_messenger')
+        # fire: held, nothing sent; resolve: verifying; quiet window: recovered; nothing ever sent.
+        f1 = now()
+        pc('hd1-a', starts=f1)
+        assert held('hd-1') == 'investigating none' and kinds('hd-1', 'hold_down') == 1, held('hd-1')
+        assert held('hd-1', "class_rule_id IS NOT NULL AND firing_since IS NOT NULL") == 't'
+        pc('hd1-a-again', starts=f1)
+        assert held('hd-1') == 'investigating none' and kinds('hd-1', 'hold_down') == 1
+        tick(now("+ interval '19 minutes'"))
+        assert held('hd-1') == 'investigating none', 'a critical inside its 1200 s hold-down is not escalated by the tick'
+        pc('hd1-a-resolved', status='resolved', starts=f1, ends=now())
+        assert held('hd-1', "status || ' ' || coalesce(firing_since::text, 'cleared')") == 'verifying cleared'
+        tick(now("+ interval '29 minutes'"))
+        assert held('hd-1') == 'verifying none'
+        tick(now("+ interval '31 minutes'"))
+        assert sql(f"SELECT status FROM smarter_private.reliability_incidents WHERE alertname = $a${PC}$a$ AND scope->>'table_id' = 'hd-1'") == 'recovered'
+        assert notes(PC) == base and tick()['delivery']['sent'] == 0
+        ok('fire then resolve inside the hold-down: the critical post-commit incident is held (one hold_down event, nothing sent, the tick leaves it), '
+           'verifies on the resolve, recovers after the class quiet window, and no message is ever sent')
+
+        # flap: every episode resolves inside the hold-down, but the fifth inside an hour escalates once.
+        for n in range(2, 6):
+            fs = now()
+            pc(f'hd1-f{n}', starts=fs)
+            if n < 5:
+                assert held('hd-1') == 'investigating none', (n, held('hd-1'))
+                pc(f'hd1-f{n}-resolved', status='resolved', starts=fs, ends=now())
+                assert held('hd-1') == 'verifying none', n
+        assert held('hd-1', "status || ' ' || escalation_reason") == 'escalated no eligible recovery: fired 5 times in 3600 seconds (hold-down)'
+        assert held('hd-1', 'recurrence_count') == '1' and kinds('hd-1', 'refire') == 3 and kinds('hd-1', 'escalation') == 1
+        tick()
+        assert notes(PC) == base + 1 and notes(PC, state='persisted_in_messenger') == base_sent + 1, (base, base_sent, notes(PC))
+        ok('flapping: four episodes that each resolve stay held and verifying with nothing sent; the fifth inside 3600 s escalates once and sends one message')
+
+        # held long enough: at intake when the delivery itself shows it, and from the tick when no further delivery comes.
+        pc('hd2-a', starts=now("- interval '21 minutes'"), table='hd-2')
+        assert held('hd-2', "status || ' ' || escalation_reason") == 'escalated no eligible recovery: still firing after 1200 seconds (hold-down)'
+        s3 = now()
+        pc('hd3-a', starts=s3, table='hd-3')
+        assert held('hd-3') == 'investigating none'
+        tick(now("+ interval '19 minutes'"))
+        assert held('hd-3') == 'investigating none'
+        tick(now("+ interval '21 minutes'"))
+        assert held('hd-3', "status || ' ' || escalation_reason") == 'escalated no eligible recovery: still firing after 1200 seconds (hold-down)'
+        # a refire while verifying after escalation goes back to escalated, as before; recovery clears it.
+        pc('hd3-a-resolved', status='resolved', starts=s3, ends=now(), table='hd-3')
+        assert held('hd-3') == 'verifying escalated'
+        tick(now("+ interval '31 minutes'"))
+        assert sql("SELECT status || ' ' || escalation_state FROM smarter_private.reliability_incidents WHERE scope->>'table_id' = 'hd-3'") == 'recovered none'
+        ok('a held critical that stays firing escalates: at intake when its delivery has been firing 1200 s, from the tick at 1200 s when no delivery comes, '
+           'and never before; recovery after the quiet window clears the escalation')
+
+        # the warning name: 30 minutes open is not enough when the current episode is young; 900 s of continuous firing is.
+        DB = 'DatabaseRepliesLost'
+        am('db-1', DB, severity='warning', fingerprint='db-1', starts=now(), labels={'instance': 'hd-db'})
+        dbi = lambda f="status || ' ' || escalation_state": sql(f"SELECT {f} FROM smarter_private.reliability_incidents WHERE alertname = '{DB}' AND scope->>'instance' = 'hd-db'")
+        sql(f"UPDATE smarter_private.reliability_incidents SET opened_at = clock_timestamp() - interval '40 minutes', firing_since = clock_timestamp() - interval '5 minutes' WHERE alertname = '{DB}' AND scope->>'instance' = 'hd-db'")
+        tick()
+        assert dbi() == 'investigating none', 'an old flapping warning whose current episode is 5 minutes old stays held'
+        sql(f"UPDATE smarter_private.reliability_incidents SET firing_since = clock_timestamp() - interval '16 minutes' WHERE alertname = '{DB}' AND scope->>'instance' = 'hd-db'")
+        tick()
+        assert dbi("status || ' ' || escalation_reason") == 'escalated no eligible recovery: still firing after 900 seconds (hold-down)'
+        ok('a DatabaseRepliesLost warning open 40 minutes is held while its current episode is younger than 900 s and escalates once it has fired 900 s')
+
+        # a class row's own quiet window, and every other class unchanged.
+        sql("INSERT INTO smarter_private.reliability_alert_classes (priority, source_pattern, alertname_pattern, severity_pattern, incident_class, default_severity, "
+            "escalate_immediately, is_incident, hold_down_seconds, quiet_window_seconds, note) VALUES (5, 'alertmanager', 'HoldDownQuietProbe', '%', 'cluster', 'warning', "
+            "false, true, 600, 600, 'native test only')")
+        qs = now()
+        am('q-1', 'HoldDownQuietProbe', severity='critical', fingerprint='q-1', starts=qs)
+        assert incident('HoldDownQuietProbe') == 'investigating'
+        am('q-1-resolved', 'HoldDownQuietProbe', status='resolved', severity='critical', fingerprint='q-1', starts=qs, ends=now())
+        tick(now("+ interval '9 minutes'"))
+        assert incident('HoldDownQuietProbe') == 'verifying'
+        tick(now("+ interval '11 minutes'"))
+        assert incident('HoldDownQuietProbe') == 'recovered'
+        assert sql("SELECT e.detail->>'reason' FROM smarter_private.reliability_incident_events e JOIN smarter_private.reliability_incidents i ON i.id = e.incident_id "
+                   "WHERE i.alertname = 'HoldDownQuietProbe' AND e.kind = 'quiet_window_passed'") == 'the alert stayed resolved for 600 seconds (class quiet window)'
+        am('plain-1', 'MttFleetNotDealing', severity='critical', fingerprint='plain-1', starts=now(), labels={'instance': 'plain-1'})
+        assert incident('MttFleetNotDealing', "status || ' ' || escalation_reason") == 'escalated no eligible recovery'
+        s4 = now()
+        am('plain-2', 'ClusterTickingNothing', severity='warning', fingerprint='plain-2', starts=s4, labels={'instance': 'plain-2'})
+        sql("UPDATE smarter_private.reliability_incidents SET opened_at = clock_timestamp() - interval '31 minutes' WHERE alertname = 'ClusterTickingNothing'")
+        tick()
+        assert incident('ClusterTickingNothing', "status || ' ' || escalation_reason") == 'escalated no eligible recovery: still firing after 30 minutes'
+        am('plain-2-resolved', 'ClusterTickingNothing', status='resolved', severity='warning', fingerprint='plain-2', starts=s4, ends=now(), labels={'instance': 'plain-2'})
+        tick(now("+ interval '29 minutes'"))
+        assert incident('ClusterTickingNothing') == 'verifying'
+        tick(now("+ interval '31 minutes'"))
+        assert incident('ClusterTickingNothing') == 'recovered'
+        assert sql("SELECT e.detail::text FROM smarter_private.reliability_incident_events e JOIN smarter_private.reliability_incidents i ON i.id = e.incident_id "
+                   "WHERE i.alertname = 'ClusterTickingNothing' AND e.kind = 'quiet_window_passed'") == '{"kind": "quiet_window_passed", "reason": "the alert stayed resolved for 30 minutes"}'
+        ok('a class row with its own quiet window recovers after it; a class without a hold-down still escalates a critical on arrival, a warning after 30 minutes, '
+           'and recovers after 30 quiet minutes with the Stage B wording')
+
+        # closure evidence, and the found producers.
+        cid = incident('MttFleetNotDealing', 'id')
+        sql(f"SELECT smarter_private.reliability_transition('{cid}', 'closed', 'closed with evidence', jsonb_build_object('closure_basis', 'producer_never_resolves_successor_ready'))")
+        assert sql(f"SELECT status || ' ' || closure_basis || ' ' || escalation_state FROM smarter_private.reliability_incidents WHERE id = '{cid}'") == 'closed producer_never_resolves_successor_ready none'
+        before = incidents()
+        record('mac-studio-git-maintenance', 'pack-backlog:/repo:hd', 'Git Maintenance Not Keeping Up', 'firing', 'warning', {'host': 'm', 'repo': '/repo', 'pack_files': 1406, 'limit': 400})
+        record('financial-alerts-backfill', 'promo-hd', 'union_promo_duplicate_2026_11_07', 'firing', 'warning', {'labels': {}})
+        record('midway-weekly-payout-followup', 'note-hd', 'engine_release_stall_check_uuid_into_bigint', 'firing', 'warning', {'owner': 'x'})
+        assert incidents() == before
+        assert sql("SELECT count(*) FROM smarter_private.reliability_incidents WHERE source = 'mac-studio-git-maintenance' AND status <> 'closed'") == '0'
+        assert sql("SELECT string_agg(DISTINCT closure_basis, ',') FROM smarter_private.reliability_incidents WHERE source = 'mac-studio-git-maintenance'") == 'reclassified_not_an_incident'
+        assert sql("SELECT (smarter_private.reliability_classify('financial-alerts-backfill', 'union_promo_duplicate_2026_11_08', 'warning', false)).is_incident") == 't'
+        assert sql("SELECT (smarter_private.reliability_classify('some-source', 'engine_release_stall_check_other', 'warning', false)).is_incident") == 't'
+        ok('a hand close keeps the closure basis it names; the git maintenance guard is a development notification whose open incident is closed with that basis, '
+           'the two hand-written rows match only their exact names and open nothing, and any other name still does')
         print(f'{len(passed)}/{len(passed)} behaviours proven')
     finally:
         subprocess.run([pg_bin('pg_ctl'), '-D', str(data), '-m', 'immediate', 'stop'], capture_output=True)

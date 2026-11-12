@@ -429,24 +429,34 @@
   display: block;
   width: 88%;
   margin: 2cqw auto 1cqw;
-  padding: 10px 12px;
-  border: 1px solid rgba(255, 215, 0, 0.55);
+  padding: 11px 12px;
+  border: 1px solid rgba(255, 232, 128, 0.9);
   border-radius: 10px;
-  background: rgba(255, 215, 0, 0.12);
-  color: #ffd700;
+  background: linear-gradient(180deg, #ffe066 0%, #ffd700 45%, #d4a017 100%);
+  color: #211a02;
   font:
-    700 15px/1.2 'Roboto Condensed',
+    800 16px/1.2 'Roboto Condensed',
     Inter,
     sans-serif;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   cursor: pointer;
   touch-action: manipulation;
+  box-shadow:
+    0 2px 12px rgba(255, 215, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+.break-screen__addon-btn:active:enabled {
+  transform: translateY(1px);
+  box-shadow:
+    0 1px 6px rgba(255, 215, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
 }
 .break-screen__addon-btn:disabled {
   border-color: rgba(154, 165, 179, 0.4);
   background: rgba(154, 165, 179, 0.1);
   color: #9aa5b3;
   cursor: default;
+  box-shadow: none;
 }
 .break-screen__addon-btn:focus-visible {
   outline: 2px solid #45adff;
@@ -510,6 +520,93 @@
   width: 72%;
   margin: 6px auto 0;
   min-height: 44px;
-  background: rgba(10, 14, 20, 0.92);
-  box-shadow: 0 0 10px rgba(255, 215, 0, 0.35);
+}
+
+/* THE ADD-ON PANEL IS THE CARD'S HEADLINE (Dan 2026-11-11: "THIS ADD ON BREAK
+   NEEDS TO LOOK BETTER"). Its three figures sit in a gold-trimmed panel
+   instead of a bare hairline row, with the tally values in the window's own
+   gold, so the purchase facts read first. */
+.break-screen__stats--addon {
+  margin-bottom: 1cqw;
+  padding: 3cqw 2cqw;
+  border: 1px solid rgba(255, 215, 0, 0.35);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255, 215, 0, 0.1), rgba(255, 215, 0, 0.02));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+.break-screen__stats--addon .break-screen__stat-value {
+  color: #ffd700;
+}
+
+/* THE LIVE TALLY RIDES THE SMALL PRESENTATIONS TOO (Dan 2026-11-11): the
+   closed popup keeps showing the real-time add-on count on the table. */
+.break-screen__mini-tally {
+  display: block;
+  margin-top: 2px;
+  padding-top: 5px;
+  border-top: 1px solid rgba(255, 215, 0, 0.25);
+  color: #9aa5b3;
+  font:
+    600 12px/1.3 'Roboto Condensed',
+    Inter,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.break-screen__mini-tally strong {
+  margin-left: 2px;
+  color: #ffd700;
+  font-weight: 700;
+}
+
+/* The minimized add-on clock: the same compact chip family as the waiting
+   notice, gold-trimmed because it is the add-on window's own clock. The
+   painted pill has no zone for a countdown label plus a live tally. */
+.break-screen__minimized--addon {
+  width: min(300px, 76%);
+}
+.break-screen__minimized--addon::after {
+  content: none;
+}
+.break-screen__minimized--addon .break-screen__mini-face {
+  aspect-ratio: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 215, 0, 0.45);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(22, 19, 8, 0.94), rgba(10, 12, 18, 0.94));
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+.break-screen__minimized--addon .break-screen__mini-badge,
+.break-screen__minimized--addon .break-screen__mini-state {
+  position: static;
+  width: auto;
+  height: auto;
+  display: block;
+  white-space: normal;
+  text-align: center;
+}
+.break-screen__minimized--addon .break-screen__mini-badge {
+  color: #ffd700;
+  font:
+    700 15px/1.2 'Roboto Condensed',
+    Inter,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.break-screen__minimized--addon .break-screen__mini-state {
+  color: #9aa5b3;
+  font:
+    600 11px/1.3 'Roboto Condensed',
+    Inter,
+    sans-serif;
+  letter-spacing: 0.04em;
+}
+.break-screen__minimized--addon:focus-visible {
+  outline: 2px solid #ffd700;
+  outline-offset: 2px;
 }

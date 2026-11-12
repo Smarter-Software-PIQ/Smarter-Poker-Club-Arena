@@ -271,8 +271,13 @@ test.describe('decoded card artwork', () => {
       return [...document.querySelectorAll<HTMLCanvasElement>('canvas.card-image__artwork')].map(
         (canvas) => ({
           ready: canvas.dataset.cardArtworkReady,
+          width: canvas.width,
+          targetWidth: Math.round(canvas.clientWidth * window.devicePixelRatio),
           pixels: canvas.toDataURL(),
-          alpha: canvas.getContext('2d')!.getImageData(180, 252, 1, 1).data[3],
+          alpha: canvas
+            .getContext('2d')!
+            .getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1)
+            .data[3],
           pending: !canvas.parentElement!.querySelector<HTMLImageElement>('img')!.complete,
         })
       );
@@ -280,6 +285,7 @@ test.describe('decoded card artwork', () => {
     expect(first).toHaveLength(7);
     first.forEach((entry, index) => {
       expect(entry.ready).toBe('true');
+      expect(Math.abs(entry.width - entry.targetWidth)).toBeLessThanOrEqual(1);
       expect(entry.pending).toBe(true);
       expect(entry.alpha).toBe(255);
       expect(entry.pixels).toBe(before[index]);
@@ -296,6 +302,62 @@ test.describe('decoded card artwork', () => {
       );
     });
     expect(lazy).toEqual(Array(7).fill({ width: 0, height: 0, ready: undefined }));
+  });
+
+  test('court artwork stays filtered after resizing and returning to a hidden table', async ({
+    page,
+  }) => {
+    await page.route('**/__card-art-test', (route) =>
+      route.fulfill({
+        contentType: 'text/html',
+        body: (server as any).__cardTestHtml,
+      })
+    );
+    await page.goto(address, { waitUntil: 'domcontentloaded' });
+    await expectTableRevealed(page, Date.now(), 'filtered courts');
+    for (const width of [65, 32, 80]) {
+      await page.locator('.card-image').evaluateAll((nodes, width) => {
+        for (const node of nodes)
+          Object.assign((node as HTMLElement).style, {
+            width: `${width}px`,
+            height: `${width * 1.4}px`,
+          });
+      }, width);
+      await expect
+        .poll(() =>
+          page
+            .locator('canvas.card-image__artwork')
+            .first()
+            .evaluate((node) => node.width)
+        )
+        .toBe(Math.round(width * (await page.evaluate(() => devicePixelRatio))));
+      const filtered = await page
+        .locator('canvas.card-image__artwork')
+        .evaluateAll(async (nodes) => {
+          return Promise.all(
+            nodes.map(async (node) => {
+              const canvas = node as HTMLCanvasElement;
+              const image = new Image();
+              image.src = canvas.parentElement!.querySelector('img')!.src;
+              await image.decode();
+              const reference = document.createElement('canvas');
+              reference.width = canvas.width;
+              reference.height = canvas.height;
+              const context = reference.getContext('2d')!;
+              context.imageSmoothingQuality = 'high';
+              context.drawImage(image, 0, 0, reference.width, reference.height);
+              return canvas.toDataURL() === reference.toDataURL();
+            })
+          );
+        });
+      expect(filtered).toEqual(Array(7).fill(true));
+      await page
+        .locator('.table-page')
+        .evaluate((node) => ((node as HTMLElement).style.display = 'none'));
+      await page
+        .locator('.table-page')
+        .evaluate((node) => ((node as HTMLElement).style.display = 'block'));
+    }
   });
 
   test('first-visible observer correlates real board and public hole artwork with compositor crops', async ({

@@ -447,6 +447,42 @@ PY
 RENDERED="$RENDERED
 $RELEASE_RENDERED"
 
+# The relative cash baseline must not compare different installed admission
+# contracts. An owner-approved pace change is not a loss of dealing capacity.
+# This catalog-only RPC follows the installed function, including a body change
+# at the same migration version. Failure is unknown, never fingerprint zero.
+CASH_POLICY_BODY=$(curl -sS --max-time "$TIMEOUT_SEC" \
+  -X POST "$SUPABASE_URL/rest/v1/rpc/fn_lightning_admission_policy" \
+  -H "apikey: $SERVICE_KEY" \
+  -H "Authorization: Bearer $SERVICE_KEY" \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json' -d '{}' 2>&1) || CASH_POLICY_BODY=''
+CASH_POLICY_RENDERED=$(python3 - "$CASH_POLICY_BODY" <<'PY'
+import json, sys
+lines = []
+ok = 0
+try:
+    rows = json.loads(sys.argv[1])
+    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+        raise ValueError('policy row is unavailable')
+    fingerprint = rows[0].get('fingerprint')
+    if type(fingerprint) is not int or not 0 <= fingerprint < 2**52:
+        raise ValueError('policy fingerprint is unavailable')
+    lines = ['# HELP poker_lightning_admission_policy_fingerprint Exact 52-bit installed admission-definition cohort; not a numeric capacity.',
+             '# TYPE poker_lightning_admission_policy_fingerprint gauge',
+             f'poker_lightning_admission_policy_fingerprint {fingerprint:d}']
+    ok = 1
+except Exception as exc:
+    sys.stderr.write(f'collect-monitoring-health: cash admission policy unavailable: {exc}\n')
+lines += ['# HELP poker_lightning_admission_policy_collect_ok 1 when the installed admission contract was read this run, else 0.',
+          '# TYPE poker_lightning_admission_policy_collect_ok gauge',
+          f'poker_lightning_admission_policy_collect_ok {ok}']
+print('\n'.join(lines))
+PY
+) || CASH_POLICY_RENDERED='poker_lightning_admission_policy_collect_ok 0'
+RENDERED="$RENDERED
+$CASH_POLICY_RENDERED"
+
 if [ -n "${DRY_RUN:-}" ]; then
   printf '%s\n' "$RENDERED"
   exit 0

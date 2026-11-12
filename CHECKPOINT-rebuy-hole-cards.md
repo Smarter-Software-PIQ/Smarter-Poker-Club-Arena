@@ -32,3 +32,29 @@ Recorded with their rows in `docs/changelog/2026-11-10-a-rebuy-is-taking-a-seat-
 - Browser fixture added (see changelog). Chromium 10/10 fixed; cases 1-4 fail on unfixed main (defect witness passes). WebKit case 1 not stable; gate is Chromium only.
 - Found and recorded, not fixed: the tournament rebuy offer is dismissed by the engine's own seat exit depending on arrival order.
 - Compensation: proposed 20 chips for rebuy 1, not issued pending the owner's choice.
+
+## #10335 delivered (2026-11-11)
+
+- Merged as `648f9b908e9b3eca07789f7e6acdcc704707c7ed` (squash, protected main). CI on head `2cca6b56`: 62 success, 5 skipped; the Chromium fixture gate passed in "CSS Beat general shard 1/10".
+- `publish-club-arena` run 43030797765 succeeded. `https://ca-static.smarter.poker/build-info.json` and `https://smarter.poker/hub/club-arena/build-info.json` both served `ca_sha` 648f9b90 (built 2026-11-11T13:42:02Z). The served chunk `TablePage-B5o947mT-v6.js` carries the latch clear in the rebuy receipt.
+
+## Follow-up: the rebuy offer survives the bust exit
+
+- Owner direction (this chat, 11:42 Chicago): finish the offer/seat-event race. Coordination: #10481 (merged) changed only the cash bust sheet's deadline; #8666 is a dormant server-only PR. No other active client rebuy owner.
+- Causes found, all in `src/pages/TablePage.tsx`: the offer opened only from the zero-stack seat and the bust exit closed it; on a freshly opened page the table's kind was still loading, so the exit was not recognised and the seat read sent the player to the lobby as a cash leave from another device (`presentRemoteSeatExit`); a bust exit lost with the link offered nothing. Detail and fix: `docs/changelog/2026-11-11-the-rebuy-offer-survives-the-bust-exit.md`.
+- The WebKit case-1 instability from #10335 was this defect; WebKit is now stable.
+- Simulated browser only (mock backend, engine double, no chips, no player): final build Chromium 40/40 (suite x4), WebKit 30/30 (suite x3); the pre-change client fails the five new cases. Unit: all 279 files that read the page pass (4,566 tests); tsc clean; ESLint warnings unchanged from main (65).
+
+## Observation kept separate
+
+- Production (rows): MichaelJordan bought entry, two rebuys and one add-on (80); three clock-forced folds directly after rebuy 1; none after rebuy 2.
+- Inferred, not observed: that his screen showed no cards after rebuy 1. The database cannot show what his screen displayed.
+- Unsupported: that the second rebuy also left him without cards.
+
+## Compensation (not issued)
+
+- Proposed: 20 chips for rebuy 1 (receipt `tok:104a09da-c766-4f13-89c9-42304b07ad88`, 02:19:28 UTC). Nothing credited; waiting for Dan to choose the amount.
+
+## Could not remove
+
+- Local build and fixture directories under `/home/claude` (`lt-dist`, `lt-dist-prefix`, `served`, `tr-5`, `tr-exp`, `lt-fixed2`..`lt-fixed7`, `lt-unfixed2`, `lt-dbg`..`lt-dbg5`): deletion refused by the session's safety check and not bypassed. All are scratch output; nothing in them is needed.

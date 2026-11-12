@@ -70,6 +70,8 @@ vi.mock('./errorReporter.js', () => ({
 
 import {
   ALL_IN_REACTIONS,
+  BIG_POT_BB,
+  BIG_POT_BOOST_PCT,
   GESTURE_CHANCE_PCT,
   GESTURE_ITEM_IDS,
   HORSE_GESTURES_PER_HOUR,
@@ -80,6 +82,8 @@ import {
   detectAfterHand,
   gestureAfterHand,
   gestureBeforeAllIn,
+  gestureChancePct,
+  TOURNAMENT_GESTURE_MULT,
   rollsGesture,
   throwItem,
   type AllInGestureInput,
@@ -334,12 +338,46 @@ describe('after a hand', () => {
     const pick = detectAfterHand(lostHand(n));
     expect(pick).toMatchObject({ moment: 'lost', targetSeat: 3 });
     expect(pick!.horse.userId).toBe(HORSE_A);
-    expect(detectAfterHand(lostHand(handThatDoesNot('lost')))).toBeNull();
+    const quietRoll = detectAfterHand(lostHand(handThatDoesNot('lost')));
+    // HORSE_A did not roll lost, nobody else lost, no horse won: only the
+    // rare annoy needle may surface on such a hand.
+    expect(quietRoll === null || quietRoll.moment === 'annoy').toBe(true);
   });
 
-  it('a hand with no showdown gives nobody anything to throw about', () => {
-    const quiet = { ...lostHand(handThatRolls('lost')), showdownResults: [] };
-    expect(detectAfterHand(quiet)).toBeNull();
+  it('a hand with no showdown can still needle a seated person, and only a person (owner 2026-11-11)', () => {
+    const annoyPct = gestureChancePct('annoy', false, 0);
+    let n = 0;
+    for (let i = 1; i <= 100_000 && n === 0; i++) {
+      if (rollsGesture('annoy', HORSE_A, TABLE, i, annoyPct)) n = i;
+    }
+    expect(n).toBeGreaterThan(0);
+    const folded = { ...lostHand(n), showdownResults: [], winners: [] };
+    const pick = detectAfterHand(folded);
+    expect(pick).not.toBeNull();
+    expect(pick!.moment).toBe('annoy');
+    // detectAfterHand only ever casts horses as the thrower; the target is
+    // the one human at the table.
+    expect(pick!.targetSeat).toBe(3);
+    // With no person seated there is nothing to annoy, showdown or not.
+    const horsesOnly = {
+      ...folded,
+      seated: [seat(HORSE_A, 1, true), seat(HORSE_B, 2, true)],
+    };
+    expect(detectAfterHand(horsesOnly)).toBeNull();
+  });
+
+  it('an annoy needle is always a throw at the person, never a floating reaction', async () => {
+    const annoyPct = gestureChancePct('annoy', false, 0);
+    let n = 0;
+    for (let i = 1; i <= 100_000 && n === 0; i++) {
+      if (rollsGesture('annoy', HORSE_A, TABLE, i, annoyPct)) n = i;
+    }
+    const folded = { ...lostHand(n), showdownResults: [], winners: [] };
+    const outcome = await gestureAfterHand(folded);
+    expect(outcome).toBe('thrown');
+    expect(h.state.rpcCalls).toHaveLength(1);
+    const send = h.state.sends[0];
+    expect((send.payload.payload as { message: string }).message).toMatch(/^\[THROW:.+:3\]$/);
   });
 
   it('charges through the person RPC, then broadcasts the browser THROW payload from the horse', async () => {
@@ -383,6 +421,36 @@ describe('after a hand', () => {
     expect(await gestureAfterHand(lostHand(first))).toBe('thrown');
     expect(await gestureAfterHand(lostHand(handThatRolls('lost', first + 1)))).toBe('limited');
     expect(HORSE_GESTURES_PER_HOUR).toBeLessThanOrEqual(6);
+  });
+});
+
+describe('the odds the moments roll against (owner 2026-11-11)', () => {
+  it('tournament tables roll livelier, at the published multiple', () => {
+    expect(TOURNAMENT_GESTURE_MULT).toBe(1.5);
+    for (const m of ['lost', 'won', 'all_in', 'annoy'] as const) {
+      expect(gestureChancePct(m, true, 0)).toBe(Math.round(GESTURE_CHANCE_PCT[m] * 1.5));
+    }
+  });
+  it('a big pot boosts the result moments and only those', () => {
+    expect(gestureChancePct('won', false, BIG_POT_BB)).toBe(
+      GESTURE_CHANCE_PCT.won + BIG_POT_BOOST_PCT
+    );
+    expect(gestureChancePct('lost', false, BIG_POT_BB)).toBe(
+      GESTURE_CHANCE_PCT.lost + BIG_POT_BOOST_PCT
+    );
+    expect(gestureChancePct('lost', false, BIG_POT_BB - 1)).toBe(GESTURE_CHANCE_PCT.lost);
+    expect(gestureChancePct('all_in', false, 1_000)).toBe(GESTURE_CHANCE_PCT.all_in);
+    expect(gestureChancePct('annoy', false, 1_000)).toBe(GESTURE_CHANCE_PCT.annoy);
+  });
+  it('a big tournament pot stacks the boost under the multiple', () => {
+    expect(gestureChancePct('lost', true, 100)).toBe(
+      Math.round((GESTURE_CHANCE_PCT.lost + BIG_POT_BOOST_PCT) * TOURNAMENT_GESTURE_MULT)
+    );
+  });
+  it('the detector reads the big pot off the table blinds', () => {
+    // 40bb at bb 2 is an 80-chip pot: the lostHand fixture pot of 40 is 20bb,
+    // below the boost, so the default-rate helpers above stay aligned.
+    expect(BIG_POT_BB * 2).toBe(80);
   });
 });
 

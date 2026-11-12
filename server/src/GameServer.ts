@@ -3747,7 +3747,12 @@ export class GameServer {
         );
         return;
       }
-      await this.finishTournamentManagerAdmission(tournamentId, manager, generation);
+      await this.finishTournamentManagerAdmission(
+        tournamentId,
+        manager,
+        generation,
+        mode === 'start'
+      );
     } catch (error) {
       await this.stopTournamentManagerIfOwned(
         tournamentId,
@@ -3763,7 +3768,8 @@ export class GameServer {
   private async finishTournamentManagerAdmission(
     tournamentId: string,
     manager: TournamentManager,
-    generation: number
+    generation: number,
+    freshStart = false
   ): Promise<void> {
     if (
       !this.directAdmissionIsCurrent(generation) ||
@@ -3777,7 +3783,7 @@ export class GameServer {
       );
       return;
     }
-    await this.holdIfBreakIsRunning(manager);
+    await this.holdIfBreakIsRunning(manager, freshStart);
     if (
       !this.directAdmissionIsCurrent(generation) ||
       !this.ownsTournamentManager(tournamentId, manager) ||
@@ -8132,12 +8138,25 @@ export class GameServer {
    * its tables are parked (Dan 2026-10-25: each tournament's break starts when
    * its own last hand is complete). Either way it gets its own resume timer.
    */
-  private async holdIfBreakIsRunning(tm: TournamentManager): Promise<void> {
+  private async holdIfBreakIsRunning(tm: TournamentManager, freshStart = false): Promise<void> {
     const remaining = this.remainingBreakMs();
     if (remaining <= 1000) return;
     // Adopted mid-break: it already holds its tables and resumes itself at the
     // end recorded on its row. Holding it again would restart its five minutes.
     if (tm.hasOwnRunningBreak()) return;
+    /**
+     * A TOURNAMENT THAT STARTS AT ITS ADVERTISED TIME STARTS ON THE DOT
+     * (owner direction, 2026-11-11). Each running tournament takes its own
+     * five minutes from the moment its own last hand parks (2026-10-25), so
+     * the fleet break regularly spills past the top of the hour - and a 7:00
+     * PM event held here opened on a paused break screen instead of dealing
+     * level 1. A tournament being STARTED - first admission, no hand ever
+     * dealt - has a fresh field with no play to rest from, so the ordinary
+     * :55 break does not hold it. A maintenance-anchored break still does: a
+     * frozen engine cannot deal for anyone. A resumed or adopted tournament
+     * keeps the hold exactly as before - its players are mid-session.
+     */
+    if (freshStart && !this.breakEndsWithMaintenance) return;
     const generation = this.lifecycleGeneration;
     const breakGeneration = this.synchronizedBreakGeneration;
     // Same single gate as triggerSynchronizedBreak — a Spin or Heads-Up that

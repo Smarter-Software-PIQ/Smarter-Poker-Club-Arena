@@ -2034,45 +2034,122 @@ groups:
             and holding horses at the four-game limit.
           runbook: docs/changelog/2026-09-11-the-horse-audit.md
 
-      # ALL cash hands - settled Lightning hands plus the table engines' cash
-      # hands (poker_hands_fleet_total{format="cash"}, #10511), never a
-      # tournament hand - in the same 30 minutes on each of the previous 1..6
-      # days, averaged over the days Prometheus still holds, absent unless at
-      # least three are there. A day counts when the Lightning counter was
-      # present (it has history on every day Prometheus holds); a day before
-      # the table counter shipped contributes its Lightning hands only, which
-      # understates that day's baseline by the ~0.1 hands/s Classic share and
-      # can only make the rule quieter, never louder.
-      - record: sp:cash_hands:same_hour_mean_6d
+      # Three missed one-minute collector cycles are unknown, not a new
+      # capacity. This reports availability, never a made-up fingerprint.
+      - record: sp:lightning_admission_policy:readable
+        expr: |
+          (
+            (max(poker_lightning_admission_policy_collect_ok) == bool 1)
+            * (time() - max(poker_health_collected_timestamp_seconds) < bool 180)
+            * (count(poker_lightning_admission_policy_fingerprint) == bool 1)
+          ) or on() vector(0)
+
+      # Both endpoints and every observed policy/readability sample cover the
+      # complete rate window. A replacement or an unreadable interval resets
+      # eligibility; later restoration of the same definition is not guessed.
+      - record: sp:lightning_admission_policy:stable_30m
+        expr: |
+          max(poker_lightning_admission_policy_fingerprint)
+          and on() min_over_time(sp:lightning_admission_policy:readable[30m]) == 1
+          and on() sp:lightning_admission_policy:readable offset 30m == 1
+          and on() max(poker_lightning_admission_policy_fingerprint offset 30m)
+            == max(poker_lightning_admission_policy_fingerprint)
+          and on() max(max_over_time(poker_lightning_admission_policy_fingerprint[30m]))
+            == min(min_over_time(poker_lightning_admission_policy_fingerprint[30m]))
+
+      # Settled CASH hands (Lightning) in the same 30 minutes on each of the
+      # previous 1..6 days with the SAME installed admission definition,
+      # absent unless at least three are there (see
+      # HorseFleetThroughputRelativeDrop below for why).
+      - record: sp:lightning_hands:same_hour_mean_6d
         expr: |
           (
             (
-                ((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 1d)) or on() vector(0)) + (sum(rate(poker_hands_fleet_total{format="cash"}[30m] offset 1d)) or on() vector(0)))
-              + ((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 2d)) or on() vector(0)) + (sum(rate(poker_hands_fleet_total{format="cash"}[30m] offset 2d)) or on() vector(0)))
-              + ((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 3d)) or on() vector(0)) + (sum(rate(poker_hands_fleet_total{format="cash"}[30m] offset 3d)) or on() vector(0)))
-              + ((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 4d)) or on() vector(0)) + (sum(rate(poker_hands_fleet_total{format="cash"}[30m] offset 4d)) or on() vector(0)))
-              + ((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 5d)) or on() vector(0)) + (sum(rate(poker_hands_fleet_total{format="cash"}[30m] offset 5d)) or on() vector(0)))
-              + ((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 6d)) or on() vector(0)) + (sum(rate(poker_hands_fleet_total{format="cash"}[30m] offset 6d)) or on() vector(0)))
+                ((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 1d)) and on() (sp:lightning_admission_policy:stable_30m offset 1d == sp:lightning_admission_policy:stable_30m)) or on() vector(0))
+              + ((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 2d)) and on() (sp:lightning_admission_policy:stable_30m offset 2d == sp:lightning_admission_policy:stable_30m)) or on() vector(0))
+              + ((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 3d)) and on() (sp:lightning_admission_policy:stable_30m offset 3d == sp:lightning_admission_policy:stable_30m)) or on() vector(0))
+              + ((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 4d)) and on() (sp:lightning_admission_policy:stable_30m offset 4d == sp:lightning_admission_policy:stable_30m)) or on() vector(0))
+              + ((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 5d)) and on() (sp:lightning_admission_policy:stable_30m offset 5d == sp:lightning_admission_policy:stable_30m)) or on() vector(0))
+              + ((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 6d)) and on() (sp:lightning_admission_policy:stable_30m offset 6d == sp:lightning_admission_policy:stable_30m)) or on() vector(0))
             )
             /
             clamp_min(
-                (count(sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 1d))) or on() vector(0))
-              + (count(sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 2d))) or on() vector(0))
-              + (count(sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 3d))) or on() vector(0))
-              + (count(sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 4d))) or on() vector(0))
-              + (count(sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 5d))) or on() vector(0))
-              + (count(sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 6d))) or on() vector(0))
+                (count((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 1d)) and on() (sp:lightning_admission_policy:stable_30m offset 1d == sp:lightning_admission_policy:stable_30m))) or on() vector(0))
+              + (count((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 2d)) and on() (sp:lightning_admission_policy:stable_30m offset 2d == sp:lightning_admission_policy:stable_30m))) or on() vector(0))
+              + (count((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 3d)) and on() (sp:lightning_admission_policy:stable_30m offset 3d == sp:lightning_admission_policy:stable_30m))) or on() vector(0))
+              + (count((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 4d)) and on() (sp:lightning_admission_policy:stable_30m offset 4d == sp:lightning_admission_policy:stable_30m))) or on() vector(0))
+              + (count((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 5d)) and on() (sp:lightning_admission_policy:stable_30m offset 5d == sp:lightning_admission_policy:stable_30m))) or on() vector(0))
+              + (count((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 6d)) and on() (sp:lightning_admission_policy:stable_30m offset 6d == sp:lightning_admission_policy:stable_30m))) or on() vector(0))
             , 1)
           )
           and on()
           (
-              (count(sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 1d))) or on() vector(0))
-            + (count(sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 2d))) or on() vector(0))
-            + (count(sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 3d))) or on() vector(0))
-            + (count(sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 4d))) or on() vector(0))
-            + (count(sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 5d))) or on() vector(0))
-            + (count(sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 6d))) or on() vector(0))
+              (count((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 1d)) and on() (sp:lightning_admission_policy:stable_30m offset 1d == sp:lightning_admission_policy:stable_30m))) or on() vector(0))
+            + (count((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 2d)) and on() (sp:lightning_admission_policy:stable_30m offset 2d == sp:lightning_admission_policy:stable_30m))) or on() vector(0))
+            + (count((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 3d)) and on() (sp:lightning_admission_policy:stable_30m offset 3d == sp:lightning_admission_policy:stable_30m))) or on() vector(0))
+            + (count((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 4d)) and on() (sp:lightning_admission_policy:stable_30m offset 4d == sp:lightning_admission_policy:stable_30m))) or on() vector(0))
+            + (count((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 5d)) and on() (sp:lightning_admission_policy:stable_30m offset 5d == sp:lightning_admission_policy:stable_30m))) or on() vector(0))
+            + (count((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 6d)) and on() (sp:lightning_admission_policy:stable_30m offset 6d == sp:lightning_admission_policy:stable_30m))) or on() vector(0))
           ) >= 3
+
+      # Combined coverage requires both raw cash populations and the same
+      # stable admission policy at each historical offset. Missing Classic
+      # history is absent, never a fabricated zero. The existing Lightning
+      # baseline remains the fallback until three comparable days exist.
+      - record: sp:cash_hands:same_hour_mean_6d
+        expr: |
+          (
+            (
+                (((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 1d)) + on() sum(rate(poker_hands_fleet_total{format="cash"}[30m] offset 1d))) and on() (sp:lightning_admission_policy:stable_30m offset 1d == sp:lightning_admission_policy:stable_30m)) or on() vector(0))
+              + (((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 2d)) + on() sum(rate(poker_hands_fleet_total{format="cash"}[30m] offset 2d))) and on() (sp:lightning_admission_policy:stable_30m offset 2d == sp:lightning_admission_policy:stable_30m)) or on() vector(0))
+              + (((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 3d)) + on() sum(rate(poker_hands_fleet_total{format="cash"}[30m] offset 3d))) and on() (sp:lightning_admission_policy:stable_30m offset 3d == sp:lightning_admission_policy:stable_30m)) or on() vector(0))
+              + (((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 4d)) + on() sum(rate(poker_hands_fleet_total{format="cash"}[30m] offset 4d))) and on() (sp:lightning_admission_policy:stable_30m offset 4d == sp:lightning_admission_policy:stable_30m)) or on() vector(0))
+              + (((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 5d)) + on() sum(rate(poker_hands_fleet_total{format="cash"}[30m] offset 5d))) and on() (sp:lightning_admission_policy:stable_30m offset 5d == sp:lightning_admission_policy:stable_30m)) or on() vector(0))
+              + (((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 6d)) + on() sum(rate(poker_hands_fleet_total{format="cash"}[30m] offset 6d))) and on() (sp:lightning_admission_policy:stable_30m offset 6d == sp:lightning_admission_policy:stable_30m)) or on() vector(0))
+            )
+            /
+            clamp_min(
+                (count(((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 1d)) + on() sum(rate(poker_hands_fleet_total{format="cash"}[30m] offset 1d))) and on() (sp:lightning_admission_policy:stable_30m offset 1d == sp:lightning_admission_policy:stable_30m))) or on() vector(0))
+              + (count(((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 2d)) + on() sum(rate(poker_hands_fleet_total{format="cash"}[30m] offset 2d))) and on() (sp:lightning_admission_policy:stable_30m offset 2d == sp:lightning_admission_policy:stable_30m))) or on() vector(0))
+              + (count(((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 3d)) + on() sum(rate(poker_hands_fleet_total{format="cash"}[30m] offset 3d))) and on() (sp:lightning_admission_policy:stable_30m offset 3d == sp:lightning_admission_policy:stable_30m))) or on() vector(0))
+              + (count(((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 4d)) + on() sum(rate(poker_hands_fleet_total{format="cash"}[30m] offset 4d))) and on() (sp:lightning_admission_policy:stable_30m offset 4d == sp:lightning_admission_policy:stable_30m))) or on() vector(0))
+              + (count(((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 5d)) + on() sum(rate(poker_hands_fleet_total{format="cash"}[30m] offset 5d))) and on() (sp:lightning_admission_policy:stable_30m offset 5d == sp:lightning_admission_policy:stable_30m))) or on() vector(0))
+              + (count(((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 6d)) + on() sum(rate(poker_hands_fleet_total{format="cash"}[30m] offset 6d))) and on() (sp:lightning_admission_policy:stable_30m offset 6d == sp:lightning_admission_policy:stable_30m))) or on() vector(0))
+            , 1)
+          )
+          and on()
+          (
+              (count(((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 1d)) + on() sum(rate(poker_hands_fleet_total{format="cash"}[30m] offset 1d))) and on() (sp:lightning_admission_policy:stable_30m offset 1d == sp:lightning_admission_policy:stable_30m))) or on() vector(0))
+            + (count(((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 2d)) + on() sum(rate(poker_hands_fleet_total{format="cash"}[30m] offset 2d))) and on() (sp:lightning_admission_policy:stable_30m offset 2d == sp:lightning_admission_policy:stable_30m))) or on() vector(0))
+            + (count(((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 3d)) + on() sum(rate(poker_hands_fleet_total{format="cash"}[30m] offset 3d))) and on() (sp:lightning_admission_policy:stable_30m offset 3d == sp:lightning_admission_policy:stable_30m))) or on() vector(0))
+            + (count(((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 4d)) + on() sum(rate(poker_hands_fleet_total{format="cash"}[30m] offset 4d))) and on() (sp:lightning_admission_policy:stable_30m offset 4d == sp:lightning_admission_policy:stable_30m))) or on() vector(0))
+            + (count(((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 5d)) + on() sum(rate(poker_hands_fleet_total{format="cash"}[30m] offset 5d))) and on() (sp:lightning_admission_policy:stable_30m offset 5d == sp:lightning_admission_policy:stable_30m))) or on() vector(0))
+            + (count(((sum(rate(poker_lightning_hands_total{outcome="settled"}[30m] offset 6d)) + on() sum(rate(poker_hands_fleet_total{format="cash"}[30m] offset 6d))) and on() (sp:lightning_admission_policy:stable_30m offset 6d == sp:lightning_admission_policy:stable_30m))) or on() vector(0))
+          ) >= 3
+
+      - alert: HorseFleetThroughputPolicyUnknown
+        expr: sp:lightning_admission_policy:readable == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: monitoring
+        annotations:
+          summary: 'Cash throughput admission policy cannot be read'
+          description: 'The installed policy fingerprint is missing, failed, duplicated or over three collector cycles old. The relative baseline is unknown; inspect the monitoring-health collector. Zero-dealing and table-stall alarms remain independent.'
+          runbook: docs/changelog/2026-11-12-cash-throughput-compares-the-same-admission-policy.md
+
+      - alert: HorseFleetThroughputBaselineWarming
+        expr: |
+          sp:lightning_admission_policy:readable == 1
+          unless on() sp:lightning_hands:same_hour_mean_6d
+        for: 5m
+        labels:
+          severity: warning
+          component: club-arena-engine
+        annotations:
+          summary: 'Cash throughput lacks three same-policy historical days'
+          description: 'The installed admission definition has fewer than three eligible same-hour days, or the current complete window is not yet stable. Historical rates from a different policy are excluded. Zero-dealing and table-stall alarms remain independent.'
+          runbook: docs/changelog/2026-11-12-cash-throughput-compares-the-same-admission-policy.md
 
       - alert: HorseFleetThroughputRelativeDrop
         # THE FLOOR THAT IS HALF EMPTY, NOT EMPTY (2026-10-15).
@@ -2113,10 +2190,11 @@ groups:
         # lowers the mean by at most a sixth of itself, so the day after an
         # outage is still compared against something close to normal.
         #
-        # sp:cash_hands:same_hour_mean_6d (just above, evaluated first in
-        # this group) applies `offset` to the raw COUNTER, never to a recorded
-        # series: an offset over a new recording rule would have no history
-        # for a week, the counter has it today. `for: 30m` is inside the 40-minute ceiling for guarded alarms
+        # sp:lightning_hands:same_hour_mean_6d (just above, evaluated first in
+        # this group) applies `offset` to the raw COUNTER and requires a complete
+        # same-policy window at each historical offset. The policy recording
+        # series must warm for three days after first publication; the warning
+        # above exposes this gap rather than mixing unknown admission regimes. `for: 30m` is inside the 40-minute ceiling for guarded alarms
         # (tests/theBreakDoesNotSilenceTheAlarmsAboutItself.law.test.ts), and
         # because the break falls at the same minute every hour, the 30m rate
         # window and its baseline contain the same share of break minutes.
@@ -2152,18 +2230,21 @@ groups:
         # true only 2026-11-10 06:38-09:48Z, the real cash dip (2,877 cash
         # hands in the 06:00 hour against ~7,000), and the ratio at 15:00Z
         # on 2026-11-11 is 1.85.
-        #
-        # FLEET-WIDE CASH AGAIN, NOT LIGHTNING ALONE (2026-11-11, after #10506).
-        # #10506 read settled Lightning hands only, which left the table
-        # engines' ordinary cash hands outside this rule. It now counts both,
-        # and still never a tournament hand.
         expr: |
           (
-              (sum(rate(poker_lightning_hands_total{outcome="settled"}[30m])) or on() vector(0))
-            + (sum(rate(poker_hands_fleet_total{format="cash"}[30m])) or on() vector(0))
-          )
+          (
+          (sum(rate(poker_lightning_hands_total{outcome="settled"}[30m])) + on() sum(rate(poker_hands_fleet_total{format="cash"}[30m])))
             < 0.5 * sp:cash_hands:same_hour_mean_6d
           and on() sp:cash_hands:same_hour_mean_6d > 0.5
+          )
+          or on()
+          (
+          (sum(rate(poker_lightning_hands_total{outcome="settled"}[30m])) or on() vector(0))
+            < 0.5 * sp:lightning_hands:same_hour_mean_6d
+          and on() sp:lightning_hands:same_hour_mean_6d > 0.5
+          unless on() sp:cash_hands:same_hour_mean_6d
+          )
+          )
           unless on() max_over_time(poker_maintenance_break_active[6m]) == 1
           # An owner floor park holding half the cash floor or more is a stop
           # somebody scheduled (2026-10-15: park 3d9c1ba1, share 1.0, paged

@@ -382,16 +382,16 @@ class TableService {
    * panel on a query failure (ITEM E audit, 2026-08-26). Type and code agree
    * now: null = unknown/no data, a number = a real average.
    */
-  async getAveragePot(tableId: string): Promise<number | null> {
+  async getAveragePot(tableId: string, since?: Date): Promise<number | null> {
     // 2026-08-19: read `hands`, a table with ZERO rows ever, so this always
     // returned 0 no matter how the table was playing. hand_history is the live
     // ledger the engine writes, and carries pot_size directly.
-    const { data, error } = await supabase
-      .from('hand_history')
-      .select('pot_size')
-      .eq('table_id', tableId)
-      .order('created_at', { ascending: false })
-      .limit(100);
+    // 2026-11-11: windowed to the lobby day (lobbyDayStart, 04:00 Chicago).
+    // Unwindowed, an idle game printed the average of hands from weeks ago
+    // ("Avg Pot 135" on a game with nobody playing).
+    let query = supabase.from('hand_history').select('pot_size').eq('table_id', tableId);
+    if (since) query = query.gte('created_at', since.toISOString());
+    const { data, error } = await query.order('created_at', { ascending: false }).limit(100);
 
     if (error) {
       reportError(error, 'TableService.getAveragePot', { tableId });

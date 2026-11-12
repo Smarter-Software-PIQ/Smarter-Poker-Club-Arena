@@ -125,7 +125,7 @@ jobs:
     # CAPGO_TOKEN secret too, and fails loudly if it does not - an enabled
     # switch with no token is a misconfiguration, not a quiet no-op.
     if: >-
-      github.repository_id == '1132369872' && github.ref == 'refs/heads/main' && github.workflow_ref == format('{0}/.github/workflows/publish-club-arena.yml@refs/heads/main', github.repository) && (github.event_name == 'push' || github.event_name == 'repository_dispatch') &&
+      (github.repository_id == '1132369872' && github.ref == 'refs/heads/main' && github.workflow_ref == format('{0}/.github/workflows/publish-club-arena.yml@refs/heads/main', github.repository) && (github.event_name == 'push' || github.event_name == 'repository_dispatch') &&
       always() &&
       vars.CAPGO_OTA_ENABLED == 'true' &&
       inputs.build_result == 'success' &&
@@ -134,7 +134,7 @@ jobs:
       needs.publish-to-origin.outputs.verified_sha == inputs.target_sha &&
       (inputs.client_result == 'success' ||
        (inputs.client_result == 'skipped' &&
-        inputs.tests_proven == 'true'))
+        inputs.tests_proven == 'true'))) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 30
@@ -242,13 +242,13 @@ jobs:
     # Run when the build succeeded AND the tests either passed or were provably
     # unnecessary. A client-tests FAILURE still stops the publish.
     if: >-
-      github.repository_id == '1132369872' && github.ref == 'refs/heads/main' && github.workflow_ref == format('{0}/.github/workflows/publish-club-arena.yml@refs/heads/main', github.repository) && (github.event_name == 'push' || github.event_name == 'repository_dispatch') &&
+      (github.repository_id == '1132369872' && github.ref == 'refs/heads/main' && github.workflow_ref == format('{0}/.github/workflows/publish-club-arena.yml@refs/heads/main', github.repository) && (github.event_name == 'push' || github.event_name == 'repository_dispatch') &&
       always() &&
       inputs.publish != 'false' &&
       inputs.build_result == 'success' &&
       (inputs.client_result == 'success' ||
        (inputs.client_result == 'skipped' &&
-        inputs.tests_proven == 'true'))
+        inputs.tests_proven == 'true'))) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 25
@@ -742,8 +742,8 @@ jobs:
 
   publish-record-gateway:
     if: >-
-      github.repository_id == '1132369872' && github.ref == 'refs/heads/main' && github.workflow_ref == format('{0}/.github/workflows/publish-club-arena.yml@refs/heads/main', github.repository) && (github.event_name == 'push' || github.event_name == 'repository_dispatch') &&
-      (inputs.component == 'private-record-gateway' && inputs.gateway_build_result == 'success')
+      (github.repository_id == '1132369872' && github.ref == 'refs/heads/main' && github.workflow_ref == format('{0}/.github/workflows/publish-club-arena.yml@refs/heads/main', github.repository) && (github.event_name == 'push' || github.event_name == 'repository_dispatch') &&
+      (inputs.component == 'private-record-gateway' && inputs.gateway_build_result == 'success')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 25
@@ -839,8 +839,8 @@ jobs:
 
   bootstrap-record-gateway:
     if: >-
-      github.repository_id == '1132369872' && github.ref == 'refs/heads/main' && github.workflow_ref == format('{0}/.github/workflows/publish-club-arena.yml@refs/heads/main', github.repository) && (github.event_name == 'push' || github.event_name == 'repository_dispatch') &&
-      (inputs.component == 'private-record-bootstrap')
+      (github.repository_id == '1132369872' && github.ref == 'refs/heads/main' && github.workflow_ref == format('{0}/.github/workflows/publish-club-arena.yml@refs/heads/main', github.repository) && (github.event_name == 'push' || github.event_name == 'repository_dispatch') &&
+      (inputs.component == 'private-record-bootstrap')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 15
@@ -923,8 +923,8 @@ jobs:
 
   install-record-gateway-credentials:
     if: >-
-      github.repository_id == '1132369872' && github.ref == 'refs/heads/main' && github.workflow_ref == format('{0}/.github/workflows/publish-club-arena.yml@refs/heads/main', github.repository) && (github.event_name == 'push' || github.event_name == 'repository_dispatch') &&
-      (inputs.component == 'private-record-credentials')
+      (github.repository_id == '1132369872' && github.ref == 'refs/heads/main' && github.workflow_ref == format('{0}/.github/workflows/publish-club-arena.yml@refs/heads/main', github.repository) && (github.event_name == 'push' || github.event_name == 'repository_dispatch') &&
+      (inputs.component == 'private-record-credentials')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 10
@@ -953,8 +953,8 @@ jobs:
 
   inspect-record-gateway-host:
     if: >-
-      github.repository_id == '1132369872' && github.ref == 'refs/heads/main' && github.workflow_ref == format('{0}/.github/workflows/publish-club-arena.yml@refs/heads/main', github.repository) && (github.event_name == 'push' || github.event_name == 'repository_dispatch') &&
-      (inputs.component == 'private-record-inspect')
+      (github.repository_id == '1132369872' && github.ref == 'refs/heads/main' && github.workflow_ref == format('{0}/.github/workflows/publish-club-arena.yml@refs/heads/main', github.repository) && (github.event_name == 'push' || github.event_name == 'repository_dispatch') &&
+      (inputs.component == 'private-record-inspect')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 5

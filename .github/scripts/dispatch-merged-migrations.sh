@@ -58,6 +58,16 @@ NOW_MS="${DISPATCH_NOW_MS:-}"
 SUMMARY="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
 PLANNER=scripts/ci/merged-migration-dispatch.mjs
 
+# Two phases, one plan (2026-11-11). `plan` records one dispatch intent per
+# file (scripts/ci/dispatch-intent.mjs) for the workflow to upload as this
+# run attempt's dispatch-intents artifact; `send` re-reads the same plan,
+# requires it to name the same files, and sends each with its intent. The
+# applier honours a job-token dispatch only when it is that exact intent.
+PHASE="${DISPATCH_PHASE:-plan}"
+REPORT="$SUMMARY"
+# The send phase repeats the plan silently; it reports from the wait onward.
+if [ "$PHASE" = send ]; then SUMMARY=/dev/null; fi
+
 say() { echo "$*" | tee -a "$SUMMARY"; }
 
 {
@@ -119,12 +129,32 @@ if [ "${#DISPATCH[@]}" -eq 0 ]; then
   exit "$FAIL"
 fi
 
+SUMMARY="$REPORT"
 LIST=$(printf '`%s` ' "${DISPATCH[@]}")
 if [ "$(jq -r '.withinBudget' <<<"$PLAN")" != "true" ]; then
   say "- **NOT DISPATCHED (break window)**: the applier would not admit ${LIST}within this run's bounded wait (next admitted: $(jq -r '.dispatchAt // "none in two hours"' <<<"$PLAN")). Nothing was sent."
   say "- Dispatch each, in this order, after :03 UTC: ${LIST}"
   echo "::error::Merged migrations not dispatched (break window): ${DISPATCH[*]}"
   gh pr comment "$PR" --repo "$REPO" --body "This PR merged inside the migration break window, and the dispatcher could not reach an admitted moment within its bounded wait, so NOTHING was dispatched. Dispatch \`apply-merged-migration\` for each, in order, after :03 UTC: ${LIST}" || true
+  exit 1
+fi
+
+INTENT_STATE="${INTENT_STATE:-${RUNNER_TEMP:-/tmp}/merged-migration-intents.jsonl}"
+if [ "$PHASE" = plan ]; then
+  : > "$INTENT_STATE"
+  for f in "${DISPATCH[@]}"; do
+    node scripts/ci/dispatch-intent.mjs write --operation apply-merged-migration \
+        --dir "${INTENT_DIR:?the intent directory is required}" --input "migration=$f" --input-json dry_run=false \
+      | jq -c --arg f "$f" '{migration: $f, nonce: .nonce}' >> "$INTENT_STATE"
+  done
+  echo "send=true" >> "${GITHUB_OUTPUT:-/dev/null}"
+  say "- recorded ${#DISPATCH[@]} dispatch intent(s) for ${LIST}; the next step sends them."
+  exit 0
+fi
+[ "$PHASE" = send ] || { echo "::error::DISPATCH_PHASE must be plan or send"; exit 1; }
+if [ "$(jq -sc '[.[].migration]' "$INTENT_STATE")" != "$(printf '%s\n' "${DISPATCH[@]}" | jq -Rsc 'split("\n")[:-1]')" ]; then
+  say "- **NOT DISPATCHED**: the plan changed between recording the intents and sending them. Dispatch each, in this order, after :03 UTC: ${LIST}"
+  echo "::error::Merged migrations not dispatched: the recorded intents no longer match the plan."
   exit 1
 fi
 
@@ -143,9 +173,13 @@ fi
 
 SENT=0
 for f in "${DISPATCH[@]}"; do
-  if gh api --method POST "repos/$REPO/dispatches" \
+  NONCE=$(jq -r --arg f "$f" 'select(.migration == $f) | .nonce' "$INTENT_STATE")
+  if [[ "$NONCE" =~ ^[0-9a-f]{32}$ ]] && gh api --method POST "repos/$REPO/dispatches" \
       -f event_type=apply-merged-migration \
       -f "client_payload[migration]=$f" \
+      -f "client_payload[intent_run_id]=$GITHUB_RUN_ID" \
+      -f "client_payload[intent_run_attempt]=${GITHUB_RUN_ATTEMPT:?}" \
+      -f "client_payload[intent_nonce]=$NONCE" \
       -F "client_payload[dry_run]=false" >/dev/null; then
     say "- dispatched \`$f\` (apply-merged-migration, dry_run false)."
     SENT=$((SENT + 1))

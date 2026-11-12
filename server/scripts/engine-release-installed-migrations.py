@@ -73,6 +73,7 @@ REPO_API = 'https://api.github.com/repos/Smarter-Software-PIQ/Smarter-Poker-Club
 CONTEXT = 'backup-engine/certified'
 MIGRATIONS = 'supabase/migrations/'
 WINDOW_ANNOTATION = r'^--[[:blank:]]*@install-window:[[:blank:]]*daily-maintenance[[:blank:]]*$'
+SUPERSEDED_ANNOTATION = r'^--[[:blank:]]*SUPERSEDED BY[[:blank:]]+[0-9]{14}'
 DIGEST = re.compile(r'[0-9a-f]{64}')
 CERTIFIED = re.compile(r'; installed migrations ([0-9a-f]{64})$')
 FILE = re.compile(r'(\d{14})_([A-Za-z0-9_.-]+)\.sql')
@@ -131,14 +132,74 @@ def window_versions(repo, sha):
     return versions
 
 
+def resolve_superseded(marks, present):
+    """Versions whose supersession resolves, fail closed.
+
+    `marks` maps a version to the successor its head names; `present` is the
+    tree's version set. A file is skipped only when following SUPERSEDED BY
+    from it reaches, without revisiting any version, a present file that is
+    itself still required: one with no mark, or one whose own successor is
+    absent. A cycle, or a chain that only reaches files lacking from the
+    tree, leaves every file on it required."""
+    skipped = set()
+    for version in marks:
+        current, seen = version, {version}
+        while True:
+            successor = marks[current]
+            if successor not in present:
+                resolved = current != version  # current is the required endpoint
+                break
+            if successor in seen:
+                resolved = False  # a cycle never removes a requirement
+                break
+            if successor not in marks:
+                resolved = True
+                break
+            seen.add(successor)
+            current = successor
+        if resolved:
+            skipped.add(version)
+    return skipped
+
+
+def superseded_versions(repo, sha):
+    """Versions of the migration files in the exact tree whose head says
+    "-- SUPERSEDED BY <version>" naming another file present in that tree,
+    resolved by resolve_superseded(). The protected applier refuses such a
+    file ("must never run") and its successor installs instead, so production
+    never records it. Same marker rule as supersededBy() in
+    scripts/ci/check-migrations-are-live.mjs and engine-release-window-doors.py."""
+    if not re.fullmatch(r'[0-9a-f]{40}', sha):
+        raise ValueError('target SHA is invalid')
+    present = set()
+    for path in git(repo, 'ls-tree', '--name-only', sha, '--', MIGRATIONS).split():
+        match = FILE.fullmatch(path.rsplit('/', 1)[-1])
+        if match:
+            present.add(match[1])
+    hits = git(repo, 'grep', '-l', '-E', '-e', SUPERSEDED_ANNOTATION, sha, '--', MIGRATIONS, ok=(0, 1))
+    marks = {}
+    for hit in hits.splitlines():
+        path = hit.split(':', 1)[1] if hit.startswith(sha + ':') else hit
+        match = FILE.fullmatch(path.rsplit('/', 1)[-1])
+        if not match:
+            continue
+        mark = re.search(r'^--\s*SUPERSEDED BY\s+(\d{14})\b', git(repo, 'show', sha + ':' + path)[:400], re.M)
+        if mark and mark[1] != match[1]:
+            marks[match[1]] = mark[1]
+    return resolve_superseded(marks, present)
+
+
 def required_by(repo, serving, target, skip=frozenset()):
     """{version: name} of the migration files the exact candidate adds or
     changes relative to serving, less `skip` (window files, installed inside
-    the break). The protected applier records a file's version and its name
+    the break) and less files the candidate marks SUPERSEDED BY a successor
+    in its own tree (the applier refuses them; the successor is required in
+    their place). The protected applier records a file's version and its name
     (the filename slug)."""
     for sha in (serving, target):
         if not re.fullmatch(r'[0-9a-f]{40}', sha):
             raise ValueError('expected exact commit SHAs')
+    skip = set(skip) | superseded_versions(repo, target)
     required = {}
     for path in git(repo, 'diff', '--no-renames', '--name-only', '--diff-filter=AM', serving, target,
                     '--', MIGRATIONS).splitlines():
@@ -255,6 +316,8 @@ def recently_added(repo, control, hours=26):
     names = git(repo, 'log', '--first-parent', f'--since={hours} hours ago', '--diff-filter=A', '--name-only',
                 '--format=', control, '--', MIGRATIONS).split()
     windows = window_versions(repo, control)
+    # A superseded file never installs, so a refresh never waits for it.
+    windows |= superseded_versions(repo, control)
     present = set(git(repo, 'ls-tree', '--name-only', control, '--', MIGRATIONS).split())
     versions = set()
     for path in names:

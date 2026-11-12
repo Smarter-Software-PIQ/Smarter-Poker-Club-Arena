@@ -16,7 +16,19 @@ from horse_census_statistics import (
     evaluate_cell_denominators,
     t_crit_975,
 )
-from horse_census_audit import checked_seat_totals, conservation_inference, run_audit
+import tempfile
+
+from horse_census_audit import (
+    checked_seat_totals,
+    conservation_inference,
+    read_refund_evidence,
+    cohort_roi_pct,
+    reconstruction_sensitivity,
+    entry_cohort,
+    refund_adjusted_cost,
+    run_audit,
+    tournament_funding_asset,
+)
 from horse_study_subjects import read_subjects, validate_frozen_cohort
 
 class TestStatEstimators(unittest.TestCase):
@@ -74,6 +86,121 @@ class TestStatEstimators(unittest.TestCase):
         rows[0]['horse_net_bb'] += 1
         with self.assertRaisesRegex(ValueError, 'seat_returns_disagree'):
             evaluate_cell_denominators(rows, bootstrap_reps=0)
+
+    def refund_file(self, refund=None, unregistration=None, extra_refunds=(), extra_unregistrations=(), **changes):
+        bound = dict(entitlement_id='e1', tournament_id='t1', actor_class='horse', source='fn_unregister_from_tournament',
+                     registration_id='r1', refund_amount=30, funding_amount=30, credit_amount=30,
+                     funding_operation='entry', funding_asset='chips', entitlement_tournament_match=True,
+                     entitlement_user_match=True, funding_receipt_found=True, funding_tournament_match=True,
+                     funding_user_match=True, funding_registration_match=True, funding_ledger_match=True,
+                     credit_user_match=True, unregistration_receipt_found=True, unregistration_identity_match=True)
+        bound.update(refund or {})
+        receipt = dict(registration_id='r1', tournament_id='t1', actor_class='horse', refunded_chips=30,
+                       returned_ticket_value=0, entitlement_count=1)
+        receipt.update(unregistration or {})
+        cancelled = dict(entitlement_id='e9', tournament_id='t2', actor_class='horse', source='atomic_cancel_tournament',
+                         refund_amount=99)
+        free = dict(registration_id='r0', tournament_id='t1', actor_class='eligible_human', refunded_chips=0,
+                    returned_ticket_value=0, entitlement_count=0)
+        value = dict(schema='horse-census-refund-evidence-v2', cutoffUtc='2026-11-10T21:30:00+00:00', tournamentCount=2,
+                     acquiredAtUtc='2026-11-11T00:00:00+00:00', refundsAfterCutoff={'n': 0, 'paid': 0},
+                     unregistrations=[receipt, free, *extra_unregistrations], refunds=[bound, cancelled, *extra_refunds])
+        value.update(changes)
+        path = Path(self.enterContext(tempfile.TemporaryDirectory())) / 'refunds.json'
+        path.write_text(json.dumps(value))
+        return path, bound, receipt
+
+    def test_bound_unregistration_refunds_are_netted_and_never_inferred(self):
+        self.assertIsNone(read_refund_evidence(None, {'t1', 't2'}))
+        evidence = read_refund_evidence(self.refund_file()[0], {'t1', 't2'})
+        self.assertEqual(evidence['refunds'], {('t1', 'horse'): 30.0})
+        self.assertEqual(evidence['registrations'], {('t1', 'horse'): 1, ('t1', 'eligible_human'): 1})
+        self.assertEqual(evidence['assets'], {'t1': ['chips']})
+        self.assertEqual(evidence['otherSources'], {'t2': ['atomic_cancel_tournament']})
+        self.assertEqual((evidence['boundRefundRows'], evidence['partialRefundRows']), (1, 0))
+        self.assertRegex(evidence['sha256'], '^[0-9a-f]{64}$')
+        self.assertEqual(refund_adjusted_cost(100.0, 30.0, True), 70.0)
+        self.assertEqual(refund_adjusted_cost(100.0, 0.0, False), 100.0)
+        with self.assertRaisesRegex(ValueError, 'refund_without_recorded_funding'):
+            refund_adjusted_cost(100.0, 30.0, False)
+        with self.assertRaisesRegex(ValueError, 'refund_exceeds_recorded_funding'):
+            refund_adjusted_cost(20.0, 30.0, True)
+
+    def test_partial_refunds_rebuys_and_addons_bind_to_their_own_receipts(self):
+        _, bound, receipt = self.refund_file()
+        rebuy = dict(bound, entitlement_id='e2', funding_operation='rebuy', refund_amount=10, funding_amount=25, credit_amount=10)
+        addon = dict(bound, entitlement_id='e3', funding_operation='addon', refund_amount=5, funding_amount=5, credit_amount=5)
+        path, _, _ = self.refund_file(extra_refunds=[rebuy, addon],
+                                      unregistration=dict(refunded_chips=45, entitlement_count=3))
+        evidence = read_refund_evidence(path, {'t1', 't2'})
+        self.assertEqual(evidence['refunds'], {('t1', 'horse'): 45.0})
+        self.assertEqual(evidence['partialRefundRows'], 1)
+        self.assertEqual(evidence['refundsByFundingOperationAndAsset'],
+                         {'addon/chips': 5.0, 'entry/chips': 30.0, 'rebuy/chips': 10.0})
+
+    def test_duplicate_unbound_or_out_of_scope_refund_evidence_is_refused(self):
+        _, bound, receipt = self.refund_file()
+        cases = [
+            ('refund_evidence_schema_unsupported', dict(schema=None)),
+            ('refund_evidence_cutoff_mismatch', dict(cutoffUtc='2026-11-12T00:00:00+00:00')),
+            ('refund_evidence_tournament_scope_mismatch', dict(tournamentCount=3)),
+            ('refund_evidence_sections_required', dict(refunds=None)),
+            ('duplicate_refund_evidence', dict(extra_refunds=[dict(bound)])),
+            ('duplicate_unregistration_receipt', dict(extra_unregistrations=[dict(receipt)])),
+            ('refund_evidence_row_out_of_scope', dict(refund=dict(tournament_id='other'))),
+            ('refund_evidence_amount_invalid', dict(refund=dict(refund_amount=-1))),
+            ('ticket_return_accounting_unsupported', dict(unregistration=dict(returned_ticket_value=5))),
+            ('refund_not_bound_to_recorded_funding', dict(refund=dict(funding_ledger_match=False))),
+            ('refund_not_bound_to_recorded_funding', dict(refund=dict(funding_user_match=None))),
+            ('refund_not_bound_to_recorded_funding', dict(refund=dict(funding_operation='prize'))),
+            ('refund_not_bound_to_recorded_funding', dict(refund=dict(funding_asset=None))),
+            ('refund_registration_mismatch', dict(refund=dict(registration_id='r0'))),
+            ('refund_registration_mismatch', dict(refund=dict(registration_id='missing'))),
+            ('refund_exceeds_recorded_funding', dict(refund=dict(funding_amount=20))),
+            ('refund_credit_mismatch', dict(refund=dict(credit_amount=29))),
+            ('refund_receipt_cross_check_failed', dict(unregistration=dict(refunded_chips=31))),
+            ('refund_receipt_cross_check_failed', dict(unregistration=dict(entitlement_count=2))),
+            ('refund_receipt_cross_check_failed', dict(refunds=[])),
+        ]
+        for message, changes in cases:
+            with self.subTest(message=message, changes=changes), self.assertRaisesRegex(ValueError, message):
+                read_refund_evidence(self.refund_file(**changes)[0], {'t1', 't2'})
+
+    def test_currency_comes_from_recorded_receipts_not_the_union_flag(self):
+        entry = dict(operation='entry', asset='chips', amount_sum=90.0)
+        self.assertEqual(tournament_funding_asset([entry, dict(entry, operation='rebuy')]), 'chips')
+        self.assertEqual(tournament_funding_asset([dict(entry, asset='diamonds')]), 'diamonds')
+        self.assertEqual(tournament_funding_asset([]), 'unrecorded')
+        source = Path(__file__).with_name('horse_census_audit.py').read_text()
+        self.assertNotIn("t.get('is_xmtt')", source)
+        for message, rows in [
+            ('mixed_asset_tournament_funding', [entry, dict(entry, asset='diamonds')]),
+            ('recorded_funding_is_not_gross_charges', [dict(entry, amount_sum=-5.0)]),
+            ('recorded_funding_is_not_gross_charges', [dict(entry, operation='refund')]),
+            ('recorded_funding_asset_unsupported', [dict(entry, asset=None)]),
+        ]:
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                tournament_funding_asset(rows)
+
+    def test_return_on_cost_is_reported_only_for_paid_entry_events(self):
+        self.assertEqual(entry_cohort({'free_buy': False}), 'paid_entry')
+        self.assertEqual(entry_cohort({'free_buy': True}), 'free_buy')
+        for bad in ({}, {'free_buy': None}, {'free_buy': 0}):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, 'tournament_free_buy_flag_required'):
+                entry_cohort(bad)
+        self.assertEqual(cohort_roi_pct('paid_entry', 200.0, 150.0), -25.0)
+        self.assertIsNone(cohort_roi_pct('paid_entry', 0.0, 10.0))
+        # rebuys and add-ons inside a zero-entry event are not an entry-cost denominator
+        self.assertIsNone(cohort_roi_pct('free_buy', 21745.0, 35546.13))
+        self.assertIsNone(cohort_roi_pct('pooled', 200.0, 150.0))
+
+    def test_reconstruction_tiers_show_what_excluding_weaker_evidence_does(self):
+        out = reconstruction_sensitivity({'recorded': [100, -50.0, -40.0], 'reconstructed': [10, 20.0, 5.0], 'inferred': [2, 30.0, 12.0]})
+        self.assertEqual(out['directly_recorded'], {'hands': 100, 'horse_net_chips': -50.0, 'horse_net_bb': -40.0, 'table_hand_bb_per_100': -40.0})
+        self.assertEqual(out['recorded_plus_reconstructed']['horse_net_chips'], -30.0)
+        self.assertEqual(out['all_tiers_published_total'], {'hands': 112, 'horse_net_chips': 0.0, 'horse_net_bb': -23.0, 'table_hand_bb_per_100': round(-23.0 / 112 * 100, 4)})
+        self.assertNotIn('table_hand_bb_per_100', out['inferred_by_conservation_only'])
+        self.assertIsNone(reconstruction_sensitivity({'recorded': [0, 0.0, 0.0], 'reconstructed': [0, 0.0, 0.0], 'inferred': [0, 0.0, 0.0]})['directly_recorded']['table_hand_bb_per_100'])
 
     def test_frozen_evidence_cannot_be_output(self):
         with self.assertRaisesRegex(ValueError, 'output_must_not_modify'):
@@ -157,3 +284,9 @@ class TestStatEstimators(unittest.TestCase):
         self.assertIsNone(single['deff'])
         self.assertIsNone(single['n_eff'])
         self.assertEqual(single['note'], 'single_cluster_variance_undefined')
+        self.assertEqual(single['cluster_precision'], 'undefined_single_cluster')
+        two = compute_ratio_cluster_stats({'a': [10.0, -20.0], 'b': [40.0, 5.0]}, 100.0)
+        self.assertEqual(two['n_clusters'], 2)
+        self.assertEqual(two['cluster_precision'], 'descriptive_only_two_clusters')
+        three = compute_ratio_cluster_stats({'a': [10.0], 'b': [40.0], 'c': [-5.0]}, 100.0)
+        self.assertEqual(three['cluster_precision'], 'estimated')

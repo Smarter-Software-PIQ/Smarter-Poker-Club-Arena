@@ -440,7 +440,7 @@ export default function AgentPromoPanel({
         <div>
           <div style={{ fontSize: 14, fontWeight: 700, color: FB.text }}>◈ Promo Wallet</div>
           <div style={{ fontSize: 11, color: FB.dim }}>
-            Distribute Promotional Chips To Your Players
+            Each Downline Can Receive 50 Promo Chips Total From All Agents In Any 7 Days
           </div>
         </div>
         <div

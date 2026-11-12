@@ -788,6 +788,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V87'
   ),
   flag(
+    'v87RiverBlockBetTrap',
+    'V87 river nut-trap lead and re-raise policy; default enabled, false only for isolated offline ablation',
+    'V87'
+  ),
+  flag(
+    'v87HollywoodTank',
+    'V87 deterministic Hollywood timing eligibility; default enabled, false only for isolated offline ablation',
+    'V87'
+  ),
+  flag(
+    'v87FlopStabCheckRaise',
+    'V87 flop-stab check-raise policy with public reads retained; default enabled, false only for isolated offline ablation',
+    'V87'
+  ),
+  flag(
     'deepEquity',
     'V44 second look: every Monte Carlo read at this multiple of its sample; set only by the engine replay inside the think time',
     'V44'
@@ -841,6 +856,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'v67RiverBetRaisedOnePair',
     '2026-10-31 Hold em river bet-then-raised one pair (or board-paired two pair): the raiser is sampled from a river raise stratum (10% bluff, otherwise 75/22/3 two pair+/top pair/weaker), the call carries the V63 shade plus 0.10 (cap 0.25) even under a V62 polar read, and the class calls or folds at that price without the 0.42 floor or a jam; measured 7-day review calls/jams won 11.9% cash (n=226) and 19.2% MTT (n=125) at an average raise of 0.72 pot; explicit off arm retained',
     'V67'
+  ),
+  flag(
+    'v88CommitmentHonored',
+    '2026-11-11 cash Omaha high, single board, heads-up, not over hero own raised wager, no non-nut straight or flush and no board-dominated hand: a made hand that called a wager on the previous street and now needs its whole stack at 0.345 of the pot or better does not fold when the new card neither completes a draw it does not beat nor pairs the board under trips and its uncapped range equity clears the price; hand 58656644 called a flop check-raise leaving 936 behind 1,212 and folded a blank turn at 0.32 capped equity against a 0.3235 bar; explicit off arm retained',
+    'V88'
   ),
   flag(
     'v67RiverRaiseShadeOverride',
@@ -1517,16 +1537,26 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   state('bigBlindAnte', 'BB-ante structure'),
   state('allInOrFold', 'all-in-or-fold table'),
   state('straddleActive', 'a straddle is posted (V18)'),
+  state(
+    'straddleAmount',
+    'exact last live straddle amount posted on this hand when straddleActive is true (V87.1)',
+    'HorseLogic.decidePreflopV7Glue -> HorsePreflop.decidePreflop'
+  ),
   state('straddleSeat', 'seat number of the active posted straddle when present'),
   state('bombPot', 'this hand is a bomb pot (V36)'),
   state('boardCount', 'boards dealt (V36)'),
   state(
     'vpipFloor',
-    'the table VPIP floor a seat is stood up under after ten hands (Dan 2026-09-04)',
+    'the table VPIP floor, enforced with its judged window and grace policy',
     // Two consumers, and the second one is the point (2026-09-06): the floor
     // does not only widen the brain, it travels to settlement and keys the
     // horse_daily_play row apart, so no band ever judges required-loose play.
     'HorseLogic.vpipFloorMul; ServerTableEngineSettlement -> HorseHandReview (horse_daily_play.floored)'
+  ),
+  state(
+    'vpipWindowHands',
+    'actual judged sample window; NLH variance margin uses this policy input',
+    'HorseLogic.vpipFloorMul / vpipFloorCallDown'
   ),
   state(
     'ownVpip',
@@ -3044,6 +3074,14 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic (V66) via HorseEval',
     'Hold em flop/turn raiser over hero own wager sampled from the raise stratum',
     'V66',
+    'decide',
+    0.001
+  ),
+  receipt(
+    'v88_commitment_honored',
+    'HorseLogic (V88)',
+    'Cash Omaha made hand calls its stack on a blank after calling a wager that left less than a pot behind',
+    'V88',
     'decide',
     0.001
   ),

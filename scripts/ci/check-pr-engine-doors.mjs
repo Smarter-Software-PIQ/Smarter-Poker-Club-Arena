@@ -71,6 +71,17 @@ const ALLOWLIST = join(ROOT, 'scripts', 'ci', 'engine-doors.allowlist.json');
 const MIGRATION_FILE = /^\d{14}_[a-z0-9_]+\.sql$/;
 const BASE_REF = process.env.PR_DOORS_BASE_REF || 'refs/remotes/origin/main';
 
+/**
+ * Function names and file paths come from the pull request. Before any of them
+ * is printed into a workflow command line or a step output, every character
+ * outside a plain identifier/path alphabet becomes '?': no newline, no '::',
+ * no '%' escape and no space can reach the runner's command parser.
+ */
+export function show(value) {
+  return String(value).replace(/[^A-Za-z0-9._/@+-]/g, '?').slice(0, 200);
+}
+const showAll = (values) => values.map(show).join(', ');
+
 function emit(key, value) {
   const file = process.env.GITHUB_OUTPUT;
   if (!file) return;
@@ -187,8 +198,9 @@ async function production(names, files) {
     };
   }
   const url = process.env.DATABASE_URL;
-  // A pull request from a fork gets no secrets. That is an honest "unchecked",
-  // not a pass and not a refusal.
+  // No credential (a local run, or a workflow that does not grant one) is an
+  // honest "unchecked", not a pass and not a refusal. pr-engine-doors.yml runs
+  // only for same-repository pull requests, never a fork's.
   if (!url) return { unreadable: 'DATABASE_URL is not set' };
   let Client;
   try {
@@ -242,9 +254,9 @@ async function main() {
 
   if (live.unreadable) {
     console.log(
-      `::warning title=PR DOORS UNCHECKED::${live.unreadable}. The ${names.length} database functions this pull request's build calls were not checked against production.`
+      `::warning title=PR DOORS UNCHECKED::${String(live.unreadable).replace(/[\r\n]+/g, ' ')}. The ${names.length} database functions this pull request's build calls were not checked against production.`
     );
-    console.log(`UNCHECKED - ${live.unreadable}.`);
+    console.log(`UNCHECKED - ${String(live.unreadable).replace(/[\r\n]+/g, ' ')}.`);
     emit('verdict', 'unchecked');
     emit('reason', live.unreadable);
     return 0;
@@ -274,30 +286,30 @@ async function main() {
 
   for (const name of refused) {
     console.log(
-      `::error title=MISSING DATABASE DOOR::${name}() is called by ${doors.get(name).join(', ')}, does not exist in production, and no migration in this merge result creates it. Add the migration that creates it (a SUPERSEDED file does not count: it never installs).`
+      `::error title=MISSING DATABASE DOOR::${show(name)}() is called by ${showAll(doors.get(name))}, does not exist in production, and no migration in this merge result creates it. Add the migration that creates it (a SUPERSEDED file does not count: it never installs).`
     );
   }
   for (const name of allowed) {
-    const files = detail.get(name).join(', ');
+    const files = showAll(detail.get(name));
     const how =
       kind.get(name) === 'window-in-pr'
         ? `created by ${files}, which this pull request adds and which declares the daily-maintenance window, so it installs inside the next 04:00 America/Chicago break`
         : `created by ${files}, which this pull request adds, so it applies on merge`;
     console.log(
-      `::notice title=DOOR ARRIVES WITH THIS PR::${name}() does not exist in production yet. It is ${how}. Not a failure: this pull request carries its own database half.`
+      `::notice title=DOOR ARRIVES WITH THIS PR::${show(name)}() does not exist in production yet. It is ${how}. Not a failure: this pull request carries its own database half.`
     );
   }
   for (const name of warned) {
-    const files = detail.get(name).join(', ');
+    const files = showAll(detail.get(name));
     if (kind.get(name) === 'recorded-but-missing') {
       console.log(
-        `::warning title=A RECORDED MIGRATION DID NOT LEAVE ITS DOOR::${name}() is called by ${doors.get(name).join(', ')} and does not exist in production, yet its only creator ${files} is already recorded in schema_migrations. The migration ran and the function is still absent, so this is drift in production, not a gap in this pull request. The engine release will refuse main until it is repaired.`
+        `::warning title=A RECORDED MIGRATION DID NOT LEAVE ITS DOOR::${show(name)}() is called by ${showAll(doors.get(name))} and does not exist in production, yet its only creator ${files} is already recorded in schema_migrations. The migration ran and the function is still absent, so this is drift in production, not a gap in this pull request. The engine release will refuse main until it is repaired.`
       );
       continue;
     }
     if (kind.get(name) === 'unknown-base') {
       console.log(
-        `::warning title=DOOR UNPROVED::${name}() does not exist in production and is created by ${files}, but the base tree could not be read, so whether this pull request adds that file is unknown.`
+        `::warning title=DOOR UNPROVED::${show(name)}() does not exist in production and is created by ${files}, but the base tree could not be read, so whether this pull request adds that file is unknown.`
       );
       continue;
     }
@@ -306,7 +318,7 @@ async function main() {
         ? `${files} is already on main, declares the daily-maintenance window, and is NOT yet recorded in schema_migrations, so it can only install inside the 04:00 America/Chicago break`
         : `${files} is already on main and is NOT yet recorded in schema_migrations`;
     console.log(
-      `::warning title=MERGING THIS KEEPS MAIN UNSHIPPABLE::${name}() is called by ${doors.get(name).join(', ')} and does not exist in production. ${why}. The engine release will refuse main until that migration installs. Not this pull request's defect, so it does not block the merge - but do not expect a release to ship until ${files} is applied.`
+      `::warning title=MERGING THIS KEEPS MAIN UNSHIPPABLE::${show(name)}() is called by ${showAll(doors.get(name))} and does not exist in production. ${why}. The engine release will refuse main until that migration installs. Not this pull request's defect, so it does not block the merge - but do not expect a release to ship until ${files} is applied.`
     );
   }
 
@@ -315,12 +327,12 @@ async function main() {
       `REFUSED - ${refused.length} of ${names.length} database functions this pull request's build calls exist nowhere: not in production and in no migration here.`
     );
     emit('verdict', 'refused');
-    emit('refused', refused.join(', '));
-    if (allowed.length) emit('allowed', allowed.join(', '));
-    if (warned.length) emit('warned', warned.join(', '));
+    emit('refused', showAll(refused));
+    if (allowed.length) emit('allowed', showAll(allowed));
+    if (warned.length) emit('warned', showAll(warned));
     emit(
       'reason',
-      `no migration creates ${refused.slice(0, 6).map((n) => `${n}()`).join(', ')}${refused.length > 6 ? ` +${refused.length - 6} more` : ''}`
+      `no migration creates ${refused.slice(0, 6).map((n) => `${show(n)}()`).join(', ')}${refused.length > 6 ? ` +${refused.length - 6} more` : ''}`
     );
     return 1;
   }
@@ -329,15 +341,15 @@ async function main() {
       `WARNED - ${warned.length} of ${names.length} database functions this pull request's build calls are missing in production, and each one is named above with the migration it waits on. Merging is not blocked: this pull request did not cause any of them. Main stays unshippable until those migrations are installed.`
     );
     emit('verdict', 'warned');
-    emit('warned', warned.join(', '));
-    if (allowed.length) emit('allowed', allowed.join(', '));
+    emit('warned', showAll(warned));
+    if (allowed.length) emit('allowed', showAll(allowed));
     return 0;
   }
   console.log(
     `ALLOWED - ${allowed.length} of ${names.length} database functions this pull request's build calls are missing in production and every one of them is created by a migration this pull request adds.`
   );
   emit('verdict', 'allowed');
-  emit('allowed', allowed.join(', '));
+  emit('allowed', showAll(allowed));
   return 0;
 }
 
@@ -347,7 +359,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     (err) => {
       // This gate is a PR-side early warning, not the last word: the release
       // gate still refuses. A crash here must name itself, not invent a refusal.
-      console.log(`::warning title=PR DOORS UNCHECKED::${err?.message || err}`);
+      console.log(`::warning title=PR DOORS UNCHECKED::${String(err?.message || err).replace(/[\r\n]+/g, ' ').replace(/::/g, ': :')}`);
       emit('verdict', 'unchecked');
       emit('reason', String(err?.message || err));
       process.exit(0);

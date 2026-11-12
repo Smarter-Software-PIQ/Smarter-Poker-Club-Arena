@@ -13,6 +13,7 @@ import {
   type EvSpot,
 } from './HorseEvEngine.js';
 import { HorseLogic } from './HorseLogic.js';
+import { resolveHorseHybridProfile } from './HorseHybridProfile.js';
 import { HorseMind } from './HorseMind.js';
 import { seedFastRandom } from './HorseEval.js';
 import * as HorseEval from './HorseEval.js';
@@ -217,6 +218,163 @@ describe('V38 the arithmetic', () => {
   );
 });
 
+describe('Hybrid estimated-EV indifference selection', () => {
+  const context = (horseId = 'horse-1', bigBlind = 1, mode: 'cash' | 'tournament' = 'cash') => ({
+    horseId,
+    bigBlind,
+    mode,
+  });
+  const callSpot = (ev: number, bigBlind = 1) =>
+    spot({
+      equity: (50 + ev) / 200,
+      pot: 150,
+      toCall: 50,
+      street: 'river',
+      sizes: [],
+      maxBet: 0,
+      indifference: context('horse-1', bigBlind),
+    });
+
+  it.each([-2, -0.120001, 0.120001, 2])('never selects a call/fold %s BB below the best', (ev) => {
+    for (let id = 0; id < 40; id++) {
+      const rand = vi.fn(() => 0.999);
+      const v = evaluateSpot({ ...callSpot(ev), indifference: context(`horse-${id}`), rand });
+      expect(v.pick.kind).toBe(ev > 0 ? 'call' : 'fold');
+      expect(v.best.ev - v.pick.ev).toBe(0);
+      expect(rand).toHaveBeenCalledTimes(1); // old pot-relative pool still required one draw
+    }
+  });
+
+  it('uses stable identity, explicit mode, and the existing draw only inside the band', () => {
+    const select = (horseId: string, mode: 'cash' | 'tournament') =>
+      evaluateSpot({
+        ...callSpot(-0.025),
+        indifference: context(horseId, 1, mode),
+        rand: () => 0.999,
+      }).pick.kind;
+    const cash = Array.from({ length: 80 }, (_, i) => select(`horse-${i}`, 'cash'));
+    const tournament = Array.from({ length: 80 }, (_, i) => select(`horse-${i}`, 'tournament'));
+    expect(new Set(cash)).toEqual(new Set(['call', 'fold']));
+    expect(cash).not.toEqual(tournament);
+    expect(cash).toEqual(Array.from({ length: 80 }, (_, i) => select(`horse-${i}`, 'cash')));
+  });
+
+  it.each([0.02, 2, 100])(
+    'converts chips to BB at stake %s without widening the loss cap',
+    (bb) => {
+      for (const gapBB of [-0.03, -0.13, 0.03, 0.13]) {
+        const v = evaluateSpot(
+          spot({
+            equity: (50 + gapBB) / 200,
+            pot: 150 * bb,
+            toCall: 50 * bb,
+            stack: 1000 * bb,
+            effectiveStack: 1000 * bb,
+            minBet: 0.01,
+            maxBet: 0,
+            sizes: [],
+            street: 'river',
+            indifference: context('horse-1', bb),
+            rand: () => 0.999,
+          })
+        );
+        expect((v.best.ev - v.pick.ev) / bb).toBeLessThanOrEqual(0.12 + 1e-10);
+        if (Math.abs(gapBB) > 0.12) expect(v.pick).toBe(v.best);
+      }
+    }
+  );
+
+  it.each([0, -1, NaN, Infinity])(
+    'fails closed to highest estimated EV with invalid BB %s',
+    (bb) => {
+      const v = evaluateSpot({ ...callSpot(-0.025), indifference: context('horse-1', bb) });
+      expect(v.pick).toBe(v.best);
+    }
+  );
+
+  it('tightens the tournament band using trusted bubble factor without changing cash', () => {
+    for (let id = 0; id < 40; id++) {
+      const v = evaluateSpot({
+        ...callSpot(-0.07),
+        indifference: { ...context(`horse-${id}`, 1, 'tournament'), bubbleFactor: 4 },
+      });
+      expect(v.pick).toBe(v.best); // 0.12 / sqrt(4) = 0.06 BB
+    }
+    const cash = evaluateSpot({ ...callSpot(-0.025), indifference: context() });
+    const withIgnoredIcm = evaluateSpot({
+      ...callSpot(-0.025),
+      indifference: { ...context(), bubbleFactor: 4 },
+    });
+    expect(cash.pick).toEqual(withIgnoredIcm.pick);
+  });
+
+  it('prices normalized wager amounts once, deduplicating or refusing unexecutable sizes', () => {
+    const v = evaluateSpot(
+      spot({
+        equity: 0.7,
+        sizes: [0.33, 0.5, 0.75],
+        maxBet: 100,
+        normalizeWager: (amount) => (amount <= 50 ? 30 : null),
+      })
+    );
+    const actual = evaluateSpot(spot({ equity: 0.7, sizes: [0.3], maxBet: 100 }));
+    expect(v.candidates).toEqual(actual.candidates);
+    expect(v.candidates.filter((a) => 'amount' in a).map((a) => 'amount' in a && a.amount)).toEqual(
+      [30]
+    );
+  });
+
+  it('the river uses priced EV rather than its broader legacy equity window', () => {
+    for (const ev of [-2, -0.13, 0.13, 2]) {
+      const rand = vi.fn(() => (ev > 0 ? 0.999 : 0));
+      const v = riverCallVerdict({
+        equity: (50 + ev) / 200,
+        pot: 150,
+        toCall: 50,
+        stack: 1000,
+        indifference: context(),
+        rand,
+      });
+      expect(v.call).toBe(ev > 0);
+      expect(rand).toHaveBeenCalledTimes(1);
+    }
+    const rand = vi.fn(() => 0);
+    riverCallVerdict({
+      equity: 0.8,
+      pot: 150,
+      toCall: 50,
+      stack: 1000,
+      indifference: context(),
+      rand,
+    });
+    expect(rand).not.toHaveBeenCalled();
+  });
+
+  it('river identities personalize near-indifferent choices without extra random draws', () => {
+    const choices = new Set<boolean>();
+    for (let id = 0; id < 80; id++) {
+      const rand = vi.fn(() => 0);
+      const v = riverCallVerdict({
+        equity: (50 - 0.025) / 200,
+        pot: 150,
+        toCall: 50,
+        stack: 1000,
+        indifference: context(`horse-${id}`),
+        rand,
+      });
+      choices.add(v.call);
+      expect(rand).toHaveBeenCalledTimes(1);
+    }
+    expect(choices).toEqual(new Set([true, false]));
+  });
+
+  it('does not consume an extra draw where only one candidate was eligible', () => {
+    const rand = vi.fn(() => 0);
+    evaluateSpot({ ...callSpot(40), rand });
+    expect(rand).not.toHaveBeenCalled();
+  });
+});
+
 describe('V38 wiring: the engine reaches decide()', () => {
   beforeEach(() => {
     seedFastRandom(0x5eed38);
@@ -317,6 +475,109 @@ describe('V38 wiring: the engine reaches decide()', () => {
       },
     };
   }
+
+  it.each(['cash', 'tournament'] as const)(
+    'the live Hybrid profile reaches the river EV selector with identity and BB units (%s)',
+    (mode) => {
+      const s = state('nlh', 'AhKh', 'Qh9d3s7c2c', 'river', 15);
+      const profile = resolveHorseHybridProfile({ style: 'hybrid' }, s.hero.user_id, mode);
+      const spy = vi.spyOn(EvEngine, 'riverCallVerdict');
+      try {
+        const decision = HorseLogic.decide(
+          s.hero,
+          { ...s.gs, gameMode: mode } as never,
+          profile.style,
+          profile.mods,
+          { telemetry: true, mind: false }
+        );
+        expect(spy).toHaveBeenCalledTimes(1);
+        expect(spy.mock.calls[0][0]).toMatchObject({
+          indifference: { horseId: 'hero', mode, bigBlind: 2 },
+        });
+        const verdict = spy.mock.results[0].value as ReturnType<typeof riverCallVerdict>;
+        expect(decision.action).toBe(verdict.call ? 'call' : 'fold');
+      } finally {
+        spy.mockRestore();
+      }
+    }
+  );
+
+  it('prices the real Hybrid probe ladder after legal sizing', () => {
+    const s = state('plo4', '9c8d4h2s', 'AhKd7c', 'flop', 0);
+    const profile = resolveHorseHybridProfile({ style: 'hybrid' }, s.hero.user_id, 'cash');
+    const spy = vi.spyOn(EvEngine, 'evaluateSpot');
+    try {
+      const decision = HorseLogic.decide(s.hero, s.gs as never, profile.style, profile.mods, {
+        mind: false,
+        v86PloOverhaul: false,
+      });
+      expect(spy).toHaveBeenCalledTimes(1);
+      const input = spy.mock.calls[0][0];
+      const result = spy.mock.results[0].value as ReturnType<typeof evaluateSpot>;
+      expect(input.indifference).toMatchObject({ horseId: 'hero', mode: 'cash', bigBlind: 2 });
+      expect(input.normalizeWager).toBeTypeOf('function');
+      expect(
+        result.candidates.filter((a) => a.kind === 'bet').map((a) => 'amount' in a && a.amount)
+      ).toEqual([16, 13, 8, 5]);
+      expect(decision.action).toBe(result.pick.kind);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('consumes the real near-indifferent call pick instead of replacing it with the sign of call EV', () => {
+    const evaluate = EvEngine.evaluateSpot;
+    // Hold the existing mixing draw fixed; equity, pricing and the caller are real.
+    const spy = vi
+      .spyOn(EvEngine, 'evaluateSpot')
+      .mockImplementation((input) => evaluate({ ...input, rand: () => 0.999999 }));
+    try {
+      const s = state('plo4', '9c8d4h3s', 'Kh7c6d', 'flop', 25.06);
+      s.hero.user_id = 'horse-0';
+      for (const a of s.gs.actionHistory) if (a.userId === 'hero') a.userId = 'horse-0';
+      const profile = resolveHorseHybridProfile({ style: 'hybrid' }, s.hero.user_id, 'cash');
+      const decision = HorseLogic.decide(s.hero, s.gs as never, profile.style, profile.mods, {
+        mind: false,
+        v86PloOverhaul: false,
+      });
+      expect(spy).toHaveBeenCalledTimes(1);
+      const result = spy.mock.results[0].value as ReturnType<typeof evaluateSpot>;
+      expect(result.pick.kind).toBe('call');
+      expect(result.pick.ev).toBeLessThan(0);
+      expect(result.best.ev - result.pick.ev).toBeLessThanOrEqual(0.24);
+      expect(decision.action).toBe('call');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('executes the exact normalized EV probe without applying the sizing multiplier twice', () => {
+    const evaluate = EvEngine.evaluateSpot;
+    // Control only which priced candidate reaches the bet consumer. The real
+    // caller, legalizer and EV arithmetic generate that candidate and its size.
+    const spy = vi.spyOn(EvEngine, 'evaluateSpot').mockImplementation((input) => {
+      const verdict = evaluate(input);
+      const bet = verdict.candidates.find((a) => a.kind === 'bet');
+      expect(bet).toBeDefined();
+      return { ...verdict, pick: bet! };
+    });
+    try {
+      const s = state('plo4', '9c8d4h2s', 'AhKd7c', 'flop', 0);
+      const profile = resolveHorseHybridProfile({ style: 'hybrid' }, s.hero.user_id, 'cash');
+      const decision = HorseLogic.decide(s.hero, s.gs as never, profile.style, profile.mods, {
+        mind: false,
+        v86PloOverhaul: false,
+      });
+      expect(spy).toHaveBeenCalledTimes(1);
+      const result = spy.mock.results[0].value as ReturnType<typeof evaluateSpot>;
+      expect(result.pick.kind).toBe('bet');
+      expect(decision.action).toBe('bet');
+      expect(decision.amount).toBe('amount' in result.pick ? result.pick.amount : undefined);
+      expect(decision.amount).toBe(16);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 
   it('a PLO flop facing a bet is priced by the EV engine', () => {
     const s = state('plo4', 'AhKh7c2d', 'Qh9h3s', 'flop', 15);
