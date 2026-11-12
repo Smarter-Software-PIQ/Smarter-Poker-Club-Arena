@@ -876,6 +876,36 @@ test.describe('Production Kings Club Players', () => {
     await expect(page.getByRole('status', { name: 'Displayed Activity Scope' })).toContainText(
       'Recorded Activity'
     );
+    const memberRecordUrl = page.url();
+    const today = () =>
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Chicago',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date());
+    const ledgerDates = page.locator('.mm-range__custom input[type="date"]');
+    await expect(ledgerDates.nth(0)).toHaveValue(today());
+    await expect(ledgerDates.nth(1)).toHaveValue(today());
+    await ledgerDates.nth(0).fill('2026-01-01');
+    await ledgerDates.nth(1).fill('2026-01-31');
+    await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await expect(page.getByRole('status', { name: 'Displayed Activity Scope' })).toContainText(
+      'Showing 2026-01-01 To 2026-01-31 Chicago Time'
+    );
+    // Leave via the real router, then return without reloading the application.
+    await page.locator('.mm-back').click();
+    await expect(page).not.toHaveURL(memberRecordUrl);
+    await page.goForward();
+    await expect(page).toHaveURL(memberRecordUrl);
+    await expect(ledgerDates.nth(0)).toHaveValue(today());
+    await expect(ledgerDates.nth(1)).toHaveValue(today());
+    await expect(page.getByRole('status', { name: 'Displayed Activity Scope' })).toContainText(
+      `Showing ${today()} To ${today()} Chicago Time`
+    );
+    await page.reload();
+    await expect(ledgerDates.nth(0)).toHaveValue(today());
+    await expect(ledgerDates.nth(1)).toHaveValue(today());
     const playerHistory = page.locator('.player-history');
     await playerHistory.locator('summary').focus();
     await page.keyboard.press('Enter');

@@ -1,5 +1,4 @@
-import { chicagoDay as isoDate, lastDaysRange } from '../lib/clubDataDay';
-import { usePlayerPreference } from '../hooks/usePlayerPreference';
+import { lastDaysRange } from '../lib/clubDataDay';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  MEMBER MANAGEMENT - one member, everything about them
@@ -166,21 +165,13 @@ export default function MemberManagementPage() {
   const detailReadRevisionRef = useRef(0);
   const [downlineShown, setDownlineShown] = useState(DOWNLINE_RENDER_CAP);
 
-  const [rangeMode, setRangeMode] = usePlayerPreference<RangeMode>(
-    'MemberManagementPage:rangeMode',
-    'overall'
-  );
-  const [customFrom, setCustomFrom] = usePlayerPreference<string>(
-    'MemberManagementPage:customFrom',
-    () => isoDate(new Date())
-  );
-  const [customTo, setCustomTo] = usePlayerPreference<string>('MemberManagementPage:customTo', () =>
-    isoDate(new Date())
-  );
-  const [range, setRange] = usePlayerPreference<MemberRange>(
-    'MemberManagementPage:range',
-    RANGE_OVERALL
-  );
+  // A ledger window belongs to this visit, never to saved account preferences.
+  // Use one Chicago day for the inputs and the first server read.
+  const [initialRange] = useState(() => lastDaysRange(1));
+  const [rangeMode, setRangeMode] = useState<RangeMode>('custom');
+  const [customFrom, setCustomFrom] = useState(initialRange.from);
+  const [customTo, setCustomTo] = useState(initialRange.to);
+  const [range, setRange] = useState<MemberRange>(initialRange);
 
   type WalletRow = {
     user_id: string;
