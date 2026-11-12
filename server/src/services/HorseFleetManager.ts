@@ -6,6 +6,7 @@ import {
   horseUnionCashTableAllowed,
   lightningGamesWithPlayingHumans,
   playingHumansAtCashTable,
+  withinHumanDepartureDwellFor,
 } from './HorseUnionCashPlan.js';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -77,7 +78,13 @@ import { fetchAllRows } from './supabase/pagination.js';
 import { gamesFedByTheirList, listFeedsTable } from './HorseListFeedsTable.js';
 import { planHorseQueues, type HorseQueueAsk, type HorseQueueGameInfo } from './HorseGameQueue.js';
 import { availableNow, regularSeatWeight } from './HorseRegulars.js';
-import { onDuty } from './HorseWorkSchedule.js';
+import {
+  onDuty,
+  recordListRowCancelled,
+  recordScheduleCycle,
+  recordSeatCallDeclined,
+  type HorseScheduleSupply,
+} from './HorseWorkSchedule.js';
 import {
   allocateBuyers,
   FEEDER_BUYERS_TO_GO_LIVE,
@@ -1079,8 +1086,17 @@ export class HorseFleetManager {
         nowMs: Date.now(),
         gameInfo,
         seatedAnywhere,
-        onDuty: (id: string) =>
-          onDuty(id, queueDutyBook?.states.get(id), queueNowMs, queueWeekday, queueToday),
+        onDuty: (id: string) => {
+          const ok = onDuty(
+            id,
+            queueDutyBook?.states.get(id),
+            queueNowMs,
+            queueWeekday,
+            queueToday
+          );
+          if (!ok) recordListRowCancelled();
+          return ok;
+        },
       });
       for (let i = 0; i < plan.cancel.length; i += 200) {
         if (shouldContinue?.() === false) return;
@@ -2813,6 +2829,26 @@ export class HorseFleetManager {
       const nowMs2 = Date.now();
       const book = controllerEnabled() ? await tagBook.load() : null;
       const chicagoWeekday = chicagoNow().weekday;
+      /* THE ON-DUTY SUPPLY (owner 2026-11-12). For each host the planner holds
+         to an occupancy target, how many of its eligible cash bodies are on
+         duty right now: the measure that says whether the work schedule, not
+         the target, is what limits the floor. Counts only (/health). */
+      const scheduleSupply: HorseScheduleSupply[] = [];
+      for (const [hostId, eligible] of eligibleByHost) {
+        const wallets = (WALLETS_FOR_HOST as Record<string, readonly string[]>)[hostId] ?? [];
+        let onDutyBodies = 0;
+        for (const [horseId, clubs] of memberships) {
+          if (!wallets.some((w) => clubs.has(w))) continue;
+          if (onDuty(horseId, book?.states.get(horseId), nowMs2, chicagoWeekday, todayKey))
+            onDutyBodies++;
+        }
+        scheduleSupply.push({
+          hostId,
+          eligible,
+          onDuty: onDutyBodies,
+          target: stableHandCaps.get(hostId) ?? null,
+        });
+      }
       if (book) {
         console.log(
           `[HorseFleet] Tag book: ${book.tags.size} membership tag(s), ${book.states.size} horse state(s)`
@@ -3403,6 +3439,15 @@ export class HorseFleetManager {
              to be full are filled now and the pacing stays where it still
              reads as human: the sparse quarter, and a human's rescue. */
           const humanNeedsRescue = humanAtTable && currentCount < 4;
+          /* A TABLE IN ITS POST-HUMAN DWELL IS FILLED FROM THE NEXT STAKE TOO
+             (owner 2026-11-12). Inside the 20-30 minute dwell after the last
+             human left, a short table (under four) waives only the horse's
+             PREFERRED-stake tag, exactly as a person short at the table does,
+             so on-duty horses who usually play a neighbouring stake keep the
+             game going. Work hours, rest day, daily cap, variant, merit band,
+             bankroll and club all still apply. */
+          const dwellNeedsHorses =
+            !humanAtTable && currentCount < 4 && withinHumanDepartureDwellFor(table, Date.now());
           if (fill !== 'full' && !humanNeedsRescue && !isHoldemOrPlo(table.game_variant)) {
             seatsNeeded = Math.min(seatsNeeded, 1 + Math.floor(Math.random() * 2));
           }
@@ -3603,7 +3648,7 @@ export class HorseFleetManager {
               strandedTagFallthrough++;
               stakeOk = undefined;
             }
-            if (stakeOk === false && !humanNeedsRescue) {
+            if (stakeOk === false && !humanNeedsRescue && !dwellNeedsHorses) {
               tagDropped++;
               return false;
             }
@@ -4452,6 +4497,10 @@ export class HorseFleetManager {
       }
       const record = (m: ReadonlyMap<string, number>): Record<string, number> =>
         Object.fromEntries([...m].filter(([, n]) => n > 0));
+      recordScheduleCycle(
+        { rest_day: restDayDropped, daily_cap: dailyCapDropped, asleep: asleepDropped },
+        scheduleSupply
+      );
       beat.gates = {
         no_membership: clubDropped,
         barred: barredDropped,
@@ -5228,7 +5277,10 @@ export class HorseFleetManager {
         if (!table || table.tournament_id) continue;
         /* OFF DUTY, IT DOES NOT ANSWER (owner 2026-11-12, HorseWorkSchedule):
            the hold expires on fn_offer_open_seat's sweep and passes on. */
-        if (!dutyOk(String(offer.user_id))) continue;
+        if (!dutyOk(String(offer.user_id))) {
+          recordSeatCallDeclined();
+          continue;
+        }
         /* A DRAINING TABLE TAKES NOBODY BACK (2026-09-03). This path seats a
            horse from a waitlist offer and never consulted surplusTableIds, so
            a horse holding a `notified` row for a retiring table would be

@@ -24,7 +24,7 @@ function redefines(sql: string, name: string): boolean {
   return (
     new RegExp(`CREATE\\s+(OR\\s+REPLACE\\s+)?FUNCTION\\s+public\\.${name}\\s*\\(`, 'i').test(
       sql
-    ) || new RegExp(`pg_get_functiondef\\('public\\.${name}\\(`, 'i').test(sql)
+    ) || new RegExp(`'public\\.${name}(\\(|')`, 'i').test(sql)
   );
 }
 
@@ -49,6 +49,10 @@ describe('a later tick fix reaches the tick this engine calls', () => {
     expect(
       driftIn("SELECT pg_get_functiondef('public.fn_cash_clusters_tick_all(jsonb)'::regprocedure);")
     ).toEqual(['fn_cash_clusters_tick_all']);
+    // The older regproc spelling without a signature is caught too.
+    expect(driftIn("SELECT pg_get_functiondef('public.fn_cash_cluster_tick'::regproc);")).toEqual([
+      'fn_cash_cluster_tick',
+    ]);
     // A twin alone is not the original being redefined.
     expect(
       driftIn(
