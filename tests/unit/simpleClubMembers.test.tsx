@@ -288,7 +288,7 @@ it('labels lifetime fee criteria Overall while preserving current-week display a
     await vi.advanceTimersByTimeAsync(400);
   });
   expect(screen.getByRole('combobox', { name: 'Win And Loss Period' })).toHaveValue('week');
-  expect(screen.getByRole('combobox', { name: 'Sort Players' })).toHaveValue('newest');
+  expect(screen.getByRole('combobox', { name: 'Sort Players' })).toHaveValue('activity');
   fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
   expect(screen.getByRole('option', { name: 'Overall Fees 100+' })).toHaveValue('high_fees');
   expect(screen.getByRole('option', { name: 'Most Overall Fees' })).toHaveValue('fees');
@@ -655,8 +655,8 @@ it('shows automatic name relevance during search and restores the selected manua
 });
 
 it.each([
-  { advanced: false, sort: 'newest' },
-  { advanced: true, sort: 'newest' },
+  { advanced: false, sort: 'activity' },
+  { advanced: true, sort: 'activity' },
   { advanced: false, sort: 'oldest' },
   { advanced: true, sort: 'oldest' },
 ])(
@@ -689,7 +689,7 @@ it.each([
     }
     const expected =
       '/clubs/shark-club/members?view=online&' +
-      (sort === 'newest' ? '' : 'sort=oldest&') +
+      (sort === 'activity' ? '' : 'sort=oldest&') +
       'keep=1';
     render(
       <MemoryRouter
@@ -772,7 +772,7 @@ it('keeps workspace controls unavailable until the account workspace resolves, t
     resolve({
       search: '',
       filter: 'all',
-      sort: 'newest',
+      sort: 'activity',
       columns: ['fees', 'downlines', 'activity'],
     })
   );

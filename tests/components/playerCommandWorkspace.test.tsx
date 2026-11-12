@@ -190,7 +190,7 @@ it('isolates club preferences and restores the original club on return', async (
   fireEvent.click(screen.getByRole('button', { name: 'Club B' }));
   await settle();
   expect(search()).toHaveValue('');
-  expect(sort()).toHaveValue('newest');
+  expect(sort()).toHaveValue('activity');
   expect(screen.getByRole('checkbox', { name: 'Wallets', exact: true })).not.toBeChecked();
   fireEvent.click(screen.getByRole('button', { name: 'Club A' }));
   await settle();
@@ -204,7 +204,7 @@ it('isolates an account switch on a mounted route without overwriting the origin
   view.rerender(tree());
   await settle();
   expect(search()).toHaveValue('');
-  expect(sort()).toHaveValue('newest');
+  expect(sort()).toHaveValue('activity');
   expect(screen.getByRole('checkbox', { name: 'Wallets', exact: true })).not.toBeChecked();
   f.actor.user = { id: 'viewer-a' };
   view.rerender(tree());
@@ -247,7 +247,7 @@ it('keeps its filter and sort read owned while its own URL replacement is awaiti
   const finish: Array<() => void> = [];
   f.page.mockImplementation((_club, query) => {
     const page = { items: rows, next_cursor: null, has_more: false, filtered_total: 80 };
-    if (query.filter === 'all' && query.sort === 'newest') return Promise.resolve(page);
+    if (query.filter === 'all' && query.sort === 'activity') return Promise.resolve(page);
     return new Promise((resolve, reject) => {
       const aborted = () => {
         aborts++;
@@ -284,7 +284,7 @@ it('keeps its filter and sort read owned while its own URL replacement is awaiti
   await act(async () => {});
   expect(sort()).toHaveValue('name');
   expect(aborts).toBe(0);
-  expect(f.page.mock.calls.map(([, query]) => query.sort)).toEqual(['newest', 'newest', 'name']);
+  expect(f.page.mock.calls.map(([, query]) => query.sort)).toEqual(['activity', 'activity', 'name']);
   await act(async () => {
     f.holdOwnReplace = false;
     f.releaseReplaces.splice(0).forEach((release) => release());
@@ -366,11 +366,11 @@ it('honors external PUSH and POP while an own URL replacement is pending', async
   // own entry is authoritative and explicitly restores the default sort.
   fireEvent.click(screen.getByRole('button', { name: 'Linked Agents Hierarchy' }));
   await settle();
-  expect(sort()).toHaveValue('newest');
+  expect(sort()).toHaveValue('activity');
   expect(screen.getByRole('combobox', { name: 'Filter Players' })).toHaveValue('agents');
   fireEvent.click(screen.getByRole('button', { name: 'History Back' }));
   await settle();
-  expect(sort()).toHaveValue('newest');
+  expect(sort()).toHaveValue('activity');
   expect(screen.getByRole('combobox', { name: 'Filter Players' })).toHaveValue('all');
 });
 it('honors explicit same-club navigation and restores the prior URL on history Back', async () => {
@@ -383,7 +383,7 @@ it('honors explicit same-club navigation and restores the prior URL on history B
   expect(screen.getByTestId('location').textContent).toContain('?view=agents&sort=name');
   fireEvent.click(screen.getByRole('button', { name: 'History Back' }));
   await settle();
-  expect(sort()).toHaveValue('newest');
+  expect(sort()).toHaveValue('activity');
   expect(screen.getByRole('combobox', { name: 'Filter Players' })).toHaveValue('all');
   expect(screen.getByTestId('location').textContent).toBe('/clubs/club-a/members');
 });
@@ -453,7 +453,7 @@ it.each([
   render(tree());
   await settle();
   expect(search()).toHaveValue('');
-  expect(sort()).toHaveValue('newest');
+  expect(sort()).toHaveValue('activity');
   expect(screen.getByRole('combobox', { name: 'Filter Players' })).toHaveValue('all');
   expect(screen.getByRole('checkbox', { name: 'Wallets', exact: true })).not.toBeChecked();
   expect(screen.getByRole('button', { name: /^Open Player 0,/ })).toBeInTheDocument();
@@ -585,7 +585,7 @@ it('adopts the existing tab-only search on upgrade without an obsolete blank rea
   expect(f.page).toHaveBeenCalledTimes(1);
   expect(f.page).toHaveBeenCalledWith(
     clubA,
-    expect.objectContaining({ search: 'Legacy Player', filter: 'all', sort: 'newest' })
+    expect.objectContaining({ search: 'Legacy Player', filter: 'all', sort: 'activity' })
   );
   expect(screen.getByRole('button', { name: /^Open Player 0,/ })).toBeInTheDocument();
 });
@@ -593,20 +593,21 @@ it('normalizes inherited object-property names in deep-linked view and sort to s
   render(tree('/clubs/club-a/members?view=toString&sort=constructor'));
   await settle();
   expect(screen.getByRole('combobox', { name: 'Filter Players' })).toHaveValue('all');
-  expect(sort()).toHaveValue('newest');
+  expect(sort()).toHaveValue('activity');
   expect(f.page).toHaveBeenCalledTimes(1);
   expect(f.page).toHaveBeenCalledWith(
     clubA,
-    expect.objectContaining({ filter: 'all', sort: 'newest' })
+    expect.objectContaining({ filter: 'all', sort: 'activity' })
   );
   expect(screen.getByTestId('location').textContent).not.toMatch(/toString|constructor/);
   expect(screen.getByRole('button', { name: /^Open Player 0,/ })).toBeInTheDocument();
 });
 
-it('defaults to this week and newest club members and retains an oldest choice', async () => {
+it('defaults to this week and Active Now and retains an oldest choice', async () => {
   const view = render(tree());
   await settle();
-  expect(sort()).toHaveValue('newest');
+  expect(sort()).toHaveValue('activity');
+  expect(screen.getByRole('option', { name: 'Active Now' })).toBeInTheDocument();
   expect(screen.getByRole('option', { name: 'Newest Players First' })).toBeInTheDocument();
   expect(screen.getByRole('option', { name: 'Oldest Players First' })).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Simple', exact: true }));
@@ -620,21 +621,21 @@ it('defaults to this week and newest club members and retains an oldest choice',
   expect(sort()).toHaveValue('oldest');
 });
 
-it('adopts newest on upgrade while retaining the old workspace search and columns', async () => {
+it('adopts Active Now on upgrade while retaining the old workspace search and columns', async () => {
   sessionStorage.setItem(
     `roster_workspace_v1_viewer-a_${clubA}`,
     JSON.stringify({
-      version: 1,
+      version: 2,
       search: 'Player',
       filter: 'agents',
-      sort: 'activity',
+      sort: 'newest',
       columns: ['fees', 'wallets'],
     })
   );
   render(tree());
   await settle();
   expect(sort()).toHaveValue('search');
-  expect(f.page).toHaveBeenLastCalledWith(clubA, expect.objectContaining({ sort: 'newest' }));
+  expect(f.page).toHaveBeenLastCalledWith(clubA, expect.objectContaining({ sort: 'activity' }));
   expect(search()).toHaveValue('Player');
   expect(screen.getByRole('combobox', { name: 'Filter Players' })).toHaveValue('agents');
   expect(screen.getByRole('checkbox', { name: 'Wallets', exact: true })).toBeChecked();
