@@ -43,3 +43,7 @@ simulation and installation. Default installer callers retain apt defaults.
 The native source/checksum, exact-version assertion, signatures and required
 SQL qualification are preserved. Boundary tests cover feed advance, missing
 minor, malformed input, image drift and the default Bash 3.2 invocation.
+
+The maintained accounting execution projection and its current source bindings
+record only this install/readiness input change. Historical financial results,
+SQL fixtures and assertions remain unchanged; source hashes do not certify them.

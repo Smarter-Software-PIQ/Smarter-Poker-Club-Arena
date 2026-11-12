@@ -524,8 +524,8 @@
       "sha256": "d9fbc730e56bbb5811585045dcc1e0b501c48cdd405e32276ec6165d22835014"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 143430,
-      "sha256": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c"
+      "bytes": 143954,
+      "sha256": "0ff77a4faedce6442830fb8d71d24a5906626fda1bc043686012a52207bf4ae8"
     },
     "scripts/qualification/ci-admission-inputs.json": {
       "bytes": 77121,
@@ -7201,5 +7201,13 @@
     "scope": "Job-token boundary (2026-11-11, owner-authorized): ci.yml's changes job no longer holds actions: write; its superseded-run cancel moved to a separate retire_superseded job that runs only default-branch code. The regenerated projection differs only by that removed step, the changes job's permissions and its comment. No accounting command, assertion, matrix, deadline, admission, historical result or certification changed.",
     "execution_performed": false,
     "qualification": "Source identity only; no historical result or production receipt changed. Required final-head native qualification remains mandatory."
+  },
+  "pinnedNativeToolServerAgreement20261112": {
+    "path": "scripts/qualification/ci-accounting-inputs.json",
+    "previousSha256": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c",
+    "sha256": "0ff77a4faedce6442830fb8d71d24a5906626fda1bc043686012a52207bf4ae8",
+    "reason": "Reviewed exact accounting install/readiness delta: obtain the native builder pinned minor, require matching packaged server/dev readiness, and pass PG_REQUIRED_VERSION to the existing signed installer. Workflow admission/global context, classifier, native source/checksum, SQL fixtures, assertions and historical qualification outcomes are unchanged. Required exact-head accounting qualification remains pending.",
+    "financialRecertification": false,
+    "historicalEvidenceRestamped": false
   }
 }
