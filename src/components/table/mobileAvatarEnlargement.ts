@@ -88,14 +88,9 @@ export function chooseMobileAvatarPaint(
   // Those are the obstacles below. A former "adds no felt pixel" gate refused
   // nearly every seat on a phone, which is why production looked unchanged.
   void felt;
-  for (const scale of profile
-    ? [profile.scale]
-    : [
-        2.5, 2.45, 2.4, 2.35, 2.3, 2.25, 2.2, 2.15, 2.1, 2.05, 2, 1.95, 1.9, 1.85, 1.8, 1.75, 1.7,
-        1.65, 1.6, 1.55, 1.5, 1.45, 1.4, 1.35, 1.3, 1.25, 1.2, 1.15, 1.1, 1.05, 1.02,
-      ]) {
-    if (scale <= 1 || scale > ceiling + 0.0001) continue;
-    // Crown-first (Option A), then growth toward free rail. No image stretch.
+  // One rung: the first pivot that fits, crown-first (Option A), then growth
+  // toward free rail. No image stretch.
+  const tryScale = (scale: number): PaintChoice | null => {
     for (const py of profile ? [profile.py] : [2, 1, 0.75, 0.5, 0.25, 0.15, 0.1, 0.05, 0, -1])
       for (const px of profile
         ? [profile.px]
@@ -189,8 +184,36 @@ export function chooseMobileAvatarPaint(
           origin,
         };
       }
+    return null;
+  };
+  const rungs = (
+    profile
+      ? [profile.scale]
+      : [
+          2.5, 2.45, 2.4, 2.35, 2.3, 2.25, 2.2, 2.15, 2.1, 2.05, 2, 1.95, 1.9, 1.85, 1.8, 1.75, 1.7,
+          1.65, 1.6, 1.55, 1.5, 1.45, 1.4, 1.35, 1.3, 1.25, 1.2, 1.15, 1.1, 1.05, 1.02,
+        ]
+  ).filter((scale) => scale > 1 && scale <= ceiling + 0.0001);
+  if (!rungs.length) return unchanged;
+  // Room is monotonic in practice: a zoom that fits leaves room for every
+  // smaller zoom. Walking every rung from the ceiling down cost hundreds of
+  // alpha-run intersections per refused rung on a nine-seat phone ring, which
+  // overran the browser suites' settle budget. Bisect the rungs instead: the
+  // smallest first (nothing fits: unchanged), then the largest that fits.
+  const smallest = tryScale(rungs[rungs.length - 1]);
+  if (!smallest) return unchanged;
+  let best = smallest;
+  let lo = 0,
+    hi = rungs.length - 1; // rungs[hi] fits; rungs[lo - 1] never does
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    const choice = tryScale(rungs[mid]);
+    if (choice) {
+      best = choice;
+      hi = mid;
+    } else lo = mid + 1;
   }
-  return unchanged;
+  return best;
 }
 
 function rebaseChoice(choice: PaintChoice | undefined, origin: [number, number]) {
@@ -631,9 +654,16 @@ export function enlargeMobileAvatars(
   const hero = entries.find((e) => e.seat.classList.contains('seat--hero'));
   const ordered = hero ? [hero, ...entries.filter((e) => e !== hero)] : entries;
   let heroHeight = hero?.avatar.getBoundingClientRect().height ?? Infinity;
+  // Dan, 2026-11-11: the hero's portrait is never the smaller one. A photo or
+  // initials hero has no painted runs; its circle is then the opponents' cap.
+  // A character-art hero whose runs are not readable yet caps nothing, so the
+  // opponents wait for the pass in which the hero's own paint is known.
+  const heroPaintPending = Boolean(
+    hero && !hero.parts.length && hero.avatar.classList.contains('seat__avatar--bust')
+  );
   let heroPaintHeight = hero?.parts.length
     ? Math.max(...hero.parts.map(bottom)) - Math.min(...hero.parts.map((p) => p.top))
-    : Infinity;
+    : heroHeight;
   const objects = state
     ? (state.obstacles ??= stableObstacles(scaler, page))
     : stableObstacles(scaler, page);
@@ -648,6 +678,7 @@ export function enlargeMobileAvatars(
       )
     )
       continue;
+    if (e !== hero && heroPaintPending) continue;
     const slot = ring.indexOf(e.seat.closest<HTMLElement>('.seat-wrapper')!);
     const profile = profiles[slot];
     if (!profile || profile.scale <= 1) continue;
