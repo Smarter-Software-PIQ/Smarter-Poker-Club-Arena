@@ -339,6 +339,28 @@ class CurrentAccountingIdentityTests(unittest.TestCase):
                 run.claim_seed(ci.CASES[0])
 
     def test_runtime_mismatch_refuses_before_binary_execution(self):
+        ci.validate_runtime_version('postgres (PostgreSQL) 17.12 (Ubuntu)')
+        for version in ('17.11', '17.120', '18.1', '17.12evil'):
+            with self.subTest(version=version), self.assertRaises(RuntimeError):
+                ci.validate_runtime_version('postgres (PostgreSQL) ' + version)
+        for case in ci.CASES:
+            bound = RetainedModules(FundedSourceCustody(), object(), case)
+            original = RetainedModules(FundedSourceCustody(), None, case)
+            expected = dict(database='fixture_base', database_oid='910', system_identifier='911',
+                            data_directory='/owned/data', socket_directory='/owned/sock')
+            actual = dict(expected, role='postgres', session_role='postgres', socket=True,
+                          replication='origin', server_version='17.12', pid=123,
+                          backend_start='2026-11-12 00:00:00+00')
+            self.assertEqual(bound.adapter.validate_physical(actual, expected), actual)
+            with self.assertRaises((AssertionError, RuntimeError)):
+                original.adapter.validate_physical(actual, expected)
+            with self.assertRaises((AssertionError, RuntimeError)):
+                bound.adapter.validate_physical(dict(actual, server_version='17.11'), expected)
+            adapted = {row['source']: row['occurrences'] for row in bound.source_changes
+                       if 'occurrences' in row}
+            self.assertEqual(adapted, {'opening_adapter/binding.py': 1,
+                                      'supplement/supplemental.py': 2,
+                                      bound.group + '/case_module.py': 1})
         run = ci.CurrentAccountingRun.__new__(ci.CurrentAccountingRun)
         run.runtime=None
         with patch.object(ci.subprocess,'run') as process, self.assertRaises(RuntimeError):

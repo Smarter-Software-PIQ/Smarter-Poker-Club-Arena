@@ -238,6 +238,21 @@ class RetainedModules:
         path = self.custody.source_path(source_id)
         raw = self.custody.read_bytes(source_id)
         text = raw.decode()
+        # Historical inputs stay sealed at17.11. The current hosted adapter
+        # compiles only these four declared minor-version boundary seams for
+        # the independently verified17.12 runtime, retaining raw observations.
+        runtime_seams = {'opening_adapter/binding.py': 1,
+                         'backup_adapter/case_module.py': 1,
+                         'promo_adapter/case_module.py': 1,
+                         'supplement/supplemental.py': 2}
+        if self.operation is not None and source_id in runtime_seams:
+            before = ".startswith('17.11')"
+            require(text.count(before) == runtime_seams[source_id],
+                    'Exact historical PostgreSQL boundary seam changed')
+            after = ".startswith('17.12')"
+            text = text.replace(before, after)
+            self.source_changes.append({'source': source_id, 'before': before, 'after': after,
+                                        'occurrences': runtime_seams[source_id]})
         for before, after in replacements:
             require(text.count(before) == 1, 'Exact legacy path-read replacement differs')
             text = text.replace(before, after, 1)

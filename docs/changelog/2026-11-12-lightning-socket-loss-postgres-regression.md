@@ -32,3 +32,12 @@ request/receipt tests own committed-but-reply-lost outcomes. Production acceptan
 remains separate: a qualifying release must serve #10498 with seal, full thaw
 and resumed Lightning. Natural connection-error execution stays unverified when
 no such event occurs on the corrected build; no production failure is induced.
+
+The hosted dependency advanced to PostgreSQL17.12 during qualification. The
+native isolation builder now pins that release and its official archive checksum
+while retaining exact server/tool matching. Current BBJ execution independently
+requires17.12 and records its real binary and SQL identity. Its existing retained
+module loader declares the finite17.11-to17.12 boundary adaptations; original
+source packets, historical transforms and model-only17.11 checks remain sealed.
+This changes no production PostgreSQL package, financial assertion or release
+control. Hosted native execution remains required for the corrected candidate.
