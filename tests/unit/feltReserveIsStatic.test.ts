@@ -343,3 +343,58 @@ describe("the felt's geometry is declared, never measured", () => {
     }
   });
 });
+
+describe('the device constants the phone table publishes', () => {
+  /* The one sanctioned exception to "never measured", made explicit (Dan
+     2026-11-11). A portrait phone lays the table out at the desktop width
+     and the browser scales it down (useTableEnvironment). Three facts about
+     the DEVICE cannot be expressed in CSS at that scale and are read once,
+     before the switch, then published on <html> in desktop-layout px:
+
+       --sp-table-stable-viewport-h   the small viewport height (2026-10-25)
+       --sp-phone-safe-top            the notch / Dynamic Island band
+       --sp-phone-safe-bottom         the home indicator band
+
+     They feed the felt's budget, and that is correct for the same reason a
+     breakpoint may: they describe the screen, not the hand. Nothing a hand,
+     an action or a dock can do reaches them. Their writes name the property
+     through a constant, which the setProperty scan above does not see, so
+     this pins the exception by name instead of leaving it invisible: exactly
+     these three, declared and written only by the viewport hook. A fourth,
+     or a write from anywhere else, is a measurement in the felt's graph. */
+  const HOOK = resolve(ROOT, 'src/hooks/useTableEnvironment.ts');
+  const DEVICE_CONSTANTS = [
+    '--sp-phone-safe-bottom',
+    '--sp-phone-safe-top',
+    '--sp-table-stable-viewport-h',
+  ];
+
+  it('declares exactly these, and only the viewport hook does', () => {
+    const hook = stripComments(readFileSync(HOOK, 'utf8'));
+    const declared = [...hook.matchAll(/const\s+[A-Z_]+\s*=\s*['"`](--[a-z0-9-]+)['"`]/g)]
+      .map((m) => m[1])
+      .sort();
+    expect(declared).toEqual(DEVICE_CONSTANTS);
+    for (const file of CODE_FILES) {
+      if (file === HOOK) continue;
+      const src = stripComments(readFileSync(file, 'utf8'));
+      for (const name of DEVICE_CONSTANTS)
+        expect(src.includes(name), `${file.slice(ROOT.length + 1)} names ${name}`).toBe(false);
+    }
+  });
+
+  it('reads them inside the one viewport writer and clears them with the last table', () => {
+    const hook = stripComments(readFileSync(HOOK, 'utf8'));
+    const writer = hook.slice(hook.indexOf('function writeTableViewport'));
+    for (const constant of [
+      'STABLE_TABLE_VIEWPORT_HEIGHT',
+      'PHONE_SAFE_TOP',
+      'PHONE_SAFE_BOTTOM',
+    ]) {
+      expect(writer).toMatch(new RegExp(`setProperty\\(\\s*${constant}\\b`));
+      expect(writer).toMatch(new RegExp(`removeProperty\\(\\s*${constant}\\s*\\)`));
+    }
+    // Read once per mount: only while nothing has been captured yet.
+    expect(writer).toMatch(/if \(phoneSafeTop === null\)/);
+  });
+});

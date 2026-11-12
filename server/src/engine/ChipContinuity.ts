@@ -27,10 +27,14 @@ export function stayRemainingMs(
  * is the synchronous reading of the mirror row against the engine's live
  * stack. The time stay clock stays retired (owner 2026-10-26).
  */
-export function hitRunHandsRemaining(
-  row: Pick<CashSessionRow, 'baseline' | 'hands_required' | 'hands_played' | 'hit_run_completed'>,
-  stackNow: number
-): number {
+type OwedRow = Pick<
+  CashSessionRow,
+  'baseline' | 'hands_required' | 'hands_played' | 'hit_run_completed'
+> &
+  Partial<Pick<CashSessionRow, 'big_win_required' | 'big_win_played'>>;
+
+/** The ten-hand countdown in profit, with the Charles doubles (owner 2026-11-06). */
+export function countdownHandsRemaining(row: OwedRow, stackNow: number): number {
   const required = Math.max(0, Math.floor(Number(row.hands_required) || 0));
   const played = Math.max(0, Math.floor(Number(row.hands_played) || 0));
   if (row.hit_run_completed === true || required <= 0 || played >= required) return 0;
@@ -38,12 +42,43 @@ export function hitRunHandsRemaining(
   return required - played;
 }
 
+/**
+ * THE CHARLES RULE AFTER A LARGE WIN (owner 2026-11-11): ten subsequent hands
+ * after a hand netting +250 BB or more, owed while the player has chips. The
+ * database (fn_cash_big_win_hands_remaining) is the same arithmetic.
+ */
+export function bigWinHandsRemaining(row: OwedRow, stackNow: number): number {
+  const required = Math.max(0, Math.floor(Number(row.big_win_required) || 0));
+  const played = Math.max(0, Math.floor(Number(row.big_win_played) || 0));
+  if (required <= played || !(Number(stackNow) > 0)) return 0;
+  return required - played;
+}
+
+/**
+ * Every hand the session still owes at this stack: the larger of the two
+ * obligations (fn_cash_session_hands_owed). Finishing one never clears the
+ * other. Every engine reader (the leave door, the sit-out hold, the blind
+ * off, the seat fields) reads this one function.
+ */
+export function hitRunHandsRemaining(row: OwedRow, stackNow: number): number {
+  return Math.max(countdownHandsRemaining(row, stackNow), bigWinHandsRemaining(row, stackNow));
+}
+
+/** Why hands are owed at this stack, for the felt and the leave confirmation. */
+export function handsOwedReason(
+  row: OwedRow,
+  stackNow: number
+): 'hit_run' | 'big_win' | 'both' | null {
+  const h = countdownHandsRemaining(row, stackNow);
+  const b = bigWinHandsRemaining(row, stackNow);
+  if (h > 0 && b > 0) return 'both';
+  if (b > 0) return 'big_win';
+  if (h > 0) return 'hit_run';
+  return null;
+}
+
 /** In profit and still owing hands at this stack. */
-export function isLeaveLocked(
-  row: Pick<CashSessionRow, 'baseline' | 'hands_required' | 'hands_played' | 'hit_run_completed'>,
-  stackNow: number,
-  _nowMs?: number
-): boolean {
+export function isLeaveLocked(row: OwedRow, stackNow: number, _nowMs?: number): boolean {
   return hitRunHandsRemaining(row, stackNow) > 0;
 }
 
@@ -76,6 +111,10 @@ export interface ContinuitySeatFields {
   hit_run_hands_remaining: number | null;
   hit_run_hands_required: number | null;
   hit_run_blind_off: boolean;
+  /** Why they are owed: the countdown in profit, a +250 BB win, or both. */
+  hit_run_reason: 'hit_run' | 'big_win' | 'both' | null;
+  /** The +250 BB win in big blinds, while the big-win count is owed. */
+  hit_run_big_win_bb: number | null;
 }
 
 export interface ChipContinuityDeps {
@@ -153,18 +192,29 @@ export class ChipContinuityTracker {
         hit_run_hands_remaining: null,
         hit_run_hands_required: null,
         hit_run_blind_off: false,
+        hit_run_reason: null,
+        hit_run_big_win_bb: null,
       };
     }
     const remaining = stayRemainingMs(row, nowMs);
     const hands = hitRunHandsRemaining(row, stackNow);
+    const reason = handsOwedReason(row, stackNow);
+    // The total shown beside the count is the binding obligation's own.
+    const bigWinBinds =
+      bigWinHandsRemaining(row, stackNow) >= countdownHandsRemaining(row, stackNow) &&
+      bigWinHandsRemaining(row, stackNow) > 0;
     return {
       session_baseline: row.baseline,
       stay_remaining_ms: remaining,
       stay_running: row.stay_running && remaining > 0 && stackNow > row.baseline,
       leave_locked: hands > 0,
       hit_run_hands_remaining: hands > 0 ? hands : null,
-      hit_run_hands_required: hands > 0 ? row.hands_required : null,
+      hit_run_hands_required:
+        hands > 0 ? (bigWinBinds ? (row.big_win_required ?? 0) : row.hands_required) : null,
       hit_run_blind_off: hands > 0 && this.blindOff.has(userId),
+      hit_run_reason: hands > 0 ? reason : null,
+      hit_run_big_win_bb:
+        reason === 'big_win' || reason === 'both' ? (row.big_win_bb_won ?? null) : null,
     };
   }
 

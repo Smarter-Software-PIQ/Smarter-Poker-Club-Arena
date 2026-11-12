@@ -6059,6 +6059,12 @@ function CashierTradeWorkspace() {
                     </>
                   );
                 })()}
+                {amountModal === 'send' && sendSource === 'promo_wallet' && isAgentRole(myRole) && (
+                  <p>
+                    Each Downline Can Receive 50 Promo Chips Total From All Agents In Any 7 Days.
+                    All Destination Wallets Share This Limit.
+                  </p>
+                )}
                 {amountModal === 'diamonds' && user?.id && picked.length === 1 ? (
                   <DiamondWalletTransfer
                     key={`${user?.id}:${picked[0].userId}`}

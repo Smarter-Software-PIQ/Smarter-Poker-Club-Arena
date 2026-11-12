@@ -80,7 +80,11 @@ import {
 } from './BombPotScheduler.js';
 
 import { ServerTableEngineRunout } from './ServerTableEngineRunout.js';
-import { ServerTableEngineBase, type EngineRecoveryEventClass } from './ServerTableEngineBase.js';
+import {
+  ServerTableEngineBase,
+  type EngineRecoveryEventClass,
+  type F06OwnReservedReconcileOutcome,
+} from './ServerTableEngineBase.js';
 import { secureRandomInt } from './CryptoRandom.js';
 import { drawFirstButtonSeat, headsUpButtonSeat } from './headsUpButton.js';
 import type { BlindSeats } from './deadButton.js';
@@ -1707,6 +1711,49 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           }
         }
 
+        // IN-LIFE ORPHANED RESERVED PERMIT (2026-11-12, issue #10564). A
+        // `reserved` F06 permit this live generation left behind - its
+        // in-memory owner lost across a break or balancing boundary - refuses
+        // every allocation with f06_allocation_unproven. resolveUnstartedF06Permit
+        // needs the live permit object (this dealer holds none), and the
+        // abandoned-generation door only fires once this generation is dead,
+        // so nothing in this process clears it short of a watchdog kill and
+        // rebuild. Decide it here, in place, once per refusal, through the
+        // evidence-guarded cancel door, gated to this dealer's own generation.
+        if (!isTransient && errMsg.includes('f06_allocation_unproven')) {
+          let reconciled: F06OwnReservedReconcileOutcome = 'skipped';
+          try {
+            reconciled = await this.reconcileOwnUnresolvedReservedPermit();
+          } catch (reconcileErr) {
+            reportError(
+              reconcileErr,
+              'ServerTableEngine.' + this.tableId + '.own_reserved_permit_reconcile_failed'
+            );
+          }
+          if (reconciled === 'resolved') {
+            if (this.noteOwnReservedResolveShouldFastRecover()) {
+              this.recordRecoveryEvent(
+                'in_life_reserved_permit_resolved',
+                'allocation_unproven:own_generation'
+              );
+              this.consecutiveErrors = 0;
+              this.markProgress();
+              await this.sleep(250);
+              continue;
+            }
+            // Repeated resolves with no hand dealt between them: a second fault
+            // is re-orphaning a permit every pass. Stop masking - fall through
+            // to the normal error count and backoff so the >=10 self-kill and
+            // the zombie watchdog catch the table, and page it now.
+            reportError(
+              new Error(
+                'own-reserved permit resolved repeatedly with no hand dealt; letting the stall surface'
+              ),
+              'ServerTableEngine.' + this.tableId + '.own_reserved_permit_resolves_unbounded'
+            );
+          }
+        }
+
         if (!isTransient) {
           this.consecutiveErrors++;
         }
@@ -2930,10 +2977,13 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         return;
       }
       if (!this.isTournamentTable()) this.retireHandNumberWithForeignManifest(players);
+      this.cashBreachSpan?.enter('deal_allocate');
       this.handCount = this.takePreparedHandNumber() ?? (await this.allocateGlobalHandNumber());
       await this.reserveF06Hand(this.handCount);
+      this.cashBreachSpan?.enter('dealing');
       if (this.discardPreparedHandForPause()) return;
       this.handsDealtThisSession++;
+      this.resetOwnReservedResolveProgress();
       const handNumber = this.handCount;
       const handStartMs = Date.now(); // FIX 149: Capture hand start time for telemetry
       this.currentHandStartedAt = handStartMs;
@@ -3511,6 +3561,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
              * first and then discovering the table is short would consume the
              * host's request and fire nothing.
              */
+            this.cashBreachSpan?.enter('deal_bomb_claim');
             const { data: claimed, error: claimErr } = await supabase
               .from('tables')
               .update({ bomb_pot_manual_pending: false })
@@ -3518,6 +3569,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
               .eq('bomb_pot_manual_pending', true)
               .select('id')
               .maybeSingle();
+            this.cashBreachSpan?.enter('dealing');
             if (claimErr) {
               // Fail closed and KEEP the armed flag, so the next hand tries
               // again rather than dropping the host's request on one blip.
@@ -3956,11 +4008,13 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
               is_horse: original.is_horse === true,
             };
           });
+          this.cashBreachSpan?.enter('deal_manifest');
           const manifestId = await this.takePreparedCashHandManifest(
             handNumber,
             originalParticipants,
             fundingLease.generation
           );
+          this.cashBreachSpan?.enter('dealing');
           this.currentHandSeatGenerations = bindCashHandManifest(
             this.currentHandSeatGenerations,
             manifestId,
@@ -4122,6 +4176,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       const preferenceIds = hcPlayers
         .filter((p) => !this.timeBankEngine.hasAutoActivatePreference(this.tableId, p.user_id))
         .map((p) => p.user_id);
+      this.cashBreachSpan?.enter('deal_time_bank_reads');
       const [tbExtras, autoPreferences] = await Promise.all([
         this.fetchTimeBankExtras(tbNewPlayers.map((p) => p.user_id)),
         readAutoTimeBankPreferences(preferenceIds).catch((error) => {
@@ -4131,6 +4186,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           return new Map(preferenceIds.map((id) => [id, false]));
         }),
       ]);
+      this.cashBreachSpan?.enter('dealing');
       /**
        * THE ENGINE MAY HAVE BEEN TORN DOWN DURING THAT AWAIT (2026-09-06).
        *

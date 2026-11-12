@@ -37,7 +37,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, readdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parse } from 'yaml';
@@ -149,6 +149,7 @@ describe('the merge dispatches the migrations it added', () => {
           PR: '9957',
           MERGED_BY: 'Smarter-Poker',
           GITHUB_STEP_SUMMARY: summary,
+          GITHUB_RUN_ID: '1',
         },
       });
       expect(r.status, r.stderr).toBe(0);
@@ -169,7 +170,11 @@ describe('the merge dispatches the migrations it added', () => {
     expect(scriptCode).toContain('-f "client_payload[migration]=$f"');
     expect(scriptCode).toContain('-F "client_payload[dry_run]=false"');
     expect(scriptCode.match(/repos\/\$REPO\/dispatches/g)).toHaveLength(1);
-    expect(scriptCode).toMatch(/for f in "\$\{DISPATCH\[@\]\}"; do\n\s+if gh api --method POST/);
+    // Each file is sent with the intent its plan phase recorded (dispatch-intent.mjs).
+    expect(scriptCode).toMatch(
+      /for f in "\$\{DISPATCH\[@\]\}"; do\n\s+NONCE=\$\(jq [^\n]+\n\s+if \[\[ "\$NONCE" =~ \^\[0-9a-f\]\{32\}\$ \]\] && gh api --method POST/
+    );
+    expect(scriptCode).toContain('-f "client_payload[intent_nonce]=$NONCE"');
     expect(scriptCode).toMatch(/DISPATCH REFUSED[^\n]*not retried/);
     expect(scriptCode).not.toMatch(/--dry-run|dry_run\]=true|workflow run|actions\/workflows/);
   });
@@ -366,22 +371,61 @@ esac
       );
       chmodSync(join(box, 'gh'), 0o755);
       const summary = join(box, 'summary');
-      const r = spawnSync('bash', ['.github/scripts/dispatch-merged-migrations.sh'], {
-        cwd: ROOT,
-        encoding: 'utf8',
-        env: {
-          ...process.env,
-          PATH: `${box}:${process.env.PATH}`,
-          GH_TOKEN: 'x',
-          REPO: 'o/r',
-          PR: '10029',
-          MERGED_BY: 'Smarter-Poker',
-          GITHUB_STEP_SUMMARY: summary,
-          // An admitted minute, so nothing waits.
-          DISPATCH_NOW_MS: String(at('2026-10-25T02:10:00Z')),
-        },
-      });
-      expect(r.status, r.stderr + r.stdout).toBe(0);
+      // The real pull_request_target shape: GITHUB_SHA is the base tip, and the
+      // intent binds the merged pull request's own head.
+      const event = join(box, 'event.json');
+      writeFileSync(
+        event,
+        JSON.stringify({
+          repository: { default_branch: 'main' },
+          pull_request: {
+            number: 10029,
+            merged: true,
+            base: { ref: 'main', repo: { full_name: 'o/r' } },
+            head: { sha: 'b'.repeat(40), repo: { full_name: 'o/r' } },
+          },
+        })
+      );
+      // Plan records one intent per file; send dispatches exactly those.
+      const intents = join(box, 'intents');
+      for (const phase of ['plan', 'send']) {
+        const r = spawnSync('bash', ['.github/scripts/dispatch-merged-migrations.sh'], {
+          cwd: ROOT,
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            PATH: `${box}:${process.env.PATH}`,
+            GH_TOKEN: 'x',
+            REPO: 'o/r',
+            PR: '10029',
+            MERGED_BY: 'Smarter-Poker',
+            GITHUB_STEP_SUMMARY: summary,
+            GITHUB_RUN_ID: '1',
+            GITHUB_RUN_ATTEMPT: '1',
+            GITHUB_REPOSITORY: 'o/r',
+            GITHUB_WORKFLOW_REF:
+              'o/r/.github/workflows/dispatch-merged-migrations.yml@refs/heads/main',
+            GITHUB_SHA: 'a'.repeat(40),
+            GITHUB_EVENT_NAME: 'pull_request_target',
+            GITHUB_EVENT_PATH: event,
+            GITHUB_OUTPUT: join(box, 'output'),
+            DISPATCH_PHASE: phase,
+            INTENT_DIR: intents,
+            INTENT_STATE: join(box, 'state.jsonl'),
+            // An admitted minute, so nothing waits.
+            DISPATCH_NOW_MS: String(at('2026-10-25T02:10:00Z')),
+          },
+        });
+        expect(r.status, r.stderr + r.stdout).toBe(0);
+      }
+      expect(readFileSync(join(box, 'output'), 'utf8')).toBe('send=true\n');
+      expect(readdirSync(intents)).toHaveLength(3);
+      expect(readFileSync(calls, 'utf8')).toMatch(/client_payload\[intent_nonce\]=[0-9a-f]{32}/);
+      for (const f of readdirSync(intents)) {
+        const intent = JSON.parse(readFileSync(join(intents, f), 'utf8'));
+        expect(intent.senderHeadSha).toBe('b'.repeat(40));
+        expect(intent.senderPrNumber).toBe(10029);
+      }
       const sent = readFileSync(calls, 'utf8')
         .split('\n')
         .filter((l) => l.includes('repos/o/r/dispatches'))

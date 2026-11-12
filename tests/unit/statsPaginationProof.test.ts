@@ -286,10 +286,10 @@ describe('closed exact published Stats pagination proof', () => {
     const job = workflow.jobs['stats-pagination-proof'];
     expect(workflow.on.repository_dispatch.types).toContain('run-stats-pagination-proof');
     expect(job.if).toBe(
-      "always() && !cancelled() && needs.certification-cleanup-safety.result == 'success' && github.event_name == 'repository_dispatch' && github.event.action == 'run-stats-pagination-proof'"
+      "always() && !cancelled() && needs.certification-cleanup-safety.result == 'success' && github.event_name == 'repository_dispatch' && github.event.action == 'run-stats-pagination-proof' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
     );
     expect(workflow.jobs['publication-gate'].if).toBe(
-      "github.event_name != 'repository_dispatch' || (github.event.action != 'run-stats-pagination-proof' && github.event.action != 'run-private-record-client-proof' && github.event.action != 'run-plo-lightning-lifecycle-proof' && github.event.action != 'run-hero-celebration-proof')"
+      "(github.event_name != 'repository_dispatch' || (github.event.action != 'run-stats-pagination-proof' && github.event.action != 'run-private-record-client-proof' && github.event.action != 'run-plo-lightning-lifecycle-proof' && github.event.action != 'run-hero-celebration-proof')) && (github.event_name != 'workflow_run' || (github.event.workflow_run.path == '.github/workflows/publish-club-arena.yml' && (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'repository_dispatch') && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main'))"
     );
     expect(workflow.jobs['production-e2e'].concurrency).toEqual({
       group:
@@ -300,7 +300,8 @@ describe('closed exact published Stats pagination proof', () => {
       group: 'stats-pagination-proof-production',
       'cancel-in-progress': false,
     });
-    expect(job.permissions).toEqual({ contents: 'read' });
+    // actions: read lets the first step prove a job-token dispatch's sender run.
+    expect(job.permissions).toEqual({ contents: 'read', actions: 'read' });
     expect(job['timeout-minutes']).toBe(15);
     const proof = job.steps.find((s: any) => s.id === 'proof');
     expect(proof.run).toContain('tests/e2e/stats-deep.spec.ts');
@@ -344,7 +345,11 @@ describe('closed exact published Stats pagination proof', () => {
         .replaceAll('cancelled()', JSON.stringify(cancelled))
         .replaceAll('needs.certification-cleanup-safety.result', JSON.stringify(cleanup))
         .replaceAll('github.event_name', JSON.stringify(event))
-        .replaceAll('github.event.action', JSON.stringify(action));
+        .replaceAll('github.event.action', JSON.stringify(action))
+        // A person's dispatch; the job-token refusal is pinned in its own law.
+        .replaceAll('github.triggering_actor', JSON.stringify('Smarter-Poker'))
+        .replaceAll('github.actor', JSON.stringify('Smarter-Poker'))
+        .replaceAll('github.run_attempt', JSON.stringify('1'));
       return Function(`"use strict"; return (${expression});`)();
     };
     expect(admits('success', false, 'repository_dispatch', 'run-stats-pagination-proof')).toBe(

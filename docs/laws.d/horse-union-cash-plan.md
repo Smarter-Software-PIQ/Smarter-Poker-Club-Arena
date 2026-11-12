@@ -1,3 +1,3 @@
 # server/src/services/HorseUnionCashPlan.law.test.ts
 
-The Midway cash floor has three overnight baseline Classic tables, a Classic 1/2 No Limit and a Classic 1/2 PLO game every hour except 4-9 AM Chicago (owner 2026-11-05), bounded daytime/prime slots, and a human exception only for higher stakes outside their slots; Lightning is separate; tournaments and human access are preserved.
+The November 11 relaunch: every enabled Midway cash plan game is scheduled around the clock with no restriction on how many games are open at once; all six 1/2 games (Holdem and PLO included; PLO5 1/2 through its one Madness game, one game per stake) run full time; the weekly rake target is a tripled 600,000 forecast, never a ceiling; a higher-stakes table keeps its human exception for a per-table 20-30 minute dwell after the last playing human leaves, so a game never breaks right away after a departure; Lightning is separate; tournaments and human access are preserved.

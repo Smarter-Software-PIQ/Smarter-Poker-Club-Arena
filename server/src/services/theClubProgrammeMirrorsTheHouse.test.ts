@@ -519,7 +519,7 @@ describe('2. a table over the cap drains through the engine, never a mid-hand cu
     // (Slice 2, 2026-09-05: the select also carries cluster_id and lifecycle,
     //  so the fleet can keep its hands off the controller's tables.)
     expect(FLEET).toMatch(
-      /current_players, created_at, settings, cluster_id, lifecycle, role, main_index, bomb_pot_enabled, big_blind_ante_enabled, nit_game, maintain_percent_min'/
+      /current_players, created_at, settings, cluster_id, lifecycle, role, main_index, last_human_seen_at, bomb_pot_enabled, big_blind_ante_enabled, nit_game, maintain_percent_min'/
     );
     expect(FLEET).toMatch(
       /if \(isRetiringTable\(t as \{ settings\?: unknown \}\)\) \{\s*surplusTableIds\.add\(t\.id\);/
@@ -542,7 +542,7 @@ describe('2. a table over the cap drains through the engine, never a mid-hand cu
        the read can no longer be broken from a distance by a migration in
        another lane. */
     expect(ROTATOR).toMatch(
-      /tables!table_seats_table_id_fkey!inner\(id, small_blind, big_blind, game_variant, tournament_id, is_spins, status, settings, cluster_id, role, main_index, lifecycle, created_at, max_players, min_buy_in, max_buy_in, club_id, union_id, arena:clubs!fk_tables_club_id\(id, asset, is_platform, union_id\)\)/
+      /tables!table_seats_table_id_fkey!inner\(id, small_blind, big_blind, game_variant, tournament_id, is_spins, status, settings, cluster_id, role, main_index, lifecycle, last_human_seen_at, created_at, max_players, min_buy_in, max_buy_in, club_id, union_id, arena:clubs!fk_tables_club_id\(id, asset, is_platform, union_id\)\)/
     );
     // 2026-09-05: and the drain never touches a cluster table.
     expect(ROTATOR).toMatch(

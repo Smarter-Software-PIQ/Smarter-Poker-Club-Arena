@@ -269,6 +269,14 @@ class TournamentEngine {
     });
   }
 
+  /** The link drops; the page reconnects and SUBSCRIBEs again. */
+  dropAll(): void {
+    for (const ws of [...this.sockets]) {
+      this.sockets.delete(ws);
+      ws.close({ code: 1012, reason: 'engine restart' });
+    }
+  }
+
   publish(hand: number, hero: HeroState, heroStack = 5000): void {
     this.seq += 1;
     this.state = snapshot(hand, hero, heroStack);
@@ -305,6 +313,8 @@ interface Fixture {
   hold: { after: number; until: Promise<void> } | null;
   /** The hero's own `table_hole_cards` row, as the engine writes it on deal. */
   holeCards: Record<string, unknown>[];
+  /** The bust's rebuy window has already closed on the server. */
+  expired?: boolean;
 }
 
 function backend(fx: Fixture) {
@@ -412,7 +422,9 @@ function backend(fx: Fixture) {
           status: 'playing',
           chips: 0,
           prize: 0,
-          rebuy_prompt_until: new Date(Date.now() + 10 * 60_000).toISOString(),
+          rebuy_prompt_until: new Date(
+            Date.now() + (fx.expired ? -60_000 : 10 * 60_000)
+          ).toISOString(),
           rebuys: fx.rebuys,
           add_on: false,
           table_id: TABLE,
@@ -507,27 +519,73 @@ async function expectNoCards(page: Page, holdMs = 2_500) {
   expect(await heroWords(page)).toEqual([]);
 }
 
-/** Bust: the busting hand settles with the hero on a zero stack, the engine
- *  vacates the seat, and the page opens its rebuy offer. */
-async function bust(page: Page, engine: TournamentEngine, fx: Fixture): Promise<void> {
-  await expectHolding(page, /king/, /queen/);
-  // As the engine does at hand commit: the settled snapshot with the hero on a
-  // zero stack, then the seat exit committed by the hand-stack RPC and
-  // published as seat_left with the next snapshot. The exit lands while the
-  // page is still pricing its rebuy offer (the price read is held until it
-  // has), which is the order in which the offer survives the exit.
-  let release = () => {};
-  const before = fx.eligibilityReads;
-  fx.hold = { after: before, until: new Promise<void>((resolve) => (release = resolve)) };
-  engine.publish(200, 'busted', 0);
-  await expect.poll(() => fx.eligibilityReads, { timeout: 10_000 }).toBeGreaterThan(before);
+/** How the engine's bust reaches the page. The engine publishes the settled
+ *  zero-stack snapshot, then commits the seat exit with the hand-stack RPC and
+ *  sends seat_left `busted_awaiting_rebuy_decision` with the next snapshot.
+ *  Which of those the page has processed when its offer check runs is a
+ *  matter of timing, so every order is driven:
+ *  - 'during-pricing': the exit lands while the offer is still loading (its
+ *    price read is held until the exit has landed: delayed loading);
+ *  - 'exit-first': the exit lands before the page ever sees the busted seat;
+ *  - 'exit-after-offer': the exit lands after the offer is already open;
+ *  - 'exit-lost': the link drops at the bust and the exit never arrives; the
+ *    page reconnects to a table without its seat. */
+type BustOrder = 'during-pricing' | 'exit-first' | 'exit-after-offer' | 'exit-lost';
+
+function vacate(engine: TournamentEngine, fx: Fixture): void {
   fx.seats.splice(0, fx.seats.length);
   engine.seatLeft('busted_awaiting_rebuy_decision');
   engine.publish(200, 'absent');
-  await page.waitForTimeout(400);
-  fx.hold = null;
-  release();
-  await expect(rebuyConfirm(page)).toBeVisible({ timeout: 20_000 });
+}
+
+async function bust(
+  page: Page,
+  engine: TournamentEngine,
+  fx: Fixture,
+  order: BustOrder = 'during-pricing',
+  opts: { reconnect?: boolean; expectOffer?: boolean } = {}
+): Promise<void> {
+  await expectHolding(page, /king/, /queen/);
+  if (order === 'during-pricing') {
+    let release = () => {};
+    const before = fx.eligibilityReads;
+    fx.hold = { after: before, until: new Promise<void>((resolve) => (release = resolve)) };
+    engine.publish(200, 'busted', 0);
+    await expect.poll(() => fx.eligibilityReads, { timeout: 10_000 }).toBeGreaterThan(before);
+    vacate(engine, fx);
+    await page.waitForTimeout(1_500);
+    fx.hold = null;
+    release();
+  } else if (order === 'exit-first') {
+    vacate(engine, fx);
+  } else if (order === 'exit-lost') {
+    engine.dropAll();
+    fx.seats.splice(0, fx.seats.length);
+    engine.publish(200, 'absent');
+    await expect.poll(() => engine.connected, { timeout: 30_000 }).toBe(true);
+  } else {
+    engine.publish(200, 'busted', 0);
+    await expect(rebuyConfirm(page)).toBeVisible({ timeout: 20_000 });
+    vacate(engine, fx);
+  }
+  if (opts.reconnect) {
+    // The exit has reached the page; then the link drops.
+    await page.waitForTimeout(500);
+    engine.dropAll();
+    await expect.poll(() => engine.connected, { timeout: 30_000 }).toBe(true);
+  }
+  if (opts.expectOffer === false) return;
+  /* A lost exit is found by the page's own seat read. In production the
+     table_seats realtime change runs it within 200 ms; this mock backend has no
+     realtime, so the test waits on the slowest backstop: the ten-second poll. */
+  await expect(rebuyConfirm(page)).toBeVisible({
+    timeout: order === 'exit-lost' ? 40_000 : 20_000,
+  });
+  if (order === 'exit-after-offer') {
+    // The exit that followed must not have closed it.
+    await page.waitForTimeout(1_500);
+    await expect(rebuyConfirm(page)).toBeVisible();
+  }
 }
 
 /** Pay for the rebuy. Fails fast, naming what the offer says, when it cannot be confirmed. */
@@ -684,6 +742,112 @@ test('a bust that is not rebought shows no further cards', async ({ page }) => {
     await bust(page, engine, fx);
     // No rebuy. The table deals on without the hero; a stray private frame
     // for the next hand must not put cards in front of a player with no seat.
+    engine.publish(201, 'absent');
+    engine.handStarted(201);
+    engine.late(201, AFTER_REBUY);
+    await expectNoCards(page);
+    expect(fx.rebuys, 'no purchase was made').toBe(0);
+  } finally {
+    engine.dispose();
+  }
+});
+
+/* ── The rebuy offer and the engine's bust exit (2026-11-11) ──────────────
+   The offer used to open only from the zero-stack seat, and the engine's own
+   bust exit closed it. Each order the two can reach the page in must end in an
+   offer the player can pay, and the paid seat must deal face up. */
+
+const freshFixture = (over: Partial<Fixture> = {}): Fixture => ({
+  rebuys: 0,
+  seats: [heroSeatRow(5000)],
+  eligibilityReads: 0,
+  hold: null,
+  holeCards: [],
+  ...over,
+});
+
+async function payAndPlay(page: Page, engine: TournamentEngine, fx: Fixture): Promise<void> {
+  await confirmRebuy(page);
+  await expect.poll(() => fx.rebuys, { timeout: 15_000 }).toBe(1);
+  engine.publish(201, 'playing');
+  engine.handStarted(201);
+  engine.deal(201, AFTER_REBUY);
+  await expectHolding(page, /ace/, /three|3/);
+}
+
+test('the bust exit lands before the busted seat is seen: the offer still opens', async ({
+  page,
+}) => {
+  test.skip(EXPECT_DEFECT, 'the card defect is witnessed by the in-order case');
+  const fx = freshFixture();
+  const engine = await openTable(page, fx);
+  try {
+    await bust(page, engine, fx, 'exit-first');
+    await confirmRebuy(page);
+    await expect.poll(() => fx.rebuys, { timeout: 15_000 }).toBe(1);
+    // A stale copy of the bust exit, after paying and before the seat shows:
+    // it belongs to the bust just paid for and must change nothing.
+    engine.seatLeft('busted_awaiting_rebuy_decision');
+    engine.publish(201, 'playing');
+    engine.handStarted(201);
+    engine.deal(201, AFTER_REBUY);
+    await expectHolding(page, /ace/, /three|3/);
+    await expect(rebuyConfirm(page)).toBeHidden();
+    expect(fx.rebuys, 'one purchase').toBe(1);
+  } finally {
+    engine.dispose();
+  }
+});
+
+test('the bust exit lands after the offer opened: the offer stays open', async ({ page }) => {
+  test.skip(EXPECT_DEFECT, 'the card defect is witnessed by the in-order case');
+  const fx = freshFixture();
+  const engine = await openTable(page, fx);
+  try {
+    await bust(page, engine, fx, 'exit-after-offer');
+    await payAndPlay(page, engine, fx);
+  } finally {
+    engine.dispose();
+  }
+});
+
+test('the link drops after the bust exit: the reconnected page still offers the rebuy', async ({
+  page,
+}) => {
+  test.skip(EXPECT_DEFECT, 'the card defect is witnessed by the in-order case');
+  const fx = freshFixture();
+  const engine = await openTable(page, fx);
+  try {
+    await bust(page, engine, fx, 'exit-first', { reconnect: true });
+    await payAndPlay(page, engine, fx);
+  } finally {
+    engine.dispose();
+  }
+});
+
+test('the bust exit is lost with the link: the reconnected page still offers the rebuy', async ({
+  page,
+}) => {
+  test.skip(EXPECT_DEFECT, 'the card defect is witnessed by the in-order case');
+  const fx = freshFixture();
+  const engine = await openTable(page, fx);
+  try {
+    await bust(page, engine, fx, 'exit-lost');
+    await payAndPlay(page, engine, fx);
+  } finally {
+    engine.dispose();
+  }
+});
+
+test('a bust whose rebuy window has closed opens no offer and shows no cards', async ({ page }) => {
+  test.skip(EXPECT_DEFECT, 'the card defect is witnessed by the in-order case');
+  const fx = freshFixture({ expired: true });
+  const engine = await openTable(page, fx);
+  try {
+    await bust(page, engine, fx, 'exit-first', { expectOffer: false });
+    await expect.poll(() => fx.eligibilityReads, { timeout: 15_000 }).toBeGreaterThan(0);
+    await page.waitForTimeout(3_000);
+    await expect(rebuyConfirm(page)).toBeHidden();
     engine.publish(201, 'absent');
     engine.handStarted(201);
     engine.late(201, AFTER_REBUY);

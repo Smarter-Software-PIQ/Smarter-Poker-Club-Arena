@@ -21,6 +21,7 @@ import ClubHandCountPanel from '../src/components/club/ClubHandCountPanel';
 import { useCountdownStarted } from '../src/hooks/useHeroHandCount';
 import {
   clubHandCountRefusalText,
+  bigWinStartedText,
   countdownStartedText,
   parseClubHandCountSetting,
   type HandCount,
@@ -131,14 +132,24 @@ describe('the player is told when the countdown starts', () => {
     // A new countdown, started on a later hand, is.
     rerender({ c: { owed: 10, required: 10 }, h: 43 });
     expect(onStart).toHaveBeenCalledTimes(1);
-    expect(onStart).toHaveBeenCalledWith(10);
+    expect(onStart).toHaveBeenCalledWith(10, undefined, undefined);
     rerender({ c: { owed: 9, required: 10 }, h: 44 });
     expect(onStart).toHaveBeenCalledTimes(1);
+    // THE CHARLES RULE AFTER A LARGE WIN (owner 2026-11-11): the start says why.
+    rerender({ c: { owed: null, required: null }, h: 45 });
+    rerender({ c: { owed: 10, required: 10, reason: 'big_win', bigWinBb: 312.5 }, h: 46 });
+    expect(onStart).toHaveBeenLastCalledWith(10, 'big_win', 312.5);
+    expect(bigWinStartedText(10, 312.5)).toBe(
+      'You Won 312.5 Big Blinds In One Hand. Play 10 Hands Before You Can Leave'
+    );
+    expect(bigWinStartedText(10, null)).not.toMatch(/[–—$]/);
   });
 
   it('TablePage toasts it', () => {
     const page = read('src/pages/TablePage.tsx').replace(/\s+/g, ' ');
     expect(page).toContain('useCountdownStarted(heroHandCount, tableState.handNumber ?? 0');
-    expect(page).toContain('toast.info(countdownStartedText(hands))');
+    expect(page).toContain(': countdownStartedText(hands)');
+    expect(page).toContain('? bigWinStartedText(hands, bigWinBb)');
+    expect(page).toContain('useBigWinRestarted(heroHandCount');
   });
 });

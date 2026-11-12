@@ -79,8 +79,11 @@ describe('each tournament starts its own break', () => {
     expect(SCREEN).toContain('? `Break: ${formatTime(displayTime)}`');
     /* "Last Hand" belongs to the add-on window alone (Dan 2026-11-01): a plain
        break's waiting state says Waiting, because the card only shows once
-       this table's own hand is done. */
-    expect(SCREEN).toContain("? 'Add-On: Last Hand'");
+       this table's own hand is done. Since 2026-11-11 the add-on window's
+       minimized clock is its own chip, whose waiting state names the last
+       hand and whose countdown names the closing add-on. */
+    expect(SCREEN).toContain(": 'Add-On: Last Hand'");
+    expect(SCREEN).toContain('? `Add-On Closes In ${formatTime(displayTime)}`');
     expect(SCREEN).toContain(": 'Break: Waiting'");
   });
 

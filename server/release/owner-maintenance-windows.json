@@ -1248,6 +1248,51 @@
         "path": "server/release/activation-floor.json",
         "sha256": "d94ebce03e481c7af3c8cce08eac33f43724099626794ab770a07624d9b38e5c"
       }
+    },
+    {
+      "id": "2026-11-12-horse-corrections-10525-engine-0030z",
+      "ownerOrder": "Dan directly authorized on 2026-11-11 in Claude session session_01BNteGZTxx5Us7e16gLZecW. At 15:39 America/Chicago, asked whether this session should take sole release custody (merge #10525, qualify, cut over) and the post-seal export, he answered: \"YES\". Asked next, between 15:42 and 15:46 America/Chicago, when the corrected Horse engine should cut over once certified, because the 1930z booking expiring 16:30 Chicago could not be met while #10525 was still in CI and the corrected build needs a fresh 30-minute Backup soak, he answered: \"ASAP tonight (Recommended)\", the option described to him as: \"I book one new single-use owner window through a protected PR; cutover runs once Backup certifies and the 20-minute player notice has shown.\" The outgoing Codex root 01a1cbbb-645b-75d2-99c2-367693b053be had recorded that it ceased provider mutations and that Claude assumes sole continuation custody after reconciliation. Read-only reconciliation at 21:36 through 21:42 UTC found no Stage, receiver or release transaction dispatched under 1930z, serving instance 1-54cc0104 with maintenance inactive, and the 4d965c8f Backup provider run failed. The unconsumed 2026-11-11-horse-realtime-10454-engine-1930z order keeps its fixed 22:30 UTC expiry and is not extended, renewed or replayed. Fresh SINGLE-USE order admits ONE actual activation replacing exact serving f7735cca6862b9add06841b8a41c305b3f3ebe01 with a protected qualified candidate containing the #10525 merge d58e1c206a521dbb33583fbb94ac7a64eceda647 (public multi-board pacing correction and bounded live Hybrid choice wiring, on top of #10454, #10455 and the #10519 receipt producer), with final source and configuration verified against later edits. Declared public notice 00:10 UTC November 12; nominal admission 00:30 through fixed 05:30 UTC November 12 (18:30 through 23:30 Chicago November 11), chosen to permit protected checks, publication and full compatible Backup qualification. Independently observe the actual primary public notice for twenty minutes after publication; later visibility delays admission within the fixed expiry. Require exact protected target/control, immutable images, all four qualification shards, current-production schema/function equality, original compatible Backup certificate with full 1800-second soak, both-direction rehearsal against the actual serving predecessor, fresh announcement between :05:30 and :49:00, normal 120s last-hand lead, hand-boundary drain, durable database freeze, 300s break, full 285s cutover/proof/rollback reserve, one-use claim, exact SEALED identity, full healthy thaw and fresh post-seal Backup. Then prove individual worker manifests, live metrics ingestion and denominators, natural execution through validated committed actions, and effective configuration for all 1000 active Horses separately from observed feature use. Rejected/unselected capabilities and Pillar 2 stay disabled; zero opportunities are explicit gaps. No feature work, migrations, new tournament-start hold, direct restart, financial replay, competing operation, automatic renewal, timer, watcher, repair loop, reduced reserve or extended freeze. All historical orders, consumed claims and immutable generations remain unchanged. Authority ends after this one activation or fixed expiry; the routine daily schedule is unchanged.",
+      "contains": "d58e1c206a521dbb33583fbb94ac7a64eceda647",
+      "playerNoticeAt": "2026-11-12T00:10:00Z",
+      "notBefore": "2026-11-12T00:30:00Z",
+      "notAfter": "2026-11-12T05:30:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "9f2b6fba58ca37c6aaf77c8aa429e34e781655d49a65d15f1dafaf0386671aaa"
+      }
+    },
+    {
+      "id": "2026-11-12-horse-corrections-engine-0700z",
+      "ownerOrder": "Dan directly authorized on 2026-11-11 in Claude session session_01BNteGZTxx5Us7e16gLZecW, which holds sole release custody. Asked between 23:05 and 23:15 America/Chicago, after the unconsumed 2026-11-12-horse-corrections-10525-engine-0030z window expired unused and the routine 04:00 Chicago date was found already reserved at 04:30:53 UTC by push run 43155291080 on bb384e80, whose cutoff refuses because #10574 changed release controls after that reservation, when the corrected Horse engine should cut over, he answered: \"Book Thursday 1:00-3:15 AM (Recommended)\", the option described to him as: \"One single-use window through a protected PR, notice 12:40 AM, cut over once its build certifies; ends before the 3:30 AM routine preparation.\" Earlier in the same session he answered \"YES\" to sole release custody and \"ASAP tonight (Recommended)\" to the first booking. The expired 2026-11-12-horse-corrections-10525-engine-0030z and 2026-11-11-horse-realtime-10454-engine-1930z orders keep their fixed expiries and are not extended, renewed or replayed. Fresh SINGLE-USE order admits ONE actual activation replacing exact serving f7735cca6862b9add06841b8a41c305b3f3ebe01 with a protected qualified candidate containing #10574 merge 465afb718c91e2339ec880f9bd7f580d515ced14 and therefore #10525, #10551, #10563, #10569 and the #10519 receipt producer, with final source and configuration verified against later edits. Declared public notice 06:40 UTC November 12; nominal admission 07:00 through fixed 09:15 UTC November 12 (01:00 through 03:15 Chicago), ending before the 03:30 Chicago routine preparation. Independently observe the actual primary public notice for twenty minutes after publication; later visibility delays admission within the fixed expiry. Require exact protected target/control, immutable images, all four qualification shards, current-production schema/function equality, original compatible Backup certificate with full 1800-second soak, both-direction rehearsal against the actual serving predecessor, fresh announcement between :05:30 and :49:00, normal 120s last-hand lead, hand-boundary drain, durable database freeze, 300s break, full 285s cutover/proof/rollback reserve, one-use claim, exact SEALED identity, full healthy thaw and fresh post-seal Backup. Then prove individual worker manifests, live metrics ingestion and denominators, natural execution through validated committed actions, and effective configuration for all 1000 active Horses separately from observed feature use. Rejected/unselected capabilities and Pillar 2 stay disabled; zero opportunities are explicit gaps. No feature work, migrations, new tournament-start hold, direct restart, financial replay, competing operation, automatic renewal, timer, watcher, repair loop, reduced reserve or extended freeze. All historical orders, consumed claims and immutable generations remain unchanged. Authority ends after this one activation or fixed expiry; the routine daily schedule is unchanged.",
+      "contains": "465afb718c91e2339ec880f9bd7f580d515ced14",
+      "playerNoticeAt": "2026-11-12T06:40:00Z",
+      "notBefore": "2026-11-12T07:00:00Z",
+      "notAfter": "2026-11-12T09:15:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "5d710e3fb907d61da071f7f31f91105afdd155bb1e5a40983bb2d119c11eaa48"
+      }
+    },
+    {
+      "id": "2026-11-12-complete-missed-engine-1700z",
+      "ownerOrder": "Dan directly in Codex chat 01a1d015-07d5-7151-b522-1f8e0574318d on November 12, 2026 ordered: \"THE ENGINE UPDATE AT 4AM MISSED. I WANT YOU TO TAKE OWNERSHIP OF THIS NOW, AND MAKE SURE THAT IT GETS CHANGED OVER COMPLETELY NOW.\" Root 01a1d015 takes custody from the completed prior handoff after verifying no active release, pending seal, finalization or awaiting-certificate owner. One fresh SINGLE-USE engine activation of exact serving f7735cca6862b9add06841b8a41c305b3f3ebe01, containing protected main 7608c4721d136aa7f3a8b1e5f3457ea68de64b39 including #10525, #10551, #10574, #10576, #10586 and #10589. Earlier orders and claims are not extended, renewed or replayed. Install and verify the two separately booked queued database prerequisites first, then obtain compatible current-schema Backup with full 1800-second soak and both-direction rehearsal against the actual predecessor. Independently observe twenty minutes of the actual primary public notice; later publication delays admission within fixed expiry. Preserve exact protected target/control, all four qualification shards, immutable candidate and rollback images, 120s last-hand notice, hand-boundary drain, durable freeze, 300s break, full 285s proof/rollback reserve, one-use custody, SEALED identity, v3 thaw, gameplay verification and fresh post-seal Backup. Preserve Pillar 2 and rejected features disabled; distinguish configuration from natural use and report zero opportunities honestly. No new features, tournament-start hold, financial replay, direct restart, competing dispatcher, timer, watcher, reduced reserves or extended freeze. Root retains ownership until verified delivery. Fixed admission 17:00-22:00 UTC November12 (11:00-16:00 Chicago), notice declaration16:40UTC; standing daily schedule unchanged.",
+      "contains": "7608c4721d136aa7f3a8b1e5f3457ea68de64b39",
+      "playerNoticeAt": "2026-11-12T16:40:00Z",
+      "notBefore": "2026-11-12T17:00:00Z",
+      "notAfter": "2026-11-12T22:00:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "47a95571773260c616b214320ef988f2f12b6def63c387a40a03cf96a9cc6b12"
+      }
     }
   ],
   "databaseWindows": [
@@ -1386,6 +1431,24 @@
       "migrations": [
         "20261110003726_a_closed_persons_tournament_rows_are_read_through_the_public.sql"
       ]
+    },
+    {
+      "id": "2026-11-12-missed-engine-db-bank-win",
+      "ownerOrder": "Dan directly in Codex chat 01a1d015-07d5-7151-b522-1f8e0574318d on November 12, 2026 ordered: \"THE ENGINE UPDATE AT 4AM MISSED. I WANT YOU TO TAKE OWNERSHIP OF THIS NOW, AND MAKE SURE THAT IT GETS CHANGED OVER COMPLETELY NOW.\" Root 01a1d015 takes custody from the completed prior handoff after verifying no active release, pending seal, finalization or awaiting-certificate owner. Necessary prerequisite for the missed engine update: one database-only maintained Deployment Recovery operation for exactly the named protected queued file. One attempt through stage-engine-release.yml request_database_break=true and the existing installer. Preserve original sealed SHA/image/instance, no active release or pending owner, rolling-hour spacing, actual twenty-minute primary player notice, 120s last-hand lead, hand-boundary drain, durable freeze, full 285-second admission, 150-second installer opening and100-second commit reserve,1s lock/5s statement/8s transaction budgets and original v3 thaw. Read installed history and original receipt before any action; never replay installed or unknown SQL. No engine replacement, balance edit, tournament-start hold, watcher or automatic extension. After this operation verify installation and healthy thaw before the next separately booked prerequisite or engine cutover.",
+      "contains": "7608c4721d136aa7f3a8b1e5f3457ea68de64b39",
+      "playerNoticeAt": "2026-11-12T15:15:00Z",
+      "notBefore": "2026-11-12T15:35:00Z",
+      "notAfter": "2026-11-12T16:20:00Z",
+      "migrations": ["20261111174148_charles_rule_big_win_and_durable_bank_the_win_state.sql"]
+    },
+    {
+      "id": "2026-11-12-missed-engine-db-rebuy",
+      "ownerOrder": "Dan directly in Codex chat 01a1d015-07d5-7151-b522-1f8e0574318d on November 12, 2026 ordered: \"THE ENGINE UPDATE AT 4AM MISSED. I WANT YOU TO TAKE OWNERSHIP OF THIS NOW, AND MAKE SURE THAT IT GETS CHANGED OVER COMPLETELY NOW.\" Root 01a1d015 takes custody from the completed prior handoff after verifying no active release, pending seal, finalization or awaiting-certificate owner. Necessary prerequisite for the missed engine update: one database-only maintained Deployment Recovery operation for exactly the named protected queued file. One attempt through stage-engine-release.yml request_database_break=true and the existing installer. Preserve original sealed SHA/image/instance, no active release or pending owner, rolling-hour spacing, actual twenty-minute primary player notice, 120s last-hand lead, hand-boundary drain, durable freeze, full 285-second admission, 150-second installer opening and100-second commit reserve,1s lock/5s statement/8s transaction budgets and original v3 thaw. Read installed history and original receipt before any action; never replay installed or unknown SQL. No engine replacement, balance edit, tournament-start hold, watcher or automatic extension. After this operation verify installation and healthy thaw before the next separately booked prerequisite or engine cutover.",
+      "contains": "7608c4721d136aa7f3a8b1e5f3457ea68de64b39",
+      "playerNoticeAt": "2026-11-12T16:15:00Z",
+      "notBefore": "2026-11-12T16:35:00Z",
+      "notAfter": "2026-11-12T17:20:00Z",
+      "migrations": ["20261112013925_a_rebuy_pays_the_starting_stack.sql"]
     }
   ]
 }

@@ -73,7 +73,9 @@ describe('every horse is its own person', () => {
         expect(personalChance(horse, base)).toBeGreaterThan(0);
         expect(personalChance(horse, base)).toBeLessThanOrEqual(35);
         expect(personalThrowChance(horse, base)).toBeGreaterThan(0);
-        expect(personalThrowChance(horse, base)).toBeLessThanOrEqual(25);
+        // 40, not 25: the gesture cap was raised so boosted tournament and
+        // big-pot moments actually land (owner 2026-11-11).
+        expect(personalThrowChance(horse, base)).toBeLessThanOrEqual(40);
       }
     }
   });

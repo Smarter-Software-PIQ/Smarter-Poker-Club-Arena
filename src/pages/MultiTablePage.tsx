@@ -185,8 +185,6 @@ interface TableInstance {
    * updateTableInfo's shallow !== bail-out keeps working (P1-2 fix).
    */
   holeCards?: string;
-  /** Hero's last action this street at this table ('fold', 'call', ...). */
-  lastAction?: string;
   /** Live Bad Beat Jackpot pool at this table (0/undefined = no BBJ). */
   jackpot?: number;
   /** Hero folded this hand (tab dims). */
@@ -2175,7 +2173,6 @@ export default function MultiTablePage() {
           pot: t.pot,
           handNumber: t.handNumber,
           holeCards: t.holeCards,
-          lastAction: t.lastAction,
           folded: t.folded,
           handResult: t.handResult,
           sittingOut: t.sittingOut,

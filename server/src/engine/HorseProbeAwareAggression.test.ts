@@ -159,13 +159,14 @@ describe('probe bets are not aggression', () => {
     expect(HorseMind.getStats(OPP)?.ctBets).toBeUndefined();
   });
 
-  it('carries the tallies through a v11 read frame, and keeps v10-or-older bytes without them', () => {
+  it('carries probe and flop tallies through v13, and keeps historical bytes without either', () => {
     play(() => BB, 12);
     const players = [{ user_id: HERO }, { user_id: OPP }] as SeatPlayer[];
     const ctx = { variant: 'nlh', mode: 'cash', size: 'hu' } as const;
     const view = HorseMind.snapshotDecisionReads(players, null, ctx);
     const frame = encodeHorseDecisionReads(view, players, null);
-    expect(frame.version).toBe('horse-decision-reads-v11');
+    expect(view.flopStab?.size).toBeGreaterThan(0);
+    expect(frame.version).toBe('horse-decision-reads-v13');
     const restored = decodeHorseDecisionReads(frame, players, null);
     expect(restored.stats.get(OPP)).toMatchObject({ ctBets: 36, ctProbes: 36 });
     expect(encodeHorseDecisionReads(restored, players, null)).toEqual(frame);
@@ -174,8 +175,10 @@ describe('probe bets are not aggression', () => {
       delete row.ctBets;
       delete row.ctProbes;
     }
+    delete view.flopStab;
     const older = encodeHorseDecisionReads(view, players, null);
     expect(older.version).not.toBe('horse-decision-reads-v11');
+    expect(older.version).not.toBe('horse-decision-reads-v13');
     expect(older.json).not.toContain('probeTallies');
   });
 });

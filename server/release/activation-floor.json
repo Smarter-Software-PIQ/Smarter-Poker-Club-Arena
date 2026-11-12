@@ -1,9 +1,9 @@
 {
   "schema": "engine-release-activation-floor/v2-owner-window",
-  "preparationAt": "2026-11-11T19:30:00Z",
-  "activationAt": "2026-11-11T19:30:00Z",
-  "expiresAt": "2026-11-11T22:30:00Z",
+  "preparationAt": "2026-11-12T17:00:00Z",
+  "activationAt": "2026-11-12T17:00:00Z",
+  "expiresAt": "2026-11-12T22:00:00Z",
   "timeZone": "America/Chicago",
-  "ownerWindowId": "2026-11-11-horse-realtime-10454-engine-1930z",
-  "clientPublicationAt": "2026-11-11T19:30:00Z"
+  "ownerWindowId": "2026-11-12-complete-missed-engine-1700z",
+  "clientPublicationAt": "2026-11-12T17:00:00Z"
 }

@@ -1,5 +1,5 @@
 name: Post-Deploy E2E (production)
-run-name: Post-Deploy E2E ${{ github.event.client_payload.engine_sha || github.sha }}
+run-name: Post-Deploy E2E ${{ github.event.client_payload.engine_sha || github.sha }}${{ github.event.client_payload.intent_nonce && format(' {0}', github.event.client_payload.intent_nonce) || '' }}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # THE TIER THAT DID NOT EXIST (Dan 2026-08-29)
@@ -56,13 +56,23 @@ on:
 jobs:
   release-gameplay-readback:
     name: Observe post-thaw gameplay for the original sealed release
-    if: github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e' && github.event.client_payload.release_run_key != ''
+    if: github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e' && github.event.client_payload.release_run_key != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 10
     permissions:
       contents: read
+      actions: read
     steps:
+      - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver post-deploy-e2e
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -109,19 +119,30 @@ jobs:
     name: Installed certification cleanup protects live tables
     needs: publication-gate
     if: >-
-      always() && !cancelled() &&
+      ((always() && !cancelled() &&
       (needs.publication-gate.outputs.should_run == 'true' ||
        (github.event_name == 'repository_dispatch' &&
         (github.event.action == 'run-stats-pagination-proof' ||
          github.event.action == 'run-private-record-client-proof' ||
          github.event.action == 'run-plo-lightning-lifecycle-proof' ||
-         github.event.action == 'run-hero-celebration-proof')))
+         github.event.action == 'run-hero-celebration-proof'))))
+      && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e'))) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 20
     permissions:
       contents: read
+      actions: read
     steps:
+      - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver post-deploy-e2e
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
@@ -137,17 +158,27 @@ jobs:
   # Explicit bounded proof of the served celebration, with no gameplay writes.
   hero-celebration-proof:
     needs: certification-cleanup-safety
-    if: always() && !cancelled() && needs.certification-cleanup-safety.result == 'success' && github.event_name == 'repository_dispatch' && github.event.action == 'run-hero-celebration-proof' && github.ref == 'refs/heads/main'
+    if: always() && !cancelled() && needs.certification-cleanup-safety.result == 'success' && github.event_name == 'repository_dispatch' && github.event.action == 'run-hero-celebration-proof' && github.ref == 'refs/heads/main' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Exact published hero celebration proof
     runs-on: ubuntu-24.04
     environment: ci-main
     timeout-minutes: 25
     permissions:
       contents: read
+      actions: read
     concurrency:
       group: hero-celebration-proof-production
       cancel-in-progress: false
     steps:
+      - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver post-deploy-e2e
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -206,7 +237,7 @@ jobs:
     needs: certification-cleanup-safety
     # The focused event skips publication-gate; require successful cleanup
     # explicitly so that skipped ancestor cannot suppress the actual proof.
-    if: always() && !cancelled() && needs.certification-cleanup-safety.result == 'success' && github.event_name == 'repository_dispatch' && github.event.action == 'run-private-record-client-proof'
+    if: always() && !cancelled() && needs.certification-cleanup-safety.result == 'success' && github.event_name == 'repository_dispatch' && github.event.action == 'run-private-record-client-proof' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Exact published private record client failover proof
     # Playwright 1.58 supports Ubuntu 24.04; ubuntu-latest can select unsupported 26.04.
     runs-on: ubuntu-24.04
@@ -219,6 +250,15 @@ jobs:
       group: private-record-client-proof-production
       cancel-in-progress: false
     steps:
+      - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver post-deploy-e2e
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -321,7 +361,7 @@ jobs:
     needs: certification-cleanup-safety
     # The focused event deliberately skips publication-gate. Evaluate this
     # lane despite that ancestor, but never bypass cleanup qualification.
-    if: always() && !cancelled() && needs.certification-cleanup-safety.result == 'success' && github.event_name == 'repository_dispatch' && github.event.action == 'run-stats-pagination-proof'
+    if: always() && !cancelled() && needs.certification-cleanup-safety.result == 'success' && github.event_name == 'repository_dispatch' && github.event.action == 'run-stats-pagination-proof' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Exact published Stats pagination proof
     # Playwright 1.58 supports Ubuntu 24.04; ubuntu-latest can select unsupported 26.04.
     runs-on: ubuntu-24.04
@@ -329,10 +369,20 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+      actions: read
     concurrency:
       group: stats-pagination-proof-production
       cancel-in-progress: false
     steps:
+      - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver post-deploy-e2e
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -442,8 +492,9 @@ jobs:
     name: Witness fixed PLO Lightning startup and departure
     needs: certification-cleanup-safety
     if: >-
-      always() && !cancelled() && needs.certification-cleanup-safety.result == 'success' &&
+      (always() && !cancelled() && needs.certification-cleanup-safety.result == 'success' &&
       github.event_name == 'repository_dispatch' && github.event.action == 'run-plo-lightning-lifecycle-proof' && github.ref == 'refs/heads/main'
+      && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e'))) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-24.04
     environment: ci-main
     timeout-minutes: 60
@@ -454,6 +505,15 @@ jobs:
       actions: read
       contents: read
     steps:
+      - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver post-deploy-e2e
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -490,7 +550,10 @@ jobs:
           retention-days: 30
 
   publication-gate:
-    if: github.event_name != 'repository_dispatch' || (github.event.action != 'run-stats-pagination-proof' && github.event.action != 'run-private-record-client-proof' && github.event.action != 'run-plo-lightning-lifecycle-proof' && github.event.action != 'run-hero-celebration-proof')
+    # A workflow_run listener matches its sender by NAME, which any workflow on
+    # any branch can carry: admit only the exact publisher file, started by its
+    # own events on this repository's main.
+    if: (github.event_name != 'repository_dispatch' || (github.event.action != 'run-stats-pagination-proof' && github.event.action != 'run-private-record-client-proof' && github.event.action != 'run-plo-lightning-lifecycle-proof' && github.event.action != 'run-hero-celebration-proof')) && (github.event_name != 'workflow_run' || (github.event.workflow_run.path == '.github/workflows/publish-club-arena.yml' && (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'repository_dispatch') && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main'))
     name: Confirm The Hetzner Web Publish Reached Production
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -498,7 +561,9 @@ jobs:
       actions: read
       contents: read
     outputs:
-      should_run: ${{ steps.origin.outputs.should_run }}
+      # Nothing downstream runs, checks out or installs a selected revision
+      # unless the last step proved every one is on protected main.
+      should_run: ${{ steps.on-main.outputs.proved == 'true' && steps.origin.outputs.should_run || '' }}
       engine_trigger_sha: ${{ steps.origin.outputs.engine_trigger_sha }}
       client_navigation: ${{ steps.origin.outputs.client_navigation }}
       tournament_only: ${{ steps.origin.outputs.tournament_only }}
@@ -506,8 +571,8 @@ jobs:
       cash_observation: ${{ steps.origin.outputs.cash_observation }}
       natural_addon: ${{ steps.origin.outputs.natural_addon }}
       natural_board_reveal: ${{ steps.origin.outputs.natural_board_reveal }}
-      client_target_sha: ${{ steps.board-client.outputs.sha || steps.client-target.outputs.sha }}
-      verification_sha: ${{ steps.client-target.outputs.verification_sha }}
+      client_target_sha: ${{ steps.on-main.outputs.proved == 'true' && (steps.board-client.outputs.sha || steps.client-target.outputs.sha) || '' }}
+      verification_sha: ${{ steps.on-main.outputs.proved == 'true' && steps.client-target.outputs.verification_sha || '' }}
     steps:
       - name: Checkout trusted publication verification
         if: github.event_name == 'workflow_run' || (github.event_name == 'repository_dispatch' && (toJSON(github.event.client_payload.client_navigation) != 'null' || toJSON(github.event.client_payload.tournament_only) != 'null' || toJSON(github.event.client_payload.keep_game_pages) != 'null' || toJSON(github.event.client_payload.cash_observation) != 'null' || toJSON(github.event.client_payload.natural_board_reveal) != 'null'))
@@ -515,6 +580,18 @@ jobs:
         with:
           fetch-depth: 0
           filter: blob:none
+      - name: The source run is the exact publisher on protected main
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_TRIGGER_SHA: ${{ github.event.workflow_run.head_sha }}
+          REPOSITORY_ID: ${{ github.repository_id }}
+        run: |
+          set -euo pipefail
+          timeout 30s gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" \
+            | node scripts/ci/production-e2e-provenance.mjs publisher-run "$SOURCE_RUN_ID" "$SOURCE_TRIGGER_SHA" "$REPOSITORY_ID"
+          bash scripts/ci/selected-revision-is-on-main.sh "$SOURCE_TRIGGER_SHA"
       # workflow_run.conclusion covers the whole publisher, including the
       # optional Capgo job. A Capgo failure after a verified web publish must
       # never suppress web E2E, so read the exact origin job and its proof step.
@@ -881,6 +958,22 @@ jobs:
               publisher-artifact "$SOURCE_RUN_ID" "$SOURCE_TRIGGER_SHA" "$REPOSITORY_ID")
           echo "sha=$SELECTED_SHA" >> "$GITHUB_OUTPUT"
           echo "Publisher run $SOURCE_RUN_ID selected client \`$SELECTED_SHA\` (trigger \`$SOURCE_TRIGGER_SHA\`)." >> "$GITHUB_STEP_SUMMARY"
+      # Every revision a later job checks out is proved on protected main here,
+      # from this trusted tree, before any of them is used (outputs above).
+      - name: Every selected revision is on protected main
+        id: on-main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_TRIGGER_SHA: ${{ github.event.workflow_run.head_sha || '' }}
+          BOARD_SHA: ${{ steps.board-client.outputs.sha || '' }}
+          CLIENT_SHA: ${{ steps.client-target.outputs.sha || '' }}
+          VERIFICATION_SHA: ${{ steps.client-target.outputs.verification_sha || '' }}
+        run: |
+          set -euo pipefail
+          if [ -n "$SOURCE_TRIGGER_SHA$BOARD_SHA$CLIENT_SHA$VERIFICATION_SHA" ]; then
+            bash scripts/ci/selected-revision-is-on-main.sh "$SOURCE_TRIGGER_SHA" "$BOARD_SHA" "$CLIENT_SHA" "$VERIFICATION_SHA"
+          fi
+          echo 'proved=true' >> "$GITHUB_OUTPUT"
 
   # DISCOVERABILITY PHASE 3 (2026-09-17). What a crawler gets from production,
   # checked against what the deployed bundle says it published: build-info,
@@ -922,7 +1015,7 @@ jobs:
     # player route. A failed/skipped origin job makes the gate red, never green
     # without executing the browser suite. Optional downstream failures cannot
     # hide a successful web release.
-    if: needs.publication-gate.outputs.should_run == 'true' && needs.publication-gate.outputs.natural_addon != 'true' && needs.publication-gate.outputs.natural_board_reveal != 'true'
+    if: needs.publication-gate.outputs.should_run == 'true' && needs.publication-gate.outputs.natural_addon != 'true' && needs.publication-gate.outputs.natural_board_reveal != 'true' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Client browser verification
     # This trusted workflow can receive production database credentials. Run it
     # on a fresh hosted image, never on a persistent runner that has executed
@@ -969,6 +1062,15 @@ jobs:
       phase1_certified: ${{ steps.phase1_verdict.outcome == 'success' && steps.phase1_verdict.outputs.certified == 'true' }}
 
     steps:
+      - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver post-deploy-e2e
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -2140,7 +2242,7 @@ jobs:
   # publication, and exact immutable engine certification after engine cutover.
   live-table-e2e:
     needs: [publication-gate, certification-cleanup-safety]
-    if: needs.publication-gate.outputs.should_run == 'true' && needs.publication-gate.outputs.client_navigation != 'true'
+    if: needs.publication-gate.outputs.should_run == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Live-table and engine verification
     # Playwright 1.58 supports Ubuntu 24.04; ubuntu-latest can select unsupported 26.04.
     runs-on: ubuntu-24.04
@@ -2156,6 +2258,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'repository_dispatch' && (toJSON(github.event.client_payload.mobile_multirun) == 'true' || toJSON(github.event.client_payload.horse_social) == 'true') && 148 || 126 }}
     permissions:
       contents: read
+      actions: read
     # An explicit passive observation owns a distinct serialized queue.
     # Natural add-ons cannot wait behind or be superseded by ordinary publishes:
     # their fixed window is observed with a unique, zero-balance identity too.
@@ -2173,6 +2276,15 @@ jobs:
       engine_sha: ${{ steps.engine.outputs.sha }}
       certified: ${{ steps.release_window.outcome == 'success' && steps.release_window.outputs.certified == 'true' }}
     steps:
+      - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver post-deploy-e2e
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -2934,7 +3046,7 @@ jobs:
   club-channel-lifecycle-e2e:
     name: Exact engine club channel lifecycle
     needs: [publication-gate, certification-cleanup-safety]
-    if: "needs.publication-gate.outputs.tournament_only != 'true' && needs.publication-gate.outputs.should_run == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && github.event_name == 'repository_dispatch' && github.event.client_payload.engine_sha != ''"
+    if: "needs.publication-gate.outputs.tournament_only != 'true' && needs.publication-gate.outputs.should_run == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && github.event_name == 'repository_dispatch' && github.event.client_payload.engine_sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
     # Playwright 1.58 supports Ubuntu 24.04; ubuntu-latest can select unsupported 26.04.
     runs-on: ubuntu-24.04
     environment: ci-main
@@ -2945,6 +3057,15 @@ jobs:
       group: post-deploy-club-channel-lifecycle-production
       cancel-in-progress: false
     steps:
+      - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver post-deploy-e2e
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.publication-gate.outputs.verification_sha || github.sha }}
@@ -3040,6 +3161,8 @@ jobs:
         needs.production-e2e.outputs.phase1_certified == 'true' &&
         needs.live-table-e2e.outputs.certified == 'true' &&
         needs.production-e2e.outputs.client_sha == needs.live-table-e2e.outputs.client_sha
+        && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) &&
+        !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
       }}
     name: Seal certified Phase 1 customization cutover
     runs-on: ubuntu-latest
@@ -3047,9 +3170,19 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+      actions: read
     outputs:
       sealed: ${{ steps.seal.outputs.sealed }}
     steps:
+      - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver post-deploy-e2e
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -3171,7 +3304,7 @@ jobs:
       - production-e2e
       - live-table-e2e
       - phase1-customization-cutover-seal
-    if: ${{ needs.publication-gate.outputs.tournament_only != 'true' && always() && needs.publication-gate.result != 'skipped' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.natural_addon != 'true' && needs.publication-gate.outputs.natural_board_reveal != 'true' }}
+    if: ${{ needs.publication-gate.outputs.tournament_only != 'true' && always() && needs.publication-gate.result != 'skipped' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.natural_addon != 'true' && needs.publication-gate.outputs.natural_board_reveal != 'true' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}
     name: This verification admits its own verdict to the operational inbox
     runs-on: ubuntu-latest
     environment: ci-main
@@ -3183,6 +3316,15 @@ jobs:
       actions: read
       contents: read
     steps:
+      - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver post-deploy-e2e
       # Full commit history, no blobs: a success closes an episode only when
       # its release descends from every release the episode failed on, and
       # that is read with git merge-base --is-ancestor. A shallow clone would
@@ -3235,6 +3377,8 @@ jobs:
               needs.production-e2e.outputs.phase1_certified == 'true' &&
               needs.live-table-e2e.outputs.certified == 'true' &&
               needs.production-e2e.outputs.client_sha == needs.live-table-e2e.outputs.client_sha
+              && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) &&
+              !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
             }}
         run: |
           set -euo pipefail

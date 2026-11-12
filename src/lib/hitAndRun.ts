@@ -71,11 +71,42 @@ export async function fetchMyHandsOwed(tableId: string): Promise<number | null> 
   return (await fetchMyHandCount(tableId)).owed;
 }
 
+export type HandsOwedReason = 'hit_run' | 'big_win' | 'both';
+
 export interface HandCount {
   /** Hands still owed in profit; null: none (or unreadable). */
   owed: number | null;
   /** This countdown's total (10 plus 10 per double); null with nothing owed. */
   required: number | null;
+  /**
+   * Why they are owed (owner 2026-11-11): the ten-hand countdown in profit,
+   * the ten hands after a win of 250 big blinds or more, or both. Absent from
+   * an engine or database that predates the rule.
+   */
+  reason?: HandsOwedReason | null;
+  /** The win, in big blinds, that started the big-win count. */
+  bigWinBb?: number | null;
+}
+
+export function parseHandsOwedReason(value: unknown): HandsOwedReason | null {
+  return value === 'hit_run' || value === 'big_win' || value === 'both' ? value : null;
+}
+
+/** THE CHARLES RULE AFTER A LARGE WIN, said the hand it starts. */
+export function bigWinStartedText(hands: number, bigBlinds?: number | null): string {
+  const n = Math.max(1, Math.floor(hands));
+  const won =
+    typeof bigBlinds === 'number' && bigBlinds > 0
+      ? `You Won ${bigBlinds.toLocaleString()} Big Blinds In One Hand.`
+      : 'You Won 250 Big Blinds Or More In One Hand.';
+  return `${won} Play ${n} ${n === 1 ? 'Hand' : 'Hands'} Before You Can Leave`;
+}
+
+/** Why the count is owed, beside the count itself. Title Case, no em dash. */
+export function handsOwedReasonText(reason: HandsOwedReason | null | undefined): string | null {
+  if (reason === 'big_win' || reason === 'both') return 'After A Win Of 250 Big Blinds Or More';
+  if (reason === 'hit_run') return 'While You Are In Profit';
+  return null;
 }
 
 /** The caller's count at one table, owed and total together. */
@@ -88,8 +119,15 @@ export async function fetchMyHandCount(tableId: string): Promise<HandCount> {
     for (const row of data as Array<Record<string, unknown>>) {
       if (row?.table_id !== tableId) continue;
       const n = owedHands(row.hands_remaining);
-      if (n !== null && (best.owed === null || n > best.owed))
-        best = { owed: n, required: owedHands(row.hands_required) };
+      if (n !== null && (best.owed === null || n > best.owed)) {
+        const bb = Number(row.big_win_bb);
+        best = {
+          owed: n,
+          required: owedHands(row.hands_required),
+          reason: parseHandsOwedReason(row.hands_reason),
+          bigWinBb: Number.isFinite(bb) && bb > 0 ? bb : null,
+        };
+      }
     }
     return best;
   } catch {

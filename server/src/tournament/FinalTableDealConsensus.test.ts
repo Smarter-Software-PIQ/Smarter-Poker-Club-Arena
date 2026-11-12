@@ -41,6 +41,7 @@ const ready = () => ({
 class Refused extends Error {}
 class Committed extends Error {}
 class Unknown extends Error {}
+class PrepareBusy extends Error {}
 // Shutdown's not-sent refusal (2026-10-19) is a refusal subclass, as in production.
 class NotSent extends Refused {}
 
@@ -86,6 +87,7 @@ function setup() {
     'TerminalSettlementCommittedError',
     'TerminalSettlementOutcomeUnknownError',
     'TerminalSettlementNotSentError',
+    'TerminalPrepareBusyError',
     'reportError',
     'raiseFinancialAlert',
     'TournamentManagerEliminations',
@@ -100,12 +102,13 @@ function setup() {
     Committed,
     Unknown,
     NotSent,
+    PrepareBusy,
     vi.fn(),
     vi.fn(),
     {
       FINAL_TABLE_DEAL_PAUSE_MS: 50,
     },
-    { FINAL_TABLE_DEAL_POLL_MS: 10_000 }
+    { FINAL_TABLE_DEAL_POLL_MS: 10_000, UNRESOLVED_BUST_RETRY_MS: 5000 }
   );
   const controller = Object.assign(new Probe(), {
     tournamentId: id(10),
@@ -669,3 +672,23 @@ describe('Explicit inactive authority preserves legacy dealer boundaries', () =>
     expect(engine.releaseTerminalCloseoutPause).not.toHaveBeenCalled();
   });
 });
+
+it.each([false, true])(
+  'proven busy prepare keeps the deal boundary and owner (legacy=%s)',
+  async (legacy) => {
+    const { controller, rpc, terminal, engine } = setup();
+    if (legacy)
+      rpc.mockResolvedValue({
+        data: { ok: false, reason: 'proposal_authority_not_active' },
+        error: null,
+      });
+    terminal.mockRejectedValue(new PrepareBusy());
+    expect(await controller.checkFinalTableDeal()).toBe(false);
+    expect(terminal).toHaveBeenCalledOnce();
+    expect(controller.tournamentFinished).toBe(false);
+    expect(controller.finalTableDealHandled).toBe(false);
+    expect(controller.fenceUnknownTerminalOutcome).not.toHaveBeenCalled();
+    expect(engine.releaseTerminalCloseoutPause).not.toHaveBeenCalled();
+    expect(controller.requestUrgentEliminationSweepAfter).toHaveBeenCalledWith(5000);
+  }
+);

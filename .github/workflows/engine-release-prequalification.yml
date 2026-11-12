@@ -58,7 +58,7 @@ jobs:
           npm test -- --exclude src/engine/RetainedHistoricalCheckpointQualification.test.ts --shard="$RELEASE_TEST_SHARD/4"
 
   prestage:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Stage immutable candidate and rollback images
     runs-on: ubuntu-24.04
     environment: ci-main

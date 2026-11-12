@@ -50,6 +50,9 @@ writeFileSync(
   `#!/usr/bin/env bash
 case "$*" in
   *fn_monitoring_health_snapshot*) printf '%s' '${MONEY}' ;;
+  *fn_lightning_admission_policy*)
+    if [ -n "\${CASH_POLICY_FAILS:-}" ]; then exit 22; fi
+    printf '%s' "$CASH_POLICY_ANSWER" ;;
   *fn_reliability_controller_health*)
     if [ -n "\${RELIABILITY_FAILS:-}" ]; then echo 'curl: (22) 404' >&2; exit 22; fi
     printf '%s' "$RELIABILITY_ANSWER" ;;
@@ -159,4 +162,63 @@ describe('collect-monitoring-health reliability controller gauges', () => {
       'GRANT EXECUTE ON FUNCTION public.fn_reliability_controller_health() TO service_role;'
     );
   });
+});
+
+describe('installed cash admission cohort', () => {
+  it('preserves every bit of the installed policy fingerprint', () => {
+    const out = collect([HEALTHY], {
+      CASH_POLICY_ANSWER: JSON.stringify([{ fingerprint: 4503599627370495 }]),
+    });
+    expect(out).toMatch(/^poker_lightning_admission_policy_fingerprint 4503599627370495$/m);
+    expect(out).toMatch(/^poker_lightning_admission_policy_collect_ok 1$/m);
+    expect(out).toMatch(/^poker_money_undeclared_triggers 0$/m);
+    expect(out).toMatch(/^reliability_controller_collect_ok 1$/m);
+  });
+  it.each([
+    null,
+    [],
+    [{ fingerprint: null }],
+    [{ fingerprint: true }],
+    [{ fingerprint: '123' }],
+    [{ fingerprint: -1 }],
+    [{ fingerprint: 4503599627370496 }],
+    [{ fingerprint: 1.5 }],
+    [{ fingerprint: 1 }, { fingerprint: 2 }],
+  ])('unknown policy never becomes a zero cohort: %j', (answer) => {
+    const out = collect([HEALTHY], { CASH_POLICY_ANSWER: JSON.stringify(answer) });
+    expect(out).not.toMatch(/^poker_lightning_admission_policy_fingerprint /m);
+    expect(out).toMatch(/^poker_lightning_admission_policy_collect_ok 0$/m);
+    expect(out).toMatch(/^poker_money_undeclared_triggers 0$/m);
+  });
+  it('a refused policy read leaves all other observations intact', () => {
+    const out = collect([HEALTHY], { CASH_POLICY_FAILS: '1' });
+    expect(out).not.toMatch(/^poker_lightning_admission_policy_fingerprint /m);
+    expect(out).toMatch(/^poker_lightning_admission_policy_collect_ok 0$/m);
+    expect(out).toMatch(/^poker_money_undeclared_triggers 0$/m);
+  });
+});
+
+it('cash admission identity is catalog-only, bounded and service-only', () => {
+  const sql = readFileSync(
+    join(
+      ROOT,
+      'supabase/migrations/20261112105743_lightning_throughput_baseline_names_the_installed_admission_.sql'
+    ),
+    'utf8'
+  );
+  expect(sql).toContain('RETURNS TABLE (fingerprint bigint)');
+  expect(sql).toContain(
+    "to_regprocedure('public.fn_lightning_horse_admit_paced(uuid,uuid,timestamp with time zone)')"
+  );
+  expect(sql).toContain('::bit(52)::bigint');
+  expect(sql).toContain('SET search_path = pg_catalog');
+  expect(sql).toContain("SET statement_timeout = '5s'");
+  expect(sql).toContain(
+    'REVOKE ALL ON FUNCTION public.fn_lightning_admission_policy() FROM PUBLIC, anon, authenticated;'
+  );
+  expect(sql).toContain(
+    'GRANT EXECUTE ON FUNCTION public.fn_lightning_admission_policy() TO service_role;'
+  );
+  const body = sql.split('AS $function$')[1].split('$function$;')[0];
+  expect(body).not.toMatch(/\b(insert|update|delete|alter|create|drop|call)\b/i);
 });

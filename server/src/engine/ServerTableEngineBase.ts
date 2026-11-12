@@ -276,6 +276,14 @@ export type EngineLeaseAuthority =
  */
 export type EngineRecoveryEventClass = 'automatic_recovery' | 'fault_injection';
 
+export type F06OwnReservedReconcileOutcome =
+  | 'resolved'
+  | 'none'
+  | 'foreign'
+  | 'evidence'
+  | 'skipped'
+  | 'unavailable';
+
 export const AUTOMATIC_RECOVERY_EVENT_CLASS: EngineRecoveryEventClass = 'automatic_recovery';
 export const FAULT_INJECTION_EVENT_CLASS: EngineRecoveryEventClass = 'fault_injection';
 
@@ -922,15 +930,47 @@ export abstract class ServerTableEngineBase {
   // Snapshot reason for the current deal. The button anchors advance once a hand starts.
   protected waitingForButton = new Map<number, string>();
 
+  /**
+   * THE FREE HAND (Dan 2026-11-11, binding): "IN TOURNAMENTS A PLAYER DOESN'T
+   * 'WAIT FOR THE BB' - THEY ARE DEALT IN AS SOON AS THE BUTTON PASSES WITHOUT
+   * POSTING. IT'S A FREE HAND."
+   *
+   * TOURNAMENT: the hold is read from the upcoming hand's own prediction
+   * (predictBlindSeats, the ONE definition the deal uses). Exactly one seat
+   * can be held: the seat the button is about to land on. The predicted
+   * button is the nearest occupied seat (or last hand's small blind seat)
+   * counter-clockwise of the small blind seat, so no other occupied seat lies
+   * between it and the small blind, and an empty seat holds nobody. Every
+   * other arrival is dealt in on this hand with no entry post and no
+   * missed-blind charge (noteTournamentArrival drops any legacy debt). An
+   * arrival on a naturally due blind seat posts that blind and plays.
+   * Defect replaced (Nightly 20K, table 5, hand #58703578): the hold used the
+   * previous hand's anchors and held a seat the button had already passed.
+   *
+   * CASH is unchanged (owner, 2026-11-11: "Cash entry rules remain
+   * unchanged"): a moved cash seat is held from just after the previous
+   * button through the previous big blind, exactly as before. A cash new
+   * arrival is never button-eligible, so the cash button can skip such a seat;
+   * the previous-anchor arc keeps holding it, which the prediction would not.
+   */
   protected admitMovedSeats(candidates: SeatedPlayer[]): SeatedPlayer[] {
     this.waitingForButton.clear();
-    const button = this.lastButtonSeat;
-    const bb = this.lastBigBlindSeat;
-    if (candidates.length <= 2 || button <= 0 || bb <= 0 || button === bb) return candidates;
+    if (candidates.length <= 2) return candidates;
+    let inHold: (seat: number) => boolean;
+    if (this.isTournamentTable()) {
+      const predicted = this.predictBlindSeats(candidates);
+      const button = predicted?.button ?? 0;
+      if (button <= 0 || button === predicted?.smallBlindSeat) return candidates;
+      inHold = (seat) => seat === button;
+    } else {
+      const button = this.lastButtonSeat;
+      const bb = this.lastBigBlindSeat;
+      if (button <= 0 || bb <= 0 || button === bb) return candidates;
+      inHold = (seat) => (button < bb ? seat > button && seat <= bb : seat > button || seat <= bb);
+    }
     return candidates.filter((p) => {
       const seat = p.seat_number;
-      const between = button < bb ? seat > button && seat <= bb : seat > button || seat <= bb;
-      if (!between) return true;
+      if (!inHold(seat)) return true;
       const held = this.isTournamentTable()
         ? this.previousHandOccupants.size > 0 && this.previousHandOccupants.get(seat) !== p.user_id
         : p.entry_hold === 'moved';
@@ -2706,6 +2746,72 @@ export abstract class ServerTableEngineBase {
     this.f06Allocator = allocate;
     this.f06AllocationCurrent = current;
   }
+  /**
+   * IN-LIFE ORPHANED RESERVED PERMIT RECONCILER (2026-11-12, issue #10564).
+   * Installed by the owning tournament manager beside the allocator. The
+   * dealing loop calls it only when this dealer holds NO live permit yet
+   * allocation is refused by an unresolved `reserved` row. The closure
+   * resolves ONLY a row of this dealer's own current generation, through the
+   * evidence-guarded cancel door (which refuses any started or committed
+   * hand); a row of any other generation is left to the abandoned-generation
+   * door. This is the dealing path deciding the exact row that blocks this
+   * exact table, synchronously and once per refusal - not a background sweep,
+   * watcher or repair loop.
+   */
+  private f06OwnReservedPermitReconciler: (() => Promise<F06OwnReservedReconcileOutcome>) | null =
+    null;
+  installF06OwnReservedPermitReconciler(
+    reconcile: () => Promise<F06OwnReservedReconcileOutcome>
+  ): void {
+    if (this.running || !this.f06Allocator || this.f06OwnReservedPermitReconciler)
+      throw new Error('f06_own_reserved_reconciler_install_invalid');
+    this.f06OwnReservedPermitReconciler = reconcile;
+  }
+  /**
+   * Resolve this dealer's own current-generation `reserved` permit that it no
+   * longer holds in memory, so a table orphaned across a break or balancing
+   * boundary recovers in place instead of stalling until a watchdog kill. A
+   * held permit is resolveUnstartedF06Permit's job; this covers only the
+   * unheld row, and never touches another generation's permit.
+   */
+  protected async reconcileOwnUnresolvedReservedPermit(): Promise<F06OwnReservedReconcileOutcome> {
+    if (!this.running || this.f06CurrentPermit || !this.f06OwnReservedPermitReconciler)
+      return 'skipped';
+    return this.f06OwnReservedPermitReconciler();
+  }
+  /**
+   * BOUND THE IN-PLACE RECOVERY (2026-11-12, issue #10564, independent review).
+   * One orphaned reserved row resolves in a single refusal and the next hand
+   * deals, resetting this counter. But a table that re-orphaned a row on EVERY
+   * pass would resolve repeatedly, and each fast recovery in the dealing loop
+   * resets both liveness signals - consecutiveErrors and markProgress (which
+   * also clears the zombie watchdog's trips). Left unbounded, such a table
+   * would deal nothing yet stay invisible to the >=10-error self-kill AND the
+   * external zombie watchdog, with no page. After a few consecutive resolves
+   * with no hand actually dealt between them, stop masking and let both
+   * watchdogs see the table, loudly. The counter resets the moment a real hand
+   * deals (resetOwnReservedResolveProgress), so normal one-shot recovery never
+   * trips it.
+   */
+  protected static readonly MAX_OWN_RESERVED_RESOLVES_WITHOUT_PROGRESS = 3;
+  private f06OwnReservedResolvesSinceProgress = 0;
+  /**
+   * Record one own-reserved resolve and say whether to fast-recover in place.
+   * True for the first few; false once they repeat with no hand dealt between,
+   * so the caller falls through to the normal error count and backoff instead
+   * of resetting the self-kill and zombie-watchdog liveness signals forever.
+   */
+  protected noteOwnReservedResolveShouldFastRecover(): boolean {
+    this.f06OwnReservedResolvesSinceProgress++;
+    return (
+      this.f06OwnReservedResolvesSinceProgress <=
+      ServerTableEngineBase.MAX_OWN_RESERVED_RESOLVES_WITHOUT_PROGRESS
+    );
+  }
+  /** A hand actually dealt: the in-place recovery made real forward progress. */
+  protected resetOwnReservedResolveProgress(): void {
+    this.f06OwnReservedResolvesSinceProgress = 0;
+  }
   protected hasF06Allocator(): boolean {
     return this.f06Allocator !== null;
   }
@@ -3394,7 +3500,13 @@ export abstract class ServerTableEngineBase {
    * choosing who stands up, so no horse leaves the hand after a big pot.
    */
   public bigPotOrbitHandsOwed(userId: string): number {
-    return orbitHandsOwed(this.horseHandsSinceBigPot.get(userId), this.seatedPlayers.length);
+    // Durable first (the session row, 20261111174148); memory only before it exists.
+    const row = this.chipContinuity?.row(userId);
+    const since =
+      row && row.hands_since_big_pot !== undefined
+        ? (row.hands_since_big_pot ?? undefined)
+        : this.horseHandsSinceBigPot.get(userId);
+    return orbitHandsOwed(since, this.seatedPlayers.length);
   }
 
   /** This cash table is a Lightning anchor right now (hands are dealt in its pool). */
@@ -12263,6 +12375,14 @@ export abstract class ServerTableEngineBase {
         // would be the hit and run itself. It is blinded off for the hands it
         // owes, exactly as a confirmed early leave is. The VPIP boot (Dan
         // 2026-09-05) stays a system exit with its two-hour bar.
+        // ENGINE REPLACEMENT (2026-11-11): an empty mirror is not an answer.
+        // Ask the database for this seat's session before a clock cashes out
+        // a seat that may still owe hands; if it cannot answer, the system
+        // exit proceeds as before, so no seat is ever held on a guess.
+        if (!nitEvict && !this.chipContinuity.row(userId)) {
+          await this.chipContinuity.evaluate([{ user_id: userId, active: false }]);
+          if (!this.lifecycleCanMutate()) return;
+        }
         if (!nitEvict && this.chipContinuity.leaveLock(userId, seated.stack).locked) {
           const hands = this.chipContinuity.leaveLock(userId, seated.stack).handsRemaining;
           console.log(

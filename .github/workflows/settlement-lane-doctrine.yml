@@ -39,6 +39,7 @@ concurrency:
 
 jobs:
   doctrine:
+    if: "!(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
     name: The lane doctrine holds on the live catalog
     runs-on: ubuntu-latest
     environment: ci-main

@@ -422,6 +422,7 @@ import PreActionBar from '../components/table/PreActionBar';
 import LightningNextHand from '../components/table/LightningNextHand';
 import LightningEndingNotice from '../components/table/LightningEndingNotice';
 import LightningStartingNotice from '../components/table/LightningStartingNotice';
+import LightningStartTicker from '../components/table/LightningStartTicker';
 import LightningJoining from '../components/table/LightningJoining';
 import LightningEndedNotice from '../components/table/LightningEndedNotice';
 import { lightningReturnPath, useLightningReversion } from '../lightning/lightningReversion';
@@ -686,9 +687,14 @@ import HitRunLeaveConfirm from '../components/table/HitRunLeaveConfirm';
 import { useHeroHandCount } from '../hooks/useHeroHandCount';
 import { useActorGapBridge } from '../hooks/useActorGapBridge';
 import HitRunCountPill from '../components/table/HitRunCountPill';
-import { useCountdownStarted, useHandsAddedByDouble } from '../hooks/useHeroHandCount';
+import {
+  useBigWinRestarted,
+  useCountdownStarted,
+  useHandsAddedByDouble,
+} from '../hooks/useHeroHandCount';
 import {
   blindOffLeaveText,
+  bigWinStartedText,
   charlesRuleText,
   countdownStartedText,
   fetchMyHandsOwed,
@@ -2618,7 +2624,13 @@ function LiveTablePage({
      the engine's seat payload reports them (undefined: not reported), and the
      full-screen confirmation's count while it is open. */
   const [heroHandsOwedEngine, setHeroHandsOwedEngine] = useState<
-    { owed: number | null; required: number | null } | undefined
+    | {
+        owed: number | null;
+        required: number | null;
+        reason?: 'hit_run' | 'big_win' | 'both' | null;
+        bigWinBb?: number | null;
+      }
+    | undefined
   >(undefined);
   /* The hands owed as last read, for leave doors declared before the count's
      own hook (the menu, the header back arrow, the felt's leave item). */
@@ -3004,7 +3016,12 @@ function LiveTablePage({
     setHeroHandsOwedEngine(
       mapped.heroHandsOwed === undefined
         ? undefined
-        : { owed: mapped.heroHandsOwed, required: mapped.heroHandsRequired ?? null }
+        : {
+            owed: mapped.heroHandsOwed,
+            required: mapped.heroHandsRequired ?? null,
+            reason: mapped.heroHandsReason ?? null,
+            bigWinBb: mapped.heroBigWinBb ?? null,
+          }
     );
 
     // Dan 2026-08-24: Total Buy In restoration on refresh/seat-first.
@@ -5631,6 +5648,25 @@ function LiveTablePage({
    * elimination broadcast carried is replayed when the hold releases, so the
    * result card is still correct.
    */
+  /* THE ENGINE'S BUST SEAT EXIT IS A BUST SIGNAL (2026-11-11). For a rebuyable
+     tournament bust the engine commits the seat exit with the hand and sends
+     `seat_left` reason `busted_awaiting_rebuy_decision`. The offer watcher
+     used to need the hero's zero-stack seat to still be on the page, so an
+     exit that landed before it ran meant no offer at all, and an exit that
+     landed after the offer opened closed it (applySeatRemoved). This records
+     the exit for exactly one tournament, player and bust; the watcher consumes
+     it once. Eligibility and expiry are still the server's (canRebuy).
+     The engine sends this reason only for a tournament seat
+     (ServerTableEngineDealing), so the reason alone is the signal: the page's
+     own tournament flag comes from an async table read that can still be in
+     flight when the exit arrives on a freshly opened page. The tournament id
+     is bound when it is known; the watcher acts only once the table is known
+     to be that tournament. */
+  const TOURNAMENT_BUST_EXIT = 'busted_awaiting_rebuy_decision';
+  const [tournamentBustExit, setTournamentBustExit] = useState<{
+    tournamentId: string | null;
+    userId: string;
+  } | null>(null);
   const BUST_HOLD_MS = 5000;
   /**
    * The backstop for the MODAL branch.
@@ -5982,7 +6018,12 @@ function LiveTablePage({
       pendingSeatStackRef.current = 0;
       setHeroRowStack(null);
       setShowBuyInModal(false);
-      setShowRebuyModal(false);
+      /* The engine's own tournament bust exit is the reason the rebuy offer
+         exists; it must not close the offer the player is reading. Every
+         other exit does. */
+      if (reason !== 'busted_awaiting_rebuy_decision') {
+        setShowRebuyModal(false);
+      }
       // The seat the bust rebuy sheet was offering to refill is gone.
       setBustRebuyOpen(false);
       setBustRebuyDeadlineAt(null);
@@ -6020,7 +6061,12 @@ function LiveTablePage({
           if (mapped) {
             bootNoticeShownRef.current = true;
             say(mapped);
-          } else if (!tableStateRef.current.isTournament) {
+          } else if (
+            !tableStateRef.current.isTournament &&
+            // A tournament bust is never a cash removal, even before the page
+            // has loaded the table's kind; the rebuy offer speaks for it.
+            reason !== 'busted_awaiting_rebuy_decision'
+          ) {
             bootNoticeShownRef.current = true;
             say(seatCopy(seatAsset).removedFromTable);
           }
@@ -7550,13 +7596,6 @@ function LiveTablePage({
   /* One verdict for everything a seat draws about the hand that is over. */
   const feltShowsNoHand = tableHandIsOver || breakHidesCards;
 
-  // Hero's last action this street, for the transient badge under the tab.
-  // Same memo-to-primitive pattern as heroTabCards, same reason.
-  const heroTabLastAction = useMemo(() => {
-    const a = tableState.lastActions?.[tableState.heroSeat - 1];
-    return typeof a === 'string' ? a : '';
-  }, [tableState.lastActions, tableState.heroSeat]);
-
   // Roadmap batch 1 (Dan 2026-08-20): folded state for tab dimming.
   const heroTabFolded = useMemo(() => {
     const hero = tableState.players[tableState.heroSeat - 1];
@@ -8065,7 +8104,6 @@ function LiveTablePage({
       pot: tableState.pot,
       handNumber: tableState.handNumber,
       holeCards: heroTabCards,
-      lastAction: heroTabLastAction,
       folded: heroTabFolded,
       handResult: heroTabResult,
       toCall: isHeroTurn ? heroTabToCall : undefined,
@@ -8111,7 +8149,6 @@ function LiveTablePage({
     heroTabDecision,
     heroTabTimeBank,
     heroTabCards,
-    heroTabLastAction,
     heroTabFolded,
     heroTabResult,
     /* BOTH HALVES OF THE SIT-OUT REPORT. `heroTabSittingOut` alone covers the
@@ -11376,8 +11413,16 @@ function LiveTablePage({
 
   // Tournament bust / rebuy & elimination watcher
   useEffect(() => {
-    if (!tableId || !userId || tableState.heroSeat <= 0) return;
+    if (!tableId || !userId) return;
     if (!tableState.isTournament || !tableState.tournamentId) return;
+    /* The engine's bust exit for THIS tournament and player stands in for the
+       zero-stack seat it has just removed (see tournamentBustExit). */
+    const bustExit =
+      tournamentBustExit !== null &&
+      (tournamentBustExit.tournamentId === null ||
+        tournamentBustExit.tournamentId === tableState.tournamentId) &&
+      tournamentBustExit.userId === String(userId);
+    if (tableState.heroSeat <= 0 && !bustExit) return;
     /**
      * ═══════════════════════════════════════════════════════════════════════
      *  NOBODY IS BUSTED BEFORE A CARD HAS BEEN DEALT (Dan 2026-08-30, r17)
@@ -11413,9 +11458,9 @@ function LiveTablePage({
      * nothing to have lost yet.
      */
     if (!playHasBegun) return;
-    const heroPlayer = tableState.players[tableState.heroSeat - 1];
-    if (!heroPlayer) return;
-    const stack = heroPlayer.stack ?? 0;
+    const heroPlayer = tableState.heroSeat > 0 ? tableState.players[tableState.heroSeat - 1] : null;
+    if (!heroPlayer && !bustExit) return;
+    const stack = bustExit ? 0 : (heroPlayer?.stack ?? 0);
     if (stack > 0) {
       bustPromptFiredRef.current = false;
       /* The rebuy has landed: local state now agrees with the server, so the
@@ -11454,8 +11499,10 @@ function LiveTablePage({
        'eliminated' to PlayerStatus, which would make every seat-status switch
        in the app claim to handle a state the SEAT never renders. */
     const eliminationSignalled =
-      bustHoldRef.current.active || String(heroPlayer.status) === 'eliminated';
+      bustExit || bustHoldRef.current.active || String(heroPlayer?.status) === 'eliminated';
     if (tableState.isHandInProgress && !eliminationSignalled) return;
+    // One episode, one consumption: the exit never re-arms a later run.
+    if (bustExit) setTournamentBustExit(null);
     if (bustPromptFiredRef.current) return;
     if (showRebuyModal) return;
     bustPromptFiredRef.current = true;
@@ -11622,6 +11669,7 @@ function LiveTablePage({
     tableState.isHandInProgress,
     tableState.isTournament,
     tableState.tournamentId,
+    tournamentBustExit,
     showRebuyModal,
     endRebuyPrompt,
     beginBustHold,
@@ -12109,8 +12157,17 @@ function LiveTablePage({
   // hands. Said when it happens, so the count going up is never a surprise.
   useHandsAddedByDouble(heroHandCount, (added) => toast.info(charlesRuleText(added)));
   /* HIT AND RUN: the hand the countdown starts, the player is told at once. */
-  useCountdownStarted(heroHandCount, tableState.handNumber ?? 0, (hands) =>
-    toast.info(countdownStartedText(hands))
+  useCountdownStarted(heroHandCount, tableState.handNumber ?? 0, (hands, reason, bigWinBb) =>
+    toast.info(
+      reason === 'big_win' || reason === 'both'
+        ? bigWinStartedText(hands, bigWinBb)
+        : countdownStartedText(hands)
+    )
+  );
+  /* THE CHARLES RULE AFTER A LARGE WIN (owner 2026-11-11): another +250 BB
+     win while hands are owed resets the count to ten; said when it happens. */
+  useBigWinRestarted(heroHandCount, (hands, bigWinBb) =>
+    toast.info(bigWinStartedText(hands, bigWinBb))
   );
   /**
    * HIT AND RUN (owner 2026-11-06): every leave door asks first. Hands still
@@ -12565,7 +12622,13 @@ function LiveTablePage({
       !userId ||
       leaveRequestActiveRef.current ||
       leaveNavigatedRef.current ||
-      tableStateRef.current.isTournament
+      tableStateRef.current.isTournament ||
+      /* The engine's tournament bust exit is never a cash leave from another
+         device. On a freshly opened page the table's own kind can still be
+         loading when the bust lands, and this used to read that as a remote
+         cash leave: a cash session summary and the club lobby, over the rebuy
+         offer the player was owed (2026-11-11). */
+      evictionReasonRef.current === TOURNAMENT_BUST_EXIT
     )
       return;
     const remoteSessionSeat = Math.max(heroSeatRef.current, tableStateRef.current.heroSeat);
@@ -22665,7 +22728,20 @@ function LiveTablePage({
                clears without a word. A reason means something happened TO them
                and they are told what. */
             if (!reason) presentRemoteSeatExitRef.current();
-            applySeatRemoved(reason, { announce: Boolean(reason) });
+            const live = tableStateRef.current;
+            const bustExit = reason === TOURNAMENT_BUST_EXIT;
+            /* A paid rebuy whose restored stack has not shown yet makes a bust
+               exit stale: it belongs to the episode just paid for, and must
+               neither unseat the player again nor reopen an offer. */
+            if (!(bustExit && rebuyJustSucceededRef.current)) {
+              if (bustExit) {
+                setTournamentBustExit({
+                  tournamentId: live.tournamentId ? String(live.tournamentId) : null,
+                  userId: String(userId),
+                });
+              }
+              applySeatRemoved(reason, { announce: Boolean(reason) });
+            }
           }
 
           /* ── THE TABLE LOSES THE BADGE TOO (2026-08-29) ──────────────────
@@ -24853,6 +24929,32 @@ function LiveTablePage({
                From The Table" is simply untrue (Dan 2026-09-05). A real
                eviction never sets that latch, so it still speaks. */
             if (leftSeatPendingRef.current) presentRemoteSeatExitRef.current();
+            /* A LOST BUST EXIT (2026-11-11). The engine's seat_left can be lost
+               with the link at the bust; the page then reconnects to a table
+               without its seat and this read is the first to notice. A
+               tournament seat that vanished with no socket reason and no
+               leave of our own may be a bust awaiting a rebuy decision, so it
+               is offered to the watcher, and canRebuy (the server's row:
+               playing, zero chips, open window) decides. A moved or still
+               funded player is refused there and nothing is shown. The table's
+               own kind may still be loading on a freshly opened page, so only a
+               table already known to be a cash game is excluded; the watcher
+               itself acts only once the table is known to be a tournament. */
+            const live = tableStateRef.current;
+            if (
+              (live.isTournament || knownTableIsTournament(tableId) !== false) &&
+              !leftSeatPendingRef.current &&
+              /* An earlier bust's reason may still be remembered; any other
+                 socket reason names what happened instead. */
+              (!evictionReasonRef.current ||
+                evictionReasonRef.current === 'busted_awaiting_rebuy_decision') &&
+              !rebuyJustSucceededRef.current
+            ) {
+              setTournamentBustExit({
+                tournamentId: live.tournamentId ? String(live.tournamentId) : null,
+                userId: String(userId),
+              });
+            }
             applySeatRemoved(evictionReasonRef.current, {
               announce: !leftSeatPendingRef.current,
             });
@@ -29004,6 +29106,7 @@ function LiveTablePage({
                         <span className="table-brand__bomb">{bombPotBadge.text}</span>
                       </span>
                     )}
+                    {!lightningRoom && <LightningStartTicker state={tableGameLightningState} />}
                     {/* THE CLOSED MAINTENANCE BREAK (Dan 2026-10-14): "THIS
                         NEEDS TO APPEAR BELOW 'BOMB POT IN 2:47' NOT UNDER THE
                         HERO." Shown once the player closes the break card,
@@ -30387,7 +30490,7 @@ function LiveTablePage({
           {/* HIT AND RUN: between Lightning hands the hero has no seat on this
               felt for the tracker to stand beside; the count still shows. */}
           {!tableState.isTournament && tableState.heroSeat <= 0 && !!lightningRoom && (
-            <HitRunCountPill hands={heroHandsOwed} />
+            <HitRunCountPill hands={heroHandsOwed} reason={heroHandCount.reason ?? null} />
           )}
           {/* THE HERO'S VPIP TRACKER (Dan 2026-09-04): to the left of the
               hero, hero only, the judged figure. A sibling of the seats at
@@ -30398,6 +30501,7 @@ function LiveTablePage({
             heroSeated={tableState.heroSeat > 0}
             isTournament={tableState.isTournament}
             handsOwed={heroHandsOwed}
+            handsReason={heroHandCount.reason ?? null}
             handNumber={tableState.handNumber ?? 0}
             heroPos={
               tableState.heroSeat > 0 ? (seatPositions[tableState.heroSeat - 1] ?? null) : null

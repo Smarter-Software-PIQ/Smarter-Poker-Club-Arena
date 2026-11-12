@@ -1336,7 +1336,7 @@ export class HorseFleetManager {
           let q = supabase
             .from('tables')
             .select(
-              'id, name, max_players, small_blind, big_blind, game_variant, club_id, union_id, is_spins, arena:clubs!fk_tables_club_id(id, asset, is_platform, union_id), min_buy_in, max_buy_in, current_players, created_at, settings, cluster_id, lifecycle, role, main_index, bomb_pot_enabled, big_blind_ante_enabled, nit_game, maintain_percent_min'
+              'id, name, max_players, small_blind, big_blind, game_variant, club_id, union_id, is_spins, arena:clubs!fk_tables_club_id(id, asset, is_platform, union_id), min_buy_in, max_buy_in, current_players, created_at, settings, cluster_id, lifecycle, role, main_index, last_human_seen_at, bomb_pot_enabled, big_blind_ante_enabled, nit_game, maintain_percent_min'
             )
             .is('tournament_id', null)
             .in('status', ['waiting', 'running'])

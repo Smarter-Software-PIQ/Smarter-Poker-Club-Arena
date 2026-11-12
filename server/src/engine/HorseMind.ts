@@ -1540,6 +1540,15 @@ export class HorseMind {
     }
   }
 
+  /** Detached copy of boot-hydrated flop-stab counters for worker pooled floor views. */
+  static exportFlopStabSnapshot(): Map<string, FlopStabCounters> {
+    const out = new Map<string, FlopStabCounters>();
+    for (const [k, v] of this.flopStabCounters) {
+      out.set(k, { ...v });
+    }
+    return out;
+  }
+
   /**
    * The opponent-exploit read for the decision in flight (its scope), or NULL
    * when none of this player's statistics is credibly outside the horse

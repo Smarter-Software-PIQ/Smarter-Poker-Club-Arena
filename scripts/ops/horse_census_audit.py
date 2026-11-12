@@ -164,7 +164,195 @@ def conservation_inference(human_net, excluded_net, fee, pot, awarded):
             'horse_seat_net_bbs': None, 'independent_residual': None}
 
 
-def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None) -> Dict[str, Any]:
+ACTOR_CLASSES = ('eligible_human', 'excluded_human', 'horse')
+REFUND_EVIDENCE_SCHEMA = 'horse-census-refund-evidence-v2'
+UNREGISTRATION_REFUND_SOURCE = 'fn_unregister_from_tournament'
+FUNDING_OPERATIONS = ('entry', 'rebuy', 'addon')
+FUNDING_ASSETS = ('chips', 'diamonds')
+UNRECORDED_ASSET = 'unrecorded'
+REFUND_BINDINGS = (
+    'entitlement_tournament_match', 'entitlement_user_match', 'funding_receipt_found',
+    'funding_tournament_match', 'funding_user_match', 'funding_registration_match',
+    'funding_ledger_match', 'credit_user_match', 'unregistration_receipt_found',
+    'unregistration_identity_match',
+)
+REFUND_TOLERANCE = 0.005
+
+
+def _refund_number(value) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+        raise ValueError('refund_evidence_amount_invalid')
+    return float(value)
+
+
+def tournament_funding_asset(funding_rows: Sequence[dict]) -> str:
+    """Currency of a tournament, from its recorded funding receipts only.
+
+    `is_xmtt` marks a union event, not a currency, and never selects an asset.
+    Without receipts the currency is unrecorded rather than assumed.
+    """
+    assets = set()
+    for row in funding_rows:
+        amount = row.get('amount_sum')
+        if (row.get('operation') not in FUNDING_OPERATIONS or isinstance(amount, bool)
+                or not isinstance(amount, (int, float)) or amount < 0):
+            raise ValueError('recorded_funding_is_not_gross_charges')
+        if row.get('asset') not in FUNDING_ASSETS:
+            raise ValueError('recorded_funding_asset_unsupported')
+        assets.add(row['asset'])
+    if len(assets) > 1:
+        raise ValueError('mixed_asset_tournament_funding')
+    return assets.pop() if assets else UNRECORDED_ASSET
+
+
+def read_refund_evidence(path, tournament_ids: Set[str]) -> Optional[Dict[str, Any]]:
+    """Validate a private pre-cutoff, row-level refund acquisition for the frozen tournaments.
+
+    Every netted refund is one tranche bound through its own entitlement to the single
+    funding receipt it reverses: same ledger entry, registration, participant, tournament
+    and currency, credited to that participant, and reconciled to the registration's
+    unregistration receipt. A refund is never inferred, and one entitlement or one
+    registration can never be counted twice.
+    """
+    if path is None:
+        return None
+    value = json.loads(Path(path).read_text())
+    if value.get('schema') != REFUND_EVIDENCE_SCHEMA:
+        raise ValueError('refund_evidence_schema_unsupported')
+    if value.get('cutoffUtc') != CUTOFF_UTC:
+        raise ValueError('refund_evidence_cutoff_mismatch')
+    if value.get('tournamentCount') != len(tournament_ids):
+        raise ValueError('refund_evidence_tournament_scope_mismatch')
+    unregistrations, rows = value.get('unregistrations'), value.get('refunds')
+    if not isinstance(unregistrations, list) or not isinstance(rows, list):
+        raise ValueError('refund_evidence_sections_required')
+
+    receipts: Dict[str, dict] = {}
+    registrations: Counter = Counter()
+    for row in unregistrations:
+        registration, key = row.get('registration_id'), (row.get('tournament_id'), row.get('actor_class'))
+        if not isinstance(registration, str) or key[0] not in tournament_ids or key[1] not in ACTOR_CLASSES:
+            raise ValueError('refund_evidence_row_out_of_scope')
+        if registration in receipts:
+            raise ValueError('duplicate_unregistration_receipt')
+        count = row.get('entitlement_count')
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            raise ValueError('refund_evidence_amount_invalid')
+        if _refund_number(row.get('returned_ticket_value')):
+            raise ValueError('ticket_return_accounting_unsupported')
+        receipts[registration] = {'key': key, 'refunded': _refund_number(row.get('refunded_chips')),
+                                  'entitlements': count, 'bound': 0.0, 'rows': 0}
+        registrations[key] += 1
+
+    refunds: Counter = Counter()
+    assets: Dict[str, Set[str]] = defaultdict(set)
+    operations: Counter = Counter()
+    other_sources: Dict[str, Set[str]] = defaultdict(set)
+    seen: Set[str] = set()
+    partial = 0
+    for row in rows:
+        entitlement, key = row.get('entitlement_id'), (row.get('tournament_id'), row.get('actor_class'))
+        if not isinstance(entitlement, str) or key[0] not in tournament_ids or key[1] not in ACTOR_CLASSES:
+            raise ValueError('refund_evidence_row_out_of_scope')
+        if entitlement in seen:
+            raise ValueError('duplicate_refund_evidence')
+        seen.add(entitlement)
+        amount = _refund_number(row.get('refund_amount'))
+        if row.get('source') != UNREGISTRATION_REFUND_SOURCE:
+            other_sources[key[0]].add(str(row.get('source')))
+            continue
+        if (any(row.get(name) is not True for name in REFUND_BINDINGS)
+                or row.get('funding_operation') not in FUNDING_OPERATIONS
+                or row.get('funding_asset') not in FUNDING_ASSETS):
+            raise ValueError('refund_not_bound_to_recorded_funding')
+        receipt = receipts.get(row.get('registration_id'))
+        if receipt is None or receipt['key'] != key:
+            raise ValueError('refund_registration_mismatch')
+        funded = _refund_number(row.get('funding_amount'))
+        if amount > funded + REFUND_TOLERANCE:
+            raise ValueError('refund_exceeds_recorded_funding')
+        if abs(_refund_number(row.get('credit_amount')) - amount) > REFUND_TOLERANCE:
+            raise ValueError('refund_credit_mismatch')
+        partial += amount < funded - REFUND_TOLERANCE
+        receipt['bound'] += amount
+        receipt['rows'] += 1
+        refunds[key] += amount
+        assets[key[0]].add(row['funding_asset'])
+        operations[row['funding_operation'] + '/' + row['funding_asset']] += amount
+    for receipt in receipts.values():
+        if (abs(receipt['bound'] - receipt['refunded']) > REFUND_TOLERANCE
+                or receipt['rows'] != receipt['entitlements']):
+            raise ValueError('refund_receipt_cross_check_failed')
+    return {
+        'refunds': dict(refunds),
+        'registrations': dict(registrations),
+        'assets': {tid: sorted(names) for tid, names in assets.items()},
+        'otherSources': {tid: sorted(names) for tid, names in other_sources.items()},
+        'refundsByFundingOperationAndAsset': {k: round(v, 2) for k, v in sorted(operations.items())},
+        'boundRefundRows': sum(r['rows'] for r in receipts.values()),
+        'partialRefundRows': int(partial),
+        'acquiredAtUtc': value.get('acquiredAtUtc'),
+        'refundsAfterCutoff': value.get('refundsAfterCutoff'),
+        'sha256': sha256_file(Path(path)),
+    }
+
+
+ENTRY_COHORTS = ('paid_entry', 'free_buy')
+
+
+def reconstruction_sensitivity(tiers: Dict[str, List[float]]) -> Dict[str, Any]:
+    """Horse result by evidence tier: directly recorded, reconstructed with a per-hand residual, inferred by conservation.
+
+    Each tier is [hands, horse_net_chips, horse_net_bb]. Cumulative rows show what excluding the weaker tiers does.
+    A table-hand BB/100 is printed only for cumulative rows; a tier alone is a selected subset, not an estimate.
+    """
+    def row(names):
+        hands = int(sum(tiers[n][0] for n in names))
+        chips = math.fsum(tiers[n][1] for n in names)
+        bb = math.fsum(tiers[n][2] for n in names)
+        return {'hands': hands, 'horse_net_chips': round(chips, 4), 'horse_net_bb': round(bb, 4),
+                'table_hand_bb_per_100': round(bb / hands * 100.0, 4) if hands else None}
+    def part(name):
+        hands, chips, bb = tiers[name]
+        return {'hands': int(hands), 'horse_net_chips': round(chips, 4), 'horse_net_bb': round(bb, 4)}
+    return {
+        'directly_recorded': row(['recorded']),
+        'reconstructed_with_residual_check_only': part('reconstructed'),
+        'inferred_by_conservation_only': part('inferred'),
+        'recorded_plus_reconstructed': row(['recorded', 'reconstructed']),
+        'all_tiers_published_total': row(['recorded', 'reconstructed', 'inferred']),
+        'assumptions': ('Reconstructed hands replay retained actions or stack results and carry a per-hand residual. '
+                        'Inferred hands have no independent residual: they are right only if the retained human result '
+                        'and the fee attribution are both right.'),
+    }
+
+
+def entry_cohort(tournament: dict) -> str:
+    """A free-buy event charges no entry; only its rebuys and add-ons cost anything."""
+    if type(tournament.get('free_buy')) is not bool:
+        raise ValueError('tournament_free_buy_flag_required')
+    return 'free_buy' if tournament['free_buy'] else 'paid_entry'
+
+
+def cohort_roi_pct(cohort: str, net_cost: float, total_return: float) -> Optional[float]:
+    """Return on net cost for paid-entry events only. A free-buy event has no entry cost, so a
+    cost-denominated return is undefined there; pooled cohorts are never given one either."""
+    if cohort != 'paid_entry' or net_cost <= 0:
+        return None
+    return round(100.0 * (total_return - net_cost) / net_cost, 2)
+
+
+def refund_adjusted_cost(recorded_cost: float, refund: float, has_funding: bool) -> float:
+    """Net a recorded unregistration refund against the recorded funding it reverses."""
+    if refund and not has_funding:
+        raise ValueError('refund_without_recorded_funding')
+    if refund > recorded_cost + REFUND_TOLERANCE:
+        raise ValueError('refund_exceeds_recorded_funding')
+    return recorded_cost - refund
+
+
+def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None,
+              refund_evidence=None) -> Dict[str, Any]:
     t0 = time.time()
     source, predecessor, output = Path(source).resolve(), Path(predecessor).resolve(), Path(output).resolve()
     if output == source or source in output.parents or output == predecessor or predecessor in output.parents:
@@ -196,6 +384,8 @@ def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None
     excluded_ids = set(subjects['excludedSubjectIds'])
     comparison_id = subjects['comparisonSubjectId']
     pg_cache = json.loads(pg_cache_path.read_text())
+    refunds = read_refund_evidence(refund_evidence, {t['id'] for t in pg_cache['humanTournaments']})
+    refund_applied: Counter = Counter()
     v579 = json.loads(v579_path.read_text())
     vplo4 = json.loads(vplo4_path.read_text())
     recon_01a = json.loads(recon_01a_path.read_text())
@@ -483,6 +673,7 @@ def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None
         c_nonzero_resid_hands = 0
         independently_checked_hands = 0
         inferred_hands = 0
+        tier_sums: Dict[str, List[float]] = {'recorded': [0, 0.0, 0.0], 'reconstructed': [0, 0.0, 0.0], 'inferred': [0, 0.0, 0.0]}
 
         freq_counter = human_hand_freq_by_cell[cell]
 
@@ -612,6 +803,9 @@ def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None
                 c_elig_net_chips += hu_chips_f
                 c_excl_net_chips += ex_chips_f
                 c_horse_net_bb_exact += ho_chips_f / bb_use
+                tier_sums['recorded'][0] += 1
+                tier_sums['recorded'][1] += ho_chips_f
+                tier_sums['recorded'][2] += ho_chips_f / bb_use
                 c_elig_net_bb_exact += hu_chips_f / bb_use
                 c_excl_net_bb_exact += ex_chips_f / bb_use
                 if abs(hand_resid) > c_max_abs_hand_resid:
@@ -682,6 +876,10 @@ def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None
                 c_elig_net_chips += hu_c
                 c_excl_net_chips += ex_c
                 c_horse_net_bb_exact += ho_c / bb_use
+                tier_name = 'inferred' if hand_resid is None else 'reconstructed'
+                tier_sums[tier_name][0] += 1
+                tier_sums[tier_name][1] += ho_c
+                tier_sums[tier_name][2] += ho_c / bb_use
                 c_elig_net_bb_exact += hu_c / bb_use
                 c_excl_net_bb_exact += ex_c / bb_use
                 if hand_resid is not None and abs(hand_resid) > c_max_abs_hand_resid:
@@ -805,6 +1003,7 @@ def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None
                 'eligible_human_net_bb_exact': round(c_elig_net_bb_exact, 4),
                 'excluded_human_net_bb_exact': round(c_excl_net_bb_exact, 4),
             },
+            'reconstructionSensitivity': reconstruction_sensitivity(tier_sums),
         }
 
     # --- 5. Statistical Re-Computation Across 12 Target Cells, 8 Target Domains & MTT Omaha ---
@@ -871,6 +1070,7 @@ def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None
 
     def summarize_tournament_roi(filter_mtt_only: bool) -> Dict[str, Any]:
         out: Dict[str, Any] = {}
+        scope = 'completed_mtt_only' if filter_mtt_only else 'completed_all_formats'
         for gtype in ('NLH', 'PLO4', 'PLO5', 'PLO6', 'PLO8'):
             # Eligible-human-entered completed tournaments (< cutoff)
             elig_tourns = []
@@ -892,28 +1092,30 @@ def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None
                     excl_only_tourns += 1
 
             # Separate by currency asset ('chips' vs 'diamonds')
-            by_asset: Dict[str, Dict[str, Counter]] = {
-                'chips': defaultdict(Counter),
-                'diamonds': defaultdict(Counter),
-            }
+            by_asset: Dict[Any, Dict[str, Counter]] = defaultdict(lambda: defaultdict(Counter))
             asset_tourn_cnt = Counter()
 
             for t in elig_tourns:
                 tid = t['id']
+                if refunds and refunds['otherSources'].get(tid):
+                    raise ValueError('unsupported_refund_source_for_completed_tournament')
                 f_rows = tf_by_tourn.get(tid, [])
-                # Determine tournament currency asset from funding receipts or is_xmtt
-                assets_seen = {r['asset'] for r in f_rows if r.get('asset')}
-                if 'diamonds' in assets_seen or t.get('is_xmtt'):
-                    asset = 'diamonds'
-                else:
-                    asset = 'chips'
+                # Currency comes from recorded funding receipts only; is_xmtt is a union event flag.
+                asset = tournament_funding_asset(f_rows)
+                if refunds and refunds['assets'].get(tid, [asset]) != [asset]:
+                    raise ValueError('refund_currency_mismatch')
+                cohort = entry_cohort(t)
                 asset_tourn_cnt[asset] += 1
+                asset_tourn_cnt[(asset, cohort)] += 1
 
                 # Sum funding by actor_class if funding receipts exist for this tournament
                 has_funding = len(f_rows) > 0
                 fund_by_actor = Counter()
+                entry_fund_by_actor = Counter()
                 for fr in f_rows:
                     fund_by_actor[fr['actor_class']] += float(fr['amount_sum'] or 0.0)
+                    if fr['operation'] == 'entry':
+                        entry_fund_by_actor[fr['actor_class']] += float(fr['amount_sum'] or 0.0)
 
                 # Payout table sum by actor_class (cross-check against tournament_players.prize)
                 pay_tbl_by_actor = Counter()
@@ -938,33 +1140,38 @@ def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None
                     # Note: in a few PKO/bounty payouts, check if tournament_payouts has structure/reconcile > tp_prize
                     pay_tbl = pay_tbl_by_actor[aclass]
 
-                    acc = by_asset[asset][aclass]
-                    acc['tournaments_participated'] += 1
-                    acc['entries'] += entries
-                    acc['rebuys'] += rebuys
-                    acc['addons'] += addons
-                    acc['itm_entries'] += int(pa['itm_entries'])
-                    acc['first_places'] += int(pa['first_places'])
-                    acc['bounties_collected'] += int(pa['tp_bounties_collected'])
-                    acc['total_cost'] += cost
-                    acc['regular_prizes_tp'] += reg_prize
-                    acc['payouts_table_sum'] += pay_tbl
-                    acc['bounty_winnings_tp'] += bounty_win
-                    acc['total_return'] += (reg_prize + bounty_win)
+                    refund = refunds['refunds'].get((tid, aclass), 0.0) if refunds else 0.0
+                    net_cost = refund_adjusted_cost(cost, refund, has_funding)
+                    if refunds:
+                        refund_applied[scope + '/' + asset] += refund
+                    for acc in (by_asset[asset][aclass], by_asset[(asset, cohort)][aclass]):
+                        acc['recorded_entry_funding'] += entry_fund_by_actor[aclass] if has_funding else 0.0
+                        acc['tournaments_participated'] += 1
+                        acc['entries'] += entries
+                        acc['rebuys'] += rebuys
+                        acc['addons'] += addons
+                        acc['itm_entries'] += int(pa['itm_entries'])
+                        acc['first_places'] += int(pa['first_places'])
+                        acc['bounties_collected'] += int(pa['tp_bounties_collected'])
+                        acc['gross_recorded_cost'] += cost
+                        acc['unregistration_refunds'] += refund
+                        if refunds:
+                            acc['unregistered_registrations'] += refunds['registrations'].get((tid, aclass), 0)
+                        acc['total_cost'] += net_cost
+                        acc['regular_prizes_tp'] += reg_prize
+                        acc['payouts_table_sum'] += pay_tbl
+                        acc['bounty_winnings_tp'] += bounty_win
+                        acc['total_return'] += (reg_prize + bounty_win)
 
-            formatted_assets = {}
-            for asset in ('chips', 'diamonds'):
-                if asset_tourn_cnt[asset] == 0:
-                    continue
+            def actors_of(bucket, cohort):
                 actor_out = {}
                 for aclass in ('eligible_human', 'excluded_human', 'horse'):
-                    acc = by_asset[asset].get(aclass)
+                    acc = by_asset[bucket].get(aclass)
                     if not acc or acc['entries'] == 0:
                         continue
                     cost = acc['total_cost']
                     ret = acc['total_return']
                     net = ret - cost
-                    roi = (100.0 * net / cost) if cost > 0 else None
                     actor_out[aclass] = {
                         'tournaments_participated': int(acc['tournaments_participated']),
                         'entries': int(acc['entries']),
@@ -974,17 +1181,33 @@ def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None
                         'itm_entries': int(acc['itm_entries']),
                         'first_places': int(acc['first_places']),
                         'bounties_collected': int(acc['bounties_collected']),
+                        'gross_recorded_cost': round(acc['gross_recorded_cost'], 2),
+                        'recorded_entry_funding': round(acc['recorded_entry_funding'], 2),
+                        'recorded_rebuy_addon_funding_or_tariff': round(acc['gross_recorded_cost'] - acc['recorded_entry_funding'], 2),
+                        'unregistration_refunds': round(acc['unregistration_refunds'], 2) if refunds else None,
+                        'unregistered_registrations': int(acc['unregistered_registrations']) if refunds else None,
                         'total_cost': round(cost, 2),
                         'regular_prizes': round(acc['regular_prizes_tp'], 2),
                         'payouts_table_cross_check': round(acc['payouts_table_sum'], 2),
                         'bounty_winnings': round(acc['bounty_winnings_tp'], 2),
                         'total_return': round(ret, 2),
                         'net_profit': round(net, 2),
-                        'roi_pct': round(roi, 2) if roi is not None else None,
+                        'roi_pct': cohort_roi_pct(cohort, cost, ret),
+                        'roi_basis': {'paid_entry': 'return_on_net_cost', 'free_buy': 'not_defined_zero_entry_cost',
+                                      'pooled': 'not_reported_for_pooled_cohorts'}[cohort],
                     }
+                return actor_out
+
+            formatted_assets = {}
+            for asset in (*FUNDING_ASSETS, UNRECORDED_ASSET):
+                if asset_tourn_cnt[asset] == 0:
+                    continue
                 formatted_assets[asset] = {
                     'completed_tournaments': asset_tourn_cnt[asset],
-                    'by_actor_class': actor_out,
+                    'by_actor_class': actors_of(asset, 'pooled'),
+                    'by_entry_cohort': {cohort: {'completed_tournaments': asset_tourn_cnt[(asset, cohort)],
+                                                 'by_actor_class': actors_of((asset, cohort), cohort)}
+                                        for cohort in ENTRY_COHORTS if asset_tourn_cnt[(asset, cohort)]},
                 }
 
             out[gtype] = {
@@ -1269,6 +1492,7 @@ def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None
             'Hand and cluster ratio estimates include explicitly labelled inferred group totals.',
             'Primary-human clustering is a sensitivity analysis, not multiway clustering over every opponent.',
             'Cached tournament accounting combines recorded funding with tariff estimates when receipts are absent; it is not an independent payment certification.',
+            'Tournament cost nets unregistration refunds only when explicit refund evidence is supplied; see tournamentPayoutRoi.refundCoverage.',
             'EV columns substitute realized returns where EV is absent; they are mixed estimates, not complete all-in EV.',
             'Historical counts and cached profiles describe the frozen acquisition, not the current live database.',
             'Action-replayed returns depend on retained action encoding; a balanced residual alone does not establish unique reconstruction.',
@@ -1281,6 +1505,7 @@ def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None
         'sourceFileHashes': {
             'all_hands_manifest.json': sha256_file(manifest_path),
             'subject_config': sha256_file(Path(subject_config)),
+            'refund_evidence': refunds['sha256'] if refunds else None,
             'all_hands_through_20261110.sqlite': unified_digest,
             'included_hand_facts.sqlite': sha256_file(f_sqlite),
             'replay_spots_for_current_engine.jsonl': sha256_file(replay_path),
@@ -1487,8 +1712,35 @@ def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None
                 'survival value and zero cash redemption value). Below is cached entry+rebuy+addon accounting versus '
                 'regular prize + bounty payout ROI from public.tournaments, public.tournament_players, '
                 'public.tournament_participant_funding_receipts, and public.tournament_payouts (< cutoff), '
-                'separated strictly by currency asset (chips vs diamonds).'
+                'separated strictly by the currency asset of the recorded funding receipts (chips, diamonds, or '
+                'unrecorded when a tournament has no receipt). is_xmtt marks a union event and never selects a currency. '
+                'Return on cost is reported only for paid-entry events: a free-buy event has no entry cost, so its winnings '
+                'are amounts, not a return on cost, and pooled cohorts carry no ROI. Horse entries outnumber eligible-human '
+                'entries by more than a hundred to one, so Horse tournament results are mostly Horses playing Horses less fees; '
+                'human-facing conclusions rest on the eligible-human rows and the hand-level cells.'
             ),
+            'refundCoverage': ({
+                'status': 'unregistration_refunds_netted_from_recorded_funding',
+                'evidenceSchema': REFUND_EVIDENCE_SCHEMA,
+                'evidenceSha256': refunds['sha256'],
+                'boundRefundRows': refunds['boundRefundRows'],
+                'partialRefundRows': refunds['partialRefundRows'],
+                'refundsByFundingOperationAndAsset': refunds['refundsByFundingOperationAndAsset'],
+                'acquiredAtUtc': refunds['acquiredAtUtc'],
+                'appliedRefundsByScopeAndAsset': {k: round(v, 2) for k, v in sorted(refund_applied.items())},
+                'refundsRecordedAfterCutoff': refunds['refundsAfterCutoff'],
+                'limitations': [
+                    'Covers settled unregistration receipts and refund tranches before the cutoff for the cached tournaments only.',
+                    'Each netted refund is bound to one funding receipt by entitlement, ledger entry, registration, participant, tournament and currency.',
+                    'Cancellation and abort refunds belong to tournaments that never completed; those stay outside ROI.',
+                    'Entry counts come from tournament_players and are not adjusted for unregistered registrations.',
+                    'Tariff-estimated costs carry no receipts, so a refund against them refuses instead of being netted.',
+                    'Recorded refunds reconcile two retained tables; they do not certify wallet payment.',
+                ],
+            } if refunds else {
+                'status': 'UNVERIFIED_no_refund_evidence',
+                'limitations': ['total_cost is gross recorded funding or tariff; refunded unregistrations are not netted.'],
+            }),
             'completed_mtt_only': mtt_only_roi,
             'completed_all_tournament_formats_mtt_sng_spin': all_tourn_formats_roi,
         },

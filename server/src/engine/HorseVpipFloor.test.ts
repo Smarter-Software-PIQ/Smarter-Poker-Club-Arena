@@ -16,6 +16,29 @@ const ROOT = resolve(__dirname, '../../..');
 const read = (p: string) => readFileSync(resolve(ROOT, p), 'utf8');
 
 describe('vpipFloorMul', () => {
+  it('uses Classic’s actual thirty-hand window instead of targeting a ten-hand 36.44 percent', () => {
+    const classic = { vpipFloor: 20, vpipWindowHands: 30, ownVpip: { hands: 30, vpip: 30 } };
+    expect(vpipFloorMul(classic)).toBe(1);
+    expect(vpipTargetFor(20, 30)).toBeCloseTo(0.294938576634, 10);
+    expect(vpipFloorMul({ vpipFloor: 20, vpipWindowHands: 30 })).toBeCloseTo(
+      0.28 / 0.294938576634,
+      10
+    );
+    expect(vpipFloorMul({ ...classic, vpipWindowHands: 10 })).toBeLessThan(1);
+  });
+
+  it('preserves the separately owned non-NLH target even when its policy reports thirty hands', () => {
+    const state = { gameVariant: 'plo4', vpipFloor: 30, ownVpip: { hands: 30, vpip: 40 } };
+    expect(vpipFloorMul({ ...state, vpipWindowHands: 30 })).toBe(vpipFloorMul(state));
+  });
+
+  it.each([undefined, 0, -1, Number.NaN, Number.POSITIVE_INFINITY, 2.5])(
+    'keeps the legacy ten-hand target for an absent or invalid window %s',
+    (window) => {
+      expect(vpipTargetFor(20, window)).toBe(vpipTargetFor(20));
+    }
+  );
+
   it('is 1 on a table with no floor, whatever the sample says', () => {
     expect(vpipFloorMul({})).toBe(1);
     expect(vpipFloorMul({ vpipFloor: 0, ownVpip: { hands: 30, vpip: 5 } })).toBe(1);

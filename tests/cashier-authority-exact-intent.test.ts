@@ -127,7 +127,7 @@ describe('cashier authority and exact intent', () => {
         'fn_promo_wallet_send_core_20261004',
         'fn_promo_wallet_send_core_20261004',
         '20261016024912_cashier_sends_use_the_selected_source_and_destination_wallet.sql',
-        'b6b0c7686b67d33e2b01c132f8775cbc',
+        '7087a67e16f6d7990c28fbb549464bef',
       ],
       [
         'fn_club_promo_send_core_20261004',
@@ -168,6 +168,24 @@ describe('cashier authority and exact intent', () => {
       const bodyEnd = definition.indexOf(delimiter, bodyStart);
       expect(bodyEnd).toBeGreaterThan(bodyStart);
       let installedBody = definition.slice(bodyStart, bodyEnd);
+      if (name === 'fn_promo_wallet_send_core_20261004') {
+        const cap = readFileSync(
+          'supabase/migrations/20261112050118_agent_promo_sends_are_capped_at_fifty_chips_per_downline_in_.sql',
+          'utf8'
+        );
+        const replacements = [
+          ...cap.matchAll(
+            /d := replace\(d,\s*'((?:''|[^'])*)',\s*(?:'((?:''|[^'])*)'|\$guard\$([\s\S]*?)\$guard\$)\);/g
+          ),
+        ];
+        expect(replacements).toHaveLength(4);
+        for (const replacement of replacements) {
+          const before = replacement[1].replaceAll("''", "'");
+          const after = replacement[3] ?? replacement[2].replaceAll("''", "'");
+          expect(installedBody.split(before)).toHaveLength(2);
+          installedBody = installedBody.replace(before, after);
+        }
+      }
       if (name === 'fn_club_bank_claim_core_20261004') {
         expect(createHash('md5').update(installedBody).digest('hex')).toBe(
           '976208c9e650e2a706a41eeea60b641c'

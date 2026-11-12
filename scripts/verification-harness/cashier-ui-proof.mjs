@@ -10,6 +10,9 @@ const CASE_FIX = '3d17703d0ab1bbb58815034c8510d0845ca8bcfd';
 const ORIGINS = ['https://ca-static.smarter.poker', 'https://smarter.poker/hub/club-arena'];
 export const COMPONENT_PATHS = [
   'src/pages/CashierTradePage.tsx',
+  'src/pages/CashierPage.tsx',
+  'src/components/agent/AgentPromoPanel.tsx',
+  'src/components/wallet/WalletCashierModal.tsx',
   'src/pages/CashierTradePage.module.css',
   'src/pages/MemberManagementPage.tsx',
   'src/components/club/MemberCreditWalletRows.tsx',
@@ -17,6 +20,7 @@ export const COMPONENT_PATHS = [
 export const CASES = [
   'reads Transaction History through the installed feed and scopes, with real receipts',
   'prints the existing agent credit agreement beneath member wallets without moving chips',
+  'offers reclaim return wallets and keeps promo in promo without moving chips',
 ];
 export const ECO_CASE = 'reads separate recorded cash and tournament ECO without changing settings or money';
 export const ECO_COMPONENT_PATHS = ['src/pages/UnionDetailPage.tsx', 'src/pages/UnionDetailPage.module.css',
@@ -72,7 +76,7 @@ export function assertCases(report, eco = false) {
   };
   report.suites.forEach(visit);
   if (JSON.stringify(actual.sort()) !== JSON.stringify([...selectedCases].sort()))
-    throw new Error('Exactly the history and existing-credit cases must execute.');
+    throw new Error('Exactly the selected cashier cases must execute.');
   return actual;
 }
 
@@ -317,7 +321,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
       ) + '\n'
     );
     console.log(
-      'Both scoped Cashier cases passed once on the pinned live client; owned account cleanup verified.'
+      'All scoped Cashier cases passed once on the pinned live client; owned account cleanup verified.'
     );
   } else
     throw new Error(

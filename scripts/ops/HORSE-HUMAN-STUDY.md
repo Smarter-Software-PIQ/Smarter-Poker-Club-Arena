@@ -147,6 +147,55 @@ is a sensitivity calculation; tournament accounting can include tariff estimates
 EV fields with realized-return substitution are mixed estimates. None certifies
 payments, historical strategic EV or complete retained history.
 
+Tournament cost is gross recorded funding, or a tariff estimate where receipts
+are absent, unless `--refund-evidence PRIVATE_JSON` is supplied. An unregistered
+registration keeps its entry receipt and is refunded separately, so gross cost
+overstates what was paid. The evidence (`horse-census-refund-evidence-v2`) is a
+private read-only, row-level acquisition for the cached tournaments before the
+cutoff. `refunds` has one row per `tournament_refund_tranches` row, joined
+through its unique entitlement to the funding receipt it reverses, the wallet
+credit and the unregistration receipt; `unregistrations` has one row per
+`tournament_unregistration_receipts` row. A refund is netted only when ledger
+entry, registration, participant, tournament and currency all match, the credit
+equals the refund, and each registration's bound refunds equal its receipt. A
+repeated entitlement or registration, an unbound row, a ticket return, a refund
+above its receipt, a refund against a tariff estimate and any other refund
+source on a completed tournament refuse. Partial refunds and refunded rebuys
+and add-ons net against their own receipts. Gross cost, refunds and net cost
+stay separate, and `tournamentPayoutRoi.refundCoverage` names the evidence
+digest or states `UNVERIFIED_no_refund_evidence`. Entry counts are not
+adjusted, cancelled tournaments stay outside ROI, and none of this certifies a
+wallet payment.
+
+Tournament currency comes from recorded funding receipts only. `is_xmtt` marks
+a union event and never selects a currency; a tournament without receipts is
+`unrecorded`, mixed currencies refuse, and recorded funding that is not gross
+entry, rebuy and add-on charges refuses.
+
+Return on cost is reported per entry cohort, never pooled. Each currency block
+keeps the pooled cost and return totals with `roi_pct` null, then
+`by_entry_cohort.paid_entry` and `by_entry_cohort.free_buy`. A free-buy event
+has no entry cost, so its rebuys and add-ons are not an ROI denominator and its
+`roi_pct` is null (`not_defined_zero_entry_cost`); its winnings are promotional
+prize money. A tournament without a boolean `free_buy` flag refuses. The fleet
+enters every one of these events against other Horses as well as people, so a
+Horse return on cost is mostly Horse-versus-Horse redistribution less fees and
+is not a result against human players. A cash cell with fewer than two
+clusters has no clustered error, and with two clusters only the t interval is
+shown as a description, not an estimate of precision.
+
+Each cash cell also carries `reconstructionSensitivity`: the Horse result from
+directly recorded hands, from hands reconstructed with a per-hand residual and
+from hands inferred by conservation, with cumulative rows showing what leaving
+out the weaker tiers does. An inferred hand has no independent residual. Every
+clustered statistic carries `cluster_precision`: `undefined_single_cluster`,
+`descriptive_only_two_clusters` or `estimated`.
+
+A fleet capture file that yields no capture refuses (`journal_capture_empty`):
+an empty file is a failed capture, never a window with nothing in it. A voided
+Lightning hand has no commit and no accepted terminal, so it is never a
+witness and never a committed hand; the capture counts it as its own outcome.
+
 Fleet JSON and TSV retain one row per roster Horse and feature. `null`/`unknown`
 never means zero, disabled or failed. Source inclusion, worker health, effective
 configuration, exact eligibility, evaluation, eligible invocation, local rule
@@ -158,6 +207,33 @@ change is not proof of a final causal action change. A true cell means at least
 one bound witness, not universal coverage of the Horse's decisions. Health
 remains a separately timestamped system observation. Pillar 2 exclusion and R7/R8
 qualification status are separate from observed runtime evidence.
+
+The original reconciliation review must bind its version, scope, record count
+and sorted-record manifest to the exact supplied records. A stale or missing
+binding refuses attribution. Pooled public-read credit also requires the owning
+reviewer's public-read provenance verdict; a reconciled action join alone does
+not qualify a public read. Original acceptance-time authority withdrawals and
+wager normalization remain governed by that reviewer.
+
+A Lightning accepted terminal carries no accepted actor roster. Its actor
+classes come from the original decision-time player lists of the same hand,
+recorded as `rosterSource: lightning_decision_snapshots`. Conflicting or
+non-boolean classes refuse. Eligible-human presence is true only for a
+positively identified, non-excluded human, false only when every settled
+participant was classified, and otherwise unknown. Any other terminal without
+its accepted roster refuses. Lightning accepts simultaneous fast-fold decisions
+made on the same public state, so several decisions share one prior-action
+count: a Lightning decision binds to the one accepted action equal to its
+executed record, and no accepted action binds twice. A capture with no journal
+records is the omission `no_journal_records_for_key`: unknown, never evidence
+of no Horse activity.
+
+`capturedCoverage` separates the twelve expected variant/mode/speed cells:
+ordinary and Lightning NLH/PLO4/PLO5/PLO6 cash, and the four tournament variants.
+Original public-memory speed is retained on each witness; missing speed remains
+unknown. Counts describe captured hands, decisions, human participation, ability
+to respond and per-feature evidence. Zero captured decisions never proves zero
+natural opportunities or complete domain coverage.
 
 Repeat `--journal` for disjoint original JSON/JSONL captures. Duplicate events
 refuse. Captures outside the declared serving revision or half-open windows

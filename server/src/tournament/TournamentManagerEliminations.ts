@@ -13,7 +13,7 @@ import { tableStateHub } from '../transport/TableStateHub.js';
 import {
   readDurableTerminalRequest,
   adoptDurableTerminalRequest,
-  SatelliteTerminalPrepareBusyError,
+  TerminalPrepareBusyError,
 } from './terminalDurableRequest.js';
 import { UUID_SHAPE as UUID } from '../lib/uuidShape.js';
 import { isMaintenanceFrozen, isTerminalSettlementFrozen } from '../maintenance/freezeState.js';
@@ -6528,7 +6528,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
             await this.cleanupCommittedSatelliteQualifiers(receipt);
             return 'complete';
           } catch (error) {
-            if (error instanceof SatelliteTerminalPrepareBusyError) {
+            if (error instanceof TerminalPrepareBusyError) {
               // Keep every dealer parked; only the existing owner retries admission.
               this.tournamentFinished = false;
               this.requestUrgentEliminationSweepAfter(
@@ -7031,6 +7031,12 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
           err instanceof TerminalSettlementCommittedError
             ? err.receipt
             : this.committedFinalTableDealReceipt;
+        if (!committedReceipt && err instanceof TerminalPrepareBusyError) {
+          this.finalTableDealHandled = false;
+          this.tournamentFinished = false;
+          this.requestUrgentEliminationSweepAfter(TournamentManagerBase.UNRESOLVED_BUST_RETRY_MS);
+          return false;
+        }
         if (!committedReceipt && err instanceof TerminalSettlementNotSentError) {
           // Shutdown closed the finish lanes before this deal reached the
           // database: nothing was sent, nothing committed. The players' deal
@@ -7250,6 +7256,12 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
           err instanceof TerminalSettlementCommittedError
             ? err.receipt
             : this.committedFinalTableDealReceipt;
+        if (!committedReceipt && err instanceof TerminalPrepareBusyError) {
+          this.finalTableDealHandled = false;
+          this.tournamentFinished = false;
+          this.requestUrgentEliminationSweepAfter(TournamentManagerBase.UNRESOLVED_BUST_RETRY_MS);
+          return false;
+        }
         if (!committedReceipt && err instanceof TerminalSettlementNotSentError) {
           // Shutdown closed the finish lanes before this deal reached the
           // database: nothing was sent, nothing committed. The players' deal
@@ -7569,7 +7581,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
       try {
         receipt = await this.processSatelliteAwards(tournament, winnerId);
       } catch (satErr) {
-        if (satErr instanceof SatelliteTerminalPrepareBusyError) {
+        if (satErr instanceof TerminalPrepareBusyError) {
           this.tournamentFinished = false;
           this.requestUrgentEliminationSweepAfter(TournamentManagerBase.UNRESOLVED_BUST_RETRY_MS);
           return;
@@ -7627,6 +7639,13 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     try {
       receipt = await requestTournamentTerminalReceipt(this.tournamentId, 'places', winnerId);
     } catch (settlementErr) {
+      if (settlementErr instanceof TerminalPrepareBusyError) {
+        // Every prepare rolled back on a held lock, before any payer call.
+        // Retain the current manager and its existing causal finish wake.
+        this.tournamentFinished = false;
+        this.requestUrgentEliminationSweepAfter(TournamentManagerBase.UNRESOLVED_BUST_RETRY_MS);
+        return;
+      }
       if (settlementErr instanceof TerminalSettlementDisagreementError) {
         // The database holds a receipt this request contradicts and the
         // receipt could not be adopted. Nothing about that is transient:

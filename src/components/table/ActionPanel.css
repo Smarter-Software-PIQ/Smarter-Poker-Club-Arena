@@ -1970,3 +1970,52 @@
     --sp-action-pad-top: 4px;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   THE PHONE TABLE'S BOTTOM ROW (Dan 2026-11-11, item 3)
+   ═══════════════════════════════════════════════════════════════
+
+   "On mobile the action buttons at the bottom are far too small. They must be
+   doubled in size, growing upward so their top edge comes up to just below
+   the bottom-center seat box."
+
+   WHY THE 2026-11-09 DOUBLING NEVER REACHED A PHONE. Since 2026-10-25 a
+   portrait phone lays the table out at the desktop width, 600 CSS px, and
+   scales it down (useTableEnvironment). Its layout viewport is therefore 600px
+   wide, so every `@media (max-width: 480px)` block above, including the one
+   that set this row to 96px, never matches at a table. The row stayed on the
+   desktop curve's 51.8px, about 34 device px on a 390px phone.
+
+   THIS QUERY IS THE PHONE TABLE, and only it: a portrait device no wider than
+   480px (the same bound useTableEnvironment applies to screen.width) whose
+   layout viewport is wider than 480px, which happens only while the table
+   has switched it to the desktop width. Every other route on a phone keeps
+   its own width and its own <=480px rules.
+
+   104px is 2 x 52, the bar's button before this change. It is the ONE number
+   declared here: --sp-bottom-row-h, --sp-action-reserve, --sp-hud-line (the
+   Previous Hand / chat line) and the felt's height budget are all derived from
+   it, so the felt gives up exactly this strip and the Previous Hand button
+   rises with the row. The hero's strip under the felt (--sp-hero-clear,
+   TablePage.css, same query) is sized to the hero's plate AND hand label, so
+   the row's top edge lands just under that label without covering it.
+
+   The home indicator is paid at its real height: env() is not scaled with the
+   page (see the note on PHONE_SAFE_TOP in useTableEnvironment.ts), so the
+   inset captured before the scale, in desktop-layout px, is the floor.
+   Pinned in a real browser by tests/live-turn/phone-table-layout.pw.ts. */
+@media (max-device-width: 480px) and (min-width: 481px) and (orientation: portrait) {
+  :root {
+    --sp-action-btn-h: 104px;
+    --sp-action-pad-top: 6px;
+    --sp-bar-inset: max(12px, env(safe-area-inset-bottom, 0px), var(--sp-phone-safe-bottom, 0px));
+  }
+
+  .action-panel .action-btn__label {
+    font-size: 1.625rem;
+  }
+
+  .action-panel .action-btn__amount {
+    font-size: 1.125rem;
+  }
+}

@@ -3,6 +3,7 @@ import { TournamentManagerEliminations } from './TournamentManagerEliminations.j
 import { TournamentManagerBase } from './TournamentManagerBase.js';
 import { tournamentEliminationScheduler } from './TournamentEliminationScheduler.js';
 import { requestTournamentTerminalReceipt } from './terminalSettlementRpc.js';
+import { raiseFinancialAlert } from '../services/financialAlerts.js';
 import * as terminal from './terminalSettlementRpc.js';
 import * as durable from './terminalDurableRequest.js';
 import * as satellite from './satelliteSettlementRpc.js';
@@ -206,6 +207,29 @@ describe('adopted original cleanup starts before ordinary scheduler admission', 
       } finally {
         unregister();
       }
+    }
+  );
+});
+
+describe('a rolled-back places prepare keeps its original finish owner', () => {
+  it.each(['MTT', 'SNG', 'SPIN'])(
+    '%s defers without fencing or a payment alert',
+    async (format) => {
+      const m = manager(format, false);
+      const wake = vi.spyOn(m, 'requestUrgentEliminationSweepAfter').mockImplementation(() => {});
+      const fence = vi.spyOn(m, 'fenceUnknownTerminalOutcome').mockImplementation(() => {});
+      vi.mocked(requestTournamentTerminalReceipt).mockRejectedValueOnce(
+        new durable.TerminalPrepareBusyError()
+      );
+      await m.finishTournament(WINNER);
+      expect(m.tournamentFinished).toBe(false);
+      expect(m.running).toBe(true);
+      expect(fence).not.toHaveBeenCalled();
+      expect(wake).toHaveBeenCalledOnce();
+      expect(wake).toHaveBeenCalledWith(TournamentManagerBase.UNRESOLVED_BUST_RETRY_MS);
+      expect(m.stop).not.toHaveBeenCalled();
+      expect(raiseFinancialAlert).not.toHaveBeenCalled();
+      expect(m.gameServer.stopClosedTournamentTableEngine).not.toHaveBeenCalled();
     }
   );
 });

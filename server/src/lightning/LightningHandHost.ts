@@ -1,3 +1,4 @@
+import { noteLightningHandForBankTheWin } from './LightningBankTheWin.js';
 import { publicMemoryDomainFromRules } from '../engine/HorsePublicMemoryDomain.js';
 import { recheckHorseFeaturesBeforeAcceptance } from '../engine/HorseFeatureAuthority.js';
 import { recheckHorseQualifiedBeforeAcceptance } from '../engine/HorseQualifiedAcceptance.js';
@@ -3265,6 +3266,22 @@ export class LightningHandHost {
     );
   }
 
+  /** LightningBankTheWin: a horse books its win between pool hands. Never throws. */
+  private noteForBankTheWin(results: ReadonlyArray<LightningSettleResult>): void {
+    try {
+      const bb = Number(this.rules?.big_blind) || 0;
+      const max = Number((this.rules as Record<string, unknown> | null)?.max_buy_in);
+      noteLightningHandForBankTheWin({
+        clusterId: this.clusterId,
+        maxBuyIn: Number.isFinite(max) && max > 0 ? max : bb * 200,
+        participants: [...this.participants.values()],
+        stacksAfter: new Map(results.map((r) => [r.playerId, Number(r.stackAfter)])),
+      });
+    } catch (err) {
+      reportError(err, 'LightningHandHost.bank_the_win');
+    }
+  }
+
   /** LightningHorseResults: the settled hand's exact horse nets, play and reviews. */
   private recordForHorseScoreboard(
     state: GameState,
@@ -3429,6 +3446,10 @@ export class LightningHandHost {
           results,
           handRow.actions as ReadonlyArray<Record<string, unknown>>
         );
+        // BANK THE WIN ON LIGHTNING (owner 2026-11-10): the committed pool
+        // hand feeds the same 4-6x / one orbit / before the big blind rule
+        // the Classic settlement applies (LightningBankTheWin).
+        this.noteForBankTheWin(results);
         // A LIGHTNING HAND IS ON THE HORSE SCOREBOARD (2026-10-24): the
         // physical path's recordHorseHandReviews, filed under lightning_<bb>bb.
         this.recordForHorseScoreboard(

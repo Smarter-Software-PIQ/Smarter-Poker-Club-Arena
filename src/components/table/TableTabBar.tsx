@@ -55,9 +55,6 @@ export interface TabInfo {
    * When present the tab renders mini cards instead of the table name.
    */
   holeCards?: string;
-  /** Hero's last action this street ('fold', 'call', ...) for the
-   *  transient badge under the tab. */
-  lastAction?: string;
   /** Hero folded this hand — the tab dims (roadmap batch 1). */
   folded?: boolean;
   /** Showdown outcome edge: "win:<hand>" / "loss:<hand>" / "". The tab
@@ -180,23 +177,6 @@ const MiniCards = React.memo(function MiniCards({ cards }: { cards: string }) {
   );
 });
 
-/** Display labels for the transient last-action chip. */
-const ACTION_LABEL: Record<string, string> = {
-  fold: 'Fold',
-  check: 'Check',
-  call: 'Call',
-  bet: 'Bet',
-  raise: 'Raise',
-  all_in: 'All In',
-  /* PHASE 3 AUDIT 2026-08-31. The fallback below is `ACTION_LABEL[flash] ?? flash`,
-     i.e. the RAW engine token, so a missing entry ships a lowercase word to the
-     tab strip - and CLAUDE.md 5.7 is Title Case Every Word. 'discard' was
-     unreachable here until Phase 3, because nothing on the client ever put it
-     in lastActions; now the engine records it and the hero's own click sets it,
-     so this tab would have flashed "discard". */
-  discard: 'Discard',
-};
-
 export interface TableTabBarProps {
   tabs: TabInfo[];
   activeTabId: string;
@@ -293,57 +273,16 @@ export function TableTabBar({
   const addScreenIcon = useButtonImage('icon-addscreen');
   const [addIconFailed, setAddIconFailed] = useState(false);
 
-  // ─── Transient last-action chips (PokerBros parity, Dan 2026-08-20) ───
-  // When a tab's lastAction changes to a new non-empty value, flash it on the
-  // tab for 2.5s, then clear. Timers live in a ref keyed by tab id so a
-  // re-render (the turn clock ticks tabs every second) never cancels a
-  // pending expiry — an effect-cleanup clearTimeout here would leave chips
-  // stuck on screen whenever the clock was running.
-  const [actionFlash, setActionFlash] = useState<Record<string, string>>({});
-  const prevActionsRef = useRef<Record<string, string>>({});
-  const flashTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  useEffect(() => {
-    for (const tab of tabs) {
-      const prev = prevActionsRef.current[tab.id] ?? '';
-      const cur = tab.lastAction ?? '';
-      if (cur && cur !== prev) {
-        setActionFlash((p) => ({ ...p, [tab.id]: cur }));
-        clearTimeout(flashTimersRef.current[tab.id]);
-        flashTimersRef.current[tab.id] = setTimeout(() => {
-          setActionFlash((p) => {
-            if (!(tab.id in p)) return p;
-            const next = { ...p };
-            delete next[tab.id];
-            return next;
-          });
-        }, 2500);
-      }
-      prevActionsRef.current[tab.id] = cur;
-    }
-    // Audit 2026-08-20: closing a tab left its entries behind in all three
-    // stores forever (and a pending timer could later setState for a tab that
-    // no longer exists). Prune everything keyed by an id that is gone.
-    const liveIds = new Set(tabs.map((t) => t.id));
-    for (const id of Object.keys(prevActionsRef.current)) {
-      if (!liveIds.has(id)) {
-        delete prevActionsRef.current[id];
-        clearTimeout(flashTimersRef.current[id]);
-        delete flashTimersRef.current[id];
-        setActionFlash((p) => {
-          if (!(id in p)) return p;
-          const next = { ...p };
-          delete next[id];
-          return next;
-        });
-      }
-    }
-  }, [tabs]);
-  // Clear all pending flash timers on unmount only.
-  useEffect(() => {
-    const timers = flashTimersRef.current;
-    return () => Object.values(timers).forEach(clearTimeout);
-  }, []);
-
+  /* ── THE PILL NEVER SAYS WHAT THE HERO DID (Dan 2026-11-11, item 5) ──────
+     "The action bar pill is for displaying the hero's cards ONLY. The hero's
+     own action text must never be displayed inside it; it should show where
+     other players' actions show." A transient chip used to flash the hero's
+     last action ("Check", "Call", ...) on the pill for 2.5s after every act,
+     beside the cards. It is deleted with its timers and the last-action
+     plumbing that fed it: the hero's action is printed on the hero's own seat
+     (`.seat__action`, SeatSlot), exactly as every opponent's is.
+     Pinned by tests/live-turn/phone-table-layout.pw.ts and
+     tests/unit/tabBarQuietWhileObserving.test.ts. */
   // ─── Showdown result flash (roadmap batch 1) ──────────────────────────
   // Same rising-edge machinery as the action chips: when a tab's handResult
   // becomes a new non-empty value, pulse the tab green (win) or red (loss)
@@ -822,7 +761,6 @@ export function TableTabBar({
           const isMyTurn = !observing && tab.isMyTurn;
           const isUrgent = isMyTurn && tab.timeRemaining !== undefined && tab.timeRemaining < 10;
           const hasCards = !observing && heroHasCards;
-          const flash = observing ? undefined : actionFlash[tab.id];
           const result = observing ? undefined : resultFlash[tab.id];
           const isMuted = !!mutedIds?.includes(tab.id);
           // Dan 2026-08-21: 5 seconds left on ANY clock at this table - turn,
@@ -983,14 +921,6 @@ export function TableTabBar({
                       tab.stakes && <span className="table-tab-bar__tab-sub">{tab.stakes}</span>
                     ))}
                 </span>
-              )}
-
-              {/* Transient last-action chip ("Fold", "Call", ...). Only ever on
-                  a tab where it is NOT the hero's turn, so it never shares the
-                  pill with the timer bar and never pushes the cards off centre
-                  at the moment Dan is looking at them. */}
-              {flash && !isMyTurn && (
-                <span className="table-tab-bar__action-chip">{ACTION_LABEL[flash] ?? flash}</span>
               )}
 
               {/* ── THE COUNTDOWN BADGE IS GONE (Dan 2026-08-28, item 3) ──────

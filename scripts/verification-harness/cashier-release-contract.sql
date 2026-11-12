@@ -109,6 +109,16 @@ BEGIN
     RAISE EXCEPTION 'cashier club promo journal source migration history drift';
   END IF;
 
+  IF NOT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261112050118'
+       AND name = 'agent_promo_sends_are_capped_at_fifty_chips_per_downline_in_'
+       AND cardinality(statements) = 1
+       AND md5(statements[1]) = '9042963b7c0aedf2e656377cf83c93e5'
+  ) THEN
+    RAISE EXCEPTION 'cashier shared promo limit migration history drift';
+  END IF;
+
   v_contract := jsonb_build_array(
     jsonb_build_object(
       'signature', 'public.fn_club_wallet_claim_back(uuid,uuid,numeric,text,text,text,uuid,uuid)',
@@ -572,7 +582,8 @@ BEGIN
     jsonb_build_object('signature', 'public.fn_admin_remove_chips_core_20261004(uuid,uuid,numeric,text,uuid)',
       'hash', 'ac293c1623da0db62d74f5e888c1011a'),
     jsonb_build_object('signature', 'public.fn_promo_wallet_send_core_20261004(uuid,uuid,numeric,text,text,uuid)',
-      'hash', 'b6b0c7686b67d33e2b01c132f8775cbc'),
+      -- Qualified 20261112050118: shared 50-chip rolling recipient cap.
+      'hash', '7087a67e16f6d7990c28fbb549464bef'),
     jsonb_build_object('signature', 'public.fn_club_promo_send_core_20261004(uuid,uuid,numeric,text,text,uuid)',
       -- Derived from the protected source fixture and exact migration patch;
       -- the previous body omitted the payer's ledger source column.

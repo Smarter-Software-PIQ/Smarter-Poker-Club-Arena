@@ -278,8 +278,8 @@
       "sha256": "0e9661dc97f699f25859a37e182744ae980e0949b0fa6194f82180d9e5b3b7ff"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 145335,
-      "sha256": "09f96b3c61e37df098ad6c12242ba49356fe29f393b5d4c41782f77c8e87d1d1"
+      "bytes": 143430,
+      "sha256": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c"
     },
     "scripts/ci/qualification-input-projections.py": {
       "bytes": 9270,
@@ -2807,6 +2807,18 @@
         "path": "scripts/qualification/ci-accounting-inputs.json",
         "previousSHA256": "495bf6777969db9472ecc03d96ba857b87622c424a60c95fc4df8e98fe88c1c8",
         "currentSHA256": "09f96b3c61e37df098ad6c12242ba49356fe29f393b5d4c41782f77c8e87d1d1"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "aJobTokenCannotStartTrustedWork20261111": {
+    "reason": "Job-token boundary (2026-11-11, owner-authorized): ci.yml's changes job no longer holds actions: write; its superseded-run cancel moved to a separate retire_superseded job that runs only default-branch code. The regenerated projection differs only by that removed step, the changes job's permissions and its comment. No accounting command, assertion, matrix, deadline, admission, historical result or certification changed.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "previousSHA256": "09f96b3c61e37df098ad6c12242ba49356fe29f393b5d4c41782f77c8e87d1d1",
+        "currentSHA256": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c"
       }
     ],
     "historicalEvidenceRestamped": false,

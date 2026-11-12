@@ -37,11 +37,16 @@ on:
     paths:
       - 'infra/monitoring/**'
       - 'server/scripts/install-caddy-websocket-log-redaction.sh'
+      - 'server/scripts/collect-monitoring-health.sh'
       - 'scripts/ci/check-alert-rules-match.mjs'
       - 'scripts/ci/rule-metric-producers.mjs'
       - '.github/workflows/deploy-monitoring.yml'
+  # read-club-arena-monitoring is READ-ONLY: it runs only the
+  # read-controller-heartbeat job below, never deploys, never reloads and
+  # records no verdict. Like the recovery event it runs the default-branch
+  # definition only.
   repository_dispatch:
-    types: [deploy-club-arena-monitoring]
+    types: [deploy-club-arena-monitoring, read-club-arena-monitoring]
 
 # One at a time. Two deploys racing would leave the symlinks half-swapped.
 concurrency:
@@ -50,6 +55,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: ${{ (github.event_name == 'push' || github.event.action == 'deploy-club-arena-monitoring') && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 15
@@ -105,7 +111,7 @@ jobs:
             || { echo '::error::Monitoring request is not contained in protected main.'; exit 1; }
           if [ "$DEPLOY_CONTROL_SHA" != "$MAIN_SHA" ]; then
             git diff --quiet "$DEPLOY_CONTROL_SHA" "$MAIN_SHA" -- \
-              infra/monitoring server/scripts/install-caddy-websocket-log-redaction.sh \
+              infra/monitoring server/scripts/install-caddy-websocket-log-redaction.sh server/scripts/collect-monitoring-health.sh \
               || { echo "::error::A newer protected-main commit changed the monitoring payload; its owning run must deploy it."; exit 1; }
             echo "Protected main advanced to $MAIN_SHA without changing the monitoring payload; this run remains authoritative."
           fi
@@ -296,22 +302,39 @@ jobs:
               || { echo "::error::The live monitoring release is not an ancestor of this request."; exit 1; }
           fi
 
+          # The stable emitter also has an engine-control bootstrap writer.
+          # Authorize its actual bytes from protected ancestry, then compare
+          # them again under their shared source lock before replacement.
+          COLLECTOR_PREVIOUS="$(~/hssh 'sha256sum /usr/local/lib/club-arena/collect-monitoring-health.sh' | cut -d' ' -f1)"
+          [[ "$COLLECTOR_PREVIOUS" =~ ^[0-9a-f]{64}$ ]]
+          COLLECTOR_PREVIOUS="$COLLECTOR_PREVIOUS" python3 - <<'PYCOLLECTOR'
+          import hashlib, os, subprocess
+          path = 'server/scripts/collect-monitoring-health.sh'
+          for revision in subprocess.check_output(['git', 'rev-list', 'HEAD', '--', path], text=True).splitlines():
+              result = subprocess.run(['git', 'show', revision + ':' + path], capture_output=True)
+              if result.returncode == 0 and hashlib.sha256(result.stdout).hexdigest() == os.environ['COLLECTOR_PREVIOUS']:
+                  print('Installed collector is contained in protected ancestry:', revision)
+                  break
+          else:
+              raise SystemExit('Unknown installed collector; refusing to overwrite it.')
+          PYCOLLECTOR
+
           MANIFEST=infra/monitoring/.club-arena-monitoring-payload.sha256
           git ls-tree -r --name-only "$DEPLOY_CONTROL_SHA" -- \
-            infra/monitoring server/scripts/install-caddy-websocket-log-redaction.sh \
+            infra/monitoring server/scripts/install-caddy-websocket-log-redaction.sh server/scripts/collect-monitoring-health.sh \
             | LC_ALL=C sort \
             | while IFS= read -r path; do sha256sum "$path"; done > "$MANIFEST"
           test -s "$MANIFEST"
           PAYLOAD_SHA="$(sha256sum "$MANIFEST" | cut -d' ' -f1)"
-          printf 'schema=club-arena-monitoring-release-v1\nsha=%s\nprevious=%s\npayload=%s\n' \
-            "$DEPLOY_CONTROL_SHA" "$LIVE_SHA" "$PAYLOAD_SHA" > infra/monitoring/.deployed-from
+          printf 'schema=club-arena-monitoring-release-v1\nsha=%s\nprevious=%s\npayload=%s\ncollector_previous=%s\n' \
+            "$DEPLOY_CONTROL_SHA" "$LIVE_SHA" "$PAYLOAD_SHA" "$COLLECTOR_PREVIOUS" > infra/monitoring/.deployed-from
           # Staged, then copied IN PLACE. docker-compose.yml bind-mounts the
           # rule files one by one, and a bind mount of a file follows the
           # inode: a file that is unlinked and recreated (tar's default) is a
           # file the running container never sees again until it restarts.
           # `cp` opens the existing file and truncates it, so the inode - and
           # the mount - survive, and the reload in deploy.sh reads new bytes.
-          tar -C . -cf - infra/monitoring server/scripts/install-caddy-websocket-log-redaction.sh \
+          tar -C . -cf - infra/monitoring server/scripts/install-caddy-websocket-log-redaction.sh server/scripts/collect-monitoring-health.sh \
             | ~/hssh "rm -rf /opt/smarter-poker-monitoring-src.incoming && mkdir -p /opt/smarter-poker-monitoring-src.incoming && tar -C /opt/smarter-poker-monitoring-src.incoming -xf -"
           ~/hssh "mkdir -p /opt/smarter-poker-monitoring-src/infra/monitoring \
             /opt/smarter-poker-monitoring-src/server/scripts \
@@ -319,6 +342,7 @@ jobs:
             && rm -f -- /opt/smarter-poker-monitoring-src/infra/monitoring/supervisor-rules.yml \
             && cp /opt/smarter-poker-monitoring-src.incoming/server/scripts/install-caddy-websocket-log-redaction.sh /opt/smarter-poker-monitoring-src/server/scripts/ \
             && chmod +x /opt/smarter-poker-monitoring-src/server/scripts/install-caddy-websocket-log-redaction.sh \
+            && cp /opt/smarter-poker-monitoring-src.incoming/server/scripts/collect-monitoring-health.sh /opt/smarter-poker-monitoring-src/server/scripts/ \
             && rm -rf /opt/smarter-poker-monitoring-src.incoming \
             && test -f /opt/smarter-poker-monitoring-src/infra/monitoring/prometheus.yml \
             && test -x /opt/smarter-poker-monitoring-src/server/scripts/install-caddy-websocket-log-redaction.sh \
@@ -372,7 +396,7 @@ jobs:
   # failed, cancelled or skipped deploy admits its own verdict.
   monitoring-deploy-verdict:
     needs: deploy
-    if: ${{ always() }}
+    if: ${{ always() && (github.event_name == 'push' || github.event.action == 'deploy-club-arena-monitoring') && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}
     name: This monitoring deploy admits its own verdict to the operational inbox
     runs-on: ubuntu-latest
     environment: ci-main
@@ -407,3 +431,70 @@ jobs:
           LANES: |
             ${{ needs.deploy.result }}|deploy
         run: node scripts/ci/record-post-deploy-verdict.mjs
+
+  # WHAT PROMETHEUS ITSELF SAYS ABOUT THE RELIABILITY CONTROLLER (2026-11-11).
+  # ReliabilityControllerStale was proven by promtool fixtures and by the
+  # series being present, but no supported route read the live series value
+  # or the rule's health inside Prometheus (CHECKLIST.md section 13). This
+  # job is that route: started by the read-club-arena-monitoring repository
+  # event (default branch only; the ci-main environment admits main alone),
+  # it runs fixed GET queries against
+  # Prometheus on the box over the same pinned deploy key and prints the
+  # answers. It changes nothing: no file, no reload, no deploy, no inbox row.
+  read-controller-heartbeat:
+    if: ${{ github.event_name == 'repository_dispatch' && github.event.action == 'read-club-arena-monitoring' && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}
+    name: Read the Reliability Controller heartbeat and its rules from Prometheus (read-only)
+    runs-on: ubuntu-latest
+    environment: ci-main
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      SSH_USER: root
+      HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+    steps:
+      - name: Setup SSH key
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+          SSH_HOST_KEY: ${{ secrets.HETZNER_HOST_KEY }}
+        run: |
+          set -euo pipefail
+          [[ "$HETZNER_HOST" =~ ^[A-Za-z0-9.-]+$ ]] \
+            || { echo "::error::HETZNER_HOST is empty or malformed."; exit 1; }
+          [ -n "$SSH_KEY" ] && [ -n "$SSH_HOST_KEY" ] \
+            || { echo "::error::Hetzner SSH credentials are incomplete."; exit 1; }
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
+          ssh-keygen -y -f ~/.ssh/id_deploy > /dev/null \
+            || { echo "::error::The Hetzner deploy key is not a valid private key."; exit 1; }
+          printf '%s\n' "$SSH_HOST_KEY" > ~/.ssh/hetzner_known_hosts
+          ssh-keygen -l -f ~/.ssh/hetzner_known_hosts > /dev/null \
+            || { echo "::error::HETZNER_HOST_KEY is not a valid pinned host key."; exit 1; }
+          printf '#!/bin/bash\nexec ssh -i "$HOME/.ssh/id_deploy" -o "UserKnownHostsFile=$HOME/.ssh/hetzner_known_hosts" -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 "%s@%s" "$@"\n' \
+            "$SSH_USER" "$HETZNER_HOST" > ~/hssh
+          chmod 700 ~/hssh
+
+      - name: Read the heartbeat series and the reliability-controller rules
+        run: |
+          set -euo pipefail
+          # Fixed expressions only; nothing from the event reaches the box.
+          query() {
+            ~/hssh "curl -sfG --max-time 20 http://localhost:9090/api/v1/query --data-urlencode 'query=$1'" \
+              | jq -c --arg q "$1" '{query: $q, status, result: [.data.result[] | {metric, value}]}'
+          }
+          query 'max(reliability_controller_heartbeat_age_seconds)'
+          query 'time() - max(reliability_controller_heartbeat_timestamp_seconds)'
+          query 'time() - max(poker_health_collected_timestamp_seconds)'
+          query 'max(reliability_controller_heartbeat_timestamp_seconds)'
+          query 'ALERTS{component="reliability-controller"}'
+          ~/hssh "curl -sf --max-time 20 http://localhost:9090/api/v1/rules" \
+            | jq -c '.data.groups[] | select(.name == "reliability-controller") | .rules[]
+                     | {name, health, state, lastError, lastEvaluation, evaluationTime, alerts: (.alerts | length)}'
+          ~/hssh "date -u +%Y-%m-%dT%H:%M:%SZ"
+
+      - name: Remove Hetzner SSH credentials
+        if: always()
+        run: |
+          set -euo pipefail
+          rm -f -- "$HOME/.ssh/id_deploy" "$HOME/.ssh/hetzner_known_hosts" "$HOME/hssh"

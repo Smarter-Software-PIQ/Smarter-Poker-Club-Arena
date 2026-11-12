@@ -278,8 +278,12 @@ curl() { echo '${JSON.stringify({ running: true, releaseSha: sha, instanceId: sc
       expect(backup.jobs.plan.steps.find((s: any) => s.id === 'plan').env.GH_TOKEN).toBe(
         '${{ github.token }}'
       );
-      expect(backup.jobs.refresh.if).toBe("needs.plan.outputs.sha != ''");
-      expect(backup.jobs.certify.if).toBe("always() && needs.plan.outputs.sha != ''");
+      expect(backup.jobs.refresh.if).toBe(
+        "needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
+      );
+      expect(backup.jobs.certify.if).toBe(
+        "always() && needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
+      );
     });
     it('skips when a newer push run exists: empty sha, no status, exit 0', () => {
       const result = planShell(
@@ -866,13 +870,18 @@ ${Object.entries(states)
       parse(read('.github/workflows/post-deploy-e2e.yml')).on.repository_dispatch.types
     ).not.toContain('refresh-sealed-engine-backup');
     expect(backup.jobs.plan.if).toContain("github.event.client_payload.release_run_key != ''");
-    const sender = receiver.jobs['certify-production'].steps[0].run;
-    expect(sender).toContain('client_payload[release_run_key]=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT');
+    // The sender records the exact intent first (scripts/ci/dispatch-intent.mjs).
+    const sender = receiver.jobs['certify-production'].steps
+      .map((s: any) => String(s.run ?? ''))
+      .join('\n');
+    expect(sender).toContain('--input "release_run_key=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"');
     expect(sender).toContain('Backup after seal $GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT');
     const plan = backup.jobs.plan.steps.find((s: any) => s.id === 'plan').run;
     expect(plan).toContain('sha="$SEALED_SHA"');
     expect(plan).toContain('refresh=force');
-    expect(backup.jobs.certify.if).toBe("always() && needs.plan.outputs.sha != ''");
+    expect(backup.jobs.certify.if).toBe(
+      "always() && needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
+    );
     const certify = backup.jobs.certify.steps.find((s: any) => s.id === 'certify');
     expect(certify.env.REFRESH_RESULT).toBe('${{ needs.refresh.result }}');
     expect(certify.run.indexOf('if [ "$REFRESH_RESULT" != success ]; then')).toBeLessThan(

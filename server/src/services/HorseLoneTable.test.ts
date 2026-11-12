@@ -131,6 +131,19 @@ describe('THE STAND RULE: a lone horse leaves a dead table', () => {
     expect(loneStandVerdict(lone({ minutesSinceLastHand: 4 }))).toBe('hand_dealt_recently');
   });
 
+  it('a human left inside the 20-30 minute dwell -> stays (Dan 2026-11-11: no break right after a departure)', () => {
+    expect(loneStandVerdict(lone({ minutesSinceHumanLeft: 5 }))).toBe('human_recently_left');
+    expect(loneStandVerdict(lone({ minutesSinceHumanLeft: 29.5 }))).toBe('human_recently_left');
+    expect(loneStandVerdict(lone({ minutesSinceHumanLeft: 19, humanLeftDwellMinutes: 20 }))).toBe(
+      'human_recently_left'
+    );
+    expect(loneStandVerdict(lone({ minutesSinceHumanLeft: 21, humanLeftDwellMinutes: 20 }))).toBe(
+      'stand'
+    );
+    expect(loneStandVerdict(lone({ minutesSinceHumanLeft: 31 }))).toBe('stand');
+    expect(loneStandVerdict(lone({ minutesSinceHumanLeft: null }))).toBe('stand');
+  });
+
   it('lone with a human seated -> stays (the horse is their opponent)', () => {
     // With a person at the table the horse is not alone at all...
     expect(loneStandVerdict(lone({ seatedCount: 2, humanPresent: true }))).toBe('not_alone');
@@ -215,7 +228,7 @@ describe('THE WIRING (source contract)', () => {
     expect(ROTATOR).toMatch(/loneStands=\$\{this\.lastLoneStands\}/);
     // The seat read carries the table's created_at for the opening grace.
     expect(ROTATOR).toMatch(
-      /main_index, lifecycle, created_at, max_players, min_buy_in, max_buy_in, club_id, union_id, arena:clubs!fk_tables_club_id\(id, asset, is_platform, union_id\)\)'/
+      /main_index, lifecycle, last_human_seen_at, created_at, max_players, min_buy_in, max_buy_in, club_id, union_id, arena:clubs!fk_tables_club_id\(id, asset, is_platform, union_id\)\)'/
     );
   });
 });

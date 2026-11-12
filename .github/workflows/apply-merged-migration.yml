@@ -28,6 +28,7 @@
 # nothing. THE READER is the person who dispatches it: the run's own conclusion
 # is the answer, and the job summary states it.
 name: Apply Merged Migration
+run-name: Apply Merged Migration ${{ inputs.migration || github.event.client_payload.migration }}${{ github.event.client_payload.intent_nonce && format(' {0}', github.event.client_payload.intent_nonce) || '' }}
 
 on:
   workflow_dispatch:
@@ -112,9 +113,11 @@ concurrency:
 permissions:
   contents: read
   actions: read
+  pull-requests: read
 
 jobs:
   apply:
+    if: ((github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') || (github.event_name == 'repository_dispatch' && github.event.action == 'apply-merged-migration')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Apply ${{ inputs.migration || github.event.client_payload.migration }}
     runs-on: ubuntu-latest
     environment: ci-main
@@ -123,6 +126,15 @@ jobs:
     # tests/unit/aMergedMigrationIsInstallable.test.ts.
     timeout-minutes: 35
     steps:
+      - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver apply-merged-migration
       - uses: actions/checkout@v4
 
       - name: Use the production Node major
