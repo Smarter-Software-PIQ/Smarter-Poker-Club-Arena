@@ -724,6 +724,18 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
       allInRunoutWitness: this.handController?.getAllInRunoutWitness?.() ?? null,
     };
 
+    /* THE HAND'S CONTROLLER IS HELD FOR THE WHOLE SETTLEMENT (2026-11-12,
+       SWEEP-001, same class as HVH2D-EXE-002). Two critical insurance alerts
+       below are awaited. If one fires, the dealing listener can clear
+       `this.handController` while this method is suspended, and everything
+       after it that read the live field went quiet: the insurance stack
+       deltas were not applied to the hand's state and the seven-deuce bounty
+       block was skipped entirely, so the bounty was not paid. The reference
+       is taken once, here, before any await, and every later read in this
+       method uses it. A law test forbids a read of the live field after
+       this line. */
+    const settlingHand = this.handController;
+
     // SETTLEMENT STEP 1: Lock table (actionLock prevents new actions)
     // Already enforced — handController completes hand, no more actions accepted
     // Phase X5 (2026-04-28): emit explicit table_locked event so the
@@ -774,11 +786,11 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     // dealt interleaved from one deck, so `remainingDeck.slice(0, 5)` is not
     // "what board 1 would have run" — it is noise the player would be charged
     // five diamonds for, and there are two or three boards it could belong to.
-    const multiBoardBomb = this.handController?.isDoubleBoardActive?.() ?? false;
-    if (this.handController && !ranItTwice && !multiBoardBomb) {
+    const multiBoardBomb = settlingHand?.isDoubleBoardActive?.() ?? false;
+    if (settlingHand && !ranItTwice && !multiBoardBomb) {
       try {
-        const state = this.handController.getState();
-        const remainingDeck = this.handController.getRemainingDeck();
+        const state = settlingHand.getState();
+        const remainingDeck = settlingHand.getRemainingDeck();
         // A local, not an instance field. This was `this.currentHandRabbitCards`,
         // which nothing else read — and because the SAME array reference is
         // stored into the offer below, the only thing keeping the previous
@@ -867,8 +879,8 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     if (totalDeductions > 0) {
       this.stateVerifier.deductRake(this.tableId, totalDeductions);
     }
-    if (this.handController) {
-      const finalState = this.handController.getState();
+    if (settlingHand) {
+      const finalState = settlingHand.getState();
       const verifyResult = this.stateVerifier.verify({
         tableId: this.tableId,
         handNumber: this.handCount,
@@ -892,8 +904,8 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     // FIX 150: Wire AtomicStackService — settle final stacks through atomic layer
     // Computes delta (final stack - initial stack tracked by version service) for each player
     // so version tracking stays in sync and race conditions with concurrent rebuy/cashout are prevented.
-    if (this.handController) {
-      const finalState = this.handController.getState();
+    if (settlingHand) {
+      const finalState = settlingHand.getState();
       const settlements: StackSettlement[] = [];
       for (const p of finalState.players) {
         const initial = this.atomicStackService.getStackWithVersion(this.tableId, p.user_id);
@@ -978,8 +990,8 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
         const seatedPlayer = this.seatedPlayers.find((p) => p.user_id === settlement.playerId);
         // Read-only: used solely as a stack fallback for the shortfall alert
         // below when the player has no seat row. Never mutated.
-        const enginePlayer = this.handController
-          ? this.handController.getState().players.find((p) => p.user_id === settlement.playerId)
+        const enginePlayer = settlingHand
+          ? settlingHand.getState().players.find((p) => p.user_id === settlement.playerId)
           : null;
 
         if (settlement.payout > 0) {
@@ -1097,7 +1109,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
       }
 
       if (insuranceDeltas.size > 0) {
-        this.handController?.applyStackDeltas(insuranceDeltas);
+        settlingHand?.applyStackDeltas(insuranceDeltas);
         /* AND SAY SO (2026-09-09). The client flies the payout to the seat
            and toasts "Insurance Paid You N" off INSURANCE_SETTLED, and the
            stack number underneath it did not move until the NEXT hand's
@@ -1136,14 +1148,14 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
       sevenDeuceIsNlh &&
       this.tableInfo &&
       this.currentHandWinners.length > 0 &&
-      this.handController
+      settlingHand
     ) {
       const bb = this.tableInfo.big_blind || 0;
       const bbMultiple = Number((this.tableInfo as any)?.seven_deuce_amount ?? 2) || 2;
       const bountyPerPayer = Math.round(bb * bbMultiple * 100) / 100;
 
       if (bountyPerPayer > 0) {
-        const sdState = this.handController.getState();
+        const sdState = settlingHand.getState();
         const sdDealtIn = players.map((p) => {
           const enginePlayer = sdState.players.find((ep) => ep.user_id === p.user_id);
           const seatedPlayer = this.seatedPlayers.find((sp) => sp.user_id === p.user_id);
@@ -1244,7 +1256,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
         // Move the engine's own stacks BEFORE the re-broadcast: broadcastCurrentState()
         // reads handController.getState(), so without this the "bounty-adjusted"
         // snapshot below went out with the pre-bounty numbers.
-        if (bountyDeltas.size > 0) this.handController?.applyStackDeltas(bountyDeltas);
+        if (bountyDeltas.size > 0) settlingHand?.applyStackDeltas(bountyDeltas);
 
         // Re-broadcast so clients see the bounty-adjusted stacks immediately
         // (the WINNERS snapshot went out before these transfers were applied).
