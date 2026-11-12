@@ -1,7 +1,16 @@
 // PREPARED ONLY. Select in services/ of the complete candidate source root.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-const transport = vi.hoisted(() => ({ rpc: vi.fn(), report: vi.fn() }));
-vi.mock('./supabase/client.js', () => ({ supabase: { rpc: transport.rpc } }));
+const transport = vi.hoisted(() => ({ rpc: vi.fn(), report: vi.fn(), registration: vi.fn() }));
+// Every cell these loads serve carries a valid range-provenance declaration
+// (GtoPostflopV31RangeProvenance.test.ts covers the refusals).
+vi.mock('./supabase/client.js', () => ({
+  supabase: {
+    rpc: transport.rpc,
+    from: () => ({
+      select: () => ({ eq: () => ({ maybeSingle: transport.registration }) }),
+    }),
+  },
+}));
 vi.mock('./errorReporter.js', () => ({ reportError: transport.report }));
 import {
   loadGtoPostflopV31,
@@ -18,12 +27,23 @@ import {
   replaceGtoPostflopV31,
   replaceGtoPostflopV31Evaluation,
 } from '../engine/GtoPostflopV31.js';
-import { CELL, evaluationCell, pagedCells } from './V31LoaderFixture.js';
+import { CELL, evaluationCell, pagedCells, rangeProvenanceFor } from './V31LoaderFixture.js';
 import { fixture as public215Fixture } from '../engine/__tests__/public215Fixture.js';
 
 beforeEach(() => {
   transport.rpc.mockReset();
   transport.report.mockReset();
+  transport.registration.mockReset();
+  transport.registration.mockResolvedValue({
+    data: {
+      cell_provenance: rangeProvenanceFor([
+        ...pagedCells(501),
+        public215Fixture(),
+        public215Fixture(40),
+      ]),
+    },
+    error: null,
+  });
   vi.spyOn(console, 'log').mockImplementation(() => undefined);
   vi.spyOn(console, 'warn').mockImplementation(() => undefined);
   _clearGtoPostflopV31();

@@ -2,8 +2,17 @@
 // engine commit holding an open serving binding; anything else is the empty
 // store, and two datasets are never held side by side.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-const transport = vi.hoisted(() => ({ rpc: vi.fn(), report: vi.fn() }));
-vi.mock('./supabase/client.js', () => ({ supabase: { rpc: transport.rpc } }));
+const transport = vi.hoisted(() => ({ rpc: vi.fn(), report: vi.fn(), registration: vi.fn() }));
+// Every cell these loads serve carries a valid range-provenance declaration
+// (GtoPostflopV31RangeProvenance.test.ts covers the refusals).
+vi.mock('./supabase/client.js', () => ({
+  supabase: {
+    rpc: transport.rpc,
+    from: () => ({
+      select: () => ({ eq: () => ({ maybeSingle: transport.registration }) }),
+    }),
+  },
+}));
 vi.mock('./errorReporter.js', () => ({ reportError: transport.report }));
 import {
   _resetGtoV31ServingBinding,
@@ -17,7 +26,7 @@ import {
   gtoPostflopV31Dataset,
   replaceGtoPostflopV31,
 } from '../engine/GtoPostflopV31.js';
-import { CELL } from './V31LoaderFixture.js';
+import { CELL, rangeProvenanceFor } from './V31LoaderFixture.js';
 
 const SERVING = 'b'.repeat(40);
 const A = { dataset_id: CELL.dataset_id, dataset_checksum: CELL.dataset_checksum };
@@ -31,6 +40,11 @@ const names = () => transport.rpc.mock.calls.map(([name]) => name);
 beforeEach(() => {
   transport.rpc.mockReset();
   transport.report.mockReset();
+  transport.registration.mockReset();
+  transport.registration.mockResolvedValue({
+    data: { cell_provenance: rangeProvenanceFor([CELL]) },
+    error: null,
+  });
   vi.spyOn(console, 'log').mockImplementation(() => undefined);
   vi.spyOn(console, 'warn').mockImplementation(() => undefined);
   _clearGtoPostflopV31();

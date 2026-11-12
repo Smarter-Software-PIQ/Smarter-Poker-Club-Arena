@@ -33,6 +33,7 @@ import {
   gtoPostflopV31Count,
   gtoPostflopV31Dataset,
   gtoPostflopV31EvaluationCount,
+  gtoPostflopV31RangeRefusals,
   type GtoV31RuntimeRow,
   type GtoV31SourceSeal,
   gtoV31FeatureContractVersion,
@@ -120,6 +121,30 @@ function readV31CellPage(data: unknown, expectedDatasetId?: string): GtoV31Runti
   }) as GtoV31RuntimeRow[];
 }
 
+/**
+ * RANGE PROVENANCE (2026-11-12). The registration of the dataset's round
+ * declares, per cell, how its ranges were built (gto_v31_round_registrations.
+ * cell_provenance). It is read once per load, never per decision. Any failure
+ * to read it - the column or table not installed, no registration, a
+ * transport error - yields null, and the store refuses every cell: a cell
+ * whose range assumption is unstated is never served.
+ */
+async function readRangeProvenance(datasetKey: unknown): Promise<unknown> {
+  if (typeof datasetKey !== 'string' || datasetKey === '') return null;
+  try {
+    const { data, error } = await supabase
+      .from('gto_v31_round_registrations')
+      .select('cell_provenance')
+      .eq('dataset_key', datasetKey)
+      .maybeSingle();
+    if (error || !data) return null;
+    return (data as { cell_provenance?: unknown }).cell_provenance ?? null;
+  } catch {
+    return null;
+  }
+}
+let rangeRefusalLoggedFor: string | null = null;
+
 async function loadGtoPostflopV31Attempt(): Promise<{ ok: boolean; count: number }> {
   const generation = ++activeLoadGeneration;
   const gate = servingGate;
@@ -204,10 +229,19 @@ async function loadGtoPostflopV31Attempt(): Promise<{ ok: boolean; count: number
         return { ok: true, count: cleared };
       }
     }
+    const rangeProvenance = rows.length > 0 ? await readRangeProvenance(rows[0].dataset_key) : null;
     const applied = await replaceGtoPostflopV31Async(
       rows,
-      () => generation === activeLoadGeneration
+      () => generation === activeLoadGeneration,
+      rangeProvenance
     );
+    const refused = gtoPostflopV31RangeRefusals();
+    if (Object.keys(refused).length > 0 && rangeRefusalLoggedFor !== rows[0]?.dataset_checksum) {
+      rangeRefusalLoggedFor = rows[0]?.dataset_checksum ?? null;
+      console.warn(
+        `[GtoPostflopV31Loader] V31_RANGE_PROVENANCE_REFUSED: dataset ${rows[0]?.dataset_id ?? 'unknown'} serves ${applied} of ${rows.length} cells; refused ${JSON.stringify(refused)}`
+      );
+    }
     console.log(
       `[GtoPostflopV31Loader] ${applied} certified solver cells loaded (${gtoPostflopV31Count()} in the store)`
     );
