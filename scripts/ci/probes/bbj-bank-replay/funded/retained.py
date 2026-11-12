@@ -7,6 +7,7 @@ review override, or public execution entry point.
 """
 from contextlib import contextmanager
 import hashlib
+import copy
 import json
 from pathlib import Path
 import re
@@ -69,6 +70,31 @@ def literal_installer_transport(source):
     return frame
 
 
+def current_relation_envelope(value):
+    """Compare user options while retaining PG17.12 internal versions in raw evidence.
+
+    PostgreSQL17.12 catalogs.sgml/pg_attribute.h document pg_attver as an
+    internal uint64 option, not a user-settable storage option. Nothing else
+    is projected away from the original strict relation comparator.
+    """
+    require(type(value) is dict and type(value.get('attributes')) is list,
+            'Complete current relation envelope required')
+    result = copy.deepcopy(value)
+    for attribute in result['attributes']:
+        require(type(attribute) is dict and 'options' in attribute,
+                'Complete current attribute options required')
+        options = attribute['options']
+        if options is None:
+            continue
+        require(type(options) is list and len(options) == 1 and type(options[0]) is str,
+                'Unexpected current attribute options')
+        match = re.fullmatch(r'pg_attver=([1-9][0-9]*)', options[0])
+        require(match is not None and int(match.group(1)) <= 18446744073709551615,
+                'Unexpected current attribute version option')
+        attribute['options'] = None
+    return result
+
+
 class RetainedModules:
     def __init__(self, custody, operation, selected):
         self.custody, self.operation, self.selected = custody, operation, selected
@@ -120,6 +146,7 @@ class RetainedModules:
         self.supplement = self.load('supplement/supplemental.py', replacements=((
             "log['audit_plan']=A.planned_events(models,choice)",
             "log['audit_plan']=plan_complete_preimage(models,choice)"),))
+        self.supplement.current_relation_envelope = current_relation_envelope
         self.supplement.plan_complete_preimage = self.plan_complete_preimage
         self.supplement.Q = self.load('supplement/queries.py')
         self.supplement.A = self.load('supplement/audit_contract.py')
@@ -253,6 +280,9 @@ class RetainedModules:
             text = text.replace(before, after)
             self.source_changes.append({'source': source_id, 'before': before, 'after': after,
                                         'occurrences': runtime_seams[source_id]})
+        if self.operation is not None and source_id == 'supplement/supplemental.py':
+            replacements = tuple(replacements) + (("exact(got.get('envelope'),expected_envelope(wanted))",
+                "exact(current_relation_envelope(got.get('envelope')),expected_envelope(wanted))"),)
         for before, after in replacements:
             require(text.count(before) == 1, 'Exact legacy path-read replacement differs')
             text = text.replace(before, after, 1)

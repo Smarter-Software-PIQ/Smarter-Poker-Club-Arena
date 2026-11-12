@@ -41,3 +41,11 @@ module loader declares the finite17.11-to17.12 boundary adaptations; original
 source packets, historical transforms and model-only17.11 checks remain sealed.
 This changes no production PostgreSQL package, financial assertion or release
 control. Hosted native execution remains required for the corrected candidate.
+
+Hosted follow-up found two remaining17.11 SQL endpoint guards and the new
+17.12 internal attribute-version option. Update both current SQL assertions and
+their pins. At the existing BBJ expected-envelope comparison only, validate and
+project the single canonical internal pg_attver uint64 option; raw catalogs and
+raw before/after comparisons remain unchanged. Unknown, mixed, duplicate and
+malformed options still refuse qualification. The actual failed17.12 capture
+passes the corrected comparator; this is replay evidence, not a new native run.

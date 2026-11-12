@@ -89,7 +89,7 @@
     "readback": {
       "path": "scripts/ci/probes/class4-hand-outcome/readback.sql",
       "bytes": 2532,
-      "sha256": "a59d6c4d9d1feec6d8f8b8c488f8d48f674a305e2aeb7ca37f6615c0ee6d7d23"
+      "sha256": "9ccb421b3d9b734901d088273cb60c1b83a5d4c89da69bbb219b1643a2dfbe78"
     },
     "class4_component": {
       "path": "supabase/components/class4-hand-outcome-evidence.sql",
@@ -134,7 +134,7 @@
     "resource_prepare": {
       "path": "scripts/ci/probes/class4-hand-outcome/resource-prepare.sql",
       "bytes": 7290,
-      "sha256": "3c86de3dc778f92e1be907b76d484920ebd9e667ce2908cf14849ae5594b481e"
+      "sha256": "81b476a14ec9acc1bfa481b0af7b3abff5c4d5dd6323932c2021e646d2693080"
     },
     "resource_measure": {
       "path": "scripts/ci/probes/class4-hand-outcome/resource-measure.sql",
