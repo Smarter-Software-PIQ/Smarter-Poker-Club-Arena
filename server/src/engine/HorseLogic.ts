@@ -14796,6 +14796,13 @@ export class HorseLogic {
     // Hi-Lo, bomb pots and multiple boards keep the pricing below (the
     // dominated-flush and raised-river folds of hands 45855223 and the
     // weak-flush recovery suite are exactly those exclusions).
+    // 2026-11-12: so does a street on which an opponent's wager was itself
+    // raised (pressure20 above zero). With hero not having bet, that only
+    // happens when the pot was multiway as the money went in and a player
+    // folded since: bet, raise, hero's cold call, a jam, then the raiser's
+    // fold left one opponent, and the first version called a one-pair stack
+    // off there, overriding the V20 multiway commitment floor. The wager
+    // hero faces has to be the street's only opponent aggression.
     let honor88 = false;
     if (
       (opts.v88CommitmentHonored ?? true) !== false &&
@@ -14811,6 +14818,7 @@ export class HorseLogic {
       potOdds <= V88_COMMITMENT_MAX_PRICE &&
       oppCount === 1 &&
       !raisedAfterAggr &&
+      pressure20 === 0 &&
       cat >= 2 &&
       (cat <= 4 || nutClass15) &&
       !dominated21 &&
