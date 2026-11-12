@@ -9737,6 +9737,7 @@ export class HorseLogic {
     const evIndifference = (): HorseEvIndifferenceContext | undefined =>
       params.evIndifference && {
         ...params.evIndifference,
+        telemetry: telemetryOn(opts),
         handKey: planHandKey ?? undefined,
         bubbleFactor:
           params.evIndifference.mode === 'tournament'
@@ -9949,6 +9950,7 @@ export class HorseLogic {
               holeCount: player.cards.length,
               multiwayCount: oppCount,
             });
+            if (tele15) noteFire('upgrade01_action_line_posterior');
             return post;
           })()
         : null;
@@ -10438,6 +10440,7 @@ export class HorseLogic {
           publicTimingWetness * 0.4 + streetDepth + priceStress + (multiBoard36 ? 0.2 : 0)
         );
         difficultyHint = publicComplexity;
+        if (tele15) noteFire('upgrade06_public_timing_hint');
       } else {
         difficultyHint = privateClose;
       }
@@ -11380,6 +11383,7 @@ export class HorseLogic {
           : 'foldToRaise';
 
     const cardRemoval86 = useV86Postflop ? scoreCardRemoval(player.cards, board, vi) : null;
+    if (tele15 && cardRemoval86) noteFire('upgrade02_card_removal_scored');
     const isNutted86 = vi.isOmaha ? nutClass15 : cat >= 5 && !dominated21;
     const archetype86 =
       !ip && isNutted86 && initiative !== 'hero'

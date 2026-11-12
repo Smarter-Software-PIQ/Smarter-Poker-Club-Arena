@@ -2650,6 +2650,58 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'the PLO8 low-draw and counterfeit outlook graded the read and classified no card',
     '2026-11-05'
   ),
+  // Upgrade evidence (2026-11-12): one counter on each enabled upgrade's own
+  // path, so "enabled" is provable from the serving release
+  // (HORSE_UPGRADE_LIVE_EVIDENCE, HorseUpgradeLiveEvidence.law.test.ts).
+  // Evidence only; each depends on table mix and none is a health ratio.
+  receipt(
+    'upgrade01_*',
+    'HorseLogic postflop (computeActionLinePosterior)',
+    'a telemetry-on postflop decision computed the public action-line posterior',
+    '2026-11-12'
+  ),
+  receipt(
+    'upgrade02_*',
+    'HorseLogic postflop (scoreCardRemoval)',
+    'a telemetry-on postflop decision scored its blockers',
+    '2026-11-12'
+  ),
+  receipt(
+    'upgrade04_*',
+    'HorseEval buildOmahaReservoir',
+    'an Omaha preflop reservoir was built; once per process and reservoir, so a handful per release; named *_seen (occurrence, not a layer)',
+    '2026-11-12'
+  ),
+  receipt(
+    'upgrade06_*',
+    'HorseLogic think-time hint',
+    'the think-time difficulty hint came from public complexity',
+    '2026-11-12'
+  ),
+  receipt(
+    'upgrade08_*',
+    'ServerTableEngineRunout; ServerTableEngineTurns; LightningHorse',
+    'a run-it-twice answer was scheduled or an insurance answer was sent, or kill-pot or seven-deuce context reached a decision request; named *_seen (occurrence, not a layer); silent where no table offers the side game',
+    '2026-11-12'
+  ),
+  receipt(
+    'upgrade09_*',
+    'ServerTableEngineTurns; LightningHandHost',
+    'a stale pre-action on a Horse seat was cleared at its live turn; named *_seen (occurrence, not a layer); rare by design',
+    '2026-11-12'
+  ),
+  receipt(
+    'upgrade10_*',
+    'HorseOpponentExploit',
+    'the fast recency window switched a read on, or a gear shift engaged; counts read computations, not decisions',
+    '2026-11-12'
+  ),
+  receipt(
+    'upgrade11_*',
+    'HorseEvEngine evaluateSpot and riverCallVerdict',
+    'the persona indifference band was asked about a real choice, and whether the pick differed from the best',
+    '2026-11-12'
+  ),
   receipt(
     'closed_table_hand_memory_released',
     'ServerTableEngineBase (#9351)',

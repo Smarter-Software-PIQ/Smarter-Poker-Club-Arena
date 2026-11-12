@@ -1703,7 +1703,10 @@ export class LightningHandHost {
       if (serverOwnedHorse) {
         const stale = this.preActions.getPreAction(this.timerKey, userId)?.action;
         this.preActions.clearPreAction(this.timerKey, userId);
-        if (stale) this.notePreAction(userId, 'cleared', stale, 'horse_live_turn');
+        if (stale) {
+          this.notePreAction(userId, 'cleared', stale, 'horse_live_turn');
+          noteFire('upgrade09_preaction_purge_lightning_seen');
+        }
       } else {
         // The seat lights up for a readable beat (the engine's 250 ms), then the
         // pre-action lands - armed for THIS hand only.
