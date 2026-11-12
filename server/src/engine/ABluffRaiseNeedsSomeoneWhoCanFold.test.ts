@@ -9,16 +9,19 @@
  * folded it, for an unrelated and wrong reason (a mispriced rebuy). With that
  * pricing corrected the call-off would have stood.
  *
- * The 3-bet bluff branch now requires that hero can raise (the price to call
- * is less than hero's stack) and that somebody is left to fold (the lone
- * raiser is not already all in). The condition is tested after the draw, so
- * the random stream of every other decision is unchanged.
+ * A bluff 3-bet or squeeze now requires that the hero can raise (the price to
+ * call is less than the hero's stack) and that at least one opponent still in
+ * the hand has chips, so somebody can fold. Raising over a short all-in to
+ * fold the players behind, or to build a side pot against a caller with
+ * chips, is unchanged. The condition is tested after the draw, so the random
+ * stream of every other decision is unchanged.
  *
  * The request is the anonymised decision-time body from the production
  * journal, replayed from the generator state the journal recorded.
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import { HorseLogic, type HorseGameStateV2 } from './HorseLogic.js';
+import { HorseLogic, everyLiveOpponentIsAllIn, type HorseGameStateV2 } from './HorseLogic.js';
+import { bluffRaiseCanFoldSomeone } from './HorsePreflop.js';
 import { HorseMind } from './HorseMind.js';
 import { restoreFastRandom } from './HorseEval.js';
 import type { SeatPlayer } from '../types.js';
@@ -68,5 +71,72 @@ describe('a bluff raise needs someone who can fold (HVH2D-TRN-001 row 8)', () =>
     expect(decision.preflopAuthority?.events.map((e) => e.branch)).not.toContain('three_bet_bluff');
     expect(decision.preflopAuthority?.referenceAction).toBe('fold');
     expect(decision.action).toBe('fold');
+  });
+});
+
+describe('the hero has more chips than the all-in, and nobody else is in', () => {
+  afterEach(() => HorseMind.reset());
+
+  it('does not re-raise as a bluff over a lone all-in that nobody else can fold to', () => {
+    // 120 big blinds against the same 61 big blind all-in: a raise is now
+    // legal, but the only opponent is all in. Before the correction this
+    // returned the bluff raise.
+    const decision = decide((gs, player) => {
+      gs.players.find((p) => p.seat === player.seat)!.stack = 6_000;
+      player.stack = 6_000;
+      gs.legalActions = ['fold', 'call', 'raise', 'all_in'];
+    });
+    expect(decision.preflopAuthority?.events.map((e) => e.branch)).not.toContain('three_bet_bluff');
+  });
+});
+
+describe('who can still fold', () => {
+  const seat = (n: number, over: Partial<{ is_folded: boolean; is_all_in: boolean }> = {}) => ({
+    seat: n,
+    is_folded: false,
+    is_all_in: false,
+    ...over,
+  });
+
+  it('nobody, when every opponent still in the hand is all in', () => {
+    expect(everyLiveOpponentIsAllIn([seat(1), seat(2, { is_all_in: true })], 1)).toBe(true);
+    expect(
+      everyLiveOpponentIsAllIn(
+        [
+          seat(1),
+          seat(2, { is_all_in: true }),
+          seat(3, { is_all_in: true }),
+          seat(4, { is_folded: true }),
+        ],
+        1
+      )
+    ).toBe(true);
+  });
+
+  it('a player behind with chips, so isolating a short all-in keeps its fold equity', () => {
+    expect(everyLiveOpponentIsAllIn([seat(1), seat(2, { is_all_in: true }), seat(3)], 1)).toBe(
+      false
+    );
+  });
+
+  it('a caller with chips, so a side pot can still be contested', () => {
+    expect(
+      everyLiveOpponentIsAllIn(
+        [seat(1), seat(2, { is_all_in: true }), seat(3), seat(4, { is_folded: true })],
+        1
+      )
+    ).toBe(false);
+  });
+
+  it('is false with no live opponent at all', () => {
+    expect(everyLiveOpponentIsAllIn([seat(1), seat(2, { is_folded: true })], 1)).toBe(false);
+  });
+
+  it('a bluff raise is allowed only when the hero can raise and somebody can fold', () => {
+    expect(bluffRaiseCanFoldSomeone(300, 3_000, false)).toBe(true);
+    expect(bluffRaiseCanFoldSomeone(300, 3_000, undefined)).toBe(true);
+    expect(bluffRaiseCanFoldSomeone(300, 3_000, true)).toBe(false);
+    expect(bluffRaiseCanFoldSomeone(3_025, 2_950, false)).toBe(false);
+    expect(bluffRaiseCanFoldSomeone(3_000, 3_000, false)).toBe(false);
   });
 });

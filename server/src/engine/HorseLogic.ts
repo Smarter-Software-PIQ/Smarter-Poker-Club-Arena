@@ -5788,6 +5788,29 @@ export function facingClosedAllInRaise(
   );
   return open ? undefined : true;
 }
+
+/**
+ * NOBODY IS LEFT TO FOLD (2026-11-12). True when every opponent still in the
+ * hand is all in, so no raise by the hero can make anyone fold: the hand goes
+ * to showdown against all of them whatever the hero does. A single opponent
+ * who still has chips (a caller, a blind yet to act, anyone behind) makes it
+ * false, because an isolation raise can still fold that player. Public seat
+ * flags only; never who anybody is.
+ */
+export function everyLiveOpponentIsAllIn(
+  players: ReadonlyArray<
+    Pick<SeatPlayer, 'seat' | 'is_folded' | 'is_all_in'> & { is_sitting_out?: boolean }
+  >,
+  heroSeat: number
+): boolean {
+  let live = 0;
+  for (const p of players) {
+    if (p.seat === heroSeat || p.is_folded || p.is_sitting_out === true) continue;
+    if (p.is_all_in !== true) return false;
+    live++;
+  }
+  return live > 0;
+}
 export class HorseLogic {
   /** Original post-observation boundary, shared with the admitted worker path.
    * The caller owns scope cleanup when it captures before decide(). */
@@ -9003,6 +9026,8 @@ export class HorseLogic {
         opts.facingClosedAllIn === false
           ? undefined
           : facingClosedAllInRaise(gs.players, player.seat, lastRaiserSeat, raises, toCall),
+      // A bluff raise needs someone who can fold (HorsePreflop.everyOpponentAllIn).
+      everyOpponentAllIn: everyLiveOpponentIsAllIn(gs.players, player.seat),
       reopenAllowed:
         !Array.isArray(gs.legalActions) ||
         gs.legalActions.includes('raise') ||

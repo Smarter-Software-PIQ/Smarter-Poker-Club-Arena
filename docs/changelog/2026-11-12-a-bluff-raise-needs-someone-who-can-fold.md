@@ -21,24 +21,38 @@ all_in.
 
 ## The correction
 
-The 3-bet bluff branch now also requires that hero can raise (the price to
-call is less than hero's stack) and that somebody is left to fold (the lone
-raiser is not all in, or a caller is). The test sits after the random draw,
-so the draw still happens and every other decision's random stream is
-unchanged. Value 3-bets, squeezes and the 4-bet bluff are not touched; the
-4-bet bluff already has its own stack condition.
+A bluff is chosen for its fold equity, and the branch assumed there was some.
+There is none in two cases: the price to call is already hero's whole stack,
+so the "raise" is only a call; or every opponent still in the hand is all in,
+so the hand is shown down against all of them whatever hero does. The 3-bet
+bluff and the generic squeeze bluff now require both that hero can raise and
+that at least one live opponent still has chips
+(`bluffRaiseCanFoldSomeone`, `everyLiveOpponentIsAllIn`, public seat flags
+only).
+
+What is deliberately not changed: raising over a short all-in when a player
+behind or a caller still has chips. That raise can fold someone or contest a
+side pot, so it keeps its place. Value 3-bets are untouched. The 4-bet bluff
+already has its own stack condition. The pot-limit Omaha elite squeeze is not
+touched. The test sits after the random draw, so the draw still happens and
+every other decision's random stream is unchanged.
 
 ## Proof
 
-`server/src/engine/ABluffRaiseNeedsSomeoneWhoCanFold.test.ts`, 2 cases,
-replaying the anonymised decision-time request from the journal's recorded
-generator state. Old branch: the decision case fails, the event list holds
-three_bet_bluff. New branch: reference fold, final fold.
+`server/src/engine/ABluffRaiseNeedsSomeoneWhoCanFold.test.ts`, 8 cases. Two
+replay the anonymised decision-time request from the journal's recorded
+generator state: as recorded (the price is the whole stack), and with hero
+given 120 big blinds so that a raise is legal but the only opponent is all in.
+On the old branch both return the bluff raise; now neither does. Five cases
+pin who can still fold: nobody when every live opponent is all in; a player
+behind with chips; a caller with chips; no live opponent; and the combined
+rule.
 
 ## Limits
 
 - One recorded instance. How often the branch fired at a price of the whole
   stack is not measured.
-- The squeeze bluff branches have no such condition and are not changed
-  here; no instance of them was observed.
+- The generic squeeze bluff gets the same test on the same reasoning; no
+  instance of it was observed. No full-decision replay shows the isolation
+  raise firing after the change; it is pinned at the level of the rule.
 - Not live until an engine release contains it.
