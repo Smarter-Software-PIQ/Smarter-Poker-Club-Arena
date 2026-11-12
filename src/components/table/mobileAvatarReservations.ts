@@ -1,3 +1,4 @@
+import { derivePositions } from '../../utils/pokerPositions';
 import { dealerButtonPositionClearOfSeat } from './DealerButton';
 import { chipRadiusWidthPct, FELT_WINDOW, seatPodPx, type Pos, type Size } from './tableGeometry';
 
@@ -80,6 +81,31 @@ const FANS = [
   [0.13, 12],
   [0.12, 12],
 ];
+
+/** Reserve labels reachable on this fixed ring, including a dead button. */
+export function mobilePositionLabels(seatCount: number, occupiedCount = seatCount): string[] {
+  const count = Math.min(seatCount, Math.max(0, occupiedCount));
+  const seats = Array.from({ length: count }, (_, index) => index + 1);
+  return [
+    ...new Set([
+      ...Object.values(derivePositions(seats, 1)),
+      ...Object.values(derivePositions(count < seatCount ? seats : seats.slice(0, -1), seatCount)),
+    ]),
+  ].filter((label) => label !== 'D' && label !== 'BTN');
+}
+
+/** Stable variant counts, including Pineapple's retained discard flight. */
+export function hiddenFanStates(cardCount: number): Array<{ count: number; discard: boolean }> {
+  if (cardCount === 3)
+    return [
+      { count: 3, discard: false },
+      { count: 2, discard: true },
+      { count: 2, discard: false },
+    ];
+  return Number.isInteger(cardCount) && cardCount >= 2 && cardCount <= 6
+    ? [{ count: cardCount, discard: false }]
+    : [];
+}
 
 /** Settled backs only. Each returned box remains a separate own-layer test.
  * Coordinates and avatarSize/wrapOverlap are unscaled CSS pixels; scale maps

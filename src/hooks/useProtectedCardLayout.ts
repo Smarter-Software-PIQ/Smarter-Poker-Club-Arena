@@ -245,7 +245,6 @@ export function useProtectedCardLayout(
                       baseline,
                       scaler,
                       page as HTMLElement,
-                      artwork.paintedRuns,
                       mobilePaint.current
                     )
                   : null;
@@ -2523,7 +2522,12 @@ export function useProtectedCardLayout(
           mobilePaint.current
         );
         enlargeMobileFrames(scaler, page as HTMLElement, painted, mobilePaint.current);
-      } else if (keepPaint) restorePaint();
+      } else if (
+        keepPaint &&
+        mobilePaint.current.key === mobilePaintKey(scaler, page as HTMLElement)
+      ) {
+        restorePaint();
+      }
     };
     let frame: number | null = null;
     const schedule = () => {

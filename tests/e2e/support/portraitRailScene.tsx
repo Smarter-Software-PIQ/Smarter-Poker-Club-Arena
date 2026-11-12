@@ -249,7 +249,11 @@ export function Review() {
                       <SeatSlot
                         seatNumber={i + 1}
                         player={
-                          document.documentElement.dataset.emptyBottom === 'true' && i === 0
+                          (document.documentElement.dataset.emptyBottom === 'true' && i === 0) ||
+                          (Boolean(document.documentElement.dataset.occupiedSeats) &&
+                            !document.documentElement.dataset.occupiedSeats
+                              .split(',')
+                              .includes(String(i)))
                             ? null
                             : {
                                 id: `p${i}`,

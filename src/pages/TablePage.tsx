@@ -3,7 +3,11 @@ import { nextBustRebuyClock } from '../utils/bustRebuyDeadline';
 import { earlyHeroCardsReady, type EarlyHeroCards } from '../utils/earlyHeroCards';
 import { tournamentAddOnEntryBoundaryPassed } from '../utils/tournamentAddOnBoundary';
 import { useTopUpAccounting } from '../hooks/useTopUpAccounting';
-import { autoTopUpRequest, type AutoTopUpRequest } from '../utils/autoTopUpRequest';
+import {
+  autoTopUpRequest,
+  quietAutoTopUpRefusal,
+  type AutoTopUpRequest,
+} from '../utils/autoTopUpRequest';
 import { tournamentTableLabel } from '../utils/tournamentTableLabel';
 import { tournamentTypeLabel } from '../utils/tournamentTypeLabel';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
@@ -9592,16 +9596,15 @@ function LiveTablePage({
         /* The AUTOMATIC top-up sizes itself from the stack it can see, and
            it cannot see a queued mid-hand add-on that already fills the seat
            (the engine caps on stack + pending). "Already at the maximum" is
-           then the ordinary answer, not an incident: no toast, no report,
-           the next snapshot re-evaluates. A manual request still hears it. */
-        if (
-          opts?.source === 'auto' &&
-          /maximum buy-in|top up is already pending/i.test(String(res.error || ''))
-        ) {
+           then the ordinary answer, not an incident. A missing Lightning
+           session during feeder play also must not interrupt the table;
+           retain diagnostics for that refusal. Manual requests stay visible. */
+        if (res.code !== 'TRANSPORT' && quietAutoTopUpRefusal(opts?.source, res.error)) {
+          if (res.error === 'Lightning Session Is Unavailable')
+            reportError(new Error(res.error), 'TablePage.auto_top_up_session_unavailable');
           lastAddChipsResultRef.current = { applied: 0, queued: false };
-          // And do not ask again this hand: the effect below re-runs on every
-          // snapshot (`tableState.players` is a new array each time), and
-          // the answer cannot change until the queued chips land.
+          // Do not repeat a refused automatic request on every snapshot.
+          // The existing hand boundary owns the next automatic attempt.
           autoTopUpRefusedForHandRef.current = tableStateRef.current.handNumber ?? null;
           return false;
         }
