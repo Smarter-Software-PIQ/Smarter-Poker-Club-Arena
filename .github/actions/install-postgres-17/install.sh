@@ -54,6 +54,33 @@ pg_attempt() {
   done
 }
 
+# PGDG can publish an extension build before its required PostgreSQL minor.
+# Ask apt to prove the complete requested set, newest extension version first.
+# Simulations use the same authenticated indexes and make no system changes.
+pg_resolve_cron() {
+  local index=-1 i version package source versions
+  local -a candidate
+  for i in "${!pg_packages[@]}"; do
+    if [ "${pg_packages[$i]}" = postgresql-17-cron ]; then index=$i; fi
+  done
+  [ "$index" -ge 0 ] || return 0
+  versions=$(apt-cache "${pg_apt[@]}" madison postgresql-17-cron) || return 1
+  while IFS='|' read -r package version source; do
+    version=${version//[[:space:]]/}
+    [ -n "$version" ] || continue
+    candidate=("${pg_packages[@]}")
+    candidate[$index]="postgresql-17-cron=$version"
+    if sudo apt-get "${pg_apt[@]}" --simulate install -y --no-install-recommends "${candidate[@]}" > "$RUNNER_TEMP/ca-postgres-simulation.log" 2>&1; then
+      pg_packages=("${candidate[@]}")
+      echo "Selected installable signed-PGDG package: postgresql-17-cron=$version"
+      return 0
+    fi
+  done <<< "$versions"
+  echo '::error::No available pg_cron version satisfies the complete requested PostgreSQL package set.' >&2
+  if [ -f "$RUNNER_TEMP/ca-postgres-simulation.log" ]; then cat "$RUNNER_TEMP/ca-postgres-simulation.log" >&2; fi
+  return 1
+}
+
 if [ "${PG_UBUNTU_MIRROR:-false}" = true ]; then
   sudo python3 "$GITHUB_WORKSPACE/scripts/ci/ubuntu-apt-mirror.py"
 fi
@@ -80,4 +107,5 @@ printf 'Types: deb\nURIs: https://apt.postgresql.org/pub/repos/apt\nSuites: %s-p
   "$codename" "$PG_KEY_DST" > "$pg_sources/pgdg.sources"
 pg_attempt sudo apt-get "${pg_apt[@]}" "${pg_update[@]}" update
 printf 'create_main_cluster = false\n' | sudo tee /etc/postgresql-common/createcluster.conf >/dev/null
+pg_resolve_cron
 pg_attempt sudo apt-get "${pg_apt[@]}" install -y --no-install-recommends "${pg_packages[@]}"

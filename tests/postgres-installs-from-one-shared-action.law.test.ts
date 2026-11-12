@@ -71,7 +71,9 @@ describe('one shared PostgreSQL installer', () => {
   });
 
   it('every apt call is retried, bounded, and an index fetch failure fails the update', () => {
-    const aptCalls = SH.split('\n').filter((l) => /sudo apt-get /.test(l));
+    const aptCalls = SH.split('\n').filter(
+      (l) => /sudo apt-get /.test(l) && !l.includes('--simulate')
+    );
     expect(aptCalls).toHaveLength(4);
     for (const l of aptCalls)
       expect(l.trimStart().startsWith('pg_attempt sudo apt-get "${pg_apt[@]}"'), l).toBe(true);
@@ -105,6 +107,57 @@ describe('one shared PostgreSQL installer', () => {
       const failed = run(9);
       expect(failed).toMatchObject({ status: 1, tries: 3 });
       expect(failed.err).toContain('failed after 3 attempts');
+    } finally {
+      rmSync(box, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['1.6.8-1.pgdg26.04+2', 0, 2],
+    ['1.6.8-1.pgdg26.04+3', 0, 1],
+    ['unavailable', 1, 2],
+  ])('requires an installable complete signed package set (%s)', (compatible, status, calls) => {
+    const box = mkdtempSync(join(tmpdir(), 'pg-compatible-'));
+    try {
+      const fn = SH.slice(
+        SH.indexOf('pg_resolve_cron() {'),
+        SH.indexOf('\n}\n', SH.indexOf('pg_resolve_cron() {')) + 3
+      );
+      const scripts = {
+        'apt-cache':
+          "#!/bin/bash\nprintf '%s\\n' 'postgresql-17-cron | 1.6.8-1.pgdg26.04+3 | signed-pgdg' 'postgresql-17-cron | 1.6.8-1.pgdg26.04+2 | signed-pgdg'\n",
+        sudo: '#!/bin/bash\nexec "$@"\n',
+        'apt-get':
+          '#!/bin/bash\necho "$*" >> "$RUNNER_TEMP/calls"\n[[ " $* " == *" --simulate "* && " $* " == *" postgresql-17 "* && " $* " == *" postgresql-17-cron=$MOCK_COMPATIBLE "* ]]\n',
+      };
+      for (const [name, body] of Object.entries(scripts)) {
+        writeFileSync(join(box, name), body.replaceAll('\\n', '\n'));
+        chmodSync(join(box, name), 0o755);
+      }
+      const result = spawnSync(
+        'bash',
+        [
+          '-c',
+          `${fn}\npg_packages=(postgresql-17 postgresql-17-cron); pg_apt=(-o Dir::Etc::sourcelist=/dev/null); pg_resolve_cron || exit $?; printf '%s\\n' "${'${pg_packages[@]}'}"`,
+        ],
+        {
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            PATH: `${box}:${process.env.PATH}`,
+            RUNNER_TEMP: box,
+            MOCK_COMPATIBLE: String(compatible),
+          },
+        }
+      );
+      expect(result.status, result.stderr).toBe(status);
+      const attempts = readFileSync(join(box, 'calls'), 'utf8').trim().split('\n');
+      expect(attempts).toHaveLength(calls as number);
+      expect(
+        attempts.every((line) => line.includes('--simulate') && line.includes('postgresql-17 '))
+      ).toBe(true);
+      if (status === 0) expect(result.stdout).toContain(`postgresql-17-cron=${compatible}`);
+      else expect(result.stderr).toContain('No available pg_cron version');
     } finally {
       rmSync(box, { recursive: true, force: true });
     }
