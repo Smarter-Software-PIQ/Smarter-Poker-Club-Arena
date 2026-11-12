@@ -35,13 +35,13 @@ const high = {
 
 describe('the union cash floor follows the November 11 relaunch (zero game-count restrictions)', () => {
   it('schedules every plan game at every hour of every day, with the target tripled', () => {
-    expect(plan.games).toHaveLength(21);
+    expect(plan.games).toHaveLength(28);
     expect(plan.games.every((game) => game.window === 'always')).toBe(true);
     expect(plan.weeklyRakeTarget).toBe(600000);
     for (let hour = 0; hour < 168; hour++) {
       const now = at('2026-11-09T00:00:00-06:00') + hour * 3600000 + 30 * 60000;
       const scheduled = scheduledHorseCashGames(now);
-      expect(scheduled.size).toBe(21);
+      expect(scheduled.size).toBe(28);
       const variants = plan.games
         .filter((game) => scheduled.has(game.id))
         .map((game) => game.variant);
@@ -53,7 +53,20 @@ describe('the union cash floor follows the November 11 relaunch (zero game-count
     }
   });
   it('runs all six 1/2 games full time, Horse-only play included (Dan 2026-11-11; PLO5 1/2 is the one Madness game, one game per stake)', () => {
-    const oneTwo = plan.games.filter((game) => game.smallBlind === 1 && game.bigBlind === 2);
+    // The lobby's six "1/2" games, by id: NLH/PLO 1/2 are 1/2 blinds; FLH and
+    // FLO8 1/2 are 1/2 LIMITS on .50/1 blinds (the 1/2-blind fixed-limit
+    // games are FLH/FLO8 2/4, also full time).
+    const sixIds = [
+      '3a02580d-92b4-4404-9d2d-d0b5f8b8031c', // FLH 1/2 Classic
+      '4757f674-2492-4fb8-91a7-b1aa428d969d', // FLO8 1/2 Classic
+    ];
+    const oneTwo = [
+      ...plan.games.filter(
+        (game) =>
+          game.smallBlind === 1 && game.bigBlind === 2 && !['flh', 'flo8'].includes(game.variant)
+      ),
+      ...plan.games.filter((game) => sixIds.includes(game.id)),
+    ];
     expect(oneTwo.map((game) => game.variant).sort()).toEqual([
       'flh',
       'flo8',
@@ -62,6 +75,7 @@ describe('the union cash floor follows the November 11 relaunch (zero game-count
       'plo5',
       'plo6',
     ]);
+    for (const game of oneTwo) expect(game.window).toBe('always');
     for (const hour of [
       '2026-11-12T05:00:00-06:00',
       '2026-11-12T12:00:00-06:00',
@@ -69,8 +83,28 @@ describe('the union cash floor follows the November 11 relaunch (zero game-count
     ])
       for (const game of oneTwo)
         expect(
-          allowed({ ...high, cluster_id: game.id, game_variant: game.variant }, 0, at(hour))
+          allowed(
+            {
+              ...high,
+              cluster_id: game.id,
+              game_variant: game.variant,
+              small_blind: game.smallBlind,
+              big_blind: game.bigBlind,
+            },
+            0,
+            at(hour)
+          )
         ).toBe(true);
+  });
+  it('every enabled Midway game inside the stake ceiling is in the plan (zero restrictions, 2026-11-12)', () => {
+    for (const id of [
+      '009016ed-24cb-4eb7-a9e3-04590c67fcce',
+      '20f1b6af-7046-4c48-a3cc-a05e7cbe34a0',
+      '37ac7634-69dd-434c-b947-bfcf8941ecf4',
+      'e2952da8-26c5-4878-b066-65fbebd80381',
+      '0914a283-1834-405a-9a2e-d20620e70333',
+    ])
+      expect(plan.games.find((game) => game.id === id)?.window).toBe('always');
   });
   it('uses Chicago DST rules rather than a fixed UTC offset', () => {
     for (const date of [
@@ -79,7 +113,7 @@ describe('the union cash floor follows the November 11 relaunch (zero game-count
       '2027-11-07T01:30:00-05:00',
       '2027-11-07T01:30:00-06:00',
     ])
-      expect(scheduledHorseCashGames(at(date)).size).toBe(21);
+      expect(scheduledHorseCashGames(at(date)).size).toBe(28);
   });
   it('does not turn lower-stakes games into human-only games', () => {
     const now = at('2026-11-04T05:00:00-06:00');

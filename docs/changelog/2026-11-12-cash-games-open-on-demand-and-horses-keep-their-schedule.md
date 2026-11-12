@@ -33,6 +33,16 @@ the engine change in the same pull request):
   variant, stakes and template: a duplicate-game guard, any number of tables open
   under it), stake ceilings, cash activity scale, slow-join pacing, post-human dwell.
 
+## Every enabled Midway game inside the stake ceiling is in the plan
+
+The relaunch plan pointed its "FLH 1/2" and "FLO8 1/2" entries at the 1/2-BLIND
+fixed-limit games, which the lobby calls FLH 2/4 and FLO8 2/4. The lobby's FLH 1/2
+and FLO8 1/2 (1/2 limits on .50/1 blinds) were not in the plan, so no horse could
+sit there (measured 17:14Z on 08c27924: both empty while PLO4 1/2 and PLO5 1/2
+Madness filled). Added, full time: FLH 1/2, FLO8 1/2, FLH .10/.25, FLO8 .10/.25,
+NLH .05/.10, PLO5 .50/1, PLO6 .50/1. The 2/4 entries keep running and are renamed
+to say what they are. PLO5 2/5 Madness stays out: above the Omaha stake ceiling.
+
 ## Horses keep their work schedule and days off (`HorseWorkSchedule`)
 
 A horse is on duty only when it is not its rest day, its daily cap is not played
