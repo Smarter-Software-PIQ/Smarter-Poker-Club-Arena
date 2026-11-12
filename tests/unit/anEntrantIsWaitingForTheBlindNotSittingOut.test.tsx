@@ -33,7 +33,7 @@ const entrant = (over: Partial<SeatPlayer> = {}): SeatPlayer => ({
   ...over,
 });
 
-const seat = (entryWait: 'waiting_for_bb' | 'posting_bb' | null) =>
+const seat = (entryWait: 'waiting_for_button' | 'waiting_for_bb' | 'posting_bb' | null) =>
   render(
     <SeatSlot
       seatNumber={4}
@@ -46,6 +46,23 @@ const seat = (entryWait: 'waiting_for_bb' | 'posting_bb' | null) =>
   ).container;
 
 describe('what a sat-out seat says', () => {
+  it('a tournament arrival held for the button simply says Sitting Out', () => {
+    const c = seat('waiting_for_button');
+    expect(c.querySelector('[data-testid="seat-waiting-button-badge"]')?.textContent?.trim()).toBe(
+      'Sitting Out'
+    );
+    expect(c.querySelector('[data-testid="seat-waiting-bb-badge"]')).toBeNull();
+    expect(c.textContent).not.toContain('Waiting For');
+  });
+
+  it('the held-arrival footer says Sitting Out without offering a return action', () => {
+    const page = readFileSync(resolve(__dirname, '../../src/pages/TablePage.tsx'), 'utf8');
+    const bar = sliceBetween(page, '{heroWaitingForButton ? (', ') : lightningRoom');
+    expect(bar).toContain('Sitting Out');
+    expect(bar).not.toContain('Waiting For The Button');
+    expect(bar).not.toContain("I'm Back");
+  });
+
   it('held for the blind and unanswered: Waiting For BB, not Sitting Out', () => {
     const c = seat('waiting_for_bb');
     const badge = c.querySelector('[data-testid="seat-waiting-bb-badge"]');

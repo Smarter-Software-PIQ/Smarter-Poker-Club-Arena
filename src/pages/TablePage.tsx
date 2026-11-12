@@ -30765,7 +30765,7 @@ function LiveTablePage({
             2026-04-17: action bar fixed to footer at all times, every state. */}
         {heroWaitingForButton ? (
           <div className="spectator-footer-bar" data-state="waiting-for-button" role="status">
-            <span className="spectator-footer-bar__label">Waiting For The Button To Pass</span>
+            <span className="spectator-footer-bar__label">Sitting Out</span>
           </div>
         ) : lightningRoom && !lightningHeroInRoster && !heroIsSittingOut ? (
           /* LIGHTNING BETWEEN HANDS (Dan 2026-10-24). The player is in the pool

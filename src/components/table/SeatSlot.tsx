@@ -3473,7 +3473,7 @@ export const SeatSlot = memo(
               independent DB seat-status refreshes. */}
           {entryWait === 'waiting_for_button' && (
             <div className="seat__sitout-badge" data-testid="seat-waiting-button-badge">
-              Waiting For The Button To Pass
+              Sitting Out
             </div>
           )}
           {entryWait !== 'waiting_for_button' &&

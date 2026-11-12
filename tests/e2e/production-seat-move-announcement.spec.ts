@@ -621,12 +621,10 @@ test('the published table explains controlled seat moves without moving a player
       position: '',
     });
     destination.send(JSON.stringify(waiting));
-    await expect(hero.getByTestId('seat-waiting-button-badge')).toHaveText(
-      'Waiting For The Button To Pass'
-    );
+    await expect(hero.getByTestId('seat-waiting-button-badge')).toHaveText('Sitting Out');
     await expect(hero.getByTestId('seat-waiting-button-badge')).toBeVisible();
     const waitingFooter = page.locator('.spectator-footer-bar[data-state="waiting-for-button"]');
-    await expect(waitingFooter).toHaveText('Waiting For The Button To Pass');
+    await expect(waitingFooter).toHaveText('Sitting Out');
     await expect(waitingFooter).toBeVisible();
     await expect(page.getByRole('button', { name: "I'm Back", exact: true })).toHaveCount(0);
     await expect(hero.locator('.seat__card')).toHaveCount(0);
