@@ -276,6 +276,14 @@ export type EngineLeaseAuthority =
  */
 export type EngineRecoveryEventClass = 'automatic_recovery' | 'fault_injection';
 
+export type F06OwnReservedReconcileOutcome =
+  | 'resolved'
+  | 'none'
+  | 'foreign'
+  | 'evidence'
+  | 'skipped'
+  | 'unavailable';
+
 export const AUTOMATIC_RECOVERY_EVENT_CLASS: EngineRecoveryEventClass = 'automatic_recovery';
 export const FAULT_INJECTION_EVENT_CLASS: EngineRecoveryEventClass = 'fault_injection';
 
@@ -2734,6 +2742,39 @@ export abstract class ServerTableEngineBase {
     this.f06AllocationEpoch = epoch;
     this.f06Allocator = allocate;
     this.f06AllocationCurrent = current;
+  }
+  /**
+   * IN-LIFE ORPHANED RESERVED PERMIT RECONCILER (2026-11-12, issue #10564).
+   * Installed by the owning tournament manager beside the allocator. The
+   * dealing loop calls it only when this dealer holds NO live permit yet
+   * allocation is refused by an unresolved `reserved` row. The closure
+   * resolves ONLY a row of this dealer's own current generation, through the
+   * evidence-guarded cancel door (which refuses any started or committed
+   * hand); a row of any other generation is left to the abandoned-generation
+   * door. This is the dealing path deciding the exact row that blocks this
+   * exact table, synchronously and once per refusal - not a background sweep,
+   * watcher or repair loop.
+   */
+  private f06OwnReservedPermitReconciler: (() => Promise<F06OwnReservedReconcileOutcome>) | null =
+    null;
+  installF06OwnReservedPermitReconciler(
+    reconcile: () => Promise<F06OwnReservedReconcileOutcome>
+  ): void {
+    if (this.running || !this.f06Allocator || this.f06OwnReservedPermitReconciler)
+      throw new Error('f06_own_reserved_reconciler_install_invalid');
+    this.f06OwnReservedPermitReconciler = reconcile;
+  }
+  /**
+   * Resolve this dealer's own current-generation `reserved` permit that it no
+   * longer holds in memory, so a table orphaned across a break or balancing
+   * boundary recovers in place instead of stalling until a watchdog kill. A
+   * held permit is resolveUnstartedF06Permit's job; this covers only the
+   * unheld row, and never touches another generation's permit.
+   */
+  protected async reconcileOwnUnresolvedReservedPermit(): Promise<F06OwnReservedReconcileOutcome> {
+    if (!this.running || this.f06CurrentPermit || !this.f06OwnReservedPermitReconciler)
+      return 'skipped';
+    return this.f06OwnReservedPermitReconciler();
   }
   protected hasF06Allocator(): boolean {
     return this.f06Allocator !== null;

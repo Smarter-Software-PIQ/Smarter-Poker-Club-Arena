@@ -80,7 +80,11 @@ import {
 } from './BombPotScheduler.js';
 
 import { ServerTableEngineRunout } from './ServerTableEngineRunout.js';
-import { ServerTableEngineBase, type EngineRecoveryEventClass } from './ServerTableEngineBase.js';
+import {
+  ServerTableEngineBase,
+  type EngineRecoveryEventClass,
+  type F06OwnReservedReconcileOutcome,
+} from './ServerTableEngineBase.js';
 import { secureRandomInt } from './CryptoRandom.js';
 import { drawFirstButtonSeat, headsUpButtonSeat } from './headsUpButton.js';
 import type { BlindSeats } from './deadButton.js';
@@ -1704,6 +1708,37 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
               phase: this.loopPhase,
               handCount: this.handCount,
             });
+          }
+        }
+
+        // IN-LIFE ORPHANED RESERVED PERMIT (2026-11-12, issue #10564). A
+        // `reserved` F06 permit this live generation left behind - its
+        // in-memory owner lost across a break or balancing boundary - refuses
+        // every allocation with f06_allocation_unproven. resolveUnstartedF06Permit
+        // needs the live permit object (this dealer holds none), and the
+        // abandoned-generation door only fires once this generation is dead,
+        // so nothing in this process clears it short of a watchdog kill and
+        // rebuild. Decide it here, in place, once per refusal, through the
+        // evidence-guarded cancel door, gated to this dealer's own generation.
+        if (!isTransient && errMsg.includes('f06_allocation_unproven')) {
+          let reconciled: F06OwnReservedReconcileOutcome = 'skipped';
+          try {
+            reconciled = await this.reconcileOwnUnresolvedReservedPermit();
+          } catch (reconcileErr) {
+            reportError(
+              reconcileErr,
+              'ServerTableEngine.' + this.tableId + '.own_reserved_permit_reconcile_failed'
+            );
+          }
+          if (reconciled === 'resolved') {
+            this.recordRecoveryEvent(
+              'in_life_reserved_permit_resolved',
+              'allocation_unproven:own_generation'
+            );
+            this.consecutiveErrors = 0;
+            this.markProgress();
+            await this.sleep(250);
+            continue;
           }
         }
 

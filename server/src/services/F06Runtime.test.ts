@@ -211,6 +211,7 @@ it('actual Manager shared admission starts only after resolved projection and pr
       },
       installF06Allocator: () => {},
       installF06HandAdmission: () => order.push('installed'),
+      installF06OwnReservedPermitReconciler: () => {},
       start: async () => {
         order.push('started');
       },

@@ -63,6 +63,7 @@ import {
 import nodeCrypto from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { ServerTableEngine } from '../engine/ServerTableEngine.js';
+import type { F06OwnReservedReconcileOutcome } from '../engine/ServerTableEngineBase.js';
 import { TableRestartBackoff } from '../engine/TableRestartBackoff.js';
 import { supabase, resumeRetainedHandSubmission } from '../services/supabase.js';
 import { INSTANCE_ID } from '../services/tableLease.js';
@@ -3321,6 +3322,84 @@ export abstract class TournamentManagerBase {
         }),
         () => current() && this.gameServer.tournamentRetirementCustody.admissionAllowed(tableId),
         tableLifecycle
+      );
+      engine.installF06OwnReservedPermitReconciler(
+        bindTournamentDataAuthority(
+          handAuthority,
+          async (): Promise<F06OwnReservedReconcileOutcome> => {
+            if (!current()) return 'skipped';
+            const probe = await supabase.rpc('fn_f06_hand_number_state', {
+              p_tournament_id: this.tournamentId,
+              p_lease_generation: leaseGeneration,
+              p_table_id: tableId,
+            });
+            const st = probe.data as {
+              ok?: boolean;
+              table_id?: string;
+              lifecycle?: string;
+              can_reserve?: boolean;
+              blocked_reason?: string | null;
+              unresolved_permit?: Record<string, unknown> | null;
+            } | null;
+            if (
+              !current() ||
+              probe.error ||
+              !st ||
+              st.ok !== true ||
+              st.table_id !== tableId ||
+              st.lifecycle !== tableLifecycle ||
+              st.can_reserve !== false ||
+              st.blocked_reason !== 'hand_permit_unresolved'
+            )
+              return 'none';
+            const permit = st.unresolved_permit;
+            // CUSTODY GATE: resolve ONLY this dealer's own current generation's
+            // never-started reserved row. Any other generation is the
+            // abandoned-generation door's business, never this live dealer's.
+            if (
+              !permit ||
+              permit.state !== 'reserved' ||
+              permit.evidence_id !== null ||
+              permit.generation !== leaseGeneration ||
+              permit.tournament_id !== this.tournamentId ||
+              permit.table_id !== tableId ||
+              permit.lifecycle !== tableLifecycle ||
+              typeof permit.permit_id !== 'string' ||
+              typeof permit.hand_number !== 'string' ||
+              typeof permit.custody_id !== 'string'
+            )
+              return 'foreign';
+            const permitId = permit.permit_id as string;
+            const handNumber = permit.hand_number as string;
+            const custodyId = permit.custody_id as string;
+            // Evidence-guarded cancel: fn_f06_cancel_prepared_hand refuses any
+            // permit carrying start evidence (dispatch, atomic commit, history,
+            // snapshot, private state, hole cards), so a started or committed
+            // hand is never cancelled; it is idempotent on the permit_id.
+            const cancelled = await supabase.rpc('fn_f06_cancel_prepared_hand', {
+              p_tournament_id: this.tournamentId,
+              p_lease_generation: leaseGeneration,
+              p_table_id: tableId,
+              p_lifecycle: tableLifecycle,
+              p_permit_id: permitId,
+              p_hand_number: handNumber,
+              p_custody_id: custodyId,
+            });
+            if (!current()) return 'skipped';
+            if (cancelled.error) return 'evidence';
+            const done = cancelled.data as Record<string, unknown> | null;
+            if (
+              !done ||
+              done.ok !== true ||
+              done.state !== 'never_started' ||
+              done.permit_id !== permitId ||
+              done.generation !== leaseGeneration ||
+              done.hand_number !== handNumber
+            )
+              return 'none';
+            return 'resolved';
+          }
+        )
       );
       engine.installF06HandAdmission(
         bindTournamentDataAuthority(handAuthority, async (handNumber: string) => {
