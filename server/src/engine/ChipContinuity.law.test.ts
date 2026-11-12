@@ -326,7 +326,7 @@ describe('the engine wiring (source pins - each one is a leak that shipped once 
   it('settlement reports every stack to the database BEFORE any departure is judged', () => {
     const body = sliceMethod(SETTLEMENT, 'protected async postHandTasks(');
     expect(body).toMatch(
-      /protected async postHandTasks\(\s*players: SeatedPlayer\[\],\s*persistenceGeneration: number\s*\)/
+      /protected async postHandTasks\(\s*players: SeatedPlayer\[\],\s*persistenceGeneration: number\b/
     );
     const step = body.indexOf("runStep('chip_continuity'");
     expect(step).toBeGreaterThan(body.indexOf("runStep('sync_stacks'"));
@@ -340,7 +340,7 @@ describe('the engine wiring (source pins - each one is a leak that shipped once 
   it('a horse at its profit target leaves through the same door a human does (CLAUDE.md 10.5)', () => {
     const body = sliceMethod(SETTLEMENT, 'protected async postHandTasks(');
     expect(body).toMatch(
-      /protected async postHandTasks\(\s*players: SeatedPlayer\[\],\s*persistenceGeneration: number\s*\)/
+      /protected async postHandTasks\(\s*players: SeatedPlayer\[\],\s*persistenceGeneration: number\b/
     );
     const horse = body.slice(
       body.indexOf("runStep('horse_cashouts'"),
