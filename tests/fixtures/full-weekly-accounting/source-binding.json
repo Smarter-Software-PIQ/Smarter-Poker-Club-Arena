@@ -585,7 +585,7 @@
     "scripts/dev/qualify-legacy-fee-finality.py": "4e7c8260250be0485131467c7fbafcf1274c42be5bb2ce665ccdc70b1df27e7b",
     "scripts/ci/schema-manifest.d/union-legacy-fee-finality.json": "e31a30ded22079973baf940835159370d9a46e7ac314a6e46833549b2f7cd0e7",
     "supabase/migrations/20260918090848_legacy_player_results_preserve_unresolved_original_fee_custo.sql": "8c03be3cd3557be4e22735b0442d84ca936641c15d1384b772e0426343c5fbc7",
-    "tests/fixtures/legacy-fee-finality/source-binding.json": "b5b4eac872c10f1f29214419416a8ebc80a66df7c37cf5dfcfcef3de187c2663",
+    "tests/fixtures/legacy-fee-finality/source-binding.json": "a05dcd254c6bc0af50614aa006bb26ddd7d6b3cba6ea903aa963410b052e551c",
     "tests/fixtures/sep8-spin-custody/build-candidate.py": "dc929d5df9801fbeb26c1b331fd3836b22069726e00d86c4f75401ab2b55fd4a",
     "tests/fixtures/sep8-spin-custody/resolution.sql": "2eca0534c0cd23223b3394397957e074847345160d3bf7e3ff4d083df55cb384",
     "tests/fixtures/sep8-spin-custody/player-finality.sql": "627be40d0634d483e2cdc421055e8eb72f9d95c22e36ab81e659b725a9db1b6e",
@@ -603,7 +603,7 @@
     "server/src/tournament/completionSettlementReceipt.ts": "894e0791ae65d3231082e898ece646b49969a99006a128898bc861935a16f018",
     "server/src/lib/uuidShape.ts": "e343f233386b551ad73d38b7202d1f28b233b070bed455b52839e3c0e148bbaf",
     "supabase/migrations/20260918095320_september_eight_original_spin_fee_custody_successor.sql": "858c125202405c4ceeabb0032689375c0efdf727c740f8056b7529c098b33804",
-    "tests/fixtures/sep8-spin-custody/source-binding.json": "a42ae4e6a3768bcdf1149e680552d1ffa0ae13b2289251be82caf77934cc7943",
+    "tests/fixtures/sep8-spin-custody/source-binding.json": "99e64f9ca41b2999ff1fc1ecca88c8fd25c3513b0197118e0110505a097b3c68",
     "tests/fixtures/sep8-spin-custody/terminal-negative.sql": "e3e4106954a1ebe51c16c69ede5156cb12dc964c63a679d2583c8622b5081bea",
     "tests/fixtures/sep8-spin-custody/resolution-late-fault.sql": "b9425e31803e60630e0ee741e0842ebcc8dc891028517ea87efe1049aff0b7d0",
     "tests/fixtures/sep8-spin-custody/breakfast-predecessor.sql": "37f8a6d6b07a74c923c8b8298561cabec91fccec6281ffab9bab455dbdb1e6f7",
@@ -643,7 +643,7 @@
     "tests/fixtures/earlybird-fee-custody/after.sql": "5c86539a1f6e4904d61c4f3c2ee79b98fbc29b976adbc89fc38f8a4be8c97e0b",
     "scripts/dev/qualify-earlybird-fee-custody.py": "fea2adbadd175341680d1988589be233c2a67a7a400743a2ccfaafdf9e6d0d62",
     "supabase/migrations/20260919025445_early_bird_original_fee_custody_after_player_finality.sql": "3b3fa10d81077d09fc997bb0549ee7dd73b12726406f92da17105d002d021ab8",
-    "tests/fixtures/earlybird-fee-custody/source-binding.json": "509d80d28638a104a3a2d9882bc81fbc45a2078899decbe921d802d0dc267770",
+    "tests/fixtures/earlybird-fee-custody/source-binding.json": "9a549fba0f9af4637aa16713be1a6035a6c2bf9f131b0ce12d14b56e719c2d57",
     "tests/fixtures/earlybird-fee-custody/paid-originals.json": "7b0137cce446c509e1b0cbd1e9361547fb700e409fceb373bb6c21909170faf0",
     "tests/fixtures/earlybird-fee-custody/credit-originals.json": "76b7a6152c538bd051754e0a17106a14e86458968132bea26f03c339ad77b439",
     "tests/fixtures/earlybird-fee-custody/README.md": "ae19f37a0179956d0d26c64f626fa401c10b4319f0d7d8453f8993d811e98536",
@@ -656,7 +656,7 @@
     "scripts/ci/test-commission-club-history-postgres.py": "599055bb43ca0137bdde9c9d60dca9a4e8c6f1cf729ff849190ca74ff90b8bf3",
     "scripts/qualification/ci-admission-inputs.json": "8275cc6a48e74b21dc56c8d4ed5a143cb9dae6ffabba8dca65366d4920007887",
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "0ff77a4faedce6442830fb8d71d24a5906626fda1bc043686012a52207bf4ae8"
+    "scripts/qualification/ci-accounting-inputs.json": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c"
   },
   "chainedBrowserAdmissionSourceAudit20261030": {
     "scope": "Current classifier source binding only. Chained browser scripts and supported config/fixture inputs now admit their existing browser checks; every financial/server/native classification flag is unchanged.",
@@ -8432,33 +8432,5 @@
     ],
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
-  },
-  "pinnedNativeToolServerAgreement20261112": {
-    "path": "scripts/qualification/ci-accounting-inputs.json",
-    "previousSha256": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c",
-    "sha256": "0ff77a4faedce6442830fb8d71d24a5906626fda1bc043686012a52207bf4ae8",
-    "reason": "Reviewed exact accounting install/readiness delta: obtain the native builder pinned minor, require matching packaged server/dev readiness, and pass PG_REQUIRED_VERSION to the existing signed installer. Workflow admission/global context, classifier, native source/checksum, SQL fixtures, assertions and historical qualification outcomes are unchanged. Required exact-head accounting qualification remains pending.",
-    "financialRecertification": false,
-    "historicalEvidenceRestamped": false,
-    "nestedBindingChanges": [
-      {
-        "path": "tests/fixtures/earlybird-fee-custody/source-binding.json",
-        "previousSha256": "9a549fba0f9af4637aa16713be1a6035a6c2bf9f131b0ce12d14b56e719c2d57",
-        "sha256": "509d80d28638a104a3a2d9882bc81fbc45a2078899decbe921d802d0dc267770",
-        "review": "Only reviewed execution-projection pin and its source-only audit changed; no SQL, assertions or historical results changed."
-      },
-      {
-        "path": "tests/fixtures/legacy-fee-finality/source-binding.json",
-        "previousSha256": "a05dcd254c6bc0af50614aa006bb26ddd7d6b3cba6ea903aa963410b052e551c",
-        "sha256": "b5b4eac872c10f1f29214419416a8ebc80a66df7c37cf5dfcfcef3de187c2663",
-        "review": "Only reviewed execution-projection pin and its source-only audit changed; no SQL, assertions or historical results changed."
-      },
-      {
-        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
-        "previousSha256": "99e64f9ca41b2999ff1fc1ecca88c8fd25c3513b0197118e0110505a097b3c68",
-        "sha256": "a42ae4e6a3768bcdf1149e680552d1ffa0ae13b2289251be82caf77934cc7943",
-        "review": "Only reviewed execution-projection pin and its source-only audit changed; no SQL, assertions or historical results changed."
-      }
-    ]
   }
 }

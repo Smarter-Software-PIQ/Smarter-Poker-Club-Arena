@@ -180,16 +180,9 @@ describe('the PostgreSQL accounting qualification runs as seven shards of one jo
     );
     expect(shardsOf(build!)).toEqual([3, 4]);
     for (const step of steps) {
-      const versionRead = 'python3 scripts/ci/build_pg17_isolationtester.py --print-version';
-      let runtimeRun = step.run ?? '';
-      if (runtimeRun.includes(versionRead)) {
-        expect(step.name).toBe('Install PostgreSQL 17 tools without a default database service');
-        expect(runtimeRun.split(versionRead)).toHaveLength(2);
-        runtimeRun = runtimeRun.replace(versionRead, '');
-      }
       const usesTester =
         JSON.stringify(step.env ?? {}).includes('isolationtester') ||
-        /isolationtester/.test(runtimeRun);
+        /isolationtester/.test(step.run ?? '');
       if (usesTester) expect([3, 4], `${step.name}`).toContain(shardsOf(step)[0]);
     }
     const evidence = steps.find(

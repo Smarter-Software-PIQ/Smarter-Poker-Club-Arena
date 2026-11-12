@@ -41,26 +41,6 @@ const backupSequenceStep = {
   if: 'matrix.shard == 4',
   run: 'python3 -B scripts/verification-harness/standby-sequence-owners.py --pg-bin /usr/lib/postgresql/17/bin --scratch-root "${{ runner.temp }}"',
 };
-// Match the reviewed native-tool version exactly before retaining every prior
-// workflow fingerprint. A missing, duplicated or broadened line still fails.
-const normalizePinnedNativeVersion = (step: { run: string }) => {
-  const replacements: Array<[string, string]> = [
-    [
-      'pg_ci_required_version=$(python3 scripts/ci/build_pg17_isolationtester.py --print-version)\n',
-      '',
-    ],
-    [
-      '-f /usr/lib/postgresql/17/lib/pg_cron.so ]] &&\n    { [[ ! -x /usr/lib/postgresql/17/bin/pg_config ]] ||\n      /usr/lib/postgresql/17/bin/pg_config --version | grep -Eq "^PostgreSQL ${pg_ci_required_version//./\\\\.}([[:space:]]|$)"; } &&\n    /usr/lib/postgresql/17/bin/postgres --version | grep -Eq "PostgreSQL\\\\) ${pg_ci_required_version//./\\\\.}([[:space:]]|$)"; then exit 0; fi',
-      '-f /usr/lib/postgresql/17/lib/pg_cron.so ]]; then exit 0; fi',
-    ],
-    ['PG_REQUIRED_VERSION="$pg_ci_required_version" \\\n', ''],
-  ];
-  for (const [current, previous] of replacements) {
-    expect(step.run.split(current)).toHaveLength(2);
-    step.run = step.run.replace(current, previous);
-  }
-};
-
 const rootInstallStep = {
   name: 'Install root test dependencies',
   run: 'npm ci --ignore-scripts',
@@ -678,7 +658,6 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       (step: { name?: string }) =>
         step.name === 'Install PostgreSQL 17 tools without a default database service'
     );
-    normalizePinnedNativeVersion(keySetup);
     // The install itself is the one shared installer (2026-11-07,
     // .github/actions/install-postgres-17, pinned by
     // tests/postgres-installs-from-one-shared-action.law.test.ts). Normalize
@@ -1675,21 +1654,5 @@ it('refuses a missing, duplicated, moved or weakened cash queue regression', () 
       job.steps.findIndex((step: any) => step.name === cashQueueFeedbackStep.name)
     );
     expect(() => normalizeCashQueueFeedbackAddition(job)).toThrow();
-  }
-});
-
-it('refuses missing or changed native tool version agreement before normalization', () => {
-  const original = ci.jobs.accounting_postgres.steps.find(
-    (step: { name?: string }) =>
-      step.name === 'Install PostgreSQL 17 tools without a default database service'
-  );
-  for (const [before, after] of [
-    ['--print-version', '--help'],
-    ['pg_config --version', 'pg_config --help'],
-    ['PG_REQUIRED_VERSION=', 'OTHER_VERSION='],
-  ]) {
-    const step = structuredClone(original);
-    step.run = step.run.replace(before, after);
-    expect(() => normalizePinnedNativeVersion(step)).toThrow();
   }
 });

@@ -24,7 +24,8 @@
 #
 # Inputs (environment):
 #   PG_PACKAGES       packages to install from PGDG (default: postgresql-17)
-#   PG_REQUIRED_VERSION exact server minor required by a pinned native tool (optional)
+#   PG_SERVER_MINOR   server minor to install (default: VERSION in
+#                     scripts/ci/build_pg17_isolationtester.py)
 #   PG_UBUNTU_MIRROR  "true" runs scripts/ci/ubuntu-apt-mirror.py first
 #   PG_APT_ATTEMPTS   whole-command attempts (default 4)
 #   PG_APT_DELAY      first back-off in seconds (default 5)
@@ -55,28 +56,6 @@ pg_attempt() {
   done
 }
 
-# Native test tools build a checksum-pinned upstream release. Select that same
-# advertised server/dev minor before solving extension dependencies. Unrelated
-# users keep apt's candidate; explicit package=version requests remain exact.
-pg_match_tool_version() {
-  [ -n "${PG_REQUIRED_VERSION:-}" ] || return 0
-  [[ "$PG_REQUIRED_VERSION" =~ ^17\.[0-9]+$ ]] || { echo '::error::Invalid required PostgreSQL minor.' >&2; return 1; }
-  local package version
-  local matched=()
-  for package in "${pg_packages[@]}"; do
-    case "$package" in
-      postgresql-17|postgresql-client-17|postgresql-server-dev-17)
-        version=$(apt-cache "${pg_apt[@]}" madison "$package" |
-          awk -v wanted="$PG_REQUIRED_VERSION-" 'index($3,wanted)==1 && !seen++ {print $3}')
-        [ -n "$version" ] || { echo "::error::No signed $package version matches $PG_REQUIRED_VERSION." >&2; return 1; }
-        matched+=("$package=$version")
-        ;;
-      *) matched+=("$package") ;;
-    esac
-  done
-  pg_packages=("${matched[@]}")
-}
-
 if [ "${PG_UBUNTU_MIRROR:-false}" = true ]; then
   sudo python3 "$GITHUB_WORKSPACE/scripts/ci/ubuntu-apt-mirror.py"
 fi
@@ -103,12 +82,40 @@ printf 'Types: deb\nURIs: https://apt.postgresql.org/pub/repos/apt\nSuites: %s-p
   "$codename" "$PG_KEY_DST" > "$pg_sources/pgdg.sources"
 pg_attempt sudo apt-get "${pg_apt[@]}" "${pg_update[@]}" update
 printf 'create_main_cluster = false\n' | sudo tee /etc/postgresql-common/createcluster.conf >/dev/null
-pg_match_tool_version
-# An explicitly pinned disposable test tool may require the preceding minor
-# even when a hosted image preinstalls a newer one. Only this explicit input
-# admits the requested package downgrade; ordinary installs retain apt defaults.
-pg_version_options=()
-[ -z "${PG_REQUIRED_VERSION:-}" ] || pg_version_options=(--allow-downgrades)
+# THE SERVER MINOR IS THE ONE THE NATIVE TOOLS ARE BUILT FOR (2026-11-12).
+# Every native qualification here is bound to exactly the VERSION named in
+# scripts/ci/build_pg17_isolationtester.py: the isolation client it builds, the
+# funded BBJ replay and the probe manifests that hash that builder. A floating
+# "postgresql-17" followed PGDG to 17.12 and every accounting shard that builds
+# the client failed with "packaged server: exactly PostgreSQL 17.11 required".
+# The server, client and server-dev packages are installed at the newest signed
+# PGDG build of that minor. Moving the minor is one reviewed change to the
+# builder and what binds it, never a side effect of the index, and an index
+# that no longer offers the minor fails here by name.
+pg_minor_source="$GITHUB_WORKSPACE/scripts/ci/build_pg17_isolationtester.py"
+pg_minor="${PG_SERVER_MINOR:-}"
+if [ -z "$pg_minor" ] && [ -f "$pg_minor_source" ]; then
+  pg_minor="$(sed -n "s/^VERSION = '\([0-9][0-9.]*\)'\$/\1/p" "$pg_minor_source")"
+fi
+[ -n "$pg_minor" ] || { echo "::error::No pinned PostgreSQL minor: $pg_minor_source names no VERSION and PG_SERVER_MINOR is unset." >&2; exit 1; }
+if printf '%s\n' "${pg_packages[@]}" | grep -qx postgresql-17 &&
+  ! printf '%s\n' "${pg_packages[@]}" | grep -qx postgresql-client-17; then
+  pg_packages+=(postgresql-client-17)
+fi
+pg_pinned=()
+for pg_package in "${pg_packages[@]}"; do
+  case "$pg_package" in
+    postgresql-17 | postgresql-client-17 | postgresql-server-dev-17)
+      pg_build="$(apt-cache "${pg_apt[@]}" madison "$pg_package" |
+        awk -v minor="$pg_minor" 'index($3, minor "-") == 1 { print $3; exit }')"
+      [ -n "$pg_build" ] || { echo "::error::The signed PGDG index offers no $pg_package build of PostgreSQL $pg_minor." >&2; exit 1; }
+      pg_pinned+=("$pg_package=$pg_build")
+      ;;
+    *) pg_pinned+=("$pg_package") ;;
+  esac
+done
+pg_packages=("${pg_pinned[@]}")
+echo "PostgreSQL minor $pg_minor: ${pg_packages[*]}"
 # PGDG can publish an extension rebuild before its required server release.
 # Ask apt to solve the whole requested set, including an older extension
 # version when the newest cannot coexist with the current server candidate.
@@ -117,7 +124,7 @@ if printf '%s\n' "${pg_packages[@]}" | grep -qx postgresql-17-cron; then
   pg_server_version=$(apt-cache "${pg_apt[@]}" policy postgresql-17 | awk '/Candidate:/ {print $2}')
   pg_cron_version=''
   while IFS= read -r pg_version; do
-    if sudo apt-get "${pg_apt[@]}" --simulate install -y --no-install-recommends ${pg_version_options[@]+"${pg_version_options[@]}"} \
+    if sudo apt-get "${pg_apt[@]}" --simulate install -y --no-install-recommends \
       "${pg_packages[@]/postgresql-17-cron/postgresql-17-cron=$pg_version}" >/dev/null 2>&1; then
       pg_cron_version=$pg_version
       break
@@ -127,4 +134,4 @@ if printf '%s\n' "${pg_packages[@]}" | grep -qx postgresql-17-cron; then
   pg_packages=("${pg_packages[@]/postgresql-17-cron/postgresql-17-cron=$pg_cron_version}")
   echo "PostgreSQL $pg_server_version; compatible pg_cron $pg_cron_version"
 fi
-pg_attempt sudo apt-get "${pg_apt[@]}" install -y --no-install-recommends ${pg_version_options[@]+"${pg_version_options[@]}"} "${pg_packages[@]}"
+pg_attempt sudo apt-get "${pg_apt[@]}" install -y --no-install-recommends "${pg_packages[@]}"

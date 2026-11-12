@@ -1611,7 +1611,6 @@ jobs:
               ;;
             *) echo 'Unknown accounting shard' >&2; exit 1 ;;
           esac
-          pg_ci_required_version=$(python3 scripts/ci/build_pg17_isolationtester.py --print-version)
           if [[ "$pg_ci_build_tools_ready" == true &&
                 -x /usr/lib/postgresql/17/bin/postgres &&
                 -x /usr/lib/postgresql/17/bin/initdb &&
@@ -1620,10 +1619,7 @@ jobs:
                 -x /usr/lib/postgresql/17/bin/createdb &&
                 -x /usr/lib/postgresql/17/bin/pg_dump &&
                 -f /usr/share/postgresql/17/extension/pg_cron.control &&
-                -f /usr/lib/postgresql/17/lib/pg_cron.so ]] &&
-              { [[ ! -x /usr/lib/postgresql/17/bin/pg_config ]] ||
-                /usr/lib/postgresql/17/bin/pg_config --version | grep -Eq "^PostgreSQL ${pg_ci_required_version//./\\.}([[:space:]]|$)"; } &&
-              /usr/lib/postgresql/17/bin/postgres --version | grep -Eq "PostgreSQL\\) ${pg_ci_required_version//./\\.}([[:space:]]|$)"; then exit 0; fi
+                -f /usr/lib/postgresql/17/lib/pg_cron.so ]]; then exit 0; fi
           # The hosted image also configures Chrome and Microsoft repositories.
           # An unrelated Chrome index hash mismatch blocked this accounting job.
           # Limit this installation to signed Ubuntu and PostgreSQL sources.
@@ -1631,7 +1627,6 @@ jobs:
           # Preserve signed Ubuntu/PGDG sources and every package/test budget.
           # The one shared install (signed Ubuntu/PGDG sources only, the checkout key,
           # bounded retries around every apt call): .github/actions/install-postgres-17.
-          PG_REQUIRED_VERSION="$pg_ci_required_version" \
           PG_UBUNTU_MIRROR=true PG_PACKAGES="postgresql-17 postgresql-17-cron ${pg_ci_build_packages[*]-}" \
             bash .github/actions/install-postgres-17/install.sh
       - name: MTT lobby entries count committed registrations and rebuys

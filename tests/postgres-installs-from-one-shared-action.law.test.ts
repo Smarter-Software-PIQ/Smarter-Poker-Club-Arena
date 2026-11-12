@@ -112,92 +112,6 @@ describe('one shared PostgreSQL installer', () => {
     }
   });
 
-  it('matches the pinned native tool minor when the signed feed advances', () => {
-    const start = SH.indexOf('pg_match_tool_version() {');
-    expect(start).toBeGreaterThan(0);
-    const fn = SH.slice(start, SH.indexOf('\n}\n', start) + 3);
-    const run = (
-      required: string,
-      indexed = '17.11-1.signed',
-      packages = 'postgresql-17 postgresql-17-cron postgresql-server-dev-17 build-essential'
-    ) =>
-      spawnSync(
-        '/bin/bash',
-        [
-          '-eu',
-          '-c',
-          `${fn}
-pg_packages=(${packages})
-pg_apt=(-o Dir::Etc::sourcelist=/dev/null -o Dir::Etc::sourceparts=/signed)
-apt-cache() {
-  [[ " $* " == *" Dir::Etc::sourceparts=/signed "* ]] || return 99
-  printf 'package | 17.12-1.signed | signed\\npackage | %s | signed\\n' "$INDEXED"
-}
-pg_match_tool_version
-printf 'SELECTED:%s\\n' "${'${pg_packages[*]}'}"
-`,
-        ],
-        {
-          encoding: 'utf8',
-          env: { ...process.env, PG_REQUIRED_VERSION: required, INDEXED: indexed },
-        }
-      );
-    const matched = run('17.11');
-    expect(matched.status, matched.stderr).toBe(0);
-    expect(matched.stdout).toContain(
-      'SELECTED:postgresql-17=17.11-1.signed postgresql-17-cron postgresql-server-dev-17=17.11-1.signed build-essential'
-    );
-    expect(run('17.12').stdout).toContain('postgresql-17=17.12-1.signed');
-    const missing = run('17.10');
-    expect(missing.status).toBe(1);
-    expect(missing.stderr).toContain('No signed postgresql-17 version matches 17.10');
-    expect(run('17.1', '17.11-1.signed').status).toBe(1);
-    expect(run('18.1').status).toBe(1);
-    expect(run('17.11;false').status).toBe(1);
-    expect(run('').stdout).toContain(
-      'SELECTED:postgresql-17 postgresql-17-cron postgresql-server-dev-17 build-essential'
-    );
-    const exact = run('17.11', '', 'postgresql-17=17.11-exact postgresql-17-cron');
-    expect(exact.status, exact.stderr).toBe(0);
-    expect(exact.stdout).toContain('SELECTED:postgresql-17=17.11-exact postgresql-17-cron');
-    expect(SH.indexOf('pg_match_tool_version\n')).toBeLessThan(SH.indexOf('# PGDG can publish'));
-    expect(SH).toContain(
-      '[ -z "${PG_REQUIRED_VERSION:-}" ] || pg_version_options=(--allow-downgrades)'
-    );
-  });
-
-  it('keeps the default install valid on Bash 3.2 and allows only explicit pinned downgrades', () => {
-    const begin = SH.indexOf('pg_version_options=()');
-    const options = SH.slice(begin, SH.indexOf('# PGDG can publish', begin));
-    const install = SH.split('\n').find(
-      (line) => line.startsWith('pg_attempt sudo apt-get') && line.includes('"${pg_packages[@]}"')
-    );
-    expect(install).toBeTruthy();
-    for (const required of ['', '17.11']) {
-      const r = spawnSync(
-        '/bin/bash',
-        [
-          '-eu',
-          '-c',
-          `${options}
-pg_apt=(signed)
-pg_packages=(postgresql-17)
-pg_attempt() { printf '%s\\n' "$@"; }
-${install}
-`,
-        ],
-        { encoding: 'utf8', env: { ...process.env, PG_REQUIRED_VERSION: required } }
-      );
-      expect(r.status, r.stderr).toBe(0);
-      expect(r.stdout.includes('--allow-downgrades')).toBe(Boolean(required));
-      expect(r.stdout).toContain('postgresql-17');
-    }
-    const simulation = SH.split('\n').find(
-      (line) => line.includes('sudo apt-get') && line.includes('--simulate')
-    );
-    expect(simulation).toContain('${pg_version_options[@]+"${pg_version_options[@]}"}');
-  });
-
   it('refuses to run without the checkout key', () => {
     const box = mkdtempSync(join(tmpdir(), 'pg-nokey-'));
     try {
@@ -217,6 +131,67 @@ ${install}
       rmSync(box, { recursive: true, force: true });
     }
   });
+  it('installs the server minor the native tools are built for, never the newest in the index', () => {
+    const start = SH.indexOf('pg_minor_source=');
+    const end = SH.indexOf('\n# PGDG can publish an extension rebuild', start);
+    expect(start).toBeGreaterThan(0);
+    expect(end).toBeGreaterThan(start);
+    const block = SH.slice(start, end);
+    const builder = readFileSync(join(ROOT, 'scripts/ci/build_pg17_isolationtester.py'), 'utf8');
+    const minor = /^VERSION = '([0-9.]+)'$/m.exec(builder)?.[1];
+    expect(minor).toBeTruthy();
+    const next = `${minor!.split('.')[0]}.${Number(minor!.split('.')[1]) + 1}`;
+    const run = (offered: string[], packages: string, env: Record<string, string> = {}) => {
+      const madison = offered.map((v) => `printf '%s | ${v} | signed\\n' "$2"`).join('\n');
+      const script = `
+set -euo pipefail
+GITHUB_WORKSPACE='${ROOT}'
+read -r -a pg_packages <<<'${packages}'
+pg_apt=()
+apt-cache() {
+  [ "$1" = madison ] || return 1
+  ${madison || ':'}
+}
+${block}
+printf '%s\\n' "\${pg_packages[@]}"
+`;
+      return spawnSync('bash', ['-c', script], {
+        encoding: 'utf8',
+        env: { ...process.env, ...env },
+      });
+    };
+    const newestFirst = [
+      `${next}-1.pgdg26.04+1`,
+      `${minor}-1.pgdg26.04+2`,
+      `${minor}-1.pgdg26.04+1`,
+    ];
+    const pinned = run(
+      newestFirst,
+      'postgresql-17 postgresql-17-cron postgresql-server-dev-17 zstd'
+    );
+    expect(pinned.status, pinned.stderr).toBe(0);
+    const lines = pinned.stdout.trim().split('\n');
+    expect(lines).toContain(`postgresql-17=${minor}-1.pgdg26.04+2`);
+    expect(lines).toContain(`postgresql-server-dev-17=${minor}-1.pgdg26.04+2`);
+    // The client the server would otherwise pull at the newest minor is pinned with it.
+    expect(lines).toContain(`postgresql-client-17=${minor}-1.pgdg26.04+2`);
+    expect(lines).toContain('postgresql-17-cron');
+    expect(lines).toContain('zstd');
+    expect(pinned.stdout).not.toContain(`=${next}-`);
+
+    const clientOnly = run(newestFirst, 'postgresql-client-17');
+    expect(clientOnly.stdout.trim().split('\n')).toContain(
+      `postgresql-client-17=${minor}-1.pgdg26.04+2`
+    );
+
+    const gone = run([`${next}-1.pgdg26.04+1`], 'postgresql-17');
+    expect(gone.status).toBe(1);
+    expect(gone.stderr).toContain(`offers no postgresql-17 build of PostgreSQL ${minor}`);
+
+    const moved = run(newestFirst, 'postgresql-17', { PG_SERVER_MINOR: next });
+    expect(moved.stdout).toContain(`postgresql-17=${next}-1.pgdg26.04+1`);
+  });
+
   it('selects the newest installable signed cron version and refuses an unsolvable set', () => {
     const box = mkdtempSync(join(tmpdir(), 'pg-compatible-'));
     try {

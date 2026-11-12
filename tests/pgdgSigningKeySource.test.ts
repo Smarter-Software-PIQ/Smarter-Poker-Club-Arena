@@ -36,9 +36,7 @@ describe('required PostgreSQL installers retain signed repository authority', ()
     expect(shared).toContain('URIs: https://apt.postgresql.org/pub/repos/apt');
     expect(shared).toContain('Signed-By: %s');
     expect(shared).toContain('"$codename" "$PG_KEY_DST" > "$pg_sources/pgdg.sources"');
-    expect(shared).toContain(
-      'install -y --no-install-recommends ${pg_version_options[@]+"${pg_version_options[@]}"} "${pg_packages[@]}"'
-    );
+    expect(shared).toContain('install -y --no-install-recommends "${pg_packages[@]}"');
     expect(shared).toContain('set -euo pipefail');
     expect(shared).not.toMatch(/--insecure|--allow-unauthenticated|trusted=yes/);
   });

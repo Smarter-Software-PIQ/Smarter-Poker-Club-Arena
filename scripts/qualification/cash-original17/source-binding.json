@@ -482,8 +482,8 @@
       "sha256": "0c3c357e106b6daf5461587e707e63d47260837870a7fb423d2f4fdd00b339bd"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 143954,
-      "sha256": "0ff77a4faedce6442830fb8d71d24a5906626fda1bc043686012a52207bf4ae8"
+      "bytes": 143430,
+      "sha256": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c"
     },
     "scripts/ci/qualification-input-projections.py": {
       "bytes": 9270,
@@ -957,7 +957,7 @@
       "bytes": 239646,
       "sha256": "32d7bebc69d6147ffc71c5183f09d4939da7437ddd842beee0bf1ac9ad1e1469"
     },
-    "review": "Only accounting job40\u219250minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
+    "review": "Only accounting job40→50minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
     "composition": "Preserves all current protected-main CI steps plus the measured50minute job budget; only this workflow pin conflicted."
   },
   "riverPersistenceBudgetIntegration20261027": {
@@ -3122,13 +3122,5 @@
     ],
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
-  },
-  "pinnedNativeToolServerAgreement20261112": {
-    "path": "scripts/qualification/ci-accounting-inputs.json",
-    "previousSha256": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c",
-    "sha256": "0ff77a4faedce6442830fb8d71d24a5906626fda1bc043686012a52207bf4ae8",
-    "reason": "Reviewed exact accounting install/readiness delta: obtain the native builder pinned minor, require matching packaged server/dev readiness, and pass PG_REQUIRED_VERSION to the existing signed installer. Workflow admission/global context, classifier, native source/checksum, SQL fixtures, assertions and historical qualification outcomes are unchanged. Required exact-head accounting qualification remains pending.",
-    "financialRecertification": false,
-    "historicalEvidenceRestamped": false
   }
 }
