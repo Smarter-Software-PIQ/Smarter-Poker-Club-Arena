@@ -76,6 +76,7 @@ export interface ComplaintPublicNode {
    *  replays as an unfloored one unless a fixture supplies them
    *  (PLO6-AUDIT-004). Absent = unfloored, as before. */
   vpipFloor?: number;
+  vpipWindowHands?: number;
   ownVpip?: { hands: number; vpip: number | null };
 }
 
@@ -303,6 +304,7 @@ export function stateAt(hand: ExtractedHand | ComplaintFixture, node: ComplaintA
     ...(pn.wagersCapped !== undefined ? { wagersCapped: pn.wagersCapped } : {}),
     ...(pn.asset !== undefined ? { asset: pn.asset } : {}),
     ...(pn.vpipFloor !== undefined ? { vpipFloor: pn.vpipFloor } : {}),
+    ...(pn.vpipWindowHands !== undefined ? { vpipWindowHands: pn.vpipWindowHands } : {}),
     ...(pn.ownVpip !== undefined ? { ownVpip: pn.ownVpip } : {}),
     ...(pn.deductions?.status === 'captured'
       ? {
