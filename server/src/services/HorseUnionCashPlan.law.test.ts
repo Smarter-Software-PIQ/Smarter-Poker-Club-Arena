@@ -235,6 +235,26 @@ describe('a game does not break right away after a human leaves (Dan 2026-11-11)
     expect(allowed(offPlan, 0, t0 + dwell * 60000 - 1000)).toBe(true); // inside the dwell
     expect(allowed(offPlan, 0, t0 + dwell * 60000)).toBe(false); // the dwell has run out
   });
+  it('a restart cannot erase or shorten the dwell: the table row remembers the departure', () => {
+    const t0 = at('2026-11-12T20:00:00-06:00');
+    const dwell = humanDepartureDwellMinutes('dwell-persisted');
+    const persisted = {
+      ...offPlan,
+      id: 'dwell-persisted',
+      last_human_seen_at: new Date(t0).toISOString(),
+    };
+    // Memory is empty (the beforeEach reset simulates the restart); the
+    // column alone keeps the game running through the dwell.
+    expect(allowed(persisted, 0, t0 + 60000)).toBe(true);
+    expect(allowed(persisted, 0, t0 + dwell * 60000 - 1000)).toBe(true);
+    expect(allowed(persisted, 0, t0 + dwell * 60000)).toBe(false);
+    // A returning human refreshes the condition; their later departure
+    // restarts the dwell from the newer of memory and the column.
+    const t1 = t0 + dwell * 60000;
+    expect(allowed(persisted, 1, t1)).toBe(true);
+    expect(allowed(persisted, 0, t1 + 60000)).toBe(true);
+    expect(allowed(persisted, 0, t1 + dwell * 60000)).toBe(false);
+  });
   it('every table dwell lands inside the owner 20-30 minute window, deterministically', () => {
     for (let i = 0; i < 64; i++) {
       const minutes = humanDepartureDwellMinutes(`table-${i}`);

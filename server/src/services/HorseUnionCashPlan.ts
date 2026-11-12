@@ -41,6 +41,7 @@ export type CashPlanTable = {
   small_blind?: unknown;
   big_blind?: unknown;
   lifecycle?: unknown;
+  last_human_seen_at?: unknown;
 };
 
 /** Main numbering is not unique in the database. Select one stable chair
@@ -132,14 +133,35 @@ export function notePlayingHumansSeen(tableId: string, nowMs: number): void {
   }
 }
 
-export function minutesSinceLastPlayingHuman(tableId: string, nowMs: number): number | null {
-  const seen = lastPlayingHumanSeenMs.get(String(tableId));
-  return seen === undefined || !Number.isFinite(nowMs) ? null : (nowMs - seen) / 60000;
+/** The engine's memory OR the table row's own durable stamp
+ * (tables.last_human_seen_at, written by the seat-event trigger), whichever
+ * is later - so a restart, reconnect or table transfer cannot erase or
+ * shorten the dwell. */
+export function lastPlayingHumanSeenMsFor(table: CashPlanTable): number | null {
+  const mem = lastPlayingHumanSeenMs.get(String(table.id ?? ''));
+  const raw = table.last_human_seen_at;
+  const persisted =
+    typeof raw === 'string' ? Date.parse(raw) : raw instanceof Date ? raw.getTime() : NaN;
+  const best = Math.max(
+    mem ?? Number.NEGATIVE_INFINITY,
+    Number.isFinite(persisted) ? persisted : Number.NEGATIVE_INFINITY
+  );
+  return Number.isFinite(best) ? best : null;
 }
 
-export function withinHumanDepartureDwell(tableId: string, nowMs: number): boolean {
-  const minutes = minutesSinceLastPlayingHuman(tableId, nowMs);
-  return minutes !== null && minutes >= 0 && minutes < humanDepartureDwellMinutes(tableId);
+export function minutesSinceLastPlayingHumanFor(
+  table: CashPlanTable,
+  nowMs: number
+): number | null {
+  const seen = lastPlayingHumanSeenMsFor(table);
+  return seen === null || !Number.isFinite(nowMs) ? null : (nowMs - seen) / 60000;
+}
+
+export function withinHumanDepartureDwellFor(table: CashPlanTable, nowMs: number): boolean {
+  const minutes = minutesSinceLastPlayingHumanFor(table, nowMs);
+  return (
+    minutes !== null && minutes >= 0 && minutes < humanDepartureDwellMinutes(String(table.id ?? ''))
+  );
 }
 
 /** Tests only: the dwell memory is module state. */
@@ -212,7 +234,7 @@ export function horseUnionCashTableAllowed(
   // The human exception outlives the last playing human by this table's own
   // 20-30 minute dwell (Dan 2026-11-11): a game never breaks right away
   // after a human leaves.
-  if (higherStakes && withinHumanDepartureDwell(tableKey, nowMs)) return true;
+  if (higherStakes && withinHumanDepartureDwellFor(table, nowMs)) return true;
   const gameId = String(table.cluster_id ?? '');
   const game = games.get(gameId);
   // Named game and Main 1 prevent the fleet multiplying a slot into feeders

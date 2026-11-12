@@ -4,7 +4,7 @@ import { horseCashGameAllowed } from './HorseCashSchedule.js';
 import {
   horseCashPlanPrimaryTables,
   humanDepartureDwellMinutes,
-  minutesSinceLastPlayingHuman,
+  minutesSinceLastPlayingHumanFor,
   horseCashPlanSecondTables,
   horseCashPlanTablesAwaitingBreak,
   horseUnionCashTableAllowed,
@@ -550,7 +550,7 @@ export class HorseSessionRotator {
           // table's own limits, which price the reload, the swing and the
           // session P&L - `bb * 100` is not the buy-in at a 0.50 game whose
           // minimum is 200.
-          'table_id, user_id, seat_number, stack, joined_at, club_id, leave_pending, is_sitting_out, auto_rebuy, tables!table_seats_table_id_fkey!inner(id, small_blind, big_blind, game_variant, tournament_id, is_spins, status, settings, cluster_id, role, main_index, lifecycle, created_at, max_players, min_buy_in, max_buy_in, club_id, union_id, arena:clubs!fk_tables_club_id(id, asset, is_platform, union_id))'
+          'table_id, user_id, seat_number, stack, joined_at, club_id, leave_pending, is_sitting_out, auto_rebuy, tables!table_seats_table_id_fkey!inner(id, small_blind, big_blind, game_variant, tournament_id, is_spins, status, settings, cluster_id, role, main_index, lifecycle, last_human_seen_at, created_at, max_players, min_buy_in, max_buy_in, club_id, union_id, arena:clubs!fk_tables_club_id(id, asset, is_platform, union_id))'
         )
         .is('left_at', null)
         .order('table_id', { ascending: true })
@@ -1887,7 +1887,7 @@ export class HorseSessionRotator {
         tableAgeMinutes: (now - new Date(t.created_at ?? 0).getTime()) / 60000,
         minutesSeated,
         minutesSinceLastHand: null,
-        minutesSinceHumanLeft: minutesSinceLastPlayingHuman(tableId, now),
+        minutesSinceHumanLeft: minutesSinceLastPlayingHumanFor(t ?? {}, now),
         humanLeftDwellMinutes: humanDepartureDwellMinutes(tableId),
       });
       if (pre !== 'stand') continue;
@@ -1948,7 +1948,7 @@ export class HorseSessionRotator {
         tableAgeMinutes: (now - new Date(c.t.created_at ?? 0).getTime()) / 60000,
         minutesSeated: c.minutesSeated,
         minutesSinceLastHand: last === undefined ? null : (now - last) / 60000,
-        minutesSinceHumanLeft: minutesSinceLastPlayingHuman(c.tableId, now),
+        minutesSinceHumanLeft: minutesSinceLastPlayingHumanFor(c.t ?? {}, now),
         humanLeftDwellMinutes: humanDepartureDwellMinutes(c.tableId),
       });
       if (verdict !== 'stand') continue;
