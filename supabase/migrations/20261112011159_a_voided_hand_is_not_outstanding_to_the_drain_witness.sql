@@ -14,8 +14,9 @@
 --
 -- Installed on production through the Supabase MCP as version 20261112011159
 -- under this same name (readback passed: contract intact, voided hands
--- excluded), so the applier answers ALREADY-APPLIED by name; this file is the
--- repository's canonical copy for a fresh database.
+-- excluded; grants closed to service_role, matching the live state), so the
+-- applier answers ALREADY-APPLIED by name; this file is the repository's
+-- canonical copy for a fresh database.
 
 BEGIN;
 
@@ -63,6 +64,12 @@ BEGIN
   );
 END;
 $function$;
+
+-- OPERATOR AND ENGINE TELEMETRY, NOT PLAYER SURFACE. The witness is read by
+-- the release tooling with service credentials; a caller with no account has
+-- no business asking how drained the engine is. These match the live grants.
+REVOKE ALL ON FUNCTION public.fn_ca_release_drained_predecessor_witness(integer, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_ca_release_drained_predecessor_witness(integer, integer) TO service_role;
 
 -- @live-proof: (SELECT (public.fn_ca_release_drained_predecessor_witness() ->> 'contract') = 'drained-predecessor-witness-v1')
 
