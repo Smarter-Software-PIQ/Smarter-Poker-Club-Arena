@@ -15,6 +15,11 @@ a fake extensions.http answering from a table, so every outcome is data:
     is read from the raw file; 20261110194917);
   * a renamed file whose raw text cannot be read is retried, never guessed;
   * an empty or blank body is unreadable, never an absent header;
+  * a file marked superseded after its merge (a 'modified' commit) is read
+    again from its raw text, never paged, and an alert already raised for it
+    resolves; an added file that arrives superseded is never paged; a marker
+    naming no file on main is ignored; an unreadable modification is retried
+    (20261112035143, alert 376926);
   * an unreadable GitHub raises nothing new and keeps the cursor;
   * a release page and a migration page do not hold each other back;
   * it never writes schema_migrations and never calls anything but GET.
@@ -33,6 +38,10 @@ CUTOVER = MIGRATIONS / '20261109024836_a_missed_engine_cutover_and_a_failing_lob
 MIGRATION = next(MIGRATIONS.glob('*_a_merged_migration_still_uninstalled_after_an_hour_pages_t*.sql'))
 # 20261110194917: a renamed file's window header is read from the raw file.
 RENAME_FIX = next(MIGRATIONS.glob('*_the_install_watch_reads_a_renamed_migration_s_header_from_it.sql'))
+# 20261112035143: a superseded file is never paged; a modified waiting file is re-read.
+SUPERSEDED_FIX = next(MIGRATIONS.glob('*_the_install_watch_reads_a_superseded_migration_as_never_to_b*.sql'))
+# The never-run marker, spelled in two pieces so this file is not read as one.
+MARK = '-- SUPER' + 'SEDED BY '
 PREIMAGES = json.loads((ROOT / 'scripts/ci/fixtures/engine-cutover-preimages.json').read_text())
 REPO = 'https://api.github.com/repos/Smarter-Software-PIQ/Smarter-Poker-Club-Arena'
 RAW = 'https://raw.githubusercontent.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena'
@@ -104,6 +113,12 @@ def main():
         proof = re.search(r'^-- @live-proof: (.+)$', RENAME_FIX.read_text(), re.M).group(1)
         assert sql(f'SELECT {proof}') == 't', 'rename-fix live proof must hold after install'
         ok('the rename fix installs over the exact installed watch (md5 preimage) and its live proof holds')
+        if os.environ.get('MIGWATCH_PRE_FIX') != '1':
+            r = psql(['-f', str(SUPERSEDED_FIX)])
+            assert r.returncode == 0, r.stderr
+            proof = re.search(r'^-- @live-proof: (.+)$', SUPERSEDED_FIX.read_text(), re.M).group(1)
+            assert sql(f'SELECT {proof}') == 't', 'superseded-fix live proof must hold after install'
+            ok('the superseded fix installs over the exact installed watch (md5 preimage) and its live proof holds')
 
         def mock(pattern, body, status=200):
             sql("INSERT INTO mock_http VALUES ($m$%s$m$, %d, $m$%s$m$) ON CONFLICT (pattern) DO UPDATE SET status = EXCLUDED.status, body = EXCLUDED.body"
@@ -272,13 +287,90 @@ def main():
         assert sql("SELECT count(*) FROM operational_alert_events WHERE event_key = 'uninstalled:20261110163000'") == '0'
         ok('an added file with an empty patch is read from its raw text, not judged on nothing')
 
+        def alert_status(version):
+            return sql(f"SELECT coalesce(string_agg(status, ','), '') FROM operational_alert_events WHERE event_key = 'uninstalled:{version}'")
+
+        # A FILE MARKED SUPERSEDED AFTER ITS MERGE (20261112013714 by #10561,
+        # 2026-11-12, alert 376926). The marking commit MODIFIES the file; the
+        # watch must read it again, resolve the alert it already raised, and
+        # never page it again. The applier refuses a superseded file by design.
+        ORD2 = 'supabase/migrations/20261110200000_replaced_later.sql'
+        SUPN = 'supabase/migrations/20261110210500_the_replacement.sql'
+        merge(15, '2026-11-10T20:00:00Z', [{'filename': ORD2, 'status': 'added', 'patch': '@@ -0,0 +1,2 @@\n+-- replaced later\n+BEGIN; COMMIT;'}])
+        watch('2026-11-10 21:00:00Z')
+        assert alert_status('20261110200000') == 'firing'
+        merge(16, '2026-11-10T21:05:00Z', [
+            {'filename': SUPN, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+BEGIN; COMMIT;'},
+            {'filename': ORD2, 'status': 'modified', 'patch': '@@ -1,1 +1,2 @@\n+' + MARK + '20261110210500\n -- replaced later'}])
+        mock(f'{RAW}/{sha(16)}/{ORD2}', MARK + '20261110210500\n-- replaced later\nBEGIN; COMMIT;\n')
+        sql("INSERT INTO supabase_migrations.schema_migrations(version, name) VALUES ('20261110210500', 'the_replacement')")
+        r = watch('2026-11-10 21:10:00Z')
+        assert r['state'] == 'read', r
+        assert alert_status('20261110200000') == 'resolved', r
+        assert sql("SELECT superseded_by FROM smarter_private.ca_merged_migration_watch WHERE version = '20261110200000'") == '20261110210500'
+        assert sql("SELECT payload->>'resolution' FROM operational_alert_events WHERE event_key = 'uninstalled:20261110200000'") == \
+            'superseded on main by 20261110210500; it must never install'
+        watch('2026-11-10 23:00:00Z')
+        assert alert_status('20261110200000') == 'resolved'
+        ok('a file marked superseded after its merge is read again, its alert resolves, and it is never paged again')
+
+        # An ADDED file that arrives already superseded, naming a file on main
+        # (remembered, not yet installed), is never paged.
+        SUPA = 'supabase/migrations/20261110220000_arrives_superseded.sql'
+        SUPB = 'supabase/migrations/20261110220500_its_replacement.sql'
+        merge(17, '2026-11-10T22:00:00Z', [
+            {'filename': SUPA, 'status': 'added', 'patch': '@@ -0,0 +1,2 @@\n+' + MARK + '20261110220500\n+BEGIN; COMMIT;'},
+            {'filename': SUPB, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+-- @install-window: daily-maintenance'}])
+        watch('2026-11-11 01:00:00Z')
+        assert sql("SELECT superseded_by FROM smarter_private.ca_merged_migration_watch WHERE version = '20261110220000'") == '20261110220500'
+        assert alert_status('20261110220000') == '' and alert_status('20261110220500') == ''
+        ok('an added file that arrives superseded by a file on main is never paged')
+
+        # A marker naming a version that is neither on main nor installed is
+        # ignored, exactly as the applier and CI ignore it: the file pages.
+        LIAR = 'supabase/migrations/20261110230000_names_nothing.sql'
+        merge(18, '2026-11-10T23:00:00Z', [{'filename': LIAR, 'status': 'added',
+                                            'patch': '@@ -0,0 +1,2 @@\n+' + MARK + '20261110239999\n+BEGIN; COMMIT;'}])
+        watch('2026-11-11 00:05:00Z')
+        assert alert_status('20261110230000') == 'firing'
+        ok('a marker naming no file on main is ignored and the file is paged')
+
+        # A marker past the first 400 characters is not the marker, as for the applier.
+        DEEP = 'supabase/migrations/20261110231000_marker_too_deep.sql'
+        merge(19, '2026-11-10T23:10:00Z', [{'filename': DEEP, 'status': 'added',
+                                            'patch': '@@ -0,0 +1,3 @@\n+' + ('-' * 450) + '\n+' + MARK + '20261110210500\n+BEGIN; COMMIT;'}])
+        watch('2026-11-11 00:15:00Z')
+        assert alert_status('20261110231000') == 'firing'
+        ok('a marker beyond the first 400 characters of the file does not count')
+
+        # A modification whose raw text cannot be read is retried, never guessed.
+        ORD3 = 'supabase/migrations/20261110232000_modified_unreadable.sql'
+        merge(20, '2026-11-10T23:20:00Z', [{'filename': ORD3, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+BEGIN; COMMIT;'}])
+        watch('2026-11-10 23:25:00Z')
+        merge(21, '2026-11-10T23:30:00Z', [{'filename': ORD3, 'status': 'modified', 'patch': '@@ -1,1 +1,2 @@\n+' + MARK + '20261110210500'}])
+        mock(f'{RAW}/{sha(21)}/{ORD3}', 'not found', status=404)
+        r = watch('2026-11-10 23:35:00Z')
+        assert r['state'] == 'unknown', r
+        assert sql(f"SELECT count(*) FROM smarter_private.ca_merged_migration_watch_commits WHERE sha = '{sha(21)}'") == '0'
+        mock(f'{RAW}/{sha(21)}/{ORD3}', MARK + '20261110210500\nBEGIN; COMMIT;\n')
+        r = watch('2026-11-11 01:00:00Z')
+        assert r['state'] == 'read', r
+        assert alert_status('20261110232000') == ''
+        ok('a modification whose raw text cannot be read is retried, never guessed')
+
+        # A modification to a file nothing waits on costs no fetch.
+        merge(22, '2026-11-11T01:10:00Z', [{'filename': 'supabase/migrations/20261110100000_ordinary_change.sql', 'status': 'modified', 'patch': '@@ -1 +1 @@\n-x\n+y'}])
+        watch('2026-11-11 01:15:00Z')
+        assert sql(f"SELECT count(*) FROM mock_http_calls WHERE uri = '{RAW}/{sha(22)}/supabase/migrations/20261110100000_ordinary_change.sql'") == '0'
+        ok('a modification to an installed file is not fetched')
+
         # Release and migration pages keep their own episode clocks.
         sql("SELECT public.fn_record_operational_alert('engine-cutover-watch', 'missed:2026-11-10', 'EngineCutoverMissed', 'firing', 'critical', "
             "jsonb_build_object('summary', 'The 4 AM engine update did not happen.'))")
         assert pages('Engine Update Missed At 4 AM') == 1
         ok('a migration page does not hold back an engine release page')
 
-        assert sql("SELECT count(*) FROM supabase_migrations.schema_migrations") == '1'
+        assert sql("SELECT count(*) FROM supabase_migrations.schema_migrations") == '2'  # both inserted by this test
         assert sql("SELECT count(*) FROM mock_http_calls WHERE uri NOT LIKE 'https://api.github.com/%' AND uri NOT LIKE 'https://raw.githubusercontent.com/%'") == '0'
         assert sql("SELECT jobname || ' ' || schedule FROM cron.job WHERE jobname LIKE 'ca-merged-migration%'") == 'ca-merged-migration-install-watch-10m */10 * * * *'
         ok('it never writes the migration ledger and only reads GitHub')
