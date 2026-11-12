@@ -54,6 +54,45 @@ pg_attempt() {
   done
 }
 
+# PGDG retains several signed package versions. An extension can be published
+# before the server minor it requires (2026-11-12: cron +3 needed 17.12 while
+# the server was 17.11). Resolve the complete requested set before installing;
+# never pin an arbitrary historical version or discard a required extension.
+pg_resolve_cron() {
+  local package version plan_log
+  local requested=false
+  local versions=() proposed=()
+  for package in "${pg_packages[@]}"; do
+    [ "$package" != postgresql-17-cron ] || requested=true
+  done
+  [ "$requested" = true ] || return 0
+  # madison orders advertised versions newest first. These are the same
+  # signed Ubuntu/PGDG indexes the eventual apt-get install consumes.
+  versions=( $(apt-cache "${pg_apt[@]}" madison postgresql-17-cron | awk '{print $3}') )
+  [ "${#versions[@]}" -gt 0 ] || { echo '::error::No indexed PostgreSQL 17 cron version.' >&2; return 1; }
+  plan_log="$(mktemp "$RUNNER_TEMP/ca-postgres-plan.XXXXXX")"
+  for version in "${versions[@]}"; do
+    proposed=()
+    for package in "${pg_packages[@]}"; do
+      if [ "$package" = postgresql-17-cron ]; then
+        proposed+=("postgresql-17-cron=$version")
+      else
+        proposed+=("$package")
+      fi
+    done
+    if sudo apt-get "${pg_apt[@]}" --simulate install --no-install-recommends "${proposed[@]}" >"$plan_log" 2>&1; then
+      pg_packages=("${proposed[@]}")
+      echo "PostgreSQL package set resolves with postgresql-17-cron=$version"
+      cat "$plan_log"
+      return 0
+    fi
+    echo "PostgreSQL package set does not resolve with postgresql-17-cron=$version; no package installed."
+  done
+  cat "$plan_log" >&2
+  echo '::error::No indexed cron version resolves the complete requested PostgreSQL package set.' >&2
+  return 1
+}
+
 if [ "${PG_UBUNTU_MIRROR:-false}" = true ]; then
   sudo python3 "$GITHUB_WORKSPACE/scripts/ci/ubuntu-apt-mirror.py"
 fi
@@ -80,4 +119,5 @@ printf 'Types: deb\nURIs: https://apt.postgresql.org/pub/repos/apt\nSuites: %s-p
   "$codename" "$PG_KEY_DST" > "$pg_sources/pgdg.sources"
 pg_attempt sudo apt-get "${pg_apt[@]}" "${pg_update[@]}" update
 printf 'create_main_cluster = false\n' | sudo tee /etc/postgresql-common/createcluster.conf >/dev/null
+pg_resolve_cron
 pg_attempt sudo apt-get "${pg_apt[@]}" install -y --no-install-recommends "${pg_packages[@]}"

@@ -25,3 +25,13 @@ dependency is introduced.
 Production installation must use the existing daily window route. Source
 merge is not installation. Private incident compensation and participant
 evidence live in the owning external checkpoint, not this public changelog.
+
+Required accounting CI exposed a signed PGDG dependency mismatch before SQL
+execution: the newest pg_cron required an unavailable server minor. The shared
+installer now simulates the complete requested package set against advertised
+signed cron versions, newest first, then installs the first resolvable set
+through its existing bounded transport retry. Explicit versions, signed sources,
+required packages and accounting tests remain enforced. Behavioral regression
+covers incompatible/latest-compatible versions, no compatible version, empty
+indexes, unchanged non-cron and exact-version requests. Actual hosted accounting
+qualification remains required.
