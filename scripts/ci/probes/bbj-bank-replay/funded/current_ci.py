@@ -45,6 +45,11 @@ def require(value, message):
         raise RuntimeError(message)
 
 
+def validate_runtime_version(value):
+    require(re.search(r'\(PostgreSQL\) 17\.12(?:\s|$)', value) is not None,
+            'Exactly PostgreSQL17.12 required for current hosted execution')
+
+
 def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
@@ -386,21 +391,21 @@ class CurrentAccountingRun:
         require(self.pg_bin == Path('/usr/lib/postgresql/17/bin'),
                 'Use the original hosted accounting job PostgreSQL path')
         records = {}
-        report = {'required_version': '17.11', 'actual_binaries': records, 'runtime_verified': False,
+        report = {'required_version': '17.12', 'actual_binaries': records, 'runtime_verified': False,
                   'current_accounting_ci': self.identity, 'historical_provider_used': False}
         try:
             for name in PROVIDER_BINARIES:
                 self.require_case_time()
                 path = self.pg_bin / name
-                require(path.is_file() and os.access(path, os.X_OK), 'Missing hosted PG17.11 binary: ' + name)
+                require(path.is_file() and os.access(path, os.X_OK), 'Missing hosted PG17.12 binary: ' + name)
                 digest = sha(path)
                 returned = subprocess.run([str(path), '--version'], text=True, capture_output=True,
                                           env=self.child_env, timeout=min(15, self.job_deadline_monotonic-time.monotonic()))
                 records[name] = dict(path=str(path), sha256=digest, exit=returned.returncode,
                                      stdout=returned.stdout, stderr=returned.stderr)
-                require(sha(path) == digest and returned.returncode == 0 and
-                        re.search(r'\(PostgreSQL\) 17\.11(?:\s|$)', returned.stdout),
-                        'Unchanged actual PostgreSQL17.11 required: ' + name)
+                require(sha(path) == digest and returned.returncode == 0,
+                        'Unchanged actual PostgreSQL17.12 required: ' + name)
+                validate_runtime_version(returned.stdout)
             report['runtime_verified'] = True
             self.runtime = report
             return report
@@ -438,7 +443,7 @@ class CurrentAccountingRun:
         require(state['physical'] is None, 'Physical case identity cannot be rebound')
         validator(actual, expected)
         require(expected['database'] == case.lower(), 'Selected case clone name differs')
-        require(actual.get('server_version_num') == 170011, 'Actual server minor is not PostgreSQL17.11')
+        require(actual.get('server_version_num') == 170012, 'Actual server minor is not PostgreSQL17.12')
         names = ('auth.users', 'public.clubs', 'public.chip_ledger', 'public.ca_account_snapshots', 'public.ca_currency_meter')
         require(set(raw.get('raw', {})) and all(raw['raw'][name] == [] for name in names),
                 'Pristine unseeded physical clone is required before effects')

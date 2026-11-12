@@ -142,7 +142,8 @@ describe('one shared PostgreSQL installer', () => {
     expect(minor).toBeTruthy();
     const next = `${minor!.split('.')[0]}.${Number(minor!.split('.')[1]) + 1}`;
     const run = (offered: string[], packages: string, env: Record<string, string> = {}) => {
-      const madison = offered.map((v) => `printf '%s | ${v} | signed\\n' "$2"`).join('\n');
+      const box = mkdtempSync(join(tmpdir(), 'pg-minor-'));
+      writeFileSync(join(box, 'index'), offered.map((v) => `${v}\n`).join(''));
       const script = `
 set -euo pipefail
 GITHUB_WORKSPACE='${ROOT}'
@@ -150,15 +151,19 @@ read -r -a pg_packages <<<'${packages}'
 pg_apt=()
 apt-cache() {
   [ "$1" = madison ] || return 1
-  ${madison || ':'}
+  while IFS= read -r version; do printf '%s | %s | signed\\n' "$2" "$version"; done < '${box}/index'
 }
 ${block}
 printf '%s\\n' "\${pg_packages[@]}"
 `;
-      return spawnSync('bash', ['-c', script], {
-        encoding: 'utf8',
-        env: { ...process.env, ...env },
-      });
+      try {
+        return spawnSync('bash', ['-c', script], {
+          encoding: 'utf8',
+          env: { ...process.env, ...env },
+        });
+      } finally {
+        rmSync(box, { recursive: true, force: true });
+      }
     };
     const newestFirst = [
       `${next}-1.pgdg26.04+1`,
@@ -187,6 +192,18 @@ printf '%s\\n' "\${pg_packages[@]}"
     const gone = run([`${next}-1.pgdg26.04+1`], 'postgresql-17');
     expect(gone.status).toBe(1);
     expect(gone.stderr).toContain(`offers no postgresql-17 build of PostgreSQL ${minor}`);
+
+    // A long listing and a distribution build of the same minor: the reader must take the
+    // whole listing (an early exit kills apt-cache under pipefail) and only a PGDG build.
+    const long = [
+      `${next}-1.pgdg26.04+1`,
+      `${minor}-0ubuntu0.26.04.1`,
+      `${minor}-1.pgdg26.04+2`,
+      ...Array.from({ length: 20000 }, (_, i) => `16.${i}-1.pgdg26.04+1`),
+    ];
+    const whole = run(long, 'postgresql-17');
+    expect(whole.status, whole.stderr).toBe(0);
+    expect(whole.stdout.trim().split('\n')).toContain(`postgresql-17=${minor}-1.pgdg26.04+2`);
 
     const moved = run(newestFirst, 'postgresql-17', { PG_SERVER_MINOR: next });
     expect(moved.stdout).toContain(`postgresql-17=${next}-1.pgdg26.04+1`);
