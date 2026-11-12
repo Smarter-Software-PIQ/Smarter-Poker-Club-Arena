@@ -10,7 +10,7 @@
  * are re-ranked client side from those answers; the server cursor is
  * untouched, so paging on is unaffected.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { type PresenceAnswer, watchProfilePresence } from '../lib/profilePresence';
 import { type LiveSeat, type LiveSeatAnswer, watchClubLiveSeats } from '../lib/clubLiveSeats';
 
@@ -82,6 +82,35 @@ export function liveStateOf(
   const live = presence.get(row.user_id);
   const online = seated || (live === undefined ? row.is_online : live);
   return { seated, online, tables };
+}
+
+function sameLive(a: LiveState, b: LiveState): boolean {
+  return a.seated === b.seated && a.online === b.online && a.tables === b.tables;
+}
+
+/**
+ * The live state of every loaded row, keyed by user id, with each row's object
+ * kept IDENTICAL across commits while its answer is unchanged. MemberRow is
+ * memoized on its props; a fresh {seated, online, tables} per parent render
+ * would re-render every row on every commit (rosterPerformancePhase6), so the
+ * page hands rows these stable objects instead of calling liveStateOf inline.
+ */
+export function useLiveStates<T extends LiveRankedRow>(
+  rows: readonly T[],
+  seats: ClubLiveSeats,
+  presence: PresenceAnswer
+): ReadonlyMap<string, LiveState> {
+  const previous = useRef<ReadonlyMap<string, LiveState>>(new Map());
+  return useMemo(() => {
+    const next = new Map<string, LiveState>();
+    for (const row of rows) {
+      const fresh = liveStateOf(row, seats, presence);
+      const kept = previous.current.get(row.user_id);
+      next.set(row.user_id, kept && sameLive(kept, fresh) ? kept : fresh);
+    }
+    previous.current = next;
+    return next;
+  }, [rows, seats, presence]);
 }
 
 function rank(state: LiveState): number {

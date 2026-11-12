@@ -3,7 +3,7 @@
  * re-ranked from the presence door and the club's live seats, seated first,
  * then online, then last active, without a roster re-read.
  */
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const seatRows: { stamped: unknown[]; owned: unknown[] } = { stamped: [], owned: [] };
@@ -16,7 +16,7 @@ import {
   resetClubLiveSeatsForTests,
   watchClubLiveSeats,
 } from '../../src/lib/clubLiveSeats';
-import { liveStateOf, orderByActivity, type ClubLiveSeats } from '../../src/hooks/useRosterLiveOrder';
+import { liveStateOf, orderByActivity, useLiveStates, type ClubLiveSeats } from '../../src/hooks/useRosterLiveOrder';
 import { PRESENCE_RECHECK_MS } from '../../src/lib/profilePresence';
 import LiveNowStrip from '../../src/components/club/LiveNowStrip';
 
@@ -132,6 +132,34 @@ describe('orderByActivity', () => {
     expect(liveStateOf(seated[0], noSeats, new Map())).toMatchObject({ seated: true, online: true });
     const known: ClubLiveSeats = { byUser: new Map(), seats: [], known: true };
     expect(liveStateOf(seated[0], known, new Map())).toMatchObject({ seated: false, online: true });
+  });
+});
+
+describe('useLiveStates', () => {
+  const rows = [
+    { user_id: 'a', is_seated: false, is_online: false, last_login: null },
+    { user_id: 'b', is_seated: false, is_online: true, last_login: null },
+  ];
+  const noSeats: ClubLiveSeats = { byUser: new Map(), seats: [], known: true };
+
+  it('hands back the identical object while a row is unchanged, a new one when it moves', () => {
+    const { result, rerender } = renderHook(
+      ({ presence }: { presence: Map<string, boolean> }) => useLiveStates(rows, noSeats, presence),
+      { initialProps: { presence: new Map<string, boolean>() } }
+    );
+    const a1 = result.current.get('a');
+    const b1 = result.current.get('b');
+    expect(b1).toMatchObject({ online: true });
+    // A fresh presence answer that says the same thing: both objects survive,
+    // so memoized rows skip work.
+    rerender({ presence: new Map<string, boolean>([['a', false], ['b', true]]) });
+    expect(result.current.get('a')).toBe(a1);
+    expect(result.current.get('b')).toBe(b1);
+    // b goes dark: only b gets a new object.
+    rerender({ presence: new Map<string, boolean>([['a', false], ['b', false]]) });
+    expect(result.current.get('a')).toBe(a1);
+    expect(result.current.get('b')).not.toBe(b1);
+    expect(result.current.get('b')).toMatchObject({ online: false });
   });
 });
 

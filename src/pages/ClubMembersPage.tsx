@@ -13,7 +13,7 @@ import { sizedStorageUrl, generateAvatarSvg } from '../utils/avatarGenerator';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useDebounce } from '../hooks/useDebounce';
 import {
-  liveStateOf,
+  useLiveStates,
   orderByActivity,
   useClubLiveSeats,
   useLoadedPresence,
@@ -315,6 +315,7 @@ export default function ClubMembersPage() {
         : members,
     [members, liveSeats, presence, sortKey, searchQuery]
   );
+  const liveStates = useLiveStates(members, liveSeats, presence);
   const selectionQueryCurrent = selectionQueryRef.current === selectionQuery;
   const selected = useMemo(
     () =>
@@ -2027,7 +2028,7 @@ export default function ClubMembersPage() {
                 winLossUnavailable={winLoss.unavailable.has(member.user_id)}
                 winLossLabel={WIN_LOSS_SHORT[winLossPeriod]}
                 feeLabel={PERIOD_FEE_LABEL[winLossPeriod]}
-                live={liveStateOf(member, liveSeats, presence)}
+                live={liveStates.get(member.user_id)}
                 onWatch={watchTable}
               />
             ))}
