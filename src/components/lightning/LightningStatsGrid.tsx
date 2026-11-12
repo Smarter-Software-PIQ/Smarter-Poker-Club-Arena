@@ -36,6 +36,10 @@ export function lightningStatRows(
       label: 'Total Buy-In',
       value: lightningChipsText(s.totalBuyIn ?? s.startingStack),
     },
+    /* Why Total Buy-In is above the starting stack: Auto Top Up, applied. */
+    ...(s.topUps !== null && s.topUps > 0
+      ? [{ key: 'top_ups', label: 'Auto Top Ups', value: lightningChipsText(s.topUps) }]
+      : []),
     {
       key: 'current_stack',
       label: mode === 'summary' ? 'Ending Stack' : 'Current Stack',

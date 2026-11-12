@@ -36,21 +36,28 @@ describe('Lightning Leave Next Hand waits for the end of the current hand', () =
     expect(lightningLeaveWaitsForHand({ ...live, roomClosed: true })).toBe(false);
     expect(lightningLeaveWaitsForHand({ ...live, inLightningRoom: false })).toBe(false);
   });
-  it('the button is wired to the waiting leave, never straight to the immediate one', () => {
+  it('the button is wired to the waiting leave and its cancel, never straight to the immediate one', () => {
     const at = PAGE.indexOf('<LightningLeaveControl');
     const tag = PAGE.slice(at, PAGE.indexOf('/>', at));
     expect(tag).toContain('onLeave={leaveLightningAfterThisHand}');
     expect(tag).not.toContain('onLeave={handleLeaveTable}');
-    expect(tag).toContain('queued={lightningLeaveQueued}');
+    expect(tag).toContain('queued={lightningLeaveAfterHand.queued}');
+    expect(tag).toContain('onCancel={cancelLightningLeave}');
     // Nothing suppresses the action bar or cancels pre-actions while the hand plays.
     expect(tag).not.toContain('onLeaveIntentChange');
   });
-  it('the waiting leave queues during a live hand and runs the leave owner at the boundary', () => {
+  it('the waiting leave queues during a live hand through the saved queue', () => {
     const body = PAGE.slice(PAGE.indexOf('const leaveLightningAfterThisHand'));
-    expect(body).toMatch(/if \(lightningHeroInLiveHand\) \{\s+setLightningLeaveQueued\(true\);/);
-    expect(body).toMatch(
-      /if \(!lightningLeaveQueued \|\| lightningHeroInLiveHand\) return;\s+setLightningLeaveQueued\(false\);/
-    );
+    expect(body).toMatch(/if \(lightningHeroInLiveHand\) \{\s+lightningLeaveAfterHand\.queue\(\);/);
+    const hook = PAGE.slice(PAGE.indexOf('useLightningLeaveAfterHand({'));
+    expect(hook).toMatch(/waits: lightningHeroInLiveHand,\s+leave: handleLeaveTable,/);
+    // Never off a half-hydrated felt after a reload.
+    expect(hook).toMatch(/ready:\s+lightningRoomClosed \|\|\s+\(!!engineSnapshot &&/);
+  });
+  it('a cancel withdraws the stop and re-arms it for next time', () => {
+    const body = PAGE.slice(PAGE.indexOf('const cancelLightningLeave'));
+    expect(body).toMatch(/resumeLightningPlaying\(room\.clusterId\)/);
+    expect(body).toMatch(/lightningLeaveAfterHand\.clear\(\);\s+stopLightningForLeave\.reset\(\);/);
   });
   it('a settled hand is never folded on the way out', () => {
     expect(PAGE).toMatch(/const handStillLive = tableState\.isHandInProgress && !handSettling;/);

@@ -95,4 +95,20 @@ describe('Lightning stand up stops re-entry before leaving', () => {
     fireEvent.click(button);
     expect(mocks.stop).not.toHaveBeenCalled();
   });
+  it('a queued leave with a cancel door is tappable and cancels instead of leaving', async () => {
+    const onCancel = vi.fn(async () => true);
+    const leave = vi.fn();
+    render(
+      <LightningLeaveControl clusterId="cluster" onLeave={leave} queued onCancel={onCancel} />
+    );
+    const button = screen.getByRole('button', { name: 'Leaving After Hand' }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    expect(button.title).toBe('Tap To Keep Playing');
+    await act(async () => {
+      fireEvent.click(button);
+    });
+    expect(onCancel).toHaveBeenCalledOnce();
+    expect(leave).not.toHaveBeenCalled();
+    expect(mocks.stop).not.toHaveBeenCalled();
+  });
 });

@@ -18,7 +18,7 @@ export function useLightningLeaveStop(
       current.current = null;
     };
   }, [key]);
-  return async (): Promise<boolean> => {
+  const stop = async (): Promise<boolean> => {
     if (!room || !userId || userId === 'guest') return true;
     if (!key || current.current !== key) return false;
     if (request.current?.key === key) return request.current.result;
@@ -34,4 +34,10 @@ export function useLightningLeaveStop(
     if (!ok && request.current?.result === result) request.current = null;
     return ok;
   };
+  /** A withdrawn stop (cancelled Leave Next Hand) must be sent again next time. */
+  return Object.assign(stop, {
+    reset: () => {
+      request.current = null;
+    },
+  });
 }
