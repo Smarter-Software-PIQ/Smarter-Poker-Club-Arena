@@ -184,6 +184,18 @@ is not a result against human players. A cash cell with fewer than two
 clusters has no clustered error, and with two clusters only the t interval is
 shown as a description, not an estimate of precision.
 
+Each cash cell also carries `reconstructionSensitivity`: the Horse result from
+directly recorded hands, from hands reconstructed with a per-hand residual and
+from hands inferred by conservation, with cumulative rows showing what leaving
+out the weaker tiers does. An inferred hand has no independent residual. Every
+clustered statistic carries `cluster_precision`: `undefined_single_cluster`,
+`descriptive_only_two_clusters` or `estimated`.
+
+A fleet capture file that yields no capture refuses (`journal_capture_empty`):
+an empty file is a failed capture, never a window with nothing in it. A voided
+Lightning hand has no commit and no accepted terminal, so it is never a
+witness and never a committed hand; the capture counts it as its own outcome.
+
 Fleet JSON and TSV retain one row per roster Horse and feature. `null`/`unknown`
 never means zero, disabled or failed. Source inclusion, worker health, effective
 configuration, exact eligibility, evaluation, eligible invocation, local rule

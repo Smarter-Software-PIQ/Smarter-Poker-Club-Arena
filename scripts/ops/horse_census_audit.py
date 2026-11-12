@@ -300,6 +300,33 @@ def read_refund_evidence(path, tournament_ids: Set[str]) -> Optional[Dict[str, A
 ENTRY_COHORTS = ('paid_entry', 'free_buy')
 
 
+def reconstruction_sensitivity(tiers: Dict[str, List[float]]) -> Dict[str, Any]:
+    """Horse result by evidence tier: directly recorded, reconstructed with a per-hand residual, inferred by conservation.
+
+    Each tier is [hands, horse_net_chips, horse_net_bb]. Cumulative rows show what excluding the weaker tiers does.
+    A table-hand BB/100 is printed only for cumulative rows; a tier alone is a selected subset, not an estimate.
+    """
+    def row(names):
+        hands = int(sum(tiers[n][0] for n in names))
+        chips = math.fsum(tiers[n][1] for n in names)
+        bb = math.fsum(tiers[n][2] for n in names)
+        return {'hands': hands, 'horse_net_chips': round(chips, 4), 'horse_net_bb': round(bb, 4),
+                'table_hand_bb_per_100': round(bb / hands * 100.0, 4) if hands else None}
+    def part(name):
+        hands, chips, bb = tiers[name]
+        return {'hands': int(hands), 'horse_net_chips': round(chips, 4), 'horse_net_bb': round(bb, 4)}
+    return {
+        'directly_recorded': row(['recorded']),
+        'reconstructed_with_residual_check_only': part('reconstructed'),
+        'inferred_by_conservation_only': part('inferred'),
+        'recorded_plus_reconstructed': row(['recorded', 'reconstructed']),
+        'all_tiers_published_total': row(['recorded', 'reconstructed', 'inferred']),
+        'assumptions': ('Reconstructed hands replay retained actions or stack results and carry a per-hand residual. '
+                        'Inferred hands have no independent residual: they are right only if the retained human result '
+                        'and the fee attribution are both right.'),
+    }
+
+
 def entry_cohort(tournament: dict) -> str:
     """A free-buy event charges no entry; only its rebuys and add-ons cost anything."""
     if type(tournament.get('free_buy')) is not bool:
@@ -646,6 +673,7 @@ def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None
         c_nonzero_resid_hands = 0
         independently_checked_hands = 0
         inferred_hands = 0
+        tier_sums: Dict[str, List[float]] = {'recorded': [0, 0.0, 0.0], 'reconstructed': [0, 0.0, 0.0], 'inferred': [0, 0.0, 0.0]}
 
         freq_counter = human_hand_freq_by_cell[cell]
 
@@ -775,6 +803,9 @@ def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None
                 c_elig_net_chips += hu_chips_f
                 c_excl_net_chips += ex_chips_f
                 c_horse_net_bb_exact += ho_chips_f / bb_use
+                tier_sums['recorded'][0] += 1
+                tier_sums['recorded'][1] += ho_chips_f
+                tier_sums['recorded'][2] += ho_chips_f / bb_use
                 c_elig_net_bb_exact += hu_chips_f / bb_use
                 c_excl_net_bb_exact += ex_chips_f / bb_use
                 if abs(hand_resid) > c_max_abs_hand_resid:
@@ -845,6 +876,10 @@ def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None
                 c_elig_net_chips += hu_c
                 c_excl_net_chips += ex_c
                 c_horse_net_bb_exact += ho_c / bb_use
+                tier_name = 'inferred' if hand_resid is None else 'reconstructed'
+                tier_sums[tier_name][0] += 1
+                tier_sums[tier_name][1] += ho_c
+                tier_sums[tier_name][2] += ho_c / bb_use
                 c_elig_net_bb_exact += hu_c / bb_use
                 c_excl_net_bb_exact += ex_c / bb_use
                 if hand_resid is not None and abs(hand_resid) > c_max_abs_hand_resid:
@@ -968,6 +1003,7 @@ def run_audit(source: Path, predecessor: Path, output: Path, subject_config=None
                 'eligible_human_net_bb_exact': round(c_elig_net_bb_exact, 4),
                 'excluded_human_net_bb_exact': round(c_excl_net_bb_exact, 4),
             },
+            'reconstructionSensitivity': reconstruction_sensitivity(tier_sums),
         }
 
     # --- 5. Statistical Re-Computation Across 12 Target Cells, 8 Target Domains & MTT Omaha ---
