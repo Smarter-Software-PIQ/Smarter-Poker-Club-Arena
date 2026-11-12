@@ -10957,7 +10957,7 @@ export class HorseLogic {
       vi.isHiLo &&
       new Set(board.map((c) => (c.rank === 'A' ? 1 : RANK_VALUES[c.rank])).filter((r) => r <= 8))
         .size >= 3;
-    const calledThroughFlush40 =
+    const calledThrough40 =
       useV40 &&
       useV15 &&
       vi.isOmaha &&
@@ -10966,9 +10966,14 @@ export class HorseLogic {
       isRiver &&
       oppCount >= 2 &&
       calledBarrels40 >= 2 &&
-      [...liveCalledBarrels40.values()].filter((stages) => stages.size >= 2).length >= 2 &&
-      cat === 6 &&
-      (nuts15?.higherFlushRanks ?? 0) >= 2;
+      [...liveCalledBarrels40.values()].filter((stages) => stages.size >= 2).length >= 2;
+    const calledThroughFlush40 =
+      calledThrough40 && cat === 6 && (nuts15?.higherFlushRanks ?? 0) >= 2;
+    // The same two callers, and a straight on a board where a flush is
+    // possible: every flush beats it, so it is a hand to show down, not a
+    // third barrel. Hand 58796916 (PLO4, 2026-11-12) moved all in with the
+    // flopped straight when the third diamond came and was called by a flush.
+    const calledThroughStraight40 = calledThrough40 && cat === 5 && nuts15?.flushPossible === true;
     // V37: the covering stack near the bubble bluffs a notch more — the
     // covered field is folding hands it would call with anywhere else.
     if (!sat37.active) {
@@ -11999,6 +12004,10 @@ export class HorseLogic {
       }
       if (calledThroughFlush40) {
         if (tele15) noteFire('horse_continuation_omaha_called_through_flush_check');
+        return { action: 'check', thinkTime: 0 };
+      }
+      if (calledThroughStraight40) {
+        if (tele15) noteFire('horse_continuation_omaha_called_through_straight_check');
         return { action: 'check', thinkTime: 0 };
       }
       // A preflop pot raise can legally leave a remainder in PLO. When the
