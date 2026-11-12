@@ -980,7 +980,7 @@ function HomePageInner() {
         const { data: clubRows, error: clubRowsError } = await supabase
           .from('clubs')
           .select(
-            'id, member_count, level, hierarchy_units_rounded_up, player_threshold_current, player_threshold_next, hierarchy_threshold_current, hierarchy_threshold_next'
+            'id, union_id, member_count, level, hierarchy_units_rounded_up, player_threshold_current, player_threshold_next, hierarchy_threshold_current, hierarchy_threshold_next'
           )
           .in('id', clubIds);
         if (clubRowsError) reportError(clubRowsError, 'HomePage.Failed_to_fetch_club_stats');
@@ -1116,6 +1116,63 @@ function HomePageInner() {
             }
           })
         );
+
+        /* ── A UNION MEMBER CLUB'S CASH / EVENTS SPLIT IS THE UNION FLOOR ──
+           Dan 2026-11-12: "WHY DOES IT SAY 2 CASH - 0 EVENTS ON THE BOTTOM? IT
+           SHOULD BE SAYING MANY HANDS ARE IN THE MIDWAY UNION."
+
+           A club that joins a union has no floor of its own: every one of its
+           cash games and tournaments is removed before it may join (HARD
+           RULE), and its players sit at the UNION's tables. The split under
+           ACTIVE counted only this club's own members seated there, so Kings
+           Club read 2 CASH / 0 EVENTS while the Midway Union floor it plays on
+           carried hundreds of players at cash and in events. For a member club
+           the split now reports the union floor it shares (distinct players,
+           same RPC the union's own card uses) and the card names that union
+           over the split, so the figure says whose floor it is. A standalone
+           club keeps its own floor. The ACTIVE total is untouched. */
+        const memberClubUnion = new Map<string, string>();
+        for (const row of clubRows as any[]) {
+          const shown = displayClubs.find((c) => c.id === row.id);
+          if (!row.union_id || !shown || shown.entity_type === 'union') continue;
+          if (row.id === DIAMOND_ARENA_CLUB_ID || !statsMap[row.id]) continue;
+          memberClubUnion.set(row.id, String(row.union_id));
+        }
+        if (memberClubUnion.size > 0 && isMounted) {
+          const floorUnionIds = Array.from(new Set(memberClubUnion.values()));
+          try {
+            const [floorResult, floorNamesResult] = await Promise.all([
+              supabase.rpc('fn_batch_union_realtime_active_counts', {
+                p_union_ids: floorUnionIds,
+              }),
+              supabase.from('unions').select('id, name').in('id', floorUnionIds),
+            ]);
+            if (floorResult.error) reportError(floorResult.error, 'HomePage.memberClubUnionFloor');
+            const floorSplit = new Map<string, { cash: number; events: number }>();
+            for (const r of (floorResult.data as any[]) || [])
+              floorSplit.set(String(r.union_id), {
+                cash: Number(r.cash_count) || 0,
+                events: Number(r.event_count) || 0,
+              });
+            const floorName = new Map<string, string>();
+            for (const r of (floorNamesResult.data as any[]) || [])
+              if (r?.name) floorName.set(String(r.id), String(r.name));
+            for (const [clubId, unionId] of memberClubUnion) {
+              const split = floorSplit.get(unionId);
+              // No answer for the union leaves the club's own split in place;
+              // an unknown never becomes a zero.
+              if (!split) continue;
+              statsMap[clubId] = {
+                ...statsMap[clubId],
+                activeCash: split.cash,
+                activeEvents: split.events,
+                splitFloorLabel: (floorName.get(unionId) || 'Union').toUpperCase(),
+              };
+            }
+          } catch (e) {
+            reportError(e, 'HomePage.memberClubUnionFloor.threw');
+          }
+        }
 
         // ── Union stats overlay: fetch from `unions` table for union-type clubs ──
         // The `clubs` table row for unions has stale/minimal data (level=1, member_count=1).
