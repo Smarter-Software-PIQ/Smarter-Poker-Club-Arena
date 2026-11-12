@@ -420,6 +420,38 @@ export async function stopLightningPlaying(
   return parseLightningStopPlaying(data);
 }
 
+export interface LightningResumePlayingResult {
+  ok: boolean;
+  /** True when a standing stop was taken back; false when none stood. */
+  withdrawn: boolean;
+  /** NO_SESSION, EXITED, FROZEN or RG_LIMIT when refused. */
+  reason: string | null;
+}
+
+export function parseLightningResumePlaying(raw: unknown): LightningResumePlayingResult {
+  const row = objectOf(raw);
+  if (!row) return { ok: false, withdrawn: false, reason: null };
+  return { ok: row.ok === true, withdrawn: row.withdrawn === true, reason: text(row.reason) };
+}
+
+/**
+ * Dan 2026-11-12: a queued Leave Next Hand can be cancelled. Withdraws the
+ * caller's own stop mark (fn_lightning_resume_playing) so they keep being
+ * dealt in. `null` means the function is not deployed yet.
+ */
+export async function resumeLightningPlaying(
+  clusterId: string
+): Promise<LightningResumePlayingResult | null> {
+  const { data, error } = await supabase.rpc('fn_lightning_resume_playing', {
+    p_cluster_id: clusterId,
+  });
+  if (error) {
+    if (isLightningRpcMissing(error)) return null;
+    throw error;
+  }
+  return parseLightningResumePlaying(data);
+}
+
 /** The control's words. Title Case, no em dashes. */
 export const LIGHTNING_STOP_PLAYING_LABEL = 'Stop Playing';
 export const LIGHTNING_STOP_FINISHING_TEXT = 'Finishing Current Hand...';
@@ -534,7 +566,9 @@ export function lightningDurationText(seconds: number | null): string {
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   if (h > 0) return `${h}h ${m < 10 ? '0' : ''}${m.toLocaleString()}m`;
-  if (m > 0) return `${m}m`;
+  // Dan 2026-11-12: the exact duration, "8m 49s", not "8m".
+  const sec = s % 60;
+  if (m > 0) return sec > 0 ? `${m}m ${sec}s` : `${m}m`;
   return `${s}s`;
 }
 

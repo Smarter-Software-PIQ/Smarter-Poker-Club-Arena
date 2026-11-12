@@ -21,8 +21,12 @@ import {
 } from '../lib/allInEquityDisplay';
 import { fetchStoppedLightningAnchor } from '../lightning/lightningLeaveAnchor';
 import { useLightningLeaveStop } from '../lightning/useLightningLeaveStop';
+import { resumeLightningPlaying } from '../lightning/lightningSessionApi';
 import { LightningLeaveControl } from '../components/lightning/LightningLeaveControl';
-import { lightningLeaveWaitsForHand } from '../lightning/lightningLeaveNextHand';
+import {
+  lightningLeaveWaitsForHand,
+  useLightningLeaveAfterHand,
+} from '../lightning/lightningLeaveNextHand';
 import { useSeatArrivals } from '../components/table/seatArrival';
 import {
   usePreActionBoundary,
@@ -12630,7 +12634,6 @@ function LiveTablePage({
    * nothing folds them. The moment that hand is complete for them (it settles,
    * they fold, or the room closes) the original leave owner runs once.
    */
-  const [lightningLeaveQueued, setLightningLeaveQueued] = useState(false);
   const lightningLeaveHero = lightningRoom
     ? tableState.players.find((player) => player?.id === userId)
     : undefined;
@@ -12641,22 +12644,56 @@ function LiveTablePage({
     handSettling,
     heroStatus: lightningLeaveHero?.status,
   });
+  /* The queued leave is saved per pool session, so a reload or a reconnect
+     mid-hand still leaves at the end of that hand (Dan 2026-11-12). It runs
+     only once the engine's own snapshot for this page is applied (or the room
+     has closed), never off a half-hydrated felt. */
+  const lightningLeaveAfterHand = useLightningLeaveAfterHand({
+    userId,
+    poolSessionId: lightningRoom?.poolSessionId ?? null,
+    ready:
+      lightningRoomClosed ||
+      (!!engineSnapshot &&
+        appliedExitSnapshot?.snapshot === engineSnapshot &&
+        appliedExitSnapshot.tableId === tableId &&
+        appliedExitSnapshot.userId === userId),
+    waits: lightningHeroInLiveHand,
+    leave: handleLeaveTable,
+    alreadyLeaving: () => leaveNavigatedRef.current,
+    onError: (error) => reportError(error, 'TablePage.lightning_leave_after_hand'),
+  });
   const leaveLightningAfterThisHand = async () => {
     if (lightningHeroInLiveHand) {
-      setLightningLeaveQueued(true);
-      toast.info('You Will Leave The Table After This Hand.');
+      lightningLeaveAfterHand.queue();
+      toast.info('You Will Leave The Table After This Hand. Tap Again To Keep Playing.');
       return;
     }
     await handleLeaveTable();
   };
-  useEffect(() => {
-    if (!lightningLeaveQueued || lightningHeroInLiveHand) return;
-    setLightningLeaveQueued(false);
-    if (leaveNavigatedRef.current) return;
-    void handleLeaveTable();
-    // handleLeaveTable is recreated every render; the hand boundary is the trigger.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lightningLeaveQueued, lightningHeroInLiveHand]);
+  /* CANCEL (Dan 2026-11-12): tapping "Leaving After Hand" withdraws the stop
+     so the player keeps being dealt in. If the hand already settled and the
+     session ended, the leave stands and finishes. */
+  const cancelLightningLeave = async (): Promise<boolean> => {
+    const room = lightningRoomRef.current;
+    if (!room) return false;
+    const answer = await resumeLightningPlaying(room.clusterId);
+    if (answer?.ok) {
+      lightningLeaveAfterHand.clear();
+      stopLightningForLeave.reset();
+      toast.info('You Will Keep Playing.');
+      return true;
+    }
+    if (answer?.reason === 'EXITED') {
+      toast.info('This Hand Already Ended. You Are Leaving The Table.');
+      return false;
+    }
+    toast.warning(
+      answer?.reason === 'RG_LIMIT'
+        ? 'Your Play Limits Do Not Allow More Hands Right Now.'
+        : 'Could Not Cancel Your Leave. Please Try Again.'
+    );
+    return false;
+  };
 
   const requestLeaveAtNextHand = async () => {
     const queued = await leaveNextHand.requestLeaveNextHand();
@@ -28514,7 +28551,8 @@ function LiveTablePage({
                 clusterId={lightningRoom.clusterId}
                 onLeave={leaveLightningAfterThisHand}
                 ensureStopped={stopLightningForLeave}
-                queued={lightningLeaveQueued}
+                queued={lightningLeaveAfterHand.queued}
+                onCancel={cancelLightningLeave}
               />
             ) : null}
           </div>

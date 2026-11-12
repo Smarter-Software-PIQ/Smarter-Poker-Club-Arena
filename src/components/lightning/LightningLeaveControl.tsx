@@ -16,6 +16,7 @@ export function LightningLeaveControl({
   ensureStopped,
   onLeaveIntentChange,
   queued = false,
+  onCancel,
 }: {
   clusterId: string;
   onLeave: () => Promise<void>;
@@ -23,6 +24,8 @@ export function LightningLeaveControl({
   onLeaveIntentChange?: (leaving: boolean) => void;
   /** The stop is confirmed and the page will leave when this hand ends. */
   queued?: boolean;
+  /** Tapping a queued leave cancels it; resolves true when play resumes. */
+  onCancel?: () => Promise<boolean>;
 }) {
   const [busy, setBusy] = useState(false);
   const [stopped, setStopped] = useState(false);
@@ -39,8 +42,32 @@ export function LightningLeaveControl({
      unchanged - the durable stop refuses every new deal and the hand in front
      of the player still finishes through the original leave owner - so the
      label now says what the button has always done. */
-  const label = queued ? 'Leaving After Hand' : busy ? 'Leaving...' : 'Leave Next Hand';
+  // A cancelled leave sends the stop again next time.
+  useEffect(() => {
+    if (!queued) setStopped(false);
+  }, [queued]);
+  const label = busy
+    ? queued
+      ? 'Staying...'
+      : 'Leaving...'
+    : queued
+      ? 'Leaving After Hand'
+      : 'Leave Next Hand';
   const labelRef = useFitText<HTMLSpanElement>(label, 1, 0.5);
+  const cancel = async () => {
+    if (inFlight.current || !onCancel) return;
+    inFlight.current = true;
+    setBusy(true);
+    try {
+      await onCancel();
+    } catch (error) {
+      reportError(error, 'LightningLeaveControl.cancel');
+      if (mounted.current) toast.warning('Could Not Cancel Your Leave. Please Try Again.');
+    } finally {
+      inFlight.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  };
   const leave = async () => {
     if (inFlight.current) return;
     inFlight.current = true;
@@ -75,10 +102,11 @@ export function LightningLeaveControl({
     <button
       type="button"
       className="lightning-leave-control"
-      disabled={busy || queued}
+      disabled={busy || (queued && !onCancel)}
       aria-busy={busy}
       data-queued={queued ? 'true' : undefined}
-      onClick={() => void leave()}
+      title={queued && onCancel ? 'Tap To Keep Playing' : undefined}
+      onClick={() => void (queued ? cancel() : leave())}
     >
       <img
         className="lightning-leave-control__chip"
