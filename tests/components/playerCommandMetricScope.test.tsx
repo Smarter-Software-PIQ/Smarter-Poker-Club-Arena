@@ -447,3 +447,44 @@ it('keeps the chosen member ledger dates until the viewer explicitly selects a r
   });
   expect(state.getMemberDetail.mock.calls.length).toBe(beforeMidnight + 1);
 });
+
+it('opens each ledger visit on today in Chicago, ignoring saved dates and confirmed prior visits', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  // UTC is already tomorrow; Chicago is still November 11.
+  vi.setSystemTime(new Date('2026-11-12T05:30:00Z'));
+  for (const [name, value] of Object.entries({
+    rangeMode: 'overall',
+    customFrom: '2026-01-01',
+    customTo: '2026-01-31',
+    range: { from: '2026-01-01', to: '2026-01-31' },
+  })) {
+    localStorage.setItem(
+      `ca_player_preference:guest:MemberManagementPage:${name}:global`,
+      JSON.stringify(value)
+    );
+  }
+  let view = render(<MemberManagementPage />);
+  await screen.findByRole('status', { name: 'Displayed Activity Scope' });
+  expect(screen.getByLabelText('From')).toHaveValue('2026-11-11');
+  expect(screen.getByLabelText('To')).toHaveValue('2026-11-11');
+  expect(state.getMemberDetail.mock.calls[0][2]).toEqual({ from: '2026-11-11', to: '2026-11-11' });
+  fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-01-01' } });
+  fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-01-31' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm', exact: true }));
+  await waitFor(() =>
+    expect(state.getMemberDetail.mock.calls.at(-1)?.[2]).toEqual({
+      from: '2026-01-01',
+      to: '2026-01-31',
+    })
+  );
+  view.unmount();
+  // Returning after midnight computes the new day rather than the mount's old date.
+  vi.setSystemTime(new Date('2026-11-12T06:01:00Z'));
+  state.getMemberDetail.mockClear();
+  view = render(<MemberManagementPage />);
+  await screen.findByRole('status', { name: 'Displayed Activity Scope' });
+  expect(screen.getByLabelText('From')).toHaveValue('2026-11-12');
+  expect(screen.getByLabelText('To')).toHaveValue('2026-11-12');
+  expect(state.getMemberDetail.mock.calls[0][2]).toEqual({ from: '2026-11-12', to: '2026-11-12' });
+  view.unmount();
+});
