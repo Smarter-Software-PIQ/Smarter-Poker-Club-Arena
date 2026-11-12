@@ -1914,6 +1914,25 @@ describe('native PG17 isolation tool is built by the existing accounting job', (
     );
   });
 
+  it('installs the exact server minor owned by the native builder, including image readiness', () => {
+    const version = execFileSync(
+      'python3',
+      ['-B', 'scripts/ci/build_pg17_isolationtester.py', '--print-version'],
+      { cwd: root, encoding: 'utf8' }
+    ).trim();
+    expect(version).toMatch(/^17\.\d+$/);
+    const install = ci.jobs.accounting_postgres.steps.find(
+      (step: { name?: string }) =>
+        step.name === 'Install PostgreSQL 17 tools without a default database service'
+    );
+    expect(install.run).toContain(
+      'pg_ci_required_version=$(python3 scripts/ci/build_pg17_isolationtester.py --print-version)'
+    );
+    expect(install.run).toContain('PG_REQUIRED_VERSION="$pg_ci_required_version"');
+    expect(install.run).toContain('/usr/lib/postgresql/17/bin/postgres --version');
+    expect(install.run).toContain('/usr/lib/postgresql/17/bin/pg_config --version');
+  });
+
   it('builds the pinned upstream tool once before PostgreSQL business qualification', () => {
     const steps = ci.jobs.accounting_postgres.steps;
     const builders = steps.filter((step: { id?: string }) => step.id === 'pg17_isolation_tool');
@@ -2320,10 +2339,22 @@ describe('restored provider accounting qualification', () => {
         mkdirSync(dirname(file), { recursive: true });
         writeFileSync(file, '', { mode: 0o755 });
       }
-      const prefix = install.run
-        .split('          # The hosted image')[0]
-        .split('# The hosted image')[0]
-        .replaceAll('/usr/', temp + '/');
+      const pinned = execFileSync(
+        'python3',
+        ['-B', 'scripts/ci/build_pg17_isolationtester.py', '--print-version'],
+        { cwd: root, encoding: 'utf8' }
+      ).trim();
+      writeFileSync(
+        join(temp, 'lib/postgresql/17/bin/postgres'),
+        `#!/bin/sh\nprintf 'postgres (PostgreSQL) ${pinned} (fixture)\\n'\n`,
+        { mode: 0o755 }
+      );
+      const prefix =
+        `python3() { printf '%s\\n' '${pinned}'; }\ngrep() { /usr/bin/grep "$@"; }\n` +
+        install.run
+          .split('          # The hosted image')[0]
+          .split('# The hosted image')[0]
+          .replaceAll('/usr/', temp + '/');
       for (const shard of [1, 2, 3, 4, 5, 6, 7]) {
         const output = execFileSync(
           '/bin/bash',
@@ -2376,6 +2407,23 @@ describe('restored provider accounting qualification', () => {
           }
         )
       ).toBe('');
+      writeFileSync(
+        join(temp, 'lib/postgresql/17/bin/postgres'),
+        '#!/bin/sh\nprintf "postgres (PostgreSQL) 17.999 (fixture)\\n"\n',
+        { mode: 0o755 }
+      );
+      expect(
+        execFileSync(
+          '/bin/bash',
+          ['-c', prefix + '\nprintf "INSTALL:%s" "${pg_ci_build_packages[*]-}"'],
+          { encoding: 'utf8', env: { ...process.env, PATH: toolBin, PG_CI_SHARD: '2' } }
+        )
+      ).toBe('INSTALL:build-essential bison flex perl bzip2 pkg-config libcurl4-openssl-dev');
+      writeFileSync(
+        join(temp, 'lib/postgresql/17/bin/postgres'),
+        `#!/bin/sh\nprintf 'postgres (PostgreSQL) ${pinned} (fixture)\\n'\n`,
+        { mode: 0o755 }
+      );
       for (const binary of ['createdb', 'pg_dump']) {
         const path = join(temp, 'lib/postgresql/17/bin', binary);
         rmSync(path);
@@ -2410,13 +2458,15 @@ describe('restored provider accounting qualification', () => {
         step.name === 'Install PostgreSQL 17 tools without a default database service'
     );
     expect(install.run).toContain('-f /usr/share/postgresql/17/extension/pg_cron.control &&');
-    expect(install.run).toContain('-f /usr/lib/postgresql/17/lib/pg_cron.so ]]; then exit 0; fi');
+    expect(install.run).toContain('-f /usr/lib/postgresql/17/lib/pg_cron.so ]] &&');
     expect(install.run).toContain('PG_PACKAGES="postgresql-17 postgresql-17-cron');
     expect(install.run).toContain('bash .github/actions/install-postgres-17/install.sh');
     // The shared installer creates no default cluster and installs exactly PG_PACKAGES.
     const shared = readFileSync('.github/actions/install-postgres-17/install.sh', 'utf8');
     expect(shared).toContain('create_main_cluster = false');
-    expect(shared).toContain('install -y --no-install-recommends "${pg_packages[@]}"');
+    expect(shared).toContain(
+      'install -y --no-install-recommends ${pg_version_options[@]+"${pg_version_options[@]}"} "${pg_packages[@]}"'
+    );
     const evidence = ci.jobs.accounting_postgres.steps.find(
       (step: { name?: string }) => step.name === 'Preserve weekly accounting qualification evidence'
     );

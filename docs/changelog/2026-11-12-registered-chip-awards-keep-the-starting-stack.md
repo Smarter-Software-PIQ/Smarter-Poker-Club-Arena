@@ -33,3 +33,13 @@ The final candidate reuses that maintained shared installer and its regression
 byte for byte from main, removing this task's duplicate implementation. Signed
 sources, complete package sets, exact version requests, bounded installation
 retries and required accounting checks remain enforced.
+
+The feed then advanced to PostgreSQL 17.12 during qualification, while the
+checksum-pinned native test tool requires exactly 17.11. Accounting now reads
+that version from the existing builder and requests the same signed server/dev
+minor before cron dependency solving. Image readiness checks the same minor;
+an explicit pinned test version admits its package downgrade consistently in
+simulation and installation. Default installer callers retain apt defaults.
+The native source/checksum, exact-version assertion, signatures and required
+SQL qualification are preserved. Boundary tests cover feed advance, missing
+minor, malformed input, image drift and the default Bash 3.2 invocation.
