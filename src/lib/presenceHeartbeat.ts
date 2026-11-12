@@ -42,8 +42,39 @@ export function resumePresence(userId: string): void {
   if (silenced === userId) silenced = null;
 }
 
+/*
+ * MESSENGER ACTIVE STATUS IS HONOURED HERE TOO (2026-11-11). The World Hub
+ * Messenger "Active Status" toggle is saved per device under this
+ * localStorage key, and the arena runs on the same smarter.poker origin. With
+ * it off, the World Hub heartbeat beats offline, but this heartbeat kept
+ * writing is_online = true every two minutes, so a person who chose to hide
+ * read Online in Messenger again (and the send route then stamped their
+ * messages as activity). While the toggle is off this device beats offline.
+ */
+export const ACTIVE_STATUS_KEY = 'messenger-active-status';
+
+/** False only when this device turned Messenger Active Status off. */
+export function activeStatusEnabled(
+  storage: Pick<Storage, 'getItem'> | null | undefined = safeLocalStorage()
+): boolean {
+  try {
+    return storage?.getItem(ACTIVE_STATUS_KEY) !== 'false';
+  } catch {
+    return true;
+  }
+}
+
+function safeLocalStorage(): Storage | null {
+  try {
+    return typeof window !== 'undefined' ? window.localStorage : null;
+  } catch {
+    return null;
+  }
+}
+
 /** One beat: the signed-in player is (or is no longer) here. */
 export async function sendPresence(userId: string, online: boolean): Promise<void> {
+  if (online && !activeStatusEnabled()) online = false;
   if (online && silenced === userId) return;
   /* Promise.resolve runs the request exactly once; the Supabase builder would
      send it again for every `then`, and the offline beat awaits this one. */
