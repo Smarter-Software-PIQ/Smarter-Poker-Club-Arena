@@ -858,6 +858,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V67'
   ),
   flag(
+    'v88CommitmentHonored',
+    '2026-11-11 cash Omaha high, single board: a made hand that called a wager on the previous street and now needs its whole stack at 0.345 of the pot or better does not fold when the new card neither completes a draw it does not beat nor pairs the board under trips and its uncapped range equity clears the price; hand 58656644 called a flop check-raise leaving 936 behind 1,212 and folded a blank turn at 0.32 capped equity against a 0.3235 bar; explicit off arm retained',
+    'V88'
+  ),
+  flag(
     'v67RiverRaiseShadeOverride',
     'league calibration arm (2026-10-31): overrides the V67 extra river raise shade for a league card; inert unless set; production never sets it',
     'V67-league'
@@ -3069,6 +3074,14 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic (V66) via HorseEval',
     'Hold em flop/turn raiser over hero own wager sampled from the raise stratum',
     'V66',
+    'decide',
+    0.001
+  ),
+  receipt(
+    'v88_commitment_honored',
+    'HorseLogic (V88)',
+    'Cash Omaha made hand calls its stack on a blank after calling a wager that left less than a pot behind',
+    'V88',
     'decide',
     0.001
   ),
