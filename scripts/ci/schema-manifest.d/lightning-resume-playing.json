@@ -1,0 +1,4 @@
+{
+  "_owner": "Lightning Leave Next Hand cancel (2026-11-12): migration 20261112203847 creates it.",
+  "functions": ["fn_lightning_resume_playing"]
+}
