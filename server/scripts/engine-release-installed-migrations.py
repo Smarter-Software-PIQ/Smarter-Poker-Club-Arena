@@ -132,13 +132,43 @@ def window_versions(repo, sha):
     return versions
 
 
+def resolve_superseded(marks, present):
+    """Versions whose supersession resolves, fail closed.
+
+    `marks` maps a version to the successor its head names; `present` is the
+    tree's version set. A file is skipped only when following SUPERSEDED BY
+    from it reaches, without revisiting any version, a present file that is
+    itself still required: one with no mark, or one whose own successor is
+    absent. A cycle, or a chain that only reaches files lacking from the
+    tree, leaves every file on it required."""
+    skipped = set()
+    for version in marks:
+        current, seen = version, {version}
+        while True:
+            successor = marks[current]
+            if successor not in present:
+                resolved = current != version  # current is the required endpoint
+                break
+            if successor in seen:
+                resolved = False  # a cycle never removes a requirement
+                break
+            if successor not in marks:
+                resolved = True
+                break
+            seen.add(successor)
+            current = successor
+        if resolved:
+            skipped.add(version)
+    return skipped
+
+
 def superseded_versions(repo, sha):
     """Versions of the migration files in the exact tree whose head says
-    "-- SUPERSEDED BY <version>" naming another file present in that tree.
-    The protected applier refuses such a file ("must never run") and its
-    successor installs instead, so production never records it. Same rule as
-    supersededBy() in scripts/ci/check-migrations-are-live.mjs and
-    engine-release-window-doors.py."""
+    "-- SUPERSEDED BY <version>" naming another file present in that tree,
+    resolved by resolve_superseded(). The protected applier refuses such a
+    file ("must never run") and its successor installs instead, so production
+    never records it. Same marker rule as supersededBy() in
+    scripts/ci/check-migrations-are-live.mjs and engine-release-window-doors.py."""
     if not re.fullmatch(r'[0-9a-f]{40}', sha):
         raise ValueError('target SHA is invalid')
     present = set()
@@ -147,16 +177,16 @@ def superseded_versions(repo, sha):
         if match:
             present.add(match[1])
     hits = git(repo, 'grep', '-l', '-E', '-e', SUPERSEDED_ANNOTATION, sha, '--', MIGRATIONS, ok=(0, 1))
-    versions = set()
+    marks = {}
     for hit in hits.splitlines():
         path = hit.split(':', 1)[1] if hit.startswith(sha + ':') else hit
         match = FILE.fullmatch(path.rsplit('/', 1)[-1])
         if not match:
             continue
         mark = re.search(r'^--\s*SUPERSEDED BY\s+(\d{14})\b', git(repo, 'show', sha + ':' + path)[:400], re.M)
-        if mark and mark[1] != match[1] and mark[1] in present:
-            versions.add(match[1])
-    return versions
+        if mark and mark[1] != match[1]:
+            marks[match[1]] = mark[1]
+    return resolve_superseded(marks, present)
 
 
 def required_by(repo, serving, target, skip=frozenset()):
@@ -286,6 +316,8 @@ def recently_added(repo, control, hours=26):
     names = git(repo, 'log', '--first-parent', f'--since={hours} hours ago', '--diff-filter=A', '--name-only',
                 '--format=', control, '--', MIGRATIONS).split()
     windows = window_versions(repo, control)
+    # A superseded file never installs, so a refresh never waits for it.
+    windows |= superseded_versions(repo, control)
     present = set(git(repo, 'ls-tree', '--name-only', control, '--', MIGRATIONS).split())
     versions = set()
     for path in names:

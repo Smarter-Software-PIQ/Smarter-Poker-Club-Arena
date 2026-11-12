@@ -297,6 +297,24 @@ class SupersededFile(unittest.TestCase):
         required = _real_required_by(str(ROOT), self.BEFORE, self.ADDED)
         self.assertEqual(required.get('20261112013714'), 'unfinished_rebuys_pay_the_starting_stack')
 
+    def test_supersession_resolves_fail_closed(self):
+        resolve = im.resolve_superseded
+        present = {'A', 'B', 'C', 'D', 'E'}
+        # Two files naming each other: neither is removed.
+        self.assertEqual(resolve({'A': 'B', 'B': 'A'}, present), set())
+        # A tail into a cycle removes nothing either.
+        self.assertEqual(resolve({'A': 'B', 'B': 'C', 'C': 'B'}, present), set())
+        # A chain to an unmarked present file removes every link before it.
+        self.assertEqual(resolve({'A': 'B', 'B': 'C'}, present), {'A', 'B'})
+        # A successor missing from the tree keeps its predecessor required.
+        self.assertEqual(resolve({'A': 'B', 'B': 'Z'}, present), {'A'})
+        self.assertEqual(resolve({'A': 'Z'}, present), set())
+
+    def test_a_refresh_does_not_wait_for_a_superseded_file(self):
+        recent = im.recently_added(str(ROOT), self.MARKED, hours=24 * 365 * 10)
+        self.assertNotIn('20261112013714', recent)
+        self.assertIn('20261112022726', recent)
+
 
 class Cutover(unittest.TestCase):
     TARGET = '20c0ab1c93178c102a5b7353905fa1bee7b5ccb9'
