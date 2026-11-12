@@ -1,3 +1,4 @@
+-- SUPERSEDED BY 20261112151009
 -- 20261112013925_a_rebuy_pays_the_starting_stack.sql
 -- @install-window: daily-maintenance
 --
