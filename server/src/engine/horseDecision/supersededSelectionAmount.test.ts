@@ -12,7 +12,8 @@ import {
   omahaVariantReceiptBindingIsValid,
 } from '../omaha/OmahaVariantLivePolicy.js';
 import { omahaVariantSpot } from '../../benchmark/OmahaVariantPolicyEvidence.js';
-import { restoreFastRandom, saveFastRandom } from '../HorseEval.js';
+import { restoreFastRandom, saveFastRandom, seedFastRandom } from '../HorseEval.js';
+import { HorseLogic } from '../HorseLogic.js';
 import type { HorseDecision } from '../../types.js';
 
 // The complete validator on the captured PLO6 river receipt (to call 123,
@@ -229,4 +230,90 @@ describe('a superseded selection reaches the final rule exactly as proposed', ()
       'phase11_selection'
     );
   });
+});
+
+// One decision end to end: the maintained producer makes the receipt for a
+// PLO6 river request, and the complete validator judges that receipt against
+// that same request. Only the graph steps and the selection outcome are
+// rewritten; the bound inputs stay the producer's own.
+describe('a receipt judged against the request that produced it', () => {
+  function judge(outputs: Record<string, Act>) {
+    const input = omahaVariantSpot('plo6', 'river', 2, 'cash');
+    const saved = saveFastRandom();
+    seedFastRandom(100101);
+    let decision: HorseDecision;
+    try {
+      decision = HorseLogic.decide(input.hero, input.state, 'balanced', {}, {
+        telemetry: false,
+        mind: false,
+        decisionTimeMs: 0,
+        phase11Omaha: 'candidate',
+        phase11EvidenceMode: true,
+      } as never);
+    } finally {
+      restoreFastRandom(saved);
+    }
+    const produced = decision.omahaVariantPolicy as unknown as Record<string, unknown>;
+    expect(produced.eligible).toBe(true);
+    expect(produced.inputs).not.toBeNull();
+    expect(omahaVariantReceiptBindingIsValid(produced)).toBe(true);
+    const d = structuredClone(decision) as unknown as Record<string, unknown>;
+    const graph = d.policyGraph as {
+      transitions: Array<Record<string, unknown>>;
+      finalAction: Act;
+    };
+    let prev: Act | null = null;
+    for (const t of graph.transitions) {
+      const after: Act = outputs[t.node as string] ?? prev ?? (t.after as Act);
+      t.before = prev;
+      t.after = after;
+      t.changed = prev !== null && (prev.action !== after.action || prev.amount !== after.amount);
+      prev = after;
+    }
+    graph.finalAction = prev!;
+    d.action = prev!.action;
+    if (prev!.amount === null) delete d.amount;
+    else d.amount = prev!.amount;
+    const holder = new HorseQualifiedAuthorityHolder(
+      '11111111-2222-4222-8222-222222222222',
+      OMAHA_VARIANT_PACKS.plo6.version
+    );
+    holder.apply(admitHorsePhase11LiveAuthority('plo6'));
+    d.omahaVariantPolicy = {
+      ...structuredClone(produced),
+      mode: 'candidate',
+      authority: holder.receipt(),
+      utilityOwner: 'cash',
+      applied: true,
+      changed: true,
+      selection: 'shadow_change',
+      selectionRefusal: null,
+      baselineAction: 'fold',
+      baselineAmount: null,
+      proposalAction: 'call',
+      proposalAmount: 20,
+      finalAction: prev!.action,
+      finalAmount: prev!.amount,
+    };
+    return horseDecisionReceiptRefusal(d as never, 'plo6', {
+      player: input.hero,
+      gameState: input.state,
+    } as never);
+  }
+  const proposed = { reference: act('fold'), variant_policy: act('call', 20) };
+
+  it('admits the proposed call replaced by the wager rule or the corrective rule', () => {
+    expect(judge({ ...proposed, wager_rules: act('all_in') })).toBeNull();
+    expect(judge({ ...proposed, corrective_policy: act('all_in') })).toBeNull();
+  });
+
+  it.each(['variant_utility_guard', 'joint_policy'])(
+    'refuses the proposed call once %s rewrites or removes its price',
+    (node) => {
+      for (const amount of [7, null])
+        expect(
+          judge({ ...proposed, [node]: act('call', amount), wager_rules: act('all_in') })
+        ).toBe('phase11_selection');
+    }
+  );
 });
