@@ -70,6 +70,13 @@ export interface ComplaintPublicNode {
   asset?: 'chips' | 'diamonds';
   deductions?: HorsePublicDeductions;
   tournamentStage?: Record<string, unknown> | null;
+  /** The table's VPIP floor in percent and the acting seat's own judged VPIP,
+   *  as the live engine hands them to the decision (ServerTableEngineSettlement).
+   *  A recorded snapshot does not carry them, so a node from a floored table
+   *  replays as an unfloored one unless a fixture supplies them
+   *  (PLO6-AUDIT-004). Absent = unfloored, as before. */
+  vpipFloor?: number;
+  ownVpip?: { hands: number; vpip: number | null };
 }
 
 export interface ComplaintAction {
@@ -295,6 +302,8 @@ export function stateAt(hand: ExtractedHand | ComplaintFixture, node: ComplaintA
     ...(pn.fixedBetSize !== undefined ? { fixedBetSize: pn.fixedBetSize } : {}),
     ...(pn.wagersCapped !== undefined ? { wagersCapped: pn.wagersCapped } : {}),
     ...(pn.asset !== undefined ? { asset: pn.asset } : {}),
+    ...(pn.vpipFloor !== undefined ? { vpipFloor: pn.vpipFloor } : {}),
+    ...(pn.ownVpip !== undefined ? { ownVpip: pn.ownVpip } : {}),
     ...(pn.deductions?.status === 'captured'
       ? {
           rakeConfig: {

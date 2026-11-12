@@ -313,6 +313,15 @@ export interface PreflopCtx {
   /** V21 DEEP-STACK DISCIPLINE: scale cash 4-bet/5-bet stack-off thresholds
    *  with depth past 120bb. Undefined/false = legacy behavior. */
   deepDiscipline?: boolean;
+  /** PLO6-AUDIT-004 (2026-11-12): the VPIP floor multiplier already folded
+   *  into `tightness` (HorseLogic.vpipFloorMul), a number in (0, 1) on a
+   *  floored table where the seat is still steering up to its target. Given
+   *  only when the deep stack-off correction is on. The floor exists to make
+   *  a seat PLAY more hands; with this set, a deep Omaha seat's bar for
+   *  putting its whole stack in facing a re-raise is read without the floor
+   *  (the hand still continues by calling, which is what the floor counts).
+   *  Undefined = unchanged. */
+  vpipFloorMul?: number;
   /** V24: enable the Omaha price defense + risk-scaled survival premium.
    *  Undefined/false keeps the exact pre-V24 arithmetic (ablation). */
   ploPriceDefense?: boolean;
@@ -3083,6 +3092,42 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       fourBetThresh = phase6CapBar(fourBetThresh + 0.03);
       callThresh = phase6CapBar(callThresh + 0.05);
     }
+    // ═══ PLO6-AUDIT-004 THE VPIP FLOOR DOES NOT SET THE STACK-OFF BAR ═══
+    // (2026-11-12) vpipFloorMul scales `tightness`, and every bar here is a
+    // product of it, so on a 50% floor table a seat in its first hands had its
+    // jam bar cut from 0.93 to 0.40 of the deck. Production hand 58751512
+    // (PLO6 1/2, 390bb): the button, strength 0.587, shoved 780 into a
+    // four-bet it could have called for 161. The floor counts voluntary money
+    // in, which a call supplies; it gives no reason to put 390bb in. So for a
+    // deep Omaha seat (the V21 depth, over 120bb) the bar for a jam at a
+    // stack-off node is read as if the table had no floor, exactly what the
+    // same seat does on an unfloored table. The call bars keep the floor, so
+    // the hand still plays. It applies only where that call exists at the
+    // 30% of stack this node already allows a call for; a call that is itself
+    // most of the stack is a price decision and is left alone. An observed
+    // wide re-raiser (vsReRaiser) keeps the owner's call-off-lighter rule
+    // untouched.
+    const floorMul91 =
+      ctx.isOmaha &&
+      deepT > 0 &&
+      !vsReRaiser &&
+      toCall > 0 &&
+      toCall <= stack * 0.3 &&
+      ctx.vpipFloorMul !== undefined &&
+      ctx.vpipFloorMul > 0 &&
+      ctx.vpipFloorMul < 1
+        ? ctx.vpipFloorMul
+        : 1;
+    const unflooredBar91 = (x: number): number =>
+      capBar((x * ctx.tightness) / floorMul91 + (ploIcm ? ploIcm.fourBet : ctx.riskAdd));
+    const fourBetBase91 = 0.93 - (ctx.aggression - 1) * 0.04;
+    const floorDelta91 =
+      floorMul91 < 1
+        ? Math.max(0, unflooredBar91(fourBetBase91) - t53(fourBetBase91, 'fourBet'))
+        : 0;
+    const stackOffNode91 = raises >= 3 || currentBet * 2.3 >= stack * 0.4;
+    const floorHolds91 =
+      floorDelta91 > 0 && stackOffNode91 && strength < fourBetThresh + floorDelta91;
 
     // ═══ V25 NEVER RAISE-FOLD A COMMITTED PLO STACK ═══════════════════
     // Having raised a short PLO stack, the chips in the middle are already a
@@ -3203,7 +3248,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       };
     }
 
-    if (strength >= fourBetThresh) {
+    if (strength >= fourBetThresh && !floorHolds91) {
       // V21: deep, a 4-bet is no longer automatically a stack-off — jam only
       // when the money is already committed on normal sizing, and demand a
       // premium above the 4-bet floor before jamming 150bb+.
@@ -3334,7 +3379,14 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         noLimitHoldem || (unblocked86 && ctx.isOmaha) ? Math.min(1, ctx.tightness) : ctx.tightness;
       const t5 = (x: number, family: keyof OmahaPressureShifts): number =>
         capBar(x * tight5 + (ploIcm ? ploIcm[family] : ctx.riskAdd));
-      if (strength >= t5(Math.min(0.98, 0.95 + deepT), 'fourBet')) return { a: 'jam' };
+      const jamBar5 = Math.min(0.98, 0.95 + deepT);
+      if (
+        strength >=
+        (floorMul91 < 1
+          ? Math.max(t5(jamBar5, 'fourBet'), unflooredBar91(jamBar5))
+          : t5(jamBar5, 'fourBet'))
+      )
+        return { a: 'jam' };
       // The 30% stack cap stops a call that more betting can follow; a call
       // that closes an all-in risks only what is priced (facingClosedAllIn).
       if (strength >= t5(0.88 + deepT, 'call') && (toCall <= stack * 0.3 || closedAllInCall)) {

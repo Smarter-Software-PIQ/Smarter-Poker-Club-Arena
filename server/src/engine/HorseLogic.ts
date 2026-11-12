@@ -2493,6 +2493,10 @@ export interface HorseDecideOpts {
    * (HorseOmahaCurrentNuts.ts). Default on; false only for the complaint
    * law's non-vacuity control. */
   omahaCurrentNutsRaise?: boolean;
+  /** A deep Omaha seat's preflop stack-off bar is read without the VPIP
+   * floor multiplier (PLO6-AUDIT-004). Default on; false only for the
+   * regression's control. */
+  vpipFloorDeepStackOff?: boolean;
   /** V56: direct public pressure sampling for vulnerable river sets/trips
    * facing tier-three pressure on one Omaha-high cash board. Default on
    * after fixed-clock/full-precision400bb cash qualification; explicit false
@@ -8883,6 +8887,8 @@ export class HorseLogic {
       maniacOpenBar:
         maniacBehindWidth !== null ? maniacBehindOpenBar(maniacBehindWidth, vi.isOmaha) : undefined,
       maniacNoBluff: maniacRaiserWidth !== null || maniacBehindWidth !== null ? true : undefined,
+      vpipFloorMul:
+        opts.vpipFloorDeepStackOff !== false && vi.isOmaha ? vpipFloorMul(gs) : undefined,
       retireFourBetBluffBand: opts.v76RetireFourBetBluffBand === false ? undefined : true,
       facingOpenShortHandedZone: opts.v70FacingOpenZone === false ? undefined : true,
       facingOpenFullRingZone: opts.facingOpenFullRingZone === true ? true : undefined,
