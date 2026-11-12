@@ -362,7 +362,10 @@ BEGIN
     ),
     jsonb_build_object(
       'signature', 'public.fn_cancel_tournament_ticket(uuid)',
-      'hash', 'd3f65b7702d4b7f543891dd87c149353'
+      -- 20261112184950: the issuer refund books to ticket_escrow (category
+      -- refund, not the cashout pair escrow_release); nothing else changed.
+      'hash', 'd3f65b7702d4b7f543891dd87c149353',
+      'replacement_hash', 'e52d94e64fe64cc1508885a541450c71'
     ),
     jsonb_build_object(
       'signature', 'public.fn_club_bank_ledger(uuid,integer,integer,text[])',
