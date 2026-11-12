@@ -3362,7 +3362,10 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     } else if (player.is_horse && !this.isOwnClientControlling(player.user_id)) {
       // Wave 2 #9: non-client-piloted horse seats always evaluate live action
       // via scheduleHorseAction; purge any stale pre-action left behind.
+      const stalePreAction = this.preActionEngine.getPreAction?.(this.tableId, player.user_id);
       this.preActionEngine.clearPreAction?.(this.tableId, player.user_id);
+      // Evidence only: counted when there was something to purge.
+      if (stalePreAction) noteFire('upgrade09_preaction_purged_table');
     } else if (
       player.is_horse &&
       this.isTournamentTable() &&
@@ -3373,6 +3376,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     ) {
       // A shove can arrive after arming. Return the seat to its ordinary turn.
       this.preActionEngine.clearPreAction(this.tableId, player.user_id);
+      noteFire('upgrade09_preaction_purged_table');
     }
     const armedPreAction = player.is_horse
       ? this.preActionEngine.getPreAction(this.tableId, player.user_id)?.action
@@ -4470,6 +4474,9 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
         tournamentHand ? 'tournament' : 'cash',
         'decision_started'
       );
+      // Side-game context that reached this decision's request (evidence only).
+      if (gameState.killPot != null) noteFire('upgrade08_kill_pot_decision');
+      if (gameState.sevenDeuceEnabled === true) noteFire('upgrade08_seven_deuce_decision');
       // THE DECISION DEADLINE IS THE TURN CLOCK (2026-09-17). The job may
       // live for what is left of this seat's action clock, less the margin
       // the engine needs to act on the answer - not a fixed 8 s that gave up

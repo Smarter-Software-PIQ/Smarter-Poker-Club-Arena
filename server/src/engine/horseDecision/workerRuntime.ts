@@ -213,7 +213,7 @@ import { isJointVariant, type JointVariant } from '../multiway/JointInputBinding
 import type { JointPolicyMode } from '../multiway/JointLivePolicy.js';
 import { gtoChartCount, gtoChartStoreIdentity } from '../GtoCharts.js';
 import { gtoPostflopCount, gtoPostflopStoreIdentity, textureClass } from '../GtoPostflop.js';
-import { gtoPostflopV31Count, gtoPostflopV31Dataset, gtoV31CellMatrix } from '../GtoPostflopV31.js';
+import { gtoPostflopV31Count, gtoPostflopV31Dataset } from '../GtoPostflopV31.js';
 import { hydrateHorseMind } from '../../services/HorseMindHydrator.js';
 import {
   hydrateHorseExploitReads,
@@ -1129,23 +1129,11 @@ export class HorseDecisionWorkerRuntime {
         if (oldest !== undefined) this.prewarmedStreets.delete(oldest);
       }
       this.prewarmedStreets.set(boardKey, tex);
-      const stackBB =
-        typeof raw.effectiveStackBB === 'number' && Number.isFinite(raw.effectiveStackBB)
-          ? Math.max(5, Math.min(250, raw.effectiveStackBB))
-          : 100;
-      if (tex && (street === 'flop' || street === 'turn' || street === 'river')) {
-        try {
-          gtoV31CellMatrix({
-            street,
-            board: boardCards as never,
-            stackBB,
-            potType: 'SRP',
-            position: 'IP',
-          } as never);
-        } catch {
-          /* prewarm lookup is purely advisory */
-        }
-      }
+      // What a prewarm warms is the board texture memo above, nothing else.
+      // It used to end with a V31 cell lookup given arguments that are not
+      // that function's parameters; the lookup matched no key, returned null
+      // and warmed nothing (removed 2026-11-12). effectiveStackBB is still
+      // accepted on the message and is unused.
       noteHorseStreetPrewarm(variant, mode, street);
     } catch {
       /* idle prewarm never fails the worker */

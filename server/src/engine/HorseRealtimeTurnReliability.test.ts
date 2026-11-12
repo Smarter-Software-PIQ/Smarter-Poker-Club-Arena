@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   drainBrainWatchcounterDeltas,
+  drainFires,
+  enableBrainTelemetry,
   mergeBrainWatchcounterDeltas,
   noteHorseActionClamped,
   noteHorseLegalizerDegraded,
@@ -710,6 +712,8 @@ describe('W1.3 + W1.4 + W2 #8A/#9 Turn timer preservation, auto-sit-back, pre-ac
     };
     engine.startTurnTimer = vi.fn();
     engine.scheduleHorseAction = vi.fn();
+    enableBrainTelemetry();
+    drainFires();
 
     await engine.handleTurnChange(
       { type: 'TURN_CHANGE', seat: 1, availableActions: ['fold', 'call'] },
@@ -717,6 +721,10 @@ describe('W1.3 + W1.4 + W2 #8A/#9 Turn timer preservation, auto-sit-back, pre-ac
     );
 
     expect(clearPreAction).toHaveBeenCalledWith(TABLE_ID, HORSE_A);
+    // Upgrade 09 evidence: the purge of a pre-action that existed is counted once.
+    expect(drainFires().filter((f) => f.feature === 'upgrade09_preaction_purged_table')).toEqual([
+      { feature: 'upgrade09_preaction_purged_table', fires: 1 },
+    ]);
     expect(sitBack).toHaveBeenCalledWith(TABLE_ID, HORSE_A);
     expect(state.players[0].is_sitting_out).toBe(false);
     expect(engine.scheduleHorseAction).toHaveBeenCalledTimes(1);

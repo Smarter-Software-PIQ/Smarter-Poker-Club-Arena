@@ -53,6 +53,8 @@ import {
   isHorseDecisionEngineActiveFor,
 } from '../services/HorseBehavior.js';
 import {
+  drainFires,
+  enableBrainTelemetry,
   drainBrainWatchcounterDeltas,
   mergeBrainWatchcounterDeltas,
   noteHorseActionClamped,
@@ -2188,6 +2190,8 @@ describe('LAW: 1,000-Horse Full Action-Space Freedom & Fleet Activation', () => 
     }
     expect(eightWorkerRuntimes).toHaveLength(8);
 
+    enableBrainTelemetry();
+    drainFires();
     // Push-adjusted scheduleHorseInsuranceResponse handler: house-vig decline, split-pot pricing accuracy, < fairPremium accept, > fairCashoutEv cashout, preflop vs flop+ decline scope
     vi.useFakeTimers();
     try {
@@ -2262,6 +2266,17 @@ describe('LAW: 1,000-Horse Full Action-Space Freedom & Fleet Activation', () => 
       expect(await runInsScenario({ evCashoutAmount: 42 })).toEqual([
         { decision: 'cashout', coverage: 100, declineForHand: false },
       ]);
+      // Upgrade 08 evidence: each of the four answers above was counted where it was sent.
+      const insuranceFires = Object.fromEntries(
+        drainFires()
+          .filter((f) => f.feature.startsWith('upgrade08_insurance_'))
+          .map((f) => [f.feature, f.fires])
+      );
+      expect(insuranceFires).toEqual({
+        upgrade08_insurance_decline: 2,
+        upgrade08_insurance_accept: 1,
+        upgrade08_insurance_cashout: 1,
+      });
     } finally {
       vi.useRealTimers();
     }
