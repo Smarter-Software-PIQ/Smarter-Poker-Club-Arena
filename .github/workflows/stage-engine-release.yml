@@ -65,6 +65,7 @@ jobs:
       actions: read
     outputs:
       protected_sha: ${{ steps.cutoff.outputs.sha }}
+      install_sha: ${{ steps.cutoff.outputs.install_sha }}
       release_required: ${{ steps.change.outputs.release_required }}
       target_sha: ${{ steps.change.outputs.target_sha }}
       observed_live_sha: ${{ steps.change.outputs.observed_live_sha }}
@@ -297,6 +298,11 @@ jobs:
           git fetch --no-tags origin main
           control=$(git rev-list --first-parent -1 --before="@$CUTOFF_EPOCH" refs/remotes/origin/main)
           [[ "$control" =~ ^[0-9a-f]{40}$ ]]
+          # The database installer carries no engine authority: it names its
+          # protected source before the authority comparison below, so a
+          # changed projection refuses the engine offer without also skipping
+          # the daily window migrations (skipped 11-10, 11-11 and 11-12).
+          echo "install_sha=$control" >> "$GITHUB_OUTPUT"
           # Never execute new release authority under an old reservation owner.
           CONTROL="$control" python3 - <<'PYTHON'
           import importlib.util, os
@@ -450,7 +456,8 @@ jobs:
     if: >-
       ((always() &&
       ((github.event_name == 'workflow_dispatch' && !inputs.request_engine_release && github.ref == 'refs/heads/main') ||
-       (needs.detect.result == 'success' && needs.detect.outputs.admission_allowed == 'true' &&
+       ((needs.detect.result == 'success' || needs.detect.outputs.install_sha != '') &&
+        needs.detect.outputs.admission_allowed == 'true' &&
         needs.detect.outputs.daily_preparation == 'true')))
       && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]'))) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
@@ -465,7 +472,7 @@ jobs:
       - name: Checkout protected main
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.detect.outputs.protected_sha || github.sha }}
+          ref: ${{ needs.detect.outputs.protected_sha || needs.detect.outputs.install_sha || github.sha }}
           fetch-depth: 0
 
       - name: Use the production Node major

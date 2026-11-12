@@ -511,7 +511,7 @@ describe('the original reserved job waits once and expires without a release', (
     expect(bind(cutoff - 18000, cutoff)).toEqual({
       status: 0,
       wait: '18000',
-      output: `sha=${'0'.repeat(39)}1\n`,
+      output: `install_sha=${'0'.repeat(39)}1\nsha=${'0'.repeat(39)}1\n`,
     });
     expect(bind(cutoff + 1, cutoff + 2).wait).toBeNull();
     expect(stage.jobs.detect['timeout-minutes']).toBe(315);
@@ -528,11 +528,30 @@ describe('the original reserved job waits once and expires without a release', (
       [cutoff - 18001, cutoff],
       [cutoff - 1, cutoff - 1],
       [cutoff, cutoff + 1200],
-      [cutoff, cutoff, true],
-    ] as [number, number, boolean?][]) {
-      const result = bind(args[0], args[1], args[2]);
+    ] as [number, number][]) {
+      const result = bind(args[0], args[1]);
       expect(result.status).not.toBe(0);
       expect(result.output).toBe('');
     }
+  });
+  // 11-10, 11-11 and 11-12: a release-control change during the reservation
+  // refused the engine (correct) and, because the installer required a
+  // successful detect, skipped every queued window migration with it.
+  it('changed authority refuses the engine but still names the installer source', () => {
+    const result = bind(cutoff, cutoff, true);
+    expect(result.status).not.toBe(0);
+    expect(result.output).toBe(`install_sha=${'0'.repeat(39)}1\n`);
+    expect(stage.jobs.detect.outputs.install_sha).toBe('${{ steps.cutoff.outputs.install_sha }}');
+    const job = stage.jobs['window-migrations'];
+    expect(job.if).toContain(
+      "(needs.detect.result == 'success' || needs.detect.outputs.install_sha != '')"
+    );
+    expect(job.steps[0].with.ref).toBe(
+      '${{ needs.detect.outputs.protected_sha || needs.detect.outputs.install_sha || github.sha }}'
+    );
+  });
+  it('the engine offer never reads the installer source', () => {
+    expect(JSON.stringify(stage.jobs.selection)).not.toContain('install_sha');
+    expect(JSON.stringify(stage.jobs.signal)).not.toContain('install_sha');
   });
 });
