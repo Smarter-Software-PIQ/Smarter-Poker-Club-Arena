@@ -5090,3 +5090,62 @@
   font-size: 1em;
   line-height: 1;
 }
+
+/* Paint can grow without transforming the avatar's existing hit target. */
+.seat__avatar-paint {
+  display: contents;
+}
+@media (max-width: 768px) and (orientation: portrait) {
+  .table-page .seat .seat__avatar[style*='--sp-mobile-art-scale'] {
+    overflow: visible;
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+  }
+  .table-page .seat__avatar[style*='--sp-mobile-art-scale'] > .seat__avatar-paint {
+    display: block;
+    position: absolute;
+    inset: calc(-1 * var(--sp-mobile-border, 0px));
+    box-sizing: border-box;
+    border: var(--sp-mobile-border-style);
+    border-radius: inherit;
+    background: var(--sp-mobile-background);
+    box-shadow: var(--sp-mobile-shadow);
+    overflow: var(--sp-mobile-overflow);
+    scale: var(--sp-mobile-art-scale);
+    translate: var(--sp-mobile-art-x) var(--sp-mobile-art-y);
+    transform-origin: 50% 100%;
+    pointer-events: none;
+  }
+}
+@media (max-width: 768px) and (orientation: portrait) {
+  .table-page .seat .seat__info[style*='--sp-frame-w'] {
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+  }
+  .table-page .seat .seat__info[style*='--sp-frame-w']::before {
+    content: '';
+    position: absolute;
+    left: var(--sp-frame-x);
+    top: var(--sp-frame-y);
+    width: var(--sp-frame-w);
+    height: var(--sp-frame-h);
+    box-sizing: border-box;
+    background: var(--sp-frame-background);
+    border: var(--sp-frame-border);
+    border-radius: var(--sp-frame-radius);
+    box-shadow: var(--sp-frame-shadow);
+    pointer-events: none;
+    z-index: -1;
+  }
+}
+@media (max-width: 768px) and (orientation: portrait) {
+  .table-page .seat__avatar--bust .seat__avatar-img[style*='--sp-mobile-clip-bottom'] {
+    clip-path: inset(-1000px -1000px var(--sp-mobile-clip-bottom) -1000px);
+  }
+}
+
+.table-page .seat__avatar-img[style*='--sp-mobile-filter'] {
+  filter: var(--sp-mobile-filter);
+}
