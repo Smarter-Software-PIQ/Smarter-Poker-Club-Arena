@@ -694,3 +694,47 @@ Not 2026-11-09 or 2026-11-10: each contains a known defect (the old engine, then
 - Schema comparison without a DB URL: `capture-via-api.py` (SSD archive) runs `schema-evidence.py`'s exact capture through that API and validates with the module's own `validate()`.
 - SSD archive: `/Volumes/SmarterArchives 1/agent-evidence/seat-first-ladder-01BbZPDj-20261109/` (note the space and the 1); `check-candidate-contents.sh` now takes `REPO=` and defaults to the Mac checkout.
 - Long scripts on the Mac: launch with `subprocess.Popen(..., start_new_session=True)`; the bridge kills foreground process groups after about 60 s.
+
+## Fifth pass: activation of the corrected build and the acceptance day
+
+### Defect 4 (fixed, #10385, merged a364cb39)
+The discovery past-start walk topped a seat-first board up to its full seat count, so a Spin with one horse could skip a rung. The walk now leaves a seat-first board with any live seat to the ladder (`rosterByTournament.get(id) !== 0` → skip). Law: `server/src/aSeatFirstBoardClimbsOneRungFromEveryLane.law.test.ts`.
+
+### Releases
+- `05ab41c3` (0050z window, custodian root 01a1bbdd; Stage 42965274517, receiver 42965360845) SEALED 05:30:54Z Nov 11.
+- `f7735cca` (receiver 42994475679) replaced it at 09:21-09:29Z Nov 11, inside the 3-6 AM Chicago closure; same SHA restarted as instance `1-54cc0104` at the 04:00 Chicago break and still serving at 06:01:43Z Nov 12.
+- Both trees verified to contain the ladder, #10181, #10234, #10340 and #10385 (`check-candidate-contents.sh` exit 0).
+
+### Acceptance day: 2026-11-11 America/Chicago (06:00Z Nov 11 to 06:00Z Nov 12)
+
+#### Why this day qualifies
+- `05ab41c3` SEALED 05:30:54Z, receiver 42965360845 completed 05:32:00Z (before the 06:00Z start), VERIFIED and SHIPPED.
+- `f7735cca` replaced it at 09:21-09:29Z (receiver 42994475679, inside the 3-6 AM Chicago seat-first closure); restarted as instance `1-54cc0104` at the 04:00 Chicago break; serving unchanged through 06:01:43Z Nov 12.
+- Both trees carry the full set, read from the trees: ladder, feeder exclusion, 3-7 min window (`check-candidate-contents.sh` exit 0), #10181, #10234, #10340, #10385. Migration `20261110144739` (Spin expiry 160 min) installed 2026-11-10 17:10Z.
+
+#### Counting definitions
+- Start: `tournaments.started_at` inside the interval (`fn_ca_seat_first_daily_starts('2026-11-11')`). Cancellations and replacement boards are counted separately and are not starts.
+- Human-triggered: any seat held by a profile with `is_horse = false`; an unreadable profile is not a human.
+- Waiting board at hour H: first live seat joined at or before H, not started and not cancelled by H.
+
+#### Results
+| | Starts | Human-triggered | Horse-only |
+|---|---|---|---|
+| Spin | 115 | 2 | 113 |
+| Regular heads-up | 33 | 0 | 33 |
+| **Combined (requirement under 300)** | **148** | **2** | **146** |
+| Satellite feeders (separate) | 3 | 0 | 3 |
+
+**Under 300: met, with the intended boards operating all day (below).**
+
+- Replacement boards created: 128 Spin, 41 heads-up. Cancellations: 11 Spin and 6 heads-up, **all inside the 3-6 AM Chicago closure** (owner's 3 AM rule), 15 + 6 entrants refunded in full (420.00 + 202.00 chips), 0 zero-refunds. 7 feeder cancellations with no entrants. **No Spin expiry cancellation outside the closure: the 160-minute timeout is compatible with the ladder.**
+- Board availability, reconstructed at every hour: 11 Spin and 6 heads-up waiting at 00:00-03:00 and 07:00-23:00 Chicago; 0 during the 04:00-06:00 closure; 10 Spins momentarily at 19:00 and 22:00 during replacement. Starts per hour 1-16 outside the closure. Hourly census (SSD `hourly-census.jsonl`, 09:31-19:31Z) agrees; feeders (75-76 waiting) never entered either count.
+- Ladder, every horse-only start: Spin first rung 60.1-80.0 min, second 30.7-59.6 min (113/113 in band); heads-up rung 180.4-239.8 min (33/33); **0 jumps** (no two seats joining together); deal within 4.1 s of the last seat.
+- Humans: 2 human seats all day, both the third (filling) seat of a Spin with two horses waiting; dealt 3 s after the person sat. **The 3-7 minute rule had no eligible traffic** (nobody sat at a board that then had to wait).
+- Feeders: no heads-up satellite feeder created or started, so **#10181's bound had no eligible traffic**. The 9-max feeders that ran started at least 2,401 minutes before their targets.
+
+### Evidence
+SSD `acceptance-2026-11-11/` (`ACCEPTANCE-RESULT.md`, `hourly-census.jsonl`, `ladder*.json`). Hourly availability and ladder transitions recomputed from `tournaments`, `table_seats` and `tournament_cancellation_receipts` after the interval closed.
+
+### Status
+Acceptance complete. No open defect in this lane. Items with no eligible traffic on Nov 11: the 3-7 minute human countdown live observation and the #10181 heads-up feeder admission/departure bound (both are pinned by law tests and were verified at activation; neither had a live opportunity).
