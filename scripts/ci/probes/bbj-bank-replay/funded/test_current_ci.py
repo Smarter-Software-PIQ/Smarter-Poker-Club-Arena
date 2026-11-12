@@ -16,7 +16,7 @@ from unittest.mock import patch
 import current_ci as ci
 from execution import finish_owned_teardown, dispose_owned_case_database
 from custody import FundedSourceCustody
-from retained import RetainedModules, INSTALLER_PREFIX, literal_installer_transport
+from retained import RetainedModules, INSTALLER_PREFIX, literal_installer_transport, current_relation_envelope
 
 
 class CurrentAccountingIdentityTests(unittest.TestCase):
@@ -339,6 +339,43 @@ class CurrentAccountingIdentityTests(unittest.TestCase):
                 run.claim_seed(ci.CASES[0])
 
     def test_runtime_mismatch_refuses_before_binary_execution(self):
+        raw = {'attributes': [{'options': ['pg_attver=37890624'], 'name': 'id'}]}
+        self.assertEqual(current_relation_envelope(raw),
+                         {'attributes': [{'options': None, 'name': 'id'}]})
+        self.assertEqual(raw['attributes'][0]['options'], ['pg_attver=37890624'])
+        for options in ([], ['other=1'], ['pg_attver=1', 'other=1'],
+                        ['pg_attver=-1'], ['pg_attver=01'], ['pg_attver=0'],
+                        ['pg_attver=18446744073709551616']):
+            with self.subTest(options=options), self.assertRaises(RuntimeError):
+                current_relation_envelope({'attributes': [{'options': options}]})
+        ci.validate_runtime_version('postgres (PostgreSQL) 17.12 (Ubuntu)')
+        for version in ('17.11', '17.120', '18.1', '17.12evil'):
+            with self.subTest(version=version), self.assertRaises(RuntimeError):
+                ci.validate_runtime_version('postgres (PostgreSQL) ' + version)
+        for case in ci.CASES:
+            bound = RetainedModules(FundedSourceCustody(), object(), case)
+            original = RetainedModules(FundedSourceCustody(), None, case)
+            expected = dict(database='fixture_base', database_oid='910', system_identifier='911',
+                            data_directory='/owned/data', socket_directory='/owned/sock')
+            actual = dict(expected, role='postgres', session_role='postgres', socket=True,
+                          replication='origin', server_version='17.12', pid=123,
+                          backend_start='2026-11-12 00:00:00+00')
+            self.assertEqual(bound.adapter.validate_physical(actual, expected), actual)
+            self.assertIn('current_relation_envelope', bound.supplement.validate_backup.__code__.co_names)
+            self.assertNotIn('current_relation_envelope', original.supplement.validate_backup.__code__.co_names)
+            changed_raw = copy.deepcopy(raw)
+            changed_raw['attributes'][0]['name'] = 'changed'
+            self.assertFalse(bound.supplement.exact(raw, changed_raw))
+            self.assertEqual(current_relation_envelope(changed_raw)['attributes'][0]['name'], 'changed')
+            with self.assertRaises((AssertionError, RuntimeError)):
+                original.adapter.validate_physical(actual, expected)
+            with self.assertRaises((AssertionError, RuntimeError)):
+                bound.adapter.validate_physical(dict(actual, server_version='17.11'), expected)
+            adapted = {row['source']: row['occurrences'] for row in bound.source_changes
+                       if 'occurrences' in row}
+            self.assertEqual(adapted, {'opening_adapter/binding.py': 1,
+                                      'supplement/supplemental.py': 2,
+                                      bound.group + '/case_module.py': 1})
         run = ci.CurrentAccountingRun.__new__(ci.CurrentAccountingRun)
         run.runtime=None
         with patch.object(ci.subprocess,'run') as process, self.assertRaises(RuntimeError):
