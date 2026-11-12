@@ -148,3 +148,65 @@ while newest server is17.11. Its retained +2/+1 builds accept17.11. This is a
 necessary delivery blocker, so the smallest shared installer correction will
 select the newest cron build compatible with the selected PostgreSQL server,
 using signed apt metadata; signature verification and all database tests stay.
+
+## Reconciled successor evidence (2026-11-12 16:06Z)
+
+#10523 protected merge67b116f8398b9cabadd5439f2d0a3631a2672980 at16:00:43Z;
+exact headda0af149, CI43249524207 SUCCESS. Merged guard, registry and installer
+bytes match reviewed source. Installed/loaded Classic rule agrees with the
+current always-on schedule; the negative test never changed production.
+
+#10516 recovered in SSD2 worktree alerts-closeout-01a1d05b-cash. Source now
+preserves #10590's same-policy eligibility, requires both cash populations in
+historical windows, uses a Lightning-only fallback while combined history warms,
+and preserves one alert identity and both suppression guards. Focused promtool
+2.55.1 and3.16 fixtures pass; five retained cases cover Classic collapse,
+tournament exclusion, counter reset, missing Classic history and policy change.
+Existing policy fixtures remain. Normal prepush passed10files/881assertions;
+b5bbc1ab pushed, draft retained. #10534 overlap is NOT yet closed/superseded:
+only actual merged and loaded equivalent coverage may establish that.
+
+Live Prometheus readback retained as loaded-rules.json in
+extreme-archive/alerts-closeout-01a1d05b. All six assigned rules health=ok and
+inactive, including corrected oldest-seated-board Spin rule; SLO no-hands reads
+==0 and Classic retains break/park exclusions. Monitoring release d1af68bc,
+run43243331986 SUCCESS; throughput still Lightning-only pending engine producer.
+
+Read-only production evidence at15:29Z: migration20261111133739 recorded;
+a2_post_commit_handoff_is_a_warning trigger names both exact sources; function
+requires exact predecessor_pending error, valid UUID and persisted non-null
+post_commit_payload. Timeout, missing envelope, malformed identity, unrelated
+source and stuck watchdog retain critical semantics. Watchdog active=true.
+Maintained PostgreSQL qualification43250518711 SUCCESS at15:42Z independently
+retains those boundaries and install-refusal checks. No new production failure
+or synthetic alert was generated. No Lightning source event after13:37:39Z
+November11 existed at readback, so natural reclassification remains UNOBSERVED.
+
+Eight-incident acceptance (database recovery is not permanent-fix acceptance):
+
+- fd614614 / SLOHandsAreNotBeingDealt: PASS, #10451 loaded source, maintained
+  slo-no-hands fixture; database status closed/resolved_signal.
+- ee77584d / Lightning post-commit: PASS installed/tested #10503/#10513;
+  UNVERIFIED natural execution, explicit absence above; database closed.
+- 71fdf977 / relative throughput: PARTIAL, #10506/#10590 live, #10516 prepared;
+  database recovered after a10:40Z recurrence, not a claim of combined coverage.
+- 15b0d37a / cash actions: PASS #10500 loaded, fixtures retained; database closed.
+- 17b7b46a / fleet collapsed: PASS #10500 loaded, fixtures retained; database closed.
+- 647de293 / outside-break restart: UNVERIFIED serving #10498, database recovered
+  after06:24Z recurrence. Current enginef7735cca lacks the correction.
+- 3a00a7ce / availability: UNVERIFIED serving #10498 despite database closed.
+- f1b14fca / Spin: PASS #10507 loaded, oldest wait/ladder plus human wait,
+  maintenance and missing-gauge fixtures retained; #10502 not revived.
+
+Release custodian root01a1d015 explicitly confirmed #10498/#10511 inclusion in
+qualified08c27924, retains sole cutover/certification. DB prerequisite original
+43249545194 installed and fully thawed110tables; engine stillf7735cca. Await
+that owner's actual selected/sealed SHA, full thaw and gameplay receipts, then
+verify emitted/scraped format labels and natural counter increments before
+#10516 ready/merge/DeployMonitoring and loaded-query proof. No competing release.
+
+Security finding retains the existing unconfirmed disposition, unknown types,
+#10479 source repair and existing account-holder ownership. No rotation adopted.
+Final publication/acceptance receipts will be appended to #10516's delivery
+record; this checkpoint names its exact outstanding gates without claiming green
+CI, recovery or an idle rule establishes engine adoption or natural failure use.

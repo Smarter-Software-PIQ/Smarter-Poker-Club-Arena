@@ -512,5 +512,219 @@
             },
           ],
       },
+
+      {
+        "name": "A Classic cash collapse that halves ALL cash fires even while Lightning holds",
+        "interval": "1m",
+        "input_series": [
+          {
+            "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+60x5940"
+          },
+          {
+            "series": "poker_hands_fleet_total{format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+540x5760 3110400+0x179"
+          },
+          {
+            "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+0x5940"
+          },
+          {
+            "series": "poker_lightning_admission_policy_fingerprint",
+            "values": "11+0x5940"
+          },
+          {
+            "series": "poker_lightning_admission_policy_collect_ok",
+            "values": "1+0x5940"
+          },
+          {
+            "series": "poker_health_collected_timestamp_seconds",
+            "values": "0+60x5940"
+          }
+        ],
+        "promql_expr_test": [
+          {
+            "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
+            "eval_time": "5755m",
+            "exp_samples": []
+          },
+          {
+            "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
+            "eval_time": "5930m",
+            "exp_samples": [
+              {
+                "labels": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\",component=\"club-arena-engine\",page=\"sms\",severity=\"critical\"}",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+
+      {
+        "name": "Tournament table hands are not cash: a tournament collapse with cash flat is silent",
+        "interval": "1m",
+        "input_series": [
+          {
+            "series": "poker_hands_dealt_total{job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+600x5760 3456060+60x179"
+          },
+          {
+            "series": "poker_hands_fleet_total{format=\"mtt\",job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+590x5760 3398400+50x179"
+          },
+          {
+            "series": "poker_hands_fleet_total{format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+10x5940"
+          },
+          {
+            "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+100x5940"
+          },
+          {
+            "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+0x5940"
+          },
+          {
+            "series": "poker_lightning_admission_policy_fingerprint",
+            "values": "11+0x5940"
+          },
+          {
+            "series": "poker_lightning_admission_policy_collect_ok",
+            "values": "1+0x5940"
+          },
+          {
+            "series": "poker_health_collected_timestamp_seconds",
+            "values": "0+60x5940"
+          }
+        ],
+        "promql_expr_test": [
+          {
+            "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
+            "eval_time": "5930m",
+            "exp_samples": []
+          }
+        ]
+      },
+
+      {
+        "name": "Classic counter reset preserves a genuine cash collapse",
+        "interval": "1m",
+        "input_series": [
+          {
+            "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+60x5940"
+          },
+          {
+            "series": "poker_hands_fleet_total{format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+600x5759 0+6x180"
+          },
+          {
+            "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+0x5940"
+          },
+          {
+            "series": "poker_lightning_admission_policy_fingerprint",
+            "values": "11+0x5940"
+          },
+          {
+            "series": "poker_lightning_admission_policy_collect_ok",
+            "values": "1+0x5940"
+          },
+          {
+            "series": "poker_health_collected_timestamp_seconds",
+            "values": "0+60x5940"
+          }
+        ],
+        "promql_expr_test": [
+          {
+            "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
+            "eval_time": "5755m",
+            "exp_samples": []
+          },
+          {
+            "expr": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\"}",
+            "eval_time": "5930m",
+            "exp_samples": [
+              {
+                "labels": "ALERTS{alertname=\"HorseFleetThroughputRelativeDrop\",alertstate=\"firing\",component=\"club-arena-engine\",page=\"sms\",severity=\"critical\"}",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+
+      {
+        "name": "Missing Classic series leaves the combined baseline absent",
+        "interval": "1m",
+        "input_series": [
+          {
+            "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+60x5940"
+          },
+          {
+            "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+0x5940"
+          },
+          {
+            "series": "poker_lightning_admission_policy_fingerprint",
+            "values": "11+0x5940"
+          },
+          {
+            "series": "poker_lightning_admission_policy_collect_ok",
+            "values": "1+0x5940"
+          },
+          {
+            "series": "poker_health_collected_timestamp_seconds",
+            "values": "0+60x5940"
+          }
+        ],
+        "promql_expr_test": [
+          {
+            "expr": "sp:cash_hands:same_hour_mean_6d",
+            "eval_time": "5930m",
+            "exp_samples": []
+          }
+        ]
+      },
+
+      {
+        "name": "Different admission policy cannot qualify combined cash history",
+        "interval": "1m",
+        "input_series": [
+          {
+            "series": "poker_lightning_hands_total{outcome=\"settled\",job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+60x5940"
+          },
+          {
+            "series": "poker_hands_fleet_total{format=\"cash\",job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+540x5760 3110400+0x179"
+          },
+          {
+            "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\"}",
+            "values": "0+0x5940"
+          },
+          {
+            "series": "poker_lightning_admission_policy_fingerprint",
+            "values": "11+0x5759 12+0x180"
+          },
+          {
+            "series": "poker_lightning_admission_policy_collect_ok",
+            "values": "1+0x5940"
+          },
+          {
+            "series": "poker_health_collected_timestamp_seconds",
+            "values": "0+60x5940"
+          }
+        ],
+        "promql_expr_test": [
+          {
+            "expr": "sp:cash_hands:same_hour_mean_6d",
+            "eval_time": "5930m",
+            "exp_samples": []
+          }
+        ]
+      },
     ],
 }
