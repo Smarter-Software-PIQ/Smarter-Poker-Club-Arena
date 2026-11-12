@@ -129,4 +129,98 @@ describe('one shared PostgreSQL installer', () => {
       rmSync(box, { recursive: true, force: true });
     }
   });
+  it.each([
+    ['latest', 0, 'postgresql-17-cron', 1],
+    ['compatible', 0, 'postgresql-17-cron=1.6.8-1.pgdg26.04+2', 2],
+    ['unavailable', 1, 'postgresql-17-cron', 3],
+    ['different-upstream', 1, 'postgresql-17-cron', 1],
+    ['bounded', 1, 'postgresql-17-cron', 6],
+    ['explicit', 0, 'postgresql-17-cron=1.6.8-1.pgdg26.04+2', 0],
+  ] as const)(
+    'resolves the complete signed package tuple safely: %s',
+    (mode, status, selected, attempts) => {
+      const box = mkdtempSync(join(tmpdir(), 'pg-compatible-'));
+      try {
+        const fn = SH.slice(
+          SH.indexOf('pg_resolve_cron_build() {'),
+          SH.indexOf('\n}\n', SH.indexOf('pg_resolve_cron_build() {')) + 3
+        );
+        const calls = join(box, 'calls');
+        const chosen = join(box, 'chosen');
+        writeFileSync(
+          join(box, 'apt-get'),
+          `#!/bin/bash
+printf '%s\\n' "$*" >> "$CALLS"
+[ "$MODE" = latest ] && exit 0
+[ "$MODE" = compatible ] && [[ "$*" = *postgresql-17-cron=1.6.8-1.pgdg26.04+2* ]] && exit 0
+exit 1
+`
+        );
+        writeFileSync(
+          join(box, 'apt-cache'),
+          `#!/bin/bash
+case "$*" in
+  *policy*) echo '  Candidate: 1.6.8-1.pgdg26.04+3' ;;
+  *madison*)
+    if [ "$MODE" = different-upstream ]; then
+      echo 'postgresql-17-cron | 1.6.7-1.pgdg26.04+2 | signed'
+    elif [ "$MODE" = bounded ]; then
+      for n in 2 1 0 9 8 7 6 5; do echo "postgresql-17-cron | 1.6.8-1.pgdg26.04+$n | signed"; done
+    else
+      echo 'postgresql-17-cron | 1.6.8-1.pgdg26.04+3 | signed'
+      echo 'postgresql-17-cron | 1.6.8-1.pgdg26.04+2 | signed'
+      echo 'postgresql-17-cron | 1.6.8-1.pgdg26.04+1 | signed'
+      echo 'postgresql-17-cron | 1.6.7-1.pgdg26.04+2 | signed'
+    fi ;;
+esac
+`
+        );
+        chmodSync(join(box, 'apt-get'), 0o755);
+        chmodSync(join(box, 'apt-cache'), 0o755);
+        const input = mode === 'explicit' ? selected : 'postgresql-17-cron';
+        const r = spawnSync(
+          'bash',
+          [
+            '-c',
+            `${fn}
+pg_packages=(postgresql-17 '${input}' postgresql-server-dev-17 build-essential)
+pg_apt=(-o Dir::Etc::sourceparts=signed-only)
+pg_resolve_cron_build
+result=$?
+printf '%s\\n' "\${pg_packages[@]}" > "$CHOSEN"
+exit $result
+`,
+          ],
+          {
+            encoding: 'utf8',
+            env: {
+              ...process.env,
+              PATH: `${box}:/usr/bin:/bin`,
+              MODE: mode,
+              CALLS: calls,
+              CHOSEN: chosen,
+            },
+          }
+        );
+        expect(r.status, r.stderr).toBe(status);
+        expect(readFileSync(chosen, 'utf8').trim().split('\n')).toEqual([
+          'postgresql-17',
+          selected,
+          'postgresql-server-dev-17',
+          'build-essential',
+        ]);
+        const commands = attempts ? readFileSync(calls, 'utf8').trim().split('\n') : [];
+        expect(commands).toHaveLength(attempts);
+        for (const command of commands) {
+          expect(command).toContain(
+            '-o Dir::Etc::sourceparts=signed-only --simulate install --no-install-recommends'
+          );
+          expect(command).toContain('postgresql-server-dev-17 build-essential');
+          expect(command).not.toMatch(/1\.6\.7|--allow-unauthenticated|--allow-downgrades/);
+        }
+      } finally {
+        rmSync(box, { recursive: true, force: true });
+      }
+    }
+  );
 });
