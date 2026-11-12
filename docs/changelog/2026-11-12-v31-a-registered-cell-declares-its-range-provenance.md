@@ -20,7 +20,7 @@ differs from the generated one.
 | `range_construction`      | `root`, `natural` or `subgame`. `forced` and anything else is refused.                                                                                                                      |
 | `public_history`          | the exact ordered public actions before the node (street, position, solver seat, family, target chips) and, per step, how many actions the betting tree offered there (`available_actions`) |
 | `upstream_solve_checksum` | for a `subgame`, the solve whose natural ranges are its inputs; `null` otherwise. Recorded, not verified: no table here holds the upstream solve                                            |
-| `unnarrowed_seats`        | seats that took one action with every hand at their earlier decision: `{seat, reason: pure_prior_action, upstream_evidence_checksum}`; empty otherwise                                      |
+| `unnarrowed_seats`        | seats that checked with every hand at each earlier decision: `{seat, reason: pure_prior_action, upstream_evidence_checksum}` (checksum recorded, not verified); empty otherwise             |
 | `game`                    | variant `nlh`, two players to the flop, pot type, depth bucket, chips per big blind, effective stack, root pot, rake `[fraction, cap]`, betting-tree checksum                               |
 | `runtime_mapping`         | the runtime key components the engine may serve it for (street, node role, facing, hero and opponent positions, depth and game keys), the acting solver seat and the seat positions         |
 
@@ -36,7 +36,11 @@ tree); the pipeline is the check, deriving it from the manifest's `tree_lines`.
    history contains decisions. The runtime mapping must be the cell's own key
    components; its acting seat must sit at the cell's hero position and every
    history step's position must be its seat's. An unnarrowed seat must have
-   made a real earlier decision, and a `root` cell can declare none.
+   made a real earlier decision and every earlier decision of that seat must
+   have been a check: a seat that bet, called, raised or went all-in can
+   never be declared (that is the R8 pattern). At least one deciding seat of
+   a cell must stay undeclared, unless the cell has only one deciding seat. A
+   `root` cell can declare none.
 2. **Dataset insert** (`gto_v31_dataset_matches_range_provenance`). The
    declared betting tree must be the dataset's manifest checksum.
 3. **Source ingest** (`gto_v31_source_artifact_records_range_evidence`, on
@@ -47,7 +51,9 @@ tree); the pipeline is the check, deriving it from the manifest's `tree_lines`.
    ranges (policy export v4). Each player's range joins a scale group: the
    first earlier board of the cell whose range it is a constant rescale of
    (same support, relative ratio spread at most 1e-4), or a new group. The
-   result is kept in `gto_v31_range_evidence`.
+   result is kept in `gto_v31_range_evidence`; a group leader keeps that
+   player's decoded range once (`real[]`), so grouping compares evidence rows
+   only and never re-reads a solved row.
 4. **Seal** (`gto_v31_seal_matches_range_provenance`). Per player, the
    rescale share is the largest scale group over the cell's boards (0 when no
    two boards share one), so it does not depend on which board was ingested
@@ -56,7 +62,10 @@ tree); the pipeline is the check, deriving it from the manifest's `tree_lines`.
    signature the pipeline's own `validate_conditional_support` enforces, and
    it is what R8 was; one natural board among 64 forced ones does not hide it.
    A seat declared unnarrowed (pure prior action) must instead show a share of
-   at least 0.90, and the seal records the attestation. For `root`, both
+   at least 0.90, and the seal records the attestation. A deciding seat that
+   is pure on between 10% and 90% of the cell's boards has no remedy: it is
+   refused as mixed evidence (above 0.10 undeclared, below 0.90 declared).
+   For `root`, both
    players must have share 1. The runtime mapping must name a runtime cell the
    dataset built. A cell needs two source boards to be verifiable, every
    ingested node must have its evidence, and a refusal consumes no held-out set.

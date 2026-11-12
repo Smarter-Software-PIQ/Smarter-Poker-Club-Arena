@@ -33,9 +33,13 @@
 --                        betting tree offered there (available_actions)
 --   upstream_solve_checksum   for 'subgame', the solve whose natural ranges
 --                        are its inputs
---   unnarrowed_seats     seats that took one action with every hand at their
---                        earlier decision (reason pure_prior_action, with the
---                        checksum of the upstream evidence)
+--   unnarrowed_seats     seats that checked with every hand at each of their
+--                        earlier decisions (reason pure_prior_action, with the
+--                        checksum of the upstream evidence, recorded and not
+--                        verified); a seat that bet, called, raised or went
+--                        all-in can never be declared, and at least one
+--                        deciding seat of a cell must stay undeclared unless
+--                        it is the cell's only deciding seat
 --   game                 variant nlh, two players to the flop, pot type,
 --                        depth bucket, effective stack, root pot, rake
 --                        [fraction, cap] and the betting-tree checksum
@@ -77,7 +81,13 @@
 -- whose cell_provenance differs from the generated one. upstream_solve_checksum
 -- is recorded, not verified: no table here holds the upstream solve. A
 -- subgame is held to the same data-evidence rule as a natural cell.
--- unnarrowed_seats is an attestation the data must confirm (share >= 0.90).
+-- unnarrowed_seats is an attestation the data must confirm (share >= 0.90);
+-- its upstream_evidence_checksum is recorded, not verified. It can never
+-- cover the R8 pattern: only an all-check seat may be declared, and a cell
+-- whose deciding seats would all be declared is refused (unless it has one).
+-- A deciding seat that is pure on between 10% and 90% of the cell's boards
+-- has no remedy: it is refused as mixed evidence (share above 0.10 when
+-- undeclared, below 0.90 when declared).
 --
 -- The comparison is between source boards, not against a declared root
 -- vector: a forced line leaves range(board) = c(board) x root on every
@@ -229,8 +239,23 @@ BEGIN
       IF NOT (u->>'seat' = ANY(v_decided)) THEN
         RETURN format('cell %s declares %s unnarrowed by a pure prior action, but %s made no earlier decision with more than one available action', v_label, u->>'seat', u->>'seat');
       END IF;
+      -- Only a seat that CHECKED at every earlier decision can keep an
+      -- unnarrowed range legitimately; a bet, call, raise or all-in is the
+      -- forced-line pattern (R8) and can never be waived by a declaration.
+      IF EXISTS (SELECT 1 FROM jsonb_array_elements(e->'public_history') h
+                  WHERE h->>'solver_player' = CASE u->>'seat' WHEN 'OOP' THEN '0' ELSE '1' END
+                    AND h->>'family' <> 'check') THEN
+        RETURN format('cell %s declares %s unnarrowed, but %s bet, called, raised or went all-in before the node: only a seat whose every earlier decision was a check can be declared unnarrowed', v_label, u->>'seat', u->>'seat');
+      END IF;
       v_seats := v_seats || (u->>'seat');
     END LOOP;
+    -- At least one deciding seat must stay undeclared and show narrowing,
+    -- unless the cell has a single deciding seat (qualified above).
+    IF cardinality(v_seats) > 0
+       AND (SELECT count(DISTINCT x) FROM unnest(v_decided) x) >= 2
+       AND cardinality(v_seats) >= (SELECT count(DISTINCT x) FROM unnest(v_decided) x) THEN
+      RETURN format('cell %s declares every deciding seat unnarrowed: at least one seat with a real earlier decision must show an action-conditioned range', v_label);
+    END IF;
     g := e->'game';
     IF jsonb_typeof(g) IS DISTINCT FROM 'object'
        OR (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(g) k) IS DISTINCT FROM
@@ -321,38 +346,43 @@ CREATE TRIGGER gto_v31_dataset_matches_range_provenance
 CREATE FUNCTION public.fn_gto_v31_range_is_rescale(
   p_ref double precision[], p_ref_board text, p_obs double precision[], p_obs_board text)
  RETURNS boolean
- LANGUAGE sql
+ LANGUAGE plpgsql
  IMMUTABLE STRICT
  SET search_path TO 'public'
 AS $function$
-  WITH blocked AS (
-    SELECT (strpos('23456789TJQKA', substr(b.board, k, 1)) - 1) * 4 + strpos('cdhs', substr(b.board, k + 1, 1)) - 1 AS card
-      FROM (VALUES (p_ref_board), (p_obs_board)) b(board)
-     CROSS JOIN LATERAL generate_series(1, length(b.board), 2) k),
-  live AS (
-    SELECT p_ref[hi * (hi - 1) / 2 + lo + 1] AS r, p_obs[hi * (hi - 1) / 2 + lo + 1] AS o
-      FROM generate_series(1, 51) hi CROSS JOIN LATERAL generate_series(0, hi - 1) lo
-     WHERE NOT EXISTS (SELECT 1 FROM blocked x WHERE x.card IN (hi, lo)))
-  SELECT COALESCE(array_length(p_ref, 1) = 1326 AND array_length(p_obs, 1) = 1326, false)
-     AND COALESCE(bool_and((r > 0) = (o > 0)), false)
-     AND COALESCE(max(o / r) FILTER (WHERE r > 0 AND o > 0)
-                  <= min(o / r) FILTER (WHERE r > 0 AND o > 0) * (1 + 1e-4), false)
-    FROM live
-$function$;
-
--- One player's exact node range as stored in the source row (policy export v4).
-CREATE FUNCTION public.fn_gto_v31_source_node_range(p_row uuid, p_node text, p_seat text)
- RETURNS double precision[]
- LANGUAGE sql
- STABLE
- SET search_path TO 'public'
-AS $function$
-  SELECT ARRAY(SELECT (x.w#>>'{}')::double precision
-                 FROM jsonb_array_elements(n#>ARRAY['solver_ranges', p_seat]) WITH ORDINALITY x(w, ord) ORDER BY x.ord)
-    FROM public.solved_spots_gold s CROSS JOIN LATERAL jsonb_array_elements(s.strategy_matrix_v2->'nodes') n
-   WHERE s.id = p_row AND n->>'node' = p_node
-   LIMIT 1
-$function$;
+-- One pass over the 1,326 combos that stops at the first support change or
+-- ratio outside the tolerance, so a narrowed pair is decided after a few
+-- combos and only a true rescale pays for the full pass.
+DECLARE
+  v_dead boolean[] := array_fill(false, ARRAY[52]); v_board text; k integer; c integer; hi integer; lo integer;
+  r double precision; o double precision; q double precision; v_min double precision; v_max double precision;
+BEGIN
+  IF array_length(p_ref, 1) IS DISTINCT FROM 1326 OR array_length(p_obs, 1) IS DISTINCT FROM 1326 THEN
+    RETURN false;
+  END IF;
+  FOREACH v_board IN ARRAY ARRAY[p_ref_board, p_obs_board] LOOP
+    FOR k IN 0 .. length(v_board) / 2 - 1 LOOP
+      c := (strpos('23456789TJQKA', substr(v_board, 2 * k + 1, 1)) - 1) * 4 + strpos('cdhs', substr(v_board, 2 * k + 2, 1)) - 1;
+      IF c BETWEEN 0 AND 51 THEN v_dead[c + 1] := true; END IF;
+    END LOOP;
+  END LOOP;
+  FOR hi IN 1 .. 51 LOOP
+    CONTINUE WHEN v_dead[hi + 1];
+    FOR lo IN 0 .. hi - 1 LOOP
+      CONTINUE WHEN v_dead[lo + 1];
+      r := p_ref[hi * (hi - 1) / 2 + lo + 1];
+      o := p_obs[hi * (hi - 1) / 2 + lo + 1];
+      IF (r > 0) IS DISTINCT FROM (o > 0) THEN RETURN false; END IF;
+      IF r > 0 AND o > 0 THEN
+        q := o / r;
+        v_min := LEAST(COALESCE(v_min, q), q);
+        v_max := GREATEST(COALESCE(v_max, q), q);
+        IF v_max > v_min * (1 + 1e-4) THEN RETURN false; END IF;
+      END IF;
+    END LOOP;
+  END LOOP;
+  RETURN v_min IS NOT NULL;
+END $function$;
 
 -- What the solved data says about each source node's ranges, and the seal's
 -- attestation of every declared unnarrowed seat. A source node of a
@@ -360,7 +390,10 @@ $function$;
 -- board of the cell (in ingest order) whose range it is a constant rescale
 -- of, or itself. The group does not depend on which board came first: a
 -- forced cluster joins one group wherever it starts, and a natural board
--- starts its own.
+-- starts its own. A group leader keeps that player's decoded range once
+-- (real[]: float4 rounding, about 6e-8 relative, is far inside the 1e-4
+-- tolerance), so grouping compares on evidence rows only and never re-reads
+-- or re-decodes a solved row.
 CREATE TABLE public.gto_v31_range_evidence (
   evidence_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   dataset_id uuid NOT NULL REFERENCES public.gto_v31_datasets(dataset_id) ON DELETE CASCADE,
@@ -372,6 +405,8 @@ CREATE TABLE public.gto_v31_range_evidence (
   board text,
   oop_group text,
   ip_group text,
+  oop_vector real[],
+  ip_vector real[],
   attested_seat text,
   attested_reason text,
   upstream_evidence_checksum text,
@@ -380,10 +415,13 @@ CREATE TABLE public.gto_v31_range_evidence (
   CONSTRAINT gto_v31_range_evidence_shape CHECK (
     (kind = 'source_node' AND source_row_id IS NOT NULL AND source_node IS NOT NULL AND board IS NOT NULL
        AND attested_seat IS NULL AND attested_reason IS NULL AND upstream_evidence_checksum IS NULL AND rescale_share IS NULL
-       AND ((registered AND oop_group IS NOT NULL AND ip_group IS NOT NULL)
-            OR (NOT registered AND oop_group IS NULL AND ip_group IS NULL)))
+       AND ((registered AND oop_group IS NOT NULL AND ip_group IS NOT NULL
+             AND (oop_vector IS NOT NULL) = (oop_group = source_row_id::text || '/' || source_node)
+             AND (ip_vector IS NOT NULL) = (ip_group = source_row_id::text || '/' || source_node)
+             AND COALESCE(array_length(oop_vector, 1), 1326) = 1326 AND COALESCE(array_length(ip_vector, 1), 1326) = 1326)
+            OR (NOT registered AND oop_group IS NULL AND ip_group IS NULL AND oop_vector IS NULL AND ip_vector IS NULL)))
     OR (kind = 'unnarrowed_attestation' AND registered AND source_row_id IS NULL AND source_node IS NULL AND board IS NULL
-       AND oop_group IS NULL AND ip_group IS NULL AND attested_seat IN ('OOP','IP')
+       AND oop_group IS NULL AND ip_group IS NULL AND oop_vector IS NULL AND ip_vector IS NULL AND attested_seat IN ('OOP','IP')
        AND attested_reason = 'pure_prior_action' AND upstream_evidence_checksum ~ '^[0-9a-f]{64}$'
        AND rescale_share BETWEEN 0.90 AND 1))
 );
@@ -394,7 +432,7 @@ CREATE UNIQUE INDEX gto_v31_range_evidence_one_attestation
 CREATE INDEX gto_v31_range_evidence_cell ON public.gto_v31_range_evidence (dataset_id, cell_key);
 
 COMMENT ON TABLE public.gto_v31_range_evidence IS
-  'Per source node of a provenance-registered V31 round: each player''s scale group (the first earlier board of the cell whose exact node range it is a constant rescale of, relative spread 1e-4, or itself). The seal derives each player''s rescale share (largest group / boards) and compares it with the registered range_construction; it records here the attestation of every declared unnarrowed seat (pure prior action) the data confirmed.';
+  'Per source node of a provenance-registered V31 round: each player''s scale group (the first earlier board of the cell whose exact node range it is a constant rescale of, relative spread 1e-4, or itself); a group leader keeps that player''s range (real[]) for later comparisons. The seal derives each player''s rescale share (largest group / boards) and compares it with the registered range_construction; it records here the attestation of every declared unnarrowed seat (pure prior action) the data confirmed.';
 
 ALTER TABLE public.gto_v31_range_evidence ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.gto_v31_range_evidence FROM PUBLIC, anon, authenticated, service_role;
@@ -423,7 +461,7 @@ CREATE TRIGGER gto_v31_range_evidence_no_truncate
 -- provenance (everything created before this migration) is left exactly as
 -- it was. Cost: one comparison per existing scale group of the cell and
 -- player (one group for a forced cell, up to one per board for a natural
--- cell), each reading that group's first range from its source row.
+-- cell), each against the leader's range stored in its evidence row.
 CREATE FUNCTION public.fn_gto_v31_record_range_evidence()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -494,28 +532,26 @@ BEGIN
     v_me := NEW.source_row_id::text || '/' || (n->>'node');
     v_oop_group := NULL;
     v_ip_group := NULL;
-    FOR g IN SELECT e.source_row_id, e.source_node, e.board,
-                    e.oop_group = e.source_row_id::text || '/' || e.source_node AS leads_oop,
-                    e.ip_group = e.source_row_id::text || '/' || e.source_node AS leads_ip
+    FOR g IN SELECT e.source_row_id, e.source_node, e.board, e.oop_vector, e.ip_vector
                FROM public.gto_v31_range_evidence e
               WHERE e.dataset_id = NEW.dataset_id AND e.cell_key = v_key AND e.kind = 'source_node' AND e.registered
-                AND (e.oop_group = e.source_row_id::text || '/' || e.source_node
-                     OR e.ip_group = e.source_row_id::text || '/' || e.source_node)
+                AND (e.oop_vector IS NOT NULL OR e.ip_vector IS NOT NULL)
               ORDER BY e.evidence_id LOOP
-      IF v_oop_group IS NULL AND g.leads_oop AND COALESCE(public.fn_gto_v31_range_is_rescale(
-           public.fn_gto_v31_source_node_range(g.source_row_id, g.source_node, 'OOP'), g.board, v_oop, v_board), false) THEN
+      IF v_oop_group IS NULL AND g.oop_vector IS NOT NULL AND COALESCE(public.fn_gto_v31_range_is_rescale(
+           g.oop_vector::double precision[], g.board, v_oop, v_board), false) THEN
         v_oop_group := g.source_row_id::text || '/' || g.source_node;
       END IF;
-      IF v_ip_group IS NULL AND g.leads_ip AND COALESCE(public.fn_gto_v31_range_is_rescale(
-           public.fn_gto_v31_source_node_range(g.source_row_id, g.source_node, 'IP'), g.board, v_ip, v_board), false) THEN
+      IF v_ip_group IS NULL AND g.ip_vector IS NOT NULL AND COALESCE(public.fn_gto_v31_range_is_rescale(
+           g.ip_vector::double precision[], g.board, v_ip, v_board), false) THEN
         v_ip_group := g.source_row_id::text || '/' || g.source_node;
       END IF;
       EXIT WHEN v_oop_group IS NOT NULL AND v_ip_group IS NOT NULL;
     END LOOP;
     INSERT INTO public.gto_v31_range_evidence(dataset_id, kind, source_row_id, source_node, cell_key, registered, board,
-      oop_group, ip_group)
+      oop_group, ip_group, oop_vector, ip_vector)
     VALUES (NEW.dataset_id, 'source_node', NEW.source_row_id, n->>'node', v_key, true, v_board,
-      COALESCE(v_oop_group, v_me), COALESCE(v_ip_group, v_me));
+      COALESCE(v_oop_group, v_me), COALESCE(v_ip_group, v_me),
+      CASE WHEN v_oop_group IS NULL THEN v_oop::real[] END, CASE WHEN v_ip_group IS NULL THEN v_ip::real[] END);
   END LOOP;
   RETURN NEW;
 END $function$;
@@ -607,6 +643,7 @@ BEGIN
           RAISE EXCEPTION 'V31 round % cell % range provenance mismatch at seal: % is declared unnarrowed by a pure prior action, but only % of its % source boards (share %) hold one rescaled range; a declared pure action needs at least 0.90; the held-out set is not consumed',
             r.round_key, v_label, v_seat_name, CASE v_seat WHEN 0 THEN v_max_oop ELSE v_max_ip END, v_n, v_share[v_seat + 1];
         END IF;
+        -- upstream_evidence_checksum is recorded, not verified (no table here holds that evidence).
         INSERT INTO public.gto_v31_range_evidence(dataset_id, kind, cell_key, registered, attested_seat, attested_reason,
           upstream_evidence_checksum, rescale_share)
         VALUES (NEW.dataset_id, 'unnarrowed_attestation', v_key, true, v_seat_name, u->>'reason',
@@ -656,7 +693,6 @@ END $function$;
 REVOKE ALL ON FUNCTION public.fn_gto_v31_cell_provenance_error(jsonb, jsonb),
   public.fn_gto_v31_round_registration_provenance_guard(), public.fn_gto_v31_dataset_matches_range_provenance(),
   public.fn_gto_v31_range_is_rescale(double precision[], text, double precision[], text),
-  public.fn_gto_v31_source_node_range(uuid, text, text),
   public.fn_gto_v31_range_evidence_is_append_only(), public.fn_gto_v31_record_range_evidence(),
   public.fn_gto_v31_seal_matches_range_provenance()
   FROM PUBLIC, anon, authenticated, service_role;

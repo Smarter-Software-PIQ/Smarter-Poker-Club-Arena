@@ -15,6 +15,9 @@ are the ones of test-v31-round-registration.py. Proves:
     * a runtime mapping that is not the cell's own key components, or whose
       acting seat / seat positions disagree with the cell or the history
     * an unnarrowed seat that made no real decision, on a root cell, or malformed
+    * an unnarrowed seat that bet, called, raised or went all-in (the R8 bet/call
+      line with both seats declared included), and a cell whose deciding seats
+      are all declared
   refused at dataset insert
     * the registered betting tree is not the dataset manifest
   refused at source ingest (first point the solved data exists)
@@ -301,6 +304,15 @@ def scenario(cluster, migration_text):
     base.register(db, registration('r20', 'horse-r20', [provenance(turn, 'natural', bet_call, hero=0,
                                                                    unnarrowed=[{**pure('IP'), 'reason': 'assumed'}])]),
                   refused='unnarrowed seat is malformed')
+    # N1: a declaration never covers the R8 pattern. The forced bet/call line with both seats declared,
+    # a seat that called, a seat that bet: refused. Every deciding seat declared: refused.
+    for seats, who in (([pure('OOP'), pure('IP')], 'OOP'), ([pure('OOP')], 'OOP'), ([pure('IP')], 'IP')):
+        base.register(db, registration('r20', 'horse-r20', [provenance(turn, 'natural', bet_call, hero=0, unnarrowed=seats)]),
+                      refused=f'declares {who} unnarrowed, but {who} bet, called, raised or went all-in')
+    check_check = [step('check', 0), step('check', 1)]
+    base.register(db, registration('r20', 'horse-r20', [provenance(turn, 'natural', check_check, hero=0,
+                                                                   unnarrowed=[pure('OOP'), pure('IP')])]),
+                  refused='declares every deciding seat unnarrowed')
     no_list = provenance(turn, 'natural', bet_call, hero=0)
     del no_list['unnarrowed_seats']
     base.register(db, registration('r20', 'horse-r20', [no_list]), refused='must have exactly cell, range_construction')
@@ -316,6 +328,10 @@ def scenario(cluster, migration_text):
     groups = db.sql(f"SELECT cell_key ~ 'cbet', count(DISTINCT oop_group), count(DISTINCT ip_group), count(*) "
                     f"FROM gto_v31_range_evidence WHERE dataset_id='{ds}' GROUP BY 1 ORDER BY 1 DESC")
     assert groups.splitlines() == ['t|1|1|4', 'f|8|8|8'], groups
+    # only a group leader keeps its decoded range: one per seat for the forced cell, every board for the natural ones
+    kept = db.sql(f"SELECT cell_key ~ 'cbet', count(oop_vector), count(ip_vector) "
+                  f"FROM gto_v31_range_evidence WHERE dataset_id='{ds}' GROUP BY 1 ORDER BY 1 DESC")
+    assert kept.splitlines() == ['t|1|1', 'f|8|8'], kept
     db.sql(f"UPDATE gto_v31_range_evidence SET oop_group=ip_group WHERE dataset_id='{ds}'", refused='append-only')
     base.build_cells(db, ds, [flop, turn, river])
     base.seal(db, ds)
@@ -472,6 +488,9 @@ MUTATIONS = [
      "      ELSIF v_share[v_seat + 1] >= 1 THEN"),
     ('declared pure seat not checked against the data', "        IF v_share[v_seat + 1] < 0.90 THEN", "        IF false THEN"),
     ('unnarrowed seat without a real decision', "      IF NOT (u->>'seat' = ANY(v_decided)) THEN", "      IF false THEN"),
+    ('a seat that bet or called may be declared unnarrowed', "                    AND h->>'family' <> 'check') THEN", "                    AND false) THEN"),
+    ('every deciding seat may be declared unnarrowed',
+     "       AND cardinality(v_seats) >= (SELECT count(DISTINCT x) FROM unnest(v_decided) x) THEN", "       AND false THEN"),
     ('narrowed data sealed as root', "      IF v_max_oop <> v_n OR v_max_ip <> v_n THEN", "      IF false THEN"),
     ('one seat is enough for root', "      IF v_max_oop <> v_n OR v_max_ip <> v_n THEN", "      IF v_max_oop <> v_n AND v_max_ip <> v_n THEN"),
     ('single board sealed', "    IF v_n < 2 THEN", "    IF false THEN"),
@@ -484,10 +503,11 @@ MUTATIONS = [
     ('stack, root pot, chip unit and seat not compared at ingest',
      "    IF n#>'{line_proof,effective_stack_chips}' IS DISTINCT FROM p#>'{game,effective_stack_chips}'",
      "    IF false AND n#>'{line_proof,effective_stack_chips}' IS DISTINCT FROM p#>'{game,effective_stack_chips}'"),
-    ('support change ignored', "     AND COALESCE(bool_and((r > 0) = (o > 0)), false)\n", ""),
-    ('blocked combos not excluded', "     WHERE NOT EXISTS (SELECT 1 FROM blocked x WHERE x.card IN (hi, lo)))", "     WHERE true)"),
-    ('any ratio is a rescale', "* (1 + 1e-4), false)", "* 1e9, false)"),
-    ('tolerance without headroom over the pipeline (1e-6)', "* (1 + 1e-4), false)", "* (1 + 1e-6), false)"),
+    ('support change ignored', "      IF (r > 0) IS DISTINCT FROM (o > 0) THEN RETURN false; END IF;\n", ""),
+    ('blocked combos not excluded', "      IF c BETWEEN 0 AND 51 THEN v_dead[c + 1] := true; END IF;", "      NULL;"),
+    ('any ratio is a rescale', "        IF v_max > v_min * (1 + 1e-4) THEN RETURN false; END IF;", "        NULL;"),
+    ('tolerance without headroom over the pipeline (1e-6)', "        IF v_max > v_min * (1 + 1e-4) THEN RETURN false; END IF;",
+     "        IF v_max > v_min * (1 + 1e-6) THEN RETURN false; END IF;"),
     ('runtime mapping need not be the cell key', "       OR (m - 'hero_solver_player' - 'solver_positions') IS DISTINCT FROM ((e->'cell') - 'texture_class')\n", ""),
     ('acting seat need not sit at the hero position',
      "    IF m->'solver_positions'->v_hero IS DISTINCT FROM e#>'{cell,hero_position}'\n"
