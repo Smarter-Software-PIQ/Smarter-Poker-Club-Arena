@@ -92,6 +92,13 @@
       "noticeAt": "2026-11-12T00:10:00Z",
       "notBefore": "2026-11-12T00:30:00Z",
       "notAfter": "2026-11-12T05:30:00Z"
+    },
+    {
+      "id": "2026-11-12-horse-corrections-engine-0700z",
+      "kind": "engine",
+      "noticeAt": "2026-11-12T06:40:00Z",
+      "notBefore": "2026-11-12T07:00:00Z",
+      "notAfter": "2026-11-12T09:15:00Z"
     }
   ]
 }

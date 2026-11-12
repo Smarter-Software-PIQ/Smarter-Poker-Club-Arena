@@ -29,6 +29,7 @@ const groups = [
       'test_clone_clock_successor_binds_a_fresh_floor_and_preserves_consumed_receipt_order',
       'test_realtime_10454_binds_fresh_authority_and_preserves_consumed_clock_order',
       'test_corrections_10525_binds_fresh_authority_and_preserves_unconsumed_realtime_order',
+      'test_rebooked_corrections_bind_fresh_authority_and_preserve_expired_orders',
       'test_cash_room_realism_window_binds_the_live_floor_and_keeps_the_provenance_entry',
       'test_explicit_later_owner_window_precedes_fresh_phase1_but_keeps_original_entries',
       'test_earliest_certified_owner_policy_requires_explicit_unambiguous_authority',
@@ -125,7 +126,7 @@ beforeAll(() => {
   ]);
   expect(result.status, result.stdout + result.stderr).toBe(0);
   const selected = groups.flatMap((group) => group.cases);
-  expect(selected).toHaveLength(60);
+  expect(selected).toHaveLength(61);
   expect(new Set(selected).size).toBe(selected.length);
   expect(JSON.parse(result.stdout)).toEqual([...selected].sort());
 }, 420_000);
