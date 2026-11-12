@@ -788,9 +788,13 @@ export class ClusterController {
  * PGRST202, no function matches the arguments), it falls back to the capped
  * tick for that call rather than skip the tick.
  */
+/** The two doors uncappedTick opens, named for the release gate's door check
+ *  (scripts/ci/check-engine-doors-exist.mjs reads `...rpcName...` literals). */
+export const uncappedTickRpcNames = ['fn_cash_cluster_tick', 'fn_cash_clusters_tick_all'] as const;
+
 export async function uncappedTick(
   rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: any; error: any }>,
-  fn: 'fn_cash_cluster_tick' | 'fn_cash_clusters_tick_all',
+  fn: (typeof uncappedTickRpcNames)[number],
   args: Record<string, unknown>
 ): Promise<{ data: any; error: any }> {
   const res = await rpc(fn, { ...args, p_uncapped: true });
