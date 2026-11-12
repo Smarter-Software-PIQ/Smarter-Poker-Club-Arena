@@ -596,6 +596,8 @@ export function horsePhase8LedgerIsValid(value: unknown, decision: RecordValue):
  * the final action equal to the proposal. Acceptance-time fields stay unset.
  * A receipt retained before P10.3 carries no selection and claims no
  * authority, so it may not carry an applied candidate either.
+ * `verifiedGraph` must already have passed the full validator: see
+ * `variantSelectionWasSuperseded`.
  */
 export function horsePhase10SelectionIsValid(
   value: unknown,
@@ -701,6 +703,8 @@ function variantSelectionWasSuperseded(
  * decision) and the final action equal to the proposal. Acceptance-time fields
  * stay unset. A receipt retained before P11.3 carries no selection and claims
  * no authority, so it may not carry an applied candidate either.
+ * `verifiedGraph` must already have passed the full validator: see
+ * `variantSelectionWasSuperseded`.
  */
 export function horsePhase11SelectionIsValid(
   value: unknown,
@@ -728,6 +732,8 @@ export function horsePhase11SelectionIsValid(
  * backs a Pineapple receipt, and no Phase 11 authority backs any), with the
  * final action equal to the proposal; acceptance-time fields unset; a
  * retained receipt claims nothing.
+ * `verifiedGraph` must already have passed the full validator: see
+ * `variantSelectionWasSuperseded`.
  */
 export function horsePhase12SelectionIsValid(
   value: unknown,

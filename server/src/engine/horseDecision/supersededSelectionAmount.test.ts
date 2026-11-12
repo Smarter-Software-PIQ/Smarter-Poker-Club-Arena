@@ -43,6 +43,14 @@ function boundReceipt(): Record<string, unknown> {
     restoreFastRandom(saved);
   }
 }
+const TWO_STEP = {
+  baselineAction: 'call',
+  baselineAmount: 123,
+  proposalAction: 'all_in',
+  proposalAmount: null,
+  finalAction: 'call',
+  finalAmount: 123,
+};
 type Shape = 'legacy unbound' | 'bound input';
 const SHAPES: Shape[] = ['legacy unbound', 'bound input'];
 
@@ -50,9 +58,19 @@ function refusal(
   outputs: Record<string, Act>,
   proposalAmount: number | null = 123,
   shape: Shape = 'legacy unbound',
-  selection: Record<string, unknown> = {}
+  selection: Record<string, unknown> = {},
+  graphVersion: 'v3' | 'v2' = 'v3'
 ) {
   const { context, decision } = structuredClone(captured);
+  if (graphVersion === 'v2') {
+    // The retained order before the corrective rule existed: wager_rules is the final rule.
+    const graph = decision.policyGraph as unknown as {
+      version: string;
+      transitions: Array<{ node: string }>;
+    };
+    graph.version = 'horse-policy-order-v2';
+    graph.transitions = graph.transitions.filter((t) => t.node !== 'corrective_policy');
+  }
   let prev: Act | null = null;
   for (const t of decision.policyGraph!.transitions as unknown as Array<Record<string, unknown>>) {
     const after: Act = outputs[t.node as string] ?? prev ?? (t.after as Act);
@@ -113,13 +131,21 @@ describe('a superseded selection reaches the final rule exactly as proposed', ()
     expect(
       refusal({ variant_policy: call, corrective_policy: act('all_in') }, 123, shape)
     ).toBeNull();
+    // Two steps: the corrective rule turns the proposed all-in into a raise
+    // and the wager rule then caps it to the priced call.
     expect(
       refusal(
-        { variant_policy: call, corrective_policy: act('fold'), wager_rules: act('all_in') },
-        123,
-        shape
+        {
+          reference: call,
+          variant_policy: act('all_in'),
+          corrective_policy: act('raise', 140),
+          wager_rules: call,
+        },
+        null,
+        shape,
+        TWO_STEP
       )
-    ).not.toBe('phase11_selection');
+    ).toBeNull();
   });
 
   it.each(SHAPES)('refuses a rewritten call price on a %s receipt', (shape) => {
@@ -178,6 +204,25 @@ describe('a superseded selection reaches the final rule exactly as proposed', ()
       )
     ).toBe('phase11_selection');
   });
+
+  it.each(SHAPES)(
+    'applies the same rule where wager_rules is the final rule (v2 order, %s)',
+    (shape) => {
+      const call = act('call', 123);
+      expect(
+        refusal({ variant_policy: call, wager_rules: act('all_in') }, 123, shape, {}, 'v2')
+      ).toBeNull();
+      expect(
+        refusal(
+          { variant_policy: call, joint_policy: act('call', 60), wager_rules: act('all_in') },
+          123,
+          shape,
+          {},
+          'v2'
+        )
+      ).toBe('phase11_selection');
+    }
+  );
 
   it('still refuses a receipt whose proposal amount differs from the graph', () => {
     expect(refusal({ variant_policy: act('call', 123), wager_rules: act('all_in') }, 60)).toBe(
