@@ -286,3 +286,22 @@ it('publishes the corrected Horse engine promise with its full lead and finite e
   expect(bookedMaintenanceNotice(Date.parse('2026-11-12T05:29:59.999Z'))?.id).toBe(own?.id);
   expect(bookedMaintenanceNotice(Date.parse('2026-11-12T05:30:00Z'))).toBeNull();
 });
+
+it('publishes the rebooked corrected Horse engine promise with its full lead and finite expiry', () => {
+  const own = BOOKED_MAINTENANCE_NOTICES.find(
+    (n) => n.id === '2026-11-12-horse-corrections-engine-0700z'
+  );
+  expect(own?.noticeAtMs).toBe(Date.parse('2026-11-12T06:40:00Z'));
+  expect(own?.notBeforeMs).toBe(Date.parse('2026-11-12T07:00:00Z'));
+  expect(own?.notAfterMs).toBe(Date.parse('2026-11-12T09:15:00Z'));
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-12T06:39:59.999Z'))).toBeNull();
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-12T06:40:00Z'))?.id).toBe(own?.id);
+  const at = Date.parse('2026-11-12T07:00:00Z');
+  const primary = bookedMaintenanceNotice(at);
+  expect(primary?.id).toBe(own?.id);
+  expect(bookedMaintenanceNoticeText(primary!, at)).toBe(
+    'A Short Maintenance Break Can Start Any Time Before 3:15 AM Chicago Time. Play Pauses For About Five Minutes.'
+  );
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-12T09:14:59.999Z'))?.id).toBe(own?.id);
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-12T09:15:00Z'))).toBeNull();
+});
