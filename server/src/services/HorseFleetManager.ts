@@ -3262,18 +3262,18 @@ export class HorseFleetManager {
              the cycle - see the note above the loop. */
           tablesConsidered++;
 
-          /* A GAME'S SECOND TABLE RUNS ONLY WHILE ITS GAME IS PICKED
-             (2026-11-07). secondTablePicked is the exact twin of the tick's
-             fn_cash_game_second_table_picked; once a game drops out (the hour
-             band moved, or its bucket re-rolled) nobody new sits at its second
-             table, must-move draws its players up to the Main as seats open,
-             and the tick closes it once it is empty. Never a Lightning game
-             (its tables are the Lightning pool), never a table a person is
-             playing at. */
+          /* ZERO RESTRICTIONS ON THE GAMES THAT CAN BE OPEN (Dan 2026-11-11).
+             A Classic game's secondary tables are no longer withheld on the
+             three-hourly second-table pick: that pick was the retired rake
+             throttle, and migration 20261112154904 lifts its twin in the
+             tick. Only while the Lightning set is unknown (null) does the
+             previous pick-gated rule still hold, so an unread Lightning pool
+             is never fed as Classic. Never a Lightning game (its tables are
+             the Lightning pool), never a table a person is playing at. */
           const secondaryClusterTable =
             !!table.cluster_id &&
             !(table.role === 'main' && Number(table.main_index) === 1) &&
-            !(cashPlanLightningGames?.has(String(table.cluster_id)) ?? false);
+            cashPlanLightningGames === null;
           if (
             secondaryClusterTable &&
             !humanAtTable &&
