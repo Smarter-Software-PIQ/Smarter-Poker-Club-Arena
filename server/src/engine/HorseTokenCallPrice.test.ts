@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-  TOKEN_CALL_CERTAIN_PRICE,
+  TOKEN_CALL_COUNTED_PRICE,
   TOKEN_CALL_PRICE,
-  tokenCallIsCertain,
+  tokenCallIsCovered,
   tokenCallPriceApplies,
   tokenCallRequiredEquity,
 } from './HorseTokenCallPrice.js';
@@ -54,13 +54,20 @@ describe('a token-priced call is not barred by stack-off premiums (PLO6-AUDIT-01
     expect(tokenCallRequiredEquity(-0.1, 0.2)).toBe(0.2);
   });
 
-  it('under one percent of the pot any made hand calls; high card and dearer calls do not qualify', () => {
-    expect(tokenCallIsCertain(3 / 2580, 3)).toBe(true);
-    expect(tokenCallIsCertain(3 / 2580, 1)).toBe(true);
-    expect(tokenCallIsCertain(3 / 2580, 0)).toBe(false);
-    expect(tokenCallIsCertain(TOKEN_CALL_CERTAIN_PRICE, 3)).toBe(false);
-    expect(tokenCallIsCertain(131 / 2708, 3)).toBe(false);
-    expect(tokenCallIsCertain(Number.NaN, 3)).toBe(false);
+  it('under one percent a river call is covered by the counted bound, and a hopeless hand is not', () => {
+    const price = 3 / 2580;
+    // A set that half of all random hands beat: 0.52 / 20 clears 0.12%.
+    expect(tokenCallIsCovered(price, 0.48)).toBe(true);
+    // A hand 98% of random hands beat: 0.02 / 20 = 0.1% does not clear 0.12%.
+    expect(tokenCallIsCovered(price, 0.98)).toBe(false);
+    expect(tokenCallIsCovered(price, 1)).toBe(false);
+    // Not the river, or no count available: never covered.
+    expect(tokenCallIsCovered(price, null)).toBe(false);
+    // At or above one percent the clause does not speak.
+    expect(tokenCallIsCovered(TOKEN_CALL_COUNTED_PRICE, 0)).toBe(false);
+    expect(tokenCallIsCovered(131 / 2708, 0.46)).toBe(false);
+    expect(tokenCallIsCovered(Number.NaN, 0.1)).toBe(false);
+    expect(tokenCallIsCovered(price, 1.2)).toBe(false);
   });
 
   it('applies to Omaha high cash on one ordinary board and to nothing else', () => {

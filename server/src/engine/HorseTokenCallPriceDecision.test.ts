@@ -10,15 +10,20 @@
  * anonymised recorded hand (seats only), replayed with opponent memory off
  * for the live hybrid profile and every base style over the fixed seeds.
  *
- * The under-one-percent clause has no case here: without an opponent read
- * frame the brain already calls that price, so it is pinned at the helper
- * (HorseTokenCallPrice.test.ts) and by the identical-input journal replay
- * recorded on the pull request.
+ * The under-one-percent river clause is pinned at the real river node of
+ * production hand 58750626 (3 chips to call into 2,577). The recorded fold
+ * of a set there depended on the Horse's opponent read frame, which a public
+ * node does not carry, so the node is replayed with other hole cards for the
+ * acting seat: hands that beat many random hands are folded by the old bar
+ * and called by the new one, and a hand that beats almost nothing still
+ * folds.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { HorseMind } from './HorseMind.js';
 import { replayHand, type ComplaintFixture } from './HorseComplaintReplay.js';
 import FIXTURE from './fixtures/horse-plo6-token-priced-call-58466632.json';
+import RIVER_FIXTURE from './fixtures/horse-plo6-river-token-call-58750626.json';
+import type { Card, CardRank, CardSuit } from '../types.js';
 
 const FX = FIXTURE as unknown as ComplaintFixture;
 const ORD = 17;
@@ -80,5 +85,49 @@ describe('a token-priced Omaha call through decide (PLO6-AUDIT-010)', () => {
     const on = actionsAt(tournament);
     expect(on).toEqual(actionsAt(tournament, OFF));
     expect(everyProfile(on, 'fold')).toBe(true);
+  });
+});
+
+const RIVER = RIVER_FIXTURE as unknown as ComplaintFixture;
+const RIVER_ORD = 22;
+const RIVER_SEAT = '2';
+const SUIT: Record<string, CardSuit> = { c: 'clubs', d: 'diamonds', h: 'hearts', s: 'spades' };
+const cards = (s: string): Card[] =>
+  (s.match(/../g) ?? []).map((c) => ({ rank: c[0] as CardRank, suit: SUIT[c[1]] }));
+
+function riverActions(hole: string, opts?: Record<string, unknown>) {
+  const copy = structuredClone(RIVER);
+  copy.hole[RIVER_SEAT] = cards(hole);
+  const [node] = replayHand(copy, { ords: [RIVER_ORD], opts });
+  return Object.fromEntries(node.profiles.map((p) => [p.profile, p.actions]));
+}
+
+describe('a river call under one percent of the pot through decide (PLO6-AUDIT-010)', () => {
+  afterEach(() => HorseMind.reset());
+
+  it('the fixture is the recorded node: Qd Ah 6c 8s 9d, 3 behind, 205 to call into 2,577', () => {
+    const node = RIVER.actions.find((a) => a.ord === RIVER_ORD)!.publicNode!;
+    expect(RIVER.variant).toBe('plo6');
+    expect(node.boards).toEqual(['QdAh6c8s9d']);
+    expect(node.pot).toBe(2577);
+    expect(node.toCall).toBe(205);
+    expect(node.seats.find((s) => s[0] === Number(RIVER_SEAT))![1]).toBe(3);
+  });
+
+  it('two pair and one pair of kings: the old bar folds them, the counted bound calls', () => {
+    for (const hole of ['3hKd8c2cJh9s', '3hKdKc2cJh4s']) {
+      expect(everyProfile(riverActions(hole, OFF), 'fold')).toBe(true);
+      expect(everyProfile(riverActions(hole), 'all_in')).toBe(true);
+    }
+  });
+
+  it('a pair of deuces that beats almost nothing still folds, rule on or off', () => {
+    const on = riverActions('3h2d4c2hJh5s');
+    expect(everyProfile(on, 'fold')).toBe(true);
+    expect(on).toEqual(riverActions('3h2d4c2hJh5s', OFF));
+  });
+
+  it('the recorded set of queens is called with the rule on', () => {
+    expect(everyProfile(riverActions('3hKdQcQhJh9s'), 'all_in')).toBe(true);
   });
 });

@@ -40,7 +40,8 @@ import { decisionGravity } from './horseDecisionGravity.js';
 import { riverNutsRaise, fullPotNearPotWager, hasRiverNuts } from './HorseRiverNuts.js';
 import { omahaCurrentNutsRaise } from './HorseOmahaCurrentNuts.js';
 import {
-  tokenCallIsCertain,
+  TOKEN_CALL_COUNTED_PRICE,
+  tokenCallIsCovered,
   tokenCallPriceApplies,
   tokenCallRequiredEquity,
 } from './HorseTokenCallPrice.js';
@@ -15015,9 +15016,20 @@ export class HorseLogic {
       const required = tokenPriced
         ? tokenCallRequiredEquity(potOdds, requiredAtFullPremium)
         : requiredAtFullPremium;
-      // Under one percent of the pot the sampled estimate cannot decide: a
-      // made hand calls.
-      if (tokenPriced && toCall > 0 && tokenCallIsCertain(potOdds, cat))
+      // Under one percent of the pot on the river the sampled estimate cannot
+      // decide: the exact share of random hands hero beats, cut twentyfold
+      // for the bettor's strength, is compared with the price instead. A
+      // hand that beats almost nothing is not covered and keeps the bar.
+      if (
+        tokenPriced &&
+        isRiver &&
+        toCall > 0 &&
+        potOdds < TOKEN_CALL_COUNTED_PRICE &&
+        tokenCallIsCovered(
+          potOdds,
+          omahaRiverBeatProbability(player.cards, board, player.cards.length)
+        )
+      )
         return { action: 'call', amount: toCall, thinkTime: 0 };
       // V66: the bet-raised one-pair class calls or folds at the shaded
       // price; it never jams over the raise and the 0.42 floor (which read
