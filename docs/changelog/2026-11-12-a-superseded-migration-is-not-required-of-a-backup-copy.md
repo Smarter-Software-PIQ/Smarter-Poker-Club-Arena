@@ -1,0 +1,5 @@
+# A superseded migration is not required of a Backup copy
+
+On 2026-11-12 the owner selection for window `2026-11-12-horse-corrections-10525-engine-0030z` deferred certified candidate `27f24451` with "Backup copy lacks the exact candidate migration(s) 20261112013714". #10561 had marked that file `-- SUPERSEDED BY 20261112022726`; the protected applier refuses such a file ("must never run") and installs the successor, so production can never record it. The selector still required every migration file the candidate adds, so every later candidate was deferred for a migration that cannot exist.
+
+`required_by` in `server/scripts/engine-release-installed-migrations.py` now leaves out a file whose head names a successor present in the same tree, the rule `check-migrations-are-live.mjs` and `engine-release-window-doors.py` already apply. The successor stays required. The installed-set equality, function definition hashes and the cutover re-read are unchanged. Regression: `tests/operations/backup-installed-migrations.test.py` (`SupersededFile`), on the exact commits.

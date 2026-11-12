@@ -278,6 +278,26 @@ class Selector(unittest.TestCase):
         self.assertEqual(len(reads), 1)
 
 
+class SupersededFile(unittest.TestCase):
+    """2026-11-12: #10558 added 20261112013714; #10561 marked it "SUPERSEDED BY
+    20261112022726" and the applier refused it ("must never run") while the
+    successor installed. Every later candidate was deferred as lacking
+    20261112013714, a file production can never record."""
+    BEFORE = '08cdcf0adb48859c6683a3f5a6786cc3680602db'
+    ADDED = '4850f85345272627c1b07af38e938e84095ab195'
+    MARKED = '27f24451615207a80d7dbff0520f33c609ef47e9'
+
+    def test_a_superseded_file_is_not_required_and_its_successor_is(self):
+        required = _real_required_by(str(ROOT), self.BEFORE, self.MARKED)
+        self.assertNotIn('20261112013714', required)
+        self.assertEqual(required.get('20261112022726'), 'the_nightly_20k_rebuy_pays_the_starting_stack')
+        self.assertEqual(im.superseded_versions(str(ROOT), self.MARKED) & {'20261112013714'}, {'20261112013714'})
+
+    def test_an_unmarked_file_is_still_required(self):
+        required = _real_required_by(str(ROOT), self.BEFORE, self.ADDED)
+        self.assertEqual(required.get('20261112013714'), 'unfinished_rebuys_pay_the_starting_stack')
+
+
 class Cutover(unittest.TestCase):
     TARGET = '20c0ab1c93178c102a5b7353905fa1bee7b5ccb9'
 
