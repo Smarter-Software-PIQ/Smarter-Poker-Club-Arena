@@ -17,6 +17,7 @@ function harness({
   stateFactory,
   executeCommand,
   pending,
+  statPath,
 } = {}) {
   let service,
     statusMethod,
@@ -57,7 +58,7 @@ function harness({
         effects++;
         throw new Error('no native effect authorized');
       }),
-    statPath: async (path) => ({ dev: path === '/' ? 1 : 2 }),
+    statPath: statPath ?? (async (path) => ({ dev: path === '/' ? 1 : 2 })),
     stateFactory:
       stateFactory ??
       (async () => ({
@@ -332,4 +333,21 @@ test('a later successful broadcast read completes the same recovered episode', a
   } finally {
     await h.service.stop();
   }
+});
+
+test('journal on the external volume starts even when /Volumes/SmarterWork is a startup-disk folder', async () => {
+  const h = harness({
+    statPath: async (path) => ({
+      dev: path === '/Volumes/SmarterWork/agent-work/fixture-only' ? 2 : 1,
+    }),
+  });
+  await h.service.start();
+  assert.notEqual(h.status().lifecycle, 'start_failed');
+});
+test('journal on the startup disk is start_failed even when /Volumes/SmarterWork is external', async () => {
+  const h = harness({
+    statPath: async (path) => ({ dev: path === '/' || path.includes('fixture-only') ? 1 : 2 }),
+  });
+  await assert.rejects(h.service.start(), /external work volume is not mounted/);
+  assert.equal(h.status().lifecycle, 'start_failed');
 });
