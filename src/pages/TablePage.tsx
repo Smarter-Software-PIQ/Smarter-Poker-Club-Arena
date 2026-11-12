@@ -27815,6 +27815,8 @@ function LiveTablePage({
          scaler, so the --sp-hero-clear bottom reserve is dead space for them.
          CSS collapses it via [data-hero='false'] (see TablePage.css). */
       data-hero={heroAtTable ? 'true' : 'false'}
+      data-kill-enabled={killRulesApply ? 'true' : 'false'}
+      data-hole-card-count={seatHoleCardCount}
       /* LIGHTNING TRANSITION, PHASE 3: the folded hand is leaving the felt;
          LightningFoldBar.css fades the opponents, the board and the pot out
          and keeps them out until the next table arrives. 2026-11-09: a hand

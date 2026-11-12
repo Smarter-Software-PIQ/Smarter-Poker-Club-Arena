@@ -658,6 +658,34 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       (step: { name?: string }) =>
         step.name === 'Install PostgreSQL 17 tools without a default database service'
     );
+    // The exact native fixture version owns its package tuple and readiness.
+    // Normalize only this tested addition; retain all prior workflow pins.
+    const pinnedFixtureBlock =
+      '  3|4)\n    # The native source/checksum and fixture manifests own this exact minor.\n    pg_ci_fixture_version="$(python3 -B scripts/ci/build_pg17_isolationtester.py --print-version)"\n    [[ "$pg_ci_fixture_version" =~ ^17\\.[0-9]+$ ]]\n    pg_ci_server_packages=("postgresql-17=$pg_ci_fixture_version-*" "postgresql-client-17=$pg_ci_fixture_version-*" postgresql-17-cron)\n    pg_ci_build_packages=("postgresql-server-dev-17=$pg_ci_fixture_version-*" build-essential bison flex perl bzip2 patch)\n    for pg_ci_binary in postgres psql pg_config; do\n      pg_ci_actual="$(/usr/lib/postgresql/17/bin/"$pg_ci_binary" --version 2>/dev/null)" || pg_ci_actual=\n      case "$pg_ci_actual" in\n        "PostgreSQL $pg_ci_fixture_version"|"PostgreSQL $pg_ci_fixture_version "*|*" (PostgreSQL) $pg_ci_fixture_version"|*" (PostgreSQL) $pg_ci_fixture_version "*) ;;\n        *) pg_ci_build_tools_ready=false ;;\n      esac\n    done\n';
+    const pinnedBbjBlock = pinnedFixtureBlock
+      .replace('  3|4)', '  1)')
+      .replace('build-essential bison flex perl bzip2 patch)', 'build-essential)');
+    expect(keySetup.run.split(pinnedBbjBlock)).toHaveLength(2);
+    keySetup.run = keySetup.run.replace(
+      pinnedBbjBlock,
+      '  1)\n    pg_ci_build_packages=(postgresql-server-dev-17 build-essential)\n'
+    );
+    expect(keySetup.run.split(pinnedFixtureBlock)).toHaveLength(2);
+    keySetup.run = keySetup.run.replace(
+      pinnedFixtureBlock,
+      '  3|4)\n    pg_ci_build_packages=(postgresql-server-dev-17 build-essential bison flex perl bzip2 patch)\n'
+    );
+    const fixtureDefaults =
+      'pg_ci_server_packages=(postgresql-17 postgresql-17-cron)\npg_ci_fixture_version=\n';
+    expect(keySetup.run.split(fixtureDefaults)).toHaveLength(2);
+    keySetup.run = keySetup.run.replace(fixtureDefaults, '');
+    const fixtureInstall =
+      'PG_UBUNTU_MIRROR=true PG_FIXTURE_VERSION="$pg_ci_fixture_version" PG_PACKAGES="${pg_ci_server_packages[*]} ${pg_ci_build_packages[*]-}" \\';
+    expect(keySetup.run.split(fixtureInstall)).toHaveLength(2);
+    keySetup.run = keySetup.run.replace(
+      fixtureInstall,
+      'PG_UBUNTU_MIRROR=true PG_PACKAGES="postgresql-17 postgresql-17-cron ${pg_ci_build_packages[*]-}" \\'
+    );
     // The install itself is the one shared installer (2026-11-07,
     // .github/actions/install-postgres-17, pinned by
     // tests/postgres-installs-from-one-shared-action.law.test.ts). Normalize
@@ -1184,7 +1212,8 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       unit: '7b3caf98ff41bbe5f1e52ff0cb65323b1ec587ed45a768e81de2051bb1906de5',
       // Retain both original top-up receipt and funded satellite qualifications.
       // Every other normalized job and prior accounting command is unchanged.
-      accounting_postgres: '82a9796a80bb93a237e323bd3fa46d6f7530212a12d36c1ded09f19dcbf5e486',
+      // November 12: retain the exact added #10498 real PostgreSQL socket-loss step.
+      accounting_postgres: 'f2cde001f3fe6542ceb807b51c0fce3d65f26610fdc43a8234a995f9bda29620',
       server_shards: '0d259b20866a7d0b2eb6a3245894908e52e210c9852c4b63519086461724ac0f',
       server: '2f21fe942c1e2397520fe372a5b46b95e252bc6276e017f95013a2a24a62d9c1',
       verdict: '51ff5df41add022dc51ea5bcacb648971c4db7b63fd03990b47a99ece3a5c529',

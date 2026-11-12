@@ -1184,12 +1184,25 @@ for (const [width, heightOverride] of occupiedViewports)
           seats.map((seat) => ({
             hero: seat.classList.contains('seat--hero'),
             height: seat.querySelector('.seat__avatar-img')!.getBoundingClientRect().height,
+            paintScale:
+              Number(
+                (seat.querySelector('.seat__avatar') as HTMLElement).style.getPropertyValue(
+                  '--sp-mobile-art-scale'
+                )
+              ) || 1,
           }))
         );
-        // Each scene uses identical decoded artwork at every seat. Compare the
-        // actual painted image rectangles, not rounded offsetHeight surrogates.
+        // Identical decoded artwork retains the same original normalization.
+        // The approved mobile paint extension may enlarge selected seats, with
+        // the hero remaining at least as tall as every opponent.
         const heroArt = art.find((seat) => seat.hero)!;
-        for (const seat of art) expect(Math.abs(seat.height - heroArt.height)).toBeLessThan(0.05);
+        for (const seat of art) {
+          expect([1, 1.02, 1.05, 1.1, 1.15]).toContain(seat.paintScale);
+          expect(
+            Math.abs(seat.height / seat.paintScale - heroArt.height / heroArt.paintScale)
+          ).toBeLessThan(0.05);
+          expect(seat.height).toBeLessThanOrEqual(heroArt.height + 0.05);
+        }
         if (width === 320) {
           const scales = await page
             .locator('.seat__avatar-img')

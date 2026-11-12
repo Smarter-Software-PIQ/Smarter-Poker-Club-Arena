@@ -142,6 +142,7 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
   ): Promise<void> {
     switch (event.type) {
       case 'HAND_START':
+        this.resetOwnReservedResolveProgress();
         // Watchdog liveness: a dealt hand is proof the table is alive.
         this.markProgress();
         // FIX 2 (2026-07-24): start a fresh per-hand hole-card cache used for

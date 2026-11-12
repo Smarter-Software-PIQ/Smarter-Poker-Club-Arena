@@ -17,10 +17,10 @@ import time
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[2]
-VERSION = '17.11'
-VERSION_NUM = 170011
-SOURCE_URL = 'https://ftp.postgresql.org/pub/source/v17.11/postgresql-17.11.tar.bz2'
-SOURCE_SHA256 = 'dd27f2b3c59e73ed14aa3324901242bf69a032a6347805f274e6260322d42979'
+VERSION = '17.12'
+VERSION_NUM = 170012
+SOURCE_URL = 'https://ftp.postgresql.org/pub/source/v17.12/postgresql-17.12.tar.bz2'
+SOURCE_SHA256 = '9cf136a703d8ee2f83465c43be4e9e8e7930c82b0bfba13be7e2537be769ac55'
 OUTPUT = ROOT / 'artifacts/postgresql-17-isolationtester'
 TOOL_LEAF = Path('toolchain/lib/pgxs/src/test/isolation/isolationtester')
 CLEAN_ENV = {'PATH': '/usr/bin:/bin', 'LANG': 'C', 'LC_ALL': 'C',
@@ -33,7 +33,7 @@ def require(condition, message):
 
 
 def validate_version(value, label):
-    # pg_config prints "PostgreSQL 17.11"; server/test tools wrap the product name.
+    # pg_config prints "PostgreSQL 17.12"; server/test tools wrap the product name.
     matched = re.search(r'(?:\(PostgreSQL\)|^PostgreSQL) ([0-9]+(?:\.[0-9]+)+)(?:\s|$)', value.strip())
     require(matched is not None and matched.group(1) == VERSION,
             label + ': exactly PostgreSQL ' + VERSION + ' required')
@@ -46,7 +46,11 @@ def digest(path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, default=OUTPUT)
+    parser.add_argument('--print-version', action='store_true')
     args = parser.parse_args()
+    if args.print_version:
+        print(VERSION)
+        return
     output = args.output.resolve()
     # Upstream adds /postgresql to pkglibdir only when the prefix lacks either
     # "postgres" or "pgsql". Keep this reviewed prefix and therefore exact path.
@@ -96,7 +100,7 @@ def main():
         version = command([pg / 'postgres', '--version'], 'packaged-postgres-version')
         validate_version(version, 'packaged server')
         receipt['packagedPostgresSha256'] = digest(pg / 'postgres')
-        archive = output / 'postgresql-17.11.tar.bz2'
+        archive = output / 'postgresql-17.12.tar.bz2'
         with urllib.request.urlopen(SOURCE_URL, timeout=45) as response, archive.open('wb') as target:
             copied = 0
             while True:

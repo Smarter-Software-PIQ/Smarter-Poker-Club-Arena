@@ -2082,6 +2082,31 @@ export function createOpponentAvatarLayout(
     paintedTouches: (image: HTMLImageElement, target: Box, gap = 0, permanent = true): boolean =>
       preparePaintedTouch(image, permanent)(target, gap),
     paintedParts,
+    paintedRuns: (image: HTMLImageElement): Box[] => {
+      const own = resolved.get(source(image));
+      if (!own?.spans?.length) return [];
+      const ratio = tableRenderScale(scaler);
+      const wrap = image.closest<HTMLElement>('.seat__avatar-wrap');
+      const transforms = [
+        getComputedStyle(image).transform,
+        wrap ? getComputedStyle(wrap).getPropertyValue('--sp-avatar-rest-transform').trim() : '',
+      ];
+      if (
+        !transforms.every((transform) => {
+          if (!transform || transform === 'none') return true;
+          const matrix = new DOMMatrix(transform);
+          return matrix.is2D && Math.abs(matrix.b) < 1e-8 && Math.abs(matrix.c) < 1e-8;
+        })
+      )
+        return [];
+      const rect = restingAvatarBox(image, ratio);
+      const content = subject(image, { left: 0, top: 0, right: 1, bottom: 1 }, true, rect);
+      const origin = idleOrigin(image);
+      const spans = origin ? opponentIdleSpans(own.spans, content, origin, ratio) : own.spans;
+      return spans
+        .map((part) => subject(image, part, true, rect))
+        .filter((part) => part.width > 0 && part.height > 0);
+    },
     anchorCards: () => anchorFacts().filter((fact) => fact.matches('.seat__card')),
     paintedBox: (image: HTMLImageElement, permanent = false, restBox?: Box) => {
       const own = resolved.get(source(image));

@@ -19,6 +19,9 @@ on:
       - 'scripts/ci/accounting-migration-admission.mjs'
       - 'scripts/ci/test-maintenance-window-migrations.sh'
       - 'scripts/ci/fixtures/maintenance-window-migrations/**'
+      - 'supabase/migrations/*_rebuy_and_addon_stack_invariants_survive_registered_updates.sql'
+      - 'supabase/migrations/20261112013925_a_rebuy_pays_the_starting_stack.sql'
+      - 'supabase/migrations/20261102005209_an_add_on_pays_the_starting_stack.sql'
       - '.github/workflows/stage-engine-release.yml'
       - '.github/workflows/maintenance-window-migrations.yml'
 # A newer push to the same pull request fully supersedes this pure check

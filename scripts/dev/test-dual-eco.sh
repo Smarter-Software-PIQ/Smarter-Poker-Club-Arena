@@ -50,6 +50,8 @@ echo 'PASS: original legacy record rejects whole installer atomically'
 "${psql[@]}" -d original_dual_eco_native -c "DELETE FROM union_eco_ledger WHERE union_id='fade0000-0000-0000-0000-000000000001'"
 "${psql[@]}" -d original_dual_eco_native \
  -f "$root/supabase/migrations/20261110005719_cash_and_tournament_eco_have_separate_original_records.sql" \
+ -f "$root/supabase/migrations/20261112152702_weekly_union_invoices_retain_cash_and_tournament_player_resu.sql" \
+ -f "$root/tests/fixtures/dual-eco/weekly-player-results.sql" \
  -f "$root/tests/fixtures/dual-eco/regression.sql"
 python3 "$root/tests/fixtures/dual-eco/concurrency.py" "$pgbin/psql" "$fixture/socket"
 "${psql[@]}" -d postgres -c 'DROP DATABASE original_dual_eco_native'

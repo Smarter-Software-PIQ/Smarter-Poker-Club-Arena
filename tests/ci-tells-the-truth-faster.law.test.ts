@@ -163,6 +163,16 @@ describe('the PostgreSQL accounting qualification runs as seven shards of one jo
     expect([...perShard.keys()].sort()).toEqual([1, 2, 3, 4, 5, 6, 7]);
   });
 
+  it('executes the real socket-loss regression once in the required PostgreSQL aggregate', () => {
+    const probes = steps.filter((step) =>
+      step.run?.includes('scripts/ci/test-lightning-socket-loss-postgres.py')
+    );
+    expect(probes).toHaveLength(1);
+    expect(shardsOf(probes[0])).toEqual([3]);
+    expect(probes[0].env?.PG_BIN).toBe('/usr/lib/postgresql/17/bin');
+    expect(probes[0].env?.TMPDIR).toBe('${{ runner.temp }}');
+  });
+
   it('balances the complete unchanged Lightning family onto shard 3', () => {
     const lightning = steps.filter((step) => step.name?.startsWith('Lightning'));
     expect(lightning).toHaveLength(25);
@@ -179,10 +189,15 @@ describe('the PostgreSQL accounting qualification runs as seven shards of one jo
       (s) => s.name === 'Build the matching native PostgreSQL isolation test tool'
     );
     expect(shardsOf(build!)).toEqual([3, 4]);
+    const versionReader = 'python3 -B scripts/ci/build_pg17_isolationtester.py --print-version';
+    const readers = steps.filter((step) => step.run?.includes(versionReader));
+    expect(readers).toHaveLength(1);
+    expect(readers[0].name).toBe('Install PostgreSQL 17 tools without a default database service');
     for (const step of steps) {
+      // Reading the pinned version builds nothing; every actual use still needs 3/4.
+      const run = (step.run ?? '').replaceAll(versionReader, '');
       const usesTester =
-        JSON.stringify(step.env ?? {}).includes('isolationtester') ||
-        /isolationtester/.test(step.run ?? '');
+        JSON.stringify(step.env ?? {}).includes('isolationtester') || /isolationtester/.test(run);
       if (usesTester) expect([3, 4], `${step.name}`).toContain(shardsOf(step)[0]);
     }
     const evidence = steps.find(

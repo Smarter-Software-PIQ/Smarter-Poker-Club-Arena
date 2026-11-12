@@ -1,3 +1,8 @@
+import {
+  raiseEngineAlert,
+  resolveEngineAlert,
+  firingFingerprints,
+} from '../services/engineAlerts.js';
 import { orbitHandsOwed } from '../services/HorseBankTheWin.js';
 import { broadcastTimeBankActivation } from '../services/timeBankBroadcast.js';
 import { cashRakeScope } from '../config/cashRakePolicy.js';
@@ -2803,6 +2808,21 @@ export abstract class ServerTableEngineBase {
    */
   protected noteOwnReservedResolveShouldFastRecover(): boolean {
     this.f06OwnReservedResolvesSinceProgress++;
+    if (
+      this.f06OwnReservedResolvesSinceProgress ===
+      ServerTableEngineBase.MAX_OWN_RESERVED_RESOLVES_WITHOUT_PROGRESS + 1
+    ) {
+      void raiseEngineAlert({
+        alertname: 'F06OwnReservedRecoveryStalled',
+        severity: 'critical',
+        component: this.ownReservedRecoveryAlertComponent(),
+        summary: 'Tournament permit recovery repeated without a started hand',
+        description:
+          'Four Own-Generation Reserved Permits Resolved Without HAND_START; Normal Stall Safeguards Remain Active.',
+        labels: { table_id: this.tableId },
+        page: true,
+      });
+    }
     return (
       this.f06OwnReservedResolvesSinceProgress <=
       ServerTableEngineBase.MAX_OWN_RESERVED_RESOLVES_WITHOUT_PROGRESS
@@ -2810,7 +2830,20 @@ export abstract class ServerTableEngineBase {
   }
   /** A hand actually dealt: the in-place recovery made real forward progress. */
   protected resetOwnReservedResolveProgress(): void {
+    const component = this.ownReservedRecoveryAlertComponent();
+    if (
+      this.f06OwnReservedResolvesSinceProgress >
+        ServerTableEngineBase.MAX_OWN_RESERVED_RESOLVES_WITHOUT_PROGRESS ||
+      firingFingerprints().includes(`F06OwnReservedRecoveryStalled:${component}`)
+    ) {
+      // A replacement generation can clear the same durable table alert, but
+      // teardown alone must not claim the stalled table recovered.
+      void resolveEngineAlert('F06OwnReservedRecoveryStalled', component, 'A hand started');
+    }
     this.f06OwnReservedResolvesSinceProgress = 0;
+  }
+  private ownReservedRecoveryAlertComponent(): string {
+    return `tournament-permit:${this.tableId}`;
   }
   protected hasF06Allocator(): boolean {
     return this.f06Allocator !== null;

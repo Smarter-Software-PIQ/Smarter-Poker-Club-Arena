@@ -1,3 +1,13 @@
+import {
+  enlargeMobileAvatars,
+  enlargeMobileFrames,
+  resetMobileAvatarPaint,
+  createMobilePaintState,
+  retainMobilePaint,
+  mobileAvatarCardReservation,
+  mobileFrameCardReservation,
+  mobilePaintKey,
+} from '../components/table/mobileAvatarEnlargement';
 import { useLayoutEffect, useRef, type RefObject } from 'react';
 import {
   avatarRestPose,
@@ -35,6 +45,7 @@ export function useProtectedCardLayout(
   revision: string,
   handKey = 'current'
 ) {
+  const mobilePaint = useRef(createMobilePaintState());
   const opponentArt = useRef({ key: '', shifts: new WeakMap<HTMLElement, [number, number]>() });
   // A runout changes the board, pot and highlights, never the hand's slot.
   // Retain placements across effect revisions; only a new hand or viewport
@@ -182,6 +193,18 @@ export function useProtectedCardLayout(
        dealer button (Dan 2026-10-22: a shown hand must be clearly displayed at
        its own player), which are then placed round them; elsewhere, after. */
     const placeRows = (withMarkers: boolean) => {
+      // Decode the fixed outline before committing any new showdown slot.
+      if (
+        window.innerWidth > 480 &&
+        window.innerWidth <= 768 &&
+        window.innerHeight > window.innerWidth &&
+        page.getAttribute('data-seats') === '9' &&
+        page.getAttribute('data-kill-enabled') === 'false' &&
+        [2, 3, 4, 5].includes(Number(page.getAttribute('data-hole-card-count'))) &&
+        !page.classList.contains('table-page--tournament') &&
+        !artwork.ready()
+      )
+        return false;
       const rows = Array.from(scaler.querySelectorAll<HTMLElement>('.seat__cards--revealed')).sort(
         (a, b) =>
           // Edge chairs' shown hands are confined by the viewport. Reserve
@@ -214,9 +237,25 @@ export function useProtectedCardLayout(
         // card/panel keep-outs while measuring actual decoded avatar paint.
         const box =
           element instanceof HTMLImageElement && element.matches('.seat__avatar-img')
-            ? (artwork.paintedBox(element) ?? visibleBox(element))
+            ? (() => {
+                const baseline = artwork.paintedBox(element) ?? visibleBox(element);
+                return baseline
+                  ? mobileAvatarCardReservation(
+                      element,
+                      baseline,
+                      scaler,
+                      page as HTMLElement,
+                      artwork.paintedRuns,
+                      mobilePaint.current
+                    )
+                  : null;
+              })()
             : visibleBox(element);
-        return box ? [{ element, box }] : [];
+        const reserved =
+          box && element instanceof HTMLElement && element.matches('.seat__info')
+            ? mobileFrameCardReservation(element, box, page as HTMLElement, mobilePaint.current)
+            : box;
+        return reserved ? [{ element, box: reserved }] : [];
       });
       // Newly shown cards respect chips that already landed on this street.
       if (!withMarkers)
@@ -467,7 +506,8 @@ export function useProtectedCardLayout(
       opponentArt.current,
       () => schedule()
     );
-    const place = (
+    let paintReady = false;
+    const placeBase = (
       remainingOwnerSpacingPasses = wagers().length,
       spacingOrigins?: Map<HTMLElement, { y: number; radius: number }>
     ) => {
@@ -853,6 +893,7 @@ export function useProtectedCardLayout(
       let allocationUnresolved = false;
       const promoteWagers = () => {
         if (!artwork.ready() || artwork.canMove() || allocationUnresolved) return;
+        paintReady = true;
         for (const bet of wagers()) {
           const stored = settled.current.wagers.get(bet);
           if (stored && !stored.landed && sameWager(bet, stored)) {
@@ -1904,7 +1945,7 @@ export function useProtectedCardLayout(
                 delete row.dataset.baseCardW;
               });
             }
-            place(remainingOwnerSpacingPasses - 1, origins);
+            placeBase(remainingOwnerSpacingPasses - 1, origins);
             return;
           }
         }
@@ -2376,7 +2417,7 @@ export function useProtectedCardLayout(
                 delete row.dataset.baseCardW;
               });
             }
-            place(remainingOwnerSpacingPasses - 1, origins);
+            placeBase(remainingOwnerSpacingPasses - 1, origins);
             return;
           }
         }
@@ -2421,7 +2462,7 @@ export function useProtectedCardLayout(
           remainingOwnerSpacingPasses > 0 &&
           wagers().filter((bet) => settled.current.wagers.has(bet)).length > cachedBefore
         ) {
-          place(remainingOwnerSpacingPasses - 1, spacingOrigins);
+          placeBase(remainingOwnerSpacingPasses - 1, spacingOrigins);
           return;
         }
         // A terminal metadata/owner gap may leave the baseline slot unresolved.
@@ -2464,6 +2505,25 @@ export function useProtectedCardLayout(
         }
       }
       promoteWagers();
+    };
+    const place = (...args: Parameters<typeof placeBase>) => {
+      const keepPaint = mobilePaint.current.key === mobilePaintKey(scaler, page as HTMLElement);
+      const restorePaint = retainMobilePaint(scaler);
+      resetMobileAvatarPaint(scaler);
+      paintReady = false;
+      placeBase(...args);
+      if (
+        paintReady &&
+        !hasPendingCardMotion(Array.from(scaler.querySelectorAll<HTMLElement>('.seat__cards')))
+      ) {
+        const painted = enlargeMobileAvatars(
+          scaler,
+          page as HTMLElement,
+          artwork.paintedRuns,
+          mobilePaint.current
+        );
+        enlargeMobileFrames(scaler, page as HTMLElement, painted, mobilePaint.current);
+      } else if (keepPaint) restorePaint();
     };
     let frame: number | null = null;
     const schedule = () => {
