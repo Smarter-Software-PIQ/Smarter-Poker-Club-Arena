@@ -38,6 +38,7 @@ import { horseDailyRollupContract } from '../HorseDailyRollupContract.js';
 import { readScopeOf } from '../../engine/HorseMind.js';
 import { getLiveHorseDecisionWorker } from '../../engine/horseDecision/index.js';
 import { wakeHandProjection } from './handProjection.js';
+import { countLoggedHandMemoryDomain } from './handMemoryDomainSignal.js';
 import { bindHorseObservationIdentity } from '../../engine/HorseObservationIdentity.js';
 import {
   ACCEPTED_ROSTER_RESULT_FIELD,
@@ -1017,6 +1018,11 @@ export async function logHandHistory(params: {
   }
   const inserted = await insertHandHistoryRow(row, bombUnits, params.atomicCommit);
   const handId = inserted.id;
+  // HVH2D-EXE-002: the row above omits public_memory_domain without a word
+  // when the producer's value is not valid, and the exact-memory trigger then
+  // skips the hand. Count the accepted hand once, here: every identical retry
+  // finished inside the await above, and a refused commit never reaches this.
+  countLoggedHandMemoryDomain(params);
   if (params.atomicCommit.acceptedPostCommitFacts?.stats_facts) {
     releaseHandFactsCapture(params.tableId, params.handNumber);
   }

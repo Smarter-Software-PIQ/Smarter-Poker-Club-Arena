@@ -1289,3 +1289,55 @@ export function alwaysOnPrometheusLines(): string[] {
   refreshProcessMemoryGauges();
   return alwaysOnRegistry.renderPrometheus().split('\n').filter(Boolean);
 }
+
+/**
+ * A LOGGED HAND WITHOUT ITS PUBLIC MEMORY DOMAIN IS COUNTED (2026-11-12,
+ * HVH2D-EXE-002). `logHandHistory` writes `hand_history.public_memory_domain`
+ * only when the producer's value is valid and otherwise omits the column
+ * without a word; the exact opponent-memory trigger
+ * (`fn_horse_exact_accept_hand`) then skips learning for that hand. From
+ * 2026-11-07 every ordinary cash hand that reached showdown was written
+ * without it (589 of 589 in one production hour) and nothing counted it.
+ *
+ * Counted once per hand the atomic commit ACCEPTED, at the storage boundary
+ * (services/supabase/handMemoryDomainSignal.ts), never per attempt:
+ *   poker_hand_memory_domain_logged_total{mode,reached_showdown,learner_scope}
+ *     every accepted hand (the denominator);
+ *   poker_hand_memory_domain_missing_total{mode,reached_showdown,reason}
+ *     accepted hands written without a valid domain (the numerator).
+ * Closed label sets only - never a table, hand or player:
+ *   mode             cash | tournament (the row's tournament_id, as the trigger reads it)
+ *   reached_showdown true | false (the row's `showdown` reveal is non-empty)
+ *   learner_scope    supported | unsupported_variant (game_variant inside or
+ *                    outside the nine variants the trigger learns)
+ *   reason           absent (null or not supplied) | invalid (supplied, fails
+ *                    publicMemoryDomainIsValid) | unsupported_variant (no valid
+ *                    domain on a variant the trigger never learns: exempt)
+ * Lightning hands are not logged through this path. Zero-seeded across the
+ * whole domain (anAlertCannotWaitForAFailureToExist). The rule that reads
+ * them, HandMemoryDomainMissingOnCashShowdown, only reports.
+ */
+export const HAND_MEMORY_DOMAIN_MODES = ['cash', 'tournament'] as const;
+export const HAND_MEMORY_DOMAIN_SHOWDOWN = ['true', 'false'] as const;
+export const HAND_MEMORY_DOMAIN_LEARNER_SCOPES = ['supported', 'unsupported_variant'] as const;
+export const HAND_MEMORY_DOMAIN_MISSING_REASONS = [
+  'absent',
+  'invalid',
+  'unsupported_variant',
+] as const;
+export const handMemoryDomainLoggedTotal: Counter = alwaysOnRegistry.counter(
+  'poker_hand_memory_domain_logged_total',
+  'Hands accepted through logHandHistory (labels: mode=cash|tournament, reached_showdown=true|false, learner_scope=supported|unsupported_variant)'
+);
+export const handMemoryDomainMissingTotal: Counter = alwaysOnRegistry.counter(
+  'poker_hand_memory_domain_missing_total',
+  'Hands accepted through logHandHistory and written without a valid public_memory_domain (labels: mode=cash|tournament, reached_showdown=true|false, reason=absent|invalid|unsupported_variant)'
+);
+for (const mode of HAND_MEMORY_DOMAIN_MODES) {
+  for (const reached_showdown of HAND_MEMORY_DOMAIN_SHOWDOWN) {
+    for (const learner_scope of HAND_MEMORY_DOMAIN_LEARNER_SCOPES)
+      handMemoryDomainLoggedTotal.inc(0, { mode, reached_showdown, learner_scope });
+    for (const reason of HAND_MEMORY_DOMAIN_MISSING_REASONS)
+      handMemoryDomainMissingTotal.inc(0, { mode, reached_showdown, reason });
+  }
+}

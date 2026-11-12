@@ -1,0 +1,104 @@
+# HandMemoryDomainMissingOnCashShowdown (2026-11-12, HVH2D-EXE-002).
+# Proves: the incident shape (every cash showdown hand logged without its
+# domain) fires after the sustained window and not before, a partial share
+# fires too, a healthy fleet stays quiet, a quiet half hour below the 50-hand
+# floor is not a share, and neither the exempt unsupported_variant reason nor
+# omissions outside ordinary cash showdown hands reach this rule.
+rule_files:
+  - ../../infra/monitoring/alert-rules.yml
+evaluation_interval: 1m
+tests:
+  - name: 'the 2026-11-07 shape: every cash showdown hand is logged without its domain'
+    interval: 1m
+    input_series:
+      - series: 'poker_hand_memory_domain_logged_total{job="engine_game_server",mode="cash",reached_showdown="true",learner_scope="supported"}'
+        values: '0+10x60'
+      - series: 'poker_hand_memory_domain_missing_total{job="engine_game_server",mode="cash",reached_showdown="true",reason="absent"}'
+        values: '0+10x60'
+      - series: 'poker_hand_memory_domain_missing_total{job="engine_game_server",mode="cash",reached_showdown="true",reason="invalid"}'
+        values: '0+0x60'
+    alert_rule_test:
+      - alertname: HandMemoryDomainMissingOnCashShowdown
+        eval_time: 10m
+        exp_alerts: []
+      - alertname: HandMemoryDomainMissingOnCashShowdown
+        eval_time: 30m
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: club-arena-engine
+            exp_annotations:
+              summary: '100% of cash showdown hands in 30 minutes were logged without their public memory domain'
+              description: "Ordinary cash hands that reached showdown were accepted with no\nvalid hand_history.public_memory_domain for 15 minutes running\n(at least 50 such hands in the window). The exact opponent-memory\ntrigger skips every one of them, so horses learn nothing from\nthose showdowns. Read the reason label on\npoker_hand_memory_domain_missing_total: absent means the producer\npassed null (postHandTasks lost the hand's blind snapshot),\ninvalid means it passed a value publicMemoryDomainIsValid refuses.\nThis alert reports a producer defect; it starts no repair.\n"
+              runbook: docs/runbooks/hand-memory-domain-missing.md
+
+  - name: 'one invalid domain in ten is still a defect'
+    interval: 1m
+    input_series:
+      - series: 'poker_hand_memory_domain_logged_total{job="engine_game_server",mode="cash",reached_showdown="true",learner_scope="supported"}'
+        values: '0+10x60'
+      - series: 'poker_hand_memory_domain_missing_total{job="engine_game_server",mode="cash",reached_showdown="true",reason="absent"}'
+        values: '0+0x60'
+      - series: 'poker_hand_memory_domain_missing_total{job="engine_game_server",mode="cash",reached_showdown="true",reason="invalid"}'
+        values: '0+1x60'
+    alert_rule_test:
+      - alertname: HandMemoryDomainMissingOnCashShowdown
+        eval_time: 30m
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: club-arena-engine
+            exp_annotations:
+              summary: '10% of cash showdown hands in 30 minutes were logged without their public memory domain'
+              description: "Ordinary cash hands that reached showdown were accepted with no\nvalid hand_history.public_memory_domain for 15 minutes running\n(at least 50 such hands in the window). The exact opponent-memory\ntrigger skips every one of them, so horses learn nothing from\nthose showdowns. Read the reason label on\npoker_hand_memory_domain_missing_total: absent means the producer\npassed null (postHandTasks lost the hand's blind snapshot),\ninvalid means it passed a value publicMemoryDomainIsValid refuses.\nThis alert reports a producer defect; it starts no repair.\n"
+              runbook: docs/runbooks/hand-memory-domain-missing.md
+
+  - name: 'a healthy fleet stays quiet'
+    interval: 1m
+    input_series:
+      - series: 'poker_hand_memory_domain_logged_total{job="engine_game_server",mode="cash",reached_showdown="true",learner_scope="supported"}'
+        values: '0+10x60'
+      - series: 'poker_hand_memory_domain_missing_total{job="engine_game_server",mode="cash",reached_showdown="true",reason="absent"}'
+        values: '0+0x60'
+      - series: 'poker_hand_memory_domain_missing_total{job="engine_game_server",mode="cash",reached_showdown="true",reason="invalid"}'
+        values: '0+0x60'
+    alert_rule_test:
+      - alertname: HandMemoryDomainMissingOnCashShowdown
+        eval_time: 45m
+        exp_alerts: []
+
+  - name: 'a quiet half hour below the 50-hand floor is not a share'
+    interval: 1m
+    input_series:
+      - series: 'poker_hand_memory_domain_logged_total{job="engine_game_server",mode="cash",reached_showdown="true",learner_scope="supported"}'
+        values: '0+1x60'
+      - series: 'poker_hand_memory_domain_missing_total{job="engine_game_server",mode="cash",reached_showdown="true",reason="absent"}'
+        values: '0+1x60'
+    alert_rule_test:
+      - alertname: HandMemoryDomainMissingOnCashShowdown
+        eval_time: 45m
+        exp_alerts: []
+
+  - name: 'an unsupported variant is exempt, and other hand classes are not this rule'
+    interval: 1m
+    input_series:
+      - series: 'poker_hand_memory_domain_logged_total{job="engine_game_server",mode="cash",reached_showdown="true",learner_scope="supported"}'
+        values: '0+10x60'
+      - series: 'poker_hand_memory_domain_missing_total{job="engine_game_server",mode="cash",reached_showdown="true",reason="absent"}'
+        values: '0+0x60'
+      - series: 'poker_hand_memory_domain_logged_total{job="engine_game_server",mode="cash",reached_showdown="true",learner_scope="unsupported_variant"}'
+        values: '0+10x60'
+      - series: 'poker_hand_memory_domain_missing_total{job="engine_game_server",mode="cash",reached_showdown="true",reason="unsupported_variant"}'
+        values: '0+10x60'
+      - series: 'poker_hand_memory_domain_logged_total{job="engine_game_server",mode="cash",reached_showdown="false",learner_scope="supported"}'
+        values: '0+10x60'
+      - series: 'poker_hand_memory_domain_missing_total{job="engine_game_server",mode="cash",reached_showdown="false",reason="absent"}'
+        values: '0+10x60'
+      - series: 'poker_hand_memory_domain_logged_total{job="engine_game_server",mode="tournament",reached_showdown="true",learner_scope="supported"}'
+        values: '0+10x60'
+      - series: 'poker_hand_memory_domain_missing_total{job="engine_game_server",mode="tournament",reached_showdown="true",reason="absent"}'
+        values: '0+10x60'
+    alert_rule_test:
+      - alertname: HandMemoryDomainMissingOnCashShowdown
+        eval_time: 45m
+        exp_alerts: []

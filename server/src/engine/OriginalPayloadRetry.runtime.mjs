@@ -19,6 +19,7 @@ import {
   publicMemoryDomainIsValid,
   publicMemoryDomainFromRules,
 } from './HorsePublicMemoryDomain.ts';
+import { countLoggedHandMemoryDomain } from '../services/supabase/handMemoryDomainSignal.ts';
 const readCurrent = (file) => fs.readFileSync(resolve(process.cwd(), 'src', file), 'utf8');
 const base = readCurrent('engine/ServerTableEngineBase.ts'),
   settlement = readCurrent('engine/ServerTableEngineSettlement.ts');
@@ -109,6 +110,8 @@ function harness(sequence, { rootB = false, onSleep, onRpc, retainSequence } = {
     resolveReleaseIdentity,
     publicMemoryDomainIsValid,
     publicMemoryDomainFromRules,
+    // The extracted logHandHistory counts each accepted hand once (HVH2D-EXE-002).
+    countLoggedHandMemoryDomain,
     handStackBefore,
     requireHandSeatGeneration,
     describeError: (e) => e?.message ?? String(e),
