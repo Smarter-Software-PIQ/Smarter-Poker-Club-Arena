@@ -2983,7 +2983,6 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       this.cashBreachSpan?.enter('dealing');
       if (this.discardPreparedHandForPause()) return;
       this.handsDealtThisSession++;
-      this.resetOwnReservedResolveProgress();
       const handNumber = this.handCount;
       const handStartMs = Date.now(); // FIX 149: Capture hand start time for telemetry
       this.currentHandStartedAt = handStartMs;
