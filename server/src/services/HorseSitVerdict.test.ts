@@ -340,7 +340,7 @@ describe('the fleet: one predicate, asked for the count and for the chair', () =
     const sittable = CODE.indexOf('let sittable = candidateHorses;');
     expect(cand).toBeGreaterThan(-1);
     expect(sittable).toBeGreaterThan(cand);
-    const block = CODE.slice(sittable, CODE.indexOf('let pool =', sittable));
+    const block = CODE.slice(sittable, CODE.indexOf('const pool =', sittable));
     expect(block).toMatch(
       /if \(table\.cluster_id\) \{\s*sittable = candidateHorses\.filter\(\(h\) => \{/
     );
@@ -355,11 +355,10 @@ describe('the fleet: one predicate, asked for the count and for the chair', () =
 
   it('the pool used for allocation AND for selection is the sittable pool', () => {
     expect(CODE).toMatch(
-      /let pool = sittable\.filter\(\s*\(h\) => availableNow\(h\.id, regularsNowMs\)\s*\);/
+      /const pool = sittable\.filter\(\s*\(h\) => availableNow\(h\.id, regularsNowMs\)\s*\);/
     );
-    expect(CODE).toContain(
-      'if (pool.length < emptySeats.length && humanNeedsRescue) pool = sittable;'
-    );
+    // Owner 2026-11-12 (HorseWorkSchedule): the work hours are never widened.
+    expect(CODE).not.toMatch(/\bpool = sittable;/);
     // the cluster pool the allocator walks is built from `pool`
     expect(CODE).toMatch(/clusterPool = \{[\s\S]*?pool: pool\.map\(\(h\) => h\.id\),/);
     expect(CODE).toMatch(

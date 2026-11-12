@@ -22,6 +22,12 @@ import { PLO_LIGHTNING_GAME } from './PloLightningDemand.js';
 import { cashTableFill } from './HorseBehavior.js';
 import { JAQK_CLUB_ID } from './StableHand.js';
 
+/* These tests drive the real rotation for OTHER rules; the work schedule and
+   days off (owner 2026-11-12) are pinned on duty here and proven on their own
+   in HorseWorkSchedule.law.test.ts, so a fixture horse's real-clock hours do
+   not decide what these assert. */
+vi.mock('./HorseWorkSchedule.js', () => ({ offDutyReason: () => null, onDuty: () => true }));
+
 const base: HorseSitOutInput = {
   horseId: 'h',
   tableId: 't',

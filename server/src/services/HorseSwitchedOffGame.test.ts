@@ -35,7 +35,7 @@ describe('a switched-off game empties of horses', () => {
     expect(ROTATOR).toContain('const disabledGameIds = await this.readDisabledGameIds(byTable);');
     expect(ROTATOR).toContain('const offGame = horsesLeaveSwitchedOffGame(');
     expect(ROTATOR).toContain(
-      'if (!benched && !offPlo && !offGame && !restrictedCashGame && !outsideCashPlan) continue;'
+      'if (!benched && !offPlo && !offGame && !restrictedCashGame && !outsideCashPlan && !offDuty)'
     );
     const pass = ROTATOR.slice(ROTATOR.indexOf('const offGame = horsesLeaveSwitchedOffGame('));
     expect(pass.indexOf('await engine.leaveTable(uid)')).toBeGreaterThan(0);

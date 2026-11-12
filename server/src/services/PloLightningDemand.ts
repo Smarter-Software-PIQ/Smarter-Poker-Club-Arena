@@ -23,20 +23,3 @@ export function ploWindDownFor(
     !occupiedHumanGames.has(PLO_LIGHTNING_GAME)
   );
 }
-
-/** The admission transaction still owns the deadline and ten-player cap.
- * Widen only activity-hour texture, using the caller's already qualified pool. */
-export function ploActivityPool<T>(
-  gameId: unknown,
-  humanGames: ReadonlySet<string> | null,
-  demand: PloLightningDemand | null,
-  awake: T[],
-  sittable: T[],
-  needed: number
-): T[] {
-  return awake.length < needed &&
-    gameId === PLO_LIGHTNING_GAME &&
-    (humanGames?.has(PLO_LIGHTNING_GAME) || ploContinuationFor(gameId, demand))
-    ? sittable
-    : awake;
-}

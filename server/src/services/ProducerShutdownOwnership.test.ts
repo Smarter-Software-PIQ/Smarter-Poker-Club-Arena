@@ -484,7 +484,7 @@ describe('producer shutdown source contract', () => {
       /const passIsCurrent = \(\) =>\s*this\.tickSerial === mySerial &&\s*\(generation === null \|\| this\.lifecycleIsCurrent\(generation\)\);/
     );
     expect(controller).toMatch(
-      /await rpc\('fn_cash_clusters_tick_all', \{ p_eligible: eligible \}\);\s*if \(!passIsCurrent\(\)\) return summary;/
+      /await uncappedTick\(rpc, 'fn_cash_clusters_tick_all', \{\s*p_eligible: eligible,\s*\}\);\s*if \(!passIsCurrent\(\)\) return summary;/
     );
     expect(controller).toMatch(
       /await this\.afterGameTick\(\s*row,\s*\(entry\.result \?\? \{\}\) as ClusterTickResult,\s*summary,\s*'pass',\s*generation,\s*passIsCurrent\s*\);\s*if \(!passIsCurrent\(\)\) return summary;/

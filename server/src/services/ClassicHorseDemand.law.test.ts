@@ -1,11 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import {
-  cashTableFill,
-  fullGameWaitTarget,
-  secondTablePicked,
-  thirdTablePicked,
-} from './HorseBehavior.js';
+import { cashTableFill, fullGameWaitTarget } from './HorseBehavior.js';
 import { planHorseQueues } from './HorseGameQueue.js';
 
 const now = Date.parse('2026-11-10T18:00:00-06:00');
@@ -43,15 +38,42 @@ describe('actual full Classic games queue and expand', () => {
     );
     expect(fleet).not.toContain('emptySeats.length === 0 && target.waitTarget > 0');
   });
-  it('varies between one, two and three tables and never selects three without two', () => {
-    const counts = [0, 0, 0, 0];
-    for (let i = 0; i < 1000; i++) {
-      const id = `game-${i}`;
-      const second = secondTablePicked(id, now, 0.5, 'nlh');
-      const third = thirdTablePicked(id, now, 0.5, 'nlh');
-      expect(third && !second).toBe(false);
-      counts[third ? 3 : second ? 2 : 1]++;
-    }
-    for (const n of counts.slice(1)) expect(n).toBeGreaterThan(100);
+  // ZERO RESTRICTIONS ON THE GAMES THAT CAN BE OPEN (Dan 2026-11-11): the
+  // one/two/three-table picks were the retired rake throttle.
+  it('a Classic game is never limited to a hash-picked one, two or three tables', () => {
+    const fleet = readFileSync(new URL('./HorseFleetManager.ts', import.meta.url), 'utf8');
+    const plan = readFileSync(new URL('./HorseUnionCashPlan.ts', import.meta.url), 'utf8');
+    const migration = readFileSync(
+      new URL(
+        '../../../supabase/migrations/20261112154904_cash_games_open_tables_on_demand_without_a_count_cap.sql',
+        import.meta.url
+      ),
+      'utf8'
+    );
+    // The fleet withholds a secondary table on the pick only while the
+    // Lightning set is unknown; a Classic game's tables are all seatable.
+    expect(fleet).toContain('cashPlanLightningGames === null;');
+    expect(plan).not.toContain('thirdTablePicked');
+    expect(plan).toContain('for (const table of candidates) out.add(String(table.id));');
+    // The tick's twin: two ADDED functions under their own names (the old
+    // ones untouched, no overload), and a ceiling trigger that is a runaway
+    // guard measured in unused tables.
+    expect(migration).not.toContain('-- @install-window: daily-maintenance');
+    expect(migration).not.toContain('p_uncapped');
+    expect(migration).toContain(
+      'CREATE FUNCTION public.fn_cash_cluster_tick_uncapped(p_game_id uuid, p_eligible_horses integer DEFAULT 0)'
+    );
+    expect(migration).toContain(
+      "CREATE FUNCTION public.fn_cash_clusters_tick_all_uncapped(p_eligible jsonb DEFAULT '{}'::jsonb)"
+    );
+    expect(migration).toContain(
+      'v_res := public.fn_cash_cluster_tick_uncapped(w.game_id, v_eligible);'
+    );
+    expect(migration).toContain("patched := replace(patched, open_gate, '');");
+    expect(migration).toContain('    v_over_cap := false;');
+    expect(migration).toContain("RAISE EXCEPTION 'cash_table_count_cap_preimage_changed'");
+    expect(migration).toContain("'table_refused_unused_tables'");
+    expect(migration).toContain("     AND coalesce(t.status, '') <> 'closed'");
+    expect(migration).toContain('  IF v_unused >= 2 THEN');
   });
 });

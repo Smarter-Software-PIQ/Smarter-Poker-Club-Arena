@@ -287,20 +287,6 @@ export function secondTablePicked(
   );
 }
 
-/** A subset of the games picked for expansion can sustain a third Classic
- * table. SQL uses the same three-hour bucket and unsigned MD5 prefix. */
-export function thirdTablePicked(
-  gameId: string,
-  nowMs: number = Date.now(),
-  bigBlind: number | null = null,
-  variant: string | null = null
-): boolean {
-  if (!secondTablePicked(gameId, nowMs, bigBlind, variant)) return false;
-  const bucket = Math.floor(nowMs / 1000 / 10_800);
-  const hex = createHash('md5').update(`${gameId}:third_table:${bucket}`).digest('hex');
-  return parseInt(hex.slice(0, 8), 16) % 100 < 40;
-}
-
 /** Actual full chairs create demand independently of the desired seat shape.
  * Four names let a full-ring game reach the existing feeder opening threshold.
  * The caller still checks actual fullness, eligibility and human priority. */

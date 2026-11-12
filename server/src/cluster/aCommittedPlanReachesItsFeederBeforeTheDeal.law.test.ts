@@ -137,7 +137,7 @@ describe('a committed plan reaches its game the moment the planner returns', () 
     vi.useFakeTimers();
     let result: unknown = planned;
     const controller = build(async (fn) =>
-      fn === 'fn_cash_cluster_tick'
+      fn === 'fn_cash_cluster_tick_uncapped'
         ? { data: result, error: null }
         : { data: pass([]), error: null }
     );
@@ -158,9 +158,12 @@ describe('a vacancy reaches the planner without the 500 ms burst hold (2026-10-2
     const calls: string[] = [];
     const controller = build(async (fn) => {
       calls.push(fn);
-      return fn === 'fn_cash_cluster_tick' ? reply() : { data: pass([]), error: null };
+      return fn === 'fn_cash_cluster_tick_uncapped' ? reply() : { data: pass([]), error: null };
     });
-    return { controller, ticks: () => calls.filter((fn) => fn === 'fn_cash_cluster_tick').length };
+    return {
+      controller,
+      ticks: () => calls.filter((fn) => fn === 'fn_cash_cluster_tick_uncapped').length,
+    };
   }
   const answer = async () => ({ data: planned, error: null });
 
