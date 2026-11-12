@@ -2,7 +2,7 @@
   "migration": "supabase/migrations/20260919025445_early_bird_original_fee_custody_after_player_finality.sql",
   "repository_files": {
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c",
+    "scripts/qualification/ci-accounting-inputs.json": "8ebbe29e85c02fed9080b5ce23b0035b9c5701c1463b34ddb7d5f917dcdd28dc",
     "scripts/qualification/ci-admission-inputs.json": "8275cc6a48e74b21dc56c8d4ed5a143cb9dae6ffabba8dca65366d4920007887",
     "tests/fixtures/earlybird-fee-custody/setup.sql": "ac34d5f9432bd6c4ede4072439e66a6f93c7ffc0f5df53ca5a42d6d72c01e573",
     "tests/fixtures/earlybird-fee-custody/funding-scope.json": "342424a2012da6b9f987e5265d772e59f610dac74c4b5c89d1a718c8ec13e8ff",
@@ -936,6 +936,18 @@
         "path": "scripts/qualification/ci-accounting-inputs.json",
         "previousSHA256": "09f96b3c61e37df098ad6c12242ba49356fe29f393b5d4c41782f77c8e87d1d1",
         "currentSHA256": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "lightningSocketLossRegression20261112": {
+    "reason": "Reviewed additive accounting shard 3 execution of the retained #10498 real PostgreSQL socket-loss regression. The regenerated accounting projection differs only by the six-line new step; all previous commands, environments, routing, budgets, artifacts and admission inputs are unchanged. Source-pin maintenance only; no historical evidence, financial source, qualification status, installation or live certification is restamped.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "previousSHA256": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c",
+        "currentSHA256": "8ebbe29e85c02fed9080b5ce23b0035b9c5701c1463b34ddb7d5f917dcdd28dc"
       }
     ],
     "historicalEvidenceRestamped": false,
