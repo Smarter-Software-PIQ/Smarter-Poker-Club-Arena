@@ -1,68 +1,150 @@
 # Eight AI AGENT NEEDED incidents of 2026-11-10..11
 
 Owner: Claude session `session_01BNteGY4kfxAYTsquSxRnoQ` (this file). Parallel
-owner of three of the fixes: Claude session `session_01BNteGXcb4Y2qYvDoMAsxch`.
-Scope: the eight incidents below, root fixes, regression protection, protected
-delivery and live verification. No watcher, retry loop, release dispatch or
-start hold. Owned SSD checkout:
-`/Volumes/SmarterWork/agent-work/extreme-capacity/alerts-20261111-claude`.
+owner of #10498, #10500, #10502 and #10509: Claude session
+`session_01BNteGXcb4Y2qYvDoMAsxch`. Scope: the eight incidents below, root
+fixes, regression protection, protected delivery and acceptance. No watcher,
+retry loop, release dispatch, competing cutover or start hold.
+Owned SSD checkout: `<ssd work>/alerts-20261111-claude-b` (the earlier
+`alerts-20261111-claude` checkout was removed; ownership continues).
 
-## Custody (verified 2026-11-11 17:45Z from PR timelines and remote branches)
+## Classification (2026-11-11 20:50Z)
 
-| PR                                             | Owner                                         | State                                                                                                                                            |
-| ---------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| #10498 lane/fold socket listener               | GXcb session (head `a354ae15`, pushed 17:39Z) | open, auto-merge on                                                                                                                              |
-| #10500 horse fleet floors                      | GXcb session                                  | merged 14:27Z (`5f346bb7`)                                                                                                                       |
-| #10502 spin `open_boards` counts seated boards | GXcb session                                  | CLOSED 17:40Z by its owner as superseded by #10507; branch deleted; migration `20261111134959` never installed (absent from `schema_migrations`) |
-| #10503 handoff trigger WHEN                    | this session                                  | merged 17:43:59Z (`16a5c1a8`), installed                                                                                                         |
-| #10506 relative drop reads Lightning           | this session                                  | merged 15:20Z (`caae1e2b`), deployed                                                                                                             |
-| #10507 spin stall reads oldest seated board    | this session                                  | open, auto-merge on                                                                                                                              |
-| handoff native test                            | this session                                  | branch `test/post-commit-handoff-native`                                                                                                         |
-| cash hands counter                             | this session                                  | branch `feat/cash-hands-fleet-counter`                                                                                                           |
-
-The GXcb session's worktree directory was removed, but it is still active: it
-pushed #10498 at 17:39Z and closed #10502 at 17:40Z with a replay comment. It
-keeps #10498. Engine release custody is the root release owner's
-(`docs/ENGINE-RELEASE-RUNBOOK.md`). This session dispatches no release and
-promises no inclusion window.
+- **4 fully closed:** fd614614, f1b14fca, 15b0d37a, 17b7b46a.
+- **1 installed, natural observation pending:** ee77584d.
+- **2 awaiting engine deployment:** 647de293, 3a00a7ce.
+- **1 partially covered:** 71fdf977. Its false page is fixed, but fleet-wide
+  cash coverage waits for #10511 to serve and #10516 to deploy.
 
 ## Incidents
 
-| Incident                             | Title                                             | Root cause                                                                                                     | Fix / owner                              | Deployed                                                                           | Remaining gate                                                                                                                                                                                                                                                          |
-| ------------------------------------ | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| fd614614-56b8-414a-96ff-17667e0c2e3a | SLOHandsAreNotBeingDealt                          | `< 1 hand/s` September floor                                                                                   | #10451 (other owner, earlier)            | monitoring `4982c667` 10:39Z onward; rule `== 0`                                   | none                                                                                                                                                                                                                                                                    |
-| ee77584d-da8d-4535-ad86-e27c5a2e8b35 | LightningHandHost.post_commit_obligations_pending | trigger WHEN admitted only the ServerTableEngine source                                                        | #10503 (this session)                    | `20261111133739` recorded; trigger def names both sources; function marker present | native PostgreSQL regression in CI (handoff test branch)                                                                                                                                                                                                                |
-| 647de293-f887-45a9-9fb5-be45b250ae3c | EngineRestartedOutsideTheBreak                    | checked-out pg pool client had no `error` listener; socket loss in a Lightning settle was uncaught (09:55:38Z) | #10498 (GXcb)                            | not serving: engine `f7735cca`                                                     | #10498 merge, then a certified engine release by the release owner                                                                                                                                                                                                      |
-| 3a00a7ce-0abf-4a6a-a5a2-30ec05967b49 | SLOEngineAvailability                             | same restart                                                                                                   | #10498                                   | not serving                                                                        | same                                                                                                                                                                                                                                                                    |
-| f1b14fca-2251-4d3e-a2ae-202e7f3dc6f8 | SpinFleetProducingNothing                         | last-start clock gated by REGISTERING boards (33 empty) and not reset by the 03:00 park                        | #10507 (this session); #10502 superseded | not deployed: serving rule still the last-start arm                                | #10507 merge, Deploy Monitoring, rule readback                                                                                                                                                                                                                          |
-| 71fdf977-39ad-45bd-b11e-bc749ce7ffd2 | HorseFleetThroughputRelativeDrop                  | counted tournament-heavy `poker_hands_dealt_total` against pre-ladder days                                     | #10506 (this session)                    | rule reads settled Lightning hands (monitoring `5db13967`)                         | #10506 narrowed the rule to Lightning, so a Classic-only cash decline is outside it. Restored by the `poker_hands_fleet_total{format}` counter (engine) and then a rule summing cash table hands and Lightning hands, after an engine containing the counter is serving |
-| 15b0d37a-fb83-4b2f-92ee-a9401a868003 | HorseCashActionsStopped                           | absolute 150/min September floor                                                                               | #10500 (GXcb)                            | monitoring `5f346bb7` onward                                                       | none                                                                                                                                                                                                                                                                    |
-| 17b7b46a-9a6f-424e-b0fa-6f99533e711c | HorseFleetCollapsed                               | absolute 20-table September floor                                                                              | #10500 (GXcb)                            | monitoring `5f346bb7` onward                                                       | none                                                                                                                                                                                                                                                                    |
+| Incident                             | Title                                             | Fix / owner                                                                                                  | Deployed (verified)                                                                                                                     | Acceptance evidence                                                                                                                                | Remaining gate                                                                                                                                                                           |
+| ------------------------------------ | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| fd614614-56b8-414a-96ff-17667e0c2e3a | SLOHandsAreNotBeingDealt                          | #10451 (earlier owner)                                                                                       | rule `== 0`, monitoring since `4982c667`                                                                                                | `tests/monitoring/slo-no-hands.test.yml`                                                                                                           | none                                                                                                                                                                                     |
+| ee77584d-da8d-4535-ad86-e27c5a2e8b35 | LightningHandHost.post_commit_obligations_pending | #10503, #10513 (this session)                                                                                | `20261111133739` recorded; trigger WHEN names both sources                                                                              | #10513, PostgreSQL 17 in CI, 17/17 (see below)                                                                                                     | natural reclassification of a live Lightning handoff not yet observed; no event will be manufactured                                                                                     |
+| 647de293-f887-45a9-9fb5-be45b250ae3c | EngineRestartedOutsideTheBreak                    | #10498 (GXcb), merged `6340d874`                                                                             | NOT serving: `f7735cca`; container lane session has no `connect` listener                                                               | #10498 regression tests: real PostgreSQL 17 + pg 8.23.0 terminate an in-flight backend, and the call answers UNKNOWN with no uncaught exception    | a certified release containing `6340d874` (custodian request below), then serving-code readback, seal, thaw and resumed play. A later quiet period is not proof of the failure path.     |
+| 3a00a7ce-0abf-4a6a-a5a2-30ec05967b49 | SLOEngineAvailability                             | #10498                                                                                                       | NOT serving                                                                                                                             | same                                                                                                                                               | same                                                                                                                                                                                     |
+| f1b14fca-2251-4d3e-a2ae-202e7f3dc6f8 | SpinFleetProducingNothing                         | #10507 (this session); #10502 superseded and closed by its owner, migration `20261111134959` never installed | monitoring `694b6d5c`; loaded rule reads `poker_spin_unfilled_oldest_wait_seconds > poker_spin_ladder_full_envelope_seconds`, health ok | promtool in ci.yml (job 130700979515): below, at and above the bound, recovery, post-park morning, empty boards, break, human arms, missing gauges | none                                                                                                                                                                                     |
+| 71fdf977-39ad-45bd-b11e-bc749ce7ffd2 | HorseFleetThroughputRelativeDrop                  | #10506, #10511, #10516 draft (this session)                                                                  | serving rule reads settled Lightning hands only; `poker_hands_fleet_total` not emitted by `f7735cca`                                    | #10516 promtool: a Classic collapse that halves all cash fires; a tournament collapse with cash flat stays silent                                  | an engine with `3e5ef384` serving, then counter ingestion and labels, #10516 checks, merge and monitoring deploy, and a rule readback showing cash + Lightning with tournaments excluded |
+| 15b0d37a-fb83-4b2f-92ee-a9401a868003 | HorseCashActionsStopped                           | #10500 (GXcb)                                                                                                | deployed                                                                                                                                | #10500 promtool                                                                                                                                    | none                                                                                                                                                                                     |
+| 17b7b46a-9a6f-424e-b0fa-6f99533e711c | HorseFleetCollapsed                               | #10500 (GXcb)                                                                                                | deployed                                                                                                                                | #10500 promtool                                                                                                                                    | none                                                                                                                                                                                     |
 
-## Evidence log
+## Ordinary Classic coverage
 
-- 17:50Z: `20261111133739` recorded in `supabase_migrations.schema_migrations`.
-  Trigger `WHEN (new.source = ANY (ARRAY['ServerTableEngine...','LightningHandHost...']))`.
-  No post-commit alert has arrived since the install, so no live row has been
-  classified yet.
-- Native PostgreSQL 17, run from the migration files (handoff test branch), 17/17:
-  - preimage: a Lightning handoff with a durable envelope stays critical;
-  - candidate: that row becomes a warning; a timeout, a handoff with no
-    envelope, a malformed hand, the `fn_post_commit_stranded_watchdog` row and
-    an unrelated source stay critical;
-  - the install refuses while the watchdog is inactive.
-    `post-commit-stranded-watchdog-5m` is active and succeeding every 5 min.
-- Spin fixtures pass on promtool 2.55.1 (the production version) and 3.16.0.
-  They cover:
-  - below, at and above the 8,400 s envelope, plus recovery;
-  - the post-park morning (the #10502 shape) and the 11:19Z shape with empty
-    boards;
-  - the break, both human-wait arms, and missing gauges.
+`ClassicCashFloorDark` (#10509, GXcb, merged `c4ade03e`) is loaded on
+engine-01 with health ok. It pages when Classic cash actions (all audiences)
+are zero for 15 minutes outside the break or an owner park. Its measured
+basis: the rate never reached 0 in the six days to 17:50Z, and the quietest
+healthy hour is about 0.7 actions/s.
 
-  They were not wired into any workflow before; `scripts/ci/test-fleet-throughput.sh`
-  (ci.yml) now runs them.
+Intended withholding stays distinct from a stall:
 
-- Relative drop on Lightning, replayed over the 3 days to 15:00Z: true only
-  on 2026-11-10 06:38-09:48Z, a real cash dip.
-- At 17:51Z no critical alert was firing. A quiet board is not counted as
-  completion evidence.
+- the owner plan withholds Classic games by the hour, but three Classic games
+  run in the `always` window, so no hour is scheduled dark;
+- `theClassicFloorIsNeverScheduledDark.law.test.ts` fails the build if a plan
+  edit would ever schedule the whole Classic floor off. It was mutation-checked:
+  emptying `always` overnight fails at 04:30 Chicago.
+
+A partial Classic decline that does not halve all cash is not paged. That is
+by design, because a relative Classic arm ran 9 false runs in 6 days
+(#10509 measurement).
+
+## Release coordination
+
+The active custodian is the Codex agent of chat `01a1cbbb`, holding window
+`2026-11-11-horse-realtime-10454-engine-1930z` (admission 19:30-22:30Z, #10514).
+No Stage dispatch had been made by 20:45Z. The routine path is the
+04:00 Chicago daily release ("Routine engine updates are queued for 04:00
+America/Chicago", Stage run 43088206614).
+
+Backup certified `3e5ef384` (43077906194) and `c51a96c2` (43080605718). Both
+contain `6340d874` and `3e5ef384`.
+
+Request for explicit inclusion confirmation or handoff: #10514 comment 6806731355. Inclusion is not assumed.
+
+## State at 21:05Z: external blocker, ownership retained
+
+- **GitHub Actions** has been in a major outage since 20:48Z (githubstatus.com
+  incident "Impact across multiple GitHub products including Actions"). Every
+  repository run is queued, including this PR's 52 checks and #10516. The
+  outage authorizes nothing: no manual deployment, no competing release. When
+  service recovers, inspect queued and in-flight runs before retrying
+  anything.
+- **Release custodian** (Codex chat `01a1cbbb`, window
+  `2026-11-11-horse-realtime-10454-engine-1930z`, expiry 22:30Z) has not
+  replied on #10514 (comments 6806731355 and 6807000404). No owner-window-ready
+  issue exists for this window. No Stage dispatch by 21:05Z. Serving engine
+  `f7735cca`.
+  - The custodian has been asked to record: the operation's terminal
+    disposition, its selected SHA, the next supported route for `6340d874`
+    and `3e5ef384`, and acceptance or refusal of inclusion.
+  - Window expiry transfers nothing and authorizes no candidate. Inclusion
+    will be verified against the actual selected SHA, with its certificate
+    and schema compatibility revalidated.
+- **Classic floor law.** The negative test edited only a local copy of
+  `server/src/services/horseUnionCashPlan.json` inside this session's isolated
+  checkout, and restored it. No committed file, no production schedule and no
+  database row changed. #10509's `ClassicCashFloorDark` is unchanged.
+- **Labels kept honest.** ee77584d's live reclassification is naturally
+  unobserved. 647de293 and 3a00a7ce rest on #10498's failure-path tests; a
+  quiet production interval after deployment is not proof of recovery.
+
+Remaining owned work, in order:
+
+1. Merge #10523 after its required hosted checks pass.
+2. After the custodian's release serves `6340d874` and `3e5ef384`:
+   - read back the serving code, seal, thaw and resumed play;
+   - check that `poker_hands_fleet_total{format}` is ingested with correct
+     labels, increments only for table-engine hands (cash hands plus settled
+     Lightning hands match `hand_history` with no overlap), and survives
+     counter resets through `rate()`.
+3. Take #10516 out of draft: checks, merge, Deploy Monitoring, and a rule
+   readback showing both cash formats are counted and tournaments excluded.
+
+This session stays open until those steps finish or a successor explicitly
+accepts them.
+
+## Successor acceptance 2026-11-12 15:27Z (root 01a1d05b)
+
+Owner explicitly assigned only completion of this handoff. Existing clean SSD2
+checkout and #10523 recovered; no competing release initiated. Current release
+custodian is root 01a1d015, per decision-engine checkpoint takeover at 14:10Z;
+its bounded database prerequisites and release remain independently owned.
+Public health at 15:24Z still serves f7735cca6862b9add06841b8a41c305b3f3ebe01.
+Thus #10498/#10511 adoption remains UNVERIFIED, not delivered.
+
+Policies read via canonical reader at 15:23:43Z, version 2.9; all four canonical
+files plus repository AGENTS, CLAUDE, playbook, publishing and this checkpoint
+read. Policy hashes: OWNER f5633d1b9e2b3d3ad7f30dea9e89691ec3044e05ff68471e7d9d8de36e079256;
+OPERATING a8bc3c04dce3354ebdd51a89c0b7d715af3344edcc794d33f6b3ad64506961d5;
+HARDENING d5fc451ce5caf6d6b5e64597a13883e1246581678fe53c962339d0a66136993e;
+INDEX adce89c3f838f2f373cd504a00329d53906404d1dd42a647f672af6c16f95555.
+Repository policy check passes. Canonical comparison reports byte drift only
+in policy-manifest.json whitespace; the four owning policy bytes match exactly.
+No policy source change is needed for this assignment.
+
+#10523's actual failure was law-registry.law.test.ts: the new Classic guard
+had no registry entry. Added its required entry; focused registry 1506/1506 and
+Classic guard 2/2 pass after integrating protected main d1af68bc. Current plan
+still schedules Classic every hour (now more always games); no production
+schedule or row changed. Execution preview: documentation/verification, required
+gates unchanged. Historical Actions outage is not a present blocker.
+
+Overlap recovered: #10534 is another open combined-cash implementation. Neither
+it nor #10516 may overwrite #10590, now merged as d1af68bc and successfully
+published by monitoring run 43243331986, which protects same-admission-policy
+baselines. Reconcile the combined rule against that exact source before delivery.
+Security disposition retained from the maintained process-listing incident:
+exposure remains unconfirmed, credential types unknown; #10479 repaired the two
+argument-bearing paths. No credential values or process arguments read here.
+Evidence: extreme-archive/alerts-closeout-01a1d05b (failed-job log and registry
+result). Natural Lightning observation remains to be read; not inferred closed.
+
+### Required-check recovery 15:34Z
+
+#10523 push 697a2aff verified; CI43248289071 database shards failed before
+execution: PGDG resolute publishes pg_cron 1.6.8 +3 requiring server >17.12
+while newest server is17.11. Its retained +2/+1 builds accept17.11. This is a
+necessary delivery blocker, so the smallest shared installer correction will
+select the newest cron build compatible with the selected PostgreSQL server,
+using signed apt metadata; signature verification and all database tests stay.

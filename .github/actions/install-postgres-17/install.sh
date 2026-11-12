@@ -54,45 +54,6 @@ pg_attempt() {
   done
 }
 
-# PGDG retains several signed package versions. An extension can be published
-# before the server minor it requires (2026-11-12: cron +3 needed 17.12 while
-# the server was 17.11). Resolve the complete requested set before installing;
-# never pin an arbitrary historical version or discard a required extension.
-pg_resolve_cron() {
-  local package version plan_log
-  local requested=false
-  local versions=() proposed=()
-  for package in "${pg_packages[@]}"; do
-    [ "$package" != postgresql-17-cron ] || requested=true
-  done
-  [ "$requested" = true ] || return 0
-  # madison orders advertised versions newest first. These are the same
-  # signed Ubuntu/PGDG indexes the eventual apt-get install consumes.
-  versions=( $(apt-cache "${pg_apt[@]}" madison postgresql-17-cron | awk '{print $3}') )
-  [ "${#versions[@]}" -gt 0 ] || { echo '::error::No indexed PostgreSQL 17 cron version.' >&2; return 1; }
-  plan_log="$(mktemp "$RUNNER_TEMP/ca-postgres-plan.XXXXXX")"
-  for version in "${versions[@]}"; do
-    proposed=()
-    for package in "${pg_packages[@]}"; do
-      if [ "$package" = postgresql-17-cron ]; then
-        proposed+=("postgresql-17-cron=$version")
-      else
-        proposed+=("$package")
-      fi
-    done
-    if sudo apt-get "${pg_apt[@]}" --simulate install --no-install-recommends "${proposed[@]}" >"$plan_log" 2>&1; then
-      pg_packages=("${proposed[@]}")
-      echo "PostgreSQL package set resolves with postgresql-17-cron=$version"
-      cat "$plan_log"
-      return 0
-    fi
-    echo "PostgreSQL package set does not resolve with postgresql-17-cron=$version; no package installed."
-  done
-  cat "$plan_log" >&2
-  echo '::error::No indexed cron version resolves the complete requested PostgreSQL package set.' >&2
-  return 1
-}
-
 if [ "${PG_UBUNTU_MIRROR:-false}" = true ]; then
   sudo python3 "$GITHUB_WORKSPACE/scripts/ci/ubuntu-apt-mirror.py"
 fi
@@ -119,5 +80,22 @@ printf 'Types: deb\nURIs: https://apt.postgresql.org/pub/repos/apt\nSuites: %s-p
   "$codename" "$PG_KEY_DST" > "$pg_sources/pgdg.sources"
 pg_attempt sudo apt-get "${pg_apt[@]}" "${pg_update[@]}" update
 printf 'create_main_cluster = false\n' | sudo tee /etc/postgresql-common/createcluster.conf >/dev/null
-pg_resolve_cron
+# PGDG can publish an extension rebuild before its required server release.
+# Ask apt to solve the whole requested set, including an older extension
+# version when the newest cannot coexist with the current server candidate.
+# Never weaken package signatures or install a dependency-breaking binary.
+if printf '%s\n' "${pg_packages[@]}" | grep -qx postgresql-17-cron; then
+  pg_server_version=$(apt-cache "${pg_apt[@]}" policy postgresql-17 | awk '/Candidate:/ {print $2}')
+  pg_cron_version=''
+  while IFS= read -r pg_version; do
+    if sudo apt-get "${pg_apt[@]}" --simulate install -y --no-install-recommends \
+      "${pg_packages[@]/postgresql-17-cron/postgresql-17-cron=$pg_version}" >/dev/null 2>&1; then
+      pg_cron_version=$pg_version
+      break
+    fi
+  done < <(apt-cache "${pg_apt[@]}" madison postgresql-17-cron | awk '{print $3}')
+  [ -n "$pg_cron_version" ] || { echo "::error::No signed pg_cron package solves the requested PostgreSQL set ($pg_server_version)." >&2; exit 1; }
+  pg_packages=("${pg_packages[@]/postgresql-17-cron/postgresql-17-cron=$pg_cron_version}")
+  echo "PostgreSQL $pg_server_version; compatible pg_cron $pg_cron_version"
+fi
 pg_attempt sudo apt-get "${pg_apt[@]}" install -y --no-install-recommends "${pg_packages[@]}"

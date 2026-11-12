@@ -70,7 +70,7 @@ describe('one shared PostgreSQL installer', () => {
     );
   });
 
-  it('every mutating or network apt call is retried, and index failures fail the update', () => {
+  it('every apt call is retried, bounded, and an index fetch failure fails the update', () => {
     const aptCalls = SH.split('\n').filter(
       (l) => /sudo apt-get /.test(l) && !l.includes('--simulate')
     );
@@ -112,83 +112,6 @@ describe('one shared PostgreSQL installer', () => {
     }
   });
 
-  it('selects the newest resolvable signed cron version for the complete package set', () => {
-    const box = mkdtempSync(join(tmpdir(), 'pg-resolve-'));
-    try {
-      const start = SH.indexOf('pg_resolve_cron() {');
-      expect(start).toBeGreaterThan(0);
-      const fn = SH.slice(start, SH.indexOf('\n}\n', start) + 3);
-      const run = (packages: string, versions: string, compatible: string) => {
-        const calls = join(box, 'calls');
-        rmSync(calls, { force: true });
-        const script = `${fn}
-pg_packages=(${packages})
-pg_apt=(-o Dir::Etc::sourcelist=/dev/null -o Dir::Etc::sourceparts=/signed)
-apt-cache() { printf '%s\\n' "$VERSIONS"; }
-sudo() {
-  printf '%s\\n' "$*" >> "$CALLS"
-  [[ " $* " == *" --simulate "* ]] || return 99
-  [[ " $* " == *" postgresql-17 "* ]] || return 98
-  [[ " $* " == *" build-essential "* ]] || return 97
-  [[ " $* " == *" Dir::Etc::sourceparts=/signed "* ]] || return 96
-  [[ " $* " == *" postgresql-17-cron=$COMPATIBLE "* ]]
-}
-pg_resolve_cron || exit $?
-printf 'SELECTED:%s\\n' "${'${pg_packages[*]}'}"
-`;
-        const result = spawnSync('/bin/bash', ['-eu', '-c', script], {
-          encoding: 'utf8',
-          env: {
-            ...process.env,
-            RUNNER_TEMP: box,
-            CALLS: calls,
-            VERSIONS: versions,
-            COMPATIBLE: compatible,
-          },
-        });
-        return {
-          ...result,
-          calls: (() => {
-            try {
-              return readFileSync(calls, 'utf8');
-            } catch {
-              return '';
-            }
-          })(),
-        };
-      };
-      const packages = 'postgresql-17 postgresql-17-cron build-essential';
-      const versions =
-        'postgresql-17-cron | 1.6.8+3 | signed\npostgresql-17-cron | 1.6.8+2 | signed\npostgresql-17-cron | 1.6.8+1 | signed';
-      const coherent = run(packages, versions, '1.6.8+2');
-      expect(coherent.status, coherent.stderr).toBe(0);
-      expect(coherent.stdout).toContain(
-        'SELECTED:postgresql-17 postgresql-17-cron=1.6.8+2 build-essential'
-      );
-      expect(coherent.calls.trim().split('\n')).toHaveLength(2);
-      expect(coherent.calls).not.toContain('postgresql-17-cron=1.6.8+1');
-      const newest = run(packages, versions, '1.6.8+3');
-      expect(newest.status, newest.stderr).toBe(0);
-      expect(newest.calls.trim().split('\n')).toHaveLength(1);
-      const unavailable = run(packages, versions, 'absent');
-      expect(unavailable.status).toBe(1);
-      expect(unavailable.stderr).toContain('No indexed cron version resolves');
-      expect(unavailable.calls.trim().split('\n')).toHaveLength(3);
-      expect(run(packages, '', 'absent').status).toBe(1);
-      for (const exact of [
-        'postgresql-17 build-essential',
-        'postgresql-17 postgresql-17-cron=exact build-essential',
-      ]) {
-        const unchanged = run(exact, versions, 'absent');
-        expect(unchanged.status, unchanged.stderr).toBe(0);
-        expect(unchanged.calls).toBe('');
-        expect(unchanged.stdout).toContain(`SELECTED:${exact}`);
-      }
-    } finally {
-      rmSync(box, { recursive: true, force: true });
-    }
-  });
-
   it('refuses to run without the checkout key', () => {
     const box = mkdtempSync(join(tmpdir(), 'pg-nokey-'));
     try {
@@ -204,6 +127,45 @@ printf 'SELECTED:%s\\n' "${'${pg_packages[*]}'}"
       });
       expect(r.status).toBe(1);
       expect(r.stderr).toContain('.github/pgdg/apt.postgresql.org.asc is missing');
+    } finally {
+      rmSync(box, { recursive: true, force: true });
+    }
+  });
+  it('selects the newest installable signed cron version and refuses an unsolvable set', () => {
+    const box = mkdtempSync(join(tmpdir(), 'pg-compatible-'));
+    try {
+      const start = SH.indexOf(
+        'if printf \'%s\\n\' "${pg_packages[@]}" | grep -qx postgresql-17-cron;'
+      );
+      expect(start).toBeGreaterThan(0);
+      const block = SH.slice(start, SH.indexOf('\npg_attempt sudo apt-get', start));
+      const script = `
+pg_packages=(postgresql-17 postgresql-17-cron postgresql-server-dev-17)
+pg_apt=()
+apt-cache() {
+  if [ "$1" = policy ]; then echo 'Candidate: 17.11'; else
+    printf 'postgresql-17-cron | 1.6.8+3 | signed\\npostgresql-17-cron | 1.6.8+2 | signed\\n'
+  fi
+}
+sudo() {
+  printf '%s\\n' "$*" >> '${box}/calls'
+  case "$*" in *postgresql-17-cron=1.6.8+2*) [ "$SOLVABLE" = yes ];; *) return 1;; esac
+}
+${block}
+printf '%s\\n' "\${pg_packages[@]}"
+`;
+      for (const solvable of ['yes', 'no']) {
+        const r = spawnSync('bash', ['-c', script], {
+          encoding: 'utf8',
+          env: { ...process.env, SOLVABLE: solvable },
+        });
+        expect(r.status).toBe(solvable === 'yes' ? 0 : 1);
+        if (solvable === 'yes') expect(r.stdout).toContain('postgresql-17-cron=1.6.8+2');
+        else expect(r.stderr).toContain('No signed pg_cron package solves');
+      }
+      const calls = readFileSync(join(box, 'calls'), 'utf8');
+      expect(calls).toContain('--simulate install');
+      expect(calls).toContain('postgresql-server-dev-17');
     } finally {
       rmSync(box, { recursive: true, force: true });
     }
