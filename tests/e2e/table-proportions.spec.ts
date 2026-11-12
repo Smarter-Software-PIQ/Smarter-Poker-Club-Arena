@@ -1197,7 +1197,10 @@ for (const [width, heightOverride] of occupiedViewports)
         // the hero remaining at least as tall as every opponent.
         const heroArt = art.find((seat) => seat.hero)!;
         for (const seat of art) {
-          expect([1, 1.02, 1.05, 1.1, 1.15, 1.2, 1.25, 1.3]).toContain(seat.paintScale);
+          expect([
+            1, 1.02, 1.05, 1.1, 1.15, 1.2, 1.25, 1.3, 1.35, 1.4, 1.45, 1.5, 1.55, 1.6, 1.65, 1.7,
+            1.75, 1.8, 1.85, 1.9, 1.95, 2,
+          ]).toContain(seat.paintScale);
           expect(
             Math.abs(seat.height / seat.paintScale - heroArt.height / heroArt.paintScale)
           ).toBeLessThan(0.05);
@@ -2083,10 +2086,29 @@ for (const [width, heightOverride] of occupiedViewports)
                 art: wrapper.querySelector('.seat:not(.seat--empty) .seat__avatar-img'),
               }))
               .filter((p): p is { wrapper: HTMLElement; art: Element } => p.art !== null);
+            // A zoomed portrait's hidden torso is not its visible centre.
+            // Reuse the independent decoded-alpha/clip proof above, so cards
+            // and bets are associated with the artwork the player can see.
+            const artCentre = (art: Element) => {
+              const rows = paintedRows(art);
+              if (!rows.length) violations.push('Player Portrait Is Not Visible');
+              return rows.length
+                ? {
+                    x:
+                      (Math.min(...rows.map((r) => r.left)) +
+                        Math.max(...rows.map((r) => r.right))) /
+                      2,
+                    y:
+                      (Math.min(...rows.map((r) => r.top)) +
+                        Math.max(...rows.map((r) => r.bottom))) /
+                      2,
+                  }
+                : centreOf(art);
+            };
             const nearestTo = (point: { x: number; y: number }) =>
               players.reduce((best, p) => {
-                const c = centreOf(p.art);
-                const b = centreOf(best.art);
+                const c = artCentre(p.art);
+                const b = artCentre(best.art);
                 return Math.hypot(point.x - c.x, point.y - c.y) <
                   Math.hypot(point.x - b.x, point.y - b.y)
                   ? p

@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   chooseMobileAvatarPaint,
-  mobileGrowthReservation,
+  mobileAvatarCardReservation,
+  createMobilePaintState,
+  mobilePaintKey,
 } from '../../src/components/table/mobileAvatarEnlargement';
 
 const art = [{ left: 50, top: 40, width: 20, height: 40 }];
@@ -43,28 +45,61 @@ describe('mobile avatar paint fitting', () => {
     expect(result.scale).toBeGreaterThan(1);
     expect(result.parts.every((p) => p.top + p.height <= 80)).toBe(true);
   });
-  it('reserves every allowed fixed pivot before a new shown hand is placed', () => {
-    const bounds = mobileGrowthReservation(art[0], art, 1.3);
-    for (const scale of [1.02, 1.05, 1.1, 1.15, 1.2, 1.25, 1.3])
-      for (const px of [-1, -0.5, 0, 0.5, 1])
-        for (const py of [-1, 0, 1, 2]) {
-          const result = chooseMobileAvatarPaint(
-            art,
-            [60, 80],
-            80,
-            [],
-            awayFelt,
-            viewport,
-            1.3,
-            Infinity,
-            { scale, px, py }
-          );
-          for (const part of result.parts) {
-            expect(part.left).toBeGreaterThanOrEqual(bounds.left - 1e-8);
-            expect(part.top).toBeGreaterThanOrEqual(bounds.top - 1e-8);
-            expect(part.left + part.width).toBeLessThanOrEqual(bounds.left + bounds.width + 1e-8);
-            expect(part.top + part.height).toBeLessThanOrEqual(bounds.top + bounds.height + 1e-8);
-          }
-        }
+  it('never qualifies enlargement by clipping away the character', () => {
+    for (const scale of [1.3, 1.9, 2]) {
+      const result = chooseMobileAvatarPaint(
+        art,
+        [60, 80],
+        80,
+        [],
+        awayFelt,
+        viewport,
+        2,
+        Infinity,
+        { scale, px: 0, py: -1 }
+      );
+      expect(result.scale).toBe(1);
+      expect(result.parts).toEqual(art);
+    }
+  });
+  it('refuses a sideways zoom whose visible centre leaves the original portrait', () => {
+    expect(
+      chooseMobileAvatarPaint(art, [60, 80], 80, [], awayFelt, viewport, 2, Infinity, {
+        scale: 2,
+        px: 0.3,
+        py: 0,
+      }).scale
+    ).toBe(1);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+  it('uses baseline on first mount and exact retained paint for later reveals', () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: true }));
+    const page = document.createElement('div');
+    Object.assign(page.dataset, {
+      seats: '6',
+      hero: 'false',
+      killEnabled: 'false',
+      holeCardCount: '4',
+    });
+    page.innerHTML =
+      '<div class="table-scaler"><div class="seat-wrapper" style="left:50%;top:100%"><div class="seat"><div class="seat__avatar seat__avatar--bust"><img class="seat__avatar-img"></div></div></div></div>';
+    const scaler = page.querySelector<HTMLElement>('.table-scaler')!;
+    const image = page.querySelector('img')!;
+    const state = createMobilePaintState();
+    expect(mobileAvatarCardReservation(image, art[0], scaler, page, state)).toEqual(art[0]);
+    state.key = mobilePaintKey(scaler, page);
+    state.choices.set(image, {
+      scale: 2,
+      x: 0,
+      y: 0,
+      parts: [{ left: 40, top: 30, width: 40, height: 50 }],
+      origin: [0, 0],
+    });
+    expect(mobileAvatarCardReservation(image, art[0], scaler, page, state)).toEqual({
+      left: 40,
+      top: 30,
+      width: 40,
+      height: 50,
+    });
   });
 });

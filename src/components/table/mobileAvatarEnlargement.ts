@@ -3,6 +3,7 @@ import { buttonRadiusWidthPct } from './tableGeometry';
 import {
   hiddenFanReservations,
   hiddenFanStates,
+  mobilePositionLabels,
   dealerReservations,
   heroPrivateReservations,
 } from './mobileAvatarReservations';
@@ -13,10 +14,10 @@ export type MobileAvatarProfile = { scale: number; px: number; py: number };
 // Unqualified layouts retain their existing artwork.
 const fixed = (scale: number, px = 0): MobileAvatarProfile => ({ scale, px, py: 1 });
 const MOBILE_PROFILES: Record<string, Record<number, MobileAvatarProfile>> = {
-  'cash|6|seated': Object.fromEntries(Array.from({ length: 6 }, (_, i) => [i, fixed(1.3)])),
-  'cash|6|spectator': Object.fromEntries(Array.from({ length: 6 }, (_, i) => [i, fixed(1.3)])),
-  'cash|9|seated': Object.fromEntries(Array.from({ length: 9 }, (_, i) => [i, fixed(1.3)])),
-  'cash|9|spectator': Object.fromEntries(Array.from({ length: 9 }, (_, i) => [i, fixed(1.3)])),
+  'cash|6|seated': Object.fromEntries(Array.from({ length: 6 }, (_, i) => [i, fixed(2)])),
+  'cash|6|spectator': Object.fromEntries(Array.from({ length: 6 }, (_, i) => [i, fixed(2)])),
+  'cash|9|seated': Object.fromEntries(Array.from({ length: 9 }, (_, i) => [i, fixed(2)])),
+  'cash|9|spectator': Object.fromEntries(Array.from({ length: 9 }, (_, i) => [i, fixed(2)])),
 };
 
 export type PaintBox = { left: number; top: number; width: number; height: number };
@@ -48,7 +49,8 @@ export function chooseMobileAvatarPaint(
   viewport: PaintBox,
   ceiling = 1.15,
   maxPaintHeight = Infinity,
-  profile?: MobileAvatarProfile
+  profile?: MobileAvatarProfile,
+  attachmentBottom = clipBottom
 ): PaintChoice {
   const unchanged = { scale: 1, x: 0, y: 0, parts, origin };
   if (!parts.length) return unchanged;
@@ -59,6 +61,11 @@ export function chooseMobileAvatarPaint(
     bottom: Math.max(...parts.map(bottom)),
   };
   const height = bounds.bottom - bounds.top;
+  const minimumHeight = Math.max(0, Math.min(bounds.bottom, clipBottom) - bounds.top);
+  const minimumArea = parts.reduce(
+    (sum, p) => sum + p.width * Math.max(0, Math.min(bottom(p), clipBottom) - p.top),
+    0
+  );
   const existing = obstacles.map((o) => area(parts, o.box));
   // The actual CSS felt window is a stadium. Using its enclosing rendered
   // stadium is conservative on a tapered phone: it can refuse room, not add it.
@@ -86,6 +93,11 @@ export function chooseMobileAvatarPaint(
     next.some((p) => {
       const from = Math.max(p.top, felt.top),
         to = Math.min(bottom(p), bottom(felt));
+      if (to <= from) return false;
+      // The stadium is widest at the point nearest its middle. A run wholly
+      // outside that interval cannot cover felt anywhere in its vertical span.
+      const widest = feltInterval(Math.min(to, Math.max(from, felt.top + felt.height / 2)));
+      if (!widest || right(p) <= widest[0] || p.left >= widest[1]) return false;
       for (let row = Math.floor(from * 10); row < Math.ceil(to * 10); row++) {
         const y = row / 10;
         const band = feltInterval(Math.min(Math.max(y + 0.05, from), to));
@@ -101,11 +113,18 @@ export function chooseMobileAvatarPaint(
       }
       return false;
     });
-  for (const scale of profile ? [profile.scale] : [1.3, 1.25, 1.2, 1.15, 1.1, 1.05, 1.02]) {
+  for (const scale of profile
+    ? [profile.scale]
+    : [
+        2, 1.95, 1.9, 1.85, 1.8, 1.75, 1.7, 1.65, 1.6, 1.55, 1.5, 1.45, 1.4, 1.35, 1.3, 1.25, 1.2,
+        1.15, 1.1, 1.05, 1.02,
+      ]) {
     if (scale <= 1 || scale > ceiling + 0.0001) continue;
     // Crown-first (Option A), then growth toward free rail. No image stretch.
-    for (const py of profile ? [profile.py] : [0, 1, -1, 2])
-      for (const px of profile ? [profile.px] : [0, 0.5, -0.5, 1, -1]) {
+    for (const py of profile ? [profile.py] : [2, 1, 0.75, 0.5, 0.25, 0.15, 0.1, 0.05, 0, -1])
+      for (const px of profile
+        ? [profile.px]
+        : [0, 0.05, -0.05, 0.1, -0.1, 0.15, -0.15, 0.25, -0.25, 0.5, -0.5, 1, -1]) {
         const pivot: [number, number] = [
           (bounds.left + bounds.right) / 2 + px * height,
           bounds.top + py * height,
@@ -124,6 +143,36 @@ export function chooseMobileAvatarPaint(
             };
           })
           .filter((p) => p.height > 0);
+        // A crop must not qualify by hiding the character. Preserve at least
+        // the original visible height and painted area before testing clearance.
+        let nextLeft = Infinity,
+          nextTop = Infinity;
+        let nextRight = -Infinity,
+          nextBottom = -Infinity,
+          nextArea = 0;
+        for (const part of next) {
+          nextLeft = Math.min(nextLeft, part.left);
+          nextTop = Math.min(nextTop, part.top);
+          nextRight = Math.max(nextRight, right(part));
+          nextBottom = Math.max(nextBottom, bottom(part));
+          nextArea += part.width * part.height;
+        }
+        const visibleHeight = next.length ? nextBottom - nextTop : 0;
+        if (
+          !next.length ||
+          // Keep the portrait attached to its plate, rather than floating
+          // above or entirely beside the chair to obtain a larger scale.
+          nextBottom + 0.01 < Math.min(bounds.bottom, attachmentBottom) ||
+          nextLeft > (bounds.left + bounds.right) / 2 ||
+          nextRight < (bounds.left + bounds.right) / 2 ||
+          // Keep the enlarged portrait's centre within its original footprint
+          // so a sideward zoom cannot make it read as the neighbouring chair.
+          (nextLeft + nextRight) / 2 < bounds.left ||
+          (nextLeft + nextRight) / 2 > bounds.right ||
+          visibleHeight + 0.01 < minimumHeight ||
+          nextArea + 0.01 < minimumArea
+        )
+          continue;
         if (
           next.some(
             (p) =>
@@ -134,19 +183,30 @@ export function chooseMobileAvatarPaint(
           )
         )
           continue;
-        if (
-          Math.max(...next.map(bottom)) - Math.min(...next.map((p) => p.top)) >
-          maxPaintHeight + 0.01
-        )
-          continue;
-        if (addsFelt(next)) continue;
+        if (visibleHeight > maxPaintHeight + 0.01) continue;
         if (
           obstacles.some((o, i) => {
-            const overlap = area(next, o.box);
-            return !(o.ownLayer && existing[i] > 0) && overlap > existing[i] + 0.01;
+            if (o.ownLayer && existing[i] > 0) return false;
+            // Most reserved strips are far from this portrait. Reject them by
+            // bounds before walking hundreds of decoded alpha runs. Stop as
+            // soon as the same non-negative overlap sum exceeds its allowance.
+            if (
+              nextRight <= o.box.left ||
+              nextLeft >= right(o.box) ||
+              nextBottom <= o.box.top ||
+              nextTop >= bottom(o.box)
+            )
+              return false;
+            let overlap = 0;
+            for (const part of next) {
+              overlap += intersection(part, o.box);
+              if (overlap > existing[i] + 0.01) return true;
+            }
+            return false;
           })
         )
           continue;
+        if (addsFelt(next)) continue;
         return {
           scale,
           x: (1 - scale) * (pivot[0] - origin[0]),
@@ -236,15 +296,13 @@ function profileFor(image: HTMLImageElement, scaler: HTMLElement, page: HTMLElem
     return;
   return MOBILE_PROFILES[key]?.[ring.indexOf(image.closest<HTMLElement>('.seat-wrapper')!)];
 }
-/** The card allocator reserves growth BEFORE selecting a new shown-hand slot.
- * Existing rows keep their original retained placement. Unsupported portraits
- * can reserve more than they paint, but never paint beyond this reservation. */
+/** Later shown hands reserve the exact fixed portrait. On first mount the
+ * original rows settle first and become constraints for portrait fitting. */
 export function mobileAvatarCardReservation(
   image: HTMLImageElement,
   baseline: PaintBox,
   scaler: HTMLElement,
   page: HTMLElement,
-  readPaint: (image: HTMLImageElement) => PaintBox[],
   state?: MobilePaintState
 ): PaintBox {
   const profile = profileFor(image, scaler, page);
@@ -259,9 +317,11 @@ export function mobileAvatarCardReservation(
       ...rebaseChoice(cached, [rect.left + rect.width / 2, rect.bottom])!.parts,
     ]);
   }
-  const parts = readPaint(image);
-  if (!parts.length) return baseline;
-  return mobileGrowthReservation(baseline, parts, profile.scale);
+  // On first mount the original layout settles before paint is selected.
+  // The final fitter treats these already displayed cards as constraints.
+  // Later reveals reserve the exact cached portrait above. Reserving every
+  // possible pivot here would push a hand toward another player's chair.
+  return baseline;
 }
 
 function unionPaint(parts: PaintBox[]): PaintBox {
@@ -272,33 +332,6 @@ function unionPaint(parts: PaintBox[]): PaintBox {
     top,
     width: Math.max(...parts.map(right)) - left,
     height: Math.max(...parts.map(bottom)) - top,
-  };
-}
-
-export function mobileGrowthReservation(
-  baseline: PaintBox,
-  parts: PaintBox[],
-  ceiling: number
-): PaintBox {
-  if (!parts.length) return baseline;
-  const left = Math.min(...parts.map((p) => p.left)),
-    top = Math.min(...parts.map((p) => p.top));
-  const r = Math.max(...parts.map(right)),
-    b = Math.max(...parts.map(bottom)),
-    height = b - top;
-  const pivotX = (left + r) / 2 + height,
-    pivotY = top + 2 * height;
-  const l = Math.min(baseline.left, pivotX + (left - pivotX) * ceiling);
-  const t = Math.min(baseline.top, pivotY + (top - pivotY) * ceiling);
-  return {
-    left: l,
-    top: t,
-    width:
-      Math.max(
-        right(baseline),
-        (left + r) / 2 - height + (r - ((left + r) / 2 - height)) * ceiling
-      ) - l,
-    height: Math.max(bottom(baseline), b) - t,
   };
 }
 
@@ -326,13 +359,9 @@ export function mobileFrameCardReservation(
           baseline,
           ...rebaseChoice(cached, [baseline.left + baseline.width / 2, bottom(baseline)])!.parts,
         ]);
-  // The largest frame candidate grows from its top centre by ten percent.
-  return {
-    left: baseline.left - baseline.width * 0.05,
-    top: baseline.top,
-    width: baseline.width * 1.1,
-    height: baseline.height * 1.1,
-  };
+  // Initial rows settle first; frame fitting then checks those exact rows.
+  // Future reveals use the retained frame footprint above.
+  return baseline;
 }
 
 function cssLength(element: HTMLElement, name: string, fallback: number) {
@@ -363,11 +392,21 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
   const context = document.createElement('canvas').getContext('2d')!;
   context.font = badgeStyle?.font || `700 ${fontSize}px ${getComputedStyle(page).fontFamily}`;
   const letter = badgeStyle ? parseFloat(badgeStyle.letterSpacing) || 0 : fontSize * 0.06;
+  // A sparse table cannot produce full-ring position labels. Keep any wider
+  // label still displayed from a hand whose roster has since shrunk, too.
+  // Occupancy changes invalidate the fixed qualification; label rotation does not.
+  const positionLabels = [
+    ...mobilePositionLabels(
+      Number(page.dataset.seats),
+      scaler.querySelectorAll('.seat:not(.seat--empty)').length
+    ),
+    ...Array.from(page.querySelectorAll('.seat__position-badge:not(.seat__kill-badge)')).map(
+      (element) => element.textContent?.trim() || ''
+    ),
+  ];
   const badgeWidth =
     Math.max(
-      ...['SB', 'BB', 'UTG', 'UTG+1', 'UTG+2', 'MP', 'MP+1', 'HJ', 'CO', 'BTN'].map(
-        (label) => context.measureText(label).width + label.length * letter
-      )
+      ...positionLabels.map((label) => context.measureText(label).width + label.length * letter)
     ) + 12;
   const badgeHeight = fontSize * 1.3 + 4;
   for (const element of page.querySelectorAll<HTMLElement>(
@@ -611,28 +650,37 @@ export function enlargeMobileAvatars(
     for (const [seat, parts] of painted)
       if (seat !== e.seat)
         for (const box of parts) obstacles.push({ box: box as DOMRect, ownLayer: false });
-    const clipBottom = e.avatar.classList.contains('seat__avatar--bust')
-      ? // Zoom the portrait above its existing name plate. Growing the torso
-        // behind that translucent plate would introduce an unapproved overlap.
-        Math.min(
-          Math.max(...e.parts.map(bottom)),
-          page.dataset.seats === '6' || page.dataset.hero === 'false'
-            ? e.info.getBoundingClientRect().top
-            : Infinity
-        )
-      : Infinity;
-    const choice =
-      rebaseChoice(state?.choices.get(e.image), [rect.left + rect.width / 2, rect.bottom]) ??
-      chooseMobileAvatarPaint(
-        e.parts,
-        [rect.left + rect.width / 2, rect.bottom],
-        clipBottom,
-        obstacles,
-        felt,
-        { left: 0, top: 0, width: innerWidth, height: innerHeight },
-        Math.min(profile.scale, e === hero ? profile.scale : heroHeight / rect.height),
-        e === hero ? Infinity : heroPaintHeight
-      );
+    const paintBottom = Math.max(...e.parts.map(bottom));
+    let clipBottom = paintBottom;
+    let choice = rebaseChoice(state?.choices.get(e.image), [
+      rect.left + rect.width / 2,
+      rect.bottom,
+    ]);
+    if (!choice) {
+      // Keep the full portrait when it fits. A larger portrait may crop its
+      // lower torso at its own fixed plate, without painting through the plate.
+      for (const lowerEdge of [
+        ...new Set([paintBottom, Math.min(paintBottom, e.info.getBoundingClientRect().top)]),
+      ]) {
+        const candidate = chooseMobileAvatarPaint(
+          e.parts,
+          [rect.left + rect.width / 2, rect.bottom],
+          lowerEdge,
+          obstacles,
+          felt,
+          page.getBoundingClientRect(),
+          Math.min(profile.scale, e === hero ? profile.scale : heroHeight / rect.height),
+          e === hero ? Infinity : heroPaintHeight,
+          undefined,
+          e.info.getBoundingClientRect().top
+        );
+        if (!choice || candidate.scale > choice.scale) {
+          choice = candidate;
+          clipBottom = lowerEdge;
+        }
+      }
+    }
+    if (!choice) continue;
     state?.choices.set(e.image, choice);
     if (choice.scale === 1) continue;
     // Keep brightness/saturation (including folds). An enlarged soft shadow

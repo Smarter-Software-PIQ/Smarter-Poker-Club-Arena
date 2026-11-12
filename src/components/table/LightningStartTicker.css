@@ -1,7 +1,7 @@
 /* LIGHTNING START TICKER (Dan 2026-11-11): a masthead line under the bomb pot
    clock, same column and type scale (the wrapper is .table-brand__line--bomb),
-   in white, as requested on November 12. */
+   matching the surrounding table caption ink, as requested on November 12. */
 .lightning-start-ticker__text {
-  color: #ffffff;
+  color: inherit;
   font-weight: 800;
 }

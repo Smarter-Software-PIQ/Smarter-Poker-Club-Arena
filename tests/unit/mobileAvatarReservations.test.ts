@@ -4,6 +4,7 @@ import {
   dealerReservations,
   hiddenFanReservations,
   hiddenFanStates,
+  mobilePositionLabels,
 } from '../../src/components/table/mobileAvatarReservations';
 import { dealerButtonPositionClearOfSeat } from '../../src/components/table/DealerButton';
 import { seatPodPx } from '../../src/components/table/tableGeometry';
@@ -17,6 +18,14 @@ const fan = {
   scale: 1,
 };
 describe('static mobile reservations', () => {
+  it('reserves position labels reachable on the ring, including a dead button', () => {
+    expect(mobilePositionLabels(6).sort()).toEqual(['BB', 'CO', 'MP', 'SB', 'UTG']);
+    expect(mobilePositionLabels(9)).toContain('UTG+2');
+    expect(mobilePositionLabels(9)).not.toContain('MP+1');
+    expect(mobilePositionLabels(6)).not.toContain('BTN');
+    expect(mobilePositionLabels(6, 2).sort()).toEqual(['BB', 'SB']);
+    expect(mobilePositionLabels(6, 3)).toContain('CO');
+  });
   it('reserves only reachable backs for the stable variant', () => {
     for (const count of [2, 4, 5, 6])
       expect(hiddenFanStates(count)).toEqual([{ count, discard: false }]);
