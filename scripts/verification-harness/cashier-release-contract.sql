@@ -362,10 +362,11 @@ BEGIN
     ),
     jsonb_build_object(
       'signature', 'public.fn_cancel_tournament_ticket(uuid)',
-      -- 20261112184950: the issuer refund books to ticket_escrow (category
-      -- refund, not the cashout pair escrow_release); nothing else changed.
-      'hash', 'd3f65b7702d4b7f543891dd87c149353',
-      'replacement_hash', 'e52d94e64fe64cc1508885a541450c71'
+      -- 20261112184950 booked the issuer refund to ticket_escrow (category
+      -- refund); 20261112184216 (promo chips fund cashier tickets) then
+      -- replaced the body from that preimage. Installed and read back live
+      -- 2026-11-12: only that successor is accepted.
+      'hash', '7b73f81407a4feb9084b92d5ee38db1d'
     ),
     jsonb_build_object(
       'signature', 'public.fn_club_bank_ledger(uuid,integer,integer,text[])',
