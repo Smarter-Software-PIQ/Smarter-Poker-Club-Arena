@@ -71,6 +71,12 @@ interface ClubCardPanelProps {
    * other reader; only this card's printed figure carries the addition.
    */
   displayAddition?: { members: number; active: number; label: string } | null;
+  /**
+   * Dan 2026-11-12: a union member club plays on its union's floor, so its
+   * cash/events split counts that floor and this names it ("MIDWAY UNION").
+   * Null for a standalone club or a union's own card.
+   */
+  splitFloorLabel?: string | null;
 }
 
 export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
@@ -88,6 +94,7 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
   logoUrl,
   entityType = 'club',
   displayAddition = null,
+  splitFloorLabel = null,
 }) => {
   const [cardFailed, setCardFailed] = useState(false);
   const [logoFailed, setLogoFailed] = useState(false);
@@ -262,9 +269,16 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
           {/* Dan 2026-09-09: the split prints under the total, in the same
               small caps as the labels, so 291 ACTIVE beside 21 cash players
               on the floor no longer reads as a wrong number. */}
+          {splitFloorLabel ? (
+            <span className="club-card-stat-split-floor sc-label sc-ink--blue">
+              {splitFloorLabel}
+            </span>
+          ) : null}
           <span
             className="club-card-stat-split sc-label sc-ink--muted"
-            aria-label="Active Players By Game"
+            aria-label={
+              splitFloorLabel ? `Active Players By Game In ${splitFloorLabel}` : 'Active Players By Game'
+            }
           >
             <span className="club-card-stat-split-part">{cashText} CASH</span>
             <span className="club-card-stat-split-dot" aria-hidden="true" />

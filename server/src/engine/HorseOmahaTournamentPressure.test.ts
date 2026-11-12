@@ -471,6 +471,10 @@ describe(
       // The called-through straight check (hand 58796916, 2026-11-12) is a later
       // river value rule pinned by HorseOmahaCalledThroughStraight.test.ts.
       v40CalledThroughStraight: false,
+      // PLO6-AUDIT-005 (2026-11-12) changes one Omaha preflop call class
+      // independently of V53; its explicit off arm keeps this pre-V53
+      // baseline byte-identical (the horseComplaints laws pin the real rule).
+      omahaPreflopCallWithActionBehind: false,
     };
 
     it.each(CORPUS_VARIANTS)(

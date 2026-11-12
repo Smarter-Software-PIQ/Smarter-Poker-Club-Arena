@@ -873,6 +873,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V89'
   ),
   flag(
+    'omahaPreflopCallWithActionBehind',
+    '2026-11-12 Omaha preflop: a call costing 40% of the stack that leaves chips behind while an opponent still owes a decision to the price is not priced by the final all-in arithmetic (V38); the calibrated range play decides it. A jam, an all-in call and a closing call are unchanged (PLO6-AUDIT-005, production hand 58751512)',
+    'V90'
+  ),
+  flag(
     'v67RiverRaiseShadeOverride',
     'league calibration arm (2026-10-31): overrides the V67 extra river raise shade for a league card; inert unless set; production never sets it',
     'V67-league'

@@ -22,15 +22,13 @@
 --    a. A cancelled promo ticket returns its escrow to the issuer's promo
 --       wallet, never to a player wallet, so a ticket can never turn promo
 --       chips into the agent's own cashable chips.
---    b. ROOT CAUSE FIX. The door journaled its release under escrow_release,
---       which fn_ca_tally_ledger_leg counts as cashout custody. Every cancel
---       was therefore refused at commit (ticket_escrow moved, no ticket_escrow
---       leg; measured November 12 in a rolled back probe, and no cancel
---       receipt has ever been written). The release is now journaled as
---       ticket_redeem, the ticket float's own category.
+--    The release category itself (escrow_release was counted as cashout
+--    custody, so every cancel was refused at commit) was corrected to refund by
+--    20261112184950, which landed first; this file patches that installed body
+--    and leaves its category alone.
 --
 -- No table is altered and no balance or history is rewritten.
--- @live-proof: (SELECT md5(pg_get_functiondef('public.fn_cancel_tournament_ticket(uuid)'::regprocedure)) <> 'd3f65b7702d4b7f543891dd87c149353' AND to_regprocedure('public.fn_cashier_promo_ticket_send(uuid,uuid,numeric,text)') IS NOT NULL)
+-- @live-proof: (SELECT md5(pg_get_functiondef('public.fn_cancel_tournament_ticket(uuid)'::regprocedure)) = '7b73f81407a4feb9084b92d5ee38db1d' AND to_regprocedure('public.fn_cashier_promo_ticket_send(uuid,uuid,numeric,text)') IS NOT NULL)
 
 BEGIN;
 SET LOCAL lock_timeout = '3s';
@@ -236,7 +234,7 @@ DECLARE
   d text := pg_get_functiondef('public.fn_cancel_tournament_ticket(uuid)'::regprocedure);
   n text;
 BEGIN
-  IF md5(d) <> 'd3f65b7702d4b7f543891dd87c149353' THEN
+  IF md5(d) <> 'e52d94e64fe64cc1508885a541450c71' THEN
     RAISE EXCEPTION 'Unexpected ticket cancel preimage';
   END IF;
   n := replace(d, '  v_escrow_entity uuid;
@@ -244,11 +242,6 @@ BEGIN', '  v_escrow_entity uuid;
   v_promo boolean := false;
 BEGIN');
   IF n = d THEN RAISE EXCEPTION 'Ticket cancel patch 1 did not match'; END IF;
-  d := n;
-  -- The ticket float's own category: escrow_release is cashout custody.
-  n := replace(d, '  PERFORM set_config(''app.ledger_category'',''escrow_release'',true);',
-                  '  PERFORM set_config(''app.ledger_category'',''ticket_redeem'',true);');
-  IF n = d THEN RAISE EXCEPTION 'Ticket cancel patch 2 did not match'; END IF;
   d := n;
   n := replace(d, '  UPDATE public.club_members
      SET chip_balance=COALESCE(chip_balance,0)+v_t.value,updated_at=now()
@@ -275,20 +268,21 @@ BEGIN');
        AND COALESCE(status,'active') IN ('active','approved')
      RETURNING chip_balance INTO v_after;
   END IF;$refund$);
-  IF n = d THEN RAISE EXCEPTION 'Ticket cancel patch 3 did not match'; END IF;
+  IF n = d THEN RAISE EXCEPTION 'Ticket cancel patch 2 did not match'; END IF;
   d := n;
   n := replace(d, '''holder_id'',v_t.holder_id,''escrow_action'',''refund_to_issuer'',',
                   '''holder_id'',v_t.holder_id,''escrow_action'',''refund_to_issuer'',
       ''refund_wallet'',CASE WHEN v_promo THEN ''promo_wallet'' ELSE ''player_wallet'' END,');
-  IF n = d THEN RAISE EXCEPTION 'Ticket cancel patch 4 did not match'; END IF;
+  IF n = d THEN RAISE EXCEPTION 'Ticket cancel patch 3 did not match'; END IF;
   d := n;
   n := replace(d, '    ''your_balance'',v_after,''transaction_id'',v_receipt.id);
 END;', '    ''your_balance'',v_after,''transaction_id'',v_receipt.id,
     ''refund_wallet'',CASE WHEN v_promo THEN ''promo_wallet'' ELSE ''player_wallet'' END);
 END;');
-  IF n = d THEN RAISE EXCEPTION 'Ticket cancel patch 5 did not match'; END IF;
+  IF n = d THEN RAISE EXCEPTION 'Ticket cancel patch 4 did not match'; END IF;
   d := n;
   IF position('escrow_release' in d) <> 0
+     OR position('''app.ledger_category'',''refund''' in d) = 0
      OR position('promo_wallet_balance=COALESCE(promo_wallet_balance,0)+v_t.value' in d) = 0 THEN
     RAISE EXCEPTION 'Ticket cancel patch did not produce its successor';
   END IF;

@@ -1,4 +1,5 @@
 import { expect, type Page } from '@playwright/test';
+import { waitForMobileAvatarGrowth } from './mobileLiveTableLayout';
 
 /** Runs inside the existing real-component/font harness, not a second page or
  * pipeline. A fresh action/reveal must never choose a different art transform. */
@@ -128,6 +129,22 @@ export async function checkFixedMobileArtwork(page: Page, bundle: string) {
       document.dispatchEvent(new Event('fixture-next-hand'));
     }, settings);
     await settle();
+    if (spectator) {
+      // Exercise the production screenshot sequence without the fixture's
+      // animation-finishing settle helper between resize and proof.
+      for (const width of [604, 600]) {
+        await page.setViewportSize({ width, height: 1298 });
+        await page.evaluate(
+          () =>
+            new Promise<void>((resolve) =>
+              requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+            )
+        );
+        await waitForMobileAvatarGrowth(page);
+        expect((await read()).paint.some((p) => Number(p[0]) > 1)).toBe(true);
+      }
+      await settle();
+    }
     await expect.poll(async () => (await read()).paint.some((p) => Number(p[0]) > 1)).toBe(true);
     const before = await read();
     if (!spectator) {

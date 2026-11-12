@@ -3,6 +3,37 @@ import { expect, type Page, type TestInfo } from '@playwright/test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
+/** A resize clears paint while decoded art and protected rows settle. Two
+ * animation frames can still be that baseline, not the published result. */
+export async function waitForMobileAvatarGrowth(page: Page) {
+  await expect
+    .poll(
+      async () =>
+        page
+          .locator('.table-page:visible')
+          .first()
+          .evaluate((table) => {
+            const supported =
+              matchMedia('(min-width: 481px) and (max-width: 768px) and (orientation: portrait)')
+                .matches &&
+              !table.classList.contains('table-page--tournament') &&
+              ['6', '9'].includes((table as HTMLElement).dataset.seats || '') &&
+              (table as HTMLElement).dataset.killEnabled === 'false' &&
+              [2, 3, 4, 5].includes(Number((table as HTMLElement).dataset.holeCardCount));
+            if (!supported) return true;
+            return Array.from(table.querySelectorAll<HTMLElement>('.seat__avatar')).some(
+              (avatar) => Number(avatar.style.getPropertyValue('--sp-mobile-art-scale')) > 1
+            );
+          }),
+      {
+        timeout: 15_000,
+        message:
+          'Supported live cash table must actually enlarge avatar artwork after layout settles',
+      }
+    )
+    .toBe(true);
+}
+
 /** JSON reporter bodies are embedded, so retain files for the release artifact too. */
 async function attachMobileProof(
   testInfo: TestInfo,
@@ -20,7 +51,7 @@ async function attachMobileProof(
 export async function certifyMobileLiveTableLayout(
   page: Page,
   testInfo: TestInfo,
-  options: { widths?: number[]; seatChangeToggle?: boolean } = {}
+  options: { widths?: number[]; seatChangeToggle?: boolean; requireAvatarGrowth?: boolean } = {}
 ) {
   const capacity = await page.locator('.table-page:visible').first().getAttribute('data-seats');
   const proofTag = `mobile-live-table-${capacity || 'unknown'}max`;
@@ -47,6 +78,7 @@ export async function certifyMobileLiveTableLayout(
           })
         );
       });
+      if (options.requireAvatarGrowth) await waitForMobileAvatarGrowth(page);
       const read = () => page.evaluate(readMobileTableLayout, AVATAR_CROWN_TOP);
       await expect
         .poll(async () => (await read()).violations, {
