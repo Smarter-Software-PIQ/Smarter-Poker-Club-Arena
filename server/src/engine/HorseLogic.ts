@@ -14789,9 +14789,13 @@ export class HorseLogic {
     // called a wager on the previous street and now needs its whole stack at
     // about a third of the pot or better therefore does not fold when the
     // new card neither completes a draw it does not beat nor pairs the board
-    // under it, and its uncapped equity still clears the price. Scare cards,
-    // a board pair under trips, tournaments, Hi-Lo, bomb pots and multiple
-    // boards keep the pricing below.
+    // under it, and its uncapped equity still clears the price. It applies
+    // heads-up to a bet hero did not raise into. Scare cards, a board pair
+    // under trips, a non-nut straight or flush, a board-dominated hand, a
+    // raise over hero's own wager, more than one opponent, tournaments,
+    // Hi-Lo, bomb pots and multiple boards keep the pricing below (the
+    // dominated-flush and raised-river folds of hands 45855223 and the
+    // weak-flush recovery suite are exactly those exclusions).
     let honor88 = false;
     if (
       (opts.v88CommitmentHonored ?? true) !== false &&
@@ -14805,7 +14809,12 @@ export class HorseLogic {
       toCall > 0 &&
       toCall >= stack &&
       potOdds <= V88_COMMITMENT_MAX_PRICE &&
+      oppCount === 1 &&
+      !raisedAfterAggr &&
       cat >= 2 &&
+      (cat <= 4 || nutClass15) &&
+      !dominated21 &&
+      !coldFlushPressure15 &&
       !dangered &&
       equity >= potOdds + 0.02 &&
       board.length >= 4
@@ -14982,10 +14991,6 @@ export class HorseLogic {
       if (v66Class || v67Class || v87OmahaBetRaised) {
         if (eq15 >= required || solverCall32)
           return { action: 'call', amount: toCall, thinkTime: 0 };
-        if (honor88) {
-          if (tele15) noteFire('v88_commitment_honored');
-          return { action: 'call', amount: toCall, thinkTime: 0 };
-        }
         return {
           action: 'fold',
           thinkTime: 0,

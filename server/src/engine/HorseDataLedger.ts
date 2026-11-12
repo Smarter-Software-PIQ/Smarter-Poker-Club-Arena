@@ -859,7 +859,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'v88CommitmentHonored',
-    '2026-11-11 cash Omaha high, single board: a made hand that called a wager on the previous street and now needs its whole stack at 0.345 of the pot or better does not fold when the new card neither completes a draw it does not beat nor pairs the board under trips and its uncapped range equity clears the price; hand 58656644 called a flop check-raise leaving 936 behind 1,212 and folded a blank turn at 0.32 capped equity against a 0.3235 bar; explicit off arm retained',
+    '2026-11-11 cash Omaha high, single board, heads-up, not over hero own raised wager, no non-nut straight or flush and no board-dominated hand: a made hand that called a wager on the previous street and now needs its whole stack at 0.345 of the pot or better does not fold when the new card neither completes a draw it does not beat nor pairs the board under trips and its uncapped range equity clears the price; hand 58656644 called a flop check-raise leaving 936 behind 1,212 and folded a blank turn at 0.32 capped equity against a 0.3235 bar; explicit off arm retained',
     'V88'
   ),
   flag(
