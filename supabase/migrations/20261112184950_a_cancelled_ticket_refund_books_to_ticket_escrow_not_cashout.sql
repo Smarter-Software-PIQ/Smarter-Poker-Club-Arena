@@ -47,9 +47,15 @@
 -- not a non-circulating store), and horse_refund_parity reads only legs with a
 -- tournament (these have none). Nothing else changes in either function.
 --
+-- LANDING ORDER. #10620 (promo cashier tickets) and #10622 (alerts lane) fix
+-- the same doors. A function another lane already rid of escrow_release is
+-- left unchanged (a NOTICE names it); only a body that still carries the line
+-- is rewritten, so whichever lands first, the settler's issuer return is not
+-- left behind.
+--
 -- Pinned by tests/a-cancelled-ticket-refund-books-to-ticket-escrow.law.test.ts.
 --
--- @live-proof: (SELECT strpos(pg_get_functiondef('public.fn_cancel_tournament_ticket(uuid)'::regprocedure), '''escrow_release''') = 0 AND strpos(pg_get_functiondef('public.fn_cancel_tournament_ticket(uuid)'::regprocedure), 'PERFORM set_config(''app.ledger_category'',''refund'',true);') > 0 AND strpos(pg_get_functiondef('public.fn_ca_settle_closed_cashier_entry_tickets(uuid,text)'::regprocedure), '''escrow_release''') = 0 AND strpos(pg_get_functiondef('public.fn_ca_settle_closed_cashier_entry_tickets(uuid,text)'::regprocedure), 'PERFORM set_config(''app.ledger_category'',''refund'',true);') > 0 AND public.fn_ca_ledger_tally_key('escrow', NULL, NULL) = 'ticket_escrow')
+-- @live-proof: (SELECT strpos(pg_get_functiondef('public.fn_cancel_tournament_ticket(uuid)'::regprocedure), '''escrow_release''') = 0 AND strpos(pg_get_functiondef('public.fn_ca_settle_closed_cashier_entry_tickets(uuid,text)'::regprocedure), '''escrow_release''') = 0 AND public.fn_ca_ledger_tally_key('escrow', NULL, NULL) = 'ticket_escrow')
 
 BEGIN;
 SET LOCAL lock_timeout = '2s';
@@ -67,6 +73,14 @@ BEGIN
     'public.fn_ca_settle_closed_cashier_entry_tickets(uuid,text)'::regprocedure]
   LOOP
     v_def := pg_get_functiondef(v_fn);
+    -- Another lane may have removed escrow_release from this function first
+    -- (#10620 rewrites the Cancel door, #10622 both doors). Any category other
+    -- than the cashout pair already lands on ticket_escrow, so that function is
+    -- left exactly as it is; this file never rewrites another lane's choice.
+    IF strpos(v_def, '''escrow_release''') = 0 THEN
+      RAISE NOTICE 'TICKET_ESCROW_CATEGORY: % already declares no escrow_release; left unchanged', v_fn;
+      CONTINUE;
+    END IF;
     -- Exactly one issuer-refund category line, and no other escrow_release in
     -- the body: anything else means the function moved under us; stop.
     IF (length(v_def) - length(replace(v_def, c_old, ''))) / length(c_old) <> 1
