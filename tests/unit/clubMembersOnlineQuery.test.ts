@@ -259,7 +259,10 @@ describe('Players tab operational continuity', () => {
   it('distinguishes members at tables from members who are merely online', () => {
     expect(PAGE).toContain('At Tables');
     expect(PRIVACY_MIGRATION).toContain("WHEN 'seated' THEN r.is_seated");
-    expect(PAGE).toContain("member.is_seated ? 'At A Table'");
+    // The row's status word reads the live state (seat read, then the door, then
+    // the row the server sent), never the stale is_seated column alone.
+    expect(PAGE).toContain("seated ? 'At A Table' : online ? 'Online' : 'Offline'");
+    expect(PAGE).toContain('liveStateOf(');
   });
 
   it('searches the visible club and upline fields as well as identity', () => {
