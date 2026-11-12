@@ -11,10 +11,13 @@ What changed:
 
 - Every game in the Midway union cash plan now runs on the `always` window;
   the window-count bound (the old 1,727 weekly table-hours budget born of the
-  200,000 rake target) is retired. The plan grows to 22 games: the two 1/2
-  Classic PLO games switched off under the throttle - Classic PLO4 1/2 and
-  Classic PLO5 1/2 - are back in the plan and re-enabled in the database
-  (migration 20261111233000).
+  200,000 rake target) is retired. The plan grows to 21 games: Classic
+  PLO4 1/2, switched off under the throttle, is back in the plan and
+  re-enabled in the database (migration 20261111233000). PLO5 1/2 keeps its
+  one game - PLO5 1/2 Madness, live full time - because the owner's
+  one-game-per-stake rule (2026-10-23) is a database constraint
+  (cash_games_one_per_key) allowing one enabled game per club, variant,
+  stakes and template.
 - The weekly rake target is tripled to a 600,000 forecast. A target remains a
   forecast, never a ceiling on human play.
 - The cash activity scale relaunches at triple the reduced rate: 0.2 -> 0.6

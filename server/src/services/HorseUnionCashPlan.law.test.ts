@@ -35,13 +35,13 @@ const high = {
 
 describe('the union cash floor follows the November 11 relaunch (zero game-count restrictions)', () => {
   it('schedules every plan game at every hour of every day, with the target tripled', () => {
-    expect(plan.games).toHaveLength(22);
+    expect(plan.games).toHaveLength(21);
     expect(plan.games.every((game) => game.window === 'always')).toBe(true);
     expect(plan.weeklyRakeTarget).toBe(600000);
     for (let hour = 0; hour < 168; hour++) {
       const now = at('2026-11-09T00:00:00-06:00') + hour * 3600000 + 30 * 60000;
       const scheduled = scheduledHorseCashGames(now);
-      expect(scheduled.size).toBe(22);
+      expect(scheduled.size).toBe(21);
       const variants = plan.games
         .filter((game) => scheduled.has(game.id))
         .map((game) => game.variant);
@@ -52,14 +52,13 @@ describe('the union cash floor follows the November 11 relaunch (zero game-count
       expect(plan.games.some((game) => game.name.startsWith('Lightning'))).toBe(false);
     }
   });
-  it('runs all seven 1/2 games full time, Horse-only play included (Dan 2026-11-11)', () => {
+  it('runs all six 1/2 games full time, Horse-only play included (Dan 2026-11-11; PLO5 1/2 is the one Madness game, one game per stake)', () => {
     const oneTwo = plan.games.filter((game) => game.smallBlind === 1 && game.bigBlind === 2);
     expect(oneTwo.map((game) => game.variant).sort()).toEqual([
       'flh',
       'flo8',
       'nlh',
       'plo4',
-      'plo5',
       'plo5',
       'plo6',
     ]);
@@ -76,7 +75,7 @@ describe('the union cash floor follows the November 11 relaunch (zero game-count
       '2027-11-07T01:30:00-05:00',
       '2027-11-07T01:30:00-06:00',
     ])
-      expect(scheduledHorseCashGames(at(date)).size).toBe(22);
+      expect(scheduledHorseCashGames(at(date)).size).toBe(21);
   });
   it('does not turn lower-stakes games into human-only games', () => {
     const now = at('2026-11-04T05:00:00-06:00');

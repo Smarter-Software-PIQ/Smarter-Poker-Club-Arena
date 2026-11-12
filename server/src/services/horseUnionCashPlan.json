@@ -116,14 +116,6 @@
       "bigBlind": 2.0
     },
     {
-      "id": "4a762a3c-fcbe-450f-806a-b83cfd974a62",
-      "name": "Classic PLO5 1/2",
-      "window": "always",
-      "variant": "plo5",
-      "smallBlind": 1.0,
-      "bigBlind": 2.0
-    },
-    {
       "id": "b52239dc-a29a-4959-a27e-6972a6d05584",
       "name": "Classic FLH 1/2 blinds",
       "window": "always",
