@@ -224,6 +224,17 @@
   white-space: nowrap;
 }
 
+/* Dan 2026-11-12: a union member club's split counts its union's floor, so
+   the union's name sits over it in the same small caps, blue like the labels. */
+.club-card-stat-split-floor {
+  grid-column: 1 / -1;
+  justify-self: end;
+  margin-top: -0.6cqw;
+  font-size: 2.4cqw;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
 .club-card-stat-split-dot {
   width: 1px;
   height: 2.4cqw;
@@ -304,6 +315,9 @@
   .club-card-stat-split {
     font-size: clamp(6px, 4cqw, 8px);
     letter-spacing: 0.1px;
+  }
+  .club-card-stat-split-floor {
+    font-size: clamp(6px, 3.6cqw, 8px);
   }
   /* A phone card (165px) has no room for "94 CASH · 544 EVENTS" on one line
      inside its third of the rail (Dan: "MAKE SURE FONT SIZES NEVER GO OVER THE
