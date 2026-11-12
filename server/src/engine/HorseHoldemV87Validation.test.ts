@@ -95,6 +95,7 @@ import { horseVariantRulesFor } from './VariantRules.js';
 import { equityGovernor } from './EquityLoadGovernor.js';
 import { solverPolicyArtifactStatus } from '../gto/SolverPolicyArtifactLoader.js';
 import { ServerTableEngine } from './ServerTableEngine.js';
+import * as EngineMetrics from '../observability/engineInstruments.js';
 import {
   createHorseExecutionWitness,
   type HorseExecutionWitness,
@@ -1198,11 +1199,26 @@ describe('V87.1 Holdem Elite Strategy & Ecosystem Independent Validation', () =>
       });
       engine.seatedPlayers = [horseSeatRow];
       engine.handController = hc;
-      engine.disconnectEngine = { isSittingOut: () => false, recordPlayerActed: vi.fn() };
-      let timeBankAutoArmed = false;
+      engine.disconnectEngine = {
+        isSittingOut: () => false,
+        recordPlayerActed: vi.fn(),
+        // Step 3 enters the turn through handleTurnChange and lets the primary
+        // clock expire, so the connected-player answers that path reads are
+        // stated here: the horse is connected, on its turn and not in grace.
+        onPlayerTurn: () => true,
+        isInReconnectGrace: () => false,
+        isClientSitOut: () => false,
+        isConnected: () => true,
+        protectExpiredTurn: () => false,
+        recordConnectedTimeout: vi.fn(),
+      };
+      // Steps 1 and 2 see a bank that is available but never spent. Step 3
+      // hands the engine's own TimeBankEngine back, so the bank it spends is
+      // the real one.
+      const engineTimeBank = engine.timeBankEngine;
       engine.timeBankEngine = {
         isAutoActivateEnabled: () => true,
-        isArmed: () => timeBankAutoArmed,
+        isArmed: () => false,
         getPlayerBank: () => ({ remainingSeconds: 30, usesRemaining: 3 }),
       };
       engine.getEngineLeaseAuthority = () => ({ verified: true, generation: '11' });
@@ -1226,9 +1242,11 @@ describe('V87.1 Holdem Elite Strategy & Ecosystem Independent Validation', () =>
 
       // 2. Changed-circumstances / stale turn refusal: seat 5 acts BEFORE a stale scheduled horse callback fires!
       lastWitness = undefined;
+      // Cards go on the hand itself, as in steps 1 and 3: getState() is a copy.
+      (hc as any).state.players.find((p: SeatPlayer) => p.seat === 5)!.cards = cards('Qh Qd');
       const st2 = hc.getState();
       const mpEnginePlayer = st2.players.find((p) => p.seat === 5)!;
-      mpEnginePlayer.cards = cards('Qh Qd');
+      expect(mpEnginePlayer.cards).toEqual(cards('Qh Qd'));
       const mpSeatRow = {
         seat_number: 5,
         user_id: mpEnginePlayer.user_id,
@@ -1238,19 +1256,41 @@ describe('V87.1 Holdem Elite Strategy & Ecosystem Independent Validation', () =>
         horse_profile: {},
       };
       engine.seatedPlayers = [horseSeatRow, mpSeatRow];
+      const abandonedTurns = vi.spyOn(EngineMetrics.horseTurnsAbandonedTotal, 'inc');
       engine.scheduleHorseAction(mpSeatRow, 5, mpEnginePlayer, st2);
       expect(hc.performAction(5, 'fold')).toBe(true);
       expect(hc.getState().currentPlayerSeat).toBe(6);
       await vi.advanceTimersByTimeAsync(15_000);
       expect(hc.getState().currentPlayerSeat).toBe(6);
+      // The stale seat-5 request was answered, and its answer was refused at
+      // the fast_result fence because seat 5 is no longer on the clock
+      // (seat_moved). That refusal retires the witness as turn_abandoned.
       const staleWitness = lastWitness as HorseExecutionWitness | undefined;
-      if (staleWitness) {
-        expect(staleWitness.acceptedActions).toHaveLength(0);
-        expect(staleWitness.retirementReason).toBeDefined();
-      }
+      expect(staleWitness).toBeDefined();
+      expect(staleWitness!.identity.heroSeat).toBe(5);
+      expect(staleWitness!.executionStatus).toBe('not_executed');
+      expect(staleWitness!.acceptedActions).toHaveLength(0);
+      expect(staleWitness!.retirementReason).toBe('turn_abandoned');
+      expect(abandonedTurns).toHaveBeenCalledWith(1, {
+        reason: 'seat_moved',
+        stage: 'fast_result',
+      });
+      expect(
+        hc
+          .getState()
+          .actionHistory.filter((a) => a.seat === 5)
+          .map((a) => a.action)
+      ).toEqual(['fold']);
+      abandonedTurns.mockRestore();
 
-      // 3. Tournament F06 time-bank continuation: a 11.5s tank on an 8s primary clock
-      // holds past 8s when tournament time-bank is available and executes cleanly inside the extended window!
+      // 3. Tournament F06 time-bank continuation, through the maintained path:
+      // TURN_CHANGE arms the 8 s primary clock and schedules the horse, the
+      // horse tanks with THINK_TIMEBANK_SENTINEL, the primary clock expires
+      // (8 s + 2 s grace), the engine spends a real bank on that expiry
+      // (onPrimaryTimerExpired -> time_bank_active) and, because the bank is
+      // durable, clears only the primary clock
+      // (clearPrimaryClockPreservingHorseDecision). The tank must survive that
+      // and execute its own decision inside the granted bank.
       const mttSeats = makeSeats(6, 6, cards('Ac Kc'), 120);
       const hcMtt = new HandController(
         {
@@ -1268,10 +1308,17 @@ describe('V87.1 Holdem Elite Strategy & Ecosystem Independent Validation', () =>
       hcMtt.start();
       expect(hcMtt.performAction(4, 'raise', 5)).toBe(true);
       expect(hcMtt.performAction(5, 'raise', 16)).toBe(true);
+      // The hero's cards are pinned on the controller's own state, as step 1
+      // does. getState() returns a copy: setting cards on it changed nothing,
+      // so the engine read whatever had been dealt, and a dealt QQ+/AK was
+      // re-raised at commit by holdemPremiumAggression ("premiums never flat
+      // preflop"). That is the 'raise' CI run 43131897318 received. JJ is not
+      // a premium, so every commit-time wager rule leaves the scripted call.
+      (hcMtt as any).state.players.find((p: SeatPlayer) => p.seat === 6)!.cards = cards('Jh Jd');
       const stMtt = hcMtt.getState();
       expect(stMtt.currentPlayerSeat).toBe(6);
       const coPlayer = stMtt.players.find((p) => p.seat === 6)!;
-      coPlayer.cards = cards('Qh Qd');
+      expect(coPlayer.cards).toEqual(cards('Jh Jd'));
       const coSeatRow = {
         seat_number: 6,
         user_id: coPlayer.user_id,
@@ -1281,30 +1328,8 @@ describe('V87.1 Holdem Elite Strategy & Ecosystem Independent Validation', () =>
         horse_profile: {},
       };
 
-      workerBridge.decideFast.mockImplementationOnce(async (snap: LiveHorseDecisionSnapshot) => {
-        const sentinelTank = HorseLogic.THINK_TIMEBANK_SENTINEL + 1_500;
-        lastWitness = createHorseExecutionWitness(
-          snap,
-          { action: 'call', thinkTime: sentinelTank },
-          { requestId: 88, lane: 'fast', computeMs: 2, governorScale: 1 }
-        );
-        return {
-          type: 'FAST_RESULT',
-          planIssueDisposition: 'no_effects',
-          planBinding: horsePlanBatchBindingFromRequest({ ...snap, requestId: 88 }),
-          requestId: 88,
-          generation: snap.generation,
-          fence: snap.fence,
-          decision: { action: 'call', thinkTime: sentinelTank, executionWitness: lastWitness },
-          rngBefore: 1,
-          rngAfter: 2,
-          computeMs: 2,
-          governorScale: 1,
-          effects: [],
-        };
-      });
-
       engine.handController = hcMtt;
+      engine.handCount = 2;
       engine.seatedPlayers = [coSeatRow];
       engine.tableFormat = () => 'mtt';
       engine.tableInfo = {
@@ -1314,16 +1339,109 @@ describe('V87.1 Holdem Elite Strategy & Ecosystem Independent Validation', () =>
         game_variant: 'nlh',
         tournament_id: '99999999-9999-4999-8999-999999999999',
       };
-      timeBankAutoArmed = true;
+      engine.timeBankEngine = engineTimeBank;
+      engineTimeBank.configure(tableId, { secondsPerUse: 20, autoActivate: true });
+      engineTimeBank.initializePlayer(tableId, coPlayer.user_id, {
+        remainingSeconds: 60,
+        usesRemaining: 3,
+      });
+      // A live hand continuation makes the bank activation durable, which is
+      // the only branch clearPrimaryClockPreservingHorseDecision runs on.
+      engine.handContinuation = {
+        isUnretained: () => false,
+        isReplayingOriginal: () => false,
+        canAwaitRetention: () => true,
+        awaitRetention: async () => undefined,
+        checkpoint: () => undefined,
+        enqueue: () => undefined,
+        close: () => undefined,
+      };
 
-      engine.scheduleHorseAction(coSeatRow, 6, coPlayer, stMtt);
-      await vi.advanceTimersByTimeAsync(7_800);
+      // One scripted reply, scoped to seat 6's request on hand 2. Any other
+      // request (a stray from an earlier step, a retry, a re-schedule) runs the
+      // real worker instead of consuming the script, and is counted below.
+      const realWorkerFast = workerBridge.decideFast.getMockImplementation()!;
+      const seat6Fence = `${tableId}:2:6:`;
+      const seat6Requests: LiveHorseDecisionSnapshot[] = [];
+      let scriptedWitness: HorseExecutionWitness | undefined;
+      const sentinelTank = HorseLogic.THINK_TIMEBANK_SENTINEL + 1_500;
+      workerBridge.decideFast.mockImplementation(
+        async (
+          snap: LiveHorseDecisionSnapshot,
+          ...rest: unknown[]
+        ): Promise<FastHorseDecisionResult> => {
+          if (!snap.fence.startsWith(seat6Fence)) return realWorkerFast(snap, ...rest);
+          seat6Requests.push(snap);
+          scriptedWitness = createHorseExecutionWitness(
+            snap,
+            { action: 'call', thinkTime: sentinelTank },
+            { requestId: 88, lane: 'fast', computeMs: 2, governorScale: 1 }
+          );
+          lastWitness = scriptedWitness;
+          return {
+            type: 'FAST_RESULT',
+            planIssueDisposition: 'no_effects',
+            planBinding: horsePlanBatchBindingFromRequest({ ...snap, requestId: 88 }),
+            requestId: 88,
+            generation: snap.generation,
+            fence: snap.fence,
+            decision: {
+              action: 'call',
+              thinkTime: sentinelTank,
+              executionWitness: scriptedWitness,
+            },
+            rngBefore: 1,
+            rngAfter: 2,
+            computeMs: 2,
+            governorScale: 1,
+            effects: [],
+          };
+        }
+      );
+      const callsBeforeStep3 = spyFast.mock.calls.length;
+
+      await engine.handleTurnChange({ type: 'TURN_CHANGE', seat: 6 }, engine.seatedPlayers);
+      const turnStartedAt: number = engine.playerTurnStartTime;
+      expect(engine.turnFSM.state).toBe('timer_running');
+      expect(seat6Requests).toHaveLength(1);
+      expect(seat6Requests[0].player.seat).toBe(6);
+
+      // Just before the primary deadline (8 s clock + 2 s grace): no bank yet.
+      await vi.advanceTimersByTimeAsync(9_800);
       expect(hcMtt.getState().currentPlayerSeat).toBe(6);
-      engine.extendHorseActionForTimeBank?.(6, 15_000);
+      expect(engineTimeBank.getPlayerBank(tableId, coPlayer.user_id)!.isActive).toBe(false);
+
+      // The primary clock expires on the next scheduler tick and spends a bank.
+      await vi.advanceTimersByTimeAsync(400);
+      expect(engine.turnFSM.state).toBe('time_bank_active');
+      const grantedBank = engineTimeBank.getPlayerBank(tableId, coPlayer.user_id)!;
+      expect(grantedBank.isActive).toBe(true);
+      expect(grantedBank.pendingPublication).toBe(true);
+      expect(grantedBank.usesRemaining).toBe(2);
+      expect(grantedBank.currentUseSeconds).toBe(20);
+      // F06: the bank took over the SAME turn and the tank survived it.
+      expect(hcMtt.getState().currentPlayerSeat).toBe(6);
+      expect(engine.horseActionTimer).not.toBeNull();
+      expect(engine.horseDecisionAbortController?.signal.aborted).toBe(false);
+      expect(scriptedWitness?.acceptedActions).toHaveLength(0);
+
       await vi.advanceTimersByTimeAsync(5_000);
-      const mttWitness = lastWitness as HorseExecutionWitness | undefined;
+      // Exactly one decision for seat 6 in this step, and it is the one that
+      // tanked into the bank: no retry, re-schedule or stray reply acted.
+      expect(seat6Requests).toHaveLength(1);
+      expect(spyFast.mock.calls.length - callsBeforeStep3).toBe(1);
+      expect(lastWitness).toBe(scriptedWitness);
+      const mttWitness = scriptedWitness as HorseExecutionWitness | undefined;
+      expect(mttWitness?.identity.requestId).toBe(88);
       expect(mttWitness?.acceptedActions).toHaveLength(1);
-      expect(mttWitness?.acceptedActions[0].record.action).toBe('call');
+      const accepted = mttWitness!.acceptedActions[0].record;
+      expect(accepted.seat).toBe(6);
+      expect(accepted.action).toBe('call');
+      // Executed inside the granted bank: after the primary deadline, before
+      // the 20 s bank runs out.
+      expect(accepted.timestamp).toBeGreaterThanOrEqual(turnStartedAt + 10_000);
+      expect(accepted.timestamp).toBeLessThan(turnStartedAt + 10_000 + 20_000);
+      expect(hcMtt.getState().currentPlayerSeat).not.toBe(6);
       vi.useRealTimers();
     });
 
