@@ -33,6 +33,8 @@ CUTOVER = MIGRATIONS / '20261109024836_a_missed_engine_cutover_and_a_failing_lob
 MIGRATION = next(MIGRATIONS.glob('*_a_merged_migration_still_uninstalled_after_an_hour_pages_t*.sql'))
 # 20261110194917: a renamed file's window header is read from the raw file.
 RENAME_FIX = next(MIGRATIONS.glob('*_the_install_watch_reads_a_renamed_migration_s_header_from_it.sql'))
+# 20261112094956: a file marked "SUPERSEDED BY" an installed or watched successor is retired.
+SUPERSEDE_FIX = next(MIGRATIONS.glob('*_the_install_watch_retires_a_migration_marked_superseded.sql'))
 PREIMAGES = json.loads((ROOT / 'scripts/ci/fixtures/engine-cutover-preimages.json').read_text())
 REPO = 'https://api.github.com/repos/Smarter-Software-PIQ/Smarter-Poker-Club-Arena'
 RAW = 'https://raw.githubusercontent.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena'
@@ -104,6 +106,11 @@ def main():
         proof = re.search(r'^-- @live-proof: (.+)$', RENAME_FIX.read_text(), re.M).group(1)
         assert sql(f'SELECT {proof}') == 't', 'rename-fix live proof must hold after install'
         ok('the rename fix installs over the exact installed watch (md5 preimage) and its live proof holds')
+        r = psql(['-f', str(SUPERSEDE_FIX)])
+        assert r.returncode == 0, r.stderr
+        proof = re.search(r'^-- @live-proof: (.+)$', SUPERSEDE_FIX.read_text(), re.M).group(1)
+        assert sql(f'SELECT {proof}') == 't', 'supersede-fix live proof must hold after install'
+        ok('the supersede fix installs over the exact installed watch (md5 preimage) and its live proof holds')
 
         def mock(pattern, body, status=200):
             sql("INSERT INTO mock_http VALUES ($m$%s$m$, %d, $m$%s$m$) ON CONFLICT (pattern) DO UPDATE SET status = EXCLUDED.status, body = EXCLUDED.body"
@@ -271,6 +278,37 @@ def main():
         assert sql("SELECT window_install FROM smarter_private.ca_merged_migration_watch WHERE version = '20261110163000'") == 't'
         assert sql("SELECT count(*) FROM operational_alert_events WHERE event_key = 'uninstalled:20261110163000'") == '0'
         ok('an added file with an empty patch is read from its raw text, not judged on nothing')
+
+        # A FILE MARKED SUPERSEDED (20261112013714 -> 20261112022726, 2026-11-12,
+        # alert 376926). The marker arrives as a MODIFY in the commit that adds
+        # the successor, listed BEFORE it; the successor installs; the old
+        # file must stop paging and its open page must resolve.
+        OLDS = 'supabase/migrations/20261110180000_first_try.sql'
+        NEWS = 'supabase/migrations/20261110181000_second_try.sql'
+        merge(15, '2026-11-10T18:00:00Z', [{'filename': OLDS, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+BEGIN; COMMIT;'}])
+        r = watch('2026-11-10 19:40:00Z')
+        assert r['state'] == 'read', r
+        assert sql("SELECT count(*) FROM operational_alert_events WHERE event_key = 'uninstalled:20261110180000' AND status = 'firing'") == '1'
+        merge(16, '2026-11-10T19:45:00Z', [
+            {'filename': OLDS, 'status': 'modified', 'patch': '@@ -1,1 +1,2 @@\n+-- SUPERSEDED BY 20261110181000\n BEGIN; COMMIT;'},
+            {'filename': NEWS, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+BEGIN; COMMIT;'}])
+        sql("INSERT INTO supabase_migrations.schema_migrations VALUES ('20261110181000', 'second_try', NULL)")
+        r = watch('2026-11-10 19:50:00Z')
+        assert r['state'] == 'read', r
+        assert sql("SELECT retired_by FROM smarter_private.ca_merged_migration_watch WHERE version = '20261110180000'") == sha(16)
+        assert sql("SELECT count(*) FROM operational_alert_events WHERE event_key = 'uninstalled:20261110180000' AND status = 'resolved'") == '1'
+        r = watch('2026-11-10 21:00:00Z')
+        assert sql("SELECT count(*) FROM operational_alert_events WHERE event_key IN ('uninstalled:20261110180000', 'uninstalled:20261110181000') AND status = 'firing'") == '0'
+        sql("DELETE FROM supabase_migrations.schema_migrations WHERE version = '20261110181000'")
+        ok('a file marked superseded by an installed successor is retired and its page resolved')
+
+        # A marker naming a successor that does not exist retires nothing.
+        OLDN = 'supabase/migrations/20261110182000_still_owed.sql'
+        merge(17, '2026-11-10T21:05:00Z', [{'filename': OLDN, 'status': 'added', 'patch': '@@ -0,0 +1,2 @@\n+-- SUPERSEDED BY 20991231000000\n+BEGIN; COMMIT;'}])
+        r = watch('2026-11-10 22:10:00Z')
+        assert sql("SELECT retired_at IS NULL FROM smarter_private.ca_merged_migration_watch WHERE version = '20261110182000'") == 't'
+        assert sql("SELECT count(*) FROM operational_alert_events WHERE event_key = 'uninstalled:20261110182000' AND status = 'firing'") == '1'
+        ok('a marker naming no installed or watched successor retires nothing and still pages')
 
         # Release and migration pages keep their own episode clocks.
         sql("SELECT public.fn_record_operational_alert('engine-cutover-watch', 'missed:2026-11-10', 'EngineCutoverMissed', 'firing', 'critical', "

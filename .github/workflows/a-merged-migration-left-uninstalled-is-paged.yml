@@ -11,6 +11,7 @@ on:
     paths:
       - supabase/migrations/20261109182123_a_merged_migration_still_uninstalled_after_an_hour_pages_the.sql
       - supabase/migrations/20261110194917_the_install_watch_reads_a_renamed_migration_s_header_from_it.sql
+      - supabase/migrations/20261112094956_the_install_watch_retires_a_migration_marked_superseded.sql
       - supabase/migrations/20261109024836_a_missed_engine_cutover_and_a_failing_lobby_close_page_the_o.sql
       - scripts/ci/test-a-merged-migration-left-uninstalled-is-paged.py
       - scripts/ci/test-a-missed-engine-cutover-is-paged.py
