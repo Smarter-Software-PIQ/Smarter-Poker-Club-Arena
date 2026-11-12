@@ -17,6 +17,10 @@ repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
 # it also proves Stale names its cause (controller_not_ticking or
 # health_textfile_frozen) and that series which existed and then disappear
 # page once, as MetricsAbsent.
+# hand-memory-domain-missing.test.yml (2026-11-12, HVH2D-EXE-002) proves the
+# missing-domain alarm fires on the every-cash-showdown-hand shape and on a
+# partial share, and stays quiet on a healthy fleet, below its 50-hand floor
+# and on the exempt unsupported-variant reason.
 docker run --rm --network none --read-only \
   --tmpfs /tmp:rw,noexec,nosuid,size=32m --memory 256m --cpus 1 \
   -v "$repo_root:/work:ro" --workdir /work/tests/monitoring \
@@ -25,7 +29,7 @@ docker run --rm --network none --read-only \
   test rules fleet-throughput.test.yml break-does-not-silence-its-own-alarms.test.yml \
     fleet-relative-throughput.test.yml lightning-abandoned-and-engine-memory.test.yml \
     mtt-started-late.test.yml engine-release-owner.test.yml database-replies-lost.test.yml \
-    reliability-controller-health.test.yml
+    reliability-controller-health.test.yml hand-memory-domain-missing.test.yml
 
 # The Spin stall and human-wait rules against synthetic series (2026-11-11,
 # incident f1b14fca): below, at and above the ladder envelope, recovery, the

@@ -129,6 +129,10 @@ import type { HorsePublicActionNode } from '../../engine/HorsePublicActionNode.j
 import { captureHandSeatGenerations } from '../../engine/handSeatGeneration.js';
 import { horseCompletedHandKey } from '../../engine/HorseDecisionHandBinding.js';
 import { drainHorseNets, drainHorsePlay } from '../HorseHandReview.js';
+import {
+  handMemoryDomainLoggedTotal,
+  handMemoryDomainMissingTotal,
+} from '../../observability/engineInstruments.js';
 
 const GLOBAL_HAND = 1_400_001;
 const historyId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -2108,5 +2112,162 @@ describe('retained original accepted terminal transport', () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+});
+
+/**
+ * HVH2D-EXE-002 (2026-11-12): the omission of public_memory_domain is counted
+ * at the storage boundary, once per accepted hand, and changes nothing written.
+ */
+describe('logHandHistory - a hand logged without its public memory domain is counted', () => {
+  const showdownReveal = [
+    { user_id: 'u1', seat: 1, reveal_order: 1, mucked: false, hand_name: 'Pair' },
+    { user_id: 'u2', seat: 2, reveal_order: 2, mucked: true },
+  ];
+  const validDomain = { version: 1 as const, speed: 'table' as const, ante: 'none' as const };
+  const loggedNow = (labels: Record<string, string>) => handMemoryDomainLoggedTotal.get(labels);
+  const missingNow = () =>
+    Object.fromEntries(
+      handMemoryDomainMissingTotal
+        .snapshot()
+        .filter((s) => s.value > 0)
+        .map((s) => [`${s.labels.mode}|${s.labels.reached_showdown}|${s.labels.reason}`, s.value])
+    );
+  const missingDelta = (before: Record<string, number>) => {
+    const after = missingNow();
+    return Object.fromEntries(
+      Object.entries(after)
+        .map(([k, v]) => [k, v - (before[k] ?? 0)] as const)
+        .filter(([, v]) => v !== 0)
+    );
+  };
+  const cashShowdownSupported = {
+    mode: 'cash',
+    reached_showdown: 'true',
+    learner_scope: 'supported',
+  };
+
+  it('a valid domain counts the hand and no omission', async () => {
+    const logged = loggedNow(cashShowdownSupported);
+    const missing = missingNow();
+    acceptAtomicHand();
+    await logHandHistory({ ...identityParams(), showdownReveal, publicMemoryDomain: validDomain });
+    const row = rpcCalls[0].args.p_hand_row as Record<string, unknown>;
+    expect(row.public_memory_domain).toEqual(validDomain);
+    expect(loggedNow(cashShowdownSupported) - logged).toBe(1);
+    expect(missingDelta(missing)).toEqual({});
+  });
+
+  it.each([
+    ['null', null],
+    ['not supplied', undefined],
+  ])('a %s domain on a cash showdown hand is one absent omission', async (_name, domain) => {
+    const logged = loggedNow(cashShowdownSupported);
+    const missing = missingNow();
+    acceptAtomicHand();
+    await logHandHistory({ ...identityParams(), showdownReveal, publicMemoryDomain: domain });
+    expect(rpcCalls[0].args.p_hand_row).not.toHaveProperty('public_memory_domain');
+    expect(loggedNow(cashShowdownSupported) - logged).toBe(1);
+    expect(missingDelta(missing)).toEqual({ 'cash|true|absent': 1 });
+  });
+
+  it('a supplied domain that fails validity is invalid, not absent, and is still not written', async () => {
+    const logged = loggedNow(cashShowdownSupported);
+    const missing = missingNow();
+    acceptAtomicHand();
+    await logHandHistory({
+      ...identityParams(),
+      showdownReveal,
+      publicMemoryDomain: { version: 1, speed: 'turbo', ante: 'none' } as any,
+    });
+    expect(rpcCalls[0].args.p_hand_row).not.toHaveProperty('public_memory_domain');
+    expect(loggedNow(cashShowdownSupported) - logged).toBe(1);
+    expect(missingDelta(missing)).toEqual({ 'cash|true|invalid': 1 });
+  });
+
+  it('labels a tournament hand without showdown by its own mode and street', async () => {
+    const labels = { mode: 'tournament', reached_showdown: 'false', learner_scope: 'supported' };
+    const logged = loggedNow(labels);
+    const missing = missingNow();
+    const tournamentId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    atomicRpcResults = [
+      {
+        data: {
+          success: true,
+          atomic_hand_commit: true,
+          history_id: historyId,
+          written: { u1: 118, u2: 80 },
+          tournament_id: tournamentId,
+          tournament_players_synced: true,
+          tournament_player_count: 2,
+          tournament_player_user_ids: ['u1', 'u2'],
+          tournament_player_chips: [
+            { user_id: 'u1', chips: 118 },
+            { user_id: 'u2', chips: 80 },
+          ],
+        },
+        error: null,
+      },
+    ];
+    await logHandHistory({ ...identityParams(), tournamentId, publicMemoryDomain: null });
+    expect(loggedNow(labels) - logged).toBe(1);
+    expect(missingDelta(missing)).toEqual({ 'tournament|false|absent': 1 });
+  });
+
+  it('a variant the exact-memory trigger never learns is exempt: unsupported_variant', async () => {
+    const labels = { mode: 'cash', reached_showdown: 'true', learner_scope: 'unsupported_variant' };
+    const logged = loggedNow(labels);
+    const supported = loggedNow(cashShowdownSupported);
+    const missing = missingNow();
+    acceptAtomicHand();
+    await logHandHistory({
+      ...identityParams(),
+      gameVariant: 'ofc',
+      showdownReveal,
+      publicMemoryDomain: null,
+    });
+    expect(loggedNow(labels) - logged).toBe(1);
+    expect(loggedNow(cashShowdownSupported) - supported).toBe(0);
+    expect(missingDelta(missing)).toEqual({ 'cash|true|unsupported_variant': 1 });
+  });
+
+  it('an identical-request retry inside the commit counts the hand once', async () => {
+    vi.useFakeTimers();
+    try {
+      const logged = loggedNow(cashShowdownSupported);
+      const missing = missingNow();
+      atomicRpcResults = [
+        { data: null, error: { message: 'upstream connect error' } },
+        { data: { success: false, reason: 'in_flight' }, error: null },
+        { data: { success: true, atomic_hand_commit: true, history_id: historyId }, error: null },
+      ];
+      const pending = logHandHistory({
+        ...identityParams(),
+        showdownReveal,
+        publicMemoryDomain: null,
+      });
+      await vi.advanceTimersByTimeAsync(
+        HAND_COMMIT_RETRY_DELAYS_MS[0] + HAND_COMMIT_RETRY_DELAYS_MS[1]
+      );
+      await pending;
+      expect(rpcCalls.filter((c) => c.fn === 'fn_ca_commit_hand_settlement')).toHaveLength(3);
+      expect(loggedNow(cashShowdownSupported) - logged).toBe(1);
+      expect(missingDelta(missing)).toEqual({ 'cash|true|absent': 1 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a hand the commit refused is not counted at all', async () => {
+    const logged = handMemoryDomainLoggedTotal.snapshot().reduce((sum, s) => sum + s.value, 0);
+    const missing = missingNow();
+    atomicRpcResults = [{ data: { success: false, reason: 'stale_hand' }, error: null }];
+    await expect(
+      logHandHistory({ ...identityParams(), showdownReveal, publicMemoryDomain: null })
+    ).rejects.toThrow('atomic hand commit refused');
+    expect(handMemoryDomainLoggedTotal.snapshot().reduce((sum, s) => sum + s.value, 0)).toBe(
+      logged
+    );
+    expect(missingDelta(missing)).toEqual({});
   });
 });

@@ -3165,3 +3165,56 @@ groups:
             sealed eight-node policy graph. The Phase 15 ledger cannot say what the
             reference proposed or which layer changed it.
           runbook: docs/runbooks/horse-brain-phase15.md
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # A LOGGED HAND WITHOUT ITS PUBLIC MEMORY DOMAIN (2026-11-12, HVH2D-EXE-002)
+  # ═══════════════════════════════════════════════════════════════════════
+  # logHandHistory writes hand_history.public_memory_domain only when the
+  # producer's value is valid and otherwise omits the column; the exact
+  # opponent-memory trigger (fn_horse_exact_accept_hand) then skips the hand.
+  # From 2026-11-07 every ordinary cash hand that reached showdown was written
+  # without it and nothing said so. The storage boundary now counts every
+  # accepted hand once (services/supabase/handMemoryDomainSignal.ts), always-on
+  # and zero-seeded:
+  #   poker_hand_memory_domain_logged_total{mode,reached_showdown,learner_scope}
+  #   poker_hand_memory_domain_missing_total{mode,reached_showdown,reason}
+  #     reason = absent | invalid | unsupported_variant
+  # Both series are NEW in this release, so Prometheus holds no history of
+  # them. The numbers below come from the finding's read-only production count
+  # for one hour: 589 ordinary cash hands reached showdown (all 589 without
+  # the domain) and 1,493 did not (0 without it). That is about 295 cash
+  # showdown hands per 30 minutes; the floor of 50 is a sixth of it, so a
+  # quiet half hour is not a share. The correct share is 0: a null or invalid
+  # domain on a learnable cash showdown hand is a defect, not a rate. The
+  # unsupported_variant reason and learner_scope are outside both sides of the
+  # division: the trigger never learns those variants, with or without a
+  # domain. The counters restart with the engine; increase() handles resets.
+  # This rule reports. Nothing reads it to repair, backfill or restart.
+  # Runbook: docs/runbooks/hand-memory-domain-missing.md
+  - name: horse-opponent-memory
+    interval: 60s
+    rules:
+      - alert: HandMemoryDomainMissingOnCashShowdown
+        expr: |
+          (
+            sum(increase(poker_hand_memory_domain_missing_total{mode="cash",reached_showdown="true",reason=~"absent|invalid"}[30m]))
+              / sum(increase(poker_hand_memory_domain_logged_total{mode="cash",reached_showdown="true",learner_scope="supported"}[30m]))
+          ) > 0
+          and on() sum(increase(poker_hand_memory_domain_logged_total{mode="cash",reached_showdown="true",learner_scope="supported"}[30m])) >= 50
+        for: 15m
+        labels:
+          severity: warning
+          component: club-arena-engine
+        annotations:
+          summary: '{{ $value | humanizePercentage }} of cash showdown hands in 30 minutes were logged without their public memory domain'
+          description: |
+            Ordinary cash hands that reached showdown were accepted with no
+            valid hand_history.public_memory_domain for 15 minutes running
+            (at least 50 such hands in the window). The exact opponent-memory
+            trigger skips every one of them, so horses learn nothing from
+            those showdowns. Read the reason label on
+            poker_hand_memory_domain_missing_total: absent means the producer
+            passed null (postHandTasks lost the hand's blind snapshot),
+            invalid means it passed a value publicMemoryDomainIsValid refuses.
+            This alert reports a producer defect; it starts no repair.
+          runbook: docs/runbooks/hand-memory-domain-missing.md
