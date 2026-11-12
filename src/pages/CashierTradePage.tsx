@@ -6410,7 +6410,9 @@ function CashierTradeWorkspace() {
                               : batchPlan.total >
                                   (amountModal === 'send'
                                     ? (selectedSourceBalance ?? Number.POSITIVE_INFINITY)
-                                    : myBalance)
+                                    : ticketSource === 'promo_wallet'
+                                      ? (promoBalances.own ?? Number.POSITIVE_INFINITY)
+                                      : myBalance)
                                 ? 'Insufficient Chips In The Funding Wallet'
                                 : ''}
                     </div>
