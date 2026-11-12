@@ -185,7 +185,7 @@ describe('the PostgreSQL accounting qualification runs as seven shards of one jo
     expect(readers[0].name).toBe('Install PostgreSQL 17 tools without a default database service');
     for (const step of steps) {
       // Reading the pinned version builds nothing; every actual use still needs 3/4.
-      const run = (step.run ?? '').replace(versionReader, '');
+      const run = (step.run ?? '').replaceAll(versionReader, '');
       const usesTester =
         JSON.stringify(step.env ?? {}).includes('isolationtester') || /isolationtester/.test(run);
       if (usesTester) expect([3, 4], `${step.name}`).toContain(shardsOf(step)[0]);

@@ -662,6 +662,14 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     // Normalize only this tested addition; retain all prior workflow pins.
     const pinnedFixtureBlock =
       '  3|4)\n    # The native source/checksum and fixture manifests own this exact minor.\n    pg_ci_fixture_version="$(python3 -B scripts/ci/build_pg17_isolationtester.py --print-version)"\n    [[ "$pg_ci_fixture_version" =~ ^17\\.[0-9]+$ ]]\n    pg_ci_server_packages=("postgresql-17=$pg_ci_fixture_version-*" "postgresql-client-17=$pg_ci_fixture_version-*" postgresql-17-cron)\n    pg_ci_build_packages=("postgresql-server-dev-17=$pg_ci_fixture_version-*" build-essential bison flex perl bzip2 patch)\n    for pg_ci_binary in postgres psql pg_config; do\n      pg_ci_actual="$(/usr/lib/postgresql/17/bin/"$pg_ci_binary" --version 2>/dev/null)" || pg_ci_actual=\n      case "$pg_ci_actual" in\n        "PostgreSQL $pg_ci_fixture_version"|"PostgreSQL $pg_ci_fixture_version "*|*" (PostgreSQL) $pg_ci_fixture_version"|*" (PostgreSQL) $pg_ci_fixture_version "*) ;;\n        *) pg_ci_build_tools_ready=false ;;\n      esac\n    done\n';
+    const pinnedBbjBlock = pinnedFixtureBlock
+      .replace('  3|4)', '  1)')
+      .replace('build-essential bison flex perl bzip2 patch)', 'build-essential)');
+    expect(keySetup.run.split(pinnedBbjBlock)).toHaveLength(2);
+    keySetup.run = keySetup.run.replace(
+      pinnedBbjBlock,
+      '  1)\n    pg_ci_build_packages=(postgresql-server-dev-17 build-essential)\n'
+    );
     expect(keySetup.run.split(pinnedFixtureBlock)).toHaveLength(2);
     keySetup.run = keySetup.run.replace(
       pinnedFixtureBlock,

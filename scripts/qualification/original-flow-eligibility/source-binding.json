@@ -318,8 +318,8 @@
       "sha256": "3f5650d78cbb5e171283ce9ddff00afd1f5a697c39be251d6557e93bdda94c91"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 144529,
-      "sha256": "04e3bb238a89db2d31bd3c7989b620dd2d96fea6169cc29d6712939856fd3638"
+      "bytes": 145485,
+      "sha256": "c5f0f95fdd6fc75aa5d0f0b5ed5b6319a58a96acbfe637a8769d6ca6e28b74d3"
     },
     "scripts/ci/qualification-input-projections.py": {
       "bytes": 9270,
@@ -2890,5 +2890,24 @@
         "current": 144529
       }
     ]
+  },
+  "f06BbjExactFixturePackages20261112": {
+    "reason": "Shard 1 funded BBJ also requires unchanged PostgreSQL 17.11. Extend exact complete package tuple/readiness to this existing consumer. Source identity only; financial assertions, native guards, prior audit and qualification states unchanged.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "kind": "bytes",
+        "previous": 144529,
+        "current": 145485
+      },
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "kind": "sha256",
+        "previous": "04e3bb238a89db2d31bd3c7989b620dd2d96fea6169cc29d6712939856fd3638",
+        "current": "c5f0f95fdd6fc75aa5d0f0b5ed5b6319a58a96acbfe637a8769d6ca6e28b74d3"
+      }
+    ],
+    "financialRecertification": false,
+    "executionPerformed": false
   }
 }

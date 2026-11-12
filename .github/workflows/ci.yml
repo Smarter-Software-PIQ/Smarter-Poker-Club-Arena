@@ -1575,7 +1575,18 @@ jobs:
           pg_ci_build_tools_ready=true
           case "$PG_CI_SHARD" in
             1)
-              pg_ci_build_packages=(postgresql-server-dev-17 build-essential)
+              # The native source/checksum and fixture manifests own this exact minor.
+              pg_ci_fixture_version="$(python3 -B scripts/ci/build_pg17_isolationtester.py --print-version)"
+              [[ "$pg_ci_fixture_version" =~ ^17\.[0-9]+$ ]]
+              pg_ci_server_packages=("postgresql-17=$pg_ci_fixture_version-*" "postgresql-client-17=$pg_ci_fixture_version-*" postgresql-17-cron)
+              pg_ci_build_packages=("postgresql-server-dev-17=$pg_ci_fixture_version-*" build-essential)
+              for pg_ci_binary in postgres psql pg_config; do
+                pg_ci_actual="$(/usr/lib/postgresql/17/bin/"$pg_ci_binary" --version 2>/dev/null)" || pg_ci_actual=
+                case "$pg_ci_actual" in
+                  "PostgreSQL $pg_ci_fixture_version"|"PostgreSQL $pg_ci_fixture_version "*|*" (PostgreSQL) $pg_ci_fixture_version"|*" (PostgreSQL) $pg_ci_fixture_version "*) ;;
+                  *) pg_ci_build_tools_ready=false ;;
+                esac
+              done
               for pg_ci_tool in cc make; do
                 if ! command -v "$pg_ci_tool" >/dev/null; then pg_ci_build_tools_ready=false; fi
               done

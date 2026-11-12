@@ -2379,7 +2379,7 @@ describe('restored provider accounting qualification', () => {
             'INSTALL:build-essential bison flex perl bzip2 pkg-config libcurl4-openssl-dev'
           );
         else if (shard === 1)
-          expect(output).toBe('INSTALL:postgresql-server-dev-17 build-essential');
+          expect(output).toBe('INSTALL:postgresql-server-dev-17=17.11-* build-essential');
         else
           expect(output).toBe(
             'INSTALL:postgresql-server-dev-17=17.11-* build-essential bison flex perl bzip2 patch' +
@@ -2425,7 +2425,7 @@ describe('restored provider accounting qualification', () => {
       }
       mkdirSync(join(temp, 'include/postgresql/17/server'), { recursive: true });
       writeFileSync(join(temp, 'include/postgresql/17/server/postgres.h'), '');
-      for (const shard of [3, 4]) {
+      for (const shard of [1, 3, 4]) {
         const run = () =>
           execFileSync(
             '/bin/bash',
