@@ -191,6 +191,19 @@ reviewer's public-read provenance verdict; a reconciled action join alone does
 not qualify a public read. Original acceptance-time authority withdrawals and
 wager normalization remain governed by that reviewer.
 
+A Lightning accepted terminal carries no accepted actor roster. Its actor
+classes come from the original decision-time player lists of the same hand,
+recorded as `rosterSource: lightning_decision_snapshots`. Conflicting or
+non-boolean classes refuse. Eligible-human presence is true only for a
+positively identified, non-excluded human, false only when every settled
+participant was classified, and otherwise unknown. Any other terminal without
+its accepted roster refuses. Lightning accepts simultaneous fast-fold decisions
+made on the same public state, so several decisions share one prior-action
+count: a Lightning decision binds to the one accepted action equal to its
+executed record, and no accepted action binds twice. A capture with no journal
+records is the omission `no_journal_records_for_key`: unknown, never evidence
+of no Horse activity.
+
 `capturedCoverage` separates the twelve expected variant/mode/speed cells:
 ordinary and Lightning NLH/PLO4/PLO5/PLO6 cash, and the four tournament variants.
 Original public-memory speed is retained on each witness; missing speed remains

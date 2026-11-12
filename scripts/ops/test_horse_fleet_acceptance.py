@@ -10,11 +10,11 @@ FEATURE = '#10398_plo_preflop_provenance'
 WINDOWS = [{'startUtc': '2026-11-11T12:00:00Z', 'endUtc': '2026-11-11T13:00:00Z'}]
 
 
-def record(sequence, kind, body):
+def record(sequence, kind, body, turn='c' * 64):
     raw = json.dumps(body, separators=(',', ':'), sort_keys=True)
     producer = '00000000-0000-4000-8000-000000000001'
     event = digest(json.dumps(['horse-journal-event-v1', producer, sequence], separators=(',', ':')).encode())
-    fields = [1, producer, sequence, event, 100, SERVING, kind, 'b' * 64, 'c' * 64, len(raw.encode()), raw]
+    fields = [1, producer, sequence, event, 100, SERVING, kind, 'b' * 64, turn, len(raw.encode()), raw]
     names = ('version', 'producerId', 'sequence', 'eventId', 'atMs', 'sourceRelease', 'kind', 'handKey', 'turnKey', 'bytes', 'body')
     return {**dict(zip(names, fields)), 'sha256': digest(json.dumps(fields, separators=(',', ':')).encode())}
 
@@ -166,6 +166,83 @@ class FleetAcceptanceTests(unittest.TestCase):
     def test_journal_hash_uses_javascript_sorted_key_and_number_bytes(self):
         self.assertEqual(journal_snapshot_hashes([{'z': 1.0, 'a': 1e-7}]),
                          [digest(b'{"a":1e-7,"z":1}')])
+
+    def lightning_capture(self, players, results, domain=None, second=None):
+        value = capture()
+        decision, terminal = json.loads(value['records'][0]['body']), json.loads(value['records'][2]['body'])
+        del terminal['acceptedActorRoster']
+        terminal['publicMemoryDomain'] = {'version': 1, 'speed': 'lightning'} if domain is None else domain
+        terminal['results'] = results
+        decision['snapshot']['gameState'] = {'players': players}
+        value['records'][0], value['records'][2] = record(1, 'decision', decision), record(3, 'accepted_hand', terminal)
+        if second is not None:
+            other = copy.deepcopy(decision); other['snapshot']['gameState'] = {'players': second}
+            value['records'].append(record(4, 'decision', other))
+        return reviewed(value)
+
+    def test_lightning_roster_comes_from_original_decision_frames_and_gaps_stay_unknown(self):
+        seat = lambda user, horse: {'user_id': user, 'is_horse': horse, 'is_folded': False, 'is_all_in': False, 'stack': 10}
+        everyone = [{'user_id': 'horse'}, {'user_id': 'human'}]
+        proof = journal_witnesses([self.lightning_capture([seat('horse', True), seat('human', False)], everyone)], SERVING, WINDOWS)[0][0]
+        self.assertEqual((proof['eligibleHumanPresent'], proof['eligibleHumanAbleToRespond'], proof['rosterSource']),
+                         (True, True, 'lightning_decision_snapshots'))
+        excluded = journal_witnesses([self.lightning_capture([seat('horse', True), seat('human', False)], everyone)],
+                                     SERVING, WINDOWS, ['human'])[0][0]
+        self.assertIs(excluded['eligibleHumanPresent'], False)
+        horse_only = journal_witnesses([self.lightning_capture([seat('horse', True)], [{'user_id': 'horse'}])], SERVING, WINDOWS)[0][0]
+        self.assertIs(horse_only['eligibleHumanPresent'], False)
+        for results in ([{'user_id': 'horse'}, {'user_id': 'never_seen'}], [], None):
+            with self.subTest(results=results):
+                gap = journal_witnesses([self.lightning_capture([seat('horse', True)], results)], SERVING, WINDOWS)[0][0]
+                self.assertIsNone(gap['eligibleHumanPresent'])
+        self.assertEqual(journal_witnesses([capture()], SERVING, WINDOWS)[0][0]['rosterSource'], 'accepted_actor_roster')
+
+    def test_missing_ordinary_roster_and_conflicting_lightning_frames_refuse(self):
+        seat = lambda user, horse: {'user_id': user, 'is_horse': horse}
+        for domain in ({'version': 1, 'speed': 'table'}, {'version': 2, 'speed': 'lightning'}, {}, 'lightning'):
+            with self.subTest(domain=domain), self.assertRaisesRegex(ValueError, 'accepted_actor_roster_required'):
+                journal_witnesses([self.lightning_capture([seat('horse', True)], [{'user_id': 'horse'}], domain=domain)], SERVING, WINDOWS)
+        for players, second in (([seat('horse', True), seat('human', False)], [seat('horse', True), seat('human', True)]),
+                                ([seat('horse', True), seat('human', None)], None), ([seat('horse', True), {'is_horse': False}], None)):
+            with self.subTest(players=players), self.assertRaisesRegex(ValueError, 'decision_roster_conflict'):
+                journal_witnesses([self.lightning_capture(players, [{'user_id': 'horse'}], second=second)], SERVING, WINDOWS)
+        with self.assertRaisesRegex(ValueError, 'accepted_actor_or_origin_mismatch'):
+            journal_witnesses([self.lightning_capture([seat('horse', False)], [{'user_id': 'horse'}])], SERVING, WINDOWS)
+
+    def test_lightning_binds_simultaneous_decisions_by_their_exact_action_once(self):
+        seat = lambda user, horse, n: {'user_id': user, 'is_horse': horse, 'seat': n}
+        value = self.lightning_capture([seat('horse', True, 2), seat('other', True, 3)], [{'user_id': 'horse'}, {'user_id': 'other'}])
+        decision, execution, terminal = (json.loads(value['records'][i]['body']) for i in range(3))
+        first = terminal['actions'][0]
+        second = dict(first, userId='other', seat=3, timestamp=first['timestamp'] + 1)
+        terminal['actions'] = [second, first]      # same prior-action count, accepted in the other order
+        d2, e2 = copy.deepcopy(decision), copy.deepcopy(execution)
+        d2['snapshot'].update(decisionKey='key2', requestId=2, player={'user_id': 'other', 'seat': 3})
+        e2['identity'].update(decisionKey='key2', requestId=2)
+        e2['handAnchor'].update(actorId='other', seat=3)
+        e2['acceptedActions'] = [{'intended': True, 'record': second}]
+        value['records'] = [value['records'][0], value['records'][1], record(3, 'accepted_hand', terminal),
+                            record(4, 'decision', d2, 'e' * 64), record(5, 'execution', e2, 'e' * 64)]
+        proofs = journal_witnesses([reviewed(value)], SERVING, WINDOWS)[0]
+        self.assertEqual(sorted(p['horse_id'] for p in proofs), ['horse', 'other'])
+        self.assertEqual(len({p['decisionEventId'] for p in proofs}), 2)
+        e2['acceptedActions'] = [{'intended': True, 'record': first}]; e2['handAnchor'].update(actorId='horse', seat=2)
+        d2['snapshot']['player'] = {'user_id': 'horse', 'seat': 2}
+        value['records'][3:] = [record(4, 'decision', d2, 'e' * 64), record(5, 'execution', e2, 'e' * 64)]
+        with self.assertRaisesRegex(ValueError, 'accepted_action_bound_twice'):
+            journal_witnesses([reviewed(value)], SERVING, WINDOWS)
+        terminal['actions'] = [second]
+        value['records'][2] = record(3, 'accepted_hand', terminal)
+        with self.assertRaisesRegex(ValueError, 'accepted_action_mismatch'):
+            journal_witnesses([reviewed(value)], SERVING, WINDOWS)
+
+    def test_empty_and_unreconciled_reads_are_distinct_omissions_not_zero_activity(self):
+        empty = {'key': 'f' * 64, 'records': [], 'review': {'version': 1, 'scope': 'single_retained_hand', 'status': 'unavailable', 'retainedRecords': 0}}
+        partial = capture(); partial['review']['status'] = 'unavailable'
+        proofs, omissions = journal_witnesses([empty, partial], SERVING, WINDOWS)
+        self.assertEqual(proofs, [])
+        self.assertEqual([o['reason'] for o in omissions], ['no_journal_records_for_key', 'original_reconciliation_incomplete'])
+        self.assertEqual(omissions[0]['handKey'], 'f' * 64)
 
     def test_private_research_exclusions_do_not_erase_the_hand(self):
         witnesses, _ = journal_witnesses([capture()], SERVING, WINDOWS, excluded_ids=['human'])
