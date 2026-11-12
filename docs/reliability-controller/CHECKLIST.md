@@ -1317,7 +1317,12 @@ Mac on 2026-11-11. No claim is made about which version ID now runs.
 - Copy Agent Handoff: owner-confirmed 2026-11-11 13:22Z (section 14), and
   the same pasted page carried the full handoff. Retained, not re-asked.
 
-### 16.7 Final PASS/FAIL
+### 16.7 Final PASS/FAIL/UNVERIFIED
+
+A PASS on a disclosure gate means the record states the fact accurately. It
+does not mean an underlying unknown was proven. The facts this lane could not
+establish are listed as UNVERIFIED in the second table and are not covered by
+any PASS above them.
 
 | Gate                                                     | Result | Evidence                                                      |
 | -------------------------------------------------------- | ------ | ------------------------------------------------------------- |
@@ -1336,6 +1341,14 @@ Mac on 2026-11-11. No claim is made about which version ID now runs.
 | Drill closes normally                                    | PASS   | both drills `recovered` by their designed path; none sent now |
 | Checkpoint and owned cleanup                             | PASS   | this section; probe rolled back, 0 rows; nothing else created |
 
+| Fact                                                      | Result     | What is and is not shown                                                                  |
+| --------------------------------------------------------- | ---------- | ----------------------------------------------------------------------------------------- |
+| Provider acceptance                                       | PASS       | `push_outbox` `sent`; the push service accepted it. Not device delivery                   |
+| Device-reported `displayed` receipt, Mac and iPhone       | PASS       | The worker on each device reported `showNotification` resolved                            |
+| A banner was visible, or a person saw it                  | UNVERIFIED | No device or owner evidence for this event; a receipt cannot show it                      |
+| Exact executing worker version on each device             | UNVERIFIED | A receipt-capable worker ran; the browser version ID (1374 on 2026-11-11) was not re-read |
+| Cause of the missing receipts on notifications 83, 85, 86 | UNVERIFIED | #2808 is a sufficient explanation, not a proven cause                                     |
+
 Not promised: exactly-once physical push delivery, or that the owner saw any
 banner. Carried forward from the previous session: one step briefly displaced
 the owner's Gmail tab with a diagnostics page. The tab was returned to the
@@ -1344,3 +1357,31 @@ inbox, not to the exact message.
 Unchanged: `notify_mode = critical_only`, `mutation_paused = true`, 0
 runbooks enabled. The three unidentified producers stay in triage. The
 documented finding that no narrow automatic recovery is justified stands.
+
+### 16.8 Closeout, 2026-11-12 16:02Z
+
+- Club Arena #10603 squash-merged as `a90d911dd10b4b0eb806738ead21b6dea1a2e2f5`
+  at 16:02:53Z by auto-merge after every required check passed. That includes
+  "TypeScript compilation and repository checks" (success at 15:59:08Z) and
+  the required "TypeScript Check" (success). No check failed and none was
+  rerun. Section 16 on main at that SHA is byte-identical to the reviewed head
+  `d72e86c8`. Documentation only: no engine release or client publication is
+  needed or was made.
+- This follow-up adds the second table in 16.7, so that no PASS reads as
+  proof of a banner, a worker version or the cause of the earlier gap, and
+  records this closeout. Its merge SHA is reported in the owning chat and
+  read from `git log` on this file.
+- Evidence locations: `smarter_private.push_device_receipts` rows 1 to 20.
+  `smarter_private.reliability_notification_device_receipts` notifications 83
+  to 101. `smarter_private.reliability_notifications` 101 (message `600cf76b`,
+  outbox `99c39a7f`). `smarter_private.reliability_drills`
+  `drill-20261111a` and `drill-20261111b`. `public.fn_record_push_receipt`.
+  World Hub `public/push/sw.js`, `src/lib/push/delivery-receipt-handler.js`
+  and #2808.
+- Owned temporary resources removed: the idempotency probe row (rolled back, 0
+  rows), and the scheduled check-in for this PR (deleted before it ran).
+  The head branch was deleted on merge. Nothing else was created.
+- Separate scope, not implemented and not implied by this section: automatic
+  recovery or self-repair of production or the codebase. The controller
+  detects, groups and escalates. `mutation_paused = true`, `notify_mode =
+critical_only`, 0 runbooks enabled, and triage ownership is unchanged.

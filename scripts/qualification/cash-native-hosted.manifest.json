@@ -524,8 +524,8 @@
       "sha256": "d9fbc730e56bbb5811585045dcc1e0b501c48cdd405e32276ec6165d22835014"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 143603,
-      "sha256": "22e56648754e22e21cced25e5e3eb72efcc5bb940d45a2d67439bdd19f497e18"
+      "bytes": 143430,
+      "sha256": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c"
     },
     "scripts/qualification/ci-admission-inputs.json": {
       "bytes": 77121,
@@ -7201,11 +7201,5 @@
     "scope": "Job-token boundary (2026-11-11, owner-authorized): ci.yml's changes job no longer holds actions: write; its superseded-run cancel moved to a separate retire_superseded job that runs only default-branch code. The regenerated projection differs only by that removed step, the changes job's permissions and its comment. No accounting command, assertion, matrix, deadline, admission, historical result or certification changed.",
     "execution_performed": false,
     "qualification": "Source identity only; no historical result or production receipt changed. Required final-head native qualification remains mandatory."
-  },
-  "qualifiedPostgresToolchain20261112": {
-    "reason": "Reviewed execution-only change: exact-minor BBJ and isolation qualification shards 1, 3 and 4 opt into signed server/client/header packages matching the existing native builder VERSION; these shards cannot take a presence-only readiness shortcut. Classifier, financial source/fixtures/assertions, timeouts, concurrency, job ownership and artifact contracts are unchanged. Source identity only; no historical qualification or production receipt restamped.",
-    "path": "scripts/qualification/ci-accounting-inputs.json",
-    "previousSHA256": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c",
-    "currentSHA256": "22e56648754e22e21cced25e5e3eb72efcc5bb940d45a2d67439bdd19f497e18"
   }
 }
