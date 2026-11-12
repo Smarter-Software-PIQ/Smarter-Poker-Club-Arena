@@ -2460,6 +2460,8 @@ export interface HorseDecideOpts {
    * class calls or folds at that price (no 0.42 floor, no jam). Inside
    * V61's gates. Default on; explicit false keeps today's pricing. */
   v67RiverBetRaisedOnePair?: boolean;
+  /** V88: a cash Omaha made hand that called a wager on the previous street and now needs its stack at a third of the pot or better does not fold a blank; explicit off arm retained. */
+  v88CommitmentHonored?: boolean;
   /** League-only override of the V67 extra raise shade; production never
    * sets it. */
   v67RiverRaiseShadeOverride?: number;
@@ -5686,6 +5688,10 @@ export function riverOnePairShadeShape(opts: HorseDecideOpts): RiverOnePairShade
  * n=90). A raise over a value bet is far more value-heavy than a river bet,
  * so the bet-fitted V61/V63 shade under-prices it. */
 export const V67_RIVER_RAISE_SHADE = 0.1;
+/** V88: the dearest all-in price at which a prior-street commitment is honored on a blank.
+ * A call for a stack no larger than the pot costs at most one third of the final pot; the
+ * margin above a third covers the rake taken from the award. */
+export const V88_COMMITMENT_MAX_PRICE = 0.345;
 /** V67: the most the combined river shade reaches for the raised class. */
 export const V67_RIVER_RAISE_SHADE_CAP = 0.25;
 /** V67: the full shade a raised river one-pair call carries. */
@@ -14772,6 +14778,58 @@ export class HorseLogic {
         ? 0.08
         : 0;
     if (shadeDeep86 > 0 && tele15) noteFire('v86_nlh_deep_pot_control');
+    // ═══ V88 A COMMITMENT IS HONORED ON A BLANK (Dan 2026-11-11) ═══
+    // Hand 58656644, PLO5 1/2: AAJ64 four-bet, bet J-3-2 rainbow, called a
+    // check-raise that left 936 behind a 1,212 pot, then folded to a pot bet
+    // on a 7 that completed nothing and gave it a flush draw. Both decisions
+    // were taken in this branch: the flop call because the post-call SPR was
+    // under 1, the turn fold at 0.32 capped equity against a 0.3235 bar,
+    // while the uncapped range equity read 0.62 on both streets. A call that
+    // leaves less than a pot behind is the stack decision. A made hand that
+    // called a wager on the previous street and now needs its whole stack at
+    // about a third of the pot or better therefore does not fold when the
+    // new card neither completes a draw it does not beat nor pairs the board
+    // under it, and its uncapped equity still clears the price. It applies
+    // heads-up to a bet hero did not raise into. Scare cards, a board pair
+    // under trips, a non-nut straight or flush, a board-dominated hand, a
+    // raise over hero's own wager, more than one opponent, tournaments,
+    // Hi-Lo, bomb pots and multiple boards keep the pricing below (the
+    // dominated-flush and raised-river folds of hands 45855223 and the
+    // weak-flush recovery suite are exactly those exclusions).
+    let honor88 = false;
+    if (
+      (opts.v88CommitmentHonored ?? true) !== false &&
+      committed &&
+      (street === 'turn' || isRiver) &&
+      vi.isOmaha &&
+      !vi.isHiLo &&
+      !isTournamentMode(gs) &&
+      !multiBoard36 &&
+      !gs.bombPot &&
+      toCall > 0 &&
+      toCall >= stack &&
+      potOdds <= V88_COMMITMENT_MAX_PRICE &&
+      oppCount === 1 &&
+      !raisedAfterAggr &&
+      cat >= 2 &&
+      (cat <= 4 || nutClass15) &&
+      !dominated21 &&
+      !coldFlushPressure15 &&
+      !dangered &&
+      equity >= potOdds + 0.02 &&
+      board.length >= 4
+    ) {
+      const previousStreet88 = street === 'turn' ? 'flop' : 'turn';
+      const newCard88 = board[board.length - 1];
+      const pairedByNewCard88 = board.slice(0, -1).some((c) => c.rank === newCard88.rank);
+      let lastPrevious88: ActionRecord | undefined;
+      for (const a of gs.actionHistory ?? [])
+        if (a.userId === player.user_id && a.stage === previousStreet88) lastPrevious88 = a;
+      honor88 =
+        lastPrevious88?.action === 'call' &&
+        lastPrevious88.amount > 0 &&
+        !(pairedByNewCard88 && cat < 4);
+    }
     if (committed) {
       // V20: the flat-call bar here was potOdds + 0.02 regardless of how many
       // players were in or how many of them were ALL IN — the exact door the
@@ -14991,6 +15049,10 @@ export class HorseLogic {
       // V34: a solver-approved draw call is honored here too — the committed
       // bar must never fold a hand the solver's own range priced as a call.
       if (eq15 >= required || solverCall32) return { action: 'call', amount: toCall, thinkTime: 0 };
+      if (honor88) {
+        if (tele15) noteFire('v88_commitment_honored');
+        return { action: 'call', amount: toCall, thinkTime: 0 };
+      }
       return {
         action: 'fold',
         thinkTime: 0,
