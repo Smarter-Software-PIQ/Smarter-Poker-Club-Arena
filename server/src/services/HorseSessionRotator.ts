@@ -3,6 +3,8 @@ import { PLO_LIGHTNING_GAME, ploWindDownFor } from './PloLightningDemand.js';
 import { horseCashGameAllowed } from './HorseCashSchedule.js';
 import {
   horseCashPlanPrimaryTables,
+  humanDepartureDwellMinutes,
+  minutesSinceLastPlayingHuman,
   horseCashPlanSecondTables,
   horseCashPlanTablesAwaitingBreak,
   horseUnionCashTableAllowed,
@@ -1885,6 +1887,8 @@ export class HorseSessionRotator {
         tableAgeMinutes: (now - new Date(t.created_at ?? 0).getTime()) / 60000,
         minutesSeated,
         minutesSinceLastHand: null,
+        minutesSinceHumanLeft: minutesSinceLastPlayingHuman(tableId, now),
+        humanLeftDwellMinutes: humanDepartureDwellMinutes(tableId),
       });
       if (pre !== 'stand') continue;
       candidates.push({ tableId, seat, t, minutesSeated });
@@ -1944,6 +1948,8 @@ export class HorseSessionRotator {
         tableAgeMinutes: (now - new Date(c.t.created_at ?? 0).getTime()) / 60000,
         minutesSeated: c.minutesSeated,
         minutesSinceLastHand: last === undefined ? null : (now - last) / 60000,
+        minutesSinceHumanLeft: minutesSinceLastPlayingHuman(c.tableId, now),
+        humanLeftDwellMinutes: humanDepartureDwellMinutes(c.tableId),
       });
       if (verdict !== 'stand') continue;
       const engine = this.getEngine(c.tableId);

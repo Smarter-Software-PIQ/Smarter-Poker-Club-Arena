@@ -2,8 +2,15 @@
 export const HORSE_CASH_POLICY_START_MS = Date.parse('2026-11-02T06:00:00Z');
 export const PREVIOUS_CASH_ACTIVITY_SCALE = 0.5;
 export const REDUCED_CASH_ACTIVITY_SCALE = PREVIOUS_CASH_ACTIVITY_SCALE * 0.4;
+/** Owner November 11 relaunch: the weekly rake throttle is lifted and the cash
+ * floor runs at TRIPLE the reduced rate, effective 6 PM Chicago November 11
+ * ("RELAUNCH ALL THE 1/2 PLO AND HOLDEM CASH GAMES ... TRIPLE THE CURRENT
+ * RATE"). The ladder of stages is kept so dated tests and replays stay true. */
+export const RELAUNCH_CASH_POLICY_START_MS = Date.parse('2026-11-12T00:00:00Z');
+export const RELAUNCHED_CASH_ACTIVITY_SCALE = REDUCED_CASH_ACTIVITY_SCALE * 3;
 
 export function cashActivityScaleAt(nowMs: number): number {
+  if (nowMs >= RELAUNCH_CASH_POLICY_START_MS) return RELAUNCHED_CASH_ACTIVITY_SCALE;
   return nowMs >= HORSE_CASH_POLICY_START_MS
     ? REDUCED_CASH_ACTIVITY_SCALE
     : PREVIOUS_CASH_ACTIVITY_SCALE;

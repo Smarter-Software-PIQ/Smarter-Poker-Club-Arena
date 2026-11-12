@@ -131,6 +131,19 @@ describe('THE STAND RULE: a lone horse leaves a dead table', () => {
     expect(loneStandVerdict(lone({ minutesSinceLastHand: 4 }))).toBe('hand_dealt_recently');
   });
 
+  it('a human left inside the 20-30 minute dwell -> stays (Dan 2026-11-11: no break right after a departure)', () => {
+    expect(loneStandVerdict(lone({ minutesSinceHumanLeft: 5 }))).toBe('human_recently_left');
+    expect(loneStandVerdict(lone({ minutesSinceHumanLeft: 29.5 }))).toBe('human_recently_left');
+    expect(loneStandVerdict(lone({ minutesSinceHumanLeft: 19, humanLeftDwellMinutes: 20 }))).toBe(
+      'human_recently_left'
+    );
+    expect(loneStandVerdict(lone({ minutesSinceHumanLeft: 21, humanLeftDwellMinutes: 20 }))).toBe(
+      'stand'
+    );
+    expect(loneStandVerdict(lone({ minutesSinceHumanLeft: 31 }))).toBe('stand');
+    expect(loneStandVerdict(lone({ minutesSinceHumanLeft: null }))).toBe('stand');
+  });
+
   it('lone with a human seated -> stays (the horse is their opponent)', () => {
     // With a person at the table the horse is not alone at all...
     expect(loneStandVerdict(lone({ seatedCount: 2, humanPresent: true }))).toBe('not_alone');

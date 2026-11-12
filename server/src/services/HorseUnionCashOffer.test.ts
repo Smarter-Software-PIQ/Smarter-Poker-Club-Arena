@@ -16,28 +16,23 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('the actual cash seat-offer handler obeys the union schedule', () => {
+describe('the actual cash seat-offer handler obeys the relaunched union schedule (every plan game, every hour)', () => {
   it.each([
-    ['off-peak higher stakes without humans', 'Classic NLH 1/2', 5, null, false],
-    ['off-peak higher stakes with a playing human', 'Classic NLH 1/2', 5, {}, true],
+    ['overnight 1/2 without humans', 'Classic NLH 1/2', 5, null, true],
+    ['overnight 1/2 with a playing human', 'Classic NLH 1/2', 5, {}, true],
     [
-      'off-peak higher stakes with a sitting-out human',
+      'overnight 1/2 with a sitting-out human',
       'Classic NLH 1/2',
       5,
       { is_sitting_out: true },
-      false,
+      true,
     ],
-    [
-      'off-peak higher stakes with a departing human',
-      'Classic NLH 1/2',
-      5,
-      { leave_pending: true },
-      false,
-    ],
+    ['relaunched Classic PLO4 1/2 without humans', 'Classic PLO4 1/2', 5, null, true],
+    ['relaunched Classic PLO5 1/2 without humans', 'Classic PLO5 1/2', 5, null, true],
     ['prime-time higher stakes without humans', 'Classic NLH 1/2', 18, null, true],
     ['overnight NLH without humans', 'Classic NLH .10/.25', 5, null, true],
     ['overnight PLO without humans', 'Classic PLO4 .10/.25', 5, null, true],
-    ['unscheduled lower stakes with a human', 'Classic PLO4 .25/.50', 5, {}, false],
+    ['overnight lower stakes with a human', 'Classic PLO4 .25/.50', 5, {}, true],
   ] as const)('%s', async (_label, gameName, hour, human, expected) => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date(Date.UTC(2026, 10, 4, hour + 6)));

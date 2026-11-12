@@ -1,9 +1,13 @@
+import { createHash } from 'node:crypto';
 import { ploContinuationFor, type PloLightningDemand } from './PloLightningDemand.js';
 import { secondTablePicked, thirdTablePicked } from './HorseBehavior.js';
 import plan from './horseUnionCashPlan.json' with { type: 'json' };
 import { horseCashGameAllowed } from './HorseCashSchedule.js';
 
 /** Maintained cash floor. One primary per game; selected games grow to two or three tables.
+ * November 11 relaunch (owner): every plan game is scheduled around the clock
+ * with no restriction on how many games are open at once, the 1/2 Holdem and
+ * PLO games run full time again, and the weekly target is tripled.
  * No fee, wallet, human admission, tournament or Diamond policy changes.
  * A target is a forecast, not a hard ceiling on human-generated rake.
  */
@@ -98,6 +102,51 @@ export function playingHumansAtCashTable(
   ).length;
 }
 
+/** A GAME DOES NOT BREAK RIGHT AWAY AFTER A HUMAN LEAVES (Dan 2026-11-11:
+ * "GAMES SHOULD NEVER BREAK RIGHT AWAY AFTER A HUMAN LEAVES... 20-30 MINUTE
+ * MINIMUM TIME TO BREAK A GAME"). The plan remembers, per table, when it last
+ * saw a playing human; for that table's own 20-30 minute dwell after the last
+ * one leaves, the higher-stakes human exception stays granted, so the horses
+ * play on and the fleet keeps seating instead of the table emptying on the
+ * cycle after a departure. Deterministic per table so the floor does not
+ * break every game on one clock. The memory is in-process: a restart forgets
+ * it, which only shortens the dwell across a deploy, never play itself. */
+export const HUMAN_DEPARTURE_DWELL_MIN_MINUTES = 20;
+export const HUMAN_DEPARTURE_DWELL_MAX_MINUTES = 30;
+const lastPlayingHumanSeenMs = new Map<string, number>();
+
+export function humanDepartureDwellMinutes(tableId: string): number {
+  const hex = createHash('md5').update(`${tableId}:human_departure_dwell`).digest('hex');
+  const span = HUMAN_DEPARTURE_DWELL_MAX_MINUTES - HUMAN_DEPARTURE_DWELL_MIN_MINUTES + 1;
+  return HUMAN_DEPARTURE_DWELL_MIN_MINUTES + (parseInt(hex.slice(0, 8), 16) % span);
+}
+
+export function notePlayingHumansSeen(tableId: string, nowMs: number): void {
+  if (!tableId || !Number.isFinite(nowMs)) return;
+  const prior = lastPlayingHumanSeenMs.get(tableId);
+  if (prior === undefined || nowMs > prior) lastPlayingHumanSeenMs.set(tableId, nowMs);
+  if (lastPlayingHumanSeenMs.size > 5000) {
+    for (const [id, seen] of lastPlayingHumanSeenMs) {
+      if (nowMs - seen > 6 * 3_600_000) lastPlayingHumanSeenMs.delete(id);
+    }
+  }
+}
+
+export function minutesSinceLastPlayingHuman(tableId: string, nowMs: number): number | null {
+  const seen = lastPlayingHumanSeenMs.get(String(tableId));
+  return seen === undefined || !Number.isFinite(nowMs) ? null : (nowMs - seen) / 60000;
+}
+
+export function withinHumanDepartureDwell(tableId: string, nowMs: number): boolean {
+  const minutes = minutesSinceLastPlayingHuman(tableId, nowMs);
+  return minutes !== null && minutes >= 0 && minutes < humanDepartureDwellMinutes(tableId);
+}
+
+/** Tests only: the dwell memory is module state. */
+export function resetHumanPresenceMemoryForTest(): void {
+  lastPlayingHumanSeenMs.clear();
+}
+
 /** LIGHTNING GAMES ALWAYS RUN (Dan 2026-11-05): "lightning tables must always
  * run, they are feeder games until enough players are playing, then they turn
  * to lightning games ONLY WHEN THERE IS ENOUGH PLAYERS. there should never be
@@ -156,8 +205,14 @@ export function horseUnionCashTableAllowed(
     if (LIGHTNING_HORSE_SEEDED.has(gameId)) return true;
     return lightningHumanGames !== null && lightningHumanGames.has(gameId);
   }
+  const tableKey = String(table.id ?? '');
+  if (Number.isFinite(playingHumans) && playingHumans > 0) notePlayingHumansSeen(tableKey, nowMs);
   const higherStakes = Number(table.small_blind) > 0.5 || Number(table.big_blind) > 1;
   if (higherStakes && Number.isFinite(playingHumans) && playingHumans > 0) return true;
+  // The human exception outlives the last playing human by this table's own
+  // 20-30 minute dwell (Dan 2026-11-11): a game never breaks right away
+  // after a human leaves.
+  if (higherStakes && withinHumanDepartureDwell(tableKey, nowMs)) return true;
   const gameId = String(table.cluster_id ?? '');
   const game = games.get(gameId);
   // Named game and Main 1 prevent the fleet multiplying a slot into feeders
