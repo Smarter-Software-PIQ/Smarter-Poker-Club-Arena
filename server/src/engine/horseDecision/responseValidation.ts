@@ -643,6 +643,13 @@ export function horsePhase10SelectionIsValid(
   );
 }
 
+/**
+ * PRECONDITION: `verifiedGraph` has already passed `policyGraphIsValid` inside
+ * `horseDecisionReceiptRefusal` (node order, contiguity, recomputed changed
+ * flags, final action bound to the executed action). This helper and the
+ * exported selection checks that call it do not validate the graph and are
+ * not a receipt judgment on their own.
+ */
 function variantSelectionWasSuperseded(
   value: RecordValue,
   verifiedGraph: HorsePolicyGraphReceipt | undefined
@@ -661,6 +668,21 @@ function variantSelectionWasSuperseded(
   ) {
     return false;
   }
+  // The proposal must reach the final rule exactly as the variant stage left
+  // it, amount included. A call or check carries no sizing choice, so the
+  // caller compares its amount only for a bet or raise; without this an
+  // intermediate stage could rewrite a call's recorded price between the
+  // variant stage and the final rule and the selection would still be credited.
+  const finalRuleInput = (
+    verifiedGraph.transitions.find((t) => t.node === 'corrective_policy') ??
+    verifiedGraph.transitions.find((t) => t.node === 'wager_rules')
+  )?.before;
+  if (
+    !finalRuleInput ||
+    finalRuleInput.action !== variant.after.action ||
+    finalRuleInput.amount !== variant.after.amount
+  )
+    return false;
   return verifiedGraph.transitions.some(
     ({ node, changed, before, after }) =>
       (node === 'corrective_policy' || node === 'wager_rules') &&
