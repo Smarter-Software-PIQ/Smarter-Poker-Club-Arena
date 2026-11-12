@@ -109,27 +109,35 @@ export async function checkFixedMobileArtwork(page: Page, bundle: string) {
       .querySelectorAll('.seat__avatar-wrap')
       .forEach((e) => e.classList.remove('seat__avatar-wrap--fold'));
   });
-  for (const spectator of [true, false]) {
-    await page.evaluate((spectator) => {
+  for (const settings of [
+    { seats: '9', spectator: 'true', cards: '2', occupiedSeats: '' },
+    { seats: '9', spectator: 'false', cards: '2', occupiedSeats: '' },
+    { seats: '6', spectator: 'false', cards: '4', occupiedSeats: '0,4' },
+    { seats: '6', spectator: 'false', cards: '4', occupiedSeats: '' },
+  ]) {
+    const spectator = settings.spectator === 'true';
+    await page.evaluate((settings) => {
       Object.assign(document.documentElement.dataset, {
         tournament: 'false',
-        spectator: String(spectator),
+        ...settings,
         revealed: 'false',
         folded: '1,6',
         actionPills: 'true',
-        villainCards: '2',
+        villainCards: settings.cards,
       });
       document.dispatchEvent(new Event('fixture-next-hand'));
-    }, spectator);
+    }, settings);
     await settle();
     await expect.poll(async () => (await read()).paint.some((p) => Number(p[0]) > 1)).toBe(true);
     const before = await read();
     if (!spectator) {
       expect(Number(before.paint[0][0]), 'hero grows').toBeGreaterThan(1);
-      expect(
-        before.paint.slice(1).some((p) => Number(p[0]) > 1),
-        'at least one opponent grows'
-      ).toBe(true);
+      if (settings.seats === '6') expect(Number(before.paint[0][0])).toBe(2);
+      if (settings.seats === '9')
+        expect(
+          before.paint.slice(1).some((p) => Number(p[0]) > 1),
+          'at least one opponent grows'
+        ).toBe(true);
     }
     let revealed: number[][] | undefined;
     for (const state of [

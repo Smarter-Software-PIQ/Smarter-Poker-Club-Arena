@@ -165,7 +165,7 @@ function LightningReport({
     'hands',
     'duration',
     'hands_per_hour',
-    'starting_stack',
+    'total_buy_in',
     'current_stack',
     'net',
     'bb_per_100',

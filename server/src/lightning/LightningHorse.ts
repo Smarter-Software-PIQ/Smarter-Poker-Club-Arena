@@ -230,13 +230,13 @@ export async function decideLightningHorse(
         elapsedMs: turn.now - turn.turnStartMs,
       }),
     });
-    return {
+    return startedOnTurn(turn, {
       action: String(fast.decision.action),
       amount: fast.decision.amount,
       thinkTime: Number(fast.decision.thinkTime) || 0,
       workerFallback: false,
       fast,
-    };
+    });
   } catch (err) {
     if (signal.aborted) throw err;
     try {
@@ -250,12 +250,47 @@ export async function decideLightningHorse(
       /* metrics must never affect gameplay */
     }
     onWorkerFailure?.(err);
-    return {
+    return startedOnTurn(turn, {
       action: toCall > 0 ? 'fold' : 'check',
       thinkTime: 0,
       workerFallback: true,
       fast: null,
-    };
+    });
+  }
+}
+
+/**
+ * The answers that were asked on the seat's own turn, each of which counted
+ * one `decision_started`, with the variant it was counted under. An early
+ * look counted no start and is never entered here.
+ */
+const startedOnTurnDecisions = new WeakMap<LightningHorseDecision, string>();
+
+function startedOnTurn(
+  turn: LightningHorseTurn,
+  decision: LightningHorseDecision
+): LightningHorseDecision {
+  if (!turn.earlyLook) startedOnTurnDecisions.set(decision, turn.variant);
+  return decision;
+}
+
+/**
+ * The Lightning host's commit stage, the counterpart of the table engine's
+ * `commit_evaluated` (ServerTableEngineTurns): the turn is still this seat's
+ * and the answer is about to be submitted. Counted once per answer that
+ * counted a `decision_started`, however many doors it is offered to (a fold
+ * the Lightning Fold door refuses goes on to the ordinary turn path with the
+ * same answer). An early look's answer counts nothing. Pass the answer
+ * `decideLightningHorse` returned, not a reshaped copy.
+ */
+export function noteLightningHorseCommitEvaluated(decision: LightningHorseDecision): void {
+  const variant = startedOnTurnDecisions.get(decision);
+  if (variant === undefined) return;
+  startedOnTurnDecisions.delete(decision);
+  try {
+    noteHorseTelemetryOpportunity(variant, 'cash', 'commit_evaluated');
+  } catch {
+    /* metrics must never affect gameplay */
   }
 }
 

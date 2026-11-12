@@ -3,7 +3,11 @@ import { nextBustRebuyClock } from '../utils/bustRebuyDeadline';
 import { earlyHeroCardsReady, type EarlyHeroCards } from '../utils/earlyHeroCards';
 import { tournamentAddOnEntryBoundaryPassed } from '../utils/tournamentAddOnBoundary';
 import { useTopUpAccounting } from '../hooks/useTopUpAccounting';
-import { autoTopUpRequest, type AutoTopUpRequest } from '../utils/autoTopUpRequest';
+import {
+  autoTopUpRequest,
+  quietAutoTopUpRefusal,
+  type AutoTopUpRequest,
+} from '../utils/autoTopUpRequest';
 import { tournamentTableLabel } from '../utils/tournamentTableLabel';
 import { tournamentTypeLabel } from '../utils/tournamentTypeLabel';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
@@ -18,6 +22,7 @@ import {
 import { fetchStoppedLightningAnchor } from '../lightning/lightningLeaveAnchor';
 import { useLightningLeaveStop } from '../lightning/useLightningLeaveStop';
 import { LightningLeaveControl } from '../components/lightning/LightningLeaveControl';
+import { lightningLeaveWaitsForHand } from '../lightning/lightningLeaveNextHand';
 import { useSeatArrivals } from '../components/table/seatArrival';
 import {
   usePreActionBoundary,
@@ -9591,16 +9596,15 @@ function LiveTablePage({
         /* The AUTOMATIC top-up sizes itself from the stack it can see, and
            it cannot see a queued mid-hand add-on that already fills the seat
            (the engine caps on stack + pending). "Already at the maximum" is
-           then the ordinary answer, not an incident: no toast, no report,
-           the next snapshot re-evaluates. A manual request still hears it. */
-        if (
-          opts?.source === 'auto' &&
-          /maximum buy-in|top up is already pending/i.test(String(res.error || ''))
-        ) {
+           then the ordinary answer, not an incident. A missing Lightning
+           session during feeder play also must not interrupt the table;
+           retain diagnostics for that refusal. Manual requests stay visible. */
+        if (res.code !== 'TRANSPORT' && quietAutoTopUpRefusal(opts?.source, res.error)) {
+          if (res.error === 'Lightning Session Is Unavailable')
+            reportError(new Error(res.error), 'TablePage.auto_top_up_session_unavailable');
           lastAddChipsResultRef.current = { applied: 0, queued: false };
-          // And do not ask again this hand: the effect below re-runs on every
-          // snapshot (`tableState.players` is a new array each time), and
-          // the answer cannot change until the queued chips land.
+          // Do not repeat a refused automatic request on every snapshot.
+          // The existing hand boundary owns the next automatic attempt.
           autoTopUpRefusedForHandRef.current = tableStateRef.current.handNumber ?? null;
           return false;
         }
@@ -12227,7 +12231,16 @@ function LiveTablePage({
         const snapshot = engineSnapshotRef.current as LightningSnapshotFields | null;
         const handId = lightningHandId(snapshot);
         const hero = tableState.players.find((player) => player?.id === userId);
-        if (handId && hero && hero.status !== 'folded' && hero.status !== 'all_in') {
+        // A hand that already settled has nothing left to fold (a Leave Next
+        // Hand arrives here exactly at that boundary).
+        const handStillLive = tableState.isHandInProgress && !handSettling;
+        if (
+          handStillLive &&
+          handId &&
+          hero &&
+          hero.status !== 'folded' &&
+          hero.status !== 'all_in'
+        ) {
           const folded = await foldLightningHandForLeave({
             tableId,
             handId,
@@ -12608,6 +12621,43 @@ function LiveTablePage({
     setSitOut: () => setSitOut(tableId ?? '', true),
     onLeave: handleLeaveTable,
   });
+  /**
+   * LIGHTNING "LEAVE NEXT HAND" (Dan 2026-11-12): "IT MEANS AFTER THE END OF
+   * THE CURRENT HAND, YOU LEAVE THE TABLE. NOT AT THAT EXACT MOMENT." The
+   * control stops matchmaking at once (no new deal is ever offered), then
+   * hands the leave here. While the player is still live in the hand in front
+   * of them, the leave waits: they keep acting, their pre-actions stand, and
+   * nothing folds them. The moment that hand is complete for them (it settles,
+   * they fold, or the room closes) the original leave owner runs once.
+   */
+  const [lightningLeaveQueued, setLightningLeaveQueued] = useState(false);
+  const lightningLeaveHero = lightningRoom
+    ? tableState.players.find((player) => player?.id === userId)
+    : undefined;
+  const lightningHeroInLiveHand = lightningLeaveWaitsForHand({
+    inLightningRoom: !!lightningRoom,
+    roomClosed: lightningRoomClosed,
+    handInProgress: tableState.isHandInProgress,
+    handSettling,
+    heroStatus: lightningLeaveHero?.status,
+  });
+  const leaveLightningAfterThisHand = async () => {
+    if (lightningHeroInLiveHand) {
+      setLightningLeaveQueued(true);
+      toast.info('You Will Leave The Table After This Hand.');
+      return;
+    }
+    await handleLeaveTable();
+  };
+  useEffect(() => {
+    if (!lightningLeaveQueued || lightningHeroInLiveHand) return;
+    setLightningLeaveQueued(false);
+    if (leaveNavigatedRef.current) return;
+    void handleLeaveTable();
+    // handleLeaveTable is recreated every render; the hand boundary is the trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lightningLeaveQueued, lightningHeroInLiveHand]);
+
   const requestLeaveAtNextHand = async () => {
     const queued = await leaveNextHand.requestLeaveNextHand();
     if (queued) toast.info('You Will Leave The Table After This Hand.');
@@ -27081,7 +27131,7 @@ function LiveTablePage({
       heroSeated: tableState.heroSeat > 0,
       handInProgress: tableState.isHandInProgress,
       handSettling,
-      heroStatus: lightningHero?.status,
+      heroStatus: lightningLeaveHero?.status,
       engineFastFoldAvailable: lightningRoom
         ? lightningFastFoldFlag(engineSnapshot as LightningSnapshotFields)
         : null,
@@ -28462,12 +28512,9 @@ function LiveTablePage({
               <LightningLeaveControl
                 key={`${lightningRoom.poolSessionId}/${userId}`}
                 clusterId={lightningRoom.clusterId}
-                onLeave={handleLeaveTable}
+                onLeave={leaveLightningAfterThisHand}
                 ensureStopped={stopLightningForLeave}
-                onLeaveIntentChange={(leaving) => {
-                  setLeaveAttentionSuppressed(leaving);
-                  if (leaving) ++preActionSendSeqRef.current;
-                }}
+                queued={lightningLeaveQueued}
               />
             ) : null}
           </div>

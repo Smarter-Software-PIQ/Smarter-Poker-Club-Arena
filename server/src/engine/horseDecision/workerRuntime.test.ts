@@ -1906,6 +1906,71 @@ describe('HorseDecisionWorkerRuntime', () => {
     });
   });
 
+  it('counts one decision_evaluated for a FAST brain evaluation and none for a refusal or a second look', async () => {
+    const evaluated = (messages: HorseDecisionWorkerResponse[]) =>
+      messages
+        .flatMap(
+          (m) =>
+            (
+              m as unknown as {
+                watchcounterDeltas?: Array<{
+                  metric: string;
+                  variant: string;
+                  mode: string;
+                  reason: string;
+                  value: number;
+                }>;
+              }
+            ).watchcounterDeltas ?? []
+        )
+        .filter(
+          (d) =>
+            d.metric === 'poker_horse_telemetry_opportunities_total' &&
+            d.reason === 'decision_evaluated'
+        );
+    const h = harness();
+    await h.runtime.start();
+    await h.runtime.drain();
+    // Deltas other tests left in this process leave with READY, not with ours.
+    h.messages.length = 0;
+
+    const request = fastRequest(1);
+    h.runtime.receive(request);
+    await h.runtime.drain();
+    const fast = h.messages.find((m) => m.type === 'FAST_RESULT');
+    if (fast?.type !== 'FAST_RESULT') throw Error('missing fast');
+    expect(h.decisionsAtRng).toHaveLength(1);
+    expect(evaluated(h.messages)).toEqual([
+      {
+        metric: 'poker_horse_telemetry_opportunities_total',
+        variant: String(request.gameState.gameVariant),
+        mode: request.gameState.gameMode === 'tournament' ? 'tournament' : 'cash',
+        reason: 'decision_evaluated',
+        value: 1,
+      },
+    ]);
+
+    // A request refused before the brain runs is not an evaluation.
+    h.runtime.receive({ ...request, requestId: 2, decisionKey: 'not-the-key' });
+    await h.runtime.drain();
+    expect(h.messages.at(-1)?.type).toBe('ERROR');
+    expect(h.decisionsAtRng).toHaveLength(1);
+    expect(evaluated(h.messages)).toHaveLength(1);
+
+    // The second look replays with telemetry off: no clamp, no denominator.
+    h.runtime.receive({
+      ...request,
+      type: 'DECIDE_DEEP',
+      requestId: 3,
+      rngBefore: fast.rngBefore,
+      deepEquity: 2,
+    });
+    await h.runtime.drain();
+    expect(h.messages.at(-1)?.type).toBe('DEEP_RESULT');
+    expect(h.decisionsAtRng).toHaveLength(2);
+    expect(evaluated(h.messages)).toHaveLength(1);
+  });
+
   it('retains the valid fast decision when read-frame capture fails and refuses its second look', async () => {
     const h = harness();
     const spy = vi.spyOn(HorseMind, 'snapshotDecisionReads').mockImplementationOnce(() => {

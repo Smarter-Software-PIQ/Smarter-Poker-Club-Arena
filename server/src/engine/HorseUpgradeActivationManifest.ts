@@ -12,7 +12,10 @@ import { admitHorsePhase10LiveAuthority } from './HorsePhase10Authority.js';
 import { HORSE_PHASE11_VARIANTS, admitHorsePhase11LiveAuthority } from './HorsePhase11Authority.js';
 import { HORSE_PHASE12_VARIANTS, admitHorsePhase12LiveAuthority } from './HorsePhase12Authority.js';
 import { HORSE_PHASE13_VARIANTS, admitHorsePhase13LiveAuthority } from './HorsePhase13Authority.js';
-import { CORRECTIVE_DOMAIN_KEYS } from '../services/horseCorrectiveReview/domain.js';
+import {
+  CORRECTIVE_DOMAIN_KEYS,
+  correctiveDomainKey,
+} from '../services/horseCorrectiveReview/domain.js';
 import { qualifiedReplayAdmissions } from './horseDecision/replay/qualifiedAuthority.js';
 import { isHorseOwnerForcedAuthority } from './HorseOwnerForcedActivation.js';
 
@@ -271,8 +274,13 @@ export function computeHorseUpgradeActivationManifest(): HorseUpgradeActivationM
     phase14: Object.fromEntries(
       CORRECTIVE_DOMAIN_KEYS.map((domain) => {
         const attachment = qualifiedReplayAdmissions.admitPhase14Attachment(domain);
+        // The domain key is variant-format (nlh-mtt), the key the worker's
+        // own gate compares (horsePhase14CorrectiveMode). Built from the
+        // catalog's mode instead it read nlh-tournament, which names no
+        // domain, so every tournament domain reported off even where its
+        // admitted catalog was the one the worker gate selects.
         const packDomain = attachment.catalog
-          ? `${attachment.catalog.domain.variant}-${attachment.catalog.domain.mode}`
+          ? correctiveDomainKey(attachment.catalog.domain)
           : null;
         const activeCandidate =
           attachment.admission.status === 'admitted' &&

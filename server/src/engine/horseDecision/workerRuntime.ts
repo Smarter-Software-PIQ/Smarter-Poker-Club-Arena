@@ -158,6 +158,7 @@ import {
   noteDecisionMs,
   noteFire,
   noteHorseStreetPrewarm,
+  noteHorseTelemetryOpportunity,
 } from '../BrainTelemetry.js';
 import type { HorseDecision } from '../../types.js';
 import {
@@ -2921,6 +2922,14 @@ export class HorseDecisionWorkerRuntime {
     } finally {
       this.deps.restoreRng(canonicalRng);
     }
+    // One telemetry-on brain evaluation finished: the denominator of the
+    // brain-stage clamps it may have counted. Deep second looks replay with
+    // telemetry off and are not counted (BrainTelemetry opportunity reasons).
+    noteHorseTelemetryOpportunity(
+      request.gameState.gameVariant,
+      request.gameState.gameMode === 'tournament' ? 'tournament' : 'cash',
+      'decision_evaluated'
+    );
     if (
       !captured.value.policyFallback &&
       horseHybridDecisionMatches(request.gameState.gameMode, request.style, request.mods)

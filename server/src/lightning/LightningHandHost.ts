@@ -152,6 +152,7 @@ import type { LightningWorkerLogger } from './LightningClusterWorker.js';
 import { settleLightningJackpot, type LightningJackpotDeps } from './LightningJackpot.js';
 import {
   decideLightningHorse,
+  noteLightningHorseCommitEvaluated,
   LIGHTNING_HORSE_MAX_BANK_BURN_MS,
   lightningHorseFastFoldReactionMs,
   lightningHorseIsAlreadyFolding,
@@ -1931,6 +1932,7 @@ export class LightningHandHost {
       const result = this.recheckHorseDecisionAtDoor(userId, decision, true);
       if (!result || result.checked.action !== 'fold') return false;
     }
+    noteLightningHorseCommitEvaluated(decision);
     const acceptedActions: HorseAcceptedAction[] = [];
     const out = this.handlePlayerAction(
       userId,
@@ -2584,6 +2586,9 @@ export class LightningHandHost {
     try {
       const hc = this.hc!;
       let featureRefused = false;
+      // The answer as the lane returned it: the reshaped copy below is a new
+      // object and would not be recognized as the one that counted a start.
+      const issued = decision;
       if (decision.fast) {
         const result = this.recheckHorseDecisionAtDoor(userId, decision);
         if (!result) return;
@@ -2595,6 +2600,7 @@ export class LightningHandHost {
           workerFallback: decision.workerFallback || featureRefused,
         };
       }
+      noteLightningHorseCommitEvaluated(issued);
       // A rejected candidate has no qualified aggressive substitute. Do not let
       // AoF shaping convert its free check into an all-in wager.
       const shaped = featureRefused

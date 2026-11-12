@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { autoTopUpRequest } from '../../src/utils/autoTopUpRequest';
+import { autoTopUpRequest, quietAutoTopUpRefusal } from '../../src/utils/autoTopUpRequest';
+
+describe('background top-up notifications', () => {
+  it('does not interrupt a feeder game for an unavailable Lightning session', () => {
+    expect(quietAutoTopUpRefusal('auto', 'Lightning Session Is Unavailable')).toBe(true);
+  });
+  it('keeps explicit purchases and other failures visible', () => {
+    expect(quietAutoTopUpRefusal('manual', 'Lightning Session Is Unavailable')).toBe(false);
+    expect(quietAutoTopUpRefusal(undefined, 'Lightning Session Is Unavailable')).toBe(false);
+    expect(quietAutoTopUpRefusal('auto', 'Unable To Verify This Top Up')).toBe(false);
+    expect(quietAutoTopUpRefusal('auto', 'Insufficient Balance')).toBe(false);
+  });
+});
 
 describe('an automatic top-up retries its original purchase', () => {
   it('retains amount and key after a committed debit changes the observed wallet balance', () => {

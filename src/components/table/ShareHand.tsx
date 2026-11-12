@@ -794,7 +794,10 @@ export function ShareHand({
       clearTimeout(copiedTimerRef.current!);
       copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
     } else {
-      reportError(new Error('Clipboard refused and selection copy failed'), 'ShareHand.Copy_failed');
+      reportError(
+        new Error('Clipboard refused and selection copy failed'),
+        'ShareHand.Copy_failed'
+      );
     }
   }, [shareUrl, onShared]);
 
@@ -937,7 +940,7 @@ export function ShareHand({
                   aria-label={copied ? 'Link Copied' : 'Copy Link'}
                   onClick={handleCopy}
                 >
-                  {copied ? '' : ''}
+                  {copied ? 'Copied' : 'Copy'}
                 </button>
               </div>
 

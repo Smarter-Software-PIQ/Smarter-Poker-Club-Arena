@@ -321,11 +321,24 @@ export const HORSE_STREET_PREWARM_REASONS = [
   'other',
 ] as const;
 
+/**
+ * Denominators, each counted at one boundary and once per event:
+ * - `decision_started`: the host asked the lane for a decision on the seat's
+ *   own turn (a table turn, or a Lightning turn; never a Lightning early look).
+ * - `decision_evaluated`: a decision worker finished one telemetry-on brain
+ *   evaluation (DECIDE_FAST: table turns, Lightning turns and Lightning early
+ *   looks). It is the denominator of the brain-stage clamps the same
+ *   evaluation counts. A deep second look replays with telemetry off and is
+ *   not counted. An evaluation whose answer is later fenced out still counts.
+ * - `commit_evaluated`: a decision counted by `decision_started` reached the
+ *   host's commit stage for its seat (the turn was still its own and the
+ *   answer was about to be submitted). A turn that moved on first never
+ *   counts, so started minus committed is the abandoned and superseded turns.
+ */
 export const HORSE_TELEMETRY_OPPORTUNITY_REASONS = [
   'decision_started',
   'decision_evaluated',
   'commit_evaluated',
-  'commit_legalizer_entered',
   'continuation_plan_checked',
   'street_dealt',
   'default',
@@ -378,7 +391,7 @@ const WATCHCOUNTER_SPECS: ReadonlyArray<{
   },
   {
     metric: 'poker_horse_telemetry_opportunities_total',
-    help: 'Horse decision, continuation-plan, commit-legalizer, and street-deal opportunity denominators (closed lowercase labels: variant, mode, reason)',
+    help: 'Horse decision, brain-evaluation, commit, continuation-plan, and street-deal opportunity denominators (closed lowercase labels: variant, mode, reason)',
     seedReason: 'decision_evaluated',
     allowedReasons: new Set<string>(HORSE_TELEMETRY_OPPORTUNITY_REASONS),
   },
