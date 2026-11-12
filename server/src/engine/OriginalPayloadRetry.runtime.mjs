@@ -251,7 +251,13 @@ function harness(sequence, { rootB = false, onSleep, onRpc, retainSequence } = {
     run: () =>
       probe.postHandTasks(
         [{ user_id: uuid, username: 'player', seat_number: 1, stack: 100, is_horse: false }],
-        1
+        1,
+        // settleCompletedHand takes the hand's controller facts before its
+        // first await and hands them down (HVH2D-EXE-002); postHandTasks no
+        // longer reads the live controller, so the harness does the same.
+        probe.handController
+          ? { blinds: probe.handController.getBlindSnapshot(), allInRunoutWitness: null }
+          : null
       ),
   };
 }
