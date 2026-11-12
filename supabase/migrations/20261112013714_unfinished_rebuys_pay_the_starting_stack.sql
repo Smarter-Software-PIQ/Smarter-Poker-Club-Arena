@@ -1,3 +1,4 @@
+-- SUPERSEDED BY 20261112022726
 -- @live-proof: NOT EXISTS (SELECT 1 FROM public.tournaments t WHERE t.ended_at IS NULL AND upper(coalesce(t.status,'')) IN ('ANNOUNCED','REGISTERING','RUNNING') AND (coalesce(t.is_rebuy,false) OR coalesce(t.is_reentry,false)) AND coalesce(t.starting_chips,0) > 0 AND t.rebuy_chips IS DISTINCT FROM t.starting_chips)
 -- ============================================================================
 -- UNFINISHED REBUYS PAY THE STARTING STACK (Dan 2026-11-11)
