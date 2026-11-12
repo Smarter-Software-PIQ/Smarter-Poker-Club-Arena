@@ -464,6 +464,14 @@ export function TournamentBreakScreen({
   const prizePool = prizePoolProp ?? currentFacts?.prizePool ?? 0;
   const factsPending = Boolean(tournamentId) && currentFacts === null;
   const unknownValue = factsFailed ? 'N/A' : '...';
+  /* THE TALLY FOLLOWS THE PLAYER OFF THE CARD (Dan 2026-11-11): "IT SHOULD BE
+     DISPLAYING THE REAL TIME TALLY OF ADD ONS ON THE TABLE IF YOU CLOSE THE
+     POP UP." The purchase feed and standings reads above stay live while the
+     card is minimized, so the small on-table presentations show the same
+     number as the full card, updating as purchases commit. */
+  const addOnsTakenDisplay = currentFacts
+    ? currentFacts.addOnsTaken.toLocaleString('en-US')
+    : unknownValue;
   const countingDown = phase === 'counting_down';
   const [displayTime, setDisplayTime] = useState(() =>
     breakEndsAtMs
@@ -571,6 +579,11 @@ export function TournamentBreakScreen({
           <span className="break-screen__mini-state">
             Will Start When All Tables Finish Their Current Hand
           </span>
+          {addOnNotice && (
+            <span className="break-screen__mini-tally" aria-live="polite" aria-atomic="true">
+              Add-Ons Taken: <strong>{addOnsTakenDisplay}</strong>
+            </span>
+          )}
         </span>
       </div>
     );
@@ -580,7 +593,33 @@ export function TournamentBreakScreen({
   // A real button keeps the clock reachable by keyboard as well as touch.
   if (minimized) {
     const tableAnchor = tableAnchorRef?.current;
-    const button = (
+    /* THE ADD-ON CLOCK IS A CHIP, NOT THE PAINTED PILL (Dan 2026-11-11): the
+       painted mini face has no zone wide enough for "Add-On: Last Hand", which
+       overflowed into the state text, and no zone at all for the live tally
+       the closed popup must keep showing. Like the waiting notice above,
+       content the art has no zone for rides a compact chip from the same
+       family. A plain break keeps the painted pill. */
+    const button = addOnNotice ? (
+      <button
+        type="button"
+        className={`break-screen__minimized break-screen__minimized--addon${tableAnchor ? ' break-screen__minimized--on-table' : ''}`}
+        onClick={() => setMinimized(false)}
+        aria-label="Open Break Screen"
+      >
+        <span className="break-screen__mini-face">
+          <span className="break-screen__mini-badge">
+            {/* "Last Hand" belongs to the add-on window alone (Dan 2026-11-01). */}
+            {countingDown ? `Add-On Closes In ${formatTime(displayTime)}` : 'Add-On: Last Hand'}
+          </span>
+          <span className="break-screen__mini-state">
+            {countingDown ? 'All Tables Paused' : 'Finishing Hands'}
+          </span>
+          <span className="break-screen__mini-tally" aria-live="polite" aria-atomic="true">
+            Add-Ons Taken: <strong>{addOnsTakenDisplay}</strong>
+          </span>
+        </span>
+      </button>
+    ) : (
       <button
         type="button"
         className={`break-screen__minimized${tableAnchor ? ' break-screen__minimized--on-table' : ''}`}
@@ -589,21 +628,10 @@ export function TournamentBreakScreen({
       >
         <span className="break-screen__mini-face">
           <span className="break-screen__mini-badge">
-            {/* "Last Hand" belongs to the add-on window alone (Dan 2026-11-01):
-                a plain break's waiting state is this table done, waiting on the
-                rest of the field. */}
-            {countingDown
-              ? `Break: ${formatTime(displayTime)}`
-              : addOnNotice
-                ? 'Add-On: Last Hand'
-                : 'Break: Waiting'}
+            {countingDown ? `Break: ${formatTime(displayTime)}` : 'Break: Waiting'}
           </span>
           <span className="break-screen__mini-state">
-            {addOnNotice
-              ? countingDown
-                ? 'Paused'
-                : 'Finishing Hands'
-              : breakMiniState(countingDown, extendedForDailyUpdate, tablesFinishing)}
+            {breakMiniState(countingDown, extendedForDailyUpdate, tablesFinishing)}
           </span>
         </span>
       </button>
@@ -750,7 +778,10 @@ export function TournamentBreakScreen({
           </p>
 
           {addOnNotice && (
-            <div className="break-screen__stats" aria-label="Add-On Details">
+            <div
+              className="break-screen__stats break-screen__stats--addon"
+              aria-label="Add-On Details"
+            >
               <div className="break-screen__stat">
                 <span className="break-screen__stat-label">Add-On Cost</span>
                 <span className="break-screen__stat-value">

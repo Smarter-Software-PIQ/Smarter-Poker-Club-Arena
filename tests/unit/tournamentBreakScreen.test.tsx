@@ -18,7 +18,7 @@ vi.mock('../../src/lib/supabase', () => ({
   supabase: {
     from: () => {
       const query: Record<string, unknown> = {};
-      for (const method of ['select', 'eq', 'in']) query[method] = () => query;
+      for (const method of ['select', 'eq', 'in', 'abortSignal']) query[method] = () => query;
       query.maybeSingle = query.limit = () => reads.result;
       return query;
     },
@@ -28,8 +28,12 @@ vi.mock('../../src/lib/supabase', () => ({
 vi.mock('../../src/services/readTournamentStandings', () => ({
   readTournamentStandings: () => reads.result,
 }));
+const standings = vi.hoisted(() => ({ listener: null as null | (() => void) }));
 vi.mock('../../src/services/tournamentStandingsUpdates', () => ({
-  subscribeTournamentStandings: () => () => {},
+  subscribeTournamentStandings: (_id: string, cb: () => void) => {
+    standings.listener = cb;
+    return () => {};
+  },
 }));
 
 const props = {
@@ -342,4 +346,74 @@ it('removes the minimized popup when the break expires', () => {
     vi.advanceTimersByTime(1000);
   });
   expect(screen.queryByRole('button', { name: 'Open Break Screen' })).toBeNull();
+});
+
+describe('the closed popup keeps the real-time add-on tally on the table (Dan 2026-11-11)', () => {
+  const field = (addOns: number) => ({
+    data: Array.from({ length: 5 }, (_, i) => ({
+      id: `row-${i}`,
+      user_id: `p${i}`,
+      username: `Player ${i}`,
+      chips: 10000 + i,
+      status: 'playing',
+      add_on: i < addOns,
+    })),
+    error: null,
+  });
+
+  it('shows the live tally and countdown on the minimized add-on clock', async () => {
+    reads.result = Promise.resolve(field(2));
+    const table = document.createElement('div');
+    document.body.append(table);
+    const view = render(
+      <TournamentBreakScreen
+        {...props}
+        tournamentId="addon-event"
+        tableAnchorRef={{ current: table }}
+        phase="counting_down"
+        breakTimeRemaining={42}
+        breakEndsAtMs={clock.now + 42000}
+        addOnNotice={{ cost: 35, chips: 15000, asset: 'chips' }}
+        onAddOn={() => {}}
+      />
+    );
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    const clockButton = within(table).getByRole('button', { name: 'Open Break Screen' });
+    expect(clockButton).toHaveTextContent('Add-On Closes In 0:42');
+    expect(clockButton).toHaveTextContent('Add-Ons Taken: 2');
+    // The countdown stays live while minimized.
+    act(() => {
+      clock.now += 1000;
+      vi.advanceTimersByTime(1000);
+    });
+    expect(clockButton).toHaveTextContent('Add-On Closes In 0:41');
+    // A committed purchase reaches the closed popup without reopening it.
+    reads.result = Promise.resolve(field(3));
+    await act(async () => standings.listener!());
+    expect(clockButton).toHaveTextContent('Add-Ons Taken: 3');
+    view.unmount();
+    table.remove();
+  });
+
+  it('carries the tally on the last-hand waiting chip as well', async () => {
+    reads.result = Promise.resolve(field(1));
+    const view = render(
+      <TournamentBreakScreen
+        {...props}
+        tournamentId="addon-event"
+        phase="last_hand"
+        heroHandLive
+        addOnNotice={{ cost: 35, chips: 15000, asset: 'chips' }}
+      />
+    );
+    await act(async () => {});
+    const chip = screen.getByRole('status');
+    expect(chip).toHaveTextContent('Will Start When All Tables Finish Their Current Hand');
+    expect(chip).toHaveTextContent('Add-Ons Taken: 1');
+    // A plain break's waiting chip carries no tally.
+    view.rerender(<TournamentBreakScreen {...props} phase="last_hand" heroHandLive />);
+    expect(screen.getByRole('status')).not.toHaveTextContent('Add-Ons Taken');
+    view.unmount();
+  });
 });
