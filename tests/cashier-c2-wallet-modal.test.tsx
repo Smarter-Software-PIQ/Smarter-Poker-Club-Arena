@@ -607,3 +607,22 @@ it.each(
     expect(fx.toast.success.mock.calls.at(-1)?.[0]).toContain(`Sent ${amount} Chips`)
   );
 });
+
+describe('Promo downline seven day allowance', () => {
+  it.each(['super_agent', 'agent', 'sub_agent'])(
+    'shows the shared allowance for %s promo sends',
+    async (role) => {
+      fx.agentRow = { agent_wallet_balance: 100, promo_wallet_balance: 100 };
+      await act(async () => {
+        openCashier({ role, walletType: 'promo_wallet' });
+      });
+      expect(screen.getByText(/Each Downline Can Receive 50 Promo Chips Total/)).toBeTruthy();
+    }
+  );
+  it('does not impose the agent allowance on the club owner pot', async () => {
+    await act(async () => {
+      openCashier({ role: 'owner', walletType: 'promo_wallet' });
+    });
+    expect(screen.queryByText(/Each Downline Can Receive 50 Promo Chips Total/)).toBeNull();
+  });
+});
