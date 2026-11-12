@@ -344,9 +344,15 @@ export function personalChance(horseId: string, basePct: number): number {
   return Math.max(0, Math.min(35, Math.round(basePct * voiceStyleFor(horseId).chattiness)));
 }
 
-/** Gesture habits are independent of talking and emoji preferences. */
+/**
+ * Gesture habits are independent of talking and emoji preferences. The cap
+ * was 25 and, with showdown-only moments, made horses at a tournament table
+ * effectively mute for a watching human; 40 keeps "sometimes, never every
+ * time" while letting boosted moments (big pots, tournaments) actually land
+ * (Dan 2026-11-11: "MAKE THAT FULLY FUNCTIONAL").
+ */
 export function personalThrowChance(horseId: string, basePct: number): number {
-  return Math.max(0, Math.min(25, Math.round(basePct * voiceStyleFor(horseId).throwiness)));
+  return Math.max(0, Math.min(40, Math.round(basePct * voiceStyleFor(horseId).throwiness)));
 }
 
 /** One string naming every habit, for the uniqueness proof. */
