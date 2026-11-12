@@ -2779,6 +2779,39 @@ export abstract class ServerTableEngineBase {
       return 'skipped';
     return this.f06OwnReservedPermitReconciler();
   }
+  /**
+   * BOUND THE IN-PLACE RECOVERY (2026-11-12, issue #10564, independent review).
+   * One orphaned reserved row resolves in a single refusal and the next hand
+   * deals, resetting this counter. But a table that re-orphaned a row on EVERY
+   * pass would resolve repeatedly, and each fast recovery in the dealing loop
+   * resets both liveness signals - consecutiveErrors and markProgress (which
+   * also clears the zombie watchdog's trips). Left unbounded, such a table
+   * would deal nothing yet stay invisible to the >=10-error self-kill AND the
+   * external zombie watchdog, with no page. After a few consecutive resolves
+   * with no hand actually dealt between them, stop masking and let both
+   * watchdogs see the table, loudly. The counter resets the moment a real hand
+   * deals (resetOwnReservedResolveProgress), so normal one-shot recovery never
+   * trips it.
+   */
+  protected static readonly MAX_OWN_RESERVED_RESOLVES_WITHOUT_PROGRESS = 3;
+  private f06OwnReservedResolvesSinceProgress = 0;
+  /**
+   * Record one own-reserved resolve and say whether to fast-recover in place.
+   * True for the first few; false once they repeat with no hand dealt between,
+   * so the caller falls through to the normal error count and backoff instead
+   * of resetting the self-kill and zombie-watchdog liveness signals forever.
+   */
+  protected noteOwnReservedResolveShouldFastRecover(): boolean {
+    this.f06OwnReservedResolvesSinceProgress++;
+    return (
+      this.f06OwnReservedResolvesSinceProgress <=
+      ServerTableEngineBase.MAX_OWN_RESERVED_RESOLVES_WITHOUT_PROGRESS
+    );
+  }
+  /** A hand actually dealt: the in-place recovery made real forward progress. */
+  protected resetOwnReservedResolveProgress(): void {
+    this.f06OwnReservedResolvesSinceProgress = 0;
+  }
   protected hasF06Allocator(): boolean {
     return this.f06Allocator !== null;
   }

@@ -302,3 +302,23 @@ describe('an in-life orphaned reserved permit recovers without a watchdog kill',
     );
   });
 });
+
+describe('the in-place recovery is bounded so a re-orphaning table cannot spin silently (issue #10564, review)', () => {
+  it('fast-recovers the first few consecutive resolves, then lets the stall surface', () => {
+    const e = fixture().engine as any;
+    // MAX_OWN_RESERVED_RESOLVES_WITHOUT_PROGRESS = 3: calls 1..3 fast-recover; the 4th does not.
+    expect(e.noteOwnReservedResolveShouldFastRecover()).toBe(true);
+    expect(e.noteOwnReservedResolveShouldFastRecover()).toBe(true);
+    expect(e.noteOwnReservedResolveShouldFastRecover()).toBe(true);
+    expect(e.noteOwnReservedResolveShouldFastRecover()).toBe(false);
+    expect(e.noteOwnReservedResolveShouldFastRecover()).toBe(false);
+  });
+
+  it('resets the moment a real hand deals, so normal one-shot recovery never trips the bound', () => {
+    const e = fixture().engine as any;
+    for (let i = 0; i < 4; i++) e.noteOwnReservedResolveShouldFastRecover();
+    expect(e.noteOwnReservedResolveShouldFastRecover()).toBe(false); // still surfaced
+    e.resetOwnReservedResolveProgress(); // a hand actually dealt
+    expect(e.noteOwnReservedResolveShouldFastRecover()).toBe(true); // fast recovery again
+  });
+});

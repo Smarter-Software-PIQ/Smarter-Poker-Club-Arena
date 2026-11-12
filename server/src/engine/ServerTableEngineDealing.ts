@@ -1731,14 +1731,26 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
             );
           }
           if (reconciled === 'resolved') {
-            this.recordRecoveryEvent(
-              'in_life_reserved_permit_resolved',
-              'allocation_unproven:own_generation'
+            if (this.noteOwnReservedResolveShouldFastRecover()) {
+              this.recordRecoveryEvent(
+                'in_life_reserved_permit_resolved',
+                'allocation_unproven:own_generation'
+              );
+              this.consecutiveErrors = 0;
+              this.markProgress();
+              await this.sleep(250);
+              continue;
+            }
+            // Repeated resolves with no hand dealt between them: a second fault
+            // is re-orphaning a permit every pass. Stop masking - fall through
+            // to the normal error count and backoff so the >=10 self-kill and
+            // the zombie watchdog catch the table, and page it now.
+            reportError(
+              new Error(
+                'own-reserved permit resolved repeatedly with no hand dealt; letting the stall surface'
+              ),
+              'ServerTableEngine.' + this.tableId + '.own_reserved_permit_resolves_unbounded'
             );
-            this.consecutiveErrors = 0;
-            this.markProgress();
-            await this.sleep(250);
-            continue;
           }
         }
 
@@ -2971,6 +2983,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       this.cashBreachSpan?.enter('dealing');
       if (this.discardPreparedHandForPause()) return;
       this.handsDealtThisSession++;
+      this.resetOwnReservedResolveProgress();
       const handNumber = this.handCount;
       const handStartMs = Date.now(); // FIX 149: Capture hand start time for telemetry
       this.currentHandStartedAt = handStartMs;
