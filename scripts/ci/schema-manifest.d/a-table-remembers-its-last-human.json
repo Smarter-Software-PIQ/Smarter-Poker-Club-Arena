@@ -1,0 +1,7 @@
+{
+  "_owner": "dwell-survives-restart",
+  "_comment": "Migration 20261112022000: tables.last_human_seen_at carries the 20-30 minute human-departure dwell (Dan 2026-11-11) across engine restarts; stamped by trigger zz_note_human_seat_seen at human seat lifecycle events.",
+  "tables": [],
+  "functions": ["fn_note_human_seat_seen", "zz_note_human_seat_seen"],
+  "columns": { "tables": ["last_human_seen_at"] }
+}
