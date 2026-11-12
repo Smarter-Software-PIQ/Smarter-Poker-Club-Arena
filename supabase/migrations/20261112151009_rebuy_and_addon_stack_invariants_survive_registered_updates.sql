@@ -29,20 +29,26 @@ BEGIN
     IF ROW(NEW.starting_chips,NEW.rebuy_chips,NEW.is_rebuy,NEW.is_reentry) IS DISTINCT FROM
        ROW(OLD.starting_chips,OLD.rebuy_chips,OLD.is_rebuy,OLD.is_reentry)
        AND (COALESCE(NEW.is_rebuy,false) OR COALESCE(NEW.is_reentry,false))
-       AND COALESCE(NEW.starting_chips,0)>0
-       AND NEW.rebuy_chips IS DISTINCT FROM NEW.starting_chips THEN
+       AND (COALESCE(NEW.starting_chips,0)<=0
+            OR NEW.rebuy_chips IS DISTINCT FROM NEW.starting_chips) THEN
       RAISE EXCEPTION 'rebuy chips must equal the registered starting stack'
         USING ERRCODE='23514';
     END IF;
     IF ROW(NEW.starting_chips,NEW.addon_chips,NEW.add_on_available) IS DISTINCT FROM
        ROW(OLD.starting_chips,OLD.addon_chips,OLD.add_on_available)
        AND COALESCE(NEW.add_on_available,false)
-       AND COALESCE(NEW.starting_chips,0)>0
-       AND NEW.addon_chips IS DISTINCT FROM NEW.starting_chips THEN
+       AND (COALESCE(NEW.starting_chips,0)<=0
+            OR NEW.addon_chips IS DISTINCT FROM NEW.starting_chips) THEN
       RAISE EXCEPTION 'addon chips must equal the registered starting stack'
         USING ERRCODE='23514';
     END IF;
     RETURN NEW;
+  END IF;
+  IF (COALESCE(NEW.is_rebuy,false) OR COALESCE(NEW.is_reentry,false)
+      OR COALESCE(NEW.add_on_available,false))
+     AND COALESCE(NEW.starting_chips,0)<=0 THEN
+    RAISE EXCEPTION 'chip purchases require a positive starting stack'
+      USING ERRCODE='23514';
   END IF;
   IF (COALESCE(NEW.is_rebuy,false) OR COALESCE(NEW.is_reentry,false))
      AND COALESCE(NEW.starting_chips,0)>0

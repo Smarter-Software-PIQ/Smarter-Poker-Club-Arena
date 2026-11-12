@@ -10,7 +10,8 @@ UPDATE triggers also miss awards seeded by an earlier producer trigger.
 trigger for every INSERT/UPDATE, after the Free Buy producer. New/unregistered contracts normalize their
 awards. Registered deciding-field transitions which introduce a mismatch
 refuse with 23514; unchanged historical contracts keep their recorded supply.
-Disabled features remain valid. No historical rows, wallet charges, prices,
+New or changed enabled contracts require a positive starting stack, including
+null, zero and negative boundaries. Disabled features remain valid. No historical rows, wallet charges, prices,
 fees or purchase/idempotency functions change.
 
 The existing daily-maintenance native qualification executes the original

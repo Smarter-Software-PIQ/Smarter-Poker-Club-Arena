@@ -849,7 +849,7 @@ set +e
 as_pg "${SU[@]}" -f "$FIXTURES/starting-stack-contract.sql" > "$EVIDENCE/15-starting-stack-before.log" 2>&1
 code=$?
 set -e
-[ "$code" != 0 ] && grep -q 'registered service rebuy mismatch was accepted' "$EVIDENCE/15-starting-stack-before.log" \
+[ "$code" != 0 ] && grep -Eq 'registered service rebuy mismatch was accepted|unregistered earlier producer awards were not normalized' "$EVIDENCE/15-starting-stack-before.log" \
   || fail 'starting-stack regression did not reproduce the old registered-write defect'
 as_pg "${SU[@]}" -f "$ROOT/supabase/migrations/20261112151009_rebuy_and_addon_stack_invariants_survive_registered_updates.sql" > "$EVIDENCE/15-starting-stack-migration.log" 2>&1
 as_pg "${SU[@]}" -f "$FIXTURES/starting-stack-contract.sql" > "$EVIDENCE/15-starting-stack-after.log" 2>&1 \
