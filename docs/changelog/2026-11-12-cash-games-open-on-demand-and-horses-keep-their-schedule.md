@@ -18,15 +18,26 @@ any table past `cap_mains + 4`. The engine mirrored the picks by withholding hor
 from unpicked secondary tables (`second_table_not_picked`) and admitting at most
 one or two secondaries per game in the cash plan.
 
-Now (window migration `20261112154904`, installs inside the daily engine break with
-the engine change in the same pull request):
+Now (migration `20261112154904`, ordinary: installs on merge):
 
-- The tick has no table count for any game. Tables open only through the
-  unchanged OPEN rule (every table full, enough buyers, one opening at a time, two
-  minutes after an abandoned feeder) and close through the consolidation rule.
+- The migration ADDS `fn_cash_cluster_tick(uuid, integer, p_uncapped boolean)`
+  and `fn_cash_clusters_tick_all(jsonb, p_uncapped boolean)`, built from
+  production's own definitions by checked replacement; the existing two are not
+  touched. With `p_uncapped` true the tick has no table count of any kind.
+  Tables open only through the unchanged OPEN rule (every table full, enough
+  buyers, one opening at a time, two minutes after an abandoned feeder) and
+  close through the consolidation rule.
+- COMPATIBILITY CONTRACT: only this engine passes `p_uncapped`
+  (`ClusterController.uncappedTick`); every older engine resolves to the
+  untouched capped tick, so install order and engine rollback are both safe.
+  The release gate's door check finds the overloads in production before this
+  engine ships; should it ever run without them (PGRST202) it falls back to the
+  capped tick. Dry run on PostgreSQL 17 against production's exact definitions
+  (md5-matched): compiles, originals unchanged, live-proof true.
 - The ceiling trigger is a runaway guard measured in demand: a game already
-  holding two live or opening tables with nobody seated cannot get a third
-  (`table_refused_unused_tables`). No game with players is capped.
+  holding two live or opening, not-closed tables with nobody seated and no seat
+  held cannot get a third (`table_refused_unused_tables`). No game with players
+  is capped.
 - The engine admits and seats every secondary table of an allowed game, Classic
   and Lightning; only an unread Lightning set keeps the old pick as a fail-safe.
 - Kept: `cash_games_one_per_key` (one enabled must-move DEFINITION per club,
@@ -57,7 +68,7 @@ out, and it is inside its work hours (weekly regular pattern or daily window).
   ordinary leave door; HIT AND RUN and the big-pot orbit decide when, never
   whether. `StableHand.forceLeaveReason` had no caller, so before this nothing
   ever sent a horse home at the end of its shift, its day or its cap.
-- Tournaments: no new registration on a rest day.
+- Tournaments: no new registration on a rest day, ticket or not.
 - Measured before (2026-11-12 16:49Z): of 103 seated cash horses, 11 were outside
   their work hours, 1 was on its rest day and 4 were past their daily cap.
 

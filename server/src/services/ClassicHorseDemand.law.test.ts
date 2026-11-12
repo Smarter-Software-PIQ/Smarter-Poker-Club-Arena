@@ -55,15 +55,21 @@ describe('actual full Classic games queue and expand', () => {
     expect(fleet).toContain('cashPlanLightningGames === null;');
     expect(plan).not.toContain('thirdTablePicked');
     expect(plan).toContain('for (const table of candidates) out.add(String(table.id));');
-    // The tick's twin: no count of any kind limits a game's tables, and the
-    // ceiling trigger is a runaway guard measured in unused tables.
-    expect(migration).toContain('-- @install-window: daily-maintenance');
-    expect(migration).toContain('  v_table_cap := NULL;');
-    expect(migration).toContain("patched := replace(patched, open_gate, '');");
-    expect(migration).toContain('    v_over_cap := false;');
+    // The tick's twin: an ADDED p_uncapped overload of each tick (the old
+    // ones untouched, so an engine that does not ask keeps the capped tick),
+    // and a ceiling trigger that is a runaway guard measured in unused tables.
+    expect(migration).not.toContain('-- @install-window: daily-maintenance');
+    expect(migration).toContain(
+      'CREATE OR REPLACE FUNCTION public.fn_cash_cluster_tick(p_game_id uuid, p_eligible_horses integer, p_uncapped boolean)'
+    );
+    expect(migration).toContain(
+      'CREATE OR REPLACE FUNCTION public.fn_cash_clusters_tick_all(p_eligible jsonb, p_uncapped boolean)'
+    );
+    expect(migration).toContain('     AND (p_uncapped OR v_live_tables < v_table_cap)');
+    expect(migration).toContain('    v_table_cap := NULL;');
     expect(migration).toContain("RAISE EXCEPTION 'cash_table_count_cap_preimage_changed'");
     expect(migration).toContain("'table_refused_unused_tables'");
+    expect(migration).toContain("     AND coalesce(t.status, '') <> 'closed'");
     expect(migration).toContain('  IF v_unused >= 2 THEN');
-    expect(migration).not.toMatch(/v_table_cap := greatest\(1/);
   });
 });

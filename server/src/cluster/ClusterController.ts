@@ -447,7 +447,7 @@ export class ClusterController {
     // at Main 1; that is the game's horse demand.
     const eligible = row?.main1_table_id ? this.deps.eligibleHorseCount(row.main1_table_id) : 0;
     this.wakesFiredCount++;
-    const { data, error } = await rpc('fn_cash_cluster_tick', {
+    const { data, error } = await uncappedTick(rpc, 'fn_cash_cluster_tick', {
       p_game_id: gameId,
       p_eligible_horses: eligible,
     });
@@ -565,7 +565,9 @@ export class ClusterController {
         }
 
         summary.rpcs++;
-        const { data, error } = await rpc('fn_cash_clusters_tick_all', { p_eligible: eligible });
+        const { data, error } = await uncappedTick(rpc, 'fn_cash_clusters_tick_all', {
+          p_eligible: eligible,
+        });
         if (!passIsCurrent()) return summary;
         // Every plan this current pass committed reaches its game's feeders
         // now, before the per-game follow-up below awaits anything
@@ -772,4 +774,26 @@ export class ClusterController {
   get isRunning(): boolean {
     return this.running;
   }
+}
+
+/**
+ * ZERO RESTRICTIONS ON THE GAMES THAT CAN BE OPEN (Dan 2026-11-11).
+ *
+ * This engine seats horses at every secondary table of an allowed game
+ * (HorseUnionCashPlan.horseCashPlanSecondTables), so it asks the tick for the
+ * uncapped overload (migration 20261112154904: no table count, the OPEN rule
+ * alone decides). An engine that does not pass `p_uncapped` resolves to the
+ * untouched capped tick, which is the compatibility contract. Should this
+ * engine ever run against a database without the overload (PostgREST
+ * PGRST202, no function matches the arguments), it falls back to the capped
+ * tick for that call rather than skip the tick.
+ */
+export async function uncappedTick(
+  rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: any; error: any }>,
+  fn: 'fn_cash_cluster_tick' | 'fn_cash_clusters_tick_all',
+  args: Record<string, unknown>
+): Promise<{ data: any; error: any }> {
+  const res = await rpc(fn, { ...args, p_uncapped: true });
+  if (res?.error && (res.error as { code?: unknown }).code === 'PGRST202') return rpc(fn, args);
+  return res;
 }

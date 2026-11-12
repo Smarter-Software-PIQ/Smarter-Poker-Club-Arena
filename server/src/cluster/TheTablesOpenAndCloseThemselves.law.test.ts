@@ -136,7 +136,9 @@ describe('the controller is wired on the leader, beside the fleet', () => {
     // PIN MOVED 2026-09-05 (one tick RPC per pass): the pass sends the whole
     // census keyed by Main 1 table id; the per-game demand is still passed by
     // the wake, through the per-game RPC.
-    expect(CONTROLLER).toMatch(/rpc\('fn_cash_clusters_tick_all', \{ p_eligible: eligible \}\)/);
+    expect(CONTROLLER).toMatch(
+      /uncappedTick\(rpc, 'fn_cash_clusters_tick_all', \{\s*p_eligible: eligible,\s*\}\)/
+    );
     expect(CONTROLLER).toMatch(/p_eligible_horses: eligible/);
   });
 });
@@ -598,8 +600,8 @@ describe('the tick survives the PostgREST session (safeupdate)', () => {
       CONTROLLER.indexOf('async tick(): Promise<ClusterTickSummary>'),
       CONTROLLER.indexOf('private async afterGameTick(')
     );
-    expect(pass).toMatch(/rpc\('fn_cash_clusters_tick_all'/);
-    expect(pass).not.toMatch(/rpc\('fn_cash_cluster_tick'/);
+    expect(pass).toMatch(/uncappedTick\(rpc, 'fn_cash_clusters_tick_all'/);
+    expect(pass).not.toMatch(/'fn_cash_cluster_tick'/);
     expect(pass).not.toMatch(/rpc\('fn_cash_clusters_to_tick'/);
     expect(CONTROLLER).not.toMatch(/CLUSTER_TICK_CONCURRENCY/);
     expect(CONTROLLER).not.toMatch(/Promise\.all\(workers\)/);
@@ -1074,9 +1076,9 @@ describe('one tick RPC per pass, a rest for dormant games, and a wake on seat ch
       CONTROLLER.indexOf('async tick(): Promise<ClusterTickSummary>'),
       CONTROLLER.indexOf('private async afterGameTick(')
     );
-    expect((pass.match(/await rpc\(/g) ?? []).length).toBe(1);
+    expect((pass.match(/await (rpc|uncappedTick)\(/g) ?? []).length).toBe(1);
     expect(pass).toMatch(
-      /summary\.rpcs\+\+;\s*const \{ data, error \} = await rpc\('fn_cash_clusters_tick_all'/
+      /summary\.rpcs\+\+;\s*const \{ data, error \} = await uncappedTick\(rpc, 'fn_cash_clusters_tick_all'/
     );
     // No loop in the pass body awaits an RPC per result.
     const loop = pass.slice(pass.indexOf('for (const entry of results)'));
@@ -1117,7 +1119,7 @@ describe('one tick RPC per pass, a rest for dormant games, and a wake on seat ch
       CONTROLLER.indexOf('private emptySummary()')
     );
     expect(wake).toMatch(
-      /rpc\('fn_cash_cluster_tick', \{\s*p_game_id: gameId,\s*p_eligible_horses: eligible,/
+      /uncappedTick\(rpc, 'fn_cash_cluster_tick', \{\s*p_game_id: gameId,\s*p_eligible_horses: eligible,/
     );
     expect(wake).not.toMatch(/fn_cash_clusters_tick_all/);
   });

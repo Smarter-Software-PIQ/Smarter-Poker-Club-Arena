@@ -121,13 +121,13 @@ describe('the pass is one RPC', () => {
         ]),
     });
     await controller.tick();
-    expect(calls[0].args).toEqual({ p_eligible: { t1: 3, t3: 1 } });
+    expect(calls[0].args).toEqual({ p_eligible: { t1: 3, t3: 1 }, p_uncapped: true });
   });
 
   it('sends an empty map when the fleet has counted nothing', async () => {
     const { controller, calls } = build();
     await controller.tick();
-    expect(calls[0].args).toEqual({ p_eligible: {} });
+    expect(calls[0].args).toEqual({ p_eligible: {}, p_uncapped: true });
   });
 
   it('reports how many games the SQL let rest', async () => {
@@ -292,7 +292,10 @@ describe('the rested roster is identity, and the wake can read it', () => {
       controller.wake('sleepy');
       await vi.advanceTimersByTimeAsync(CLUSTER_WAKE_DEBOUNCE_MS + 1);
       expect(calls).toEqual([
-        { fn: 'fn_cash_cluster_tick', args: { p_game_id: 'sleepy', p_eligible_horses: 3 } },
+        {
+          fn: 'fn_cash_cluster_tick',
+          args: { p_game_id: 'sleepy', p_eligible_horses: 3, p_uncapped: true },
+        },
       ]);
       controller.stop();
     } finally {
@@ -367,7 +370,10 @@ describe('a seat change wakes its game', () => {
       expect(calls).toHaveLength(0);
       await vi.advanceTimersByTimeAsync(1);
       expect(calls).toEqual([
-        { fn: 'fn_cash_cluster_tick', args: { p_game_id: 'g1', p_eligible_horses: 4 } },
+        {
+          fn: 'fn_cash_cluster_tick',
+          args: { p_game_id: 'g1', p_eligible_horses: 4, p_uncapped: true },
+        },
       ]);
       expect(controller.wakeStats.fired).toBe(1);
       controller.stop();
@@ -612,5 +618,32 @@ describe('no memory, no overlap, no cascade', () => {
     controller.stop();
     expect(controller.isRunning).toBe(false);
     vi.useRealTimers();
+  });
+});
+
+describe('the uncapped tick (Dan 2026-11-11, migration 20261112154904)', () => {
+  it('asks for the uncapped overload and falls back to the capped tick only on PGRST202', async () => {
+    const { uncappedTick } = await import('./ClusterController.js');
+    const seen: Array<Record<string, unknown>> = [];
+    const missing = async (_fn: string, args: Record<string, unknown>) => {
+      seen.push(args);
+      return 'p_uncapped' in args
+        ? { data: null, error: { code: 'PGRST202' } }
+        : { data: { ok: true }, error: null };
+    };
+    expect(await uncappedTick(missing, 'fn_cash_clusters_tick_all', { p_eligible: {} })).toEqual({
+      data: { ok: true },
+      error: null,
+    });
+    expect(seen).toEqual([{ p_eligible: {}, p_uncapped: true }, { p_eligible: {} }]);
+    seen.length = 0;
+    const other = async (_fn: string, args: Record<string, unknown>) => {
+      seen.push(args);
+      return { data: null, error: { code: '57014' } };
+    };
+    expect((await uncappedTick(other, 'fn_cash_cluster_tick', { p_game_id: 'g' })).error.code).toBe(
+      '57014'
+    );
+    expect(seen).toEqual([{ p_game_id: 'g', p_uncapped: true }]);
   });
 });

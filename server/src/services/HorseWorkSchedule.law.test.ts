@@ -96,8 +96,11 @@ describe('every path obeys it: no waiver, no widening', () => {
       '(this.owesHands(tableId, uid, engine) || this.owesBigPotOrbit(uid, engine))'
     );
   });
-  it('no new tournament registration on a rest day', () => {
-    expect(tourney).toContain('!isRestDayFor(restBook?.states.get(h.id), restWeekday);');
+  it('no new tournament registration on a rest day, ticket or not', () => {
+    const rest = tourney.indexOf('if (isRestDayFor(restBook?.states.get(h.id), restWeekday)) {');
+    expect(rest).toBeGreaterThan(-1);
+    // Before the ticket shortcut: a ticket does not buy a day off back.
+    expect(rest).toBeLessThan(tourney.indexOf('if (ticketHintIds.has(h.id)) return true;'));
   });
 });
 

@@ -7684,11 +7684,15 @@ export class TournamentRecurringService {
         }
         // The ticket is the lane: its value is already committed to this
         // tournament contract and must reach the atomic ticket-first door.
+        // Its day off holds even with a ticket in hand (owner 2026-11-12): the
+        // ticket keeps its value for a day it works.
+        if (isRestDayFor(restBook?.states.get(h.id), restWeekday)) {
+          laneDropped++;
+          return false;
+        }
         if (ticketHintIds.has(h.id)) return true;
         // The full scheduled fleet is eligible, regardless of historical lane.
-        const ok =
-          isActiveNow(h.id, new Date().getUTCHours()) &&
-          !isRestDayFor(restBook?.states.get(h.id), restWeekday);
+        const ok = isActiveNow(h.id, new Date().getUTCHours());
         if (!ok) laneDropped++;
         return ok;
       });
