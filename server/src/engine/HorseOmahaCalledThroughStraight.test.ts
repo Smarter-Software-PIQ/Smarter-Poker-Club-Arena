@@ -5,6 +5,10 @@
  * on 8d Tc 7d, bet 29 and 89 and was called twice by the same two players,
  * then moved all in for 225 into 397 when the Kd completed the flush. One of
  * the two callers held a flush. The public state of that river is the case.
+ *
+ * The law below it: a straight never fires a third barrel into a player who
+ * called the first two when a flush or a full house is possible on the board,
+ * in any Omaha high variant, against two such callers or one.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { omahaVariantSpot } from '../benchmark/OmahaVariantPolicyEvidence.js';
@@ -74,6 +78,7 @@ const TURN_CHECKED: ActionRecord[] = [
 const RIVER: ActionRecord[] = [act(1, 'river', 'check', 0)];
 
 type Spot = {
+  variant?: 'plo4' | 'plo5' | 'plo6';
   hole?: string;
   board?: string;
   /** The first caller has left the hand: one opponent remains. */
@@ -93,8 +98,9 @@ const SEATS: Array<[number, number, number, number, boolean]> = [
 
 function riverSpot(spot: Spot = {}) {
   const input = omahaVariantSpot('plo8', 'river', 5, 'cash');
-  input.state.gameVariant = 'plo4';
-  input.state.variantRules = horseVariantRulesFor('plo4');
+  const variant = spot.variant ?? 'plo4';
+  input.state.gameVariant = variant;
+  input.state.variantRules = horseVariantRulesFor(variant);
   const turnCalls = spot.turnChecked ? 0 : 89;
   const players = SEATS.map(([seat, stack, invested, dead, folded], index) => {
     const live = seat <= 3;
@@ -114,7 +120,10 @@ function riverSpot(spot: Spot = {}) {
   });
   const hero: SeatPlayer = {
     ...players[1],
-    cards: cards(spot.hole ?? 'AsJcJs9s'),
+    // The extra cards make no pair, straight or flush with any board used here.
+    cards: cards(
+      (spot.hole ?? 'AsJcJs9s') + (variant === 'plo4' ? '' : variant === 'plo5' ? '2s' : '2s4c')
+    ),
   };
   const state = input.state;
   state.players = players;
@@ -142,7 +151,7 @@ function riverSpot(spot: Spot = {}) {
   return { hero, gs: state };
 }
 
-function run(spot: Spot, seeds = 20) {
+function run(spot: Spot, seeds = 20, v40CalledThroughStraight = true) {
   const actions: string[] = [];
   let fired = 0;
   for (let seed = 1; seed <= seeds; seed++) {
@@ -155,7 +164,7 @@ function run(spot: Spot, seeds = 20) {
       gs as never,
       'balanced',
       {},
-      { mind: false, telemetry: true }
+      { mind: false, telemetry: true, v40CalledThroughStraight }
     );
     actions.push(decision.action);
     if (drainFires().some((f: { feature: string }) => f.feature === FIRE)) fired++;
@@ -163,7 +172,11 @@ function run(spot: Spot, seeds = 20) {
   return { actions, fired, wagers: actions.filter((a) => a !== 'check').length };
 }
 
-describe('Omaha river: a straight checks to two two-barrel callers when a flush is possible', () => {
+const FLUSH_RIVER = '8dTc7d3hKd';
+const PAIRED_RIVER = '8dTc7s3h8h';
+const BLANK_RIVER = '8dTc7s3h2c';
+
+describe('Omaha river: a straight is not a third barrel when a flush or a full house is possible', () => {
   beforeEach(() => {
     enableBrainTelemetry();
     HorseMind.reset();
@@ -186,10 +199,46 @@ describe('Omaha river: a straight checks to two two-barrel callers when a flush 
     expect(out.fired).toBe(20);
   });
 
-  it('keeps betting the straight on a river that completes no flush', () => {
-    const out = run({ board: '8dTc7d3h2c' });
+  it('checks it against the one opponent left who called both barrels', () => {
+    const out = run({ firstCallerFolded: true });
+    expect(out.wagers).toBe(0);
+    expect(out.fired).toBe(20);
+  });
+
+  it('checks it when the river pairs the board, against two callers and against one', () => {
+    for (const firstCallerFolded of [false, true]) {
+      const out = run({ board: PAIRED_RIVER, firstCallerFolded });
+      expect(out.wagers).toBe(0);
+      expect(out.fired).toBe(20);
+    }
+  });
+
+  it('holds in every Omaha high variant, on both boards, against two callers and one', () => {
+    for (const variant of ['plo4', 'plo5', 'plo6'] as const)
+      for (const board of [FLUSH_RIVER, PAIRED_RIVER])
+        for (const firstCallerFolded of [false, true]) {
+          const out = run({ variant, board, firstCallerFolded }, 8);
+          expect([variant, board, firstCallerFolded, out.wagers]).toEqual([
+            variant,
+            board,
+            firstCallerFolded,
+            0,
+          ]);
+        }
+  });
+
+  it('keeps the earlier value bet behind the explicit off arm', () => {
+    const out = run({}, 20, false);
     expect(out.fired).toBe(0);
     expect(out.wagers).toBe(20);
+  });
+
+  it('keeps betting the straight on a river that completes nothing, against two callers and one', () => {
+    for (const firstCallerFolded of [false, true]) {
+      const out = run({ board: BLANK_RIVER, firstCallerFolded });
+      expect(out.fired).toBe(0);
+      expect(out.wagers).toBe(20);
+    }
   });
 
   it('keeps betting the nut flush on the same river', () => {
@@ -198,11 +247,8 @@ describe('Omaha river: a straight checks to two two-barrel callers when a flush 
     expect(out.wagers).toBe(20);
   });
 
-  it('does not apply when one of the two callers has left the hand', () => {
-    expect(run({ firstCallerFolded: true }).fired).toBe(0);
-  });
-
   it('does not apply when the callers called one barrel, not two', () => {
     expect(run({ turnChecked: true }).fired).toBe(0);
+    expect(run({ turnChecked: true, firstCallerFolded: true }).fired).toBe(0);
   });
 });

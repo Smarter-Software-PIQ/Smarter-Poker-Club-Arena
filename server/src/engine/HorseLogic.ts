@@ -2468,6 +2468,8 @@ export interface HorseDecideOpts {
   v67RiverBetRaisedOnePair?: boolean;
   /** V88: a cash Omaha made hand that called a wager on the previous street and now needs its stack at a third of the pot or better does not fold a blank; explicit off arm retained. */
   v88CommitmentHonored?: boolean;
+  /** V40: an Omaha straight checks the river to players who called two barrels when a flush or a full house is possible (hand 58796916). Default on; explicit off arm keeps the earlier value bet for historical corpora. */
+  v40CalledThroughStraight?: boolean;
   /** League-only override of the V67 extra raise shade; production never
    * sets it. */
   v67RiverRaiseShadeOverride?: number;
@@ -10995,23 +10997,33 @@ export class HorseLogic {
       vi.isHiLo &&
       new Set(board.map((c) => (c.rank === 'A' ? 1 : RANK_VALUES[c.rank])).filter((r) => r <= 8))
         .size >= 3;
-    const calledThrough40 =
+    const twoBarrelCallers40 = [...liveCalledBarrels40.values()].filter(
+      (stages) => stages.size >= 2
+    ).length;
+    const calledThroughRiver40 =
       useV40 &&
       useV15 &&
       vi.isOmaha &&
       !riverCanSplitLow &&
       !multiBoard36 &&
       isRiver &&
-      oppCount >= 2 &&
-      calledBarrels40 >= 2 &&
-      [...liveCalledBarrels40.values()].filter((stages) => stages.size >= 2).length >= 2;
+      calledBarrels40 >= 2;
+    const calledThrough40 = calledThroughRiver40 && oppCount >= 2 && twoBarrelCallers40 >= 2;
     const calledThroughFlush40 =
       calledThrough40 && cat === 6 && (nuts15?.higherFlushRanks ?? 0) >= 2;
-    // The same two callers, and a straight on a board where a flush is
-    // possible: every flush beats it, so it is a hand to show down, not a
-    // third barrel. Hand 58796916 (PLO4, 2026-11-12) moved all in with the
-    // flopped straight when the third diamond came and was called by a flush.
-    const calledThroughStraight40 = calledThrough40 && cat === 5 && nuts15?.flushPossible === true;
+    // A straight on a board where a flush or a full house is possible is
+    // beaten by every hand of those classes, and a player who called two
+    // barrels holds them far more often than a random hand does. It is a
+    // hand to show down, not a third barrel: against the two callers of hand
+    // 58796916 (PLO4, 2026-11-12, all in with the flopped straight when the
+    // third diamond came, called by a flush), and equally against one live
+    // opponent who called both barrels.
+    const calledThroughStraight40 =
+      opts.v40CalledThroughStraight !== false &&
+      calledThroughRiver40 &&
+      (calledThrough40 || (oppCount === 1 && twoBarrelCallers40 === 1)) &&
+      cat === 5 &&
+      (nuts15?.flushPossible === true || boardPaired15);
     // V37: the covering stack near the bubble bluffs a notch more — the
     // covered field is folding hands it would call with anywhere else.
     if (!sat37.active) {

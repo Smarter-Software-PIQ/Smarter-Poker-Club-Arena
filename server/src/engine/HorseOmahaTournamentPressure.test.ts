@@ -468,6 +468,9 @@ describe(
       ...CORPUS_BASE_OPTS,
       v87HoldemOverhaul: false,
       v87DeepDiveDiscipline: false,
+      // The called-through straight check (hand 58796916, 2026-11-12) is a later
+      // river value rule pinned by HorseOmahaCalledThroughStraight.test.ts.
+      v40CalledThroughStraight: false,
     };
 
     it.each(CORPUS_VARIANTS)(

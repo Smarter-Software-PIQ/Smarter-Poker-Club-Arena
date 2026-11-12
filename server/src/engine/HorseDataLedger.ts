@@ -863,6 +863,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V88'
   ),
   flag(
+    'v40CalledThroughStraight',
+    '2026-11-12 Omaha high river, one ordinary board, no split low: a straight checks when a flush is possible or the board is paired, against two or more opponents of whom two called two barrels, or against one opponent who called both (hand 58796916); explicit off arm keeps the earlier value bet for historical corpora',
+    'V40'
+  ),
+  flag(
     'tokenCallPrice',
     '2026-11-12 cash Omaha high committed-call bar: below a price of 0.15 the additive premiums (margin, commitment bar, scare margin, shades) shrink in proportion to the price, and under 0.01 a made hand calls; unchanged at 0.15 or more (PLO6-AUDIT-010, production hand 58750626)',
     'V89'
