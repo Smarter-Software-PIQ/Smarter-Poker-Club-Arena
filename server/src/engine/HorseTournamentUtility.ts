@@ -1860,9 +1860,11 @@ function evaluateWithWorkspace(
   // shot at a head and every fold as nothing, so the arbiter turned folds of
   // 34o at 115 big blinds into all-ins (HVH2D-TRN-001, direction 2). Until
   // chips are valued as future head equity, the reference action stands.
-  // A satellite awards its seats as tickets recorded apart from the prize
-  // pool, so it is never read as an event without awards.
-  if (payoutWeight <= 0 && !input.context.satellite) {
+  // The test is the weight itself, not the event type: whatever the event
+  // awards (cash places, satellite tickets, which are paid out of the prize
+  // pool), a payout weight of zero means this model would value all of it at
+  // nothing, so it has no justified valuation to offer.
+  if (payoutWeight <= 0) {
     return { result: null, unavailableReason: 'chip_value_not_modeled' };
   }
   const boundedFuture = Boolean(input.continuation?.futureHands);

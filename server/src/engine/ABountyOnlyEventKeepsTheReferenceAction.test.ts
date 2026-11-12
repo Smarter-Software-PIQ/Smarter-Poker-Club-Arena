@@ -129,8 +129,30 @@ describe('where the stand-down applies and where it does not', () => {
     expect(decision.tournamentUtilityRefusal).not.toBe(REFUSAL);
   });
 
-  it('does not apply to a satellite, whose seats are tickets recorded apart from the pool', () => {
-    const decision = decide({ satellite: true, satelliteSeats: 1 });
+  it('does not apply to a satellite that has a prize pool, the only kind the records hold', () => {
+    // Satellite tickets are paid out of the prize pool (entitlement rows carry
+    // their value). 321 satellites completed 2026-10-29 to 2026-11-12: every
+    // one has a prize pool and none has a bounty pool.
+    const decision = decide({
+      satellite: true,
+      satelliteSeats: 1,
+      prizePoolCents: 50_000,
+      isPko: false,
+      isBounty: false,
+      bountyPoolCents: 0,
+      bountyFactor: 0,
+      meanBountyCents: 0,
+      rebuyBountyContributionCents: 0,
+    });
     expect(decision.tournamentUtilityRefusal).not.toBe(REFUSAL);
+  });
+
+  it('stands down for any event whose payout weight is zero, a satellite included', () => {
+    // A knockout satellite with no prize pool would have its seats weighted
+    // by zero as well. No such event exists in the records; if one appears
+    // the arbiter has no valuation for it and the reference action stands.
+    const decision = decide({ satellite: true, satelliteSeats: 1 });
+    expect(decision.tournamentUtilityRefusal).toBe(REFUSAL);
+    expect(FIXTURE.gameState.legalActions).toContain(decision.action);
   });
 });

@@ -38,7 +38,7 @@ is evaluated exactly as before.
 
 ## Proof
 
-`server/src/engine/ABountyOnlyEventKeepsTheReferenceAction.test.ts`, 8 cases. The first 3
+`server/src/engine/ABountyOnlyEventKeepsTheReferenceAction.test.ts`, 9 cases. The first 3
 replaying the anonymised decision-time request of one of the 23 decisions
 (seats, stacks and heads only). On the old arbiter the decision case fails:
 the request returns a raise. On the new one it folds and carries the refusal
@@ -46,8 +46,16 @@ reason. The third case gives the same event a prize pool and shows the arbiter
 still evaluates it. The other 5 fix the boundaries: the action returned on a
 stand-down is legal and is the policy graph's final action; a covered stack
 stands down as a covering one does; a knockout with any prize pool, an event
-with no bounty pool, and a satellite (whose seats are tickets recorded apart
-from the prize pool) are not affected.
+with no bounty pool and a satellite with a prize pool are not affected; an
+event whose payout weight is zero stands down whatever its type.
+
+What the records say about awards (completed events, 2026-10-29 to
+2026-11-12): 321 satellites, every one with a prize pool and none with a
+bounty pool, their tickets paid out of that pool; 16 knockouts with a bounty
+pool and no prize pool, none of them a satellite. So the stand-down reaches
+exactly those 16 and nothing with separately recorded awards. Missing award
+data is a different case and is already refused upstream as an incomplete
+context.
 
 ## Limits
 
