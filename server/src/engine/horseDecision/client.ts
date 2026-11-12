@@ -1342,6 +1342,10 @@ export class LiveHorseDecisionWorkerClient {
       input.board.length < 3 ||
       input.board.length > 5
     ) {
+      // Evidence only: a prewarm asked for and not posted. Beside the
+      // worker's poker_horse_street_prewarm_total it shows how often the
+      // idle-only rule leaves a street unwarmed.
+      noteFire('upgrade05_prewarm_refused_seen');
       return false;
     }
     return this.safePost({

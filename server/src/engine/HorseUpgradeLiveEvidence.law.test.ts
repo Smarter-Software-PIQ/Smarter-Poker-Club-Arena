@@ -47,40 +47,68 @@ function emittingSources(): Array<{ file: string; text: string }> {
 
 const EMITTERS = ['noteFire', 'noteFeature', 'recordWatchcounter', 'noteHorseTelemetryOpportunity'];
 
-/** Whether the text before `at` on its own line puts `at` inside a comment. */
-function inComment(text: string, at: number): boolean {
-  const line = text.slice(text.lastIndexOf('\n', at - 1) + 1, at);
-  if (/^\s*(\/\/|\*|\/\*)/.test(line) || line.includes('//')) return true;
-  return line.lastIndexOf('/*') > line.lastIndexOf('*/');
+/**
+ * A copy of `text` with every comment and every string interior blanked,
+ * offsets kept, plus the offsets at which a string literal opens in code.
+ * Quoted strings end at their line; a template ends at its closing backtick.
+ */
+function lex(text: string): { code: string; opens: Set<number> } {
+  const out = text.split('');
+  const opens = new Set<number>();
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    const next = text[i + 1];
+    if (ch === '/' && next === '/') {
+      while (i < text.length && text[i] !== '\n') out[i++] = ' ';
+    } else if (ch === '/' && next === '*') {
+      const end = text.indexOf('*/', i + 2);
+      const stop = end < 0 ? text.length : end + 2;
+      for (; i < stop; i++) if (text[i] !== '\n') out[i] = ' ';
+    } else if (ch === "'" || ch === '"' || ch === '`') {
+      opens.add(i);
+      i++;
+      while (i < text.length && text[i] !== ch) {
+        if (ch !== '`' && text[i] === '\n') break;
+        if (text[i] === '\\') out[i++] = ' ';
+        if (i < text.length && text[i] !== '\n') out[i] = ' ';
+        i++;
+      }
+      i++;
+    } else i++;
+  }
+  return { code: out.join(''), opens };
 }
 
 /**
- * True when `needle` sits inside the argument list of a call that emits a
- * counter: walk back from the needle to the call that encloses it and read
- * the callee's name. A registry row, an object literal, a list or a comment
- * that merely names the counter does not count.
+ * True when `needle` is a string literal of its own, written in code, inside
+ * the argument list of a call that emits a counter. The callee is one of the
+ * emitters, called bare or as `this.deps.<emitter>`. A registry row, an
+ * object literal, a list, a comment of any shape, a string that only quotes
+ * the call, or a like-named method on another object does not count.
  */
 function emittedIn(text: string, needle: string): boolean {
+  const { code, opens } = lex(text);
   for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + 1)) {
-    if (inComment(text, at)) continue;
+    if (!opens.has(at)) continue;
     let depth = 0;
     for (let i = at - 1; i >= 0 && at - i < 600; i--) {
-      const ch = text[i];
+      const ch = code[i];
       if (ch === ')') depth++;
       else if (ch === '(') {
         if (depth > 0) {
           depth--;
           continue;
         }
-        const callee = /([A-Za-z_]\w*)\s*$/.exec(text.slice(Math.max(0, i - 60), i))?.[1];
+        const head = code.slice(Math.max(0, i - 80), i);
+        const callee = /([A-Za-z_]\w*)\s*$/.exec(head);
         // A bare grouping parenthesis has no callee: keep walking outward.
         if (!callee) continue;
-        if (EMITTERS.includes(callee)) return true;
+        const receiver = head.slice(0, callee.index);
+        const bare = !receiver.endsWith('.');
+        if (EMITTERS.includes(callee[1]!) && (bare || receiver.endsWith('this.deps.'))) return true;
         break;
-      } else if (ch === '[' || ch === '{') {
-        // Inside a list or an object literal, whatever encloses that.
-        if (depth === 0) break;
-      }
+      } else if ((ch === '[' || ch === '{') && depth === 0) break;
     }
   }
   return false;
@@ -129,5 +157,11 @@ describe('LAW: an enabled Horse upgrade is provable from a live counter', () => 
     expect(emittedIn(`// noteFire(${n});`, n)).toBe(false);
     expect(emittedIn(`run(); /* noteFire(${n}); */`, n)).toBe(false);
     expect(emittedIn(`describeCounter(${n});`, n)).toBe(false);
+    // A block comment without leading stars, a string that quotes the call,
+    // and a like-named method on another object.
+    expect(emittedIn(`/*\n  noteFire(${n});\n*/`, n)).toBe(false);
+    expect(emittedIn(`const doc = "noteFire(${n})";`, n)).toBe(false);
+    expect(emittedIn(`other.noteFire(${n});`, n)).toBe(false);
+    expect(emittedIn(`logger.deps.noteFeature(${n});`, n)).toBe(false);
   });
 });
