@@ -6238,8 +6238,9 @@ function CashierTradeWorkspace() {
                   isAgentRole(myRole) && (
                     <>
                       <p>
-                        Each Downline Can Receive 50 Promo Chips Total From All Agents In Any 7
-                        Days. All Destination Wallets Share This Limit.
+                        {
+                          'Each Downline Can Receive 50 Promo Chips Total From All Agents In Any 7 Days. All Destination Wallets Share This Limit.'
+                        }
                       </p>
                       {promoAllowanceFloor !== null && (
                         <p aria-label="Promo Allowance Remaining">
