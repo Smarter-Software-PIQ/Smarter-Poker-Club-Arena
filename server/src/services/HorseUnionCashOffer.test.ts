@@ -28,7 +28,7 @@ describe('the actual cash seat-offer handler obeys the relaunched union schedule
       true,
     ],
     ['relaunched Classic PLO4 1/2 without humans', 'Classic PLO4 1/2', 5, null, true],
-    ['relaunched Classic PLO5 1/2 without humans', 'Classic PLO5 1/2', 5, null, true],
+    ['the one PLO5 1/2 game (Madness) without humans', 'Madness PLO5 1/2', 5, null, true],
     ['prime-time higher stakes without humans', 'Classic NLH 1/2', 18, null, true],
     ['overnight NLH without humans', 'Classic NLH .10/.25', 5, null, true],
     ['overnight PLO without humans', 'Classic PLO4 .10/.25', 5, null, true],
