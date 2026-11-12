@@ -7,3 +7,7 @@ The installer now reads the minor from `VERSION` in that builder and installs `p
 Nothing bound to 17.11 changes: the builder, its source digest, the probe and qualification manifests and the funded replay are untouched. Trust is unchanged: the same signed Ubuntu and PGDG sources, the checkout key, the same four retried apt calls. Moving to 17.12 remains one reviewed change to the builder and what binds it.
 
 Regression: `tests/postgres-installs-from-one-shared-action.law.test.ts` runs the pin block against a stub index that offers a newer minor first, and covers the client-only request, a vanished minor and the explicit override.
+
+## Correction, Same Day
+
+The first version (#10609) selected the build with an `awk` that exited at the first match. On the 26.04 runners the index listing is long enough that `apt-cache` was still writing when the reader left, so it failed on the closed pipe (exit 100 under `pipefail`) and every accounting shard stopped right after `apt-get update`, six of seven instead of three. The 24.04 proof run did not show it because its listing fit in one write. The reader now consumes the whole listing and accepts only a PGDG build of the pinned minor. The law test feeds a 20,000-line listing with a distribution build of the same minor first; it fails on the first version (exit 141) and passes on this one.

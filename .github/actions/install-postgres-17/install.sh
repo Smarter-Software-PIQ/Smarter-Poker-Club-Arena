@@ -106,8 +106,11 @@ pg_pinned=()
 for pg_package in "${pg_packages[@]}"; do
   case "$pg_package" in
     postgresql-17 | postgresql-client-17 | postgresql-server-dev-17)
+      # Read the whole listing: leaving the pipe early makes apt-cache fail on
+      # its next write (exit 100 under pipefail) whenever the index holds more
+      # than a few builds. Only a PGDG build counts, never the distribution's.
       pg_build="$(apt-cache "${pg_apt[@]}" madison "$pg_package" |
-        awk -v minor="$pg_minor" 'index($3, minor "-") == 1 { print $3; exit }')"
+        awk -v minor="$pg_minor" 'found == "" && index($3, minor "-") == 1 && $3 ~ /pgdg/ { found = $3 } END { if (found != "") print found }')"
       [ -n "$pg_build" ] || { echo "::error::The signed PGDG index offers no $pg_package build of PostgreSQL $pg_minor." >&2; exit 1; }
       pg_pinned+=("$pg_package=$pg_build")
       ;;
