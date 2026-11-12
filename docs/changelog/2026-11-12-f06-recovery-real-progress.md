@@ -31,3 +31,12 @@ the selected build and uses the existing signed install and full qualification;
 it never changes the upstream extension version or bypasses a native gate. The
 installer law tests cover candidate success, compatible selection, refusal,
 upstream-version boundaries, explicit requests and the finite search bound.
+
+The new native run then exposed the existing isolation fixture's exact PostgreSQL
+17.11 contract when the package repository published 17.12. Accounting shards 3/4
+now read that authoritative version without starting a build, request matching
+server/client/development packages, and check all three actual binary versions
+before their readiness shortcut. The installer permits replacing a newer image
+package only for that explicit complete fixture tuple. Other callers retain
+ordinary downgrade refusal. Source checksums, fixture manifests, native test
+execution and receipt checks remain unchanged; no fixture oracle is relaxed.

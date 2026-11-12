@@ -1570,6 +1570,8 @@ jobs:
         run: |
           set -euo pipefail
           pg_ci_build_packages=()
+          pg_ci_server_packages=(postgresql-17 postgresql-17-cron)
+          pg_ci_fixture_version=
           pg_ci_build_tools_ready=true
           case "$PG_CI_SHARD" in
             1)
@@ -1590,7 +1592,18 @@ jobs:
               if ! pkg-config --exists libcurl; then pg_ci_build_tools_ready=false; fi
               ;;
             3|4)
-              pg_ci_build_packages=(postgresql-server-dev-17 build-essential bison flex perl bzip2 patch)
+              # The native source/checksum and fixture manifests own this exact minor.
+              pg_ci_fixture_version="$(python3 -B scripts/ci/build_pg17_isolationtester.py --print-version)"
+              [[ "$pg_ci_fixture_version" =~ ^17\.[0-9]+$ ]]
+              pg_ci_server_packages=("postgresql-17=$pg_ci_fixture_version-*" "postgresql-client-17=$pg_ci_fixture_version-*" postgresql-17-cron)
+              pg_ci_build_packages=("postgresql-server-dev-17=$pg_ci_fixture_version-*" build-essential bison flex perl bzip2 patch)
+              for pg_ci_binary in postgres psql pg_config; do
+                pg_ci_actual="$(/usr/lib/postgresql/17/bin/"$pg_ci_binary" --version 2>/dev/null)" || pg_ci_actual=
+                case "$pg_ci_actual" in
+                  "PostgreSQL $pg_ci_fixture_version"|"PostgreSQL $pg_ci_fixture_version "*|*" (PostgreSQL) $pg_ci_fixture_version"|*" (PostgreSQL) $pg_ci_fixture_version "*) ;;
+                  *) pg_ci_build_tools_ready=false ;;
+                esac
+              done
               for pg_ci_tool in cc make bison flex perl tar bzip2 patch; do
                 if ! command -v "$pg_ci_tool" >/dev/null; then pg_ci_build_tools_ready=false; fi
               done
@@ -1627,7 +1640,7 @@ jobs:
           # Preserve signed Ubuntu/PGDG sources and every package/test budget.
           # The one shared install (signed Ubuntu/PGDG sources only, the checkout key,
           # bounded retries around every apt call): .github/actions/install-postgres-17.
-          PG_UBUNTU_MIRROR=true PG_PACKAGES="postgresql-17 postgresql-17-cron ${pg_ci_build_packages[*]-}" \
+          PG_UBUNTU_MIRROR=true PG_FIXTURE_VERSION="$pg_ci_fixture_version" PG_PACKAGES="${pg_ci_server_packages[*]} ${pg_ci_build_packages[*]-}" \
             bash .github/actions/install-postgres-17/install.sh
       - name: MTT lobby entries count committed registrations and rebuys
         if: matrix.shard == 4

@@ -223,4 +223,48 @@ exit $result
       }
     }
   );
+  it.each([
+    [
+      '17.11',
+      ['postgresql-17=17.11-*', 'postgresql-client-17=17.11-*', 'postgresql-server-dev-17=17.11-*'],
+      0,
+      true,
+    ],
+    ['', ['postgresql-17'], 0, false],
+    ['17.11', ['postgresql-17=17.11-*', 'postgresql-server-dev-17=17.11-*'], 1, false],
+    [
+      '17.11',
+      ['postgresql-17=17.12-*', 'postgresql-client-17=17.11-*', 'postgresql-server-dev-17=17.11-*'],
+      1,
+      false,
+    ],
+    [
+      '18.1',
+      ['postgresql-17=18.1-*', 'postgresql-client-17=18.1-*', 'postgresql-server-dev-17=18.1-*'],
+      1,
+      false,
+    ],
+  ] as const)(
+    'limits fixture replacement to its explicit complete pinned tuple: %s %j',
+    (version, packages, status, allowed) => {
+      const fn = SH.slice(
+        SH.indexOf('pg_fixture_install_policy() {'),
+        SH.indexOf('\n}\n', SH.indexOf('pg_fixture_install_policy() {')) + 3
+      );
+      const args = packages.map((value) => `'${value}'`).join(' ');
+      const r = spawnSync(
+        'bash',
+        [
+          '-c',
+          `${fn}\npg_packages=(${args})\npg_fixture_install_policy\nresult=$?\nprintf '%s' "\${pg_fixture_install_options[*]-}"\nexit $result`,
+        ],
+        {
+          encoding: 'utf8',
+          env: { ...process.env, PG_FIXTURE_VERSION: version },
+        }
+      );
+      expect(r.status, r.stderr).toBe(status);
+      expect(r.stdout).toBe(allowed ? '--allow-downgrades' : '');
+    }
+  );
 });

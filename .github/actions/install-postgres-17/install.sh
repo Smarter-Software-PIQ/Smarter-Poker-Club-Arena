@@ -54,6 +54,27 @@ pg_attempt() {
   done
 }
 
+# Only the explicit, complete native fixture tuple may replace newer image
+# packages. All other callers retain apt's ordinary downgrade refusal.
+pg_fixture_install_options=()
+pg_fixture_install_policy() {
+  local package argument found
+  pg_fixture_install_options=()
+  [ -n "${PG_FIXTURE_VERSION:-}" ] || return 0
+  [[ "$PG_FIXTURE_VERSION" =~ ^17\.[0-9]+$ ]] || return 1
+  for package in postgresql-17 postgresql-client-17 postgresql-server-dev-17; do
+    found=false
+    for argument in "${pg_packages[@]}"; do
+      [ "$argument" != "$package=$PG_FIXTURE_VERSION-*" ] || found=true
+    done
+    if [ "$found" != true ]; then
+      echo '::error::Native fixture replacement requires all three exact core package constraints.' >&2
+      return 1
+    fi
+  done
+  pg_fixture_install_options=(--allow-downgrades)
+}
+
 # A PGDG rebuild can precede the server it was built against (2026-11-12:
 # cron 1.6.8 +3 required PG17.12 while the index still offered PG17.11).
 # Let apt prove the whole requested tuple. If its newest cron build cannot
@@ -125,5 +146,6 @@ printf 'Types: deb\nURIs: https://apt.postgresql.org/pub/repos/apt\nSuites: %s-p
   "$codename" "$PG_KEY_DST" > "$pg_sources/pgdg.sources"
 pg_attempt sudo apt-get "${pg_apt[@]}" "${pg_update[@]}" update
 printf 'create_main_cluster = false\n' | sudo tee /etc/postgresql-common/createcluster.conf >/dev/null
+pg_fixture_install_policy
 pg_resolve_cron_build
-pg_attempt sudo apt-get "${pg_apt[@]}" install -y --no-install-recommends "${pg_packages[@]}"
+pg_attempt sudo apt-get "${pg_apt[@]}" install -y --no-install-recommends "${pg_packages[@]}" ${pg_fixture_install_options[@]+"${pg_fixture_install_options[@]}"}
