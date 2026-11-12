@@ -103,3 +103,39 @@ Remaining owned work, in order:
 
 This session stays open until those steps finish or a successor explicitly
 accepts them.
+
+## Successor acceptance 2026-11-12 15:27Z (root 01a1d05b)
+
+Owner explicitly assigned only completion of this handoff. Existing clean SSD2
+checkout and #10523 recovered; no competing release initiated. Current release
+custodian is root 01a1d015, per decision-engine checkpoint takeover at 14:10Z;
+its bounded database prerequisites and release remain independently owned.
+Public health at 15:24Z still serves f7735cca6862b9add06841b8a41c305b3f3ebe01.
+Thus #10498/#10511 adoption remains UNVERIFIED, not delivered.
+
+Policies read via canonical reader at 15:23:43Z, version 2.9; all four canonical
+files plus repository AGENTS, CLAUDE, playbook, publishing and this checkpoint
+read. Policy hashes: OWNER f5633d1b9e2b3d3ad7f30dea9e89691ec3044e05ff68471e7d9d8de36e079256;
+OPERATING a8bc3c04dce3354ebdd51a89c0b7d715af3344edcc794d33f6b3ad64506961d5;
+HARDENING d5fc451ce5caf6d6b5e64597a13883e1246581678fe53c962339d0a66136993e;
+INDEX adce89c3f838f2f373cd504a00329d53906404d1dd42a647f672af6c16f95555.
+Repository policy check passes. Canonical comparison reports byte drift only
+in policy-manifest.json whitespace; the four owning policy bytes match exactly.
+No policy source change is needed for this assignment.
+
+#10523's actual failure was law-registry.law.test.ts: the new Classic guard
+had no registry entry. Added its required entry; focused registry 1506/1506 and
+Classic guard 2/2 pass after integrating protected main d1af68bc. Current plan
+still schedules Classic every hour (now more always games); no production
+schedule or row changed. Execution preview: documentation/verification, required
+gates unchanged. Historical Actions outage is not a present blocker.
+
+Overlap recovered: #10534 is another open combined-cash implementation. Neither
+it nor #10516 may overwrite #10590, now merged as d1af68bc and successfully
+published by monitoring run 43243331986, which protects same-admission-policy
+baselines. Reconcile the combined rule against that exact source before delivery.
+Security disposition retained from the maintained process-listing incident:
+exposure remains unconfirmed, credential types unknown; #10479 repaired the two
+argument-bearing paths. No credential values or process arguments read here.
+Evidence: extreme-archive/alerts-closeout-01a1d05b (failed-job log and registry
+result). Natural Lightning observation remains to be read; not inferred closed.
