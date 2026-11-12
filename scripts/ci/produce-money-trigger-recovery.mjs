@@ -6,6 +6,7 @@ import {inflateSync} from 'node:zlib';
 import {verifyRecovery,sha256} from './money-trigger-recovery.mjs';
 import {offenders} from './check-money-trigger-declared.mjs';
 import {fixedBaseMigrationFiles} from './money-trigger-merge-group-files.mjs';
+import {stoodDown} from './money-trigger-closed-pr.mjs';
 const repo=process.env.GITHUB_REPOSITORY, number=process.env.PR_NUMBER;
 assertClubArenaRepository(repo,process.env.GITHUB_REPOSITORY_ID);
 const headers={Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,Accept:'application/vnd.github+json'};
@@ -39,6 +40,9 @@ if(process.env.GITHUB_EVENT_NAME==='workflow_run'){
  for(const f of inputs)if(!/^supabase\/migrations\/[^/]+\.sql$/.test(f.path)||typeof f.sql!=='string'||Buffer.byteLength(f.sql)>1000000)throw Error('invalid file data');
 }else{
  if(process.env.GITHUB_EVENT_NAME!=='pull_request_target'||!/^\d+$/.test(number||''))throw Error('invalid event');
+ // The trusted begin step stood this run down because the pull request was
+ // already closed: read nothing, prove nothing, write no proof, end cleanly.
+ if(stoodDown({pr:number,runId:process.env.GITHUB_RUN_ID})){console.log(`::notice::Pull request #${number} was closed before this run began: no proof is produced.`);process.exit(0);}
  pr=await gh(`pulls/${number}`);if(pr.state!=='open'||pr.base.ref!=='main')throw Error('unsupported PR');
  headSha=pr.head.sha;
  const files=[];for(let page=1;page<=30;page++){const rows=await gh(`pulls/${number}/files?per_page=100&page=${page}`);files.push(...rows);if(rows.length<100)break;if(page===30)throw Error('diff truncated')}

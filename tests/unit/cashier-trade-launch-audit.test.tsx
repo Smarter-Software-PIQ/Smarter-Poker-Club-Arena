@@ -92,6 +92,8 @@ const state = vi.hoisted(() => ({
   agentWallet: 500,
   myRole: 'owner',
   myBalance: 250,
+  promoFloat: 300,
+  promoRemaining: null as null | number,
   roster: [] as Array<Record<string, unknown>>,
   chipRequests: [] as Array<Record<string, unknown>>,
   recentMoves: [] as Array<Record<string, unknown>>,
@@ -142,7 +144,7 @@ vi.mock('../../src/services/cashierBalanceRead', async (original) => ({
   readCashierBalances: vi.fn(async () => ({
     bank: state.agentWallet,
     clubBank: 1000,
-    promoFloat: 300,
+    promoFloat: state.promoFloat,
     promoPot: 400,
     credit: 0,
     hasFloat: true,
@@ -274,6 +276,8 @@ beforeEach(async () => {
   state.agentWallet = 500;
   state.myRole = 'owner';
   state.myBalance = 250;
+  state.promoFloat = 300;
+  state.promoRemaining = null;
   state.roster = [player(0, 75)];
   state.chipRequests = [];
   state.recentMoves = [];
@@ -461,6 +465,34 @@ beforeEach(async () => {
         data: {
           success: true,
           results: items.map((item) => ({ user_id: item.user_id, success: true })),
+        },
+        error: null,
+      }) as never;
+    }
+    if (name === 'fn_cashier_promo_allowance' && state.promoRemaining !== null) {
+      return Promise.resolve({
+        data: {
+          success: true,
+          capped: true,
+          allowances: (params.p_user_ids as string[]).map((id) => ({
+            user_id: id,
+            remaining_chips: state.promoRemaining,
+          })),
+        },
+        error: null,
+      }) as never;
+    }
+    if (name === 'fn_cashier_promo_ticket_batch') {
+      const items = params.p_items as Array<{ user_id: string }>;
+      return Promise.resolve({
+        data: {
+          success: true,
+          batch_id: params.p_batch_id,
+          results: items.map((item, index) => ({
+            user_id: item.user_id,
+            success: true,
+            ticket_id: `55555555-5555-4555-8555-55555555555${index}`,
+          })),
         },
         error: null,
       }) as never;
@@ -2420,3 +2452,127 @@ it.each(['send', 'ticket'] as const)(
     );
   }
 );
+
+/**
+ * Send Ticket funded by the sender's Promo Wallet (Dan 2026-11-12): the dialog
+ * reads the downline's remaining promo allowance, refuses values above it, and
+ * sends through the promo ticket door instead of the wallet batch.
+ */
+describe('Send Ticket from the Promo Wallet', () => {
+  const namesCalled = (name: string) => state.rpcCalls.filter((call) => call.name === name);
+
+  async function openTicket(role: string) {
+    state.myRole = role;
+    mountCashier();
+    await synchronized();
+    const dialog = await openSendOut('10', 1);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Send Ticket', exact: true }));
+    await within(dialog).findByRole('combobox', { name: 'Send Ticket From' });
+    return dialog;
+  }
+
+  function choosePromoWallet(dialog: HTMLElement) {
+    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Send Ticket From' }), {
+      target: { value: 'promo_wallet' },
+    });
+  }
+
+  it('shows an agent the remaining promo allowance and disables ticket values above it', async () => {
+    state.promoRemaining = 15;
+    const dialog = await openTicket('agent');
+    expect(within(dialog).getByRole('combobox', { name: 'Send Ticket From' })).toHaveValue(
+      'player_wallet'
+    );
+    expect(namesCalled('fn_cashier_promo_allowance')).toHaveLength(0);
+    choosePromoWallet(dialog);
+    const allowance = await within(dialog).findByLabelText('Promo Allowance Remaining');
+    expect(allowance).toHaveTextContent('Player 1 Can Still Receive 15 Of 50 Promo Chips.');
+    const reads = namesCalled('fn_cashier_promo_allowance');
+    expect(reads.length).toBeGreaterThan(0);
+    for (const read of reads)
+      expect(read.args).toEqual({ p_club_id: CLUB_A, p_user_ids: [PLAYER_IDS[0]] });
+    const value = within(dialog).getByRole('combobox', { name: 'Ticket Value' });
+    const within15 = within(value).getByRole('option', { name: '15 Ticket', exact: true });
+    expect(within15).toBeEnabled();
+    expect(within(value).getByRole('option', { name: '10 Ticket', exact: true })).toBeEnabled();
+    const over = within(value).getByRole('option', { name: '20 Ticket (Over The Promo Limit)' });
+    expect(over).toBeDisabled();
+    expect(over).toHaveValue('20');
+    expect(
+      within(value).getByRole('option', { name: '50 Ticket (Over The Promo Limit)' })
+    ).toBeDisabled();
+    expect(namesCalled('fn_cashier_promo_ticket_batch')).toHaveLength(0);
+    expect(namesCalled('fn_cashier_batch_transfer')).toHaveLength(0);
+  });
+
+  it('sends a promo ticket within the allowance through the promo ticket batch only', async () => {
+    state.promoRemaining = 15;
+    const dialog = await openTicket('agent');
+    choosePromoWallet(dialog);
+    await within(dialog).findByLabelText('Promo Allowance Remaining');
+    await chooseTournament(dialog);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }));
+    await waitFor(() => expect(namesCalled('fn_cashier_promo_ticket_batch')).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const calls = namesCalled('fn_cashier_promo_ticket_batch');
+    expect(calls).toHaveLength(1);
+    const args = calls[0].args as {
+      p_club_id: string;
+      p_batch_id: string;
+      p_items: Array<{ user_id: string; amount: number; idempotency_key: string }>;
+    };
+    expect(args.p_club_id).toBe(CLUB_A);
+    expect(args.p_items).toHaveLength(1);
+    expect(args.p_items[0].user_id).toBe(PLAYER_IDS[0]);
+    expect(args.p_items[0].amount).toBe(10);
+    expect(args.p_items[0].idempotency_key).toMatch(/^ticket:.+:.+:.+:\d+(\.\d+)?$/);
+    expect(args.p_items[0].idempotency_key).toBe(
+      `ticket:${CLUB_A}:${args.p_batch_id}:${PLAYER_IDS[0]}:10`
+    );
+    expect(namesCalled('fn_cashier_batch_transfer')).toHaveLength(0);
+    expect(toastMocks.error).not.toHaveBeenCalled();
+  });
+
+  it('keeps a default Player Wallet ticket on the wallet batch', async () => {
+    state.promoRemaining = 15;
+    const dialog = await openTicket('agent');
+    expect(within(dialog).getByRole('combobox', { name: 'Send Ticket From' })).toHaveValue(
+      'player_wallet'
+    );
+    await chooseTournament(dialog);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }));
+    await waitFor(() => expect(namesCalled('fn_cashier_batch_transfer')).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const calls = namesCalled('fn_cashier_batch_transfer');
+    expect(calls).toHaveLength(1);
+    expect(calls[0].args.p_club_id).toBe(CLUB_A);
+    expect(calls[0].args.p_kind).toBe('ticket');
+    expect(calls[0].args.p_items).toEqual([
+      expect.objectContaining({ user_id: PLAYER_IDS[0], amount: 10 }),
+    ]);
+    expect(namesCalled('fn_cashier_promo_ticket_batch')).toHaveLength(0);
+    expect(namesCalled('fn_cashier_promo_allowance')).toHaveLength(0);
+  });
+
+  it('refuses a promo ticket larger than the promo wallet holds without a money call', async () => {
+    state.promoRemaining = 50;
+    state.promoFloat = 5;
+    const dialog = await openTicket('agent');
+    choosePromoWallet(dialog);
+    await within(dialog).findByLabelText('Promo Allowance Remaining');
+    await chooseTournament(dialog);
+    // The inline hint judges the wallet that was chosen, not the player wallet.
+    expect(dialog).toHaveTextContent('Insufficient Chips In The Funding Wallet');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }));
+    await waitFor(() =>
+      expect(toastMocks.error).toHaveBeenCalledWith(
+        expect.stringMatching(/^Insufficient Chips: Sending 10 Needs More Than .+ Holds, 5$/)
+      )
+    );
+    expect(within(dialog).getByRole('combobox', { name: 'Send Ticket From' })).toHaveValue(
+      'promo_wallet'
+    );
+    expect(namesCalled('fn_cashier_promo_ticket_batch')).toHaveLength(0);
+    expect(namesCalled('fn_cashier_batch_transfer')).toHaveLength(0);
+  });
+});
