@@ -840,6 +840,22 @@ echo "$out" > "$EVIDENCE/14-live-dynamic.log"
 [ "$(fixture_rows 3)" = 0 ] && [ "$(history_has "$B_DYN")" = 0 ] || fail 'dynamic live write committed'
 pass 'a declared file reaching a live table through dynamic SQL is rolled back by the in-transaction scope check'
 
+# 15. The actual starting-stack triggers, including registered service writes.
+# Reuse this disposable native cluster; no new runner or production probe.
+as_pg "${SU[@]}" -f "$FIXTURES/starting-stack-setup.sql" >/dev/null
+as_pg "${SU[@]}" -f "$ROOT/supabase/migrations/20261102005209_an_add_on_pays_the_starting_stack.sql" >/dev/null
+as_pg "${SU[@]}" -f "$ROOT/supabase/migrations/20261112013925_a_rebuy_pays_the_starting_stack.sql" >/dev/null
+set +e
+as_pg "${SU[@]}" -f "$FIXTURES/starting-stack-contract.sql" > "$EVIDENCE/15-starting-stack-before.log" 2>&1
+code=$?
+set -e
+[ "$code" != 0 ] && grep -Eq 'registered service rebuy mismatch was accepted|unregistered earlier producer awards were not normalized' "$EVIDENCE/15-starting-stack-before.log" \
+  || fail 'starting-stack regression did not reproduce the old registered-write defect'
+as_pg "${SU[@]}" -f "$ROOT/supabase/migrations/20261112151009_rebuy_and_addon_stack_invariants_survive_registered_updates.sql" > "$EVIDENCE/15-starting-stack-migration.log" 2>&1
+as_pg "${SU[@]}" -f "$FIXTURES/starting-stack-contract.sql" > "$EVIDENCE/15-starting-stack-after.log" 2>&1 \
+  || fail 'starting-stack native regression failed after the actual successor migration'
+pass 'registered service transitions cannot mismatch rebuy/reentry/addon awards; no-ops and prices survive'
+
 su_sql "SELECT version || ' ' || name FROM supabase_migrations.schema_migrations ORDER BY version" \
   > "$EVIDENCE/history.txt"
 su_sql "SELECT id || ' ' || session_role || ' ' || coalesce(application_name, '') || ' ' || first_command || ' :: ' || reason FROM public.ca_break_window_migration_overrides ORDER BY id" \
