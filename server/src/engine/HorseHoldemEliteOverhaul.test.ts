@@ -470,9 +470,14 @@ describe('1. NLH Cash 25%-30% VPIP, Early Position Expansion & Seat Monotonicity
 
   it('produces regular 3-way and 4-way multiway flops, higher flat/overcall rates, and elevated 3-bet% at $1/$2 100bb cash', () => {
     const cash = HORSE_HYBRID_PROFILES.cash;
-    const runLowStakesPreflop = (hands: number, bb: number, opts: Record<string, unknown>) => {
-      const r = mulberry32(20261110);
-      seedFastRandom(20261110);
+    const runLowStakesPreflop = (
+      hands: number,
+      bb: number,
+      opts: Record<string, unknown>,
+      seed = 20261110
+    ) => {
+      const r = mulberry32(seed);
+      seedFastRandom(seed);
       const sb = bb / 2;
       const n = 9;
       let openedHands = 0;
@@ -672,13 +677,60 @@ describe('1. NLH Cash 25%-30% VPIP, Early Position Expansion & Seat Monotonicity
     expect(lowStakesV87.multiway4Plus).toBeGreaterThan(5);
     expect(lowStakesV87.multiway3PlusPct).toBeGreaterThan(lowStakesPreV87.multiway3PlusPct + 8);
 
+    // THE SAME 8-POINT REQUIREMENT ON A PRE-DECLARED 40-SEED BLOCK (2026-11-12).
+    // The line above is the original: one seed (20261110), 1,000 hands per
+    // arm. It is kept unchanged. The lift has a per-seed standard deviation
+    // of about 2, so that one seed decides it: 10.0 points on the base
+    // source, 9.2 with the Hold'em persona wired into two preflop limp mixes
+    // (as committed), and 6.9, red, in an earlier variant that also scaled
+    // the suited-connector open-limp. The assertion below asks the same 8
+    // points of 40 seeds.
+    //
+    // The block is CONFIRMATORY: seeds 20261150 to 20261189, fixed
+    // mechanically as the 40 seeds after an exploratory block (20261110 to
+    // 20261149) and written down, with the metric and the decision rule,
+    // before any outcome on it was computed. Run once on each source:
+    // base 8.330 (95% interval 7.72 to 8.94), as committed 8.417 (7.72 to
+    // 9.12). Both intervals include 8: the point estimate clears the margin,
+    // the claim "more than 8 points" is not statistically established, and
+    // this line will flip on a change worth about 0.4 points. Earlier
+    // exploratory results (20261110 to 20261149: 8.514 and 8.428; seeds 101
+    // to 140: 8.26 and 8.60) were read before any declaration and are not
+    // the test.
+    // Declaration, rule and both runs: see
+    // docs/changelog/2026-11-12-holdem-persona-reaches-preflop-mixes.md.
+    //
+    // This table seats nine fixed ids in fixed seats (mw-u-1..9: one Nit
+    // Hunter, six TAG Crushers, two LAG Sharks, no Tricky Trap), so it
+    // measures nine personas, not the fleet. Do not change the block or the
+    // 8 points to make this pass: a failure here is a finding about the
+    // claim.
+    const CONFIRMATORY_FIRST_SEED = 20261150;
+    const CONFIRMATORY_SEEDS = 40;
+    const pooled = { v87Opened: 0, v87Multiway: 0, preOpened: 0, preMultiway: 0 };
+    for (let k = 0; k < CONFIRMATORY_SEEDS; k++) {
+      const seed = CONFIRMATORY_FIRST_SEED + k;
+      const on = runLowStakesPreflop(1000, 2, { v87HoldemOverhaul: true }, seed);
+      const pre = runLowStakesPreflop(1000, 2, { v87HoldemOverhaul: false }, seed);
+      pooled.v87Opened += on.openedHands;
+      pooled.v87Multiway += on.multiway3Way + on.multiway4Plus;
+      pooled.preOpened += pre.openedHands;
+      pooled.preMultiway += pre.multiway3Way + pre.multiway4Plus;
+    }
+    const pooledV87MultiwayPct = (pooled.v87Multiway / Math.max(1, pooled.v87Opened)) * 100;
+    const pooledPreV87MultiwayPct = (pooled.preMultiway / Math.max(1, pooled.preOpened)) * 100;
+    expect(
+      pooledV87MultiwayPct,
+      `pooled V87 multiway share ${pooledV87MultiwayPct.toFixed(3)}% vs pre-V87 ${pooledPreV87MultiwayPct.toFixed(3)}% over seeds ${CONFIRMATORY_FIRST_SEED} to ${CONFIRMATORY_FIRST_SEED + CONFIRMATORY_SEEDS - 1}`
+    ).toBeGreaterThan(pooledPreV87MultiwayPct + 8);
+
     // Higher flat-call, overcall, and 3-bet rates vs pre-V87, with wider flats at $1/$2 than $5/$10
     expect(lowStakesV87.flatRatePct).toBeGreaterThan(lowStakesPreV87.flatRatePct);
     expect(lowStakesV87.overcallRatePct).toBeGreaterThan(lowStakesPreV87.overcallRatePct);
     expect(lowStakesV87.flatRatePct).toBeGreaterThanOrEqual(highStakesV87.flatRatePct);
     expect(lowStakesV87.threeBetPct).toBeGreaterThanOrEqual(7.5);
     expect(lowStakesV87.threeBetPct).toBeGreaterThan(lowStakesPreV87.threeBetPct);
-  });
+  }, 180_000);
 });
 
 describe('2. EP Open-Limp Reraise Trap (QQ/KK/AA) & Suited-Connector Limp Mix (54s-T9s) in Cash & MTT', () => {

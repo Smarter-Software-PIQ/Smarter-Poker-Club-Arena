@@ -63,6 +63,7 @@ import {
 } from './HorseTournamentPreflop.js';
 import type { OmahaPressureShifts } from './HorseOmahaTournamentPressure.js';
 import type { OmahaEliteClassRead } from './HorseHandClasses.js';
+import type { HoldemPreflopPersonaMix } from './HorsePersona.js';
 
 export type PreflopPosition = 'early' | 'middle' | 'late' | 'sb' | 'bb';
 
@@ -553,6 +554,21 @@ export interface PreflopCtx {
   /** Hero's seat index and dealer seat for pure zero-RNG deterministic mixes. */
   heroSeat?: number;
   dealerSeat?: number;
+  /**
+   * PARTIAL persona wiring (2026-11-12): the hero Horse's deterministic
+   * Hold'em persona as two V87 limp mixes read it. `epLimpTrapScale`
+   * multiplies the early-position premium-trap probability only (the
+   * suited-connector open-limp is withheld and stays fixed at 20% on the
+   * public-state seed), `threeBetScale` multiplies the suited-connector
+   * limp-reraise bluff probability and nothing else (no ordinary 3-bet or
+   * squeeze reads it), and `identitySeed` joins the seed of those two mixes
+   * so their draw is per Horse. Each scale has expectation 1 under the
+   * id-hash model; the approved frequency in play is not guaranteed
+   * (HorsePersona.ts). Read only by V87 no-limit hold'em branches. Undefined
+   * (no identity) = the fixed probabilities and the public-state seed,
+   * exactly as before.
+   */
+  holdemPersonaMix?: HoldemPreflopPersonaMix;
   /** True when hero already acted voluntarily earlier on this preflop street. */
   heroPreviouslyActed?: boolean;
   /** True when hero made the first open-raise on this preflop street. */
@@ -656,7 +672,7 @@ function v87Fmix32(h: number): number {
   return x / 4294967296;
 }
 
-function v87StateHashU(ctx: PreflopCtx, salt: number): number {
+function v87StateHashU(ctx: PreflopCtx, salt: number, perHorse = false): number {
   const bb = ctx.bigBlind > 0 ? ctx.bigBlind : 1;
   const seat = (ctx.heroSeat ?? 0) | 0;
   const dealer = (ctx.dealerSeat ?? 0) | 0;
@@ -667,7 +683,43 @@ function v87StateHashU(ctx: PreflopCtx, salt: number): number {
   for (const v of [seat, dealer, stackUnits, potUnits, tableSize]) {
     h = Math.imul(h ^ (v >>> 0), 0x01000193) >>> 0;
   }
+  // Per hand + persona: the Horse's own identity joins the seed, so two
+  // Horses in the same public state do not make the same draw. Still a pure
+  // hash (zero PRNG draws) and the same answer every time for one Horse in
+  // one state. No identity on the context = the public-state seed above.
+  // `perHorse` is false for the early suited-connector open-limp, whose
+  // persona wiring is WITHHELD (2026-11-12: its measured rate in play left
+  // the approved 20%): that mix keeps its fixed probability and the
+  // public-state seed, exactly as before.
+  const persona = perHorse ? v87PersonaMixOf(ctx) : undefined;
+  if (persona) h = Math.imul(h ^ (persona.identitySeed >>> 0), 0x01000193) >>> 0;
   return v87Fmix32(h);
+}
+
+/** The persona mix, only where it applies: V87 on, no-limit hold'em. */
+function v87PersonaMixOf(ctx: PreflopCtx): HoldemPreflopPersonaMix | undefined {
+  if (
+    ctx.v87HoldemOverhaul === false ||
+    ctx.isOmaha ||
+    ctx.isPotLimit ||
+    ctx.isFixedLimit === true ||
+    ctx.isShortDeck === true
+  ) {
+    return undefined;
+  }
+  return ctx.holdemPersonaMix;
+}
+
+/**
+ * An approved mix probability, made persona-specific: `p0` times the Horse's
+ * scale, clamped to [0, 1]. The scale has expectation 1 under the id-hash
+ * model with equal opportunities; that does not guarantee `p0` as the
+ * opportunity-weighted rate in play. With no persona it is `p0` itself,
+ * untouched.
+ */
+function v87PersonaMixProbability(p0: number, scale: number | undefined): number {
+  if (scale === undefined || !Number.isFinite(scale)) return p0;
+  return Math.max(0, Math.min(1, p0 * scale));
 }
 
 /**
@@ -676,9 +728,14 @@ function v87StateHashU(ctx: PreflopCtx, salt: number): number {
  * marginal uniformity across table states for any single combo, and achieves
  * near-zero-variance combo balance at any single fixed table state.
  */
-function v87EpCandidateMixU(ctx: PreflopCtx, kind: HoldemEpLimpKind, salt: number): number {
+function v87EpCandidateMixU(
+  ctx: PreflopCtx,
+  kind: HoldemEpLimpKind,
+  salt: number,
+  perHorse = false
+): number {
   const cards = ctx.holeCards;
-  const baseU = v87StateHashU(ctx, salt);
+  const baseU = v87StateHashU(ctx, salt, perHorse);
   if (!cards || cards.length !== 2) return baseU;
   const [c1, c2] = cards;
   const s1 = String(c1.suit)[0] ?? 'c';
@@ -1743,7 +1800,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       ctx.riskAdd < 0.08 &&
       toCall <= maxFlatIsoCoins
     ) {
-      const uIso = v87EpCandidateMixU(ctx, 'suited_connector', 0x87150b);
+      const uIso = v87EpCandidateMixU(ctx, 'suited_connector', 0x87150b, true);
       if (
         ctx.reopenAllowed !== false &&
         straddleEffectiveBB >= 45 &&
@@ -1751,7 +1808,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         callers <= 1 &&
         ctx.riskAdd < 0.05 &&
         toCall <= straddleUnitCoins * 4.5 &&
-        uIso < 0.22
+        uIso < v87PersonaMixProbability(0.22, v87PersonaMixOf(ctx)?.threeBetScale)
       ) {
         const bluffTarget = raiseIsoTo();
         const bluffTargetCoins =
@@ -2038,8 +2095,8 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         (isTourney && effStackBB >= 35))
     ) {
       if (v87EpCand === 'big_pair_trap') {
-        const uTrap = v87EpCandidateMixU(ctx, 'big_pair_trap', 0x87e911);
-        if (uTrap < 3 / 18) {
+        const uTrap = v87EpCandidateMixU(ctx, 'big_pair_trap', 0x87e911, true);
+        if (uTrap < v87PersonaMixProbability(3 / 18, v87PersonaMixOf(ctx)?.epLimpTrapScale)) {
           ctx.noteAuthority?.({
             branch: 'v87_ep_limp_trap',
             strength,

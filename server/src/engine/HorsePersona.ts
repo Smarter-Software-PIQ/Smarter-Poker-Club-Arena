@@ -415,46 +415,192 @@ export interface HorseHoldemPersona {
   riverBluffGear: number;
 }
 
+/**
+ * The approved archetype split (percent of the 100 archetype hash buckets)
+ * and, per archetype, the base and span of the two PREFLOP mix axes. This is
+ * the single source for `holdemPersonaFor` and for the hash-model mean
+ * constants below, so the means cannot drift from the personas they describe.
+ */
+export const HOLDEM_ARCHETYPE_PREFLOP_MIX = {
+  lag_shark: {
+    sharePct: 25,
+    threeBetBase: 0.46,
+    threeBetSpan: 0.18,
+    limpTrapBase: 0.14,
+    limpTrapSpan: 0.08,
+  },
+  tricky_trap: {
+    sharePct: 20,
+    threeBetBase: 0.3,
+    threeBetSpan: 0.14,
+    limpTrapBase: 0.2,
+    limpTrapSpan: 0.08,
+  },
+  tag_crusher: {
+    sharePct: 40,
+    threeBetBase: 0.34,
+    threeBetSpan: 0.16,
+    limpTrapBase: 0.12,
+    limpTrapSpan: 0.08,
+  },
+  nit_hunter: {
+    sharePct: 15,
+    threeBetBase: 0.22,
+    threeBetSpan: 0.12,
+    limpTrapBase: 0.1,
+    limpTrapSpan: 0.06,
+  },
+} as const satisfies Record<
+  HorseHoldemArchetype,
+  {
+    sharePct: number;
+    threeBetBase: number;
+    threeBetSpan: number;
+    limpTrapBase: number;
+    limpTrapSpan: number;
+  }
+>;
+
+/** The per-axis hash term is one of this many equally likely buckets. */
+const HOLDEM_MIX_HASH_BUCKETS = 1000;
+
+/** One persona mix axis at hash bucket `bucket` (0..999), rounded to two decimals. */
+function holdemMixAxis(base: number, span: number, bucket: number): number {
+  return Math.round((base + (bucket / HOLDEM_MIX_HASH_BUCKETS) * span) * 100) / 100;
+}
+
+/**
+ * Expected value of one preflop mix axis UNDER THE ID-HASH MODEL: the
+ * archetype shares weight the mean of the axis over its 1,000 equally likely
+ * hash buckets, with the same two-decimal rounding `holdemPersonaFor`
+ * applies. It is a property of the model, not of any real set of Horse ids:
+ * a finite id set realises a mean near this, not equal to it.
+ */
+function holdemHashModelMeanOfAxis(
+  axis: (a: (typeof HOLDEM_ARCHETYPE_PREFLOP_MIX)[HorseHoldemArchetype]) => {
+    base: number;
+    span: number;
+  }
+): number {
+  let weighted = 0;
+  let shareTotal = 0;
+  for (const a of Object.values(HOLDEM_ARCHETYPE_PREFLOP_MIX)) {
+    const { base, span } = axis(a);
+    let sum = 0;
+    for (let bucket = 0; bucket < HOLDEM_MIX_HASH_BUCKETS; bucket++) {
+      sum += holdemMixAxis(base, span, bucket);
+    }
+    weighted += a.sharePct * (sum / HOLDEM_MIX_HASH_BUCKETS);
+    shareTotal += a.sharePct;
+  }
+  return weighted / shareTotal;
+}
+
+/**
+ * Hash-model mean of `epLimpTrapMix`: 0.176463 (about 0.1765 = 0.25*0.18 +
+ * 0.20*0.24 + 0.40*0.16 + 0.15*0.13 before rounding). The V87 early-position
+ * premium trap multiplies its approved probability by `epLimpTrapMix / this`
+ * (the suited-connector open-limp does not: its scaling is withheld).
+ * That scale has expectation 1 under the hash model with every Horse meeting
+ * the same opportunities. It does NOT guarantee the approved frequency in
+ * play: a real id set does not average exactly 1 (0.98735 on the 1,000
+ * synthetic test ids), and archetypes can meet eligible spots at different
+ * rates. See docs/changelog/2026-11-12-holdem-persona-reaches-preflop-mixes.md.
+ */
+export const HOLDEM_HASH_MODEL_MEAN_EP_LIMP_TRAP_MIX = holdemHashModelMeanOfAxis((a) => ({
+  base: a.limpTrapBase,
+  span: a.limpTrapSpan,
+}));
+
+/**
+ * Hash-model mean of `nlh3BetMix`: 0.42143 (about 0.4215 = 0.25*0.55 +
+ * 0.20*0.37 + 0.40*0.42 + 0.15*0.28 before rounding). Same caveats as above
+ * (1.00332 on the 1,000 synthetic test ids).
+ */
+export const HOLDEM_HASH_MODEL_MEAN_NLH_3BET_MIX = holdemHashModelMeanOfAxis((a) => ({
+  base: a.threeBetBase,
+  span: a.threeBetSpan,
+}));
+
+/**
+ * PARTIAL persona wiring (2026-11-12): what two V87 preflop limp mixes (the
+ * early-position premium trap and the suited-connector limp-reraise bluff)
+ * read from a Horse's Hold'em persona. The early suited-connector open-limp
+ * was measured outside its approved 20% in play when scaled, so it is
+ * withheld and stays exactly as before. The two mix axes as multipliers whose
+ * expectation is 1 under the id-hash model (not exactly 1 on any real id
+ * set), and an identity seed for the V87 deterministic mix hash so two
+ * Horses in the same public state do not make the same draw. Pure function
+ * of the Horse id; no roll.
+ *
+ * `nlh3BetMix` is documented for 3-bets, squeezes and shallow reshoves, but
+ * `threeBetScale` is read by ONE branch only: the suited-connector
+ * limp-reraise bluff. Ordinary 3-bets and squeezes do not read the persona,
+ * and nothing here gives archetypes distinct VPIP bands.
+ */
+export interface HoldemPreflopPersonaMix {
+  /** `epLimpTrapMix / HOLDEM_HASH_MODEL_MEAN_EP_LIMP_TRAP_MIX`. */
+  epLimpTrapScale: number;
+  /** `nlh3BetMix / HOLDEM_HASH_MODEL_MEAN_NLH_3BET_MIX`. */
+  threeBetScale: number;
+  /** Unsigned 32-bit hash of the Horse id, folded into the V87 mix seed. */
+  identitySeed: number;
+}
+
+export function holdemPreflopPersonaMix(horseId: string): HoldemPreflopPersonaMix {
+  const id = horseId || 'default-horse';
+  const persona = holdemPersonaFor(id);
+  return {
+    epLimpTrapScale: persona.epLimpTrapMix / HOLDEM_HASH_MODEL_MEAN_EP_LIMP_TRAP_MIX,
+    threeBetScale: persona.nlh3BetMix / HOLDEM_HASH_MODEL_MEAN_NLH_3BET_MIX,
+    identitySeed: personaHash(`${id}|nlh_preflop_mix`),
+  };
+}
+
 export function holdemPersonaFor(horseId: string): HorseHoldemPersona {
   const id = horseId || 'default-horse';
   const hArch = personaHash(`${id}|nlh_arch`) % 100;
-  const h1 = (personaHash(`${id}|nlh_3bet`) % 1000) / 1000;
-  const h2 = (personaHash(`${id}|nlh_limptrap`) % 1000) / 1000;
+  const b1 = personaHash(`${id}|nlh_3bet`) % HOLDEM_MIX_HASH_BUCKETS;
+  const b2 = personaHash(`${id}|nlh_limptrap`) % HOLDEM_MIX_HASH_BUCKETS;
+  const mix = HOLDEM_ARCHETYPE_PREFLOP_MIX;
+  const lagEnd = mix.lag_shark.sharePct;
+  const trickyEnd = lagEnd + mix.tricky_trap.sharePct;
+  const tagEnd = trickyEnd + mix.tag_crusher.sharePct;
   const h3 = (personaHash(`${id}|nlh_combo`) % 1000) / 1000;
   const h4 = (personaHash(`${id}|nlh_trap`) % 1000) / 1000;
   const h5 = (personaHash(`${id}|nlh_probe`) % 1000) / 1000;
   const h6 = (personaHash(`${id}|nlh_river`) % 1000) / 1000;
 
-  if (hArch < 25) {
+  if (hArch < lagEnd) {
     // 25% LAG Shark: high 3-bet pressure, aggressive combo-draw raises, relentless probes
     return {
       archetype: 'lag_shark',
-      nlh3BetMix: Math.round((0.46 + h1 * 0.18) * 100) / 100,
-      epLimpTrapMix: Math.round((0.14 + h2 * 0.08) * 100) / 100,
+      nlh3BetMix: holdemMixAxis(mix.lag_shark.threeBetBase, mix.lag_shark.threeBetSpan, b1),
+      epLimpTrapMix: holdemMixAxis(mix.lag_shark.limpTrapBase, mix.lag_shark.limpTrapSpan, b2),
       comboDrawAggro: Math.round((0.68 + h3 * 0.18) * 100) / 100,
       trapFrequency: Math.round((0.2 + h4 * 0.12) * 100) / 100,
       probeRate: Math.round((0.48 + h5 * 0.16) * 100) / 100,
       riverBluffGear: Math.round((0.42 + h6 * 0.16) * 100) / 100,
     };
   }
-  if (hArch < 45) {
+  if (hArch < trickyEnd) {
     // 20% Tricky Trap: elevated EP limp-reraise traps, check-raises, and river block-bet traps
     return {
       archetype: 'tricky_trap',
-      nlh3BetMix: Math.round((0.3 + h1 * 0.14) * 100) / 100,
-      epLimpTrapMix: Math.round((0.2 + h2 * 0.08) * 100) / 100,
+      nlh3BetMix: holdemMixAxis(mix.tricky_trap.threeBetBase, mix.tricky_trap.threeBetSpan, b1),
+      epLimpTrapMix: holdemMixAxis(mix.tricky_trap.limpTrapBase, mix.tricky_trap.limpTrapSpan, b2),
       comboDrawAggro: Math.round((0.52 + h3 * 0.16) * 100) / 100,
       trapFrequency: Math.round((0.38 + h4 * 0.14) * 100) / 100,
       probeRate: Math.round((0.34 + h5 * 0.14) * 100) / 100,
       riverBluffGear: Math.round((0.34 + h6 * 0.14) * 100) / 100,
     };
   }
-  if (hArch < 85) {
+  if (hArch < tagEnd) {
     // 40% TAG Crusher: balanced preflop 3-bets, disciplined SPR control, clinical thin value
     return {
       archetype: 'tag_crusher',
-      nlh3BetMix: Math.round((0.34 + h1 * 0.16) * 100) / 100,
-      epLimpTrapMix: Math.round((0.12 + h2 * 0.08) * 100) / 100,
+      nlh3BetMix: holdemMixAxis(mix.tag_crusher.threeBetBase, mix.tag_crusher.threeBetSpan, b1),
+      epLimpTrapMix: holdemMixAxis(mix.tag_crusher.limpTrapBase, mix.tag_crusher.limpTrapSpan, b2),
       comboDrawAggro: Math.round((0.56 + h3 * 0.18) * 100) / 100,
       trapFrequency: Math.round((0.24 + h4 * 0.12) * 100) / 100,
       probeRate: Math.round((0.38 + h5 * 0.14) * 100) / 100,
@@ -464,8 +610,8 @@ export function holdemPersonaFor(horseId: string): HorseHoldemPersona {
   // 15% Nit Hunter: punishes loose openers/limpers and stabs capped checked ranges
   return {
     archetype: 'nit_hunter',
-    nlh3BetMix: Math.round((0.22 + h1 * 0.12) * 100) / 100,
-    epLimpTrapMix: Math.round((0.1 + h2 * 0.06) * 100) / 100,
+    nlh3BetMix: holdemMixAxis(mix.nit_hunter.threeBetBase, mix.nit_hunter.threeBetSpan, b1),
+    epLimpTrapMix: holdemMixAxis(mix.nit_hunter.limpTrapBase, mix.nit_hunter.limpTrapSpan, b2),
     comboDrawAggro: Math.round((0.38 + h3 * 0.16) * 100) / 100,
     trapFrequency: Math.round((0.18 + h4 * 0.12) * 100) / 100,
     probeRate: Math.round((0.28 + h5 * 0.14) * 100) / 100,

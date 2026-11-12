@@ -400,6 +400,7 @@ import {
   personaFromValue,
   followsSolver,
   holdemPersonaFor,
+  holdemPreflopPersonaMix,
   personaHash,
   ploPersonaFor,
   type HorsePersonaV2,
@@ -8992,6 +8993,22 @@ export class HorseLogic {
       holeCards: player.cards,
       heroSeat: player.seat,
       dealerSeat: gs.dealerSeat,
+      // PARTIAL persona wiring (2026-11-12): two V87 preflop limp mixes
+      // (premium trap, limp-reraise bluff) read the Hold'em persona. Same gate as the postflop persona read
+      // (V87 on, two-card no-limit hold'em) plus a non-empty id; a pure
+      // function of the Horse id, no draw consumed. Ordinary 3-bets, squeezes
+      // and opening widths do not read it.
+      ...(v87On &&
+      !vi.isOmaha &&
+      !vi.isShortDeck &&
+      !vi.isFixedLimit &&
+      !vi.isHiLo &&
+      vi.holeCount === 2 &&
+      player.cards.length === 2 &&
+      typeof player.user_id === 'string' &&
+      player.user_id.length > 0
+        ? { holdemPersonaMix: holdemPreflopPersonaMix(player.user_id) }
+        : {}),
       heroPreviouslyActed,
       heroWasInitialRaiser,
       straddleActive: gs.straddleActive === true,
