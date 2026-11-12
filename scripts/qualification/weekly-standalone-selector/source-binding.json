@@ -326,8 +326,8 @@
       "sha256": "aef92500e63a4e1cd6632b8616ec1c1d138f2ff09f464368baeef185ca93fb1b"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 143430,
-      "sha256": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c"
+      "bytes": 143719,
+      "sha256": "8ebbe29e85c02fed9080b5ce23b0035b9c5701c1463b34ddb7d5f917dcdd28dc"
     },
     "scripts/ci/qualification-input-projections.py": {
       "bytes": 9270,
@@ -2867,6 +2867,18 @@
         "path": "scripts/qualification/ci-accounting-inputs.json",
         "previousSHA256": "09f96b3c61e37df098ad6c12242ba49356fe29f393b5d4c41782f77c8e87d1d1",
         "currentSHA256": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "lightningSocketLossRegression20261112": {
+    "reason": "Reviewed additive accounting shard 3 execution of the retained #10498 real PostgreSQL socket-loss regression. The regenerated accounting projection differs only by the six-line new step; all previous commands, environments, routing, budgets, artifacts and admission inputs are unchanged. Source-pin maintenance only; no historical evidence, financial source, qualification status, installation or live certification is restamped.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "previousSHA256": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c",
+        "currentSHA256": "8ebbe29e85c02fed9080b5ce23b0035b9c5701c1463b34ddb7d5f917dcdd28dc"
       }
     ],
     "historicalEvidenceRestamped": false,

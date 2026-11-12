@@ -41,7 +41,7 @@
   },
   "schemaVersion": 1,
   "diamondLaunchMainInputMerge20261013": {
-    "reason": "Preserve protected-main0152591fbeb scoped reset/recovery and measured unchanged25-step Lightning reallocation1\u21923. Peer run38319524263 measured692s family, shard3previous878s; balanced40min cap supersedes dated unbalanced50min allowance. Historical50audit is retained as dated evidence. Current source identity only; financial pins/assertions and qualification states unchanged.",
+    "reason": "Preserve protected-main0152591fbeb scoped reset/recovery and measured unchanged25-step Lightning reallocation1→3. Peer run38319524263 measured692s family, shard3previous878s; balanced40min cap supersedes dated unbalanced50min allowance. Historical50audit is retained as dated evidence. Current source identity only; financial pins/assertions and qualification states unchanged.",
     "changes": {
       ".github/workflows/ci.yml": {
         "previous": {
@@ -524,8 +524,8 @@
       "sha256": "d9fbc730e56bbb5811585045dcc1e0b501c48cdd405e32276ec6165d22835014"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 143430,
-      "sha256": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c"
+      "bytes": 143719,
+      "sha256": "8ebbe29e85c02fed9080b5ce23b0035b9c5701c1463b34ddb7d5f917dcdd28dc"
     },
     "scripts/qualification/ci-admission-inputs.json": {
       "bytes": 77121,
@@ -4244,7 +4244,7 @@
       "bytes": 239646,
       "sha256": "32d7bebc69d6147ffc71c5183f09d4939da7437ddd842beee0bf1ac9ad1e1469"
     },
-    "review": "Only accounting job40\u219250minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
+    "review": "Only accounting job40→50minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
     "composition": "Preserves all current protected-main CI steps plus the measured50minute job budget; only this workflow pin conflicted."
   },
   "riverPersistenceBudgetIntegration20261027": {
@@ -7201,5 +7201,17 @@
     "scope": "Job-token boundary (2026-11-11, owner-authorized): ci.yml's changes job no longer holds actions: write; its superseded-run cancel moved to a separate retire_superseded job that runs only default-branch code. The regenerated projection differs only by that removed step, the changes job's permissions and its comment. No accounting command, assertion, matrix, deadline, admission, historical result or certification changed.",
     "execution_performed": false,
     "qualification": "Source identity only; no historical result or production receipt changed. Required final-head native qualification remains mandatory."
+  },
+  "lightningSocketLossRegression20261112": {
+    "reason": "Reviewed additive accounting shard 3 execution of the retained #10498 real PostgreSQL socket-loss regression. The regenerated accounting projection differs only by the six-line new step; all previous commands, environments, routing, budgets, artifacts and admission inputs are unchanged. Source-pin maintenance only; no historical evidence, financial source, qualification status, installation or live certification is restamped.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "previousSHA256": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c",
+        "currentSHA256": "8ebbe29e85c02fed9080b5ce23b0035b9c5701c1463b34ddb7d5f917dcdd28dc"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
   }
 }
