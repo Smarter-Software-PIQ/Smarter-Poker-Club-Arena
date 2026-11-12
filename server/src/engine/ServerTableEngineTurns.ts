@@ -5435,6 +5435,10 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
             // throws something at the player it faces, or taps a reaction, the
             // way a person does as they shove. Never every time (the roll is in
             // HorseTableGestures), never awaited, never in the action's way.
+            // Dan 2026-11-11: "THEY SHOULD BE THROWING THEM RANDOMLY BEFORE
+            // CALLING ALL IN'S" - the hook now also fires when the horse CALLS
+            // an opponent's all in while covering it (a call that puts the
+            // horse itself all in was already a shove below).
             {
               const horseStack = Number(
                 currentState.players.find((p: { seat: number }) => p.seat === seat)?.stack ?? 0
@@ -5444,7 +5448,17 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                 ((action === 'call' || action === 'raise' || action === 'bet') &&
                   horseStack > 0 &&
                   (typeof amount === 'number' ? amount : toCall) >= horseStack);
-              if (movesAllIn && !promotedShoveIsIllegal) {
+              const callsAllInBet =
+                action === 'call' &&
+                toCall > 0 &&
+                typeof currentState.lastAggressorSeat === 'number' &&
+                currentState.players.some(
+                  (p: { seat: number; stack?: number; is_folded?: boolean }) =>
+                    p.seat === currentState.lastAggressorSeat &&
+                    p.is_folded !== true &&
+                    Number(p.stack ?? 0) <= 0
+                );
+              if ((movesAllIn && !promotedShoveIsIllegal) || callsAllInBet) {
                 void gestureBeforeAllIn(
                   buildAllInGestureInput(
                     this.tableInfo,
