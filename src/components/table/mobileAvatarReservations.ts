@@ -81,6 +81,19 @@ const FANS = [
   [0.12, 12],
 ];
 
+/** Stable variant counts, including Pineapple's retained discard flight. */
+export function hiddenFanStates(cardCount: number): Array<{ count: number; discard: boolean }> {
+  if (cardCount === 3)
+    return [
+      { count: 3, discard: false },
+      { count: 2, discard: true },
+      { count: 2, discard: false },
+    ];
+  return Number.isInteger(cardCount) && cardCount >= 2 && cardCount <= 6
+    ? [{ count: cardCount, discard: false }]
+    : [];
+}
+
 /** Settled backs only. Each returned box remains a separate own-layer test.
  * Coordinates and avatarSize/wrapOverlap are unscaled CSS pixels; scale maps
  * their deltas into the viewport. Flights are not certified by this helper. */

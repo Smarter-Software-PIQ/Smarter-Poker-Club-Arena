@@ -197,9 +197,12 @@ describe('the Share sheet', () => {
         ) as HTMLInputElement
       ).value
     ).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Copy Link' }));
+    const copyButton = screen.getByRole('button', { name: 'Copy Link' });
+    expect(copyButton.textContent).toBe('Copy');
+    fireEvent.click(copyButton);
     await waitFor(() => expect(onShared).toHaveBeenCalledTimes(1));
     expect(writeText).toHaveBeenCalledWith('https://smarter.poker/hub/club-arena/h/AbCd2345');
+    expect(screen.getByRole('button', { name: 'Link Copied' }).textContent).toBe('Copied');
   });
 
   it('a short link embeds with ?embed=true, a long one with &embed=true', () => {

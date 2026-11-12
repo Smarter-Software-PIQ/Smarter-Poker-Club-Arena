@@ -1197,7 +1197,7 @@ for (const [width, heightOverride] of occupiedViewports)
         // the hero remaining at least as tall as every opponent.
         const heroArt = art.find((seat) => seat.hero)!;
         for (const seat of art) {
-          expect([1, 1.02, 1.05, 1.1, 1.15]).toContain(seat.paintScale);
+          expect([1, 1.02, 1.05, 1.1, 1.15, 1.2, 1.25, 1.3]).toContain(seat.paintScale);
           expect(
             Math.abs(seat.height / seat.paintScale - heroArt.height / heroArt.paintScale)
           ).toBeLessThan(0.05);

@@ -44,8 +44,8 @@ describe('mobile avatar paint fitting', () => {
     expect(result.parts.every((p) => p.top + p.height <= 80)).toBe(true);
   });
   it('reserves every allowed fixed pivot before a new shown hand is placed', () => {
-    const bounds = mobileGrowthReservation(art[0], art, 1.15);
-    for (const scale of [1.02, 1.05, 1.1, 1.15])
+    const bounds = mobileGrowthReservation(art[0], art, 1.3);
+    for (const scale of [1.02, 1.05, 1.1, 1.15, 1.2, 1.25, 1.3])
       for (const px of [-1, -0.5, 0, 0.5, 1])
         for (const py of [-1, 0, 1, 2]) {
           const result = chooseMobileAvatarPaint(
@@ -55,7 +55,7 @@ describe('mobile avatar paint fitting', () => {
             [],
             awayFelt,
             viewport,
-            1.15,
+            1.3,
             Infinity,
             { scale, px, py }
           );

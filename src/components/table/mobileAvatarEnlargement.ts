@@ -2,6 +2,7 @@ import { restingAvatarBox, tableRenderScale } from './avatarCrownBounds';
 import { buttonRadiusWidthPct } from './tableGeometry';
 import {
   hiddenFanReservations,
+  hiddenFanStates,
   dealerReservations,
   heroPrivateReservations,
 } from './mobileAvatarReservations';
@@ -12,14 +13,10 @@ export type MobileAvatarProfile = { scale: number; px: number; py: number };
 // Unqualified layouts retain their existing artwork.
 const fixed = (scale: number, px = 0): MobileAvatarProfile => ({ scale, px, py: 1 });
 const MOBILE_PROFILES: Record<string, Record<number, MobileAvatarProfile>> = {
-  'cash|9|seated': { 0: fixed(1.1), 4: fixed(1.05), 6: fixed(1.05), 8: fixed(1.05) },
-  'cash|9|spectator': {
-    0: fixed(1.15),
-    2: fixed(1.02),
-    4: fixed(1.1, -0.5),
-    6: fixed(1.15, 0.5),
-    8: fixed(1.15, 0.5),
-  },
+  'cash|6|seated': Object.fromEntries(Array.from({ length: 6 }, (_, i) => [i, fixed(1.3)])),
+  'cash|6|spectator': Object.fromEntries(Array.from({ length: 6 }, (_, i) => [i, fixed(1.3)])),
+  'cash|9|seated': Object.fromEntries(Array.from({ length: 9 }, (_, i) => [i, fixed(1.3)])),
+  'cash|9|spectator': Object.fromEntries(Array.from({ length: 9 }, (_, i) => [i, fixed(1.3)])),
 };
 
 export type PaintBox = { left: number; top: number; width: number; height: number };
@@ -104,7 +101,7 @@ export function chooseMobileAvatarPaint(
       }
       return false;
     });
-  for (const scale of profile ? [profile.scale] : [1.15, 1.1, 1.05, 1.02]) {
+  for (const scale of profile ? [profile.scale] : [1.3, 1.25, 1.2, 1.15, 1.1, 1.05, 1.02]) {
     if (scale <= 1 || scale > ceiling + 0.0001) continue;
     // Crown-first (Option A), then growth toward free rail. No image stretch.
     for (const py of profile ? [profile.py] : [0, 1, -1, 2])
@@ -313,7 +310,7 @@ export function mobileFrameCardReservation(
 ): PaintBox {
   if (
     page.classList.contains('table-page--tournament') ||
-    page.dataset.seats !== '9' ||
+    !['6', '9'].includes(page.dataset.seats ?? '') ||
     page.dataset.killEnabled !== 'false' ||
     ![2, 3, 4, 5].includes(Number(page.dataset.holeCardCount)) ||
     !matchMedia('(min-width: 481px) and (max-width: 768px) and (orientation: portrait)').matches
@@ -444,20 +441,19 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
     // authorizes a new overlap with another card or another fan orientation.
     if (!hero)
       for (const side of [seat.classList.contains('seat--cards-left') ? 'left' : 'right'] as const)
-        for (let count = 1; count <= 6; count++)
-          for (const discard of [false, true])
-            for (const box of hiddenFanReservations({
-              seatLeft: rect.left,
-              seatTop: rect.top,
-              seatWidth: rect.width / ratio,
-              avatarSize: avatar.offsetWidth,
-              wrapOverlap: parseFloat(style.getPropertyValue('--sp-wrap-overlap')) || 6,
-              scale: ratio,
-              side,
-              count,
-              discard,
-            }))
-              boxes.push({ box, owner: seat, layer: true });
+        for (const { count, discard } of hiddenFanStates(Number(page.dataset.holeCardCount)))
+          for (const box of hiddenFanReservations({
+            seatLeft: rect.left,
+            seatTop: rect.top,
+            seatWidth: rect.width / ratio,
+            avatarSize: avatar.offsetWidth,
+            wrapOverlap: parseFloat(style.getPropertyValue('--sp-wrap-overlap')) || 6,
+            scale: ratio,
+            side,
+            count,
+            discard,
+          }))
+            boxes.push({ box, owner: seat, layer: true });
   }
   const canvas = scaler.getBoundingClientRect();
   const anchors = Array.from(scaler.querySelectorAll<HTMLElement>('.seat-wrapper')).map((e) => ({
@@ -616,7 +612,14 @@ export function enlargeMobileAvatars(
       if (seat !== e.seat)
         for (const box of parts) obstacles.push({ box: box as DOMRect, ownLayer: false });
     const clipBottom = e.avatar.classList.contains('seat__avatar--bust')
-      ? Math.max(...e.parts.map(bottom))
+      ? // Zoom the portrait above its existing name plate. Growing the torso
+        // behind that translucent plate would introduce an unapproved overlap.
+        Math.min(
+          Math.max(...e.parts.map(bottom)),
+          page.dataset.seats === '6' || page.dataset.hero === 'false'
+            ? e.info.getBoundingClientRect().top
+            : Infinity
+        )
       : Infinity;
     const choice =
       rebaseChoice(state?.choices.get(e.image), [rect.left + rect.width / 2, rect.bottom]) ??
@@ -627,7 +630,7 @@ export function enlargeMobileAvatars(
         obstacles,
         felt,
         { left: 0, top: 0, width: innerWidth, height: innerHeight },
-        Math.min(profile.scale, e === hero ? 1.15 : Math.min(1.15, heroHeight / rect.height)),
+        Math.min(profile.scale, e === hero ? profile.scale : heroHeight / rect.height),
         e === hero ? Infinity : heroPaintHeight
       );
     state?.choices.set(e.image, choice);
