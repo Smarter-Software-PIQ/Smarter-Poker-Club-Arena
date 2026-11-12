@@ -139,3 +139,12 @@ exposure remains unconfirmed, credential types unknown; #10479 repaired the two
 argument-bearing paths. No credential values or process arguments read here.
 Evidence: extreme-archive/alerts-closeout-01a1d05b (failed-job log and registry
 result). Natural Lightning observation remains to be read; not inferred closed.
+
+### Required-check recovery 15:34Z
+
+#10523 push 697a2aff verified; CI43248289071 database shards failed before
+execution: PGDG resolute publishes pg_cron 1.6.8 +3 requiring server >17.12
+while newest server is17.11. Its retained +2/+1 builds accept17.11. This is a
+necessary delivery blocker, so the smallest shared installer correction will
+select the newest cron build compatible with the selected PostgreSQL server,
+using signed apt metadata; signature verification and all database tests stay.
