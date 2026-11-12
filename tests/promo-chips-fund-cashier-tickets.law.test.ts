@@ -52,7 +52,7 @@ describe('Promo chips fund a cashier ticket, inside the shared 50 chip allowance
   });
 
   it('returns a cancelled promo ticket to the promo wallet, never a player wallet', () => {
-    expect(cancelPatch).toContain("IF md5(d) <> 'd3f65b7702d4b7f543891dd87c149353'");
+    expect(cancelPatch).toContain("IF md5(d) <> 'e52d94e64fe64cc1508885a541450c71'");
     expect(cancelPatch).toContain('IF v_promo THEN');
     expect(cancelPatch).toContain(
       'SET promo_wallet_balance=COALESCE(promo_wallet_balance,0)+v_t.value,updated_at=now()'
@@ -60,13 +60,11 @@ describe('Promo chips fund a cashier ticket, inside the shared 50 chip allowance
     expect(cancelPatch).toContain("p.metadata->>'destination'='tournament_ticket'");
   });
 
-  it('journals a ticket cancel on the ticket float, not on cashout custody', () => {
-    // escrow_release is counted as cashout custody by fn_ca_tally_ledger_leg,
-    // so a cancel journaled under it is refused at commit for every ticket.
-    expect(cancelPatch).toContain(
-      "'  PERFORM set_config(''app.ledger_category'',''ticket_redeem'',true);'"
-    );
+  it('patches the body the refund category fix installed and keeps that category', () => {
+    // 20261112184950 moved the release off escrow_release (cashout custody).
+    expect(cancelPatch).not.toContain('ticket_redeem');
     expect(cancelPatch).toContain("IF position('escrow_release' in d) <> 0");
+    expect(cancelPatch).toContain("position('''app.ledger_category'',''refund''' in d) = 0");
   });
 
   it('offers the promo wallet in Send Ticket and sends through the promo door', () => {
