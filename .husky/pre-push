@@ -1266,7 +1266,7 @@ if [ -f server/package.json ]; then
   SRV_CONTRACTS=""
   # A changed contract has already run in SRV_TESTS above; select each law once.
   ca_add_contract() {
-    case " $SRV_TESTS $SRV_CONTRACTS " in
+    case " $(printf '%s ' $SRV_TESTS)$SRV_CONTRACTS " in
       *" $1 "*) ;;
       *) SRV_CONTRACTS="${SRV_CONTRACTS:+$SRV_CONTRACTS }$1" ;;
     esac
@@ -1312,6 +1312,32 @@ if [ -f server/package.json ]; then
       break
     fi
   done
+  # SOURCE PINS (2026-11-12). A law that pins a method's signature or body
+  # reads the source file by PATH (readFileSync, readCurrent, sliceMethod) and
+  # imports nothing from it, so `related` never selected it. PR #10631 changed
+  # ServerTableEngineSettlement.ts, pushed green, and hosted engine shard 3
+  # failed it on ChipContinuity.law.test.ts, which pins postHandTasks by text.
+  # Select every server test that names a changed file as a path: the file
+  # name with its extension, straight after a slash or an opening quote. An
+  # import names the .js specifier, so this stays the tests that read the
+  # file, not the whole suite. A harness (.mjs) that reads the changed file
+  # is followed one step to the tests that name that harness.
+  CA_PIN_PATTERNS=()
+  ca_add_pin() {
+    CA_PIN_PATTERNS+=(-e "/$1" -e "'$1" -e "\"$1" -e "\`$1")
+  }
+  for rel in $SRV_SRC; do ca_add_pin "${rel##*/}"; done
+  if [ "${#CA_PIN_PATTERNS[@]}" -gt 0 ]; then
+    for h in $(grep -rlF --include='*.mjs' "${CA_PIN_PATTERNS[@]}" server/src/ 2>/dev/null); do
+      case "$h" in
+        *.test.mjs) ;;
+        *) ca_add_pin "${h##*/}" ;;
+      esac
+    done
+    for t in $(grep -rlF --include='*.test.ts' --include='*.test.mjs' "${CA_PIN_PATTERNS[@]}" server/src/ 2>/dev/null | sort); do
+      ca_add_contract "${t#server/}"
+    done
+  fi
   if [ "$SERVER_DEPENDENCY_MODE" = local ] && [ -n "$SRV_CONTRACTS" ] && [ -x "$SERVER_VITEST" ]; then
     echo "[club-arena pre-push] running the source-contract laws your server changes touch..."
     if ! ( cd server && "$SERVER_VITEST" run $SRV_CONTRACTS ); then

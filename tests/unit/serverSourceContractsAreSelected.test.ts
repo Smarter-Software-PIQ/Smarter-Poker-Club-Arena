@@ -183,6 +183,70 @@ describe('server source-contract laws are selected before a push', () => {
       expect(() => readFileSync(join(ROOT, 'server', law))).not.toThrow();
   });
 
+  // PR #10631 (2026-11-12): a change to ServerTableEngineSettlement.ts pushed
+  // green and failed hosted engine shard 3 on ChipContinuity.law.test.ts, which
+  // pins a method of that file by reading its source. Nothing imported it.
+  const pinTree = (extra: Record<string, string> = {}) => ({
+    'server/src/engine/Settlement.ts': 'export const x = 1;\n',
+    'server/src/engine/Pin.law.test.ts': "const s = read('src/engine/Settlement.ts');\n",
+    'server/src/engine/Importer.test.ts': "import { x } from './Settlement.js';\n",
+    'server/src/engine/Prose.test.ts': '// Settlement.ts is described here, never read\n',
+    'server/src/engine/OtherSettlement.law.test.ts': "read('src/engine/OtherSettlement.ts');\n",
+    ...extra,
+  });
+  const runLine = (calls: string) =>
+    calls
+      .trim()
+      .split('\n')
+      .find((line) => line.startsWith('run ')) ?? '';
+
+  it('runs a law that reads a changed server file by path, and only such tests', () => {
+    const r = gate(pinTree(), 0, 'none', ['server/src/engine/Settlement.ts']);
+    expect(r.status).toBe(0);
+    expect(runLine(r.calls)).toBe('run src/engine/Pin.law.test.ts');
+    expect(r.calls).toContain(
+      'related --run src/engine/Settlement.ts --exclude src/engine/Pin.law.test.ts --passWithNoTests'
+    );
+  });
+
+  it('follows a harness that reads the changed file to the tests that name the harness', () => {
+    const r = gate(
+      pinTree({
+        'server/src/engine/Retry.runtime.mjs': "readCurrent('engine/Settlement.ts');\n",
+        'server/src/engine/Retry.test.ts': "import('./Retry.runtime.mjs');\n",
+      }),
+      0,
+      'none',
+      ['server/src/engine/Settlement.ts']
+    );
+    expect(r.status).toBe(0);
+    expect(runLine(r.calls)).toBe('run src/engine/Pin.law.test.ts src/engine/Retry.test.ts');
+  });
+
+  it('a failing source pin blocks the push', () => {
+    const r = gate(pinTree(), 1, 'Pin.law', ['server/src/engine/Settlement.ts']);
+    expect(r.status).toBe(1);
+    expect(r.output).toContain('BLOCKED: a source-contract law over your server change failed.');
+  });
+
+  it('a pin that is itself changed runs once, also beside another changed test', () => {
+    const r = gate(pinTree(), 0, 'none', [
+      'server/src/engine/Settlement.ts',
+      'server/src/engine/Pin.law.test.ts',
+      'server/src/engine/Importer.test.ts',
+    ]);
+    expect(r.status).toBe(0);
+    const calls = r.calls.trim().split('\n');
+    expect(
+      calls.filter((line) => line.includes('Pin.law.test.ts') && line.startsWith('run '))
+    ).toEqual(['run src/engine/Importer.test.ts src/engine/Pin.law.test.ts']);
+  });
+
+  it('the law that exposed the gap still reads the settlement source by path', () => {
+    const law = readFileSync(join(ROOT, 'server/src/engine/ChipContinuity.law.test.ts'), 'utf8');
+    expect(law).toContain("'src/engine/ServerTableEngineSettlement.ts'");
+  });
+
   it('the ledger law still reads every fired telemetry key from source', () => {
     const law = readFileSync(join(ROOT, 'server/src/engine/HorseDataLedger.test.ts'), 'utf8');
     expect(law).toMatch(/noteFire/);
