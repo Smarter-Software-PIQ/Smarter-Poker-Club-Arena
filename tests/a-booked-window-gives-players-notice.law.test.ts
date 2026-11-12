@@ -315,5 +315,25 @@ it('shows each missed-engine prerequisite before the successor and ends every pr
   expect(at('2026-11-12T17:19:59Z')).toBe('2026-11-12-missed-engine-db-rebuy');
   expect(at('2026-11-12T17:20:00Z')).toBe('2026-11-12-complete-missed-engine-1700z');
   expect(at('2026-11-12T21:59:59Z')).toBe('2026-11-12-complete-missed-engine-1700z');
-  expect(at('2026-11-12T22:00:00Z')).toBeUndefined();
+  expect(at('2026-11-12T22:00:00Z')).toBe('2026-11-12-rebuy-invariant-db-2220z');
+  expect(at('2026-11-13T01:59:59Z')).toBe('2026-11-12-rebuy-invariant-db-2220z');
+  expect(at('2026-11-13T02:00:00Z')).toBeUndefined();
+});
+
+it('gives the authorized rebuy DB window its own primary lead without changing prior orders', () => {
+  const id = '2026-11-12-rebuy-invariant-db-2220z';
+  const own = BOOKED_MAINTENANCE_NOTICES.find((n) => n.id === id)!;
+  expect(own.kind).toBe('database');
+  expect(own.noticeAtMs).toBe(Date.parse('2026-11-12T22:00:00Z'));
+  expect(own.notBeforeMs - own.noticeAtMs!).toBe(20 * 60 * 1000);
+  expect(own.notAfterMs).toBe(Date.parse('2026-11-13T02:00:00Z'));
+  expect(bookedMaintenanceNotice(own.noticeAtMs! - 1)?.id).toBe(
+    '2026-11-12-complete-missed-engine-1700z'
+  );
+  expect(bookedMaintenanceNotice(own.noticeAtMs!)?.id).toBe(id);
+  expect(bookedMaintenanceNotice(own.notBeforeMs)?.id).toBe(id);
+  expect(bookedMaintenanceNoticeText(own, own.noticeAtMs!)).toBe(
+    'Short Maintenance Break Possible Between 4:20 PM And 8:00 PM Chicago Time. Play Pauses For About Five Minutes.'
+  );
+  expect(bookedMaintenanceNotice(own.notAfterMs)).toBeNull();
 });

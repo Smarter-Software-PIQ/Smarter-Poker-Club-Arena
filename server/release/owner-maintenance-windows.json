@@ -1449,6 +1449,17 @@
       "notBefore": "2026-11-12T16:35:00Z",
       "notAfter": "2026-11-12T17:20:00Z",
       "migrations": ["20261112013925_a_rebuy_pays_the_starting_stack.sql"]
+    },
+    {
+      "id": "2026-11-12-rebuy-invariant-db-2220z",
+      "ownerOrder": "Dan directly in Codex chat 01a1d045-0813-7122-8b4d-a129439e84d1 on November 12, 2026 answered the specific question authorizing replacement of the handoff prohibition with one additional protected database maintenance window, verbatim: \"Authorize one protected database window\". One database-only operation installs exactly the existing qualified migration below, merged in PR10601, through stage-engine-release.yml request_engine_release=false, request_database_break=true and the maintained installer. This supersedes only the earlier task-specific prohibition on another window. Preserve all prior orders and receipts, unchanged sealed engine SHA/image/instance, original operation identity, no active release/pending/finalization owner, source and engine mutation locks, rolling-hour spacing, actual twenty-minute primary public notice, 120-second last-hand lead, hand-boundary drain, durable freeze, full285-second admission reserve,150-second installer opening and100-second commit reserve,1-second lock/5-second statement/8-second transaction budgets, first-refusal stop and verified original v3 thaw. The earlier engine notice remains primary until22:00UTC; this window cannot be admitted until its own notice has actually been primary for20minutes. Read installed history and original outcomes first; never replay installed or unknown SQL. No engine replacement, payment, reversal, resurrection, tournament-start hold, watcher, automatic retry, renewal or extension. The rebuy chat owns this single operation and live verification.",
+      "contains": "9b4dbb52c618d57865a1309885c68592c7f030ee",
+      "playerNoticeAt": "2026-11-12T22:00:00Z",
+      "notBefore": "2026-11-12T22:20:00Z",
+      "notAfter": "2026-11-13T02:00:00Z",
+      "migrations": [
+        "20261112151009_rebuy_and_addon_stack_invariants_survive_registered_updates.sql"
+      ]
     }
   ]
 }
