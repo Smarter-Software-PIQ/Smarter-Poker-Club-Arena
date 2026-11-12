@@ -24747,7 +24747,9 @@ function LiveTablePage({
           // The DB flag describes a voluntary sit-out, not an engine entry
           // hold. Only an authoritative waiting-list update admits that seat.
           const shouldBeOut =
-            sittingOut.has(p.id) || (prev.waitingForBBUserIds ?? []).includes(p.id);
+            sittingOut.has(p.id) ||
+            p.waitingForButton === true ||
+            (prev.waitingForBBUserIds ?? []).includes(p.id);
           /* Never repaint a seat whose status is telling a more urgent story.
              An all-in seat is all-in first; a folded seat has already acted
              this hand. Sitting out is the resting state underneath both, and
@@ -30089,7 +30091,9 @@ function LiveTablePage({
                      so that window still read SITTING OUT. */
                   entryWait={
                     displayPlayer?.waitingForButton
-                      ? 'waiting_for_button'
+                      ? tableState.isTournament
+                        ? null
+                        : 'waiting_for_button'
                       : !displayPlayer?.id || tableState.isTournament
                         ? null
                         : (tableState.postBBDeferredUserIds ?? []).includes(displayPlayer.id) ||
@@ -30765,7 +30769,9 @@ function LiveTablePage({
             2026-04-17: action bar fixed to footer at all times, every state. */}
         {heroWaitingForButton ? (
           <div className="spectator-footer-bar" data-state="waiting-for-button" role="status">
-            <span className="spectator-footer-bar__label">Waiting For The Button To Pass</span>
+            <span className="spectator-footer-bar__label">
+              {tableState.isTournament ? 'Sitting Out' : 'Waiting For The Button To Pass'}
+            </span>
           </div>
         ) : lightningRoom && !lightningHeroInRoster && !heroIsSittingOut ? (
           /* LIGHTNING BETWEEN HANDS (Dan 2026-10-24). The player is in the pool
