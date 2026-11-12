@@ -482,8 +482,8 @@
       "sha256": "0c3c357e106b6daf5461587e707e63d47260837870a7fb423d2f4fdd00b339bd"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 143430,
-      "sha256": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c"
+      "bytes": 144529,
+      "sha256": "04e3bb238a89db2d31bd3c7989b620dd2d96fea6169cc29d6712939856fd3638"
     },
     "scripts/ci/qualification-input-projections.py": {
       "bytes": 9270,
@@ -3122,5 +3122,21 @@
     ],
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
+  },
+  "f06ExactFixturePackages20261112": {
+    "scope": "Current qualification input identity only; not a financial, native or production pass.",
+    "reason": "Preserve exact PostgreSQL17.11 source/checksum/manifest contract while CI requests and checks its matching server/client/dev tuple. Same-upstream signed cron build resolution and explicit complete-fixture replacement retain all native gates. Financial SQL, fixture assertions, historical audits and qualification states unchanged.",
+    "changes": [
+      {
+        "path": "files/scripts/qualification/ci-accounting-inputs.json/sha256",
+        "previous": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c",
+        "current": "04e3bb238a89db2d31bd3c7989b620dd2d96fea6169cc29d6712939856fd3638"
+      },
+      {
+        "path": "files/scripts/qualification/ci-accounting-inputs.json/bytes",
+        "previous": 143430,
+        "current": 144529
+      }
+    ]
   }
 }

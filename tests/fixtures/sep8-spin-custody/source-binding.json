@@ -129,7 +129,7 @@
     "supabase/migrations/20260918225150_original_spin_closure_ignores_only_elapsed_clock_metadata.sql": "f4a3660b311d3270e9d0dbec17c33a0d35488dfccc43dc97836dbcd54491a18d",
     "scripts/qualification/ci-admission-inputs.json": "8275cc6a48e74b21dc56c8d4ed5a143cb9dae6ffabba8dca65366d4920007887",
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c"
+    "scripts/qualification/ci-accounting-inputs.json": "04e3bb238a89db2d31bd3c7989b620dd2d96fea6169cc29d6712939856fd3638"
   },
   "chainedBrowserAdmissionSourceAudit20261030": {
     "scope": "Current classifier source binding only. Chained browser scripts and supported config/fixture inputs now admit their existing browser checks; every financial/server/native classification flag is unchanged.",
@@ -2179,5 +2179,16 @@
     ],
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
+  },
+  "f06ExactFixturePackages20261112": {
+    "scope": "Current qualification input identity only; not a financial, native or production pass.",
+    "reason": "Preserve exact PostgreSQL17.11 source/checksum/manifest contract while CI requests and checks its matching server/client/dev tuple. Same-upstream signed cron build resolution and explicit complete-fixture replacement retain all native gates. Financial SQL, fixture assertions, historical audits and qualification states unchanged.",
+    "changes": [
+      {
+        "path": "repository_files/scripts/qualification/ci-accounting-inputs.json",
+        "previous": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c",
+        "current": "04e3bb238a89db2d31bd3c7989b620dd2d96fea6169cc29d6712939856fd3638"
+      }
+    ]
   }
 }

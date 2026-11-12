@@ -58,8 +58,8 @@
   "checkoutInputs": {
     "isolation_builder": {
       "path": "scripts/ci/build_pg17_isolationtester.py",
-      "bytes": 7390,
-      "sha256": "cddc77a78c529c218398af4aabd6bf5311bf840559ae6e03a3c4d63ee3a22ef4"
+      "bytes": 7519,
+      "sha256": "1ad0df47f94f7c9a586364b2f0315986f62f152a6bc05084ea1d75cad2644861"
     },
     "core_supplement": {
       "path": "scripts/ci/probes/production-alert-core/core-catalog-supplement.sql",
@@ -182,5 +182,21 @@
     "sharedBuffers": "32MB",
     "productionPayloadBytesOrColdCacheEquivalence": false,
     "moneyWriterOrTypedRollbackQualification": false
+  },
+  "f06ExactFixturePackages20261112": {
+    "scope": "Current qualification input identity only; not a financial, native or production pass.",
+    "reason": "Preserve exact PostgreSQL17.11 source/checksum/manifest contract while CI requests and checks its matching server/client/dev tuple. Same-upstream signed cron build resolution and explicit complete-fixture replacement retain all native gates. Financial SQL, fixture assertions, historical audits and qualification states unchanged.",
+    "changes": [
+      {
+        "path": "checkoutInputs/isolation_builder/sha256",
+        "previous": "cddc77a78c529c218398af4aabd6bf5311bf840559ae6e03a3c4d63ee3a22ef4",
+        "current": "1ad0df47f94f7c9a586364b2f0315986f62f152a6bc05084ea1d75cad2644861"
+      },
+      {
+        "path": "checkoutInputs/isolation_builder/bytes",
+        "previous": 7390,
+        "current": 7519
+      }
+    ]
   }
 }

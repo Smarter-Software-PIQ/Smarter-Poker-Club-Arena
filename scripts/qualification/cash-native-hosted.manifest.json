@@ -524,8 +524,8 @@
       "sha256": "d9fbc730e56bbb5811585045dcc1e0b501c48cdd405e32276ec6165d22835014"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 143430,
-      "sha256": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c"
+      "bytes": 144529,
+      "sha256": "04e3bb238a89db2d31bd3c7989b620dd2d96fea6169cc29d6712939856fd3638"
     },
     "scripts/qualification/ci-admission-inputs.json": {
       "bytes": 77121,
@@ -7201,5 +7201,21 @@
     "scope": "Job-token boundary (2026-11-11, owner-authorized): ci.yml's changes job no longer holds actions: write; its superseded-run cancel moved to a separate retire_superseded job that runs only default-branch code. The regenerated projection differs only by that removed step, the changes job's permissions and its comment. No accounting command, assertion, matrix, deadline, admission, historical result or certification changed.",
     "execution_performed": false,
     "qualification": "Source identity only; no historical result or production receipt changed. Required final-head native qualification remains mandatory."
+  },
+  "f06ExactFixturePackages20261112": {
+    "scope": "Current qualification input identity only; not a financial, native or production pass.",
+    "reason": "Preserve exact PostgreSQL17.11 source/checksum/manifest contract while CI requests and checks its matching server/client/dev tuple. Same-upstream signed cron build resolution and explicit complete-fixture replacement retain all native gates. Financial SQL, fixture assertions, historical audits and qualification states unchanged.",
+    "changes": [
+      {
+        "path": "files/scripts/qualification/ci-accounting-inputs.json/sha256",
+        "previous": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c",
+        "current": "04e3bb238a89db2d31bd3c7989b620dd2d96fea6169cc29d6712939856fd3638"
+      },
+      {
+        "path": "files/scripts/qualification/ci-accounting-inputs.json/bytes",
+        "previous": 143430,
+        "current": 144529
+      }
+    ]
   }
 }
