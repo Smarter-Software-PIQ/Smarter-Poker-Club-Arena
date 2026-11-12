@@ -162,6 +162,12 @@ export const RABBIT_HUNT_SAVED_RETENTION_MS = 86_400_000;
  */
 const POST_COMMIT_DRAIN_BUDGET_MS = 5_000;
 
+/** What settlement needs from the hand's own controller, read before any await. */
+export interface OriginalHandFacts {
+  blinds: ReturnType<HandController['getBlindSnapshot']> | null;
+  allInRunoutWitness: ReturnType<HandController['getAllInRunoutWitness']>;
+}
+
 export abstract class ServerTableEngineSettlement extends ServerTableEngineDealing {
   /**
    * Stack and payout values are money authority. JavaScript's NaN/Infinity
@@ -701,6 +707,22 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     // Steps 1-6 are handled inside HandController.advanceStage()
     // Steps 7-15 are handled here + postHandTasks()
     // ═══════════════════════════════════════════════════════════════════
+
+    /* THIS HAND'S CONTROLLER FACTS ARE TAKEN BEFORE THE FIRST AWAIT
+       (2026-11-12, HVH2D-EXE-002). The dealing listener clears the hand's
+       controller as soon as HAND_COMPLETE is released. A cash showdown awaits
+       the jackpot drill below, so by the time the post-hand tasks ran the
+       controller was gone and they read nothing: every ordinary cash hand
+       that reached showdown was written without its public memory domain
+       (589 of 589 in one production hour, 0 of 1,493 without a showdown), and
+       the opponent-memory learner skips a hand without one. The all-in runout
+       witness was read at the same late point. Both are read here,
+       synchronously, and carried down; the post-hand tasks never read the
+       live controller. */
+    const originalHand: OriginalHandFacts = {
+      blinds: this.handController?.getBlindSnapshot?.() ?? null,
+      allInRunoutWitness: this.handController?.getAllInRunoutWitness?.() ?? null,
+    };
 
     // SETTLEMENT STEP 1: Lock table (actionLock prevents new actions)
     // Already enforced — handController completes hand, no more actions accepted
@@ -1656,15 +1678,17 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     // authoritative settlement, and its record rides into the hand's own row.
     this.settleKillPot();
     const priorBarrier = this.postHandTasksPromise;
-    const postTasks = this.postHandTasks(players, persistenceGeneration).catch((err) => {
-      this.finishTerminalBoundaryPersistence(persistenceGeneration, false);
-      reportError(err, `ServerTableEngine.${this.tableId}.posthand_error`);
-      // A rejected settlement is not a completed hand. Publish the terminal
-      // fence synchronously so the dealing loop cannot clear this barrier and
-      // reload the pre-hand seats as if the write had succeeded.
-      this.killForRestart('post_hand_settlement_failed');
-      throw err;
-    });
+    const postTasks = this.postHandTasks(players, persistenceGeneration, originalHand).catch(
+      (err) => {
+        this.finishTerminalBoundaryPersistence(persistenceGeneration, false);
+        reportError(err, `ServerTableEngine.${this.tableId}.posthand_error`);
+        // A rejected settlement is not a completed hand. Publish the terminal
+        // fence synchronously so the dealing loop cannot clear this barrier and
+        // reload the pre-hand seats as if the write had succeeded.
+        this.killForRestart('post_hand_settlement_failed');
+        throw err;
+      }
+    );
     this.postHandTasksPromise = priorBarrier
       ? Promise.all([priorBarrier, postTasks]).then(() => undefined)
       : postTasks;
@@ -1903,7 +1927,11 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
 
   protected async postHandTasks(
     players: SeatedPlayer[],
-    persistenceGeneration: number
+    persistenceGeneration: number,
+    /** The hand's controller facts, taken by settleCompletedHand before its
+     *  first await. Absent means unknown: the row is written without a memory
+     *  domain rather than with one read from whatever hand is live now. */
+    originalHand: OriginalHandFacts | null = null
   ): Promise<void> {
     /* ═══ THIS HAND'S RECORD IS CAPTURED BEFORE THE FIRST AWAIT (2026-08-31)
        Everything below used to read the live `this.currentHand*` fields and
@@ -1915,7 +1943,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
        first await can yield, and read ONLY the snapshot from here down. The
        Maps/arrays are copied shallowly: settlement only reads them, and
        nothing else mutates their elements after HAND_COMPLETE. */
-    const originalMemoryBlinds = this.handController?.getBlindSnapshot?.();
+    const originalMemoryBlinds = originalHand?.blinds ?? null;
     const snap = {
       publicMemoryDomain: originalMemoryBlinds
         ? publicMemoryDomainFromRules(
@@ -1925,7 +1953,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
           )
         : null,
       handNumber: this.handCount,
-      allInRunoutWitness: this.handController?.getAllInRunoutWitness?.() ?? null,
+      allInRunoutWitness: originalHand?.allInRunoutWitness ?? null,
       variant: this.currentHandVariant,
       potSize: this.currentHandPotSize,
       rake: this.currentHandRake,
