@@ -2659,6 +2659,8 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   // measured rate: zero on a real day is an enabled upgrade that did not run
   // (critical), and a fall from its own usual rate is caught by the drift
   // audit's own-rate check. Revisit the floors with the first full live day.
+  // Upgrade 11 carries no floor yet: on a Hold'em-only day its pool counter
+  // depends on rare spot classes, so a floor waits for a measured live day.
   receipt(
     'upgrade01_action_line_posterior',
     'HorseLogic postflop (computeActionLinePosterior)',
@@ -2674,6 +2676,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-12',
     'decide',
     0.0005
+  ),
+  receipt(
+    'phase14_kernel_eligible_seen',
+    'horseDecision workerRuntime (FAST)',
+    'a FAST decision reached the admitted corrective kernel: usable authority, candidate mode and a snapshot inside the kernel declared family (cash: two dealt seats, river, opponent all in); named *_seen (occurrence, not a layer)',
+    '2026-11-12'
   ),
   receipt(
     'upgrade05_*',
@@ -2712,14 +2720,6 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseOpponentExploit',
     'the fast recency window switched a read on, or a gear shift engaged; counts read computations, not decisions',
     '2026-11-12'
-  ),
-  receipt(
-    'upgrade11_indifference_pool',
-    'HorseEvEngine evaluateSpot',
-    'the persona indifference band was asked about a real choice (more than one candidate in the mix pool)',
-    '2026-11-12',
-    'decide',
-    0.0001
   ),
   receipt(
     'upgrade11_*',

@@ -1,20 +1,22 @@
 # Horse Upgrade Activation: A Dark Upgrade Is Reported The Next Morning
 
-Follow-up hardening to `2026-11-12-horse-upgrade-live-evidence.md`. That change put a counter on every enabled upgrade's path. This one makes the existing daily audit judge them, closes the gaps an independent review left open, and states two things the health page and the counters implied but did not say. No decision, wager, think time, queue or deadline changes.
+Follow-up hardening to `2026-11-12-horse-upgrade-live-evidence.md`. That change put a counter on every enabled upgrade's path. This one makes the existing daily audit judge them, closes the gaps an independent review left open, and makes the corrective kernel's reach countable. No decision, wager, think time, queue or deadline changes.
 
 ## The Daily Audit Now Judges The Per-Decision Upgrades
 
-`upgrade01_action_line_posterior`, `upgrade02_card_removal_scored`, `upgrade06_public_timing_hint` and `upgrade11_indifference_pool` are registered in `HorseDataLedger.ts` with a floor against every live decision (`decide`). The existing receipt audit (`fn_audit_data_receipts`) therefore reports an enabled upgrade that fired zero times on a real day as critical, and one far below its floor as a warning; the existing drift audit (`fn_audit_layer_drift`) already reports a fall from a counter's own usual rate. No new database function.
+`upgrade01_action_line_posterior`, `upgrade02_card_removal_scored` and `upgrade06_public_timing_hint` are registered in `HorseDataLedger.ts` with a floor against every live decision (`decide`). The existing receipt audit (`fn_audit_data_receipts`) therefore reports an enabled upgrade that fired zero times on a real day as critical, and one far below its floor as a warning; the existing drift audit (`fn_audit_layer_drift`) already reports a fall from a counter's own usual rate. No new database function.
 
-The floors (0.05 percent, and 0.01 percent for the indifference pool) are tripwires for a dark layer, set far below any plausible share. They are not measured rates; the counters are not serving yet. They are to be revisited with the first full live day.
+The floors (0.05 percent) are tripwires for a dark layer, set far below any plausible share. They are not measured rates; the counters are not serving yet. They are to be revisited with the first full live day. Upgrade 11 carries no floor yet: independent review showed that on a Hold'em-only day its pool counter depends on rare spot classes, so a floor there could raise a false alarm until a live day is measured. Upgrade 10 has none because it counts read computations.
 
 ## Street Prewarm Refusals Are Counted
 
 `upgrade05_prewarm_refused_seen` counts a prewarm that was asked for and not posted (the worker was busy, held or not ready, or the board was not a street). Beside the worker's `poker_horse_street_prewarm_total` it shows how often the idle-only rule leaves a street unwarmed. Evidence only; the rule is unchanged.
 
-## Phase 14 Says Whether A Kernel Is Selected
+## Phase 14 Eligibility Is Counted
 
-Each Phase 14 domain in the activation manifest now carries `kernel: 'selected' | 'unselected'` beside `mode`, read from the protected release selections. Every domain is `unselected` today: a `candidate` mode is an admitted catalog, and with no kernel the corrective node returns the baseline. The manifest digest changes with this field; the engine and its workers compute it from the same source.
+`phase14_kernel_eligible_seen` counts a FAST decision that reached the admitted corrective kernel: usable authority, candidate mode and a snapshot inside the kernel's declared family. For cash that family is narrow: exactly two dealt seats, a single-board river, the opponent all in, a fold or call baseline. Applications were already counted at commit (`phase14_selection_*`, `phase14_execution_*`). Until now a day of zero applications could not be told apart from a day of zero eligible spots.
+
+The activation manifest is unchanged. Its `candidate` mode is accurate: on the thirteen admitted domains the kernel is live under the owner-forced activation and can replace a river fold or call at its 5 percent conditional probability.
 
 ## The Guard Law Is Stricter
 
@@ -24,7 +26,7 @@ Each Phase 14 domain in the activation manifest now carries `kernel: 'selected' 
 
 - `HorseUpgradeSideGameCounters.test.ts` (4): run-it-twice answers counted as `respondToRIT` later receives them, no human counted; kill-pot and seven-deuce context counted once at a real decision start, through a real engine and hand.
 - `LightningUpgradeCounters.test.ts` (4): the stale pre-action purge on a real Lightning host, armed and unarmed; the seven-deuce counter in `decideLightningHorse`.
-- Each of the six emitting lines fails a test when deleted.
+- Each emitting line (five here, and the prewarm refusal) fails a test when deleted.
 
 Found while writing them: the Lightning host never sets `sevenDeuceEnabled` on a Horse turn, because Lightning does not offer the seven-deuce game. The Lightning seven-deuce counter is correct and cannot fire from the host today. That is the game not being offered, not a wiring gap; upgrade 08 on Lightning is not applicable until it is.
 

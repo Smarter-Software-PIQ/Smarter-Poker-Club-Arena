@@ -2846,6 +2846,11 @@ export class HorseDecisionWorkerRuntime {
     );
     let phase14ObservationPrepared = false;
     if (phase14.evaluator) {
+      // Evidence only: how often a live decision is inside the corrective
+      // kernel's declared family at all. Applications are counted at commit
+      // (phase14_selection_*, phase14_execution_*); without this, zero of
+      // those cannot be told from zero eligible spots.
+      this.deps.noteFeature('phase14_kernel_eligible_seen');
       try {
         (this.deps.prepareOriginalReads ?? HorseLogic.prepareOriginalReads.bind(HorseLogic))(
           request.player,

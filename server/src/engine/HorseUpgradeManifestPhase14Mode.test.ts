@@ -10,7 +10,6 @@
  * domain key (horsePhase14CorrectiveMode) and selects those catalogs whenever
  * its holder is usable.
  */
-import { PHASE14_PROTECTED_RELEASE_SELECTIONS } from './HorsePhase14ReleaseSelections.js';
 import { describe, expect, it } from 'vitest';
 import { computeHorseUpgradeActivationManifest } from './HorseUpgradeActivationManifest.js';
 import { horsePhase14CorrectiveMode } from './HorsePhase14Authority.js';
@@ -59,20 +58,7 @@ describe('the manifest Phase 14 mode is the mode the worker gate gives', () => {
       expect(manifest.authorities.phase14[domain]).toEqual({
         status: 'admitted',
         mode: 'candidate',
-        kernel: 'unselected',
       });
-  });
-
-  it('says for every domain whether a corrective kernel is selected, from the protected selections', () => {
-    const manifest = computeHorseUpgradeActivationManifest();
-    for (const [domain, reported] of Object.entries(manifest.authorities.phase14))
-      expect(reported.kernel, domain).toBe(
-        PHASE14_PROTECTED_RELEASE_SELECTIONS[domain] ? 'selected' : 'unselected'
-      );
-    // Today no domain has one: a candidate mode alone changes no decision.
-    expect(
-      Object.values(manifest.authorities.phase14).filter((r) => r.kernel === 'selected')
-    ).toEqual([]);
   });
 
   it('still reports a domain with no admitted catalog as off', () => {

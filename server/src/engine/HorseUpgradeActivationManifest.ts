@@ -1,4 +1,3 @@
-import { PHASE14_PROTECTED_RELEASE_SELECTIONS } from './HorsePhase14ReleaseSelections.js';
 import { createHash } from 'node:crypto';
 import { resolveReleaseIdentity } from '../releaseIdentity.js';
 import { admitHorseFeatureReleaseAuthority } from './HorseFeatureAuthority.js';
@@ -59,13 +58,7 @@ export interface HorseUpgradeActivationManifest {
     phase11: Record<string, HorseAuthorityAdmissionSummary>;
     phase12: Record<string, HorseAuthorityAdmissionSummary>;
     phase13: Record<string, HorseAuthorityAdmissionSummary>;
-    /**
-     * `mode` is the admission the worker gate compares; `kernel` says
-     * whether a corrective kernel is selected for the domain. With no kernel
-     * the corrective node returns the baseline, so a candidate mode alone
-     * changes no decision.
-     */
-    phase14: Record<string, { status: string; mode: string; kernel: 'selected' | 'unselected' }>;
+    phase14: Record<string, { status: string; mode: string }>;
   };
   upgrades: readonly HorseUpgradeCapabilityEntry[];
 }
@@ -366,7 +359,6 @@ export function computeHorseUpgradeActivationManifest(): HorseUpgradeActivationM
           {
             status: attachment.admission.status,
             mode: activeCandidate ? 'candidate' : 'off',
-            kernel: PHASE14_PROTECTED_RELEASE_SELECTIONS[domain] ? 'selected' : 'unselected',
           },
         ];
       })
