@@ -20,6 +20,7 @@ import {
   publicMemoryDomainFromRules,
 } from './HorsePublicMemoryDomain.ts';
 import { countLoggedHandMemoryDomain } from '../services/supabase/handMemoryDomainSignal.ts';
+import { drainFires, enableBrainTelemetry, noteFire } from './BrainTelemetry.ts';
 const readCurrent = (file) => fs.readFileSync(resolve(process.cwd(), 'src', file), 'utf8');
 const base = readCurrent('engine/ServerTableEngineBase.ts'),
   settlement = readCurrent('engine/ServerTableEngineSettlement.ts');
@@ -112,6 +113,8 @@ function harness(sequence, { rootB = false, onSleep, onRpc, retainSequence } = {
     publicMemoryDomainFromRules,
     // The extracted logHandHistory counts each accepted hand once (HVH2D-EXE-002).
     countLoggedHandMemoryDomain,
+    // postHandTasks counts each settled hand's memory domain once (evidence only).
+    noteFire,
     handStackBefore,
     requireHandSeatGeneration,
     describeError: (e) => e?.message ?? String(e),
@@ -509,7 +512,14 @@ test('original public rule domain is retained before a retry and never recapture
     },
   });
   h.p.handController = { getBlindSnapshot: () => ({ ...blinds }) };
+  enableBrainTelemetry();
+  drainFires();
   await h.run();
+  // One settled hand is one count, however many times its write is retried.
+  assert.deepEqual(
+    drainFires().filter((r) => r.feature.startsWith('hand_memory_domain_')),
+    [{ feature: 'hand_memory_domain_recorded_seen', fires: 1 }]
+  );
   assert.equal(h.retainedRequests.length, 1);
   assert.equal(h.calls.length, 2);
   assert.deepEqual(h.retainedRequests[0].p_hand_row.public_memory_domain, {
@@ -522,7 +532,13 @@ test('original public rule domain is retained before a retry and never recapture
 
 test('missing original controller rules preserve legacy accepted payload without inventing a domain', async () => {
   const h = harness([accepted()], { rootB: true });
+  enableBrainTelemetry();
+  drainFires();
   await h.run();
+  assert.deepEqual(
+    drainFires().filter((r) => r.feature.startsWith('hand_memory_domain_')),
+    [{ feature: 'hand_memory_domain_absent_seen', fires: 1 }]
+  );
   assert.equal(h.retainedRequests.length, 1);
   assert.equal(Object.hasOwn(h.retainedRequests[0].p_hand_row, 'public_memory_domain'), false);
   assert.equal(h.calls.length, 1);

@@ -24,6 +24,7 @@ import { HorseLogic, everyLiveOpponentIsAllIn, type HorseGameStateV2 } from './H
 import { bluffRaiseCanFoldSomeone } from './HorsePreflop.js';
 import { HorseMind } from './HorseMind.js';
 import { restoreFastRandom } from './HorseEval.js';
+import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import type { SeatPlayer } from '../types.js';
 import FIXTURE from './ABluffRaiseNeedsSomeoneWhoCanFold.fixture.json';
 
@@ -71,6 +72,31 @@ describe('a bluff raise needs someone who can fold (HVH2D-TRN-001 row 8)', () =>
     expect(decision.preflopAuthority?.events.map((e) => e.branch)).not.toContain('three_bet_bluff');
     expect(decision.preflopAuthority?.referenceAction).toBe('fold');
     expect(decision.action).toBe('fold');
+  });
+
+  it('counts the refused bluff raise once, so the fix can be read from telemetry', () => {
+    enableBrainTelemetry();
+    drainFires();
+    decide();
+    const fired = Object.fromEntries(drainFires().map((r) => [r.feature, r.fires]));
+    expect(fired.bluff_raise_refused_no_fold_equity_seen).toBe(1);
+  });
+
+  it('counts nothing when somebody can fold, and decides the same either way', () => {
+    // The same hand with the all-in player given chips behind: the bluff
+    // branch is free to raise, so nothing was refused.
+    enableBrainTelemetry();
+    drainFires();
+    const shape = (gs: HorseGameStateV2, player: SeatPlayer) => {
+      gs.players.find((p) => p.seat === player.seat)!.stack = 6_000;
+      player.stack = 6_000;
+      gs.legalActions = ['fold', 'call', 'raise', 'all_in'];
+      for (const p of gs.players) if (p.is_all_in) p.is_all_in = false;
+    };
+    const decision = decide(shape);
+    const fired = Object.fromEntries(drainFires().map((r) => [r.feature, r.fires]));
+    expect(fired.bluff_raise_refused_no_fold_equity_seen).toBeUndefined();
+    expect(decision.preflopAuthority?.events.map((e) => e.branch)).toContain('three_bet_bluff');
   });
 });
 

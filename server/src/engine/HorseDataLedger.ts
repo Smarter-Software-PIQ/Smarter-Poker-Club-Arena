@@ -2889,6 +2889,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-05'
   ),
   receipt(
+    'bluff_raise_refused_no_fold_equity_seen',
+    'HorsePreflop via HorseLogic (HVH2D-TRN-001 row 8)',
+    'a squeeze bluff or 3-bet bluff passed every earlier condition and its draw, and was refused only because nobody could fold (the price was the whole stack, or every opponent was all in); named *_seen (occurrence, not a layer); rare by design',
+    '2026-11-12'
+  ),
+  receipt(
+    'hand_memory_domain_recorded_seen',
+    'ServerTableEngineSettlement.postHandTasks (HVH2D-EXE-002)',
+    'a settled hand built its row with a public memory domain; one per settled table hand; named *_seen (occurrence, not a layer); counts what settlement built, not what was stored',
+    '2026-11-12'
+  ),
+  receipt(
+    'hand_memory_domain_absent_seen',
+    'ServerTableEngineSettlement.postHandTasks (HVH2D-EXE-002)',
+    'a settled hand built its row without a public memory domain (the blind snapshot was missing or invalid), so the opponent-memory learner will skip it; named *_seen (occurrence, not a layer); expected near zero',
+    '2026-11-12'
+  ),
+  receipt(
     'v60_cash_pressure_opener_vs_three_bet',
     'HorsePreflop via HorseLogic (V60 #8694)',
     'NLH cash opener facing a 3-bet up to 100bb: the V60 continue and 4-bet bars were applied',
