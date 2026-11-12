@@ -2807,7 +2807,15 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         : strength >= t53(bluffFloor, 'threeBet') && strength < threeBetThresh) &&
       !noBluff3 &&
       ctx.maniacNoBluff !== true &&
-      rand() < (def72 ? bluff72 : bluffFreqHere)
+      rand() < (def72 ? bluff72 : bluffFreqHere) &&
+      // A bluff raise needs someone who can fold. When the price to call is
+      // hero's whole stack, the "raise" is only a call; when the lone raiser
+      // is already all in, nobody is left to fold. Either way the hand was
+      // chosen as a bluff and would be shown down as a call (HVH2D-TRN-001
+      // row 8: KJo called off 59 big blinds through this branch). Tested
+      // after the draw so the random stream is unchanged.
+      toCall < stack &&
+      (ctx.raiserIsAllIn !== true || callers >= 1)
     ) {
       noteAuthority('three_bet_bluff');
       if (ctx.isPotLimit) {
