@@ -5,17 +5,24 @@ import { useToast } from '../common/Toast';
 import { reportError } from '../../utils/errorReporter';
 import './LightningLeaveControl.css';
 
-/** Stop matchmaking before the original anchor-seat leave can await cash-out. */
+/**
+ * Stop matchmaking at once; the leave itself happens after the current hand
+ * (Dan 2026-11-12: "AFTER THE END OF THE CURRENT HAND, YOU LEAVE THE TABLE.
+ * NOT AT THAT EXACT MOMENT"). The page owns the wait; `queued` says it is armed.
+ */
 export function LightningLeaveControl({
   clusterId,
   onLeave,
   ensureStopped,
   onLeaveIntentChange,
+  queued = false,
 }: {
   clusterId: string;
   onLeave: () => Promise<void>;
   ensureStopped?: () => Promise<boolean>;
   onLeaveIntentChange?: (leaving: boolean) => void;
+  /** The stop is confirmed and the page will leave when this hand ends. */
+  queued?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [stopped, setStopped] = useState(false);
@@ -32,7 +39,7 @@ export function LightningLeaveControl({
      unchanged - the durable stop refuses every new deal and the hand in front
      of the player still finishes through the original leave owner - so the
      label now says what the button has always done. */
-  const label = busy ? 'Leaving...' : 'Leave Next Hand';
+  const label = queued ? 'Leaving After Hand' : busy ? 'Leaving...' : 'Leave Next Hand';
   const labelRef = useFitText<HTMLSpanElement>(label, 1, 0.5);
   const leave = async () => {
     if (inFlight.current) return;
@@ -52,8 +59,8 @@ export function LightningLeaveControl({
         }
         setStopped(true);
       }
-      // The durable stop already refuses every new deal. The old hand and
-      // its committed chips still finish through the original leave owner.
+      // The durable stop already refuses every new deal. The hand in front of
+      // the player is still theirs to play: onLeave waits for it to end.
       if (mounted.current) await onLeave();
     } catch (error) {
       if (mounted.current) onLeaveIntentChange?.(false);
@@ -68,8 +75,9 @@ export function LightningLeaveControl({
     <button
       type="button"
       className="lightning-leave-control"
-      disabled={busy}
+      disabled={busy || queued}
       aria-busy={busy}
+      data-queued={queued ? 'true' : undefined}
       onClick={() => void leave()}
     >
       <img

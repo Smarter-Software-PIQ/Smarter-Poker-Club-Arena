@@ -88,4 +88,11 @@ describe('Lightning stand up stops re-entry before leaving', () => {
     expect(leave).toHaveBeenCalledTimes(2);
     expect(mocks.report).toHaveBeenCalledOnce();
   });
+  it('shows Leaving After Hand and refuses another press while the leave waits for the hand', () => {
+    render(<LightningLeaveControl clusterId="cluster" onLeave={vi.fn()} queued />);
+    const button = screen.getByRole('button', { name: 'Leaving After Hand' }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    fireEvent.click(button);
+    expect(mocks.stop).not.toHaveBeenCalled();
+  });
 });
