@@ -28,15 +28,13 @@ Client: Send Ticket has a "Send Ticket From" selector (Player Wallet or Promo
 Wallet), checks the chosen balance, shows the 50 chip rule for agents, and sends
 promo tickets through the new door with the retry key the batch used.
 
-## Found And Fixed At The Root
+## Landing Order
 
-`fn_cancel_tournament_ticket` journaled its release as `escrow_release`.
-`fn_ca_tally_ledger_leg` counts that category as cashout custody, so the commit
-check refused every cancel (`ticket_escrow` moved with no `ticket_escrow` leg).
-Measured in a rolled back probe on production: the door returned success and the
-deferred check refused it; no `tournament_ticket_cancel` receipt has ever been
-written. The release is now journaled as `ticket_redeem`, the ticket float's own
-category.
+The first apply of this migration was refused whole and wrote nothing: #10622
+(`20261112184950`) landed minutes earlier and changed the cancel door's release
+category from `escrow_release` to `refund`, so this file's preimage guard did
+not match. The file now patches that installed body (md5
+`e52d94e64fe64cc1508885a541450c71`) and leaves its category alone.
 
 ## Verification Before Merge
 
