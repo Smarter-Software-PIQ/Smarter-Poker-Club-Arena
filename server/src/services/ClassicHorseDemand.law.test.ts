@@ -45,7 +45,7 @@ describe('actual full Classic games queue and expand', () => {
     const plan = readFileSync(new URL('./HorseUnionCashPlan.ts', import.meta.url), 'utf8');
     const migration = readFileSync(
       new URL(
-        '../../../supabase/migrations/20261112154904_classic_games_open_tables_without_the_supply_throttle.sql',
+        '../../../supabase/migrations/20261112154904_cash_games_open_tables_on_demand_without_a_count_cap.sql',
         import.meta.url
       ),
       'utf8'
@@ -55,11 +55,15 @@ describe('actual full Classic games queue and expand', () => {
     expect(fleet).toContain('cashPlanLightningGames === null;');
     expect(plan).not.toContain('thirdTablePicked');
     expect(plan).toContain('for (const table of candidates) out.add(String(table.id));');
-    // The tick's twin: the supply cut and the picks apply to Lightning only.
+    // The tick's twin: no count of any kind limits a game's tables, and the
+    // ceiling trigger is a runaway guard measured in unused tables.
     expect(migration).toContain('-- @install-window: daily-maintenance');
-    expect(migration).toContain(
-      '  IF coalesce(g.lightning_enabled, false) THEN\n    v_table_cap := greatest(1'
-    );
-    expect(migration).toContain("RAISE EXCEPTION 'classic_table_supply_throttle_preimage_changed'");
+    expect(migration).toContain('  v_table_cap := NULL;');
+    expect(migration).toContain("patched := replace(patched, open_gate, '');");
+    expect(migration).toContain('    v_over_cap := false;');
+    expect(migration).toContain("RAISE EXCEPTION 'cash_table_count_cap_preimage_changed'");
+    expect(migration).toContain("'table_refused_unused_tables'");
+    expect(migration).toContain('  IF v_unused >= 2 THEN');
+    expect(migration).not.toMatch(/v_table_cap := greatest\(1/);
   });
 });

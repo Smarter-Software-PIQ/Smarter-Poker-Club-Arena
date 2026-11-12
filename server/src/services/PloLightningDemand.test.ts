@@ -1,11 +1,5 @@
-import { sliceCall } from '../testHelpers/sourceWindow.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  PLO_LIGHTNING_GAME,
-  ploActivityPool,
-  ploContinuationFor,
-  ploWindDownFor,
-} from './PloLightningDemand.js';
+import { PLO_LIGHTNING_GAME, ploContinuationFor, ploWindDownFor } from './PloLightningDemand.js';
 import { readPloLightningDemand } from './PloLightningDemandRead.js';
 const choice = {
   game_id: PLO_LIGHTNING_GAME,
@@ -49,49 +43,11 @@ describe('the original post-human demand result reaches its consumers', () => {
   });
 });
 
-describe('paced PLO demand keeps the activity hour from stalling startup', () => {
-  it('can add the fifth player from the already sittable pool when everyone is asleep', () => {
-    const eligible = ['funded-low-band-a', 'funded-low-band-b'];
-    expect(
-      ploActivityPool(PLO_LIGHTNING_GAME, new Set([PLO_LIGHTNING_GAME]), null, [], eligible, 2)
-    ).toBe(eligible);
-  });
-  it('also supplies the durable twenty-percent continuation without inventing a human', () => {
-    const eligible = ['eligible'];
-    expect(
-      ploActivityPool(
-        PLO_LIGHTNING_GAME,
-        new Set<string>(),
-        { ...choice, continues: true, wind_down: false },
-        [],
-        eligible,
-        1
-      )
-    ).toBe(eligible);
-  });
-  it('preserves other games, wind-down, empty demand and a sufficient awake pool', () => {
-    const awake = ['awake'],
-      eligible = ['awake', 'asleep'];
-    for (const [game, humans, demand] of [
-      ['other', new Set([PLO_LIGHTNING_GAME]), null],
-      [PLO_LIGHTNING_GAME, null, null],
-      [PLO_LIGHTNING_GAME, new Set(['other']), null],
-      [PLO_LIGHTNING_GAME, new Set<string>(), choice],
-      [PLO_LIGHTNING_GAME, new Set<string>(), null],
-    ] as const)
-      expect(ploActivityPool(game, humans, demand, awake, eligible, 2)).toBe(awake);
-    expect(
-      ploActivityPool(PLO_LIGHTNING_GAME, new Set([PLO_LIGHTNING_GAME]), null, awake, eligible, 1)
-    ).toBe(awake);
-  });
-});
-
-it('the fleet widens only the already qualified pool before selection', async () => {
+it('the fleet never widens the work hours for the PLO Lightning game (owner 2026-11-12)', async () => {
   const { readFileSync } = await import('node:fs');
   const source = readFileSync(new URL('./HorseFleetManager.ts', import.meta.url), 'utf8');
-  const verdict = source.indexOf('const v = sitVerdictFor(h.id, table, sitCtx);');
-  const activity = source.indexOf('pool = ploActivityPool(');
-  expect(activity).toBeGreaterThan(verdict);
-  expect(sliceCall(source, 'ploActivityPool(')).toMatch(/pool,\s+sittable,\s+emptySeats\.length/);
-  expect(activity).toBeLessThan(source.indexOf('const weighted = orderMadnessCandidates('));
+  expect(source).not.toContain('ploActivityPool');
+  expect(source).toContain(
+    'const pool = sittable.filter((h) => availableNow(h.id, regularsNowMs));'
+  );
 });

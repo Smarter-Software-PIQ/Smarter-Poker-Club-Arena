@@ -70,7 +70,7 @@ describe('a table the tick breaks is not walked out of', () => {
     );
     // benched / off-roster / switched-off game / forbidden stakes still apply.
     expect(src).toContain(
-      'if (!benched && !offPlo && !offGame && !restrictedCashGame && !outsideCashPlan) continue;'
+      'if (!benched && !offPlo && !offGame && !restrictedCashGame && !outsideCashPlan && !offDuty)'
     );
   });
 

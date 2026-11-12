@@ -415,6 +415,9 @@ import { secureRandomInt } from '../engine/CryptoRandom.js';
 import { HorseEntryRefusalBackoff, databaseDidNotAnswer } from './horseEntryRefusalBackoff.js';
 import { horseEntryCapRefusalContext } from './horseEntryCapRefusalContext.js';
 import { withLockedLevelClock } from '../tournament/lockedLevelClock.js';
+import { isRestDayFor, tagBook } from './StableHandTags.js';
+import { chicagoNow } from './StableHandController.js';
+import { controllerEnabled } from './StableHand.js';
 
 /**
  * THE ONE MAP FROM A CONFIG'S VARIANT KEY TO THE `tournaments.game_type` VALUE.
@@ -7664,6 +7667,10 @@ export class TournamentRecurringService {
        * Shark holds 584 horse members, JAQK 580, Midway 323, Deep Stack 416.
        */
       const clubMemberIds = await this.clubMemberIdsForTournament(tournamentId, pass);
+      /* A HORSE'S DAY OFF (owner 2026-11-12, HorseWorkSchedule): no new
+         registration on its rest day. An unreadable tag book fails open. */
+      const restBook = controllerEnabled() ? await tagBook.load().catch(() => null) : null;
+      const restWeekday = chicagoNow().weekday;
 
       const eligible = poolAll.filter((h) => {
         if (busyIds.has(h.id)) {
@@ -7679,7 +7686,9 @@ export class TournamentRecurringService {
         // tournament contract and must reach the atomic ticket-first door.
         if (ticketHintIds.has(h.id)) return true;
         // The full scheduled fleet is eligible, regardless of historical lane.
-        const ok = isActiveNow(h.id, new Date().getUTCHours());
+        const ok =
+          isActiveNow(h.id, new Date().getUTCHours()) &&
+          !isRestDayFor(restBook?.states.get(h.id), restWeekday);
         if (!ok) laneDropped++;
         return ok;
       });

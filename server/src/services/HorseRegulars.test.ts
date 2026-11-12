@@ -326,7 +326,7 @@ describe('the wiring is on the real paths', () => {
   const FLEET = readFileSync(resolve(__dirname, 'HorseFleetManager.ts'), 'utf8');
   it('the fleet draws from availableNow and weights the draw by regularSeatWeight', () => {
     expect(FLEET).toContain(
-      'let pool = sittable.filter((h) => availableNow(h.id, regularsNowMs));'
+      'const pool = sittable.filter((h) => availableNow(h.id, regularsNowMs));'
     );
     expect(FLEET).toMatch(
       /w: Math\.random\(\) \* towardFour \* regularSeatWeight\(h\.id, table, regularsNowMs\)/
@@ -472,8 +472,12 @@ describe('a schedule departure is an ordinary leave: HIT AND RUN holds a horse i
     for (const id of IN) expect(regularSessionEndFactor(id, NOW)).toBe(0.7);
   });
 
+  // Owner 2026-11-12 (HorseWorkSchedule): past its pattern AND its daily
+  // window a horse is off shift, and EVERY off-shift horse goes home - once.
   it('a horse whose pattern is over, owing nothing, leaves', async () => {
-    expect(await rotate(OUT, 0)).toHaveLength(1);
+    const leaves = await rotate(OUT, 0);
+    expect(new Set(leaves).size).toBe(leaves.length);
+    expect([...leaves].sort()).toEqual([...OUT].sort());
   });
 
   it('the same horse in its pattern stays', async () => {

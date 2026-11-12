@@ -79,16 +79,18 @@ describe('EVERY TAG GATE FAILS OPEN', () => {
   });
 });
 
-describe('A WAITING HUMAN OUTRANKS EVERY TEXTURE RULE', () => {
-  it('variant, stake, rest day and daily cap are all bypassed on rescue', () => {
+describe('A WAITING HUMAN OUTRANKS TEXTURE, NEVER A HORSE`S DAY OFF', () => {
+  it('variant and stake are bypassed on rescue; rest day and daily cap never are (owner 2026-11-12)', () => {
     for (const guard of [
       'if (!bankrollOnly && variantOk === false && !humanNeedsRescue)',
       'if (stakeOk === false && !humanNeedsRescue)',
-      'if (!humanNeedsRescue && isRestDayFor(st, chicagoWeekday))',
-      'if (!humanNeedsRescue && dailyCapReached(st, todayKey))',
+      'if (isRestDayFor(st, chicagoWeekday)) {',
+      'if (dailyCapReached(st, todayKey)) {',
     ]) {
       expect(SRC).toContain(guard);
     }
+    expect(SRC).not.toContain('!humanNeedsRescue && isRestDayFor');
+    expect(SRC).not.toContain('!humanNeedsRescue && dailyCapReached');
   });
 
   it('but the CLUB rule is never bypassed - a horse plays inside its own club', () => {

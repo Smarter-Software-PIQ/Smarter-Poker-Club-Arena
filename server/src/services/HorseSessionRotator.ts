@@ -72,6 +72,10 @@ import {
 } from './HorseBehavior.js';
 import { requestSeatChangeFor } from './supabase/seatChange.js';
 import { regularSessionEndFactor } from './HorseRegulars.js';
+import { offDutyReason } from './HorseWorkSchedule.js';
+import { chicagoCounterDay, tagBook } from './StableHandTags.js';
+import { chicagoNow } from './StableHandController.js';
+import { controllerEnabled } from './StableHand.js';
 import {
   bankrollPolicyFor,
   referenceBuyIn,
@@ -1224,6 +1228,9 @@ export class HorseSessionRotator {
     const lightningGameIds = await this.readLightningGameIds(byTable);
     if (!this.lifecycleIsCurrent(generation)) return;
     let rosterLeaves = 0;
+    /* Seats the roster/policy/duty pass already sent home this cycle: no
+       later pass of the same cycle asks them again. */
+    const rosterLeft = new Set<string>();
     const cashPlanPrimaryTables = horseCashPlanPrimaryTables(
       [...byTable.values()].map((tableSeats) => tableSeats[0]?.tables ?? {})
     );
@@ -1286,6 +1293,15 @@ export class HorseSessionRotator {
         ),
       lightningGameIds
     );
+    /* THE WORK SCHEDULE AND THE DAY OFF (owner 2026-11-12, HorseWorkSchedule).
+       A horse whose shift is over, whose rest day it is or whose daily cap is
+       played out goes home. Read once per cycle; an unreadable tag book fails
+       open on the rest day and the cap only (the work hours come from the id). */
+    const dutyBook = controllerEnabled() ? await tagBook.load().catch(() => null) : null;
+    const dutyNowMs = Date.now();
+    const dutyWeekday = chicagoNow().weekday;
+    const dutyToday = chicagoCounterDay(dutyNowMs);
+    let offDutyLeaves = 0;
     for (const [tableId, tableSeats] of byTable) {
       if (!this.lifecycleIsCurrent(generation)) return;
       const t = (tableSeats[0] as any)?.tables;
@@ -1320,19 +1336,44 @@ export class HorseSessionRotator {
         const benched = benchedIds.has(uid) || (!exempt && cashRosterAllows(uid, t) === false);
         const offPlo = !exempt && ploRosterAllows(uid, t?.game_variant, t?.big_blind) === false;
         const restrictedCashGame = !horseCashGameAllowed(t ?? {}, Date.now());
-        if (!benched && !offPlo && !offGame && !restrictedCashGame && !outsideCashPlan) continue;
+        const offDuty =
+          t?.tournament_id == null &&
+          offDutyReason(uid, dutyBook?.states.get(uid), dutyNowMs, dutyWeekday, dutyToday) !== null;
+        if (!benched && !offPlo && !offGame && !restrictedCashGame && !outsideCashPlan && !offDuty)
+          continue;
+        /* Going home at the end of a shift is the ordinary leave: a horse that
+           owes hands in profit (HIT AND RUN) or one orbit after a big pot
+           plays them first and goes on a later cycle. The roster and policy
+           exits above keep their immediate door. */
+        if (
+          offDuty &&
+          !benched &&
+          !offPlo &&
+          !offGame &&
+          !restrictedCashGame &&
+          !outsideCashPlan &&
+          (this.owesHands(tableId, uid, engine) || this.owesBigPotOrbit(uid, engine))
+        )
+          continue;
         try {
           const result = await engine.leaveTable(uid);
           if (!this.lifecycleIsCurrent(generation)) return;
           this.noteLeaveResult(tableId, uid, result);
           if (result.success) {
             rosterLeaves++;
+            if (offDuty) offDutyLeaves++;
+            rosterLeft.add(`${tableId}:${uid}`);
             this.breaks.delete(HorseSessionRotator.breakKey(tableId, uid));
           }
         } catch (err) {
           reportError(err, 'HorseSessionRotator.rosterLeave');
         }
       }
+    }
+    if (offDutyLeaves > 0) {
+      console.log(
+        `[SessionRotator] ${offDutyLeaves} horse(s) going home - shift over, rest day or daily cap played out`
+      );
     }
     if (rosterLeaves > 0) {
       console.log(
@@ -1639,6 +1680,7 @@ export class HorseSessionRotator {
       const askable = tableSeats.filter(
         (x) =>
           horseIds.has(x.user_id) &&
+          !rosterLeft.has(`${tableId}:${x.user_id}`) &&
           !HorseSessionRotator.isLeaving(x) &&
           !this.isLeaveHeld(tableId, x.user_id)
       );

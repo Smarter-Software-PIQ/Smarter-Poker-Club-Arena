@@ -1,4 +1,3 @@
-import { ploActivityPool } from './PloLightningDemand.js';
 import { readPloLightningDemand } from './PloLightningDemandRead.js';
 import { horseCashGameAllowed } from './HorseCashSchedule.js';
 import {
@@ -62,6 +61,7 @@ import {
   tagMaxTables,
   isRestDayFor,
   dailyCapReached,
+  type TagBook,
 } from './StableHandTags.js';
 import {
   foldMutations,
@@ -77,6 +77,7 @@ import { fetchAllRows } from './supabase/pagination.js';
 import { gamesFedByTheirList, listFeedsTable } from './HorseListFeedsTable.js';
 import { planHorseQueues, type HorseQueueAsk, type HorseQueueGameInfo } from './HorseGameQueue.js';
 import { availableNow, regularSeatWeight } from './HorseRegulars.js';
+import { onDuty } from './HorseWorkSchedule.js';
 import {
   allocateBuyers,
   FEEDER_BUYERS_TO_GO_LIVE,
@@ -999,7 +1000,10 @@ export class HorseFleetManager {
     disabledGameIds: ReadonlySet<string>,
     shouldContinue?: () => boolean,
     /** Tables each horse holds, including the seats this cycle just took. */
-    horseTables?: ReadonlyMap<string, ReadonlySet<string>>
+    horseTables?: ReadonlyMap<string, ReadonlySet<string>>,
+    /** The cycle's tag book (HorseWorkSchedule rest day / daily cap); null
+     *  fails open on those two, the work hours always apply. */
+    dutyBook: TagBook | null = null
   ): Promise<void> {
     try {
       const page = await fetchAllRows<{
@@ -1061,6 +1065,10 @@ export class HorseFleetManager {
         for (const g of lightning) excluded.add(g);
       }
 
+      const queueDutyBook = dutyBook;
+      const queueNowMs = Date.now();
+      const queueWeekday = chicagoNow().weekday;
+      const queueToday = chicagoCounterDay(queueNowMs);
       const plan = planHorseQueues({
         asks,
         tables: gameTables,
@@ -1071,6 +1079,8 @@ export class HorseFleetManager {
         nowMs: Date.now(),
         gameInfo,
         seatedAnywhere,
+        onDuty: (id: string) =>
+          onDuty(id, queueDutyBook?.states.get(id), queueNowMs, queueWeekday, queueToday),
       });
       for (let i = 0; i < plan.cancel.length; i += 200) {
         if (shouldContinue?.() === false) return;
@@ -2857,7 +2867,8 @@ export class HorseFleetManager {
             seatBudget,
             rejoin,
             disabledGameIds,
-            readIsCurrent
+            readIsCurrent,
+            book
           );
       seatBudget -= claimed;
       beat.seatsFilled += claimed;
@@ -3621,11 +3632,14 @@ export class HorseFleetManager {
                tagger and read by nobody. A human short-handed at this table
                outranks both: a rest day is a texture, a person waiting is not. */
             const st = book?.states.get(h.id);
-            if (!humanNeedsRescue && isRestDayFor(st, chicagoWeekday)) {
+            /* NO WAIVER (owner 2026-11-12, HorseWorkSchedule): a horse keeps
+               its day off and its daily cap even for a person short at the
+               table; the fleet answers that person with a horse on duty. */
+            if (isRestDayFor(st, chicagoWeekday)) {
               restDayDropped++;
               return false;
             }
-            if (!humanNeedsRescue && dailyCapReached(st, todayKey)) {
+            if (dailyCapReached(st, todayKey)) {
               dailyCapDropped++;
               return false;
             }
@@ -3836,53 +3850,14 @@ export class HorseFleetManager {
              the pool this line drew before, so no table can go short for a
              schedule. Who among them sits is ordered by regularSeatWeight. */
           const regularsNowMs = Date.now();
-          let pool = sittable.filter((h) => availableNow(h.id, regularsNowMs));
-          /* How many were awake before any rule widened the hour, for the
-             `asleep` and `hour_widened` counters below. */
+          /* THE WORK SCHEDULE IS A GATE (owner 2026-11-12, HorseWorkSchedule).
+             Only a horse inside its work hours sits. The four widenings that
+             stood here - a person short at the table, the PLO Lightning game,
+             an opening feeder, a cluster table under the dealable minimum -
+             each pulled off-shift horses into a seat and are gone: a table
+             those horses cannot fill waits for horses who are working. */
+          const pool = sittable.filter((h) => availableNow(h.id, regularsNowMs));
           const awake = pool.length;
-          if (pool.length < emptySeats.length && humanNeedsRescue) pool = sittable;
-          pool = ploActivityPool(
-            table.cluster_id,
-            cashPlanLightningHumanGames,
-            ploDemand,
-            pool,
-            sittable,
-            emptySeats.length
-          );
-          /* ── AN OPENING FEEDER WIDENS THE HOUR TOO (2026-09-06, measured) ──
-             The activity window is texture: it decides WHICH of the horses
-             that could sit do sit, so the floor rotates through the stable.
-             It is the wrong gate for a feeder this fleet opened. Read from the
-             beat over one afternoon, the same line for thirty minutes:
-
-               "PLO4 0.50/1 Classic Feeder": candidates 6, sittable 4,
-               wanted 6, reserved 2, selected 1, seated 0,
-               skipped {lone_seat_refused: 1}
-
-             Four horses could sit; three were outside their window; the one
-             inside it was refused as a lone seat; the feeder sat empty, was
-             abandoned at six minutes, rested two, and was opened again on the
-             same two buyers. The window widens for a human's rescue for the
-             same reason it widens here: the seats are wanted NOW, by a game
-             that exists because this fleet said the horses were there. Never
-             the band, never the verdict - only the hour. */
-          if (openingFeeder && pool.length < FEEDER_BUYERS_TO_GO_LIVE) pool = sittable;
-          /* ── AND SO DOES ANY CLUSTER TABLE THAT CANNOT DEAL (2026-09-09) ────
-             The feeder rule above was the right rule for the wrong set, a
-             second time: `seedToDealable` already says an empty or lone
-             cluster table is seeded to two THIS cycle, and the lone-seat
-             refusal keeps a single horse off an empty one. Between them a
-             table with two sittable horses of which one was awake was left
-             at zero for as long as the hour held - every cycle the window
-             chose one, the refusal declined one, and the cycle line said
-             "lone_seat_refused=9" with no way to tell it from a table nobody
-             could sit at. The seats are wanted NOW by a game that cannot
-             deal; the hour is texture, and texture does not keep a Main 1
-             dark. Never the band, never the verdict - only the hour, and only
-             when the awake pool falls short of the dealable minimum. */
-          if (seedToDealable && !openingFeeder && pool.length < DEALABLE_MINIMUM) {
-            pool = sittable;
-          }
           if (pool.length > awake) hourWidened++;
           /* The window's own count, so a table with sittable horses that are
              all asleep is never again reported as a table with none. Counted
@@ -4332,7 +4307,8 @@ export class HorseFleetManager {
           horseIdSet,
           disabledGameIds,
           readIsCurrent,
-          horseTables
+          horseTables,
+          book
         );
       }
       // The only place the census is stamped: a cycle that returned early
@@ -5144,7 +5120,10 @@ export class HorseFleetManager {
     /* Games the operator has switched off (18.4), read this cycle. Empty
        when the read failed: fail open, same as the seeding loop. */
     disabledGameIds: ReadonlySet<string> = new Set<string>(),
-    shouldContinue?: () => boolean
+    shouldContinue?: () => boolean,
+    /** The cycle's tag book (HorseWorkSchedule); null fails open on the rest
+     *  day and daily cap, the work hours always apply. */
+    dutyBook: TagBook | null = null
   ): Promise<number> {
     let claimed = 0;
     try {
@@ -5235,6 +5214,11 @@ export class HorseFleetManager {
         taken.get(s.table_id)!.add(Number(s.seat_number));
       }
 
+      const dutyNowMs = Date.now();
+      const dutyWeekday = chicagoNow().weekday;
+      const dutyToday = chicagoCounterDay(dutyNowMs);
+      const dutyOk = (id: string) =>
+        onDuty(id, dutyBook?.states.get(id), dutyNowMs, dutyWeekday, dutyToday);
       for (const offer of mine as any[]) {
         if (shouldContinue?.() === false) break;
         // The cap counts a claimed seat like any other: a fleet at its ceiling
@@ -5242,6 +5226,9 @@ export class HorseFleetManager {
         if (claimed >= budget) break;
         const table = tableById.get(offer.table_id);
         if (!table || table.tournament_id) continue;
+        /* OFF DUTY, IT DOES NOT ANSWER (owner 2026-11-12, HorseWorkSchedule):
+           the hold expires on fn_offer_open_seat's sweep and passes on. */
+        if (!dutyOk(String(offer.user_id))) continue;
         /* A DRAINING TABLE TAKES NOBODY BACK (2026-09-03). This path seats a
            horse from a waitlist offer and never consulted surplusTableIds, so
            a horse holding a `notified` row for a retiring table would be

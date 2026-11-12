@@ -18,6 +18,11 @@ import { HorseFleetManager } from './HorseFleetManager.js';
 import { supabase } from './supabase.js';
 import { HORSE_UNION_CASH_PLAN as plan } from './HorseUnionCashPlan.js';
 
+/* The call path is tested for the CHAIR; the work schedule and days off
+   (owner 2026-11-12) are pinned on duty here and proven on their own in
+   HorseWorkSchedule.law.test.ts. */
+vi.mock('./HorseWorkSchedule.js', () => ({ offDutyReason: () => null, onDuty: () => true }));
+
 const horses = Array.from({ length: 400 }, (_, i) => `horse-${i}`);
 
 describe('the pure choice', () => {

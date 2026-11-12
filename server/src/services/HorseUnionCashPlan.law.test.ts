@@ -157,7 +157,7 @@ describe('the union cash floor follows the November 11 relaunch (zero game-count
     expect(tablePolicy).toBeGreaterThan(0);
     expect(fleet.indexOf('!horseUnionCashTableAllowed(')).toBeLessThan(tablePolicy);
     expect(rotator).toContain('playingHumansAtCashTable(tableSeats, horseIds)');
-    expect(rotator).toContain('!restrictedCashGame && !outsideCashPlan) continue;');
+    expect(rotator).toContain('!restrictedCashGame && !outsideCashPlan && !offDuty)');
     expect(rotator).toContain('await engine.leaveTable(uid)');
   });
 });
@@ -201,16 +201,28 @@ describe('a game may run a second table (Dan 2026-11-06)', () => {
     const primary = horseCashPlanPrimaryTables(all);
     expect(horseCashPlanSecondTables(all, primary, () => true, unpicked).size).toBe(8);
   });
-  it('Lightning, or an unknown Lightning set, keeps the single pick-gated secondary', () => {
+  it('a Lightning game admits every secondary too; only an unread Lightning set stays pick-gated', () => {
     const main2 = { ...main1, id: 'm2', main_index: 2 };
     const all = [feeder2, main2, main1, feeder];
     const primary = horseCashPlanPrimaryTables(all);
-    for (const lightning of [new Set([game]), null]) {
-      expect([...horseCashPlanSecondTables(all, primary, () => true, picked, lightning)]).toEqual([
+    for (const t of [picked, unpicked])
+      expect([...horseCashPlanSecondTables(all, primary, () => true, t, new Set([game]))]).toEqual([
         'm2',
+        'f1',
+        'f2',
       ]);
-      expect(horseCashPlanSecondTables(all, primary, () => true, unpicked, lightning).size).toBe(0);
-    }
+    expect([...horseCashPlanSecondTables(all, primary, () => true, picked, null)]).toEqual(['m2']);
+    expect(horseCashPlanSecondTables(all, primary, () => true, unpicked, null).size).toBe(0);
+  });
+  it('twenty tables of one game are all seatable: no count, not cap_mains either', () => {
+    const mains = Array.from({ length: 19 }, (_, i) => ({
+      ...main1,
+      id: `m${i + 1}`,
+      main_index: i + 1,
+    }));
+    const all = [...mains, feeder];
+    const primary = horseCashPlanPrimaryTables(all);
+    expect(horseCashPlanSecondTables(all, primary, () => true, unpicked).size).toBe(19);
   });
   it('a closing table is never admitted, so the tick can still break it', () => {
     const closing = { ...feeder, lifecycle: 'breaking' };

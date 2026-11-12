@@ -253,13 +253,14 @@ export function horseUnionCashTableAllowed(
 
 /** Secondary tables inherit their primary's admission policy.
  *
- * ZERO RESTRICTIONS ON THE GAMES THAT CAN BE OPEN (Dan 2026-11-11): a Classic
- * game's every live or opening secondary table (feeder, Main 2 and up) is
- * admitted whenever its Main 1 is; the second/third-table picks were the
- * retired rake throttle (migration 20261112154904 lifts the tick's twin cap).
- * How many tables exist stays the tick's OPEN rule, bounded by the game's
- * structural cap_mains. Lightning games, and any game while the Lightning set
- * is unknown (null), keep the previous single pick-gated secondary. Stable
+ * ZERO RESTRICTIONS ON THE GAMES THAT CAN BE OPEN (Dan 2026-11-11): every live
+ * or opening secondary table (feeder, Main 2 and up) of a game is admitted
+ * whenever its Main 1 is, Classic and Lightning alike; the second/third-table
+ * picks were the retired rake throttle and migration 20261112154904 removes
+ * every count cap from the tick. How many tables exist is the tick's OPEN rule
+ * (demand) alone. Only while the Lightning set is unknown (null) is the
+ * previous single pick-gated secondary kept, so an unread pool is never fed
+ * blind. Stable
  * main/feeder ordering prevents duplicate rows multiplying the allowance. */
 export function horseCashPlanSecondTables(
   tables: ReadonlyArray<CashPlanTable>,
@@ -287,7 +288,7 @@ export function horseCashPlanSecondTables(
   for (const [gameId, candidates] of chosen) {
     const primary = primaryByGame.get(gameId);
     if (!primary || !primaryAllowed(primary)) continue;
-    const classic = lightningGames !== null && !lightningGames.has(gameId);
+    const known = lightningGames !== null;
     // Keep established mains ahead of their feeder, with stable tie breaking.
     candidates.sort(
       (a, b) =>
@@ -295,12 +296,12 @@ export function horseCashPlanSecondTables(
         Number(a.main_index ?? 0) - Number(b.main_index ?? 0) ||
         String(a.id).localeCompare(String(b.id))
     );
-    if (classic) {
+    if (known) {
       for (const table of candidates) out.add(String(table.id));
       continue;
     }
-    // Lightning (or unknown): only while the game is picked for a second
-    // table (the tick's own Lightning rule, HorseBehavior.secondTablePicked).
+    // Lightning set unread: only while the game is picked for a second table
+    // (HorseBehavior.secondTablePicked), the conservative pre-relaunch rule.
     if (
       secondTablePicked(
         gameId,

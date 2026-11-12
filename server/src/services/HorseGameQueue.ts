@@ -151,6 +151,9 @@ export function planHorseQueues(input: {
   gameInfo?: ReadonlyMap<string, HorseQueueGameInfo>;
   /** Horses seated at any open table, any game. */
   seatedAnywhere?: ReadonlySet<string>;
+  /** Is this horse on duty (HorseWorkSchedule)? An off-duty horse leaves every
+   *  line now and joins none (owner 2026-11-12). Absent: everyone is. */
+  onDuty?: (userId: string) => boolean;
 }): HorseQueuePlan {
   const gameInfo = input.gameInfo ?? new Map<string, HorseQueueGameInfo>();
   const seatedAnywhere = input.seatedAnywhere ?? new Set<string>();
@@ -198,6 +201,11 @@ export function planHorseQueues(input: {
     if (Number.isFinite(created) && input.nowMs - created >= queuePatienceMs(r.id)) {
       cancel.push(r.id);
       leftGame.set(r.user_id, r.game_id);
+      continue;
+    }
+    // Off duty (shift over, rest day, cap played out): it leaves the line.
+    if (input.onDuty && !input.onDuty(r.user_id)) {
+      cancel.push(r.id);
       continue;
     }
     // Seated in this game: the tick marks the row 'seated'; it is no longer a
