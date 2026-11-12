@@ -142,7 +142,7 @@ def execute_funded_cases(repository, pg_bin, output, temp_parent):
                        'evidence': str(run_path.relative_to(Path(output))),
                        'sha256': hashlib.sha256(run_path.read_bytes()).hexdigest(),
                        'case_attempt_id': authorization['case_attempt_id'], 'cleanup': run.get('cleanup'),
-                       'deadline': budget.report()}
+                       'deadline': budget.report(), 'source_adaptations': bound.source_changes}
             report['cases'].append(summary)
             require(result == 0 and run.get('status') == 'PASS_IMPLEMENTED_SUBSETS_ONLY' and
                     len(run.get('cases', [])) == 1 and run['cases'][0]['case'] == case and

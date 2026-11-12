@@ -59,7 +59,7 @@
     "isolation_builder": {
       "path": "scripts/ci/build_pg17_isolationtester.py",
       "bytes": 7519,
-      "sha256": "1ad0df47f94f7c9a586364b2f0315986f62f152a6bc05084ea1d75cad2644861"
+      "sha256": "759d81b46eff3e37ba475f97b473adf4f500b5913fed63555241a13fe1771230"
     },
     "core_supplement": {
       "path": "scripts/ci/probes/production-alert-core/core-catalog-supplement.sql",
@@ -89,7 +89,7 @@
     "readback": {
       "path": "scripts/ci/probes/class4-hand-outcome/readback.sql",
       "bytes": 2532,
-      "sha256": "a59d6c4d9d1feec6d8f8b8c488f8d48f674a305e2aeb7ca37f6615c0ee6d7d23"
+      "sha256": "9ccb421b3d9b734901d088273cb60c1b83a5d4c89da69bbb219b1643a2dfbe78"
     },
     "class4_component": {
       "path": "supabase/components/class4-hand-outcome-evidence.sql",
@@ -134,7 +134,7 @@
     "resource_prepare": {
       "path": "scripts/ci/probes/class4-hand-outcome/resource-prepare.sql",
       "bytes": 7290,
-      "sha256": "3c86de3dc778f92e1be907b76d484920ebd9e667ce2908cf14849ae5594b481e"
+      "sha256": "81b476a14ec9acc1bfa481b0af7b3abff5c4d5dd6323932c2021e646d2693080"
     },
     "resource_measure": {
       "path": "scripts/ci/probes/class4-hand-outcome/resource-measure.sql",
@@ -157,8 +157,8 @@
     "cycle": false
   },
   "tool": {
-    "sourceVersion": "17.11",
-    "sourceSha256": "dd27f2b3c59e73ed14aa3324901242bf69a032a6347805f274e6260322d42979",
+    "sourceVersion": "17.12",
+    "sourceSha256": "9cf136a703d8ee2f83465c43be4e9e8e7930c82b0bfba13be7e2537be769ac55",
     "path": "artifacts/postgresql-17-isolationtester/toolchain/lib/pgxs/src/test/isolation/isolationtester"
   },
   "fixtureAuthorityDelta": "postgres may SET session_replication_role for original declared synthetic seed; no grant to service_role/authenticated/anon",
@@ -183,7 +183,7 @@
     "productionPayloadBytesOrColdCacheEquivalence": false,
     "moneyWriterOrTypedRollbackQualification": false
   },
-  "f06ExactFixturePackages20261112": {
+"f06ExactFixturePackages20261112": {
     "scope": "Current qualification input identity only; not a financial, native or production pass.",
     "reason": "Preserve exact PostgreSQL17.11 source/checksum/manifest contract while CI requests and checks its matching server/client/dev tuple. Same-upstream signed cron build resolution and explicit complete-fixture replacement retain all native gates. Financial SQL, fixture assertions, historical audits and qualification states unchanged.",
     "changes": [
@@ -198,5 +198,24 @@
         "current": 7519
       }
     ]
-  }
+  },
+"f06ProtectedNativeIntegration20261112": {
+  "reason": "Retain protected main #10600 PostgreSQL17.12 native source, checksum and actual comparisons, plus reviewed F06 side-effect-free version query and exact package readiness. Current input identity only; historical evidence and financial assertions preserved.",
+  "changes": [
+    {
+      "path": "scripts/ci/build_pg17_isolationtester.py",
+      "kind": "bytes",
+      "previous": 7390,
+      "current": 7519
+    },
+    {
+      "path": "scripts/ci/build_pg17_isolationtester.py",
+      "kind": "sha256",
+      "previous": "a2cadd40c7bcca64907e67d01fc7e3e9133d62f67041fc1415844796ddddbce8",
+      "current": "759d81b46eff3e37ba475f97b473adf4f500b5913fed63555241a13fe1771230"
+    }
+  ],
+  "financialRecertification": false,
+  "executionPerformed": false
+}
 }

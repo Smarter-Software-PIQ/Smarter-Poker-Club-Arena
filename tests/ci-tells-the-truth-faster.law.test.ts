@@ -163,6 +163,16 @@ describe('the PostgreSQL accounting qualification runs as seven shards of one jo
     expect([...perShard.keys()].sort()).toEqual([1, 2, 3, 4, 5, 6, 7]);
   });
 
+  it('executes the real socket-loss regression once in the required PostgreSQL aggregate', () => {
+    const probes = steps.filter((step) =>
+      step.run?.includes('scripts/ci/test-lightning-socket-loss-postgres.py')
+    );
+    expect(probes).toHaveLength(1);
+    expect(shardsOf(probes[0])).toEqual([3]);
+    expect(probes[0].env?.PG_BIN).toBe('/usr/lib/postgresql/17/bin');
+    expect(probes[0].env?.TMPDIR).toBe('${{ runner.temp }}');
+  });
+
   it('balances the complete unchanged Lightning family onto shard 3', () => {
     const lightning = steps.filter((step) => step.name?.startsWith('Lightning'));
     expect(lightning).toHaveLength(25);
