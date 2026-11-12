@@ -4823,6 +4823,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V87'
   ),
   receipt(
+    'token_call_price_scaled',
+    'HorseLogic committed-call bar (tokenCallPrice, PLO6-AUDIT-010)',
+    'a cash Omaha high call priced under 0.15 of the pot had its stack-off premiums scaled to the price',
+    'V89'
+  ),
+  receipt(
+    'token_call_price_river_covered',
+    'HorseLogic committed-call bar (tokenCallPrice, PLO6-AUDIT-010)',
+    'a river call priced under 0.01 of the pot was made because the counted share of hands beaten covered the price',
+    'V89'
+  ),
+  receipt(
+    'omaha_preflop_action_behind',
+    'HorseLogic preflop all-in arithmetic (omahaPreflopCallWithActionBehind, PLO6-AUDIT-005)',
+    'an Omaha preflop call of 40% of the stack with chips and action behind was sent to the range play, not priced as a final all-in',
+    'V90'
+  ),
+  receipt(
     'v87_turn_takeaway',
     'HorseLogic not-facing-a-bet turn (v87HoldemOverhaul)',
     'an IP heads-up NLH caller bet the turn after a flop stabber checked and gave up initiative',

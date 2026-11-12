@@ -41,6 +41,7 @@ import { riverNutsRaise, fullPotNearPotWager, hasRiverNuts } from './HorseRiverN
 import { omahaCurrentNutsRaise } from './HorseOmahaCurrentNuts.js';
 import {
   TOKEN_CALL_COUNTED_PRICE,
+  TOKEN_CALL_PRICE,
   tokenCallIsCovered,
   tokenCallPriceApplies,
   tokenCallRequiredEquity,
@@ -8097,6 +8098,9 @@ export class HorseLogic {
       const variantPrice38 =
         (vi.isOmaha || vi.isShortDeck || vi.holeCount !== 2 || vi.isFixedLimit) &&
         (raiserAllIn38 || (effCall38 >= player.stack * 0.4 && !actionBehind38));
+      // Counted where the rule took a call away from the arithmetic.
+      if (actionBehind38 && raiser38 && effCall38 >= player.stack * 0.4 && telemetryOn(opts))
+        noteFire('omaha_preflop_action_behind');
       if (raiser38 && (variantPrice38 || maniacPrice38)) {
         try {
           // Match each sampled range to a player already committed to this
@@ -15091,6 +15095,9 @@ export class HorseLogic {
       const required = tokenPriced
         ? tokenCallRequiredEquity(potOdds, requiredAtFullPremium)
         : requiredAtFullPremium;
+      // Counted where the bar actually moved, so the rule is visible live.
+      if (tokenPriced && toCall > 0 && potOdds < TOKEN_CALL_PRICE && telemetryOn(opts))
+        noteFire('token_call_price_scaled');
       // Under one percent of the pot on the river the sampled estimate cannot
       // decide: the exact share of random hands hero beats, cut twentyfold
       // for the bettor's strength, is compared with the price instead. A
@@ -15104,8 +15111,10 @@ export class HorseLogic {
           potOdds,
           omahaRiverBeatProbability(player.cards, board, player.cards.length)
         )
-      )
+      ) {
+        if (telemetryOn(opts)) noteFire('token_call_price_river_covered');
         return { action: 'call', amount: toCall, thinkTime: 0 };
+      }
       // V66: the bet-raised one-pair class calls or folds at the shaded
       // price; it never jams over the raise and the 0.42 floor (which read
       // a 40bb call as cheap) does not apply to it. V67 does the same for
