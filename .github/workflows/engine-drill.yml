@@ -21,6 +21,7 @@ concurrency:
 
 jobs:
   drill:
+    if: (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Crash the serving engine inside a certified break and prove recovery
     runs-on: ubuntu-latest
     environment: ci-main

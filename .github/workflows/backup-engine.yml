@@ -89,6 +89,7 @@ on:
 permissions:
   contents: read
   statuses: write
+  actions: read
 
 concurrency:
   # A client-only E2E event has no sealed engine and must never queue on the Backup host.
@@ -313,11 +314,20 @@ jobs:
 
   refresh:
     needs: plan
-    if: needs.plan.outputs.sha != ''
+    if: needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 60
     steps:
+      - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver backup-after-seal
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -420,13 +430,22 @@ jobs:
     needs: [plan, refresh]
     # Publish a failure for this exact SHA if refresh failed, including when a
     # previous attempt left a success status. Never certify a partial copy.
-    if: always() && needs.plan.outputs.sha != ''
+    if: always() && needs.plan.outputs.sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 75
     env:
       CONTROL_SHA: ${{ needs.plan.outputs.control_sha }}
     steps:
+      - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver backup-after-seal
       - name: Mark the certification pending
         env: { GH_TOKEN: '${{ github.token }}', SHA: '${{ needs.plan.outputs.sha }}' }
         run: |

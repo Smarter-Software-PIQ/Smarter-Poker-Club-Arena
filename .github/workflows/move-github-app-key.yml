@@ -1,0 +1,93 @@
+name: Move The GitHub App Key Out Of ci-main
+# One-shot (owner authorization 2026-11-11 03:19 and 11:38 America/Chicago).
+# ci-main is read by about a hundred jobs; only the jobs that mint a GitHub App
+# installation token need AUTOPILOT_APP_PRIVATE_KEY. Those jobs now name the
+# main-only `github-app-main` environment, so this moves the key there:
+#
+#   copy:   reads the key and the three database values those jobs also need
+#           inside this main-only ci-main job and writes them straight into
+#           github-app-main through the API with an App installation token.
+#           Nothing is printed; values never leave GitHub.
+#   retire: runs IN github-app-main (so it proves the copy mints a token),
+#           requires a successful main run of Estate Integrity that started
+#           after the copy (a real job reading the key from github-app-main),
+#           and only then deletes AUTOPILOT_APP_PRIVATE_KEY from ci-main.
+#
+# Delete this workflow once retire has succeeded.
+on:
+  workflow_dispatch:
+    inputs:
+      step:
+        description: copy, then retire after a successful Estate Integrity run
+        required: true
+        type: choice
+        options: [copy, retire]
+
+permissions: {}
+
+concurrency:
+  group: move-github-app-key
+  cancel-in-progress: false
+
+jobs:
+  copy:
+    if: inputs.step == 'copy' && github.ref == 'refs/heads/main' && github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena' && github.run_attempt == 1 && !endsWith(github.actor, '[bot]') && !endsWith(github.triggering_actor, '[bot]') && (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
+    runs-on: ubuntu-latest
+    environment: ci-main
+    timeout-minutes: 10
+    steps:
+      - name: Mint the GitHub App installation token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.AUTOPILOT_APP_ID }}
+          private-key: ${{ secrets.AUTOPILOT_APP_PRIVATE_KEY }}
+      - name: Copy the App key and the database values into github-app-main
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          S_AUTOPILOT_APP_PRIVATE_KEY: ${{ secrets.AUTOPILOT_APP_PRIVATE_KEY }}
+          S_DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          S_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          S_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        run: |
+          set -euo pipefail
+          got=$(gh api "repos/$REPO/environments/github-app-main/deployment-branch-policies" --jq '[.branch_policies[] | .name + ":" + .type] | sort | join(",")')
+          [ "$got" = 'main:branch' ] || { echo "::error::github-app-main branch rules are '$got', expected main only"; exit 1; }
+          for n in AUTOPILOT_APP_PRIVATE_KEY DATABASE_URL SUPABASE_SERVICE_ROLE_KEY SUPABASE_URL; do
+            v="S_$n"
+            [ -n "${!v:-}" ] || { echo "::error::$n is empty in ci-main; nothing copied for it"; exit 1; }
+            printf '%s' "${!v}" | gh secret set "$n" --env github-app-main --repo "$REPO" >/dev/null
+            echo "copied $n -> github-app-main"
+          done
+          echo "github-app-main: $(gh api "repos/$REPO/environments/github-app-main/secrets?per_page=100" --jq '[.secrets[].name] | sort | join(" ")')"
+
+  retire:
+    if: inputs.step == 'retire' && github.ref == 'refs/heads/main' && github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena' && github.run_attempt == 1 && !endsWith(github.actor, '[bot]') && !endsWith(github.triggering_actor, '[bot]') && (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
+    runs-on: ubuntu-latest
+    environment: github-app-main
+    timeout-minutes: 10
+    steps:
+      - name: Mint the App token from the github-app-main copy
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.AUTOPILOT_APP_ID }}
+          private-key: ${{ secrets.AUTOPILOT_APP_PRIVATE_KEY }}
+      - name: Delete the key from ci-main after a real run used the new copy
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          copied=$(gh api "repos/$REPO/environments/github-app-main/secrets/AUTOPILOT_APP_PRIVATE_KEY" --jq .updated_at)
+          proof=$(gh api "repos/$REPO/actions/workflows/estate-integrity.yml/runs?branch=main&status=success&per_page=20" \
+            --jq "[.workflow_runs[] | select(.head_branch == \"main\" and .run_started_at > \"$copied\")][0].id // empty")
+          [ -n "$proof" ] || { echo "::error::No successful main Estate Integrity run started after the copy ($copied); ci-main keeps its key."; exit 1; }
+          job_env=$(gh api "repos/$REPO/actions/runs/$proof/jobs" --jq '[.jobs[] | select(.conclusion == "success")] | length')
+          [ "$job_env" -ge 1 ] || { echo "::error::Estate Integrity run $proof has no successful job."; exit 1; }
+          echo "Estate Integrity run $proof used github-app-main after the copy at $copied."
+          gh secret delete AUTOPILOT_APP_PRIVATE_KEY --env ci-main --repo "$REPO"
+          left=$(gh api "repos/$REPO/environments/ci-main/secrets?per_page=100" --jq '[.secrets[].name] | index("AUTOPILOT_APP_PRIVATE_KEY")')
+          [ "$left" = 'null' ] || { echo "::error::ci-main still lists AUTOPILOT_APP_PRIVATE_KEY"; exit 1; }
+          echo "Removed AUTOPILOT_APP_PRIVATE_KEY from ci-main."

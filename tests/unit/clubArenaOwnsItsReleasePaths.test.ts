@@ -53,10 +53,10 @@ describe('Club Arena owns every Club Arena release path', () => {
     );
     // The read-only event runs the read job alone: it never deploys or records a verdict.
     expect(monitoringDeploy).toContain(
-      "if: ${{ github.event_name == 'push' || github.event.action == 'deploy-club-arena-monitoring' }}"
+      "if: ${{ (github.event_name == 'push' || github.event.action == 'deploy-club-arena-monitoring') && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}"
     );
     expect(monitoringDeploy).toContain(
-      "if: ${{ github.event_name == 'repository_dispatch' && github.event.action == 'read-club-arena-monitoring' }}"
+      "if: ${{ github.event_name == 'repository_dispatch' && github.event.action == 'read-club-arena-monitoring' && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}"
     );
     for (const workflow of [publisher, engineDeploy, monitoringDeploy]) {
       expect(workflow).not.toMatch(/^\s*workflow_dispatch:/m);

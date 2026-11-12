@@ -40,7 +40,7 @@ concurrency:
 jobs:
   native-smoke:
     if: >-
-      (!inputs.connected_ui_observations && github.event_name == 'pull_request' &&
+      ((!inputs.connected_ui_observations && github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository) ||
       (!inputs.connected_ui_observations && github.event_name == 'merge_group' &&
       github.event.merge_group.base_ref == 'refs/heads/main' &&
@@ -50,7 +50,7 @@ jobs:
       github.ref == 'refs/heads/main' && github.repository_id == '1132369872' &&
       github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena' &&
       github.workflow_ref == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena/.github/workflows/schema-manifest-refresh.yml@refs/heads/main' &&
-      inputs.source_sha == github.sha)
+      inputs.source_sha == github.sha)) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-24.04
     environment: "${{ inputs.connected_ui_observations && 'ci-main' || '' }}"
     timeout-minutes: ${{ inputs.connected_ui_observations && 120 || 55 }}

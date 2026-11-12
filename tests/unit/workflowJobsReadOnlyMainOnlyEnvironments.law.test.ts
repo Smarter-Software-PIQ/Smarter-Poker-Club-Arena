@@ -6,8 +6,8 @@
  * So no secret stays at repository scope: each job that reads one names an
  * environment whose deployment branch rule a merge-group ref
  * (refs/heads/gh-readonly-queue/main/...) can never match: `ci-main` (main
- * only), `ci-pull-request` (refs/pull/<n>/merge only), or one of the two
- * existing signing environments. A new job that reads a secret without one is
+ * only) or one of the two existing signing environments. The retired
+ * `ci-pull-request` environment was deleted with its secrets. A new job that reads a secret without one is
  * refused here, before it can re-open the hole.
  */
 import { readFileSync, readdirSync } from 'node:fs';
@@ -18,10 +18,15 @@ import { describe, expect, it } from 'vitest';
 const DIR = join(process.cwd(), '.github', 'workflows');
 const ALLOWED = new Set([
   'ci-main',
-  'ci-pull-request',
+  'github-app-main',
   'HorseCorrectiveQualification',
   'money-trigger-recovery-trusted',
 ]);
+// The GitHub App key is read only from github-app-main (or the Money trigger
+// signing environment), never from ci-main, whose ~100 jobs do not need it.
+// The one-shot mover's copy job is the single ci-main reader until it retires.
+const APP_KEY = 'AUTOPILOT_APP_PRIVATE_KEY';
+const APP_KEY_MOVER = 'move-github-app-key.yml';
 // The one-shot mover that copied repository scope into these environments was
 // deleted with the repository-level copies (2026-11-11); none may come back.
 const MOVER = 'copy-repository-secrets-to-environments.yml';
@@ -66,6 +71,31 @@ describe('every secret-reading job names a main-only environment', () => {
   }
 });
 
+describe('only the jobs that mint an App token can read the App key', () => {
+  for (const file of files) {
+    const wf = parse(readFileSync(join(DIR, file), 'utf8')) as { jobs?: Record<string, Job> };
+    for (const [name, job] of Object.entries(wf?.jobs ?? {})) {
+      const reads = secretNames(job).includes(APP_KEY);
+      const envs = envNames(job.environment);
+      if (envs.includes('github-app-main')) {
+        it(`${file}:${name} names github-app-main because it mints an App token`, () => {
+          expect(reads).toBe(true);
+          expect(JSON.stringify(job)).toContain('actions/create-github-app-token');
+        });
+      }
+      if (!reads) continue;
+      it(`${file}:${name} reads the App key outside ci-main`, () => {
+        if (file === APP_KEY_MOVER && name === 'copy') {
+          expect(envs).toEqual(['ci-main']);
+          return;
+        }
+        expect(envs.length).toBe(1);
+        expect(['github-app-main', 'money-trigger-recovery-trusted']).toContain(envs[0]);
+      });
+    }
+  }
+});
+
 describe('nothing a merge group runs can read a secret', () => {
   for (const file of files) {
     const wf = parse(readFileSync(join(DIR, file), 'utf8')) as {
@@ -91,25 +121,13 @@ describe('nothing a merge group runs can read a secret', () => {
 // No pull-request code may run beside a credential (2026-11-11). The two jobs
 // that read the live catalog for a pull request run MAIN's workflow and script
 // under pull_request_target with ci-main, reading the pull request as data.
-// ci-pull-request is being retired: only these legacy jobs may still name it,
-// and each one's own if: never admits a pull_request event.
-const PULL_REQUEST_ENVIRONMENT_JOBS = new Set([
-  'gto-v31-qualification.yml:recheck-after-release',
-  'gto-v31-qualification.yml:qualify',
-  'gto-v31-qualification.yml:promote',
-  'operational-alert-addressing.yml:live-addressing',
-]);
-
-describe('ci-pull-request is held to legacy jobs that never run on a pull request', () => {
+// ci-pull-request is retired (2026-11-11): the environment and its secrets are
+// deleted, and no job may name it again.
+describe('no job names the retired ci-pull-request environment', () => {
   for (const file of files) {
-    const wf = parse(readFileSync(join(DIR, file), 'utf8')) as { jobs?: Record<string, Job> };
-    for (const [name, job] of Object.entries(wf?.jobs ?? {})) {
-      if (job.uses) continue;
-      if (!envNames(job.environment).includes('ci-pull-request')) continue;
-      it(`${file}:${name} is a listed legacy job`, () => {
-        expect(PULL_REQUEST_ENVIRONMENT_JOBS.has(`${file}:${name}`)).toBe(true);
-      });
-    }
+    it(`${file} does not name ci-pull-request`, () => {
+      expect(readFileSync(join(DIR, file), 'utf8')).not.toContain('ci-pull-request');
+    });
   }
 });
 
@@ -132,5 +150,17 @@ describe('the live-catalog pull-request checks run only trusted code', () => {
     expect(text).toContain('find pr -type l -delete');
     expect(text).toContain('node ../trusted/scripts/ci/check-pr-engine-doors.mjs');
     expect(text).not.toContain('cache: npm');
+  });
+  it('pr-engine-doors runs only for same-repository pull requests and installs the locked pg', () => {
+    const text = readFileSync(join(DIR, 'pr-engine-doors.yml'), 'utf8');
+    const wf = parse(text) as { jobs: Record<string, { if?: string }> };
+    expect(String(wf.jobs.doors.if)).toContain(
+      'github.event.pull_request.head.repo.full_name == github.repository'
+    );
+    const lock = JSON.parse(readFileSync('package-lock.json', 'utf8')) as {
+      packages: Record<string, { version: string }>;
+    };
+    expect(text).toContain(`npm i pg@${lock.packages['node_modules/pg'].version} `);
+    expect(text).not.toMatch(/npm i pg@8 /);
   });
 });

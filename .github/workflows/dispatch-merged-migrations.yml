@@ -43,10 +43,10 @@ jobs:
   dispatch-merged-migrations:
     name: Dispatch the migrations this merge added or modified
     if: >-
-      github.event.action == 'closed'
+      (github.event.action == 'closed'
       && github.event.pull_request.merged == true
       && github.event.pull_request.base.ref == github.event.repository.default_branch
-      && github.event.pull_request.head.repo.full_name == github.repository
+      && github.event.pull_request.head.repo.full_name == github.repository) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     # Bounded: the one break-window wait is at most 22 minutes.
     timeout-minutes: 30
@@ -57,10 +57,36 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
 
-      - name: Dispatch each added or modified migration to the applier
+      # The applier honours this job-token dispatch only as the exact intent
+      # recorded and uploaded here (scripts/ci/dispatch-intent.mjs).
+      - name: Record one dispatch intent per migration
+        id: plan
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           MERGED_BY: ${{ github.event.pull_request.merged_by.login }}
+          DISPATCH_PHASE: plan
+          INTENT_DIR: ${{ runner.temp }}/dispatch-intents
+          INTENT_STATE: ${{ runner.temp }}/merged-migration-intents.jsonl
+        run: bash .github/scripts/dispatch-merged-migrations.sh
+
+      - name: Publish the intents on this exact run attempt
+        if: steps.plan.outputs.send == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dispatch-intents-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/dispatch-intents
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Dispatch each added or modified migration to the applier
+        if: steps.plan.outputs.send == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          MERGED_BY: ${{ github.event.pull_request.merged_by.login }}
+          DISPATCH_PHASE: send
+          INTENT_STATE: ${{ runner.temp }}/merged-migration-intents.jsonl
         run: bash .github/scripts/dispatch-merged-migrations.sh

@@ -66,7 +66,12 @@ const gate = (overrides: Record<string, string> = {}) => {
     .replaceAll('needs.publication-floor.result', JSON.stringify(values.floor))
     .replaceAll('needs.client-tests.result', JSON.stringify(values.client))
     .replaceAll('needs.build-and-store.result', JSON.stringify(values.build))
-    .replaceAll('needs.build-record-gateway.result', JSON.stringify(values.gateway));
+    .replaceAll('needs.build-record-gateway.result', JSON.stringify(values.gateway))
+    // A person's push or dispatch; the job-token refusal is pinned in its own law.
+    .replaceAll('github.triggering_actor', JSON.stringify('Smarter-Poker'))
+    .replaceAll('github.actor', JSON.stringify('Smarter-Poker'))
+    .replaceAll('github.run_attempt', JSON.stringify('1'))
+    .replaceAll('github.event_name', JSON.stringify('push'));
   return Function('always', `return (${expr})`)(() => true);
 };
 

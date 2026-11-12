@@ -54,7 +54,7 @@ concurrency:
 
 jobs:
   deploy:
-    if: ${{ github.event_name == 'push' || github.event.action == 'deploy-club-arena-monitoring' }}
+    if: ${{ (github.event_name == 'push' || github.event.action == 'deploy-club-arena-monitoring') && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 15
@@ -377,7 +377,7 @@ jobs:
   # failed, cancelled or skipped deploy admits its own verdict.
   monitoring-deploy-verdict:
     needs: deploy
-    if: ${{ always() && (github.event_name == 'push' || github.event.action == 'deploy-club-arena-monitoring') }}
+    if: ${{ always() && (github.event_name == 'push' || github.event.action == 'deploy-club-arena-monitoring') && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}
     name: This monitoring deploy admits its own verdict to the operational inbox
     runs-on: ubuntu-latest
     environment: ci-main
@@ -423,7 +423,7 @@ jobs:
   # Prometheus on the box over the same pinned deploy key and prints the
   # answers. It changes nothing: no file, no reload, no deploy, no inbox row.
   read-controller-heartbeat:
-    if: ${{ github.event_name == 'repository_dispatch' && github.event.action == 'read-club-arena-monitoring' }}
+    if: ${{ github.event_name == 'repository_dispatch' && github.event.action == 'read-club-arena-monitoring' && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}
     name: Read the Reliability Controller heartbeat and its rules from Prometheus (read-only)
     runs-on: ubuntu-latest
     environment: ci-main

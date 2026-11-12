@@ -158,7 +158,14 @@ describe('the repository_dispatch door carries only a file name and dry_run', ()
   it('never reads a recovery or emergency option from the payload', () => {
     const payloadReads = workflow.match(/client_payload\.[a-z_]+/g) ?? [];
     expect(new Set(payloadReads)).toEqual(
-      new Set(['client_payload.migration', 'client_payload.dry_run'])
+      new Set([
+        'client_payload.migration',
+        'client_payload.dry_run',
+        // The intent key, read only for the run-name that makes a job-token
+        // dispatch one-time (scripts/ci/dispatch-intent.mjs reads the rest
+        // from the event file itself).
+        'client_payload.intent_nonce',
+      ])
     );
   });
 

@@ -42,7 +42,7 @@
     "tests/fixtures/legacy-fee-finality/verify-native-receipts.mjs": "9556746822f0045ecadc35704929f53810676fe0ab07e49146b14495667870c8",
     "scripts/qualification/ci-admission-inputs.json": "8275cc6a48e74b21dc56c8d4ed5a143cb9dae6ffabba8dca65366d4920007887",
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "09f96b3c61e37df098ad6c12242ba49356fe29f393b5d4c41782f77c8e87d1d1"
+    "scripts/qualification/ci-accounting-inputs.json": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c"
   },
   "chainedBrowserAdmissionSourceAudit20261030": {
     "scope": "Current classifier source binding only. Chained browser scripts and supported config/fixture inputs now admit their existing browser checks; every financial/server/native classification flag is unchanged.",
@@ -1615,6 +1615,18 @@
         "path": "scripts/qualification/ci-accounting-inputs.json",
         "previousSHA256": "495bf6777969db9472ecc03d96ba857b87622c424a60c95fc4df8e98fe88c1c8",
         "currentSHA256": "09f96b3c61e37df098ad6c12242ba49356fe29f393b5d4c41782f77c8e87d1d1"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "aJobTokenCannotStartTrustedWork20261111": {
+    "reason": "Job-token boundary (2026-11-11, owner-authorized): ci.yml's changes job no longer holds actions: write; its superseded-run cancel moved to a separate retire_superseded job that runs only default-branch code. The regenerated projection differs only by that removed step, the changes job's permissions and its comment. No accounting command, assertion, matrix, deadline, admission, historical result or certification changed.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "previousSHA256": "09f96b3c61e37df098ad6c12242ba49356fe29f393b5d4c41782f77c8e87d1d1",
+        "currentSHA256": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c"
       }
     ],
     "historicalEvidenceRestamped": false,

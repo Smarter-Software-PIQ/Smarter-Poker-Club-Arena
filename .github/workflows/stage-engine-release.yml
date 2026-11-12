@@ -19,7 +19,7 @@ name: Stage Exact Club Arena Engine Release
 # for one dated reservation. Its original job waits once until the cutoff,
 # refreshes protected source, then uses the same selection and receiver.
 # A missed date, changed release authority or failed owner never gains a retry.
-run-name: ${{ github.event_name == 'repository_dispatch' && (github.event.action == 'prepare-daily-engine' && github.event.sender.type == 'User' && 'Original operator daily preparation' || 'Operator request outside election') || github.event_name == 'workflow_run' && (github.event.workflow_run.event == 'push' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success' && 'Automatic Backup daily reservation' || 'Backup completion outside election') || 'Daily engine reservation' }}
+run-name: ${{ github.event_name == 'repository_dispatch' && (github.event.action == 'prepare-daily-engine' && github.event.sender.type == 'User' && 'Original operator daily preparation' || 'Operator request outside election') || github.event_name == 'workflow_run' && (github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/backup-engine.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success' && 'Automatic Backup daily reservation' || 'Backup completion outside election') || 'Daily engine reservation' }}
 on:
   repository_dispatch:
     types: [prepare-daily-engine]
@@ -56,7 +56,7 @@ permissions: {}
 
 jobs:
   detect:
-    if: (github.event_name != 'workflow_dispatch' || (inputs.request_engine_release && !inputs.request_database_break && github.ref == 'refs/heads/main')) && (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success'))
+    if: (github.event_name != 'workflow_dispatch' || (inputs.request_engine_release && !inputs.request_database_break && github.ref == 'refs/heads/main')) && (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/backup-engine.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success'))
     name: Prove Whether The Server Tree Changed
     runs-on: ubuntu-latest
     timeout-minutes: 315
@@ -448,10 +448,11 @@ jobs:
     name: Install Queued Daily-Maintenance Migrations
     needs: detect
     if: >-
-      always() &&
+      ((always() &&
       ((github.event_name == 'workflow_dispatch' && !inputs.request_engine_release && github.ref == 'refs/heads/main') ||
        (needs.detect.result == 'success' && needs.detect.outputs.admission_allowed == 'true' &&
-        needs.detect.outputs.daily_preparation == 'true'))
+        needs.detect.outputs.daily_preparation == 'true')))
+      && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]'))) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 75
@@ -510,7 +511,7 @@ jobs:
   selection:
     name: Record the daily release evidence
     needs: detect
-    if: needs.detect.outputs.admission_allowed == 'true' && (needs.detect.outputs.release_required == 'true' || needs.detect.outputs.daily_preparation == 'true')
+    if: (needs.detect.outputs.admission_allowed == 'true' && (needs.detect.outputs.release_required == 'true' || needs.detect.outputs.daily_preparation == 'true')) && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 4
