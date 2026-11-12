@@ -1199,7 +1199,7 @@ for (const [width, heightOverride] of occupiedViewports)
         for (const seat of art) {
           expect([
             1, 1.02, 1.05, 1.1, 1.15, 1.2, 1.25, 1.3, 1.35, 1.4, 1.45, 1.5, 1.55, 1.6, 1.65, 1.7,
-            1.75, 1.8, 1.85, 1.9, 1.95, 2,
+            1.75, 1.8, 1.85, 1.9, 1.95, 2, 2.05, 2.1, 2.15, 2.2, 2.25, 2.3, 2.35, 2.4, 2.45, 2.5,
           ]).toContain(seat.paintScale);
           expect(
             Math.abs(seat.height / seat.paintScale - heroArt.height / heroArt.paintScale)
