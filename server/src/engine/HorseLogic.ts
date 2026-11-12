@@ -39,6 +39,12 @@ import { HorsePolicyGraph } from './HorsePolicyGraph.js';
 import { decisionGravity } from './horseDecisionGravity.js';
 import { riverNutsRaise, fullPotNearPotWager, hasRiverNuts } from './HorseRiverNuts.js';
 import { omahaCurrentNutsRaise } from './HorseOmahaCurrentNuts.js';
+import {
+  TOKEN_CALL_COUNTED_PRICE,
+  tokenCallIsCovered,
+  tokenCallPriceApplies,
+  tokenCallRequiredEquity,
+} from './HorseTokenCallPrice.js';
 import { horsePolicyRegistration, horsePolicyOwnership } from './HorsePolicyRegistry.js';
 import { hasHorseReviewSignals } from './HorseReviewSignals.js';
 import { evaluateJointLivePolicy } from './multiway/JointLivePolicy.js';
@@ -2493,6 +2499,10 @@ export interface HorseDecideOpts {
    * (HorseOmahaCurrentNuts.ts). Default on; false only for the complaint
    * law's non-vacuity control. */
   omahaCurrentNutsRaise?: boolean;
+  /** A token-priced committed call is not barred by stack-off premiums
+   * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
+   * the regression's non-vacuity control. */
+  tokenCallPrice?: boolean;
   /** V56: direct public pressure sampling for vulnerable river sets/trips
    * facing tier-three pressure on one Omaha-high cash board. Default on
    * after fixed-clock/full-precision400bb cash qualification; explicit false
@@ -14991,7 +15001,7 @@ export class HorseLogic {
       if (opts.v87DeepDiveDiscipline !== false)
         noteHorseDeepDiveRule('nlh_turn_shade', shade87NlhTurnCommit > 0, shade87NlhTurnCommit > 0);
       if (shade87NlhTurnCommit > 0 && tele15) noteFire('v87_deep_dive_discipline');
-      const required =
+      const requiredAtFullPremium =
         potOdds +
         0.02 +
         dominationPenalty * 0.5 +
@@ -15003,6 +15013,36 @@ export class HorseLogic {
         shadeDeep86 +
         shade87Omaha +
         shade87NlhTurnCommit;
+      // PLO6-AUDIT-010: the premiums above are sized for stack-off calls. On
+      // a token price they shrink with the price (HorseTokenCallPrice.ts);
+      // Omaha high cash on one ordinary board only (no bomb pot, as V88
+      // above), and unchanged at a price of 0.15 or more.
+      const tokenPriced = tokenCallPriceApplies({
+        enabled: opts.tokenCallPrice !== false,
+        isOmaha: vi.isOmaha,
+        isHiLo: vi.isHiLo,
+        tournament: isTournamentMode(gs),
+        multiBoard: multiBoard36,
+        bombPot: gs.bombPot === true,
+      });
+      const required = tokenPriced
+        ? tokenCallRequiredEquity(potOdds, requiredAtFullPremium)
+        : requiredAtFullPremium;
+      // Under one percent of the pot on the river the sampled estimate cannot
+      // decide: the exact share of random hands hero beats, cut twentyfold
+      // for the bettor's strength, is compared with the price instead. A
+      // hand that beats almost nothing is not covered and keeps the bar.
+      if (
+        tokenPriced &&
+        isRiver &&
+        toCall > 0 &&
+        potOdds < TOKEN_CALL_COUNTED_PRICE &&
+        tokenCallIsCovered(
+          potOdds,
+          omahaRiverBeatProbability(player.cards, board, player.cards.length)
+        )
+      )
+        return { action: 'call', amount: toCall, thinkTime: 0 };
       // V66: the bet-raised one-pair class calls or folds at the shaded
       // price; it never jams over the raise and the 0.42 floor (which read
       // a 40bb call as cheap) does not apply to it. V67 does the same for
