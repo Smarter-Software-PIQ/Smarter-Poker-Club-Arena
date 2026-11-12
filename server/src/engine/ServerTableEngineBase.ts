@@ -2818,7 +2818,7 @@ export abstract class ServerTableEngineBase {
         component: this.ownReservedRecoveryAlertComponent(),
         summary: 'Tournament permit recovery repeated without a started hand',
         description:
-          'Four own-generation reserved permits resolved without HAND_START; normal stall safeguards remain active.',
+          'Four Own-Generation Reserved Permits Resolved Without HAND_START; Normal Stall Safeguards Remain Active.',
         labels: { table_id: this.tableId },
         page: true,
       });
