@@ -196,6 +196,7 @@ import {
 import {
   STYLE_THRESHOLDS,
   bigBetRespect,
+  bluffCatchEquityCap,
   postflopFoldBluffScale,
   valueExtraction,
   raiseRespectShade,
@@ -9910,7 +9911,11 @@ export class HorseLogic {
       aggressionNeedsBluffs: opts.v83AggressionNeedsBluffs !== false,
       // STYLE READ #2: only an explicit true adds the key, so with it off the
       // object (and every read it reaches) is exactly what it was.
-      ...(opts.styleValueBettorNotManiac === true && opts.mind !== false
+      // Not in bounty events: a knockout changes the calling price and the
+      // read does not carry it, so the legacy line stays as it was there.
+      ...(opts.styleValueBettorNotManiac === true &&
+      opts.mind !== false &&
+      !styleBountyContext(trustedTournamentContext(gs))
         ? { styleValueBettor: true }
         : {}),
       ...(opts.styleFoldRatePreRepair === true && opts.mind !== false
@@ -16214,6 +16219,8 @@ export class HorseLogic {
     }
     // V35: fixed limit calls lighter — the pot always lays the price.
     let respect = 2 - exploit.callDownMod + (params.callRespect ?? 0); // maniac 0.8, neutral 1, passive 1.15
+    // STYLE READ #3 river bluff-catch equity cap (HorseOpponentStyle.bluffCatchEquityCap); 1 = none.
+    let styleBluffCatchCap = 1;
     if (dangered) respect += 0.15;
     // V12 ANTI-EXPLOIT: when the CURRENT street's bettor has been hunting
     // this horse specifically, their bets carry less real strength than the
@@ -16285,6 +16292,10 @@ export class HorseLogic {
             if (styleAdd > 0) {
               respect += styleAdd;
               if (telemetryOn(opts)) noteFire('style_big_bet_honesty_seen');
+            }
+            if (isRiver && oppCount <= 1) {
+              const cap = bluffCatchEquityCap(HorseMind.styleRead(bettorId), { potFraction: potFrac });
+              if (cap !== null) styleBluffCatchCap = cap;
             }
           }
           // ═══ V43 TEMPO (2026-09-05) ═══ the action log has carried a
@@ -16653,7 +16664,7 @@ export class HorseLogic {
     ) {
       // the exploit reads, as an equity shift instead of a margin
       const readShift38 = -(respect - 1) * 0.08;
-      const eqRead38 = clamp01(
+      let eqRead38 = clamp01(
         eq15 +
           impliedBonus68 +
           readShift38 -
@@ -16661,6 +16672,17 @@ export class HorseLogic {
           shadeDeep86 -
           (loOnly23 ? 0.03 : 0)
       );
+      // STYLE READ #3: a one-pair bluff-catcher's equity is capped by the bluff share his called river bets left.
+      if (
+        isRiver &&
+        styleBluffCatchCap < 1 &&
+        cat > 0 &&
+        (cat <= 2 || (cat === 3 && pairedBoard)) &&
+        eqRead38 > styleBluffCatchCap
+      ) {
+        eqRead38 = styleBluffCatchCap;
+        if (telemetryOn(opts)) noteFire('style_bluff_catch_cap_seen');
+      }
       const risk38 = risk > 0 && stack > 0 ? risk : 0;
       if (isRiver) {
         // ═══ V61 ONE-PAIR RIVER BLUFF-CATCH SHADE (2026-10-29) ═══ Hold'em,

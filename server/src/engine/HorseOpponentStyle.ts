@@ -1762,3 +1762,42 @@ export function postReleaseOpportunitiesFromHistory(
   }
   return m;
 }
+
+/**
+ * #3 RIVER BLUFF-CATCH EQUITY CAP (2026-11-13 revision, the units fix). A bluff-catcher (one pair, or two pair that
+ * shares the board's pair) beats only the bluffs in the range that bet. If his CALLED river bets have shown strong at
+ * share s, the share of bluffs in that range is at most 1 - s, so the bluff-catcher's equity is at most about 1 - s.
+ * The respect scalar (+0.15 at most) moves river equity by only 0.15 x 0.08 = 1.2 points, inside the 1.5-point mixing
+ * band of the call: in those units the read could never change a call however strong the evidence was. This helper
+ * states the read in equity units instead.
+ *  evidence    s is the 10th percentile (90% one-sided, the module's credibility) of the Beta posterior of his strong
+ *              share with the module's shown-strength prior (strength 3 at 0.55); the bucket of THIS bet's size decides
+ *              when it has enough shown, else all his shown river bets. No availability discount: the hand being decided
+ *              is a CALLED bet, the same population the showdown sample is drawn from (a Horse calls without seeing his
+ *              cards), so the selection that limits generalising to all his betting does not apply here.
+ *  confidence  scaled by confidenceCap and (1 - release): provenance discounts and a shown bluff shrink it
+ *  magnitude   the cap is 1 - s x k, never below 1 - s; with fewer than bigBetMinShown shown, no cap
+ *  applies     hold'em river, one-pair class only (the caller checks), any size: the evidence is about his river bets
+ *  stand-down  release >= 0.5; unknown or unsupported read
+ */
+export function bluffCatchEquityCap(style: OpponentStyleRead | null | undefined, spot: { potFraction: number }): number | null {
+  if (!actionable(style)) return null;
+  const T = STYLE_THRESHOLDS;
+  const min = STYLE_FAMILY_PARAMS[style.family].bigBetMinShown;
+  const sized = style.signals.shownBySize[sizeBucketOf(num(spot.potFraction))];
+  const all = style.signals.shownStrength;
+  const src = sized.shown >= min ? { shown: sized.shown, strong: sized.strong } : { shown: all.shown, strong: all.strong };
+  if (!(src.shown >= min)) return null;
+  const a = src.strong + T.bigBetPriorStrength * T.bigBetPriorShare;
+  const b = src.shown - src.strong + T.bigBetPriorStrength * (1 - T.bigBetPriorShare);
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2;
+    if (betaCdf(mid, a, b) < 1 - T.conditionedCredibility) lo = mid;
+    else hi = mid;
+  }
+  const k = clamp(style.confidenceCap * (1 - style.release.fraction), 0, 1);
+  const cap = 1 - lo * k;
+  return cap < 1 ? cap : null;
+}

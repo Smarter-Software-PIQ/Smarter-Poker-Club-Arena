@@ -1059,6 +1059,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-13'
   ),
   receipt(
+    'style_bluff_catch_cap_seen',
+    'HorseLogic (STYLE READ #3 river bluff-catch equity cap)',
+    'a one-pair river bluff-catcher\'s equity was capped at the bluff share the bettor\'s called river bets left (90% one-sided); occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
     'style_value_bettor_not_maniac_seen',
     'HorseMind.legacyExploit (STYLE READ #2)',
     'a postflop aggression factor above 2.5 kept neutral respect because the style read says the bettor is value-weighted; occurrence counter (counts reads, not decisions); named *_seen',

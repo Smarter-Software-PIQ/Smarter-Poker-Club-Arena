@@ -554,3 +554,27 @@ describe('A4 value extraction and item 3 fold bluffing helpers', () => {
     expect(postflopFoldBluffScale(classifyOpponentStyle({ ...{ scope: 'holdem:full' as const, variant: 'nlh', domain: 'cash' as const }, provenance: { preRepair: true }, counters: counters({ hands: 80, vpip: 0.2, pfr: 0.14, foldToBetOpp: 40, foldToBet: 30 }) }), 'flop')).toBeNull();
   });
 });
+
+import { bluffCatchEquityCap } from './HorseOpponentStyle.js';
+describe('#3 river bluff-catch equity cap (stated in equity units)', () => {
+  const read = (shown: number, strong: number, fast = {}) =>
+    classifyOpponentStyle({ scope: 'holdem:full', variant: 'nlh', domain: 'cash', provenance: { complete: true }, counters: { ...valueHeavyGrinder().counters, ...fast }, tallies: { ...valueHeavyGrinder().tallies, bigBetSD: shown, bigBetSDStrong: strong } });
+  it('needs the minimum shown; tightens with more strong showdowns; a shown bluff loosens it', () => {
+    expect(bluffCatchEquityCap(read(2, 2), { potFraction: 0.5 })).toBeNull();
+    const a = bluffCatchEquityCap(read(8, 7), { potFraction: 0.5 })!;
+    const b = bluffCatchEquityCap(read(20, 19), { potFraction: 0.5 })!;
+    const c = bluffCatchEquityCap(read(21, 19), { potFraction: 0.5 })!;
+    expect(b).toBeLessThan(a);
+    expect(c).toBeGreaterThan(b);
+    expect(b).toBeGreaterThan(0.05);
+  });
+  it('the size bucket of this bet decides when it has enough shown', () => {
+    const r = classifyOpponentStyle({ scope: 'holdem:full', variant: 'nlh', domain: 'cash', provenance: { complete: true }, counters: valueHeavyGrinder().counters, tallies: { ...valueHeavyGrinder().tallies, bigBetSD: 20, bigBetSDStrong: 19 }, sizeBuckets: { small: { bets: 10, shown: 8, strong: 1 } } });
+    expect(bluffCatchEquityCap(r, { potFraction: 0.3 }) ?? 1).toBeGreaterThan(bluffCatchEquityCap(r, { potFraction: 0.8 })!);
+  });
+  it('unknown, unsupported and Omaha reads give no cap', () => {
+    expect(bluffCatchEquityCap(unknownStyle('no_evidence'), { potFraction: 0.5 })).toBeNull();
+    const plo = classifyOpponentStyle({ scope: 'omaha:full', variant: 'plo4', domain: 'cash', counters: valueHeavyGrinder().counters, tallies: { ...valueHeavyGrinder().tallies, bigBetSD: 20, bigBetSDStrong: 19 } });
+    expect(bluffCatchEquityCap(plo, { potFraction: 0.5 })).toBeNull();
+  });
+});

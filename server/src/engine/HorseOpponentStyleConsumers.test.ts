@@ -331,6 +331,18 @@ describe('gear change and bounty boundary, through decide()', () => {
     supply(120);
     expect(decide(turnPotBet('cash'), ALL_ON).fires.style_read_released_seen).toBeGreaterThan(0);
   });
+  it('bounty tournaments: #2 stands down for a value bettor above AF 2.5', () => {
+    const spot = turnPotBet('tournament');
+    (spot.gs.tournament as Record<string, unknown>).bountyFactor = 1.5;
+    install(valueAggressor(), 'tournament');
+    supply(120);
+    const off = decide(spot);
+    install(valueAggressor(), 'tournament');
+    supply(120);
+    const on = decide(spot, { styleValueBettorNotManiac: true });
+    expect(on.fires.style_value_bettor_not_maniac_seen ?? 0).toBe(0);
+    expect(on.digest).toBe(off.digest);
+  });
   it('bounty tournaments: no style consumer acts (bounty utility is not in the read)', () => {
     for (const spot of ALL_SPOTS('tournament')) {
       (spot.gs.tournament as Record<string, unknown>).bountyFactor = 1.5;
@@ -341,7 +353,7 @@ describe('gear change and bounty boundary, through decide()', () => {
       supply(120);
       const on = decide(spot, { ...ALL_ON, styleValueExtraction: true });
       expect(on.digest, spot.name).toBe(off.digest);
-      expect(adaptiveFires(on.fires).filter((k) => k !== 'style_value_bettor_not_maniac_seen'), spot.name).toEqual([]);
+      expect(adaptiveFires(on.fires), spot.name).toEqual([]);
     }
   });
 });
