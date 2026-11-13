@@ -1,4 +1,3 @@
-import { rakebackFigure } from '../utils/rosterRakeback';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -161,6 +160,13 @@ const PERIOD_FEE_LABEL: Record<WinLossPeriod, string> = {
   month: 'Fees This Month',
   overall: 'Fees Overall',
 };
+/** The second net on every row, printed beside the chosen window's figure. */
+const WIN_LOSS_SECONDARY: Record<WinLossPeriod, string> = {
+  overall: 'Overall',
+  month: 'Month',
+  week: 'Week',
+  today: 'Today',
+};
 const WIN_LOSS_SHORT: Record<WinLossPeriod, string> = {
   overall: 'Win / Loss',
   month: 'Month W/L',
@@ -237,6 +243,14 @@ function readSort(value: string | null): RosterSort {
    not see. */
 function walletFigure(value: number | null): string {
   return value == null ? 'Restricted' : formatWalletChips(value);
+}
+
+function winLossToneOf(figure: WinLossFigure | undefined): string {
+  return !figure || figure.net === null || figure.net === 0
+    ? ''
+    : figure.net > 0
+      ? ' member-winloss--up'
+      : ' member-winloss--down';
 }
 
 /** Win / loss for one row: the figure, "Unavailable" after a failed read, or "...". */
@@ -1361,6 +1375,19 @@ export default function ClubMembersPage() {
     recordRevision,
     user?.id
   );
+  /* Dan, 2026-11-12: "I don't want to just see weekly, I want to see today's
+     +/- total." Every row carries a second net beside the chosen window:
+     Today, or This Week when Today is the chosen window. Same hook, same RPC,
+     its own cache. */
+  const secondaryPeriod: WinLossPeriod = winLossPeriod === 'today' ? 'week' : 'today';
+  const secondaryWinLoss = useRosterWinLoss(
+    resolvedClubId,
+    members,
+    secondaryPeriod,
+    showWinLoss,
+    recordRevision,
+    user?.id
+  );
   const isAgent = AGENT_ROLES.includes(summary.viewer_role);
   const filters = useMemo(
     () =>
@@ -2028,6 +2055,9 @@ export default function ClubMembersPage() {
                 winLossUnavailable={winLoss.unavailable.has(member.user_id)}
                 winLossLabel={WIN_LOSS_SHORT[winLossPeriod]}
                 feeLabel={PERIOD_FEE_LABEL[winLossPeriod]}
+                secondaryWinLoss={secondaryWinLoss.get(member.user_id)}
+                secondaryWinLossUnavailable={secondaryWinLoss.unavailable.has(member.user_id)}
+                secondaryWinLossLabel={WIN_LOSS_SECONDARY[secondaryPeriod]}
                 live={liveStates.get(member.user_id)}
                 onWatch={watchTable}
               />
@@ -2077,6 +2107,9 @@ export const MemberRow = memo(function MemberRow({
   winLossUnavailable = false,
   winLossLabel = 'Win / Loss',
   feeLabel = 'Fees This Week',
+  secondaryWinLoss,
+  secondaryWinLossUnavailable = false,
+  secondaryWinLossLabel = 'Today',
   live = { seated: member.is_seated, online: member.is_online, tables: [] },
   onWatch = () => {},
 }: {
@@ -2087,6 +2120,10 @@ export const MemberRow = memo(function MemberRow({
   winLossUnavailable?: boolean;
   winLossLabel?: string;
   feeLabel?: string;
+  /** The second window's net (Today, or This Week when Today is chosen). */
+  secondaryWinLoss?: WinLossFigure;
+  secondaryWinLossUnavailable?: boolean;
+  secondaryWinLossLabel?: string;
   member: RosterMember;
   position: number;
   total: number;
@@ -2099,12 +2136,9 @@ export const MemberRow = memo(function MemberRow({
   live?: LiveState;
   onWatch?: (table: LiveSeat, member: { userId: string; name: string }) => void;
 }) {
-  const winLossTone =
-    !winLoss || winLoss.net === null || winLoss.net === 0
-      ? ''
-      : winLoss.net > 0
-        ? ' member-winloss--up'
-        : ' member-winloss--down';
+  const winLossTone = winLossToneOf(winLoss);
+  const secondaryTone = winLossToneOf(secondaryWinLoss);
+  const secondaryText = winLossText(secondaryWinLoss, secondaryWinLossUnavailable);
   const initial = (member.alias || '?')[0]?.toUpperCase() ?? '?';
   /* The roster's is_online is "seated OR fresh presence"; off a seat it is the
      presence door's answer, re-asked every minute while the row is shown so
@@ -2228,7 +2262,12 @@ export const MemberRow = memo(function MemberRow({
             <span className="member-simple-balance" title={feeTitle(member, winLoss, feeLabel)}>
               <strong>{periodFeeText(winLoss?.fees, winLossUnavailable)}</strong>
               <span>{feeLabel}</span>
-              <span>Rakeback {rakebackFigure(member.effective_rakeback_rate)}</span>
+              <span
+                className={`member-simple-balance__secondary${secondaryTone}`}
+                aria-label={`${secondaryWinLossLabel} W/L ${secondaryText}`}
+              >
+                {secondaryWinLossLabel} {secondaryText}
+              </span>
               {(member.downline_total ?? 0) > 0 && winLoss?.downline_fees !== undefined && (
                 <span className="member-simple-balance__downline">
                   Downline {periodFeeText(winLoss?.downline_fees, winLossUnavailable)}
@@ -2252,7 +2291,13 @@ export const MemberRow = memo(function MemberRow({
                   {winLossText(winLoss, winLossUnavailable)}
                 </span>
               </span>
-              <Metric label="Rakeback" value={rakebackFigure(member.effective_rakeback_rate)} />
+              <span
+                className={`member-metric member-metric--winloss${secondaryTone}`}
+                aria-label={`${secondaryWinLossLabel} W/L ${secondaryText}`}
+              >
+                <span className="member-metric__value">{secondaryText}</span>
+                <span className="member-metric__label">{secondaryWinLossLabel} W/L</span>
+              </span>
               {columns.has('downlines') && (
                 <Metric label="Downlines" value={countFigure(member.downline_total)} />
               )}
