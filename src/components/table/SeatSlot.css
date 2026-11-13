@@ -5172,3 +5172,74 @@
 .table-page .seat__avatar-img[style*='--sp-mobile-filter'] {
   filter: var(--sp-mobile-filter);
 }
+
+/* Six/nine portrait tables reserve the same enlarged art before card packing.
+   Keep card, text and control dimensions independent of portrait scale. */
+@media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
+  .table-page:where([data-seats='6'], [data-seats='9']) .seat-wrapper {
+    --sp-bust-scale: 2.1;
+  }
+  .table-page:where([data-seats='6'], [data-seats='9'])
+    .seat--cards-left
+    .seat__cards--opponent:not(.seat__cards--revealed) {
+    right: auto;
+    left: calc(50% + var(--seat-avatar-size, 84px) / 2 + 4px);
+    --vh-dir: 1;
+  }
+  .table-page:where([data-seats='6'], [data-seats='9'])
+    .seat--cards-right
+    .seat__cards--opponent:not(.seat__cards--revealed) {
+    left: auto;
+    right: calc(50% + var(--seat-avatar-size, 84px) / 2 + 4px);
+    --vh-dir: -1;
+  }
+}
+
+@media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
+  .table-page:where([data-seats='6'], [data-seats='9'])
+    .seat--cards-left
+    .seat__cards--opponent:not(.seat__cards--revealed)
+    .seat__card {
+    left: calc(var(--vh-i, 0) * var(--vh-step));
+    right: auto;
+  }
+  .table-page:where([data-seats='6'], [data-seats='9'])
+    .seat--cards-right
+    .seat__cards--opponent:not(.seat__cards--revealed)
+    .seat__card {
+    right: calc(var(--vh-i, 0) * var(--vh-step));
+    left: auto;
+  }
+}
+
+@media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
+  .table-page:where([data-seats='6'], [data-seats='9']) .seat > .seat__action {
+    top: calc(-1 * var(--sp-art-rise, 0px) - var(--sp-tag-h, 20px) - 6px);
+    bottom: auto;
+  }
+}
+
+@media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
+  .table-page:where([data-seats='6'], [data-seats='9']) .seat--hero {
+    --seat-avatar-hero-ratio: 1;
+  }
+}
+
+/* Rotation around 50% 120% lowers a fan's outer bottom corner by
+   half-width * sin(angle) + 0.2 * height * (1 - cos(angle)). Reserve that
+   painted corner above the plate, not just the unrotated card box. */
+@media (orientation: portrait) {
+  .table-page:where([data-seats='6'], [data-seats='9'])
+    .seat__cards--opponent:not(.seat__cards--revealed) {
+    --vh-outer-angle: calc(
+      (var(--vh-n) - 1) / 2 * var(--vh-rot-step, 7deg) * var(--vh-rot-scale, 1)
+    );
+    --vh-corner-drop: calc(
+      var(--vh-card-w) * 0.5 * sin(var(--vh-outer-angle)) + var(--vh-card-h) * 0.2 *
+        (1 - cos(var(--vh-outer-angle)))
+    );
+    top: calc(
+      var(--seat-avatar-size, 84px) - var(--sp-wrap-overlap, 6px) - 1px - var(--vh-corner-drop)
+    );
+  }
+}

@@ -47,16 +47,32 @@ const SOURCE = '5'.repeat(40);
 function record(style: Partial<StyleSwitchStates> | null, horse = OUTSIDE) {
   return {
     kind: 'decision',
+    eventId: 'event-1',
+    turnKey: 'turn-1',
     body: JSON.stringify({
       replayState: {
         version: style ? 'horse-decision-replay-state-v4' : 'horse-decision-replay-state-v3',
         ...(style ? { style: { ...STYLE_SWITCH_SOURCE_DEFAULT, ...style } } : {}),
       },
       snapshot: {
+        type: 'DECIDE_FAST',
+        requestId: 7,
+        decisionKey: 'decision-key',
         fence: `${TABLE}:1000007:3:9:0`,
         generation: 0,
         player: { seat: 3, user_id: horse, bet: 0 },
-        gameState: { stage: 'river', gameMode: 'cash', pot: 300, currentBet: 100 },
+        gameState: {
+          stage: 'river',
+          gameMode: 'cash',
+          pot: 300,
+          currentBet: 100,
+          // the Horse already checked this river (ordinal 1); its flop bet and the opponent's bet do not count
+          actionHistory: [
+            { userId: horse, stage: 'flop', action: 'bet', amount: 50 },
+            { userId: horse, stage: 'river', action: 'check', amount: 0 },
+            { userId: 'opponent', stage: 'river', action: 'bet', amount: 100 },
+          ],
+        },
       },
     }),
   };
@@ -69,8 +85,14 @@ describe('offline style re-run rows', () => {
     });
     expect(r.status).toBe('rerun');
     expect(r.rerunOptions).toEqual(['styleFoldBluff']);
+    expect(r.lane).toBe('fast');
     expect(r.rows).toEqual([
       {
+        decision_id: 'event-1',
+        turn_key: 'turn-1',
+        lane: 'fast',
+        executed: null,
+        street_ordinal: 1,
         table_id: TABLE,
         hand_number: 1000007,
         seat: 3,
@@ -84,7 +106,25 @@ describe('offline style re-run rows', () => {
         arm: 's',
       },
     ]);
-    expect(styleShadowRerunCsvLine(r.rows[0])).toBe(`${TABLE},1000007,3,fb,r,cash,c,f,0.25,,s`);
+    expect(styleShadowRerunCsvLine(r.rows[0])).toBe(
+      `event-1,turn-1,fast,,1,${TABLE},1000007,3,fb,r,cash,c,f,0.25,,s`
+    );
+  });
+
+  it('executed: t when the execution witness names this request, f when it names the other lane of the turn', async () => {
+    const witness = (requestId: number) => ({
+      body: JSON.stringify({ identity: { decisionKey: 'decision-key', requestId } }),
+    });
+    const run = async (execution: unknown) =>
+      (
+        await styleShadowRerunRecord(record({ styleFoldBluff: 'shadow' }), {
+          runningSource: SOURCE,
+          execution,
+        })
+      ).rows[0].executed;
+    expect(await run(witness(7))).toBe('t');
+    expect(await run(witness(8))).toBe('f');
+    expect(await run(null)).toBeNull();
   });
 
   it('canary: a Horse outside bucket 0 gives an arm c row; a bucket-0 Horse ran it on and gives an arm o row', async () => {
