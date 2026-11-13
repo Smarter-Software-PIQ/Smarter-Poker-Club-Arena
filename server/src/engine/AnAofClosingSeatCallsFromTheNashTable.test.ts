@@ -15,11 +15,17 @@
  * Every other All-In-Or-Fold decision stays with the fixed bar, and a table
  * that is not All-In-Or-Fold is not touched at all.
  *
- * The requests are five anonymised decision-time bodies from the production
- * journal (see the fixture). The journal recorded fold for all five. Only one
- * of them is a closing seat: Q9s in the small blind with the big blind
- * sitting out. Where a case below edits a saved body, the edit is stated on
- * that case.
+ * The All-In-Or-Fold flag is also set on tournament tables, and every saved
+ * request here is from one. The change therefore covers tournament decisions
+ * too; the tournament utility arbiter still runs after the reference action.
+ *
+ * The requests are ten anonymised decision-time bodies from the production
+ * journal (see the fixture). The journal recorded fold for all ten. Six are
+ * real closing seats: Q9s in the small blind with the big blind sitting out,
+ * and five big blinds folded to (KQo, QTs, A5o, A3s, A5s), which carry the
+ * generator state the journal recorded. The other four have a player still
+ * to act behind. Where a case below edits a saved body, the edit is stated
+ * on that case.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -29,7 +35,7 @@ import {
   type HorseGameStateV2,
 } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
-import { seedFastRandom } from './HorseEval.js';
+import { restoreFastRandom, seedFastRandom } from './HorseEval.js';
 import type { SeatPlayer } from '../types.js';
 import FIXTURE from './AnAofClosingSeatCallsFromTheNashTable.fixture.json';
 
@@ -38,13 +44,20 @@ type Shape = (gs: HorseGameStateV2, player: SeatPlayer) => void;
 
 const SEEDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
-function decideOnce(name: CaseName, seed: number, shape: Shape = () => {}): string {
+/** `seed` null replays from the generator state the journal recorded for the decision. */
+function decideOnce(name: CaseName, seed: number | null, shape: Shape = () => {}): string {
   const body = FIXTURE.cases[name];
   const gs = structuredClone(body.gameState) as unknown as HorseGameStateV2;
   const player = structuredClone(body.player) as unknown as SeatPlayer;
   shape(gs, player);
   HorseMind.reset();
-  seedFastRandom(seed);
+  if (seed === null) {
+    const recorded = (body as { rngBefore?: number }).rngBefore;
+    if (recorded === undefined) throw new Error(`${name} carries no recorded generator state`);
+    restoreFastRandom(recorded);
+  } else {
+    seedFastRandom(seed);
+  }
   const decision = HorseLogic.decide(
     player,
     gs,
@@ -67,8 +80,12 @@ const foldEveryoneBehind: Shape = (gs, player) => {
   }
 };
 
+/** The same request at an ordinary table: the flag is cleared and a call is
+ * legal again. (With the flag alone cleared, a hero who covers the all-in
+ * has no legal call and the answer would be an artefact of the action list.) */
 const notAllInOrFold: Shape = (gs) => {
   gs.allInOrFold = false;
+  gs.legalActions = ['fold', 'call', 'all_in'];
 };
 
 const heroStack =
@@ -95,6 +112,15 @@ function effectiveBB(name: CaseName): number {
   return Math.min(player.stack + player.bet, jammer.stack + jammer.bet) / gs.bigBlind;
 }
 
+/** Big blinds folded to, facing the lone all-in: real closing seats, unedited. */
+const BIG_BLINDS = [
+  'bigBlindKingQueenOffsuit',
+  'bigBlindQueenTenSuited',
+  'bigBlindAceFiveOffsuit',
+  'bigBlindAceThreeSuited',
+  'bigBlindAceFiveSuited',
+] as const satisfies readonly CaseName[];
+
 afterEach(() => HorseMind.reset());
 
 describe('the saved requests are what they say', () => {
@@ -111,15 +137,35 @@ describe('the saved requests are what they say', () => {
     }
   });
 
-  it('only the Q9s small blind closes the action', () => {
+  it('every one is from a tournament table', () => {
+    for (const name of Object.keys(FIXTURE.cases) as CaseName[]) {
+      expect(FIXTURE.cases[name].gameState.gameMode, name).toBe('tournament');
+    }
+  });
+
+  it('the Q9s small blind and the five big blinds close the action; the other four do not', () => {
     expect(closes('queenNineSuited')).toBe(true);
+    for (const name of BIG_BLINDS) expect(closes(name), name).toBe(true);
     expect(closes('pocketFours')).toBe(false);
     expect(closes('kingThreeOffsuit')).toBe(false);
     expect(closes('pocketFives')).toBe(false);
     expect(closes('aceSevenSuited')).toBe(false);
   });
 
-  it('four are at 12 big blinds or less and A7s is above', () => {
+  it('the five big blinds are in the big blind, at 4.4 to 12 big blinds', () => {
+    for (const name of BIG_BLINDS) {
+      const body = FIXTURE.cases[name];
+      expect(body.gameState.blindSeats.bigBlind, name).toBe(body.player.seat);
+      expect(effectiveBB(name), name).toBeLessThanOrEqual(NASH_AOF_CLOSING_CALL_MAX_BB);
+    }
+    expect(effectiveBB('bigBlindKingQueenOffsuit')).toBeCloseTo(12);
+    expect(effectiveBB('bigBlindQueenTenSuited')).toBeCloseTo(7.3333);
+    expect(effectiveBB('bigBlindAceFiveOffsuit')).toBeCloseTo(4.375);
+    expect(effectiveBB('bigBlindAceThreeSuited')).toBeCloseTo(11.0833);
+    expect(effectiveBB('bigBlindAceFiveSuited')).toBeCloseTo(6);
+  });
+
+  it('four of the first five are at 12 big blinds or less and A7s is above', () => {
     expect(NASH_AOF_CLOSING_CALL_MAX_BB).toBe(12);
     expect(effectiveBB('queenNineSuited')).toBeCloseTo(7.375);
     expect(effectiveBB('pocketFours')).toBeCloseTo(3);
@@ -162,6 +208,18 @@ describe('a closing seat at 12 big blinds or less is answered by the Nash caller
   it('a hand the table folds is still folded: K3o with everyone behind folded', () => {
     // Edited: seat 5 and both blinds are marked folded.
     expect(answers('kingThreeOffsuit', foldEveryoneBehind)).toEqual(['fold']);
+  });
+});
+
+describe('a big blind folded to, 4.4 to 12 big blinds, is answered by the Nash caller table', () => {
+  // Five saved requests, unedited. The journal recorded fold for each.
+  // Before the change: fold from the journal's state and on every seed.
+  it.each(BIG_BLINDS)('%s goes all in from the generator state the journal recorded', (name) => {
+    expect(decideOnce(name, null)).toBe('all_in');
+  });
+
+  it.each(BIG_BLINDS)('%s goes all in on every seed', (name) => {
+    expect(answers(name)).toEqual(['all_in']);
   });
 });
 
@@ -212,16 +270,32 @@ describe('above 12 big blinds the fixed bar still decides', () => {
 });
 
 describe('a table that is not All-In-Or-Fold is not touched', () => {
-  // The same five requests with only the All-In-Or-Fold flag cleared. The
-  // answers are the ones main gave before this change, on every seed.
+  // The same ten requests at an ordinary table (flag cleared, call legal).
+  // The answers are the ones main gave before this change, on every seed. A
+  // hero who covers the all-in calls its amount; a covered hero is all in.
   it.each([
     ['queenNineSuited', 'all_in'],
     ['pocketFours', 'all_in'],
     ['pocketFives', 'all_in'],
     ['kingThreeOffsuit', 'fold'],
-    ['aceSevenSuited', 'fold'],
+    ['aceSevenSuited', 'call:3000'],
+    ['bigBlindKingQueenOffsuit', 'call:2750'],
+    ['bigBlindQueenTenSuited', 'all_in'],
+    ['bigBlindAceFiveOffsuit', 'call:1350'],
+    ['bigBlindAceThreeSuited', 'all_in'],
+    ['bigBlindAceFiveSuited', 'call:2500'],
   ] as const)('%s answers %s as before', (name, expected) => {
     expect(answers(name, notAllInOrFold)).toEqual([expected]);
+  });
+
+  it.each([
+    ['bigBlindKingQueenOffsuit', 'call:2750'],
+    ['bigBlindQueenTenSuited', 'all_in'],
+    ['bigBlindAceFiveOffsuit', 'call:1350'],
+    ['bigBlindAceThreeSuited', 'all_in'],
+    ['bigBlindAceFiveSuited', 'call:2500'],
+  ] as const)('%s answers %s from the journal state as before', (name, expected) => {
+    expect(decideOnce(name, null, notAllInOrFold)).toBe(expected);
   });
 
   it('and the closing-seat edits change nothing there either', () => {
