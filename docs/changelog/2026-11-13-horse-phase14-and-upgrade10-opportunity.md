@@ -22,3 +22,7 @@ For cash, the family is narrow: exactly two players dealt, chips at 0.01, no ant
 
 - `horseDecision/phase14Evidence.test.ts` (4), real worker: an eligible FAST decision counts eligible once and no refusal; an admitted decision with the opponent not all in counts `phase14_kernel_refused_original_opponent_not_all_in_seen`; a domain that is not admitted counts nothing; a DEEP look that reached the kernel counts `phase14_kernel_eligible_deep_seen`.
 - `HorseUpgradeEvidenceCounters.test.ts`: engagements are a strict subset of ready reads on the existing grid; a fast window below the minimum counts nothing ready.
+
+## Guard: An Occurrence Counter Never Carries A Floor
+
+`HorseDataLedger.test.ts` now fails when a receipt whose key ends in `_seen` is given a `minRatio`. A floor is something the receipt audit reports as critical at zero, and an occurrence counter (a side game nobody offered, a rare cleanup, a once-per-process build) has quiet days by nature. This closes the class of mistake corrected in #10668 for every counter named for what it is. A `_seen` population counter such as `phase10_seen` is still allowed as a denominator.
