@@ -2506,7 +2506,13 @@ export interface HorseDecideOpts {
   tokenCallPrice?: boolean;
   /** An Omaha preflop call of 40% of the stack with chips behind and an
    * opponent still to act is not priced as a final all-in call
-   * (PLO6-AUDIT-005). Default on; false only for the regression's control. */
+   * (PLO6-AUDIT-005). OPT-IN, default off. The pricing gap is real (the
+   * arithmetic treats a call as final), but the rule as built sends the
+   * call to a price-blind range bar that folds it, and the value check
+   * does not support that: the folded hands hold 42% to 55% equity at a
+   * price near 38%, and in the study's 54 recorded calls of this class the
+   * call was final 29 times, overcalled 14 and re-raised 11 with the seat
+   * calling off every time, never forfeiting. Read as `=== true`. */
   omahaPreflopCallWithActionBehind?: boolean;
   /** A deep Omaha seat's preflop stack-off bar is read without the VPIP
    * floor multiplier (PLO6-AUDIT-004). OPT-IN, default off: the mechanism is
@@ -8085,7 +8091,7 @@ export class HorseLogic {
       // play below, like every smaller raise. A jam, a call that is itself
       // all in, and a call that closes the action keep the arithmetic.
       const actionBehind38 =
-        opts.omahaPreflopCallWithActionBehind !== false &&
+        opts.omahaPreflopCallWithActionBehind === true &&
         vi.isOmaha &&
         !raiserAllIn38 &&
         player.stack > effCall38 + 0.005 &&
