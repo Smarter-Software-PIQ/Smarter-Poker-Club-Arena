@@ -49,17 +49,15 @@ const captured = Object.freeze({
 }) as unknown as HorsePublicActionNode;
 
 describe('withHorseVpipInputs', () => {
-  it('a floored table: the floor, its window and the own judged figure are added', () => {
+  it('a floored table: the floor and its window are added; the own judged figure never is', () => {
     const node = withHorseVpipInputs(captured, {
       vpipFloor: 50,
       vpipWindowHands: 30,
       ownVpip: { hands: 2, vpip: 50 },
-    });
-    expect(node).toMatchObject({
-      vpipFloor: 50,
-      vpipWindowHands: 30,
-      ownVpip: { hands: 2, vpip: 50 },
-    });
+    }) as Record<string, unknown>;
+    expect(node).toMatchObject({ vpipFloor: 50, vpipWindowHands: 30 });
+    // Privacy: hand_history is readable by every player dealt into the hand.
+    expect('ownVpip' in node).toBe(false);
     expect(Object.isFrozen(node)).toBe(true);
   });
 
@@ -85,15 +83,6 @@ describe('withHorseVpipInputs', () => {
     expect('ownVpip' in node).toBe(false);
   });
 
-  it('a seat with no judged sample yet keeps a null share', () => {
-    const node = withHorseVpipInputs(captured, {
-      vpipFloor: 50,
-      vpipWindowHands: 10,
-      ownVpip: { hands: 0, vpip: null },
-    });
-    expect(node).toMatchObject({ ownVpip: { hands: 0, vpip: null } });
-  });
-
   it('unusable inputs add nothing and never throw: recording cannot break a hand', () => {
     expect(
       withHorseVpipInputs(captured, {
@@ -105,11 +94,10 @@ describe('withHorseVpipInputs', () => {
     const partial = withHorseVpipInputs(captured, {
       vpipFloor: 50,
       vpipWindowHands: Number.NaN,
-      ownVpip: { hands: Number.NaN, vpip: 40 },
+      ownVpip: undefined,
     }) as Record<string, unknown>;
     expect(partial.vpipFloor).toBe(50);
     expect('vpipWindowHands' in partial).toBe(false);
-    expect('ownVpip' in partial).toBe(false);
   });
 
   it('an unavailable node is returned as it is', () => {
@@ -124,10 +112,12 @@ describe('storedHorsePublicNode', () => {
   const inputs = () => ({ vpipFloor: 50, vpipWindowHands: 10, ownVpip: { hands: 4, vpip: 25 } });
 
   it('a Horse decision gains the inputs; a human action is stored as captured', () => {
-    expect(storedHorsePublicNode(captured, 'horse_policy', inputs)).toMatchObject({
-      vpipFloor: 50,
-      ownVpip: { hands: 4, vpip: 25 },
-    });
+    const stored = storedHorsePublicNode(captured, 'horse_policy', inputs) as Record<
+      string,
+      unknown
+    >;
+    expect(stored).toMatchObject({ vpipFloor: 50, vpipWindowHands: 10 });
+    expect('ownVpip' in stored).toBe(false);
     expect(storedHorsePublicNode(captured, 'player', inputs)).toBe(captured);
     expect(storedHorsePublicNode(captured, undefined, inputs)).toBe(captured);
   });
@@ -155,7 +145,7 @@ describe('one source for the decision and the record', () => {
     expect(events).toContain('this.horseVpipDecisionInputs(actorId)');
   });
 
-  it('a law fixture keeps the three fields and the replay hands them to the decision', () => {
+  it('a law fixture keeps the three fields (ownVpip only when supplied by hand) and the replay hands them to the decision', () => {
     const replay = read('HorseComplaintReplay.ts');
     for (const field of ['vpipFloor', 'vpipWindowHands', 'ownVpip']) {
       expect(replay).toContain(`...(${field} !== undefined ? { ${field} } : {})`);

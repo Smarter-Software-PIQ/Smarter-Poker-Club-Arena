@@ -64,7 +64,7 @@ async function playAndStore(reader?: (userId: string) => unknown) {
 }
 
 describe('the stored node of a Horse decision carries the floor inputs', () => {
-  it('floored table: the Horse action gains the three inputs for its own seat only', async () => {
+  it('floored table: the Horse action gains the floor and window for its own seat only', async () => {
     const asked: string[] = [];
     const { stored, events } = await playAndStore((userId) => {
       asked.push(userId);
@@ -76,8 +76,9 @@ describe('the stored node of a Horse decision carries the floor inputs', () => {
       status: 'captured',
       vpipFloor: 50,
       vpipWindowHands: 30,
-      ownVpip: { hands: 7, vpip: 42.9 },
     });
+    // The seat's judged VPIP is never written to a player-readable row.
+    expect('ownVpip' in (stored[0].publicNode as object)).toBe(false);
     // Everything the controller captured is still there, unchanged.
     expect(stored[0].publicNode).toMatchObject({ ...events[0].publicNode });
     // The human action is stored as captured: no floor fields.

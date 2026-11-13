@@ -61,12 +61,13 @@ export type HorsePublicActionNode =
        * on human actions and on rows recorded before 2026-11-13, where a
        * replay cannot tell "no floor" from "not recorded". */
       vpipFloor?: number;
-      /** With a floor: the window, in hands, the floor is judged over. */
+      /** With a floor: the window, in hands, the floor is judged over. Both
+       * are table settings. The seat's own judged VPIP is deliberately NOT
+       * stored: hand_history rows are readable by every player dealt into
+       * the hand, and the judged figure is service-role only
+       * (fn_nit_status); a Horse gets the same privacy as any player
+       * (CLAUDE.md 10.5). A replay approximates it from the hands it has. */
       vpipWindowHands?: number;
-      /** With a floor: the acting seat's own judged figure for that window, a
-       * count of its hands and the share it put money in voluntarily. It is
-       * derived from public actions at this table; no cards, no identity. */
-      ownVpip?: Readonly<{ hands: number; vpip: number | null }>;
     }>
   | Readonly<{
       version: 1;
@@ -257,7 +258,8 @@ export function captureHorsePublicActionNode(
   });
 }
 
-/** The three VPIP floor inputs a Horse decision reads (HorseLogic.vpipFloorMul,
+/** The three VPIP floor inputs a Horse decision reads (only the two table
+ * settings among them are stored with the node) (HorseLogic.vpipFloorMul,
  * vpipFloorCallDown). They live on the table engine, not the hand, so the
  * capture above cannot see them; the engine adds them to the stored copy of a
  * Horse decision's node. Without them every preflop replay of a hand from a
@@ -277,17 +279,11 @@ export function withHorseVpipInputs(
   if (!Number.isFinite(floor) || floor < 0) return node;
   if (!(floor > 0)) return Object.freeze({ ...node, vpipFloor: 0 });
   const window = Number(inputs.vpipWindowHands);
-  const own = inputs.ownVpip;
-  const ownOk =
-    own !== undefined &&
-    Number.isFinite(own.hands) &&
-    own.hands >= 0 &&
-    (own.vpip === null || Number.isFinite(own.vpip));
+  // ownVpip is read by the decision but never stored (see the type above).
   return Object.freeze({
     ...node,
     vpipFloor: floor,
     ...(Number.isFinite(window) && window > 0 ? { vpipWindowHands: window } : {}),
-    ...(ownOk ? { ownVpip: Object.freeze({ hands: own.hands, vpip: own.vpip }) } : {}),
   });
 }
 
