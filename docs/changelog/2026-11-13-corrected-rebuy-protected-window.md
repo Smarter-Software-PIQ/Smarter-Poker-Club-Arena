@@ -7,3 +7,5 @@ The owner subsequently answered "Authorize rescheduling the same unused attempt"
 Required browser CI failed twice on the same upstream600px spectator case. The independently owned protected repair #10685 is reused unchanged; no avatar code is added by this task. Earlier unmerged timing drafts could not safely merge and were not deployed. The later fixed expiry is bound to that explicit answer; it does not authorize another attempt or an automatic extension.
 
 Installation and affected live behavior remain separate acceptance gates.
+
+The required600px browser case still exhausted its outer60-second budget after that protected repair because it ran the observer contract plus six separate layout configurations in one test. The existing fixture now registers each configuration independently with the unchanged60-second bound, all turn/reveal and disabled-layout assertions, and the same real-component/font harness. No avatar product code, timeout, retry policy or gate is changed.

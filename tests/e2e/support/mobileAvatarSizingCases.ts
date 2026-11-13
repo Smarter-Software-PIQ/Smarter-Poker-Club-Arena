@@ -1,9 +1,25 @@
 import { expect, type Page } from '@playwright/test';
 import { waitForMobileAvatarGrowth } from './mobileLiveTableLayout';
 
+export const FIXED_MOBILE_ARTWORK_CASES = [
+  { seats: '9', spectator: 'true', cards: '2', occupiedSeats: '' },
+  { seats: '9', spectator: 'false', cards: '2', occupiedSeats: '' },
+  { seats: '6', spectator: 'false', cards: '4', occupiedSeats: '0,4' },
+  { seats: '6', spectator: 'false', cards: '4', occupiedSeats: '' },
+  // Dan, 2026-11-12: six-card tables were the whole point; they grow too.
+  { seats: '6', spectator: 'false', cards: '6', occupiedSeats: '' },
+  { seats: '6', spectator: 'true', cards: '6', occupiedSeats: '' },
+] as const;
+
+export type FixedMobileArtworkSettings = (typeof FIXED_MOBILE_ARTWORK_CASES)[number];
+
 /** Runs inside the existing real-component/font harness, not a second page or
  * pipeline. A fresh action/reveal must never choose a different art transform. */
-export async function checkFixedMobileArtwork(page: Page, bundle: string) {
+export async function checkFixedMobileArtwork(
+  page: Page,
+  bundle: string,
+  settings: FixedMobileArtworkSettings
+) {
   // Start the mobile candidate in the same notched-phone geometry used by
   // its approval screenshots, without the preceding test's injected poses.
   await page.setViewportSize({ width: 600, height: 1298 });
@@ -110,15 +126,7 @@ export async function checkFixedMobileArtwork(page: Page, bundle: string) {
       .querySelectorAll('.seat__avatar-wrap')
       .forEach((e) => e.classList.remove('seat__avatar-wrap--fold'));
   });
-  for (const settings of [
-    { seats: '9', spectator: 'true', cards: '2', occupiedSeats: '' },
-    { seats: '9', spectator: 'false', cards: '2', occupiedSeats: '' },
-    { seats: '6', spectator: 'false', cards: '4', occupiedSeats: '0,4' },
-    { seats: '6', spectator: 'false', cards: '4', occupiedSeats: '' },
-    // Dan, 2026-11-12: six-card tables were the whole point; they grow too.
-    { seats: '6', spectator: 'false', cards: '6', occupiedSeats: '' },
-    { seats: '6', spectator: 'true', cards: '6', occupiedSeats: '' },
-  ]) {
+  {
     const spectator = settings.spectator === 'true';
     await page.evaluate((settings) => {
       Object.assign(document.documentElement.dataset, {
@@ -190,7 +198,10 @@ export async function checkFixedMobileArtwork(page: Page, bundle: string) {
       if (state.revealed === 'true') revealed = after.cards;
     }
   }
-  for (const settings of [{ cards: '2', killEnabled: 'true' }]) {
+  // Preserve the original disabled-layout check from the final six-card
+  // spectator baseline, without charging the other configurations for it.
+  if (settings.seats === '6' && settings.spectator === 'true' && settings.cards === '6') {
+    const settings = { cards: '2', killEnabled: 'true' };
     await page.evaluate((settings) => {
       Object.assign(document.documentElement.dataset, settings);
       document.dispatchEvent(new Event('fixture-next-hand'));
