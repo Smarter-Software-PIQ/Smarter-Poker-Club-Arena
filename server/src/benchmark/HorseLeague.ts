@@ -487,6 +487,17 @@ function bigBlindAnteMttContext(seats: number, stackBB: number): LeagueGameConte
  * here, all in the money), for the Omaha first-in cards: the rule acts only
  * when the whole field is at this table (HorseOmahaTournamentFirstIn.ts).
  */
+function winnerTakeAllSpinContext(seats: number, stackBB: number): LeagueGameContext {
+  // A three-player spin paying one place: the only three-handed payout the
+  // Omaha first-in rule acts on (pay jumps three-handed lost in ICM, R4).
+  const ctx = finalTableMttContext(seats, stackBB);
+  return {
+    ...ctx,
+    format: 'spin',
+    tournament: { ...ctx.tournament!, spotsPaid: 1, payoutPct: [100] },
+  };
+}
+
 function finalTableMttContext(seats: number, stackBB: number): LeagueGameContext {
   const ctx = bigBlindAnteMttContext(seats, stackBB);
   const payoutPct = [30, 20, 14, 10, 8, 6, 4, 3, 3, 2].slice(0, seats);
@@ -495,7 +506,7 @@ function finalTableMttContext(seats: number, stackBB: number): LeagueGameContext
     tournament: {
       ...ctx.tournament!,
       playersLeft: seats,
-      spotsPaid: 30,
+      spotsPaid: seats,
       nearBubble: false,
       inMoney: true,
       payoutPct,
@@ -1893,11 +1904,11 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     b: { omahaTournamentFirstIn: false },
   })),
   {
-    name: 'plo4_mtt_3max_omaha_tournament_first_in_12bb',
+    name: 'plo4_spin_3max_omaha_tournament_first_in_12bb',
     variant: 'plo4',
     seats: 3,
     stackBB: 12,
-    context: finalTableMttContext(3, 12),
+    context: winnerTakeAllSpinContext(3, 12),
     pairs: 6000,
     hybridBaseline: true,
     moodClock: 'deal_seed',

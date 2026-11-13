@@ -82,6 +82,13 @@ export interface OmahaTournamentFirstInInput {
    *  2026-11-13 evaluation (R3, seed 90005, 10 left, 9 paid) lost to the
    *  adaptive opponent in every cell, scored in ICM equity. */
   playersLeft: number;
+  /** Paid places among the players left (trusted payout curve; NaN when
+   *  unknown). Three-handed the rule acts only when one place is paid (a
+   *  winner-take-all spin): at a three-handed final table with pay jumps the
+   *  2026-11-13 evaluation (R4, seed 90007, payouts 25/17/13, ICM equity)
+   *  lost to the adaptive opponent at every depth and gained nothing against
+   *  the others. Heads-up, ICM is chip-proportional and this does not apply. */
+  paidPlacesLeft: number;
 }
 
 /**
@@ -96,6 +103,7 @@ export function omahaTournamentFirstIn(
   if (i.allInOrFold || i.satelliteLocked) return null;
   if (!(i.tableSize >= 2) || i.tableSize > p.maxTableSize) return null;
   if (!(i.playersLeft >= 2) || i.playersLeft > i.tableSize) return null;
+  if (i.tableSize > 2 && i.paidPlacesLeft !== 1) return null;
   if (!(i.effectiveStackBB > 0) || i.effectiveStackBB > p.maxStackBB) return null;
   // Two points of range for each point of the engine's own risk premium,
   // never more than half the range.

@@ -337,6 +337,8 @@ export interface PreflopCtx {
   tableSize?: number;
   /** Players left in the tournament (trusted context), undefined when unknown. */
   tournamentPlayersLeft?: number;
+  /** Paid places among the players left (trusted payout curve), undefined when unknown. */
+  tournamentPaidPlacesLeft?: number;
   /** V21 DEEP-STACK DISCIPLINE: scale cash 4-bet/5-bet stack-off thresholds
    *  with depth past 120bb. Undefined/false = legacy behavior. */
   deepDiscipline?: boolean;
@@ -1013,6 +1015,7 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
         tableSize: ctx.tableSize ?? Number.NaN,
         // Unknown players-left must not read as a final table either.
         playersLeft: ctx.tournamentPlayersLeft ?? Number.NaN,
+        paidPlacesLeft: ctx.tournamentPaidPlacesLeft ?? Number.NaN,
         effectiveStackBB: ctx.effectiveStackBB ?? ctx.stackBB,
         raises: ctx.raises,
         limpers: ctx.limpers,

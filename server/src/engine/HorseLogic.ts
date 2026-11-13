@@ -9066,6 +9066,18 @@ export class HorseLogic {
         const tp = trustedTournamentContext(gs)?.playersLeft;
         return typeof tp === 'number' && Number.isFinite(tp) && tp > 0 ? tp : undefined;
       })(),
+      // Paid places among the players left (trusted payout curve), undefined
+      // when unknown: three-handed, the Omaha first-in rule acts only when
+      // one place is paid (R4, 2026-11-13: it lost in ICM equity at a
+      // three-handed final table with pay jumps).
+      tournamentPaidPlacesLeft: (() => {
+        const t = trustedTournamentContext(gs);
+        const left = t?.playersLeft;
+        if (!t || !Array.isArray(t.payoutPct) || typeof left !== 'number' || !(left > 0))
+          return undefined;
+        const paid = t.payoutPct.slice(0, left).filter((v) => Number(v) > 0).length;
+        return paid > 0 ? paid : undefined;
+      })(),
       // V21: deep-stack cash stack-off discipline.
       deepDiscipline: (opts.v21Deep ?? true) !== false,
       // V24 price defense, PLO6 CASH half DEFAULT OFF since 2026-10-31: the
