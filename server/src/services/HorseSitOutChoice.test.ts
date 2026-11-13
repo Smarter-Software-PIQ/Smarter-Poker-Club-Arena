@@ -330,19 +330,23 @@ describe('post-human PLO sessions retain their safe ordinary departure path', ()
     await rotateOnce(rot);
     return e;
   }
-  it('the 80% branch can leave below three, one through the ordinary engine door', async () => {
+  /* Dan 2026-11-13: horses now SEED 1/2 PLO Lightning ("THE 1/2 PLAYERS NEED
+     TO BE SPLIT UP AMONGST ALL OF THE GAMES, INCLUDING THE LIGHTNING GAMES"),
+     so the post-human 80% wind-down no longer stands its horses up: the fleet
+     would seat them again on the next cycle. Ordinary session, bankroll and
+     schedule departures are unchanged. */
+  it('the 80% wind-down no longer stands up horses at the horse-seeded 1/2 PLO game', async () => {
     const e = await run(false);
-    expect(e.leaveTable).toHaveBeenCalledTimes(1);
-    expect(e.leaveTable.mock.calls[0]).toHaveLength(1);
+    expect(e.leaveTable).not.toHaveBeenCalled();
   });
   it('a lone-table departure is not requested again by the new short-table rotation', async () => {
     const e = await run(false, 0, false, false, 1);
     expect(e.leaveTable).toHaveBeenCalledTimes(1);
   });
 
-  it('two tables of the same winding-down game still leave only one participant per cycle', async () => {
+  it('two tables of the horse-seeded 1/2 PLO game are not wound down either', async () => {
     const e = await run(false, 0, false, true);
-    expect(e.leaveTable).toHaveBeenCalledTimes(1);
+    expect(e.leaveTable).not.toHaveBeenCalled();
   });
   it('the 20% continuation retains a full six-player table under its ordinary full-table hold', async () => {
     const e = await run(true, 0, false, false, 6);

@@ -270,6 +270,26 @@
     {
       "id": "705270cd-03c2-40d9-8749-038f741a295c",
       "name": "Lightning PLO4 .25/.50"
+    },
+    {
+      "id": "57ca90e4-815e-4081-a5d2-1f10522d95c7",
+      "name": "Lightning NLH .50/1"
+    },
+    {
+      "id": "f26f6efa-2470-49e7-8e96-6128f4d0cdb5",
+      "name": "Lightning PLO4 .50/1"
+    },
+    {
+      "id": "563279fc-c09a-48a6-b487-c4f34f289095",
+      "name": "Lightning NLH 1/2"
+    },
+    {
+      "id": "c79d8ec2-2281-411d-b4e1-42b5610849e2",
+      "name": "Lightning PLO4 1/2"
+    },
+    {
+      "id": "f67a1436-e842-4b49-8644-3e184bd77ba6",
+      "name": "Lightning PLO5 1/2"
     }
   ]
 }

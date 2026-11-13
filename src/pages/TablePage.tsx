@@ -22,7 +22,10 @@ import {
 import { fetchStoppedLightningAnchor } from '../lightning/lightningLeaveAnchor';
 import { useLightningLeaveStop } from '../lightning/useLightningLeaveStop';
 import { resumeLightningPlaying } from '../lightning/lightningSessionApi';
-import { LightningLeaveControl } from '../components/lightning/LightningLeaveControl';
+import {
+  LightningFeederLeaveControl,
+  LightningLeaveControl,
+} from '../components/lightning/LightningLeaveControl';
 import {
   lightningLeaveWaitsForHand,
   useLightningLeaveAfterHand,
@@ -28589,6 +28592,15 @@ function LiveTablePage({
                 ensureStopped={stopLightningForLeave}
                 queued={lightningLeaveAfterHand.queued}
                 onCancel={cancelLightningLeave}
+              />
+            ) : lightningCapableClusterId && heroIsSeated && userId && userId !== 'guest' ? (
+              /* Before the game turns Lightning it is an ordinary table: the
+                 same button, through the ordinary leave-after-this-hand. */
+              <LightningFeederLeaveControl
+                queued={leaveNextHand.queued}
+                pending={leaveNextHand.pending}
+                onLeave={requestLeaveAtNextHand}
+                onCancel={() => leaveNextHand.cancelQueuedLeave()}
               />
             ) : null}
           </div>

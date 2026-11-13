@@ -508,15 +508,26 @@ export function TableTabBar({
     [onReorder, endGesture]
   );
 
+  /* TAP TO OPEN (Dan 2026-11-13): "YOU SHOULDN'T HAVE TO HOLD DOWN THE
+     ACTION PILL ON MOBILE TO OPEN IT, CHANGE IT TO TAP TO OPEN." A tap on the
+     pill of the table you are already at opens its menu (a second tap closes
+     it). A tap on another table's pill still switches to that table, which is
+     what a tap on it has always meant; long-press and right-click still open
+     the menu on any pill. */
   const handleTabClick = useCallback(
-    (tabId: string) => {
+    (tabId: string, anchor?: HTMLElement) => {
       if (gestureRef.current?.suppressClick && gestureRef.current.id === tabId) {
         gestureRef.current = null;
         return;
       }
+      if (tabId === activeTabId && anchor) {
+        if (quickMenu?.tabId === tabId) setQuickMenu(null);
+        else openQuickMenu(tabId, anchor.getBoundingClientRect());
+        return;
+      }
       onTabSelect(tabId);
     },
-    [onTabSelect]
+    [onTabSelect, activeTabId, quickMenu, openQuickMenu]
   );
 
   /** A LOBBY tab is a placeholder, not a seat — no engine, no chips. A HUB
@@ -813,7 +824,7 @@ export function TableTabBar({
               ]
                 .filter(Boolean)
                 .join(' ')}
-              onClick={() => handleTabClick(tab.id)}
+              onClick={(e) => handleTabClick(tab.id, e.currentTarget as HTMLElement)}
               onPointerDown={(e) => handleTabPointerDown(e, tab.id)}
               onPointerMove={(e) => handleTabPointerMove(e, tab.id)}
               onPointerUp={(e) => handleTabPointerUp(e, tab.id)}

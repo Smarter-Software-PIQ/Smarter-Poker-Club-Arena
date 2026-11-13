@@ -187,6 +187,40 @@ export async function checkFixedMobileArtwork(
     const grown = before.paint.filter((p) => p[0]);
     expect(new Set(grown.map((p) => p[0])).size, 'one size for every portrait').toBe(1);
     const tableSize = grown[0][0];
+    // Dan 2026-11-13: no enlarged portrait is ever cut off. The acting
+    // seat's holo sweep must not blend (a blend group clips the grown head in
+    // WebKit), and a sit-out badge keeps clear of the portrait's head.
+    const uncut = await page.evaluate(() => {
+      const results: Array<{ blend: string; badgeTop: number; headBottom: number }> = [];
+      for (const avatar of document.querySelectorAll<HTMLElement>(
+        '.seat__avatar[style*="--sp-mobile-art-scale"]'
+      )) {
+        const paint = avatar.querySelector('.seat__avatar-paint')!;
+        const holo = document.createElement('span');
+        holo.className = 'seat__holo';
+        paint.prepend(holo);
+        const badge = document.createElement('div');
+        badge.className = 'seat__sitout-badge';
+        badge.textContent = 'Waiting For The Button To Pass';
+        avatar.parentElement!.appendChild(badge);
+        const art = avatar.querySelector('.seat__avatar-img')!.getBoundingClientRect();
+        results.push({
+          blend: getComputedStyle(holo).mixBlendMode,
+          badgeTop: badge.getBoundingClientRect().top,
+          headBottom: art.top + art.height * 0.4,
+        });
+        holo.remove();
+        badge.remove();
+      }
+      return results;
+    });
+    for (const r of uncut) {
+      expect(r.blend, 'the holo sweep never blends over a grown portrait').toBe('normal');
+      expect(
+        r.badgeTop,
+        "a sit-out badge keeps clear of the portrait's head"
+      ).toBeGreaterThanOrEqual(r.headBottom);
+    }
     // Dan 2026-11-13: every table of this game type on this device takes the
     // size this one settled; it is recorded as the displayed height.
     const recorded = await page.evaluate(() =>

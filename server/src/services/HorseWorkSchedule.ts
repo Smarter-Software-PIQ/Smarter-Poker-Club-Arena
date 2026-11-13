@@ -79,6 +79,10 @@ export interface HorseScheduleSupply {
   /** The planner's occupancy cap for the host at this minute of the daily
    *  curve (stableHandHostCaps), or null. */
   target: number | null;
+  /** Every seat held on the host when the cycle began (the lobby's count). */
+  seats?: number;
+  /** The most seats the curve allows the host right now (hostSeatCeiling). */
+  seatCeiling?: number | null;
 }
 
 const leaves: Record<OffDutyReason, number> = { rest_day: 0, daily_cap: 0, off_shift: 0 };
