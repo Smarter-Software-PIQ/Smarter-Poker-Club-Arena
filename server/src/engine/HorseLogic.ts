@@ -16293,7 +16293,9 @@ export class HorseLogic {
               respect += styleAdd;
               if (telemetryOn(opts)) noteFire('style_big_bet_honesty_seen');
             }
-            if (isRiver && oppCount <= 1) {
+            // Multiway too: a bluff-catcher must beat the bettor, so the bettor's bluff share still bounds its
+            // equity when others are in the pot (an upper bound holds a fortiori). Keyed to the bettor only.
+            if (isRiver) {
               const cap = bluffCatchEquityCap(HorseMind.styleRead(bettorId), { potFraction: potFrac });
               if (cap !== null) styleBluffCatchCap = cap;
             }

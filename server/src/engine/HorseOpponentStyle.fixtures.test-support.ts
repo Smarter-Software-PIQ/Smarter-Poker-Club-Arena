@@ -17,7 +17,10 @@ const BB = 2;
 const STREETS = ['flop', 'turn', 'river'] as const;
 const FILL = [3, 4, 5, 6].map((n) => `cccccccc-0000-4000-8000-00000000000${n}`);
 
-export function spotOf(f: Fx): Spot {
+/** third: a third live player (FILL[0], seat 3) who called preflop, checked every street (on this one before the wager)
+ *  and is still to act behind hero; the price hero faces is the fixture's own. */
+export const THIRD = 'cccccccc-0000-4000-8000-000000000003';
+export function spotOf(f: Fx, third = false): Spot {
   const heroBet = f.opponentActionType === 'raise' ? f.facedBetBeforeRaiseBB * BB : 0;
   const villainTotal = heroBet + f.amountToCallBB * BB;
   const seat = (s: number, id: string, stack: number, bet: number, c = ''): SeatPlayer =>
@@ -27,9 +30,12 @@ export function spotOf(f: Fx): Spot {
     seat(2, VILLAIN, Math.max(0, f.opponentBehindAfterBetBB * BB), villainTotal),
     ...FILL.map((id, i) => seat(i + 3, id, 200, 0)),
   ];
+  if (third) players[2] = { ...players[2], stack: 400, bet: 0, totalInvested: 6, is_folded: false } as SeatPlayer;
+  const T3 = (stage: string, action: string, amount: number) => (third ? [{ stage, seat: 3, userId: THIRD, action, amount }] : []);
   const acts: Array<Record<string, unknown>> = [
     { stage: 'preflop', seat: 2, userId: VILLAIN, action: 'raise', amount: 6 },
     { stage: 'preflop', seat: 1, userId: HERO, action: 'call', amount: 4 },
+    ...T3('preflop', 'call', 6),
   ];
   for (const st of STREETS) {
     if (st === f.street) {
@@ -38,20 +44,21 @@ export function spotOf(f: Fx): Spot {
         acts.push({ stage: st, seat: 2, userId: VILLAIN, action: 'raise', amount: villainTotal });
       } else {
         acts.push({ stage: st, seat: 1, userId: HERO, action: 'check', amount: 0 });
+        acts.push(...T3(st, 'check', 0));
         acts.push({ stage: st, seat: 2, userId: VILLAIN, action: 'bet', amount: villainTotal });
       }
       break;
     }
-    acts.push({ stage: st, seat: 1, userId: HERO, action: 'check', amount: 0 }, { stage: st, seat: 2, userId: VILLAIN, action: 'check', amount: 0 });
+    acts.push({ stage: st, seat: 1, userId: HERO, action: 'check', amount: 0 }, { stage: st, seat: 2, userId: VILLAIN, action: 'check', amount: 0 }, ...T3(st, 'check', 0));
   }
   const n = { flop: 6, turn: 8, river: 10 }[f.street];
   const gs = {
-    players, communityCards: cards(f.board.slice(0, n)), pot: f.potAtDecisionBB * BB, currentBet: villainTotal,
+    players, communityCards: cards(f.board.slice(0, n)), pot: f.potAtDecisionBB * BB + (third ? 6 : 0), currentBet: villainTotal,
     minRaise: Math.max(BB, villainTotal - heroBet), stage: f.street, gameVariant: 'nlh', gameMode: f.format,
     ...(f.format === 'tournament' ? { tournament: { entrants: 100, playersLeft: 40, spotsPaid: 15, inMoney: true, nearBubble: false } } : {}),
     bigBlind: BB, smallBlind: 1, dealerSeat: 1, actionHistory: acts.map((a, i) => ({ ...a, timestamp: (i + 1) * 4000 })),
   };
-  return { name: f.id, hero: players[0], gs };
+  return { name: third ? `${f.id}_3way` : f.id, hero: players[0], gs };
 }
 
 export function villainOf(f: Fx, extraShownBluff = 0): Villain {
