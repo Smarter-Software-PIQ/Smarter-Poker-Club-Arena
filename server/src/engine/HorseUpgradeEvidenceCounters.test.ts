@@ -202,12 +202,15 @@ describe('upgrades 01, 02 and 06: a live postflop decision counts what it used',
     expect(on.counted.upgrade01_action_line_posterior).toBe(1);
     expect(on.counted.upgrade02_card_removal_scored).toBe(1);
     expect(on.counted.upgrade06_public_timing_hint).toBe(1);
+    // Their opportunity count: one decision entered the postflop brain.
+    expect(on.counted.decide_postflop).toBe(1);
   });
 
   it('counts none of them with telemetry off, and decides the same', () => {
     const on = decide(true);
     const off = decide(false);
     for (const key of [
+      'decide_postflop',
       'upgrade01_action_line_posterior',
       'upgrade02_card_removal_scored',
       'upgrade06_public_timing_hint',

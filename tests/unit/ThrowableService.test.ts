@@ -191,3 +191,31 @@ describe('uncertain throw receipts', () => {
     expect(new Set(ids).size).toBe(3);
   });
 });
+
+describe('recording who a throw hit (Dan 2026-11-13)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('records the receipt, table and target seat through fn_record_throw_target', async () => {
+    const rpc = vi
+      .spyOn(supabase, 'rpc')
+      .mockResolvedValueOnce({ data: { success: true }, error: null } as never);
+    const receipt = 'aa110000-0000-4000-8000-000000000001';
+    await expect(throwableService.recordThrowTarget(receipt, 'table-a', 4)).resolves.toBe(true);
+    expect(rpc).toHaveBeenCalledWith('fn_record_throw_target', {
+      p_request_id: receipt,
+      p_table_id: 'table-a',
+      p_target_seat: 4,
+    });
+  });
+
+  it('never throws and never calls without a receipt; a failure is just false', async () => {
+    const rpc = vi.spyOn(supabase, 'rpc');
+    rpc.mockClear();
+    rpc.mockRejectedValueOnce(new Error('offline'));
+    await expect(throwableService.recordThrowTarget(undefined, 'table-a', 4)).resolves.toBe(false);
+    expect(rpc).not.toHaveBeenCalled();
+    await expect(
+      throwableService.recordThrowTarget('aa110000-0000-4000-8000-000000000001', 'table-a', 4)
+    ).resolves.toBe(false);
+  });
+});

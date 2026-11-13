@@ -119,9 +119,41 @@ const box = (element: Element): Box => {
   const r =
     element instanceof HTMLElement && element.matches('.seat__position-badge') && scaler
       ? restingAvatarBox(element, tableRenderScale(scaler))
-      : element.getBoundingClientRect();
+      : element instanceof HTMLImageElement && element.matches('.seat__avatar-img') && scaler
+        ? unpaintedImageBox(element, tableRenderScale(scaler))
+        : element.getBoundingClientRect();
   return { left: r.left, top: r.top, width: r.width, height: r.height };
 };
+/** The portrait image's box with the fixed mobile paint layer's zoom undone.
+ * Dan 2026-11-12: the enlarged paint stays displayed through every relayout,
+ * so every solver measures the character's own slot, never its zoomed
+ * picture; the zoomed footprint enters a solver only through its own
+ * reservation (mobileAvatarCardReservation). Without this, a deferred pass
+ * read the zoomed image as the obstacle and pushed cards onto chips. */
+function unpaintedImageBox(image: HTMLImageElement, _ratio: number): DOMRect {
+  const paint = image.closest<HTMLElement>('.seat__avatar-paint');
+  const avatar = image.closest<HTMLElement>('.seat__avatar');
+  if (!paint || !avatar || !avatar.style.getPropertyValue('--sp-mobile-art-scale'))
+    return image.getBoundingClientRect();
+  const style = getComputedStyle(paint);
+  const k = parseFloat(style.scale) || 1;
+  const translate =
+    style.translate === 'none' ? [0, 0] : style.translate.split(/\s+/).map(parseFloat);
+  const tx = translate[0] || 0,
+    ty = translate[1] || 0;
+  const r = image.getBoundingClientRect();
+  if (!(k > 0) || !image.offsetWidth) return r;
+  // Local px to viewport px, read from the zoomed image itself.
+  const unit = r.width / (image.offsetWidth * k);
+  // The paint layer scales about its own bottom centre (transform-origin
+  // 50% 100%), so that point is fixed under the zoom and only translated.
+  const p = paint.getBoundingClientRect();
+  const originX = p.left + p.width / 2 - tx * unit;
+  const originY = p.bottom - ty * unit;
+  const left = originX + (r.left - tx * unit - originX) / k;
+  const top = originY + (r.top - ty * unit - originY) / k;
+  return new DOMRect(left, top, r.width / k, r.height / k);
+}
 const moved = (r: Box, x: number, y: number): Box => ({ ...r, left: r.left + x, top: r.top + y });
 const overlap = (a: Box, b: Box, gap = 3) =>
   a.left < b.left + b.width + gap &&
