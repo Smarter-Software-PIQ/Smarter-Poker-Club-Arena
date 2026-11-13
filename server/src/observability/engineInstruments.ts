@@ -1306,18 +1306,25 @@ export function alwaysOnPrometheusLines(): string[] {
  *   poker_hand_memory_domain_missing_total{mode,reached_showdown,reason}
  *     accepted hands written without a valid domain (the numerator).
  * Closed label sets only - never a table, hand or player:
- *   mode             cash | tournament (the row's tournament_id, as the trigger reads it)
+ *   mode             cash | tournament (a physical table's row, by its
+ *                    tournament_id as the trigger reads it) | lightning (a
+ *                    Lightning pool hand; the trigger files it under its own
+ *                    profile partition, domain speed `lightning`)
  *   reached_showdown true | false (the row's `showdown` reveal is non-empty)
  *   learner_scope    supported | unsupported_variant (game_variant inside or
  *                    outside the nine variants the trigger learns)
  *   reason           absent (null or not supplied) | invalid (supplied, fails
  *                    publicMemoryDomainIsValid) | unsupported_variant (no valid
  *                    domain on a variant the trigger never learns: exempt)
- * Lightning hands are not logged through this path. Zero-seeded across the
+ * A Lightning hand is counted where its settlement is accepted
+ * (LightningHandBackend.settle), and a retained hand a replacement engine
+ * commits where that engine reads the commit back
+ * (resumeRetainedHandSubmission, `financial_handoff`). Zero-seeded across the
  * whole domain (anAlertCannotWaitForAFailureToExist). The rule that reads
- * them, HandMemoryDomainMissingOnCashShowdown, only reports.
+ * them, HandMemoryDomainMissingOnCashShowdown, only reports; it reads cash
+ * and lightning.
  */
-export const HAND_MEMORY_DOMAIN_MODES = ['cash', 'tournament'] as const;
+export const HAND_MEMORY_DOMAIN_MODES = ['cash', 'tournament', 'lightning'] as const;
 export const HAND_MEMORY_DOMAIN_SHOWDOWN = ['true', 'false'] as const;
 export const HAND_MEMORY_DOMAIN_LEARNER_SCOPES = ['supported', 'unsupported_variant'] as const;
 export const HAND_MEMORY_DOMAIN_MISSING_REASONS = [
@@ -1327,11 +1334,11 @@ export const HAND_MEMORY_DOMAIN_MISSING_REASONS = [
 ] as const;
 export const handMemoryDomainLoggedTotal: Counter = alwaysOnRegistry.counter(
   'poker_hand_memory_domain_logged_total',
-  'Hands accepted through logHandHistory (labels: mode=cash|tournament, reached_showdown=true|false, learner_scope=supported|unsupported_variant)'
+  'Hands accepted by the atomic hand commit (labels: mode=cash|tournament|lightning, reached_showdown=true|false, learner_scope=supported|unsupported_variant)'
 );
 export const handMemoryDomainMissingTotal: Counter = alwaysOnRegistry.counter(
   'poker_hand_memory_domain_missing_total',
-  'Hands accepted through logHandHistory and written without a valid public_memory_domain (labels: mode=cash|tournament, reached_showdown=true|false, reason=absent|invalid|unsupported_variant)'
+  'Hands accepted by the atomic hand commit and written without a valid public_memory_domain (labels: mode=cash|tournament|lightning, reached_showdown=true|false, reason=absent|invalid|unsupported_variant)'
 );
 for (const mode of HAND_MEMORY_DOMAIN_MODES) {
   for (const reached_showdown of HAND_MEMORY_DOMAIN_SHOWDOWN) {
