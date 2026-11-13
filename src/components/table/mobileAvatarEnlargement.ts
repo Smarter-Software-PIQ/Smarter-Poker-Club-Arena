@@ -469,10 +469,10 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
     const betCy = rect.top + rect.height / 2 + (betY - podY) * ratio;
     boxes.push({
       box: {
-        left: betCx - 60 * ratio,
-        top: betCy - 30 * ratio,
-        width: 120 * ratio,
-        height: 60 * ratio,
+        left: betCx - 42 * ratio,
+        top: betCy - 20 * ratio,
+        width: 84 * ratio,
+        height: 40 * ratio,
       },
       owner: seat,
       layer: false,
@@ -688,10 +688,19 @@ export function enlargeMobileAvatars(
     const profile = profiles[slot];
     if (!profile || profile.scale <= 1) continue;
     const rect = restingAvatarBox(e.avatar, ratio);
-    const obstacles = objects.map((o) => ({
-      box: o.box,
-      ownLayer: o.owner === e.seat && o.layer && (!o.minimum || area(e.parts, o.minimum) > 0),
-    }));
+    // The seat's own action/amount tag is drawn over its portrait's crown, so
+    // the portrait may grow behind it: the tag stays whole, as it does today
+    // for every character whose crown already touches the lane. Measured
+    // live on November 12, a crown a few pixels short of its lane turned
+    // the lane into a wall and left that seat at 1.05x beside a 2.5x
+    // neighbour. Every other reserved object is unchanged: own cards may
+    // only keep an existing overlap; others' objects are hard.
+    const obstacles = objects
+      .filter((o) => !(o.owner === e.seat && o.layer && o.minimum))
+      .map((o) => ({
+        box: o.box,
+        ownLayer: o.owner === e.seat && o.layer,
+      }));
     for (const [seat, parts] of painted)
       if (seat !== e.seat)
         for (const box of parts) obstacles.push({ box: box as DOMRect, ownLayer: false });
