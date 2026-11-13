@@ -79,7 +79,13 @@ export function boardStructure(board: string): string {
     if (!lab.has(c[1])) lab.set(c[1], lab.size);
     return lab.get(c[1])!;
   });
-  const names: Record<string, string> = { '012': 'r', '000': 'm', '001': 't01', '010': 't02', '011': 't12' };
+  const names: Record<string, string> = {
+    '012': 'r',
+    '000': 'm',
+    '001': 't01',
+    '010': 't02',
+    '011': 't12',
+  };
   return `${pt}.${names[sl.join('')]}`;
 }
 
@@ -107,7 +113,14 @@ export function straightCount(ranks: number[]): number {
 
 export function boardFeatures(board: string): Record<FeatureKey, number> {
   const r = orderedBoard(board).map(rk);
-  return { r0: r[0], r1: r[1], r2: r[2], g01: r[0] - r[1], g12: r[1] - r[2], nstr: straightCount(r) };
+  return {
+    r0: r[0],
+    r1: r[1],
+    r2: r[2],
+    g01: r[0] - r[1],
+    g12: r[1] - r[2],
+    nstr: straightCount(r),
+  };
 }
 
 export function boardDistance(a: string, b: string, w: DistanceWeights): number {
@@ -192,7 +205,13 @@ export interface MappedHand {
  * non-board ranks); when two distinct non-board ranks merge, the lower card moves to the nearest other non-board
  * rank of b, lower side first ('split').
  */
-export function mapHand(h: number, a: string, b: string, rm = rankMap(a, b), sm = suitMap(a, b)): MappedHand {
+export function mapHand(
+  h: number,
+  a: string,
+  b: string,
+  rm = rankMap(a, b),
+  sm = suitMap(a, b)
+): MappedHand {
   let [c1, c2] = COMBO_CARDS[h];
   let x = rk(c1);
   let y = rk(c2);
@@ -209,11 +228,14 @@ export function mapHand(h: number, a: string, b: string, rm = rankMap(a, b), sm 
     const top = rm[x];
     const cand = [...Array(13).keys()]
       .filter((z) => !brank.has(z) && z !== top)
-      .sort((p, q) => (p < top ? 0 : 1) - (q < top ? 0 : 1) || Math.abs(p - top) - Math.abs(q - top));
+      .sort(
+        (p, q) => (p < top ? 0 : 1) - (q < top ? 0 : 1) || Math.abs(p - top) - Math.abs(q - top)
+      );
     m2 = SOLVED_FLOP_RANKS[cand[0]] + sm[c2[1]];
     rule = 'split';
   }
-  if (m1 === m2 || bset.has(m1) || bset.has(m2)) throw new Error(`mapping collision ${COMBO_CARDS[h].join('')} ${a}->${b}`);
+  if (m1 === m2 || bset.has(m1) || bset.has(m2))
+    throw new Error(`mapping collision ${COMBO_CARDS[h].join('')} ${a}->${b}`);
   return { index: comboIndex(m1, m2), rule };
 }
 
@@ -230,7 +252,7 @@ export interface SolvedFlopBoardData {
   nodes: Partial<Record<SolvedFlopNode, SolvedFlopNodeData>>;
 }
 export interface SolvedFlopLibraryData {
-  tableType: string; // e.g. 'cash|6max|srp|BTN-vs-BB|80|rake0.10cap250|tree=W45-P2'
+  tableType: string; // e.g. 'cash|6max|srp|BTN-vs-BB|80|rake0.10cap250|tree=W45-P2|acc0.001' (b4_export.TABLE_TYPE)
   weights: DistanceWeights;
   maxDistance: number;
   boards: SolvedFlopBoardData[];
@@ -285,33 +307,56 @@ export function encodeSolvedFlopLibrary(lib: SolvedFlopLibraryData): Buffer {
 }
 
 export function decodeSolvedFlopLibrary(buf: Buffer): SolvedFlopLibraryData {
-  if (buf.length < 8 || buf.toString('latin1', 0, 4) !== 'SFL1') throw new Error('not a solved-flop library v1');
+  if (buf.length < 8 || buf.toString('latin1', 0, 4) !== 'SFL1')
+    throw new Error('not a solved-flop library v1');
   const hl = buf.readUInt32LE(4);
   const header = JSON.parse(buf.toString('utf8', 8, 8 + hl)) as {
     tableType: string;
     weights: DistanceWeights;
     maxDistance: number;
-    boards: Array<{ board: string; nodes: Array<{ name: SolvedFlopNode; actions: string[]; offset: number; rangeMean: number[] }> }>;
+    boards: Array<{
+      board: string;
+      nodes: Array<{
+        name: SolvedFlopNode;
+        actions: string[];
+        offset: number;
+        rangeMean: number[];
+      }>;
+    }>;
   };
   const base = 8 + hl;
   const boards: SolvedFlopBoardData[] = header.boards.map((b) => {
     boardCards(b.board);
     const nodes: SolvedFlopBoardData['nodes'] = {};
     for (const n of b.nodes) {
-      if (!(SOLVED_FLOP_NODES as readonly string[]).includes(n.name)) throw new Error(`unknown node ${n.name}`);
+      if (!(SOLVED_FLOP_NODES as readonly string[]).includes(n.name))
+        throw new Error(`unknown node ${n.name}`);
       const len = 1326 * n.actions.length;
-      if (base + (n.offset + len) * 2 > buf.length) throw new Error(`truncated payload on ${b.board}`);
+      if (base + (n.offset + len) * 2 > buf.length)
+        throw new Error(`truncated payload on ${b.board}`);
       const q = new Uint16Array(len);
       for (let i = 0; i < len; i++) q[i] = buf.readUInt16LE(base + (n.offset + i) * 2);
       nodes[n.name] = { actions: n.actions, q, rangeMean: n.rangeMean };
     }
     return { board: b.board, nodes };
   });
-  return { tableType: header.tableType, weights: header.weights, maxDistance: header.maxDistance, boards };
+  return {
+    tableType: header.tableType,
+    weights: header.weights,
+    maxDistance: header.maxDistance,
+    boards,
+  };
 }
 
-/** Index a library for lookups (replaces any library of the same table type). Returns its in-memory payload bytes. */
+/** Index a library for lookups (replaces any library of the same table type). Returns its in-memory payload bytes. Throws on malformed data, so a bad file fails at load time and never inside a decision. */
 export function loadSolvedFlopLibrary(lib: SolvedFlopLibraryData): number {
+  if (!(typeof lib.maxDistance === 'number' && lib.maxDistance >= 0))
+    throw new Error('bad maxDistance');
+  const featureKeys = new Set<string>(['r0', 'r1', 'r2', 'g01', 'g12', 'nstr']);
+  for (const [k, v] of Object.entries(lib.weights)) {
+    if (!featureKeys.has(k) || !(typeof v === 'number' && Number.isFinite(v) && v >= 0))
+      throw new Error(`bad distance weight ${k}`);
+  }
   const byStructure = new Map<string, IndexedEntry[]>();
   let bytes = 0;
   const seen = new Set<string>();
@@ -320,14 +365,29 @@ export function loadSolvedFlopLibrary(lib: SolvedFlopLibraryData): number {
     const key = orderedBoard(b.board).join('');
     if (seen.has(key)) throw new Error(`duplicate library board ${b.board}`);
     seen.add(key);
-    for (const n of Object.values(b.nodes)) {
-      if (!n || n.q.length !== 1326 * n.actions.length) throw new Error(`bad node payload on ${b.board}`);
+    for (const [name, n] of Object.entries(b.nodes)) {
+      if (!(SOLVED_FLOP_NODES as readonly string[]).includes(name))
+        throw new Error(`unknown node ${name} on ${b.board}`);
+      if (
+        !n ||
+        n.actions.length === 0 ||
+        !(n.q instanceof Uint16Array) ||
+        n.q.length !== 1326 * n.actions.length
+      )
+        throw new Error(`bad node payload on ${b.board}`);
+      if (
+        n.rangeMean.length !== n.actions.length ||
+        n.rangeMean.some((v) => !(Number.isFinite(v) && v >= 0)) ||
+        !(n.rangeMean.reduce((x, y) => x + y, 0) > 0)
+      )
+        throw new Error(`bad rangeMean on ${b.board}`);
       bytes += n.q.byteLength;
     }
     if (!byStructure.has(st)) byStructure.set(st, []);
     byStructure.get(st)!.push({ board: b.board, f: boardFeatures(b.board), data: b });
   }
-  for (const list of byStructure.values()) list.sort((x, y) => (x.board < y.board ? -1 : x.board > y.board ? 1 : 0));
+  for (const list of byStructure.values())
+    list.sort((x, y) => (x.board < y.board ? -1 : x.board > y.board ? 1 : 0));
   libraries.set(lib.tableType, { ...lib, byStructure, bytes });
   return bytes;
 }
@@ -340,7 +400,11 @@ export function solvedFlopLibraryBytes(tableType: string): number {
 }
 
 /** k nearest library boards of the same structure; ties broken by the board string (deterministic). */
-export function nearestLibraryBoards(tableType: string, live: string, k = 1): Array<{ board: string; distance: number }> {
+export function nearestLibraryBoards(
+  tableType: string,
+  live: string,
+  k = 1
+): Array<{ board: string; distance: number }> {
   const lib = libraries.get(tableType);
   if (!lib) return [];
   const list = lib.byStructure.get(boardStructure(live));
@@ -348,10 +412,13 @@ export function nearestLibraryBoards(tableType: string, live: string, k = 1): Ar
   const fa = boardFeatures(live);
   const scored = list.map((e) => {
     let d = 0;
-    for (const key of Object.keys(lib.weights) as FeatureKey[]) d += (lib.weights[key] ?? 0) * Math.abs(fa[key] - e.f[key]);
+    for (const key of Object.keys(lib.weights) as FeatureKey[])
+      d += (lib.weights[key] ?? 0) * Math.abs(fa[key] - e.f[key]);
     return { board: e.board, distance: d };
   });
-  scored.sort((x, y) => x.distance - y.distance || (x.board < y.board ? -1 : x.board > y.board ? 1 : 0));
+  scored.sort(
+    (x, y) => x.distance - y.distance || (x.board < y.board ? -1 : x.board > y.board ? 1 : 0)
+  );
   return scored.slice(0, k);
 }
 
@@ -386,6 +453,7 @@ function lexLess(a: number[], b: number[]): boolean {
 /**
  * Answer one flop decision by nearest-board lookup, or null (the caller keeps its existing path).
  * flop: the three flop cards as one string (e.g. 'Kc9h5s'); hole: the actor's two cards (e.g. ['Ah', 'Kd']).
+ * Never throws: any unexpected failure inside the lookup is answered with null, so the caller's existing path decides.
  */
 export function solvedFlopLookup(input: {
   tableType: string;
@@ -395,6 +463,19 @@ export function solvedFlopLookup(input: {
   env?: NodeJS.ProcessEnv;
 }): SolvedFlopAnswer | null {
   if (!solvedFlopLibraryEnabled(input.env)) return null;
+  try {
+    return lookupEnabled(input);
+  } catch {
+    return null;
+  }
+}
+
+function lookupEnabled(input: {
+  tableType: string;
+  flop: string;
+  node: SolvedFlopNode;
+  hole: readonly [string, string];
+}): SolvedFlopAnswer | null {
   const lib = libraries.get(input.tableType);
   if (!lib) return null;
   const live = input.flop;
@@ -413,7 +494,14 @@ export function solvedFlopLookup(input: {
   if (h1 === h2 || liveSet.has(h1) || liveSet.has(h2) || !CIDX.has(h1 + h2)) return null;
   const mapped = mapHand(comboIndex(h1, h2), live, nn.board);
   const direct = rowAt(node, mapped.index);
-  if (direct) return { actions: node.actions, frequencies: direct, libraryBoard: nn.board, distance: nn.distance, rule: mapped.rule };
+  if (direct)
+    return {
+      actions: node.actions,
+      frequencies: direct,
+      libraryBoard: nn.board,
+      distance: nn.distance,
+      rule: mapped.rule,
+    };
   // Neighbour rule: nearest defined library hand keeping each card's board-rank membership, pairedness and suits (summed rank shift <= 6).
   const [m1, m2] = COMBO_CARDS[mapped.index];
   const bset = new Set(boardCards(nn.board));
@@ -426,7 +514,12 @@ export function solvedFlopLookup(input: {
       const r1 = rk(m1) + d1;
       const r2 = rk(m2) + d2;
       if (r1 < 0 || r1 > 12 || r2 < 0 || r2 > 12) continue;
-      if (brank.has(r1) !== brank.has(rk(m1)) || brank.has(r2) !== brank.has(rk(m2)) || (r1 === r2) !== (rk(m1) === rk(m2))) continue;
+      if (
+        brank.has(r1) !== brank.has(rk(m1)) ||
+        brank.has(r2) !== brank.has(rk(m2)) ||
+        (r1 === r2) !== (rk(m1) === rk(m2))
+      )
+        continue;
       if ((brank.has(rk(m1)) && d1 !== 0) || (brank.has(rk(m2)) && d2 !== 0)) continue;
       const n1 = SOLVED_FLOP_RANKS[r1] + m1[1];
       const n2 = SOLVED_FLOP_RANKS[r2] + m2[1];
@@ -437,6 +530,19 @@ export function solvedFlopLookup(input: {
       if (!best || lexLess(key, best.key)) best = { key, j };
     }
   }
-  if (best) return { actions: node.actions, frequencies: rowAt(node, best.j)!, libraryBoard: nn.board, distance: nn.distance, rule: 'neighbour' };
-  return { actions: node.actions, frequencies: [...node.rangeMean], libraryBoard: nn.board, distance: nn.distance, rule: 'mean' };
+  if (best)
+    return {
+      actions: node.actions,
+      frequencies: rowAt(node, best.j)!,
+      libraryBoard: nn.board,
+      distance: nn.distance,
+      rule: 'neighbour',
+    };
+  return {
+    actions: node.actions,
+    frequencies: [...node.rangeMean],
+    libraryBoard: nn.board,
+    distance: nn.distance,
+    rule: 'mean',
+  };
 }

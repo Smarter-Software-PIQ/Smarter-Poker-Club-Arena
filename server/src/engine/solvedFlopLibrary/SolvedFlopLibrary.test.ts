@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gunzipSync } from 'node:zlib';
 import {
   COMBO_CARDS,
   boardFeatures,
@@ -23,23 +25,45 @@ import {
 } from './SolvedFlopLibrary.js';
 import { solvedFlopAdviceOr } from './solvedFlopHook.js';
 
-const vectors = JSON.parse(readFileSync(fileURLToPath(new URL('./SolvedFlopLibrary.vectors.json', import.meta.url)), 'utf8')) as {
+const vectors = JSON.parse(
+  readFileSync(fileURLToPath(new URL('./SolvedFlopLibrary.vectors.json', import.meta.url)), 'utf8')
+) as {
   weights: Record<string, number>;
-  boards: Record<string, { ordered: string[]; structure: string; features: Record<string, number> }>;
-  pairs: Array<{ live: string; library: string; rank_map: number[]; suit_map: Record<string, string>; mapped: Record<string, [number, string]>; distance: number | null }>;
+  boards: Record<
+    string,
+    { ordered: string[]; structure: string; features: Record<string, number> }
+  >;
+  pairs: Array<{
+    live: string;
+    library: string;
+    rank_map: number[];
+    suit_map: Record<string, string>;
+    mapped: Record<string, [number, string]>;
+    distance: number | null;
+  }>;
   nearest_library: string[];
   nearest: Record<string, Array<[number, string]>>;
 };
 const TT = 'test|cash|6max|srp|BTN-vs-BB';
 const ON = { SOLVED_FLOP_LIBRARY_ENABLED: '1' } as NodeJS.ProcessEnv;
 const OFF = {} as NodeJS.ProcessEnv;
-const ACTS = { 'F.cbet': ['b450', 'b198', 'c'], 'F.vs_b33': ['b594', 'c', 'f'], 'F.vs_b75': ['c', 'f'], 'F.vs_xr': ['c', 'f'] } as const;
+const ACTS = {
+  'F.cbet': ['b450', 'b198', 'c'],
+  'F.vs_b33': ['b594', 'c', 'f'],
+  'F.vs_b75': ['c', 'f'],
+  'F.vs_xr': ['c', 'f'],
+} as const;
 
 /** Synthetic board data: every hand not blocked on the board gets a distinct, recognisable row (hand index encoded in the first action). */
-function syntheticBoard(board: string, undefinedHands: Set<number> = new Set()): SolvedFlopBoardData {
+function syntheticBoard(
+  board: string,
+  undefinedHands: Set<number> = new Set()
+): SolvedFlopBoardData {
   const blocked = new Set(board.match(/../g)!);
   const nodes: SolvedFlopBoardData['nodes'] = {};
-  for (const [name, actions] of Object.entries(ACTS) as Array<[keyof typeof ACTS, readonly string[]]>) {
+  for (const [name, actions] of Object.entries(ACTS) as Array<
+    [keyof typeof ACTS, readonly string[]]
+  >) {
     const A = actions.length;
     const q = new Uint16Array(1326 * A);
     COMBO_CARDS.forEach(([a, b], h) => {
@@ -113,7 +137,7 @@ describe('suit-isomorphic boards map exactly', () => {
     expect(rankMap(a, b)).toEqual([...Array(13).keys()]);
     const sm = suitMap(a, b);
     const blocked = new Set(a.match(/../g)!);
-    const libOnly = (a.match(/../g)!.every((c) => sm[c[1]] !== undefined));
+    const libOnly = a.match(/../g)!.every((c) => sm[c[1]] !== undefined);
     expect(libOnly).toBe(true);
     for (let h = 0; h < 1326; h++) {
       const [c1, c2] = COMBO_CARDS[h];
@@ -130,7 +154,13 @@ describe('suit-isomorphic boards map exactly', () => {
   });
   it('lookup on an isomorphic board returns the library row of the isomorphic hand', () => {
     loadSolvedFlopLibrary(lib([syntheticBoard('Qd6s5h')]));
-    const ans = solvedFlopLookup({ tableType: TT, flop: 'Qc6h5s', node: 'F.cbet', hole: ['Ah', 'Kc'], env: ON })!;
+    const ans = solvedFlopLookup({
+      tableType: TT,
+      flop: 'Qc6h5s',
+      node: 'F.cbet',
+      hole: ['Ah', 'Kc'],
+      env: ON,
+    })!;
     expect(ans.distance).toBe(0);
     expect(ans.rule).toBe('direct');
     expect(ans.libraryBoard).toBe('Qd6s5h');
@@ -150,7 +180,9 @@ describe('distance choice', () => {
     expect(nearestLibraryBoards(TT, 'Kd9h4s', 1)[0].board).toBe('Kc9h5s');
   });
   it('prefers the nearer board and breaks ties by board string', () => {
-    loadSolvedFlopLibrary(lib([syntheticBoard('Kc9h5s'), syntheticBoard('Qc6h5s'), syntheticBoard('Kc9h4s')]));
+    loadSolvedFlopLibrary(
+      lib([syntheticBoard('Kc9h5s'), syntheticBoard('Qc6h5s'), syntheticBoard('Kc9h4s')])
+    );
     const r = nearestLibraryBoards(TT, 'Kd9s5h', 3);
     expect(r[0]).toEqual({ board: 'Kc9h5s', distance: 0 });
     expect(r[1].distance).toBeGreaterThan(0);
@@ -161,35 +193,105 @@ describe('distance choice', () => {
 describe('dormant by default; falls back to the existing path', () => {
   it('flag off: null even with a library loaded', () => {
     loadSolvedFlopLibrary(lib([syntheticBoard('Kc9h5s')]));
-    expect(solvedFlopLookup({ tableType: TT, flop: 'Kc9h5s', node: 'F.cbet', hole: ['Ah', 'Ad'], env: OFF })).toBeNull();
-    expect(solvedFlopLookup({ tableType: TT, flop: 'Kc9h5s', node: 'F.cbet', hole: ['Ah', 'Ad'], env: { SOLVED_FLOP_LIBRARY_ENABLED: 'true' } })).toBeNull();
+    expect(
+      solvedFlopLookup({
+        tableType: TT,
+        flop: 'Kc9h5s',
+        node: 'F.cbet',
+        hole: ['Ah', 'Ad'],
+        env: OFF,
+      })
+    ).toBeNull();
+    expect(
+      solvedFlopLookup({
+        tableType: TT,
+        flop: 'Kc9h5s',
+        node: 'F.cbet',
+        hole: ['Ah', 'Ad'],
+        env: { SOLVED_FLOP_LIBRARY_ENABLED: 'true' },
+      })
+    ).toBeNull();
   });
   it('flag on but no library, other table type, out of distance, or no same structure: null', () => {
-    expect(solvedFlopLookup({ tableType: TT, flop: 'Kc9h5s', node: 'F.cbet', hole: ['Ah', 'Ad'], env: ON })).toBeNull();
+    expect(
+      solvedFlopLookup({
+        tableType: TT,
+        flop: 'Kc9h5s',
+        node: 'F.cbet',
+        hole: ['Ah', 'Ad'],
+        env: ON,
+      })
+    ).toBeNull();
     loadSolvedFlopLibrary(lib([syntheticBoard('Kc9h5s')], 10));
-    expect(solvedFlopLookup({ tableType: 'other', flop: 'Kc9h5s', node: 'F.cbet', hole: ['Ah', 'Ad'], env: ON })).toBeNull();
-    expect(solvedFlopLookup({ tableType: TT, flop: '4c3h2s', node: 'F.cbet', hole: ['Ah', 'Ad'], env: ON })).toBeNull();
-    expect(solvedFlopLookup({ tableType: TT, flop: 'Kc9c5s', node: 'F.cbet', hole: ['Ah', 'Ad'], env: ON })).toBeNull();
-    expect(solvedFlopLookup({ tableType: TT, flop: 'Kc9h5s', node: 'F.cbet', hole: ['Kc', 'Ad'], env: ON })).toBeNull(); // blocked hole card
-    expect(solvedFlopLookup({ tableType: TT, flop: 'Kc9h5s', node: 'F.cbet', hole: ['Ah', 'Ad'], env: ON })).not.toBeNull();
+    expect(
+      solvedFlopLookup({
+        tableType: 'other',
+        flop: 'Kc9h5s',
+        node: 'F.cbet',
+        hole: ['Ah', 'Ad'],
+        env: ON,
+      })
+    ).toBeNull();
+    expect(
+      solvedFlopLookup({
+        tableType: TT,
+        flop: '4c3h2s',
+        node: 'F.cbet',
+        hole: ['Ah', 'Ad'],
+        env: ON,
+      })
+    ).toBeNull();
+    expect(
+      solvedFlopLookup({
+        tableType: TT,
+        flop: 'Kc9c5s',
+        node: 'F.cbet',
+        hole: ['Ah', 'Ad'],
+        env: ON,
+      })
+    ).toBeNull();
+    expect(
+      solvedFlopLookup({
+        tableType: TT,
+        flop: 'Kc9h5s',
+        node: 'F.cbet',
+        hole: ['Kc', 'Ad'],
+        env: ON,
+      })
+    ).toBeNull(); // blocked hole card
+    expect(
+      solvedFlopLookup({
+        tableType: TT,
+        flop: 'Kc9h5s',
+        node: 'F.cbet',
+        hole: ['Ah', 'Ad'],
+        env: ON,
+      })
+    ).not.toBeNull();
   });
   it('the hook returns the existing path untouched when the lookup does not answer', () => {
     const existing = { source: 'existing' };
     let calls = 0;
-    const out = solvedFlopAdviceOr({ tableType: TT, flop: 'Kc9h5s', node: 'F.cbet', hole: ['Ah', 'Ad'], env: OFF }, () => {
-      calls++;
-      return existing;
-    });
+    const out = solvedFlopAdviceOr(
+      { tableType: TT, flop: 'Kc9h5s', node: 'F.cbet', hole: ['Ah', 'Ad'], env: OFF },
+      () => {
+        calls++;
+        return existing;
+      }
+    );
     expect(out).toBe(existing);
     expect(calls).toBe(1);
   });
   it('the hook serves the lookup only when it answers', () => {
     loadSolvedFlopLibrary(lib([syntheticBoard('Kc9h5s')]));
     let calls = 0;
-    const out = solvedFlopAdviceOr({ tableType: TT, flop: 'Kc9h5s', node: 'F.cbet', hole: ['Ah', 'Ad'], env: ON }, () => {
-      calls++;
-      return null;
-    });
+    const out = solvedFlopAdviceOr(
+      { tableType: TT, flop: 'Kc9h5s', node: 'F.cbet', hole: ['Ah', 'Ad'], env: ON },
+      () => {
+        calls++;
+        return null;
+      }
+    );
     expect(calls).toBe(0);
     expect(out).toMatchObject({ source: 'solved_flop_library', libraryBoard: 'Kc9h5s' });
   });
@@ -200,13 +302,25 @@ describe('undefined rows: neighbour then range mean', () => {
     const live = 'Kc9h5s';
     const target = comboIndex('Ah', 'Ad');
     loadSolvedFlopLibrary(lib([syntheticBoard(live, new Set([target]))]));
-    const a = solvedFlopLookup({ tableType: TT, flop: live, node: 'F.cbet', hole: ['Ah', 'Ad'], env: ON })!;
+    const a = solvedFlopLookup({
+      tableType: TT,
+      flop: live,
+      node: 'F.cbet',
+      hole: ['Ah', 'Ad'],
+      env: ON,
+    })!;
     expect(a.rule).toBe('neighbour');
     expect(COMBO_CARDS[handOf(a.frequencies)].map((c) => c[0])).toEqual(['Q', 'Q']); // AA -> nearest defined pair below, same suits
     clearSolvedFlopLibraries();
     const all = new Set([...Array(1326).keys()]);
     loadSolvedFlopLibrary(lib([syntheticBoard(live, all)]));
-    const b = solvedFlopLookup({ tableType: TT, flop: live, node: 'F.cbet', hole: ['Ah', 'Ad'], env: ON })!;
+    const b = solvedFlopLookup({
+      tableType: TT,
+      flop: live,
+      node: 'F.cbet',
+      hole: ['Ah', 'Ad'],
+      env: ON,
+    })!;
     expect(b.rule).toBe('mean');
     expect(b.frequencies).toEqual([1 / 3, 1 / 3, 1 / 3]);
   });
@@ -218,7 +332,9 @@ describe('format, cost and memory budget', () => {
     const back = decodeSolvedFlopLibrary(encodeSolvedFlopLibrary(data));
     expect(back.tableType).toBe(TT);
     expect(back.boards.map((b) => b.board)).toEqual(['Kc9h5s', 'QhQd2h']);
-    expect(Array.from(back.boards[1].nodes['F.vs_b33']!.q)).toEqual(Array.from(data.boards[1].nodes['F.vs_b33']!.q));
+    expect(Array.from(back.boards[1].nodes['F.vs_b33']!.q)).toEqual(
+      Array.from(data.boards[1].nodes['F.vs_b33']!.q)
+    );
     expect(() => decodeSolvedFlopLibrary(Buffer.from('nope'))).toThrow();
   });
   it('payload is 26,520 bytes per board (four nodes, ten actions); all 1,755 classes fit a 64 MB budget', () => {
@@ -229,9 +345,18 @@ describe('format, cost and memory budget', () => {
   });
   it('a lookup is synchronous and the module does no I/O', () => {
     loadSolvedFlopLibrary(lib([syntheticBoard('Kc9h5s')]));
-    const r = solvedFlopLookup({ tableType: TT, flop: 'Kd9s4h', node: 'F.vs_xr', hole: ['Ah', 'Ad'], env: ON });
+    const r = solvedFlopLookup({
+      tableType: TT,
+      flop: 'Kd9s4h',
+      node: 'F.vs_xr',
+      hole: ['Ah', 'Ad'],
+      env: ON,
+    });
     expect(r).not.toBeInstanceOf(Promise);
-    const src = readFileSync(fileURLToPath(new URL('./SolvedFlopLibrary.ts', import.meta.url)), 'utf8');
+    const src = readFileSync(
+      fileURLToPath(new URL('./SolvedFlopLibrary.ts', import.meta.url)),
+      'utf8'
+    );
     expect(src).not.toMatch(/^import /m);
     expect(src).not.toMatch(/\bawait\b|\bfetch\(|supabase|node:fs|readFileSync/);
   });
@@ -250,7 +375,169 @@ describe('format, cost and memory budget', () => {
         }
     loadSolvedFlopLibrary(lib(boards));
     const t0 = performance.now();
-    for (let n = 0; n < 200; n++) solvedFlopLookup({ tableType: TT, flop: 'Kd8s4h', node: 'F.cbet', hole: ['Ah', 'Ad'], env: ON });
+    for (let n = 0; n < 200; n++)
+      solvedFlopLookup({
+        tableType: TT,
+        flop: 'Kd8s4h',
+        node: 'F.cbet',
+        hole: ['Ah', 'Ad'],
+        env: ON,
+      });
     expect((performance.now() - t0) / 200).toBeLessThan(5);
+  });
+});
+
+describe('end-to-end parity with the exporter and the planner lookup (b4_export.encode + b4_lib.lookup_table)', () => {
+  const lv = JSON.parse(
+    readFileSync(
+      fileURLToPath(new URL('./SolvedFlopLibrary.lookup-vectors.json', import.meta.url)),
+      'utf8'
+    )
+  ) as {
+    maxDistance: number;
+    library_sfl1_gzip_base64: string;
+    library_sfl1_bytes: number;
+    rules: Record<string, number>;
+    cases: Array<{
+      flop: string;
+      node: 'F.cbet' | 'F.vs_b33' | 'F.vs_b75' | 'F.vs_xr';
+      hole: [string, string];
+      expect: null | {
+        libraryBoard: string;
+        distance: number;
+        rule: string;
+        actions: string[];
+        frequencies: number[];
+      };
+    }>;
+  };
+  it('every rule is exercised by the pinned cases', () => {
+    for (const r of ['direct', 'split', 'neighbour', 'mean', 'null'])
+      expect(lv.rules[r]).toBeGreaterThan(0);
+  });
+  it('the Python-encoded SFL1 file decodes, loads and answers every case exactly as the planner does', () => {
+    const raw = gunzipSync(Buffer.from(lv.library_sfl1_gzip_base64, 'base64'));
+    expect(raw.length).toBe(lv.library_sfl1_bytes);
+    const data = decodeSolvedFlopLibrary(raw);
+    expect(data.maxDistance).toBe(lv.maxDistance);
+    loadSolvedFlopLibrary(data);
+    let n = 0;
+    for (const c of lv.cases) {
+      const got = solvedFlopLookup({
+        tableType: data.tableType,
+        flop: c.flop,
+        node: c.node,
+        hole: c.hole,
+        env: ON,
+      });
+      if (c.expect === null) {
+        expect(got, `${c.flop} ${c.node} ${c.hole.join('')}`).toBeNull();
+        continue;
+      }
+      expect(got, `${c.flop} ${c.node} ${c.hole.join('')}`).not.toBeNull();
+      expect(got!.libraryBoard).toBe(c.expect.libraryBoard);
+      expect(got!.distance).toBeCloseTo(c.expect.distance, 9);
+      expect(got!.rule).toBe(c.expect.rule);
+      expect(got!.actions).toEqual(c.expect.actions);
+      got!.frequencies.forEach((v, i) =>
+        expect(Math.abs(v - c.expect!.frequencies[i])).toBeLessThanOrEqual(1 / 65535)
+      );
+      n++;
+    }
+    expect(n).toBeGreaterThan(300);
+  });
+});
+
+describe('dormant: not reachable from any live path', () => {
+  it('no engine source outside this folder imports the module or reads its flag', () => {
+    const here = fileURLToPath(new URL('.', import.meta.url));
+    const srcRoot = fileURLToPath(new URL('../../', import.meta.url));
+    const hits: string[] = [];
+    const walk = (dir: string): void => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name);
+        if (e.isDirectory()) {
+          if (e.name === 'node_modules' || p.startsWith(here.replace(/[\\/]$/, ''))) continue;
+          walk(p);
+        } else if (/\.(m?[jt]s|tsx)$/.test(e.name)) {
+          const t = readFileSync(p, 'utf8');
+          if (
+            /solvedFlopLibrary|solvedFlopHook|SOLVED_FLOP_LIBRARY_ENABLED|solvedFlopLookup|solvedFlopAdviceOr/.test(
+              t
+            )
+          )
+            hits.push(relative(srcRoot, p));
+        }
+      }
+    };
+    walk(srcRoot);
+    expect(hits).toEqual([]);
+  });
+  it('with no env passed, the process flag decides, and it is off by default', () => {
+    expect(process.env.SOLVED_FLOP_LIBRARY_ENABLED).toBeUndefined();
+    loadSolvedFlopLibrary(lib([syntheticBoard('Kc9h5s')]));
+    expect(
+      solvedFlopLookup({ tableType: TT, flop: 'Kc9h5s', node: 'F.cbet', hole: ['Ah', 'Ad'] })
+    ).toBeNull();
+    const existing = { source: 'existing' };
+    expect(
+      solvedFlopAdviceOr(
+        { tableType: TT, flop: 'Kc9h5s', node: 'F.cbet', hole: ['Ah', 'Ad'] },
+        () => existing
+      )
+    ).toBe(existing);
+  });
+  it('a failure inside the lookup never reaches the caller: the hook keeps the existing path', () => {
+    const board = syntheticBoard('Kc9h5s');
+    loadSolvedFlopLibrary(lib([board]));
+    // corrupt the indexed data after load, so the lookup itself fails mid-decision
+    (board.nodes as Record<string, unknown>)['F.cbet'] = {
+      actions: ['c'],
+      q: null,
+      rangeMean: [1],
+    };
+    expect(() =>
+      solvedFlopLookup({
+        tableType: TT,
+        flop: 'Kc9h5s',
+        node: 'F.cbet',
+        hole: ['Ah', 'Ad'],
+        env: ON,
+      })
+    ).not.toThrow();
+    expect(
+      solvedFlopLookup({
+        tableType: TT,
+        flop: 'Kc9h5s',
+        node: 'F.cbet',
+        hole: ['Ah', 'Ad'],
+        env: ON,
+      })
+    ).toBeNull();
+    const existing = { source: 'existing' };
+    expect(
+      solvedFlopAdviceOr(
+        { tableType: TT, flop: 'Kc9h5s', node: 'F.cbet', hole: ['Ah', 'Ad'], env: ON },
+        () => existing
+      )
+    ).toBe(existing);
+  });
+  it('malformed library data is refused at load time', () => {
+    const good = syntheticBoard('Kc9h5s');
+    const badMean: SolvedFlopBoardData = {
+      board: 'Qc6h5s',
+      nodes: { 'F.cbet': { ...good.nodes['F.cbet']!, rangeMean: [1] } },
+    };
+    expect(() => loadSolvedFlopLibrary(lib([badMean]))).toThrow(/rangeMean/);
+    const badNode = {
+      board: 'Qc6h5s',
+      nodes: { 'F.turn': good.nodes['F.cbet'] },
+    } as unknown as SolvedFlopBoardData;
+    expect(() => loadSolvedFlopLibrary(lib([badNode]))).toThrow(/unknown node/);
+    expect(() => loadSolvedFlopLibrary({ ...lib([good]), weights: { r0: -1 } })).toThrow(/weight/);
+    expect(() => loadSolvedFlopLibrary({ ...lib([good]), maxDistance: Number.NaN })).toThrow(
+      /maxDistance/
+    );
+    expect(solvedFlopLibraryBytes(TT)).toBe(0);
   });
 });
