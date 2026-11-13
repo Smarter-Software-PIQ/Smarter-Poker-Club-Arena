@@ -21,6 +21,61 @@ export const LIGHTNING_HORSE_SEEDED: ReadonlySet<string> = new Set(
     (game) => game.id
   ) ?? []
 );
+/**
+ * A SEEDED LIGHTNING GAME STARTS FIRST (Dan 2026-11-13 14:56 Chicago).
+ *
+ * "THE 1/2 HORSES NEED TO BE PLAYING THE 1/2 LIGHTNING FOR HOLDEM AND PLO AND
+ * WE NEED TO GET THE .50/1.00 LIGHTNING RUNNING FOR HOLDEM AND PLO."
+ *
+ * Being allowed to sit is not the same as being seated. The seeding walk
+ * ranks an occupied Main 1 ahead of an empty one and every feeder last, and
+ * since the player curve became a seat ceiling the walk stops when the host
+ * is at it. Measured 15:10 Chicago: Lightning PLO4 .50/1 held one table, a
+ * feeder, so it stood behind every other chair on the floor, and the four
+ * seeded Main 1 tables stood behind every occupied Main 1.
+ *
+ * Until a horse-seeded Lightning game holds one full ring, ONE of its tables
+ * (the fullest, then a Main before a feeder, then the lowest id) is seated
+ * ahead of the ordinary order, beside an opening feeder. One table, so the
+ * game forms one full ring that can turn into Lightning rather than several
+ * thin feeders. The seat ceiling, the work schedule, bankroll and every other
+ * admission rule still apply: this changes the order only.
+ */
+export const LIGHTNING_STARTER_PLAYERS = 6;
+export function lightningStarterTables(
+  tables: ReadonlyArray<CashPlanTable>,
+  seatedAt: (tableId: string) => number,
+  seeded: ReadonlySet<string> = LIGHTNING_HORSE_SEEDED
+): ReadonlySet<string> {
+  const count = (t: CashPlanTable): number => {
+    const n = seatedAt(String(t.id ?? ''));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  };
+  const byGame = new Map<string, CashPlanTable[]>();
+  for (const t of tables) {
+    if (typeof t.id !== 'string' || typeof t.cluster_id !== 'string') continue;
+    if (!seeded.has(t.cluster_id)) continue;
+    if (t.lifecycle === 'closed' || t.lifecycle === 'breaking') continue;
+    const list = byGame.get(t.cluster_id) ?? [];
+    list.push(t);
+    byGame.set(t.cluster_id, list);
+  }
+  const out = new Set<string>();
+  for (const list of byGame.values()) {
+    const total = list.reduce((sum, t) => sum + count(t), 0);
+    if (total >= LIGHTNING_STARTER_PLAYERS) continue;
+    const first = [...list].sort(
+      (a, b) =>
+        count(b) - count(a) ||
+        Number(a.role !== 'main') - Number(b.role !== 'main') ||
+        Number(a.main_index ?? 999) - Number(b.main_index ?? 999) ||
+        String(a.id).localeCompare(String(b.id))
+    )[0];
+    if (first) out.add(String(first.id));
+  }
+  return out;
+}
+
 const chicagoClock = new Intl.DateTimeFormat('en-US', {
   timeZone: plan.timeZone,
   weekday: 'short',
