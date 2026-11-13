@@ -1460,6 +1460,17 @@
       "migrations": [
         "20261112151009_rebuy_and_addon_stack_invariants_survive_registered_updates.sql"
       ]
+    },
+    {
+      "id": "2026-11-13-rebuy-invariant-db-0220z",
+      "ownerOrder": "Dan directly in Codex chat 01a1d045-0813-7122-8b4d-a129439e84d1 on November12,2026 answered the specific follow-up after original database run43336881677 rolled back with55P03 and thawed107tables, verbatim: \"Authorize one additional protected window\". The question named the permanently corrected, tested and protected-merged PR10666 and an installation no earlier than20:20Chicago tonight after the notice lead. This NEW single-use database-only operation installs exactly the corrected migration below through stage-engine-release.yml request_engine_release=false, request_database_break=true and the maintained installer. Original consumed booking2026-11-12-rebuy-invariant-db-2220z, SQL hash, refusal and terminal receipt remain unchanged and are never reused. Preserve unchanged sealed engine SHA/image/instance, original operation identity, no active release/pending/finalization owner, source and engine mutation locks, rolling-hour spacing, actual twenty-minute primary public notice,120-second last-hand lead, hand-boundary drain, durable freeze, full285-second admission reserve,150-second installer opening and100-second commit reserve,1-second lock/5-second statement/8-second transaction budgets, first-refusal stop and verified originalv3thaw. The preceding database notice remains primary until02:00UTC; admit only after this new notice has actually been primary for20minutes. Read installed history and original outcomes first; never replay installed or unknown SQL. One operation and one attempt. No engine replacement, payment, reversal, resurrection, tournament-start hold, watcher, automatic retry, renewal or extension. The rebuy chat retains operation and verification ownership.",
+      "contains": "5259c8693df4f55b809d868ef163daaabdc098af",
+      "playerNoticeAt": "2026-11-13T02:00:00Z",
+      "notBefore": "2026-11-13T02:20:00Z",
+      "notAfter": "2026-11-13T06:00:00Z",
+      "migrations": [
+        "20261112151009_rebuy_and_addon_stack_invariants_survive_registered_updates.sql"
+      ]
     }
   ]
 }
