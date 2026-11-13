@@ -265,6 +265,45 @@ describe('actual Horse telemetry flush service', () => {
       { feature: 'phase15_telemetry_batch_expired', fires: 1 },
     ]);
   });
+  it('counts and reports a batch the writer refuses by its bytes, and the counter reaches the next write', async () => {
+    const { telemetry } = await start();
+    mocked.rpc.mockImplementationOnce(() => ({
+      abortSignal: () =>
+        Promise.resolve({
+          data: null,
+          error: { code: 'P0001', message: 'HORSE_FLUSH_INVALID_BOUNDS' },
+        }),
+    }));
+    telemetry.noteFire('refused_counter');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mocked.report).toHaveBeenCalledWith(expect.any(Error), 'BrainTelemetryFlush.rejected');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(JSON.parse(mocked.rpc.mock.calls[1][1].p_payload).fires).toEqual([
+      { feature: 'phase15_telemetry_batch_rejected', fires: 1 },
+    ]);
+  });
+  it('counts and reports a batch abandoned at the attempt cap, and the counter reaches the next write', async () => {
+    const { telemetry } = await start();
+    const { HORSE_TELEMETRY_MAX_ATTEMPTS } = await import('./HorseBrainTelemetryPublisher.js');
+    let calls = 0;
+    mocked.rpc.mockImplementation((_name, args) => ({
+      abortSignal: () =>
+        calls++ < HORSE_TELEMETRY_MAX_ATTEMPTS
+          ? Promise.resolve({ data: null, error: { message: 'network' } })
+          : Promise.resolve(ack(args.p_payload)),
+    }));
+    telemetry.noteFire('stuck_counter');
+    await vi.advanceTimersByTimeAsync(60_000 * HORSE_TELEMETRY_MAX_ATTEMPTS);
+    expect(calls).toBe(HORSE_TELEMETRY_MAX_ATTEMPTS);
+    expect(mocked.report).toHaveBeenCalledWith(expect.any(Error), 'BrainTelemetryFlush.abandoned');
+    await vi.advanceTimersByTimeAsync(60_000);
+    const last = JSON.parse(mocked.rpc.mock.calls.at(-1)![1].p_payload);
+    expect(
+      last.fires.find((f: { feature: string }) => f.feature === 'phase15_telemetry_batch_abandoned')
+    ).toEqual({ feature: 'phase15_telemetry_batch_abandoned', fires: 1 });
+    // the abandoned batch's own counter is the evidence gap: it is not resent
+    expect(last.fires.some((f: { feature: string }) => f.feature === 'stuck_counter')).toBe(false);
+  });
   it('does not write empty batches or schedule writes after stopping', async () => {
     const { service, telemetry } = await start();
     await vi.advanceTimersByTimeAsync(60_000);

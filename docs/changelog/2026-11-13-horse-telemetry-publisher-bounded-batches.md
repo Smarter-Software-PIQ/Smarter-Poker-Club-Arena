@@ -14,8 +14,17 @@ Measurement path only: no decision, wager, think time, queue or deadline changes
 
 Both are receipts with no floor. A zero is the normal state. Any positive value on a day means that day's counters are incomplete for the worker that fired it; the daily audit's totals for that day are a lower bound, and a rate computed from them is not valid for that worker's share.
 
+## Limits, Stated
+
+- Abandonment is a new, counted loss for an in-bounds batch: during a database outage longer than an hour, one batch (the first minute of the outage) is dropped per hour, where the old publisher would have confirmed it afterwards. Everything behind it stays in the accumulators and publishes after the outage. The cap is kept because a refusal outside the twelve named errors (a cast or overflow error) would otherwise stall the worker exactly as before.
+- A split capture drains one batch per 60-second flush, and no new capture is taken until the queue is empty. A capture at the full key cap (17 batches) takes about 17 minutes to land; its batches carry the capture's own `collectedAt` and `day`.
+- Shutdown: the telemetry stop can use up to 20 seconds when writes are slow but succeeding (15 before). With the 12-second between-hands drain ahead of it, the worst case is about 32 of the engine's 40-second graceful deadline. A failed write still stops the loop at once and rejects the stop, as on main.
+- A `rejected` or `abandoned` counter noted during the final shutdown capture is not itself flushed; the operator error report is the record for that case.
+
 ## Regression
 
 - `HorseBrainTelemetryPublisher.split.test.ts`: a capture above each bound splits inside it and every counter is written exactly once; a deterministic refusal drops only that batch and the next one publishes; a batch unconfirmed for the attempt cap is abandoned and newer counters publish; a thrown send is retried with the same bytes.
-- `BrainTelemetryFlush.test.ts`: shutdown writes a split capture to its end inside the count and time bounds and reports what it could not write.
+- `HorseBrainTelemetryPublisher.split.test.ts` also: the 256 latency-row bound splits without loss; an acknowledgement that stays invalid is abandoned at the cap; attempts are counted per batch.
+- `BrainTelemetryFlush.test.ts`: shutdown writes a split capture to its end inside the count and time bounds and reports what it could not write; a rejected and an abandoned batch each raise their operator report and their counter reaches the next write.
+- Independent exact-head review of e7a6f958: ACCEPT WITH NOTES. Its five surviving mutants (the two counter fires, the invalid-acknowledgement abandon, the latency bound, per-batch attempts) are now each killed by a test.
 - `HorseDataLedger`: two receipt rows, so the ledger law that every fired key is declared holds.
