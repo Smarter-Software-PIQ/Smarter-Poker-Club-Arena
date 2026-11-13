@@ -3235,8 +3235,13 @@ export class LightningHandHost {
           .filter((p) => (p.returnedUncalled ?? 0) > 0)
           .map((p) => [p.user_id, cents(p.returnedUncalled ?? 0)])
       ),
-      has_human: [...this.participants.values()].some((p) => !p.isHorse),
+      has_human: this.hasHumanParticipant(),
     };
+  }
+
+  /** One definition of "a human is dealt in": the persisted has_human flag and the style learner read the same value. */
+  private hasHumanParticipant(): boolean {
+    return [...this.participants.values()].some((p) => !p.isHorse);
   }
 
   /** LightningHandFacts: the accepted-hand stats payload, keyed by this hand's id. */
@@ -3350,7 +3355,7 @@ export class LightningHandHost {
         variant: String(rules.game_variant || 'nlh'),
         bigBlind: Number(rules.big_blind) || 2,
         dealtCount: state.players.length,
-        hasHuman: [...this.participants.values()].some((p) => !p.isHorse),
+        hasHuman: this.hasHumanParticipant(),
         actions: acceptedActions,
         showdown: this.showdown,
         ...(results ? { results } : {}),

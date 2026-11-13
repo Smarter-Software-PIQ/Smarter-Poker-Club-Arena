@@ -59,6 +59,7 @@ import type { ReturnedRosterTransport } from '../horseAcceptedRoster/contract.js
  * maintenance lock, the lease proof, a lock timeout, a replayable postcommit)
  * is transient and keeps the ordinary retry.
  */
+
 export const RETAINED_HAND_STANDING_REFUSALS: ReadonlySet<string> = new Set([
   'HAND_SUBMISSION_TABLE_NOT_ADMITTED',
   'HAND_SUBMISSION_HANDOFF_STATE_CHANGED',
@@ -748,6 +749,11 @@ export async function logHandHistory(params: {
   stackResult?: Record<string, unknown>;
   publicStatsFrame?: Record<string, unknown>;
 }> {
+  // One definition of "a human is dealt in" for this hand: the persisted has_human flag and the
+  // style learner read the same value. Undefined when the roster is unknown (never asserted false).
+  const rosterHasHuman: boolean | undefined = params.roster
+    ? params.roster.some((p) => !p.isHorse)
+    : undefined;
   // Round 38 fix: stamp started_at/ended_at + RETURNING id so the caller
   // can FK rake_records.hand_id back to this hand_history row.
   const startedAtIso = params.startedAt
@@ -885,7 +891,7 @@ export async function logHandHistory(params: {
     // been deleting human hands along with the horse traffic it was aimed at.
     // Undefined (not false) when the caller cannot tell us, so we never assert
     // "no humans here" on a hand we simply have no roster for.
-    ...(params.roster ? { has_human: params.roster.some((p) => !p.isHorse) } : {}),
+    ...(rosterHasHuman === undefined ? {} : { has_human: rosterHasHuman }),
   };
 
   const factsInput: HandFactsInput | null =
@@ -1092,7 +1098,7 @@ export async function logHandHistory(params: {
         ? { styleMemoryMode: params.tournamentId ? ('tournament' as const) : ('cash' as const) }
         : {}),
       // F2: the persisted has_human value (absent when the roster is unknown, as the row omits it)
-      ...(params.roster ? { styleHasHuman: params.roster.some((p) => !p.isHorse) } : {}),
+      ...(rosterHasHuman === undefined ? {} : { styleHasHuman: rosterHasHuman }),
       durableOpponentProfiles,
       generation: params.handNumber,
       fence: [
