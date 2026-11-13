@@ -338,7 +338,7 @@ describe('gear change and bounty boundary, through decide()', () => {
   });
   it('bounty tournaments: #2 stands down for a value bettor above AF 2.5', () => {
     const spot = turnPotBet('tournament');
-    (spot.gs.tournament as Record<string, unknown>).bountyFactor = 1.5;
+    (spot.gs.tournament as Record<string, unknown>).bountyFactor = 0.5;
     install(valueAggressor(), 'tournament');
     supply(120);
     const off = decide(spot);
@@ -350,7 +350,7 @@ describe('gear change and bounty boundary, through decide()', () => {
   });
   it('bounty tournaments: no style consumer acts (bounty utility is not in the read)', () => {
     for (const spot of ALL_SPOTS('tournament')) {
-      (spot.gs.tournament as Record<string, unknown>).bountyFactor = 1.5;
+      (spot.gs.tournament as Record<string, unknown>).bountyFactor = 0.5;
       install(VILLAINS.grinder!, 'tournament');
       supply(120);
       const off = decide(spot);
@@ -388,5 +388,19 @@ describe('H1 (review 2026-11-13): other-format and other-variant evidence moves 
     HorseMind.setDecisionScope('holdem:full', 'nlh', 'cash');
     expect(HorseMind.styleRead(VILLAIN).signals.shownBySize.large.shown).toBe(20);
     HorseMind.setDecisionScope(null);
+  });
+});
+
+describe('bounty guard reads bountyFactor as the bounty share (0 = regular event)', () => {
+  it('a regular tournament context with bountyFactor 0 is not a bounty: the consumers act', () => {
+    const spot = preflopOpen('tournament', 'KhJd');
+    (spot.gs.tournament as Record<string, unknown>).bountyFactor = 0;
+    install(VILLAINS.grinder!, 'tournament');
+    supply(120);
+    expect(decide(spot, { styleTightReRaiserRespect: true }).fires.style_tight_opener_respect_seen).toBeGreaterThan(0);
+    (spot.gs.tournament as Record<string, unknown>).bountyFactor = 0.5;
+    install(VILLAINS.grinder!, 'tournament');
+    supply(120);
+    expect(decide(spot, { styleTightReRaiserRespect: true }).fires.style_tight_opener_respect_seen ?? 0).toBe(0);
   });
 });

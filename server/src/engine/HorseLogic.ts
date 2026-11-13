@@ -225,7 +225,8 @@ function styleBountyContext(
 ): boolean {
   return (
     !!t &&
-    ((t.bountyFactor ?? 1) !== 1 ||
+    // bountyFactor is the pool share in bounties: 0 is a regular event (TournamentBrainContext), > 0 a bounty.
+    ((t.bountyFactor ?? 0) > 0 ||
       (t.bountyPoolCents ?? 0) > 0 ||
       (t.meanBountyCents ?? 0) > 0 ||
       (t.mysteryChestsLeft ?? 0) > 0 ||
