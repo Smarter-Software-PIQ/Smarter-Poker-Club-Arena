@@ -24,7 +24,7 @@ export async function checkFixedMobileArtwork(
   // its approval screenshots, without the preceding test's injected poses.
   await page.setViewportSize({ width: 600, height: 1298 });
   // Each case is a fresh device session: no game-type size recorded yet.
-  await page.evaluate(() => sessionStorage.removeItem('sp-mobile-avatar-size-v1'));
+  await page.evaluate(() => localStorage.removeItem('sp-mobile-avatar-size-v1'));
   await page.reload();
   await page.evaluate(() => {
     for (const style of document.querySelectorAll('style'))
@@ -191,7 +191,7 @@ export async function checkFixedMobileArtwork(
     // size this one settled; it is recorded as the displayed height.
     const recorded = await page.evaluate(() =>
       Object.values(
-        JSON.parse(sessionStorage.getItem('sp-mobile-avatar-size-v1') || '{}') as Record<
+        JSON.parse(localStorage.getItem('sp-mobile-avatar-size-v1') || '{}') as Record<
           string,
           number
         >
