@@ -14,6 +14,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   HUMAN_HU_BB_DEFENDS_TO_PRICE,
+  HUMAN_HU_BB_DEFENDS_TO_PRICE_40BB,
   HU_WIDE_SB_AGGRESSOR_PERSONA,
   HUMAN_FIELD_HERO_SEAT,
   HUMAN_FIELD_PAIRS,
@@ -165,5 +166,60 @@ describe('the heads-up human-field card', { timeout: 180_000 }, () => {
     expect(horseLeagueComputeResponseIsValid({ type: 'MATCHUP_RESULT', jobId: 1, result: r })).toBe(
       true
     );
+  });
+});
+
+/**
+ * HU-NLH-001 (2026-11-12): V85 widens the heads-up cash big blind above 50bb
+ * only, so the 80bb cards measure the flag on top of V85. The 40bb pair
+ * measures it in the band the V11 bars still decide.
+ */
+describe('the 40bb heads-up pair (HU-NLH-001)', { timeout: 180_000 }, () => {
+  const mirror = (): LeagueMatchup =>
+    LEAGUE_MATCHUPS.find((m) => m.name === 'hu_bb_defends_to_price_40bb')!;
+  const twin = (): LeagueMatchup =>
+    LEAGUE_MATCHUPS.find((m) => m.name === HUMAN_HU_BB_DEFENDS_TO_PRICE_40BB)!;
+
+  it('is on the nightly card at 40bb with the 80bb pair unchanged', () => {
+    const base = LEAGUE_MATCHUPS.find((m) => m.name === 'hu_bb_defends_to_price')!;
+    expect(base.stackBB).toBe(80);
+    expect(mirror()).toMatchObject({
+      seats: 2,
+      stackBB: 40,
+      pairs: base.pairs,
+      hybridBaseline: true,
+      moodClock: 'deal_seed',
+    });
+    expect(mirror().a).toEqual({ huBbDefendsToPrice: true });
+    expect(mirror().b).toEqual({});
+    expect(twin()).toMatchObject({
+      seats: 2,
+      stackBB: 40,
+      pairs: HUMAN_FIELD_PAIRS,
+      hybridBaseline: true,
+      moodClock: 'deal_seed',
+      opponentPopulation: HUMAN,
+      humanPersona: HU_WIDE_SB_AGGRESSOR_PERSONA,
+    });
+    expect(twin().a).toEqual(mirror().a);
+    expect(twin().b).toEqual(mirror().b);
+    const eighty = LEAGUE_MATCHUPS.find((m) => m.name === HUMAN_HU_BB_DEFENDS_TO_PRICE)!;
+    expect(eighty.stackBB).toBe(80);
+  });
+
+  it('both cards deal a measurement at 40bb: the arms diverge and nothing is illegal', async () => {
+    for (const card of [mirror(), twin()]) {
+      const r = await runMatchup(card, 300, 20261112);
+      expect(r.hands).toBe(600);
+      expect(r.illegalActions).toBe(0);
+      expect(r.truncatedStreets).toBe(0);
+      expect(r.inert).not.toBe(true);
+      expect(r.divergentPairs ?? 0).toBeGreaterThan(0);
+    }
+  });
+
+  it('the flag still defaults off', () => {
+    expect(mirror().b).toEqual({});
+    expect(twin().b).toEqual({});
   });
 });

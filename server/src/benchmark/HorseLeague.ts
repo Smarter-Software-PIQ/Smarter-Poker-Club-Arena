@@ -1764,6 +1764,24 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { huBbDefendsToPrice: true },
     b: {},
   },
+  // 2026-11-12 (HU-NLH-001) THE SAME FLAG WHERE THE FOLD IS STILL MADE. V85
+  // (2026-11-10) widened the heads-up cash big blind above V85_DEPTH_NONE_BB
+  // (50bb) only, so the 80bb card above now measures the flag on top of V85.
+  // At 50bb or less the V11 bars still decide and the big blind folds 58.7%
+  // to a 2bb, 2.5bb or 3bb open alike (real HorseLogic.decide, live cash
+  // Hybrid persona, a3f42a08). 50bb is the cash minimum buy-in. This card
+  // deals 40bb so the nightly league measures the flag in that band. Same
+  // arms, persona and mood clock as the 80bb card; the default is unchanged.
+  {
+    name: 'hu_bb_defends_to_price_40bb',
+    seats: 2,
+    stackBB: 40,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { huBbDefendsToPrice: true },
+    b: {},
+  },
   // 2026-11-07 NASH CALL VS JAM (HorseNashPushFoldV2), default ON: a is
   // today's brain, b the strength bar it replaced. MTT 12bb with a 1bb
   // big-blind ante, six-max and heads-up, the measured spots
@@ -2321,12 +2339,16 @@ for (const name of HUMAN_FIELD_TWINS) {
  * confirms it across runs on both cards.
  */
 export const HUMAN_HU_BB_DEFENDS_TO_PRICE = `${HUMAN_FIELD_NAME_PREFIX}hu_bb_defends_to_price`;
-{
-  const mirror = LEAGUE_MATCHUPS.find((m) => m.name === 'hu_bb_defends_to_price');
-  if (!mirror)
-    throw new Error('hu_bb_defends_to_price left the card; its human twin has no mirror');
+/** The 40bb twin (HU-NLH-001, 2026-11-12): the band V85 leaves on the V11 bars. */
+export const HUMAN_HU_BB_DEFENDS_TO_PRICE_40BB = `${HUMAN_FIELD_NAME_PREFIX}hu_bb_defends_to_price_40bb`;
+for (const [mirrorName, twinName] of [
+  ['hu_bb_defends_to_price', HUMAN_HU_BB_DEFENDS_TO_PRICE],
+  ['hu_bb_defends_to_price_40bb', HUMAN_HU_BB_DEFENDS_TO_PRICE_40BB],
+] as const) {
+  const mirror = LEAGUE_MATCHUPS.find((m) => m.name === mirrorName);
+  if (!mirror) throw new Error(`${mirrorName} left the card; its human twin has no mirror`);
   LEAGUE_MATCHUPS.push({
-    name: HUMAN_HU_BB_DEFENDS_TO_PRICE,
+    name: twinName,
     seats: 2,
     stackBB: mirror.stackBB,
     pairs: HUMAN_FIELD_PAIRS,

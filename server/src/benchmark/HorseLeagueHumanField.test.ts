@@ -75,6 +75,8 @@ const EXPECTED_HUMAN_CARDS: Array<[string, string]> = [
   ['human_full_vs_v2_legacy', 'full_vs_v2_legacy'],
   // 2026-11-07: heads-up, against the hu_wide_sb_aggressor_v1 persona.
   ['human_hu_bb_defends_to_price', 'hu_bb_defends_to_price'],
+  // 2026-11-12 (HU-NLH-001): the same persona at 40bb, the band V85 leaves alone.
+  ['human_hu_bb_defends_to_price_40bb', 'hu_bb_defends_to_price_40bb'],
 ];
 
 afterEach(() => {
