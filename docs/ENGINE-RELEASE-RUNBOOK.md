@@ -58,6 +58,8 @@ proof, rollback and thaw safeguard; the hourly, urgent, degraded and owner
 window replacement exceptions are revoked; a sealed release triggers a fresh
 Backup copy; a failed or missing certificate leaves the current engine running.
 
+**Owner-ordered cutover outside 04:00:** follow `docs/ENGINE-OWNER-WINDOW-CUTOVER-PLAYBOOK.md`, the step order, booking template, input lock, preflight and failure modes from the November 13, 2026 release.
+
 ## 1. Scope and authority
 
 ### 1.1 What an agent does unprompted

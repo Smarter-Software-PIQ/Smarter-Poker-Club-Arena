@@ -622,7 +622,7 @@ describe('CashierTradePage club load ordering', () => {
     // a hidden tab strip and must still expose the named history panel.
     fireEvent.click(screen.getByRole('button', { name: 'Transaction History', exact: true }));
     expect(await screen.findByRole('tabpanel', { name: 'Transaction History' })).toBeVisible();
-    expect(await screen.findByText('Transfer Alice Agent To Bob Player')).toBeInTheDocument();
+    expect(await screen.findByText('Alice Agent Sent To Bob Player')).toBeInTheDocument();
     // The club book's totals are the whole club's, read from the server:
     // one entry, 50 chips moved (the row prints its own 50 too), none paid out.
     expect(await screen.findByText('Chips Moved')).toBeInTheDocument();
@@ -751,7 +751,7 @@ describe('CashierTradePage club load ordering', () => {
       });
     });
     const panel = await openHistory();
-    await within(panel).findByText('Transfer Alice Agent To Bob Player');
+    await within(panel).findByText('Alice Agent Sent To Bob Player');
     fireEvent.click(within(panel).getByRole('button', { name: 'My Transactions' }));
     expect(
       within(panel).queryByRole('button', { name: /^Open Receipt For/ })

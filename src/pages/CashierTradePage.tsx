@@ -118,21 +118,28 @@ import {
   holdsPlayerWallet,
 } from '../components/wallet/walletRows';
 import {
-  cashoutRowTitle,
   describeChipTransaction,
   ledgerDirection,
   presentChipTransaction,
   thirdPartySender,
   walletRoute,
+  ledgerDisplaySign,
+  ledgerRowTitle,
 } from '../components/wallet/describeChipTransaction';
 import { downloadCsv, toCsv } from '../utils/downloadCsv';
 import { cashoutStatusLabel, waitingFor } from '../utils/cashoutStatus';
 import styles from './CashierTradePage.module.css';
 import { playerDisplayName, PLAYER_NAME_COLUMNS } from '../utils/playerDisplayName';
 import {
+  compareCashierRoster,
+  DEFAULT_CASHIER_ROSTER_SORT,
   mapCashierRoster,
+  mapCashierRosterSortKeys,
+  nextCashierRosterSort,
   sortCashierRosterMatches,
   type CashierRosterRpcRow,
+  type CashierRosterSort,
+  type CashierRosterSortKeys,
   type DownlineRow,
 } from '../lib/cashierRoster';
 import { UnionService } from '../services/UnionService';
@@ -243,6 +250,12 @@ interface TradeRecordRow {
    * sent to. Null for every other kind.
    */
   title?: string | null;
+  /**
+   * The sign printed beside the figure (ledgerDisplaySign, Dan 2026-11-13):
+   * the viewer's own rows by direction, a club-book row by the member whose
+   * wallet moved, so a player's cash-out reads -400.
+   */
+  sign?: '+' | '-' | '';
   /** A cash-out leg's request status: pending while it waits for a decision. */
   requestStatus?: string | null;
   requestCreatedAt?: string | null;
@@ -478,6 +491,23 @@ const HISTORY_RANGES: ReadonlyArray<readonly [HistoryRange, string]> = [
   ['all', 'All Dates'],
 ];
 
+/**
+ * What a history filter prints on a phone (Dan 2026-11-13: "TOO MANY WORDS
+ * CUT OFF"). The full name stays the button's accessible name; the face
+ * prints the short word so every chip fits one line at 320px.
+ */
+const HISTORY_CHIP_FACE: Readonly<Record<string, string>> = {
+  'Club Transactions': 'Club',
+  'My Transactions': 'Mine',
+  'My Downline': 'Downline',
+  'Chip Movements': 'All',
+  'All Dates': 'All Time',
+  'All Transactions': 'All',
+  Incoming: 'In',
+  Outgoing: 'Out',
+};
+const chipFace = (label: string): string => HISTORY_CHIP_FACE[label] ?? label;
+
 /** The start of a date range chip, read at the moment of the request. */
 function historyRangeStart(range: HistoryRange, now: Date = new Date()): string | null {
   if (range === 'all') return null;
@@ -603,9 +633,12 @@ function CashierTradeWorkspace() {
   const rosterSearchRef = useRef<HTMLInputElement>(null);
   const [roleFilter, setRoleFilter] = usePlayerPreference('CashierTradePage:roleFilter', 'all');
   const [groupByRole, setGroupByRole] = usePlayerPreference('CashierTradePage:groupByRole', false);
-  const [sortKey, setSortKey] = usePlayerPreference<'recent' | 'balance' | 'name'>(
-    'CashierTradePage:sortKey',
-    'recent'
+  /* Dan 2026-11-13: the roster opens on Last Transaction every visit; the
+  Agent Wallet and Player Wallet buttons beside the result count sort the
+  whole roster High To Low on the first tap and flip on the next. */
+  const [rosterSort, setRosterSort] = useState<CashierRosterSort>(DEFAULT_CASHIER_ROSTER_SORT);
+  const [rosterSortKeys, setRosterSortKeys] = useState<Map<string, CashierRosterSortKeys>>(
+    () => new Map()
   );
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [visibleCount, setVisibleCount] = useState(25);
@@ -1575,7 +1608,8 @@ function CashierTradeWorkspace() {
         : otherName || 'Club',
       twoSided: Boolean(r.to_user_id),
       route: walletRoute(r),
-      title: cashoutRowTitle(r, r.from_name, r.to_name, viewer),
+      title: ledgerRowTitle(r, r.from_name, r.to_name, viewer),
+      sign: ledgerDisplaySign(r, viewer),
       // The receipt's summary prints the receipt's own exact figure, so
       // the sentence and the headline above it never disagree (C1-14).
       narrative: describeChipTransaction(r, nameOf, viewer, (figure) =>
@@ -1898,7 +1932,7 @@ function CashierTradeWorkspace() {
             r.to_name || (r.to_user_id ? 'A Member' : ''),
             (Math.round((Number(r.amount) || 0) * 100) / 100).toFixed(2),
             walletRoute(r) ?? '',
-            cashoutRowTitle(r, r.from_name, r.to_name, viewer) ?? r.notes ?? '',
+            ledgerRowTitle(r, r.from_name, r.to_name, viewer) ?? r.notes ?? '',
             r.invoice_number ?? '',
             cashoutStatusLabel(r.request_status) ?? '',
             r.id,
@@ -2347,7 +2381,7 @@ function CashierTradeWorkspace() {
     [downline]
   );
 
-  const { recentIds, addRecipient } = useRecentRecipients(user?.id, clubUuid, 'cashier');
+  const { addRecipient } = useRecentRecipients(user?.id, clubUuid, 'cashier');
   const [showCashoutRequest, setShowCashoutRequest] = useState(false);
 
   const rosterById = useMemo(() => new Map(downline.map((row) => [row.userId, row])), [downline]);
@@ -2359,15 +2393,7 @@ function CashierTradeWorkspace() {
     // club and nothing on the row said which of them were theirs.
     if (mineOnly) rows = rows.filter((r) => r.isMine);
     if (roleFilter !== 'all') rows = rows.filter((r) => r.role === roleFilter);
-    const bySort = (a: DownlineRow, b: DownlineRow) =>
-      sortKey === 'recent'
-        ? (recentIds.includes(a.userId) ? recentIds.indexOf(a.userId) : Infinity) -
-            (recentIds.includes(b.userId) ? recentIds.indexOf(b.userId) : Infinity) ||
-          b.chipBalance - a.chipBalance ||
-          a.name.localeCompare(b.name)
-        : sortKey === 'balance'
-          ? b.chipBalance - a.chipBalance
-          : a.name.localeCompare(b.name);
+    const bySort = compareCashierRoster(rosterSort, rosterSortKeys);
     // A search is a question about a NAME. Answer it by match quality first
     // (rosterMatchRank), and only then by the chosen sort - a balance sort on
     // a search put the owner, at 0.00, twenty-first behind twenty horses
@@ -2383,7 +2409,37 @@ function CashierTradeWorkspace() {
       rows = [...rows].sort((a, b) => roleRank(b.role as ClubRole) - roleRank(a.role as ClubRole));
     }
     return rows;
-  }, [downline, search, sortKey, groupByRole, mineOnly, roleFilter, recentIds]);
+  }, [downline, search, rosterSort, rosterSortKeys, groupByRole, mineOnly, roleFilter]);
+
+  /* Sort keys for the WHOLE roster (fn_cashier_roster_sort_keys): the agent
+  wallet, player wallet and last cashier transaction of every member in the
+  viewer's scope. Re-read whenever the roster is re-read (after every send,
+  claim or refresh), once its last page has landed. */
+  useEffect(() => {
+    setRosterSortKeys(new Map());
+  }, [clubUuid]);
+  useEffect(() => {
+    if (!clubUuid || !roleResolved || myRole === 'player' || rosterLoadingMore) return;
+    if (downline.length === 0) return;
+    let live = true;
+    void (async () => {
+      const { data, error } = await supabase.rpc('fn_cashier_roster_sort_keys', {
+        p_club_id: clubUuid,
+      });
+      if (!live) return;
+      if (error || !Array.isArray(data)) {
+        reportError(
+          error ?? new Error('Roster Sort Keys Missing'),
+          'CashierTradePage.rosterSortKeys'
+        );
+        return;
+      }
+      setRosterSortKeys(mapCashierRosterSortKeys(data as Array<Record<string, unknown>>));
+    })();
+    return () => {
+      live = false;
+    };
+  }, [clubUuid, roleResolved, myRole, rosterLoadingMore, downline]);
 
   const [rosterWalletBalances, setRosterWalletBalances] = useState<
     Record<string, Partial<Record<SendDestination, number>>>
@@ -2472,7 +2528,7 @@ function CashierTradeWorkspace() {
 
   useEffect(() => {
     setVisibleCount(25);
-  }, [clubUuid, search, mineOnly, groupByRole, sortKey, roleFilter]);
+  }, [clubUuid, search, mineOnly, groupByRole, rosterSort, roleFilter]);
 
   // A selection had no relationship to what was on screen. Select three
   // players, type a search, select a fourth, press Send Out - and chips went
@@ -4762,9 +4818,48 @@ function CashierTradeWorkspace() {
                   </button>
                 )}
               </div>
-              <span className={styles.memberCount} role="status" aria-live="polite">
-                {list.length.toLocaleString()} Results
-              </span>
+              <div className={styles.resultsBar}>
+                <span className={styles.memberCount} role="status" aria-live="polite">
+                  {list.length.toLocaleString()} Results
+                </span>
+                <div className={styles.walletSorts} role="group" aria-label="Sort The Roster">
+                  {(
+                    [
+                      ['agent_wallet', 'Agent Wallet'],
+                      ['player_wallet', 'Player Wallet'],
+                    ] as const
+                  ).map(([by, label]) => {
+                    const active = rosterSort.by === by ? rosterSort.dir : null;
+                    return (
+                      <button
+                        key={by}
+                        type="button"
+                        className={`${styles.walletSortBtn} ${active ? styles.walletSortActive : ''}`}
+                        aria-pressed={active !== null}
+                        aria-label={`Sort By ${label} ${
+                          active === 'desc' ? 'Low To High' : 'High To Low'
+                        }`}
+                        title={
+                          active === 'desc'
+                            ? `${label}: High To Low. Tap For Low To High`
+                            : active === 'asc'
+                              ? `${label}: Low To High. Tap For High To Low`
+                              : `Sort By ${label}, High To Low`
+                        }
+                        onClick={() => setRosterSort((s) => nextCashierRosterSort(s, by))}
+                      >
+                        <span className={styles.walletSortFull}>{label}</span>
+                        <span className={styles.walletSortShort} aria-hidden="true">
+                          {label.split(' ')[0]}
+                        </span>
+                        <span className={styles.walletSortArrow} aria-hidden="true">
+                          {active === 'asc' ? '\u25B2' : '\u25BC'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
               <div className={styles.filterRow}>
                 <label className={styles.roleFilter}>
                   Role
@@ -4821,21 +4916,15 @@ function CashierTradeWorkspace() {
                   />
                   Group By Role
                 </label>
-                <button
-                  className={styles.sortBtn}
-                  onClick={() =>
-                    setSortKey((k) =>
-                      k === 'recent' ? 'balance' : k === 'balance' ? 'name' : 'recent'
-                    )
-                  }
-                >
-                  Sort By{' '}
-                  {sortKey === 'recent'
-                    ? 'Most Recent'
-                    : sortKey === 'balance'
-                      ? 'Chip Balance'
-                      : 'Name'}
-                </button>
+                {rosterSort.by !== 'last_transaction' && (
+                  <button
+                    type="button"
+                    className={styles.sortBtn}
+                    onClick={() => setRosterSort(DEFAULT_CASHIER_ROSTER_SORT)}
+                  >
+                    Sort By Last Transaction
+                  </button>
+                )}
               </div>
 
               {/* Downline list */}
@@ -5191,7 +5280,7 @@ function CashierTradeWorkspace() {
                   type="search"
                   value={recordQuery}
                   onChange={(event) => setRecordQuery(event.target.value)}
-                  placeholder="Enter A Player Name Or Invoice Number"
+                  placeholder="Name Or Invoice #"
                   aria-label="Search Transaction History"
                 />
                 <button type="submit" className={styles.historySearchButton}>
@@ -5226,13 +5315,14 @@ function CashierTradeWorkspace() {
                         type="button"
                         className={`${styles.ledgerFilter} ${historyBook === scope ? styles.ledgerFilterActive : ''}`}
                         aria-pressed={historyBook === scope}
+                        aria-label={label}
                         onClick={() => {
                           if (scope === historyBook) return;
                           setHistoryPerson(null);
                           setHistoryScope(scope);
                         }}
                       >
-                        {label}
+                        {chipFace(label)}
                       </button>
                     ))}
                   </div>
@@ -5247,12 +5337,13 @@ function CashierTradeWorkspace() {
                       type="button"
                       className={`${styles.ledgerFilter} ${historyKind === kind ? styles.ledgerFilterActive : ''}`}
                       aria-pressed={historyKind === kind}
+                      aria-label={label}
                       onClick={() => {
                         if (kind === historyKind) return;
                         setHistoryKind(kind);
                       }}
                     >
-                      {label}
+                      {chipFace(label)}
                     </button>
                   ))}
                 </div>
@@ -5263,12 +5354,13 @@ function CashierTradeWorkspace() {
                       type="button"
                       className={`${styles.ledgerFilter} ${historyRange === range ? styles.ledgerFilterActive : ''}`}
                       aria-pressed={historyRange === range}
+                      aria-label={label}
                       onClick={() => {
                         if (range === historyRange) return;
                         setHistoryRange(range);
                       }}
                     >
-                      {label}
+                      {chipFace(label)}
                     </button>
                   ))}
                 </div>
@@ -5406,15 +5498,16 @@ function CashierTradeWorkspace() {
                       type="button"
                       className={`${styles.ledgerFilter} ${recordDirection === direction ? styles.ledgerFilterActive : ''}`}
                       aria-pressed={recordDirection === direction}
+                      aria-label={
+                        direction === 'all'
+                          ? 'All Transactions'
+                          : direction === 'in'
+                            ? 'Incoming'
+                            : 'Outgoing'
+                      }
                       onClick={() => setRecordDirection(direction)}
                     >
-                      {direction === 'all'
-                        ? 'All Transactions'
-                        : direction === 'in'
-                          ? 'Incoming'
-                          : direction === 'out'
-                            ? 'Outgoing'
-                            : 'Chip Movement'}
+                      {direction === 'all' ? 'All' : direction === 'in' ? 'In' : 'Out'}
                     </button>
                   ))}
                 </div>
@@ -5496,29 +5589,42 @@ function CashierTradeWorkspace() {
                           )}
                         </span>
                         <span className={styles.rowSub}>
+                          {/* Dan 2026-11-13: one short line - where the chips
+                          went (or the kind, when no wallet moved) and when.
+                          The kind and full sentence stay on the receipt. A
+                          cash-out request also says where it stands. */}
                           {r.type === 'cashout_request_escrow' &&
-                          cashoutStatusLabel(r.requestStatus) === 'Waiting' ? (
+                          cashoutStatusLabel(r.requestStatus) ? (
                             <>
-                              <span className={styles.waitTag}>
-                                {waitingFor(r.requestCreatedAt ?? r.createdAt)}
+                              <span
+                                className={
+                                  cashoutStatusLabel(r.requestStatus) === 'Waiting'
+                                    ? styles.waitTag
+                                    : styles.statusTag
+                                }
+                              >
+                                {cashoutStatusLabel(r.requestStatus) === 'Waiting'
+                                  ? waitingFor(r.requestCreatedAt ?? r.createdAt)
+                                  : cashoutStatusLabel(r.requestStatus)}
                               </span>{' '}
                               &middot;{' '}
                             </>
                           ) : null}
-                          {txLabel(r.type)}
-                          {r.route ? <> &middot; {r.route}</> : null} &middot;{' '}
-                          {new Date(r.createdAt).toLocaleString([], {
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
+                          {r.route ?? txLabel(r.type)} &middot;{' '}
+                          <span className={styles.rowTime}>
+                            {new Date(r.createdAt).toLocaleString([], {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: 'numeric',
+                              minute: '2-digit',
+                            })}
+                          </span>
                         </span>
                       </div>
                       <span
-                        className={`${styles.rowBalance} ${r.direction === 'in' ? styles.amtIn : r.direction === 'out' ? styles.amtOut : ''}`}
+                        className={`${styles.rowBalance} ${r.sign === '+' ? styles.amtIn : r.sign === '-' ? styles.amtOut : ''}`}
                       >
-                        {r.direction === 'in' ? '+' : r.direction === 'out' ? '-' : ''}
+                        {r.sign ?? ''}
                         {fmt(r.amount)}
                       </span>
                       <span className={styles.receiptCue}>Receipt</span>
@@ -5901,19 +6007,25 @@ function CashierTradeWorkspace() {
                   </span>
                   <strong
                     className={
-                      receipt.direction === 'in'
+                      receipt.sign === '+'
                         ? styles.amtIn
-                        : receipt.direction === 'out'
+                        : receipt.sign === '-'
                           ? styles.amtOut
                           : 'sc-ink--silver'
                     }
                   >
-                    {receipt.direction === 'in' ? '+' : receipt.direction === 'out' ? '-' : ''}
+                    {receipt.sign ?? ''}
                     {exactChipFigure(receipt.amount)}
                   </strong>
                   <small className="sc-label sc-ink--muted">Chips</small>
                 </div>
                 <dl className={styles.receiptFacts}>
+                  {receipt.title ? (
+                    <div>
+                      <dt className="sc-label sc-ink--blue">Activity</dt>
+                      <dd className="sc-ink--silver">{receipt.title}</dd>
+                    </div>
+                  ) : null}
                   <div>
                     <dt className="sc-label sc-ink--blue">Status</dt>
                     <dd className={styles.integrityGood}>Recorded In Ledger</dd>
