@@ -49,6 +49,7 @@ import {
   scoreOmahaHi,
   variantInfo,
 } from '../engine/HorseEval.js';
+import { buildTournamentMState } from '../engine/HorseTournamentPreflop.js';
 
 // V16 DEEP-READS HARNESS: hand-category names matching the engine's showdown
 // vocabulary, so sandboxed league play can feed observeHandComplete and the
@@ -495,6 +496,42 @@ function winnerTakeAllSpinContext(seats: number, stackBB: number): LeagueGameCon
     ...ctx,
     format: 'spin',
     tournament: { ...ctx.tournament!, spotsPaid: 1, payoutPct: [100] },
+  };
+}
+
+/**
+ * 2026-11-13: the big-blind-ante MTT with the M state the live engine sends
+ * on every tournament decision (ServerTableEngineTurns builds `tournament.m`).
+ * Without `m` HorseLogic skips the Phase 6 coordinate, so no spot is ever
+ * classed `multiway_all_in` and a rule that lives in that branch cannot be
+ * reached (the committed-stack card below). Every seat starts the hand with
+ * the same stack, so the M is the starting stack's M at this table.
+ */
+function bigBlindAnteMttWithMContext(seats: number, stackBB: number): LeagueGameContext {
+  const ctx = bigBlindAnteMttContext(seats, stackBB);
+  const t = ctx.tournament!;
+  return {
+    ...ctx,
+    tournament: {
+      ...t,
+      m: buildTournamentMState({
+        stackChips: stackBB * BB,
+        smallBlind: SB,
+        bigBlind: BB,
+        ante: BB,
+        anteType: 'big_blind',
+        playersAtTable: seats,
+        nextSmallBlind: SB * 2,
+        nextBigBlind: BB * 2,
+        nextAnte: BB * 2,
+        minutesToNextLevel: 10,
+        opponentStacks: Array.from({ length: seats - 1 }, (_, i) => ({
+          userId: `league-seat-${i + 1}`,
+          stackChips: stackBB * BB,
+        })),
+        previousZone: null,
+      }),
+    },
   };
 }
 
@@ -1956,6 +1993,29 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     moodClock: 'deal_seed',
     a: {},
     b: { nashCallVsJam: false },
+  },
+  // 2026-11-13 A COMMITTED STACK IS NOT FOLDED AT A PRICE
+  // (committedStackPricedIn, default OFF; study HVH2D-NLH-M-COMMIT and
+  // HVH2D-NLH-007a). Tournament multiway all-in only: arm A lets the priced-in
+  // guard decide again at a token price, at 2bb or less behind, or with half
+  // the starting stack in. The context carries the live M state, without
+  // which the branch never exists. Every seat starts each hand with the same
+  // stack, so the half-the-stack case almost never arises here: measured
+  // 2026-11-13 at seed 1107, the same card at 10bb and at 6bb diverged in 0
+  // of 6,000 and 0 of 2,000 pairs. At 4bb the big blind's ante leaves it 2bb
+  // behind, which is the rule's crumbs case: 788 of 2,000 pairs diverged. This
+  // card measures that case; the study spots themselves are the law test's.
+  // The default is unchanged.
+  {
+    name: 'mtt6_committed_stack_priced_in_4bb',
+    seats: 6,
+    stackBB: 4,
+    context: bigBlindAnteMttWithMContext(6, 4),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { committedStackPricedIn: true },
+    b: {},
   },
   // 2026-11-07 PREFLOP DEFENCE LEAKS, both default OFF, so arm A turns each
   // on (docs/changelog/2026-11-07-horse-preflop-defence-leaks.md). A 20bb

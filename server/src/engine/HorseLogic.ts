@@ -2734,6 +2734,15 @@ export interface HorseDecideOpts {
    *  min-raise (big blind folded 88.6% to a button open). The open is
    *  untouched. Default OFF: only explicit true turns it on. */
   facingOpenFullRingZone?: boolean;
+  /** A COMMITTED STACK IS NOT FOLDED AT A PRICE (2026-11-13, study
+   *  HVH2D-NLH-M-COMMIT and HVH2D-NLH-007a): in a tournament multiway all-in
+   *  the priced-in guard no longer stands aside when the price is 0.05 or
+   *  better, 2bb or less remain behind, or half the starting stack is already
+   *  in and the hand clears 0.26; a committed top-half hand whose call is all
+   *  in is priced in to 0.18. A fresh multiway decision, cash and every other
+   *  node are unchanged; the tournament arbiter still runs after it. Default
+   *  OFF: only explicit true turns it on. */
+  committedStackPricedIn?: boolean;
   /** SHORT-STACK 3-BET DEFENCE (2026-11-07): the V73 read reaches 12bb
    *  effective (V73_SHORT_MIN_EFFECTIVE_BB) instead of 25bb, and a continuing
    *  hand whose call is the stack jams instead of folding: a 20bb opener
@@ -9003,6 +9012,7 @@ export class HorseLogic {
           }
         : {}),
       ...(huBbPrice ? { huBbPrice } : {}),
+      ...(opts.committedStackPricedIn === true ? { committedStackPricedIn: true } : {}),
       ...(gtoOpen70 ? { gtoOpen: gtoOpen70 } : {}),
       ...(gtoDefend72 ? { gtoDefend: gtoDefend72 } : {}),
       ...(gtoVs3Bet73 ? { gtoVs3Bet: gtoVs3Bet73 } : {}),
@@ -9651,6 +9661,8 @@ export class HorseLogic {
       if (intent.receipt === 'v74_nlh_open_size') noteFire('v74_nlh_open_size');
       else if (intent.receipt === 'cash_nlh_three_bet_size') noteFire('cash_nlh_three_bet_size');
       else if (intent.receipt === 'hu_bb_defends_to_price') noteFire('hu_bb_defends_to_price');
+      else if (intent.receipt === 'committed_stack_priced_in')
+        noteFire('committed_stack_priced_in_seen');
       else if (intent.receipt === 'v76_retired_four_bet_bluff')
         noteFire('v76_retired_four_bet_bluff');
       else if (intent.receipt === 'plo_suited_aces_four_bet') noteFire('plo_suited_aces_four_bet');

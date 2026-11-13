@@ -107,6 +107,13 @@ const REGISTER = {
       PRESUME_ROSTER +
       ' This regression independently identifies the expected human-field seats and verifies the decision input excludes the hero and all opponent private cards. It excludes no horse from play or results.',
   },
+  'server/src/engine/ACommittedStackIsNotFoldedAtAPrice.test-support.ts': {
+    allowed: 1,
+    kind: 'IDENTIFICATION',
+    why:
+      PRESUME_ROSTER +
+      ' This test support rebuilds the decision-time request for six recorded tournament spots and passes the same roster the live decision received (ServerTableEngineTurns), so the rebuilt brain sees the table it saw. It decides nothing about any horse: it only rebuilds the request for the committed-stack law test.',
+  },
   'server/src/services/HorseReplacementBoarding.ts': {
     allowed: 1,
     kind: 'IDENTIFICATION',

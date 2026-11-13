@@ -1212,6 +1212,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HuBbPrice'
   ),
   flag(
+    'committedStackPricedIn',
+    "2026-11-13 default OFF (study HVH2D-NLH-M-COMMIT and HVH2D-NLH-007a): no-limit hold'em tournament, Phase 6 multiway all-in branch (two opponents all in, or one all in plus a caller or a raise), the priced-in guard in decidePreflopV7 no longer stands aside for that branch when the price is 0.05 or better, 2bb or less remain behind, or the hero has half or more of the stack it started the hand with in the pot and the hand clears 0.26 (v87PricedInMinStrength's tournament floor); a committed hand at 0.5 or better whose call is all in is priced in up to 0.18; measured before (six development-packet spots rebuilt from stored hand facts with the live M state, HorseLogic.decide at a89093a1, 12 context variants x 12 seeds): 33, 77, A8s (31 chips into 6,062), A7o, QJs and J8o folded 144 of 144 each, the reference proposal itself, because line 'multiway_all_in return out' switched the guard off; with the flag on 33, 77, A8s, A7o and QJs continue and J8o (junk, arbiter prefers the fold) still folds; a fresh multiway decision, the deep-stack control, cash and every other node are unchanged and the tournament utility arbiter still runs after it; no league evidence yet; enabling it is a separate owner decision",
+    'CommitPrice'
+  ),
+  flag(
     'nashCallVsJam',
     "2026-11-07 default ON (league nash_call_vs_jam, mirror, two seeds x 20,000 pairs: MTT six-max 10bb +4.72 +/- 0.64 / +3.41 +/- 0.63, 15bb +2.40 +/- 0.68 / +2.17 +/- 0.68, nine-max 12bb +1.82 +/- 0.42 / +2.23 +/- 0.44, heads-up 12bb +4.86 +/- 1.17 / +3.89 +/- 1.16, cash six-max 12bb +0.80 +/- 0.38 / +0.78 +/- 0.39, 20bb cards neutral or inert, none below; the human-calibrated field never open-jams so its cards are inert): no-limit hold'em, hero folded to a lone open-jam (the first and only raise, all in, nobody has called) at <= 20bb effective calls or folds from the chip-EV Nash jam-or-fold table's CALLER side (HorseNashPushFoldV2.data.ts, server/scripts/nash-push-fold/solve.py --v2: first caller only, exact card removal) by the jammer's dealt-in players behind (1..9), hero's caller kind (unposted seat, small blind, big blind), effective depth and dead ante, cash and tournament; measured before (HorseLogic.decide, live Hybrid personas, production memory_charts_gold hydrated, 24 samples per class): a big blind facing a button jam called 5.2% at 10bb and 9.8% at 20bb in cash and 6.3% at 10bb and 20bb in a big-blind-ante tournament, against Nash 23.1% / 11.5% and 38.2% / 19.6%, and only the big blind against a small-blind jam had a chart (sb_push, the no-ante game, which keeps that spot when there is no dead ante); a maniac's jam keeps the maniac pricing; explicit off arm retained; deeper jams, called jams, Omaha, short deck, pot and fixed limit unchanged; league nash_call_vs_jam; docs/changelog/2026-11-07-nash-push-fold-v2.md",
     'NashV2'
@@ -4706,6 +4711,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic decideInternal after wager_rules',
     'the near-nut candidate chose a value raise and a later owner replaced it',
     'Small-pot near-nut value'
+  ),
+  receipt(
+    'committed_stack_priced_in_seen',
+    'HorsePreflop via HorseLogic (committedStackPricedIn)',
+    'default-off committedStackPricedIn: a tournament multiway all-in fold of a committed or token-priced stack became a call because the priced-in guard was no longer switched off for that branch; rare by nature (natural opportunity a few times a day at most), so an occurrence counter named *_seen',
+    'CommitPrice'
   ),
   receipt(
     'hu_bb_defends_to_price',
