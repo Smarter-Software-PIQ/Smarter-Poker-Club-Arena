@@ -5140,6 +5140,29 @@
     z-index: -1;
   }
 }
+/* Dan 2026-11-13: "NO AVATAR SHOULD EVER BE AUTO CUT LIKE THAT... HAVE THEM
+   ALWAYS APPEAR FULL." Two things hid the top of an enlarged portrait:
+   - The acting seat's holo sweep blends with `screen`. In WebKit a blend mode
+     makes its parent an isolated group that is clipped to the painted box, so
+     every head that grew above that box was cut flat while the player was on
+     the clock. On an enlarged portrait the sweep draws normally; its own mask
+     still keeps it to the character.
+   - The SITTING OUT / Waiting For The Button badge sits on the centre of the
+     seat's original avatar box, which is the face of an enlarged portrait. It
+     moves to the portrait's lower edge, over the torso, so the head stays in
+     view. */
+@media (max-width: 768px) and (orientation: portrait) {
+  .table-page .seat__avatar[style*='--sp-mobile-art-scale'] .seat__holo {
+    mix-blend-mode: normal;
+  }
+  .table-page
+    .seat__avatar-wrap:has(> .seat__avatar[style*='--sp-mobile-art-scale'])
+    .seat__sitout-badge {
+    top: auto;
+    bottom: 2px;
+    transform: translateX(-50%);
+  }
+}
 @media (max-width: 768px) and (orientation: portrait) {
   .table-page .seat__avatar--bust .seat__avatar-img[style*='--sp-mobile-clip-bottom'] {
     clip-path: inset(-1000px -1000px var(--sp-mobile-clip-bottom) -1000px);
