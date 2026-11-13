@@ -5,6 +5,7 @@ import {
   horseCashPlanSecondTables,
   horseUnionCashTableAllowed,
   lightningGamesWithPlayingHumans,
+  lightningStarterTables,
   playingHumansAtCashTable,
   withinHumanDepartureDwellFor,
 } from './HorseUnionCashPlan.js';
@@ -2666,9 +2667,19 @@ export class HorseFleetManager {
          short-handed human, an opening feeder and the main order still come
          first. See fillFirstRank (HorseLoneTable.ts). */
       const seatedAt = (t: { id: string }) => (seatsByTable.get(t.id) ?? []).length;
+      /* A SEEDED LIGHTNING GAME STARTS FIRST (Dan 2026-11-13): one table of a
+         horse-seeded Lightning game that does not yet hold a full ring is
+         seated straight after a short-handed person and before the ordinary
+         order. See lightningStarterTables (HorseUnionCashPlan.ts). */
+      const lightningStarters = lightningStarterTables(
+        tables,
+        (tableId) => (seatsByTable.get(tableId) ?? []).length
+      );
       const orderedTables = [...tables, ...diamondTables].sort(
         (a, b) =>
           Number(humanShort(b)) - Number(humanShort(a)) ||
+          Number(lightningStarters.has(String(b.id))) -
+            Number(lightningStarters.has(String(a.id))) ||
           Number(!!b.cluster_id) - Number(!!a.cluster_id) ||
           clusterRank(a) - clusterRank(b) ||
           compareCashPopulation(
