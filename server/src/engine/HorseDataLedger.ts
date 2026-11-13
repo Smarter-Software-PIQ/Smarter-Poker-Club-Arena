@@ -1023,6 +1023,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'Omaha threshold calibration'
   ),
   flag(
+    'omahaNeutralUnknown',
+    '2026-11-13 owner directive: an unknown Omaha opponent receives a neutral, explicitly uncertain read; the shared aggressive raise presumption (presumedAggressorRead) is skipped and only the opponent own measured read applies. Default off until its league comparison is accepted.',
+    'Omaha neutral unknown'
+  ),
+  flag(
     'readScopedShrink',
     '2026-11-08 (read calibration follow-up) below 40 scoped hands a read no longer falls back to the pooled bucket (every game mixed: about 8% of read spots, river-fold Brier 0.262 against 0.217 scoped); the scoped bucket answers with each rate shrunk toward the same scope population (every tracked player summed, no labels) with 16 pseudo-observations and its own opportunity counts, so sample gates still measure this game; default off, measured by the calibration replay (a league table deals one game, so the flag is inert there by construction)',
     'Read calibration'
@@ -2440,6 +2445,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseMind (PLO presumption)',
     'an Omaha opponent received the shared aggressive raise prior before their own public hands proved otherwise (owner update 2026-10-27)',
     'OPPX'
+  ),
+  receipt(
+    'plo_opponent_neutral_unknown',
+    'HorseMind (omahaNeutralUnknown)',
+    'an Omaha opponent with no engaged raise read was read as neutral instead of presumed aggressive (default off)',
+    'Omaha neutral unknown'
   ),
   receipt(
     'plo_opponent_presumption_disproved',
