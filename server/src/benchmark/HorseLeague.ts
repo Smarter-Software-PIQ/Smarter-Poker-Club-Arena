@@ -1782,6 +1782,22 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { huBbDefendsToPrice: true },
     b: {},
   },
+  // 2026-11-12 (HU-AUDIT-002) COMMIT UNDER THE POT (commitUnderPotCall),
+  // default OFF since 2026-11-07 and never dealt by any card, so the rule
+  // that promotes a flag after the nightly league confirms it could not
+  // reach it. Heads-up no-limit hold'em, flop or turn, facing a bet with a
+  // stack smaller than the pot: arm A calls where today's brain folds. 40bb,
+  // the depth the exploiter suite found it at. The default is unchanged.
+  {
+    name: 'hu_commit_under_pot',
+    seats: 2,
+    stackBB: 40,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { commitUnderPot: true },
+    b: {},
+  },
   // 2026-11-07 NASH CALL VS JAM (HorseNashPushFoldV2), default ON: a is
   // today's brain, b the strength bar it replaced. MTT 12bb with a 1bb
   // big-blind ante, six-max and heads-up, the measured spots
@@ -2341,9 +2357,12 @@ for (const name of HUMAN_FIELD_TWINS) {
 export const HUMAN_HU_BB_DEFENDS_TO_PRICE = `${HUMAN_FIELD_NAME_PREFIX}hu_bb_defends_to_price`;
 /** The 40bb twin (HU-NLH-001, 2026-11-12): the band V85 leaves on the V11 bars. */
 export const HUMAN_HU_BB_DEFENDS_TO_PRICE_40BB = `${HUMAN_FIELD_NAME_PREFIX}hu_bb_defends_to_price_40bb`;
+/** The human-field twin of hu_commit_under_pot (HU-AUDIT-002, 2026-11-12). */
+export const HUMAN_HU_COMMIT_UNDER_POT = `${HUMAN_FIELD_NAME_PREFIX}hu_commit_under_pot`;
 for (const [mirrorName, twinName] of [
   ['hu_bb_defends_to_price', HUMAN_HU_BB_DEFENDS_TO_PRICE],
   ['hu_bb_defends_to_price_40bb', HUMAN_HU_BB_DEFENDS_TO_PRICE_40BB],
+  ['hu_commit_under_pot', HUMAN_HU_COMMIT_UNDER_POT],
 ] as const) {
   const mirror = LEAGUE_MATCHUPS.find((m) => m.name === mirrorName);
   if (!mirror) throw new Error(`${mirrorName} left the card; its human twin has no mirror`);

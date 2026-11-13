@@ -77,6 +77,8 @@ const EXPECTED_HUMAN_CARDS: Array<[string, string]> = [
   ['human_hu_bb_defends_to_price', 'hu_bb_defends_to_price'],
   // 2026-11-12 (HU-NLH-001): the same persona at 40bb, the band V85 leaves alone.
   ['human_hu_bb_defends_to_price_40bb', 'hu_bb_defends_to_price_40bb'],
+  // 2026-11-12 (HU-AUDIT-002): the default-off flag no card had dealt.
+  ['human_hu_commit_under_pot', 'hu_commit_under_pot'],
 ];
 
 afterEach(() => {

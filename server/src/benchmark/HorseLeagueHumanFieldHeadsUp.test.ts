@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   HUMAN_HU_BB_DEFENDS_TO_PRICE,
   HUMAN_HU_BB_DEFENDS_TO_PRICE_40BB,
+  HUMAN_HU_COMMIT_UNDER_POT,
   HU_WIDE_SB_AGGRESSOR_PERSONA,
   HUMAN_FIELD_HERO_SEAT,
   HUMAN_FIELD_PAIRS,
@@ -221,5 +222,47 @@ describe('the 40bb heads-up pair (HU-NLH-001)', { timeout: 180_000 }, () => {
   it('the flag still defaults off', () => {
     expect(mirror().b).toEqual({});
     expect(twin().b).toEqual({});
+  });
+});
+
+/**
+ * HU-AUDIT-002 (2026-11-12): commitUnderPot has been default off since
+ * 2026-11-07 and no card dealt it, so the nightly league could never
+ * measure it. Both cards must reach the rule.
+ */
+describe('the commit-under-the-pot pair (HU-AUDIT-002)', { timeout: 300_000 }, () => {
+  const mirror = (): LeagueMatchup =>
+    LEAGUE_MATCHUPS.find((m) => m.name === 'hu_commit_under_pot')!;
+  const twin = (): LeagueMatchup =>
+    LEAGUE_MATCHUPS.find((m) => m.name === HUMAN_HU_COMMIT_UNDER_POT)!;
+
+  it('is on the nightly card heads-up at 40bb, flag on against live defaults', () => {
+    expect(mirror()).toMatchObject({
+      seats: 2,
+      stackBB: 40,
+      hybridBaseline: true,
+      moodClock: 'deal_seed',
+    });
+    expect(mirror().a).toEqual({ commitUnderPot: true });
+    expect(mirror().b).toEqual({});
+    expect(twin()).toMatchObject({
+      seats: 2,
+      stackBB: 40,
+      pairs: HUMAN_FIELD_PAIRS,
+      opponentPopulation: HUMAN,
+      humanPersona: HU_WIDE_SB_AGGRESSOR_PERSONA,
+    });
+    expect(twin().a).toEqual(mirror().a);
+    expect(twin().b).toEqual({});
+  });
+
+  it('both cards reach the rule: the arms diverge and nothing is illegal', async () => {
+    for (const card of [mirror(), twin()]) {
+      const r = await runMatchup(card, 1500, 20261112);
+      expect(r.illegalActions).toBe(0);
+      expect(r.truncatedStreets).toBe(0);
+      expect(r.inert).not.toBe(true);
+      expect(r.divergentPairs ?? 0).toBeGreaterThan(0);
+    }
   });
 });

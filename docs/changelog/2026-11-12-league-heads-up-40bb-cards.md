@@ -65,3 +65,19 @@ the flag on, and it is the reason both 40bb cards go on the nightly set.
 - `HorseLeagueHumanFieldHeadsUp.test.ts`: the 40bb pair is on the card with
   the 80bb pair unchanged, both cards diverge at 40bb, the flag defaults off.
 - `HorseLeagueHumanField.test.ts`: the new twin is in the expected list.
+
+## Also: `commitUnderPot` gets its first cards (HU-AUDIT-002)
+
+`commitUnderPot` (heads-up no-limit hold'em, flop or turn, facing a bet with a
+stack smaller than the pot) has been default OFF since 2026-11-07 and no league
+card set it, so the nightly league could never measure it and the rule that
+promotes a confirmed flag could never reach it.
+
+- `hu_commit_under_pot`: heads-up, 40bb, cash Hybrid hero, deal-seeded mood
+  clock, arm A flag on, arm B live defaults.
+- `human_hu_commit_under_pot`: its human-field twin against
+  `hu_wide_sb_aggressor_v1`.
+
+Both cards reach the rule: over 1,500 pairs the arms diverge on each, with 0
+illegal actions and 0 truncated streets (`HorseLeagueHumanFieldHeadsUp.test.ts`).
+No result is claimed for the flag. Its default is unchanged.
