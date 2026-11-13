@@ -64,9 +64,12 @@ describe('omahaNeutralUnknown: an unknown Omaha opponent is read as neutral', ()
           for (const id of [PERSON, HORSE]) {
             const read = HorseMind.opponentRead(id);
             // Still a read (measured statistics, nothing engaged), so detectors
-            // that fall back to measured evidence keep running.
+            // that fall back to measured evidence keep running; still marked as
+            // having no evidence of its own, so every evidence gate excludes it
+            // exactly as it excludes the presumption today.
             expect(read, `${variant} ${sc} ${mode}`).not.toBeNull();
-            expect(read?.presumed, `${variant} ${sc} ${mode}`).toBeUndefined();
+            expect(read?.presumed, `${variant} ${sc} ${mode}`).toBe(true);
+            expect(read?.stats.pfr.engaged, `${variant} ${sc} ${mode}`).toBeNull();
             expect(maniacRaiseWidth(read)).toBeNull();
             expect(aggressiveBettorPressure(read)).toBeNull();
           }
@@ -111,6 +114,21 @@ describe('omahaNeutralUnknown: an unknown Omaha opponent is read as neutral', ()
     const on = seat(true);
     expect(on).toEqual(off);
     expect(drainFires().find((f) => f.feature === 'plo_opponent_neutral_unknown')).toBeUndefined();
+  });
+
+  it('heads-up PLO4: an unknown who stabs the flop and checks the turn is read the same on and off', () => {
+    const hist = [
+      { userId: PERSON, seat: 2, action: 'bet', amount: 4, stage: 'flop', timestamp: 1 },
+      { userId: 'hero', seat: 1, action: 'call', amount: 4, stage: 'flop', timestamp: 2 },
+      { userId: PERSON, seat: 2, action: 'check', amount: 0, stage: 'turn', timestamp: 3 },
+    ];
+    const read = (neutral: boolean) => {
+      HorseMind.reset();
+      HorseMind.setDecisionScope('omaha:hu', 'plo4', 'cash');
+      HorseMind.setDecisionReadOptions(neutral ? { omahaNeutralUnknown: true } : {});
+      return HorseMind.streetBullyRead(PERSON, hist as never);
+    };
+    expect(read(true)).toEqual(read(false));
   });
 
   it('the measured-evidence bully detector answers the same with the option on and off', () => {
