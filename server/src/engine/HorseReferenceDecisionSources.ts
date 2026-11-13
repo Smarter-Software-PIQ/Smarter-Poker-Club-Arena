@@ -88,6 +88,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the PLO4/PLO5/PLO6 paired-board fold applied to the final decision after every other layer (Dan 2026-10-25)',
     'src/engine/HorseContinuationPlanInvalidation.ts':
       'the Items 21 and 23 multi-street plan contender and stack-exposure fingerprint and its continuation verdict, consulted by the reference barrel plan (activated 2026-11-05)',
+    'src/engine/HorseOmahaTournamentFirstIn.ts':
+      'the Omaha high tournament short-handed first-in and heads-up big blind reply read on the true Omaha percentile, replacing the preflop engine fold only (Dan 2026-11-12)',
     'src/engine/HorseOmahaBigBetCalls.ts':
       'the V81 PLO4/PLO5 big-bet call fold and the V84 PLO4/PLO5/PLO6 river re-raise call fold in measured losing cells, applied in the final wager rules right after the paired-board fold (Phase 4, 2026-11-02; V84 2026-11-07)',
     'src/engine/HorseShortAllInCallFloor.ts':

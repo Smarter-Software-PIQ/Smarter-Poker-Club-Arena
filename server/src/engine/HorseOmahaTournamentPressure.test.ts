@@ -472,6 +472,9 @@ describe(
       // independently of V53; its explicit off arm keeps this pre-V53
       // baseline byte-identical (HorseOmahaActionBehindArm.test.ts pins the arm).
       omahaPreflopCallWithActionBehind: false,
+      // Omaha tournament first-in (Dan 2026-11-12) replaces short-handed folds
+      // independently of V53; HorseOmahaTournamentFirstIn.law.test.ts pins it.
+      omahaTournamentFirstIn: false,
     };
 
     it.each(CORPUS_VARIANTS)(

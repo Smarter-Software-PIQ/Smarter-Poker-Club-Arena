@@ -253,7 +253,8 @@ function styleKnockoutCredit(
   if (!bettor || bettor.is_all_in !== true) return 0;
   const heroChips = player.stack + (isFinite(player.bet) ? player.bet : 0);
   if (heroChips < (isFinite(bettor.bet) ? bettor.bet : 0)) return 0;
-  const scale = prizeLandscapeScale(gs, (opts.v26Prizes ?? true) !== false) * headBountyScale(gs, bettorId);
+  const scale =
+    prizeLandscapeScale(gs, (opts.v26Prizes ?? true) !== false) * headBountyScale(gs, bettorId);
   return Math.min(0.08, (t.bountyFactor ?? 0) * 0.12 * scale);
 }
 // V7 (2026-07-24): position-pair preflop mastery — 3-bet/4-bet bluffs, blind
@@ -405,6 +406,7 @@ import {
   preflopEquity,
   holdemPreflopScore,
   omahaPreflopStrength,
+  omahaPreflopPercentile,
   omahaElitePreflopStrength,
   multiwayValueBar,
   shortDeckPreflopStrength,
@@ -2535,6 +2537,14 @@ export interface HorseDecideOpts {
   v67RiverBetRaisedOnePair?: boolean;
   /** V88: a cash Omaha made hand that called a wager on the previous street and now needs its stack at a third of the pot or better does not fold a blank; explicit off arm retained. */
   v88CommitmentHonored?: boolean;
+  /** Omaha high tournaments (HorseOmahaTournamentFirstIn): the small blind
+   *  against the big blind alone, and the heads-up big blind facing one raise,
+   *  replace the engine's fold by the hand's Omaha percentile, at three or
+   *  fewer players dealt and 20 BB or less. Default on; false is the old
+   *  engine; an object is a league arm's parameters. */
+  omahaTournamentFirstIn?:
+    | boolean
+    | import('./HorseOmahaTournamentFirstIn.js').OmahaTournamentFirstInParams;
   /** League-only override of the V67 extra raise shade; production never
    * sets it. */
   v67RiverRaiseShadeOverride?: number;
@@ -8581,7 +8591,10 @@ export class HorseLogic {
             const style = HorseMind.styleRead(raiser.user_id);
             if (raises === 1) {
               const tight = tightOpenerRespect(style);
-              if (tight && (!exploitOpener || (!exploitOpener.wide && exploitOpener.threeBetBar === null))) {
+              if (
+                tight &&
+                (!exploitOpener || (!exploitOpener.wide && exploitOpener.threeBetBar === null))
+              ) {
                 exploitOpener = {
                   wide: false,
                   threeBetBar: strengthBarForTopShare(0.4 * tight.rangeWidth),
@@ -8963,6 +8976,22 @@ export class HorseLogic {
       return equity === null ? undefined : { equity };
     })();
     const intentCtx7: Parameters<typeof decidePreflopV7>[0] = {
+      // V90 needs the table engine's explicit mode. The legacy "big blind of
+      // ten or more means a tournament" guess for callers that pass no mode
+      // would make the same seat play differently by stake alone.
+      ...(vi.isOmaha &&
+      !vi.isHiLo &&
+      gs.gameMode === 'tournament' &&
+      opts.omahaTournamentFirstIn !== false
+        ? {
+            omahaTournamentFirstIn: {
+              percentile: omahaPreflopPercentile(player.cards, false),
+              ...(typeof opts.omahaTournamentFirstIn === 'object'
+                ? { params: opts.omahaTournamentFirstIn }
+                : {}),
+            },
+          }
+        : {}),
       ...(huBbPrice ? { huBbPrice } : {}),
       ...(gtoOpen70 ? { gtoOpen: gtoOpen70 } : {}),
       ...(gtoDefend72 ? { gtoDefend: gtoDefend72 } : {}),
@@ -9033,6 +9062,25 @@ export class HorseLogic {
           : undefined,
       tableSize:
         (opts.v20Mzone ?? true) !== false ? dealtHorseTableSize(gs, player.seat) : undefined,
+      // Players left in the whole tournament, from the TRUSTED context only
+      // (undefined when absent). The Omaha first-in rule acts only at the
+      // final table: off it, the 2026-11-13 bubble evaluation measured a loss.
+      tournamentPlayersLeft: (() => {
+        const tp = trustedTournamentContext(gs)?.playersLeft;
+        return typeof tp === 'number' && Number.isFinite(tp) && tp > 0 ? tp : undefined;
+      })(),
+      // Paid places among the players left (trusted payout curve), undefined
+      // when unknown: three-handed, the Omaha first-in rule acts only when
+      // one place is paid (R4, 2026-11-13: it lost in ICM equity at a
+      // three-handed final table with pay jumps).
+      tournamentPaidPlacesLeft: (() => {
+        const t = trustedTournamentContext(gs);
+        const left = t?.playersLeft;
+        if (!t || !Array.isArray(t.payoutPct) || typeof left !== 'number' || !(left > 0))
+          return undefined;
+        const paid = t.payoutPct.slice(0, left).filter((v) => Number(v) > 0).length;
+        return paid > 0 ? paid : undefined;
+      })(),
       // V21: deep-stack cash stack-off discipline.
       deepDiscipline: (opts.v21Deep ?? true) !== false,
       // V24 price defense, PLO6 CASH half DEFAULT OFF since 2026-10-31: the
@@ -9195,6 +9243,7 @@ export class HorseLogic {
             else if (layer === 'v60_cash_pressure_opener_vs_three_bet')
               noteFire('v60_cash_pressure_opener_vs_three_bet');
             else if (layer === 'v87_deep_dive_discipline') noteFire('v87_deep_dive_discipline');
+            else if (layer === 'omaha_tournament_first_in') noteFire('omaha_tournament_first_in');
             else if (layer === 'bluff_raise_refused_no_fold_equity_seen')
               noteFire('bluff_raise_refused_no_fold_equity_seen');
             else if (layer === 'style_tight_opener_respect_seen')
@@ -9569,7 +9618,7 @@ export class HorseLogic {
     if (ploIcm53 && telemetryOn(opts)) {
       const rng53 = saveFastRandom();
       try {
-        v53IcmOff = decidePreflopV7({ ...intentCtx7, ploIcm: undefined });
+        v53IcmOff = decidePreflopV7({ ...intentCtx7, ploIcm: undefined, noteLayer: undefined });
       } catch {
         v53IcmOff = null;
       } finally {
@@ -15074,7 +15123,10 @@ export class HorseLogic {
           });
           // Bounty events: priced against the call including its knockout credit (never stands down wholesale).
           if (styleRaiseShade > 0 && styleBountyContext(trustedTournament))
-            styleRaiseShade = Math.max(0, styleRaiseShade - styleKnockoutCredit(gs, player, raiser.user_id, opts));
+            styleRaiseShade = Math.max(
+              0,
+              styleRaiseShade - styleKnockoutCredit(gs, player, raiser.user_id, opts)
+            );
           if (styleRaiseShade > 0 && tele15) noteFire('style_raise_respect_seen');
         }
       } catch {
@@ -16342,9 +16394,13 @@ export class HorseLogic {
           // In a bounty event it does not stand down: the cap is raised by the knockout credit this call earns, so it
           // is applied against the call price including the bounty (styleKnockoutCredit).
           if (opts.styleBigBetHonesty === true && !vi.isOmaha && isRiver) {
-            const cap = bluffCatchEquityCap(HorseMind.styleRead(bettorId), { potFraction: potFrac });
+            const cap = bluffCatchEquityCap(HorseMind.styleRead(bettorId), {
+              potFraction: potFrac,
+            });
             if (cap !== null) {
-              const ko = styleBountyContext(trustedTournament) ? styleKnockoutCredit(gs, player, bettorId, opts) : 0;
+              const ko = styleBountyContext(trustedTournament)
+                ? styleKnockoutCredit(gs, player, bettorId, opts)
+                : 0;
               styleBluffCatchCap = Math.min(1, cap + ko);
               if (ko > 0 && telemetryOn(opts)) noteFire('style_bluff_catch_cap_bounty_priced_seen');
             }
