@@ -1,0 +1,3 @@
+# server/src/engine/ACommittedStackIsNotFoldedAtAPrice.law.test.ts
+
+With option committedStackPricedIn on, a no-limit hold'em tournament Horse in the Phase 6 multiway all-in branch is not folded preflop at a price of 0.05 or better, with 2 big blinds or fewer behind, or with half or more of its starting stack in and a hand that clears 0.26 (a committed top-half hand whose call is all in is priced in to 0.18); junk hands, a fresh multiway decision with a deep stack behind and cash games keep their decision, the tournament utility arbiter still has the last word, the receipt committed_stack_priced_in_seen fires only on those calls, and with the option absent or false every decision is identical to the behaviour before it.

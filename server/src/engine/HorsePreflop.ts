@@ -127,6 +127,7 @@ export interface PreflopIntent {
     | 'plo_suited_aces_four_bet'
     | 'plo_suited_aces_four_bettor_continues'
     | 'hu_bb_defends_to_price'
+    | 'committed_stack_priced_in'
     | 'v86_plo_elite_three_bet'
     | 'v86_plo_squeeze'
     | 'v86_plo_shallow_four_bet'
@@ -322,6 +323,13 @@ export interface PreflopCtx {
    *  the spot in scope; a fold of the heads-up defence becomes a call when
    *  the realised equity covers the price. Absent = unchanged. */
   huBbPrice?: { equity: number };
+  /** A COMMITTED STACK IS NOT FOLDED AT A PRICE (2026-11-13, flag
+   *  committedStackPricedIn, default OFF; HVH2D-NLH-M-COMMIT, NLH-007a).
+   *  True: in a tournament multiway all-in the priced-in guard decides again
+   *  at a price of 0.05 or better, at 2bb or less behind, or when half the
+   *  starting stack is in and the hand clears 0.26; a committed top-half hand
+   *  whose call is all in is priced in to 0.18. Absent = unchanged. */
+  committedStackPricedIn?: boolean;
   /** V20 M-ZONES (2026-08-27): ante cost of ONE ORBIT in BB units, already
    *  resolved for the table's ante style by AnteMath.anteOrbitCostBB (0 = no
    *  ante). NOT per-player: multiplying this by the seat count is the bug of
@@ -980,6 +988,19 @@ export function v77JamSeatTighten(widthPct: number): number {
   return Math.min(0.1, Math.max(0, (0.4 - widthPct / 100) * 0.3));
 }
 
+/** Own chips in, as a share of the hand's starting stack, that count as committed. */
+export const COMMITTED_STACK_SHARE = 0.5;
+/** Big blinds behind at or under which a stack is crumbs (the guard's own line). */
+export const COMMITTED_CRUMBS_BB = 2;
+/** A price this good is called in a multiway all-in whatever the commitment. */
+export const MULTIWAY_TOKEN_PRICE = 0.05;
+/** A committed hero's hand must clear this to be priced in three ways. */
+export const COMMITTED_MIN_STRENGTH = 0.26;
+/** Price bar for a committed hero's all-in call with a top-half hand. */
+export const COMMITTED_ALL_IN_PRICE_BAR = 0.18;
+/** The hand strength that bar asks for (the top half of hands). */
+export const COMMITTED_ALL_IN_MIN_STRENGTH = 0.5;
+
 export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
   // ═══ V46 (2026-09-05) ═══ THE PERCENTILE IS LYING. Three or four of a rank
   // in an Omaha hand (AAA-x above all) rates high on the hold'em ladder and
@@ -1058,17 +1079,75 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
   const guardOdds = preflopCallOdds(ctx, pricePot, effCall);
   const isTourney = ctx.mode === 'tournament';
   const stackBB = stack / bb;
+  // ── A COMMITTED STACK IS NOT FOLDED AT A PRICE (HVH2D-NLH-M-COMMIT) ─────
+  // The hero's own chips in this pot, as a share of the stack it started the
+  // hand with. `currentBet - toCall` is the hero's live bet; a big blind ante
+  // paid from the stack is not in it, so the share is never overstated.
+  // Default OFF (flag committedStackPricedIn): absent, every line below reads
+  // false and the guard is byte-for-byte the one it replaced.
+  const committedOn = ctx.committedStackPricedIn === true;
+  const multiwayAllIn = committedOn && isTourney && ctx.phase6?.policy.branch === 'multiway_all_in';
+  const ownChipsIn = Math.max(0, ctx.currentBet - toCall);
+  const committedShare = ownChipsIn + stack > 0 ? ownChipsIn / (ownChipsIn + stack) : 0;
+  const heroCommitted = multiwayAllIn && committedShare >= COMMITTED_STACK_SHARE;
+  // HVH2D-NLH-007a (QJs, 56% of the stack in, price 0.159, folded 396 of 396).
+  // The 0.15 bar below is an ANY-TWO bar. A committed hero whose call puts
+  // the rest of its stack in sees all five cards with no bet left to face, so
+  // the only question is raw equity against the price. Three ways against two
+  // tight ranges (TT+, AQs+, AK) the top half of hands holds 0.20 to 0.24
+  // (pairs, suited connected cards) and no worse than about 0.135 (a dominated
+  // offsuit king); QJs holds 0.16 against aces and kings together, the worst
+  // pair of hands it can meet. So a top-half hand continues to 0.18, and the
+  // bar stops there.
+  const committedAllInPrice =
+    heroCommitted &&
+    effCall >= stack * 0.99 &&
+    guardOdds <= COMMITTED_ALL_IN_PRICE_BAR &&
+    ctx.strength >= COMMITTED_ALL_IN_MIN_STRENGTH;
   const pricedIn =
     ctx.mode !== undefined &&
     (guardOdds <= 0.15 ||
       (effCall <= bb && guardOdds <= 0.22) ||
-      (isTourney && stackBB <= 2 && guardOdds <= 0.34));
+      (isTourney && stackBB <= 2 && guardOdds <= 0.34) ||
+      committedAllInPrice);
   if (!pricedIn) return out;
 
   // A generic any-two shortcut is not valid against multiple strong ranges.
   // The explicit Phase 6 multiway-all-in node owns this call-off, and its
-  // fold may never be rewritten into a call by the legacy heads-up guard.
-  if (ctx.phase6?.policy.branch === 'multiway_all_in') return out;
+  // fold may not be rewritten into a call by the legacy heads-up guard WHEN
+  // THE DECISION IS A FRESH ONE. That node's bar reads hand strength only: it
+  // has no rule for chips already in or for the price (2026-11-12 study: 31
+  // chips to call into 6,062 was folded with 63% of the stack in). So the
+  // exemption ends in three cases, and the guard's own bars above decide:
+  //  - the price is 0.05 or better (19 to 1): three ways no hand is under
+  //    0.127 against two tight ranges, and only a dominated king against aces
+  //    and kings exactly (0.044) falls below the price;
+  //  - 2 big blinds or fewer remain behind AND the hand is not junk: the
+  //    guard's own tournament crumbs line (a stack that small has no later
+  //    fold to protect). Independent review 461281e7: without a floor this
+  //    clause put 72o, K2o, 94o and 83o in at a 0.192 price three ways, where
+  //    they hold about 0.13 to 0.17 against tight ranges, so it shares the
+  //    0.26 floor below;
+  //  - the hero is committed (half or more of the stack it started the hand
+  //    with is already in: from there the stack left is no larger than the
+  //    chips a fold abandons, and every spot in the study sat at 0.52 to
+  //    0.69) AND the hand is not junk. The any-two premise really does fail
+  //    three ways for the bottom of the deck (72o 0.14, K2o 0.127, J8o 0.166
+  //    against two tight ranges, at or under the 0.15 bar), so the hand must
+  //    clear 0.26, the guard's own tournament floor for a priced-in call with
+  //    a caller in the pot (v87PricedInMinStrength).
+  // The tournament utility arbiter runs after this and may still fold.
+  let committedRescue = false;
+  if (ctx.phase6?.policy.branch === 'multiway_all_in') {
+    const exemptionEnds =
+      committedOn &&
+      isTourney &&
+      (guardOdds <= MULTIWAY_TOKEN_PRICE ||
+        (stackBB <= COMMITTED_CRUMBS_BB && ctx.strength >= COMMITTED_MIN_STRENGTH) ||
+        (heroCommitted && ctx.strength >= COMMITTED_MIN_STRENGTH));
+    if (!exemptionEnds) return out;
+    committedRescue = true;
+  }
 
   // ── THE PRICE IS ONLY REAL WHEN THE CALL CLOSES THE ACTION ──────────────
   //
@@ -1141,6 +1220,9 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
     }
   }
   // The receipt says which band decided; the priced-in call still came from it.
+  // A call the multiway exemption would have blocked is the committed-stack
+  // rule's own call, and says so.
+  if (committedRescue) return { a: 'call', receipt: 'committed_stack_priced_in' };
   return out.receipt ? { a: 'call', receipt: out.receipt } : { a: 'call' };
 }
 
