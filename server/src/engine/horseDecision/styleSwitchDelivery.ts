@@ -31,7 +31,7 @@ export interface StyleSwitchStateMessage {
   /** Increases by one per delivery within one engine process; a worker ignores an older one. */
   seq: number;
   status: 'ok' | 'unreadable';
-  /** Main-thread wall clock (Date.now()) when the read answered or failed. */
+  /** Main-thread wall clock (Date.now()) just before the read began (a failure: when it failed). */
   readAtEpochMs: number;
   /** The database answer exactly as read when status is ok; null when unreadable. */
   config: unknown;

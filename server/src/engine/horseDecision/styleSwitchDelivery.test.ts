@@ -5,6 +5,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   STYLE_SWITCH_OPTIONS,
   STYLE_SWITCH_POLL_MS,
@@ -63,7 +64,7 @@ function workerRig() {
 }
 
 describe('the STYLE_SWITCH_STATE message', () => {
-  it('is exactly type, seq, status and config', () => {
+  it('is exactly type, seq, status, readAtEpochMs and config', () => {
     expect(styleSwitchMessageValid(ok(1, {}))).toBe(true);
     expect(styleSwitchMessageValid(unreadable(2))).toBe(true);
     expect(styleSwitchMessageValid({ ...ok(1, {}), extra: 1 })).toBe(false);
@@ -345,7 +346,7 @@ describe('the main-thread delivery', () => {
 });
 
 describe('the wiring and the migration agree with the engine', () => {
-  const here = path.dirname(new URL(import.meta.url).pathname);
+  const here = path.dirname(fileURLToPath(import.meta.url));
   const read = (p: string) => fs.readFileSync(path.resolve(here, p), 'utf8');
 
   it('the worker serves its switch from the inbox and the pool starts the delivery', () => {
