@@ -39,6 +39,7 @@ export async function checkFixedMobileArtwork(
       activeSeat: '3',
       action: 'preflop',
       actionPills: 'true',
+      waitlist: 'true',
       folded: '1,6',
       // Mount the requested game directly. A warm-up nine-seat Hold'em mount
       // can persist a second game type before the first fixture transition.
@@ -145,6 +146,7 @@ export async function checkFixedMobileArtwork(
         revealed: 'false',
         folded: '1,6',
         actionPills: 'true',
+        waitlist: 'true',
         villainCards: settings.cards,
       });
       document.dispatchEvent(new Event('fixture-next-hand'));
@@ -206,7 +208,7 @@ export async function checkFixedMobileArtwork(
           Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
         const displays = [
           ...document.querySelectorAll(
-            '.table-brand,.community-area,.seat__info,.seat__name,.seat__stack,.seat__bet-chips,.dealer-button,.action-panel'
+            '.table-brand,.community-area,.seat__info,.seat__name,.seat__stack,.seat__bet-chips,.dealer-button,.action-panel,.waitlist-cta'
           ),
         ].filter(visible);
         return [...document.querySelectorAll('.seat__cards .seat__card')]
@@ -229,6 +231,24 @@ export async function checkFixedMobileArtwork(
             return errors;
           });
       });
+    const bottomOverlaps = await page.evaluate(() => {
+      const controls = [
+        ...document.querySelectorAll('.waitlist-cta,.action-panel,.pre-action-bar'),
+      ].filter((el) => el.getBoundingClientRect().height > 0);
+      return [...document.querySelectorAll('.seat__info')].flatMap((plate) => {
+        const a = plate.getBoundingClientRect();
+        return controls
+          .filter((control) => {
+            const b = control.getBoundingClientRect();
+            return (
+              Math.min(a.right, b.right) > Math.max(a.left, b.left) + 1 &&
+              Math.min(a.bottom, b.bottom) > Math.max(a.top, b.top) + 1
+            );
+          })
+          .map((control) => control.className);
+      });
+    });
+    expect(bottomOverlaps, 'bottom controls leave every player plate clear').toEqual([]);
     expect(await cardObstructions(), 'hidden hands stay complete and clear of displays').toEqual(
       []
     );
@@ -241,7 +261,13 @@ export async function checkFixedMobileArtwork(
     // seat's holo sweep must not blend (a blend group clips the grown head in
     // WebKit), and a sit-out badge keeps clear of the portrait's head.
     const uncut = await page.evaluate(() => {
-      const results: Array<{ blend: string; badgeTop: number; headBottom: number }> = [];
+      const results: Array<{
+        blend: string;
+        badgeTop: number;
+        headBottom: number;
+        foldFilter: string;
+        foldOpacity: string;
+      }> = [];
       for (const avatar of document.querySelectorAll<HTMLElement>(
         '.seat__avatar[style*="--sp-mobile-art-scale"]'
       )) {
@@ -254,17 +280,27 @@ export async function checkFixedMobileArtwork(
         badge.textContent = 'Waiting For The Button To Pass';
         avatar.parentElement!.appendChild(badge);
         const art = avatar.querySelector('.seat__avatar-img')!.getBoundingClientRect();
+        const seat = avatar.closest('.seat')!;
+        const wasFolded = seat.classList.contains('seat--folded');
+        seat.classList.add('seat--folded');
+        const foldedStyle = getComputedStyle(avatar.parentElement!);
         results.push({
+          foldFilter: foldedStyle.filter,
+          foldOpacity: foldedStyle.opacity,
           blend: getComputedStyle(holo).mixBlendMode,
           badgeTop: badge.getBoundingClientRect().top,
           headBottom: art.top + art.height * 0.4,
         });
+        if (!wasFolded) seat.classList.remove('seat--folded');
         holo.remove();
         badge.remove();
       }
       return results;
     });
+    expect(uncut.length, 'folded portraits are exercised').toBeGreaterThan(0);
     for (const r of uncut) {
+      expect(r.foldFilter, 'folded portraits have no clipping parent filter').toBe('none');
+      expect(r.foldOpacity, 'fold dimming belongs to the painted image').toBe('1');
       expect(r.blend, 'the holo sweep never blends over a grown portrait').toBe('normal');
       expect(
         r.badgeTop,

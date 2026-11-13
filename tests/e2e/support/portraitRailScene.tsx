@@ -16,6 +16,7 @@ import {
 import { useProtectedCardLayout } from '../../../src/hooks/useProtectedCardLayout';
 import BadBeatJackpot from '../../../src/components/table/BadBeatJackpot';
 import ActionPanel from '../../../src/components/table/ActionPanel';
+import { WaitlistCallToAction } from '../../../src/components/table/WaitlistCallToAction';
 import PreActionBar from '../../../src/components/table/PreActionBar';
 import PotDisplay from '../../../src/components/table/PotDisplay';
 import HeroVpipTracker from '../../../src/components/table/HeroVpipTracker';
@@ -357,7 +358,15 @@ export function Review() {
             <div className="action-panel-wrapper">
               {spectator ? (
                 <div className="spectator-footer-bar">
-                  <span className="spectator-footer-bar__label">Spectating</span>
+                  {document.documentElement.dataset.waitlist === 'true' ? (
+                    <WaitlistCallToAction
+                      onClick={() => undefined}
+                      waitingCount={0}
+                      position={null}
+                    />
+                  ) : (
+                    <span className="spectator-footer-bar__label">Spectating</span>
+                  )}
                 </div>
               ) : action === 'active' ? (
                 <ActionPanel
