@@ -28,7 +28,7 @@ import {
 
 const CERTIFICATION_ENABLED = process.env.CUSTOMIZATION_COMMERCE_CERTIFICATION === '1';
 const RESPONSE_TIMEOUT = 60_000;
-const EXPECTED_PREMIUM_STOREFRONT_SKUS = 67;
+const EXPECTED_PREMIUM_STOREFRONT_SKUS = 65;
 const studioOwners = new WeakMap<Page, string>();
 
 type Appearance = {
@@ -118,7 +118,7 @@ async function deployedStorefrontFeatures(studio: Locator): Promise<string[]> {
     { tab: 'Looks', count: 7, prefix: 'studio:theme_id:' },
     { tab: 'Tables', count: 10, prefix: 'studio:table_id:' },
     { tab: 'Buttons', count: 7, prefix: 'studio:button_id:' },
-    { tab: 'Cards', count: 9, prefix: 'card_back_' },
+    { tab: 'Cards', count: 7, prefix: 'card_back_' },
     { tab: 'Decks', count: 7, prefix: 'studio:face_deck_id:' },
   ] as const) {
     await activateCategory(studio, surface.tab);

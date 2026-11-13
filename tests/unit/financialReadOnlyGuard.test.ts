@@ -88,32 +88,33 @@ describe('financial read-only request classification', () => {
     }
   });
 
-  it.each(['fn_platform_capabilities', 'fn_club_display_labeled_additions'])(
-    'forwards the reviewed %s read but refuses lookalikes and write methods',
-    async (name) => {
-      const harness = pageHarness();
-      const guard = await installFinancialReadOnlyGuard(harness.page, {
-        allowedRpcPaths: FINANCIAL_ADMIN_CONSOLE_READ_ONLY_RPC_PATHS,
-      });
-      const path = `/rest/v1/rpc/${name}`;
-      const read = routeHarness('POST', `https://project.supabase.co${path}`);
-      await harness.handler()(read.route, read.route.request());
-      expect(read.fallback).toHaveBeenCalledOnce();
-      expect(read.abort).not.toHaveBeenCalled();
-      expect(() => guard.assertNoViolations()).not.toThrow();
-      for (const [method, refusedPath] of [
-        ['PATCH', path],
-        ['POST', `${path}_update`],
-      ]) {
-        const write = routeHarness(method, `https://project.supabase.co${refusedPath}`);
-        await harness.handler()(write.route, write.route.request());
-        expect(write.abort).toHaveBeenCalledWith('blockedbyclient');
-        expect(write.fallback).not.toHaveBeenCalled();
-      }
-      expect(guard.violations).toHaveLength(2);
-      expect(() => guard.assertNoViolations()).toThrow('blocked 2 REST mutations');
+  it.each([
+    'fn_platform_capabilities',
+    'fn_club_display_labeled_additions',
+    'fn_batch_union_realtime_active_counts',
+  ])('forwards the reviewed %s read but refuses lookalikes and write methods', async (name) => {
+    const harness = pageHarness();
+    const guard = await installFinancialReadOnlyGuard(harness.page, {
+      allowedRpcPaths: FINANCIAL_ADMIN_CONSOLE_READ_ONLY_RPC_PATHS,
+    });
+    const path = `/rest/v1/rpc/${name}`;
+    const read = routeHarness('POST', `https://project.supabase.co${path}`);
+    await harness.handler()(read.route, read.route.request());
+    expect(read.fallback).toHaveBeenCalledOnce();
+    expect(read.abort).not.toHaveBeenCalled();
+    expect(() => guard.assertNoViolations()).not.toThrow();
+    for (const [method, refusedPath] of [
+      ['PATCH', path],
+      ['POST', `${path}_update`],
+    ]) {
+      const write = routeHarness(method, `https://project.supabase.co${refusedPath}`);
+      await harness.handler()(write.route, write.route.request());
+      expect(write.abort).toHaveBeenCalledWith('blockedbyclient');
+      expect(write.fallback).not.toHaveBeenCalled();
     }
-  );
+    expect(guard.violations).toHaveLength(2);
+    expect(() => guard.assertNoViolations()).toThrow('blocked 2 REST mutations');
+  });
 
   it('forwards only the no-argument maintenance state read', async () => {
     const harness = pageHarness();
