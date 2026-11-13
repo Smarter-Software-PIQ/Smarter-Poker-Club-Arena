@@ -25,7 +25,7 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, realpathSync } from 'node:fs';
-import { dirname, join, resolve, relative, isAbsolute } from 'node:path';
+import { basename, dirname, join, resolve, relative, isAbsolute, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   exactReplayChildEnv,
@@ -91,11 +91,21 @@ async function child(args) {
   const result = await styleShadowRerunRecord(input.record, {
     runningSource: args.runningSource,
     stores: currentReplaySolverStores(),
+    execution: input.execution ?? null,
+    originalFastRecords: input.originalFastRecords ?? [],
   });
   process.stdout.write(`${JSON.stringify({ ...result, networkAttempts: attempts })}\n`);
 }
 
-function rerunInFreshProcess({ record, runningSource, storeSnapshots, node, esbuildBinary }) {
+function rerunInFreshProcess({
+  record,
+  execution,
+  originalFastRecords,
+  runningSource,
+  storeSnapshots,
+  node,
+  esbuildBinary,
+}) {
   return new Promise((done) => {
     const argv = [fileURLToPath(import.meta.url), '--child', '--running-source', runningSource];
     for (const file of storeSnapshots) argv.push('--store-snapshot', file);
@@ -116,7 +126,7 @@ function rerunInFreshProcess({ record, runningSource, storeSnapshots, node, esbu
         done({ result: null, error: `${error.message}: ${stderr.slice(-400)}` });
       }
     });
-    proc.stdin.end(JSON.stringify({ record }));
+    proc.stdin.end(JSON.stringify({ record, execution, originalFastRecords }));
   });
 }
 
@@ -126,6 +136,48 @@ function replayStateVersion(record) {
     return JSON.parse(record.body)?.replayState?.version ?? null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Review bd7a5cc2, finding 1: `--out` must be outside the repository after every symlink is resolved, on both
+ * sides. The directory may not exist yet, so the nearest existing ancestor is resolved and the rest appended.
+ */
+export function outputIsOutsideRepo(out, root = repoRoot) {
+  let existing = resolve(out);
+  const rest = [];
+  for (;;) {
+    try {
+      existing = realpathSync(existing);
+      break;
+    } catch {
+      const parent = dirname(existing);
+      if (parent === existing) return false;
+      rest.unshift(basename(existing));
+      existing = parent;
+    }
+  }
+  const real = join(existing, ...rest);
+  const rel = relative(realpathSync(root), real);
+  return rel === '..' || (rel.startsWith(`..${sep}`) && !isAbsolute(rel)) || isAbsolute(rel);
+}
+
+/** The earlier FAST decisions a DEEP second look may bind (exactReplay's originalFastRecords): same producer and
+ * hand, earlier sequence, at most the 256 latest. */
+export function originalFastCandidates(record, decisionsByHand) {
+  if (!/"type":"DECIDE_DEEP"/.test(String(record.body))) return [];
+  return (decisionsByHand.get(`${record.producerId}\u0000${record.handKey}`) ?? [])
+    .filter((r) => Number(r.sequence) < Number(record.sequence))
+    .slice(-256);
+}
+
+/** DECIDE_FAST or DECIDE_DEEP, without replaying. */
+function laneOf(record) {
+  try {
+    const type = JSON.parse(record.body)?.snapshot?.type;
+    return type === 'DECIDE_DEEP' ? 'deep' : type === 'DECIDE_FAST' ? 'fast' : 'other';
+  } catch {
+    return 'unreadable';
   }
 }
 
@@ -141,8 +193,7 @@ const tally = (items, key) => {
 async function batch(args) {
   if (!args.journal) throw new Error('a journal copy (.ndjson) is required');
   if (!args.out) throw new Error('--out <dir outside the repository> is required');
-  const rel = relative(realpathSync(repoRoot), args.out);
-  if (!rel.startsWith('..') && !isAbsolute(rel))
+  if (!outputIsOutsideRepo(args.out))
     throw new Error('--out must be outside the repository: the rows carry table ids and hands');
   const runningSource = execFileSync('git', ['rev-parse', 'HEAD'], {
     cwd: repoRoot,
@@ -161,14 +212,24 @@ async function batch(args) {
     throw new Error('--since/--until must be ISO times');
 
   const decisions = [];
+  const executions = new Map();
+  const decisionsByHand = new Map();
   for (const line of readFileSync(args.journal, 'utf8').split('\n')) {
     if (!line.trim()) continue;
     const parsed = JSON.parse(line);
     const record = parsed && typeof parsed.kind === 'string' ? parsed : parsed?.record;
+    if (record?.kind === 'execution') executions.set(record.turnKey, record);
     if (record?.kind !== 'decision') continue;
+    if (/"type":"DECIDE_FAST"/.test(String(record.body))) {
+      const key = `${record.producerId}\u0000${record.handKey}`;
+      if (!decisionsByHand.has(key)) decisionsByHand.set(key, []);
+      decisionsByHand.get(key).push(record);
+    }
     const at = Number(record.atMs);
     if (at >= sinceMs && at < untilMs) decisions.push(record);
   }
+  for (const list of decisionsByHand.values())
+    list.sort((a, b) => Number(a.sequence) - Number(b.sequence));
   const versions = tally(decisions, (r) => replayStateVersion(r) ?? 'unreadable');
   const selected = decisions
     .filter((r) => replayStateVersion(r) === V4)
@@ -183,6 +244,8 @@ async function batch(args) {
       const i = next++;
       results[i] = await rerunInFreshProcess({
         record: selected[i],
+        execution: executions.get(selected[i].turnKey) ?? null,
+        originalFastRecords: originalFastCandidates(selected[i], decisionsByHand),
         runningSource,
         storeSnapshots: args.storeSnapshots,
         node: args.node,
@@ -219,6 +282,10 @@ async function batch(args) {
     decisionsInWindow: decisions.length,
     replayStateVersions: versions,
     selectedV4: selected.length,
+    // a DEEP second look replays only with its original FAST record from the same copy; a DEEP record whose FAST
+    // record is outside the copy is reported here, by lane, and not counted as a FAST failure
+    selectedV4ByLane: tally(selected, laneOf),
+    baselineByLane: tally(ok, (r) => `${r.lane ?? '?'} ${r.baseline ?? 'none'}`),
     childFailures: results.length - ok.length,
     networkAttempts: ok.reduce((n, r) => n + r.networkAttempts.fetch + r.networkAttempts.socket, 0),
     status: tally(ok, (r) => r.status),
@@ -237,6 +304,9 @@ async function batch(args) {
       (o) => o
     ),
     rows: rows.length,
+    rowsByLaneAndExecuted: tally(rows, (r) => `${r.lane} executed=${r.executed ?? 'unknown'}`),
+    // a size-only change (same action class, other amount) is reported apart and is not in the 30-decision gate
+    rowsSizeOnly: rows.filter((r) => r.actual === r.would_be).length,
     // the live counters' cell shape, for query 0: offline counts are at least the live ones (no skips, no rotation)
     rowsByCell: tally(
       rows,
