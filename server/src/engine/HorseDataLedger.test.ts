@@ -148,6 +148,12 @@ describe('HorseDataLedger - the contract holds against the source', () => {
         expect(e.ratioOf, `${k} has minRatio without ratioOf`).toBeTruthy();
         expect(e.minRatio).toBeGreaterThan(0);
         expect(e.minRatio).toBeLessThanOrEqual(1);
+        // 2026-11-13: a floor is a fact the receipt audit reports as critical
+        // at zero. An occurrence counter (_seen: a side game nobody offered, a
+        // rare cleanup, a once-per-process build) has quiet days by nature, so
+        // it never carries one. (A _seen POPULATION counter, phase10_seen, is a
+        // fine denominator; this rule is about the numerator.)
+        expect(e.key.endsWith('_seen'), `${k}: an occurrence counter carries no floor`).toBe(false);
       }
       if (e.ratioOf) {
         expect(e.kind, `${k}: ratioOf only on receipts`).toBe('receipt');

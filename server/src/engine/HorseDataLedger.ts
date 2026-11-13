@@ -2847,6 +2847,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'decide_postflop'
   ),
   receipt(
+    'phase14_kernel_refused_*',
+    'horseDecision workerRuntime (FAST)',
+    'an admitted Phase 14 domain decision outside the kernel family, by the first refusing check (two dealt seats, river, opponent all in, ante geometry, baseline); named *_seen (occurrence, not a layer)',
+    '2026-11-13'
+  ),
+  receipt(
+    'phase14_kernel_eligible_deep_seen',
+    'horseDecision workerRuntime (DEEP)',
+    'a DEEP second look that reached the admitted corrective kernel; kept apart from the FAST count; named *_seen (occurrence, not a layer)',
+    '2026-11-13'
+  ),
+  receipt(
     'phase14_kernel_eligible_seen',
     'horseDecision workerRuntime (FAST)',
     'a FAST decision reached the admitted corrective kernel: usable authority, candidate mode and a snapshot inside the kernel declared family (cash: two dealt seats, river, opponent all in); named *_seen (occurrence, not a layer)',

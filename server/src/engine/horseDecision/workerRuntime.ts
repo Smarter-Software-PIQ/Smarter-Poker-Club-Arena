@@ -2626,6 +2626,8 @@ export class HorseDecisionWorkerRuntime {
   ): {
     evaluator: CorrectiveKernelEvaluator | null;
     receipt: HorseAuthorityReceipt | null;
+    /** Admitted domain, decision outside the kernel: the first refusing check. */
+    refusal: string | null;
   } {
     this.admitPhase14Authority();
     const d = correctiveDecisionDomain(request.gameState),
@@ -2683,7 +2685,7 @@ export class HorseDecisionWorkerRuntime {
         ),
       ]);
     };
-    const stillUsable = () =>
+    const candidate = () =>
       !!holder &&
       !!receipt &&
       horsePhase14CorrectiveMode({
@@ -2692,14 +2694,28 @@ export class HorseDecisionWorkerRuntime {
         packDomain: domain,
         verdict: holder.verdict(receipt, Date.now()),
         catalog,
-      }).mode === 'candidate' &&
-      // Unselected decisions do not allocate or inspect a corrective snapshot.
-      // The shared fields are identical for FAST and DEEP; normalize only type.
-      functionalKernelSnapshotRefusal({ ...request, type: 'DECIDE_FAST' }, catalog) === null &&
-      baselineUsable();
+      }).mode === 'candidate';
+    // Unselected decisions do not allocate or inspect a corrective snapshot.
+    // The shared fields are identical for FAST and DEEP; normalize only type.
+    const snapshotRefusal = () =>
+      functionalKernelSnapshotRefusal({ ...request, type: 'DECIDE_FAST' }, catalog);
+    const stillUsable = () => candidate() && snapshotRefusal() === null && baselineUsable();
+    // The first evaluation keeps WHY an admitted domain's decision is outside
+    // the kernel, as evidence (2026-11-13): the same three checks in the same
+    // order as stillUsable, each run at most once here.
+    let refusal: string | null = null;
+    let usable = false;
+    if (candidate()) {
+      refusal = snapshotRefusal();
+      if (refusal === null) {
+        usable = baselineUsable();
+        if (!usable) refusal = 'baseline_unusable';
+      }
+    }
     return {
       receipt,
-      evaluator: stillUsable()
+      refusal,
+      evaluator: usable
         ? createCorrectiveKernelEvaluator({
             catalog,
             original,
@@ -2857,6 +2873,10 @@ export class HorseDecisionWorkerRuntime {
       horseCorrectiveReplayState(request.gameState, request.opts?.phase14, phase14.evaluator)
     );
     let phase14ObservationPrepared = false;
+    // Evidence only: an admitted domain's decision that the kernel's declared
+    // family refuses, by the first refusing check (closed reason strings from
+    // kernelEligibility.ts and kernelTournamentEligibility.ts).
+    if (phase14.refusal) this.deps.noteFeature(`phase14_kernel_refused_${phase14.refusal}_seen`);
     if (phase14.evaluator) {
       // Evidence only: how often a live decision is inside the corrective
       // kernel's declared family at all. Applications are counted at commit
@@ -3186,6 +3206,9 @@ export class HorseDecisionWorkerRuntime {
       snapshot: retained.snapshot,
       readFrame: retained.frame,
     }));
+    // Evidence only: a DEEP second look that reached the admitted kernel. Kept
+    // apart from the FAST count, which may have counted the same turn.
+    if (phase14.evaluator) this.deps.noteFeature('phase14_kernel_eligible_deep_seen');
     const replayState = horseDecisionReplayState(
       {
         phase8Postflop: phase8Guard.selected ? phase8Guard.mode : phase8.mode,
