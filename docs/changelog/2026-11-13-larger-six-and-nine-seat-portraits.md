@@ -10,4 +10,4 @@ The enlarged layout targets the 600px reference canvas used by portrait phones. 
 
 The shortened six-seat rail rests on its reserved floor, and the phone hero clearance uses the equal portrait ratio. This preserves the existing maximum gap between the hero display and action buttons on short phones.
 
-Hidden fans reserve the rotated bottom corner above the nameplate. The live screenshot certificate checks hidden and shown cards against the viewport, player plates, board, branding, dealer and controls.
+Hidden fans on both portrait layouts, including compact raw viewports, reserve the rotated bottom corner above the nameplate. The live screenshot certificate checks hidden and shown cards against the viewport, player plates, board, branding, dealer and controls.

@@ -5228,7 +5228,7 @@
 /* Rotation around 50% 120% lowers a fan's outer bottom corner by
    half-width * sin(angle) + 0.2 * height * (1 - cos(angle)). Reserve that
    painted corner above the plate, not just the unrotated card box. */
-@media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
+@media (orientation: portrait) {
   .table-page:where([data-seats='6'], [data-seats='9'])
     .seat__cards--opponent:not(.seat__cards--revealed) {
     --vh-outer-angle: calc(
