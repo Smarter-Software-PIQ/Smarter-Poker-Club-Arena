@@ -28,6 +28,12 @@
 --                                       and its line_class must name its
 --                                       public history; v2 entries take the
 --                                       original path unchanged
+--   fn_gto_v31_dataset_matches_registration
+--                                       feature contract
+--                                       holdem-public-hist215-v3 iff the
+--                                       registration is v3 (a v3 round may not
+--                                       declare hist215-v1 or v2); every other
+--                                       dataset takes the original checks only
 -- Every registration, entry and cell refused before is still refused (a
 -- cell with a cell_contract key was refused as "not 13 keys"; it is now
 -- admitted only as a fully valid v3 cell in an all-v3 registration).
@@ -377,6 +383,54 @@ BEGIN
   RETURN NULL;
 EXCEPTION WHEN OTHERS THEN
   RETURN 'range provenance is malformed: ' || SQLERRM;
+END $function$;
+
+-- Dataset insert (20261110213931): the original text, then the feature
+-- contract / cell contract coupling (review M1) in front of RETURN NEW.
+CREATE OR REPLACE FUNCTION public.fn_gto_v31_dataset_matches_registration()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+DECLARE r public.gto_v31_round_registrations%ROWTYPE; v_comp jsonb;
+BEGIN
+  SELECT * INTO r FROM public.gto_v31_round_registrations
+   WHERE dataset_key = NEW.dataset_key FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'V31 dataset % has no round registration: register the round (composition, cells, provenance, acceptance criteria, evaluation plan) before any dataset is created', NEW.dataset_key;
+  END IF;
+  IF r.dataset_id IS NOT NULL THEN
+    RAISE EXCEPTION 'V31 round % already has its dataset; a registration is used once', r.round_key;
+  END IF;
+  v_comp := public.fn_gto_v31_cell_composition(NEW.declared_coverage);
+  IF public.fn_gto_v31_cell_set_checksum(NEW.declared_coverage) IS DISTINCT FROM r.cell_set_checksum
+     OR jsonb_array_length(NEW.declared_coverage) <> jsonb_array_length(r.cells) THEN
+    RAISE EXCEPTION 'V31 round % composition differs from its registration: registered % (% cells, set %), declared % (% cells, set %); no cell may be substituted',
+      r.round_key, public.fn_gto_v31_composition_text(r.composition), jsonb_array_length(r.cells), left(r.cell_set_checksum,12),
+      public.fn_gto_v31_composition_text(v_comp), jsonb_array_length(NEW.declared_coverage),
+      left(public.fn_gto_v31_cell_set_checksum(NEW.declared_coverage),12);
+  END IF;
+  IF NEW.quality_gates IS DISTINCT FROM r.acceptance_criteria->'quality_gates' THEN
+    RAISE EXCEPTION 'V31 round % quality gates differ from its registered acceptance criteria: registered %, declared %',
+      r.round_key, r.acceptance_criteria->'quality_gates', NEW.quality_gates;
+  END IF;
+  -- Cell contract v3 (20261113 B5, review M1): feature contract
+  -- holdem-public-hist215-v3 and cell contract v3 are tied both ways. A dataset
+  -- declaring hist215-v3 needs a v3 registration (line-keyed cells), and a v3
+  -- registration's dataset may not declare the older public215 contracts
+  -- (hist215-v1 or v2 have no category for the 'big' facing bucket or the
+  -- 'donk' role). Every other dataset reaches RETURN exactly as before.
+  IF NEW.feature_contract_version = 'holdem-public-hist215-v3'
+     AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(r.cells) e WHERE jsonb_typeof(e) = 'object' AND e ? 'cell_contract') THEN
+    RAISE EXCEPTION 'V31 dataset % declares feature contract holdem-public-hist215-v3, which requires cell contract v3, but round % registered v2 cells',
+      NEW.dataset_key, r.round_key;
+  END IF;
+  IF NEW.feature_contract_version IN ('holdem-public-hist215-v1','holdem-public-hist215-v2')
+     AND EXISTS (SELECT 1 FROM jsonb_array_elements(r.cells) e WHERE jsonb_typeof(e) = 'object' AND e ? 'cell_contract') THEN
+    RAISE EXCEPTION 'V31 round % registered cell contract v3 cells, which require feature contract holdem-public-hist215-v3; dataset % declares %',
+      r.round_key, NEW.dataset_key, NEW.feature_contract_version;
+  END IF;
+  RETURN NEW;
 END $function$;
 
 REVOKE ALL ON FUNCTION public.fn_gto_v31_cell_contract_v3_error(jsonb) FROM PUBLIC, anon, authenticated, service_role;

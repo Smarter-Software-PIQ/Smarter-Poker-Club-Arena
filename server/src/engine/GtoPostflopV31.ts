@@ -263,16 +263,30 @@ const RANK_INDEX: Record<string, number> = Object.fromEntries(
   [...'AKQJT98765432'].map((rank, index) => [rank, index])
 );
 
+/**
+ * The feature contract a row or seal declares, null when unknown or refused.
+ * Feature contract holdem-public-hist215-v3 and cell contract v3 are tied both
+ * ways: hist215-v3 is known only on a row (or seal) that declares
+ * cell_contract_version 'v3', and a 'v3' row may not declare the older public215
+ * contracts (hist215-v1 or v2, which have no category for its 'big' facing
+ * bucket or 'donk' role). A row without cell_contract_version 'v3' answers
+ * exactly as before cell contract v3 existed (hist215-v3 was unknown then).
+ * A matrix row keeps its hand-key contract under either cell contract.
+ */
 export function gtoV31FeatureContractVersion(value: {
   feature_contract_version?: unknown;
+  cell_contract_version?: unknown;
 }): GtoV31SourceSeal['feature_contract_version'] | null {
   if (!Object.prototype.hasOwnProperty.call(value, 'feature_contract_version'))
     return 'rank-suit-count-v1';
+  const cellV3 = value.cell_contract_version === 'v3';
+  if (value.feature_contract_version === 'holdem-public-hist215-v3')
+    return cellV3 ? value.feature_contract_version : null;
   return value.feature_contract_version === 'rank-suit-count-v1' ||
     value.feature_contract_version === 'holdem-board-relative-v2' ||
-    value.feature_contract_version === 'holdem-public-hist215-v1' ||
-    value.feature_contract_version === 'holdem-public-hist215-v2' ||
-    value.feature_contract_version === 'holdem-public-hist215-v3'
+    (!cellV3 &&
+      (value.feature_contract_version === 'holdem-public-hist215-v1' ||
+        value.feature_contract_version === 'holdem-public-hist215-v2'))
     ? value.feature_contract_version
     : null;
 }
@@ -606,7 +620,8 @@ function rowIsValid(
 
   if (row.policy_representation === 'public_hist215_v1') {
     // The row's explicit contract selects the descriptor it must carry.
-    const contract = public215FeatureContract(row.feature_contract_version);
+    // gtoV31FeatureContractVersion ties hist215-v3 to cell contract v3 both ways.
+    const contract = public215FeatureContract(gtoV31FeatureContractVersion(row));
     return (
       contract !== null &&
       row.hand_matrix == null &&

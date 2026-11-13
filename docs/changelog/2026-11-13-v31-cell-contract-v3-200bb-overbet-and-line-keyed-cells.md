@@ -32,7 +32,24 @@ registered cells). Only then:
 Files: `server/src/engine/GtoDecisionContext.ts` (v3 depth, line class, v3 classifier; the v2 classifier is
 unchanged), `server/src/engine/GtoPostflopV31.ts` (v3 rows, keys, lookup and range-provenance keys),
 `GtoPublicHist215Contracts.ts`, `GtoPublicHist215FeatureSchema.ts`, `GtoPublicHist215Features.ts` (feature contract
-v3), one migration (the registration guard and the range-provenance check accept valid v3 cells), tests.
+v3), one migration (the registration guard and the range-provenance check accept valid v3 cells; the
+dataset-insert check ties the feature and cell contracts), tests.
+
+## Review fixes (B5 review, same day)
+
+- M1: feature contract `holdem-public-hist215-v3` and cell contract v3 are tied both ways. The engine
+  (`gtoV31FeatureContractVersion`) knows hist215-v3 only on a row or seal declaring `cell_contract_version: 'v3'`,
+  and refuses hist215-v1 or v2 on such a row; so the loader's `v31_feature_contract_unknown` refuses a v2 row
+  declaring hist215-v3 exactly as before v3 existed. The migration's dataset-insert check
+  (`fn_gto_v31_dataset_matches_registration`, re-created with its original text) refuses a dataset declaring
+  hist215-v3 for a v2 registration and a dataset declaring hist215-v1 or v2 for a v3 registration. World Hub
+  enforces the same on manifests, provenance and registrations.
+- The public215 NumPy frame width check accepts every contract's width from `GtoPublicHist215Contracts.ts`
+  (215, 246, 248), not a hard-coded pair; the unused `GTO_V31_MAX_DEPTH_BB_V3` constant is removed (the wiring
+  PR decides the depth ceiling).
+- The native proof now exercises every v2 refusal of the re-created registration guard and dataset-insert
+  check and mutates each one; the collision proof covers four generated trees (5,594 decision nodes) besides
+  the pilot tree, and pins the pilot's v2 collision count (25 keys, 13 shared by 74 nodes).
 
 ## What does not change
 
@@ -46,4 +63,5 @@ declares it, and none exists. Every registration, provenance entry and runtime r
 - `gto_v31_runtime_cells` has no `line_class` column, so a v3 round can be registered but not built or sealed;
   the dataset and cell validators still accept depth 10 to 150 only; the SQL public215 encoding chain and the
   Linux preflight graph know feature contracts v1 and v2 only.
-- The World Hub training metadata path (`validate_context_metadata`, `final_public215_training`) is v2 only.
+- The World Hub training metadata path (`validate_context_metadata`) is v2 only.
+- The live consult gates on `GTO_MAX_DEPTH_BB` (300 bb); the wiring PR must choose the v3 depth ceiling.

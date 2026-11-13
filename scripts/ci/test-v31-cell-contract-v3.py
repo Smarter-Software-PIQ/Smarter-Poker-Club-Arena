@@ -25,12 +25,27 @@ and 20261112185251 (range provenance) against a throwaway PostgreSQL cluster
       a missing key; a repeated cell; a line that does not name its public
       history; a runtime mapping without, or with another, line; game
       assumptions that disagree with the 200 bb bucket; forced ranges
+  feature contract coupling (review M1)
+    * a dataset declaring holdem-public-hist215-v3 for a v2 registration is
+      refused; a dataset declaring hist215-v1 or hist215-v2 for a v3
+      registration is refused; the matched pairs are admitted
+  v2 guard body (review m3)
+    * every v2 refusal of the re-created registration guard and dataset-insert
+      check is exercised with a v2 registration: cell shape, composition,
+      checksum, owner authorization, candidate, dataset provenance, quality
+      gates and each of the five threshold floors, evaluation plan, a dataset
+      stamp at insert, immutability, permanence; unregistered, substituted,
+      re-gated and reused datasets
   dormant
     * a registered v3 round cannot be sealed: gto_v31_runtime_cells has no
       line_class, so its built cells never equal the registered v3 cells
 
 `--mutations` re-runs the scenario against deliberately weakened copies of the
-migration and requires each one to be detected.
+migration and requires each one to be detected: the v3 checks, the coupling,
+each v2 refusal of the re-created guard and dataset-insert check (its RAISE
+turned into a DEBUG message, or a threshold line removed), and the v2 mutations of
+test-v31-range-provenance.py and test-v31-round-registration.py whose anchors
+this migration re-creates.
 """
 import importlib.util
 import json
@@ -144,6 +159,88 @@ def v3_scenario(cluster, text):
     assert acl == '{postgres=X/postgres}', acl
 
 
+def insert_dataset_fc(db, key, declared, feature, refused=None):
+    """base.insert_dataset, also declaring the dataset's feature contract."""
+    bundle = db.sql("INSERT INTO gto_v31_input_bundles(bundle_key,bundle_checksum,range_bundle_checksum,"
+                    "source_combo_order_checksum,icm_model_checksum,bundle_manifest) VALUES "
+                    f"({base.q(key + '-b')},repeat('b',64),repeat('c',64),repeat('d',64),repeat('e',64),'{{}}') "
+                    "RETURNING input_bundle_id")
+    return db.sql("INSERT INTO gto_v31_datasets(dataset_key,state,quality_status,solver_version,solver_binary_checksum,"
+                  "pipeline_commit,pipeline_bundle_checksum,manifest_version,manifest_checksum,source_combo_order_checksum,"
+                  "range_bundle_checksum,icm_model_checksum,input_bundle_id,input_bundle_checksum,machine_ids,"
+                  "declared_coverage,quality_gates,feature_contract_version) VALUES "
+                  f"({base.q(key)},'building','pending','pio-3',repeat('1',64),repeat('2',40),repeat('3',64),'m1',repeat('4',64),"
+                  f"repeat('d',64),repeat('c',64),repeat('e',64),'{bundle.splitlines()[0]}',repeat('b',64),ARRAY['M1','M2'],"
+                  f"{base.qj(declared)},{base.qj(base.GATES)},{'NULL' if feature is None else base.q(feature)}) RETURNING dataset_id",
+                  refused=refused)
+
+
+def coupling_scenario(db):
+    """Review M1: feature contract holdem-public-hist215-v3 iff cell contract v3, at dataset insert."""
+    reg = lambda key, entries: rp.registration(key, 'horse-' + key, entries)
+    v2_entry = rp.provenance(base.cell('turn', 'Bruc', role='barrel', hero='BB', opp='SB'), 'natural', MID_LINE, hero=1)
+    base.register(db, reg('r930', [v2_entry]))
+    v2_cells = [v2_entry['cell']]
+    # direction 1: old (line-less) cell keys cannot claim the v3 feature format
+    insert_dataset_fc(db, 'horse-r930', v2_cells, 'holdem-public-hist215-v3',
+                      refused='declares feature contract holdem-public-hist215-v3, which requires cell contract v3')
+    # direction 2: v3 (line-keyed) cells cannot claim an older public215 feature format
+    good = v3_round()
+    base.register(db, reg('r931', good))
+    v3_cells = [e['cell'] for e in good]
+    for feature in ('holdem-public-hist215-v1', 'holdem-public-hist215-v2'):
+        insert_dataset_fc(db, 'horse-r931', v3_cells, feature,
+                          refused='registered cell contract v3 cells, which require feature contract holdem-public-hist215-v3')
+    # the matched pairs pass the coupling (production's column CHECK still refuses hist215-v3 itself: dormant)
+    insert_dataset_fc(db, 'horse-r930', v2_cells, 'holdem-public-hist215-v2')
+    insert_dataset_fc(db, 'horse-r931', v3_cells, 'holdem-public-hist215-v3')
+    for key in ('r930', 'r931'):
+        assert db.sql(f"SELECT dataset_id IS NOT NULL FROM gto_v31_round_registrations WHERE round_key='{key}'") == 't'
+
+
+# Review m3: the v2 refusals of the re-created functions, each exercised with a v2 registration.
+THRESHOLDS = ('max_frequency_mae', 'max_sizing_mae', 'max_policy_ev_mae_bb', 'max_action_regret_bb', 'min_regret_coverage')
+
+
+def guard_v2_body(db):
+    entry = rp.provenance(base.cell('turn', 'Bruc', role='barrel', hero='BB', opp='SB'), 'natural', MID_LINE, hero=1)
+    other = rp.provenance(base.cell('turn', 'Brpd', role='barrel', hero='BB', opp='SB'), 'natural', MID_LINE, hero=1)
+    reg = lambda key, entries=(entry,), **o: rp.registration(key, 'horse-' + key, list(entries), **o)
+    good = reg('r940')
+    t = entry['cell']
+    for cells in ([t, t], [{**t, 'street': 'preflop'}], [{k: v for k, v in t.items() if k != 'pot_type'}], [{**t, 'extra': 1}], ['x']):
+        base.register(db, {**good, 'cells': cells}, refused='registered cells must be distinct V31 cell contexts with the 13 context keys')
+    base.register(db, {**good, 'composition': {'flop': 1, 'turn': 0, 'river': 0}}, refused='is not the composition of the registered cells')
+    base.register(db, {**good, 'cell_set_checksum': 'a' * 64}, refused='registered cell-set checksum does not hash the registered cells')
+    for k in ('approved_by', 'approved_at', 'source', 'quote'):
+        base.register(db, {**good, 'owner_authorization': {**good['owner_authorization'], k: ' '}}, refused='owner_authorization needs')
+    for k in ('summary', 'changes', 'diagnosis'):
+        base.register(db, {**good, 'candidate': {**good['candidate'], k: None}}, refused='candidate needs summary, changes and diagnosis')
+    for k in ('plan_checksum', 'eligibility_checksum', 'pipeline_commit', 'board_recipe', 'ranges'):
+        base.register(db, {**good, 'dataset_provenance': {**good['dataset_provenance'], k: None}}, refused='dataset_provenance needs')
+    base.register(db, {**good, 'acceptance_criteria': {'quality_gates': {}}}, refused='acceptance_criteria.quality_gates must be valid')
+    for k in THRESHOLDS:
+        loose = {**base.GATES, k: 0.94 if k == 'min_regret_coverage' else 0.06}
+        base.register(db, {**good, 'acceptance_criteria': {'quality_gates': loose}}, refused='may not loosen the V31 quality thresholds')
+    for plan in ({'heldout_consumptions': 2, 'steps': ['x']}, {'heldout_consumptions': '1', 'steps': ['x']}, {'heldout_consumptions': 1}):
+        base.register(db, {**good, 'evaluation_plan': plan}, refused='evaluation_plan must consume the held-out set exactly once')
+    base.register(db, good)
+    db.sql("INSERT INTO gto_v31_round_registrations(round_key,dataset_key,composition,cells,cell_set_checksum,owner_authorization,"
+           "candidate,dataset_provenance,acceptance_criteria,evaluation_plan,cell_provenance,heldout_consumed_at) SELECT 'r941','horse-r941',"
+           "composition,cells,cell_set_checksum,owner_authorization,candidate,dataset_provenance,acceptance_criteria,evaluation_plan,"
+           "cell_provenance,now() FROM gto_v31_round_registrations WHERE round_key='r940'", refused='is registered before its dataset exists')
+    db.sql("UPDATE gto_v31_round_registrations SET candidate='{}'::jsonb WHERE round_key='r940'", refused='is immutable')
+    db.sql("DELETE FROM gto_v31_round_registrations WHERE round_key='r940'", refused='is permanent')
+    # dataset insert (fn_gto_v31_dataset_matches_registration, v2 body)
+    base.insert_dataset(db, 'horse-r949', [t], refused='has no round registration: register the round')
+    base.insert_dataset(db, 'horse-r940', [other['cell']], refused='composition differs from its registration')
+    base.insert_dataset(db, 'horse-r940', [t, t], refused='composition differs from its registration')
+    base.insert_dataset(db, 'horse-r940', [t], gates={**base.GATES, 'max_sizing_mae': 0.04},
+                        refused='quality gates differ from its registered acceptance criteria')
+    base.insert_dataset(db, 'horse-r940', [t])
+    insert_dataset_fc(db, 'horse-r940', [t], None, refused='already has its dataset')
+
+
 def v2_corpus():
     """Registrations and provenance entries of the v2 contract, valid and mutated, plus v3-shaped strays."""
     flop = base.cell('flop', 'Brud', role='cbet', hero='BB', opp='SB')
@@ -229,12 +326,46 @@ def differential(cluster, text):
 def scenario(cluster, text):
     rp.scenario(cluster, rp.MIGRATION.read_text() + '\n' + text)  # every v2 check of the range-provenance proof
     v3_scenario(cluster, text)
+    db = fresh(cluster, text)
+    coupling_scenario(db)
+    guard_v2_body(db)
 
 
-# Registration-time v2 mutations of test-v31-range-provenance.py whose code this migration re-creates:
-# applied to this migration's copy of fn_gto_v31_cell_provenance_error, each must still be detected.
-V2_ANCHORS = {name for name, old, _ in rp.MUTATIONS}
-V2_MUTATIONS = [(n, o, w) for n, o, w in rp.MUTATIONS if n in V2_ANCHORS]
+# Registration-time v2 mutations of test-v31-range-provenance.py and test-v31-round-registration.py whose code
+# this migration re-creates (fn_gto_v31_cell_provenance_error, the registration guard, the dataset-insert check):
+# applied to this migration's copy, each must still be detected. An anchor this migration does not contain names
+# a function it does not re-create and is skipped (counted and printed).
+V2_MUTATIONS = [('range-provenance: ' + n, o, w) for n, o, w in rp.MUTATIONS] + \
+               [('round-registration: ' + n, o, w) for n, o, w in base.MUTATIONS]
+V2_ANCHORS = {name for name, _, _ in V2_MUTATIONS}
+
+# Review m3: each v2 refusal of the re-created guard and dataset-insert check, disabled one at a time (its RAISE
+# EXCEPTION becomes a RAISE DEBUG with the same arguments, which psql does not print; a threshold floor line is removed).
+V2_BODY_RAISES = [
+    "RAISE EXCEPTION 'a V31 round registration is permanent'",
+    "RAISE EXCEPTION 'a V31 round registration is immutable;",
+    "RAISE EXCEPTION 'a V31 round is registered before its dataset exists'",
+    "RAISE EXCEPTION 'registered cells must be distinct V31 cell contexts with the 13 context keys'",
+    "RAISE EXCEPTION 'registered composition % is not the composition",
+    "RAISE EXCEPTION 'registered cell-set checksum does not hash",
+    "RAISE EXCEPTION 'owner_authorization needs",
+    "RAISE EXCEPTION 'candidate needs",
+    "RAISE EXCEPTION 'dataset_provenance needs",
+    "RAISE EXCEPTION 'acceptance_criteria.quality_gates must be valid",
+    "RAISE EXCEPTION 'a registration may not loosen",
+    "RAISE EXCEPTION 'evaluation_plan must consume",
+    "RAISE EXCEPTION 'V31 dataset % has no round registration: register",
+    "RAISE EXCEPTION 'V31 round % already has its dataset",
+    "RAISE EXCEPTION 'V31 round % composition differs",
+    "RAISE EXCEPTION 'V31 round % quality gates differ",
+]
+V2_BODY_MUTATIONS = [('v2 body: ' + r.split("'")[1][:60], r, r.replace('RAISE EXCEPTION', 'RAISE DEBUG')) for r in V2_BODY_RAISES]
+V2_BODY_MUTATIONS += [
+    ('v2 body: threshold floor ' + k + ' removed',
+     (f"  IF (NEW.acceptance_criteria#>>'{{quality_gates,{k}}}')::numeric > 0.05\n     OR" if k == THRESHOLDS[0]
+      else f"     OR (NEW.acceptance_criteria#>>'{{quality_gates,{k}}}')::numeric {'<' if k == 'min_regret_coverage' else '>'} {'0.95' if k == 'min_regret_coverage' else '0.05'}"),
+     ("  IF" if k == THRESHOLDS[0] else ''))
+    for k in THRESHOLDS]
 
 MUTATIONS = [
     ('v3 key set not checked', "     OR (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(p_cell) k) IS DISTINCT FROM\n        ARRAY['cell_contract',",
@@ -255,6 +386,9 @@ MUTATIONS = [
     ('v3 mapping need not name the line', "                          'hero_solver_player','line_class','node_role','objective','opponent_position','pot_type',",
      "                          'hero_solver_player','node_role','objective','opponent_position','pot_type',"),
     ('provenance skips the v3 shape check', "      IF public.fn_gto_v31_cell_contract_v3_error(e->'cell') IS NOT NULL THEN", "      IF false THEN"),
+    ('coupling: v2 cells may declare hist215-v3', "  IF NEW.feature_contract_version = 'holdem-public-hist215-v3'\n", "  IF false AND NEW.feature_contract_version = 'holdem-public-hist215-v3'\n"),
+    ('coupling: v3 cells may declare hist215-v1 or v2', "  IF NEW.feature_contract_version IN ('holdem-public-hist215-v1','holdem-public-hist215-v2')\n",
+     "  IF false AND NEW.feature_contract_version IN ('holdem-public-hist215-v1','holdem-public-hist215-v2')\n"),
 ]
 
 
@@ -267,10 +401,11 @@ def main():
         compared, same = differential(cluster, text)
         print(f'native proof: passed (v2 differential: {compared} calls compared, {same} v2 answers identical)')
         if '--mutations' in sys.argv:
-            detected = 0
-            for name, old, new in MUTATIONS + V2_MUTATIONS:
+            detected = skipped = 0
+            for name, old, new in MUTATIONS + V2_BODY_MUTATIONS + V2_MUTATIONS:
                 if name in V2_ANCHORS and text.count(old) != 1:
-                    continue  # this v2 check lives in a function this migration does not re-create
+                    skipped += 1  # this v2 check lives in a function this migration does not re-create
+                    continue
                 assert text.count(old) == 1, f'mutation anchor not unique: {name}'
                 try:
                     scenario(cluster, text.replace(old, new))
@@ -279,7 +414,7 @@ def main():
                     detected += 1
                     continue
                 raise SystemExit(f'MUTATION NOT DETECTED: {name}')
-            print(f'{detected} of {detected} mutations detected')
+            print(f'{detected} of {detected} mutations detected ({skipped} v2 anchors name functions this migration does not re-create)')
     finally:
         cluster.stop()
 

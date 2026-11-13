@@ -605,8 +605,6 @@ export const GTO_V31_DEPTH_BUCKETS_V3: readonly number[] = Object.freeze([
 ]);
 /** Highest stack (bb) served by the 150 bucket under v3; above it, 200. */
 export const GTO_V31_V3_150_MAX_BB = 173;
-/** Twice the deepest v3 bucket, the same rule as GtoPostflop.GTO_MAX_DEPTH_BB. */
-export const GTO_V31_MAX_DEPTH_BB_V3 = 2 * 200;
 
 /** v3 primary depth bucket: v2's boundaries up to 110 bb, then 150 to 173 bb, then 200. */
 export function gtoV31SnapDepthBucketV3(stackBB: number): number {

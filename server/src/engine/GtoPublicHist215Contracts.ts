@@ -57,6 +57,10 @@ export function public215FeatureContractBySchema(
 ): Public215FeatureContract | null {
   return CONTRACTS.find((c) => c.schemaSha256 === schemaSha256) ?? null;
 }
+/** True when some contract's input width is `columns` (215, 246 or 248). */
+export function isPublic215FeatureCount(columns: unknown): boolean {
+  return CONTRACTS.some((c) => c.featureCount === columns);
+}
 export function isPublic215FeatureContractVersion(
   version: unknown
 ): version is Public215FeatureContractVersion {
