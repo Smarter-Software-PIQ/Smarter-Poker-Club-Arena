@@ -45,7 +45,7 @@ describe('the fixture builders share the runtime PostgreSQL (2026-11-13)', () =>
     expect(touching.length).toBeGreaterThanOrEqual(2);
     for (const line of touching) {
       for (const pkg of ['postgresql-17', 'libpq5', 'libpq-dev', 'postgresql-server-dev-17']) {
-        expect(line, `${pkg} unpinned in: ${line.slice(0, 160)}`).toContain(`${pkg}=${version}`);
+        expect(line, `${pkg} unpinned in a builder install`).toContain(`${pkg}=${version}`);
       }
     }
   });
