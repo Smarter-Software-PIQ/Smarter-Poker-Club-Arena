@@ -23,14 +23,15 @@ import {
 const HORSE = 'aaaaaaaa-0000-4000-8000-000000000001';
 const T0 = Date.UTC(2026, 10, 13, 6, 0);
 
-function rig(initial: StyleSwitchReading | (() => StyleSwitchReading)) {
+type Served = StyleSwitchReading | ((nowMs: number) => StyleSwitchReading);
+function rig(initial: Served) {
   let reading = initial;
   const notes: string[] = [];
   let reads = 0;
   const holder = new StyleSwitchHolder(
-    () => {
+    (nowMs) => {
       reads++;
-      return typeof reading === 'function' ? reading() : reading;
+      return typeof reading === 'function' ? reading(nowMs) : reading;
     },
     (f) => notes.push(f)
   );
@@ -38,15 +39,19 @@ function rig(initial: StyleSwitchReading | (() => StyleSwitchReading)) {
     holder,
     notes,
     reads: () => reads,
-    set: (r: StyleSwitchReading | (() => StyleSwitchReading)) => {
+    set: (r: Served) => {
       reading = r;
     },
   };
 }
-const present = (options: Record<string, unknown>): StyleSwitchReading => ({
-  kind: 'present',
-  raw: { version: 1, options },
-});
+/** A source that delivers this configuration as received at the moment it is read. */
+const present =
+  (options: Record<string, unknown>) =>
+  (nowMs: number): StyleSwitchReading => ({
+    kind: 'present',
+    raw: { version: 1, options },
+    receivedAtMs: nowMs,
+  });
 
 describe('style read live switch', () => {
   it('default: no configuration on file keeps every option at the source default, off, and adds no option', () => {
@@ -56,7 +61,7 @@ describe('style read live switch', () => {
     expect(states).toEqual(STYLE_SWITCH_SOURCE_DEFAULT);
     expect(styleSwitchDecisionOpts(states, HORSE, true)).toEqual({});
     expect(r.notes).toEqual([]);
-    expect(ABSENT_STYLE_SWITCH_SOURCE()).toEqual({ kind: 'absent' });
+    expect(ABSENT_STYLE_SWITCH_SOURCE(T0)).toEqual({ kind: 'absent' });
   });
 
   it('on: the option becomes an explicit true; the change is receipted with the option and the state', () => {
@@ -108,7 +113,7 @@ describe('style read live switch', () => {
       expect(parseStyleSwitchConfig(raw).ok, JSON.stringify(raw)).toBe(false);
       const r = rig(present({ styleFoldBluff: 'on', styleRaiseRespect: 'shadow' }));
       r.holder.refresh(T0);
-      r.set({ kind: 'present', raw });
+      r.set((nowMs) => ({ kind: 'present', raw, receivedAtMs: nowMs }));
       const states = r.holder.refresh(T0 + STYLE_SWITCH_POLL_MS);
       expect(states, JSON.stringify(raw)).toEqual(STYLE_SWITCH_SOURCE_DEFAULT);
       expect(r.notes).toContain('style_switch_config_invalid_seen');
@@ -189,22 +194,32 @@ describe('style read live switch', () => {
     ]);
   });
 
-  it('L1 stale: a configuration delivered more than two poll intervals ago fails safe to off, with a receipt', () => {
+  it('L1 stale, strict: a configuration stops 120 s after it was received, at any decision, not only at a read', () => {
     expect(STYLE_SWITCH_STALE_MS).toBe(2 * STYLE_SWITCH_POLL_MS);
+    // a source that keeps serving the same delivery, received at T0
     const r = rig({
       kind: 'present',
       raw: { version: 1, options: { styleFoldBluff: 'on' } },
       receivedAtMs: T0,
     });
     expect(r.holder.refresh(T0 + 1).styleFoldBluff).toBe('on');
-    // still fresh at exactly the stale age
+    // at exactly the bound it still holds
     expect(r.holder.refresh(T0 + STYLE_SWITCH_STALE_MS).styleFoldBluff).toBe('on');
-    // the next read after it has gone stale turns everything off
-    expect(r.holder.refresh(T0 + STYLE_SWITCH_STALE_MS + STYLE_SWITCH_POLL_MS)).toEqual(
-      STYLE_SWITCH_SOURCE_DEFAULT
-    );
+    // one millisecond later it is off, although no read is due (the last read was at T0 + 120 s)
+    expect(r.holder.refresh(T0 + STYLE_SWITCH_STALE_MS + 1)).toEqual(STYLE_SWITCH_SOURCE_DEFAULT);
     expect(r.notes).toContain('style_switch_config_stale_seen');
     expect(r.notes).toContain('style_switch_styleFoldBluff_off_seen');
+    // and a later read of the same old delivery stays off
+    expect(r.holder.refresh(T0 + 10 * STYLE_SWITCH_POLL_MS)).toEqual(STYLE_SWITCH_SOURCE_DEFAULT);
+  });
+
+  it('L1 strict: a present reading without its receive time is invalid and fails safe to off', () => {
+    const r = rig({
+      kind: 'present',
+      raw: { version: 1, options: { styleFoldBluff: 'on' } },
+    } as never);
+    expect(r.holder.refresh(T0)).toEqual(STYLE_SWITCH_SOURCE_DEFAULT);
+    expect(r.notes).toEqual(['style_switch_config_invalid_seen']);
   });
 
   it('L2 clock: a step back is a due read, never a freeze', () => {
@@ -247,7 +262,9 @@ describe('style read live switch', () => {
     ).toBeNull();
     const h = new StyleSwitchHolder(styleSwitchSourceFromStates(states), () => {});
     expect(h.refresh(T0)).toEqual(states);
-    expect(styleSwitchSourceFromStates(null)()).toEqual({ kind: 'absent' });
-    expect(styleSwitchSourceFromStates(STYLE_SWITCH_SOURCE_DEFAULT)()).toEqual({ kind: 'absent' });
+    expect(styleSwitchSourceFromStates(null)(T0)).toEqual({ kind: 'absent' });
+    expect(styleSwitchSourceFromStates(STYLE_SWITCH_SOURCE_DEFAULT)(T0)).toEqual({
+      kind: 'absent',
+    });
   });
 });

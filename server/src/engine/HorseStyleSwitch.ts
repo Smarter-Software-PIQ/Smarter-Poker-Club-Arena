@@ -95,10 +95,15 @@ export function parseStyleSwitchConfig(
 }
 
 /** What a source returns: no configuration on file, or the raw configuration to validate. A throw is unreadable. */
+/**
+ * A present reading MUST say when it was received, on the holder's own (monotonic) clock: a reading without
+ * receivedAtMs is invalid and fails safe to off (review f8948093: staleness is strict, not optional).
+ */
 export type StyleSwitchReading =
   | { kind: 'absent' }
-  | { kind: 'present'; raw: unknown; receivedAtMs?: number };
-export type StyleSwitchSource = () => StyleSwitchReading;
+  | { kind: 'present'; raw: unknown; receivedAtMs: number };
+/** The source is asked with the holder's clock, so a source that serves a stored value can stamp it. */
+export type StyleSwitchSource = (nowMs: number) => StyleSwitchReading;
 
 /** The production source until the configuration table lands (design note): nothing on file, the default holds. */
 export const ABSENT_STYLE_SWITCH_SOURCE: StyleSwitchSource = () => ({ kind: 'absent' });
@@ -112,7 +117,8 @@ export function styleSwitchSourceFromStates(
 ): StyleSwitchSource {
   if (!states || styleSwitchStatesAreDefault(states)) return ABSENT_STYLE_SWITCH_SOURCE;
   const options = Object.fromEntries(STYLE_SWITCH_OPTIONS.map((o) => [o, states[o]]));
-  return () => ({ kind: 'present', raw: { version: 1, options } });
+  // replay: the recorded state is served as received now (it never ages inside a replay)
+  return (nowMs) => ({ kind: 'present', raw: { version: 1, options }, receivedAtMs: nowMs });
 }
 
 /** True when every option is at the source default (off). */
@@ -133,11 +139,15 @@ export function styleSwitchStatesFrom(value: unknown): StyleSwitchStates | null 
 /**
  * The per-process holder. refresh(now) re-reads the source when the last read is STYLE_SWITCH_POLL_MS old or older,
  * or when the clock went backwards (L2: callers pass a monotonic clock; a step back is treated as due, never as a
- * freeze); between reads the last result stands. Never throws.
+ * freeze); between reads the last result stands. STRICT STALENESS: at EVERY refresh, not only at a read, a
+ * configuration received more than STYLE_SWITCH_STALE_MS ago turns every option off, so no state outlives its
+ * delivery by more than 120 s. Never throws.
  */
 export class StyleSwitchHolder {
   private states: StyleSwitchStates = STYLE_SWITCH_SOURCE_DEFAULT;
   private readAt = Number.NEGATIVE_INFINITY;
+  /** when the configuration now in force was received (null: none in force, the default holds) */
+  private receivedAt: number | null = null;
 
   constructor(
     private readonly source: StyleSwitchSource,
@@ -148,37 +158,46 @@ export class StyleSwitchHolder {
   refresh(nowMs: number): StyleSwitchStates {
     if (!(nowMs - this.readAt < this.pollMs) || nowMs < this.readAt) {
       this.readAt = nowMs;
-      let next: StyleSwitchStates;
+      let next: StyleSwitchStates = ALL_OFF;
+      let receivedAt: number | null = null;
       try {
-        const reading = this.source();
+        const reading = this.source(nowMs);
         if (reading?.kind === 'absent') next = STYLE_SWITCH_SOURCE_DEFAULT;
         else if (
           reading?.kind === 'present' &&
-          reading.receivedAtMs !== undefined &&
-          !(nowMs - reading.receivedAtMs <= STYLE_SWITCH_STALE_MS)
-        ) {
-          this.note('style_switch_config_stale_seen');
-          next = ALL_OFF;
-        } else if (reading?.kind === 'present') {
-          const parsed = parseStyleSwitchConfig(reading.raw);
-          if (parsed.ok) next = parsed.states;
-          else {
-            this.note('style_switch_config_invalid_seen');
-            next = ALL_OFF;
-          }
-        } else {
+          (typeof reading.receivedAtMs !== 'number' || !Number.isFinite(reading.receivedAtMs))
+        )
           this.note('style_switch_config_invalid_seen');
-          next = ALL_OFF;
-        }
+        else if (
+          reading?.kind === 'present' &&
+          !(nowMs - reading.receivedAtMs <= STYLE_SWITCH_STALE_MS)
+        )
+          this.note('style_switch_config_stale_seen');
+        else if (reading?.kind === 'present') {
+          const parsed = parseStyleSwitchConfig(reading.raw);
+          if (parsed.ok) {
+            next = parsed.states;
+            receivedAt = reading.receivedAtMs;
+          } else this.note('style_switch_config_invalid_seen');
+        } else this.note('style_switch_config_invalid_seen');
       } catch {
         this.note('style_switch_config_unreadable_seen');
-        next = ALL_OFF;
       }
-      for (const o of STYLE_SWITCH_OPTIONS)
-        if (next[o] !== this.states[o]) this.note(`${STYLE_SWITCH_RECEIPT}_${o}_${next[o]}_seen`);
-      this.states = next;
+      this.apply(next, receivedAt);
+    }
+    // strict: a configuration that aged past the stale bound between reads stops now, not at the next read
+    if (this.receivedAt !== null && !(nowMs - this.receivedAt <= STYLE_SWITCH_STALE_MS)) {
+      this.note('style_switch_config_stale_seen');
+      this.apply(ALL_OFF, null);
     }
     return this.states;
+  }
+
+  private apply(next: StyleSwitchStates, receivedAt: number | null): void {
+    for (const o of STYLE_SWITCH_OPTIONS)
+      if (next[o] !== this.states[o]) this.note(`${STYLE_SWITCH_RECEIPT}_${o}_${next[o]}_seen`);
+    this.states = next;
+    this.receivedAt = styleSwitchStatesAreDefault(next) ? null : receivedAt;
   }
 
   current(): StyleSwitchStates {

@@ -3207,12 +3207,17 @@ export class HorseDecisionWorkerRuntime {
     // this one, never when the committed decision already took longer than the budget, and only at the committed
     // governor scale; every skip is receipted.
     if (styleEngaged.length > 0 && fastOpts) {
+      let scaleMoved = true;
+      try {
+        scaleMoved = this.deps.governorScale() !== governorScale;
+      } catch {
+        /* an unreadable scale is a moved scale: skip */
+      }
       if (this.pendingRequestIds.size > 1)
         this.deps.noteFeature('style_shadow_skipped_backlog_seen');
       else if (!(computeMs <= STYLE_SHADOW_REDECIDE_BUDGET_MS))
         this.deps.noteFeature('style_shadow_skipped_budget_seen');
-      else if (this.deps.governorScale() !== governorScale)
-        this.deps.noteFeature('style_shadow_skipped_scale_seen');
+      else if (scaleMoved) this.deps.noteFeature('style_shadow_skipped_scale_seen');
       else {
         const pick = styleShadowPick(styleEngaged, request.decisionKey)!;
         for (let i = 1; i < styleEngaged.length; i++)

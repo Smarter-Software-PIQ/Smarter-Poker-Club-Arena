@@ -121,7 +121,9 @@ export interface StyleShadowReceipt {
  *   style_shadow.<opt>.<c|t>.<variant>.<p|f|t|r>.<actual>.<wouldBe>.<s|c>_seen
  *
  * opt: vb bb rr tr fr ve fb; variant: one of STYLE_SHADOW_VARIANTS or `other`; actions: the action class only
- * (f k c b r a, x for anything else), no amount. At most 7 x 2 x 10 x 4 x 7 x 7 x 2 keys exist, whatever the volume.
+ * (f k c b r a, x for anything else), no amount; the street is p f t r, or x for anything else. At most
+ 7 x 2 x 10 x 5 x 7 x 7 x 2 = 68,600 keys exist, whatever the volume (above the writer's 4,096 per batch, so the
+ publisher splits batches: phase1-verify/telemetry-publisher-bounded-batches.patch).
  * The per-decision detail (hand, seat, amounts) is not in telemetry: the evaluation reconstructs it from the decision
  * journal, whose record carries the switch state the decision ran with (M3), joined to ca_hand_facts
  * (phase1-verify/style-evaluation.sql).
@@ -166,4 +168,15 @@ export function styleShadowPick(
     h = Math.imul(h, 0x01000193) >>> 0;
   }
   return engaged[h % engaged.length]!;
+}
+
+/** The receipt codes, for the offline re-run (styleShadowRerun) and the evaluation CSV. */
+export function styleShadowOptionCode(option: StyleSwitchOption): string {
+  return OPTION_CODE[option];
+}
+export function styleShadowActionCode(action: string): string {
+  return ACTION_CODE[action] ?? 'x';
+}
+export function styleShadowStreetCode(street: string): string {
+  return STREET_CODE[street] ?? 'x';
 }

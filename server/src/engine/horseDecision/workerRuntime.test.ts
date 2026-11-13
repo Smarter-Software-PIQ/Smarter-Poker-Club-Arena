@@ -6170,7 +6170,11 @@ describe('style read live switch and shadow in the live worker (2026-11-13)', ()
     };
     if (state !== 'off')
       h.deps.styleSwitch = new StyleSwitchHolder(
-        () => ({ kind: 'present', raw: { version: 1, options: { styleFoldBluff: state } } }),
+        (nowMs: number) => ({
+          kind: 'present',
+          receivedAtMs: nowMs,
+          raw: { version: 1, options: { styleFoldBluff: state } },
+        }),
         (f) => h.features.push(f)
       );
     return { h, fastAtPost };
@@ -6249,7 +6253,7 @@ describe('style read live switch and shadow in the live worker (2026-11-13)', ()
         : out;
     };
     h.deps.styleSwitch = new StyleSwitchHolder(
-      () => ({ kind: 'present', raw: { version: 1, options } }),
+      (nowMs: number) => ({ kind: 'present', receivedAtMs: nowMs, raw: { version: 1, options } }),
       (f) => h.features.push(f)
     );
     return h;
@@ -6333,7 +6337,11 @@ describe('style read live switch and shadow in the live worker (2026-11-13)', ()
     const journaled: unknown[] = [];
     const live = harness();
     live.deps.styleSwitch = new StyleSwitchHolder(
-      () => ({ kind: 'present', raw: { version: 1, options: { styleValueExtraction: 'on' } } }),
+      (nowMs: number) => ({
+        kind: 'present',
+        receivedAtMs: nowMs,
+        raw: { version: 1, options: { styleValueExtraction: 'on' } },
+      }),
       () => {}
     );
     live.deps.journalDecision = ((_req: unknown, body: { replayState: unknown }) => {
@@ -6345,6 +6353,16 @@ describe('style read live switch and shadow in the live worker (2026-11-13)', ()
     const state = journaled[0] as { style?: Record<string, string> };
     expect(state.style?.styleValueExtraction).toBe('on');
     expect(isHorseDecisionReplayState(state)).toBe(true);
+    // pre-activation: a state carrying the switch is a new version, so a reader that predates it refuses it
+    expect((state as { version?: string }).version).toBe('horse-decision-replay-state-v4');
+    expect(
+      isHorseDecisionReplayState({ ...state, version: 'horse-decision-replay-state-v3' })
+    ).toBe(false);
+    const { style: _s, ...withoutStyle } = state;
+    expect(isHorseDecisionReplayState(withoutStyle)).toBe(false);
+    expect(
+      isHorseDecisionReplayState({ ...withoutStyle, version: 'horse-decision-replay-state-v3' })
+    ).toBe(true);
     // the replay binding: a holder over the recorded states (runtimeReplay.ts styleStates)
     const replay = harness();
     replay.deps.styleSwitch = new StyleSwitchHolder(
@@ -6370,14 +6388,16 @@ describe('style read live switch and shadow in the live worker (2026-11-13)', ()
     plain.runtime.receive(independentFastForHand(TABLE, 1000007, '9'));
     await plain.runtime.drain();
     expect(Object.hasOwn(off[0] as object, 'style')).toBe(false);
+    expect((off[0] as { version: string }).version).toBe('horse-decision-replay-state-v3');
   });
 
   it('anchor law: with no option in canary, two Horses at the same spot get identical decision options', async () => {
     const runFor = async (actor: string) => {
       const h = harness();
       h.deps.styleSwitch = new StyleSwitchHolder(
-        () => ({
+        (nowMs: number) => ({
           kind: 'present',
+          receivedAtMs: nowMs,
           raw: { version: 1, options: { styleFoldBluff: 'on', styleRaiseRespect: 'shadow' } },
         }),
         () => {}
@@ -6403,10 +6423,64 @@ describe('style read live switch and shadow in the live worker (2026-11-13)', ()
     );
   });
 
+  it('anchor law, behaviour: with one option in canary, a bucket-0 Horse and another Horse differ in that option alone', async () => {
+    const runFor = async (actor: string) => {
+      const h = harness();
+      h.deps.styleSwitch = new StyleSwitchHolder(
+        (nowMs: number) => ({
+          kind: 'present',
+          receivedAtMs: nowMs,
+          raw: {
+            version: 1,
+            options: {
+              styleFoldBluff: 'canary',
+              styleRaiseRespect: 'shadow',
+              styleValueExtraction: 'on',
+            },
+          },
+        }),
+        () => {}
+      );
+      const request = JSON.parse(
+        JSON.stringify(independentFastForHand(TABLE, 1000007, '9')).replaceAll(
+          '20000000-0000-4000-8000-000000000001',
+          actor
+        )
+      );
+      request.decisionKey = buildHorseDecisionKey(request);
+      h.runtime.receive(request);
+      await h.runtime.drain();
+      const {
+        mindObservationHand: _m,
+        mindPlanContext: _p,
+        ...rest
+      } = h.decisionOpts[0] as Record<string, unknown>;
+      return rest;
+    };
+    const inCanary = await runFor('aaaaaaaa-0000-4000-8000-000000000010'); // bucket 0
+    const outside = await runFor('aaaaaaaa-0000-4000-8000-000000000001'); // bucket 4
+    expect(inCanary.styleFoldBluff).toBe(true);
+    expect(outside.styleFoldBluff).toBeUndefined();
+    expect(inCanary.styleShadow).toEqual(['styleRaiseRespect']);
+    expect(outside.styleShadow).toEqual(['styleRaiseRespect', 'styleFoldBluff']);
+    // remove the canary option's treatment from both: what is left is identical
+    const strip = (o: Record<string, unknown>) =>
+      JSON.stringify({
+        ...o,
+        styleFoldBluff: undefined,
+        styleShadow: (o.styleShadow as string[]).filter((x) => x !== 'styleFoldBluff'),
+      });
+    expect(strip(inCanary)).toBe(strip(outside));
+  });
+
   it('shadow, nothing engaged: no re-decision at all', async () => {
     const h = harness();
     h.deps.styleSwitch = new StyleSwitchHolder(
-      () => ({ kind: 'present', raw: { version: 1, options: { styleFoldBluff: 'shadow' } } }),
+      (nowMs: number) => ({
+        kind: 'present',
+        receivedAtMs: nowMs,
+        raw: { version: 1, options: { styleFoldBluff: 'shadow' } },
+      }),
       (f) => h.features.push(f)
     );
     h.runtime.receive(independentFastForHand(TABLE, 1000007, '9'));

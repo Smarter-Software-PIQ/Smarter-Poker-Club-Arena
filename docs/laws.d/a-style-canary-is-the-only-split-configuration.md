@@ -18,3 +18,8 @@ Strengthened after review 64466c83:
 - The law pins every option's source default to off, and the worker's single holder over the absent source.
 - An anchor case scans every decision-options object the worker builds. The only per-Horse input it may contain is the switch resolver.
 - workerRuntime.test.ts adds a behaviour check: two Horses at the same spot, with no option in canary, receive identical decision options.
+
+Strengthened before activation (review f8948093):
+
+- The law test now checks behaviour, not only source text. Over 300 state mixes and 400 Horse ids it compares what the brain receives (`styleSwitchBrainOpts`) per option. Without canary, no option is treated differently for any Horse. With one option in canary, that option is the only one treated differently: on for bucket 0, shadow for every other bucket. No key outside the style options appears.
+- workerRuntime.test.ts runs the live worker with one option in canary for a bucket-0 Horse and a bucket-4 Horse. Their decision options differ in that option alone.

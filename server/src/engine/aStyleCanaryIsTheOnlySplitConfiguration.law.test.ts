@@ -15,7 +15,9 @@ import {
   STYLE_SWITCH_OPTIONS,
   STYLE_SWITCH_STATES,
   styleCanaryBucket,
+  styleSwitchBrainOpts,
   styleSwitchDecisionOpts,
+  type StyleSwitchOption,
   type StyleSwitchState,
   type StyleSwitchStates,
 } from './HorseStyleSwitch.js';
@@ -63,6 +65,46 @@ describe('law: a style canary is the only split configuration', () => {
     }
   });
 
+  it('behaviour: the decision options every Horse receives are identical without canary, and with one option in canary differ in that option alone', () => {
+    // What the brain receives (styleSwitchBrainOpts), not how the source is written: for any mix of states,
+    // compare each Horse's options with the first Horse's and collect every option whose treatment differs.
+    const treatment = (brain: ReturnType<typeof styleSwitchBrainOpts>, o: StyleSwitchOption) =>
+      brain[o] === true ? 'on' : brain.styleShadow?.includes(o) ? 'shadow' : 'off';
+    const differing = (states: StyleSwitchStates): Set<string> => {
+      const brains = IDS.map((id) =>
+        styleSwitchBrainOpts(styleSwitchDecisionOpts(states, id, true))
+      );
+      const out = new Set<string>();
+      for (const b of brains) {
+        const keys = new Set([...Object.keys(b), ...Object.keys(brains[0])]);
+        for (const k of keys)
+          if (k !== 'styleShadow' && !(STYLE_SWITCH_OPTIONS as readonly string[]).includes(k))
+            out.add(k); // any non-style key at all is a violation
+        for (const o of STYLE_SWITCH_OPTIONS)
+          if (treatment(b, o) !== treatment(brains[0], o)) out.add(o);
+      }
+      return out;
+    };
+    const plain = STYLE_SWITCH_STATES.filter((s) => s !== 'canary');
+    for (let seed = 0; seed < 300; seed++) {
+      const mix = (i: number) => plain[(seed * 5 + i * 11 + ((seed * i) % 3)) % plain.length];
+      expect([...differing(statesWith(mix))], `seed ${seed}`).toEqual([]);
+      const o = seed % STYLE_SWITCH_OPTIONS.length;
+      const one = statesWith((i) => (i === o ? 'canary' : mix(i)));
+      expect([...differing(one)], `seed ${seed} canary ${STYLE_SWITCH_OPTIONS[o]}`).toEqual([
+        STYLE_SWITCH_OPTIONS[o],
+      ]);
+      // and within that option the two treatments are exactly on (bucket 0) and shadow (every other bucket)
+      for (const id of IDS)
+        expect(
+          treatment(
+            styleSwitchBrainOpts(styleSwitchDecisionOpts(one, id, true)),
+            STYLE_SWITCH_OPTIONS[o]
+          )
+        ).toBe(styleCanaryBucket(id) === STYLE_CANARY_ON_BUCKET ? 'on' : 'shadow');
+    }
+  });
+
   it('only the live switch reads the canary bucket; no other source resolves a per-Horse option', () => {
     const root = fileURLToPath(new URL('..', import.meta.url));
     const hits: string[] = [];
@@ -91,7 +133,7 @@ describe('law: a style canary is the only split configuration', () => {
 
   it('M1: every option starts off, and the production source serves nothing', () => {
     for (const o of STYLE_SWITCH_OPTIONS) expect(STYLE_SWITCH_SOURCE_DEFAULT[o], o).toBe('off');
-    expect(ABSENT_STYLE_SWITCH_SOURCE()).toEqual({ kind: 'absent' });
+    expect(ABSENT_STYLE_SWITCH_SOURCE(0)).toEqual({ kind: 'absent' });
     const worker = readFileSync(
       fileURLToPath(new URL('./horseDecision/workerRuntime.ts', import.meta.url)),
       'utf8'
