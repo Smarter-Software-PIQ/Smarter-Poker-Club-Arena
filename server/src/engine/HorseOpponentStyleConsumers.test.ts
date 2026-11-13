@@ -3,6 +3,7 @@ import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { HorseMind } from './HorseMind.js';
 import { ALL_SPOTS, checkedTo, HERO, VILLAIN, VILLAINS, decide, install, preflopJam, preflopOpen, preflopThreeBet, turnPotBet, type Mode, type Villain } from './HorseOpponentStyle.contexts.test-support.js';
 import { counters } from './HorseOpponentStyle.test-support.js';
+import { postReleaseOpportunitiesFromHistory } from './HorseOpponentStyle.js';
 
 const drain = (): Record<string, number> => {
   enableBrainTelemetry();
@@ -268,5 +269,43 @@ describe('chain: learner -> profile -> read -> decision (A2 size buckets and lif
     HorseMind.setDecisionScope(null);
     // the decision consults it: the big-bet consumer runs on this read
     expect(decide(ALL_SPOTS('cash')[0], { styleBigBetHonesty: true }).fires.style_big_bet_honesty_seen).toBeGreaterThan(0);
+  });
+});
+
+describe('A3 persisted m: recounted from persisted hand history, identical after a restart', () => {
+  const RELEASE = Date.UTC(2026, 10, 13, 6, 30);
+  const hand = (t: number) => ({
+    createdAt: new Date(t).toISOString(),
+    actions: [
+      { userId: HERO, action: 'raise', amount: 6, stage: 'preflop', origin: 'player' },
+      { userId: VILLAIN, action: 'call', amount: 4, stage: 'preflop', origin: 'player' },
+      { userId: VILLAIN, action: 'check', amount: 0, stage: 'flop', origin: 'player' },
+      { userId: HERO, action: 'bet', amount: 6, stage: 'flop', origin: 'player' },
+      { userId: VILLAIN, action: 'fold', amount: 0, stage: 'flop', origin: 'player' },
+    ],
+  });
+  const history = [...Array.from({ length: 30 }, (_, i) => hand(RELEASE - (i + 1) * 60_000)), ...Array.from({ length: 70 }, (_, i) => hand(RELEASE + i * 60_000))];
+  const boot = (hands: typeof history) => {
+    HorseMind.reset();
+    const c = counters({ hands: 80, vpip: 0.2, pfr: 0.14, foldToBetOpp: 40, foldToBet: 29, betCheckedToOpp: 40, betCheckedTo: 16 });
+    HorseMind.importDurableOpponentProfiles([{ user_id: VILLAIN, variant: 'nlh', mode: 'cash', size: 'full', observed_hands: 80, initialized: true, public_memory_domain: { version: 1, speed: 'table', ante: 'none' }, counters: c } as never]);
+    HorseMind.importPostReleaseFromHistory([{ user_id: VILLAIN, variant: 'nlh', mode: 'cash', size: 'full', hands }], RELEASE);
+    HorseMind.setDecisionScope('holdem:full', 'nlh', 'cash');
+    const r = HorseMind.styleRead(VILLAIN);
+    HorseMind.setDecisionScope(null);
+    return r;
+  };
+  it('only hands at or after the release count, with the learner increment function', () => {
+    const m = postReleaseOpportunitiesFromHistory(history, VILLAIN, RELEASE);
+    expect(m.foldToBet).toBe(70);
+    expect(m.betCheckedTo).toBe(70);
+    expect(postReleaseOpportunitiesFromHistory(history.slice(0, 30), VILLAIN, RELEASE).foldToBet).toBe(0);
+  });
+  it('the discount lifts from persisted data and rebuilds identically after a reset (the daily restart)', () => {
+    const first = boot(history);
+    expect(first.receipt.provenance.discounted).not.toContain('foldToBet');
+    const afterRestart = boot(history);
+    expect(JSON.stringify(afterRestart.receipt)).toBe(JSON.stringify(first.receipt));
+    expect(boot(history.slice(0, 50)).receipt.provenance.discounted).toContain('foldToBet');
   });
 });

@@ -105,7 +105,9 @@ import {
   OPPONENT_EXPLOIT_ENVELOPE_VERSION,
   betaCdf,
   exploitEnvelopeFor,
+  exploitHandIncrements,
   type ExploitCounters,
+  type ExploitHandAction,
   type ExploitEnvelopeCell,
 } from './HorseOpponentExploit.js';
 import type { ReadScope } from './HorseMind.js';
@@ -1720,4 +1722,38 @@ export function riverFirstBetFractions(
     street.set(id, prev + inc);
   }
   return out;
+}
+
+/** One persisted hand of the exact context (hand_history row, read-only), as the supplier loads it. */
+export interface PersistedHandForProvenance {
+  /** completion time, epoch ms or an ISO string */
+  createdAt: number | string;
+  actions: readonly ExploitHandAction[];
+}
+
+/**
+ * A3 PERSISTED m: the post-release opportunity count of each showdown-dependent statistic for one player,
+ * RECOUNTED from data that already persists (hand_history rows of the exact context completed at or after
+ * releaseStartMs) with the live learner's own increment function (exploitHandIncrements). Pure and deterministic:
+ * the same history gives the same m after every daily restart, so the pre-repair discount lifts on schedule. Writes
+ * nothing and keeps no counter. foldTo3Bet counts the opener's 3-bet-faced opportunities (foldTo3BetOpp).
+ */
+export function postReleaseOpportunitiesFromHistory(
+  hands: readonly PersistedHandForProvenance[],
+  userId: string,
+  releaseStartMs: number
+): Required<PostReleaseOpportunities> {
+  const m = { foldToBet: 0, riverCall: 0, foldTo3Bet: 0, betCheckedTo: 0 };
+  if (!Number.isFinite(releaseStartMs)) return m;
+  for (const h of hands) {
+    const t = typeof h.createdAt === 'number' ? h.createdAt : Date.parse(h.createdAt);
+    if (!Number.isFinite(t) || t < releaseStartMs) continue;
+    const inc = exploitHandIncrements(h.actions).get(userId);
+    if (!inc) continue;
+    m.foldToBet += num(inc.foldToBetOpp);
+    m.riverCall += num(inc.riverCallOpp);
+    m.foldTo3Bet += num(inc.foldTo3BetOpp);
+    m.betCheckedTo += num(inc.betCheckedToOpp);
+  }
+  return m;
 }

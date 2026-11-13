@@ -131,7 +131,9 @@ import {
 import {
   classifyOpponentStyle,
   isValueBettor,
+  postReleaseOpportunitiesFromHistory,
   preRepairDiscount,
+  type PersistedHandForProvenance,
   riverFirstBetFractions,
   sizeBucketOf,
   type SizeBucketTallies,
@@ -1715,6 +1717,31 @@ export class HorseMind {
     if (!variant) return false;
     const prov = this.styleProvenanceOf(userId, variant, this.decisionMode, scope.split(':')[1] as MemorySize);
     return preRepairDiscount(prov, 'foldToBet').excluded;
+  }
+
+  /**
+   * A3: supply m by RECOUNTING it from persisted hand history (read-only rows of each exact context, completed at or
+   * after releaseStartMs) with the learner's own increment function. Same history, same m, after every restart.
+   */
+  static importPostReleaseFromHistory(
+    rows: ReadonlyArray<{
+      user_id: string;
+      variant: string;
+      mode: MemoryMode;
+      size: MemorySize;
+      hands: readonly PersistedHandForProvenance[];
+    }>,
+    releaseStartMs: number
+  ): number {
+    return this.importPostReleaseObservations(
+      rows.map((r) => ({
+        user_id: r.user_id,
+        variant: r.variant,
+        mode: r.mode,
+        size: r.size,
+        opportunities: postReleaseOpportunitiesFromHistory(r.hands, r.user_id, releaseStartMs),
+      }))
+    );
   }
 
   /**
