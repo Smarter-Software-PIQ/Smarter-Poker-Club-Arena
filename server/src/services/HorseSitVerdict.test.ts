@@ -401,10 +401,18 @@ describe('the fleet: one predicate, asked for the count and for the chair', () =
             (staleTablesSkipped++, diag stale_snapshot). It is counted, and it
             is deliberately placed here, ABOVE the first seatHorse, so the
             horses that table selected are still unspent.
-       If a FOURTH appears, it needs a counter of its own before this number
+         4. PIN MOVED 2026-11-13, from 3 to 4, for the seat ceiling (Dan:
+            the player curve governs seats). A table with no room left under
+            the host's seat ceiling, or with room for only a lone horse at an
+            empty cluster table, is skipped before any seat is bought
+            (seatCeilingSkipped++, diag seat_ceiling).
+       If a FIFTH appears, it needs a counter of its own before this number
        moves again. */
     const stage = seat.slice(0, seat.indexOf('const success = await this.seatHorse('));
-    expect(stage.match(/continue;/g)?.length).toBe(3);
+    expect(stage.match(/continue;/g)?.length).toBe(4);
+    expect(stage).toMatch(
+      /seatCeilingSkipped\+\+;\s*noteSkip\(diag, 'seat_ceiling'\);\s*continue;/
+    );
     expect(stage).toMatch(
       /if \(!isStillSeatable\(doors, table\.id\)\) \{\s*staleTablesSkipped\+\+;\s*noteSkip\(diag, 'stale_snapshot'\);\s*continue;/
     );

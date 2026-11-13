@@ -153,6 +153,26 @@ describe('the seeder stops at the ceiling', () => {
       /openPlannedTables\(tables, bodiesOnHost, stableHandCaps, seatsOnHost, seatCeilings\)/
     );
   });
+  it('a table is seated only up to the room left, and each seat checks again', () => {
+    const fleet = readFileSync(new URL('./HorseFleetManager.ts', import.meta.url), 'utf8');
+    expect(fleet).toMatch(
+      /const room = Math\.max\(0, ceilingHere - \(seatsOnHost\.get\(ceilingHost\) \?\? 0\)\);/
+    );
+    expect(fleet).toMatch(/cleared\.splice\(room\);/);
+    expect(fleet).toMatch(
+      /!humanNeedsRescue &&\s*ceilingHere !== undefined &&\s*\(seatsOnHost\.get\(ceilingHost\) \?\? 0\) >= ceilingHere\s*\)\s*return false;/
+    );
+  });
+  it('a seat call is a new seat: refused at the ceiling unless a person is there, and counted', () => {
+    const fleet = readFileSync(new URL('./HorseFleetManager.ts', import.meta.url), 'utf8');
+    expect(fleet).toMatch(/readIsCurrent,\s*book,\s*\{ seatsOnHost, seatCeilings \}\s*\);/);
+    expect(fleet).toMatch(
+      /\(seatGate\.seatsOnHost\.get\(offerHost\) \?\? 0\) >= offerCeiling &&\s*!\(seatsByTable\.get\(table\.id\) \?\? \[\]\)\.some\(\(x\) => !horseIdSet\.has\(x\.user_id\)\)/
+    );
+    expect(fleet).toMatch(
+      /claimed\+\+;\s*seatGate\?\.seatsOnHost\.set\(offerHost, \(seatGate\.seatsOnHost\.get\(offerHost\) \?\? 0\) \+ 1\);/
+    );
+  });
 });
 
 describe('the Stable Hand winds the room down to the ceiling', () => {
