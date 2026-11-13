@@ -19,7 +19,7 @@ A decision change may be merged as an opt-in arm (option read as `=== true`, off
 
 ## How The Rule Is Enforced
 
-`server/src/engine/HorseDefaultOnNeedsEvidence.law.test.ts` fails a pull request in which HorseLogic reads a new option as on by default (`opts.x !== false` or `opts.x ?? true`) unless `docs/horse-default-on.d/<option>.md` names the pull request and answers the eight rows. Options that were already on by default on 2026-11-13 are listed in the law. The law checks that the evidence is present; whether it is sufficient remains the reviewer's judgment.
+`server/src/engine/HorseDefaultOnNeedsEvidence.law.test.ts` fails a pull request in which HorseLogic reads a new option as on by default unless `docs/horse-default-on.d/<option>.md` names the pull request and answers the eight rows. It counts `opts.x !== false`, `opts.x ?? true`, `opts.x === false` and `(opts.x ?? opts.parent) !== false` as on by default. Options that were already on by default on 2026-11-13 are listed in the law. It does not see a default applied through a helper, an alias, a destructuring default or another file; those stay with the reviewer. The law checks that the evidence is present; whether it is sufficient remains the reviewer's judgment.
 
 ## Reading The Value Row
 
