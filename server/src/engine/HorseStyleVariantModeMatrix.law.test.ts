@@ -490,17 +490,13 @@ function expectProductionDecision(
   }
 
   // Upgrade 07: a tournament decision with a complete, reconciled context is
-  // priced by the tournament utility. Its only tolerated refusal is its own
-  // wall-clock operation budget, which a loaded test host can exhaust; any
-  // other refusal (context, field, input) fails here by name.
+  // priced by the tournament utility, every time. No refusal is tolerated:
+  // these are single-board spots, where no wall-clock budget applies
+  // (independent review of c6e14f0d, finding 2).
   if (applies('upgrade_07_tournament_cover_and_bounty', variant, mode)) {
     const refusals = Object.keys(counted).filter((key) => key.startsWith('phase7_unavailable_'));
-    if (counted.phase7_tournament_utility === undefined)
-      expect(refusals, `${label} upgrade 07`).toEqual(['phase7_unavailable_operation_budget']);
-    else {
-      expect(counted.phase7_tournament_utility, `${label} upgrade 07`).toBe(1);
-      expect(refusals, `${label} upgrade 07`).toEqual([]);
-    }
+    expect(refusals, `${label} upgrade 07`).toEqual([]);
+    expect(counted.phase7_tournament_utility, `${label} upgrade 07`).toBe(1);
   }
 
   // Upgrade 12, where the remaining-variant pack owns the game. (PLO8's
@@ -657,4 +653,20 @@ describe('brain style x variant x mode: no style branch skips a per-decision upg
       }, 60_000);
     }
   }
+});
+
+describe('the upgrades this law requires per decision are switched on', () => {
+  // The counter assertions above are conditional on the manifest. If one of
+  // these were declared disabled they would go silent, so the declaration
+  // itself is pinned (independent review of c6e14f0d, note 6).
+  it.each([
+    'core_action_freedom_and_turn_reliability',
+    'upgrade_01_range_posteriors',
+    'upgrade_02_card_removal_blockers',
+    'upgrade_06_public_timing_pacing',
+    'upgrade_07_tournament_cover_and_bounty',
+    'upgrade_12_specialty_variants',
+  ])('%s is enabled in the activation manifest', (id) => {
+    expect(upgrade(id).enabled).toBe(true);
+  });
 });

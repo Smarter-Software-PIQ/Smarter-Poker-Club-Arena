@@ -4,7 +4,7 @@ Test only. No production source changes.
 
 ## Why
 
-All 1,000 active Horses store the Hybrid style, so live play can never show that the other five supported styles (tag, lag, balanced, tricky, grinder) work. Before this law, none of the 108 style by variant by mode combinations was covered end to end: the per-decision upgrade counters (01 range posteriors, 02 card removal, 06 public timing) were asserted for one cell only (the brain called directly, grinder, Hold'em, cash), and no test ran a stored legacy style, or a remaining variant in a tournament, through the decision worker.
+All 1,000 active Horses store the Hybrid style, so live play can never show that the other five supported styles (tag, lag, balanced, tricky, grinder) work. Before this law, none of the 108 style by variant by mode combinations was covered end to end with its upgrade counters (`HorseActionSpaceFreedom.law.test.ts` runs a Hybrid row through the worker in thirteen variant and mode cells, without counters): the per-decision upgrade counters (01 range posteriors, 02 card removal, 06 public timing) were asserted for one cell only (the brain called directly, grinder, Hold'em, cash), and no test ran a stored legacy style, or a remaining variant in a tournament, through the decision worker.
 
 ## What The Law Runs
 
@@ -24,4 +24,4 @@ Each decision must return a result with a valid receipt and no fallback; the act
 
 ## Limits
 
-Flop spots, heads-up, first decision of the street. Occurrence-dependent upgrades (03, 04, 05, 08, 09, 10, 11) are checked for mode leakage only, not required per decision. Removing the upgrade 02 fire fails 28 tests; making the resolver pass a stored style through fails the resolution assertions.
+Flop spots, heads-up, first decision of the street. The single-mode upgrades (03, 07, 08) are checked for mode leakage. The occurrence-dependent both-mode upgrades (04, 05, 09, 10, 11) are not asserted here at all; their evidence is `HorseUpgradeEvidenceCounters.test.ts` and live counters. Decisions are sampled, not fixed: the worker seeds its own randomness from the decision key, so the action chosen can differ between runs while every assertion holds (56 of 216 differed between two runs in review; 31 of 31 runs passed). All six styles in a cell see the same flop (eight distinct flops), the hero is first to act, and only bet and check occur, so call, raise, fold and all-in legality are not exercised here. Removing the upgrade 02 fire fails 28 tests; making the resolver pass a stored style through fails the resolution assertions.
