@@ -1277,3 +1277,155 @@ was read. Read Phase 0, check the serving SHA, and pick up at Phase 2 or Phase 3
 accordingly. Do not re-derive the baselines - 2026-11-07 closed at 12,517 and
 2026-11-08 closed at 19,074, both pre-change, and 2026-11-09 is a split day that
 is not an acceptance result.
+
+---
+
+## 26. THE CUTOVER HAPPENED. ACTIVATION RECORD, 2026-11-09
+
+Everything above section 25 was written while the activation was still pending.
+It happened at 19:35:19Z. This section supersedes any sentence above that
+describes the swap as outstanding, including section 25's "greatest technical
+risk". Read it before acting on anything earlier in this file.
+
+### 26.1 What was released, and why the selected build had to be re-checked
+
+The release owner dispatched the selection job by hand at 19:27:06Z
+(`stage-engine-release.yml` #5178, event `workflow_dispatch`, on main head
+`9af491fd8440`). Its jobs: the server-tree proof succeeded, the daily release
+evidence was recorded, window migrations were skipped (none queued), and the
+exact-SHA dispatch succeeded. At 19:28:00Z the receiver
+`auto-deploy-hetzner.yml` #2695 started on a `repository_dispatch`, titled
+`Engine Release bff6eed3522ee894da747f91a532b35a3d8cee4f`.
+
+**The selected component revision was `bff6eed3522ee894da747f91a532b35a3d8cee4f`**
+("fix(lightning): pace 1/2 PLO startup and preserve play after departure",
+#10195, 2026-11-09 16:27:57Z), an ancestor of main and 10 commits behind main's
+tip at dispatch. It is NOT `aed5f975b16a`, the candidate this lane had verified
+after its 17:45:23Z certification. The owner's instruction - an earlier
+certified candidate does not prove the selected build is eligible - is exactly
+what this case looks like in practice, so the contents check was re-run against
+the tree of the build actually selected:
+
+| requirement | verdict in `bff6eed352` | evidence in that tree |
+| --- | --- | --- |
+| waiting ladder | PASS | `SEAT_FIRST_OPENING_HORSES = 1`; `SPIN_LADDER = [{60,80},{30,60}] min`; `SNG_LADDER = [{180,240}] min`; rung index `paid - OPENING_HORSES` |
+| feeder exclusion from the board budget | PASS | `seatFirstBoardRoom` filters `.is('satellite_target_id', null)` and `.is('satellite_target', null)` |
+| the FULL 3-7 minute human fill | PASS | `HUMAN_PARTNER_HOLD_MS = HUMAN_ARRIVAL_MIN_MS`; `SPREAD = HUMAN_ARRIVAL_MAX_MS - HUMAN_ARRIVAL_MIN_MS` (the whole band, not 30 s); hold ends at `min(ceiling, partnerFloor + spread)` |
+| client countdown mirrors the engine | PASS | `PARTNER_HOLD_MAX_MS = 420000`, `SPREAD = MAX - MIN`, `min(hero+420000, hero+180000+SPREAD)` |
+| feeder lifecycle fix | ABSENT, EXPECTED | `seatFirstNextWaitMs` not present; it was PR #10181, held deliberately so it could not disturb this certification, and merged afterwards (squash `6506bc3cfc`) |
+
+### 26.2 The cutover, minute by minute (all read-only observation)
+
+| time (UTC) | what was true |
+| --- | --- |
+| 19:31:29Z | last-hand announcement. `engine_maintenance_break`: phase `last_hand`, reason `Deployment Recovery`, `declared_by` 391f7bc0, `enforce_freeze` true, ownership token `4a020a57`. `fn_platform_frozen()` still false |
+| 19:33:29Z | `break_started_at`; `break_ends_at` 19:38:29Z |
+| 19:33:55Z | **SNAPSHOT A**, inside the confirmed freeze (`fn_platform_frozen()` true), OLD engine 391f7bc0 serving |
+| 19:35:19Z | NEW engine answering: build `bff6eed3`, instance `1-cc09e13a` |
+| 19:35:57Z | **SNAPSHOT B**, still inside the SAME confirmed freeze, NEW engine serving, break row's `declared_by` now `bff6eed3` - the new engine took ownership of the break, so the freeze never lapsed between engines |
+| 19:38:33Z | break over: phase `idle`, active false, 58 hands in flight, play resumed |
+| 19:38:56Z | **SNAPSHOT C**, after the thaw: `fn_platform_frozen()` false and the `engine_maintenance_break` row CLEARED |
+| 19:41:44Z | receiver #2695 `completed/success`, every job green, including `Record The Append-Only Engine Release Receipt` and `Dispatch Exact Cross-Artifact Production Certification` |
+
+### 26.3 Custody across the replacement: A and B are identical
+
+| snapshot | occupied seat-first boards | seated | chips on the felt | feeders | board digest |
+| --- | --- | --- | --- | --- | --- |
+| A (19:33:55Z, old engine, frozen) | 74 | 150 | 88,600.00 | 0 | `ac8634626f212bfd2fbaf826b739b8f5` |
+| B (19:35:57Z, new engine, same freeze) | 74 | 150 | 88,600.00 | 0 | `ac8634626f212bfd2fbaf826b739b8f5` |
+| C (19:38:56Z, after the thaw) | 73 | 169 | 100,300.00 | 0 | `532150937938ae39679d179253cd736a` |
+
+The digest is `md5` over every occupied board's `id:seated:chips` ordered by id,
+so an identical digest is a game-for-game, chip-for-chip match. **No occupied
+game lost a player or a stack in the swap.** B to C moves only in the allowed
+shapes: play resumed, +19 seats filled on boards that were waiting, +11,700.00
+of buy-ins onto the felt, one board finished (74 to 73).
+
+The snapshot query is `scratchpad/occupied-snapshot-detail.sql` in the session
+scratchpad; it is reproduced here so it survives that scratchpad:
+`tournaments` where `tournament_type IN ('SPIN','SNG')` and (`SPIN` or
+`max_players = 2`) and status not terminal, joined to `tables` on
+`tournament_id` and `table_seats` on `table_id` with `left_at IS NULL`.
+
+### 26.4 The pre-freeze reading differs from A, and that is legitimate
+
+A reference reading at 19:32Z was 84 boards / 174 seated / 98,800.00 chips, so
+it differs from snapshot A at 19:33:55Z. Hands, seating and cash-outs occur
+between the two, so this is expected rather than a discrepancy, and it was
+checked against committed records rather than assumed:
+
+- `ca_seat_stack_exits` - the trigger that records EVERY exit of a non-zero
+  stack with the db role and application name that did it - has **zero rows**
+  between 19:31:50Z and 19:34:10Z. No chips left the felt unaccounted for.
+- 6 seats departed normally (`left_at` set) across 4 boards, 3,800.00 on
+  departure, all between 19:31:50Z and 19:32:25Z, inside the last-hand window.
+- 3 boards reached `ended_at` inside the window.
+
+**OPEN ITEM, honestly stated:** the remainder is boards that finished and paid
+out in the ordinary way, chips moving from the felt into wallets. That has NOT
+been itemised line by line against `chip_ledger`. Nothing observed suggests a
+loss - the one guard that exists for exactly this class found nothing - but the
+itemisation is not done, and "no unaccounted seat exits" is not the same claim
+as "every chip traced to a credit". Do not record this as closed until it is.
+
+### 26.5 Serving identity and the sealed release, proved independently
+
+The receiver's own jobs being green is not the proof. The serving engine
+publishes its release identity on `/health`:
+
+- `releaseSha` = `bff6eed3522ee894da747f91a532b35a3d8cee4f` (the full selected
+  revision), `version` = `bff6eed3`, `instanceId` = `1-cc09e13a`,
+  `leadership.role` = leader.
+- `maintenance.schedule` = `{timeZone: America/Chicago, startHour: 4,
+  startMinute: 0, frequency: daily, durationMs: 300000}`, next announcement
+  2026-11-10T09:58:00Z = 03:58 Chicago. The daily window is intact on the new
+  build.
+- Platform at 19:42Z: 125 active tables, 55 active tournaments, 101 hands in
+  flight, 3 humans seated, `liveness: ok`, `equityGovernor.scale` 1.
+
+### 26.6 The reporting date, derived from the activation
+
+Activation was 19:35:19Z = **13:35 America/Chicago on 2026-11-09**. Therefore:
+
+- 2026-11-09 is a SPLIT day (old engine until 13:35 Chicago) and is **not** an
+  acceptance result, however its number reads.
+- **The acceptance day is TUESDAY 2026-11-10, America/Chicago**, measurable once
+  it closes, i.e. after 2026-11-11 06:00Z, with
+  `SELECT * FROM public.fn_ca_seat_first_daily_starts('2026-11-10')`.
+- The target is under 300 COMBINED Spin + regular heads-up starts, with the
+  human-triggered and horse-only columns reported separately and the satellite
+  feeder row kept out of the combined figure.
+
+### 26.7 The pre-change baseline, with the splits, for comparison
+
+| Chicago day | Spin | regular heads-up | COMBINED | human-triggered | horse-only | feeders (outside the budget) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 2026-11-06 closed | 4,859 | 4,860 | 9,719 | 1 | 9,718 | 4 |
+| 2026-11-07 closed | 6,670 | 5,847 | 12,517 | 1 | 12,516 | 4 |
+| 2026-11-08 closed | 11,369 | 7,705 | 19,074 | 5 | 19,069 | 4 |
+| 2026-11-09 SPLIT (to 12:58 Chicago) | 2,520 | 2,351 | 4,871 | 6 | 4,865 | 3 |
+
+Every pre-change day is essentially pure horse volume: human-triggered never
+exceeds 6 in a day. Feeders run 3-4 a day at seat-first width, so the feeder
+lifecycle never explained the volume.
+
+An early rate read for orientation only, NOT an acceptance figure: 19:01-19:31Z
+on the old engine produced 123 Spin + 119 regular heads-up = 242 starts in 30
+minutes, about 8.1 a minute. The minutes immediately after a thaw are a resume
+wave and must not be read as a steady rate.
+
+### 26.8 What remains after this section
+
+1. The acceptance measurement for 2026-11-10 Chicago (26.6).
+2. Convergence toward 11 Spins and 6 regular Sit & Gos as the 73 boards already
+   running drain. This takes hours by design: the ladder never closes a game
+   that has players in it. The lever if the target is missed is the BOARD COUNT,
+   not the ladder rungs.
+3. The `chip_ledger` itemisation in 26.4.
+4. The reload-countdown check, which needs a seated player. Observation may not
+   seat one and must never borrow a real player's session. The arithmetic is
+   verified in the live bundle: the page counts to 7 minutes from the moment the
+   player sat and the engine's hold can only end earlier, never later.
+5. PR #10181 (feeder lifecycle) is merged as `6506bc3cfc` and rides the next
+   daily window; confirm it is in the build the 03:30 Chicago preparation
+   selects.
