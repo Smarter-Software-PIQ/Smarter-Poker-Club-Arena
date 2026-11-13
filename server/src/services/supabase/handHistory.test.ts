@@ -18,6 +18,8 @@ const retentionCalls: Record<string, unknown>[] = [];
 let atomicRpcResults: Array<{ data: unknown; error: unknown }> = [];
 /** The reply fn_ca_resume_hand_submission gives a restarted engine. */
 let terminalRead: { data: any; error: unknown } | undefined;
+/** The stored hand_history row a resume reads back for the memory-domain count. */
+let storedHandRead: { data: unknown; error: unknown } | Error | undefined;
 let resumeReply: { data: unknown; error: unknown } = { data: null, error: null };
 /** Ordered replies for fn_ca_retain_hand_submission; empty means a fresh retention. */
 let retentionReplies: Array<{ data: unknown; error: unknown } | Error> = [];
@@ -28,6 +30,18 @@ vi.mock('./client.js', () => ({
       calls.push({ table });
       if (table === 'hand_atomic_commits' && terminalRead) {
         const read = { select: () => read, eq: () => read, maybeSingle: async () => terminalRead };
+        return read;
+      }
+      if (table === 'hand_history' && storedHandRead) {
+        const stored = storedHandRead;
+        const read = {
+          select: () => read,
+          eq: () => read,
+          maybeSingle: async () => {
+            if (stored instanceof Error) throw stored;
+            return stored;
+          },
+        };
         return read;
       }
       throw new Error(`unexpected legacy table write: ${table}`);
@@ -309,6 +323,7 @@ function deferred<T>() {
 
 beforeEach(() => {
   terminalRead = undefined;
+  storedHandRead = undefined;
   calls.length = 0;
   rpcCalls.length = 0;
   retentionCalls.length = 0;
@@ -2270,4 +2285,107 @@ describe('logHandHistory - a hand logged without its public memory domain is cou
     );
     expect(missingDelta(missing)).toEqual({});
   });
+});
+
+/**
+ * HVH2D-EXE-002 coverage (2026-11-12, the verifier's follow-up to #10640): a
+ * retained hand a replacement engine commits never reaches logHandHistory's
+ * count, and the exact-memory trigger fires on it all the same.
+ */
+describe('resumeRetainedHandSubmission - a retained hand this call committed is counted once', () => {
+  const TABLE = '11111111-1111-1111-1111-111111111111';
+  const showdown = [{ user_id: 'u1', seat: 1, reveal_order: 1, mucked: false, hand_name: 'Pair' }];
+  const receipt = (financialHandoff: boolean | undefined) => ({
+    found: true,
+    completed: true,
+    success: true,
+    atomic_hand_commit: true,
+    snapshot_completed: true,
+    post_commit_completed: true,
+    table_id: TABLE,
+    history_id: historyId,
+    submission_id: historyId,
+    submission_hash: 'b'.repeat(64),
+    hand_number: '4242',
+    ...(financialHandoff === undefined ? {} : { financial_handoff: financialHandoff }),
+  });
+  const total = (counter: typeof handMemoryDomainLoggedTotal) =>
+    counter.snapshot().reduce((sum, s) => sum + s.value, 0);
+  const settle = async () => {
+    for (let turn = 0; turn < 5; turn++) await Promise.resolve();
+  };
+  const resume = async () => {
+    const out = await resumeRetainedHandSubmission(TABLE, 'successor', 'successor-lease');
+    await settle();
+    return out;
+  };
+
+  it('counts the stored row of the hand it handed off, and not the replays that follow', async () => {
+    const labels = { mode: 'cash', reached_showdown: 'true' };
+    const logged = handMemoryDomainLoggedTotal.get({ ...labels, learner_scope: 'supported' });
+    const absent = handMemoryDomainMissingTotal.get({ ...labels, reason: 'absent' });
+    const loggedAll = total(handMemoryDomainLoggedTotal);
+    const missingAll = total(handMemoryDomainMissingTotal);
+    terminalRead = { data: null, error: null };
+    storedHandRead = {
+      data: { public_memory_domain: null, game_variant: 'nlh', tournament_id: null, showdown },
+      error: null,
+    };
+    resumeReply = { data: receipt(true), error: null };
+    expect(await resume()).toEqual({ handNumber: 4242, submissionId: historyId });
+    expect(calls.map((c) => c.table)).toContain('hand_history');
+    expect(
+      handMemoryDomainLoggedTotal.get({ ...labels, learner_scope: 'supported' }) - logged
+    ).toBe(1);
+    expect(handMemoryDomainMissingTotal.get({ ...labels, reason: 'absent' }) - absent).toBe(1);
+
+    // The same hand, read again by a later start: already committed, so the
+    // door answers financial_handoff false (or, from an older door, nothing).
+    calls.length = 0;
+    for (const replay of [false, undefined]) {
+      resumeReply = { data: receipt(replay), error: null };
+      await resume();
+    }
+    expect(calls.map((c) => c.table)).not.toContain('hand_history');
+    expect(total(handMemoryDomainLoggedTotal) - loggedAll).toBe(1);
+    expect(total(handMemoryDomainMissingTotal) - missingAll).toBe(1);
+  });
+
+  it('files a handed-off tournament hand with its valid domain under tournament, with no omission', async () => {
+    const labels = { mode: 'tournament', reached_showdown: 'false', learner_scope: 'supported' };
+    const logged = handMemoryDomainLoggedTotal.get(labels);
+    const missingAll = total(handMemoryDomainMissingTotal);
+    terminalRead = { data: null, error: null };
+    storedHandRead = {
+      data: {
+        public_memory_domain: { version: 1, speed: 'table', ante: 'big_blind' },
+        game_variant: 'nlh',
+        tournament_id: '22222222-2222-4222-8222-222222222222',
+        showdown: null,
+      },
+      error: null,
+    };
+    resumeReply = { data: receipt(true), error: null };
+    await resume();
+    expect(handMemoryDomainLoggedTotal.get(labels) - logged).toBe(1);
+    expect(total(handMemoryDomainMissingTotal)).toBe(missingAll);
+  });
+
+  it.each([
+    ['answers an error', { data: null, error: { message: 'statement timeout' } }],
+    ['finds no row', { data: null, error: null }],
+    ['throws', new Error('fetch failed')],
+  ] as const)(
+    'a read-back that %s counts nothing and changes nothing about the admission',
+    async (_name, read) => {
+      const loggedAll = total(handMemoryDomainLoggedTotal);
+      const missingAll = total(handMemoryDomainMissingTotal);
+      terminalRead = { data: null, error: null };
+      storedHandRead = read as typeof storedHandRead;
+      resumeReply = { data: receipt(true), error: null };
+      expect(await resume()).toEqual({ handNumber: 4242, submissionId: historyId });
+      expect(total(handMemoryDomainLoggedTotal)).toBe(loggedAll);
+      expect(total(handMemoryDomainMissingTotal)).toBe(missingAll);
+    }
+  );
 });
