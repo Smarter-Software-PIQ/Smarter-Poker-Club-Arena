@@ -1077,6 +1077,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-13'
   ),
   receipt(
+    'style_bluff_catch_cap_bounty_priced_seen',
+    'HorseLogic (STYLE READ #3 bluff-catch cap in bounty events)',
+    'in a bounty event the bluff-catch cap was raised by the knockout credit the call earns (V23/V37 pricing), so it applied against the call price including the bounty; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
     'style_value_bettor_not_maniac_seen',
     'HorseMind.legacyExploit (STYLE READ #2)',
     'a postflop aggression factor above 2.5 kept neutral respect because the style read says the bettor is value-weighted; occurrence counter (counts reads, not decisions); named *_seen',

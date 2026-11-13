@@ -233,6 +233,29 @@ function styleBountyContext(
       Object.keys(t.bountyByUser ?? {}).length > 0)
   );
 }
+
+/**
+ * STYLE READ in bounty events (2026-11-13): the knockout credit on a call, in equity units, exactly as V23/V37 price it
+ * (HorseLogic committed branch): a call that busts an all-in opponent hero covers earns a share of the bounty factor,
+ * scaled by the prize landscape and that opponent's head, at most 0.08. 0 when the bettor is not all-in or hero does
+ * not cover (no knockout on this call). The fold-side style consumers (river bluff-catch cap, raise respect) price
+ * against the call including this credit instead of standing down.
+ */
+function styleKnockoutCredit(
+  gs: HorseGameStateV2,
+  player: SeatPlayer,
+  bettorId: string | undefined,
+  opts: HorseDecideOpts
+): number {
+  const t = trustedTournamentContext(gs);
+  if (!t || !bettorId || !isTournamentMode(gs) || (t.bountyFactor ?? 0) < 0.1) return 0;
+  const bettor = gs.players.find((p) => p.user_id === bettorId);
+  if (!bettor || bettor.is_all_in !== true) return 0;
+  const heroChips = player.stack + (isFinite(player.bet) ? player.bet : 0);
+  if (heroChips < (isFinite(bettor.bet) ? bettor.bet : 0)) return 0;
+  const scale = prizeLandscapeScale(gs, (opts.v26Prizes ?? true) !== false) * headBountyScale(gs, bettorId);
+  return Math.min(0.08, (t.bountyFactor ?? 0) * 0.12 * scale);
+}
 // V7 (2026-07-24): position-pair preflop mastery — 3-bet/4-bet bluffs, blind
 // vs blind, squeezes, stack depth, reshoves, ICM. See HorsePreflop.ts.
 import {
@@ -15017,7 +15040,6 @@ export class HorseLogic {
       !multiBoard36 &&
       !gs.bombPot &&
       oppCount <= 1 &&
-      !styleBountyContext(trustedTournament) &&
       exploit.callDownMod <= 1 &&
       cat >= 0 &&
       (cat <= 2 || (cat === 3 && pairedBoard)) &&
@@ -15045,6 +15067,9 @@ export class HorseLogic {
           styleRaiseShade = raiseRespectShade(HorseMind.styleRead(raiser.user_id), {
             decisionSpr,
           });
+          // Bounty events: priced against the call including its knockout credit (never stands down wholesale).
+          if (styleRaiseShade > 0 && styleBountyContext(trustedTournament))
+            styleRaiseShade = Math.max(0, styleRaiseShade - styleKnockoutCredit(gs, player, raiser.user_id, opts));
           if (styleRaiseShade > 0 && tele15) noteFire('style_raise_respect_seen');
         }
       } catch {
@@ -16306,11 +16331,17 @@ export class HorseLogic {
               respect += styleAdd;
               if (telemetryOn(opts)) noteFire('style_big_bet_honesty_seen');
             }
-            // Multiway too: a bluff-catcher must beat the bettor, so the bettor's bluff share still bounds its
-            // equity when others are in the pot (an upper bound holds a fortiori). Keyed to the bettor only.
-            if (isRiver) {
-              const cap = bluffCatchEquityCap(HorseMind.styleRead(bettorId), { potFraction: potFrac });
-              if (cap !== null) styleBluffCatchCap = cap;
+          }
+          // #3 river bluff-catch cap. Multiway too: a bluff-catcher must beat the bettor, so the bettor's bluff share
+          // still bounds its equity when others are in the pot (an upper bound holds a fortiori); keyed to the bettor.
+          // In a bounty event it does not stand down: the cap is raised by the knockout credit this call earns, so it
+          // is applied against the call price including the bounty (styleKnockoutCredit).
+          if (opts.styleBigBetHonesty === true && !vi.isOmaha && isRiver) {
+            const cap = bluffCatchEquityCap(HorseMind.styleRead(bettorId), { potFraction: potFrac });
+            if (cap !== null) {
+              const ko = styleBountyContext(trustedTournament) ? styleKnockoutCredit(gs, player, bettorId, opts) : 0;
+              styleBluffCatchCap = Math.min(1, cap + ko);
+              if (ko > 0 && telemetryOn(opts)) noteFire('style_bluff_catch_cap_bounty_priced_seen');
             }
           }
           // ═══ V43 TEMPO (2026-09-05) ═══ the action log has carried a

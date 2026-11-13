@@ -316,7 +316,7 @@ describe('A3 persisted m: recounted from persisted hand history, identical after
 });
 
 describe('gear change and bounty boundary, through decide()', () => {
-  const ADAPTIVE = ['style_big_bet_honesty_seen', 'style_raise_respect_seen', 'style_tight_opener_respect_seen', 'style_tight_reraiser_respect_seen', 'style_value_bettor_not_maniac_seen', 'style_value_extraction_seen', 'style_fold_bluff_seen'];
+  const ADAPTIVE = ['style_big_bet_honesty_seen', 'style_tight_opener_respect_seen', 'style_tight_reraiser_respect_seen', 'style_value_bettor_not_maniac_seen', 'style_value_extraction_seen', 'style_fold_bluff_seen'];
   const adaptiveFires = (f: Record<string, number>) => ADAPTIVE.filter((k) => (f[k] ?? 0) > 0);
   it('a tight player who changes gear (fast window aggressive) is released: every consumer stands down', () => {
     const g = VILLAINS.grinder!;
@@ -348,7 +348,7 @@ describe('gear change and bounty boundary, through decide()', () => {
     expect(on.fires.style_value_bettor_not_maniac_seen ?? 0).toBe(0);
     expect(on.digest).toBe(off.digest);
   });
-  it('bounty tournaments: no style consumer acts (bounty utility is not in the read)', () => {
+  it('bounty tournaments: the widening and value consumers stand down (raise respect and the bluff-catch cap are priced instead)', () => {
     for (const spot of ALL_SPOTS('tournament')) {
       (spot.gs.tournament as Record<string, unknown>).bountyFactor = 0.5;
       install(VILLAINS.grinder!, 'tournament');
