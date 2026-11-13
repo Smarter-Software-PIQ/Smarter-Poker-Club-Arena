@@ -2322,7 +2322,7 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
       await page.goto(`table/${candidate.id}`, { waitUntil: 'domcontentloaded' });
       const table = page.locator('.table-page:visible').first();
       await expect(table).toBeVisible({ timeout: 30_000 });
-      await expect(page.locator('.connection-status-banner:visible')).toHaveCount(0);
+      await expect(page.getByTestId('table-connection-banner')).toBeHidden({ timeout: 30_000 });
       const capacity = await table.getAttribute('data-seats');
       if (!capacity || !['6', '9'].includes(capacity) || capacities.has(capacity)) continue;
       await expect(table.locator('.seat__avatar-img')).not.toHaveCount(0);
