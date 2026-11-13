@@ -470,7 +470,7 @@ describe(
       v87DeepDiveDiscipline: false,
       // PLO6-AUDIT-005 (2026-11-12) changes one Omaha preflop call class
       // independently of V53; its explicit off arm keeps this pre-V53
-      // baseline byte-identical (the horseComplaints laws pin the real rule).
+      // baseline byte-identical (HorseOmahaActionBehindArm.test.ts pins the arm).
       omahaPreflopCallWithActionBehind: false,
     };
 

@@ -4,7 +4,7 @@ import {
   hiddenFanReservations,
   hiddenFanStates,
   mobilePositionLabels,
-  dealerReservations,
+  dealerSeatReservations,
   heroPrivateReservations,
 } from './mobileAvatarReservations';
 
@@ -69,7 +69,10 @@ export function chooseMobileAvatarPaint(
   ceiling = 1.15,
   maxPaintHeight = Infinity,
   profile?: MobileAvatarProfile,
-  attachmentBottom = clipBottom
+  attachmentBottom = clipBottom,
+  // Dan 2026-11-12: a portrait is always centred over its frame box, so no
+  // sideways pivot; it grows straight up from its plate.
+  centered = false
 ): PaintChoice {
   const unchanged = { scale: 1, x: 0, y: 0, parts, origin };
   if (!parts.length) return unchanged;
@@ -99,7 +102,9 @@ export function chooseMobileAvatarPaint(
     for (const py of profile ? [profile.py] : [2, 1, 0.75, 0.5, 0.25, 0.15, 0.1, 0.05, 0, -1])
       for (const px of profile
         ? [profile.px]
-        : [0, 0.05, -0.05, 0.1, -0.1, 0.15, -0.15, 0.25, -0.25, 0.5, -0.5, 1, -1]) {
+        : centered
+          ? [0]
+          : [0, 0.05, -0.05, 0.1, -0.1, 0.15, -0.15, 0.25, -0.25, 0.5, -0.5, 1, -1]) {
         const pivot: [number, number] = [
           (bounds.left + bounds.right) / 2 + px * height,
           bounds.top + py * height,
@@ -221,14 +226,58 @@ export function chooseMobileAvatarPaint(
   return best;
 }
 
-function rebaseChoice(choice: PaintChoice | undefined, origin: [number, number]) {
+/** The locked size applied to a portrait that has no fitted choice yet (a
+ * new arrival at a locked table): grown straight up from its own lower edge,
+ * centred over its plate, cropped at clipBottom. No obstacle can change it. */
+function fixedChoice(
+  parts: PaintBox[],
+  origin: [number, number],
+  clipBottom: number,
+  scale: number
+): PaintChoice {
+  if (!parts.length || scale <= 1) return { scale: 1, x: 0, y: 0, parts, origin };
+  const left = Math.min(...parts.map((p) => p.left));
+  const right = Math.max(...parts.map((p) => p.left + p.width));
+  const lower = Math.max(...parts.map((p) => p.top + p.height));
+  const pivot: [number, number] = [(left + right) / 2, lower];
+  const next = parts
+    .map((p) => {
+      const top = pivot[1] + (p.top - pivot[1]) * scale;
+      return {
+        left: pivot[0] + (p.left - pivot[0]) * scale,
+        top,
+        width: p.width * scale,
+        height: Math.max(
+          0,
+          Math.min(clipBottom, pivot[1] + (p.top + p.height - pivot[1]) * scale) - top
+        ),
+      };
+    })
+    .filter((p) => p.height > 0);
+  return {
+    scale,
+    x: (1 - scale) * (pivot[0] - origin[0]),
+    y: (1 - scale) * (pivot[1] - origin[1]),
+    parts: next,
+    origin,
+  };
+}
+
+/** A fitted choice carried to a new origin, and to a new render ratio when
+ * the device scale changed since it was fitted (viewport px per layout px). */
+function rebaseChoice(choice: PaintChoice | undefined, origin: [number, number], k = 1) {
   if (!choice) return;
-  const dx = origin[0] - choice.origin[0],
-    dy = origin[1] - choice.origin[1];
   return {
     ...choice,
     origin,
-    parts: choice.parts.map((p) => ({ ...p, left: p.left + dx, top: p.top + dy })),
+    x: choice.x * k,
+    y: choice.y * k,
+    parts: choice.parts.map((p) => ({
+      left: origin[0] + (p.left - choice.origin[0]) * k,
+      top: origin[1] + (p.top - choice.origin[1]) * k,
+      width: p.width * k,
+      height: p.height * k,
+    })),
   };
 }
 
@@ -245,14 +294,22 @@ const properties = [
 const frameProperties = ['x', 'y', 'w', 'h', 'background', 'border', 'radius', 'shadow'].map(
   (name) => `--sp-frame-${name}`
 );
-export function resetMobileAvatarPaint(scaler: HTMLElement) {
+/** Remove the fixed mobile paint. With geometryOnly, only what moves a box
+ * (the zoom, its translation and the frame plates) is removed so a layout
+ * pass can measure the resting table; the image's filter and torso clip stay,
+ * because removing and restoring them inside one pass restarts the image's
+ * `filter` transition every pass, and that running transition kept the
+ * opponent layout from ever settling, so the table could not refit (the
+ * small/large flicker Dan saw, 2026-11-12). */
+export function resetMobileAvatarPaint(scaler: HTMLElement, geometryOnly = false) {
   scaler
     .querySelectorAll<HTMLElement>('.seat__info')
     .forEach((info) => frameProperties.forEach((name) => info.style.removeProperty(name)));
-  scaler.querySelectorAll<HTMLElement>('.seat__avatar-img').forEach((image) => {
-    image.style.removeProperty('--sp-mobile-clip-bottom');
-    image.style.removeProperty('--sp-mobile-filter');
-  });
+  if (!geometryOnly)
+    scaler.querySelectorAll<HTMLElement>('.seat__avatar-img').forEach((image) => {
+      image.style.removeProperty('--sp-mobile-clip-bottom');
+      image.style.removeProperty('--sp-mobile-filter');
+    });
   scaler.querySelectorAll<HTMLElement>('.seat__avatar').forEach((avatar) => {
     for (const name of properties) avatar.style.removeProperty(name);
   });
@@ -281,6 +338,19 @@ export function retainMobilePaint(scaler: HTMLElement) {
   };
 }
 
+/** Whether this table, as laid out now, takes the fixed mobile paint at all. */
+export function mobileAvatarPaintSupported(scaler: HTMLElement, page: HTMLElement) {
+  if (!matchMedia('(min-width: 481px) and (max-width: 768px) and (orientation: portrait)').matches)
+    return false;
+  const key = `${page.classList.contains('table-page--tournament') ? 'tournament' : 'cash'}|${page.dataset.seats}|${page.dataset.hero === 'false' ? 'spectator' : 'seated'}`;
+  return (
+    Boolean(MOBILE_PROFILES[key]) &&
+    page.dataset.killEnabled === 'false' &&
+    [2, 3, 4, 5, 6].includes(Number(page.dataset.holeCardCount)) &&
+    Boolean(scaler.querySelector('.seat__avatar'))
+  );
+}
+
 function profileFor(image: HTMLImageElement, scaler: HTMLElement, page: HTMLElement) {
   if (!matchMedia('(min-width: 481px) and (max-width: 768px) and (orientation: portrait)').matches)
     return;
@@ -293,7 +363,7 @@ function profileFor(image: HTMLImageElement, scaler: HTMLElement, page: HTMLElem
   });
   if (
     page.dataset.killEnabled !== 'false' ||
-    ![2, 3, 4, 5].includes(Number(page.dataset.holeCardCount))
+    ![2, 3, 4, 5, 6].includes(Number(page.dataset.holeCardCount))
   )
     return;
   return MOBILE_PROFILES[key]?.[ring.indexOf(image.closest<HTMLElement>('.seat-wrapper')!)];
@@ -309,14 +379,18 @@ export function mobileAvatarCardReservation(
 ): PaintBox {
   const profile = profileFor(image, scaler, page);
   if (!profile || !image.closest('.seat__avatar--bust')) return baseline;
-  const cached = state?.key === mobilePaintKey(scaler, page) ? state.choices.get(image) : undefined;
+  const cached = state?.choices.get(image);
   if (cached) {
     if (cached.scale === 1) return baseline;
     const avatar = image.closest<HTMLElement>('.seat__avatar')!;
     const rect = restingAvatarBox(avatar, tableRenderScale(scaler));
     return unionPaint([
       baseline,
-      ...rebaseChoice(cached, [rect.left + rect.width / 2, rect.bottom])!.parts,
+      ...rebaseChoice(
+        cached,
+        [rect.left + rect.width / 2, rect.bottom],
+        tableRenderScale(scaler) / (state?.ratio || tableRenderScale(scaler))
+      )!.parts,
     ]);
   }
   // On first mount the original layout settles before paint is selected.
@@ -347,19 +421,22 @@ export function mobileFrameCardReservation(
     page.classList.contains('table-page--tournament') ||
     !['6', '9'].includes(page.dataset.seats ?? '') ||
     page.dataset.killEnabled !== 'false' ||
-    ![2, 3, 4, 5].includes(Number(page.dataset.holeCardCount)) ||
+    ![2, 3, 4, 5, 6].includes(Number(page.dataset.holeCardCount)) ||
     !matchMedia('(min-width: 481px) and (max-width: 768px) and (orientation: portrait)').matches
   )
     return baseline;
   const scaler = info.closest<HTMLElement>('.table-scaler');
-  const cached =
-    scaler && state?.key === mobilePaintKey(scaler, page) ? state.frames.get(info) : undefined;
+  const cached = scaler ? state?.frames.get(info) : undefined;
   if (cached)
     return cached.scale === 1
       ? baseline
       : unionPaint([
           baseline,
-          ...rebaseChoice(cached, [baseline.left + baseline.width / 2, bottom(baseline)])!.parts,
+          ...rebaseChoice(
+            cached,
+            [baseline.left + baseline.width / 2, bottom(baseline)],
+            tableRenderScale(scaler!) / (state?.ratio || tableRenderScale(scaler!))
+          )!.parts,
         ]);
   // Initial rows settle first; frame fitting then checks those exact rows.
   // Future reveals use the retained frame footprint above.
@@ -384,8 +461,14 @@ function cssLength(element: HTMLElement, name: string, fallback: number) {
  * (seatBountyBadge); narrower portrait layouts use different label/fan rules. */
 function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
   const ratio = tableRenderScale(scaler);
-  const boxes: Array<{ box: PaintBox; owner: Element | null; layer: boolean; minimum?: PaintBox }> =
-    [];
+  const boxes: Array<{
+    box: PaintBox;
+    owner: Element | null;
+    layer: boolean;
+    minimum?: PaintBox;
+    /** Drawn over the owner's portrait: the owner may grow behind it. */
+    overlay?: boolean;
+  }> = [];
   const badge = page.querySelector<HTMLElement>('.seat__position-badge:not(.seat__kill-badge)');
   const badgeStyle = badge ? getComputedStyle(badge) : null;
   const fontSize = badgeStyle
@@ -439,12 +522,16 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
     // across the whole screen, which refused its neighbours' growth. Reserve the
     // seat's own lane, including the 1.1x pop and its 2px upward / 8px downward
     // travel.
-    const lanePad = 48 * ratio;
+    // The pill is centred on the seat and at most ~100 layout px wide
+    // ("RAISE 1,234.56" at 0.72rem with its padding), so the lane is a fixed
+    // 108 px centred on the seat rather than the seat width plus a pad: a
+    // 136 px lane under a top chair reached its lower neighbour's crown.
+    const laneWidth = 108 * ratio;
     boxes.push({
       box: {
-        left: rect.left - lanePad,
+        left: rect.left + rect.width / 2 - laneWidth / 2,
         top: tagTop - 3 * ratio,
-        width: rect.width + 2 * lanePad,
+        width: laneWidth,
         height: tagH + 12 * ratio,
       },
       owner: seat,
@@ -456,33 +543,20 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
         height: tagH,
       },
     });
-    // Bet chips and their amount stand on the felt in front of the seat, at the
-    // seat-wrapper's --bet-offset (undoing any opponent pod shift). Reserve a
-    // generous stack envelope: chip pile, amount pill and the all-in puck.
-    const wrapper = seat.closest<HTMLElement>('.seat-wrapper');
-    const wrapperStyle = wrapper ? getComputedStyle(wrapper) : null;
-    const betX = parseFloat(wrapperStyle?.getPropertyValue('--bet-offset-x') || '') || 0;
-    const betY = parseFloat(wrapperStyle?.getPropertyValue('--bet-offset-y') || '') || 0;
-    const podX = hero ? 0 : parseFloat(style.getPropertyValue('--sp-opponent-x')) || 0;
-    const podY = hero ? 0 : parseFloat(style.getPropertyValue('--sp-opponent-y')) || 0;
-    const betCx = rect.left + rect.width / 2 + (betX - podX) * ratio;
-    const betCy = rect.top + rect.height / 2 + (betY - podY) * ratio;
-    boxes.push({
-      box: {
-        left: betCx - 60 * ratio,
-        top: betCy - 30 * ratio,
-        width: 120 * ratio,
-        height: 60 * ratio,
-      },
-      owner: seat,
-      layer: false,
-    });
+    // Chips already on the felt are displays and stay hard. Where a future
+    // bet rests is the marker solver's choice, and that solver treats the
+    // enlarged portrait as a display to stay clear of (useProtectedCardLayout),
+    // so no guessed rest envelope is reserved here: one abutting the art
+    // walled every seated opponent at 1.05x (measured 2026-11-12).
     for (const chips of seat.querySelectorAll<HTMLElement>('.seat__bet-chips,.seat__wager-group')) {
       const box = chips.getBoundingClientRect();
       if (box.width && box.height) boxes.push({ box, owner: seat, layer: false });
     }
     // The position chip can rotate through every label while the art stays put.
     // Kill-enabled tables retain their original size from the stable game setting.
+    // The seat's own badge is drawn over its portrait (z-index 6, above the
+    // avatar wrap at 2), so the portrait may grow behind it like its own tag;
+    // it stays hard for every other seat's portrait.
     boxes.push({
       box: {
         left: at.left + at.width + (4 - badgeWidth) * ratio,
@@ -492,6 +566,7 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
       },
       owner: seat,
       layer: false,
+      overlay: true,
     });
     if (hero) {
       const input = {
@@ -529,7 +604,11 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
             count,
             discard,
           }))
-            boxes.push({ box, owner: seat, layer: true });
+            // An opponent's face-down fan draws over its own portrait
+            // (.seat__cards--opponent z-index 4 above the wrap's 2), so the
+            // portrait may grow behind its own fan: the cards stay whole. The
+            // fan stays hard for every other seat's portrait.
+            boxes.push({ box, owner: seat, layer: true, overlay: true });
   }
   const canvas = scaler.getBoundingClientRect();
   const anchors = Array.from(scaler.querySelectorAll<HTMLElement>('.seat-wrapper')).map((e) => ({
@@ -544,7 +623,11 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
     portraitTaper: page.dataset.hero === 'false' ? 0 : undefined,
   };
   const dealerSize = ((buttonRadiusWidthPct(scalerSize) * scalerSize.w) / 100) * 2;
-  for (const box of dealerReservations({
+  // The puck's preferred spot beside each chair. Chips rest where the marker
+  // solver puts them, and that solver now treats the enlarged portrait as a
+  // display to stay clear of (useProtectedCardLayout), so no felt band is
+  // reserved here: a band walled every rail portrait (measured 2026-11-12).
+  for (const box of dealerSeatReservations({
     canvas,
     scale: ratio,
     anchors,
@@ -570,6 +653,23 @@ export type MobilePaintState = {
   frames: Map<HTMLElement, PaintChoice>;
   clips: Map<HTMLImageElement, string>;
   obstacles?: ReturnType<typeof stableObstacles>;
+  /** Dan 2026-11-12: the table's sizes, locked the first time they are
+   * chosen and kept across every later refit (roster, toolbar, resize). A
+   * later refit may only confirm them; it never raises them, and lowers
+   * them only when a seat can no longer take the locked size at all. */
+  locked?: {
+    /** The ring the sizes were locked for; a different ring starts over. */
+    ring?: string;
+    uniform?: number;
+    hero?: number;
+    /** Whether the hero's locked portrait crops its torso at the plate. */
+    heroCrop?: boolean;
+  };
+  /** The render ratio (viewport px per layout px) the choices were fitted at. */
+  ratio?: number;
+  /** The layout key changed since the choices were fitted. The displayed
+   * paint and its reservations carry on as they are until the next refit. */
+  stale?: boolean;
 };
 export const createMobilePaintState = (): MobilePaintState => ({
   key: '',
@@ -577,15 +677,25 @@ export const createMobilePaintState = (): MobilePaintState => ({
   frames: new Map(),
   clips: new Map(),
 });
+/** Dan 2026-11-12: a size never changes once set, so this key names only
+ * what changes the table's geometry (the scaler's own size and place, the
+ * ring, the variant, the roster and each portrait's normalization), rounded
+ * so sub-pixel drift between passes cannot count as a new layout. The
+ * viewport height is deliberately absent: an iOS toolbar or keyboard
+ * changes it without moving a chair, and it used to refit the whole table. */
 export function mobilePaintKey(scaler: HTMLElement, page: HTMLElement) {
+  const round = (value: number) => Math.round(value * 10) / 10;
+  const roundProperty = (value: string) => {
+    const number = parseFloat(value);
+    return Number.isFinite(number) ? String(Math.round(number * 100) / 100) : value;
+  };
   return JSON.stringify([
     innerWidth,
-    innerHeight,
     scaler.offsetWidth,
     scaler.offsetHeight,
-    scaler.getBoundingClientRect().left,
-    scaler.getBoundingClientRect().top,
-    tableRenderScale(scaler),
+    round(scaler.getBoundingClientRect().left),
+    round(scaler.getBoundingClientRect().top),
+    Math.round(tableRenderScale(scaler) * 1000) / 1000,
     page.dataset.seats,
     page.dataset.killEnabled,
     page.dataset.holeCardCount,
@@ -598,11 +708,17 @@ export function mobilePaintKey(scaler: HTMLElement, page: HTMLElement) {
       image.closest<HTMLElement>('.seat-wrapper')?.style.top,
       image.offsetWidth,
       image.offsetHeight,
-      image
-        .closest<HTMLElement>('.seat__avatar')
-        ?.style.getPropertyValue('--sp-opponent-art-scale'),
-      image.closest<HTMLElement>('.seat')?.style.getPropertyValue('--sp-opponent-x'),
-      image.closest<HTMLElement>('.seat')?.style.getPropertyValue('--sp-opponent-y'),
+      roundProperty(
+        image
+          .closest<HTMLElement>('.seat__avatar')
+          ?.style.getPropertyValue('--sp-opponent-art-scale') ?? ''
+      ),
+      roundProperty(
+        image.closest<HTMLElement>('.seat')?.style.getPropertyValue('--sp-opponent-x') ?? ''
+      ),
+      roundProperty(
+        image.closest<HTMLElement>('.seat')?.style.getPropertyValue('--sp-opponent-y') ?? ''
+      ),
     ]),
   ]);
 }
@@ -616,10 +732,12 @@ export function enlargeMobileAvatars(
   if (state) {
     const key = mobilePaintKey(scaler, page);
     if (state.key !== key) {
+      // Dan 2026-11-12: a size never changes once set. The fitted choices
+      // stay displayed and reserved through a key change (toolbar, resize, a
+      // chair changing hands); they are refitted below at the locked size.
       state.key = key;
-      state.choices.clear();
+      state.stale = true;
       state.frames.clear();
-      state.clips.clear();
       state.obstacles = undefined;
     }
   }
@@ -640,7 +758,7 @@ export function enlargeMobileAvatars(
   if (
     !profiles ||
     page.dataset.killEnabled !== 'false' ||
-    ![2, 3, 4, 5].includes(Number(page.dataset.holeCardCount))
+    ![2, 3, 4, 5, 6].includes(Number(page.dataset.holeCardCount))
   )
     return;
   const seats = Array.from(scaler.querySelectorAll<HTMLElement>('.seat:not(.seat--empty)'));
@@ -673,6 +791,15 @@ export function enlargeMobileAvatars(
     ? (state.obstacles ??= stableObstacles(scaler, page))
     : stableObstacles(scaler, page);
 
+  type Prepared = {
+    e: (typeof entries)[number];
+    rect: PaintBox & { bottom: number; right: number };
+    origin: [number, number];
+    obstacles: Array<{ box: PaintBox; ownLayer: boolean }>;
+    paintBottom: number;
+    plateTop: number;
+  };
+  const prepared: Prepared[] = [];
   for (const e of ordered) {
     // Rive rigs and cosmetics need their own painted-footprint proof.
     if (!e.avatar.classList.contains('seat__avatar--bust')) continue;
@@ -688,46 +815,29 @@ export function enlargeMobileAvatars(
     const profile = profiles[slot];
     if (!profile || profile.scale <= 1) continue;
     const rect = restingAvatarBox(e.avatar, ratio);
-    const obstacles = objects.map((o) => ({
-      box: o.box,
-      ownLayer: o.owner === e.seat && o.layer && (!o.minimum || area(e.parts, o.minimum) > 0),
-    }));
-    for (const [seat, parts] of painted)
-      if (seat !== e.seat)
-        for (const box of parts) obstacles.push({ box: box as DOMRect, ownLayer: false });
-    const paintBottom = Math.max(...e.parts.map(bottom));
-    let clipBottom = paintBottom;
-    let choice = rebaseChoice(state?.choices.get(e.image), [
-      rect.left + rect.width / 2,
-      rect.bottom,
-    ]);
-    if (!choice) {
-      // Keep the full portrait when it fits. A larger portrait may crop its
-      // lower torso at its own fixed plate, without painting through the plate.
-      for (const lowerEdge of [
-        ...new Set([paintBottom, Math.min(paintBottom, e.info.getBoundingClientRect().top)]),
-      ]) {
-        const candidate = chooseMobileAvatarPaint(
-          e.parts,
-          [rect.left + rect.width / 2, rect.bottom],
-          lowerEdge,
-          obstacles,
-          felt,
-          page.getBoundingClientRect(),
-          Math.min(profile.scale, e === hero ? MOBILE_HERO_MAX_SCALE : heroHeight / rect.height),
-          e === hero ? Infinity : heroPaintHeight,
-          undefined,
-          e.info.getBoundingClientRect().top
-        );
-        if (!choice || candidate.scale > choice.scale) {
-          choice = candidate;
-          clipBottom = lowerEdge;
-        }
-      }
-    }
-    if (!choice) continue;
+    // The seat's own tag and badge are drawn over its portrait's crown, so the
+    // portrait may grow behind them; they stay hard for every other seat.
+    // Own cards may only keep an existing overlap; others' objects are hard.
+    const obstacles = objects
+      .filter((o) => !(o.owner === e.seat && ((o.layer && o.minimum) || o.overlay)))
+      .map((o) => ({
+        box: o.box,
+        ownLayer: o.owner === e.seat && o.layer,
+      }));
+    prepared.push({
+      e,
+      rect,
+      origin: [rect.left + rect.width / 2, rect.bottom],
+      obstacles,
+      paintBottom: Math.max(...e.parts.map(bottom)),
+      plateTop: e.info.getBoundingClientRect().top,
+    });
+  }
+  const viewport = page.getBoundingClientRect();
+  const apply = (item: Prepared, choice: PaintChoice, clipBottom: number) => {
+    const { e, rect } = item;
     state?.choices.set(e.image, choice);
-    if (choice.scale === 1) continue;
+    if (choice.scale === 1) return;
     // Keep brightness/saturation (including folds). An enlarged soft shadow
     // must not spread onto felt that the original art left clear.
     const filter = getComputedStyle(e.image)
@@ -748,14 +858,13 @@ export function enlargeMobileAvatars(
     e.avatar.style.setProperty('--sp-mobile-art-scale', String(choice.scale));
     e.avatar.style.setProperty('--sp-mobile-art-x', `${choice.x / (ratio * normal)}px`);
     e.avatar.style.setProperty('--sp-mobile-art-y', `${choice.y / (ratio * normal)}px`);
-
     if (Number.isFinite(clipBottom)) {
       const imageBox = e.image.getBoundingClientRect();
       const clip = Math.max(
         0,
         ((imageBox.bottom - clipBottom) / imageBox.height) * e.image.offsetHeight
       );
-      const value = state?.clips.get(e.image) ?? `${clip}px`;
+      const value = `${clip}px`;
       state?.clips.set(e.image, value);
       e.image.style.setProperty('--sp-mobile-clip-bottom', value);
     }
@@ -765,6 +874,175 @@ export function enlargeMobileAvatars(
       heroPaintHeight =
         Math.max(...choice.parts.map(bottom)) - Math.min(...choice.parts.map((p) => p.top));
     }
+  };
+  const peers = (item: Prepared) => {
+    const list = item.obstacles.slice();
+    for (const [seat, parts] of painted)
+      if (seat !== item.e.seat)
+        for (const box of parts) list.push({ box: box as DOMRect, ownLayer: false });
+    return list;
+  };
+
+  // The seated hero first: the owner-approved 2x head-and-shoulders zoom,
+  // centred over its plate, cropping its lower torso at the plate if needed.
+  // Dan 2026-11-12: "they need to stay the same size 1000% of the time".
+  // Once a table's sizes are set they are final for this ring: a refit after
+  // a resize, a toolbar, a new hand or a new player reuses them exactly and
+  // never searches again. Only a different ring (another capacity, or the
+  // viewer sitting down or standing up) starts over.
+  if (state && state.locked?.ring !== profileKey) state.locked = { ring: profileKey };
+  const lock = state?.locked;
+  const k = state?.ratio ? ratio / state.ratio : 1;
+  const heroItem = prepared.find((item) => item.e === hero);
+  if (heroItem && lock?.hero) {
+    const { e, origin, paintBottom, plateTop } = heroItem;
+    const clipBottom = lock.heroCrop ? Math.min(paintBottom, plateTop) : paintBottom;
+    const cached = state?.choices.get(e.image);
+    apply(
+      heroItem,
+      cached && cached.scale === lock.hero
+        ? rebaseChoice(cached, origin, k)!
+        : fixedChoice(e.parts, origin, clipBottom, lock.hero),
+      clipBottom
+    );
+  } else if (heroItem) {
+    const { e, rect, origin, paintBottom, plateTop } = heroItem;
+    let clipBottom = paintBottom;
+    let choice = state?.stale ? undefined : rebaseChoice(state?.choices.get(e.image), origin);
+    if (!choice) {
+      for (const lowerEdge of [...new Set([paintBottom, Math.min(paintBottom, plateTop)])]) {
+        const candidate = chooseMobileAvatarPaint(
+          e.parts,
+          origin,
+          lowerEdge,
+          peers(heroItem),
+          felt,
+          viewport,
+          Math.min(
+            profiles[0]?.scale ?? MOBILE_HERO_MAX_SCALE,
+            MOBILE_HERO_MAX_SCALE,
+            state?.locked?.hero ?? Infinity
+          ),
+          Infinity,
+          undefined,
+          plateTop,
+          true
+        );
+        if (!choice || candidate.scale > choice.scale) {
+          choice = candidate;
+          clipBottom = lowerEdge;
+        }
+      }
+    }
+    if (choice) {
+      apply(heroItem, choice, clipBottom);
+      if (lock && choice.scale > 1) {
+        lock.hero = choice.scale;
+        lock.heroCrop = clipBottom !== paintBottom;
+      }
+    }
+  }
+
+  // Dan 2026-11-12: every other portrait on the table is the EXACT same size,
+  // the largest the tightest seat can take without touching any display. Each
+  // grows straight up from its plate (no crop, no sideways shift), stays
+  // centred over its frame box, and is never taller than the hero's portrait.
+  // Candidate sizes are checked against the settled table first, then against
+  // every neighbour already at that size, so two grown neighbours never meet.
+  const others = prepared.filter((item) => item.e !== hero);
+  if (others.length && lock?.uniform) {
+    const size = lock.uniform;
+    others.forEach((item) => {
+      const clipBottom = Math.min(item.paintBottom, item.plateTop);
+      const cached = state?.choices.get(item.e.image);
+      apply(
+        item,
+        cached && cached.scale === size
+          ? rebaseChoice(cached, item.origin, k)!
+          : fixedChoice(item.e.parts, item.origin, clipBottom, size),
+        clipBottom
+      );
+    });
+  } else if (others.length) {
+    const cached = others.map((item) =>
+      state?.stale ? undefined : rebaseChoice(state?.choices.get(item.e.image), item.origin)
+    );
+    if (cached.every((c) => c)) {
+      others.forEach((item, i) =>
+        apply(item, cached[i]!, Math.min(item.paintBottom, item.plateTop))
+      );
+    } else {
+      const at = (item: Prepared, scale: number, obstacles: Prepared['obstacles']) =>
+        chooseMobileAvatarPaint(
+          item.e.parts,
+          item.origin,
+          // The resting art tucks a pixel or two into its plate; clip there so
+          // a wider portrait never paints through the plate.
+          Math.min(item.paintBottom, item.plateTop),
+          obstacles,
+          felt,
+          viewport,
+          scale,
+          heroPaintHeight,
+          { scale, px: 0, py: 1 },
+          item.plateTop
+        );
+      const fitsAll = (scale: number): PaintChoice[] | null => {
+        const first = others.map((item) => at(item, scale, peers(item)));
+        if (first.some((c) => c.scale !== scale)) return null;
+        // Every neighbour at this size is an obstacle too.
+        const grown = new Map(others.map((item, i) => [item.e.seat, first[i].parts]));
+        const second = others.map((item) =>
+          at(
+            item,
+            scale,
+            peers(item).concat(
+              others
+                .filter((o) => o !== item)
+                .flatMap((o) => grown.get(o.e.seat)!.map((box) => ({ box, ownLayer: false })))
+            )
+          )
+        );
+        return second.every((c) => c.scale === scale) ? second : null;
+      };
+      const rungs = [
+        2.5, 2.45, 2.4, 2.35, 2.3, 2.25, 2.2, 2.15, 2.1, 2.05, 2, 1.95, 1.9, 1.85, 1.8, 1.75, 1.7,
+        1.65, 1.6, 1.55, 1.5, 1.45, 1.4, 1.35, 1.3, 1.25, 1.2, 1.15, 1.1, 1.05, 1.02,
+      ].filter((scale) => scale <= MOBILE_AVATAR_MAX_SCALE);
+      let best: PaintChoice[] | null = fitsAll(rungs[rungs.length - 1]);
+      if (best) {
+        let lo = 0,
+          hi = rungs.length - 1;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          const choices = fitsAll(rungs[mid]);
+          if (choices) {
+            best = choices;
+            hi = mid;
+          } else lo = mid + 1;
+        }
+      }
+      if (lock && best) lock.uniform = best[0].scale;
+      others.forEach((item, i) => {
+        const choice = best
+          ? best[i]
+          : { scale: 1, x: 0, y: 0, parts: item.e.parts, origin: item.origin };
+        apply(item, choice, Math.min(item.paintBottom, item.plateTop));
+      });
+    }
+  }
+  // A portrait left unzoomed by this fit keeps no zoom-only filter or clip.
+  scaler.querySelectorAll<HTMLImageElement>('.seat__avatar-img').forEach((image) => {
+    if (
+      image.closest<HTMLElement>('.seat__avatar')?.style.getPropertyValue('--sp-mobile-art-scale')
+    )
+      return;
+    image.style.removeProperty('--sp-mobile-clip-bottom');
+    image.style.removeProperty('--sp-mobile-filter');
+  });
+  if (state) {
+    state.stale = false;
+    state.ratio = ratio;
   }
   return painted;
 }

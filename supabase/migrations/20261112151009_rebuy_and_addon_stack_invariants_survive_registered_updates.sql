@@ -64,11 +64,12 @@ BEGIN
 END;
 $fn$;
 
--- One lookup per row. The final BEFORE trigger observes all producer changes,
--- including zz_freerolls_are_free_buy (which ran AFTER the old add-on twin).
-DROP TRIGGER IF EXISTS zz_rebuy_pays_the_starting_stack ON public.tournaments;
-DROP TRIGGER IF EXISTS zz_addon_pays_the_starting_stack ON public.tournaments;
-DROP TRIGGER IF EXISTS zzzzzzzzzzzz_chip_awards_match_starting_stack ON public.tournaments;
+-- The final BEFORE trigger observes all producer changes, including
+-- zz_freerolls_are_free_buy (which runs AFTER the existing add-on twin).
+-- Keep compatible earlier normalizers: DROP TRIGGER would unnecessarily take
+-- ACCESS EXCLUSIVE and conflict with readers even inside the certified freeze.
+-- This new trigger needs only SHARE ROW EXCLUSIVE. Unexpected prior existence
+-- refuses instead of dropping/replaying an unknown installed definition.
 CREATE TRIGGER zzzzzzzzzzzz_chip_awards_match_starting_stack
   BEFORE INSERT OR UPDATE ON public.tournaments
   FOR EACH ROW EXECUTE FUNCTION public.fn_ca_chip_awards_match_starting_stack();

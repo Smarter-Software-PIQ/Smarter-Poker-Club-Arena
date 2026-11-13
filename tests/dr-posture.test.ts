@@ -325,7 +325,7 @@ describe('the Backup Engine refuses partial restores and proves automatic recove
     }
   );
 
-  it.each(['restore', 'owners', 'role', 'lightning-role', 'extension'])(
+  it.each(['restore', 'owners', 'role', 'lightning-role', 'content-reporter-role', 'extension'])(
     'propagates %s failure and invalidates the previous receipt even under a conditional caller',
     (fault) => {
       const result = standbyShell(
@@ -335,6 +335,7 @@ describe('the Backup Engine refuses partial restores and proves automatic recove
       psql_db() {
         case "$*" in
           *'CREATE ROLE engine_lightning_lane NOLOGIN'*) [ '${fault}' != lightning-role ] || return 19;;
+          *'CREATE ROLE daily_content_reporter NOLOGIN'*) [ '${fault}' != content-reporter-role ] || return 19;;
           *'CREATE ROLE'*) [ '${fault}' != role ] || return 19;;
           *'CREATE EXTENSION'*) [ '${fault}' != extension ] || return 19;;
         esac
@@ -484,6 +485,171 @@ with patch.object(subprocess, 'run', side_effect=[SimpleNamespace(stdout='"expec
       [ -e "$STATE_DIR/database.json" ]
     `);
     expect(result.status, result.stderr).toBe(0);
+  });
+
+  it('creates the isolated daily content reporter without login before restoring its schema grants', () => {
+    const result = standbyShell(`
+      assert_isolated() { return 0; }
+      log() { :; }
+      psql_db() {
+        case "$*" in
+          *'CREATE ROLE daily_content_reporter NOLOGIN'*) touch "$STATE_DIR/content-reporter-role";;
+          *'select count'*) echo 4;;
+        esac
+        return 0
+      }
+      sha256sum() { echo fixture; }
+      docker() {
+        case "$*" in
+          *'sha256sum /tmp/owners.sql'*) printf '%064d  /tmp/owners.sql\\n' 0;;
+          *'pg_restore --list'*) echo '5; 2615 2200 SCHEMA - public postgres';;
+          *'pg_restore -U'*) [ -e "$STATE_DIR/content-reporter-role" ] || return 19;;
+        esac
+        return 0
+      }
+      cmd_restore "$STATE_DIR/schema.dump" || exit 1
+      [ -e "$STATE_DIR/database.json" ]
+    `);
+    expect(result.status, result.stderr).toBe(0);
+  });
+
+  // 2026-11-12: production gained daily_content_reporter outside the repository
+  // and five Backup refreshes failed at its first GRANT. The archive's own ACL,
+  // default-ACL and policy entries now say which roles must exist.
+  const roleRestore = (aclSql: string[], restoreBody = 'return 0') => `
+      assert_isolated() { return 0; }
+      log() { printf '%s\\n' "$*" >> "$STATE_DIR/log"; }
+      : > "$STATE_DIR/log"; : > "$STATE_DIR/created"
+      psql_db() {
+        case "$*" in
+          *'select rolname'*) printf '%s\\n' anon authenticated service_role postgres pg_monitor "\${EXPECTED_RESTORE_ROLES[@]}";;
+          *'DO '*'CREATE ROLE'*) ;;
+          *'CREATE ROLE'*) printf '%s\\n' "$*" >> "$STATE_DIR/created";;
+          *'select count'*) echo 4;;
+        esac
+        return 0
+      }
+      sha256sum() { echo fixture; }
+      docker() {
+        case "$*" in
+          *'sha256sum /tmp/owners.sql'*) printf '%064d  /tmp/owners.sql\\n' 0;;
+          *'pg_restore --list'*) printf '%s\\n' '5; 2615 2200 SCHEMA - public postgres' '6; 0 0 ACL public TABLE t postgres' '7; 826 1 DEFAULT ACL public DEFAULT PRIVILEGES FOR TABLES postgres' '8; 3256 2 POLICY public t p postgres' ';9; 0 0 ACL public TABLE skipped postgres';;
+          *'pg_restore --use-list /tmp/restore-roles.list'*)
+            grep -c . "$STATE_DIR/restore-roles.list" > "$STATE_DIR/role-entries"
+            cat <<'ACL_SQL'
+${aclSql.join('\n')}
+ACL_SQL
+            ;;
+          *'pg_restore -U'*) touch "$STATE_DIR/restore-ran"; ${restoreBody};;
+        esac
+        return 0
+      }
+      rc=0; cmd_restore "$STATE_DIR/schema.dump" >/dev/null || rc=$?
+      echo "rc=$rc entries=$(cat "$STATE_DIR/role-entries" 2>/dev/null) ran=$([ -e "$STATE_DIR/restore-ran" ] && echo yes || echo no) receipt=$([ -e "$STATE_DIR/database.json" ] && echo yes || echo no)"
+      echo CREATED; cat "$STATE_DIR/created"; echo LOGGED; cat "$STATE_DIR/log"
+    `;
+  const roleOutcome = (stdout: string) => {
+    const [head, rest] = stdout.split('CREATED\n');
+    const [created, logged] = rest.split('LOGGED\n');
+    return { head: head.trim(), created: created.trim().split('\n').filter(Boolean), logged };
+  };
+
+  it('creates every role the archive grants to, without login or attributes, and names the unlisted ones', () => {
+    const result = standbyShell(
+      roleRestore(
+        [
+          '-- Name: TABLE t; Type: ACL; Schema: public; Owner: postgres',
+          'GRANT ALL ON TABLE public.t TO anon;',
+          'GRANT SELECT ON TABLE public.t TO PUBLIC;',
+          'GRANT SELECT ON TABLE public.t TO pg_monitor;',
+          'GRANT SELECT ON TABLE public.t TO daily_content_reporter;',
+          'GRANT SELECT(id) ON TABLE public."odd TO name" TO brand_new_reader WITH GRANT OPTION;',
+          'REVOKE ALL ON FUNCTION public.f(a text, b integer) FROM revoked_role;',
+          'SET SESSION AUTHORIZATION grantor_role;',
+          'RESET SESSION AUTHORIZATION;',
+          'ALTER DEFAULT PRIVILEGES FOR ROLE default_owner IN SCHEMA public GRANT ALL ON TABLES TO default_grantee;',
+          'CREATE POLICY "Allow access TO members" ON public.t FOR SELECT USING ((id = 1));',
+          "CREATE POLICY p ON public.t AS RESTRICTIVE FOR SELECT TO policy_role, authenticated USING ((note = ' TO not_a_role USING ('));",
+          '  TO continuation_line_role;',
+        ],
+        `grep -q 'CREATE ROLE brand_new_reader ' "$STATE_DIR/created" || return 19`
+      )
+    );
+    expect(result.status, result.stderr).toBe(0);
+    const { head, created, logged } = roleOutcome(result.stdout);
+    // Three role-bearing entries were read; the commented one was not.
+    expect(head).toBe('rc=0 entries=3 ran=yes receipt=yes');
+    const names = created.map((line) => / CREATE ROLE (\S+) /.exec(line)![1]);
+    expect(names).toEqual([
+      'brand_new_reader',
+      'default_grantee',
+      'default_owner',
+      'grantor_role',
+      'policy_role',
+      'revoked_role',
+    ]);
+    for (const line of created) {
+      expect(line).toMatch(
+        / CREATE ROLE [a-z_][a-z0-9_]* NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS$/
+      );
+      expect(line).not.toMatch(
+        /PASSWORD|IN ROLE|ADMIN|(?<!NO)(LOGIN|SUPERUSER|CREATEDB|CREATEROLE|REPLICATION|BYPASSRLS)/
+      );
+    }
+    for (const name of names)
+      expect(logged).toContain(`restore: WARNING unlisted_role_auto_created:${name} `);
+    expect(logged).not.toMatch(/auto_created:(anon|daily_content_reporter|pg_monitor|PUBLIC)/);
+  });
+
+  it.each([
+    [
+      'GRANT SELECT ON TABLE public.t TO "Reporter; DROP ROLE postgres";',
+      '?Reporter??DROP?ROLE?postgres? ',
+    ],
+    ['GRANT SELECT ON TABLE public.t TO "MixedCase";', '?MixedCase?'],
+    [`GRANT SELECT ON TABLE public.t TO ${'a'.repeat(64)};`, 'a'.repeat(63)],
+    ['CREATE POLICY p ON public.t TO "quoted role" USING (true);', '?quoted?role?'],
+  ])(
+    'refuses the restore when the archive names a role outside the strict pattern (%s)',
+    (sql, shown) => {
+      const result = standbyShell(
+        roleRestore(['GRANT ALL ON TABLE public.t TO fine_role;', sql]),
+        validCopy
+      );
+      expect(result.status, result.stderr).toBe(0);
+      const { head, created, logged } = roleOutcome(result.stdout);
+      expect(head).toBe('rc=1 entries=3 ran=no receipt=no');
+      for (const line of created) expect(line).toMatch(/ CREATE ROLE fine_role NOLOGIN /);
+      expect(logged).toContain(`restore: database_refresh_failed:unsafe_role_name:${shown}`);
+    }
+  );
+
+  it('names the missing role when the restore still stops on one', () => {
+    const result = standbyShell(
+      roleRestore(
+        [],
+        `echo 'pg_restore: error: could not execute query: ERROR:  role "unparsed_role" does not exist'; return 1`
+      ),
+      validCopy
+    );
+    expect(result.status, result.stderr).toBe(0);
+    const { head, created, logged } = roleOutcome(result.stdout);
+    expect(head).toBe('rc=1 entries=3 ran=yes receipt=no');
+    expect(created).toEqual([]);
+    expect(logged).toContain('restore: database_refresh_failed:missing_role:unparsed_role');
+  });
+
+  it('never gives a restored role a login, a password or an attribute', () => {
+    const script = readFileSync(root(STANDBY), 'utf8');
+    const creates = script.split('\n').filter((line) => line.includes('CREATE ROLE '));
+    expect(creates).toHaveLength(2);
+    for (const line of creates) {
+      expect(line).toContain(' NOLOGIN');
+      expect(line).not.toMatch(
+        /PASSWORD|IN ROLE|ADMIN|(?<!NO)(LOGIN|SUPERUSER|CREATEDB|CREATEROLE|REPLICATION|BYPASSRLS)/
+      );
+    }
+    expect(script).not.toMatch(/ALTER ROLE|GRANT [a-z_$"{}]+ TO /);
   });
 
   it('retains all ordinary schema entries and defers only pg_dump post-data checks', () => {

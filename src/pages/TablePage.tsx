@@ -340,6 +340,10 @@ import { shouldAnnounceBbjHit } from '../lib/bbjHitOnce';
 import { money } from '../utils/handFormat';
 import { type InsuranceOffer } from '../components/table/InsuranceModal';
 import { ThrowAnimationContainer } from '../components/table/ThrowAnimation';
+import type { ThrowEvent } from '../services/ThrowableService';
+/* Stable identity: a fresh `[]` in the JSX would be a new prop every render
+   and defeat ThrowAnimationContainer's memoization while reactions are off. */
+const EMPTY_THROW_EVENTS: ThrowEvent[] = [];
 import { useTableEnvironment } from '../hooks/useTableEnvironment';
 import { useTabKeepAlive, workerTimeout, cancelWorkerTimeout } from '../hooks/useTabKeepAlive';
 import { STORAGE_KEYS } from '../lib/storage';
@@ -6739,6 +6743,13 @@ function LiveTablePage({
   const receiveThrowRef = useRef<
     ((fromSeat: number, toSeat: number, throwableId: string, throwId?: string) => void) | null
   >(null);
+  /* EMOJI REACTIONS IS A RECEIVE GATE (Dan 2026-11-12). Same bridge shape as
+     receiveThrowRef and for the same reason: useTableChat is declared here,
+     v8Settings is not read until the settings hook below. The hook reads this
+     getter at message-delivery time, so switching Emoji Reactions off stops
+     incoming reactions and throwables on the very next message — no reload,
+     no re-subscribe. Starts true: never mute a table before the row loads. */
+  const emojiEnabledRef = useRef(true);
   const {
     chatMessages,
     setChatMessages,
@@ -6758,8 +6769,13 @@ function LiveTablePage({
     parseIncomingMessage,
     unreadCount,
     clearUnread,
-  } = useTableChat(tableId, userId, tableState.players, (fromSeat, toSeat, throwableId, throwId) =>
-    receiveThrowRef.current?.(fromSeat, toSeat, throwableId, throwId)
+  } = useTableChat(
+    tableId,
+    userId,
+    tableState.players,
+    (fromSeat, toSeat, throwableId, throwId) =>
+      receiveThrowRef.current?.(fromSeat, toSeat, throwableId, throwId),
+    () => emojiEnabledRef.current
   );
 
   useSeatMoveAnnouncement({
@@ -10428,6 +10444,23 @@ function LiveTablePage({
     setAlias: setV8TableAlias,
   } = useUserTableSettings(userId !== 'guest' ? userId : null);
   autoTimeBankPreferenceRef.current = v8SettingsLoading ? undefined : v8Settings.auto_time_bank;
+  /* The live value behind the inbound reaction/throwable gate (see
+     emojiEnabledRef). While the row is still loading the cached value from
+     useUserTableSettings is already in `v8Settings`, so this is the player's
+     own choice from the first paint, not a default that briefly unmutes a
+     table they muted. */
+  emojiEnabledRef.current = !!v8Settings.emoji_enabled;
+
+  /* Drain anything the queue was already holding when Emoji Reactions went
+     off. `handleThrowComplete` is the queue's only exit: calling it for each
+     live event retires that event AND pulls the FIFO backlog forward, so the
+     state settles empty instead of frozen. Without this, switching the
+     setting back on would dump every throw that arrived while it was off. */
+  useEffect(() => {
+    if (v8Settings.emoji_enabled) return;
+    if (activeThrows.length === 0) return;
+    for (const event of activeThrows) handleThrowComplete(event.id);
+  }, [v8Settings.emoji_enabled, activeThrows, handleThrowComplete]);
   useEffect(() => {
     if (
       !tableId ||
@@ -15972,6 +16005,9 @@ function LiveTablePage({
             );
             setTournamentEventName(
               formatTournamentTitle(String((tournData as { name?: unknown }).name ?? '').trim())
+            );
+            setTournamentTypeLine(
+              fmt === 'mtt' ? tournamentTypeLabel(tournData as Record<string, unknown>) : null
             );
             setTournamentTypeLine(
               fmt === 'mtt' ? tournamentTypeLabel(tournData as Record<string, unknown>) : null
@@ -29606,8 +29642,24 @@ function LiveTablePage({
               .table-scaler, so its `position:absolute; inset:0` resolved
               against the wrong ancestor and the coordinates meant nothing.
               Mounted here it shares the seats' own coordinate space. */}
+          {/* Bible V8 §11.1 emoji_enabled — FAIL-SAFE (Dan 2026-11-12). The
+              real gate is at ingest in useTableChat, which is what stops the
+              playback queue filling in the first place. This second gate
+              exists because a throw already mid-flight when the player flips
+              the switch would otherwise finish its arc on a felt the player
+              just asked to be clean, and because any future inbound path that
+              forgets the ingest gate still cannot paint here.
+
+              It feeds an EMPTY list rather than unmounting: unmounting kills
+              the per-event onEventComplete callback, and that callback is
+              what drains both `events` and the FIFO `pending` backlog in
+              useTableAnimations. A container torn down mid-flight would leave
+              the queue holding events forever — they would all replay the
+              moment the player switched reactions back on, and at
+              MAX_ACTIVE_THROWS the backlog would stop accepting new ones.
+              The drain effect below empties it instead. */}
           <ThrowAnimationContainer
-            events={activeThrows}
+            events={v8Settings.emoji_enabled ? activeThrows : EMPTY_THROW_EVENTS}
             seatPositions={throwSeatPositions}
             onEventComplete={handleThrowComplete}
           />
