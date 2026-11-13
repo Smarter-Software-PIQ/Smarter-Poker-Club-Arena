@@ -94,7 +94,36 @@ export function useTableChat(
     toSeat: number,
     throwableId: string,
     throwId?: string
-  ) => void
+  ) => void,
+  /**
+   * ═══════════════════════════════════════════════════════════════════════
+   *  THE EMOJI REACTIONS SWITCH IS A RECEIVE GATE, NOT JUST A SEND GATE
+   * ═══════════════════════════════════════════════════════════════════════
+   *
+   * Dan 2026-11-12: "IF A USER WANTS TO TURN THEM OFF AND NOT SEE IT, THEY
+   * SHOULD JUST TURN OFF, BUT THE BUTTON DOESN'T SEEM TO WORK, IT'S SILENTLY
+   * FAILING."
+   *
+   * It was not failing to save. `emoji_enabled` gated the OUTBOUND half only
+   * — the throwable selector, the Hero Hub's throwables tab and the
+   * TableReactions overlay — while this function, the single inbound door for
+   * both `[REACTION:...]` and `[THROW:...]`, accepted everything
+   * unconditionally. So a player who switched Emoji Reactions off lost the
+   * ability to send one and kept watching every tomato in the room land on
+   * their felt: the switch moved, persisted, and changed nothing they could
+   * see. That is worse than a switch that fails loudly.
+   *
+   * A getter, not a boolean: `parseIncomingMessage` is memoized and is called
+   * from a long-lived realtime subscription, so a captured value would freeze
+   * at whatever the setting was when the table was joined — which is the same
+   * class of bug, one layer down. The getter is read at delivery time, so
+   * flipping the switch mid-session takes effect on the very next message
+   * with no reload and no re-subscribe.
+   *
+   * Absent (undefined) means enabled: a caller that does not know about the
+   * setting must never silently mute a player's table.
+   */
+  isEmojiEnabled?: () => boolean
 ): UseTableChatReturn {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const chatTableIdRef = useRef(tableId);
@@ -159,6 +188,15 @@ export function useTableChat(
   useEffect(() => {
     onThrowReceivedRef.current = onThrowReceived;
   }, [onThrowReceived]);
+  /* Read at delivery time — see the note on the parameter. Assigned on every
+     render rather than in an effect so a flip is live for the message that
+     arrives in the same tick, not one commit later. */
+  const isEmojiEnabledRef = useRef(isEmojiEnabled);
+  isEmojiEnabledRef.current = isEmojiEnabled;
+  const emojiReactionsAllowed = useCallback(
+    () => (isEmojiEnabledRef.current ? isEmojiEnabledRef.current() !== false : true),
+    []
+  );
   const isChatCollapsedRef = useRef(isChatCollapsed);
   const isChatMutedRef = useRef(isChatMuted);
 
@@ -445,6 +483,11 @@ export function useTableChat(
       // Check for reaction messages
       const reactionMatch = content.match(REACTION_MSG_REGEX);
       if (reactionMatch) {
+        /* Emoji Reactions OFF: consume and drop. `true` is load-bearing —
+           returning false would push the raw `[REACTION:x:3]` wire text into
+           the chat feed as a normal message, which is a louder version of the
+           thing the player just switched off. */
+        if (!emojiReactionsAllowed()) return true;
         // DoS Protection: Cap max concurrent animations to 20
         if (pendingTimersRef.current.size >= 20) return true;
 
@@ -471,6 +514,11 @@ export function useTableChat(
       // thrower, who already animated it locally when they sent it.
       const throwMatch = content.match(THROW_MSG_REGEX);
       if (throwMatch) {
+        /* Emoji Reactions OFF: consume and drop, as above. The thrower is
+           still charged and every other seat still sees it — one player's
+           preference never changes what the table does, only what this
+           client renders. */
+        if (!emojiReactionsAllowed()) return true;
         if (senderId && senderId !== userId) {
           // Throw playback has its own active limit and FIFO backlog.
           // Reaction timers must never discard an incoming throw.
@@ -495,7 +543,7 @@ export function useTableChat(
       return false; // Normal message — add to chat
       // players/userId are read through refs where they must stay fresh.
     },
-    [players, userId]
+    [players, userId, emojiReactionsAllowed]
   );
 
   /**
