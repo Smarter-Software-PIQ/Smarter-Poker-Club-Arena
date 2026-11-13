@@ -2508,8 +2508,12 @@ export interface HorseDecideOpts {
    * (PLO6-AUDIT-005). Default on; false only for the regression's control. */
   omahaPreflopCallWithActionBehind?: boolean;
   /** A deep Omaha seat's preflop stack-off bar is read without the VPIP
-   * floor multiplier (PLO6-AUDIT-004). Default on; false only for the
-   * regression's control. */
+   * floor multiplier (PLO6-AUDIT-004). OPT-IN, default off: the mechanism is
+   * real, but the expected-value check written after #10628 does not show
+   * the call beating the shove (it is better only against an aces-heavy
+   * four-bet range with a caller, and worse against wider ranges or with
+   * any fold equity), so production keeps the behaviour it had. Read as
+   * `=== true`. */
   vpipFloorDeepStackOff?: boolean;
   /** V56: direct public pressure sampling for vulnerable river sets/trips
    * facing tier-three pressure on one Omaha-high cash board. Default on
@@ -8949,7 +8953,7 @@ export class HorseLogic {
         maniacBehindWidth !== null ? maniacBehindOpenBar(maniacBehindWidth, vi.isOmaha) : undefined,
       maniacNoBluff: maniacRaiserWidth !== null || maniacBehindWidth !== null ? true : undefined,
       vpipFloorMul:
-        opts.vpipFloorDeepStackOff !== false && vi.isOmaha ? vpipFloorMul(gs) : undefined,
+        opts.vpipFloorDeepStackOff === true && vi.isOmaha ? vpipFloorMul(gs) : undefined,
       retireFourBetBluffBand: opts.v76RetireFourBetBluffBand === false ? undefined : true,
       facingOpenShortHandedZone: opts.v70FacingOpenZone === false ? undefined : true,
       facingOpenFullRingZone: opts.facingOpenFullRingZone === true ? true : undefined,
