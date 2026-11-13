@@ -180,10 +180,11 @@ export async function checkFixedMobileArtwork(
     }
     await expect.poll(async () => (await read()).paint.some((p) => Number(p[0]) > 1)).toBe(true);
     const before = await read();
-    // Dan 2026-11-12: every portrait is the exact same size and stays centred
-    // over its frame box (no sideways shift), the hero's own zoom aside.
-    const opponents = before.paint.slice(spectator ? 0 : 1).filter((p) => p[0]);
-    expect(new Set(opponents.map((p) => p[0])).size, 'one size for every portrait').toBe(1);
+    // Dan 2026-11-12: every portrait, the hero's included, is the exact same
+    // size and stays centred over its frame box (no sideways shift).
+    const grown = before.paint.filter((p) => p[0]);
+    expect(new Set(grown.map((p) => p[0])).size, 'one size for every portrait').toBe(1);
+    const tableSize = grown[0][0];
     for (const p of before.paint)
       if (p[0])
         expect(Math.abs(parseFloat(p[1]) || 0), 'centred over its frame box').toBeLessThan(1);
@@ -218,6 +219,24 @@ export async function checkFixedMobileArtwork(
       if (revealed)
         expect(after.cards, 'already shown cards never move on a later turn').toEqual(revealed);
       if (state.revealed === 'true') revealed = after.cards;
+    }
+    // Dan 2026-11-12: the table's size never changes once set, whoever comes
+    // and goes. Empty the ring to heads-up, then fill it again: every portrait
+    // that is drawn keeps the locked size throughout.
+    for (const occupiedSeats of settings.occupiedSeats
+      ? ['', settings.occupiedSeats]
+      : ['0,4', '']) {
+      await page.evaluate((occupiedSeats) => {
+        Object.assign(document.documentElement.dataset, { occupiedSeats, revealed: 'false' });
+        document.dispatchEvent(new Event('fixture-next-hand'));
+      }, occupiedSeats);
+      await settle();
+      const sizes = (await read()).paint.filter((p) => p[0]).map((p) => p[0]);
+      expect(sizes.length, `portraits drawn with seats "${occupiedSeats}"`).toBeGreaterThan(0);
+      expect(
+        new Set(sizes),
+        `a roster change keeps the locked size (seats "${occupiedSeats}")`
+      ).toEqual(new Set([tableSize]));
     }
   }
   // Preserve the original disabled-layout check from the final six-card
