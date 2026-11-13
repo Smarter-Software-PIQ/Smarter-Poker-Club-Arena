@@ -58,7 +58,7 @@ describe('a multi-board bomb pot is never offered a rabbit hunt (spec §19)', ()
   const SETTLEMENT = read('server/src/engine/ServerTableEngineSettlement.ts');
 
   it('the offer gate excludes multi-board hands like it excludes RIT', () => {
-    expect(SETTLEMENT).toMatch(/multiBoardBomb\s*=\s*this\.handController\?\.isDoubleBoardActive/);
+    expect(SETTLEMENT).toMatch(/multiBoardBomb\s*=\s*settlingHand\?\.isDoubleBoardActive/);
     expect(SETTLEMENT).toMatch(/!ranItTwice && !multiBoardBomb/);
   });
 
