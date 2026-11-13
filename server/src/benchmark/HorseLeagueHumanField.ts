@@ -85,7 +85,36 @@ export const HUMAN_CALIBRATED_OMAHA_DEV_FIELD_VARIANTS: readonly string[] = Obje
  * Heads-up NLH only (HorseLeague refuses it anywhere else).
  */
 export const HU_WIDE_SB_AGGRESSOR_PERSONA = 'hu_wide_sb_aggressor_v1' as const;
-export type HumanFieldPersona = typeof HU_WIDE_SB_AGGRESSOR_PERSONA;
+/**
+ * THE HEADS-UP EXPLOITERS (2026-11-12, HU-NLH-001). The wide small blind opens
+ * about 2.5bb to 3.75x and stabs; it does not play the lines a real opponent
+ * uses to grind a Horse heads-up, and nothing on the nightly set did, which is
+ * how a heads-up big blind folding 58.7% to a min-raise at 50bb or less went
+ * unseen. Each persona is the wide small blind with one exploit pushed to the
+ * limit, so a card against it shows the Horse's answer to that line:
+ *  - hu_minraise_every_button_v1: the small blind raises every hand first in,
+ *    to 2x (the minimum).
+ *  - hu_limp_every_button_v1: the small blind limps every hand first in and
+ *    never raises first in.
+ *  - hu_three_bet_every_hand_v1: facing a raise it re-raises every hand.
+ *  - hu_small_stab_every_street_v1: checked to, it bets every street at a
+ *    third of the pot.
+ * Development personas, not calibrated populations. Heads-up NLH only.
+ */
+export const HU_MINRAISE_EVERY_BUTTON_PERSONA = 'hu_minraise_every_button_v1' as const;
+export const HU_LIMP_EVERY_BUTTON_PERSONA = 'hu_limp_every_button_v1' as const;
+export const HU_THREE_BET_EVERY_HAND_PERSONA = 'hu_three_bet_every_hand_v1' as const;
+export const HU_SMALL_STAB_EVERY_STREET_PERSONA = 'hu_small_stab_every_street_v1' as const;
+export type HumanFieldPersona =
+  | typeof HU_WIDE_SB_AGGRESSOR_PERSONA
+  | typeof HU_MINRAISE_EVERY_BUTTON_PERSONA
+  | typeof HU_LIMP_EVERY_BUTTON_PERSONA
+  | typeof HU_THREE_BET_EVERY_HAND_PERSONA
+  | typeof HU_SMALL_STAB_EVERY_STREET_PERSONA;
 export const HUMAN_FIELD_PERSONAS: readonly HumanFieldPersona[] = Object.freeze([
   HU_WIDE_SB_AGGRESSOR_PERSONA,
+  HU_MINRAISE_EVERY_BUTTON_PERSONA,
+  HU_LIMP_EVERY_BUTTON_PERSONA,
+  HU_THREE_BET_EVERY_HAND_PERSONA,
+  HU_SMALL_STAB_EVERY_STREET_PERSONA,
 ]);
