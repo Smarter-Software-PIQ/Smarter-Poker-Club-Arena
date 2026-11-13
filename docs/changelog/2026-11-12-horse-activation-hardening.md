@@ -14,7 +14,7 @@ The floors (0.05 percent) are tripwires for a dark layer, set far below any plau
 
 ## Phase 14 Eligibility Is Counted
 
-`phase14_kernel_eligible_seen` counts a FAST decision that reached the admitted corrective kernel: usable authority, candidate mode and a snapshot inside the kernel's declared family. For cash that family is narrow: exactly two dealt seats, a single-board river, the opponent all in, a fold or call baseline. Applications were already counted at commit (`phase14_selection_*`, `phase14_execution_*`). Until now a day of zero applications could not be told apart from a day of zero eligible spots.
+`phase14_kernel_eligible_seen` counts a FAST decision that reached the admitted corrective kernel: usable authority, candidate mode and a snapshot inside the kernel's declared family. For cash that family is narrow: exactly two dealt seats, a single-board river, the opponent all in. It is counted before the baseline exists; whether the baseline is a fold or call and whether a proposal is made are conditions of application, checked later. Applications were already counted at commit (`phase14_selection_*`, `phase14_execution_*`). Until now a day of zero applications could not be told apart from a day of zero eligible spots.
 
 The activation manifest is unchanged. Its `candidate` mode is accurate: on the thirteen admitted domains the kernel is live under the owner-forced activation and can replace a river fold or call at its 5 percent conditional probability.
 
