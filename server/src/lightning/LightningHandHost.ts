@@ -168,6 +168,12 @@ import { recordLightningHorseResults } from './LightningHorseResults.js';
 import { buildLightningStatsFacts, type LightningFactsBuilder } from './LightningHandFacts.js';
 import { horseDailyRollupContract } from '../services/HorseDailyRollupContract.js';
 import { writeHandFacts } from '../services/supabase/handFacts.js';
+import {
+  priceLightningAllInEquity,
+  settledAllInEquity,
+  type LightningEquityPricer,
+  type PricedAllInEquity,
+} from './LightningAllInEquity.js';
 import { lightningVpipFloor } from './LightningHorseResults.js';
 import type { HorseReviewInput } from '../services/HorseHandReview.js';
 import {
@@ -456,6 +462,8 @@ export interface LightningHandHostDeps {
   recordHorseResults?: (input: HorseReviewInput) => Promise<void>;
   /** Builds the hand's private stats facts (LightningHandFacts). Injected for tests. */
   statsFacts?: LightningFactsBuilder;
+  /** Prices an all-in runout's equity (LightningAllInEquity). Injected for tests; the worker pool otherwise. */
+  equityPricer?: LightningEquityPricer;
   /** The jackpot payout doors (injected for tests; the physical ones otherwise). */
   jackpot?: Pick<LightningJackpotDeps, 'payMain' | 'payMini'>;
   /** How long the post-commit drain may keep trying while the lease is held. */
@@ -550,6 +558,8 @@ export class LightningHandHost {
   }> = [];
   private perPotAwards: unknown[] = [];
   private runoutRevealActive = false;
+  /** This hand's all-in runout equity, priced once at ALL_IN_RUNOUT (LightningAllInEquity). */
+  private allInEquityPricing: Promise<PricedAllInEquity | null> | null = null;
   private turnStartMs = 0;
   private turnDurationSec = 0;
   private turnUser: string | null = null;
@@ -1547,6 +1557,21 @@ export class LightningHandHost {
       case 'ALL_IN_RUNOUT':
         this.clearTurn();
         this.runoutRevealActive = true;
+        // Price the committed stacks now, before another card is dealt, exactly
+        // as the physical runout does (alert 376656: every Lightning all-in had
+        // been recorded owed with no equity).
+        if (!this.allInEquityPricing) {
+          this.allInEquityPricing = priceLightningAllInEquity(
+            {
+              players: event.players,
+              board: event.board,
+              pots: this.hc?.computeLivePots?.() ?? null,
+              variant: String(this.rules?.game_variant || 'nlh'),
+            },
+            this.deps.equityPricer,
+            (err, where) => reportError(err, where)
+          );
+        }
         this.publishState();
         void this.runOut();
         break;
@@ -3271,6 +3296,7 @@ export class LightningHandHost {
         players: state.players,
         stacksBefore: new Map(participants.map((p) => [p.playerId, p.stackBefore])),
         allInRunoutWitness: this.hc?.getAllInRunoutWitness() ?? null,
+        allInEquity: await settledAllInEquity(this.allInEquityPricing),
         winners: this.winners,
         actions: this.actions,
         participants,

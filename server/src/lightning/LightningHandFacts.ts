@@ -53,6 +53,8 @@ export interface LightningFactsHand {
   players: ReadonlyArray<{ user_id: string; totalInvested?: number }>;
   stacksBefore: ReadonlyMap<string, number>;
   allInRunoutWitness?: import('../types.js').AllInRunoutWitness | null;
+  /** Exact runout equity the host priced at ALL_IN_RUNOUT (LightningAllInEquity). */
+  allInEquity?: import('./LightningAllInEquity.js').PricedAllInEquity | null;
   winners: ReadonlyArray<{ userId: string; amount: number }>;
   actions: ReadonlyArray<Record<string, unknown>>;
   participants: ReadonlyArray<{ playerId: string; isHorse: boolean }>;
@@ -82,6 +84,7 @@ export function lightningHandFactsInput(hand: LightningFactsHand): HandFactsInpu
     contributions: new Map(hand.players.map((p) => [p.user_id, cents(p.totalInvested ?? 0)])),
     dealtStacksAtDeal: new Map(hand.stacksBefore),
     allInRunoutWitness: hand.allInRunoutWitness,
+    allInEquity: hand.allInEquity ?? null,
     winners: hand.winners.map((w) => ({ userId: w.userId, amount: w.amount })),
     actions: hand.actions as unknown as HandAction[],
     roster: hand.participants.map((p) => ({ userId: p.playerId, isHorse: p.isHorse })),

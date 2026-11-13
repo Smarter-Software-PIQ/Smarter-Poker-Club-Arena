@@ -984,6 +984,12 @@ export interface HandFactsInput {
   dealtStacksAtDeal?: Map<string, number>;
   /** Original controller witness, captured before remaining community cards. */
   allInRunoutWitness?: import('../../types.js').AllInRunoutWitness | null;
+  /**
+   * Exact all-in equity the caller priced itself (the Lightning host, which
+   * emits no `all_in_equity` event). Used only when the TableStateHub capture
+   * holds nothing for this hand. Fractions 0..1, pot-share.
+   */
+  allInEquity?: { byUser: Map<string, number>; street: string } | null;
   winners: Array<{ userId: string; amount: number }>;
   actions: HandAction[];
   /**
@@ -1127,9 +1133,10 @@ export async function writeHandFacts(
     // A protocol-2 payload is built before the accepted-hand transaction. Do
     // not consume its exact equity until that transaction succeeds, otherwise
     // a refused/transport-unknown attempt could make a safe retry less exact.
-    const equity = input.collectOnly
+    const capturedEquity = input.collectOnly
       ? peekEquity(input.tableId, input.handNumber)
       : takeEquity(input.tableId, input.handNumber);
+    const equity = capturedEquity ?? input.allInEquity ?? null;
 
     // Without a real big blind every bb-normalised column would be written as
     // RAW CHIPS - a plausible-looking number 10x out at a 5/10 table, which
