@@ -2544,7 +2544,7 @@ export interface HorseDecideOpts {
    *  engine; an object is a league arm's parameters. */
   omahaTournamentFirstIn?:
     | boolean
-    | import('./HorseOmahaTournamentFirstIn.js').OmahaTournamentFirstInParams;
+    | Partial<import('./HorseOmahaTournamentFirstIn.js').OmahaTournamentFirstInParams>;
   /** League-only override of the V67 extra raise shade; production never
    * sets it. */
   v67RiverRaiseShadeOverride?: number;
