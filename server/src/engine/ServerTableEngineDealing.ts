@@ -3175,12 +3175,22 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       const headsUpFirstButton = drawsFirstButton
         ? drawFirstButtonSeat(sortedSeats, secureRandomInt)
         : null;
+      // Cash, heads-up back to three or more: the button stays for the entry
+      // hand (HU-EXE-002). A button that stayed has not completed an orbit; see
+      // orbitComplete below.
+      const buttonStays =
+        !drawnIsSeated &&
+        headsUpFirstButton === null &&
+        prevButtonSeat > 0 &&
+        this.cashButtonStaysAfterHeadsUp(players, buttonRoster);
       let dealerSeat = drawnIsSeated
         ? (drawnButton as number)
         : headsUpFirstButton !== null
           ? headsUpFirstButton
           : prevButtonSeat > 0
-            ? this.getNextSeat(prevButtonSeat, buttonRoster)
+            ? buttonStays
+              ? prevButtonSeat
+              : this.getNextSeat(prevButtonSeat, buttonRoster)
             : buttonSeats[0];
       if (headsUpFirstButton !== null && this.isTournamentTable()) {
         /**
@@ -3312,7 +3322,11 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       // Bible V8 §6: Orbit complete (button wrapped past the top seat) → refill
       // time banks. With seat-based rotation, a wrap means the new button seat is
       // not strictly greater than the previous one.
-      const orbitComplete = prevButtonSeat > 0 && dealerSeat <= prevButtonSeat;
+      // The one hand where the cash button stays (heads-up back to three or
+      // more, HU-EXE-002) is not a wrap: the button did not move, so no time
+      // bank refills and no sit-out orbit is counted for it. The walk resumes
+      // from the same seat on the next hand and wraps exactly when it would have.
+      const orbitComplete = prevButtonSeat > 0 && dealerSeat <= prevButtonSeat && !buttonStays;
       if (orbitComplete) {
         this.timeBankEngine.onOrbitComplete(this.tableId);
       }
