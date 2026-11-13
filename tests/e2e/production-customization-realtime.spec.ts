@@ -352,11 +352,18 @@ async function openStudio(
     // table, scene, button or card choices. That durable state is intentionally
     // a Custom Mix: no coordinated Look tile may claim to be selected.
     await expect(selectedLooks).toHaveCount(0, { timeout: PRODUCTION_RESPONSE_TIMEOUT });
-    await expect(
-      studio
-        .locator('[aria-label="Current Table Configuration"]')
-        .getByText('Custom Mix', { exact: true })
-    ).toBeVisible({ timeout: PRODUCTION_RESPONSE_TIMEOUT });
+    // Since #10290 the configuration ledger is a collapsed <details> named by
+    // its <summary>; open it the way a player does before reading the Look.
+    const ledger = studio.locator('details.tsc__ledger', {
+      has: page.locator('summary', { hasText: 'Current Table Configuration' }),
+    });
+    await expect(ledger).toHaveCount(1, { timeout: PRODUCTION_RESPONSE_TIMEOUT });
+    if ((await ledger.getAttribute('open')) === null) {
+      await ledger.locator('summary').click();
+    }
+    await expect(ledger.getByText('Custom Mix', { exact: true })).toBeVisible({
+      timeout: PRODUCTION_RESPONSE_TIMEOUT,
+    });
   }
   return studio;
 }
