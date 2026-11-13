@@ -151,3 +151,9 @@ export const PUBLIC_HIST215_V2_APPENDED = [
   'opponent_position=HJ',
   'opponent_position=UTG',
 ] as const;
+
+/** Contract v3 (holdem-public-hist215-v3, V31 cell contract v3, dormant): v2
+ * order unchanged, then these one-hots at indices 246.. (sorted). v2 has no
+ * category for a node facing a bet of 1.1 pot or more, nor for the v3 'donk'
+ * role (a lead into the previous street's aggressor). */
+export const PUBLIC_HIST215_V3_APPENDED = ['facing_size_bucket=big', 'node_role=donk'] as const;

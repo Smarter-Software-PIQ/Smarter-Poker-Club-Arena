@@ -39,11 +39,17 @@ import {
 import type {
   GtoV31FacingKind,
   GtoV31NodeRole,
+  GtoV31NodeRoleV3,
   GtoV31Position,
   GtoV31PotType,
   GtoV31SealedPotType,
   GtoV31SizeBucket,
   GtoV31UtilityContext,
+} from './GtoDecisionContext.js';
+import {
+  GTO_V31_DEPTH_BUCKETS_V3,
+  gtoV31DepthCandidatesV3,
+  gtoV31LineClassValidV3,
 } from './GtoDecisionContext.js';
 
 export type GtoV31GameFamily = 'cash' | 'spin' | 'tourney_ev' | 'tourney_icm';
@@ -68,8 +74,15 @@ export interface GtoV31SourceSeal {
     | 'rank-suit-count-v1'
     | 'holdem-board-relative-v2'
     | 'holdem-public-hist215-v1'
-    | 'holdem-public-hist215-v2';
+    | 'holdem-public-hist215-v2'
+    | 'holdem-public-hist215-v3';
   policy_export_schema?: 'smarter-poker.pio-policy.v4';
+  /**
+   * V31 cell contract v3 (dormant): absent (or null) on every v2 dataset. A
+   * dataset declaring 'v3' is keyed with its line_class, may use the 200 bb
+   * bucket and the 'donk' role, and is consulted only with a v3 context.
+   */
+  cell_contract_version?: 'v3' | null;
   dataset_id: string;
   dataset_key: string;
   dataset_checksum: string;
@@ -109,9 +122,11 @@ export interface GtoPostflopV31Row extends GtoV31SourceSeal {
   opponent_position: GtoV31Position;
   depth_bucket: number;
   texture_class: string;
-  node_role: GtoV31NodeRole;
+  node_role: GtoV31NodeRoleV3;
   facing_kind: GtoV31FacingKind;
   facing_size_bucket: GtoV31SizeBucket;
+  /** Cell contract v3 only: the size-bucketed public line (GtoDecisionContext.gtoV31LineClassV3). */
+  line_class?: string | null;
   hand_matrix: Record<string, Record<string, number>>;
   action_specs: Record<string, GtoV31ActionSpec>;
   policy_ev_matrix?: Record<string, number | null> | null;
@@ -146,7 +161,9 @@ export type GtoV31Miss =
   | 'hand_not_in_cell'
   | 'empty_store'
   | 'worker_required'
-  | 'model_input_invalid';
+  | 'model_input_invalid'
+  /** A v3 store was consulted without a valid v3 context (role and line class). */
+  | 'no_line_class';
 
 export type GtoV31Lookup =
   | {
@@ -164,10 +181,15 @@ export type GtoV31Lookup =
     }
   | { hit: false; miss: GtoV31Miss };
 
+/** gtoStreetAdviceV31V3's answer: a v3 store may hold the 'donk' role. */
+export type GtoV31LookupV3 =
+  | (Omit<Extract<GtoV31Lookup, { hit: true }>, 'nodeRole'> & { nodeRole: GtoV31NodeRoleV3 })
+  | { hit: false; miss: GtoV31Miss };
+
 interface StoredCellBase {
   actions: Record<string, GtoV31ActionSpec>;
   seal: GtoV31SourceSeal;
-  role: GtoV31NodeRole;
+  role: GtoV31NodeRoleV3;
 }
 type StoredCell = StoredCellBase &
   (
@@ -216,6 +238,7 @@ const HEX64 = /^[0-9a-f]{64}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const POSITIONS = new Set(['UTG', 'UTG1', 'UTG2', 'UTG3', 'MP', 'HJ', 'CO', 'BTN', 'SB', 'BB']);
 const DEPTHS = new Set([10, 20, 40, 80, 150]);
+const DEPTHS_V3 = new Set(GTO_V31_DEPTH_BUCKETS_V3);
 const POT_TYPES = new Set<GtoV31SealedPotType>(['limped', 'srp', '3bet', '4bet_plus']);
 const UTILITY_CONTEXTS = new Set<GtoV31UtilityContext>([
   'cash_ev',
@@ -240,17 +263,49 @@ const RANK_INDEX: Record<string, number> = Object.fromEntries(
   [...'AKQJT98765432'].map((rank, index) => [rank, index])
 );
 
+/**
+ * The feature contract a row or seal declares, null when unknown or refused.
+ * Feature contract holdem-public-hist215-v3 and cell contract v3 are tied both
+ * ways: hist215-v3 is known only on a row (or seal) that declares
+ * cell_contract_version 'v3', and a 'v3' row may not declare the older public215
+ * contracts (hist215-v1 or v2, which have no category for its 'big' facing
+ * bucket or 'donk' role). A row without cell_contract_version 'v3' answers
+ * exactly as before cell contract v3 existed (hist215-v3 was unknown then).
+ * A matrix row keeps its hand-key contract under either cell contract.
+ */
 export function gtoV31FeatureContractVersion(value: {
   feature_contract_version?: unknown;
+  cell_contract_version?: unknown;
 }): GtoV31SourceSeal['feature_contract_version'] | null {
   if (!Object.prototype.hasOwnProperty.call(value, 'feature_contract_version'))
     return 'rank-suit-count-v1';
+  const cellV3 = value.cell_contract_version === 'v3';
+  if (value.feature_contract_version === 'holdem-public-hist215-v3')
+    return cellV3 ? value.feature_contract_version : null;
   return value.feature_contract_version === 'rank-suit-count-v1' ||
     value.feature_contract_version === 'holdem-board-relative-v2' ||
-    value.feature_contract_version === 'holdem-public-hist215-v1' ||
-    value.feature_contract_version === 'holdem-public-hist215-v2'
+    (!cellV3 &&
+      (value.feature_contract_version === 'holdem-public-hist215-v1' ||
+        value.feature_contract_version === 'holdem-public-hist215-v2'))
     ? value.feature_contract_version
     : null;
+}
+
+/**
+ * The cell contract a runtime row declares: 'v2' when it carries neither
+ * cell_contract_version nor line_class (absent or null, every dataset to date),
+ * 'v3' for an exact v3 declaration with a line class valid for its street,
+ * null (refused) for anything else, including a v2 row carrying a line class.
+ */
+export function gtoV31RowCellContract(row: {
+  cell_contract_version?: unknown;
+  line_class?: unknown;
+  street?: unknown;
+}): 'v2' | 'v3' | null {
+  const declared = row.cell_contract_version ?? null;
+  const line = row.line_class ?? null;
+  if (declared === null) return line === null ? 'v2' : null;
+  return declared === 'v3' && gtoV31LineClassValidV3(line, row.street) ? 'v3' : null;
 }
 
 export function gtoV31PolicyContractValid(value: { policy_export_schema?: unknown }): boolean {
@@ -311,6 +366,11 @@ const SUIT_INDEX: Record<string, number> = {
   spades: 3,
 };
 
+/** The v3 cell key: the v2 key with the contract and the line appended (never equal to a v2 key). */
+function keyV3(args: Parameters<typeof key>[0] & { lineClass: string }): string {
+  return `${key(args)}|v3|${args.lineClass}`;
+}
+
 function key(args: {
   street: string;
   family: string;
@@ -357,10 +417,14 @@ function utilityMatchesObjective(row: GtoV31RuntimeRow): boolean {
 }
 
 function contextIsCoherent(row: GtoV31RuntimeRow): boolean {
-  if (OPEN_ROLES.has(row.node_role)) {
+  // 'donk' exists only in cell contract v3 and is an open role there.
+  if (
+    OPEN_ROLES.has(row.node_role as GtoV31NodeRole) ||
+    (row.node_role === 'donk' && gtoV31RowCellContract(row) === 'v3')
+  ) {
     return row.facing_kind === 'none' && row.facing_size_bucket === 'none';
   }
-  if (!RESPONSE_ROLES.has(row.node_role)) return false;
+  if (!RESPONSE_ROLES.has(row.node_role as GtoV31NodeRole)) return false;
   if (row.node_role === 'all_in') {
     return row.facing_kind === 'all_in' && row.facing_size_bucket === 'all_in';
   }
@@ -422,6 +486,8 @@ function sealIsValid(
 
 function datasetSealKey(row: GtoV31RuntimeRow): string {
   return JSON.stringify({
+    // v3 joins the seal (so one dataset cannot mix contracts); v2 keys are unchanged.
+    ...(row.cell_contract_version === 'v3' ? { cell_contract_version: 'v3' } : {}),
     ...(row.policy_representation === 'public_hist215_v1'
       ? {
           policy_representation: row.policy_representation,
@@ -462,13 +528,13 @@ function datasetSealKey(row: GtoV31RuntimeRow): string {
 function actionSpecIsValid(
   actionId: string,
   spec: GtoV31ActionSpec,
-  nodeRole: GtoV31NodeRole
+  nodeRole: GtoV31NodeRoleV3
 ): boolean {
   if (!spec || !['check', 'fold', 'call', 'bet', 'raise', 'all_in'].includes(spec.family)) {
     return false;
   }
   if (!/^(?:c|f|b[1-9][0-9]{0,78})$/.test(actionId)) return false;
-  const openNode = OPEN_ROLES.has(nodeRole);
+  const openNode = OPEN_ROLES.has(nodeRole as GtoV31NodeRole) || nodeRole === 'donk';
   if (
     (actionId === 'c' && spec.family !== (openNode ? 'check' : 'call')) ||
     (actionId === 'f' && spec.family !== 'fold') ||
@@ -514,7 +580,8 @@ function rowIsValid(
     !allowedPositions?.has(row.hero_position) ||
     !allowedPositions?.has(row.opponent_position) ||
     row.hero_position === row.opponent_position ||
-    !DEPTHS.has(row.depth_bucket) ||
+    gtoV31RowCellContract(row) === null ||
+    !(gtoV31RowCellContract(row) === 'v3' ? DEPTHS_V3 : DEPTHS).has(row.depth_bucket) ||
     typeof row.texture_class !== 'string' ||
     !TEXTURE_CLASS.test(row.texture_class) ||
     !contextIsCoherent(row) ||
@@ -533,7 +600,7 @@ function rowIsValid(
     return false;
   }
   const families = new Set(actionIds.map((id) => row.action_specs[id].family));
-  if (OPEN_ROLES.has(row.node_role)) {
+  if (OPEN_ROLES.has(row.node_role as GtoV31NodeRole) || row.node_role === 'donk') {
     if (
       !families.has('check') ||
       [...families].some((family) => ['fold', 'call', 'raise'].includes(family))
@@ -553,7 +620,8 @@ function rowIsValid(
 
   if (row.policy_representation === 'public_hist215_v1') {
     // The row's explicit contract selects the descriptor it must carry.
-    const contract = public215FeatureContract(row.feature_contract_version);
+    // gtoV31FeatureContractVersion ties hist215-v3 to cell contract v3 both ways.
+    const contract = public215FeatureContract(gtoV31FeatureContractVersion(row));
     return (
       contract !== null &&
       row.hand_matrix == null &&
@@ -652,6 +720,7 @@ function rowIsValid(
 
 function sealOf(row: GtoV31RuntimeRow): GtoV31SourceSeal {
   return {
+    ...(row.cell_contract_version === 'v3' ? { cell_contract_version: 'v3' as const } : {}),
     ...(row.policy_representation === 'public_hist215_v1'
       ? {
           policy_representation: row.policy_representation,
@@ -724,7 +793,7 @@ function* validatedStoreSteps(
     datasetChecksum = row.dataset_checksum;
     datasetCells = row.dataset_cells;
     datasetSeal = sealKey;
-    const cellKey = key({
+    const keyFields = {
       street: row.street,
       family: row.game_family,
       objective: row.objective,
@@ -738,7 +807,11 @@ function* validatedStoreSteps(
       nodeRole: row.node_role,
       facingKind: row.facing_kind,
       facingSizeBucket: row.facing_size_bucket,
-    });
+    };
+    const cellKey =
+      gtoV31RowCellContract(row) === 'v3'
+        ? keyV3({ ...keyFields, lineClass: row.line_class as string })
+        : key(keyFields);
     if (next.has(cellKey)) throw new Error(`v31_duplicate_cell:${cellKey}`);
     // Readers receive shared references on the action clock. Freeze the
     // detached snapshot once at admission so no consumer can change a sealed
@@ -923,7 +996,7 @@ function provenanceKey(fields: Record<string, unknown>, texture: unknown): strin
   if (text.some((value) => typeof value !== 'string' || value === '')) return null;
   if (!Number.isSafeInteger(fields.table_size) || !Number.isSafeInteger(fields.depth_bucket))
     return null;
-  return key({
+  const base = {
     street: fields.street as string,
     family: fields.game_family as string,
     objective: fields.objective as string,
@@ -937,7 +1010,16 @@ function provenanceKey(fields: Record<string, unknown>, texture: unknown): strin
     nodeRole: fields.node_role as string,
     facingKind: fields.facing_kind as string,
     facingSizeBucket: fields.facing_size_bucket as string,
-  });
+  };
+  // Cell contract v3: the registration names a v3 cell by "cell_contract": "v3"
+  // and its "line_class" (in the cell and in the runtime mapping). An entry
+  // without either is a v2 entry, keyed exactly as before; any other shape
+  // names no cell (missing_cell / mapping).
+  const declared = fields.cell_contract ?? null;
+  const line = fields.line_class ?? null;
+  if (declared === null) return line === null ? key(base) : null;
+  if (declared !== 'v3' || !gtoV31LineClassValidV3(line, fields.street)) return null;
+  return keyV3({ ...base, lineClass: line });
 }
 
 function positiveInteger(value: unknown): value is number {
@@ -1204,6 +1286,27 @@ export function gtoV31DemandCell(input: {
   return { key: key({ ...input, depth, texture }), depth, texture };
 }
 
+type GtoV31StreetAdviceInput = Parameters<typeof gtoStreetAdviceV31>[0];
+export type GtoV31ContextV3 = {
+  nodeRole: GtoV31NodeRoleV3;
+  facingKind: GtoV31FacingKind;
+  facingSizeBucket: GtoV31SizeBucket;
+  lineClass: string;
+};
+
+/**
+ * Cell contract v3 consult (dormant; no live caller yet). `v3` is
+ * GtoDecisionContext.classifyGtoDecisionContextV3's answer. A v3 store is
+ * keyed by it, its line class and the v3 depth buckets; a v2 store answers
+ * exactly as gtoStreetAdviceV31 would (the v3 context is ignored).
+ */
+export function gtoStreetAdviceV31V3(
+  input: GtoV31StreetAdviceInput & { v3: GtoV31ContextV3 | null }
+): GtoV31LookupV3 {
+  return streetAdvice(input, input.v3);
+}
+
+/** The v2 consult. A v3 store never answers it (miss no_line_class). */
 export function gtoStreetAdviceV31(input: {
   street: 'flop' | 'turn' | 'river';
   family: GtoV31GameFamily;
@@ -1223,6 +1326,14 @@ export function gtoStreetAdviceV31(input: {
   /** Benchmark-only exact candidate selector. Omit on every live action. */
   datasetChecksum?: string;
 }): GtoV31Lookup {
+  // Only v2 cells (v2 roles) can answer without a v3 context.
+  return streetAdvice(input, null) as GtoV31Lookup;
+}
+
+function streetAdvice(
+  input: GtoV31StreetAdviceInput,
+  v3Context: GtoV31ContextV3 | null
+): GtoV31LookupV3 {
   const expectedBoardCards = input.street === 'flop' ? 3 : input.street === 'turn' ? 4 : 5;
   // The certified key is street-bound. A stale or malformed game state must
   // not use a turn/river policy against a board from a different street even
@@ -1234,13 +1345,23 @@ export function gtoStreetAdviceV31(input: {
     ? evaluationStores.get(input.datasetChecksum)?.cells
     : activeStore.cells;
   if (!selected || selected.size === 0) return { hit: false, miss: 'empty_store' };
+  // Cell contract v3 (dormant): a v3 store is keyed by the v3 context, its line
+  // class and the v3 depth buckets. A v2 store never reaches this branch.
+  const contractV3 = selected.values().next().value?.seal.cell_contract_version === 'v3';
+  const v3 = contractV3 ? v3Context : null;
+  if (contractV3 && (v3 === null || !gtoV31LineClassValidV3(v3.lineClass, input.street)))
+    return { hit: false, miss: 'no_line_class' };
   if (!input.hand) return { hit: false, miss: 'no_hand' };
   const texture = textureClass(input.board);
   if (!texture) return { hit: false, miss: 'no_texture' };
   const legacyHandKey = v31HandKey(input.hand, input.holeCards, input.board);
   if (!legacyHandKey) return { hit: false, miss: 'no_hand' };
-  for (const depth of depthCandidates(input.stackBB)) {
-    const cellKey = key({ ...input, depth, texture });
+  for (const depth of v3
+    ? gtoV31DepthCandidatesV3(input.stackBB)
+    : depthCandidates(input.stackBB)) {
+    const cellKey = v3
+      ? keyV3({ ...input, ...v3, depth, texture })
+      : key({ ...input, depth, texture });
     const cell = selected.get(cellKey);
     if (!cell) continue;
     if (cell.kind === 'public_hist215_v1') {
@@ -1329,6 +1450,8 @@ export function gtoV31CellMatrix(args: {
   texture: string;
   nodeRole: Extract<GtoV31NodeRole, 'open' | 'cbet' | 'probe' | 'delayed_cbet' | 'barrel'>;
 }): Record<string, Record<string, number>> | null {
+  // The V32 open-node fallback is a v2 reader; a v3 store has no line here.
+  if (activeStore.cells.values().next().value?.seal.cell_contract_version === 'v3') return null;
   for (const depth of depthCandidates(args.stackBB)) {
     const cell = activeStore.cells.get(
       key({

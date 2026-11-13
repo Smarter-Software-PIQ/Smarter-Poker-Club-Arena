@@ -23,7 +23,10 @@ import {
   public215ContractVector,
   type CompiledPublic215Template,
 } from '../engine/GtoPublicHist215Features.js';
-import { public215FeatureContractBySchema } from '../engine/GtoPublicHist215Contracts.js';
+import {
+  isPublic215FeatureCount,
+  public215FeatureContractBySchema,
+} from '../engine/GtoPublicHist215Contracts.js';
 import {
   canonicalPublic215Json,
   public215Digest,
@@ -150,7 +153,8 @@ export function assemblePublic215Cached(
 /** NumPy v1.0, C-order little-endian float64, exact frame with no trailing bytes. */
 export function public215NpyHeader(rows: number, columns = 215): Buffer {
   need(Number.isSafeInteger(rows) && rows > 0 && rows <= 57 * 1326, 'NPY_ROWS');
-  need(columns === 215 || columns === 246, 'NPY_COLUMNS');
+  // Every contract's width (v1 215, v2 246, v3 248); the caller passes the request's contract width.
+  need(isPublic215FeatureCount(columns), 'NPY_COLUMNS');
   const dictionary = `{'descr': '<f8', 'fortran_order': False, 'shape': (${rows}, ${columns}), }`;
   const padding = (64 - ((10 + Buffer.byteLength(dictionary) + 1) % 64)) % 64;
   const header = Buffer.from(dictionary + ' '.repeat(padding) + '\n', 'ascii');
@@ -343,7 +347,7 @@ export function buildPublic215FeatureIndex(request: ObjectValue, output: string)
     'terminal',
     'contexts',
   ]);
-  // The request's pinned descriptor names its contract (v1 215, v2 246); the
+  // The request's pinned descriptor names its contract (v1 215, v2 246, v3 248); the
   // request assembler writes the dataset's declared contract's descriptor.
   const contract = public215FeatureContractBySchema(request.feature_schema_checksum);
   need(

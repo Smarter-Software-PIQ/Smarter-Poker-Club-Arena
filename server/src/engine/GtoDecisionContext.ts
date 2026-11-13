@@ -41,7 +41,16 @@ export type GtoV31SealedPotType = 'limped' | 'srp' | '3bet' | '4bet_plus';
 export type GtoV31LimpedRaisedPotType = 'lrp' | 'l3bet' | 'l4bet_plus';
 export type GtoV31PotType = GtoV31SealedPotType | GtoV31LimpedRaisedPotType;
 export type GtoV31Position =
-  'UTG' | 'UTG1' | 'UTG2' | 'UTG3' | 'MP' | 'HJ' | 'CO' | 'BTN' | 'SB' | 'BB';
+  | 'UTG'
+  | 'UTG1'
+  | 'UTG2'
+  | 'UTG3'
+  | 'MP'
+  | 'HJ'
+  | 'CO'
+  | 'BTN'
+  | 'SB'
+  | 'BB';
 export type GtoV31UtilityContext =
   | 'cash_ev'
   | 'chip_ev'
@@ -54,6 +63,14 @@ export type GtoV31UtilityContext =
 
 export interface GtoDecisionContext {
   nodeRole: GtoV31NodeRole;
+  facingKind: GtoV31FacingKind;
+  facingSizeBucket: GtoV31SizeBucket;
+}
+
+/** Cell contract v3 adds one open role: a lead into the previous street's aggressor. */
+export type GtoV31NodeRoleV3 = GtoV31NodeRole | 'donk';
+export interface GtoDecisionContextV3 {
+  nodeRole: GtoV31NodeRoleV3;
   facingKind: GtoV31FacingKind;
   facingSizeBucket: GtoV31SizeBucket;
 }
@@ -388,6 +405,21 @@ export function classifyGtoDecisionContext(args: {
   currentBet: number;
   pot: number;
 }): GtoDecisionContext | null {
+  return classifyDecisionContext(args, false) as GtoDecisionContext | null;
+}
+
+function classifyDecisionContext(
+  args: {
+    street: HandStage;
+    hero: Pick<SeatPlayer, 'seat' | 'bet' | 'stack'>;
+    opponents: Array<Pick<SeatPlayer, 'seat' | 'bet' | 'stack' | 'is_all_in'>>;
+    actionHistory?: ActionRecord[];
+    currentBet: number;
+    pot: number;
+  },
+  /** Cell contract v3 only: name a lead into the previous aggressor 'donk'. */
+  allowDonk: boolean
+): GtoDecisionContextV3 | null {
   if (!POSTFLOP_STREETS.includes(args.street)) return null;
   const actions = currentStreetActions(args.actionHistory, args.street);
   if (
@@ -519,14 +551,16 @@ export function classifyGtoDecisionContext(args: {
     return null;
   }
 
-  let nodeRole: GtoV31NodeRole = 'open';
+  let nodeRole: GtoV31NodeRoleV3 = 'open';
   if (priorAggressor === args.hero.seat) {
     nodeRole = args.street === 'flop' ? 'cbet' : 'barrel';
   } else if (priorAggressor !== null) {
     // Leading into the immediately previous street's aggressor is a donk/lead
     // node, not a probe. Phase 4 has no certified donk corpus, so do not
-    // relabel it as one of the supported open roles.
-    return null;
+    // relabel it as one of the supported open roles. Cell contract v3 names
+    // it 'donk' (its own cells, never an open cell).
+    if (!allowDonk) return null;
+    nodeRole = 'donk';
   } else if (args.street !== 'flop') {
     const opponentSeat = args.opponents.length === 1 ? args.opponents[0].seat : null;
     if (
@@ -540,4 +574,196 @@ export function classifyGtoDecisionContext(args: {
     else if (olderAggressor !== null) nodeRole = 'probe';
   }
   return { nodeRole, facingKind: 'none', facingSizeBucket: 'none' };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CELL CONTRACT V3 (2026-11-13, HV31 FLOP-3 B5). DORMANT.
+// Used only for a dataset whose cells declare cell_contract_version 'v3'; no
+// such dataset exists, and nothing above changes for v2. The World Hub
+// pipeline (pio_upi.line_class_v3, analyze_node cell_contract='v3') produces
+// the same three things this section reads from a live hand:
+//   1. Depth: a 200 bb bucket. The v2 engine snaps every stack over 110 bb to
+//      150; real horse cash hands have a median effective stack of 199 bb
+//      (13,309 heads-up flop hands, 2026-11-11/12, v31-realplay decisions.csv).
+//      150 v 200 splits at 173 bb, the geometric midpoint sqrt(150 x 200) =
+//      173.2, the same rule as 80 v 150 at 110 (sqrt(80 x 150) = 109.5). On
+//      the real distribution it is also the boundary with the least mean
+//      |log(stack / bucket)| over 110-400 bb (0.1785, against 0.1950 at 150
+//      and 0.1801 at 180); mean |log| error over 110-300 bb falls from 0.286
+//      (all served by 150) to 0.124.
+//   2. Role: 'donk' for a lead into the previous street's aggressor
+//      (including the flop root after an in-position preflop raise).
+//   3. Line: the cell key gains the size-bucketed public line, so a 0.75-pot
+//      and a 1.5-pot flop bet lead to different turn and river cells (the
+//      pilot tree had 13 colliding v2 keys over 74 of its 86 keyable nodes).
+// ═══════════════════════════════════════════════════════════════════════════
+
+export const GTO_V31_CELL_CONTRACT_V3 = 'v3' as const;
+export type GtoV31CellContract = typeof GTO_V31_CELL_CONTRACT_V3;
+export const GTO_V31_DEPTH_BUCKETS_V3: readonly number[] = Object.freeze([
+  10, 20, 40, 80, 150, 200,
+]);
+/** Highest stack (bb) served by the 150 bucket under v3; above it, 200. */
+export const GTO_V31_V3_150_MAX_BB = 173;
+
+/** v3 primary depth bucket: v2's boundaries up to 110 bb, then 150 to 173 bb, then 200. */
+export function gtoV31SnapDepthBucketV3(stackBB: number): number {
+  if (!(stackBB > 0)) return 40;
+  if (stackBB <= 12) return 10;
+  if (stackBB <= 30) return 20;
+  if (stackBB <= 60) return 40;
+  if (stackBB <= 110) return 80;
+  if (stackBB <= GTO_V31_V3_150_MAX_BB) return 150;
+  return 200;
+}
+
+/** [primary, fallback]: the fallback is the log-nearest other v3 bucket (GtoPostflop.depthCandidates' rule). */
+export function gtoV31DepthCandidatesV3(stackBB: number): number[] {
+  const raw = stackBB > 0 && isFinite(stackBB) ? stackBB : 40;
+  const primary = gtoV31SnapDepthBucketV3(raw);
+  const fallback = GTO_V31_DEPTH_BUCKETS_V3.filter((d) => d !== primary).sort(
+    (a, b) => Math.abs(Math.log(raw / a)) - Math.abs(Math.log(raw / b))
+  )[0];
+  return [primary, fallback];
+}
+
+const LINE_TOKEN = '(?:x|c|a|[br]-(?:small|mid|big))';
+const LINE_STREET = `(?:${LINE_TOKEN}(?:\\.${LINE_TOKEN})*)?`;
+/** v3 line class: streets split by '/', actions by '.' (World Hub pio_upi.LINE_CLASS_V3). */
+export const GTO_V31_LINE_CLASS_V3 = new RegExp(`^${LINE_STREET}(?:/${LINE_STREET}){0,2}$`);
+
+/** True when `line` is a well-formed v3 line for a node on `street`. */
+export function gtoV31LineClassValidV3(line: unknown, street: unknown): line is string {
+  const index = POSTFLOP_STREETS.indexOf(street as HandStage);
+  return (
+    typeof line === 'string' &&
+    index >= 0 &&
+    GTO_V31_LINE_CLASS_V3.test(line) &&
+    line.split('/').length === index + 1
+  );
+}
+
+/**
+ * The public postflop line before hero's decision, as the v3 cell key names
+ * it. Tokens: x check, c call, b-<bucket> bet, r-<bucket> raise, a any wager
+ * that reaches the effective stack. Buckets are gtoV31SizeBucket's on the
+ * classifier's denominators (a bet over the pot before it; a raise increment
+ * over the pot after the raiser calls). The flop-root pot is the current pot
+ * less every postflop chip. Null when the line is not a heads-up line between
+ * hero and the opponent or the history disagrees with itself.
+ */
+export function gtoV31LineClassV3(args: {
+  street: HandStage;
+  heroSeat: number;
+  opponentSeat: number;
+  actionHistory?: ActionRecord[];
+  pot: number;
+  /** min(hero, opponent) flop-root stack in chips (gtoV31FlopRootStack). */
+  effectiveRootChips: number;
+}): string | null {
+  const streetIndex = POSTFLOP_STREETS.indexOf(args.street);
+  if (
+    streetIndex < 0 ||
+    !Number.isFinite(args.pot) ||
+    args.pot <= 0 ||
+    !Number.isFinite(args.effectiveRootChips) ||
+    args.effectiveRootChips <= 0 ||
+    args.heroSeat === args.opponentSeat ||
+    !gtoV31HasHeadsUpPostflopLine(args.actionHistory, args.heroSeat, args.opponentSeat)
+  ) {
+    return null;
+  }
+  const seats = [args.heroSeat, args.opponentSeat];
+  const streets = POSTFLOP_STREETS.slice(0, streetIndex + 1);
+  let postflop = 0;
+  for (const street of streets) {
+    for (const seat of seats) {
+      const committed = committedOnStreet(args.actionHistory, seat, street);
+      if (committed === null) return null;
+      postflop += committed.amount;
+    }
+  }
+  let pot = args.pot - postflop;
+  if (!(pot > 0)) return null;
+  const total = new Map<number, number>(seats.map((seat) => [seat, 0]));
+  const parts: string[] = [];
+  for (const street of streets) {
+    const contributions = new Map<number, number>(seats.map((seat) => [seat, 0]));
+    let target = 0;
+    let wager = false;
+    const tokens: string[] = [];
+    for (const action of currentStreetActions(args.actionHistory, street)) {
+      const seat = action.seat;
+      const own = contributions.get(seat);
+      const spent = total.get(seat);
+      if (own === undefined || spent === undefined) return null;
+      const amount = Number(action.amount);
+      let delta = 0;
+      if (action.action === 'check') {
+        if (wager) return null;
+        tokens.push('x');
+      } else if (
+        action.action === 'call' ||
+        (action.action === 'all_in' && !isAggressive(action))
+      ) {
+        if (!wager || !Number.isFinite(amount) || amount <= 0) return null;
+        // A call records the chips it adds; a calling all-in records its street total.
+        delta = action.action === 'call' ? amount : amount - own;
+        if (delta <= 0) return null;
+        tokens.push('c');
+        wager = false;
+      } else if (isAggressive(action)) {
+        if (!Number.isFinite(amount) || amount <= own || (wager && amount <= target)) return null;
+        delta = amount - own;
+        const allIn =
+          action.action === 'all_in' || spent + delta >= args.effectiveRootChips - 0.005;
+        if (allIn) tokens.push('a');
+        else if (wager) {
+          const denominator = pot + target - own;
+          if (!(denominator > 0)) return null;
+          tokens.push('r-' + gtoV31SizeBucket((amount - target) / denominator));
+        } else {
+          tokens.push('b-' + gtoV31SizeBucket(amount / pot));
+        }
+        target = amount;
+        wager = true;
+      } else {
+        return null;
+      }
+      contributions.set(seat, own + delta);
+      total.set(seat, spent + delta);
+      pot += delta;
+    }
+    parts.push(tokens.join('.'));
+  }
+  const line = parts.join('/');
+  return gtoV31LineClassValidV3(line, args.street) ? line : null;
+}
+
+/**
+ * The v3 decision context: the v2 classification, the 'donk' role where v2
+ * declines a lead into the previous aggressor, and the line class. Null
+ * exactly where a v3 cell cannot be named.
+ */
+export function classifyGtoDecisionContextV3(args: {
+  street: HandStage;
+  hero: Pick<SeatPlayer, 'seat' | 'bet' | 'stack'>;
+  opponents: Array<Pick<SeatPlayer, 'seat' | 'bet' | 'stack' | 'is_all_in'>>;
+  actionHistory?: ActionRecord[];
+  currentBet: number;
+  pot: number;
+  effectiveRootChips: number;
+}): (GtoDecisionContextV3 & { lineClass: string }) | null {
+  if (args.opponents.length !== 1) return null;
+  const context = classifyDecisionContext(args, true);
+  if (!context) return null;
+  const lineClass = gtoV31LineClassV3({
+    street: args.street,
+    heroSeat: args.hero.seat,
+    opponentSeat: args.opponents[0].seat,
+    actionHistory: args.actionHistory,
+    pot: args.pot,
+    effectiveRootChips: args.effectiveRootChips,
+  });
+  return lineClass === null ? null : { ...context, lineClass };
 }
