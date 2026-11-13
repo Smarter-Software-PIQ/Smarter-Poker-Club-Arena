@@ -51,6 +51,7 @@ import { cashNlhThreeBetRaiseTo } from './HorseCashThreeBetSize.js';
 import { huBbRequiredEquity } from './HorseHuBbDefence.js';
 import { limpReraiseIsoBar } from './HorseLimpReraiseRead.js';
 import {
+  OMAHA_TOURNAMENT_FIRST_IN,
   omahaTournamentFirstIn,
   type OmahaTournamentFirstInParams,
 } from './HorseOmahaTournamentFirstIn.js';
@@ -432,7 +433,7 @@ export interface PreflopCtx {
   cashAggression?: boolean;
   /** Omaha high tournament: the hand's percentile among Omaha hands and,
    *  for league arms only, replacement shares. Undefined = the rule is off. */
-  omahaTournamentFirstIn?: { percentile: number; params?: OmahaTournamentFirstInParams };
+  omahaTournamentFirstIn?: { percentile: number; params?: Partial<OmahaTournamentFirstInParams> };
   /** Receipt callback (#8694): the caller fires the V60 cash pressure receipt
    *  named here when that layer moves a bar. This module has no telemetry. */
   noteLayer?: (layer: PreflopLayerReceipt) => void;
@@ -1027,7 +1028,12 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
         allInOrFold: ctx.allInOrFold === true,
         satelliteLocked: ctx.satellite?.locked === true,
       },
+      // A league arm may name only the parameters it changes: anything it
+      // leaves out keeps the published default (a partial object must never
+      // zero the other shares and silently switch the rule off).
       ctx.omahaTournamentFirstIn.params
+        ? { ...OMAHA_TOURNAMENT_FIRST_IN, ...ctx.omahaTournamentFirstIn.params }
+        : OMAHA_TOURNAMENT_FIRST_IN
     );
     if (widened) {
       ctx.noteLayer?.('omaha_tournament_first_in');

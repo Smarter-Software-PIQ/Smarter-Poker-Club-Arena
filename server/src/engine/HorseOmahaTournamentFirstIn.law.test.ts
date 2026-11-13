@@ -255,7 +255,12 @@ function smallBlindSpot(
     st.tournament.playersLeft = seats;
     // Three-handed: a winner-take-all spin, the only three-handed payout the
     // rule acts on (heads-up keeps the fixture's own payout curve).
-    if (seats === 3) st.tournament.payoutPct = [100, 0, 0];
+    // Production lists paid places only (zeros removed), so a valid
+    // winner-take-all context is one place paid.
+    if (seats === 3) {
+      st.tournament.payoutPct = [100];
+      st.tournament.spotsPaid = 1;
+    }
     st.tournament.stacks = st.players.map((p) => p.stack + p.totalInvested);
     st.tournament.stackByUser = Object.fromEntries(
       st.players.map((p) => [p.user_id, p.stack + p.totalInvested])
@@ -305,6 +310,68 @@ function bigBlindSpot(variant: Variant, stackBB: number, seed: number) {
     },
   ];
   if (st.tournament) {
+    st.tournament.stacks = st.players.map((p) => p.stack + p.totalInvested);
+    st.tournament.stackByUser = Object.fromEntries(
+      st.players.map((p) => [p.user_id, p.stack + p.totalInvested])
+    );
+  }
+  return { hero, state: st };
+}
+
+/** Three-handed winner-take-all spin: the button raised, the small blind
+ *  folded, the big blind (hero) closes the action. */
+function closingSpot(variant: Variant, stackBB: number, seed: number) {
+  const { state: st } = smallBlindSpot(variant, 3, stackBB, 'tournament', seed);
+  const chips = stackBB * 2;
+  const deck: Card[] = [];
+  for (const rank of RANKS) for (const suit of SUITS) deck.push({ rank, suit });
+  for (let k = deck.length - 1; k > 0; k--) {
+    const j = Math.floor(fastRandom() * (k + 1));
+    [deck[k], deck[j]] = [deck[j], deck[k]];
+  }
+  const sb = st.players[0];
+  sb.is_folded = true;
+  const button = st.players[2];
+  button.is_folded = false;
+  button.bet = 6;
+  button.totalInvested = 6;
+  button.stack = chips - 6;
+  const hero = {
+    ...st.players[1],
+    cards: deck.slice(0, variant === 'plo8' ? 4 : Number(variant.slice(3))),
+  };
+  st.players[1] = hero;
+  st.pot = 9;
+  st.currentBet = 6;
+  st.toCall = 4;
+  st.minRaise = 4;
+  st.lastRaise = 4;
+  st.minRaiseTo = 10;
+  st.maxRaiseTo = Math.min(chips, 19);
+  st.pots = calculatePots(st.players);
+  st.contestablePot = calculateContestablePot(st.players, hero.user_id, 4);
+  st.legalActions = ['fold', 'call', 'raise', 'all_in'];
+  st.actionHistory = [
+    {
+      userId: button.user_id,
+      seat: button.seat,
+      action: 'raise',
+      amount: 6,
+      stage: 'preflop',
+      timestamp: 1,
+    },
+    {
+      userId: sb.user_id,
+      seat: sb.seat,
+      action: 'fold',
+      amount: 0,
+      stage: 'preflop',
+      timestamp: 2,
+    },
+  ];
+  if (st.tournament) {
+    st.tournament.payoutPct = [100];
+    st.tournament.spotsPaid = 1;
     st.tournament.stacks = st.players.map((p) => p.stack + p.totalInvested);
     st.tournament.stackByUser = Object.fromEntries(
       st.players.map((p) => [p.user_id, p.stack + p.totalInvested])
@@ -394,29 +461,95 @@ describe(
       }
     );
 
-    it('the tournament utility arbiter evaluates and owns the widened big blind call', () => {
-      let widened = 0;
-      for (let i = 0; i < 24; i++) {
-        HorseMind.reset();
-        const on = bigBlindSpot('plo4', 15, 9700 + i * 11);
-        const d = HorseLogic.decide(on.hero, on.state, 'balanced', {}, { mind: false });
-        HorseMind.reset();
-        const off = bigBlindSpot('plo4', 15, 9700 + i * 11);
-        const r = HorseLogic.decide(
-          off.hero,
-          off.state,
-          'balanced',
-          {},
-          {
-            mind: false,
-            omahaTournamentFirstIn: false,
-          }
-        );
-        expect(d.tournamentUtility?.selectedAction).toBe(d.action);
-        expect(r.tournamentUtility?.selectedAction).toBe(r.action);
-        if (r.action === 'fold' && d.action === 'call') widened++;
+    it.each(['plo4', 'plo5', 'plo6'] as const)(
+      '%s: the tournament utility arbiter evaluates and owns the widened big blind call',
+      (variant) => {
+        let widened = 0;
+        for (let i = 0; i < 24; i++) {
+          HorseMind.reset();
+          const on = bigBlindSpot(variant, 15, 9700 + i * 11);
+          const d = HorseLogic.decide(on.hero, on.state, 'balanced', {}, { mind: false });
+          HorseMind.reset();
+          const off = bigBlindSpot(variant, 15, 9700 + i * 11);
+          const r = HorseLogic.decide(
+            off.hero,
+            off.state,
+            'balanced',
+            {},
+            {
+              mind: false,
+              omahaTournamentFirstIn: false,
+            }
+          );
+          expect(d.tournamentUtility?.selectedAction).toBe(d.action);
+          expect(r.tournamentUtility?.selectedAction).toBe(r.action);
+          if (r.action === 'fold' && d.action === 'call') widened++;
+        }
+        expect(widened).toBeGreaterThanOrEqual(2);
       }
-      expect(widened).toBeGreaterThanOrEqual(2);
+    );
+
+    it.each(['plo4', 'plo6'] as const)(
+      '%s: a winner-take-all spin big blind closing the action calls, and Phase 7 owns it',
+      (variant) => {
+        let widened = 0;
+        for (let i = 0; i < 24; i++) {
+          HorseMind.reset();
+          const on = closingSpot(variant, 15, 9900 + i * 13);
+          const d = HorseLogic.decide(on.hero, on.state, 'balanced', {}, { mind: false });
+          HorseMind.reset();
+          const off = closingSpot(variant, 15, 9900 + i * 13);
+          const r = HorseLogic.decide(
+            off.hero,
+            off.state,
+            'balanced',
+            {},
+            {
+              mind: false,
+              omahaTournamentFirstIn: { ...OMAHA_TOURNAMENT_FIRST_IN, bigBlindClosingShare: 0 },
+            }
+          );
+          expect(d.tournamentUtility?.selectedAction).toBe(d.action);
+          expect(r.tournamentUtility?.selectedAction).toBe(r.action);
+          if (r.action === 'fold' && d.action === 'call') widened++;
+        }
+        expect(widened).toBeGreaterThanOrEqual(2);
+      }
+    );
+
+    it('a league arm that names one parameter keeps every other default', () => {
+      // Guard: a partial object used to replace the whole parameter set,
+      // zeroing every share and switching the rule off without a trace.
+      const run = (opts: HorseDecideOpts) => {
+        const actions: string[] = [];
+        for (let i = 0; i < 24; i++) {
+          HorseMind.reset();
+          const { hero, state } = smallBlindSpot('plo4', 2, 10, 'tournament', 9300 + i * 19);
+          const d = HorseLogic.decide(hero, state, 'balanced', {}, { mind: false, ...opts });
+          actions.push(`${d.action}:${d.amount ?? ''}`);
+        }
+        return actions;
+      };
+      expect(run({ omahaTournamentFirstIn: { bigBlindClosingShare: 0 } })).toEqual(run({}));
+      expect(run({ omahaTournamentFirstIn: {} })).toEqual(run({}));
+    });
+
+    it('the same closing spot with pay jumps keeps the engine folds', () => {
+      const run = (opts: HorseDecideOpts) => {
+        const actions: string[] = [];
+        for (let i = 0; i < 24; i++) {
+          HorseMind.reset();
+          const { hero, state } = closingSpot('plo4', 15, 9900 + i * 13);
+          if (state.tournament) {
+            state.tournament.payoutPct = [50, 30, 20];
+            state.tournament.spotsPaid = 3;
+          }
+          const d = HorseLogic.decide(hero, state, 'balanced', {}, { mind: false, ...opts });
+          actions.push(`${d.action}:${d.amount ?? ''}`);
+        }
+        return actions;
+      };
+      expect(run({})).toEqual(run({ omahaTournamentFirstIn: false }));
     });
 
     it('a locked satellite seat keeps its deliberate folds', () => {
@@ -493,7 +626,10 @@ describe(
         for (let i = 0; i < 60; i++) {
           HorseMind.reset();
           const { hero, state } = smallBlindSpot('plo4', 3, 10, 'tournament', 9700 + i * 29);
-          if (state.tournament) state.tournament.payoutPct = [50, 30, 20];
+          if (state.tournament) {
+            state.tournament.payoutPct = [50, 30, 20];
+            state.tournament.spotsPaid = 3;
+          }
           const d = HorseLogic.decide(hero, state, 'balanced', {}, { mind: false, ...opts });
           actions.push(`${d.action}:${d.amount ?? ''}`);
         }
