@@ -47,7 +47,8 @@ with tempfile.TemporaryDirectory(prefix='bounty-lanes-') as folder:
     def sweep(scope='NULL'):
         return json.loads(sql(f"SET statement_timeout='500ms'; SELECT public.fn_sweep_pending_tournament_bounties({scope},20);"))
     try:
-        sql('''CREATE TABLE public.tournaments(id uuid PRIMARY KEY);
+        sql('''CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;
+CREATE TABLE public.tournaments(id uuid PRIMARY KEY);
 CREATE TABLE public.tournament_bounty_obligations(
  id uuid PRIMARY KEY,tournament_id uuid,eliminated_user_id uuid,table_id uuid,hand_id uuid,
  hand_number bigint,settlement_completed_at timestamptz,seat_joined_at timestamptz,
