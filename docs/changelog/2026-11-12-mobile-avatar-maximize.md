@@ -63,3 +63,23 @@ earlier exclusion of six-card layouts is removed. The hero six-card row shift
 and the six-card hidden fans were already reserved as hard obstacles, so the
 cards keep their room; the fixture now exercises a six-card seated ring and a
 six-card spectator ring through folds, reveals and turns with fixed artwork.
+
+## One Size, Centred, Never Moving
+
+Dan, November 12: every avatar is the exact same size in six- and nine-handed
+games, never moves once set, is always centred over its frame box, and is the
+largest size that overlaps or blocks nothing displayed.
+
+Every opponent portrait on a table now takes one uniform zoom: the largest
+rung that every occupied seat can take at once, grown straight up from its
+plate with no sideways shift and no torso crop, checked first against the
+settled table and then against every neighbour already at that size. The
+seated hero keeps its approved 2x, centred the same way; opponents are never
+taller than the hero's portrait. The marker solver (chips and puck) now treats
+the enlarged portrait as a display to stay clear of, so the fitter no longer
+guesses rest zones: the felt band and the per-seat bet envelope are gone, the
+puck keeps a small box at its preferred spot beside each chair, and chips
+already on the felt stay hard. A seat's own face-down fan, drawn over its
+portrait like its tag and badge, is passable for that seat only; the amount
+lane is a fixed 108 px centred on its seat. The fixture pins one size for
+every opponent and a centred transform on every portrait.

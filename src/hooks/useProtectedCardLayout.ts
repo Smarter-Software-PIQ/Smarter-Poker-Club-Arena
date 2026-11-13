@@ -845,16 +845,45 @@ export function useProtectedCardLayout(
           element.matches('.seat__avatar-img,.seat__position-badge')
             ? measurePermanentBox(element, scale)
             : undefined;
-        const box =
+        const painted =
           element instanceof HTMLImageElement && element.matches('.seat__avatar-img')
             ? (artwork.paintedBox(element, true, rest) ?? rest!)
+            : null;
+        // Dan 2026-11-12: a phone portrait enlarged by the fixed mobile paint
+        // is a display like any other. Markers (chips, the puck) must rest
+        // clear of the enlarged portrait, not only of the original art, so
+        // the enlarged footprint is the obstacle and all of it counts as paint.
+        const enlarged =
+          painted && element instanceof HTMLImageElement
+            ? mobileAvatarCardReservation(
+                element,
+                painted,
+                scaler,
+                page as HTMLElement,
+                mobilePaint.current
+              )
+            : null;
+        const box =
+          painted && enlarged
+            ? enlarged === painted
+              ? painted
+              : new DOMRect(enlarged.left, enlarged.top, enlarged.width, enlarged.height)
             : element instanceof HTMLElement && element.matches('.seat__position-badge')
               ? measurePermanentBox(element, scale)
               : element.getBoundingClientRect();
         boxSources.set(box, element);
         if (element instanceof HTMLImageElement && element.matches('.seat__avatar-img')) {
           paintedSources.set(box, element);
-          paintedTests.set(box, artwork.preparePaintedTouch(element, true, rest));
+          paintedTests.set(
+            box,
+            enlarged && enlarged !== painted
+              ? (target: CardBox, gap = 0) =>
+                  target.left < box.left + box.width + gap &&
+                  target.left + target.width > box.left - gap &&
+                  target.top < box.top + box.height + gap &&
+                  target.top + target.height > box.top - gap
+              : artwork.preparePaintedTouch(element, true, rest)
+          );
         }
         return box.width > 0 && box.height > 0 ? box : null;
       };

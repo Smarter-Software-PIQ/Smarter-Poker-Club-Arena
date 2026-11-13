@@ -4,7 +4,7 @@ import {
   hiddenFanReservations,
   hiddenFanStates,
   mobilePositionLabels,
-  dealerReservations,
+  dealerSeatReservations,
   heroPrivateReservations,
 } from './mobileAvatarReservations';
 
@@ -69,7 +69,10 @@ export function chooseMobileAvatarPaint(
   ceiling = 1.15,
   maxPaintHeight = Infinity,
   profile?: MobileAvatarProfile,
-  attachmentBottom = clipBottom
+  attachmentBottom = clipBottom,
+  // Dan 2026-11-12: a portrait is always centred over its frame box, so no
+  // sideways pivot; it grows straight up from its plate.
+  centered = false
 ): PaintChoice {
   const unchanged = { scale: 1, x: 0, y: 0, parts, origin };
   if (!parts.length) return unchanged;
@@ -99,7 +102,9 @@ export function chooseMobileAvatarPaint(
     for (const py of profile ? [profile.py] : [2, 1, 0.75, 0.5, 0.25, 0.15, 0.1, 0.05, 0, -1])
       for (const px of profile
         ? [profile.px]
-        : [0, 0.05, -0.05, 0.1, -0.1, 0.15, -0.15, 0.25, -0.25, 0.5, -0.5, 1, -1]) {
+        : centered
+          ? [0]
+          : [0, 0.05, -0.05, 0.1, -0.1, 0.15, -0.15, 0.25, -0.25, 0.5, -0.5, 1, -1]) {
         const pivot: [number, number] = [
           (bounds.left + bounds.right) / 2 + px * height,
           bounds.top + py * height,
@@ -445,15 +450,16 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
     // across the whole screen, which refused its neighbours' growth. Reserve the
     // seat's own lane, including the 1.1x pop and its 2px upward / 8px downward
     // travel.
-    // Measured 2026-11-12: the widest amount pill ("RAISE 1,234.56") is under
-    // 100 layout px, so 20 px beyond a 95 px seat covers it. A 48 px pad put a
-    // top chair's lane across its lower neighbour's crown.
-    const lanePad = 20 * ratio;
+    // The pill is centred on the seat and at most ~100 layout px wide
+    // ("RAISE 1,234.56" at 0.72rem with its padding), so the lane is a fixed
+    // 108 px centred on the seat rather than the seat width plus a pad: a
+    // 136 px lane under a top chair reached its lower neighbour's crown.
+    const laneWidth = 108 * ratio;
     boxes.push({
       box: {
-        left: rect.left - lanePad,
+        left: rect.left + rect.width / 2 - laneWidth / 2,
         top: tagTop - 3 * ratio,
-        width: rect.width + 2 * lanePad,
+        width: laneWidth,
         height: tagH + 12 * ratio,
       },
       owner: seat,
@@ -465,27 +471,11 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
         height: tagH,
       },
     });
-    // Bet chips and their amount stand on the felt in front of the seat, at the
-    // seat-wrapper's --bet-offset (undoing any opponent pod shift). Reserve a
-    // generous stack envelope: chip pile, amount pill and the all-in puck.
-    const wrapper = seat.closest<HTMLElement>('.seat-wrapper');
-    const wrapperStyle = wrapper ? getComputedStyle(wrapper) : null;
-    const betX = parseFloat(wrapperStyle?.getPropertyValue('--bet-offset-x') || '') || 0;
-    const betY = parseFloat(wrapperStyle?.getPropertyValue('--bet-offset-y') || '') || 0;
-    const podX = hero ? 0 : parseFloat(style.getPropertyValue('--sp-opponent-x')) || 0;
-    const podY = hero ? 0 : parseFloat(style.getPropertyValue('--sp-opponent-y')) || 0;
-    const betCx = rect.left + rect.width / 2 + (betX - podX) * ratio;
-    const betCy = rect.top + rect.height / 2 + (betY - podY) * ratio;
-    boxes.push({
-      box: {
-        left: betCx - 42 * ratio,
-        top: betCy - 20 * ratio,
-        width: 84 * ratio,
-        height: 40 * ratio,
-      },
-      owner: seat,
-      layer: false,
-    });
+    // Chips already on the felt are displays and stay hard. Where a future
+    // bet rests is the marker solver's choice, and that solver treats the
+    // enlarged portrait as a display to stay clear of (useProtectedCardLayout),
+    // so no guessed rest envelope is reserved here: one abutting the art
+    // walled every seated opponent at 1.05x (measured 2026-11-12).
     for (const chips of seat.querySelectorAll<HTMLElement>('.seat__bet-chips,.seat__wager-group')) {
       const box = chips.getBoundingClientRect();
       if (box.width && box.height) boxes.push({ box, owner: seat, layer: false });
@@ -542,7 +532,11 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
             count,
             discard,
           }))
-            boxes.push({ box, owner: seat, layer: true });
+            // An opponent's face-down fan draws over its own portrait
+            // (.seat__cards--opponent z-index 4 above the wrap's 2), so the
+            // portrait may grow behind its own fan: the cards stay whole. The
+            // fan stays hard for every other seat's portrait.
+            boxes.push({ box, owner: seat, layer: true, overlay: true });
   }
   const canvas = scaler.getBoundingClientRect();
   const anchors = Array.from(scaler.querySelectorAll<HTMLElement>('.seat-wrapper')).map((e) => ({
@@ -557,7 +551,11 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
     portraitTaper: page.dataset.hero === 'false' ? 0 : undefined,
   };
   const dealerSize = ((buttonRadiusWidthPct(scalerSize) * scalerSize.w) / 100) * 2;
-  for (const box of dealerReservations({
+  // The puck's preferred spot beside each chair. Chips rest where the marker
+  // solver puts them, and that solver now treats the enlarged portrait as a
+  // display to stay clear of (useProtectedCardLayout), so no felt band is
+  // reserved here: a band walled every rail portrait (measured 2026-11-12).
+  for (const box of dealerSeatReservations({
     canvas,
     scale: ratio,
     anchors,
@@ -686,6 +684,15 @@ export function enlargeMobileAvatars(
     ? (state.obstacles ??= stableObstacles(scaler, page))
     : stableObstacles(scaler, page);
 
+  type Prepared = {
+    e: (typeof entries)[number];
+    rect: PaintBox & { bottom: number; right: number };
+    origin: [number, number];
+    obstacles: Array<{ box: PaintBox; ownLayer: boolean }>;
+    paintBottom: number;
+    plateTop: number;
+  };
+  const prepared: Prepared[] = [];
   for (const e of ordered) {
     // Rive rigs and cosmetics need their own painted-footprint proof.
     if (!e.avatar.classList.contains('seat__avatar--bust')) continue;
@@ -701,55 +708,29 @@ export function enlargeMobileAvatars(
     const profile = profiles[slot];
     if (!profile || profile.scale <= 1) continue;
     const rect = restingAvatarBox(e.avatar, ratio);
-    // The seat's own action/amount tag is drawn over its portrait's crown, so
-    // the portrait may grow behind it: the tag stays whole, as it does today
-    // for every character whose crown already touches the lane. Measured
-    // live on November 12, a crown a few pixels short of its lane turned
-    // the lane into a wall and left that seat at 1.05x beside a 2.5x
-    // neighbour. Every other reserved object is unchanged: own cards may
-    // only keep an existing overlap; others' objects are hard.
+    // The seat's own tag and badge are drawn over its portrait's crown, so the
+    // portrait may grow behind them; they stay hard for every other seat.
+    // Own cards may only keep an existing overlap; others' objects are hard.
     const obstacles = objects
       .filter((o) => !(o.owner === e.seat && ((o.layer && o.minimum) || o.overlay)))
       .map((o) => ({
         box: o.box,
         ownLayer: o.owner === e.seat && o.layer,
       }));
-    for (const [seat, parts] of painted)
-      if (seat !== e.seat)
-        for (const box of parts) obstacles.push({ box: box as DOMRect, ownLayer: false });
-    const paintBottom = Math.max(...e.parts.map(bottom));
-    let clipBottom = paintBottom;
-    let choice = rebaseChoice(state?.choices.get(e.image), [
-      rect.left + rect.width / 2,
-      rect.bottom,
-    ]);
-    if (!choice) {
-      // Keep the full portrait when it fits. A larger portrait may crop its
-      // lower torso at its own fixed plate, without painting through the plate.
-      for (const lowerEdge of [
-        ...new Set([paintBottom, Math.min(paintBottom, e.info.getBoundingClientRect().top)]),
-      ]) {
-        const candidate = chooseMobileAvatarPaint(
-          e.parts,
-          [rect.left + rect.width / 2, rect.bottom],
-          lowerEdge,
-          obstacles,
-          felt,
-          page.getBoundingClientRect(),
-          Math.min(profile.scale, e === hero ? MOBILE_HERO_MAX_SCALE : heroHeight / rect.height),
-          e === hero ? Infinity : heroPaintHeight,
-          undefined,
-          e.info.getBoundingClientRect().top
-        );
-        if (!choice || candidate.scale > choice.scale) {
-          choice = candidate;
-          clipBottom = lowerEdge;
-        }
-      }
-    }
-    if (!choice) continue;
+    prepared.push({
+      e,
+      rect,
+      origin: [rect.left + rect.width / 2, rect.bottom],
+      obstacles,
+      paintBottom: Math.max(...e.parts.map(bottom)),
+      plateTop: e.info.getBoundingClientRect().top,
+    });
+  }
+  const viewport = page.getBoundingClientRect();
+  const apply = (item: Prepared, choice: PaintChoice, clipBottom: number) => {
+    const { e, rect } = item;
     state?.choices.set(e.image, choice);
-    if (choice.scale === 1) continue;
+    if (choice.scale === 1) return;
     // Keep brightness/saturation (including folds). An enlarged soft shadow
     // must not spread onto felt that the original art left clear.
     const filter = getComputedStyle(e.image)
@@ -770,7 +751,6 @@ export function enlargeMobileAvatars(
     e.avatar.style.setProperty('--sp-mobile-art-scale', String(choice.scale));
     e.avatar.style.setProperty('--sp-mobile-art-x', `${choice.x / (ratio * normal)}px`);
     e.avatar.style.setProperty('--sp-mobile-art-y', `${choice.y / (ratio * normal)}px`);
-
     if (Number.isFinite(clipBottom)) {
       const imageBox = e.image.getBoundingClientRect();
       const clip = Math.max(
@@ -786,6 +766,119 @@ export function enlargeMobileAvatars(
       heroHeight = rect.height * choice.scale;
       heroPaintHeight =
         Math.max(...choice.parts.map(bottom)) - Math.min(...choice.parts.map((p) => p.top));
+    }
+  };
+  const peers = (item: Prepared) => {
+    const list = item.obstacles.slice();
+    for (const [seat, parts] of painted)
+      if (seat !== item.e.seat)
+        for (const box of parts) list.push({ box: box as DOMRect, ownLayer: false });
+    return list;
+  };
+
+  // The seated hero first: the owner-approved 2x head-and-shoulders zoom,
+  // centred over its plate, cropping its lower torso at the plate if needed.
+  const heroItem = prepared.find((item) => item.e === hero);
+  if (heroItem) {
+    const { e, rect, origin, paintBottom, plateTop } = heroItem;
+    let clipBottom = paintBottom;
+    let choice = rebaseChoice(state?.choices.get(e.image), origin);
+    if (!choice) {
+      for (const lowerEdge of [...new Set([paintBottom, Math.min(paintBottom, plateTop)])]) {
+        const candidate = chooseMobileAvatarPaint(
+          e.parts,
+          origin,
+          lowerEdge,
+          peers(heroItem),
+          felt,
+          viewport,
+          Math.min(profiles[0]?.scale ?? MOBILE_HERO_MAX_SCALE, MOBILE_HERO_MAX_SCALE),
+          Infinity,
+          undefined,
+          plateTop,
+          true
+        );
+        if (!choice || candidate.scale > choice.scale) {
+          choice = candidate;
+          clipBottom = lowerEdge;
+        }
+      }
+    }
+    if (choice) apply(heroItem, choice, clipBottom);
+  }
+
+  // Dan 2026-11-12: every other portrait on the table is the EXACT same size,
+  // the largest the tightest seat can take without touching any display. Each
+  // grows straight up from its plate (no crop, no sideways shift), stays
+  // centred over its frame box, and is never taller than the hero's portrait.
+  // Candidate sizes are checked against the settled table first, then against
+  // every neighbour already at that size, so two grown neighbours never meet.
+  const others = prepared.filter((item) => item.e !== hero);
+  if (others.length) {
+    const cached = others.map((item) =>
+      rebaseChoice(state?.choices.get(item.e.image), item.origin)
+    );
+    if (cached.every((c) => c)) {
+      others.forEach((item, i) =>
+        apply(item, cached[i]!, Math.min(item.paintBottom, item.plateTop))
+      );
+    } else {
+      const at = (item: Prepared, scale: number, obstacles: Prepared['obstacles']) =>
+        chooseMobileAvatarPaint(
+          item.e.parts,
+          item.origin,
+          // The resting art tucks a pixel or two into its plate; clip there so
+          // a wider portrait never paints through the plate.
+          Math.min(item.paintBottom, item.plateTop),
+          obstacles,
+          felt,
+          viewport,
+          scale,
+          heroPaintHeight,
+          { scale, px: 0, py: 1 },
+          item.plateTop
+        );
+      const fitsAll = (scale: number): PaintChoice[] | null => {
+        const first = others.map((item) => at(item, scale, peers(item)));
+        if (first.some((c) => c.scale !== scale)) return null;
+        // Every neighbour at this size is an obstacle too.
+        const grown = new Map(others.map((item, i) => [item.e.seat, first[i].parts]));
+        const second = others.map((item) =>
+          at(
+            item,
+            scale,
+            peers(item).concat(
+              others
+                .filter((o) => o !== item)
+                .flatMap((o) => grown.get(o.e.seat)!.map((box) => ({ box, ownLayer: false })))
+            )
+          )
+        );
+        return second.every((c) => c.scale === scale) ? second : null;
+      };
+      const rungs = [
+        2.5, 2.45, 2.4, 2.35, 2.3, 2.25, 2.2, 2.15, 2.1, 2.05, 2, 1.95, 1.9, 1.85, 1.8, 1.75, 1.7,
+        1.65, 1.6, 1.55, 1.5, 1.45, 1.4, 1.35, 1.3, 1.25, 1.2, 1.15, 1.1, 1.05, 1.02,
+      ].filter((scale) => scale <= Math.min(...others.map(() => MOBILE_AVATAR_MAX_SCALE)));
+      let best: PaintChoice[] | null = fitsAll(rungs[rungs.length - 1]);
+      if (best) {
+        let lo = 0,
+          hi = rungs.length - 1;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          const choices = fitsAll(rungs[mid]);
+          if (choices) {
+            best = choices;
+            hi = mid;
+          } else lo = mid + 1;
+        }
+      }
+      others.forEach((item, i) => {
+        const choice = best
+          ? best[i]
+          : { scale: 1, x: 0, y: 0, parts: item.e.parts, origin: item.origin };
+        apply(item, choice, Math.min(item.paintBottom, item.plateTop));
+      });
     }
   }
   return painted;
