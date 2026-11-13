@@ -275,6 +275,25 @@ export function seatsPerHorseBand(chicagoHour: number): { min: number; max: numb
   return isNightWindow(chicagoHour) ? { min: 1.0, max: 1.3 } : { min: 1.6, max: 2.2 };
 }
 
+/**
+ * THE CURVE GOVERNS SEATS, NOT ONLY BODIES (Dan, 2026-11-13).
+ *
+ * "WE SHOULDN'T HAVE 250 PLAYERS ON HOLDEM AT 10AM. WE HAVE THE PLAYER CURVE
+ * TO FOLLOW, LOWER AMOUNTS OF PLAYERS IN THE AM... STEADY CLIMB THROUGH OUT
+ * THE DAY, WITH PEAK TRAFFIC AROUND 6-11 AND THEN DIES BACK DOWN AT NIGHT."
+ *
+ * The lobby shows SEATS. The cap below the curve counted unique BODIES, and a
+ * body already on the host could take table after table: measured 11:44
+ * Chicago 2026-11-13, 234 bodies held 823 seats (3.52 each) against a body cap
+ * of 185, 249 of them at Hold'em. The seats-per-horse band above (1.6-2.2 by
+ * day, 1.0-1.3 at night) was only an alert. It is now the ceiling: a host may
+ * carry at most its body cap times the band's upper end in seats, so the room
+ * a player sees rises and falls with the curve.
+ */
+export function hostSeatCeiling(bodyCap: number, chicagoHour: number): number {
+  return Math.floor(Math.max(0, bodyCap) * seatsPerHorseBand(chicagoHour).max);
+}
+
 /* ------------------------------------------------------------------ */
 /* Section 5 - table shape                                             */
 /* ------------------------------------------------------------------ */

@@ -41,6 +41,8 @@ import {
 import { isMaintenanceFrozen } from '../maintenance/freezeState.js';
 import {
   bodiesOnHostFrom,
+  seatsOnHostFrom,
+  stableHandHostSeatCeilings,
   chicagoNow,
   hostAllowsNewBody,
   stableHandHostCaps,
@@ -2496,6 +2498,12 @@ export class HorseFleetManager {
       }
       const stableHandCaps = stableHandHostCaps(eligibleByHost, chicagoNow());
       const bodiesOnHost = bodiesOnHostFrom(allActiveSeats, hostOfTable);
+      /* THE CURVE GOVERNS SEATS TOO (Dan 2026-11-13): the lobby counts
+         chairs, so a host also stops at its body cap times the band's
+         seats-per-horse ceiling (StableHand.hostSeatCeiling). Updated as
+         this cycle seats, exactly like bodiesOnHost. */
+      const seatsOnHost = seatsOnHostFrom(allActiveSeats, hostOfTable);
+      const seatCeilings = stableHandHostSeatCeilings(stableHandCaps, chicagoNow().hour);
       /* WHERE EACH HORSE ALREADY IS. One body plays one club and one host at a
          time (section 11), and both are read from the live seat map rather
          than from stable_hand_horse_state: the seat rows are what actually
@@ -2847,6 +2855,8 @@ export class HorseFleetManager {
           eligible,
           onDuty: onDutyBodies,
           target: stableHandCaps.get(hostId) ?? null,
+          seats: seatsOnHost.get(hostId) ?? 0,
+          seatCeiling: seatCeilings.get(hostId) ?? null,
         });
       }
       if (book) {
@@ -3789,6 +3799,8 @@ export class HorseFleetManager {
                 caps: stableHandCaps,
                 bodiesOnHost,
                 humanNeedsRescue,
+                seatsOnHost,
+                seatCeilings,
               })
             ) {
               hostCapRefused++;
@@ -4217,6 +4229,7 @@ export class HorseFleetManager {
             if (seatedHost) {
               if (!bodiesOnHost.has(seatedHost)) bodiesOnHost.set(seatedHost, new Set());
               bodiesOnHost.get(seatedHost)!.add(horse.id);
+              seatsOnHost.set(seatedHost, (seatsOnHost.get(seatedHost) ?? 0) + 1);
             }
             // The seat we just bought is exposure NOW, not next cycle: without
             // this the aggregate ceiling only ever sees the position the cycle
@@ -4578,7 +4591,7 @@ export class HorseFleetManager {
       // OPEN rule and thin tables close through its BREAK rule. The fleet no
       // longer spawns or retires a table; the Stable Hand's open order is a
       // game (openPlannedTables asks fn_cash_game_ensure), never a table.
-      await this.openPlannedTables(tables, bodiesOnHost, stableHandCaps);
+      await this.openPlannedTables(tables, bodiesOnHost, stableHandCaps, seatsOnHost, seatCeilings);
 
       /* ══ THE DAY'S COUNTERS, WRITTEN ONCE PER CYCLE ═══════════════════════
          Everything the Stable Hand mutex reads about a horse's day is written
@@ -5017,7 +5030,9 @@ export class HorseFleetManager {
   private async openPlannedTables(
     tables: Array<{ id: string; name: string; club_id?: string | null }>,
     bodiesOnHost: ReadonlyMap<string, ReadonlySet<string>>,
-    caps: ReadonlyMap<string, number>
+    caps: ReadonlyMap<string, number>,
+    seatsOnHost: ReadonlyMap<string, number> = new Map(),
+    seatCeilings: ReadonlyMap<string, number> = new Map()
   ): Promise<void> {
     if (!controllerEnabled()) return;
     if (isMaintenanceFrozen()) return;
@@ -5034,6 +5049,9 @@ export class HorseFleetManager {
         if (openedThisCycle.has(order.hostId)) continue;
         const cap = caps.get(order.hostId);
         if (cap !== undefined && (bodiesOnHost.get(order.hostId)?.size ?? 0) >= cap) continue;
+        const seatCeiling = seatCeilings.get(order.hostId);
+        if (seatCeiling !== undefined && (seatsOnHost.get(order.hostId) ?? 0) >= seatCeiling)
+          continue;
 
         /* THE ORDER NAMES ITS RUNG WHERE IT CAN (2026-09-11). `stakeForBand`
            answers the PLATFORM ladder's top rung of the band - 25/50 for
