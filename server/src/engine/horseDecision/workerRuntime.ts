@@ -610,7 +610,9 @@ function observeCompletedHandInMind(request: ObserveCompletedHandRequest): void 
     request.scope,
     request.durableOpponentProfiles !== undefined,
     request.riverCallContext,
-    request.retainedRiverCalls
+    request.retainedRiverCalls,
+    // STYLE READ A2: the hand's format, from the exact-context profiles it carries (absent: buckets not recorded)
+    request.durableOpponentProfiles?.[0]?.mode
   );
 }
 

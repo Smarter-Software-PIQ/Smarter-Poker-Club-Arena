@@ -1038,10 +1038,18 @@ export function playHand(
         } finally {
           HorseMind.setDecisionScope(previousScope);
         }
-        HorseMind.observeHandComplete(`league:${ts}`, history, BB, showdown, handScope, false, {
-          variant: gameVariant,
-          boardCount: 1,
-        });
+        HorseMind.observeHandComplete(
+          `league:${ts}`,
+          history,
+          BB,
+          showdown,
+          handScope,
+          false,
+          { variant: gameVariant, boardCount: 1 },
+          undefined,
+          // the league is cash; the style learner records only when a harness enables it
+          'cash'
+        );
       });
     } catch {
       /* the harness is measurement plumbing — never let it break a deal */
