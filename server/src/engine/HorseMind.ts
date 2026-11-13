@@ -155,6 +155,7 @@ import {
   type PostReleaseOpportunities,
   type StyleProvenance,
 } from './HorseOpponentStyle.js';
+import { addStyleReadMs, noteStyleShadowEngaged } from './HorseStyleShadow.js';
 
 /** Match the controller's full-raise marker: an all-in button can be a call
  * or a short raise and must not invent an aggressive read. */
@@ -351,6 +352,10 @@ export interface ExploitReadOptions {
    * Only an explicit true engages.
    */
   styleFoldRatePreRepair?: boolean;
+  /** 2026-11-13 SHADOW: compute #2 and record whether it would have changed the read; apply nothing */
+  styleValueBettorShadow?: boolean;
+  /** 2026-11-13 SHADOW: compute the pre-repair fold-rate stand-down and record it; apply nothing */
+  styleFoldRatePreRepairShadow?: boolean;
 }
 
 /** V83: big river bets that reached showdown before the value share counts. */
@@ -1097,6 +1102,29 @@ export class HorseMind {
   private static hydratedHandKeys = new Set<string>();
   private static readonly MAX_HYDRATED_HAND_KEYS = 50_000;
 
+  /**
+   * (c) 2026-11-13: the hand keys (`tableId:handNumber`) the last style boot rebuild counted. A hand settled while the
+   * boot was reading can be in those rows and then reach the live style learner too; the learner skips such a hand
+   * once (the key is removed on that hit). Replaced by every boot rebuild. Bounded at STYLE_BOOT_HAND_KEY_CAP, which
+   * covers the whole boot window (EXPLOIT_HYDRATION_MAX_HANDS = 12,000 rows, one key each).
+   */
+  private static styleBootHandKeys = new Set<string>();
+  static readonly STYLE_BOOT_HAND_KEY_CAP = 16_384;
+
+  static replaceStyleBootHandKeys(keys: Iterable<string>): void {
+    this.styleBootHandKeys.clear();
+    for (const k of keys) {
+      if (!k) continue;
+      this.styleBootHandKeys.add(k);
+      while (this.styleBootHandKeys.size > this.STYLE_BOOT_HAND_KEY_CAP)
+        this.styleBootHandKeys.delete(this.styleBootHandKeys.values().next().value!);
+    }
+  }
+
+  static styleBootHandKeyCount(): number {
+    return this.styleBootHandKeys.size;
+  }
+
   static hasHydratedHand(key: string): boolean {
     return !!key && this.hydratedHandKeys.has(key);
   }
@@ -1143,6 +1171,7 @@ export class HorseMind {
     this.styleSizeShown.clear();
     this.styleAggression.clear();
     this.styleHorseReference.clear();
+    this.styleBootHandKeys.clear();
   }
   /** Item 12 (2026-11-05): the player's pooled hand clock (OpponentStats.hands
    *  in this process) at the moment each durable row was last imported. A
@@ -1718,6 +1747,27 @@ export class HorseMind {
   ): number {
     if (this.sandboxDepth > 0 || this.decisionEffectSink)
       throw new Error('post-release observation import outside live boundary');
+    this.assertPostReleaseRows(rows);
+    for (const r of rows) {
+      const key = opponentMemoryKey(r.user_id, r.variant as MemoryVariant, r.mode, r.size);
+      this.postReleaseObservations.delete(key);
+      this.postReleaseObservations.set(key, { ...r.opportunities });
+    }
+    while (this.postReleaseObservations.size > EXPLOIT_ROW_CAP)
+      this.postReleaseObservations.delete(this.postReleaseObservations.keys().next().value!);
+    return rows.length;
+  }
+
+  /** The row rule of importPostReleaseObservations, with no effect: at most 50 rows, each one valid, or it throws. */
+  private static assertPostReleaseRows(
+    rows: ReadonlyArray<{
+      user_id: string;
+      variant: string;
+      mode: MemoryMode;
+      size: MemorySize;
+      opportunities: PostReleaseOpportunities;
+    }>
+  ): void {
     const valid = (r: (typeof rows)[number]): boolean =>
       !!r &&
       typeof r.user_id === 'string' &&
@@ -1734,14 +1784,6 @@ export class HorseMind {
       );
     if (!Array.isArray(rows) || rows.length > 50 || !rows.every(valid))
       throw new Error('invalid post-release observation row');
-    for (const r of rows) {
-      const key = opponentMemoryKey(r.user_id, r.variant as MemoryVariant, r.mode, r.size);
-      this.postReleaseObservations.delete(key);
-      this.postReleaseObservations.set(key, { ...r.opportunities });
-    }
-    while (this.postReleaseObservations.size > EXPLOIT_ROW_CAP)
-      this.postReleaseObservations.delete(this.postReleaseObservations.keys().next().value!);
-    return rows.length;
   }
 
   /** True when this decision's Hold'em exact profile is pre-repair and its fold-to-bet is still excluded. */
@@ -1917,14 +1959,39 @@ export class HorseMind {
     releaseStartMs: number
   ): number {
     return this.importPostReleaseObservations(
-      rows.map((r) => ({
-        user_id: r.user_id,
-        variant: r.variant,
-        mode: r.mode,
-        size: r.size,
-        opportunities: postReleaseOpportunitiesFromHistory(r.hands, r.user_id, releaseStartMs),
-      }))
+      this.postReleaseRowsFromHistory(rows, releaseStartMs)
     );
+  }
+
+  /**
+   * (b) 2026-11-13: one batch of m recounted and checked against the import rule, with no effect. The boot stages
+   * every batch this way and imports only when none failed, so the discount lifts on complete data only.
+   */
+  static postReleaseRowsFromHistory(
+    rows: ReadonlyArray<{
+      user_id: string;
+      variant: string;
+      mode: MemoryMode;
+      size: MemorySize;
+      hands: readonly PersistedHandForProvenance[];
+    }>,
+    releaseStartMs: number
+  ): Array<{
+    user_id: string;
+    variant: string;
+    mode: MemoryMode;
+    size: MemorySize;
+    opportunities: PostReleaseOpportunities;
+  }> {
+    const out = rows.map((r) => ({
+      user_id: r.user_id,
+      variant: r.variant,
+      mode: r.mode,
+      size: r.size,
+      opportunities: postReleaseOpportunitiesFromHistory(r.hands, r.user_id, releaseStartMs),
+    }));
+    this.assertPostReleaseRows(out);
+    return out;
   }
 
   /**
@@ -2188,6 +2255,16 @@ export class HorseMind {
    * runs.
    */
   static styleRead(userId: string): OpponentStyleRead {
+    // LATENCY (2026-11-13): the style read's own time per decision, against the pre-registered budget
+    const t0 = performance.now();
+    try {
+      return this.styleReadUntimed(userId);
+    } finally {
+      addStyleReadMs(performance.now() - t0);
+    }
+  }
+
+  private static styleReadUntimed(userId: string): OpponentStyleRead {
     const scope = this.decisionScope;
     if (!scope) return unknownStyle('no_decision_scope');
     const variant = memoryVariant(this.decisionVariant);
@@ -2459,6 +2536,7 @@ export class HorseMind {
     this.exploitCounters.clear();
     this.flopStabCounters.clear();
     this.hydratedHandKeys.clear();
+    this.styleBootHandKeys.clear();
     this.durableOpponentVersions.clear();
     this.durableProfileComplete.clear();
     this.durableProfilePreRepair.clear();
@@ -3556,6 +3634,11 @@ export class HorseMind {
         if (options.styleFoldRatePreRepair === true && this.foldToBetPreRepairExcluded(userId)) {
           noteFire('style_pre_repair_fold_rate_discounted_seen');
         } else {
+          if (
+            options.styleFoldRatePreRepairShadow === true &&
+            this.foldToBetPreRepairExcluded(userId)
+          )
+            noteStyleShadowEngaged('styleFoldRatePreRepair', 1);
           bluffMod = blend(1.45);
           // V28 AUDIT FIX: valueThinMod was only ever RAISED (stations), so the
           // documented "a nit calls only what a smaller bet asks" half of V18
@@ -3615,6 +3698,11 @@ export class HorseMind {
           // shown-strength bettor is not a maniac on the ratio alone.
           noteFire('style_value_bettor_not_maniac_seen');
         } else {
+          if (options.styleValueBettorShadow === true) {
+            const vbStyle = this.styleRead(userId);
+            if (isValueBettor(vbStyle))
+              noteStyleShadowEngaged('styleValueBettorNotManiac', vbStyle.confidenceCap);
+          }
           callDownMod = blend(1.2);
         }
       } else if (af < 0.7) callDownMod = blend(0.85);
@@ -4496,7 +4584,9 @@ export class HorseMind {
       const styleScope = scope ?? null;
       const styleLearn =
         (this.sandboxDepth === 0 && !this.decisionEffectSink) || this.harnessStyleLearning;
-      if (styleLearn && styleMode && styleVariant && styleScope) {
+      // (c): a hand the boot rebuild already counted is not counted again (one skip per key)
+      const styleBootCounted = styleLearn && this.styleBootHandKeys.delete(handKey);
+      if (styleLearn && !styleBootCounted && styleMode && styleVariant && styleScope) {
         const styleSize = styleScope.split(':')[1] as MemorySize;
         const horses = horseSeatsOf(actions);
         const refKey = `${styleVariant}|${styleMode}|${styleSize}`;

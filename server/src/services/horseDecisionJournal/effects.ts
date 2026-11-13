@@ -61,7 +61,8 @@ function currentDeepEmptyCapture(
       Array.isArray(value.effects) &&
       value.effects.length === 0 &&
       isHorseDecisionReplayState(value.replayState) &&
-      value.replayState.version === 'horse-decision-replay-state-v3' &&
+      (value.replayState.version === 'horse-decision-replay-state-v3' ||
+        value.replayState.version === 'horse-decision-replay-state-v4') &&
       !!pin &&
       typeof pin === 'object' &&
       !Array.isArray(pin) &&

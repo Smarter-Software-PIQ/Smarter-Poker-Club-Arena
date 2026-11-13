@@ -93,6 +93,11 @@ export interface HorseExactReplayOptions {
   /** Complete bounded private journal candidates; DEEP requires exactly one
    * earlier FAST matching its persisted snapshot/read-frame hash binding. */
   originalFastRecords?: readonly unknown[];
+  /**
+   * Offline style re-run only (styleShadowRerun.ts): replay with these switch states instead of the recorded ones.
+   * The verdict then reports the re-decided action; it is never a verification of the original.
+   */
+  styleStatesOverride?: import('../../HorseStyleSwitch.js').StyleSwitchStates;
 }
 
 /**
@@ -463,6 +468,7 @@ export async function exactReplayHorseDecisionRecord(
       replayThroughWorkerRuntime(input, {
         phase8SafetyDisabledReason: state.phase8SafetyDisabledReason,
         captureV56PressureWitness: options.captureV56PressureWitness,
+        styleStates: options.styleStatesOverride ?? state.style ?? null,
       })
     );
   } catch (error) {

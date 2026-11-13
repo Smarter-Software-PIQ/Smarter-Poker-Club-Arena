@@ -119,7 +119,7 @@ async function readStdin(maxBytes = Infinity) {
 }
 
 /** Refuse and count every outbound connection: the replay has no database, table or network. */
-async function refuseNetwork() {
+export async function refuseNetwork() {
   const attempts = { fetch: 0, socket: 0 };
   globalThis.fetch = async () => {
     attempts.fetch++;
@@ -167,7 +167,7 @@ async function child(args) {
   );
 }
 
-async function hydrateReplayStores(storeSnapshots, src) {
+export async function hydrateReplayStores(storeSnapshots, src) {
   const { sameSolverStoreIdentity, isSolverStoreIdentity } = await import(
     src('gto/SolverStoreIdentity.ts')
   );

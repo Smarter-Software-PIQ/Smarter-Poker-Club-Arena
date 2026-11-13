@@ -253,6 +253,7 @@ async function verifyCase(
         phase8SafetyDisabledReason: state.phase8SafetyDisabledReason,
         v56PressureCounterfactual: 'off',
         captureV56PressureWitness: true,
+        styleStates: state.style ?? null,
       })
     );
     if (journalHash(horseJournalJson(input)) !== originalDigest) return finish('original_mutated');
