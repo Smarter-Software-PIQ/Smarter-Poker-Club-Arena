@@ -26,7 +26,7 @@ export async function checkFixedMobileArtwork(
   // Each case is a fresh device session: no game-type size recorded yet.
   await page.evaluate(() => localStorage.removeItem('sp-mobile-avatar-size-v2'));
   await page.reload();
-  await page.evaluate(() => {
+  await page.evaluate((settings) => {
     for (const style of document.querySelectorAll('style'))
       style.textContent = (style.textContent || '')
         .replace(/env\(\s*safe-area-inset-top\s*(?:,[^()]*)?\)/g, '72px')
@@ -39,10 +39,13 @@ export async function checkFixedMobileArtwork(
       activeSeat: '3',
       action: 'preflop',
       actionPills: 'true',
-      villainCards: '2',
       folded: '1,6',
+      // Mount the requested game directly. A warm-up nine-seat Hold'em mount
+      // can persist a second game type before the first fixture transition.
+      ...settings,
+      villainCards: settings.cards,
     });
-  });
+  }, settings);
   await page.addScriptTag({ content: bundle });
   await page.waitForFunction(
     () =>
