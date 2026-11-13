@@ -150,6 +150,13 @@ export async function checkFixedMobileArtwork(page: Page, bundle: string) {
     }
     await expect.poll(async () => (await read()).paint.some((p) => Number(p[0]) > 1)).toBe(true);
     const before = await read();
+    // Dan 2026-11-12: every portrait is the exact same size and stays centred
+    // over its frame box (no sideways shift), the hero's own zoom aside.
+    const opponents = before.paint.slice(spectator ? 0 : 1).filter((p) => p[0]);
+    expect(new Set(opponents.map((p) => p[0])).size, 'one size for every portrait').toBe(1);
+    for (const p of before.paint)
+      if (p[0])
+        expect(Math.abs(parseFloat(p[1]) || 0), 'centred over its frame box').toBeLessThan(1);
     if (!spectator) {
       expect(Number(before.paint[0][0]), 'hero grows').toBeGreaterThan(1);
       if (settings.seats === '9')
