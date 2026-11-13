@@ -73,10 +73,15 @@ import {
 } from './HorseBehavior.js';
 import { requestSeatChangeFor } from './supabase/seatChange.js';
 import { regularSessionEndFactor } from './HorseRegulars.js';
-import { offDutyReason, recordOffDutyDeferred, recordOffDutyLeave } from './HorseWorkSchedule.js';
+import {
+  offDutyExitNow,
+  offDutyReason,
+  recordOffDutyDeferred,
+  recordOffDutyLeave,
+} from './HorseWorkSchedule.js';
 import { chicagoCounterDay, tagBook } from './StableHandTags.js';
 import { chicagoNow } from './StableHandController.js';
-import { controllerEnabled } from './StableHand.js';
+import { NIGHT_MIN_PLAYERS, controllerEnabled } from './StableHand.js';
 import {
   bankrollPolicyFor,
   referenceBuyIn,
@@ -1303,6 +1308,8 @@ export class HorseSessionRotator {
     const dutyWeekday = chicagoNow().weekday;
     const dutyToday = chicagoCounterDay(dutyNowMs);
     let offDutyLeaves = 0;
+    /** Tables that had a shift-change exit this cycle (one change at a time). */
+    const offDutyExitTables = new Set<string>();
     for (const [tableId, tableSeats] of byTable) {
       if (!this.lifecycleIsCurrent(generation)) return;
       const t = (tableSeats[0] as any)?.tables;
@@ -1327,6 +1334,20 @@ export class HorseSessionRotator {
           cashPlanSecondTables,
           true
         );
+      /* ONE SHIFT CHANGE AT A TIME, AND NEVER A PERSON LEFT SHORT (2026-11-13,
+         raised by the Human vs Horse owner on this lane's off-duty exits).
+         Horses that share a work window reach the end of it together, so
+         without these two rules a whole table could stand up in one cycle -
+         the loudest tell a floor has - and a person at it could be left
+         playing alone. An off-duty exit is therefore taken at most once per
+         table per cycle, and is deferred while a person is playing there and
+         the table would drop below NIGHT_MIN_PLAYERS (the same floor the
+         seeder rescues to): the seeder brings an on-duty horse, then the
+         off-duty one goes home on a later cycle. Roster and policy exits keep
+         their immediate door. */
+      const playingHumansHere = playingHumansAtCashTable(tableSeats, horseIds);
+      let seatedHere = tableSeats.filter((x) => !HorseSessionRotator.isLeaving(x)).length;
+      let offDutyLeftHere = 0;
       for (const seat of tableSeats) {
         const uid = String(seat.user_id ?? '');
         if (!uid || !horseIds.has(uid)) continue;
@@ -1348,14 +1369,18 @@ export class HorseSessionRotator {
            owes hands in profit (HIT AND RUN) or one orbit after a big pot
            plays them first and goes on a later cycle. The roster and policy
            exits above keep their immediate door. */
+        const onlyOffDuty =
+          offDuty && !benched && !offPlo && !offGame && !restrictedCashGame && !outsideCashPlan;
         if (
-          offDuty &&
-          !benched &&
-          !offPlo &&
-          !offGame &&
-          !restrictedCashGame &&
-          !outsideCashPlan &&
-          (this.owesHands(tableId, uid, engine) || this.owesBigPotOrbit(uid, engine))
+          onlyOffDuty &&
+          !offDutyExitNow({
+            offDutyLeftHereThisCycle: offDutyLeftHere,
+            playingHumansHere,
+            seatedHere,
+            personFloor: NIGHT_MIN_PLAYERS,
+            owesHandsOrOrbit:
+              this.owesHands(tableId, uid, engine) || this.owesBigPotOrbit(uid, engine),
+          })
         ) {
           recordOffDutyDeferred();
           continue;
@@ -1370,6 +1395,11 @@ export class HorseSessionRotator {
               offDutyLeaves++;
               recordOffDutyLeave(dutyReason);
             }
+            if (onlyOffDuty) {
+              offDutyLeftHere++;
+              offDutyExitTables.add(tableId);
+            }
+            seatedHere--;
             rosterLeft.add(`${tableId}:${uid}`);
             this.breaks.delete(HorseSessionRotator.breakKey(tableId, uid));
           }
@@ -1664,6 +1694,9 @@ export class HorseSessionRotator {
       const maxPlayers = Number(tableRow?.max_players) || tableSeats.length;
       const openSeats = Math.max(0, maxPlayers - tableSeats.length);
       const releaseWanted = Math.max(0, (humansWaiting.get(tableId) ?? 0) - openSeats);
+      /* A table that just had a shift change is not thinned again this cycle
+         by an ordinary session end; a person waiting for a seat still is. */
+      if (releaseWanted === 0 && offDutyExitTables.has(tableId)) continue;
       const fill = cashTableFill(tableId);
       /* A horse-seeded Lightning game is never wound down because its last
          person left (Dan 2026-11-13: the 1/2 players are split across every

@@ -66,6 +66,28 @@ export function onDuty(
   return offDutyReason(horseId, state, nowMs, chicagoWeekday, todayKey) === null;
 }
 
+/**
+ * MAY THIS OFF-DUTY HORSE GO HOME THIS CYCLE? (2026-11-13)
+ *
+ * Horses sharing a work window reach its end together, so a table could
+ * otherwise stand up all at once and leave a person playing alone. At most one
+ * off-duty exit per table per cycle; never while a person is playing there and
+ * the table would drop below `personFloor` (the seeder's rescue floor - it
+ * brings an on-duty horse, and this one goes on a later cycle); and HIT AND RUN
+ * or a big-pot orbit still decides WHEN, never WHETHER.
+ */
+export function offDutyExitNow(p: {
+  offDutyLeftHereThisCycle: number;
+  playingHumansHere: number;
+  seatedHere: number;
+  personFloor: number;
+  owesHandsOrOrbit: boolean;
+}): boolean {
+  if (p.offDutyLeftHereThisCycle >= 1) return false;
+  if (p.playingHumansHere > 0 && p.seatedHere - 1 < p.personFloor) return false;
+  return !p.owesHandsOrOrbit;
+}
+
 /* ── EVIDENCE (owner 2026-11-12: "fully wired in and tested") ──────────────
    Counts only, no horse identities or amounts, read by /health so anyone can
    see the work schedule being kept without engine logs. Cumulative since the

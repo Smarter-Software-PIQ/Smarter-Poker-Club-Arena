@@ -473,11 +473,13 @@ describe('a schedule departure is an ordinary leave: HIT AND RUN holds a horse i
   });
 
   // Owner 2026-11-12 (HorseWorkSchedule): past its pattern AND its daily
-  // window a horse is off shift, and EVERY off-shift horse goes home - once.
-  it('a horse whose pattern is over, owing nothing, leaves', async () => {
+  // window a horse is off shift, and every off-shift horse goes home - once.
+  // 2026-11-13: one shift change per table per cycle, so a table never stands
+  // up all at once; the rest go on the following cycles.
+  it('a horse whose pattern is over, owing nothing, leaves - one per table per cycle', async () => {
     const leaves = await rotate(OUT, 0);
-    expect(new Set(leaves).size).toBe(leaves.length);
-    expect([...leaves].sort()).toEqual([...OUT].sort());
+    expect(leaves).toHaveLength(1);
+    expect(OUT).toContain(leaves[0]);
   });
 
   it('the same horse in its pattern stays', async () => {

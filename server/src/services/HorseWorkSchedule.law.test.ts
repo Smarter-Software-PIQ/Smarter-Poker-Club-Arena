@@ -5,7 +5,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { offDutyReason, onDuty } from './HorseWorkSchedule.js';
+import { offDutyExitNow, offDutyReason, onDuty } from './HorseWorkSchedule.js';
 import { availableNow } from './HorseRegulars.js';
 import { planHorseQueues } from './HorseGameQueue.js';
 import type { HorseState } from './StableHandTags.js';
@@ -97,8 +97,38 @@ describe('every path obeys it: no waiver, no widening', () => {
       /const dutyReason =\s*t\?\.tournament_id == null\s*\?\s*offDutyReason\(/
     );
     // HIT AND RUN and the big-pot orbit decide WHEN, never WHETHER.
-    expect(rotator).toContain(
-      '(this.owesHands(tableId, uid, engine) || this.owesBigPotOrbit(uid, engine))'
+    expect(rotator).toMatch(
+      /owesHandsOrOrbit:\s*this\.owesHands\(tableId, uid, engine\) \|\| this\.owesBigPotOrbit\(uid, engine\)/
+    );
+  });
+  it('one off-duty exit per table per cycle, never leaving a person short (2026-11-13)', () => {
+    const base = {
+      offDutyLeftHereThisCycle: 0,
+      playingHumansHere: 0,
+      seatedHere: 6,
+      personFloor: 4,
+      owesHandsOrOrbit: false,
+    };
+    expect(offDutyExitNow(base)).toBe(true);
+    // A second off-duty exit at the same table waits for the next cycle.
+    expect(offDutyExitNow({ ...base, offDutyLeftHereThisCycle: 1 })).toBe(false);
+    // A person playing at a table that would drop below four keeps the horse.
+    expect(offDutyExitNow({ ...base, playingHumansHere: 1, seatedHere: 4 })).toBe(false);
+    expect(offDutyExitNow({ ...base, playingHumansHere: 1, seatedHere: 5 })).toBe(true);
+    expect(offDutyExitNow({ ...base, playingHumansHere: 1, seatedHere: 2 })).toBe(false);
+    // Horse-only tables may thin; HIT AND RUN and the orbit still decide when.
+    expect(offDutyExitNow({ ...base, seatedHere: 2 })).toBe(true);
+    expect(offDutyExitNow({ ...base, owesHandsOrOrbit: true })).toBe(false);
+    // The rotator asks it, counts each exit and each seat it frees.
+    expect(rotator).toMatch(/onlyOffDuty &&\s*!offDutyExitNow\(\{/);
+    expect(rotator).toMatch(/personFloor: NIGHT_MIN_PLAYERS,/);
+    expect(rotator).toMatch(
+      /if \(onlyOffDuty\) \{\s*offDutyLeftHere\+\+;\s*offDutyExitTables\.add\(tableId\);\s*\}\s*seatedHere--;/
+    );
+    // The ordinary session end does not thin the same table in the same cycle,
+    // unless a person is waiting for the seat.
+    expect(rotator).toMatch(
+      /if \(releaseWanted === 0 && offDutyExitTables\.has\(tableId\)\) continue;/
     );
   });
   it('no new tournament registration on a rest day, ticket or not', () => {
