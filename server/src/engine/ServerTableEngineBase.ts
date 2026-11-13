@@ -7847,6 +7847,15 @@ export abstract class ServerTableEngineBase {
   }
 
   /**
+   * The variant this table's horse decisions are counted under in the policy
+   * ledger (the same activeHandVariant() the turn path puts in gameState), for
+   * `poker_tables_with_horses_by_variant`. Identification only.
+   */
+  horseLedgerVariant(): string {
+    return this.activeHandVariant();
+  }
+
+  /**
    * Drill-only public wrapper over the protected killForRestart path.  The
    * classification is structural rather than inferred from the reason text:
    * a drill may deliberately use a real-looking reason while exercising the

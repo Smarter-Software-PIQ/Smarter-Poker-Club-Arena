@@ -118,6 +118,7 @@ import { nextHandGap } from './engine/nextHandGapRecorder.js';
 import { cashDealGap } from './engine/CashDealGap.js';
 import { EngineTelemetry } from './engine/EngineTelemetry.js';
 import { evaluateEngineLiveness } from './engine/EngineLivenessVerdict.js';
+import { countHorseTablesByVariant } from './engine/HorsePolicyLedgerObserver.js';
 import {
   settlementHealthSnapshot,
   settlementPrometheusLines,
@@ -6695,6 +6696,7 @@ export class GameServer {
        here rather than from `liveness` because the seat rows carry the flag
        and the liveness snapshot does not. */
     const horseSeatCounts = { horses: 0, tables: 0 };
+    const horseTablesByVariant = countHorseTablesByVariant(this.tableEngines.values());
     for (const engine of this.tableEngines.values()) {
       const n = engine.horsesSeated();
       if (n > 0) {
@@ -6741,6 +6743,14 @@ export class GameServer {
       '# HELP poker_tables_with_horses Live tables holding at least one horse with chips',
       '# TYPE poker_tables_with_horses gauge',
       `poker_tables_with_horses ${horseSeatCounts.tables}`,
+      /* Per ledger variant, so HorseBrainVariantSilent can tell a variant
+         whose last table closed from one whose decisions are failing
+         (production alert 376529). Seeded at zero for every variant. */
+      '# HELP poker_tables_with_horses_by_variant Live tables holding at least one horse with chips, by policy-ledger variant',
+      '# TYPE poker_tables_with_horses_by_variant gauge',
+      ...Object.entries(horseTablesByVariant).map(
+        ([variant, n]) => `poker_tables_with_horses_by_variant{variant="${variant}"} ${n}`
+      ),
       '# HELP poker_horse_fleet_heartbeat_age_seconds Seconds since the horse fleet completed and recorded a seeding cycle; -1 before its first',
       '# TYPE poker_horse_fleet_heartbeat_age_seconds gauge',
       `poker_horse_fleet_heartbeat_age_seconds ${this.horseFleet.heartbeatAgeSeconds()}`,
