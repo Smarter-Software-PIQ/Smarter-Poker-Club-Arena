@@ -851,7 +851,25 @@ code=$?
 set -e
 [ "$code" != 0 ] && grep -Eq 'registered service rebuy mismatch was accepted|unregistered earlier producer awards were not normalized' "$EVIDENCE/15-starting-stack-before.log" \
   || fail 'starting-stack regression did not reproduce the old registered-write defect'
+# Read-only maintenance participants may retain AccessShareLock during freeze.
+# The real successor must install while that reader still owns its lock; the
+# former DROP TRIGGER statements timed out here with ACCESS EXCLUSIVE.
+as_pg "${SU[@]}" -c "BEGIN; LOCK TABLE public.tournaments IN ACCESS SHARE MODE; SELECT pg_sleep(8); COMMIT;" \
+  > "$EVIDENCE/15-starting-stack-reader.log" 2>&1 &
+STACK_READER=$!
+stack_reader_held() {
+  su_sql "SELECT count(*) FROM pg_locks WHERE relation='public.tournaments'::regclass
+    AND mode='AccessShareLock' AND granted AND pid<>pg_backend_pid()"
+}
+for _ in $(seq 1 50); do
+  [ "$(stack_reader_held)" -ge 1 ] && break
+  sleep 0.1
+done
+[ "$(stack_reader_held)" -ge 1 ] || fail 'starting-stack reader did not acquire its lock'
 as_pg "${SU[@]}" -f "$ROOT/supabase/migrations/20261112151009_rebuy_and_addon_stack_invariants_survive_registered_updates.sql" > "$EVIDENCE/15-starting-stack-migration.log" 2>&1
+[ "$(stack_reader_held)" -ge 1 ] || fail 'starting-stack install waited for the reader to leave'
+wait "$STACK_READER"
+pass 'starting-stack invariant installs beside an active reader without dropping compatible triggers'
 as_pg "${SU[@]}" -f "$FIXTURES/starting-stack-contract.sql" > "$EVIDENCE/15-starting-stack-after.log" 2>&1 \
   || fail 'starting-stack native regression failed after the actual successor migration'
 pass 'registered service transitions cannot mismatch rebuy/reentry/addon awards; no-ops and prices survive'
