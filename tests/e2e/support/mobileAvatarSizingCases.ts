@@ -203,7 +203,7 @@ export async function checkFixedMobileArtwork(
           Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
         const displays = [
           ...document.querySelectorAll(
-            '.table-brand,.community-area,.seat__name,.seat__stack,.seat__bet-chips,.dealer-button,.action-panel'
+            '.table-brand,.community-area,.seat__info,.seat__name,.seat__stack,.seat__bet-chips,.dealer-button,.action-panel'
           ),
         ].filter(visible);
         return [...document.querySelectorAll('.seat__cards .seat__card')]

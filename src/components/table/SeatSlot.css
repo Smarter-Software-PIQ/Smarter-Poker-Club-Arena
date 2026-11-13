@@ -5224,3 +5224,22 @@
     --seat-avatar-hero-ratio: 1;
   }
 }
+
+/* Rotation around 50% 120% lowers a fan's outer bottom corner by
+   half-width * sin(angle) + 0.2 * height * (1 - cos(angle)). Reserve that
+   painted corner above the plate, not just the unrotated card box. */
+@media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
+  .table-page:where([data-seats='6'], [data-seats='9'])
+    .seat__cards--opponent:not(.seat__cards--revealed) {
+    --vh-outer-angle: calc(
+      (var(--vh-n) - 1) / 2 * var(--vh-rot-step, 7deg) * var(--vh-rot-scale, 1)
+    );
+    --vh-corner-drop: calc(
+      var(--vh-card-w) * 0.5 * sin(var(--vh-outer-angle)) + var(--vh-card-h) * 0.2 *
+        (1 - cos(var(--vh-outer-angle)))
+    );
+    top: calc(
+      var(--seat-avatar-size, 84px) - var(--sp-wrap-overlap, 6px) - 1px - var(--vh-corner-drop)
+    );
+  }
+}
