@@ -216,7 +216,7 @@ import { gtoPostflopCount, gtoPostflopStoreIdentity, textureClass } from '../Gto
 import { gtoPostflopV31Count, gtoPostflopV31Dataset } from '../GtoPostflopV31.js';
 import { hydrateHorseMind } from '../../services/HorseMindHydrator.js';
 import {
-  hydrateHorseExploitReads, styleBootOptionsFromEnv,
+  hydrateHorseExploitReads,
   type ExploitHydrationResult,
 } from '../../services/HorseExploitHydrator.js';
 import {
@@ -515,7 +515,7 @@ export async function startOwnedServices(shard?: {
       // 2026-10-22: the maniac read survives the daily reset - replay the
       // recent human hands into the decayed exploit counters before READY.
       step('exploit_reads', async () => {
-        exploitFloorBootstrap = await hydrateHorseExploitReads(undefined, styleBootOptionsFromEnv());
+        exploitFloorBootstrap = await hydrateHorseExploitReads();
         return exploitFloorBootstrap;
       }),
       step('gto_charts', () => loadGtoCharts()),
