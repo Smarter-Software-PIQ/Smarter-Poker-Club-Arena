@@ -140,6 +140,7 @@ import {
   inFormatShownTallies,
   inFormatAggressionTallies,
   postflopAggressionIncrements,
+  horseSeatsOf,
   addStreetAggression,
   type StreetAggression,
   type StyleTallies,
@@ -1122,6 +1123,8 @@ export class HorseMind {
   private static styleSizeShown = new Map<string, SizeBucketTallies>();
   /** STYLE READ #4: postflop aggression and raise opportunities per street, per (variant, format, table size, player). */
   private static styleAggression = new Map<string, StreetAggression>();
+  /** #4 (M2): the Horse population's postflop aggression and raise opportunities per (variant, format, table size). */
+  private static styleHorseReference = new Map<string, StreetAggression>();
   /** TEST-HARNESS ONLY (league and tournament simulations): let the style learner record inside a sandbox, into the
    *  process maps. Never set by a production path; a live engine keeps the default false. */
   private static harnessStyleLearning = false;
@@ -1130,9 +1133,11 @@ export class HorseMind {
   }
   /** TEST-HARNESS ONLY: forget the style learner's per-context rows (one cell or tournament per arm pairing). */
   static clearHarnessStyleMemory(): void {
-    if (!this.harnessStyleLearning) throw new Error('clearHarnessStyleMemory is for test harnesses only');
+    if (!this.harnessStyleLearning)
+      throw new Error('clearHarnessStyleMemory is for test harnesses only');
     this.styleSizeShown.clear();
     this.styleAggression.clear();
+    this.styleHorseReference.clear();
   }
   /** Item 12 (2026-11-05): the player's pooled hand clock (OpponentStats.hands
    *  in this process) at the moment each durable row was last imported. A
@@ -1740,7 +1745,12 @@ export class HorseMind {
     if (!scope || !scope.startsWith('holdem:')) return false;
     const variant = memoryVariant(this.decisionVariant);
     if (!variant) return false;
-    const prov = this.styleProvenanceOf(userId, variant, this.decisionMode, scope.split(':')[1] as MemorySize);
+    const prov = this.styleProvenanceOf(
+      userId,
+      variant,
+      this.decisionMode,
+      scope.split(':')[1] as MemorySize
+    );
     return preRepairDiscount(prov, 'foldToBet').excluded;
   }
 
@@ -1749,23 +1759,49 @@ export class HorseMind {
    * buckets, so a restart that re-imports the same rows rebuilds them exactly. Live boundary only.
    */
   static importSizeBucketsFromHistory(
-    rows: ReadonlyArray<{ user_id: string; variant: string; mode: MemoryMode; size: MemorySize; hands: readonly PersistedHandForStyle[] }>
+    rows: ReadonlyArray<{
+      user_id: string;
+      variant: string;
+      mode: MemoryMode;
+      size: MemorySize;
+      hands: readonly PersistedHandForStyle[];
+    }>
   ): number {
     return this.importSizeBuckets(
-      rows.map((r) => ({ user_id: r.user_id, variant: r.variant, mode: r.mode, size: r.size, buckets: sizeBucketsFromHistory(r.hands, r.user_id) }))
+      rows.map((r) => ({
+        user_id: r.user_id,
+        variant: r.variant,
+        mode: r.mode,
+        size: r.size,
+        buckets: sizeBucketsFromHistory(r.hands, r.user_id),
+      }))
     );
   }
 
   /** #4: supply in-format postflop aggression for one context (boot rebuild from hand history); replaces that row. */
   static importStyleAggression(
-    rows: ReadonlyArray<{ user_id: string; variant: string; mode: MemoryMode; size: MemorySize; aggression: StreetAggression }>
+    rows: ReadonlyArray<{
+      user_id: string;
+      variant: string;
+      mode: MemoryMode;
+      size: MemorySize;
+      aggression: StreetAggression;
+    }>
   ): number {
     if ((this.sandboxDepth > 0 || this.decisionEffectSink) && !this.harnessStyleLearning)
       throw new Error('style aggression import outside live boundary');
     let applied = 0;
     for (const r of rows) {
       const v = memoryVariant(r?.variant);
-      if (!r || typeof r.user_id !== 'string' || !v || !['cash', 'tournament'].includes(r.mode) || !['hu', 'short', 'full'].includes(r.size) || !r.aggression) continue;
+      if (
+        !r ||
+        typeof r.user_id !== 'string' ||
+        !v ||
+        !['cash', 'tournament'].includes(r.mode) ||
+        !['hu', 'short', 'full'].includes(r.size) ||
+        !r.aggression
+      )
+        continue;
       const key = styleSizeKey(r.user_id, v, r.mode, r.size);
       this.styleAggression.delete(key);
       this.styleAggression.set(key, addStreetAggression(undefined, r.aggression));
@@ -1776,16 +1812,80 @@ export class HorseMind {
     return applied;
   }
 
+  /** #4: the Horse population reference held for one (variant, format, table size), a copy (diagnostics and tests). */
+  static styleHorseReferenceOf(
+    variant: string,
+    mode: MemoryMode,
+    size: MemorySize
+  ): StreetAggression | null {
+    const v = memoryVariant(variant);
+    const row = v ? this.styleHorseReference.get(`${v}|${mode}|${size}`) : undefined;
+    return row ? addStreetAggression(undefined, row) : null;
+  }
+
+  /** #4 (M2): supply the Horse population reference for one (variant, format, table size); replaces that row. */
+  static importStyleHorseReference(
+    rows: ReadonlyArray<{
+      variant: string;
+      mode: MemoryMode;
+      size: MemorySize;
+      reference: StreetAggression;
+    }>
+  ): number {
+    if ((this.sandboxDepth > 0 || this.decisionEffectSink) && !this.harnessStyleLearning)
+      throw new Error('style reference import outside live boundary');
+    let applied = 0;
+    for (const r of rows) {
+      const v = memoryVariant(r?.variant);
+      if (
+        !r ||
+        !v ||
+        !['cash', 'tournament'].includes(r.mode) ||
+        !['hu', 'short', 'full'].includes(r.size) ||
+        !r.reference
+      )
+        continue;
+      // L-e: counts must be finite and non-negative
+      const ok = (['flop', 'turn', 'river'] as const).every((st) =>
+        (['aggr', 'passive', 'raiseOpps', 'raises'] as const).every(
+          (k) => Number.isFinite(r.reference[st]?.[k]) && r.reference[st][k] >= 0
+        )
+      );
+      if (!ok) continue;
+      const key = `${v}|${r.mode}|${r.size}`;
+      this.styleHorseReference.delete(key);
+      this.styleHorseReference.set(key, addStreetAggression(undefined, r.reference));
+      applied++;
+    }
+    while (this.styleHorseReference.size > MAX_TRACKED_PLAYERS)
+      this.styleHorseReference.delete(this.styleHorseReference.keys().next().value!);
+    return applied;
+  }
+
   /** A2: supply river size buckets for one (player, variant, format, table size) context; replaces that context's row. */
   static importSizeBuckets(
-    rows: ReadonlyArray<{ user_id: string; variant: string; mode: MemoryMode; size: MemorySize; buckets: SizeBucketTallies }>
+    rows: ReadonlyArray<{
+      user_id: string;
+      variant: string;
+      mode: MemoryMode;
+      size: MemorySize;
+      buckets: SizeBucketTallies;
+    }>
   ): number {
-    if (this.sandboxDepth > 0 || this.decisionEffectSink)
+    // L8: the same boundary rule as the other style imports (live, or a harness that switched learning on)
+    if ((this.sandboxDepth > 0 || this.decisionEffectSink) && !this.harnessStyleLearning)
       throw new Error('size bucket import outside live boundary');
     let applied = 0;
     for (const r of rows) {
       const v = memoryVariant(r?.variant);
-      if (!r || typeof r.user_id !== 'string' || !v || !['cash', 'tournament'].includes(r.mode) || !['hu', 'short', 'full'].includes(r.size)) continue;
+      if (
+        !r ||
+        typeof r.user_id !== 'string' ||
+        !v ||
+        !['cash', 'tournament'].includes(r.mode) ||
+        !['hu', 'short', 'full'].includes(r.size)
+      )
+        continue;
       if (!r.buckets || Object.keys(r.buckets).length === 0) continue;
       const key = styleSizeKey(r.user_id, v, r.mode, r.size);
       this.styleSizeShown.delete(key);
@@ -1837,7 +1937,9 @@ export class HorseMind {
     const keys = variant
       ? [
           opponentMemoryKey(userId, variant, mode, size),
-          ...opponentMemoryDonors(mode, size).map(([m, sz]) => opponentMemoryKey(userId, variant, m, sz)),
+          ...opponentMemoryDonors(mode, size).map(([m, sz]) =>
+            opponentMemoryKey(userId, variant, m, sz)
+          ),
         ]
       : [];
     const known = keys.filter((k) => this.durableProfileComplete.has(k));
@@ -2092,11 +2194,22 @@ export class HorseMind {
     // H1 (review 2026-11-13): evidence of THIS format and variant only. Shown strength comes from this context's
     // river size buckets. The scoped lifetime tallies (variant and table size, but cash and tournament mixed) enter
     // only as an explicit carry-over at styleCarryWeight (default 0); the all-variant pooled fallback never does.
-    const sizeBuckets = variant ? (this.styleSizeShown.get(styleSizeKey(userId, variant, mode, size)) ?? null) : null;
+    const sizeBuckets = variant
+      ? (this.styleSizeShown.get(styleSizeKey(userId, variant, mode, size)) ?? null)
+      : null;
     const s = carryWeight > 0 ? this.scoped.get(`${scope}|${userId}`) : undefined;
     const w = carryWeight;
-    const agg = variant ? this.styleAggression.get(styleSizeKey(userId, variant, mode, size)) : undefined;
-    const inFormat: StyleTallies = { ...inFormatShownTallies(sizeBuckets), ...inFormatAggressionTallies(agg) };
+    const agg = variant
+      ? this.styleAggression.get(styleSizeKey(userId, variant, mode, size))
+      : undefined;
+    // Notes (review 15961b66): with carry 0 the recent-aggression window (rAggr/rPassive) is 0, so release comes from the
+    // in-format fast-window counters only (L/M2). At carry > 0 the scoped tallies include this format too, so in-format
+    // evidence is counted again at weight w (L4; default 0). The probe-aware adjustment of the counters still uses the
+    // pooled ctBets/ctProbes of the existing exploit read (L1, pre-existing mechanism).
+    const inFormat: StyleTallies = {
+      ...inFormatShownTallies(sizeBuckets),
+      ...inFormatAggressionTallies(agg),
+    };
     const style = classifyOpponentStyle({
       scope,
       variant: this.decisionVariant,
@@ -2106,6 +2219,10 @@ export class HorseMind {
       carryWeight,
       provenance,
       sizeBuckets,
+      streetAggression: agg ?? null,
+      horseStreetReference: variant
+        ? (this.styleHorseReference.get(`${variant}|${mode}|${size}`) ?? null)
+        : null,
       tallies: s
         ? {
             bigBetSD: (inFormat.bigBetSD ?? 0) + w * s.bigBetSD,
@@ -2329,6 +2446,7 @@ export class HorseMind {
     this.postReleaseObservations.clear();
     this.styleSizeShown.clear();
     this.styleAggression.clear();
+    this.styleHorseReference.clear();
     this.durableOpponentImportClock.clear();
     this.planFingerprints.clear();
     this.durableOpponentMemory = false;
@@ -3419,13 +3537,13 @@ export class HorseMind {
         if (options.styleFoldRatePreRepair === true && this.foldToBetPreRepairExcluded(userId)) {
           noteFire('style_pre_repair_fold_rate_discounted_seen');
         } else {
-        bluffMod = blend(1.45);
-        // V28 AUDIT FIX: valueThinMod was only ever RAISED (stations), so the
-        // documented "a nit calls only what a smaller bet asks" half of V18
-        // exploit sizing was dead — the consumer multiplies by
-        // (valueThinMod - 1) and the term could never be negative. A folder
-        // now thins the value bar downward too.
-        valueThinMod = blend(0.85);
+          bluffMod = blend(1.45);
+          // V28 AUDIT FIX: valueThinMod was only ever RAISED (stations), so the
+          // documented "a nit calls only what a smaller bet asks" half of V18
+          // exploit sizing was dead — the consumer multiplies by
+          // (valueThinMod - 1) and the term could never be negative. A folder
+          // now thins the value bar downward too.
+          valueThinMod = blend(0.85);
         }
       } else if (foldRate < 0.35) {
         bluffMod = blend(0.55);
@@ -4239,7 +4357,10 @@ export class HorseMind {
     riverCallContext?: RiverCallContext,
     retainedRiverCalls?: readonly RiverCallSample[],
     /** STYLE READ A2: the hand's format, so river size buckets are kept per format; absent = not recorded */
-    styleMode?: MemoryMode
+    styleMode?: MemoryMode,
+    /** STYLE READ F2: a human was dealt in (the row's has_human); only such hands build the Horse reference, the
+     *  same population the boot rebuild reads */
+    styleHasHuman = false
   ): void {
     // V45: settlement runs outside any decision; the scope travels with the
     // hand and is cleared on the way out.
@@ -4352,11 +4473,20 @@ export class HorseMind {
       // the shown-versus-unshown split. Memory only (does not survive a
       // restart) and live only: a sandbox or an effect capture records nothing.
       const styleVariant = memoryVariant(riverCallContext?.variant ?? null);
-      const styleScope = this.decisionScope;
-      const styleLearn = (this.sandboxDepth === 0 && !this.decisionEffectSink) || this.harnessStyleLearning;
+      // L7: the hand's own scope only, never a previous decision's
+      const styleScope = scope ?? null;
+      const styleLearn =
+        (this.sandboxDepth === 0 && !this.decisionEffectSink) || this.harnessStyleLearning;
       if (styleLearn && styleMode && styleVariant && styleScope) {
         const styleSize = styleScope.split(':')[1] as MemorySize;
+        const horses = horseSeatsOf(actions);
+        const refKey = `${styleVariant}|${styleMode}|${styleSize}`;
         for (const [uid, inc] of postflopAggressionIncrements(actions)) {
+          if (styleHasHuman && horses.has(uid)) {
+            const ref = addStreetAggression(this.styleHorseReference.get(refKey), inc);
+            this.styleHorseReference.delete(refKey);
+            this.styleHorseReference.set(refKey, ref);
+          }
           const key = styleSizeKey(uid, styleVariant, styleMode, styleSize);
           const next = addStreetAggression(this.styleAggression.get(key), inc);
           this.styleAggression.delete(key);
@@ -4375,7 +4505,8 @@ export class HorseMind {
           const sd = shownBy.get(uid);
           if (sd) {
             cell.shown++;
-            if (!sd.mucked && STRONG_HAND_NAMES.has((sd.hand_name ?? '').toLowerCase())) cell.strong++;
+            if (!sd.mucked && STRONG_HAND_NAMES.has((sd.hand_name ?? '').toLowerCase()))
+              cell.strong++;
           }
           this.styleSizeShown.delete(key);
           this.styleSizeShown.set(key, { ...row, [b]: cell });

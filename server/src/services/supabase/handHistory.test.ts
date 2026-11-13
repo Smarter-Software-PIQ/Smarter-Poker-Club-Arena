@@ -426,8 +426,18 @@ describe('logHandHistory - worker-owned completed-hand observation', () => {
       expect(
         (mockObserveCompletedHand.mock.calls[0][0] as CompletedHandObservation).publicMemoryDomain
       ).toEqual(publicMemoryDomain);
+      // STYLE READ M1: the hand's own format goes with every hand that carries a valid public domain
+      const sent = mockObserveCompletedHand.mock.calls[0][0] as CompletedHandObservation;
+      if (publicMemoryDomain) expect(sent.styleMemoryMode).toBe('cash');
+      else expect(sent).not.toHaveProperty('styleMemoryMode');
     }
   );
+
+  it('STYLE READ: a malformed public domain sends no style format', async () => {
+    acceptAtomicHand();
+    await logHandHistory({ ...identityParams(), publicMemoryDomain: { version: 9 } as never });
+    expect(mockObserveCompletedHand.mock.calls[0][0]).not.toHaveProperty('styleMemoryMode');
+  });
 
   it('keeps the Horse clock in protected accepted facts and out of the public history fields', async () => {
     vi.stubEnv('GIT_COMMIT_SHA', 'a'.repeat(40));

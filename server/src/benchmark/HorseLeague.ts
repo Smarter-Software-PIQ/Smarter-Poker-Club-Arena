@@ -1048,7 +1048,9 @@ export function playHand(
           { variant: gameVariant, boardCount: 1 },
           undefined,
           // the league is cash; the style learner records only when a harness enables it
-          'cash'
+          'cash',
+          // a league hand seats non-Horse policies, the population the Horse reference is built from
+          true
         );
       });
     } catch {

@@ -3350,6 +3350,7 @@ export class LightningHandHost {
         variant: String(rules.game_variant || 'nlh'),
         bigBlind: Number(rules.big_blind) || 2,
         dealtCount: state.players.length,
+        hasHuman: [...this.participants.values()].some((p) => !p.isHorse),
         actions: acceptedActions,
         showdown: this.showdown,
         ...(results ? { results } : {}),

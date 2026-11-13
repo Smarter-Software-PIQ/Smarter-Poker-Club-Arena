@@ -611,9 +611,20 @@ function observeCompletedHandInMind(request: ObserveCompletedHandRequest): void 
     request.durableOpponentProfiles !== undefined,
     request.riverCallContext,
     request.retainedRiverCalls,
-    // STYLE READ A2: the hand's format, from the exact-context profiles it carries (absent: buckets not recorded)
-    request.durableOpponentProfiles?.[0]?.mode
+    styleMemoryModeOf(request),
+    request.styleHasHuman === true
   );
+}
+
+/**
+ * STYLE READ: the hand's own format (sent for every hand with a valid public memory domain); the exact-context
+ * profile rows are only a fallback for an older sender. Exported for the wiring test.
+ */
+export function styleMemoryModeOf(request: {
+  styleMemoryMode?: 'cash' | 'tournament';
+  durableOpponentProfiles?: ReadonlyArray<{ mode: 'cash' | 'tournament' }>;
+}): 'cash' | 'tournament' | undefined {
+  return request.styleMemoryMode ?? request.durableOpponentProfiles?.[0]?.mode;
 }
 
 /** Whether a decision's observer receipt says this horse's own public history

@@ -248,12 +248,15 @@ function styleKnockoutCredit(
   opts: HorseDecideOpts
 ): number {
   const t = trustedTournamentContext(gs);
+  // L2: the V23 switch that gates the knockout pricing gates this credit too
+  if ((opts.v23Endgame ?? true) === false) return 0;
   if (!t || !bettorId || !isTournamentMode(gs) || (t.bountyFactor ?? 0) < 0.1) return 0;
   const bettor = gs.players.find((p) => p.user_id === bettorId);
   if (!bettor || bettor.is_all_in !== true) return 0;
   const heroChips = player.stack + (isFinite(player.bet) ? player.bet : 0);
   if (heroChips < (isFinite(bettor.bet) ? bettor.bet : 0)) return 0;
-  const scale = prizeLandscapeScale(gs, (opts.v26Prizes ?? true) !== false) * headBountyScale(gs, bettorId);
+  const scale =
+    prizeLandscapeScale(gs, (opts.v26Prizes ?? true) !== false) * headBountyScale(gs, bettorId);
   return Math.min(0.08, (t.bountyFactor ?? 0) * 0.12 * scale);
 }
 // V7 (2026-07-24): position-pair preflop mastery — 3-bet/4-bet bluffs, blind
@@ -3022,8 +3025,11 @@ export interface HorseDecideOpts {
    *  credibly below the Horse mean, scaled by the DECISION-TIME stack-to-pot
    *  ratio (effective stack behind before the decision over the pot including
    *  his raise; it stands down where one pair is a correct stack-off). The
-   *  raise-frequency proxy is a lifetime tally that mixes formats, so with
-   *  styleCarryOverWeight 0 (the default) this option has no evidence and is inert.
+   *  evidence is THIS street's raises per raise opportunity, in this variant,
+   *  format and table size, against the Horse population's own rate there
+   *  (HorseOpponentStyle streetRaise; the reference counts only when its own
+   *  standard error is at most half the street-raise margin, at least 200
+   *  opportunities; no reference, no engagement).
    *  Receipt style_raise_respect_seen. Default off; explicit true only. */
   styleRaiseRespect?: boolean;
   /** STYLE READ #6 (2026-11-13): a credibly tight opener or re-raiser is
@@ -8576,7 +8582,10 @@ export class HorseLogic {
             const style = HorseMind.styleRead(raiser.user_id);
             if (raises === 1) {
               const tight = tightOpenerRespect(style);
-              if (tight && (!exploitOpener || (!exploitOpener.wide && exploitOpener.threeBetBar === null))) {
+              if (
+                tight &&
+                (!exploitOpener || (!exploitOpener.wide && exploitOpener.threeBetBar === null))
+              ) {
                 exploitOpener = {
                   wide: false,
                   threeBetBar: strengthBarForTopShare(0.4 * tight.rangeWidth),
@@ -15066,10 +15075,14 @@ export class HorseLogic {
           const decisionSpr = Math.min(commitmentStack, Math.max(0, raiser.stack)) / pot;
           styleRaiseShade = raiseRespectShade(HorseMind.styleRead(raiser.user_id), {
             decisionSpr,
+            street: street === 'turn' ? 'turn' : 'flop',
           });
           // Bounty events: priced against the call including its knockout credit (never stands down wholesale).
           if (styleRaiseShade > 0 && styleBountyContext(trustedTournament))
-            styleRaiseShade = Math.max(0, styleRaiseShade - styleKnockoutCredit(gs, player, raiser.user_id, opts));
+            styleRaiseShade = Math.max(
+              0,
+              styleRaiseShade - styleKnockoutCredit(gs, player, raiser.user_id, opts)
+            );
           if (styleRaiseShade > 0 && tele15) noteFire('style_raise_respect_seen');
         }
       } catch {
@@ -16337,9 +16350,13 @@ export class HorseLogic {
           // In a bounty event it does not stand down: the cap is raised by the knockout credit this call earns, so it
           // is applied against the call price including the bounty (styleKnockoutCredit).
           if (opts.styleBigBetHonesty === true && !vi.isOmaha && isRiver) {
-            const cap = bluffCatchEquityCap(HorseMind.styleRead(bettorId), { potFraction: potFrac });
+            const cap = bluffCatchEquityCap(HorseMind.styleRead(bettorId), {
+              potFraction: potFrac,
+            });
             if (cap !== null) {
-              const ko = styleBountyContext(trustedTournament) ? styleKnockoutCredit(gs, player, bettorId, opts) : 0;
+              const ko = styleBountyContext(trustedTournament)
+                ? styleKnockoutCredit(gs, player, bettorId, opts)
+                : 0;
               styleBluffCatchCap = Math.min(1, cap + ko);
               if (ko > 0 && telemetryOn(opts)) noteFire('style_bluff_catch_cap_bounty_priced_seen');
             }

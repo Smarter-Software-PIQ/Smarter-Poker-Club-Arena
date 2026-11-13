@@ -1087,6 +1087,12 @@ export async function logHandHistory(params: {
       ...(params.publicMemoryDomain !== undefined
         ? { publicMemoryDomain: params.publicMemoryDomain }
         : {}),
+      // STYLE READ M1: the format is known from the hand itself; the style learner needs no durable row.
+      ...(publicMemoryDomainIsValid(params.publicMemoryDomain)
+        ? { styleMemoryMode: params.tournamentId ? ('tournament' as const) : ('cash' as const) }
+        : {}),
+      // F2: the persisted has_human value (absent when the roster is unknown, as the row omits it)
+      ...(params.roster ? { styleHasHuman: params.roster.some((p) => !p.isHorse) } : {}),
       durableOpponentProfiles,
       generation: params.handNumber,
       fence: [
