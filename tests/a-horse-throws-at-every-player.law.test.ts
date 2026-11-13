@@ -16,6 +16,10 @@
  * exclude a seat because it is, or is not, a horse: no `!s.isHorse`,
  * `isHorse === false`, `!p.is_horse`, `is_horse: false` filter, and no
  * `humans` target pool.
+ *
+ * Dan, 2026-11-13: "record who gets hit". Every charged throw, horse or
+ * browser, records its target through the throw_targets door; removing either
+ * caller silently loses the record, so both are pinned here.
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -46,5 +50,22 @@ describe('a horse throws at every player, not only humans (Dan 2026-11-12)', () 
     const reads = code.match(/\bisHorse\b|\bis_horse\b/g) ?? [];
     // seatedHorse() (the showdown thrower) and the annoy thrower loop.
     expect(reads.length).toBeLessThanOrEqual(2);
+  });
+
+  it('both throw paths record who was hit (Dan 2026-11-13)', () => {
+    const root = join(__dirname, '..');
+    const horse = readFileSync(SRC, 'utf8');
+    expect(horse).toContain("'fn_horse_record_throw_target'");
+    expect(horse).toMatch(/await recordThrowTarget\(tableId, horseId, requestId, targetSeat\)/);
+    const svc = readFileSync(join(root, 'src', 'services', 'ThrowableService.ts'), 'utf8');
+    expect(svc).toContain("'fn_record_throw_target'");
+    const hook = readFileSync(join(root, 'src', 'hooks', 'useTableAnimations.ts'), 'utf8');
+    expect(hook).toMatch(/throwableService\.recordThrowTarget\(requestId, tableId, throwTargetSeat\)/);
+    const sql = readFileSync(
+      join(root, 'supabase', 'migrations', '20261113123902_record_throw_targets.sql'),
+      'utf8'
+    );
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS public.throw_targets');
+    expect(sql).not.toMatch(/REFERENCES\s+public\./i);
   });
 });
