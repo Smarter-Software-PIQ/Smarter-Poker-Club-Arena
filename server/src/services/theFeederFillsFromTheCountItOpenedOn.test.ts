@@ -233,7 +233,7 @@ describe('6. a tag whose every stake names a closed game falls through to the me
     expect(gate).toContain('stakeOk = undefined;');
     expect(gate).toContain('strandedTagFallthrough++;');
     // The hard refusal is still there for a tag that names a running stake.
-    expect(gate).toContain('if (stakeOk === false && !humanNeedsRescue) {');
+    expect(gate).toContain('if (stakeOk === false && !humanNeedsRescue && !dwellNeedsHorses) {');
   });
 });
 

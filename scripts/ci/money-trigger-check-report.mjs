@@ -2,6 +2,7 @@ import {isClubArenaRepository} from './repository-identity.mjs';
 import fs from 'node:fs';
 import {pathToFileURL} from 'node:url';
 import {assertProtection} from './assert-money-trigger-protection.mjs';
+import {beginAdmission,writeSkip,stoodDown} from './money-trigger-closed-pr.mjs';
 export const CHECK_NAME='Money trigger declaration authority';
 const protectionReads=new WeakMap();
 // A receipt exists only in this trusted process, after both a real ruleset
@@ -71,15 +72,35 @@ async function main(){
  const token=process.env.REPORTER_TOKEN;if(!token)throw Error('missing restricted reporter token');
  async function api(p,method='GET',body,accept='application/vnd.github+json'){const r=await fetch(`https://api.github.com/repos/${repo}/${p}`,{method,headers:{Authorization:`Bearer ${method==='GET'?process.env.GITHUB_TOKEN:token}`,Accept:accept,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});if(!r.ok)throw Error(`reporting failed ${r.status}`);return r.json()}
  if(process.argv[2]==='begin'){
-  const pr=await api(`pulls/${number}`);if(pr.state!=='open'||pr.base.ref!=='main')throw Error('invalid PR state');
   // Defence in depth beside the workflow's own fork refusal: a fork's pull
-  // request never receives this check, so it can never satisfy it.
+  // request never receives this check, so it can never satisfy it
+  // (beginAdmission keeps that refusal and the main-only base).
+  const pr=await api(`pulls/${number}`);
+  if(beginAdmission(pr,repo,process.env.GITHUB_REPOSITORY_ID)==='closed'){
+   // Closed before this run began (merged seconds after the event that
+   // started it, or closed): no check run is created and no success exists.
+   writeSkip({pr:number,merged:pr.merged,runId:process.env.GITHUB_RUN_ID});
+   console.log(`::notice::Pull request #${number} was already ${pr.merged===true?'merged':'closed'} when this run began: no check is created and nothing is reported.`);
+   return;
+  }
+  // Kept inline as well: the refusal stands directly before the only call that creates a check.
   if(pr.head?.repo?.full_name!==repo||String(pr.head?.repo?.id)!==String(process.env.GITHUB_REPOSITORY_ID))throw Error('cross-repository pull request refused');
   const result=await api('check-runs','POST',{name:CHECK_NAME,head_sha:pr.head.sha,status:'in_progress',external_id:`money-trigger-${process.env.GITHUB_RUN_ID}`,details_url:`https://github.com/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}`});
   if(result.head_sha!==pr.head.sha||String(result.app?.id)!==appId)throw Error('wrong check source/head');
   fs.writeFileSync('money-trigger-check-state.json',JSON.stringify({id:result.id,head:pr.head.sha,appId,pr:Number(number),runId:process.env.GITHUB_RUN_ID}));
  }else if(process.argv[2]==='finish'){
-  if(!fs.existsSync('money-trigger-check-state.json'))throw Error('no started check; no success can be reported');
+  if(!fs.existsSync('money-trigger-check-state.json')){
+   if(stoodDown({pr:number,runId:process.env.GITHUB_RUN_ID})){
+    // The run stood down at begin. Nothing was started, so nothing is
+    // reported. A protection reader minted meanwhile is revoked at once and
+    // never used to read; the action's own cleanup remains as the backstop.
+    const reader=process.env.PROTECTION_READER_TOKEN;delete process.env.PROTECTION_READER_TOKEN;
+    if(reader){try{const r=await fetch('https://api.github.com/installation/token',{method:'DELETE',headers:{Authorization:`Bearer ${reader}`,Accept:'application/vnd.github+json'},redirect:'error',signal:AbortSignal.timeout(15000)});if(r.status!==204)console.error(`protection reader revocation returned ${r.status}; automatic cleanup remains`);}catch{console.error('protection reader revocation failed; automatic cleanup remains');}}
+    console.log(`::notice::Pull request #${number} was closed before this run began: no check was started and none is reported.`);
+    return;
+   }
+   throw Error('no started check; no success can be reported');
+  }
   const state=JSON.parse(fs.readFileSync('money-trigger-check-state.json'));
   const proof=fs.existsSync('money-trigger-recovery.json')?JSON.parse(fs.readFileSync('money-trigger-recovery.json')):null;
   let protection;

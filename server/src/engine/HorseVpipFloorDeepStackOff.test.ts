@@ -14,7 +14,15 @@
  * fixture supplies the two values the live decision received (floor 50, two
  * hands judged at 50%). Replayed with opponent memory off for the live hybrid
  * profile and every base style over the fixed seeds.
+ *
+ * The rule is OPT-IN and off by default. The mechanism above is real, but the
+ * expected-value check made after the rule first merged (#10628) does not show
+ * the call beating the shove: it is better only against an aces-heavy four-bet
+ * range with a caller, and worse against wider ranges or with any fold equity.
+ * These cases pin that the default is the recorded behaviour and that the
+ * opt-in arm does what it says, for whoever measures it next.
  */
+import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it } from 'vitest';
 import { HorseMind } from './HorseMind.js';
 import { replayHand, type ComplaintFixture } from './HorseComplaintReplay.js';
@@ -23,7 +31,7 @@ import FIXTURE from './fixtures/horse-plo6-floor-deep-stack-off-58751512.json';
 const FX = FIXTURE as unknown as ComplaintFixture;
 const ORD = 13;
 const HERO_SEAT = 5;
-const OFF = { vpipFloorDeepStackOff: false };
+const ON = { vpipFloorDeepStackOff: true };
 
 /** Every profile's action counts at the node, as { profile: { action: seeds } }. */
 function actionsAt(fixture: ComplaintFixture, opts?: Record<string, unknown>) {
@@ -61,12 +69,18 @@ describe('a deep Omaha stack-off on a VPIP floor table through decide (PLO6-AUDI
     expect(FX.actions.find((a) => a.ord === ORD)!.action).toBe('all_in');
   });
 
-  it('default: every profile calls at every seed; none shoves', () => {
-    expect(everyProfile(actionsAt(FX), 'call')).toBe(true);
+  it('default: the rule is off and the node replays the recorded shove for every profile', () => {
+    expect(everyProfile(actionsAt(FX), 'all_in')).toBe(true);
   });
 
-  it('control: with the rule off every profile shoves, so the default is not vacuous', () => {
-    expect(everyProfile(actionsAt(FX, OFF), 'all_in')).toBe(true);
+  it('opt-in: with the rule on every profile calls at every seed; none shoves', () => {
+    expect(everyProfile(actionsAt(FX, ON), 'call')).toBe(true);
+  });
+
+  it('the brain reads the option as `=== true`, so production never sets it by omission', () => {
+    const src = readFileSync('src/engine/HorseLogic.ts', 'utf8');
+    expect(src).toContain('opts.vpipFloorDeepStackOff === true');
+    expect(src).not.toMatch(/vpipFloorDeepStackOff !== false/);
   });
 
   it('a table with no floor is untouched: the same action with the rule on or off', () => {
@@ -74,25 +88,25 @@ describe('a deep Omaha stack-off on a VPIP floor table through decide (PLO6-AUDI
       delete node.vpipFloor;
       delete node.ownVpip;
     });
-    expect(actionsAt(unfloored)).toEqual(actionsAt(unfloored, OFF));
+    expect(actionsAt(unfloored)).toEqual(actionsAt(unfloored, ON));
   });
 
   it('a seat already over its floor target is untouched', () => {
     const satisfied = variant((node) => {
       node.ownVpip = { hands: 10, vpip: 90 };
     });
-    expect(actionsAt(satisfied)).toEqual(actionsAt(satisfied, OFF));
+    expect(actionsAt(satisfied)).toEqual(actionsAt(satisfied, ON));
   });
 
   it('120 big blinds or less is out of scope: the same action with the rule on or off', () => {
     // 190 behind at a big blind of 2 is 95bb.
     const shallow = variant((node) => heroStack(node, 190));
-    expect(actionsAt(shallow)).toEqual(actionsAt(shallow, OFF));
+    expect(actionsAt(shallow)).toEqual(actionsAt(shallow, ON));
   });
 
   it('a call of more than 30% of the stack is a price decision and is left alone', () => {
     // 500 behind is still 250bb deep; 161 to call is 32% of it.
     const priced = variant((node) => heroStack(node, 500));
-    expect(actionsAt(priced)).toEqual(actionsAt(priced, OFF));
+    expect(actionsAt(priced)).toEqual(actionsAt(priced, ON));
   });
 });
