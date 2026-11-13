@@ -78,8 +78,8 @@ const tournament = (input: ReturnType<typeof omahaVariantSpot>) => {
 
 // These spots need a hand the reference folds, so the pack's proposal differs
 // from it. V90 no longer folds that hand first in heads-up in a tournament, so
-// the fixture runs the reference without V90; the case at the end of the
-// Phase 7 block holds the same ownership with V90 on.
+// the fixture runs the reference without V90. Phase 7 ownership of the V90
+// decision itself is held in HorseOmahaTournamentFirstIn.law.test.ts.
 const decide = (
   input: ReturnType<typeof omahaVariantSpot>,
   phase11Omaha: OmahaVariantMode,
@@ -178,23 +178,6 @@ describe('P11.3 Phase 7 keeps tournament objective ownership', () => {
       expect({ action: receipt.proposalAction, amount: receipt.proposalAmount }).not.toEqual(
         act(reference)
       );
-    }
-  );
-
-  it.each(['plo5', 'plo6'] as const)(
-    'with the %s tournament first-in rule on, the decision it changes is still Phase 7’s',
-    (variant) => {
-      const spot = () => changedSpot(variant, 'preflop', 'tournament');
-      const without = decide(spot(), 'shadow');
-      const withRule = decide(spot(), 'shadow', true);
-      expect(without.action).toBe('fold');
-      expect(withRule.action).not.toBe('fold');
-      expect(withRule.tournamentUtility?.selectedAction).toBe(withRule.action);
-      expect(withRule.omahaVariantPolicy).toMatchObject({
-        mode: 'shadow',
-        applied: false,
-        utilityOwner: 'phase7_evaluated',
-      });
     }
   );
 

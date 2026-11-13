@@ -35,72 +35,77 @@ const base: OmahaTournamentFirstInInput = {
   toCall: 1,
   stack: 19,
   pot: 3,
-  bigBlind: 2,
   riskPremium: 0,
+  allInOrFold: false,
+  satelliteLocked: false,
 };
 
 describe('omahaTournamentFirstIn: the replacement for a fold', () => {
-  it('heads-up small blind first in pot-raises every hand up to 30 big blinds', () => {
-    for (const percentile of [0, 0.01, 0.3, 0.99])
-      for (const effectiveStackBB of [3, 8, 20, 30])
+  it('heads-up small blind first in pot-raises every hand at 20 big blinds or less', () => {
+    for (const effectiveStackBB of [2, 8, 14, 20])
+      for (const percentile of [0, 0.3, 0.99])
         expect(omahaTournamentFirstIn({ ...base, percentile, effectiveStackBB })).toEqual({
           a: 'jam',
         });
   });
 
-  it('deeper than that it completes instead', () => {
-    expect(omahaTournamentFirstIn({ ...base, effectiveStackBB: 30.1 })).toEqual({ a: 'call' });
+  it('deeper than was measured the fold stands', () => {
+    expect(omahaTournamentFirstIn({ ...base, effectiveStackBB: 20.5 })).toBeNull();
   });
 
-  it('the small blind against the big blind alone at a larger table plays the same way', () => {
-    expect(omahaTournamentFirstIn({ ...base, tableSize: 6, percentile: 0.02 })).toEqual({
+  it('three-handed, the small blind against the big blind alone plays the same way', () => {
+    expect(omahaTournamentFirstIn({ ...base, tableSize: 3, percentile: 0.02 })).toEqual({
       a: 'jam',
     });
   });
 
-  it('a non-blind seat first in with two opponents left plays its top 80 percent', () => {
-    const button = {
-      ...base,
-      position: 'late' as const,
-      liveOpponents: 2,
-      tableSize: 3,
-      toCall: 2,
-    };
-    expect(omahaTournamentFirstIn({ ...button, percentile: 0.21 })).toEqual({ a: 'jam' });
-    expect(omahaTournamentFirstIn({ ...button, percentile: 0.19 })).toBeNull();
-    expect(omahaTournamentFirstIn({ ...button, percentile: 0.5, effectiveStackBB: 40 })).toEqual({
-      a: 'raiseTo',
-      to: 5,
-    });
-  });
-
-  it('a pay jump narrows the share outside heads-up, and never heads-up', () => {
-    const bvb = { ...base, tableSize: 3, percentile: 0.15 };
-    expect(omahaTournamentFirstIn({ ...bvb, riskPremium: 0 })).toEqual({ a: 'jam' });
-    expect(omahaTournamentFirstIn({ ...bvb, riskPremium: 0.1 })).toBeNull();
-    expect(omahaTournamentFirstIn({ ...bvb, riskPremium: 0.1, percentile: 0.21 })).toEqual({
-      a: 'jam',
-    });
-    expect(omahaTournamentFirstIn({ ...bvb, riskPremium: 5, percentile: 0.51 })).toEqual({
-      a: 'jam',
-    });
-    expect(omahaTournamentFirstIn({ ...bvb, riskPremium: 5, percentile: 0.49 })).toBeNull();
-    expect(omahaTournamentFirstIn({ ...base, riskPremium: 5, percentile: 0 })).toEqual({
-      a: 'jam',
-    });
-  });
-
-  it('leaves seats with three or more opponents behind alone', () => {
-    for (const liveOpponents of [3, 4, 5, 7])
+  it('a non-blind seat first in keeps the engine fold (a wider button range was rejected)', () => {
+    for (const liveOpponents of [1, 2, 3])
       expect(
         omahaTournamentFirstIn({
           ...base,
           position: 'late',
           liveOpponents,
-          tableSize: 8,
+          tableSize: 3,
+          toCall: 2,
           percentile: 0.99,
         })
       ).toBeNull();
+  });
+
+  it('stands aside at tables larger than were measured', () => {
+    for (const tableSize of [4, 6, 9]) {
+      expect(omahaTournamentFirstIn({ ...base, tableSize, percentile: 0.99 })).toBeNull();
+      expect(
+        omahaTournamentFirstIn({
+          ...base,
+          tableSize,
+          position: 'late',
+          liveOpponents: 2,
+          percentile: 0.99,
+        })
+      ).toBeNull();
+    }
+  });
+
+  it('All-In-Or-Fold tables and locked satellite seats keep the engine fold', () => {
+    expect(omahaTournamentFirstIn({ ...base, allInOrFold: true, percentile: 0.99 })).toBeNull();
+    expect(omahaTournamentFirstIn({ ...base, satelliteLocked: true, percentile: 0.99 })).toBeNull();
+    const bb = { ...base, position: 'bb' as const, raises: 1, toCall: 4, stack: 36, pot: 8 };
+    expect(omahaTournamentFirstIn({ ...bb, allInOrFold: true, percentile: 0.99 })).toBeNull();
+    expect(omahaTournamentFirstIn({ ...bb, satelliteLocked: true, percentile: 0.99 })).toBeNull();
+  });
+
+  it('the risk premium narrows every share, heads-up included', () => {
+    expect(omahaTournamentFirstIn({ ...base, riskPremium: 0.1, percentile: 0.19 })).toBeNull();
+    expect(omahaTournamentFirstIn({ ...base, riskPremium: 0.1, percentile: 0.21 })).toEqual({
+      a: 'jam',
+    });
+    // Two players left in a tournament: the engine caps the premium at 0.01.
+    expect(omahaTournamentFirstIn({ ...base, riskPremium: 0.01, percentile: 0.03 })).toEqual({
+      a: 'jam',
+    });
+    expect(omahaTournamentFirstIn({ ...base, riskPremium: 5, percentile: 0.49 })).toBeNull();
   });
 
   it('never opens a pot somebody already entered', () => {
@@ -109,22 +114,23 @@ describe('omahaTournamentFirstIn: the replacement for a fold', () => {
     expect(omahaTournamentFirstIn({ ...base, toCall: 0 })).toBeNull();
   });
 
-  it('the heads-up big blind defends its top 75 percent against one raise at a price of a half or better', () => {
+  it('the heads-up big blind calls its top 75 percent against one raise at a price of a half or better', () => {
     const bb = { ...base, position: 'bb' as const, raises: 1, toCall: 4, stack: 36, pot: 8 };
     expect(omahaTournamentFirstIn({ ...bb, percentile: 0.26 })).toEqual({ a: 'call' });
     expect(omahaTournamentFirstIn({ ...bb, percentile: 0.24 })).toBeNull();
     expect(omahaTournamentFirstIn({ ...bb, percentile: 0.9, toCall: 20, pot: 12 })).toBeNull();
-    expect(omahaTournamentFirstIn({ ...bb, percentile: 0.9, stack: 8 })).toEqual({ a: 'jam' });
+    expect(omahaTournamentFirstIn({ ...bb, percentile: 0.9, stack: 8 })).toEqual({ a: 'call' });
     expect(omahaTournamentFirstIn({ ...bb, percentile: 0.9, tableSize: 3 })).toBeNull();
     expect(omahaTournamentFirstIn({ ...bb, percentile: 0.9, callers: 1 })).toBeNull();
+    expect(omahaTournamentFirstIn({ ...bb, percentile: 0.9, limpers: 1 })).toBeNull();
   });
 
-  it('publishes the measured shares', () => {
+  it('publishes the measured shares and limits', () => {
     expect(OMAHA_TOURNAMENT_FIRST_IN).toEqual({
       headsUpShare: 1,
       blindVsBlindShare: 1,
-      lateShareByOpponents: [0, 0, 0.8],
-      raiseMaxBB: 30,
+      maxStackBB: 20,
+      maxTableSize: 3,
       bigBlindDefendShare: 0.75,
       bigBlindMaxPrice: 0.5,
     });
@@ -216,15 +222,20 @@ describe(
     afterEach(() => HorseMind.reset());
 
     it.each(['plo4', 'plo5', 'plo6'] as const)(
-      '%s heads-up: almost never folds first in, at any depth to 30 big blinds',
+      '%s heads-up: almost never folds first in, at any depth to 20 big blinds',
       (variant) => {
-        for (const stackBB of [4, 8, 15, 30]) {
+        for (const stackBB of [4, 8, 15, 20]) {
           const on = folds(variant, 2, stackBB, 'tournament', {});
           const off = folds(variant, 2, stackBB, 'tournament', { omahaTournamentFirstIn: false });
           // Three or four of a rank still fold (the V46 class gate); nothing else does.
           expect([variant, stackBB, on.share <= 0.05]).toEqual([variant, stackBB, true]);
-          // The defect, pinned so the law is not vacuous: the earlier engine folded four in ten or more.
-          expect([variant, stackBB, off.share >= 0.4]).toEqual([variant, stackBB, true]);
+          // The defect, pinned so the law is not vacuous: without the rule the
+          // engine folds at least a quarter more of these hands.
+          expect([variant, stackBB, off.share >= on.share + 0.25]).toEqual([
+            variant,
+            stackBB,
+            true,
+          ]);
         }
       }
     );
@@ -234,6 +245,32 @@ describe(
       expect(
         folds('plo4', 3, 10, 'tournament', { omahaTournamentFirstIn: false }).share
       ).toBeGreaterThanOrEqual(0.4);
+    });
+
+    it('the tournament utility arbiter evaluates and owns the widened action', () => {
+      let widened = 0;
+      for (let i = 0; i < 12; i++) {
+        HorseMind.reset();
+        const on = smallBlindSpot('plo4', 2, 15, 'tournament', 9500 + i * 7);
+        const d = HorseLogic.decide(on.hero, on.state, 'balanced', {}, { mind: false });
+        HorseMind.reset();
+        const off = smallBlindSpot('plo4', 2, 15, 'tournament', 9500 + i * 7);
+        const r = HorseLogic.decide(
+          off.hero,
+          off.state,
+          'balanced',
+          {},
+          {
+            mind: false,
+            omahaTournamentFirstIn: false,
+          }
+        );
+        expect(d.tournamentUtility?.selectedAction).toBe(d.action);
+        expect(r.tournamentUtility?.selectedAction).toBe(r.action);
+        if (r.action === 'fold' && d.action === 'raise') widened++;
+      }
+      // Not vacuous: the reference folded and Phase 7 kept the rule's raise.
+      expect(widened).toBeGreaterThanOrEqual(3);
     });
 
     it('a table whose mode the engine did not declare is untouched', () => {
@@ -252,6 +289,30 @@ describe(
         return actions;
       };
       expect(undeclared({})).toEqual(undeclared({ omahaTournamentFirstIn: false }));
+    });
+
+    it('deeper than 20 big blinds the engine decides alone', () => {
+      expect(folds('plo4', 2, 30, 'tournament', {}).actions).toEqual(
+        folds('plo4', 2, 30, 'tournament', { omahaTournamentFirstIn: false }).actions
+      );
+    });
+
+    it('an All-In-Or-Fold table keeps its own ranges', () => {
+      const aof = (opts: HorseDecideOpts) => {
+        const actions: string[] = [];
+        for (let i = 0; i < 60; i++) {
+          HorseMind.reset();
+          const { hero, state } = smallBlindSpot('plo4', 2, 10, 'tournament', 9300 + i * 19);
+          (state as { allInOrFold?: boolean }).allInOrFold = true;
+          const d = HorseLogic.decide(hero, state, 'balanced', {}, { mind: false, ...opts });
+          actions.push(`${d.action}:${d.amount ?? ''}`);
+        }
+        return actions;
+      };
+      const on = aof({});
+      expect(on).toEqual(aof({ omahaTournamentFirstIn: false }));
+      // The AoF ranges still fold some hands: the module did not shove them.
+      expect(on.some((a) => a.startsWith('fold'))).toBe(true);
     });
 
     it('cash games and Hi-Lo are untouched', () => {

@@ -2470,7 +2470,11 @@ export interface HorseDecideOpts {
   v67RiverBetRaisedOnePair?: boolean;
   /** V88: a cash Omaha made hand that called a wager on the previous street and now needs its stack at a third of the pot or better does not fold a blank; explicit off arm retained. */
   v88CommitmentHonored?: boolean;
-  /** Omaha high tournaments: short-handed first-in and the heads-up big blind's reply read the hand's true Omaha percentile and replace the engine's fold (HorseOmahaTournamentFirstIn.ts, Dan 2026-11-12). Default on; false keeps the earlier folds for historical corpora; an object is a league arm's replacement shares. */
+  /** Omaha high tournaments (HorseOmahaTournamentFirstIn): the small blind
+   *  against the big blind alone, and the heads-up big blind facing one raise,
+   *  replace the engine's fold by the hand's Omaha percentile, at three or
+   *  fewer players dealt and 20 BB or less. Default on; false is the old
+   *  engine; an object is a league arm's parameters. */
   omahaTournamentFirstIn?:
     | boolean
     | import('./HorseOmahaTournamentFirstIn.js').OmahaTournamentFirstInParams;
@@ -9417,7 +9421,7 @@ export class HorseLogic {
     if (ploIcm53 && telemetryOn(opts)) {
       const rng53 = saveFastRandom();
       try {
-        v53IcmOff = decidePreflopV7({ ...intentCtx7, ploIcm: undefined });
+        v53IcmOff = decidePreflopV7({ ...intentCtx7, ploIcm: undefined, noteLayer: undefined });
       } catch {
         v53IcmOff = null;
       } finally {

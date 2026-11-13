@@ -1,68 +1,46 @@
-# Horses Stop Walking The Big Blind In Omaha Tournaments
+# Omaha Tournament First-In: Small Blind Against The Big Blind, And The Heads-Up Big Blind
 
-Owner order, Dan 2026-11-12 21:14 Chicago, after a person won the PLO4 Dinner Break MTT.
+Owner order: Dan, 2026-11-12 21:14 Chicago (PLO tournament play), and his 2026-11-13 00:21 Chicago review order (prove the cause, validate each rule against varied opponents, preserve tournament integration).
 
-## What The Audit Found
+## What The Hands Showed
 
-Every PLO tournament a person entered in five days was read (nine events; five MTTs of 46 to 59 entries, 3,284 hands). One MTT and one three-player spin were won by a person; seven were won by Horses. One win in six MTT entries is within luck for a field of equals, so the win is not the evidence. The hands are:
+Five days to 2026-11-13 06:00Z, PLO4/5/6 tournaments: 61 events audited in full (all 58 MTTs and the three spins or sit-and-gos a person entered); 276,137 Horse preflop decisions; no missing originals. Small blind first in against the big blind alone: 17,735 spots, Horse folded 61.8 percent against Horses and 75.0 percent against people (60 spots). Heads-up big blind against one raise: 17,044 spots, folded 65.5 and 71.1 percent (38 against people). The human-facing samples are small and descriptive only. Evidence: plo-tournament/COVERAGE-AND-STRUCTURE.md, ROOT-CAUSE.md.
 
-- Share of hands in which every player folds to the big blind: heads-up 51 to 63 percent, three-handed 61 to 69 percent, four or five handed 26 to 55 percent, six or more 17 to 28 percent.
-- Heads-up, the small blind's first action when unraised (148 production decisions): fold 47 to 71 percent at every stack depth.
-- The winner entered late with about two big blinds, doubled four times, and from twenty big blinds on took his chips from pots nobody contested. Heads-up for the title the Horse folded its small blind unplayed 9 times in 23 hands.
+## Cause
 
-## Why
+Not a scale error: the Omaha preflop score is the Hold'em score at the same percentile (HorseEval omahaPreflopStrength), and the share of hands above any bar is the same in NLH, PLO4, PLO5 and PLO6 within one point. The fold comes from the PLO tournament commitment zone (HorsePreflop.ts, a pot raise of a quarter of the stack or more, about 14 BB or less): its unopened stack-off bar (0.56 from the small blind, about the top 16 percent of hands) has no heads-up or blind-versus-blind case, while the regular open path deeper does (0.24 heads-up, 0.30 blind versus blind). Four recorded heads-up final-table folds of the event a person won were replayed from their original public nodes and the Horse's own cards: all four fold with this rule off (5 of 5 seeds each) and raise with it on.
 
-The first-in bars for short-handed and short-stacked tournament play are written on the Hold'em strength scale and read against the Omaha strength value, which runs far lower (measured heads-up: median 0.22, 75th percentile 0.40). The Omaha push/fold jam bar (about 0.47 to 0.58) and the blind-against-blind limp floor (0.22) admit roughly the top fifth of Omaha hands. In a harness on the previous source the heads-up small blind folds 70 percent at 4 big blinds, 84 percent at 8, 54 percent at 15 and 48 percent at 60.
+## Change
 
-## The Change
+`HorseOmahaTournamentFirstIn.ts`, called once after the preflop core and only when the core folded, Omaha high, engine-declared tournaments only:
 
-`server/src/engine/HorseOmahaTournamentFirstIn.ts` reads the hand's true percentile among Omaha hands and replaces the preflop engine's FOLD, and only its fold, in Omaha high tournaments:
+- the small blind against the big blind alone (heads-up, or three-handed after the button folds) plays every hand as the pot-limit maximum raise;
+- the heads-up big blind against one raise, no limper and no caller, at a price of a half or better, calls with its top 75 percent.
+  The hand's rank is its percentile among Omaha hands of its size; the engine's own tournament risk premium narrows every share (two points of range per point of premium; at most 0.01 with two players left). It stands aside, keeping the engine's fold: All-In-Or-Fold tables, locked satellite seats, tables of four or more players dealt, and effective stacks deeper than 20 BB. The tournament utility arbiter (Phase 7) still evaluates and owns the final action. Option `omahaTournamentFirstIn` (default on; false is the old engine).
 
-- True heads-up, small blind first in: plays every hand. Up to 30 big blinds effective it raises the pot; deeper it completes.
-- Small blind against the big blind alone at a larger table: the same.
-- First in from a non-blind seat with two opponents left (the button three-handed, or the button when the seats in front folded): plays its top 80 percent; pot raise up to 30 big blinds, 2.5 big blinds deeper.
-- Heads-up big blind facing one raise: calls its top 75 percent when the call is at most half the final pot; it moves in when the call is 40 percent of its stack or more.
-- Outside true heads-up the engine's own tournament risk premium narrows the share (two points of range per point of premium, at most half the range), so a pay jump still tightens play.
-- Three or four of a rank and the other class folds stay folds. Every raise, call and jam the engine already chose is untouched.
+Measured and NOT adopted: the button first in with two players left playing its top 80 percent (it lost to a big blind that re-shoves against it); the direct correction (giving the commitment zone the regular path's own 48 percent heads-up bar), which gained +0.19 BB per hand at 8 and 12 BB but less than the adopted rule in every cell and nothing at 20 BB.
 
-Option `omahaTournamentFirstIn` (default on; `false` keeps the earlier folds; an object replaces the shares for league arms), registered in the ledger with the receipt `omaha_tournament_first_in`.
+## Evaluation
 
-## Measured
+Protocol declared before running (plo-tournament/eval2/PROTOCOL.md). Mirrored matches, every deal played once from every seat, arm against an opponent; reported as the paired difference rule minus rule-off against the same opponent on the same deals, in big blinds per hand, with the standard error of the per-deal differences. Opponents: the old Horse, a tight Horse (style tag), a wide Horse (style lag), a call-heavy Horse (its big blind calls every raise it would fold), and an adaptive Horse (its big blind re-shoves its top half against any single raise). Acceptance: positive with the 95 percent interval above zero against old, tight and wide at each depth, and no cell anywhere with its interval below zero. Development seed 31337; confirmation on fresh seed 90001 run once.
 
-Mirrored self-play matches: the same deals played once from every seat, one seat on the arm, the rest on the unchanged brain; 3,000 hands per cell; production options, opponent memory off; chip result in big blinds per hand for the arm seat, averaged over all its seats (standard error).
+Heads-up, both rules, confirmation seed (PLO4 and PLO6 pooled, 4,000 hands per cell):
 
-Heads-up, small blind pot-raises every hand:
+| Opponent   | 8 BB         | 12 BB        | 20 BB        |
+| ---------- | ------------ | ------------ | ------------ |
+| Old        | +0.50 (0.03) | +0.46 (0.04) | +0.20 (0.06) |
+| Tight      | +0.53 (0.03) | +0.50 (0.04) | +0.21 (0.05) |
+| Wide       | +0.50 (0.03) | +0.44 (0.04) | +0.18 (0.06) |
+| Call-heavy | +0.21 (0.05) | +0.14 (0.06) | +0.06 (0.07) |
+| Adaptive   | +0.26 (0.04) | +0.17 (0.06) | -0.04 (0.07) |
 
-| Stack | PLO4         | PLO5         | PLO6         |
-| ----- | ------------ | ------------ | ------------ |
-| 5     | +0.19 (0.05) | +0.22 (0.05) | +0.27 (0.04) |
-| 8     | +0.54 (0.03) | +0.48 (0.03) | +0.49 (0.03) |
-| 12    | +0.52 (0.05) | +0.45 (0.05) | +0.45 (0.05) |
-| 16    | +0.25 (0.04) | +0.16 (0.04) | +0.14 (0.03) |
-| 25    | +0.26 (0.01) | +0.22 (0.01) | +0.18 (0.01) |
-| 30    | +0.25 (0.05) | +0.06 (0.06) | +0.16 (0.03) |
+Separately on the development seed, the small blind rule alone: +0.49 to +0.52 at 8 BB against old, tight and wide, +0.22 and +0.29 against call-heavy and adaptive; the big blind rule alone: +0.05 to +0.08 at 8 and 12 BB, +0.15 to +0.17 at 20 BB, against every opponent. Playing 85 percent instead of every hand scored lower in every pooled cell.
 
-Playing 85 or 70 percent of hands earned less than 100 percent in every cell of all three variants. Completing instead of raising earned +0.01 to +0.16 where raising earned +0.14 to +0.54.
-
-Heads-up big blind against a small blind that raises every hand (PLO4): calling the top 50 percent +0.19 to +0.22, the top 75 percent +0.27 to +0.34, every hand +0.25 to +0.36 (standard errors 0.05 to 0.10). Against the unchanged, tight raiser the same defence measured about zero three-handed.
-
-Three-handed, PLO4, 10 big blinds: small blind against big blind raising every hand +0.33 (0.03); button playing 80 percent +0.19 (0.03); both together +0.52 (0.05). At 6 big blinds the blind rule earns +0.23 (0.04) and the button rule about zero.
-
-Six-handed, PLO4, 9,000 hands per cell: widening the cutoff, hijack and under-the-gun seats measured +0.02 to +0.04 with standard errors of 0.02 to 0.04. NOT established, so those seats are unchanged.
+Three-handed, small blind against the big blind (development seed, pooled, 4,500 hands per cell): +0.24 to +0.27 at 8 BB and +0.22 to +0.25 at 12 BB against old, tight and wide; +0.16 and +0.13 against call-heavy; +0.09 and +0.04 against adaptive; at 20 BB +0.05 to +0.07 against old, tight and wide and indistinguishable from zero against call-heavy and adaptive. Confirmation seed 90001 (pooled): +0.23 to +0.26 at 8 BB and 12 BB against old, tight and wide; +0.12 and +0.09 against adaptive; at 20 BB +0.07 to +0.09 against old, tight and wide and +0.02 (0.02) against adaptive. (The call-heavy opponent equals the old one three-handed: its change is heads-up only.)
 
 ## Limits
 
-- The opponents in every match are Horses. The gains are against the brain that folds too much; once every Horse plays this way the heads-up gain shrinks to what the big blind's defence leaves. A person who already raises every button loses that free money; this does not measure play against people.
-- Chips, not prize money: the matches do not price pay jumps. The risk-premium narrowing is the engine's existing premium applied by rule; it was not separately measured.
-- Six-handed and deeper play, postflop play in the larger pots this creates, and Hi-Lo are untouched and unmeasured here.
-- Two frozen historical corpora replay Omaha tournament decisions this changes; following the repository convention they pass the off arm and keep every recorded byte.
-
-Law: `server/src/engine/HorseOmahaTournamentFirstIn.law.test.ts` (the pure rule, and end to end through `HorseLogic.decide`: heads-up small blind folds at most 5 percent with the rule and 40 percent or more without it, PLO4, PLO5 and PLO6, 4 to 30 big blinds; cash and Hi-Lo identical with and without).
-
-## Mode and ownership
-
-The rule engages only when the table engine declares the hand a tournament
-(`gameMode: 'tournament'`). A caller that passes no mode is left alone, so the
-legacy guess from the size of the big blind cannot switch it on at one stake
-and off at another. The tournament objective (Phase 7) still evaluates and
-owns the final action after the rule; a test holds that with the rule on.
+- Every opponent is a variant of the Horse brain. The human-calibrated league population is qualified for Hold'em only and was not used for Omaha. Measured people in PLO (14 days) are loose (VPIP about 0.72 to 0.75) with a raise rate near the Horses'; the call-heavy opponent is the closest, and gains there are about half of those against the old Horse.
+- At 20 BB the gain against an opponent that re-shoves or calls more is not distinguishable from zero.
+- Chip EV, not payout EV: heads-up the two are proportional; three-handed (harness payouts 50/30/20; production spins pay one place) they are not.
+- Live effect needs days of the `omaha_tournament_first_in` receipt by table size and the walk share; human-facing spots are rare (about 60 small blind and 38 big blind spots in five days).

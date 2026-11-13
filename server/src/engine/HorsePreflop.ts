@@ -971,11 +971,10 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
   }
   const out = completePreflopCommitment(decidePreflopV7Core(ctx), ctx);
   // ═══ OMAHA TOURNAMENT SHORT-HANDED FIRST-IN (Dan 2026-11-12) ═══
-  // The short-handed first-in bars read the Omaha strength value on the
-  // Hold'em scale and fold about four hands in five; the table walks the big
-  // blind. HorseOmahaTournamentFirstIn.ts reads the hand's true percentile
-  // and replaces the FOLD, and only the fold, in the three first-in spots
-  // and the heads-up big blind's reply.
+  // The commitment zone's unopened stack-off bar has no heads-up or
+  // blind-versus-blind case, so short-handed the table walks the big blind.
+  // HorseOmahaTournamentFirstIn.ts replaces the FOLD, and only the fold, in
+  // the measured short-handed spots (see its header for the cause and limits).
   if (
     out.a === 'fold' &&
     ctx.omahaTournamentFirstIn !== undefined &&
@@ -996,8 +995,9 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
         toCall: ctx.toCall,
         stack: ctx.stack,
         pot: ctx.pot,
-        bigBlind: ctx.bigBlind,
         riskPremium: ctx.riskAdd,
+        allInOrFold: ctx.allInOrFold === true,
+        satelliteLocked: ctx.satellite?.locked === true,
       },
       ctx.omahaTournamentFirstIn.params
     );

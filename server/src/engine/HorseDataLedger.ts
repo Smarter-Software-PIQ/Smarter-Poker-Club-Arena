@@ -864,7 +864,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'omahaTournamentFirstIn',
-    '2026-11-12 Omaha high tournaments: heads-up small blind, small blind against the big blind alone, first-in from a non-blind seat short-handed, and the heads-up big blind facing one raise read the hand true Omaha percentile and replace the preflop engine fold only (HorseOmahaTournamentFirstIn.ts); false keeps the earlier folds for historical corpora; an object replaces the shares for league arms',
+    '2026-11-13 Omaha high tournaments (engine-declared), three or fewer players dealt, 20 BB or less, not All-In-Or-Fold, not a locked satellite seat: the small blind against the big blind alone plays every hand as the pot-limit maximum raise, and the heads-up big blind calls its top 75 percent against one raise at a price of a half or better, replacing only the engine fold; percentile among Omaha hands, narrowed by the tournament risk premium.',
     'V90'
   ),
   flag(
@@ -3197,7 +3197,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_tournament_first_in',
     'HorsePreflop (V90)',
-    'Omaha high tournament: a short-handed first-in or heads-up big blind fold was replaced from the hand true Omaha percentile',
+    'Omaha high tournament: a small blind against the big blind alone, or heads-up big blind, fold was replaced from the hand true Omaha percentile',
     'V90',
     'decide',
     0.001
