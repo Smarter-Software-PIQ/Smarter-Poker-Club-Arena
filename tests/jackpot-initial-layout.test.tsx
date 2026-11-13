@@ -320,7 +320,8 @@ it('preserves rendered winner rows during an actual realtime refetch', async () 
       ])
     )
   );
-  expect(screen.getByText('Fixture Winner')).toBeInTheDocument();
+  // The name reads twice: beside the avatar and under that player's hole cards.
+  expect(screen.getAllByText('Fixture Winner')).toHaveLength(2);
   const row = container.querySelector('.bbj-hits__row');
   requests.fn_bbj_recent_hits = deferred();
   await act(async () => io.hit!());
