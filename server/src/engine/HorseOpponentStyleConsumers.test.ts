@@ -309,3 +309,39 @@ describe('A3 persisted m: recounted from persisted hand history, identical after
     expect(boot(history.slice(0, 50)).receipt.provenance.discounted).toContain('foldToBet');
   });
 });
+
+describe('gear change and bounty boundary, through decide()', () => {
+  const ADAPTIVE = ['style_big_bet_honesty_seen', 'style_raise_respect_seen', 'style_tight_opener_respect_seen', 'style_tight_reraiser_respect_seen', 'style_value_bettor_not_maniac_seen', 'style_value_extraction_seen', 'style_fold_bluff_seen'];
+  const adaptiveFires = (f: Record<string, number>) => ADAPTIVE.filter((k) => (f[k] ?? 0) > 0);
+  it('a tight player who changes gear (fast window aggressive) is released: every consumer stands down', () => {
+    const g = VILLAINS.grinder!;
+    const shifted: Villain = { ...g, counters: { ...g.counters!, fHands: 10, fPfr: 6, fBetCheckedToOpp: 10, fBetCheckedTo: 9, fThreeBetOpp: 8, fThreeBet: 4 }, stats: { ...g.stats, rAggr: 14, rPassive: 2 } };
+    for (const mode of ['cash', 'tournament'] as Mode[])
+      for (const spot of ALL_SPOTS(mode)) {
+        install(shifted, mode);
+        supply(120);
+        const off = decide(spot);
+        install(shifted, mode);
+        supply(120);
+        const on = decide(spot, { ...ALL_ON, styleValueExtraction: true });
+        expect(on.digest, spot.name).toBe(off.digest);
+        expect(adaptiveFires(on.fires), spot.name).toEqual([]);
+      }
+    install(shifted, 'cash');
+    supply(120);
+    expect(decide(turnPotBet('cash'), ALL_ON).fires.style_read_released_seen).toBeGreaterThan(0);
+  });
+  it('bounty tournaments: no style consumer acts (bounty utility is not in the read)', () => {
+    for (const spot of ALL_SPOTS('tournament')) {
+      (spot.gs.tournament as Record<string, unknown>).bountyFactor = 1.5;
+      install(VILLAINS.grinder!, 'tournament');
+      supply(120);
+      const off = decide(spot);
+      install(VILLAINS.grinder!, 'tournament');
+      supply(120);
+      const on = decide(spot, { ...ALL_ON, styleValueExtraction: true });
+      expect(on.digest, spot.name).toBe(off.digest);
+      expect(adaptiveFires(on.fires).filter((k) => k !== 'style_value_bettor_not_maniac_seen'), spot.name).toEqual([]);
+    }
+  });
+});

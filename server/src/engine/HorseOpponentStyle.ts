@@ -1188,7 +1188,12 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
     share,
     side: shownSide,
     magnitude: shownMag,
-    confidence: bigShown > 0 ? bigShown / (bigShown + T.bigBetConfidenceHalf) : 0,
+    // Confidence counts only the shown hands that SUPPORT the side read (strong for value, weak for bluff), so one more
+    // shown bluff can never raise value evidence (fixture F065: a total-count confidence grew faster than the share fell).
+    confidence: (() => {
+      const support = shownSide === 'value' ? bigStrong : shownSide === 'bluff' ? bigShown - bigStrong : bigShown;
+      return support > 0 ? support / (support + T.bigBetConfidenceHalf) : 0;
+    })(),
   };
   const opportunities = Math.max(0, num(tallies.postAggr));
   const revealedShare = opportunities > 0 ? Math.min(1, bigShown / opportunities) : 0;
