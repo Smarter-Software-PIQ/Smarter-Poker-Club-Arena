@@ -672,6 +672,40 @@ export type MobilePaintState = {
    * paint and its reservations carry on as they are until the next refit. */
   stale?: boolean;
 };
+/** Dan 2026-11-13: every table of one game type (cash or tournament, six- or
+ * nine-handed) shows the same portrait size on this device, seated or
+ * watching. The first table to settle a size records it here as a displayed
+ * height in layout px; every later table of that type takes the same height,
+ * or the largest it can if its own displays leave less room, and that smaller
+ * height then becomes the type's size for every table after it. A size a
+ * table has already shown is never changed by this. */
+const SHARED_SIZE_STORE = 'sp-mobile-avatar-size-v1';
+const sharedSizes: Map<string, number> = (() => {
+  try {
+    return new Map(Object.entries(JSON.parse(sessionStorage.getItem(SHARED_SIZE_STORE) || '{}')));
+  } catch {
+    return new Map();
+  }
+})();
+const recordSharedSize = (type: string, height: number) => {
+  const known = sharedSizes.get(type);
+  if (known !== undefined && known <= height) return;
+  sharedSizes.set(type, height);
+  try {
+    sessionStorage.setItem(SHARED_SIZE_STORE, JSON.stringify(Object.fromEntries(sharedSizes)));
+  } catch {
+    /* Private mode or a full store: the in-memory size still applies. */
+  }
+};
+/** Test seam: forget the recorded per-type sizes. */
+export const resetSharedMobileAvatarSizes = () => {
+  sharedSizes.clear();
+  try {
+    sessionStorage.removeItem(SHARED_SIZE_STORE);
+  } catch {
+    /* Nothing stored. */
+  }
+};
 export const createMobilePaintState = (): MobilePaintState => ({
   key: '',
   choices: new Map(),
@@ -777,6 +811,13 @@ export function enlargeMobileAvatars(
   const painted = new Map(entries.map((e) => [e.seat, e.parts]));
   const hero = entries.find((e) => e.seat.classList.contains('seat--hero'));
   const ordered = hero ? [hero, ...entries.filter((e) => e !== hero)] : entries;
+  // Dan, 2026-11-11: the hero's portrait is never the smaller one. A photo or
+  // initials hero is its circle, which does not grow; its height then caps
+  // every portrait's painted height.
+  const heroCap =
+    hero && !hero.avatar.classList.contains('seat__avatar--bust')
+      ? hero.avatar.getBoundingClientRect().height
+      : Infinity;
   // A character portrait whose runs are not readable yet would be left out of
   // the table's one size. Before the size is locked the table waits for the
   // pass in which every portrait is readable; after, a late one simply takes
@@ -946,10 +987,15 @@ export function enlargeMobileAvatars(
     const phantoms: FitItem[] = [];
     ring.forEach((wrapper, index) => {
       if (occupiedWrappers.has(wrapper) || !prepared.length) return;
-      const mirror = byWrapper.get(ring[(ring.length - index) % ring.length]);
+      // The hero's pod has its own geometry (larger plate, cards below), so it
+      // never stands in for an opponent's chair while any opponent is seated.
+      const opponents = prepared.filter((item) => !item.e.seat.classList.contains('seat--hero'));
+      const candidates = opponents.length ? opponents : prepared;
+      const mirrored = byWrapper.get(ring[(ring.length - index) % ring.length]);
+      const mirror = mirrored && candidates.includes(mirrored) ? mirrored : undefined;
       const reference =
         mirror ??
-        prepared
+        candidates
           .map((item) => ({
             item,
             distance: Math.min(
@@ -980,11 +1026,15 @@ export function enlargeMobileAvatars(
         origin: [reference.origin[0] + dx, reference.origin[1] + dy],
         paintBottom: reference.paintBottom + dy,
         plateTop: reference.plateTop + dy,
-        obstacles: hardObjects.concat(
-          Array.from(painted.values()).flatMap((parts) =>
-            parts.map((box) => ({ box, ownLayer: false }))
-          )
-        ),
+        // Its own empty chair (the sit button it replaces) is not an obstacle:
+        // a stand-in occupies exactly that chair.
+        obstacles: hardObjects
+          .filter((_, i) => !(objects[i].owner && wrapper.contains(objects[i].owner)))
+          .concat(
+            Array.from(painted.values()).flatMap((parts) =>
+              parts.map((box) => ({ box, ownLayer: false }))
+            )
+          ),
       });
       // The stand-in's future plate is a display every other portrait avoids.
       for (const item of real) item.obstacles.push({ box: movedPlate, ownLayer: false });
@@ -1001,7 +1051,7 @@ export function enlargeMobileAvatars(
         felt,
         viewport,
         scale,
-        Infinity,
+        heroCap,
         { scale, px: 0, py: 1 },
         item.plateTop
       );
@@ -1022,11 +1072,20 @@ export function enlargeMobileAvatars(
       );
       return second.every((c) => c.scale === scale) ? second.slice(0, real.length) : null;
     };
+    // The game type's displayed height, shared by every table of that type.
+    const sizeType = `${profileKey.split('|').slice(0, 2).join('|')}|${innerWidth}`;
+    // The portrait's unscaled box height in layout px (no transform counts).
+    const restingHeight = Math.max(...prepared.map((item) => item.e.image.offsetHeight));
+    const shared = sharedSizes.get(sizeType);
     const rungs = [
       2.5, 2.45, 2.4, 2.35, 2.3, 2.25, 2.2, 2.15, 2.1, 2.05, 2, 1.95, 1.9, 1.85, 1.8, 1.75, 1.7,
       1.65, 1.6, 1.55, 1.5, 1.45, 1.4, 1.35, 1.3, 1.25, 1.2, 1.15, 1.1, 1.05, 1.02,
-    ].filter((scale) => scale <= MOBILE_AVATAR_MAX_SCALE);
-    let best: PaintChoice[] | null = fitsAll(rungs[rungs.length - 1]);
+    ].filter(
+      (scale) =>
+        scale <= MOBILE_AVATAR_MAX_SCALE &&
+        (shared === undefined || !restingHeight || scale * restingHeight <= shared + 0.5)
+    );
+    let best: PaintChoice[] | null = rungs.length ? fitsAll(rungs[rungs.length - 1]) : null;
     if (best) {
       let lo = 0,
         hi = rungs.length - 1;
@@ -1039,7 +1098,68 @@ export function enlargeMobileAvatars(
         } else lo = mid + 1;
       }
     }
+    // Dan 2026-10-22: a bet and the dealer button each read as their own
+    // player's, nearer that player's portrait than any other. Growing every
+    // portrait together moves their visible centres, so a size that would
+    // put a displayed bet or the button nearer a neighbour is not taken; the
+    // next size down that keeps every one of them with its owner is.
+    const anchors: Array<[DOMRect, Element]> = [];
+    for (const chips of scaler.querySelectorAll('.seat__bet-chips')) {
+      const box = chips.getBoundingClientRect(),
+        owner = chips.closest('.seat-wrapper');
+      if (owner && box.width && box.height) anchors.push([box, owner]);
+    }
+    const puck = page.querySelector<HTMLElement>('.dealer-button');
+    const puckOwner = puck
+      ? ring.find(
+          (wrapper) =>
+            Math.abs(parseFloat(wrapper.style.left) - parseFloat(puck.dataset.ownerX ?? '')) <
+              0.01 &&
+            Math.abs(parseFloat(wrapper.style.top) - parseFloat(puck.dataset.ownerY ?? '')) < 0.01
+        )
+      : undefined;
+    if (puck && puckOwner) anchors.push([puck.getBoundingClientRect(), puckOwner]);
+    const readable = (scale: number) => {
+      if (!anchors.length) return true;
+      const centres = new Map<Element, [number, number]>();
+      for (const item of prepared) {
+        const wrapper = item.e.seat.closest('.seat-wrapper');
+        const parts = fixedChoice(
+          item.e.parts,
+          item.origin,
+          Math.min(item.paintBottom, item.plateTop),
+          scale
+        ).parts;
+        if (!wrapper || !parts.length) continue;
+        centres.set(wrapper, [
+          (Math.min(...parts.map((q) => q.left)) +
+            Math.max(...parts.map((q) => q.left + q.width))) /
+            2,
+          (Math.min(...parts.map((q) => q.top)) + Math.max(...parts.map((q) => q.top + q.height))) /
+            2,
+        ]);
+      }
+      // A clear margin, so the reading never rests on a pixel.
+      const margin = 2 * ratio;
+      return anchors.every(([box, owner]) => {
+        const own = centres.get(owner);
+        if (!own) return true;
+        const x = box.left + box.width / 2,
+          y = box.top + box.height / 2;
+        const mine = Math.hypot(x - own[0], y - own[1]);
+        for (const [wrapper, c] of centres)
+          if (wrapper !== owner && Math.hypot(x - c[0], y - c[1]) < mine + margin) return false;
+        return true;
+      });
+    };
+    if (best && !readable(best[0].scale)) {
+      const from = rungs.indexOf(best[0].scale);
+      best = null;
+      for (let i = from + 1; i < rungs.length && !best; i++)
+        if (readable(rungs[i])) best = fitsAll(rungs[i]);
+    }
     if (lock && best) lock.uniform = best[0].scale;
+    if (best && restingHeight) recordSharedSize(sizeType, best[0].scale * restingHeight);
     prepared.forEach((item, i) => {
       const choice = best
         ? best[i]

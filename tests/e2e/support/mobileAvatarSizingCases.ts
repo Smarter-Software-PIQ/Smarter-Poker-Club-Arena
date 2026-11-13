@@ -23,6 +23,8 @@ export async function checkFixedMobileArtwork(
   // Start the mobile candidate in the same notched-phone geometry used by
   // its approval screenshots, without the preceding test's injected poses.
   await page.setViewportSize({ width: 600, height: 1298 });
+  // Each case is a fresh device session: no game-type size recorded yet.
+  await page.evaluate(() => sessionStorage.removeItem('sp-mobile-avatar-size-v1'));
   await page.reload();
   await page.evaluate(() => {
     for (const style of document.querySelectorAll('style'))
@@ -185,6 +187,27 @@ export async function checkFixedMobileArtwork(
     const grown = before.paint.filter((p) => p[0]);
     expect(new Set(grown.map((p) => p[0])).size, 'one size for every portrait').toBe(1);
     const tableSize = grown[0][0];
+    // Dan 2026-11-13: every table of this game type on this device takes the
+    // size this one settled; it is recorded as the displayed height.
+    const recorded = await page.evaluate(() =>
+      Object.values(
+        JSON.parse(sessionStorage.getItem('sp-mobile-avatar-size-v1') || '{}') as Record<
+          string,
+          number
+        >
+      )
+    );
+    // The displayed height of every grown portrait (the table renders at its
+    // layout size here, so viewport px are layout px).
+    const heights = await page.evaluate(() =>
+      Array.from(document.querySelectorAll<HTMLElement>('.seat__avatar'))
+        .filter((a) => a.style.getPropertyValue('--sp-mobile-art-scale'))
+        .map((a) => a.querySelector('.seat__avatar-img')!.getBoundingClientRect().height)
+    );
+    const shown = Math.max(...heights);
+    expect(Math.max(...heights) - Math.min(...heights), 'one displayed size').toBeLessThan(1);
+    expect(recorded.length, 'the game type size is recorded').toBe(1);
+    expect(Math.abs(recorded[0] - shown), 'recorded as the displayed height').toBeLessThan(3);
     for (const p of before.paint)
       if (p[0])
         expect(Math.abs(parseFloat(p[1]) || 0), 'centred over its frame box').toBeLessThan(1);

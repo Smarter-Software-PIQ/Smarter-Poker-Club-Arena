@@ -120,3 +120,41 @@ their exact transform, rescaled to the current render ratio; a new arrival
 takes the locked size, straight up from its plate, centred, cropped at its
 plate. Only a different ring (capacity, or the viewer sitting down or standing
 up) starts over.
+
+## One Size Per Game Type
+
+Decided 2026-11-13: inside a table every character portrait, the hero's
+included, takes one size, and every table of one game type (six-handed or
+nine-handed, cash or tournament) shows that same size on the device. A single
+size shared by six- and nine-handed tables was measured and is not possible
+without shrinking six-handed tables: at the 600 px phone layout, with chips,
+cards, the dealer button and the board fixed, the largest sizes are 152 px
+six-handed seated (PLO6 included), 133 px nine-handed seated, 156 px
+six-handed watching and 109 px nine-handed watching (100, 87, 102 and 71 pt on
+an iPhone 14 Pro). The nine-handed limit is the mid-rail seats beside the
+board, each seat's own chips, the top seats under the notch, and bets and the
+dealer button reading as their own player's.
+
+- The hero joins the table's one size; the separate 2x hero size is gone.
+- The fit treats every empty chair as occupied by a stand-in portrait at that
+  chair's ring position, so the size still holds when the table fills. A
+  stand-in never collides with its own empty chair, and the hero's pod never
+  stands in for an opponent's chair.
+- A size that would make a displayed bet or the dealer button read as another
+  player's (nearer that player's portrait) is not taken.
+- The first table of a game type records its displayed height for the
+  session; later tables of that type take the same height, or the largest
+  they can if their own displays leave less room, which then becomes the
+  type's size. A size a table has already shown never changes.
+- Photo and initials discs are their circle and do not grow; a photo or
+  initials hero caps the art's painted height, as before.
+- Character art, photos, initials and empty-seat buttons are all fixed
+  obstacles; chips, the dealer button, cards, actions and controls never move
+  to make room.
+
+Proof: the fixture pins one displayed size for every grown portrait, the
+recorded type size, heads-up and refilled rosters keeping the locked size,
+height changes and relayouts keeping every transform, and the full
+containment suite at 600, 652 and 768 px; the live-turn phone suite checks
+the hero takes the table's size on iPhone 14, iPhone Pro Max and short
+Android geometry with character-art, photo and initials heroes.
