@@ -456,3 +456,38 @@ describe('#4 raise respect stands on in-format raise-frequency counts', () => {
     HorseMind.setDecisionScope(null);
   });
 });
+
+describe('harness-only sandbox style learning', () => {
+  const acts = [
+    { userId: HERO, action: 'raise', amount: 6, stage: 'preflop' },
+    { userId: VILLAIN, action: 'call', amount: 6, stage: 'preflop' },
+    { userId: VILLAIN, action: 'check', amount: 0, stage: 'flop' },
+    { userId: HERO, action: 'check', amount: 0, stage: 'flop' },
+    { userId: VILLAIN, action: 'check', amount: 0, stage: 'turn' },
+    { userId: HERO, action: 'check', amount: 0, stage: 'turn' },
+    { userId: VILLAIN, action: 'bet', amount: 10, stage: 'river' },
+    { userId: HERO, action: 'call', amount: 10, stage: 'river' },
+  ];
+  const bets = () => {
+    HorseMind.setDecisionScope('holdem:full', 'nlh', 'cash');
+    const n = HorseMind.styleRead(VILLAIN).signals.shownBySize.large.bets;
+    HorseMind.setDecisionScope(null);
+    return n;
+  };
+  it('is off by default: a sandbox records nothing; a harness can switch it on and clear it', () => {
+    install(VILLAINS.grinder!, 'cash');
+    const sb = HorseMind.createSandbox();
+    HorseMind.runInSandbox(sb, () => HorseMind.observeHandComplete('sb-1', acts as never, 2, [{ user_id: VILLAIN, mucked: false, hand_name: 'Flush' }], 'holdem:full', false, { variant: 'nlh', boardCount: 1 }, undefined, 'cash'));
+    expect(bets()).toBe(0);
+    expect(() => HorseMind.clearHarnessStyleMemory()).toThrow();
+    HorseMind.enableHarnessStyleLearning();
+    try {
+      HorseMind.runInSandbox(sb, () => HorseMind.observeHandComplete('sb-2', acts as never, 2, [{ user_id: VILLAIN, mucked: false, hand_name: 'Flush' }], 'holdem:full', false, { variant: 'nlh', boardCount: 1 }, undefined, 'cash'));
+      expect(bets()).toBe(1);
+      HorseMind.clearHarnessStyleMemory();
+      expect(bets()).toBe(0);
+    } finally {
+      HorseMind.enableHarnessStyleLearning(false);
+    }
+  });
+});

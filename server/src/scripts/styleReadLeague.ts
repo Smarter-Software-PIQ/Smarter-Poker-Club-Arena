@@ -12,6 +12,11 @@ import { resolve } from 'node:path';
 
 const args = new Map(process.argv.slice(2).map((a) => a.replace(/^--/, '').split('=') as [string, string]));
 const { runExploiterCell } = await import('../benchmark/ExploiterLeague.js');
+const { HorseMind } = await import('../engine/HorseMind.js');
+// harness-only: the style learner records inside the league sandbox (size buckets, in-format aggression)
+HorseMind.enableHarnessStyleLearning();
+const BT = await import('../engine/BrainTelemetry.js');
+BT.enableBrainTelemetry();
 const { styleLeagueField } = await import('../benchmark/StyleReadLeagueField.js');
 const pairs = Number(args.get('pairs') ?? 300);
 const seed = Number(args.get('seed') ?? 20261113);
@@ -24,8 +29,12 @@ for (const name of Object.keys(styleLeagueField())) {
   if (only && !only.includes(name)) continue;
   for (const [arm, horseOpts] of [['off', {}], ['on', ON]] as const) {
     const policy = styleLeagueField()[name];
+    HorseMind.clearHarnessStyleMemory();
+    BT.drainFires();
     const r = await runExploiterCell({ exploiter: 'reg_tag', variant: 'nlh', seats: 6, stackBB: 100, pairs, seed, memory: 'on', horseOpts, policy });
-    const row = { opponent: name, arm, pairs, seed, opponentBb100: r.exploiterBb100, opponentSe: r.exploiterSe, edgeBb100: r.edgeBb100, edgeSe: r.edgeSe, illegal: r.illegalActions, ms: r.durationMs };
+    const fires: Record<string, number> = {};
+    for (const f of BT.drainFires()) if (f.feature.startsWith('style_') && !f.feature.startsWith('style_label')) fires[f.feature] = f.fires;
+    const row = { opponent: name, arm, fires, pairs, seed, opponentBb100: r.exploiterBb100, opponentSe: r.exploiterSe, edgeBb100: r.edgeBb100, edgeSe: r.edgeSe, illegal: r.illegalActions, ms: r.durationMs };
     rows.push(row);
     console.log(JSON.stringify(row));
     await writeFile(`${out}/${name}_${arm}.json`, JSON.stringify(r, null, 1));

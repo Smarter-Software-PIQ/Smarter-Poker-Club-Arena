@@ -1128,6 +1128,12 @@ export class HorseMind {
   static enableHarnessStyleLearning(on = true): void {
     this.harnessStyleLearning = on;
   }
+  /** TEST-HARNESS ONLY: forget the style learner's per-context rows (one cell or tournament per arm pairing). */
+  static clearHarnessStyleMemory(): void {
+    if (!this.harnessStyleLearning) throw new Error('clearHarnessStyleMemory is for test harnesses only');
+    this.styleSizeShown.clear();
+    this.styleAggression.clear();
+  }
   /** Item 12 (2026-11-05): the player's pooled hand clock (OpponentStats.hands
    *  in this process) at the moment each durable row was last imported. A
    *  donor bucket's staleness is the distance from this mark to the player's
