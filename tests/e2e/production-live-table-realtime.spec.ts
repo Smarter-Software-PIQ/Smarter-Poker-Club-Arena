@@ -2301,6 +2301,42 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
     });
   }
 
+  test('occupied six and nine seat cash layouts preserve mobile displays', async ({
+    page,
+    request,
+  }, testInfo) => {
+    const mutations: string[] = [];
+    await page.route('**/*', async (route) => {
+      const req = route.request();
+      if (isSpectatorParticipationMutation(req.method(), req.url())) {
+        mutations.push(new URL(req.url()).pathname);
+        return route.abort();
+      }
+      return route.continue();
+    });
+    const selected = await selectOccupiedRunningCashTables(page, request, {
+      perVariantLimit: 3,
+    });
+    const capacities = new Set<string>();
+    for (const { candidate } of selected.tables) {
+      await page.goto(`table/${candidate.id}`, { waitUntil: 'domcontentloaded' });
+      const table = page.locator('.table-page:visible').first();
+      await expect(table).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId('table-connection-banner')).toBeHidden({ timeout: 30_000 });
+      const capacity = await table.getAttribute('data-seats');
+      if (!capacity || !['6', '9'].includes(capacity) || capacities.has(capacity)) continue;
+      await expect(table.locator('.seat__avatar-img')).not.toHaveCount(0);
+      await certifyMobileLiveTableLayout(page, testInfo, { requireAvatarGrowth: true });
+      capacities.add(capacity);
+      if (capacities.size === 2) break;
+    }
+    expect(mutations, 'Layout observation must never participate in a live game').toEqual([]);
+    expect(
+      [...capacities].sort(),
+      'Both occupied table layouts require live screenshot proof'
+    ).toEqual(['6', '9']);
+  });
+
   for (const gameFormat of TOURNAMENT_FORMATS) {
     test(`an already-running ${gameFormat.toUpperCase()} table stays realtime and recovers one owner`, async ({
       page,

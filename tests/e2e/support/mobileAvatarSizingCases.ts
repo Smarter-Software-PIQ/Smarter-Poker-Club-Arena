@@ -24,9 +24,9 @@ export async function checkFixedMobileArtwork(
   // its approval screenshots, without the preceding test's injected poses.
   await page.setViewportSize({ width: 600, height: 1298 });
   // Each case is a fresh device session: no game-type size recorded yet.
-  await page.evaluate(() => localStorage.removeItem('sp-mobile-avatar-size-v1'));
+  await page.evaluate(() => localStorage.removeItem('sp-mobile-avatar-size-v2'));
   await page.reload();
-  await page.evaluate(() => {
+  await page.evaluate((settings) => {
     for (const style of document.querySelectorAll('style'))
       style.textContent = (style.textContent || '')
         .replace(/env\(\s*safe-area-inset-top\s*(?:,[^()]*)?\)/g, '72px')
@@ -39,10 +39,13 @@ export async function checkFixedMobileArtwork(
       activeSeat: '3',
       action: 'preflop',
       actionPills: 'true',
-      villainCards: '2',
       folded: '1,6',
+      // Mount the requested game directly. A warm-up nine-seat Hold'em mount
+      // can persist a second game type before the first fixture transition.
+      ...settings,
+      villainCards: settings.cards,
     });
-  });
+  }, settings);
   await page.addScriptTag({ content: bundle });
   await page.waitForFunction(
     () =>
@@ -102,7 +105,12 @@ export async function checkFixedMobileArtwork(
       return {
         paint: Array.from(document.querySelectorAll<HTMLElement>('.seat__avatar')).map((e) =>
           ['--sp-mobile-art-scale', '--sp-mobile-art-x', '--sp-mobile-art-y'].map((n) =>
-            e.style.getPropertyValue(n)
+            n === '--sp-mobile-art-scale' && e.style.getPropertyValue(n)
+              ? String(
+                  Number(e.style.getPropertyValue(n)) *
+                    (parseFloat(getComputedStyle(e).getPropertyValue('--sp-bust-scale')) || 1)
+                )
+              : e.style.getPropertyValue(n)
           )
         ),
         frames: Array.from(document.querySelectorAll<HTMLElement>('.seat__info')).map((e) =>
@@ -182,6 +190,48 @@ export async function checkFixedMobileArtwork(
     }
     await expect.poll(async () => (await read()).paint.some((p) => Number(p[0]) > 1)).toBe(true);
     const before = await read();
+    // Cards may overlap within their own fan, but never leave the screen or
+    // obscure information. Exercise hidden PLO6 cards as well as showdown.
+    const cardObstructions = () =>
+      page.evaluate(() => {
+        const visible = (e: Element) => {
+          const style = getComputedStyle(e);
+          const r = e.getBoundingClientRect();
+          return (
+            style.visibility !== 'hidden' && style.display !== 'none' && r.width > 0 && r.height > 0
+          );
+        };
+        const overlaps = (a: DOMRect, b: DOMRect) =>
+          Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 &&
+          Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
+        const displays = [
+          ...document.querySelectorAll(
+            '.table-brand,.community-area,.seat__info,.seat__name,.seat__stack,.seat__bet-chips,.dealer-button,.action-panel'
+          ),
+        ].filter(visible);
+        return [...document.querySelectorAll('.seat__cards .seat__card')]
+          .filter(visible)
+          .flatMap((card) => {
+            const r = card.getBoundingClientRect();
+            const errors: string[] = [];
+            if (
+              r.left < -0.5 ||
+              r.right > innerWidth + 0.5 ||
+              r.top < -0.5 ||
+              r.bottom > innerHeight + 0.5
+            )
+              errors.push(
+                `Card Outside Viewport: ${card.closest('.seat')?.getAttribute('data-seat')}`
+              );
+            for (const display of displays)
+              if (overlaps(r, display.getBoundingClientRect()))
+                errors.push(`Card Covers ${display.className}`);
+            return errors;
+          });
+      });
+    expect(await cardObstructions(), 'hidden hands stay complete and clear of displays').toEqual(
+      []
+    );
     // Dan 2026-11-12: every portrait, the hero's included, is the exact same
     // size and stays centred over its frame box (no sideways shift).
     const grown = before.paint.filter((p) => p[0]);
@@ -225,7 +275,7 @@ export async function checkFixedMobileArtwork(
     // size this one settled; it is recorded as the displayed height.
     const recorded = await page.evaluate(() =>
       Object.values(
-        JSON.parse(localStorage.getItem('sp-mobile-avatar-size-v1') || '{}') as Record<
+        JSON.parse(localStorage.getItem('sp-mobile-avatar-size-v2') || '{}') as Record<
           string,
           number
         >
@@ -275,6 +325,9 @@ export async function checkFixedMobileArtwork(
       );
       if (revealed)
         expect(after.cards, 'already shown cards never move on a later turn').toEqual(revealed);
+      expect(await cardObstructions(), 'shown hands stay complete and clear of displays').toEqual(
+        []
+      );
       if (state.revealed === 'true') revealed = after.cards;
     }
     // Dan 2026-11-12: the table's size never changes once set, whoever comes

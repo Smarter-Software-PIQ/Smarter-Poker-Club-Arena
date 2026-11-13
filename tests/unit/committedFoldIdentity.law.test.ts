@@ -57,7 +57,8 @@ describe('a player disappears only after their actual fold', () => {
     );
     expect(source).toContain('nextFoldReveal( foldRevealRef.current,');
     const css = readFileSync('src/components/table/SeatSlot.css', 'utf8');
-    const rule = css.slice(css.indexOf('.seat--fold-hidden >'));
+    const rule = css.match(/\.seat--fold-hidden >[^{}]*\{[^{}]*\}/)?.[0];
+    expect(rule, 'the folded-player visibility rule exists').toBeDefined();
     expect(rule).toContain('visibility: hidden');
     expect(rule).not.toMatch(/seat__wager-group|seat__cards/);
   });

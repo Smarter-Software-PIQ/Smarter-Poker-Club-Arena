@@ -101,7 +101,7 @@ describe('a revealed hand reads left to right at every seat', () => {
   const revealedCardRules = () =>
     RULES.filter(
       (r) =>
-        r.selector.includes('seat__cards--revealed') &&
+        r.selector.replace(/:not\([^)]*\)/g, '').includes('seat__cards--revealed') &&
         r.selector.trim().endsWith('.seat__card') &&
         /(^|[^-])\b(left|right):/.test(r.body)
     );
@@ -204,7 +204,7 @@ describe('a revealed hand reads left to right at every seat', () => {
     const revealedClusters = RULES.filter(
       (r) =>
         r.selector.includes('seat__cards--opponent') &&
-        r.selector.includes('seat__cards--revealed') &&
+        r.selector.replace(/:not\([^)]*\)/g, '').includes('seat__cards--revealed') &&
         // The CLUSTER, not the cards inside it. `.seat__card` is a prefix of
         // `.seat__cards`, so a plain `includes` here matches everything and the
         // loop below silently checks nothing.
