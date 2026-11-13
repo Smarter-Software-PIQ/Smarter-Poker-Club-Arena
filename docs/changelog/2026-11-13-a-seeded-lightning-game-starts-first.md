@@ -20,7 +20,7 @@ AND DAYS OFF. MAKE SURE THIS IS FULLY IMPLEMENTED AND VERIFIED".
 - Work schedule and days off (live since `08c27924`): since 02:08 the engine
   sent 1,063 horses home (691 shift over, 356 daily cap, 16 rest day). Of the
   242 seated bodies, 5 were on their rest day and 14 past their daily cap.
-  Nine of those 19 are the trapped Lightning seats below and four sit at FLO8
+  Nine of those 19 are the trapped Lightning seats below and three sit at FLO8
   .25/.50 Madness tables that are not dealing (below); the rest had passed
   their cap within the last few minutes.
 
@@ -71,7 +71,7 @@ sat-in horses since its last hand at 00:55 Chicago; Main 3 (`b43ddcc7`) and
 Main 4 (`433e947a`) last dealt at 04:21 and 04:11, minutes after the daily
 thaw; Main 2 (`ebcff453`) at 14:48. `/health` reports 0 stalled tables and 10
 undealable. A horse cannot leave a table that never reaches a hand boundary,
-so four of these seats are past their rest day or cap. Reported to the table
+so three of these seats are past their rest day or cap. Reported to the table
 liveness owner with these ids; nothing was written.
 
 ## Not changed

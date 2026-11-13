@@ -101,7 +101,9 @@ describe('a seeded Lightning game starts first', () => {
       join(dirname(fileURLToPath(import.meta.url)), 'HorseFleetManager.ts'),
       'utf8'
     );
-    const sort = src.slice(src.indexOf('const orderedTables = [...tables, ...diamondTables].sort('));
+    const sort = src.slice(
+      src.indexOf('const orderedTables = [...tables, ...diamondTables].sort(')
+    );
     const human = sort.indexOf('Number(humanShort(b)) - Number(humanShort(a))');
     const starter = sort.indexOf('Number(lightningStarters.has(String(b.id)))');
     const cluster = sort.indexOf('Number(!!b.cluster_id) - Number(!!a.cluster_id)');
