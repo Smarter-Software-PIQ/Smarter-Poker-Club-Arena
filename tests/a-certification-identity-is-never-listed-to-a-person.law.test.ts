@@ -32,6 +32,7 @@ const sql = readFileSync(join(MIGRATIONS, NAME), 'utf8');
 const PREDICATE = 'ca_is_reserved_certification_identity';
 const VIEWER = 'ca_viewer_sees_certification_identities';
 const READERS = ['ca_club_roster_rows', 'ca_club_members_summary', 'ca_club_live_seats'];
+const CLIENT_READER = readFileSync(join(__dirname, '..', 'src', 'lib', 'clubLiveSeats.ts'), 'utf8');
 
 describe('A certification identity is never listed to a person', () => {
   it('names the certification namespace and nothing else', () => {
@@ -63,6 +64,12 @@ describe('A certification identity is never listed to a person', () => {
     );
     expect(sql).toContain(`FUNCTION public.ca_club_live_seats(p_club_id uuid)`);
     expect(sql).toContain(`AND (v_sees_certification OR NOT public.${PREDICATE}(l.uid))`);
+  });
+
+  it('the Live Now strip reads the roster door, never table_seats directly', () => {
+    expect(CLIENT_READER).toContain("export const LIVE_SEATS_RPC = 'ca_club_live_seats';");
+    expect(CLIENT_READER).toContain('supabase.rpc(LIVE_SEATS_RPC, { p_club_id: clubId })');
+    expect(CLIENT_READER).not.toMatch(/\.from\(\s*['"]table_seats['"]\s*\)/);
   });
 
   it('is DDL in one transaction and never rewrites a member row', () => {
