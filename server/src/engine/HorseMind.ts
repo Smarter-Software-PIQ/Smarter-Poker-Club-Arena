@@ -138,6 +138,11 @@ import {
   type PersistedHandForProvenance,
   riverFirstBetFractions,
   inFormatShownTallies,
+  inFormatAggressionTallies,
+  postflopAggressionIncrements,
+  addStreetAggression,
+  type StreetAggression,
+  type StyleTallies,
   sizeBucketOf,
   type SizeBucketTallies,
   preRepairKeyed,
@@ -1115,6 +1120,14 @@ export class HorseMind {
   private static postReleaseObservations = new Map<string, PostReleaseOpportunities>();
   /** STYLE READ A2: river first bets by size bucket per player (memory only, live only, LRU-capped). */
   private static styleSizeShown = new Map<string, SizeBucketTallies>();
+  /** STYLE READ #4: postflop aggression and raise opportunities per street, per (variant, format, table size, player). */
+  private static styleAggression = new Map<string, StreetAggression>();
+  /** TEST-HARNESS ONLY (league and tournament simulations): let the style learner record inside a sandbox, into the
+   *  process maps. Never set by a production path; a live engine keeps the default false. */
+  private static harnessStyleLearning = false;
+  static enableHarnessStyleLearning(on = true): void {
+    this.harnessStyleLearning = on;
+  }
   /** Item 12 (2026-11-05): the player's pooled hand clock (OpponentStats.hands
    *  in this process) at the moment each durable row was last imported. A
    *  donor bucket's staleness is the distance from this mark to the player's
@@ -1737,6 +1750,26 @@ export class HorseMind {
     );
   }
 
+  /** #4: supply in-format postflop aggression for one context (boot rebuild from hand history); replaces that row. */
+  static importStyleAggression(
+    rows: ReadonlyArray<{ user_id: string; variant: string; mode: MemoryMode; size: MemorySize; aggression: StreetAggression }>
+  ): number {
+    if ((this.sandboxDepth > 0 || this.decisionEffectSink) && !this.harnessStyleLearning)
+      throw new Error('style aggression import outside live boundary');
+    let applied = 0;
+    for (const r of rows) {
+      const v = memoryVariant(r?.variant);
+      if (!r || typeof r.user_id !== 'string' || !v || !['cash', 'tournament'].includes(r.mode) || !['hu', 'short', 'full'].includes(r.size) || !r.aggression) continue;
+      const key = styleSizeKey(r.user_id, v, r.mode, r.size);
+      this.styleAggression.delete(key);
+      this.styleAggression.set(key, addStreetAggression(undefined, r.aggression));
+      applied++;
+    }
+    while (this.styleAggression.size > MAX_TRACKED_PLAYERS)
+      this.styleAggression.delete(this.styleAggression.keys().next().value!);
+    return applied;
+  }
+
   /** A2: supply river size buckets for one (player, variant, format, table size) context; replaces that context's row. */
   static importSizeBuckets(
     rows: ReadonlyArray<{ user_id: string; variant: string; mode: MemoryMode; size: MemorySize; buckets: SizeBucketTallies }>
@@ -2056,7 +2089,8 @@ export class HorseMind {
     const sizeBuckets = variant ? (this.styleSizeShown.get(styleSizeKey(userId, variant, mode, size)) ?? null) : null;
     const s = carryWeight > 0 ? this.scoped.get(`${scope}|${userId}`) : undefined;
     const w = carryWeight;
-    const inFormat = inFormatShownTallies(sizeBuckets);
+    const agg = variant ? this.styleAggression.get(styleSizeKey(userId, variant, mode, size)) : undefined;
+    const inFormat: StyleTallies = { ...inFormatShownTallies(sizeBuckets), ...inFormatAggressionTallies(agg) };
     const style = classifyOpponentStyle({
       scope,
       variant: this.decisionVariant,
@@ -2071,8 +2105,8 @@ export class HorseMind {
             bigBetSD: (inFormat.bigBetSD ?? 0) + w * s.bigBetSD,
             bigBetSDStrong: (inFormat.bigBetSDStrong ?? 0) + w * s.bigBetSDStrong,
             shownOpportunities: (inFormat.shownOpportunities ?? 0) + w * s.postAggr,
-            postAggr: w * s.postAggr,
-            postPassive: w * s.postPassive,
+            postAggr: (inFormat.postAggr ?? 0) + w * s.postAggr,
+            postPassive: (inFormat.postPassive ?? 0) + w * s.postPassive,
             rAggr: w * s.rAggr,
             rPassive: w * s.rPassive,
             ctBets: w * (s.ctBets ?? 0),
@@ -2288,6 +2322,7 @@ export class HorseMind {
     this.durableProfilePreRepair.clear();
     this.postReleaseObservations.clear();
     this.styleSizeShown.clear();
+    this.styleAggression.clear();
     this.durableOpponentImportClock.clear();
     this.planFingerprints.clear();
     this.durableOpponentMemory = false;
@@ -4312,8 +4347,17 @@ export class HorseMind {
       // restart) and live only: a sandbox or an effect capture records nothing.
       const styleVariant = memoryVariant(riverCallContext?.variant ?? null);
       const styleScope = this.decisionScope;
-      if (this.sandboxDepth === 0 && !this.decisionEffectSink && styleMode && styleVariant && styleScope) {
+      const styleLearn = (this.sandboxDepth === 0 && !this.decisionEffectSink) || this.harnessStyleLearning;
+      if (styleLearn && styleMode && styleVariant && styleScope) {
         const styleSize = styleScope.split(':')[1] as MemorySize;
+        for (const [uid, inc] of postflopAggressionIncrements(actions)) {
+          const key = styleSizeKey(uid, styleVariant, styleMode, styleSize);
+          const next = addStreetAggression(this.styleAggression.get(key), inc);
+          this.styleAggression.delete(key);
+          this.styleAggression.set(key, next);
+          while (this.styleAggression.size > MAX_TRACKED_PLAYERS)
+            this.styleAggression.delete(this.styleAggression.keys().next().value!);
+        }
         const shownBy = new Map<string, { mucked: boolean; hand_name?: string }>();
         for (const sd of showdown ?? []) if (sd?.user_id) shownBy.set(sd.user_id, sd);
         for (const [uid, frac] of riverFirstBetFractions(actions)) {

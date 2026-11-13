@@ -1858,3 +1858,66 @@ export function sizeBucketsFromHistory(hands: readonly PersistedHandForStyle[], 
   }
   return out;
 }
+
+/** Per street: postflop bets and raises, calls, spots facing a wager (raise opportunities) and raises made there. */
+export type StreetAggression = Record<'flop' | 'turn' | 'river', { aggr: number; passive: number; raiseOpps: number; raises: number }>;
+export const emptyStreetAggression = (): StreetAggression => ({
+  flop: { aggr: 0, passive: 0, raiseOpps: 0, raises: 0 },
+  turn: { aggr: 0, passive: 0, raiseOpps: 0, raises: 0 },
+  river: { aggr: 0, passive: 0, raiseOpps: 0, raises: 0 },
+});
+
+/**
+ * #4 IN-FORMAT RAISE FREQUENCY (2026-11-13): one hand's postflop aggression per player and street, replayed from the
+ * public action log. A bet, raise or raising all-in is aggression; a call (or a non-raising all-in) is passive; every
+ * action taken facing a wager on the street is a raise opportunity, and a raise there is a raise. Forced actions are
+ * skipped. Pure. The live learner (per format and variant) and the boot rebuild both use it, so the raise-frequency
+ * axis stands on in-scope counts only.
+ */
+export function postflopAggressionIncrements(
+  actions: ReadonlyArray<{ userId?: string; action: string; amount?: number; stage: string; origin?: string; isFullRaise?: boolean }>
+): Map<string, StreetAggression> {
+  const out = new Map<string, StreetAggression>();
+  let stage = '';
+  let wager = 0;
+  for (const a of actions) {
+    if (a.stage !== stage) {
+      stage = a.stage;
+      wager = 0;
+    }
+    if (a.stage !== 'flop' && a.stage !== 'turn' && a.stage !== 'river') continue;
+    if (!a.userId || a.origin === 'forced') continue;
+    const amt = Math.max(0, num(a.amount));
+    const raising = a.action === 'bet' || a.action === 'raise' || (a.action === 'all_in' && amt > wager);
+    const row = out.get(a.userId) ?? emptyStreetAggression();
+    const st = row[a.stage as 'flop' | 'turn' | 'river'];
+    const facing = wager > 0;
+    if (facing && (a.action === 'fold' || a.action === 'call' || raising || a.action === 'all_in')) st.raiseOpps++;
+    if (raising) {
+      st.aggr++;
+      if (facing) st.raises++;
+      wager = Math.max(wager, amt);
+    } else if (a.action === 'call' || a.action === 'all_in') st.passive++;
+    out.set(a.userId, row);
+  }
+  return out;
+}
+
+export function addStreetAggression(base: StreetAggression | undefined, inc: StreetAggression): StreetAggression {
+  const out = emptyStreetAggression();
+  for (const st of ['flop', 'turn', 'river'] as const)
+    for (const k of ['aggr', 'passive', 'raiseOpps', 'raises'] as const) out[st][k] = (base?.[st][k] ?? 0) + inc[st][k];
+  return out;
+}
+
+/** #4: the in-format postflop aggression tallies (summed over streets) the classifier reads as postAggr / postPassive. */
+export function inFormatAggressionTallies(a: StreetAggression | null | undefined): StyleTallies {
+  if (!a) return {};
+  let aggr = 0;
+  let passive = 0;
+  for (const st of ['flop', 'turn', 'river'] as const) {
+    aggr += a[st].aggr;
+    passive += a[st].passive;
+  }
+  return { postAggr: aggr, postPassive: passive };
+}

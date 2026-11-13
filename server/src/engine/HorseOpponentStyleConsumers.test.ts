@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { HorseMind } from './HorseMind.js';
-import { ALL_SPOTS, checkedTo, HERO, VILLAIN, VILLAINS, decide, install, preflopJam, preflopOpen, preflopThreeBet, turnPotBet, type Mode, type Villain } from './HorseOpponentStyle.contexts.test-support.js';
+import { ALL_SPOTS, checkedTo, flopRaise, HERO, VILLAIN, VILLAINS, decide, install, preflopJam, preflopOpen, preflopThreeBet, turnPotBet, type Mode, type Villain } from './HorseOpponentStyle.contexts.test-support.js';
 import { counters } from './HorseOpponentStyle.test-support.js';
 import { postReleaseOpportunitiesFromHistory } from './HorseOpponentStyle.js';
 
@@ -402,5 +402,57 @@ describe('bounty guard reads bountyFactor as the bounty share (0 = regular event
     install(VILLAINS.grinder!, 'tournament');
     supply(120);
     expect(decide(spot, { styleTightReRaiserRespect: true }).fires.style_tight_opener_respect_seen ?? 0).toBe(0);
+  });
+});
+
+import { emptyStreetAggression, postflopAggressionIncrements } from './HorseOpponentStyle.js';
+describe('#4 raise respect stands on in-format raise-frequency counts', () => {
+  const agg = (aggr: number, passive: number) => {
+    const a = emptyStreetAggression();
+    a.flop = { aggr, passive, raiseOpps: passive + 10, raises: 4 };
+    return a;
+  };
+  it('engages on in-format evidence; the same counts in the other format move nothing', () => {
+    for (const [mode, other] of [['cash', 'tournament'], ['tournament', 'cash']] as const) {
+      const spot = flopRaise(mode, 'deep');
+      install(VILLAINS.grinder!, mode);
+      supply(120);
+      HorseMind.importStyleAggression([{ user_id: VILLAIN, variant: 'nlh', mode, size: 'full', aggression: agg(60, 100) }]);
+      expect(decide(spot, { styleRaiseRespect: true }).fires.style_raise_respect_seen, mode).toBeGreaterThan(0);
+      install(VILLAINS.grinder!, mode);
+      supply(120);
+      HorseMind.importStyleAggression([{ user_id: VILLAIN, variant: 'nlh', mode: other, size: 'full', aggression: agg(60, 100) }]);
+      expect(decide(spot, { styleRaiseRespect: true }).fires.style_raise_respect_seen ?? 0, mode).toBe(0);
+    }
+  });
+  it('the learner records raise opportunities and raises by street, per format', () => {
+    const inc = postflopAggressionIncrements([
+      { userId: HERO, action: 'bet', amount: 10, stage: 'flop' },
+      { userId: VILLAIN, action: 'raise', amount: 30, stage: 'flop' },
+      { userId: HERO, action: 'call', amount: 20, stage: 'flop' },
+      { userId: HERO, action: 'check', amount: 0, stage: 'turn' },
+      { userId: VILLAIN, action: 'bet', amount: 40, stage: 'turn' },
+      { userId: HERO, action: 'fold', amount: 0, stage: 'turn' },
+    ]);
+    expect(inc.get(VILLAIN)!.flop).toEqual({ aggr: 1, passive: 0, raiseOpps: 1, raises: 1 });
+    expect(inc.get(VILLAIN)!.turn).toEqual({ aggr: 1, passive: 0, raiseOpps: 0, raises: 0 });
+    expect(inc.get(HERO)!.flop).toEqual({ aggr: 1, passive: 1, raiseOpps: 1, raises: 0 });
+    expect(inc.get(HERO)!.turn.raiseOpps).toBe(1);
+    install(VILLAINS.grinder!, 'tournament');
+    HorseMind.importDurableOpponentProfiles([{ user_id: VILLAIN, variant: 'nlh', mode: 'cash', size: 'full', observed_hands: 80, initialized: true, public_memory_domain: { version: 1, speed: 'lightning', ante: 'none' }, counters: VILLAINS.grinder!.counters } as never]);
+    const acts = [
+      { userId: HERO, action: 'raise', amount: 6, stage: 'preflop' },
+      { userId: VILLAIN, action: 'call', amount: 6, stage: 'preflop' },
+      { userId: VILLAIN, action: 'check', amount: 0, stage: 'flop' },
+      { userId: HERO, action: 'bet', amount: 6, stage: 'flop' },
+      { userId: VILLAIN, action: 'raise', amount: 20, stage: 'flop' },
+      { userId: HERO, action: 'fold', amount: 0, stage: 'flop' },
+    ];
+    HorseMind.observeHandComplete('agg-1', acts as never, 2, null, 'holdem:full', false, { variant: 'nlh', boardCount: 1 }, undefined, 'tournament');
+    HorseMind.setDecisionScope('holdem:full', 'nlh', 'cash');
+    expect(HorseMind.styleRead(VILLAIN).signals.aggressionShare.n).toBe(0);
+    HorseMind.setDecisionScope('holdem:full', 'nlh', 'tournament');
+    expect(HorseMind.styleRead(VILLAIN).signals.aggressionShare.n).toBe(1);
+    HorseMind.setDecisionScope(null);
   });
 });
