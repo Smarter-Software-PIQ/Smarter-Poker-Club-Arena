@@ -5256,3 +5256,16 @@
     opacity: 0.65;
   }
 }
+
+/* WebKit's offscreen filter group uses the small seat box even when its
+   portrait overflows. Keep the acting spotlight on painted leaves so the
+   enlarged head is included, while the timer and every caption stay lit. */
+@media (max-width: 768px) and (orientation: portrait) {
+  .table-page .seat-wrapper--spot .seat:has(.seat__avatar--bust) {
+    filter: none;
+  }
+  .table-page .seat-wrapper--spot .seat:has(.seat__avatar--bust) > :not(.seat__avatar-wrap),
+  .table-page .seat-wrapper--spot .seat .seat__avatar--bust .seat__avatar-img {
+    filter: brightness(1.18) saturate(1.08);
+  }
+}

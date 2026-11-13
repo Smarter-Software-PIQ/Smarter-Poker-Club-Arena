@@ -880,9 +880,16 @@ export function enlargeMobileAvatars(
     state?.choices.set(e.image, choice);
     // Keep brightness/saturation (including folds). An enlarged soft shadow
     // must not spread onto felt that the original art left clear.
-    const filter = getComputedStyle(e.image)
-      .filter.replace(/drop-shadow\((?:[^()]|\([^()]*\))*\)/g, '')
-      .trim();
+    // The active spotlight is a transient CSS leaf filter, never part of
+    // the locked portrait paint. Capturing it here would leave the previous
+    // actor bright after the turn moves to another chair.
+    const spotlight =
+      e.seat.closest('.seat-wrapper--spot') && !e.seat.classList.contains('seat--folded');
+    const filter = spotlight
+      ? e.image.style.getPropertyValue('--sp-mobile-filter') || 'none'
+      : getComputedStyle(e.image)
+          .filter.replace(/drop-shadow\((?:[^()]|\([^()]*\))*\)/g, '')
+          .trim();
     e.image.style.setProperty('--sp-mobile-filter', filter || 'none');
     const normal = parseFloat(e.avatar.style.getPropertyValue('--sp-opponent-art-scale')) || 1;
     const chrome = getComputedStyle(e.avatar);

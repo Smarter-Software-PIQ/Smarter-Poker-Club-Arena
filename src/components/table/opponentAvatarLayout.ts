@@ -1969,7 +1969,13 @@ export function createOpponentAvatarLayout(
         for (const { seat } of ordered) {
           const action = seat.querySelector<HTMLElement>(':scope > .seat__action');
           const info = seat.querySelector<HTMLElement>(':scope > .seat__info');
-          if (action && info) {
+          // Enlarged phone portraits reserve captions above their crowns.
+          // The compact raw-width fallback would put them over the inward
+          // card fan, and its inline translate survives a failed ring solve.
+          const crownCaption =
+            matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)')
+              .matches && ['6', '9'].includes(page.dataset.seats || '');
+          if (action && info && !crownCaption) {
             const a = box(action),
               p = box(info);
             action.style.translate = `0px ${(p.top - a.height - 3 - a.top) / ratio}px`;

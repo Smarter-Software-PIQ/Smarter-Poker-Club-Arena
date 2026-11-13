@@ -208,7 +208,7 @@ export async function checkFixedMobileArtwork(
           Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
         const displays = [
           ...document.querySelectorAll(
-            '.table-brand,.community-area,.seat__info,.seat__name,.seat__stack,.seat__bet-chips,.dealer-button,.action-panel,.waitlist-cta'
+            '.table-brand,.community-area,.seat__info,.seat__name,.seat__stack,.seat__action,.seat__bet-chips,.dealer-button,.action-panel,.waitlist-cta'
           ),
         ].filter(visible);
         return [...document.querySelectorAll('.seat__cards .seat__card')]
@@ -267,6 +267,9 @@ export async function checkFixedMobileArtwork(
         headBottom: number;
         foldFilter: string;
         foldOpacity: string;
+        actingFilter: string;
+        spotlight: string;
+        hero: boolean;
       }> = [];
       for (const avatar of document.querySelectorAll<HTMLElement>(
         '.seat__avatar[style*="--sp-mobile-art-scale"]'
@@ -284,14 +287,29 @@ export async function checkFixedMobileArtwork(
         const wasFolded = seat.classList.contains('seat--folded');
         seat.classList.add('seat--folded');
         const foldedStyle = getComputedStyle(avatar.parentElement!);
+        const foldFilter = foldedStyle.filter;
+        const foldOpacity = foldedStyle.opacity;
+        const wrapper = seat.closest('.seat-wrapper')!;
+        const wasSpot = wrapper.classList.contains('seat-wrapper--spot');
+        seat.classList.remove('seat--folded');
+        wrapper.classList.add('seat-wrapper--spot');
+        const image = avatar.querySelector('.seat__avatar-img')!;
+        getComputedStyle(image).getPropertyValue('filter');
+        for (const animation of image.getAnimations()) {
+          if (Number.isFinite(animation.effect?.getComputedTiming().iterations)) animation.finish();
+        }
         results.push({
-          foldFilter: foldedStyle.filter,
-          foldOpacity: foldedStyle.opacity,
+          hero: seat.classList.contains('seat--hero'),
+          actingFilter: getComputedStyle(seat).filter,
+          spotlight: getComputedStyle(avatar.querySelector('.seat__avatar-img')!).filter,
+          foldFilter,
+          foldOpacity,
           blend: getComputedStyle(holo).mixBlendMode,
           badgeTop: badge.getBoundingClientRect().top,
           headBottom: art.top + art.height * 0.4,
         });
-        if (!wasFolded) seat.classList.remove('seat--folded');
+        if (!wasSpot) wrapper.classList.remove('seat-wrapper--spot');
+        seat.classList.toggle('seat--folded', wasFolded);
         holo.remove();
         badge.remove();
       }
@@ -299,6 +317,9 @@ export async function checkFixedMobileArtwork(
     });
     expect(uncut.length, 'folded portraits are exercised').toBeGreaterThan(0);
     for (const r of uncut) {
+      expect(r.actingFilter, 'acting portraits have no clipping parent filter').toBe('none');
+      if (!r.hero)
+        expect(r.spotlight, 'acting portrait retains its spotlight').toContain('brightness(1.18)');
       expect(r.foldFilter, 'folded portraits have no clipping parent filter').toBe('none');
       expect(r.foldOpacity, 'fold dimming belongs to the painted image').toBe('1');
       expect(r.blend, 'the holo sweep never blends over a grown portrait').toBe('normal');
