@@ -178,8 +178,8 @@ export const THROW_POOLS: Record<GestureMoment, Record<TalkVoice, readonly strin
     friendly: ['heart', 'beer', 'thumbs_up', 'rose', 'cake', 'bad_beat_bandage'],
     quiet: ['blush', 'thumbs_up', 'coffee', 'ok_smug'],
   },
-  // thrown at a seated person for no reason at all (Dan 2026-11-11:
-  // "OR JUST TO ANNOY A PLAYER"); no showdown required
+  // thrown at any seated player, horse or human, for no reason at all
+  // (Dan 2026-11-11: "OR JUST TO ANNOY A PLAYER"); no showdown required
   annoy: {
     needler: [
       'tomato',
@@ -319,18 +319,21 @@ export function detectAfterHand(input: TableTalkInput): GestureCandidate | null 
   }
   // Dan 2026-11-11, verbatim: "OR JUST TO ANNOY A PLAYER". No showdown needed:
   // most tournament hands end with everyone folding, and those hands used to
-  // be structurally silent. Humans only - the point is a person's reaction,
-  // and a needle at an empty-but-railed table spends the budget on nobody.
-  const humans = input.seated.filter((s) => !s.isHorse);
-  if (humans.length > 0) {
-    for (const h of input.seated.filter((s) => s.isHorse)) {
-      if (!rollsGesture('annoy', h.userId, input.table.tableId, input.handNumber, chance('annoy')))
-        continue;
-      const target =
-        humans[personaHash(`${h.userId}|${input.handNumber}|annoy|target`) % humans.length];
-      if (target.seat === h.seat) continue;
-      out.push({ moment: 'annoy', horse: h, targetSeat: target.seat });
-    }
+  // be structurally silent.
+  // Dan 2026-11-12, verbatim: "MAKE SURE THE THROWABLES AREN'T ONLY TARGETING
+  // HUMANS, ITS SHOULD BE TARGETING ANY AND ALL PLAYERS AT THE TABLE". The
+  // target is ANY seated player but the thrower: horse or human is never read
+  // here (CLAUDE.md 10.5). Spending a throw on an empty rail is already
+  // refused upstream by hasAudience(), not by who sits in the seat.
+  for (const h of input.seated.filter((s) => s.isHorse)) {
+    const others = input.seated.filter((s) => s.seat !== h.seat);
+    if (others.length === 0) continue;
+    if (!rollsGesture('annoy', h.userId, input.table.tableId, input.handNumber, chance('annoy')))
+      continue;
+    const ordered = [...others].sort((a, b) => a.seat - b.seat);
+    const target =
+      ordered[personaHash(`${h.userId}|${input.handNumber}|annoy|target`) % ordered.length];
+    out.push({ moment: 'annoy', horse: h, targetSeat: target.seat });
   }
   if (out.length === 0) return null;
   out.sort((a, b) => a.horse.userId.localeCompare(b.horse.userId));
