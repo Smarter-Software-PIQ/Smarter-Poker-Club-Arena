@@ -38,8 +38,12 @@ CREATE TABLE public.ca_horse_style_switch_audit (
 
 ALTER TABLE public.ca_horse_style_switch ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ca_horse_style_switch_audit ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON TABLE public.ca_horse_style_switch FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON TABLE public.ca_horse_style_switch_audit FROM PUBLIC, anon, authenticated;
+-- Both functions are SECURITY DEFINER, so no role needs a table grant to use the switch. service_role keeps
+-- SELECT only, to inspect the rows and the audit trail; every write goes through fn_ca_horse_style_switch_set.
+REVOKE ALL ON TABLE public.ca_horse_style_switch FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.ca_horse_style_switch_audit FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON TABLE public.ca_horse_style_switch TO service_role;
+GRANT SELECT ON TABLE public.ca_horse_style_switch_audit TO service_role;
 
 -- The read: exactly {"version": 1, "options": {<option>: <state>, ...}}, naming only options that have a row.
 -- Never null, never another key: the engine parser (parseStyleSwitchConfig) rejects any other shape, and a
