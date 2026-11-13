@@ -417,8 +417,8 @@ export async function recoverFromStaleChunk(
 /**
  * Vite emits this before a failed preload rejects. JavaScript importers own
  * retry and recovery so optional imports cannot replace a usable document.
- * Failed CSS still needs document recovery: Vite remembers that dependency
- * as seen even after its failed link is removed, so retry alone can skip it.
+ * CSS retries clear both the failed link and Vite dependency memo. Neither
+ * kind of background preload is allowed to replace a usable document.
  */
 /**
  * A STYLESHEET THAT FAILED IS NOT A STYLESHEET THAT LOADED (Dan 2026-10-14,
@@ -432,7 +432,7 @@ export async function recoverFromStaleChunk(
  * its stylesheet and rendered without it. Removing the failed link clears the
  * DOM entry. The maintained Vite preload-helper transform also invalidates
  * the failed dependency memo before rejection, so a later import waits for
- * the stylesheet again. Document replacement below needs stale-build evidence.
+ * the stylesheet again. Terminal recovery belongs to the importing caller.
  */
 function failedStylesheetHref(error: unknown): string | undefined {
   const message = (error as { message?: string } | null)?.message ?? '';
@@ -454,135 +454,16 @@ export function dropFailedStylesheet(error: unknown): boolean {
   return removed;
 }
 
-/**
- * A CANCELLED STYLESHEET IS NOT A STALE BUILD (2026-10-25, production
- * post-deploy run 40242809027: "Navigation to /hub/club-arena/ is interrupted
- * by another navigation to /clubs/kings-club?_cb=..."). The club lobby warms
- * other routes' chunks in the background. When the player starts a navigation
- * the browser aborts every one of those in-flight loads, and the aborted CSS
- * preloads (PlayerAvatar, ProfilePage, ClubDashboard...) reach this handler as
- * "Unable to preload CSS". The navigation guard above cannot see that
- * navigation - a browser-initiated one does not always fire beforeunload
- * first - so a stylesheet that was never stale reloaded the page being left
- * and sent the player back to it.
- *
- * So the server is asked before the document is replaced. The origin answers
- * a retired hashed asset with 404 and a current one with 200 text/css:
- *
- * - 'present': the build is current and the load was cancelled or blipped.
- *   The stylesheet is put back exactly as Vite would have inserted it, so the
- *   route never renders unstyled (the 2026-10-14 iPad bug), and no reload or
- *   reload budget is spent.
- * - 'gone': the asset is retired; guarded document recovery runs as before.
- * - 'unknown': the probe itself could not answer (offline, aborted, 5xx).
- *   Recovery waits out the navigation grace period and then runs, so a page
- *   that really is leaving is gone before it fires.
- */
-export type StylesheetProbe = 'present' | 'gone' | 'unknown';
-
-export async function probeStylesheet(href: string): Promise<StylesheetProbe> {
-  if (typeof fetch !== 'function') return 'unknown';
-  try {
-    const base = typeof document !== 'undefined' ? document.baseURI : undefined;
-    const url = new URL(href, base).toString();
-    const res = await fetch(url, { cache: 'no-store', credentials: 'same-origin' });
-    if (res.status === 404 || res.status === 410) return 'gone';
-    if (!res.ok) return 'unknown';
-    const type = res.headers?.get?.('content-type') ?? '';
-    // An HTML fallback answering 200 for a missing asset is not a stylesheet.
-    return type === '' || /css/i.test(type) ? 'present' : 'gone';
-  } catch {
-    return 'unknown';
-  }
-}
-
-function reinstateStylesheet(href: string, onError: () => void): void {
-  if (typeof document === 'undefined') {
-    onError();
-    return;
-  }
-  const link = document.createElement('link');
-  link.rel = 'stylesheet';
-  link.setAttribute('href', href);
-  link.addEventListener('error', () => {
-    link.remove();
-    onError();
-  });
-  document.head.appendChild(link);
-}
-
-/**
- * A STYLESHEET NEVER RELOADS A PAGE THAT IS ALREADY LIVE (2026-10-26,
- * production post-deploy run 40260290873, WebKit as an iPhone: the Kings Club
- * lobby was left while its stylesheet probe was in flight; WebKit cancelled
- * the probe as well ("due to access control checks"), the 'unknown' path
- * waited out the grace while the slow navigation was still loading, and its
- * reload of the page being left cancelled that navigation). iOS Safari sends
- * no beforeunload, so documentIsNavigatingAway() never knew.
- *
- * A reload only helps a document that is NOT on the build production serves.
- * So before a stylesheet failure replaces the document, production is asked:
- *   - 'this':    a reload would fetch the same files. Put the stylesheet back
- *                (once) instead, so the route is never unstyled, and stop.
- *   - 'other':   a newer build is live; recover exactly as before.
- *   - 'unknown': cannot tell, which is what a departure looks like from inside
- *                it. Ask again after each grace, for up to
- *                CURRENT_BUILD_PATIENCE_MS; a page that really left is gone
- *                long before then. An unreadable answer at the deadline
- *                ends this bounded probe without replacing the document.
- * A stylesheet the server answers with 404 is retired and recovers at once.
- */
-async function recoverStylesheetUnlessLive(
-  error: unknown,
-  href: string | undefined,
-  since: number
-): Promise<void> {
-  const live = await readLiveBuild();
-  if (live === 'this') {
-    // Reinstated at most once: its own failure asks again without an href.
-    if (href)
-      reinstateStylesheet(href, () => void recoverStylesheetUnlessLive(error, undefined, since));
-    return;
-  }
-  if (live === 'other') {
-    void recoverFromStaleChunk(error);
-    return;
-  }
-  if (Date.now() - since >= CURRENT_BUILD_PATIENCE_MS) return;
-  setTimeout(() => void recoverStylesheetUnlessLive(error, href, since), NAVIGATION_GRACE_MS);
-}
-
-export async function recoverFailedStylesheet(href: string, error: unknown): Promise<void> {
-  const since = Date.now();
-  const verdict = await probeStylesheet(href);
-  if (verdict === 'present') {
-    // Served now, but its reinstated load can still fail (a departure cancels
-    // it too): that asks production first rather than reloading blind.
-    reinstateStylesheet(href, () => void recoverStylesheetUnlessLive(error, undefined, since));
-    return;
-  }
-  if (verdict === 'gone') {
-    void recoverFromStaleChunk(error);
-    return;
-  }
-  if (Date.now() - since >= CURRENT_BUILD_PATIENCE_MS) return;
-  setTimeout(() => void recoverStylesheetUnlessLive(error, href, since), NAVIGATION_GRACE_MS);
-}
-
 export function installVitePreloadErrorRecovery(): () => void {
   const onPreloadError = (event: Event) => {
     const payload = (event as Event & { payload?: unknown }).payload;
-    // Let Vite reject into the importing caller. Cancelling here resolves its
-    // import to undefined and skips both importWithRetry's non-disruptive
-    // retries and lazyWithRetry's bounded retries. Automatically recovering
-    // JavaScript here would interrupt optional warmers that handle errors.
-    // Critical lazy imports still request recovery after exhausting retries.
-    // CSS is different: Vite marks dependencies seen before fetching, so a
-    // retry in this document can silently skip the failed stylesheet. Preserve
-    // guarded recovery for CSS, without cancelling its original rejection.
-    const href = failedStylesheetHref(payload);
+    // The importing caller owns retries and any terminal recovery. A failed
+    // optional warmer must never replace a working table. This applies to CSS
+    // as well as JavaScript: cssPreloadRetryPlugin clears Vite's failed memo
+    // before rejecting, and removing the failed link lets that caller retry
+    // the stylesheet normally. Do not cancel: that would resolve an unstyled
+    // or undefined module instead of rejecting to the caller.
     dropFailedStylesheet(payload);
-    if (href !== undefined) void recoverFailedStylesheet(href, payload);
   };
   window.addEventListener('vite:preloadError', onPreloadError);
   return () => window.removeEventListener('vite:preloadError', onPreloadError);

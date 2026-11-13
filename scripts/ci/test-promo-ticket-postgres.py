@@ -23,6 +23,16 @@ MIGRATIONS = ROOT / 'supabase/migrations'
 CAP_MIGRATION = MIGRATIONS / '20261112050118_agent_promo_sends_are_capped_at_fifty_chips_per_downline_in_.sql'
 TICKET_MIGRATION = MIGRATIONS / '20261112184216_promo_chips_fund_cashier_tickets_and_cancel_returns_escrow.sql'
 BATCH_MIGRATION = MIGRATIONS / '20261112204754_promo_tickets_batch_allowance_receipts_and_redeem_names_its_.sql'
+REPLAY_MIGRATION = MIGRATIONS / '20261112235138_a_replayed_promo_ticket_cancel_names_its_promo_wallet.sql'
+POLISH_MIGRATION = MIGRATIONS / '20261113021529_a_promo_ticket_names_itself_and_its_cancel_refund_files_unde.sql'
+# The statement row query the polish migration also patches: the body
+# 20261012030847 installed, then the Ticket filter step of 20261113010721.
+STATEMENT_BODY_MIGRATION = MIGRATIONS / '20261012030847_the_statement_counts_each_move_once_and_names_its_wallet.sql'
+STATEMENT_FILTER_MIGRATION = MIGRATIONS / '20261113010721_promo_funded_tickets_count_in_the_digests_and_the_ticket_sta.sql'
+STATEMENT_ROWS = 'public.fn_cashier_statement_rows(uuid,uuid,text,timestamptz,timestamptz,jsonb,timestamptz,text,uuid,integer)'
+STATEMENT_PREIMAGE = 'dcfe58296b8a3d140f4fbdcc7395bd03'
+SEND_PREIMAGE = '499b323c2479bc774a1674db7f99f9ec'
+PROMO_TICKET_NOTE = 'Promo Cashier Ticket'
 OWNERS = ROOT / 'tests/fixtures/satellite-value-awards/current-owners.json'
 CANCEL_PREIMAGE = 'e52d94e64fe64cc1508885a541450c71'
 REDEEM_PREIMAGE = '0bb17681b38164a7a2746e17d07597b3'
@@ -214,6 +224,30 @@ END $$;
             check('migration replay refuses changed preimage ' + migration.name[:14], message in str(error))
         else:
             raise AssertionError('Migration replay was accepted')
+    # The cancel replay follow-up patches the body the ticket migration installed.
+    replay_text = REPLAY_MIGRATION.read_text()
+    query(replay_text)
+    for proof in re.findall(r'^-- @live-proof: (.+)$', replay_text, re.M):
+        check('exact installed postimage ' + REPLAY_MIGRATION.name[:14], query('SELECT ' + proof + ';') == 't')
+    # The final polish patches the door and the statement row query from their
+    # live definitions. The statement body is rebuilt from the two files that
+    # installed it; nothing in this fixture calls it.
+    body_text = STATEMENT_BODY_MIGRATION.read_text()
+    start = body_text.index('CREATE OR REPLACE FUNCTION public.fn_cashier_statement_rows(')
+    query(body_text[start:body_text.index('$function$;', start) + len('$function$;')])
+    filter_text = STATEMENT_FILTER_MIGRATION.read_text()
+    query('DO $patch$\nDECLARE d text; n text;\nBEGIN\n' + filter_text[filter_text.index('  -- 4. Cashier statement Ticket filter.'):filter_text.index('END\n$patch$;')] + 'END\n$patch$;')
+    check('installed door and statement preimages are the production definitions', query(f"SELECT md5(pg_get_functiondef('public.fn_cashier_promo_ticket_send(uuid,uuid,numeric,text)'::regprocedure))='{SEND_PREIMAGE}' AND md5(pg_get_functiondef('{STATEMENT_ROWS}'::regprocedure))='{STATEMENT_PREIMAGE}';") == 't')
+    polish_text = POLISH_MIGRATION.read_text()
+    query(polish_text)
+    for proof in re.findall(r'^-- @live-proof: (.+)$', polish_text, re.M):
+        check('exact installed postimage ' + POLISH_MIGRATION.name[:14], query('SELECT ' + proof + ';') == 't')
+    try:
+        query(polish_text)
+    except RuntimeError as error:
+        check('migration replay refuses changed preimage ' + POLISH_MIGRATION.name[:14], 'Unexpected promo ticket send preimage' in str(error))
+    else:
+        raise AssertionError('Migration replay was accepted')
     query(f"INSERT INTO club_members(club_id,user_id,role,status,agent_id) VALUES('{club}','{second_agent}','sub_agent','active','{agent}'); INSERT INTO agents(club_id,user_id,promo_wallet_balance) VALUES('{club}','{second_agent}',1000);")
 
     # One promo ticket: promo float out, an issued ticket, a promo receipt.
@@ -225,6 +259,7 @@ END $$;
     check('promo ticket debits the agent promo wallet', promo(agent) == 970 and first['sender_promo_after'] == 970)
     check('promo ticket debits no player wallet and no agent wallet', player_chip_total() == members_before and query(f"SELECT agent_wallet_balance FROM agents WHERE user_id='{agent}';") == agent_wallet_before)
     check('issued ticket row exists with the value', query(f"SELECT count(*) FROM tournament_tickets WHERE id='{first['ticket_id']}' AND club_id='{club}' AND issued_by='{agent}' AND holder_id='{player}' AND value=30 AND status='issued';") == '1')
+    check('a freshly issued promo ticket names itself', query(f"SELECT note FROM tournament_tickets WHERE id='{first['ticket_id']}';") == PROMO_TICKET_NOTE)
     check('receipt is promo_wallet_send with destination tournament_ticket', query(f"SELECT count(*) FROM chip_transactions WHERE transaction_type='promo_wallet_send' AND metadata->>'destination'='tournament_ticket' AND metadata->>'actor_role'='agent' AND metadata->>'ticket_id'='{first['ticket_id']}' AND metadata->>'idempotency_key'='{first_key}' AND from_user_id='{agent}' AND to_user_id='{player}' AND amount=30;") == '1')
     check('promo debit is declared as ticket_issue against the ticket escrow', query(f"SELECT count(*) FROM journal WHERE category='ticket_issue' AND from_type='escrow' AND from_id='{first['ticket_id']}' AND to_type='promo_wallet' AND to_id='{agent}' AND amount=-30;") == '1')
     over = refused(lambda: ticket(20.01))
@@ -307,7 +342,7 @@ END $$;
     check('cancelling a promo ticket credits no player wallet', chips(agent) == chips_before and chips(cancel_holder) == 0 and query(f"SELECT status FROM tournament_tickets WHERE id='{promo_ticket['ticket_id']}';") == 'cancelled')
     check('promo cancel is declared as a refund from the ticket escrow', query(f"SELECT count(*) FROM journal WHERE category='refund' AND from_type='escrow' AND from_id='{promo_ticket['ticket_id']}' AND to_type='promo_wallet' AND to_id='{agent}' AND amount=50;") == '1')
     recancel = unchanged(lambda: cancel(promo_ticket['ticket_id']))
-    check('repeated cancel replays with no second refund', recancel['success'] and recancel['replayed'] is True and promo(agent) == promo_before)
+    check('repeated cancel replays with no second refund', recancel['success'] and recancel['replayed'] is True and recancel['refund_wallet'] == 'promo_wallet' and promo(agent) == promo_before)
     check('cancelled promo ticket cannot be redeemed', refused(lambda: redeem(promo_ticket['ticket_id'], cancel_holder))['error'] == 'Ticket Already Cancelled')
     check('cancelling a promo ticket does not reopen the ticket allowance', refused(lambda: ticket(.01, target=cancel_holder))['remaining_chips'] == 0)
     check('cancelling a promo ticket does not reopen the send allowance', refused(lambda: send(.01, target=cancel_holder))['error_code'] == LIMIT_CODE)

@@ -1,34 +1,20 @@
 import '@testing-library/jest-dom/vitest';
 import { type ComponentProps, type ComponentType } from 'react';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const presence = vi.hoisted(() => ({
-  calls: 0,
-  answer: undefined as boolean | undefined,
-  listeners: new Set<() => void>(),
+const renders = vi.hoisted(() => ({ calls: 0 }));
+// The real row tree is measured. MemberRow asks the shared minute clock once
+// per render, so counting that hook counts row renders; the clock itself is
+// replaced with a constant so no timer runs in the test.
+vi.mock('../../src/hooks/useSharedMinuteTick', () => ({
+  useSharedMinuteTick: () => {
+    renders.calls += 1;
+    return 0;
+  },
 }));
-// The real row tree is measured; only the presence transport is replaced with
-// a synchronous store so independent live updates can be exercised deterministically.
-vi.mock('../../src/hooks/useProfilePresence', async () => {
-  const { useSyncExternalStore } = await import('react');
-  return {
-    useOnlineNow: (_id: string, loaded: boolean) => {
-      presence.calls += 1;
-      const live = useSyncExternalStore(
-        (listener) => {
-          presence.listeners.add(listener);
-          return () => {
-            presence.listeners.delete(listener);
-          };
-        },
-        () => presence.answer
-      );
-      return live ?? loaded;
-    },
-  };
-});
 import { MemberRow } from '../../src/pages/ClubMembersPage';
+import type { LiveState } from '../../src/hooks/useRosterLiveOrder';
 import { mapRosterRow } from '../../src/services/ClubRosterService';
 
 type Props = ComponentProps<typeof MemberRow>;
@@ -59,9 +45,7 @@ function row(index = 0): Props {
 }
 
 beforeEach(() => {
-  presence.calls = 0;
-  presence.answer = undefined;
-  presence.listeners.clear();
+  renders.calls = 0;
 });
 
 describe('Phase 6 real roster row render budget', () => {
@@ -82,18 +66,18 @@ describe('Phase 6 real roster row render budget', () => {
       );
     }
     const before = render(<Harness optimized={false} tick={0} />);
-    expect(presence.calls).toBe(24);
-    const initialBefore = presence.calls;
+    expect(renders.calls).toBe(24);
+    const initialBefore = renders.calls;
     for (let tick = 1; tick <= 8; tick++)
       before.rerender(<Harness optimized={false} tick={tick} />);
-    expect(presence.calls - initialBefore).toBe(192);
+    expect(renders.calls - initialBefore).toBe(192);
     before.unmount();
-    presence.calls = 0;
+    renders.calls = 0;
     const after = render(<Harness optimized tick={0} />);
-    expect(presence.calls).toBe(24);
-    const initialAfter = presence.calls;
+    expect(renders.calls).toBe(24);
+    const initialAfter = renders.calls;
     for (let tick = 1; tick <= 8; tick++) after.rerender(<Harness optimized tick={tick} />);
-    expect(presence.calls - initialAfter).toBe(0);
+    expect(renders.calls - initialAfter).toBe(0);
     expect(screen.getAllByRole('listitem')).toHaveLength(24);
     expect(screen.getByRole('button', { name: 'Open Player 23, Player, Offline' })).toBeEnabled();
   });
@@ -107,7 +91,7 @@ describe('Phase 6 real roster row render budget', () => {
         ))}
       </>
     );
-    presence.calls = 0;
+    renders.calls = 0;
     view.rerender(
       <>
         {rows.map((props, index) => (
@@ -115,25 +99,25 @@ describe('Phase 6 real roster row render budget', () => {
         ))}
       </>
     );
-    expect(presence.calls).toBe(1);
+    expect(renders.calls).toBe(1);
     expect(screen.getByRole('checkbox', { name: 'Select Player 7' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'Select Player 8' })).not.toBeChecked();
   });
 
-  it('retains live presence changes inside memoized rows', () => {
+  it('re-renders a memoized row only when its live state object changes', () => {
     const props = row();
-    render(<MemberRow {...props} />);
-    presence.calls = 0;
-    act(() => {
-      presence.answer = true;
-      presence.listeners.forEach((listener) => listener());
-    });
-    expect(presence.calls).toBe(1);
+    const offline: LiveState = { seated: false, online: false, tables: [] };
+    const view = render(<MemberRow {...props} live={offline} />);
+    expect(screen.getByRole('button', { name: 'Open Player 0, Player, Offline' })).toBeEnabled();
+    renders.calls = 0;
+    // Same object: the page's useLiveStates hands back the identical object
+    // while the answer is unchanged, so the row skips work.
+    view.rerender(<MemberRow {...props} live={offline} />);
+    expect(renders.calls).toBe(0);
+    view.rerender(<MemberRow {...props} live={{ seated: false, online: true, tables: [] }} />);
+    expect(renders.calls).toBe(1);
     expect(screen.getByRole('button', { name: 'Open Player 0, Player, Online' })).toBeEnabled();
-    act(() => {
-      presence.answer = false;
-      presence.listeners.forEach((listener) => listener());
-    });
+    view.rerender(<MemberRow {...props} live={offline} />);
     expect(screen.getByRole('button', { name: 'Open Player 0, Player, Offline' })).toBeEnabled();
   });
 

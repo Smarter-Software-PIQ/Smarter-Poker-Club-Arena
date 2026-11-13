@@ -282,7 +282,14 @@ interface TicketRow {
   /** The counterparty: issuer for a held ticket, holder for an issued one. */
   otherName: string;
   held: boolean;
+  /** Issued from the issuer's promo wallet; a cancel returns it there. */
+  promo: boolean;
 }
+
+/** The note fn_cashier_promo_ticket_send writes on a promo funded ticket (20261113021529). */
+const PROMO_TICKET_NOTE = 'Promo Cashier Ticket';
+/** How many under-allowance players the promo dialog names before "And N More". */
+const PROMO_SHORTFALL_NAMES = 5;
 
 type InvoiceRow = ClubWeeklyStatement;
 
@@ -769,6 +776,9 @@ function CashierTradeWorkspace() {
      read from the server before the send (fn_cashier_promo_allowance). null
      means not read (or not capped: staff promo has no allowance). */
   const [promoAllowance, setPromoAllowance] = useState<Record<string, number> | null>(null);
+  /** Bumped after every promo send or ticket attempt so the preview is read again. */
+  const [promoAllowanceEpoch, setPromoAllowanceEpoch] = useState(0);
+  const [promoAllowanceUnread, setPromoAllowanceUnread] = useState(false);
   const [promoBalances, setPromoBalances] = useState<{ own: number | null; club: number | null }>({
     own: null,
     club: null,
@@ -1471,6 +1481,7 @@ function CashierTradeWorkspace() {
     setPromoBalances({ own: null, club: null });
     setTargetBalances({});
     setSendSource('agent_wallet');
+    setTicketSource('player_wallet');
     setDownline([]);
     setRosterLoadingMore(false);
     setRosterWarning(null);
@@ -2094,6 +2105,7 @@ function CashierTradeWorkspace() {
             holderId: t.holder_id as string,
             issuedById: t.issued_by as string,
             held,
+            promo: t.note === PROMO_TICKET_NOTE,
             otherName:
               names.get(held ? (t.issued_by as string) : (t.holder_id as string)) || 'Member',
           };
@@ -2156,6 +2168,8 @@ function CashierTradeWorkspace() {
             : `Cancelled The Ticket. ${fmt(row.value)} Chips Are Back In Your Balance`
       );
       masterBus.emit('BALANCE_UPDATED', { source: 'tournament_ticket', userId: user?.id || '' });
+      // A cancelled promo ticket lands back in the promo wallet.
+      void loadBankBalance();
       void loadTickets();
     } catch (e) {
       reportError(e, 'CashierTradePage.actOnTicket');
@@ -2596,6 +2610,7 @@ function CashierTradeWorkspace() {
   useEffect(() => {
     if (amountModal === null && !transferRecovery) {
       setSendSource('agent_wallet');
+      setTicketSource('player_wallet');
       setRecipientWallets({});
     }
   }, [amountModal, transferRecovery]);
@@ -2650,6 +2665,7 @@ function CashierTradeWorkspace() {
     (amountModal === 'send' && sendSource === 'promo_wallet');
   useEffect(() => {
     setPromoAllowance(null);
+    setPromoAllowanceUnread(false);
     if (!promoSourceSelected || !clubUuid || !user?.id || !isAgentRole(myRole)) return;
     const ids = (JSON.parse(pickedWalletKey) as string[]).filter((id) => id !== user.id);
     if (ids.length === 0) return;
@@ -2681,12 +2697,13 @@ function CashierTradeWorkspace() {
       } catch (error) {
         // The server still enforces the limit; only the preview is missing.
         reportError(error, 'CashierTradePage.promoAllowance');
+        if (live) setPromoAllowanceUnread(true);
       }
     })();
     return () => {
       live = false;
     };
-  }, [promoSourceSelected, clubUuid, user?.id, pickedWalletKey, myRole]);
+  }, [promoSourceSelected, clubUuid, user?.id, pickedWalletKey, myRole, promoAllowanceEpoch]);
   /** The smallest remaining allowance among the selected downlines, if read. */
   const promoAllowanceFloor = (() => {
     if (!promoAllowance) return null;
@@ -2695,8 +2712,52 @@ function CashierTradeWorkspace() {
       .filter((left): left is number => typeof left === 'number');
     return known.length > 0 ? Math.min(...known) : null;
   })();
+  /* Which selected players the allowance holds back, by name. Send Out
+     compares each player's own amount. Send Ticket compares the chosen value,
+     or, because a value above the lowest allowance cannot stay chosen, the
+     smallest ticket value that allowance refuses. */
+  const promoShortfallValue =
+    amountModal !== 'ticket'
+      ? null
+      : (ticketTournament?.price ??
+        ticketValue ??
+        (promoAllowanceFloor === null
+          ? null
+          : (ticketValues.find((value) => value > promoAllowanceFloor) ?? null)));
+  const promoShortfalls =
+    promoSourceSelected && promoAllowance && picked.length > 1
+      ? picked.flatMap((target) => {
+          const left = promoAllowance[target.userId];
+          const wanted =
+            amountModal === 'ticket'
+              ? promoShortfallValue
+              : batchPlan.ok
+                ? batchPlan.amounts[target.userId]
+                : null;
+          return typeof left === 'number' && typeof wanted === 'number' && left < wanted
+            ? [{ userId: target.userId, name: target.name, left }]
+            : [];
+        })
+      : [];
 
   const selfSelected = picked.some((target) => target.userId === user?.id);
+  // A promo wallet never funds its own holder, and a value above the read
+  // allowance is not left selected behind a disabled option.
+  useEffect(() => {
+    if (selfSelected && ticketSource === 'promo_wallet' && !transferRecovery)
+      setTicketSource('player_wallet');
+  }, [selfSelected, ticketSource, transferRecovery]);
+  useEffect(() => {
+    if (
+      amountModal === 'ticket' &&
+      ticketSource === 'promo_wallet' &&
+      !transferRecovery &&
+      promoAllowanceFloor !== null &&
+      amount.trim() !== '' &&
+      Number(amount) > promoAllowanceFloor
+    )
+      setAmount('');
+  }, [amountModal, ticketSource, transferRecovery, promoAllowanceFloor, amount]);
   const availableSendSources: SendSource[] = [
     ...(canSeeClubBank(myRole)
       ? (['agent_wallet', 'club_bank', 'promo_wallet', 'club_promo_wallet'] as const)
@@ -2772,6 +2833,7 @@ function CashierTradeWorkspace() {
     setRecipientAmounts({});
     setRecipientWallets({});
     setSendSource('agent_wallet');
+    setTicketSource('player_wallet');
     setTicketTournamentId('');
     setTransferFailures([]);
     setBatchReceipt(null);
@@ -3329,6 +3391,9 @@ function CashierTradeWorkspace() {
     }
 
     if (!isMounted.current || transferView.current !== owningView) return;
+    // A refused or uncertain item leaves the dialog open: its allowance preview
+    // must be read again, whatever the outcome was.
+    setPromoAllowanceEpoch((epoch) => epoch + 1);
     if (ok > 0) {
       for (const row of receiptRows) if (row.outcome === 'Confirmed') addRecipient(row.userId);
       // Name the counterparty on a single-target move. The Toast layer bars an
@@ -3339,7 +3404,7 @@ function CashierTradeWorkspace() {
       toast?.success?.(
         kind === 'send'
           ? `Sent ${exactChipFigure(sumChips(receiptRows.filter((row) => row.outcome === 'Confirmed').map((row) => row.amount)))} Total To ${who} From ${SEND_SOURCE_LABELS[sendSource]}`
-          : `Issued ${ok} Ticket${ok === 1 ? '' : 's'} To ${who}`,
+          : `Issued ${ok} Ticket${ok === 1 ? '' : 's'} To ${who}${uncertainRecovery.source === 'promo_wallet' && !boundTournamentId ? ` From ${SEND_SOURCE_LABELS.promo_wallet}` : ''}`,
         undefined,
         undefined,
         `${submissionId}:${receiptRows
@@ -3351,6 +3416,8 @@ function CashierTradeWorkspace() {
       // Read back this completed command without a loading reset. Background
       // balance events never reload the working directory.
       void loadClub(true);
+      // The promo and bank figures an open dialog quotes are read again too.
+      void loadBankBalance();
       masterBus.emit('BALANCE_UPDATED', { source: 'cashier_trade', userId: user.id });
     }
     if (failed.length > 0) {
@@ -3821,7 +3888,7 @@ function CashierTradeWorkspace() {
 
   // The bank figure each Club Bank dialog spends or fills.
   useEffect(() => {
-    if (amountModal === 'send' || claimOpen) void loadBankBalance();
+    if (amountModal === 'send' || amountModal === 'ticket' || claimOpen) void loadBankBalance();
   }, [amountModal, claimOpen, loadBankBalance]);
 
   // The claimable list, and a one second tick so each countdown is the truth
@@ -5708,6 +5775,7 @@ function CashierTradeWorkspace() {
                           {t.redemptionMode === 'tournament_entry_only' && (
                             <>Entry Only &middot; </>
                           )}
+                          {t.promo && <>Promo &middot; </>}
                           {txLabel(t.status)} &middot;{' '}
                           {new Date(t.createdAt).toLocaleString([], {
                             month: 'short',
@@ -5715,7 +5783,13 @@ function CashierTradeWorkspace() {
                             hour: '2-digit',
                             minute: '2-digit',
                           })}
-                          {t.note ? ` · ${t.note}` : ''}
+                          {t.note && !t.promo ? ` · ${t.note}` : ''}
+                          {t.promo &&
+                          !t.held &&
+                          t.status === 'issued' &&
+                          t.redemptionMode === 'wallet_chips'
+                            ? ' · Cancel Returns To Your Promo Wallet'
+                            : ''}
                         </span>
                       </div>
                       <span className={styles.rowBalance}>{fmt(t.value)}</span>
@@ -5735,6 +5809,8 @@ function CashierTradeWorkspace() {
                         <button
                           className={styles.reqBtn}
                           disabled={!isOnline || ticketActingId !== null}
+                          aria-label={t.promo ? 'Cancel: Returns To Your Promo Wallet' : undefined}
+                          title={t.promo ? 'Cancel: Returns To Your Promo Wallet' : undefined}
                           onClick={() => void actOnTicket(t, 'cancel')}
                         >
                           {ticketActingId === t.id ? 'Working...' : 'Cancel'}
@@ -6220,12 +6296,14 @@ function CashierTradeWorkspace() {
                               <option value="player_wallet">
                                 From Your Player Wallet: {formatWalletChips(myBalance)}
                               </option>
-                              <option value="promo_wallet">
-                                From {SEND_SOURCE_LABELS.promo_wallet}:{' '}
-                                {promoBalances.own === null
-                                  ? 'Unavailable'
-                                  : formatWalletChips(promoBalances.own)}
-                              </option>
+                              {!selfSelected && (
+                                <option value="promo_wallet">
+                                  From {SEND_SOURCE_LABELS.promo_wallet}:{' '}
+                                  {promoBalances.own === null
+                                    ? 'Unavailable'
+                                    : formatWalletChips(promoBalances.own)}
+                                </option>
+                              )}
                             </select>
                           )}
                         </CashierWalletRow>
@@ -6243,10 +6321,31 @@ function CashierTradeWorkspace() {
                         }
                       </p>
                       {promoAllowanceFloor !== null && (
-                        <p aria-label="Promo Allowance Remaining">
+                        <p role="status" title="Promo Allowance Remaining">
                           {picked.length === 1
                             ? `${picked[0].name} Can Still Receive ${exactChipFigure(promoAllowanceFloor)} Of 50 Promo Chips.`
                             : `Lowest Remaining Allowance Among The Selected Players: ${exactChipFigure(promoAllowanceFloor)} Of 50 Promo Chips.`}
+                        </p>
+                      )}
+                      {promoShortfalls.length > 0 && (
+                        <p role="status" title="Promo Allowance Below This Send">
+                          {`${
+                            amountModal === 'ticket' && promoShortfallValue !== null
+                              ? `Can Not Receive A ${exactChipFigure(promoShortfallValue)} Promo Ticket`
+                              : 'Can Not Receive Their Amount'
+                          }: ${promoShortfalls
+                            .slice(0, PROMO_SHORTFALL_NAMES)
+                            .map((row) => `${row.name} (${exactChipFigure(row.left)} Remaining)`)
+                            .join(', ')}${
+                            promoShortfalls.length > PROMO_SHORTFALL_NAMES
+                              ? `, And ${promoShortfalls.length - PROMO_SHORTFALL_NAMES} More`
+                              : ''
+                          }.`}
+                        </p>
+                      )}
+                      {promoAllowanceUnread && (
+                        <p role="status">
+                          {'Promo Allowance Could Not Be Read. The 50 Chip Limit Still Applies.'}
                         </p>
                       )}
                     </>

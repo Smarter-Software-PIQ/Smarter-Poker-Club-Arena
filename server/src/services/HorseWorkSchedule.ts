@@ -17,8 +17,8 @@
  * human short at a table, an opening feeder, a cluster table under the
  * dealable minimum and the PLO Lightning game, the rest day and daily cap were
  * waived for a human short at a table, and nothing ever sent a seated horse
- * home when its shift, its day or its cap ended (StableHand.forceLeaveReason
- * had no caller). Measured 2026-11-12 16:49Z: of 103 seated cash horses, 11
+ * home when its shift, its day or its cap ended (the old
+ * StableHand.forceLeaveReason had no caller and was removed). Measured 2026-11-12 16:49Z: of 103 seated cash horses, 11
  * were outside their work hours, 1 was on its rest day and 4 were past their
  * daily cap.
  *
@@ -29,7 +29,8 @@
  * book's fail-open rule), but the work hours are derived from the id alone and
  * always apply.
  *
- * Pure, deterministic, no I/O.
+ * The rule is pure and deterministic; the evidence counters below are the
+ * only state, counts with no identities, read by /health.
  */
 import { availableNow } from './HorseRegulars.js';
 import { dailyCapReached, isRestDayFor, type HorseState } from './StableHandTags.js';
@@ -63,4 +64,89 @@ export function onDuty(
   todayKey: string
 ): boolean {
   return offDutyReason(horseId, state, nowMs, chicagoWeekday, todayKey) === null;
+}
+
+/* ── EVIDENCE (owner 2026-11-12: "fully wired in and tested") ──────────────
+   Counts only, no horse identities or amounts, read by /health so anyone can
+   see the work schedule being kept without engine logs. Cumulative since the
+   process started, except `lastCycle`, which is the fleet's latest census. */
+export interface HorseScheduleSupply {
+  hostId: string;
+  /** Cash bodies eligible on the host (the fleet's own census). */
+  eligible: number;
+  /** Of those, on duty right now (offDutyReason === null). */
+  onDuty: number;
+  /** The planner's occupancy cap for the host at this minute of the daily
+   *  curve (stableHandHostCaps), or null. */
+  target: number | null;
+}
+
+const leaves: Record<OffDutyReason, number> = { rest_day: 0, daily_cap: 0, off_shift: 0 };
+let leavesDeferred = 0;
+let seatCallsDeclined = 0;
+let listRowsCancelled = 0;
+let lastCycle: {
+  at: string;
+  seatingRefused: { rest_day: number; daily_cap: number; asleep: number };
+  supply: HorseScheduleSupply[];
+} | null = null;
+
+const bump = (n: number) => Math.min(Number.MAX_SAFE_INTEGER, n + 1);
+
+/** A seated off-duty horse left through the ordinary leave door. */
+export function recordOffDutyLeave(reason: OffDutyReason): void {
+  if (Object.prototype.hasOwnProperty.call(leaves, reason)) leaves[reason] = bump(leaves[reason]);
+}
+/** An off-duty horse still owes hands (HIT AND RUN) or a big-pot orbit: later. */
+export function recordOffDutyDeferred(): void {
+  leavesDeferred = bump(leavesDeferred);
+}
+/** An off-duty horse let a seat call lapse. */
+export function recordSeatCallDeclined(): void {
+  seatCallsDeclined = bump(seatCallsDeclined);
+}
+/** An off-duty horse's waiting-list row was cancelled. */
+export function recordListRowCancelled(): void {
+  listRowsCancelled = bump(listRowsCancelled);
+}
+/** The fleet's per-cycle census. `seatingRefused` counts (horse, table)
+ *  candidate PAIRS this cycle dropped, by reason, not distinct horses: one
+ *  resting horse is counted once per table it could otherwise have taken. */
+export function recordScheduleCycle(
+  seatingRefused: { rest_day: number; daily_cap: number; asleep: number },
+  supply: HorseScheduleSupply[],
+  nowMs: number = Date.now()
+): void {
+  lastCycle = {
+    at: new Date(nowMs).toISOString(),
+    seatingRefused: { ...seatingRefused },
+    supply: supply.map((s) => ({ ...s })),
+  };
+}
+
+export function horseWorkScheduleEvidence() {
+  return Object.freeze({
+    offDutyLeaves: Object.freeze({ ...leaves }),
+    offDutyLeavesDeferred: leavesDeferred,
+    seatCallsDeclined,
+    listRowsCancelled,
+    lastCycle: lastCycle
+      ? Object.freeze({
+          at: lastCycle.at,
+          seatingRefused: Object.freeze({ ...lastCycle.seatingRefused }),
+          supply: Object.freeze(lastCycle.supply.map((s) => Object.freeze({ ...s }))),
+        })
+      : null,
+  });
+}
+
+/** Tests only. */
+export function resetHorseWorkScheduleEvidenceForTests(): void {
+  leaves.rest_day = 0;
+  leaves.daily_cap = 0;
+  leaves.off_shift = 0;
+  leavesDeferred = 0;
+  seatCallsDeclined = 0;
+  listRowsCancelled = 0;
+  lastCycle = null;
 }

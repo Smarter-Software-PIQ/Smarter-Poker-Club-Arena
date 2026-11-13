@@ -275,8 +275,11 @@ BEGIN
     -- Its body is pinned by md5 in the migrations that replace it (live since
     -- 2026-10-12: 20261012030847, the statement counts each move once,
     -- 8cab96c15ba360fb34c13f0afd3378b8; before it 20261011225840, #6688,
-    -- b1f42803af9196e322159660ff6f9e57), and the doors below, which call it,
-    -- are unchanged by both.
+    -- b1f42803af9196e322159660ff6f9e57; after it 20261113010721, the Ticket
+    -- filter returns promo tickets, dcfe58296b8a3d140f4fbdcc7395bd03; then
+    -- 20261113021529, a ticket escrow refund files under Ticket,
+    -- 014595799a63ab71d190a68c7acdbcac), and the doors below, which call it,
+    -- are unchanged by all four.
     jsonb_build_object(
       'signature', 'public.fn_cashier_statement_scope(uuid)',
       'hash', 'c8137ef74e0e7ccfb05b94697b3fb122',

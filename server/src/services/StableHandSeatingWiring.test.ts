@@ -83,7 +83,7 @@ describe('A WAITING HUMAN OUTRANKS TEXTURE, NEVER A HORSE`S DAY OFF', () => {
   it('variant and stake are bypassed on rescue; rest day and daily cap never are (owner 2026-11-12)', () => {
     for (const guard of [
       'if (!bankrollOnly && variantOk === false && !humanNeedsRescue)',
-      'if (stakeOk === false && !humanNeedsRescue)',
+      'if (stakeOk === false && !humanNeedsRescue && !dwellNeedsHorses)',
       'if (isRestDayFor(st, chicagoWeekday)) {',
       'if (dailyCapReached(st, todayKey)) {',
     ]) {

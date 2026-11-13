@@ -1,0 +1,106 @@
+/*
+ * Player Management, Live Now strip: one chip per player on a table right now.
+ * Sibling sheet of LiveNowStrip.tsx so the class names resolve on the route
+ * that renders them (tests/unit/classNamesResolve). Palette tokens come from
+ * the members page root the strip is rendered inside.
+ */
+.members-live-now {
+  width: var(--members-content);
+  margin: 0 auto 10px;
+  padding: 10px 12px 8px;
+  border: 1px solid var(--members-gunmetal);
+  border-left: 3px solid var(--members-blue);
+  border-radius: 6px;
+  background:
+    linear-gradient(90deg, rgba(65, 105, 225, 0.08), transparent 40%), var(--members-carbon);
+}
+.members-live-now__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  color: var(--members-text);
+  font-family: Rajdhani, 'Arial Narrow', sans-serif;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.members-live-now__count {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  color: #06111a;
+  background: var(--members-cyan);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.members-live-now__chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+.members-live-now__chip {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  max-width: 240px;
+  padding: 4px 10px 4px 4px;
+  border: 1px solid var(--members-gunmetal);
+  border-radius: 22px;
+  color: var(--members-text);
+  background: var(--members-panel);
+  cursor: pointer;
+  text-align: left;
+}
+.members-live-now__chip:focus-visible {
+  border-color: var(--members-cyan);
+  outline: 0;
+  box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.18);
+}
+.members-live-now__avatar {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--members-gunmetal);
+  font-family: Rajdhani, sans-serif;
+  font-weight: 700;
+}
+.members-live-now__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.members-live-now__text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  line-height: 1.15;
+}
+.members-live-now__name {
+  overflow: hidden;
+  font-family: Rajdhani, 'Arial Narrow', sans-serif;
+  font-size: 0.92rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.members-live-now__table {
+  overflow: hidden;
+  color: var(--members-cyan);
+  font-family: 'Roboto Condensed', 'Arial Narrow', sans-serif;
+  font-size: 0.68rem;
+  letter-spacing: 0.03em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

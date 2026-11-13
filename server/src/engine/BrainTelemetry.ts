@@ -32,7 +32,21 @@ export function enableBrainTelemetry(): void {
   enabled = true;
 }
 
-/** Count one execution of a brain feature for today. No-op until enabled. */
+/**
+ * Count one execution of a brain feature for today. No-op until enabled.
+ *
+ * TWO RULES FOR A NEW KEY (2026-11-12, both learned by breaking them):
+ *  1. Register it in HorseDataLedger.ts (exact key or family). The ledger
+ *     contract test fails the push otherwise, and the daily receipt audit
+ *     only knows what the ledger names.
+ *  2. Name it for what it is. The daily drift audit (fn_audit_layer_drift)
+ *     reads every key as a layer: one that fired on two days of the week and
+ *     not today is reported as a layer that went silent. A counter whose
+ *     quiet days are normal (a side game nobody offered, a rare cleanup, a
+ *     once-per-process build) must end in _seen, the audit's class for
+ *     occurrence counters. A per-decision layer keeps a plain name and, where
+ *     silence would be a defect, a ratioOf and minRatio in the ledger.
+ */
 export function noteFire(feature: string): void {
   if (!enabled) return;
   fires.set(feature, (fires.get(feature) ?? 0) + 1);

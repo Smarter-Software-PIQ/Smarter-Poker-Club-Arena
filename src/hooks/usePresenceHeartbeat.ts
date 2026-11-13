@@ -6,8 +6,13 @@
  * src/components/common/PresenceHeartbeat.tsx).
  */
 import { useEffect } from 'react';
-import { PRESENCE_HEARTBEAT_MS, resumePresence, sendPresence } from '../lib/presenceHeartbeat';
-import { isNativeAppActive, NATIVE_RESUME_EVENT } from '../lib/nativeResume';
+import {
+  PRESENCE_HEARTBEAT_MS,
+  resumePresence,
+  sendPresence,
+  signalLeave,
+} from '../lib/presenceHeartbeat';
+import { isNativeAppActive, NATIVE_PAUSE_EVENT, NATIVE_RESUME_EVENT } from '../lib/nativeResume';
 import { reportError } from '../utils/errorReporter';
 
 const tabHidden = () =>
@@ -44,18 +49,26 @@ export function usePresenceHeartbeat(userId: string | null | undefined): void {
     const onVisibility = () => {
       if (!tabHidden()) beat();
     };
+    const onLeave = () => {
+      if (stopped) return;
+      signalLeave(userId);
+    };
 
     beat();
     const timer = setInterval(beat, PRESENCE_HEARTBEAT_MS);
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('pageshow', onVisibility);
     window.addEventListener(NATIVE_RESUME_EVENT, onVisibility);
+    window.addEventListener('pagehide', onLeave);
+    window.addEventListener(NATIVE_PAUSE_EVENT, onLeave);
     return () => {
       stopped = true;
       clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pageshow', onVisibility);
       window.removeEventListener(NATIVE_RESUME_EVENT, onVisibility);
+      window.removeEventListener('pagehide', onLeave);
+      window.removeEventListener(NATIVE_PAUSE_EVENT, onLeave);
     };
   }, [userId]);
 }

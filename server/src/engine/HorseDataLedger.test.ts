@@ -102,6 +102,9 @@ const RECEIPT_ONLY_FILES = [
   // are counted where they are sent and computed.
   'engine/ServerTableEngineRunout.ts',
   'engine/HorseOpponentExploit.ts',
+  // Fix evidence (2026-11-12): a settled hand counts whether its row was
+  // built with a memory domain, where the row is built.
+  'engine/ServerTableEngineSettlement.ts',
 ];
 const RECEIPT_SOURCE = BRAIN_SOURCE + '\n' + RECEIPT_ONLY_FILES.map(read).join('\n');
 
@@ -228,7 +231,10 @@ describe('HorseDataLedger - the contract holds against the source', () => {
     for (const frag of ['_miss_depth_', '_miss_street_']) literals.delete(frag);
     // Every fired literal is covered.
     const uncovered = [...literals].filter((k) => !ledgerReceiptFor(k)).sort();
-    expect(uncovered, 'telemetry keys fired by the brain but missing from the ledger').toEqual([]);
+    expect(
+      uncovered,
+      'telemetry keys fired by the brain but missing from the ledger: register each in HorseDataLedger.ts, and end a counter that depends on table mix in _seen (BrainTelemetry.noteFire explains why)'
+    ).toEqual([]);
     const receiptKeys = ledgerByKind('receipt').map((r) => r.key);
     for (const p of dynamicPrefixes) {
       const covered = !!ledgerReceiptFor(p + 'x') || receiptKeys.some((k) => k.startsWith(p));

@@ -30,6 +30,7 @@ import {
 } from './GtoPublicHist215Features.js';
 import { public215FeatureContract } from './GtoPublicHist215Contracts.js';
 import { deepFreezeSolverPolicy } from '../gto/SolverPolicyContract.js';
+import { noteFire } from './BrainTelemetry.js';
 import { depthCandidates, textureClass } from './GtoPostflop.js';
 import {
   boardRelativeFeatureKeyV2,
@@ -873,11 +874,175 @@ function validatedStore(
   return next.value;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// RANGE PROVENANCE AT BIND TIME (2026-11-12, FLOP-2 W2)
+// A sealed cell is only as good as the ranges its solve started from. R7 and
+// R8 were solved on forced lines (full root ranges after earlier decisions),
+// which no checksum in the seal can reveal. The live store therefore serves a
+// cell only when the dataset's round registration declares, for exactly that
+// cell, how its ranges were constructed (root, natural or subgame; never
+// forced), the game it assumed (variant, players, pot type, depth, stack, root
+// pot, rake and the betting tree this dataset was solved on) and a runtime
+// mapping naming this very cell key. Anything else - no registration, no
+// cell_provenance column, unreadable or malformed JSON, a forced or unknown
+// construction, missing assumptions, a mapping for another key - refuses the
+// cell. The check runs once per load, before the atomic swap; a refused cell
+// is simply absent from the map, so the decision path reads nothing new.
+// ═══════════════════════════════════════════════════════════════════════════
+
+export type GtoV31RangeRefusal =
+  | 'no_provenance'
+  | 'missing_cell'
+  | 'forced'
+  | 'construction'
+  | 'game'
+  | 'mapping';
+
+const RANGE_CONSTRUCTIONS = new Set(['root', 'natural', 'subgame']);
+
+function plainObject(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function provenanceKey(fields: Record<string, unknown>, texture: unknown): string | null {
+  const text = [
+    fields.street,
+    fields.game_family,
+    fields.objective,
+    fields.utility_context,
+    fields.pot_type,
+    fields.hero_position,
+    fields.opponent_position,
+    fields.node_role,
+    fields.facing_kind,
+    fields.facing_size_bucket,
+    texture,
+  ];
+  if (text.some((value) => typeof value !== 'string' || value === '')) return null;
+  if (!Number.isSafeInteger(fields.table_size) || !Number.isSafeInteger(fields.depth_bucket))
+    return null;
+  return key({
+    street: fields.street as string,
+    family: fields.game_family as string,
+    objective: fields.objective as string,
+    utilityContext: fields.utility_context as string,
+    tableSize: fields.table_size as number,
+    potType: fields.pot_type as string,
+    heroPosition: fields.hero_position as string,
+    opponentPosition: fields.opponent_position as string,
+    depth: fields.depth_bucket as number,
+    texture: texture as string,
+    nodeRole: fields.node_role as string,
+    facingKind: fields.facing_kind as string,
+    facingSizeBucket: fields.facing_size_bucket as string,
+  });
+}
+
+function positiveInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) > 0;
+}
+
+/**
+ * Why the registration's provenance does not admit one bound cell, or null
+ * when it does. `provenance` is the registration's raw cell_provenance value
+ * (undefined or null when the column, the registration or the read is
+ * missing); `manifestChecksum` is the cell's sealed betting tree.
+ */
+export function gtoV31RangeProvenanceRefusal(
+  provenance: unknown,
+  cellKey: string,
+  manifestChecksum: string
+): GtoV31RangeRefusal | null {
+  if (!Array.isArray(provenance)) return 'no_provenance';
+  const matches = provenance.filter((entry) => {
+    const cell = plainObject(plainObject(entry)?.cell);
+    return cell !== null && provenanceKey(cell, cell.texture_class) === cellKey;
+  });
+  if (matches.length !== 1) return 'missing_cell';
+  const entry = matches[0] as Record<string, unknown>;
+  const cell = entry.cell as Record<string, unknown>;
+  if (entry.range_construction === 'forced') return 'forced';
+  if (
+    typeof entry.range_construction !== 'string' ||
+    !RANGE_CONSTRUCTIONS.has(entry.range_construction)
+  )
+    return 'construction';
+  const game = plainObject(entry.game);
+  const rake = game?.rake;
+  if (
+    game === null ||
+    game.variant !== 'nlh' ||
+    game.players_to_flop !== 2 ||
+    game.pot_type !== cell.pot_type ||
+    game.depth_bucket !== cell.depth_bucket ||
+    !positiveInteger(game.chips_per_bb) ||
+    !positiveInteger(game.effective_stack_chips) ||
+    game.effective_stack_chips !== (cell.depth_bucket as number) * game.chips_per_bb ||
+    !positiveInteger(game.root_pot_chips) ||
+    !Array.isArray(rake) ||
+    rake.length !== 2 ||
+    typeof rake[0] !== 'number' ||
+    !(rake[0] >= 0 && rake[0] <= 1) ||
+    !Number.isSafeInteger(rake[1]) ||
+    rake[1] < 0 ||
+    typeof game.betting_tree_checksum !== 'string' ||
+    !HEX64.test(game.betting_tree_checksum) ||
+    game.betting_tree_checksum === '0'.repeat(64) ||
+    game.betting_tree_checksum !== manifestChecksum
+  )
+    return 'game';
+  const mapping = plainObject(entry.runtime_mapping);
+  const seats = mapping?.solver_positions;
+  const hero = mapping?.hero_solver_player;
+  if (
+    mapping === null ||
+    provenanceKey(mapping, cell.texture_class) !== cellKey ||
+    (hero !== 0 && hero !== 1) ||
+    !Array.isArray(seats) ||
+    seats.length !== 2 ||
+    seats[0] === seats[1] ||
+    seats[hero] !== mapping.hero_position ||
+    seats[1 - hero] !== mapping.opponent_position
+  )
+    return 'mapping';
+  return null;
+}
+
+let activeRangeRefusals: Partial<Record<GtoV31RangeRefusal, number>> = {};
+
+/** Cells the last live install refused for range provenance, by reason. */
+export function gtoPostflopV31RangeRefusals(): Partial<Record<GtoV31RangeRefusal, number>> {
+  return { ...activeRangeRefusals };
+}
+
+function admitByRangeProvenance(store: Store, provenance: unknown): Store {
+  const cells = new Map<string, StoredCell>();
+  const refusals: Partial<Record<GtoV31RangeRefusal, number>> = {};
+  for (const [cellKey, cell] of store.cells) {
+    const refusal = gtoV31RangeProvenanceRefusal(provenance, cellKey, cell.seal.manifest_checksum);
+    if (refusal === null) {
+      cells.set(cellKey, cell);
+      continue;
+    }
+    refusals[refusal] = (refusals[refusal] ?? 0) + 1;
+    noteFire('v31_certified_skip_no_range_provenance');
+  }
+  activeRangeRefusals = refusals;
+  return { ...store, cells };
+}
+
 /** The same full validator, yielding between complete detached model cells.
- * Existing decisions keep the old snapshot while asynchronous loading runs. */
+ * Existing decisions keep the old snapshot while asynchronous loading runs.
+ * This is the live install: after full validation, a cell is kept only when
+ * `rangeProvenance` (the dataset's registration cell_provenance) admits it.
+ * Omitted, null or malformed provenance refuses every cell. Returns the
+ * number of cells served. */
 export async function replaceGtoPostflopV31Async(
   rows: GtoV31RuntimeRow[],
-  canCommit: () => boolean = () => true
+  canCommit: () => boolean = () => true,
+  rangeProvenance?: unknown
 ): Promise<number> {
   const steps = validatedStoreSteps(rows, new Set(['active']));
   let next = steps.next();
@@ -886,13 +1051,19 @@ export async function replaceGtoPostflopV31Async(
     next = steps.next();
   }
   if (!canCommit()) throw new Error('v31_active_load_superseded');
-  activeStore.cells = next.value.cells;
-  activeStore.datasetId = next.value.datasetId;
-  activeStore.datasetChecksum = next.value.datasetChecksum;
+  const admitted = admitByRangeProvenance(next.value, rangeProvenance);
+  activeStore.cells = admitted.cells;
+  activeStore.datasetId = admitted.datasetId;
+  activeStore.datasetChecksum = admitted.datasetChecksum;
   return activeStore.cells.size;
 }
 
-/** Validate every row, then atomically replace the active in-memory snapshot. */
+/**
+ * Validate every row, then atomically replace the active in-memory snapshot.
+ * Test seam: it does not check range provenance, so no production path may
+ * call it (the live loader uses replaceGtoPostflopV31Async; pinned by
+ * GtoPostflopV31RangeProvenance.test.ts).
+ */
 export function replaceGtoPostflopV31(rows: GtoV31RuntimeRow[]): number {
   const next = validatedStore(rows, new Set(['active']));
   activeStore.cells = next.cells;

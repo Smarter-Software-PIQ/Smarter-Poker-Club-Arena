@@ -59,6 +59,15 @@ describe('a token-priced Omaha call through decide (PLO6-AUDIT-010)', () => {
     expect(node.legalActions).toEqual(['fold', 'call', 'all_in']);
   });
 
+  it('the rule is counted where it moves the bar, and not when it is off', () => {
+    const fires = (opts?: Record<string, unknown>) => {
+      const [node] = replayHand(FX, { ords: [ORD], opts });
+      return node.profiles.map((p) => p.receipts.token_call_price_scaled ?? 0);
+    };
+    expect(fires().every((n) => n > 0)).toBe(true);
+    expect(fires(OFF).every((n) => n === 0)).toBe(true);
+  });
+
   it('default: no profile folds it at any seed', () => {
     expect(everyProfile(actionsAt(FX), 'all_in')).toBe(true);
   });

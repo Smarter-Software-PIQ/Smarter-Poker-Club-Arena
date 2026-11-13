@@ -610,7 +610,9 @@ function observeCompletedHandInMind(request: ObserveCompletedHandRequest): void 
     request.scope,
     request.durableOpponentProfiles !== undefined,
     request.riverCallContext,
-    request.retainedRiverCalls
+    request.retainedRiverCalls,
+    // STYLE READ A2: the hand's format, from the exact-context profiles it carries (absent: buckets not recorded)
+    request.durableOpponentProfiles?.[0]?.mode
   );
 }
 
@@ -742,6 +744,12 @@ export function acceptedRosterBindsToHand(request: ObserveCompletedHandRequest):
  * HorseLogic calls can interleave while they temporarily install their
  * fence-derived RNG stream or read and update worker-owned HorseMind state.
  */
+/** The table a fence belongs to: the part before its first colon (the shard key). */
+export const streetPrewarmTable = (fence: string): string => {
+  const colon = fence.indexOf(':');
+  return colon > 0 ? fence.slice(0, colon) : fence;
+};
+
 export class HorseDecisionWorkerRuntime {
   /** Private, actor-bounded read views; never included in IPC or telemetry.
    * Repeated identical fast identities are ambiguous and disable that second
@@ -1117,7 +1125,7 @@ export class HorseDecisionWorkerRuntime {
       typeof raw.variant === 'string' && raw.variant.trim() ? raw.variant.toLowerCase() : 'nlh';
     const mode = raw.mode === 'tournament' ? 'tournament' : 'cash';
     const boardCards = raw.board as Array<{ rank: string; suit: string }>;
-    const boardKey = `${fence}|${street}|${boardCards
+    const boardKey = `${streetPrewarmTable(fence)}|${street}|${boardCards
       .map((c) => `${String(c?.rank ?? '')}${String(c?.suit ?? '')}`)
       .join('')}`;
     if (this.prewarmedStreets.has(boardKey)) return;
@@ -2800,7 +2808,11 @@ export class HorseDecisionWorkerRuntime {
       Array.isArray(request.gameState.communityCards) &&
       request.gameState.communityCards.length >= 3
     ) {
-      const prewarmKey = `${request.fence}|${fastStage}|${request.gameState.communityCards
+      // A prewarm is posted for a table; a decision's fence is
+      // table:hand:seat:lease:token. Keyed by the whole fence (until
+      // 2026-11-13) this check could never match: 4,502 prewarms and no hit on
+      // release 08c27924. Both sides now key by the table.
+      const prewarmKey = `${streetPrewarmTable(request.fence)}|${fastStage}|${request.gameState.communityCards
         .slice(0, 5)
         .map((c) => `${c.rank}${c.suit}`)
         .join('')}`;
@@ -2846,6 +2858,11 @@ export class HorseDecisionWorkerRuntime {
     );
     let phase14ObservationPrepared = false;
     if (phase14.evaluator) {
+      // Evidence only: how often a live decision is inside the corrective
+      // kernel's declared family at all. Applications are counted at commit
+      // (phase14_selection_*, phase14_execution_*); without this, zero of
+      // those cannot be told from zero eligible spots.
+      this.deps.noteFeature('phase14_kernel_eligible_seen');
       try {
         (this.deps.prepareOriginalReads ?? HorseLogic.prepareOriginalReads.bind(HorseLogic))(
           request.player,

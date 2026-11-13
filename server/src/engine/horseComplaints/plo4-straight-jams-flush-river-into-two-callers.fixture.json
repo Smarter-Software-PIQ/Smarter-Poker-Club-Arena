@@ -1,0 +1,325 @@
+{
+  "version": 1,
+  "slug": "plo4-straight-jams-flush-river-into-two-callers",
+  "title": "PLO4 straight does not jam a flush-completing river into two players who called two barrels",
+  "complaint": "HORSE WITH THE STRAIGHT JUST POTS IT ON THE RIVER WITH 2 OPPONENTS WHEN THE STRAIGHT GETS THERE",
+  "handId": "dd9d31ca-bf9d-4279-a680-ee8e030eedd3",
+  "fmt": "cash",
+  "variant": "plo4",
+  "players": [
+    {
+      "seat": 1,
+      "isHorse": false
+    },
+    {
+      "seat": 2,
+      "isHorse": true
+    },
+    {
+      "seat": 3,
+      "isHorse": true
+    },
+    {
+      "seat": 4,
+      "isHorse": true
+    },
+    {
+      "seat": 5,
+      "isHorse": true
+    }
+  ],
+  "hole": {
+    "2": [
+      {
+        "rank": "A",
+        "suit": "spades"
+      },
+      {
+        "rank": "J",
+        "suit": "clubs"
+      },
+      {
+        "rank": "J",
+        "suit": "spades"
+      },
+      {
+        "rank": "9",
+        "suit": "spades"
+      }
+    ]
+  },
+  "actions": [
+    {
+      "ord": 1,
+      "seat": 4,
+      "stage": "preflop",
+      "action": "sb",
+      "amount": 1,
+      "origin": "forced",
+      "isFullRaise": false,
+      "dead": false
+    },
+    {
+      "ord": 2,
+      "seat": 5,
+      "stage": "preflop",
+      "action": "bb",
+      "amount": 2,
+      "origin": "forced",
+      "isFullRaise": false,
+      "dead": false
+    },
+    {
+      "ord": 3,
+      "seat": 5,
+      "stage": "preflop",
+      "action": "ante",
+      "amount": 2,
+      "origin": "forced",
+      "isFullRaise": false,
+      "dead": true
+    },
+    {
+      "ord": 4,
+      "seat": 1,
+      "stage": "preflop",
+      "action": "call",
+      "amount": 2,
+      "origin": "player",
+      "isFullRaise": false,
+      "dead": false
+    },
+    {
+      "ord": 5,
+      "seat": 2,
+      "stage": "preflop",
+      "action": "raise",
+      "amount": 10,
+      "origin": "horse_policy",
+      "isFullRaise": true,
+      "dead": false
+    },
+    {
+      "ord": 6,
+      "seat": 3,
+      "stage": "preflop",
+      "action": "call",
+      "amount": 10,
+      "origin": "horse_policy",
+      "isFullRaise": false,
+      "dead": false
+    },
+    {
+      "ord": 7,
+      "seat": 4,
+      "stage": "preflop",
+      "action": "fold",
+      "amount": 0,
+      "origin": "horse_policy",
+      "isFullRaise": false,
+      "dead": false
+    },
+    {
+      "ord": 8,
+      "seat": 5,
+      "stage": "preflop",
+      "action": "call",
+      "amount": 8,
+      "origin": "horse_policy",
+      "isFullRaise": false,
+      "dead": false
+    },
+    {
+      "ord": 9,
+      "seat": 1,
+      "stage": "preflop",
+      "action": "call",
+      "amount": 8,
+      "origin": "player",
+      "isFullRaise": false,
+      "dead": false
+    },
+    {
+      "ord": 10,
+      "seat": 5,
+      "stage": "flop",
+      "action": "check",
+      "amount": 0,
+      "origin": "horse_policy",
+      "isFullRaise": false,
+      "dead": false
+    },
+    {
+      "ord": 11,
+      "seat": 1,
+      "stage": "flop",
+      "action": "check",
+      "amount": 0,
+      "origin": "player",
+      "isFullRaise": false,
+      "dead": false
+    },
+    {
+      "ord": 12,
+      "seat": 2,
+      "stage": "flop",
+      "action": "bet",
+      "amount": 29,
+      "origin": "horse_policy",
+      "isFullRaise": true,
+      "dead": false
+    },
+    {
+      "ord": 13,
+      "seat": 3,
+      "stage": "flop",
+      "action": "call",
+      "amount": 29,
+      "origin": "horse_policy",
+      "isFullRaise": false,
+      "dead": false
+    },
+    {
+      "ord": 14,
+      "seat": 5,
+      "stage": "flop",
+      "action": "fold",
+      "amount": 0,
+      "origin": "horse_policy",
+      "isFullRaise": false,
+      "dead": false
+    },
+    {
+      "ord": 15,
+      "seat": 1,
+      "stage": "flop",
+      "action": "call",
+      "amount": 29,
+      "origin": "player",
+      "isFullRaise": false,
+      "dead": false
+    },
+    {
+      "ord": 16,
+      "seat": 1,
+      "stage": "turn",
+      "action": "check",
+      "amount": 0,
+      "origin": "player",
+      "isFullRaise": false,
+      "dead": false
+    },
+    {
+      "ord": 17,
+      "seat": 2,
+      "stage": "turn",
+      "action": "bet",
+      "amount": 89,
+      "origin": "horse_policy",
+      "isFullRaise": true,
+      "dead": false
+    },
+    {
+      "ord": 18,
+      "seat": 3,
+      "stage": "turn",
+      "action": "call",
+      "amount": 89,
+      "origin": "horse_policy",
+      "isFullRaise": false,
+      "dead": false
+    },
+    {
+      "ord": 19,
+      "seat": 1,
+      "stage": "turn",
+      "action": "call",
+      "amount": 89,
+      "origin": "player",
+      "isFullRaise": false,
+      "dead": false
+    },
+    {
+      "ord": 20,
+      "seat": 1,
+      "stage": "river",
+      "action": "check",
+      "amount": 0,
+      "origin": "player",
+      "isFullRaise": false,
+      "dead": false
+    },
+    {
+      "ord": 21,
+      "seat": 2,
+      "stage": "river",
+      "action": "all_in",
+      "amount": 225,
+      "origin": "horse_policy",
+      "isFullRaise": true,
+      "dead": false,
+      "publicNode": {
+        "pot": 397,
+        "ante": 2,
+        "anteType": "big_blind",
+        "mode": "cash",
+        "seats": [
+          [1, 279.7, 0, 128, 0, 0, 0],
+          [2, 225, 0, 128, 0, 0, 0],
+          [3, 243.9, 0, 128, 0, 0, 0],
+          [4, 390, 0, 1, 0, 0, 1],
+          [5, 447.6, 0, 12, 2, 0, 1]
+        ],
+        "boards": ["8dTc7d3hKd"],
+        "street": "river",
+        "toCall": 0,
+        "currentBet": 0,
+        "minRaiseTo": 2,
+        "maxRaiseTo": 225,
+        "legalActions": ["fold", "check", "bet", "all_in"],
+        "dealerSeat": 3,
+        "chipUnit": 0.01,
+        "bigBlind": 2,
+        "smallBlind": 1,
+        "variant": "plo4",
+        "structure": "pot_limit",
+        "actorSeat": 2,
+        "bombPot": false,
+        "tournamentStage": {
+          "status": "not_applicable",
+          "version": 1
+        }
+      }
+    },
+    {
+      "ord": 22,
+      "seat": 3,
+      "stage": "river",
+      "action": "call",
+      "amount": 225,
+      "origin": "horse_policy",
+      "isFullRaise": false,
+      "dead": false
+    },
+    {
+      "ord": 23,
+      "seat": 1,
+      "stage": "river",
+      "action": "fold",
+      "amount": 0,
+      "origin": "player",
+      "isFullRaise": false,
+      "dead": false
+    }
+  ],
+  "forbidden": [
+    {
+      "ord": 21,
+      "kind": "jam"
+    }
+  ],
+  "seeds": [1, 7, 42, 99, 2026, 3, 11, 17, 23, 31],
+  "control": {
+    "v40Omaha": false
+  }
+}

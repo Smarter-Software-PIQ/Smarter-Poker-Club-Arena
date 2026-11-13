@@ -34,7 +34,9 @@ export const PHASE8_POLICY = {
    * any part of a Phase 8 decision. The 2 ms policy and 5 ms wall budgets that
    * replaced a finished continuation by the baseline (reason
    * budget_exhausted), and the 4 ms work budget that stopped the continuation
-   * part way (operation_budget), are gone; the decision is the one the work
+   * part way (operation_budget), are gone from Phase 8 (Phase 13's pricing of
+   * its own proposals in HorseLogic still carries a 4 ms withinBudget clock
+   * and still reports operation_budget); the decision is the one the work
    * declared here and in CONTINUATION_POLICY and FUTURE_HAND_POLICY produces:
    * at most `maxCandidates` candidates, `maxFutureOutcomeSamples` outcome
    * samples (the full CONTINUATION_POLICY.maxOutcomeSamples pool only on a

@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { lockTargets } from '../scripts/ci/maintenance-window-migrations.mjs';
 
 const read = (path: string) => readFileSync(path, 'utf8');
 const migration =
@@ -19,6 +20,12 @@ describe('registered chip awards keep the starting stack', () => {
     expect(runner.match(/-f "\$FIXTURES\/starting-stack-contract.sql"/g)).toHaveLength(2);
     expect(runner).toContain('registered service rebuy mismatch was accepted');
     expect(runner).toContain('starting-stack native regression failed');
+  });
+
+  it('requests only the trigger creation lock that permits maintenance readers', () => {
+    expect(lockTargets(read(migration))).toEqual([
+      { relation: 'public.tournaments', mode: 'ShareRowExclusiveLock' },
+    ]);
   });
 
   it('selects native qualification when the source or fixture changes', () => {

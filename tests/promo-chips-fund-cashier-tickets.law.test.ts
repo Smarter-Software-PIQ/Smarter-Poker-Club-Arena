@@ -107,7 +107,7 @@ describe('Promo tickets: one batch call, a readable allowance and recoverable re
     expect(allowance).toContain('public.fn_club_cashier_can_transact(p_club_id, v_me, u.user_id)');
     expect(allowance).not.toMatch(/\b(insert|update|delete)\b\s+(into\s+)?public\./i);
     expect(page).toContain("supabase.rpc('fn_cashier_promo_allowance'");
-    expect(page).toContain('aria-label="Promo Allowance Remaining"');
+    expect(page).toContain('title="Promo Allowance Remaining"');
     expect(page).toContain("' (Over The Promo Limit)'");
   });
 
@@ -124,5 +124,156 @@ describe('Promo tickets: one batch call, a readable allowance and recoverable re
     const history = read('src/components/wallet/describeChipTransaction.ts');
     expect(history).toContain("return 'Promo Wallet To Tournament Ticket';");
     expect(history).toContain('Tournament Ticket`;');
+  });
+});
+
+describe('Promo ticket dialog state and the cancel replay', () => {
+  const replay = read(
+    'supabase/migrations/20261112235138_a_replayed_promo_ticket_cancel_names_its_promo_wallet.sql'
+  );
+  it('answers a replayed cancel with the wallet its receipt recorded', () => {
+    expect(replay).toContain("IF md5(d) <> '7b73f81407a4feb9084b92d5ee38db1d'");
+    expect(replay).toContain(
+      "''refund_wallet'',COALESCE(v_receipt.metadata->>''refund_wallet'',''player_wallet''));"
+    );
+    expect(replay).toContain('You No Longer Hold A Promo Wallet In That Club');
+  });
+  it('reads the promo balance for Send Ticket and never carries the source over', () => {
+    expect(page).toContain(
+      "if (amountModal === 'send' || amountModal === 'ticket' || claimOpen) void loadBankBalance();"
+    );
+    expect(page.split("setTicketSource('player_wallet');").length - 1).toBeGreaterThanOrEqual(4);
+    expect(page).toContain('{!selfSelected && (');
+    expect(page).toContain('setPromoAllowanceEpoch((epoch) => epoch + 1);');
+    expect(page).toContain('Promo Allowance Could Not Be Read. The 50 Chip Limit Still Applies.');
+  });
+});
+
+describe('Promo tickets count in the digests and under the statement Ticket filter', () => {
+  const readers = read(
+    'supabase/migrations/20261113010721_promo_funded_tickets_count_in_the_digests_and_the_ticket_sta.sql'
+  );
+  const ticketLeg = (prefix: string, spaced: boolean) =>
+    spaced
+      ? `(${prefix}category = ''ticket_issue'' AND ${prefix}from_type = ''promo_wallet'' AND ${prefix}to_type = ''escrow'')`
+      : `(${prefix}category=''ticket_issue'' AND ${prefix}from_type=''promo_wallet'' AND ${prefix}to_type=''escrow'')`;
+
+  it('patches each reader only from the definition production held', () => {
+    for (const preimage of [
+      'c48e3a4d068c77ecadf1fb0eb57cb7a5',
+      'f2f9802c827e476246e335ba1d1596f0',
+      'f67a7895b96362ef9daef978d1e34494',
+      '8cab96c15ba360fb34c13f0afd3378b8',
+    ]) {
+      expect(readers).toContain(`IF md5(d) <> '${preimage}' THEN`);
+    }
+    for (const successor of [
+      '145597c5ec78386523b52e10d83ff29b',
+      '7b3118323fff5a16c6bdfc900871c14e',
+      'cc48246f155b78cd1443a63097848f56',
+      'dcfe58296b8a3d140f4fbdcc7395bd03',
+    ]) {
+      expect(readers.split('\n').find((line) => line.startsWith('-- @live-proof:'))).toContain(
+        successor
+      );
+    }
+    expect(readers.split('IF n = d THEN RAISE EXCEPTION').length - 1).toBe(5);
+    expect(readers.split('EXECUTE n;').length - 1).toBe(4);
+  });
+
+  it('counts the promo wallet to escrow ticket leg as promo given, gross', () => {
+    expect(readers).toContain(`OR ${ticketLeg('', false)}),0) player_promo,`);
+    expect(readers).toContain(`OR ${ticketLeg('', true)}),0),2),`);
+    expect(readers).toContain(`OR ${ticketLeg('l.', false)}`);
+    expect(readers).toContain(
+      "LEFT JOIN public.profiles p ON p.id=CASE WHEN l.to_type=''player_wallet'' THEN l.to_entity_id ELSE tk.holder_id END"
+    );
+    expect(readers).not.toContain("category=''refund''");
+  });
+
+  it('returns a promo ticket receipt under the Ticket filter without renaming its wallet', () => {
+    expect(readers).toContain(
+      "OR ($10 = ''ticket'' AND r.source = ''receipt'' AND r.kind = ''promo_wallet_send'' AND r.ticket_id IS NOT NULL))"
+    );
+    expect(readers).not.toContain("THEN ''ticket''");
+  });
+
+  it('touches readers only, never a limit, a money route or a reconciler', () => {
+    for (const name of [
+      'fn_promo_wallet_send_core_20261004',
+      'fn_cashier_promo_ticket_send(',
+      'fn_cashier_promo_allowance',
+      'fn_ca_tally_',
+      'fn_ca_autoledger',
+      'trial_balance',
+      'supply_snapshot',
+    ]) {
+      expect(readers).not.toContain(name);
+    }
+    expect(readers).not.toMatch(/^\s*(insert|update|delete|grant|revoke|alter|create|drop)\b/im);
+  });
+});
+
+describe('Final polish: a promo ticket names itself and its cancel refund files under Ticket', () => {
+  const polish = read(
+    'supabase/migrations/20261113021529_a_promo_ticket_names_itself_and_its_cancel_refund_files_unde.sql'
+  );
+  const proof = polish.split('\n').find((line) => line.startsWith('-- @live-proof:')) ?? '';
+
+  it('patches the door and the statement only from the definitions production held', () => {
+    expect(polish).toContain("IF md5(d) <> '499b323c2479bc774a1674db7f99f9ec' THEN");
+    expect(polish).toContain("IF md5(d) <> 'dcfe58296b8a3d140f4fbdcc7395bd03' THEN");
+    expect(proof).toContain('310b74c72f83bf023dc25a64f9950486');
+    expect(proof).toContain('014595799a63ab71d190a68c7acdbcac');
+    expect(polish.split('IF n = d THEN RAISE EXCEPTION').length - 1).toBe(2);
+    expect(polish.split('EXECUTE n;').length - 1).toBe(2);
+    expect(polish.split('\nBEGIN;\n').length - 1).toBe(1);
+    expect(polish.split('\nCOMMIT;\n').length - 1).toBe(1);
+    expect(polish).toContain("SET LOCAL lock_timeout = '3s';");
+  });
+
+  it('changes the note the door writes and nothing else in the door', () => {
+    expect(door).toContain("p_value, 'Cashier Ticket');");
+    expect(polish).toContain(
+      "'  values (v_ticket_id, p_club_id, v_me, p_holder_id, p_value, ''Promo Cashier Ticket'');'"
+    );
+    expect(polish.split("''Promo Cashier Ticket''").length - 1).toBe(1);
+    // The browser recovery envelope still carries the ordinary note the
+    // server validates (fn_cashier_browser_recovery_valid).
+    expect(page).toContain(": 'Cashier Ticket',");
+    expect(read('src/services/CashierResilience.ts')).toContain(
+      "row.ticketNote !== 'Cashier Ticket'"
+    );
+  });
+
+  it('files only a refund leg on the ticket escrow under Ticket, ahead of the Cashout rule', () => {
+    expect(polish).toContain(
+      "'           WHEN cl.category = ''refund'' AND ''escrow'' IN (cl.from_type, cl.to_type) THEN ''ticket''\n" +
+        "           WHEN ''escrow'' IN (cl.from_type, cl.to_type) THEN ''cashout''\n'"
+    );
+    const body = polish.slice(polish.indexOf('\nBEGIN;\n'));
+    expect(body).not.toContain('escrow_release');
+    expect(body).not.toContain('escrow_hold');
+    expect(polish).not.toMatch(/^\s*(insert|update|delete|grant|revoke|alter|create|drop)\b/im);
+  });
+
+  it('shows the Tickets tab a promo ticket and where its cancel returns', () => {
+    expect(page).toContain("const PROMO_TICKET_NOTE = 'Promo Cashier Ticket';");
+    expect(page).toContain('promo: t.note === PROMO_TICKET_NOTE,');
+    expect(page).toContain('{t.promo && <>Promo &middot; </>}');
+    expect(page).toContain("' · Cancel Returns To Your Promo Wallet'");
+    expect(page).toContain(
+      "aria-label={t.promo ? 'Cancel: Returns To Your Promo Wallet' : undefined}"
+    );
+    // The refund wallet is still the server's answer, never the note.
+    expect(page).toContain("res.refund_wallet === 'promo_wallet'");
+  });
+
+  it('names the selected players the allowance holds back, five at most', () => {
+    expect(page).toContain('const PROMO_SHORTFALL_NAMES = 5;');
+    expect(page).toContain('title="Promo Allowance Below This Send"');
+    expect(page).toContain('title="Promo Allowance Remaining"');
+    expect(page).toContain('promoShortfalls.length - PROMO_SHORTFALL_NAMES} More');
+    expect(page).toContain('promoSourceSelected && promoAllowance && picked.length > 1');
   });
 });
