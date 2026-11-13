@@ -18,6 +18,8 @@ import {
   EXPLOIT_FAST_ENGAGE_MIN_N,
   exploitEnvelopeFor,
   flopStabStatRead,
+  opponentExploitRead,
+  type ExploitCounters,
 } from './HorseOpponentExploit.js';
 import { HorseLogic, type HorseGameStateV2 } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
@@ -125,6 +127,28 @@ describe('upgrade 10: a read the fast window switches on is counted', () => {
     // ready, so engagements are a subset of opportunities.
     expect(ready).toBeGreaterThanOrEqual(counted);
     expect(ready).toBeGreaterThan(counted);
+  });
+});
+
+describe('upgrade 10: the preflop reads count their fast-window opportunities too', () => {
+  it('counts ready reads in opponentExploitRead, of which engagements are a subset', () => {
+    let ready = 0;
+    let engaged = 0;
+    const n = EXPLOIT_FAST_ENGAGE_MIN_N + 6;
+    for (let hands = 20; hands <= 120; hands += 10)
+      for (let pfr = 0; pfr <= hands; pfr += 2) {
+        opponentExploitRead(
+          { hands, vpip: hands, pfr, fHands: n, fPfr: n } as unknown as ExploitCounters,
+          'holdem:short',
+          'nlh'
+        );
+        const f = fires();
+        ready += f.upgrade10_fast_window_ready_seen ?? 0;
+        engaged += f.upgrade10_fast_window_engaged ?? 0;
+      }
+    // The grid must contain both, or this proves nothing.
+    expect(engaged).toBeGreaterThan(0);
+    expect(ready).toBeGreaterThan(engaged);
   });
 });
 

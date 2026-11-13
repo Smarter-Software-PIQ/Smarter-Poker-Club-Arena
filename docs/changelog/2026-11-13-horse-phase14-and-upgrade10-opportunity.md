@@ -4,7 +4,7 @@ On engine 533608409f the corrective kernel (Phase 14) and the fast recency windo
 
 ## Phase 14
 
-- `phase14_kernel_refused_<reason>_seen` counts a FAST decision in an admitted Phase 14 domain that the kernel's declared family refuses, by the first refusing check. The reasons are the closed strings of `kernelEligibility.ts` and `kernelTournamentEligibility.ts`, plus `baseline_unusable`. A decision in a domain that is not admitted counts nothing.
+- `phase14_kernel_refused_<reason>_seen` counts a FAST decision in an admitted Phase 14 domain that the kernel's declared family refuses, by the first refusing check. The reasons are the closed strings of `kernelEligibility.ts` and `kernelTournamentEligibility.ts`, plus `baseline_unusable`. A decision in a domain that is not admitted counts nothing. The domain key does not include the asset, so a diamonds cash decision in an admitted domain counts its money-unit refusal; the Diamond Arena is closed, so that is expected to be zero.
 - `phase14_kernel_eligible_deep_seen` counts a DEEP second look that reached the admitted kernel. It is kept apart from `phase14_kernel_eligible_seen` (FAST), which may have counted the same turn.
 - `phase14Admission` evaluates the same three checks in the same order as before (candidate mode, snapshot family, baseline composition), each at most once on the first evaluation, and still re-checks all three when the evaluator runs.
 
@@ -21,7 +21,7 @@ For cash, the family is narrow: exactly two players dealt, chips at 0.01, no ant
 ## Regression
 
 - `horseDecision/phase14Evidence.test.ts` (4), real worker: an eligible FAST decision counts eligible once and no refusal; an admitted decision with the opponent not all in counts `phase14_kernel_refused_original_opponent_not_all_in_seen`; a domain that is not admitted counts nothing; a DEEP look that reached the kernel counts `phase14_kernel_eligible_deep_seen`.
-- `HorseUpgradeEvidenceCounters.test.ts`: engagements are a strict subset of ready reads on the existing grid; a fast window below the minimum counts nothing ready.
+- `HorseUpgradeEvidenceCounters.test.ts`: engagements are a strict subset of ready reads at both sites (the flop stab grid and a preflop-raise grid on `opponentExploitRead`); a fast window below the minimum counts nothing ready.
 
 ## Guard: An Occurrence Counter Never Carries A Floor
 
