@@ -75,6 +75,7 @@ import { requestSeatChangeFor } from './supabase/seatChange.js';
 import { regularSessionEndFactor } from './HorseRegulars.js';
 import {
   offDutyExitNow,
+  offDutyPersonShort,
   offDutyReason,
   recordOffDutyDeferred,
   recordOffDutyLeave,
@@ -232,6 +233,10 @@ export class HorseSessionRotator {
    * zero; this is the same courtesy here.
    */
   private leaveHeld = new Map<string, number>();
+  /** `${tableId}:${horseId}` -> when an off-duty horse first waited for a
+   *  person's sake (HorseWorkSchedule.offDutyExitNow's grace). Pruned each
+   *  cycle to the seats that still exist. */
+  private offDutyPersonHoldSince = new Map<string, number>();
 
   /**
    * Seats this process has already sat back in from a sit-out it had no
@@ -1310,6 +1315,12 @@ export class HorseSessionRotator {
     let offDutyLeaves = 0;
     /** Tables that had a shift-change exit this cycle (one change at a time). */
     const offDutyExitTables = new Set<string>();
+    {
+      const seatedNow = new Set<string>();
+      for (const [tid, ts] of byTable) for (const x of ts) seatedNow.add(`${tid}:${x.user_id}`);
+      for (const key of this.offDutyPersonHoldSince.keys())
+        if (!seatedNow.has(key)) this.offDutyPersonHoldSince.delete(key);
+    }
     for (const [tableId, tableSeats] of byTable) {
       if (!this.lifecycleIsCurrent(generation)) return;
       const t = (tableSeats[0] as any)?.tables;
@@ -1371,6 +1382,14 @@ export class HorseSessionRotator {
            exits above keep their immediate door. */
         const onlyOffDuty =
           offDuty && !benched && !offPlo && !offGame && !restrictedCashGame && !outsideCashPlan;
+        const holdKey = `${tableId}:${uid}`;
+        if (!onlyOffDuty) this.offDutyPersonHoldSince.delete(holdKey);
+        if (
+          onlyOffDuty &&
+          offDutyPersonShort({ playingHumansHere, seatedHere, personFloor: NIGHT_MIN_PLAYERS }) &&
+          !this.offDutyPersonHoldSince.has(holdKey)
+        )
+          this.offDutyPersonHoldSince.set(holdKey, dutyNowMs);
         if (
           onlyOffDuty &&
           !offDutyExitNow({
@@ -1380,6 +1399,7 @@ export class HorseSessionRotator {
             personFloor: NIGHT_MIN_PLAYERS,
             owesHandsOrOrbit:
               this.owesHands(tableId, uid, engine) || this.owesBigPotOrbit(uid, engine),
+            personHoldMs: dutyNowMs - (this.offDutyPersonHoldSince.get(holdKey) ?? dutyNowMs),
           })
         ) {
           recordOffDutyDeferred();
@@ -1399,6 +1419,7 @@ export class HorseSessionRotator {
               offDutyLeftHere++;
               offDutyExitTables.add(tableId);
             }
+            this.offDutyPersonHoldSince.delete(holdKey);
             seatedHere--;
             rosterLeft.add(`${tableId}:${uid}`);
             this.breaks.delete(HorseSessionRotator.breakKey(tableId, uid));
@@ -1695,8 +1716,10 @@ export class HorseSessionRotator {
       const openSeats = Math.max(0, maxPlayers - tableSeats.length);
       const releaseWanted = Math.max(0, (humansWaiting.get(tableId) ?? 0) - openSeats);
       /* A table that just had a shift change is not thinned again this cycle
-         by an ordinary session end; a person waiting for a seat still is. */
-      if (releaseWanted === 0 && offDutyExitTables.has(tableId)) continue;
+         by a DISCRETIONARY departure (a table change or a session ending). A
+         person waiting for a seat, and the stop-loss money decision, still
+         run as before. */
+      const shiftChangedHere = releaseWanted === 0 && offDutyExitTables.has(tableId);
       const fill = cashTableFill(tableId);
       /* A horse-seeded Lightning game is never wound down because its last
          person left (Dan 2026-11-13: the 1/2 players are split across every
@@ -1782,6 +1805,7 @@ export class HorseSessionRotator {
 
         if (
           !holdsFull &&
+          !shiftChangedHere &&
           minutes >= MIN_SESSION_MINUTES / 2 &&
           wantsTableChange(seat.user_id, tableId, tableSeats.length, minutes)
         ) {
@@ -1845,7 +1869,7 @@ export class HorseSessionRotator {
            still the break candidate below, so a full table can still send
            somebody for a five-minute break; it just does not send them
            home. */
-        if (holdsFull) p = 0;
+        if (holdsFull || shiftChangedHere) p = 0;
 
         if (!best || p > best.p) best = { seat, p };
       }

@@ -5,7 +5,12 @@
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { offDutyExitNow, offDutyReason, onDuty } from './HorseWorkSchedule.js';
+import {
+  OFF_DUTY_PERSON_GRACE_MS,
+  offDutyExitNow,
+  offDutyReason,
+  onDuty,
+} from './HorseWorkSchedule.js';
 import { availableNow } from './HorseRegulars.js';
 import { planHorseQueues } from './HorseGameQueue.js';
 import type { HorseState } from './StableHandTags.js';
@@ -112,10 +117,28 @@ describe('every path obeys it: no waiver, no widening', () => {
     expect(offDutyExitNow(base)).toBe(true);
     // A second off-duty exit at the same table waits for the next cycle.
     expect(offDutyExitNow({ ...base, offDutyLeftHereThisCycle: 1 })).toBe(false);
-    // A person playing at a table that would drop below four keeps the horse.
+    // A person playing at a table that would drop below four keeps the horse,
+    // but only for the grace: the schedule is always kept in the end.
     expect(offDutyExitNow({ ...base, playingHumansHere: 1, seatedHere: 4 })).toBe(false);
     expect(offDutyExitNow({ ...base, playingHumansHere: 1, seatedHere: 5 })).toBe(true);
     expect(offDutyExitNow({ ...base, playingHumansHere: 1, seatedHere: 2 })).toBe(false);
+    expect(OFF_DUTY_PERSON_GRACE_MS).toBe(10 * 60_000);
+    expect(
+      offDutyExitNow({
+        ...base,
+        playingHumansHere: 1,
+        seatedHere: 4,
+        personHoldMs: OFF_DUTY_PERSON_GRACE_MS - 1,
+      })
+    ).toBe(false);
+    expect(
+      offDutyExitNow({
+        ...base,
+        playingHumansHere: 1,
+        seatedHere: 4,
+        personHoldMs: OFF_DUTY_PERSON_GRACE_MS,
+      })
+    ).toBe(true);
     // Horse-only tables may thin; HIT AND RUN and the orbit still decide when.
     expect(offDutyExitNow({ ...base, seatedHere: 2 })).toBe(true);
     expect(offDutyExitNow({ ...base, owesHandsOrOrbit: true })).toBe(false);
@@ -123,12 +146,25 @@ describe('every path obeys it: no waiver, no widening', () => {
     expect(rotator).toMatch(/onlyOffDuty &&\s*!offDutyExitNow\(\{/);
     expect(rotator).toMatch(/personFloor: NIGHT_MIN_PLAYERS,/);
     expect(rotator).toMatch(
-      /if \(onlyOffDuty\) \{\s*offDutyLeftHere\+\+;\s*offDutyExitTables\.add\(tableId\);\s*\}\s*seatedHere--;/
+      /if \(onlyOffDuty\) \{\s*offDutyLeftHere\+\+;\s*offDutyExitTables\.add\(tableId\);\s*\}\s*this\.offDutyPersonHoldSince\.delete\(holdKey\);\s*seatedHere--;/
     );
-    // The ordinary session end does not thin the same table in the same cycle,
-    // unless a person is waiting for the seat.
+    // Only the DISCRETIONARY departures skip a table that just had a shift
+    // change; a waiting person and the stop-loss still run.
     expect(rotator).toMatch(
-      /if \(releaseWanted === 0 && offDutyExitTables\.has\(tableId\)\) continue;/
+      /const shiftChangedHere = releaseWanted === 0 && offDutyExitTables\.has\(tableId\);/
+    );
+    expect(rotator).not.toMatch(/offDutyExitTables\.has\(tableId\)\) continue;/);
+    expect(rotator).toMatch(
+      /!holdsFull &&\s*!shiftChangedHere &&\s*minutes >= MIN_SESSION_MINUTES/
+    );
+    expect(rotator).toMatch(/if \(holdsFull \|\| shiftChangedHere\) p = 0;/);
+    const stopLoss = rotator.indexOf("if (verdict === 'stop_loss') {");
+    expect(stopLoss).toBeGreaterThan(0);
+    expect(stopLoss).toBeLessThan(rotator.indexOf('if (holdsFull || shiftChangedHere) p = 0;'));
+    // The grace is remembered per seat and pruned to the seats that exist.
+    expect(rotator).toMatch(/private offDutyPersonHoldSince = new Map<string, number>\(\);/);
+    expect(rotator).toMatch(
+      /personHoldMs: dutyNowMs - \(this\.offDutyPersonHoldSince\.get\(holdKey\) \?\? dutyNowMs\)/
     );
   });
   it('no new tournament registration on a rest day, ticket or not', () => {
