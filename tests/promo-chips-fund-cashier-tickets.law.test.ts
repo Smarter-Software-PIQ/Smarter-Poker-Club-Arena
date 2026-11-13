@@ -213,3 +213,67 @@ describe('Promo tickets count in the digests and under the statement Ticket filt
     expect(readers).not.toMatch(/^\s*(insert|update|delete|grant|revoke|alter|create|drop)\b/im);
   });
 });
+
+describe('Final polish: a promo ticket names itself and its cancel refund files under Ticket', () => {
+  const polish = read(
+    'supabase/migrations/20261113021529_a_promo_ticket_names_itself_and_its_cancel_refund_files_unde.sql'
+  );
+  const proof = polish.split('\n').find((line) => line.startsWith('-- @live-proof:')) ?? '';
+
+  it('patches the door and the statement only from the definitions production held', () => {
+    expect(polish).toContain("IF md5(d) <> '499b323c2479bc774a1674db7f99f9ec' THEN");
+    expect(polish).toContain("IF md5(d) <> 'dcfe58296b8a3d140f4fbdcc7395bd03' THEN");
+    expect(proof).toContain('310b74c72f83bf023dc25a64f9950486');
+    expect(proof).toContain('014595799a63ab71d190a68c7acdbcac');
+    expect(polish.split('IF n = d THEN RAISE EXCEPTION').length - 1).toBe(2);
+    expect(polish.split('EXECUTE n;').length - 1).toBe(2);
+    expect(polish.split('\nBEGIN;\n').length - 1).toBe(1);
+    expect(polish.split('\nCOMMIT;\n').length - 1).toBe(1);
+    expect(polish).toContain("SET LOCAL lock_timeout = '3s';");
+  });
+
+  it('changes the note the door writes and nothing else in the door', () => {
+    expect(door).toContain("p_value, 'Cashier Ticket');");
+    expect(polish).toContain(
+      "'  values (v_ticket_id, p_club_id, v_me, p_holder_id, p_value, ''Promo Cashier Ticket'');'"
+    );
+    expect(polish.split("''Promo Cashier Ticket''").length - 1).toBe(1);
+    // The browser recovery envelope still carries the ordinary note the
+    // server validates (fn_cashier_browser_recovery_valid).
+    expect(page).toContain(": 'Cashier Ticket',");
+    expect(read('src/services/CashierResilience.ts')).toContain(
+      "row.ticketNote !== 'Cashier Ticket'"
+    );
+  });
+
+  it('files only a refund leg on the ticket escrow under Ticket, ahead of the Cashout rule', () => {
+    expect(polish).toContain(
+      "'           WHEN cl.category = ''refund'' AND ''escrow'' IN (cl.from_type, cl.to_type) THEN ''ticket''\n" +
+        "           WHEN ''escrow'' IN (cl.from_type, cl.to_type) THEN ''cashout''\n'"
+    );
+    const body = polish.slice(polish.indexOf('\nBEGIN;\n'));
+    expect(body).not.toContain('escrow_release');
+    expect(body).not.toContain('escrow_hold');
+    expect(polish).not.toMatch(/^\s*(insert|update|delete|grant|revoke|alter|create|drop)\b/im);
+  });
+
+  it('shows the Tickets tab a promo ticket and where its cancel returns', () => {
+    expect(page).toContain("const PROMO_TICKET_NOTE = 'Promo Cashier Ticket';");
+    expect(page).toContain('promo: t.note === PROMO_TICKET_NOTE,');
+    expect(page).toContain('{t.promo && <>Promo &middot; </>}');
+    expect(page).toContain("' · Cancel Returns To Your Promo Wallet'");
+    expect(page).toContain(
+      "aria-label={t.promo ? 'Cancel: Returns To Your Promo Wallet' : undefined}"
+    );
+    // The refund wallet is still the server's answer, never the note.
+    expect(page).toContain("res.refund_wallet === 'promo_wallet'");
+  });
+
+  it('names the selected players the allowance holds back, five at most', () => {
+    expect(page).toContain('const PROMO_SHORTFALL_NAMES = 5;');
+    expect(page).toContain('title="Promo Allowance Below This Send"');
+    expect(page).toContain('title="Promo Allowance Remaining"');
+    expect(page).toContain('promoShortfalls.length - PROMO_SHORTFALL_NAMES} More');
+    expect(page).toContain('promoSourceSelected && promoAllowance && picked.length > 1');
+  });
+});

@@ -282,7 +282,14 @@ interface TicketRow {
   /** The counterparty: issuer for a held ticket, holder for an issued one. */
   otherName: string;
   held: boolean;
+  /** Issued from the issuer's promo wallet; a cancel returns it there. */
+  promo: boolean;
 }
+
+/** The note fn_cashier_promo_ticket_send writes on a promo funded ticket (20261113021529). */
+const PROMO_TICKET_NOTE = 'Promo Cashier Ticket';
+/** How many under-allowance players the promo dialog names before "And N More". */
+const PROMO_SHORTFALL_NAMES = 5;
 
 type InvoiceRow = ClubWeeklyStatement;
 
@@ -2098,6 +2105,7 @@ function CashierTradeWorkspace() {
             holderId: t.holder_id as string,
             issuedById: t.issued_by as string,
             held,
+            promo: t.note === PROMO_TICKET_NOTE,
             otherName:
               names.get(held ? (t.issued_by as string) : (t.holder_id as string)) || 'Member',
           };
@@ -2704,6 +2712,33 @@ function CashierTradeWorkspace() {
       .filter((left): left is number => typeof left === 'number');
     return known.length > 0 ? Math.min(...known) : null;
   })();
+  /* Which selected players the allowance holds back, by name. Send Out
+     compares each player's own amount. Send Ticket compares the chosen value,
+     or, because a value above the lowest allowance cannot stay chosen, the
+     smallest ticket value that allowance refuses. */
+  const promoShortfallValue =
+    amountModal !== 'ticket'
+      ? null
+      : (ticketTournament?.price ??
+        ticketValue ??
+        (promoAllowanceFloor === null
+          ? null
+          : (ticketValues.find((value) => value > promoAllowanceFloor) ?? null)));
+  const promoShortfalls =
+    promoSourceSelected && promoAllowance && picked.length > 1
+      ? picked.flatMap((target) => {
+          const left = promoAllowance[target.userId];
+          const wanted =
+            amountModal === 'ticket'
+              ? promoShortfallValue
+              : batchPlan.ok
+                ? batchPlan.amounts[target.userId]
+                : null;
+          return typeof left === 'number' && typeof wanted === 'number' && left < wanted
+            ? [{ userId: target.userId, name: target.name, left }]
+            : [];
+        })
+      : [];
 
   const selfSelected = picked.some((target) => target.userId === user?.id);
   // A promo wallet never funds its own holder, and a value above the read
@@ -5740,6 +5775,7 @@ function CashierTradeWorkspace() {
                           {t.redemptionMode === 'tournament_entry_only' && (
                             <>Entry Only &middot; </>
                           )}
+                          {t.promo && <>Promo &middot; </>}
                           {txLabel(t.status)} &middot;{' '}
                           {new Date(t.createdAt).toLocaleString([], {
                             month: 'short',
@@ -5747,7 +5783,13 @@ function CashierTradeWorkspace() {
                             hour: '2-digit',
                             minute: '2-digit',
                           })}
-                          {t.note ? ` · ${t.note}` : ''}
+                          {t.note && !t.promo ? ` · ${t.note}` : ''}
+                          {t.promo &&
+                          !t.held &&
+                          t.status === 'issued' &&
+                          t.redemptionMode === 'wallet_chips'
+                            ? ' · Cancel Returns To Your Promo Wallet'
+                            : ''}
                         </span>
                       </div>
                       <span className={styles.rowBalance}>{fmt(t.value)}</span>
@@ -5767,6 +5809,8 @@ function CashierTradeWorkspace() {
                         <button
                           className={styles.reqBtn}
                           disabled={!isOnline || ticketActingId !== null}
+                          aria-label={t.promo ? 'Cancel: Returns To Your Promo Wallet' : undefined}
+                          title={t.promo ? 'Cancel: Returns To Your Promo Wallet' : undefined}
                           onClick={() => void actOnTicket(t, 'cancel')}
                         >
                           {ticketActingId === t.id ? 'Working...' : 'Cancel'}
@@ -6281,6 +6325,22 @@ function CashierTradeWorkspace() {
                           {picked.length === 1
                             ? `${picked[0].name} Can Still Receive ${exactChipFigure(promoAllowanceFloor)} Of 50 Promo Chips.`
                             : `Lowest Remaining Allowance Among The Selected Players: ${exactChipFigure(promoAllowanceFloor)} Of 50 Promo Chips.`}
+                        </p>
+                      )}
+                      {promoShortfalls.length > 0 && (
+                        <p role="status" title="Promo Allowance Below This Send">
+                          {`${
+                            amountModal === 'ticket' && promoShortfallValue !== null
+                              ? `Can Not Receive A ${exactChipFigure(promoShortfallValue)} Promo Ticket`
+                              : 'Can Not Receive Their Amount'
+                          }: ${promoShortfalls
+                            .slice(0, PROMO_SHORTFALL_NAMES)
+                            .map((row) => `${row.name} (${exactChipFigure(row.left)} Remaining)`)
+                            .join(', ')}${
+                            promoShortfalls.length > PROMO_SHORTFALL_NAMES
+                              ? `, And ${promoShortfalls.length - PROMO_SHORTFALL_NAMES} More`
+                              : ''
+                          }.`}
                         </p>
                       )}
                       {promoAllowanceUnread && (
