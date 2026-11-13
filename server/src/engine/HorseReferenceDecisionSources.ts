@@ -39,6 +39,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the fast call-down read (2026-11-07): recent river call rate from the river recency and exploit fast windows, the station and calling-more flags and the fold-rate input the river bluff layers price with',
     'src/engine/HorseOpponentStyle.ts':
       'the opponent style read (2026-11-13): in-format axes, pre-repair discount and the bounded default-off style consumers (value bettor, big-bet respect and river bluff-catch cap, raise respect, tight opener respect, value extraction, fold bluffing)',
+    'src/engine/HorseStyleSwitch.ts':
+      'the style read live switch (2026-11-13): the source default (every option off), the configuration parser and its fail-safe, the canary bucket and the per-Horse decision options; a default flipped here would turn options on fleet-wide',
     'src/engine/HorseStyleShadow.ts':
       'the style read shadow arm (2026-11-13): which style options compute without applying, the bounded per-decision engagement record and the style read timing; nothing in it changes a committed action',
     'src/engine/HorseMultiwayRiverRead.ts':

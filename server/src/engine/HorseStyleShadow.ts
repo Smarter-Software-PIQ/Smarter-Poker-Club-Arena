@@ -90,64 +90,80 @@ const ACTION_CODE: Record<string, string> = {
   allin: 'a',
 };
 const STREET_CODE: Record<string, string> = { preflop: 'p', flop: 'f', turn: 't', river: 'r' };
+/** The variants a shadow receipt names; any other variant is counted as `other` (a fixed key set). */
+export const STYLE_SHADOW_VARIANTS = Object.freeze([
+  'nlh',
+  'plo4',
+  'plo5',
+  'plo6',
+  'plo8',
+  'flo8',
+  'flh',
+  'pineapple',
+  'short_deck',
+] as const);
 
+/** What a changed shadow decision is counted under. */
 export interface StyleShadowReceipt {
   option: StyleSwitchOption;
   format: 'cash' | 'tournament';
   variant: string;
   street: string;
-  actual: { action: string; amount: number };
-  wouldBe: { action: string; amount: number };
-  /** the call price of the decision: toCall / (pot + toCall), 0 when nothing to call */
-  price: number;
-  confidence: number;
-  /** 'shadow', or the canary bucket the Horse is in when the option is in canary */
+  actualAction: string;
+  wouldBeAction: string;
+  /** 'canary' when THIS option is in canary for the Horse (it is then in its shadow arm), else 'shadow' */
   arm: 'shadow' | 'canary';
-  bucket: number | null;
-  /** where the hand result joins: hand_history (table_id, hand_number) and the Horse's seat */
-  tableId: string;
-  handNumber: number;
-  seat: number;
 }
 
 /**
- * The receipt as one brain-telemetry key (horse_brain_telemetry.feature, at most 128 characters, fires = 1 per
- * changed decision), so the evaluation reads it from existing telemetry with no new table:
+ * H1 (review 64466c83): the receipt is an AGGREGATE counter over a fixed key set, never one key per decision:
  *
- *   style_shadow.<opt>.<c|t>.<variant>.<street>.<actual>.<wouldBe>.<price%>.<conf%>.<s|cN>.<table32>.<hand>.<seat>_seen
+ *   style_shadow.<opt>.<c|t>.<variant>.<p|f|t|r>.<actual>.<wouldBe>.<s|c>_seen
  *
- * opt: vb bb rr tr fr ve fb; actions: f k c b r a, with the amount in big blinds x100 after a colon when it is a
- * bet or raise; price and confidence are whole percent; s = shadow, cN = canary bucket N; table32 is the table id
- * without dashes. Returns null when the key would not fit (the receipt is then counted as unencodable).
+ * opt: vb bb rr tr fr ve fb; variant: one of STYLE_SHADOW_VARIANTS or `other`; actions: the action class only
+ * (f k c b r a, x for anything else), no amount. At most 7 x 2 x 10 x 4 x 7 x 7 x 2 keys exist, whatever the volume.
+ * The per-decision detail (hand, seat, amounts) is not in telemetry: the evaluation reconstructs it from the decision
+ * journal, whose record carries the switch state the decision ran with (M3), joined to ca_hand_facts
+ * (phase1-verify/style-evaluation.sql).
  */
-export function styleShadowReceiptKey(r: StyleShadowReceipt, bigBlind: number): string | null {
-  const act = (a: { action: string; amount: number }) => {
-    const c = ACTION_CODE[a.action] ?? 'x';
-    return c === 'b' || c === 'r' || c === 'a'
-      ? `${c}:${Math.round((Number(a.amount) || 0) * (100 / Math.max(1e-9, bigBlind)))}`
-      : c;
-  };
-  const pct = (x: number) => String(Math.round(Math.max(0, Math.min(1, x)) * 100));
-  const table = String(r.tableId).toLowerCase().replace(/-/g, '');
-  if (!/^[0-9a-f]{32}$/.test(table)) return null;
-  if (!Number.isSafeInteger(r.handNumber) || r.handNumber < 0) return null;
-  if (!Number.isSafeInteger(r.seat) || r.seat < 0 || r.seat > 99) return null;
-  if (!/^[a-z0-9]{1,8}$/.test(r.variant)) return null;
-  const key = [
-    'style_shadow',
-    OPTION_CODE[r.option],
-    r.format === 'tournament' ? 't' : 'c',
-    r.variant,
-    STREET_CODE[r.street] ?? 'x',
-    act(r.actual),
-    act(r.wouldBe),
-    pct(r.price),
-    pct(r.confidence),
-    r.arm === 'canary' ? `c${r.bucket ?? 'x'}` : 's',
-    table,
-    String(r.handNumber),
-    String(r.seat),
-  ].join('.');
-  const full = `${key}_seen`;
-  return full.length <= 128 ? full : null;
+export function styleShadowAggregateKey(r: StyleShadowReceipt): string {
+  const variant = (STYLE_SHADOW_VARIANTS as readonly string[]).includes(r.variant)
+    ? r.variant
+    : 'other';
+  return (
+    [
+      'style_shadow',
+      OPTION_CODE[r.option],
+      r.format === 'tournament' ? 't' : 'c',
+      variant,
+      STREET_CODE[r.street] ?? 'x',
+      ACTION_CODE[r.actualAction] ?? 'x',
+      ACTION_CODE[r.wouldBeAction] ?? 'x',
+      r.arm === 'canary' ? 'c' : 's',
+    ].join('.') + '_seen'
+  );
+}
+
+/**
+ * M2: the cap on the shadow re-decision. One re-decision per decision at most; it is skipped (with a receipt) when
+ * the committed decision itself took longer than this, since the re-decision costs about the same.
+ */
+export const STYLE_SHADOW_REDECIDE_BUDGET_MS = 15;
+
+/**
+ * M2: the one engaged option a decision re-decides, chosen deterministically from the decision key (a 32-bit FNV-1a
+ * hash), so every option is sampled across decisions and a replay picks the same one.
+ */
+export function styleShadowPick(
+  engaged: readonly StyleShadowEngagement[],
+  decisionKey: string
+): StyleShadowEngagement | null {
+  if (engaged.length === 0) return null;
+  let h = 0x811c9dc5;
+  const key = String(decisionKey);
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return engaged[h % engaged.length]!;
 }

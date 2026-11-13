@@ -9,6 +9,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
+  ABSENT_STYLE_SWITCH_SOURCE,
+  STYLE_SWITCH_SOURCE_DEFAULT,
   STYLE_CANARY_ON_BUCKET,
   STYLE_SWITCH_OPTIONS,
   STYLE_SWITCH_STATES,
@@ -49,7 +51,7 @@ describe('law: a style canary is the only split configuration', () => {
       for (const id of IDS) {
         const inCanary = styleCanaryBucket(id) === STYLE_CANARY_ON_BUCKET;
         const opts = styleSwitchDecisionOpts(states, id, true);
-        const { styleCanaryBucket: bucket, ...config } = opts;
+        const { styleCanaryBucket: bucket, styleCanaryOptions: _canary, ...config } = opts;
         expect(bucket).toBe(styleCanaryBucket(id));
         (byArm.get(inCanary) ?? byArm.set(inCanary, new Set()).get(inCanary)!).add(
           JSON.stringify(config)
@@ -78,5 +80,52 @@ describe('law: a style canary is the only split configuration', () => {
     };
     walk(root);
     expect(hits.sort()).toEqual(['engine/HorseStyleSwitch.ts']);
+  });
+
+  it('the bucket is pinned by golden vectors (a change to the hash, salt or modulus fails here)', () => {
+    expect(styleCanaryBucket('aaaaaaaa-0000-4000-8000-000000000001')).toBe(4);
+    expect(styleCanaryBucket('aaaaaaaa-0000-4000-8000-000000000010')).toBe(0);
+    expect(styleCanaryBucket('7c9e6679-7425-40de-944b-e07fc1f90ae7')).toBe(1);
+    expect(styleCanaryBucket('7C9E6679-7425-40DE-944B-E07FC1F90AE7')).toBe(1);
+  });
+
+  it('M1: every option starts off, and the production source serves nothing', () => {
+    for (const o of STYLE_SWITCH_OPTIONS) expect(STYLE_SWITCH_SOURCE_DEFAULT[o], o).toBe('off');
+    expect(ABSENT_STYLE_SWITCH_SOURCE()).toEqual({ kind: 'absent' });
+    const worker = readFileSync(
+      fileURLToPath(new URL('./horseDecision/workerRuntime.ts', import.meta.url)),
+      'utf8'
+    );
+    // the live worker builds its holder over the absent source only
+    expect(worker).toMatch(/new StyleSwitchHolder\(ABSENT_STYLE_SWITCH_SOURCE,/);
+    expect(worker.match(/new StyleSwitchHolder\(/g)).toHaveLength(1);
+  });
+
+  it('anchor: the worker passes the Horse id into decision options only through the switch resolver', () => {
+    // Every decision option object the worker builds starts from `...request.opts`; inside those objects the only
+    // per-Horse input may be styleSwitchDecisionOpts(..., request.player.user_id, ...). Anything else that keyed the
+    // options on the Horse would be a second split configuration.
+    const src = readFileSync(
+      fileURLToPath(new URL('./horseDecision/workerRuntime.ts', import.meta.url)),
+      'utf8'
+    );
+    let at = 0;
+    let objects = 0;
+    for (;;) {
+      const start = src.indexOf('...request.opts,', at);
+      if (start < 0) break;
+      const open = src.lastIndexOf('{', start);
+      let depth = 0;
+      let end = open;
+      for (; end < src.length; end++) {
+        if (src[end] === '{') depth++;
+        else if (src[end] === '}' && --depth === 0) break;
+      }
+      const body = src.slice(open, end + 1).replace(/styleSwitchDecisionOpts\([^)]*\)/g, '');
+      expect(body, `options object at ${open}`).not.toMatch(/user_id|userId|styleCanaryBucket/);
+      objects++;
+      at = end;
+    }
+    expect(objects).toBeGreaterThanOrEqual(3);
   });
 });

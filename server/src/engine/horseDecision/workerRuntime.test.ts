@@ -1,5 +1,10 @@
 import { LiveHorseDecisionWorkerClient } from './client.js';
-import { StyleSwitchHolder } from '../HorseStyleSwitch.js';
+import {
+  StyleSwitchHolder,
+  styleSwitchSourceFromStates,
+  styleSwitchStatesFrom,
+} from '../HorseStyleSwitch.js';
+import { isHorseDecisionReplayState } from './replayState.js';
 import { noteStyleShadowEngaged } from '../HorseStyleShadow.js';
 import { HORSE_PHASE14_DOMAINS } from '../HorsePhase14Authority.js';
 import { HandController } from '../HandController.js';
@@ -6189,8 +6194,8 @@ describe('style read live switch and shadow in the live worker (2026-11-13)', ()
     expect(h.decisionOpts[0].styleFoldBluff).toBe(true);
     expect(h.decisionOpts[0].styleShadow).toBeUndefined();
     expect(h.features).toContain('style_switch_styleFoldBluff_on_seen');
-    expect(h.features).toContain('style_read_timed_seen');
-    expect(h.latency.map((l) => l.scope)).toContain('style_read');
+    // the fake decision reads no style, so nothing is timed (a real one is: HorseStyleReadLatency bench)
+    expect(h.features).not.toContain('style_read_timed_seen');
     const fast = h.messages.find((m) => m.type === 'FAST_RESULT');
     expect(fast && 'decision' in fast && fast.decision.action).toBe('fold');
   });
@@ -6218,13 +6223,9 @@ describe('style read live switch and shadow in the live worker (2026-11-13)', ()
     const restoredAfter = h.restored[h.restored.length - 1];
     expect(h.rng()).toBe(restoredAfter);
     const receipt = h.features.find((f) => f.startsWith('style_shadow.'));
-    expect(receipt).toBe(
-      `style_shadow.fb.c.${request.gameState.gameVariant}.p.c.f.25.62.s.${TABLE.replace(/-/g, '')}.1000007.${request.player.seat}_seen`
-    );
-    expect(receipt!.length).toBeLessThanOrEqual(128);
-    expect(h.latency.map((l) => l.scope)).toEqual(
-      expect.arrayContaining(['style_read', 'style_shadow_redecide'])
-    );
+    // H1: an aggregate key, no table, hand, seat or amount
+    expect(receipt).toBe(`style_shadow.fb.c.${request.gameState.gameVariant}.p.c.f.s_seen`);
+    expect(h.latency.map((l) => l.scope)).toContain('style_shadow_redecide');
   });
 
   it('shadow, no change: an engaged option whose re-decision keeps the action is counted, not receipted', async () => {
@@ -6234,6 +6235,172 @@ describe('style read live switch and shadow in the live worker (2026-11-13)', ()
     expect(h.decisionOpts).toHaveLength(2);
     expect(h.features).toContain('style_shadow_unchanged_seen');
     expect(h.features.filter((f) => f.startsWith('style_shadow.'))).toEqual([]);
+  });
+
+  function styledMany(options: Record<string, string>, engage: string[]) {
+    const h = harness();
+    const base = h.deps.decide;
+    h.deps.decide = (player, gameState, style, mods, opts, ...rest) => {
+      const out = base(player, gameState, style, mods, opts, ...rest);
+      for (const o of engage)
+        if (opts?.styleShadow?.includes(o)) noteStyleShadowEngaged(o as never, 0.5);
+      return engage.some((o) => (opts as Record<string, unknown>)?.[o] === true)
+        ? { ...out, action: 'fold', amount: 0 }
+        : out;
+    };
+    h.deps.styleSwitch = new StyleSwitchHolder(
+      () => ({ kind: 'present', raw: { version: 1, options } }),
+      (f) => h.features.push(f)
+    );
+    return h;
+  }
+
+  it('M2: several engaged options get ONE re-decision, picked by the decision key; the rest are counted', async () => {
+    const h = styledMany(
+      { styleFoldBluff: 'shadow', styleRaiseRespect: 'shadow', styleValueExtraction: 'shadow' },
+      ['styleFoldBluff', 'styleRaiseRespect', 'styleValueExtraction']
+    );
+    const request = independentFastForHand(TABLE, 1000007, '9');
+    h.runtime.receive(request);
+    await h.runtime.drain();
+    expect(h.decisionOpts).toHaveLength(2);
+    const on = Object.keys(h.decisionOpts[1]).filter(
+      (k) => (h.decisionOpts[1] as Record<string, unknown>)[k] === true && k.startsWith('style')
+    );
+    expect(on).toHaveLength(1);
+    expect(h.features.filter((f) => f === 'style_shadow_rotated_out_seen')).toHaveLength(2);
+    // deterministic: the same request picks the same option
+    const again = styledMany(
+      { styleFoldBluff: 'shadow', styleRaiseRespect: 'shadow', styleValueExtraction: 'shadow' },
+      ['styleFoldBluff', 'styleRaiseRespect', 'styleValueExtraction']
+    );
+    again.runtime.receive(independentFastForHand(TABLE, 1000007, '9'));
+    await again.runtime.drain();
+    expect(
+      Object.keys(again.decisionOpts[1]).filter(
+        (k) =>
+          (again.decisionOpts[1] as Record<string, unknown>)[k] === true && k.startsWith('style')
+      )
+    ).toEqual(on);
+  });
+
+  it('M2: no re-decision while work is queued behind the decision, with a receipt', async () => {
+    const h = styledMany({ styleFoldBluff: 'shadow' }, ['styleFoldBluff']);
+    // another request already waiting on the lane (the lane's own pending set, the signal PREWARM_STREET uses)
+    (h.runtime as unknown as { pendingRequestIds: Set<number> }).pendingRequestIds.add(424242);
+    h.runtime.receive(independentFastForHand(TABLE, 1000007, '9'));
+    await h.runtime.drain();
+    expect(h.features).toContain('style_shadow_skipped_backlog_seen');
+    expect(h.decisionOpts).toHaveLength(1);
+  });
+
+  it('M2: no re-decision when the committed decision already exceeded the budget, with a receipt', async () => {
+    const h = styledMany({ styleFoldBluff: 'shadow' }, ['styleFoldBluff']);
+    const base = h.deps.decide;
+    h.deps.decide = (...args) => {
+      h.advanceClock(100);
+      return base(...args);
+    };
+    h.runtime.receive(independentFastForHand(TABLE, 1000007, '9'));
+    await h.runtime.drain();
+    expect(h.features).toContain('style_shadow_skipped_budget_seen');
+    expect(h.decisionOpts).toHaveLength(1);
+  });
+
+  it('L3: no re-decision when the governor scale moved after the committed decision, with a receipt', async () => {
+    const h = styledMany({ styleFoldBluff: 'shadow' }, ['styleFoldBluff']);
+    let calls = 0;
+    h.deps.governorScale = () => (++calls > 1 ? 0.5 : 0.2);
+    h.runtime.receive(independentFastForHand(TABLE, 1000007, '9'));
+    await h.runtime.drain();
+    expect(h.features).toContain('style_shadow_skipped_scale_seen');
+    expect(h.decisionOpts).toHaveLength(1);
+  });
+
+  it('L4: a plain-shadow option on a Horse with another option in canary is labelled shadow', async () => {
+    // the request's Horse is not in bucket 0, so canary puts styleRaiseRespect in its shadow arm
+    const h = styledMany({ styleFoldBluff: 'shadow', styleRaiseRespect: 'canary' }, [
+      'styleFoldBluff',
+    ]);
+    h.runtime.receive(independentFastForHand(TABLE, 1000007, '9'));
+    await h.runtime.drain();
+    const receipt = h.features.find((f) => f.startsWith('style_shadow.'));
+    expect(receipt).toMatch(/^style_shadow\.fb\..*\.s_seen$/);
+    expect(h.decisionOpts[0]).not.toHaveProperty('styleCanaryBucket');
+  });
+
+  it('M3: the switch state is journaled with the decision, and a runtime restored from it decides the same', async () => {
+    const journaled: unknown[] = [];
+    const live = harness();
+    live.deps.styleSwitch = new StyleSwitchHolder(
+      () => ({ kind: 'present', raw: { version: 1, options: { styleValueExtraction: 'on' } } }),
+      () => {}
+    );
+    live.deps.journalDecision = ((_req: unknown, body: { replayState: unknown }) => {
+      journaled.push(body.replayState);
+    }) as never;
+    const request = independentFastForHand(TABLE, 1000007, '9');
+    live.runtime.receive(request);
+    await live.runtime.drain();
+    const state = journaled[0] as { style?: Record<string, string> };
+    expect(state.style?.styleValueExtraction).toBe('on');
+    expect(isHorseDecisionReplayState(state)).toBe(true);
+    // the replay binding: a holder over the recorded states (runtimeReplay.ts styleStates)
+    const replay = harness();
+    replay.deps.styleSwitch = new StyleSwitchHolder(
+      styleSwitchSourceFromStates(styleSwitchStatesFrom(state.style)),
+      () => {}
+    );
+    replay.runtime.receive(independentFastForHand(TABLE, 1000007, '9'));
+    await replay.runtime.drain();
+    expect(replay.decisionOpts[0].styleValueExtraction).toBe(true);
+    expect(JSON.stringify(replay.decisionOpts[0])).toBe(JSON.stringify(live.decisionOpts[0]));
+    const fast = (h: typeof live) =>
+      h.messages.find((m) => m.type === 'FAST_RESULT') as never as {
+        decision: unknown;
+        rngAfter: number;
+      };
+    expect(fast(replay).decision).toEqual(fast(live).decision);
+    // all off is journaled by absence
+    const off: unknown[] = [];
+    const plain = harness();
+    plain.deps.journalDecision = ((_r: unknown, body: { replayState: unknown }) => {
+      off.push(body.replayState);
+    }) as never;
+    plain.runtime.receive(independentFastForHand(TABLE, 1000007, '9'));
+    await plain.runtime.drain();
+    expect(Object.hasOwn(off[0] as object, 'style')).toBe(false);
+  });
+
+  it('anchor law: with no option in canary, two Horses at the same spot get identical decision options', async () => {
+    const runFor = async (actor: string) => {
+      const h = harness();
+      h.deps.styleSwitch = new StyleSwitchHolder(
+        () => ({
+          kind: 'present',
+          raw: { version: 1, options: { styleFoldBluff: 'on', styleRaiseRespect: 'shadow' } },
+        }),
+        () => {}
+      );
+      const request = JSON.parse(
+        JSON.stringify(independentFastForHand(TABLE, 1000007, '9')).replaceAll(
+          '20000000-0000-4000-8000-000000000001',
+          actor
+        )
+      );
+      request.decisionKey = buildHorseDecisionKey(request);
+      h.runtime.receive(request);
+      await h.runtime.drain();
+      const {
+        mindObservationHand: _m,
+        mindPlanContext: _p,
+        ...rest
+      } = h.decisionOpts[0] as Record<string, unknown>;
+      return JSON.stringify(rest);
+    };
+    expect(await runFor('20000000-0000-4000-8000-000000000001')).toBe(
+      await runFor('20000000-0000-4000-8000-0000000000aa')
+    );
   });
 
   it('shadow, nothing engaged: no re-decision at all', async () => {

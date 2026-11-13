@@ -1125,13 +1125,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'style_switch_*',
     'HorseStyleSwitch (STYLE READ live switch)',
-    'style_switch_<option>_<state>_seen: an option of the style read changed runtime state (off, shadow, canary, on) at a configuration read, the option and the new state in the name; style_switch_config_invalid_seen / style_switch_config_unreadable_seen: the configuration was not the documented shape or could not be read, and every option failed safe to off; occurrence counters; named *_seen',
+    'style_switch_<option>_<state>_seen: an option of the style read changed runtime state (off, shadow, canary, on) at a configuration read, the option and the new state in the name; style_switch_config_invalid_seen / style_switch_config_unreadable_seen / style_switch_config_stale_seen: the configuration was not the documented shape, could not be read, or was delivered more than two poll intervals ago, and every option failed safe to off; occurrence counters; named *_seen',
     '2026-11-13'
   ),
   receipt(
     'style_shadow*',
     'horseDecision workerRuntime (STYLE READ shadow)',
-    'style_shadow.<opt>.<format>.<variant>.<street>.<actual>.<wouldBe>.<price%>.<conf%>.<arm>.<table32>.<hand>.<seat>_seen: one fire per changed decision of a style option in shadow (the would-be action of a re-decision with that one option on differs from the committed action); joins to hand_history on (table_id, hand_number) and the seat; style_shadow_unchanged_seen: an engaged option whose re-decision kept the action; style_shadow_redecide_failed_seen: a re-decision threw (nothing committed changes); style_shadow_unencodable_seen: a changed decision whose receipt key could not be built; occurrence counters; named *_seen',
+    'style_shadow.<opt>.<c|t>.<variant>.<p|f|t|r>.<actual>.<wouldBe>.<s|c>_seen: an AGGREGATE counter over a fixed key set (no hand, seat or amount), one fire per changed decision of a style option in shadow (the would-be action class of the one re-decision with that option on differs from the committed one); per-decision detail is reconstructed from the decision journal (replay state carries the switch state) joined to ca_hand_facts; style_shadow_unchanged_seen: the re-decision kept the action; style_shadow_rotated_out_seen: another engaged option of the same decision was not re-decided (one re-decision per decision, rotated by decision key); style_shadow_skipped_backlog_seen / _skipped_budget_seen / _skipped_scale_seen: no re-decision because work was queued, the committed decision exceeded the 15 ms budget, or the governor scale moved; style_shadow_scale_mismatch_seen: the re-decision ran at another scale and was discarded; style_shadow_redecide_over_budget_seen: a re-decision took more than 15 ms; style_shadow_redecide_failed_seen / _unencodable_seen: a re-decision or its receipt threw (nothing committed changes); occurrence counters; named *_seen',
     '2026-11-13'
   ),
   receipt(

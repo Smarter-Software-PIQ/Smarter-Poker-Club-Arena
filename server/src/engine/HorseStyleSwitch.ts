@@ -53,6 +53,13 @@ const STYLE_SWITCH_RECEIPT = 'style_switch';
 /** The existing runtime policy cadence (HorseFleetPolicy POLICY_TTL_MS): one read per minute at most. */
 export const STYLE_SWITCH_POLL_MS = 60_000;
 
+/**
+ * L1 (review 64466c83): a configuration delivered longer ago than two poll intervals is stale and fails safe to off,
+ * exactly as an unreadable one. The age is measured on the holder's own (monotonic) clock: the source reports when it
+ * received the configuration (receivedAtMs) on that clock.
+ */
+export const STYLE_SWITCH_STALE_MS = 2 * STYLE_SWITCH_POLL_MS;
+
 /** The canary arm: bucket 0 of 10, from the Horse id alone. */
 export const STYLE_CANARY_SALT = 'style-canary-v1:';
 export const STYLE_CANARY_BUCKETS = 10;
@@ -88,15 +95,45 @@ export function parseStyleSwitchConfig(
 }
 
 /** What a source returns: no configuration on file, or the raw configuration to validate. A throw is unreadable. */
-export type StyleSwitchReading = { kind: 'absent' } | { kind: 'present'; raw: unknown };
+export type StyleSwitchReading =
+  | { kind: 'absent' }
+  | { kind: 'present'; raw: unknown; receivedAtMs?: number };
 export type StyleSwitchSource = () => StyleSwitchReading;
 
 /** The production source until the configuration table lands (design note): nothing on file, the default holds. */
 export const ABSENT_STYLE_SWITCH_SOURCE: StyleSwitchSource = () => ({ kind: 'absent' });
 
 /**
- * The per-process holder. refresh(now) re-reads the source when the last read is STYLE_SWITCH_POLL_MS old or older;
- * between reads the last result stands. Never throws.
+ * A source that serves recorded states (M3: replay restores the switch state a decision was journaled with). null or
+ * all off serves absent, the source default.
+ */
+export function styleSwitchSourceFromStates(
+  states: StyleSwitchStates | null | undefined
+): StyleSwitchSource {
+  if (!states || styleSwitchStatesAreDefault(states)) return ABSENT_STYLE_SWITCH_SOURCE;
+  const options = Object.fromEntries(STYLE_SWITCH_OPTIONS.map((o) => [o, states[o]]));
+  return () => ({ kind: 'present', raw: { version: 1, options } });
+}
+
+/** True when every option is at the source default (off). */
+export function styleSwitchStatesAreDefault(states: StyleSwitchStates): boolean {
+  return STYLE_SWITCH_OPTIONS.every((o) => states[o] === STYLE_SWITCH_SOURCE_DEFAULT[o]);
+}
+
+/** A complete recorded state set (all seven options, valid states, nothing else), or null. */
+export function styleSwitchStatesFrom(value: unknown): StyleSwitchStates | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  if (Object.keys(v).sort().join(',') !== [...STYLE_SWITCH_OPTIONS].sort().join(',')) return null;
+  for (const o of STYLE_SWITCH_OPTIONS)
+    if (!(STYLE_SWITCH_STATES as readonly unknown[]).includes(v[o])) return null;
+  return Object.freeze({ ...v }) as StyleSwitchStates;
+}
+
+/**
+ * The per-process holder. refresh(now) re-reads the source when the last read is STYLE_SWITCH_POLL_MS old or older,
+ * or when the clock went backwards (L2: callers pass a monotonic clock; a step back is treated as due, never as a
+ * freeze); between reads the last result stands. Never throws.
  */
 export class StyleSwitchHolder {
   private states: StyleSwitchStates = STYLE_SWITCH_SOURCE_DEFAULT;
@@ -109,13 +146,20 @@ export class StyleSwitchHolder {
   ) {}
 
   refresh(nowMs: number): StyleSwitchStates {
-    if (!(nowMs - this.readAt < this.pollMs)) {
+    if (!(nowMs - this.readAt < this.pollMs) || nowMs < this.readAt) {
       this.readAt = nowMs;
       let next: StyleSwitchStates;
       try {
         const reading = this.source();
         if (reading?.kind === 'absent') next = STYLE_SWITCH_SOURCE_DEFAULT;
-        else if (reading?.kind === 'present') {
+        else if (
+          reading?.kind === 'present' &&
+          reading.receivedAtMs !== undefined &&
+          !(nowMs - reading.receivedAtMs <= STYLE_SWITCH_STALE_MS)
+        ) {
+          this.note('style_switch_config_stale_seen');
+          next = ALL_OFF;
+        } else if (reading?.kind === 'present') {
           const parsed = parseStyleSwitchConfig(reading.raw);
           if (parsed.ok) next = parsed.states;
           else {
@@ -164,18 +208,35 @@ export function styleSwitchDecisionOpts(
 ): Partial<Record<StyleSwitchOption, true>> & {
   styleShadow?: readonly StyleSwitchOption[];
   styleCanaryBucket?: number;
+  styleCanaryOptions?: readonly StyleSwitchOption[];
 } {
   const out: Partial<Record<StyleSwitchOption, true>> & {
     styleShadow?: StyleSwitchOption[];
     styleCanaryBucket?: number;
+    styleCanaryOptions?: StyleSwitchOption[];
   } = {};
   for (const o of STYLE_SWITCH_OPTIONS) {
     const s = states[o];
     if (s === 'off') continue;
     const a = styleArmFor(s, horseId);
-    if (a.canary) out.styleCanaryBucket = a.bucket!;
+    if (a.canary) {
+      out.styleCanaryBucket = a.bucket!;
+      // L4: which options are in canary, so a plain-shadow option on the same Horse is not labelled canary
+      (out.styleCanaryOptions ??= []).push(o);
+    }
     if (a.arm === 'on') out[o] = true;
     else if (a.arm === 'shadow' && allowShadow) (out.styleShadow ??= []).push(o);
   }
   return out;
+}
+
+/**
+ * The options a decision passes to HorseLogic: styleSwitchDecisionOpts without its receipt-only fields (the canary
+ * bucket and the canary option list never reach the brain).
+ */
+export function styleSwitchBrainOpts(
+  opts: ReturnType<typeof styleSwitchDecisionOpts>
+): Partial<Record<StyleSwitchOption, true>> & { styleShadow?: readonly StyleSwitchOption[] } {
+  const { styleCanaryBucket: _bucket, styleCanaryOptions: _canary, ...brain } = opts;
+  return brain;
 }

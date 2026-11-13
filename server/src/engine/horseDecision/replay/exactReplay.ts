@@ -463,6 +463,7 @@ export async function exactReplayHorseDecisionRecord(
       replayThroughWorkerRuntime(input, {
         phase8SafetyDisabledReason: state.phase8SafetyDisabledReason,
         captureV56PressureWitness: options.captureV56PressureWitness,
+        styleStates: state.style ?? null,
       })
     );
   } catch (error) {

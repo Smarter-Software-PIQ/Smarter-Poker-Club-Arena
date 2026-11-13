@@ -9,10 +9,14 @@ import {
   STYLE_SWITCH_OPTIONS,
   STYLE_SWITCH_POLL_MS,
   STYLE_SWITCH_SOURCE_DEFAULT,
+  STYLE_SWITCH_STALE_MS,
   StyleSwitchHolder,
   parseStyleSwitchConfig,
   styleCanaryBucket,
+  styleSwitchBrainOpts,
   styleSwitchDecisionOpts,
+  styleSwitchSourceFromStates,
+  styleSwitchStatesFrom,
   type StyleSwitchReading,
 } from './HorseStyleSwitch.js';
 
@@ -163,8 +167,12 @@ describe('style read live switch', () => {
       const b = styleCanaryBucket(id);
       expect(styleSwitchDecisionOpts(states, id, true)).toEqual(
         b === STYLE_CANARY_ON_BUCKET
-          ? { styleFoldBluff: true, styleCanaryBucket: b }
-          : { styleShadow: ['styleFoldBluff'], styleCanaryBucket: b }
+          ? { styleFoldBluff: true, styleCanaryBucket: b, styleCanaryOptions: ['styleFoldBluff'] }
+          : {
+              styleShadow: ['styleFoldBluff'],
+              styleCanaryBucket: b,
+              styleCanaryOptions: ['styleFoldBluff'],
+            }
       );
     }
   });
@@ -179,5 +187,67 @@ describe('style read live switch', () => {
       'styleValueExtraction',
       'styleFoldBluff',
     ]);
+  });
+
+  it('L1 stale: a configuration delivered more than two poll intervals ago fails safe to off, with a receipt', () => {
+    expect(STYLE_SWITCH_STALE_MS).toBe(2 * STYLE_SWITCH_POLL_MS);
+    const r = rig({
+      kind: 'present',
+      raw: { version: 1, options: { styleFoldBluff: 'on' } },
+      receivedAtMs: T0,
+    });
+    expect(r.holder.refresh(T0 + 1).styleFoldBluff).toBe('on');
+    // still fresh at exactly the stale age
+    expect(r.holder.refresh(T0 + STYLE_SWITCH_STALE_MS).styleFoldBluff).toBe('on');
+    // the next read after it has gone stale turns everything off
+    expect(r.holder.refresh(T0 + STYLE_SWITCH_STALE_MS + STYLE_SWITCH_POLL_MS)).toEqual(
+      STYLE_SWITCH_SOURCE_DEFAULT
+    );
+    expect(r.notes).toContain('style_switch_config_stale_seen');
+    expect(r.notes).toContain('style_switch_styleFoldBluff_off_seen');
+  });
+
+  it('L2 clock: a step back is a due read, never a freeze', () => {
+    const r = rig(present({ styleFoldBluff: 'on' }));
+    r.holder.refresh(T0);
+    r.set(present({ styleFoldBluff: 'off' }));
+    // the clock went back: the switch-off is read at once, not after the poll interval plus the step
+    expect(r.holder.refresh(T0 - 10_000).styleFoldBluff).toBe('off');
+  });
+
+  it('L4: the canary options are listed, so a plain-shadow option on the same Horse is not labelled canary', () => {
+    const states = parseStyleSwitchConfig({
+      version: 1,
+      options: { styleFoldBluff: 'canary', styleRaiseRespect: 'shadow' },
+    });
+    expect(states.ok).toBe(true);
+    const id = 'aaaaaaaa-0000-4000-8000-000000000001'; // bucket 4: the shadow arm of the canary
+    const opts = styleSwitchDecisionOpts((states as unknown as { states: never }).states, id, true);
+    expect(opts.styleCanaryOptions).toEqual(['styleFoldBluff']);
+    expect(opts.styleShadow).toEqual(['styleRaiseRespect', 'styleFoldBluff']);
+    // the brain never sees the receipt-only fields
+    expect(styleSwitchBrainOpts(opts)).toEqual({
+      styleShadow: ['styleRaiseRespect', 'styleFoldBluff'],
+    });
+  });
+
+  it('M3: recorded states round-trip through the replay source', () => {
+    const states = (
+      parseStyleSwitchConfig({
+        version: 1,
+        options: { styleValueExtraction: 'on' },
+      }) as unknown as {
+        states: never;
+      }
+    ).states;
+    expect(styleSwitchStatesFrom(states)).toEqual(states);
+    expect(styleSwitchStatesFrom({ ...STYLE_SWITCH_SOURCE_DEFAULT, extra: 'off' })).toBeNull();
+    expect(
+      styleSwitchStatesFrom({ ...STYLE_SWITCH_SOURCE_DEFAULT, styleFoldBluff: 'yes' })
+    ).toBeNull();
+    const h = new StyleSwitchHolder(styleSwitchSourceFromStates(states), () => {});
+    expect(h.refresh(T0)).toEqual(states);
+    expect(styleSwitchSourceFromStates(null)()).toEqual({ kind: 'absent' });
+    expect(styleSwitchSourceFromStates(STYLE_SWITCH_SOURCE_DEFAULT)()).toEqual({ kind: 'absent' });
   });
 });

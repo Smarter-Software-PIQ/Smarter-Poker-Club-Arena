@@ -3058,8 +3058,6 @@ export interface HorseDecideOpts {
    * live switch only (HorseStyleSwitch); absent = none. An option explicitly true is on, whatever this lists.
    */
   styleShadow?: readonly string[];
-  /** 2026-11-13: the canary bucket of this Horse while any option is in canary (receipts only; changes nothing) */
-  styleCanaryBucket?: number;
   /** STYLE READ (2026-11-13): weight (0..1) of the same player's OTHER-format counters in the
    *  style read. Default 0 = format-specific evidence only; any non-zero weight needs
    *  validation first (one player being tighter in tournaments does not make everyone so). */
