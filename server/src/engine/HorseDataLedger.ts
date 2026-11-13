@@ -69,8 +69,12 @@ export interface LedgerEntry {
   ratioOf?: string;
   /** receipt entries: fires(key) / fires(ratioOf) must be at least this on a
    *  normal fleet day (ratioOf fires >= 1000), else the audit raises
-   *  data_unread. Omitted = the read depends on table mix (documented in
-   *  note) and only a zero against a big denominator is reported. */
+   *  data_unread (critical at zero fires, warn below the floor). Omitted =
+   *  the receipt audit raises NOTHING for this key, a zero included
+   *  (fn_audit_data_receipts judges only rows with a min_ratio); the read
+   *  depends on table mix or is not yet measured, as its note says. Such a
+   *  key is still judged against its own history by the drift audit. Write
+   *  a floor only from a measured live day. */
   minRatio?: number;
   /** table entries with a nightly cadence: the day column and how many days
    *  old the newest row may be before the audit raises data_stale */
