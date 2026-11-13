@@ -391,3 +391,12 @@ it('publishes the rebooked :55 break cutover promise with its lead and fixed exp
   expect(bookedMaintenanceNotice(Date.parse('2026-11-13T05:59:59.999Z'))?.id).toBe(own?.id);
   expect(bookedMaintenanceNotice(Date.parse('2026-11-13T06:00:00Z'))).toBeNull();
 });
+
+it('publishes the owner as-soon-as-possible cutover promise with its lead and fixed expiry', () => {
+  const own = BOOKED_MAINTENANCE_NOTICES.find((n) => n.id === '2026-11-13-owner-asap-engine-0736z');
+  expect(own?.noticeAtMs).toBe(Date.parse('2026-11-13T07:15:00Z'));
+  expect(own?.notBeforeMs).toBe(Date.parse('2026-11-13T07:36:00Z'));
+  expect(own?.notAfterMs).toBe(Date.parse('2026-11-13T09:00:00Z'));
+  expect((own?.notBeforeMs ?? 0) - (own?.noticeAtMs ?? 0)).toBeGreaterThanOrEqual(20 * 60_000);
+  expect(BOOKED_MAINTENANCE_NOTICES.some((n) => n.id === own?.id)).toBe(true);
+});

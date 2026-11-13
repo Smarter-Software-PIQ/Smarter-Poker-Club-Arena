@@ -1323,6 +1323,21 @@
         "path": "server/release/activation-floor.json",
         "sha256": "5f61191b09e37505b064e30f0a3b71e8c3117b59b0db276edb85b298d191f8cb"
       }
+    },
+    {
+      "id": "2026-11-13-owner-asap-engine-0736z",
+      "ownerOrder": "Dan directly in Claude session_01TLQer6CUX4ykkbdyPE9d8M, which he assigned the engine cutover at 18:32 America/Chicago on November 12, 2026, ordered at 18:59: \"STOP SLEEPING. GET THIS FINISHED AND CUT OVER NOW\", at 19:00: \"BUT ONLY AT A NORMAL BREAK AT THE :55\", and at 23:38 after two lapsed bookings: \"NO! I WANT IT DONE AS SOON AS POSSIBLE! NOT AT 2:38 AM!!\". This session holds sole release custody. Bookings 2026-11-13-owner-now-55-break-engine-0338z and 2026-11-13-owner-now-55-break-engine-0538z lapse unused and are not extended or replayed: the first because ordinary migration 20261113021529 was installed in production after its certified Backup copy, the second because #10672 changed server/release/owner-maintenance-windows.json at 05:34 UTC, four minutes before dispatch, so its certified target 6068a6f0 no longer carried main release controls. Nothing was dispatched under either. One fresh SINGLE-USE engine activation of exact serving 08c27924101c63621263d291279cae2dca5aa9cf, containing protected main c6b61cd577290bf7652ee69dd81ca0bf69184a78 (#10650, which keeps the unsupported #10628 rule opt-in and off) and so the approved Phase 1 engine commits. Admission opens 01:36 Chicago, the earliest a fresh 1800-second certification of this booking can exist, and expires at 03:00 Chicago, before the 03:30 routine preparation. The maintained announcement guard (:05:30 to :49:00) is unchanged. The release owner starts the one Stage operation as soon as the certificate exists, aiming the break at about 01:45 to 01:51 Chicago, which ends before the hourly tournament break; the later expiry exists only so that one re-certification can still be used if the production schema moves again. The separately booked rebuy database window 2026-11-13-rebuy-invariant-db-0220z shares the rolling hour and changes the schema the certificate must equal, so the engine goes first and that lane is asked to wait for the seal. Independently observe twenty minutes of the actual primary public notice; later publication delays admission within fixed expiry. Require compatible current-schema Backup with full 1800-second soak and both-direction rehearsal against the actual predecessor, exact protected target/control, all four qualification shards, immutable candidate and rollback images, 120s last-hand notice, hand-boundary drain, durable freeze, 300s break, full 285s proof/rollback reserve, one-use custody, SEALED identity, v3 thaw, gameplay verification and fresh post-seal Backup. Pillar 2, R7/R8 and excluded held-out datasets stay disabled; report zero opportunities honestly. Earlier orders and claims are not extended, renewed or replayed. No migration, new tournament-start hold, new feature, direct restart, automatic renewal, watcher or competing dispatcher.",
+      "contains": "c6b61cd577290bf7652ee69dd81ca0bf69184a78",
+      "playerNoticeAt": "2026-11-13T07:15:00Z",
+      "notBefore": "2026-11-13T07:36:00Z",
+      "notAfter": "2026-11-13T09:00:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "41c48717563b7319468c1d1125661e3a71bd60fb9c7f0ec88d6a6d950688bde3"
+      }
     }
   ],
   "databaseWindows": [
