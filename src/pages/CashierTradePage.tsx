@@ -118,12 +118,13 @@ import {
   holdsPlayerWallet,
 } from '../components/wallet/walletRows';
 import {
-  cashoutRowTitle,
   describeChipTransaction,
   ledgerDirection,
   presentChipTransaction,
   thirdPartySender,
   walletRoute,
+  ledgerDisplaySign,
+  ledgerRowTitle,
 } from '../components/wallet/describeChipTransaction';
 import { downloadCsv, toCsv } from '../utils/downloadCsv';
 import { cashoutStatusLabel, waitingFor } from '../utils/cashoutStatus';
@@ -249,6 +250,12 @@ interface TradeRecordRow {
    * sent to. Null for every other kind.
    */
   title?: string | null;
+  /**
+   * The sign printed beside the figure (ledgerDisplaySign, Dan 2026-11-13):
+   * the viewer's own rows by direction, a club-book row by the member whose
+   * wallet moved, so a player's cash-out reads -400.
+   */
+  sign?: '+' | '-' | '';
   /** A cash-out leg's request status: pending while it waits for a decision. */
   requestStatus?: string | null;
   requestCreatedAt?: string | null;
@@ -483,6 +490,23 @@ const HISTORY_RANGES: ReadonlyArray<readonly [HistoryRange, string]> = [
   ['30d', '30 Days'],
   ['all', 'All Dates'],
 ];
+
+/**
+ * What a history filter prints on a phone (Dan 2026-11-13: "TOO MANY WORDS
+ * CUT OFF"). The full name stays the button's accessible name; the face
+ * prints the short word so every chip fits one line at 320px.
+ */
+const HISTORY_CHIP_FACE: Readonly<Record<string, string>> = {
+  'Club Transactions': 'Club',
+  'My Transactions': 'Mine',
+  'My Downline': 'Downline',
+  'Chip Movements': 'All',
+  'All Dates': 'All Time',
+  'All Transactions': 'All',
+  Incoming: 'In',
+  Outgoing: 'Out',
+};
+const chipFace = (label: string): string => HISTORY_CHIP_FACE[label] ?? label;
 
 /** The start of a date range chip, read at the moment of the request. */
 function historyRangeStart(range: HistoryRange, now: Date = new Date()): string | null {
@@ -1584,7 +1608,8 @@ function CashierTradeWorkspace() {
         : otherName || 'Club',
       twoSided: Boolean(r.to_user_id),
       route: walletRoute(r),
-      title: cashoutRowTitle(r, r.from_name, r.to_name, viewer),
+      title: ledgerRowTitle(r, r.from_name, r.to_name, viewer),
+      sign: ledgerDisplaySign(r, viewer),
       // The receipt's summary prints the receipt's own exact figure, so
       // the sentence and the headline above it never disagree (C1-14).
       narrative: describeChipTransaction(r, nameOf, viewer, (figure) =>
@@ -1907,7 +1932,7 @@ function CashierTradeWorkspace() {
             r.to_name || (r.to_user_id ? 'A Member' : ''),
             (Math.round((Number(r.amount) || 0) * 100) / 100).toFixed(2),
             walletRoute(r) ?? '',
-            cashoutRowTitle(r, r.from_name, r.to_name, viewer) ?? r.notes ?? '',
+            ledgerRowTitle(r, r.from_name, r.to_name, viewer) ?? r.notes ?? '',
             r.invoice_number ?? '',
             cashoutStatusLabel(r.request_status) ?? '',
             r.id,
@@ -4823,7 +4848,10 @@ function CashierTradeWorkspace() {
                         }
                         onClick={() => setRosterSort((s) => nextCashierRosterSort(s, by))}
                       >
-                        {label}
+                        <span className={styles.walletSortFull}>{label}</span>
+                        <span className={styles.walletSortShort} aria-hidden="true">
+                          {label.split(' ')[0]}
+                        </span>
                         <span className={styles.walletSortArrow} aria-hidden="true">
                           {active === 'asc' ? '\u25B2' : '\u25BC'}
                         </span>
@@ -5252,7 +5280,7 @@ function CashierTradeWorkspace() {
                   type="search"
                   value={recordQuery}
                   onChange={(event) => setRecordQuery(event.target.value)}
-                  placeholder="Enter A Player Name Or Invoice Number"
+                  placeholder="Name Or Invoice #"
                   aria-label="Search Transaction History"
                 />
                 <button type="submit" className={styles.historySearchButton}>
@@ -5287,13 +5315,14 @@ function CashierTradeWorkspace() {
                         type="button"
                         className={`${styles.ledgerFilter} ${historyBook === scope ? styles.ledgerFilterActive : ''}`}
                         aria-pressed={historyBook === scope}
+                        aria-label={label}
                         onClick={() => {
                           if (scope === historyBook) return;
                           setHistoryPerson(null);
                           setHistoryScope(scope);
                         }}
                       >
-                        {label}
+                        {chipFace(label)}
                       </button>
                     ))}
                   </div>
@@ -5308,12 +5337,13 @@ function CashierTradeWorkspace() {
                       type="button"
                       className={`${styles.ledgerFilter} ${historyKind === kind ? styles.ledgerFilterActive : ''}`}
                       aria-pressed={historyKind === kind}
+                      aria-label={label}
                       onClick={() => {
                         if (kind === historyKind) return;
                         setHistoryKind(kind);
                       }}
                     >
-                      {label}
+                      {chipFace(label)}
                     </button>
                   ))}
                 </div>
@@ -5324,12 +5354,13 @@ function CashierTradeWorkspace() {
                       type="button"
                       className={`${styles.ledgerFilter} ${historyRange === range ? styles.ledgerFilterActive : ''}`}
                       aria-pressed={historyRange === range}
+                      aria-label={label}
                       onClick={() => {
                         if (range === historyRange) return;
                         setHistoryRange(range);
                       }}
                     >
-                      {label}
+                      {chipFace(label)}
                     </button>
                   ))}
                 </div>
@@ -5467,15 +5498,16 @@ function CashierTradeWorkspace() {
                       type="button"
                       className={`${styles.ledgerFilter} ${recordDirection === direction ? styles.ledgerFilterActive : ''}`}
                       aria-pressed={recordDirection === direction}
+                      aria-label={
+                        direction === 'all'
+                          ? 'All Transactions'
+                          : direction === 'in'
+                            ? 'Incoming'
+                            : 'Outgoing'
+                      }
                       onClick={() => setRecordDirection(direction)}
                     >
-                      {direction === 'all'
-                        ? 'All Transactions'
-                        : direction === 'in'
-                          ? 'Incoming'
-                          : direction === 'out'
-                            ? 'Outgoing'
-                            : 'Chip Movement'}
+                      {direction === 'all' ? 'All' : direction === 'in' ? 'In' : 'Out'}
                     </button>
                   ))}
                 </div>
@@ -5557,29 +5589,42 @@ function CashierTradeWorkspace() {
                           )}
                         </span>
                         <span className={styles.rowSub}>
+                          {/* Dan 2026-11-13: one short line - where the chips
+                          went (or the kind, when no wallet moved) and when.
+                          The kind and full sentence stay on the receipt. A
+                          cash-out request also says where it stands. */}
                           {r.type === 'cashout_request_escrow' &&
-                          cashoutStatusLabel(r.requestStatus) === 'Waiting' ? (
+                          cashoutStatusLabel(r.requestStatus) ? (
                             <>
-                              <span className={styles.waitTag}>
-                                {waitingFor(r.requestCreatedAt ?? r.createdAt)}
+                              <span
+                                className={
+                                  cashoutStatusLabel(r.requestStatus) === 'Waiting'
+                                    ? styles.waitTag
+                                    : styles.statusTag
+                                }
+                              >
+                                {cashoutStatusLabel(r.requestStatus) === 'Waiting'
+                                  ? waitingFor(r.requestCreatedAt ?? r.createdAt)
+                                  : cashoutStatusLabel(r.requestStatus)}
                               </span>{' '}
                               &middot;{' '}
                             </>
                           ) : null}
-                          {txLabel(r.type)}
-                          {r.route ? <> &middot; {r.route}</> : null} &middot;{' '}
-                          {new Date(r.createdAt).toLocaleString([], {
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
+                          {r.route ?? txLabel(r.type)} &middot;{' '}
+                          <span className={styles.rowTime}>
+                            {new Date(r.createdAt).toLocaleString([], {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: 'numeric',
+                              minute: '2-digit',
+                            })}
+                          </span>
                         </span>
                       </div>
                       <span
-                        className={`${styles.rowBalance} ${r.direction === 'in' ? styles.amtIn : r.direction === 'out' ? styles.amtOut : ''}`}
+                        className={`${styles.rowBalance} ${r.sign === '+' ? styles.amtIn : r.sign === '-' ? styles.amtOut : ''}`}
                       >
-                        {r.direction === 'in' ? '+' : r.direction === 'out' ? '-' : ''}
+                        {r.sign ?? ''}
                         {fmt(r.amount)}
                       </span>
                       <span className={styles.receiptCue}>Receipt</span>
@@ -5962,19 +6007,25 @@ function CashierTradeWorkspace() {
                   </span>
                   <strong
                     className={
-                      receipt.direction === 'in'
+                      receipt.sign === '+'
                         ? styles.amtIn
-                        : receipt.direction === 'out'
+                        : receipt.sign === '-'
                           ? styles.amtOut
                           : 'sc-ink--silver'
                     }
                   >
-                    {receipt.direction === 'in' ? '+' : receipt.direction === 'out' ? '-' : ''}
+                    {receipt.sign ?? ''}
                     {exactChipFigure(receipt.amount)}
                   </strong>
                   <small className="sc-label sc-ink--muted">Chips</small>
                 </div>
                 <dl className={styles.receiptFacts}>
+                  {receipt.title ? (
+                    <div>
+                      <dt className="sc-label sc-ink--blue">Activity</dt>
+                      <dd className="sc-ink--silver">{receipt.title}</dd>
+                    </div>
+                  ) : null}
                   <div>
                     <dt className="sc-label sc-ink--blue">Status</dt>
                     <dd className={styles.integrityGood}>Recorded In Ledger</dd>

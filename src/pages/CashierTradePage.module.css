@@ -2575,3 +2575,112 @@ arrow says the direction in force. */
   font-size: 4cqw !important;
   min-height: 44px;
 }
+
+/* ── Phone fit (Dan 2026-11-13: "TOO MANY WORDS CUT OFF, AND EXCEEDING THE
+   SPACE ON THE SCREEN"). Checked at 300, 320, 375 and 393 px: the club name
+   gives way before the Advanced switch does, every history chip fits on one
+   line with its short face, and a history row's sub line keeps its time
+   together. ─────────────────────────────────────────────────────────────── */
+.page .header .entityBtn {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.page .header .entityText {
+  flex: 1 1 auto;
+  max-width: 100%;
+}
+.page .header .entityName {
+  display: block;
+  max-width: 100%;
+}
+.page .header .modeToggle {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+@media (max-width: 360px) {
+  .page .header .entityLogo {
+    width: 56px;
+    height: 56px;
+  }
+  .page .header .entityName {
+    font-size: 17px;
+  }
+}
+.page.simple .sectionHeading {
+  flex-wrap: nowrap;
+}
+.page.simple .sectionHeading > div {
+  flex: 1 1 auto;
+}
+.page.simple .sectionHeading h2 {
+  font-size: clamp(14px, 4.4vw, 18px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.page .historyPanel .ledgerFilters {
+  flex-wrap: nowrap;
+}
+.page .historyPanel .ledgerFilter {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.page .historyPanel .historySearchButton {
+  padding: 0 8px;
+}
+.rowTime {
+  white-space: nowrap;
+}
+.statusTag {
+  color: var(--ink-silver, #d6dbe2);
+  font-weight: 700;
+  white-space: nowrap;
+}
+@media (max-width: 360px) {
+  .walletSortBtn {
+    padding: 0 4px;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+  }
+}
+@media (max-width: 360px) {
+  .page .historyPanel .ledgerFilter {
+    padding: 6px 2px;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+  }
+  .page .historyPanel .ledgerSearch::placeholder {
+    font-size: 14px;
+  }
+}
+/* Results bar: at phone widths the two sort words drop under the count
+   rather than run off the glass. */
+.resultsBar {
+  flex-wrap: wrap;
+}
+.walletSorts {
+  margin-left: auto;
+}
+@media (max-width: 360px) {
+  .console .actionBar .footerBtn,
+  .page.simple .actionBar .footerBtn {
+    font-size: 12px;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+  .page.simple .searchRow input::placeholder {
+    font-size: 14px;
+  }
+}
+.walletSortShort {
+  display: none;
+}
+@media (max-width: 360px) {
+  .walletSortFull {
+    display: none;
+  }
+  .walletSortShort {
+    display: inline;
+  }
+}
