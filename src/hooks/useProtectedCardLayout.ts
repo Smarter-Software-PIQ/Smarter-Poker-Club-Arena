@@ -7,6 +7,7 @@ import {
   mobileAvatarCardReservation,
   mobileFrameCardReservation,
   mobilePaintKey,
+  mobileAvatarPaintSupported,
 } from '../components/table/mobileAvatarEnlargement';
 import { useLayoutEffect, useRef, type RefObject } from 'react';
 import {
@@ -238,7 +239,12 @@ export function useProtectedCardLayout(
         const box =
           element instanceof HTMLImageElement && element.matches('.seat__avatar-img')
             ? (() => {
-                const baseline = artwork.paintedBox(element) ?? visibleBox(element);
+                // The resting slot, never the zoomed mobile paint layer that
+                // may be on screen between passes; the enlarged footprint is
+                // added once, by its reservation below.
+                const baseline =
+                  artwork.paintedBox(element, true, restingAvatarBox(element, scale)) ??
+                  visibleBox(element);
                 return baseline
                   ? mobileAvatarCardReservation(
                       element,
@@ -2537,7 +2543,7 @@ export function useProtectedCardLayout(
     const place = (...args: Parameters<typeof placeBase>) => {
       const keepPaint = mobilePaint.current.key === mobilePaintKey(scaler, page as HTMLElement);
       const restorePaint = retainMobilePaint(scaler);
-      resetMobileAvatarPaint(scaler);
+      resetMobileAvatarPaint(scaler, true);
       paintReady = false;
       placeBase(...args);
       if (
@@ -2550,14 +2556,36 @@ export function useProtectedCardLayout(
           artwork.paintedRuns,
           mobilePaint.current
         );
+        // The fitter declined this layout (not a supported phone ring): no paint.
+        if (!painted) resetMobileAvatarPaint(scaler);
         enlargeMobileFrames(scaler, page as HTMLElement, painted, mobilePaint.current);
       } else if (
-        keepPaint &&
-        mobilePaint.current.key === mobilePaintKey(scaler, page as HTMLElement)
+        keepPaint ||
+        (mobilePaint.current.choices.size &&
+          mobileAvatarPaintSupported(scaler, page as HTMLElement))
       ) {
+        // Dan 2026-11-12: a portrait's size never changes once set. A pass
+        // that cannot refit yet (art decoding, cards in flight, a geometry
+        // change such as an iOS toolbar collapsing) carries the displayed
+        // paint over; the next refit replaces it at the locked size. Only a
+        // layout that no longer takes the paint at all drops it.
         restorePaint();
+        // A carried-over portrait changes nothing an observer watches, so ask
+        // for the refit pass ourselves: one frame at a time, bounded, until
+        // the table has refitted at its new geometry.
+        if (!keepPaint && carryOverPasses++ < 240) requestAnimationFrame(() => schedule());
+      } else {
+        // The layout no longer takes the paint: drop the rest of it too.
+        resetMobileAvatarPaint(scaler);
+        carryOverPasses = 0;
       }
+      if (
+        mobilePaint.current.key === mobilePaintKey(scaler, page as HTMLElement) &&
+        !mobilePaint.current.stale
+      )
+        carryOverPasses = 0;
     };
+    let carryOverPasses = 0;
     let frame: number | null = null;
     const schedule = () => {
       if (frame !== null) return;

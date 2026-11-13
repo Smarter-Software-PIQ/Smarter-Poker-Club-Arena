@@ -155,6 +155,28 @@ export async function checkFixedMobileArtwork(
         expect((await read()).paint.some((p) => Number(p[0]) > 1)).toBe(true);
       }
       await settle();
+      // Dan 2026-11-12: sizes never change once set. A viewport height change
+      // (an iOS toolbar or keyboard) and the relayouts after it keep every
+      // portrait's paint exactly as it was: no small frame, no new size.
+      const locked = (await read()).paint;
+      for (const height of [1200, 1298]) {
+        await page.setViewportSize({ width: 600, height });
+        await page.evaluate(
+          () =>
+            new Promise<void>((resolve) =>
+              requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+            )
+        );
+        expect(
+          (await read()).paint.map((p) => p[0]),
+          'a height change never resizes a portrait'
+        ).toEqual(locked.map((p) => p[0]));
+        await settle();
+        expect(
+          (await read()).paint.map((p) => p[0]),
+          'a settled relayout never resizes a portrait'
+        ).toEqual(locked.map((p) => p[0]));
+      }
     }
     await expect.poll(async () => (await read()).paint.some((p) => Number(p[0]) > 1)).toBe(true);
     const before = await read();
