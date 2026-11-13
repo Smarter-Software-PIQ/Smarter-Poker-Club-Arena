@@ -2040,8 +2040,11 @@ it('binds the two remaining Midway files only to the November 7 database window'
   );
   // Reconstruct the exact registry selected before the Horse provenance booking
   // and the later cash-room realism engine booking.
+  expect(doc.windows.pop().id).toBe('2026-11-13-owner-asap-engine-0736z');
+  expect(doc.windows.pop().id).toBe('2026-11-13-owner-now-55-break-engine-0538z');
   expect(doc.windows.pop().id).toBe('2026-11-13-owner-now-55-break-engine-0338z');
   expect(doc.windows.pop().id).toBe('2026-11-12-complete-missed-engine-1700z');
+  expect(doc.databaseWindows.pop().id).toBe('2026-11-13-rebuy-invariant-db-0220z');
   expect(doc.databaseWindows.pop().id).toBe('2026-11-12-rebuy-invariant-db-2220z');
   expect(doc.databaseWindows.pop().id).toBe('2026-11-12-missed-engine-db-rebuy');
   expect(doc.databaseWindows.pop().id).toBe('2026-11-12-missed-engine-db-bank-win');

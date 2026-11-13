@@ -100,3 +100,29 @@ after everywhere.
 
 Left as is: the refund leg of a cancelled ticket (escrow to promo wallet)
 still lists under the statement's Cashout wallet, as every escrow leg does.
+
+## Final Polish
+
+Migration `20261113021529` patches two functions from their live definitions:
+
+- `fn_cashier_promo_ticket_send` writes the ticket note `Promo Cashier Ticket`.
+  The Tickets tab shows such a ticket as "Promo", and its issuer sees "Cancel
+  Returns To Your Promo Wallet" on the row and on the Cancel button's name.
+  Nothing reads a ticket row's note on the server; the browser recovery
+  envelope keeps `Cashier Ticket`, which `fn_cashier_browser_recovery_valid`
+  validates. Production held no promo ticket when this was written, so no
+  earlier ticket carries the old note.
+- `fn_cashier_statement_rows` files a `refund` ledger leg on the ticket escrow
+  under the Ticket wallet filter, no longer under Cashout. Only the cancel door
+  and the closed entry ticket issuer return declare that leg, and production
+  held none, so no existing statement row moves. This closes the item left as
+  is under Report Readers.
+
+Client: with several players selected and an agent sending from the Promo
+Wallet, Send Ticket and Send Out name each player the allowance holds back
+with their remaining figure, five names at most and then "And N More".
+
+Proved on PostgreSQL 16 against the byte exact live definitions and the
+statement baseline fixture: 240 viewer and filter combinations return the same
+rows before and after, two added ticket refund legs move from Cashout to
+Ticket, totals equal their own page, and a second run is refused.

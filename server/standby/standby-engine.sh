@@ -83,6 +83,70 @@ stop_for_restore() {
   fi
 }
 
+# Production roles the restore expects. Any other role the archive grants to
+# is still created without login, and named in the log so it is added here.
+EXPECTED_RESTORE_ROLES=(ca_ledger_refusal_recorder engine_lightning_fold engine_lightning_lane engine_lease_heartbeat supabase_backup_admin ca_record_gateway daily_content_reporter)
+
+# Roles the production archive grants to, one raw token per line. Input is the
+# SQL of its ACL, DEFAULT ACL and POLICY entries only (never a function body).
+# A line this does not recognise names no role and restores exactly as before.
+dump_referenced_roles() {
+  local line list token ident='("([^"]|"")*"|[^ ".]+)'
+  local grant_re='^GRANT .* TO (.+);$' revoke_re='^REVOKE .* FROM (.+);$'
+  local default_re='^ALTER DEFAULT PRIVILEGES FOR ROLE ([^ ]+) .* (TO|FROM) (.+);$'
+  local session_re="^SET SESSION AUTHORIZATION '?([^ ']+)'?;\$"
+  local policy_re="^CREATE POLICY $ident ON $ident(\\.$ident)?( AS RESTRICTIVE)?( FOR [A-Z]+)? TO (.+)\$"
+  while IFS= read -r line; do
+    list=
+    if [[ "$line" =~ $default_re ]]; then list="${BASH_REMATCH[1]}, ${BASH_REMATCH[3]}"
+    elif [[ "$line" =~ $grant_re ]]; then list=${BASH_REMATCH[1]}
+    elif [[ "$line" =~ $revoke_re ]]; then list=${BASH_REMATCH[1]}
+    elif [[ "$line" =~ $session_re ]]; then list=${BASH_REMATCH[1]}
+    elif [[ "$line" == 'CREATE POLICY '* ]]; then
+      line=${line%% USING (*}; line=${line%% WITH CHECK (*}; line=${line%;}
+      [[ "$line" =~ $policy_re ]] || continue
+      list=${BASH_REMATCH[10]}
+    else continue
+    fi
+    list=${list% WITH GRANT OPTION}
+    list=${list// GRANTED BY /, }
+    while [ -n "$list" ]; do
+      token=${list%%, *}
+      if [ "$token" = "$list" ]; then list=; else list=${list#*, }; fi
+      case "$token" in PUBLIC|public|CURRENT_USER|CURRENT_ROLE|SESSION_USER|DEFAULT) ;; *) printf '%s\n' "$token";; esac
+    done
+  done | LC_ALL=C sort -u
+}
+
+# A role created in production outside this repository must not stop every
+# engine release (2026-11-12: daily_content_reporter, five failed refreshes).
+# Each role the archive grants to and the isolated copy lacks is created with
+# no login, no password and no attribute, and named loudly so it gets listed.
+precreate_referenced_roles() {
+  local sql="$1" role existing expected known
+  existing=$(psql_db -Atc 'select rolname from pg_roles') || return 1
+  while IFS= read -r role; do
+    [ -n "$role" ] || continue
+    if ! [[ "$role" =~ ^[a-z_][a-z0-9_]{0,62}$ ]]; then
+      log "restore: database_refresh_failed:unsafe_role_name:$(printf '%s' "$role" | LC_ALL=C tr -c 'A-Za-z0-9_' '?' | cut -c1-63) (the archive grants to a role name outside ^[a-z_][a-z0-9_]{0,62}\$; refusing to restore)"
+      return 1
+    fi
+    if printf '%s\n' "$existing" | grep -Fxq -- "$role"; then continue; fi
+    known=0
+    for expected in "${EXPECTED_RESTORE_ROLES[@]}"; do [ "$expected" != "$role" ] || known=1; done
+    psql_db -qc "CREATE ROLE $role NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS" >/dev/null \
+      || { log "restore: database_refresh_failed:role_create_failed:$role"; return 1; }
+    [ "$known" = 1 ] || log "restore: WARNING unlisted_role_auto_created:$role (production grants to a role standby-engine.sh does not list; created NOLOGIN with no attributes; add it to EXPECTED_RESTORE_ROLES)"
+  done < <(dump_referenced_roles < "$sql")
+}
+
+# One-step diagnosis when the archive still names a role the copy lacks.
+log_restore_missing_role() {
+  local role
+  role=$(sed -n 's/.*role "\([a-z_][a-z0-9_]*\)" does not exist.*/\1/p' "$LOG_DIR/restore.log" 2>/dev/null | head -n 1) || return 0
+  [ -z "$role" ] || log "restore: database_refresh_failed:missing_role:$role"
+}
+
 cmd_restore() {
   local dump="$1"; [ -s "$dump" ] || die "missing dump $dump"
   assert_isolated || return 1
@@ -104,7 +168,7 @@ cmd_restore() {
   # No production cron rows are exported or scheduled on the isolated copy.
   psql_db -qc 'CREATE EXTENSION IF NOT EXISTS pg_cron' >/dev/null || return 1
   # Production's own roles, so its grants restore exactly (no login, no password).
-  for role in ca_ledger_refusal_recorder engine_lightning_fold engine_lightning_lane engine_lease_heartbeat supabase_backup_admin ca_record_gateway daily_content_reporter; do
+  for role in "${EXPECTED_RESTORE_ROLES[@]}"; do
     psql_db -qc "DO \$\$ BEGIN CREATE ROLE $role NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END \$\$" >/dev/null || return 1
   done
   docker cp "$dump" "$DB_CONTAINER:/tmp/schema.dump" || return 1
@@ -126,8 +190,19 @@ cmd_restore() {
   ' "$STATE_DIR/restore.list" "$STATE_DIR/restore.list" || return 1
   docker cp "$STATE_DIR/restore-before-seed.list" "$DB_CONTAINER:/tmp/restore.list" || return 1
   docker cp "$STATE_DIR/restore-after-seed.list" "$DB_CONTAINER:/tmp/restore-after-seed.list" || return 1
+  # Any other role the archive grants to exists before the first GRANT runs.
+  awk '!/^;/ && ($4 == "ACL" || ($4 == "DEFAULT" && $5 == "ACL") || $4 == "POLICY")' \
+    "$STATE_DIR/restore-before-seed.list" > "$STATE_DIR/restore-roles.list" || return 1
+  : > "$STATE_DIR/restore-roles.sql" || return 1
+  if [ -s "$STATE_DIR/restore-roles.list" ]; then
+    docker cp "$STATE_DIR/restore-roles.list" "$DB_CONTAINER:/tmp/restore-roles.list" || return 1
+    docker exec "$DB_CONTAINER" pg_restore --use-list /tmp/restore-roles.list --schema-only -f - /tmp/schema.dump \
+      > "$STATE_DIR/restore-roles.sql" || return 1
+  fi
+  precreate_referenced_roles "$STATE_DIR/restore-roles.sql" || return 1
   docker exec "$DB_CONTAINER" pg_restore -U supabase_admin -d postgres --no-owner --exit-on-error \
-      --use-list /tmp/restore.list --schema-only /tmp/schema.dump > "$LOG_DIR/restore.log" 2>&1 || return 1
+      --use-list /tmp/restore.list --schema-only /tmp/schema.dump > "$LOG_DIR/restore.log" 2>&1 \
+    || { log_restore_missing_role; return 1; }
   local errors; errors=$(grep -c 'error:' "$LOG_DIR/restore.log" || true)
   [ "$errors" = 0 ] || return 1
   # Production owns application objects as postgres; SECURITY DEFINER guards

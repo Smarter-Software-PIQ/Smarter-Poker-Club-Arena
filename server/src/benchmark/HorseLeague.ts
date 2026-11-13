@@ -84,6 +84,10 @@ import {
   V53_PRESSURE_FIELD_VARIANTS,
   V53_PRESSURE_POPULATION_ID,
   HU_WIDE_SB_AGGRESSOR_PERSONA,
+  HU_MINRAISE_EVERY_BUTTON_PERSONA,
+  HU_LIMP_EVERY_BUTTON_PERSONA,
+  HU_THREE_BET_EVERY_HAND_PERSONA,
+  HU_SMALL_STAB_EVERY_STREET_PERSONA,
   HUMAN_FIELD_PERSONAS,
   type HumanFieldPersona,
 } from './HorseLeagueHumanField.js';
@@ -98,6 +102,10 @@ export {
   V53_PRESSURE_FIELD_VARIANTS,
   V53_PRESSURE_POPULATION_ID,
   HU_WIDE_SB_AGGRESSOR_PERSONA,
+  HU_MINRAISE_EVERY_BUTTON_PERSONA,
+  HU_LIMP_EVERY_BUTTON_PERSONA,
+  HU_THREE_BET_EVERY_HAND_PERSONA,
+  HU_SMALL_STAB_EVERY_STREET_PERSONA,
   HUMAN_FIELD_PERSONAS,
   type HumanFieldPersona,
 } from './HorseLeagueHumanField.js';
@@ -1030,10 +1038,18 @@ export function playHand(
         } finally {
           HorseMind.setDecisionScope(previousScope);
         }
-        HorseMind.observeHandComplete(`league:${ts}`, history, BB, showdown, handScope, false, {
-          variant: gameVariant,
-          boardCount: 1,
-        });
+        HorseMind.observeHandComplete(
+          `league:${ts}`,
+          history,
+          BB,
+          showdown,
+          handScope,
+          false,
+          { variant: gameVariant, boardCount: 1 },
+          undefined,
+          // the league is cash; the style learner records only when a harness enables it
+          'cash'
+        );
       });
     } catch {
       /* the harness is measurement plumbing — never let it break a deal */
@@ -1453,19 +1469,57 @@ export function humanFieldPersonaProfile(
     );
   }
   const base = humanCalibratedProfileFor('nlh');
-  return Object.freeze({
+  const wideCutoffs = {
+    ...(base.cutoffs ?? {}),
+    'preflop/unopened': { fold: 0.2, raise: 0.3 },
+    'preflop/facing_raise': { fold: 0.4, raise: 0.85 },
+    'flop/checked_to': { bet: 0.35 },
+    'turn/checked_to': { bet: 0.42 },
+    'river/checked_to': { bet: 0.5 },
+  };
+  const wide = {
     ...base,
-    id: `${base.id}-${HU_WIDE_SB_AGGRESSOR_PERSONA}`,
+    id: `${base.id}-${persona}`,
     preflop: Object.freeze({ ...base.preflop, freeRaise: 0.35 }),
-    cutoffs: Object.freeze({
-      ...(base.cutoffs ?? {}),
-      'preflop/unopened': { fold: 0.2, raise: 0.3 },
-      'preflop/facing_raise': { fold: 0.4, raise: 0.85 },
-      'flop/checked_to': { bet: 0.35 },
-      'turn/checked_to': { bet: 0.42 },
-      'river/checked_to': { bet: 0.5 },
-    }),
-  });
+  };
+  // Strength is a percentile in [0, 1): a cutoff of 0 always passes and a
+  // cutoff above 1 never does, so "every hand" and "never" are exact.
+  switch (persona) {
+    case HU_WIDE_SB_AGGRESSOR_PERSONA:
+      return Object.freeze({ ...wide, cutoffs: Object.freeze(wideCutoffs) });
+    case HU_MINRAISE_EVERY_BUTTON_PERSONA:
+      return Object.freeze({
+        ...wide,
+        cutoffs: Object.freeze({ ...wideCutoffs, 'preflop/unopened': { fold: 0, raise: 0 } }),
+        sizing: Object.freeze({ preflopRaiseToMultiple: 2 }),
+      });
+    case HU_LIMP_EVERY_BUTTON_PERSONA:
+      return Object.freeze({
+        ...wide,
+        cutoffs: Object.freeze({ ...wideCutoffs, 'preflop/unopened': { fold: 0, raise: 2 } }),
+      });
+    case HU_THREE_BET_EVERY_HAND_PERSONA:
+      return Object.freeze({
+        ...wide,
+        cutoffs: Object.freeze({
+          ...wideCutoffs,
+          'preflop/facing_raise': { fold: 0, raise: 0 },
+        }),
+      });
+    case HU_SMALL_STAB_EVERY_STREET_PERSONA:
+      return Object.freeze({
+        ...wide,
+        cutoffs: Object.freeze({
+          ...wideCutoffs,
+          'flop/checked_to': { bet: 0 },
+          'turn/checked_to': { bet: 0 },
+          'river/checked_to': { bet: 0 },
+        }),
+        sizing: Object.freeze({
+          betPotFraction: Object.freeze({ flop: 0.33, turn: 0.33, river: 0.33 }),
+        }),
+      });
+  }
 }
 
 /** Seat index the hero horse takes on a human-field card. The dealer button
@@ -1762,6 +1816,40 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     hybridBaseline: true,
     moodClock: 'deal_seed',
     a: { huBbDefendsToPrice: true },
+    b: {},
+  },
+  // 2026-11-12 (HU-NLH-001) THE SAME FLAG WHERE THE FOLD IS STILL MADE. V85
+  // (2026-11-10) widened the heads-up cash big blind above V85_DEPTH_NONE_BB
+  // (50bb) only, so the 80bb card above now measures the flag on top of V85.
+  // At 50bb or less the V11 bars still decide and the big blind folds 58.7%
+  // to a 2bb, 2.5bb or 3bb open alike (real HorseLogic.decide, live cash
+  // Hybrid persona, a3f42a08). 50bb is the cash minimum buy-in. This card
+  // deals 40bb so the nightly league measures the flag in that band. Same
+  // arms, persona and mood clock as the 80bb card; the default is unchanged.
+  {
+    name: 'hu_bb_defends_to_price_40bb',
+    seats: 2,
+    stackBB: 40,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { huBbDefendsToPrice: true },
+    b: {},
+  },
+  // 2026-11-12 (HU-AUDIT-002) COMMIT UNDER THE POT (commitUnderPotCall),
+  // default OFF since 2026-11-07 and never dealt by any card, so the rule
+  // that promotes a flag after the nightly league confirms it could not
+  // reach it. Heads-up no-limit hold'em, flop or turn, facing a bet with a
+  // stack smaller than the pot: arm A calls where today's brain folds. 40bb,
+  // the depth the exploiter suite found it at. The default is unchanged.
+  {
+    name: 'hu_commit_under_pot',
+    seats: 2,
+    stackBB: 40,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { commitUnderPot: true },
     b: {},
   },
   // 2026-11-07 NASH CALL VS JAM (HorseNashPushFoldV2), default ON: a is
@@ -2102,7 +2190,7 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { readBreakEvenBluff: true },
     b: {},
   },
-  { name: 'hu_break_even_bluff', seats: 2, pairs: 6000, a: { readBreakEvenBluff: true }, b: {} },
+  // hu_break_even_bluff now reports through UNMEASURABLE_MATCHUPS (2026-11-12).
   {
     name: 'full_break_even_bluff',
     seats: 9,
@@ -2321,12 +2409,19 @@ for (const name of HUMAN_FIELD_TWINS) {
  * confirms it across runs on both cards.
  */
 export const HUMAN_HU_BB_DEFENDS_TO_PRICE = `${HUMAN_FIELD_NAME_PREFIX}hu_bb_defends_to_price`;
-{
-  const mirror = LEAGUE_MATCHUPS.find((m) => m.name === 'hu_bb_defends_to_price');
-  if (!mirror)
-    throw new Error('hu_bb_defends_to_price left the card; its human twin has no mirror');
+/** The 40bb twin (HU-NLH-001, 2026-11-12): the band V85 leaves on the V11 bars. */
+export const HUMAN_HU_BB_DEFENDS_TO_PRICE_40BB = `${HUMAN_FIELD_NAME_PREFIX}hu_bb_defends_to_price_40bb`;
+/** The human-field twin of hu_commit_under_pot (HU-AUDIT-002, 2026-11-12). */
+export const HUMAN_HU_COMMIT_UNDER_POT = `${HUMAN_FIELD_NAME_PREFIX}hu_commit_under_pot`;
+for (const [mirrorName, twinName] of [
+  ['hu_bb_defends_to_price', HUMAN_HU_BB_DEFENDS_TO_PRICE],
+  ['hu_bb_defends_to_price_40bb', HUMAN_HU_BB_DEFENDS_TO_PRICE_40BB],
+  ['hu_commit_under_pot', HUMAN_HU_COMMIT_UNDER_POT],
+] as const) {
+  const mirror = LEAGUE_MATCHUPS.find((m) => m.name === mirrorName);
+  if (!mirror) throw new Error(`${mirrorName} left the card; its human twin has no mirror`);
   LEAGUE_MATCHUPS.push({
-    name: HUMAN_HU_BB_DEFENDS_TO_PRICE,
+    name: twinName,
     seats: 2,
     stackBB: mirror.stackBB,
     pairs: HUMAN_FIELD_PAIRS,
@@ -2338,6 +2433,53 @@ export const HUMAN_HU_BB_DEFENDS_TO_PRICE = `${HUMAN_FIELD_NAME_PREFIX}hu_bb_def
     humanPersona: HU_WIDE_SB_AGGRESSOR_PERSONA,
   });
 }
+
+/**
+ * THE HEADS-UP EXPLOITER CARDS (2026-11-12, HU-NLH-001). The live brain at
+ * 40bb (the band V85 leaves on the V11 bars) against each exploiter persona.
+ * They are not twins of a mirror card: no Horse plays these lines. Against an
+ * opener the arms are huBbDefendsToPrice on and off. Against the limper the
+ * flag never engages (no open to defend), so that card measures the V7
+ * preflop layer against the legacy one, which is what answers a limp.
+ */
+export const HU_EXPLOITER_CARDS: readonly LeagueMatchup[] = Object.freeze(
+  (
+    [
+      ['minraise', HU_MINRAISE_EVERY_BUTTON_PERSONA, { huBbDefendsToPrice: true }, {}],
+      ['threebet', HU_THREE_BET_EVERY_HAND_PERSONA, { huBbDefendsToPrice: true }, {}],
+      ['small_stab', HU_SMALL_STAB_EVERY_STREET_PERSONA, { huBbDefendsToPrice: true }, {}],
+    ] as const
+  )
+    .map(
+      ([short, persona, a, b]): LeagueMatchup => ({
+        name: `${HUMAN_FIELD_NAME_PREFIX}hu_bb_defends_vs_${short}_40bb`,
+        seats: 2,
+        stackBB: 40,
+        pairs: HUMAN_FIELD_PAIRS,
+        hybridBaseline: true,
+        moodClock: 'deal_seed',
+        a: { ...a },
+        b: { ...b },
+        opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
+        humanPersona: persona,
+      })
+    )
+    .concat([
+      {
+        name: `${HUMAN_FIELD_NAME_PREFIX}hu_v7_preflop_vs_limper_40bb`,
+        seats: 2,
+        stackBB: 40,
+        pairs: HUMAN_FIELD_PAIRS,
+        hybridBaseline: true,
+        moodClock: 'deal_seed',
+        a: {},
+        b: { v7Preflop: false },
+        opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
+        humanPersona: HU_LIMP_EVERY_BUTTON_PERSONA,
+      },
+    ])
+);
+LEAGUE_MATCHUPS.push(...HU_EXPLOITER_CARDS);
 
 /**
  * UNMEASURABLE MATCHUPS (2026-10-31). A matchup the league deliberately does
@@ -2363,6 +2505,26 @@ export interface UnmeasurableMatchup extends Pick<
 }
 
 export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.freeze([
+  {
+    name: 'hu_break_even_bluff',
+    seats: 2,
+    a: { readBreakEvenBluff: true },
+    b: {},
+    reason:
+      'Unanswerable by the fields the league seats. readBreakEvenBluff is DEFAULT OFF ' +
+      '(HorseLogic: opts.readBreakEvenBluff === true). HorseMind.breakEvenBluffOf returns ' +
+      'null, and the flag-off bluff scale answers, unless the opponent has an engaged ' +
+      'postflop bluff read (postflopBluffMod non-null): a stranger, a horse-like regular ' +
+      'or a field inside the population fold band never qualifies. On the card heads-up it ' +
+      'measured 0.00 +/- 0.00 on each of 2026-11-10, 2026-11-11 and 2026-11-12 (0 of 6,000 ' +
+      'pairs diverged each night). Divergence probes 2026-11-12 on b6db68d45 (heads-up ' +
+      'lane, HU-NLH-001): the horse mirror 0 of 2,000 pairs at seed 20261112; the human ' +
+      'field with the hu_wide_sb_aggressor_v1 persona 0 of 2,000 pairs at seeds 20261112 ' +
+      'and 4242. What would change this: a field whose postflop fold-to-bet read leaves ' +
+      'the population band (a persona that over-folds or never folds to postflop bets), ' +
+      'dealt long enough for the read to engage. The six-max, nine-seat, tournament and ' +
+      'PLO4 break_even_bluff cards are not affected by this entry.',
+  },
   {
     name: 'v16_ratio_rescale',
     a: { v16Ratio: true },

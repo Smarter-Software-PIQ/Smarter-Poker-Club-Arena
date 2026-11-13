@@ -1,9 +1,25 @@
 import { expect, type Page } from '@playwright/test';
 import { waitForMobileAvatarGrowth } from './mobileLiveTableLayout';
 
+export const FIXED_MOBILE_ARTWORK_CASES = [
+  { seats: '9', spectator: 'true', cards: '2', occupiedSeats: '' },
+  { seats: '9', spectator: 'false', cards: '2', occupiedSeats: '' },
+  { seats: '6', spectator: 'false', cards: '4', occupiedSeats: '0,4' },
+  { seats: '6', spectator: 'false', cards: '4', occupiedSeats: '' },
+  // Dan, 2026-11-12: six-card tables were the whole point; they grow too.
+  { seats: '6', spectator: 'false', cards: '6', occupiedSeats: '' },
+  { seats: '6', spectator: 'true', cards: '6', occupiedSeats: '' },
+] as const;
+
+export type FixedMobileArtworkSettings = (typeof FIXED_MOBILE_ARTWORK_CASES)[number];
+
 /** Runs inside the existing real-component/font harness, not a second page or
  * pipeline. A fresh action/reveal must never choose a different art transform. */
-export async function checkFixedMobileArtwork(page: Page, bundle: string) {
+export async function checkFixedMobileArtwork(
+  page: Page,
+  bundle: string,
+  settings: FixedMobileArtworkSettings
+) {
   // Start the mobile candidate in the same notched-phone geometry used by
   // its approval screenshots, without the preceding test's injected poses.
   await page.setViewportSize({ width: 600, height: 1298 });
@@ -110,12 +126,7 @@ export async function checkFixedMobileArtwork(page: Page, bundle: string) {
       .querySelectorAll('.seat__avatar-wrap')
       .forEach((e) => e.classList.remove('seat__avatar-wrap--fold'));
   });
-  for (const settings of [
-    { seats: '9', spectator: 'true', cards: '2', occupiedSeats: '' },
-    { seats: '9', spectator: 'false', cards: '2', occupiedSeats: '' },
-    { seats: '6', spectator: 'false', cards: '4', occupiedSeats: '0,4' },
-    { seats: '6', spectator: 'false', cards: '4', occupiedSeats: '' },
-  ]) {
+  {
     const spectator = settings.spectator === 'true';
     await page.evaluate((settings) => {
       Object.assign(document.documentElement.dataset, {
@@ -144,9 +155,38 @@ export async function checkFixedMobileArtwork(page: Page, bundle: string) {
         expect((await read()).paint.some((p) => Number(p[0]) > 1)).toBe(true);
       }
       await settle();
+      // Dan 2026-11-12: sizes never change once set. A viewport height change
+      // (an iOS toolbar or keyboard) and the relayouts after it keep every
+      // portrait's paint exactly as it was: no small frame, no new size.
+      const locked = (await read()).paint;
+      for (const height of [1200, 1298]) {
+        await page.setViewportSize({ width: 600, height });
+        await page.evaluate(
+          () =>
+            new Promise<void>((resolve) =>
+              requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+            )
+        );
+        expect(
+          (await read()).paint.map((p) => p[0]),
+          'a height change never resizes a portrait'
+        ).toEqual(locked.map((p) => p[0]));
+        await settle();
+        expect(
+          (await read()).paint.map((p) => p[0]),
+          'a settled relayout never resizes a portrait'
+        ).toEqual(locked.map((p) => p[0]));
+      }
     }
     await expect.poll(async () => (await read()).paint.some((p) => Number(p[0]) > 1)).toBe(true);
     const before = await read();
+    // Dan 2026-11-12: every portrait is the exact same size and stays centred
+    // over its frame box (no sideways shift), the hero's own zoom aside.
+    const opponents = before.paint.slice(spectator ? 0 : 1).filter((p) => p[0]);
+    expect(new Set(opponents.map((p) => p[0])).size, 'one size for every portrait').toBe(1);
+    for (const p of before.paint)
+      if (p[0])
+        expect(Math.abs(parseFloat(p[1]) || 0), 'centred over its frame box').toBeLessThan(1);
     if (!spectator) {
       expect(Number(before.paint[0][0]), 'hero grows').toBeGreaterThan(1);
       if (settings.seats === '9')
@@ -180,10 +220,10 @@ export async function checkFixedMobileArtwork(page: Page, bundle: string) {
       if (state.revealed === 'true') revealed = after.cards;
     }
   }
-  for (const settings of [
-    { cards: '6', killEnabled: 'false' },
-    { cards: '2', killEnabled: 'true' },
-  ]) {
+  // Preserve the original disabled-layout check from the final six-card
+  // spectator baseline, without charging the other configurations for it.
+  if (settings.seats === '6' && settings.spectator === 'true' && settings.cards === '6') {
+    const settings = { cards: '2', killEnabled: 'true' };
     await page.evaluate((settings) => {
       Object.assign(document.documentElement.dataset, settings);
       document.dispatchEvent(new Event('fixture-next-hand'));

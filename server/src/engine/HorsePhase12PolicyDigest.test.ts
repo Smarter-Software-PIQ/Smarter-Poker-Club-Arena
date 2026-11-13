@@ -91,7 +91,10 @@ describe('P12.2 Phase 12 policy digest', () => {
     // 39: the closure includes both original public domains and continuation-plan invalidation.
     // 40 since 2026-11-07: HorseMind reads the fast call-down river window (HorseFastCalldownRead).
     // MTT read admission adds source provenance, the tournament context status and ante math.
-    expect(closure).toHaveLength(43);
+    // 44 since 2026-11-13: HorseMind reads the opponent style read (HorseOpponentStyle).
+    expect(closure).toHaveLength(44);
+    expect(closure).toContain('src/engine/HorseOpponentStyle.ts');
+    expect(HORSE_PHASE12_POLICY_SOURCE_FILES).toContain('src/engine/HorseOpponentStyle.ts');
     expect(closure).toContain('src/engine/HorseTournamentContextProvenance.ts');
     expect(closure).toContain('src/engine/HorseFastCalldownRead.ts');
     expect(HORSE_PHASE12_POLICY_SOURCE_FILES).toContain('src/engine/HorseFastCalldownRead.ts');

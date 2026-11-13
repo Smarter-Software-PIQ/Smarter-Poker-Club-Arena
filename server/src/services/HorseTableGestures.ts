@@ -178,8 +178,8 @@ export const THROW_POOLS: Record<GestureMoment, Record<TalkVoice, readonly strin
     friendly: ['heart', 'beer', 'thumbs_up', 'rose', 'cake', 'bad_beat_bandage'],
     quiet: ['blush', 'thumbs_up', 'coffee', 'ok_smug'],
   },
-  // thrown at a seated person for no reason at all (Dan 2026-11-11:
-  // "OR JUST TO ANNOY A PLAYER"); no showdown required
+  // thrown at any seated player, horse or human, for no reason at all
+  // (Dan 2026-11-11: "OR JUST TO ANNOY A PLAYER"); no showdown required
   annoy: {
     needler: [
       'tomato',
@@ -277,12 +277,64 @@ export interface GestureCandidate {
   targetSeat: number;
 }
 
+/** The players a horse has thrown at recently (user ids). */
+export type RecentlyHit = (horseId: string) => ReadonlySet<string>;
+
+/**
+ * Annoy-target weights (Dan 2026-11-13, "pick more natural targets"): the
+ * player who just took the pot draws the most needles, anyone who went to
+ * showdown more than a bystander, and every other seat still can be hit.
+ * Horse or human is never read (CLAUDE.md 10.5).
+ */
+export const ANNOY_WEIGHT = { winner: 4, showdown: 2, seated: 1 } as const;
+
+/**
+ * Do not throw at the same player twice inside this window while anyone
+ * else at the table is available (Dan 2026-11-13, "lower the odds of hitting
+ * the same player twice in a short span").
+ */
+export const REPEAT_TARGET_WINDOW_MS = 20 * 60_000;
+
+/**
+ * Weighted, deterministic per (horse, hand): the same inputs always pick the
+ * same seat, so the test pins the distribution. Players the horse hit inside
+ * REPEAT_TARGET_WINDOW_MS are skipped unless nobody else is seated.
+ */
+export function pickAnnoyTarget(
+  horseId: string,
+  handNumber: number,
+  others: readonly TalkSeat[],
+  winnerIds: ReadonlySet<string>,
+  showdownIds: ReadonlySet<string>,
+  recentlyHitIds: ReadonlySet<string>
+): number | null {
+  if (others.length === 0) return null;
+  const fresh = others.filter((s) => !recentlyHitIds.has(s.userId));
+  const pool = [...(fresh.length > 0 ? fresh : others)].sort((a, b) => a.seat - b.seat);
+  const weightOf = (s: TalkSeat): number =>
+    winnerIds.has(s.userId)
+      ? ANNOY_WEIGHT.winner
+      : showdownIds.has(s.userId)
+        ? ANNOY_WEIGHT.showdown
+        : ANNOY_WEIGHT.seated;
+  const total = pool.reduce((sum, s) => sum + weightOf(s), 0);
+  let roll = personaHash(`${horseId}|${handNumber}|annoy|target`) % total;
+  for (const s of pool) {
+    roll -= weightOf(s);
+    if (roll < 0) return s.seat;
+  }
+  return pool[pool.length - 1].seat;
+}
+
 /**
  * After a hand: every horse that lost a showdown may throw at the winner, and
  * every horse that won one may throw at a player it beat. One candidate per
  * hand at most, chosen by the (table, hand) hash among the horses that rolled.
  */
-export function detectAfterHand(input: TableTalkInput): GestureCandidate | null {
+export function detectAfterHand(
+  input: TableTalkInput,
+  recentlyHit: RecentlyHit = recentlyHitNow
+): GestureCandidate | null {
   const winners = new Set(input.winners.map((w) => w.userId));
   const seatOf = (id: string): number | undefined =>
     input.seated.find((s) => s.userId === id)?.seat;
@@ -308,10 +360,15 @@ export function detectAfterHand(input: TableTalkInput): GestureCandidate | null 
       if (!horse) continue;
       if (!rollsGesture('won', horse.userId, input.table.tableId, input.handNumber, chance('won')))
         continue;
-      const beaten = losers
-        .map((r) => seatOf(r.userId))
-        .filter((s): s is number => s !== undefined && s !== horse.seat);
-      if (beaten.length === 0) continue;
+      const allBeaten = losers
+        .map((r) => input.seated.find((s) => s.userId === r.userId))
+        .filter((s): s is TalkSeat => s !== undefined && s.seat !== horse.seat);
+      if (allBeaten.length === 0) continue;
+      // Spread the needles: a player this horse hit recently is skipped while
+      // anyone else it beat is available (Dan 2026-11-13).
+      const hit = recentlyHit(horse.userId);
+      const fresh = allBeaten.filter((s) => !hit.has(s.userId));
+      const beaten = (fresh.length > 0 ? fresh : allBeaten).map((s) => s.seat).sort((a, b) => a - b);
       const targetSeat =
         beaten[personaHash(`${horse.userId}|${input.handNumber}|won|target`) % beaten.length];
       out.push({ moment: 'won', horse, targetSeat });
@@ -319,18 +376,26 @@ export function detectAfterHand(input: TableTalkInput): GestureCandidate | null 
   }
   // Dan 2026-11-11, verbatim: "OR JUST TO ANNOY A PLAYER". No showdown needed:
   // most tournament hands end with everyone folding, and those hands used to
-  // be structurally silent. Humans only - the point is a person's reaction,
-  // and a needle at an empty-but-railed table spends the budget on nobody.
-  const humans = input.seated.filter((s) => !s.isHorse);
-  if (humans.length > 0) {
-    for (const h of input.seated.filter((s) => s.isHorse)) {
-      if (!rollsGesture('annoy', h.userId, input.table.tableId, input.handNumber, chance('annoy')))
-        continue;
-      const target =
-        humans[personaHash(`${h.userId}|${input.handNumber}|annoy|target`) % humans.length];
-      if (target.seat === h.seat) continue;
-      out.push({ moment: 'annoy', horse: h, targetSeat: target.seat });
-    }
+  // be structurally silent.
+  // Dan 2026-11-12, verbatim: "MAKE SURE THE THROWABLES AREN'T ONLY TARGETING
+  // HUMANS, ITS SHOULD BE TARGETING ANY AND ALL PLAYERS AT THE TABLE". The
+  // target is ANY seated player but the thrower: horse or human is never read
+  // here (CLAUDE.md 10.5). Spending a throw on an empty rail is already
+  // refused upstream by hasAudience(), not by who sits in the seat.
+  for (const h of input.seated.filter((s) => s.isHorse)) {
+    const others = input.seated.filter((s) => s.seat !== h.seat);
+    if (others.length === 0) continue;
+    if (!rollsGesture('annoy', h.userId, input.table.tableId, input.handNumber, chance('annoy')))
+      continue;
+    const targetSeat = pickAnnoyTarget(
+      h.userId,
+      input.handNumber,
+      others,
+      winners,
+      new Set(input.showdownResults.map((r) => r.userId)),
+      recentlyHit(h.userId)
+    );
+    if (targetSeat !== null) out.push({ moment: 'annoy', horse: h, targetSeat });
   }
   if (out.length === 0) return null;
   out.sort((a, b) => a.horse.userId.localeCompare(b.horse.userId));
@@ -362,10 +427,45 @@ function noteGesture(tableId: string, horseId: string, now: number): void {
   }
 }
 
+const hitByHorse = new Map<string, Map<string, number>>();
+
+/** Remember who this horse just threw at, for REPEAT_TARGET_WINDOW_MS. */
+export function noteTargetHit(horseId: string, targetUserId: string | undefined, now: number): void {
+  if (!targetUserId) return;
+  const hits = hitByHorse.get(horseId) ?? new Map<string, number>();
+  hits.set(targetUserId, now);
+  hitByHorse.set(horseId, hits);
+  if (hitByHorse.size > 4_000) {
+    for (const [id, m] of hitByHorse) {
+      for (const [u, t] of m) if (now - t > REPEAT_TARGET_WINDOW_MS) m.delete(u);
+      if (m.size === 0) hitByHorse.delete(id);
+    }
+  }
+}
+
+function recentlyHitAt(now: number): RecentlyHit {
+  return (horseId) => {
+    const hits = hitByHorse.get(horseId);
+    if (!hits) return new Set<string>();
+    const out = new Set<string>();
+    for (const [u, t] of hits) {
+      if (now - t < REPEAT_TARGET_WINDOW_MS) out.add(u);
+      else hits.delete(u);
+    }
+    if (hits.size === 0) hitByHorse.delete(horseId);
+    return out;
+  };
+}
+
+function recentlyHitNow(horseId: string): ReadonlySet<string> {
+  return recentlyHitAt(Date.now())(horseId);
+}
+
 /** Test hook. */
 export function _resetGesturesForTests(): void {
   byHorse.clear();
   byTable.clear();
+  hitByHorse.clear();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -444,7 +544,38 @@ export async function throwItem(
     reportError(new Error('throw broadcast unsent after charge'), 'HorseTableGestures.unsent', {
       tableId,
     });
+  // Record who was hit, through the same door a browser uses (Dan 2026-11-13:
+  // "record who gets hit"). After the charge and the broadcast; it never
+  // changes the outcome of the throw.
+  await recordThrowTarget(tableId, horseId, requestId, targetSeat);
   return sent ? 'thrown' : 'unsent';
+}
+
+/** One throw_targets row per charged horse throw; failures are reported, never retried. */
+export async function recordThrowTarget(
+  tableId: string,
+  horseId: string,
+  requestId: string,
+  targetSeat: number
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.rpc('fn_horse_record_throw_target', {
+      p_horse_id: horseId,
+      p_request_id: requestId,
+      p_table_id: tableId,
+      p_target_seat: targetSeat,
+    });
+    if (error) {
+      reportError(new Error(error.message), 'HorseTableGestures.recordTarget', { tableId });
+      return false;
+    }
+    return (data as { success?: unknown } | null)?.success === true;
+  } catch (err) {
+    reportError(err instanceof Error ? err : new Error(String(err)), 'HorseTableGestures.recordTarget', {
+      tableId,
+    });
+    return false;
+  }
 }
 
 export async function sendReaction(
@@ -501,6 +632,11 @@ export const gestureAfterHand = bindToProcessRoot(
           ];
         return await sendReaction(input.table.tableId, pick.horse.userId, glyph, pick.horse.seat);
       }
+      noteTargetHit(
+        pick.horse.userId,
+        input.seated.find((x) => x.seat === pick.targetSeat)?.userId,
+        Date.now()
+      );
       return await throwItem(input.table.tableId, pick.horse.userId, item, pick.targetSeat);
     } catch (err) {
       reportError(err, 'HorseTableGestures.afterHand', { tableId: input.table.tableId });
@@ -558,6 +694,11 @@ export const gestureBeforeAllIn = bindToProcessRoot(
       if (form === 'throw' && input.targetSeat !== null && input.targetSeat !== horse.seat) {
         const voice = voiceFor(horse.horseProfile, horse.userId);
         const item = pickItem('all_in', voice, horse.userId, handNumber);
+        noteTargetHit(
+          horse.userId,
+          input.seated.find((x) => x.seat === input.targetSeat)?.userId,
+          Date.now()
+        );
         return await throwItem(table.tableId, horse.userId, item, input.targetSeat);
       }
       const glyph =
@@ -609,7 +750,11 @@ export function buildAllInGestureInput(
   ) {
     targetSeat = lastAggressorSeat;
   } else if (live.length > 0) {
-    const ordered = [...live].sort((a, b) => a.seat - b.seat);
+    // No bettor to answer: any live opponent, preferring one this horse has
+    // not hit inside REPEAT_TARGET_WINDOW_MS (Dan 2026-11-13).
+    const hit = recentlyHitNow(horseUserId);
+    const fresh = live.filter((p) => !hit.has(p.user_id));
+    const ordered = [...(fresh.length > 0 ? fresh : live)].sort((a, b) => a.seat - b.seat);
     targetSeat =
       ordered[personaHash(`${horseUserId}|${handNumber}|all_in|target`) % ordered.length].seat;
   }
