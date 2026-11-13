@@ -4486,6 +4486,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'Phase15'
   ),
   receipt(
+    'phase15_telemetry_batch_rejected',
+    'BrainTelemetryFlush.flush',
+    'the telemetry writer refused a batch for a property of its bytes (bounds, shape, duplicate or collision); the publisher dropped it instead of resending it forever, and the counters in it are an evidence gap',
+    '2026-11-13'
+  ),
+  receipt(
+    'phase15_telemetry_batch_abandoned',
+    'BrainTelemetryFlush.flush',
+    'a telemetry batch stayed unconfirmed for HORSE_TELEMETRY_MAX_ATTEMPTS flushes (an hour) and was dropped so newer counters can publish; an evidence gap',
+    '2026-11-13'
+  ),
+  receipt(
     'phase15_telemetry_batch_expired',
     'BrainTelemetryFlush.flush',
     'a retained pending telemetry batch exceeded the 32-day receipt window and was explicitly refused without aggregation; this is an evidence gap',

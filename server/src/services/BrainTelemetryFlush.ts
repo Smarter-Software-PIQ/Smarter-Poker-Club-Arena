@@ -17,6 +17,8 @@ import {
 } from '../engine/BrainTelemetry.js';
 
 const FLUSH_MS = 60_000;
+/** The longest one write can take (the send's abort timeout). */
+const BRAIN_TELEMETRY_WRITE_TIMEOUT_MS = 5_000;
 let timer: NodeJS.Timeout | null = null;
 let lifecycleGeneration = 0;
 let lifecycleActive = false;
@@ -28,11 +30,28 @@ const publisher = new HorseBrainTelemetryPublisher({
   send: async (payload) =>
     supabase
       .rpc('fn_horse_brain_flush_receipt', { p_payload: payload })
-      .abortSignal(AbortSignal.timeout(5000)),
+      .abortSignal(AbortSignal.timeout(BRAIN_TELEMETRY_WRITE_TIMEOUT_MS)),
 });
 
-async function publishBatch(): Promise<'idle' | 'recorded' | 'replayed' | 'expired'> {
+async function publishBatch(): Promise<
+  'idle' | 'recorded' | 'replayed' | 'expired' | 'rejected' | 'abandoned'
+> {
   const result = await publisher.flush();
+  if (result === 'rejected') {
+    // A batch the writer refuses by its bytes is dropped, never resent forever (review 64466c83, H1).
+    noteFire('phase15_telemetry_batch_rejected');
+    reportError(
+      new Error('Horse telemetry batch refused by the writer and dropped'),
+      'BrainTelemetryFlush.rejected'
+    );
+  }
+  if (result === 'abandoned') {
+    noteFire('phase15_telemetry_batch_abandoned');
+    reportError(
+      new Error('Horse telemetry batch unconfirmed for an hour and dropped'),
+      'BrainTelemetryFlush.abandoned'
+    );
+  }
   if (result === 'expired') {
     noteFire('phase15_telemetry_batch_expired');
     reportError(
@@ -62,17 +81,63 @@ async function drainFlushes(): Promise<void> {
   while (inFlightFlushes.size > 0) await Promise.allSettled([...inFlightFlushes]);
 }
 
+/** At most this many batches are written at shutdown: the retained ones, then the partial interval behind them,
+ * split. A capture at the full style_shadow key cap (68,600 counters) splits into 17 counter batches; the bound
+ * leaves room for the retained head and latency rows. */
+export const BRAIN_TELEMETRY_SHUTDOWN_MAX_BATCHES = 32;
+/** Shutdown writes stop when another write could end past this budget, inside the engine's 40-second graceful
+ * deadline (GameServer.ts) with room for the other owned stops. */
+export const BRAIN_TELEMETRY_SHUTDOWN_BUDGET_MS = 20_000;
+
 /** The worker calls stop only after its accepted decision FIFO has drained.
- * Finish an uncertain retained batch first, then capture the partial interval
- * behind it. At most two existing five-second writes; no retry loop or disk
- * durability claim. A restart takes ownership before either new capture. */
+ * Finish the retained batches first (an uncertain head and any split remainder), then capture the partial interval
+ * behind them and write every batch it splits into, so a split capture is not cut off after its first batch. The
+ * loop is bounded by count (BRAIN_TELEMETRY_SHUTDOWN_MAX_BATCHES) and by time (no write starts unless it can end
+ * inside BRAIN_TELEMETRY_SHUTDOWN_BUDGET_MS), and stops at the first unconfirmed write; whatever is still retained
+ * then is reported by count, never retried in a loop. No disk durability claim. A restart takes ownership before
+ * any new capture. */
 async function finishFlushes(generation: number, wasActive: boolean): Promise<void> {
+  const startedAt = Date.now();
   await drainFlushes();
   if (!wasActive) return;
-  for (let batch = 0; batch < 2; batch++) {
+  const reportUnwritten = (why: string) => {
+    const left = publisher.pendingBatches();
+    if (left > 0)
+      reportError(
+        new Error(`Horse telemetry: ${left} batch(es) unwritten at shutdown (${why})`),
+        'BrainTelemetryFlush.shutdown_unwritten'
+      );
+  };
+  let captured = false;
+  for (let batch = 0; batch < BRAIN_TELEMETRY_SHUTDOWN_MAX_BATCHES; batch++) {
     if (lifecycleActive || lifecycleGeneration !== generation) return;
-    if ((await publishBatch()) === 'idle') return;
+    if (publisher.pendingBatches() === 0) {
+      // the retained batches are written; capture the partial interval once
+      if (captured) return;
+      captured = true;
+    }
+    if (
+      Date.now() - startedAt + BRAIN_TELEMETRY_WRITE_TIMEOUT_MS >
+      BRAIN_TELEMETRY_SHUTDOWN_BUDGET_MS
+    ) {
+      reportUnwritten('time budget');
+      return;
+    }
+    let result: Awaited<ReturnType<typeof publishBatch>>;
+    try {
+      result = await publishBatch();
+    } catch (error) {
+      reportUnwritten('unconfirmed write');
+      throw error;
+    }
+    if (result === 'idle') return;
   }
+  reportUnwritten('batch bound');
+}
+
+/** Diagnostics and tests: batches the publisher still retains. */
+export function brainTelemetryPendingBatches(): number {
+  return publisher.pendingBatches();
 }
 
 export function startBrainTelemetryFlush(): void {
