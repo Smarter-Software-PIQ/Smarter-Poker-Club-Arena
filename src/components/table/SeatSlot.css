@@ -5152,7 +5152,7 @@
 
 /* Six/nine portrait tables reserve the same enlarged art before card packing.
    Keep card, text and control dimensions independent of portrait scale. */
-@media (min-width: 481px) and (max-width: 768px) and (orientation: portrait) {
+@media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
   .table-page:where([data-seats='6'], [data-seats='9']) .seat-wrapper {
     --sp-bust-scale: 2.1;
   }
@@ -5172,7 +5172,7 @@
   }
 }
 
-@media (min-width: 481px) and (max-width: 768px) and (orientation: portrait) {
+@media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
   .table-page:where([data-seats='6'], [data-seats='9'])
     .seat--cards-left
     .seat__cards--opponent:not(.seat__cards--revealed)
@@ -5189,14 +5189,14 @@
   }
 }
 
-@media (min-width: 481px) and (max-width: 768px) and (orientation: portrait) {
+@media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
   .table-page:where([data-seats='6'], [data-seats='9']) .seat > .seat__action {
     top: calc(-1 * var(--sp-art-rise, 0px) - var(--sp-tag-h, 20px) - 6px);
     bottom: auto;
   }
 }
 
-@media (min-width: 481px) and (max-width: 768px) and (orientation: portrait) {
+@media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
   .table-page:where([data-seats='6'], [data-seats='9']) .seat--hero {
     --seat-avatar-hero-ratio: 1;
   }

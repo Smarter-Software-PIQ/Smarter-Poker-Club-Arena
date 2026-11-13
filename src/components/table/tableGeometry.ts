@@ -494,7 +494,7 @@ export function seatPodPx(
   // Match SeatSlot.css so marker clearance measures the actual player pod.
   const heroRatio =
     viewportWidthPx > PHONE_TABLE_MAX_DEVICE_WIDTH_PX &&
-    viewportWidthPx <= PORTRAIT_CARD_LANE_MAX_VIEWPORT_PX &&
+    viewportWidthPx <= 640 &&
     (ring?.canvasHeightPx ?? 0) > canvasWidthPx &&
     [6, 9].includes(ring?.seats ?? 0)
       ? 1

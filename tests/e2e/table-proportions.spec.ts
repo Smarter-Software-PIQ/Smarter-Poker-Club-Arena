@@ -577,7 +577,7 @@ test.describe('a short ring sits lower and gives up no width (Dan 2026-09-23, it
       await page.setContent(seatHtml(html, 6));
       const short = await page.evaluate(probeBox);
       const label = `${device} (${width}x${height})`;
-      const phonePortrait = width <= 768 && height > width;
+      const phonePortrait = width <= 640 && height > width;
       const shortPhone = phonePortrait && width <= 375 && height <= 700;
       const heightShare = shortPhone ? 0.96 : 0.88;
       const heightBudget = full.h - (shortPhone ? 4 : 0);
