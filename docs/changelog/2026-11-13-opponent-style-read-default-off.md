@@ -12,5 +12,9 @@ by default and explicit-true only, consume it: a value bettor is not a maniac,
 big-bet respect (at most +0.15), flop/turn raise respect, and tight opener and
 re-raiser respect preflop. Each only moves toward folding, stands down at
 push/fold depths and in bounty events, and writes a registered `_seen` receipt.
-Two always-on counters now count the legacy fold-rate and aggression-factor
-branches. With every option off, 180 pinned decisions are unchanged.
+Three more options, also off: the legacy over-folder branch stands down for
+pre-repair profiles, value extraction against credible callers, and bluffing by
+each street's fold-to-bet. Revealed strength is kept by bet size, and the
+post-release count that lifts the pre-repair discount is recounted from
+persisted hand history. Two always-on counters now count the legacy fold-rate
+and aggression-factor branches. With every option off, 180 pinned decisions are unchanged.

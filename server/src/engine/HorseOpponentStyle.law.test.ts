@@ -18,9 +18,10 @@ describe('LAW: the opponent style read is a bounded, default-off, decision-time-
     expect(STYLE_THRESHOLDS.maniacMinRaiseShare).toBe(MANIAC_MIN_RAISE_WIDTH);
   });
   it('every consumer flag is an explicit-true opt-in', () => {
-    for (const f of ['styleValueBettorNotManiac', 'styleBigBetHonesty', 'styleRaiseRespect', 'styleTightReRaiserRespect'])
+    for (const f of ['styleValueBettorNotManiac', 'styleBigBetHonesty', 'styleRaiseRespect', 'styleTightReRaiserRespect', 'styleValueExtraction', 'styleFoldBluff', 'styleFoldRatePreRepair'])
       expect(logic).toMatch(new RegExp(`opts\\.${f} === true`));
     expect(mind).toMatch(/options\.styleValueBettor === true/);
+    expect(mind).toMatch(/options\.styleFoldRatePreRepair === true/);
     expect(STYLE_THRESHOLDS.carryWeight).toBe(0);
   });
   it('no consumer reads the four-way label (telemetry only)', () => {
