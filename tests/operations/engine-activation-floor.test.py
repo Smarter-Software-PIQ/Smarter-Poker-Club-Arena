@@ -230,7 +230,7 @@ class ActivationFloor(unittest.TestCase):
             old = dict(record, ownerWindowId='2026-11-09-owner-asap-engine-2230z')
             with self.assertRaises(ValueError): floor.nov7_owner(str(self.repo), old, stamp//1000, end)
         transaction = (ROOT / 'server/scripts/engine-release-transaction.sh').read_text()
-        self.assertEqual(transaction.count('2026-11-13-owner-now-55-break-engine-0347z'), 4)
+        self.assertEqual(transaction.count('2026-11-13-owner-now-55-break-engine-0338z'), 4)
         self.assertNotIn('2026-11-09-owner-asap-engine-2230z', transaction)
         gate = transaction.split('nov7_owner_admitted() {', 1)[1].split('\n}', 1)[0]
         shell = 'python3() { return 0; }; nov7_owner_admitted() {' + gate + '\n}; nov7_owner_admitted'
@@ -936,7 +936,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         self.assertIn('#10346', window['ownerOrder'])
         self.assertIn('15:34 America/Chicago', window['ownerOrder'])
         windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
-        self.assertEqual(windows['windows'].pop()['id'], '2026-11-13-owner-now-55-break-engine-0347z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-13-owner-now-55-break-engine-0338z')
         self.assertEqual(windows['windows'].pop()['id'], '2026-11-12-complete-missed-engine-1700z')
         self.assertEqual(windows['windows'].pop()['id'], '2026-11-12-horse-corrections-engine-0700z')
         self.assertEqual(windows['windows'].pop()['id'], '2026-11-12-horse-corrections-10525-engine-0030z')
@@ -1046,12 +1046,12 @@ echo CHECKPOINT_MUST_NOT_RUN
         import hashlib
         from datetime import datetime
         window, raw = self.historical_floor(floor.NOV7_OWNER_ID)
-        self.assertEqual(floor.NOV7_OWNER_ID, '2026-11-13-owner-now-55-break-engine-0347z')
+        self.assertEqual(floor.NOV7_OWNER_ID, '2026-11-13-owner-now-55-break-engine-0338z')
         self.assertEqual(raw, (ROOT / MANIFEST).read_bytes())
         self.assertEqual(hashlib.sha256(raw).hexdigest(), floor.NOV7_MANIFEST_DIGEST)
         self.assertEqual(window['releaseWitness']['sha256'], floor.NOV7_MANIFEST_DIGEST)
         self.assertEqual(hashlib.sha256(json.dumps(window, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), floor.NOV7_ORDER_DIGEST)
-        self.assertEqual((window['playerNoticeAt'], window['notBefore'], window['notAfter']), ('2026-11-13T03:25:00Z', '2026-11-13T03:47:30Z', '2026-11-13T04:57:00Z'))
+        self.assertEqual((window['playerNoticeAt'], window['notBefore'], window['notAfter']), ('2026-11-13T03:15:00Z', '2026-11-13T03:38:00Z', '2026-11-13T04:00:00Z'))
         self.assertEqual(window['contains'], 'c6b61cd577290bf7652ee69dd81ca0bf69184a78')
         self.assertEqual(window['announcementPolicy'], 'earliest-certified')
         self.assertIs(window['supersedesPhase1Schedule'], True)
@@ -1061,13 +1061,14 @@ echo CHECKPOINT_MUST_NOT_RUN
         windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
         self.assertEqual(windows['windows'][-1]['id'], floor.NOV7_OWNER_ID)
         self.assertEqual(windows['windows'][-2]['id'], '2026-11-12-complete-missed-engine-1700z')
-        # The floor opens inside the announcement guard and its last admissible break ends before the fixed expiry.
+        # The window closes before a next-hour announcement could fit, so only a break ending before :55 is admitted.
         start, end = [int(datetime.fromisoformat(window[k].replace('Z', '+00:00')).timestamp()) for k in ('notBefore', 'notAfter')]
         self.assertTrue(330 <= start % 3600 <= 2940)
-        self.assertEqual(end - start, 4170)
+        self.assertLess(end, start - start % 3600 + 3600 + 330 + 420)
+        self.assertEqual(end - start, 1320)
         seal_source = (ROOT / 'server/scripts/engine-release-seal.py').read_text()
         self.assertIn("NOV7_PREDECESSOR = '08c27924101c63621263d291279cae2dca5aa9cf'", seal_source)
-        self.assertIn("datetime.fromisoformat('2026-11-13T04:57:00+00:00')", seal_source)
+        self.assertIn("datetime.fromisoformat('2026-11-13T04:00:00+00:00')", seal_source)
         transaction = (ROOT / 'server/scripts/engine-release-transaction.sh').read_text()
         self.assertEqual(transaction.count('08c27924101c63621263d291279cae2dca5aa9cf'), 2)
         self.assertNotIn('f7735cca6862b9add06841b8a41c305b3f3ebe01', transaction)
@@ -1085,7 +1086,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         self.assertIs(window['supersedesPhase1Schedule'], True)
         self.assertEqual(window['migrations'], [])
         windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
-        self.assertEqual(windows['windows'].pop()['id'], '2026-11-13-owner-now-55-break-engine-0347z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-13-owner-now-55-break-engine-0338z')
         self.assertEqual(windows['windows'].pop()['id'], '2026-11-12-complete-missed-engine-1700z')
         self.assertEqual(windows['windows'].pop()['id'], '2026-11-12-horse-corrections-engine-0700z')
         self.assertEqual(windows['windows'].pop()['id'], '2026-11-12-horse-corrections-10525-engine-0030z')

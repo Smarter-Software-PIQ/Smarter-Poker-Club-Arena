@@ -1,9 +1,9 @@
 {
   "schema": "engine-release-activation-floor/v2-owner-window",
-  "preparationAt": "2026-11-13T03:47:30Z",
-  "activationAt": "2026-11-13T03:47:30Z",
-  "expiresAt": "2026-11-13T04:57:00Z",
+  "preparationAt": "2026-11-13T03:38:00Z",
+  "activationAt": "2026-11-13T03:38:00Z",
+  "expiresAt": "2026-11-13T04:00:00Z",
   "timeZone": "America/Chicago",
-  "ownerWindowId": "2026-11-13-owner-now-55-break-engine-0347z",
-  "clientPublicationAt": "2026-11-13T03:47:30Z"
+  "ownerWindowId": "2026-11-13-owner-now-55-break-engine-0338z",
+  "clientPublicationAt": "2026-11-13T03:38:00Z"
 }
