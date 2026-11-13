@@ -47,6 +47,20 @@ export function enableBrainTelemetry(): void {
  *     occurrence counters. A per-decision layer keeps a plain name and, where
  *     silence would be a defect, a ratioOf and minRatio in the ledger.
  */
+/**
+ * 2026-11-13 STYLE READ SHADOW: run fn with every counter paused (a shadow re-decision must not count the layers it
+ * passes through a second time). Restores the previous state, also on a throw.
+ */
+export function withBrainTelemetrySuspended<T>(fn: () => T): T {
+  const was = enabled;
+  enabled = false;
+  try {
+    return fn();
+  } finally {
+    enabled = was;
+  }
+}
+
 export function noteFire(feature: string): void {
   if (!enabled) return;
   fires.set(feature, (fires.get(feature) ?? 0) + 1);

@@ -1020,6 +1020,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-13'
   ),
   flag(
+    'styleShadow',
+    '2026-11-13 STYLE READ SHADOW (HorseStyleShadow, HorseStyleSwitch): the style options in shadow for this decision. Each listed option computes its adjustment and applies nothing; one that would have changed its input records that it engaged, and the decision worker re-decides once with only that option on (same RNG position, effects captured and discarded) to receipt a changed action (style_shadow.*). Set only by the live switch; absent = none; an option explicitly true is on whatever this lists',
+    '2026-11-13'
+  ),
+  flag(
     'styleFoldRatePreRepair',
     "2026-11-13 STYLE READ pre-repair: the legacy over-folder branch (postflop fold rate above 0.62) stands down while the decision's exact profile is a pre-repair cash table-speed row whose fold-to-bet has fewer than 60 post-release opportunities; hold'em only; default off, explicit true only",
     '2026-11-13'
@@ -1084,7 +1089,61 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'style_boot_post_release_failed_seen',
     'HorseExploitHydrator (STYLE READ boot inputs)',
-    'every post-release count batch of the boot rebuild failed, so the pre-repair discount stays on; the hydrated receipt is withheld; occurrence counter; named *_seen',
+    'every post-release count batch of the boot rebuild failed, so the pre-repair discount stays on (a partial failure fires style_boot_post_release_partial_failed_seen instead); the hydrated receipt is withheld; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_boot_post_release_partial_failed_seen',
+    'HorseExploitHydrator (STYLE READ boot inputs)',
+    'some, not all, post-release count batches of the boot rebuild failed; fires once per failed batch, so its count is the failed count; no batch is imported, so the pre-repair discount stays on for every player; the hydrated receipt is withheld; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_boot_size_buckets_failed_seen',
+    'HorseExploitHydrator (STYLE READ boot inputs)',
+    'the boot rebuild of the river size buckets threw; the aggression and Horse reference rebuilds still ran; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_boot_aggression_failed_seen',
+    'HorseExploitHydrator (STYLE READ boot inputs)',
+    'the boot rebuild of in-format aggression threw; the size bucket and Horse reference rebuilds still ran; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_boot_horse_reference_failed_seen',
+    'HorseExploitHydrator (STYLE READ boot inputs)',
+    'the boot rebuild of the Horse population reference threw; the size bucket and aggression rebuilds still ran; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_boot_size_from_players_seen',
+    'HorseExploitHydrator (STYLE READ boot inputs)',
+    'with HORSE_STYLE_BOOT_RELEASE_START_MS set, at least one boot row had no stored dealt-in count (horse_exploit_dealt_count), so its table size came from the players list instead of the count the live scope uses; once per boot; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_switch_*',
+    'HorseStyleSwitch (STYLE READ live switch)',
+    'style_switch_<option>_<state>_seen: an option of the style read changed runtime state (off, shadow, canary, on) at a configuration read, the option and the new state in the name; style_switch_config_invalid_seen / style_switch_config_unreadable_seen / style_switch_config_stale_seen: the configuration was not the documented shape, could not be read, or was delivered more than two poll intervals ago, and every option failed safe to off; occurrence counters; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_shadow*',
+    'horseDecision workerRuntime (STYLE READ shadow)',
+    'style_shadow.<opt>.<c|t>.<variant>.<p|f|t|r>.<actual>.<wouldBe>.<s|c>_seen: an AGGREGATE counter over a fixed key set of at most 68,600 keys (no hand, seat or amount), one fire per changed decision of a style option in shadow (the would-be action class of the one re-decision with that option on differs from the committed one); per-decision detail is reconstructed from the decision journal (replay state carries the switch state) joined to ca_hand_facts; style_shadow_unchanged_seen: the re-decision kept the action; style_shadow_rotated_out_seen: another engaged option of the same decision was not re-decided (one re-decision per decision, rotated by decision key); style_shadow_skipped_backlog_seen / _skipped_budget_seen / _skipped_scale_seen: no re-decision because work was queued, the committed decision exceeded the 15 ms budget, or the governor scale moved; style_shadow_scale_mismatch_seen: the re-decision ran at another scale and was discarded; style_shadow_redecide_over_budget_seen: a re-decision took more than 15 ms; style_shadow_redecide_failed_seen / _unencodable_seen: a re-decision or its receipt threw (nothing committed changes); occurrence counters; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_read_timed_seen',
+    'horseDecision workerRuntime (STYLE READ latency)',
+    'a live fast decision ran with at least one style option not off, and the style read time inside it was recorded (horse_decision_latency scope style_read); the denominator of style_read_over_budget_seen; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_read_over_budget_seen',
+    'horseDecision workerRuntime (STYLE READ latency)',
+    'the style read added more than the pre-registered 0.25 ms to one live decision; over style_read_timed_seen it must stay at or below 1 percent (the p99 budget); occurrence counter; named *_seen',
     '2026-11-13'
   ),
   receipt(
