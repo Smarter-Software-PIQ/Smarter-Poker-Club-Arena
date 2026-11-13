@@ -76,7 +76,8 @@ export interface HorseScheduleSupply {
   eligible: number;
   /** Of those, on duty right now (offDutyReason === null). */
   onDuty: number;
-  /** The occupancy target the planner holds the host to (its max), or null. */
+  /** The planner's occupancy cap for the host at this minute of the daily
+   *  curve (stableHandHostCaps), or null. */
   target: number | null;
 }
 
@@ -108,7 +109,9 @@ export function recordSeatCallDeclined(): void {
 export function recordListRowCancelled(): void {
   listRowsCancelled = bump(listRowsCancelled);
 }
-/** The fleet's per-cycle census: what seating refused and the on-duty supply. */
+/** The fleet's per-cycle census. `seatingRefused` counts (horse, table)
+ *  candidate PAIRS this cycle dropped, by reason, not distinct horses: one
+ *  resting horse is counted once per table it could otherwise have taken. */
 export function recordScheduleCycle(
   seatingRefused: { rest_day: number; daily_cap: number; asleep: number },
   supply: HorseScheduleSupply[],
