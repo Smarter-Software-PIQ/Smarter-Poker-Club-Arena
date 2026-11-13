@@ -39,6 +39,7 @@ import { readScopeOf } from '../../engine/HorseMind.js';
 import { getLiveHorseDecisionWorker } from '../../engine/horseDecision/index.js';
 import { wakeHandProjection } from './handProjection.js';
 import { countLoggedHandMemoryDomain } from './handMemoryDomainSignal.js';
+import { countHandedOffHandMemoryDomain } from './handMemoryDomainReadback.js';
 import { bindHorseObservationIdentity } from '../../engine/HorseObservationIdentity.js';
 import {
   ACCEPTED_ROSTER_RESULT_FIELD,
@@ -188,6 +189,9 @@ export async function resumeRetainedHandSubmission(
     !Number.isSafeInteger(handNumber)
   )
     throw new Error('retained_hand_submission_receipt_unproven');
+  // HVH2D-EXE-002: the one call whose transaction committed the retained
+  // hand counts it; a later call answers financial_handoff false.
+  if (data.financial_handoff === true) countHandedOffHandMemoryDomain(data.submission_id);
   // Recovery has already settled the original request. Read its immutable
   // terminal once; do not repeat settlement or any opponent-memory learning.
   try {

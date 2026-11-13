@@ -56,6 +56,18 @@ export type HorsePublicActionNode =
        * flags (folded=1, all-in=2, sitting-out=4). Identity lives on the action.
        */
       seats: ReadonlyArray<readonly [number, number, number, number, number, number, number]>;
+      /** Horse decisions only (PLO6-AUDIT-012). The table's VPIP floor in
+       * percent as the decision received it, 0 when the table has none. Absent
+       * on human actions and on rows recorded before 2026-11-13, where a
+       * replay cannot tell "no floor" from "not recorded". */
+      vpipFloor?: number;
+      /** With a floor: the window, in hands, the floor is judged over. Both
+       * are table settings. The seat's own judged VPIP is deliberately NOT
+       * stored: hand_history rows are readable by every player dealt into
+       * the hand, and the judged figure is service-role only
+       * (fn_nit_status); a Horse gets the same privacy as any player
+       * (CLAUDE.md 10.5). A replay approximates it from the hands it has. */
+      vpipWindowHands?: number;
     }>
   | Readonly<{
       version: 1;
@@ -244,4 +256,49 @@ export function captureHorsePublicActionNode(
     legalActions: Object.freeze(rights.legalActions.slice()),
     seats: Object.freeze(seats),
   });
+}
+
+/** The three VPIP floor inputs a Horse decision reads (only the two table
+ * settings among them are stored with the node) (HorseLogic.vpipFloorMul,
+ * vpipFloorCallDown). They live on the table engine, not the hand, so the
+ * capture above cannot see them; the engine adds them to the stored copy of a
+ * Horse decision's node. Without them every preflop replay of a hand from a
+ * floored table runs as if the table had no floor (PLO6-AUDIT-012). */
+export interface HorseVpipDecisionInputs {
+  vpipFloor: number;
+  vpipWindowHands: number;
+  ownVpip: { hands: number; vpip: number | null } | undefined;
+}
+
+export function withHorseVpipInputs(
+  node: HorsePublicActionNode,
+  inputs: HorseVpipDecisionInputs
+): HorsePublicActionNode {
+  if (node.status !== 'captured') return node;
+  const floor = Number(inputs.vpipFloor);
+  if (!Number.isFinite(floor) || floor < 0) return node;
+  if (!(floor > 0)) return Object.freeze({ ...node, vpipFloor: 0 });
+  const window = Number(inputs.vpipWindowHands);
+  // ownVpip is read by the decision but never stored (see the type above).
+  return Object.freeze({
+    ...node,
+    vpipFloor: floor,
+    ...(Number.isFinite(window) && window > 0 ? { vpipWindowHands: window } : {}),
+  });
+}
+
+/** The node to store for an accepted action. A Horse decision's node gains the
+ * floor inputs; a human action's node, and ANY failure to read the inputs, is
+ * stored exactly as captured. Never throws: recording cannot break a hand. */
+export function storedHorsePublicNode(
+  node: HorsePublicActionNode,
+  origin: string | undefined,
+  readInputs: () => HorseVpipDecisionInputs
+): HorsePublicActionNode {
+  if (origin !== 'horse_policy') return node;
+  try {
+    return withHorseVpipInputs(node, readInputs());
+  } catch {
+    return node;
+  }
 }

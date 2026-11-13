@@ -3189,6 +3189,18 @@ groups:
   # unsupported_variant reason and learner_scope are outside both sides of the
   # division: the trigger never learns those variants, with or without a
   # domain. The counters restart with the engine; increase() handles resets.
+  # COVERAGE (2026-11-12, the verifier's follow-up to #10640). The trigger
+  # fires on every hand_atomic_commits insert, and two more boundaries reach
+  # it without passing through logHandHistory. Both are now counted in the
+  # same two series: a Lightning pool hand where its settlement is accepted
+  # (LightningHandBackend.settle), under mode="lightning", and a retained hand
+  # a replacement engine commits, by the one resume call that commits it
+  # (resumeRetainedHandSubmission, financial_handoff), under its own cash or
+  # tournament mode. A Lightning hand is a cash hand the trigger files under
+  # its own domain (speed lightning), so the rule reads cash and lightning
+  # together: one share, one floor. The floor was sized on physical-table
+  # volume alone and Lightning only adds hands to it. The limit that remains
+  # is in the description and the runbook.
   # This rule reports. Nothing reads it to repair, backfill or restart.
   # Runbook: docs/runbooks/hand-memory-domain-missing.md
   - name: horse-opponent-memory
@@ -3197,10 +3209,10 @@ groups:
       - alert: HandMemoryDomainMissingOnCashShowdown
         expr: |
           (
-            sum(increase(poker_hand_memory_domain_missing_total{mode="cash",reached_showdown="true",reason=~"absent|invalid"}[30m]))
-              / sum(increase(poker_hand_memory_domain_logged_total{mode="cash",reached_showdown="true",learner_scope="supported"}[30m]))
+            sum(increase(poker_hand_memory_domain_missing_total{mode=~"cash|lightning",reached_showdown="true",reason=~"absent|invalid"}[30m]))
+              / sum(increase(poker_hand_memory_domain_logged_total{mode=~"cash|lightning",reached_showdown="true",learner_scope="supported"}[30m]))
           ) > 0
-          and on() sum(increase(poker_hand_memory_domain_logged_total{mode="cash",reached_showdown="true",learner_scope="supported"}[30m])) >= 50
+          and on() sum(increase(poker_hand_memory_domain_logged_total{mode=~"cash|lightning",reached_showdown="true",learner_scope="supported"}[30m])) >= 50
         for: 15m
         labels:
           severity: warning
@@ -3208,13 +3220,20 @@ groups:
         annotations:
           summary: '{{ $value | humanizePercentage }} of cash showdown hands in 30 minutes were logged without their public memory domain'
           description: |
-            Ordinary cash hands that reached showdown were accepted with no
+            Cash hands that reached showdown, at a physical table (mode cash)
+            or in a Lightning pool (mode lightning), were accepted with no
             valid hand_history.public_memory_domain for 15 minutes running
             (at least 50 such hands in the window). The exact opponent-memory
             trigger skips every one of them, so horses learn nothing from
-            those showdowns. Read the reason label on
+            those showdowns. Read the mode and reason labels on
             poker_hand_memory_domain_missing_total: absent means the producer
-            passed null (postHandTasks lost the hand's blind snapshot),
-            invalid means it passed a value publicMemoryDomainIsValid refuses.
+            passed null (cash: postHandTasks lost the hand's blind snapshot;
+            lightning: LightningHandHost.handRow had none), invalid means it
+            passed a value publicMemoryDomainIsValid refuses.
+            Limits: a retained hand a replacement engine commits is counted
+            only by the call that commits it, so one whose answer was lost,
+            whose post-commit work finished on a later call or whose stored
+            row could not be read back is in neither series. Tournament hands
+            are counted and not read by this rule.
             This alert reports a producer defect; it starts no repair.
           runbook: docs/runbooks/hand-memory-domain-missing.md

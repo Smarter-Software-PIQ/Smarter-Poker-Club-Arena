@@ -69,8 +69,14 @@ export interface LedgerEntry {
   ratioOf?: string;
   /** receipt entries: fires(key) / fires(ratioOf) must be at least this on a
    *  normal fleet day (ratioOf fires >= 1000), else the audit raises
-   *  data_unread. Omitted = the read depends on table mix (documented in
-   *  note) and only a zero against a big denominator is reported. */
+   *  data_unread (critical at zero fires, warn below the floor). A floored
+   *  key on its first partial day, or one deployed after the audited day,
+   *  is reported as info instead. Omitted = the receipt audit raises
+   *  NOTHING for this key, a zero included (fn_audit_data_receipts judges
+   *  only rows with a min_ratio); the read depends on table mix or is not
+   *  yet measured (its note, or the comment above the entry, says which).
+   *  Such a key is still judged against its own history by the drift
+   *  audit. Write a floor only from a measured live day. */
   minRatio?: number;
   /** table entries with a nightly cadence: the day column and how many days
    *  old the newest row may be before the audit raises data_stale */
@@ -2162,6 +2168,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt('decide_tournament', 'HorseLogic.decide', 'every live tournament decision', 'Phase6'),
   receipt(
+    'decide_postflop',
+    'HorseLogic.decide',
+    'every live decision that enters the postflop brain: the opportunity count for the postflop upgrade counters',
+    '2026-11-13'
+  ),
+  receipt(
     'decide_tournament_preflop',
     'HorseLogic.decide',
     'every live tournament preflop decision',
@@ -2797,8 +2809,9 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   // path, so "enabled" is provable from the serving release
   // (HORSE_UPGRADE_LIVE_EVIDENCE, HorseUpgradeLiveEvidence.law.test.ts).
   // Evidence only; each depends on table mix and none is a health ratio.
-  // Per-decision upgrade counters name their denominator (every live
-  // decision) and carry NO floor yet. A floor was set here on 2026-11-12
+  // Per-decision upgrade counters name their denominator (decide_postflop,
+  // every live decision that enters the postflop brain, from 2026-11-13;
+  // before that it was every decision, preflop included) and carry NO floor yet. A floor was set here on 2026-11-12
   // before any of these counters had served, and the receipt audit reads a
   // floor as fact: zero fires against 1,000 decisions is reported critical
   // whether or not an eligible postflop decision occurred, and an audit that
@@ -2814,14 +2827,14 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic postflop (computeActionLinePosterior)',
     'a telemetry-on postflop decision computed the public action-line posterior',
     '2026-11-12',
-    'decide'
+    'decide_postflop'
   ),
   receipt(
     'upgrade02_card_removal_scored',
     'HorseLogic postflop (scoreCardRemoval)',
     'a telemetry-on postflop decision scored its blockers',
     '2026-11-12',
-    'decide'
+    'decide_postflop'
   ),
   receipt(
     'phase14_kernel_eligible_seen',
@@ -2846,7 +2859,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic think-time hint',
     'the think-time difficulty hint came from public complexity',
     '2026-11-12',
-    'decide'
+    'decide_postflop'
   ),
   receipt(
     'upgrade08_*',

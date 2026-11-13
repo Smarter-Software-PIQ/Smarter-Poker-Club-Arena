@@ -37,6 +37,7 @@ import { noteHorseTelemetryOpportunity } from './BrainTelemetry.js';
 import { prewarmHorseDecisionStreet } from './horseDecision/client.js';
 
 import { carryHorseTurnClock } from './HorseTurnClockReceipt.js';
+import { storedHorsePublicNode } from './HorsePublicActionNode.js';
 
 export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettlement {
   /**
@@ -704,7 +705,17 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
             amount: event.amount,
             timestamp: event.record?.timestamp ?? Date.now(), // Bible V8 §2.5
             stage,
-            ...(event.publicNode ? { publicNode: event.publicNode } : {}),
+            // A Horse decision's stored node also carries the VPIP floor
+            // inputs that decision read (PLO6-AUDIT-012); a human action's
+            // node is stored as captured. Recording must never break a hand:
+            // any failure here stores the node exactly as it was captured.
+            ...(event.publicNode
+              ? {
+                  publicNode: storedHorsePublicNode(event.publicNode, event.origin, () =>
+                    this.horseVpipDecisionInputs(actorId)
+                  ),
+                }
+              : {}),
             ...(event.origin ? { origin: event.origin } : {}),
             // V12.3: carry isFullRaise into hand_history. HandController
             // records it on its own actionHistory (a short all-in is NOT a

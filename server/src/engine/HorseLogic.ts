@@ -6366,6 +6366,8 @@ export class HorseLogic {
         if (tele && Number(gs.vpipFloor ?? 0) > 0 && decision !== beforeCallDown)
           noteFire('vpip_floor_call_down');
       } else {
+        // The opportunity count for the postflop upgrade counters (01, 02, 06).
+        if (tele) noteFire('decide_postflop');
         decision = this.decidePostflop(
           player,
           gs,
