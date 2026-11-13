@@ -1122,8 +1122,12 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
   //  - the price is 0.05 or better (19 to 1): three ways no hand is under
   //    0.127 against two tight ranges, and only a dominated king against aces
   //    and kings exactly (0.044) falls below the price;
-  //  - 2 big blinds or fewer remain behind: the guard's own tournament crumbs
-  //    line (a stack that small has no later fold to protect);
+  //  - 2 big blinds or fewer remain behind AND the hand is not junk: the
+  //    guard's own tournament crumbs line (a stack that small has no later
+  //    fold to protect). Independent review 461281e7: without a floor this
+  //    clause put 72o, K2o, 94o and 83o in at a 0.192 price three ways, where
+  //    they hold about 0.13 to 0.17 against tight ranges, so it shares the
+  //    0.26 floor below;
   //  - the hero is committed (half or more of the stack it started the hand
   //    with is already in: from there the stack left is no larger than the
   //    chips a fold abandons, and every spot in the study sat at 0.52 to
@@ -1139,7 +1143,7 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
       committedOn &&
       isTourney &&
       (guardOdds <= MULTIWAY_TOKEN_PRICE ||
-        stackBB <= COMMITTED_CRUMBS_BB ||
+        (stackBB <= COMMITTED_CRUMBS_BB && ctx.strength >= COMMITTED_MIN_STRENGTH) ||
         (heroCommitted && ctx.strength >= COMMITTED_MIN_STRENGTH));
     if (!exemptionEnds) return out;
     committedRescue = true;

@@ -229,6 +229,23 @@ describe('what still folds', () => {
     }
   });
 
+  // Independent review 461281e7: the 2 big blinds behind clause shares the
+  // 0.26 floor, so junk no longer goes in at the 77 node's 0.192 price three
+  // ways, where it holds about 0.13 to 0.17 against tight ranges.
+  for (const [rank1, suit1, rank2, suit2] of [
+    ['7', 'spades', '2', 'hearts'],
+    ['K', 'clubs', '2', 'diamonds'],
+    ['9', 'spades', '4', 'hearts'],
+    ['8', 'clubs', '3', 'diamonds'],
+  ] as const) {
+    it(`at the 77 node (1.8 big blinds behind, price 0.192), ${rank1}${rank2} offsuit is junk and folds`, () => {
+      const decisions = overSeeds(
+        withCards(spotNamed('pair-of-sevens-big-blind'), [rank1, suit1], [rank2, suit2])
+      );
+      expect(actions(decisions)).toEqual(['fold']);
+    });
+  }
+
   it('at the 33 node (price 0.110), seven-deuce is junk and folds', () => {
     const decisions = overSeeds(
       withCards(spotNamed('pair-of-threes-button'), ['7', 'spades'], ['2', 'hearts'])
