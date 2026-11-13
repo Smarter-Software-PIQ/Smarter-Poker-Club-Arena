@@ -15048,7 +15048,7 @@ function LiveTablePage({
        tab. Setting the flag with no cluster left it `true` against a modal that
        renders null, so the lobby popped open unbidden when the cluster read
        landed seconds later. Read from the ref, not from the closure. */
-    if (!tableStateRef.current?.clusterId) return;
+    if (!lightningRoomClusterId && !tableStateRef.current?.clusterId) return;
     setShowMustMoveLobby(true);
   });
 
@@ -33034,7 +33034,8 @@ function LiveTablePage({
           (This comment used to describe the tournament lobby below it.) */}
       <MustMoveLobbyModal
         isOpen={showMustMoveLobby}
-        gameId={tableState.clusterId}
+        gameId={lightningRoomClusterId ?? tableState.clusterId}
+        lightning={Boolean(lightningRoomClusterId)}
         asset={tableState.arenaAsset === 'diamonds' ? 'diamonds' : 'chips'}
         currentTableId={tableId}
         onClose={() => setShowMustMoveLobby(false)}
