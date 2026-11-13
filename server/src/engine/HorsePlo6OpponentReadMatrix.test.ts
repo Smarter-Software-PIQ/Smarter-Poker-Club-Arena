@@ -8,31 +8,38 @@
  * fixed. Only one opponent's public record changes:
  *
  *   node 13  the button, 390 big blinds deep, faces a four-bet from seat 1;
- *            seat 2 (the first raiser) is still in, seats 3 and 4 have folded
- *   node 7   the button faces seat 2's open and two callers
+ *            seat 2 (the first raiser) and seat 6 (a cold caller) are still
+ *            in, seats 3 and 4 have folded; the table's 50% floor applies
+ *   node 7   the button faces seat 2's open and two callers (this recorded
+ *            node carries no floor)
  *
  * The opponent classes are built from public preflop actions with the same
  * functions the live memory uses (exploitHandIncrements, decayAndAdd) and are
- * installed as that player's durable PLO6 cash profile. Every profile and
- * the fixed complaint seeds are replayed, 60 decisions a cell.
+ * installed as that player's durable PLO6 cash profile at the exact table
+ * size only. Every profile and the fixed complaint seeds are replayed (six
+ * profiles by ten seeds a cell).
  *
  * What is pinned, and why it matters for reading live hands:
  *   1. Recognition: unknown is presumed aggressive; a long record of limping
- *      or folding disproves it; raising every hand is evidence; four raises
- *      are not evidence; a borrowed read expires on the player's hand clock.
+ *      or folding disproves it; raising every hand, or re-raising half the
+ *      raises faced, is evidence; four raises are not evidence; a borrowed
+ *      read expires on the player's hand clock.
  *   2. Attribution: only the seat whose raise the Horse faces moves the
  *      action. The same record on a player who raised earlier, called or
  *      folded changes nothing.
  *   3. Response: against proven tight play the Horse keeps exactly its
  *      unknown-opponent baseline (the engine has no preflop tight exploit);
- *      against an observed raiser it stops shoving and calls or folds, and
- *      it re-raises that player's opens.
+ *      against an observed raiser it stops shoving and calls or folds; it
+ *      re-raises the open of a player who raises every hand and calls the
+ *      open of a selective re-raiser.
  *   4. The receipt maniac_pressure_preflop fires for an unknown opponent too
  *      (the Omaha presumption supplies the width), so the receipt alone does
  *      not show that a maniac was observed.
  *
  * This file records behaviour; it is not a statement that each response is
- * the best play. Node 13's baseline shove is driven by the VPIP floor
+ * the best play. If a deliberate change to the shared Omaha read or to these
+ * nodes moves a cell, update that cell here in the same pull request and say
+ * so; the attribution cases should not need to move. Node 13's baseline shove is driven by the VPIP floor
  * (PLO6-AUDIT-004), which is why the unfloored control is here.
  */
 import { afterEach, describe, expect, it } from 'vitest';
@@ -77,8 +84,11 @@ function record(hands: PublicHand[]): ExploitCounters {
   const counters = freshExploitCounters();
   for (const hand of hands) {
     const actions = [
-      ...(hand.facingRaise ? [{ userId: 'another', action: 'raise', stage: 'preflop' }] : []),
-      { userId: id, action: hand.action, stage: 'preflop' },
+      ...(hand.facingRaise
+        ? [{ userId: 'another', action: 'raise', stage: 'preflop', origin: 'player' }]
+        : []),
+      // origin 'player' is what the live log carries; a fold without it is not counted.
+      { userId: id, action: hand.action, stage: 'preflop', origin: 'player' },
     ];
     const increment = exploitHandIncrements(actions as never).get(id);
     if (increment) decayAndAdd(counters, increment);
@@ -97,9 +107,10 @@ const CLASSES = {
   loosePassive: record(times(60, { action: 'call' })),
   sustained: record(times(120, { action: 'raise' })),
   selective: record(
-    Array.from({ length: 120 }, (_, i) =>
-      i % 2 === 0 ? { action: 'raise', facingRaise: true } : { action: 'fold' }
-    )
+    Array.from({ length: 120 }, (_, i) => ({
+      action: i % 2 === 0 ? 'raise' : 'fold',
+      facingRaise: true,
+    }))
   ),
   wasRaisingNowQuiet: record([
     ...times(120, { action: 'raise' }),
@@ -146,17 +157,19 @@ function decideAt(
       HorseMind.reset();
       const counters = CLASSES[cls];
       if (counters)
-        HorseMind.importDurableOpponentProfiles(
-          (['hu', 'short', 'full'] as const).map((size) => ({
+        // The exact context only (both nodes read omaha:full). The same record at a
+        // sibling size would be blended in as a donor and count a thin record twice.
+        HorseMind.importDurableOpponentProfiles([
+          {
             user_id: uid(seat),
-            variant: 'plo6' as const,
-            mode: 'cash' as const,
-            size,
+            variant: 'plo6',
+            mode: 'cash',
+            size: 'full',
             observed_hands: 300,
             initialized: true,
             counters,
-          }))
-        );
+          },
+        ]);
       drainFires();
       const decision = HorseLogic.decide(hero, gs as never, profile.style, profile.mods, {
         telemetry: true,
@@ -170,6 +183,7 @@ function decideAt(
   return cell;
 }
 
+const CELL = replayProfiles('cash').length * COMPLAINT_SEEDS.length;
 const ALL = Object.keys(CLASSES) as OpponentClass[];
 const TIGHT: OpponentClass[] = ['tightFolder', 'tightOneRaise', 'loosePassive'];
 const OBSERVED_RAISERS: OpponentClass[] = ['sustained', 'selective', 'wasRaisingNowQuiet'];
@@ -200,13 +214,15 @@ describe('PLO6 recognition: what each public record reads as', () => {
   });
 
   it('raising every hand, and re-raising half of the raises faced, are evidence', () => {
-    for (const cls of ['sustained', 'selective'] as const) {
-      const r = readOf(cls);
-      expect(r.outcome, cls).toBe('evidenced');
-      expect(maniacRaiseWidth(r.read), cls).toBeGreaterThan(0.8);
-    }
-    expect(readOf('selective').read!.stats.threeBet.engaged).toBe('high');
-    expect(readOf('sustained').read!.stats.threeBet.engaged).toBeNull();
+    const sustained = readOf('sustained');
+    expect(sustained.outcome).toBe('evidenced');
+    expect(maniacRaiseWidth(sustained.read)).toBeGreaterThan(0.8);
+    expect(sustained.read!.stats.threeBet.engaged).toBeNull();
+    const selective = readOf('selective');
+    expect(selective.outcome).toBe('evidenced');
+    expect(selective.read!.stats.threeBet.engaged).toBe('high');
+    expect(maniacRaiseWidth(selective.read)).toBeGreaterThanOrEqual(MANIAC_MIN_RAISE_WIDTH);
+    expect(maniacRaiseWidth(selective.read)).toBeLessThan(maniacRaiseWidth(sustained.read)!);
   });
 
   it('four raises are not evidence: the read stays presumed, though wider', () => {
@@ -269,7 +285,7 @@ describe('PLO6 response: the same node against each class of raiser', () => {
   const baseline7 = decideAt(OPEN_NODE, 'unknown', FIRST_RAISER);
 
   it('baseline against an unknown raiser: shoves the four-bet node, mostly folds the open', () => {
-    expect(baseline13.actions).toEqual({ all_in: 60 });
+    expect(baseline13.actions).toEqual({ all_in: CELL });
     expect(baseline7.actions.fold).toBeGreaterThan(baseline7.actions.call ?? 0);
     expect(baseline7.actions.raise).toBeUndefined();
   });
@@ -295,11 +311,18 @@ describe('PLO6 response: the same node against each class of raiser', () => {
     }
   );
 
-  it.each(OBSERVED_RAISERS)("%s: that player's open is re-raised", (cls) => {
-    const open = decideAt(OPEN_NODE, cls, FIRST_RAISER);
-    expect(open.actions.fold).toBeUndefined();
-    expect(open.actions.raise).toBeGreaterThan(open.actions.call ?? 0);
-    expect(open.receipts.v53_pressure_preflop).toBeGreaterThan(0);
+  it.each(['sustained', 'wasRaisingNowQuiet'] as const)(
+    "%s: that player's open is re-raised, never folded to",
+    (cls) => {
+      const open = decideAt(OPEN_NODE, cls, FIRST_RAISER);
+      expect(open.actions.fold).toBeUndefined();
+      expect(open.actions.raise).toBeGreaterThan(open.actions.call ?? 0);
+      expect(open.receipts.v53_pressure_preflop).toBeGreaterThan(0);
+    }
+  );
+
+  it("a selective re-raiser's open is called: not folded, and not re-raised", () => {
+    expect(decideAt(OPEN_NODE, 'selective', FIRST_RAISER).actions).toEqual({ call: CELL });
   });
 
   it('twelve recent raises after a quiet record do not move either node off the baseline', () => {
@@ -311,17 +334,19 @@ describe('PLO6 response: the same node against each class of raiser', () => {
     );
   });
 
-  it('four raises by the raiser already move both nodes (recorded as a sensitivity, not endorsed)', () => {
-    const four = decideAt(FOUR_BET_NODE, 'sparse', FOUR_BETTOR);
-    expect(four.actions.all_in).toBeUndefined();
-    expect(decideAt(OPEN_NODE, 'sparse', FIRST_RAISER).actions).not.toEqual(baseline7.actions);
+  it('four raises leave the deep node on its baseline but already move the open node', () => {
+    // Recorded as a sensitivity of the widened presumed read, not endorsed.
+    expect(decideAt(FOUR_BET_NODE, 'sparse', FOUR_BETTOR).actions).toEqual(baseline13.actions);
+    const open = decideAt(OPEN_NODE, 'sparse', FIRST_RAISER);
+    expect(open.actions).not.toEqual(baseline7.actions);
+    expect(open.actions.raise).toBeGreaterThan(0);
   });
 
   it('the maniac receipt fires for an unknown raiser as well, so it is not proof of observation', () => {
-    expect(baseline13.receipts.maniac_pressure_preflop).toBe(60);
+    expect(baseline13.receipts.maniac_pressure_preflop).toBe(CELL);
     expect(baseline13.receipts.plo_opponent_presumed_aggressive).toBeGreaterThan(0);
     expect(decideAt(FOUR_BET_NODE, 'sustained', FOUR_BETTOR).receipts.maniac_pressure_preflop).toBe(
-      60
+      CELL
     );
   });
 
@@ -330,7 +355,7 @@ describe('PLO6 response: the same node against each class of raiser', () => {
       gs.vpipFloor = 0;
       delete gs.ownVpip;
     });
-    expect(baseline13.receipts.vpip_floor).toBe(60);
+    expect(baseline13.receipts.vpip_floor).toBe(CELL);
     expect(unfloored.receipts.vpip_floor).toBeUndefined();
     expect(unfloored.actions.all_in).toBeUndefined();
   });
