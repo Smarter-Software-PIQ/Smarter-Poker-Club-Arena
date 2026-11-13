@@ -41,6 +41,8 @@ import {
 import { isMaintenanceFrozen } from '../maintenance/freezeState.js';
 import {
   bodiesOnHostFrom,
+  seatsOnHostFrom,
+  stableHandHostSeatCeilings,
   chicagoNow,
   hostAllowsNewBody,
   stableHandHostCaps,
@@ -2496,6 +2498,12 @@ export class HorseFleetManager {
       }
       const stableHandCaps = stableHandHostCaps(eligibleByHost, chicagoNow());
       const bodiesOnHost = bodiesOnHostFrom(allActiveSeats, hostOfTable);
+      /* THE CURVE GOVERNS SEATS TOO (Dan 2026-11-13): the lobby counts
+         chairs, so a host also stops at its body cap times the band's
+         seats-per-horse ceiling (StableHand.hostSeatCeiling). Updated as
+         this cycle seats, exactly like bodiesOnHost. */
+      const seatsOnHost = seatsOnHostFrom(allActiveSeats, hostOfTable);
+      const seatCeilings = stableHandHostSeatCeilings(stableHandCaps, chicagoNow().hour);
       /* WHERE EACH HORSE ALREADY IS. One body plays one club and one host at a
          time (section 11), and both are read from the live seat map rather
          than from stable_hand_horse_state: the seat rows are what actually
@@ -2847,6 +2855,8 @@ export class HorseFleetManager {
           eligible,
           onDuty: onDutyBodies,
           target: stableHandCaps.get(hostId) ?? null,
+          seats: seatsOnHost.get(hostId) ?? 0,
+          seatCeiling: seatCeilings.get(hostId) ?? null,
         });
       }
       if (book) {
@@ -2904,7 +2914,8 @@ export class HorseFleetManager {
             rejoin,
             disabledGameIds,
             readIsCurrent,
-            book
+            book,
+            { seatsOnHost, seatCeilings }
           );
       seatBudget -= claimed;
       beat.seatsFilled += claimed;
@@ -3029,6 +3040,7 @@ export class HorseFleetManager {
           | 'lone_seat_refused'
           | 'lone_seat_left'
           | 'stale_snapshot'
+          | 'seat_ceiling'
           | `buyin_${BuyInRefusal}`
       ) => {
         if (diag) diag.skipped[r] = (diag.skipped[r] ?? 0) + 1;
@@ -3037,6 +3049,8 @@ export class HorseFleetManager {
          this cycle because only one horse could sit there. Counted once per
          table per cycle and logged once per cycle - see HorseLoneTable.ts. */
       let loneSeatRefused = 0;
+      let seatCeilingTrimmed = 0;
+      let seatCeilingSkipped = 0;
       /* Empty cluster tables that still ended a cycle with ONE horse after the
          door refused the second and a second draw over the pool found nobody
          else. The lone stand (HorseLoneTable) clears these at ten minutes. */
@@ -3789,6 +3803,8 @@ export class HorseFleetManager {
                 caps: stableHandCaps,
                 bodiesOnHost,
                 humanNeedsRescue,
+                seatsOnHost,
+                seatCeilings,
               })
             ) {
               hostCapRefused++;
@@ -4137,6 +4153,36 @@ export class HorseFleetManager {
             }
           }
 
+          /* THE SEAT CEILING, PER TABLE (Dan 2026-11-13, the player curve).
+             The candidate gate above runs once per table, before that table's
+             seats are bought, so a table could overshoot the host's seats by
+             its empty chairs. Trim to the room that is left, and apply the
+             lone-seat rule again to what remains. A person who needs the game
+             rescued is never trimmed. */
+          const ceilingHost = String((table as any).club_id ?? '');
+          const ceilingHere = seatCeilings.get(ceilingHost);
+          if (!humanNeedsRescue && ceilingHere !== undefined) {
+            const room = Math.max(0, ceilingHere - (seatsOnHost.get(ceilingHost) ?? 0));
+            if (cleared.length > room) {
+              for (const c of cleared.slice(room)) seatPicker.release(c.seatNumber);
+              cleared.splice(room);
+              seatCeilingTrimmed++;
+            }
+            if (
+              cleared.length === 0 ||
+              refusesLoneSeat({
+                clusterTable: !!table.cluster_id,
+                currentCount,
+                sittable: cleared.length,
+              })
+            ) {
+              for (const c of cleared) seatPicker.release(c.seatNumber);
+              seatCeilingSkipped++;
+              noteSkip(diag, 'seat_ceiling');
+              continue;
+            }
+          }
+
           // Seat each horse at an ACTUAL empty seat
           let seated = 0;
           /* ONE SEATING, ONE PLACE. The main pass below and the lone-seat
@@ -4150,6 +4196,12 @@ export class HorseFleetManager {
             verdict: Extract<SitVerdict, { ok: true }>
           ): Promise<boolean> => {
             const { seatClub, buyIn } = verdict;
+            if (
+              !humanNeedsRescue &&
+              ceilingHere !== undefined &&
+              (seatsOnHost.get(ceilingHost) ?? 0) >= ceilingHere
+            )
+              return false;
             /* THE COUNTER THE MUTEX READS is written against the SAME key the
                mutex judged (see the takenKey write below). */
             const key = verdict.sitKey;
@@ -4217,6 +4269,7 @@ export class HorseFleetManager {
             if (seatedHost) {
               if (!bodiesOnHost.has(seatedHost)) bodiesOnHost.set(seatedHost, new Set());
               bodiesOnHost.get(seatedHost)!.add(horse.id);
+              seatsOnHost.set(seatedHost, (seatsOnHost.get(seatedHost) ?? 0) + 1);
             }
             // The seat we just bought is exposure NOW, not next cycle: without
             // this the aggregate ceiling only ever sees the position the cycle
@@ -4434,6 +4487,12 @@ export class HorseFleetManager {
       if (staleTablesSkipped > 0) {
         console.log(staleSnapshotLine(staleTablesSkipped));
       }
+      if (seatCeilingTrimmed > 0 || seatCeilingSkipped > 0) {
+        console.log(
+          `[HorseFleet] seat_ceiling trimmed=${seatCeilingTrimmed} skipped=${seatCeilingSkipped}: ` +
+            "table(s) seated only up to the host's seat ceiling (the player curve)"
+        );
+      }
       if (loneSeatRefused > 0) {
         console.log(
           `[HorseFleet] lone_seat_refused=${loneSeatRefused}: empty cluster table(s) left empty ` +
@@ -4578,7 +4637,7 @@ export class HorseFleetManager {
       // OPEN rule and thin tables close through its BREAK rule. The fleet no
       // longer spawns or retires a table; the Stable Hand's open order is a
       // game (openPlannedTables asks fn_cash_game_ensure), never a table.
-      await this.openPlannedTables(tables, bodiesOnHost, stableHandCaps);
+      await this.openPlannedTables(tables, bodiesOnHost, stableHandCaps, seatsOnHost, seatCeilings);
 
       /* ══ THE DAY'S COUNTERS, WRITTEN ONCE PER CYCLE ═══════════════════════
          Everything the Stable Hand mutex reads about a horse's day is written
@@ -5017,7 +5076,9 @@ export class HorseFleetManager {
   private async openPlannedTables(
     tables: Array<{ id: string; name: string; club_id?: string | null }>,
     bodiesOnHost: ReadonlyMap<string, ReadonlySet<string>>,
-    caps: ReadonlyMap<string, number>
+    caps: ReadonlyMap<string, number>,
+    seatsOnHost: ReadonlyMap<string, number> = new Map(),
+    seatCeilings: ReadonlyMap<string, number> = new Map()
   ): Promise<void> {
     if (!controllerEnabled()) return;
     if (isMaintenanceFrozen()) return;
@@ -5034,6 +5095,9 @@ export class HorseFleetManager {
         if (openedThisCycle.has(order.hostId)) continue;
         const cap = caps.get(order.hostId);
         if (cap !== undefined && (bodiesOnHost.get(order.hostId)?.size ?? 0) >= cap) continue;
+        const seatCeiling = seatCeilings.get(order.hostId);
+        if (seatCeiling !== undefined && (seatsOnHost.get(order.hostId) ?? 0) >= seatCeiling)
+          continue;
 
         /* THE ORDER NAMES ITS RUNG WHERE IT CAN (2026-09-11). `stakeForBand`
            answers the PLATFORM ladder's top rung of the band - 25/50 for
@@ -5172,7 +5236,14 @@ export class HorseFleetManager {
     shouldContinue?: () => boolean,
     /** The cycle's tag book (HorseWorkSchedule); null fails open on the rest
      *  day and daily cap, the work hours always apply. */
-    dutyBook: TagBook | null = null
+    dutyBook: TagBook | null = null,
+    /** The host seat counts and ceilings (the player curve). A seat call is a
+     *  new seat like any other: refused at the ceiling unless a person is
+     *  already at that table, and counted when claimed. */
+    seatGate: {
+      seatsOnHost: Map<string, number>;
+      seatCeilings: ReadonlyMap<string, number>;
+    } | null = null
   ): Promise<number> {
     let claimed = 0;
     try {
@@ -5281,6 +5352,15 @@ export class HorseFleetManager {
           recordSeatCallDeclined();
           continue;
         }
+        const offerHost = String(table.club_id ?? '');
+        const offerCeiling = seatGate?.seatCeilings.get(offerHost);
+        if (
+          seatGate &&
+          offerCeiling !== undefined &&
+          (seatGate.seatsOnHost.get(offerHost) ?? 0) >= offerCeiling &&
+          !(seatsByTable.get(table.id) ?? []).some((x) => !horseIdSet.has(x.user_id))
+        )
+          continue;
         /* A DRAINING TABLE TAKES NOBODY BACK (2026-09-03). This path seats a
            horse from a waitlist offer and never consulted surplusTableIds, so
            a horse holding a `notified` row for a retiring table would be
@@ -5377,6 +5457,7 @@ export class HorseFleetManager {
         used.add(seatNumber);
         taken.set(table.id, used);
         claimed++;
+        seatGate?.seatsOnHost.set(offerHost, (seatGate.seatsOnHost.get(offerHost) ?? 0) + 1);
 
         // The seat is taken; the row must say so, or pruneHorseWaitlist reads
         // it as a horse still standing in the queue and clears it every cycle.

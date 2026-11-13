@@ -157,7 +157,7 @@ describe('the buy-in brings the floor', () => {
     expect(CLAIM).toMatch(/seatClub,\s*rejoin\.rejoinFloor\.get\(offerDoorKey\)\s*\)/);
     // and the cycle passes what it read
     expect(SEED).toMatch(
-      /surplusTableIds,\s*seatBudget,\s*rejoin,\s*disabledGameIds,\s*readIsCurrent,\s*book\s*\)/
+      /surplusTableIds,\s*seatBudget,\s*rejoin,\s*disabledGameIds,\s*readIsCurrent,\s*book,\s*\{ seatsOnHost, seatCeilings \}\s*\)/
     );
   });
 });

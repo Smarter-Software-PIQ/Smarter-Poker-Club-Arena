@@ -118,3 +118,49 @@ export function LightningLeaveControl({
     </button>
   );
 }
+
+/**
+ * THE SAME BUTTON BEFORE LIGHTNING STARTS (Dan 2026-11-13: "THE LEAVE NEXT
+ * HAND BUTTON IS MISSING FROM NO LIMIT LIGHTNING GAMES"). A Lightning game is
+ * an ordinary table until enough players sit ("3 More Players Until Lightning
+ * Games Start"), and the control above only exists inside a running pool, so
+ * a player seated during that wait had no button at all. Here the leave is
+ * the ordinary table's leave-after-this-hand (useLeaveTableNextHand); tapping
+ * it again while it is armed keeps the player at the table.
+ */
+export function LightningFeederLeaveControl({
+  queued,
+  pending,
+  onLeave,
+  onCancel,
+}: {
+  queued: boolean;
+  pending: boolean;
+  onLeave: () => void | Promise<void>;
+  onCancel: () => void;
+}) {
+  const label = pending ? 'Leaving...' : queued ? 'Leaving After Hand' : 'Leave Next Hand';
+  const labelRef = useFitText<HTMLSpanElement>(label, 1, 0.5);
+  return (
+    <button
+      type="button"
+      className="lightning-leave-control"
+      disabled={pending}
+      aria-busy={pending}
+      data-queued={queued ? 'true' : undefined}
+      title={queued ? 'Tap To Keep Playing' : undefined}
+      onClick={() => {
+        if (queued) onCancel();
+        else void onLeave();
+      }}
+    >
+      <img
+        className="lightning-leave-control__chip"
+        src={`${import.meta.env.BASE_URL}game-card-icons/classic-spade-chip-v1.png`}
+        alt=""
+        aria-hidden="true"
+      />
+      <span ref={labelRef}>{label}</span>
+    </button>
+  );
+}

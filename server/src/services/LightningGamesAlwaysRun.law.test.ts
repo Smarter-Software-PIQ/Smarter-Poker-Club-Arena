@@ -20,10 +20,17 @@ import {
  * STAKES, UNLESS HUMANS SIT DOWN, IF A HUMAN SITS DOWN, THEN MORE HORSES CAN
  * SIT AS WELL... FIGURE OUT THE RIGHT ALGO TO INSURE THAT THE GAMES STILL RUN,
  * BUT NOT ALL THE TIME, AND WE STAY UNDER THE 200K MARK."
+ *
+ * Dan 2026-11-13 11:43, superseding that rule for these stakes: "THE 1/2
+ * PLAYERS NEED TO BE SPLIT UP AMONGST ALL OF THE GAMES, INCLUDING THE
+ * LIGHTNING GAMES. AND INCLUDING LIGHTNING .50/1.00 FOR BOTH PLO AND HOLDEM."
+ * Horses now start the .25/.50, .50/1 (NLH, PLO4) and 1/2 (NLH, PLO4, PLO5)
+ * Lightning games; every other Lightning game is still started by a person.
  */
 const SEEDED = '705270cd-03c2-40d9-8749-038f741a295c'; // PLO4 0.25/0.50 Lightning Games
-const STARTED_BY_PEOPLE = 'c79d8ec2-2281-411d-b4e1-42b5610849e2'; // PLO4 1/2 Lightning Games
-const lightningGames = new Set([SEEDED, STARTED_BY_PEOPLE]);
+const PLO4_ONE_TWO = 'c79d8ec2-2281-411d-b4e1-42b5610849e2'; // PLO4 1/2 Lightning Games, now seeded
+const STARTED_BY_PEOPLE = 'ccf9a4f4-9f61-47bd-8bb4-8730b17608bd'; // PLO6 .50/1 Lightning Games
+const lightningGames = new Set([SEEDED, PLO4_ONE_TWO, STARTED_BY_PEOPLE]);
 const tablesOf = (game: string, variant: string, sb: number, bb: number) => {
   const base: CashPlanTable = {
     union_id: plan.unionId,
@@ -40,8 +47,9 @@ const tablesOf = (game: string, variant: string, sb: number, bb: number) => {
   ];
 };
 const seeded = tablesOf(SEEDED, 'plo4', 0.25, 0.5);
-const byPeople = tablesOf(STARTED_BY_PEOPLE, 'plo4', 1, 2);
-const primary = horseCashPlanPrimaryTables([...seeded, ...byPeople]);
+const byPeople = tablesOf(STARTED_BY_PEOPLE, 'plo6', 0.5, 1);
+const ploOneTwo = tablesOf(PLO4_ONE_TWO, 'plo4', 1, 2);
+const primary = horseCashPlanPrimaryTables([...seeded, ...byPeople, ...ploOneTwo]);
 const everyHour = (fn: (now: number) => void) => {
   for (let hourOfWeek = 0; hourOfWeek < 7 * 24; hourOfWeek++)
     fn(Date.UTC(2026, 10, 9, 6) + hourOfWeek * 3_600_000 + 17 * 60_000);
@@ -50,7 +58,15 @@ const everyHour = (fn: (now: number) => void) => {
 describe('Lightning: no cap and no clock; horses start only a few games, people start the rest', () => {
   it('names exactly the horse-started Lightning games in the plan', () => {
     expect([...LIGHTNING_HORSE_SEEDED].sort()).toEqual(
-      ['705270cd-03c2-40d9-8749-038f741a295c', 'b3c63129-9377-4c61-9f62-089893a20c66'].sort()
+      [
+        '705270cd-03c2-40d9-8749-038f741a295c', // PLO4 .25/.50
+        'b3c63129-9377-4c61-9f62-089893a20c66', // NLH .25/.50
+        '57ca90e4-815e-4081-a5d2-1f10522d95c7', // NLH .50/1
+        'f26f6efa-2470-49e7-8e96-6128f4d0cdb5', // PLO4 .50/1
+        '563279fc-c09a-48a6-b487-c4f34f289095', // NLH 1/2
+        'c79d8ec2-2281-411d-b4e1-42b5610849e2', // PLO4 1/2
+        'f67a1436-e842-4b49-8644-3e184bd77ba6', // PLO5 1/2
+      ].sort()
     );
   });
 
@@ -89,44 +105,52 @@ describe('Lightning: no cap and no clock; horses start only a few games, people 
     });
   });
 
-  it('retains the 1/2 PLO Lightning participants after the last person leaves', () => {
-    const now = Date.UTC(2026, 10, 9, 15);
-    for (const table of byPeople) {
-      expect(
-        horseUnionCashTableAllowed(table, 0, now, primary, lightningGames, new Set(), null, true)
-      ).toBe(true);
-      expect(horseUnionCashTableAllowed(table, 0, now, primary, lightningGames, new Set())).toBe(
-        false
-      );
-    }
-    const other = { ...byPeople[0], cluster_id: 'another-person-started-game' };
-    expect(
-      horseUnionCashTableAllowed(
-        other,
-        0,
-        now,
-        primary,
-        new Set([String(other.cluster_id)]),
-        new Set(),
-        null,
-        true
-      )
-    ).toBe(false);
+  it('horses seed 1/2 PLO Lightning with nobody there, demand or not, at every hour', () => {
+    const windDown = {
+      game_id: PLO4_ONE_TWO,
+      event_id: '00000000-0000-4000-8000-000000000001',
+      continues: false,
+      wind_down: true,
+    } as const;
+    everyHour((now) => {
+      for (const table of ploOneTwo) {
+        expect(horseUnionCashTableAllowed(table, 0, now, primary, lightningGames, new Set())).toBe(
+          true
+        );
+        expect(
+          horseUnionCashTableAllowed(
+            table,
+            0,
+            now,
+            primary,
+            lightningGames,
+            new Set(),
+            null,
+            false,
+            windDown
+          )
+        ).toBe(true);
+      }
+    });
   });
 
-  it('the original exit can retain demand without inventing a playing human', () => {
+  it('1/2 PLO continuation never admits horses to a person-started game', () => {
     const demand = {
-      game_id: STARTED_BY_PEOPLE,
+      game_id: PLO4_ONE_TWO,
       event_id: '00000000-0000-4000-8000-000000000001',
       continues: true,
       wind_down: false,
     } as const;
+    const now = Date.UTC(2026, 10, 10);
     for (const table of byPeople) {
+      expect(
+        horseUnionCashTableAllowed(table, 0, now, primary, lightningGames, new Set(), null, true)
+      ).toBe(false);
       expect(
         horseUnionCashTableAllowed(
           table,
           0,
-          Date.UTC(2026, 10, 10),
+          now,
           primary,
           lightningGames,
           new Set(),
@@ -134,35 +158,8 @@ describe('Lightning: no cap and no clock; horses start only a few games, people 
           false,
           demand
         )
-      ).toBe(true);
-      expect(
-        horseUnionCashTableAllowed(
-          table,
-          0,
-          Date.UTC(2026, 10, 10),
-          primary,
-          lightningGames,
-          new Set(),
-          null,
-          false,
-          { ...demand, continues: false, wind_down: true }
-        )
       ).toBe(false);
     }
-    const other = { ...byPeople[0], cluster_id: 'other' };
-    expect(
-      horseUnionCashTableAllowed(
-        other,
-        0,
-        Date.UTC(2026, 10, 10),
-        primary,
-        new Set(['other']),
-        new Set(),
-        null,
-        false,
-        demand
-      )
-    ).toBe(false);
   });
 
   it('a horse, a sitting-out person or a departing person does not start a game', () => {
