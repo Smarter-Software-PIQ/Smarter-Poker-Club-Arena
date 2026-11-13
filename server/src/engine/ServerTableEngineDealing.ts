@@ -3180,7 +3180,9 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         : headsUpFirstButton !== null
           ? headsUpFirstButton
           : prevButtonSeat > 0
-            ? this.getNextSeat(prevButtonSeat, buttonRoster)
+            ? this.cashButtonStaysAfterHeadsUp(players, buttonRoster)
+              ? prevButtonSeat
+              : this.getNextSeat(prevButtonSeat, buttonRoster)
             : buttonSeats[0];
       if (headsUpFirstButton !== null && this.isTournamentTable()) {
         /**

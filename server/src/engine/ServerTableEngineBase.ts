@@ -10992,6 +10992,34 @@ export abstract class ServerTableEngineBase {
   }
 
   /**
+   * HEADS-UP BACK TO THREE OR MORE, CASH: THE BUTTON STAYS ONE HAND.
+   *
+   * Heads-up the button IS the small blind. Walking the button forward when a
+   * third player is dealt in puts it on the previous big blind, so that player
+   * skips the small blind and the previous button posts the small blind twice
+   * running (HU-EXE-002). Keeping the button where it was for the entry hand
+   * makes the previous big blind post the small blind and lets the big blind
+   * advance one seat, which is what the tournament rule (deadButton.ts) and
+   * the three-handed-to-heads-up rule (headsUpButton.ts) already do.
+   *
+   * True only when the last recorded hand was heads-up (its small blind seat
+   * was its button), both of those players are still button-eligible, and no
+   * other eligible player sits between them. Anything else keeps the walk.
+   */
+  protected cashButtonStaysAfterHeadsUp(roster: SeatedPlayer[], eligible: SeatedPlayer[]): boolean {
+    return (
+      !this.isTournamentTable() &&
+      roster.length >= 3 &&
+      this.lastButtonSeat > 0 &&
+      this.lastBigBlindSeat > 0 &&
+      this.lastSmallBlindSeat === this.lastButtonSeat &&
+      this.lastBigBlindSeat !== this.lastButtonSeat &&
+      eligible.some((p) => p.seat_number === this.lastButtonSeat) &&
+      this.getNextSeat(this.lastButtonSeat, eligible) === this.lastBigBlindSeat
+    );
+  }
+
+  /**
    * Where the button lands on the hand about to be dealt. ONE definition,
    * shared by the SB/BB predictors, the wait-for-BB gate and the rotation
    * itself — if these were separate walks they could disagree about who is on
@@ -11026,6 +11054,7 @@ export abstract class ServerTableEngineBase {
         const headsUp = headsUpButtonSeat(sortedSeats, this.lastBigBlindSeat);
         if (headsUp !== null && headsUp > 0) return headsUp;
       }
+      if (this.cashButtonStaysAfterHeadsUp(roster, eligible)) return this.lastButtonSeat;
       return this.getNextSeat(this.lastButtonSeat, eligible);
     }
     return sortedSeats[0];
