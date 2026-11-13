@@ -119,6 +119,26 @@ BEGIN
     RAISE EXCEPTION 'cashier shared promo limit migration history drift';
   END IF;
 
+  IF NOT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261112204754'
+       AND name = 'promo_tickets_batch_allowance_receipts_and_redeem_names_its_'
+       AND cardinality(statements) = 1
+       AND md5(statements[1]) = '8d1ecb9da84062ffccc1dcd97d7c761d'
+  ) THEN
+    RAISE EXCEPTION 'cashier promo ticket receipt migration history drift';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261112235138'
+       AND name = 'a_replayed_promo_ticket_cancel_names_its_promo_wallet'
+       AND cardinality(statements) = 1
+       AND md5(statements[1]) = '18080405ffb48a82e323e59d9ffe8d3d'
+  ) THEN
+    RAISE EXCEPTION 'cashier promo ticket cancel migration history drift';
+  END IF;
+
   v_contract := jsonb_build_array(
     jsonb_build_object(
       'signature', 'public.fn_club_wallet_claim_back(uuid,uuid,numeric,text,text,text,uuid,uuid)',
@@ -358,10 +378,10 @@ BEGIN
     ),
     jsonb_build_object(
       'signature', 'public.fn_redeem_tournament_ticket(uuid)',
-      -- 20261015132042: a cashier ticket bound to one tournament is refused
-      -- here (it is used by registering). Same provenance as the batch hash.
-      'hash', 'ab95c0907acccdedef0190acf242c8a3',
-      'replacement_hash', '0bb17681b38164a7a2746e17d07597b3'
+      -- Installed 20261112204754 adds the promo issue receipt lookup to the
+      -- exact 20261015132042 body. Reversing that replacement reproduces
+      -- 0bb17681b38164a7a2746e17d07597b3 byte for byte; only its successor is live.
+      'hash', '49cb942d53af3521ff14a6502520924c'
     ),
     jsonb_build_object(
       'signature', 'public.fn_cancel_tournament_ticket(uuid)',
@@ -369,7 +389,9 @@ BEGIN
       -- refund); 20261112184216 (promo chips fund cashier tickets) then
       -- replaced the body from that preimage. Installed and read back live
       -- 2026-11-12: only that successor is accepted.
-      'hash', '7b73f81407a4feb9084b92d5ee38db1d'
+      -- 20261112235138 preserves that body and adds the refund wallet to
+      -- replay receipts plus the exact missing-promo-wallet error.
+      'hash', '25b182e8905f859ba5de2467957a4eda'
     ),
     jsonb_build_object(
       'signature', 'public.fn_club_bank_ledger(uuid,integer,integer,text[])',
