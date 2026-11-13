@@ -27,7 +27,8 @@ const ON = { styleValueBettorNotManiac: true, styleBigBetHonesty: true, styleRai
 const rows: unknown[] = [];
 for (const name of Object.keys(styleLeagueField())) {
   if (only && !only.includes(name)) continue;
-  for (const [arm, horseOpts] of [['off', {}], ['on', ON]] as const) {
+  // telemetry on in both arms so the receipts behind telemetryOn (cap, honesty, raise respect) are counted too
+  for (const [arm, horseOpts] of [['off', { telemetry: true }], ['on', { ...ON, telemetry: true }]] as const) {
     const policy = styleLeagueField()[name];
     HorseMind.clearHarnessStyleMemory();
     BT.drainFires();
