@@ -6,6 +6,7 @@ import {
   startingStackFor,
 } from '../services/HorseBankTheWin.js';
 import { publicMemoryDomainFromRules } from './HorsePublicMemoryDomain.js';
+import { noteFire } from './BrainTelemetry.js';
 import { isMaximumHorseCashStake } from '../services/HorseBehavior.js';
 import { PostHandStageTiming } from './PostHandStageTiming.js';
 import { readCommittedSeatStacks } from './committedSeatStackRead.js';
@@ -2005,6 +2006,17 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
         ])
       ),
     };
+    /* EVIDENCE ONLY (2026-11-12, HVH2D-EXE-002). One count per settled hand,
+       taken here before the first await: was the hand's row built with a
+       memory domain or without one. Before the repair every cash showdown
+       hand was built without one; after it, absent should read near zero. It
+       counts what settlement built, not what the database stored. Named
+       *_seen because both are occurrences, not layers. */
+    noteFire(
+      snap.publicMemoryDomain
+        ? 'hand_memory_domain_recorded_seen'
+        : 'hand_memory_domain_absent_seen'
+    );
     const stageTiming = new PostHandStageTiming(snap.handNumber);
     this.postHandStageTiming = stageTiming;
     // ═══════════════════════════════════════════════════════════════════════

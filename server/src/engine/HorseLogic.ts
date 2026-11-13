@@ -9019,6 +9019,8 @@ export class HorseLogic {
             else if (layer === 'v60_cash_pressure_opener_vs_three_bet')
               noteFire('v60_cash_pressure_opener_vs_three_bet');
             else if (layer === 'v87_deep_dive_discipline') noteFire('v87_deep_dive_discipline');
+            else if (layer === 'bluff_raise_refused_no_fold_equity_seen')
+              noteFire('bluff_raise_refused_no_fold_equity_seen');
           }
         : undefined,
       isShortDeck: vi.isShortDeck === true,

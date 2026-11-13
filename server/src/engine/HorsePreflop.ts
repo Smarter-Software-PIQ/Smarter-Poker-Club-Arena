@@ -133,7 +133,8 @@ export type PreflopLayerReceipt =
   | 'v60_cash_pressure_facing_open'
   | 'v60_cash_pressure_facing_open_superseded'
   | 'v60_cash_pressure_opener_vs_three_bet'
-  | 'v87_deep_dive_discipline';
+  | 'v87_deep_dive_discipline'
+  | 'bluff_raise_refused_no_fold_equity_seen';
 
 /**
  * Dan 2026-11-06 (PLO5 1/2 Madness, hand 55704472): "I JUST WATCHED NOODLE NOT
@@ -738,6 +739,20 @@ export function bluffRaiseCanFoldSomeone(
   everyOpponentAllIn: boolean | undefined
 ): boolean {
   return toCall < stack && everyOpponentAllIn !== true;
+}
+
+/**
+ * EVIDENCE ONLY (2026-11-12). The same test, with a receipt when it refuses.
+ * It is the last condition of the squeeze bluff and the 3-bet bluff, so it is
+ * reached only when every earlier condition held and the draw passed: a
+ * refusal here is a bluff raise that would have been made and was stopped
+ * because nobody could fold. The answer is bluffRaiseCanFoldSomeone's own,
+ * and no random number is drawn here.
+ */
+function bluffRaiseHasFoldEquity(toCall: number, stack: number, ctx: PreflopCtx): boolean {
+  const canFoldSomeone = bluffRaiseCanFoldSomeone(toCall, stack, ctx.everyOpponentAllIn);
+  if (!canFoldSomeone) ctx.noteLayer?.('bluff_raise_refused_no_fold_equity_seen');
+  return canFoldSomeone;
 }
 
 const AOF_TIGHTEN_PER_BB = 0.006;
@@ -2781,7 +2796,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       ctx.maniacNoBluff !== true &&
       rand() < bluffBudget * (ctx.isOmaha ? 0.22 : 0.3) * blockerMult &&
       // The same test as the 3-bet bluff below, after the draw.
-      bluffRaiseCanFoldSomeone(toCall, stack, ctx.everyOpponentAllIn)
+      bluffRaiseHasFoldEquity(toCall, stack, ctx)
     ) {
       noteAuthority('squeeze_bluff');
       if (ctx.isPotLimit) {
@@ -2844,7 +2859,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       ctx.maniacNoBluff !== true &&
       rand() < (def72 ? bluff72 : bluffFreqHere) &&
       // Tested after the draw so the random stream is unchanged.
-      bluffRaiseCanFoldSomeone(toCall, stack, ctx.everyOpponentAllIn)
+      bluffRaiseHasFoldEquity(toCall, stack, ctx)
     ) {
       noteAuthority('three_bet_bluff');
       if (ctx.isPotLimit) {

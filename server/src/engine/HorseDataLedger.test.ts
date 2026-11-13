@@ -102,6 +102,9 @@ const RECEIPT_ONLY_FILES = [
   // are counted where they are sent and computed.
   'engine/ServerTableEngineRunout.ts',
   'engine/HorseOpponentExploit.ts',
+  // Fix evidence (2026-11-12): a settled hand counts whether its row was
+  // built with a memory domain, where the row is built.
+  'engine/ServerTableEngineSettlement.ts',
 ];
 const RECEIPT_SOURCE = BRAIN_SOURCE + '\n' + RECEIPT_ONLY_FILES.map(read).join('\n');
 
