@@ -98,12 +98,19 @@ ENTRYPOINT ["/usr/bin/tini", "-s", "-g", "--"]
 CMD ["fixture-server", "capabilities"]
 
 # Build the official managed-Postgres hook against the same pinned PG17 ABI.
+# Every PostgreSQL package is named with its exact version in each builder
+# install: on 2026-11-13 trixie-security published 17.12, and the unpinned
+# libpq-dev pulled by build dependencies upgraded postgresql-17, libpq5 and
+# postgresql-server-dev-17 to 17.12 inside the builders while the runtime stage
+# stayed on 17.11, so every native smoke failed with 58P01 from
+# internal_load_library. The builders and the runtime share one ABI or none.
 # Compiler packages stay in this CI-only intermediate stage.
 FROM postgres-runtime AS supautils-builder
 USER root
 ADD --checksum=sha256:36c758bd7facda65e1c8ce4a59ebf714d36f3054a2d898a1e8d53cae37e71bec https://codeload.github.com/supabase/supautils/tar.gz/e35f8affc4467202ff0d98f8dd14cb955bc13c75 /tmp/supautils.tar.gz
 RUN apt-get update -o APT::Update::Error-Mode=any \
-    && apt-get install -y --no-install-recommends build-essential patch libicu-dev libxml2-dev postgresql-server-dev-17=17.11-0+deb13u1 \
+    && apt-get install -y --no-install-recommends build-essential patch libicu-dev libxml2-dev \
+      postgresql-17=17.11-0+deb13u1 postgresql-client-17=17.11-0+deb13u1 libpq5=17.11-0+deb13u1 libpq-dev=17.11-0+deb13u1 postgresql-server-dev-17=17.11-0+deb13u1 \
     && mkdir /tmp/supautils \
     && tar -xzf /tmp/supautils.tar.gz --strip-components=1 -C /tmp/supautils \
     && make -C /tmp/supautils PG_CONFIG=/usr/lib/postgresql/17/bin/pg_config \
@@ -139,6 +146,7 @@ FROM supautils-builder AS genuine-providers-builder
 USER root
 RUN apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends \
+      postgresql-17=17.11-0+deb13u1 postgresql-client-17=17.11-0+deb13u1 libpq5=17.11-0+deb13u1 libpq-dev=17.11-0+deb13u1 postgresql-server-dev-17=17.11-0+deb13u1 \
       libcurl4-openssl-dev libsodium-dev pkg-config perl file \
       libgeos-dev libproj-dev libgdal-dev libjson-c-dev libprotobuf-c-dev \
       protobuf-c-compiler libpcre2-dev libsfcgal-dev

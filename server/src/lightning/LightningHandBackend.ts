@@ -41,6 +41,7 @@ import { loadTable } from '../services/supabase/tables.js';
 import { processHandPostCommitObligations } from '../services/supabase/handProjection.js';
 import { lightningAnchorTimeBanks } from '../services/supabase/lightningAnchor.js';
 import { isUuid } from './LightningRpc.js';
+import { countStoredHandMemoryDomain } from '../services/supabase/handMemoryDomainSignal.js';
 
 /** One formed seat, as the formation barrier wrote it. */
 export interface LightningParticipant {
@@ -421,6 +422,12 @@ export function createSupabaseLightningHandBackend(): LightningHandBackend {
       if (!out.ok) return out;
       const id = out.value.hand_history_id;
       if (!isUuid(id)) return { ok: false, reason: 'settle_answer_invalid', transport: true };
+      // HVH2D-EXE-002: a Lightning hand's row never passes through
+      // logHandHistory, and the exact-memory trigger skips it just the same
+      // when its public_memory_domain is not valid. Count the accepted hand
+      // here, once: the host stops at its first ok answer, and an attempt
+      // whose outcome was unknown or refused returned above.
+      countStoredHandMemoryDomain(a.handRow, 'lightning');
       return {
         ok: true,
         value: {
