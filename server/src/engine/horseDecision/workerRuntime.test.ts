@@ -1,4 +1,6 @@
 import { LiveHorseDecisionWorkerClient } from './client.js';
+import { StyleSwitchHolder } from '../HorseStyleSwitch.js';
+import { noteStyleShadowEngaged } from '../HorseStyleShadow.js';
 import { HORSE_PHASE14_DOMAINS } from '../HorsePhase14Authority.js';
 import { HandController } from '../HandController.js';
 import { priceDiamondCashFees } from '../../domain/diamondCashFeeSnapshot.js';
@@ -6141,5 +6143,107 @@ describe('own public-history load counter', () => {
     expect(
       ownPublicHistoryLoaded({ ...pooled, individualVersion: 1, history: 'volatile_only' })
     ).toBe(false);
+  });
+});
+
+describe('style read live switch and shadow in the live worker (2026-11-13)', () => {
+  const TABLE = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+  function styled(state: 'off' | 'shadow' | 'on', wouldFold = true) {
+    const fastAtPost: number[] = [];
+    const h = harness(false, (m) => {
+      if (m.type === 'FAST_RESULT') fastAtPost.push(h.decisionOpts.length);
+    });
+    const base = h.deps.decide;
+    h.deps.decide = (player, gameState, style, mods, opts, ...rest) => {
+      const out = base(player, gameState, style, mods, opts, ...rest);
+      // a consumer in shadow that would have acted records that it engaged
+      if (opts?.styleShadow?.includes('styleFoldBluff'))
+        noteStyleShadowEngaged('styleFoldBluff', 0.62);
+      return opts?.styleFoldBluff === true && wouldFold
+        ? { ...out, action: 'fold', amount: 0 }
+        : out;
+    };
+    if (state !== 'off')
+      h.deps.styleSwitch = new StyleSwitchHolder(
+        () => ({ kind: 'present', raw: { version: 1, options: { styleFoldBluff: state } } }),
+        (f) => h.features.push(f)
+      );
+    return { h, fastAtPost };
+  }
+
+  it('default: no switch source, the options are exactly what they were and nothing is re-decided', async () => {
+    const { h } = styled('off');
+    h.runtime.receive(independentFastForHand(TABLE, 1000007, '9'));
+    await h.runtime.drain();
+    expect(h.decisionOpts).toHaveLength(1);
+    expect(Object.keys(h.decisionOpts[0]).filter((k) => k.startsWith('style'))).toEqual([]);
+    expect(h.features.filter((f) => f.startsWith('style_'))).toEqual([]);
+    expect(h.latency.map((l) => l.scope)).not.toContain('style_read');
+  });
+
+  it('on: the option arrives as an explicit true and the decision is not repeated', async () => {
+    const { h } = styled('on');
+    h.runtime.receive(independentFastForHand(TABLE, 1000007, '9'));
+    await h.runtime.drain();
+    expect(h.decisionOpts).toHaveLength(1);
+    expect(h.decisionOpts[0].styleFoldBluff).toBe(true);
+    expect(h.decisionOpts[0].styleShadow).toBeUndefined();
+    expect(h.features).toContain('style_switch_styleFoldBluff_on_seen');
+    expect(h.features).toContain('style_read_timed_seen');
+    expect(h.latency.map((l) => l.scope)).toContain('style_read');
+    const fast = h.messages.find((m) => m.type === 'FAST_RESULT');
+    expect(fast && 'decision' in fast && fast.decision.action).toBe('fold');
+  });
+
+  it('shadow: the committed action is unchanged and sent first; one re-decision from the same RNG receipts the change', async () => {
+    const { h, fastAtPost } = styled('shadow');
+    const request = independentFastForHand(TABLE, 1000007, '9');
+    h.runtime.receive(request);
+    await h.runtime.drain();
+    const fast = h.messages.find((m) => m.type === 'FAST_RESULT');
+    expect(fast && 'decision' in fast && fast.decision.action).toBe('call');
+    // the result was sent after the one committed decision, before the re-decision
+    expect(fastAtPost).toEqual([1]);
+    expect(h.decisionOpts).toHaveLength(2);
+    expect(h.decisionOpts[0].styleShadow).toEqual(['styleFoldBluff']);
+    expect(h.decisionOpts[0].styleFoldBluff).toBeUndefined();
+    expect(h.decisionOpts[1]).toMatchObject({
+      styleFoldBluff: true,
+      styleShadow: [],
+      telemetry: false,
+      observeMind: false,
+    });
+    // the re-decision starts where the committed one did, and the stream is restored after it
+    expect(h.decisionsAtRng[1]).toBe(h.decisionsAtRng[0]);
+    const restoredAfter = h.restored[h.restored.length - 1];
+    expect(h.rng()).toBe(restoredAfter);
+    const receipt = h.features.find((f) => f.startsWith('style_shadow.'));
+    expect(receipt).toBe(
+      `style_shadow.fb.c.${request.gameState.gameVariant}.p.c.f.25.62.s.${TABLE.replace(/-/g, '')}.1000007.${request.player.seat}_seen`
+    );
+    expect(receipt!.length).toBeLessThanOrEqual(128);
+    expect(h.latency.map((l) => l.scope)).toEqual(
+      expect.arrayContaining(['style_read', 'style_shadow_redecide'])
+    );
+  });
+
+  it('shadow, no change: an engaged option whose re-decision keeps the action is counted, not receipted', async () => {
+    const { h } = styled('shadow', false);
+    h.runtime.receive(independentFastForHand(TABLE, 1000007, '9'));
+    await h.runtime.drain();
+    expect(h.decisionOpts).toHaveLength(2);
+    expect(h.features).toContain('style_shadow_unchanged_seen');
+    expect(h.features.filter((f) => f.startsWith('style_shadow.'))).toEqual([]);
+  });
+
+  it('shadow, nothing engaged: no re-decision at all', async () => {
+    const h = harness();
+    h.deps.styleSwitch = new StyleSwitchHolder(
+      () => ({ kind: 'present', raw: { version: 1, options: { styleFoldBluff: 'shadow' } } }),
+      (f) => h.features.push(f)
+    );
+    h.runtime.receive(independentFastForHand(TABLE, 1000007, '9'));
+    await h.runtime.drain();
+    expect(h.decisionOpts).toHaveLength(1);
   });
 });

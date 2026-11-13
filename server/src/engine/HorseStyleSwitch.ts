@@ -1,0 +1,181 @@
+/**
+ * STYLE READ LIVE SWITCH (2026-11-13). Each style option has a runtime state: off, shadow, canary or on.
+ *
+ * - The SOURCE DEFAULT is off for every option (STYLE_SWITCH_SOURCE_DEFAULT). It wins whenever no runtime
+ *   configuration is present.
+ * - A runtime configuration is read through a StyleSwitchSource at most once per STYLE_SWITCH_POLL_MS (the 60 s
+ *   cadence of the existing runtime policy read, HorseFleetPolicy POLICY_TTL_MS), so a switch-off takes effect at
+ *   the first decision after the next read, within one poll interval.
+ * - A configuration that cannot be read, or that is not exactly the documented shape, FAILS SAFE TO OFF for every
+ *   option (unlike the fleet policy, which fails open: a style option that cannot be confirmed stays off).
+ * - Every state change of an option fires style_switch_<option>_<state>_seen (the option and the new state are in the
+ *   receipt name; brain telemetry carries counters only).
+ *
+ * WHERE THE CONFIGURATION COMES FROM: no existing runtime configuration path carries a per-option state (the fleet
+ * policy RPC has fixed fields and fails open; the feature and phase authorities are selected at a protected release
+ * and never read a database row). A new table and RPC are therefore needed. Their migration belongs to another
+ * owner and is NOT written here: see the design note in STYLE-READ-BRANCH.md ("Live Off Switch: Design Note").
+ * Until it lands the production source reports `absent`, so the source default (off) holds.
+ *
+ * CANARY: 'canary' is on for the Horses whose stable bucket (sha256 of `style-canary-v1:` + the lower-cased Horse
+ * id, first 32 bits, modulo 10) is 0, about one Horse in ten, and shadow for every other Horse. The bucket is fixed
+ * by the Horse id alone, so it is deterministic across processes and restarts. This is the one recorded exception
+ * to "one effective configuration for all Horses", and it exists only while an option is in canary.
+ */
+import { createHash } from 'node:crypto';
+
+export const STYLE_SWITCH_OPTIONS = [
+  'styleValueBettorNotManiac',
+  'styleBigBetHonesty',
+  'styleRaiseRespect',
+  'styleTightReRaiserRespect',
+  'styleFoldRatePreRepair',
+  'styleValueExtraction',
+  'styleFoldBluff',
+] as const;
+export type StyleSwitchOption = (typeof STYLE_SWITCH_OPTIONS)[number];
+export const STYLE_SWITCH_STATES = ['off', 'shadow', 'canary', 'on'] as const;
+export type StyleSwitchState = (typeof STYLE_SWITCH_STATES)[number];
+export type StyleSwitchStates = Readonly<Record<StyleSwitchOption, StyleSwitchState>>;
+
+/** The source default: every option off. */
+export const STYLE_SWITCH_SOURCE_DEFAULT: StyleSwitchStates = Object.freeze(
+  Object.fromEntries(STYLE_SWITCH_OPTIONS.map((o) => [o, 'off'])) as Record<
+    StyleSwitchOption,
+    StyleSwitchState
+  >
+);
+const ALL_OFF = STYLE_SWITCH_SOURCE_DEFAULT;
+
+/** The receipt family of state changes: style_switch_<option>_<state>_seen. */
+const STYLE_SWITCH_RECEIPT = 'style_switch';
+
+/** The existing runtime policy cadence (HorseFleetPolicy POLICY_TTL_MS): one read per minute at most. */
+export const STYLE_SWITCH_POLL_MS = 60_000;
+
+/** The canary arm: bucket 0 of 10, from the Horse id alone. */
+export const STYLE_CANARY_SALT = 'style-canary-v1:';
+export const STYLE_CANARY_BUCKETS = 10;
+export const STYLE_CANARY_ON_BUCKET = 0;
+
+export function styleCanaryBucket(horseId: string): number {
+  const h = createHash('sha256')
+    .update(STYLE_CANARY_SALT + String(horseId).toLowerCase())
+    .digest();
+  return h.readUInt32BE(0) % STYLE_CANARY_BUCKETS;
+}
+
+/**
+ * The documented configuration shape: { version: 1, options: { <option>: <state>, ... } }. Options not named keep
+ * the source default. Anything else (an unknown option, an unknown state, extra keys, another version) is invalid.
+ */
+export function parseStyleSwitchConfig(
+  raw: unknown
+): { ok: true; states: StyleSwitchStates } | { ok: false } {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false };
+  const r = raw as Record<string, unknown>;
+  const keys = Object.keys(r).sort().join(',');
+  if (keys !== 'options,version' || r.version !== 1) return { ok: false };
+  const o = r.options;
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return { ok: false };
+  const states: Record<string, StyleSwitchState> = { ...STYLE_SWITCH_SOURCE_DEFAULT };
+  for (const [k, v] of Object.entries(o as Record<string, unknown>)) {
+    if (!(STYLE_SWITCH_OPTIONS as readonly string[]).includes(k)) return { ok: false };
+    if (!(STYLE_SWITCH_STATES as readonly unknown[]).includes(v)) return { ok: false };
+    states[k] = v as StyleSwitchState;
+  }
+  return { ok: true, states: Object.freeze(states) as StyleSwitchStates };
+}
+
+/** What a source returns: no configuration on file, or the raw configuration to validate. A throw is unreadable. */
+export type StyleSwitchReading = { kind: 'absent' } | { kind: 'present'; raw: unknown };
+export type StyleSwitchSource = () => StyleSwitchReading;
+
+/** The production source until the configuration table lands (design note): nothing on file, the default holds. */
+export const ABSENT_STYLE_SWITCH_SOURCE: StyleSwitchSource = () => ({ kind: 'absent' });
+
+/**
+ * The per-process holder. refresh(now) re-reads the source when the last read is STYLE_SWITCH_POLL_MS old or older;
+ * between reads the last result stands. Never throws.
+ */
+export class StyleSwitchHolder {
+  private states: StyleSwitchStates = STYLE_SWITCH_SOURCE_DEFAULT;
+  private readAt = Number.NEGATIVE_INFINITY;
+
+  constructor(
+    private readonly source: StyleSwitchSource,
+    private readonly note: (feature: string) => void,
+    private readonly pollMs: number = STYLE_SWITCH_POLL_MS
+  ) {}
+
+  refresh(nowMs: number): StyleSwitchStates {
+    if (!(nowMs - this.readAt < this.pollMs)) {
+      this.readAt = nowMs;
+      let next: StyleSwitchStates;
+      try {
+        const reading = this.source();
+        if (reading?.kind === 'absent') next = STYLE_SWITCH_SOURCE_DEFAULT;
+        else if (reading?.kind === 'present') {
+          const parsed = parseStyleSwitchConfig(reading.raw);
+          if (parsed.ok) next = parsed.states;
+          else {
+            this.note('style_switch_config_invalid_seen');
+            next = ALL_OFF;
+          }
+        } else {
+          this.note('style_switch_config_invalid_seen');
+          next = ALL_OFF;
+        }
+      } catch {
+        this.note('style_switch_config_unreadable_seen');
+        next = ALL_OFF;
+      }
+      for (const o of STYLE_SWITCH_OPTIONS)
+        if (next[o] !== this.states[o]) this.note(`${STYLE_SWITCH_RECEIPT}_${o}_${next[o]}_seen`);
+      this.states = next;
+    }
+    return this.states;
+  }
+
+  current(): StyleSwitchStates {
+    return this.states;
+  }
+}
+
+/** The arm one Horse gets for one option: the state itself, except canary, which resolves by the Horse's bucket. */
+export function styleArmFor(
+  state: StyleSwitchState,
+  horseId: string
+): { arm: 'off' | 'shadow' | 'on'; canary: boolean; bucket: number | null } {
+  if (state !== 'canary') return { arm: state, canary: false, bucket: null };
+  const bucket = styleCanaryBucket(horseId);
+  return { arm: bucket === STYLE_CANARY_ON_BUCKET ? 'on' : 'shadow', canary: true, bucket };
+}
+
+/**
+ * The decision options a state set gives one Horse: `<option>: true` for each option on (or canary-on), and
+ * `styleShadow` listing the options in shadow (or canary-shadow). All off gives {} (the decision's options are
+ * byte-identical to before the switch existed).
+ */
+export function styleSwitchDecisionOpts(
+  states: StyleSwitchStates,
+  horseId: string,
+  allowShadow: boolean
+): Partial<Record<StyleSwitchOption, true>> & {
+  styleShadow?: readonly StyleSwitchOption[];
+  styleCanaryBucket?: number;
+} {
+  const out: Partial<Record<StyleSwitchOption, true>> & {
+    styleShadow?: StyleSwitchOption[];
+    styleCanaryBucket?: number;
+  } = {};
+  for (const o of STYLE_SWITCH_OPTIONS) {
+    const s = states[o];
+    if (s === 'off') continue;
+    const a = styleArmFor(s, horseId);
+    if (a.canary) out.styleCanaryBucket = a.bucket!;
+    if (a.arm === 'on') out[o] = true;
+    else if (a.arm === 'shadow' && allowShadow) (out.styleShadow ??= []).push(o);
+  }
+  return out;
+}

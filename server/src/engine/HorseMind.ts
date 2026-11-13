@@ -155,6 +155,7 @@ import {
   type PostReleaseOpportunities,
   type StyleProvenance,
 } from './HorseOpponentStyle.js';
+import { addStyleReadMs, noteStyleShadowEngaged } from './HorseStyleShadow.js';
 
 /** Match the controller's full-raise marker: an all-in button can be a call
  * or a short raise and must not invent an aggressive read. */
@@ -351,6 +352,10 @@ export interface ExploitReadOptions {
    * Only an explicit true engages.
    */
   styleFoldRatePreRepair?: boolean;
+  /** 2026-11-13 SHADOW: compute #2 and record whether it would have changed the read; apply nothing */
+  styleValueBettorShadow?: boolean;
+  /** 2026-11-13 SHADOW: compute the pre-repair fold-rate stand-down and record it; apply nothing */
+  styleFoldRatePreRepairShadow?: boolean;
 }
 
 /** V83: big river bets that reached showdown before the value share counts. */
@@ -2250,6 +2255,16 @@ export class HorseMind {
    * runs.
    */
   static styleRead(userId: string): OpponentStyleRead {
+    // LATENCY (2026-11-13): the style read's own time per decision, against the pre-registered budget
+    const t0 = performance.now();
+    try {
+      return this.styleReadUntimed(userId);
+    } finally {
+      addStyleReadMs(performance.now() - t0);
+    }
+  }
+
+  private static styleReadUntimed(userId: string): OpponentStyleRead {
     const scope = this.decisionScope;
     if (!scope) return unknownStyle('no_decision_scope');
     const variant = memoryVariant(this.decisionVariant);
@@ -3619,6 +3634,11 @@ export class HorseMind {
         if (options.styleFoldRatePreRepair === true && this.foldToBetPreRepairExcluded(userId)) {
           noteFire('style_pre_repair_fold_rate_discounted_seen');
         } else {
+          if (
+            options.styleFoldRatePreRepairShadow === true &&
+            this.foldToBetPreRepairExcluded(userId)
+          )
+            noteStyleShadowEngaged('styleFoldRatePreRepair', 1);
           bluffMod = blend(1.45);
           // V28 AUDIT FIX: valueThinMod was only ever RAISED (stations), so the
           // documented "a nit calls only what a smaller bet asks" half of V18
@@ -3678,6 +3698,11 @@ export class HorseMind {
           // shown-strength bettor is not a maniac on the ratio alone.
           noteFire('style_value_bettor_not_maniac_seen');
         } else {
+          if (options.styleValueBettorShadow === true) {
+            const vbStyle = this.styleRead(userId);
+            if (isValueBettor(vbStyle))
+              noteStyleShadowEngaged('styleValueBettorNotManiac', vbStyle.confidenceCap);
+          }
           callDownMod = blend(1.2);
         }
       } else if (af < 0.7) callDownMod = blend(0.85);

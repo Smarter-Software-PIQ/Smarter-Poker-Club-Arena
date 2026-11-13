@@ -268,6 +268,21 @@ import {
   horseCorrectiveReplayState,
   currentHorseDecisionRuntime,
 } from './replayState.js';
+import {
+  ABSENT_STYLE_SWITCH_SOURCE,
+  STYLE_SWITCH_OPTIONS,
+  StyleSwitchHolder,
+  styleSwitchDecisionOpts,
+} from '../HorseStyleSwitch.js';
+import {
+  clearStyleShadowEngaged,
+  STYLE_READ_BUDGET_MS,
+  styleShadowReceiptKey,
+  takeStyleReadMs,
+  takeStyleShadowEngaged,
+  type StyleShadowEngagement,
+} from '../HorseStyleShadow.js';
+import { withBrainTelemetrySuspended } from '../BrainTelemetry.js';
 
 /** Trusted in-process construction seam; never part of the live wire protocol. */
 export type HorseDecisionWorkerAuthorityHolderFactory = (
@@ -287,6 +302,11 @@ export type HorseDecisionWorkerAuthorityHolderFactory = (
 
 export interface HorseDecisionWorkerDependencies {
   isolateMemory?(): IsolateMemorySample | null;
+  /**
+   * 2026-11-13 STYLE READ LIVE SWITCH: the per-option runtime state (HorseStyleSwitch). Absent: a holder over the
+   * absent source, so every option stays at its source default (off).
+   */
+  styleSwitch?: StyleSwitchHolder;
   admitFeatureAuthority?(): HorseAuthorityAdmission;
   /** v53PloTourneyIcm activation: the shipped tournament-flag selection only. */
   admitTournamentFlagAuthority?(): HorseTournamentFlagAdmission;
@@ -878,6 +898,13 @@ export class HorseDecisionWorkerRuntime {
   private phase8GuardAuthorityAdmitted = false;
   private phase8AuthorityAdmitted = false;
   private readonly featureAuthority: HorseQualifiedAuthorityHolder;
+  /** 2026-11-13 STYLE READ LIVE SWITCH (HorseStyleSwitch): the source default (off) unless a source is supplied. */
+  private get styleSwitch(): StyleSwitchHolder {
+    return (this.styleSwitchHolder ??=
+      this.deps.styleSwitch ??
+      new StyleSwitchHolder(ABSENT_STYLE_SWITCH_SOURCE, (f) => this.deps.noteFeature(f)));
+  }
+  private styleSwitchHolder: StyleSwitchHolder | undefined;
   private featureAuthorityAdmitted = false;
   private tournamentFlagAdmission: HorseTournamentFlagAdmission | null = null;
   /** v53PloTourneyIcm is worker-owned: on only inside an admitted card's
@@ -2902,6 +2929,8 @@ export class HorseDecisionWorkerRuntime {
             ...request.opts,
             ...features.flags,
             multiwayRiverBluffCheckRaise: features.flags.multiwayRiverBluffCheckRaise,
+            // the options ON for this Horse read as the decision will (no shadow list here)
+            ...styleSwitchDecisionOpts(this.styleSwitch.current(), request.player.user_id, false),
             observeMind: true,
             mindObservationHand: horseMindHandFromDecision(request),
           }
@@ -2917,9 +2946,23 @@ export class HorseDecisionWorkerRuntime {
     let captured: CapturedHorseMindDecision<ReturnType<typeof HorseLogic.decide>>;
     let rngAfter: number;
     let governorScale: number;
+    // STYLE READ LIVE SWITCH (2026-11-13): every option off gives {} and the options below are what they were.
+    const styleOpts = styleSwitchDecisionOpts(
+      // wall clock, not deps.now(): the poll must not consume a tick of the decision's own clock
+      this.styleSwitch.refresh(Date.now()),
+      request.player.user_id,
+      true
+    );
+    const styleActive = Object.keys(styleOpts).length > 0;
+    if (styleActive) {
+      clearStyleShadowEngaged();
+      takeStyleReadMs();
+    }
+    let styleEngaged: StyleShadowEngagement[] = [];
+    let fastOpts: Parameters<HorseDecisionWorkerDependencies['decide']>[4] | undefined;
+    const player = deepFreeze(request.player);
+    const gameState = deepFreeze(request.gameState);
     try {
-      const player = deepFreeze(request.player);
-      const gameState = deepFreeze(request.gameState);
       this.deps.noteFeature('phase5_canonical_state');
       const run = this.atGovernorScale(() =>
         this.deps.captureDecisionEffects(() =>
@@ -2928,10 +2971,11 @@ export class HorseDecisionWorkerRuntime {
             gameState,
             request.style,
             request.mods,
-            {
+            (fastOpts = {
               ...request.opts,
               ...features.flags,
               multiwayRiverBluffCheckRaise: features.flags.multiwayRiverBluffCheckRaise,
+              ...styleOpts,
               v53PloTourneyIcm: this.tournamentFlagOn(request),
               phase8Postflop: phase8Guard.selected ? phase8Guard.mode : phase8.mode,
               phase8PolicyFamily: phase8Guard.selected ? 'catastrophe_guard_v1' : 'continuation_v2',
@@ -2945,7 +2989,7 @@ export class HorseDecisionWorkerRuntime {
               observeMind: !phase14ObservationPrepared,
               mindObservationHand: horseMindHandFromDecision(request),
               mindPlanContext: planContext,
-            },
+            }),
             rangeCapture,
             planReadCapture,
             deepDiveCapture
@@ -2957,6 +3001,14 @@ export class HorseDecisionWorkerRuntime {
       rngAfter = this.deps.saveRng();
     } finally {
       this.deps.restoreRng(canonicalRng);
+      if (styleActive) {
+        styleEngaged = takeStyleShadowEngaged();
+        // LATENCY (2026-11-13): the style read's own time in this decision, against the 0.25 ms budget
+        const styleMs = takeStyleReadMs();
+        this.deps.noteDecision('style_read', styleMs);
+        this.deps.noteFeature('style_read_timed_seen');
+        if (styleMs > STYLE_READ_BUDGET_MS) this.deps.noteFeature('style_read_over_budget_seen');
+      }
     }
     // One telemetry-on brain evaluation finished: the denominator of the
     // brain-stage clamps it may have counted. Deep second looks replay with
@@ -3144,7 +3196,99 @@ export class HorseDecisionWorkerRuntime {
       throw error;
     }
     this.deps.noteFeature(`phase15_plan_issue_${planIssueDisposition}`);
+    // SHADOW (2026-11-13): after the committed result is sent, before this turn of the loop ends (so Horse memory
+    // is exactly what the decision read), re-decide once per engaged option and receipt a changed action.
+    if (styleEngaged.length > 0 && fastOpts)
+      this.styleShadowRedecide(
+        request,
+        player,
+        gameState,
+        fastOpts,
+        styleEngaged,
+        captured.value,
+        rngBefore,
+        styleOpts.styleCanaryBucket ?? null
+      );
     return captured.value.policyFallback === 'brain_exception' ? 'exception' : 'success';
+  }
+
+  /**
+   * STYLE READ SHADOW (2026-11-13). One re-decision per engaged option (at most seven), each from the same RNG
+   * position and frozen state with only that option on, its Horse-memory effects captured and discarded, observation
+   * and telemetry off. The committed decision is already sent and is never touched; the RNG is restored after.
+   * A changed action (or amount) fires one style_shadow.* receipt (HorseStyleShadow.styleShadowReceiptKey).
+   */
+  private styleShadowRedecide(
+    request: FastHorseDecisionRequest,
+    player: FastHorseDecisionRequest['player'],
+    gameState: FastHorseDecisionRequest['gameState'],
+    base: NonNullable<Parameters<HorseDecisionWorkerDependencies['decide']>[4]>,
+    engaged: readonly StyleShadowEngagement[],
+    committed: HorseDecision,
+    rngBefore: number,
+    bucket: number | null
+  ): void {
+    const saved = this.deps.saveRng();
+    const t0 = performance.now();
+    try {
+      const baseShadow = (base as { styleShadow?: readonly string[] }).styleShadow ?? [];
+      for (const e of engaged.slice(0, STYLE_SWITCH_OPTIONS.length)) {
+        let would: HorseDecision;
+        try {
+          this.deps.restoreRng(rngBefore);
+          const opts = {
+            ...base,
+            [e.option]: true,
+            styleShadow: baseShadow.filter((o) => o !== e.option),
+            telemetry: false,
+            observeMind: false,
+          } as typeof base;
+          would = withBrainTelemetrySuspended(
+            () =>
+              this.deps.captureDecisionEffects(() =>
+                this.deps.decide(player, gameState, request.style, request.mods, opts)
+              ).value
+          );
+        } catch {
+          this.deps.noteFeature('style_shadow_redecide_failed_seen');
+          continue;
+        }
+        if (would.action === committed.action && (would.amount ?? 0) === (committed.amount ?? 0)) {
+          this.deps.noteFeature('style_shadow_unchanged_seen');
+          continue;
+        }
+        const hand = horseMindHandFromDecision(request);
+        const toCall = Math.max(0, (gameState.currentBet ?? 0) - (player.bet ?? 0));
+        const pot = Math.max(0, gameState.pot ?? 0);
+        const key = hand
+          ? styleShadowReceiptKey(
+              {
+                option: e.option,
+                format:
+                  gameState.gameMode === 'tournament' || gameState.tournament
+                    ? 'tournament'
+                    : 'cash',
+                variant: gameState.gameVariant || 'nlh',
+                street: gameState.stage,
+                actual: { action: committed.action, amount: committed.amount ?? 0 },
+                wouldBe: { action: would.action, amount: would.amount ?? 0 },
+                price: toCall > 0 ? toCall / (pot + toCall) : 0,
+                confidence: e.confidence,
+                arm: bucket === null ? 'shadow' : 'canary',
+                bucket,
+                tableId: hand.tableId,
+                handNumber: hand.handNumber,
+                seat: player.seat,
+              },
+              gameState.bigBlind
+            )
+          : null;
+        this.deps.noteFeature(key ?? 'style_shadow_unencodable_seen');
+      }
+    } finally {
+      this.deps.restoreRng(saved);
+      this.deps.noteDecision('style_shadow_redecide', performance.now() - t0);
+    }
   }
 
   private executeDeep(request: DeepHorseDecisionRequest): HorseLifecycleOutcome {
@@ -3258,6 +3402,12 @@ export class HorseDecisionWorkerRuntime {
                   ...request.opts,
                   ...features.flags,
                   multiwayRiverBluffCheckRaise: features.flags.multiwayRiverBluffCheckRaise,
+                  // STYLE READ LIVE SWITCH: the second look runs the options ON; shadow is evaluated on the fast look
+                  ...styleSwitchDecisionOpts(
+                    this.styleSwitch.current(),
+                    request.player.user_id,
+                    false
+                  ),
                   v53PloTourneyIcm: this.tournamentFlagOn(request),
                   phase8Postflop: phase8Guard.selected ? phase8Guard.mode : phase8.mode,
                   phase8PolicyFamily: phase8Guard.selected
