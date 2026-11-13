@@ -92,7 +92,10 @@ describe('P12.2 Phase 12 policy digest', () => {
     // 40 since 2026-11-07: HorseMind reads the fast call-down river window (HorseFastCalldownRead).
     // MTT read admission adds source provenance, the tournament context status and ante math.
     // 44 since 2026-11-13: HorseMind reads the opponent style read (HorseOpponentStyle).
-    expect(closure).toHaveLength(44);
+    // 45 since 2026-11-13: the style options ask for their shadow arm (HorseStyleShadow).
+    expect(closure).toHaveLength(45);
+    expect(closure).toContain('src/engine/HorseStyleShadow.ts');
+    expect(HORSE_PHASE12_POLICY_SOURCE_FILES).toContain('src/engine/HorseStyleShadow.ts');
     expect(closure).toContain('src/engine/HorseOpponentStyle.ts');
     expect(HORSE_PHASE12_POLICY_SOURCE_FILES).toContain('src/engine/HorseOpponentStyle.ts');
     expect(closure).toContain('src/engine/HorseTournamentContextProvenance.ts');

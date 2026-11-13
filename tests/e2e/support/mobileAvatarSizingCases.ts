@@ -23,6 +23,8 @@ export async function checkFixedMobileArtwork(
   // Start the mobile candidate in the same notched-phone geometry used by
   // its approval screenshots, without the preceding test's injected poses.
   await page.setViewportSize({ width: 600, height: 1298 });
+  // Each case is a fresh device session: no game-type size recorded yet.
+  await page.evaluate(() => localStorage.removeItem('sp-mobile-avatar-size-v1'));
   await page.reload();
   await page.evaluate(() => {
     for (const style of document.querySelectorAll('style'))
@@ -180,10 +182,66 @@ export async function checkFixedMobileArtwork(
     }
     await expect.poll(async () => (await read()).paint.some((p) => Number(p[0]) > 1)).toBe(true);
     const before = await read();
-    // Dan 2026-11-12: every portrait is the exact same size and stays centred
-    // over its frame box (no sideways shift), the hero's own zoom aside.
-    const opponents = before.paint.slice(spectator ? 0 : 1).filter((p) => p[0]);
-    expect(new Set(opponents.map((p) => p[0])).size, 'one size for every portrait').toBe(1);
+    // Dan 2026-11-12: every portrait, the hero's included, is the exact same
+    // size and stays centred over its frame box (no sideways shift).
+    const grown = before.paint.filter((p) => p[0]);
+    expect(new Set(grown.map((p) => p[0])).size, 'one size for every portrait').toBe(1);
+    const tableSize = grown[0][0];
+    // Dan 2026-11-13: no enlarged portrait is ever cut off. The acting
+    // seat's holo sweep must not blend (a blend group clips the grown head in
+    // WebKit), and a sit-out badge keeps clear of the portrait's head.
+    const uncut = await page.evaluate(() => {
+      const results: Array<{ blend: string; badgeTop: number; headBottom: number }> = [];
+      for (const avatar of document.querySelectorAll<HTMLElement>(
+        '.seat__avatar[style*="--sp-mobile-art-scale"]'
+      )) {
+        const paint = avatar.querySelector('.seat__avatar-paint')!;
+        const holo = document.createElement('span');
+        holo.className = 'seat__holo';
+        paint.prepend(holo);
+        const badge = document.createElement('div');
+        badge.className = 'seat__sitout-badge';
+        badge.textContent = 'Waiting For The Button To Pass';
+        avatar.parentElement!.appendChild(badge);
+        const art = avatar.querySelector('.seat__avatar-img')!.getBoundingClientRect();
+        results.push({
+          blend: getComputedStyle(holo).mixBlendMode,
+          badgeTop: badge.getBoundingClientRect().top,
+          headBottom: art.top + art.height * 0.4,
+        });
+        holo.remove();
+        badge.remove();
+      }
+      return results;
+    });
+    for (const r of uncut) {
+      expect(r.blend, 'the holo sweep never blends over a grown portrait').toBe('normal');
+      expect(
+        r.badgeTop,
+        "a sit-out badge keeps clear of the portrait's head"
+      ).toBeGreaterThanOrEqual(r.headBottom);
+    }
+    // Dan 2026-11-13: every table of this game type on this device takes the
+    // size this one settled; it is recorded as the displayed height.
+    const recorded = await page.evaluate(() =>
+      Object.values(
+        JSON.parse(localStorage.getItem('sp-mobile-avatar-size-v1') || '{}') as Record<
+          string,
+          number
+        >
+      )
+    );
+    // The displayed height of every grown portrait (the table renders at its
+    // layout size here, so viewport px are layout px).
+    const heights = await page.evaluate(() =>
+      Array.from(document.querySelectorAll<HTMLElement>('.seat__avatar'))
+        .filter((a) => a.style.getPropertyValue('--sp-mobile-art-scale'))
+        .map((a) => a.querySelector('.seat__avatar-img')!.getBoundingClientRect().height)
+    );
+    const shown = Math.max(...heights);
+    expect(Math.max(...heights) - Math.min(...heights), 'one displayed size').toBeLessThan(1);
+    expect(recorded.length, 'the game type size is recorded').toBe(1);
+    expect(Math.abs(recorded[0] - shown), 'recorded as the displayed height').toBeLessThan(3);
     for (const p of before.paint)
       if (p[0])
         expect(Math.abs(parseFloat(p[1]) || 0), 'centred over its frame box').toBeLessThan(1);
@@ -218,6 +276,24 @@ export async function checkFixedMobileArtwork(
       if (revealed)
         expect(after.cards, 'already shown cards never move on a later turn').toEqual(revealed);
       if (state.revealed === 'true') revealed = after.cards;
+    }
+    // Dan 2026-11-12: the table's size never changes once set, whoever comes
+    // and goes. Empty the ring to heads-up, then fill it again: every portrait
+    // that is drawn keeps the locked size throughout.
+    for (const occupiedSeats of settings.occupiedSeats
+      ? ['', settings.occupiedSeats]
+      : ['0,4', '']) {
+      await page.evaluate((occupiedSeats) => {
+        Object.assign(document.documentElement.dataset, { occupiedSeats, revealed: 'false' });
+        document.dispatchEvent(new Event('fixture-next-hand'));
+      }, occupiedSeats);
+      await settle();
+      const sizes = (await read()).paint.filter((p) => p[0]).map((p) => p[0]);
+      expect(sizes.length, `portraits drawn with seats "${occupiedSeats}"`).toBeGreaterThan(0);
+      expect(
+        new Set(sizes),
+        `a roster change keeps the locked size (seats "${occupiedSeats}")`
+      ).toEqual(new Set([tableSize]));
     }
   }
   // Preserve the original disabled-layout check from the final six-card

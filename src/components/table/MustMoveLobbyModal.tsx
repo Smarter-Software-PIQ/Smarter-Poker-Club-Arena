@@ -70,6 +70,7 @@ export const MUST_MOVE_LOBBY_POLL_MS = 5000;
 export interface MustMoveLobbyModalProps {
   isOpen: boolean;
   asset?: 'chips' | 'diamonds';
+  lightning?: boolean;
   gameId: string | null | undefined;
   /** The table the viewer is looking at (highlighted in the list). */
   currentTableId: string | null | undefined;
@@ -94,6 +95,7 @@ function lifecycleLabel(t: LobbyTable): string {
 export function MustMoveLobbyModal({
   isOpen,
   asset = 'chips',
+  lightning = false,
   gameId,
   currentTableId,
   onClose,
@@ -237,7 +239,7 @@ export function MustMoveLobbyModal({
      move, so this lobby shows no Must Move List, no place on it and no Must
      Move figure: none of them would ever move anyone. It is the game's lobby;
      the tables, the waiting list and the player's own seat change stay. */
-  const neverMoves = game?.never_moves_players === true;
+  const neverMoves = lightning || game?.never_moves_players === true;
   const lobbyTitle = neverMoves ? 'Game Lobby' : 'Must Move Lobby';
   const styleLabel = game
     ? (CASH_TEMPLATES.find((t) => t.id === cashTemplateKey(String(game.template_name ?? '')))
@@ -252,6 +254,7 @@ export function MustMoveLobbyModal({
      button and the door cannot disagree about what they forbid. */
   const frontTableId = lobby?.front_table_id ?? null;
   const canRequestTo = (t: LobbyTable): boolean =>
+    !lightning &&
     Boolean(me?.seat_change.available) &&
     !isMainOne(t, frontTableId) &&
     t.id !== myTableId &&
@@ -283,7 +286,7 @@ export function MustMoveLobbyModal({
               !important - so the one action in the header wore the dismissal's
               dress and its blue never rendered. .mml-join carries its own
               geometry now and the illuminated pill face. */}
-          {lobby && !me?.seated && (
+          {lobby && !lightning && !me?.seated && (
             <button
               type="button"
               className="mml-join"
@@ -362,7 +365,7 @@ export function MustMoveLobbyModal({
                   )}
 
                   {/* The seat change: once per stay, never from or to Main 1. */}
-                  {!me.on_main_one && (
+                  {!lightning && !me.on_main_one && (
                     <div className="mml-seat-change">
                       <div className="mml-section-title">Seat Change</div>
                       {me.seat_change.request ? (
@@ -410,31 +413,33 @@ export function MustMoveLobbyModal({
                 </section>
               )}
 
-              {!me?.seated && (me?.waitlist?.on_list || me?.waitlist?.reason === 'expired') && (
-                <section className="mml-me">
-                  <div className="mml-section-title">Your Waiting List Place</div>
-                  <div className="mml-me-line">
-                    {me?.waitlist?.on_list && me.waitlist.position
-                      ? `You Are Number ${me.waitlist.position} On The Waiting List.`
-                      : me?.waitlist?.on_list
-                        ? 'You Are On The Waiting List.'
-                        : 'You Are Off The Waiting List.'}
-                  </div>
-                  {cashQueueFeedback(me?.waitlist?.reason) && (
-                    <div className="mml-me-line" role="status">
-                      {cashQueueFeedback(me?.waitlist?.reason)}
+              {!lightning &&
+                !me?.seated &&
+                (me?.waitlist?.on_list || me?.waitlist?.reason === 'expired') && (
+                  <section className="mml-me">
+                    <div className="mml-section-title">Your Waiting List Place</div>
+                    <div className="mml-me-line">
+                      {me?.waitlist?.on_list && me.waitlist.position
+                        ? `You Are Number ${me.waitlist.position} On The Waiting List.`
+                        : me?.waitlist?.on_list
+                          ? 'You Are On The Waiting List.'
+                          : 'You Are Off The Waiting List.'}
                     </div>
-                  )}
-                  <button
-                    type="button"
-                    className="mml-btn"
-                    disabled={busy || !me?.waitlist?.on_list}
-                    onClick={() => void leaveWaitlist()}
-                  >
-                    Leave Waiting List
-                  </button>
-                </section>
-              )}
+                    {cashQueueFeedback(me?.waitlist?.reason) && (
+                      <div className="mml-me-line" role="status">
+                        {cashQueueFeedback(me?.waitlist?.reason)}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      className="mml-btn"
+                      disabled={busy || !me?.waitlist?.on_list}
+                      onClick={() => void leaveWaitlist()}
+                    >
+                      Leave Waiting List
+                    </button>
+                  </section>
+                )}
 
               {/* ─── The tables ─── */}
               <section className="mml-tables">

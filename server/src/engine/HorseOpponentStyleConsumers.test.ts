@@ -1,7 +1,22 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { HorseMind } from './HorseMind.js';
-import { ALL_SPOTS, checkedTo, flopRaise, HERO, VILLAIN, VILLAINS, decide, install, preflopJam, preflopOpen, preflopThreeBet, turnPotBet, type Mode, type Villain } from './HorseOpponentStyle.contexts.test-support.js';
+import {
+  ALL_SPOTS,
+  checkedTo,
+  flopRaise,
+  HERO,
+  VILLAIN,
+  VILLAINS,
+  decide,
+  install,
+  preflopJam,
+  preflopOpen,
+  preflopThreeBet,
+  turnPotBet,
+  type Mode,
+  type Villain,
+} from './HorseOpponentStyle.contexts.test-support.js';
 import { counters } from './HorseOpponentStyle.test-support.js';
 import { postReleaseOpportunitiesFromHistory } from './HorseOpponentStyle.js';
 
@@ -9,7 +24,14 @@ const drain = (): Record<string, number> => {
   enableBrainTelemetry();
   return Object.fromEntries(drainFires().map((r) => [r.feature, r.fires]));
 };
-const ALL_ON = { styleValueBettorNotManiac: true, styleBigBetHonesty: true, styleRaiseRespect: true, styleTightReRaiserRespect: true, styleFoldRatePreRepair: true, styleFoldBluff: true };
+const ALL_ON = {
+  styleValueBettorNotManiac: true,
+  styleBigBetHonesty: true,
+  styleRaiseRespect: true,
+  styleTightReRaiserRespect: true,
+  styleFoldRatePreRepair: true,
+  styleFoldBluff: true,
+};
 const RANK: Record<string, number> = { fold: 0, call: 1, raise: 2, all_in: 3 };
 const MODES: Mode[] = ['cash', 'tournament', 'bubble'];
 afterEach(() => vi.restoreAllMocks());
@@ -17,13 +39,41 @@ afterEach(() => vi.restoreAllMocks());
 /** Table-speed cash rows are pre-repair: supply m so the showdown-dependent statistics engage in these tests. */
 function supply(m: number): void {
   for (const mode of ['cash', 'tournament'] as const)
-    HorseMind.importPostReleaseObservations([{ user_id: VILLAIN, variant: 'nlh', mode, size: 'full', opportunities: { foldToBet: m, riverCall: m, foldTo3Bet: m, betCheckedTo: m } }]);
+    HorseMind.importPostReleaseObservations([
+      {
+        user_id: VILLAIN,
+        variant: 'nlh',
+        mode,
+        size: 'full',
+        opportunities: { foldToBet: m, riverCall: m, foldTo3Bet: m, betCheckedTo: m },
+      },
+    ]);
 }
 
 /** A passive-ish value-heavy bettor whose AF is above 2.5 but whose big bets shown so far are few (V83 needs 20). */
 const valueAggressor = (): Villain => ({
-  stats: { hands: 400, aggr: 150, passive: 40, postAggr: 150, postPassive: 40, bigBetSD: 8, bigBetSDStrong: 7, rAggr: 3, rPassive: 6 },
-  counters: counters({ hands: 80, vpip: 0.13, pfr: 0.08, threeBetOpp: 20, threeBet: 0, betCheckedToOpp: 40, betCheckedTo: 6, foldToBetOpp: 30, foldToBet: 14 }),
+  stats: {
+    hands: 400,
+    aggr: 150,
+    passive: 40,
+    postAggr: 150,
+    postPassive: 40,
+    bigBetSD: 8,
+    bigBetSDStrong: 7,
+    rAggr: 3,
+    rPassive: 6,
+  },
+  counters: counters({
+    hands: 80,
+    vpip: 0.13,
+    pfr: 0.08,
+    threeBetOpp: 20,
+    threeBet: 0,
+    betCheckedToOpp: 40,
+    betCheckedTo: 6,
+    foldToBetOpp: 30,
+    foldToBet: 14,
+  }),
   complete: true,
 });
 
@@ -38,7 +88,8 @@ describe('style read consumers: wiring in cash and tournament', () => {
       const off = decide(spot);
       expect(on.fires.style_tight_opener_respect_seen).toBeGreaterThan(0);
       expect(RANK[on.decision.action]).toBeLessThanOrEqual(RANK[off.decision.action]);
-      if (mode !== 'bubble') expect([off.decision.action, on.decision.action]).toEqual(['raise', 'call']);
+      if (mode !== 'bubble')
+        expect([off.decision.action, on.decision.action]).toEqual(['raise', 'call']);
     });
 
     it(`${mode}: big-bet and raise respect receipts fire and never widen`, () => {
@@ -50,11 +101,15 @@ describe('style read consumers: wiring in cash and tournament', () => {
           install(v, mode);
           supply(120);
           const on = decide(spot, ALL_ON);
-          expect(RANK[on.decision.action], `${spot.name}/${vn}`).toBeLessThanOrEqual(RANK[off.decision.action]);
+          expect(RANK[on.decision.action], `${spot.name}/${vn}`).toBeLessThanOrEqual(
+            RANK[off.decision.action]
+          );
         }
       install(VILLAINS.grinder!, mode);
       supply(120);
-      expect(decide(ALL_SPOTS(mode)[0], { styleBigBetHonesty: true }).fires.style_big_bet_honesty_seen).toBeGreaterThan(0);
+      expect(
+        decide(ALL_SPOTS(mode)[0], { styleBigBetHonesty: true }).fires.style_big_bet_honesty_seen
+      ).toBeGreaterThan(0);
     });
 
     it(`${mode}: #2 a value bettor above AF 2.5 is not a maniac, so a one-pair call folds`, () => {
@@ -93,7 +148,10 @@ describe('style read consumers: wiring in cash and tournament', () => {
         supply(120);
         expect(decide(preflopJam(mode), ALL_ON).digest, `${mode}/${vn}`).toBe(off.digest);
       }
-    for (const spot of [preflopOpen('tournament', 'KhJd', 24), preflopThreeBet('tournament', 'QdQc', 24)]) {
+    for (const spot of [
+      preflopOpen('tournament', 'KhJd', 24),
+      preflopThreeBet('tournament', 'QdQc', 24),
+    ]) {
       install(VILLAINS.grinder!, 'tournament');
       supply(120);
       const off = decide(spot);
@@ -121,11 +179,43 @@ describe('style read consumers: wiring in cash and tournament', () => {
 });
 
 describe('style read: pre-repair provenance reaches the decision-time read (item 10)', () => {
-  const read = (mode: 'cash' | 'tournament', m: number | null, speed: 'table' | 'lightning' = 'table') => {
+  const read = (
+    mode: 'cash' | 'tournament',
+    m: number | null,
+    speed: 'table' | 'lightning' = 'table'
+  ) => {
     HorseMind.reset();
-    const c = counters({ hands: 80, vpip: 0.2, pfr: 0.14, foldToBetOpp: 40, foldToBet: 29, betCheckedToOpp: 40, betCheckedTo: 16 });
-    HorseMind.importDurableOpponentProfiles([{ user_id: VILLAIN, variant: 'nlh', mode, size: 'full', observed_hands: 80, initialized: true, public_memory_domain: { version: 1, speed, ante: 'none' }, counters: c } as never]);
-    if (m !== null) HorseMind.importPostReleaseObservations([{ user_id: VILLAIN, variant: 'nlh', mode, size: 'full', opportunities: { foldToBet: m, riverCall: m, foldTo3Bet: m, betCheckedTo: m } }]);
+    const c = counters({
+      hands: 80,
+      vpip: 0.2,
+      pfr: 0.14,
+      foldToBetOpp: 40,
+      foldToBet: 29,
+      betCheckedToOpp: 40,
+      betCheckedTo: 16,
+    });
+    HorseMind.importDurableOpponentProfiles([
+      {
+        user_id: VILLAIN,
+        variant: 'nlh',
+        mode,
+        size: 'full',
+        observed_hands: 80,
+        initialized: true,
+        public_memory_domain: { version: 1, speed, ante: 'none' },
+        counters: c,
+      } as never,
+    ]);
+    if (m !== null)
+      HorseMind.importPostReleaseObservations([
+        {
+          user_id: VILLAIN,
+          variant: 'nlh',
+          mode,
+          size: 'full',
+          opportunities: { foldToBet: m, riverCall: m, foldTo3Bet: m, betCheckedTo: m },
+        },
+      ]);
     HorseMind.setDecisionScope('holdem:full', 'nlh', mode);
     const r = HorseMind.styleRead(VILLAIN);
     HorseMind.setDecisionScope(null);
@@ -134,7 +224,12 @@ describe('style read: pre-repair provenance reaches the decision-time read (item
   it('cash table-speed row: showdown-dependent statistics excluded until m reaches 60, vpip and pfr untouched', () => {
     const none = read('cash', null);
     expect(none.receipt.provenance.preRepair).toBe('affected');
-    expect(none.receipt.provenance.discounted).toEqual(['foldToBet', 'riverCall', 'foldTo3Bet', 'betCheckedTo']);
+    expect(none.receipt.provenance.discounted).toEqual([
+      'foldToBet',
+      'riverCall',
+      'foldTo3Bet',
+      'betCheckedTo',
+    ]);
     expect(none.signals.foldToBet.n).toBe(0);
     expect(none.signals.vpip.n).toBeGreaterThan(0);
     expect(read('cash', 59).receipt.provenance.discounted).toContain('foldToBet');
@@ -157,10 +252,26 @@ describe('style read: pre-repair provenance reaches the decision-time read (item
   });
 });
 
-const caller = (fast?: { fFoldToBetOpp: number; fFoldToBet: number }, shown?: { bigBetSD: number; bigBetSDStrong: number }): Villain => {
-  const c = counters({ hands: 80, vpip: 0.3, pfr: 0.12, betCheckedToOpp: 40, betCheckedTo: 7, foldToBetOpp: 40, foldToBet: 11, fast: { hands: 10 } });
+const caller = (
+  fast?: { fFoldToBetOpp: number; fFoldToBet: number },
+  shown?: { bigBetSD: number; bigBetSDStrong: number }
+): Villain => {
+  const c = counters({
+    hands: 80,
+    vpip: 0.3,
+    pfr: 0.12,
+    betCheckedToOpp: 40,
+    betCheckedTo: 7,
+    foldToBetOpp: 40,
+    foldToBet: 11,
+    fast: { hands: 10 },
+  });
   if (fast) Object.assign(c, fast);
-  return { stats: { hands: 300, postAggr: 40, postPassive: 150, ...(shown ?? {}) }, counters: c, complete: true };
+  return {
+    stats: { hands: 300, postAggr: 40, postPassive: 150, ...(shown ?? {}) },
+    counters: c,
+    complete: true,
+  };
 };
 
 describe('A4 value extraction (cash and tournament)', () => {
@@ -182,8 +293,19 @@ describe('A4 value extraction (cash and tournament)', () => {
       const spot = checkedTo(mode, 'KsQd');
       // H1: shown strength is in-format, supplied as this context's size buckets
       const valueShown = () =>
-        HorseMind.importSizeBuckets([{ user_id: VILLAIN, variant: 'nlh', mode: mode === 'cash' ? 'cash' : 'tournament', size: 'full', buckets: { large: { bets: 10, shown: 10, strong: 9 } } }]);
-      for (const [v, extra] of [[caller({ fFoldToBetOpp: 10, fFoldToBet: 9 }), () => {}], [caller(), valueShown]] as const) {
+        HorseMind.importSizeBuckets([
+          {
+            user_id: VILLAIN,
+            variant: 'nlh',
+            mode: mode === 'cash' ? 'cash' : 'tournament',
+            size: 'full',
+            buckets: { large: { bets: 10, shown: 10, strong: 9 } },
+          },
+        ]);
+      for (const [v, extra] of [
+        [caller({ fFoldToBetOpp: 10, fFoldToBet: 9 }), () => {}],
+        [caller(), valueShown],
+      ] as const) {
         install(v, mode);
         supply(120);
         extra();
@@ -225,8 +347,28 @@ describe('item 1 pre-repair discount on the legacy over-folder branch', () => {
     HorseMind.reset();
     HorseMind.importStats([{ user_id: VILLAIN, hands: 100, folds: 40, facedAggr: 50 } as never]);
     const c = counters({ hands: 80, vpip: 0.2, pfr: 0.14, foldToBetOpp: 40, foldToBet: 29 });
-    HorseMind.importDurableOpponentProfiles([{ user_id: VILLAIN, variant: 'nlh', mode: 'cash', size: 'full', observed_hands: 80, initialized: true, public_memory_domain: { version: 1, speed: 'table', ante: 'none' }, counters: c } as never]);
-    if (m !== null) HorseMind.importPostReleaseObservations([{ user_id: VILLAIN, variant: 'nlh', mode: 'cash', size: 'full', opportunities: { foldToBet: m } }]);
+    HorseMind.importDurableOpponentProfiles([
+      {
+        user_id: VILLAIN,
+        variant: 'nlh',
+        mode: 'cash',
+        size: 'full',
+        observed_hands: 80,
+        initialized: true,
+        public_memory_domain: { version: 1, speed: 'table', ante: 'none' },
+        counters: c,
+      } as never,
+    ]);
+    if (m !== null)
+      HorseMind.importPostReleaseObservations([
+        {
+          user_id: VILLAIN,
+          variant: 'nlh',
+          mode: 'cash',
+          size: 'full',
+          opportunities: { foldToBet: m },
+        },
+      ]);
     HorseMind.setDecisionScope('holdem:full', 'nlh', 'cash');
     const before = drain();
     void before;
@@ -262,18 +404,40 @@ describe('chain: learner -> profile -> read -> decision (A2 size buckets and lif
       { userId: VILLAIN, action: 'bet', amount: 10, stage: 'river' },
       { userId: HERO, action: 'call', amount: 10, stage: 'river' },
     ];
-    HorseMind.observeHandComplete('style-chain-1', acts as never, 2, [{ user_id: VILLAIN, mucked: false, hand_name: 'Flush' }], 'holdem:full', false, { variant: 'nlh', boardCount: 1 }, undefined, 'cash');
+    HorseMind.observeHandComplete(
+      'style-chain-1',
+      acts as never,
+      2,
+      [{ user_id: VILLAIN, mucked: false, hand_name: 'Flush' }],
+      'holdem:full',
+      false,
+      { variant: 'nlh', boardCount: 1 },
+      undefined,
+      'cash'
+    );
     HorseMind.setDecisionScope('holdem:full', 'nlh', 'cash');
     const r = HorseMind.styleRead(VILLAIN);
     HorseMind.setDecisionScope(null);
     expect(r.signals.shownBySize.large).toMatchObject({ bets: 1, shown: 1, strong: 1 });
     // the same hand again is not double counted (hand flag)
-    HorseMind.observeHandComplete('style-chain-1', acts as never, 2, [{ user_id: VILLAIN, mucked: false, hand_name: 'Flush' }], 'holdem:full', false, { variant: 'nlh', boardCount: 1 }, undefined, 'cash');
+    HorseMind.observeHandComplete(
+      'style-chain-1',
+      acts as never,
+      2,
+      [{ user_id: VILLAIN, mucked: false, hand_name: 'Flush' }],
+      'holdem:full',
+      false,
+      { variant: 'nlh', boardCount: 1 },
+      undefined,
+      'cash'
+    );
     HorseMind.setDecisionScope('holdem:full', 'nlh', 'cash');
     expect(HorseMind.styleRead(VILLAIN).signals.shownBySize.large.bets).toBe(1);
     HorseMind.setDecisionScope(null);
     // the decision consults it: the big-bet consumer runs on this read
-    expect(decide(ALL_SPOTS('cash')[0], { styleBigBetHonesty: true }).fires.style_big_bet_honesty_seen).toBeGreaterThan(0);
+    expect(
+      decide(ALL_SPOTS('cash')[0], { styleBigBetHonesty: true }).fires.style_big_bet_honesty_seen
+    ).toBeGreaterThan(0);
   });
 });
 
@@ -289,12 +453,37 @@ describe('A3 persisted m: recounted from persisted hand history, identical after
       { userId: VILLAIN, action: 'fold', amount: 0, stage: 'flop', origin: 'player' },
     ],
   });
-  const history = [...Array.from({ length: 30 }, (_, i) => hand(RELEASE - (i + 1) * 60_000)), ...Array.from({ length: 70 }, (_, i) => hand(RELEASE + i * 60_000))];
+  const history = [
+    ...Array.from({ length: 30 }, (_, i) => hand(RELEASE - (i + 1) * 60_000)),
+    ...Array.from({ length: 70 }, (_, i) => hand(RELEASE + i * 60_000)),
+  ];
   const boot = (hands: typeof history) => {
     HorseMind.reset();
-    const c = counters({ hands: 80, vpip: 0.2, pfr: 0.14, foldToBetOpp: 40, foldToBet: 29, betCheckedToOpp: 40, betCheckedTo: 16 });
-    HorseMind.importDurableOpponentProfiles([{ user_id: VILLAIN, variant: 'nlh', mode: 'cash', size: 'full', observed_hands: 80, initialized: true, public_memory_domain: { version: 1, speed: 'table', ante: 'none' }, counters: c } as never]);
-    HorseMind.importPostReleaseFromHistory([{ user_id: VILLAIN, variant: 'nlh', mode: 'cash', size: 'full', hands }], RELEASE);
+    const c = counters({
+      hands: 80,
+      vpip: 0.2,
+      pfr: 0.14,
+      foldToBetOpp: 40,
+      foldToBet: 29,
+      betCheckedToOpp: 40,
+      betCheckedTo: 16,
+    });
+    HorseMind.importDurableOpponentProfiles([
+      {
+        user_id: VILLAIN,
+        variant: 'nlh',
+        mode: 'cash',
+        size: 'full',
+        observed_hands: 80,
+        initialized: true,
+        public_memory_domain: { version: 1, speed: 'table', ante: 'none' },
+        counters: c,
+      } as never,
+    ]);
+    HorseMind.importPostReleaseFromHistory(
+      [{ user_id: VILLAIN, variant: 'nlh', mode: 'cash', size: 'full', hands }],
+      RELEASE
+    );
     HorseMind.setDecisionScope('holdem:full', 'nlh', 'cash');
     const r = HorseMind.styleRead(VILLAIN);
     HorseMind.setDecisionScope(null);
@@ -304,7 +493,9 @@ describe('A3 persisted m: recounted from persisted hand history, identical after
     const m = postReleaseOpportunitiesFromHistory(history, VILLAIN, RELEASE);
     expect(m.foldToBet).toBe(70);
     expect(m.betCheckedTo).toBe(70);
-    expect(postReleaseOpportunitiesFromHistory(history.slice(0, 30), VILLAIN, RELEASE).foldToBet).toBe(0);
+    expect(
+      postReleaseOpportunitiesFromHistory(history.slice(0, 30), VILLAIN, RELEASE).foldToBet
+    ).toBe(0);
   });
   it('the discount lifts from persisted data and rebuilds identically after a reset (the daily restart)', () => {
     const first = boot(history);
@@ -316,11 +507,30 @@ describe('A3 persisted m: recounted from persisted hand history, identical after
 });
 
 describe('gear change and bounty boundary, through decide()', () => {
-  const ADAPTIVE = ['style_big_bet_honesty_seen', 'style_tight_opener_respect_seen', 'style_tight_reraiser_respect_seen', 'style_value_bettor_not_maniac_seen', 'style_value_extraction_seen', 'style_fold_bluff_seen'];
+  const ADAPTIVE = [
+    'style_big_bet_honesty_seen',
+    'style_tight_opener_respect_seen',
+    'style_tight_reraiser_respect_seen',
+    'style_value_bettor_not_maniac_seen',
+    'style_value_extraction_seen',
+    'style_fold_bluff_seen',
+  ];
   const adaptiveFires = (f: Record<string, number>) => ADAPTIVE.filter((k) => (f[k] ?? 0) > 0);
   it('a tight player who changes gear (fast window aggressive) is released: every consumer stands down', () => {
     const g = VILLAINS.grinder!;
-    const shifted: Villain = { ...g, counters: { ...g.counters!, fHands: 10, fPfr: 6, fBetCheckedToOpp: 10, fBetCheckedTo: 9, fThreeBetOpp: 8, fThreeBet: 4 }, stats: { ...g.stats, rAggr: 14, rPassive: 2 } };
+    const shifted: Villain = {
+      ...g,
+      counters: {
+        ...g.counters!,
+        fHands: 10,
+        fPfr: 6,
+        fBetCheckedToOpp: 10,
+        fBetCheckedTo: 9,
+        fThreeBetOpp: 8,
+        fThreeBet: 4,
+      },
+      stats: { ...g.stats, rAggr: 14, rPassive: 2 },
+    };
     for (const mode of ['cash', 'tournament'] as Mode[])
       for (const spot of ALL_SPOTS(mode)) {
         install(shifted, mode);
@@ -364,15 +574,65 @@ describe('gear change and bounty boundary, through decide()', () => {
 });
 
 describe('H1 (review 2026-11-13): other-format and other-variant evidence moves nothing at carry-over weight 0', () => {
-  it('pooled lifetime shown bets and another context\'s size buckets do not reach the cash NLH read', () => {
+  it("pooled lifetime shown bets and another context's size buckets do not reach the cash NLH read", () => {
     HorseMind.reset();
-    const c = counters({ hands: 80, vpip: 0.13, pfr: 0.07, threeBetOpp: 20, threeBet: 0, betCheckedToOpp: 40, betCheckedTo: 6, foldToBetOpp: 30, foldToBet: 14 });
-    HorseMind.importStats([{ user_id: VILLAIN, hands: 500, bigBetSD: 20, bigBetSDStrong: 19, postAggr: 60, postPassive: 100 } as never]);
-    HorseMind.importDurableOpponentProfiles([{ user_id: VILLAIN, variant: 'nlh', mode: 'cash', size: 'full', observed_hands: 80, initialized: true, public_memory_domain: { version: 1, speed: 'table', ante: 'none' }, counters: c } as never]);
-    HorseMind.importPostReleaseObservations([{ user_id: VILLAIN, variant: 'nlh', mode: 'cash', size: 'full', opportunities: { foldToBet: 120, riverCall: 120, foldTo3Bet: 120, betCheckedTo: 120 } }]);
+    const c = counters({
+      hands: 80,
+      vpip: 0.13,
+      pfr: 0.07,
+      threeBetOpp: 20,
+      threeBet: 0,
+      betCheckedToOpp: 40,
+      betCheckedTo: 6,
+      foldToBetOpp: 30,
+      foldToBet: 14,
+    });
+    HorseMind.importStats([
+      {
+        user_id: VILLAIN,
+        hands: 500,
+        bigBetSD: 20,
+        bigBetSDStrong: 19,
+        postAggr: 60,
+        postPassive: 100,
+      } as never,
+    ]);
+    HorseMind.importDurableOpponentProfiles([
+      {
+        user_id: VILLAIN,
+        variant: 'nlh',
+        mode: 'cash',
+        size: 'full',
+        observed_hands: 80,
+        initialized: true,
+        public_memory_domain: { version: 1, speed: 'table', ante: 'none' },
+        counters: c,
+      } as never,
+    ]);
+    HorseMind.importPostReleaseObservations([
+      {
+        user_id: VILLAIN,
+        variant: 'nlh',
+        mode: 'cash',
+        size: 'full',
+        opportunities: { foldToBet: 120, riverCall: 120, foldTo3Bet: 120, betCheckedTo: 120 },
+      },
+    ]);
     HorseMind.importSizeBuckets([
-      { user_id: VILLAIN, variant: 'nlh', mode: 'tournament', size: 'full', buckets: { large: { bets: 20, shown: 20, strong: 19 } } },
-      { user_id: VILLAIN, variant: 'plo4', mode: 'cash', size: 'full', buckets: { large: { bets: 20, shown: 20, strong: 19 } } },
+      {
+        user_id: VILLAIN,
+        variant: 'nlh',
+        mode: 'tournament',
+        size: 'full',
+        buckets: { large: { bets: 20, shown: 20, strong: 19 } },
+      },
+      {
+        user_id: VILLAIN,
+        variant: 'plo4',
+        mode: 'cash',
+        size: 'full',
+        buckets: { large: { bets: 20, shown: 20, strong: 19 } },
+      },
     ]);
     HorseMind.setDecisionScope('holdem:full', 'nlh', 'cash');
     const r = HorseMind.styleRead(VILLAIN);
@@ -384,7 +644,15 @@ describe('H1 (review 2026-11-13): other-format and other-variant evidence moves 
     const carried = HorseMind.styleRead(VILLAIN);
     expect(carried.signals.shownStrength.shown).toBe(0);
     HorseMind.setDecisionScope(null);
-    HorseMind.importSizeBuckets([{ user_id: VILLAIN, variant: 'nlh', mode: 'cash', size: 'full', buckets: { large: { bets: 20, shown: 20, strong: 19 } } }]);
+    HorseMind.importSizeBuckets([
+      {
+        user_id: VILLAIN,
+        variant: 'nlh',
+        mode: 'cash',
+        size: 'full',
+        buckets: { large: { bets: 20, shown: 20, strong: 19 } },
+      },
+    ]);
     HorseMind.setDecisionScope('holdem:full', 'nlh', 'cash');
     expect(HorseMind.styleRead(VILLAIN).signals.shownBySize.large.shown).toBe(20);
     HorseMind.setDecisionScope(null);
@@ -397,32 +665,70 @@ describe('bounty guard reads bountyFactor as the bounty share (0 = regular event
     (spot.gs.tournament as Record<string, unknown>).bountyFactor = 0;
     install(VILLAINS.grinder!, 'tournament');
     supply(120);
-    expect(decide(spot, { styleTightReRaiserRespect: true }).fires.style_tight_opener_respect_seen).toBeGreaterThan(0);
+    expect(
+      decide(spot, { styleTightReRaiserRespect: true }).fires.style_tight_opener_respect_seen
+    ).toBeGreaterThan(0);
     (spot.gs.tournament as Record<string, unknown>).bountyFactor = 0.5;
     install(VILLAINS.grinder!, 'tournament');
     supply(120);
-    expect(decide(spot, { styleTightReRaiserRespect: true }).fires.style_tight_opener_respect_seen ?? 0).toBe(0);
+    expect(
+      decide(spot, { styleTightReRaiserRespect: true }).fires.style_tight_opener_respect_seen ?? 0
+    ).toBe(0);
   });
 });
 
 import { emptyStreetAggression, postflopAggressionIncrements } from './HorseOpponentStyle.js';
 describe('#4 raise respect stands on in-format raise-frequency counts', () => {
+  const ref = () => {
+    const a = emptyStreetAggression();
+    a.flop = { aggr: 400, passive: 600, raiseOpps: 1000, raises: 120 };
+    return a;
+  };
   const agg = (aggr: number, passive: number) => {
     const a = emptyStreetAggression();
     a.flop = { aggr, passive, raiseOpps: passive + 10, raises: 4 };
     return a;
   };
   it('engages on in-format evidence; the same counts in the other format move nothing', () => {
-    for (const [mode, other] of [['cash', 'tournament'], ['tournament', 'cash']] as const) {
+    for (const [mode, other] of [
+      ['cash', 'tournament'],
+      ['tournament', 'cash'],
+    ] as const) {
       const spot = flopRaise(mode, 'deep');
       install(VILLAINS.grinder!, mode);
       supply(120);
-      HorseMind.importStyleAggression([{ user_id: VILLAIN, variant: 'nlh', mode, size: 'full', aggression: agg(60, 100) }]);
-      expect(decide(spot, { styleRaiseRespect: true }).fires.style_raise_respect_seen, mode).toBeGreaterThan(0);
+      HorseMind.importStyleAggression([
+        { user_id: VILLAIN, variant: 'nlh', mode, size: 'full', aggression: agg(60, 100) },
+      ]);
+      // aggregate share low but no Horse reference: #4 does not engage (M2)
+      expect(
+        decide(spot, { styleRaiseRespect: true }).fires.style_raise_respect_seen ?? 0,
+        mode
+      ).toBe(0);
       install(VILLAINS.grinder!, mode);
       supply(120);
-      HorseMind.importStyleAggression([{ user_id: VILLAIN, variant: 'nlh', mode: other, size: 'full', aggression: agg(60, 100) }]);
-      expect(decide(spot, { styleRaiseRespect: true }).fires.style_raise_respect_seen ?? 0, mode).toBe(0);
+      HorseMind.importStyleAggression([
+        { user_id: VILLAIN, variant: 'nlh', mode, size: 'full', aggression: agg(60, 100) },
+      ]);
+      HorseMind.importStyleHorseReference([
+        { variant: 'nlh', mode, size: 'full', reference: ref() },
+      ]);
+      expect(
+        decide(spot, { styleRaiseRespect: true }).fires.style_raise_respect_seen,
+        mode
+      ).toBeGreaterThan(0);
+      install(VILLAINS.grinder!, mode);
+      supply(120);
+      HorseMind.importStyleAggression([
+        { user_id: VILLAIN, variant: 'nlh', mode: other, size: 'full', aggression: agg(60, 100) },
+      ]);
+      HorseMind.importStyleHorseReference([
+        { variant: 'nlh', mode, size: 'full', reference: ref() },
+      ]);
+      expect(
+        decide(spot, { styleRaiseRespect: true }).fires.style_raise_respect_seen ?? 0,
+        mode
+      ).toBe(0);
     }
   });
   it('the learner records raise opportunities and raises by street, per format', () => {
@@ -439,7 +745,18 @@ describe('#4 raise respect stands on in-format raise-frequency counts', () => {
     expect(inc.get(HERO)!.flop).toEqual({ aggr: 1, passive: 1, raiseOpps: 1, raises: 0 });
     expect(inc.get(HERO)!.turn.raiseOpps).toBe(1);
     install(VILLAINS.grinder!, 'tournament');
-    HorseMind.importDurableOpponentProfiles([{ user_id: VILLAIN, variant: 'nlh', mode: 'cash', size: 'full', observed_hands: 80, initialized: true, public_memory_domain: { version: 1, speed: 'lightning', ante: 'none' }, counters: VILLAINS.grinder!.counters } as never]);
+    HorseMind.importDurableOpponentProfiles([
+      {
+        user_id: VILLAIN,
+        variant: 'nlh',
+        mode: 'cash',
+        size: 'full',
+        observed_hands: 80,
+        initialized: true,
+        public_memory_domain: { version: 1, speed: 'lightning', ante: 'none' },
+        counters: VILLAINS.grinder!.counters,
+      } as never,
+    ]);
     const acts = [
       { userId: HERO, action: 'raise', amount: 6, stage: 'preflop' },
       { userId: VILLAIN, action: 'call', amount: 6, stage: 'preflop' },
@@ -448,7 +765,17 @@ describe('#4 raise respect stands on in-format raise-frequency counts', () => {
       { userId: VILLAIN, action: 'raise', amount: 20, stage: 'flop' },
       { userId: HERO, action: 'fold', amount: 0, stage: 'flop' },
     ];
-    HorseMind.observeHandComplete('agg-1', acts as never, 2, null, 'holdem:full', false, { variant: 'nlh', boardCount: 1 }, undefined, 'tournament');
+    HorseMind.observeHandComplete(
+      'agg-1',
+      acts as never,
+      2,
+      null,
+      'holdem:full',
+      false,
+      { variant: 'nlh', boardCount: 1 },
+      undefined,
+      'tournament'
+    );
     HorseMind.setDecisionScope('holdem:full', 'nlh', 'cash');
     expect(HorseMind.styleRead(VILLAIN).signals.aggressionShare.n).toBe(0);
     HorseMind.setDecisionScope('holdem:full', 'nlh', 'tournament');
@@ -477,17 +804,162 @@ describe('harness-only sandbox style learning', () => {
   it('is off by default: a sandbox records nothing; a harness can switch it on and clear it', () => {
     install(VILLAINS.grinder!, 'cash');
     const sb = HorseMind.createSandbox();
-    HorseMind.runInSandbox(sb, () => HorseMind.observeHandComplete('sb-1', acts as never, 2, [{ user_id: VILLAIN, mucked: false, hand_name: 'Flush' }], 'holdem:full', false, { variant: 'nlh', boardCount: 1 }, undefined, 'cash'));
+    HorseMind.runInSandbox(sb, () =>
+      HorseMind.observeHandComplete(
+        'sb-1',
+        acts as never,
+        2,
+        [{ user_id: VILLAIN, mucked: false, hand_name: 'Flush' }],
+        'holdem:full',
+        false,
+        { variant: 'nlh', boardCount: 1 },
+        undefined,
+        'cash'
+      )
+    );
     expect(bets()).toBe(0);
     expect(() => HorseMind.clearHarnessStyleMemory()).toThrow();
     HorseMind.enableHarnessStyleLearning();
     try {
-      HorseMind.runInSandbox(sb, () => HorseMind.observeHandComplete('sb-2', acts as never, 2, [{ user_id: VILLAIN, mucked: false, hand_name: 'Flush' }], 'holdem:full', false, { variant: 'nlh', boardCount: 1 }, undefined, 'cash'));
+      HorseMind.runInSandbox(sb, () =>
+        HorseMind.observeHandComplete(
+          'sb-2',
+          acts as never,
+          2,
+          [{ user_id: VILLAIN, mucked: false, hand_name: 'Flush' }],
+          'holdem:full',
+          false,
+          { variant: 'nlh', boardCount: 1 },
+          undefined,
+          'cash'
+        )
+      );
       expect(bets()).toBe(1);
       HorseMind.clearHarnessStyleMemory();
       expect(bets()).toBe(0);
     } finally {
       HorseMind.enableHarnessStyleLearning(false);
+    }
+  });
+});
+
+describe('M1: live learning does not need a durable profile row', () => {
+  const NEW = 'ffffffff-0000-4000-8000-000000000099';
+  const hand = (n: number) => [
+    { userId: HERO, action: 'raise', amount: 6, stage: 'preflop', origin: 'horse_policy' },
+    { userId: NEW, action: 'call', amount: 6, stage: 'preflop', origin: 'player' },
+    { userId: NEW, action: 'check', amount: 0, stage: 'flop', origin: 'player' },
+    { userId: HERO, action: 'bet', amount: 6, stage: 'flop', origin: 'horse_policy' },
+    {
+      userId: NEW,
+      action: n % 2 ? 'call' : 'raise',
+      amount: n % 2 ? 6 : 20,
+      stage: 'flop',
+      origin: 'player',
+    },
+    ...(n % 2
+      ? []
+      : [
+          { userId: HERO, action: 'raise', amount: 50, stage: 'flop', origin: 'horse_policy' },
+          { userId: NEW, action: 'fold', amount: 0, stage: 'flop', origin: 'player' },
+        ]),
+  ];
+  const counts = () => {
+    HorseMind.setDecisionScope('holdem:full', 'nlh', 'cash');
+    const r = HorseMind.styleRead(NEW);
+    HorseMind.setDecisionScope(null);
+    return r;
+  };
+  it("a brand-new opponent's hands accrue in-format evidence; a later profile row adds nothing; a replayed hand is not counted twice", () => {
+    HorseMind.reset();
+    for (let n = 0; n < 6; n++)
+      HorseMind.observeHandComplete(
+        `m1-${n}`,
+        hand(n) as never,
+        2,
+        null,
+        'holdem:full',
+        false,
+        { variant: 'nlh', boardCount: 1 },
+        undefined,
+        'cash'
+      );
+    // the read is unknown (no in-format counters yet) but the in-format raise counts accrued; check via a supported read
+    HorseMind.importDurableOpponentProfiles([
+      {
+        user_id: NEW,
+        variant: 'nlh',
+        mode: 'cash',
+        size: 'full',
+        observed_hands: 80,
+        initialized: true,
+        public_memory_domain: { version: 1, speed: 'lightning', ante: 'none' },
+        counters: VILLAINS.grinder!.counters,
+      } as never,
+    ]);
+    const a = counts();
+    expect(a.signals.aggressionShare.n).toBe(6); // 3 raises + 3 calls on the flop
+    for (let n = 0; n < 6; n++)
+      HorseMind.observeHandComplete(
+        `m1-${n}`,
+        hand(n) as never,
+        2,
+        null,
+        'holdem:full',
+        false,
+        { variant: 'nlh', boardCount: 1 },
+        undefined,
+        'cash'
+      );
+    HorseMind.importDurableOpponentProfiles([
+      {
+        user_id: NEW,
+        variant: 'nlh',
+        mode: 'cash',
+        size: 'full',
+        observed_hands: 81,
+        initialized: true,
+        public_memory_domain: { version: 1, speed: 'lightning', ante: 'none' },
+        counters: VILLAINS.grinder!.counters,
+      } as never,
+    ]);
+    expect(counts().signals.aggressionShare.n).toBe(6);
+  });
+  it('F2: the Horse seats of hands with a human dealt in build the in-format Horse reference; other hands do not', () => {
+    for (const hasHuman of [false, true]) {
+      HorseMind.reset();
+      HorseMind.importDurableOpponentProfiles([
+        {
+          user_id: NEW,
+          variant: 'nlh',
+          mode: 'cash',
+          size: 'full',
+          observed_hands: 80,
+          initialized: true,
+          public_memory_domain: { version: 1, speed: 'lightning', ante: 'none' },
+          counters: VILLAINS.grinder!.counters,
+        } as never,
+      ]);
+      for (let n = 0; n < 400; n++)
+        HorseMind.observeHandComplete(
+          `ref-${n}`,
+          hand(n) as never,
+          2,
+          null,
+          'holdem:full',
+          false,
+          { variant: 'nlh', boardCount: 1 },
+          undefined,
+          'cash',
+          hasHuman
+        );
+      const r = counts();
+      if (!hasHuman) expect(r.signals.streetRaise!.flop.n).toBe(0);
+      else {
+        // the reference is the Horse's rate only (it re-raised every raise it faced), never the human's
+        expect(r.signals.streetRaise!.flop.n).toBeGreaterThan(0);
+        expect(r.signals.streetRaise!.flop.horse).toBeCloseTo(0.999, 3);
+      }
     }
   });
 });

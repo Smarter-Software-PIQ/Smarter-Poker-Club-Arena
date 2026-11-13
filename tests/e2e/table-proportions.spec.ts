@@ -96,7 +96,6 @@ const AVATAR_FLOOR = 50;
 /** A device whose felt is small enough that a floor binds cannot be compared on
  *  ratio — the floor is doing its job, which is to STOP the proportion. */
 const floorBinds = (feltW: number) => feltW * CARD_FRACTION < CARD_FLOOR;
-
 test.describe('the felt harness measures the real cascade', () => {
   /* Everything below is only worth reading if the harness is faithful. This is
      the one production figure this repo has written down, and reproducing it is
@@ -2712,7 +2711,11 @@ for (const spectatorSeats of [2, 3, 4, 5, 6, 7, 8, 9])
     test(`mobile spectators fill the desktop-reference canvas through hand and dock states at ${spectatorSeats} seats (${spectatorBatch})`, async ({
       page,
     }, testInfo) => {
-      test.setTimeout(60_000);
+      // The smallest nine-seat canvas exercises the finite pair-placement
+      // search: 37s at 2x CPU throttling and 90s at 4x, with all assertions
+      // passing. Keep its original 150s budget; 60s killed CI before geometry
+      // could be observed. Other viewports retain their existing deadline.
+      test.setTimeout(spectatorSeats === 9 && spectatorBatch === 'viewport 1' ? 150_000 : 60_000);
       const { buildSync } = await import('esbuild');
       const built = buildSync({
         entryPoints: ['tests/e2e/support/portraitRailFixture.tsx'],

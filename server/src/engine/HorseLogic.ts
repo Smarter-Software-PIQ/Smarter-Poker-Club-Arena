@@ -204,6 +204,7 @@ import {
   tightReRaiserRespect,
   type TightReRaiser,
 } from './HorseOpponentStyle.js';
+import { noteStyleShadowEngaged, styleShadowArm } from './HorseStyleShadow.js';
 
 /**
  * STYLE READ: a bounty event prices a call with the bounty, which the style
@@ -248,12 +249,15 @@ function styleKnockoutCredit(
   opts: HorseDecideOpts
 ): number {
   const t = trustedTournamentContext(gs);
+  // L2: the V23 switch that gates the knockout pricing gates this credit too
+  if ((opts.v23Endgame ?? true) === false) return 0;
   if (!t || !bettorId || !isTournamentMode(gs) || (t.bountyFactor ?? 0) < 0.1) return 0;
   const bettor = gs.players.find((p) => p.user_id === bettorId);
   if (!bettor || bettor.is_all_in !== true) return 0;
   const heroChips = player.stack + (isFinite(player.bet) ? player.bet : 0);
   if (heroChips < (isFinite(bettor.bet) ? bettor.bet : 0)) return 0;
-  const scale = prizeLandscapeScale(gs, (opts.v26Prizes ?? true) !== false) * headBountyScale(gs, bettorId);
+  const scale =
+    prizeLandscapeScale(gs, (opts.v26Prizes ?? true) !== false) * headBountyScale(gs, bettorId);
   return Math.min(0.08, (t.bountyFactor ?? 0) * 0.12 * scale);
 }
 // V7 (2026-07-24): position-pair preflop mastery — 3-bet/4-bet bluffs, blind
@@ -405,6 +409,7 @@ import {
   preflopEquity,
   holdemPreflopScore,
   omahaPreflopStrength,
+  omahaPreflopPercentile,
   omahaElitePreflopStrength,
   multiwayValueBar,
   shortDeckPreflopStrength,
@@ -2535,6 +2540,14 @@ export interface HorseDecideOpts {
   v67RiverBetRaisedOnePair?: boolean;
   /** V88: a cash Omaha made hand that called a wager on the previous street and now needs its stack at a third of the pot or better does not fold a blank; explicit off arm retained. */
   v88CommitmentHonored?: boolean;
+  /** Omaha high tournaments (HorseOmahaTournamentFirstIn): the small blind
+   *  against the big blind alone, and the heads-up big blind facing one raise,
+   *  replace the engine's fold by the hand's Omaha percentile, at three or
+   *  fewer players dealt and 20 BB or less. Default on; false is the old
+   *  engine; an object is a league arm's parameters. */
+  omahaTournamentFirstIn?:
+    | boolean
+    | Partial<import('./HorseOmahaTournamentFirstIn.js').OmahaTournamentFirstInParams>;
   /** League-only override of the V67 extra raise shade; production never
    * sets it. */
   v67RiverRaiseShadeOverride?: number;
@@ -2575,10 +2588,11 @@ export interface HorseDecideOpts {
    * (PLO6-AUDIT-005). OPT-IN, default off. The pricing gap is real (the
    * arithmetic treats a call as final), but the rule as built sends the
    * call to a price-blind range bar that folds it, and the value check
-   * does not support that: the folded hands hold 42% to 55% equity at a
-   * price near 38%, and in the study's 54 recorded calls of this class the
-   * call was final 29 times, overcalled 14 and re-raised 11 with the seat
-   * calling off every time, never forfeiting. Read as `=== true`. */
+   * does not support that: the folded hands hold 40% to 55% equity at a
+   * price near 38%. The rule was merged without a value check and nothing
+   * measured since supplies one: against recorded Horse ranges the 54
+   * recorded calls of this class are worth more than folding. Read as
+   * `=== true`. */
   omahaPreflopCallWithActionBehind?: boolean;
   /** A deep Omaha seat's preflop stack-off bar is read without the VPIP
    * floor multiplier (PLO6-AUDIT-004). OPT-IN, default off: the mechanism is
@@ -2721,6 +2735,15 @@ export interface HorseDecideOpts {
    *  min-raise (big blind folded 88.6% to a button open). The open is
    *  untouched. Default OFF: only explicit true turns it on. */
   facingOpenFullRingZone?: boolean;
+  /** A COMMITTED STACK IS NOT FOLDED AT A PRICE (2026-11-13, study
+   *  HVH2D-NLH-M-COMMIT and HVH2D-NLH-007a): in a tournament multiway all-in
+   *  the priced-in guard no longer stands aside when the price is 0.05 or
+   *  better, 2bb or less remain behind, or half the starting stack is already
+   *  in and the hand clears 0.26; a committed top-half hand whose call is all
+   *  in is priced in to 0.18. A fresh multiway decision, cash and every other
+   *  node are unchanged; the tournament arbiter still runs after it. Default
+   *  OFF: only explicit true turns it on. */
+  committedStackPricedIn?: boolean;
   /** SHORT-STACK 3-BET DEFENCE (2026-11-07): the V73 read reaches 12bb
    *  effective (V73_SHORT_MIN_EFFECTIVE_BB) instead of 25bb, and a continuing
    *  hand whose call is the stack jams instead of folding: a 20bb opener
@@ -3022,8 +3045,11 @@ export interface HorseDecideOpts {
    *  credibly below the Horse mean, scaled by the DECISION-TIME stack-to-pot
    *  ratio (effective stack behind before the decision over the pot including
    *  his raise; it stands down where one pair is a correct stack-off). The
-   *  raise-frequency proxy is a lifetime tally that mixes formats, so with
-   *  styleCarryOverWeight 0 (the default) this option has no evidence and is inert.
+   *  evidence is THIS street's raises per raise opportunity, in this variant,
+   *  format and table size, against the Horse population's own rate there
+   *  (HorseOpponentStyle streetRaise; the reference counts only when its own
+   *  standard error is at most half the street-raise margin, at least 200
+   *  opportunities; no reference, no engagement).
    *  Receipt style_raise_respect_seen. Default off; explicit true only. */
   styleRaiseRespect?: boolean;
   /** STYLE READ #6 (2026-11-13): a credibly tight opener or re-raiser is
@@ -3035,6 +3061,12 @@ export interface HorseDecideOpts {
    *  Receipts style_tight_opener_respect_seen and
    *  style_tight_reraiser_respect_seen. Default off; explicit true only. */
   styleTightReRaiserRespect?: boolean;
+  /**
+   * 2026-11-13 STYLE READ SHADOW: the style options in shadow for this decision (HorseStyleShadow). Each computes
+   * its adjustment and applies nothing; one that would have changed its input records that it engaged. Set by the
+   * live switch only (HorseStyleSwitch); absent = none. An option explicitly true is on, whatever this lists.
+   */
+  styleShadow?: readonly string[];
   /** STYLE READ (2026-11-13): weight (0..1) of the same player's OTHER-format counters in the
    *  style read. Default 0 = format-specific evidence only; any non-zero weight needs
    *  validation first (one player being tighter in tournaments does not make everyone so). */
@@ -3081,6 +3113,10 @@ export interface HorseDecideOpts {
    *  significantly negative); explicit false is the old multiplier, and the
    *  league matchups plo*_omaha_ev_fold keep measuring it. */
   omahaEvFoldModel?: boolean;
+  /** Owner directive 2026-11-13 (Omaha read): an unknown Omaha opponent gets a
+   *  neutral read (no presumed aggressive raise width) instead of
+   *  presumedAggressorRead. Default OFF; true enables it. */
+  omahaNeutralUnknown?: boolean;
   /** Items 21 and 23 (2026-11-05): a planned barrel records the next-street
    *  contender set and stack-to-pot exposure it expects, and the next street
    *  withdraws the plan when a contender the plan never expected is still in
@@ -5991,6 +6027,7 @@ export class HorseLogic {
       breakEvenBluff: opts.readBreakEvenBluff === true,
       scopedShrink: opts.readScopedShrink === true,
       omahaEvFoldModel: (opts.omahaEvFoldModel ?? true) !== false,
+      omahaNeutralUnknown: opts.omahaNeutralUnknown === true,
       ...(typeof opts.styleCarryOverWeight === 'number' && opts.styleCarryOverWeight > 0
         ? { styleCarryWeight: Math.min(1, opts.styleCarryOverWeight) }
         : {}),
@@ -8204,7 +8241,9 @@ export class HorseLogic {
       const effCall38 = Math.min(toCall, player.stack);
       const maniacPrice38 =
         observedManiacRaiser && (raiserAllIn38 || raises >= 2 || effCall38 >= player.stack * 0.25);
-      // PLO6-AUDIT-005 (2026-11-12): the arithmetic below prices a FINAL
+      // PLO6-AUDIT-005 (2026-11-12), OPT-IN ARM, off unless
+      // opts.omahaPreflopCallWithActionBehind === true (production never sets
+      // it; see the option's comment). The arithmetic below prices a FINAL
       // call against the players already in at this price. An Omaha call of
       // 40% of the stack that leaves chips behind while an opponent still
       // owes a decision to this price is not final: that opponent can raise
@@ -8568,8 +8607,13 @@ export class HorseLogic {
           // moves nothing) and in bounty events.
           const styleEffBB =
             Math.min(player.stack + player.bet, raiser.stack + raiser.bet) / Math.max(1e-9, bb);
+          // SHADOW (2026-11-13): in shadow the read is computed and nothing below is applied.
+          const armTr =
+            opts.styleTightReRaiserRespect === true
+              ? 'on'
+              : styleShadowArm(opts, 'styleTightReRaiserRespect');
           if (
-            opts.styleTightReRaiserRespect === true &&
+            armTr !== null &&
             !vi.isOmaha &&
             read?.presumed !== true &&
             styleEffBB > STYLE_THRESHOLDS.pushFoldStandDownBB &&
@@ -8578,7 +8622,16 @@ export class HorseLogic {
             const style = HorseMind.styleRead(raiser.user_id);
             if (raises === 1) {
               const tight = tightOpenerRespect(style);
-              if (tight && (!exploitOpener || (!exploitOpener.wide && exploitOpener.threeBetBar === null))) {
+              if (
+                tight &&
+                armTr === 'shadow' &&
+                (!exploitOpener || (!exploitOpener.wide && exploitOpener.threeBetBar === null))
+              )
+                noteStyleShadowEngaged('styleTightReRaiserRespect', style.confidenceCap);
+              else if (
+                tight &&
+                (!exploitOpener || (!exploitOpener.wide && exploitOpener.threeBetBar === null))
+              ) {
                 exploitOpener = {
                   wide: false,
                   threeBetBar: strengthBarForTopShare(0.4 * tight.rangeWidth),
@@ -8590,7 +8643,10 @@ export class HorseLogic {
                 };
               }
             } else if (raises >= 2 && !exploitReRaiser) {
-              styleTightReRaiser = tightReRaiserRespect(style) ?? undefined;
+              const tightRe = tightReRaiserRespect(style) ?? undefined;
+              if (armTr === 'on') styleTightReRaiser = tightRe;
+              else if (tightRe)
+                noteStyleShadowEngaged('styleTightReRaiserRespect', style.confidenceCap);
             }
           }
         }
@@ -8960,7 +9016,24 @@ export class HorseLogic {
       return equity === null ? undefined : { equity };
     })();
     const intentCtx7: Parameters<typeof decidePreflopV7>[0] = {
+      // V90 needs the table engine's explicit mode. The legacy "big blind of
+      // ten or more means a tournament" guess for callers that pass no mode
+      // would make the same seat play differently by stake alone.
+      ...(vi.isOmaha &&
+      !vi.isHiLo &&
+      gs.gameMode === 'tournament' &&
+      opts.omahaTournamentFirstIn !== false
+        ? {
+            omahaTournamentFirstIn: {
+              percentile: omahaPreflopPercentile(player.cards, false),
+              ...(typeof opts.omahaTournamentFirstIn === 'object'
+                ? { params: opts.omahaTournamentFirstIn }
+                : {}),
+            },
+          }
+        : {}),
       ...(huBbPrice ? { huBbPrice } : {}),
+      ...(opts.committedStackPricedIn === true ? { committedStackPricedIn: true } : {}),
       ...(gtoOpen70 ? { gtoOpen: gtoOpen70 } : {}),
       ...(gtoDefend72 ? { gtoDefend: gtoDefend72 } : {}),
       ...(gtoVs3Bet73 ? { gtoVs3Bet: gtoVs3Bet73 } : {}),
@@ -9030,6 +9103,25 @@ export class HorseLogic {
           : undefined,
       tableSize:
         (opts.v20Mzone ?? true) !== false ? dealtHorseTableSize(gs, player.seat) : undefined,
+      // Players left in the whole tournament, from the TRUSTED context only
+      // (undefined when absent). The Omaha first-in rule acts only at the
+      // final table: off it, the 2026-11-13 bubble evaluation measured a loss.
+      tournamentPlayersLeft: (() => {
+        const tp = trustedTournamentContext(gs)?.playersLeft;
+        return typeof tp === 'number' && Number.isFinite(tp) && tp > 0 ? tp : undefined;
+      })(),
+      // Paid places among the players left (trusted payout curve), undefined
+      // when unknown: three-handed, the Omaha first-in rule acts only when
+      // one place is paid (R4, 2026-11-13: it lost in ICM equity at a
+      // three-handed final table with pay jumps).
+      tournamentPaidPlacesLeft: (() => {
+        const t = trustedTournamentContext(gs);
+        const left = t?.playersLeft;
+        if (!t || !Array.isArray(t.payoutPct) || typeof left !== 'number' || !(left > 0))
+          return undefined;
+        const paid = t.payoutPct.slice(0, left).filter((v) => Number(v) > 0).length;
+        return paid > 0 ? paid : undefined;
+      })(),
       // V21: deep-stack cash stack-off discipline.
       deepDiscipline: (opts.v21Deep ?? true) !== false,
       // V24 price defense, PLO6 CASH half DEFAULT OFF since 2026-10-31: the
@@ -9192,6 +9284,7 @@ export class HorseLogic {
             else if (layer === 'v60_cash_pressure_opener_vs_three_bet')
               noteFire('v60_cash_pressure_opener_vs_three_bet');
             else if (layer === 'v87_deep_dive_discipline') noteFire('v87_deep_dive_discipline');
+            else if (layer === 'omaha_tournament_first_in') noteFire('omaha_tournament_first_in');
             else if (layer === 'bluff_raise_refused_no_fold_equity_seen')
               noteFire('bluff_raise_refused_no_fold_equity_seen');
             else if (layer === 'style_tight_opener_respect_seen')
@@ -9566,7 +9659,7 @@ export class HorseLogic {
     if (ploIcm53 && telemetryOn(opts)) {
       const rng53 = saveFastRandom();
       try {
-        v53IcmOff = decidePreflopV7({ ...intentCtx7, ploIcm: undefined });
+        v53IcmOff = decidePreflopV7({ ...intentCtx7, ploIcm: undefined, noteLayer: undefined });
       } catch {
         v53IcmOff = null;
       } finally {
@@ -9589,6 +9682,8 @@ export class HorseLogic {
       if (intent.receipt === 'v74_nlh_open_size') noteFire('v74_nlh_open_size');
       else if (intent.receipt === 'cash_nlh_three_bet_size') noteFire('cash_nlh_three_bet_size');
       else if (intent.receipt === 'hu_bb_defends_to_price') noteFire('hu_bb_defends_to_price');
+      else if (intent.receipt === 'committed_stack_priced_in')
+        noteFire('committed_stack_priced_in_seen');
       else if (intent.receipt === 'v76_retired_four_bet_bluff')
         noteFire('v76_retired_four_bet_bluff');
       else if (intent.receipt === 'plo_suited_aces_four_bet') noteFire('plo_suited_aces_four_bet');
@@ -9955,6 +10050,18 @@ export class HorseLogic {
       ...(opts.styleFoldRatePreRepair === true && opts.mind !== false
         ? { styleFoldRatePreRepair: true }
         : {}),
+      // SHADOW (2026-11-13): the two legacy-read options compute and record, never apply
+      ...(opts.styleValueBettorNotManiac !== true &&
+      styleShadowArm(opts, 'styleValueBettorNotManiac') === 'shadow' &&
+      opts.mind !== false &&
+      !styleBountyContext(trustedTournamentContext(gs))
+        ? { styleValueBettorShadow: true }
+        : {}),
+      ...(opts.styleFoldRatePreRepair !== true &&
+      styleShadowArm(opts, 'styleFoldRatePreRepair') === 'shadow' &&
+      opts.mind !== false
+        ? { styleFoldRatePreRepairShadow: true }
+        : {}),
     };
     const useAdaptiveMC = opts.v7AdaptiveMC ?? useV7;
     const useV8 = opts.v8 !== false;
@@ -10121,19 +10228,20 @@ export class HorseLogic {
         // STYLE READ item 3 (2026-11-13): bluff frequency follows this
         // opponent's fold-to-bet ON THIS STREET (river: river call), heads-up,
         // hold'em, not in bounty events. Default off; explicit true only.
+        const armFb = opts.styleFoldBluff === true ? 'on' : styleShadowArm(opts, 'styleFoldBluff');
         if (
-          opts.styleFoldBluff === true &&
+          armFb !== null &&
           !vi.isOmaha &&
           street !== 'preflop' &&
           !styleBountyContext(trustedTournament)
         ) {
           const live = opponents.filter((o) => !o.is_all_in && !o.is_sitting_out);
           if (live.length === 1) {
-            const mul = postflopFoldBluffScale(
-              HorseMind.styleRead(live[0].user_id),
-              street as 'flop' | 'turn' | 'river'
-            );
-            if (mul !== null && mul !== 1) {
+            const fbStyle = HorseMind.styleRead(live[0].user_id);
+            const mul = postflopFoldBluffScale(fbStyle, street as 'flop' | 'turn' | 'river');
+            if (mul !== null && mul !== 1 && armFb === 'shadow')
+              noteStyleShadowEngaged('styleFoldBluff', fbStyle.confidenceCap);
+            else if (mul !== null && mul !== 1) {
               exploit = {
                 ...exploit,
                 bluffMod: exploit.bluffMod * mul,
@@ -10225,8 +10333,10 @@ export class HorseLogic {
     // slow-play less (<= 50%). Not stacked on an engaged station read; heads-up;
     // hold'em; not in bounty events. Default off; explicit true only.
     let styleThinShift = 0;
+    const armVe =
+      opts.styleValueExtraction === true ? 'on' : styleShadowArm(opts, 'styleValueExtraction');
     if (
-      opts.styleValueExtraction === true &&
+      armVe !== null &&
       useMind &&
       !vi.isOmaha &&
       !stationValue &&
@@ -10235,8 +10345,11 @@ export class HorseLogic {
       try {
         const live = opponents.filter((o) => !o.is_all_in && !o.is_sitting_out);
         if (live.length === 1) {
-          const ve = valueExtraction(HorseMind.styleRead(live[0].user_id));
-          if (ve) {
+          const veStyle = HorseMind.styleRead(live[0].user_id);
+          const ve = valueExtraction(veStyle);
+          if (ve && armVe === 'shadow')
+            noteStyleShadowEngaged('styleValueExtraction', veStyle.confidenceCap);
+          else if (ve) {
             exploitValueSize *= ve.sizeMul;
             styleThinShift = ve.thinShift;
             if (ve.slowplayMul !== 1)
@@ -15031,8 +15144,10 @@ export class HorseLogic {
     // only ever adds to a shade, so it never widens a call. Cash and
     // tournament alike; the tournament arbiter still runs after.
     let styleRaiseShade = 0;
+    const armRr =
+      opts.styleRaiseRespect === true ? 'on' : styleShadowArm(opts, 'styleRaiseRespect');
     if (
-      opts.styleRaiseRespect === true &&
+      armRr !== null &&
       useMind &&
       !vi.isOmaha &&
       !vi.isShortDeck &&
@@ -15066,13 +15181,22 @@ export class HorseLogic {
           // DECISION-TIME SPR: effective stack behind before the decision over the
           // pot including his wager (never a ratio that exists only after a call).
           const decisionSpr = Math.min(commitmentStack, Math.max(0, raiser.stack)) / pot;
-          styleRaiseShade = raiseRespectShade(HorseMind.styleRead(raiser.user_id), {
+          const rrStyle = HorseMind.styleRead(raiser.user_id);
+          styleRaiseShade = raiseRespectShade(rrStyle, {
             decisionSpr,
+            street: street === 'turn' ? 'turn' : 'flop',
           });
           // Bounty events: priced against the call including its knockout credit (never stands down wholesale).
           if (styleRaiseShade > 0 && styleBountyContext(trustedTournament))
-            styleRaiseShade = Math.max(0, styleRaiseShade - styleKnockoutCredit(gs, player, raiser.user_id, opts));
-          if (styleRaiseShade > 0 && tele15) noteFire('style_raise_respect_seen');
+            styleRaiseShade = Math.max(
+              0,
+              styleRaiseShade - styleKnockoutCredit(gs, player, raiser.user_id, opts)
+            );
+          if (armRr === 'shadow') {
+            if (styleRaiseShade > 0)
+              noteStyleShadowEngaged('styleRaiseRespect', rrStyle.confidenceCap);
+            styleRaiseShade = 0;
+          } else if (styleRaiseShade > 0 && tele15) noteFire('style_raise_respect_seen');
         }
       } catch {
         /* the style read is best-effort */
@@ -16314,22 +16438,27 @@ export class HorseLogic {
           // reset); the fast window releases it. Only ever adds respect: it never widens a call, in
           // cash or tournament (the tournament utility arbiter still runs
           // after this and keeps the last word).
+          const armBb =
+            opts.styleBigBetHonesty === true ? 'on' : styleShadowArm(opts, 'styleBigBetHonesty');
           if (
-            opts.styleBigBetHonesty === true &&
+            armBb !== null &&
             !vi.isOmaha &&
             (isRiver || street === 'turn') &&
             !styleBountyContext(trustedTournament)
           ) {
+            const bbStyle = HorseMind.styleRead(bettorId);
             const styleAdd = Math.max(
               0,
-              bigBetRespect(HorseMind.styleRead(bettorId), {
+              bigBetRespect(bbStyle, {
                 street: isRiver ? 'river' : 'turn',
                 potFraction: potFrac,
                 isRaise: currentWager.record.action === 'raise',
                 heroHasBlocker: blocker,
               }) - v16TellAdd
             );
-            if (styleAdd > 0) {
+            if (styleAdd > 0 && armBb === 'shadow')
+              noteStyleShadowEngaged('styleBigBetHonesty', bbStyle.confidenceCap);
+            else if (styleAdd > 0) {
               respect += styleAdd;
               if (telemetryOn(opts)) noteFire('style_big_bet_honesty_seen');
             }
@@ -16338,10 +16467,17 @@ export class HorseLogic {
           // still bounds its equity when others are in the pot (an upper bound holds a fortiori); keyed to the bettor.
           // In a bounty event it does not stand down: the cap is raised by the knockout credit this call earns, so it
           // is applied against the call price including the bounty (styleKnockoutCredit).
-          if (opts.styleBigBetHonesty === true && !vi.isOmaha && isRiver) {
-            const cap = bluffCatchEquityCap(HorseMind.styleRead(bettorId), { potFraction: potFrac });
-            if (cap !== null) {
-              const ko = styleBountyContext(trustedTournament) ? styleKnockoutCredit(gs, player, bettorId, opts) : 0;
+          if (armBb !== null && !vi.isOmaha && isRiver) {
+            const capStyle = HorseMind.styleRead(bettorId);
+            const cap = bluffCatchEquityCap(capStyle, {
+              potFraction: potFrac,
+            });
+            if (cap !== null && armBb === 'shadow')
+              noteStyleShadowEngaged('styleBigBetHonesty', capStyle.confidenceCap);
+            else if (cap !== null) {
+              const ko = styleBountyContext(trustedTournament)
+                ? styleKnockoutCredit(gs, player, bettorId, opts)
+                : 0;
               styleBluffCatchCap = Math.min(1, cap + ko);
               if (ko > 0 && telemetryOn(opts)) noteFire('style_bluff_catch_cap_bounty_priced_seen');
             }

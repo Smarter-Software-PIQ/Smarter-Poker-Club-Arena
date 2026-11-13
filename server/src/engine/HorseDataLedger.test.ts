@@ -86,6 +86,8 @@ const BRAIN_FILES = [
   // place that knows the hand number and the seat order.
   'engine/ServerTableEngineDealing.ts',
   'engine/HorsePhase14Acceptance.ts',
+  // STYLE READ shadow (2026-11-13): the shadow list is read where every consumer asks for its arm.
+  'engine/HorseStyleShadow.ts',
 ];
 const BRAIN_SOURCE = BRAIN_FILES.map(read).join('\n');
 // Layer receipts (2026-11-05): layers that run outside the brain modules emit
@@ -105,6 +107,8 @@ const RECEIPT_ONLY_FILES = [
   // Fix evidence (2026-11-12): a settled hand counts whether its row was
   // built with a memory domain, where the row is built.
   'engine/ServerTableEngineSettlement.ts',
+  // STYLE READ live switch (2026-11-13): state changes are counted where the configuration is read.
+  'engine/HorseStyleSwitch.ts',
 ];
 const RECEIPT_SOURCE = BRAIN_SOURCE + '\n' + RECEIPT_ONLY_FILES.map(read).join('\n');
 
@@ -148,6 +152,12 @@ describe('HorseDataLedger - the contract holds against the source', () => {
         expect(e.ratioOf, `${k} has minRatio without ratioOf`).toBeTruthy();
         expect(e.minRatio).toBeGreaterThan(0);
         expect(e.minRatio).toBeLessThanOrEqual(1);
+        // 2026-11-13: a floor is a fact the receipt audit reports as critical
+        // at zero. An occurrence counter (_seen: a side game nobody offered, a
+        // rare cleanup, a once-per-process build) has quiet days by nature, so
+        // it never carries one. (A _seen POPULATION counter, phase10_seen, is a
+        // fine denominator; this rule is about the numerator.)
+        expect(e.key.endsWith('_seen'), `${k}: an occurrence counter carries no floor`).toBe(false);
       }
       if (e.ratioOf) {
         expect(e.kind, `${k}: ratioOf only on receipts`).toBe('receipt');

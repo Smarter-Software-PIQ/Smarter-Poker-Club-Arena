@@ -400,7 +400,7 @@ describe('a schedule departure is an ordinary leave: HIT AND RUN holds a horse i
     vi.restoreAllMocks();
   });
 
-  async function rotate(horses: string[], owed: number) {
+  async function rotate(horses: string[], owed: number, opts: { person?: string; rot?: any } = {}) {
     const table = {
       id: TABLE,
       big_blind: 0.25,
@@ -422,7 +422,7 @@ describe('a schedule departure is an ordinary leave: HIT AND RUN holds a horse i
       is_deleted: false,
     };
     fakeDb({
-      table_seats: horses.map((user_id, s) => ({
+      table_seats: [...horses, ...(opts.person ? [opts.person] : [])].map((user_id, s) => ({
         id: `s-${s}`,
         table_id: TABLE,
         user_id,
@@ -435,7 +435,10 @@ describe('a schedule departure is an ordinary leave: HIT AND RUN holds a horse i
         left_at: null,
         tables: table,
       })),
-      profiles: horses.map((id) => ({ id, is_horse: true })),
+      profiles: [
+        ...horses.map((id) => ({ id, is_horse: true })),
+        ...(opts.person ? [{ id: opts.person, is_horse: false }] : []),
+      ],
       club_members: [],
       chip_ledger: [],
       table_waitlist: [],
@@ -458,7 +461,8 @@ describe('a schedule departure is an ordinary leave: HIT AND RUN holds a horse i
         sitOut: () => ({ success: true }),
         hitRunHandsOwed: () => owed,
       }) as RotatorEngine;
-    const rot = new HorseSessionRotator(engine) as any;
+    const rot = opts.rot ?? (new HorseSessionRotator(engine) as any);
+    if (opts.rot) rot.getEngine = () => engine();
     rot.isRunning = true;
     rot.lifecycleGeneration = 1;
     await rot.rotate(1);
@@ -473,11 +477,40 @@ describe('a schedule departure is an ordinary leave: HIT AND RUN holds a horse i
   });
 
   // Owner 2026-11-12 (HorseWorkSchedule): past its pattern AND its daily
-  // window a horse is off shift, and EVERY off-shift horse goes home - once.
-  it('a horse whose pattern is over, owing nothing, leaves', async () => {
+  // window a horse is off shift, and every off-shift horse goes home - once.
+  // 2026-11-13: one shift change per table per cycle, so a table never stands
+  // up all at once; the rest go on the following cycles.
+  it('a horse whose pattern is over, owing nothing, leaves - one per table per cycle', async () => {
     const leaves = await rotate(OUT, 0);
-    expect(new Set(leaves).size).toBe(leaves.length);
-    expect([...leaves].sort()).toEqual([...OUT].sort());
+    expect(leaves).toHaveLength(1);
+    expect(OUT).toContain(leaves[0]);
+  });
+
+  it('every off-shift horse goes home, one per cycle, until none is left', async () => {
+    let left = [...OUT];
+    const gone: string[] = [];
+    for (let cycle = 0; cycle < OUT.length && left.length > 0; cycle++) {
+      const leaves = await rotate(left, 0);
+      expect(leaves).toHaveLength(1);
+      gone.push(...leaves);
+      left = left.filter((id) => !leaves.includes(id));
+    }
+    expect(left).toHaveLength(0);
+    expect([...gone].sort()).toEqual([...OUT].sort());
+  });
+
+  it('a person at a four-handed table keeps an off-shift horse only for the grace, then it goes', async () => {
+    const three = OUT.slice(0, 3);
+    const rot = new HorseSessionRotator((() => ({})) as never) as any;
+    // A person plus three off-shift horses: leaving would drop the game to 3.
+    expect(await rotate(three, 0, { person: 'person-1', rot })).toHaveLength(0);
+    vi.setSystemTime(NOW + 9 * 60_000);
+    expect(await rotate(three, 0, { person: 'person-1', rot })).toHaveLength(0);
+    vi.setSystemTime(NOW + 10 * 60_000 + 1);
+    const leaves = await rotate(three, 0, { person: 'person-1', rot });
+    expect(leaves).toHaveLength(1);
+    expect(three).toContain(leaves[0]);
+    vi.setSystemTime(NOW);
   });
 
   it('the same horse in its pattern stays', async () => {

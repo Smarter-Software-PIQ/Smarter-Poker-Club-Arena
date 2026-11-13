@@ -30,6 +30,7 @@ import {
 } from './independentQualification.js';
 import { checkCitedReferences, type ReplaySolverStores } from './references.js';
 import { replayThroughWorkerRuntime } from './runtimeReplay.js';
+import { styleSwitchStatesFrom } from '../../HorseStyleSwitch.js';
 import type {
   HorseDecisionReplayVerdict,
   HorseReplayAction,
@@ -292,6 +293,15 @@ function baseVerdict(
   };
 }
 
+function recordedStyleStates(raw: unknown) {
+  try {
+    const body = JSON.parse(String((raw as { body?: unknown })?.body ?? ''));
+    return styleSwitchStatesFrom(body?.replayState?.style);
+  } catch {
+    return null;
+  }
+}
+
 /** Replay one journal record (steps b through h) and return the fixed-shape verdict. */
 export async function replayHorseDecisionRecord(
   raw: unknown,
@@ -338,7 +348,10 @@ export async function replayHorseDecisionRecord(
     return verdict;
   }
 
-  const outcome = await replayThroughWorkerRuntime(input);
+  // the style read switch state the decision ran with (absent: every option off), restored from its record
+  const outcome = await replayThroughWorkerRuntime(input, {
+    styleStates: recordedStyleStates(raw),
+  });
   verdict.latency.wallMs = outcome.wallMs;
   verdict.work.equityCalls = outcome.work.equityCalls;
   verdict.work.equitySamples = outcome.work.equitySamples;

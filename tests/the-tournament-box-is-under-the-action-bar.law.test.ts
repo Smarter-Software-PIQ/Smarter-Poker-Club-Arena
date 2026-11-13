@@ -139,7 +139,8 @@ describe('the action bar corner holds the lobby button (Dan 2026-11-01)', () => 
   it('a tournament tab shows the hamburger-sized LOBBY plate in the strip and it opens the tournament lobby', () => {
     expect(MTP).toMatch(/\(activeClusterId \|\| activeIsTournament\) && !isTileView && \(/);
     expect(MTP).toMatch(/masterBus\.emit\('OPEN_TOURNAMENT_LOBBY', \{ tableId: activeTableId \}\)/);
-    expect(MTP).toMatch(/activeIsTournament \? 'Open Tournament Lobby' : 'Open Must Move Lobby'/);
+    expect(MTP).toMatch(/const tableLobbyTitle = activeIsTournament\s*\? 'Tournament Lobby'/);
+    expect(MTP).toContain('aria-label={`Open ${tableLobbyTitle}`}');
     expect(MTP).toMatch(/import lobbyButtonArt from '\.\.\/assets\/lobby-button\.webp';/);
     const size = rule(MTP_CSS, '.multi-table-page__tab-bar-wrapper,\n.mtp-lobby-btn {');
     expect(size).toMatch(/--mtp-lobby-w:\s*var\(--sp-tabbar-control\)/);

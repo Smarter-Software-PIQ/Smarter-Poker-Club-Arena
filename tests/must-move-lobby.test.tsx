@@ -379,6 +379,36 @@ describe('the box in the corner', () => {
     );
   });
 
+  it('opens the Lightning game by cluster ID even when the room has no table cluster', async () => {
+    const tabs = read('src/pages/MultiTablePage.tsx');
+    const table = read('src/pages/TablePage.tsx');
+    expect(tabs).toContain('const activeLightningRoom = useLightningPoolSession(activeTableId);');
+    expect(tabs).toContain('const activeClusterId = activeLightningRoom?.clusterId ??');
+    expect(table).toContain(
+      'if (!lightningRoomClusterId && !tableStateRef.current?.clusterId) return;'
+    );
+    expect(table).toContain('gameId={lightningRoomClusterId ?? tableState.clusterId}');
+
+    const clusterId = 'lightning-cluster';
+    const snapshot = lobby({ seated: false });
+    snapshot.game = { ...snapshot.game, id: clusterId, name: 'Lightning PLO5 1/2' };
+    mocks.rpc.mockResolvedValue({ data: snapshot, error: null });
+    render(
+      <MustMoveLobbyModal
+        isOpen
+        lightning
+        gameId={clusterId}
+        currentTableId="lightning-pool-session"
+        onClose={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('dialog', { name: 'Game Lobby' })).toBeTruthy();
+    expect(await screen.findByText('Lightning PLO5 1/2')).toBeTruthy();
+    expect(mocks.rpc).toHaveBeenCalledWith('fn_cash_game_lobby', { p_game_id: clusterId });
+    expect(screen.queryByRole('button', { name: 'Join Game' })).toBeNull();
+  });
+
   it('shows no button on Main 1, and the list place instead once listed', async () => {
     mocks.rpc.mockResolvedValue({
       data: lobby({
@@ -716,7 +746,7 @@ describe('the tab follows the chair', () => {
       /\{!tableState\.isTournament &&\s*tableState\.clusterId &&\s*!anchorLightningClusterId &&\s*!lightningRoom && \(\s*<div className="hud-seat-change-dock">\s*<CashClusterHUD/
     );
     expect(TABLE_PAGE).toMatch(
-      /<MustMoveLobbyModal\s+isOpen=\{showMustMoveLobby\}\s+gameId=\{tableState\.clusterId\}/
+      /<MustMoveLobbyModal\s+isOpen=\{showMustMoveLobby\}\s+gameId=\{lightningRoomClusterId \?\? tableState\.clusterId\}/
     );
     expect(TABLE_PAGE).toMatch(
       /<MustMoveLobbyModal[\s\S]*?asset=\{tableState\.arenaAsset === 'diamonds' \? 'diamonds' : 'chips'\}/

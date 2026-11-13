@@ -31,6 +31,7 @@ import {
   isLimitGame,
   canonicalExotic,
   seatsPerHorseBand,
+  hostSeatCeiling,
   peakCap,
   nightCap,
   isNightWindow,
@@ -493,6 +494,55 @@ export function planFloor(snap: FloorSnapshot): FloorPlan {
       }
     }
 
+    /* 4b. SEATS AGAINST THE CURVE (Dan 2026-11-13). Bodies can be on the
+       curve while the room is not: 234 bodies held 823 seats at 11:44 against
+       a body cap of 185. A host over its seat ceiling stands horses up from
+       the thinnest tables, multi-tabled horses first, so each stand removes a
+       chair a player sees without removing a body the curve still wants. The
+       executor rate-limits it per host, the seeder will not refill past the
+       same ceiling, and a table with a human on it is only thinned while it
+       stays a real game. Counted after the stands already planned above. */
+    if (!snap.killed && populationKnown) {
+      const seatCeiling = hostSeatCeiling(occ.max, snap.chicagoHour);
+      const hostTableIds = new Set(host.tables.map((t) => t.tableId));
+      const planned = plan.stand.filter((o) => hostTableIds.has(o.tableId));
+      const seatsOver = liveSeats - planned.length - seatCeiling;
+      if (seatsOver > 0) {
+        plan.alerts.push(
+          `seats_over host=${host.hostId} seats=${liveSeats} ceiling=${seatCeiling} over=${seatsOver}`
+        );
+        const seatsOf = new Map<string, number>();
+        for (const t of host.tables)
+          for (const c of t.seatedHorses) seatsOf.set(c.horseId, (seatsOf.get(c.horseId) ?? 0) + 1);
+        // One stand per table per cycle, whichever branch planned it.
+        const tablesTaken = new Set(planned.map((o) => o.tableId));
+        let left = seatsOver;
+        for (const t of running
+          .filter((t) => t.humansSeated === 0 || t.occupied - 1 >= NIGHT_MIN_PLAYERS)
+          .sort((a, b) => a.occupied - b.occupied)) {
+          if (left <= 0) break;
+          if (tablesTaken.has(t.tableId)) continue;
+          const free = t.seatedHorses;
+          if (free.length === 0) continue;
+          const most = Math.max(...free.map((c) => seatsOf.get(c.horseId) ?? 1));
+          const victim = pickYieldVictims(
+            free.filter((c) => (seatsOf.get(c.horseId) ?? 1) === most),
+            1
+          )[0];
+          if (!victim) continue;
+          plan.stand.push({
+            tableId: t.tableId,
+            horseId: victim,
+            reason: 'occupancy_wind_down',
+            delayMs: 0,
+          });
+          tablesTaken.add(t.tableId);
+          seatsOf.set(victim, (seatsOf.get(victim) ?? 1) - 1);
+          left--;
+        }
+      }
+    }
+
     // 5. Exotic and limit caps, per variant - FLEET tables only. A cluster
     //    table (a must-move game's Main, feeder or extra Main) is the
     //    ClusterController's: it is never closed here, and while a variant
@@ -709,6 +759,34 @@ export function stableHandHostCaps(
 }
 
 /**
+ * The most SEATS each host may carry right now: its body cap times the
+ * band's seats-per-horse ceiling (hostSeatCeiling). Keyed like the caps.
+ */
+export function stableHandHostSeatCeilings(
+  caps: ReadonlyMap<string, number>,
+  chicagoHour: number
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const [hostId, cap] of caps) out.set(hostId, hostSeatCeiling(cap, chicagoHour));
+  return out;
+}
+
+/** Every seat on each host, human and horse alike (a person in a chair is a
+ *  player on that floor, exactly as bodiesOnHostFrom counts them). */
+export function seatsOnHostFrom(
+  seats: ReadonlyArray<{ user_id: string; table_id: string }>,
+  hostOfTable: ReadonlyMap<string, string>
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const s of seats) {
+    const host = hostOfTable.get(s.table_id);
+    if (!host) continue;
+    out.set(host, (out.get(host) ?? 0) + 1);
+  }
+  return out;
+}
+
+/**
  * May this horse take a NEW seat on this host?
  *
  * Yes when the host has no cap, when the horse is already seated somewhere on
@@ -722,10 +800,22 @@ export function hostAllowsNewBody(opts: {
   caps: ReadonlyMap<string, number>;
   bodiesOnHost: ReadonlyMap<string, ReadonlySet<string>>;
   humanNeedsRescue: boolean;
+  /** Seats held on each host (seatsOnHostFrom), with the ceilings from
+   *  stableHandHostSeatCeilings. A host at its seat ceiling takes no new
+   *  seat at all, not even a second table for a body already counted. */
+  seatsOnHost?: ReadonlyMap<string, number>;
+  seatCeilings?: ReadonlyMap<string, number>;
 }): boolean {
   if (opts.humanNeedsRescue) return true;
   const cap = opts.caps.get(opts.hostId);
   if (cap === undefined) return true;
+  const ceiling = opts.seatCeilings?.get(opts.hostId);
+  if (
+    ceiling !== undefined &&
+    opts.seatsOnHost &&
+    (opts.seatsOnHost.get(opts.hostId) ?? 0) >= ceiling
+  )
+    return false;
   const live = opts.bodiesOnHost.get(opts.hostId);
   if (live?.has(opts.horseId)) return true;
   return (live?.size ?? 0) < cap;

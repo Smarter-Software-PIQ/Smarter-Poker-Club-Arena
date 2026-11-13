@@ -1,0 +1,134 @@
+{
+  "version": 1,
+  "slug": "plo4-heads-up-final-small-blind-folds-ace-ten-at-five-blinds",
+  "title": "Heads-up final table: the small blind folds A T 3 2 first in at 5.4 big blinds",
+  "complaint": "Owner order 2026-11-12 21:14 Chicago: a person won the PLO4 MTT; the Horse small blind folded its first action in 9 of 12 heads-up hands",
+  "handId": "2133f679-9933-4be7-aef3-0cbf175af360",
+  "fmt": "tour",
+  "variant": "plo4",
+  "players": [
+    {
+      "seat": 3,
+      "isHorse": false
+    },
+    {
+      "seat": 7,
+      "isHorse": true
+    }
+  ],
+  "hole": {
+    "7": [
+      {
+        "rank": "A",
+        "suit": "hearts"
+      },
+      {
+        "rank": "T",
+        "suit": "clubs"
+      },
+      {
+        "rank": "3",
+        "suit": "clubs"
+      },
+      {
+        "rank": "2",
+        "suit": "spades"
+      }
+    ]
+  },
+  "actions": [
+    {
+      "ord": 1,
+      "seat": 3,
+      "stage": "preflop",
+      "action": "bb",
+      "amount": 8000,
+      "origin": "forced",
+      "isFullRaise": false,
+      "dead": false
+    },
+    {
+      "ord": 2,
+      "seat": 7,
+      "stage": "preflop",
+      "action": "sb",
+      "amount": 4000,
+      "origin": "forced",
+      "isFullRaise": false,
+      "dead": false
+    },
+    {
+      "ord": 3,
+      "seat": 7,
+      "stage": "preflop",
+      "action": "fold",
+      "amount": 0,
+      "origin": "horse_policy",
+      "isFullRaise": false,
+      "dead": false,
+      "publicNode": {
+        "pot": 12000,
+        "ante": 0,
+        "anteType": "per_player",
+        "mode": "tournament",
+        "seats": [
+          [3, 593454, 8000, 8000, 0, 0, 0],
+          [7, 39546, 4000, 4000, 0, 0, 0]
+        ],
+        "boards": [""],
+        "street": "preflop",
+        "toCall": 4000,
+        "currentBet": 8000,
+        "minRaiseTo": 16000,
+        "maxRaiseTo": 24000,
+        "legalActions": ["fold", "call", "raise", "all_in"],
+        "dealerSeat": 7,
+        "chipUnit": 1,
+        "bigBlind": 8000,
+        "smallBlind": 4000,
+        "variant": "plo4",
+        "structure": "pot_limit",
+        "actorSeat": 7,
+        "bombPot": false,
+        "tournamentStage": {
+          "ageMs": 3591,
+          "isPko": false,
+          "rules": "tournament-stage-public-v1",
+          "format": "mtt",
+          "status": "captured",
+          "inMoney": true,
+          "onBreak": false,
+          "version": 1,
+          "entrants": 59,
+          "isBounty": false,
+          "rebuyOpen": false,
+          "satellite": false,
+          "spotsPaid": 9,
+          "finalTable": true,
+          "nearBubble": false,
+          "handForHand": false,
+          "playersLeft": 2,
+          "reentryOpen": false,
+          "currentLevel": 16,
+          "seatsPerTable": 8,
+          "satelliteSeats": 0,
+          "addOnPeriodOpen": false,
+          "isMysteryBounty": false,
+          "registrationOpen": false,
+          "mysteryBountyStage": "none",
+          "lateRegistrationOpen": false
+        }
+      }
+    }
+  ],
+  "forbidden": [
+    {
+      "ord": 3,
+      "kind": "fold"
+    }
+  ],
+  "seeds": [1, 7, 42, 99, 2026, 3, 11, 17, 23, 31],
+  "control": {
+    "omahaTournamentFirstIn": false
+  }
+}

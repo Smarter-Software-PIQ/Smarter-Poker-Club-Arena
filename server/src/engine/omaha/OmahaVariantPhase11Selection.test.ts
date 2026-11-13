@@ -76,6 +76,10 @@ const tournament = (input: ReturnType<typeof omahaVariantSpot>) => {
   return input;
 };
 
+// These spots need a hand the reference folds, so the pack's proposal differs
+// from it. V90 no longer folds that hand first in heads-up in a tournament, so
+// the fixture runs the reference without V90. Phase 7 ownership of the V90
+// decision itself is held in HorseOmahaTournamentFirstIn.law.test.ts.
 const decide = (input: ReturnType<typeof omahaVariantSpot>, phase11Omaha: OmahaVariantMode) => {
   seedFastRandom(100101);
   return HorseLogic.decide(
@@ -83,7 +87,14 @@ const decide = (input: ReturnType<typeof omahaVariantSpot>, phase11Omaha: OmahaV
     input.state,
     'balanced',
     {},
-    { telemetry: false, mind: false, decisionTimeMs: 0, phase11Omaha, phase11EvidenceMode: true }
+    {
+      telemetry: false,
+      mind: false,
+      decisionTimeMs: 0,
+      phase11Omaha,
+      phase11EvidenceMode: true,
+      omahaTournamentFirstIn: false,
+    }
   );
 };
 const act = (d: { action: string; amount?: number }) => ({

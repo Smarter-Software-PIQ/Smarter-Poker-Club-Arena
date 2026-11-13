@@ -869,13 +869,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V88'
   ),
   flag(
+    'omahaTournamentFirstIn',
+    '2026-11-13 Omaha high tournaments (engine-declared), at the final table (trusted players left no more than the players dealt; unknown stands aside), heads-up or a three-handed table paying one place, 20 BB or less, not All-In-Or-Fold, not a locked satellite seat: the small blind against the big blind alone plays every hand as the pot-limit maximum raise, and the heads-up big blind (or the three-handed winner-take-all big blind closing the action) calls its top 75 percent against one raise at a price of a half or better, replacing only the engine fold; percentile among Omaha hands, narrowed by the tournament risk premium.',
+    'V90'
+  ),
+  flag(
     'tokenCallPrice',
     '2026-11-12 cash Omaha high committed-call bar: below a price of 0.15 the additive premiums (margin, commitment bar, scare margin, shades) shrink in proportion to the price, and under 0.01 a made hand calls; unchanged at 0.15 or more (PLO6-AUDIT-010, production hand 58750626)',
     'V89'
   ),
   flag(
     'omahaPreflopCallWithActionBehind',
-    'opt-in arm, default off (2026-11-13): Omaha preflop, a call costing 40% of the stack that leaves chips behind while an opponent still owes a decision is sent to the range play, not the final all-in arithmetic (PLO6-AUDIT-005, production hand 58751512). The pricing gap is real but the value check does not support the rule as built: the folded hands hold 42% to 55% equity at a price near 38% and no recorded call of the class was ever forfeited to a re-raise, so production never sets it',
+    'opt-in arm, default off (2026-11-13): Omaha preflop, a call costing 40% of the stack that leaves chips behind while an opponent still owes a decision is sent to the range play, not the final all-in arithmetic (PLO6-AUDIT-005, production hand 58751512). The pricing gap is real but the value check does not support the rule as built: the folded hands hold 40% to 55% equity at a price near 38%, the rule was merged without a value check and nothing measured since supplies one, so production never sets it',
     'V90'
   ),
   flag(
@@ -1001,12 +1006,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'styleBigBetHonesty',
-    "2026-11-13 STYLE READ #3: a large river bet (0.66 pot or more) from a player whose betting-range evidence is value-weighted earns extra call-down respect, capped at the existing +0.15 together with the V16 tell; a large turn bet and any river raise read the frequency evidence only at half weight (shown strength was measured on big river bets and is not generalised); never a small bet, never the flop; halved when hero holds a blocker; scaled down proportionally and stood down by the fast window; stands down in bounty events; only ever adds respect (never widens a call); the tournament utility arbiter keeps the last word; default off, explicit true only",
+    '2026-11-13 STYLE READ #3: a large river bet (0.66 pot or more) from a player whose betting-range evidence is value-weighted earns extra call-down respect, capped at the existing +0.15 together with the V16 tell; a large turn bet and any river raise read the frequency evidence only at half weight (shown strength was measured on big river bets and is not generalised); never a small bet, never the flop; halved when hero holds a blocker; scaled down proportionally and stood down by the fast window; stands down in bounty events; only ever adds respect (never widens a call); the tournament utility arbiter keeps the last word; default off, explicit true only',
     '2026-11-13'
   ),
   flag(
     'styleRaiseRespect',
-    "2026-11-13 STYLE READ #4: a flop or turn raise from a player whose postflop bet-and-raise share is credibly below the Horse mean (the raise-frequency proxy) shades a one-pair-or-worse call by up to 0.06 equity, scaled by the DECISION-TIME stack-to-pot ratio (effective stack behind before the decision over the pot including his bet): nothing at SPR 2 or below (one pair is a correct stack-off), full from SPR 6; heads-up, no side pots, no bounty event, no maniac read; released proportionally by the fast window; only ever adds a shade (never widens a call); default off, explicit true only",
+    '2026-11-13 STYLE READ #4: a flop or turn raise from a player whose postflop bet-and-raise share is credibly below the Horse mean (the raise-frequency proxy) shades a one-pair-or-worse call by up to 0.06 equity, scaled by the DECISION-TIME stack-to-pot ratio (effective stack behind before the decision over the pot including his bet): nothing at SPR 2 or below (one pair is a correct stack-off), full from SPR 6; heads-up, no side pots, no bounty event, no maniac read; released proportionally by the fast window; only ever adds a shade (never widens a call); default off, explicit true only',
     '2026-11-13'
   ),
   flag(
@@ -1015,23 +1020,28 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-13'
   ),
   flag(
+    'styleShadow',
+    '2026-11-13 STYLE READ SHADOW (HorseStyleShadow, HorseStyleSwitch): the style options in shadow for this decision. Each listed option computes its adjustment and applies nothing; one that would have changed its input records that it engaged, and the decision worker re-decides once with only that option on (same RNG position, effects captured and discarded) to receipt a changed action (style_shadow.*). Set only by the live switch; absent = none; an option explicitly true is on whatever this lists',
+    '2026-11-13'
+  ),
+  flag(
     'styleFoldRatePreRepair',
-    '2026-11-13 STYLE READ pre-repair: the legacy over-folder branch (postflop fold rate above 0.62) stands down while the decision\'s exact profile is a pre-repair cash table-speed row whose fold-to-bet has fewer than 60 post-release opportunities; hold\'em only; default off, explicit true only',
+    "2026-11-13 STYLE READ pre-repair: the legacy over-folder branch (postflop fold rate above 0.62) stands down while the decision's exact profile is a pre-repair cash table-speed row whose fold-to-bet has fewer than 60 post-release opportunities; hold'em only; default off, explicit true only",
     '2026-11-13'
   ),
   flag(
     'styleValueExtraction',
-    '2026-11-13 STYLE READ A4 value extraction: against a credible caller (fold-to-bet credibly low or river call credibly high) whose shown big bets are not value-weighted, value sizing up to +25%, value bar up to 0.03 thinner, slow-play cut up to 50% only when he rarely bets; released by a rising fast-window fold rate; hold\'em heads-up, not bounty; default off, explicit true only',
+    "2026-11-13 STYLE READ A4 value extraction: against a credible caller (fold-to-bet credibly low or river call credibly high) whose shown big bets are not value-weighted, value sizing up to +25%, value bar up to 0.03 thinner, slow-play cut up to 50% only when he rarely bets; released by a rising fast-window fold rate; hold'em heads-up, not bounty; default off, explicit true only",
     '2026-11-13'
   ),
   flag(
     'styleFoldBluff',
-    '2026-11-13 STYLE READ postflop-fold bluffing: bluff frequency follows this street\'s fold-to-bet (river: river call), up to +25% against a folder and down to -30% against a caller, increase withheld against possible fold-faking trappers, pre-repair rows excluded; hold\'em heads-up, not bounty; default off, explicit true only',
+    "2026-11-13 STYLE READ postflop-fold bluffing: bluff frequency follows this street's fold-to-bet (river: river call), up to +25% against a folder and down to -30% against a caller, increase withheld against possible fold-faking trappers, pre-repair rows excluded; hold'em heads-up, not bounty; default off, explicit true only",
     '2026-11-13'
   ),
   flag(
     'styleCarryOverWeight',
-    '2026-11-13 STYLE READ cross-format transfer: weight (0 to 1) of the same player\'s other-format counters in the style read; default 0 = format-specific evidence only; one player being tighter in tournaments does not establish that everyone is, so a non-zero weight needs validation first',
+    "2026-11-13 STYLE READ cross-format transfer: weight (0 to 1) of the same player's other-format counters in the style read; default 0 = format-specific evidence only; one player being tighter in tournaments does not establish that everyone is, so a non-zero weight needs validation first",
     '2026-11-13'
   ),
   receipt(
@@ -1061,19 +1071,79 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'style_fold_bluff_seen',
     'HorseLogic (STYLE READ postflop-fold bluffing)',
-    'the bluff multiplier moved by this street\'s fold-to-bet read; occurrence counter; named *_seen',
+    "the bluff multiplier moved by this street's fold-to-bet read; occurrence counter; named *_seen",
     '2026-11-13'
   ),
   receipt(
     'style_bluff_catch_cap_seen',
     'HorseLogic (STYLE READ #3 river bluff-catch equity cap)',
-    'a one-pair river bluff-catcher\'s equity was capped at the bluff share the bettor\'s called river bets left (90% one-sided); occurrence counter; named *_seen',
+    "a one-pair river bluff-catcher's equity was capped at the bluff share the bettor's called river bets left (90% one-sided); occurrence counter; named *_seen",
     '2026-11-13'
   ),
   receipt(
     'style_boot_inputs_hydrated_seen',
     'HorseExploitHydrator (STYLE READ boot inputs)',
-    'the boot replay rebuilt the style read\'s post-release counts and size buckets from the hand history it read (only when HORSE_STYLE_BOOT_RELEASE_START_MS is set); occurrence counter; named *_seen',
+    'with HORSE_STYLE_BOOT_RELEASE_START_MS set, the boot replay rebuilt the post-release counts of the pre-repair discount from the hand history it read (the size buckets, in-format aggression and Horse reference rebuild on every boot without a receipt); occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_boot_post_release_failed_seen',
+    'HorseExploitHydrator (STYLE READ boot inputs)',
+    'every post-release count batch of the boot rebuild failed, so the pre-repair discount stays on (a partial failure fires style_boot_post_release_partial_failed_seen instead); the hydrated receipt is withheld; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_boot_post_release_partial_failed_seen',
+    'HorseExploitHydrator (STYLE READ boot inputs)',
+    'some, not all, post-release count batches of the boot rebuild failed; fires once per failed batch, so its count is the failed count; no batch is imported, so the pre-repair discount stays on for every player; the hydrated receipt is withheld; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_boot_size_buckets_failed_seen',
+    'HorseExploitHydrator (STYLE READ boot inputs)',
+    'the boot rebuild of the river size buckets threw; the aggression and Horse reference rebuilds still ran; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_boot_aggression_failed_seen',
+    'HorseExploitHydrator (STYLE READ boot inputs)',
+    'the boot rebuild of in-format aggression threw; the size bucket and Horse reference rebuilds still ran; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_boot_horse_reference_failed_seen',
+    'HorseExploitHydrator (STYLE READ boot inputs)',
+    'the boot rebuild of the Horse population reference threw; the size bucket and aggression rebuilds still ran; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_boot_size_from_players_seen',
+    'HorseExploitHydrator (STYLE READ boot inputs)',
+    'with HORSE_STYLE_BOOT_RELEASE_START_MS set, at least one boot row had no stored dealt-in count (horse_exploit_dealt_count), so its table size came from the players list instead of the count the live scope uses; once per boot; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_switch_*',
+    'HorseStyleSwitch (STYLE READ live switch)',
+    'style_switch_<option>_<state>_seen: an option of the style read changed runtime state (off, shadow, canary, on) at a configuration read, the option and the new state in the name; style_switch_config_invalid_seen / style_switch_config_unreadable_seen / style_switch_config_stale_seen: the configuration was not the documented shape, could not be read, or was delivered more than two poll intervals ago, and every option failed safe to off; occurrence counters; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_shadow*',
+    'horseDecision workerRuntime (STYLE READ shadow)',
+    'style_shadow.<opt>.<c|t>.<variant>.<p|f|t|r>.<actual>.<wouldBe>.<s|c>_seen: an AGGREGATE counter over a fixed key set of at most 68,600 keys (no hand, seat or amount), one fire per changed decision of a style option in shadow (the would-be action class of the one re-decision with that option on differs from the committed one); per-decision detail is reconstructed from the decision journal (replay state carries the switch state) joined to ca_hand_facts; style_shadow_unchanged_seen: the re-decision kept the action; style_shadow_rotated_out_seen: another engaged option of the same decision was not re-decided (one re-decision per decision, rotated by decision key); style_shadow_skipped_backlog_seen / _skipped_budget_seen / _skipped_scale_seen: no re-decision because work was queued, the committed decision exceeded the 15 ms budget, or the governor scale moved; style_shadow_scale_mismatch_seen: the re-decision ran at another scale and was discarded; style_shadow_redecide_over_budget_seen: a re-decision took more than 15 ms; style_shadow_redecide_failed_seen / _unencodable_seen: a re-decision or its receipt threw (nothing committed changes); occurrence counters; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_read_timed_seen',
+    'horseDecision workerRuntime (STYLE READ latency)',
+    'a live fast decision ran with at least one style option not off, and the style read time inside it was recorded (horse_decision_latency scope style_read); the denominator of style_read_over_budget_seen; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_read_over_budget_seen',
+    'horseDecision workerRuntime (STYLE READ latency)',
+    'the style read added more than the pre-registered 0.25 ms to one live decision; over style_read_timed_seen it must stay at or below 1 percent (the p99 budget); occurrence counter; named *_seen',
     '2026-11-13'
   ),
   receipt(
@@ -1085,7 +1155,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'style_bluff_catch_cap_bounty_priced_seen',
     'HorseLogic (STYLE READ #3 bluff-catch cap in bounty events)',
-    'in a bounty event the bluff-catch cap was raised by the knockout credit the call earns (V23/V37 pricing), so it applied against the call price including the bounty; occurrence counter; named *_seen',
+    'in a bounty event the bluff-catch cap was raised by the knockout credit the call earns (V23/V37 pricing, approximated as cap + credit on the capped equity; it never widens a call beyond OFF); occurrence counter; named *_seen',
     '2026-11-13'
   ),
   receipt(
@@ -1166,6 +1236,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'Omaha threshold calibration'
   ),
   flag(
+    'omahaNeutralUnknown',
+    '2026-11-13 owner directive: an unknown Omaha opponent receives a neutral, explicitly uncertain read; the shared aggressive raise presumption (presumedAggressorRead) is skipped and only the opponent own measured read applies. Default off until its league comparison is accepted.',
+    'Omaha neutral unknown'
+  ),
+  flag(
     'readScopedShrink',
     '2026-11-08 (read calibration follow-up) below 40 scoped hands a read no longer falls back to the pooled bucket (every game mixed: about 8% of read spots, river-fold Brier 0.262 against 0.217 scoped); the scoped bucket answers with each rate shrunk toward the same scope population (every tracked player summed, no labels) with 16 pseudo-observations and its own opportunity counts, so sample gates still measure this game; default off, measured by the calibration replay (a league table deals one game, so the flag is inert there by construction)',
     'Read calibration'
@@ -1194,6 +1269,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'huBbDefendsToPrice',
     "2026-11-07 default OFF: heads-up no-limit hold'em cash, the big blind facing the only open (no limp, no caller, open <= 6bb, 20-150bb effective) continues every hand whose all-in equity against the opener's measured range (opponent read RFI/PFR width when engaged, else the V70 heads-up open target 72% cash / 76% ante; equity table HorseHuBbDefence.HU_BB_EQUITY, Monte Carlo, scripts/generate-hu-bb-defence-equity.ts), times a 0.8 out-of-position realisation, covers the rake-aware pot odds; measured before (real HorseLogic.decide, live cash Hybrid persona, 80bb, 4,000 samples per class): the SB opens 71.3% and the BB folds 57.4% to it (T6s, 96s, Q9o, K5o fold) because two-handed tables never reach the V72 per-seat defence and the V11 heads-up bar (t(0.30) less 0.06, V34 floor 0.30) reads neither the price nor the opener's width; widen-only (a fold becomes a call), 3-bets, six-max, tournaments, Omaha, short deck, pot and fixed limit unchanged; league hu_bb_defends_to_price; docs/changelog/2026-11-07-horse-hu-bb-defends-to-its-price.md",
     'HuBbPrice'
+  ),
+  flag(
+    'committedStackPricedIn',
+    "2026-11-13 default OFF (study HVH2D-NLH-M-COMMIT and HVH2D-NLH-007a): no-limit hold'em tournament, Phase 6 multiway all-in branch (two opponents all in, or one all in plus a caller or a raise), the priced-in guard in decidePreflopV7 no longer stands aside for that branch when the price is 0.05 or better, 2bb or less remain behind, or the hero has half or more of the stack it started the hand with in the pot and the hand clears 0.26 (v87PricedInMinStrength's tournament floor); a committed hand at 0.5 or better whose call is all in is priced in up to 0.18; measured before (six development-packet spots rebuilt from stored hand facts with the live M state, HorseLogic.decide at a89093a1, 12 context variants x 12 seeds): 33, 77, A8s (31 chips into 6,062), A7o, QJs and J8o folded 144 of 144 each, the reference proposal itself, because line 'multiway_all_in return out' switched the guard off; with the flag on 33, 77, A8s, A7o and QJs continue and J8o (junk, arbiter prefers the fold) still folds; a fresh multiway decision, the deep-stack control, cash and every other node are unchanged and the tournament utility arbiter still runs after it; no league evidence yet; enabling it is a separate owner decision",
+    'CommitPrice'
   ),
   flag(
     'nashCallVsJam',
@@ -2591,6 +2671,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'OPPX'
   ),
   receipt(
+    'plo_opponent_neutral_unknown',
+    'HorseMind (omahaNeutralUnknown)',
+    'an Omaha opponent with no engaged raise read was read as neutral instead of presumed aggressive (default off)',
+    'Omaha neutral unknown'
+  ),
+  receipt(
     'plo_opponent_presumption_disproved',
     'HorseMind (PLO presumption)',
     "an opponent's own public hands disproved the shared Omaha raise presumption, identically for people and horses",
@@ -2829,6 +2915,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'a telemetry-on postflop decision scored its blockers',
     '2026-11-12',
     'decide_postflop'
+  ),
+  receipt(
+    'phase14_kernel_refused_*',
+    'horseDecision workerRuntime (FAST)',
+    'an admitted Phase 14 domain decision outside the kernel family, by the first refusing check (two dealt seats, river, opponent all in, ante geometry, baseline); named *_seen (occurrence, not a layer)',
+    '2026-11-13'
+  ),
+  receipt(
+    'phase14_kernel_eligible_deep_seen',
+    'horseDecision workerRuntime (DEEP)',
+    'a DEEP second look that reached the admitted corrective kernel; kept apart from the FAST count; named *_seen (occurrence, not a layer)',
+    '2026-11-13'
   ),
   receipt(
     'phase14_kernel_eligible_seen',
@@ -3338,6 +3436,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V66',
     'decide',
     0.001
+  ),
+  receipt(
+    'omaha_tournament_first_in',
+    'HorsePreflop (V90)',
+    'Omaha high tournament final table: a small blind against the big blind alone, or heads-up big blind, fold was replaced from the hand true Omaha percentile (no rate floor until a live day is measured)',
+    'V90'
   ),
   receipt(
     'v88_commitment_honored',
@@ -4666,6 +4770,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic decideInternal after wager_rules',
     'the near-nut candidate chose a value raise and a later owner replaced it',
     'Small-pot near-nut value'
+  ),
+  receipt(
+    'committed_stack_priced_in_seen',
+    'HorsePreflop via HorseLogic (committedStackPricedIn)',
+    'default-off committedStackPricedIn: a tournament multiway all-in fold of a committed or token-priced stack became a call because the priced-in guard was no longer switched off for that branch; an occurrence counter with no floor, named *_seen (the study spots are rare, but the 2bb-behind case is common at short tournament stacks: the 4bb league card diverged in 2,405 of 6,000 pairs)',
+    'CommitPrice'
   ),
   receipt(
     'hu_bb_defends_to_price',

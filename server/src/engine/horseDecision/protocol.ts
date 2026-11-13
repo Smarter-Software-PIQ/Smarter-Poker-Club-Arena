@@ -222,6 +222,12 @@ export interface CompletedHandObservation extends HorseDecisionFence {
   >;
   /** Public rules captured in the original accepted hand, never current table config. */
   publicMemoryDomain?: import('../HorsePublicMemoryDomain.js').HorsePublicMemoryDomain | null;
+  /** STYLE READ learner (2026-11-13): the hand's format, set for every hand that carries a public memory domain,
+   *  so the in-format style evidence is learned whether or not any durable profile row exists. */
+  styleMemoryMode?: 'cash' | 'tournament';
+  /** STYLE READ Horse reference (F2): the same value the hand_history row stores as has_human, so the live Horse
+   *  reference counts exactly the hands the boot rebuild can read (has_human hands). Absent: not counted. */
+  styleHasHuman?: boolean;
   /** Pool-owned original observer routing; separate from the accepted Phase 14 roster. */
   observerParticipants?: import('./observerParticipants.js').HorseObserverParticipants;
   /** Validated public-action profiles from the accepted hand path, back-filled or not
