@@ -532,6 +532,7 @@ describe(
       };
       expect(run({ omahaTournamentFirstIn: { bigBlindClosingShare: 0 } })).toEqual(run({}));
       expect(run({ omahaTournamentFirstIn: {} })).toEqual(run({}));
+      expect(run({ omahaTournamentFirstIn: { headsUpShare: undefined } })).toEqual(run({}));
     });
 
     it('the same closing spot with pay jumps keeps the engine folds', () => {
@@ -549,7 +550,9 @@ describe(
         }
         return actions;
       };
-      expect(run({})).toEqual(run({ omahaTournamentFirstIn: false }));
+      const on = run({});
+      expect(on).toEqual(run({ omahaTournamentFirstIn: false }));
+      expect(on.some((a) => a.startsWith('fold'))).toBe(true);
     });
 
     it('a locked satellite seat keeps its deliberate folds', () => {

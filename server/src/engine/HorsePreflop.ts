@@ -1032,7 +1032,12 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
       // leaves out keeps the published default (a partial object must never
       // zero the other shares and silently switch the rule off).
       ctx.omahaTournamentFirstIn.params
-        ? { ...OMAHA_TOURNAMENT_FIRST_IN, ...ctx.omahaTournamentFirstIn.params }
+        ? {
+            ...OMAHA_TOURNAMENT_FIRST_IN,
+            ...Object.fromEntries(
+              Object.entries(ctx.omahaTournamentFirstIn.params).filter(([, v]) => v !== undefined)
+            ),
+          }
         : OMAHA_TOURNAMENT_FIRST_IN
     );
     if (widened) {
