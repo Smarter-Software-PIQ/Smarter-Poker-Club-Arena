@@ -2510,9 +2510,10 @@ export interface HorseDecideOpts {
    * arithmetic treats a call as final), but the rule as built sends the
    * call to a price-blind range bar that folds it, and the value check
    * does not support that: the folded hands hold 40% to 55% equity at a
-   * price near 38%, and in the study's 54 recorded calls of this class the
-   * call was final 29 times, overcalled 14 and re-raised 11 with the seat
-   * calling off every time, never forfeiting. Read as `=== true`. */
+   * price near 38%. The rule was merged without a value check and nothing
+   * measured since supplies one: against recorded Horse ranges the 54
+   * recorded calls of this class are worth more than folding. Read as
+   * `=== true`. */
   omahaPreflopCallWithActionBehind?: boolean;
   /** A deep Omaha seat's preflop stack-off bar is read without the VPIP
    * floor multiplier (PLO6-AUDIT-004). OPT-IN, default off: the mechanism is
