@@ -11,6 +11,7 @@ import {
 } from './GtoPostflopV31.js';
 import { public215Digest } from './GtoPublicHist215Model.js';
 import { fixture, bind, hex, input } from './__tests__/public215Fixture.js';
+import { rangeProvenanceFor } from '../services/V31LoaderFixture.js';
 beforeEach(() => _clearGtoPostflopV31());
 it('yields between detached model admissions and retains the old complete store until the final swap', async () => {
   const old = fixture(20);
@@ -19,7 +20,7 @@ it('yields between detached model admissions and retains the old complete store 
     b = fixture(40);
   a.dataset_cells = b.dataset_cells = 2;
   a.dataset_checksum = b.dataset_checksum = 'b'.repeat(64);
-  const replacing = replaceGtoPostflopV31Async([a, b]);
+  const replacing = replaceGtoPostflopV31Async([a, b], undefined, rangeProvenanceFor([a, b]));
   await new Promise<void>((resolve) => process.nextTick(resolve));
   expect(gtoPostflopV31Count()).toBe(1);
   expect(gtoPostflopV31Dataset()?.checksum).toBe(old.dataset_checksum);
