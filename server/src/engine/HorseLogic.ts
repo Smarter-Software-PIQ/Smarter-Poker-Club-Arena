@@ -3092,6 +3092,10 @@ export interface HorseDecideOpts {
    *  significantly negative); explicit false is the old multiplier, and the
    *  league matchups plo*_omaha_ev_fold keep measuring it. */
   omahaEvFoldModel?: boolean;
+  /** Owner directive 2026-11-13 (Omaha read): an unknown Omaha opponent gets a
+   *  neutral read (no presumed aggressive raise width) instead of
+   *  presumedAggressorRead. Default OFF; true enables it. */
+  omahaNeutralUnknown?: boolean;
   /** Items 21 and 23 (2026-11-05): a planned barrel records the next-street
    *  contender set and stack-to-pot exposure it expects, and the next street
    *  withdraws the plan when a contender the plan never expected is still in
@@ -6002,6 +6006,7 @@ export class HorseLogic {
       breakEvenBluff: opts.readBreakEvenBluff === true,
       scopedShrink: opts.readScopedShrink === true,
       omahaEvFoldModel: (opts.omahaEvFoldModel ?? true) !== false,
+      omahaNeutralUnknown: opts.omahaNeutralUnknown === true,
       ...(typeof opts.styleCarryOverWeight === 'number' && opts.styleCarryOverWeight > 0
         ? { styleCarryWeight: Math.min(1, opts.styleCarryOverWeight) }
         : {}),

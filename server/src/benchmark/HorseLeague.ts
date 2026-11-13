@@ -1769,6 +1769,18 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   // plays. Exploratory pairs counts keep the whole card inside the budget;
   // stderr ~4.6 bb/100 at 6000 pairs — enough to catch layer-scale edges. ──
   { name: 'plo4_v15_discipline', variant: 'plo4', pairs: 6000, a: {}, b: { v15: false } },
+  // 2026-11-13 OMAHA NEUTRAL UNKNOWN (omahaNeutralUnknown, default OFF): a
+  // reads an unknown Omaha opponent from their own hands only, b presumes an
+  // aggressive raiser as today. Promotion needs this card to resolve
+  // (docs/changelog/2026-11-13-omaha-neutral-unknown.md).
+  ...(['plo4', 'plo5', 'plo6'] as const).map((variant) => ({
+    name: `${variant}_omaha_neutral_unknown`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaNeutralUnknown: true },
+    b: {},
+  })),
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
   // Ship it default ON only after this resolves significant positive.
   // 2026-11-06: V15 boats is default ON in PLO5 cash (v15BoatsOn), so the
