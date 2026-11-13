@@ -1038,10 +1038,18 @@ export function playHand(
         } finally {
           HorseMind.setDecisionScope(previousScope);
         }
-        HorseMind.observeHandComplete(`league:${ts}`, history, BB, showdown, handScope, false, {
-          variant: gameVariant,
-          boardCount: 1,
-        });
+        HorseMind.observeHandComplete(
+          `league:${ts}`,
+          history,
+          BB,
+          showdown,
+          handScope,
+          false,
+          { variant: gameVariant, boardCount: 1 },
+          undefined,
+          // the league is cash; the style learner records only when a harness enables it
+          'cash'
+        );
       });
     } catch {
       /* the harness is measurement plumbing — never let it break a deal */
@@ -1843,6 +1851,37 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     moodClock: 'deal_seed',
     a: { commitUnderPot: true },
     b: {},
+  },
+  // 2026-11-13 OMAHA TOURNAMENT FIRST-IN (HorseOmahaTournamentFirstIn),
+  // default ON: a is today's brain, b the engine fold it replaces. The small
+  // blind against the big blind alone plays every hand as the pot-limit
+  // maximum raise and the heads-up big blind defends its top 75 percent,
+  // three or fewer dealt, 20 BB or less (docs/changelog/2026-11-13-omaha-
+  // tournament-first-in.md). Standing cards so a later change that brings
+  // the walk back shows on the nightly league.
+  ...(['plo4', 'plo6'] as const).map((variant) => ({
+    name: `${variant}_mtt_hu_omaha_tournament_first_in_12bb`,
+    variant,
+    seats: 2,
+    stackBB: 12,
+    context: bigBlindAnteMttContext(2, 12),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed' as const,
+    a: {},
+    b: { omahaTournamentFirstIn: false },
+  })),
+  {
+    name: 'plo4_mtt_3max_omaha_tournament_first_in_12bb',
+    variant: 'plo4',
+    seats: 3,
+    stackBB: 12,
+    context: bigBlindAnteMttContext(3, 12),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: {},
+    b: { omahaTournamentFirstIn: false },
   },
   // 2026-11-07 NASH CALL VS JAM (HorseNashPushFoldV2), default ON: a is
   // today's brain, b the strength bar it replaced. MTT 12bb with a 1bb

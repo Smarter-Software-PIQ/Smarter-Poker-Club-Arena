@@ -139,7 +139,9 @@ export type PreflopLayerReceipt =
   | 'v60_cash_pressure_opener_vs_three_bet'
   | 'v87_deep_dive_discipline'
   | 'bluff_raise_refused_no_fold_equity_seen'
-  | 'omaha_tournament_first_in';
+  | 'omaha_tournament_first_in'
+  | 'style_tight_opener_respect_seen'
+  | 'style_tight_reraiser_respect_seen';
 
 /**
  * Dan 2026-11-06 (PLO5 1/2 Madness, hand 55704472): "I JUST WATCHED NOODLE NOT
@@ -243,7 +245,24 @@ export interface PreflopCtx {
     flatBar: number | null;
     bbFlatBar: number | null;
     noBluffThreeBet: boolean;
+    /**
+     * STYLE READ #6 (2026-11-13, HorseOpponentStyle.tightOpenerRespect): set
+     * only for a credibly TIGHT opener (wide false). The most the value 3-bet
+     * bar may move toward the top of his range, and what the call bar rises
+     * by. Both only ever fold more. Absent = the exploit read is exactly what
+     * it was (the neutrality contract).
+     */
+    maxBarMove?: number;
+    callBump?: number;
   };
+  /**
+   * STYLE READ #6 (2026-11-13): the last re-raiser is credibly TIGHT (his
+   * 3-bet rate is credibly below the Horse mean, or he is tight with a low
+   * raise rate), facing a 3-bet or more. The 4-bet bar and the call bar rise
+   * by these bounded amounts; present only when no wide re-raiser read is.
+   * Undefined = unchanged.
+   */
+  styleTightReRaiser?: { fourBetBump: number; callBump: number };
   /**
    * 2026-10-24 V53 PRESSURE (HorseOpponentExploit.aggressiveOpenerPressure):
    * the single raiser is a credibly WIDE opener. Heads-up against them the
@@ -2450,12 +2469,22 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // and the flat both widen to the top of their actual range; against a
     // credible nit the 3-bet narrows. Absent read = no change at all.
     const vsOpener = ctx.exploitOpener;
+    // STYLE READ #6: the narrow branch below was unreachable (the exploit read
+    // only ever engages a WIDE opener). For a credibly tight opener the move
+    // is held aside, bounded by maxBarMove, and added after every later layer
+    // so no re-steal widening undoes it; with the field absent nothing here
+    // differs from the original branch.
+    let styleOpenerBarMove = 0;
     if (vsOpener) {
       if (vsOpener.threeBetBar !== null) {
         const bar = t53(vsOpener.threeBetBar, 'threeBet');
-        threeBetThresh = vsOpener.wide
-          ? Math.min(threeBetThresh, bar)
-          : Math.max(threeBetThresh, bar);
+        if (!vsOpener.wide && typeof vsOpener.maxBarMove === 'number') {
+          styleOpenerBarMove = Math.max(0, Math.min(bar - threeBetThresh, vsOpener.maxBarMove));
+        } else {
+          threeBetThresh = vsOpener.wide
+            ? Math.min(threeBetThresh, bar)
+            : Math.max(threeBetThresh, bar);
+        }
       }
       const flat = position === 'bb' ? vsOpener.bbFlatBar : vsOpener.flatBar;
       if (flat !== null) callThresh = Math.min(callThresh, tCall53(flat));
@@ -2603,6 +2632,16 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       ) {
         callThresh -= Math.min(0.28, ctx.sevenDeuceBonus * 0.65);
       }
+    }
+    if (
+      vsOpener &&
+      !vsOpener.wide &&
+      typeof vsOpener.maxBarMove === 'number' &&
+      (styleOpenerBarMove > 0 || (vsOpener.callBump ?? 0) > 0)
+    ) {
+      threeBetThresh += styleOpenerBarMove;
+      callThresh += Math.max(0, vsOpener.callBump ?? 0);
+      ctx.noteLayer?.('style_tight_opener_respect_seen');
     }
     threeBetThresh = phase6CapBar(threeBetThresh);
     callThresh = phase6CapBar(callThresh);
@@ -3176,6 +3215,15 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     if (vsReRaiser) {
       fourBetThresh = phase6CapBar(Math.min(fourBetThresh, t53(vsReRaiser.fourBetBar, 'fourBet')));
       callThresh = phase6CapBar(Math.min(callThresh, t53(vsReRaiser.callBar, 'call')));
+    }
+    // STYLE READ #6: a credibly tight 3-bettor is 4-bet and called from the top
+    // of a narrower range: both bars rise a bounded amount. Never with a wide
+    // re-raiser read (they are exclusive by construction).
+    const vsTightReRaiser = vsReRaiser ? undefined : ctx.styleTightReRaiser;
+    if (vsTightReRaiser) {
+      fourBetThresh = phase6CapBar(fourBetThresh + Math.max(0, vsTightReRaiser.fourBetBump));
+      callThresh = phase6CapBar(callThresh + Math.max(0, vsTightReRaiser.callBump));
+      ctx.noteLayer?.('style_tight_reraiser_respect_seen');
     }
     if (unblocked86 && ctx.facingColdCalledThreeBet === true) {
       fourBetThresh = phase6CapBar(fourBetThresh + 0.03);
