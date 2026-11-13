@@ -101,6 +101,7 @@ import PageBar from '../components/help/PageBar';
 import { MttCreationStructurePreview } from '../components/tournament/MttCreationStructurePreview';
 import { MttPayoutDepthOptions } from '../components/tournament/MttPayoutDepthOptions';
 import { MttCreationProfileSelect } from '../components/tournament/MttCreationProfileSelect';
+import { PrebuiltStructureSelect } from '../components/tournament/PrebuiltStructureSelect';
 import {
   FREE_BUY_ADDON_COST,
   FREE_BUY_HELPER,
@@ -115,7 +116,7 @@ import {
 type GameMode = 'regular' | 'sng' | 'mtt';
 
 type RunItMode = 'none' | 'player_choice' | 'mandatory_twice' | 'mandatory_three';
-type BlindStructure = 'slow' | 'standard' | 'turbo' | 'hyper_turbo';
+type BlindStructure = 'slow' | 'standard' | 'turbo' | 'hyper_turbo' | `prebuilt:${string}`;
 type PayoutStructure = 'payout1' | 'payout2' | 'payout3' | 'payout20' | 'winner_take_all';
 
 interface TableTemplate {
@@ -1670,6 +1671,12 @@ export default function TableConfigPage({
                 <span className="config-free-buy__text">{FREE_BUY_HELPER}</span>
               </div>
             )}
+
+            <PrebuiltStructureSelect
+              config={config}
+              isPinned={Boolean((config as { featuredTournament?: boolean }).featuredTournament)}
+              onApply={(values) => setConfig((current) => ({ ...current, ...values }))}
+            />
 
             <MttCreationProfileSelect
               config={config}
