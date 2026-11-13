@@ -10,6 +10,10 @@
  * exclusions. It is development evidence about the code path. It says nothing
  * about how often the spot arises in those games.
  *
+ * Hi-lo is excluded by tokenCallPriceApplies and pinned at the helper
+ * (HorseTokenCallPrice.test.ts). No PLO8 case is here: at this node PLO8
+ * never folds with the rule on or off, so such a case could not fail.
+ *
  * What a 120-hand sweep of this node showed, and these cases pin: in PLO4 and
  * PLO5 the old bar already calls almost every hand here, so the rule changes
  * little there; its effect is concentrated in PLO6, where the old bar folded
@@ -104,11 +108,6 @@ describe('the token-price call bar in PLO4 and PLO5 (derived fixtures, PLO6-AUDI
         if (node) node.mode = 'tournament';
       }
     });
-    expect(actions(fx)).toEqual(actions(fx, OFF));
-  });
-
-  it('plo8 (hi-lo) is out of scope: the same action with the rule on or off', () => {
-    const fx = derived('plo8', '2d Qs 7d Kh');
     expect(actions(fx)).toEqual(actions(fx, OFF));
   });
 });
