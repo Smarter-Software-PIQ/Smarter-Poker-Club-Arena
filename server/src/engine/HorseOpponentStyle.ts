@@ -127,6 +127,8 @@ export const STYLE_LABELS = [
   'unknown',
 ] as const;
 export type StyleLabel = (typeof STYLE_LABELS)[number];
+/** The telemetry label for the neutral, no-evidence read (a machine value, not page copy). */
+export const STYLE_LABEL_UNKNOWN: StyleLabel = 'unknown';
 
 // ─────────────────────────────────────────────────────────────────────────
 // VARIANT PARAMETER SETS
@@ -215,7 +217,10 @@ export const STYLE_FAMILY_PARAMS: Readonly<Record<StyleFamily, StyleFamilyParams
 });
 
 /** The parameter set a game is read with. */
-export function styleFamilyOf(variant: string | null | undefined, scope: ReadScope | null): StyleFamily {
+export function styleFamilyOf(
+  variant: string | null | undefined,
+  scope: ReadScope | null
+): StyleFamily {
   const v = (variant ?? '').toLowerCase();
   if (v === 'plo4') return 'plo4';
   if (v === 'plo5') return 'plo5';
@@ -281,11 +286,21 @@ export const STYLE_THRESHOLDS = Object.freeze({
   participationWeights: Object.freeze({ vpip: 0.65, callShare: 0.35 }),
   participationSideScore: 0.2,
   /** Aggression axis weights (sum 1) and the score a credible side needs. */
-  aggressionWeights: Object.freeze({ pfr: 0.3, threeBet: 0.2, betCheckedTo: 0.25, aggressionShare: 0.25 }),
+  aggressionWeights: Object.freeze({
+    pfr: 0.3,
+    threeBet: 0.2,
+    betCheckedTo: 0.25,
+    aggressionShare: 0.25,
+  }),
   aggressionSideScore: 0.2,
 
   /** Betting-range evidence: weight of each frequency source, noisy-or combined per side. */
-  rangeWeights: Object.freeze({ aggressionShare: 0.6, threeBet: 0.4, betCheckedTo: 0.4, preflopRaise: 0.3 }),
+  rangeWeights: Object.freeze({
+    aggressionShare: 0.6,
+    threeBet: 0.4,
+    betCheckedTo: 0.4,
+    preflopRaise: 0.3,
+  }),
   rangeSideScore: 0.15,
   rangeFullScore: 0.6,
   /** Bluff-weighted evidence a fully released read is credited with. */
@@ -460,7 +475,11 @@ export function inFormatShownTallies(buckets: SizeBucketTallies | null | undefin
     shown += Math.max(0, num(buckets?.[b]?.shown));
     strong += Math.max(0, num(buckets?.[b]?.strong));
   }
-  return { bigBetSD: shown, bigBetSDStrong: Math.min(strong, shown), shownOpportunities: Math.max(bets, shown) };
+  return {
+    bigBetSD: shown,
+    bigBetSDStrong: Math.min(strong, shown),
+    shownOpportunities: Math.max(bets, shown),
+  };
 }
 
 /**
@@ -470,7 +489,12 @@ export function inFormatShownTallies(buckets: SizeBucketTallies | null | undefin
  * and no consumer may rely on it.
  */
 /** The four statistics whose stored counts depend on which hands reached showdown. */
-export const PRE_REPAIR_STATS = Object.freeze(['foldToBet', 'riverCall', 'foldTo3Bet', 'betCheckedTo'] as const);
+export const PRE_REPAIR_STATS = Object.freeze([
+  'foldToBet',
+  'riverCall',
+  'foldTo3Bet',
+  'betCheckedTo',
+] as const);
 export type PreRepairStat = (typeof PRE_REPAIR_STATS)[number];
 /**
  * Post-release opportunities of each showdown-dependent statistic (m). It is a PERSISTED OR RECOMPUTED input,
@@ -510,9 +534,15 @@ export function preRepairWeight(m: number | null | undefined): number {
  * The structural rule: a row keyed mode 'cash' AND speed 'table' (any variant) is affected; tournament and
  * lightning rows are not. A cash row with no public domain on file cannot be told apart: null, treated as affected.
  */
-export function preRepairKeyed(mode: string | null | undefined, publicDomain: unknown): boolean | null {
+export function preRepairKeyed(
+  mode: string | null | undefined,
+  publicDomain: unknown
+): boolean | null {
   if (mode !== 'cash') return false;
-  const speed = publicDomain && typeof publicDomain === 'object' ? (publicDomain as { speed?: unknown }).speed : undefined;
+  const speed =
+    publicDomain && typeof publicDomain === 'object'
+      ? (publicDomain as { speed?: unknown }).speed
+      : undefined;
   if (speed === 'table') return true;
   if (speed === 'lightning') return false;
   return null;
@@ -520,7 +550,13 @@ export function preRepairKeyed(mode: string | null | undefined, publicDomain: un
 
 export function preRepairStateOf(prov: StyleProvenance | null | undefined): PreRepairState {
   const v = prov?.preRepair;
-  return v === true ? 'affected' : v === false ? 'not_affected' : v === null ? 'unknown_domain' : 'not_supplied';
+  return v === true
+    ? 'affected'
+    : v === false
+      ? 'not_affected'
+      : v === null
+        ? 'unknown_domain'
+        : 'not_supplied';
 }
 
 export interface PreRepairDiscount {
@@ -537,9 +573,13 @@ export interface PreRepairDiscount {
  * The discount for one showdown-dependent statistic of one row. Pure. Also the helper the legacy per-Horse
  * store read (HorseMind legacyExploit) is to call for the same flag; that hunk is not edited here.
  */
-export function preRepairDiscount(prov: StyleProvenance | null | undefined, stat: PreRepairStat): PreRepairDiscount {
+export function preRepairDiscount(
+  prov: StyleProvenance | null | undefined,
+  stat: PreRepairStat
+): PreRepairDiscount {
   const state = preRepairStateOf(prov);
-  if (state !== 'affected' && state !== 'unknown_domain') return { applies: false, bound: 1, weight: 1, excluded: false };
+  if (state !== 'affected' && state !== 'unknown_domain')
+    return { applies: false, bound: 1, weight: 1, excluded: false };
   const bound = preRepairWeight(prov?.postRelease?.[stat]);
   const excluded = bound > STYLE_THRESHOLDS.preRepairEngageMaxWeight;
   return { applies: true, bound, weight: excluded ? 0 : 1 - bound, excluded };
@@ -707,7 +747,12 @@ export interface StyleReceipt {
   readonly aggression: string;
   readonly bettingRange: string;
   readonly evidence: BettingRangeEvidence;
-  readonly availability: { shown: number; opportunities: number; revealedShare: number; discount: number };
+  readonly availability: {
+    shown: number;
+    opportunities: number;
+    revealedShare: number;
+    discount: number;
+  };
   /** side:mean:n of every statistic, rounded for telemetry */
   readonly signals: Readonly<Record<string, string>>;
   /** features the decision-time counters cannot carry; consumers condition on them at the decision */
@@ -723,7 +768,9 @@ export function sizeBucketOf(potFraction: number): SizeBucket {
   return f < 0.5 ? 'small' : f < 0.66 ? 'medium' : f <= 1 ? 'large' : 'overbet';
 }
 /** Per bucket: river first bets made (shown or not), of them called and shown down, of those strong. */
-export type SizeBucketTallies = Partial<Record<SizeBucket, { bets: number; shown: number; strong: number }>>;
+export type SizeBucketTallies = Partial<
+  Record<SizeBucket, { bets: number; shown: number; strong: number }>
+>;
 export interface SizedShownSignal {
   bets: number;
   shown: number;
@@ -784,7 +831,8 @@ export interface OpponentStyleRead {
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const round4 = (v: number): number => Math.round(v * 1e4) / 1e4;
-const noisyOr = (xs: readonly number[]): number => 1 - xs.reduce((p, x) => p * (1 - clamp(x, 0, 1)), 1);
+const noisyOr = (xs: readonly number[]): number =>
+  1 - xs.reduce((p, x) => p * (1 - clamp(x, 0, 1)), 1);
 
 const NOT_AVAILABLE: readonly string[] = Object.freeze([
   'position',
@@ -831,7 +879,13 @@ function signal(
 ): StyleSignal {
   const p = posterior(successes, opps, horse, margin);
   const side: StyleSide =
-    callable && p.n >= minOpps ? (p.pAbove >= credibility ? 'high' : p.pBelow >= credibility ? 'low' : null) : null;
+    callable && p.n >= minOpps
+      ? p.pAbove >= credibility
+        ? 'high'
+        : p.pBelow >= credibility
+          ? 'low'
+          : null
+      : null;
   const shift = clamp((p.mean - horse) / Math.max(STYLE_THRESHOLDS.minHalfBand, halfBand), -1, 1);
   return {
     mean: p.mean,
@@ -892,22 +946,29 @@ const neutralAxis = <S extends string>(): StyleAxis<S> =>
   Object.freeze({ score: 0, side: 'neutral' as const, credible: false, confidence: 0 });
 
 /** The shipped population prior: none measured. Parameterised so a measured prior can be dropped in and validated. */
-export const STYLE_POPULATION_PRIOR: Readonly<Record<StyleFamily, Omit<PopulationPrior, 'weight' | 'measuredIndividualTrait' | 'mayDisableProtection'>>> =
-  Object.freeze(
-    Object.fromEntries(
-      (Object.keys(STYLE_FAMILY_PARAMS) as StyleFamily[]).map((f) => [
-        f,
-        Object.freeze({
-          available: false,
-          source: 'none_measured',
-          uncertainty: 1,
-          participationShift: 0,
-          aggressionShift: 0,
-          bettingRangeShift: 0,
-        }),
-      ])
-    ) as Record<StyleFamily, Omit<PopulationPrior, 'weight' | 'measuredIndividualTrait' | 'mayDisableProtection'>>
-  );
+export const STYLE_POPULATION_PRIOR: Readonly<
+  Record<
+    StyleFamily,
+    Omit<PopulationPrior, 'weight' | 'measuredIndividualTrait' | 'mayDisableProtection'>
+  >
+> = Object.freeze(
+  Object.fromEntries(
+    (Object.keys(STYLE_FAMILY_PARAMS) as StyleFamily[]).map((f) => [
+      f,
+      Object.freeze({
+        available: false,
+        source: 'none_measured',
+        uncertainty: 1,
+        participationShift: 0,
+        aggressionShift: 0,
+        bettingRangeShift: 0,
+      }),
+    ])
+  ) as Record<
+    StyleFamily,
+    Omit<PopulationPrior, 'weight' | 'measuredIndividualTrait' | 'mayDisableProtection'>
+  >
+);
 
 /** (b) the prior for a family at a given amount of individual evidence: bounded, shrinking, never a trait. */
 export function populationPriorFor(family: StyleFamily, individualHands: number): PopulationPrior {
@@ -963,7 +1024,10 @@ function buildRead(
     unknownReason: parts.unknownReason,
     hands: round4(hands),
     carried: parts.carried,
-    release: Object.freeze({ fraction: round4(parts.release.fraction), source: parts.release.source }),
+    release: Object.freeze({
+      fraction: round4(parts.release.fraction),
+      source: parts.release.source,
+    }),
     provenance: Object.freeze({ ...parts.provenance }),
     observationInterval: Object.freeze({ ...parts.interval }),
     participation: `${parts.participation.side}:${round4(parts.participation.score)}`,
@@ -1033,7 +1097,9 @@ const NEUTRAL_SIGNALS = (): OpponentStyleSignals =>
     probeShare: null,
   });
 
-function sizedShown(t: SizeBucketTallies | null | undefined): Readonly<Record<SizeBucket, SizedShownSignal>> {
+function sizedShown(
+  t: SizeBucketTallies | null | undefined
+): Readonly<Record<SizeBucket, SizedShownSignal>> {
   const T = STYLE_THRESHOLDS;
   const mid = (T.bigBetValueShare + T.bigBetBluffShare) / 2;
   const out = {} as Record<SizeBucket, SizedShownSignal>;
@@ -1042,15 +1108,20 @@ function sizedShown(t: SizeBucketTallies | null | undefined): Readonly<Record<Si
     const shown = Math.max(0, num(r?.shown));
     const bets = Math.max(shown, num(r?.bets));
     const strong = clamp(num(r?.strong), 0, shown);
-    const share = (strong + T.bigBetPriorStrength * T.bigBetPriorShare) / (shown + T.bigBetPriorStrength);
+    const share =
+      (strong + T.bigBetPriorStrength * T.bigBetPriorShare) / (shown + T.bigBetPriorStrength);
     let side: SizedShownSignal['side'] = null;
     let magnitude = 0;
     if (shown >= STYLE_FAMILY_PARAMS.holdem.bigBetMinShown) {
-      if (share >= T.bigBetValueShare) (side = 'value'), (magnitude = clamp((share - mid) / (T.bigBetValueShare - mid), 0, 1));
-      else if (share <= T.bigBetBluffShare) (side = 'bluff'), (magnitude = clamp((mid - share) / (mid - T.bigBetBluffShare), 0, 1));
+      if (share >= T.bigBetValueShare)
+        ((side = 'value'), (magnitude = clamp((share - mid) / (T.bigBetValueShare - mid), 0, 1)));
+      else if (share <= T.bigBetBluffShare)
+        ((side = 'bluff'), (magnitude = clamp((mid - share) / (mid - T.bigBetBluffShare), 0, 1)));
     }
     const revealed = bets > 0 ? shown / bets : 0;
-    const discount = T.availabilityFloor + (1 - T.availabilityFloor) * clamp(revealed / T.availabilityFullShare, 0, 1);
+    const discount =
+      T.availabilityFloor +
+      (1 - T.availabilityFloor) * clamp(revealed / T.availabilityFullShare, 0, 1);
     out[b] = Object.freeze({ bets, shown, strong, share, side, magnitude, discount });
   }
   return Object.freeze(out);
@@ -1085,24 +1156,29 @@ export function unknownStyle(
 ): OpponentStyleRead {
   const family = styleFamilyOf(variant, scope);
   const prior = populationPriorFor(family, hands);
-  return buildRead(family, prior.available && prior.weight > 0 ? 'population_prior' : 'no_reliable_individual_evidence', hands, {
-    scope,
-    variant,
-    domain,
-    unknownReason: reason,
-    provenance,
-    interval: { from: null, to: null },
-    carried: null,
-    participation: neutralAxis(),
-    aggression: neutralAxis(),
-    range: neutralAxis(),
-    evidence: NO_EVIDENCE,
-    availability: NEUTRAL_AVAILABILITY,
-    release: Object.freeze({ fraction: 0, standDown: false, source: null }),
-    cap: 1,
-    signals: NEUTRAL_SIGNALS(),
-    label: 'unknown',
-  });
+  return buildRead(
+    family,
+    prior.available && prior.weight > 0 ? 'population_prior' : 'no_reliable_individual_evidence',
+    hands,
+    {
+      scope,
+      variant,
+      domain,
+      unknownReason: reason,
+      provenance,
+      interval: { from: null, to: null },
+      carried: null,
+      participation: neutralAxis(),
+      aggression: neutralAxis(),
+      range: neutralAxis(),
+      evidence: NO_EVIDENCE,
+      availability: NEUTRAL_AVAILABILITY,
+      release: Object.freeze({ fraction: 0, standDown: false, source: null }),
+      cap: 1,
+      signals: NEUTRAL_SIGNALS(),
+      label: STYLE_LABEL_UNKNOWN,
+    }
+  );
 }
 
 /**
@@ -1119,7 +1195,8 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
   const params = STYLE_FAMILY_PARAMS[family];
   const prov = input.provenance ?? {};
   const complete = prov.complete === undefined ? null : prov.complete;
-  const provCap = complete === false ? T.incompleteProfileCap : complete === null ? T.unqualifiedProfileCap : 1;
+  const provCap =
+    complete === false ? T.incompleteProfileCap : complete === null ? T.unqualifiedProfileCap : 1;
   const discounts = PRE_REPAIR_STATS.map((stat) => [stat, preRepairDiscount(prov, stat)] as const);
   const provenance: StyleProvenanceReceipt = {
     source: prov.source ?? 'unknown',
@@ -1128,7 +1205,8 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
     preRepair: preRepairStateOf(prov),
     discounted: Object.freeze(discounts.filter(([, d]) => d.excluded).map(([stat]) => stat)),
   };
-  const repairOf = (stat: PreRepairStat): PreRepairDiscount => discounts.find(([name]) => name === stat)![1];
+  const repairOf = (stat: PreRepairStat): PreRepairDiscount =>
+    discounts.find(([name]) => name === stat)![1];
   if (!scope) return unknownStyle('no_scope', scope, variant, domain, 0, provenance);
   const envelope = exploitEnvelopeFor(scope, variant);
   if (!envelope) return unknownStyle('no_population_cell', scope, variant, domain, 0, provenance);
@@ -1141,7 +1219,15 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
   // make a read supported. Lifetime pooled hands in the tallies never do.
   const hands = counterHands;
   // (a): unknown is neutral until 15 hands have passed, whatever else is on file.
-  if (!(hands >= T.preflopMinHands)) return unknownStyle(hands > 0 ? 'fewer_than_15_hands' : 'no_evidence', scope, variant, domain, hands, provenance);
+  if (!(hands >= T.preflopMinHands))
+    return unknownStyle(
+      hands > 0 ? 'fewer_than_15_hands' : 'no_evidence',
+      scope,
+      variant,
+      domain,
+      hands,
+      provenance
+    );
 
   const ms = params.marginScale;
   const callable = true; // hands >= 15 holds here
@@ -1149,8 +1235,26 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
   const pfrCell = envelope.pfr;
   const callHorse = Math.max(0.01, vpipCell.mean - pfrCell.mean);
   const prefMin = T.preflopMinHands;
-  const vpip = signal(num(c?.vpip), counterHands, vpipCell.mean, halfBandOf(vpipCell), T.margin.vpip * ms, prefMin, T.preflopCredibility, callable);
-  const pfr = signal(num(c?.pfr), counterHands, pfrCell.mean, halfBandOf(pfrCell), T.margin.pfr * ms, prefMin, T.preflopCredibility, callable);
+  const vpip = signal(
+    num(c?.vpip),
+    counterHands,
+    vpipCell.mean,
+    halfBandOf(vpipCell),
+    T.margin.vpip * ms,
+    prefMin,
+    T.preflopCredibility,
+    callable
+  );
+  const pfr = signal(
+    num(c?.pfr),
+    counterHands,
+    pfrCell.mean,
+    halfBandOf(pfrCell),
+    T.margin.pfr * ms,
+    prefMin,
+    T.preflopCredibility,
+    callable
+  );
   const callShare = signal(
     Math.max(0, num(c?.vpip) - num(c?.pfr)),
     counterHands,
@@ -1164,34 +1268,80 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
   const threeCell = envelope.threeBet;
   const betCell = envelope.betCheckedTo;
   // three-bets PER OPPORTUNITY: a single raise faced, never over all hands
-  const threeBet = signal(num(c?.threeBet), num(c?.threeBetOpp), threeCell.mean, halfBandOf(threeCell), T.margin.threeBet * ms, T.conditionedMinOpps, T.conditionedCredibility, callable);
+  const threeBet = signal(
+    num(c?.threeBet),
+    num(c?.threeBetOpp),
+    threeCell.mean,
+    halfBandOf(threeCell),
+    T.margin.threeBet * ms,
+    T.conditionedMinOpps,
+    T.conditionedCredibility,
+    callable
+  );
   // The four showdown-dependent statistics are weighted (and held out of engagement) by the pre-repair discount.
   const dBet = repairOf('betCheckedTo');
   const betCheckedTo = dBet.excluded
     ? NEUTRAL_SIGNAL()
-    : signal(num(c?.betCheckedTo) * dBet.weight, num(c?.betCheckedToOpp) * dBet.weight, betCell.mean, halfBandOf(betCell), T.margin.betCheckedTo * ms, T.conditionedMinOpps, T.conditionedCredibility, callable);
+    : signal(
+        num(c?.betCheckedTo) * dBet.weight,
+        num(c?.betCheckedToOpp) * dBet.weight,
+        betCell.mean,
+        halfBandOf(betCell),
+        T.margin.betCheckedTo * ms,
+        T.conditionedMinOpps,
+        T.conditionedCredibility,
+        callable
+      );
   const foldCell = envelope.foldToBet;
   const riverCell = envelope.riverCall;
   const dFold = repairOf('foldToBet');
   const dRiver = repairOf('riverCall');
   const foldToBet = dFold.excluded
     ? NEUTRAL_SIGNAL()
-    : signal(num(c?.foldToBet) * dFold.weight, num(c?.foldToBetOpp) * dFold.weight, foldCell.mean, halfBandOf(foldCell), T.margin.foldToBet * ms, T.conditionedMinOpps, T.conditionedCredibility, callable);
+    : signal(
+        num(c?.foldToBet) * dFold.weight,
+        num(c?.foldToBetOpp) * dFold.weight,
+        foldCell.mean,
+        halfBandOf(foldCell),
+        T.margin.foldToBet * ms,
+        T.conditionedMinOpps,
+        T.conditionedCredibility,
+        callable
+      );
   const riverCall = dRiver.excluded
     ? NEUTRAL_SIGNAL()
-    : signal(num(c?.riverCall) * dRiver.weight, num(c?.riverCallOpp) * dRiver.weight, riverCell.mean, halfBandOf(riverCell), T.margin.riverCall * ms, T.conditionedMinOpps, T.conditionedCredibility, callable);
+    : signal(
+        num(c?.riverCall) * dRiver.weight,
+        num(c?.riverCallOpp) * dRiver.weight,
+        riverCell.mean,
+        halfBandOf(riverCell),
+        T.margin.riverCall * ms,
+        T.conditionedMinOpps,
+        T.conditionedCredibility,
+        callable
+      );
   const afN = Math.max(0, num(tallies.postAggr)) + Math.max(0, num(tallies.postPassive));
   const horseShare = params.horsePostflopAggressionShare;
   // Not measured for this family: the statistic is not read at all (neutral), never borrowed from hold'em.
   const aggressionShare =
     horseShare === null
       ? NEUTRAL_SIGNAL()
-      : signal(Math.max(0, num(tallies.postAggr)), afN, horseShare, 0.15, T.margin.aggressionShare * ms, T.aggressionMinActions, T.aggressionCredibility, callable);
+      : signal(
+          Math.max(0, num(tallies.postAggr)),
+          afN,
+          horseShare,
+          0.15,
+          T.margin.aggressionShare * ms,
+          T.aggressionMinActions,
+          T.aggressionCredibility,
+          callable
+        );
 
   // ── SHOWN STRENGTH, with its availability discount ────────────────────
   const bigShown = Math.max(0, num(tallies.bigBetSD));
   const bigStrong = clamp(num(tallies.bigBetSDStrong), 0, bigShown);
-  const share = (bigStrong + T.bigBetPriorStrength * T.bigBetPriorShare) / (bigShown + T.bigBetPriorStrength);
+  const share =
+    (bigStrong + T.bigBetPriorStrength * T.bigBetPriorShare) / (bigShown + T.bigBetPriorStrength);
   const mid = (T.bigBetValueShare + T.bigBetBluffShare) / 2;
   let shownSide: ShownStrengthSignal['side'] = null;
   let shownMag = 0;
@@ -1213,13 +1363,16 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
     // Confidence counts only the shown hands that SUPPORT the side read (strong for value, weak for bluff), so one more
     // shown bluff can never raise value evidence (fixture F065: a total-count confidence grew faster than the share fell).
     confidence: (() => {
-      const support = shownSide === 'value' ? bigStrong : shownSide === 'bluff' ? bigShown - bigStrong : bigShown;
+      const support =
+        shownSide === 'value' ? bigStrong : shownSide === 'bluff' ? bigShown - bigStrong : bigShown;
       return support > 0 ? support / (support + T.bigBetConfidenceHalf) : 0;
     })(),
   };
   const opportunities = Math.max(0, num(tallies.shownOpportunities ?? tallies.postAggr));
   const revealedShare = opportunities > 0 ? Math.min(1, bigShown / opportunities) : 0;
-  const discount = T.availabilityFloor + (1 - T.availabilityFloor) * clamp(revealedShare / T.availabilityFullShare, 0, 1);
+  const discount =
+    T.availabilityFloor +
+    (1 - T.availabilityFloor) * clamp(revealedShare / T.availabilityFullShare, 0, 1);
   const availability: ObservationAvailability = {
     shown: bigShown,
     opportunities,
@@ -1231,7 +1384,12 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
   const probeShare = ctBets >= 8 ? clamp(num(tallies.ctProbes) / ctBets, 0, 1) : null;
 
   // ── PROPORTIONAL RELEASE (never a reset) ──────────────────────────────
-  const ramp = (p: number): number => clamp((p - T.releaseStartCredibility) / (T.releaseFullCredibility - T.releaseStartCredibility), 0, 1);
+  const ramp = (p: number): number =>
+    clamp(
+      (p - T.releaseStartCredibility) / (T.releaseFullCredibility - T.releaseStartCredibility),
+      0,
+      1
+    );
   let releaseFraction = 0;
   let releaseSource: string | null = null;
   const consider = (f: number, source: string): void => {
@@ -1244,16 +1402,33 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
     const fastAbove = (succ: number, opp: number, horse: number, margin: number): number =>
       opp >= EXPLOIT_FAST_MIN_N ? ramp(posterior(succ, opp, horse, margin).pAbove) : 0;
     consider(fastAbove(num(c.fPfr), num(c.fHands), pfrCell.mean, T.margin.pfr * ms), 'fast_pfr');
-    consider(fastAbove(num(c.fThreeBet), num(c.fThreeBetOpp), threeCell.mean, T.margin.threeBet * ms), 'fast_three_bet');
-    consider(fastAbove(num(c.fBetCheckedTo), num(c.fBetCheckedToOpp), betCell.mean, T.margin.betCheckedTo * ms), 'fast_bet_checked_to');
+    consider(
+      fastAbove(num(c.fThreeBet), num(c.fThreeBetOpp), threeCell.mean, T.margin.threeBet * ms),
+      'fast_three_bet'
+    );
+    consider(
+      fastAbove(
+        num(c.fBetCheckedTo),
+        num(c.fBetCheckedToOpp),
+        betCell.mean,
+        T.margin.betCheckedTo * ms
+      ),
+      'fast_bet_checked_to'
+    );
   }
   const callingRelease =
     c && num(c.fFoldToBetOpp) >= EXPLOIT_FAST_MIN_N
-      ? ramp(posterior(num(c.fFoldToBet), num(c.fFoldToBetOpp), foldCell.mean, T.margin.foldToBet * ms).pAbove)
+      ? ramp(
+          posterior(num(c.fFoldToBet), num(c.fFoldToBetOpp), foldCell.mean, T.margin.foldToBet * ms)
+            .pAbove
+        )
       : 0;
   const rn = Math.max(0, num(tallies.rAggr)) + Math.max(0, num(tallies.rPassive));
   if (horseShare !== null && rn >= T.releaseRecentActions)
-    consider(ramp(posterior(num(tallies.rAggr), rn, horseShare, T.releaseRecentShareMargin).pAbove), 'recent_aggression');
+    consider(
+      ramp(posterior(num(tallies.rAggr), rn, horseShare, T.releaseRecentShareMargin).pAbove),
+      'recent_aggression'
+    );
   const release: StyleRelease = {
     fraction: releaseFraction,
     standDown: releaseFraction >= T.releaseStandDownFraction,
@@ -1268,8 +1443,16 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
   const pw = T.participationWeights;
   const participationScore = clamp(pw.vpip * vpip.shift + pw.callShare * callShare.shift, -1, 1);
   let participationSide: 'tight' | 'loose' | 'neutral' = 'neutral';
-  if (participationScore >= T.participationSideScore && (vpip.side === 'high' || callShare.side === 'high')) participationSide = 'loose';
-  else if (participationScore <= -T.participationSideScore && (vpip.side === 'low' || callShare.side === 'low')) participationSide = 'tight';
+  if (
+    participationScore >= T.participationSideScore &&
+    (vpip.side === 'high' || callShare.side === 'high')
+  )
+    participationSide = 'loose';
+  else if (
+    participationScore <= -T.participationSideScore &&
+    (vpip.side === 'low' || callShare.side === 'low')
+  )
+    participationSide = 'tight';
   const participation: StyleAxis<'tight' | 'loose'> = {
     score: participationScore,
     side: participationSide,
@@ -1277,21 +1460,27 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
     confidence:
       participationSide === 'neutral'
         ? 0
-        : Math.max(vpip.confidence, callShare.confidence) * (participationSide === 'tight' ? capLow : capHigh),
+        : Math.max(vpip.confidence, callShare.confidence) *
+          (participationSide === 'tight' ? capLow : capHigh),
   };
 
   // ── AGGRESSION ───────────────────────────────────────────────────────
   const aw = T.aggressionWeights;
   const weighted = (sig: StyleSignal): number => sig.shift * sig.confidence;
   const aggressionScore = clamp(
-    aw.pfr * weighted(pfr) + aw.threeBet * weighted(threeBet) + aw.betCheckedTo * weighted(betCheckedTo) + aw.aggressionShare * weighted(aggressionShare),
+    aw.pfr * weighted(pfr) +
+      aw.threeBet * weighted(threeBet) +
+      aw.betCheckedTo * weighted(betCheckedTo) +
+      aw.aggressionShare * weighted(aggressionShare),
     -1,
     1
   );
   const aggSigs = [pfr, threeBet, betCheckedTo, aggressionShare];
   let aggressionSide: 'passive' | 'aggressive' | 'neutral' = 'neutral';
-  if (aggressionScore >= T.aggressionSideScore && aggSigs.some((s) => s.side === 'high')) aggressionSide = 'aggressive';
-  else if (aggressionScore <= -T.aggressionSideScore && aggSigs.some((s) => s.side === 'low')) aggressionSide = 'passive';
+  if (aggressionScore >= T.aggressionSideScore && aggSigs.some((s) => s.side === 'high'))
+    aggressionSide = 'aggressive';
+  else if (aggressionScore <= -T.aggressionSideScore && aggSigs.some((s) => s.side === 'low'))
+    aggressionSide = 'passive';
   const aggression: StyleAxis<'passive' | 'aggressive'> = {
     score: aggressionScore,
     side: aggressionSide,
@@ -1299,7 +1488,8 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
     confidence:
       aggressionSide === 'neutral'
         ? 0
-        : Math.max(...aggSigs.map((s) => s.confidence)) * (aggressionSide === 'passive' ? capLow : capHigh),
+        : Math.max(...aggSigs.map((s) => s.confidence)) *
+          (aggressionSide === 'passive' ? capLow : capHigh),
   };
 
   // ── BETTING-RANGE EVIDENCE ───────────────────────────────────────────
@@ -1307,23 +1497,41 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
   const ev = (sig: StyleSignal, side: 'high' | 'low', w: number): number =>
     sig.side === side ? w * sig.magnitude * sig.confidence : 0;
   const shownEv = (side: 'value' | 'bluff'): number =>
-    shownSide === side ? Math.min(T.showdownEvidenceCap, shownMag * shownStrength.confidence * discount) : 0;
-  const frequencyValue = noisyOr([ev(aggressionShare, 'low', rw.aggressionShare), ev(threeBet, 'low', rw.threeBet), ev(betCheckedTo, 'low', rw.betCheckedTo)]);
-  const frequencyBluff = noisyOr([ev(aggressionShare, 'high', rw.aggressionShare), ev(threeBet, 'high', rw.threeBet), ev(betCheckedTo, 'high', rw.betCheckedTo), ev(pfr, 'high', rw.preflopRaise)]);
+    shownSide === side
+      ? Math.min(T.showdownEvidenceCap, shownMag * shownStrength.confidence * discount)
+      : 0;
+  const frequencyValue = noisyOr([
+    ev(aggressionShare, 'low', rw.aggressionShare),
+    ev(threeBet, 'low', rw.threeBet),
+    ev(betCheckedTo, 'low', rw.betCheckedTo),
+  ]);
+  const frequencyBluff = noisyOr([
+    ev(aggressionShare, 'high', rw.aggressionShare),
+    ev(threeBet, 'high', rw.threeBet),
+    ev(betCheckedTo, 'high', rw.betCheckedTo),
+    ev(pfr, 'high', rw.preflopRaise),
+  ]);
   // Release is proportional: value evidence shrinks with it, bluff evidence rises with it.
   const keep = (1 - releaseFraction) * provCap;
   const evidence: BettingRangeEvidence = {
     shownValue: shownEv('value') * keep,
     shownBluff: shownEv('bluff') * capHigh,
     frequencyValue: frequencyValue * keep,
-    frequencyBluff: Math.max(frequencyBluff * capHigh, T.releasedBluffEvidence * releaseFraction * capHigh),
+    frequencyBluff: Math.max(
+      frequencyBluff * capHigh,
+      T.releasedBluffEvidence * releaseFraction * capHigh
+    ),
     availabilityDiscount: discount,
   };
   const valueEv = noisyOr([evidence.shownValue, evidence.frequencyValue]);
   const bluffEv = noisyOr([evidence.shownBluff, evidence.frequencyBluff]);
   const rangeScore = clamp(valueEv - bluffEv, -1, 1);
   const rangeSide: 'value-weighted' | 'bluff-weighted' | 'neutral' =
-    rangeScore >= T.rangeSideScore ? 'value-weighted' : rangeScore <= -T.rangeSideScore ? 'bluff-weighted' : 'neutral';
+    rangeScore >= T.rangeSideScore
+      ? 'value-weighted'
+      : rangeScore <= -T.rangeSideScore
+        ? 'bluff-weighted'
+        : 'neutral';
   const range: StyleAxis<'value-weighted' | 'bluff-weighted'> = {
     score: rangeScore,
     side: rangeSide,
@@ -1335,7 +1543,8 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
   // Entry and aggression are separate; with aggression not credibly called, the share of his
   // voluntary hands he raises (PFR over VPIP) places him.
   const raiseRatio = vpip.mean > 0 ? pfr.mean / vpip.mean : 0;
-  const aggressiveEnough = aggressionSide === 'aggressive' || (aggressionSide === 'neutral' && raiseRatio >= 0.7);
+  const aggressiveEnough =
+    aggressionSide === 'aggressive' || (aggressionSide === 'neutral' && raiseRatio >= 0.7);
   const maniac =
     participationSide === 'loose' &&
     participationScore >= T.maniacParticipationScore &&
@@ -1355,11 +1564,20 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
       : null;
   let label: StyleLabel;
   if (maniac) label = 'maniac';
-  else if (rangeSide === 'value-weighted' && aggressionSide !== 'aggressive' && participationSide !== 'loose') label = 'value-heavy-passive';
-  else if (participationSide === 'loose') label = aggressiveEnough ? 'loose-aggressive' : 'loose-passive';
-  else if (participationSide === 'tight') label = aggressiveEnough ? 'tight-aggressive' : 'tight-passive';
-  else if (aggressionSide === 'aggressive') label = participationScore >= 0 ? 'loose-aggressive' : 'tight-aggressive';
-  else if (aggressionSide === 'passive') label = participationScore >= 0 ? 'loose-passive' : 'tight-passive';
+  else if (
+    rangeSide === 'value-weighted' &&
+    aggressionSide !== 'aggressive' &&
+    participationSide !== 'loose'
+  )
+    label = 'value-heavy-passive';
+  else if (participationSide === 'loose')
+    label = aggressiveEnough ? 'loose-aggressive' : 'loose-passive';
+  else if (participationSide === 'tight')
+    label = aggressiveEnough ? 'tight-aggressive' : 'tight-passive';
+  else if (aggressionSide === 'aggressive')
+    label = participationScore >= 0 ? 'loose-aggressive' : 'tight-aggressive';
+  else if (aggressionSide === 'passive')
+    label = participationScore >= 0 ? 'loose-passive' : 'tight-passive';
   else label = 'balanced';
 
   const signals: OpponentStyleSignals = Object.freeze({
@@ -1462,11 +1680,14 @@ export interface ProfileQualification {
  * incompleteProfileCap, no consumer reliance). A conservative marker: the
  * memory owner confirms it. Pure; reads nothing, writes nothing.
  */
-export function profileQualification(p: ProfileQualificationInput | null | undefined): ProfileQualification {
+export function profileQualification(
+  p: ProfileQualificationInput | null | undefined
+): ProfileQualification {
   const reasons: string[] = [];
   if (!p) return Object.freeze({ complete: false, reasons: Object.freeze(['no_profile']) });
   if (p.initialized !== true) reasons.push('backfill_pending');
-  if (p.public_memory_domain === undefined || p.public_memory_domain === null) reasons.push('no_public_memory_domain');
+  if (p.public_memory_domain === undefined || p.public_memory_domain === null)
+    reasons.push('no_public_memory_domain');
   return Object.freeze({ complete: reasons.length === 0, reasons: Object.freeze(reasons) });
 }
 
@@ -1486,7 +1707,11 @@ export function identifyAffectedProfiles(
   const out: Array<{ key: string; reasons: readonly string[] }> = [];
   for (const r of rows) {
     const q = profileQualification(r);
-    if (!q.complete) out.push({ key: `${r.variant ?? '?'}:${r.mode ?? '?'}:${r.size ?? '?'}|${r.user_id ?? '?'}`, reasons: q.reasons });
+    if (!q.complete)
+      out.push({
+        key: `${r.variant ?? '?'}:${r.mode ?? '?'}:${r.size ?? '?'}|${r.user_id ?? '?'}`,
+        reasons: q.reasons,
+      });
   }
   return out;
 }
@@ -1557,7 +1782,10 @@ export interface BigBetSpot {
  *  magnitude   <= bigBetRespectCap (0.15); halved when hero holds a blocker
  *  stand-down  release fraction >= 0.5; shrinks proportionally before that
  */
-export function bigBetRespect(style: OpponentStyleRead | null | undefined, spot: BigBetSpot): number {
+export function bigBetRespect(
+  style: OpponentStyleRead | null | undefined,
+  spot: BigBetSpot
+): number {
   if (!actionable(style) || style.bettingRange.side !== 'value-weighted') return 0;
   const T = STYLE_THRESHOLDS;
   const e = style.bettingRange.evidence;
@@ -1579,7 +1807,8 @@ export function bigBetRespect(style: OpponentStyleRead | null | undefined, spot:
   if (spot.street === 'river') {
     const sized = style.signals.shownBySize[sizeBucketOf(num(spot.potFraction))];
     if (sized.side === 'bluff') return 0;
-    if (sized.side === 'value') basis = noisyOr([basis, sized.magnitude * sized.discount * style.confidenceCap]);
+    if (sized.side === 'value')
+      basis = noisyOr([basis, sized.magnitude * sized.discount * style.confidenceCap]);
   }
   const blocker = spot.heroHasBlocker === true ? T.bigBetBlockerShare : 1;
   return T.bigBetRespectCap * share * clamp(basis / T.rangeFullScore, 0, 1) * blocker;
@@ -1604,8 +1833,18 @@ export function raiseRespectShade(
   const s = style.signals.aggressionShare;
   if (s.side !== 'low') return 0;
   const T = STYLE_THRESHOLDS;
-  const depth = clamp((num(spot.decisionSpr) - T.raiseSprStandDown) / (T.raiseSprFull - T.raiseSprStandDown), 0, 1);
-  return T.raiseShadeCap * clamp((s.magnitude * s.confidence) / 0.5, 0, 1) * depth * (1 - style.release.fraction) * style.confidenceCap;
+  const depth = clamp(
+    (num(spot.decisionSpr) - T.raiseSprStandDown) / (T.raiseSprFull - T.raiseSprStandDown),
+    0,
+    1
+  );
+  return (
+    T.raiseShadeCap *
+    clamp((s.magnitude * s.confidence) / 0.5, 0, 1) *
+    depth *
+    (1 - style.release.fraction) *
+    style.confidenceCap
+  );
 }
 
 export interface TightRaiserOpen {
@@ -1622,7 +1861,9 @@ export interface TightRaiserOpen {
  *  magnitude   3-bet bar move <= 0.1, call bar +0.04, scaled by confidence and (1 - release)
  *  stand-down  release >= 0.5
  */
-export function tightOpenerRespect(style: OpponentStyleRead | null | undefined): TightRaiserOpen | null {
+export function tightOpenerRespect(
+  style: OpponentStyleRead | null | undefined
+): TightRaiserOpen | null {
   if (!actionable(style)) return null;
   if (style.participation.side !== 'tight' || style.signals.pfr.side !== 'low') return null;
   const T = STYLE_THRESHOLDS;
@@ -1646,13 +1887,18 @@ export interface TightReRaiser {
  *  magnitude   4-bet bar +0.03, call bar +0.06, scaled by confidence and (1 - release)
  *  stand-down  push/fold depths; release >= 0.5
  */
-export function tightReRaiserRespect(style: OpponentStyleRead | null | undefined): TightReRaiser | null {
+export function tightReRaiserRespect(
+  style: OpponentStyleRead | null | undefined
+): TightReRaiser | null {
   if (!actionable(style) || style.signals.threeBet.side === 'high') return null;
   const viaThreeBet = style.signals.threeBet.side === 'low';
   const viaEntry = style.participation.side === 'tight' && style.signals.pfr.side === 'low';
   if (!viaThreeBet && !viaEntry) return null;
   const T = STYLE_THRESHOLDS;
-  const k = clamp(viaThreeBet ? style.signals.threeBet.confidence : style.participation.confidence, 0, 1) * style.confidenceCap * (1 - style.release.fraction);
+  const k =
+    clamp(viaThreeBet ? style.signals.threeBet.confidence : style.participation.confidence, 0, 1) *
+    style.confidenceCap *
+    (1 - style.release.fraction);
   return { fourBetBump: T.tightReRaiserFourBetBump * k, callBump: T.tightReRaiserCallBump * k };
 }
 
@@ -1672,16 +1918,25 @@ export interface ValueExtraction {
   thinShift: number;
   slowplayMul: number;
 }
-export function valueExtraction(style: OpponentStyleRead | null | undefined): ValueExtraction | null {
+export function valueExtraction(
+  style: OpponentStyleRead | null | undefined
+): ValueExtraction | null {
   if (!actionable(style)) return null;
   const T = STYLE_THRESHOLDS;
   const sg = style.signals;
-  const calls = [sg.foldToBet.side === 'low' ? sg.foldToBet.confidence : 0, sg.riverCall.side === 'high' ? sg.riverCall.confidence : 0];
+  const calls = [
+    sg.foldToBet.side === 'low' ? sg.foldToBet.confidence : 0,
+    sg.riverCall.side === 'high' ? sg.riverCall.confidence : 0,
+  ];
   const conf = Math.max(...calls);
   // 'weak shown holdings': what his CALLED big bets showed, never the frequency-based range estimate (a passive
   // caller's low bet frequency reads value-weighted by frequency and says nothing about what he calls with).
   if (!(conf > 0) || sg.shownStrength.side === 'value') return null;
-  const k = clamp(conf * style.confidenceCap * (1 - style.callingRelease) * (1 - style.release.fraction), 0, 1);
+  const k = clamp(
+    conf * style.confidenceCap * (1 - style.callingRelease) * (1 - style.release.fraction),
+    0,
+    1
+  );
   if (!(k > 0)) return null;
   const rarelyBets = sg.betCheckedTo.side === 'low' || style.aggression.side === 'passive';
   return {
@@ -1709,16 +1964,18 @@ export function postflopFoldBluffScale(
   let folds: 'more' | 'less' | null = null;
   let conf = 0;
   if (street === 'river') {
-    if (sg.riverCall.side === 'low') (folds = 'more'), (conf = sg.riverCall.confidence);
-    else if (sg.riverCall.side === 'high') (folds = 'less'), (conf = sg.riverCall.confidence);
-  } else if (sg.foldToBet.side === 'high') (folds = 'more'), (conf = sg.foldToBet.confidence);
-  else if (sg.foldToBet.side === 'low') (folds = 'less'), (conf = sg.foldToBet.confidence);
+    if (sg.riverCall.side === 'low') ((folds = 'more'), (conf = sg.riverCall.confidence));
+    else if (sg.riverCall.side === 'high') ((folds = 'less'), (conf = sg.riverCall.confidence));
+  } else if (sg.foldToBet.side === 'high') ((folds = 'more'), (conf = sg.foldToBet.confidence));
+  else if (sg.foldToBet.side === 'low') ((folds = 'less'), (conf = sg.foldToBet.confidence));
   if (!folds) return null;
   const k = clamp(conf * style.confidenceCap * (1 - style.release.fraction), 0, 1);
   if (!(k > 0)) return null;
   if (folds === 'less') return 1 - T.foldBluffDownMax * k;
   const trap =
-    style.aggression.side === 'aggressive' || sg.betCheckedTo.side === 'high' || sg.shownStrength.side === 'bluff';
+    style.aggression.side === 'aggressive' ||
+    sg.betCheckedTo.side === 'high' ||
+    sg.shownStrength.side === 'bluff';
   return trap ? 1 : 1 + T.foldBluffUpMax * k;
 }
 
@@ -1743,8 +2000,10 @@ export function riverFirstBetFractions(
     const prev = street.get(id) ?? 0;
     const amt = Math.max(0, num(a.amount));
     const wager = a.action === 'bet' || a.action === 'raise' || a.action === 'all_in';
-    const inc = a.action === 'fold' || a.action === 'check' ? 0 : wager ? Math.max(0, amt - prev) : amt;
-    if (a.stage === 'river' && a.userId && wager && inc > 0 && pot > 0 && !out.has(a.userId)) out.set(a.userId, inc / pot);
+    const inc =
+      a.action === 'fold' || a.action === 'check' ? 0 : wager ? Math.max(0, amt - prev) : amt;
+    if (a.stage === 'river' && a.userId && wager && inc > 0 && pot > 0 && !out.has(a.userId))
+      out.set(a.userId, inc / pot);
     pot += inc;
     street.set(id, prev + inc);
   }
@@ -1804,13 +2063,19 @@ export function postReleaseOpportunitiesFromHistory(
  *  applies     hold'em river, one-pair class only (the caller checks), any size: the evidence is about his river bets
  *  stand-down  release >= 0.5; unknown or unsupported read
  */
-export function bluffCatchEquityCap(style: OpponentStyleRead | null | undefined, spot: { potFraction: number }): number | null {
+export function bluffCatchEquityCap(
+  style: OpponentStyleRead | null | undefined,
+  spot: { potFraction: number }
+): number | null {
   if (!actionable(style)) return null;
   const T = STYLE_THRESHOLDS;
   const min = STYLE_FAMILY_PARAMS[style.family].bigBetMinShown;
   const sized = style.signals.shownBySize[sizeBucketOf(num(spot.potFraction))];
   const all = style.signals.shownStrength;
-  const src = sized.shown >= min ? { shown: sized.shown, strong: sized.strong } : { shown: all.shown, strong: all.strong };
+  const src =
+    sized.shown >= min
+      ? { shown: sized.shown, strong: sized.strong }
+      : { shown: all.shown, strong: all.strong };
   if (!(src.shown >= min)) return null;
   const a = src.strong + T.bigBetPriorStrength * T.bigBetPriorShare;
   const b = src.shown - src.strong + T.bigBetPriorStrength * (1 - T.bigBetPriorShare);
@@ -1828,7 +2093,14 @@ export function bluffCatchEquityCap(style: OpponentStyleRead | null | undefined,
 
 /** Showdown hand names that count as a strong (value) holding: the same list the live learner uses. */
 export const STYLE_STRONG_HAND_NAMES: ReadonlySet<string> = new Set([
-  'two pair', 'three of a kind', 'straight', 'flush', 'full house', 'four of a kind', 'straight flush', 'royal flush',
+  'two pair',
+  'three of a kind',
+  'straight',
+  'flush',
+  'full house',
+  'four of a kind',
+  'straight flush',
+  'royal flush',
 ]);
 
 /** A persisted hand with whatever showdown the row carries (absent: bets count, strength unknown). */
@@ -1842,7 +2114,10 @@ export interface PersistedHandForStyle extends PersistedHandForProvenance {
  * the same rows give the same buckets after every restart. A row without showdown names adds the bet but no shown hand,
  * which only lowers the revealed share (never invents strength).
  */
-export function sizeBucketsFromHistory(hands: readonly PersistedHandForStyle[], userId: string): SizeBucketTallies {
+export function sizeBucketsFromHistory(
+  hands: readonly PersistedHandForStyle[],
+  userId: string
+): SizeBucketTallies {
   const out: SizeBucketTallies = {};
   for (const h of hands) {
     const frac = riverFirstBetFractions(h.actions as never).get(userId);
@@ -1853,14 +2128,18 @@ export function sizeBucketsFromHistory(hands: readonly PersistedHandForStyle[], 
     const sd = h.showdown?.find((x) => x?.user_id === userId);
     if (sd) {
       cell.shown++;
-      if (!sd.mucked && STYLE_STRONG_HAND_NAMES.has((sd.hand_name ?? '').toLowerCase())) cell.strong++;
+      if (!sd.mucked && STYLE_STRONG_HAND_NAMES.has((sd.hand_name ?? '').toLowerCase()))
+        cell.strong++;
     }
   }
   return out;
 }
 
 /** Per street: postflop bets and raises, calls, spots facing a wager (raise opportunities) and raises made there. */
-export type StreetAggression = Record<'flop' | 'turn' | 'river', { aggr: number; passive: number; raiseOpps: number; raises: number }>;
+export type StreetAggression = Record<
+  'flop' | 'turn' | 'river',
+  { aggr: number; passive: number; raiseOpps: number; raises: number }
+>;
 export const emptyStreetAggression = (): StreetAggression => ({
   flop: { aggr: 0, passive: 0, raiseOpps: 0, raises: 0 },
   turn: { aggr: 0, passive: 0, raiseOpps: 0, raises: 0 },
@@ -1875,7 +2154,14 @@ export const emptyStreetAggression = (): StreetAggression => ({
  * axis stands on in-scope counts only.
  */
 export function postflopAggressionIncrements(
-  actions: ReadonlyArray<{ userId?: string; action: string; amount?: number; stage: string; origin?: string; isFullRaise?: boolean }>
+  actions: ReadonlyArray<{
+    userId?: string;
+    action: string;
+    amount?: number;
+    stage: string;
+    origin?: string;
+    isFullRaise?: boolean;
+  }>
 ): Map<string, StreetAggression> {
   const out = new Map<string, StreetAggression>();
   let stage = '';
@@ -1888,11 +2174,13 @@ export function postflopAggressionIncrements(
     if (a.stage !== 'flop' && a.stage !== 'turn' && a.stage !== 'river') continue;
     if (!a.userId || a.origin === 'forced') continue;
     const amt = Math.max(0, num(a.amount));
-    const raising = a.action === 'bet' || a.action === 'raise' || (a.action === 'all_in' && amt > wager);
+    const raising =
+      a.action === 'bet' || a.action === 'raise' || (a.action === 'all_in' && amt > wager);
     const row = out.get(a.userId) ?? emptyStreetAggression();
     const st = row[a.stage as 'flop' | 'turn' | 'river'];
     const facing = wager > 0;
-    if (facing && (a.action === 'fold' || a.action === 'call' || raising || a.action === 'all_in')) st.raiseOpps++;
+    if (facing && (a.action === 'fold' || a.action === 'call' || raising || a.action === 'all_in'))
+      st.raiseOpps++;
     if (raising) {
       st.aggr++;
       if (facing) st.raises++;
@@ -1903,10 +2191,14 @@ export function postflopAggressionIncrements(
   return out;
 }
 
-export function addStreetAggression(base: StreetAggression | undefined, inc: StreetAggression): StreetAggression {
+export function addStreetAggression(
+  base: StreetAggression | undefined,
+  inc: StreetAggression
+): StreetAggression {
   const out = emptyStreetAggression();
   for (const st of ['flop', 'turn', 'river'] as const)
-    for (const k of ['aggr', 'passive', 'raiseOpps', 'raises'] as const) out[st][k] = (base?.[st][k] ?? 0) + inc[st][k];
+    for (const k of ['aggr', 'passive', 'raiseOpps', 'raises'] as const)
+      out[st][k] = (base?.[st][k] ?? 0) + inc[st][k];
   return out;
 }
 
