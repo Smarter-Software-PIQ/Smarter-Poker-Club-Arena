@@ -36,7 +36,17 @@ beforeEach(() => {
     const [left = 0, top = 0, width = 0, height = 0] = (this.dataset.box ?? '')
       .split(',')
       .map(Number);
-    return { left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) } as DOMRect;
+    return {
+      left,
+      top,
+      width,
+      height,
+      right: left + width,
+      bottom: top + height,
+      x: left,
+      y: top,
+      toJSON: () => ({}),
+    } as DOMRect;
   });
 });
 afterEach(() => {
@@ -71,4 +81,20 @@ it('two chairs drawn on one spot are caught', () => {
   stacked[4] = [...RING[5]];
   mount(stacked);
   expect(chairViolations().some((v: string) => /On One Spot/.test(v))).toBe(true);
+});
+
+it('live verification refuses action captions over cards or player plates', () => {
+  mount(RING);
+  (document.querySelector('.table-page') as HTMLElement).dataset.seats = '9';
+  vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+  const seat = document.querySelector('.seat')!;
+  seat.innerHTML =
+    '<div class="seat__action" data-box="100,100,60,20">Call</div><div class="seat__cards"><div class="seat__card" data-box="110,105,30,40"></div></div><div class="seat__info" data-box="100,115,90,40"></div>';
+  const read = () =>
+    readMobileTableLayout({}).violations.filter((v: string) =>
+      v.startsWith('Action Caption Covers')
+    );
+  expect(read()).toHaveLength(2);
+  (seat.querySelector('.seat__action') as HTMLElement).dataset.box = '100,70,60,20';
+  expect(read()).toEqual([]);
 });

@@ -368,6 +368,24 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
     )
       violations.push('Folded Portrait Has A Clipping Compositing Group');
   }
+  for (const seat of table.querySelectorAll('.seat-wrapper--spot .seat:has(.seat__avatar--bust)')) {
+    if (visible(seat) && getComputedStyle(seat).filter !== 'none')
+      violations.push('Acting Portrait Has A Clipping Compositing Group');
+  }
+  // This is the enlarged phone-canvas contract, exercised at every physical
+  // phone width by production. Legacy raw-width fixtures use another caption
+  // layout and retain their existing containment/board/card checks.
+  if (
+    matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)').matches &&
+    ['6', '9'].includes(table.dataset.seats || '')
+  ) {
+    for (const action of table.querySelectorAll('.seat > .seat__action')) {
+      if (!visible(action)) continue;
+      for (const protectedNode of [...cards, ...plates])
+        if (intersects(box(action), box(protectedNode)))
+          violations.push(`Action Caption Covers ${protectedNode.className}`);
+    }
+  }
   for (const plate of plates) {
     const rect = box(plate);
     for (const control of footerControls)
