@@ -16,6 +16,11 @@ import {
   HUMAN_HU_BB_DEFENDS_TO_PRICE,
   HUMAN_HU_BB_DEFENDS_TO_PRICE_40BB,
   HUMAN_HU_COMMIT_UNDER_POT,
+  HU_EXPLOITER_CARDS,
+  HU_LIMP_EVERY_BUTTON_PERSONA,
+  HU_MINRAISE_EVERY_BUTTON_PERSONA,
+  HU_SMALL_STAB_EVERY_STREET_PERSONA,
+  HU_THREE_BET_EVERY_HAND_PERSONA,
   HU_WIDE_SB_AGGRESSOR_PERSONA,
   HUMAN_FIELD_HERO_SEAT,
   HUMAN_FIELD_PAIRS,
@@ -265,4 +270,65 @@ describe('the commit-under-the-pot pair (HU-AUDIT-002)', { timeout: 300_000 }, (
       expect(r.divergentPairs ?? 0).toBeGreaterThan(0);
     }
   });
+});
+
+/**
+ * THE HEADS-UP EXPLOITERS (2026-11-12, HU-NLH-001): each persona plays its
+ * one line every time, and each card deals the live brain against it.
+ */
+describe('the heads-up exploiter personas and cards', { timeout: 600_000 }, () => {
+  const byPersona = (persona: string) =>
+    HU_EXPLOITER_CARDS.find((m) => m.humanPersona === persona)!;
+
+  it('every persona is refused anywhere but heads-up NLH of the calibrated field', () => {
+    for (const persona of [
+      HU_MINRAISE_EVERY_BUTTON_PERSONA,
+      HU_LIMP_EVERY_BUTTON_PERSONA,
+      HU_THREE_BET_EVERY_HAND_PERSONA,
+      HU_SMALL_STAB_EVERY_STREET_PERSONA,
+    ]) {
+      expect(humanFieldPersonaProfile(persona, HU_TABLE).id).toContain(persona);
+      expect(() => humanFieldPersonaProfile(persona, { ...HU_TABLE, seats: 6 })).toThrow();
+    }
+    expect(humanFieldPersonaProfile(HU_MINRAISE_EVERY_BUTTON_PERSONA, HU_TABLE).sizing).toEqual({
+      preflopRaiseToMultiple: 2,
+    });
+  });
+
+  it('the wide small blind persona is unchanged by the refactor', () => {
+    const p = humanFieldPersonaProfile(HU_WIDE_SB_AGGRESSOR_PERSONA, HU_TABLE);
+    expect(p.sizing).toBeUndefined();
+    expect(p.cutoffs?.['preflop/unopened']).toEqual({ fold: 0.2, raise: 0.3 });
+  });
+
+  it('every card is on the nightly set, heads-up 40bb, at the human-field sample', () => {
+    expect(HU_EXPLOITER_CARDS).toHaveLength(4);
+    for (const c of HU_EXPLOITER_CARDS) {
+      expect(LEAGUE_MATCHUPS).toContain(c);
+      expect(c).toMatchObject({
+        seats: 2,
+        stackBB: 40,
+        pairs: HUMAN_FIELD_PAIRS,
+        opponentPopulation: HUMAN,
+      });
+    }
+  });
+
+  it.each([
+    [HU_MINRAISE_EVERY_BUTTON_PERSONA, 'preflop/unopened', ['raise'], 1],
+    [HU_LIMP_EVERY_BUTTON_PERSONA, 'preflop/unopened', ['call'], 1],
+    [HU_THREE_BET_EVERY_HAND_PERSONA, 'preflop/facing_raise', ['raise', 'all_in'], 1],
+    [HU_SMALL_STAB_EVERY_STREET_PERSONA, 'flop/checked_to', ['bet', 'all_in'], 1],
+    [HU_SMALL_STAB_EVERY_STREET_PERSONA, 'river/checked_to', ['bet', 'all_in'], 1],
+  ] as const)(
+    '%s plays its line at %s every time; the arms diverge; nothing illegal',
+    async (persona, node, actions, share) => {
+      const r = await runMatchup(byPersona(persona), 300, 20261112);
+      expect(r.illegalActions).toBe(0);
+      expect(r.truncatedStreets).toBe(0);
+      expect(r.inert).not.toBe(true);
+      expect(r.divergentPairs ?? 0).toBeGreaterThan(0);
+      expect(shareOf(r.humanResponses?.[node], ...actions)).toBe(share);
+    }
+  );
 });
