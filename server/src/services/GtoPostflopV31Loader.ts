@@ -124,24 +124,44 @@ function readV31CellPage(data: unknown, expectedDatasetId?: string): GtoV31Runti
 /**
  * RANGE PROVENANCE (2026-11-12). The registration of the dataset's round
  * declares, per cell, how its ranges were built (gto_v31_round_registrations.
- * cell_provenance). It is read once per load, never per decision. Any failure
- * to read it - the column or table not installed, no registration, a
- * transport error - yields null, and the store refuses every cell: a cell
- * whose range assumption is unstated is never served.
+ * cell_provenance). It is read once per load, never per decision.
+ *
+ * Two outcomes are kept apart:
+ * - DEFINITIVE absence: the column or table is not installed, no registration
+ *   carries this dataset_key, or the registration is linked to another
+ *   dataset_id (or none). Returns null and the store refuses every cell.
+ * - The read FAILED (transport, timeout, 5xx, any other error): throws, so
+ *   the attempt fails, the last admitted snapshot stays served and the loop
+ *   retries on its short failure backoff instead of emptying a served store
+ *   for a whole refresh period.
+ * Malformed, forced or mismatched provenance is judged per cell by the store.
  */
-async function readRangeProvenance(datasetKey: unknown): Promise<unknown> {
+const PROVENANCE_NOT_INSTALLED = new Set(['42703', '42P01', 'PGRST204', 'PGRST205']);
+async function readRangeProvenance(row: GtoV31RuntimeRow): Promise<unknown> {
+  const { dataset_key: datasetKey, dataset_id: datasetId } = row as {
+    dataset_key?: unknown;
+    dataset_id?: unknown;
+  };
   if (typeof datasetKey !== 'string' || datasetKey === '') return null;
+  let reply: { data: unknown; error: { code?: string; message?: string } | null };
   try {
-    const { data, error } = await supabase
+    reply = await supabase
       .from('gto_v31_round_registrations')
-      .select('cell_provenance')
+      .select('dataset_id, cell_provenance')
       .eq('dataset_key', datasetKey)
       .maybeSingle();
-    if (error || !data) return null;
-    return (data as { cell_provenance?: unknown }).cell_provenance ?? null;
-  } catch {
-    return null;
+  } catch (err) {
+    throw new Error(`v31_range_provenance_unreadable:${(err as Error)?.message ?? 'unknown'}`);
   }
+  if (reply.error) {
+    if (PROVENANCE_NOT_INSTALLED.has(reply.error.code ?? '')) return null;
+    throw new Error(
+      `v31_range_provenance_unreadable:${reply.error.code ?? ''}:${reply.error.message ?? ''}`
+    );
+  }
+  const data = reply.data as { dataset_id?: unknown; cell_provenance?: unknown } | null;
+  if (!data || data.dataset_id !== datasetId) return null;
+  return data.cell_provenance ?? null;
 }
 let rangeRefusalLoggedFor: string | null = null;
 
@@ -209,6 +229,9 @@ async function loadGtoPostflopV31Attempt(): Promise<{ ok: boolean; count: number
     // Full success only. The validator performs the atomic swap.
     // An older periodic read must not overwrite a newer explicit refresh,
     // including when its old authoritative-empty response arrives last.
+    // Read before the binding re-check, so a revocation that lands during this
+    // read is still seen by the re-check below.
+    const rangeProvenance = rows.length > 0 ? await readRangeProvenance(rows[0]) : null;
     if (generation !== activeLoadGeneration) throw new Error('v31_active_load_superseded');
     if (gate) {
       if (rows.some((row) => (row as { dataset_id?: unknown }).dataset_id !== admittedId))
@@ -229,19 +252,25 @@ async function loadGtoPostflopV31Attempt(): Promise<{ ok: boolean; count: number
         return { ok: true, count: cleared };
       }
     }
-    const rangeProvenance = rows.length > 0 ? await readRangeProvenance(rows[0].dataset_key) : null;
     const applied = await replaceGtoPostflopV31Async(
       rows,
       () => generation === activeLoadGeneration,
       rangeProvenance
     );
+    // Logged and reported once per (dataset, refusal counts); a clean load
+    // or any change of dataset or counts re-arms it.
     const refused = gtoPostflopV31RangeRefusals();
-    if (Object.keys(refused).length > 0 && rangeRefusalLoggedFor !== rows[0]?.dataset_checksum) {
-      rangeRefusalLoggedFor = rows[0]?.dataset_checksum ?? null;
+    const refusalKey =
+      Object.keys(refused).length > 0
+        ? `${rows[0]?.dataset_key}|${rows[0]?.dataset_checksum}|${JSON.stringify(refused)}`
+        : null;
+    if (refusalKey !== null && refusalKey !== rangeRefusalLoggedFor) {
       console.warn(
-        `[GtoPostflopV31Loader] V31_RANGE_PROVENANCE_REFUSED: dataset ${rows[0]?.dataset_id ?? 'unknown'} serves ${applied} of ${rows.length} cells; refused ${JSON.stringify(refused)}`
+        `[GtoPostflopV31Loader] V31_RANGE_PROVENANCE_REFUSED: dataset ${rows[0]?.dataset_id ?? 'unknown'} serves ${applied} of ${rows.length} cells; refused ${JSON.stringify(refused)}. A partly admitted store fails worker reload confirmation (it requires the sealed cell count).`
       );
+      reportError(new Error('v31_range_provenance_refused'), 'GtoPostflopV31Loader.provenance');
     }
+    rangeRefusalLoggedFor = refusalKey;
     console.log(
       `[GtoPostflopV31Loader] ${applied} certified solver cells loaded (${gtoPostflopV31Count()} in the store)`
     );

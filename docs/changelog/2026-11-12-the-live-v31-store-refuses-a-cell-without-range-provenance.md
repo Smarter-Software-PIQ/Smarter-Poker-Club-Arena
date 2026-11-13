@@ -21,12 +21,29 @@ when exactly one provenance entry names that cell and it declares:
   seat 0 or 1 and two distinct solver positions that put the cell's hero and
   opponent on those seats.
 
-Anything else refuses the cell, fail closed: the column not installed, no
-registration, a failed read, malformed JSON, a missing or duplicate entry,
-`forced`, a missing assumption or a mapping for another key. Each refused cell
-counts `v31_certified_skip_no_range_provenance` and the loader logs
-`V31_RANGE_PROVENANCE_REFUSED` once per dataset. `replaceGtoPostflopV31Async`
-with no provenance argument serves nothing.
+Anything definitive refuses the cell, fail closed: the column or table not
+installed (42703, 42P01, PGRST204, PGRST205), no registration for the
+`dataset_key`, a registration linked to another `dataset_id` or to none,
+malformed JSON, a missing or duplicate entry, `forced`, a missing assumption or
+a mapping for another key. Each refused cell counts
+`v31_certified_skip_no_range_provenance`; the loader logs
+`V31_RANGE_PROVENANCE_REFUSED` and reports `v31_range_provenance_refused` once
+per dataset and refusal counts (a clean load re-arms it).
+`replaceGtoPostflopV31Async` with no provenance argument serves nothing.
+
+A read that FAILS (transport error, timeout, 5xx, any other error code) is not
+an absence: the attempt throws `v31_range_provenance_unreadable`, is reported,
+keeps the last admitted snapshot and retries on the loader's 30 second failure
+backoff, so one network blip cannot empty a served store for the 6 hour
+refresh period. The provenance is read before the serving binding is re-checked,
+so a revocation during that read is still seen.
+
+Operators: worker reload confirmation (`v31ReloadControl`, `expectedCells`)
+requires the dataset's full sealed cell count. A partly admitted store
+therefore fails reload confirmation with `active_store_identity_not_confirmed`;
+the `V31_RANGE_PROVENANCE_REFUSED` line names the refused counts. This is left
+as a correct refusal signal: a registered dataset is expected to be admitted in
+full, and changing the cross-process reload protocol is not a local change.
 
 The check runs at install time, before the atomic swap; a refused cell is
 absent from the in-memory map. The decision path (`decideV31Certified`,

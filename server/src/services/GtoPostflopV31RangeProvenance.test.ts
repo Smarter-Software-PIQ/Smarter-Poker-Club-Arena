@@ -21,7 +21,14 @@ vi.mock('./supabase/client.js', () => ({
   },
 }));
 vi.mock('./errorReporter.js', () => ({ reportError: transport.report }));
-import { loadGtoPostflopV31Once, stopGtoPostflopV31Loader } from './GtoPostflopV31Loader.js';
+import {
+  _resetGtoV31ServingBinding,
+  loadGtoPostflopV31,
+  loadGtoPostflopV31Once,
+  requireGtoV31ServingBinding,
+  startGtoPostflopV31Loader,
+  stopGtoPostflopV31Loader,
+} from './GtoPostflopV31Loader.js';
 import {
   _clearGtoPostflopV31,
   gtoPostflopV31Count,
@@ -49,7 +56,14 @@ const KEY = [
 ].join('|');
 const valid = () => rangeProvenanceFor([CELL]);
 const entry = () => valid()[0] as Record<string, any>;
-const registered = (cell_provenance: unknown) => ({ data: { cell_provenance }, error: null });
+const registered = (cell_provenance: unknown, dataset_id: unknown = CELL.dataset_id) => ({
+  data: { dataset_id, cell_provenance },
+  error: null,
+});
+const refusalLogs = () =>
+  vi
+    .mocked(console.warn)
+    .mock.calls.filter(([line]) => String(line).includes('V31_RANGE_PROVENANCE_REFUSED'));
 const fires = () =>
   Object.fromEntries(drainFires().map(({ feature, fires: n }) => [feature, n]))[
     'v31_certified_skip_no_range_provenance'
@@ -67,7 +81,9 @@ beforeEach(() => {
 });
 afterEach(() => {
   stopGtoPostflopV31Loader();
+  _resetGtoV31ServingBinding();
   _clearGtoPostflopV31();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -89,7 +105,7 @@ describe('V31 live store refuses cells without valid range provenance', () => {
     expect(transport.registration).toHaveBeenCalledTimes(1);
     expect(transport.registration).toHaveBeenCalledWith(
       'gto_v31_round_registrations',
-      'cell_provenance',
+      'dataset_id, cell_provenance',
       'dataset_key',
       CELL.dataset_key
     );
@@ -114,15 +130,29 @@ describe('V31 live store refuses cells without valid range provenance', () => {
     expect(gtoPostflopV31RangeRefusals()).toEqual({ no_provenance: 1 });
     expect(fires()).toBe(1);
     await expect(loadWith(absent)).resolves.toEqual({ ok: true, count: 0 });
-    const refusedLogs = vi
-      .mocked(console.warn)
-      .mock.calls.filter(([line]) => String(line).includes('V31_RANGE_PROVENANCE_REFUSED'));
-    expect(refusedLogs).toHaveLength(1);
+    expect(refusalLogs()).toHaveLength(1);
+    expect(transport.report).toHaveBeenCalledTimes(1);
+    expect(transport.report).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'v31_range_provenance_refused' }),
+      'GtoPostflopV31Loader.provenance'
+    );
   });
+  it.each(['42P01', 'PGRST204', 'PGRST205'])(
+    'a not-installed schema (%s) is definitive: every cell refused, the load succeeds',
+    async (code) => {
+      const reply = { data: null, error: { code, message: 'not installed' } };
+      await expect(loadWith(reply)).resolves.toEqual({ ok: true, count: 0 });
+      expect(gtoPostflopV31RangeRefusals()).toEqual({ no_provenance: 1 });
+    }
+  );
   it.each([
     ['no registration for the dataset', { data: null, error: null }],
     ['a registration with null provenance', registered(null)],
-    ['the registration read throwing', new Error('connection reset')],
+    [
+      'a registration linked to another dataset',
+      registered(valid(), '22222222-2222-4222-8222-222222222222'),
+    ],
+    ['a registration not yet linked to any dataset', registered(valid(), null)],
     ['malformed JSON (a string)', registered('[{"cell":')],
     ['malformed JSON (an object)', registered({ cell: CELL })],
   ])('%s refuses the cell', async (_label, registration) => {
@@ -205,6 +235,76 @@ describe('V31 live store refuses cells without valid range provenance', () => {
     expect(fires()).toBe(2);
   });
 
+  it.each([
+    ['a thrown transport error', new Error('connection reset')],
+    [
+      'a statement timeout',
+      { data: null, error: { code: '57014', message: 'canceling statement' } },
+    ],
+    ['a gateway error without a code', { data: null, error: { message: 'Bad Gateway' } }],
+  ])(
+    'a transient read failure (%s) on a first load serves nothing and fails the attempt',
+    async (_l, reply) => {
+      await expect(loadWith(reply)).resolves.toEqual({ ok: false, count: 0 });
+      expect(gtoPostflopV31Count()).toBe(0);
+      expect(transport.report).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringMatching(/^v31_range_provenance_unreadable/),
+        }),
+        'GtoPostflopV31Loader.load'
+      );
+    }
+  );
+  it('a transient read failure on a later load keeps the admitted snapshot served', async () => {
+    await expect(loadWith(registered(valid()))).resolves.toEqual({ ok: true, count: 1 });
+    await expect(loadWith(new Error('connection reset'))).resolves.toEqual({ ok: false, count: 0 });
+    expect(gtoPostflopV31Count()).toBe(1);
+    expect(gtoPostflopV31RangeRefusals()).toEqual({});
+  });
+  it('a transient read failure is retried on the short backoff, not after the 6 hour refresh', async () => {
+    vi.useFakeTimers();
+    transport.rpc.mockResolvedValue({ data: [structuredClone(CELL)], error: null });
+    transport.registration
+      .mockRejectedValueOnce(new Error('connection reset'))
+      .mockResolvedValue(registered(valid()));
+    startGtoPostflopV31Loader();
+    await expect(loadGtoPostflopV31()).resolves.toBe(0);
+    expect(gtoPostflopV31Count()).toBe(0);
+    await vi.advanceTimersByTimeAsync(61_000);
+    expect(transport.registration.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(gtoPostflopV31Count()).toBe(1);
+  });
+  it('the refusal log re-arms after a clean load and when the refusal counts change', async () => {
+    const forced = valid();
+    forced[0].range_construction = 'forced';
+    await loadWith(registered(forced));
+    await loadWith(registered(forced));
+    expect(refusalLogs()).toHaveLength(1);
+    await loadWith(registered(valid()));
+    await loadWith(registered(forced));
+    expect(refusalLogs()).toHaveLength(2);
+    await loadWith(registered([]));
+    expect(refusalLogs()).toHaveLength(3);
+  });
+  it('the provenance is read before the serving binding is re-checked', async () => {
+    requireGtoV31ServingBinding('b'.repeat(40));
+    const admission = {
+      data: {
+        active: { dataset_id: CELL.dataset_id, dataset_checksum: CELL.dataset_checksum },
+        admitted: true,
+      },
+      error: null,
+    };
+    transport.rpc
+      .mockResolvedValueOnce(admission)
+      .mockResolvedValueOnce({ data: [structuredClone(CELL)], error: null })
+      .mockResolvedValueOnce(admission);
+    transport.registration.mockResolvedValueOnce(registered(valid()));
+    await expect(loadGtoPostflopV31Once()).resolves.toEqual({ ok: true, count: 1 });
+    const [readAt] = transport.registration.mock.invocationCallOrder;
+    const recheckAt = transport.rpc.mock.invocationCallOrder[2];
+    expect(readAt).toBeLessThan(recheckAt);
+  });
   it('kill-proof default: the live install with no provenance argument serves nothing', async () => {
     await expect(replaceGtoPostflopV31Async([structuredClone(CELL)])).resolves.toBe(0);
     expect(gtoPostflopV31Count()).toBe(0);
