@@ -214,7 +214,10 @@ export function dealerReservations(input: {
   const upper = (FELT_WINDOW.top * c.height) / 100 + (FELT_WINDOW.width * c.width) / 200;
   const lower =
     ((FELT_WINDOW.top + FELT_WINDOW.height) * c.height) / 100 - (FELT_WINDOW.width * c.width) / 200;
-  for (const extra of [0, 10, 20, 28, 36, 44, 52, 64, 76, 88, 100]) {
+  // The marker band: dealer puck and chip rests live in the outer 52 px of
+  // the felt. The deeper rungs (64 to 100 px) reserved felt no marker rests
+  // on and walled every mid-rail portrait (measured 2026-11-12).
+  for (const extra of [0, 10, 20, 28, 36, 44, 52]) {
     const band = radius - extra;
     for (let angle = 0; angle < 360; angle += 2) {
       const a = (angle * Math.PI) / 180;

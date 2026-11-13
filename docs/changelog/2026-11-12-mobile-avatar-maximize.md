@@ -46,3 +46,20 @@ lower neighbour's crown, and a seat's own position badge was a wall at the
 crown's right. The lane pad is 20 px (the widest pill is under 100 px), and a
 seat's own badge, drawn over the portrait at z-index 6, is passable like its
 own tag. Both stay hard obstacles for every other seat's portrait.
+
+## Fourth pass
+
+The dealer-button reservation is the hull of every spot the puck can take,
+built from rim bands 0 to 100 px deep. Markers (puck and chip rests) live in
+the outer 52 px; the deeper rungs reserved felt nothing rests on and walled
+every mid-rail portrait. The band now stops at 52 px. The bet containment
+cases (bets never read as another player's, never cover a portrait) pass with
+it; a 0 px band failed them, so the band is the right guard, not the hull.
+
+## Six-card tables
+
+Dan, November 12: six-card tables needed to be larger; that was the point. The
+earlier exclusion of six-card layouts is removed. The hero six-card row shift
+and the six-card hidden fans were already reserved as hard obstacles, so the
+cards keep their room; the fixture now exercises a six-card seated ring and a
+six-card spectator ring through folds, reveals and turns with fixed artwork.

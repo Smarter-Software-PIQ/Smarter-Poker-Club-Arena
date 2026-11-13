@@ -115,6 +115,9 @@ export async function checkFixedMobileArtwork(page: Page, bundle: string) {
     { seats: '9', spectator: 'false', cards: '2', occupiedSeats: '' },
     { seats: '6', spectator: 'false', cards: '4', occupiedSeats: '0,4' },
     { seats: '6', spectator: 'false', cards: '4', occupiedSeats: '' },
+    // Dan, 2026-11-12: six-card tables were the whole point; they grow too.
+    { seats: '6', spectator: 'false', cards: '6', occupiedSeats: '' },
+    { seats: '6', spectator: 'true', cards: '6', occupiedSeats: '' },
   ]) {
     const spectator = settings.spectator === 'true';
     await page.evaluate((settings) => {
@@ -180,10 +183,7 @@ export async function checkFixedMobileArtwork(page: Page, bundle: string) {
       if (state.revealed === 'true') revealed = after.cards;
     }
   }
-  for (const settings of [
-    { cards: '6', killEnabled: 'false' },
-    { cards: '2', killEnabled: 'true' },
-  ]) {
+  for (const settings of [{ cards: '2', killEnabled: 'true' }]) {
     await page.evaluate((settings) => {
       Object.assign(document.documentElement.dataset, settings);
       document.dispatchEvent(new Event('fixture-next-hand'));
