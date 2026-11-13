@@ -492,3 +492,65 @@ describe('observable pattern and population prior', () => {
     }
   });
 });
+
+import { postflopFoldBluffScale, riverFirstBetFractions, sizeBucketOf, valueExtraction } from './HorseOpponentStyle.js';
+
+describe('A2 sizing as betting-range evidence', () => {
+  const read = (sizeBuckets: Parameters<typeof classifyOpponentStyle>[0]['sizeBuckets']) =>
+    classifyOpponentStyle({ scope: 'holdem:full', variant: 'nlh', domain: 'cash', counters: valueHeavyGrinder().counters, tallies: valueHeavyGrinder().tallies, provenance: { complete: true }, sizeBuckets });
+  const river = (r: OpponentStyleRead, potFraction: number) => bigBetRespect(r, { street: 'river', potFraction, isRaise: false });
+  it('buckets: under 0.5, 0.5 to 0.66, 0.66 to 1, overbet', () => {
+    expect([0.3, 0.55, 0.75, 1.4].map(sizeBucketOf)).toEqual(['small', 'medium', 'large', 'overbet']);
+  });
+  it('bluff-weighted at the size he bet: no respect, whatever the all-size read says', () => {
+    const base = river(read(null), 0.75);
+    expect(base).toBeGreaterThan(0);
+    expect(river(read({ large: { bets: 12, shown: 8, strong: 1 } }), 0.75)).toBe(0);
+    expect(river(read({ large: { bets: 12, shown: 8, strong: 1 } }), 1.4)).toBe(base > 0 ? river(read(null), 1.4) : 0);
+  });
+  it('value-weighted at the size adds evidence, bounded by the cap, discounted when few are shown', () => {
+    const full = river(read({ large: { bets: 8, shown: 8, strong: 8 } }), 0.75);
+    const sparse = read({ large: { bets: 4000, shown: 8, strong: 8 } });
+    expect(full).toBeGreaterThanOrEqual(river(read(null), 0.75));
+    expect(full).toBeLessThanOrEqual(STYLE_THRESHOLDS.bigBetRespectCap);
+    expect(sparse.signals.shownBySize.large.discount).toBeLessThan(read({ large: { bets: 8, shown: 8, strong: 8 } }).signals.shownBySize.large.discount);
+  });
+  it('the learner replay measures the first river bet against the pot before it', () => {
+    const f = riverFirstBetFractions([
+      { userId: 'a', action: 'raise', amount: 6, stage: 'preflop' },
+      { userId: 'b', action: 'call', amount: 6, stage: 'preflop' },
+      { userId: 'a', action: 'bet', amount: 9, stage: 'river' },
+      { userId: 'b', action: 'raise', amount: 30, stage: 'river' },
+      { userId: 'a', action: 'raise', amount: 80, stage: 'river' },
+    ]);
+    expect(f.get('a')).toBeCloseTo(9 / 12, 6);
+    expect(f.get('b')).toBeCloseTo(30 / 21, 6);
+  });
+});
+
+describe('A4 value extraction and item 3 fold bluffing helpers', () => {
+  const caller = (fast = {}) =>
+    classifyOpponentStyle({ scope: 'holdem:full', variant: 'nlh', domain: 'cash', provenance: { complete: true }, tallies: { hands: 300, postAggr: 40, postPassive: 150 }, counters: { ...counters({ hands: 80, vpip: 0.3, pfr: 0.12, betCheckedToOpp: 40, betCheckedTo: 7, foldToBetOpp: 40, foldToBet: 11 }), ...fast } });
+  it('bounded; slow-play cut only against a non-bettor; released by a rising fast fold rate', () => {
+    const v = valueExtraction(caller())!;
+    expect(v.sizeMul).toBeGreaterThan(1);
+    expect(v.sizeMul).toBeLessThanOrEqual(1 + STYLE_THRESHOLDS.valueSizeMax);
+    expect(v.thinShift).toBeLessThanOrEqual(STYLE_THRESHOLDS.valueThinShiftMax);
+    expect(v.slowplayMul).toBeLessThan(1);
+    expect(valueExtraction(caller({ fFoldToBetOpp: 10, fFoldToBet: 9 }))).toBeNull();
+    expect(valueExtraction(unknownStyle('no_evidence'))).toBeNull();
+    const bettor = classifyOpponentStyle({ scope: 'holdem:full', variant: 'nlh', domain: 'cash', provenance: { complete: true }, tallies: { hands: 300, postAggr: 150, postPassive: 150 }, counters: counters({ hands: 80, vpip: 0.3, pfr: 0.12, betCheckedToOpp: 40, betCheckedTo: 22, foldToBetOpp: 40, foldToBet: 11 }) });
+    const vb = valueExtraction(bettor);
+    if (vb) expect(vb.slowplayMul).toBe(1);
+  });
+  it('fold bluffing follows the street; the increase is withheld against a possible fold-faker', () => {
+    const folder = (betCheckedTo: number) =>
+      classifyOpponentStyle({ scope: 'holdem:full', variant: 'nlh', domain: 'cash', provenance: { complete: true }, tallies: { hands: 300, postAggr: 80, postPassive: 100 }, counters: counters({ hands: 80, vpip: 0.2, pfr: 0.14, betCheckedToOpp: 40, betCheckedTo, foldToBetOpp: 40, foldToBet: 30 }) });
+    expect(postflopFoldBluffScale(folder(12), 'flop')!).toBeGreaterThan(1);
+    expect(postflopFoldBluffScale(folder(12), 'flop')!).toBeLessThanOrEqual(1 + STYLE_THRESHOLDS.foldBluffUpMax);
+    expect(postflopFoldBluffScale(folder(12), 'river')).toBeNull();
+    expect(postflopFoldBluffScale(folder(32), 'flop')).toBe(1);
+    expect(postflopFoldBluffScale(caller(), 'turn')!).toBeLessThan(1);
+    expect(postflopFoldBluffScale(classifyOpponentStyle({ ...{ scope: 'holdem:full' as const, variant: 'nlh', domain: 'cash' as const }, provenance: { preRepair: true }, counters: counters({ hands: 80, vpip: 0.2, pfr: 0.14, foldToBetOpp: 40, foldToBet: 30 }) }), 'flop')).toBeNull();
+  });
+});

@@ -240,3 +240,33 @@ describe('item 1 pre-repair discount on the legacy over-folder branch', () => {
     expect(lifted.e).toEqual(off.e);
   });
 });
+
+describe('chain: learner -> profile -> read -> decision (A2 size buckets and lifetime tallies)', () => {
+  it('a completed hand observed by the learner reaches the style read the decision consults, once per hand', () => {
+    install(VILLAINS.grinder!, 'cash');
+    supply(120);
+    const acts = [
+      { userId: VILLAIN, action: 'raise', amount: 6, stage: 'preflop' },
+      { userId: HERO, action: 'call', amount: 4, stage: 'preflop' },
+      { userId: HERO, action: 'check', amount: 0, stage: 'flop' },
+      { userId: VILLAIN, action: 'check', amount: 0, stage: 'flop' },
+      { userId: HERO, action: 'check', amount: 0, stage: 'turn' },
+      { userId: VILLAIN, action: 'check', amount: 0, stage: 'turn' },
+      { userId: HERO, action: 'check', amount: 0, stage: 'river' },
+      { userId: VILLAIN, action: 'bet', amount: 10, stage: 'river' },
+      { userId: HERO, action: 'call', amount: 10, stage: 'river' },
+    ];
+    HorseMind.observeHandComplete('style-chain-1', acts as never, 2, [{ user_id: VILLAIN, mucked: false, hand_name: 'Flush' }], 'holdem:full');
+    HorseMind.setDecisionScope('holdem:full', 'nlh', 'cash');
+    const r = HorseMind.styleRead(VILLAIN);
+    HorseMind.setDecisionScope(null);
+    expect(r.signals.shownBySize.large).toMatchObject({ bets: 1, shown: 1, strong: 1 });
+    // the same hand again is not double counted (hand flag)
+    HorseMind.observeHandComplete('style-chain-1', acts as never, 2, [{ user_id: VILLAIN, mucked: false, hand_name: 'Flush' }], 'holdem:full');
+    HorseMind.setDecisionScope('holdem:full', 'nlh', 'cash');
+    expect(HorseMind.styleRead(VILLAIN).signals.shownBySize.large.bets).toBe(1);
+    HorseMind.setDecisionScope(null);
+    // the decision consults it: the big-bet consumer runs on this read
+    expect(decide(ALL_SPOTS('cash')[0], { styleBigBetHonesty: true }).fires.style_big_bet_honesty_seen).toBeGreaterThan(0);
+  });
+});

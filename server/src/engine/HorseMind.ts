@@ -132,6 +132,9 @@ import {
   classifyOpponentStyle,
   isValueBettor,
   preRepairDiscount,
+  riverFirstBetFractions,
+  sizeBucketOf,
+  type SizeBucketTallies,
   preRepairKeyed,
   profileQualification,
   unknownStyle,
@@ -1102,6 +1105,8 @@ export class HorseMind {
    *  from a persisted or recomputed source. Never incremented here: a process-memory counter would reset with the daily
    *  engine restart and never lift the discount. */
   private static postReleaseObservations = new Map<string, PostReleaseOpportunities>();
+  /** STYLE READ A2: river first bets by size bucket per player (memory only, live only, LRU-capped). */
+  private static styleSizeShown = new Map<string, SizeBucketTallies>();
   /** Item 12 (2026-11-05): the player's pooled hand clock (OpponentStats.hands
    *  in this process) at the moment each durable row was last imported. A
    *  donor bucket's staleness is the distance from this mark to the player's
@@ -1989,6 +1994,7 @@ export class HorseMind {
       carry,
       carryWeight,
       provenance,
+      sizeBuckets: this.styleSizeShown.get(userId) ?? null,
       tallies: s
         ? {
             hands: s.hands,
@@ -2210,6 +2216,7 @@ export class HorseMind {
     this.durableProfileComplete.clear();
     this.durableProfilePreRepair.clear();
     this.postReleaseObservations.clear();
+    this.styleSizeShown.clear();
     this.durableOpponentImportClock.clear();
     this.planFingerprints.clear();
     this.durableOpponentMemory = false;
@@ -4224,6 +4231,29 @@ export class HorseMind {
             s.cbetOpps++;
             if (a.action === 'fold') s.cbetFolds++;
           }
+        }
+      }
+
+      // STYLE READ A2 (2026-11-13): river first bets by size bucket, with
+      // the shown-versus-unshown split. Memory only (does not survive a
+      // restart) and live only: a sandbox or an effect capture records nothing.
+      if (this.sandboxDepth === 0 && !this.decisionEffectSink) {
+        const shownBy = new Map<string, { mucked: boolean; hand_name?: string }>();
+        for (const sd of showdown ?? []) if (sd?.user_id) shownBy.set(sd.user_id, sd);
+        for (const [uid, frac] of riverFirstBetFractions(actions)) {
+          const row = this.styleSizeShown.get(uid) ?? {};
+          const b = sizeBucketOf(frac);
+          const cell = { ...(row[b] ?? { bets: 0, shown: 0, strong: 0 }) };
+          cell.bets++;
+          const sd = shownBy.get(uid);
+          if (sd) {
+            cell.shown++;
+            if (!sd.mucked && STRONG_HAND_NAMES.has((sd.hand_name ?? '').toLowerCase())) cell.strong++;
+          }
+          this.styleSizeShown.delete(uid);
+          this.styleSizeShown.set(uid, { ...row, [b]: cell });
+          while (this.styleSizeShown.size > MAX_TRACKED_PLAYERS)
+            this.styleSizeShown.delete(this.styleSizeShown.keys().next().value!);
         }
       }
 

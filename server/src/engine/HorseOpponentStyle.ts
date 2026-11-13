@@ -543,6 +543,8 @@ export interface OpponentStyleInput {
   carry?: ExploitCounters | null;
   carryWeight?: number;
   tallies?: StyleTallies | null;
+  /** A2: river first bets by size bucket, with how many were shown down and how many of those were strong */
+  sizeBuckets?: SizeBucketTallies | null;
   provenance?: StyleProvenance | null;
 }
 
@@ -690,6 +692,28 @@ export interface StyleReceipt {
   readonly notAvailable: readonly string[];
 }
 
+/** River first-bet size buckets, as a share of the pot before the bet. */
+export const SIZE_BUCKETS = Object.freeze(['small', 'medium', 'large', 'overbet'] as const);
+export type SizeBucket = (typeof SIZE_BUCKETS)[number];
+/** under 0.5 pot small; 0.5 to under 0.66 medium; 0.66 to 1.0 large; above 1.0 overbet */
+export function sizeBucketOf(potFraction: number): SizeBucket {
+  const f = num(potFraction);
+  return f < 0.5 ? 'small' : f < 0.66 ? 'medium' : f <= 1 ? 'large' : 'overbet';
+}
+/** Per bucket: river first bets made (shown or not), of them called and shown down, of those strong. */
+export type SizeBucketTallies = Partial<Record<SizeBucket, { bets: number; shown: number; strong: number }>>;
+export interface SizedShownSignal {
+  bets: number;
+  shown: number;
+  strong: number;
+  /** shrunk share of shown hands that were strong */
+  share: number;
+  side: 'value' | 'bluff' | null;
+  magnitude: number;
+  /** the shown-versus-unshown discount: availabilityFloor + (1 - floor) x min(1, shown / bets / availabilityFullShare) */
+  discount: number;
+}
+
 export interface OpponentStyleSignals {
   vpip: StyleSignal;
   pfr: StyleSignal;
@@ -704,6 +728,8 @@ export interface OpponentStyleSignals {
   foldToBet: StyleSignal;
   riverCall: StyleSignal;
   shownStrength: ShownStrengthSignal;
+  /** revealed strength split by the size of the river bet that was called (A2) */
+  shownBySize: Readonly<Record<SizeBucket, SizedShownSignal>>;
   /** share of his first wagers into an unbet street that were probes (the sizing bucket), or null */
   probeShare: number | null;
 }
@@ -981,8 +1007,32 @@ const NEUTRAL_SIGNALS = (): OpponentStyleSignals =>
     foldToBet: NEUTRAL_SIGNAL(),
     riverCall: NEUTRAL_SIGNAL(),
     shownStrength: NEUTRAL_SHOWN,
+    shownBySize: sizedShown(null),
     probeShare: null,
   });
+
+function sizedShown(t: SizeBucketTallies | null | undefined): Readonly<Record<SizeBucket, SizedShownSignal>> {
+  const T = STYLE_THRESHOLDS;
+  const mid = (T.bigBetValueShare + T.bigBetBluffShare) / 2;
+  const out = {} as Record<SizeBucket, SizedShownSignal>;
+  for (const b of SIZE_BUCKETS) {
+    const r = t?.[b];
+    const shown = Math.max(0, num(r?.shown));
+    const bets = Math.max(shown, num(r?.bets));
+    const strong = clamp(num(r?.strong), 0, shown);
+    const share = (strong + T.bigBetPriorStrength * T.bigBetPriorShare) / (shown + T.bigBetPriorStrength);
+    let side: SizedShownSignal['side'] = null;
+    let magnitude = 0;
+    if (shown >= STYLE_FAMILY_PARAMS.holdem.bigBetMinShown) {
+      if (share >= T.bigBetValueShare) (side = 'value'), (magnitude = clamp((share - mid) / (T.bigBetValueShare - mid), 0, 1));
+      else if (share <= T.bigBetBluffShare) (side = 'bluff'), (magnitude = clamp((mid - share) / (mid - T.bigBetBluffShare), 0, 1));
+    }
+    const revealed = bets > 0 ? shown / bets : 0;
+    const discount = T.availabilityFloor + (1 - T.availabilityFloor) * clamp(revealed / T.availabilityFullShare, 0, 1);
+    out[b] = Object.freeze({ bets, shown, strong, share, side, magnitude, discount });
+  }
+  return Object.freeze(out);
+}
 
 const NEUTRAL_AVAILABILITY: ObservationAvailability = Object.freeze({
   shown: 0,
@@ -1293,6 +1343,7 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
     foldToBet: Object.freeze(foldToBet),
     riverCall: Object.freeze(riverCall),
     shownStrength: Object.freeze(shownStrength),
+    shownBySize: sizedShown(input.sizeBuckets),
     probeShare,
   });
   return buildRead(family, 'supported_individual_read', hands, {
@@ -1494,6 +1545,13 @@ export function bigBetRespect(style: OpponentStyleRead | null | undefined, spot:
     share = T.bigBetNonRiverBetShare;
     basis = e.frequencyValue;
   } else return 0;
+  // A2 SIZING: on the river, what his called bets of THIS size showed decides first. Bluff-weighted at this size:
+  // no respect; value-weighted at this size: that evidence (shown-vs-unshown discounted) joins the basis.
+  if (spot.street === 'river') {
+    const sized = style.signals.shownBySize[sizeBucketOf(num(spot.potFraction))];
+    if (sized.side === 'bluff') return 0;
+    if (sized.side === 'value') basis = noisyOr([basis, sized.magnitude * sized.discount * style.confidenceCap]);
+  }
   const blocker = spot.heroHasBlocker === true ? T.bigBetBlockerShare : 1;
   return T.bigBetRespectCap * share * clamp(basis / T.rangeFullScore, 0, 1) * blocker;
 }
@@ -1633,4 +1691,33 @@ export function postflopFoldBluffScale(
   const trap =
     style.aggression.side === 'aggressive' || sg.betCheckedTo.side === 'high' || sg.shownStrength.side === 'bluff';
   return trap ? 1 : 1 + T.foldBluffUpMax * k;
+}
+
+/**
+ * A2: each player's FIRST river wager of a hand as a share of the pot before it, replayed from the public action
+ * log (bet/raise/all-in amounts are street totals, calls and posts are increments). Pure. Approximate where a log
+ * omits forced posts; the bucket edges are coarse enough for that.
+ */
+export function riverFirstBetFractions(
+  actions: ReadonlyArray<{ userId?: string; action: string; amount?: number; stage: string }>
+): Map<string, number> {
+  const out = new Map<string, number>();
+  const street = new Map<string, number>();
+  let pot = 0;
+  let stage = '';
+  for (const a of actions) {
+    if (a.stage !== stage) {
+      stage = a.stage;
+      street.clear();
+    }
+    const id = a.userId ?? '';
+    const prev = street.get(id) ?? 0;
+    const amt = Math.max(0, num(a.amount));
+    const wager = a.action === 'bet' || a.action === 'raise' || a.action === 'all_in';
+    const inc = a.action === 'fold' || a.action === 'check' ? 0 : wager ? Math.max(0, amt - prev) : amt;
+    if (a.stage === 'river' && a.userId && wager && inc > 0 && pot > 0 && !out.has(a.userId)) out.set(a.userId, inc / pot);
+    pot += inc;
+    street.set(id, prev + inc);
+  }
+  return out;
 }
