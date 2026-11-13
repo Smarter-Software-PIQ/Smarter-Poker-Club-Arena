@@ -142,8 +142,8 @@ dealer button reading as their own player's.
   stands in for an opponent's chair.
 - A size that would make a displayed bet or the dealer button read as another
   player's (nearer that player's portrait) is not taken.
-- The first table of a game type records its displayed height for the
-  session; later tables of that type take the same height, or the largest
+- The first table of a game type records its displayed height on the
+  device (kept across visits); later tables of that type take the same height, or the largest
   they can if their own displays leave less room, which then becomes the
   type's size. A size a table has already shown never changes.
 - Photo and initials discs are their circle and do not grow; a photo or
@@ -158,3 +158,13 @@ height changes and relayouts keeping every transform, and the full
 containment suite at 600, 652 and 768 px; the live-turn phone suite checks
 the hero takes the table's size on iPhone 14, iPhone Pro Max and short
 Android geometry with character-art, photo and initials heroes.
+
+## The Type Size Is Kept On The Device
+
+Measured live on build 1c48311d (WebKit, iPhone 14 Pro emulation, every frame
+for 75 s): sizes never changed within a table and every portrait on a table was
+the same size in every frame, but two fresh visits to the same nine-handed
+table settled 1.45x once and 1.2x another time, because the first fit depends
+on the bets on the table at that moment. The recorded game-type size is now
+kept on the device rather than per tab, so it settles downward to the size
+every table state can take and stays there across visits.
