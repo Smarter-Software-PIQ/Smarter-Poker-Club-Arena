@@ -61,7 +61,6 @@ BEGIN
          )
        GROUP BY bo.tournament_id
        ORDER BY due_at, bo.tournament_id
-       LIMIT 20
     LOOP
       IF pg_try_advisory_xact_lock(hashtextextended(
            'ca:tournament-terminal-settlement:v1:' || candidate.tournament_id::text, 0)) THEN

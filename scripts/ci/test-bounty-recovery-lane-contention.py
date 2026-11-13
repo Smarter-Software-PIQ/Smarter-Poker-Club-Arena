@@ -35,7 +35,9 @@ with tempfile.TemporaryDirectory(prefix='bounty-lanes-') as folder:
     def hold(key, shared=False):
         p = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         holders.append(p)
-        p.stdin.write(f"BEGIN; SELECT pg_advisory_xact_lock{'_shared' if shared else ''}(hashtextextended('{key}',0)); SELECT 'ready';\n")
+        keys = key if isinstance(key, list) else [key]
+        statements = ''.join(f"SELECT pg_advisory_xact_lock{'_shared' if shared else ''}(hashtextextended('{item}',0));" for item in keys)
+        p.stdin.write("BEGIN; " + statements + " SELECT 'ready';\n")
         p.stdin.flush()
         while p.stdout.readline().strip() != 'ready':
             if p.poll() is not None:
@@ -95,6 +97,16 @@ CREATE FUNCTION public.fn_bounty_obligation_has_complete_marker(uuid) RETURNS bo
         answer = sweep()
         assert answer['processed'] == 0 and answer['settled'] == 0 and answer['pending'] == 0, answer
         assert sql("SELECT count(*) FROM tournament_bounty_obligations WHERE state='settled'") == '2'
+        # More busy tournaments than the payment batch must not hide the next
+        # available tournament. Admission scans the finite due set, while the
+        # unchanged settlement body still processes only one event per call.
+        events = [f'20000000-0000-0000-0000-{n:012d}' for n in range(1, 22)]
+        for event in events:
+            sql(f"INSERT INTO tournaments VALUES('{event}'); INSERT INTO tournament_bounty_obligations(id,tournament_id,eliminated_user_id,hand_number,mode,state,next_attempt_at) VALUES('{event}','{event}','{event}',1,'regular','pending',now()-interval '1 minute');")
+        holder = hold(['ca:tournament-terminal-settlement:v1:' + event for event in events[:20]])
+        answer = sweep()
+        assert answer['settled_tournament_ids'] == [events[20]] and answer['pending'] == 20, answer
+        release(holder)
         print('BOUNTY_LANE_CONTENTION PASS: pre-fix timeout, independent progress, scoped/global/shared contention, retained pending, duplicate no-op')
     finally:
         for holder in list(holders):
