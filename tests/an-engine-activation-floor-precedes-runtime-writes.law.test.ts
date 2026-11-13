@@ -32,6 +32,7 @@ const groups = [
       'test_rebooked_corrections_bind_fresh_authority_and_preserve_expired_orders',
       'test_missed_engine_takeover_binds_fresh_authority_and_separate_prerequisites',
       'test_owner_now_55_break_binds_fresh_authority_to_the_serving_predecessor',
+      'test_owner_now_rebooking_binds_the_next_55_break_after_the_schema_moved',
       'test_cash_room_realism_window_binds_the_live_floor_and_keeps_the_provenance_entry',
       'test_explicit_later_owner_window_precedes_fresh_phase1_but_keeps_original_entries',
       'test_earliest_certified_owner_policy_requires_explicit_unambiguous_authority',
@@ -128,7 +129,7 @@ beforeAll(() => {
   ]);
   expect(result.status, result.stdout + result.stderr).toBe(0);
   const selected = groups.flatMap((group) => group.cases);
-  expect(selected).toHaveLength(63);
+  expect(selected).toHaveLength(64);
   expect(new Set(selected).size).toBe(selected.length);
   expect(JSON.parse(result.stdout)).toEqual([...selected].sort());
 }, 420_000);
