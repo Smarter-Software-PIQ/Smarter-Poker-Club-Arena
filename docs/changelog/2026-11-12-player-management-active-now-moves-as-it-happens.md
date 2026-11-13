@@ -18,13 +18,23 @@ rows in place from two answers it already had reason to watch:
   pin in `tests/presence-has-one-definition.law.test.ts` moved to
   `useLoadedPresence(` and `watchProfilePresence(`);
 - the club's live seats, `src/lib/clubLiveSeats.ts` (new): the open seats of
-  the club's members on waiting or running tables, read through PostgREST
-  (`table_seats` with its table and the player's public profile), one read per
-  club per minute on the same `PRESENCE_RECHECK_MS` clock, shared by every
-  watcher, paused while the tab is hidden, re-asked right after each roster
-  read. `table_seats` is not published to Realtime (14.5M writes), so a read is
-  the honest signal; its cost is one indexed query (`idx_table_seats_club_active`)
-  per open roster per minute, never a roster re-read.
+  the club's members on waiting or running tables, read through
+  `ca_club_live_seats(p_club_id)` (migration `20261112231056`, #10652), the
+  roster's own door: the same viewer rule as `ca_club_members_page` and the
+  same rule that a reserved certification identity is never listed to a
+  person, so the strip cannot show a seat the roster hides. One read per club
+  per minute on the same `PRESENCE_RECHECK_MS` clock, shared by every watcher,
+  paused while the tab is hidden, re-asked right after each roster read.
+  `table_seats` is not published to Realtime (14.5M writes), so a read is the
+  honest signal; its cost is one indexed query per open roster per minute,
+  never a roster re-read.
+
+Each row receives its live state as a prop, and `useLiveStates` keeps that
+object identical across commits while the answer is unchanged, so `MemberRow`'s
+memo still skips every unchanged row (`rosterPerformancePhase6` counts renders
+through the shared minute clock the row asks once per render, since the row no
+longer calls the presence hook itself). The strip has its own sibling sheet,
+`LiveNowStrip.css`, and no hover rules (Club Arena has none).
 
 `src/hooks/useRosterLiveOrder.ts` turns the two into `orderByActivity`:
 seated, then online, then last active, ties in the server's order. The server
