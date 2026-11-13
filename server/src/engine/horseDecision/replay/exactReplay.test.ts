@@ -445,10 +445,15 @@ describe('P15-A exact historical replay', () => {
 
   it('offline style re-run CSV: the columns style-evaluation.sql loads, confidence empty', () => {
     expect(styleShadowRerunCsvHeader()).toBe(
-      'table_id,hand_number,seat,opt,street,format,actual,would_be,price,confidence,arm'
+      'decision_id,turn_key,lane,executed,street_ordinal,table_id,hand_number,seat,opt,street,format,actual,would_be,price,confidence,arm'
     );
     expect(
       styleShadowRerunCsvLine({
+        decision_id: 'event-1',
+        turn_key: 'turn-1',
+        lane: 'fast',
+        executed: 't',
+        street_ordinal: 0,
         table_id: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
         hand_number: 1000007,
         seat: 3,
@@ -461,7 +466,9 @@ describe('P15-A exact historical replay', () => {
         confidence: null,
         arm: 's',
       })
-    ).toBe('7c9e6679-7425-40de-944b-e07fc1f90ae7,1000007,3,fb,r,cash,c,f,0.25,,s');
+    ).toBe(
+      'event-1,turn-1,fast,t,0,7c9e6679-7425-40de-944b-e07fc1f90ae7,1000007,3,fb,r,cash,c,f,0.25,,s'
+    );
   });
 
   it('names the first differing field when a single input is perturbed', async () => {

@@ -20,6 +20,11 @@
  * o = the option was on live (on, or canary with this Horse in bucket 0); for an `o` row `would_be` is the action
  * with the option off. Measures 1 and 2 read s and c rows; o rows check the on arm against its own off arm.
  *
+ * A DEEP second look replays exactly only with its original FAST record (exactReplay's originalFastRecords: the
+ * earlier FAST decisions of the same producer and hand, at most 256); the script supplies them. Each row names its
+ * decision (decision_id), its turn (turn_key, shared by a FAST decision and its DEEP second look), its lane and
+ * whether the execution witness names it (executed), so the evaluation counts one row per executed decision.
+ *
  * Nothing here writes to the journal, the database or telemetry; it runs offline on a journal copy
  * (server/scripts/style-shadow-rerun.mjs) and only on the source that made the record (exactReplay refuses others).
  */
@@ -46,6 +51,11 @@ export const STYLE_SHADOW_RERUN_VERSION = 'style-shadow-rerun-v1';
 
 /** The CSV columns, in the order style-evaluation.sql's style_shadow_decisions table declares them. */
 export const STYLE_SHADOW_RERUN_COLUMNS = [
+  'decision_id',
+  'turn_key',
+  'lane',
+  'executed',
+  'street_ordinal',
   'table_id',
   'hand_number',
   'seat',
@@ -60,6 +70,17 @@ export const STYLE_SHADOW_RERUN_COLUMNS = [
 ] as const;
 
 export interface StyleShadowRerunRow {
+  /** the journal record's own event id: one per decision, the key every evaluation join uses */
+  decision_id: string;
+  /** the journal turn key: a FAST decision and its DEEP second look share it */
+  turn_key: string;
+  lane: 'fast' | 'deep';
+  /** t = the execution witness names this decision's request, f = it names another (the other lane of the turn),
+   * empty = no witness joined */
+  executed: 't' | 'f' | null;
+  /** the Horse's own betting actions already on this street before the decision (0 = its first), from the
+   * decision's action history; the evaluation finds the decision in hand_history as the (ordinal + 1)-th */
+  street_ordinal: number;
   table_id: string;
   hand_number: number;
   seat: number;
@@ -99,11 +120,40 @@ export interface StyleShadowRerunResult {
   failedOptions: StyleSwitchOption[];
   rows: StyleShadowRerunRow[];
   context: HorseExactReplayVerdict['context'] | null;
+  /** DECIDE_FAST or DECIDE_DEEP (a DEEP second look replays only with its original FAST record supplied) */
+  lane: 'fast' | 'deep' | null;
 }
 
 const obj = (v: unknown): v is Record<string, unknown> =>
   v !== null && typeof v === 'object' && !Array.isArray(v);
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+const BETTING_ACTIONS = new Set(['fold', 'check', 'call', 'bet', 'raise', 'all_in']);
+
+/** The Horse's own betting actions on the decision's street before it (blinds and discards are not betting). */
+function streetOrdinal(snapshot: Record<string, unknown>): number {
+  const gs = obj(snapshot.gameState) ? snapshot.gameState : {};
+  const player = obj(snapshot.player) ? snapshot.player : {};
+  const history = Array.isArray(gs.actionHistory) ? gs.actionHistory : [];
+  return history.filter(
+    (a) =>
+      obj(a) &&
+      a.userId === player.user_id &&
+      a.stage === gs.stage &&
+      BETTING_ACTIONS.has(String(a.action))
+  ).length;
+}
+
+/** Whether the joined execution witness names this decision's request (see StyleShadowRerunRow.executed). */
+function executedLane(execution: unknown, snapshot: Record<string, unknown>): 't' | 'f' | null {
+  if (!obj(execution) || typeof execution.body !== 'string') return null;
+  try {
+    const identity = (JSON.parse(execution.body) as { identity?: unknown }).identity;
+    if (!obj(identity) || identity.decisionKey !== snapshot.decisionKey) return null;
+    return identity.requestId === snapshot.requestId ? 't' : 'f';
+  } catch {
+    return null;
+  }
+}
 
 function callPrice(snapshot: Record<string, unknown>): number {
   const gs = obj(snapshot.gameState) ? snapshot.gameState : {};
@@ -128,6 +178,7 @@ export async function styleShadowRerunRecord(
     failedOptions: [],
     rows: [],
     context: null,
+    lane: null,
   };
   if (!obj(raw) || raw.kind !== 'decision' || typeof raw.body !== 'string') return out;
   let body: Record<string, unknown>;
@@ -138,6 +189,9 @@ export async function styleShadowRerunRecord(
   } catch {
     return out;
   }
+  const snapshotType = obj(body.snapshot) ? body.snapshot.type : null;
+  out.lane =
+    snapshotType === 'DECIDE_DEEP' ? 'deep' : snapshotType === 'DECIDE_FAST' ? 'fast' : null;
   const replayState = obj(body.replayState) ? body.replayState : {};
   const states = styleSwitchStatesFrom(replayState.style);
   if (!states) {
@@ -172,6 +226,7 @@ export async function styleShadowRerunRecord(
     gs.gameMode === 'tournament' || obj(gs.tournament) ? 'tournament' : 'cash';
   const street = styleShadowStreetCode(String(gs.stage ?? ''));
   const price = callPrice(snapshot);
+  const ordinal = streetOrdinal(snapshot);
   out.status = 'rerun';
   for (const option of STYLE_SWITCH_OPTIONS) {
     const state = states[option];
@@ -203,6 +258,11 @@ export async function styleShadowRerunRecord(
     if (other.action === committed.action && (other.amount ?? 0) === (committed.amount ?? 0))
       continue;
     out.rows.push({
+      decision_id: String(raw.eventId ?? ''),
+      turn_key: String(raw.turnKey ?? ''),
+      lane: snapshot.type === 'DECIDE_DEEP' ? 'deep' : 'fast',
+      executed: executedLane(options.execution, snapshot),
+      street_ordinal: ordinal,
       table_id: hand.tableId,
       hand_number: hand.handNumber,
       seat: player.seat,
