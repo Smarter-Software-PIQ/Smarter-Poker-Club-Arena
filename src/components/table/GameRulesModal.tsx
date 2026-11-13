@@ -857,10 +857,10 @@ export function GameRulesModal({
                         Heads-Up, The Button Posts The Small Blind, Acts First Before The Flop, And
                         Acts Last After The Flop. When Play Becomes Heads-Up, The Big Blind Advances
                         To The Next Remaining Player So The Previous Big Blind Does Not Pay It
-                        Twice. A New Opponent Enters In The Big Blind. When More Players Are Dealt
+                        Twice. A New Opponent Enters In The Big Blind. When New Players Are Dealt
                         Into A Heads-Up Game, The Button Stays Where It Was For That Hand, So The
-                        Previous Big Blind Posts The Small Blind And Neither Of Them Posts The Same
-                        Blind Twice In A Row.
+                        Previous Big Blind Posts The Small Blind And Neither Heads-Up Player Posts
+                        The Same Blind Twice In A Row.
                       </li>
                       <li>
                         A Returning Player Who Missed Blinds Owes A Dead Small Blind And A Live Big

@@ -80,9 +80,11 @@ right (`from === to` is not a completed orbit).
   leave that player on the small blind for their first hand; the gate judges
   the table as it stands when the post is made and replayed.
 
-The table rules text says: When More Players Are Dealt Into A Heads-Up Game,
+The table rules text says: When New Players Are Dealt Into A Heads-Up Game,
 The Button Stays Where It Was For That Hand, So The Previous Big Blind Posts
-The Small Blind And Neither Of Them Posts The Same Blind Twice In A Row.
+The Small Blind And Neither Heads-Up Player Posts The Same Blind Twice In A
+Row. (A sat-out player returning between the button and the big blind is not a
+new player: the button moves to them as before, blinds still correct.)
 
 ## Tests
 
