@@ -108,7 +108,16 @@ async function playHand(
   const t = buildHost(
     formed,
     Array.from({ length: seats }, () => 100),
-    { horses: new Set(formed.players), deps: { horseLane: () => scripted.lane } }
+    {
+      horses: new Set(formed.players),
+      // The timing draws are pinned. Left on Math.random, an already-folding
+      // fold's look-and-press time was drawn afresh for each horse, and about
+      // one hand in 125 drew them rising in turn order: the turn then reached
+      // every horse before its own press, each fold landed on its turn, and no
+      // early look landed one. At a fixed draw only each horse's own tempo
+      // (its id) orders the presses, the same way on every run.
+      deps: { horseLane: () => scripted.lane, random: () => 0.5 },
+    }
   );
   let fastFoldDoorOffers = 0;
   if (opts.refuseFastFoldDoor) {
