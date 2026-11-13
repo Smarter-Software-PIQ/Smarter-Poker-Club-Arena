@@ -142,9 +142,24 @@ pr-10607-delivery.md, review-319c019f/).
 | No settlement/stall regressions                      | PASS (08c27924)                        | settlementStatus ok, blocked 0, stalled 0                                                       |
 | Serving #10607                                       | UNVERIFIED                             | needs the release custodian's next certified window                                             |
 
+Follow-up delivered in #10648 (merge 0762fd6d, reviewed head 022bd65c, CI
+green): /health `horseWorkSchedule` (offDutyLeaves by rest_day / daily_cap /
+off_shift, offDutyLeavesDeferred, seatCallsDeclined, listRowsCancelled, all
+cumulative attempt counts since process start; lastCycle with seating refusals
+and per-host eligible / onDuty / target supply); a table inside its 20-30 min
+post-human dwell with fewer than four seated waives only the preferred-stake
+tag (schedule, rest day, daily cap, band, bankroll and club checks unchanged);
+dead StableHand.forceLeaveReason removed; the uncapped-tick drift law also
+catches regproc-quoted redefinitions. Evidence: pr-10648-delivery.md.
+
 Remaining dependency: release custodian 01a1d015 includes a candidate at or
-after ffb6cad4 (inclusion requested 18:15Z/19:30Z/20:08Z, no reply yet). After
-SEALED and full thaw, verify read-only: FLH/FLO8 1/2 seating and dealing, a
-Classic game opening past the old 1-3 tables on demand with no
-table_refused_unused_tables churn, off-duty horses leaving (offDutyReason
-counts against availableNow), dwell unchanged.
+after 0762fd6d (contains ffb6cad4; inclusion requested 18:15Z, 19:30Z, 20:08Z
+and 2026-11-13 00:08Z; still serving 08c27924 at 23:52Z). After SEALED and
+full thaw, verify read-only: FLH/FLO8 1/2 seating and dealing, a Classic game
+opening past the old 1-3 tables on demand with no table_refused_unused_tables
+churn, /health horseWorkSchedule present with offDutyLeaves counting and
+lastCycle.supply onDuty <= eligible, dwell unchanged, dwell tables backfilled.
+
+Deferred by design: retiring fn_cash_cluster_tick / fn_cash_clusters_tick_all
+and the second/third table pickers waits until the new engine has served past
+the rollback horizon, because the serving engine still calls them.
