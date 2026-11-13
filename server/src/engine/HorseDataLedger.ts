@@ -874,7 +874,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'vpipFloorDeepStackOff',
-    '2026-11-12 Omaha preflop, over 120bb, facing a re-raise at a stack-off node with no observed wide re-raiser: the jam bar is read without the VPIP floor multiplier, as on an unfloored table; the call bars keep the floor so the hand still plays (PLO6-AUDIT-004, production hand 58751512: a 390bb button with strength 0.587 shoved into a four-bet because the 50% floor cut its jam bar from 0.93 to 0.40)',
+    'opt-in arm, default off (2026-11-12): Omaha preflop, over 120bb, facing a re-raise at a stack-off node with a call available for 30% of the stack or less and no observed wide re-raiser: the jam bar is read without the VPIP floor multiplier. The mechanism is demonstrated (PLO6-AUDIT-004, production hand 58751512: the 50% floor cut a 390bb seat jam bar from 0.93 to 0.40) but the expected-value check does not show the call beating the shove outside an aces-heavy four-bet range, so production never sets it',
     'V91'
   ),
   flag(

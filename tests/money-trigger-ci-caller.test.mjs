@@ -322,3 +322,6 @@ test('estate digest uses the organization token only for immutable transferred C
   assert.equal((await read('/repos/Smarter-Software-PIQ/Smarter-Poker-Club-Arena-fork/actions/runs')).token,'modeled-personal');
   for(const env of [{GITHUB_REPOSITORY_ID:'42',GH_TOKEN_CA:'modeled-organization'},{GITHUB_REPOSITORY_ID:'1132369872'}]){const refused=route('Smarter-Software-PIQ/Smarter-Poker-Club-Arena','modeled-personal',{env},()=>{throw Error('must refuse before credential use')},(repo,id)=>{assert.equal(isClubArenaRepository(repo,id),true)});await assert.rejects(refused('/repos/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/actions/runs'));}
 });
+
+// The closed-pull-request stand-down cases run in this same required CI step (2026-11-12).
+import './money-trigger-closed-pr.test.mjs';

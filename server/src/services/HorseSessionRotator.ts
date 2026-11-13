@@ -72,7 +72,7 @@ import {
 } from './HorseBehavior.js';
 import { requestSeatChangeFor } from './supabase/seatChange.js';
 import { regularSessionEndFactor } from './HorseRegulars.js';
-import { offDutyReason } from './HorseWorkSchedule.js';
+import { offDutyReason, recordOffDutyDeferred, recordOffDutyLeave } from './HorseWorkSchedule.js';
 import { chicagoCounterDay, tagBook } from './StableHandTags.js';
 import { chicagoNow } from './StableHandController.js';
 import { controllerEnabled } from './StableHand.js';
@@ -1336,9 +1336,11 @@ export class HorseSessionRotator {
         const benched = benchedIds.has(uid) || (!exempt && cashRosterAllows(uid, t) === false);
         const offPlo = !exempt && ploRosterAllows(uid, t?.game_variant, t?.big_blind) === false;
         const restrictedCashGame = !horseCashGameAllowed(t ?? {}, Date.now());
-        const offDuty =
-          t?.tournament_id == null &&
-          offDutyReason(uid, dutyBook?.states.get(uid), dutyNowMs, dutyWeekday, dutyToday) !== null;
+        const dutyReason =
+          t?.tournament_id == null
+            ? offDutyReason(uid, dutyBook?.states.get(uid), dutyNowMs, dutyWeekday, dutyToday)
+            : null;
+        const offDuty = dutyReason !== null;
         if (!benched && !offPlo && !offGame && !restrictedCashGame && !outsideCashPlan && !offDuty)
           continue;
         /* Going home at the end of a shift is the ordinary leave: a horse that
@@ -1353,15 +1355,20 @@ export class HorseSessionRotator {
           !restrictedCashGame &&
           !outsideCashPlan &&
           (this.owesHands(tableId, uid, engine) || this.owesBigPotOrbit(uid, engine))
-        )
+        ) {
+          recordOffDutyDeferred();
           continue;
+        }
         try {
           const result = await engine.leaveTable(uid);
           if (!this.lifecycleIsCurrent(generation)) return;
           this.noteLeaveResult(tableId, uid, result);
           if (result.success) {
             rosterLeaves++;
-            if (offDuty) offDutyLeaves++;
+            if (dutyReason !== null) {
+              offDutyLeaves++;
+              recordOffDutyLeave(dutyReason);
+            }
             rosterLeft.add(`${tableId}:${uid}`);
             this.breaks.delete(HorseSessionRotator.breakKey(tableId, uid));
           }
