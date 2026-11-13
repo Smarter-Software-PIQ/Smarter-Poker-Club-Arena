@@ -38,6 +38,7 @@ import {
 import { HorsePolicyGraph } from './HorsePolicyGraph.js';
 import { decisionGravity } from './horseDecisionGravity.js';
 import { riverNutsRaise, fullPotNearPotWager, hasRiverNuts } from './HorseRiverNuts.js';
+import { hiLoRiverLowHalfFloor } from './HorseHiLoLowHalf.js';
 import { omahaCurrentNutsRaise } from './HorseOmahaCurrentNuts.js';
 import {
   TOKEN_CALL_COUNTED_PRICE,
@@ -14716,7 +14717,18 @@ export class HorseLogic {
           // must not erase (top two with the nut flush draw stacks off).
           if (!isRiver && drawInfo40()?.nutty === true) cap40 += 0.12;
           const before40 = eq15;
-          eq15 = Math.min(eq15, Math.max(0.08, cap40));
+          // HU-HILO-001 (2026-11-13): the class ceiling prices the HIGH hand.
+          // Heads-up on a pot-limit hi-lo river the low half a hand already
+          // wins is not at risk from a better high hand, so the ceiling never
+          // goes below that half (HorseHiLoLowHalf.ts; 0 everywhere else).
+          const lowHalf40 = hiLoRiverLowHalfFloor({
+            isHiLo: vi.isHiLo === true,
+            isFixedLimit: vi.isFixedLimit === true,
+            isRiver,
+            opponents: oppCount,
+            lowShare: hiLoSplit?.lo,
+          });
+          eq15 = Math.min(eq15, Math.max(0.08, cap40, lowHalf40));
           if (opts.v87DeepDiveDiscipline !== false)
             noteHorseDeepDiveRule(
               'flop_cap',
