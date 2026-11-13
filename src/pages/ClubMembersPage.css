@@ -1307,10 +1307,18 @@ body:has([data-players-mode='simple']) nav[aria-label='Club Operations Sections'
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+/* The second net (Today, or This Week when Today is the chosen window) sits
+   where the rakeback percentage used to (Dan, 2026-11-12), in the same inks. */
+.member-simple-balance > .member-simple-balance__secondary {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.member-simple-balance > .member-simple-balance__secondary.member-winloss--up,
 .member-simple-balance > .member-simple-balance__winloss.member-winloss--up,
 .member-metric--winloss.member-winloss--up .member-metric__value {
   color: var(--success-green, #31a24c);
 }
+.member-simple-balance > .member-simple-balance__secondary.member-winloss--down,
 .member-simple-balance > .member-simple-balance__winloss.member-winloss--down,
 .member-metric--winloss.member-winloss--down .member-metric__value {
   color: var(--danger-red, #ff4757);

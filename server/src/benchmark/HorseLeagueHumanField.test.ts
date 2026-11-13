@@ -75,6 +75,20 @@ const EXPECTED_HUMAN_CARDS: Array<[string, string]> = [
   ['human_full_vs_v2_legacy', 'full_vs_v2_legacy'],
   // 2026-11-07: heads-up, against the hu_wide_sb_aggressor_v1 persona.
   ['human_hu_bb_defends_to_price', 'hu_bb_defends_to_price'],
+  // 2026-11-12 (HU-NLH-001): the same persona at 40bb, the band V85 leaves alone.
+  ['human_hu_bb_defends_to_price_40bb', 'hu_bb_defends_to_price_40bb'],
+  // 2026-11-12 (HU-AUDIT-002): the default-off flag no card had dealt.
+  ['human_hu_commit_under_pot', 'hu_commit_under_pot'],
+];
+
+/** Human-field cards with no mirror twin: the heads-up exploiter cards
+ *  (2026-11-12, HU-NLH-001). No Horse plays these lines, so there is no
+ *  mirror to twin; each card names its persona. */
+const EXPECTED_PERSONA_CARDS: Array<[string, string]> = [
+  ['human_hu_bb_defends_vs_minraise_40bb', 'hu_minraise_every_button_v1'],
+  ['human_hu_bb_defends_vs_threebet_40bb', 'hu_three_bet_every_hand_v1'],
+  ['human_hu_bb_defends_vs_small_stab_40bb', 'hu_small_stab_every_street_v1'],
+  ['human_hu_v7_preflop_vs_limper_40bb', 'hu_limp_every_button_v1'],
 ];
 
 afterEach(() => {
@@ -249,8 +263,15 @@ describe(
   { timeout: 300_000 },
   () => {
     it('each human card is the human twin of a mirror card: same arms, NLH, named human_*', () => {
-      const cards = humanCards();
+      const personaNames = new Set(EXPECTED_PERSONA_CARDS.map(([n]) => n));
+      const cards = humanCards().filter((m) => !personaNames.has(m.name));
       expect(cards.map((m) => m.name)).toEqual(EXPECTED_HUMAN_CARDS.map(([n]) => n));
+      for (const [name, persona] of EXPECTED_PERSONA_CARDS) {
+        const c = LEAGUE_MATCHUPS.find((m) => m.name === name);
+        expect(c, `${name} left the card`).toBeDefined();
+        expect(c!.humanPersona).toBe(persona);
+        expect(c!.seats).toBe(2);
+      }
       const byName = new Map(LEAGUE_MATCHUPS.map((m) => [m.name, m]));
       for (const [human, mirror] of EXPECTED_HUMAN_CARDS) {
         const h = byName.get(human)!;

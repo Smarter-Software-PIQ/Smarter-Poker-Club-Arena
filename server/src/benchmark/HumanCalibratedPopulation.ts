@@ -118,6 +118,12 @@ export interface HumanCalibratedProfile {
   >;
   /** Fitted reached-state cutoffs; a node without one plays raw shares. */
   cutoffs?: Partial<Record<HumanCalibratedFittedNode, Readonly<HumanCalibratedCutoffs>>>;
+  /** A league persona's own sizes (HorseLeague humanFieldPersonaProfile). A
+   *  calibrated profile has none and plays HUMAN_CALIBRATED_SIZING. */
+  sizing?: Readonly<{
+    preflopRaiseToMultiple?: number;
+    betPotFraction?: Readonly<Partial<Record<PostflopStreet, number>>>;
+  }>;
 }
 
 /** Sizes, pooled across families (bets and raises with a recorded public
@@ -515,7 +521,8 @@ export function humanCalibratedDecide(
   const S = HUMAN_CALIBRATED_SIZING;
   if (spot.stage === 'preflop') {
     const s = humanCalibratedPreflopPercentile(spot.cards, spot.variant);
-    const raiseTo = S.preflopRaiseToMultiple * spot.currentBet;
+    const raiseTo =
+      (p.sizing?.preflopRaiseToMultiple ?? S.preflopRaiseToMultiple) * spot.currentBet;
     if (spot.toCall <= 0) {
       const intent = s >= 1 - p.preflop.freeRaise ? 'aggress' : 'check';
       return { ...legalize(spot, intent, raiseTo), strength: s, node: 'preflop/free' };
@@ -545,7 +552,11 @@ export function humanCalibratedDecide(
     const betFrom = p.cutoffs?.[`${street}/checked_to`]?.bet ?? 1 - target.checkedToBet;
     const intent = s >= betFrom ? 'aggress' : 'check';
     return {
-      ...legalize(spot, intent, S.betPotFraction[street] * spot.pot),
+      ...legalize(
+        spot,
+        intent,
+        (p.sizing?.betPotFraction?.[street] ?? S.betPotFraction[street]) * spot.pot
+      ),
       strength: s,
       node: `${street}/checked_to`,
     };

@@ -179,3 +179,21 @@ describe('TablePage keeps the gate wired and the felt fail-safe', () => {
     expect(TABLE_PAGE).toContain('emojiEnabled={!!v8Settings.emoji_enabled}');
   });
 });
+
+describe('the sibling receive gate stays a receive gate', () => {
+  /* Phase 2 of the emoji fix: the only other table setting with a NETWORK
+     receive side is Text Messages, and it is currently correct — the whole
+     social surface (chat sheet, seat speech bubbles, voice speaking bubbles)
+     hangs off one derived gate. These pins keep it that way, because the
+     emoji bug was exactly this shape drifting apart: a switch that kept
+     gating the send side while the receive side quietly stopped reading it. */
+  const TABLE_PAGE = read('src/pages/TablePage.tsx');
+
+  it('Text Messages off is one gate for every social surface', () => {
+    expect(TABLE_PAGE).toMatch(/const socialFeaturesAllowed =\s*\n?\s*v8Settings\.text_message &&/);
+  });
+
+  it('incoming seat speech bubbles sit behind that gate', () => {
+    expect(TABLE_PAGE).toContain('enabled: socialFeaturesAllowed && !isChatMuted');
+  });
+});

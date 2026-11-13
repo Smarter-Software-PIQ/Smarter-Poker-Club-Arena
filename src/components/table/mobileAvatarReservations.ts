@@ -178,7 +178,11 @@ function hull(points: Pos[]): Pos[] {
 /** Cash portrait 481–768px: all owners, all marker candidates, and the
  * straight-line glide between them. Four-pixel strips cover the expanded
  * convex hull without reserving its entire enclosing rectangle. */
-export function dealerReservations(input: {
+/** The dealer button's preferred spot beside each chair, one box per anchor.
+ * The puck draws above every seat (z-index 15 over the wrapper's 10) and its
+ * placement already avoids painted art, so this only keeps its first choice
+ * clear of a face. */
+export function dealerSeatReservations(input: {
   canvas: ReservationBox;
   scale: number;
   anchors: readonly Pos[];
@@ -195,18 +199,54 @@ export function dealerReservations(input: {
     !anchors.length
   )
     return [];
-  // DealerButton measures clientWidth/clientHeight, while the hook's marker
-  // candidates use the rendered scaler box. Preserve that distinction.
   const size = input.scalerSize;
-  const centers = anchors.map((pos) => {
+  const r = dealerSize / 2 + 2 * scale;
+  return anchors.map((pos) => {
     const p = dealerButtonPositionClearOfSeat(
       pos,
       size,
       seatPodPx(viewportWidth, pos.y >= 100 && pos.x === 50, size.w),
       anchors
     );
-    return { x: c.left + (p.x * c.width) / 100, y: c.top + (p.y * c.height) / 100 };
+    const x = c.left + (p.x * c.width) / 100,
+      y = c.top + (p.y * c.height) / 100;
+    return { left: x - r, top: y - r, width: 2 * r, height: 2 * r };
   });
+}
+
+export function dealerReservations(input: {
+  canvas: ReservationBox;
+  scale: number;
+  anchors: readonly Pos[];
+  dealerSize: number;
+  viewportWidth: number;
+  scalerSize: Size;
+  /** Only the rim band, without the chair spots (dealerSeatReservations). */
+  bandOnly?: boolean;
+}): ReservationBox[] {
+  const { canvas: c, scale, anchors, dealerSize, viewportWidth } = input;
+  if (
+    viewportWidth <= 480 ||
+    viewportWidth > 768 ||
+    !(scale > 0) ||
+    !(dealerSize > 0) ||
+    !anchors.length
+  )
+    return [];
+  // DealerButton measures clientWidth/clientHeight, while the hook's marker
+  // candidates use the rendered scaler box. Preserve that distinction.
+  const size = input.scalerSize;
+  const centers = input.bandOnly
+    ? []
+    : anchors.map((pos) => {
+        const p = dealerButtonPositionClearOfSeat(
+          pos,
+          size,
+          seatPodPx(viewportWidth, pos.y >= 100 && pos.x === 50, size.w),
+          anchors
+        );
+        return { x: c.left + (p.x * c.width) / 100, y: c.top + (p.y * c.height) / 100 };
+      });
   const inset =
     (chipRadiusWidthPct({ w: c.width, h: c.height, portraitTaper: 0 }) * c.width) / 100 + 3;
   const radius = (FELT_WINDOW.width * c.width) / 200 - inset;
@@ -214,7 +254,10 @@ export function dealerReservations(input: {
   const upper = (FELT_WINDOW.top * c.height) / 100 + (FELT_WINDOW.width * c.width) / 200;
   const lower =
     ((FELT_WINDOW.top + FELT_WINDOW.height) * c.height) / 100 - (FELT_WINDOW.width * c.width) / 200;
-  for (const extra of [0, 10, 20, 28, 36, 44, 52, 64, 76, 88, 100]) {
+  // The marker band: dealer puck and chip rests live in the outer 52 px of
+  // the felt. The deeper rungs (64 to 100 px) reserved felt no marker rests
+  // on and walled every mid-rail portrait (measured 2026-11-12).
+  for (const extra of [0, 10, 20, 28, 36, 44, 52]) {
     const band = radius - extra;
     for (let angle = 0; angle < 360; angle += 2) {
       const a = (angle * Math.PI) / 180;
