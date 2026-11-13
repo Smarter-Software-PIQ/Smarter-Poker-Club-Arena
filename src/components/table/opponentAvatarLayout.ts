@@ -1975,10 +1975,18 @@ export function createOpponentAvatarLayout(
           const crownCaption =
             matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)')
               .matches && ['6', '9'].includes(page.dataset.seats || '');
-          if (action && info && !crownCaption) {
+          // A crowded showdown still needs its compact allocation, but its
+          // caption must clear the revealed row as well as the name plate.
+          if (action && info && (!crownCaption || seat.querySelector('.seat__cards--revealed'))) {
             const a = box(action),
               p = box(info);
-            action.style.translate = `0px ${(p.top - a.height - 3 - a.top) / ratio}px`;
+            const cardTops = crownCaption
+              ? Array.from(seat.querySelectorAll('.seat__cards--revealed .seat__card'))
+                  .map(box)
+                  .filter((card) => card.width > 0 && card.height > 0)
+                  .map((card) => card.top)
+              : [];
+            action.style.translate = `0px ${(Math.min(p.top, ...cardTops) - a.height - 3 - a.top) / ratio}px`;
           }
         }
         shifts = jointOpponentShifts(
