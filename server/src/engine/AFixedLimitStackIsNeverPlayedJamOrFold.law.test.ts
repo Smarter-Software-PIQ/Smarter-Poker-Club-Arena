@@ -8,8 +8,10 @@
  * (tournament, 10 to 20 big blinds), against 38 to 58 percent one step deeper.
  *
  * Law: in a fixed-limit game the heads-up preflop fold share does not depend
- * on a short stack the way a jam decision does, and no fixed-limit preflop
- * decision announces an all-in with more than five big blinds behind.
+ * on a short stack the way a jam decision does, and at the two nodes tested
+ * here (the open and the big blind's first answer) no all-in is announced
+ * with more than five big blinds behind. Facing a 4-bet the generic stack-off
+ * branch can still announce one; the controller executes it as a call.
  * Pins no frequency: it compares the engine with itself across depth.
  */
 import { afterEach, describe, expect, it } from 'vitest';

@@ -10,6 +10,10 @@
  * Law: heads-up on the river in pot-limit Omaha hi-lo, a hand holding the nut
  * low does not fold to one pot-sized bet; a hand with no low and no pair
  * still does (the cap keeps its job for the high half).
+ *
+ * Pinned here: the nut low. The floor applies to every qualifying low at its
+ * sampled share; non-nut lows are intended to follow the same arithmetic and
+ * are not pinned by this law.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { HorseMind } from './HorseMind.js';

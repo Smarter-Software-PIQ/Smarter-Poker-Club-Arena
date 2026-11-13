@@ -7,6 +7,10 @@
  * high was priced at 0.28 and folded the river to one pot-sized bet heads-up,
  * 20 seeds of 20, although the low half alone returns 18 for a call of 12.
  *
+ * The floor is half of the sampled low share of ANY qualifying low, not only
+ * the nut low: a second or third low is floored at its own share (a better
+ * low can still take that half; the share already carries it).
+ *
  * A better high hand cannot take the low half. So where this applies, the
  * ceiling never goes below half of the hand's own low share.
  *
