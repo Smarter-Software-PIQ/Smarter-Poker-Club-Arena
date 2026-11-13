@@ -318,6 +318,15 @@ it('shows each missed-engine prerequisite before the successor and ends every pr
   expect(at('2026-11-12T22:00:00Z')).toBe('2026-11-12-rebuy-invariant-db-2220z');
   expect(at('2026-11-13T01:59:59Z')).toBe('2026-11-12-rebuy-invariant-db-2220z');
   expect(at('2026-11-13T02:00:00Z')).toBeUndefined();
+  expect(at('2026-11-13T03:00:00Z')).toBeUndefined();
+  expect(at('2026-11-13T04:00:00Z')).toBeUndefined();
+  expect(at('2026-11-13T04:45:00Z')).toBeUndefined();
+  expect(at('2026-11-13T05:15:00Z')).toBe('2026-11-13-owner-now-55-break-engine-0538z');
+  expect(at('2026-11-13T05:59:59Z')).toBe('2026-11-13-owner-now-55-break-engine-0538z');
+  expect(at('2026-11-13T06:00:00Z')).toBeUndefined();
+  expect(at('2026-11-13T06:15:00Z')).toBe('2026-11-13-rebuy-invariant-db-0220z');
+  expect(at('2026-11-13T07:59:59Z')).toBe('2026-11-13-rebuy-invariant-db-0220z');
+  expect(at('2026-11-13T08:00:00Z')).toBeUndefined();
 });
 
 it('gives the authorized rebuy DB window its own primary lead without changing prior orders', () => {
@@ -335,6 +344,23 @@ it('gives the authorized rebuy DB window its own primary lead without changing p
   expect(bookedMaintenanceNoticeText(own, own.noticeAtMs!)).toBe(
     'Short Maintenance Break Possible Between 4:20 PM And 8:00 PM Chicago Time. Play Pauses For About Five Minutes.'
   );
+  expect(bookedMaintenanceNotice(own.notAfterMs, [own])).toBeNull();
+});
+
+it('gives the corrected rebuy window its own primary lead after the consumed window', () => {
+  const id = '2026-11-13-rebuy-invariant-db-0220z';
+  const own = BOOKED_MAINTENANCE_NOTICES.find((n) => n.id === id)!;
+  expect(own.kind).toBe('database');
+  expect(own.noticeAtMs).toBe(Date.parse('2026-11-13T06:15:00Z'));
+  expect(own.notBeforeMs).toBe(Date.parse('2026-11-13T06:50:00Z'));
+  expect(own.notBeforeMs - own.noticeAtMs!).toBe(35 * 60 * 1000);
+  expect(own.notAfterMs).toBe(Date.parse('2026-11-13T08:00:00Z'));
+  expect(bookedMaintenanceNotice(own.noticeAtMs! - 1)).toBeNull();
+  expect(bookedMaintenanceNotice(own.noticeAtMs!)?.id).toBe(id);
+  expect(bookedMaintenanceNoticeText(own, own.noticeAtMs!)).toBe(
+    'Short Maintenance Break Possible Between 12:50 AM And 2:00 AM Chicago Time. Play Pauses For About Five Minutes.'
+  );
+  expect(bookedMaintenanceNotice(own.notAfterMs, [own])).toBeNull();
   expect(bookedMaintenanceNotice(own.notAfterMs)).toBeNull();
 });
 
