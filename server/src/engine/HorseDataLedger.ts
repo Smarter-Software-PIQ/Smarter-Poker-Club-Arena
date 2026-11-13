@@ -2654,28 +2654,31 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   // path, so "enabled" is provable from the serving release
   // (HORSE_UPGRADE_LIVE_EVIDENCE, HorseUpgradeLiveEvidence.law.test.ts).
   // Evidence only; each depends on table mix and none is a health ratio.
-  // Per-decision upgrade counters carry a floor against every live decision.
-  // The floor is a dark-layer tripwire, far below the expected share, not a
-  // measured rate: zero on a real day is an enabled upgrade that did not run
-  // (critical), and a fall from its own usual rate is caught by the drift
-  // audit's own-rate check. Revisit the floors with the first full live day.
-  // Upgrade 11 carries no floor yet: on a Hold'em-only day its pool counter
-  // depends on rare spot classes, so a floor waits for a measured live day.
+  // Per-decision upgrade counters name their denominator (every live
+  // decision) and carry NO floor yet. A floor was set here on 2026-11-12
+  // before any of these counters had served, and the receipt audit reads a
+  // floor as fact: zero fires against 1,000 decisions is reported critical
+  // whether or not an eligible postflop decision occurred, and an audit that
+  // runs between an off-schedule boot and the first telemetry flush would say
+  // the same of a healthy layer. An unmeasured rate is not a rule. PROVISIONAL
+  // proposal, to be validated against the first complete live UTC day and
+  // only then written as minRatio: 0.0005 of decide for each of the three
+  // (postflop decisions were about 26 percent of decide on 2026-11-11). Until
+  // then silence after two live days is still reported by the drift audit,
+  // which judges a counter against its own history.
   receipt(
     'upgrade01_action_line_posterior',
     'HorseLogic postflop (computeActionLinePosterior)',
     'a telemetry-on postflop decision computed the public action-line posterior',
     '2026-11-12',
-    'decide',
-    0.0005
+    'decide'
   ),
   receipt(
     'upgrade02_card_removal_scored',
     'HorseLogic postflop (scoreCardRemoval)',
     'a telemetry-on postflop decision scored its blockers',
     '2026-11-12',
-    'decide',
-    0.0005
+    'decide'
   ),
   receipt(
     'phase14_kernel_eligible_seen',
@@ -2700,8 +2703,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic think-time hint',
     'the think-time difficulty hint came from public complexity',
     '2026-11-12',
-    'decide',
-    0.0005
+    'decide'
   ),
   receipt(
     'upgrade08_*',
