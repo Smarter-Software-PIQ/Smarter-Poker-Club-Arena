@@ -2718,7 +2718,9 @@ for (const spectatorSeats of [2, 3, 4, 5, 6, 7, 8, 9]) {
       test(`mobile spectators fill the desktop-reference canvas through hand and dock states at ${spectatorSeats} seats (${spectatorBatch})`, async ({
         page,
       }, testInfo) => {
-        test.setTimeout(60_000);
+        // Preserve the protected-main budget for the smallest dense canvas.
+        // The default-mode group also prevents concurrent cold allocations.
+        test.setTimeout(spectatorSeats === 9 && spectatorBatch === 'viewport 1' ? 150_000 : 60_000);
         const { buildSync } = await import('esbuild');
         const built = buildSync({
           entryPoints: ['tests/e2e/support/portraitRailFixture.tsx'],

@@ -66,6 +66,43 @@ describe('the tracker', () => {
     error: null,
   });
 
+  it('reads Lightning VPIP through its real anchor and keeps the tracker and hands after ten', async () => {
+    rpc.mockImplementation((name: string) =>
+      Promise.resolve(
+        name === 'fn_lightning_my_session'
+          ? {
+              data: {
+                pool_session_id: '22222222-2222-4222-8222-222222222222',
+                anchor_table_id: '11111111-1111-4111-8111-111111111111',
+              },
+              error: null,
+            }
+          : seated({ required: 40, hands: 10, vpip: 60 })
+      )
+    );
+    const props = {
+      tableId: '22222222-2222-4222-8222-222222222222',
+      lightningClusterId: '33333333-3333-4333-8333-333333333333',
+      heroSeated: true,
+      isTournament: false,
+      heroPos: { x: 50, y: 100 },
+    };
+    const { rerender } = render(<HeroVpipTracker {...props} handNumber={10} handsOwed={1} />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(rpc).toHaveBeenCalledWith('fn_cash_vpip_status', {
+      p_table_id: '11111111-1111-4111-8111-111111111111',
+    });
+    rerender(<HeroVpipTracker {...props} handNumber={11} handsOwed={0} />);
+    await act(async () => {
+      vi.advanceTimersByTime(VPIP_REFRESH_DELAY_MS);
+    });
+    expect(screen.getByTestId('vpip-badge').textContent).toContain('60%');
+    expect(screen.getByTestId('hero-vpip-hand-count').textContent).toContain('10');
+    expect(rpc.mock.calls.filter((c) => c[0] === 'fn_lightning_my_session')).toHaveLength(1);
+  });
+
   it("asks the database for the hero's own figure and prints it with the floor and the count", async () => {
     rpc.mockResolvedValue(seated());
     render(
@@ -411,7 +448,7 @@ describe('the regular ante reaches the felt', () => {
   it("the tracker is mounted beside the seats, at the hero seat's point, cash only", () => {
     const page = read('src/pages/TablePage.tsx');
     expect(page).toMatch(
-      /<HeroVpipTracker\s+tableId=\{tableId\}\s+heroSeated=\{tableState\.heroSeat > 0\}\s+isTournament=\{tableState\.isTournament\}/
+      /<HeroVpipTracker\s+tableId=\{tableId\}\s+lightningClusterId=\{lightningRoom\?\.clusterId\}\s+heroSeated=\{tableState\.heroSeat > 0\}\s+isTournament=\{tableState\.isTournament\}/
     );
     expect(page).toMatch(/seatPositions\[tableState\.heroSeat - 1\]/);
     const css = read('src/components/table/HeroVpipTracker.css');
