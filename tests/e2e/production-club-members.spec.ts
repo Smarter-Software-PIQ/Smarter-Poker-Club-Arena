@@ -873,9 +873,6 @@ test.describe('Production Kings Club Players', () => {
       timeout: 45_000,
     });
     await expect(page.locator('#mm-player-name')).toBeVisible();
-    await expect(page.getByRole('status', { name: 'Displayed Activity Scope' })).toContainText(
-      'Recorded Activity'
-    );
     const memberRecordUrl = page.url();
     const today = () =>
       new Intl.DateTimeFormat('en-CA', {
@@ -884,6 +881,11 @@ test.describe('Production Kings Club Players', () => {
         month: '2-digit',
         day: '2-digit',
       }).format(new Date());
+    // Owner direction 2026-11-11 (#10579): every visit opens on today's Chicago
+    // day, never on Overall, so the caption names that one day.
+    await expect(page.getByRole('status', { name: 'Displayed Activity Scope' })).toContainText(
+      `Showing ${today()} To ${today()} Chicago Time`
+    );
     const ledgerDates = page.locator('.mm-range__custom input[type="date"]');
     await expect(ledgerDates.nth(0)).toHaveValue(today());
     await expect(ledgerDates.nth(1)).toHaveValue(today());
@@ -966,8 +968,9 @@ test.describe('Production Kings Club Players', () => {
     await page.locator('.mm-range__custom input[type="date"]').first().fill('2026-01-01');
     await expect(page.locator('.mm-range')).toContainText('Chicago Time, DST Automatic.');
     await expect(page.locator('.mm-range__draft')).toContainText('Draft Dates Not Applied');
+    // A draft date is not applied, so the caption still names the applied day.
     await expect(page.getByRole('status', { name: 'Displayed Activity Scope' })).toContainText(
-      'Recorded Activity'
+      `Showing ${today()} To ${today()} Chicago Time`
     );
     for (const width of [375, 393, 768]) {
       await page.setViewportSize({ width, height: 812 });
