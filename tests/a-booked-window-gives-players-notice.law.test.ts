@@ -351,3 +351,17 @@ it('publishes the owner-ordered :55 break cutover promise with its lead and fixe
   expect(bookedMaintenanceNotice(Date.parse('2026-11-13T03:59:59.999Z'))?.id).toBe(own?.id);
   expect(bookedMaintenanceNotice(Date.parse('2026-11-13T04:00:00Z'))).toBeNull();
 });
+
+it('publishes the rebooked :55 break cutover promise with its lead and fixed expiry', () => {
+  const own = BOOKED_MAINTENANCE_NOTICES.find(
+    (n) => n.id === '2026-11-13-owner-now-55-break-engine-0538z'
+  );
+  expect(own?.noticeAtMs).toBe(Date.parse('2026-11-13T05:15:00Z'));
+  expect(own?.notBeforeMs).toBe(Date.parse('2026-11-13T05:38:00Z'));
+  expect(own?.notAfterMs).toBe(Date.parse('2026-11-13T06:00:00Z'));
+  expect((own?.notBeforeMs ?? 0) - (own?.noticeAtMs ?? 0)).toBeGreaterThanOrEqual(20 * 60_000);
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-13T05:14:59.999Z'))).toBeNull();
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-13T05:15:00Z'))?.id).toBe(own?.id);
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-13T05:59:59.999Z'))?.id).toBe(own?.id);
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-13T06:00:00Z'))).toBeNull();
+});
