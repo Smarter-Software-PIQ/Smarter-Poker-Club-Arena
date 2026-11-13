@@ -106,7 +106,10 @@ export const HORSE_UPGRADE_LIVE_EVIDENCE: Readonly<Record<string, readonly strin
     upgrade_02_card_removal_blockers: ["'upgrade02_card_removal_scored'"],
     upgrade_03_shared_deck_multiboard: ["'v36_bomb_multiboard'"],
     upgrade_04_plo5_plo6_reservoir: ['`upgrade04_omaha_reservoir_'],
-    upgrade_05_street_prewarming: ["'poker_horse_street_prewarm_total'"],
+    upgrade_05_street_prewarming: [
+      "'poker_horse_street_prewarm_total'",
+      "'upgrade05_prewarm_refused_seen'",
+    ],
     upgrade_06_public_timing_pacing: ["'upgrade06_public_timing_hint'"],
     upgrade_07_tournament_cover_and_bounty: [
       "'phase7_tournament_utility'",

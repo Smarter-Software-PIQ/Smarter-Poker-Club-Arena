@@ -2654,16 +2654,39 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   // path, so "enabled" is provable from the serving release
   // (HORSE_UPGRADE_LIVE_EVIDENCE, HorseUpgradeLiveEvidence.law.test.ts).
   // Evidence only; each depends on table mix and none is a health ratio.
+  // Per-decision upgrade counters carry a floor against every live decision.
+  // The floor is a dark-layer tripwire, far below the expected share, not a
+  // measured rate: zero on a real day is an enabled upgrade that did not run
+  // (critical), and a fall from its own usual rate is caught by the drift
+  // audit's own-rate check. Revisit the floors with the first full live day.
+  // Upgrade 11 carries no floor yet: on a Hold'em-only day its pool counter
+  // depends on rare spot classes, so a floor waits for a measured live day.
   receipt(
-    'upgrade01_*',
+    'upgrade01_action_line_posterior',
     'HorseLogic postflop (computeActionLinePosterior)',
     'a telemetry-on postflop decision computed the public action-line posterior',
+    '2026-11-12',
+    'decide',
+    0.0005
+  ),
+  receipt(
+    'upgrade02_card_removal_scored',
+    'HorseLogic postflop (scoreCardRemoval)',
+    'a telemetry-on postflop decision scored its blockers',
+    '2026-11-12',
+    'decide',
+    0.0005
+  ),
+  receipt(
+    'phase14_kernel_eligible_seen',
+    'horseDecision workerRuntime (FAST)',
+    'a FAST decision reached the admitted corrective kernel: usable authority, candidate mode and a snapshot inside the kernel declared family (cash: two dealt seats, river, opponent all in); named *_seen (occurrence, not a layer)',
     '2026-11-12'
   ),
   receipt(
-    'upgrade02_*',
-    'HorseLogic postflop (scoreCardRemoval)',
-    'a telemetry-on postflop decision scored its blockers',
+    'upgrade05_*',
+    'horseDecision client prewarmStreet',
+    'a street prewarm was asked for and not posted (worker busy, held or not ready); named *_seen (occurrence, not a layer)',
     '2026-11-12'
   ),
   receipt(
@@ -2673,10 +2696,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-12'
   ),
   receipt(
-    'upgrade06_*',
+    'upgrade06_public_timing_hint',
     'HorseLogic think-time hint',
     'the think-time difficulty hint came from public complexity',
-    '2026-11-12'
+    '2026-11-12',
+    'decide',
+    0.0005
   ),
   receipt(
     'upgrade08_*',

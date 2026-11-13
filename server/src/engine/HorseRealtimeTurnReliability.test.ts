@@ -903,6 +903,8 @@ describe('W1.5 + W2 #5/#13B Worker priority queue, idle PREWARM_STREET & Prometh
     ).map((j) => `${j.request.type}:${j.request.fence}`);
     expect(queuedTypes[0]).toBe('DECIDE_FAST:t4:1:1:1:1');
     // Busy shard refuses PREWARM_STREET immediately
+    enableBrainTelemetry();
+    drainFires();
     expect(
       client.prewarmStreet({
         fence: 't4',
@@ -912,6 +914,10 @@ describe('W1.5 + W2 #5/#13B Worker priority queue, idle PREWARM_STREET & Prometh
         mode: 'cash',
       })
     ).toBe(false);
+    // Upgrade 05 evidence: the refusal is counted once, where it happens.
+    expect(drainFires().filter((f) => f.feature === 'upgrade05_prewarm_refused_seen')).toEqual([
+      { feature: 'upgrade05_prewarm_refused_seen', fires: 1 },
+    ]);
     // Cleanly fail/terminate fake worker so no timers dangle
     (client as any).fail(new Error('test_cleanup'));
     await client.stop();
