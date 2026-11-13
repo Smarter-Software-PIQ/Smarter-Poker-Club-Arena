@@ -107,7 +107,7 @@ describe('Promo tickets: one batch call, a readable allowance and recoverable re
     expect(allowance).toContain('public.fn_club_cashier_can_transact(p_club_id, v_me, u.user_id)');
     expect(allowance).not.toMatch(/\b(insert|update|delete)\b\s+(into\s+)?public\./i);
     expect(page).toContain("supabase.rpc('fn_cashier_promo_allowance'");
-    expect(page).toContain('aria-label="Promo Allowance Remaining"');
+    expect(page).toContain('title="Promo Allowance Remaining"');
     expect(page).toContain("' (Over The Promo Limit)'");
   });
 
@@ -124,5 +124,27 @@ describe('Promo tickets: one batch call, a readable allowance and recoverable re
     const history = read('src/components/wallet/describeChipTransaction.ts');
     expect(history).toContain("return 'Promo Wallet To Tournament Ticket';");
     expect(history).toContain('Tournament Ticket`;');
+  });
+});
+
+describe('Promo ticket dialog state and the cancel replay', () => {
+  const replay = read(
+    'supabase/migrations/20261112235138_a_replayed_promo_ticket_cancel_names_its_promo_wallet.sql'
+  );
+  it('answers a replayed cancel with the wallet its receipt recorded', () => {
+    expect(replay).toContain("IF md5(d) <> '7b73f81407a4feb9084b92d5ee38db1d'");
+    expect(replay).toContain(
+      "''refund_wallet'',COALESCE(v_receipt.metadata->>''refund_wallet'',''player_wallet''));"
+    );
+    expect(replay).toContain('You No Longer Hold A Promo Wallet In That Club');
+  });
+  it('reads the promo balance for Send Ticket and never carries the source over', () => {
+    expect(page).toContain(
+      "if (amountModal === 'send' || amountModal === 'ticket' || claimOpen) void loadBankBalance();"
+    );
+    expect(page.split("setTicketSource('player_wallet');").length - 1).toBeGreaterThanOrEqual(4);
+    expect(page).toContain('{!selfSelected && (');
+    expect(page).toContain('setPromoAllowanceEpoch((epoch) => epoch + 1);');
+    expect(page).toContain('Promo Allowance Could Not Be Read. The 50 Chip Limit Still Applies.');
   });
 });
