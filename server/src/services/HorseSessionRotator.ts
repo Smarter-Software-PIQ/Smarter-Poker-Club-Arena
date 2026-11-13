@@ -2,6 +2,7 @@ import { readPloLightningDemand } from './PloLightningDemandRead.js';
 import { PLO_LIGHTNING_GAME, ploWindDownFor } from './PloLightningDemand.js';
 import { horseCashGameAllowed } from './HorseCashSchedule.js';
 import {
+  LIGHTNING_HORSE_SEEDED,
   horseCashPlanPrimaryTables,
   humanDepartureDwellMinutes,
   minutesSinceLastPlayingHumanFor,
@@ -1664,7 +1665,13 @@ export class HorseSessionRotator {
       const openSeats = Math.max(0, maxPlayers - tableSeats.length);
       const releaseWanted = Math.max(0, (humansWaiting.get(tableId) ?? 0) - openSeats);
       const fill = cashTableFill(tableId);
-      const windingDown = ploWindDownFor(tableRow?.cluster_id, ploDemand, occupiedHumanGames);
+      /* A horse-seeded Lightning game is never wound down because its last
+         person left (Dan 2026-11-13: the 1/2 players are split across every
+         game, Lightning included). Winding it down would stand horses up
+         that the fleet seats again on the next cycle. */
+      const windingDown =
+        !LIGHTNING_HORSE_SEEDED.has(String(tableRow?.cluster_id ?? '')) &&
+        ploWindDownFor(tableRow?.cluster_id, ploDemand, occupiedHumanGames);
       if (windingDown && ploDepartureThisCycle) continue;
       // The owner's 80% branch keeps ordinary session departures below three.
       if (!windingDown && releaseWanted === 0 && tableSeats.length < (humanPresent ? 5 : 4))
