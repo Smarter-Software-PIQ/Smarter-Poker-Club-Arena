@@ -344,7 +344,7 @@ describe('after a hand', () => {
     expect(quietRoll === null || quietRoll.moment === 'annoy').toBe(true);
   });
 
-  it('a hand with no showdown can still needle a seated person, and only a person (owner 2026-11-11)', () => {
+  it('a hand with no showdown can still needle any seated player, horse or human (owner 2026-11-11, 2026-11-12)', () => {
     const annoyPct = gestureChancePct('annoy', false, 0);
     let n = 0;
     for (let i = 1; i <= 100_000 && n === 0; i++) {
@@ -355,18 +355,45 @@ describe('after a hand', () => {
     const pick = detectAfterHand(folded);
     expect(pick).not.toBeNull();
     expect(pick!.moment).toBe('annoy');
-    // detectAfterHand only ever casts horses as the thrower; the target is
-    // the one human at the table.
-    expect(pick!.targetSeat).toBe(3);
-    // With no person seated there is nothing to annoy, showdown or not.
+    // The thrower is a horse; the target is any other seat at the table.
+    expect(pick!.targetSeat).not.toBe(pick!.horse.seat);
+    expect([1, 2, 3]).toContain(pick!.targetSeat);
+    // A horses-only table is still a table: a horse needles another horse.
     const horsesOnly = {
       ...folded,
       seated: [seat(HORSE_A, 1, true), seat(HORSE_B, 2, true)],
     };
-    expect(detectAfterHand(horsesOnly)).toBeNull();
+    const hPick = detectAfterHand(horsesOnly);
+    expect(hPick).not.toBeNull();
+    expect(hPick!.moment).toBe('annoy');
+    expect(hPick!.targetSeat).toBe(hPick!.horse.seat === 1 ? 2 : 1);
+    // A horse alone at the table has nobody to throw at.
+    expect(detectAfterHand({ ...folded, seated: [seat(HORSE_A, 1, true)] })).toBeNull();
   });
 
-  it('an annoy needle is always a throw at the person, never a floating reaction', async () => {
+  it('annoy targets are spread across horses and humans alike (owner 2026-11-12)', () => {
+    const annoyPct = gestureChancePct('annoy', false, 0);
+    const targets = new Set<number>();
+    let checked = 0;
+    for (let i = 1; i <= 400_000 && checked < 400; i++) {
+      if (!rollsGesture('annoy', HORSE_A, TABLE, i, annoyPct)) continue;
+      if (rollsGesture('annoy', HORSE_B, TABLE, i, annoyPct)) continue;
+      const pick = detectAfterHand({
+        ...lostHand(i),
+        showdownResults: [],
+        winners: [],
+        seated: [seat(HORSE_A, 1, true), seat(HORSE_B, 2, true), seat(HUMAN, 3, false)],
+      });
+      if (!pick || pick.horse.userId !== HORSE_A) continue;
+      targets.add(pick.targetSeat);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(20);
+    // HORSE_A (seat 1) throws at both the other horse (2) and the human (3).
+    expect(targets).toEqual(new Set([2, 3]));
+  });
+
+  it('an annoy needle is always a throw at a player, never a floating reaction', async () => {
     const annoyPct = gestureChancePct('annoy', false, 0);
     let n = 0;
     for (let i = 1; i <= 100_000 && n === 0; i++) {
@@ -377,7 +404,7 @@ describe('after a hand', () => {
     expect(outcome).toBe('thrown');
     expect(h.state.rpcCalls).toHaveLength(1);
     const send = h.state.sends[0];
-    expect((send.payload.payload as { message: string }).message).toMatch(/^\[THROW:.+:3\]$/);
+    expect((send.payload.payload as { message: string }).message).toMatch(/^\[THROW:.+:[23]\]$/);
   });
 
   it('charges through the person RPC, then broadcasts the browser THROW payload from the horse', async () => {
