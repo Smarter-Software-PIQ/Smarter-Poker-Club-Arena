@@ -279,8 +279,19 @@ export const STYLE_THRESHOLDS = Object.freeze({
     aggressionShare: 0.05,
     foldToBet: 0.04,
     riverCall: 0.04,
+    /** #4 per-street raise per raise opportunity: the exploit layer's envelope margin (0.03, HOE) */
+    streetRaise: 0.03,
   }),
   minHalfBand: 0.04,
+  /**
+   * #4 HORSE REFERENCE (M2, 2026-11-13; review L-d): the Horse population's own raise-per-opportunity rate on that
+   * street, in that variant, format and table size, is used only when its standard error is at most half the street
+   * raise margin (the family-scaled margin.streetRaise): n >= p(1 - p) / (margin / 2)^2. Reason: the posterior treats the
+   * reference as a point, so the reference's own noise must sit well inside the margin the opponent has to clear, at
+   * every reference rate (0.1 needs about 400 opportunities at margin 0.03, 0.3 about 930). This floor is an absolute
+   * minimum under that rule.
+   */
+  streetRaiseReferenceMinOpps: 200,
 
   /** Participation axis weights (sum 1) and the score a credible side needs. */
   participationWeights: Object.freeze({ vpip: 0.65, callShare: 0.35 }),
@@ -607,6 +618,10 @@ export interface OpponentStyleInput {
   tallies?: StyleTallies | null;
   /** A2: river first bets by size bucket, with how many were shown down and how many of those were strong */
   sizeBuckets?: SizeBucketTallies | null;
+  /** #4 (M2): this opponent's in-format postflop aggression and raise opportunities by street */
+  streetAggression?: StreetAggression | null;
+  /** #4 (M2): the Horse population's counts in the same variant, format and table size (its reference) */
+  horseStreetReference?: StreetAggression | null;
   provenance?: StyleProvenance | null;
 }
 
@@ -801,6 +816,8 @@ export interface OpponentStyleSignals {
   shownBySize: Readonly<Record<SizeBucket, SizedShownSignal>>;
   /** share of his first wagers into an unbet street that were probes (the sizing bucket), or null */
   probeShare: number | null;
+  /** #4 (M2): raises per raise opportunity by street against the in-format Horse reference (neutral without one) */
+  streetRaise?: Readonly<Record<'flop' | 'turn' | 'river', StyleSignal>>;
 }
 
 export interface OpponentStyleRead {
@@ -1592,6 +1609,12 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
     shownStrength: Object.freeze(shownStrength),
     shownBySize: sizedShown(input.sizeBuckets),
     probeShare,
+    streetRaise: streetRaiseSignals(
+      input.streetAggression,
+      input.horseStreetReference,
+      callable,
+      ms
+    ),
   });
   return buildRead(family, 'supported_individual_read', hands, {
     scope,
@@ -1827,11 +1850,13 @@ export function bigBetRespect(
  */
 export function raiseRespectShade(
   style: OpponentStyleRead | null | undefined,
-  spot: { decisionSpr: number }
+  spot: { decisionSpr: number; street?: 'flop' | 'turn' }
 ): number {
   if (!actionable(style)) return 0;
-  const s = style.signals.aggressionShare;
-  if (s.side !== 'low') return 0;
+  // M2: the raise-frequency axis is THIS street's raises per raise opportunity against the in-format Horse rate,
+  // never the overall postflop aggression share (bets into unbet pots are not raises).
+  const s = style.signals.streetRaise?.[spot.street ?? 'flop'];
+  if (!s || s.side !== 'low') return 0;
   const T = STYLE_THRESHOLDS;
   const depth = clamp(
     (num(spot.decisionSpr) - T.raiseSprStandDown) / (T.raiseSprFull - T.raiseSprStandDown),
@@ -2212,4 +2237,58 @@ export function inFormatAggressionTallies(a: StreetAggression | null | undefined
     passive += a[st].passive;
   }
   return { postAggr: aggr, postPassive: passive };
+}
+
+/**
+ * #4 (M2): per-street raise-per-opportunity signals. The reference is the Horse population's rate on that street in the
+ * same variant, format and table size; without at least streetRaiseReferenceMinOpps Horse opportunities there is no
+ * reference and the signal is neutral. Posterior and credibility as every conditioned statistic of this module.
+ */
+function streetRaiseSignals(
+  opp: StreetAggression | null | undefined,
+  ref: StreetAggression | null | undefined,
+  callable: boolean,
+  marginScale: number
+): Readonly<Record<'flop' | 'turn' | 'river', StyleSignal>> {
+  const T = STYLE_THRESHOLDS;
+  const out = {} as Record<'flop' | 'turn' | 'river', StyleSignal>;
+  for (const st of ['flop', 'turn', 'river'] as const) {
+    const r = ref?.[st];
+    const o = opp?.[st];
+    const opps = num(r?.raiseOpps);
+    if (!r || !o || !(opps >= T.streetRaiseReferenceMinOpps) || !Number.isFinite(num(r.raises))) {
+      out[st] = Object.freeze(NEUTRAL_SIGNAL());
+      continue;
+    }
+    const horse = clamp(num(r.raises) / opps, 0.001, 0.999);
+    const margin = T.margin.streetRaise * marginScale;
+    const se = Math.sqrt((horse * (1 - horse)) / opps);
+    if (se > margin / 2) {
+      out[st] = Object.freeze(NEUTRAL_SIGNAL());
+      continue;
+    }
+    const half = Math.max(T.minHalfBand, se * 2);
+    out[st] = Object.freeze(
+      signal(
+        num(o.raises),
+        num(o.raiseOpps),
+        horse,
+        half,
+        margin,
+        T.conditionedMinOpps,
+        T.conditionedCredibility,
+        callable
+      )
+    );
+  }
+  return Object.freeze(out);
+}
+
+/** The players whose actions in this hand were made by the Horse policy (origin 'horse_policy'). */
+export function horseSeatsOf(
+  actions: ReadonlyArray<{ userId?: string; origin?: string }>
+): Set<string> {
+  const out = new Set<string>();
+  for (const a of actions) if (a?.userId && a.origin === 'horse_policy') out.add(a.userId);
+  return out;
 }

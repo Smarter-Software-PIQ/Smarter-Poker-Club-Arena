@@ -141,6 +141,7 @@ import {
   inFormatShownTallies,
   inFormatAggressionTallies,
   postflopAggressionIncrements,
+  horseSeatsOf,
   addStreetAggression,
   type StreetAggression,
   type StyleTallies,
@@ -1127,6 +1128,8 @@ export class HorseMind {
   private static styleSizeShown = new Map<string, SizeBucketTallies>();
   /** STYLE READ #4: postflop aggression and raise opportunities per street, per (variant, format, table size, player). */
   private static styleAggression = new Map<string, StreetAggression>();
+  /** #4 (M2): the Horse population's postflop aggression and raise opportunities per (variant, format, table size). */
+  private static styleHorseReference = new Map<string, StreetAggression>();
   /** TEST-HARNESS ONLY (league and tournament simulations): let the style learner record inside a sandbox, into the
    *  process maps. Never set by a production path; a live engine keeps the default false. */
   private static harnessStyleLearning = false;
@@ -1139,6 +1142,7 @@ export class HorseMind {
       throw new Error('clearHarnessStyleMemory is for test harnesses only');
     this.styleSizeShown.clear();
     this.styleAggression.clear();
+    this.styleHorseReference.clear();
   }
   /** Item 12 (2026-11-05): the player's pooled hand clock (OpponentStats.hands
    *  in this process) at the moment each durable row was last imported. A
@@ -1813,6 +1817,56 @@ export class HorseMind {
     return applied;
   }
 
+  /** #4: the Horse population reference held for one (variant, format, table size), a copy (diagnostics and tests). */
+  static styleHorseReferenceOf(
+    variant: string,
+    mode: MemoryMode,
+    size: MemorySize
+  ): StreetAggression | null {
+    const v = memoryVariant(variant);
+    const row = v ? this.styleHorseReference.get(`${v}|${mode}|${size}`) : undefined;
+    return row ? addStreetAggression(undefined, row) : null;
+  }
+
+  /** #4 (M2): supply the Horse population reference for one (variant, format, table size); replaces that row. */
+  static importStyleHorseReference(
+    rows: ReadonlyArray<{
+      variant: string;
+      mode: MemoryMode;
+      size: MemorySize;
+      reference: StreetAggression;
+    }>
+  ): number {
+    if ((this.sandboxDepth > 0 || this.decisionEffectSink) && !this.harnessStyleLearning)
+      throw new Error('style reference import outside live boundary');
+    let applied = 0;
+    for (const r of rows) {
+      const v = memoryVariant(r?.variant);
+      if (
+        !r ||
+        !v ||
+        !['cash', 'tournament'].includes(r.mode) ||
+        !['hu', 'short', 'full'].includes(r.size) ||
+        !r.reference
+      )
+        continue;
+      // L-e: counts must be finite and non-negative
+      const ok = (['flop', 'turn', 'river'] as const).every((st) =>
+        (['aggr', 'passive', 'raiseOpps', 'raises'] as const).every(
+          (k) => Number.isFinite(r.reference[st]?.[k]) && r.reference[st][k] >= 0
+        )
+      );
+      if (!ok) continue;
+      const key = `${v}|${r.mode}|${r.size}`;
+      this.styleHorseReference.delete(key);
+      this.styleHorseReference.set(key, addStreetAggression(undefined, r.reference));
+      applied++;
+    }
+    while (this.styleHorseReference.size > MAX_TRACKED_PLAYERS)
+      this.styleHorseReference.delete(this.styleHorseReference.keys().next().value!);
+    return applied;
+  }
+
   /** A2: supply river size buckets for one (player, variant, format, table size) context; replaces that context's row. */
   static importSizeBuckets(
     rows: ReadonlyArray<{
@@ -1823,7 +1877,8 @@ export class HorseMind {
       buckets: SizeBucketTallies;
     }>
   ): number {
-    if (this.sandboxDepth > 0 || this.decisionEffectSink)
+    // L8: the same boundary rule as the other style imports (live, or a harness that switched learning on)
+    if ((this.sandboxDepth > 0 || this.decisionEffectSink) && !this.harnessStyleLearning)
       throw new Error('size bucket import outside live boundary');
     let applied = 0;
     for (const r of rows) {
@@ -2166,6 +2221,10 @@ export class HorseMind {
     const agg = variant
       ? this.styleAggression.get(styleSizeKey(userId, variant, mode, size))
       : undefined;
+    // Notes (review 15961b66): with carry 0 the recent-aggression window (rAggr/rPassive) is 0, so release comes from the
+    // in-format fast-window counters only (L/M2). At carry > 0 the scoped tallies include this format too, so in-format
+    // evidence is counted again at weight w (L4; default 0). The probe-aware adjustment of the counters still uses the
+    // pooled ctBets/ctProbes of the existing exploit read (L1, pre-existing mechanism).
     const inFormat: StyleTallies = {
       ...inFormatShownTallies(sizeBuckets),
       ...inFormatAggressionTallies(agg),
@@ -2179,6 +2238,10 @@ export class HorseMind {
       carryWeight,
       provenance,
       sizeBuckets,
+      streetAggression: agg ?? null,
+      horseStreetReference: variant
+        ? (this.styleHorseReference.get(`${variant}|${mode}|${size}`) ?? null)
+        : null,
       tallies: s
         ? {
             bigBetSD: (inFormat.bigBetSD ?? 0) + w * s.bigBetSD,
@@ -2402,6 +2465,7 @@ export class HorseMind {
     this.postReleaseObservations.clear();
     this.styleSizeShown.clear();
     this.styleAggression.clear();
+    this.styleHorseReference.clear();
     this.durableOpponentImportClock.clear();
     this.planFingerprints.clear();
     this.durableOpponentMemory = false;
@@ -4312,7 +4376,10 @@ export class HorseMind {
     riverCallContext?: RiverCallContext,
     retainedRiverCalls?: readonly RiverCallSample[],
     /** STYLE READ A2: the hand's format, so river size buckets are kept per format; absent = not recorded */
-    styleMode?: MemoryMode
+    styleMode?: MemoryMode,
+    /** STYLE READ F2: a human was dealt in (the row's has_human); only such hands build the Horse reference, the
+     *  same population the boot rebuild reads */
+    styleHasHuman = false
   ): void {
     // V45: settlement runs outside any decision; the scope travels with the
     // hand and is cleared on the way out.
@@ -4425,12 +4492,20 @@ export class HorseMind {
       // the shown-versus-unshown split. Memory only (does not survive a
       // restart) and live only: a sandbox or an effect capture records nothing.
       const styleVariant = memoryVariant(riverCallContext?.variant ?? null);
-      const styleScope = this.decisionScope;
+      // L7: the hand's own scope only, never a previous decision's
+      const styleScope = scope ?? null;
       const styleLearn =
         (this.sandboxDepth === 0 && !this.decisionEffectSink) || this.harnessStyleLearning;
       if (styleLearn && styleMode && styleVariant && styleScope) {
         const styleSize = styleScope.split(':')[1] as MemorySize;
+        const horses = horseSeatsOf(actions);
+        const refKey = `${styleVariant}|${styleMode}|${styleSize}`;
         for (const [uid, inc] of postflopAggressionIncrements(actions)) {
+          if (styleHasHuman && horses.has(uid)) {
+            const ref = addStreetAggression(this.styleHorseReference.get(refKey), inc);
+            this.styleHorseReference.delete(refKey);
+            this.styleHorseReference.set(refKey, ref);
+          }
           const key = styleSizeKey(uid, styleVariant, styleMode, styleSize);
           const next = addStreetAggression(this.styleAggression.get(key), inc);
           this.styleAggression.delete(key);

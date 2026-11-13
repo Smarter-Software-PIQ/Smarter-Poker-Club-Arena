@@ -1078,7 +1078,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'style_boot_inputs_hydrated_seen',
     'HorseExploitHydrator (STYLE READ boot inputs)',
-    "the boot replay rebuilt the style read's post-release counts and size buckets from the hand history it read (only when HORSE_STYLE_BOOT_RELEASE_START_MS is set); occurrence counter; named *_seen",
+    'with HORSE_STYLE_BOOT_RELEASE_START_MS set, the boot replay rebuilt the post-release counts of the pre-repair discount from the hand history it read (the size buckets, in-format aggression and Horse reference rebuild on every boot without a receipt); occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_boot_post_release_failed_seen',
+    'HorseExploitHydrator (STYLE READ boot inputs)',
+    'every post-release count batch of the boot rebuild failed, so the pre-repair discount stays on; the hydrated receipt is withheld; occurrence counter; named *_seen',
     '2026-11-13'
   ),
   receipt(
@@ -1090,7 +1096,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'style_bluff_catch_cap_bounty_priced_seen',
     'HorseLogic (STYLE READ #3 bluff-catch cap in bounty events)',
-    'in a bounty event the bluff-catch cap was raised by the knockout credit the call earns (V23/V37 pricing), so it applied against the call price including the bounty; occurrence counter; named *_seen',
+    'in a bounty event the bluff-catch cap was raised by the knockout credit the call earns (V23/V37 pricing, approximated as cap + credit on the capped equity; it never widens a call beyond OFF); occurrence counter; named *_seen',
     '2026-11-13'
   ),
   receipt(

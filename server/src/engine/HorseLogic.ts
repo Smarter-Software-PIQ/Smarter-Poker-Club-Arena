@@ -248,6 +248,8 @@ function styleKnockoutCredit(
   opts: HorseDecideOpts
 ): number {
   const t = trustedTournamentContext(gs);
+  // L2: the V23 switch that gates the knockout pricing gates this credit too
+  if ((opts.v23Endgame ?? true) === false) return 0;
   if (!t || !bettorId || !isTournamentMode(gs) || (t.bountyFactor ?? 0) < 0.1) return 0;
   const bettor = gs.players.find((p) => p.user_id === bettorId);
   if (!bettor || bettor.is_all_in !== true) return 0;
@@ -3033,8 +3035,11 @@ export interface HorseDecideOpts {
    *  credibly below the Horse mean, scaled by the DECISION-TIME stack-to-pot
    *  ratio (effective stack behind before the decision over the pot including
    *  his raise; it stands down where one pair is a correct stack-off). The
-   *  raise-frequency proxy is a lifetime tally that mixes formats, so with
-   *  styleCarryOverWeight 0 (the default) this option has no evidence and is inert.
+   *  evidence is THIS street's raises per raise opportunity, in this variant,
+   *  format and table size, against the Horse population's own rate there
+   *  (HorseOpponentStyle streetRaise; the reference counts only when its own
+   *  standard error is at most half the street-raise margin, at least 200
+   *  opportunities; no reference, no engagement).
    *  Receipt style_raise_respect_seen. Default off; explicit true only. */
   styleRaiseRespect?: boolean;
   /** STYLE READ #6 (2026-11-13): a credibly tight opener or re-raiser is
@@ -15125,6 +15130,7 @@ export class HorseLogic {
           const decisionSpr = Math.min(commitmentStack, Math.max(0, raiser.stack)) / pot;
           styleRaiseShade = raiseRespectShade(HorseMind.styleRead(raiser.user_id), {
             decisionSpr,
+            street: street === 'turn' ? 'turn' : 'flop',
           });
           // Bounty events: priced against the call including its knockout credit (never stands down wholesale).
           if (styleRaiseShade > 0 && styleBountyContext(trustedTournament))
