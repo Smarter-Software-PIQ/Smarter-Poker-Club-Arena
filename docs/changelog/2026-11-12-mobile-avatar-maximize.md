@@ -168,3 +168,17 @@ table settled 1.45x once and 1.2x another time, because the first fit depends
 on the bets on the table at that moment. The recorded game-type size is now
 kept on the device rather than per tab, so it settles downward to the size
 every table state can take and stays there across visits.
+
+## No Portrait Is Ever Cut Off
+
+Dan, 2026-11-13: "NO AVATAR SHOULD EVER BE AUTO CUT LIKE THAT... HAVE THEM
+ALWAYS APPEAR FULL." Reproduced live in WebKit: the acting player's holo sweep
+blends with `screen`, which makes its parent an isolated group clipped to the
+original avatar box, so every enlarged head was cut flat while that player was
+on the clock (the badger's ears and position badge came back the moment the
+blend was removed). The sweep now draws without a blend mode over enlarged
+portraits; its own character mask still keeps it on the art. The SITTING OUT /
+Waiting For The Button badge sat on the centre of the original avatar box,
+which is the face of an enlarged portrait; it now sits at the portrait's lower
+edge so the head stays in view. The fixture checks both on every grown
+portrait, and fails on the previous stylesheet.
