@@ -32,6 +32,7 @@ import { reportError } from '../utils/errorReporter';
 // older vocabulary that club_members_role_check has never accepted; anything
 // that writes a role must speak ClubRole.
 import type { ClubRole } from '../types/clubRoles';
+import { selectInBatches } from '../lib/inBatches';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -395,10 +396,14 @@ export const MembershipService = {
     const userIds = data.map((m) => m.user_id);
     const profileMap: Record<string, NameableProfile & { avatar_url?: string }> = {};
     try {
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select(`id, ${PLAYER_NAME_COLUMNS}, avatar_url:arena_avatar_url`)
-        .in('id', userIds);
+      const { data: profiles, error: profilesReadError } = await selectInBatches(userIds, (batch) =>
+        supabase
+          .from('profiles')
+          .select(`id, ${PLAYER_NAME_COLUMNS}, avatar_url:arena_avatar_url`)
+          .in('id', batch)
+      );
+      // A failed read keeps the name fallback, but it is reported, never silent.
+      if (profilesReadError) reportError(profilesReadError, 'MembershipService.profiles');
       if (profiles) {
         for (const p of profiles) profileMap[p.id] = p;
       }

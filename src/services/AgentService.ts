@@ -25,6 +25,7 @@ import {
 } from '../utils/playerDisplayName';
 import { UUID_TOKEN } from '../utils/agentManagementPayload';
 import type { AgentWalletDestination } from './AgentWalletIntent';
+import { selectInBatches } from '../lib/inBatches';
 
 const AGENT_ADMIN_AUTHZ_REFUSAL = /not authorized to manage this club's agents/i;
 
@@ -466,10 +467,14 @@ class AgentServiceClass {
     // Fetch all profiles in one query
     const profileMap: Record<string, NameableProfile & { avatar_url?: string }> = {};
     if (allUserIds.size > 0) {
-      const { data: profiles, error: profilesError } = await supabase
-        .from('profiles')
-        .select(`id, ${PLAYER_NAME_COLUMNS}, avatar_url:arena_avatar_url`)
-        .in('id', [...allUserIds]);
+      const { data: profiles, error: profilesError } = await selectInBatches(
+        [...allUserIds],
+        (batch) =>
+          supabase
+            .from('profiles')
+            .select(`id, ${PLAYER_NAME_COLUMNS}, avatar_url:arena_avatar_url`)
+            .in('id', batch)
+      );
       if (profilesError) throw profilesError;
       if (!Array.isArray(profiles) || profiles.length > allUserIds.size) {
         return malformedAgentPayload('profiles');
@@ -1087,10 +1092,14 @@ class AgentServiceClass {
     const userIds = data.map((m) => m.user_id);
     const profileMap: Record<string, NameableProfile & { avatar_url?: string }> = {};
     try {
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select(`id, ${PLAYER_NAME_COLUMNS}, avatar_url:arena_avatar_url`)
-        .in('id', userIds);
+      const { data: profiles, error: profilesReadError } = await selectInBatches(userIds, (batch) =>
+        supabase
+          .from('profiles')
+          .select(`id, ${PLAYER_NAME_COLUMNS}, avatar_url:arena_avatar_url`)
+          .in('id', batch)
+      );
+      // A failed read keeps the name fallback, but it is reported, never silent.
+      if (profilesReadError) reportError(profilesReadError, 'AgentService.agentPlayers.profiles');
       if (profiles) {
         for (const p of profiles) profileMap[p.id] = p;
       }

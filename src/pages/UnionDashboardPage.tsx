@@ -44,6 +44,7 @@ import { EmptyState, ErrorState } from '../components/common/EmptyState';
 import CasinoSurfaceHeader from '../components/rewards/RewardsSurfaceHeader';
 import { playerDisplayName, PLAYER_NAME_COLUMNS } from '../utils/playerDisplayName';
 import { downloadCsv } from '../utils/downloadCsv';
+import { selectInBatches } from '../lib/inBatches';
 // ── Helpers ─────────────────────────────────────────────────
 const pct = (n: number | null | undefined) => `${((Number(n) || 0) * 100).toFixed(1)}%`;
 
@@ -574,10 +575,17 @@ export default function UnionDashboardPage() {
       // Batch-fetch profiles (no FK between club_members and profiles)
       if (agentRows && agentRows.length > 0) {
         const agentUserIds = [...new Set(agentRows.map((a: any) => a.user_id))];
-        const { data: agentProfiles } = await supabase
-          .from('profiles')
-          .select(`id, ${PLAYER_NAME_COLUMNS}, avatar_url:arena_avatar_url`)
-          .in('id', agentUserIds);
+        const { data: agentProfiles, error: agentProfilesReadError } = await selectInBatches(
+          agentUserIds,
+          (batch) =>
+            supabase
+              .from('profiles')
+              .select(`id, ${PLAYER_NAME_COLUMNS}, avatar_url:arena_avatar_url`)
+              .in('id', batch)
+        );
+        // A failed read keeps the name fallback, but it is reported, never silent.
+        if (agentProfilesReadError)
+          reportError(agentProfilesReadError, 'UnionDashboardPage.agentProfiles');
         const agentProfileMap: Record<string, any> = {};
         if (agentProfiles) {
           for (const p of agentProfiles) agentProfileMap[p.id] = p;

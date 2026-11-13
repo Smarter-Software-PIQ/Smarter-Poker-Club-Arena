@@ -28,6 +28,7 @@ import {
 } from '../utils/playerDisplayName';
 import { reportError } from '../utils/errorReporter';
 import { uuid } from '../utils/uuid';
+import { selectInBatches } from '../lib/inBatches';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -403,12 +404,16 @@ async function decorateWithProfiles(
   metric: LeaderboardMetric
 ): Promise<LeaderboardEntry[]> {
   const userIds = rows.map((s) => s.user_id);
-  const { data: profiles } = await supabase
-    .from('profiles')
-    .select(
-      `id, ${PLAYER_NAME_COLUMNS}, avatar_url:arena_avatar_url, level, is_vip, vip_tier, vip_expires_at`
-    )
-    .in('id', userIds);
+  const { data: profiles, error: profilesReadError } = await selectInBatches(userIds, (batch) =>
+    supabase
+      .from('profiles')
+      .select(
+        `id, ${PLAYER_NAME_COLUMNS}, avatar_url:arena_avatar_url, level, is_vip, vip_tier, vip_expires_at`
+      )
+      .in('id', batch)
+  );
+  // A failed read keeps the name fallback, but it is reported, never silent.
+  if (profilesReadError) reportError(profilesReadError, 'LeaderboardService.profiles');
 
   const profileMap = new Map((profiles || []).map((p: ProfileRow) => [p.id, p]));
 
@@ -1013,10 +1018,14 @@ export const LeaderboardService = {
       }));
 
       const userIds = statsArray.map((s) => s.userId);
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select(`id, ${PLAYER_NAME_COLUMNS}, avatar_url:arena_avatar_url`)
-        .in('id', userIds);
+      const { data: profiles, error: profilesReadError } = await selectInBatches(userIds, (batch) =>
+        supabase
+          .from('profiles')
+          .select(`id, ${PLAYER_NAME_COLUMNS}, avatar_url:arena_avatar_url`)
+          .in('id', batch)
+      );
+      // A failed read keeps the name fallback, but it is reported, never silent.
+      if (profilesReadError) reportError(profilesReadError, 'LeaderboardService.profiles');
 
       const profileMap = new Map((profiles || []).map((p: ProfileRow) => [p.id, p]));
 

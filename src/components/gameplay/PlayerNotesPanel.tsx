@@ -25,6 +25,7 @@ import {
   PLAYER_NAME_COLUMNS,
   type NameableProfile,
 } from '../../utils/playerDisplayName';
+import { selectInBatches } from '../../lib/inBatches';
 
 interface PlayerNote {
   id: string;
@@ -166,10 +167,14 @@ export default function PlayerNotesPanel({
         const pMap: Record<string, NameableProfile & { avatar_url?: string }> = {};
         if (tIds.length > 0) {
           try {
-            const { data: profs } = await supabase
-              .from('profiles')
-              .select(`id, ${PLAYER_NAME_COLUMNS}, avatar_url:arena_avatar_url`)
-              .in('id', tIds);
+            const { data: profs, error: profsReadError } = await selectInBatches(tIds, (batch) =>
+              supabase
+                .from('profiles')
+                .select(`id, ${PLAYER_NAME_COLUMNS}, avatar_url:arena_avatar_url`)
+                .in('id', batch)
+            );
+            // A failed read keeps the name fallback, but it is reported, never silent.
+            if (profsReadError) reportError(profsReadError, 'PlayerNotesPanel.profiles');
             if (!isCurrent()) return;
             if (profs) for (const p of profs) pMap[p.id] = p;
           } catch (error) {

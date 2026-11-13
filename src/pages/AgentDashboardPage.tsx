@@ -77,6 +77,7 @@ import { playerDisplayName, PLAYER_NAME_COLUMNS } from '../utils/playerDisplayNa
 import { resolvePageClubId, pickPreferredClubId } from '../utils/resolvePageClubId';
 import { SEND_DESTINATION_LABELS } from '../utils/cashierSendWallets';
 import type { ClubBankRecipientWallet } from '../components/wallet/cashierModes';
+import { selectInBatches } from '../lib/inBatches';
 type AgentTab =
   | 'overview'
   | 'players'
@@ -354,13 +355,15 @@ function AgentDashboardContent() {
         const allUserIds = (downline || []).map((m: DownlineMember) => m.user_id).filter(Boolean);
         const profileMap: Record<string, AgentProfile> = {};
         if (allUserIds.length > 0) {
+          // The whole club roster: batched, or 800+ ids exceed the URL limit.
           const { data: profiles } = await retryFetch(
             () =>
-              supabase
-                .from('profiles')
-                .select(`id, ${PLAYER_NAME_COLUMNS}, avatar_url:arena_avatar_url`)
-                .in('id', allUserIds)
-                .then((r) => r),
+              selectInBatches(allUserIds, (batch) =>
+                supabase
+                  .from('profiles')
+                  .select(`id, ${PLAYER_NAME_COLUMNS}, avatar_url:arena_avatar_url`)
+                  .in('id', batch)
+              ),
             { maxRetries: 2, isMountedRef: mountedRef }
           );
           // Who is online now (the presence door) and when each played here
@@ -371,11 +374,13 @@ function AgentDashboardContent() {
             return new Map<string, boolean>();
           });
           const lastPlayed = new Map<string, string>();
-          const { data: played, error: playedError } = await supabase
-            .from('player_stats')
-            .select('user_id, updated_at')
-            .eq('club_id', uuid)
-            .in('user_id', allUserIds);
+          const { data: played, error: playedError } = await selectInBatches(allUserIds, (batch) =>
+            supabase
+              .from('player_stats')
+              .select('user_id, updated_at')
+              .eq('club_id', uuid)
+              .in('user_id', batch)
+          );
           if (playedError) reportError(playedError, 'AgentDashboardPage.lastPlayed');
           for (const row of (played || []) as { user_id: string; updated_at: string | null }[]) {
             const prior = lastPlayed.get(row.user_id);

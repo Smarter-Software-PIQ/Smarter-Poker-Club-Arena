@@ -37,8 +37,11 @@ import { join } from 'node:path';
 
 const SRC_ROOT = join(__dirname, '..', '..', 'src');
 
-// Matches grep -E "const \{ (data|count)(: [A-Za-z_]+)? \} = await supabase"
-const PATTERN = /const \{ (?:data|count)(?:: [A-Za-z_]+)? \} = await supabase/g;
+// Matches grep -E "const \{ (data|count)(: [A-Za-z_]+)? \} = await (supabase|selectInBatches)"
+// selectInBatches (src/lib/inBatches.ts, 2026-11-06) returns the same
+// { data, error } a single query does, so a discarded error through it is the
+// same bug and is counted the same way.
+const PATTERN = /const \{ (?:data|count)(?:: [A-Za-z_]+)? \} = await (?:supabase|selectInBatches)/g;
 
 const walk = (dir: string, out: string[] = []): string[] => {
   for (const name of readdirSync(dir)) {
@@ -68,10 +71,10 @@ const BASELINE = new Map<string, number>([
   // 12 -> 11 on 2026-09-03: phase 3 removed clawbackDistribution and
   // getRecentDistributions, a dead parallel implementation of agent undo whose
   // reads went nowhere anyway.
-  ['src/services/AgentService.ts', 2],
+  ['src/services/AgentService.ts', 1],
   // 10 -> 8: union route/account authorization now reports both canonical
   // operator lookup failures instead of discarding them during a stale load.
-  ['src/pages/UnionDashboardPage.tsx', 7],
+  ['src/pages/UnionDashboardPage.tsx', 6],
   // 11 -> 9: Table Management's owner/admin authority read now binds both
   // the union-owner and appointed-admin query errors instead of converting an
   // unreadable answer into a confident access denial.
@@ -152,8 +155,9 @@ const BASELINE = new Map<string, number>([
   ['src/services/ThrowableService.ts', 0],
   ['src/services/ReferralService.ts', 1],
   ['src/services/NotificationService.ts', 2],
-  ['src/services/MembershipService.ts', 1],
-  ['src/services/LeaderboardService.ts', 2],
+  // 2026-11-06: roster profile lookups moved to selectInBatches (URL-limit 400s) and bind their errors.
+  ['src/services/MembershipService.ts', 0],
+  ['src/services/LeaderboardService.ts', 0],
   // 2 -> 0 in chip-std cash (2026-09-02, C2): both discarded reads lived in
   // seatHorse, the browser-side seat creator that minted a stack; it is gone
   // with its reads, and the server fleet is the one seat creator for horses.
@@ -175,7 +179,7 @@ const BASELINE = new Map<string, number>([
   // 2 -> 1 on 2026-10-01: the profiles read binds its error (ruling 25 moved it).
   ['src/components/social/OnlineFriendsPill.tsx', 1],
   ['src/components/social/FriendListPanel.tsx', 1],
-  ['src/components/gameplay/PlayerNotesPanel.tsx', 1],
+  ['src/components/gameplay/PlayerNotesPanel.tsx', 0],
   ['src/components/common/UnionSkinGuard.tsx', 2],
   ['src/components/agent/PlayerInviteModal.tsx', 2],
   // Visible promo observation now binds balance and profile read errors.
@@ -190,7 +194,7 @@ const BASELINE = new Map<string, number>([
   ['src/services/PushNotificationService.ts', 0],
   ['src/services/ProfileService.ts', 1],
   ['src/services/PermissionService.ts', 1],
-  ['src/services/HandHistoryService.ts', 1],
+  ['src/services/HandHistoryService.ts', 0],
   // 1 -> 0 on 2026-09-06. Daily Mission mutations now preserve and classify
   // PostgREST failures so retryable deadlocks cannot disappear into `void`.
   ['src/services/DailyChallengeService.ts', 0],

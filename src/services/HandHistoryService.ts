@@ -18,6 +18,7 @@ import {
   fetchLightningRecentHands,
   LIGHTNING_RECENT_HANDS_LIMIT,
 } from '../lightning/lightningSessionApi';
+import { selectInBatches } from '../lib/inBatches';
 
 /**
  * ONE SELECT LIST (2026-09-04). `getHand` and `getPlayerHands` each carried
@@ -1304,10 +1305,15 @@ class HandHistoryServiceClass {
 
     try {
       const unique = [...new Set(userIds)];
-      const { data } = await supabase
-        .from('profiles')
-        .select(`id, ${PLAYER_NAME_COLUMNS}, avatar_url:arena_avatar_url`)
-        .in('id', unique);
+      const { data, error: profilesReadError } = await selectInBatches(unique, (batch) =>
+        supabase
+          .from('profiles')
+          .select(`id, ${PLAYER_NAME_COLUMNS}, avatar_url:arena_avatar_url`)
+          .in('id', batch)
+      );
+      // A failed read keeps the name fallback, but it is reported, never silent.
+      if (profilesReadError)
+        reportError(profilesReadError, 'HandHistoryService.fetchProfileMap.read');
 
       for (const p of data || []) {
         map.set(p.id, { username: playerDisplayName(p), avatar_url: p.avatar_url });

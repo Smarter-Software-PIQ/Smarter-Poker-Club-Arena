@@ -18,6 +18,7 @@ import { CommissionService } from '../../services/CommissionService';
 import { leaveForHub } from '../../lib/openExternal';
 import { resolveClubUUIDStrict } from '../../utils/clubIdResolver';
 import { playerDisplayName, PLAYER_NAME_COLUMNS } from '../../utils/playerDisplayName';
+import { selectInBatches } from '../../lib/inBatches';
 
 interface CommissionSummary {
   totalEarned: number;
@@ -320,11 +321,15 @@ export function AgentCommissionDashboard({ clubId }: { clubId?: string } = {}) {
         const subProfileMap: Record<string, { display_name?: string; avatar_url?: string }> = {};
         if (subAgentUserIds.length > 0) {
           try {
-            const { data: profiles, error: profilesError } = await supabase
-              .from('profiles')
-              .select(`id, ${PLAYER_NAME_COLUMNS}, avatar_url:arena_avatar_url`)
-              .in('id', subAgentUserIds)
-              .abortSignal(signal);
+            const { data: profiles, error: profilesError } = await selectInBatches(
+              subAgentUserIds,
+              (batch) =>
+                supabase
+                  .from('profiles')
+                  .select(`id, ${PLAYER_NAME_COLUMNS}, avatar_url:arena_avatar_url`)
+                  .in('id', batch)
+                  .abortSignal(signal)
+            );
             if (!current()) return;
             if (profilesError) throw profilesError;
             if (profiles) {
