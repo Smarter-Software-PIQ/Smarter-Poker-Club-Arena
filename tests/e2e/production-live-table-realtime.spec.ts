@@ -2616,6 +2616,20 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
          Prove action/street progress, completion, automatic next-hand start,
          and presentation of that next hand. */
         await startBoardInterval('before-outage');
+        // A background preload must not tear down a working mobile table.
+        // This fault is local to this reserved spectator's browser; no asset
+        // or production game state changes. The natural hand cycle below is
+        // the observation interval, and must still arrive on this same DOM.
+        const originalTable = await page.locator('.table-page').elementHandle();
+        const preloadFaultUrl = new URL('assets/session-continuity-probe.css', page.url()).href;
+        await page.route(preloadFaultUrl, (route) =>
+          route.fulfill({ status: 404, contentType: 'text/plain', body: 'Not Found' })
+        );
+        await page.evaluate((href) => {
+          const event = new Event('vite:preloadError', { cancelable: true });
+          Object.assign(event, { payload: new Error(`Unable to preload CSS for ${href}`) });
+          window.dispatchEvent(event);
+        }, preloadFaultUrl);
         const initialProgressStartedAt = Date.now();
         const initialCycle = await whileConnectionBannerStaysHidden(
           page,
@@ -2628,6 +2642,18 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
           ),
           'live gameplay before the outage'
         );
+        expect(
+          await originalTable!.evaluate((table) => table === document.querySelector('.table-page')),
+          'a background CSS failure replaced the live mobile table'
+        ).toBe(true);
+        await originalTable!.dispose();
+        await page.unroute(preloadFaultUrl);
+        await testInfo.attach('mobile-preload-session-continuity', {
+          body: Buffer.from(
+            JSON.stringify({ sameMountedTable: true, tableId, fault: 'optional-css' })
+          ),
+          contentType: 'application/json',
+        });
         expect(initialCycle.maxObservedSilenceMs).toBeLessThanOrEqual(MAX_GAMEPLAY_SILENCE_MS);
         await expectNextHandPresentation(page, initialCycle, 'live gameplay before the outage');
         await expect(banner).toBeHidden();

@@ -35,6 +35,7 @@ describe('UNMEASURABLE_MATCHUPS', () => {
   it('carries every retired matchup, and none of them is also on the card', () => {
     expect(names.sort()).toEqual(
       [
+        'hu_break_even_bluff',
         'plo4_v55_river_trips_flat',
         'plo5_v55_river_trips_flat',
         'plo6_v55_river_trips_flat',
