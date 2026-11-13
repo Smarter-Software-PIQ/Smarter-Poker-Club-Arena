@@ -20,9 +20,10 @@
  * What counts as "at a table" is exactly what ca_club_roster_rows counts: an
  * open seat (left_at null) on a waiting or running table, where either the
  * seat is stamped with this club or the table belongs to this club. Deleted
- * tables are skipped. The seat row carries the player's public profile so the
- * Live Now strip can print every seated member of the club, including the
- * ones beyond the loaded roster page.
+ * tables are skipped. The answer comes from `ca_club_live_seats`, the roster's
+ * own door, and carries the player's public profile so the Live Now strip
+ * can print every seated member of the club, including the ones beyond the
+ * loaded roster page.
  */
 import { supabase } from './supabase';
 import { PRESENCE_RECHECK_MS } from './profilePresence';
@@ -40,85 +41,51 @@ export interface LiveSeat {
   avatar_url: string | null;
 }
 
-type SeatRow = {
-  user_id: string | null;
+/** One row of public.ca_club_live_seats. */
+type LiveSeatRow = {
+  user_id: string;
   table_id: string;
-  club_id: string | null;
+  tournament_id: string | null;
+  name: string | null;
+  stakes: string | null;
+  is_tournament: boolean | null;
+  alias: string | null;
+  username: string | null;
+  avatar_url: string | null;
   joined_at: string | null;
-  tables: {
-    id: string;
-    name: string | null;
-    stakes: string | null;
-    tournament_id: string | null;
-    status: string | null;
-    is_deleted: boolean | null;
-    club_id: string | null;
-  } | null;
-  profiles: {
-    alias: string | null;
-    username: string | null;
-    display_name: string | null;
-    arena_avatar_url: string | null;
-    avatar_url: string | null;
-    status: string | null;
-  } | null;
 };
 
-const SELECT =
-  'user_id, table_id, club_id, joined_at, ' +
-  'tables!table_seats_table_id_fkey!inner(id, name, stakes, tournament_id, status, is_deleted, club_id), ' +
-  'profiles!fk_table_seats_user_id_profiles(alias, username, display_name, arena_avatar_url, avatar_url, status)';
+/** The one door, `ca_club_live_seats(p_club_id)`, shared with the roster. */
+export const LIVE_SEATS_RPC = 'ca_club_live_seats';
 
-function toSeat(row: SeatRow): LiveSeat | null {
-  const table = row.tables;
-  if (!row.user_id || !table || table.is_deleted === true) return null;
-  if (row.profiles?.status === 'deleted') return null;
-  const alias =
-    row.profiles?.alias?.trim() ||
-    row.profiles?.display_name?.trim() ||
-    row.profiles?.username?.trim() ||
-    '';
+function toSeat(row: LiveSeatRow): LiveSeat | null {
+  if (!row.user_id || !row.table_id) return null;
   return {
     user_id: row.user_id,
     table_id: row.table_id,
-    tournament_id: table.tournament_id,
-    name: table.name || 'Live Table',
-    stakes: table.stakes || '',
-    is_tournament: !!table.tournament_id,
-    alias,
-    username: row.profiles?.username ?? '',
-    avatar_url: row.profiles?.arena_avatar_url || row.profiles?.avatar_url || null,
+    tournament_id: row.tournament_id,
+    name: row.name?.trim() || 'Live Table',
+    stakes: row.stakes || '',
+    is_tournament: row.is_tournament ?? !!row.tournament_id,
+    alias: row.alias?.trim() || row.username?.trim() || '',
+    username: row.username ?? '',
+    avatar_url: row.avatar_url || null,
   };
 }
 
-/** Every open seat of this club's members, newest seat first per player. */
+/**
+ * Every open seat of this club's tables, newest seat first. Read through
+ * `ca_club_live_seats`, the roster's own authority (migration 20261112231056):
+ * the same viewer rule as ca_club_members_page, and the same rule that a
+ * reserved certification identity is never listed to a person, so the strip
+ * can never show a seat the roster hides.
+ */
 export async function readClubLiveSeats(clubId: string): Promise<LiveSeat[]> {
-  const live = ['waiting', 'running'];
-  const [stamped, owned] = await Promise.all([
-    supabase
-      .from('table_seats')
-      .select(SELECT)
-      .eq('club_id', clubId)
-      .is('left_at', null)
-      .in('tables.status', live)
-      .order('joined_at', { ascending: false }),
-    supabase
-      .from('table_seats')
-      .select(SELECT)
-      .is('club_id', null)
-      .is('left_at', null)
-      .eq('tables.club_id', clubId)
-      .in('tables.status', live)
-      .order('joined_at', { ascending: false }),
-  ]);
-  if (stamped.error) throw new Error(stamped.error.message || 'Could not read live seats.');
-  if (owned.error) throw new Error(owned.error.message || 'Could not read live seats.');
+  const { data, error } = await supabase.rpc(LIVE_SEATS_RPC, { p_club_id: clubId });
+  if (error) throw new Error(error.message || 'Could not read live seats.');
   const seen = new Set<string>();
   const out: LiveSeat[] = [];
-  for (const row of [
-    ...((stamped.data || []) as unknown as SeatRow[]),
-    ...((owned.data || []) as unknown as SeatRow[]),
-  ]) {
+  for (const row of (data || []) as LiveSeatRow[]) {
     const seat = toSeat(row);
     if (!seat) continue;
     const key = `${seat.user_id}:${seat.table_id}`;

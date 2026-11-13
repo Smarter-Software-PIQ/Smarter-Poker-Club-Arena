@@ -6,12 +6,15 @@
 import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const seatRows: { stamped: unknown[]; owned: unknown[] } = { stamped: [], owned: [] };
-const from = vi.fn();
-vi.mock('../../src/lib/supabase', () => ({ supabase: { from: (...a: unknown[]) => from(...a), rpc: vi.fn() } }));
+const seatRows: { rows: unknown[] } = { rows: [] };
+const rpc = vi.fn();
+vi.mock('../../src/lib/supabase', () => ({
+  supabase: { from: vi.fn(), rpc: (...a: unknown[]) => rpc(...a) },
+}));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 
 import {
+  LIVE_SEATS_RPC,
   readClubLiveSeats,
   resetClubLiveSeatsForTests,
   watchClubLiveSeats,
@@ -20,86 +23,79 @@ import { liveStateOf, orderByActivity, useLiveStates, type ClubLiveSeats } from 
 import { PRESENCE_RECHECK_MS } from '../../src/lib/profilePresence';
 import LiveNowStrip from '../../src/components/club/LiveNowStrip';
 
-function builder(result: { data: unknown[]; error: null }) {
-  const b: Record<string, unknown> = {};
-  for (const m of ['select', 'eq', 'is', 'in', 'order']) b[m] = vi.fn(() => b);
-  b.then = (resolve: (v: unknown) => unknown) => Promise.resolve(result).then(resolve);
-  return b;
-}
-
-const table = (name: string, stakes = '1/2', tournament_id: string | null = null) => ({
-  id: name,
+const seat = (
+  user_id: string,
+  table_id: string,
+  name: string,
+  alias: string,
+  extra: Partial<Record<string, unknown>> = {}
+) => ({
+  user_id,
+  table_id,
+  tournament_id: null,
   name,
-  stakes,
-  tournament_id,
-  status: 'running',
-  is_deleted: false,
-  club_id: 'club-a',
-});
-const profile = (alias: string) => ({
+  stakes: '1/2',
+  is_tournament: false,
   alias,
   username: alias.toLowerCase(),
-  display_name: null,
-  arena_avatar_url: null,
   avatar_url: null,
-  status: 'active',
+  joined_at: '2026-11-12T20:00:00Z',
+  ...extra,
 });
 
 beforeEach(() => {
   resetClubLiveSeatsForTests();
-  from.mockClear();
-  seatRows.stamped = [];
-  seatRows.owned = [];
-  let call = 0;
-  from.mockImplementation(() => {
-    call += 1;
-    return builder({ data: call % 2 === 1 ? seatRows.stamped : seatRows.owned, error: null });
-  });
+  rpc.mockClear();
+  seatRows.rows = [];
+  rpc.mockImplementation(() => Promise.resolve({ data: seatRows.rows, error: null }));
 });
 afterEach(() => {
   vi.useRealTimers();
 });
 
 describe('readClubLiveSeats', () => {
-  it('reads seats stamped with the club and seats on the club tables, once per player and table', async () => {
-    seatRows.stamped = [
-      { user_id: 'u1', table_id: 't1', club_id: 'club-a', joined_at: '2026-11-12T20:00:00Z', tables: table('Table One'), profiles: profile('Moose') },
-      { user_id: 'u1', table_id: 't1', club_id: 'club-a', joined_at: '2026-11-12T20:00:00Z', tables: table('Table One'), profiles: profile('Moose') },
-      { user_id: 'gone', table_id: 't9', club_id: 'club-a', joined_at: null, tables: { ...table('Dead'), is_deleted: true }, profiles: profile('X') },
-    ];
-    seatRows.owned = [
-      { user_id: 'u2', table_id: 't2', club_id: null, joined_at: null, tables: table('Table Two', '2/5', 'mtt-1'), profiles: profile('Burls') },
+  it('reads the club through ca_club_live_seats, once per player and table', async () => {
+    seatRows.rows = [
+      seat('u1', 't1', 'Table One', 'Moose'),
+      seat('u1', 't1', 'Table One', 'Moose'),
+      seat('u2', 't2', 'Table Two', 'Burls', { stakes: '2/5', tournament_id: 'mtt-1', is_tournament: true }),
+      seat('u3', 't3', '  ', '', { username: 'quiet' }),
     ];
     const seats = await readClubLiveSeats('club-a');
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledWith(LIVE_SEATS_RPC, { p_club_id: 'club-a' });
     expect(seats.map((s) => [s.user_id, s.name, s.is_tournament, s.alias])).toEqual([
       ['u1', 'Table One', false, 'Moose'],
       ['u2', 'Table Two', true, 'Burls'],
+      ['u3', 'Live Table', false, 'quiet'],
     ]);
-    expect(from).toHaveBeenCalledTimes(2);
+  });
+
+  it('surfaces a refused read instead of answering empty', async () => {
+    rpc.mockImplementation(() => Promise.resolve({ data: null, error: { message: 'permission denied' } }));
+    await expect(readClubLiveSeats('club-a')).rejects.toThrow('permission denied');
   });
 });
 
 describe('watchClubLiveSeats', () => {
   it('asks once per club per minute while visible, shares the answer, and stops when nobody watches', async () => {
     vi.useFakeTimers();
-    seatRows.stamped = [
-      { user_id: 'u1', table_id: 't1', club_id: 'club-a', joined_at: null, tables: table('Table One'), profiles: profile('Moose') },
-    ];
+    seatRows.rows = [seat('u1', 't1', 'Table One', 'Moose')];
     const a = vi.fn();
     const b = vi.fn();
     const stopA = watchClubLiveSeats('club-a', a);
     const stopB = watchClubLiveSeats('club-a', b);
     await vi.advanceTimersByTimeAsync(0);
-    expect(from).toHaveBeenCalledTimes(2);
+    expect(rpc).toHaveBeenCalledTimes(1);
     expect(a).toHaveBeenCalledTimes(1);
     expect(b).toHaveBeenCalledTimes(1);
     expect(a.mock.calls[0][0].get('u1')).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(PRESENCE_RECHECK_MS);
-    expect(from).toHaveBeenCalledTimes(4);
+    expect(rpc).toHaveBeenCalledTimes(2);
     stopA();
     stopB();
     await vi.advanceTimersByTimeAsync(PRESENCE_RECHECK_MS * 2);
-    expect(from).toHaveBeenCalledTimes(4);
+    expect(rpc).toHaveBeenCalledTimes(2);
   });
 });
 
