@@ -3387,8 +3387,10 @@ export class HorseDecisionWorkerRuntime {
     // Evidence only: a DEEP second look that reached the admitted kernel. Kept
     // apart from the FAST count, which may have counted the same turn.
     if (phase14.evaluator) this.deps.noteFeature('phase14_kernel_eligible_deep_seen');
-    // M3: the second look journals the switch state it ran with
-    const deepStyleStates = this.styleSwitch.current();
+    // M3: the second look journals the switch state it ran with. It REFRESHES rather than reading the last
+    // state (review 06968005 M1): a second look can run up to 60 s after the fast look that last refreshed, so
+    // without this an option could act up to 180 s after deliveries stopped instead of the stated 120 s.
+    const deepStyleStates = this.styleSwitch.refresh(performance.now());
     const replayState = horseDecisionReplayState(
       {
         phase8Postflop: phase8Guard.selected ? phase8Guard.mode : phase8.mode,

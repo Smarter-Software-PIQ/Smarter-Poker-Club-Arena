@@ -1,4 +1,6 @@
 import { createV31WorkerControl } from './v31ReloadControl.js';
+import { createStyleSwitchWorkerInbox } from './styleSwitchDelivery.js';
+import { StyleSwitchHolder } from '../HorseStyleSwitch.js';
 import {
   loadGtoPostflopV31Once,
   requireGtoV31ServingBinding,
@@ -80,8 +82,14 @@ if (!isMainThread && parentPort) {
       }
     : defaultHorseDecisionWorkerDependencies;
   const port = parentPort;
+  // 2026-11-13 STYLE READ LIVE SWITCH: the main thread delivers the database configuration as STYLE_SWITCH_STATE
+  // messages (styleSwitchDelivery.ts). Nothing delivered, unreadable, invalid or stale all read as off.
+  const styleSwitchInbox = createStyleSwitchWorkerInbox();
   const runtime = new HorseDecisionWorkerRuntime((message) => port.postMessage(message), {
     ...deps,
+    styleSwitch: new StyleSwitchHolder(styleSwitchInbox.source, (feature) =>
+      deps.noteFeature(feature)
+    ),
     isolateMemory: () => sampleIsolateMemory(shard?.index ?? 0),
   });
   const control = createV31WorkerControl({
@@ -96,6 +104,7 @@ if (!isMainThread && parentPort) {
     send: (ack) => port.postMessage(ack),
   });
   port.on('message', (message: HorseDecisionWorkerRequest) => {
+    if (styleSwitchInbox.receive(message)) return;
     if (!control(message)) runtime.receive(message);
   });
   void runtime.start();
