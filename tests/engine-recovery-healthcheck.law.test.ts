@@ -114,6 +114,34 @@ describe('health verdicts tolerate load but still recover a sustained wedge', ()
     expect(verifier).toContain(`grep -Fq "l==='ok'||l==='standby'"`);
   });
 
+  it('reads only the top-level engine version from /health (2026-11-13 false DEGRADED)', () => {
+    // /health now nests horse upgrade manifests that carry their own "version"
+    // keys. A text grep concatenated all of them and failed a healthy engine
+    // serving exactly the sealed build. The verifier must parse the JSON.
+    expect(verifier).not.toContain(`grep -o '"version":"[^"]*"'`);
+    const start = verifier.indexOf('VER=$(');
+    expect(start).toBeGreaterThan(-1);
+    const script = verifier.slice(
+      start,
+      verifier.indexOf('\n', verifier.indexOf('2>/dev/null || echo "")', start))
+    );
+    const body = JSON.stringify({
+      liveHorseDecision: {
+        upgradeManifest: { version: '2026-11-11.v1', engineVersion: '53360840' },
+      },
+      horseUpgradeManifest: { version: '2026-11-11.v1' },
+      version: '53360840',
+    });
+    const run = (input: string) =>
+      spawnSync('bash', ['-c', `${script}\nprintf '%s' "$VER"`], {
+        env: { ...process.env, BODY: input },
+        encoding: 'utf8',
+      });
+    expect(run(body).stdout).toBe('53360840');
+    expect(run('').stdout).toBe('');
+    expect(run('{"version":5}').stdout).toBe('');
+  });
+
   it('does not misdescribe the sidecar one-time delay as restart grace', () => {
     expect(autoheal).toMatch(/sleeps once when the SIDECAR starts/);
     expect(autoheal).toMatch(/not a per-engine\s+# restart grace/);
