@@ -11,6 +11,7 @@ import { omahaVariantSpot } from '../benchmark/OmahaVariantPolicyEvidence.js';
 import { calculateContestablePot, calculatePots } from './PokerEngine.js';
 import { HorseLogic, type HorseDecideOpts } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
+import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { fastRandom, seedFastRandom } from './HorseEval.js';
 import { horseVariantRulesFor } from './VariantRules.js';
 import {
@@ -195,6 +196,55 @@ function smallBlindSpot(
   return { hero, state: st };
 }
 
+/** The heads-up big blind facing the small blind's pot raise (no limper, no caller). */
+function bigBlindSpot(variant: Variant, stackBB: number, seed: number) {
+  const { state: st } = smallBlindSpot(variant, 2, stackBB, 'tournament', seed);
+  const chips = stackBB * 2;
+  const deck: Card[] = [];
+  for (const rank of RANKS) for (const suit of SUITS) deck.push({ rank, suit });
+  for (let k = deck.length - 1; k > 0; k--) {
+    const j = Math.floor(fastRandom() * (k + 1));
+    [deck[k], deck[j]] = [deck[j], deck[k]];
+  }
+  const sb = st.players[0];
+  sb.bet = 6;
+  sb.totalInvested = 6;
+  sb.stack = chips - 6;
+  const bbSeat = st.players[1];
+  const hero = {
+    ...bbSeat,
+    cards: deck.slice(0, variant === 'plo8' ? 4 : Number(variant.slice(3))),
+  };
+  st.players[1] = hero;
+  st.pot = 8;
+  st.currentBet = 6;
+  st.toCall = 4;
+  st.minRaise = 4;
+  st.lastRaise = 4;
+  st.minRaiseTo = 10;
+  st.maxRaiseTo = Math.min(chips, 18);
+  st.pots = calculatePots(st.players);
+  st.contestablePot = calculateContestablePot(st.players, hero.user_id, 4);
+  st.legalActions = ['fold', 'call', 'raise', 'all_in'];
+  st.actionHistory = [
+    {
+      userId: sb.user_id,
+      seat: sb.seat,
+      action: 'raise',
+      amount: 6,
+      stage: 'preflop',
+      timestamp: 1,
+    },
+  ];
+  if (st.tournament) {
+    st.tournament.stacks = st.players.map((p) => p.stack + p.totalInvested);
+    st.tournament.stackByUser = Object.fromEntries(
+      st.players.map((p) => [p.user_id, p.stack + p.totalInvested])
+    );
+  }
+  return { hero, state: st };
+}
+
 function folds(
   variant: Variant,
   seats: 2 | 3,
@@ -247,14 +297,43 @@ describe(
       ).toBeGreaterThanOrEqual(0.4);
     });
 
-    it('the tournament utility arbiter evaluates and owns the widened action', () => {
+    it.each(['plo4', 'plo5', 'plo6'] as const)(
+      '%s: the tournament utility arbiter evaluates and owns the widened small blind raise',
+      (variant) => {
+        let widened = 0;
+        for (let i = 0; i < 12; i++) {
+          HorseMind.reset();
+          const on = smallBlindSpot(variant, 2, 15, 'tournament', 9500 + i * 7);
+          const d = HorseLogic.decide(on.hero, on.state, 'balanced', {}, { mind: false });
+          HorseMind.reset();
+          const off = smallBlindSpot(variant, 2, 15, 'tournament', 9500 + i * 7);
+          const r = HorseLogic.decide(
+            off.hero,
+            off.state,
+            'balanced',
+            {},
+            {
+              mind: false,
+              omahaTournamentFirstIn: false,
+            }
+          );
+          expect(d.tournamentUtility?.selectedAction).toBe(d.action);
+          expect(r.tournamentUtility?.selectedAction).toBe(r.action);
+          if (r.action === 'fold' && d.action === 'raise') widened++;
+        }
+        // Not vacuous: the reference folded and Phase 7 kept the rule's raise.
+        expect(widened).toBeGreaterThanOrEqual(3);
+      }
+    );
+
+    it('the tournament utility arbiter evaluates and owns the widened big blind call', () => {
       let widened = 0;
-      for (let i = 0; i < 12; i++) {
+      for (let i = 0; i < 24; i++) {
         HorseMind.reset();
-        const on = smallBlindSpot('plo4', 2, 15, 'tournament', 9500 + i * 7);
+        const on = bigBlindSpot('plo4', 15, 9700 + i * 11);
         const d = HorseLogic.decide(on.hero, on.state, 'balanced', {}, { mind: false });
         HorseMind.reset();
-        const off = smallBlindSpot('plo4', 2, 15, 'tournament', 9500 + i * 7);
+        const off = bigBlindSpot('plo4', 15, 9700 + i * 11);
         const r = HorseLogic.decide(
           off.hero,
           off.state,
@@ -267,10 +346,53 @@ describe(
         );
         expect(d.tournamentUtility?.selectedAction).toBe(d.action);
         expect(r.tournamentUtility?.selectedAction).toBe(r.action);
-        if (r.action === 'fold' && d.action === 'raise') widened++;
+        if (r.action === 'fold' && d.action === 'call') widened++;
       }
-      // Not vacuous: the reference folded and Phase 7 kept the rule's raise.
-      expect(widened).toBeGreaterThanOrEqual(3);
+      expect(widened).toBeGreaterThanOrEqual(2);
+    });
+
+    it('a locked satellite seat keeps its deliberate folds', () => {
+      const sat = (opts: HorseDecideOpts) => {
+        const actions: string[] = [];
+        let locked = 0;
+        for (let i = 0; i < 40; i++) {
+          HorseMind.reset();
+          const { hero, state } = smallBlindSpot('plo4', 3, 12, 'tournament', 9900 + i * 13);
+          // The small blind is the chip leader (two seats, three left), so its
+          // seat is locked and the engine folds on purpose.
+          hero.stack += 24;
+          state.players[0].stack += 24;
+          const t = state.tournament!;
+          t.stacks = state.players.map((p) => p.stack + p.totalInvested);
+          t.stackByUser = Object.fromEntries(
+            state.players.map((p) => [p.user_id, p.stack + p.totalInvested])
+          );
+          t.satellite = true;
+          t.satelliteSeats = 2;
+          t.spotsPaid = 2;
+          t.playersLeft = 3;
+          enableBrainTelemetry();
+          drainFires();
+          const d = HorseLogic.decide(
+            hero,
+            state,
+            'balanced',
+            {},
+            {
+              mind: false,
+              telemetry: true,
+              ...opts,
+            }
+          );
+          if (drainFires().some((f) => f.feature === 'v37_sat_locked')) locked++;
+          actions.push(`${d.action}:${d.amount ?? ''}`);
+        }
+        return { actions, locked };
+      };
+      const on = sat({});
+      const off = sat({ omahaTournamentFirstIn: false });
+      expect(on.locked).toBeGreaterThan(0);
+      expect(on.actions).toEqual(off.actions);
     });
 
     it('a table whose mode the engine did not declare is untouched', () => {

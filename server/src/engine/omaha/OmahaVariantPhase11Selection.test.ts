@@ -80,11 +80,7 @@ const tournament = (input: ReturnType<typeof omahaVariantSpot>) => {
 // from it. V90 no longer folds that hand first in heads-up in a tournament, so
 // the fixture runs the reference without V90. Phase 7 ownership of the V90
 // decision itself is held in HorseOmahaTournamentFirstIn.law.test.ts.
-const decide = (
-  input: ReturnType<typeof omahaVariantSpot>,
-  phase11Omaha: OmahaVariantMode,
-  omahaTournamentFirstIn = false
-) => {
+const decide = (input: ReturnType<typeof omahaVariantSpot>, phase11Omaha: OmahaVariantMode) => {
   seedFastRandom(100101);
   return HorseLogic.decide(
     input.hero,
@@ -97,7 +93,7 @@ const decide = (
       decisionTimeMs: 0,
       phase11Omaha,
       phase11EvidenceMode: true,
-      ...(omahaTournamentFirstIn ? {} : { omahaTournamentFirstIn: false }),
+      omahaTournamentFirstIn: false,
     }
   );
 };

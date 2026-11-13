@@ -14,7 +14,7 @@ Not a scale error: the Omaha preflop score is the Hold'em score at the same perc
 
 `HorseOmahaTournamentFirstIn.ts`, called once after the preflop core and only when the core folded, Omaha high, engine-declared tournaments only:
 
-- the small blind against the big blind alone (heads-up, or three-handed after the button folds) plays every hand as the pot-limit maximum raise;
+- the small blind against the big blind alone (heads-up, or three-handed after the button folds) plays every hand the engine's class gate lets through (it still folds three or four of a rank) as the pot-limit maximum raise, about 3 to 3.25 BB heads-up;
 - the heads-up big blind against one raise, no limper and no caller, at a price of a half or better, calls with its top 75 percent.
   The hand's rank is its percentile among Omaha hands of its size; the engine's own tournament risk premium narrows every share (two points of range per point of premium; at most 0.01 with two players left). It stands aside, keeping the engine's fold: All-In-Or-Fold tables, locked satellite seats, tables of four or more players dealt, and effective stacks deeper than 20 BB. The tournament utility arbiter (Phase 7) still evaluates and owns the final action. Option `omahaTournamentFirstIn` (default on; false is the old engine).
 
@@ -34,9 +34,9 @@ Heads-up, both rules, confirmation seed (PLO4 and PLO6 pooled, 4,000 hands per c
 | Call-heavy | +0.21 (0.05) | +0.14 (0.06) | +0.06 (0.07) |
 | Adaptive   | +0.26 (0.04) | +0.17 (0.06) | -0.04 (0.07) |
 
-Separately on the development seed, the small blind rule alone: +0.49 to +0.52 at 8 BB against old, tight and wide, +0.22 and +0.29 against call-heavy and adaptive; the big blind rule alone: +0.05 to +0.08 at 8 and 12 BB, +0.15 to +0.17 at 20 BB, against every opponent. Playing 85 percent instead of every hand scored lower in every pooled cell.
+Separately on the development seed, the small blind rule alone: +0.49 to +0.52 at 8 BB against old, tight and wide, +0.22 and +0.29 against call-heavy and adaptive; the big blind rule alone: +0.05 to +0.08 at 8 and 12 BB, +0.15 to +0.17 at 20 BB; it met three distinct opponents (old, tight, wide: the call-heavy, limp-heavy and adaptive opponents change only hands where the arm is the small blind, so their rows equal the old one), and none of them punishes a wider big blind defence. Playing 85 percent instead of every hand scored lower in every pooled cell but one (call-heavy at 20 BB: +0.069 (0.038) against +0.057 (0.045), a difference well inside noise).
 
-Three-handed, small blind against the big blind (development seed, pooled, 4,500 hands per cell): +0.24 to +0.27 at 8 BB and +0.22 to +0.25 at 12 BB against old, tight and wide; +0.16 and +0.13 against call-heavy; +0.09 and +0.04 against adaptive; at 20 BB +0.05 to +0.07 against old, tight and wide and indistinguishable from zero against call-heavy and adaptive. Confirmation seed 90001 (pooled): +0.23 to +0.26 at 8 BB and 12 BB against old, tight and wide; +0.12 and +0.09 against adaptive; at 20 BB +0.07 to +0.09 against old, tight and wide and +0.02 (0.02) against adaptive. (The call-heavy opponent equals the old one three-handed: its change is heads-up only.)
+Three-handed, small blind against the big blind (development seed, pooled, 4,500 hands per cell): +0.24 to +0.27 at 8 BB and +0.22 to +0.25 at 12 BB against old, tight and wide; +0.16 and +0.13 against a call-heavy big blind (development seed only; that opponent defined for the three-handed table, where the confirmation run's call-heavy opponent acts heads-up only and so equals the old one); +0.09 and +0.04 against adaptive; at 20 BB +0.05 to +0.07 against old, tight and wide and indistinguishable from zero against call-heavy and adaptive. Confirmation seed 90001 (pooled): +0.23 to +0.26 at 8 BB and 12 BB against old, tight and wide; +0.12 and +0.09 against adaptive; at 20 BB +0.07 to +0.09 against old, tight and wide and +0.02 (0.02) against adaptive. (The call-heavy opponent equals the old one three-handed: its change is heads-up only.)
 
 ## Limits
 

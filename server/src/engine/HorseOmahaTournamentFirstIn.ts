@@ -96,7 +96,9 @@ export function omahaTournamentFirstIn(
   const plays = (share: number) => share > 0 && i.percentile >= 1 - (share - narrowed);
   if (i.raises === 0 && i.limpers === 0) {
     // First in. The play is the pot-limit maximum raise ('jam' is legalized
-    // to the pot raise; at these depths it commits most of the stack).
+    // to the pot raise: about 3 to 3.25 BB heads-up, a sixth of a 20 BB
+    // stack). Hands the class gate folds (three or four of a rank) never
+    // reach this module.
     // Only the small blind against the big blind alone: a wider first-in
     // range from the button was measured and rejected (it lost to a big
     // blind that re-shoves against it).

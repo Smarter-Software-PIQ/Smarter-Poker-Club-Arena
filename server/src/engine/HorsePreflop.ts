@@ -407,11 +407,11 @@ export interface PreflopCtx {
   cashActionSizes?: boolean;
   /** Dan 2026-10-24 NLH cash pressure (3-bet and defend wider); undefined = on. */
   cashAggression?: boolean;
-  /** Receipt callback (#8694): the caller fires the V60 cash pressure receipt
-   *  named here when that layer moves a bar. This module has no telemetry. */
   /** Omaha high tournament: the hand's percentile among Omaha hands and,
    *  for league arms only, replacement shares. Undefined = the rule is off. */
   omahaTournamentFirstIn?: { percentile: number; params?: OmahaTournamentFirstInParams };
+  /** Receipt callback (#8694): the caller fires the V60 cash pressure receipt
+   *  named here when that layer moves a bar. This module has no telemetry. */
   noteLayer?: (layer: PreflopLayerReceipt) => void;
   noteAuthority?: (event: PreflopAuthorityEvent) => void;
   /** Short deck keeps its own calibration; the cash pressure layer skips it. */
@@ -987,7 +987,9 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
         percentile: ctx.omahaTournamentFirstIn.percentile,
         position: ctx.position,
         liveOpponents: ctx.oppsLeft,
-        tableSize: ctx.tableSize ?? Math.max(2, ctx.oppsLeft + 1),
+        // Unknown table size (a league ablation arm only) must not read as
+        // heads-up: NaN makes the rule stand aside.
+        tableSize: ctx.tableSize ?? Number.NaN,
         effectiveStackBB: ctx.effectiveStackBB ?? ctx.stackBB,
         raises: ctx.raises,
         limpers: ctx.limpers,
