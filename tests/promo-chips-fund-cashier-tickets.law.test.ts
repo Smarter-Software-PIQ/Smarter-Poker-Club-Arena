@@ -148,3 +148,68 @@ describe('Promo ticket dialog state and the cancel replay', () => {
     expect(page).toContain('Promo Allowance Could Not Be Read. The 50 Chip Limit Still Applies.');
   });
 });
+
+describe('Promo tickets count in the digests and under the statement Ticket filter', () => {
+  const readers = read(
+    'supabase/migrations/20261113010721_promo_funded_tickets_count_in_the_digests_and_the_ticket_sta.sql'
+  );
+  const ticketLeg = (prefix: string, spaced: boolean) =>
+    spaced
+      ? `(${prefix}category = ''ticket_issue'' AND ${prefix}from_type = ''promo_wallet'' AND ${prefix}to_type = ''escrow'')`
+      : `(${prefix}category=''ticket_issue'' AND ${prefix}from_type=''promo_wallet'' AND ${prefix}to_type=''escrow'')`;
+
+  it('patches each reader only from the definition production held', () => {
+    for (const preimage of [
+      'c48e3a4d068c77ecadf1fb0eb57cb7a5',
+      'f2f9802c827e476246e335ba1d1596f0',
+      'f67a7895b96362ef9daef978d1e34494',
+      '8cab96c15ba360fb34c13f0afd3378b8',
+    ]) {
+      expect(readers).toContain(`IF md5(d) <> '${preimage}' THEN`);
+    }
+    for (const successor of [
+      '145597c5ec78386523b52e10d83ff29b',
+      '7b3118323fff5a16c6bdfc900871c14e',
+      'cc48246f155b78cd1443a63097848f56',
+      'dcfe58296b8a3d140f4fbdcc7395bd03',
+    ]) {
+      expect(readers.split('\n').find((line) => line.startsWith('-- @live-proof:'))).toContain(
+        successor
+      );
+    }
+    expect(readers.split('IF n = d THEN RAISE EXCEPTION').length - 1).toBe(5);
+    expect(readers.split('EXECUTE n;').length - 1).toBe(4);
+  });
+
+  it('counts the promo wallet to escrow ticket leg as promo given, gross', () => {
+    expect(readers).toContain(`OR ${ticketLeg('', false)}),0) player_promo,`);
+    expect(readers).toContain(`OR ${ticketLeg('', true)}),0),2),`);
+    expect(readers).toContain(`OR ${ticketLeg('l.', false)}`);
+    expect(readers).toContain(
+      "LEFT JOIN public.profiles p ON p.id=CASE WHEN l.to_type=''player_wallet'' THEN l.to_entity_id ELSE tk.holder_id END"
+    );
+    expect(readers).not.toContain("category=''refund''");
+  });
+
+  it('returns a promo ticket receipt under the Ticket filter without renaming its wallet', () => {
+    expect(readers).toContain(
+      "OR ($10 = ''ticket'' AND r.source = ''receipt'' AND r.kind = ''promo_wallet_send'' AND r.ticket_id IS NOT NULL))"
+    );
+    expect(readers).not.toContain("THEN ''ticket''");
+  });
+
+  it('touches readers only, never a limit, a money route or a reconciler', () => {
+    for (const name of [
+      'fn_promo_wallet_send_core_20261004',
+      'fn_cashier_promo_ticket_send(',
+      'fn_cashier_promo_allowance',
+      'fn_ca_tally_',
+      'fn_ca_autoledger',
+      'trial_balance',
+      'supply_snapshot',
+    ]) {
+      expect(readers).not.toContain(name);
+    }
+    expect(readers).not.toMatch(/^\s*(insert|update|delete|grant|revoke|alter|create|drop)\b/im);
+  });
+});
