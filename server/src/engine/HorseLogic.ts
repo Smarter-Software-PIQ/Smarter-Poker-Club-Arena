@@ -189,7 +189,46 @@ import {
   valueThinMod as readValueThinMod,
   type PreflopOpenerExploit,
   openerRangeWidth,
+  strengthBarForTopShare,
 } from './HorseOpponentExploit.js';
+// STYLE READ (2026-11-13): the opponent's style on two axes, and the small
+// pure helpers each default-off consumer below asks. See HorseOpponentStyle.ts.
+import {
+  STYLE_THRESHOLDS,
+  bigBetRespect,
+  raiseRespectShade,
+  tightOpenerRespect,
+  tightReRaiserRespect,
+  type TightReRaiser,
+} from './HorseOpponentStyle.js';
+
+/**
+ * STYLE READ: a bounty event prices a call with the bounty, which the style
+ * read does not model. Every style consumer stands down there (a fold-more
+ * adjustment must not forfeit a bounty call), in addition to the tournament
+ * utility arbiter keeping the last word.
+ */
+function styleBountyContext(
+  t:
+    | {
+        bountyFactor?: number;
+        bountyPoolCents?: number;
+        meanBountyCents?: number;
+        mysteryChestsLeft?: number;
+        bountyByUser?: Record<string, number>;
+      }
+    | null
+    | undefined
+): boolean {
+  return (
+    !!t &&
+    ((t.bountyFactor ?? 1) !== 1 ||
+      (t.bountyPoolCents ?? 0) > 0 ||
+      (t.meanBountyCents ?? 0) > 0 ||
+      (t.mysteryChestsLeft ?? 0) > 0 ||
+      Object.keys(t.bountyByUser ?? {}).length > 0)
+  );
+}
 // V7 (2026-07-24): position-pair preflop mastery — 3-bet/4-bet bluffs, blind
 // vs blind, squeezes, stack depth, reshoves, ICM. See HorsePreflop.ts.
 import {
@@ -2921,6 +2960,39 @@ export interface HorseDecideOpts {
    *  neutral respect (HorseMind.aggressionShownAsValue). Default on;
    *  explicit false keeps the ratio-only read. */
   v83AggressionNeedsBluffs?: boolean;
+  /** STYLE READ #2 (2026-11-13, HorseOpponentStyle): a value bettor is not a
+   *  maniac. The legacy postflop aggression factor above 2.5 may not raise
+   *  call-down respect (callDownMod 1.2, which switches off the one-pair
+   *  fold layers V61/62/65/66/67/68/79) against a player whose bets are
+   *  credibly value: shown strength of his big bets (engaged from 3 shown),
+   *  or credibly tight with low frequencies, and not released by the fast
+   *  window. Receipt style_value_bettor_not_maniac_seen. Hold'em consumers;
+   *  cash and tournament alike. Default off; explicit true only. */
+  styleValueBettorNotManiac?: boolean;
+  /** STYLE READ #3 (2026-11-13): a large turn bet, a large river bet or ANY
+   *  river raise from a credibly value-heavy bettor earns extra respect,
+   *  capped at the existing callDownRespectShift ceiling (+0.15), never on a
+   *  small bet, released by the fast window the moment he shows a bluff.
+   *  Receipt style_big_bet_honesty_seen. Default off; explicit true only. */
+  styleBigBetHonesty?: boolean;
+  /** STYLE READ #4 (2026-11-13): one pair and worse folds more against a
+   *  flop or turn raise from a player whose postflop raise frequency is
+   *  credibly below the Horse mean, scaled by the stack-to-pot ratio AFTER
+   *  the call (it stands down where one pair is a correct stack-off).
+   *  Receipt style_raise_respect_seen. Default off; explicit true only. */
+  styleRaiseRespect?: boolean;
+  /** STYLE READ #6 (2026-11-13): a credibly tight opener or re-raiser is
+   *  respected preflop: the narrow branch of the facing-an-open exploit read
+   *  becomes reachable (a bounded move of the 3-bet bar and the call bar) and
+   *  the 4-bet and call bars against a tight 3-bettor move up a bounded
+   *  amount, both released the moment his 3-bet rate or raising rises.
+   *  Receipts style_tight_opener_respect_seen and
+   *  style_tight_reraiser_respect_seen. Default off; explicit true only. */
+  styleTightReRaiserRespect?: boolean;
+  /** STYLE READ (2026-11-13): weight (0..1) of the same player's OTHER-format counters in the
+   *  style read. Default 0 = format-specific evidence only; any non-zero weight needs
+   *  validation first (one player being tighter in tournaments does not make everyone so). */
+  styleCarryOverWeight?: number;
   /** READ CALIBRATION (2026-11-07, HorseMind DecisionReadOptions): the
    *  legacy exploit's bluff-pricing fold rate reads postflop fold-to-bet
    *  (the decision context's exploit counters) instead of folds over every
@@ -5873,6 +5945,9 @@ export class HorseLogic {
       breakEvenBluff: opts.readBreakEvenBluff === true,
       scopedShrink: opts.readScopedShrink === true,
       omahaEvFoldModel: (opts.omahaEvFoldModel ?? true) !== false,
+      ...(typeof opts.styleCarryOverWeight === 'number' && opts.styleCarryOverWeight > 0
+        ? { styleCarryWeight: Math.min(1, opts.styleCarryOverWeight) }
+        : {}),
     });
     // V3: ingest the action stream into the opponent-intelligence layer.
     // Wrapped so observation can never take down a decision.
@@ -8377,9 +8452,14 @@ export class HorseLogic {
     // is priced by what THEY raise, and a credibly loose limper is isolated
     // wider. Every field stays undefined / zero unless that opponent's read is
     // credibly outside the horse envelope, so horse-vs-horse is unchanged.
-    let exploitOpener: PreflopOpenerExploit | undefined;
+    // STYLE READ #6 widens the type by two optional bounds; the exploit read's own
+    // PreflopOpenerExploit (HorseOpponentExploit) is untouched.
+    let exploitOpener:
+      | (PreflopOpenerExploit & { maxBarMove?: number; callBump?: number })
+      | undefined;
     let exploitPressure: AggressiveOpenerPressure | undefined;
     let exploitReRaiser: { fourBetBar: number; callBar: number } | undefined;
+    let styleTightReRaiser: TightReRaiser | undefined;
     let evidencedWideRaiser87 = false;
     let exploitIso = 0;
     // LIMP-RERAISE READ (flag limpReraiseIsoRead, HorseLimpReraiseRead): the
@@ -8426,6 +8506,44 @@ export class HorseLogic {
             evidencedWideRaiser87 =
               read.presumed !== true &&
               (exploitReRaiser !== undefined || maniacRaiseWidth(read) !== null);
+          }
+          // ═══ STYLE READ #6 TIGHT RAISER RESPECT (2026-11-13, default off) ═══
+          // A credibly TIGHT opener or re-raiser (the low side the exploit
+          // read never engages): the opener's narrow branch becomes reachable
+          // (the value 3-bet bar moves toward the top of his real range, and
+          // the call bar rises, both bounded by HorseOpponentStyle) and the
+          // 4-bet and call bars against a tight 3-bettor rise a bounded
+          // amount. Only ever folds more; an engaged wide read always wins;
+          // withdrawn the moment the fast window shows him raising. Hold'em
+          // family; cash and tournament alike.
+          // Stands down at push/fold depths (the existing tables decide there and the read
+          // moves nothing) and in bounty events.
+          const styleEffBB =
+            Math.min(player.stack + player.bet, raiser.stack + raiser.bet) / Math.max(1e-9, bb);
+          if (
+            opts.styleTightReRaiserRespect === true &&
+            !vi.isOmaha &&
+            read?.presumed !== true &&
+            styleEffBB > STYLE_THRESHOLDS.pushFoldStandDownBB &&
+            !styleBountyContext(trustedTournament)
+          ) {
+            const style = HorseMind.styleRead(raiser.user_id);
+            if (raises === 1) {
+              const tight = tightOpenerRespect(style);
+              if (tight && (!exploitOpener || (!exploitOpener.wide && exploitOpener.threeBetBar === null))) {
+                exploitOpener = {
+                  wide: false,
+                  threeBetBar: strengthBarForTopShare(0.4 * tight.rangeWidth),
+                  flatBar: null,
+                  bbFlatBar: null,
+                  noBluffThreeBet: exploitOpener?.noBluffThreeBet === true,
+                  maxBarMove: tight.maxBarMove,
+                  callBump: tight.callBump,
+                };
+              }
+            } else if (raises >= 2 && !exploitReRaiser) {
+              styleTightReRaiser = tightReRaiserRespect(style) ?? undefined;
+            }
           }
         }
         const allowOmahaIso86 =
@@ -8959,6 +9077,7 @@ export class HorseLogic {
       exploitOpener,
       exploitPressure,
       exploitReRaiser,
+      styleTightReRaiser,
       maniacOpenBar:
         maniacBehindWidth !== null ? maniacBehindOpenBar(maniacBehindWidth, vi.isOmaha) : undefined,
       maniacNoBluff: maniacRaiserWidth !== null || maniacBehindWidth !== null ? true : undefined,
@@ -9027,6 +9146,10 @@ export class HorseLogic {
             else if (layer === 'v87_deep_dive_discipline') noteFire('v87_deep_dive_discipline');
             else if (layer === 'bluff_raise_refused_no_fold_equity_seen')
               noteFire('bluff_raise_refused_no_fold_equity_seen');
+            else if (layer === 'style_tight_opener_respect_seen')
+              noteFire('style_tight_opener_respect_seen');
+            else if (layer === 'style_tight_reraiser_respect_seen')
+              noteFire('style_tight_reraiser_respect_seen');
           }
         : undefined,
       isShortDeck: vi.isShortDeck === true,
@@ -9770,7 +9893,14 @@ export class HorseLogic {
     const useBarrels = (opts.v7Barrels ?? useV7) && opts.mind !== false;
     const useCounterAdapt = opts.v7CounterAdapt ?? useV7;
     // V83: an aggression read needs bluffs behind it (HorseMind.legacyExploit).
-    const exploitReadOpts83 = { aggressionNeedsBluffs: opts.v83AggressionNeedsBluffs !== false };
+    const exploitReadOpts83 = {
+      aggressionNeedsBluffs: opts.v83AggressionNeedsBluffs !== false,
+      // STYLE READ #2: only an explicit true adds the key, so with it off the
+      // object (and every read it reaches) is exactly what it was.
+      ...(opts.styleValueBettorNotManiac === true && opts.mind !== false
+        ? { styleValueBettor: true }
+        : {}),
+    };
     const useAdaptiveMC = opts.v7AdaptiveMC ?? useV7;
     const useV8 = opts.v8 !== false;
     const useHiLo = (opts.v8HiLo ?? useV8) && vi.isHiLo;
@@ -14778,7 +14908,63 @@ export class HorseLogic {
       !holdemRealDraw(player.cards, board) &&
       toCall > 0 &&
       pot > 0;
-    const shade66 = v66Class ? v66BetRaisedShade(toCall, pot) : 0;
+    // ═══ STYLE READ #4 RAISE RESPECT (2026-11-13, default off) ═══ a flop or
+    // turn RAISE from a player whose postflop raise frequency is credibly
+    // below the Horse mean is value more often than the generic read prices:
+    // one pair (or worse, with no real draw) calls it for a shade of equity
+    // more. DEPTH AWARE: scaled by the stack-to-pot ratio AFTER the call
+    // (HorseOpponentStyle.raiseRespectShade): nothing where the call commits
+    // the stack and one pair is a correct stack-off, full from SPR 5. Same
+    // hand class and gates as V66, a maniac read (callDownMod > 1) wins, and it
+    // only ever adds to a shade, so it never widens a call. Cash and
+    // tournament alike; the tournament arbiter still runs after.
+    let styleRaiseShade = 0;
+    if (
+      opts.styleRaiseRespect === true &&
+      useMind &&
+      !vi.isOmaha &&
+      !vi.isShortDeck &&
+      vi.holeCount === 2 &&
+      player.cards.length === 2 &&
+      (street === 'flop' || street === 'turn') &&
+      !multiBoard36 &&
+      !gs.bombPot &&
+      oppCount <= 1 &&
+      !styleBountyContext(trustedTournament) &&
+      exploit.callDownMod <= 1 &&
+      cat >= 0 &&
+      (cat <= 2 || (cat === 3 && pairedBoard)) &&
+      !holdemRealDraw(player.cards, board) &&
+      toCall > 0 &&
+      pot > 0
+    ) {
+      try {
+        const cw = currentOpponentWager(gs.actionHistory, player.user_id, street);
+        const raiser = cw?.record.userId
+          ? gs.players.find((p) => p.user_id === cw.record.userId)
+          : undefined;
+        // Side pots: another all-in opponent changes what a call risks; stand down.
+        const sidePot = gs.players.some(
+          (p) =>
+            p.seat !== player.seat &&
+            p.user_id !== raiser?.user_id &&
+            !p.is_folded &&
+            p.is_all_in === true
+        );
+        if (cw && raiser && !sidePot && (cw.record.action === 'raise' || raisedAfterAggr)) {
+          // DECISION-TIME SPR: effective stack behind before the decision over the
+          // pot including his wager (never a ratio that exists only after a call).
+          const decisionSpr = Math.min(commitmentStack, Math.max(0, raiser.stack)) / pot;
+          styleRaiseShade = raiseRespectShade(HorseMind.styleRead(raiser.user_id), {
+            decisionSpr,
+          });
+          if (styleRaiseShade > 0 && tele15) noteFire('style_raise_respect_seen');
+        }
+      } catch {
+        /* the style read is best-effort */
+      }
+    }
+    const shade66 = (v66Class ? v66BetRaisedShade(toCall, pot) : 0) + styleRaiseShade;
     // ═══ V67 RIVER BET, RAISED, ONE PAIR (2026-10-31) ═══ the river twin of
     // V66, inside V61's gates: hero bet (or raised) the river and now faces
     // a raise, holding the bluff-catch class (one pair, or two pair through
@@ -15991,12 +16177,45 @@ export class HorseLogic {
           // have SHOWN DOWN as value gets real respect; one who bombs with
           // air gets called down. Only on the river, only on big sizings —
           // exactly where the tell was observed.
+          let v16TellAdd = 0;
           if (opts.v16Reads !== false && isRiver && potFrac >= 0.75) {
             const tell = HorseMind.bigBetValueTendency(bettorId);
             if (tell !== null) {
-              if (tell >= 0.75) respect += 0.12;
-              else if (tell <= 0.4) respect -= 0.1;
+              if (tell >= 0.75) {
+                respect += 0.12;
+                v16TellAdd = 0.12;
+              } else if (tell <= 0.4) respect -= 0.1;
               if (telemetryOn(opts)) noteFire('v16_reads_tell');
+            }
+          }
+          // ═══ STYLE READ #3 BIG-BET HONESTY (2026-11-13, default off) ═══
+          // A large turn bet, a large river bet or ANY river raise from a
+          // bettor whose big bets are credibly value (shown strength, engaged
+          // from 3 shown) earns extra respect, capped at the existing +0.15
+          // callDownRespectShift ceiling TOGETHER with the V16 tell above
+          // (the same evidence is not counted twice), never on a small bet,
+          // never on the flop, and released by the fast window the moment he
+          // shows a bluff. Only ever adds respect: it never widens a call, in
+          // cash or tournament (the tournament utility arbiter still runs
+          // after this and keeps the last word).
+          if (
+            opts.styleBigBetHonesty === true &&
+            !vi.isOmaha &&
+            (isRiver || street === 'turn') &&
+            !styleBountyContext(trustedTournament)
+          ) {
+            const styleAdd = Math.max(
+              0,
+              bigBetRespect(HorseMind.styleRead(bettorId), {
+                street: isRiver ? 'river' : 'turn',
+                potFraction: potFrac,
+                isRaise: currentWager.record.action === 'raise',
+                heroHasBlocker: blocker,
+              }) - v16TellAdd
+            );
+            if (styleAdd > 0) {
+              respect += styleAdd;
+              if (telemetryOn(opts)) noteFire('style_big_bet_honesty_seen');
             }
           }
           // ═══ V43 TEMPO (2026-09-05) ═══ the action log has carried a
