@@ -384,8 +384,14 @@ function cssLength(element: HTMLElement, name: string, fallback: number) {
  * (seatBountyBadge); narrower portrait layouts use different label/fan rules. */
 function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
   const ratio = tableRenderScale(scaler);
-  const boxes: Array<{ box: PaintBox; owner: Element | null; layer: boolean; minimum?: PaintBox }> =
-    [];
+  const boxes: Array<{
+    box: PaintBox;
+    owner: Element | null;
+    layer: boolean;
+    minimum?: PaintBox;
+    /** Drawn over the owner's portrait: the owner may grow behind it. */
+    overlay?: boolean;
+  }> = [];
   const badge = page.querySelector<HTMLElement>('.seat__position-badge:not(.seat__kill-badge)');
   const badgeStyle = badge ? getComputedStyle(badge) : null;
   const fontSize = badgeStyle
@@ -439,7 +445,10 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
     // across the whole screen, which refused its neighbours' growth. Reserve the
     // seat's own lane, including the 1.1x pop and its 2px upward / 8px downward
     // travel.
-    const lanePad = 48 * ratio;
+    // Measured 2026-11-12: the widest amount pill ("RAISE 1,234.56") is under
+    // 100 layout px, so 20 px beyond a 95 px seat covers it. A 48 px pad put a
+    // top chair's lane across its lower neighbour's crown.
+    const lanePad = 20 * ratio;
     boxes.push({
       box: {
         left: rect.left - lanePad,
@@ -483,6 +492,9 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
     }
     // The position chip can rotate through every label while the art stays put.
     // Kill-enabled tables retain their original size from the stable game setting.
+    // The seat's own badge is drawn over its portrait (z-index 6, above the
+    // avatar wrap at 2), so the portrait may grow behind it like its own tag;
+    // it stays hard for every other seat's portrait.
     boxes.push({
       box: {
         left: at.left + at.width + (4 - badgeWidth) * ratio,
@@ -492,6 +504,7 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
       },
       owner: seat,
       layer: false,
+      overlay: true,
     });
     if (hero) {
       const input = {
@@ -696,7 +709,7 @@ export function enlargeMobileAvatars(
     // neighbour. Every other reserved object is unchanged: own cards may
     // only keep an existing overlap; others' objects are hard.
     const obstacles = objects
-      .filter((o) => !(o.owner === e.seat && o.layer && o.minimum))
+      .filter((o) => !(o.owner === e.seat && ((o.layer && o.minimum) || o.overlay)))
       .map((o) => ({
         box: o.box,
         ownLayer: o.owner === e.seat && o.layer,

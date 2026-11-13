@@ -38,3 +38,11 @@ portrait at z-index 30, so it stays whole), and the bet-stack envelope is
 84 by 40 layout pixels. Other seats' tags, all cards, plates, badges, dealer
 button, pot, board and controls remain hard obstacles. The seated hero keeps
 the owner-approved 2x; opponents may reach 2.5x, capped by the hero's height.
+
+## Third pass
+
+A top chair's amount lane (seat width plus 48 px each side) reached across its
+lower neighbour's crown, and a seat's own position badge was a wall at the
+crown's right. The lane pad is 20 px (the widest pill is under 100 px), and a
+seat's own badge, drawn over the portrait at z-index 6, is passable like its
+own tag. Both stay hard obstacles for every other seat's portrait.
