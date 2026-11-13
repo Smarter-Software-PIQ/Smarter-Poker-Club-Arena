@@ -24,8 +24,15 @@ import { seedFastRandom } from './HorseEval.js';
 import { buildTournamentMState } from './HorseTournamentPreflop.js';
 import { calculateContestablePot } from './PokerEngine.js';
 import type { SeatPlayer } from '../types.js';
-import TEMPLATE from './ABluffRaiseNeedsSomeoneWhoCanFold.fixture.json';
-import FIXTURE from './ACommittedStackIsNotFoldedAtAPrice.fixture.json';
+import { readFileSync } from 'node:fs';
+
+// Test data, read from disk rather than imported: a non-test module that
+// imports JSON must be listed in tsconfig.emit.json (engine-build-resource-proof),
+// and these fixtures are not runtime resources.
+const readFixture = (name: string): any =>
+  JSON.parse(readFileSync(new URL(name, import.meta.url), 'utf8'));
+const TEMPLATE = readFixture('./ABluffRaiseNeedsSomeoneWhoCanFold.fixture.json');
+const FIXTURE = readFixture('./ACommittedStackIsNotFoldedAtAPrice.fixture.json');
 
 export interface Spot {
   name: string;
