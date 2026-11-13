@@ -161,6 +161,11 @@ describe('every path obeys it: no waiver, no widening', () => {
     const stopLoss = rotator.indexOf("if (verdict === 'stop_loss') {");
     expect(stopLoss).toBeGreaterThan(0);
     expect(stopLoss).toBeLessThan(rotator.indexOf('if (holdsFull || shiftChangedHere) p = 0;'));
+    // A horse back on duty forgets any earlier wait, so a later shift change
+    // gets its own full grace.
+    expect(rotator).toMatch(
+      /if \(!offDuty\) this\.offDutyPersonHoldSince\.delete\(`\$\{tableId\}:\$\{uid\}`\);\s*if \(!benched &&/
+    );
     // The grace is remembered per seat and pruned to the seats that exist.
     expect(rotator).toMatch(/private offDutyPersonHoldSince = new Map<string, number>\(\);/);
     expect(rotator).toMatch(

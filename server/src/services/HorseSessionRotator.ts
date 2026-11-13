@@ -1374,6 +1374,8 @@ export class HorseSessionRotator {
             ? offDutyReason(uid, dutyBook?.states.get(uid), dutyNowMs, dutyWeekday, dutyToday)
             : null;
         const offDuty = dutyReason !== null;
+        // Back on duty (or never off it): any earlier wait for a person is over.
+        if (!offDuty) this.offDutyPersonHoldSince.delete(`${tableId}:${uid}`);
         if (!benched && !offPlo && !offGame && !restrictedCashGame && !outsideCashPlan && !offDuty)
           continue;
         /* Going home at the end of a shift is the ordinary leave: a horse that
