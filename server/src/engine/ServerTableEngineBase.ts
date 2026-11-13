@@ -1,3 +1,4 @@
+import type { HorseVpipDecisionInputs } from './HorsePublicActionNode.js';
 import {
   raiseEngineAlert,
   resolveEngineAlert,
@@ -11389,6 +11390,20 @@ export abstract class ServerTableEngineBase {
    * with no rule, and after a failed read - the brain then plays its prior.
    */
   protected nitStatus: Map<string, NitSeatStatus> = new Map();
+
+  /** The three floor inputs handed to a Horse decision for `userId`, and
+   * written beside that decision's stored public node. One source for both,
+   * so what a replay reads is what the decision read. `nitStatus` only
+   * changes at a hand boundary, so the values are the same when the action is
+   * accepted as when it was decided. */
+  protected horseVpipDecisionInputs(userId: string): HorseVpipDecisionInputs {
+    const row = this.nitStatus.get(userId);
+    return {
+      vpipFloor: this.vpipFloor(),
+      vpipWindowHands: row?.window ?? Number(this.tableInfo?.maintain_hands ?? 10),
+      ownVpip: row ? { hands: row.hands, vpip: row.vpip } : undefined,
+    };
+  }
 
   /** The floor a seat at this table must keep, percent; 0 when there is none. */
   protected vpipFloor(): number {

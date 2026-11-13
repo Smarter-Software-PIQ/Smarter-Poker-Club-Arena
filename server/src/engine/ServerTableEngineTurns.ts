@@ -4383,14 +4383,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       // under its window/grace policy, horses included (10.5). The brain
       // gets the floor, window and ITS OWN judged figure - the same numbers the
       // eviction reads - and widens toward the floor like a regular would.
-      vpipFloor: this.vpipFloor(),
-      vpipWindowHands:
-        this.nitStatus.get(authoritativePlayer.user_id)?.window ??
-        Number(this.tableInfo?.maintain_hands ?? 10),
-      ownVpip: (() => {
-        const row = this.nitStatus.get(authoritativePlayer.user_id);
-        return row ? { hands: row.hands, vpip: row.vpip } : undefined;
-      })(),
+      ...this.horseVpipDecisionInputs(authoritativePlayer.user_id),
       // V18 / V87.1 STRADDLE (2026-08-26, hardened 2026-11-11): straddle posts
       // are not ActionRecords, so report whether a straddle was actually posted
       // on THIS hand (plus its exact posted amount) rather than merely whether

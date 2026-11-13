@@ -165,8 +165,11 @@ describe('the wiring', () => {
   });
 
   it("the engine hands the brain the floor and the seat's own judged figure", () => {
-    expect(TURNS).toMatch(/vpipFloor: this\.vpipFloor\(\),/);
-    expect(TURNS).toMatch(/this\.nitStatus\.get\(authoritativePlayer\.user_id\)/);
+    // One helper feeds both the decision and that decision's stored public
+    // node (PLO6-AUDIT-012), so a replay reads what the brain read.
+    expect(TURNS).toMatch(/\.\.\.this\.horseVpipDecisionInputs\(authoritativePlayer\.user_id\),/);
+    expect(BASE).toMatch(/vpipFloor: this\.vpipFloor\(\),/);
+    expect(BASE).toMatch(/const row = this\.nitStatus\.get\(userId\);/);
   });
 
   it('the judged figures are read beside the eviction, from the same rows', () => {
