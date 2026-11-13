@@ -163,6 +163,33 @@ describe('omahaTournamentFirstIn: the replacement for a fold', () => {
     expect(omahaTournamentFirstIn({ ...bb, percentile: 0.9, limpers: 1 })).toBeNull();
   });
 
+  it('a three-handed winner-take-all big blind closing against one raise calls its top 75 percent', () => {
+    const close = {
+      ...base,
+      position: 'bb' as const,
+      tableSize: 3,
+      playersLeft: 3,
+      paidPlacesLeft: 1,
+      raises: 1,
+      toCall: 4,
+      stack: 36,
+      pot: 8,
+    };
+    expect(omahaTournamentFirstIn({ ...close, percentile: 0.26 })).toEqual({ a: 'call' });
+    expect(omahaTournamentFirstIn({ ...close, percentile: 0.24 })).toBeNull();
+    // Pay jumps, a caller already in, or a dear price keep the fold.
+    expect(omahaTournamentFirstIn({ ...close, paidPlacesLeft: 3, percentile: 0.9 })).toBeNull();
+    expect(omahaTournamentFirstIn({ ...close, callers: 1, percentile: 0.9 })).toBeNull();
+    expect(omahaTournamentFirstIn({ ...close, toCall: 20, pot: 12, percentile: 0.9 })).toBeNull();
+    // Off: the measured first stage exactly.
+    expect(
+      omahaTournamentFirstIn(
+        { ...close, percentile: 0.9 },
+        { ...OMAHA_TOURNAMENT_FIRST_IN, bigBlindClosingShare: 0 }
+      )
+    ).toBeNull();
+  });
+
   it('publishes the measured shares and limits', () => {
     expect(OMAHA_TOURNAMENT_FIRST_IN).toEqual({
       headsUpShare: 1,
@@ -171,6 +198,7 @@ describe('omahaTournamentFirstIn: the replacement for a fold', () => {
       maxTableSize: 3,
       bigBlindDefendShare: 0.75,
       bigBlindMaxPrice: 0.5,
+      bigBlindClosingShare: 0.75,
     });
   });
 });
