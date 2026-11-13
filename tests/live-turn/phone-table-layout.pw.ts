@@ -656,7 +656,14 @@ async function measure(page: Page) {
         seatBottom = Math.max(seatBottom, bottom);
       }
     }
-    const avatars: Array<Box & { hero: boolean; paint: { width: number; height: number } }> = [];
+    const avatars: Array<
+      Box & {
+        hero: boolean;
+        paint: { width: number; height: number };
+        scale: string;
+        photo: boolean;
+      }
+    > = [];
     for (const w of wrappers) {
       const img = w.querySelector<HTMLImageElement>('.seat__avatar-img');
       const disc = w.querySelector('.seat__avatar');
@@ -665,6 +672,10 @@ async function measure(page: Page) {
         hero: w.classList.contains('seat-wrapper--hero'),
         ...box(disc),
         paint: await painted(img, disc),
+        scale: (disc as HTMLElement).style.getPropertyValue('--sp-mobile-art-scale') || '1',
+        // A photo or initials disc is clipped to its circle; character art
+        // rises out of it, so their painted heights differ at one size.
+        photo: !disc.classList.contains('seat__avatar--bust'),
       });
     }
     const prev = document.querySelector('.prev-hand-card-wrapper');
@@ -778,8 +789,9 @@ for (const s of SCENARIOS) {
         expect(m.prev, 'the Previous Hand button is shown').not.toBeNull();
         expect(m.prev!.bottom).toBeLessThanOrEqual(rowTop);
         // 3d. The hero's avatar is as large as every other avatar: its circle
-        // and its painted portrait are never the smaller one. (A portrait
-        // with transparent margins in a full circle reads small, so both.)
+        // is never the smaller one and its portrait takes the table's one
+        // size. (A portrait with transparent margins in a full circle reads
+        // small, so like art is also compared by its painted height.)
         const hero = m.avatars.find((a) => a.hero)!;
         const others = m.avatars.filter((a) => !a.hero);
         expect(hero, 'the hero avatar is drawn').toBeTruthy();
@@ -788,8 +800,16 @@ for (const s of SCENARIOS) {
           expect(hero.width, 'hero circle vs an opponent circle').toBeGreaterThanOrEqual(
             o.width - 1
           );
+          // Dan 2026-11-13: every portrait on the table, the hero's included,
+          // is the same size.
+          // Character art all takes one size; a photo or initials disc is its
+          // circle and never grows, and a photo hero caps the art's height.
+          // At one size two artworks' painted heights differ only by their own
+          // drawing (a few px of transparent margin), never by a smaller size.
+          if (!hero.photo && !o.photo)
+            expect(hero.scale, 'hero portrait size vs an opponent portrait size').toBe(o.scale);
           expect(hero.paint.height, 'hero portrait vs an opponent portrait').toBeGreaterThanOrEqual(
-            o.paint.height - 1
+            o.paint.height - Math.max(2, o.paint.height * 0.02)
           );
         }
         // 6. The notch band is cleared in DEVICE px, at the table's scale.
