@@ -169,6 +169,29 @@ describe('the worker inbox feeds the holder', () => {
     expect(w.states().styleFoldBluff).toBe('off');
   });
 
+  it('a wall clock that stepped back never lengthens a reading: the age clamps at zero', () => {
+    const w = workerRig();
+    // the message claims a read time one hour in the worker's future
+    w.inbox.receive({ ...ok(1, { styleFoldBluff: 'on' }), readAtEpochMs: w.wall() + 3_600_000 });
+    expect(w.states().styleFoldBluff).toBe('on');
+    w.advance(STYLE_SWITCH_STALE_MS + 1);
+    expect(w.states().styleFoldBluff).toBe('off');
+  });
+
+  it('a worker that has only just started accepts a fresh reading (its monotonic clock is near zero)', () => {
+    let now = 5;
+    const notes: string[] = [];
+    const inbox = createStyleSwitchWorkerInbox(
+      () => now,
+      () => WALL + 20_000
+    );
+    const holder = new StyleSwitchHolder(inbox.source, (f) => notes.push(f));
+    inbox.receive(ok(1, { styleFoldBluff: 'shadow' }));
+    expect(holder.refresh(now).styleFoldBluff).toBe('shadow');
+    now += STYLE_SWITCH_STALE_MS - 20_000 + 1;
+    expect(holder.refresh(now).styleFoldBluff).toBe('off');
+  });
+
   it('an invalid envelope does not let an older delivery back in', () => {
     const w = workerRig();
     w.inbox.receive(ok(5, {}));
@@ -329,6 +352,13 @@ describe('the wiring and the migration agree with the engine', () => {
     const worker = read('worker.ts');
     expect(worker).toContain('new StyleSwitchHolder(styleSwitchInbox.source');
     expect(worker).toContain('if (styleSwitchInbox.receive(message)) return;');
+    const runtime = read('workerRuntime.ts');
+    // both looks refresh on the worker's monotonic clock; neither reads a state without the staleness cut
+    expect(runtime).toContain('const styleStates = this.styleSwitch.refresh(performance.now());');
+    expect(runtime).toContain(
+      'const deepStyleStates = this.styleSwitch.refresh(performance.now());'
+    );
+    expect(runtime).not.toContain('this.styleSwitch.current()');
     const lane = read('lane.ts');
     expect(lane).toContain('read: options.styleSwitchRead ?? readStyleSwitchFromDatabase');
     expect(lane).toContain('broadcast: (message) => singleton?.broadcastStyleSwitch(message)');
@@ -360,6 +390,15 @@ describe('the wiring and the migration agree with the engine', () => {
       'REVOKE ALL ON FUNCTION public.fn_ca_horse_style_switch_set(text, text, text, text) FROM PUBLIC, anon, authenticated;'
     );
     expect(code).not.toMatch(/GRANT[^;]*TO (anon|authenticated|PUBLIC)/i);
+    expect(code).toContain(
+      'REVOKE ALL ON TABLE public.ca_horse_style_switch FROM PUBLIC, anon, authenticated, service_role;'
+    );
+    expect(code).toContain(
+      'REVOKE ALL ON TABLE public.ca_horse_style_switch_audit FROM PUBLIC, anon, authenticated, service_role;'
+    );
+    expect(code).toContain(
+      "RAISE EXCEPTION 'service_role can write the style switch tables directly'"
+    );
     expect(code).not.toMatch(
       /GRANT\s+(?!SELECT ON TABLE|EXECUTE ON FUNCTION)[^;]*TO service_role/i
     );

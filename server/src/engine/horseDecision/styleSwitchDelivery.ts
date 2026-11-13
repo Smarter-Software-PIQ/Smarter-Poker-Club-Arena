@@ -16,8 +16,8 @@
  *   and the holder turns every option off (strict staleness);
  * - a message that is not exactly the documented shape: invalid, every option off.
  *
- * A configuration is re-delivered on every read even when unchanged, because the holder measures freshness from
- * the moment a worker received it. No acknowledgement is needed: an undelivered message is the stale case.
+ * A configuration is re-delivered on every read even when unchanged, because a reading only stays in force while
+ * it is fresh. No acknowledgement is needed: an undelivered message is the stale case.
  *
  * FRESHNESS IS MEASURED FROM THE DATABASE READ, not from the moment a worker got round to the message (review
  * 72615f60 L1): each message carries the main thread's wall-clock read time, the worker subtracts the age the
@@ -146,6 +146,8 @@ export function createStyleSwitchDelivery(deps: StyleSwitchDeliveryDeps): {
     if (inFlight || stopped) return;
     inFlight = true;
     let deadline: ReturnType<typeof setTimeout> | null = null;
+    // stamped BEFORE the read (review 06968005 N1): the reading is at least this old, never younger
+    const readAt = now();
     try {
       const config = await Promise.race([
         deps.read(),
@@ -161,7 +163,7 @@ export function createStyleSwitchDelivery(deps: StyleSwitchDeliveryDeps): {
       if (failures > 0)
         warn(`[HorseStyleSwitch] the style switch reads again after ${failures} failed read(s)`);
       failures = 0;
-      post({ type: 'STYLE_SWITCH_STATE', seq: ++seq, status: 'ok', readAtEpochMs: now(), config });
+      post({ type: 'STYLE_SWITCH_STATE', seq: ++seq, status: 'ok', readAtEpochMs: readAt, config });
     } catch (error) {
       if (stopped) return;
       failures += 1;

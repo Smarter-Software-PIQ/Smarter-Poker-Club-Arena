@@ -42,6 +42,8 @@ ALTER TABLE public.ca_horse_style_switch_audit ENABLE ROW LEVEL SECURITY;
 -- SELECT only, to inspect the rows and the audit trail; every write goes through fn_ca_horse_style_switch_set.
 REVOKE ALL ON TABLE public.ca_horse_style_switch FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.ca_horse_style_switch_audit FROM PUBLIC, anon, authenticated, service_role;
+-- The audit id sequence is used only by the definer function (as its owner): nobody else may move it.
+REVOKE ALL ON SEQUENCE public.ca_horse_style_switch_audit_id_seq FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON TABLE public.ca_horse_style_switch TO service_role;
 GRANT SELECT ON TABLE public.ca_horse_style_switch_audit TO service_role;
 
@@ -126,8 +128,11 @@ BEGIN
     RAISE EXCEPTION 'a browser role can reach the style switch';
   END IF;
   -- every write goes through fn_ca_horse_style_switch_set, so the audit trail cannot be bypassed or erased
-  IF has_table_privilege('service_role', 'public.ca_horse_style_switch', 'INSERT, UPDATE, DELETE, TRUNCATE')
-     OR has_table_privilege('service_role', 'public.ca_horse_style_switch_audit', 'INSERT, UPDATE, DELETE, TRUNCATE') THEN
+  IF has_table_privilege('service_role', 'public.ca_horse_style_switch', 'INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
+     OR has_table_privilege('service_role', 'public.ca_horse_style_switch_audit', 'INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
+     OR has_sequence_privilege('service_role', 'public.ca_horse_style_switch_audit_id_seq', 'USAGE, SELECT, UPDATE')
+     OR has_sequence_privilege('anon', 'public.ca_horse_style_switch_audit_id_seq', 'USAGE, SELECT, UPDATE')
+     OR has_sequence_privilege('authenticated', 'public.ca_horse_style_switch_audit_id_seq', 'USAGE, SELECT, UPDATE') THEN
     RAISE EXCEPTION 'service_role can write the style switch tables directly';
   END IF;
 END

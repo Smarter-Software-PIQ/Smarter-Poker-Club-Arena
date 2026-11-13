@@ -106,7 +106,7 @@ export type StyleSwitchReading =
 /** The source is asked with the holder's clock, so a source that serves a stored value can stamp it. */
 export type StyleSwitchSource = (nowMs: number) => StyleSwitchReading;
 
-/** The production source until the configuration table lands (design note): nothing on file, the default holds. */
+/** Nothing on file: the default holds. Production workers use the delivered source (styleSwitchDelivery.ts). */
 export const ABSENT_STYLE_SWITCH_SOURCE: StyleSwitchSource = () => ({ kind: 'absent' });
 
 /**
