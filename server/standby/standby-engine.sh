@@ -104,7 +104,7 @@ cmd_restore() {
   # No production cron rows are exported or scheduled on the isolated copy.
   psql_db -qc 'CREATE EXTENSION IF NOT EXISTS pg_cron' >/dev/null || return 1
   # Production's own roles, so its grants restore exactly (no login, no password).
-  for role in ca_ledger_refusal_recorder engine_lightning_fold engine_lightning_lane engine_lease_heartbeat supabase_backup_admin ca_record_gateway; do
+  for role in ca_ledger_refusal_recorder engine_lightning_fold engine_lightning_lane engine_lease_heartbeat supabase_backup_admin ca_record_gateway daily_content_reporter; do
     psql_db -qc "DO \$\$ BEGIN CREATE ROLE $role NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END \$\$" >/dev/null || return 1
   done
   docker cp "$dump" "$DB_CONTAINER:/tmp/schema.dump" || return 1

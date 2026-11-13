@@ -318,7 +318,9 @@ it('shows each missed-engine prerequisite before the successor and ends every pr
   expect(at('2026-11-12T22:00:00Z')).toBe('2026-11-12-rebuy-invariant-db-2220z');
   expect(at('2026-11-13T01:59:59Z')).toBe('2026-11-12-rebuy-invariant-db-2220z');
   expect(at('2026-11-13T02:00:00Z')).toBeUndefined();
-  expect(at('2026-11-13T03:00:00Z')).toBe('2026-11-13-rebuy-invariant-db-0220z');
+  expect(at('2026-11-13T03:00:00Z')).toBeUndefined();
+  expect(at('2026-11-13T04:00:00Z')).toBeUndefined();
+  expect(at('2026-11-13T04:15:00Z')).toBe('2026-11-13-rebuy-invariant-db-0220z');
   expect(at('2026-11-13T05:59:59Z')).toBe('2026-11-13-rebuy-invariant-db-0220z');
   expect(at('2026-11-13T06:00:00Z')).toBeUndefined();
 });
@@ -345,14 +347,28 @@ it('gives the corrected rebuy window its own primary lead after the consumed win
   const id = '2026-11-13-rebuy-invariant-db-0220z';
   const own = BOOKED_MAINTENANCE_NOTICES.find((n) => n.id === id)!;
   expect(own.kind).toBe('database');
-  expect(own.noticeAtMs).toBe(Date.parse('2026-11-13T03:00:00Z'));
-  expect(own.notBeforeMs).toBe(Date.parse('2026-11-13T03:20:00Z'));
+  expect(own.noticeAtMs).toBe(Date.parse('2026-11-13T04:15:00Z'));
+  expect(own.notBeforeMs).toBe(Date.parse('2026-11-13T04:35:00Z'));
   expect(own.notBeforeMs - own.noticeAtMs!).toBe(20 * 60 * 1000);
   expect(own.notAfterMs).toBe(Date.parse('2026-11-13T06:00:00Z'));
   expect(bookedMaintenanceNotice(own.noticeAtMs! - 1)).toBeNull();
   expect(bookedMaintenanceNotice(own.noticeAtMs!)?.id).toBe(id);
   expect(bookedMaintenanceNoticeText(own, own.noticeAtMs!)).toBe(
-    'Short Maintenance Break Possible Between 9:20 PM And Tomorrow 12:00 AM Chicago Time. Play Pauses For About Five Minutes.'
+    'Short Maintenance Break Possible Between 10:35 PM And Tomorrow 12:00 AM Chicago Time. Play Pauses For About Five Minutes.'
   );
   expect(bookedMaintenanceNotice(own.notAfterMs)).toBeNull();
+});
+
+it('publishes the owner-ordered :55 break cutover promise with its lead and fixed expiry', () => {
+  const own = BOOKED_MAINTENANCE_NOTICES.find(
+    (n) => n.id === '2026-11-13-owner-now-55-break-engine-0338z'
+  );
+  expect(own?.noticeAtMs).toBe(Date.parse('2026-11-13T03:15:00Z'));
+  expect(own?.notBeforeMs).toBe(Date.parse('2026-11-13T03:38:00Z'));
+  expect(own?.notAfterMs).toBe(Date.parse('2026-11-13T04:00:00Z'));
+  expect((own?.notBeforeMs ?? 0) - (own?.noticeAtMs ?? 0)).toBeGreaterThanOrEqual(20 * 60_000);
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-13T03:14:59.999Z'))).toBeNull();
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-13T03:15:00Z'))?.id).toBe(own?.id);
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-13T03:59:59.999Z'))?.id).toBe(own?.id);
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-13T04:00:00Z'))).toBeNull();
 });

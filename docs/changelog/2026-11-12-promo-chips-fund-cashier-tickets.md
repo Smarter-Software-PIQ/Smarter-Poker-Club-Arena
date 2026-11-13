@@ -75,3 +75,28 @@ Found by a line by line review of the shipped feature:
 
 Left as is: a cancelled promo ticket still counts toward the downline's 50 for
 the window, the same gross rule the owner set for promo sends on November 11.
+
+## Report Readers
+
+Found by audit: promo given as a ticket was missing from every promo total,
+because the readers looked for promo by ledger category (`promo_send`, `promo`)
+and a promo ticket journals as `ticket_issue`, promo wallet to escrow.
+Migration `20261113010721` patches four readers from their live definitions:
+
+- `fn_ca_weekly_revenue_digest`: Player Promo And Leaderboard counts the leg.
+- `fn_sp_daily_metrics_compute`: `promo_and_leaderboard` counts the leg.
+- `fn_sp_digest_spins_spend`: the daily promo spend list carries the leg and
+  names the ticket holder as its recipient.
+- `fn_cashier_statement_rows`: the Ticket wallet filter also returns a promo
+  ticket receipt. The receipt keeps wallet `promo`, so the Promo filter still
+  shows it and no existing row changes.
+
+The digests count promo gross, so a cancelled promo ticket is counted gross
+too, the same as a promo send that is later claimed back. Proved on PostgreSQL
+16 against the byte exact live definitions: a 30 promo send, a 20 promo ticket
+and a cancelled 10 promo ticket read 30.00 before and 60.00 after in both
+digests, and an ordinary 40 player wallet ticket reads the same before and
+after everywhere.
+
+Left as is: the refund leg of a cancelled ticket (escrow to promo wallet)
+still lists under the statement's Cashout wallet, as every escrow leg does.
