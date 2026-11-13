@@ -4715,7 +4715,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'committed_stack_priced_in_seen',
     'HorsePreflop via HorseLogic (committedStackPricedIn)',
-    'default-off committedStackPricedIn: a tournament multiway all-in fold of a committed or token-priced stack became a call because the priced-in guard was no longer switched off for that branch; rare by nature (natural opportunity a few times a day at most), so an occurrence counter named *_seen',
+    'default-off committedStackPricedIn: a tournament multiway all-in fold of a committed or token-priced stack became a call because the priced-in guard was no longer switched off for that branch; an occurrence counter with no floor, named *_seen (the study spots are rare, but the 2bb-behind case is common at short tournament stacks: the 4bb league card diverged in 2,405 of 6,000 pairs)',
     'CommitPrice'
   ),
   receipt(
