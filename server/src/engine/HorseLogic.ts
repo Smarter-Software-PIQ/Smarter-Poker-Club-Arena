@@ -339,6 +339,7 @@ import {
   preflopEquity,
   holdemPreflopScore,
   omahaPreflopStrength,
+  omahaPreflopPercentile,
   omahaElitePreflopStrength,
   multiwayValueBar,
   shortDeckPreflopStrength,
@@ -2469,6 +2470,10 @@ export interface HorseDecideOpts {
   v67RiverBetRaisedOnePair?: boolean;
   /** V88: a cash Omaha made hand that called a wager on the previous street and now needs its stack at a third of the pot or better does not fold a blank; explicit off arm retained. */
   v88CommitmentHonored?: boolean;
+  /** Omaha high tournaments: short-handed first-in and the heads-up big blind's reply read the hand's true Omaha percentile and replace the engine's fold (HorseOmahaTournamentFirstIn.ts, Dan 2026-11-12). Default on; false keeps the earlier folds for historical corpora; an object is a league arm's replacement shares. */
+  omahaTournamentFirstIn?:
+    | boolean
+    | import('./HorseOmahaTournamentFirstIn.js').OmahaTournamentFirstInParams;
   /** League-only override of the V67 extra raise shade; production never
    * sets it. */
   v67RiverRaiseShadeOverride?: number;
@@ -8794,6 +8799,22 @@ export class HorseLogic {
       return equity === null ? undefined : { equity };
     })();
     const intentCtx7: Parameters<typeof decidePreflopV7>[0] = {
+      // V90 needs the table engine's explicit mode. The legacy "big blind of
+      // ten or more means a tournament" guess for callers that pass no mode
+      // would make the same seat play differently by stake alone.
+      ...(vi.isOmaha &&
+      !vi.isHiLo &&
+      gs.gameMode === 'tournament' &&
+      opts.omahaTournamentFirstIn !== false
+        ? {
+            omahaTournamentFirstIn: {
+              percentile: omahaPreflopPercentile(player.cards, false),
+              ...(typeof opts.omahaTournamentFirstIn === 'object'
+                ? { params: opts.omahaTournamentFirstIn }
+                : {}),
+            },
+          }
+        : {}),
       ...(huBbPrice ? { huBbPrice } : {}),
       ...(gtoOpen70 ? { gtoOpen: gtoOpen70 } : {}),
       ...(gtoDefend72 ? { gtoDefend: gtoDefend72 } : {}),
@@ -9025,6 +9046,7 @@ export class HorseLogic {
             else if (layer === 'v60_cash_pressure_opener_vs_three_bet')
               noteFire('v60_cash_pressure_opener_vs_three_bet');
             else if (layer === 'v87_deep_dive_discipline') noteFire('v87_deep_dive_discipline');
+            else if (layer === 'omaha_tournament_first_in') noteFire('omaha_tournament_first_in');
             else if (layer === 'bluff_raise_refused_no_fold_equity_seen')
               noteFire('bluff_raise_refused_no_fold_equity_seen');
           }

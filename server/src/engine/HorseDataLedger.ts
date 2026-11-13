@@ -863,6 +863,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V88'
   ),
   flag(
+    'omahaTournamentFirstIn',
+    '2026-11-12 Omaha high tournaments: heads-up small blind, small blind against the big blind alone, first-in from a non-blind seat short-handed, and the heads-up big blind facing one raise read the hand true Omaha percentile and replace the preflop engine fold only (HorseOmahaTournamentFirstIn.ts); false keeps the earlier folds for historical corpora; an object replaces the shares for league arms',
+    'V90'
+  ),
+  flag(
     'tokenCallPrice',
     '2026-11-12 cash Omaha high committed-call bar: below a price of 0.15 the additive premiums (margin, commitment bar, scare margin, shades) shrink in proportion to the price, and under 0.01 a made hand calls; unchanged at 0.15 or more (PLO6-AUDIT-010, production hand 58750626)',
     'V89'
@@ -3186,6 +3191,14 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic (V66) via HorseEval',
     'Hold em flop/turn raiser over hero own wager sampled from the raise stratum',
     'V66',
+    'decide',
+    0.001
+  ),
+  receipt(
+    'omaha_tournament_first_in',
+    'HorsePreflop (V90)',
+    'Omaha high tournament: a short-handed first-in or heads-up big blind fold was replaced from the hand true Omaha percentile',
+    'V90',
     'decide',
     0.001
   ),

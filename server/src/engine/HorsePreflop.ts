@@ -51,6 +51,10 @@ import { cashNlhThreeBetRaiseTo } from './HorseCashThreeBetSize.js';
 import { huBbRequiredEquity } from './HorseHuBbDefence.js';
 import { limpReraiseIsoBar } from './HorseLimpReraiseRead.js';
 import {
+  omahaTournamentFirstIn,
+  type OmahaTournamentFirstInParams,
+} from './HorseOmahaTournamentFirstIn.js';
+import {
   v87OmahaCallBarBounds,
   v87OmahaColdCallTighten,
   v87PricedInMinStrength,
@@ -134,7 +138,8 @@ export type PreflopLayerReceipt =
   | 'v60_cash_pressure_facing_open_superseded'
   | 'v60_cash_pressure_opener_vs_three_bet'
   | 'v87_deep_dive_discipline'
-  | 'bluff_raise_refused_no_fold_equity_seen';
+  | 'bluff_raise_refused_no_fold_equity_seen'
+  | 'omaha_tournament_first_in';
 
 /**
  * Dan 2026-11-06 (PLO5 1/2 Madness, hand 55704472): "I JUST WATCHED NOODLE NOT
@@ -404,6 +409,9 @@ export interface PreflopCtx {
   cashAggression?: boolean;
   /** Receipt callback (#8694): the caller fires the V60 cash pressure receipt
    *  named here when that layer moves a bar. This module has no telemetry. */
+  /** Omaha high tournament: the hand's percentile among Omaha hands and,
+   *  for league arms only, replacement shares. Undefined = the rule is off. */
+  omahaTournamentFirstIn?: { percentile: number; params?: OmahaTournamentFirstInParams };
   noteLayer?: (layer: PreflopLayerReceipt) => void;
   noteAuthority?: (event: PreflopAuthorityEvent) => void;
   /** Short deck keeps its own calibration; the cash pressure layer skips it. */
@@ -962,6 +970,42 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
     return { a: 'fold' };
   }
   const out = completePreflopCommitment(decidePreflopV7Core(ctx), ctx);
+  // ═══ OMAHA TOURNAMENT SHORT-HANDED FIRST-IN (Dan 2026-11-12) ═══
+  // The short-handed first-in bars read the Omaha strength value on the
+  // Hold'em scale and fold about four hands in five; the table walks the big
+  // blind. HorseOmahaTournamentFirstIn.ts reads the hand's true percentile
+  // and replaces the FOLD, and only the fold, in the three first-in spots
+  // and the heads-up big blind's reply.
+  if (
+    out.a === 'fold' &&
+    ctx.omahaTournamentFirstIn !== undefined &&
+    ctx.isOmaha &&
+    !ctx.omahaHiLo &&
+    ctx.mode === 'tournament'
+  ) {
+    const widened = omahaTournamentFirstIn(
+      {
+        percentile: ctx.omahaTournamentFirstIn.percentile,
+        position: ctx.position,
+        liveOpponents: ctx.oppsLeft,
+        tableSize: ctx.tableSize ?? Math.max(2, ctx.oppsLeft + 1),
+        effectiveStackBB: ctx.effectiveStackBB ?? ctx.stackBB,
+        raises: ctx.raises,
+        limpers: ctx.limpers,
+        callers: ctx.callers,
+        toCall: ctx.toCall,
+        stack: ctx.stack,
+        pot: ctx.pot,
+        bigBlind: ctx.bigBlind,
+        riskPremium: ctx.riskAdd,
+      },
+      ctx.omahaTournamentFirstIn.params
+    );
+    if (widened) {
+      ctx.noteLayer?.('omaha_tournament_first_in');
+      return widened;
+    }
+  }
   if (ctx.v13 === false) return out;
   if (out.a !== 'fold') return out;
   const stack = ctx.stack;
