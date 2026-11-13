@@ -10905,15 +10905,33 @@ export abstract class ServerTableEngineBase {
    * SMALL BLIND. THEY MUST WAIT FOR THE BUTTON TO PASS." Same roster and
    * rotation as getBBSeatIndex, stopping one seat earlier.
    */
-  protected getSBSeatIndex(): number {
+  protected getSBSeatIndex(admitting?: string): number {
     const roster = this.seatedPlayers.filter(
       (p) =>
         p.stack > 0 &&
         (!this.disconnectEngine.isSittingOut(this.tableId, p.user_id) ||
-          this.dealsInWhileSittingOut(p.user_id))
+          this.dealsInWhileSittingOut(p.user_id)) &&
+        this.dealtIfAdmitted(p.user_id, admitting)
     );
     if (roster.length < 2) return -1;
     return this.predictBlindSeats(roster)?.smallBlindSeat ?? -1;
+  }
+
+  /**
+   * THE HAND AS IT WOULD BE DEALT WITH ONE WAITING PLAYER ADMITTED
+   * (2026-11-13, HU-EXE-002 review R1).
+   *
+   * The post-to-enter gate asks "would THIS player be the small blind or the
+   * button". Answered over every seated player it counted other waiting
+   * players, who will not be dealt: with two newcomers side by side the first
+   * "held" the predicted small blind seat, the second was let through, and at
+   * the deal the second one WAS the small blind while an incumbent posted a
+   * blind twice running. With `admitting` set, getSBSeatIndex and
+   * getButtonSeatIndex leave out every waiting player except that one, which
+   * is the roster the deal will use. Without it they keep the whole roster.
+   */
+  protected dealtIfAdmitted(userId: string, admitting?: string): boolean {
+    return admitting === undefined || userId === admitting || !this.waitingForBB.has(userId);
   }
 
   /**
@@ -11065,12 +11083,13 @@ export abstract class ServerTableEngineBase {
    * Used by the dealing loop to hold a brand-new joiner out for one hand when
    * they have sat down in the seat the button is about to reach.
    */
-  protected getButtonSeatIndex(): number {
+  protected getButtonSeatIndex(admitting?: string): number {
     const roster = this.seatedPlayers.filter(
       (p) =>
         p.stack > 0 &&
         (!this.disconnectEngine.isSittingOut(this.tableId, p.user_id) ||
-          this.dealsInWhileSittingOut(p.user_id))
+          this.dealsInWhileSittingOut(p.user_id)) &&
+        this.dealtIfAdmitted(p.user_id, admitting)
     );
     if (roster.length < 2) return -1;
     return this.predictButtonSeat(roster);
@@ -11103,7 +11122,24 @@ export abstract class ServerTableEngineBase {
         const entering = roster.find(
           (p) => p.seat_number === nextBigBlind && this.waitingForBB.has(p.user_id)
         );
-        return this.predictBlindSeats(entering ? [...playing, entering] : playing)?.bigBlind ?? -1;
+        if (entering) {
+          // A waiter is not released onto a hand where their arrival would put
+          // a player who is already admitted to post, and has never been dealt
+          // here, on the small blind or the button (2026-11-13, HU-EXE-002
+          // review R1). They wait one more hand; that player is a veteran then.
+          const withEntrant = this.predictBlindSeats([...playing, entering]);
+          const displaced =
+            withEntrant !== null &&
+            playing.some(
+              (p) =>
+                this.postingBBToEnter.has(p.user_id) &&
+                !this.dealtInUserIds.has(p.user_id) &&
+                (p.seat_number === withEntrant.smallBlindSeat ||
+                  p.seat_number === withEntrant.button)
+            );
+          if (!displaced) return withEntrant?.bigBlind ?? -1;
+        }
+        return this.predictBlindSeats(playing)?.bigBlind ?? -1;
       }
     }
     return this.predictBlindSeats(roster)?.bigBlind ?? -1;
