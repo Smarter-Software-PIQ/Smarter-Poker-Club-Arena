@@ -5,6 +5,12 @@
  * on 8d Tc 7d, bet 29 and 89 and was called twice by the same two players,
  * then moved all in for 225 into 397 when the Kd completed the flush. One of
  * the two callers held a flush. The public state of that river is the case.
+ *
+ * Scope, measured 2026-11-12: the rule holds for two callers and a possible
+ * flush only. A heads-up form and a paired-board form were built and
+ * withdrawn (PR #10642): in 300,000 paired cash self-play hands the heads-up
+ * check cost 1.38 big blinds per fired hand (standard error 0.41), and the
+ * paired-board form showed no gain. The cases below pin that scope.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { omahaVariantSpot } from '../benchmark/OmahaVariantPolicyEvidence.js';
@@ -74,6 +80,11 @@ const TURN_CHECKED: ActionRecord[] = [
 const RIVER: ActionRecord[] = [act(1, 'river', 'check', 0)];
 
 type Spot = {
+  variant?: 'plo4' | 'plo5' | 'plo6' | 'plo8';
+  /** The first caller is all in: still in the hand, no longer a live caller. */
+  firstCallerAllIn?: boolean;
+  heroStack?: number;
+  mode?: 'cash' | 'tournament';
   hole?: string;
   board?: string;
   /** The first caller has left the hand: one opponent remains. */
@@ -92,9 +103,10 @@ const SEATS: Array<[number, number, number, number, boolean]> = [
 ];
 
 function riverSpot(spot: Spot = {}) {
-  const input = omahaVariantSpot('plo8', 'river', 5, 'cash');
-  input.state.gameVariant = 'plo4';
-  input.state.variantRules = horseVariantRulesFor('plo4');
+  const input = omahaVariantSpot('plo8', 'river', 5, spot.mode ?? 'cash');
+  const variant = spot.variant ?? 'plo4';
+  input.state.gameVariant = variant;
+  input.state.variantRules = horseVariantRulesFor(variant);
   const turnCalls = spot.turnChecked ? 0 : 89;
   const players = SEATS.map(([seat, stack, invested, dead, folded], index) => {
     const live = seat <= 3;
@@ -103,18 +115,29 @@ function riverSpot(spot: Spot = {}) {
       seat,
       user_id: seat === 2 ? 'hero' : `v${seat}`,
       username: seat === 2 ? 'Hero' : `V${seat}`,
-      stack: live && spot.turnChecked ? stack + 89 : stack,
+      stack:
+        seat === 1 && spot.firstCallerAllIn
+          ? 0
+          : seat === 2 && spot.heroStack !== undefined
+            ? spot.heroStack
+            : live && spot.turnChecked
+              ? stack + 89
+              : stack,
       bet: 0,
       totalInvested: live ? invested - 89 + turnCalls : invested,
       deadInvested: dead,
       is_folded: folded || (seat === 1 && !!spot.firstCallerFolded),
-      is_all_in: false,
+      is_all_in: seat === 1 && !!spot.firstCallerAllIn,
       cards: [],
     } as SeatPlayer;
   });
   const hero: SeatPlayer = {
     ...players[1],
-    cards: cards(spot.hole ?? 'AsJcJs9s'),
+    // The extra cards make no pair, straight or flush with any board used here.
+    cards: cards(
+      (spot.hole ?? 'AsJcJs9s') +
+        (variant === 'plo4' || variant === 'plo8' ? '' : variant === 'plo5' ? '2s' : '2s4c')
+    ),
   };
   const state = input.state;
   state.players = players;
@@ -133,6 +156,12 @@ function riverSpot(spot: Spot = {}) {
   state.minRaiseTo = 2;
   state.maxRaiseTo = Math.min(hero.stack, state.pot);
   state.legalActions = ['check', 'bet'];
+  if (state.tournament) {
+    state.tournament.stacks = players.map((p) => p.stack + p.totalInvested);
+    state.tournament.stackByUser = Object.fromEntries(
+      players.map((p) => [p.user_id, p.stack + p.totalInvested])
+    );
+  }
   state.actionHistory = [
     ...PREFLOP,
     ...FLOP,
@@ -163,6 +192,9 @@ function run(spot: Spot, seeds = 20) {
   return { actions, fired, wagers: actions.filter((a) => a !== 'check').length };
 }
 
+const PAIRED_RIVER = '8dTc7s3h8h';
+const BLANK_RIVER = '8dTc7s3h2c';
+
 describe('Omaha river: a straight checks to two two-barrel callers when a flush is possible', () => {
   beforeEach(() => {
     enableBrainTelemetry();
@@ -186,8 +218,27 @@ describe('Omaha river: a straight checks to two two-barrel callers when a flush 
     expect(out.fired).toBe(20);
   });
 
+  it('holds in PLO4, PLO5 and PLO6', () => {
+    for (const variant of ['plo4', 'plo5', 'plo6'] as const) {
+      const out = run({ variant }, 8);
+      expect([variant, out.wagers, out.fired]).toEqual([variant, 0, 8]);
+    }
+  });
+
+  it('checks in a tournament as in a cash game', () => {
+    const out = run({ mode: 'tournament' });
+    expect(out.wagers).toBe(0);
+    expect(out.fired).toBe(20);
+  });
+
+  it('checks with a short stack behind as well', () => {
+    const out = run({ heroStack: 40 });
+    expect(out.wagers).toBe(0);
+    expect(out.fired).toBe(20);
+  });
+
   it('keeps betting the straight on a river that completes no flush', () => {
-    const out = run({ board: '8dTc7d3h2c' });
+    const out = run({ board: BLANK_RIVER });
     expect(out.fired).toBe(0);
     expect(out.wagers).toBe(20);
   });
@@ -198,11 +249,25 @@ describe('Omaha river: a straight checks to two two-barrel callers when a flush 
     expect(out.wagers).toBe(20);
   });
 
-  it('does not apply when one of the two callers has left the hand', () => {
+  it('does not apply heads-up: the measured heads-up check lost', () => {
     expect(run({ firstCallerFolded: true }).fired).toBe(0);
+  });
+
+  it('does not apply on a paired board with no flush possible', () => {
+    expect(run({ board: PAIRED_RIVER }).fired).toBe(0);
   });
 
   it('does not apply when the callers called one barrel, not two', () => {
     expect(run({ turnChecked: true }).fired).toBe(0);
+  });
+
+  it('does not apply in Hi-Lo when a low is possible', () => {
+    // 8-7-3 on the flush river: half the pot can go to a low, so this is a
+    // split-pot decision the rule leaves to the Hi-Lo logic.
+    expect(run({ variant: 'plo8' }).fired).toBe(0);
+  });
+
+  it('does not count a caller who is all in as a live two-barrel caller', () => {
+    expect(run({ firstCallerAllIn: true }).fired).toBe(0);
   });
 });
