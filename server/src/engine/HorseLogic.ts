@@ -408,6 +408,7 @@ import {
   preflopEquity,
   holdemPreflopScore,
   omahaPreflopStrength,
+  omahaPreflopPercentile,
   omahaElitePreflopStrength,
   multiwayValueBar,
   shortDeckPreflopStrength,
@@ -2538,6 +2539,14 @@ export interface HorseDecideOpts {
   v67RiverBetRaisedOnePair?: boolean;
   /** V88: a cash Omaha made hand that called a wager on the previous street and now needs its stack at a third of the pot or better does not fold a blank; explicit off arm retained. */
   v88CommitmentHonored?: boolean;
+  /** Omaha high tournaments (HorseOmahaTournamentFirstIn): the small blind
+   *  against the big blind alone, and the heads-up big blind facing one raise,
+   *  replace the engine's fold by the hand's Omaha percentile, at three or
+   *  fewer players dealt and 20 BB or less. Default on; false is the old
+   *  engine; an object is a league arm's parameters. */
+  omahaTournamentFirstIn?:
+    | boolean
+    | import('./HorseOmahaTournamentFirstIn.js').OmahaTournamentFirstInParams;
   /** League-only override of the V67 extra raise shade; production never
    * sets it. */
   v67RiverRaiseShadeOverride?: number;
@@ -2578,10 +2587,11 @@ export interface HorseDecideOpts {
    * (PLO6-AUDIT-005). OPT-IN, default off. The pricing gap is real (the
    * arithmetic treats a call as final), but the rule as built sends the
    * call to a price-blind range bar that folds it, and the value check
-   * does not support that: the folded hands hold 42% to 55% equity at a
-   * price near 38%, and in the study's 54 recorded calls of this class the
-   * call was final 29 times, overcalled 14 and re-raised 11 with the seat
-   * calling off every time, never forfeiting. Read as `=== true`. */
+   * does not support that: the folded hands hold 40% to 55% equity at a
+   * price near 38%. The rule was merged without a value check and nothing
+   * measured since supplies one: against recorded Horse ranges the 54
+   * recorded calls of this class are worth more than folding. Read as
+   * `=== true`. */
   omahaPreflopCallWithActionBehind?: boolean;
   /** A deep Omaha seat's preflop stack-off bar is read without the VPIP
    * floor multiplier (PLO6-AUDIT-004). OPT-IN, default off: the mechanism is
@@ -8210,7 +8220,9 @@ export class HorseLogic {
       const effCall38 = Math.min(toCall, player.stack);
       const maniacPrice38 =
         observedManiacRaiser && (raiserAllIn38 || raises >= 2 || effCall38 >= player.stack * 0.25);
-      // PLO6-AUDIT-005 (2026-11-12): the arithmetic below prices a FINAL
+      // PLO6-AUDIT-005 (2026-11-12), OPT-IN ARM, off unless
+      // opts.omahaPreflopCallWithActionBehind === true (production never sets
+      // it; see the option's comment). The arithmetic below prices a FINAL
       // call against the players already in at this price. An Omaha call of
       // 40% of the stack that leaves chips behind while an opponent still
       // owes a decision to this price is not final: that opponent can raise
@@ -8969,6 +8981,22 @@ export class HorseLogic {
       return equity === null ? undefined : { equity };
     })();
     const intentCtx7: Parameters<typeof decidePreflopV7>[0] = {
+      // V90 needs the table engine's explicit mode. The legacy "big blind of
+      // ten or more means a tournament" guess for callers that pass no mode
+      // would make the same seat play differently by stake alone.
+      ...(vi.isOmaha &&
+      !vi.isHiLo &&
+      gs.gameMode === 'tournament' &&
+      opts.omahaTournamentFirstIn !== false
+        ? {
+            omahaTournamentFirstIn: {
+              percentile: omahaPreflopPercentile(player.cards, false),
+              ...(typeof opts.omahaTournamentFirstIn === 'object'
+                ? { params: opts.omahaTournamentFirstIn }
+                : {}),
+            },
+          }
+        : {}),
       ...(huBbPrice ? { huBbPrice } : {}),
       ...(gtoOpen70 ? { gtoOpen: gtoOpen70 } : {}),
       ...(gtoDefend72 ? { gtoDefend: gtoDefend72 } : {}),
@@ -9039,6 +9067,25 @@ export class HorseLogic {
           : undefined,
       tableSize:
         (opts.v20Mzone ?? true) !== false ? dealtHorseTableSize(gs, player.seat) : undefined,
+      // Players left in the whole tournament, from the TRUSTED context only
+      // (undefined when absent). The Omaha first-in rule acts only at the
+      // final table: off it, the 2026-11-13 bubble evaluation measured a loss.
+      tournamentPlayersLeft: (() => {
+        const tp = trustedTournamentContext(gs)?.playersLeft;
+        return typeof tp === 'number' && Number.isFinite(tp) && tp > 0 ? tp : undefined;
+      })(),
+      // Paid places among the players left (trusted payout curve), undefined
+      // when unknown: three-handed, the Omaha first-in rule acts only when
+      // one place is paid (R4, 2026-11-13: it lost in ICM equity at a
+      // three-handed final table with pay jumps).
+      tournamentPaidPlacesLeft: (() => {
+        const t = trustedTournamentContext(gs);
+        const left = t?.playersLeft;
+        if (!t || !Array.isArray(t.payoutPct) || typeof left !== 'number' || !(left > 0))
+          return undefined;
+        const paid = t.payoutPct.slice(0, left).filter((v) => Number(v) > 0).length;
+        return paid > 0 ? paid : undefined;
+      })(),
       // V21: deep-stack cash stack-off discipline.
       deepDiscipline: (opts.v21Deep ?? true) !== false,
       // V24 price defense, PLO6 CASH half DEFAULT OFF since 2026-10-31: the
@@ -9201,6 +9248,7 @@ export class HorseLogic {
             else if (layer === 'v60_cash_pressure_opener_vs_three_bet')
               noteFire('v60_cash_pressure_opener_vs_three_bet');
             else if (layer === 'v87_deep_dive_discipline') noteFire('v87_deep_dive_discipline');
+            else if (layer === 'omaha_tournament_first_in') noteFire('omaha_tournament_first_in');
             else if (layer === 'bluff_raise_refused_no_fold_equity_seen')
               noteFire('bluff_raise_refused_no_fold_equity_seen');
             else if (layer === 'style_tight_opener_respect_seen')
@@ -9575,7 +9623,7 @@ export class HorseLogic {
     if (ploIcm53 && telemetryOn(opts)) {
       const rng53 = saveFastRandom();
       try {
-        v53IcmOff = decidePreflopV7({ ...intentCtx7, ploIcm: undefined });
+        v53IcmOff = decidePreflopV7({ ...intentCtx7, ploIcm: undefined, noteLayer: undefined });
       } catch {
         v53IcmOff = null;
       } finally {

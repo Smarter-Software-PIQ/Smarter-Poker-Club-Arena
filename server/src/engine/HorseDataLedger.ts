@@ -869,13 +869,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V88'
   ),
   flag(
+    'omahaTournamentFirstIn',
+    '2026-11-13 Omaha high tournaments (engine-declared), at the final table (trusted players left no more than the players dealt; unknown stands aside), heads-up or a three-handed table paying one place, 20 BB or less, not All-In-Or-Fold, not a locked satellite seat: the small blind against the big blind alone plays every hand as the pot-limit maximum raise, and the heads-up big blind calls its top 75 percent against one raise at a price of a half or better, replacing only the engine fold; percentile among Omaha hands, narrowed by the tournament risk premium.',
+    'V90'
+  ),
+  flag(
     'tokenCallPrice',
     '2026-11-12 cash Omaha high committed-call bar: below a price of 0.15 the additive premiums (margin, commitment bar, scare margin, shades) shrink in proportion to the price, and under 0.01 a made hand calls; unchanged at 0.15 or more (PLO6-AUDIT-010, production hand 58750626)',
     'V89'
   ),
   flag(
     'omahaPreflopCallWithActionBehind',
-    'opt-in arm, default off (2026-11-13): Omaha preflop, a call costing 40% of the stack that leaves chips behind while an opponent still owes a decision is sent to the range play, not the final all-in arithmetic (PLO6-AUDIT-005, production hand 58751512). The pricing gap is real but the value check does not support the rule as built: the folded hands hold 42% to 55% equity at a price near 38% and no recorded call of the class was ever forfeited to a re-raise, so production never sets it',
+    'opt-in arm, default off (2026-11-13): Omaha preflop, a call costing 40% of the stack that leaves chips behind while an opponent still owes a decision is sent to the range play, not the final all-in arithmetic (PLO6-AUDIT-005, production hand 58751512). The pricing gap is real but the value check does not support the rule as built: the folded hands hold 40% to 55% equity at a price near 38%, the rule was merged without a value check and nothing measured since supplies one, so production never sets it',
     'V90'
   ),
   flag(
@@ -3344,6 +3349,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V66',
     'decide',
     0.001
+  ),
+  receipt(
+    'omaha_tournament_first_in',
+    'HorsePreflop (V90)',
+    'Omaha high tournament final table: a small blind against the big blind alone, or heads-up big blind, fold was replaced from the hand true Omaha percentile (no rate floor until a live day is measured)',
+    'V90'
   ),
   receipt(
     'v88_commitment_honored',

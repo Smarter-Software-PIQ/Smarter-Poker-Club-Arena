@@ -51,6 +51,10 @@ import { cashNlhThreeBetRaiseTo } from './HorseCashThreeBetSize.js';
 import { huBbRequiredEquity } from './HorseHuBbDefence.js';
 import { limpReraiseIsoBar } from './HorseLimpReraiseRead.js';
 import {
+  omahaTournamentFirstIn,
+  type OmahaTournamentFirstInParams,
+} from './HorseOmahaTournamentFirstIn.js';
+import {
   v87OmahaCallBarBounds,
   v87OmahaColdCallTighten,
   v87PricedInMinStrength,
@@ -135,6 +139,7 @@ export type PreflopLayerReceipt =
   | 'v60_cash_pressure_opener_vs_three_bet'
   | 'v87_deep_dive_discipline'
   | 'bluff_raise_refused_no_fold_equity_seen'
+  | 'omaha_tournament_first_in'
   | 'style_tight_opener_respect_seen'
   | 'style_tight_reraiser_respect_seen';
 
@@ -330,6 +335,10 @@ export interface PreflopCtx {
   /** V20 M-ZONES: players dealt in (for the orbit cost and Harrington's
    *  effective-M table-size scaling). Undefined = layer off. */
   tableSize?: number;
+  /** Players left in the tournament (trusted context), undefined when unknown. */
+  tournamentPlayersLeft?: number;
+  /** Paid places among the players left (trusted payout curve), undefined when unknown. */
+  tournamentPaidPlacesLeft?: number;
   /** V21 DEEP-STACK DISCIPLINE: scale cash 4-bet/5-bet stack-off thresholds
    *  with depth past 120bb. Undefined/false = legacy behavior. */
   deepDiscipline?: boolean;
@@ -421,6 +430,9 @@ export interface PreflopCtx {
   cashActionSizes?: boolean;
   /** Dan 2026-10-24 NLH cash pressure (3-bet and defend wider); undefined = on. */
   cashAggression?: boolean;
+  /** Omaha high tournament: the hand's percentile among Omaha hands and,
+   *  for league arms only, replacement shares. Undefined = the rule is off. */
+  omahaTournamentFirstIn?: { percentile: number; params?: OmahaTournamentFirstInParams };
   /** Receipt callback (#8694): the caller fires the V60 cash pressure receipt
    *  named here when that layer moves a bar. This module has no telemetry. */
   noteLayer?: (layer: PreflopLayerReceipt) => void;
@@ -981,6 +993,47 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
     return { a: 'fold' };
   }
   const out = completePreflopCommitment(decidePreflopV7Core(ctx), ctx);
+  // ═══ OMAHA TOURNAMENT SHORT-HANDED FIRST-IN (Dan 2026-11-12) ═══
+  // The commitment zone's unopened stack-off bar has no heads-up or
+  // blind-versus-blind case, so short-handed the table walks the big blind.
+  // HorseOmahaTournamentFirstIn.ts replaces the FOLD, and only the fold, in
+  // the measured short-handed spots (see its header for the cause and limits).
+  if (
+    out.a === 'fold' &&
+    ctx.omahaTournamentFirstIn !== undefined &&
+    ctx.isOmaha &&
+    !ctx.omahaHiLo &&
+    ctx.mode === 'tournament'
+  ) {
+    const widened = omahaTournamentFirstIn(
+      {
+        percentile: ctx.omahaTournamentFirstIn.percentile,
+        position: ctx.position,
+        liveOpponents: ctx.oppsLeft,
+        // Unknown table size (a league ablation arm only) must not read as
+        // heads-up: NaN makes the rule stand aside.
+        tableSize: ctx.tableSize ?? Number.NaN,
+        // Unknown players-left must not read as a final table either.
+        playersLeft: ctx.tournamentPlayersLeft ?? Number.NaN,
+        paidPlacesLeft: ctx.tournamentPaidPlacesLeft ?? Number.NaN,
+        effectiveStackBB: ctx.effectiveStackBB ?? ctx.stackBB,
+        raises: ctx.raises,
+        limpers: ctx.limpers,
+        callers: ctx.callers,
+        toCall: ctx.toCall,
+        stack: ctx.stack,
+        pot: ctx.pot,
+        riskPremium: ctx.riskAdd,
+        allInOrFold: ctx.allInOrFold === true,
+        satelliteLocked: ctx.satellite?.locked === true,
+      },
+      ctx.omahaTournamentFirstIn.params
+    );
+    if (widened) {
+      ctx.noteLayer?.('omaha_tournament_first_in');
+      return widened;
+    }
+  }
   if (ctx.v13 === false) return out;
   if (out.a !== 'fold') return out;
   const stack = ctx.stack;

@@ -96,7 +96,6 @@ const AVATAR_FLOOR = 50;
 /** A device whose felt is small enough that a floor binds cannot be compared on
  *  ratio — the floor is doing its job, which is to STOP the proportion. */
 const floorBinds = (feltW: number) => feltW * CARD_FRACTION < CARD_FLOOR;
-
 test.describe('the felt harness measures the real cascade', () => {
   /* Everything below is only worth reading if the harness is faithful. This is
      the one production figure this repo has written down, and reproducing it is

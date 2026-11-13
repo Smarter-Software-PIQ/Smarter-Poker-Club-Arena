@@ -482,6 +482,38 @@ function bigBlindAnteMttContext(seats: number, stackBB: number): LeagueGameConte
   };
 }
 
+/**
+ * 2026-11-13: the same MTT at its final table (every remaining player seated
+ * here, all in the money), for the Omaha first-in cards: the rule acts only
+ * when the whole field is at this table (HorseOmahaTournamentFirstIn.ts).
+ */
+function winnerTakeAllSpinContext(seats: number, stackBB: number): LeagueGameContext {
+  // A three-player spin paying one place: the only three-handed payout the
+  // Omaha first-in rule acts on (pay jumps three-handed lost in ICM, R4).
+  const ctx = finalTableMttContext(seats, stackBB);
+  return {
+    ...ctx,
+    format: 'spin',
+    tournament: { ...ctx.tournament!, spotsPaid: 1, payoutPct: [100] },
+  };
+}
+
+function finalTableMttContext(seats: number, stackBB: number): LeagueGameContext {
+  const ctx = bigBlindAnteMttContext(seats, stackBB);
+  const payoutPct = [30, 20, 14, 10, 8, 6, 4, 3, 3, 2].slice(0, seats);
+  return {
+    ...ctx,
+    tournament: {
+      ...ctx.tournament!,
+      playersLeft: seats,
+      spotsPaid: seats,
+      nearBubble: false,
+      inMoney: true,
+      payoutPct,
+    },
+  };
+}
+
 const DEFAULT_SEATS = 6;
 const BB = 2;
 const SB = 1;
@@ -1853,6 +1885,37 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     moodClock: 'deal_seed',
     a: { commitUnderPot: true },
     b: {},
+  },
+  // 2026-11-13 OMAHA TOURNAMENT FIRST-IN (HorseOmahaTournamentFirstIn),
+  // default ON: a is today's brain, b the engine fold it replaces. The small
+  // blind against the big blind alone plays every hand as the pot-limit
+  // maximum raise and the heads-up big blind defends its top 75 percent,
+  // three or fewer dealt, 20 BB or less (docs/changelog/2026-11-13-omaha-
+  // tournament-first-in.md). Standing cards so a later change that brings
+  // the walk back shows on the nightly league.
+  ...(['plo4', 'plo6'] as const).map((variant) => ({
+    name: `${variant}_mtt_hu_omaha_tournament_first_in_12bb`,
+    variant,
+    seats: 2,
+    stackBB: 12,
+    context: finalTableMttContext(2, 12),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed' as const,
+    a: {},
+    b: { omahaTournamentFirstIn: false },
+  })),
+  {
+    name: 'plo4_spin_3max_omaha_tournament_first_in_12bb',
+    variant: 'plo4',
+    seats: 3,
+    stackBB: 12,
+    context: winnerTakeAllSpinContext(3, 12),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: {},
+    b: { omahaTournamentFirstIn: false },
   },
   // 2026-11-07 NASH CALL VS JAM (HorseNashPushFoldV2), default ON: a is
   // today's brain, b the strength bar it replaced. MTT 12bb with a 1bb
