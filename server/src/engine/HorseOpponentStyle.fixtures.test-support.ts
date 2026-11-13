@@ -75,13 +75,26 @@ export const supply = (mode: 'cash' | 'tournament') =>
   HorseMind.importPostReleaseObservations([{ user_id: VILLAIN, variant: 'nlh', mode, size: 'full', opportunities: { foldToBet: 120, riverCall: 120, foldTo3Bet: 120, betCheckedTo: 120 } }]);
 export const ON = { styleValueBettorNotManiac: true, styleBigBetHonesty: true, styleRaiseRespect: true, styleFoldBluff: true };
 export const RANK: Record<string, number> = { fold: 0, check: 0, call: 1, raise: 2, bet: 2, all_in: 3 };
+/**
+ * Install a fixture's read on `who`, in its own format: the exploit counters, the post-release count and the IN-FORMAT
+ * shown strength (H1: the fixture's called big river bets, all of half the pot or more, as that context's 'large'
+ * size bucket). Lifetime tallies are installed too but, at carry-over weight 0, the style read does not use them.
+ */
+export function installFixture(f: Fx, who: string = VILLAIN): void {
+  const v = villainOf(f);
+  HorseMind.reset();
+  HorseMind.importStats([{ user_id: who, ...v.stats }]);
+  HorseMind.importDurableOpponentProfiles([{ user_id: who, variant: 'nlh', mode: f.format, size: 'full', observed_hands: 80, initialized: true, public_memory_domain: { version: 1, speed: 'table', ante: 'none' }, counters: v.counters } as never]);
+  HorseMind.importPostReleaseObservations([{ user_id: who, variant: 'nlh', mode: f.format, size: 'full', opportunities: { foldToBet: 120, riverCall: 120, foldTo3Bet: 120, betCheckedTo: 120 } }]);
+  const n = f.counters.bigRiverBetsCalled;
+  if (n > 0) HorseMind.importSizeBuckets([{ user_id: who, variant: 'nlh', mode: f.format, size: 'full', buckets: { large: { bets: n, shown: n, strong: f.counters.bigRiverBetsCalledWon } } }]);
+}
+
 export function run(f: Fx, opts: Record<string, unknown> = ON) {
   const spot = spotOf(f);
-  install(villainOf(f), f.format);
-  supply(f.format);
+  installFixture(f);
   const off = decide(spot);
-  install(villainOf(f), f.format);
-  supply(f.format);
+  installFixture(f);
   const on = decide(spot, opts);
   return { off, on };
 }

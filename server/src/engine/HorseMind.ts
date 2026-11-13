@@ -137,6 +137,7 @@ import {
   preRepairDiscount,
   type PersistedHandForProvenance,
   riverFirstBetFractions,
+  inFormatShownTallies,
   sizeBucketOf,
   type SizeBucketTallies,
   preRepairKeyed,
@@ -680,6 +681,9 @@ const MAX_TRACKED_PLAYERS = 4000;
 /** 2026-10-16: the exploit store holds (scope, player) rows, up to four
  *  scopes a player on average; evicted least recently updated first. */
 const EXPLOIT_ROW_CAP = MAX_TRACKED_PLAYERS * 4;
+/** STYLE READ A2 / H1: river size buckets are kept per (player, variant, format, table size). */
+const styleSizeKey = (userId: string, variant: string, mode: string, size: string): string =>
+  `${variant}|${mode}|${size}|${userId.toLowerCase()}`;
 const EMPTY_EXPLOIT_ROWS: ReadonlyMap<string, ExploitCounters> = new Map();
 const MAX_SEEN_ACTIONS = 60_000;
 const MAX_HAND_FLAGS = 20_000;
@@ -1725,16 +1729,28 @@ export class HorseMind {
    * A2: rebuild size buckets from persisted hand history (read-only rows) at boot. Replaces the player's in-memory
    * buckets, so a restart that re-imports the same rows rebuilds them exactly. Live boundary only.
    */
-  static importSizeBucketsFromHistory(rows: ReadonlyArray<{ user_id: string; hands: readonly PersistedHandForStyle[] }>): number {
+  static importSizeBucketsFromHistory(
+    rows: ReadonlyArray<{ user_id: string; variant: string; mode: MemoryMode; size: MemorySize; hands: readonly PersistedHandForStyle[] }>
+  ): number {
+    return this.importSizeBuckets(
+      rows.map((r) => ({ user_id: r.user_id, variant: r.variant, mode: r.mode, size: r.size, buckets: sizeBucketsFromHistory(r.hands, r.user_id) }))
+    );
+  }
+
+  /** A2: supply river size buckets for one (player, variant, format, table size) context; replaces that context's row. */
+  static importSizeBuckets(
+    rows: ReadonlyArray<{ user_id: string; variant: string; mode: MemoryMode; size: MemorySize; buckets: SizeBucketTallies }>
+  ): number {
     if (this.sandboxDepth > 0 || this.decisionEffectSink)
       throw new Error('size bucket import outside live boundary');
     let applied = 0;
     for (const r of rows) {
-      if (!r || typeof r.user_id !== 'string' || !Array.isArray(r.hands)) continue;
-      const buckets = sizeBucketsFromHistory(r.hands, r.user_id);
-      if (Object.keys(buckets).length === 0) continue;
-      this.styleSizeShown.delete(r.user_id);
-      this.styleSizeShown.set(r.user_id, buckets);
+      const v = memoryVariant(r?.variant);
+      if (!r || typeof r.user_id !== 'string' || !v || !['cash', 'tournament'].includes(r.mode) || !['hu', 'short', 'full'].includes(r.size)) continue;
+      if (!r.buckets || Object.keys(r.buckets).length === 0) continue;
+      const key = styleSizeKey(r.user_id, v, r.mode, r.size);
+      this.styleSizeShown.delete(key);
+      this.styleSizeShown.set(key, { ...r.buckets });
       applied++;
     }
     while (this.styleSizeShown.size > MAX_TRACKED_PLAYERS)
@@ -2034,8 +2050,13 @@ export class HorseMind {
     // discounted; a counter row built live by this process is complete; a
     // durable context nobody qualified is "not known" (capped, not trusted).
     const provenance = this.styleProvenanceOf(userId, variant, mode, size);
-    const s = this.readStats(userId);
-    const rec = pooled ?? s;
+    // H1 (review 2026-11-13): evidence of THIS format and variant only. Shown strength comes from this context's
+    // river size buckets. The scoped lifetime tallies (variant and table size, but cash and tournament mixed) enter
+    // only as an explicit carry-over at styleCarryWeight (default 0); the all-variant pooled fallback never does.
+    const sizeBuckets = variant ? (this.styleSizeShown.get(styleSizeKey(userId, variant, mode, size)) ?? null) : null;
+    const s = carryWeight > 0 ? this.scoped.get(`${scope}|${userId}`) : undefined;
+    const w = carryWeight;
+    const inFormat = inFormatShownTallies(sizeBuckets);
     const style = classifyOpponentStyle({
       scope,
       variant: this.decisionVariant,
@@ -2044,20 +2065,20 @@ export class HorseMind {
       carry,
       carryWeight,
       provenance,
-      sizeBuckets: this.styleSizeShown.get(userId) ?? null,
+      sizeBuckets,
       tallies: s
         ? {
-            hands: s.hands,
-            bigBetSD: s.bigBetSD,
-            bigBetSDStrong: s.bigBetSDStrong,
-            postAggr: s.postAggr,
-            postPassive: s.postPassive,
-            rAggr: rec?.rAggr,
-            rPassive: rec?.rPassive,
-            ctBets: s.ctBets,
-            ctProbes: s.ctProbes,
+            bigBetSD: (inFormat.bigBetSD ?? 0) + w * s.bigBetSD,
+            bigBetSDStrong: (inFormat.bigBetSDStrong ?? 0) + w * s.bigBetSDStrong,
+            shownOpportunities: (inFormat.shownOpportunities ?? 0) + w * s.postAggr,
+            postAggr: w * s.postAggr,
+            postPassive: w * s.postPassive,
+            rAggr: w * s.rAggr,
+            rPassive: w * s.rPassive,
+            ctBets: w * (s.ctBets ?? 0),
+            ctProbes: w * (s.ctProbes ?? 0),
           }
-        : null,
+        : inFormat,
     });
     noteFire(`style_label_${style.label}_seen`);
     if (style.release.standDown) noteFire('style_read_released_seen');
@@ -4175,7 +4196,9 @@ export class HorseMind {
     scope?: ReadScope | null,
     durableExploit = false,
     riverCallContext?: RiverCallContext,
-    retainedRiverCalls?: readonly RiverCallSample[]
+    retainedRiverCalls?: readonly RiverCallSample[],
+    /** STYLE READ A2: the hand's format, so river size buckets are kept per format; absent = not recorded */
+    styleMode?: MemoryMode
   ): void {
     // V45: settlement runs outside any decision; the scope travels with the
     // hand and is cleared on the way out.
@@ -4287,11 +4310,15 @@ export class HorseMind {
       // STYLE READ A2 (2026-11-13): river first bets by size bucket, with
       // the shown-versus-unshown split. Memory only (does not survive a
       // restart) and live only: a sandbox or an effect capture records nothing.
-      if (this.sandboxDepth === 0 && !this.decisionEffectSink) {
+      const styleVariant = memoryVariant(riverCallContext?.variant ?? null);
+      const styleScope = this.decisionScope;
+      if (this.sandboxDepth === 0 && !this.decisionEffectSink && styleMode && styleVariant && styleScope) {
+        const styleSize = styleScope.split(':')[1] as MemorySize;
         const shownBy = new Map<string, { mucked: boolean; hand_name?: string }>();
         for (const sd of showdown ?? []) if (sd?.user_id) shownBy.set(sd.user_id, sd);
         for (const [uid, frac] of riverFirstBetFractions(actions)) {
-          const row = this.styleSizeShown.get(uid) ?? {};
+          const key = styleSizeKey(uid, styleVariant, styleMode, styleSize);
+          const row = this.styleSizeShown.get(key) ?? {};
           const b = sizeBucketOf(frac);
           const cell = { ...(row[b] ?? { bets: 0, shown: 0, strong: 0 }) };
           cell.bets++;
@@ -4300,8 +4327,8 @@ export class HorseMind {
             cell.shown++;
             if (!sd.mucked && STRONG_HAND_NAMES.has((sd.hand_name ?? '').toLowerCase())) cell.strong++;
           }
-          this.styleSizeShown.delete(uid);
-          this.styleSizeShown.set(uid, { ...row, [b]: cell });
+          this.styleSizeShown.delete(key);
+          this.styleSizeShown.set(key, { ...row, [b]: cell });
           while (this.styleSizeShown.size > MAX_TRACKED_PLAYERS)
             this.styleSizeShown.delete(this.styleSizeShown.keys().next().value!);
         }

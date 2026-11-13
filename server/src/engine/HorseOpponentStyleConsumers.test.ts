@@ -180,12 +180,17 @@ describe('A4 value extraction (cash and tournament)', () => {
     });
     it(`${mode}: released by a rising fast-window fold rate; withheld when his shown big bets are value`, () => {
       const spot = checkedTo(mode, 'KsQd');
-      for (const v of [caller({ fFoldToBetOpp: 10, fFoldToBet: 9 }), caller(undefined, { bigBetSD: 10, bigBetSDStrong: 9 })]) {
+      // H1: shown strength is in-format, supplied as this context's size buckets
+      const valueShown = () =>
+        HorseMind.importSizeBuckets([{ user_id: VILLAIN, variant: 'nlh', mode: mode === 'cash' ? 'cash' : 'tournament', size: 'full', buckets: { large: { bets: 10, shown: 10, strong: 9 } } }]);
+      for (const [v, extra] of [[caller({ fFoldToBetOpp: 10, fFoldToBet: 9 }), () => {}], [caller(), valueShown]] as const) {
         install(v, mode);
         supply(120);
+        extra();
         const off = decide(spot);
         install(v, mode);
         supply(120);
+        extra();
         const on = decide(spot, { styleValueExtraction: true });
         expect(on.fires.style_value_extraction_seen ?? 0).toBe(0);
         expect(on.digest).toBe(off.digest);
@@ -257,13 +262,13 @@ describe('chain: learner -> profile -> read -> decision (A2 size buckets and lif
       { userId: VILLAIN, action: 'bet', amount: 10, stage: 'river' },
       { userId: HERO, action: 'call', amount: 10, stage: 'river' },
     ];
-    HorseMind.observeHandComplete('style-chain-1', acts as never, 2, [{ user_id: VILLAIN, mucked: false, hand_name: 'Flush' }], 'holdem:full');
+    HorseMind.observeHandComplete('style-chain-1', acts as never, 2, [{ user_id: VILLAIN, mucked: false, hand_name: 'Flush' }], 'holdem:full', false, { variant: 'nlh', boardCount: 1 }, undefined, 'cash');
     HorseMind.setDecisionScope('holdem:full', 'nlh', 'cash');
     const r = HorseMind.styleRead(VILLAIN);
     HorseMind.setDecisionScope(null);
     expect(r.signals.shownBySize.large).toMatchObject({ bets: 1, shown: 1, strong: 1 });
     // the same hand again is not double counted (hand flag)
-    HorseMind.observeHandComplete('style-chain-1', acts as never, 2, [{ user_id: VILLAIN, mucked: false, hand_name: 'Flush' }], 'holdem:full');
+    HorseMind.observeHandComplete('style-chain-1', acts as never, 2, [{ user_id: VILLAIN, mucked: false, hand_name: 'Flush' }], 'holdem:full', false, { variant: 'nlh', boardCount: 1 }, undefined, 'cash');
     HorseMind.setDecisionScope('holdem:full', 'nlh', 'cash');
     expect(HorseMind.styleRead(VILLAIN).signals.shownBySize.large.bets).toBe(1);
     HorseMind.setDecisionScope(null);
@@ -355,5 +360,33 @@ describe('gear change and bounty boundary, through decide()', () => {
       expect(on.digest, spot.name).toBe(off.digest);
       expect(adaptiveFires(on.fires), spot.name).toEqual([]);
     }
+  });
+});
+
+describe('H1 (review 2026-11-13): other-format and other-variant evidence moves nothing at carry-over weight 0', () => {
+  it('pooled lifetime shown bets and another context\'s size buckets do not reach the cash NLH read', () => {
+    HorseMind.reset();
+    const c = counters({ hands: 80, vpip: 0.13, pfr: 0.07, threeBetOpp: 20, threeBet: 0, betCheckedToOpp: 40, betCheckedTo: 6, foldToBetOpp: 30, foldToBet: 14 });
+    HorseMind.importStats([{ user_id: VILLAIN, hands: 500, bigBetSD: 20, bigBetSDStrong: 19, postAggr: 60, postPassive: 100 } as never]);
+    HorseMind.importDurableOpponentProfiles([{ user_id: VILLAIN, variant: 'nlh', mode: 'cash', size: 'full', observed_hands: 80, initialized: true, public_memory_domain: { version: 1, speed: 'table', ante: 'none' }, counters: c } as never]);
+    HorseMind.importPostReleaseObservations([{ user_id: VILLAIN, variant: 'nlh', mode: 'cash', size: 'full', opportunities: { foldToBet: 120, riverCall: 120, foldTo3Bet: 120, betCheckedTo: 120 } }]);
+    HorseMind.importSizeBuckets([
+      { user_id: VILLAIN, variant: 'nlh', mode: 'tournament', size: 'full', buckets: { large: { bets: 20, shown: 20, strong: 19 } } },
+      { user_id: VILLAIN, variant: 'plo4', mode: 'cash', size: 'full', buckets: { large: { bets: 20, shown: 20, strong: 19 } } },
+    ]);
+    HorseMind.setDecisionScope('holdem:full', 'nlh', 'cash');
+    const r = HorseMind.styleRead(VILLAIN);
+    expect(r.signals.shownStrength.shown).toBe(0);
+    expect(r.signals.shownBySize.large.shown).toBe(0);
+    expect(r.signals.aggressionShare.n).toBe(0);
+    HorseMind.setDecisionReadOptions({ styleCarryWeight: 0.5 });
+    // even with a carry-over weight the POOLED all-variant tallies never enter (only this variant's scoped ones)
+    const carried = HorseMind.styleRead(VILLAIN);
+    expect(carried.signals.shownStrength.shown).toBe(0);
+    HorseMind.setDecisionScope(null);
+    HorseMind.importSizeBuckets([{ user_id: VILLAIN, variant: 'nlh', mode: 'cash', size: 'full', buckets: { large: { bets: 20, shown: 20, strong: 19 } } }]);
+    HorseMind.setDecisionScope('holdem:full', 'nlh', 'cash');
+    expect(HorseMind.styleRead(VILLAIN).signals.shownBySize.large.shown).toBe(20);
+    HorseMind.setDecisionScope(null);
   });
 });

@@ -9,7 +9,7 @@ describe('style read: every option OFF equals current behaviour', () => {
       let n = 0;
       for (const spot of ALL_SPOTS(mode))
         for (const [vn, v] of Object.entries(VILLAINS))
-          for (const opts of [{}, { styleValueBettorNotManiac: false, styleBigBetHonesty: false, styleRaiseRespect: false, styleTightReRaiserRespect: false, styleCarryOverWeight: 0 }]) {
+          for (const opts of [{}, { styleValueBettorNotManiac: false, styleBigBetHonesty: false, styleRaiseRespect: false, styleTightReRaiserRespect: false, styleValueExtraction: false, styleFoldBluff: false, styleFoldRatePreRepair: false, styleCarryOverWeight: 0 }]) {
             install(v, mode);
             const r = decide(spot, opts);
             expect(r.digest, `${spot.name}/${vn}`).toBe(OFF_DIGESTS[`${spot.name}/${vn}`]);

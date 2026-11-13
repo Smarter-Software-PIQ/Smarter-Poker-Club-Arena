@@ -25,6 +25,14 @@ describe('80 audit fixtures (DEVELOPMENT data): options ON versus OFF', () => {
     expect(prot.length).toBe(22);
     for (const r of prot) expect(r.on.decision.action, r.f.id).toBe(r.off.decision.action);
   });
+  it('the six lost one-pair river calls the equity cap folds stay folded (development set, not validation)', () => {
+    for (const id of ['F017', 'F018', 'F019', 'F021', 'F026', 'F032']) {
+      const r = results.find((x) => x.f.id === id)!;
+      expect(r.off.decision.action, id).toBe('call');
+      expect(r.on.decision.action, id).toBe('fold');
+      expect(r.on.fires.style_bluff_catch_cap_seen, id).toBeGreaterThan(0);
+    }
+  });
   it('credible lost one-pair river calls: measured fold or shrink count (reported; direction only)', () => {
     const lost = results.filter(
       (r) => r.f.counters.credibleSample && (r.f.category === 'lost-river-bet-call' || r.f.category === 'lost-river-raise-call') && /one-pair|high-card|board-pair/.test(r.f.heroStrength)

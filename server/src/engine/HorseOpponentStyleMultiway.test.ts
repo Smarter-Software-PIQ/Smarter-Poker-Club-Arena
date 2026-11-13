@@ -6,18 +6,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HorseMind } from './HorseMind.js';
 import { VILLAIN, decide, install } from './HorseOpponentStyle.contexts.test-support.js';
-import { FX, ON, THIRD, spotOf, supply, villainOf } from './HorseOpponentStyle.fixtures.test-support.js';
+import { FX, ON, THIRD, installFixture, spotOf } from './HorseOpponentStyle.fixtures.test-support.js';
 
 const IDS = ['F017', 'F018', 'F019', 'F021', 'F026', 'F032'];
 afterEach(() => vi.restoreAllMocks());
 
 /** Install a fixture's read on `who` (VILLAIN or THIRD) only. */
 function installOn(who: string, f: (typeof FX)[number]) {
-  const v = villainOf(f);
-  HorseMind.reset();
-  HorseMind.importStats([{ user_id: who, ...v.stats }]);
-  HorseMind.importDurableOpponentProfiles([{ user_id: who, variant: 'nlh', mode: f.format, size: 'full', observed_hands: 80, initialized: true, public_memory_domain: { version: 1, speed: 'table', ante: 'none' }, counters: v.counters } as never]);
-  HorseMind.importPostReleaseObservations([{ user_id: who, variant: 'nlh', mode: f.format, size: 'full', opportunities: { foldToBet: 120, riverCall: 120, foldTo3Bet: 120, betCheckedTo: 120 } }]);
+  installFixture(f, who);
 }
 
 describe('multiway: the bluff-catch read keys to the bettor', () => {
@@ -50,8 +46,7 @@ describe('multiway: the bluff-catch read keys to the bettor', () => {
   it('heads-up variants are unchanged by the multiway support (same six still fold)', () => {
     for (const id of IDS) {
       const f = FX.find((x) => x.id === id)!;
-      install(villainOf(f), f.format);
-      supply(f.format);
+      installFixture(f);
       expect(decide(spotOf(f), ON).decision.action, id).toBe('fold');
     }
   });

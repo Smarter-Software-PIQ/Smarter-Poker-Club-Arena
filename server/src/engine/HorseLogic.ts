@@ -2986,20 +2986,28 @@ export interface HorseDecideOpts {
   /** STYLE READ #3 (2026-11-13): a large turn bet, a large river bet or ANY
    *  river raise from a credibly value-heavy bettor earns extra respect,
    *  capped at the existing callDownRespectShift ceiling (+0.15), never on a
-   *  small bet, released by the fast window the moment he shows a bluff.
+   *  small bet. A shown bluff lowers it proportionally through the shown-strength
+   *  posterior (never a reset); the fast window and recent aggression release
+   *  it (stand-down at release >= 0.5). On the river it also caps a one-pair
+   *  bluff-catcher's equity at the bettor's bluff share (style_bluff_catch_cap_seen).
+   *  In-format evidence only (this format's size buckets).
    *  Receipt style_big_bet_honesty_seen. Default off; explicit true only. */
   styleBigBetHonesty?: boolean;
   /** STYLE READ #4 (2026-11-13): one pair and worse folds more against a
    *  flop or turn raise from a player whose postflop raise frequency is
-   *  credibly below the Horse mean, scaled by the stack-to-pot ratio AFTER
-   *  the call (it stands down where one pair is a correct stack-off).
+   *  credibly below the Horse mean, scaled by the DECISION-TIME stack-to-pot
+   *  ratio (effective stack behind before the decision over the pot including
+   *  his raise; it stands down where one pair is a correct stack-off). The
+   *  raise-frequency proxy is a lifetime tally that mixes formats, so with
+   *  styleCarryOverWeight 0 (the default) this option has no evidence and is inert.
    *  Receipt style_raise_respect_seen. Default off; explicit true only. */
   styleRaiseRespect?: boolean;
   /** STYLE READ #6 (2026-11-13): a credibly tight opener or re-raiser is
    *  respected preflop: the narrow branch of the facing-an-open exploit read
    *  becomes reachable (a bounded move of the 3-bet bar and the call bar) and
    *  the 4-bet and call bars against a tight 3-bettor move up a bounded
-   *  amount, both released the moment his 3-bet rate or raising rises.
+   *  amount, both shrinking proportionally as his fast-window raise or 3-bet
+   *  rate rises (stand-down at release >= 0.5).
    *  Receipts style_tight_opener_respect_seen and
    *  style_tight_reraiser_respect_seen. Default off; explicit true only. */
   styleTightReRaiserRespect?: boolean;
@@ -10198,16 +10206,20 @@ export class HorseLogic {
       !stationValue &&
       !styleBountyContext(trustedTournament)
     ) {
-      const live = opponents.filter((o) => !o.is_all_in && !o.is_sitting_out);
-      if (live.length === 1) {
-        const ve = valueExtraction(HorseMind.styleRead(live[0].user_id));
-        if (ve) {
-          exploitValueSize *= ve.sizeMul;
-          styleThinShift = ve.thinShift;
-          if (ve.slowplayMul !== 1)
-            params = { ...params, slowplayFreq: params.slowplayFreq * ve.slowplayMul };
-          noteFire('style_value_extraction_seen');
+      try {
+        const live = opponents.filter((o) => !o.is_all_in && !o.is_sitting_out);
+        if (live.length === 1) {
+          const ve = valueExtraction(HorseMind.styleRead(live[0].user_id));
+          if (ve) {
+            exploitValueSize *= ve.sizeMul;
+            styleThinShift = ve.thinShift;
+            if (ve.slowplayMul !== 1)
+              params = { ...params, slowplayFreq: params.slowplayFreq * ve.slowplayMul };
+            noteFire('style_value_extraction_seen');
+          }
         }
+      } catch {
+        /* reads are best-effort: no adjustment */
       }
     }
 
@@ -14986,9 +14998,9 @@ export class HorseLogic {
     // turn RAISE from a player whose postflop raise frequency is credibly
     // below the Horse mean is value more often than the generic read prices:
     // one pair (or worse, with no real draw) calls it for a shade of equity
-    // more. DEPTH AWARE: scaled by the stack-to-pot ratio AFTER the call
-    // (HorseOpponentStyle.raiseRespectShade): nothing where the call commits
-    // the stack and one pair is a correct stack-off, full from SPR 5. Same
+    // more. DEPTH AWARE: scaled by the DECISION-TIME stack-to-pot ratio
+    // (HorseOpponentStyle.raiseRespectShade): nothing at SPR 2 or less, where
+    // one pair is a correct stack-off, full from SPR 6. Same
     // hand class and gates as V66, a maniac read (callDownMod > 1) wins, and it
     // only ever adds to a shade, so it never widens a call. Cash and
     // tournament alike; the tournament arbiter still runs after.
@@ -16270,8 +16282,8 @@ export class HorseLogic {
           // from 3 shown) earns extra respect, capped at the existing +0.15
           // callDownRespectShift ceiling TOGETHER with the V16 tell above
           // (the same evidence is not counted twice), never on a small bet,
-          // never on the flop, and released by the fast window the moment he
-          // shows a bluff. Only ever adds respect: it never widens a call, in
+          // never on the flop. A shown bluff lowers it proportionally (never a
+          // reset); the fast window releases it. Only ever adds respect: it never widens a call, in
           // cash or tournament (the tournament utility arbiter still runs
           // after this and keeps the last word).
           if (
@@ -16678,6 +16690,8 @@ export class HorseLogic {
       if (
         isRiver &&
         styleBluffCatchCap < 1 &&
+        // L3: withheld under a legacy maniac read, as shade61 is (the same call is not pushed three ways)
+        exploit.callDownMod <= 1 &&
         cat > 0 &&
         (cat <= 2 || (cat === 3 && pairedBoard)) &&
         eqRead38 > styleBluffCatchCap

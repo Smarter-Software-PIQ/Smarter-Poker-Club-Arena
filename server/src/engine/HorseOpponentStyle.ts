@@ -441,6 +441,26 @@ export interface StyleTallies {
   /** first postflop wagers into an unbet street, and those that were probes (the sizing bucket) */
   ctBets?: number;
   ctProbes?: number;
+  /** river first bets of the sizes behind bigBetSD, shown or not (the opportunity count of the availability discount);
+   *  when absent, postAggr stands in */
+  shownOpportunities?: number;
+}
+
+/**
+ * H1 (review 2026-11-13): the shown-strength tallies of ONE format and variant, from that context's river size
+ * buckets: river first bets of half the pot or more (medium, large, overbet), how many were shown down and how many
+ * of those were strong. The style read takes shown strength from here, never from pooled lifetime tallies.
+ */
+export function inFormatShownTallies(buckets: SizeBucketTallies | null | undefined): StyleTallies {
+  let bets = 0;
+  let shown = 0;
+  let strong = 0;
+  for (const b of ['medium', 'large', 'overbet'] as const) {
+    bets += Math.max(0, num(buckets?.[b]?.bets));
+    shown += Math.max(0, num(buckets?.[b]?.shown));
+    strong += Math.max(0, num(buckets?.[b]?.strong));
+  }
+  return { bigBetSD: shown, bigBetSDStrong: Math.min(strong, shown), shownOpportunities: Math.max(bets, shown) };
 }
 
 /**
@@ -1117,7 +1137,9 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
   const c = merged.counters;
   const tallies = input.tallies ?? {};
   const counterHands = Math.max(0, num(c?.hands));
-  const hands = Math.max(counterHands, Math.max(0, num(tallies.hands)));
+  // H2 (review 2026-11-13): only in-scope counter hands (this format and variant, plus any explicit carry-over)
+  // make a read supported. Lifetime pooled hands in the tallies never do.
+  const hands = counterHands;
   // (a): unknown is neutral until 15 hands have passed, whatever else is on file.
   if (!(hands >= T.preflopMinHands)) return unknownStyle(hands > 0 ? 'fewer_than_15_hands' : 'no_evidence', scope, variant, domain, hands, provenance);
 
@@ -1195,7 +1217,7 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
       return support > 0 ? support / (support + T.bigBetConfidenceHalf) : 0;
     })(),
   };
-  const opportunities = Math.max(0, num(tallies.postAggr));
+  const opportunities = Math.max(0, num(tallies.shownOpportunities ?? tallies.postAggr));
   const revealedShare = opportunities > 0 ? Math.min(1, bigShown / opportunities) : 0;
   const discount = T.availabilityFloor + (1 - T.availabilityFloor) * clamp(revealedShare / T.availabilityFullShare, 0, 1);
   const availability: ObservationAvailability = {
@@ -1775,7 +1797,9 @@ export function postReleaseOpportunitiesFromHistory(
  *              when it has enough shown, else all his shown river bets. No availability discount: the hand being decided
  *              is a CALLED bet, the same population the showdown sample is drawn from (a Horse calls without seeing his
  *              cards), so the selection that limits generalising to all his betting does not apply here.
- *  confidence  scaled by confidenceCap and (1 - release): provenance discounts and a shown bluff shrink it
+ *  confidence  k = confidenceCap x (1 - release). confidenceCap already carries (1 - 0.5 x release), so release counts
+ *              twice here on purpose (a released read caps less, the conservative side). A shown bluff acts through s.
+ *  inputs      in-format only (H1): this format's size buckets, never pooled lifetime tallies
  *  magnitude   the cap is 1 - s x k, never below 1 - s; with fewer than bigBetMinShown shown, no cap
  *  applies     hold'em river, one-pair class only (the caller checks), any size: the evidence is about his river bets
  *  stand-down  release >= 0.5; unknown or unsupported read

@@ -2,6 +2,10 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { STYLE_THRESHOLDS, STYLE_CONSUMER_BOUNDS, STYLE_FAMILY_PARAMS, classifyOpponentStyle } from './HorseOpponentStyle.js';
 import { MANIAC_MIN_RAISE_WIDTH } from './HorseOpponentExploit.js';
+import { VILLAINS, decide, install, preflopJam, type Mode } from './HorseOpponentStyle.contexts.test-support.js';
+import { FX, ON, installFixture, spotOf } from './HorseOpponentStyle.fixtures.test-support.js';
+
+const ALL_ON = { ...ON, styleTightReRaiserRespect: true, styleValueExtraction: true };
 
 const src = (f: string) => readFileSync(new URL(f, import.meta.url), 'utf8');
 
@@ -35,13 +39,26 @@ describe('LAW: the opponent style read is a bounded, default-off, decision-time-
     for (const [f, p] of Object.entries(STYLE_FAMILY_PARAMS)) expect(p.consumers).toBe(f === 'holdem');
     expect(STYLE_THRESHOLDS.bigBetRespectCap).toBeLessThanOrEqual(0.15);
   });
-  it('the Nash push/fold block never consults the style read, and the arbiter runs after the style consumers', () => {
-    const nash = logic.indexOf('Nash');
-    expect(nash).toBeGreaterThan(0);
-    const firstStyle = logic.indexOf('HorseMind.styleRead(');
-    const arbiter = logic.lastIndexOf('Phase 7');
-    expect(firstStyle).toBeGreaterThan(0);
-    expect(arbiter).toBeGreaterThan(firstStyle);
+  it('push/fold: a 12bb jam decision is identical with every option on, against every villain, cash, tournament and bubble', () => {
+    for (const mode of ['cash', 'tournament', 'bubble'] as Mode[])
+      for (const [vn, v] of Object.entries(VILLAINS)) {
+        install(v, mode);
+        const off = decide(preflopJam(mode));
+        install(v, mode);
+        const on = decide(preflopJam(mode), ALL_ON);
+        expect(on.digest, `${mode}/${vn}`).toBe(off.digest);
+      }
+  });
+  it('through decide(): the tournament utility arbiter runs after the style consumer has shaped the decision', () => {
+    // BrainTelemetry keeps first-fire order: in the tournament fixture F026 the bluff-catch cap fires, and only then
+    // does the tournament utility node of the decision graph enter (it evaluates the decision the cap shaped).
+    const f = FX.find((x) => x.id === 'F026')!;
+    installFixture(f);
+    const order = Object.keys(decide(spotOf(f), ON).fires);
+    const cap = order.indexOf('style_bluff_catch_cap_seen');
+    const arbiter = order.indexOf('phase15_node_tournament_utility_entered');
+    expect(cap).toBeGreaterThanOrEqual(0);
+    expect(arbiter).toBeGreaterThan(cap);
   });
   it('unknown is neutral in every variant family', () => {
     for (const [scope, variant] of [['holdem:full', 'nlh'], ['omaha:full', 'plo4'], ['omaha:full', 'plo5'], ['omaha:full', 'plo6'], ['sixplus:full', 'short_deck']] as const) {

@@ -578,3 +578,18 @@ describe('#3 river bluff-catch equity cap (stated in equity units)', () => {
     expect(bluffCatchEquityCap(plo, { potFraction: 0.5 })).toBeNull();
   });
 });
+
+describe('H1/H2 (review 2026-11-13): only in-format evidence makes a read', () => {
+  it('H2 reproduction: no in-format counters and 500 pooled lifetime hands with 20 shown big bets is no evidence, no cap', () => {
+    const r = classifyOpponentStyle({ scope: 'holdem:full', variant: 'nlh', domain: 'cash', counters: null, tallies: { hands: 500, bigBetSD: 20, bigBetSDStrong: 19 } });
+    expect(r.evidence.state).toBe('no_reliable_individual_evidence');
+    expect(r.evidence.supported).toBe(false);
+    expect(bluffCatchEquityCap(r, { potFraction: 0.75 })).toBeNull();
+  });
+  it('the cap matches the Beta 10th percentile it states (scipy beta.ppf(0.1, 20 + 1.65, 1 + 1.35) = 0.8209)', () => {
+    const r = classifyOpponentStyle({ scope: 'holdem:full', variant: 'nlh', domain: 'cash', provenance: { complete: true }, counters: valueHeavyGrinder().counters, tallies: { bigBetSD: 21, bigBetSDStrong: 20, shownOpportunities: 21 } });
+    const k = r.confidenceCap * (1 - r.release.fraction);
+    const lo = (1 - bluffCatchEquityCap(r, { potFraction: 0.75 })!) / k;
+    expect(lo).toBeCloseTo(0.8209, 3);
+  });
+});
