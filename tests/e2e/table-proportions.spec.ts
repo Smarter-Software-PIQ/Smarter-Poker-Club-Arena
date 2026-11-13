@@ -581,7 +581,9 @@ test.describe('a short ring sits lower and gives up no width (Dan 2026-09-23, it
       const shortPhone = phonePortrait && width <= 375 && height <= 700;
       const heightShare = shortPhone ? 0.96 : 0.88;
       const heightBudget = full.h - (shortPhone ? 4 : 0);
-      const expectedDrop = phonePortrait ? heightBudget * ((1 - heightShare) / 2) : SHORT_DROP_PX;
+      const expectedDrop = phonePortrait
+        ? (heightBudget * (1 - heightShare)) / (width > 480 ? 1 : 2)
+        : SHORT_DROP_PX;
       if (phonePortrait && Math.abs(short.h - heightBudget * heightShare) > 0.5)
         offenders.push(
           `${label}: six-max height ${short.h} must be ${heightShare * 100}% of nine-max ${full.h}`

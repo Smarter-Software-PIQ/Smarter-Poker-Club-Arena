@@ -5371,6 +5371,21 @@ button.post-bb-overlay-button {
   }
   .table-page[data-seats='6'] .table-scaler {
     height: calc(var(--sp-table-h, 100svh) * 0.88);
-    margin-top: calc(var(--sp-table-h, 100svh) * 0.06);
+    margin-top: calc(var(--sp-table-h, 100svh) * 0.12);
+  }
+}
+
+/* Equal hero/opponent slots remove one sixth of the old avatar diameter
+   below the rail: .1075 - (.158 / 6) = .0811667 of the felt width.
+   Solve the height-bound .7 rail cap against the same reduced reserve. */
+@media (max-device-width: 480px) and (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
+  .table-page:where([data-seats='6'], [data-seats='9']) .table-container {
+    --sp-hero-clear: min(
+      calc(0.0811667 * 88vw + 45px),
+      calc(
+        (0.0568167 * (var(--sp-page-h) - var(--sp-table-top) - var(--sp-action-reserve)) + 45px) /
+          1.0568167
+      )
+    );
   }
 }
