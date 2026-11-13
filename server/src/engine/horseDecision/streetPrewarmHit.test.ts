@@ -1,6 +1,6 @@
 /**
- * A street prewarm is consumed when a decision lands on a board its worker
- * prewarmed for the same table. Until 2026-11-13 the check compared the
+ * A hit is counted for each decision whose table, street and board match a
+ * prewarm its worker stored (per decision, so hits can exceed prewarms). Until 2026-11-13 the check compared the
  * prewarm's table id with the decision's whole fence
  * (table:hand:seat:lease:token) and could never match: release 08c27924
  * executed 4,502 prewarms and counted no hit. Real worker, real decision.
@@ -51,7 +51,8 @@ describe('a street prewarm is counted as consumed by the decision that uses it',
   });
 
   it('counts one hit when the decision is at the prewarmed table and board', async () => {
-    expect(await hitsAfterPrewarm(streetPrewarmTable)).toBe(1);
+    // The table id exactly as the engine posts it, not derived from the fence.
+    expect(await hitsAfterPrewarm(() => 'table-9')).toBe(1);
   });
 
   it('counts no hit for a prewarm posted for another table', async () => {

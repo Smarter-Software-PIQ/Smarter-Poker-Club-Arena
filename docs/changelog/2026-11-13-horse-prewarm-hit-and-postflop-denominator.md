@@ -4,9 +4,9 @@ Three small corrections to how Horse upgrade activation is measured. No decision
 
 ## A Prewarm Hit Could Never Be Counted
 
-The worker counts a prewarm as consumed (`poker_horse_street_prewarm_total`, reason `hit_flop`, `hit_turn`, `hit_river`) when a decision lands on a board it prewarmed. The prewarm was keyed by table id and the decision by its whole fence (`table:hand:seat:lease:token`), so the two never matched. Release 08c27924 executed 4,502 prewarms in about nine hours and counted no hit. Both sides now key by the table, which is also the shard key, so the prewarm and the decision were always in the same worker.
+The worker counts a hit (`poker_horse_street_prewarm_total`, reason `hit_flop`, `hit_turn`, `hit_river`) for each FAST decision whose table, street and board match a prewarm it stored. The prewarm was keyed by table id and the decision by its whole fence (`table:hand:seat:lease:token`), so the two never matched. Release 08c27924 executed 4,502 prewarms in about nine hours and counted no hit. Both sides now key by the table, which is also the shard key, so the prewarm and the decision were always in the same worker.
 
-This corrects the measurement. It does not make prewarming useful. What a prewarm warms is one board-texture classification, measured at about 1.5 microseconds uncached, so a hit saves about that much. The counter now shows how often that happens.
+This corrects the measurement. It does not make prewarming useful. What a prewarm warms is one board-texture classification, measured at about 1.5 microseconds uncached, so a hit saves about that much. A hit is counted per decision, not per prewarm: every Horse decision on that street at that table counts, so hits can exceed prewarms, and only the first of them could have saved the classification. The counter shows how often a decision lands on a prewarmed board; it is an upper bound on use, not a measure of benefit.
 
 ## The Postflop Upgrade Counters Are Measured Against Postflop Decisions
 
