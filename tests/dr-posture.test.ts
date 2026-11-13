@@ -325,7 +325,7 @@ describe('the Backup Engine refuses partial restores and proves automatic recove
     }
   );
 
-  it.each(['restore', 'owners', 'role', 'lightning-role', 'extension'])(
+  it.each(['restore', 'owners', 'role', 'lightning-role', 'content-reporter-role', 'extension'])(
     'propagates %s failure and invalidates the previous receipt even under a conditional caller',
     (fault) => {
       const result = standbyShell(
@@ -335,6 +335,7 @@ describe('the Backup Engine refuses partial restores and proves automatic recove
       psql_db() {
         case "$*" in
           *'CREATE ROLE engine_lightning_lane NOLOGIN'*) [ '${fault}' != lightning-role ] || return 19;;
+          *'CREATE ROLE daily_content_reporter NOLOGIN'*) [ '${fault}' != content-reporter-role ] || return 19;;
           *'CREATE ROLE'*) [ '${fault}' != role ] || return 19;;
           *'CREATE EXTENSION'*) [ '${fault}' != extension ] || return 19;;
         esac
@@ -477,6 +478,32 @@ with patch.object(subprocess, 'run', side_effect=[SimpleNamespace(stdout='"expec
           *'sha256sum /tmp/owners.sql'*) printf '%064d  /tmp/owners.sql\\n' 0;;
           *'pg_restore --list'*) echo '5; 2615 2200 SCHEMA - public postgres';;
           *'pg_restore -U'*) [ -e "$STATE_DIR/lightning-role" ] || return 19;;
+        esac
+        return 0
+      }
+      cmd_restore "$STATE_DIR/schema.dump" || exit 1
+      [ -e "$STATE_DIR/database.json" ]
+    `);
+    expect(result.status, result.stderr).toBe(0);
+  });
+
+  it('creates the isolated daily content reporter without login before restoring its schema grants', () => {
+    const result = standbyShell(`
+      assert_isolated() { return 0; }
+      log() { :; }
+      psql_db() {
+        case "$*" in
+          *'CREATE ROLE daily_content_reporter NOLOGIN'*) touch "$STATE_DIR/content-reporter-role";;
+          *'select count'*) echo 4;;
+        esac
+        return 0
+      }
+      sha256sum() { echo fixture; }
+      docker() {
+        case "$*" in
+          *'sha256sum /tmp/owners.sql'*) printf '%064d  /tmp/owners.sql\\n' 0;;
+          *'pg_restore --list'*) echo '5; 2615 2200 SCHEMA - public postgres';;
+          *'pg_restore -U'*) [ -e "$STATE_DIR/content-reporter-role" ] || return 19;;
         esac
         return 0
       }
