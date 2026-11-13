@@ -293,7 +293,7 @@ function profileFor(image: HTMLImageElement, scaler: HTMLElement, page: HTMLElem
   });
   if (
     page.dataset.killEnabled !== 'false' ||
-    ![2, 3, 4, 5].includes(Number(page.dataset.holeCardCount))
+    ![2, 3, 4, 5, 6].includes(Number(page.dataset.holeCardCount))
   )
     return;
   return MOBILE_PROFILES[key]?.[ring.indexOf(image.closest<HTMLElement>('.seat-wrapper')!)];
@@ -347,7 +347,7 @@ export function mobileFrameCardReservation(
     page.classList.contains('table-page--tournament') ||
     !['6', '9'].includes(page.dataset.seats ?? '') ||
     page.dataset.killEnabled !== 'false' ||
-    ![2, 3, 4, 5].includes(Number(page.dataset.holeCardCount)) ||
+    ![2, 3, 4, 5, 6].includes(Number(page.dataset.holeCardCount)) ||
     !matchMedia('(min-width: 481px) and (max-width: 768px) and (orientation: portrait)').matches
   )
     return baseline;
@@ -653,7 +653,7 @@ export function enlargeMobileAvatars(
   if (
     !profiles ||
     page.dataset.killEnabled !== 'false' ||
-    ![2, 3, 4, 5].includes(Number(page.dataset.holeCardCount))
+    ![2, 3, 4, 5, 6].includes(Number(page.dataset.holeCardCount))
   )
     return;
   const seats = Array.from(scaler.querySelectorAll<HTMLElement>('.seat:not(.seat--empty)'));

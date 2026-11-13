@@ -19,7 +19,7 @@ export async function waitForMobileAvatarGrowth(page: Page) {
               !table.classList.contains('table-page--tournament') &&
               ['6', '9'].includes((table as HTMLElement).dataset.seats || '') &&
               (table as HTMLElement).dataset.killEnabled === 'false' &&
-              [2, 3, 4, 5].includes(Number((table as HTMLElement).dataset.holeCardCount));
+              [2, 3, 4, 5, 6].includes(Number((table as HTMLElement).dataset.holeCardCount));
             if (!supported) return true;
             return Array.from(table.querySelectorAll<HTMLElement>('.seat__avatar')).some(
               (avatar) => Number(avatar.style.getPropertyValue('--sp-mobile-art-scale')) > 1

@@ -200,7 +200,7 @@ export function useProtectedCardLayout(
         window.innerHeight > window.innerWidth &&
         page.getAttribute('data-seats') === '9' &&
         page.getAttribute('data-kill-enabled') === 'false' &&
-        [2, 3, 4, 5].includes(Number(page.getAttribute('data-hole-card-count'))) &&
+        [2, 3, 4, 5, 6].includes(Number(page.getAttribute('data-hole-card-count'))) &&
         !page.classList.contains('table-page--tournament') &&
         !artwork.ready()
       )

@@ -55,3 +55,11 @@ the outer 52 px; the deeper rungs reserved felt nothing rests on and walled
 every mid-rail portrait. The band now stops at 52 px. The bet containment
 cases (bets never read as another player's, never cover a portrait) pass with
 it; a 0 px band failed them, so the band is the right guard, not the hull.
+
+## Six-card tables
+
+Dan, November 12: six-card tables needed to be larger; that was the point. The
+earlier exclusion of six-card layouts is removed. The hero six-card row shift
+and the six-card hidden fans were already reserved as hard obstacles, so the
+cards keep their room; the fixture now exercises a six-card seated ring and a
+six-card spectator ring through folds, reveals and turns with fixed artwork.
