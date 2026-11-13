@@ -76,6 +76,12 @@ export interface OmahaTournamentFirstInInput {
   allInOrFold: boolean;
   /** A satellite seat is locked: the engine's deliberate folds stand. */
   satelliteLocked: boolean;
+  /** Players left in the whole tournament (trusted context; NaN when
+   *  unknown). The rule acts only when every remaining player is at this
+   *  table: on a real money bubble with other tables still running, the
+   *  2026-11-13 evaluation (R3, seed 90005, 10 left, 9 paid) lost to the
+   *  adaptive opponent in every cell, scored in ICM equity. */
+  playersLeft: number;
 }
 
 /**
@@ -89,6 +95,7 @@ export function omahaTournamentFirstIn(
   if (!(i.toCall > 0) || !Number.isFinite(i.percentile)) return null;
   if (i.allInOrFold || i.satelliteLocked) return null;
   if (!(i.tableSize >= 2) || i.tableSize > p.maxTableSize) return null;
+  if (!(i.playersLeft >= 2) || i.playersLeft > i.tableSize) return null;
   if (!(i.effectiveStackBB > 0) || i.effectiveStackBB > p.maxStackBB) return null;
   // Two points of range for each point of the engine's own risk premium,
   // never more than half the range.

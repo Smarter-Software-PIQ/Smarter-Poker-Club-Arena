@@ -9059,6 +9059,13 @@ export class HorseLogic {
           : undefined,
       tableSize:
         (opts.v20Mzone ?? true) !== false ? dealtHorseTableSize(gs, player.seat) : undefined,
+      // Players left in the whole tournament, from the TRUSTED context only
+      // (undefined when absent). The Omaha first-in rule acts only at the
+      // final table: off it, the 2026-11-13 bubble evaluation measured a loss.
+      tournamentPlayersLeft: (() => {
+        const tp = trustedTournamentContext(gs)?.playersLeft;
+        return typeof tp === 'number' && Number.isFinite(tp) && tp > 0 ? tp : undefined;
+      })(),
       // V21: deep-stack cash stack-off discipline.
       deepDiscipline: (opts.v21Deep ?? true) !== false,
       // V24 price defense, PLO6 CASH half DEFAULT OFF since 2026-10-31: the

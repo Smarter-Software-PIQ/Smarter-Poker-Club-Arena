@@ -335,6 +335,8 @@ export interface PreflopCtx {
   /** V20 M-ZONES: players dealt in (for the orbit cost and Harrington's
    *  effective-M table-size scaling). Undefined = layer off. */
   tableSize?: number;
+  /** Players left in the tournament (trusted context), undefined when unknown. */
+  tournamentPlayersLeft?: number;
   /** V21 DEEP-STACK DISCIPLINE: scale cash 4-bet/5-bet stack-off thresholds
    *  with depth past 120bb. Undefined/false = legacy behavior. */
   deepDiscipline?: boolean;
@@ -1009,6 +1011,8 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
         // Unknown table size (a league ablation arm only) must not read as
         // heads-up: NaN makes the rule stand aside.
         tableSize: ctx.tableSize ?? Number.NaN,
+        // Unknown players-left must not read as a final table either.
+        playersLeft: ctx.tournamentPlayersLeft ?? Number.NaN,
         effectiveStackBB: ctx.effectiveStackBB ?? ctx.stackBB,
         raises: ctx.raises,
         limpers: ctx.limpers,

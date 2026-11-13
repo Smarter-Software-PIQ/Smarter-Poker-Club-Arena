@@ -482,6 +482,27 @@ function bigBlindAnteMttContext(seats: number, stackBB: number): LeagueGameConte
   };
 }
 
+/**
+ * 2026-11-13: the same MTT at its final table (every remaining player seated
+ * here, all in the money), for the Omaha first-in cards: the rule acts only
+ * when the whole field is at this table (HorseOmahaTournamentFirstIn.ts).
+ */
+function finalTableMttContext(seats: number, stackBB: number): LeagueGameContext {
+  const ctx = bigBlindAnteMttContext(seats, stackBB);
+  const payoutPct = [30, 20, 14, 10, 8, 6, 4, 3, 3, 2].slice(0, seats);
+  return {
+    ...ctx,
+    tournament: {
+      ...ctx.tournament!,
+      playersLeft: seats,
+      spotsPaid: 30,
+      nearBubble: false,
+      inMoney: true,
+      payoutPct,
+    },
+  };
+}
+
 const DEFAULT_SEATS = 6;
 const BB = 2;
 const SB = 1;
@@ -1864,7 +1885,7 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     variant,
     seats: 2,
     stackBB: 12,
-    context: bigBlindAnteMttContext(2, 12),
+    context: finalTableMttContext(2, 12),
     pairs: 6000,
     hybridBaseline: true,
     moodClock: 'deal_seed' as const,
@@ -1876,7 +1897,7 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     variant: 'plo4',
     seats: 3,
     stackBB: 12,
-    context: bigBlindAnteMttContext(3, 12),
+    context: finalTableMttContext(3, 12),
     pairs: 6000,
     hybridBaseline: true,
     moodClock: 'deal_seed',

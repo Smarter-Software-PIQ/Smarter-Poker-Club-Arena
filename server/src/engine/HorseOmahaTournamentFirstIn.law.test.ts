@@ -39,6 +39,7 @@ const base: OmahaTournamentFirstInInput = {
   riskPremium: 0,
   allInOrFold: false,
   satelliteLocked: false,
+  playersLeft: 2,
 };
 
 describe('omahaTournamentFirstIn: the replacement for a fold', () => {
@@ -87,6 +88,21 @@ describe('omahaTournamentFirstIn: the replacement for a fold', () => {
         })
       ).toBeNull();
     }
+  });
+
+  it('acts only at the final table: other tables still running, or an unknown field, keep the fold', () => {
+    expect(omahaTournamentFirstIn({ ...base, playersLeft: 10, percentile: 0.99 })).toBeNull();
+    expect(omahaTournamentFirstIn({ ...base, playersLeft: 3, percentile: 0.99 })).toBeNull();
+    expect(
+      omahaTournamentFirstIn({ ...base, playersLeft: Number.NaN, percentile: 0.99 })
+    ).toBeNull();
+    expect(
+      omahaTournamentFirstIn({ ...base, tableSize: 3, playersLeft: 3, percentile: 0.5 })
+    ).toEqual({
+      a: 'jam',
+    });
+    const bb = { ...base, position: 'bb' as const, raises: 1, toCall: 4, stack: 36, pot: 8 };
+    expect(omahaTournamentFirstIn({ ...bb, playersLeft: 10, percentile: 0.99 })).toBeNull();
   });
 
   it('All-In-Or-Fold tables and locked satellite seats keep the engine fold', () => {
@@ -417,6 +433,27 @@ describe(
       expect(folds('plo4', 2, 30, 'tournament', {}).actions).toEqual(
         folds('plo4', 2, 30, 'tournament', { omahaTournamentFirstIn: false }).actions
       );
+    });
+
+    it('a short-handed table with other tables still running keeps the engine folds', () => {
+      const offFinal = (opts: HorseDecideOpts) => {
+        const actions: string[] = [];
+        for (let i = 0; i < 60; i++) {
+          HorseMind.reset();
+          const { hero, state } = smallBlindSpot('plo4', 2, 10, 'tournament', 9500 + i * 23);
+          if (state.tournament) {
+            const others = Array.from({ length: 8 }, () => 20 * 2);
+            state.tournament.playersLeft = 10;
+            state.tournament.stacks = [...(state.tournament.stacks ?? []), ...others];
+          }
+          const d = HorseLogic.decide(hero, state, 'balanced', {}, { mind: false, ...opts });
+          actions.push(`${d.action}:${d.amount ?? ''}`);
+        }
+        return actions;
+      };
+      const on = offFinal({});
+      expect(on).toEqual(offFinal({ omahaTournamentFirstIn: false }));
+      expect(on.some((a) => a.startsWith('fold'))).toBe(true);
     });
 
     it('an All-In-Or-Fold table keeps its own ranges', () => {
