@@ -25,4 +25,4 @@ A decision change may be merged as an opt-in arm (option read as `=== true`, off
 
 ## If A Change Is Already On And A Row Fails
 
-Switch it to opt-in in its own pull request, keep the code and the regression as the arm, and retire any law that promised the default behaviour in the same pull request (docs/LAWS.md rule 4). Tell the release custodian which commits carry it on. Do not describe one release of unsupported behaviour as acceptable, and do not assume a later release repairs it.
+Switch it to opt-in in its own pull request, keep the code and the regression as the arm, and retire any law that promised the default behaviour in the same pull request, following docs/LAWS.md rule 4 for how a law is retired. Tell the release custodian which commits carry it on. Do not describe one release of unsupported behaviour as acceptable, and do not assume a later release repairs it.
