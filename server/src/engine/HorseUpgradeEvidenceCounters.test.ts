@@ -96,6 +96,7 @@ describe('upgrade 10: a read the fast window switches on is counted', () => {
     expect(envelope).toBeDefined();
     let engagedByFast = 0;
     let counted = 0;
+    let ready = 0;
     for (let opps = 10; opps <= 60; opps += 5) {
       for (let bets = 0; bets <= opps; bets += 1) {
         const long = { flopCheckedToOpps: opps, flopBetCheckedTo: bets };
@@ -111,13 +112,35 @@ describe('upgrade 10: a read the fast window switches on is counted', () => {
           scope,
           'nlh'
         );
-        counted += fires().upgrade10_fast_window_engaged ?? 0;
+        const f = fires();
+        counted += f.upgrade10_fast_window_engaged ?? 0;
+        ready += f.upgrade10_fast_window_ready_seen ?? 0;
         if (withoutFast?.engaged == null && withFast?.engaged === 'high') engagedByFast += 1;
       }
     }
     // The grid must contain the case, or this proves nothing.
     expect(engagedByFast).toBeGreaterThan(0);
     expect(counted).toBe(engagedByFast);
+    // Opportunity: every not-engaged read with enough recent sample is counted
+    // ready, so engagements are a subset of opportunities.
+    expect(ready).toBeGreaterThanOrEqual(counted);
+    expect(ready).toBeGreaterThan(counted);
+  });
+});
+
+describe('upgrade 10: no opportunity without enough recent sample', () => {
+  it('counts nothing ready when the fast window holds fewer than the engage minimum', () => {
+    flopStabStatRead(
+      {
+        flopCheckedToOpps: 40,
+        flopBetCheckedTo: 30,
+        fFlopCheckedToOpps: EXPLOIT_FAST_ENGAGE_MIN_N - 1,
+        fFlopBetCheckedTo: EXPLOIT_FAST_ENGAGE_MIN_N - 1,
+      },
+      'holdem:short',
+      'nlh'
+    );
+    expect(fires().upgrade10_fast_window_ready_seen).toBeUndefined();
   });
 });
 

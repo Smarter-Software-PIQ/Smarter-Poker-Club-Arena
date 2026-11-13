@@ -1001,12 +1001,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'styleBigBetHonesty',
-    "2026-11-13 STYLE READ #3: a large river bet (0.66 pot or more) from a player whose betting-range evidence is value-weighted earns extra call-down respect, capped at the existing +0.15 together with the V16 tell; a large turn bet and any river raise read the frequency evidence only at half weight (shown strength was measured on big river bets and is not generalised); never a small bet, never the flop; halved when hero holds a blocker; scaled down proportionally and stood down by the fast window; stands down in bounty events; only ever adds respect (never widens a call); the tournament utility arbiter keeps the last word; default off, explicit true only",
+    '2026-11-13 STYLE READ #3: a large river bet (0.66 pot or more) from a player whose betting-range evidence is value-weighted earns extra call-down respect, capped at the existing +0.15 together with the V16 tell; a large turn bet and any river raise read the frequency evidence only at half weight (shown strength was measured on big river bets and is not generalised); never a small bet, never the flop; halved when hero holds a blocker; scaled down proportionally and stood down by the fast window; stands down in bounty events; only ever adds respect (never widens a call); the tournament utility arbiter keeps the last word; default off, explicit true only',
     '2026-11-13'
   ),
   flag(
     'styleRaiseRespect',
-    "2026-11-13 STYLE READ #4: a flop or turn raise from a player whose postflop bet-and-raise share is credibly below the Horse mean (the raise-frequency proxy) shades a one-pair-or-worse call by up to 0.06 equity, scaled by the DECISION-TIME stack-to-pot ratio (effective stack behind before the decision over the pot including his bet): nothing at SPR 2 or below (one pair is a correct stack-off), full from SPR 6; heads-up, no side pots, no bounty event, no maniac read; released proportionally by the fast window; only ever adds a shade (never widens a call); default off, explicit true only",
+    '2026-11-13 STYLE READ #4: a flop or turn raise from a player whose postflop bet-and-raise share is credibly below the Horse mean (the raise-frequency proxy) shades a one-pair-or-worse call by up to 0.06 equity, scaled by the DECISION-TIME stack-to-pot ratio (effective stack behind before the decision over the pot including his bet): nothing at SPR 2 or below (one pair is a correct stack-off), full from SPR 6; heads-up, no side pots, no bounty event, no maniac read; released proportionally by the fast window; only ever adds a shade (never widens a call); default off, explicit true only',
     '2026-11-13'
   ),
   flag(
@@ -1016,22 +1016,22 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'styleFoldRatePreRepair',
-    '2026-11-13 STYLE READ pre-repair: the legacy over-folder branch (postflop fold rate above 0.62) stands down while the decision\'s exact profile is a pre-repair cash table-speed row whose fold-to-bet has fewer than 60 post-release opportunities; hold\'em only; default off, explicit true only',
+    "2026-11-13 STYLE READ pre-repair: the legacy over-folder branch (postflop fold rate above 0.62) stands down while the decision's exact profile is a pre-repair cash table-speed row whose fold-to-bet has fewer than 60 post-release opportunities; hold'em only; default off, explicit true only",
     '2026-11-13'
   ),
   flag(
     'styleValueExtraction',
-    '2026-11-13 STYLE READ A4 value extraction: against a credible caller (fold-to-bet credibly low or river call credibly high) whose shown big bets are not value-weighted, value sizing up to +25%, value bar up to 0.03 thinner, slow-play cut up to 50% only when he rarely bets; released by a rising fast-window fold rate; hold\'em heads-up, not bounty; default off, explicit true only',
+    "2026-11-13 STYLE READ A4 value extraction: against a credible caller (fold-to-bet credibly low or river call credibly high) whose shown big bets are not value-weighted, value sizing up to +25%, value bar up to 0.03 thinner, slow-play cut up to 50% only when he rarely bets; released by a rising fast-window fold rate; hold'em heads-up, not bounty; default off, explicit true only",
     '2026-11-13'
   ),
   flag(
     'styleFoldBluff',
-    '2026-11-13 STYLE READ postflop-fold bluffing: bluff frequency follows this street\'s fold-to-bet (river: river call), up to +25% against a folder and down to -30% against a caller, increase withheld against possible fold-faking trappers, pre-repair rows excluded; hold\'em heads-up, not bounty; default off, explicit true only',
+    "2026-11-13 STYLE READ postflop-fold bluffing: bluff frequency follows this street's fold-to-bet (river: river call), up to +25% against a folder and down to -30% against a caller, increase withheld against possible fold-faking trappers, pre-repair rows excluded; hold'em heads-up, not bounty; default off, explicit true only",
     '2026-11-13'
   ),
   flag(
     'styleCarryOverWeight',
-    '2026-11-13 STYLE READ cross-format transfer: weight (0 to 1) of the same player\'s other-format counters in the style read; default 0 = format-specific evidence only; one player being tighter in tournaments does not establish that everyone is, so a non-zero weight needs validation first',
+    "2026-11-13 STYLE READ cross-format transfer: weight (0 to 1) of the same player's other-format counters in the style read; default 0 = format-specific evidence only; one player being tighter in tournaments does not establish that everyone is, so a non-zero weight needs validation first",
     '2026-11-13'
   ),
   receipt(
@@ -1061,19 +1061,19 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'style_fold_bluff_seen',
     'HorseLogic (STYLE READ postflop-fold bluffing)',
-    'the bluff multiplier moved by this street\'s fold-to-bet read; occurrence counter; named *_seen',
+    "the bluff multiplier moved by this street's fold-to-bet read; occurrence counter; named *_seen",
     '2026-11-13'
   ),
   receipt(
     'style_bluff_catch_cap_seen',
     'HorseLogic (STYLE READ #3 river bluff-catch equity cap)',
-    'a one-pair river bluff-catcher\'s equity was capped at the bluff share the bettor\'s called river bets left (90% one-sided); occurrence counter; named *_seen',
+    "a one-pair river bluff-catcher's equity was capped at the bluff share the bettor's called river bets left (90% one-sided); occurrence counter; named *_seen",
     '2026-11-13'
   ),
   receipt(
     'style_boot_inputs_hydrated_seen',
     'HorseExploitHydrator (STYLE READ boot inputs)',
-    'the boot replay rebuilt the style read\'s post-release counts and size buckets from the hand history it read (only when HORSE_STYLE_BOOT_RELEASE_START_MS is set); occurrence counter; named *_seen',
+    "the boot replay rebuilt the style read's post-release counts and size buckets from the hand history it read (only when HORSE_STYLE_BOOT_RELEASE_START_MS is set); occurrence counter; named *_seen",
     '2026-11-13'
   ),
   receipt(
@@ -2829,6 +2829,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'a telemetry-on postflop decision scored its blockers',
     '2026-11-12',
     'decide_postflop'
+  ),
+  receipt(
+    'phase14_kernel_refused_*',
+    'horseDecision workerRuntime (FAST)',
+    'an admitted Phase 14 domain decision outside the kernel family, by the first refusing check (two dealt seats, river, opponent all in, ante geometry, baseline); named *_seen (occurrence, not a layer)',
+    '2026-11-13'
+  ),
+  receipt(
+    'phase14_kernel_eligible_deep_seen',
+    'horseDecision workerRuntime (DEEP)',
+    'a DEEP second look that reached the admitted corrective kernel; kept apart from the FAST count; named *_seen (occurrence, not a layer)',
+    '2026-11-13'
   ),
   receipt(
     'phase14_kernel_eligible_seen',
