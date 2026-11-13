@@ -11,3 +11,5 @@ The enlarged layout targets the 600px reference canvas used by portrait phones. 
 The shortened six-seat rail rests on its reserved floor, and the phone hero clearance uses the equal portrait ratio. This preserves the existing maximum gap between the hero display and action buttons on short phones.
 
 Hidden fans on both portrait layouts, including compact raw viewports, reserve the rotated bottom corner above the nameplate. The live screenshot certificate checks hidden and shown cards against the viewport, player plates, board, branding, dealer and controls.
+
+Hidden-fan wager reservations follow the same portrait phone boundary as the inward-fan CSS; legacy compact layouts keep their existing outboard search. Dense nine-seat observer browser cases share a sequential default-mode group to avoid simultaneous cold-allocation contention. Every case still runs after a failure, with its original assertions and 60-second deadline.
