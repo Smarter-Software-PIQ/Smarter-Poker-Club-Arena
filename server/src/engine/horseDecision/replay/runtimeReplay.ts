@@ -16,6 +16,7 @@
  * Phase 6 M assertions, the RNG seed derivation and the compute clock, is the
  * runtime's own code path.
  */
+import { StyleSwitchHolder, styleSwitchSourceFromStates } from '../../HorseStyleSwitch.js';
 import { performance } from 'node:perf_hooks';
 import { HorseLogic } from '../../HorseLogic.js';
 import { HorseMind } from '../../HorseMind.js';
@@ -81,6 +82,8 @@ export interface HorseRuntimeReplayBindings {
   /** Private counterfactual arm only; never forwarded from an original request. */
   v56PressureCounterfactual?: 'off';
   captureV56PressureWitness?: boolean;
+  /** M3: the style read switch states the original decision ran with (absent: every option off). */
+  styleStates?: import('../../HorseStyleSwitch.js').StyleSwitchStates | null;
 }
 
 const readiness = (): HorseDecisionWorkerReadiness => {
@@ -176,6 +179,8 @@ export async function replayThroughWorkerRuntime(
       features.push(feature);
     },
     now: () => performance.now(),
+    // M3: the switch state is restored from the record, never read live
+    styleSwitch: new StyleSwitchHolder(styleSwitchSourceFromStates(bindings.styleStates), () => {}),
   };
   const runtime = new HorseDecisionWorkerRuntime(
     (message) => messages.push(message),

@@ -204,6 +204,7 @@ describe('HorseDecideOpts wiring', () => {
       readBreakEvenBluff: true,
       readScopedShrink: true,
       omahaEvFoldModel: true,
+      omahaNeutralUnknown: true,
       mind: false,
     });
     expect(HorseMind.currentDecisionReadOptions()).toEqual({
@@ -212,6 +213,7 @@ describe('HorseDecideOpts wiring', () => {
       breakEvenBluff: true,
       scopedShrink: true,
       omahaEvFoldModel: true,
+      omahaNeutralUnknown: true,
     });
     HorseMind.setDecisionScope(null);
     HorseLogic.prepareOriginalReads(players[0] as never, gameState, {
@@ -226,17 +228,20 @@ describe('HorseDecideOpts wiring', () => {
       breakEvenBluff: false,
       scopedShrink: false,
       omahaEvFoldModel: false,
+      omahaNeutralUnknown: false,
     });
     HorseMind.setDecisionScope(null);
     expect(HorseMind.currentDecisionReadOptions()).toEqual({});
     HorseLogic.prepareOriginalReads(players[0] as never, gameState, { mind: false });
-    // omahaEvFoldModel is default ON (2026-11-08); the others default off.
+    // omahaEvFoldModel is default ON (2026-11-08); the others default off,
+    // omahaNeutralUnknown included (2026-11-13).
     expect(HorseMind.currentDecisionReadOptions()).toEqual({
       postflopFoldRate: false,
       shrinkResponseReads: false,
       breakEvenBluff: false,
       scopedShrink: false,
       omahaEvFoldModel: true,
+      omahaNeutralUnknown: false,
     });
   });
 });

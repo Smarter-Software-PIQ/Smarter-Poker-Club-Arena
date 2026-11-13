@@ -100,6 +100,7 @@ const state = vi.hoisted(() => ({
   roster: [] as Array<Record<string, unknown>>,
   chipRequests: [] as Array<Record<string, unknown>>,
   recentMoves: [] as Array<Record<string, unknown>>,
+  lastTransactionAt: {} as Record<string, string>,
   pendingHead: 0,
   reversible: null as null | ((clubId: string) => Promise<unknown>),
   batch: null as null | ((args: Record<string, unknown>) => Promise<unknown>),
@@ -286,6 +287,7 @@ beforeEach(async () => {
   state.roster = [player(0, 75)];
   state.chipRequests = [];
   state.recentMoves = [];
+  state.lastTransactionAt = {};
   state.pendingHead = 0;
   state.reversible = null;
   state.batch = null;
@@ -424,6 +426,16 @@ beforeEach(async () => {
         error: null,
       }) as never;
     }
+    if (name === 'fn_cashier_roster_sort_keys')
+      return Promise.resolve({
+        data: state.roster.map((row) => ({
+          user_id: row.user_id,
+          player_wallet: row.chip_balance,
+          agent_wallet: row.role !== 'player' ? 340 : null,
+          last_transaction_at: state.lastTransactionAt[row.user_id] ?? null,
+        })),
+        error: null,
+      }) as never;
     if (name === 'fn_club_cashier_members_page_v3') {
       const after = params.p_after_user_id
         ? state.roster.findIndex((row) => row.user_id === params.p_after_user_id) + 1
@@ -2091,26 +2103,32 @@ it('the sender chooses a recipient agent player wallet and the batch retains tha
   ]);
 });
 
-it('preloads the most recent own ticket, send and claim counterparties before high balances', async () => {
+/* Dan 2026-11-13: the roster defaults to each member's LAST TRANSACTION in
+   the club ledger (fn_cashier_roster_sort_keys), newest first, and members
+   who never transacted fall to the end by balance. Agent Wallet and Player
+   Wallet sort High To Low on the first tap and flip on the next. */
+it('defaults to last transaction, then sorts by player wallet both ways', async () => {
   state.roster = [player(0, 9000), player(1, 5), player(2, 10)];
-  state.recentMoves = [
-    {
-      from_user_id: USER_ID,
-      to_user_id: PLAYER_IDS[2],
-      transaction_type: 'tournament_ticket_issue',
-    },
-    { from_user_id: USER_ID, to_user_id: PLAYER_IDS[1], transaction_type: 'agent_wallet_send' },
-    { from_user_id: PLAYER_IDS[0], to_user_id: USER_ID, transaction_type: 'agent_wallet_send' },
-    { from_user_id: PLAYER_IDS[2], to_user_id: USER_ID, transaction_type: 'club_bank_claim_back' },
-  ];
+  state.lastTransactionAt = {
+    [PLAYER_IDS[2]]: '2026-11-13T16:00:00Z',
+    [PLAYER_IDS[1]]: '2026-11-12T16:00:00Z',
+  };
   mountCashier();
   await synchronized();
+  const order = () =>
+    screen
+      .getAllByRole('checkbox', { name: /^Include Player/ })
+      .map((button) => button.getAttribute('aria-label'));
   await waitFor(() =>
-    expect(
-      screen
-        .getAllByRole('checkbox', { name: /^Include Player/ })
-        .map((button) => button.getAttribute('aria-label'))
-    ).toEqual(['Include Player 3', 'Include Player 2', 'Include Player 1'])
+    expect(order()).toEqual(['Include Player 3', 'Include Player 2', 'Include Player 1'])
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Sort By Player Wallet High To Low' }));
+  await waitFor(() =>
+    expect(order()).toEqual(['Include Player 1', 'Include Player 3', 'Include Player 2'])
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Sort By Player Wallet Low To High' }));
+  await waitFor(() =>
+    expect(order()).toEqual(['Include Player 2', 'Include Player 3', 'Include Player 1'])
   );
 });
 

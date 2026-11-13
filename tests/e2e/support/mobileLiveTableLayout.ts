@@ -22,7 +22,11 @@ export async function waitForMobileAvatarGrowth(page: Page) {
               [2, 3, 4, 5, 6].includes(Number((table as HTMLElement).dataset.holeCardCount));
             if (!supported) return true;
             return Array.from(table.querySelectorAll<HTMLElement>('.seat__avatar')).some(
-              (avatar) => Number(avatar.style.getPropertyValue('--sp-mobile-art-scale')) > 1
+              (avatar) =>
+                Boolean(avatar.style.getPropertyValue('--sp-mobile-art-scale')) &&
+                Number(avatar.style.getPropertyValue('--sp-mobile-art-scale')) *
+                  (parseFloat(getComputedStyle(avatar).getPropertyValue('--sp-bust-scale')) || 1) >
+                  1
             );
           }),
       {
@@ -308,12 +312,10 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
   const plates = Array.from(table.querySelectorAll('.seat__info')).filter(visible);
   const protectedNodes = Array.from(
     table.querySelectorAll(
-      '.community-area, .pot-display, .seat__info, .seat__bet-chips, .seat__strength, .action-panel'
+      '.community-area, .pot-display, .table-brand, .seat__info, .seat__bet-chips, .seat__strength, .dealer-button, .action-panel'
     )
   ).filter(visible);
-  const cards = Array.from(table.querySelectorAll('.seat__cards--revealed .seat__card')).filter(
-    visible
-  );
+  const cards = Array.from(table.querySelectorAll('.seat__cards .seat__card')).filter(visible);
   const violations: string[] = [];
   let crownProof: {
     gap: number;
@@ -359,7 +361,13 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
   }
   for (const card of cards) {
     const rect = box(card);
-    if (rect.left < -1 || rect.right > innerWidth + 1) violations.push('Card Outside Viewport');
+    if (
+      rect.left < -1 ||
+      rect.right > innerWidth + 1 ||
+      rect.top < -1 ||
+      rect.bottom > innerHeight + 1
+    )
+      violations.push('Card Outside Viewport');
     for (const node of protectedNodes)
       if (intersects(rect, box(node))) violations.push(`Card Covers ${node.className}`);
   }
@@ -791,7 +799,8 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
         bounds: box(image).toJSON(),
       };
     }),
-    revealedCards: cards.length,
+    revealedCards: cards.filter((card) => card.closest('.seat__cards--revealed')).length,
+    visibleCards: cards.length,
     allInMarkers: markers.length,
     height: innerHeight,
     topGap,

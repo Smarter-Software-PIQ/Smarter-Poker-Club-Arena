@@ -208,7 +208,12 @@ describe('the felt reserves stay fixed through hand and action states', () => {
           prop === '--sp-hero-clear' &&
           d.selector === ".table-page[data-seats='6'] .table-container" &&
           d.value === '64px';
-        if (!fixedShortRing && STATE.test(d.selector))
+        // The equal-portrait phone reserve is also fixed table configuration:
+        // neither seat occupancy nor hero/hand/action state selects it.
+        const fixedPortraitRing =
+          prop === '--sp-hero-clear' &&
+          d.selector === ".table-page:where([data-seats='6'], [data-seats='9']) .table-container";
+        if (!fixedShortRing && !fixedPortraitRing && STATE.test(d.selector))
           offenders.push(`${prop} declared on "${d.selector}"`);
       }
     }

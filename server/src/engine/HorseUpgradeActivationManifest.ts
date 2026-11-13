@@ -129,6 +129,7 @@ export const HORSE_UPGRADE_LIVE_EVIDENCE: Readonly<Record<string, readonly strin
       "'upgrade09_preaction_purge_lightning_seen'",
     ],
     upgrade_10_fast_recency_gear_shift: [
+      "'upgrade10_fast_window_ready_seen'",
       "'upgrade10_fast_window_engaged'",
       "'upgrade10_gear_shift_engaged'",
     ],

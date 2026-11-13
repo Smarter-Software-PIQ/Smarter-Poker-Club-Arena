@@ -27,8 +27,8 @@ function actions(fx: ComplaintFixture, ord: number, opts?: Record<string, unknow
 describe('the action-behind rule is an opt-in arm (PLO6-AUDIT-005)', () => {
   afterEach(() => HorseMind.reset());
 
-  it.each(CASES)('%s: by default the recorded call is still made', (_label, fx, ord) => {
-    expect(actions(fx, ord).some((a) => 'call' in a || 'all_in' in a)).toBe(true);
+  it.each(CASES)('%s: by default no profile folds; the chips go in', (_label, fx, ord) => {
+    expect(actions(fx, ord).every((a) => !('fold' in a))).toBe(true);
   });
 
   it.each(CASES)('%s: opted in, no profile calls at any seed', (_label, fx, ord) => {

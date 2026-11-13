@@ -23,8 +23,10 @@ export async function checkFixedMobileArtwork(
   // Start the mobile candidate in the same notched-phone geometry used by
   // its approval screenshots, without the preceding test's injected poses.
   await page.setViewportSize({ width: 600, height: 1298 });
+  // Each case is a fresh device session: no game-type size recorded yet.
+  await page.evaluate(() => localStorage.removeItem('sp-mobile-avatar-size-v2'));
   await page.reload();
-  await page.evaluate(() => {
+  await page.evaluate((settings) => {
     for (const style of document.querySelectorAll('style'))
       style.textContent = (style.textContent || '')
         .replace(/env\(\s*safe-area-inset-top\s*(?:,[^()]*)?\)/g, '72px')
@@ -37,10 +39,13 @@ export async function checkFixedMobileArtwork(
       activeSeat: '3',
       action: 'preflop',
       actionPills: 'true',
-      villainCards: '2',
       folded: '1,6',
+      // Mount the requested game directly. A warm-up nine-seat Hold'em mount
+      // can persist a second game type before the first fixture transition.
+      ...settings,
+      villainCards: settings.cards,
     });
-  });
+  }, settings);
   await page.addScriptTag({ content: bundle });
   await page.waitForFunction(
     () =>
@@ -100,7 +105,12 @@ export async function checkFixedMobileArtwork(
       return {
         paint: Array.from(document.querySelectorAll<HTMLElement>('.seat__avatar')).map((e) =>
           ['--sp-mobile-art-scale', '--sp-mobile-art-x', '--sp-mobile-art-y'].map((n) =>
-            e.style.getPropertyValue(n)
+            n === '--sp-mobile-art-scale' && e.style.getPropertyValue(n)
+              ? String(
+                  Number(e.style.getPropertyValue(n)) *
+                    (parseFloat(getComputedStyle(e).getPropertyValue('--sp-bust-scale')) || 1)
+                )
+              : e.style.getPropertyValue(n)
           )
         ),
         frames: Array.from(document.querySelectorAll<HTMLElement>('.seat__info')).map((e) =>
@@ -180,10 +190,108 @@ export async function checkFixedMobileArtwork(
     }
     await expect.poll(async () => (await read()).paint.some((p) => Number(p[0]) > 1)).toBe(true);
     const before = await read();
-    // Dan 2026-11-12: every portrait is the exact same size and stays centred
-    // over its frame box (no sideways shift), the hero's own zoom aside.
-    const opponents = before.paint.slice(spectator ? 0 : 1).filter((p) => p[0]);
-    expect(new Set(opponents.map((p) => p[0])).size, 'one size for every portrait').toBe(1);
+    // Cards may overlap within their own fan, but never leave the screen or
+    // obscure information. Exercise hidden PLO6 cards as well as showdown.
+    const cardObstructions = () =>
+      page.evaluate(() => {
+        const visible = (e: Element) => {
+          const style = getComputedStyle(e);
+          const r = e.getBoundingClientRect();
+          return (
+            style.visibility !== 'hidden' && style.display !== 'none' && r.width > 0 && r.height > 0
+          );
+        };
+        const overlaps = (a: DOMRect, b: DOMRect) =>
+          Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 &&
+          Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
+        const displays = [
+          ...document.querySelectorAll(
+            '.table-brand,.community-area,.seat__info,.seat__name,.seat__stack,.seat__bet-chips,.dealer-button,.action-panel'
+          ),
+        ].filter(visible);
+        return [...document.querySelectorAll('.seat__cards .seat__card')]
+          .filter(visible)
+          .flatMap((card) => {
+            const r = card.getBoundingClientRect();
+            const errors: string[] = [];
+            if (
+              r.left < -0.5 ||
+              r.right > innerWidth + 0.5 ||
+              r.top < -0.5 ||
+              r.bottom > innerHeight + 0.5
+            )
+              errors.push(
+                `Card Outside Viewport: ${card.closest('.seat')?.getAttribute('data-seat')}`
+              );
+            for (const display of displays)
+              if (overlaps(r, display.getBoundingClientRect()))
+                errors.push(`Card Covers ${display.className}`);
+            return errors;
+          });
+      });
+    expect(await cardObstructions(), 'hidden hands stay complete and clear of displays').toEqual(
+      []
+    );
+    // Dan 2026-11-12: every portrait, the hero's included, is the exact same
+    // size and stays centred over its frame box (no sideways shift).
+    const grown = before.paint.filter((p) => p[0]);
+    expect(new Set(grown.map((p) => p[0])).size, 'one size for every portrait').toBe(1);
+    const tableSize = grown[0][0];
+    // Dan 2026-11-13: no enlarged portrait is ever cut off. The acting
+    // seat's holo sweep must not blend (a blend group clips the grown head in
+    // WebKit), and a sit-out badge keeps clear of the portrait's head.
+    const uncut = await page.evaluate(() => {
+      const results: Array<{ blend: string; badgeTop: number; headBottom: number }> = [];
+      for (const avatar of document.querySelectorAll<HTMLElement>(
+        '.seat__avatar[style*="--sp-mobile-art-scale"]'
+      )) {
+        const paint = avatar.querySelector('.seat__avatar-paint')!;
+        const holo = document.createElement('span');
+        holo.className = 'seat__holo';
+        paint.prepend(holo);
+        const badge = document.createElement('div');
+        badge.className = 'seat__sitout-badge';
+        badge.textContent = 'Waiting For The Button To Pass';
+        avatar.parentElement!.appendChild(badge);
+        const art = avatar.querySelector('.seat__avatar-img')!.getBoundingClientRect();
+        results.push({
+          blend: getComputedStyle(holo).mixBlendMode,
+          badgeTop: badge.getBoundingClientRect().top,
+          headBottom: art.top + art.height * 0.4,
+        });
+        holo.remove();
+        badge.remove();
+      }
+      return results;
+    });
+    for (const r of uncut) {
+      expect(r.blend, 'the holo sweep never blends over a grown portrait').toBe('normal');
+      expect(
+        r.badgeTop,
+        "a sit-out badge keeps clear of the portrait's head"
+      ).toBeGreaterThanOrEqual(r.headBottom);
+    }
+    // Dan 2026-11-13: every table of this game type on this device takes the
+    // size this one settled; it is recorded as the displayed height.
+    const recorded = await page.evaluate(() =>
+      Object.values(
+        JSON.parse(localStorage.getItem('sp-mobile-avatar-size-v2') || '{}') as Record<
+          string,
+          number
+        >
+      )
+    );
+    // The displayed height of every grown portrait (the table renders at its
+    // layout size here, so viewport px are layout px).
+    const heights = await page.evaluate(() =>
+      Array.from(document.querySelectorAll<HTMLElement>('.seat__avatar'))
+        .filter((a) => a.style.getPropertyValue('--sp-mobile-art-scale'))
+        .map((a) => a.querySelector('.seat__avatar-img')!.getBoundingClientRect().height)
+    );
+    const shown = Math.max(...heights);
+    expect(Math.max(...heights) - Math.min(...heights), 'one displayed size').toBeLessThan(1);
+    expect(recorded.length, 'the game type size is recorded').toBe(1);
+    expect(Math.abs(recorded[0] - shown), 'recorded as the displayed height').toBeLessThan(3);
     for (const p of before.paint)
       if (p[0])
         expect(Math.abs(parseFloat(p[1]) || 0), 'centred over its frame box').toBeLessThan(1);
@@ -217,7 +325,28 @@ export async function checkFixedMobileArtwork(
       );
       if (revealed)
         expect(after.cards, 'already shown cards never move on a later turn').toEqual(revealed);
+      expect(await cardObstructions(), 'shown hands stay complete and clear of displays').toEqual(
+        []
+      );
       if (state.revealed === 'true') revealed = after.cards;
+    }
+    // Dan 2026-11-12: the table's size never changes once set, whoever comes
+    // and goes. Empty the ring to heads-up, then fill it again: every portrait
+    // that is drawn keeps the locked size throughout.
+    for (const occupiedSeats of settings.occupiedSeats
+      ? ['', settings.occupiedSeats]
+      : ['0,4', '']) {
+      await page.evaluate((occupiedSeats) => {
+        Object.assign(document.documentElement.dataset, { occupiedSeats, revealed: 'false' });
+        document.dispatchEvent(new Event('fixture-next-hand'));
+      }, occupiedSeats);
+      await settle();
+      const sizes = (await read()).paint.filter((p) => p[0]).map((p) => p[0]);
+      expect(sizes.length, `portraits drawn with seats "${occupiedSeats}"`).toBeGreaterThan(0);
+      expect(
+        new Set(sizes),
+        `a roster change keeps the locked size (seats "${occupiedSeats}")`
+      ).toEqual(new Set([tableSize]));
     }
   }
   // Preserve the original disabled-layout check from the final six-card

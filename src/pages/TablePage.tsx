@@ -1,3 +1,5 @@
+import { lightningJackpotAward } from '../lightning/lightningJackpotAward';
+import { lightningSeatKey } from '../lightning/lightningSeatKey';
 import { isRetiredTournamentTable } from '../lib/retiredTournamentVisibility';
 import { nextBustRebuyClock } from '../utils/bustRebuyDeadline';
 import { earlyHeroCardsReady, type EarlyHeroCards } from '../utils/earlyHeroCards';
@@ -22,7 +24,10 @@ import {
 import { fetchStoppedLightningAnchor } from '../lightning/lightningLeaveAnchor';
 import { useLightningLeaveStop } from '../lightning/useLightningLeaveStop';
 import { resumeLightningPlaying } from '../lightning/lightningSessionApi';
-import { LightningLeaveControl } from '../components/lightning/LightningLeaveControl';
+import {
+  LightningFeederLeaveControl,
+  LightningLeaveControl,
+} from '../components/lightning/LightningLeaveControl';
 import {
   lightningLeaveWaitsForHand,
   useLightningLeaveAfterHand,
@@ -3088,7 +3093,7 @@ function LiveTablePage({
               (card) => `${card!.rank}${card!.suit}`
             );
           }
-          const prevRow = prev.players[i];
+          const prevRow = previousHeroRow(prev.players, i, sp.id);
           sp = {
             ...sp,
             holeCards: heroDisplayHoleCards(
@@ -14737,8 +14742,25 @@ function LiveTablePage({
         const updatedStacks =
           (handState.updatedStacks as Array<{ userId: string; stack: number }>) || [];
 
-        // Update local player stacks immediately (so stacks reflect BBJ payout)
-        if (updatedStacks.length > 0) {
+        if (lightningRoomRef.current) {
+          const award = lightningJackpotAward(userId, {
+            loser: loserPayout,
+            winner: winnerPayout,
+            tablePlayerIds,
+            perPlayerShare: perPlayer,
+          });
+          if (award > 0) {
+            const label = handState.kind === 'mini' ? 'Mini Bad Beat Jackpot' : 'Bad Beat Jackpot';
+            toast.success(
+              `${label}: You Won ${money(award)} From Hand #${handState.hand_number}.`,
+              6000
+            );
+            retryAccountBalance();
+          }
+        }
+        // Lightning awards credit the wallet, not the current hand's stack.
+        // Its payload carries the finished hand's stacks, even after fast fold.
+        if (!lightningRoomRef.current && updatedStacks.length > 0) {
           setTableState((prev) => ({
             ...prev,
             players: prev.players.map((p) => {
@@ -14817,7 +14839,7 @@ function LiveTablePage({
                   ? perPlayer
                   : 0;
           const credits: Record<string, number> = {};
-          for (const su of updatedStacks) {
+          for (const su of lightningRoomRef.current ? [] : updatedStacks) {
             const amt = shareForSeat(su.userId);
             if (amt > 0) credits[su.userId] = amt;
           }
@@ -15045,7 +15067,7 @@ function LiveTablePage({
        tab. Setting the flag with no cluster left it `true` against a modal that
        renders null, so the lobby popped open unbidden when the cluster read
        landed seconds later. Read from the ref, not from the closure. */
-    if (!tableStateRef.current?.clusterId) return;
+    if (!lightningRoomClusterId && !tableStateRef.current?.clusterId) return;
     setShowMustMoveLobby(true);
   });
 
@@ -28590,6 +28612,15 @@ function LiveTablePage({
                 queued={lightningLeaveAfterHand.queued}
                 onCancel={cancelLightningLeave}
               />
+            ) : lightningCapableClusterId && heroIsSeated && userId && userId !== 'guest' ? (
+              /* Before the game turns Lightning it is an ordinary table: the
+                 same button, through the ordinary leave-after-this-hand. */
+              <LightningFeederLeaveControl
+                queued={leaveNextHand.queued}
+                pending={leaveNextHand.pending}
+                onLeave={requestLeaveAtNextHand}
+                onCancel={() => leaveNextHand.cancelQueuedLeave()}
+              />
             ) : null}
           </div>
         }
@@ -30091,7 +30122,7 @@ function LiveTablePage({
 
             return (
               <div
-                key={seatNumber}
+                key={lightningSeatKey(!!lightningRoom, seatNumber, tableState.heroSeat)}
                 /* Dan 2026-08-19, bug list item 10: the TOP-CENTRE seat is the
                    one with nothing above it but the BBJ banner, so it gets the
                    compact treatment (smaller avatar + capped bust art) that
@@ -30641,6 +30672,7 @@ function LiveTablePage({
               the pod. Nothing renders for a spectator or on a tournament. */}
           <HeroVpipTracker
             tableId={tableId}
+            lightningClusterId={lightningRoom?.clusterId}
             heroSeated={tableState.heroSeat > 0}
             isTournament={tableState.isTournament}
             handsOwed={heroHandsOwed}
@@ -33022,7 +33054,8 @@ function LiveTablePage({
           (This comment used to describe the tournament lobby below it.) */}
       <MustMoveLobbyModal
         isOpen={showMustMoveLobby}
-        gameId={tableState.clusterId}
+        gameId={lightningRoomClusterId ?? tableState.clusterId}
+        lightning={Boolean(lightningRoomClusterId)}
         asset={tableState.arenaAsset === 'diamonds' ? 'diamonds' : 'chips'}
         currentTableId={tableId}
         onClose={() => setShowMustMoveLobby(false)}

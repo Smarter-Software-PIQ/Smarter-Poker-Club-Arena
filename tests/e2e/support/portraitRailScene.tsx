@@ -118,7 +118,9 @@ export function Review() {
     <div className="multi-table-page">
       <div className="multi-table-page__tab-bar-wrapper">
         <div className="table-tab-bar">
-          <button className="table-tab-bar__tab table-tab-bar__tab--active">NLH 1/2</button>
+          <button className="table-tab-bar__tab table-tab-bar__tab--active">
+            {heroCards > 2 ? `PLO${heroCards}` : 'NLH'} 1/2
+          </button>
         </div>
         <button className="mtp-lobby-btn" aria-label="Open Must Move Lobby">
           <img className="mtp-lobby-btn__img" src={lobbyArt} alt="" draggable={false} />
@@ -210,7 +212,9 @@ export function Review() {
                         </span>
                       </span>
                       <span className="table-brand__line table-brand__line--level">
-                        <span className="table-brand__game">Madness PLO4 1/2 + BB Ante</span>
+                        <span className="table-brand__game">
+                          Classic {heroCards > 2 ? `PLO${heroCards}` : 'NLH'} 1/2 + BB Ante
+                        </span>
                       </span>
                       <span className="table-brand__line table-brand__line--hand">
                         Hand #4283505
@@ -275,8 +279,9 @@ export function Review() {
                                    combination a real human player sees. Absent,
                                    every chair keeps the character art the other
                                    scenes already use. */
-                                avatar:
-                                  i > 0 && document.documentElement.dataset.villainAvatar
+                                avatar: document.documentElement.dataset.avatarNames
+                                  ? `https://smarter.poker/avatars/table/${document.documentElement.dataset.avatarNames.split(',')[i % document.documentElement.dataset.avatarNames.split(',').length]}`
+                                  : i > 0 && document.documentElement.dataset.villainAvatar
                                     ? document.documentElement.dataset.villainAvatar
                                     : i === 0 && document.documentElement.dataset.heroAvatar
                                       ? document.documentElement.dataset.heroAvatar

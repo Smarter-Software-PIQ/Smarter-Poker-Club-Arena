@@ -778,6 +778,9 @@ export function toComplaintFixture(
       actorSeat,
       bombPot,
       tournamentStage,
+      vpipFloor,
+      vpipWindowHands,
+      ownVpip,
     } = pn;
     return {
       pot,
@@ -801,6 +804,10 @@ export function toComplaintFixture(
       actorSeat,
       bombPot,
       tournamentStage: tournamentStage ?? null,
+      // The floor inputs are part of what the decision read (PLO6-AUDIT-012).
+      ...(vpipFloor !== undefined ? { vpipFloor } : {}),
+      ...(vpipWindowHands !== undefined ? { vpipWindowHands } : {}),
+      ...(ownVpip !== undefined ? { ownVpip } : {}),
     };
   };
   const fx: ComplaintFixture = {

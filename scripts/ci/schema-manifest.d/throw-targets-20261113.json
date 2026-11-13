@@ -1,0 +1,17 @@
+{
+  "_owner": "20261113123902_record_throw_targets.sql: who every charged throw hit (Dan 2026-11-13).",
+  "tables": ["throw_targets"],
+  "functions": ["fn_record_throw_target", "fn_horse_record_throw_target"],
+  "columns": {
+    "throw_targets": [
+      "thrower_user_id",
+      "request_id",
+      "throwable_id",
+      "table_id",
+      "thrower_seat",
+      "target_seat",
+      "target_user_id",
+      "created_at"
+    ]
+  }
+}

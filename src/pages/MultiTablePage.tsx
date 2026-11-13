@@ -135,6 +135,7 @@ import {
   getLightningPoolSession,
   getLightningEntryIntent,
   registerLightningPoolSession,
+  useLightningPoolSession,
 } from '../lightning/lightningSession';
 import { resolveLightningSeatRooms } from '../lightning/lightningSeatRecovery';
 import { anchorsShownByOpenRooms } from '../lightning/lightningAnchorTabs';
@@ -2090,13 +2091,9 @@ export default function MultiTablePage() {
     setVisiblePokerTable(visiblePokerTableId);
     return () => setVisiblePokerTable(null);
   }, [visiblePokerTableId]);
-  /* THE LOBBY BUTTON (Dan 2026-09-05): "THE LOBBY RECTANGLE, NEEDS TO MOVE TO
-     ... WHERE THE '4 SQUARE' BOX IS IN THE ACTION PILL AREA. AND SAY 'LOBBY'
-     ON IT. (4 SQUARE BUTTON SHOULD BE TO THE LEFT OF IT)." Only a table that
-     belongs to a must-move game has a lobby to open, so the button appears
-     only for one - reported by TablePage as `clusterId` because this row is
-     drawn out here, where the felt's own state is not reachable. */
-  const activeClusterId = tables[activeIndex]?.clusterId || '';
+  // A Lightning room is keyed by pool session. Its game lobby belongs to the cluster.
+  const activeLightningRoom = useLightningPoolSession(activeTableId);
+  const activeClusterId = activeLightningRoom?.clusterId ?? tables[activeIndex]?.clusterId;
   /* THE SAME CORNER SERVES TOURNAMENTS (Dan 2026-11-01): "THE LOBBY BUTTON IS
      100% ALWAYS SUPPOSED TO BE IN THE RIGHT CORNER IN THE ACTION BAR AT THE
      TOP, NOT RANDOMLY INSIDE THE POKER TABLE PAGE." A tournament tab shows
@@ -2106,6 +2103,11 @@ export default function MultiTablePage() {
     !!tables[activeIndex] &&
     isTableTab(tables[activeIndex]) &&
     tabIsTournament(tables[activeIndex]);
+  const tableLobbyTitle = activeIsTournament
+    ? 'Tournament Lobby'
+    : activeLightningRoom
+      ? 'Game Lobby'
+      : 'Must Move Lobby';
 
   // 2026-08-15 multi-table fix: the tab countdown ticks off the server
   // deadline. One 1s clock runs only while some table has a live turn.
@@ -5450,8 +5452,8 @@ export default function MultiTablePage() {
                     ? masterBus.emit('OPEN_TOURNAMENT_LOBBY', { tableId: activeTableId })
                     : masterBus.emit('OPEN_MUST_MOVE_LOBBY', { tableId: activeTableId })
                 }
-                aria-label={activeIsTournament ? 'Open Tournament Lobby' : 'Open Must Move Lobby'}
-                title={activeIsTournament ? 'Tournament Lobby' : 'Must Move Lobby'}
+                aria-label={`Open ${tableLobbyTitle}`}
+                title={tableLobbyTitle}
               >
                 <img className="mtp-lobby-btn__img" src={lobbyButtonArt} alt="" draggable={false} />
               </button>

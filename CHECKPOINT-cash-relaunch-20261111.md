@@ -128,19 +128,19 @@ pr-10607-delivery.md, review-319c019f/).
 
 ## Acceptance record
 
-| Requirement                                          | State                                  | Evidence                                                                                        |
-| ---------------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| 1/2 lineup full time (NLH, PLO4, PLO5 Madness, PLO6) | PASS (live)                            | 08c27924 17:18Z: PLO4 1/2 0 -> 2 tables 12 horses, PLO5 Madness 0 -> 3/18, NLH and PLO6 dealing |
-| FLH 1/2, FLO8 1/2                                    | UNVERIFIED (merged)                    | plan fix in #10607; empty on 08c27924 (not in its plan)                                         |
-| Rake target not a ceiling                            | PASS                                   | measurement-only consumers, 600,000                                                             |
-| Triple rate 0.2 -> 0.6                               | PASS                                   | served code: targets 2.97-3.07x, caps scale; 103 -> 135 seated cash horses                      |
-| Table count caps removed                             | PASS (installed) / UNVERIFIED (engine) | migration readback 20:07Z; engine half awaits release                                           |
-| Duplicate-definition guard distinguished             | PASS                                   | cash_games_one_per_key keys club, variant, stakes, template                                     |
-| Dwell survives restart                               | PASS (live)                            | e78717a2: human left 16:55:24Z, restart ~17:08Z, live through 29-min dwell, 18 hands inside it  |
-| Horse work schedule and days off                     | UNVERIFIED (merged)                    | HorseWorkSchedule law tests; awaits release                                                     |
-| Compatibility                                        | PASS (installed)                       | originals md5-identical, old engine unaffected, door gate requires new names                    |
-| No settlement/stall regressions                      | PASS (08c27924)                        | settlementStatus ok, blocked 0, stalled 0                                                       |
-| Serving #10607                                       | UNVERIFIED                             | needs the release custodian's next certified window                                             |
+| Requirement                                          | State            | Evidence                                                                                        |
+| ---------------------------------------------------- | ---------------- | ----------------------------------------------------------------------------------------------- |
+| 1/2 lineup full time (NLH, PLO4, PLO5 Madness, PLO6) | PASS (live)      | 08c27924 17:18Z: PLO4 1/2 0 -> 2 tables 12 horses, PLO5 Madness 0 -> 3/18, NLH and PLO6 dealing |
+| FLH 1/2, FLO8 1/2                                    | PASS (live)      | 53360840: FLH 1/2 3 tables, FLO8 1/2 7 tables, hundreds of hands each in 6 h                    |
+| Rake target not a ceiling                            | PASS             | measurement-only consumers, 600,000                                                             |
+| Triple rate 0.2 -> 0.6                               | PASS             | served code: targets 2.97-3.07x, caps scale; 103 -> 135 seated cash horses                      |
+| Table count caps removed                             | PASS (live)      | FLO8 1/2 opened 6 tables 08:13-12:01Z on demand; no table_refused_unused_tables                 |
+| Duplicate-definition guard distinguished             | PASS             | cash_games_one_per_key keys club, variant, stakes, template                                     |
+| Dwell survives restart                               | PASS (live)      | e78717a2: human left 16:55:24Z, restart ~17:08Z, live through 29-min dwell, 18 hands inside it  |
+| Horse work schedule and days off                     | PASS (live)      | /health horseWorkSchedule: 296 off-shift leaves, 16 rest-day, 12 deferred; 589 of 1,139 on duty |
+| Compatibility                                        | PASS (installed) | originals md5-identical, old engine unaffected, door gate requires new names                    |
+| No settlement/stall regressions                      | PASS (08c27924)  | settlementStatus ok, blocked 0, stalled 0                                                       |
+| Serving #10607 and #10648                            | PASS             | engine 53360840 contains 0762fd6d (and ffb6cad4)                                                |
 
 Follow-up delivered in #10648 (merge 0762fd6d, reviewed head 022bd65c, CI
 green): /health `horseWorkSchedule` (offDutyLeaves by rest_day / daily_cap /
@@ -152,14 +152,16 @@ tag (schedule, rest day, daily cap, band, bankroll and club checks unchanged);
 dead StableHand.forceLeaveReason removed; the uncapped-tick drift law also
 catches regproc-quoted redefinitions. Evidence: pr-10648-delivery.md.
 
-Remaining dependency: release custodian 01a1d015 includes a candidate at or
-after 0762fd6d (contains ffb6cad4; inclusion requested 18:15Z, 19:30Z, 20:08Z
-and 2026-11-13 00:08Z; still serving 08c27924 at 23:52Z). After SEALED and
-full thaw, verify read-only: FLH/FLO8 1/2 seating and dealing, a Classic game
-opening past the old 1-3 tables on demand with no table_refused_unused_tables
-churn, /health horseWorkSchedule present with offDutyLeaves counting and
-lastCycle.supply onDuty <= eligible, dwell unchanged, dwell tables backfilled.
+Live acceptance 2026-11-13 on 53360840: all rows PASS; dwell holds (tables dealt
+44-338 min after the last human left; one 2/4 table consolidated into its own
+still-dealing game at 12.7 min). Evidence: live-acceptance-20261113-53360840.md.
+
+Regression found and fixed: 25,884 controller_tick_error rows an hour
+(CLUB_RETIRED) from 36 games of four retired cert-template clubs on the tick
+worklist, under both engines. PR #10704 (merge 352b066d), migration
+20261113124849 installed 16:05Z: worklist 84 -> 48, errors 0 after install.
+Law: TheTickNeverVisitsARetiredClub.
 
 Deferred by design: retiring fn_cash_cluster_tick / fn_cash_clusters_tick_all
-and the second/third table pickers waits until the new engine has served past
-the rollback horizon, because the serving engine still calls them.
+and the second/third table pickers waits until 53360840 (or later) has served
+past the rollback horizon, because a rollback to 08c27924 would call them.

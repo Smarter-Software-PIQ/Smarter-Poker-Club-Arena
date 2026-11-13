@@ -25,11 +25,22 @@
  */
 import { correctiveKernelEvaluatorIdentity } from '../../services/horseCorrectiveReview/liveKernel.js';
 import {
+  styleSwitchStatesAreDefault,
+  styleSwitchStatesFrom,
+  type StyleSwitchStates,
+} from '../HorseStyleSwitch.js';
+import {
   correctiveDecisionDomain,
   correctiveDomainKey,
   CORRECTIVE_DOMAIN_KEYS,
 } from '../../services/horseCorrectiveReview/domain.js';
 export const HORSE_DECISION_REPLAY_STATE_VERSION = 'horse-decision-replay-state-v3';
+/**
+ * A replay state that carries the style read switch state (`style`). A new version, not an optional key on v3, so a
+ * reader that predates it refuses such a record by its version (non_replayable:replay_state) instead of misreading
+ * it; a record with every option off stays v3, byte-identical to before.
+ */
+export const HORSE_DECISION_REPLAY_STATE_V4 = 'horse-decision-replay-state-v4';
 export const HORSE_DECISION_REPLAY_STATE_V2 = 'horse-decision-replay-state-v2';
 export interface HorseCorrectiveReplayState {
   mode: 'off' | 'shadow' | 'candidate';
@@ -91,12 +102,21 @@ export interface HorseDecisionRuntimeIdentity {
 }
 
 export interface HorseDecisionReplayState {
-  version: typeof HORSE_DECISION_REPLAY_STATE_VERSION | typeof HORSE_DECISION_REPLAY_STATE_V2;
+  version:
+    | typeof HORSE_DECISION_REPLAY_STATE_V4
+    | typeof HORSE_DECISION_REPLAY_STATE_VERSION
+    | typeof HORSE_DECISION_REPLAY_STATE_V2;
   /** Absent only on retained v2 records. */
   corrective?: HorseCorrectiveReplayState;
   admission: HorseDecisionReplayAdmission;
   phase8SafetyDisabledReason: string | null;
   runtime: HorseDecisionRuntimeIdentity;
+  /**
+   * M3 (2026-11-13): the style read switch states the decision ran with, present only when any option was not off
+   * (absent = every option at its source default). The per-Horse options are a pure function of these states and the
+   * Horse id (HorseStyleSwitch.styleSwitchDecisionOpts), so the states replay them exactly.
+   */
+  style?: StyleSwitchStates;
 }
 
 /** This process's runtime identity. */
@@ -144,14 +164,17 @@ export function horseDecisionReplayState(
   admission: HorseDecisionReplayAdmission,
   phase8SafetyDisabledReason: string | null,
   runtime: HorseDecisionRuntimeIdentity = currentHorseDecisionRuntime(),
-  corrective: HorseCorrectiveReplayState = { mode: 'shadow', domain: null, catalogDigest: null }
+  corrective: HorseCorrectiveReplayState = { mode: 'shadow', domain: null, catalogDigest: null },
+  style: StyleSwitchStates | null = null
 ): HorseDecisionReplayState {
+  const withStyle = !!style && !styleSwitchStatesAreDefault(style);
   return {
-    version: HORSE_DECISION_REPLAY_STATE_VERSION,
+    version: withStyle ? HORSE_DECISION_REPLAY_STATE_V4 : HORSE_DECISION_REPLAY_STATE_VERSION,
     admission: { ...admission },
     corrective: { ...corrective },
     phase8SafetyDisabledReason,
     runtime: { node: runtime.node, v8: runtime.v8, arch: runtime.arch },
+    ...(withStyle ? { style: { ...style } } : {}),
   };
 }
 
@@ -173,10 +196,20 @@ export function isHorseDecisionReplayState(value: unknown): value is HorseDecisi
     ((Object.keys(v).length === 4 && v.version === HORSE_DECISION_REPLAY_STATE_V2) ||
       (Object.keys(v).length === 5 &&
         v.version === HORSE_DECISION_REPLAY_STATE_VERSION &&
-        validCorrective(v.corrective))) &&
+        validCorrective(v.corrective)) ||
+      (Object.keys(v).length === 6 &&
+        v.version === HORSE_DECISION_REPLAY_STATE_V4 &&
+        validCorrective(v.corrective) &&
+        validStyle(v.style))) &&
     isRuntime(v.runtime) &&
     validStateFields(v)
   );
+}
+
+/** M3: a recorded style state is complete and not all off (all off is recorded by absence). */
+function validStyle(value: unknown): boolean {
+  const states = styleSwitchStatesFrom(value);
+  return states !== null && !styleSwitchStatesAreDefault(states);
 }
 
 function validStateFields(v: Record<string, unknown>): boolean {
