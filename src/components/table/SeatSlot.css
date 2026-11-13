@@ -5243,3 +5243,16 @@
     );
   }
 }
+
+/* WebKit clips enlarged descendants when the unscaled avatar wrapper owns
+   a filter/opacity group. Dim the painted image itself after a fold, so the
+   full portrait remains visible above its original layout box. */
+@media (max-width: 768px) and (orientation: portrait) {
+  .table-page .seat--folded > .seat__avatar-wrap:has(.seat__avatar--bust) {
+    opacity: 1;
+    filter: none;
+  }
+  .table-page .seat--folded .seat__avatar--bust .seat__avatar-img {
+    opacity: 0.65;
+  }
+}

@@ -61,7 +61,9 @@ export async function certifyMobileLiveTableLayout(
   const proofTag = `mobile-live-table-${capacity || 'unknown'}max`;
   const originalViewport = page.viewportSize();
   try {
-    for (const width of options.widths || [320, 375, 393, 430]) {
+    // The dedicated physical-phone cases own the four-width matrix. Keep an
+    // existing hand/reconnect witness on its real device and stable canvas.
+    for (const width of options.widths || [originalViewport?.width || 393]) {
       await page.setViewportSize({ width, height: width === 320 ? 568 : 852 });
       // Commit the resize and its observer-driven layout before measuring.
       await page.evaluate(
@@ -354,8 +356,23 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
         if (a.n < b.n && Math.hypot(a.x - b.x, a.y - b.y) < 24)
           violations.push(`Chairs ${a.n} And ${b.n} Drawn On One Spot`);
   }
+  const footerControls = Array.from(
+    table.querySelectorAll('.waitlist-cta, .action-panel, .pre-action-bar')
+  ).filter(visible);
+  for (const wrap of table.querySelectorAll(
+    '.seat--folded > .seat__avatar-wrap:has(.seat__avatar--bust)'
+  )) {
+    if (
+      visible(wrap) &&
+      (getComputedStyle(wrap).filter !== 'none' || getComputedStyle(wrap).opacity !== '1')
+    )
+      violations.push('Folded Portrait Has A Clipping Compositing Group');
+  }
   for (const plate of plates) {
     const rect = box(plate);
+    for (const control of footerControls)
+      if (intersects(rect, box(control)))
+        violations.push('Player Plate Covered By Bottom Controls');
     if (rect.width > innerWidth * 0.3 || rect.left < -1 || rect.right > innerWidth + 1)
       violations.push('Player Plate Outside Its Mobile Lane');
   }
