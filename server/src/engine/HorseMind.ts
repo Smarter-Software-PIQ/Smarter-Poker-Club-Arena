@@ -132,6 +132,8 @@ import {
   classifyOpponentStyle,
   isValueBettor,
   postReleaseOpportunitiesFromHistory,
+  sizeBucketsFromHistory,
+  type PersistedHandForStyle,
   preRepairDiscount,
   type PersistedHandForProvenance,
   riverFirstBetFractions,
@@ -1717,6 +1719,27 @@ export class HorseMind {
     if (!variant) return false;
     const prov = this.styleProvenanceOf(userId, variant, this.decisionMode, scope.split(':')[1] as MemorySize);
     return preRepairDiscount(prov, 'foldToBet').excluded;
+  }
+
+  /**
+   * A2: rebuild size buckets from persisted hand history (read-only rows) at boot. Replaces the player's in-memory
+   * buckets, so a restart that re-imports the same rows rebuilds them exactly. Live boundary only.
+   */
+  static importSizeBucketsFromHistory(rows: ReadonlyArray<{ user_id: string; hands: readonly PersistedHandForStyle[] }>): number {
+    if (this.sandboxDepth > 0 || this.decisionEffectSink)
+      throw new Error('size bucket import outside live boundary');
+    let applied = 0;
+    for (const r of rows) {
+      if (!r || typeof r.user_id !== 'string' || !Array.isArray(r.hands)) continue;
+      const buckets = sizeBucketsFromHistory(r.hands, r.user_id);
+      if (Object.keys(buckets).length === 0) continue;
+      this.styleSizeShown.delete(r.user_id);
+      this.styleSizeShown.set(r.user_id, buckets);
+      applied++;
+    }
+    while (this.styleSizeShown.size > MAX_TRACKED_PLAYERS)
+      this.styleSizeShown.delete(this.styleSizeShown.keys().next().value!);
+    return applied;
   }
 
   /**

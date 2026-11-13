@@ -1065,6 +1065,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-13'
   ),
   receipt(
+    'style_boot_inputs_hydrated_seen',
+    'HorseExploitHydrator (STYLE READ boot inputs)',
+    'the boot replay rebuilt the style read\'s post-release counts and size buckets from the hand history it read (only when HORSE_STYLE_BOOT_RELEASE_START_MS is set); occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
     'style_value_bettor_not_maniac_seen',
     'HorseMind.legacyExploit (STYLE READ #2)',
     'a postflop aggression factor above 2.5 kept neutral respect because the style read says the bettor is value-weighted; occurrence counter (counts reads, not decisions); named *_seen',

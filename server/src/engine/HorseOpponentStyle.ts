@@ -1801,3 +1801,36 @@ export function bluffCatchEquityCap(style: OpponentStyleRead | null | undefined,
   const cap = 1 - lo * k;
   return cap < 1 ? cap : null;
 }
+
+/** Showdown hand names that count as a strong (value) holding: the same list the live learner uses. */
+export const STYLE_STRONG_HAND_NAMES: ReadonlySet<string> = new Set([
+  'two pair', 'three of a kind', 'straight', 'flush', 'full house', 'four of a kind', 'straight flush', 'royal flush',
+]);
+
+/** A persisted hand with whatever showdown the row carries (absent: bets count, strength unknown). */
+export interface PersistedHandForStyle extends PersistedHandForProvenance {
+  showdown?: ReadonlyArray<{ user_id: string; mucked: boolean; hand_name?: string }> | null;
+}
+
+/**
+ * A2 PERSISTED SIZE BUCKETS: rebuild one player's river first-bet buckets from persisted hand_history rows (read-only),
+ * with the same replay the live learner uses (riverFirstBetFractions, STYLE_STRONG_HAND_NAMES). Pure and deterministic:
+ * the same rows give the same buckets after every restart. A row without showdown names adds the bet but no shown hand,
+ * which only lowers the revealed share (never invents strength).
+ */
+export function sizeBucketsFromHistory(hands: readonly PersistedHandForStyle[], userId: string): SizeBucketTallies {
+  const out: SizeBucketTallies = {};
+  for (const h of hands) {
+    const frac = riverFirstBetFractions(h.actions as never).get(userId);
+    if (frac === undefined) continue;
+    const b = sizeBucketOf(frac);
+    const cell = (out[b] ??= { bets: 0, shown: 0, strong: 0 });
+    cell.bets++;
+    const sd = h.showdown?.find((x) => x?.user_id === userId);
+    if (sd) {
+      cell.shown++;
+      if (!sd.mucked && STYLE_STRONG_HAND_NAMES.has((sd.hand_name ?? '').toLowerCase())) cell.strong++;
+    }
+  }
+  return out;
+}
