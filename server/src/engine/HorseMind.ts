@@ -113,6 +113,7 @@ import {
   openerRangeWidth,
   opponentExploitRead,
   presumedAggressorRead,
+  neutralUnknownRead,
   postflopBluffMod,
   reRaiseLineWidth,
   reRaiseWidth,
@@ -414,6 +415,10 @@ export interface DecisionReadOptions {
    *  the measured Omaha fold-over-MDF ratio scaled by the opponent's shrunk
    *  postflop fold-to-bet read (see OMAHA_EV_FOLD_MODEL below). */
   omahaEvFoldModel?: boolean;
+  /** Owner directive 2026-11-13: an unknown Omaha opponent receives a neutral,
+   *  explicitly uncertain read instead of the shared aggressive raise
+   *  presumption. Default off until its league comparison is accepted. */
+  omahaNeutralUnknown?: boolean;
 }
 /** Decayed postflop facing-bet opportunities before the postflop fold rate reads. */
 export const FOLD_READ_MIN_OPPS = 8;
@@ -2140,6 +2145,20 @@ export class HorseMind {
     // Owner update 2026-10-27: the same public-information policy applies
     // against people and horses. Every unknown Omaha opponent receives the
     // same presumption, withdrawn by that opponent's actual evidence.
+    if (family === 'omaha' && this.decisionReadOptions.omahaNeutralUnknown === true) {
+      // Neutral: identical to the presumption path in every outcome except the
+      // one where the presumption would apply; there the opponent's own
+      // measured statistics with nothing engaged (see neutralUnknownRead).
+      const neutral = neutralUnknownRead(
+        read,
+        this.probeAdjusted(userId, durable ?? this.exploitCounters.get(`${scope}|${userId}`)),
+        scope,
+        this.decisionVariant
+      );
+      if (neutral.outcome === 'presumed') noteFire('plo_opponent_neutral_unknown');
+      else if (neutral.outcome === 'disproved') noteFire('plo_opponent_presumption_disproved');
+      return neutral.read;
+    }
     if (family === 'omaha') {
       const presumed = presumedAggressorRead(
         read,

@@ -674,15 +674,18 @@ export type MobilePaintState = {
 };
 /** Dan 2026-11-13: every table of one game type (cash or tournament, six- or
  * nine-handed) shows the same portrait size on this device, seated or
- * watching. The first table to settle a size records it here as a displayed
- * height in layout px; every later table of that type takes the same height,
- * or the largest it can if its own displays leave less room, and that smaller
- * height then becomes the type's size for every table after it. A size a
- * table has already shown is never changed by this. */
+ * watching, across sessions. The first table to settle a size records it here
+ * as a displayed height in layout px; every later table of that type takes the
+ * same height, or the largest it can if its own displays (chips, bets, the
+ * dealer button) leave less room, and that smaller height then becomes the
+ * type's size from then on. The recorded size only ever settles downward to
+ * the one every table state can take, and a size a table has already shown
+ * is never changed by this. Kept on the device, not per tab, so a new visit
+ * does not start a different size. */
 const SHARED_SIZE_STORE = 'sp-mobile-avatar-size-v1';
 const sharedSizes: Map<string, number> = (() => {
   try {
-    return new Map(Object.entries(JSON.parse(sessionStorage.getItem(SHARED_SIZE_STORE) || '{}')));
+    return new Map(Object.entries(JSON.parse(localStorage.getItem(SHARED_SIZE_STORE) || '{}')));
   } catch {
     return new Map();
   }
@@ -692,7 +695,7 @@ const recordSharedSize = (type: string, height: number) => {
   if (known !== undefined && known <= height) return;
   sharedSizes.set(type, height);
   try {
-    sessionStorage.setItem(SHARED_SIZE_STORE, JSON.stringify(Object.fromEntries(sharedSizes)));
+    localStorage.setItem(SHARED_SIZE_STORE, JSON.stringify(Object.fromEntries(sharedSizes)));
   } catch {
     /* Private mode or a full store: the in-memory size still applies. */
   }
@@ -701,7 +704,7 @@ const recordSharedSize = (type: string, height: number) => {
 export const resetSharedMobileAvatarSizes = () => {
   sharedSizes.clear();
   try {
-    sessionStorage.removeItem(SHARED_SIZE_STORE);
+    localStorage.removeItem(SHARED_SIZE_STORE);
   } catch {
     /* Nothing stored. */
   }

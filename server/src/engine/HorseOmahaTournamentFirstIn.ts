@@ -43,6 +43,11 @@ export interface OmahaTournamentFirstInParams {
   bigBlindDefendShare: number;
   /** ... and the dearest price (call / final pot) it defends at. */
   bigBlindMaxPrice: number;
+  /** Three-handed winner-take-all big blind closing the action against one
+   *  raise (the third player folded): share defended. 0 leaves the fold.
+   *  Measured 2026-11-13 (spin, seed 90006, 12/15/20 BB): pooled +0.13 to
+   *  +0.19 BB per hand against every opponent, no cell below zero. */
+  bigBlindClosingShare: number;
 }
 
 export const OMAHA_TOURNAMENT_FIRST_IN: OmahaTournamentFirstInParams = {
@@ -52,6 +57,7 @@ export const OMAHA_TOURNAMENT_FIRST_IN: OmahaTournamentFirstInParams = {
   maxTableSize: 3,
   bigBlindDefendShare: 0.75,
   bigBlindMaxPrice: 0.5,
+  bigBlindClosingShare: 0.75,
 };
 
 export interface OmahaTournamentFirstInInput {
@@ -124,7 +130,6 @@ export function omahaTournamentFirstIn(
   }
   if (
     i.position === 'bb' &&
-    i.tableSize <= 2 &&
     i.raises === 1 &&
     i.limpers === 0 &&
     i.callers === 0 &&
@@ -132,7 +137,8 @@ export function omahaTournamentFirstIn(
   ) {
     const call = Math.min(i.toCall, i.stack);
     const price = call / (i.pot + call);
-    if (price <= p.bigBlindMaxPrice && plays(p.bigBlindDefendShare)) return { a: 'call' };
+    const share = i.tableSize <= 2 ? p.bigBlindDefendShare : p.bigBlindClosingShare;
+    if (price <= p.bigBlindMaxPrice && plays(share)) return { a: 'call' };
   }
   return null;
 }

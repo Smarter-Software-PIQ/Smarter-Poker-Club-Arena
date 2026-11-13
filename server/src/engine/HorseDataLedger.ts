@@ -870,7 +870,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'omahaTournamentFirstIn',
-    '2026-11-13 Omaha high tournaments (engine-declared), at the final table (trusted players left no more than the players dealt; unknown stands aside), heads-up or a three-handed table paying one place, 20 BB or less, not All-In-Or-Fold, not a locked satellite seat: the small blind against the big blind alone plays every hand as the pot-limit maximum raise, and the heads-up big blind calls its top 75 percent against one raise at a price of a half or better, replacing only the engine fold; percentile among Omaha hands, narrowed by the tournament risk premium.',
+    '2026-11-13 Omaha high tournaments (engine-declared), at the final table (trusted players left no more than the players dealt; unknown stands aside), heads-up or a three-handed table paying one place, 20 BB or less, not All-In-Or-Fold, not a locked satellite seat: the small blind against the big blind alone plays every hand as the pot-limit maximum raise, and the heads-up big blind (or the three-handed winner-take-all big blind closing the action) calls its top 75 percent against one raise at a price of a half or better, replacing only the engine fold; percentile among Omaha hands, narrowed by the tournament risk premium.',
     'V90'
   ),
   flag(
@@ -1175,6 +1175,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omahaEvFoldModel',
     '2026-11-08 (Omaha threshold calibration) at PLO4 / PLO5 / PLO6 cash tables the EV bet engine prices each opponent fold as MDF s / (1 + s) times the game measured fold share over MDF (flop and turn first-bet responses, every seat pooled, cash: PLO4 1.289, PLO5 1.458, PLO6 1.409) scaled by the opponent postflop fold-to-bet read shrunk toward the game population (16 pseudo-observations), instead of the all-street exploit bluff multiplier, which read 85% of human Omaha postflop spots as stations (x0.55) on preflop calls; walk-forward out of sample the engine predicted 37.8% folds against 52.0% actual (Brier 0.2471, model 0.2218); tournament decisions keep the exploit multiplier (tournament players fold about MDF, ratio 1.04-1.09, and the cash ratio lost the PLO4 tournament mirror); the scalar bluffMod other consumers classify by is unchanged; default ON (league: PLO4 mirror +3.74 +/- 1.63 and +4.29 +/- 1.48 bb/100 on two seeds, PLO6 human-calibrated field +19.77 +/- 8.10 on one, no card significantly negative, no exploiter earns more); explicit off arm keeps the exploit bluff multiplier',
     'Omaha threshold calibration'
+  ),
+  flag(
+    'omahaNeutralUnknown',
+    '2026-11-13 owner directive: an unknown Omaha opponent receives a neutral, explicitly uncertain read; the shared aggressive raise presumption (presumedAggressorRead) is skipped and only the opponent own measured read applies. Default off until its league comparison is accepted.',
+    'Omaha neutral unknown'
   ),
   flag(
     'readScopedShrink',
@@ -2602,6 +2607,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'OPPX'
   ),
   receipt(
+    'plo_opponent_neutral_unknown',
+    'HorseMind (omahaNeutralUnknown)',
+    'an Omaha opponent with no engaged raise read was read as neutral instead of presumed aggressive (default off)',
+    'Omaha neutral unknown'
+  ),
+  receipt(
     'plo_opponent_presumption_disproved',
     'HorseMind (PLO presumption)',
     "an opponent's own public hands disproved the shared Omaha raise presumption, identically for people and horses",
@@ -2840,6 +2851,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'a telemetry-on postflop decision scored its blockers',
     '2026-11-12',
     'decide_postflop'
+  ),
+  receipt(
+    'phase14_kernel_refused_*',
+    'horseDecision workerRuntime (FAST)',
+    'an admitted Phase 14 domain decision outside the kernel family, by the first refusing check (two dealt seats, river, opponent all in, ante geometry, baseline); named *_seen (occurrence, not a layer)',
+    '2026-11-13'
+  ),
+  receipt(
+    'phase14_kernel_eligible_deep_seen',
+    'horseDecision workerRuntime (DEEP)',
+    'a DEEP second look that reached the admitted corrective kernel; kept apart from the FAST count; named *_seen (occurrence, not a layer)',
+    '2026-11-13'
   ),
   receipt(
     'phase14_kernel_eligible_seen',
