@@ -106,3 +106,17 @@ measures the resting portrait slot, never the zoomed paint on screen. A layout
 that no longer takes the paint (kill table, landscape, narrow phone) drops all
 of it. The fixture pins it: a viewport height change and the relayouts after
 it keep every portrait's paint byte-for-byte.
+
+## The Lock Is Absolute
+
+Measured live after release 088a8778 (every frame for 75 s per table, through
+viewport-height changes and live hands): no portrait ever dropped to its small
+baseline, but a refit could still re-decide the size. A PLO6 table stepped once
+from 1.55x to 1.5x after a height change, and a Lightning table stepped
+1.7x, 1.6x, 1.55x, 1.45x as players came and went. Once a table's sizes are
+set they are now final for that ring: every later refit (resize, toolbar, new
+hand, new player) reuses them exactly with no search. Existing portraits keep
+their exact transform, rescaled to the current render ratio; a new arrival
+takes the locked size, straight up from its plate, centred, cropped at its
+plate. Only a different ring (capacity, or the viewer sitting down or standing
+up) starts over.

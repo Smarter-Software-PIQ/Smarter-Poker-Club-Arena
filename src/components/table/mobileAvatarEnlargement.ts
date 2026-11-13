@@ -226,6 +226,43 @@ export function chooseMobileAvatarPaint(
   return best;
 }
 
+/** The locked size applied to a portrait that has no fitted choice yet (a
+ * new arrival at a locked table): grown straight up from its own lower edge,
+ * centred over its plate, cropped at clipBottom. No obstacle can change it. */
+function fixedChoice(
+  parts: PaintBox[],
+  origin: [number, number],
+  clipBottom: number,
+  scale: number
+): PaintChoice {
+  if (!parts.length || scale <= 1) return { scale: 1, x: 0, y: 0, parts, origin };
+  const left = Math.min(...parts.map((p) => p.left));
+  const right = Math.max(...parts.map((p) => p.left + p.width));
+  const lower = Math.max(...parts.map((p) => p.top + p.height));
+  const pivot: [number, number] = [(left + right) / 2, lower];
+  const next = parts
+    .map((p) => {
+      const top = pivot[1] + (p.top - pivot[1]) * scale;
+      return {
+        left: pivot[0] + (p.left - pivot[0]) * scale,
+        top,
+        width: p.width * scale,
+        height: Math.max(
+          0,
+          Math.min(clipBottom, pivot[1] + (p.top + p.height - pivot[1]) * scale) - top
+        ),
+      };
+    })
+    .filter((p) => p.height > 0);
+  return {
+    scale,
+    x: (1 - scale) * (pivot[0] - origin[0]),
+    y: (1 - scale) * (pivot[1] - origin[1]),
+    parts: next,
+    origin,
+  };
+}
+
 /** A fitted choice carried to a new origin, and to a new render ratio when
  * the device scale changed since it was fitted (viewport px per layout px). */
 function rebaseChoice(choice: PaintChoice | undefined, origin: [number, number], k = 1) {
@@ -620,7 +657,14 @@ export type MobilePaintState = {
    * chosen and kept across every later refit (roster, toolbar, resize). A
    * later refit may only confirm them; it never raises them, and lowers
    * them only when a seat can no longer take the locked size at all. */
-  locked?: { uniform?: number; hero?: number };
+  locked?: {
+    /** The ring the sizes were locked for; a different ring starts over. */
+    ring?: string;
+    uniform?: number;
+    hero?: number;
+    /** Whether the hero's locked portrait crops its torso at the plate. */
+    heroCrop?: boolean;
+  };
   /** The render ratio (viewport px per layout px) the choices were fitted at. */
   ratio?: number;
   /** The layout key changed since the choices were fitted. The displayed
@@ -841,8 +885,27 @@ export function enlargeMobileAvatars(
 
   // The seated hero first: the owner-approved 2x head-and-shoulders zoom,
   // centred over its plate, cropping its lower torso at the plate if needed.
+  // Dan 2026-11-12: "they need to stay the same size 1000% of the time".
+  // Once a table's sizes are set they are final for this ring: a refit after
+  // a resize, a toolbar, a new hand or a new player reuses them exactly and
+  // never searches again. Only a different ring (another capacity, or the
+  // viewer sitting down or standing up) starts over.
+  if (state && state.locked?.ring !== profileKey) state.locked = { ring: profileKey };
+  const lock = state?.locked;
+  const k = state?.ratio ? ratio / state.ratio : 1;
   const heroItem = prepared.find((item) => item.e === hero);
-  if (heroItem) {
+  if (heroItem && lock?.hero) {
+    const { e, origin, paintBottom, plateTop } = heroItem;
+    const clipBottom = lock.heroCrop ? Math.min(paintBottom, plateTop) : paintBottom;
+    const cached = state?.choices.get(e.image);
+    apply(
+      heroItem,
+      cached && cached.scale === lock.hero
+        ? rebaseChoice(cached, origin, k)!
+        : fixedChoice(e.parts, origin, clipBottom, lock.hero),
+      clipBottom
+    );
+  } else if (heroItem) {
     const { e, rect, origin, paintBottom, plateTop } = heroItem;
     let clipBottom = paintBottom;
     let choice = state?.stale ? undefined : rebaseChoice(state?.choices.get(e.image), origin);
@@ -873,8 +936,10 @@ export function enlargeMobileAvatars(
     }
     if (choice) {
       apply(heroItem, choice, clipBottom);
-      if (state && choice.scale > 1)
-        (state.locked ??= {}).hero = Math.min(state.locked.hero ?? Infinity, choice.scale);
+      if (lock && choice.scale > 1) {
+        lock.hero = choice.scale;
+        lock.heroCrop = clipBottom !== paintBottom;
+      }
     }
   }
 
@@ -885,7 +950,20 @@ export function enlargeMobileAvatars(
   // Candidate sizes are checked against the settled table first, then against
   // every neighbour already at that size, so two grown neighbours never meet.
   const others = prepared.filter((item) => item.e !== hero);
-  if (others.length) {
+  if (others.length && lock?.uniform) {
+    const size = lock.uniform;
+    others.forEach((item) => {
+      const clipBottom = Math.min(item.paintBottom, item.plateTop);
+      const cached = state?.choices.get(item.e.image);
+      apply(
+        item,
+        cached && cached.scale === size
+          ? rebaseChoice(cached, item.origin, k)!
+          : fixedChoice(item.e.parts, item.origin, clipBottom, size),
+        clipBottom
+      );
+    });
+  } else if (others.length) {
     const cached = others.map((item) =>
       state?.stale ? undefined : rebaseChoice(state?.choices.get(item.e.image), item.origin)
     );
@@ -930,15 +1008,9 @@ export function enlargeMobileAvatars(
       const rungs = [
         2.5, 2.45, 2.4, 2.35, 2.3, 2.25, 2.2, 2.15, 2.1, 2.05, 2, 1.95, 1.9, 1.85, 1.8, 1.75, 1.7,
         1.65, 1.6, 1.55, 1.5, 1.45, 1.4, 1.35, 1.3, 1.25, 1.2, 1.15, 1.1, 1.05, 1.02,
-      ].filter(
-        (scale) => scale <= Math.min(MOBILE_AVATAR_MAX_SCALE, state?.locked?.uniform ?? Infinity)
-      );
-      // The locked size first: when every seat still takes it, the table
-      // keeps exactly the size it has had, with no search.
-      const locked = state?.locked?.uniform;
-      let best: PaintChoice[] | null = locked && locked === rungs[0] ? fitsAll(locked) : null;
-      if (!best) best = fitsAll(rungs[rungs.length - 1]);
-      if (best && best[0].scale !== locked) {
+      ].filter((scale) => scale <= MOBILE_AVATAR_MAX_SCALE);
+      let best: PaintChoice[] | null = fitsAll(rungs[rungs.length - 1]);
+      if (best) {
         let lo = 0,
           hi = rungs.length - 1;
         while (lo < hi) {
@@ -950,7 +1022,7 @@ export function enlargeMobileAvatars(
           } else lo = mid + 1;
         }
       }
-      if (state && best) (state.locked ??= {}).uniform = best[0].scale;
+      if (lock && best) lock.uniform = best[0].scale;
       others.forEach((item, i) => {
         const choice = best
           ? best[i]
