@@ -9,9 +9,11 @@
  *
  *  - huBbDefendsToPrice (default OFF) is a PREFLOP RANGE rule: its equity
  *    table is the heads-up small blind's open range. It fires only with
- *    exactly two dealt in. Two dealt at a six-seat table is that hand and
- *    fires; a three-handed hand where the button folded and the small blind
- *    opens is blind against blind, a different opening range, and does not.
+ *    exactly two dealt in. The frame a Horse receives carries only the dealt
+ *    players (undealt seats never appear in gs.players), so two dealt at a
+ *    six-seat table is this same frame and fires; a three-handed hand where
+ *    the button folded and the small blind opens is blind against blind, a
+ *    different opening range, and does not.
  *  - commitUnderPot (default OFF) is a PRICE rule on the flop or turn: one
  *    other player still in the hand. A third player who is all in is still
  *    in the hand (there is a main pot to lose to them), so it stands aside;
@@ -35,8 +37,6 @@ type Spot = {
   stackBB: number;
   openBB: number;
   mode?: 'cash' | 'tournament';
-  /** Seats 3..6 present at the table but sitting out and not dealt in. */
-  emptyChairs?: boolean;
   /** Seat 3 was dealt in on the button and folded before the small blind opened. */
   buttonFolded?: boolean;
 };
@@ -89,8 +89,6 @@ function stateFor(spot: Spot, hole: Card[]): { hero: SeatPlayer; gs: HorseGameSt
     dealt = [1, 2, 3];
     dealerSeat = 3;
   }
-  if (spot.emptyChairs)
-    for (let n = 3; n <= 6; n++) players.push(seat(n, 0, { is_sitting_out: true, cards: [] }));
   history.push({
     seat: 1,
     userId: 'scope-1',
@@ -151,10 +149,6 @@ describe('huBbDefendsToPrice fires with exactly two dealt in', () => {
 
   it('fires at a two-seat table', () => {
     expect(changedByFlag(base)).toBeGreaterThan(20);
-  });
-
-  it('fires the same when the two are dealt at a six-seat table with empty chairs', () => {
-    expect(changedByFlag({ ...base, emptyChairs: true })).toBe(changedByFlag(base));
   });
 
   it('does not fire blind against blind after a dealt-in button folded', () => {

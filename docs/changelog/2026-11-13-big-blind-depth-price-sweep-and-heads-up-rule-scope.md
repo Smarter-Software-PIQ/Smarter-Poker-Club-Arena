@@ -21,8 +21,9 @@ dealt, fifteen depths from 15bb to 150bb and opens of 2, 2.5, 3 and 4bb:
 
 1. the fold share never falls as the open grows (equal allowed, 1.5 points of
    sampling tolerance);
-2. between neighbouring depths it moves at most 2.5 points per big blind,
-   except at a boundary named with the constant that causes it;
+2. between neighbouring depths it moves at most 2.5 points per big blind (5
+   at the designed V85 boundary, 50-52bb, which exists at every table size),
+   except at a step named with the constant that causes it;
 3. a depth where a 4bb open is folded to no more than a 2bb open must be named.
 
 The two lists hold today's open defect and nothing else: the 50-52bb step with
@@ -37,8 +38,8 @@ live at 15bb.
 `server/src/engine/HorseHeadsUpRuleScope.law.test.ts` states where each
 heads-up-only rule fires:
 
-- `huBbDefendsToPrice`: exactly two dealt in. Two dealt at a six-seat table is
-  a heads-up hand and fires. Blind against blind after a dealt-in button
+- `huBbDefendsToPrice`: exactly two dealt in. A Horse's frame carries only the
+  dealt players, so two dealt at a six-seat table is the same hand. Blind against blind after a dealt-in button
   folded does not (a different opening range). Not in a tournament, below
   20bb, or against an open above 6bb.
 - `commitUnderPot`: no third player still in the hand. A third player who is

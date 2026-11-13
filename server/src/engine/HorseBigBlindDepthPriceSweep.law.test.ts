@@ -13,7 +13,8 @@
  *  1. PRICE: at every depth the fold share does not fall as the open grows
  *     (equal is allowed; a tolerance covers mixed-strategy sampling).
  *  2. DEPTH: between neighbouring depths the fold share moves at most
- *     MAX_POINTS_PER_BB per big blind of depth, except at a boundary named in
+ *     MAX_POINTS_PER_BB per big blind of depth (a wider, still bounded limit
+ *     at the designed V85 boundary), except at a step named in
  *     ATTRIBUTED_CLIFFS with the source constant that causes it.
  *  3. PRICE-BLIND CELLS: a depth where a 4bb open is folded to no more than a
  *     2bb open must be named in KNOWN_PRICE_BLIND.
@@ -127,7 +128,16 @@ const PRICE_TOLERANCE = 1.5;
 const MAX_POINTS_PER_BB = 2.5;
 const PRICE_BLIND_SPREAD = 3;
 
-/** `${dealt}:${shallower}-${deeper}`: the depth step and the constant behind it. */
+/**
+ * A designed policy boundary, not a defect: V85 (owner direction 2026-11-09)
+ * scales the cash big blind with depth above V85_DEPTH_NONE_BB (50bb) at every
+ * table size, so the 50-52bb step may be steeper than a smooth depth. It is
+ * still bounded, so a broken boundary shows.
+ */
+const V85_BOUNDARY = '50-52';
+const MAX_POINTS_PER_BB_AT_V85_BOUNDARY = 5;
+
+/** `${dealt}:${shallower}-${deeper}`: a step beyond every limit, and the constant behind it. */
 const ATTRIBUTED_CLIFFS: Readonly<Record<string, string>> = {
   '2:50-52':
     'V85_DEPTH_NONE_BB (HorseGtoOpeningRanges.ts): V85 widens the cash big blind above 50bb only; at 50bb or less two dealt in fall to the V11 bars. Open defect HU-NLH-001.',
@@ -199,8 +209,10 @@ describe('the cash big blind across depth and price (live defaults)', () => {
         for (const o of OPENS) {
           const a = live.get(key(seats, DEPTHS[i - 1], o))!;
           const b = live.get(key(seats, DEPTHS[i], o))!;
-          if (Math.abs(a - b) / (DEPTHS[i] - DEPTHS[i - 1]) > MAX_POINTS_PER_BB)
-            cliffs.add(`${seats}:${DEPTHS[i - 1]}-${DEPTHS[i]}`);
+          const step = `${DEPTHS[i - 1]}-${DEPTHS[i]}`;
+          const limit =
+            step === V85_BOUNDARY ? MAX_POINTS_PER_BB_AT_V85_BOUNDARY : MAX_POINTS_PER_BB;
+          if (Math.abs(a - b) / (DEPTHS[i] - DEPTHS[i - 1]) > limit) cliffs.add(`${seats}:${step}`);
         }
     // Every cliff is attributed, and every attribution still reproduces.
     expect([...cliffs].sort()).toEqual(Object.keys(ATTRIBUTED_CLIFFS).sort());
